@@ -6,10 +6,11 @@ import "fmt"
 // domain. The HTTP adapter maps typed errors to status codes, never rewrites
 // these messages.
 const (
-	ErrMsgTransitionNotAllowed = "transición no permitida"
-	ErrMsgReopenReasonRequired = "se requiere un motivo para reabrir el ticket"
-	ErrMsgTitleRequired        = "el título es obligatorio"
-	ErrMsgInvalidPriority      = "prioridad no válida"
+	ErrMsgTransitionNotAllowed      = "transición no permitida"
+	ErrMsgReopenReasonRequired      = "se requiere un motivo para reabrir el ticket"
+	ErrMsgTitleRequired             = "el título es obligatorio"
+	ErrMsgInvalidPriority           = "prioridad no válida"
+	ErrMsgConflictingUserAssignment = "no se puede asignar y desasignar el usuario al mismo tiempo"
 )
 
 // ValidationError reports a field-level validation failure (422).

@@ -10,8 +10,9 @@ const (
 )
 
 // AuditEvent records a single mutation on a ticket. The domain fills
-// TicketID, Action, FromValue/ToValue, Note and CreatedAt; the application
-// layer stamps Actor from the session (D14).
+// TicketID, Action, Field, FromValue/ToValue, Note and CreatedAt; the
+// application layer stamps Actor from the session (D14). Field names the
+// changed field ("state" for transitions, or the edited field for updates).
 type AuditEvent struct {
 	TicketID  int64
 	Actor     string

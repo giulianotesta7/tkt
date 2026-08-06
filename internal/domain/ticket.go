@@ -32,7 +32,8 @@ type Ticket struct {
 // Timestamp semantics: entering resuelto stamps ResolvedAt; entering cerrado
 // stamps ClosedAt; reopen resuelto -> en_progreso clears ResolvedAt; reopen
 // cerrado -> en_progreso clears both and requires a non-empty reason, which is
-// recorded in the audit event note.
+// recorded in the audit event note. Every successful transition also refreshes
+// UpdatedAt: a transition is a modification (ticket-management spec).
 func (t *Ticket) Transition(to State, reason string, now time.Time) (*AuditEvent, error) {
 	from := t.State
 	if !transitions[from][to] {
@@ -61,10 +62,12 @@ func (t *Ticket) Transition(to State, reason string, now time.Time) (*AuditEvent
 			t.ClosedAt = nil
 		}
 	}
+	t.UpdatedAt = now
 
 	return &AuditEvent{
 		TicketID:  t.ID,
 		Action:    ActionTransition,
+		Field:     ptr("state"), // the changed field for a transition is the state itself
 		FromValue: ptr(string(from)),
 		ToValue:   ptr(string(to)),
 		Note:      note,
@@ -74,26 +77,33 @@ func (t *Ticket) Transition(to State, reason string, now time.Time) (*AuditEvent
 
 // TicketUpdate describes optional field edits (ticket-management spec: title,
 // description, category, priority, assigned user). A nil pointer means "not
-// provided"; a non-nil pointer means "set to this value".
+// provided"; a non-nil pointer means "set to this value". Assignment is a
+// tri-state: UserID non-nil assigns, ClearUserID=true clears the assignment,
+// and both together is rejected as ambiguous.
 type TicketUpdate struct {
 	Title       *string
 	Description *string
 	CategoryID  *int64
 	Priority    *Priority
 	UserID      *int64
+	ClearUserID bool
 }
 
 // ApplyUpdate applies only the provided fields whose value actually changed,
 // refreshes UpdatedAt and appends exactly one audit event per changed field.
-// On a validation error (blank title, unsupported priority) NO change is
-// applied. Edits never alter ResolvedAt or ClosedAt — those belong to the
-// state machine alone.
+// On a validation error (blank title, unsupported priority, ambiguous user
+// assignment) NO change is applied. Edits never alter ResolvedAt or ClosedAt —
+// those belong to the state machine alone.
 func (t *Ticket) ApplyUpdate(u TicketUpdate, now time.Time) ([]AuditEvent, error) {
 	if u.Title != nil && strings.TrimSpace(*u.Title) == "" {
 		return nil, &ValidationError{Field: "title", Message: ErrMsgTitleRequired}
 	}
 	if u.Priority != nil && !isValidPriority(*u.Priority) {
 		return nil, &InvalidPriorityError{Field: "priority", Message: ErrMsgInvalidPriority}
+	}
+	// Assign and clear cannot both be requested: the intent is ambiguous.
+	if u.ClearUserID && u.UserID != nil {
+		return nil, &ValidationError{Field: "user", Message: ErrMsgConflictingUserAssignment}
 	}
 
 	var events []AuditEvent
@@ -123,6 +133,14 @@ func (t *Ticket) ApplyUpdate(u TicketUpdate, now time.Time) ([]AuditEvent, error
 	if u.Priority != nil && *u.Priority != t.Priority {
 		audit("priority", string(t.Priority), string(*u.Priority))
 		t.Priority = *u.Priority
+	}
+	if u.ClearUserID {
+		// Unassign: emit from = previous user id, to = ""; already unassigned
+		// is a no-op (no event, no updated_at refresh).
+		if t.UserID != nil {
+			audit("user", strconv.FormatInt(*t.UserID, 10), "")
+			t.UserID = nil
+		}
 	}
 	if u.UserID != nil {
 		from := ""

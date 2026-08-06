@@ -149,6 +149,10 @@ func TestTransitionMatrix(t *testing.T) {
 			if event.Action != domain.ActionTransition {
 				t.Fatalf("audit action must be %q, got %q", domain.ActionTransition, event.Action)
 			}
+			// The changed field for a transition is the state itself (audit-log spec).
+			if event.Field == nil || *event.Field != "state" {
+				t.Fatalf("transition audit event must name the changed field %q, got %v", "state", event.Field)
+			}
 			if event.FromValue == nil || *event.FromValue != string(tc.from) {
 				t.Fatalf("audit from_value must be %q, got %v", tc.from, event.FromValue)
 			}
@@ -247,5 +251,44 @@ func TestReopenFromCerradoWithoutReason(t *testing.T) {
 	}
 	if event != nil {
 		t.Fatalf("rejected reopen must not produce an audit event, got %+v", event)
+	}
+}
+
+func TestTransitionUpdatedAt(t *testing.T) {
+	// ticket-management spec: updated_at MUST reflect the last modification;
+	// a transition is a modification, a rejected move is not.
+	created := time.Date(2026, 8, 5, 9, 0, 0, 0, time.UTC)
+	now := time.Date(2026, 8, 5, 12, 0, 0, 0, time.UTC)
+
+	cases := []struct {
+		name   string
+		to     domain.State
+		reject bool
+	}{
+		{name: "allowed transition refreshes updated_at", to: domain.StateEnProgreso},
+		{name: "rejected transition keeps updated_at", to: domain.StateCerrado, reject: true},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			tt := &domain.Ticket{ID: 1, Title: "Transición", State: domain.StateNuevo, CreatedAt: created, UpdatedAt: created}
+			_, err := tt.Transition(tc.to, "", now)
+
+			if tc.reject {
+				if err == nil {
+					t.Fatalf("nuevo -> %s must be rejected", tc.to)
+				}
+				if !tt.UpdatedAt.Equal(created) {
+					t.Fatalf("rejected transition must not change updated_at, got %v", tt.UpdatedAt)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("valid transition must succeed, got %v", err)
+			}
+			if !tt.UpdatedAt.Equal(now) {
+				t.Fatalf("updated_at must be refreshed to the transition time, got %v", tt.UpdatedAt)
+			}
+		})
 	}
 }

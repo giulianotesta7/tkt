@@ -3,6 +3,7 @@ package domain_test
 import (
 	"errors"
 	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -201,5 +202,120 @@ func TestPriorityRank(t *testing.T) {
 	}
 	if got := domain.PriorityBaja.Rank(); got != 1 {
 		t.Fatalf("baja rank must be 1, got %d", got)
+	}
+}
+
+func TestApplyUpdateClearUserID(t *testing.T) {
+	now := time.Date(2026, 8, 5, 12, 0, 0, 0, time.UTC)
+	tt := baseTicket()
+	tt.UserID = int64Ptr(7)
+
+	events, err := tt.ApplyUpdate(domain.TicketUpdate{ClearUserID: true}, now)
+
+	if err != nil {
+		t.Fatalf("clearing the assignment must succeed, got %v", err)
+	}
+	if tt.UserID != nil {
+		t.Fatalf("assignment must be cleared, got %v", *tt.UserID)
+	}
+	if !tt.UpdatedAt.Equal(now) {
+		t.Fatalf("updated_at must be refreshed on unassignment, got %v", tt.UpdatedAt)
+	}
+	if len(events) != 1 {
+		t.Fatalf("exactly one audit event expected, got %d", len(events))
+	}
+	if events[0].Field == nil || *events[0].Field != "user" {
+		t.Fatalf("audit event must name field %q, got %v", "user", events[0].Field)
+	}
+	if events[0].FromValue == nil || *events[0].FromValue != "7" || events[0].ToValue == nil || *events[0].ToValue != "" {
+		t.Fatalf("audit event must record 7 -> \"\", got from=%v to=%v", events[0].FromValue, events[0].ToValue)
+	}
+}
+
+func TestApplyUpdateClearUnassignedIsNoOp(t *testing.T) {
+	previous := time.Date(2026, 8, 5, 9, 0, 0, 0, time.UTC)
+	now := time.Date(2026, 8, 5, 12, 0, 0, 0, time.UTC)
+	tt := baseTicket() // unassigned
+
+	events, err := tt.ApplyUpdate(domain.TicketUpdate{ClearUserID: true}, now)
+
+	if err != nil {
+		t.Fatalf("clearing an already-clear assignment must succeed, got %v", err)
+	}
+	if len(events) != 0 {
+		t.Fatalf("no-op unassignment must not append audit events, got %+v", events)
+	}
+	if !tt.UpdatedAt.Equal(previous) {
+		t.Fatalf("no-op unassignment must not refresh updated_at, got %v", tt.UpdatedAt)
+	}
+}
+
+func TestApplyUpdateConflictingUserAssignmentRejected(t *testing.T) {
+	now := time.Date(2026, 8, 5, 12, 0, 0, 0, time.UTC)
+	tt := baseTicket()
+	tt.UserID = int64Ptr(7)
+	before := *tt
+
+	events, err := tt.ApplyUpdate(domain.TicketUpdate{ClearUserID: true, UserID: int64Ptr(9)}, now)
+
+	if err == nil {
+		t.Fatal("ClearUserID together with UserID must be rejected as ambiguous")
+	}
+	var ve *domain.ValidationError
+	if !errors.As(err, &ve) {
+		t.Fatalf("want *ValidationError, got %T", err)
+	}
+	if ve.Field != "user" || !strings.Contains(err.Error(), domain.ErrMsgConflictingUserAssignment) {
+		t.Fatalf("error must carry the user field + Spanish message, got %+v", err)
+	}
+	if !reflect.DeepEqual(*tt, before) {
+		t.Fatalf("rejected update must leave the ticket completely unchanged:\nbefore=%+v\nafter =%+v", before, *tt)
+	}
+	if events != nil {
+		t.Fatalf("rejected update must not append audit events, got %+v", events)
+	}
+}
+
+func TestApplyUpdateUserAssignment(t *testing.T) {
+	now := time.Date(2026, 8, 5, 12, 0, 0, 0, time.UTC)
+
+	cases := []struct {
+		name     string
+		current  *int64
+		assign   int64
+		wantFrom string
+	}{
+		{name: "assign from unassigned", current: nil, assign: 7, wantFrom: ""},
+		{name: "reassign to another user", current: int64Ptr(7), assign: 8, wantFrom: "7"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			tt := baseTicket()
+			tt.UserID = tc.current
+
+			events, err := tt.ApplyUpdate(domain.TicketUpdate{UserID: int64Ptr(tc.assign)}, now)
+
+			if err != nil {
+				t.Fatalf("assignment must succeed, got %v", err)
+			}
+			if tt.UserID == nil || *tt.UserID != tc.assign {
+				t.Fatalf("ticket must be assigned to %d, got %v", tc.assign, tt.UserID)
+			}
+			if !tt.UpdatedAt.Equal(now) {
+				t.Fatalf("updated_at must be refreshed on assignment, got %v", tt.UpdatedAt)
+			}
+			if len(events) != 1 {
+				t.Fatalf("exactly one audit event expected, got %d", len(events))
+			}
+			e := events[0]
+			if e.Field == nil || *e.Field != "user" {
+				t.Fatalf("audit event must name field %q, got %v", "user", e.Field)
+			}
+			wantTo := strconv.FormatInt(tc.assign, 10)
+			if e.FromValue == nil || *e.FromValue != tc.wantFrom || e.ToValue == nil || *e.ToValue != wantTo {
+				t.Fatalf("audit event must record %q -> %q, got from=%v to=%v", tc.wantFrom, wantTo, e.FromValue, e.ToValue)
+			}
+		})
 	}
 }
