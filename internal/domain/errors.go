@@ -2,15 +2,15 @@ package domain
 
 import "fmt"
 
-// Spanish user-facing message constants (D5): single source of truth in the
+// English user-facing message constants (D5): single source of truth in the
 // domain. The HTTP adapter maps typed errors to status codes, never rewrites
 // these messages.
 const (
-	ErrMsgTransitionNotAllowed      = "transición no permitida"
-	ErrMsgReopenReasonRequired      = "se requiere un motivo para reabrir el ticket"
-	ErrMsgTitleRequired             = "el título es obligatorio"
-	ErrMsgInvalidPriority           = "prioridad no válida"
-	ErrMsgConflictingUserAssignment = "no se puede asignar y desasignar el usuario al mismo tiempo"
+	ErrMsgTransitionNotAllowed      = "transition not allowed"
+	ErrMsgReopenReasonRequired      = "a reason is required to reopen the ticket"
+	ErrMsgTitleRequired             = "title is required"
+	ErrMsgInvalidPriority           = "invalid priority"
+	ErrMsgConflictingUserAssignment = "cannot assign and unassign the user at the same time"
 )
 
 // ValidationError reports a field-level validation failure (422).
@@ -33,11 +33,11 @@ func NewInvalidTransitionError(from, to State) *InvalidTransitionError {
 	return &InvalidTransitionError{
 		From:    from,
 		To:      to,
-		Message: fmt.Sprintf("%s de %s a %s", ErrMsgTransitionNotAllowed, from, to),
+		Message: fmt.Sprintf("%s from %s to %s", ErrMsgTransitionNotAllowed, from, to),
 	}
 }
 
-// ReopenReasonRequiredError reports a cerrado reopen without a reason (422).
+// ReopenReasonRequiredError reports a closed reopen without a reason (422).
 type ReopenReasonRequiredError struct {
 	Message string
 }

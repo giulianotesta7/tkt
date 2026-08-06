@@ -4,31 +4,31 @@ package domain
 type State string
 
 const (
-	StateNuevo      State = "nuevo"
-	StateEnProgreso State = "en_progreso"
-	StateResuelto   State = "resuelto"
-	StateCerrado    State = "cerrado"
-	StateCancelado  State = "cancelado"
+	StateNew        State = "new"
+	StateInProgress State = "in_progress"
+	StateResolved   State = "resolved"
+	StateClosed     State = "closed"
+	StateCancelled  State = "cancelled"
 )
 
 // transitions is the single source of truth for legal moves.
-// cancelado is terminal; no transition may move back into nuevo.
+// cancelled is terminal; no transition may move back into new.
 var transitions = map[State]map[State]bool{
-	StateNuevo: {
-		StateEnProgreso: true,
-		StateResuelto:   true,
-		StateCancelado:  true,
+	StateNew: {
+		StateInProgress: true,
+		StateResolved:   true,
+		StateCancelled:  true,
 	},
-	StateEnProgreso: {
-		StateResuelto:  true,
-		StateCancelado: true,
+	StateInProgress: {
+		StateResolved:  true,
+		StateCancelled: true,
 	},
-	StateResuelto: {
-		StateCerrado:    true,
-		StateEnProgreso: true, // reopen, no reason required
+	StateResolved: {
+		StateClosed:     true,
+		StateInProgress: true, // reopen, no reason required
 	},
-	StateCerrado: {
-		StateEnProgreso: true, // reopen, reason required
+	StateClosed: {
+		StateInProgress: true, // reopen, reason required
 	},
-	StateCancelado: {},
+	StateCancelled: {},
 }

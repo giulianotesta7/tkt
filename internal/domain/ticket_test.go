@@ -19,10 +19,10 @@ func baseTicket() *domain.Ticket {
 	return &domain.Ticket{
 		ID:         9,
 		Number:     42,
-		Title:      "Título original",
+		Title:      "Original title",
 		CategoryID: 1,
-		Priority:   domain.PriorityMedia,
-		State:      domain.StateEnProgreso,
+		Priority:   domain.PriorityMedium,
+		State:      domain.StateInProgress,
 		CreatedAt:  time.Date(2026, 8, 5, 9, 0, 0, 0, time.UTC),
 		UpdatedAt:  time.Date(2026, 8, 5, 9, 0, 0, 0, time.UTC),
 	}
@@ -60,7 +60,7 @@ func TestApplyUpdateCategoryChanged(t *testing.T) {
 	if tt.ResolvedAt != nil || tt.ClosedAt != nil {
 		t.Fatalf("field edit must not touch resolved_at/closed_at, got %v / %v", tt.ResolvedAt, tt.ClosedAt)
 	}
-	if tt.State != domain.StateEnProgreso {
+	if tt.State != domain.StateInProgress {
 		t.Fatalf("field edit must not change state, got %s", tt.State)
 	}
 }
@@ -70,7 +70,7 @@ func TestApplyUpdateInvalidPriorityNoChanges(t *testing.T) {
 	tt := baseTicket()
 	before := *tt
 
-	events, err := tt.ApplyUpdate(domain.TicketUpdate{Priority: priorityPtr("urgente")}, now)
+	events, err := tt.ApplyUpdate(domain.TicketUpdate{Priority: priorityPtr("urgent")}, now)
 
 	if err == nil {
 		t.Fatal("unsupported priority must be rejected")
@@ -80,7 +80,7 @@ func TestApplyUpdateInvalidPriorityNoChanges(t *testing.T) {
 		t.Fatalf("want *InvalidPriorityError, got %T", err)
 	}
 	if !strings.Contains(err.Error(), domain.ErrMsgInvalidPriority) {
-		t.Fatalf("error must carry the Spanish message %q, got %q", domain.ErrMsgInvalidPriority, err.Error())
+		t.Fatalf("error must carry the English message %q, got %q", domain.ErrMsgInvalidPriority, err.Error())
 	}
 	if !reflect.DeepEqual(*tt, before) {
 		t.Fatalf("rejected edit must leave the ticket completely unchanged:\nbefore=%+v\nafter =%+v", before, *tt)
@@ -97,19 +97,19 @@ func TestApplyUpdateTimestampsUntouched(t *testing.T) {
 	now := time.Date(2026, 8, 5, 12, 0, 0, 0, time.UTC)
 	tt := &domain.Ticket{
 		ID:         10,
-		Title:      "Antes",
-		State:      domain.StateCerrado,
+		Title:      "Before",
+		State:      domain.StateClosed,
 		ResolvedAt: &stamp,
 		ClosedAt:   &stamp,
 		UpdatedAt:  stamp,
 	}
 
-	events, err := tt.ApplyUpdate(domain.TicketUpdate{Title: strPtr("Después")}, now)
+	events, err := tt.ApplyUpdate(domain.TicketUpdate{Title: strPtr("After")}, now)
 
 	if err != nil {
 		t.Fatalf("title edit must succeed, got %v", err)
 	}
-	if tt.Title != "Después" {
+	if tt.Title != "After" {
 		t.Fatalf("title must be updated, got %q", tt.Title)
 	}
 	if tt.ResolvedAt == nil || !tt.ResolvedAt.Equal(stamp) || tt.ClosedAt == nil || !tt.ClosedAt.Equal(stamp) {
@@ -129,8 +129,8 @@ func TestApplyUpdateAuditsOnlyChangedFields(t *testing.T) {
 
 	// Title and category change; priority keeps its current value on purpose.
 	events, err := tt.ApplyUpdate(domain.TicketUpdate{
-		Title:      strPtr("Nuevo título"),
-		Priority:   priorityPtr(domain.PriorityMedia),
+		Title:      strPtr("New title"),
+		Priority:   priorityPtr(domain.PriorityMedium),
 		CategoryID: int64Ptr(2),
 	}, now)
 
@@ -143,7 +143,7 @@ func TestApplyUpdateAuditsOnlyChangedFields(t *testing.T) {
 	if *events[0].Field != "title" || *events[1].Field != "category" {
 		t.Fatalf("audit fields must be [title category] in order, got %v %v", *events[0].Field, *events[1].Field)
 	}
-	if tt.Title != "Nuevo título" || tt.CategoryID != 2 || tt.Priority != domain.PriorityMedia {
+	if tt.Title != "New title" || tt.CategoryID != 2 || tt.Priority != domain.PriorityMedium {
 		t.Fatalf("changed fields must apply, unchanged priority must stay, got title=%q category=%d priority=%s",
 			tt.Title, tt.CategoryID, tt.Priority)
 	}
@@ -155,7 +155,7 @@ func TestApplyUpdateNoChangeNoAudit(t *testing.T) {
 	tt := baseTicket()
 
 	// Same value -> no mutation, no audit, no refresh.
-	events, err := tt.ApplyUpdate(domain.TicketUpdate{Title: strPtr("Título original")}, now)
+	events, err := tt.ApplyUpdate(domain.TicketUpdate{Title: strPtr("Original title")}, now)
 
 	if err != nil {
 		t.Fatalf("no-op edit must succeed, got %v", err)
@@ -183,7 +183,7 @@ func TestApplyUpdateEmptyTitleRejected(t *testing.T) {
 		t.Fatalf("want *ValidationError, got %T", err)
 	}
 	if ve.Field != "title" || !strings.Contains(err.Error(), domain.ErrMsgTitleRequired) {
-		t.Fatalf("error must carry the title field + Spanish message, got %+v", err)
+		t.Fatalf("error must carry the title field + English message, got %+v", err)
 	}
 	if !reflect.DeepEqual(*tt, before) {
 		t.Fatalf("rejected edit must leave the ticket unchanged, got %+v", *tt)
@@ -191,17 +191,17 @@ func TestApplyUpdateEmptyTitleRejected(t *testing.T) {
 }
 
 func TestPriorityRank(t *testing.T) {
-	if got := domain.PriorityCritica.Rank(); got != 4 {
-		t.Fatalf("critica rank must be 4, got %d", got)
+	if got := domain.PriorityCritical.Rank(); got != 4 {
+		t.Fatalf("critical rank must be 4, got %d", got)
 	}
-	if got := domain.PriorityAlta.Rank(); got != 3 {
-		t.Fatalf("alta rank must be 3, got %d", got)
+	if got := domain.PriorityHigh.Rank(); got != 3 {
+		t.Fatalf("high rank must be 3, got %d", got)
 	}
-	if got := domain.PriorityMedia.Rank(); got != 2 {
-		t.Fatalf("media rank must be 2, got %d", got)
+	if got := domain.PriorityMedium.Rank(); got != 2 {
+		t.Fatalf("medium rank must be 2, got %d", got)
 	}
-	if got := domain.PriorityBaja.Rank(); got != 1 {
-		t.Fatalf("baja rank must be 1, got %d", got)
+	if got := domain.PriorityLow.Rank(); got != 1 {
+		t.Fatalf("low rank must be 1, got %d", got)
 	}
 }
 
@@ -266,7 +266,7 @@ func TestApplyUpdateConflictingUserAssignmentRejected(t *testing.T) {
 		t.Fatalf("want *ValidationError, got %T", err)
 	}
 	if ve.Field != "user" || !strings.Contains(err.Error(), domain.ErrMsgConflictingUserAssignment) {
-		t.Fatalf("error must carry the user field + Spanish message, got %+v", err)
+		t.Fatalf("error must carry the user field + English message, got %+v", err)
 	}
 	if !reflect.DeepEqual(*tt, before) {
 		t.Fatalf("rejected update must leave the ticket completely unchanged:\nbefore=%+v\nafter =%+v", before, *tt)

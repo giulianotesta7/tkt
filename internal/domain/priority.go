@@ -5,23 +5,23 @@ package domain
 type Priority string
 
 const (
-	PriorityBaja    Priority = "baja"
-	PriorityMedia   Priority = "media"
-	PriorityAlta    Priority = "alta"
-	PriorityCritica Priority = "critica"
+	PriorityLow      Priority = "low"
+	PriorityMedium   Priority = "medium"
+	PriorityHigh     Priority = "high"
+	PriorityCritical Priority = "critical"
 )
 
-// Rank orders priorities for sorting (D11): critica=4, alta=3, media=2,
-// baja=1. Unknown values rank 0 (never persisted — CHECK constraint).
+// Rank orders priorities for sorting (D11): critical=4, high=3, medium=2,
+// low=1. Unknown values rank 0 (never persisted — CHECK constraint).
 func (p Priority) Rank() int {
 	switch p {
-	case PriorityCritica:
+	case PriorityCritical:
 		return 4
-	case PriorityAlta:
+	case PriorityHigh:
 		return 3
-	case PriorityMedia:
+	case PriorityMedium:
 		return 2
-	case PriorityBaja:
+	case PriorityLow:
 		return 1
 	}
 	return 0

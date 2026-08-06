@@ -29,9 +29,9 @@ type Ticket struct {
 // Transition validates a move against the 5x5 matrix and, when legal, applies
 // the state and lifecycle-timestamp changes, returning the audit event.
 //
-// Timestamp semantics: entering resuelto stamps ResolvedAt; entering cerrado
-// stamps ClosedAt; reopen resuelto -> en_progreso clears ResolvedAt; reopen
-// cerrado -> en_progreso clears both and requires a non-empty reason, which is
+// Timestamp semantics: entering resolved stamps ResolvedAt; entering closed
+// stamps ClosedAt; reopen resolved -> in_progress clears ResolvedAt; reopen
+// closed -> in_progress clears both and requires a non-empty reason, which is
 // recorded in the audit event note. Every successful transition also refreshes
 // UpdatedAt: a transition is a modification (ticket-management spec).
 func (t *Ticket) Transition(to State, reason string, now time.Time) (*AuditEvent, error) {
@@ -41,7 +41,7 @@ func (t *Ticket) Transition(to State, reason string, now time.Time) (*AuditEvent
 	}
 
 	var note *string
-	if from == StateCerrado && to == StateEnProgreso {
+	if from == StateClosed && to == StateInProgress {
 		if strings.TrimSpace(reason) == "" {
 			return nil, NewReopenReasonRequiredError()
 		}
@@ -51,14 +51,14 @@ func (t *Ticket) Transition(to State, reason string, now time.Time) (*AuditEvent
 
 	t.State = to
 	switch to {
-	case StateResuelto:
+	case StateResolved:
 		t.ResolvedAt = &now
-	case StateCerrado:
+	case StateClosed:
 		t.ClosedAt = &now
 	}
-	if to == StateEnProgreso {
+	if to == StateInProgress {
 		t.ResolvedAt = nil
-		if from == StateCerrado {
+		if from == StateClosed {
 			t.ClosedAt = nil
 		}
 	}
@@ -163,7 +163,7 @@ func (t *Ticket) ApplyUpdate(u TicketUpdate, now time.Time) ([]AuditEvent, error
 
 func isValidPriority(p Priority) bool {
 	switch p {
-	case PriorityBaja, PriorityMedia, PriorityAlta, PriorityCritica:
+	case PriorityLow, PriorityMedium, PriorityHigh, PriorityCritical:
 		return true
 	}
 	return false

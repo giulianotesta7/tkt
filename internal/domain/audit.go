@@ -20,6 +20,6 @@ type AuditEvent struct {
 	Field     *string
 	FromValue *string
 	ToValue   *string
-	Note      *string // reopen reason for cerrado -> en_progreso
+	Note      *string // reopen reason for closed -> in_progress
 	CreatedAt time.Time
 }
