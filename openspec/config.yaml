@@ -1,0 +1,48 @@
+# openspec/config.yaml
+schema: spec-driven
+
+context: |
+  Project: tkt — greenfield Go web application (server-side rendered).
+  Tech stack: Go 1.25.11; backend with net/http; frontend via HTMX + html/template (SSR, no JS framework); SQLite storage (driver choice: modernc.org/sqlite vs mattn/go-sqlite3 — decided during design); Docker multi-stage delivery.
+  Architecture: not yet defined (no code). Domain layout established during design phase.
+  Testing: Go stdlib testing + net/http/httptest + in-memory SQLite + golden files for rendered HTML.
+  Style: gofmt formatting, go vet clean; no external linters installed.
+
+strict_tdd: true
+
+testing:
+  runner: go test
+  test_command: "go test ./..."
+  coverage_command: "go test -cover ./..."
+  layers:
+    unit: stdlib testing
+    integration: net/http/httptest + in-memory SQLite
+    e2e: none (no browser tooling detected; golden-file assertions planned for HTML)
+  quality:
+    formatter: gofmt
+    linter: go vet (staticcheck/golangci-lint not installed)
+    type_checker: go vet (compile-time type checking)
+
+rules:
+  proposal:
+    - Include rollback plan for risky changes
+  specs:
+    - Use Given/When/Then for scenarios
+    - Use RFC 2119 keywords (MUST, SHALL, SHOULD, MAY)
+  design:
+    - Decide SQLite driver (modernc.org/sqlite vs mattn/go-sqlite3) with rationale
+    - Document architecture decisions with rationale
+  tasks:
+    - Group by phase, use hierarchical numbering
+    - Keep tasks completable in one session
+  apply:
+    guidelines:
+      - Follow existing code patterns
+    tdd: true
+    test_command: "go test ./..."
+  verify:
+    test_command: "go test ./..."
+    build_command: "go build ./..."
+    coverage_threshold: 0
+  archive:
+    - Warn before merging destructive deltas
