@@ -11,6 +11,11 @@ const (
 	ErrMsgTitleRequired             = "title is required"
 	ErrMsgInvalidPriority           = "invalid priority"
 	ErrMsgConflictingUserAssignment = "cannot assign and unassign the user at the same time"
+	ErrMsgPasswordRequired          = "password is required"
+	ErrMsgCommentBodyRequired       = "comment body is required"
+	ErrMsgUserNameRequired          = "name is required"
+	ErrMsgUserEmailRequired         = "email is required"
+	ErrMsgCategoryNameRequired      = "category name is required"
 )
 
 // ValidationError reports a field-level validation failure (422).
