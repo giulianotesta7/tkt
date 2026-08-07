@@ -9,23 +9,31 @@ import (
 
 // TicketService implements the ticket use cases (ticket-management,
 // ticket-state-machine, audit-log specs): create, transition, update, and
-// read. Mutations are audited with the actor from the session (D14) and
-// persisted through the store ports; numbering is the store's concern (D8).
+// read. Every mutation is audited with the actor from the session (D14) and
+// persisted through the TicketUnitOfWork port, which applies the ticket
+// write and its audit events atomically — a failed audit append rolls the
+// ticket mutation back (no-silent-mutations contract). Read paths use the
+// TicketStore port; numbering is the store's concern (D8).
 type TicketService struct {
 	tickets    TicketStore
 	users      UserStore
 	categories CategoryStore
-	audits     AuditStore
+	tx         TicketUnitOfWork
+	builder    *ViewBuilder
 	clock      domain.Clock
 }
 
-// NewTicketService wires the ticket use cases against the given ports.
-func NewTicketService(tickets TicketStore, users UserStore, categories CategoryStore, audits AuditStore, clock domain.Clock) *TicketService {
+// NewTicketService wires the ticket use cases against the given ports: the
+// ticket store (reads), user/category stores (validation refs), the
+// unit-of-work (atomic ticket+audit mutations), the view builder (composed
+// reads, D13), and the injected clock (D7).
+func NewTicketService(tickets TicketStore, users UserStore, categories CategoryStore, tx TicketUnitOfWork, builder *ViewBuilder, clock domain.Clock) *TicketService {
 	return &TicketService{
 		tickets:    tickets,
 		users:      users,
 		categories: categories,
-		audits:     audits,
+		tx:         tx,
+		builder:    builder,
 		clock:      clock,
 	}
 }
@@ -43,9 +51,10 @@ type CreateTicketInput struct {
 	Priority       domain.Priority
 }
 
-// Create validates the payload, stores the ticket in state new (number and
-// ID assigned by the store, D8), and appends the created audit event with
-// the session actor.
+// Create validates the payload, then persists ticket + created audit event
+// in ONE unit-of-work call: the store assigns the ticket's ID and number
+// (D8), stamps the event's TicketID, and rolls the ticket back if the audit
+// append fails.
 func (s *TicketService) Create(ctx context.Context, actor domain.User, in CreateTicketInput) (*domain.Ticket, error) {
 	if strings.TrimSpace(in.Title) == "" {
 		return nil, &domain.ValidationError{Field: "title", Message: domain.ErrMsgTitleRequired}
@@ -79,24 +88,21 @@ func (s *TicketService) Create(ctx context.Context, actor domain.User, in Create
 		CreatedAt:      now,
 		UpdatedAt:      now,
 	}
-	if err := s.tickets.Create(ctx, t); err != nil {
-		return nil, err
-	}
 	event := domain.AuditEvent{
-		TicketID:  t.ID,
 		Actor:     actor.Name,
 		Action:    domain.ActionCreated,
 		CreatedAt: now,
 	}
-	if err := s.audits.Append(ctx, event); err != nil {
+	if err := s.tx.Create(ctx, t, event); err != nil {
 		return nil, err
 	}
 	return t, nil
 }
 
 // Transition moves the ticket through the domain state machine, stamps the
-// audit event with the session actor, and persists ticket + audit event
-// (atomicity is the store port's contract).
+// audit event with the session actor, and persists ticket + audit event in
+// ONE unit-of-work call (atomic; a failed audit append rolls the transition
+// back).
 func (s *TicketService) Transition(ctx context.Context, actor domain.User, ticketID int64, to domain.State, reason string) (*domain.Ticket, error) {
 	t, err := s.tickets.GetByID(ctx, ticketID)
 	if err != nil {
@@ -107,10 +113,7 @@ func (s *TicketService) Transition(ctx context.Context, actor domain.User, ticke
 		return nil, err
 	}
 	event.Actor = actor.Name
-	if err := s.tickets.Update(ctx, t); err != nil {
-		return nil, err
-	}
-	if err := s.audits.Append(ctx, *event); err != nil {
+	if err := s.tx.Update(ctx, t, *event); err != nil {
 		return nil, err
 	}
 	return t, nil
@@ -119,7 +122,7 @@ func (s *TicketService) Transition(ctx context.Context, actor domain.User, ticke
 // Update applies field edits. Category and user edits are validated as in
 // creation (existence + active user). Each changed field appends its own
 // audit event stamped with the session actor; a rejected edit changes
-// nothing.
+// nothing. Ticket + event batch persist in ONE unit-of-work call.
 func (s *TicketService) Update(ctx context.Context, actor domain.User, ticketID int64, u domain.TicketUpdate) (*domain.Ticket, error) {
 	t, err := s.tickets.GetByID(ctx, ticketID)
 	if err != nil {
@@ -147,18 +150,15 @@ func (s *TicketService) Update(ctx context.Context, actor domain.User, ticketID 
 	for i := range events {
 		events[i].Actor = actor.Name
 	}
-	if err := s.tickets.Update(ctx, t); err != nil {
+	if err := s.tx.Update(ctx, t, events...); err != nil {
 		return nil, err
-	}
-	if len(events) > 0 {
-		if err := s.audits.Append(ctx, events...); err != nil {
-			return nil, err
-		}
 	}
 	return t, nil
 }
 
-// GetByID returns a stored ticket or a NotFoundError.
-func (s *TicketService) GetByID(ctx context.Context, id int64) (*domain.Ticket, error) {
-	return s.tickets.GetByID(ctx, id)
+// GetByID returns the composed detail view — ticket, category, assigned
+// user (inactive users stay visible), comment timeline, and audit history
+// (D13) — or a NotFoundError.
+func (s *TicketService) GetByID(ctx context.Context, id int64) (*TicketView, error) {
+	return s.builder.TicketView(ctx, id)
 }

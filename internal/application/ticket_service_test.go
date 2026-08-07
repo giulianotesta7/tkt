@@ -10,15 +10,36 @@ import (
 	"github.com/giulianotesta7/tkt/internal/domain"
 )
 
-// newTicketService wires a TicketService against fresh fakes.
-func newTicketService() (*application.TicketService, *fakeTicketStore, *fakeUserStore, *fakeCategoryStore, *fakeAuditStore, *fakeClock) {
+// ticketHarness wires a TicketService against ONE coherent set of fakes —
+// including the unit-of-work (C1) and the view builder (C2) — so mutation
+// tests and read tests share the same stores and cannot silently diverge.
+type ticketHarness struct {
+	svc        *application.TicketService
+	tickets    *fakeTicketStore
+	users      *fakeUserStore
+	categories *fakeCategoryStore
+	comments   *fakeCommentStore
+	audits     *fakeAuditStore
+	tx         *fakeUnitOfWork
+	clock      *fakeClock
+}
+
+// newTicketHarness returns a service whose every port reads the same fakes:
+// the ticket store, the audit store, and the unit-of-work wrapping both.
+func newTicketHarness() *ticketHarness {
 	clock := fixedClock()
 	users := newFakeUserStore()
 	categories := newFakeCategoryStore()
 	tickets := newFakeTicketStore()
+	comments := newFakeCommentStore()
 	audits := newFakeAuditStore()
-	svc := application.NewTicketService(tickets, users, categories, audits, clock)
-	return svc, tickets, users, categories, audits, clock
+	tx := newFakeUnitOfWork(tickets, audits)
+	builder := application.NewViewBuilder(tickets, users, categories, comments, audits)
+	svc := application.NewTicketService(tickets, users, categories, tx, builder, clock)
+	return &ticketHarness{
+		svc: svc, tickets: tickets, users: users, categories: categories,
+		comments: comments, audits: audits, tx: tx, clock: clock,
+	}
 }
 
 func validCreateInput(catID int64, userID *int64) application.CreateTicketInput {
@@ -34,12 +55,12 @@ func validCreateInput(catID int64, userID *int64) application.CreateTicketInput 
 }
 
 func TestCreateStoresTicketWithNumberAndStateNew(t *testing.T) {
-	svc, _, users, categories, audits, clock := newTicketService()
-	cat := categories.seed("Bugs")
-	user := users.seed("Ana", "ana@example.com", true)
+	h := newTicketHarness()
+	cat := h.categories.seed("Bugs")
+	user := h.users.seed("Ana", "ana@example.com", true)
 	actor := domain.User{Name: "Ada", Email: "ada@example.com"}
 
-	ticket, err := svc.Create(context.Background(), actor, validCreateInput(cat.ID, ptr(user.ID)))
+	ticket, err := h.svc.Create(context.Background(), actor, validCreateInput(cat.ID, ptr(user.ID)))
 	if err != nil {
 		t.Fatalf("Create: unexpected error: %v", err)
 	}
@@ -52,7 +73,7 @@ func TestCreateStoresTicketWithNumberAndStateNew(t *testing.T) {
 	if ticket.State != domain.StateNew {
 		t.Fatalf("Create: new ticket must start in state %q, got %q", domain.StateNew, ticket.State)
 	}
-	if !ticket.CreatedAt.Equal(clock.now) || !ticket.UpdatedAt.Equal(clock.now) {
+	if !ticket.CreatedAt.Equal(h.clock.now) || !ticket.UpdatedAt.Equal(h.clock.now) {
 		t.Fatalf("Create: timestamps must come from the injected clock, got created=%v updated=%v", ticket.CreatedAt, ticket.UpdatedAt)
 	}
 	if ticket.UserID == nil || *ticket.UserID != user.ID {
@@ -60,7 +81,7 @@ func TestCreateStoresTicketWithNumberAndStateNew(t *testing.T) {
 	}
 
 	// MAX+1 numbering is a store concern (D8): the second ticket follows.
-	second, err := svc.Create(context.Background(), actor, validCreateInput(cat.ID, nil))
+	second, err := h.svc.Create(context.Background(), actor, validCreateInput(cat.ID, nil))
 	if err != nil {
 		t.Fatalf("Create (second): unexpected error: %v", err)
 	}
@@ -69,7 +90,7 @@ func TestCreateStoresTicketWithNumberAndStateNew(t *testing.T) {
 	}
 
 	// Creation is audited with the actor from the session.
-	events, err := audits.ListByTicket(context.Background(), ticket.ID)
+	events, err := h.audits.ListByTicket(context.Background(), ticket.ID)
 	if err != nil {
 		t.Fatalf("ListByTicket: unexpected error: %v", err)
 	}
@@ -82,97 +103,97 @@ func TestCreateStoresTicketWithNumberAndStateNew(t *testing.T) {
 }
 
 func TestCreateRejectsMissingTitle(t *testing.T) {
-	svc, tickets, _, categories, audits, _ := newTicketService()
-	cat := categories.seed("Bugs")
+	h := newTicketHarness()
+	cat := h.categories.seed("Bugs")
 	actor := domain.User{Name: "Ada"}
 
 	in := validCreateInput(cat.ID, nil)
 	in.Title = "  "
-	_, err := svc.Create(context.Background(), actor, in)
+	_, err := h.svc.Create(context.Background(), actor, in)
 
 	var verr *domain.ValidationError
 	if !errors.As(err, &verr) || verr.Field != "title" {
 		t.Fatalf("Create: missing title must be a ValidationError on field title, got %v", err)
 	}
-	if len(tickets.tickets) != 0 {
+	if len(h.tickets.tickets) != 0 {
 		t.Fatal("Create: rejected ticket must not be stored")
 	}
-	if len(audits.events) != 0 {
+	if len(h.audits.events) != 0 {
 		t.Fatal("Create: rejected ticket must not be audited")
 	}
 }
 
 func TestCreateRejectsInactiveUserAssignment(t *testing.T) {
-	svc, tickets, users, categories, audits, _ := newTicketService()
-	cat := categories.seed("Bugs")
-	inactive := users.seed("Ana", "ana@example.com", false)
+	h := newTicketHarness()
+	cat := h.categories.seed("Bugs")
+	inactive := h.users.seed("Ana", "ana@example.com", false)
 	actor := domain.User{Name: "Ada"}
 
-	_, err := svc.Create(context.Background(), actor, validCreateInput(cat.ID, ptr(inactive.ID)))
+	_, err := h.svc.Create(context.Background(), actor, validCreateInput(cat.ID, ptr(inactive.ID)))
 
 	var ierr *domain.InactiveUserError
 	if !errors.As(err, &ierr) {
 		t.Fatalf("Create: inactive assignment must be an InactiveUserError, got %v", err)
 	}
-	if len(tickets.tickets) != 0 {
+	if len(h.tickets.tickets) != 0 {
 		t.Fatal("Create: rejected ticket must not be stored")
 	}
-	if len(audits.events) != 0 {
+	if len(h.audits.events) != 0 {
 		t.Fatal("Create: rejected ticket must not be audited")
 	}
 }
 
 func TestCreateRejectsUnknownCategory(t *testing.T) {
-	svc, tickets, _, _, audits, _ := newTicketService()
+	h := newTicketHarness()
 	actor := domain.User{Name: "Ada"}
 
-	_, err := svc.Create(context.Background(), actor, validCreateInput(999, nil))
+	_, err := h.svc.Create(context.Background(), actor, validCreateInput(999, nil))
 
 	var nerr *domain.NotFoundError
 	if !errors.As(err, &nerr) || nerr.Kind != "category" {
 		t.Fatalf("Create: unknown category must be a NotFoundError(kind=category), got %v", err)
 	}
-	if len(tickets.tickets) != 0 {
+	if len(h.tickets.tickets) != 0 {
 		t.Fatal("Create: rejected ticket must not be stored")
 	}
-	if len(audits.events) != 0 {
+	if len(h.audits.events) != 0 {
 		t.Fatal("Create: rejected ticket must not be audited")
 	}
 }
 
 func TestCreateRejectsUnknownAssignedUser(t *testing.T) {
-	svc, tickets, _, categories, audits, _ := newTicketService()
-	cat := categories.seed("Bugs")
+	h := newTicketHarness()
+	cat := h.categories.seed("Bugs")
 	actor := domain.User{Name: "Ada"}
 
-	_, err := svc.Create(context.Background(), actor, validCreateInput(cat.ID, ptr(int64(999))))
+	_, err := h.svc.Create(context.Background(), actor, validCreateInput(cat.ID, ptr(int64(999))))
 
 	var nerr *domain.NotFoundError
 	if !errors.As(err, &nerr) || nerr.Kind != "user" {
 		t.Fatalf("Create: unknown assigned user must be a NotFoundError(kind=user), got %v", err)
 	}
-	if len(tickets.tickets) != 0 {
+	if len(h.tickets.tickets) != 0 {
 		t.Fatal("Create: rejected ticket must not be stored")
 	}
-	if len(audits.events) != 0 {
+	if len(h.audits.events) != 0 {
 		t.Fatal("Create: rejected ticket must not be audited")
 	}
 }
 
 func TestCreateRejectsInvalidPriority(t *testing.T) {
-	svc, tickets, _, categories, _, _ := newTicketService()
-	cat := categories.seed("Bugs")
+	h := newTicketHarness()
+	cat := h.categories.seed("Bugs")
 	actor := domain.User{Name: "Ada"}
 
 	in := validCreateInput(cat.ID, nil)
 	in.Priority = domain.Priority("urgent")
-	_, err := svc.Create(context.Background(), actor, in)
+	_, err := h.svc.Create(context.Background(), actor, in)
 
 	var ierr *domain.InvalidPriorityError
 	if !errors.As(err, &ierr) {
 		t.Fatalf("Create: invalid priority must be an InvalidPriorityError, got %v", err)
 	}
-	if len(tickets.tickets) != 0 {
+	if len(h.tickets.tickets) != 0 {
 		t.Fatal("Create: rejected ticket must not be stored")
 	}
 }
@@ -194,24 +215,24 @@ func seededTicket(store *fakeTicketStore, catID int64, state domain.State) domai
 }
 
 func TestTransitionAppliesAndAuditsWithSessionActor(t *testing.T) {
-	svc, tickets, _, categories, audits, clock := newTicketService()
-	cat := categories.seed("Bugs")
-	ticket := seededTicket(tickets, cat.ID, domain.StateNew)
+	h := newTicketHarness()
+	cat := h.categories.seed("Bugs")
+	ticket := seededTicket(h.tickets, cat.ID, domain.StateNew)
 	actor := domain.User{Name: "Ada", Email: "ada@example.com"}
-	clock.Advance(timeMinute)
+	h.clock.Advance(timeMinute)
 
-	updated, err := svc.Transition(context.Background(), actor, ticket.ID, domain.StateInProgress, "")
+	updated, err := h.svc.Transition(context.Background(), actor, ticket.ID, domain.StateInProgress, "")
 	if err != nil {
 		t.Fatalf("Transition: unexpected error: %v", err)
 	}
 	if updated.State != domain.StateInProgress {
 		t.Fatalf("Transition: state must be in_progress, got %q", updated.State)
 	}
-	if !updated.UpdatedAt.Equal(clock.now) {
-		t.Fatalf("Transition: updated_at must be refreshed, got %v want %v", updated.UpdatedAt, clock.now)
+	if !updated.UpdatedAt.Equal(h.clock.now) {
+		t.Fatalf("Transition: updated_at must be refreshed, got %v want %v", updated.UpdatedAt, h.clock.now)
 	}
 
-	events, err := audits.ListByTicket(context.Background(), ticket.ID)
+	events, err := h.audits.ListByTicket(context.Background(), ticket.ID)
 	if err != nil {
 		t.Fatalf("ListByTicket: unexpected error: %v", err)
 	}
@@ -235,66 +256,66 @@ func TestTransitionAppliesAndAuditsWithSessionActor(t *testing.T) {
 }
 
 func TestTransitionRejectsInvalidMoveWithoutMutations(t *testing.T) {
-	svc, tickets, _, categories, audits, _ := newTicketService()
-	cat := categories.seed("Bugs")
-	ticket := seededTicket(tickets, cat.ID, domain.StateNew)
+	h := newTicketHarness()
+	cat := h.categories.seed("Bugs")
+	ticket := seededTicket(h.tickets, cat.ID, domain.StateNew)
 	actor := domain.User{Name: "Ada"}
 
-	_, err := svc.Transition(context.Background(), actor, ticket.ID, domain.StateClosed, "")
+	_, err := h.svc.Transition(context.Background(), actor, ticket.ID, domain.StateClosed, "")
 	var terr *domain.InvalidTransitionError
 	if !errors.As(err, &terr) {
 		t.Fatalf("Transition: new -> closed must be an InvalidTransitionError, got %v", err)
 	}
 
-	stored, _ := tickets.GetByID(context.Background(), ticket.ID)
+	stored, _ := h.tickets.GetByID(context.Background(), ticket.ID)
 	if stored.State != domain.StateNew {
 		t.Fatalf("Transition: rejected move must not change state, got %q", stored.State)
 	}
-	if len(audits.events) != 0 {
+	if len(h.audits.events) != 0 {
 		t.Fatal("Transition: rejected move must not be audited")
 	}
 }
 
 func TestTransitionReopenClosedRequiresReason(t *testing.T) {
-	svc, tickets, _, categories, audits, _ := newTicketService()
-	cat := categories.seed("Bugs")
-	ticket := seededTicket(tickets, cat.ID, domain.StateClosed)
+	h := newTicketHarness()
+	cat := h.categories.seed("Bugs")
+	ticket := seededTicket(h.tickets, cat.ID, domain.StateClosed)
 	actor := domain.User{Name: "Ada"}
 
-	_, err := svc.Transition(context.Background(), actor, ticket.ID, domain.StateInProgress, "")
+	_, err := h.svc.Transition(context.Background(), actor, ticket.ID, domain.StateInProgress, "")
 	var rerr *domain.ReopenReasonRequiredError
 	if !errors.As(err, &rerr) {
 		t.Fatalf("Transition: closed reopen without reason must be a ReopenReasonRequiredError, got %v", err)
 	}
-	if len(audits.events) != 0 {
+	if len(h.audits.events) != 0 {
 		t.Fatal("Transition: rejected reopen must not be audited")
 	}
 }
 
 func TestTransitionReopenClosedWithReasonRecordsNote(t *testing.T) {
-	svc, tickets, _, categories, audits, _ := newTicketService()
-	cat := categories.seed("Bugs")
-	ticket := seededTicket(tickets, cat.ID, domain.StateClosed)
+	h := newTicketHarness()
+	cat := h.categories.seed("Bugs")
+	ticket := seededTicket(h.tickets, cat.ID, domain.StateClosed)
 	actor := domain.User{Name: "Ada"}
 
-	updated, err := svc.Transition(context.Background(), actor, ticket.ID, domain.StateInProgress, "customer came back")
+	updated, err := h.svc.Transition(context.Background(), actor, ticket.ID, domain.StateInProgress, "customer came back")
 	if err != nil {
 		t.Fatalf("Transition: closed reopen with reason: unexpected error: %v", err)
 	}
 	if updated.State != domain.StateInProgress {
 		t.Fatalf("Transition: reopened ticket must be in_progress, got %q", updated.State)
 	}
-	events, _ := audits.ListByTicket(context.Background(), ticket.ID)
+	events, _ := h.audits.ListByTicket(context.Background(), ticket.ID)
 	if len(events) != 1 || events[0].Note == nil || *events[0].Note != "customer came back" {
 		t.Fatalf("Transition: reopen reason must be recorded in the audit note, got %+v", events)
 	}
 }
 
 func TestTransitionUnknownTicket(t *testing.T) {
-	svc, _, _, _, _, _ := newTicketService()
+	h := newTicketHarness()
 	actor := domain.User{Name: "Ada"}
 
-	_, err := svc.Transition(context.Background(), actor, 4242, domain.StateInProgress, "")
+	_, err := h.svc.Transition(context.Background(), actor, 4242, domain.StateInProgress, "")
 	var nerr *domain.NotFoundError
 	if !errors.As(err, &nerr) || nerr.Kind != "ticket" {
 		t.Fatalf("Transition: unknown ticket must be a NotFoundError(kind=ticket), got %v", err)
@@ -302,19 +323,19 @@ func TestTransitionUnknownTicket(t *testing.T) {
 }
 
 func TestUpdateAppliesChangedFieldsAndAuditsEach(t *testing.T) {
-	svc, tickets, _, categories, audits, clock := newTicketService()
-	cat := categories.seed("Bugs")
-	ticket := seededTicket(tickets, cat.ID, domain.StateInProgress)
+	h := newTicketHarness()
+	cat := h.categories.seed("Bugs")
+	ticket := seededTicket(h.tickets, cat.ID, domain.StateInProgress)
 	actor := domain.User{Name: "Ada"}
-	clock.Advance(timeMinute)
+	h.clock.Advance(timeMinute)
 
-	resolvedAt := clock.now
+	resolvedAt := h.clock.now
 	ticket.ResolvedAt = &resolvedAt
-	tickets.Update(context.Background(), &ticket)
+	h.tickets.Update(context.Background(), &ticket)
 
 	newTitle := "Fix login redirect (v2)"
 	newPriority := domain.PriorityCritical
-	updated, err := svc.Update(context.Background(), actor, ticket.ID, domain.TicketUpdate{
+	updated, err := h.svc.Update(context.Background(), actor, ticket.ID, domain.TicketUpdate{
 		Title:    &newTitle,
 		Priority: &newPriority,
 	})
@@ -324,15 +345,15 @@ func TestUpdateAppliesChangedFieldsAndAuditsEach(t *testing.T) {
 	if updated.Title != newTitle || updated.Priority != newPriority {
 		t.Fatalf("Update: changed fields must be applied, got title=%q priority=%q", updated.Title, updated.Priority)
 	}
-	if !updated.UpdatedAt.Equal(clock.now) {
-		t.Fatalf("Update: updated_at must be refreshed, got %v want %v", updated.UpdatedAt, clock.now)
+	if !updated.UpdatedAt.Equal(h.clock.now) {
+		t.Fatalf("Update: updated_at must be refreshed, got %v want %v", updated.UpdatedAt, h.clock.now)
 	}
 	// Lifecycle timestamps belong to the state machine alone.
 	if updated.ResolvedAt == nil || !updated.ResolvedAt.Equal(resolvedAt) {
 		t.Fatal("Update: resolved_at must remain untouched by field edits")
 	}
 
-	events, _ := audits.ListByTicket(context.Background(), ticket.ID)
+	events, _ := h.audits.ListByTicket(context.Background(), ticket.ID)
 	if len(events) != 2 {
 		t.Fatalf("Update: one audit event per changed field expected (2), got %d", len(events))
 	}
@@ -345,68 +366,76 @@ func TestUpdateAppliesChangedFieldsAndAuditsEach(t *testing.T) {
 }
 
 func TestUpdateRejectsInvalidPriorityWithoutChanges(t *testing.T) {
-	svc, tickets, _, categories, audits, _ := newTicketService()
-	cat := categories.seed("Bugs")
-	ticket := seededTicket(tickets, cat.ID, domain.StateInProgress)
+	h := newTicketHarness()
+	cat := h.categories.seed("Bugs")
+	ticket := seededTicket(h.tickets, cat.ID, domain.StateInProgress)
 	actor := domain.User{Name: "Ada"}
-	before, _ := tickets.GetByID(context.Background(), ticket.ID)
+	before, _ := h.tickets.GetByID(context.Background(), ticket.ID)
 
 	bad := domain.Priority("urgent")
-	_, err := svc.Update(context.Background(), actor, ticket.ID, domain.TicketUpdate{Priority: &bad})
+	_, err := h.svc.Update(context.Background(), actor, ticket.ID, domain.TicketUpdate{Priority: &bad})
 	var ierr *domain.InvalidPriorityError
 	if !errors.As(err, &ierr) {
 		t.Fatalf("Update: invalid priority must be an InvalidPriorityError, got %v", err)
 	}
 
-	after, _ := tickets.GetByID(context.Background(), ticket.ID)
+	after, _ := h.tickets.GetByID(context.Background(), ticket.ID)
 	if !reflect.DeepEqual(before, after) {
 		t.Fatal("Update: rejected edit must leave the stored ticket untouched")
 	}
-	if len(audits.events) != 0 {
+	if len(h.audits.events) != 0 {
 		t.Fatal("Update: rejected edit must not be audited")
 	}
 }
 
 func TestUpdateValidatesCategoryAndAssignedUser(t *testing.T) {
-	svc, tickets, _, categories, audits, _ := newTicketService()
-	cat := categories.seed("Bugs")
-	inactive := newFakeUserStore().seed("Ana", "ana@example.com", false)
-	ticket := seededTicket(tickets, cat.ID, domain.StateInProgress)
+	h := newTicketHarness()
+	cat := h.categories.seed("Bugs")
+	// The inactive user MUST live in the same store the service reads from
+	// (C3): seeding a fresh store fails the lookup before the active check.
+	inactive := h.users.seed("Ana", "ana@example.com", false)
+	ticket := seededTicket(h.tickets, cat.ID, domain.StateInProgress)
 	actor := domain.User{Name: "Ada"}
 
 	// Category edits validate existence as in creation.
 	missingCat := int64(999)
-	if _, err := svc.Update(context.Background(), actor, ticket.ID, domain.TicketUpdate{CategoryID: &missingCat}); err == nil {
-		t.Fatal("Update: unknown category must be rejected")
+	_, err := h.svc.Update(context.Background(), actor, ticket.ID, domain.TicketUpdate{CategoryID: &missingCat})
+	var nerr *domain.NotFoundError
+	if !errors.As(err, &nerr) || nerr.Kind != "category" {
+		t.Fatalf("Update: unknown category must be a NotFoundError(kind=category), got %v", err)
 	}
-	// User edits validate existence AND active state as in creation.
-	if _, err := svc.Update(context.Background(), actor, ticket.ID, domain.TicketUpdate{UserID: &inactive.ID}); err == nil {
-		t.Fatal("Update: assigning an inactive user must be rejected")
+	// User edits validate existence AND active state as in creation: the
+	// inactive user reaches the active-state check, so the failure MUST be
+	// an InactiveUserError, not a missing-user error.
+	_, err = h.svc.Update(context.Background(), actor, ticket.ID, domain.TicketUpdate{UserID: &inactive.ID})
+	var ierr *domain.InactiveUserError
+	if !errors.As(err, &ierr) {
+		t.Fatalf("Update: assigning an inactive user must be an InactiveUserError, got %v", err)
 	}
-	if len(audits.events) != 0 {
+	if len(h.audits.events) != 0 {
 		t.Fatal("Update: rejected edits must not be audited")
 	}
 }
 
 func TestEveryMutationAuditedInOccurrenceOrder(t *testing.T) {
-	svc, _, users, categories, audits, clock := newTicketService()
-	cat := categories.seed("Bugs")
-	user := users.seed("Ana", "ana@example.com", true)
+	h := newTicketHarness()
+	cat := h.categories.seed("Bugs")
+	user := h.users.seed("Ana", "ana@example.com", true)
 	actor := domain.User{Name: "Ada", Email: "ada@example.com"}
 
 	// GIVEN a ticket (audit-log scenario: one transition and two field edits).
-	ticket, err := svc.Create(context.Background(), actor, validCreateInput(cat.ID, ptr(user.ID)))
+	ticket, err := h.svc.Create(context.Background(), actor, validCreateInput(cat.ID, ptr(user.ID)))
 	if err != nil {
 		t.Fatalf("Create: unexpected error: %v", err)
 	}
-	clock.Advance(timeMinute)
-	if _, err := svc.Transition(context.Background(), actor, ticket.ID, domain.StateInProgress, ""); err != nil {
+	h.clock.Advance(timeMinute)
+	if _, err := h.svc.Transition(context.Background(), actor, ticket.ID, domain.StateInProgress, ""); err != nil {
 		t.Fatalf("Transition: unexpected error: %v", err)
 	}
-	clock.Advance(timeMinute)
+	h.clock.Advance(timeMinute)
 	newTitle := "Edited title"
 	newPriority := domain.PriorityCritical
-	if _, err := svc.Update(context.Background(), actor, ticket.ID, domain.TicketUpdate{
+	if _, err := h.svc.Update(context.Background(), actor, ticket.ID, domain.TicketUpdate{
 		Title:    &newTitle,
 		Priority: &newPriority,
 	}); err != nil {
@@ -415,7 +444,7 @@ func TestEveryMutationAuditedInOccurrenceOrder(t *testing.T) {
 
 	// THEN the mutation events exist in occurrence order, each with the
 	// session actor. (Creation appended its own created event first.)
-	events, _ := audits.ListByTicket(context.Background(), ticket.ID)
+	events, _ := h.audits.ListByTicket(context.Background(), ticket.ID)
 	if len(events) < 3 {
 		t.Fatalf("audit trail: expected at least 3 events, got %d", len(events))
 	}
@@ -431,20 +460,93 @@ func TestEveryMutationAuditedInOccurrenceOrder(t *testing.T) {
 	}
 }
 
-func TestGetByID(t *testing.T) {
-	svc, tickets, _, categories, _, _ := newTicketService()
-	cat := categories.seed("Bugs")
-	ticket := seededTicket(tickets, cat.ID, domain.StateNew)
+// TestCreateRollsBackTicketWhenAuditAppendFails proves the no-silent-mutations
+// atomicity contract (C1): when the audit half of the unit-of-work fails, the
+// ticket mutation must NOT be persisted and the failure must reach the caller.
+func TestCreateRollsBackTicketWhenAuditAppendFails(t *testing.T) {
+	h := newTicketHarness()
+	cat := h.categories.seed("Bugs")
+	user := h.users.seed("Ana", "ana@example.com", true)
+	actor := domain.User{Name: "Ada"}
+	h.tx.failAuditAppend = true
 
-	got, err := svc.GetByID(context.Background(), ticket.ID)
+	_, err := h.svc.Create(context.Background(), actor, validCreateInput(cat.ID, ptr(user.ID)))
+	if !errors.Is(err, errAuditAppendFailed) {
+		t.Fatalf("Create: audit append failure must propagate to the caller, got %v", err)
+	}
+	if len(h.tickets.tickets) != 0 {
+		t.Fatal("Create: ticket must NOT be persisted when the audit append fails")
+	}
+	if len(h.audits.events) != 0 {
+		t.Fatal("Create: no audit event may be persisted when the append fails")
+	}
+}
+
+// TestTransitionRollsBackStateWhenAuditAppendFails proves the rollback half
+// of the unit-of-work on the Update path (C1): a failed audit append must
+// restore the pre-transition ticket state.
+func TestTransitionRollsBackStateWhenAuditAppendFails(t *testing.T) {
+	h := newTicketHarness()
+	cat := h.categories.seed("Bugs")
+	ticket := seededTicket(h.tickets, cat.ID, domain.StateNew)
+	actor := domain.User{Name: "Ada"}
+	h.tx.failAuditAppend = true
+
+	_, err := h.svc.Transition(context.Background(), actor, ticket.ID, domain.StateInProgress, "")
+	if !errors.Is(err, errAuditAppendFailed) {
+		t.Fatalf("Transition: audit append failure must propagate to the caller, got %v", err)
+	}
+	stored, err := h.tickets.GetByID(context.Background(), ticket.ID)
+	if err != nil {
+		t.Fatalf("GetByID after rollback: unexpected error: %v", err)
+	}
+	if stored.State != domain.StateNew {
+		t.Fatalf("Transition: rolled-back ticket must keep state %q, got %q", domain.StateNew, stored.State)
+	}
+	if len(h.audits.events) != 0 {
+		t.Fatal("Transition: no audit event may be persisted when the append fails")
+	}
+}
+
+// TestGetByIDReturnsComposedView covers the read contract (C2): GetByID
+// returns the composed TicketView — ticket, resolved category name, resolved
+// assigned-user name, and the chronological comment timeline — not the raw
+// domain aggregate.
+func TestGetByIDReturnsComposedView(t *testing.T) {
+	h := newTicketHarness()
+	cat := h.categories.seed("Bugs")
+	user := h.users.seed("Ana", "ana@example.com", true)
+	ticket := seededTicket(h.tickets, cat.ID, domain.StateNew)
+	ticket.UserID = ptr(user.ID)
+	if err := h.tickets.Update(context.Background(), &ticket); err != nil {
+		t.Fatalf("seed assignment: unexpected error: %v", err)
+	}
+	for _, body := range []string{"first", "second"} {
+		if err := h.comments.Add(context.Background(), &domain.Comment{
+			TicketID: ticket.ID, Author: "Ada", Body: body, CreatedAt: h.clock.Now(),
+		}); err != nil {
+			t.Fatalf("seed comment %q: unexpected error: %v", body, err)
+		}
+	}
+
+	view, err := h.svc.GetByID(context.Background(), ticket.ID)
 	if err != nil {
 		t.Fatalf("GetByID: unexpected error: %v", err)
 	}
-	if got.ID != ticket.ID || got.Title != ticket.Title {
-		t.Fatalf("GetByID: must return the stored ticket, got %+v", got)
+	if view.Ticket == nil || view.Ticket.ID != ticket.ID || view.Ticket.Title != ticket.Title {
+		t.Fatalf("GetByID: view must carry the stored ticket, got %+v", view.Ticket)
+	}
+	if view.Category == nil || view.Category.Name != "Bugs" {
+		t.Fatalf("GetByID: view must resolve the category name, got %+v", view.Category)
+	}
+	if view.AssignedUser == nil || view.AssignedUser.Name != "Ana" {
+		t.Fatalf("GetByID: view must resolve the assigned user name, got %+v", view.AssignedUser)
+	}
+	if len(view.Comments) != 2 || view.Comments[0].Body != "first" || view.Comments[1].Body != "second" {
+		t.Fatalf("GetByID: view must carry the comment timeline in creation order, got %+v", view.Comments)
 	}
 
-	_, err = svc.GetByID(context.Background(), 4242)
+	_, err = h.svc.GetByID(context.Background(), 4242)
 	var nerr *domain.NotFoundError
 	if !errors.As(err, &nerr) || nerr.Kind != "ticket" {
 		t.Fatalf("GetByID: unknown id must be a NotFoundError(kind=ticket), got %v", err)

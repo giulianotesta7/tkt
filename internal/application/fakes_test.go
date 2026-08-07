@@ -2,6 +2,7 @@ package application_test
 
 import (
 	"context"
+	"errors"
 	"sort"
 	"strings"
 	"time"
@@ -249,6 +250,65 @@ func (f *fakeAuditStore) ListByTicket(_ context.Context, ticketID int64) ([]doma
 	copy(out, f.events[ticketID])
 	return out, nil
 }
+
+// errAuditAppendFailed is the simulated store failure the unit-of-work fake
+// returns when failAuditAppend is set (C1): the service must propagate it
+// untouched, never swallow it.
+var errAuditAppendFailed = errors.New("audit append failed")
+
+// fakeUnitOfWork implements TicketUnitOfWork with a transactional
+// simulation (C1): the ticket write and the audit appends either both
+// persist or both roll back. failAuditAppend makes the audit part of the
+// NEXT mutation fail, letting tests prove the rollback half of the
+// atomicity contract (no-silent-mutations spec).
+type fakeUnitOfWork struct {
+	tickets         *fakeTicketStore
+	audits          *fakeAuditStore
+	failAuditAppend bool
+}
+
+func newFakeUnitOfWork(tickets *fakeTicketStore, audits *fakeAuditStore) *fakeUnitOfWork {
+	return &fakeUnitOfWork{tickets: tickets, audits: audits}
+}
+
+// Create persists the ticket (store-assigned ID and number, D8) and its
+// created event as one unit: a failing audit append rolls the ticket back.
+func (f *fakeUnitOfWork) Create(ctx context.Context, t *domain.Ticket, event domain.AuditEvent) error {
+	if err := f.tickets.Create(ctx, t); err != nil {
+		return err
+	}
+	if f.failAuditAppend {
+		delete(f.tickets.tickets, t.ID)
+		return errAuditAppendFailed
+	}
+	event.TicketID = t.ID
+	return f.audits.Append(ctx, event)
+}
+
+// Update persists the ticket and its event batch as one unit: a failing
+// audit append restores the pre-mutation ticket copy. events may be empty
+// (a plain ticket write is still atomic by construction).
+func (f *fakeUnitOfWork) Update(ctx context.Context, t *domain.Ticket, events ...domain.AuditEvent) error {
+	prev, ok := f.tickets.tickets[t.ID]
+	if !ok {
+		return &domain.NotFoundError{Kind: "ticket", ID: t.ID}
+	}
+	if err := f.tickets.Update(ctx, t); err != nil {
+		return err
+	}
+	if f.failAuditAppend {
+		f.tickets.tickets[t.ID] = prev
+		return errAuditAppendFailed
+	}
+	if len(events) > 0 {
+		return f.audits.Append(ctx, events...)
+	}
+	return nil
+}
+
+// Compile-time contract: the fake implements the exact port the service
+// depends on, so port drift fails here rather than at a test construction.
+var _ application.TicketUnitOfWork = (*fakeUnitOfWork)(nil)
 
 // fakeUserStore implements UserStore: email uniqueness, delete guard via a
 // referenced flag (the real store checks ticket FKs; tests set the flag).

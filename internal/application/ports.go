@@ -10,16 +10,18 @@ import (
 )
 
 // TicketStore persists tickets and answers list/count queries (D2, D13).
+// It serves READ paths: GetByID, List, Count, and the chips counts.
 //
 // Numbering is a store concern (D8): Create assigns the ticket's unique
 // readable Number atomically (MAX+1 inside the store transaction) and its ID.
 // The service never computes numbers.
 //
-// Atomicity contract: a mutation on a ticket (Create/Update) followed by an
-// AuditStore.Append of the corresponding events MUST be applied atomically by
-// implementations — the application layer issues them in sequence and relies
-// on the store to keep ticket state and its audit trail consistent. The
-// in-memory fakes satisfy this by construction.
+// Mutation boundary: ticket writes (Create/Update) are NOT issued through
+// this port — the application routes every ticket mutation through
+// TicketUnitOfWork together with its audit events, so ticket state and its
+// audit trail persist atomically (audit-log no-silent-mutations contract).
+// Create/Update remain part of the port for direct store use (seeding,
+// system operations); the application layer never calls them in isolation.
 type TicketStore interface {
 	// Create persists t, assigning t.ID and t.Number (MAX+1, atomic).
 	Create(ctx context.Context, t *domain.Ticket) error
@@ -38,6 +40,24 @@ type TicketStore interface {
 	// CountsByPriority returns chips counts per priority for tickets matching
 	// q (no pagination), reflecting the filtered result set.
 	CountsByPriority(ctx context.Context, q TicketQuery) (map[domain.Priority]int, error)
+}
+
+// TicketUnitOfWork persists a ticket mutation and its audit events as ONE
+// atomic unit (audit-log no-silent-mutations contract, C1). The application
+// issues a single call per mutation — implementations MUST apply the ticket
+// write and the event appends in one transaction and MUST roll the ticket
+// write back when any append fails, so a failed audit can never leave a
+// committed ticket mutation behind. Slice 4 implements this port over a real
+// SQLite transaction; the in-memory fakes simulate the rollback.
+type TicketUnitOfWork interface {
+	// Create persists t (assigning t.ID and t.Number, MAX+1, atomic, D8)
+	// and appends the created audit event atomically. The implementation
+	// stamps event.TicketID from the assigned t.ID before persisting.
+	Create(ctx context.Context, t *domain.Ticket, event domain.AuditEvent) error
+	// Update persists t and appends the event batch (a transition or
+	// field-edit batch) atomically. events may be empty: a plain ticket
+	// write is still atomic by construction.
+	Update(ctx context.Context, t *domain.Ticket, events ...domain.AuditEvent) error
 }
 
 // SearchStore provides FTS5 full-text search over title, description, and

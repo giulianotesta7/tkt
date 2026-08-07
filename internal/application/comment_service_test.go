@@ -96,6 +96,68 @@ func TestAddCommentOnClosedTicketAccepted(t *testing.T) {
 	}
 }
 
+// commentUpdater and commentDeleter mirror the edit/delete operations the
+// MVP MUST NOT provide (comment-timeline spec, append-only). The negative
+// type assertions in TestAppendOnlyCommentsNoUpdateOrDelete are the runtime
+// guard: if the port or a use case ever grows one of these operations, this
+// test fails at the contract boundary.
+type commentUpdater interface {
+	Update(context.Context, domain.Comment) error
+}
+
+type commentDeleter interface {
+	Delete(context.Context, int64) error
+}
+
+// TestAppendOnlyCommentsNoUpdateOrDelete is the runtime evidence for the
+// append-only scenario: neither the CommentStore port (via the fake) nor
+// the CommentService use case exposes an update or delete operation, and
+// the timeline returns exactly what was added, unchanged.
+func TestAppendOnlyCommentsNoUpdateOrDelete(t *testing.T) {
+	clock := fixedClock()
+	store := newFakeCommentStore()
+	tickets := newFakeTicketStore()
+	cat := newFakeCategoryStore().seed("Bugs")
+	ticket := tickets.seed(domain.Ticket{
+		Title: "Seeded", CategoryID: cat.ID, Priority: domain.PriorityLow,
+		State: domain.StateNew, CreatedAt: clock.now, UpdatedAt: clock.now,
+	})
+	svc := application.NewCommentService(tickets, store, clock)
+
+	// The store port must not expose edit/delete operations...
+	if upd, ok := any(store).(commentUpdater); ok {
+		t.Fatalf("append-only violated: CommentStore must not implement Update, got %T", upd)
+	}
+	if del, ok := any(store).(commentDeleter); ok {
+		t.Fatalf("append-only violated: CommentStore must not implement Delete, got %T", del)
+	}
+	// ...and neither may the use case boundary.
+	if upd, ok := any(svc).(commentUpdater); ok {
+		t.Fatalf("append-only violated: CommentService must not implement Update, got %T", upd)
+	}
+	if del, ok := any(svc).(commentDeleter); ok {
+		t.Fatalf("append-only violated: CommentService must not implement Delete, got %T", del)
+	}
+
+	// The timeline returns exactly the added comments, in creation order:
+	// with no edit/delete path, nothing can change or remove them.
+	actor := domain.User{Name: "Ada"}
+	for _, body := range []string{"first", "second"} {
+		clock.Advance(timeMinute)
+		if _, err := svc.Add(context.Background(), actor, ticket.ID, body); err != nil {
+			t.Fatalf("Add(%q): unexpected error: %v", body, err)
+		}
+	}
+
+	list, err := svc.ListByTicket(context.Background(), ticket.ID)
+	if err != nil {
+		t.Fatalf("ListByTicket: unexpected error: %v", err)
+	}
+	if len(list) != 2 || list[0].Body != "first" || list[1].Body != "second" {
+		t.Fatalf("ListByTicket: exactly the added comments, in order, got %+v", list)
+	}
+}
+
 // TestListByTicketCreationOrder covers the chronological timeline (ASC):
 // three comments created at increasing times render in creation order.
 func TestListByTicketCreationOrder(t *testing.T) {
