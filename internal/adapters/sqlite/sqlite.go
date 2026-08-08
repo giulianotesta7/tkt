@@ -7,9 +7,15 @@ package sqlite
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
+	"strings"
+	"time"
 
-	_ "modernc.org/sqlite" // registers the "sqlite" database/sql driver
+	sqlite "modernc.org/sqlite"
+	sqlite3 "modernc.org/sqlite/lib"
+
+	"github.com/giulianotesta7/tkt/internal/application"
 )
 
 // pragmaDSN is the single DSN pragma fragment (D1, D8): foreign_keys ON,
@@ -18,9 +24,8 @@ import (
 // ticket numbering is race-free by construction.
 const pragmaDSN = "?_pragma=foreign_keys(1)&_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)&_txlock=immediate"
 
-// Store implements every adapter-side store port over one *sql.DB. The
-// concrete store types in this package are methods on Store; each store
-// file carries a compile-time port assertion.
+// Store owns the single *sql.DB and hands out the adapter-side store ports
+// (hexagonal-lite: one adapter, one database, one wiring point).
 type Store struct {
 	db *sql.DB
 }
@@ -45,4 +50,77 @@ func openDSN(dsn string) (*Store, error) {
 		return nil, fmt.Errorf("sqlite: ping: %w", err)
 	}
 	return s, nil
+}
+
+// TicketStore returns the ticket read/list port (task 4.2).
+func (s *Store) TicketStore() application.TicketStore { return newTicketStore(s.db) }
+
+// TicketUnitOfWork returns the atomic ticket+audit mutation port (C1).
+func (s *Store) TicketUnitOfWork() application.TicketUnitOfWork { return newUnitOfWork(s.db) }
+
+// --- constraint and value helpers ---
+
+// isConstraint reports whether err is a SQLite constraint failure.
+// modernc's Error carries the extended result code (UNIQUE=2067,
+// FOREIGN KEY=787), with the primary code in the low byte
+// (SQLITE_CONSTRAINT=19); the errmsg text distinguishes UNIQUE from
+// FOREIGN KEY violations.
+func isConstraint(err error) bool {
+	var se *sqlite.Error
+	if !errors.As(err, &se) {
+		return false
+	}
+	return se.Code()&0xFF == sqlite3.SQLITE_CONSTRAINT
+}
+
+// isUniqueViolation reports a UNIQUE constraint failure ("UNIQUE constraint
+// failed: <table>.<column>").
+func isUniqueViolation(err error) bool {
+	return isConstraint(err) && strings.Contains(err.Error(), "UNIQUE constraint failed")
+}
+
+// isForeignKeyViolation reports a FOREIGN KEY constraint failure.
+func isForeignKeyViolation(err error) bool {
+	return isConstraint(err) && strings.Contains(err.Error(), "FOREIGN KEY constraint failed")
+}
+
+// retryUnique re-runs fn up to attempts times while it fails with a UNIQUE
+// constraint violation (D8 belt-and-suspenders: MAX+1 inside an immediate
+// transaction cannot collide, so this only fires on an unexpected race).
+func retryUnique(attempts int, fn func() error) error {
+	var err error
+	for i := 0; i < attempts; i++ {
+		err = fn()
+		if !isUniqueViolation(err) {
+			return err
+		}
+	}
+	return err
+}
+
+// nullableInt64 binds a *int64 as NULL when nil.
+func nullableInt64(v *int64) any {
+	if v == nil {
+		return nil
+	}
+	return *v
+}
+
+// nullableString binds a *string as NULL when nil.
+func nullableString(v *string) any {
+	if v == nil {
+		return nil
+	}
+	return *v
+}
+
+// formatTime renders t in the persisted ISO-8601 UTC TEXT form (D7).
+func formatTime(t time.Time) string { return t.UTC().Format(timeLayout) }
+
+// formatTimePtr binds a *time.Time as NULL when nil.
+func formatTimePtr(t *time.Time) any {
+	if t == nil {
+		return nil
+	}
+	return t.UTC().Format(timeLayout)
 }
