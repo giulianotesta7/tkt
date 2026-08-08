@@ -26,3 +26,7 @@ func (p Priority) Rank() int {
 	}
 	return 0
 }
+
+// IsValidPriority reports whether p is one of the four persisted values.
+// Exported for the application layer (D5: single source of truth).
+func IsValidPriority(p Priority) bool { return isValidPriority(p) }
