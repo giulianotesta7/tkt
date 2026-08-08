@@ -2,7 +2,10 @@ module github.com/giulianotesta7/tkt
 
 go 1.25.11
 
-require golang.org/x/crypto v0.54.0
+require (
+	golang.org/x/crypto v0.54.0
+	modernc.org/sqlite v1.56.0
+)
 
 require (
 	github.com/dustin/go-humanize v1.0.1 // indirect
@@ -14,5 +17,4 @@ require (
 	modernc.org/libc v1.74.4 // indirect
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.11.0 // indirect
-	modernc.org/sqlite v1.56.0 // indirect
 )

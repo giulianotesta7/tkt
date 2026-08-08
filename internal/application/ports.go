@@ -147,6 +147,9 @@ type TicketQuery struct {
 	UserID     *int64
 	// Text is the D4-tokenized FTS expression ("" = no text filter).
 	Text string
+	// SortByPriority orders results by the D11 priority rank
+	// (critical > high > medium > low) before the created/id tiebreak.
+	SortByPriority bool
 }
 
 // Page is the pagination window (D2). Limit is FIXED at 10 — the service
