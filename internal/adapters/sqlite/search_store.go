@@ -29,7 +29,7 @@ func newSearchStore(db *sql.DB) *searchStore { return &searchStore{db: db} }
 func (ss *searchStore) Search(ctx context.Context, q application.TicketQuery, p application.Page) ([]domain.Ticket, error) {
 	where, args := buildTicketWhere(q)
 	args = append(args, p.Limit, p.Offset)
-	rows, err := ss.db.QueryContext(ctx, `SELECT `+ticketColumns+` FROM tickets t `+where+` `+orderByCreatedDesc+` LIMIT ? OFFSET ?`, args...)
+	rows, err := ss.db.QueryContext(ctx, `SELECT `+ticketColumns+` FROM tickets t `+where+` `+orderBy(q)+` LIMIT ? OFFSET ?`, args...)
 	if err != nil {
 		return nil, fmt.Errorf("sqlite: search tickets: %w", err)
 	}

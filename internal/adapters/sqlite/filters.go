@@ -12,6 +12,11 @@ import (
 // chronological order.
 const orderByCreatedDesc = "ORDER BY t.created_at DESC, t.id DESC"
 
+// orderByPriorityDesc is the D11 priority ordering: critical(4) > high(3) >
+// medium(2) > low(1) via the shared CASE fragment, with the created/id
+// tiebreak kept so priority-sorted pages stay stable and non-overlapping.
+const orderByPriorityDesc = "ORDER BY " + priorityOrderCASE + " DESC, t.created_at DESC, t.id DESC"
+
 // priorityOrderCASE ranks priorities for SQL ordering (D11): critical=4,
 // high=3, medium=2, low=1. It is the single shared SQL fragment constant in
 // the adapter — no schema duplication, CHECK keeps values honest. The
@@ -19,6 +24,15 @@ const orderByCreatedDesc = "ORDER BY t.created_at DESC, t.id DESC"
 // live query references the fragment yet; it is the shared constant the
 // priority-sort path uses once a sort key exists.
 const priorityOrderCASE = "CASE t.priority WHEN 'critical' THEN 4 WHEN 'high' THEN 3 WHEN 'medium' THEN 2 WHEN 'low' THEN 1 ELSE 0 END"
+
+// orderBy returns the ORDER BY clause for q: the D11 priority ordering when
+// SortByPriority is set, otherwise the deterministic D2 newest-first order.
+func orderBy(q application.TicketQuery) string {
+	if q.SortByPriority {
+		return orderByPriorityDesc
+	}
+	return orderByCreatedDesc
+}
 
 // buildTicketWhere composes the AND filter clauses from q (ticket-search
 // spec): state, priority, category, and assigned user. An empty filter set

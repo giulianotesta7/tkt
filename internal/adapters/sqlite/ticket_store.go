@@ -142,7 +142,7 @@ func (st *ticketStore) GetByID(ctx context.Context, id int64) (*domain.Ticket, e
 func (st *ticketStore) List(ctx context.Context, q application.TicketQuery, p application.Page) ([]domain.Ticket, error) {
 	where, args := buildTicketWhere(q)
 	args = append(args, p.Limit, p.Offset)
-	rows, err := st.db.QueryContext(ctx, `SELECT `+ticketColumns+` FROM tickets t `+where+` `+orderByCreatedDesc+` LIMIT ? OFFSET ?`, args...)
+	rows, err := st.db.QueryContext(ctx, `SELECT `+ticketColumns+` FROM tickets t `+where+` `+orderBy(q)+` LIMIT ? OFFSET ?`, args...)
 	if err != nil {
 		return nil, fmt.Errorf("sqlite: list tickets: %w", err)
 	}

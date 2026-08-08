@@ -817,3 +817,49 @@ func TestRetryUniqueExhaustsAttempts(t *testing.T) {
 		t.Errorf("fn called %d times, want 3", calls)
 	}
 }
+
+// Task 4.2 (D11): priority sort — spec ticket-search "Priority Ordering":
+// critical > high > medium > low. The shared ORDER BY honors the flag; the
+// priority CASE ranks and the created/id tiebreak keeps pagination stable.
+func TestTicketListSortByPriority(t *testing.T) {
+	s := newTestDB(t)
+	cat := seedCategory(t, s, "Bugs")
+	ctx := context.Background()
+
+	// Spec scenario: priorities low, critical, medium, high in insertion
+	// order; sorted output must be critical, high, medium, low.
+	order := []domain.Priority{domain.PriorityLow, domain.PriorityCritical, domain.PriorityMedium, domain.PriorityHigh}
+	for i, p := range order {
+		seedTicket(t, s, domain.Ticket{Number: i + 1, Title: string(p), CategoryID: cat,
+			Priority: p, State: domain.StateNew,
+			CreatedAt: testClock.Add(time.Duration(i) * time.Minute),
+			UpdatedAt: testClock.Add(time.Duration(i) * time.Minute)})
+	}
+
+	got, err := s.TicketStore().List(ctx, application.TicketQuery{SortByPriority: true},
+		application.Page{Offset: 0, Limit: 10})
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(got) != 4 {
+		t.Fatalf("len = %d, want 4", len(got))
+	}
+	want := []domain.Priority{domain.PriorityCritical, domain.PriorityHigh, domain.PriorityMedium, domain.PriorityLow}
+	for i := range want {
+		if got[i].Priority != want[i] {
+			t.Errorf("sorted[%d] = %s, want %s (critical > high > medium > low)", i, got[i].Priority, want[i])
+		}
+	}
+
+	// Search honors the same ordering (shared ORDER BY path).
+	got, err = s.SearchStore().Search(ctx, application.TicketQuery{SortByPriority: true},
+		application.Page{Offset: 0, Limit: 10})
+	if err != nil {
+		t.Fatalf("search: %v", err)
+	}
+	for i := range want {
+		if got[i].Priority != want[i] {
+			t.Errorf("search sorted[%d] = %s, want %s", i, got[i].Priority, want[i])
+		}
+	}
+}
