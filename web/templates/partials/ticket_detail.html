@@ -1,0 +1,65 @@
+{{define "ticket_detail"}}
+<div id="ticket-detail">
+  {{if .Error}}<div class="error-banner" role="alert">{{.Error}}</div>{{end}}
+  <div class="command-header">
+    <div>
+      <div class="meta-row">
+        <a href="/tickets">← Queue</a>
+        <span class="num">{{ticketNumber .View.Ticket.Number}}</span>
+        {{template "state_badge" .View.Ticket.State}}
+        <span class="priority {{.View.Ticket.Priority}}">{{.View.Ticket.Priority}}</span>
+      </div>
+      <h1 class="command-title">{{.View.Ticket.Title}}</h1>
+      <div class="meta-row">
+        <span>Requester: {{.View.Ticket.RequesterName}} &lt;{{.View.Ticket.RequesterEmail}}&gt;</span>
+        <span>Created {{formatTime .View.Ticket.CreatedAt}}</span>
+        <span>Updated {{formatTime .View.Ticket.UpdatedAt}}</span>
+      </div>
+    </div>
+    <div class="command-actions">
+      <a class="btn ghost" href="/tickets/{{.View.Ticket.ID}}/edit">Edit</a>
+    </div>
+  </div>
+  <div class="cards">
+    <div class="conversation">
+      <div class="card">
+        <h2>Details</h2>
+        <dl class="kv">
+          <dt>Category</dt>
+          <dd>{{.View.Category.Name}}</dd>
+          <dt>Assigned to</dt>
+          <dd>{{if .View.AssignedUser}}{{.View.AssignedUser.Name}}{{else}}Unassigned{{end}}</dd>
+          {{with .View.Ticket.ResolvedAt}}<dt>Resolved</dt><dd>{{formatTime .}}</dd>{{end}}
+          {{with .View.Ticket.ClosedAt}}<dt>Closed</dt><dd>{{formatTime .}}</dd>{{end}}
+        </dl>
+      </div>
+      <div class="card">
+        <h2>Description</h2>
+        {{if .View.Ticket.Description}}<p>{{.View.Ticket.Description}}</p>{{else}}<p class="empty">No description.</p>{{end}}
+      </div>
+      {{template "comment_form" .}}
+      <div class="card">
+        <h2>Comments</h2>
+        {{template "comment_list" .}}
+      </div>
+    </div>
+    <div class="evidence">
+      <div class="card activity">
+        <h2>Activity</h2>
+        {{template "audit_timeline" .View.AuditEvents}}
+      </div>
+      <div class="card">
+        <h2>Transition</h2>
+        <form class="transition-form" method="post" action="/tickets/{{.View.Ticket.ID}}/transition">
+          <select name="to" aria-label="Target state">
+            {{range .Next}}<option value="{{.To}}">{{.To}}{{if .NeedsReason}} (reason required){{end}}</option>{{end}}
+          </select>
+          <input type="text" name="reason" placeholder="Reason (reopen only)" aria-label="Transition reason">
+          <button class="btn primary" type="submit">Move</button>
+        </form>
+        {{if not .Next}}<p class="empty">This ticket is terminal.</p>{{end}}
+      </div>
+    </div>
+  </div>
+</div>
+{{end}}

@@ -1,0 +1,308 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>tkt — Ticket Desk</title>
+<style>
+ 
+:root{
+  --bg:#ECEFF3; --surface:#F7F8FA; --card:#F8FAFC; --shell:#DDE2EA;
+  --ink:#171A20; --ink-soft:#252B34; --ink-strong:#111318;
+  --muted:#7A8391; --faint:#9AA3B2; --line:#DDE2EA; --line-strong:#C6CCD6;
+  --accent:#315EFF; --accent-soft:#E8EEFF; --accent-ink:#315EFF;
+  --green:#18734D; --green-soft:#E2F2EA; --amber:#8A5A00; --amber-soft:#FFF1D6;
+  --red:#B42318; --red-soft:#FBE9E7; --gray-soft:#E2E5EA; --gray-ink:#6D7581;
+  --rail:#111318;
+  --mono:"Geist Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{
+  background:var(--bg); color:var(--ink);
+  font-family:"Geist","Geist Sans",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  font-size:14px; line-height:1.45;
+  -webkit-font-smoothing:antialiased;
+}
+a{color:var(--accent);text-decoration:none}
+a:hover{text-decoration:underline}
+button{font:inherit}
+
+ 
+.layout{display:grid;grid-template-columns:72px 1fr;min-height:100vh}
+.rail{
+  background:var(--rail); color:#F5F7FA;
+  display:flex;flex-direction:column;align-items:center;
+  padding:14px 0 16px; gap:22px; position:sticky; top:0; height:100vh;
+}
+.rail-brand{
+  width:38px;height:38px;border-radius:9px;background:var(--accent);
+  color:#F8FAFC;display:flex;align-items:center;justify-content:center;
+  font-weight:600;font-size:15px;letter-spacing:.02em;
+}
+.rail-brand:hover{text-decoration:none;filter:brightness(1.08)}
+.rail-nav{display:flex;flex-direction:column;gap:6px;flex:1}
+.rail-link{
+  width:42px;height:42px;border-radius:10px;display:flex;align-items:center;
+  justify-content:center;color:#9AA3B2;background:transparent;border:none;
+  cursor:pointer;
+}
+.rail-link:hover{color:#F5F7FA;background:#1D222A;text-decoration:none}
+.rail-link.active{color:#F8FAFC;background:#F8FAFC12}
+.rail-logout{margin-top:auto}
+
+ 
+.main{padding:22px 28px 40px;min-width:0}
+
+ 
+.command-header{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:18px}
+.command-title{font-size:20px;font-weight:600;color:var(--ink-strong);margin:0}
+.command-sub{color:var(--muted);font-size:13px}
+.command-actions{display:flex;gap:8px;align-items:center}
+
+ 
+.btn{
+  display:inline-flex;align-items:center;gap:8px;height:36px;padding:0 14px;
+  border-radius:8px;border:1px solid transparent;cursor:pointer;
+  font-size:13px;font-weight:500;color:var(--ink-soft);background:var(--card);
+}
+.btn:hover{text-decoration:none;filter:brightness(0.97)}
+.btn.primary{background:var(--accent);color:#F8FAFC}
+.btn.primary:hover{filter:brightness(1.08)}
+.btn.ghost{background:var(--surface);border-color:var(--line)}
+.btn.danger{color:var(--red);background:var(--card)}
+.btn.small{height:30px;padding:0 10px;font-size:12px}
+.btn[disabled]{opacity:.5;cursor:not-allowed}
+
+ 
+.queue-shell{background:var(--shell);border-radius:10px;padding:1px;overflow:hidden}
+.queue{background:var(--card);border-radius:9px;width:100%;border-collapse:collapse}
+.queue th{
+  text-align:left;font-size:11px;font-weight:600;letter-spacing:.05em;
+  text-transform:uppercase;color:var(--muted);padding:0 14px;height:40px;
+  background:var(--surface);border-bottom:1px solid var(--line);
+}
+.queue td{padding:0 14px;height:58px;border-bottom:1px solid var(--line);vertical-align:middle}
+.queue tr:last-child td{border-bottom:none}
+.queue tr:hover td{background:#F1F4F8}
+.queue .num{color:var(--accent);font-family:var(--mono);font-size:12.5px;white-space:nowrap}
+.queue .cell-title{color:var(--ink-strong);font-weight:500}
+.queue .cell-muted{color:var(--muted);font-size:13px}
+
+ 
+.badge{
+  display:inline-flex;align-items:center;height:24px;padding:0 10px;
+  border-radius:999px;font-size:12px;font-weight:500;white-space:nowrap;
+}
+.badge.new{background:var(--accent-soft);color:var(--accent-ink)}
+.badge.in_progress{background:var(--amber-soft);color:var(--amber)}
+.badge.resolved{background:var(--green-soft);color:var(--green)}
+.badge.closed{background:var(--gray-soft);color:var(--gray-ink)}
+.badge.cancelled{background:var(--red-soft);color:var(--red)}
+.priority{font-size:12px;font-weight:500}
+.priority.critical{color:var(--red)}
+.priority.high{color:var(--amber)}
+.priority.medium{color:var(--gray-ink)}
+.priority.low{color:var(--accent-ink)}
+
+ 
+.chips{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px}
+.chip{
+  display:inline-flex;align-items:baseline;gap:8px;height:30px;padding:0 12px;
+  border-radius:999px;background:var(--card);border:1px solid var(--line);
+  color:var(--muted);font-size:12.5px;
+}
+.chip:hover{text-decoration:none;border-color:var(--line-strong)}
+.chip .count{font-weight:600;color:var(--ink-soft);font-family:var(--mono)}
+.chip.active{border-color:var(--accent);color:var(--accent-ink);background:var(--accent-soft)}
+.chip.active .count{color:var(--accent)}
+
+ 
+.filter-bar{
+  display:flex;align-items:center;gap:10px;background:var(--surface);
+  border:1px solid var(--line);border-radius:10px;padding:9px 12px;margin-bottom:16px;
+}
+.filter-bar input[type=search],.filter-bar select{
+  height:34px;border:1px solid var(--line);border-radius:8px;background:var(--card);
+  color:var(--ink-soft);padding:0 10px;font:inherit;font-size:13px;
+}
+.filter-bar input[type=search]{flex:1;min-width:160px}
+.filter-bar select{min-width:120px}
+.filter-bar button{height:34px}
+
+ 
+.pagination{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:12px 4px 0;color:var(--muted);font-size:13px;
+}
+.pagination .pages{display:flex;gap:6px}
+.pagination a,.pagination span.page{
+  min-width:30px;height:30px;display:inline-flex;align-items:center;
+  justify-content:center;border-radius:8px;color:var(--muted);
+}
+.pagination a{border:1px solid var(--line);background:var(--card)}
+.pagination a:hover{text-decoration:none;border-color:var(--line-strong)}
+.pagination .current{background:var(--ink-strong);color:#F8FAFC}
+
+ 
+.cards{display:grid;grid-template-columns:minmax(0,1fr) 370px;gap:16px;align-items:start}
+.card{
+  background:var(--card);border:1px solid var(--line);border-radius:10px;
+  padding:18px;margin-bottom:16px;
+}
+.card h2,.card h3{margin:0 0 12px;font-size:12px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+.card .kv{display:flex;gap:14px;padding:7px 0;border-bottom:1px solid var(--line);font-size:13px}
+.card .kv:last-child{border-bottom:none}
+.card .kv dt{width:104px;color:var(--muted);flex-shrink:0}
+.card .kv dd{margin:0;color:var(--ink-soft)}
+.meta-row{display:flex;gap:10px;color:var(--muted);font-size:13px;flex-wrap:wrap}
+
+ 
+.comment{margin-top:14px;padding-top:14px;border-top:1px solid var(--line)}
+.comment .who{display:flex;gap:8px;align-items:baseline}
+.comment .author{font-weight:600;color:var(--ink-soft);font-size:13px}
+.comment .when{color:var(--muted);font-size:12px;font-family:var(--mono)}
+.comment .body{color:var(--ink-soft);margin-top:4px;white-space:pre-wrap}
+textarea,input[type=text],input[type=email],input[type=password]{
+  width:100%;border:1px solid var(--line);border-radius:8px;background:var(--card);
+  color:var(--ink-soft);padding:10px 12px;font:inherit;font-size:13.5px;
+}
+textarea{min-height:84px;resize:vertical}
+.field{margin-bottom:14px}
+.field label{display:block;font-size:12.5px;color:var(--ink-soft);margin-bottom:5px;font-weight:500}
+.field select{width:100%;height:40px;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--ink-soft);padding:0 10px;font:inherit}
+.field-row{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.form-card{max-width:640px}
+.error-banner{
+  display:flex;gap:10px;align-items:center;background:var(--red-soft);
+  border:1px solid #F3C1BC;color:var(--red);border-radius:8px;
+  padding:10px 14px;margin-bottom:14px;font-size:13.5px;
+}
+
+ 
+.activity h2{display:flex;align-items:center;gap:8px}
+.event{display:flex;gap:12px;padding:10px 0}
+.event .dot{width:8px;height:8px;border-radius:50%;background:var(--accent);margin-top:6px;flex-shrink:0}
+.event .dot.created{background:var(--accent)}
+.event .dot.transition{background:var(--amber)}
+.event .dot.update{background:var(--green)}
+.event .body{min-width:0}
+.event .main{color:var(--ink-soft);font-size:13.5px}
+.event .detail{color:var(--muted);font-size:12.5px;margin-top:2px}
+.event .when{color:var(--faint);font-size:11.5px;font-family:var(--mono);margin-top:2px}
+.event .actor{color:var(--muted);font-size:12px}
+
+ 
+.transition-form{display:flex;gap:8px;margin-top:12px}
+.transition-form select{flex:1;height:38px;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--ink-soft);padding:0 10px;font:inherit}
+.transition-form input[type=text]{flex:1.4;height:38px}
+.transition-form button{height:38px}
+
+ 
+.auth-layout{display:grid;grid-template-columns:minmax(0,1fr) minmax(360px,440px);min-height:100vh}
+.auth-brand{
+  background:var(--ink-strong);color:#F5F7FA;padding:56px;display:flex;
+  flex-direction:column;justify-content:space-between;
+}
+.auth-brand .mark{width:34px;height:34px;border-radius:8px;background:var(--accent);color:#F8FAFC;display:flex;align-items:center;justify-content:center;font-weight:600}
+.auth-brand h1{font-size:26px;font-weight:600;margin:26px 0 8px;color:#F5F7FA}
+.auth-brand p{color:#9AA3B2;margin:0;max-width:480px;line-height:1.55}
+.auth-brand .proof{display:flex;gap:28px;font-size:12.5px;color:#7A8392}
+.auth-brand .proof strong{display:block;color:#F5F7FA;font-size:15px;font-weight:600;margin-bottom:2px}
+.auth-form{display:flex;align-items:center;justify-content:center;padding:48px;background:var(--bg)}
+.auth-form form{width:100%;max-width:390px}
+.auth-form h2{font-size:22px;font-weight:600;color:var(--ink-strong);margin:0 0 6px}
+.auth-form .lead{color:var(--muted);margin:0 0 24px}
+.auth-form .btn{width:100%;height:48px;justify-content:center;font-size:14px}
+.footnote{color:var(--muted);font-size:12.5px;margin-top:16px}
+
+ 
+.avatar{
+  width:36px;height:36px;border-radius:50%;background:var(--ink-strong);
+  color:#F8FAFC;display:inline-flex;align-items:center;justify-content:center;
+  font-size:13px;font-weight:600;flex-shrink:0;
+}
+.user-cell{display:flex;align-items:center;gap:12px}
+.status{display:inline-flex;height:24px;align-items:center;padding:0 10px;border-radius:999px;font-size:12px;font-weight:500}
+.status.active{background:var(--green-soft);color:var(--green)}
+.status.inactive{background:var(--gray-soft);color:var(--gray-ink)}
+.row-actions{display:flex;gap:6px}
+.category-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:14px}
+.category-card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:16px;display:flex;align-items:center;justify-content:space-between;gap:12px}
+.category-card .name{font-weight:600;color:var(--ink-strong)}
+.category-card .when{color:var(--muted);font-size:12px;font-family:var(--mono)}
+.empty{color:var(--muted);padding:32px 0;text-align:center}
+</style>
+</head>
+<body>
+<div class="layout">
+  <aside class="rail">
+    <a class="rail-brand" href="/tickets" title="tkt">tkt</a>
+    <nav class="rail-nav">
+      <a class="rail-link active" href="/tickets" title="Tickets" aria-label="Tickets">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v1a2 2 0 0 0 0 4v1a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-1a2 2 0 0 0 0-4V9z"/><path d="M13 7v10"/></svg>
+      </a>
+      <a class="rail-link" href="/users" title="Users" aria-label="Users">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0"/><circle cx="17.5" cy="9" r="2.5"/><path d="M16 14.6a6 6 0 0 1 5.5 5.4"/></svg>
+      </a>
+      <a class="rail-link" href="/categories" title="Categories" aria-label="Categories">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h6l2 2.5H20a1 1 0 0 1 1 1V19a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1z"/></svg>
+      </a>
+    </nav>
+    <div class="rail-operator" title="Ana Torres">AT</div>
+    <form class="rail-logout" method="post" action="/logout">
+      <button class="rail-link" type="submit" title="Log out" aria-label="Log out">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 4H6a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h3"/><path d="M15 8l4 4-4 4"/><path d="M19 12H9"/></svg>
+      </button>
+    </form>
+  </aside>
+  <main class="main">
+<div class="command-header">
+  <div>
+    <h1 class="command-title">Edit ticket</h1>
+    <p class="command-sub">TKT-1</p>
+  </div>
+  <div class="command-actions">
+    <a class="btn ghost" href="/tickets/1">Back to ticket</a>
+  </div>
+</div>
+
+<form class="card form-card" method="post" action="/tickets/1/edit">
+  <h3>Ticket details</h3>
+  
+  <div class="field">
+    <label for="title">Title</label>
+    <input type="text" id="title" name="title" value="Login page down" required autofocus>
+  </div>
+  <div class="field">
+    <label for="description">Description</label>
+    <textarea id="description" name="description">The login form 500s on submit</textarea>
+  </div>
+  <div class="field-row">
+    <div class="field">
+      <label for="category_id">Category</label>
+      <select id="category_id" name="category_id" required>
+        <option value="1" selected>Bugs</option><option value="2" >Support</option>
+      </select>
+    </div>
+    <div class="field">
+      <label for="priority">Priority</label>
+      <select id="priority" name="priority">
+        <option value="critical" >critical</option><option value="high" selected>high</option><option value="medium" >medium</option><option value="low" >low</option>
+      </select>
+    </div>
+  </div>
+  <div class="field">
+    <label for="user_id">Assigned user</label>
+    <select id="user_id" name="user_id">
+      <option value="">Unassigned</option>
+      <option value="1" selected>Ana Torres</option>
+    </select>
+  </div>
+  <button class="btn primary" type="submit">Save changes</button>
+</form>
+
+</main>
+</div>
+</body>
+</html>

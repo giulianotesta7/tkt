@@ -1,0 +1,14 @@
+{{define "audit_timeline"}}
+{{range .}}
+<div class="event">
+  <span class="dot {{.Action}}"></span>
+  <div class="body">
+    <div class="main">{{.Action}}{{if .Field}} · {{.Field}}{{end}}{{if .FromValue}} · {{.FromValue}} → {{.ToValue}}{{end}}</div>
+    {{if .Note}}<div class="detail">note: {{.Note}}</div>{{end}}
+    <div class="when">{{formatTime .CreatedAt}} · {{.Actor}}</div>
+  </div>
+</div>
+{{else}}
+<p class="empty">No activity yet.</p>
+{{end}}
+{{end}}
