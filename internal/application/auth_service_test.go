@@ -13,7 +13,7 @@ import (
 func newAuthService() (*application.AuthService, *fakeUserStore, *fakeSessionStore, *fakeClock) {
 	clock := fixedClock()
 	users := newFakeUserStore()
-	sessions := newFakeSessionStore()
+	sessions := newFakeSessionStore(clock)
 	return application.NewAuthService(users, sessions, clock), users, sessions, clock
 }
 

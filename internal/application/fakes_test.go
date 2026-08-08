@@ -426,13 +426,16 @@ func (f *fakeUserStore) ListActive(_ context.Context) ([]domain.User, error) {
 }
 
 // fakeSessionStore implements SessionStore with lazy purge of expired
-// sessions (D14).
+// sessions (D14). Expiry is checked against the injected clock (D7), never
+// the real time — otherwise tests pass only while the fixed fake clock date
+// is in the future.
 type fakeSessionStore struct {
 	sessions map[string]*domain.Session
+	clock    domain.Clock
 }
 
-func newFakeSessionStore() *fakeSessionStore {
-	return &fakeSessionStore{sessions: map[string]*domain.Session{}}
+func newFakeSessionStore(clock domain.Clock) *fakeSessionStore {
+	return &fakeSessionStore{sessions: map[string]*domain.Session{}, clock: clock}
 }
 
 func (f *fakeSessionStore) Create(_ context.Context, s *domain.Session) error {
@@ -443,7 +446,7 @@ func (f *fakeSessionStore) Create(_ context.Context, s *domain.Session) error {
 
 func (f *fakeSessionStore) GetByID(_ context.Context, id string) (*domain.Session, error) {
 	s, ok := f.sessions[id]
-	if !ok || time.Now().After(s.ExpiresAt) {
+	if !ok || f.clock.Now().After(s.ExpiresAt) {
 		delete(f.sessions, id)
 		return nil, &domain.NotFoundError{Kind: "session", ID: id}
 	}
