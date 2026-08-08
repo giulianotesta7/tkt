@@ -12,5 +12,5 @@ import "embed"
 // FS is the embedded template tree: shell roots, full pages (pages/*.html)
 // and swap fragments (partials/*.html).
 //
-//go:embed base.html partials/*.html
+//go:embed base.html auth.html pages/*.html partials/*.html
 var FS embed.FS
