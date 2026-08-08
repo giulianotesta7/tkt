@@ -64,6 +64,12 @@ func (s *Store) CommentStore() application.CommentStore { return newCommentStore
 // AuditStore returns the audit trail port (task 4.3).
 func (s *Store) AuditStore() application.AuditStore { return newAuditStore(s.db) }
 
+// UserStore returns the user port (task 4.4).
+func (s *Store) UserStore() application.UserStore { return newUserStore(s.db) }
+
+// SessionStore returns the session port (task 4.4).
+func (s *Store) SessionStore() application.SessionStore { return newSessionStore(s.db) }
+
 // --- constraint and value helpers ---
 
 // isConstraint reports whether err is a SQLite constraint failure.
