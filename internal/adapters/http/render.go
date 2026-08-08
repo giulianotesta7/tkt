@@ -36,6 +36,17 @@ var templateFuncs = template.FuncMap{
 	"ticketNumber": func(n int) string {
 		return "TKT-" + strconv.Itoa(n)
 	},
+	"initials": func(name string) string {
+		parts := strings.Fields(name)
+		if len(parts) == 0 {
+			return "?"
+		}
+		out := strings.ToUpper(parts[0][:1])
+		if len(parts) > 1 {
+			out += strings.ToUpper(parts[len(parts)-1][:1])
+		}
+		return out
+	},
 }
 
 // shellFor maps a page to its shell root. Application pages use the rail

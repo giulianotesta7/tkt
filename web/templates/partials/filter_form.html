@@ -1,0 +1,23 @@
+{{define "filter_form"}}
+<form class="filter-bar" method="get" action="/tickets" hx-get="/tickets" hx-target="#ticket-list" hx-swap="outerHTML">
+  <input type="search" name="q" value="{{.Filters.Q}}" placeholder="Search title, description, comments…" aria-label="Search">
+  <select name="state" aria-label="State">
+    <option value="">All states</option>
+    {{range .Options.States}}<option value="{{.}}" {{if eq . $.Filters.State}}selected{{end}}>{{.}}</option>{{end}}
+  </select>
+  <select name="priority" aria-label="Priority">
+    <option value="">All priorities</option>
+    {{range .Options.Priorities}}<option value="{{.}}" {{if eq . $.Filters.Priority}}selected{{end}}>{{.}}</option>{{end}}
+  </select>
+  <select name="category_id" aria-label="Category">
+    <option value="">All categories</option>
+    {{range .Options.Categories}}<option value="{{.ID}}" {{if eq (.ID | printf "%d") $.Filters.CategoryID}}selected{{end}}>{{.Name}}</option>{{end}}
+  </select>
+  <select name="user_id" aria-label="Assigned user">
+    <option value="">Anyone</option>
+    {{range .Options.Users}}<option value="{{.ID}}" {{if eq (.ID | printf "%d") $.Filters.UserID}}selected{{end}}>{{.Name}}</option>{{end}}
+  </select>
+  <button class="btn" type="submit">Filter</button>
+  <a class="btn ghost small" href="/tickets">Clear</a>
+</form>
+{{end}}

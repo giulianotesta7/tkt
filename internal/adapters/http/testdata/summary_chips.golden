@@ -1,0 +1,22 @@
+
+<div id="chips" class="chips" hx-swap-oob="outerHTML:#chips">
+  
+  <a href="/tickets?state=new" class="chip active"><span class="count">1</span> new</a>
+  
+  <a href="/tickets?state=in_progress" class="chip"><span class="count">1</span> in_progress</a>
+  
+  <a href="/tickets?state=resolved" class="chip"><span class="count">0</span> resolved</a>
+  
+  <a href="/tickets?state=closed" class="chip"><span class="count">0</span> closed</a>
+  
+  <a href="/tickets?state=cancelled" class="chip"><span class="count">0</span> cancelled</a>
+  
+  <a href="/tickets?priority=critical&amp;state=new" class="chip"><span class="count">1</span> critical</a>
+  
+  <a href="/tickets?priority=high&amp;state=new" class="chip"><span class="count">1</span> high</a>
+  
+  <a href="/tickets?priority=medium&amp;state=new" class="chip"><span class="count">0</span> medium</a>
+  
+  <a href="/tickets?priority=low&amp;state=new" class="chip"><span class="count">0</span> low</a>
+  
+</div>

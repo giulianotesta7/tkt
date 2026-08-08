@@ -1,0 +1,12 @@
+{{define "content"}}
+<div class="command-header">
+  <div>
+    <h1 class="command-title">New ticket</h1>
+    <p class="command-sub">Open a ticket in state new</p>
+  </div>
+  <div class="command-actions">
+    <a class="btn ghost" href="/tickets">Back to queue</a>
+  </div>
+</div>
+{{template "ticket_form" .}}
+{{end}}

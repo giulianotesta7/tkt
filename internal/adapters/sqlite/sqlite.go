@@ -73,6 +73,11 @@ func (s *Store) SessionStore() application.SessionStore { return newSessionStore
 // SearchStore returns the FTS5 search port (task 4.5).
 func (s *Store) SearchStore() application.SearchStore { return newSearchStore(s.db) }
 
+// CategoryStore returns the category port (task 4.6). The accessor was
+// deferred to the HTTP slice (4.6 kept newCategoryStore package-private);
+// task 5.4 is its first consumer — ticket forms and filters list categories.
+func (s *Store) CategoryStore() application.CategoryStore { return newCategoryStore(s.db) }
+
 // --- constraint and value helpers ---
 
 // isConstraint reports whether err is a SQLite constraint failure.
