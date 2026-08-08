@@ -43,6 +43,15 @@ func buildTicketWhere(q application.TicketQuery) (string, []any) {
 		clauses = append(clauses, "t.user_id = ?")
 		args = append(args, *q.UserID)
 	}
+	// Text clause (FTS5, 0002): tickets whose rowid is matched by the
+	// D4-tokenized expression (design "Search / Filters"). Empty text adds
+	// no clause — a plain filter list. The clause is shared by list,
+	// count, chips, and search queries so pagination boundaries and chip
+	// counts always reflect the same filtered set.
+	if q.Text != "" {
+		clauses = append(clauses, "t.id IN (SELECT rowid FROM tickets_fts WHERE tickets_fts MATCH ?)")
+		args = append(args, q.Text)
+	}
 	if len(clauses) == 0 {
 		return "", nil
 	}

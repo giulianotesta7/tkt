@@ -70,6 +70,9 @@ func (s *Store) UserStore() application.UserStore { return newUserStore(s.db) }
 // SessionStore returns the session port (task 4.4).
 func (s *Store) SessionStore() application.SessionStore { return newSessionStore(s.db) }
 
+// SearchStore returns the FTS5 search port (task 4.5).
+func (s *Store) SearchStore() application.SearchStore { return newSearchStore(s.db) }
+
 // --- constraint and value helpers ---
 
 // isConstraint reports whether err is a SQLite constraint failure.

@@ -123,16 +123,25 @@ func TestMigrateCreatesSchema(t *testing.T) {
 	if err := s.db.QueryRow(`SELECT COUNT(*) FROM schema_migrations`).Scan(&applied); err != nil {
 		t.Fatalf("schema_migrations: %v", err)
 	}
-	if applied != 1 {
-		t.Errorf("schema_migrations rows = %d, want 1 (0001_init)", applied)
+	if applied != 2 {
+		t.Errorf("schema_migrations rows = %d, want 2 (0001_init, 0002_fts)", applied)
 	}
 
-	var version int
-	if err := s.db.QueryRow(`SELECT version FROM schema_migrations`).Scan(&version); err != nil {
-		t.Fatalf("read version: %v", err)
+	rows, err := s.db.Query(`SELECT version FROM schema_migrations ORDER BY version`)
+	if err != nil {
+		t.Fatalf("read versions: %v", err)
 	}
-	if version != 1 {
-		t.Errorf("schema_migrations version = %d, want 1", version)
+	defer rows.Close()
+	var versions []int
+	for rows.Next() {
+		var v int
+		if err := rows.Scan(&v); err != nil {
+			t.Fatal(err)
+		}
+		versions = append(versions, v)
+	}
+	if len(versions) != 2 || versions[0] != 1 || versions[1] != 2 {
+		t.Errorf("versions = %v, want [1 2]", versions)
 	}
 }
 
@@ -145,8 +154,8 @@ func TestMigrateRerunIsNoOp(t *testing.T) {
 	if err := s.db.QueryRow(`SELECT COUNT(*) FROM schema_migrations`).Scan(&applied); err != nil {
 		t.Fatalf("schema_migrations: %v", err)
 	}
-	if applied != 1 {
-		t.Errorf("rerun recorded %d versions, want 1 (no-op)", applied)
+	if applied != 2 {
+		t.Errorf("rerun recorded %d versions, want 2 (no-op)", applied)
 	}
 }
 
