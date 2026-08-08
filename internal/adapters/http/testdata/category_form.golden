@@ -1,0 +1,10 @@
+
+<form class="card form-card" method="post" action="/categories/1/edit">
+  <h3>Rename category</h3>
+  
+  <div class="field">
+    <label for="name">Name</label>
+    <input type="text" id="name" name="name" value="Bugs" required autofocus>
+  </div>
+  <button class="btn primary" type="submit">Save changes</button>
+</form>

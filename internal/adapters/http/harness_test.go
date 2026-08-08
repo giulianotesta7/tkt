@@ -133,6 +133,8 @@ func newHarnessWithAdmin(t *testing.T, seedAdmin bool) *harness {
 	mux := http.NewServeMux()
 	NewAuthHandlers(authSvc, usersSvc, renderer).Register(mux)
 	NewTicketHandlers(ticketSvc, commentSvc, searchSvc, catSvc, usersSvc, renderer).Register(mux)
+	NewUserHandlers(usersSvc, renderer).Register(mux)
+	NewCategoryHandlers(catSvc, renderer).Register(mux)
 	mw := NewSessionMiddleware(s.SessionStore(), s.UserStore())
 
 	h := &harness{

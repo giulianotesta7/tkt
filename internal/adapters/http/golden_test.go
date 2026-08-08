@@ -270,3 +270,69 @@ func TestGoldenCommentList(t *testing.T) {
 func TestGoldenAuditTimeline(t *testing.T) {
 	goldenFile(t, "audit_timeline", renderGolden(t, "tickets_show", "audit_timeline", fixtureDetailData().View.AuditEvents, true))
 }
+
+// ---------------------------------------------------------------------------
+// Task 5.6 goldens: users/categories pages + forms.
+// ---------------------------------------------------------------------------
+
+func fixtureUsersIndexData() usersIndexData {
+	ana := domain.User{ID: 1, Name: "Ana Torres", Email: "ana@example.com", Active: true, CreatedAt: goldenT0}
+	beto := domain.User{ID: 2, Name: "Beto Ruiz", Email: "beto@example.com", Active: false, CreatedAt: goldenT1}
+	return usersIndexData{
+		pageData: pageData{NavActive: "users", CurrentUser: ana},
+		Users:    []domain.User{ana, beto},
+	}
+}
+
+func fixtureUserFormData() userFormData {
+	ana := domain.User{ID: 1, Name: "Ana Torres", Email: "ana@example.com", Active: true, CreatedAt: goldenT0}
+	return userFormData{
+		pageData: pageData{NavActive: "users", CurrentUser: ana},
+		UserID:   1,
+		Values:   userFormValues{Name: "Ana Torres", Email: "ana@example.com", Active: true},
+	}
+}
+
+func fixtureCategoriesIndexData() categoriesIndexData {
+	ana := domain.User{ID: 1, Name: "Ana Torres", Email: "ana@example.com", Active: true, CreatedAt: goldenT0}
+	return categoriesIndexData{
+		pageData: pageData{NavActive: "categories", CurrentUser: ana},
+		Categories: []domain.Category{
+			{ID: 1, Name: "Bugs", CreatedAt: goldenT0},
+			{ID: 2, Name: "Support", CreatedAt: goldenT1},
+		},
+	}
+}
+
+func fixtureCategoryFormData() categoryFormData {
+	ana := domain.User{ID: 1, Name: "Ana Torres", Email: "ana@example.com", Active: true, CreatedAt: goldenT0}
+	return categoryFormData{
+		pageData:   pageData{NavActive: "categories", CurrentUser: ana},
+		CategoryID: 1,
+		Name:       "Bugs",
+	}
+}
+
+func TestGoldenUsersIndex(t *testing.T) {
+	goldenFile(t, "users_index", renderGolden(t, "users_index", "", fixtureUsersIndexData(), false))
+}
+
+func TestGoldenUsersNew(t *testing.T) {
+	goldenFile(t, "users_new", renderGolden(t, "users_new", "", fixtureUserFormData(), false))
+}
+
+func TestGoldenUserForm(t *testing.T) {
+	goldenFile(t, "user_form", renderGolden(t, "users_new", "user_form", fixtureUserFormData(), true))
+}
+
+func TestGoldenCategoriesIndex(t *testing.T) {
+	goldenFile(t, "categories_index", renderGolden(t, "categories_index", "", fixtureCategoriesIndexData(), false))
+}
+
+func TestGoldenCategoriesNew(t *testing.T) {
+	goldenFile(t, "categories_new", renderGolden(t, "categories_new", "", fixtureCategoryFormData(), false))
+}
+
+func TestGoldenCategoryForm(t *testing.T) {
+	goldenFile(t, "category_form", renderGolden(t, "categories_new", "category_form", fixtureCategoryFormData(), true))
+}

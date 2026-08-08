@@ -1,0 +1,12 @@
+{{define "content"}}
+<div class="command-header">
+  <div>
+    <h1 class="command-title">{{if .UserID}}Edit user{{else}}New user{{end}}</h1>
+    <p class="command-sub">{{if .UserID}}Update operator details{{else}}Create an active operator{{end}}</p>
+  </div>
+  <div class="command-actions">
+    <a class="btn ghost" href="/users">Back to users</a>
+  </div>
+</div>
+{{template "user_form" .}}
+{{end}}

@@ -1,0 +1,30 @@
+{{define "content"}}
+<div class="command-header">
+  <div>
+    <h1 class="command-title">Categories</h1>
+    <p class="command-sub">{{len .Categories}} ticket categor{{if eq (len .Categories) 1}}y{{else}}ies{{end}}</p>
+  </div>
+  <div class="command-actions">
+    <a class="btn primary" href="/categories/new">New category</a>
+  </div>
+</div>
+{{if .Error}}<div class="error-banner" role="alert">{{.Error}}</div>{{end}}
+<div class="category-grid">
+  {{range .Categories}}
+  <div class="category-card">
+    <div>
+      <div class="name">{{.Name}}</div>
+      <div class="when">Created {{formatTime .CreatedAt}}</div>
+    </div>
+    <div class="row-actions">
+      <a class="btn ghost small" href="/categories/{{.ID}}/edit">Edit</a>
+      <form method="post" action="/categories/{{.ID}}/delete">
+        <button class="btn danger small" type="submit">Delete</button>
+      </form>
+    </div>
+  </div>
+  {{else}}
+  <div class="empty">No categories yet — tickets need at least one.</div>
+  {{end}}
+</div>
+{{end}}

@@ -1,0 +1,12 @@
+{{define "content"}}
+<div class="command-header">
+  <div>
+    <h1 class="command-title">{{if .CategoryID}}Rename category{{else}}New category{{end}}</h1>
+    <p class="command-sub">Category names are unique</p>
+  </div>
+  <div class="command-actions">
+    <a class="btn ghost" href="/categories">Back to categories</a>
+  </div>
+</div>
+{{template "category_form" .}}
+{{end}}
