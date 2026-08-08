@@ -58,6 +58,12 @@ func (s *Store) TicketStore() application.TicketStore { return newTicketStore(s.
 // TicketUnitOfWork returns the atomic ticket+audit mutation port (C1).
 func (s *Store) TicketUnitOfWork() application.TicketUnitOfWork { return newUnitOfWork(s.db) }
 
+// CommentStore returns the comment timeline port (task 4.3).
+func (s *Store) CommentStore() application.CommentStore { return newCommentStore(s.db) }
+
+// AuditStore returns the audit trail port (task 4.3).
+func (s *Store) AuditStore() application.AuditStore { return newAuditStore(s.db) }
+
 // --- constraint and value helpers ---
 
 // isConstraint reports whether err is a SQLite constraint failure.
