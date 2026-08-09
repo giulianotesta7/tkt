@@ -7,6 +7,8 @@ import (
 	"testing"
 	"testing/fstest"
 	"time"
+
+	"github.com/giulianotesta7/tkt/internal/domain"
 )
 
 // fixtureFS is the render-contract fixture template set: a shell root, one
@@ -16,7 +18,7 @@ import (
 func fixtureFS() fstest.MapFS {
 	return fstest.MapFS{
 		"base.html":                      &fstest.MapFile{Data: []byte(`<!DOCTYPE html><html><head><title>fixture shell</title></head><body data-shell="base">{{template "content" .}}</body></html>`)},
-		"pages/fixture.html":             &fstest.MapFile{Data: []byte(`{{define "content"}}<h1>Fixture Page</h1><p>{{.Title}}</p><time>{{formatTime .Time}}</time>{{end}}`)},
+		"pages/fixture.html":             &fstest.MapFile{Data: []byte(`{{define "content"}}<h1>Fixture Page</h1><p>{{.Title}}</p><time datetime="{{formatDatetime .Time}}">{{formatTime .Time}}</time>{{end}}`)},
 		"partials/fixture_fragment.html": &fstest.MapFile{Data: []byte(`{{define "fixture_fragment"}}<section data-fragment="1">{{.Title}} @ {{formatTime .Time}}</section>{{end}}`)},
 		"partials/fixture_other.html":    &fstest.MapFile{Data: []byte(`{{define "fixture_other"}}<span>other</span>{{end}}`)},
 	}
@@ -61,8 +63,26 @@ func TestRenderFullPageWithoutHX(t *testing.T) {
 	if !strings.Contains(body, "Fixture Page") {
 		t.Errorf("full page must render page content, got: %s", body)
 	}
-	if !strings.Contains(body, "2026-08-06T10:00:00Z") {
-		t.Errorf("full page must render the frozen fixture time in RFC3339 UTC, got: %s", body)
+	if !strings.Contains(body, `<time datetime="2026-08-06T10:00:00Z">10:00 · 06-08-2026</time>`) {
+		t.Errorf("full page must render semantic RFC3339 with a human UTC label, got: %s", body)
+	}
+}
+
+func TestHumanizeLabel(t *testing.T) {
+	for _, tt := range []struct {
+		name  string
+		value any
+		want  string
+	}{
+		{name: "state", value: "in_progress", want: "In Progress"},
+		{name: "priority", value: domain.PriorityCritical, want: "Critical"},
+		{name: "action", value: domain.ActionTransition, want: "Transition"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := humanizeLabel(tt.value); got != tt.want {
+				t.Errorf("humanizeLabel(%q) = %q, want %q", tt.value, got, tt.want)
+			}
+		})
 	}
 }
 

@@ -12,7 +12,7 @@
           <td class="cell-title"><a href="/tickets/2">Printer jam</a></td>
           <td><span class="badge in_progress">In Progress</span></td>
           <td class="priority high">High</td>
-          <td class="cell-muted"><time datetime="2026-08-06T10:30:00Z">2026-08-06T10:30:00Z</time></td>
+          <td class="cell-muted"><time datetime="2026-08-06T10:30:00Z">10:30 · 06-08-2026</time></td>
         </tr>
         
         <tr>
@@ -20,7 +20,7 @@
           <td class="cell-title"><a href="/tickets/1">Login page down</a></td>
           <td><span class="badge new">New</span></td>
           <td class="priority critical">Critical</td>
-          <td class="cell-muted"><time datetime="2026-08-06T10:00:00Z">2026-08-06T10:00:00Z</time></td>
+          <td class="cell-muted"><time datetime="2026-08-06T10:00:00Z">10:00 · 06-08-2026</time></td>
         </tr>
         
       </tbody>

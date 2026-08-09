@@ -273,7 +273,7 @@ textarea{min-height:84px;resize:vertical}
   <div class="category-card">
     <div>
       <div class="name">Bugs</div>
-      <div class="when">Created 2026-08-06T10:00:00Z</div>
+      <div class="when">Created 10:00 · 06-08-2026</div>
     </div>
     <div class="row-actions">
       <a class="btn ghost small" href="/categories/1/edit">Edit</a>
@@ -286,7 +286,7 @@ textarea{min-height:84px;resize:vertical}
   <div class="category-card">
     <div>
       <div class="name">Support</div>
-      <div class="when">Created 2026-08-06T10:30:00Z</div>
+      <div class="when">Created 10:30 · 06-08-2026</div>
     </div>
     <div class="row-actions">
       <a class="btn ghost small" href="/categories/2/edit">Edit</a>
