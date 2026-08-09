@@ -1,0 +1,13 @@
+.git
+.gitignore
+**/*.golden
+data/
+*.db
+*.db-wal
+*.db-shm
+demo
+Dockerfile
+docker-compose.yml
+.dockerignore
+openspec/
+design/
