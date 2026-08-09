@@ -168,10 +168,11 @@ func (h *UserHandlers) renderUserFormError(w http.ResponseWriter, r *http.Reques
 		Error:    msg,
 		UserID:   id,
 		Values: userFormValues{
-			Name:     r.Form.Get("name"),
-			Email:    r.Form.Get("email"),
-			Password: r.Form.Get("password"),
-			Active:   r.Form.Get("active") != "",
+			Name:   r.Form.Get("name"),
+			Email:  r.Form.Get("email"),
+			Active: r.Form.Get("active") != "",
+			// Password is intentionally NOT echoed: the submitted credential
+			// never returns to the DOM after a rejected form.
 		},
 	}
 	h.renderer.Render(w, r, "users_new", "user_form", data, status)

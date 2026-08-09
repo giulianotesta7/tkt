@@ -280,7 +280,7 @@ textarea{min-height:84px;resize:vertical}
   </div>
   <div class="field">
     <label for="password">New password (leave blank to keep)</label>
-    <input type="password" id="password" name="password" value=""  autocomplete="new-password">
+    <input type="password" id="password" name="password"  autocomplete="new-password">
   </div>
   
   <div class="field">

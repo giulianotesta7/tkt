@@ -12,7 +12,7 @@
   </div>
   <div class="field">
     <label for="password">{{if .UserID}}New password (leave blank to keep){{else}}Password{{end}}</label>
-    <input type="password" id="password" name="password" value="{{.Values.Password}}" {{if not .UserID}}required{{end}} autocomplete="new-password">
+    <input type="password" id="password" name="password" {{if not .UserID}}required{{end}} autocomplete="new-password">
   </div>
   {{if .UserID}}
   <div class="field">
