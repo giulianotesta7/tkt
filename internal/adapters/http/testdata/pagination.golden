@@ -2,7 +2,7 @@
 <div class="pagination">
   <span>Page 2 of 3 · 25 tickets</span>
   <div class="pages">
-    <a hx-get="/tickets?page=1" hx-target="#ticket-list" hx-swap="outerHTML">← Prev</a>
-    <a hx-get="/tickets?page=3" hx-target="#ticket-list" hx-swap="outerHTML">Next →</a>
+    <a href="/tickets?page=1" hx-get="/tickets?page=1" hx-target="#ticket-list" hx-swap="outerHTML">← Prev</a>
+    <a href="/tickets?page=3" hx-get="/tickets?page=3" hx-target="#ticket-list" hx-swap="outerHTML">Next →</a>
   </div>
 </div>

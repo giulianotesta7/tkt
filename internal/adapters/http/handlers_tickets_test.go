@@ -212,7 +212,7 @@ func TestTicketCreateSuccessFullPage(t *testing.T) {
 
 	rec := h.postForm(t, "/tickets", form, false)
 
-	wantRedirect(t, rec, http.StatusSeeOther, "/tickets/1")
+	wantRedirect(t, rec, http.StatusSeeOther, "/tickets")
 
 	view, err := h.tickets.GetByID(t.Context(), 1)
 	if err != nil {
@@ -340,7 +340,7 @@ func TestTicketCreateAssignsActiveUser(t *testing.T) {
 	})
 	rec := h.postForm(t, "/tickets", form, false)
 
-	wantRedirect(t, rec, http.StatusSeeOther, "/tickets/1")
+	wantRedirect(t, rec, http.StatusSeeOther, "/tickets")
 	view, err := h.tickets.GetByID(t.Context(), 1)
 	if err != nil {
 		t.Fatalf("ticket must exist: %v", err)

@@ -356,7 +356,7 @@ func (h *TicketHandlers) create(w http.ResponseWriter, r *http.Request) {
 		Priority:       domain.Priority(r.Form.Get("priority")),
 	}
 
-	t, err := h.tickets.Create(r.Context(), actor, in)
+	_, err := h.tickets.Create(r.Context(), actor, in)
 	if err != nil {
 		status, msg := mapError(err)
 		if status == http.StatusInternalServerError {
@@ -370,14 +370,20 @@ func (h *TicketHandlers) create(w http.ResponseWriter, r *http.Request) {
 	if r.Header.Get("HX-Request") != "" {
 		data, err := h.listData(r, filterState{}, 1)
 		if err != nil {
-			http.Error(w, "Internal server error", http.StatusInternalServerError)
+			// The ticket is already committed: never report failure and
+			// never invite a duplicate-creating retry. Send the client to
+			// the list via the HX redirect instead of a misleading 500.
+			w.Header().Set("HX-Redirect", "/tickets")
+			w.WriteHeader(http.StatusOK)
 			return
 		}
 		h.renderer.Render(w, r, "tickets_index", "ticket_list", data, http.StatusOK)
 		return
 	}
 
-	redirect(w, r, "/tickets/"+strconv.FormatInt(t.ID, 10))
+	// The detail route lands in the next slice commit; a committed ticket
+	// must never leave the user on an unregistered 404 path.
+	redirect(w, r, "/tickets")
 }
 
 // renderCreateError re-renders the create form with an inline error and the

@@ -2,8 +2,8 @@
 <div class="pagination">
   <span>Page {{.Page}} of {{.Pages}} · {{.Total}} tickets</span>
   <div class="pages">
-    {{if .PrevHref}}<a hx-get="{{.PrevHref}}" hx-target="#ticket-list" hx-swap="outerHTML">← Prev</a>{{else}}<span class="page">← Prev</span>{{end}}
-    {{if .NextHref}}<a hx-get="{{.NextHref}}" hx-target="#ticket-list" hx-swap="outerHTML">Next →</a>{{else}}<span class="page">Next →</span>{{end}}
+    {{if .PrevHref}}<a href="{{.PrevHref}}" hx-get="{{.PrevHref}}" hx-target="#ticket-list" hx-swap="outerHTML">← Prev</a>{{else}}<span class="page">← Prev</span>{{end}}
+    {{if .NextHref}}<a href="{{.NextHref}}" hx-get="{{.NextHref}}" hx-target="#ticket-list" hx-swap="outerHTML">Next →</a>{{else}}<span class="page">Next →</span>{{end}}
   </div>
 </div>
 {{end}}
