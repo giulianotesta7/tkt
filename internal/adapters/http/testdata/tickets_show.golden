@@ -272,8 +272,8 @@ textarea{min-height:84px;resize:vertical}
       <h1 class="command-title">Login page down</h1>
       <div class="meta-row ticket-metadata">
         <span>Requester: Ana Torres &lt;ana@example.com&gt;</span>
-        <span>Created <time datetime="2026-08-06T10:00:00Z">2026-08-06T10:00:00Z</time></span>
-        <span>Updated <time datetime="2026-08-06T10:30:00Z">2026-08-06T10:30:00Z</time></span>
+        <span>Created <time datetime="2026-08-06T10:00:00Z">10:00 · 06-08-2026</time></span>
+        <span>Updated <time datetime="2026-08-06T10:30:00Z">10:30 · 06-08-2026</time></span>
       </div>
     </div>
   </div>
@@ -302,7 +302,7 @@ textarea{min-height:84px;resize:vertical}
   <div class="timeline-entry timeline-comment">
     <div class="who">
       <span class="author">Ana Torres</span>
-      <span class="when"><time datetime="2026-08-06T10:30:00Z">2026-08-06T10:30:00Z</time></span>
+      <span class="when"><time datetime="2026-08-06T10:30:00Z">10:30 · 06-08-2026</time></span>
     </div>
     <div class="body">Checking now</div>
   </div>
@@ -314,7 +314,7 @@ textarea{min-height:84px;resize:vertical}
     <div class="body">
       <div class="main">Update · Assigned To · Unassigned → Ana Torres</div>
 
-      <div class="when"><time datetime="2026-08-06T10:30:00Z">2026-08-06T10:30:00Z</time> · Admin</div>
+      <div class="when"><time datetime="2026-08-06T10:30:00Z">10:30 · 06-08-2026</time> · Admin</div>
     </div>
   </div>
 
@@ -325,7 +325,7 @@ textarea{min-height:84px;resize:vertical}
     <div class="body">
       <div class="main">Transition · State · New → In Progress</div>
 
-      <div class="when"><time datetime="2026-08-06T10:30:00Z">2026-08-06T10:30:00Z</time> · Admin</div>
+      <div class="when"><time datetime="2026-08-06T10:30:00Z">10:30 · 06-08-2026</time> · Admin</div>
     </div>
   </div>
 
@@ -336,7 +336,7 @@ textarea{min-height:84px;resize:vertical}
     <div class="body">
       <div class="main">Created</div>
 
-      <div class="when"><time datetime="2026-08-06T10:00:00Z">2026-08-06T10:00:00Z</time> · Admin</div>
+      <div class="when"><time datetime="2026-08-06T10:00:00Z">10:00 · 06-08-2026</time> · Admin</div>
     </div>
   </div>
 

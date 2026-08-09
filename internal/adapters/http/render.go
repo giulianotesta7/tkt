@@ -22,7 +22,14 @@ import (
 
 // timeLayout is the rendered timestamp form (D7): ISO-8601 UTC TEXT,
 // RFC3339 — the same layout the sqlite adapter persists.
-const timeLayout = time.RFC3339
+const displayTimeLayout = "15:04 · 02-01-2006"
+
+func formatDisplayTime(t time.Time) string {
+	if t.IsZero() {
+		return ""
+	}
+	return t.UTC().Format(displayTimeLayout)
+}
 
 func formatDatetime(t time.Time) string {
 	if t.IsZero() {
@@ -43,12 +50,7 @@ func humanizeLabel(value any) string {
 // The render path never calls time.Now() (D7): formatTime formats the
 // already-stamped instants the handlers pass in.
 var templateFuncs = template.FuncMap{
-	"formatTime": func(t time.Time) string {
-		if t.IsZero() {
-			return ""
-		}
-		return t.UTC().Format(timeLayout)
-	},
+	"formatTime":     formatDisplayTime,
 	"formatDatetime": formatDatetime,
 	"humanize":       humanizeLabel,
 	"ticketNumber": func(n int) string {
