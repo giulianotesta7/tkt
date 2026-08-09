@@ -16,17 +16,19 @@ import (
 // fragment, else full page).
 type TicketHandlers struct {
 	tickets    *application.TicketService
+	comments   *application.CommentService
 	search     *application.SearchService
 	categories *application.CategoryService
 	users      *application.UserService
 	renderer   *Renderer
 }
 
-// NewTicketHandlers wires the ticket routes against the ticket, search,
-// category, and user use cases plus the renderer.
-func NewTicketHandlers(tickets *application.TicketService, search *application.SearchService, categories *application.CategoryService, users *application.UserService, renderer *Renderer) *TicketHandlers {
+// NewTicketHandlers wires the ticket routes against the ticket, comment,
+// search, category, and user use cases plus the renderer.
+func NewTicketHandlers(tickets *application.TicketService, comments *application.CommentService, search *application.SearchService, categories *application.CategoryService, users *application.UserService, renderer *Renderer) *TicketHandlers {
 	return &TicketHandlers{
 		tickets:    tickets,
+		comments:   comments,
 		search:     search,
 		categories: categories,
 		users:      users,
@@ -42,7 +44,11 @@ func (h *TicketHandlers) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /tickets", h.list)
 	mux.HandleFunc("GET /tickets/new", h.newForm)
 	mux.HandleFunc("POST /tickets", h.create)
-	// Task 5.5 registers the detail/edit/transition/comment routes here.
+	mux.HandleFunc("GET /tickets/{id}", h.show)
+	mux.HandleFunc("GET /tickets/{id}/edit", h.editForm)
+	mux.HandleFunc("POST /tickets/{id}/edit", h.update)
+	mux.HandleFunc("POST /tickets/{id}/transition", h.transition)
+	mux.HandleFunc("POST /tickets/{id}/comments", h.addComment)
 }
 
 // pageData is the shared presentation payload for app-shell pages: the rail
@@ -410,4 +416,297 @@ func (h *TicketHandlers) renderCreateError(w http.ResponseWriter, r *http.Reques
 	}
 	_ = field // the inline banner is a single generic error block
 	h.renderer.Render(w, r, "tickets_new", "ticket_form", data, status)
+}
+
+// --- Task 5.5: detail, edit, transition, comments -------------------------
+
+// transitionTarget is one allowed next state shown in the transition panel.
+// The table mirrors the domain transition map (design "Domain Model"); the
+// domain remains the single enforcement point — this list is presentation.
+type transitionTarget struct {
+	To          domain.State
+	NeedsReason bool // closed -> in_progress requires a reopen reason
+}
+
+// allowedNext returns the presentation list of legal next states (design
+// transition table).
+func allowedNext(s domain.State) []transitionTarget {
+	switch s {
+	case domain.StateNew:
+		return []transitionTarget{{To: domain.StateInProgress}, {To: domain.StateResolved}, {To: domain.StateCancelled}}
+	case domain.StateInProgress:
+		return []transitionTarget{{To: domain.StateResolved}, {To: domain.StateCancelled}}
+	case domain.StateResolved:
+		return []transitionTarget{{To: domain.StateClosed}, {To: domain.StateInProgress}}
+	case domain.StateClosed:
+		return []transitionTarget{{To: domain.StateInProgress, NeedsReason: true}}
+	default:
+		return nil // cancelled is terminal
+	}
+}
+
+// detailData is the ticket detail payload (page + HX fragment share it).
+type detailData struct {
+	pageData
+	Error string
+	View  *application.TicketView
+	Next  []transitionTarget
+}
+
+// ticketID resolves and validates the {id} path parameter; 0 + false on a
+// non-numeric id (handler responsibility: 400).
+func ticketID(r *http.Request) (int64, bool) {
+	id := parseID(r.PathValue("id"))
+	return id, id != 0
+}
+
+// detailDataFor loads the composed view and builds the detail payload.
+func (h *TicketHandlers) detailDataFor(r *http.Request, id int64) (detailData, int, error) {
+	view, err := h.tickets.GetByID(r.Context(), id)
+	if err != nil {
+		status, _ := mapError(err)
+		return detailData{}, status, err
+	}
+	return detailData{
+		pageData: pageDataFrom(r, "tickets"),
+		View:     view,
+		Next:     allowedNext(view.Ticket.State),
+	}, 0, nil
+}
+
+func (h *TicketHandlers) show(w http.ResponseWriter, r *http.Request) {
+	id, ok := ticketID(r)
+	if !ok {
+		http.Error(w, "invalid ticket id", http.StatusBadRequest)
+		return
+	}
+	data, status, err := h.detailDataFor(r, id)
+	if err != nil {
+		http.Error(w, mapErrorMsg(err), status)
+		return
+	}
+	h.renderer.Render(w, r, "tickets_show", "ticket_detail", data, http.StatusOK)
+}
+
+func (h *TicketHandlers) transition(w http.ResponseWriter, r *http.Request) {
+	id, ok := ticketID(r)
+	if !ok {
+		http.Error(w, "invalid ticket id", http.StatusBadRequest)
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+	actor := *userFromContext(r.Context())
+	to := domain.State(r.Form.Get("to"))
+	reason := r.Form.Get("reason")
+
+	_, err := h.tickets.Transition(r.Context(), actor, id, to, reason)
+	if err != nil {
+		h.renderDetailError(w, r, id, err)
+		return
+	}
+	h.afterMutation(w, r, id, "ticket_detail")
+}
+
+func (h *TicketHandlers) addComment(w http.ResponseWriter, r *http.Request) {
+	id, ok := ticketID(r)
+	if !ok {
+		http.Error(w, "invalid ticket id", http.StatusBadRequest)
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+	actor := *userFromContext(r.Context())
+
+	_, err := h.comments.Add(r.Context(), actor, id, r.Form.Get("body"))
+	if err != nil {
+		h.renderDetailError(w, r, id, err)
+		return
+	}
+	// HX: swap the comment timeline fragment; full: back to the detail page.
+	data, status, err := h.detailDataFor(r, id)
+	if err != nil {
+		http.Error(w, mapErrorMsg(err), status)
+		return
+	}
+	if r.Header.Get("HX-Request") != "" {
+		h.renderer.Render(w, r, "tickets_show", "comment_list", data, http.StatusOK)
+		return
+	}
+	redirect(w, r, "/tickets/"+strconv.FormatInt(id, 10))
+}
+
+// renderDetailError re-renders the detail view with an inline error and the
+// mapped status (HX → ticket_detail fragment; full → tickets_show page).
+func (h *TicketHandlers) renderDetailError(w http.ResponseWriter, r *http.Request, id int64, err error) {
+	status, msg := mapError(err)
+	if status == http.StatusInternalServerError {
+		http.Error(w, msg, status)
+		return
+	}
+	data, _, dataErr := h.detailDataFor(r, id)
+	if dataErr != nil {
+		http.Error(w, mapErrorMsg(dataErr), statusFor(dataErr))
+		return
+	}
+	data.Error = msg
+	h.renderer.Render(w, r, "tickets_show", "ticket_detail", data, status)
+}
+
+// afterMutation answers a successful ticket mutation: HX → re-rendered
+// fragment; full → 303 back to the detail page.
+func (h *TicketHandlers) afterMutation(w http.ResponseWriter, r *http.Request, id int64, fragment string) {
+	data, status, err := h.detailDataFor(r, id)
+	if err != nil {
+		http.Error(w, mapErrorMsg(err), status)
+		return
+	}
+	if r.Header.Get("HX-Request") != "" {
+		h.renderer.Render(w, r, "tickets_show", fragment, data, http.StatusOK)
+		return
+	}
+	redirect(w, r, "/tickets/"+strconv.FormatInt(id, 10))
+}
+
+// editFormData is the edit-form payload (prefilled from the ticket on GET,
+// from the submitted form on a 422 re-render).
+type editFormData struct {
+	pageData
+	Error      string
+	TicketID   int64
+	Number     int
+	Values     ticketFormValues
+	Unassigned bool
+	Options    options
+}
+
+func (h *TicketHandlers) editForm(w http.ResponseWriter, r *http.Request) {
+	id, ok := ticketID(r)
+	if !ok {
+		http.Error(w, "invalid ticket id", http.StatusBadRequest)
+		return
+	}
+	view, err := h.tickets.GetByID(r.Context(), id)
+	if err != nil {
+		http.Error(w, mapErrorMsg(err), statusFor(err))
+		return
+	}
+	opts, err := h.collectOptions(r)
+	if err != nil {
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+	t := view.Ticket
+	values := ticketFormValues{
+		Title:          t.Title,
+		Description:    t.Description,
+		RequesterName:  t.RequesterName,
+		RequesterEmail: t.RequesterEmail,
+		CategoryID:     strconv.FormatInt(t.CategoryID, 10),
+		Priority:       t.Priority,
+	}
+	if t.UserID != nil {
+		values.UserID = strconv.FormatInt(*t.UserID, 10)
+	}
+	data := editFormData{
+		pageData:   pageDataFrom(r, "tickets"),
+		TicketID:   id,
+		Number:     t.Number,
+		Values:     values,
+		Unassigned: t.UserID == nil,
+		Options:    opts,
+	}
+	h.renderer.Render(w, r, "tickets_edit", "ticket_edit_form", data, http.StatusOK)
+}
+
+// update applies the edit form. A submitted empty user select means
+// unassign (ClearUserID); a selected user assigns/reassigns.
+func (h *TicketHandlers) update(w http.ResponseWriter, r *http.Request) {
+	id, ok := ticketID(r)
+	if !ok {
+		http.Error(w, "invalid ticket id", http.StatusBadRequest)
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+	actor := *userFromContext(r.Context())
+
+	title := r.Form.Get("title")
+	description := r.Form.Get("description")
+	u := domain.TicketUpdate{Title: &title, Description: &description}
+
+	categoryID := parseID(r.Form.Get("category_id"))
+	if categoryID == 0 {
+		h.renderEditError(w, r, id, &domain.ValidationError{Field: "category", Message: "category is required"})
+		return
+	}
+	u.CategoryID = &categoryID
+
+	p := domain.Priority(r.Form.Get("priority"))
+	u.Priority = &p
+
+	if raw := r.Form.Get("user_id"); raw != "" {
+		uid := parseID(raw)
+		if uid == 0 {
+			h.renderEditError(w, r, id, &domain.ValidationError{Field: "user", Message: "invalid user"})
+			return
+		}
+		u.UserID = &uid
+	} else {
+		u.ClearUserID = true
+	}
+
+	_, err := h.tickets.Update(r.Context(), actor, id, u)
+	if err != nil {
+		h.renderEditError(w, r, id, err)
+		return
+	}
+	h.afterMutation(w, r, id, "ticket_detail")
+}
+
+// renderEditError re-renders the edit form with the submitted values and an
+// inline error (HX → ticket_edit_form fragment; full → tickets_edit page).
+func (h *TicketHandlers) renderEditError(w http.ResponseWriter, r *http.Request, id int64, err error) {
+	status, msg := mapError(err)
+	if status == http.StatusInternalServerError {
+		http.Error(w, msg, status)
+		return
+	}
+	opts, optsErr := h.collectOptions(r)
+	if optsErr != nil {
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+	data := editFormData{
+		pageData: pageDataFrom(r, "tickets"),
+		Error:    msg,
+		TicketID: id,
+		Values: ticketFormValues{
+			Title:       r.Form.Get("title"),
+			Description: r.Form.Get("description"),
+			CategoryID:  r.Form.Get("category_id"),
+			UserID:      r.Form.Get("user_id"),
+			Priority:    domain.Priority(r.Form.Get("priority")),
+		},
+		Unassigned: r.Form.Get("user_id") == "",
+		Options:    opts,
+	}
+	h.renderer.Render(w, r, "tickets_edit", "ticket_edit_form", data, status)
+}
+
+// mapErrorMsg returns the mapped message; statusFor the mapped status.
+func mapErrorMsg(err error) string {
+	_, msg := mapError(err)
+	return msg
+}
+
+func statusFor(err error) int {
+	status, _ := mapError(err)
+	return status
 }

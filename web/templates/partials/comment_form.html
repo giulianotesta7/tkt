@@ -1,0 +1,10 @@
+{{define "comment_form"}}
+<form class="card" method="post" action="/tickets/{{.View.Ticket.ID}}/comments">
+  <h2>Add comment</h2>
+  {{if .Error}}<div class="error-banner" role="alert">{{.Error}}</div>{{end}}
+  <div class="field">
+    <textarea name="body" placeholder="Write a comment…" aria-label="Comment body"></textarea>
+  </div>
+  <button class="btn primary" type="submit">Add comment</button>
+</form>
+{{end}}

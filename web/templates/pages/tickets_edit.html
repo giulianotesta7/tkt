@@ -1,0 +1,12 @@
+{{define "content"}}
+<div class="command-header">
+  <div>
+    <h1 class="command-title">Edit ticket</h1>
+    <p class="command-sub">{{ticketNumber .Number}}</p>
+  </div>
+  <div class="command-actions">
+    <a class="btn ghost" href="/tickets/{{.TicketID}}">Back to ticket</a>
+  </div>
+</div>
+{{template "ticket_edit_form" .}}
+{{end}}
