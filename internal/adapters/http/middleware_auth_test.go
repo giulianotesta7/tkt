@@ -317,3 +317,26 @@ func TestMiddlewareUserStoreFailure500(t *testing.T) {
 		t.Errorf("user-store failure must not redirect, got Location %q", loc)
 	}
 }
+
+// TestMiddlewareStaticBypass proves vendored static assets load without a
+// session: htmx must reach the login/setup pages and every authed page, and
+// the middleware must never redirect it.
+func TestMiddlewareStaticBypass(t *testing.T) {
+	s := openTestStore(t)
+	mw := NewSessionMiddleware(s.SessionStore(), s.UserStore())
+	mux := http.NewServeMux()
+	RegisterStatic(mux)
+	mux.HandleFunc("GET /tickets", func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("protected")) })
+
+	rec := doRequest(mux, mw, http.MethodGet, "/static/htmx.min.js", nil)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("static status = %d, want 200", rec.Code)
+	}
+	if ct := rec.Header().Get("Content-Type"); ct != "text/javascript; charset=utf-8" {
+		t.Errorf("Content-Type = %q, want text/javascript; charset=utf-8", ct)
+	}
+	if body := rec.Body.String(); !strings.Contains(body, "htmx") {
+		t.Errorf("static body must contain htmx, got %d bytes", len(body))
+	}
+}

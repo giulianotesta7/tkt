@@ -364,3 +364,20 @@ func TestCategoryDeleteReferenced409(t *testing.T) {
 		t.Errorf("re-render must show the referenced message, got: %s", rec.Body.String())
 	}
 }
+
+// TestStaticServesVendoredHtmx proves GET /static/htmx.min.js returns the
+// embedded script with a cache header (task 5.4 static asset route).
+func TestStaticServesVendoredHtmx(t *testing.T) {
+	h := newHarness(t)
+	rec := h.get(t, "/static/htmx.min.js", false)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+	if cc := rec.Header().Get("Cache-Control"); cc != "public, max-age=86400" {
+		t.Errorf("Cache-Control = %q, want public, max-age=86400", cc)
+	}
+	body := rec.Body.String()
+	if !strings.Contains(body, "htmx") || len(body) < 10000 {
+		t.Errorf("body must be the vendored htmx script, got %d bytes", len(body))
+	}
+}
