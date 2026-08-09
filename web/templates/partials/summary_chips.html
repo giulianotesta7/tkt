@@ -1,7 +1,0 @@
-{{define "summary_chips"}}
-<div id="chips" class="chips" hx-swap-oob="outerHTML:#chips">
-  {{range .Chips}}
-  <a href="{{.Href}}" class="chip{{if .Active}} active{{end}}"><span class="count">{{.Count}}</span> {{.Label}}</a>
-  {{end}}
-</div>
-{{end}}
