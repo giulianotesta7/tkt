@@ -27,6 +27,7 @@ body{
 a{color:var(--accent);text-decoration:none}
 a:hover{text-decoration:underline}
 button{font:inherit}
+:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
 
  
 .layout{display:grid;grid-template-columns:72px 1fr;min-height:100vh}
@@ -75,7 +76,7 @@ button{font:inherit}
 .btn[disabled]{opacity:.5;cursor:not-allowed}
 
  
-.queue-shell{background:var(--shell);border-radius:10px;padding:1px;overflow:hidden}
+.queue-shell{background:var(--shell);border-radius:10px;padding:1px;overflow-x:auto}
 .queue{background:var(--card);border-radius:9px;width:100%;border-collapse:collapse}
 .queue th{
   text-align:left;font-size:11px;font-weight:600;letter-spacing:.05em;
@@ -106,18 +107,6 @@ button{font:inherit}
 .priority.low{color:var(--accent-ink)}
 
  
-.chips{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px}
-.chip{
-  display:inline-flex;align-items:baseline;gap:8px;height:30px;padding:0 12px;
-  border-radius:999px;background:var(--card);border:1px solid var(--line);
-  color:var(--muted);font-size:12.5px;
-}
-.chip:hover{text-decoration:none;border-color:var(--line-strong)}
-.chip .count{font-weight:600;color:var(--ink-soft);font-family:var(--mono)}
-.chip.active{border-color:var(--accent);color:var(--accent-ink);background:var(--accent-soft)}
-.chip.active .count{color:var(--accent)}
-
- 
 .filter-bar{
   display:flex;align-items:center;gap:10px;background:var(--surface);
   border:1px solid var(--line);border-radius:10px;padding:9px 12px;margin-bottom:16px;
@@ -141,6 +130,11 @@ button{font:inherit}
   justify-content:center;border-radius:8px;color:var(--muted);
 }
 .pagination a{border:1px solid var(--line);background:var(--card)}
+.pagination span.page{opacity:.45;cursor:default}
+.htmx-indicator{opacity:0;transition:opacity 150ms ease-in}
+.htmx-request .htmx-indicator,.htmx-request.htmx-indicator{opacity:1}
+.spinner{width:12px;height:12px;border:2px solid var(--line);border-top-color:var(--accent);border-radius:50%;display:inline-block;vertical-align:-2px;animation:spin .7s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
 .pagination a:hover{text-decoration:none;border-color:var(--line-strong)}
 .pagination .current{background:var(--ink-strong);color:#F8FAFC}
 
@@ -156,13 +150,22 @@ button{font:inherit}
 .card .kv dt{width:104px;color:var(--muted);flex-shrink:0}
 .card .kv dd{margin:0;color:var(--ink-soft)}
 .meta-row{display:flex;gap:10px;color:var(--muted);font-size:13px;flex-wrap:wrap}
+.ticket-metadata{margin-top:6px}
+.ticket-metadata span+span::before{content:"·";margin-right:10px;color:var(--line-strong)}
+.property-form textarea{min-height:72px}
+.property-form .btn{width:100%;justify-content:center}
+.current-state{display:flex;align-items:center;justify-content:space-between;color:var(--muted);font-size:12.5px;margin-bottom:12px}
+.lifecycle-meta{display:grid;grid-template-columns:auto 1fr;gap:6px 12px;margin:14px 0 0;padding-top:12px;border-top:1px solid var(--line);font-size:12px}
+.lifecycle-meta dt{color:var(--muted)}
+.lifecycle-meta dd{margin:0;color:var(--ink-soft);text-align:right}
 
  
-.comment{margin-top:14px;padding-top:14px;border-top:1px solid var(--line)}
-.comment .who{display:flex;gap:8px;align-items:baseline}
-.comment .author{font-weight:600;color:var(--ink-soft);font-size:13px}
-.comment .when{color:var(--muted);font-size:12px;font-family:var(--mono)}
-.comment .body{color:var(--ink-soft);margin-top:4px;white-space:pre-wrap}
+.timeline-entry{margin-top:10px;border-radius:8px}
+.timeline-comment{padding:12px 14px;background:var(--card);border:1px solid var(--line)}
+.timeline-comment .who{display:flex;gap:8px;align-items:baseline;justify-content:space-between}
+.timeline-comment .author{font-weight:600;color:var(--ink-soft);font-size:13px}
+.timeline-comment .when{color:var(--muted);font-size:12px;font-family:var(--mono)}
+.timeline-comment .body{color:var(--ink-soft);margin-top:6px;white-space:pre-wrap}
 textarea,input[type=text],input[type=email],input[type=password]{
   width:100%;border:1px solid var(--line);border-radius:8px;background:var(--card);
   color:var(--ink-soft);padding:10px 12px;font:inherit;font-size:13.5px;
@@ -181,21 +184,20 @@ textarea{min-height:84px;resize:vertical}
 
  
 .activity h2{display:flex;align-items:center;gap:8px}
-.event{display:flex;gap:12px;padding:10px 0}
-.event .dot{width:8px;height:8px;border-radius:50%;background:var(--accent);margin-top:6px;flex-shrink:0}
-.event .dot.created{background:var(--accent)}
-.event .dot.transition{background:var(--amber)}
-.event .dot.update{background:var(--green)}
-.event .body{min-width:0}
-.event .main{color:var(--ink-soft);font-size:13.5px}
-.event .detail{color:var(--muted);font-size:12.5px;margin-top:2px}
-.event .when{color:var(--faint);font-size:11.5px;font-family:var(--mono);margin-top:2px}
-.event .actor{color:var(--muted);font-size:12px}
+.timeline-event{display:grid;grid-template-columns:8px minmax(0,1fr);align-items:start;gap:12px;padding:10px 12px;background:var(--surface);border-left:3px solid var(--line-strong)}
+.timeline-event .dot{width:8px;height:8px;border-radius:50%;background:var(--accent);margin-top:5px}
+.timeline-event .dot.created{background:var(--accent)}
+.timeline-event .dot.transition{background:var(--amber)}
+.timeline-event .dot.update{background:var(--green)}
+.timeline-event .body{min-width:0}
+.timeline-event .main{padding:0;color:var(--ink-soft);font-size:13.5px;line-height:18px}
+.timeline-event .detail{color:var(--muted);font-size:12.5px;margin-top:2px}
+.timeline-event .when{color:var(--faint);font-size:11.5px;font-family:var(--mono);margin-top:3px}
 
  
-.transition-form{display:flex;gap:8px;margin-top:12px}
-.transition-form select{flex:1;height:38px;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--ink-soft);padding:0 10px;font:inherit}
-.transition-form input[type=text]{flex:1.4;height:38px}
+.transition-form{margin-top:12px}
+.transition-form select{width:100%;height:38px;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--ink-soft);padding:0 10px;font:inherit}
+.transition-form input[type=text]{height:38px}
 .transition-form button{height:38px}
 
  
@@ -232,6 +234,32 @@ textarea{min-height:84px;resize:vertical}
 .category-card .name{font-weight:600;color:var(--ink-strong)}
 .category-card .when{color:var(--muted);font-size:12px;font-family:var(--mono)}
 .empty{color:var(--muted);padding:32px 0;text-align:center}
+.empty.compact{padding:12px 0 0;text-align:left}
+
+@media (max-width:900px){
+  .cards{grid-template-columns:1fr}
+  .evidence{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+  .evidence .card{margin-bottom:0}
+  .filter-bar{flex-wrap:wrap}
+  .filter-bar input[type=search]{flex-basis:100%}
+}
+@media (max-width:640px){
+  .layout{grid-template-columns:1fr}
+  .rail{position:static;width:100%;height:auto;flex-direction:row;padding:10px 14px;gap:12px}
+  .rail-nav{flex-direction:row}
+  .rail-logout{margin:0 0 0 auto}
+  .main{padding:18px 14px 32px}
+  .command-header{align-items:flex-start}
+  .command-title{font-size:18px}
+  .filter-bar select,.filter-bar .btn{flex:1;min-width:calc(50% - 6px)}
+  .evidence{grid-template-columns:1fr}
+  .field-row{grid-template-columns:1fr}
+  .ticket-metadata{display:grid;gap:3px}
+  .ticket-metadata span+span::before{content:none}
+  .auth-layout{grid-template-columns:1fr}
+  .auth-brand{padding:32px;min-height:260px}
+  .auth-form{padding:32px 20px}
+}
 </style>
 <script src="/static/htmx.min.js" defer></script>
 </head>
@@ -269,7 +297,7 @@ textarea{min-height:84px;resize:vertical}
 </div>
 
 <form class="card form-card" method="post" action="/categories/1/edit">
-  <h3>Rename category</h3>
+  <h2>Rename category</h2>
   
   <div class="field">
     <label for="name">Name</label>

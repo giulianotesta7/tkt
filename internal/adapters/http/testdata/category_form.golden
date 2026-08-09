@@ -1,6 +1,6 @@
 
 <form class="card form-card" method="post" action="/categories/1/edit">
-  <h3>Rename category</h3>
+  <h2>Rename category</h2>
   
   <div class="field">
     <label for="name">Name</label>
