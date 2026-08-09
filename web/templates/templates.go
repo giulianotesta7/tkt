@@ -9,8 +9,9 @@ package templates
 
 import "embed"
 
-// FS is the embedded template tree: shell roots, full pages (pages/*.html)
-// and swap fragments (partials/*.html).
+// FS is the embedded template tree: shell roots, full pages (pages/*.html),
+// swap fragments (partials/*.html) and the vendored htmx script
+// (static/htmx.min.js, BSD-2-Clause, htmx.org v2.0.4).
 //
-//go:embed base.html auth.html pages/*.html partials/*.html
+//go:embed base.html auth.html pages/*.html partials/*.html static/htmx.min.js
 var FS embed.FS

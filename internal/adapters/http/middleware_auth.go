@@ -68,6 +68,12 @@ func (m *SessionMiddleware) Wrap(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 			return
 		}
+		// Vendored static assets are public: the shell references them on
+		// every page and htmx must load before the session check matters.
+		if strings.HasPrefix(path, "/static/") {
+			next.ServeHTTP(w, r)
+			return
+		}
 
 		session, err := m.resolveSession(r)
 		if err != nil {

@@ -233,6 +233,7 @@ textarea{min-height:84px;resize:vertical}
 .category-card .when{color:var(--muted);font-size:12px;font-family:var(--mono)}
 .empty{color:var(--muted);padding:32px 0;text-align:center}
 </style>
+<script src="/static/htmx.min.js" defer></script>
 </head>
 <body>
 <div class="layout">
