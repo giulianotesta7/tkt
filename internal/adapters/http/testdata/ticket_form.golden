@@ -1,6 +1,6 @@
 
 <form class="card form-card" method="post" action="/tickets">
-  <h3>Ticket details</h3>
+  <h2>Ticket details</h2>
   
   <div class="field">
     <label for="title">Title</label>
@@ -9,16 +9,6 @@
   <div class="field">
     <label for="description">Description</label>
     <textarea id="description" name="description">The login form 500s on submit</textarea>
-  </div>
-  <div class="field-row">
-    <div class="field">
-      <label for="requester_name">Requester name</label>
-      <input type="text" id="requester_name" name="requester_name" value="Ana Torres">
-    </div>
-    <div class="field">
-      <label for="requester_email">Requester email</label>
-      <input type="email" id="requester_email" name="requester_email" value="ana@example.com">
-    </div>
   </div>
   <div class="field-row">
     <div class="field">
@@ -31,7 +21,7 @@
     <div class="field">
       <label for="priority">Priority</label>
       <select id="priority" name="priority">
-        <option value="critical" >critical</option><option value="high" selected>high</option><option value="medium" >medium</option><option value="low" >low</option>
+        <option value="critical" >Critical</option><option value="high" selected>High</option><option value="medium" >Medium</option><option value="low" >Low</option>
       </select>
     </div>
   </div>

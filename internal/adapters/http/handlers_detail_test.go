@@ -26,14 +26,66 @@ func TestTicketShowRendersDetail(t *testing.T) {
 		t.Fatalf("status = %d, want 200", rec.Code)
 	}
 	body := rec.Body.String()
-	for _, want := range []string{"Login page down", "TKT-1", "Bugs", "Checking now", "Activity"} {
+	for _, want := range []string{"Login page down", "TKT-1", "Bugs", "Checking now", "Timeline", "Properties", "Save properties"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("detail page must contain %q, got: %s", want, body)
 		}
 	}
-	// Audit timeline ASC: the created event renders before the transition.
-	if !(strings.Index(body, "created") < strings.Index(body, "transition")) {
-		t.Errorf("audit timeline must be ascending (created before transition), got: %s", body)
+	if strings.Contains(body, `href="/tickets/1/edit"`) {
+		t.Errorf("detail page must not expose the fallback edit screen, got: %s", body)
+	}
+	for _, want := range []string{`action="/tickets/1/edit"`, `id="ticket-priority"`, `id="ticket-user"`} {
+		if !strings.Contains(body, want) {
+			t.Errorf("inline properties form must contain %q, got: %s", want, body)
+		}
+	}
+	for _, banned := range []string{`id="ticket-title"`, `id="ticket-description"`, `id="ticket-category"`, `name="title"`, `name="description"`, `name="category_id"`} {
+		if strings.Contains(body, banned) {
+			t.Errorf("title/description/category must not be editable on detail, found %q in: %s", banned, body)
+		}
+	}
+	// Merged timeline DESC: the transition (newer) renders before created.
+	// Match the timeline event markers (not bare words — "transition" also
+	// appears in the inline CSS rules).
+	createdEvent := `<span class="dot created"></span>`
+	transitionEvent := `<span class="dot transition"></span>`
+	if !(strings.Index(body, transitionEvent) < strings.Index(body, createdEvent)) {
+		t.Errorf("merged timeline must be newest-first (transition before created), got: %s", body)
+	}
+}
+
+func TestTicketShowRendersConciseSemanticMetadata(t *testing.T) {
+	h := newHarness(t)
+	h.seedTicket(t, "Login page down", nil)
+
+	body := h.get(t, "/tickets/1", false).Body.String()
+	if !strings.Contains(body, "Requester: Admin &lt;admin@tkt.test&gt;") {
+		t.Errorf("requester metadata must come from the session-derived ticket data, got: %s", body)
+	}
+	if got := strings.Count(body, `<time datetime="`); got < 3 {
+		t.Errorf("detail metadata and timeline must use semantic time elements, got %d: %s", got, body)
+	}
+	if !strings.Contains(body, " · ") {
+		t.Errorf("display timestamps must use the human UTC separator, got: %s", body)
+	}
+}
+
+func TestTicketTimelineDifferentiatesCommentsAndAuditEvents(t *testing.T) {
+	h := newHarness(t)
+	tkt := h.seedTicket(t, "Login page down", nil)
+	h.seedTransition(t, tkt.ID, domain.StateInProgress, "")
+	if _, err := h.comments.Add(t.Context(), *h.admin, tkt.ID, "Checking now"); err != nil {
+		t.Fatalf("seed comment: %v", err)
+	}
+
+	body := h.get(t, "/tickets/1", false).Body.String()
+	for _, want := range []string{`class="timeline-entry timeline-comment"`, `class="timeline-entry timeline-event"`, "New → In Progress"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("timeline must contain %q, got: %s", want, body)
+		}
+	}
+	if strings.Contains(body, "new → in_progress") {
+		t.Errorf("timeline must not expose internal state values, got: %s", body)
 	}
 }
 
@@ -204,8 +256,8 @@ func TestTicketTransitionHXFragment(t *testing.T) {
 	if strings.Contains(body, "<!DOCTYPE html>") {
 		t.Errorf("HX transition must return the fragment, got: %s", body)
 	}
-	if !strings.Contains(body, "in_progress") {
-		t.Errorf("fragment must show the new state, got: %s", body)
+	if !strings.Contains(body, "In Progress") || strings.Contains(body, ">in_progress<") {
+		t.Errorf("fragment must show the humanized new state, got: %s", body)
 	}
 }
 
@@ -269,7 +321,7 @@ func TestTicketCommentOnClosedTicket(t *testing.T) {
 }
 
 // TestTicketCommentHXFragment proves the HX comment path returns the
-// comment_list fragment carrying the new comment.
+// merged timeline fragment carrying the new comment.
 func TestTicketCommentHXFragment(t *testing.T) {
 	h := newHarness(t)
 	h.seedTicket(t, "Login page down", nil)
@@ -284,13 +336,13 @@ func TestTicketCommentHXFragment(t *testing.T) {
 		t.Errorf("HX comment must return the fragment, got: %s", body)
 	}
 	if !strings.Contains(body, "Checking now") {
-		t.Errorf("comment_list fragment must carry the new comment, got: %s", body)
+		t.Errorf("timeline fragment must carry the new comment, got: %s", body)
 	}
 }
 
-// TestTicketCommentsChronological proves the rendered timeline is in
-// creation order (chronological-timeline spec).
-func TestTicketCommentsChronological(t *testing.T) {
+// TestTicketCommentsNewestFirst proves the rendered timeline shows
+// comments newest first (comment-timeline spec: reverse-chronological).
+func TestTicketCommentsNewestFirst(t *testing.T) {
 	h := newHarness(t)
 	h.seedTicket(t, "Login page down", nil)
 	for _, body := range []string{"first", "second", "third"} {
@@ -301,38 +353,22 @@ func TestTicketCommentsChronological(t *testing.T) {
 
 	rec := h.get(t, "/tickets/1", false)
 	body := rec.Body.String()
-	if !(strings.Index(body, "first") < strings.Index(body, "second") && strings.Index(body, "second") < strings.Index(body, "third")) {
-		t.Errorf("comments must render in creation order, got: %s", body)
+	if !(strings.Index(body, "third") < strings.Index(body, "second") && strings.Index(body, "second") < strings.Index(body, "first")) {
+		t.Errorf("comments must render newest first, got: %s", body)
 	}
 }
 
-// TestTicketEditFormPrefilled proves GET /tickets/{id}/edit renders the
-// edit form prefilled with the ticket's values.
-func TestTicketEditFormPrefilled(t *testing.T) {
-	h := newHarness(t)
-	h.seedTicket(t, "Login page down", nil)
-
-	rec := h.get(t, "/tickets/1/edit", false)
-
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status = %d, want 200", rec.Code)
-	}
-	body := rec.Body.String()
-	if !strings.Contains(body, "Edit ticket") || !strings.Contains(body, "Login page down") {
-		t.Errorf("edit form must be prefilled, got: %s", body)
-	}
-}
-
-// TestTicketEditUpdatesAndAudits proves POST /tickets/{id}/edit updates the
-// fields, appends the audit event, and redirects 303 to the detail page.
-func TestTicketEditUpdatesAndAudits(t *testing.T) {
+// TestTicketEditUpdatesPriorityAndAudits proves POST /tickets/{id}/edit
+// updates only priority/assignment, ignores forged immutable fields
+// (title/description/category), appends the audit event, and redirects.
+func TestTicketEditUpdatesPriorityAndAudits(t *testing.T) {
 	h := newHarness(t)
 	h.seedTicket(t, "Login page down", nil)
 
 	form := url.Values{
 		"title":       {"Login page is back"},
 		"description": {"Fixed the 500"},
-		"category_id": {strconv.FormatInt(h.bugCategory.ID, 10)},
+		"category_id": {"999"}, // nonexistent: must be ignored, not applied
 		"priority":    {"critical"},
 	}
 	rec := h.postForm(t, "/tickets/1/edit", form, false)
@@ -343,8 +379,14 @@ func TestTicketEditUpdatesAndAudits(t *testing.T) {
 	if err != nil {
 		t.Fatalf("view: %v", err)
 	}
-	if view.Ticket.Title != "Login page is back" || view.Ticket.Priority != domain.PriorityCritical {
-		t.Errorf("ticket = %+v, want updated title+priority", view.Ticket)
+	if view.Ticket.Priority != domain.PriorityCritical {
+		t.Errorf("priority = %q, want critical", view.Ticket.Priority)
+	}
+	if view.Ticket.Title != "Login page down" {
+		t.Errorf("title = %q, want immutable original", view.Ticket.Title)
+	}
+	if view.Ticket.CategoryID != h.bugCategory.ID {
+		t.Errorf("category = %d, want immutable original", view.Ticket.CategoryID)
 	}
 	var fields []string
 	for _, ev := range view.AuditEvents {
@@ -352,8 +394,12 @@ func TestTicketEditUpdatesAndAudits(t *testing.T) {
 			fields = append(fields, *ev.Field)
 		}
 	}
-	if !strings.Contains(strings.Join(fields, ","), "title") || !strings.Contains(strings.Join(fields, ","), "priority") {
-		t.Errorf("audit must record title and priority changes, got %v", fields)
+	joined := strings.Join(fields, ",")
+	if !strings.Contains(joined, "priority") {
+		t.Errorf("audit must record the priority change, got %v", fields)
+	}
+	if strings.Contains(joined, "title") || strings.Contains(joined, "category") || strings.Contains(joined, "description") {
+		t.Errorf("audit must not record immutable field changes, got %v", fields)
 	}
 }
 
@@ -363,12 +409,7 @@ func TestTicketEditInvalidPriority422(t *testing.T) {
 	h := newHarness(t)
 	h.seedTicket(t, "Login page down", nil)
 
-	form := url.Values{
-		"title":       {"Login page is back"},
-		"description": {"Fixed"},
-		"category_id": {strconv.FormatInt(h.bugCategory.ID, 10)},
-		"priority":    {"urgent"},
-	}
+	form := url.Values{"priority": {"urgent"}}
 	rec := h.postForm(t, "/tickets/1/edit", form, false)
 
 	if rec.Code != http.StatusUnprocessableEntity {
@@ -384,18 +425,15 @@ func TestTicketEditInvalidPriority422(t *testing.T) {
 }
 
 // TestTicketEditUnassign proves clearing the assignment via the edit form
-// (unassign checkbox semantics) works.
+// works.
 func TestTicketEditUnassign(t *testing.T) {
 	h := newHarness(t)
 	beto := h.createUser(t, "Beto", "beto@example.com", "secret")
 	h.seedTicket(t, "Login page down", nil)
 	// Assign beto through an edit, then unassign through another edit.
 	form := url.Values{
-		"title":       {"Login page down"},
-		"description": {"Test description"},
-		"category_id": {strconv.FormatInt(h.bugCategory.ID, 10)},
-		"priority":    {"medium"},
-		"user_id":     {strconv.FormatInt(beto.ID, 10)},
+		"priority": {"medium"},
+		"user_id":  {strconv.FormatInt(beto.ID, 10)},
 	}
 	if rec := h.postForm(t, "/tickets/1/edit", form, false); rec.Code != http.StatusSeeOther {
 		t.Fatalf("assign edit status = %d", rec.Code)
@@ -405,13 +443,7 @@ func TestTicketEditUnassign(t *testing.T) {
 		t.Fatalf("assignment failed: %+v err=%v", view.AssignedUser, err)
 	}
 
-	clearForm := url.Values{
-		"title":       {"Login page down"},
-		"description": {"Test description"},
-		"category_id": {strconv.FormatInt(h.bugCategory.ID, 10)},
-		"priority":    {"medium"},
-		"user_id":     {""},
-	}
+	clearForm := url.Values{"priority": {"medium"}, "user_id": {""}}
 	rec := h.postForm(t, "/tickets/1/edit", clearForm, false)
 	wantRedirect(t, rec, http.StatusSeeOther, "/tickets/1")
 
@@ -427,12 +459,7 @@ func TestTicketEditHXFragment(t *testing.T) {
 	h := newHarness(t)
 	h.seedTicket(t, "Login page down", nil)
 
-	form := url.Values{
-		"title":       {"Login page is back"},
-		"description": {"Fixed"},
-		"category_id": {strconv.FormatInt(h.bugCategory.ID, 10)},
-		"priority":    {"high"},
-	}
+	form := url.Values{"priority": {"high"}}
 	rec := h.postForm(t, "/tickets/1/edit", form, true)
 
 	if rec.Code != http.StatusOK {
@@ -442,7 +469,28 @@ func TestTicketEditHXFragment(t *testing.T) {
 	if strings.Contains(body, "<!DOCTYPE html>") {
 		t.Errorf("HX edit must return the fragment, got: %s", body)
 	}
-	if !strings.Contains(body, "Login page is back") {
-		t.Errorf("fragment must show the updated title, got: %s", body)
+	if !strings.Contains(body, `id="ticket-priority"`) || !strings.Contains(body, "High") {
+		t.Errorf("fragment must show the updated priority, got: %s", body)
+	}
+}
+
+func TestTicketEditTimelineResolvesAssignedUserName(t *testing.T) {
+	h := newHarness(t)
+	beto := h.createUser(t, "Beto", "beto@example.com", "secret")
+	h.seedTicket(t, "Login page down", nil)
+
+	form := url.Values{
+		"priority": {"medium"},
+		"user_id":  {strconv.FormatInt(beto.ID, 10)},
+	}
+	rec := h.postForm(t, "/tickets/1/edit", form, false)
+	wantRedirect(t, rec, http.StatusSeeOther, "/tickets/1")
+
+	body := h.get(t, "/tickets/1", false).Body.String()
+	if !strings.Contains(body, "Update · Assigned To · Unassigned → Beto") {
+		t.Errorf("assignment event must resolve user names, got: %s", body)
+	}
+	if strings.Contains(body, "Assigned To · Unassigned → "+strconv.FormatInt(beto.ID, 10)) {
+		t.Errorf("assignment event must not expose the user id, got: %s", body)
 	}
 }

@@ -1,0 +1,47 @@
+
+<div id="timeline">
+
+
+  <div class="timeline-entry timeline-comment">
+    <div class="who">
+      <span class="author">Ana Torres</span>
+      <span class="when"><time datetime="2026-08-06T10:30:00Z">2026-08-06T10:30:00Z</time></span>
+    </div>
+    <div class="body">Checking now</div>
+  </div>
+
+
+
+  <div class="timeline-entry timeline-event">
+    <span class="dot update"></span>
+    <div class="body">
+      <div class="main">Update · Assigned To · Unassigned → Ana Torres</div>
+
+      <div class="when"><time datetime="2026-08-06T10:30:00Z">2026-08-06T10:30:00Z</time> · Admin</div>
+    </div>
+  </div>
+
+
+
+  <div class="timeline-entry timeline-event">
+    <span class="dot transition"></span>
+    <div class="body">
+      <div class="main">Transition · State · New → In Progress</div>
+
+      <div class="when"><time datetime="2026-08-06T10:30:00Z">2026-08-06T10:30:00Z</time> · Admin</div>
+    </div>
+  </div>
+
+
+
+  <div class="timeline-entry timeline-event">
+    <span class="dot created"></span>
+    <div class="body">
+      <div class="main">Created</div>
+
+      <div class="when"><time datetime="2026-08-06T10:00:00Z">2026-08-06T10:00:00Z</time> · Admin</div>
+    </div>
+  </div>
+
+
+</div>

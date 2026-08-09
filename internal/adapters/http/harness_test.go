@@ -223,12 +223,10 @@ func (h *harness) createUser(t *testing.T, name, email, password string) *domain
 func (h *harness) seedTicket(t *testing.T, title string, mod func(*application.CreateTicketInput)) *domain.Ticket {
 	t.Helper()
 	in := application.CreateTicketInput{
-		Title:          title,
-		Description:    "Test description",
-		RequesterName:  "Ana",
-		RequesterEmail: "ana@example.com",
-		CategoryID:     h.bugCategory.ID,
-		Priority:       domain.PriorityMedium,
+		Title:       title,
+		Description: "Test description",
+		CategoryID:  h.bugCategory.ID,
+		Priority:    domain.PriorityMedium,
 	}
 	if mod != nil {
 		mod(&in)

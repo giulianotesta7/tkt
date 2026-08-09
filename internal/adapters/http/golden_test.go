@@ -72,10 +72,10 @@ var (
 	goldenT1 = time.Date(2026, 8, 6, 10, 30, 0, 0, time.UTC)
 )
 
-// fixtureListData builds a frozen list payload: two tickets, two categories,
-// one user, and chips derived from fixed counts.
+// fixtureListData builds a frozen list payload with two tickets, two
+// categories, and one user.
 func fixtureListData() listData {
-	ana := domain.User{ID: 1, Name: "Ana Torres", Email: "ana@example.com", CreatedAt: goldenT0}
+	ana := domain.User{ID: 1, Name: "Ana Torres", Email: "ana@example.com", Active: true, CreatedAt: goldenT0}
 	f := filterState{State: domain.StateNew}
 	opts := options{
 		States:          listStates,
@@ -88,8 +88,6 @@ func fixtureListData() listData {
 		{ID: 2, Number: 2, Title: "Printer jam", State: domain.StateInProgress, Priority: domain.PriorityHigh, CreatedAt: goldenT1, UpdatedAt: goldenT1},
 		{ID: 1, Number: 1, Title: "Login page down", State: domain.StateNew, Priority: domain.PriorityCritical, CreatedAt: goldenT0, UpdatedAt: goldenT0},
 	}
-	byState := map[domain.State]int{domain.StateNew: 1, domain.StateInProgress: 1}
-	byPriority := map[domain.Priority]int{domain.PriorityHigh: 1, domain.PriorityCritical: 1}
 	return listData{
 		pageData: pageData{NavActive: "tickets", CurrentUser: ana},
 		Filters:  f,
@@ -100,13 +98,12 @@ func fixtureListData() listData {
 		Pages:    1,
 		PrevHref: "",
 		NextHref: "",
-		Chips:    buildChips(f, byState, byPriority),
 	}
 }
 
 // fixtureTicketFormData builds a frozen create-form payload (no error).
 func fixtureTicketFormData() ticketFormData {
-	ana := domain.User{ID: 1, Name: "Ana Torres", Email: "ana@example.com", CreatedAt: goldenT0}
+	ana := domain.User{ID: 1, Name: "Ana Torres", Email: "ana@example.com", Active: true, CreatedAt: goldenT0}
 	opts := options{
 		States:          listStates,
 		Priorities:      listPriorities,
@@ -117,12 +114,10 @@ func fixtureTicketFormData() ticketFormData {
 	return ticketFormData{
 		pageData: pageData{NavActive: "tickets", CurrentUser: ana},
 		Values: ticketFormValues{
-			Title:          "Login page down",
-			Description:    "The login form 500s on submit",
-			RequesterName:  "Ana Torres",
-			RequesterEmail: "ana@example.com",
-			CategoryID:     "1",
-			Priority:       domain.PriorityHigh,
+			Title:       "Login page down",
+			Description: "The login form 500s on submit",
+			CategoryID:  "1",
+			Priority:    domain.PriorityHigh,
 		},
 		Options: opts,
 	}
@@ -173,10 +168,6 @@ func TestGoldenPagination(t *testing.T) {
 	goldenFile(t, "pagination", renderGolden(t, "tickets_index", "pagination", data, true))
 }
 
-func TestGoldenSummaryChips(t *testing.T) {
-	goldenFile(t, "summary_chips", renderGolden(t, "tickets_index", "summary_chips", fixtureListData(), true))
-}
-
 func TestGoldenStateBadge(t *testing.T) {
 	goldenFile(t, "state_badge", renderGolden(t, "tickets_index", "state_badge", domain.StateResolved, true))
 }
@@ -188,7 +179,7 @@ func TestGoldenStateBadge(t *testing.T) {
 func strptr(s string) *string { return &s }
 
 func fixtureDetailData() detailData {
-	ana := domain.User{ID: 1, Name: "Ana Torres", Email: "ana@example.com", CreatedAt: goldenT0}
+	ana := domain.User{ID: 1, Name: "Ana Torres", Email: "ana@example.com", Active: true, CreatedAt: goldenT0}
 	t := &domain.Ticket{
 		ID: 1, Number: 1, Title: "Login page down",
 		Description:    "The login form 500s on submit",
@@ -210,36 +201,34 @@ func fixtureDetailData() detailData {
 		AuditEvents: []domain.AuditEvent{
 			{TicketID: 1, Actor: "Admin", Action: domain.ActionCreated, CreatedAt: goldenT0},
 			{TicketID: 1, Actor: "Admin", Action: domain.ActionTransition, Field: strptr("state"), FromValue: strptr("new"), ToValue: strptr("in_progress"), CreatedAt: goldenT1},
+			{TicketID: 1, Actor: "Admin", Action: domain.ActionUpdate, Field: strptr("user"), FromValue: strptr(""), ToValue: strptr("1"), CreatedAt: goldenT1},
 		},
+	}
+	view.Timeline = []application.TimelineItem{
+		{IsComment: true, Comment: &view.Comments[0]},
+		{Event: &view.AuditEvents[2], ActionLabel: "Update", FieldLabel: "Assigned To", FromLabel: "Unassigned", ToLabel: "Ana Torres"},
+		{Event: &view.AuditEvents[1], ActionLabel: "Transition", FieldLabel: "State", FromLabel: "New", ToLabel: "In Progress"},
+		{Event: &view.AuditEvents[0], ActionLabel: "Created"},
+	}
+	opts := options{
+		States:          listStates,
+		Priorities:      listPriorities,
+		Categories:      []domain.Category{*view.Category},
+		Users:           []domain.User{ana},
+		AssignableUsers: []domain.User{ana},
 	}
 	return detailData{
 		pageData: pageData{NavActive: "tickets", CurrentUser: ana},
 		View:     view,
 		Next:     allowedNext(t.State),
-	}
-}
-
-func fixtureEditFormData() editFormData {
-	ana := domain.User{ID: 1, Name: "Ana Torres", Email: "ana@example.com", CreatedAt: goldenT0}
-	opts := options{
-		States:          listStates,
-		Priorities:      listPriorities,
-		Categories:      []domain.Category{{ID: 1, Name: "Bugs", CreatedAt: goldenT0}, {ID: 2, Name: "Support", CreatedAt: goldenT0}},
-		Users:           []domain.User{ana},
-		AssignableUsers: []domain.User{ana},
-	}
-	return editFormData{
-		pageData: pageData{NavActive: "tickets", CurrentUser: ana},
-		TicketID: 1,
-		Number:   1,
+		Options:  opts,
 		Values: ticketFormValues{
-			Title:       "Login page down",
-			Description: "The login form 500s on submit",
+			Title:       t.Title,
+			Description: t.Description,
 			CategoryID:  "1",
 			UserID:      "1",
-			Priority:    domain.PriorityHigh,
+			Priority:    t.Priority,
 		},
-		Options: opts,
 	}
 }
 
@@ -247,28 +236,16 @@ func TestGoldenTicketsShow(t *testing.T) {
 	goldenFile(t, "tickets_show", renderGolden(t, "tickets_show", "", fixtureDetailData(), false))
 }
 
-func TestGoldenTicketsEdit(t *testing.T) {
-	goldenFile(t, "tickets_edit", renderGolden(t, "tickets_edit", "", fixtureEditFormData(), false))
-}
-
 func TestGoldenTicketDetail(t *testing.T) {
 	goldenFile(t, "ticket_detail", renderGolden(t, "tickets_show", "ticket_detail", fixtureDetailData(), true))
-}
-
-func TestGoldenTicketEditForm(t *testing.T) {
-	goldenFile(t, "ticket_edit_form", renderGolden(t, "tickets_edit", "ticket_edit_form", fixtureEditFormData(), true))
 }
 
 func TestGoldenCommentForm(t *testing.T) {
 	goldenFile(t, "comment_form", renderGolden(t, "tickets_show", "comment_form", fixtureDetailData(), true))
 }
 
-func TestGoldenCommentList(t *testing.T) {
-	goldenFile(t, "comment_list", renderGolden(t, "tickets_show", "comment_list", fixtureDetailData(), true))
-}
-
-func TestGoldenAuditTimeline(t *testing.T) {
-	goldenFile(t, "audit_timeline", renderGolden(t, "tickets_show", "audit_timeline", fixtureDetailData().View.AuditEvents, true))
+func TestGoldenTimeline(t *testing.T) {
+	goldenFile(t, "timeline", renderGolden(t, "tickets_show", "timeline", fixtureDetailData(), true))
 }
 
 // ---------------------------------------------------------------------------

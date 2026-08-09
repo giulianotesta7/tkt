@@ -39,16 +39,15 @@ func NewTicketService(tickets TicketStore, users UserStore, categories CategoryS
 }
 
 // CreateTicketInput is the creation payload. UserID is optional (nil =
-// unassigned). The requester fields are free text, not linked to a user
-// account (ticket-management spec).
+// unassigned). There are no requester fields: the requester is ALWAYS the
+// creating actor, derived from the session (ticket-management spec) — the
+// caller can never file a ticket impersonating someone else.
 type CreateTicketInput struct {
-	Title          string
-	Description    string
-	RequesterName  string
-	RequesterEmail string
-	CategoryID     int64
-	UserID         *int64
-	Priority       domain.Priority
+	Title       string
+	Description string
+	CategoryID  int64
+	UserID      *int64
+	Priority    domain.Priority
 }
 
 // Create validates the payload, then persists ticket + created audit event
@@ -79,8 +78,8 @@ func (s *TicketService) Create(ctx context.Context, actor domain.User, in Create
 	t := &domain.Ticket{
 		Title:          strings.TrimSpace(in.Title),
 		Description:    in.Description,
-		RequesterName:  in.RequesterName,
-		RequesterEmail: in.RequesterEmail,
+		RequesterName:  actor.Name,
+		RequesterEmail: actor.Email,
 		CategoryID:     in.CategoryID,
 		UserID:         in.UserID,
 		Priority:       in.Priority,

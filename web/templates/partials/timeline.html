@@ -1,0 +1,27 @@
+{{define "timeline"}}
+<div id="timeline">
+{{range .View.Timeline}}
+{{if .IsComment}}
+  <div class="timeline-entry timeline-comment">
+    <div class="who">
+      <span class="author">{{.Comment.Author}}</span>
+      <span class="when">{{template "timestamp" .Comment.CreatedAt}}</span>
+    </div>
+    <div class="body">{{.Comment.Body}}</div>
+  </div>
+{{else}}
+  <div class="timeline-entry timeline-event">
+    <span class="dot {{.Event.Action}}"></span>
+    <div class="body">
+      <div class="main">{{.ActionLabel}}{{if .FieldLabel}} · {{.FieldLabel}}{{end}}{{if .Event.FromValue}} · {{.FromLabel}} → {{.ToLabel}}{{end}}</div>
+{{if .Event.Note}}      <div class="detail">note: {{.Event.Note}}</div>
+{{end}}
+      <div class="when">{{template "timestamp" .Event.CreatedAt}} · {{.Event.Actor}}</div>
+    </div>
+  </div>
+{{end}}
+{{else}}
+  <p class="empty">No activity yet.</p>
+{{end}}
+</div>
+{{end}}

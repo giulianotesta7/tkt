@@ -1,43 +1,29 @@
 
 <div id="ticket-detail">
-  
+
   <div class="command-header">
     <div>
       <div class="meta-row">
         <a href="/tickets">← Queue</a>
         <span class="num">TKT-1</span>
-        <span class="badge in_progress">in_progress</span>
-        <span class="priority high">high</span>
+        <span class="badge in_progress">In Progress</span>
+        <span class="priority high">High</span>
       </div>
       <h1 class="command-title">Login page down</h1>
-      <div class="meta-row">
+      <div class="meta-row ticket-metadata">
         <span>Requester: Ana Torres &lt;ana@example.com&gt;</span>
-        <span>Created 2026-08-06T10:00:00Z</span>
-        <span>Updated 2026-08-06T10:30:00Z</span>
+        <span>Created <time datetime="2026-08-06T10:00:00Z">2026-08-06T10:00:00Z</time></span>
+        <span>Updated <time datetime="2026-08-06T10:30:00Z">2026-08-06T10:30:00Z</time></span>
       </div>
-    </div>
-    <div class="command-actions">
-      <a class="btn ghost" href="/tickets/1/edit">Edit</a>
     </div>
   </div>
   <div class="cards">
     <div class="conversation">
       <div class="card">
-        <h2>Details</h2>
-        <dl class="kv">
-          <dt>Category</dt>
-          <dd>Bugs</dd>
-          <dt>Assigned to</dt>
-          <dd>Ana Torres</dd>
-          
-          
-        </dl>
-      </div>
-      <div class="card">
         <h2>Description</h2>
         <p>The login form 500s on submit</p>
       </div>
-      
+
 <form class="card" method="post" action="/tickets/1/comments">
   <h2>Add comment</h2>
   
@@ -48,57 +34,100 @@
 </form>
 
       <div class="card">
-        <h2>Comments</h2>
-        
-<div id="comment-list">
-  
-  <div class="comment">
+        <h2>Timeline</h2>
+
+<div id="timeline">
+
+
+  <div class="timeline-entry timeline-comment">
     <div class="who">
       <span class="author">Ana Torres</span>
-      <span class="when">2026-08-06T10:30:00Z</span>
+      <span class="when"><time datetime="2026-08-06T10:30:00Z">2026-08-06T10:30:00Z</time></span>
     </div>
     <div class="body">Checking now</div>
   </div>
-  
+
+
+
+  <div class="timeline-entry timeline-event">
+    <span class="dot update"></span>
+    <div class="body">
+      <div class="main">Update · Assigned To · Unassigned → Ana Torres</div>
+
+      <div class="when"><time datetime="2026-08-06T10:30:00Z">2026-08-06T10:30:00Z</time> · Admin</div>
+    </div>
+  </div>
+
+
+
+  <div class="timeline-entry timeline-event">
+    <span class="dot transition"></span>
+    <div class="body">
+      <div class="main">Transition · State · New → In Progress</div>
+
+      <div class="when"><time datetime="2026-08-06T10:30:00Z">2026-08-06T10:30:00Z</time> · Admin</div>
+    </div>
+  </div>
+
+
+
+  <div class="timeline-entry timeline-event">
+    <span class="dot created"></span>
+    <div class="body">
+      <div class="main">Created</div>
+
+      <div class="when"><time datetime="2026-08-06T10:00:00Z">2026-08-06T10:00:00Z</time> · Admin</div>
+    </div>
+  </div>
+
+
 </div>
 
       </div>
     </div>
     <div class="evidence">
-      <div class="card activity">
-        <h2>Activity</h2>
-        
-
-<div class="event">
-  <span class="dot created"></span>
-  <div class="body">
-    <div class="main">created</div>
-    
-    <div class="when">2026-08-06T10:00:00Z · Admin</div>
-  </div>
-</div>
-
-<div class="event">
-  <span class="dot transition"></span>
-  <div class="body">
-    <div class="main">transition · state · new → in_progress</div>
-    
-    <div class="when">2026-08-06T10:30:00Z · Admin</div>
-  </div>
-</div>
-
-
-      </div>
-      <div class="card">
-        <h2>Transition</h2>
+      <form class="card property-form" method="post" action="/tickets/1/edit">
+        <h2>Properties</h2>
+        <dl class="kv">
+          <dt>Category</dt>
+          <dd>Bugs</dd>
+        </dl>
+        <div class="field-row">
+          <div class="field">
+            <label for="ticket-priority">Priority</label>
+            <select id="ticket-priority" name="priority">
+              <option value="critical" >Critical</option><option value="high" selected>High</option><option value="medium" >Medium</option><option value="low" >Low</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="ticket-user">Assigned To</label>
+            <select id="ticket-user" name="user_id">
+              <option value="">Unassigned</option>
+              <option value="1" selected>Ana Torres</option>
+            </select>
+          </div>
+        </div>
+        <button class="btn primary" type="submit">Save properties</button>
+      </form>
+      <div class="card state-card">
+        <h2>State</h2>
+        <div class="current-state">Current <span class="badge in_progress">In Progress</span></div>
         <form class="transition-form" method="post" action="/tickets/1/transition">
-          <select name="to" aria-label="Target state">
-            <option value="resolved">resolved</option><option value="cancelled">cancelled</option>
-          </select>
-          <input type="text" name="reason" placeholder="Reason (reopen only)" aria-label="Transition reason">
-          <button class="btn primary" type="submit">Move</button>
+          <div class="field">
+            <label for="ticket-state">Move to</label>
+            <select id="ticket-state" name="to">
+              <option value="resolved">Resolved</option><option value="cancelled">Cancelled</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="transition-reason">Reason</label>
+            <input type="text" id="transition-reason" name="reason" placeholder="Required when reopening a closed ticket">
+          </div>
+          <button class="btn primary" type="submit">Update state</button>
+
         </form>
-        
+
+
       </div>
     </div>
   </div>

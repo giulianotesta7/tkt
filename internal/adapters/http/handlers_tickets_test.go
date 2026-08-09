@@ -76,8 +76,8 @@ func TestTicketsIndexRows(t *testing.T) {
 	}
 }
 
-// TestTicketsIndexHXFragment proves GET /tickets with HX-Request returns the
-// ticket_list fragment only — no <html>, chips with the OOB attribute.
+// TestTicketsIndexHXFragment proves GET /tickets with HX-Request returns only
+// the canonical filtered list fragment, without obsolete OOB summary chips.
 func TestTicketsIndexHXFragment(t *testing.T) {
 	h := newHarness(t)
 	h.seedTicket(t, "First ticket", nil)
@@ -91,13 +91,13 @@ func TestTicketsIndexHXFragment(t *testing.T) {
 	if !strings.Contains(body, "First ticket") {
 		t.Errorf("fragment must render the rows, got: %s", body)
 	}
-	if !strings.Contains(body, `hx-swap-oob="outerHTML:#chips"`) {
-		t.Errorf("chips must carry the OOB swap attribute, got: %s", body)
+	if strings.Contains(body, `hx-swap-oob`) || strings.Contains(body, `id="chips"`) {
+		t.Errorf("HX list must not carry obsolete summary chip markup, got: %s", body)
 	}
 }
 
 // TestTicketsIndexStateFilter proves state filtering (ticket-search spec):
-// only matching tickets render, and the chips reflect the filtered set.
+// only matching tickets render and the filter bar remains the active surface.
 func TestTicketsIndexStateFilter(t *testing.T) {
 	h := newHarness(t)
 	a := h.seedTicket(t, "Resolved one", nil)
@@ -115,9 +115,24 @@ func TestTicketsIndexStateFilter(t *testing.T) {
 	if strings.Contains(body, "Fresh one") || strings.Contains(body, "Cancelled one") {
 		t.Errorf("filtered list must exclude non-matching tickets, got: %s", body)
 	}
-	// Chips reflect the filtered result set: 1 resolved, 0 of the others.
-	if !strings.Contains(body, `state=resolved" class="chip active"`) {
-		t.Errorf("active chip must be the resolved one, got: %s", body)
+	if !strings.Contains(body, `<option value="resolved" selected>Resolved</option>`) {
+		t.Errorf("state filter must remain selected with a human label, got: %s", body)
+	}
+}
+
+func TestTicketsIndexUsesHumanLabelsAndIDHeading(t *testing.T) {
+	h := newHarness(t)
+	tkt := h.seedTicket(t, "Login page down", nil)
+	h.seedTransition(t, tkt.ID, domain.StateInProgress, "")
+
+	body := h.get(t, "/tickets", false).Body.String()
+	for _, want := range []string{"<th>ID</th>", ">In Progress</span>", ">Medium</td>"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("ticket list must contain %q, got: %s", want, body)
+		}
+	}
+	if strings.Contains(body, ">in_progress<") {
+		t.Errorf("ticket list must not expose internal enum labels, got: %s", body)
 	}
 }
 
@@ -230,7 +245,7 @@ func TestTicketCreateSuccessFullPage(t *testing.T) {
 }
 
 // TestTicketCreateHXFragment proves the HX create path returns the
-// ticket_list fragment (chips OOB) instead of redirecting.
+// ticket_list fragment instead of redirecting.
 func TestTicketCreateHXFragment(t *testing.T) {
 	h := newHarness(t)
 	form := ticketForm(func(f url.Values) { f.Set("category_id", strconv.FormatInt(h.bugCategory.ID, 10)) })
@@ -247,8 +262,8 @@ func TestTicketCreateHXFragment(t *testing.T) {
 	if !strings.Contains(body, "Login page down") {
 		t.Errorf("fragment must show the refreshed list with the new ticket, got: %s", body)
 	}
-	if !strings.Contains(body, `hx-swap-oob="outerHTML:#chips"`) {
-		t.Errorf("fragment must carry the chips OOB swap, got: %s", body)
+	if strings.Contains(body, `hx-swap-oob`) {
+		t.Errorf("fragment must not carry obsolete OOB markup, got: %s", body)
 	}
 }
 
@@ -347,5 +362,44 @@ func TestTicketCreateAssignsActiveUser(t *testing.T) {
 	}
 	if view.AssignedUser == nil || view.AssignedUser.ID != beto.ID {
 		t.Errorf("assigned user = %+v, want beto", view.AssignedUser)
+	}
+}
+
+// TestTicketNewFormHasNoRequesterFields proves the create form does not
+// expose requester inputs at all (ticket-management spec: requester is
+// always the session operator — no impersonation vector).
+func TestTicketNewFormHasNoRequesterFields(t *testing.T) {
+	h := newHarness(t)
+	rec := h.get(t, "/tickets/new", false)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+	body := rec.Body.String()
+	if strings.Contains(body, "requester_name") || strings.Contains(body, "requester_email") {
+		t.Errorf("create form must not expose requester fields, got: %s", body)
+	}
+}
+
+// TestTicketCreateDerivesRequesterFromSession proves a ticket created via
+// the form stores the SESSION operator as requester, even when a forged
+// request posts requester_* values (ticket-management spec: derived from
+// session, never caller-supplied).
+func TestTicketCreateDerivesRequesterFromSession(t *testing.T) {
+	h := newHarness(t)
+	rec := h.postForm(t, "/tickets", url.Values{
+		"title":           {"Forged requester attempt"},
+		"category_id":     {"1"},
+		"priority":        {"medium"},
+		"requester_name":  {"Evil Mallory"},
+		"requester_email": {"mallory@example.com"},
+	}, false)
+
+	if rec.Code != http.StatusSeeOther {
+		t.Fatalf("status = %d, want 303", rec.Code)
+	}
+	detail := h.get(t, "/tickets/1", false).Body.String()
+	if !strings.Contains(detail, "Admin &lt;admin@tkt.test&gt;") {
+		t.Errorf("requester must be the session operator, got: %s", detail)
 	}
 }
