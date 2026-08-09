@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/giulianotesta7/tkt/internal/application"
 	"github.com/giulianotesta7/tkt/internal/domain"
 )
 
@@ -168,6 +169,38 @@ func TestLogoutIdempotent(t *testing.T) {
 	rec := h.postFormAs(t, "/logout", url.Values{}, "never-issued")
 
 	wantRedirect(t, rec, http.StatusSeeOther, "/login")
+}
+
+// TestLogoutSessionStoreFailure500 proves a session-revocation failure
+// answers 500 and never reports a successful logout while the server-side
+// session survives.
+func TestLogoutSessionStoreFailure500(t *testing.T) {
+	s := openTestStore(t)
+	user := seedUser(t, s, "Ana", "ana@example.com")
+	session := seedSession(t, s, user.ID)
+	clock := testClock{now: fixedNow}
+	usersSvc := application.NewUserService(s.UserStore(), clock)
+	authSvc := application.NewAuthService(s.UserStore(), failingSessionStore{}, clock)
+	renderer := NewRenderer()
+
+	mux := http.NewServeMux()
+	NewAuthHandlers(authSvc, usersSvc, renderer).Register(mux)
+	mw := NewSessionMiddleware(s.SessionStore(), s.UserStore())
+
+	req := httptest.NewRequest(http.MethodPost, "/logout", nil)
+	req.Header.Set("Cookie", sessionCookie+"="+session.ID)
+	rec := httptest.NewRecorder()
+	mw.Wrap(mux).ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusInternalServerError {
+		t.Errorf("logout store failure status = %d, want 500", rec.Code)
+	}
+	if loc := rec.Header().Get("Location"); loc != "" {
+		t.Errorf("failed logout must not redirect, got Location %q", loc)
+	}
+	if got := len(rec.Result().Cookies()); got != 0 {
+		t.Errorf("failed logout must not Set-Cookie (client keeps it for retry), got %d cookies", got)
+	}
 }
 
 // TestSetupPageShownWhenEmpty proves the first-user bootstrap flow: with an

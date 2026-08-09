@@ -76,7 +76,13 @@ func (h *AuthHandlers) login(w http.ResponseWriter, r *http.Request) {
 
 func (h *AuthHandlers) logout(w http.ResponseWriter, r *http.Request) {
 	if c, err := r.Cookie(sessionCookie); err == nil && c.Value != "" {
-		_ = h.auth.Logout(r.Context(), c.Value)
+		if err := h.auth.Logout(r.Context(), c.Value); err != nil {
+			// Session revocation failed: never report a successful logout
+			// while the server-side session survives — answer a recoverable
+			// 500 and keep the client cookie so the user can retry.
+			http.Error(w, "Internal server error", http.StatusInternalServerError)
+			return
+		}
 	}
 	http.SetCookie(w, &http.Cookie{
 		Name:     sessionCookie,

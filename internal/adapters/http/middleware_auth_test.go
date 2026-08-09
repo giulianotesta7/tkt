@@ -20,6 +20,10 @@ func (failingSessionStore) GetByID(context.Context, string) (*domain.Session, er
 	return nil, errors.New("session store unavailable")
 }
 
+func (failingSessionStore) Delete(context.Context, string) error {
+	return errors.New("session store unavailable")
+}
+
 // failingUserStore answers every user lookup with an operational error.
 type failingUserStore struct{ application.UserStore }
 
