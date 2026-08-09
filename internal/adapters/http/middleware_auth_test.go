@@ -14,6 +14,20 @@ import (
 	"github.com/giulianotesta7/tkt/internal/domain"
 )
 
+// failingSessionStore answers every session lookup with an operational error.
+type failingSessionStore struct{ application.SessionStore }
+
+func (failingSessionStore) GetByID(context.Context, string) (*domain.Session, error) {
+	return nil, errors.New("session store unavailable")
+}
+
+// failingUserStore answers every user lookup with an operational error.
+type failingUserStore struct{ application.UserStore }
+
+func (failingUserStore) GetByID(context.Context, int64) (*domain.User, error) {
+	return nil, errors.New("user store unavailable")
+}
+
 // openTestStore opens a real modernc SQLite database in a temp dir, applies
 // ALL migrations, and registers cleanup. File-backed (not shared-cache
 // memory) because the http package cannot reach the sqlite package-private
@@ -330,5 +344,43 @@ func TestMiddlewareGetWithOriginIgnored(t *testing.T) {
 	rec := doRequest(mux, mw, http.MethodGet, "/login", map[string]string{"Origin": "https://evil.example"})
 	if rec.Code != http.StatusOK {
 		t.Errorf("GET with cross-site Origin must be ignored, got %d", rec.Code)
+	}
+}
+
+// TestMiddlewareSessionStoreFailure500 proves an operational session-store
+// failure answers 500 — never a misleading login redirect for a valid user.
+func TestMiddlewareSessionStoreFailure500(t *testing.T) {
+	s := openTestStore(t)
+	mw := NewSessionMiddleware(failingSessionStore{}, s.UserStore())
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /tickets", func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("protected")) })
+
+	rec := doRequest(mux, mw, http.MethodGet, "/tickets", map[string]string{"Cookie": "tkt_session=any"})
+
+	if rec.Code != http.StatusInternalServerError {
+		t.Errorf("session-store failure status = %d, want 500", rec.Code)
+	}
+	if loc := rec.Header().Get("Location"); loc != "" {
+		t.Errorf("session-store failure must not redirect, got Location %q", loc)
+	}
+}
+
+// TestMiddlewareUserStoreFailure500 proves an operational user-store failure
+// answers 500 for an authenticated request — never a login redirect.
+func TestMiddlewareUserStoreFailure500(t *testing.T) {
+	s := openTestStore(t)
+	user := seedUser(t, s, "Ana", "ana@example.com")
+	session := seedSession(t, s, user.ID)
+	mw := NewSessionMiddleware(s.SessionStore(), failingUserStore{})
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /tickets", func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("protected")) })
+
+	rec := doRequest(mux, mw, http.MethodGet, "/tickets", map[string]string{"Cookie": "tkt_session=" + session.ID})
+
+	if rec.Code != http.StatusInternalServerError {
+		t.Errorf("user-store failure status = %d, want 500", rec.Code)
+	}
+	if loc := rec.Header().Get("Location"); loc != "" {
+		t.Errorf("user-store failure must not redirect, got Location %q", loc)
 	}
 }

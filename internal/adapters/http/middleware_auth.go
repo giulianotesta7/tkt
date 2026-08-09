@@ -2,6 +2,7 @@ package httpadapter
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/url"
 	"strings"
@@ -68,7 +69,13 @@ func (m *SessionMiddleware) Wrap(next http.Handler) http.Handler {
 			return
 		}
 
-		session, _ := m.resolveSession(r)
+		session, err := m.resolveSession(r)
+		if err != nil {
+			// Operational failure (store unavailable): a recoverable 500,
+			// never a misleading login redirect.
+			http.Error(w, "Internal server error", http.StatusInternalServerError)
+			return
+		}
 
 		if path == "/login" || strings.HasPrefix(path, "/login/") {
 			if session != nil {
@@ -112,12 +119,22 @@ func (m *SessionMiddleware) Wrap(next http.Handler) http.Handler {
 		}
 
 		user, err := m.users.GetByID(r.Context(), session.UserID)
-		if err != nil || !user.Active {
-			if err == nil {
-				// D14: deactivation kills the user's sessions — destroy the
-				// row so the next request is logged out for good.
-				_ = m.sessions.Delete(r.Context(), session.ID)
+		if err != nil {
+			if !errors.Is(err, domain.ErrNotFound) {
+				// Operational failure: a recoverable 500, not a login redirect.
+				http.Error(w, "Internal server error", http.StatusInternalServerError)
+				return
 			}
+			// The user row vanished (deleted out from under the session):
+			// destroy the session and treat the request as logged out.
+			_ = m.sessions.Delete(r.Context(), session.ID)
+			redirect(w, r, "/login")
+			return
+		}
+		if !user.Active {
+			// D14: deactivation kills the user's sessions — destroy the
+			// row so the next request is logged out for good.
+			_ = m.sessions.Delete(r.Context(), session.ID)
 			redirect(w, r, "/login")
 			return
 		}
@@ -126,9 +143,10 @@ func (m *SessionMiddleware) Wrap(next http.Handler) http.Handler {
 	})
 }
 
-// resolveSession reads the cookie and resolves it to a valid session; a
-// missing, expired, or forged token yields nil (the middleware treats those
-// identically: unauthenticated).
+// resolveSession reads the cookie and resolves it to a valid session. A
+// missing, expired, or forged token yields (nil, nil): the middleware treats
+// those identically as unauthenticated. An operational store failure is
+// returned as an error so callers answer 500 instead of a login redirect.
 func (m *SessionMiddleware) resolveSession(r *http.Request) (*domain.Session, error) {
 	c, err := r.Cookie(sessionCookie)
 	if err != nil || c.Value == "" {
@@ -136,7 +154,10 @@ func (m *SessionMiddleware) resolveSession(r *http.Request) (*domain.Session, er
 	}
 	s, err := m.sessions.GetByID(r.Context(), c.Value)
 	if err != nil {
-		return nil, nil // expired/forged → unauthenticated
+		if errors.Is(err, domain.ErrNotFound) {
+			return nil, nil // expired/forged → unauthenticated
+		}
+		return nil, err // operational failure → caller decides the status
 	}
 	return s, nil
 }
