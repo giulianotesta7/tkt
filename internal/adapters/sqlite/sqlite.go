@@ -6,6 +6,7 @@
 package sqlite
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -77,6 +78,17 @@ func (s *Store) SearchStore() application.SearchStore { return newSearchStore(s.
 // deferred to the HTTP slice (4.6 kept newCategoryStore package-private);
 // task 5.4 is its first consumer — ticket forms and filters list categories.
 func (s *Store) CategoryStore() application.CategoryStore { return newCategoryStore(s.db) }
+
+// Ping verifies the database connection is alive (SELECT 1). The
+// composition root's -healthcheck flag uses it.
+func (s *Store) Ping(ctx context.Context) error {
+	return s.db.PingContext(ctx)
+}
+
+// Close releases the underlying *sql.DB (phase 6 composition root).
+func (s *Store) Close() error {
+	return s.db.Close()
+}
 
 // --- constraint and value helpers ---
 
