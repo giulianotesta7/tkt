@@ -252,3 +252,22 @@ func TestSharedCacheNoSchemaFlakes(t *testing.T) {
 		t.Errorf("tickets via pool B = %d, want 0 (fresh shared db)", n)
 	}
 }
+
+// TestStorePingClose covers the phase 6 composition-root surface: Ping
+// reports a live connection and Close releases it (RDD follow-up surfaced
+// by Phase 6).
+func TestStorePingClose(t *testing.T) {
+	s := newTestDB(t)
+
+	if err := s.Ping(context.Background()); err != nil {
+		t.Fatalf("Ping: %v", err)
+	}
+	if err := s.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	// A second Close is a no-op error in modernc sqlite; Ping after close
+	// must fail — the composition root defer must not mask a released db.
+	if err := s.Ping(context.Background()); err == nil {
+		t.Fatal("Ping after Close must fail")
+	}
+}
