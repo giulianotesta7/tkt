@@ -1,6 +1,6 @@
 
-<form class="filter-bar" method="get" action="/tickets" hx-get="/tickets" hx-target="#ticket-list" hx-swap="outerHTML">
-  <input type="search" name="q" value="" placeholder="Search title, description, comments…" aria-label="Search">
+<form class="filter-bar" method="get" action="/tickets" hx-get="/tickets" hx-target="#ticket-list" hx-swap="outerHTML" hx-indicator="this"> <span class="htmx-indicator spinner" aria-hidden="true"></span>
+  <input type="search" name="q" value="" placeholder="Search by ID or title" aria-label="Search">
   <select name="state" aria-label="State">
     <option value="">All states</option>
     <option value="new" selected>New</option><option value="in_progress" >In Progress</option><option value="resolved" >Resolved</option><option value="closed" >Closed</option><option value="cancelled" >Cancelled</option>

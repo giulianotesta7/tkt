@@ -57,14 +57,28 @@ func buildTicketWhere(q application.TicketQuery) (string, []any) {
 		clauses = append(clauses, "t.user_id = ?")
 		args = append(args, *q.UserID)
 	}
-	// Text clause (FTS5, 0002): tickets whose rowid is matched by the
-	// D4-tokenized expression (design "Search / Filters"). Empty text adds
-	// no clause — a plain filter list. The clause is shared by list,
-	// count, chips, and search queries so pagination boundaries and chip
-	// counts always reflect the same filtered set.
+	// Text clause (FTS5, 0002): tickets whose TITLE rowid matches the
+	// D4-tokenized, title-scoped expression, OR whose exact ticket number
+	// (TKT-N) matches one of the extracted IDs — the search box scope is
+	// ID or title only. Empty text adds no clause — a plain filter list.
+	// The clause is shared by list, count, chips, and search queries so
+	// pagination boundaries and chip counts always reflect the same
+	// filtered set.
+	var textOR []string
 	if q.Text != "" {
-		clauses = append(clauses, "t.id IN (SELECT rowid FROM tickets_fts WHERE tickets_fts MATCH ?)")
+		textOR = append(textOR, "t.id IN (SELECT rowid FROM tickets_fts WHERE tickets_fts MATCH ?)")
 		args = append(args, q.Text)
+	}
+	if len(q.Numbers) > 0 {
+		nums := make([]string, 0, len(q.Numbers))
+		for _, n := range q.Numbers {
+			nums = append(nums, "?")
+			args = append(args, n)
+		}
+		textOR = append(textOR, "t.number IN ("+strings.Join(nums, ",")+")")
+	}
+	if len(textOR) > 0 {
+		clauses = append(clauses, "("+strings.Join(textOR, " OR ")+")")
 	}
 	if len(clauses) == 0 {
 		return "", nil

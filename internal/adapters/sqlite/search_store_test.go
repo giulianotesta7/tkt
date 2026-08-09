@@ -11,9 +11,10 @@ import (
 
 // Task 4.5: FTS5 contentless index (0002) + search store. The text clause
 // is the design's `t.id IN (SELECT rowid FROM tickets_fts WHERE
-// tickets_fts MATCH ?)`; TicketQuery.Text is the D4-tokenized expression
-// (application.BuildTextQuery) and binds as-is — quoted tokens never
-// produce FTS syntax errors.
+// tickets_fts MATCH ?)`; TicketQuery.Text is the D4-tokenized, title-scoped
+// expression and TicketQuery.Numbers the extracted ticket IDs
+// (application.BuildTitleQuery). The search box scope is ID or title only:
+// description and comment bodies are never searchable.
 
 func mustSearch(t *testing.T, s *Store, q application.TicketQuery) []domain.Ticket {
 	t.Helper()
@@ -24,6 +25,13 @@ func mustSearch(t *testing.T, s *Store, q application.TicketQuery) []domain.Tick
 	return got
 }
 
+// textQuery builds the store-side query for a raw search-box input.
+func textQuery(raw string) application.TicketQuery {
+	q := application.TicketQuery{}
+	q.Text, q.Numbers = application.BuildTitleQuery(raw)
+	return q
+}
+
 func seedSearchTicket(t *testing.T, s *Store, number int, title, description string, state domain.State, priority domain.Priority, catID int64) int64 {
 	t.Helper()
 	return seedTicket(t, s, domain.Ticket{Number: number, Title: title, Description: description,
@@ -31,30 +39,52 @@ func seedSearchTicket(t *testing.T, s *Store, number int, title, description str
 		CreatedAt: testClock, UpdatedAt: testClock}).ID
 }
 
-func TestFTS5SearchAcrossFields(t *testing.T) {
+func TestFTS5SearchMatchesTitleOnly(t *testing.T) {
 	s := newTestDB(t)
 	cat := seedCategory(t, s, "Bugs")
 	ctx := context.Background()
 
-	// Ticket A matches in the description; ticket B matches only in a
-	// comment (comment-timeline indexed via trg_comments_ai).
-	seedSearchTicket(t, s, 1, "Network", "timeout on connect", domain.StateNew, domain.PriorityLow, cat)
+	// Ticket A matches in the TITLE; ticket B matches only in a comment
+	// and ticket C only in its description — none of those must surface.
+	seedSearchTicket(t, s, 1, "Network timeout", "timeout on connect", domain.StateNew, domain.PriorityLow, cat)
 	b := seedSearchTicket(t, s, 2, "Printer", "spooler setup", domain.StateNew, domain.PriorityLow, cat)
+	seedSearchTicket(t, s, 3, "Monitor", "timeout on display", domain.StateNew, domain.PriorityLow, cat)
 	if err := s.CommentStore().Add(ctx, &domain.Comment{TicketID: b, Author: "Ana",
 		Body: "network timeout observed", CreatedAt: testClock}); err != nil {
 		t.Fatal(err)
 	}
 
-	got := mustSearch(t, s, application.TicketQuery{Text: application.BuildTextQuery("timeout")})
-	if len(got) != 2 {
-		t.Fatalf("matches = %d, want 2 (description + comment), got %+v", len(got), got)
+	got := mustSearch(t, s, textQuery("timeout"))
+	if len(got) != 1 || got[0].Number != 1 {
+		t.Fatalf("matches = %+v, want [1] (title only; description/comment must not match)", got)
 	}
-	ids := map[int64]bool{}
-	for _, tk := range got {
-		ids[tk.ID] = true
+}
+
+func TestFTS5SearchByNumber(t *testing.T) {
+	s := newTestDB(t)
+	cat := seedCategory(t, s, "Bugs")
+
+	seedSearchTicket(t, s, 1, "Network", "timeout on connect", domain.StateNew, domain.PriorityLow, cat)
+	seedSearchTicket(t, s, 2, "Printer", "spooler setup", domain.StateNew, domain.PriorityLow, cat)
+	seedSearchTicket(t, s, 3, "Monitor", "display setup", domain.StateNew, domain.PriorityLow, cat)
+
+	// "3" and "TKT-3" both resolve to ticket number 3.
+	got := mustSearch(t, s, textQuery("3"))
+	if len(got) != 1 || got[0].Number != 3 {
+		t.Errorf(`"3" matches = %+v, want [3]`, got)
 	}
-	if !ids[1] || !ids[2] {
-		t.Errorf("matches = %v, want tickets 1 and 2 (cross-field)", ids)
+	got = mustSearch(t, s, textQuery("TKT-2"))
+	if len(got) != 1 || got[0].Number != 2 {
+		t.Errorf(`"TKT-2" matches = %+v, want [2]`, got)
+	}
+	// "monitor 3": title OR number — the title hit alone is enough.
+	got = mustSearch(t, s, textQuery("monitor 3"))
+	if len(got) != 1 || got[0].Number != 3 {
+		t.Errorf(`"monitor 3" matches = %+v, want [3]`, got)
+	}
+	// A missing number matches nothing.
+	if got := mustSearch(t, s, textQuery("999")); len(got) != 0 {
+		t.Errorf(`"999" matches = %+v, want none`, got)
 	}
 }
 
@@ -72,7 +102,7 @@ func TestFTS5SearchReflectsEdits(t *testing.T) {
 
 	// Acceptance: edit "Old" → "New": search "Old" must be empty, "New"
 	// must hit (trg_tickets_au keeps the index consistent with the edit).
-	if got := mustSearch(t, s, application.TicketQuery{Text: application.BuildTextQuery("Old")}); len(got) != 1 {
+	if got := mustSearch(t, s, textQuery("Old")); len(got) != 1 {
 		t.Fatalf("before edit: 'Old' matches = %d, want 1", len(got))
 	}
 
@@ -82,10 +112,10 @@ func TestFTS5SearchReflectsEdits(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if got := mustSearch(t, s, application.TicketQuery{Text: application.BuildTextQuery("Old")}); len(got) != 0 {
+	if got := mustSearch(t, s, textQuery("Old")); len(got) != 0 {
 		t.Errorf("after edit: 'Old' still matches %d tickets — superseded content must not remain searchable", len(got))
 	}
-	if got := mustSearch(t, s, application.TicketQuery{Text: application.BuildTextQuery("New")}); len(got) != 1 {
+	if got := mustSearch(t, s, textQuery("New")); len(got) != 1 {
 		t.Errorf("after edit: 'New' matches = %d, want 1", len(got))
 	}
 }
@@ -93,16 +123,16 @@ func TestFTS5SearchReflectsEdits(t *testing.T) {
 func TestFTS5SearchSpecialCharsNeverError(t *testing.T) {
 	s := newTestDB(t)
 	cat := seedCategory(t, s, "Bugs")
-	seedSearchTicket(t, s, 1, "Network", "timeout on connect", domain.StateNew, domain.PriorityLow, cat)
+	seedSearchTicket(t, s, 1, "Network timeout", "timeout on connect", domain.StateNew, domain.PriorityLow, cat)
 
 	// Raw user input carrying FTS5 syntax (threat matrix: "FTS syntax
-	// chars in q → 200/empty, no 500"). The D4-tokenized expression binds
-	// as-is; quoted tokens must never error.
+	// chars in q → 200/empty, no 500"). The D4-tokenized, title-scoped
+	// expression binds as-is; quoted tokens must never error.
 	rawInputs := []string{
 		`"`, `(`, `*`, `:`, `a OR b`, `say "hi"`, `'`, `-`, `!`, `network (timeout`,
 	}
 	for _, raw := range rawInputs {
-		q := application.TicketQuery{Text: application.BuildTextQuery(raw)}
+		q := textQuery(raw)
 		if _, err := s.SearchStore().Search(context.Background(), q, application.Page{Offset: 0, Limit: 10}); err != nil {
 			t.Errorf("Search(%q → %q): %v", raw, q.Text, err)
 		}
@@ -112,7 +142,7 @@ func TestFTS5SearchSpecialCharsNeverError(t *testing.T) {
 	}
 
 	// Sanity: a normal token still matches alongside the specials.
-	got := mustSearch(t, s, application.TicketQuery{Text: application.BuildTextQuery("network (timeout")})
+	got := mustSearch(t, s, textQuery("network (timeout"))
 	if len(got) != 1 {
 		t.Errorf("'network (timeout' matches = %d, want 1 (specials degrade, tokens still match)", len(got))
 	}
@@ -124,21 +154,21 @@ func TestFTS5SearchComposesWithFilters(t *testing.T) {
 	support := seedCategory(t, s, "Support")
 	ctx := context.Background()
 
-	seedSearchTicket(t, s, 1, "A", "timeout in bugs resolved", domain.StateResolved, domain.PriorityHigh, bugs)
-	seedSearchTicket(t, s, 2, "B", "timeout in bugs new", domain.StateNew, domain.PriorityHigh, bugs)
-	seedSearchTicket(t, s, 3, "C", "timeout in support resolved", domain.StateResolved, domain.PriorityHigh, support)
-	seedSearchTicket(t, s, 4, "D", "printer in support", domain.StateNew, domain.PriorityLow, support)
+	seedSearchTicket(t, s, 1, "Timeout A", "ignored description", domain.StateResolved, domain.PriorityHigh, bugs)
+	seedSearchTicket(t, s, 2, "Timeout B", "ignored description", domain.StateNew, domain.PriorityHigh, bugs)
+	seedSearchTicket(t, s, 3, "Timeout C", "ignored description", domain.StateResolved, domain.PriorityHigh, support)
+	seedSearchTicket(t, s, 4, "Printer D", "ignored description", domain.StateNew, domain.PriorityLow, support)
 
-	text := application.BuildTextQuery("timeout")
+	text := textQuery("timeout")
 
 	// Text AND state: A and C.
-	got := mustSearch(t, s, application.TicketQuery{Text: text, State: ptr(domain.StateResolved)})
+	got := mustSearch(t, s, application.TicketQuery{Text: text.Text, Numbers: text.Numbers, State: ptr(domain.StateResolved)})
 	if len(got) != 2 {
 		t.Errorf("timeout+resolved = %d, want 2", len(got))
 	}
 	// Text AND state AND category: only A.
 	got = mustSearch(t, s, application.TicketQuery{
-		Text: text, State: ptr(domain.StateResolved), CategoryID: ptr(bugs)})
+		Text: text.Text, Numbers: text.Numbers, State: ptr(domain.StateResolved), CategoryID: ptr(bugs)})
 	if len(got) != 1 || got[0].Number != 1 {
 		t.Errorf("timeout+resolved+bugs = %+v, want [1]", got)
 	}
@@ -148,7 +178,7 @@ func TestFTS5SearchComposesWithFilters(t *testing.T) {
 		t.Errorf("state=new = %d, want 2 (no text clause)", len(got))
 	}
 
-	n, err := s.SearchStore().SearchCount(ctx, application.TicketQuery{Text: text, State: ptr(domain.StateResolved)})
+	n, err := s.SearchStore().SearchCount(ctx, application.TicketQuery{Text: text.Text, Numbers: text.Numbers, State: ptr(domain.StateResolved)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -162,13 +192,14 @@ func TestFTS5ChipsReflectTextFilter(t *testing.T) {
 	cat := seedCategory(t, s, "Bugs")
 	ctx := context.Background()
 
-	seedSearchTicket(t, s, 1, "A", "timeout resolved", domain.StateResolved, domain.PriorityHigh, cat)
-	seedSearchTicket(t, s, 2, "B", "timeout new", domain.StateNew, domain.PriorityHigh, cat)
-	seedSearchTicket(t, s, 3, "C", "printer", domain.StateNew, domain.PriorityLow, cat)
+	seedSearchTicket(t, s, 1, "Timeout resolved", "ignored", domain.StateResolved, domain.PriorityHigh, cat)
+	seedSearchTicket(t, s, 2, "Timeout new", "ignored", domain.StateNew, domain.PriorityHigh, cat)
+	seedSearchTicket(t, s, 3, "Printer", "ignored", domain.StateNew, domain.PriorityLow, cat)
 
 	// Chips must reflect the TEXT-filtered result set (the shared filter
 	// builder carries the text clause into the chip queries).
-	byState, err := s.TicketStore().CountsByState(ctx, application.TicketQuery{Text: application.BuildTextQuery("timeout")})
+	text := textQuery("timeout")
+	byState, err := s.TicketStore().CountsByState(ctx, application.TicketQuery{Text: text.Text, Numbers: text.Numbers})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -176,7 +207,7 @@ func TestFTS5ChipsReflectTextFilter(t *testing.T) {
 		t.Errorf("chips by state under text=timeout: %v, want {resolved:1, new:1}", byState)
 	}
 	byPriority, err := s.TicketStore().CountsByPriority(ctx, application.TicketQuery{
-		Text: application.BuildTextQuery("timeout"), State: ptr(domain.StateNew)})
+		Text: text.Text, Numbers: text.Numbers, State: ptr(domain.StateNew)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -192,10 +223,11 @@ func TestFTS5TicketListSupportsText(t *testing.T) {
 	cat := seedCategory(t, s, "Bugs")
 	ctx := context.Background()
 
-	seedSearchTicket(t, s, 1, "Network", "timeout", domain.StateNew, domain.PriorityLow, cat)
-	seedSearchTicket(t, s, 2, "Printer", "spooler", domain.StateNew, domain.PriorityLow, cat)
+	seedSearchTicket(t, s, 1, "Network timeout", "ignored", domain.StateNew, domain.PriorityLow, cat)
+	seedSearchTicket(t, s, 2, "Printer", "ignored", domain.StateNew, domain.PriorityLow, cat)
 
-	got, err := s.TicketStore().List(ctx, application.TicketQuery{Text: application.BuildTextQuery("timeout")},
+	text := textQuery("timeout")
+	got, err := s.TicketStore().List(ctx, application.TicketQuery{Text: text.Text, Numbers: text.Numbers},
 		application.Page{Offset: 0, Limit: 10})
 	if err != nil {
 		t.Fatal(err)

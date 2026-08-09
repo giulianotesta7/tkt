@@ -20,8 +20,6 @@ import (
 	"github.com/giulianotesta7/tkt/web/templates"
 )
 
-// timeLayout is the rendered timestamp form (D7): ISO-8601 UTC TEXT,
-// RFC3339 — the same layout the sqlite adapter persists.
 const displayTimeLayout = "15:04 · 02-01-2006"
 
 func formatDisplayTime(t time.Time) string {
