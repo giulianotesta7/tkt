@@ -14,7 +14,7 @@
   <div class="category-card">
     <div>
       <div class="name">{{.Name}}</div>
-      <div class="when">Created {{formatTime .CreatedAt}}</div>
+      <div class="when">Created {{template "timestamp" .CreatedAt}}</div>
     </div>
     <div class="row-actions">
       <a class="btn ghost small" href="/categories/{{.ID}}/edit">Edit</a>

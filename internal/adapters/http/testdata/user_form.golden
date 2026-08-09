@@ -1,6 +1,6 @@
 
 <form class="card form-card" method="post" action="/users/1/edit">
-  <h3>Operator details</h3>
+  <h2>Operator details</h2>
   
   <div class="field">
     <label for="name">Name</label>

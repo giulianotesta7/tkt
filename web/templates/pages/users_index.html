@@ -19,8 +19,8 @@
       <tr>
         <td><div class="user-cell"><span class="avatar">{{initials .Name}}</span><span class="cell-title">{{.Name}}</span></div></td>
         <td class="cell-muted">{{.Email}}</td>
-        <td>{{if .Active}}<span class="status active">active</span>{{else}}<span class="status inactive">inactive</span>{{end}}</td>
-        <td class="cell-muted">{{formatTime .CreatedAt}}</td>
+        <td>{{if .Active}}<span class="status active">Active</span>{{else}}<span class="status inactive">Inactive</span>{{end}}</td>
+        <td class="cell-muted">{{template "timestamp" .CreatedAt}}</td>
         <td>
           <div class="row-actions">
             <a class="btn ghost small" href="/users/{{.ID}}/edit">Edit</a>

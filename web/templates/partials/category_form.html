@@ -1,6 +1,6 @@
 {{define "category_form"}}
 <form class="card form-card" method="post" action="{{if .CategoryID}}/categories/{{.CategoryID}}/edit{{else}}/categories{{end}}">
-  <h3>{{if .CategoryID}}Rename category{{else}}New category{{end}}</h3>
+  <h2>{{if .CategoryID}}Rename category{{else}}New category{{end}}</h2>
   {{if .Error}}<div class="error-banner" role="alert">{{.Error}}</div>{{end}}
   <div class="field">
     <label for="name">Name</label>

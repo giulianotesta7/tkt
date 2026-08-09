@@ -1,6 +1,6 @@
 {{define "user_form"}}
 <form class="card form-card" method="post" action="{{if .UserID}}/users/{{.UserID}}/edit{{else}}/users{{end}}">
-  <h3>{{if .UserID}}Operator details{{else}}New operator{{end}}</h3>
+  <h2>{{if .UserID}}Operator details{{else}}New operator{{end}}</h2>
   {{if .Error}}<div class="error-banner" role="alert">{{.Error}}</div>{{end}}
   <div class="field">
     <label for="name">Name</label>
