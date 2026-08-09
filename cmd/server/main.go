@@ -14,10 +14,13 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"log"
 	"net/http"
 	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	httpadapter "github.com/giulianotesta7/tkt/internal/adapters/http"
@@ -89,8 +92,36 @@ func main() {
 	})
 
 	handler := httpadapter.NewSessionMiddleware(store.SessionStore(), store.UserStore()).Wrap(mux)
+
+	srv := &http.Server{
+		Addr:              listen,
+		Handler:           handler,
+		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       15 * time.Second,
+		WriteTimeout:      30 * time.Second,
+		IdleTimeout:       60 * time.Second,
+	}
 	log.Printf("tkt server on %s (db: %s)", listen, dbPath)
-	if err := http.ListenAndServe(listen, handler); err != nil {
-		log.Fatal(err)
+
+	// Graceful shutdown: SIGINT/SIGTERM drain in-flight requests (with a
+	// bounded window) and run the deferred database close before exiting.
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	errCh := make(chan error, 1)
+	go func() { errCh <- srv.ListenAndServe() }()
+
+	select {
+	case err := <-errCh:
+		if err != nil && !errors.Is(err, http.ErrServerClosed) {
+			log.Fatal(err)
+		}
+	case <-ctx.Done():
+		log.Println("shutting down…")
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		if err := srv.Shutdown(shutdownCtx); err != nil {
+			log.Printf("shutdown: %v", err)
+		}
 	}
 }
