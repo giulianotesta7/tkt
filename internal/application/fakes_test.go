@@ -30,21 +30,6 @@ func fixedClock() *fakeClock {
 	return &fakeClock{now: time.Date(2026, 8, 6, 10, 0, 0, 0, time.UTC)}
 }
 
-// textTokens parses a D4-tokenized FTS expression ("token" AND "token") back
-// into plain tokens for the fake's substring matching.
-func textTokens(expr string) []string {
-	var toks []string
-	for _, p := range strings.Split(expr, " AND ") {
-		p = strings.TrimPrefix(p, `"`)
-		p = strings.TrimSuffix(p, `"`)
-		p = strings.ReplaceAll(p, `""`, `"`)
-		if p != "" {
-			toks = append(toks, strings.ToLower(p))
-		}
-	}
-	return toks
-}
-
 func matchesQuery(t *domain.Ticket, q application.TicketQuery) bool {
 	if q.State != nil && t.State != *q.State {
 		return false
@@ -58,18 +43,29 @@ func matchesQuery(t *domain.Ticket, q application.TicketQuery) bool {
 	if q.UserID != nil && (t.UserID == nil || *t.UserID != *q.UserID) {
 		return false
 	}
-	if q.Text != "" && !matchesText(t, q.Text) {
-		return false
+	if q.Text != "" || len(q.Numbers) > 0 {
+		titleHit := q.Text == "" || matchesTitle(t, q.Text)
+		numberHit := false
+		for _, n := range q.Numbers {
+			if int64(t.Number) == n {
+				numberHit = true
+				break
+			}
+		}
+		if !titleHit && !numberHit {
+			return false
+		}
 	}
 	return true
 }
 
-// matchesText approximates FTS5 quoted-AND semantics for the fake: every
-// token must appear (case-insensitive) in the title or description.
-func matchesText(t *domain.Ticket, expr string) bool {
-	hay := strings.ToLower(t.Title + "\n" + t.Description)
-	for _, tok := range textTokens(expr) {
-		if !strings.Contains(hay, tok) {
+// matchesTitle approximates the title-scoped FTS expression for the fake:
+// every `title : "tok"` phrase must appear (case-insensitive) in the title.
+func matchesTitle(t *domain.Ticket, expr string) bool {
+	hay := strings.ToLower(t.Title)
+	for _, phrase := range strings.Split(expr, " AND ") {
+		tok := strings.Trim(strings.TrimPrefix(phrase, "title : "), `"`)
+		if !strings.Contains(hay, strings.ToLower(tok)) {
 			return false
 		}
 	}

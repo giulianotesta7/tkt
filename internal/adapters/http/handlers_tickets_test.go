@@ -153,6 +153,22 @@ func TestTicketsSearchText(t *testing.T) {
 	}
 }
 
+// TestTicketsSearchByNumber proves the search box matches the ticket ID
+// (TKT-N) as well as the title.
+func TestTicketsSearchByNumber(t *testing.T) {
+	h := newHarness(t)
+	h.seedTicket(t, "Network outage", nil)
+	h.seedTicket(t, "Printer jam", nil)
+
+	body := h.get(t, "/tickets?q=TKT-2", false).Body.String()
+	if !strings.Contains(body, "Printer jam") {
+		t.Errorf("search by TKT-2 must match the ticket, got: %s", body)
+	}
+	if strings.Contains(body, "Network outage") {
+		t.Errorf("search by TKT-2 must exclude other tickets, got: %s", body)
+	}
+}
+
 // TestTicketsSearchSpecialCharsNo500 proves FTS syntax characters in q never
 // error (threat matrix): invalid input degrades to no text filter.
 func TestTicketsSearchSpecialCharsNo500(t *testing.T) {

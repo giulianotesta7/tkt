@@ -48,6 +48,40 @@ func TestBuildTextQuery(t *testing.T) {
 	}
 }
 
+func TestBuildTitleQuery(t *testing.T) {
+	cases := []struct {
+		name    string
+		in      string
+		want    string
+		numbers []int64
+	}{
+		{"empty", "", "", nil},
+		{"single token", "timeout", `title : "timeout"`, nil},
+		{"two tokens", "network timeout", `title : "network" AND title : "timeout"`, nil},
+		{"bare number", "3", `title : "3"`, []int64{3}},
+		{"ticket id", "TKT-2", `title : "TKT-2"`, []int64{2}},
+		{"title and id", "monitor 3", `title : "monitor" AND title : "3"`, []int64{3}},
+		{"embedded quotes", `say "hi"`, `title : "say" AND title : """hi"""`, nil},
+		{"fts operators", `"a OR b`, `title : """a" AND title : "OR" AND title : "b"`, nil},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, numbers := application.BuildTitleQuery(tc.in)
+			if got != tc.want {
+				t.Fatalf("BuildTitleQuery(%q) text = %q, want %q", tc.in, got, tc.want)
+			}
+			if len(numbers) != len(tc.numbers) {
+				t.Fatalf("BuildTitleQuery(%q) numbers = %v, want %v", tc.in, numbers, tc.numbers)
+			}
+			for i := range numbers {
+				if numbers[i] != tc.numbers[i] {
+					t.Fatalf("BuildTitleQuery(%q) numbers = %v, want %v", tc.in, numbers, tc.numbers)
+				}
+			}
+		})
+	}
+}
+
 // TestSearchFiltersComposeWithAND covers the 4-filter composition scenario:
 // state resolved + priority high + category Bugs + user 2 matches only the
 // ticket satisfying all four conditions.
@@ -97,24 +131,41 @@ func TestSearchEmptyFilterReturnsAll(t *testing.T) {
 }
 
 // TestSearchTextAndComposition: multi-token queries match only tickets
-// containing every token (quoted-AND semantics, D4).
+// whose TITLE contains every token (quoted-AND semantics, D4; description
+// text is not searchable).
 func TestSearchTextAndComposition(t *testing.T) {
 	svc, tickets, clock := newSearchService()
-	seedSearchTicket(tickets, clock, "Network", "timeout on connect", domain.StateNew, domain.PriorityLow, 1, nil)
-	seedSearchTicket(tickets, clock, "Printer", "timeout on spool", domain.StateNew, domain.PriorityLow, 1, nil)
-	seedSearchTicket(tickets, clock, "Both", "network timeout again", domain.StateNew, domain.PriorityLow, 1, nil)
+	seedSearchTicket(tickets, clock, "Network timeout", "timeout on connect", domain.StateNew, domain.PriorityLow, 1, nil)
+	seedSearchTicket(tickets, clock, "Printer spool", "network timeout on spool", domain.StateNew, domain.PriorityLow, 1, nil)
+	seedSearchTicket(tickets, clock, "Both network timeout", "again", domain.StateNew, domain.PriorityLow, 1, nil)
 
 	result, err := svc.Search(context.Background(), application.TicketQuery{Text: "network timeout"}, 1)
 	if err != nil {
 		t.Fatalf("Search: unexpected error: %v", err)
 	}
 	if result.Total != 2 {
-		t.Fatalf("Search: only tickets with BOTH tokens must match, got %d", result.Total)
+		t.Fatalf("Search: only tickets whose TITLE has BOTH tokens must match, got %d", result.Total)
 	}
 	for _, tt := range result.Tickets {
-		if tt.Title != "Network" && tt.Title != "Both" {
+		if tt.Title != "Network timeout" && tt.Title != "Both network timeout" {
 			t.Fatalf("Search: unexpected match %q", tt.Title)
 		}
+	}
+}
+
+// TestSearchByNumber: the text filter matches exact ticket numbers (TKT-N)
+// OR titles — "TKT-2" resolves to ticket number 2 even when no title hits.
+func TestSearchByNumber(t *testing.T) {
+	svc, tickets, clock := newSearchService()
+	seedSearchTicket(tickets, clock, "Network", "x", domain.StateNew, domain.PriorityLow, 1, nil)
+	seedSearchTicket(tickets, clock, "Printer", "x", domain.StateNew, domain.PriorityLow, 1, nil)
+
+	result, err := svc.Search(context.Background(), application.TicketQuery{Text: "TKT-2"}, 1)
+	if err != nil {
+		t.Fatalf("Search: unexpected error: %v", err)
+	}
+	if result.Total != 1 || len(result.Tickets) != 1 || result.Tickets[0].Title != "Printer" {
+		t.Fatalf("Search(TKT-2) = %+v, want [Printer]", result)
 	}
 }
 
@@ -166,37 +217,6 @@ func TestSearchStablePagination(t *testing.T) {
 	}
 	if len(seen) != total {
 		t.Fatalf("Search: all %d tickets must be covered across pages, got %d", total, len(seen))
-	}
-}
-
-// TestSearchChipsReflectResultSet covers the summary chips: counts by state
-// and priority reflect the filtered result set (including the text filter).
-func TestSearchChipsReflectResultSet(t *testing.T) {
-	svc, tickets, clock := newSearchService()
-	cat := int64(1)
-	// Filtered set (category 1): 3 resolved + 2 cancelled.
-	for i := 0; i < 3; i++ {
-		seedSearchTicket(tickets, clock, "R", "alpha", domain.StateResolved, domain.PriorityHigh, cat, nil)
-	}
-	for i := 0; i < 2; i++ {
-		seedSearchTicket(tickets, clock, "C", "alpha", domain.StateCancelled, domain.PriorityLow, cat, nil)
-	}
-	// Outside the filter.
-	seedSearchTicket(tickets, clock, "X", "alpha", domain.StateNew, domain.PriorityLow, 2, nil)
-
-	q := application.TicketQuery{CategoryID: &cat, Text: "alpha"}
-	result, err := svc.Search(context.Background(), q, 1)
-	if err != nil {
-		t.Fatalf("Search: unexpected error: %v", err)
-	}
-	if result.ByState[domain.StateResolved] != 3 || result.ByState[domain.StateCancelled] != 2 {
-		t.Fatalf("Search: chips must show 3 resolved and 2 cancelled, got %+v", result.ByState)
-	}
-	if result.ByPriority[domain.PriorityHigh] != 3 || result.ByPriority[domain.PriorityLow] != 2 {
-		t.Fatalf("Search: priority chips must show 3 high and 2 low, got %+v", result.ByPriority)
-	}
-	if _, ok := result.ByState[domain.StateNew]; ok {
-		t.Fatalf("Search: chips must reflect the filtered set only, got %+v", result.ByState)
 	}
 }
 

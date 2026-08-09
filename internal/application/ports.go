@@ -10,7 +10,7 @@ import (
 )
 
 // TicketStore persists tickets and answers list/count queries (D2, D13).
-// It serves READ paths: GetByID, List, Count, and the chips counts.
+// It serves READ paths: GetByID, List, Count, and aggregate counts.
 //
 // Numbering is a store concern (D8): Create assigns the ticket's unique
 // readable Number atomically (MAX+1 inside the store transaction) and its ID.
@@ -34,11 +34,9 @@ type TicketStore interface {
 	List(ctx context.Context, q TicketQuery, p Page) ([]domain.Ticket, error)
 	// Count returns the number of tickets matching q (no pagination).
 	Count(ctx context.Context, q TicketQuery) (int, error)
-	// CountsByState returns chips counts per state for tickets matching q
-	// (no pagination), reflecting the filtered result set.
+	// CountsByState returns counts per state for tickets matching q.
 	CountsByState(ctx context.Context, q TicketQuery) (map[domain.State]int, error)
-	// CountsByPriority returns chips counts per priority for tickets matching
-	// q (no pagination), reflecting the filtered result set.
+	// CountsByPriority returns counts per priority for tickets matching q.
 	CountsByPriority(ctx context.Context, q TicketQuery) (map[domain.Priority]int, error)
 }
 
@@ -137,7 +135,7 @@ type CategoryStore interface {
 	List(ctx context.Context) ([]domain.Category, error)
 }
 
-// TicketQuery is the filter set shared by list, count, and chips queries
+// TicketQuery is the filter set shared by list, count, and search queries
 // (ticket-search spec). All active filters compose with AND semantics; an
 // empty filter set returns all tickets.
 type TicketQuery struct {
@@ -145,8 +143,12 @@ type TicketQuery struct {
 	Priority   *domain.Priority
 	CategoryID *int64
 	UserID     *int64
-	// Text is the D4-tokenized FTS expression ("" = no text filter).
+	// Text is the D4-tokenized, title-scoped FTS expression ("" = no title
+	// filter). The search box matches ONLY ticket titles or IDs.
 	Text string
+	// Numbers holds the exact positive ticket numbers (TKT-N) extracted
+	// from the raw text filter; the ID-search side of the text clause.
+	Numbers []int64
 	// SortByPriority orders results by the D11 priority rank
 	// (critical > high > medium > low) before the created/id tiebreak.
 	SortByPriority bool
