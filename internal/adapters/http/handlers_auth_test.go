@@ -20,7 +20,7 @@ func authForm(email, password string) url.Values {
 
 // TestLoginPageRendered proves GET /login serves the login form page.
 func TestLoginPageRendered(t *testing.T) {
-	h := newAuthHarness(t)
+	h := newHarness(t)
 	h.createUser(t, "Ana", "ana@example.com", "secret")
 
 	req := httptest.NewRequest(http.MethodGet, "/login", nil)
@@ -43,10 +43,10 @@ func TestLoginPageRendered(t *testing.T) {
 // create a fresh server-side session, issue the session cookie, and redirect
 // into the application (303 /tickets).
 func TestLoginSuccess(t *testing.T) {
-	h := newAuthHarness(t)
+	h := newHarness(t)
 	h.createUser(t, "Ana", "ana@example.com", "secret")
 
-	rec := h.postForm(t, "/login", authForm("ana@example.com", "secret"))
+	rec := h.postFormAs(t, "/login", authForm("ana@example.com", "secret"), "")
 
 	wantRedirect(t, rec, http.StatusSeeOther, "/tickets")
 	cookies := rec.Result().Cookies()
@@ -76,7 +76,7 @@ func TestLoginSuccess(t *testing.T) {
 // deactivated users all fail with the SAME generic 401 and no session
 // (login spec: no user enumeration).
 func TestLoginFailureSameGenericError(t *testing.T) {
-	h := newAuthHarness(t)
+	h := newHarness(t)
 	ana := h.createUser(t, "Ana", "ana@example.com", "secret")
 	// Deactivate ana (store-level; the deactivation UI lands in 5.6).
 	ana.Active = false
@@ -95,7 +95,7 @@ func TestLoginFailureSameGenericError(t *testing.T) {
 	}
 	for _, tt := range cases {
 		t.Run(tt.name, func(t *testing.T) {
-			rec := h.postForm(t, "/login", authForm(tt.email, tt.pw))
+			rec := h.postFormAs(t, "/login", authForm(tt.email, tt.pw), "")
 
 			if rec.Code != http.StatusUnauthorized {
 				t.Errorf("status = %d, want 401", rec.Code)
@@ -115,10 +115,10 @@ func TestLoginFailureSameGenericError(t *testing.T) {
 // generic 401 (an empty email is an unknown email; no validation branch
 // distinguishes it).
 func TestLoginEmptyFieldsGeneric(t *testing.T) {
-	h := newAuthHarness(t)
+	h := newHarness(t)
 	h.createUser(t, "Ana", "ana@example.com", "secret")
 
-	rec := h.postForm(t, "/login", authForm("", ""))
+	rec := h.postFormAs(t, "/login", authForm("", ""), "")
 
 	if rec.Code != http.StatusUnauthorized {
 		t.Errorf("status = %d, want 401", rec.Code)
@@ -129,10 +129,10 @@ func TestLoginEmptyFieldsGeneric(t *testing.T) {
 // server-side session row is destroyed, the cookie is cleared, and the next
 // request is unauthenticated.
 func TestLogoutDestroysSessionAndClearsCookie(t *testing.T) {
-	h := newAuthHarness(t)
+	h := newHarness(t)
 	h.createUser(t, "Ana", "ana@example.com", "secret")
 
-	login := h.postForm(t, "/login", authForm("ana@example.com", "secret"))
+	login := h.postFormAs(t, "/login", authForm("ana@example.com", "secret"), "")
 	session := cookieValue(t, login, sessionCookie)
 
 	rec := h.postFormAs(t, "/logout", url.Values{}, session)
@@ -163,7 +163,7 @@ func TestLogoutDestroysSessionAndClearsCookie(t *testing.T) {
 // TestLogoutIdempotent proves logout with a stale cookie still redirects to
 // login (Delete on a missing row is a no-op).
 func TestLogoutIdempotent(t *testing.T) {
-	h := newAuthHarness(t)
+	h := newHarness(t)
 	h.createUser(t, "Ana", "ana@example.com", "secret")
 
 	rec := h.postFormAs(t, "/logout", url.Values{}, "never-issued")
@@ -206,7 +206,7 @@ func TestLogoutSessionStoreFailure500(t *testing.T) {
 // TestSetupPageShownWhenEmpty proves the first-user bootstrap flow: with an
 // empty users table the setup form is served.
 func TestSetupPageShownWhenEmpty(t *testing.T) {
-	h := newAuthHarness(t)
+	h := newEmptyHarness(t)
 
 	req := httptest.NewRequest(http.MethodGet, "/setup", nil)
 	rec := httptest.NewRecorder()
@@ -224,10 +224,10 @@ func TestSetupPageShownWhenEmpty(t *testing.T) {
 // as an active regular user and redirects to /login; that user can then log
 // in (never-locked-out spec).
 func TestSetupCreatesFirstActiveUser(t *testing.T) {
-	h := newAuthHarness(t)
+	h := newEmptyHarness(t)
 
 	form := url.Values{"name": {"Ana"}, "email": {"ana@example.com"}, "password": {"secret"}}
-	rec := h.postForm(t, "/setup", form)
+	rec := h.postFormAs(t, "/setup", form, "")
 
 	wantRedirect(t, rec, http.StatusSeeOther, "/login")
 
@@ -243,17 +243,17 @@ func TestSetupCreatesFirstActiveUser(t *testing.T) {
 	}
 
 	// The bootstrap user can log in.
-	login := h.postForm(t, "/login", authForm("ana@example.com", "secret"))
+	login := h.postFormAs(t, "/login", authForm("ana@example.com", "secret"), "")
 	wantRedirect(t, login, http.StatusSeeOther, "/tickets")
 }
 
 // TestSetupValidationErrorReRenders proves invalid setup input re-renders
 // the form with the validation message (422).
 func TestSetupValidationErrorReRenders(t *testing.T) {
-	h := newAuthHarness(t)
+	h := newEmptyHarness(t)
 
 	form := url.Values{"name": {"  "}, "email": {"ana@example.com"}, "password": {"secret"}}
-	rec := h.postForm(t, "/setup", form)
+	rec := h.postFormAs(t, "/setup", form, "")
 
 	if rec.Code != http.StatusUnprocessableEntity {
 		t.Errorf("status = %d, want 422", rec.Code)
@@ -266,7 +266,7 @@ func TestSetupValidationErrorReRenders(t *testing.T) {
 // TestLoginRedirectsToSetupWhenEmptyUsers proves a visitor hitting /login
 // with an empty users table is sent to the bootstrap flow.
 func TestLoginRedirectsToSetupWhenEmptyUsers(t *testing.T) {
-	h := newAuthHarness(t)
+	h := newEmptyHarness(t)
 
 	req := httptest.NewRequest(http.MethodGet, "/login", nil)
 	rec := httptest.NewRecorder()

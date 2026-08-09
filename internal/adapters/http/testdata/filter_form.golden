@@ -1,0 +1,22 @@
+
+<form class="filter-bar" method="get" action="/tickets" hx-get="/tickets" hx-target="#ticket-list" hx-swap="outerHTML">
+  <input type="search" name="q" value="" placeholder="Search title, description, comments…" aria-label="Search">
+  <select name="state" aria-label="State">
+    <option value="">All states</option>
+    <option value="new" selected>new</option><option value="in_progress" >in_progress</option><option value="resolved" >resolved</option><option value="closed" >closed</option><option value="cancelled" >cancelled</option>
+  </select>
+  <select name="priority" aria-label="Priority">
+    <option value="">All priorities</option>
+    <option value="critical" >critical</option><option value="high" >high</option><option value="medium" >medium</option><option value="low" >low</option>
+  </select>
+  <select name="category_id" aria-label="Category">
+    <option value="">All categories</option>
+    <option value="1" >Bugs</option><option value="2" >Support</option>
+  </select>
+  <select name="user_id" aria-label="Assigned user">
+    <option value="">Anyone</option>
+    <option value="1" >Ana Torres</option>
+  </select>
+  <button class="btn" type="submit">Filter</button>
+  <a class="btn ghost small" href="/tickets">Clear</a>
+</form>

@@ -1,0 +1,26 @@
+{{define "ticket_list"}}
+<div id="ticket-list">
+  {{template "summary_chips" .}}
+  <div class="queue-shell">
+    <table class="queue">
+      <thead>
+        <tr><th>Number</th><th>Title</th><th>State</th><th>Priority</th><th>Updated</th></tr>
+      </thead>
+      <tbody>
+        {{range .Tickets}}
+        <tr>
+          <td class="num"><a href="/tickets/{{.ID}}">{{ticketNumber .Number}}</a></td>
+          <td class="cell-title"><a href="/tickets/{{.ID}}">{{.Title}}</a></td>
+          <td>{{template "state_badge" .State}}</td>
+          <td class="priority {{.Priority}}">{{.Priority}}</td>
+          <td class="cell-muted">{{formatTime .UpdatedAt}}</td>
+        </tr>
+        {{else}}
+        <tr><td colspan="5"><div class="empty">No tickets match your filters.</div></td></tr>
+        {{end}}
+      </tbody>
+    </table>
+  </div>
+  {{template "pagination" .}}
+</div>
+{{end}}

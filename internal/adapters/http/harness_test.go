@@ -85,34 +85,127 @@ func wantRedirect(t *testing.T, rec *httptest.ResponseRecorder, wantStatus int, 
 	}
 }
 
-// authHarness wires the services available before the ticket stores: the
-// auth + user use cases against the real sqlite store, the real renderer,
-// and the middleware-wrapped mux with the auth routes registered.
-type authHarness struct {
-	store    *sqlite.Store
-	users    *application.UserService
-	auth     *application.AuthService
-	renderer *Renderer
-	mux      *http.ServeMux
-	mw       *SessionMiddleware
+// harness is the fully wired test server: every application service over the
+// real sqlite store, the real renderer, all registered routes, and the
+// middleware-wrapped mux. An admin user with a live session is seeded so
+// tests can exercise authenticated routes directly.
+type harness struct {
+	store        *sqlite.Store
+	clock        domain.Clock
+	tickets      *application.TicketService
+	comments     *application.CommentService
+	users        *application.UserService
+	auth         *application.AuthService
+	categories   *application.CategoryService
+	search       *application.SearchService
+	renderer     *Renderer
+	mux          *http.ServeMux
+	mw           *SessionMiddleware
+	admin        *domain.User
+	adminSession *domain.Session
+	bugCategory  *domain.Category
 }
 
-func newAuthHarness(t *testing.T) *authHarness {
+func newHarness(t *testing.T) *harness {
+	return newHarnessWithAdmin(t, true)
+}
+
+// newEmptyHarness wires the same server but seeds NOTHING: no admin user,
+// no category — the users table is empty (first-user bootstrap flows).
+func newEmptyHarness(t *testing.T) *harness {
+	return newHarnessWithAdmin(t, false)
+}
+
+func newHarnessWithAdmin(t *testing.T, seedAdmin bool) *harness {
 	t.Helper()
 	s := openTestStore(t)
 	clock := testClock{now: fixedNow}
+
 	usersSvc := application.NewUserService(s.UserStore(), clock)
 	authSvc := application.NewAuthService(s.UserStore(), s.SessionStore(), clock)
+	catSvc := application.NewCategoryService(s.CategoryStore(), clock)
+	viewBuilder := application.NewViewBuilder(s.TicketStore(), s.UserStore(), s.CategoryStore(), s.CommentStore(), s.AuditStore())
+	ticketSvc := application.NewTicketService(s.TicketStore(), s.UserStore(), s.CategoryStore(), s.TicketUnitOfWork(), viewBuilder, clock)
+	commentSvc := application.NewCommentService(s.TicketStore(), s.CommentStore(), clock)
+	searchSvc := application.NewSearchService(s.TicketStore(), s.SearchStore())
 	renderer := NewRenderer()
 
 	mux := http.NewServeMux()
 	NewAuthHandlers(authSvc, usersSvc, renderer).Register(mux)
+	NewTicketHandlers(ticketSvc, searchSvc, catSvc, usersSvc, renderer).Register(mux)
 	mw := NewSessionMiddleware(s.SessionStore(), s.UserStore())
-	return &authHarness{store: s, users: usersSvc, auth: authSvc, renderer: renderer, mux: mux, mw: mw}
+
+	h := &harness{
+		store: s, clock: clock,
+		tickets: ticketSvc, comments: commentSvc, users: usersSvc, auth: authSvc,
+		categories: catSvc, search: searchSvc, renderer: renderer,
+		mux: mux, mw: mw,
+	}
+	if !seedAdmin {
+		return h
+	}
+
+	// Admin operator + live session for authenticated requests.
+	admin, err := usersSvc.Create(context.Background(), application.CreateUserInput{Name: "Admin", Email: "admin@tkt.test", Password: "secret"})
+	if err != nil {
+		t.Fatalf("create admin: %v", err)
+	}
+	sess, err := authSvc.Login(context.Background(), "admin@tkt.test", "secret")
+	if err != nil {
+		t.Fatalf("admin login: %v", err)
+	}
+	bugs, err := catSvc.Create(context.Background(), "Bugs")
+	if err != nil {
+		t.Fatalf("seed category: %v", err)
+	}
+	h.admin = admin
+	h.adminSession = sess
+	h.bugCategory = bugs
+	return h
+}
+
+// get runs an authenticated GET through the middleware-wrapped mux.
+func (h *harness) get(t *testing.T, path string, hx bool) *httptest.ResponseRecorder {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodGet, path, nil)
+	req.Header.Set("Cookie", sessionCookie+"="+h.adminSession.ID)
+	if hx {
+		req.Header.Set("HX-Request", "true")
+	}
+	rec := httptest.NewRecorder()
+	h.mw.Wrap(h.mux).ServeHTTP(rec, req)
+	return rec
+}
+
+// postForm runs an authenticated form POST through the middleware-wrapped
+// mux (optionally as an HTMX request).
+func (h *harness) postForm(t *testing.T, path string, form url.Values, hx bool) *httptest.ResponseRecorder {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Cookie", sessionCookie+"="+h.adminSession.ID)
+	if hx {
+		req.Header.Set("HX-Request", "true")
+	}
+	rec := httptest.NewRecorder()
+	h.mw.Wrap(h.mux).ServeHTTP(rec, req)
+	return rec
+}
+
+// postFormAs is postForm with an explicit session cookie (unauthenticated
+// flows, logout, other actors).
+func (h *harness) postFormAs(t *testing.T, path string, form url.Values, sessionID string) *httptest.ResponseRecorder {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Cookie", sessionCookie+"="+sessionID)
+	rec := httptest.NewRecorder()
+	h.mw.Wrap(h.mux).ServeHTTP(rec, req)
+	return rec
 }
 
 // createUser registers a user with a real bcrypt password (login-ready).
-func (h *authHarness) createUser(t *testing.T, name, email, password string) *domain.User {
+func (h *harness) createUser(t *testing.T, name, email, password string) *domain.User {
 	t.Helper()
 	u, err := h.users.Create(context.Background(), application.CreateUserInput{Name: name, Email: email, Password: password})
 	if err != nil {
@@ -121,23 +214,50 @@ func (h *authHarness) createUser(t *testing.T, name, email, password string) *do
 	return u
 }
 
-// postForm builds a form-encoded POST request against the harness.
-func (h *authHarness) postForm(t *testing.T, path string, form url.Values) *httptest.ResponseRecorder {
+// seedTicket creates a ticket through the real service (audit event
+// included). Defaults: category Bugs, priority medium, unassigned; mod may
+// override any input field.
+func (h *harness) seedTicket(t *testing.T, title string, mod func(*application.CreateTicketInput)) *domain.Ticket {
 	t.Helper()
-	req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(form.Encode()))
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	rec := httptest.NewRecorder()
-	h.mw.Wrap(h.mux).ServeHTTP(rec, req)
-	return rec
+	in := application.CreateTicketInput{
+		Title:          title,
+		Description:    "Test description",
+		RequesterName:  "Ana",
+		RequesterEmail: "ana@example.com",
+		CategoryID:     h.bugCategory.ID,
+		Priority:       domain.PriorityMedium,
+	}
+	if mod != nil {
+		mod(&in)
+	}
+	tkt, err := h.tickets.Create(context.Background(), *h.admin, in)
+	if err != nil {
+		t.Fatalf("seed ticket %q: %v", title, err)
+	}
+	return tkt
 }
 
-// postFormAs is postForm with a session cookie attached.
-func (h *authHarness) postFormAs(t *testing.T, path string, form url.Values, sessionID string) *httptest.ResponseRecorder {
+// seedTransition moves a seeded ticket through the state machine via the
+// real service.
+func (h *harness) seedTransition(t *testing.T, id int64, to domain.State, reason string) {
 	t.Helper()
-	req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(form.Encode()))
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	req.Header.Set("Cookie", sessionCookie+"="+sessionID)
-	rec := httptest.NewRecorder()
-	h.mw.Wrap(h.mux).ServeHTTP(rec, req)
-	return rec
+	if _, err := h.tickets.Transition(context.Background(), *h.admin, id, to, reason); err != nil {
+		t.Fatalf("transition ticket %d -> %s: %v", id, to, err)
+	}
+}
+
+// loginCookie returns a fresh session token for email/password (or "" on
+// failure).
+func (h *harness) loginCookie(t *testing.T, email, password string) string {
+	t.Helper()
+	rec := h.postFormAs(t, "/login", url.Values{"email": {email}, "password": {password}}, "")
+	if rec.Code != http.StatusSeeOther {
+		return ""
+	}
+	for _, c := range rec.Result().Cookies() {
+		if c.Name == sessionCookie {
+			return c.Value
+		}
+	}
+	return ""
 }
