@@ -9,7 +9,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/giulianotesta7/tkt/internal/adapters/sqlite"
 	"github.com/giulianotesta7/tkt/internal/application"
 	"github.com/giulianotesta7/tkt/internal/domain"
 )
@@ -21,81 +20,15 @@ func (failingSessionStore) GetByID(context.Context, string) (*domain.Session, er
 	return nil, errors.New("session store unavailable")
 }
 
+func (failingSessionStore) Delete(context.Context, string) error {
+	return errors.New("session store unavailable")
+}
+
 // failingUserStore answers every user lookup with an operational error.
 type failingUserStore struct{ application.UserStore }
 
 func (failingUserStore) GetByID(context.Context, int64) (*domain.User, error) {
 	return nil, errors.New("user store unavailable")
-}
-
-// openTestStore opens a real modernc SQLite database in a temp dir, applies
-// ALL migrations, and registers cleanup. File-backed (not shared-cache
-// memory) because the http package cannot reach the sqlite package-private
-// test helpers; the real driver + real pragmas (FK on, immediate tx) are the
-// same code path production runs.
-func openTestStore(t *testing.T) *sqlite.Store {
-	t.Helper()
-	s, err := sqlite.Open(t.TempDir() + "/app.db")
-	if err != nil {
-		t.Fatalf("open test store: %v", err)
-	}
-	if err := s.Migrate(context.Background()); err != nil {
-		t.Fatalf("migrate test store: %v", err)
-	}
-	return s
-}
-
-// testClock is the injected clock for every service under test (D7): fixed
-// instants keep fixtures and goldens deterministic.
-type testClock struct{ now time.Time }
-
-func (c testClock) Now() time.Time { return c.now }
-
-var fixedNow = time.Date(2026, 8, 6, 10, 0, 0, 0, time.UTC)
-
-// seedUser inserts an active user directly through the store port.
-func seedUser(t *testing.T, s *sqlite.Store, name, email string) *domain.User {
-	t.Helper()
-	u := &domain.User{Name: name, Email: email, PasswordHash: "not-a-real-hash", Active: true, CreatedAt: fixedNow}
-	if err := s.UserStore().Create(context.Background(), u); err != nil {
-		t.Fatalf("seed user %q: %v", email, err)
-	}
-	return u
-}
-
-// seedSession inserts a session expiring in +24h (valid by wall clock).
-func seedSession(t *testing.T, s *sqlite.Store, userID int64) *domain.Session {
-	t.Helper()
-	sess := &domain.Session{ID: "tok-" + randomSuffix(), UserID: userID, ExpiresAt: time.Now().Add(application.SessionTTL)}
-	if err := s.SessionStore().Create(context.Background(), sess); err != nil {
-		t.Fatalf("seed session: %v", err)
-	}
-	return sess
-}
-
-func randomSuffix() string {
-	return time.Now().Format("150405.000000000")
-}
-
-// doRequest runs one request through the middleware-wrapped mux.
-func doRequest(mux *http.ServeMux, mw *SessionMiddleware, method, target string, hdr map[string]string) *httptest.ResponseRecorder {
-	req := httptest.NewRequest(method, target, nil)
-	for k, v := range hdr {
-		req.Header.Set(k, v)
-	}
-	rec := httptest.NewRecorder()
-	mw.Wrap(mux).ServeHTTP(rec, req)
-	return rec
-}
-
-func wantRedirect(t *testing.T, rec *httptest.ResponseRecorder, wantStatus int, wantLocation string) {
-	t.Helper()
-	if rec.Code != wantStatus {
-		t.Errorf("status = %d, want %d", rec.Code, wantStatus)
-	}
-	if loc := rec.Header().Get("Location"); loc != wantLocation {
-		t.Errorf("Location = %q, want %q", loc, wantLocation)
-	}
 }
 
 // TestMiddlewareNoCookieRedirectsToLogin proves the unauthenticated request

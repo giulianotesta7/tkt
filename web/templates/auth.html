@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>tkt — Ticket Desk</title>
+{{template "styles" .}}
+</head>
+<body>
+<div class="auth-layout">
+  <section class="auth-brand">
+    <div>
+      <div class="mark">tkt</div>
+      <h1>Ticket Desk</h1>
+      <p>Server-side ticketing for small teams: ticket queues, state transitions, comments, and an append-only audit trail — no JavaScript framework required.</p>
+    </div>
+    <div class="proof">
+      <div><strong>5 states</strong>new → in progress → resolved → closed</div>
+      <div><strong>Audit trail</strong>every mutation recorded</div>
+      <div><strong>Open source</strong>Go + HTMX + SQLite</div>
+    </div>
+  </section>
+  <section class="auth-form">
+    {{template "content" .}}
+  </section>
+</div>
+</body>
+</html>
