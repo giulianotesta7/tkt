@@ -45,7 +45,6 @@ func (h *TicketHandlers) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /tickets/new", h.newForm)
 	mux.HandleFunc("POST /tickets", h.create)
 	mux.HandleFunc("GET /tickets/{id}", h.show)
-	mux.HandleFunc("GET /tickets/{id}/edit", h.editForm)
 	mux.HandleFunc("POST /tickets/{id}/edit", h.update)
 	mux.HandleFunc("POST /tickets/{id}/transition", h.transition)
 	mux.HandleFunc("POST /tickets/{id}/comments", h.addComment)
@@ -201,32 +200,6 @@ func listHref(f filterState, page int) string {
 	return "/tickets?" + v.Encode()
 }
 
-// chip is one summary chip (state or priority) with its count and filter
-// link (ticket-search summary-chips spec).
-type chip struct {
-	Label  string
-	Count  int
-	Href   string
-	Active bool
-}
-
-// buildChips assembles the state + priority chips reflecting the filtered
-// result set.
-func buildChips(f filterState, byState map[domain.State]int, byPriority map[domain.Priority]int) []chip {
-	chips := make([]chip, 0, len(listStates)+len(listPriorities))
-	for _, s := range listStates {
-		with := f
-		with.State = s
-		chips = append(chips, chip{Label: string(s), Count: byState[s], Href: listHref(with, 1), Active: f.State == s})
-	}
-	for _, p := range listPriorities {
-		with := f
-		with.Priority = p
-		chips = append(chips, chip{Label: string(p), Count: byPriority[p], Href: listHref(with, 1), Active: f.Priority == p})
-	}
-	return chips
-}
-
 // listData is the tickets index payload (page + HX fragment share it).
 type listData struct {
 	pageData
@@ -238,7 +211,6 @@ type listData struct {
 	Pages    int
 	PrevHref string
 	NextHref string
-	Chips    []chip
 }
 
 func (h *TicketHandlers) index(w http.ResponseWriter, r *http.Request) {
@@ -267,7 +239,6 @@ func (h *TicketHandlers) listData(r *http.Request, f filterState, page int) (lis
 		Total:    res.Total,
 		Page:     res.Page,
 		Pages:    pages,
-		Chips:    buildChips(f, res.ByState, res.ByPriority),
 	}
 	if res.Page > 1 {
 		data.PrevHref = listHref(f, res.Page-1)
@@ -303,13 +274,11 @@ type ticketFormData struct {
 }
 
 type ticketFormValues struct {
-	Title          string
-	Description    string
-	RequesterName  string
-	RequesterEmail string
-	CategoryID     string
-	UserID         string
-	Priority       domain.Priority
+	Title       string
+	Description string
+	CategoryID  string
+	UserID      string
+	Priority    domain.Priority
 }
 
 func (h *TicketHandlers) newForm(w http.ResponseWriter, r *http.Request) {
@@ -327,7 +296,7 @@ func (h *TicketHandlers) newForm(w http.ResponseWriter, r *http.Request) {
 }
 
 // create parses the create form, calls the use case, and answers per D6:
-// HX-Request → refreshed ticket_list fragment (chips OOB); full request →
+// HX-Request → refreshed ticket_list fragment; full request →
 // 303 to the detail page. Errors re-render the form with the mapped status
 // (422/409/...) and message.
 func (h *TicketHandlers) create(w http.ResponseWriter, r *http.Request) {
@@ -353,13 +322,11 @@ func (h *TicketHandlers) create(w http.ResponseWriter, r *http.Request) {
 	}
 
 	in := application.CreateTicketInput{
-		Title:          r.Form.Get("title"),
-		Description:    r.Form.Get("description"),
-		RequesterName:  r.Form.Get("requester_name"),
-		RequesterEmail: r.Form.Get("requester_email"),
-		CategoryID:     categoryID,
-		UserID:         userID,
-		Priority:       domain.Priority(r.Form.Get("priority")),
+		Title:       r.Form.Get("title"),
+		Description: r.Form.Get("description"),
+		CategoryID:  categoryID,
+		UserID:      userID,
+		Priority:    domain.Priority(r.Form.Get("priority")),
 	}
 
 	_, err := h.tickets.Create(r.Context(), actor, in)
@@ -404,13 +371,11 @@ func (h *TicketHandlers) renderCreateError(w http.ResponseWriter, r *http.Reques
 		pageData: pageDataFrom(r, "tickets"),
 		Error:    msg,
 		Values: ticketFormValues{
-			Title:          r.Form.Get("title"),
-			Description:    r.Form.Get("description"),
-			RequesterName:  r.Form.Get("requester_name"),
-			RequesterEmail: r.Form.Get("requester_email"),
-			CategoryID:     r.Form.Get("category_id"),
-			UserID:         r.Form.Get("user_id"),
-			Priority:       domain.Priority(r.Form.Get("priority")),
+			Title:       r.Form.Get("title"),
+			Description: r.Form.Get("description"),
+			CategoryID:  r.Form.Get("category_id"),
+			UserID:      r.Form.Get("user_id"),
+			Priority:    domain.Priority(r.Form.Get("priority")),
 		},
 		Options: opts,
 	}
@@ -448,9 +413,11 @@ func allowedNext(s domain.State) []transitionTarget {
 // detailData is the ticket detail payload (page + HX fragment share it).
 type detailData struct {
 	pageData
-	Error string
-	View  *application.TicketView
-	Next  []transitionTarget
+	Error   string
+	View    *application.TicketView
+	Next    []transitionTarget
+	Options options
+	Values  ticketFormValues
 }
 
 // ticketID resolves and validates the {id} path parameter; 0 + false on a
@@ -467,10 +434,25 @@ func (h *TicketHandlers) detailDataFor(r *http.Request, id int64) (detailData, i
 		status, _ := mapError(err)
 		return detailData{}, status, err
 	}
+	opts, err := h.collectOptions(r)
+	if err != nil {
+		return detailData{}, http.StatusInternalServerError, err
+	}
+	if view.AssignedUser != nil && !view.AssignedUser.Active {
+		opts.AssignableUsers = append(opts.AssignableUsers, *view.AssignedUser)
+	}
+	values := ticketFormValues{
+		Priority: view.Ticket.Priority,
+	}
+	if view.Ticket.UserID != nil {
+		values.UserID = strconv.FormatInt(*view.Ticket.UserID, 10)
+	}
 	return detailData{
 		pageData: pageDataFrom(r, "tickets"),
 		View:     view,
 		Next:     allowedNext(view.Ticket.State),
+		Options:  opts,
+		Values:   values,
 	}, 0, nil
 }
 
@@ -527,14 +509,14 @@ func (h *TicketHandlers) addComment(w http.ResponseWriter, r *http.Request) {
 		h.renderDetailError(w, r, id, err)
 		return
 	}
-	// HX: swap the comment timeline fragment; full: back to the detail page.
+	// HX: swap the merged timeline fragment; full: back to the detail page.
 	data, status, err := h.detailDataFor(r, id)
 	if err != nil {
 		http.Error(w, mapErrorMsg(err), status)
 		return
 	}
 	if r.Header.Get("HX-Request") != "" {
-		h.renderer.Render(w, r, "tickets_show", "comment_list", data, http.StatusOK)
+		h.renderer.Render(w, r, "tickets_show", "timeline", data, http.StatusOK)
 		return
 	}
 	redirect(w, r, "/tickets/"+strconv.FormatInt(id, 10))
@@ -572,59 +554,9 @@ func (h *TicketHandlers) afterMutation(w http.ResponseWriter, r *http.Request, i
 	redirect(w, r, "/tickets/"+strconv.FormatInt(id, 10))
 }
 
-// editFormData is the edit-form payload (prefilled from the ticket on GET,
-// from the submitted form on a 422 re-render).
-type editFormData struct {
-	pageData
-	Error      string
-	TicketID   int64
-	Number     int
-	Values     ticketFormValues
-	Unassigned bool
-	Options    options
-}
-
-func (h *TicketHandlers) editForm(w http.ResponseWriter, r *http.Request) {
-	id, ok := ticketID(r)
-	if !ok {
-		http.Error(w, "invalid ticket id", http.StatusBadRequest)
-		return
-	}
-	view, err := h.tickets.GetByID(r.Context(), id)
-	if err != nil {
-		http.Error(w, mapErrorMsg(err), statusFor(err))
-		return
-	}
-	opts, err := h.collectOptions(r)
-	if err != nil {
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
-		return
-	}
-	t := view.Ticket
-	values := ticketFormValues{
-		Title:          t.Title,
-		Description:    t.Description,
-		RequesterName:  t.RequesterName,
-		RequesterEmail: t.RequesterEmail,
-		CategoryID:     strconv.FormatInt(t.CategoryID, 10),
-		Priority:       t.Priority,
-	}
-	if t.UserID != nil {
-		values.UserID = strconv.FormatInt(*t.UserID, 10)
-	}
-	data := editFormData{
-		pageData:   pageDataFrom(r, "tickets"),
-		TicketID:   id,
-		Number:     t.Number,
-		Values:     values,
-		Unassigned: t.UserID == nil,
-		Options:    opts,
-	}
-	h.renderer.Render(w, r, "tickets_edit", "ticket_edit_form", data, http.StatusOK)
-}
-
-// update applies the edit form. A submitted empty user select means
-// unassign (ClearUserID); a selected user assigns/reassigns.
+// update applies the inline properties form (priority + assignment). The
+// immutable ticket fields (title, description, category) are never read from
+// the request: forged values are ignored, matching the requester policy.
 func (h *TicketHandlers) update(w http.ResponseWriter, r *http.Request) {
 	id, ok := ticketID(r)
 	if !ok {
@@ -637,17 +569,7 @@ func (h *TicketHandlers) update(w http.ResponseWriter, r *http.Request) {
 	}
 	actor := *userFromContext(r.Context())
 
-	title := r.Form.Get("title")
-	description := r.Form.Get("description")
-	u := domain.TicketUpdate{Title: &title, Description: &description}
-
-	categoryID := parseID(r.Form.Get("category_id"))
-	if categoryID == 0 {
-		h.renderEditError(w, r, id, &domain.ValidationError{Field: "category", Message: "category is required"})
-		return
-	}
-	u.CategoryID = &categoryID
-
+	u := domain.TicketUpdate{}
 	p := domain.Priority(r.Form.Get("priority"))
 	u.Priority = &p
 
@@ -670,34 +592,24 @@ func (h *TicketHandlers) update(w http.ResponseWriter, r *http.Request) {
 	h.afterMutation(w, r, id, "ticket_detail")
 }
 
-// renderEditError re-renders the edit form with the submitted values and an
-// inline error (HX → ticket_edit_form fragment; full → tickets_edit page).
+// renderEditError re-renders the inline detail editor with submitted values.
 func (h *TicketHandlers) renderEditError(w http.ResponseWriter, r *http.Request, id int64, err error) {
 	status, msg := mapError(err)
 	if status == http.StatusInternalServerError {
 		http.Error(w, msg, status)
 		return
 	}
-	opts, optsErr := h.collectOptions(r)
-	if optsErr != nil {
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
+	data, _, dataErr := h.detailDataFor(r, id)
+	if dataErr != nil {
+		http.Error(w, mapErrorMsg(dataErr), statusFor(dataErr))
 		return
 	}
-	data := editFormData{
-		pageData: pageDataFrom(r, "tickets"),
-		Error:    msg,
-		TicketID: id,
-		Values: ticketFormValues{
-			Title:       r.Form.Get("title"),
-			Description: r.Form.Get("description"),
-			CategoryID:  r.Form.Get("category_id"),
-			UserID:      r.Form.Get("user_id"),
-			Priority:    domain.Priority(r.Form.Get("priority")),
-		},
-		Unassigned: r.Form.Get("user_id") == "",
-		Options:    opts,
+	data.Error = msg
+	data.Values = ticketFormValues{
+		UserID:   r.Form.Get("user_id"),
+		Priority: domain.Priority(r.Form.Get("priority")),
 	}
-	h.renderer.Render(w, r, "tickets_edit", "ticket_edit_form", data, status)
+	h.renderer.Render(w, r, "tickets_show", "ticket_detail", data, status)
 }
 
 // mapErrorMsg returns the mapped message; statusFor the mapped status.

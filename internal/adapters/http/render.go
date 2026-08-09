@@ -7,6 +7,7 @@ package httpadapter
 
 import (
 	"bytes"
+	"fmt"
 	"html/template"
 	"io/fs"
 	"log"
@@ -23,6 +24,21 @@ import (
 // RFC3339 — the same layout the sqlite adapter persists.
 const timeLayout = time.RFC3339
 
+func formatDatetime(t time.Time) string {
+	if t.IsZero() {
+		return ""
+	}
+	return t.UTC().Format(time.RFC3339)
+}
+
+func humanizeLabel(value any) string {
+	words := strings.Fields(strings.ReplaceAll(fmt.Sprint(value), "_", " "))
+	for i, word := range words {
+		words[i] = strings.ToUpper(word[:1]) + strings.ToLower(word[1:])
+	}
+	return strings.Join(words, " ")
+}
+
 // templateFuncs are the presentation helpers shared by every template set.
 // The render path never calls time.Now() (D7): formatTime formats the
 // already-stamped instants the handlers pass in.
@@ -33,6 +49,8 @@ var templateFuncs = template.FuncMap{
 		}
 		return t.UTC().Format(timeLayout)
 	},
+	"formatDatetime": formatDatetime,
+	"humanize":       humanizeLabel,
 	"ticketNumber": func(n int) string {
 		return "TKT-" + strconv.Itoa(n)
 	},

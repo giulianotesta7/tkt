@@ -44,13 +44,11 @@ func newTicketHarness() *ticketHarness {
 
 func validCreateInput(catID int64, userID *int64) application.CreateTicketInput {
 	return application.CreateTicketInput{
-		Title:          "Fix login redirect",
-		Description:    "After login the user lands on the wrong page",
-		RequesterName:  "Bob",
-		RequesterEmail: "bob@example.com",
-		CategoryID:     catID,
-		UserID:         userID,
-		Priority:       domain.PriorityHigh,
+		Title:       "Fix login redirect",
+		Description: "After login the user lands on the wrong page",
+		CategoryID:  catID,
+		UserID:      userID,
+		Priority:    domain.PriorityHigh,
 	}
 }
 

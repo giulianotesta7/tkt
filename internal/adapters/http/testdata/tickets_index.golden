@@ -261,7 +261,6 @@ textarea{min-height:84px;resize:vertical}
 <div class="command-header">
   <div>
     <h1 class="command-title">Tickets</h1>
-    <p class="command-sub">2 tickets — filtered queue</p>
   </div>
   <div class="command-actions">
     <a class="btn primary" href="/tickets/new">New ticket</a>
@@ -272,11 +271,11 @@ textarea{min-height:84px;resize:vertical}
   <input type="search" name="q" value="" placeholder="Search title, description, comments…" aria-label="Search">
   <select name="state" aria-label="State">
     <option value="">All states</option>
-    <option value="new" selected>new</option><option value="in_progress" >in_progress</option><option value="resolved" >resolved</option><option value="closed" >closed</option><option value="cancelled" >cancelled</option>
+    <option value="new" selected>New</option><option value="in_progress" >In Progress</option><option value="resolved" >Resolved</option><option value="closed" >Closed</option><option value="cancelled" >Cancelled</option>
   </select>
   <select name="priority" aria-label="Priority">
     <option value="">All priorities</option>
-    <option value="critical" >critical</option><option value="high" >high</option><option value="medium" >medium</option><option value="low" >low</option>
+    <option value="critical" >Critical</option><option value="high" >High</option><option value="medium" >Medium</option><option value="low" >Low</option>
   </select>
   <select name="category_id" aria-label="Category">
     <option value="">All categories</option>
@@ -292,50 +291,27 @@ textarea{min-height:84px;resize:vertical}
 
 
 <div id="ticket-list">
-  
-<div id="chips" class="chips" hx-swap-oob="outerHTML:#chips">
-  
-  <a href="/tickets?state=new" class="chip active"><span class="count">1</span> new</a>
-  
-  <a href="/tickets?state=in_progress" class="chip"><span class="count">1</span> in_progress</a>
-  
-  <a href="/tickets?state=resolved" class="chip"><span class="count">0</span> resolved</a>
-  
-  <a href="/tickets?state=closed" class="chip"><span class="count">0</span> closed</a>
-  
-  <a href="/tickets?state=cancelled" class="chip"><span class="count">0</span> cancelled</a>
-  
-  <a href="/tickets?priority=critical&amp;state=new" class="chip"><span class="count">1</span> critical</a>
-  
-  <a href="/tickets?priority=high&amp;state=new" class="chip"><span class="count">1</span> high</a>
-  
-  <a href="/tickets?priority=medium&amp;state=new" class="chip"><span class="count">0</span> medium</a>
-  
-  <a href="/tickets?priority=low&amp;state=new" class="chip"><span class="count">0</span> low</a>
-  
-</div>
-
   <div class="queue-shell">
     <table class="queue">
       <thead>
-        <tr><th>Number</th><th>Title</th><th>State</th><th>Priority</th><th>Updated</th></tr>
+        <tr><th>ID</th><th>Title</th><th>State</th><th>Priority</th><th>Updated</th></tr>
       </thead>
       <tbody>
         
         <tr>
           <td class="num"><a href="/tickets/2">TKT-2</a></td>
           <td class="cell-title"><a href="/tickets/2">Printer jam</a></td>
-          <td><span class="badge in_progress">in_progress</span></td>
-          <td class="priority high">high</td>
-          <td class="cell-muted">2026-08-06T10:30:00Z</td>
+          <td><span class="badge in_progress">In Progress</span></td>
+          <td class="priority high">High</td>
+          <td class="cell-muted"><time datetime="2026-08-06T10:30:00Z">2026-08-06T10:30:00Z</time></td>
         </tr>
         
         <tr>
           <td class="num"><a href="/tickets/1">TKT-1</a></td>
           <td class="cell-title"><a href="/tickets/1">Login page down</a></td>
-          <td><span class="badge new">new</span></td>
-          <td class="priority critical">critical</td>
-          <td class="cell-muted">2026-08-06T10:00:00Z</td>
+          <td><span class="badge new">New</span></td>
+          <td class="priority critical">Critical</td>
+          <td class="cell-muted"><time datetime="2026-08-06T10:00:00Z">2026-08-06T10:00:00Z</time></td>
         </tr>
         
       </tbody>
@@ -345,8 +321,9 @@ textarea{min-height:84px;resize:vertical}
 <div class="pagination">
   <span>Page 1 of 1 · 2 tickets</span>
   <div class="pages">
-    <span class="page">← Prev</span>
-    <span class="page">Next →</span>
+    <span class="page" aria-disabled="true">← Prev</span>
+    <span class="page" aria-disabled="true">Next →</span>
+    <span class="htmx-indicator spinner" aria-hidden="true"></span>
   </div>
 </div>
 
