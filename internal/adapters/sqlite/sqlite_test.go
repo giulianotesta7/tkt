@@ -3,6 +3,7 @@ package sqlite
 import (
 	"context"
 	"fmt"
+	"io/fs"
 	"path/filepath"
 	"strings"
 	"sync/atomic"
@@ -193,6 +194,93 @@ func TestMigrateTransactionalRollback(t *testing.T) {
 	}
 	if recorded != 0 {
 		t.Errorf("broken migration recorded %d versions, want 0", recorded)
+	}
+}
+
+func TestMigrationVersion(t *testing.T) {
+	tests := []struct {
+		name    string
+		path    string
+		want    int
+		wantErr bool
+	}{
+		{name: "zero padded", path: "migrations/0007_add_index.sql", want: 7},
+		{name: "single digit", path: "migrations/2_next.sql", want: 2},
+		{name: "missing version", path: "migrations/init.sql", wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := migrationVersion(tt.path)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("migrationVersion(%q) error = %v, wantErr %v", tt.path, err, tt.wantErr)
+			}
+			if got != tt.want {
+				t.Fatalf("migrationVersion(%q) = %d, want %d", tt.path, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestMigrateRejectsInvalidFilenameBeforeApplying(t *testing.T) {
+	s, err := openDSN(testDSN(t))
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	t.Cleanup(func() { s.db.Close() })
+
+	migrations := fstest.MapFS{
+		"migrations/init.sql": &fstest.MapFile{Data: []byte("CREATE TABLE should_not_exist (id INTEGER)")},
+	}
+	if err := migrate(context.Background(), s.db, migrations); err == nil {
+		t.Fatal("migrate accepted a filename without a leading version")
+	}
+	var count int
+	if err := s.db.QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE name = 'should_not_exist'`).Scan(&count); err != nil {
+		t.Fatalf("check unapplied migration: %v", err)
+	}
+	if count != 0 {
+		t.Fatal("invalidly named migration was applied")
+	}
+}
+
+func TestMigratePropagatesDatabaseFailure(t *testing.T) {
+	s, err := openDSN(testDSN(t))
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	if err := s.db.Close(); err != nil {
+		t.Fatalf("close: %v", err)
+	}
+	if err := migrate(context.Background(), s.db, fstest.MapFS{}); err == nil || !strings.Contains(err.Error(), "bootstrap schema_migrations") {
+		t.Fatalf("migrate closed database error = %v, want bootstrap context", err)
+	}
+}
+
+func TestMigrationAppliedPropagatesDatabaseFailure(t *testing.T) {
+	s, err := openDSN(testDSN(t))
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	if err := s.db.Close(); err != nil {
+		t.Fatalf("close: %v", err)
+	}
+	if _, err := migrationApplied(context.Background(), s.db, 1); err == nil || !strings.Contains(err.Error(), "check version 1") {
+		t.Fatalf("migrationApplied closed database error = %v, want version context", err)
+	}
+}
+
+func TestMigrateReportsUnreadableMigration(t *testing.T) {
+	s, err := openDSN(testDSN(t))
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	t.Cleanup(func() { s.db.Close() })
+
+	migrations := fstest.MapFS{
+		"migrations/0001_unreadable.sql": &fstest.MapFile{Mode: fs.ModeDir},
+	}
+	if err := migrate(context.Background(), s.db, migrations); err == nil || !strings.Contains(err.Error(), "read migrations/0001_unreadable.sql") {
+		t.Fatalf("unreadable migration error = %v", err)
 	}
 }
 

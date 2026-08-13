@@ -75,8 +75,9 @@ func matchesTitle(t *domain.Ticket, expr string) bool {
 // fakeTicketStore implements TicketStore with sequential MAX+1 numbering and
 // created_at DESC, id DESC ordering (D2).
 type fakeTicketStore struct {
-	tickets map[int64]*domain.Ticket
-	nextID  int64
+	tickets      map[int64]*domain.Ticket
+	nextID       int64
+	getByIDCalls []int64
 }
 
 func newFakeTicketStore() *fakeTicketStore {
@@ -127,6 +128,7 @@ func (f *fakeTicketStore) Update(_ context.Context, t *domain.Ticket) error {
 }
 
 func (f *fakeTicketStore) GetByID(_ context.Context, id int64) (*domain.Ticket, error) {
+	f.getByIDCalls = append(f.getByIDCalls, id)
 	t, ok := f.tickets[id]
 	if !ok {
 		return nil, &domain.NotFoundError{Kind: "ticket", ID: id}
@@ -203,6 +205,7 @@ func (f *fakeSearchStore) SearchCount(ctx context.Context, q application.TicketQ
 type fakeCommentStore struct {
 	comments map[int64][]*domain.Comment
 	nextID   int64
+	addCalls []domain.Comment
 }
 
 func newFakeCommentStore() *fakeCommentStore {
@@ -210,6 +213,7 @@ func newFakeCommentStore() *fakeCommentStore {
 }
 
 func (f *fakeCommentStore) Add(_ context.Context, c *domain.Comment) error {
+	f.addCalls = append(f.addCalls, *c)
 	c.ID = f.nextID
 	f.nextID++
 	cp := *c
@@ -301,10 +305,6 @@ func (f *fakeUnitOfWork) Update(ctx context.Context, t *domain.Ticket, events ..
 	}
 	return nil
 }
-
-// Compile-time contract: the fake implements the exact port the service
-// depends on, so port drift fails here rather than at a test construction.
-var _ application.TicketUnitOfWork = (*fakeUnitOfWork)(nil)
 
 // fakeUserStore implements UserStore: email uniqueness, delete guard via a
 // referenced flag (the real store checks ticket FKs; tests set the flag).

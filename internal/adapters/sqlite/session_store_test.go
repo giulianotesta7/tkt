@@ -3,6 +3,7 @@ package sqlite
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -112,5 +113,50 @@ func TestSessionDeleteMissingIsNoError(t *testing.T) {
 	s := newTestDB(t)
 	if err := s.SessionStore().Delete(context.Background(), "no-such-token"); err != nil {
 		t.Errorf("delete missing = %v, want nil", err)
+	}
+}
+
+func TestSessionCreateRejectsUnknownUser(t *testing.T) {
+	s := newTestDB(t)
+	sess := &domain.Session{ID: "orphan", UserID: 999, ExpiresAt: time.Now().Add(time.Hour)}
+	if err := s.SessionStore().Create(context.Background(), sess); err == nil {
+		t.Fatal("create session for unknown user succeeded, want foreign-key error")
+	}
+}
+
+func TestSessionGetByIDRejectsMalformedExpiry(t *testing.T) {
+	s := newTestDB(t)
+	userID := seedUser(t, s, "Ana", "ana@example.com", true)
+	if _, err := s.db.Exec(`INSERT INTO sessions (id, user_id, created_at, expires_at) VALUES (?, ?, ?, ?)`,
+		"bad-expiry", userID, "2026-08-06T10:00:00Z", "not-a-time"); err != nil {
+		t.Fatalf("seed malformed session: %v", err)
+	}
+	if _, err := s.SessionStore().GetByID(context.Background(), "bad-expiry"); err == nil || !strings.Contains(err.Error(), `parse session expires_at "not-a-time"`) {
+		t.Fatalf("malformed expiry error = %v", err)
+	}
+}
+
+func TestSessionStorePropagatesDatabaseErrors(t *testing.T) {
+	s := newTestDB(t)
+	if err := s.db.Close(); err != nil {
+		t.Fatalf("close: %v", err)
+	}
+
+	tests := []struct {
+		name string
+		call func() error
+	}{
+		{name: "create", call: func() error {
+			return s.SessionStore().Create(context.Background(), newSession(time.Now().Add(time.Hour)))
+		}},
+		{name: "get", call: func() error { _, err := s.SessionStore().GetByID(context.Background(), "token"); return err }},
+		{name: "delete", call: func() error { return s.SessionStore().Delete(context.Background(), "token") }},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if err := tt.call(); err == nil {
+				t.Fatal("operation on closed database succeeded")
+			}
+		})
 	}
 }
