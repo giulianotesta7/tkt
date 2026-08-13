@@ -440,20 +440,23 @@ func TestEveryMutationAuditedInOccurrenceOrder(t *testing.T) {
 		t.Fatalf("Update: unexpected error: %v", err)
 	}
 
-	// THEN the mutation events exist in occurrence order, each with the
-	// session actor. (Creation appended its own created event first.)
+	// THEN creation plus exactly three mutation events exist in occurrence
+	// order, each with the session actor.
 	events, _ := h.audits.ListByTicket(context.Background(), ticket.ID)
-	if len(events) < 3 {
-		t.Fatalf("audit trail: expected at least 3 events, got %d", len(events))
+	if len(events) != 4 {
+		t.Fatalf("audit trail: expected exactly 4 events (created + 3 mutations), got %d", len(events))
 	}
-	mutations := events[len(events)-3:]
-	want := []string{domain.ActionTransition, domain.ActionUpdate, domain.ActionUpdate}
-	for i, ev := range mutations {
-		if ev.Action != want[i] {
-			t.Fatalf("audit trail: event %d must be %q, got %q", i, want[i], ev.Action)
+	wantActions := []string{domain.ActionCreated, domain.ActionTransition, domain.ActionUpdate, domain.ActionUpdate}
+	wantFields := []*string{nil, ptr("state"), ptr("title"), ptr("priority")}
+	for i, ev := range events {
+		if ev.Action != wantActions[i] {
+			t.Fatalf("audit trail: event %d must be %q, got %q", i, wantActions[i], ev.Action)
 		}
 		if ev.Actor != actor.Name {
 			t.Fatalf("audit trail: event %d actor must come from the session, got %q", i, ev.Actor)
+		}
+		if !reflect.DeepEqual(ev.Field, wantFields[i]) {
+			t.Fatalf("audit trail: event %d field = %v, want %v", i, ev.Field, wantFields[i])
 		}
 	}
 }

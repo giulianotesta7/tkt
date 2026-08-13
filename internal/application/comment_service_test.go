@@ -61,6 +61,12 @@ func TestAddCommentRejectsEmptyBodyWithoutStoreCall(t *testing.T) {
 	if len(comments.comments[ticket.ID]) != 0 {
 		t.Fatal("Add: rejected comment must not be stored")
 	}
+	if len(tickets.getByIDCalls) != 0 {
+		t.Fatalf("Add: empty body must be rejected before ticket lookup, got calls %v", tickets.getByIDCalls)
+	}
+	if len(comments.addCalls) != 0 {
+		t.Fatalf("Add: empty body must be rejected before comment persistence, got calls %+v", comments.addCalls)
+	}
 }
 
 func TestAddCommentUnknownTicket(t *testing.T) {

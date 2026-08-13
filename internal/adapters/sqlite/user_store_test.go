@@ -3,6 +3,7 @@ package sqlite
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -297,5 +298,47 @@ func TestUserListAndListActive(t *testing.T) {
 		if !u.Active {
 			t.Errorf("inactive user %s in ListActive", u.Email)
 		}
+	}
+}
+
+func TestUserReadsRejectMalformedCreatedAt(t *testing.T) {
+	s := newTestDB(t)
+	if _, err := s.db.Exec(`INSERT INTO users (name, email, password_hash, active, created_at) VALUES (?, ?, ?, ?, ?)`,
+		"Broken", "broken@example.com", "hash", true, "not-a-time"); err != nil {
+		t.Fatalf("seed malformed user: %v", err)
+	}
+
+	if _, err := s.UserStore().GetByEmail(context.Background(), "broken@example.com"); err == nil || !strings.Contains(err.Error(), `parse user created_at "not-a-time"`) {
+		t.Fatalf("GetByEmail malformed timestamp error = %v", err)
+	}
+	if _, err := s.UserStore().List(context.Background()); err == nil || !strings.Contains(err.Error(), `parse user created_at "not-a-time"`) {
+		t.Fatalf("List malformed timestamp error = %v", err)
+	}
+}
+
+func TestUserStorePropagatesDatabaseErrors(t *testing.T) {
+	s := newTestDB(t)
+	if err := s.db.Close(); err != nil {
+		t.Fatalf("close: %v", err)
+	}
+
+	tests := []struct {
+		name string
+		call func() error
+	}{
+		{name: "create", call: func() error { return s.UserStore().Create(context.Background(), &domain.User{}) }},
+		{name: "update", call: func() error { return s.UserStore().Update(context.Background(), &domain.User{ID: 1}) }},
+		{name: "delete", call: func() error { return s.UserStore().Delete(context.Background(), 1) }},
+		{name: "get by id", call: func() error { _, err := s.UserStore().GetByID(context.Background(), 1); return err }},
+		{name: "get by email", call: func() error { _, err := s.UserStore().GetByEmail(context.Background(), "a@example.com"); return err }},
+		{name: "count", call: func() error { _, err := s.UserStore().Count(context.Background()); return err }},
+		{name: "list", call: func() error { _, err := s.UserStore().List(context.Background()); return err }},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if err := tt.call(); err == nil {
+				t.Fatal("operation on closed database succeeded")
+			}
+		})
 	}
 }

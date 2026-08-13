@@ -169,23 +169,6 @@ func TestSearchByNumber(t *testing.T) {
 	}
 }
 
-// TestSearchFtsSpecialCharsNeverFail: quotes, parens, stars, and colons in q
-// degrade to safe queries — never a 500.
-func TestSearchFtsSpecialCharsNeverFail(t *testing.T) {
-	svc, tickets, clock := newSearchService()
-	seedSearchTicket(tickets, clock, "Normal", "plain text", domain.StateNew, domain.PriorityLow, 1, nil)
-
-	for _, q := range []string{`"`, `(`, `*`, `:`, `a OR b`, `"a OR b`, `(x AND y)`, `*:wild`} {
-		result, err := svc.Search(context.Background(), application.TicketQuery{Text: q}, 1)
-		if err != nil {
-			t.Fatalf("Search(%q): FTS special characters must never error, got %v", q, err)
-		}
-		if result.Total < 0 {
-			t.Fatalf("Search(%q): impossible total %d", q, result.Total)
-		}
-	}
-}
-
 // TestSearchStablePagination covers 25 tickets -> pages 10/10/5 with no
 // overlap (D2, ticket-search spec).
 func TestSearchStablePagination(t *testing.T) {

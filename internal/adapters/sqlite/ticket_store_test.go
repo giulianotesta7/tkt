@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -274,6 +275,74 @@ func TestTicketGetByIDNotFound(t *testing.T) {
 	_, err := s.TicketStore().GetByID(context.Background(), 42)
 	if !errors.Is(err, domain.ErrNotFound) {
 		t.Errorf("err = %v, want ErrNotFound", err)
+	}
+}
+
+func TestTicketReadsRejectMalformedTimestamps(t *testing.T) {
+	tests := []struct {
+		name   string
+		column string
+		want   string
+	}{
+		{name: "created", column: "created_at", want: "parse created_at"},
+		{name: "updated", column: "updated_at", want: "parse updated_at"},
+		{name: "resolved", column: "resolved_at", want: "parse resolved_at"},
+		{name: "closed", column: "closed_at", want: "parse closed_at"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := newTestDB(t)
+			cat := seedCategory(t, s, "Bugs")
+			ticket := seedTicket(t, s, domain.Ticket{Title: "Broken timestamp", CategoryID: cat,
+				Priority: domain.PriorityMedium, State: domain.StateNew, CreatedAt: testClock, UpdatedAt: testClock})
+			if _, err := s.db.Exec(`UPDATE tickets SET `+tt.column+` = ? WHERE id = ?`, "not-a-time", ticket.ID); err != nil {
+				t.Fatalf("corrupt %s: %v", tt.column, err)
+			}
+			if _, err := s.TicketStore().GetByID(context.Background(), ticket.ID); err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("GetByID malformed %s error = %v, want %q", tt.column, err, tt.want)
+			}
+		})
+	}
+}
+
+func TestTicketStorePropagatesDatabaseErrors(t *testing.T) {
+	s := newTestDB(t)
+	if err := s.db.Close(); err != nil {
+		t.Fatalf("close: %v", err)
+	}
+	ticket := &domain.Ticket{ID: 1}
+	tests := []struct {
+		name string
+		call func() error
+	}{
+		{name: "create", call: func() error { return s.TicketStore().Create(context.Background(), ticket) }},
+		{name: "update", call: func() error { return s.TicketStore().Update(context.Background(), ticket) }},
+		{name: "get", call: func() error { _, err := s.TicketStore().GetByID(context.Background(), 1); return err }},
+		{name: "list", call: func() error {
+			_, err := s.TicketStore().List(context.Background(), application.TicketQuery{}, application.Page{Limit: 10})
+			return err
+		}},
+		{name: "count", call: func() error {
+			_, err := s.TicketStore().Count(context.Background(), application.TicketQuery{})
+			return err
+		}},
+		{name: "state counts", call: func() error {
+			_, err := s.TicketStore().CountsByState(context.Background(), application.TicketQuery{})
+			return err
+		}},
+		{name: "priority counts", call: func() error {
+			_, err := s.TicketStore().CountsByPriority(context.Background(), application.TicketQuery{})
+			return err
+		}},
+		{name: "unit create", call: func() error { return s.TicketUnitOfWork().Create(context.Background(), ticket, domain.AuditEvent{}) }},
+		{name: "unit update", call: func() error { return s.TicketUnitOfWork().Update(context.Background(), ticket) }},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if err := tt.call(); err == nil {
+				t.Fatal("operation on closed database succeeded")
+			}
+		})
 	}
 }
 
