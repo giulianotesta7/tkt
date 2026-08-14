@@ -6,3 +6,4 @@
 # Local AI runtime state
 .atl/
 .playwright-mcp/
+.codegraph/
