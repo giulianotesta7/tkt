@@ -62,6 +62,16 @@ func TestGoldenFragment(t *testing.T) {
 	goldenFile(t, "render_fragment", rec.Body.String())
 }
 
+// Auth goldens intentionally have no snapshots in this RED slice. The future
+// presentation implementation must provide and approve them without -update.
+func TestGoldenAuthSetup(t *testing.T) {
+	goldenFile(t, "auth_setup", renderGolden(t, "setup", "", setupData{}, false))
+}
+
+func TestGoldenAuthLogin(t *testing.T) {
+	goldenFile(t, "auth_login", renderGolden(t, "login", "", loginData{}, false))
+}
+
 // ---------------------------------------------------------------------------
 // Task 5.4 goldens: tickets index/new pages + list fragments with frozen
 // fixture instants (D7 — the render path never calls time.Now()).

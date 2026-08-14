@@ -1,7 +1,7 @@
 {{define "content"}}
 <form class="login-form" method="post" action="/setup" novalidate>
-  <h2>Create your account</h2>
-  <p class="lead">No users exist yet. The first account is an active regular operator — bootstrap happens only once.</p>
+  <h2>Set up tkt</h2>
+  <p class="lead">Create the first account for your support team. This only happens once.</p>
   {{if .Error}}<div class="error-banner" role="alert">{{.Error}}</div>{{end}}
   <div class="field">
     <label for="name">Name</label>
@@ -16,6 +16,6 @@
     <input type="password" id="password" name="password" placeholder="••••••••" autocomplete="new-password" required>
   </div>
   <button class="btn primary" type="submit">Create account</button>
-  <p class="footnote">Passwords are stored as bcrypt hashes only.</p>
+  <p class="footnote">Your password is stored securely.</p>
 </form>
 {{end}}

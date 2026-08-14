@@ -39,6 +39,78 @@ func TestLoginPageRendered(t *testing.T) {
 	}
 }
 
+// TestAuthEntryCopyAndFormContracts defines the approved setup/login identity
+// while pinning the existing server-rendered form contracts.
+func TestAuthEntryCopyAndFormContracts(t *testing.T) {
+	tests := []struct {
+		name       string
+		path       string
+		newHarness func(*testing.T) *harness
+		mustHave   []string
+		mustMiss   []string
+		form       []string
+	}{
+		{
+			name:       "setup",
+			path:       "/setup",
+			newHarness: newEmptyHarness,
+			mustHave: []string{
+				"Set up tkt",
+				"Create the first account for your support team. This only happens once.",
+				"Create account",
+				"Your password is stored securely.",
+			},
+			mustMiss: []string{"Ticket Desk", "Server-side ticketing", "audit trail", "Go + HTMX + SQLite", "bcrypt", "Open source"},
+			form: []string{
+				`<form class="login-form" method="post" action="/setup" novalidate>`,
+				`<label for="name">Name</label>`, `name="name"`, `autocomplete="name"`,
+				`<label for="email">Email</label>`, `name="email"`, `autocomplete="email"`,
+				`<label for="password">Password</label>`, `name="password"`, `autocomplete="new-password"`,
+			},
+		},
+		{
+			name:       "login",
+			path:       "/login",
+			newHarness: newHarness,
+			mustHave:   []string{"tkt", "Sign in"},
+			mustMiss:   []string{"Ticket Desk", "Server-side ticketing", "audit trail", "Go + HTMX + SQLite", "bcrypt", "Open source"},
+			form: []string{
+				`<form class="login-form" method="post" action="/login" novalidate>`,
+				`<label for="email">Email</label>`, `name="email"`, `autocomplete="email"`,
+				`<label for="password">Password</label>`, `name="password"`, `autocomplete="current-password"`,
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			h := tt.newHarness(t)
+			req := httptest.NewRequest(http.MethodGet, tt.path, nil)
+			rec := httptest.NewRecorder()
+			h.mw.Wrap(h.mux).ServeHTTP(rec, req)
+			if rec.Code != http.StatusOK {
+				t.Fatalf("status = %d, want 200", rec.Code)
+			}
+			body := rec.Body.String()
+			for _, want := range tt.mustHave {
+				if !strings.Contains(body, want) {
+					t.Errorf("page must contain %q", want)
+				}
+			}
+			for _, prohibited := range tt.mustMiss {
+				if strings.Contains(body, prohibited) {
+					t.Errorf("page must not contain prohibited copy %q", prohibited)
+				}
+			}
+			for _, contract := range tt.form {
+				if !strings.Contains(body, contract) {
+					t.Errorf("page must retain form contract %q", contract)
+				}
+			}
+		})
+	}
+}
+
 // TestLoginSuccess proves the login-spec happy path: correct credentials
 // create a fresh server-side session, issue the session cookie, and redirect
 // into the application (303 /tickets).
@@ -215,7 +287,7 @@ func TestSetupPageShownWhenEmpty(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200", rec.Code)
 	}
-	if !strings.Contains(rec.Body.String(), "Create your account") {
+	if !strings.Contains(rec.Body.String(), "Set up tkt") {
 		t.Errorf("setup page must show the first-user form, got: %s", rec.Body.String())
 	}
 }
@@ -252,14 +324,51 @@ func TestSetupCreatesFirstActiveUser(t *testing.T) {
 func TestSetupValidationErrorReRenders(t *testing.T) {
 	h := newEmptyHarness(t)
 
-	form := url.Values{"name": {"  "}, "email": {"ana@example.com"}, "password": {"secret"}}
+	const submittedPassword = "do-not-echo-this-password"
+	form := url.Values{"name": {"  "}, "email": {"ana@example.com"}, "password": {submittedPassword}}
 	rec := h.postFormAs(t, "/setup", form, "")
 
 	if rec.Code != http.StatusUnprocessableEntity {
 		t.Errorf("status = %d, want 422", rec.Code)
 	}
-	if !strings.Contains(rec.Body.String(), domain.ErrMsgUserNameRequired) {
-		t.Errorf("re-render must show %q, got: %s", domain.ErrMsgUserNameRequired, rec.Body.String())
+	body := rec.Body.String()
+	if !strings.Contains(body, domain.ErrMsgUserNameRequired) {
+		t.Errorf("re-render must show %q, got: %s", domain.ErrMsgUserNameRequired, body)
+	}
+	if !strings.Contains(body, `value="  "`) {
+		t.Error("re-render must retain the submitted name")
+	}
+	if !strings.Contains(body, `value="ana@example.com"`) {
+		t.Error("re-render must retain the submitted email")
+	}
+	if strings.Contains(body, submittedPassword) {
+		t.Error("re-render must not echo the submitted password")
+	}
+	if !strings.Contains(body, `role="alert"`) {
+		t.Error("validation error must remain an alert")
+	}
+}
+
+// TestLoginValidationErrorReRendersPreservesSafeValues protects the existing
+// generic login failure contract while the entry presentation is refactored.
+func TestLoginValidationErrorReRendersPreservesSafeValues(t *testing.T) {
+	h := newHarness(t)
+	h.createUser(t, "Ana", "ana@example.com", "secret")
+	const submittedPassword = "do-not-echo-this-password"
+	rec := h.postFormAs(t, "/login", authForm("ana@example.com", submittedPassword), "")
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want 401", rec.Code)
+	}
+	body := rec.Body.String()
+	if !strings.Contains(body, `value="ana@example.com"`) {
+		t.Error("re-render must retain the submitted email")
+	}
+	if strings.Contains(body, submittedPassword) {
+		t.Error("re-render must not echo the submitted password")
+	}
+	if !strings.Contains(body, `role="alert"`) || !strings.Contains(body, "invalid credentials") {
+		t.Error("generic login error must remain an alert")
 	}
 }
 
