@@ -3,26 +3,62 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>tkt — Ticket Desk</title>
+<title>tkt</title>
 {{template "styles" .}}
 </head>
 <body>
-<div class="auth-layout">
-  <section class="auth-brand">
-    <div>
-      <div class="mark">tkt</div>
-      <h1>Ticket Desk</h1>
-      <p>Server-side ticketing for small teams: ticket queues, state transitions, comments, and an append-only audit trail — no JavaScript framework required.</p>
-    </div>
-    <div class="proof">
-      <div><strong>5 states</strong>new → in progress → resolved → closed</div>
-      <div><strong>Audit trail</strong>every mutation recorded</div>
-      <div><strong>Open source</strong>Go + HTMX + SQLite</div>
+<main class="auth-entry">
+  <section class="auth-entry__presentation" aria-labelledby="auth-entry-title">
+    <div class="auth-entry__content">
+      <div class="auth-entry__logo" aria-label="tkt">tkt</div>
+      <header class="auth-entry__intro">
+        <h1 id="auth-entry-title">Welcome to tkt</h1>
+        <p>Everything your team needs to receive, organize, and resolve support requests.</p>
+      </header>
+      <section class="auth-entry__journey" aria-labelledby="journey-title">
+        <p id="journey-title" class="auth-entry__eyebrow">A clear path from request to resolution</p>
+        <ol class="auth-entry__steps">
+          <li>
+            <span class="auth-entry__step-mark" aria-hidden="true">1</span>
+            <h2>Received</h2>
+            <p>A request enters one shared queue.</p>
+          </li>
+          <li>
+            <span class="auth-entry__connector" aria-hidden="true"></span>
+            <span class="auth-entry__step-mark auth-entry__step-mark--active" aria-hidden="true">2</span>
+            <h2>Assigned</h2>
+            <p>The right teammate takes ownership.</p>
+          </li>
+          <li>
+            <span class="auth-entry__connector" aria-hidden="true"></span>
+            <span class="auth-entry__step-mark" aria-hidden="true">3</span>
+            <h2>Resolved</h2>
+            <p>The outcome stays clear and traceable.</p>
+          </li>
+        </ol>
+      </section>
+      <section class="auth-entry__principles" aria-label="Product principles">
+        <article>
+          <span aria-hidden="true"></span>
+          <h2>Simple by design</h2>
+          <p>Everything your team needs, without unnecessary complexity.</p>
+        </article>
+        <article>
+          <span aria-hidden="true"></span>
+          <h2>Built for collaboration</h2>
+          <p>Ownership, comments, and progress stay in one place.</p>
+        </article>
+        <article>
+          <span aria-hidden="true"></span>
+          <h2>Your data, your control</h2>
+          <p>Self-hosted and managed on your infrastructure.</p>
+        </article>
+      </section>
     </div>
   </section>
-  <section class="auth-form">
+  <section class="auth-entry__form-panel">
     {{template "content" .}}
   </section>
-</div>
+</main>
 </body>
 </html>

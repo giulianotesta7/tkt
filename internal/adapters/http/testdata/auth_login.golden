@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>tkt — Ticket Desk</title>
+<title>tkt</title>
 <style>
  
 :root{
@@ -275,52 +275,75 @@ textarea{min-height:84px;resize:vertical}
   .auth-entry__form-panel{padding-left:20px;padding-right:20px}
 }
 </style>
-<script src="/static/htmx.min.js" defer></script>
 </head>
 <body>
-<div class="layout">
-  <aside class="rail">
-    <a class="rail-brand" href="/tickets" title="tkt">tkt</a>
-    <nav class="rail-nav">
-      <a class="rail-link" href="/tickets" title="Tickets" aria-label="Tickets">
-        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v1a2 2 0 0 0 0 4v1a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-1a2 2 0 0 0 0-4V9z"/><path d="M13 7v10"/></svg>
-      </a>
-      <a class="rail-link" href="/users" title="Users" aria-label="Users">
-        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0"/><circle cx="17.5" cy="9" r="2.5"/><path d="M16 14.6a6 6 0 0 1 5.5 5.4"/></svg>
-      </a>
-      <a class="rail-link active" href="/categories" title="Categories" aria-label="Categories">
-        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h6l2 2.5H20a1 1 0 0 1 1 1V19a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1z"/></svg>
-      </a>
-    </nav>
-    <div class="rail-operator" title="Ana Torres">AT</div>
-    <form class="rail-logout" method="post" action="/logout">
-      <button class="rail-link" type="submit" title="Log out" aria-label="Log out">
-        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 4H6a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h3"/><path d="M15 8l4 4-4 4"/><path d="M19 12H9"/></svg>
-      </button>
-    </form>
-  </aside>
-  <main class="main">
-<div class="command-header">
-  <div>
-    <h1 class="command-title">Rename category</h1>
-    <p class="command-sub">Category names are unique</p>
-  </div>
-  <div class="command-actions">
-    <a class="btn ghost" href="/categories">Back to categories</a>
-  </div>
-</div>
-
-<form class="card form-card" method="post" action="/categories/1/edit">
-  <h2>Rename category</h2>
+<main class="auth-entry">
+  <section class="auth-entry__presentation" aria-labelledby="auth-entry-title">
+    <div class="auth-entry__content">
+      <div class="auth-entry__logo" aria-label="tkt">tkt</div>
+      <header class="auth-entry__intro">
+        <h1 id="auth-entry-title">Welcome to tkt</h1>
+        <p>Everything your team needs to receive, organize, and resolve support requests.</p>
+      </header>
+      <section class="auth-entry__journey" aria-labelledby="journey-title">
+        <p id="journey-title" class="auth-entry__eyebrow">A clear path from request to resolution</p>
+        <ol class="auth-entry__steps">
+          <li>
+            <span class="auth-entry__step-mark" aria-hidden="true">1</span>
+            <h2>Received</h2>
+            <p>A request enters one shared queue.</p>
+          </li>
+          <li>
+            <span class="auth-entry__connector" aria-hidden="true"></span>
+            <span class="auth-entry__step-mark auth-entry__step-mark--active" aria-hidden="true">2</span>
+            <h2>Assigned</h2>
+            <p>The right teammate takes ownership.</p>
+          </li>
+          <li>
+            <span class="auth-entry__connector" aria-hidden="true"></span>
+            <span class="auth-entry__step-mark" aria-hidden="true">3</span>
+            <h2>Resolved</h2>
+            <p>The outcome stays clear and traceable.</p>
+          </li>
+        </ol>
+      </section>
+      <section class="auth-entry__principles" aria-label="Product principles">
+        <article>
+          <span aria-hidden="true"></span>
+          <h2>Simple by design</h2>
+          <p>Everything your team needs, without unnecessary complexity.</p>
+        </article>
+        <article>
+          <span aria-hidden="true"></span>
+          <h2>Built for collaboration</h2>
+          <p>Ownership, comments, and progress stay in one place.</p>
+        </article>
+        <article>
+          <span aria-hidden="true"></span>
+          <h2>Your data, your control</h2>
+          <p>Self-hosted and managed on your infrastructure.</p>
+        </article>
+      </section>
+    </div>
+  </section>
+  <section class="auth-entry__form-panel">
+    
+<form class="login-form" method="post" action="/login" novalidate>
+  <h2>Sign in to tkt</h2>
+  <p class="lead">Use your work email and password.</p>
   
   <div class="field">
-    <label for="name">Name</label>
-    <input type="text" id="name" name="name" value="Bugs" required autofocus>
+    <label for="email">Email</label>
+    <input type="email" id="email" name="email" value="" placeholder="you@example.com" autocomplete="email" required autofocus>
   </div>
-  <button class="btn primary" type="submit">Save changes</button>
+  <div class="field">
+    <label for="password">Password</label>
+    <input type="password" id="password" name="password" placeholder="••••••••" autocomplete="current-password" required>
+  </div>
+  <button class="btn primary" type="submit">Sign in</button>
 </form>
 
+  </section>
 </main>
-</div>
 </body>
 </html>
