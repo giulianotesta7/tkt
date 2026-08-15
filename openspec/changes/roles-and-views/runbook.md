@@ -61,15 +61,25 @@ ambiguous databases.
 
 ## 4. Rollback
 
-Restore the backup files (all three — the pre-deploy state lives across
-`db`, `wal`, and `shm`; restoring only `db` and deleting the WAL would
-discard committed transactions that were present only in the WAL and
-roll back to an older state) and the previous binary:
+Rollback depends on which backup procedure produced the backup.
+
+**Stopped-server backup (three files):** restore all three backup files
+(the pre-deploy state lives across `db`, `wal`, and `shm`) and the
+previous binary:
 
 ```bash
 cp -p data/backups/tkt.db.<stamp>    data/tkt.db
 cp -p data/backups/tkt.db-wal.<stamp> data/tkt.db-wal
 cp -p data/backups/tkt.db-shm.<stamp> data/tkt.db-shm
+```
+
+**Online single-file backup (`.backup`):** restore only the snapshot,
+then REMOVE the current WAL/SHM sidecars — they belong to the post-deploy
+database and must not replay onto the restored snapshot:
+
+```bash
+cp -p data/backups/tkt.db.<stamp> data/tkt.db
+rm -f data/tkt.db-wal data/tkt.db-shm
 ```
 
 Start the previous binary. Confirm the app boots and the ticket list
