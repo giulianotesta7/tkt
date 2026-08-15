@@ -53,6 +53,17 @@ func seedUser(t *testing.T, s *sqlite.Store, name, email string) *domain.User {
 	return u
 }
 
+// seedUserRole inserts an active user with an explicit role directly
+// through the store port (test arrange for per-role authorization tests).
+func seedUserRole(t *testing.T, s *sqlite.Store, name, email string, role domain.Role) *domain.User {
+	t.Helper()
+	u := &domain.User{Name: name, Email: email, PasswordHash: "not-a-real-hash", Active: true, Role: role, CreatedAt: fixedNow}
+	if err := s.UserStore().Create(context.Background(), u); err != nil {
+		t.Fatalf("seed user %q: %v", email, err)
+	}
+	return u
+}
+
 // seedSession inserts a session expiring in +24h (valid by wall clock).
 func seedSession(t *testing.T, s *sqlite.Store, userID int64) *domain.Session {
 	t.Helper()
@@ -148,10 +159,18 @@ func newHarnessWithAdmin(t *testing.T, seedAdmin bool) *harness {
 		return h
 	}
 
-	// Admin operator + live session for authenticated requests.
+	// Admin operator + live session for authenticated requests. The harness
+	// admin is a REAL admin: assign the role in memory AND persist it, so
+	// service calls using the admin as actor exercise the admin capability
+	// path (UserService.Create leaves the in-memory role empty — the store
+	// default would silently make it an agent).
 	admin, err := usersSvc.Create(context.Background(), application.CreateUserInput{Name: "Admin", Email: "admin@tkt.test", Password: "secret"})
 	if err != nil {
 		t.Fatalf("create admin: %v", err)
+	}
+	admin.Role = domain.RoleAdmin
+	if err := s.UserStore().Update(context.Background(), admin); err != nil {
+		t.Fatalf("promote admin role: %v", err)
 	}
 	sess, err := authSvc.Login(context.Background(), "admin@tkt.test", "secret")
 	if err != nil {

@@ -61,6 +61,11 @@ func (s *TicketService) Create(ctx context.Context, actor domain.User, in Create
 	if !domain.IsValidPriority(in.Priority) {
 		return nil, &domain.InvalidPriorityError{Field: "priority", Message: domain.ErrMsgInvalidPriority}
 	}
+	// Assignment inputs are accepted only from agent+ roles; a user-role
+	// actor's ticket always starts unassigned (ticket-management spec).
+	if in.UserID != nil && !actor.Role.AtLeast(domain.RoleAgent) {
+		return nil, &domain.ValidationError{Field: "user", Message: domain.ErrMsgUserRoleCannotAssign}
+	}
 	if _, err := s.categories.GetByID(ctx, in.CategoryID); err != nil {
 		return nil, err
 	}
@@ -76,16 +81,17 @@ func (s *TicketService) Create(ctx context.Context, actor domain.User, in Create
 
 	now := s.clock.Now()
 	t := &domain.Ticket{
-		Title:          strings.TrimSpace(in.Title),
-		Description:    in.Description,
-		RequesterName:  actor.Name,
-		RequesterEmail: actor.Email,
-		CategoryID:     in.CategoryID,
-		UserID:         in.UserID,
-		Priority:       in.Priority,
-		State:          domain.StateNew,
-		CreatedAt:      now,
-		UpdatedAt:      now,
+		Title:           strings.TrimSpace(in.Title),
+		Description:     in.Description,
+		RequesterName:   actor.Name,
+		RequesterEmail:  actor.Email,
+		RequesterUserID: &actor.ID,
+		CategoryID:      in.CategoryID,
+		UserID:          in.UserID,
+		Priority:        in.Priority,
+		State:           domain.StateNew,
+		CreatedAt:       now,
+		UpdatedAt:       now,
 	}
 	event := domain.AuditEvent{
 		Actor:     actor.Name,

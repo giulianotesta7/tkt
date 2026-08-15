@@ -56,7 +56,7 @@ func TestCreateStoresTicketWithNumberAndStateNew(t *testing.T) {
 	h := newTicketHarness()
 	cat := h.categories.seed("Bugs")
 	user := h.users.seed("Ana", "ana@example.com", true)
-	actor := domain.User{Name: "Ada", Email: "ada@example.com"}
+	actor := domain.User{Name: "Ada", Email: "ada@example.com", Role: domain.RoleAdmin}
 
 	ticket, err := h.svc.Create(context.Background(), actor, validCreateInput(cat.ID, ptr(user.ID)))
 	if err != nil {
@@ -100,10 +100,71 @@ func TestCreateStoresTicketWithNumberAndStateNew(t *testing.T) {
 	}
 }
 
+// TestCreateStoresSessionRequester proves the creating session user is
+// persisted as the immutable requester_user_id and a user-role actor's
+// ticket starts unassigned (ticket-access spec: creator persisted, assignee
+// empty).
+func TestCreateStoresSessionRequester(t *testing.T) {
+	h := newTicketHarness()
+	cat := h.categories.seed("Bugs")
+	actor := domain.User{ID: 7, Name: "Ada", Email: "ada@example.com", Role: domain.RoleUser}
+
+	ticket, err := h.svc.Create(context.Background(), actor, validCreateInput(cat.ID, nil))
+	if err != nil {
+		t.Fatalf("Create: unexpected error: %v", err)
+	}
+	if ticket.RequesterUserID == nil || *ticket.RequesterUserID != actor.ID {
+		t.Fatalf("Create: requester_user_id = %v, want session user id %d", ticket.RequesterUserID, actor.ID)
+	}
+	if ticket.UserID != nil {
+		t.Fatalf("Create: a user-role actor's ticket must start unassigned, got assignee %d", *ticket.UserID)
+	}
+}
+
+// TestCreateUserRoleRejectsAssignment proves assignment inputs are rejected
+// for role user (ticket-management spec: assignment accepted only from
+// agent+ and rejected for user).
+func TestCreateUserRoleRejectsAssignment(t *testing.T) {
+	h := newTicketHarness()
+	cat := h.categories.seed("Bugs")
+	assignee := h.users.seed("Ana", "ana@example.com", true)
+	actor := domain.User{ID: 7, Name: "Ada", Email: "ada@example.com", Role: domain.RoleUser}
+
+	_, err := h.svc.Create(context.Background(), actor, validCreateInput(cat.ID, ptr(assignee.ID)))
+	if err == nil {
+		t.Fatal("Create: a user-role actor must not be able to assign a ticket")
+	}
+	var validation *domain.ValidationError
+	if !errors.As(err, &validation) || validation.Field != "user" {
+		t.Fatalf("Create: err = %v, want ValidationError{Field: user}", err)
+	}
+}
+
+// TestCreateAgentStoresRequesterAndAssignee proves an agent-role actor may
+// create an assigned ticket, and the requester is STILL the session actor
+// (ticket-management spec: requester always derived from the session).
+func TestCreateAgentStoresRequesterAndAssignee(t *testing.T) {
+	h := newTicketHarness()
+	cat := h.categories.seed("Bugs")
+	assignee := h.users.seed("Ana", "ana@example.com", true)
+	actor := domain.User{ID: 9, Name: "Beto", Email: "beto@example.com", Role: domain.RoleAgent}
+
+	ticket, err := h.svc.Create(context.Background(), actor, validCreateInput(cat.ID, ptr(assignee.ID)))
+	if err != nil {
+		t.Fatalf("Create: unexpected error: %v", err)
+	}
+	if ticket.RequesterUserID == nil || *ticket.RequesterUserID != actor.ID {
+		t.Fatalf("Create: requester_user_id = %v, want session user id %d", ticket.RequesterUserID, actor.ID)
+	}
+	if ticket.UserID == nil || *ticket.UserID != assignee.ID {
+		t.Fatalf("Create: assignee = %v, want %d", ticket.UserID, assignee.ID)
+	}
+}
+
 func TestCreateRejectsMissingTitle(t *testing.T) {
 	h := newTicketHarness()
 	cat := h.categories.seed("Bugs")
-	actor := domain.User{Name: "Ada"}
+	actor := domain.User{Name: "Ada", Role: domain.RoleAdmin}
 
 	in := validCreateInput(cat.ID, nil)
 	in.Title = "  "
@@ -125,7 +186,7 @@ func TestCreateRejectsInactiveUserAssignment(t *testing.T) {
 	h := newTicketHarness()
 	cat := h.categories.seed("Bugs")
 	inactive := h.users.seed("Ana", "ana@example.com", false)
-	actor := domain.User{Name: "Ada"}
+	actor := domain.User{Name: "Ada", Role: domain.RoleAdmin}
 
 	_, err := h.svc.Create(context.Background(), actor, validCreateInput(cat.ID, ptr(inactive.ID)))
 
@@ -143,7 +204,7 @@ func TestCreateRejectsInactiveUserAssignment(t *testing.T) {
 
 func TestCreateRejectsUnknownCategory(t *testing.T) {
 	h := newTicketHarness()
-	actor := domain.User{Name: "Ada"}
+	actor := domain.User{Name: "Ada", Role: domain.RoleAdmin}
 
 	_, err := h.svc.Create(context.Background(), actor, validCreateInput(999, nil))
 
@@ -162,7 +223,7 @@ func TestCreateRejectsUnknownCategory(t *testing.T) {
 func TestCreateRejectsUnknownAssignedUser(t *testing.T) {
 	h := newTicketHarness()
 	cat := h.categories.seed("Bugs")
-	actor := domain.User{Name: "Ada"}
+	actor := domain.User{Name: "Ada", Role: domain.RoleAdmin}
 
 	_, err := h.svc.Create(context.Background(), actor, validCreateInput(cat.ID, ptr(int64(999))))
 
@@ -181,7 +242,7 @@ func TestCreateRejectsUnknownAssignedUser(t *testing.T) {
 func TestCreateRejectsInvalidPriority(t *testing.T) {
 	h := newTicketHarness()
 	cat := h.categories.seed("Bugs")
-	actor := domain.User{Name: "Ada"}
+	actor := domain.User{Name: "Ada", Role: domain.RoleAdmin}
 
 	in := validCreateInput(cat.ID, nil)
 	in.Priority = domain.Priority("urgent")
@@ -216,7 +277,7 @@ func TestTransitionAppliesAndAuditsWithSessionActor(t *testing.T) {
 	h := newTicketHarness()
 	cat := h.categories.seed("Bugs")
 	ticket := seededTicket(h.tickets, cat.ID, domain.StateNew)
-	actor := domain.User{Name: "Ada", Email: "ada@example.com"}
+	actor := domain.User{Name: "Ada", Email: "ada@example.com", Role: domain.RoleAdmin}
 	h.clock.Advance(timeMinute)
 
 	updated, err := h.svc.Transition(context.Background(), actor, ticket.ID, domain.StateInProgress, "")
@@ -257,7 +318,7 @@ func TestTransitionRejectsInvalidMoveWithoutMutations(t *testing.T) {
 	h := newTicketHarness()
 	cat := h.categories.seed("Bugs")
 	ticket := seededTicket(h.tickets, cat.ID, domain.StateNew)
-	actor := domain.User{Name: "Ada"}
+	actor := domain.User{Name: "Ada", Role: domain.RoleAdmin}
 
 	_, err := h.svc.Transition(context.Background(), actor, ticket.ID, domain.StateClosed, "")
 	var terr *domain.InvalidTransitionError
@@ -278,7 +339,7 @@ func TestTransitionReopenClosedRequiresReason(t *testing.T) {
 	h := newTicketHarness()
 	cat := h.categories.seed("Bugs")
 	ticket := seededTicket(h.tickets, cat.ID, domain.StateClosed)
-	actor := domain.User{Name: "Ada"}
+	actor := domain.User{Name: "Ada", Role: domain.RoleAdmin}
 
 	_, err := h.svc.Transition(context.Background(), actor, ticket.ID, domain.StateInProgress, "")
 	var rerr *domain.ReopenReasonRequiredError
@@ -294,7 +355,7 @@ func TestTransitionReopenClosedWithReasonRecordsNote(t *testing.T) {
 	h := newTicketHarness()
 	cat := h.categories.seed("Bugs")
 	ticket := seededTicket(h.tickets, cat.ID, domain.StateClosed)
-	actor := domain.User{Name: "Ada"}
+	actor := domain.User{Name: "Ada", Role: domain.RoleAdmin}
 
 	updated, err := h.svc.Transition(context.Background(), actor, ticket.ID, domain.StateInProgress, "customer came back")
 	if err != nil {
@@ -311,7 +372,7 @@ func TestTransitionReopenClosedWithReasonRecordsNote(t *testing.T) {
 
 func TestTransitionUnknownTicket(t *testing.T) {
 	h := newTicketHarness()
-	actor := domain.User{Name: "Ada"}
+	actor := domain.User{Name: "Ada", Role: domain.RoleAdmin}
 
 	_, err := h.svc.Transition(context.Background(), actor, 4242, domain.StateInProgress, "")
 	var nerr *domain.NotFoundError
@@ -324,7 +385,7 @@ func TestUpdateAppliesChangedFieldsAndAuditsEach(t *testing.T) {
 	h := newTicketHarness()
 	cat := h.categories.seed("Bugs")
 	ticket := seededTicket(h.tickets, cat.ID, domain.StateInProgress)
-	actor := domain.User{Name: "Ada"}
+	actor := domain.User{Name: "Ada", Role: domain.RoleAdmin}
 	h.clock.Advance(timeMinute)
 
 	resolvedAt := h.clock.now
@@ -367,7 +428,7 @@ func TestUpdateRejectsInvalidPriorityWithoutChanges(t *testing.T) {
 	h := newTicketHarness()
 	cat := h.categories.seed("Bugs")
 	ticket := seededTicket(h.tickets, cat.ID, domain.StateInProgress)
-	actor := domain.User{Name: "Ada"}
+	actor := domain.User{Name: "Ada", Role: domain.RoleAdmin}
 	before, _ := h.tickets.GetByID(context.Background(), ticket.ID)
 
 	bad := domain.Priority("urgent")
@@ -393,7 +454,7 @@ func TestUpdateValidatesCategoryAndAssignedUser(t *testing.T) {
 	// (C3): seeding a fresh store fails the lookup before the active check.
 	inactive := h.users.seed("Ana", "ana@example.com", false)
 	ticket := seededTicket(h.tickets, cat.ID, domain.StateInProgress)
-	actor := domain.User{Name: "Ada"}
+	actor := domain.User{Name: "Ada", Role: domain.RoleAdmin}
 
 	// Category edits validate existence as in creation.
 	missingCat := int64(999)
@@ -419,7 +480,7 @@ func TestEveryMutationAuditedInOccurrenceOrder(t *testing.T) {
 	h := newTicketHarness()
 	cat := h.categories.seed("Bugs")
 	user := h.users.seed("Ana", "ana@example.com", true)
-	actor := domain.User{Name: "Ada", Email: "ada@example.com"}
+	actor := domain.User{Name: "Ada", Email: "ada@example.com", Role: domain.RoleAdmin}
 
 	// GIVEN a ticket (audit-log scenario: one transition and two field edits).
 	ticket, err := h.svc.Create(context.Background(), actor, validCreateInput(cat.ID, ptr(user.ID)))
@@ -468,7 +529,7 @@ func TestCreateRollsBackTicketWhenAuditAppendFails(t *testing.T) {
 	h := newTicketHarness()
 	cat := h.categories.seed("Bugs")
 	user := h.users.seed("Ana", "ana@example.com", true)
-	actor := domain.User{Name: "Ada"}
+	actor := domain.User{Name: "Ada", Role: domain.RoleAdmin}
 	h.tx.failAuditAppend = true
 
 	_, err := h.svc.Create(context.Background(), actor, validCreateInput(cat.ID, ptr(user.ID)))
@@ -490,7 +551,7 @@ func TestTransitionRollsBackStateWhenAuditAppendFails(t *testing.T) {
 	h := newTicketHarness()
 	cat := h.categories.seed("Bugs")
 	ticket := seededTicket(h.tickets, cat.ID, domain.StateNew)
-	actor := domain.User{Name: "Ada"}
+	actor := domain.User{Name: "Ada", Role: domain.RoleAdmin}
 	h.tx.failAuditAppend = true
 
 	_, err := h.svc.Transition(context.Background(), actor, ticket.ID, domain.StateInProgress, "")

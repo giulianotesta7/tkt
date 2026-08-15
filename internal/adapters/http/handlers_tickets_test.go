@@ -419,3 +419,55 @@ func TestTicketCreateDerivesRequesterFromSession(t *testing.T) {
 		t.Errorf("requester must be the session operator, got: %s", detail)
 	}
 }
+
+// TestTicketCreateIgnoresForgedRequesterUserID proves a forged
+// requester_user_id form value is ignored: the stored requester user id is
+// the session user's, never the caller-supplied one (ticket-access spec:
+// requester identity MUST NOT be supplied by any caller).
+func TestTicketCreateIgnoresForgedRequesterUserID(t *testing.T) {
+	h := newHarness(t)
+	user := seedUserRole(t, h.store, "Ula", "ula@example.com", domain.RoleUser)
+	sess := seedSession(t, h.store, user.ID)
+
+	rec := h.postFormAs(t, "/tickets", url.Values{
+		"title":             {"Forged requester id"},
+		"category_id":       {strconv.FormatInt(h.bugCategory.ID, 10)},
+		"priority":          {"medium"},
+		"requester_user_id": {strconv.FormatInt(h.admin.ID, 10)},
+	}, sess.ID)
+
+	if rec.Code != http.StatusSeeOther {
+		t.Fatalf("status = %d, want 303", rec.Code)
+	}
+	view, err := h.tickets.GetByID(t.Context(), 1)
+	if err != nil {
+		t.Fatalf("created ticket must be readable: %v", err)
+	}
+	if view.Ticket.RequesterUserID == nil || *view.Ticket.RequesterUserID != user.ID {
+		t.Errorf("requester_user_id = %v, want session user %d (forged value ignored)", view.Ticket.RequesterUserID, user.ID)
+	}
+}
+
+// TestTicketCreateUserRoleRejectsAssignment proves a user-role actor
+// posting an assignee gets 422 and no ticket is stored (ticket-management
+// spec: assignment inputs rejected for role user).
+func TestTicketCreateUserRoleRejectsAssignment(t *testing.T) {
+	h := newHarness(t)
+	user := seedUserRole(t, h.store, "Ula", "ula@example.com", domain.RoleUser)
+	sess := seedSession(t, h.store, user.ID)
+	beto := h.createUser(t, "Beto", "beto@example.com", "secret")
+
+	form := ticketForm(func(f url.Values) {
+		f.Set("category_id", strconv.FormatInt(h.bugCategory.ID, 10))
+		f.Set("user_id", strconv.FormatInt(beto.ID, 10))
+	})
+	rec := h.postFormAs(t, "/tickets", form, sess.ID)
+
+	if rec.Code != http.StatusUnprocessableEntity {
+		t.Errorf("status = %d, want 422", rec.Code)
+	}
+	_, err := h.tickets.GetByID(t.Context(), 1)
+	if !errors.Is(err, domain.ErrNotFound) {
+		t.Fatalf("no ticket may be stored, GetByID err = %v (want ErrNotFound)", err)
+	}
+}

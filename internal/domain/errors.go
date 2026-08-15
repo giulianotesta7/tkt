@@ -20,6 +20,7 @@ const (
 	ErrMsgUserEmailRequired         = "email is required"
 	ErrMsgCategoryNameRequired      = "category name is required"
 	ErrMsgUserInactive              = "user is inactive"
+	ErrMsgUserRoleCannotAssign      = "user role cannot assign tickets"
 	ErrMsgBootstrapUnavailable      = "first-user setup is no longer available"
 	ErrMsgRootProtected             = "the root account is protected"
 )
