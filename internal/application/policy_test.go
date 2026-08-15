@@ -105,7 +105,7 @@ func TestPolicyTicketScope(t *testing.T) {
 		role domain.Role
 		want TicketScope
 	}{
-		{domain.RoleUser, ScopeOwned},    // requester = self only
+		{domain.RoleUser, ScopeOwned},     // requester = self only
 		{domain.RoleAgent, ScopeAssigned}, // assigned to self only
 		{domain.RoleAdmin, ScopeAll},      // full queue, incl. unassigned
 		{domain.RoleRoot, ScopeAll},
