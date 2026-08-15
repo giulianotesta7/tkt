@@ -16,8 +16,8 @@ const (
 // Field names the changed field ("state" for transitions, or the edited
 // field for updates).
 type AuditEvent struct {
-	TicketID  int64
-	Actor     string
+	TicketID int64
+	Actor    string
 	// ActorUserID is the acting session user's id (design: "Events store
 	// session actor ID/snapshot"). NULL for legacy/backfill events whose
 	// actor id is not provable.
