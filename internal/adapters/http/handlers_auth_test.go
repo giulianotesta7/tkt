@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/giulianotesta7/tkt/internal/application"
@@ -293,8 +294,10 @@ func TestSetupPageShownWhenEmpty(t *testing.T) {
 }
 
 // TestSetupCreatesFirstActiveUser proves POST /setup creates the first user
-// as an active regular user and redirects to /login; that user can then log
-// in (never-locked-out spec).
+// atomically as an ACTIVE ROOT (role-authorization first-user bootstrap) and
+// redirects to /login; that user can then log in (never-locked-out spec).
+// The role assertion is the S2 RED: until BootstrapRoot lands, the store
+// does not persist a role and the setup flow creates an ordinary account.
 func TestSetupCreatesFirstActiveUser(t *testing.T) {
 	h := newEmptyHarness(t)
 
@@ -310,6 +313,9 @@ func TestSetupCreatesFirstActiveUser(t *testing.T) {
 	if !u.Active {
 		t.Error("first user must be active")
 	}
+	if u.Role != domain.RoleRoot {
+		t.Errorf("first user role = %q, want %q", u.Role, domain.RoleRoot)
+	}
 	if u.ID == 0 {
 		t.Error("first user must receive a unique identifier")
 	}
@@ -317,6 +323,89 @@ func TestSetupCreatesFirstActiveUser(t *testing.T) {
 	// The bootstrap user can log in.
 	login := h.postFormAs(t, "/login", authForm("ana@example.com", "secret"), "")
 	wantRedirect(t, login, http.StatusSeeOther, "/tickets")
+}
+
+// TestSetupConcurrentSubmissionsProduceOneRoot proves the atomic-bootstrap
+// contract (role-authorization "Concurrent bootstrap"): two simultaneous
+// /setup submissions create EXACTLY one root and the loser fails without
+// creating an account. BootstrapRoot runs under BEGIN IMMEDIATE with a
+// conditional insert, so the second writer sees the first user and is
+// redirected away — never a second user, never an ordinary account, never
+// two roots. Written before BootstrapRoot exists: it fails at compile time
+// (RED) until the use case replaces the plain create in the setup flow.
+func TestSetupConcurrentSubmissionsProduceOneRoot(t *testing.T) {
+	h := newEmptyHarness(t)
+	handler := h.mw.Wrap(h.mux)
+
+	const (
+		emailA = "ana@example.com"
+		emailB = "beto@example.com"
+	)
+
+	// Two simultaneous submissions, each with distinct credentials. Both
+	// requests are fully independent (separate goroutines, separate DB
+	// pool connections — the harness store is file-backed with the default
+	// pool, so this exercises the real BEGIN IMMEDIATE write serialization).
+	start := make(chan struct{})
+	recs := make([]*httptest.ResponseRecorder, 2)
+	forms := []url.Values{
+		{"name": {"Ana"}, "email": {emailA}, "password": {"secret-a"}},
+		{"name": {"Beto"}, "email": {emailB}, "password": {"secret-b"}},
+	}
+	var wg sync.WaitGroup
+	for i := range forms {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			req := httptest.NewRequest(http.MethodPost, "/setup", strings.NewReader(forms[i].Encode()))
+			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+			<-start
+			rec := httptest.NewRecorder()
+			handler.ServeHTTP(rec, req)
+			recs[i] = rec
+		}(i)
+	}
+	close(start)
+	wg.Wait()
+
+	// Exactly one root survives; the other submission created nothing.
+	for i, rec := range recs {
+		if rec.Code != http.StatusSeeOther {
+			t.Errorf("request %d status = %d, want 303 redirect", i, rec.Code)
+		}
+		if loc := rec.Header().Get("Location"); loc != "/login" {
+			t.Errorf("request %d Location = %q, want /login", i, loc)
+		}
+	}
+
+	count, err := h.store.UserStore().Count(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if count != 1 {
+		t.Fatalf("user count = %d, want exactly 1 (one root, no extra accounts)", count)
+	}
+
+	var root *domain.User
+	for _, email := range []string{emailA, emailB} {
+		u, err := h.store.UserStore().GetByEmail(context.Background(), email)
+		if err != nil {
+			if errors.Is(err, domain.ErrNotFound) {
+				continue
+			}
+			t.Fatal(err)
+		}
+		root = u
+	}
+	if root == nil {
+		t.Fatal("no user was created at all")
+	}
+	if root.Role != domain.RoleRoot {
+		t.Errorf("surviving user role = %q, want %q", root.Role, domain.RoleRoot)
+	}
+	if !root.Active {
+		t.Error("surviving user must be active")
+	}
 }
 
 // TestSetupValidationErrorReRenders proves invalid setup input re-renders
