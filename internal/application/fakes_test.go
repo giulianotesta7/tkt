@@ -421,6 +421,22 @@ func (f *fakeUserStore) ListActive(_ context.Context) ([]domain.User, error) {
 	return out, nil
 }
 
+func (f *fakeUserStore) RecoverRoot(_ context.Context, id int64) (*domain.User, error) {
+	for _, u := range f.users {
+		if u.Role == domain.RoleRoot {
+			return nil, errors.New("a root already exists; recovery refused")
+		}
+	}
+	u, ok := f.users[id]
+	if !ok {
+		return nil, &domain.NotFoundError{Kind: "user", ID: id}
+	}
+	u.Role = domain.RoleRoot
+	u.Active = true
+	cp := *u
+	return &cp, nil
+}
+
 // fakeSessionStore implements SessionStore with lazy purge of expired
 // sessions (D14). Expiry is checked against the injected clock (D7), never
 // the real time — otherwise tests pass only while the fixed fake clock date
