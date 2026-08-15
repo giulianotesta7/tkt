@@ -50,10 +50,10 @@ Deps: 2,3,6←P1; 4,5←3; 7←2–6; 8←7; P5∥P6; S6 monitored.
 
 ## S4
 
-- [ ] 4.1 RED initial assign reasonless; reassign requires reason.
-- [ ] 4.2 Assign: agent+ only, active target.
-- [ ] 4.3 RED transitions: user denied, agent assigned, admin/root any.
-- [ ] 4.4 `domain/audit.go`: `ActorUserID,Reason`.
+- [x] 4.1 RED initial assign reasonless; reassign requires reason.
+- [x] 4.2 Assign: agent+ only, active target.
+- [x] 4.3 RED transitions: user denied, agent assigned, admin/root any.
+- [x] 4.4 `domain/audit.go`: `ActorUserID,Reason`.
 
 ## S5
 
