@@ -225,6 +225,9 @@ func (f *fakeSearchStore) SearchCount(ctx context.Context, q application.TicketQ
 }
 
 // fakeCommentStore implements CommentStore with insertion-order timelines.
+// ListByTicket mirrors the real store's visibility contract: when
+// includeInternal is false, internal (staff-only) comments are excluded
+// before the collection is returned (comment-visibility spec).
 type fakeCommentStore struct {
 	comments map[int64][]*domain.Comment
 	nextID   int64
@@ -244,9 +247,12 @@ func (f *fakeCommentStore) Add(_ context.Context, c *domain.Comment) error {
 	return nil
 }
 
-func (f *fakeCommentStore) ListByTicket(_ context.Context, ticketID int64) ([]domain.Comment, error) {
+func (f *fakeCommentStore) ListByTicket(_ context.Context, ticketID int64, includeInternal bool) ([]domain.Comment, error) {
 	var out []domain.Comment
 	for _, c := range f.comments[ticketID] {
+		if !includeInternal && c.Visibility == domain.CommentInternal {
+			continue
+		}
 		out = append(out, *c)
 	}
 	return out, nil

@@ -70,7 +70,10 @@ func parseCommentVisibility(raw string) (domain.CommentVisibility, error) {
 	}
 }
 
-// ListByTicket returns the ticket's comments in creation order (ASC).
-func (s *CommentService) ListByTicket(ctx context.Context, ticketID int64) ([]domain.Comment, error) {
-	return s.comments.ListByTicket(ctx, ticketID)
+// ListByTicket returns the ticket's comments in creation order (ASC),
+// restricted to the actor's comment visibility: includeInternal=false
+// excludes internal (staff-only) comments at the store boundary so a
+// user-role actor never receives their content (comment-visibility spec).
+func (s *CommentService) ListByTicket(ctx context.Context, ticketID int64, includeInternal bool) ([]domain.Comment, error) {
+	return s.comments.ListByTicket(ctx, ticketID, includeInternal)
 }

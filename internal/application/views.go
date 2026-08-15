@@ -64,7 +64,11 @@ func NewViewBuilder(tickets TicketStore, users UserStore, categories CategorySto
 // chronological comment timeline, and audit history. The read is scoped to
 // the actor's ticket access scope carried in q (ticket-access spec): an
 // out-of-scope ticket is ErrNotFound, so detail pages never leak.
-func (b *ViewBuilder) TicketView(ctx context.Context, ticketID int64, q TicketQuery) (*TicketView, error) {
+// includeInternal is the actor's comment-visibility scope (comment-visibility
+// spec): false for user-role actors — internal (staff-only) comments are
+// excluded at the store boundary AND filtered again before timeline
+// composition, so a user-role response can never contain internal content.
+func (b *ViewBuilder) TicketView(ctx context.Context, ticketID int64, q TicketQuery, includeInternal bool) (*TicketView, error) {
 	t, err := b.tickets.GetByID(ctx, ticketID, q)
 	if err != nil {
 		return nil, err
@@ -81,21 +85,39 @@ func (b *ViewBuilder) TicketView(ctx context.Context, ticketID int64, q TicketQu
 		}
 		view.AssignedUser = user
 	}
-	comments, err := b.comments.ListByTicket(ctx, ticketID)
+	comments, err := b.comments.ListByTicket(ctx, ticketID, includeInternal)
 	if err != nil {
 		return nil, err
 	}
-	view.Comments = comments
+	view.Comments = filterCommentVisibility(comments, includeInternal)
 	events, err := b.audits.ListByTicket(ctx, ticketID)
 	if err != nil {
 		return nil, err
 	}
 	view.AuditEvents = events
-	view.Timeline = mergeTimeline(comments, events)
+	view.Timeline = mergeTimeline(view.Comments, events)
 	if err := b.enrichTimeline(ctx, view); err != nil {
 		return nil, err
 	}
 	return view, nil
+}
+
+// filterCommentVisibility is the application-side half of the visibility
+// filter (comment-visibility spec: filtering precedes composition). The
+// store already excludes internal rows for non-internal actors at the SQL
+// boundary; this pass is the defensive second layer, so a store regression
+// can never leak internal content into a composed view.
+func filterCommentVisibility(comments []domain.Comment, includeInternal bool) []domain.Comment {
+	if includeInternal {
+		return comments
+	}
+	out := make([]domain.Comment, 0, len(comments))
+	for _, c := range comments {
+		if c.Visibility != domain.CommentInternal {
+			out = append(out, c)
+		}
+	}
+	return out
 }
 
 // enrichTimeline resolves audit identifiers into stable presentation labels.

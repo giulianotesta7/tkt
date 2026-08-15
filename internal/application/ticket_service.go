@@ -253,7 +253,10 @@ func (s *TicketService) Update(ctx context.Context, actor domain.User, ticketID 
 // user (inactive users stay visible), comment timeline, and audit history
 // (D13) — scoped to the actor's ticket access scope, or a NotFoundError
 // when the ticket is absent OR outside the actor's scope (ticket-access
-// spec: direct lookup is denied for out-of-scope tickets).
+// spec: direct lookup is denied for out-of-scope tickets). The comment
+// visibility scope derives from the same session role: only agents+ include
+// internal (staff-only) comments (comment-visibility spec).
 func (s *TicketService) GetByID(ctx context.Context, actor domain.User, id int64) (*TicketView, error) {
-	return s.builder.TicketView(ctx, id, scopedQuery(actor, TicketQuery{}))
+	includeInternal := NewPolicy().Capabilities(actor.Role).Require(CapCommentInternal)
+	return s.builder.TicketView(ctx, id, scopedQuery(actor, TicketQuery{}), includeInternal)
 }

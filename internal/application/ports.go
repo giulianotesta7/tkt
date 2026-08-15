@@ -77,10 +77,17 @@ type SearchStore interface {
 // CommentStore persists the append-only comment timeline
 // (comment-timeline spec).
 type CommentStore interface {
-	// Add stores c, assigning c.ID.
+	// Add stores c, assigning c.ID. c.Visibility is persisted; an empty
+	// visibility falls back to 'public' (migration 0003 default — legacy
+	// comments backfill to public, and legacy callers keep producing
+	// public comments).
 	Add(ctx context.Context, c *domain.Comment) error
 	// ListByTicket returns the ticket's comments in creation order (ASC).
-	ListByTicket(ctx context.Context, ticketID int64) ([]domain.Comment, error)
+	// includeInternal controls the internal (staff-only) rows: false
+	// excludes them at the SQL boundary, so a user-role actor never
+	// receives internal content (comment-visibility spec — filtering
+	// precedes composition, it is not markup hiding).
+	ListByTicket(ctx context.Context, ticketID int64, includeInternal bool) ([]domain.Comment, error)
 }
 
 // AuditStore persists the append-only audit trail (audit-log spec).

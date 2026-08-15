@@ -121,7 +121,7 @@ func TestTicketViewEnrichesAuditTimelineLabels(t *testing.T) {
 			})
 
 			builder := application.NewViewBuilder(tickets, users, categories, comments, audits)
-			view, err := builder.TicketView(context.Background(), ticket.ID, application.TicketQuery{Scope: application.ScopeAll})
+			view, err := builder.TicketView(context.Background(), ticket.ID, application.TicketQuery{Scope: application.ScopeAll}, true)
 			if err != nil {
 				t.Fatalf("TicketView: unexpected error: %v", err)
 			}
@@ -173,7 +173,7 @@ func seededCommentTimeline(t *testing.T) (*application.ViewBuilder, *fakeTicketS
 func TestTicketViewComposesRefsAndOrderedTimelines(t *testing.T) {
 	builder, _, _, ticket, user, cat := seededCommentTimeline(t)
 
-	view, err := builder.TicketView(context.Background(), ticket.ID, application.TicketQuery{Scope: application.ScopeAll})
+	view, err := builder.TicketView(context.Background(), ticket.ID, application.TicketQuery{Scope: application.ScopeAll}, true)
 	if err != nil {
 		t.Fatalf("TicketView: unexpected error: %v", err)
 	}
@@ -225,7 +225,7 @@ func TestTicketViewUnassignedUserIsNil(t *testing.T) {
 	})
 	builder := application.NewViewBuilder(tickets, newFakeUserStore(), categories, newFakeCommentStore(), newFakeAuditStore())
 
-	view, err := builder.TicketView(context.Background(), ticket.ID, application.TicketQuery{Scope: application.ScopeAll})
+	view, err := builder.TicketView(context.Background(), ticket.ID, application.TicketQuery{Scope: application.ScopeAll}, true)
 	if err != nil {
 		t.Fatalf("TicketView: unexpected error: %v", err)
 	}
@@ -248,7 +248,7 @@ func TestTicketViewShowsInactiveAssignedUser(t *testing.T) {
 		t.Fatalf("deactivate: unexpected error: %v", err)
 	}
 
-	view, err := builder.TicketView(context.Background(), ticket.ID, application.TicketQuery{Scope: application.ScopeAll})
+	view, err := builder.TicketView(context.Background(), ticket.ID, application.TicketQuery{Scope: application.ScopeAll}, true)
 	if err != nil {
 		t.Fatalf("TicketView: unexpected error: %v", err)
 	}
@@ -260,9 +260,85 @@ func TestTicketViewShowsInactiveAssignedUser(t *testing.T) {
 func TestTicketViewUnknownTicket(t *testing.T) {
 	builder := application.NewViewBuilder(newFakeTicketStore(), newFakeUserStore(), newFakeCategoryStore(), newFakeCommentStore(), newFakeAuditStore())
 
-	_, err := builder.TicketView(context.Background(), 4242, application.TicketQuery{Scope: application.ScopeAll})
+	_, err := builder.TicketView(context.Background(), 4242, application.TicketQuery{Scope: application.ScopeAll}, true)
 	var nerr *domain.NotFoundError
 	if !errors.As(err, &nerr) || nerr.Kind != "ticket" {
 		t.Fatalf("TicketView: unknown ticket must be a NotFoundError(kind=ticket), got %v", err)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// S5: visibility filtering precedes composition (comment-visibility spec).
+// A non-internal actor's view must contain NO internal content; an
+// internal-capable actor sees both. The filter applies to the composed
+// view — Comments and the merged Timeline — not just markup.
+// ---------------------------------------------------------------------------
+
+// seededMixedVisibilityTicket arranges a ticket with one public and one
+// internal comment at increasing times.
+func seededMixedVisibilityTicket(t *testing.T) (*application.ViewBuilder, domain.Ticket) {
+	t.Helper()
+	clock := fixedClock()
+	tickets := newFakeTicketStore()
+	users := newFakeUserStore()
+	categories := newFakeCategoryStore()
+	comments := newFakeCommentStore()
+	audits := newFakeAuditStore()
+
+	cat := categories.seed("Bugs")
+	ticket := tickets.seed(domain.Ticket{
+		Title: "Seeded", CategoryID: cat.ID, Priority: domain.PriorityLow,
+		State: domain.StateNew, CreatedAt: clock.now, UpdatedAt: clock.now,
+	})
+	comments.Add(context.Background(), &domain.Comment{
+		TicketID: ticket.ID, Author: "Ana", Body: "public-body", Visibility: domain.CommentPublic, CreatedAt: clock.now,
+	})
+	clock.Advance(timeMinute)
+	comments.Add(context.Background(), &domain.Comment{
+		TicketID: ticket.ID, Author: "Bruno", Body: "internal-body", Visibility: domain.CommentInternal, CreatedAt: clock.now,
+	})
+	return application.NewViewBuilder(tickets, users, categories, comments, audits), ticket
+}
+
+// TestTicketViewFiltersInternalBeforeComposition proves a non-internal
+// actor (includeInternal=false) receives only public comments — the internal
+// body is absent from Comments, from the merged Timeline, and from every
+// TimelineItem (comment-visibility spec: filtering precedes composition;
+// internal rows are absent from every returned collection, not hidden in
+// markup).
+func TestTicketViewFiltersInternalBeforeComposition(t *testing.T) {
+	builder, ticket := seededMixedVisibilityTicket(t)
+
+	view, err := builder.TicketView(context.Background(), ticket.ID, application.TicketQuery{Scope: application.ScopeAll}, false)
+	if err != nil {
+		t.Fatalf("TicketView: unexpected error: %v", err)
+	}
+	if len(view.Comments) != 1 || view.Comments[0].Body != "public-body" || view.Comments[0].Visibility != domain.CommentPublic {
+		t.Fatalf("Comments = %+v, want exactly the public comment", view.Comments)
+	}
+	if len(view.Timeline) != 1 || !view.Timeline[0].IsComment || view.Timeline[0].Comment.Body != "public-body" {
+		t.Fatalf("Timeline = %+v, want exactly the public comment", view.Timeline)
+	}
+}
+
+// TestTicketViewIncludesInternalForAgentPlus proves an internal-capable
+// actor (includeInternal=true) receives both visibilities in Comments and
+// on the merged Timeline, preserving the newest-first order (internal added
+// later renders first).
+func TestTicketViewIncludesInternalForAgentPlus(t *testing.T) {
+	builder, ticket := seededMixedVisibilityTicket(t)
+
+	view, err := builder.TicketView(context.Background(), ticket.ID, application.TicketQuery{Scope: application.ScopeAll}, true)
+	if err != nil {
+		t.Fatalf("TicketView: unexpected error: %v", err)
+	}
+	if len(view.Comments) != 2 {
+		t.Fatalf("Comments = %d, want 2 (public + internal)", len(view.Comments))
+	}
+	if view.Comments[0].Visibility != domain.CommentPublic || view.Comments[1].Visibility != domain.CommentInternal {
+		t.Fatalf("Comments visibilities = %q, %q, want public, internal", view.Comments[0].Visibility, view.Comments[1].Visibility)
+	}
+	if len(view.Timeline) != 2 || !view.Timeline[0].IsComment || view.Timeline[0].Comment.Body != "internal-body" {
+		t.Fatalf("Timeline = %+v, want newest-first with the internal comment first", view.Timeline)
 	}
 }

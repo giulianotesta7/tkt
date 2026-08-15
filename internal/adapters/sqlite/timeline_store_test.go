@@ -33,7 +33,7 @@ func TestCommentAddAssignsIDAndPersists(t *testing.T) {
 		t.Error("Add did not assign an id")
 	}
 
-	got, err := s.CommentStore().ListByTicket(ctx, ticketID)
+	got, err := s.CommentStore().ListByTicket(ctx, ticketID, true)
 	if err != nil {
 		t.Fatalf("list: %v", err)
 	}
@@ -68,7 +68,7 @@ func TestCommentListByTicketAscending(t *testing.T) {
 		t.Fatalf("add same-time: %v", err)
 	}
 
-	got, err := s.CommentStore().ListByTicket(ctx, ticketID)
+	got, err := s.CommentStore().ListByTicket(ctx, ticketID, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -100,7 +100,7 @@ func TestCommentListScopedToTicket(t *testing.T) {
 		}
 	}
 
-	got, err := s.CommentStore().ListByTicket(ctx, a)
+	got, err := s.CommentStore().ListByTicket(ctx, a, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -111,7 +111,7 @@ func TestCommentListScopedToTicket(t *testing.T) {
 
 func TestCommentListByTicketEmpty(t *testing.T) {
 	s := newTestDB(t)
-	got, err := s.CommentStore().ListByTicket(context.Background(), 1)
+	got, err := s.CommentStore().ListByTicket(context.Background(), 1, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -139,6 +139,105 @@ func TestCommentAddRejectsEmptyBody(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "CHECK") && !strings.Contains(err.Error(), "constraint") {
 		t.Errorf("err = %v, want constraint error", err)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// S5: comment visibility persistence and filtering (comment-visibility
+// spec). The store persists Visibility, excludes internal rows at the SQL
+// boundary for non-internal actors, and surfaces legacy rows (stored
+// without a visibility value) as public — the migration 0003 backfill
+// contract (5.4).
+// ---------------------------------------------------------------------------
+
+// TestCommentStoreVisibilityRoundTrip proves Add persists the visibility
+// and ListByTicket reads it back, for both visibilities.
+func TestCommentStoreVisibilityRoundTrip(t *testing.T) {
+	s := newTestDB(t)
+	ticketID := seedTicketForTimeline(t, s, 1)
+	ctx := context.Background()
+
+	for _, vis := range []domain.CommentVisibility{domain.CommentPublic, domain.CommentInternal} {
+		c := &domain.Comment{TicketID: ticketID, Author: "Ana", Body: string(vis) + "-note",
+			Visibility: vis, CreatedAt: testClock}
+		if err := s.CommentStore().Add(ctx, c); err != nil {
+			t.Fatalf("add %s: %v", vis, err)
+		}
+	}
+
+	got, err := s.CommentStore().ListByTicket(ctx, ticketID, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("len = %d, want 2", len(got))
+	}
+	if got[0].Visibility != domain.CommentPublic || got[1].Visibility != domain.CommentInternal {
+		t.Errorf("visibilities = %q, %q, want public, internal", got[0].Visibility, got[1].Visibility)
+	}
+}
+
+// TestCommentStoreListByTicketFiltersInternal proves includeInternal=false
+// excludes internal rows at the SQL boundary while public rows survive —
+// the user-role actor never receives internal content from the store
+// (filtering precedes composition).
+func TestCommentStoreListByTicketFiltersInternal(t *testing.T) {
+	s := newTestDB(t)
+	ticketID := seedTicketForTimeline(t, s, 1)
+	ctx := context.Background()
+
+	for _, c := range []domain.Comment{
+		{TicketID: ticketID, Author: "Ana", Body: "public-note", Visibility: domain.CommentPublic, CreatedAt: testClock},
+		{TicketID: ticketID, Author: "Bruno", Body: "staff-note", Visibility: domain.CommentInternal, CreatedAt: testClock.Add(time.Minute)},
+	} {
+		if err := s.CommentStore().Add(ctx, &c); err != nil {
+			t.Fatalf("add: %v", err)
+		}
+	}
+
+	filtered, err := s.CommentStore().ListByTicket(ctx, ticketID, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(filtered) != 1 || filtered[0].Body != "public-note" || filtered[0].Visibility != domain.CommentPublic {
+		t.Fatalf("filtered = %+v, want exactly the public comment", filtered)
+	}
+
+	all, err := s.CommentStore().ListByTicket(ctx, ticketID, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(all) != 2 {
+		t.Fatalf("includeInternal=true must return both comments, got %+v", all)
+	}
+}
+
+// TestCommentStoreLegacyRowBackfillsPublic proves a legacy comment row —
+// stored without a visibility value (as every pre-0003 row was) — reads back
+// as public through the store port (5.4: no historical conversation becomes
+// unintentionally hidden).
+func TestCommentStoreLegacyRowBackfillsPublic(t *testing.T) {
+	s := newTestDB(t)
+	ticketID := seedTicketForTimeline(t, s, 1)
+	ctx := context.Background()
+
+	// Raw legacy insert: the visibility column is omitted, so the migration
+	// DEFAULT fills 'public' — exactly the pre-0003 storage shape.
+	if _, err := s.db.ExecContext(ctx,
+		`INSERT INTO comments (ticket_id, author, body, created_at) VALUES (?, 'Ana', 'legacy note', '2026-08-06T10:00:00Z')`,
+		ticketID); err != nil {
+		t.Fatalf("insert legacy comment: %v", err)
+	}
+
+	got, err := s.CommentStore().ListByTicket(ctx, ticketID, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("len = %d, want 1", len(got))
+	}
+	if got[0].Body != "legacy note" || got[0].Visibility != domain.CommentPublic {
+		t.Errorf("legacy comment = %+v, want body 'legacy note' with visibility public (backfill)", got[0])
 	}
 }
 

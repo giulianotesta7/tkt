@@ -287,7 +287,7 @@ func TestAppendOnlyCommentsNoUpdateOrDelete(t *testing.T) {
 		}
 	}
 
-	list, err := svc.ListByTicket(context.Background(), ticket.ID)
+	list, err := svc.ListByTicket(context.Background(), ticket.ID, true)
 	if err != nil {
 		t.Fatalf("ListByTicket: unexpected error: %v", err)
 	}
@@ -317,7 +317,7 @@ func TestListByTicketCreationOrder(t *testing.T) {
 		}
 	}
 
-	list, err := svc.ListByTicket(context.Background(), ticket.ID)
+	list, err := svc.ListByTicket(context.Background(), ticket.ID, true)
 	if err != nil {
 		t.Fatalf("ListByTicket: unexpected error: %v", err)
 	}
