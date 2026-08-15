@@ -9,16 +9,24 @@ only guaranteed rollback for a bad migration run.
 
 The database uses WAL journaling, so the live data lives in `app.db` plus
 `app.db-wal` (and `app.db-shm`). Copying only `app.db` can miss the latest
-committed pages. Take a consistent snapshot:
+committed pages.
+
+**Stopped server (recommended, only guaranteed consistent copy):** stop the
+old server first, then copy all three files:
 
 ```bash
-# Stop the old server first (a stopped db is the simplest consistent state).
-# If the server must stay up, checkpoint first:
-#   sqlite3 app.db "PRAGMA wal_checkpoint(FULL);"
-
 cp -p data/tkt.db          data/backups/tkt.db.$(date -u +%Y%m%dT%H%M%SZ)
 cp -p data/tkt.db-wal      data/backups/tkt.db-wal.$(date -u +%Y%m%dT%H%M%SZ) 2>/dev/null || true
 cp -p data/tkt.db-shm      data/backups/tkt.db-shm.$(date -u +%Y%m%dT%H%M%SZ) 2>/dev/null || true
+```
+
+**Live server (only with SQLite's online backup):** a `wal_checkpoint(FULL)`
+does NOT prevent new writes, so copying `db`, `wal`, and `shm` separately is
+NOT a consistent snapshot and must not be used as a rollback backup. Use the
+online backup API instead, which produces a single consistent snapshot file:
+
+```bash
+sqlite3 data/tkt.db ".backup data/backups/tkt.db.$(date -u +%Y%m%dT%H%M%SZ)"
 ```
 
 Adjust the paths to the actual database file (see `data/` in this repo).
