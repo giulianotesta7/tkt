@@ -61,9 +61,11 @@ func NewViewBuilder(tickets TicketStore, users UserStore, categories CategorySto
 }
 
 // TicketView composes the ticket with its category, assigned user (if any),
-// chronological comment timeline, and audit history.
-func (b *ViewBuilder) TicketView(ctx context.Context, ticketID int64) (*TicketView, error) {
-	t, err := b.tickets.GetByID(ctx, ticketID)
+// chronological comment timeline, and audit history. The read is scoped to
+// the actor's ticket access scope carried in q (ticket-access spec): an
+// out-of-scope ticket is ErrNotFound, so detail pages never leak.
+func (b *ViewBuilder) TicketView(ctx context.Context, ticketID int64, q TicketQuery) (*TicketView, error) {
+	t, err := b.tickets.GetByID(ctx, ticketID, q)
 	if err != nil {
 		return nil, err
 	}

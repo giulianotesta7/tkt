@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/giulianotesta7/tkt/internal/application"
 	"github.com/giulianotesta7/tkt/internal/domain"
 )
 
@@ -221,6 +222,132 @@ func TestTicketsPagination(t *testing.T) {
 
 // TestTicketsNewFormRenders proves GET /tickets/new serves the create form
 // with category options.
+// TestTicketsIndexUserScopeOwnOnly proves a user-role actor's list shows
+// ONLY their own tickets, never another requester's (ticket-access spec:
+// user SHALL access only tickets they created).
+func TestTicketsIndexUserScopeOwnOnly(t *testing.T) {
+	h := newHarness(t)
+	user := seedUserRole(t, h.store, "Ula", "ula@example.com", domain.RoleUser)
+	sess := seedSession(t, h.store, user.ID)
+
+	// Ula's own ticket via the real service (session requester persisted).
+	if _, err := h.tickets.Create(t.Context(), *user, application.CreateTicketInput{
+		Title: "Ula's ticket", CategoryID: h.bugCategory.ID, Priority: domain.PriorityMedium,
+	}); err != nil {
+		t.Fatalf("create ula ticket: %v", err)
+	}
+	// Admin's ticket — must never appear in Ula's list.
+	if _, err := h.tickets.Create(t.Context(), *h.admin, application.CreateTicketInput{
+		Title: "Admin's ticket", CategoryID: h.bugCategory.ID, Priority: domain.PriorityMedium,
+	}); err != nil {
+		t.Fatalf("create admin ticket: %v", err)
+	}
+
+	rec := doRequest(h.mux, h.mw, "GET", "/tickets", map[string]string{"Cookie": sessionCookie + "=" + sess.ID})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+	body := rec.Body.String()
+	if !strings.Contains(body, "Ula&#39;s ticket") {
+		t.Errorf("Ula's list must show her own ticket, got: %s", body)
+	}
+	if strings.Contains(body, "Admin&#39;s ticket") {
+		t.Errorf("Ula's list must NOT show the admin's ticket, got: %s", body)
+	}
+}
+
+// TestTicketsIndexAgentScopeAssignedOnly proves an agent-role actor's list
+// shows ONLY their assigned tickets — never unassigned ones and never
+// another agent's (ticket-access spec: agent SHALL access only assigned).
+func TestTicketsIndexAgentScopeAssignedOnly(t *testing.T) {
+	h := newHarness(t)
+	agent := seedUserRole(t, h.store, "Xylo", "xylo@example.com", domain.RoleAgent)
+	sess := seedSession(t, h.store, agent.ID)
+
+	if _, err := h.tickets.Create(t.Context(), *h.admin, application.CreateTicketInput{
+		Title: "Mine", CategoryID: h.bugCategory.ID, Priority: domain.PriorityMedium, UserID: &agent.ID,
+	}); err != nil {
+		t.Fatalf("create assigned ticket: %v", err)
+	}
+	if _, err := h.tickets.Create(t.Context(), *h.admin, application.CreateTicketInput{
+		Title: "Not mine", CategoryID: h.bugCategory.ID, Priority: domain.PriorityMedium,
+	}); err != nil {
+		t.Fatalf("create unassigned ticket: %v", err)
+	}
+
+	rec := doRequest(h.mux, h.mw, "GET", "/tickets", map[string]string{"Cookie": sessionCookie + "=" + sess.ID})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+	body := rec.Body.String()
+	if !strings.Contains(body, "Mine") {
+		t.Errorf("agent's list must show their assigned ticket, got: %s", body)
+	}
+	if strings.Contains(body, "Not mine") {
+		t.Errorf("agent's list must NOT show unassigned tickets, got: %s", body)
+	}
+}
+
+// TestTicketsIndexRootFullQueue proves a root-role actor sees the full
+// queue like admin (ticket-access spec: admin/root full queue).
+func TestTicketsIndexRootFullQueue(t *testing.T) {
+	h := newHarness(t)
+	root := seedUserRole(t, h.store, "Root", "root@example.com", domain.RoleRoot)
+	sess := seedSession(t, h.store, root.ID)
+	h.seedTicket(t, "seed one", nil)
+	h.seedTicket(t, "seed two", nil)
+
+	rec := doRequest(h.mux, h.mw, "GET", "/tickets", map[string]string{"Cookie": sessionCookie + "=" + sess.ID})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+	body := rec.Body.String()
+	if !strings.Contains(body, "seed one") || !strings.Contains(body, "seed two") {
+		t.Errorf("root must see the full queue, got: %s", body)
+	}
+}
+
+// TestTicketShowUserDeniedOthersTicket proves the detail route is scoped:
+// a user-role actor requesting another user's ticket gets 404 — the ticket
+// is indistinguishable from a missing one (ticket-access spec: direct
+// request for another's ticket is denied).
+func TestTicketShowUserDeniedOthersTicket(t *testing.T) {
+	h := newHarness(t)
+	user := seedUserRole(t, h.store, "Ula", "ula@example.com", domain.RoleUser)
+	sess := seedSession(t, h.store, user.ID)
+
+	// Admin creates the ticket; it is NOT Ula's.
+	if _, err := h.tickets.Create(t.Context(), *h.admin, application.CreateTicketInput{
+		Title: "Admin's private ticket", CategoryID: h.bugCategory.ID, Priority: domain.PriorityMedium,
+	}); err != nil {
+		t.Fatalf("create ticket: %v", err)
+	}
+
+	rec := doRequest(h.mux, h.mw, "GET", "/tickets/1", map[string]string{"Cookie": sessionCookie + "=" + sess.ID})
+	if rec.Code != http.StatusNotFound {
+		t.Errorf("status = %d, want 404 (out-of-scope detail must be denied)", rec.Code)
+	}
+}
+
+// TestTicketShowAgentDeniedUnassigned proves an agent cannot open an
+// unassigned ticket by direct lookup (agent scope = assigned only).
+func TestTicketShowAgentDeniedUnassigned(t *testing.T) {
+	h := newHarness(t)
+	agent := seedUserRole(t, h.store, "Xylo", "xylo@example.com", domain.RoleAgent)
+	sess := seedSession(t, h.store, agent.ID)
+
+	if _, err := h.tickets.Create(t.Context(), *h.admin, application.CreateTicketInput{
+		Title: "Unassigned", CategoryID: h.bugCategory.ID, Priority: domain.PriorityMedium,
+	}); err != nil {
+		t.Fatalf("create ticket: %v", err)
+	}
+
+	rec := doRequest(h.mux, h.mw, "GET", "/tickets/1", map[string]string{"Cookie": sessionCookie + "=" + sess.ID})
+	if rec.Code != http.StatusNotFound {
+		t.Errorf("status = %d, want 404 (unassigned ticket out of agent scope)", rec.Code)
+	}
+}
+
 func TestTicketsNewFormRenders(t *testing.T) {
 	h := newHarness(t)
 	rec := h.get(t, "/tickets/new", false)
@@ -245,7 +372,7 @@ func TestTicketCreateSuccessFullPage(t *testing.T) {
 
 	wantRedirect(t, rec, http.StatusSeeOther, "/tickets")
 
-	view, err := h.tickets.GetByID(t.Context(), 1)
+	view, err := h.tickets.GetByID(t.Context(), *h.admin, 1)
 	if err != nil {
 		t.Fatalf("created ticket must be readable: %v", err)
 	}
@@ -297,7 +424,7 @@ func TestTicketCreateMissingTitle422(t *testing.T) {
 	if !strings.Contains(rec.Body.String(), domain.ErrMsgTitleRequired) {
 		t.Errorf("re-render must show %q, got: %s", domain.ErrMsgTitleRequired, rec.Body.String())
 	}
-	_, err := h.tickets.GetByID(t.Context(), 1)
+	_, err := h.tickets.GetByID(t.Context(), *h.admin, 1)
 	if !errors.Is(err, domain.ErrNotFound) {
 		t.Fatalf("no ticket may be stored, GetByID err = %v (want ErrNotFound)", err)
 	}
@@ -372,7 +499,7 @@ func TestTicketCreateAssignsActiveUser(t *testing.T) {
 	rec := h.postForm(t, "/tickets", form, false)
 
 	wantRedirect(t, rec, http.StatusSeeOther, "/tickets")
-	view, err := h.tickets.GetByID(t.Context(), 1)
+	view, err := h.tickets.GetByID(t.Context(), *h.admin, 1)
 	if err != nil {
 		t.Fatalf("ticket must exist: %v", err)
 	}
@@ -439,7 +566,7 @@ func TestTicketCreateIgnoresForgedRequesterUserID(t *testing.T) {
 	if rec.Code != http.StatusSeeOther {
 		t.Fatalf("status = %d, want 303", rec.Code)
 	}
-	view, err := h.tickets.GetByID(t.Context(), 1)
+	view, err := h.tickets.GetByID(t.Context(), *h.admin, 1)
 	if err != nil {
 		t.Fatalf("created ticket must be readable: %v", err)
 	}
@@ -466,7 +593,7 @@ func TestTicketCreateUserRoleRejectsAssignment(t *testing.T) {
 	if rec.Code != http.StatusUnprocessableEntity {
 		t.Errorf("status = %d, want 422", rec.Code)
 	}
-	_, err := h.tickets.GetByID(t.Context(), 1)
+	_, err := h.tickets.GetByID(t.Context(), *h.admin, 1)
 	if !errors.Is(err, domain.ErrNotFound) {
 		t.Fatalf("no ticket may be stored, GetByID err = %v (want ErrNotFound)", err)
 	}

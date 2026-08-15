@@ -326,7 +326,7 @@ func TestTransitionRejectsInvalidMoveWithoutMutations(t *testing.T) {
 		t.Fatalf("Transition: new -> closed must be an InvalidTransitionError, got %v", err)
 	}
 
-	stored, _ := h.tickets.GetByID(context.Background(), ticket.ID)
+	stored, _ := h.tickets.GetByID(context.Background(), ticket.ID, application.TicketQuery{Scope: application.ScopeAll})
 	if stored.State != domain.StateNew {
 		t.Fatalf("Transition: rejected move must not change state, got %q", stored.State)
 	}
@@ -429,7 +429,7 @@ func TestUpdateRejectsInvalidPriorityWithoutChanges(t *testing.T) {
 	cat := h.categories.seed("Bugs")
 	ticket := seededTicket(h.tickets, cat.ID, domain.StateInProgress)
 	actor := domain.User{Name: "Ada", Role: domain.RoleAdmin}
-	before, _ := h.tickets.GetByID(context.Background(), ticket.ID)
+	before, _ := h.tickets.GetByID(context.Background(), ticket.ID, application.TicketQuery{Scope: application.ScopeAll})
 
 	bad := domain.Priority("urgent")
 	_, err := h.svc.Update(context.Background(), actor, ticket.ID, domain.TicketUpdate{Priority: &bad})
@@ -438,7 +438,7 @@ func TestUpdateRejectsInvalidPriorityWithoutChanges(t *testing.T) {
 		t.Fatalf("Update: invalid priority must be an InvalidPriorityError, got %v", err)
 	}
 
-	after, _ := h.tickets.GetByID(context.Background(), ticket.ID)
+	after, _ := h.tickets.GetByID(context.Background(), ticket.ID, application.TicketQuery{Scope: application.ScopeAll})
 	if !reflect.DeepEqual(before, after) {
 		t.Fatal("Update: rejected edit must leave the stored ticket untouched")
 	}
@@ -558,7 +558,7 @@ func TestTransitionRollsBackStateWhenAuditAppendFails(t *testing.T) {
 	if !errors.Is(err, errAuditAppendFailed) {
 		t.Fatalf("Transition: audit append failure must propagate to the caller, got %v", err)
 	}
-	stored, err := h.tickets.GetByID(context.Background(), ticket.ID)
+	stored, err := h.tickets.GetByID(context.Background(), ticket.ID, application.TicketQuery{Scope: application.ScopeAll})
 	if err != nil {
 		t.Fatalf("GetByID after rollback: unexpected error: %v", err)
 	}
@@ -576,6 +576,7 @@ func TestTransitionRollsBackStateWhenAuditAppendFails(t *testing.T) {
 // domain aggregate.
 func TestGetByIDReturnsComposedView(t *testing.T) {
 	h := newTicketHarness()
+	actor := domain.User{Name: "Ada", Role: domain.RoleAdmin}
 	cat := h.categories.seed("Bugs")
 	user := h.users.seed("Ana", "ana@example.com", true)
 	ticket := seededTicket(h.tickets, cat.ID, domain.StateNew)
@@ -591,7 +592,7 @@ func TestGetByIDReturnsComposedView(t *testing.T) {
 		}
 	}
 
-	view, err := h.svc.GetByID(context.Background(), ticket.ID)
+	view, err := h.svc.GetByID(context.Background(), actor, ticket.ID)
 	if err != nil {
 		t.Fatalf("GetByID: unexpected error: %v", err)
 	}
@@ -608,9 +609,38 @@ func TestGetByIDReturnsComposedView(t *testing.T) {
 		t.Fatalf("GetByID: view must carry the comment timeline in creation order, got %+v", view.Comments)
 	}
 
-	_, err = h.svc.GetByID(context.Background(), 4242)
+	_, err = h.svc.GetByID(context.Background(), actor, 4242)
 	var nerr *domain.NotFoundError
 	if !errors.As(err, &nerr) || nerr.Kind != "ticket" {
 		t.Fatalf("GetByID: unknown id must be a NotFoundError(kind=ticket), got %v", err)
+	}
+}
+
+// TestGetByIDUserCannotReadOthersTicket proves direct lookup is scoped: a
+// user-role actor can read their own ticket but B's ticket is
+// indistinguishable from a missing one (ticket-access spec: direct request
+// for another's ticket is denied).
+func TestGetByIDUserCannotReadOthersTicket(t *testing.T) {
+	h := newTicketHarness()
+	cat := h.categories.seed("Bugs")
+	owner := domain.User{ID: 1, Name: "Owner", Role: domain.RoleUser}
+	other := domain.User{ID: 2, Name: "Other", Role: domain.RoleUser}
+
+	own := h.tickets.seed(domain.Ticket{Title: "own", CategoryID: cat.ID, RequesterUserID: ptr(owner.ID),
+		Priority: domain.PriorityLow, State: domain.StateNew, CreatedAt: h.clock.now, UpdatedAt: h.clock.now})
+	others := h.tickets.seed(domain.Ticket{Title: "other", CategoryID: cat.ID, RequesterUserID: ptr(other.ID),
+		Priority: domain.PriorityLow, State: domain.StateNew, CreatedAt: h.clock.now, UpdatedAt: h.clock.now})
+
+	view, err := h.svc.GetByID(context.Background(), owner, own.ID)
+	if err != nil {
+		t.Fatalf("GetByID(own): unexpected error: %v", err)
+	}
+	if view.Ticket.ID != own.ID {
+		t.Fatalf("GetByID(own) = ticket %d, want %d", view.Ticket.ID, own.ID)
+	}
+
+	_, err = h.svc.GetByID(context.Background(), owner, others.ID)
+	if !errors.Is(err, domain.ErrNotFound) {
+		t.Fatalf("GetByID(other's ticket) err = %v, want ErrNotFound", err)
 	}
 }

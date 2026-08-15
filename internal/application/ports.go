@@ -27,8 +27,12 @@ type TicketStore interface {
 	Create(ctx context.Context, t *domain.Ticket) error
 	// Update persists the ticket's fields, state, and timestamps.
 	Update(ctx context.Context, t *domain.Ticket) error
-	// GetByID returns the ticket or ErrNotFound.
-	GetByID(ctx context.Context, id int64) (*domain.Ticket, error)
+	// GetByID returns the ticket or ErrNotFound, restricted to the actor's
+	// ticket access scope carried in q (ticket-access spec): a ticket
+	// outside the actor's scope is indistinguishable from a missing one
+	// (ErrNotFound — no existence leak). Only the scope restriction of q
+	// applies; the filter fields are ignored.
+	GetByID(ctx context.Context, id int64, q TicketQuery) (*domain.Ticket, error)
 	// List returns tickets matching q, ordered created_at DESC, id DESC (D2),
 	// limited by p.
 	List(ctx context.Context, q TicketQuery, p Page) ([]domain.Ticket, error)
@@ -156,7 +160,13 @@ type CategoryStore interface {
 
 // TicketQuery is the filter set shared by list, count, and search queries
 // (ticket-search spec). All active filters compose with AND semantics; an
-// empty filter set returns all tickets.
+// empty filter set returns all tickets within the actor's scope.
+//
+// Scope carries the actor's ticket access scope (ticket-access spec) and is
+// stamped by the application use cases from the session role BEFORE any
+// store call — scoped methods exclude unauthorized rows so the store never
+// returns tickets outside the actor's scope. The zero value (ScopeNone)
+// fails closed: an unscoped query returns no rows.
 type TicketQuery struct {
 	State      *domain.State
 	Priority   *domain.Priority
@@ -171,6 +181,13 @@ type TicketQuery struct {
 	// SortByPriority orders results by the D11 priority rank
 	// (critical > high > medium > low) before the created/id tiebreak.
 	SortByPriority bool
+	// Scope restricts the query to the actor's ticket access scope
+	// (ticket-access spec): ScopeOwned → requester = self, ScopeAssigned →
+	// assignee = self, ScopeAll → full queue. ScopeNone (zero) denies all.
+	Scope TicketScope
+	// ActorID is the session user whose scope applies (the requester for
+	// ScopeOwned, the assignee for ScopeAssigned).
+	ActorID int64
 }
 
 // Page is the pagination window (D2). Limit is FIXED at 10 — the service

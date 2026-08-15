@@ -107,9 +107,10 @@ func (s *TicketService) Create(ctx context.Context, actor domain.User, in Create
 // Transition moves the ticket through the domain state machine, stamps the
 // audit event with the session actor, and persists ticket + audit event in
 // ONE unit-of-work call (atomic; a failed audit append rolls the transition
-// back).
+// back). The read is scoped to the actor: an out-of-scope ticket is
+// ErrNotFound before any state change (ticket-access spec).
 func (s *TicketService) Transition(ctx context.Context, actor domain.User, ticketID int64, to domain.State, reason string) (*domain.Ticket, error) {
-	t, err := s.tickets.GetByID(ctx, ticketID)
+	t, err := s.tickets.GetByID(ctx, ticketID, scopedQuery(actor, TicketQuery{}))
 	if err != nil {
 		return nil, err
 	}
@@ -127,9 +128,11 @@ func (s *TicketService) Transition(ctx context.Context, actor domain.User, ticke
 // Update applies field edits. Category and user edits are validated as in
 // creation (existence + active user). Each changed field appends its own
 // audit event stamped with the session actor; a rejected edit changes
-// nothing. Ticket + event batch persist in ONE unit-of-work call.
+// nothing. Ticket + event batch persist in ONE unit-of-work call. The read
+// is scoped to the actor: an out-of-scope ticket is ErrNotFound before any
+// edit (ticket-access spec).
 func (s *TicketService) Update(ctx context.Context, actor domain.User, ticketID int64, u domain.TicketUpdate) (*domain.Ticket, error) {
-	t, err := s.tickets.GetByID(ctx, ticketID)
+	t, err := s.tickets.GetByID(ctx, ticketID, scopedQuery(actor, TicketQuery{}))
 	if err != nil {
 		return nil, err
 	}
@@ -163,7 +166,9 @@ func (s *TicketService) Update(ctx context.Context, actor domain.User, ticketID 
 
 // GetByID returns the composed detail view — ticket, category, assigned
 // user (inactive users stay visible), comment timeline, and audit history
-// (D13) — or a NotFoundError.
-func (s *TicketService) GetByID(ctx context.Context, id int64) (*TicketView, error) {
-	return s.builder.TicketView(ctx, id)
+// (D13) — scoped to the actor's ticket access scope, or a NotFoundError
+// when the ticket is absent OR outside the actor's scope (ticket-access
+// spec: direct lookup is denied for out-of-scope tickets).
+func (s *TicketService) GetByID(ctx context.Context, actor domain.User, id int64) (*TicketView, error) {
+	return s.builder.TicketView(ctx, id, scopedQuery(actor, TicketQuery{}))
 }

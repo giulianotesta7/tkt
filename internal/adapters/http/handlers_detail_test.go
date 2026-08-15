@@ -135,7 +135,7 @@ func TestTicketTransitionHappyPath(t *testing.T) {
 
 	wantRedirect(t, rec, http.StatusSeeOther, "/tickets/1")
 
-	view, err := h.tickets.GetByID(t.Context(), 1)
+	view, err := h.tickets.GetByID(t.Context(), *h.admin, 1)
 	if err != nil {
 		t.Fatalf("view: %v", err)
 	}
@@ -162,7 +162,7 @@ func TestTicketTransitionFullCycle(t *testing.T) {
 		wantRedirect(t, rec, http.StatusSeeOther, "/tickets/1")
 	}
 
-	view, err := h.tickets.GetByID(t.Context(), 1)
+	view, err := h.tickets.GetByID(t.Context(), *h.admin, 1)
 	if err != nil {
 		t.Fatalf("view: %v", err)
 	}
@@ -188,7 +188,7 @@ func TestTicketTransitionInvalid422(t *testing.T) {
 	if !strings.Contains(rec.Body.String(), "transition not allowed from new to closed") {
 		t.Errorf("re-render must show the transition message, got: %s", rec.Body.String())
 	}
-	view, err := h.tickets.GetByID(t.Context(), 1)
+	view, err := h.tickets.GetByID(t.Context(), *h.admin, 1)
 	if err != nil || view.Ticket.State != domain.StateNew {
 		t.Errorf("rejected transition must leave the state unchanged (state=%q, err=%v)", view.Ticket.State, err)
 	}
@@ -225,7 +225,7 @@ func TestTicketTransitionReopenWithReason(t *testing.T) {
 	rec := h.postForm(t, "/tickets/1/transition", url.Values{"to": {"in_progress"}, "reason": {"fix deployed"}}, false)
 
 	wantRedirect(t, rec, http.StatusSeeOther, "/tickets/1")
-	view, err := h.tickets.GetByID(t.Context(), 1)
+	view, err := h.tickets.GetByID(t.Context(), *h.admin, 1)
 	if err != nil {
 		t.Fatalf("view: %v", err)
 	}
@@ -270,7 +270,7 @@ func TestTicketCommentAdd(t *testing.T) {
 	rec := h.postForm(t, "/tickets/1/comments", url.Values{"body": {"Checking now"}}, false)
 
 	wantRedirect(t, rec, http.StatusSeeOther, "/tickets/1")
-	view, err := h.tickets.GetByID(t.Context(), 1)
+	view, err := h.tickets.GetByID(t.Context(), *h.admin, 1)
 	if err != nil {
 		t.Fatalf("view: %v", err)
 	}
@@ -296,7 +296,7 @@ func TestTicketCommentEmptyBody422(t *testing.T) {
 	if !strings.Contains(rec.Body.String(), domain.ErrMsgCommentBodyRequired) {
 		t.Errorf("re-render must show %q, got: %s", domain.ErrMsgCommentBodyRequired, rec.Body.String())
 	}
-	view, err := h.tickets.GetByID(t.Context(), 1)
+	view, err := h.tickets.GetByID(t.Context(), *h.admin, 1)
 	if err != nil || len(view.Comments) != 0 {
 		t.Errorf("no comment may be stored (len=%d, err=%v)", len(view.Comments), err)
 	}
@@ -314,7 +314,7 @@ func TestTicketCommentOnClosedTicket(t *testing.T) {
 	rec := h.postForm(t, "/tickets/1/comments", url.Values{"body": {"Late note"}}, false)
 
 	wantRedirect(t, rec, http.StatusSeeOther, "/tickets/1")
-	view, err := h.tickets.GetByID(t.Context(), 1)
+	view, err := h.tickets.GetByID(t.Context(), *h.admin, 1)
 	if err != nil || len(view.Comments) != 1 {
 		t.Errorf("comment on closed ticket must be stored (len=%d, err=%v)", len(view.Comments), err)
 	}
@@ -375,7 +375,7 @@ func TestTicketEditUpdatesPriorityAndAudits(t *testing.T) {
 
 	wantRedirect(t, rec, http.StatusSeeOther, "/tickets/1")
 
-	view, err := h.tickets.GetByID(t.Context(), 1)
+	view, err := h.tickets.GetByID(t.Context(), *h.admin, 1)
 	if err != nil {
 		t.Fatalf("view: %v", err)
 	}
@@ -418,7 +418,7 @@ func TestTicketEditInvalidPriority422(t *testing.T) {
 	if !strings.Contains(rec.Body.String(), domain.ErrMsgInvalidPriority) {
 		t.Errorf("re-render must show %q, got: %s", domain.ErrMsgInvalidPriority, rec.Body.String())
 	}
-	view, err := h.tickets.GetByID(t.Context(), 1)
+	view, err := h.tickets.GetByID(t.Context(), *h.admin, 1)
 	if err != nil || view.Ticket.Priority != domain.PriorityMedium || view.Ticket.Title != "Login page down" {
 		t.Errorf("rejected edit must change nothing (title=%q priority=%q err=%v)", view.Ticket.Title, view.Ticket.Priority, err)
 	}
@@ -438,7 +438,7 @@ func TestTicketEditUnassign(t *testing.T) {
 	if rec := h.postForm(t, "/tickets/1/edit", form, false); rec.Code != http.StatusSeeOther {
 		t.Fatalf("assign edit status = %d", rec.Code)
 	}
-	view, err := h.tickets.GetByID(t.Context(), 1)
+	view, err := h.tickets.GetByID(t.Context(), *h.admin, 1)
 	if err != nil || view.AssignedUser == nil || view.AssignedUser.ID != beto.ID {
 		t.Fatalf("assignment failed: %+v err=%v", view.AssignedUser, err)
 	}
@@ -447,7 +447,7 @@ func TestTicketEditUnassign(t *testing.T) {
 	rec := h.postForm(t, "/tickets/1/edit", clearForm, false)
 	wantRedirect(t, rec, http.StatusSeeOther, "/tickets/1")
 
-	view, err = h.tickets.GetByID(t.Context(), 1)
+	view, err = h.tickets.GetByID(t.Context(), *h.admin, 1)
 	if err != nil || view.AssignedUser != nil {
 		t.Errorf("unassign failed: assigned=%+v err=%v", view.AssignedUser, err)
 	}

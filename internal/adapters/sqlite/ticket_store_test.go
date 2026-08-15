@@ -43,9 +43,10 @@ func seedUser(t *testing.T, s *Store, name, email string, active bool) int64 {
 func seedTicket(t *testing.T, s *Store, tk domain.Ticket) domain.Ticket {
 	t.Helper()
 	res, err := s.db.ExecContext(context.Background(),
-		`INSERT INTO tickets (number, title, description, requester_name, requester_email, category_id, priority, state, user_id, created_at, updated_at, resolved_at, closed_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		`INSERT INTO tickets (number, title, description, requester_name, requester_email, requester_user_id, category_id, priority, state, user_id, created_at, updated_at, resolved_at, closed_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		tk.Number, tk.Title, tk.Description, tk.RequesterName, tk.RequesterEmail,
+		nullableInt64(tk.RequesterUserID),
 		tk.CategoryID, string(tk.Priority), string(tk.State), nullableInt64(tk.UserID),
 		tk.CreatedAt.Format(time.RFC3339), tk.UpdatedAt.Format(time.RFC3339),
 		formatTimePtr(tk.ResolvedAt), formatTimePtr(tk.ClosedAt))
@@ -188,7 +189,7 @@ func TestTicketUpdatePersistsFieldsAndState(t *testing.T) {
 		t.Fatalf("update: %v", err)
 	}
 
-	got, err := s.TicketStore().GetByID(ctx, tk.ID)
+	got, err := s.TicketStore().GetByID(ctx, tk.ID, application.TicketQuery{Scope: application.ScopeAll})
 	if err != nil {
 		t.Fatalf("get: %v", err)
 	}
@@ -230,7 +231,7 @@ func TestTicketGetByIDRoundTrip(t *testing.T) {
 		t.Fatalf("create: %v", err)
 	}
 
-	got, err := s.TicketStore().GetByID(ctx, tk.ID)
+	got, err := s.TicketStore().GetByID(ctx, tk.ID, application.TicketQuery{Scope: application.ScopeAll})
 	if err != nil {
 		t.Fatalf("get: %v", err)
 	}
@@ -267,7 +268,7 @@ func TestTicketRequesterUserIDRoundTrip(t *testing.T) {
 		t.Fatalf("create: %v", err)
 	}
 
-	got, err := s.TicketStore().GetByID(ctx, tk.ID)
+	got, err := s.TicketStore().GetByID(ctx, tk.ID, application.TicketQuery{Scope: application.ScopeAll})
 	if err != nil {
 		t.Fatalf("get: %v", err)
 	}
@@ -286,12 +287,167 @@ func TestTicketRequesterUserIDNilForLegacyTicket(t *testing.T) {
 		Priority: domain.PriorityLow, State: domain.StateNew,
 		CreatedAt: testClock, UpdatedAt: testClock})
 
-	got, err := s.TicketStore().GetByID(context.Background(), tk.ID)
+	got, err := s.TicketStore().GetByID(context.Background(), tk.ID, application.TicketQuery{Scope: application.ScopeAll})
 	if err != nil {
 		t.Fatalf("get: %v", err)
 	}
 	if got.RequesterUserID != nil {
 		t.Errorf("requester_user_id = %v, want nil (legacy agent+-only ticket)", *got.RequesterUserID)
+	}
+}
+
+// --- Actor scope (ticket-access spec, S3) --------------------------------
+
+// TestTicketListScopeOwnedOnlyRequesterSelf proves a user-role actor's list
+// returns ONLY tickets they created, never another requester's tickets
+// (user SHALL access only tickets they created).
+func TestTicketListScopeOwnedOnlyRequesterSelf(t *testing.T) {
+	s := newTestDB(t)
+	cat := seedCategory(t, s, "Bugs")
+	a := seedUser(t, s, "A", "a@example.com", true)
+	b := seedUser(t, s, "B", "b@example.com", true)
+	ctx := context.Background()
+
+	ta := seedTicket(t, s, domain.Ticket{Number: 1, Title: "A's ticket", CategoryID: cat, RequesterUserID: ptr(a),
+		Priority: domain.PriorityMedium, State: domain.StateNew, CreatedAt: testClock, UpdatedAt: testClock})
+	seedTicket(t, s, domain.Ticket{Number: 2, Title: "B's ticket", CategoryID: cat, RequesterUserID: ptr(b),
+		Priority: domain.PriorityMedium, State: domain.StateNew, CreatedAt: testClock.Add(time.Minute), UpdatedAt: testClock.Add(time.Minute)})
+
+	got, err := s.TicketStore().List(ctx, application.TicketQuery{Scope: application.ScopeOwned, ActorID: a}, application.Page{Limit: 10})
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(got) != 1 || got[0].ID != ta.ID {
+		t.Fatalf("user A must see only their own ticket, got %+v", got)
+	}
+}
+
+// TestTicketListScopeAssignedOnlyAssignee proves an agent-role actor's list
+// returns ONLY tickets assigned to them — never unassigned tickets and
+// never another agent's assignments (agent SHALL access only assigned).
+func TestTicketListScopeAssignedOnlyAssignee(t *testing.T) {
+	s := newTestDB(t)
+	cat := seedCategory(t, s, "Bugs")
+	x := seedUser(t, s, "X", "x@example.com", true)
+	y := seedUser(t, s, "Y", "y@example.com", true)
+	ctx := context.Background()
+
+	tx := seedTicket(t, s, domain.Ticket{Number: 1, Title: "X's ticket", CategoryID: cat, UserID: ptr(x),
+		Priority: domain.PriorityMedium, State: domain.StateNew, CreatedAt: testClock, UpdatedAt: testClock})
+	seedTicket(t, s, domain.Ticket{Number: 2, Title: "Y's ticket", CategoryID: cat, UserID: ptr(y),
+		Priority: domain.PriorityMedium, State: domain.StateNew, CreatedAt: testClock.Add(time.Minute), UpdatedAt: testClock.Add(time.Minute)})
+	seedTicket(t, s, domain.Ticket{Number: 3, Title: "unassigned", CategoryID: cat,
+		Priority: domain.PriorityMedium, State: domain.StateNew, CreatedAt: testClock.Add(2 * time.Minute), UpdatedAt: testClock.Add(2 * time.Minute)})
+
+	got, err := s.TicketStore().List(ctx, application.TicketQuery{Scope: application.ScopeAssigned, ActorID: x}, application.Page{Limit: 10})
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(got) != 1 || got[0].ID != tx.ID {
+		t.Fatalf("agent X must see only their assigned ticket, got %+v", got)
+	}
+}
+
+// TestTicketListScopeAllFullQueue proves admin/root actors with empty
+// filters get EVERY ticket — assigned, unassigned, requester-owned — never
+// a restriction (admin SHALL access the full queue).
+func TestTicketListScopeAllFullQueue(t *testing.T) {
+	s := newTestDB(t)
+	cat := seedCategory(t, s, "Bugs")
+	a := seedUser(t, s, "A", "a@example.com", true)
+	ctx := context.Background()
+
+	seedTicket(t, s, domain.Ticket{Number: 1, Title: "unassigned", CategoryID: cat,
+		Priority: domain.PriorityMedium, State: domain.StateNew, CreatedAt: testClock, UpdatedAt: testClock})
+	seedTicket(t, s, domain.Ticket{Number: 2, Title: "assigned", CategoryID: cat, UserID: ptr(a),
+		Priority: domain.PriorityMedium, State: domain.StateNew, CreatedAt: testClock.Add(time.Minute), UpdatedAt: testClock.Add(time.Minute)})
+	seedTicket(t, s, domain.Ticket{Number: 3, Title: "owned", CategoryID: cat, RequesterUserID: ptr(a),
+		Priority: domain.PriorityMedium, State: domain.StateNew, CreatedAt: testClock.Add(2 * time.Minute), UpdatedAt: testClock.Add(2 * time.Minute)})
+
+	got, err := s.TicketStore().List(ctx, application.TicketQuery{Scope: application.ScopeAll}, application.Page{Limit: 10})
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(got) != 3 {
+		t.Fatalf("admin/root must see the full queue (3 tickets), got %d", len(got))
+	}
+}
+
+// TestTicketListScopeNoneDeniesAll proves the zero-value scope fails
+// closed: an unscoped query returns no rows (unknown role → reads return
+// nothing, policy.go contract) — never a fail-open full table scan.
+func TestTicketListScopeNoneDeniesAll(t *testing.T) {
+	s := newTestDB(t)
+	cat := seedCategory(t, s, "Bugs")
+	seedTicket(t, s, domain.Ticket{Number: 1, Title: "t", CategoryID: cat,
+		Priority: domain.PriorityMedium, State: domain.StateNew, CreatedAt: testClock, UpdatedAt: testClock})
+
+	got, err := s.TicketStore().List(context.Background(), application.TicketQuery{}, application.Page{Limit: 10})
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("unscoped query must return nothing (fail closed), got %d rows", len(got))
+	}
+}
+
+// TestTicketGetByIDScopedDeniesOutOfScope proves direct lookup is scoped:
+// a ticket outside the actor's scope is indistinguishable from a missing
+// one (ErrNotFound — no existence leak), while an in-scope ticket resolves.
+func TestTicketGetByIDScopedDeniesOutOfScope(t *testing.T) {
+	s := newTestDB(t)
+	cat := seedCategory(t, s, "Bugs")
+	a := seedUser(t, s, "A", "a@example.com", true)
+	b := seedUser(t, s, "B", "b@example.com", true)
+	ctx := context.Background()
+
+	ta := seedTicket(t, s, domain.Ticket{Number: 1, Title: "A's", CategoryID: cat, RequesterUserID: ptr(a),
+		Priority: domain.PriorityMedium, State: domain.StateNew, CreatedAt: testClock, UpdatedAt: testClock})
+	tb := seedTicket(t, s, domain.Ticket{Number: 2, Title: "B's", CategoryID: cat, RequesterUserID: ptr(b),
+		Priority: domain.PriorityMedium, State: domain.StateNew, CreatedAt: testClock.Add(time.Minute), UpdatedAt: testClock.Add(time.Minute)})
+
+	// In scope: A's own ticket resolves.
+	got, err := s.TicketStore().GetByID(ctx, ta.ID, application.TicketQuery{Scope: application.ScopeOwned, ActorID: a})
+	if err != nil {
+		t.Fatalf("in-scope get: %v", err)
+	}
+	if got.ID != ta.ID {
+		t.Fatalf("in-scope get = %d, want %d", got.ID, ta.ID)
+	}
+	// Out of scope: B's ticket is ErrNotFound for A (direct request denied).
+	_, err = s.TicketStore().GetByID(ctx, tb.ID, application.TicketQuery{Scope: application.ScopeOwned, ActorID: a})
+	if !errors.Is(err, domain.ErrNotFound) {
+		t.Fatalf("out-of-scope get err = %v, want ErrNotFound", err)
+	}
+	// Admin scope resolves any ticket.
+	got, err = s.TicketStore().GetByID(ctx, tb.ID, application.TicketQuery{Scope: application.ScopeAll})
+	if err != nil || got.ID != tb.ID {
+		t.Fatalf("admin-scope get = %+v, err %v; want ticket %d", got, err, tb.ID)
+	}
+}
+
+// TestTicketCountRespectsScope proves count chips reflect the actor scope:
+// the count for an agent's empty filter set is only their assigned tickets.
+func TestTicketCountRespectsScope(t *testing.T) {
+	s := newTestDB(t)
+	cat := seedCategory(t, s, "Bugs")
+	x := seedUser(t, s, "X", "x@example.com", true)
+	y := seedUser(t, s, "Y", "y@example.com", true)
+	ctx := context.Background()
+
+	seedTicket(t, s, domain.Ticket{Number: 1, Title: "X1", CategoryID: cat, UserID: ptr(x),
+		Priority: domain.PriorityMedium, State: domain.StateNew, CreatedAt: testClock, UpdatedAt: testClock})
+	seedTicket(t, s, domain.Ticket{Number: 2, Title: "X2", CategoryID: cat, UserID: ptr(x),
+		Priority: domain.PriorityMedium, State: domain.StateNew, CreatedAt: testClock.Add(time.Minute), UpdatedAt: testClock.Add(time.Minute)})
+	seedTicket(t, s, domain.Ticket{Number: 3, Title: "Y1", CategoryID: cat, UserID: ptr(y),
+		Priority: domain.PriorityMedium, State: domain.StateNew, CreatedAt: testClock.Add(2 * time.Minute), UpdatedAt: testClock.Add(2 * time.Minute)})
+
+	n, err := s.TicketStore().Count(ctx, application.TicketQuery{Scope: application.ScopeAssigned, ActorID: x})
+	if err != nil {
+		t.Fatalf("count: %v", err)
+	}
+	if n != 2 {
+		t.Fatalf("agent X's count = %d, want 2 (only assigned tickets)", n)
 	}
 }
 
@@ -302,7 +458,7 @@ func TestTicketGetByIDUnassignedAndNilTimestamps(t *testing.T) {
 		Priority: domain.PriorityLow, State: domain.StateNew,
 		CreatedAt: testClock, UpdatedAt: testClock})
 
-	got, err := s.TicketStore().GetByID(context.Background(), tk.ID)
+	got, err := s.TicketStore().GetByID(context.Background(), tk.ID, application.TicketQuery{Scope: application.ScopeAll})
 	if err != nil {
 		t.Fatalf("get: %v", err)
 	}
@@ -316,7 +472,7 @@ func TestTicketGetByIDUnassignedAndNilTimestamps(t *testing.T) {
 
 func TestTicketGetByIDNotFound(t *testing.T) {
 	s := newTestDB(t)
-	_, err := s.TicketStore().GetByID(context.Background(), 42)
+	_, err := s.TicketStore().GetByID(context.Background(), 42, application.TicketQuery{Scope: application.ScopeAll})
 	if !errors.Is(err, domain.ErrNotFound) {
 		t.Errorf("err = %v, want ErrNotFound", err)
 	}
@@ -342,7 +498,7 @@ func TestTicketReadsRejectMalformedTimestamps(t *testing.T) {
 			if _, err := s.db.Exec(`UPDATE tickets SET `+tt.column+` = ? WHERE id = ?`, "not-a-time", ticket.ID); err != nil {
 				t.Fatalf("corrupt %s: %v", tt.column, err)
 			}
-			if _, err := s.TicketStore().GetByID(context.Background(), ticket.ID); err == nil || !strings.Contains(err.Error(), tt.want) {
+			if _, err := s.TicketStore().GetByID(context.Background(), ticket.ID, application.TicketQuery{Scope: application.ScopeAll}); err == nil || !strings.Contains(err.Error(), tt.want) {
 				t.Fatalf("GetByID malformed %s error = %v, want %q", tt.column, err, tt.want)
 			}
 		})
@@ -361,21 +517,24 @@ func TestTicketStorePropagatesDatabaseErrors(t *testing.T) {
 	}{
 		{name: "create", call: func() error { return s.TicketStore().Create(context.Background(), ticket) }},
 		{name: "update", call: func() error { return s.TicketStore().Update(context.Background(), ticket) }},
-		{name: "get", call: func() error { _, err := s.TicketStore().GetByID(context.Background(), 1); return err }},
+		{name: "get", call: func() error {
+			_, err := s.TicketStore().GetByID(context.Background(), 1, application.TicketQuery{Scope: application.ScopeAll})
+			return err
+		}},
 		{name: "list", call: func() error {
-			_, err := s.TicketStore().List(context.Background(), application.TicketQuery{}, application.Page{Limit: 10})
+			_, err := s.TicketStore().List(context.Background(), application.TicketQuery{Scope: application.ScopeAll}, application.Page{Limit: 10})
 			return err
 		}},
 		{name: "count", call: func() error {
-			_, err := s.TicketStore().Count(context.Background(), application.TicketQuery{})
+			_, err := s.TicketStore().Count(context.Background(), application.TicketQuery{Scope: application.ScopeAll})
 			return err
 		}},
 		{name: "state counts", call: func() error {
-			_, err := s.TicketStore().CountsByState(context.Background(), application.TicketQuery{})
+			_, err := s.TicketStore().CountsByState(context.Background(), application.TicketQuery{Scope: application.ScopeAll})
 			return err
 		}},
 		{name: "priority counts", call: func() error {
-			_, err := s.TicketStore().CountsByPriority(context.Background(), application.TicketQuery{})
+			_, err := s.TicketStore().CountsByPriority(context.Background(), application.TicketQuery{Scope: application.ScopeAll})
 			return err
 		}},
 		{name: "unit create", call: func() error { return s.TicketUnitOfWork().Create(context.Background(), ticket, domain.AuditEvent{}) }},
@@ -406,7 +565,7 @@ func TestTicketListOrderNewestFirstWithIDTiebreak(t *testing.T) {
 		Priority: domain.PriorityMedium, State: domain.StateNew,
 		CreatedAt: testClock.Add(-time.Hour), UpdatedAt: testClock})
 
-	got, err := s.TicketStore().List(ctx, application.TicketQuery{}, application.Page{Offset: 0, Limit: 10})
+	got, err := s.TicketStore().List(ctx, application.TicketQuery{Scope: application.ScopeAll}, application.Page{Offset: 0, Limit: 10})
 	if err != nil {
 		t.Fatalf("list: %v", err)
 	}
@@ -441,7 +600,7 @@ func TestTicketListFiltersComposeWithAND(t *testing.T) {
 		CreatedAt: testClock, UpdatedAt: testClock})
 
 	t.Run("empty filter returns all", func(t *testing.T) {
-		got, err := s.TicketStore().List(ctx, application.TicketQuery{}, application.Page{Offset: 0, Limit: 10})
+		got, err := s.TicketStore().List(ctx, application.TicketQuery{Scope: application.ScopeAll}, application.Page{Offset: 0, Limit: 10})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -451,7 +610,7 @@ func TestTicketListFiltersComposeWithAND(t *testing.T) {
 	})
 
 	t.Run("state filter", func(t *testing.T) {
-		got, err := s.TicketStore().List(ctx, application.TicketQuery{State: ptr(domain.StateCancelled)}, application.Page{Offset: 0, Limit: 10})
+		got, err := s.TicketStore().List(ctx, application.TicketQuery{Scope: application.ScopeAll, State: ptr(domain.StateCancelled)}, application.Page{Offset: 0, Limit: 10})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -461,7 +620,7 @@ func TestTicketListFiltersComposeWithAND(t *testing.T) {
 	})
 
 	t.Run("priority filter", func(t *testing.T) {
-		got, err := s.TicketStore().List(ctx, application.TicketQuery{Priority: ptr(domain.PriorityHigh)}, application.Page{Offset: 0, Limit: 10})
+		got, err := s.TicketStore().List(ctx, application.TicketQuery{Scope: application.ScopeAll, Priority: ptr(domain.PriorityHigh)}, application.Page{Offset: 0, Limit: 10})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -471,7 +630,7 @@ func TestTicketListFiltersComposeWithAND(t *testing.T) {
 	})
 
 	t.Run("category filter", func(t *testing.T) {
-		got, err := s.TicketStore().List(ctx, application.TicketQuery{CategoryID: ptr(support)}, application.Page{Offset: 0, Limit: 10})
+		got, err := s.TicketStore().List(ctx, application.TicketQuery{Scope: application.ScopeAll, CategoryID: ptr(support)}, application.Page{Offset: 0, Limit: 10})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -481,7 +640,7 @@ func TestTicketListFiltersComposeWithAND(t *testing.T) {
 	})
 
 	t.Run("user filter", func(t *testing.T) {
-		got, err := s.TicketStore().List(ctx, application.TicketQuery{UserID: ptr(bob)}, application.Page{Offset: 0, Limit: 10})
+		got, err := s.TicketStore().List(ctx, application.TicketQuery{Scope: application.ScopeAll, UserID: ptr(bob)}, application.Page{Offset: 0, Limit: 10})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -492,6 +651,7 @@ func TestTicketListFiltersComposeWithAND(t *testing.T) {
 
 	t.Run("four filters AND", func(t *testing.T) {
 		got, err := s.TicketStore().List(ctx, application.TicketQuery{
+			Scope: application.ScopeAll,
 			State: ptr(domain.StateResolved), Priority: ptr(domain.PriorityHigh),
 			CategoryID: ptr(bugs), UserID: ptr(ana),
 		}, application.Page{Offset: 0, Limit: 10})
@@ -521,7 +681,7 @@ func TestTicketListPaginationNoOverlap(t *testing.T) {
 
 	page := func(offset int) []domain.Ticket {
 		t.Helper()
-		got, err := s.TicketStore().List(ctx, application.TicketQuery{}, application.Page{Offset: offset, Limit: 10})
+		got, err := s.TicketStore().List(ctx, application.TicketQuery{Scope: application.ScopeAll}, application.Page{Offset: offset, Limit: 10})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -565,15 +725,16 @@ func TestTicketCountRespectsFilters(t *testing.T) {
 		Priority: domain.PriorityLow, State: domain.StateNew,
 		CreatedAt: testClock, UpdatedAt: testClock})
 
-	total, err := s.TicketStore().Count(ctx, application.TicketQuery{})
+	total, err := s.TicketStore().Count(ctx, application.TicketQuery{Scope: application.ScopeAll})
 	if err != nil || total != 3 {
 		t.Errorf("total = %d, err = %v; want 3", total, err)
 	}
-	low, err := s.TicketStore().Count(ctx, application.TicketQuery{Priority: ptr(domain.PriorityLow)})
+	low, err := s.TicketStore().Count(ctx, application.TicketQuery{Scope: application.ScopeAll, Priority: ptr(domain.PriorityLow)})
 	if err != nil || low != 2 {
 		t.Errorf("low = %d, err = %v; want 2", low, err)
 	}
 	bugsNew, err := s.TicketStore().Count(ctx, application.TicketQuery{
+		Scope:      application.ScopeAll,
 		CategoryID: ptr(bugs), State: ptr(domain.StateNew)})
 	if err != nil || bugsNew != 1 {
 		t.Errorf("bugs+new = %d, err = %v; want 1", bugsNew, err)
@@ -607,7 +768,7 @@ func TestTicketCountsByStateReflectFilteredSet(t *testing.T) {
 
 	// Filter by priority high: chips must reflect the FILTERED set (2
 	// resolved), not the whole table (spec: chips reflect result set).
-	byState, err := s.TicketStore().CountsByState(ctx, application.TicketQuery{Priority: ptr(domain.PriorityHigh)})
+	byState, err := s.TicketStore().CountsByState(ctx, application.TicketQuery{Scope: application.ScopeAll, Priority: ptr(domain.PriorityHigh)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -615,7 +776,7 @@ func TestTicketCountsByStateReflectFilteredSet(t *testing.T) {
 		t.Errorf("chips by state under priority=high: %v, want {resolved: 2}", byState)
 	}
 
-	all, err := s.TicketStore().CountsByState(ctx, application.TicketQuery{})
+	all, err := s.TicketStore().CountsByState(ctx, application.TicketQuery{Scope: application.ScopeAll})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -639,7 +800,7 @@ func TestTicketCountsByPriorityReflectFilteredSet(t *testing.T) {
 		Priority: domain.PriorityLow, State: domain.StateNew,
 		CreatedAt: testClock, UpdatedAt: testClock})
 
-	byPriority, err := s.TicketStore().CountsByPriority(ctx, application.TicketQuery{State: ptr(domain.StateResolved)})
+	byPriority, err := s.TicketStore().CountsByPriority(ctx, application.TicketQuery{Scope: application.ScopeAll, State: ptr(domain.StateResolved)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -647,7 +808,7 @@ func TestTicketCountsByPriorityReflectFilteredSet(t *testing.T) {
 		t.Errorf("chips by priority under state=resolved: %v, want {high: 2}", byPriority)
 	}
 
-	all, err := s.TicketStore().CountsByPriority(ctx, application.TicketQuery{})
+	all, err := s.TicketStore().CountsByPriority(ctx, application.TicketQuery{Scope: application.ScopeAll})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -675,7 +836,7 @@ func TestUnitOfWorkCreatePersistsTicketAndEvent(t *testing.T) {
 		t.Fatalf("uow create did not assign id/number: %+v", tk)
 	}
 
-	got, err := s.TicketStore().GetByID(ctx, tk.ID)
+	got, err := s.TicketStore().GetByID(ctx, tk.ID, application.TicketQuery{Scope: application.ScopeAll})
 	if err != nil {
 		t.Fatalf("get: %v", err)
 	}
@@ -772,7 +933,7 @@ func TestUnitOfWorkUpdatePersistsEventBatchInOrder(t *testing.T) {
 		t.Fatalf("uow update: %v", err)
 	}
 
-	got, err := s.TicketStore().GetByID(ctx, tk.ID)
+	got, err := s.TicketStore().GetByID(ctx, tk.ID, application.TicketQuery{Scope: application.ScopeAll})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -829,7 +990,7 @@ func TestUnitOfWorkUpdateRollsBackOnAuditFailure(t *testing.T) {
 	}
 
 	// The ticket must be restored to its pre-mutation values.
-	got, err := s.TicketStore().GetByID(ctx, tk.ID)
+	got, err := s.TicketStore().GetByID(ctx, tk.ID, application.TicketQuery{Scope: application.ScopeAll})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -949,7 +1110,7 @@ func TestTicketListSortByPriority(t *testing.T) {
 			UpdatedAt: testClock.Add(time.Duration(i) * time.Minute)})
 	}
 
-	got, err := s.TicketStore().List(ctx, application.TicketQuery{SortByPriority: true},
+	got, err := s.TicketStore().List(ctx, application.TicketQuery{Scope: application.ScopeAll, SortByPriority: true},
 		application.Page{Offset: 0, Limit: 10})
 	if err != nil {
 		t.Fatalf("list: %v", err)
@@ -965,7 +1126,7 @@ func TestTicketListSortByPriority(t *testing.T) {
 	}
 
 	// Search honors the same ordering (shared ORDER BY path).
-	got, err = s.SearchStore().Search(ctx, application.TicketQuery{SortByPriority: true},
+	got, err = s.SearchStore().Search(ctx, application.TicketQuery{Scope: application.ScopeAll, SortByPriority: true},
 		application.Page{Offset: 0, Limit: 10})
 	if err != nil {
 		t.Fatalf("search: %v", err)

@@ -127,9 +127,19 @@ func updateTicketTx(ctx context.Context, tx *sql.Tx, t *domain.Ticket) error {
 	return nil
 }
 
-// GetByID returns the ticket or a NotFoundError.
-func (st *ticketStore) GetByID(ctx context.Context, id int64) (*domain.Ticket, error) {
-	t, err := scanTicketFrom(st.db.QueryRowContext(ctx, `SELECT `+ticketColumns+` FROM tickets t WHERE t.id = ?`, id))
+// GetByID returns the ticket or a NotFoundError, restricted to the actor's
+// ticket access scope carried in q (ticket-access spec): a ticket outside
+// the actor's scope is indistinguishable from a missing one, so direct
+// lookups never leak existence. Only the scope restriction of q applies;
+// the filter fields are ignored.
+func (st *ticketStore) GetByID(ctx context.Context, id int64, q application.TicketQuery) (*domain.Ticket, error) {
+	where := "WHERE t.id = ?"
+	args := []any{id}
+	if scope, scopeArgs := scopeClause(q); scope != "" {
+		where += " AND " + scope
+		args = append(args, scopeArgs...)
+	}
+	t, err := scanTicketFrom(st.db.QueryRowContext(ctx, `SELECT `+ticketColumns+` FROM tickets t `+where, args...))
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, &domain.NotFoundError{Kind: "ticket", ID: id}
 	}

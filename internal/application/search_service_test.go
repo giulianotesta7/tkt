@@ -24,6 +24,22 @@ func seedSearchTicket(store *fakeTicketStore, clock *fakeClock, title, desc stri
 	})
 }
 
+// seedSearchTicketOwned inserts a ticket created by requesterID (user-role
+// ownership scope, ticket-access spec).
+func seedSearchTicketOwned(store *fakeTicketStore, clock *fakeClock, title string, requesterID int64) domain.Ticket {
+	clock.Advance(timeMinute)
+	return store.seed(domain.Ticket{
+		Title: title, Description: "x", CategoryID: 1, RequesterUserID: ptr(requesterID),
+		Priority: domain.PriorityLow, State: domain.StateNew, CreatedAt: clock.now, UpdatedAt: clock.now,
+	})
+}
+
+// adminActor is the all-scope actor used by existing search tests that
+// exercise filters and pagination, not scope.
+func adminActor() domain.User {
+	return domain.User{ID: 99, Name: "Admin", Email: "admin@example.com", Role: domain.RoleAdmin}
+}
+
 func TestBuildTextQuery(t *testing.T) {
 	cases := []struct {
 		name string
@@ -96,13 +112,13 @@ func TestSearchFiltersComposeWithAND(t *testing.T) {
 	seedSearchTicket(tickets, clock, "D", "new high bugs u2", domain.StateNew, domain.PriorityHigh, catBugs, user2)
 	seedSearchTicket(tickets, clock, "E", "resolved high support u2", domain.StateResolved, domain.PriorityHigh, catSupport, user2)
 
-	q := application.TicketQuery{
+	q := application.TicketQuery{Scope: application.ScopeAll,
 		State:      ptr(domain.StateResolved),
 		Priority:   ptr(domain.PriorityHigh),
 		CategoryID: &catBugs,
 		UserID:     user2,
 	}
-	result, err := svc.Search(context.Background(), q, 1)
+	result, err := svc.Search(context.Background(), adminActor(), q, 1)
 	if err != nil {
 		t.Fatalf("Search: unexpected error: %v", err)
 	}
@@ -121,7 +137,7 @@ func TestSearchEmptyFilterReturnsAll(t *testing.T) {
 		seedSearchTicket(tickets, clock, "T", "x", domain.StateNew, domain.PriorityLow, 1, nil)
 	}
 
-	result, err := svc.Search(context.Background(), application.TicketQuery{}, 1)
+	result, err := svc.Search(context.Background(), adminActor(), application.TicketQuery{Scope: application.ScopeAll}, 1)
 	if err != nil {
 		t.Fatalf("Search: unexpected error: %v", err)
 	}
@@ -139,7 +155,7 @@ func TestSearchTextAndComposition(t *testing.T) {
 	seedSearchTicket(tickets, clock, "Printer spool", "network timeout on spool", domain.StateNew, domain.PriorityLow, 1, nil)
 	seedSearchTicket(tickets, clock, "Both network timeout", "again", domain.StateNew, domain.PriorityLow, 1, nil)
 
-	result, err := svc.Search(context.Background(), application.TicketQuery{Text: "network timeout"}, 1)
+	result, err := svc.Search(context.Background(), adminActor(), application.TicketQuery{Scope: application.ScopeAll, Text: "network timeout"}, 1)
 	if err != nil {
 		t.Fatalf("Search: unexpected error: %v", err)
 	}
@@ -160,7 +176,7 @@ func TestSearchByNumber(t *testing.T) {
 	seedSearchTicket(tickets, clock, "Network", "x", domain.StateNew, domain.PriorityLow, 1, nil)
 	seedSearchTicket(tickets, clock, "Printer", "x", domain.StateNew, domain.PriorityLow, 1, nil)
 
-	result, err := svc.Search(context.Background(), application.TicketQuery{Text: "TKT-2"}, 1)
+	result, err := svc.Search(context.Background(), adminActor(), application.TicketQuery{Scope: application.ScopeAll, Text: "TKT-2"}, 1)
 	if err != nil {
 		t.Fatalf("Search: unexpected error: %v", err)
 	}
@@ -181,7 +197,7 @@ func TestSearchStablePagination(t *testing.T) {
 	seen := map[int64]bool{}
 	pages := []int{10, 10, 5}
 	for page, wantLen := range pages {
-		result, err := svc.Search(context.Background(), application.TicketQuery{}, page+1)
+		result, err := svc.Search(context.Background(), adminActor(), application.TicketQuery{Scope: application.ScopeAll}, page+1)
 		if err != nil {
 			t.Fatalf("Search page %d: unexpected error: %v", page+1, err)
 		}
@@ -203,13 +219,90 @@ func TestSearchStablePagination(t *testing.T) {
 	}
 }
 
+// TestSearchUserScopeOwnOnly proves the empty-filter set returns only the
+// user's own tickets (requester = self), never another user's (ticket-search
+// spec: empty filters respect actor scope).
+func TestSearchUserScopeOwnOnly(t *testing.T) {
+	svc, tickets, clock := newSearchService()
+	actorA := domain.User{ID: 1, Name: "A", Role: domain.RoleUser}
+	actorB := domain.User{ID: 2, Name: "B", Role: domain.RoleUser}
+
+	own := seedSearchTicketOwned(tickets, clock, "A's ticket", actorA.ID)
+	seedSearchTicketOwned(tickets, clock, "B's ticket", actorB.ID)
+
+	result, err := svc.Search(context.Background(), actorA, application.TicketQuery{}, 1)
+	if err != nil {
+		t.Fatalf("Search: unexpected error: %v", err)
+	}
+	if result.Total != 1 || len(result.Tickets) != 1 || result.Tickets[0].ID != own.ID {
+		t.Fatalf("user A must see only their own ticket, got total=%d tickets=%+v", result.Total, result.Tickets)
+	}
+}
+
+// TestSearchAgentScopeAssignedOnly proves the agent's search is scoped to
+// assignment: unassigned tickets and other agents' tickets never match,
+// even with no filters (ticket-search spec: agent search scoped to
+// assignment; empty filter set never returns out-of-scope tickets).
+func TestSearchAgentScopeAssignedOnly(t *testing.T) {
+	svc, tickets, clock := newSearchService()
+	agentX := domain.User{ID: 3, Name: "X", Role: domain.RoleAgent}
+	agentY := domain.User{ID: 4, Name: "Y", Role: domain.RoleAgent}
+
+	assigned := seedSearchTicket(tickets, clock, "X's", "x", domain.StateNew, domain.PriorityLow, 1, ptr(agentX.ID))
+	seedSearchTicket(tickets, clock, "Y's", "x", domain.StateNew, domain.PriorityLow, 1, ptr(agentY.ID))
+	seedSearchTicket(tickets, clock, "unassigned", "x", domain.StateNew, domain.PriorityLow, 1, nil)
+
+	result, err := svc.Search(context.Background(), agentX, application.TicketQuery{}, 1)
+	if err != nil {
+		t.Fatalf("Search: unexpected error: %v", err)
+	}
+	if result.Total != 1 || len(result.Tickets) != 1 || result.Tickets[0].ID != assigned.ID {
+		t.Fatalf("agent X must see only their assigned ticket, got total=%d tickets=%+v", result.Total, result.Tickets)
+	}
+}
+
+// TestSearchAdminScopeFullQueue proves admin/root empty-filter searches
+// return EVERY ticket — assigned, unassigned, requester-owned (ticket-access
+// spec: admin SHALL access the full queue).
+func TestSearchAdminScopeFullQueue(t *testing.T) {
+	svc, tickets, clock := newSearchService()
+	admin := domain.User{ID: 99, Name: "Admin", Role: domain.RoleAdmin}
+
+	seedSearchTicketOwned(tickets, clock, "owned", 1)
+	seedSearchTicket(tickets, clock, "assigned", "x", domain.StateNew, domain.PriorityLow, 1, ptr(int64(3)))
+	seedSearchTicket(tickets, clock, "unassigned", "x", domain.StateNew, domain.PriorityLow, 1, nil)
+
+	result, err := svc.Search(context.Background(), admin, application.TicketQuery{}, 1)
+	if err != nil {
+		t.Fatalf("Search: unexpected error: %v", err)
+	}
+	if result.Total != 3 || len(result.Tickets) != 3 {
+		t.Fatalf("admin must see the full queue (3 tickets), got total=%d len=%d", result.Total, len(result.Tickets))
+	}
+}
+
+// TestSearchUnknownRoleDeniesAll proves an actor with an unknown/empty role
+// sees nothing — the fail-closed ScopeNone path (policy.go contract).
+func TestSearchUnknownRoleDeniesAll(t *testing.T) {
+	svc, tickets, clock := newSearchService()
+	seedSearchTicket(tickets, clock, "t", "x", domain.StateNew, domain.PriorityLow, 1, nil)
+
+	result, err := svc.Search(context.Background(), domain.User{Name: "Ghost"}, application.TicketQuery{}, 1)
+	if err != nil {
+		t.Fatalf("Search: unexpected error: %v", err)
+	}
+	if result.Total != 0 || len(result.Tickets) != 0 {
+		t.Fatalf("unknown role must see nothing, got total=%d", result.Total)
+	}
+}
+
 func TestSearchPageZeroDefaultsToOne(t *testing.T) {
 	svc, tickets, clock := newSearchService()
 	for i := 0; i < 12; i++ {
 		seedSearchTicket(tickets, clock, "T", "x", domain.StateNew, domain.PriorityLow, 1, nil)
 	}
 
-	result, err := svc.Search(context.Background(), application.TicketQuery{}, 0)
+	result, err := svc.Search(context.Background(), adminActor(), application.TicketQuery{Scope: application.ScopeAll}, 0)
 	if err != nil {
 		t.Fatalf("Search: unexpected error: %v", err)
 	}

@@ -34,13 +34,35 @@ func orderBy(q application.TicketQuery) string {
 	return orderByCreatedDesc
 }
 
+// scopeClause returns the actor-scope WHERE fragment from q (ticket-access
+// spec): requester = self for ScopeOwned, assignee = self for ScopeAssigned,
+// the full queue for ScopeAll, and an impossible predicate for ScopeNone —
+// the zero value fails closed, so an unscoped query can never leak rows.
+func scopeClause(q application.TicketQuery) (string, []any) {
+	switch q.Scope {
+	case application.ScopeOwned:
+		return "t.requester_user_id = ?", []any{q.ActorID}
+	case application.ScopeAssigned:
+		return "t.user_id = ?", []any{q.ActorID}
+	case application.ScopeAll:
+		return "", nil
+	default:
+		return "0 = 1", nil
+	}
+}
+
 // buildTicketWhere composes the AND filter clauses from q (ticket-search
-// spec): state, priority, category, and assigned user. An empty filter set
-// returns "" with no args — the plain list of all tickets. The FTS text
-// clause (0002) is added here by the search store.
+// spec): actor scope first (the base restriction), then state, priority,
+// category, and assigned user. An empty filter set returns only the scope
+// restriction — never a plain full-table list. The FTS text clause (0002)
+// is added here by the search store.
 func buildTicketWhere(q application.TicketQuery) (string, []any) {
 	var clauses []string
 	var args []any
+	if clause, scopeArgs := scopeClause(q); clause != "" {
+		clauses = append(clauses, clause)
+		args = append(args, scopeArgs...)
+	}
 	if q.State != nil {
 		clauses = append(clauses, "t.state = ?")
 		args = append(args, string(*q.State))

@@ -121,7 +121,7 @@ func TestTicketViewEnrichesAuditTimelineLabels(t *testing.T) {
 			})
 
 			builder := application.NewViewBuilder(tickets, users, categories, comments, audits)
-			view, err := builder.TicketView(context.Background(), ticket.ID)
+			view, err := builder.TicketView(context.Background(), ticket.ID, application.TicketQuery{Scope: application.ScopeAll})
 			if err != nil {
 				t.Fatalf("TicketView: unexpected error: %v", err)
 			}
@@ -173,7 +173,7 @@ func seededCommentTimeline(t *testing.T) (*application.ViewBuilder, *fakeTicketS
 func TestTicketViewComposesRefsAndOrderedTimelines(t *testing.T) {
 	builder, _, _, ticket, user, cat := seededCommentTimeline(t)
 
-	view, err := builder.TicketView(context.Background(), ticket.ID)
+	view, err := builder.TicketView(context.Background(), ticket.ID, application.TicketQuery{Scope: application.ScopeAll})
 	if err != nil {
 		t.Fatalf("TicketView: unexpected error: %v", err)
 	}
@@ -225,7 +225,7 @@ func TestTicketViewUnassignedUserIsNil(t *testing.T) {
 	})
 	builder := application.NewViewBuilder(tickets, newFakeUserStore(), categories, newFakeCommentStore(), newFakeAuditStore())
 
-	view, err := builder.TicketView(context.Background(), ticket.ID)
+	view, err := builder.TicketView(context.Background(), ticket.ID, application.TicketQuery{Scope: application.ScopeAll})
 	if err != nil {
 		t.Fatalf("TicketView: unexpected error: %v", err)
 	}
@@ -248,7 +248,7 @@ func TestTicketViewShowsInactiveAssignedUser(t *testing.T) {
 		t.Fatalf("deactivate: unexpected error: %v", err)
 	}
 
-	view, err := builder.TicketView(context.Background(), ticket.ID)
+	view, err := builder.TicketView(context.Background(), ticket.ID, application.TicketQuery{Scope: application.ScopeAll})
 	if err != nil {
 		t.Fatalf("TicketView: unexpected error: %v", err)
 	}
@@ -260,7 +260,7 @@ func TestTicketViewShowsInactiveAssignedUser(t *testing.T) {
 func TestTicketViewUnknownTicket(t *testing.T) {
 	builder := application.NewViewBuilder(newFakeTicketStore(), newFakeUserStore(), newFakeCategoryStore(), newFakeCommentStore(), newFakeAuditStore())
 
-	_, err := builder.TicketView(context.Background(), 4242)
+	_, err := builder.TicketView(context.Background(), 4242, application.TicketQuery{Scope: application.ScopeAll})
 	var nerr *domain.NotFoundError
 	if !errors.As(err, &nerr) || nerr.Kind != "ticket" {
 		t.Fatalf("TicketView: unknown ticket must be a NotFoundError(kind=ticket), got %v", err)

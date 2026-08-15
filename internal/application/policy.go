@@ -143,3 +143,14 @@ func (p *Policy) TicketScope(role domain.Role) TicketScope {
 		return ScopeNone
 	}
 }
+
+// scopedQuery returns q restricted to the actor's ticket access scope
+// (ticket-access spec): the policy derives the scope from the session role
+// and stamps the query BEFORE any store call, so scoped store methods
+// exclude unauthorized rows and the actor never sees tickets outside their
+// scope (design "Domain, Contracts": policy → scoped store query).
+func scopedQuery(actor domain.User, q TicketQuery) TicketQuery {
+	q.Scope = NewPolicy().TicketScope(actor.Role)
+	q.ActorID = actor.ID
+	return q
+}

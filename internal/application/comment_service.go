@@ -22,13 +22,15 @@ func NewCommentService(tickets TicketStore, comments CommentStore, clock domain.
 	return &CommentService{tickets: tickets, comments: comments, clock: clock}
 }
 
-// Add validates the body, checks the ticket exists, and stores the comment
-// with the session user as author (D14).
+// Add validates the body, checks the ticket exists within the actor's
+// ticket access scope (ticket-access spec: comments live on tickets the
+// actor can see), and stores the comment with the session user as author
+// (D14).
 func (s *CommentService) Add(ctx context.Context, actor domain.User, ticketID int64, body string) (*domain.Comment, error) {
 	if strings.TrimSpace(body) == "" {
 		return nil, &domain.ValidationError{Field: "body", Message: domain.ErrMsgCommentBodyRequired}
 	}
-	if _, err := s.tickets.GetByID(ctx, ticketID); err != nil {
+	if _, err := s.tickets.GetByID(ctx, ticketID, scopedQuery(actor, TicketQuery{})); err != nil {
 		return nil, err
 	}
 	c := &domain.Comment{

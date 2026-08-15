@@ -19,7 +19,7 @@ func TestAddCommentStoresWithSessionAuthor(t *testing.T) {
 		State: domain.StateNew, CreatedAt: clock.now, UpdatedAt: clock.now,
 	})
 	svc := application.NewCommentService(tickets, comments, clock)
-	actor := domain.User{Name: "Ada", Email: "ada@example.com"}
+	actor := domain.User{Name: "Ada", Email: "ada@example.com", Role: domain.RoleAdmin}
 	clock.Advance(timeMinute)
 
 	c, err := svc.Add(context.Background(), actor, ticket.ID, "The redirect is broken")
@@ -53,7 +53,7 @@ func TestAddCommentRejectsEmptyBodyWithoutStoreCall(t *testing.T) {
 	})
 	svc := application.NewCommentService(tickets, comments, clock)
 
-	_, err := svc.Add(context.Background(), domain.User{Name: "Ada"}, ticket.ID, "   ")
+	_, err := svc.Add(context.Background(), domain.User{Name: "Ada", Role: domain.RoleAdmin}, ticket.ID, "   ")
 	var verr *domain.ValidationError
 	if !errors.As(err, &verr) || verr.Field != "body" {
 		t.Fatalf("Add: empty body must be a ValidationError on field body, got %v", err)
@@ -73,7 +73,7 @@ func TestAddCommentUnknownTicket(t *testing.T) {
 	clock := fixedClock()
 	svc := application.NewCommentService(newFakeTicketStore(), newFakeCommentStore(), clock)
 
-	_, err := svc.Add(context.Background(), domain.User{Name: "Ada"}, 4242, "hello")
+	_, err := svc.Add(context.Background(), domain.User{Name: "Ada", Role: domain.RoleAdmin}, 4242, "hello")
 	var nerr *domain.NotFoundError
 	if !errors.As(err, &nerr) || nerr.Kind != "ticket" {
 		t.Fatalf("Add: unknown ticket must be a NotFoundError(kind=ticket), got %v", err)
@@ -93,7 +93,7 @@ func TestAddCommentOnClosedTicketAccepted(t *testing.T) {
 	})
 	svc := application.NewCommentService(tickets, comments, clock)
 
-	c, err := svc.Add(context.Background(), domain.User{Name: "Ada"}, ticket.ID, "Still relevant after closure")
+	c, err := svc.Add(context.Background(), domain.User{Name: "Ada", Role: domain.RoleAdmin}, ticket.ID, "Still relevant after closure")
 	if err != nil {
 		t.Fatalf("Add: comments on closed tickets must be accepted, got %v", err)
 	}
@@ -147,7 +147,7 @@ func TestAppendOnlyCommentsNoUpdateOrDelete(t *testing.T) {
 
 	// The timeline returns exactly the added comments, in creation order:
 	// with no edit/delete path, nothing can change or remove them.
-	actor := domain.User{Name: "Ada"}
+	actor := domain.User{Name: "Ada", Role: domain.RoleAdmin}
 	for _, body := range []string{"first", "second"} {
 		clock.Advance(timeMinute)
 		if _, err := svc.Add(context.Background(), actor, ticket.ID, body); err != nil {
@@ -176,7 +176,7 @@ func TestListByTicketCreationOrder(t *testing.T) {
 		State: domain.StateNew, CreatedAt: clock.now, UpdatedAt: clock.now,
 	})
 	svc := application.NewCommentService(tickets, comments, clock)
-	actor := domain.User{Name: "Ada"}
+	actor := domain.User{Name: "Ada", Role: domain.RoleAdmin}
 
 	for _, body := range []string{"first", "second", "third"} {
 		clock.Advance(timeMinute)

@@ -218,12 +218,14 @@ func (h *TicketHandlers) index(w http.ResponseWriter, r *http.Request) {
 }
 
 // listData builds the full list payload for the given filters and page.
+// The search is scoped to the session actor (ticket-access spec): the
+// list shows only tickets within the actor's scope.
 func (h *TicketHandlers) listData(r *http.Request, f filterState, page int) (listData, error) {
 	opts, err := h.collectOptions(r)
 	if err != nil {
 		return listData{}, err
 	}
-	res, err := h.search.Search(r.Context(), f.query(), page)
+	res, err := h.search.Search(r.Context(), *userFromContext(r.Context()), f.query(), page)
 	if err != nil {
 		return listData{}, err
 	}
@@ -427,9 +429,12 @@ func ticketID(r *http.Request) (int64, bool) {
 	return id, id != 0
 }
 
-// detailDataFor loads the composed view and builds the detail payload.
+// detailDataFor loads the composed view (scoped to the session actor:
+// out-of-scope tickets are denied as NotFound) and builds the detail
+// payload.
 func (h *TicketHandlers) detailDataFor(r *http.Request, id int64) (detailData, int, error) {
-	view, err := h.tickets.GetByID(r.Context(), id)
+	actor := *userFromContext(r.Context())
+	view, err := h.tickets.GetByID(r.Context(), actor, id)
 	if err != nil {
 		status, _ := mapError(err)
 		return detailData{}, status, err

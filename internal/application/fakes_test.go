@@ -31,6 +31,23 @@ func fixedClock() *fakeClock {
 }
 
 func matchesQuery(t *domain.Ticket, q application.TicketQuery) bool {
+	// Actor scope first (ticket-access spec): the zero value (ScopeNone)
+	// fails closed — an unscoped query matches nothing, mirroring the real
+	// store's `0 = 1` clause.
+	switch q.Scope {
+	case application.ScopeOwned:
+		if t.RequesterUserID == nil || *t.RequesterUserID != q.ActorID {
+			return false
+		}
+	case application.ScopeAssigned:
+		if t.UserID == nil || *t.UserID != q.ActorID {
+			return false
+		}
+	case application.ScopeAll:
+		// full queue: no restriction
+	default:
+		return false
+	}
 	if q.State != nil && t.State != *q.State {
 		return false
 	}
@@ -127,10 +144,12 @@ func (f *fakeTicketStore) Update(_ context.Context, t *domain.Ticket) error {
 	return nil
 }
 
-func (f *fakeTicketStore) GetByID(_ context.Context, id int64) (*domain.Ticket, error) {
+func (f *fakeTicketStore) GetByID(_ context.Context, id int64, q application.TicketQuery) (*domain.Ticket, error) {
 	f.getByIDCalls = append(f.getByIDCalls, id)
 	t, ok := f.tickets[id]
-	if !ok {
+	if !ok || !matchesQuery(t, q) {
+		// Out-of-scope tickets are indistinguishable from missing ones
+		// (no existence leak, ticket-access spec).
 		return nil, &domain.NotFoundError{Kind: "ticket", ID: id}
 	}
 	cp := *t
