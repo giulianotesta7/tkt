@@ -90,6 +90,8 @@ type AuditStore interface {
 // UserStore persists managed users (user-management spec).
 type UserStore interface {
 	// Create stores u, assigning u.ID; ErrDuplicate when the email exists.
+	// u.Role is persisted when set; a zero Role falls back to the migration
+	// default ('agent') so legacy callers keep working.
 	Create(ctx context.Context, u *domain.User) error
 	// Update persists the user's fields, including deactivation (Active).
 	Update(ctx context.Context, u *domain.User) error
@@ -107,6 +109,14 @@ type UserStore interface {
 	List(ctx context.Context) ([]domain.User, error)
 	// ListActive returns only active users.
 	ListActive(ctx context.Context) ([]domain.User, error)
+	// BootstrapRoot creates the very first user with role root ATOMICALLY
+	// (role-authorization "First-User Root Bootstrap"). The count check and
+	// the insert share one immediate transaction, so concurrent calls yield
+	// exactly one root; every later call fails with
+	// ErrBootstrapUnavailable without creating an account. BootstrapRoot is
+	// the ONLY store operation that may insert a root — user creation and
+	// role-grant flows must never do so.
+	BootstrapRoot(ctx context.Context, u *domain.User) error
 }
 
 // SessionStore persists server-side login sessions (D14).

@@ -348,6 +348,16 @@ func (f *fakeUserStore) Create(_ context.Context, u *domain.User) error {
 	return nil
 }
 
+// BootstrapRoot mirrors the real store's atomic contract: unavailable once
+// any user exists; otherwise the user is stored as an active root.
+func (f *fakeUserStore) BootstrapRoot(_ context.Context, u *domain.User) error {
+	if len(f.users) > 0 {
+		return domain.NewBootstrapUnavailableError()
+	}
+	u.Role = domain.RoleRoot
+	return f.Create(context.Background(), u)
+}
+
 func (f *fakeUserStore) Update(_ context.Context, u *domain.User) error {
 	existing, ok := f.users[u.ID]
 	if !ok {
