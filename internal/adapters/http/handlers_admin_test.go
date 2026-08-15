@@ -381,3 +381,58 @@ func TestStaticServesVendoredHtmx(t *testing.T) {
 		t.Errorf("body must be the vendored htmx script, got %d bytes", len(body))
 	}
 }
+
+// TestRootAccountRejectedAtHTTP proves the root invariants end to end (task
+// 2.4; role-authorization "Nobody touches root"): an authenticated operator
+// editing or deleting the root account is refused with 403 and the root row
+// stays untouched. The root is bootstrapped through the real store port, so
+// the whole handler → use-case → guard chain runs.
+func TestRootAccountRejectedAtHTTP(t *testing.T) {
+	h := newHarness(t)
+	ctx := context.Background()
+
+	// Seed a root through the real store port with an explicit role (the
+	// harness admin is a regular agent-role user, so it cannot bootstrap a
+	// root itself — and BootstrapRoot correctly refuses once users exist).
+	// The store port persists the role; the DB allows exactly one root row.
+	root := &domain.User{Name: "Root", Email: "root@example.com", PasswordHash: "hash",
+		Role: domain.RoleRoot, Active: true, CreatedAt: fixedNow}
+	if err := h.store.UserStore().Create(ctx, root); err != nil {
+		t.Fatalf("seed root: %v", err)
+	}
+
+	// Edit (including deactivate) is refused with 403.
+	editForm := url.Values{
+		"name":   {"Hacker"},
+		"email":  {"hack@example.com"},
+		"active": {"false"},
+	}
+	rec := h.postForm(t, "/users/"+strconv.FormatInt(root.ID, 10)+"/edit", editForm, false)
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("edit root status = %d, want 403", rec.Code)
+	}
+	if !strings.Contains(rec.Body.String(), domain.ErrMsgRootProtected) {
+		t.Errorf("edit root body must show %q, got: %s", domain.ErrMsgRootProtected, rec.Body.String())
+	}
+
+	// Delete is refused with 403.
+	rec = h.postForm(t, "/users/"+strconv.FormatInt(root.ID, 10)+"/delete", url.Values{}, false)
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("delete root status = %d, want 403", rec.Code)
+	}
+
+	// The root row is untouched: active, role root, original identity.
+	got, err := h.store.UserStore().GetByID(ctx, root.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Name != "Root" || got.Email != "root@example.com" {
+		t.Errorf("root mutated = %+v, want unchanged", got)
+	}
+	if !got.Active {
+		t.Error("root must remain active")
+	}
+	if got.Role != domain.RoleRoot {
+		t.Errorf("root role = %q, want %q", got.Role, domain.RoleRoot)
+	}
+}

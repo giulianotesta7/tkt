@@ -3,6 +3,7 @@ package application_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/giulianotesta7/tkt/internal/application"
@@ -289,5 +290,127 @@ func TestBootstrapRootRejectsInvalidInput(t *testing.T) {
 	}
 	if len(users.users) != 0 {
 		t.Fatal("BootstrapRoot must not store a user on validation failure")
+	}
+}
+
+// S2 root invariants RED (task 2.4; role-authorization "Root Invariants"):
+// no actor — including root itself — may edit, deactivate, or delete the
+// root account, and user creation never yields a root. Written before the
+// UserService guards exist: these fail until Update/Delete reject the root
+// account with RootProtectedError.
+
+// seedRoot puts a root user (and a regular user) into the fake store.
+func seedRoot(t *testing.T, svc *application.UserService, users *fakeUserStore) (rootID, regularID int64) {
+	t.Helper()
+	ctx := context.Background()
+	u := users.seed("Root", "root@example.com", true)
+	u.Role = domain.RoleRoot
+	if err := users.Update(ctx, &u); err != nil {
+		t.Fatalf("seed root: %v", err)
+	}
+	r := users.seed("Ana", "ana@example.com", true)
+	r.Role = domain.RoleAgent
+	if err := users.Update(ctx, &r); err != nil {
+		t.Fatalf("seed regular: %v", err)
+	}
+	return u.ID, r.ID
+}
+
+func TestUpdateRootRejected(t *testing.T) {
+	svc, users, _ := newUserService()
+	rootID, _ := seedRoot(t, svc, users)
+	ctx := context.Background()
+
+	name := "Hacker"
+	email := "hack@example.com"
+	_, err := svc.Update(ctx, rootID, application.UpdateUserInput{Name: &name, Email: &email})
+	if !errors.Is(err, domain.ErrRootProtected) {
+		t.Fatalf("Update root = %v, want RootProtectedError", err)
+	}
+	var rpe *domain.RootProtectedError
+	if !errors.As(err, &rpe) {
+		t.Errorf("err = %v, want *RootProtectedError", err)
+	}
+
+	// The root account is untouched.
+	got, err := users.GetByID(ctx, rootID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Name != "Root" || got.Email != "root@example.com" {
+		t.Errorf("root mutated = %+v, want unchanged", got)
+	}
+	if got.Role != domain.RoleRoot {
+		t.Errorf("root role = %q, want %q", got.Role, domain.RoleRoot)
+	}
+}
+
+func TestDeactivateRootRejected(t *testing.T) {
+	svc, users, _ := newUserService()
+	rootID, _ := seedRoot(t, svc, users)
+	ctx := context.Background()
+
+	active := false
+	_, err := svc.Update(ctx, rootID, application.UpdateUserInput{Active: &active})
+	if !errors.Is(err, domain.ErrRootProtected) {
+		t.Fatalf("Deactivate root = %v, want RootProtectedError", err)
+	}
+	got, err := users.GetByID(ctx, rootID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !got.Active {
+		t.Error("root must remain active")
+	}
+}
+
+func TestDeleteRootRejected(t *testing.T) {
+	svc, users, _ := newUserService()
+	rootID, _ := seedRoot(t, svc, users)
+	ctx := context.Background()
+
+	err := svc.Delete(ctx, rootID)
+	if !errors.Is(err, domain.ErrRootProtected) {
+		t.Fatalf("Delete root = %v, want RootProtectedError", err)
+	}
+	if _, err := users.GetByID(ctx, rootID); err != nil {
+		t.Fatalf("root must remain after rejected delete: %v", err)
+	}
+}
+
+// TestUpdateAndDeleteRegularUserStillWork guards the non-root path: the
+// invariants protect ONLY the root account, never the rest of the list.
+func TestUpdateAndDeleteRegularUserStillWork(t *testing.T) {
+	svc, users, _ := newUserService()
+	_, regularID := seedRoot(t, svc, users)
+	ctx := context.Background()
+
+	name := "Ana Maria"
+	_, err := svc.Update(ctx, regularID, application.UpdateUserInput{Name: &name})
+	if err != nil {
+		t.Fatalf("Update regular user = %v, want success", err)
+	}
+	if err := svc.Delete(ctx, regularID); err != nil {
+		t.Fatalf("Delete regular user = %v, want success", err)
+	}
+}
+
+// TestCreateUserIsNeverRoot proves the root role is not grantable through
+// user creation (role-authorization "Root role not grantable"): Create
+// assigns no role at all, so the created user can never carry root.
+func TestCreateUserIsNeverRoot(t *testing.T) {
+	svc, _, _ := newUserService()
+	ctx := context.Background()
+
+	for i := 0; i < 3; i++ {
+		u, err := svc.Create(ctx, application.CreateUserInput{
+			Name: "U" + fmt.Sprint(i), Email: fmt.Sprintf("u%d@example.com", i), Password: "secret",
+		})
+		if err != nil {
+			t.Fatalf("Create: %v", err)
+		}
+		if u.Role == domain.RoleRoot {
+			t.Fatalf("Create produced role root for user %d, want never root", u.ID)
+		}
 	}
 }
