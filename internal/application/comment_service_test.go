@@ -22,7 +22,7 @@ func TestAddCommentStoresWithSessionAuthor(t *testing.T) {
 	actor := domain.User{Name: "Ada", Email: "ada@example.com", Role: domain.RoleAdmin}
 	clock.Advance(timeMinute)
 
-	c, err := svc.Add(context.Background(), actor, ticket.ID, "The redirect is broken")
+	c, err := svc.Add(context.Background(), actor, ticket.ID, "The redirect is broken", "public")
 	if err != nil {
 		t.Fatalf("Add: unexpected error: %v", err)
 	}
@@ -53,7 +53,7 @@ func TestAddCommentRejectsEmptyBodyWithoutStoreCall(t *testing.T) {
 	})
 	svc := application.NewCommentService(tickets, comments, clock)
 
-	_, err := svc.Add(context.Background(), domain.User{Name: "Ada", Role: domain.RoleAdmin}, ticket.ID, "   ")
+	_, err := svc.Add(context.Background(), domain.User{Name: "Ada", Role: domain.RoleAdmin}, ticket.ID, "   ", "public")
 	var verr *domain.ValidationError
 	if !errors.As(err, &verr) || verr.Field != "body" {
 		t.Fatalf("Add: empty body must be a ValidationError on field body, got %v", err)
@@ -73,7 +73,7 @@ func TestAddCommentUnknownTicket(t *testing.T) {
 	clock := fixedClock()
 	svc := application.NewCommentService(newFakeTicketStore(), newFakeCommentStore(), clock)
 
-	_, err := svc.Add(context.Background(), domain.User{Name: "Ada", Role: domain.RoleAdmin}, 4242, "hello")
+	_, err := svc.Add(context.Background(), domain.User{Name: "Ada", Role: domain.RoleAdmin}, 4242, "hello", "public")
 	var nerr *domain.NotFoundError
 	if !errors.As(err, &nerr) || nerr.Kind != "ticket" {
 		t.Fatalf("Add: unknown ticket must be a NotFoundError(kind=ticket), got %v", err)
@@ -93,12 +93,144 @@ func TestAddCommentOnClosedTicketAccepted(t *testing.T) {
 	})
 	svc := application.NewCommentService(tickets, comments, clock)
 
-	c, err := svc.Add(context.Background(), domain.User{Name: "Ada", Role: domain.RoleAdmin}, ticket.ID, "Still relevant after closure")
+	c, err := svc.Add(context.Background(), domain.User{Name: "Ada", Role: domain.RoleAdmin}, ticket.ID, "Still relevant after closure", "public")
 	if err != nil {
 		t.Fatalf("Add: comments on closed tickets must be accepted, got %v", err)
 	}
 	if c.Body != "Still relevant after closure" {
 		t.Fatalf("Add: comment must be stored, got %+v", c)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// S5: comment visibility (comment-visibility spec). Role user creates ONLY
+// public comments; roles agent+ create both public and internal. Internal
+// comments are staff-only: a user-role actor is denied before any query.
+// ---------------------------------------------------------------------------
+
+// seededOwnedTicket arranges a ticket owned by the user-role actor (the
+// actor is the requester), so a user-role actor can both see it and comment
+// on it within scope.
+func seededOwnedTicket(t *testing.T, clock *fakeClock, tickets *fakeTicketStore, categories *fakeCategoryStore, user domain.User) domain.Ticket {
+	t.Helper()
+	cat := categories.seed("Bugs")
+	return tickets.seed(domain.Ticket{
+		Title: "Seeded", CategoryID: cat.ID, Priority: domain.PriorityLow,
+		State: domain.StateNew, CreatedAt: clock.now, UpdatedAt: clock.now,
+		RequesterUserID: &user.ID,
+	})
+}
+
+// TestAddCommentUserPublicOnly proves the user-role actor may create public
+// comments but is denied internal ones BEFORE any store call
+// (comment-visibility spec: "User creates public comment" + "User cannot
+// create internal").
+func TestAddCommentUserPublicOnly(t *testing.T) {
+	clock := fixedClock()
+	tickets := newFakeTicketStore()
+	comments := newFakeCommentStore()
+	user := domain.User{ID: 1, Name: "Ula", Email: "ula@example.com", Role: domain.RoleUser}
+	ticket := seededOwnedTicket(t, clock, tickets, newFakeCategoryStore(), user)
+	svc := application.NewCommentService(tickets, comments, clock)
+
+	// User adds a public comment: accepted, stored with visibility public.
+	c, err := svc.Add(context.Background(), user, ticket.ID, "Visible note", "public")
+	if err != nil {
+		t.Fatalf("Add(public): user must be allowed a public comment, got %v", err)
+	}
+	if c.Visibility != domain.CommentPublic {
+		t.Fatalf("Add(public): visibility must be public, got %q", c.Visibility)
+	}
+	stored := comments.comments[ticket.ID]
+	if len(stored) != 1 || stored[0].Visibility != domain.CommentPublic || stored[0].Body != "Visible note" {
+		t.Fatalf("Add(public): comment must be stored as public, got %+v", stored)
+	}
+
+	// User adds an internal comment: denied, nothing stored, no query made.
+	_, err = svc.Add(context.Background(), user, ticket.ID, "Staff secret", "internal")
+	var ferr *domain.ForbiddenError
+	if !errors.As(err, &ferr) || ferr.Message != domain.ErrMsgUserCannotCommentInternal {
+		t.Fatalf("Add(internal): user must be denied with %q, got %v", domain.ErrMsgUserCannotCommentInternal, err)
+	}
+	if len(comments.comments[ticket.ID]) != 1 {
+		t.Fatal("Add(internal): denied comment must not be stored")
+	}
+	if len(tickets.getByIDCalls) != 1 {
+		t.Fatalf("Add(internal): denial must fire before the ticket lookup (1 call for the public add), got calls %v", tickets.getByIDCalls)
+	}
+}
+
+// TestAddCommentAgentCreatesBothVisibilities proves an agent-role actor may
+// create public AND internal comments within scope, each stored with its own
+// visibility (comment-visibility spec: "Agent creates internal comment").
+func TestAddCommentAgentCreatesBothVisibilities(t *testing.T) {
+	clock := fixedClock()
+	tickets := newFakeTicketStore()
+	comments := newFakeCommentStore()
+	agent := domain.User{ID: 1, Name: "Xylo", Email: "xylo@example.com", Role: domain.RoleAgent}
+	cat := newFakeCategoryStore().seed("Bugs")
+	ticket := tickets.seed(domain.Ticket{
+		Title: "Seeded", CategoryID: cat.ID, Priority: domain.PriorityLow,
+		State: domain.StateNew, CreatedAt: clock.now, UpdatedAt: clock.now,
+		UserID: &agent.ID,
+	})
+	svc := application.NewCommentService(tickets, comments, clock)
+
+	pub, err := svc.Add(context.Background(), agent, ticket.ID, "Public note", "public")
+	if err != nil {
+		t.Fatalf("Add(public): unexpected error: %v", err)
+	}
+	internal, err := svc.Add(context.Background(), agent, ticket.ID, "Staff only", "internal")
+	if err != nil {
+		t.Fatalf("Add(internal): agent must be allowed internal comments, got %v", err)
+	}
+	if pub.Visibility != domain.CommentPublic || internal.Visibility != domain.CommentInternal {
+		t.Fatalf("visibilities = %q / %q, want public / internal", pub.Visibility, internal.Visibility)
+	}
+	stored := comments.comments[ticket.ID]
+	if len(stored) != 2 {
+		t.Fatalf("stored = %d comments, want 2", len(stored))
+	}
+	if stored[0].Visibility != domain.CommentPublic || stored[1].Visibility != domain.CommentInternal {
+		t.Fatalf("stored visibilities = %q / %q, want public / internal", stored[0].Visibility, stored[1].Visibility)
+	}
+}
+
+// TestAddCommentVisibilityValidation proves forged visibility values are
+// rejected (fail closed) while an omitted visibility defaults to public
+// (migration 0003 default: legacy comments backfill to public).
+func TestAddCommentVisibilityValidation(t *testing.T) {
+	clock := fixedClock()
+	tickets := newFakeTicketStore()
+	comments := newFakeCommentStore()
+	admin := domain.User{Name: "Ada", Email: "ada@example.com", Role: domain.RoleAdmin}
+	cat := newFakeCategoryStore().seed("Bugs")
+	ticket := tickets.seed(domain.Ticket{
+		Title: "Seeded", CategoryID: cat.ID, Priority: domain.PriorityLow,
+		State: domain.StateNew, CreatedAt: clock.now, UpdatedAt: clock.now,
+	})
+	svc := application.NewCommentService(tickets, comments, clock)
+
+	// Unknown visibility: rejected before any query or store call.
+	_, err := svc.Add(context.Background(), admin, ticket.ID, "Forged", "secret")
+	var verr *domain.ValidationError
+	if !errors.As(err, &verr) || verr.Field != "visibility" {
+		t.Fatalf("Add(secret): must be a ValidationError on field visibility, got %v", err)
+	}
+	if len(comments.comments[ticket.ID]) != 0 {
+		t.Fatal("Add(secret): rejected comment must not be stored")
+	}
+	if len(tickets.getByIDCalls) != 0 {
+		t.Fatalf("Add(secret): rejection must fire before the ticket lookup, got calls %v", tickets.getByIDCalls)
+	}
+
+	// Omitted visibility defaults to public (legacy form posts, backfill).
+	c, err := svc.Add(context.Background(), admin, ticket.ID, "Legacy note", "")
+	if err != nil {
+		t.Fatalf("Add(\"\"): omitted visibility must default to public, got %v", err)
+	}
+	if c.Visibility != domain.CommentPublic {
+		t.Fatalf("Add(\"\"): visibility must default to public, got %q", c.Visibility)
 	}
 }
 
@@ -150,7 +282,7 @@ func TestAppendOnlyCommentsNoUpdateOrDelete(t *testing.T) {
 	actor := domain.User{Name: "Ada", Role: domain.RoleAdmin}
 	for _, body := range []string{"first", "second"} {
 		clock.Advance(timeMinute)
-		if _, err := svc.Add(context.Background(), actor, ticket.ID, body); err != nil {
+		if _, err := svc.Add(context.Background(), actor, ticket.ID, body, "public"); err != nil {
 			t.Fatalf("Add(%q): unexpected error: %v", body, err)
 		}
 	}
@@ -180,7 +312,7 @@ func TestListByTicketCreationOrder(t *testing.T) {
 
 	for _, body := range []string{"first", "second", "third"} {
 		clock.Advance(timeMinute)
-		if _, err := svc.Add(context.Background(), actor, ticket.ID, body); err != nil {
+		if _, err := svc.Add(context.Background(), actor, ticket.ID, body, "public"); err != nil {
 			t.Fatalf("Add(%q): unexpected error: %v", body, err)
 		}
 	}

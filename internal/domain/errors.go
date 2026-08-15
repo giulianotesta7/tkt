@@ -28,6 +28,8 @@ const (
 	ErrMsgAssignmentViaAssign       = "assignment changes must use the assign flow"
 	ErrMsgBootstrapUnavailable      = "first-user setup is no longer available"
 	ErrMsgRootProtected             = "the root account is protected"
+	ErrMsgCommentVisibilityInvalid  = "invalid comment visibility"
+	ErrMsgUserCannotCommentInternal = "user role cannot add internal comments"
 )
 
 // Sentinel errors naming the store contract failures (ports.go uses them as

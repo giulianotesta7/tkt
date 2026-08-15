@@ -16,7 +16,7 @@ func TestTicketShowRendersDetail(t *testing.T) {
 	h := newHarness(t)
 	tkt := h.seedTicket(t, "Login page down", nil)
 	h.seedTransition(t, tkt.ID, domain.StateInProgress, "")
-	if _, err := h.comments.Add(t.Context(), *h.admin, tkt.ID, "Checking now"); err != nil {
+	if _, err := h.comments.Add(t.Context(), *h.admin, tkt.ID, "Checking now", "public"); err != nil {
 		t.Fatalf("seed comment: %v", err)
 	}
 
@@ -79,7 +79,7 @@ func TestTicketTimelineDifferentiatesCommentsAndAuditEvents(t *testing.T) {
 	h := newHarness(t)
 	tkt := h.seedTicket(t, "Login page down", nil)
 	h.seedTransition(t, tkt.ID, domain.StateInProgress, "")
-	if _, err := h.comments.Add(t.Context(), *h.admin, tkt.ID, "Checking now"); err != nil {
+	if _, err := h.comments.Add(t.Context(), *h.admin, tkt.ID, "Checking now", "public"); err != nil {
 		t.Fatalf("seed comment: %v", err)
 	}
 
@@ -351,7 +351,7 @@ func TestTicketCommentsNewestFirst(t *testing.T) {
 	h := newHarness(t)
 	h.seedTicket(t, "Login page down", nil)
 	for _, body := range []string{"first", "second", "third"} {
-		if _, err := h.comments.Add(t.Context(), *h.admin, 1, body); err != nil {
+		if _, err := h.comments.Add(t.Context(), *h.admin, 1, body, "public"); err != nil {
 			t.Fatalf("seed comment %q: %v", body, err)
 		}
 	}

@@ -514,7 +514,11 @@ func (h *TicketHandlers) addComment(w http.ResponseWriter, r *http.Request) {
 	}
 	actor := *userFromContext(r.Context())
 
-	_, err := h.comments.Add(r.Context(), actor, id, r.Form.Get("body"))
+	// S5: the visibility form field flows to the use case, which enforces
+	// the role rules (user public-only; agent+ both). The template renders
+	// the selector only for internal-capable actors; a forged internal value
+	// from a user-role actor is rejected here regardless of what the UI shows.
+	_, err := h.comments.Add(r.Context(), actor, id, r.Form.Get("body"), r.Form.Get("visibility"))
 	if err != nil {
 		h.renderDetailError(w, r, id, err)
 		return
