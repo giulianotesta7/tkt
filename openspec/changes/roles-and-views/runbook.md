@@ -49,17 +49,27 @@ the migration and is idempotent.
 
 When a legacy database cannot prove the original setup user (users exist
 but id=1 is gone), startup fails closed with a `-recover-root` error —
-the operator must explicitly select the root identity. Do not work around
-the failure; restore the backup and run the recovery flow (`-recover-root`
-lands in the next slice) before serving ambiguous databases.
+the operator must explicitly select the root identity with the recovery
+flag shipped in this deployment:
+
+```bash
+tkt -recover-root=<user-id>
+```
+
+Do not work around the failure; run the recovery flow before serving
+ambiguous databases.
 
 ## 4. Rollback
 
-Restore the backup files and the previous binary:
+Restore the backup files (all three — the pre-deploy state lives across
+`db`, `wal`, and `shm`; restoring only `db` and deleting the WAL would
+discard committed transactions that were present only in the WAL and
+roll back to an older state) and the previous binary:
 
 ```bash
-cp -p data/backups/tkt.db.<stamp> data/tkt.db
-rm -f data/tkt.db-wal data/tkt.db-shm   # stale WAL must not replay onto the restored db
+cp -p data/backups/tkt.db.<stamp>    data/tkt.db
+cp -p data/backups/tkt.db-wal.<stamp> data/tkt.db-wal
+cp -p data/backups/tkt.db-shm.<stamp> data/tkt.db-shm
 ```
 
 Start the previous binary. Confirm the app boots and the ticket list
