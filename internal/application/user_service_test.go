@@ -220,3 +220,74 @@ func TestUserServiceList(t *testing.T) {
 		t.Fatalf("List: 2 users expected, got %d", len(list))
 	}
 }
+
+// S2 bootstrap use case RED: BootstrapRoot is the ONLY use case that creates
+// a root (role-authorization first-user bootstrap). Written before the
+// method exists — compile-error RED.
+
+func TestBootstrapRootCreatesRootWithHashedPassword(t *testing.T) {
+	svc, users, clock := newUserService()
+
+	u, err := svc.BootstrapRoot(context.Background(), application.CreateUserInput{
+		Name: "Root", Email: "root@example.com", Password: "s3cret-pass",
+	})
+	if err != nil {
+		t.Fatalf("BootstrapRoot: unexpected error: %v", err)
+	}
+	if u.ID == 0 {
+		t.Fatal("BootstrapRoot: user must receive a unique ID")
+	}
+	if u.Role != domain.RoleRoot {
+		t.Fatalf("BootstrapRoot: role = %q, want %q", u.Role, domain.RoleRoot)
+	}
+	if !u.Active {
+		t.Fatal("BootstrapRoot: the first user must be active")
+	}
+	if u.PasswordHash == "s3cret-pass" || u.PasswordHash == "" {
+		t.Fatal("BootstrapRoot: only the bcrypt hash must be stored")
+	}
+	if !application.VerifyPassword(u.PasswordHash, "s3cret-pass") {
+		t.Fatal("BootstrapRoot: stored hash must verify against the password")
+	}
+	if !u.CreatedAt.Equal(clock.now) {
+		t.Fatalf("BootstrapRoot: timestamp must come from the injected clock")
+	}
+	// The same user object visible through the store carries the root role.
+	got, err := users.GetByID(context.Background(), u.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Role != domain.RoleRoot {
+		t.Errorf("stored role = %q, want %q", got.Role, domain.RoleRoot)
+	}
+}
+
+func TestBootstrapRootRejectsWhenUsersExist(t *testing.T) {
+	svc, users, _ := newUserService()
+	users.seed("Ana", "ana@example.com", true)
+
+	_, err := svc.BootstrapRoot(context.Background(), application.CreateUserInput{
+		Name: "Other", Email: "other@example.com", Password: "s3cret-pass",
+	})
+	if !errors.Is(err, domain.ErrBootstrapUnavailable) {
+		t.Fatalf("BootstrapRoot with users present = %v, want ErrBootstrapUnavailable", err)
+	}
+	if len(users.users) != 1 {
+		t.Fatalf("BootstrapRoot must not create an account, got %d users", len(users.users))
+	}
+}
+
+func TestBootstrapRootRejectsInvalidInput(t *testing.T) {
+	svc, users, _ := newUserService()
+
+	_, err := svc.BootstrapRoot(context.Background(), application.CreateUserInput{
+		Name: "  ", Email: "root@example.com", Password: "s3cret-pass",
+	})
+	var verr *domain.ValidationError
+	if !errors.As(err, &verr) {
+		t.Fatalf("BootstrapRoot blank name = %v, want ValidationError", err)
+	}
+	if len(users.users) != 0 {
+		t.Fatal("BootstrapRoot must not store a user on validation failure")
+	}
+}
