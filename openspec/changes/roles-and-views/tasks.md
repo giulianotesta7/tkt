@@ -43,10 +43,10 @@ Deps: 2,3,6←P1; 4,5←3; 7←2–6; 8←7; P5∥P6; S6 monitored.
 
 ## S3
 
-- [ ] 3.1 `domain/ticket.go`: `RequesterUserID *int64`.
-- [ ] 3.2 RED create stores session requester; caller fields rejected.
-- [ ] 3.3 Scope via `ports.go`,`ticket_store.go`,`filters.go`,`search_store.go`.
-- [ ] 3.4 RED user own-only, agent assigned, admin/root full queue.
+- [x] 3.1 `domain/ticket.go`: `RequesterUserID *int64`.
+- [x] 3.2 RED create stores session requester; caller fields rejected.
+- [x] 3.3 Scope via `ports.go`,`ticket_store.go`,`filters.go`,`search_store.go`.
+- [x] 3.4 RED user own-only, agent assigned, admin/root full queue.
 
 ## S4
 
