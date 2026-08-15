@@ -36,10 +36,10 @@ Deps: 2,3,6←P1; 4,5←3; 7←2–6; 8←7; P5∥P6; S6 monitored.
 
 ## S2
 
-- [ ] 2.1 RED concurrent `/setup`→one root (`BEGIN IMMEDIATE`).
-- [ ] 2.2 `BootstrapRoot`.
-- [ ] 2.3 RED+impl `-recover-root`: promote+audit+exit;else fail closed.
-- [ ] 2.4 RED root untouchable, not grantable; startup fails closed.
+- [x] 2.1 RED concurrent `/setup`→one root (`BEGIN IMMEDIATE`).
+- [x] 2.2 `BootstrapRoot`.
+- [x] 2.3 RED+impl `-recover-root`: promote+audit+exit;else fail closed.
+- [x] 2.4 RED root untouchable, not grantable; startup fails closed.
 
 ## S3
 
