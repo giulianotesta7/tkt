@@ -65,6 +65,32 @@ func TestRoleValidAndParse(t *testing.T) {
 	}
 }
 
+// R3-001: AtLeast must fail closed on invalid or unset roles — an unknown
+// receiver or threshold never passes a hierarchy gate (map lookups return
+// zero for absent keys, so without an explicit guard Role("") would rank
+// equal to RoleUser and silently pass a user-level gate).
+func TestRoleAtLeastFailsClosedOnInvalidRoles(t *testing.T) {
+	cases := []struct {
+		name  string
+		role  Role
+		other Role
+	}{
+		{"empty receiver vs user", Role(""), RoleUser},
+		{"empty receiver vs agent", Role(""), RoleAgent},
+		{"empty receiver vs empty threshold", Role(""), Role("")},
+		{"unknown receiver vs user", Role("superuser"), RoleUser},
+		{"valid user vs empty threshold", RoleUser, Role("")},
+		{"valid root vs unknown threshold", RoleRoot, Role("owner")},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := tc.role.AtLeast(tc.other); got {
+				t.Errorf("%q.AtLeast(%q) = true, want false (fail closed)", tc.role, tc.other)
+			}
+		})
+	}
+}
+
 // Task 1.2 RED companion: User carries exactly one role (the zero value is
 // the unset/empty role — never silently a valid one).
 func TestUserCarriesRole(t *testing.T) {
