@@ -41,7 +41,20 @@ func envOr(key, fallback string) string {
 
 func main() {
 	healthcheck := flag.Bool("healthcheck", false, "open the database, run SELECT 1, exit 0/1")
+	recoverRoot := flag.Int64("recover-root", 0, "one-shot operator-selected root recovery: activate and promote user <id> to root, audit, exit (fails closed when a root already exists or the user is unknown)")
 	flag.Parse()
+
+	// flag.Visit distinguishes "flag absent" from "explicitly -recover-root=0":
+	// the latter is an operator error, not a no-op.
+	recoverRootSet := false
+	flag.Visit(func(f *flag.Flag) {
+		if f.Name == "recover-root" {
+			recoverRootSet = true
+		}
+	})
+	if recoverRootSet && *recoverRoot <= 0 {
+		log.Fatalf("recover-root: invalid user id %d (must be a positive user id)", *recoverRoot)
+	}
 
 	dbPath := envOr("TKT_DB_PATH", "data/tkt.db")
 	listen := envOr("TKT_LISTEN", ":8080")
@@ -51,7 +64,26 @@ func main() {
 		log.Fatalf("open db: %v", err)
 	}
 	if err := store.Migrate(context.Background()); err != nil {
-		log.Fatalf("migrate: %v", err)
+		// The fail-closed legacy backfill (users exist without a provable
+		// root) is the exact situation -recover-root exists to resolve:
+		// tolerate that one sentinel error ONLY when the flag is set and
+		// proceed to recovery. Without the flag, or for any other migration
+		// failure, startup fails closed and never serves.
+		if !recoverRootSet || !errors.Is(err, sqlite.ErrRecoverRootRequired) {
+			log.Fatalf("migrate: %v", err)
+		}
+	}
+
+	if recoverRootSet {
+		u, err := store.UserStore().RecoverRoot(context.Background(), *recoverRoot)
+		if err != nil {
+			log.Fatalf("recover root: %v", err)
+		}
+		log.Printf("recovered root: %s <%s> (id %d)", u.Name, u.Email, u.ID)
+		if err := store.Close(); err != nil {
+			log.Printf("close db: %v", err)
+		}
+		os.Exit(0)
 	}
 
 	if *healthcheck {

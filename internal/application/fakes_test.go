@@ -358,6 +358,24 @@ func (f *fakeUserStore) BootstrapRoot(_ context.Context, u *domain.User) error {
 	return f.Create(context.Background(), u)
 }
 
+// RecoverRoot mirrors the real store's fail-closed contract: refused when a
+// root exists or the user is unknown; otherwise activate + promote + return.
+func (f *fakeUserStore) RecoverRoot(_ context.Context, id int64) (*domain.User, error) {
+	for _, u := range f.users {
+		if u.Role == domain.RoleRoot {
+			return nil, errors.New("a root already exists; recovery refused")
+		}
+	}
+	u, ok := f.users[id]
+	if !ok {
+		return nil, &domain.NotFoundError{Kind: "user", ID: id}
+	}
+	u.Role = domain.RoleRoot
+	u.Active = true
+	cp := *u
+	return &cp, nil
+}
+
 func (f *fakeUserStore) Update(_ context.Context, u *domain.User) error {
 	existing, ok := f.users[u.ID]
 	if !ok {

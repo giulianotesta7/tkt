@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"embed"
+	"errors"
 	"fmt"
 	"io/fs"
 	"path"
@@ -15,6 +16,15 @@ import (
 
 //go:embed migrations/*.sql
 var migrationsFS embed.FS
+
+// ErrRecoverRootRequired is returned by the legacy backfill when users exist
+// without a provable root (the reliable id=1 setup user is absent): startup
+// must FAIL CLOSED and the operator must select the root via
+// -recover-root=<user-id> (design "Persistence and Recovery"; role-
+// authorization "Operator-Selected Root Recovery"). The command layer
+// tolerates exactly this error when the flag is set — it is the situation
+// the flag exists to resolve.
+var ErrRecoverRootRequired = errors.New("users exist without a root and the legacy setup user id=1 is absent; run -recover-root=<user-id>")
 
 // Migrate applies the embedded versioned migrations (D10) that are not yet
 // recorded in schema_migrations. Each migration runs in its own immediate
@@ -177,7 +187,7 @@ func backfillRoot(ctx context.Context, tx *sql.Tx) error {
 		return fmt.Errorf("sqlite: backfill check id 1: %w", err)
 	}
 	if hasID1 == 0 {
-		return fmt.Errorf("sqlite: users exist without a root and the legacy setup user id=1 is absent; run -recover-root=<user-id> to select a root")
+		return fmt.Errorf("sqlite: %w", ErrRecoverRootRequired)
 	}
 	// Legacy id=1 is the original setup user under AUTOINCREMENT: promote
 	// and audit (the root-immutable triggers fire only when OLD.role is

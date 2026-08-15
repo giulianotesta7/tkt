@@ -117,6 +117,15 @@ type UserStore interface {
 	// the ONLY store operation that may insert a root — user creation and
 	// role-grant flows must never do so.
 	BootstrapRoot(ctx context.Context, u *domain.User) error
+	// RecoverRoot is the one-shot operator-selected root recovery (design
+	// "Persistence and Recovery"; role-authorization "Operator-Selected Root
+	// Recovery"). In one immediate transaction it verifies NO root exists
+	// and the selected user exists, activates and promotes that user to
+	// root, records the recovery in role_changes (actor NULL, reason
+	// "operator-selected root recovery"), and returns the promoted user.
+	// It fails closed when a root already exists or the user is unknown —
+	// recovery never guesses and never creates a second root.
+	RecoverRoot(ctx context.Context, id int64) (*domain.User, error)
 }
 
 // SessionStore persists server-side login sessions (D14).
