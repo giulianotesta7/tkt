@@ -94,9 +94,10 @@ func (s *TicketService) Create(ctx context.Context, actor domain.User, in Create
 		UpdatedAt:       now,
 	}
 	event := domain.AuditEvent{
-		Actor:     actor.Name,
-		Action:    domain.ActionCreated,
-		CreatedAt: now,
+		Actor:       actor.Name,
+		ActorUserID: &actor.ID,
+		Action:      domain.ActionCreated,
+		CreatedAt:   now,
 	}
 	if err := s.tx.Create(ctx, t, event); err != nil {
 		return nil, err
@@ -119,6 +120,7 @@ func (s *TicketService) Transition(ctx context.Context, actor domain.User, ticke
 		return nil, err
 	}
 	event.Actor = actor.Name
+	event.ActorUserID = &actor.ID
 	if err := s.tx.Update(ctx, t, *event); err != nil {
 		return nil, err
 	}
@@ -157,6 +159,7 @@ func (s *TicketService) Update(ctx context.Context, actor domain.User, ticketID 
 	}
 	for i := range events {
 		events[i].Actor = actor.Name
+		events[i].ActorUserID = &actor.ID
 	}
 	if err := s.tx.Update(ctx, t, events...); err != nil {
 		return nil, err

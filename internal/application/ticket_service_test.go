@@ -570,6 +570,46 @@ func TestTransitionRollsBackStateWhenAuditAppendFails(t *testing.T) {
 	}
 }
 
+// TestMutationAuditEventsCarryActorUserID proves the S4 audit contract
+// (design: "Events store session actor ID/snapshot"): every mutation event
+// the service mints — create, transition, update — carries the session
+// actor's user id alongside the name snapshot.
+func TestMutationAuditEventsCarryActorUserID(t *testing.T) {
+	h := newTicketHarness()
+	cat := h.categories.seed("Bugs")
+	actor := domain.User{ID: 11, Name: "Ada", Email: "ada@example.com", Role: domain.RoleAdmin}
+
+	ticket, err := h.svc.Create(context.Background(), actor, validCreateInput(cat.ID, nil))
+	if err != nil {
+		t.Fatalf("Create: unexpected error: %v", err)
+	}
+	h.clock.Advance(timeMinute)
+	if _, err := h.svc.Transition(context.Background(), actor, ticket.ID, domain.StateInProgress, ""); err != nil {
+		t.Fatalf("Transition: unexpected error: %v", err)
+	}
+	h.clock.Advance(timeMinute)
+	newTitle := "Renamed"
+	if _, err := h.svc.Update(context.Background(), actor, ticket.ID, domain.TicketUpdate{Title: &newTitle}); err != nil {
+		t.Fatalf("Update: unexpected error: %v", err)
+	}
+
+	events, err := h.audits.ListByTicket(context.Background(), ticket.ID)
+	if err != nil {
+		t.Fatalf("ListByTicket: unexpected error: %v", err)
+	}
+	if len(events) != 3 {
+		t.Fatalf("expected 3 events (created + transition + update), got %d", len(events))
+	}
+	for i, ev := range events {
+		if ev.Actor != actor.Name {
+			t.Errorf("event[%d] Actor = %q, want session name %q", i, ev.Actor, actor.Name)
+		}
+		if ev.ActorUserID == nil || *ev.ActorUserID != actor.ID {
+			t.Errorf("event[%d] ActorUserID = %v, want session user id %d", i, ev.ActorUserID, actor.ID)
+		}
+	}
+}
+
 // TestGetByIDReturnsComposedView covers the read contract (C2): GetByID
 // returns the composed TicketView — ticket, resolved category name, resolved
 // assigned-user name, and the chronological comment timeline — not the raw

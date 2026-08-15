@@ -286,10 +286,11 @@ func (u *unitOfWork) Update(ctx context.Context, t *domain.Ticket, events ...dom
 // and reused by the audit store (4.3).
 func appendAuditEventsTx(ctx context.Context, tx *sql.Tx, events ...domain.AuditEvent) error {
 	for _, e := range events {
-		if _, err := tx.ExecContext(ctx, `INSERT INTO audit_events (ticket_id, actor, action, field, from_value, to_value, note, created_at)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		if _, err := tx.ExecContext(ctx, `INSERT INTO audit_events (ticket_id, actor, action, field, from_value, to_value, note, actor_user_id, reason, created_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			e.TicketID, e.Actor, e.Action, nullableString(e.Field), nullableString(e.FromValue),
-			nullableString(e.ToValue), nullableString(e.Note), formatTime(e.CreatedAt)); err != nil {
+			nullableString(e.ToValue), nullableString(e.Note), nullableInt64(e.ActorUserID),
+			nullableString(e.Reason), formatTime(e.CreatedAt)); err != nil {
 			return fmt.Errorf("sqlite: append audit event: %w", err)
 		}
 	}

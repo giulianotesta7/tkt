@@ -190,6 +190,60 @@ func TestAuditAppendPersistsMultiEventBatch(t *testing.T) {
 	}
 }
 
+// TestAuditRoundTripActorUserIDAndReason proves the S4 audit contract
+// (design: "Events store session actor ID/snapshot"; migration 0003 adds
+// audit_events.actor_user_id + reason): an event's session actor id and
+// reason survive a full Append → ListByTicket round trip through the real
+// store, and events without them read back as NULL.
+func TestAuditRoundTripActorUserIDAndReason(t *testing.T) {
+	s := newTestDB(t)
+	ticketID := seedTicketForTimeline(t, s, 1)
+	ctx := context.Background()
+
+	// The actor_user_id column is a real FK: the actor must be a stored
+	// user (migration 0003), so seed one through the port and use its id.
+	actor := &domain.User{Name: "Ana", Email: "ana@example.com", Active: true, CreatedAt: testClock}
+	if err := s.UserStore().Create(ctx, actor); err != nil {
+		t.Fatalf("seed actor: %v", err)
+	}
+	actorID := actor.ID
+
+	reason := "handoff to second-line"
+	if err := s.AuditStore().Append(ctx, domain.AuditEvent{
+		TicketID: ticketID, Actor: "Ana", ActorUserID: &actorID,
+		Action: domain.ActionUpdate, Field: ptr("user"),
+		FromValue: ptr(""), ToValue: ptr("2"),
+		Reason: &reason, CreatedAt: testClock,
+	}); err != nil {
+		t.Fatalf("append with actor_user_id + reason: %v", err)
+	}
+	// Triangulation: an event WITHOUT actor id / reason must round-trip as
+	// NULL, not as empty strings (legacy + backfill events carry no actor id).
+	if err := s.AuditStore().Append(ctx, domain.AuditEvent{
+		TicketID: ticketID, Actor: "Root", Action: domain.ActionCreated, CreatedAt: testClock,
+	}); err != nil {
+		t.Fatalf("append without actor fields: %v", err)
+	}
+
+	got, err := s.AuditStore().ListByTicket(ctx, ticketID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("len = %d, want 2", len(got))
+	}
+	first := got[0]
+	if first.ActorUserID == nil || *first.ActorUserID != actorID {
+		t.Errorf("event[0] ActorUserID = %v, want %d", first.ActorUserID, actorID)
+	}
+	if first.Reason == nil || *first.Reason != reason {
+		t.Errorf("event[0] Reason = %v, want %q", first.Reason, reason)
+	}
+	if got[1].ActorUserID != nil || got[1].Reason != nil {
+		t.Errorf("event[1] must round-trip NULL actor fields, got ActorUserID=%v Reason=%v", got[1].ActorUserID, got[1].Reason)
+	}
+}
+
 func TestAuditAppendScopedToTicket(t *testing.T) {
 	s := newTestDB(t)
 	ctx := context.Background()
