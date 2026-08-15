@@ -425,6 +425,12 @@ type detailData struct {
 	Next    []transitionTarget
 	Options options
 	Values  ticketFormValues
+	// CanCommentInternal is the actor's comment-visibility capability
+	// (comment-visibility spec): the comment form offers the internal
+	// option only to agent+ actors. This is presentation only — the
+	// server-side use case rejects a forged internal value regardless of
+	// what the UI shows.
+	CanCommentInternal bool
 }
 
 // ticketID resolves and validates the {id} path parameter; 0 + false on a
@@ -458,11 +464,12 @@ func (h *TicketHandlers) detailDataFor(r *http.Request, id int64) (detailData, i
 		values.UserID = strconv.FormatInt(*view.Ticket.UserID, 10)
 	}
 	return detailData{
-		pageData: pageDataFrom(r, "tickets"),
-		View:     view,
-		Next:     allowedNext(view.Ticket.State),
-		Options:  opts,
-		Values:   values,
+		pageData:           pageDataFrom(r, "tickets"),
+		View:               view,
+		Next:               allowedNext(view.Ticket.State),
+		Options:            opts,
+		Values:             values,
+		CanCommentInternal: application.NewPolicy().Capabilities(actor.Role).Require(application.CapCommentInternal),
 	}, 0, nil
 }
 

@@ -5,7 +5,8 @@
   <div class="timeline-entry timeline-comment">
     <div class="who">
       <span class="author">{{.Comment.Author}}</span>
-      <span class="when">{{template "timestamp" .Comment.CreatedAt}}</span>
+{{if eq .Comment.Visibility "internal"}}      <span class="badge internal">internal</span>
+{{end}}      <span class="when">{{template "timestamp" .Comment.CreatedAt}}</span>
     </div>
     <div class="body">{{.Comment.Body}}</div>
   </div>
