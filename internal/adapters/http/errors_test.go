@@ -24,6 +24,8 @@ func TestMapError(t *testing.T) {
 		{"invalid transition", domain.NewInvalidTransitionError(domain.StateNew, domain.StateClosed), 422, "transition not allowed from new to closed"},
 		{"reopen reason required", domain.NewReopenReasonRequiredError(), 422, domain.ErrMsgReopenReasonRequired},
 		{"inactive user", domain.NewInactiveUserError("user"), 422, domain.ErrMsgUserInactive},
+		{"reassign reason required", domain.NewReassignReasonRequiredError(), 422, domain.ErrMsgReassignReasonRequired},
+		{"forbidden", domain.NewForbiddenError(domain.ErrMsgUserCannotTransition), 403, domain.ErrMsgUserCannotTransition},
 		{"invalid priority", &domain.InvalidPriorityError{Field: "priority", Message: domain.ErrMsgInvalidPriority}, 422, domain.ErrMsgInvalidPriority},
 		{"not found", &domain.NotFoundError{Kind: "ticket", ID: int64(7)}, 404, "ticket not found"},
 		{"duplicate", &domain.DuplicateError{Kind: "user", Name: "ana@example.com"}, 409, `user "ana@example.com" already exists`},

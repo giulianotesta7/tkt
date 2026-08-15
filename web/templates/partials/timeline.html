@@ -14,7 +14,8 @@
     <span class="dot {{.Event.Action}}"></span>
     <div class="body">
       <div class="main">{{.ActionLabel}}{{if .FieldLabel}} · {{.FieldLabel}}{{end}}{{if .Event.FromValue}} · {{.FromLabel}} → {{.ToLabel}}{{end}}</div>
-{{if .Event.Note}}      <div class="detail">note: {{.Event.Note}}</div>
+{{if .Event.Reason}}      <div class="detail">reason: {{.Event.Reason}}</div>
+{{else if .Event.Note}}      <div class="detail">note: {{.Event.Note}}</div>
 {{end}}
       <div class="when">{{template "timestamp" .Event.CreatedAt}} · {{.Event.Actor}}</div>
     </div>

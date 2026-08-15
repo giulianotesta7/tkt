@@ -44,15 +44,23 @@
               {{range .Options.Priorities}}<option value="{{.}}" {{if eq . $.Values.Priority}}selected{{end}}>{{humanize .}}</option>{{end}}
             </select>
           </div>
-          <div class="field">
-            <label for="ticket-user">Assigned To</label>
-            <select id="ticket-user" name="user_id">
-              <option value="">Unassigned</option>
-              {{range .Options.AssignableUsers}}<option value="{{.ID}}" {{if eq (.ID | printf "%d") $.Values.UserID}}selected{{end}}>{{.Name}}{{if not .Active}} (inactive){{end}}</option>{{end}}
-            </select>
-          </div>
         </div>
         <button class="btn primary" type="submit">Save properties</button>
+      </form>
+      <form class="card property-form" method="post" action="/tickets/{{.View.Ticket.ID}}/assign">
+        <h2>Assignment</h2>
+        <div class="field">
+          <label for="assign-user">Assigned To</label>
+          <select id="assign-user" name="user_id">
+            <option value="">Unassigned</option>
+            {{range .Options.AssignableUsers}}<option value="{{.ID}}" {{if eq (.ID | printf "%d") $.Values.UserID}}selected{{end}}>{{.Name}}{{if not .Active}} (inactive){{end}}</option>{{end}}
+          </select>
+        </div>
+        <div class="field">
+          <label for="assign-reason">Reason</label>
+          <input type="text" id="assign-reason" name="reason" placeholder="Required when reassigning">
+        </div>
+        <button class="btn primary" type="submit">Save assignment</button>
       </form>
       <div class="card state-card">
         <h2>State</h2>

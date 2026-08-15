@@ -46,6 +46,7 @@ func (h *TicketHandlers) Register(mux *http.ServeMux) {
 	mux.HandleFunc("POST /tickets", h.create)
 	mux.HandleFunc("GET /tickets/{id}", h.show)
 	mux.HandleFunc("POST /tickets/{id}/edit", h.update)
+	mux.HandleFunc("POST /tickets/{id}/assign", h.assign)
 	mux.HandleFunc("POST /tickets/{id}/transition", h.transition)
 	mux.HandleFunc("POST /tickets/{id}/comments", h.addComment)
 }
@@ -92,7 +93,11 @@ func (h *TicketHandlers) collectOptions(r *http.Request) (options, error) {
 	}
 	var assignable []domain.User
 	for _, u := range users {
-		if u.Active {
+		// Assignment targets are ACTIVE agent-plus personnel only (S4.2,
+		// ticket-access spec): the dropdown never offers a user-role
+		// account or a deactivated user; the use case enforces the same
+		// rule server-side when forged values are posted.
+		if u.Active && u.Role.AtLeast(domain.RoleAgent) {
 			assignable = append(assignable, u)
 		}
 	}
@@ -527,6 +532,42 @@ func (h *TicketHandlers) addComment(w http.ResponseWriter, r *http.Request) {
 	redirect(w, r, "/tickets/"+strconv.FormatInt(id, 10))
 }
 
+// assign applies the assignment form (assigned-to dropdown + optional
+// reason) via the Assign use case, which enforces the person-only rules:
+// agent+ actors only, active agent-plus target, reason required only for a
+// reassignment (ticket-access spec; approved decision). Empty user_id
+// clears the assignment. The form carries no other ticket fields — forged
+// values are ignored, matching the requester policy.
+func (h *TicketHandlers) assign(w http.ResponseWriter, r *http.Request) {
+	id, ok := ticketID(r)
+	if !ok {
+		http.Error(w, "invalid ticket id", http.StatusBadRequest)
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+	actor := *userFromContext(r.Context())
+
+	var assigneeID *int64
+	if raw := r.Form.Get("user_id"); raw != "" {
+		uid := parseID(raw)
+		if uid == 0 {
+			h.renderDetailError(w, r, id, &domain.ValidationError{Field: "user", Message: "invalid user"})
+			return
+		}
+		assigneeID = &uid
+	}
+
+	_, err := h.tickets.Assign(r.Context(), actor, id, assigneeID, r.Form.Get("reason"))
+	if err != nil {
+		h.renderDetailError(w, r, id, err)
+		return
+	}
+	h.afterMutation(w, r, id, "ticket_detail")
+}
+
 // renderDetailError re-renders the detail view with an inline error and the
 // mapped status (HX → ticket_detail fragment; full → tickets_show page).
 func (h *TicketHandlers) renderDetailError(w http.ResponseWriter, r *http.Request, id int64, err error) {
@@ -559,9 +600,11 @@ func (h *TicketHandlers) afterMutation(w http.ResponseWriter, r *http.Request, i
 	redirect(w, r, "/tickets/"+strconv.FormatInt(id, 10))
 }
 
-// update applies the inline properties form (priority + assignment). The
-// immutable ticket fields (title, description, category) are never read from
-// the request: forged values are ignored, matching the requester policy.
+// update applies the inline properties form. Assignment is NOT part of the
+// edit flow: it lives on POST /tickets/{id}/assign, where the reason and
+// target rules are enforced (S4). The immutable ticket fields (title,
+// description, category) are never read from the request: forged values are
+// ignored, matching the requester policy.
 func (h *TicketHandlers) update(w http.ResponseWriter, r *http.Request) {
 	id, ok := ticketID(r)
 	if !ok {
@@ -577,17 +620,6 @@ func (h *TicketHandlers) update(w http.ResponseWriter, r *http.Request) {
 	u := domain.TicketUpdate{}
 	p := domain.Priority(r.Form.Get("priority"))
 	u.Priority = &p
-
-	if raw := r.Form.Get("user_id"); raw != "" {
-		uid := parseID(raw)
-		if uid == 0 {
-			h.renderEditError(w, r, id, &domain.ValidationError{Field: "user", Message: "invalid user"})
-			return
-		}
-		u.UserID = &uid
-	} else {
-		u.ClearUserID = true
-	}
 
 	_, err := h.tickets.Update(r.Context(), actor, id, u)
 	if err != nil {

@@ -99,15 +99,23 @@
               <option value="critical" >Critical</option><option value="high" selected>High</option><option value="medium" >Medium</option><option value="low" >Low</option>
             </select>
           </div>
-          <div class="field">
-            <label for="ticket-user">Assigned To</label>
-            <select id="ticket-user" name="user_id">
-              <option value="">Unassigned</option>
-              <option value="1" selected>Ana Torres</option>
-            </select>
-          </div>
         </div>
         <button class="btn primary" type="submit">Save properties</button>
+      </form>
+      <form class="card property-form" method="post" action="/tickets/1/assign">
+        <h2>Assignment</h2>
+        <div class="field">
+          <label for="assign-user">Assigned To</label>
+          <select id="assign-user" name="user_id">
+            <option value="">Unassigned</option>
+            <option value="1" selected>Ana Torres</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="assign-reason">Reason</label>
+          <input type="text" id="assign-reason" name="reason" placeholder="Required when reassigning">
+        </div>
+        <button class="btn primary" type="submit">Save assignment</button>
       </form>
       <div class="card state-card">
         <h2>State</h2>
