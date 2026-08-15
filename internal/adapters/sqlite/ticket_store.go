@@ -38,7 +38,7 @@ func newUnitOfWork(db *sql.DB) *unitOfWork { return &unitOfWork{db: db} }
 const timeLayout = time.RFC3339
 
 // ticketColumns is the SELECT column list shared by every ticket read.
-const ticketColumns = `t.id, t.number, t.title, t.description, t.requester_name, t.requester_email, t.category_id, t.priority, t.state, t.user_id, t.created_at, t.updated_at, t.resolved_at, t.closed_at`
+const ticketColumns = `t.id, t.number, t.title, t.description, t.requester_name, t.requester_email, t.requester_user_id, t.category_id, t.priority, t.state, t.user_id, t.created_at, t.updated_at, t.resolved_at, t.closed_at`
 
 // Create persists t inside an immediate transaction, assigning the
 // store-owned identity fields: ID (autoincrement) and Number (MAX+1, D8).
@@ -69,9 +69,10 @@ func createTicketTx(ctx context.Context, tx *sql.Tx, t *domain.Ticket) error {
 	if err := tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(number), 0) + 1 FROM tickets`).Scan(&number); err != nil {
 		return fmt.Errorf("sqlite: next ticket number: %w", err)
 	}
-	res, err := tx.ExecContext(ctx, `INSERT INTO tickets (number, title, description, requester_name, requester_email, category_id, priority, state, user_id, created_at, updated_at, resolved_at, closed_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		number, t.Title, t.Description, t.RequesterName, t.RequesterEmail, t.CategoryID,
+	res, err := tx.ExecContext(ctx, `INSERT INTO tickets (number, title, description, requester_name, requester_email, requester_user_id, category_id, priority, state, user_id, created_at, updated_at, resolved_at, closed_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		number, t.Title, t.Description, t.RequesterName, t.RequesterEmail,
+		nullableInt64(t.RequesterUserID), t.CategoryID,
 		string(t.Priority), string(t.State), nullableInt64(t.UserID),
 		formatTime(t.CreatedAt), formatTime(t.UpdatedAt),
 		formatTimePtr(t.ResolvedAt), formatTimePtr(t.ClosedAt))
@@ -106,9 +107,10 @@ func (st *ticketStore) Update(ctx context.Context, t *domain.Ticket) error {
 
 // updateTicketTx writes the ticket row inside the caller's transaction.
 func updateTicketTx(ctx context.Context, tx *sql.Tx, t *domain.Ticket) error {
-	res, err := tx.ExecContext(ctx, `UPDATE tickets SET title = ?, description = ?, requester_name = ?, requester_email = ?, category_id = ?, priority = ?, state = ?, user_id = ?, created_at = ?, updated_at = ?, resolved_at = ?, closed_at = ?
+	res, err := tx.ExecContext(ctx, `UPDATE tickets SET title = ?, description = ?, requester_name = ?, requester_email = ?, requester_user_id = ?, category_id = ?, priority = ?, state = ?, user_id = ?, created_at = ?, updated_at = ?, resolved_at = ?, closed_at = ?
 		WHERE id = ?`,
-		t.Title, t.Description, t.RequesterName, t.RequesterEmail, t.CategoryID,
+		t.Title, t.Description, t.RequesterName, t.RequesterEmail,
+		nullableInt64(t.RequesterUserID), t.CategoryID,
 		string(t.Priority), string(t.State), nullableInt64(t.UserID),
 		formatTime(t.CreatedAt), formatTime(t.UpdatedAt),
 		formatTimePtr(t.ResolvedAt), formatTimePtr(t.ClosedAt), t.ID)
@@ -299,12 +301,13 @@ func scanTicketFrom(scan rowScanner) (*domain.Ticket, error) {
 	var (
 		t                    domain.Ticket
 		userID               sql.NullInt64
+		requesterUserID      sql.NullInt64
 		priority, state      string
 		createdAt, updatedAt string
 		resolvedAt, closedAt sql.NullString
 	)
 	if err := scan.Scan(&t.ID, &t.Number, &t.Title, &t.Description, &t.RequesterName, &t.RequesterEmail,
-		&t.CategoryID, &priority, &state, &userID, &createdAt, &updatedAt, &resolvedAt, &closedAt); err != nil {
+		&requesterUserID, &t.CategoryID, &priority, &state, &userID, &createdAt, &updatedAt, &resolvedAt, &closedAt); err != nil {
 		return nil, err
 	}
 	t.Priority = domain.Priority(priority)
@@ -334,6 +337,10 @@ func scanTicketFrom(scan rowScanner) (*domain.Ticket, error) {
 	if userID.Valid {
 		v := userID.Int64
 		t.UserID = &v
+	}
+	if requesterUserID.Valid {
+		v := requesterUserID.Int64
+		t.RequesterUserID = &v
 	}
 	return &t, nil
 }

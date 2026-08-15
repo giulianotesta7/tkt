@@ -251,6 +251,50 @@ func TestTicketGetByIDRoundTrip(t *testing.T) {
 	}
 }
 
+// TestTicketRequesterUserIDRoundTrip proves requester_user_id persists
+// through Create and scans back through GetByID (ticket-access spec: the
+// immutable creating-session user id).
+func TestTicketRequesterUserIDRoundTrip(t *testing.T) {
+	s := newTestDB(t)
+	cat := seedCategory(t, s, "Bugs")
+	requester := seedUser(t, s, "Ana", "ana@example.com", true)
+	ctx := context.Background()
+
+	tk := &domain.Ticket{Title: "t", CategoryID: cat, RequesterUserID: ptr(requester),
+		Priority: domain.PriorityMedium, State: domain.StateNew,
+		CreatedAt: testClock, UpdatedAt: testClock}
+	if err := s.TicketStore().Create(ctx, tk); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+
+	got, err := s.TicketStore().GetByID(ctx, tk.ID)
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	if got.RequesterUserID == nil || *got.RequesterUserID != requester {
+		t.Errorf("requester_user_id = %v, want %d", got.RequesterUserID, requester)
+	}
+}
+
+// TestTicketRequesterUserIDNilForLegacyTicket proves a legacy ticket
+// without a provable creator keeps requester_user_id NULL (agent+-only
+// visibility; the backfill never guesses).
+func TestTicketRequesterUserIDNilForLegacyTicket(t *testing.T) {
+	s := newTestDB(t)
+	cat := seedCategory(t, s, "Bugs")
+	tk := seedTicket(t, s, domain.Ticket{Number: 2, Title: "legacy", CategoryID: cat,
+		Priority: domain.PriorityLow, State: domain.StateNew,
+		CreatedAt: testClock, UpdatedAt: testClock})
+
+	got, err := s.TicketStore().GetByID(context.Background(), tk.ID)
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	if got.RequesterUserID != nil {
+		t.Errorf("requester_user_id = %v, want nil (legacy agent+-only ticket)", *got.RequesterUserID)
+	}
+}
+
 func TestTicketGetByIDUnassignedAndNilTimestamps(t *testing.T) {
 	s := newTestDB(t)
 	cat := seedCategory(t, s, "Bugs")
