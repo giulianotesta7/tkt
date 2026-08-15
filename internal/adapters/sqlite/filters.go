@@ -36,14 +36,18 @@ func orderBy(q application.TicketQuery) string {
 
 // scopeClause returns the actor-scope WHERE fragment from q (ticket-access
 // spec): requester = self for ScopeOwned, assignee = self for ScopeAssigned,
-// the full queue for ScopeAll, and an impossible predicate for ScopeNone —
-// the zero value fails closed, so an unscoped query can never leak rows.
+// the full queue for ScopeAll, the agent assignment scope (self OR
+// unassigned) for ScopeAssignable, and an impossible predicate for
+// ScopeNone — the zero value fails closed, so an unscoped query can never
+// leak rows.
 func scopeClause(q application.TicketQuery) (string, []any) {
 	switch q.Scope {
 	case application.ScopeOwned:
 		return "t.requester_user_id = ?", []any{q.ActorID}
 	case application.ScopeAssigned:
 		return "t.user_id = ?", []any{q.ActorID}
+	case application.ScopeAssignable:
+		return "(t.user_id = ? OR t.user_id IS NULL)", []any{q.ActorID}
 	case application.ScopeAll:
 		return "", nil
 	default:

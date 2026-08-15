@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"reflect"
+	"strconv"
 	"testing"
 
 	"github.com/giulianotesta7/tkt/internal/application"
@@ -55,7 +56,7 @@ func validCreateInput(catID int64, userID *int64) application.CreateTicketInput 
 func TestCreateStoresTicketWithNumberAndStateNew(t *testing.T) {
 	h := newTicketHarness()
 	cat := h.categories.seed("Bugs")
-	user := h.users.seed("Ana", "ana@example.com", true)
+	user := h.users.seedRole("Ana", "ana@example.com", domain.RoleAgent, true)
 	actor := domain.User{Name: "Ada", Email: "ada@example.com", Role: domain.RoleAdmin}
 
 	ticket, err := h.svc.Create(context.Background(), actor, validCreateInput(cat.ID, ptr(user.ID)))
@@ -146,7 +147,7 @@ func TestCreateUserRoleRejectsAssignment(t *testing.T) {
 func TestCreateAgentStoresRequesterAndAssignee(t *testing.T) {
 	h := newTicketHarness()
 	cat := h.categories.seed("Bugs")
-	assignee := h.users.seed("Ana", "ana@example.com", true)
+	assignee := h.users.seedRole("Ana", "ana@example.com", domain.RoleAgent, true)
 	actor := domain.User{ID: 9, Name: "Beto", Email: "beto@example.com", Role: domain.RoleAgent}
 
 	ticket, err := h.svc.Create(context.Background(), actor, validCreateInput(cat.ID, ptr(assignee.ID)))
@@ -271,6 +272,288 @@ func seededTicket(store *fakeTicketStore, catID int64, state domain.State) domai
 		CreatedAt:      fixedClock().now,
 		UpdatedAt:      fixedClock().now,
 	})
+}
+
+// --- S4: assignment (ticket-access-assignment "Person-Only Assignment") ---
+
+// TestAssignInitialAssignmentNoReasonRequired proves the initial assignment
+// (unassigned → person) succeeds WITHOUT any reason and records an audit
+// event with the session actor as actor (spec: "Initial assignment without
+// reason"). An agent may claim an unassigned ticket (design: "Agents may
+// claim unassigned→self").
+func TestAssignInitialAssignmentNoReasonRequired(t *testing.T) {
+	h := newTicketHarness()
+	cat := h.categories.seed("Bugs")
+	ticket := seededTicket(h.tickets, cat.ID, domain.StateNew)
+	// The assignee is a real stored user: Assign validates the target
+	// through the user store, so the self-assign target must exist there.
+	agent := h.users.seedRole("Beto", "beto@example.com", domain.RoleAgent, true)
+	actor := domain.User{ID: agent.ID, Name: agent.Name, Email: agent.Email, Role: domain.RoleAgent}
+	h.clock.Advance(timeMinute)
+
+	updated, err := h.svc.Assign(context.Background(), actor, ticket.ID, ptr(agent.ID), "")
+	if err != nil {
+		t.Fatalf("Assign: initial self-assignment must not require a reason, got %v", err)
+	}
+	if updated.UserID == nil || *updated.UserID != agent.ID {
+		t.Fatalf("Assign: assignee = %v, want %d", updated.UserID, agent.ID)
+	}
+	if !updated.UpdatedAt.Equal(h.clock.now) {
+		t.Fatalf("Assign: updated_at must be refreshed, got %v want %v", updated.UpdatedAt, h.clock.now)
+	}
+
+	events, _ := h.audits.ListByTicket(context.Background(), ticket.ID)
+	if len(events) != 1 {
+		t.Fatalf("Assign: exactly one audit event expected, got %d", len(events))
+	}
+	ev := events[0]
+	if ev.Action != domain.ActionUpdate || ev.Field == nil || *ev.Field != "user" {
+		t.Fatalf("Assign: audit must be an update on field user, got %+v", ev)
+	}
+	if ev.FromValue == nil || *ev.FromValue != "" || ev.ToValue == nil || *ev.ToValue != strconv.FormatInt(agent.ID, 10) {
+		t.Fatalf("Assign: audit from/to = %v -> %v, want unassigned -> %d", ev.FromValue, ev.ToValue, agent.ID)
+	}
+	if ev.Reason != nil {
+		t.Fatalf("Assign: initial assignment must not record a reason, got %q", *ev.Reason)
+	}
+	if ev.Actor != agent.Name {
+		t.Fatalf("Assign: audit actor must be the session actor, got %q", ev.Actor)
+	}
+	if ev.ActorUserID == nil || *ev.ActorUserID != agent.ID {
+		t.Fatalf("Assign: audit ActorUserID = %v, want %d", ev.ActorUserID, agent.ID)
+	}
+}
+
+// TestAssignReassignRequiresReason proves a reassignment (person A → person
+// B) is rejected WITHOUT a non-empty reason and succeeds with one, which is
+// recorded in the audit event with the session actor (spec: "Reassignment
+// requires reason"; approved decision: reason required only for
+// reassignment, never for the initial assignment).
+func TestAssignReassignRequiresReason(t *testing.T) {
+	h := newTicketHarness()
+	cat := h.categories.seed("Bugs")
+	agentA := h.users.seedRole("Ana", "ana@example.com", domain.RoleAgent, true)
+	agentB := h.users.seedRole("Beto", "beto@example.com", domain.RoleAgent, true)
+	ticket := seededTicket(h.tickets, cat.ID, domain.StateNew)
+	ticket.UserID = ptr(agentA.ID)
+	if err := h.tickets.Update(context.Background(), &ticket); err != nil {
+		t.Fatalf("seed assignment: %v", err)
+	}
+
+	// Reassignment without a reason: rejected, nothing changes.
+	_, err := h.svc.Assign(context.Background(), domain.User{ID: agentA.ID, Name: agentA.Name, Role: domain.RoleAgent}, ticket.ID, ptr(agentB.ID), "   ")
+	var rerr *domain.ReassignReasonRequiredError
+	if !errors.As(err, &rerr) {
+		t.Fatalf("Assign: reassign without reason must be a ReassignReasonRequiredError, got %v", err)
+	}
+	stored, _ := h.tickets.GetByID(context.Background(), ticket.ID, application.TicketQuery{Scope: application.ScopeAll})
+	if stored.UserID == nil || *stored.UserID != agentA.ID {
+		t.Fatalf("Assign: rejected reassignment must keep assignee A, got %v", stored.UserID)
+	}
+	if len(h.audits.events) != 0 {
+		t.Fatal("Assign: rejected reassignment must not be audited")
+	}
+
+	// Reassignment with a reason: succeeds, reason + session actor recorded.
+	updated, err := h.svc.Assign(context.Background(), domain.User{ID: agentA.ID, Name: agentA.Name, Role: domain.RoleAgent}, ticket.ID, ptr(agentB.ID), "handoff to second-line")
+	if err != nil {
+		t.Fatalf("Assign: reassign with reason: unexpected error: %v", err)
+	}
+	if updated.UserID == nil || *updated.UserID != agentB.ID {
+		t.Fatalf("Assign: reassigned assignee = %v, want %d", updated.UserID, agentB.ID)
+	}
+	events, _ := h.audits.ListByTicket(context.Background(), ticket.ID)
+	if len(events) != 1 {
+		t.Fatalf("Assign: one audit event expected for the reassignment, got %d", len(events))
+	}
+	if events[0].Reason == nil || *events[0].Reason != "handoff to second-line" {
+		t.Fatalf("Assign: reason must be recorded in the audit event, got %v", events[0].Reason)
+	}
+	if events[0].Actor != agentA.Name || events[0].ActorUserID == nil || *events[0].ActorUserID != agentA.ID {
+		t.Fatalf("Assign: audit actor must be the session actor, got %q / %v", events[0].Actor, events[0].ActorUserID)
+	}
+}
+
+// TestAssignSameAssigneeIsNoop proves assigning the ticket to its current
+// assignee changes nothing and mints no audit event.
+func TestAssignSameAssigneeIsNoop(t *testing.T) {
+	h := newTicketHarness()
+	cat := h.categories.seed("Bugs")
+	agent := h.users.seedRole("Ana", "ana@example.com", domain.RoleAgent, true)
+	ticket := seededTicket(h.tickets, cat.ID, domain.StateNew)
+	ticket.UserID = ptr(agent.ID)
+	if err := h.tickets.Update(context.Background(), &ticket); err != nil {
+		t.Fatalf("seed assignment: %v", err)
+	}
+	before, _ := h.tickets.GetByID(context.Background(), ticket.ID, application.TicketQuery{Scope: application.ScopeAll})
+
+	updated, err := h.svc.Assign(context.Background(), domain.User{ID: agent.ID, Name: agent.Name, Role: domain.RoleAgent}, ticket.ID, ptr(agent.ID), "")
+	if err != nil {
+		t.Fatalf("Assign: same assignee must be a no-op, got %v", err)
+	}
+	if updated.UserID == nil || *updated.UserID != agent.ID {
+		t.Fatalf("Assign: assignee must stay %d, got %v", agent.ID, updated.UserID)
+	}
+	if !updated.UpdatedAt.Equal(before.UpdatedAt) {
+		t.Fatal("Assign: no-op must not refresh updated_at")
+	}
+	if len(h.audits.events) != 0 {
+		t.Fatal("Assign: no-op must not be audited")
+	}
+}
+
+// TestAssignUserRoleCannotAssign proves role user cannot assign or change
+// assignment (spec: "User role cannot assign").
+func TestAssignUserRoleCannotAssign(t *testing.T) {
+	h := newTicketHarness()
+	cat := h.categories.seed("Bugs")
+	ticket := seededTicket(h.tickets, cat.ID, domain.StateNew)
+	user := domain.User{ID: 41, Name: "Ula", Role: domain.RoleUser}
+
+	_, err := h.svc.Assign(context.Background(), user, ticket.ID, ptr(int64(1)), "")
+	var verr *domain.ValidationError
+	if !errors.As(err, &verr) || verr.Field != "user" || verr.Message != domain.ErrMsgUserRoleCannotAssign {
+		t.Fatalf("Assign: user-role actor must be denied with ErrMsgUserRoleCannotAssign, got %v", err)
+	}
+	if len(h.audits.events) != 0 {
+		t.Fatal("Assign: denied actor must not be audited")
+	}
+}
+
+// TestAssignTargetMustBeAgentPlus proves the assignment target must be an
+// active agent-plus person (spec: "Assignment target must be agent-plus"):
+// an active user-role account is rejected, admin/root targets are accepted.
+func TestAssignTargetMustBeAgentPlus(t *testing.T) {
+	h := newTicketHarness()
+	cat := h.categories.seed("Bugs")
+	ticket := seededTicket(h.tickets, cat.ID, domain.StateNew)
+	actor := domain.User{ID: 51, Name: "Ada", Role: domain.RoleAdmin}
+	userRole := h.users.seedRole("Ula", "ula@example.com", domain.RoleUser, true)
+	adminTarget := h.users.seedRole("Cami", "cami@example.com", domain.RoleAdmin, true)
+
+	_, err := h.svc.Assign(context.Background(), actor, ticket.ID, ptr(userRole.ID), "")
+	var verr *domain.ValidationError
+	if !errors.As(err, &verr) || verr.Field != "user" || verr.Message != domain.ErrMsgAssignTargetRole {
+		t.Fatalf("Assign: user-role target must be rejected with ErrMsgAssignTargetRole, got %v", err)
+	}
+	stored, _ := h.tickets.GetByID(context.Background(), ticket.ID, application.TicketQuery{Scope: application.ScopeAll})
+	if stored.UserID != nil {
+		t.Fatalf("Assign: rejected target must leave the ticket unassigned, got %v", stored.UserID)
+	}
+
+	// Triangulation: an admin target is a legal assignment.
+	updated, err := h.svc.Assign(context.Background(), actor, ticket.ID, ptr(adminTarget.ID), "")
+	if err != nil {
+		t.Fatalf("Assign: admin target must be assignable, got %v", err)
+	}
+	if updated.UserID == nil || *updated.UserID != adminTarget.ID {
+		t.Fatalf("Assign: assignee = %v, want admin %d", updated.UserID, adminTarget.ID)
+	}
+}
+
+// TestAssignTargetInactive proves an inactive target is rejected with the
+// inactive-user error (user-management spec: deactivated users cannot be
+// assigned to new tickets).
+func TestAssignTargetInactive(t *testing.T) {
+	h := newTicketHarness()
+	cat := h.categories.seed("Bugs")
+	ticket := seededTicket(h.tickets, cat.ID, domain.StateNew)
+	actor := domain.User{ID: 61, Name: "Ada", Role: domain.RoleAdmin}
+	inactive := h.users.seedRole("Noa", "noa@example.com", domain.RoleAgent, false)
+
+	_, err := h.svc.Assign(context.Background(), actor, ticket.ID, ptr(inactive.ID), "")
+	var ierr *domain.InactiveUserError
+	if !errors.As(err, &ierr) {
+		t.Fatalf("Assign: inactive target must be an InactiveUserError, got %v", err)
+	}
+}
+
+// TestAssignAgentCannotReassignOthersTicket proves an agent can only claim
+// an unassigned ticket or reassign THEIR OWN ticket: another agent's
+// assigned ticket is out of scope (ErrNotFound, no existence leak — spec:
+// "Agent transitions only assigned tickets"; the assignment read applies the
+// same scoping discipline).
+func TestAssignAgentCannotReassignOthersTicket(t *testing.T) {
+	h := newTicketHarness()
+	cat := h.categories.seed("Bugs")
+	agentY := h.users.seedRole("Yara", "yara@example.com", domain.RoleAgent, true)
+	agentX := domain.User{ID: 71, Name: "Xavi", Role: domain.RoleAgent}
+	ticket := seededTicket(h.tickets, cat.ID, domain.StateNew)
+	ticket.UserID = ptr(agentY.ID)
+	if err := h.tickets.Update(context.Background(), &ticket); err != nil {
+		t.Fatalf("seed assignment: %v", err)
+	}
+
+	_, err := h.svc.Assign(context.Background(), agentX, ticket.ID, ptr(agentX.ID), "")
+	if !errors.Is(err, domain.ErrNotFound) {
+		t.Fatalf("Assign: agent X on agent Y's ticket must be ErrNotFound, got %v", err)
+	}
+	stored, _ := h.tickets.GetByID(context.Background(), ticket.ID, application.TicketQuery{Scope: application.ScopeAll})
+	if stored.UserID == nil || *stored.UserID != agentY.ID {
+		t.Fatalf("Assign: denied agent must not change the assignment, got %v", stored.UserID)
+	}
+}
+
+// TestAssignUnassignClearsAssignment proves clearing the assignment (person
+// → unassigned) is allowed without a reason and audited (from = person,
+// to = "").
+func TestAssignUnassignClearsAssignment(t *testing.T) {
+	h := newTicketHarness()
+	cat := h.categories.seed("Bugs")
+	agent := h.users.seedRole("Ana", "ana@example.com", domain.RoleAgent, true)
+	actor := domain.User{ID: 81, Name: "Ada", Role: domain.RoleAdmin}
+	ticket := seededTicket(h.tickets, cat.ID, domain.StateNew)
+	ticket.UserID = ptr(agent.ID)
+	if err := h.tickets.Update(context.Background(), &ticket); err != nil {
+		t.Fatalf("seed assignment: %v", err)
+	}
+
+	updated, err := h.svc.Assign(context.Background(), actor, ticket.ID, nil, "")
+	if err != nil {
+		t.Fatalf("Assign: unassign: unexpected error: %v", err)
+	}
+	if updated.UserID != nil {
+		t.Fatalf("Assign: ticket must be unassigned, got %v", updated.UserID)
+	}
+	events, _ := h.audits.ListByTicket(context.Background(), ticket.ID)
+	if len(events) != 1 || events[0].FromValue == nil || *events[0].FromValue != strconv.FormatInt(agent.ID, 10) ||
+		events[0].ToValue == nil || *events[0].ToValue != "" {
+		t.Fatalf("Assign: unassign audit must be %d -> \"\", got %+v", agent.ID, events)
+	}
+}
+
+// TestAssignUnknownTarget proves assigning to an unknown user is a
+// NotFoundError(kind=user).
+func TestAssignUnknownTarget(t *testing.T) {
+	h := newTicketHarness()
+	cat := h.categories.seed("Bugs")
+	ticket := seededTicket(h.tickets, cat.ID, domain.StateNew)
+	actor := domain.User{ID: 91, Name: "Ada", Role: domain.RoleAdmin}
+
+	_, err := h.svc.Assign(context.Background(), actor, ticket.ID, ptr(int64(999)), "")
+	var nerr *domain.NotFoundError
+	if !errors.As(err, &nerr) || nerr.Kind != "user" {
+		t.Fatalf("Assign: unknown target must be a NotFoundError(kind=user), got %v", err)
+	}
+}
+
+// TestCreateRejectsUserRoleTarget proves the assignment target rule applies
+// at creation too: an agent+ actor cannot create a ticket assigned to an
+// active user-role account (spec: "Assignment target must be agent-plus").
+func TestCreateRejectsUserRoleTarget(t *testing.T) {
+	h := newTicketHarness()
+	cat := h.categories.seed("Bugs")
+	userRole := h.users.seedRole("Ula", "ula@example.com", domain.RoleUser, true)
+	actor := domain.User{ID: 101, Name: "Ada", Role: domain.RoleAdmin}
+
+	_, err := h.svc.Create(context.Background(), actor, validCreateInput(cat.ID, ptr(userRole.ID)))
+	var verr *domain.ValidationError
+	if !errors.As(err, &verr) || verr.Field != "user" || verr.Message != domain.ErrMsgAssignTargetRole {
+		t.Fatalf("Create: user-role target must be rejected with ErrMsgAssignTargetRole, got %v", err)
+	}
+	if len(h.tickets.tickets) != 0 {
+		t.Fatal("Create: rejected ticket must not be stored")
+	}
 }
 
 func TestTransitionAppliesAndAuditsWithSessionActor(t *testing.T) {
@@ -479,7 +762,7 @@ func TestUpdateValidatesCategoryAndAssignedUser(t *testing.T) {
 func TestEveryMutationAuditedInOccurrenceOrder(t *testing.T) {
 	h := newTicketHarness()
 	cat := h.categories.seed("Bugs")
-	user := h.users.seed("Ana", "ana@example.com", true)
+	user := h.users.seedRole("Ana", "ana@example.com", domain.RoleAgent, true)
 	actor := domain.User{Name: "Ada", Email: "ada@example.com", Role: domain.RoleAdmin}
 
 	// GIVEN a ticket (audit-log scenario: one transition and two field edits).
@@ -528,7 +811,7 @@ func TestEveryMutationAuditedInOccurrenceOrder(t *testing.T) {
 func TestCreateRollsBackTicketWhenAuditAppendFails(t *testing.T) {
 	h := newTicketHarness()
 	cat := h.categories.seed("Bugs")
-	user := h.users.seed("Ana", "ana@example.com", true)
+	user := h.users.seedRole("Ana", "ana@example.com", domain.RoleAgent, true)
 	actor := domain.User{Name: "Ada", Role: domain.RoleAdmin}
 	h.tx.failAuditAppend = true
 

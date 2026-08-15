@@ -43,6 +43,10 @@ func matchesQuery(t *domain.Ticket, q application.TicketQuery) bool {
 		if t.UserID == nil || *t.UserID != q.ActorID {
 			return false
 		}
+	case application.ScopeAssignable:
+		if t.UserID != nil && *t.UserID != q.ActorID {
+			return false
+		}
 	case application.ScopeAll:
 		// full queue: no restriction
 	default:
@@ -346,6 +350,17 @@ func newFakeUserStore() *fakeUserStore {
 // seed inserts a user directly (test arrange).
 func (f *fakeUserStore) seed(name, email string, active bool) domain.User {
 	u := domain.User{Name: name, Email: email, Active: active}
+	u.ID = f.nextID
+	f.nextID++
+	f.users[u.ID] = &u
+	f.byEmail[u.Email] = u.ID
+	return u
+}
+
+// seedRole inserts a user with an explicit role directly (test arrange;
+// assignment rules depend on the target's role, so arrange must control it).
+func (f *fakeUserStore) seedRole(name, email string, role domain.Role, active bool) domain.User {
+	u := domain.User{Name: name, Email: email, Role: role, Active: active}
 	u.ID = f.nextID
 	f.nextID++
 	f.users[u.ID] = &u

@@ -2,6 +2,7 @@ package application
 
 import (
 	"context"
+	"strconv"
 	"strings"
 
 	"github.com/giulianotesta7/tkt/internal/domain"
@@ -77,6 +78,12 @@ func (s *TicketService) Create(ctx context.Context, actor domain.User, in Create
 		if !user.Active {
 			return nil, domain.NewInactiveUserError("user")
 		}
+		// The assignment target rule applies at creation too: tickets are
+		// assigned to agent-plus personnel only, never to a user-role
+		// account (ticket-access-assignment spec).
+		if !user.Role.AtLeast(domain.RoleAgent) {
+			return nil, &domain.ValidationError{Field: "user", Message: domain.ErrMsgAssignTargetRole}
+		}
 	}
 
 	now := s.clock.Now()
@@ -100,6 +107,77 @@ func (s *TicketService) Create(ctx context.Context, actor domain.User, in Create
 		CreatedAt:   now,
 	}
 	if err := s.tx.Create(ctx, t, event); err != nil {
+		return nil, err
+	}
+	return t, nil
+}
+
+// Assign sets or clears the ticket's assignee under the person-only
+// assignment rules (ticket-access-assignment spec): only agent+ roles may
+// assign (CapAssignTicket); the target must be an ACTIVE agent-plus person;
+// the initial assignment (unassigned → person) never requires a reason,
+// while a reassignment (person A → person B) ALWAYS requires a non-empty
+// reason recorded in the audit event with the session actor as actor.
+// Clearing the assignment (person → unassigned) is allowed without a
+// reason. The read is scoped per role — agents may claim an unassigned
+// ticket or reassign their OWN ticket (ScopeAssignable), admin/root any
+// ticket (ScopeAll) — so another agent's ticket is ErrNotFound (no
+// existence leak). Ticket + audit event persist in ONE unit-of-work call.
+func (s *TicketService) Assign(ctx context.Context, actor domain.User, ticketID int64, assigneeID *int64, reason string) (*domain.Ticket, error) {
+	if !NewPolicy().Capabilities(actor.Role).Require(CapAssignTicket) {
+		return nil, &domain.ValidationError{Field: "user", Message: domain.ErrMsgUserRoleCannotAssign}
+	}
+	t, err := s.tickets.GetByID(ctx, ticketID, assignQuery(actor))
+	if err != nil {
+		return nil, err
+	}
+	if assigneeID != nil {
+		user, err := s.users.GetByID(ctx, *assigneeID)
+		if err != nil {
+			return nil, err
+		}
+		if !user.Active {
+			return nil, domain.NewInactiveUserError("user")
+		}
+		if !user.Role.AtLeast(domain.RoleAgent) {
+			return nil, &domain.ValidationError{Field: "user", Message: domain.ErrMsgAssignTargetRole}
+		}
+	}
+	// Same assignee (or both unassigned): no-op — no event, no refresh.
+	if t.UserID != nil && assigneeID != nil && *t.UserID == *assigneeID {
+		return t, nil
+	}
+	// Reassignment (person A → person B) always requires a non-empty reason.
+	if t.UserID != nil && assigneeID != nil && strings.TrimSpace(reason) == "" {
+		return nil, domain.NewReassignReasonRequiredError()
+	}
+
+	now := s.clock.Now()
+	from := ""
+	if t.UserID != nil {
+		from = strconv.FormatInt(*t.UserID, 10)
+	}
+	to := ""
+	if assigneeID != nil {
+		to = strconv.FormatInt(*assigneeID, 10)
+	}
+	field := "user"
+	event := domain.AuditEvent{
+		TicketID:    t.ID,
+		Actor:       actor.Name,
+		ActorUserID: &actor.ID,
+		Action:      domain.ActionUpdate,
+		Field:       &field,
+		FromValue:   &from,
+		ToValue:     &to,
+		CreatedAt:   now,
+	}
+	if r := strings.TrimSpace(reason); r != "" {
+		event.Reason = &r
+	}
+	t.UserID = assigneeID
+	t.UpdatedAt = now
+	if err := s.tx.Update(ctx, t, event); err != nil {
 		return nil, err
 	}
 	return t, nil

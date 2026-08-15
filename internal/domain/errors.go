@@ -21,6 +21,8 @@ const (
 	ErrMsgCategoryNameRequired      = "category name is required"
 	ErrMsgUserInactive              = "user is inactive"
 	ErrMsgUserRoleCannotAssign      = "user role cannot assign tickets"
+	ErrMsgAssignTargetRole          = "assignment target must be an agent or above"
+	ErrMsgReassignReasonRequired    = "a reason is required to reassign the ticket"
 	ErrMsgBootstrapUnavailable      = "first-user setup is no longer available"
 	ErrMsgRootProtected             = "the root account is protected"
 )
@@ -69,6 +71,20 @@ func (e *ReopenReasonRequiredError) Error() string { return e.Message }
 
 func NewReopenReasonRequiredError() *ReopenReasonRequiredError {
 	return &ReopenReasonRequiredError{Message: ErrMsgReopenReasonRequired}
+}
+
+// ReassignReasonRequiredError reports an assignment change from person A to
+// person B without a reason (422, ticket-access-assignment spec: the initial
+// unassigned → person assignment never needs a reason; a reassignment
+// ALWAYS does).
+type ReassignReasonRequiredError struct {
+	Message string
+}
+
+func (e *ReassignReasonRequiredError) Error() string { return e.Message }
+
+func NewReassignReasonRequiredError() *ReassignReasonRequiredError {
+	return &ReassignReasonRequiredError{Message: ErrMsgReassignReasonRequired}
 }
 
 // InvalidPriorityError reports an unsupported priority value (422).
