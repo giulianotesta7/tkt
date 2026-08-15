@@ -22,6 +22,7 @@ func mapError(err error) (int, string) {
 		notFound        *domain.NotFoundError
 		duplicate       *domain.DuplicateError
 		referenced      *domain.ReferencedError
+		rootProtected   *domain.RootProtectedError
 		badCredentials  *application.InvalidCredentialsError
 	)
 	switch {
@@ -41,6 +42,8 @@ func mapError(err error) (int, string) {
 		return 409, duplicate.Error()
 	case errors.As(err, &referenced):
 		return 409, referenced.Error()
+	case errors.As(err, &rootProtected):
+		return 403, rootProtected.Error()
 	case errors.As(err, &badCredentials):
 		return 401, application.ErrMsgInvalidCredentials
 	default:
