@@ -254,23 +254,18 @@ func TestMigration0003GroupsAndMembers(t *testing.T) {
 	}
 	group2ID, _ := res.LastInsertId()
 
-	for _, ins := range []string{
-		`INSERT INTO group_members (group_id, user_id, created_at) VALUES (?, ?, '2026-08-06T10:00:00Z')`,
-		`INSERT INTO group_members (group_id, user_id, created_at) VALUES (?, ?, '2026-08-06T10:00:00Z')`,
+	memberInsert := `INSERT INTO group_members (group_id, user_id, created_at) VALUES (?, ?, '2026-08-06T10:00:00Z')`
+	for _, m := range []struct {
+		groupID int64
+		userID  int64
+	}{
+		{groupID, agentA},
+		{group2ID, agentA}, // agent A in two groups
+		{groupID, agentB},  // two agents in one group
 	} {
-		if _, err := s.db.ExecContext(ctx, ins, groupID, agentA); err != nil {
+		if _, err := s.db.ExecContext(ctx, memberInsert, m.groupID, m.userID); err != nil {
 			t.Fatalf("N:N member insert: %v", err)
 		}
-	}
-	if _, err := s.db.ExecContext(ctx,
-		`INSERT INTO group_members (group_id, user_id, created_at) VALUES (?, ?, '2026-08-06T10:00:00Z')`,
-		group2ID, agentA); err != nil {
-		t.Fatalf("agent in second group: %v", err)
-	}
-	if _, err := s.db.ExecContext(ctx,
-		`INSERT INTO group_members (group_id, user_id, created_at) VALUES (?, ?, '2026-08-06T10:00:00Z')`,
-		groupID, agentB); err != nil {
-		t.Fatalf("second agent in group: %v", err)
 	}
 
 	// A user-role account can never become a member (trigger).

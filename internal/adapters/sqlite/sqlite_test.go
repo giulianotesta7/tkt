@@ -106,7 +106,8 @@ func TestMigrateCreatesSchema(t *testing.T) {
 
 	want := []string{
 		"users", "sessions", "categories", "tickets",
-		"comments", "audit_events", "schema_migrations",
+		"comments", "audit_events", "groups", "group_members",
+		"role_changes", "schema_migrations",
 	}
 	for _, name := range want {
 		var n int
@@ -124,8 +125,8 @@ func TestMigrateCreatesSchema(t *testing.T) {
 	if err := s.db.QueryRow(`SELECT COUNT(*) FROM schema_migrations`).Scan(&applied); err != nil {
 		t.Fatalf("schema_migrations: %v", err)
 	}
-	if applied != 2 {
-		t.Errorf("schema_migrations rows = %d, want 2 (0001_init, 0002_fts)", applied)
+	if applied != 3 {
+		t.Errorf("schema_migrations rows = %d, want 3 (0001_init, 0002_fts, 0003_roles_and_views)", applied)
 	}
 
 	rows, err := s.db.Query(`SELECT version FROM schema_migrations ORDER BY version`)
@@ -141,8 +142,8 @@ func TestMigrateCreatesSchema(t *testing.T) {
 		}
 		versions = append(versions, v)
 	}
-	if len(versions) != 2 || versions[0] != 1 || versions[1] != 2 {
-		t.Errorf("versions = %v, want [1 2]", versions)
+	if len(versions) != 3 || versions[0] != 1 || versions[1] != 2 || versions[2] != 3 {
+		t.Errorf("versions = %v, want [1 2 3]", versions)
 	}
 }
 
@@ -155,8 +156,8 @@ func TestMigrateRerunIsNoOp(t *testing.T) {
 	if err := s.db.QueryRow(`SELECT COUNT(*) FROM schema_migrations`).Scan(&applied); err != nil {
 		t.Fatalf("schema_migrations: %v", err)
 	}
-	if applied != 2 {
-		t.Errorf("rerun recorded %d versions, want 2 (no-op)", applied)
+	if applied != 3 {
+		t.Errorf("rerun recorded %d versions, want 3 (no-op)", applied)
 	}
 }
 
