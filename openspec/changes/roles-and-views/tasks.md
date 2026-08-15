@@ -57,10 +57,10 @@ Deps: 2,3,6←P1; 4,5←3; 7←2–6; 8←7; P5∥P6; S6 monitored.
 
 ## S5
 
-- [ ] 5.1 RED user public-only; internal rejected; agent+ both.
-- [ ] 5.2 Filter internal pre-composition in comment stores + `views.go`.
-- [ ] 5.3 RED leakage: no internal body in user responses.
-- [ ] 5.4 Backfill legacy comments → `public`.
+- [x] 5.1 RED user public-only; internal rejected; agent+ both.
+- [x] 5.2 Filter internal pre-composition in comment stores + `views.go`.
+- [x] 5.3 RED leakage: no internal body in user responses.
+- [x] 5.4 Backfill legacy comments → `public`.
 
 ## S6
 
