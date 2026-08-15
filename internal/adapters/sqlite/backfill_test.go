@@ -218,6 +218,43 @@ func TestBackfillFreshDatabaseNoUsersIsClean(t *testing.T) {
 	}
 }
 
+// R3-001: an inactive id=1 setup user must be promoted AND activated — an
+// inactive root cannot be reactivated (the root account is immutable and
+// recovery refuses when a root already exists), so the backfill must never
+// produce one.
+func TestBackfillInactiveSetupUserBecomesActiveRoot(t *testing.T) {
+	s, err := openDSN(testDSN(t))
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	t.Cleanup(func() { s.db.Close() })
+	s.db.SetMaxOpenConns(1)
+	ctx := context.Background()
+
+	if err := migrate(ctx, s.db, legacyMigrations(t)); err != nil {
+		t.Fatalf("apply legacy migrations: %v", err)
+	}
+	anaID := seedUser(t, s, "Ana", "ana@example.com", false) // inactive setup user
+	catID := seedCategory(t, s, "Bugs")
+	seedLegacyTicket(t, s, 1, "Ana", "ana@example.com", catID, 1)
+
+	if err := s.Migrate(ctx); err != nil {
+		t.Fatalf("apply 0003 + backfill: %v", err)
+	}
+
+	var role string
+	var active int
+	if err := s.db.QueryRow(`SELECT role, active FROM users WHERE id = ?`, anaID).Scan(&role, &active); err != nil {
+		t.Fatal(err)
+	}
+	if role != "root" {
+		t.Errorf("role = %q, want root", role)
+	}
+	if active != 1 {
+		t.Errorf("active = %d, want 1 (inactive setup user must be activated on promotion)", active)
+	}
+}
+
 func TestBackfillIsIdempotent(t *testing.T) {
 	s, err := openDSN(testDSN(t))
 	if err != nil {

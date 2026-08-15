@@ -190,9 +190,11 @@ func backfillRoot(ctx context.Context, tx *sql.Tx) error {
 		return fmt.Errorf("sqlite: %w", ErrRecoverRootRequired)
 	}
 	// Legacy id=1 is the original setup user under AUTOINCREMENT: promote
-	// and audit (the root-immutable triggers fire only when OLD.role is
-	// already 'root', so this update is unaffected).
-	if _, err := tx.ExecContext(ctx, `UPDATE users SET role = 'root' WHERE id = 1`); err != nil {
+	// AND ACTIVATE it and audit (an inactive root would be unusable and
+	// unrecoverable — the root account is immutable and recovery refuses
+	// when a root exists — R3-001; the root-immutable triggers fire only
+	// when OLD.role is already 'root', so this update is unaffected).
+	if _, err := tx.ExecContext(ctx, `UPDATE users SET role = 'root', active = 1 WHERE id = 1`); err != nil {
 		return fmt.Errorf("sqlite: backfill promote root: %w", err)
 	}
 	if _, err := tx.ExecContext(ctx,
