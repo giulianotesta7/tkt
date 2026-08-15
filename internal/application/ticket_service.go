@@ -186,9 +186,14 @@ func (s *TicketService) Assign(ctx context.Context, actor domain.User, ticketID 
 // Transition moves the ticket through the domain state machine, stamps the
 // audit event with the session actor, and persists ticket + audit event in
 // ONE unit-of-work call (atomic; a failed audit append rolls the transition
-// back). The read is scoped to the actor: an out-of-scope ticket is
-// ErrNotFound before any state change (ticket-access spec).
+// back). Authorization is enforced server-side BEFORE the read or any state
+// change: role user never transitions (ticket-state-machine spec), and the
+// scoped read restricts agents to their own assigned tickets — an
+// out-of-scope ticket is ErrNotFound (ticket-access spec).
 func (s *TicketService) Transition(ctx context.Context, actor domain.User, ticketID int64, to domain.State, reason string) (*domain.Ticket, error) {
+	if !NewPolicy().Capabilities(actor.Role).Require(CapEditTicket) {
+		return nil, domain.NewForbiddenError(domain.ErrMsgUserCannotTransition)
+	}
 	t, err := s.tickets.GetByID(ctx, ticketID, scopedQuery(actor, TicketQuery{}))
 	if err != nil {
 		return nil, err
@@ -205,13 +210,21 @@ func (s *TicketService) Transition(ctx context.Context, actor domain.User, ticke
 	return t, nil
 }
 
-// Update applies field edits. Category and user edits are validated as in
-// creation (existence + active user). Each changed field appends its own
-// audit event stamped with the session actor; a rejected edit changes
-// nothing. Ticket + event batch persist in ONE unit-of-work call. The read
-// is scoped to the actor: an out-of-scope ticket is ErrNotFound before any
-// edit (ticket-access spec).
+// Update applies field edits (title, description, category, priority).
+// Assignment changes do NOT belong here: they go through Assign, which
+// enforces the reason and target rules (ticket-access-assignment spec) —
+// Update rejects assignment fields so the reassignment-reason rule cannot
+// be bypassed through a generic edit. Authorization is enforced server-side
+// BEFORE the read: role user never edits (design route policy: edit
+// requires an assigned agent or admin/root); the scoped read restricts
+// agents to their own assigned tickets (ticket-access spec).
 func (s *TicketService) Update(ctx context.Context, actor domain.User, ticketID int64, u domain.TicketUpdate) (*domain.Ticket, error) {
+	if !NewPolicy().Capabilities(actor.Role).Require(CapEditTicket) {
+		return nil, domain.NewForbiddenError(domain.ErrMsgUserCannotEdit)
+	}
+	if u.UserID != nil || u.ClearUserID {
+		return nil, &domain.ValidationError{Field: "user", Message: domain.ErrMsgAssignmentViaAssign}
+	}
 	t, err := s.tickets.GetByID(ctx, ticketID, scopedQuery(actor, TicketQuery{}))
 	if err != nil {
 		return nil, err
@@ -219,15 +232,6 @@ func (s *TicketService) Update(ctx context.Context, actor domain.User, ticketID 
 	if u.CategoryID != nil {
 		if _, err := s.categories.GetByID(ctx, *u.CategoryID); err != nil {
 			return nil, err
-		}
-	}
-	if u.UserID != nil {
-		user, err := s.users.GetByID(ctx, *u.UserID)
-		if err != nil {
-			return nil, err
-		}
-		if !user.Active {
-			return nil, domain.NewInactiveUserError("user")
 		}
 	}
 

@@ -556,6 +556,138 @@ func TestCreateRejectsUserRoleTarget(t *testing.T) {
 	}
 }
 
+// --- S4: state transition authorization (ticket-state-machine spec) -------
+
+// TestTransitionUserRoleDenied proves role user MUST NOT perform transitions
+// of ANY ticket — including their own — with the state unchanged and nothing
+// audited (spec: "User role cannot transition").
+func TestTransitionUserRoleDenied(t *testing.T) {
+	h := newTicketHarness()
+	cat := h.categories.seed("Bugs")
+	owner := domain.User{ID: 111, Name: "Ula", Role: domain.RoleUser}
+	ticket := h.tickets.seed(domain.Ticket{
+		Title: "own", CategoryID: cat.ID, RequesterUserID: ptr(owner.ID),
+		Priority: domain.PriorityLow, State: domain.StateNew,
+		CreatedAt: h.clock.now, UpdatedAt: h.clock.now,
+	})
+
+	_, err := h.svc.Transition(context.Background(), owner, ticket.ID, domain.StateInProgress, "")
+	var ferr *domain.ForbiddenError
+	if !errors.As(err, &ferr) {
+		t.Fatalf("Transition: user-role actor must be denied with a ForbiddenError, got %v", err)
+	}
+	stored, _ := h.tickets.GetByID(context.Background(), ticket.ID, application.TicketQuery{Scope: application.ScopeAll})
+	if stored.State != domain.StateNew {
+		t.Fatalf("Transition: denied user must not change the state, got %q", stored.State)
+	}
+	if len(h.audits.events) != 0 {
+		t.Fatal("Transition: denied user must not be audited")
+	}
+}
+
+// TestTransitionAgentTransitionsOwnTicket proves an agent transitions their
+// own assigned ticket through a legal move (spec: "Agent transitions only
+// assigned tickets" — the allowed half).
+func TestTransitionAgentTransitionsOwnTicket(t *testing.T) {
+	h := newTicketHarness()
+	cat := h.categories.seed("Bugs")
+	agent := h.users.seedRole("Ana", "ana@example.com", domain.RoleAgent, true)
+	ticket := seededTicket(h.tickets, cat.ID, domain.StateNew)
+	ticket.UserID = ptr(agent.ID)
+	if err := h.tickets.Update(context.Background(), &ticket); err != nil {
+		t.Fatalf("seed assignment: %v", err)
+	}
+	actor := domain.User{ID: agent.ID, Name: agent.Name, Role: domain.RoleAgent}
+
+	updated, err := h.svc.Transition(context.Background(), actor, ticket.ID, domain.StateInProgress, "")
+	if err != nil {
+		t.Fatalf("Transition: agent on own ticket: unexpected error: %v", err)
+	}
+	if updated.State != domain.StateInProgress {
+		t.Fatalf("Transition: state = %q, want in_progress", updated.State)
+	}
+}
+
+// TestTransitionAgentCannotTransitionOthersTicket proves an agent cannot
+// transition a ticket assigned to a different agent: the scoped read denies
+// it as ErrNotFound before any state change (spec: "Agent transitions only
+// assigned tickets" — the denied half).
+func TestTransitionAgentCannotTransitionOthersTicket(t *testing.T) {
+	h := newTicketHarness()
+	cat := h.categories.seed("Bugs")
+	agentY := h.users.seedRole("Yara", "yara@example.com", domain.RoleAgent, true)
+	agentX := domain.User{ID: 121, Name: "Xavi", Role: domain.RoleAgent}
+	ticket := seededTicket(h.tickets, cat.ID, domain.StateNew)
+	ticket.UserID = ptr(agentY.ID)
+	if err := h.tickets.Update(context.Background(), &ticket); err != nil {
+		t.Fatalf("seed assignment: %v", err)
+	}
+
+	_, err := h.svc.Transition(context.Background(), agentX, ticket.ID, domain.StateInProgress, "")
+	if !errors.Is(err, domain.ErrNotFound) {
+		t.Fatalf("Transition: agent X on agent Y's ticket must be ErrNotFound, got %v", err)
+	}
+	stored, _ := h.tickets.GetByID(context.Background(), ticket.ID, application.TicketQuery{Scope: application.ScopeAll})
+	if stored.State != domain.StateNew {
+		t.Fatalf("Transition: denied agent must not change the state, got %q", stored.State)
+	}
+}
+
+// TestUpdateUserRoleDenied proves role user cannot edit ANY ticket, even
+// their own (design route policy: POST /tickets/{id}/edit requires an
+// assigned agent or admin/root).
+func TestUpdateUserRoleDenied(t *testing.T) {
+	h := newTicketHarness()
+	cat := h.categories.seed("Bugs")
+	owner := domain.User{ID: 131, Name: "Ula", Role: domain.RoleUser}
+	ticket := h.tickets.seed(domain.Ticket{
+		Title: "own", CategoryID: cat.ID, RequesterUserID: ptr(owner.ID),
+		Priority: domain.PriorityLow, State: domain.StateNew,
+		CreatedAt: h.clock.now, UpdatedAt: h.clock.now,
+	})
+	newPriority := domain.PriorityHigh
+
+	_, err := h.svc.Update(context.Background(), owner, ticket.ID, domain.TicketUpdate{Priority: &newPriority})
+	var ferr *domain.ForbiddenError
+	if !errors.As(err, &ferr) {
+		t.Fatalf("Update: user-role actor must be denied with a ForbiddenError, got %v", err)
+	}
+	stored, _ := h.tickets.GetByID(context.Background(), ticket.ID, application.TicketQuery{Scope: application.ScopeAll})
+	if stored.Priority != domain.PriorityLow {
+		t.Fatalf("Update: denied user must not change the ticket, got priority %q", stored.Priority)
+	}
+}
+
+// TestUpdateRejectsAssignmentFields proves assignment changes are handled
+// ONLY by the assign use case: Update rejects user assignment fields so the
+// reassignment-reason rule cannot be bypassed through a generic edit
+// (design: POST /tickets/{id}/assign is the single assignment path).
+func TestUpdateRejectsAssignmentFields(t *testing.T) {
+	h := newTicketHarness()
+	cat := h.categories.seed("Bugs")
+	agent := h.users.seedRole("Ana", "ana@example.com", domain.RoleAgent, true)
+	ticket := seededTicket(h.tickets, cat.ID, domain.StateNew)
+	actor := domain.User{ID: 141, Name: "Ada", Role: domain.RoleAdmin}
+	before, _ := h.tickets.GetByID(context.Background(), ticket.ID, application.TicketQuery{Scope: application.ScopeAll})
+
+	_, err := h.svc.Update(context.Background(), actor, ticket.ID, domain.TicketUpdate{UserID: ptr(agent.ID)})
+	var verr *domain.ValidationError
+	if !errors.As(err, &verr) || verr.Field != "user" || verr.Message != domain.ErrMsgAssignmentViaAssign {
+		t.Fatalf("Update: assignment via Update must be rejected with ErrMsgAssignmentViaAssign, got %v", err)
+	}
+	_, err = h.svc.Update(context.Background(), actor, ticket.ID, domain.TicketUpdate{ClearUserID: true})
+	if !errors.As(err, &verr) || verr.Message != domain.ErrMsgAssignmentViaAssign {
+		t.Fatalf("Update: clearing assignment via Update must be rejected, got %v", err)
+	}
+	after, _ := h.tickets.GetByID(context.Background(), ticket.ID, application.TicketQuery{Scope: application.ScopeAll})
+	if !reflect.DeepEqual(before, after) {
+		t.Fatal("Update: rejected assignment fields must leave the ticket untouched")
+	}
+	if len(h.audits.events) != 0 {
+		t.Fatal("Update: rejected assignment fields must not be audited")
+	}
+}
+
 func TestTransitionAppliesAndAuditsWithSessionActor(t *testing.T) {
 	h := newTicketHarness()
 	cat := h.categories.seed("Bugs")
@@ -730,12 +862,13 @@ func TestUpdateRejectsInvalidPriorityWithoutChanges(t *testing.T) {
 	}
 }
 
-func TestUpdateValidatesCategoryAndAssignedUser(t *testing.T) {
+// TestUpdateValidatesCategory proves category edits validate existence as in
+// creation (ticket-management spec). The assigned-user validation moved to
+// the Assign use case (TestAssignTargetInactive): Update no longer accepts
+// assignment fields (S4: assignment changes use the assign flow).
+func TestUpdateValidatesCategory(t *testing.T) {
 	h := newTicketHarness()
 	cat := h.categories.seed("Bugs")
-	// The inactive user MUST live in the same store the service reads from
-	// (C3): seeding a fresh store fails the lookup before the active check.
-	inactive := h.users.seed("Ana", "ana@example.com", false)
 	ticket := seededTicket(h.tickets, cat.ID, domain.StateInProgress)
 	actor := domain.User{Name: "Ada", Role: domain.RoleAdmin}
 
@@ -745,14 +878,6 @@ func TestUpdateValidatesCategoryAndAssignedUser(t *testing.T) {
 	var nerr *domain.NotFoundError
 	if !errors.As(err, &nerr) || nerr.Kind != "category" {
 		t.Fatalf("Update: unknown category must be a NotFoundError(kind=category), got %v", err)
-	}
-	// User edits validate existence AND active state as in creation: the
-	// inactive user reaches the active-state check, so the failure MUST be
-	// an InactiveUserError, not a missing-user error.
-	_, err = h.svc.Update(context.Background(), actor, ticket.ID, domain.TicketUpdate{UserID: &inactive.ID})
-	var ierr *domain.InactiveUserError
-	if !errors.As(err, &ierr) {
-		t.Fatalf("Update: assigning an inactive user must be an InactiveUserError, got %v", err)
 	}
 	if len(h.audits.events) != 0 {
 		t.Fatal("Update: rejected edits must not be audited")

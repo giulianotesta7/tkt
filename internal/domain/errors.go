@@ -23,6 +23,9 @@ const (
 	ErrMsgUserRoleCannotAssign      = "user role cannot assign tickets"
 	ErrMsgAssignTargetRole          = "assignment target must be an agent or above"
 	ErrMsgReassignReasonRequired    = "a reason is required to reassign the ticket"
+	ErrMsgUserCannotTransition      = "user role cannot transition tickets"
+	ErrMsgUserCannotEdit            = "user role cannot edit tickets"
+	ErrMsgAssignmentViaAssign       = "assignment changes must use the assign flow"
 	ErrMsgBootstrapUnavailable      = "first-user setup is no longer available"
 	ErrMsgRootProtected             = "the root account is protected"
 )
@@ -85,6 +88,23 @@ func (e *ReassignReasonRequiredError) Error() string { return e.Message }
 
 func NewReassignReasonRequiredError() *ReassignReasonRequiredError {
 	return &ReassignReasonRequiredError{Message: ErrMsgReassignReasonRequired}
+}
+
+// ForbiddenError reports an action the actor's role is not permitted to
+// perform (403): a capability-gated operation the actor may still be able
+// to READ — e.g. a user-role owner cannot transition or edit their own
+// ticket (ticket-state-machine spec: role user MUST NOT perform
+// transitions; design route policy: edit requires an assigned agent or
+// admin/root). The check runs at the application boundary BEFORE any store
+// mutation, so denied actors change nothing.
+type ForbiddenError struct {
+	Message string
+}
+
+func (e *ForbiddenError) Error() string { return e.Message }
+
+func NewForbiddenError(message string) *ForbiddenError {
+	return &ForbiddenError{Message: message}
 }
 
 // InvalidPriorityError reports an unsupported priority value (422).
