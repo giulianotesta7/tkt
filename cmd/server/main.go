@@ -8,8 +8,12 @@
 //
 // Flags:
 //
-//	-healthcheck  open the database, run SELECT 1, and exit 0/1 without
-//	              starting the HTTP server (used by Docker HEALTHCHECK).
+//	-healthcheck   open the database, run SELECT 1, and exit 0/1 without
+//	               starting the HTTP server (used by Docker HEALTHCHECK).
+//	-recover-root  one-shot operator-selected root recovery for ambiguous
+//	               legacy databases: activate and promote user <id> to root,
+//	               audit the recovery, and exit (fails closed when a root
+//	               already exists or the user is unknown).
 package main
 
 import (

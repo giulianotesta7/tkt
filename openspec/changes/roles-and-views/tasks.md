@@ -33,12 +33,13 @@ Deps: 2,3,6←P1; 4,5←3; 7←2–6; 8←7; P5∥P6; S6 monitored.
 - [x] 1.5 `migrations/0003_roles_and_views.sql`: role,requester,visibility,groups,audit,triggers.
 - [x] 1.6 Backfill `migrate.go`: reliable→requester/root, else NULL/fail-closed.
 - [x] 1.7 Ops: backup SQLite before deploy (documented in `runbook.md`).
+- [x] 1.8 RED+impl `-recover-root`: promote+audit+exit; else fail closed (pulled forward from S2 2.3 after review R3-001: the fail-closed error must not recommend an unimplemented flag).
 
 ## S2
 
 - [x] 2.1 RED concurrent `/setup`→one root (`BEGIN IMMEDIATE`).
 - [x] 2.2 `BootstrapRoot`.
-- [x] 2.3 RED+impl `-recover-root`: promote+audit+exit;else fail closed.
+- [x] 2.3 RED+impl `-recover-root`: promote+audit+exit;else fail closed (implemented in S1 as 1.8).
 - [x] 2.4 RED root untouchable, not grantable; startup fails closed.
 
 ## S3

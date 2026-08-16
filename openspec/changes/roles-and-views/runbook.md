@@ -9,16 +9,24 @@ only guaranteed rollback for a bad migration run.
 
 The database uses WAL journaling, so the live data lives in `app.db` plus
 `app.db-wal` (and `app.db-shm`). Copying only `app.db` can miss the latest
-committed pages. Take a consistent snapshot:
+committed pages.
+
+**Stopped server (recommended, only guaranteed consistent copy):** stop the
+old server first, then copy all three files:
 
 ```bash
-# Stop the old server first (a stopped db is the simplest consistent state).
-# If the server must stay up, checkpoint first:
-#   sqlite3 app.db "PRAGMA wal_checkpoint(FULL);"
-
 cp -p data/tkt.db          data/backups/tkt.db.$(date -u +%Y%m%dT%H%M%SZ)
 cp -p data/tkt.db-wal      data/backups/tkt.db-wal.$(date -u +%Y%m%dT%H%M%SZ) 2>/dev/null || true
 cp -p data/tkt.db-shm      data/backups/tkt.db-shm.$(date -u +%Y%m%dT%H%M%SZ) 2>/dev/null || true
+```
+
+**Live server (only with SQLite's online backup):** a `wal_checkpoint(FULL)`
+does NOT prevent new writes, so copying `db`, `wal`, and `shm` separately is
+NOT a consistent snapshot and must not be used as a rollback backup. Use the
+online backup API instead, which produces a single consistent snapshot file:
+
+```bash
+sqlite3 data/tkt.db ".backup data/backups/tkt.db.$(date -u +%Y%m%dT%H%M%SZ)"
 ```
 
 Adjust the paths to the actual database file (see `data/` in this repo).
@@ -41,17 +49,37 @@ the migration and is idempotent.
 
 When a legacy database cannot prove the original setup user (users exist
 but id=1 is gone), startup fails closed with a `-recover-root` error —
-the operator must explicitly select the root identity. Do not work around
-the failure; restore the backup and run the recovery flow (`-recover-root`
-lands in the next slice) before serving ambiguous databases.
+the operator must explicitly select the root identity with the recovery
+flag shipped in this deployment:
+
+```bash
+tkt -recover-root=<user-id>
+```
+
+Do not work around the failure; run the recovery flow before serving
+ambiguous databases.
 
 ## 4. Rollback
 
-Restore the backup files and the previous binary:
+Rollback depends on which backup procedure produced the backup.
+
+**Stopped-server backup (three files):** restore all three backup files
+(the pre-deploy state lives across `db`, `wal`, and `shm`) and the
+previous binary:
+
+```bash
+cp -p data/backups/tkt.db.<stamp>    data/tkt.db
+cp -p data/backups/tkt.db-wal.<stamp> data/tkt.db-wal
+cp -p data/backups/tkt.db-shm.<stamp> data/tkt.db-shm
+```
+
+**Online single-file backup (`.backup`):** restore only the snapshot,
+then REMOVE the current WAL/SHM sidecars — they belong to the post-deploy
+database and must not replay onto the restored snapshot:
 
 ```bash
 cp -p data/backups/tkt.db.<stamp> data/tkt.db
-rm -f data/tkt.db-wal data/tkt.db-shm   # stale WAL must not replay onto the restored db
+rm -f data/tkt.db-wal data/tkt.db-shm
 ```
 
 Start the previous binary. Confirm the app boots and the ticket list

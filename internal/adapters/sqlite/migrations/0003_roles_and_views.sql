@@ -83,6 +83,13 @@ BEGIN
   SELECT RAISE(ABORT, 'user role cannot be a group member');
 END;
 
+CREATE TRIGGER trg_group_members_no_user_update
+BEFORE UPDATE OF user_id ON group_members
+WHEN (SELECT role FROM users WHERE id = NEW.user_id) = 'user'
+BEGIN
+  SELECT RAISE(ABORT, 'user role cannot be a group member');
+END;
+
 CREATE TRIGGER trg_users_no_group_member_downgrade
 BEFORE UPDATE OF role ON users
 WHEN NEW.role = 'user' AND EXISTS (SELECT 1 FROM group_members WHERE user_id = NEW.id)

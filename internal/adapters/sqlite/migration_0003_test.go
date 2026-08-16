@@ -347,6 +347,45 @@ func TestMigration0003AuditExtensions(t *testing.T) {
 	}
 }
 
+// R3-002: the no-user-membership invariant must also hold on UPDATE —
+// reassigning an existing membership to a user-role account must abort,
+// while a legitimate reassignment to another agent-plus member works.
+func TestMigration0003GroupMemberUpdateNoUser(t *testing.T) {
+	s := newTestDB(t)
+	ctx := context.Background()
+
+	agentA := seedUser(t, s, "A", "a@example.com", true)
+	agentB := seedUser(t, s, "B", "b@example.com", true)
+	userID := seedUserRaw(t, s, "U", "u@example.com", "user")
+
+	res, err := s.db.ExecContext(ctx,
+		`INSERT INTO groups (name, created_at) VALUES ('Support', '2026-08-06T10:00:00Z')`)
+	if err != nil {
+		t.Fatalf("create group: %v", err)
+	}
+	groupID, _ := res.LastInsertId()
+
+	if _, err := s.db.ExecContext(ctx,
+		`INSERT INTO group_members (group_id, user_id, created_at) VALUES (?, ?, '2026-08-06T10:00:00Z')`,
+		groupID, agentA); err != nil {
+		t.Fatalf("seed member: %v", err)
+	}
+
+	// Reassigning an existing membership to a user-role account is rejected.
+	if _, err := s.db.ExecContext(ctx,
+		`UPDATE group_members SET user_id = ? WHERE group_id = ? AND user_id = ?`,
+		userID, groupID, agentA); err == nil {
+		t.Fatal("reassigning a member to a user-role account succeeded, want trigger abort")
+	}
+
+	// A legitimate reassignment to another agent-plus member still works.
+	if _, err := s.db.ExecContext(ctx,
+		`UPDATE group_members SET user_id = ? WHERE group_id = ? AND user_id = ?`,
+		agentB, groupID, agentA); err != nil {
+		t.Fatalf("legitimate member reassignment: %v", err)
+	}
+}
+
 // The existing schema-inventory tests (TestMigrateCreatesSchema,
 // TestMigrateRerunIsNoOp) are updated to include 0003 in the same commit
 // as the migration itself — see sqlite_test.go.

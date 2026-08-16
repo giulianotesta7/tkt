@@ -35,7 +35,14 @@ func (r Role) Valid() bool {
 // AtLeast reports whether r sits at the same or a higher rank than other in
 // the hierarchy (role-authorization spec: each role inherits all lower-role
 // capabilities). A role at least as high as the gate role passes the gate.
+// The check FAILS CLOSED: an invalid or unset role on either side never
+// passes a hierarchy gate (absent map keys rank zero, so without this guard
+// Role("") would rank equal to RoleUser and silently pass a user-level
+// gate — R3-001).
 func (r Role) AtLeast(other Role) bool {
+	if !r.Valid() || !other.Valid() {
+		return false
+	}
 	return roleRank[r] >= roleRank[other]
 }
 
