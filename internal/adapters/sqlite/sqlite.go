@@ -79,6 +79,9 @@ func (s *Store) SearchStore() application.SearchStore { return newSearchStore(s.
 // task 5.4 is its first consumer — ticket forms and filters list categories.
 func (s *Store) CategoryStore() application.CategoryStore { return newCategoryStore(s.db) }
 
+// GroupStore returns the group and membership port.
+func (s *Store) GroupStore() application.GroupStore { return newGroupStore(s.db) }
+
 // Ping verifies the database connection is alive (SELECT 1). The
 // composition root's -healthcheck flag uses it.
 func (s *Store) Ping(ctx context.Context) error {

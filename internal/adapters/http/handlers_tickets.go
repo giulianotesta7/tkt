@@ -559,6 +559,12 @@ func (h *TicketHandlers) assign(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
+	// Groups are membership-only in this iteration. Reject a forged group
+	// target instead of treating its missing user_id as an unassignment.
+	if r.Form.Get("group_id") != "" {
+		h.renderDetailError(w, r, id, &domain.ValidationError{Field: "group", Message: "groups cannot be ticket assignees"})
+		return
+	}
 	actor := *userFromContext(r.Context())
 
 	var assigneeID *int64

@@ -5,6 +5,7 @@ package application
 
 import (
 	"context"
+	"time"
 
 	"github.com/giulianotesta7/tkt/internal/domain"
 )
@@ -163,6 +164,19 @@ type CategoryStore interface {
 	GetByID(ctx context.Context, id int64) (*domain.Category, error)
 	// List returns all categories.
 	List(ctx context.Context) ([]domain.Category, error)
+}
+
+// GroupStore persists named groups and their N:N memberships. Membership is
+// limited to agent-plus users by both the application and SQLite triggers.
+type GroupStore interface {
+	Create(ctx context.Context, g *domain.Group) error
+	Update(ctx context.Context, g *domain.Group) error
+	Delete(ctx context.Context, id int64) error
+	GetByID(ctx context.Context, id int64) (*domain.Group, error)
+	List(ctx context.Context) ([]domain.Group, error)
+	AddMember(ctx context.Context, groupID, userID int64, createdAt time.Time) error
+	RemoveMember(ctx context.Context, groupID, userID int64) error
+	ListMembers(ctx context.Context, groupID int64) ([]domain.User, error)
 }
 
 // TicketQuery is the filter set shared by list, count, and search queries

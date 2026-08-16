@@ -108,6 +108,7 @@ type harness struct {
 	users        *application.UserService
 	auth         *application.AuthService
 	categories   *application.CategoryService
+	groups       *application.GroupService
 	search       *application.SearchService
 	renderer     *Renderer
 	mux          *http.ServeMux
@@ -135,6 +136,7 @@ func newHarnessWithAdmin(t *testing.T, seedAdmin bool) *harness {
 	usersSvc := application.NewUserService(s.UserStore(), clock)
 	authSvc := application.NewAuthService(s.UserStore(), s.SessionStore(), clock)
 	catSvc := application.NewCategoryService(s.CategoryStore(), clock)
+	groupSvc := application.NewGroupService(s.GroupStore(), s.UserStore(), clock)
 	viewBuilder := application.NewViewBuilder(s.TicketStore(), s.UserStore(), s.CategoryStore(), s.CommentStore(), s.AuditStore())
 	ticketSvc := application.NewTicketService(s.TicketStore(), s.UserStore(), s.CategoryStore(), s.TicketUnitOfWork(), viewBuilder, clock)
 	commentSvc := application.NewCommentService(s.TicketStore(), s.CommentStore(), clock)
@@ -147,12 +149,13 @@ func newHarnessWithAdmin(t *testing.T, seedAdmin bool) *harness {
 	NewTicketHandlers(ticketSvc, commentSvc, searchSvc, catSvc, usersSvc, renderer).Register(mux)
 	NewUserHandlers(usersSvc, renderer).Register(mux)
 	NewCategoryHandlers(catSvc, renderer).Register(mux)
+	NewGroupHandlers(groupSvc, renderer).Register(mux)
 	mw := NewSessionMiddleware(s.SessionStore(), s.UserStore())
 
 	h := &harness{
 		store: s, clock: clock,
 		tickets: ticketSvc, comments: commentSvc, users: usersSvc, auth: authSvc,
-		categories: catSvc, search: searchSvc, renderer: renderer,
+		categories: catSvc, groups: groupSvc, search: searchSvc, renderer: renderer,
 		mux: mux, mw: mw,
 	}
 	if !seedAdmin {
