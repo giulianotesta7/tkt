@@ -29,17 +29,33 @@ func TestGroupServiceAllowsOnlyAdminAndRootToManageGroups(t *testing.T) {
 	}
 
 	for _, role := range []domain.Role{domain.RoleUser, domain.RoleAgent} {
-		before := store.mutations
-		_, err := svc.Create(ctx, domain.User{ID: 3, Role: role}, "Forbidden")
-		var forbidden *domain.ForbiddenError
-		if !errors.As(err, &forbidden) {
-			t.Errorf("%s Create error = %v, want ErrForbidden", role, err)
+		actor := domain.User{ID: 3, Role: role}
+		group, err := svc.Create(ctx, adminActorForGroupTest(), "Protected-"+string(role))
+		if err != nil {
+			t.Fatalf("setup group: %v", err)
 		}
-		if store.mutations != before {
-			t.Errorf("%s Create called the store despite denial", role)
+		for _, operation := range []struct {
+			name string
+			run  func() error
+		}{
+			{"create", func() error { _, err := svc.Create(ctx, actor, "Forbidden"); return err }},
+			{"rename", func() error { _, err := svc.Rename(ctx, actor, group.ID, "Renamed"); return err }},
+			{"delete", func() error { return svc.Delete(ctx, actor, group.ID) }},
+		} {
+			before := store.mutations
+			err := operation.run()
+			var forbidden *domain.ForbiddenError
+			if !errors.As(err, &forbidden) {
+				t.Errorf("%s %s error = %v, want ErrForbidden", role, operation.name, err)
+			}
+			if store.mutations != before {
+				t.Errorf("%s %s called the store despite denial", role, operation.name)
+			}
 		}
 	}
 }
+
+func adminActorForGroupTest() domain.User { return domain.User{ID: 1, Role: domain.RoleAdmin} }
 
 func TestGroupServiceRejectsUserMembersBeforeStoreMutation(t *testing.T) {
 	store := newFakeGroupStore()

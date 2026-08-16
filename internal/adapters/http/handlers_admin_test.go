@@ -72,6 +72,22 @@ func TestUserCreateSuccess(t *testing.T) {
 	}
 }
 
+func TestUserCreateDeniedForNonAdmin(t *testing.T) {
+	h := newHarness(t)
+	user, err := h.users.Create(t.Context(), *h.admin, application.CreateUserInput{Name: "User", Email: "user@tkt.test", Password: "secret"})
+	if err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+	session := h.loginCookie(t, user.Email, "secret")
+	if session == "" {
+		t.Fatal("user login must succeed")
+	}
+	rec := h.postFormAs(t, "/users", userForm(nil), session)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("user POST /users = %d, want 403", rec.Code)
+	}
+}
+
 // TestUserCreateDuplicateEmail409 proves duplicate emails are rejected with
 // a 409 and the message is re-rendered (create-user spec).
 func TestUserCreateDuplicateEmail409(t *testing.T) {
