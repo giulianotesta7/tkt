@@ -31,9 +31,6 @@ type CreateUserInput struct {
 // builds an active user carrying the given role, stamped by the injected
 // clock. Create and BootstrapRoot share it so both use cases enforce the
 // exact same input contract (non-empty name/email, bcrypt-only storage).
-// A zero Role means "no role assigned": the store's migration default
-// ('agent') applies — the role-assignment semantics of admin-created users
-// land with the S7 authorization slice.
 func (s *UserService) prepareUser(in CreateUserInput, role domain.Role) (*domain.User, error) {
 	name := strings.TrimSpace(in.Name)
 	email := strings.TrimSpace(in.Email)
@@ -58,11 +55,10 @@ func (s *UserService) prepareUser(in CreateUserInput, role domain.Role) (*domain
 }
 
 // Create validates name, email, and password, stores the bcrypt hash (D15),
-// and returns the new active user. Create never assigns a role (the store's
-// migration default applies) — root is only ever created by BootstrapRoot,
-// never through user creation (role-authorization "Root role not grantable").
+// and returns the new active user with the user role. Root is only ever
+// created by BootstrapRoot, never through user creation.
 func (s *UserService) Create(ctx context.Context, in CreateUserInput) (*domain.User, error) {
-	u, err := s.prepareUser(in, "")
+	u, err := s.prepareUser(in, domain.RoleUser)
 	if err != nil {
 		return nil, err
 	}
@@ -158,6 +154,39 @@ func (s *UserService) Delete(ctx context.Context, id int64) error {
 		return domain.NewRootProtectedError()
 	}
 	return s.users.Delete(ctx, id)
+}
+
+// ChangeRole applies the closed role-management matrix and records the
+// authorized change atomically. Admins may change only user/agent roles;
+// root additionally grants and removes admin. Root is never grantable.
+func (s *UserService) ChangeRole(ctx context.Context, actor domain.User, id int64, to domain.Role) (*domain.User, error) {
+	if !to.Valid() {
+		return nil, &domain.ValidationError{Field: "role", Message: "invalid role"}
+	}
+	if to == domain.RoleRoot {
+		return nil, domain.NewRootProtectedError()
+	}
+	if !NewPolicy().Capabilities(actor.Role).Require(CapChangeRole) {
+		return nil, domain.NewForbiddenError("role change is not permitted")
+	}
+	u, err := s.users.GetByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if u.Role == domain.RoleRoot {
+		return nil, domain.NewRootProtectedError()
+	}
+	if actor.Role == domain.RoleAdmin && (u.Role == domain.RoleAdmin || to == domain.RoleAdmin) {
+		return nil, domain.NewForbiddenError("admin role changes require root")
+	}
+	if u.Role == to {
+		return u, nil
+	}
+	if err := s.users.ChangeRole(ctx, u.ID, actor.ID, u.Role, to, s.clock.Now()); err != nil {
+		return nil, err
+	}
+	u.Role = to
+	return u, nil
 }
 
 // GetByID returns the user, including inactive ones (historical display).

@@ -123,3 +123,32 @@ func TestCategoryDeleteUnreferencedRemoves(t *testing.T) {
 		t.Fatal("Delete: category must be removed from the list")
 	}
 }
+
+// S7.3 RED: category mutations are manager-only at the application boundary.
+func TestCategoryManagementRequiresAdminOrRoot(t *testing.T) {
+	ctx := context.Background()
+	svc, categories, _ := newCategoryService()
+	user := domain.User{ID: 1, Role: domain.RoleUser}
+	agent := domain.User{ID: 2, Role: domain.RoleAgent}
+	admin := domain.User{ID: 3, Role: domain.RoleAdmin}
+
+	for _, actor := range []domain.User{user, agent} {
+		if _, err := svc.CreateFor(ctx, actor, "Restricted"); err == nil {
+			t.Fatalf("%s create must be forbidden", actor.Role)
+		}
+	}
+	created, err := svc.CreateFor(ctx, admin, "Managed")
+	if err != nil {
+		t.Fatalf("admin create: %v", err)
+	}
+	if _, err := svc.RenameFor(ctx, user, created.ID, "Forged"); err == nil {
+		t.Fatal("user rename must be forbidden")
+	}
+	if err := svc.DeleteFor(ctx, agent, created.ID); err == nil {
+		t.Fatal("agent delete must be forbidden")
+	}
+	stored, err := categories.GetByID(ctx, created.ID)
+	if err != nil || stored.Name != "Managed" {
+		t.Fatalf("forged mutations changed category: %+v err=%v", stored, err)
+	}
+}

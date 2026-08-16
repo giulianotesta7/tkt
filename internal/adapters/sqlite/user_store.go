@@ -84,6 +84,31 @@ func (us *userStore) Update(ctx context.Context, u *domain.User) error {
 	return nil
 }
 
+// ChangeRole updates a role and appends its role_changes audit record in one
+// transaction so a successful role mutation is never unaudited.
+func (us *userStore) ChangeRole(ctx context.Context, userID, actorID int64, from, to domain.Role, at time.Time) error {
+	tx, err := beginImmediate(ctx, us.db, "change role")
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	res, err := tx.ExecContext(ctx, `UPDATE users SET role = ? WHERE id = ? AND role = ?`, string(to), userID, string(from))
+	if err != nil {
+		return fmt.Errorf("sqlite: change role: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("sqlite: change role rows: %w", err)
+	}
+	if n == 0 {
+		return &domain.NotFoundError{Kind: "user", ID: userID}
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO role_changes (user_id, from_role, to_role, actor_user_id, reason, created_at) VALUES (?, ?, ?, ?, ?, ?)`, userID, string(from), string(to), actorID, "role change", formatTime(at)); err != nil {
+		return fmt.Errorf("sqlite: audit role change: %w", err)
+	}
+	return tx.Commit()
+}
+
 // Delete removes an unreferenced user and their sessions in one
 // transaction. A user assigned to tickets is a ReferencedError — the
 // tickets FK fires after the session cleanup and rolls the whole delete

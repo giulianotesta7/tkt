@@ -414,3 +414,48 @@ func TestCreateUserIsNeverRoot(t *testing.T) {
 		}
 	}
 }
+
+// S7.1 RED: role changes are authorized at the application boundary. Admins
+// may move only between user and agent; root additionally grants/removes
+// admin. This test is intentionally written before ChangeRole exists.
+func TestChangeRoleEnforcesAdminAndRootMatrix(t *testing.T) {
+	ctx := context.Background()
+	svc, users, _ := newUserService()
+
+	admin := users.seed("Admin", "admin@example.com", true)
+	admin.Role = domain.RoleAdmin
+	if err := users.Update(ctx, &admin); err != nil {
+		t.Fatalf("seed admin: %v", err)
+	}
+	root := users.seed("Root", "root@example.com", true)
+	root.Role = domain.RoleRoot
+	if err := users.Update(ctx, &root); err != nil {
+		t.Fatalf("seed root: %v", err)
+	}
+	member := users.seed("Member", "member@example.com", true)
+	member.Role = domain.RoleUser
+	if err := users.Update(ctx, &member); err != nil {
+		t.Fatalf("seed member: %v", err)
+	}
+
+	if _, err := svc.ChangeRole(ctx, admin, member.ID, domain.RoleAgent); err != nil {
+		t.Fatalf("admin user->agent: %v", err)
+	}
+	if _, err := svc.ChangeRole(ctx, admin, member.ID, domain.RoleAdmin); err == nil {
+		t.Fatal("admin agent->admin must be forbidden")
+	}
+	if _, err := svc.ChangeRole(ctx, root, member.ID, domain.RoleAdmin); err != nil {
+		t.Fatalf("root agent->admin: %v", err)
+	}
+	if _, err := svc.ChangeRole(ctx, root, member.ID, domain.RoleRoot); !errors.Is(err, domain.ErrRootProtected) {
+		t.Fatalf("root grant root = %v, want root protected", err)
+	}
+
+	stored, err := users.GetByID(ctx, member.ID)
+	if err != nil {
+		t.Fatalf("get changed member: %v", err)
+	}
+	if stored.Role != domain.RoleAdmin {
+		t.Fatalf("member role = %q, want %q", stored.Role, domain.RoleAdmin)
+	}
+}

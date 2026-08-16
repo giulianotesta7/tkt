@@ -25,13 +25,14 @@
       </select>
     </div>
   </div>
-  <div class="field">
+  {{if .CanAssign}}<div class="field">
     <label for="user_id">Assigned user</label>
     <select id="user_id" name="user_id">
       <option value="">Unassigned</option>
       {{range .Options.AssignableUsers}}<option value="{{.ID}}" {{if eq (.ID | printf "%d") $.Values.UserID}}selected{{end}}>{{.Name}}</option>{{end}}
     </select>
   </div>
+  {{end}}
   <button class="btn primary" type="submit">Create ticket</button>
 </form>
 {{end}}

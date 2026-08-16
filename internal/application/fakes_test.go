@@ -431,6 +431,15 @@ func (f *fakeUserStore) Update(_ context.Context, u *domain.User) error {
 	return nil
 }
 
+func (f *fakeUserStore) ChangeRole(_ context.Context, userID, _ int64, _, to domain.Role, _ time.Time) error {
+	u, ok := f.users[userID]
+	if !ok {
+		return &domain.NotFoundError{Kind: "user", ID: userID}
+	}
+	u.Role = to
+	return nil
+}
+
 func (f *fakeUserStore) Delete(_ context.Context, id int64) error {
 	if f.referenced[id] {
 		return &domain.ReferencedError{Kind: "user", ID: id}

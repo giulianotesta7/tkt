@@ -436,3 +436,85 @@ func TestRootAccountRejectedAtHTTP(t *testing.T) {
 		t.Errorf("root role = %q, want %q", got.Role, domain.RoleRoot)
 	}
 }
+
+// S7.4 RED: hidden management UI never substitutes for server authorization.
+// A user direct-requesting management pages and forging a category POST gets
+// denied before any restricted data or mutation is reached.
+func TestManagementRoutesDenyDirectUserRequests(t *testing.T) {
+	h := newHarness(t)
+	user := seedUserRole(t, h.store, "User", "user@tkt.test", domain.RoleUser)
+	session := seedSession(t, h.store, user.ID)
+
+	for _, target := range []string{"/users", "/categories"} {
+		req := httptest.NewRequest(http.MethodGet, target, nil)
+		req.Header.Set("Cookie", sessionCookie+"="+session.ID)
+		rec := httptest.NewRecorder()
+		h.mw.Wrap(h.mux).ServeHTTP(rec, req)
+		if rec.Code != http.StatusForbidden {
+			t.Errorf("GET %s status = %d, want 403", target, rec.Code)
+		}
+		if strings.Contains(rec.Body.String(), "admin@tkt.test") || strings.Contains(rec.Body.String(), "Bugs") {
+			t.Errorf("GET %s leaked management data: %s", target, rec.Body.String())
+		}
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/categories", strings.NewReader(url.Values{"name": {"Forged"}}.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Cookie", sessionCookie+"="+session.ID)
+	rec := httptest.NewRecorder()
+	h.mw.Wrap(h.mux).ServeHTTP(rec, req)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("POST /categories status = %d, want 403", rec.Code)
+	}
+	if _, err := h.categories.GetByID(context.Background(), 2); !errors.Is(err, domain.ErrNotFound) {
+		t.Fatalf("forged category POST created a category: %v", err)
+	}
+}
+
+// S7.4 RED: user presentation exposes only own-ticket surfaces. Hidden
+// assignment and management controls complement (but never replace) gates.
+func TestUserTicketViewsHideManagementAndAssignmentControls(t *testing.T) {
+	h := newHarness(t)
+	user := seedUserRole(t, h.store, "User", "user-views@tkt.test", domain.RoleUser)
+	session := seedSession(t, h.store, user.ID)
+
+	req := httptest.NewRequest(http.MethodGet, "/tickets/new", nil)
+	req.Header.Set("Cookie", sessionCookie+"="+session.ID)
+	rec := httptest.NewRecorder()
+	h.mw.Wrap(h.mux).ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /tickets/new status = %d, want 200", rec.Code)
+	}
+	body := rec.Body.String()
+	for _, forbidden := range []string{"name=\"user_id\"", "href=\"/users\"", "href=\"/categories\"", "href=\"/groups\""} {
+		if strings.Contains(body, forbidden) {
+			t.Errorf("user ticket form exposed %q", forbidden)
+		}
+	}
+}
+
+func TestUserRoleEndpointAppliesManagementMatrix(t *testing.T) {
+	h := newHarness(t)
+	member := seedUserRole(t, h.store, "Member", "member-role@tkt.test", domain.RoleUser)
+
+	rec := h.postForm(t, "/users/"+strconv.FormatInt(member.ID, 10)+"/role", url.Values{"role": {"agent"}}, false)
+	wantRedirect(t, rec, http.StatusSeeOther, "/users")
+	stored, err := h.store.UserStore().GetByID(context.Background(), member.ID)
+	if err != nil || stored.Role != domain.RoleAgent {
+		t.Fatalf("admin user->agent result = %+v err=%v", stored, err)
+	}
+
+	rec = h.postForm(t, "/users/"+strconv.FormatInt(member.ID, 10)+"/role", url.Values{"role": {"admin"}}, false)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("admin agent->admin status = %d, want 403", rec.Code)
+	}
+
+	root := seedUserRole(t, h.store, "Root", "root-role@tkt.test", domain.RoleRoot)
+	rootSession := seedSession(t, h.store, root.ID)
+	rec = h.postFormAs(t, "/users/"+strconv.FormatInt(member.ID, 10)+"/role", url.Values{"role": {"admin"}}, rootSession.ID)
+	wantRedirect(t, rec, http.StatusSeeOther, "/users")
+	stored, err = h.store.UserStore().GetByID(context.Background(), member.ID)
+	if err != nil || stored.Role != domain.RoleAdmin {
+		t.Fatalf("root agent->admin result = %+v err=%v", stored, err)
+	}
+}

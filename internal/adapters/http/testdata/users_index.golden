@@ -288,12 +288,9 @@ textarea{min-height:84px;resize:vertical}
       <a class="rail-link" href="/tickets" title="Tickets" aria-label="Tickets">
         <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v1a2 2 0 0 0 0 4v1a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-1a2 2 0 0 0 0-4V9z"/><path d="M13 7v10"/></svg>
       </a>
-      <a class="rail-link active" href="/users" title="Users" aria-label="Users">
-        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0"/><circle cx="17.5" cy="9" r="2.5"/><path d="M16 14.6a6 6 0 0 1 5.5 5.4"/></svg>
-      </a>
-      <a class="rail-link" href="/categories" title="Categories" aria-label="Categories">
-        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h6l2 2.5H20a1 1 0 0 1 1 1V19a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1z"/></svg>
-      </a>
+      
+      
+      
     </nav>
     <div class="rail-operator" title="Ana Torres">AT</div>
     <form class="rail-logout" method="post" action="/logout">
@@ -323,10 +320,18 @@ textarea{min-height:84px;resize:vertical}
       <tr>
         <td><div class="user-cell"><span class="avatar">AT</span><span class="cell-title">Ana Torres</span></div></td>
         <td class="cell-muted">ana@example.com</td>
-        <td><span class="status active">Active</span></td>
+        <td><span class="status active">Active</span> · </td>
         <td class="cell-muted"><time datetime="2026-08-06T10:00:00Z">10:00 · 06-08-2026</time></td>
         <td>
           <div class="row-actions">
+            <form method="post" action="/users/1/role">
+              <select name="role" aria-label="Role for Ana Torres">
+                <option value="user" >User</option>
+                <option value="agent" >Agent</option>
+                
+              </select>
+              <button class="btn ghost small" type="submit">Change role</button>
+            </form>
             <a class="btn ghost small" href="/users/1/edit">Edit</a>
             <form method="post" action="/users/1/delete">
               <button class="btn danger small" type="submit">Delete</button>
@@ -338,10 +343,18 @@ textarea{min-height:84px;resize:vertical}
       <tr>
         <td><div class="user-cell"><span class="avatar">BR</span><span class="cell-title">Beto Ruiz</span></div></td>
         <td class="cell-muted">beto@example.com</td>
-        <td><span class="status inactive">Inactive</span></td>
+        <td><span class="status inactive">Inactive</span> · </td>
         <td class="cell-muted"><time datetime="2026-08-06T10:30:00Z">10:30 · 06-08-2026</time></td>
         <td>
           <div class="row-actions">
+            <form method="post" action="/users/2/role">
+              <select name="role" aria-label="Role for Beto Ruiz">
+                <option value="user" >User</option>
+                <option value="agent" >Agent</option>
+                
+              </select>
+              <button class="btn ghost small" type="submit">Change role</button>
+            </form>
             <a class="btn ghost small" href="/users/2/edit">Edit</a>
             <form method="post" action="/users/2/delete">
               <button class="btn danger small" type="submit">Delete</button>

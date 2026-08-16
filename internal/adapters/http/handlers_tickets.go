@@ -55,14 +55,26 @@ func (h *TicketHandlers) Register(mux *http.ServeMux) {
 // highlights the active section and the operator chip shows the session
 // user.
 type pageData struct {
-	NavActive   string
-	CurrentUser domain.User
+	NavActive           string
+	CurrentUser         domain.User
+	CanManageUsers      bool
+	CanManageGroups     bool
+	CanManageCategories bool
+	CanGrantAdmin       bool
 }
 
 // pageDataFrom builds the shell payload from the session user.
 func pageDataFrom(r *http.Request, nav string) pageData {
 	u := userFromContext(r.Context())
-	return pageData{NavActive: nav, CurrentUser: *u}
+	caps := application.NewPolicy().Capabilities(u.Role)
+	return pageData{
+		NavActive:           nav,
+		CurrentUser:         *u,
+		CanManageUsers:      caps.Require(application.CapManageUsers),
+		CanManageGroups:     caps.Require(application.CapManageGroups),
+		CanManageCategories: caps.Require(application.CapManageCategories),
+		CanGrantAdmin:       caps.Require(application.CapGrantAdmin),
+	}
 }
 
 // options carries the selectable lists shared by list filters and forms.
@@ -275,9 +287,10 @@ func (h *TicketHandlers) list(w http.ResponseWriter, r *http.Request) {
 // share it; 422 re-renders carry Error + the submitted values).
 type ticketFormData struct {
 	pageData
-	Error   string
-	Values  ticketFormValues
-	Options options
+	Error     string
+	Values    ticketFormValues
+	Options   options
+	CanAssign bool
 }
 
 type ticketFormValues struct {
@@ -298,6 +311,8 @@ func (h *TicketHandlers) newForm(w http.ResponseWriter, r *http.Request) {
 		pageData: pageDataFrom(r, "tickets"),
 		Values:   ticketFormValues{Priority: domain.PriorityMedium},
 		Options:  opts,
+		CanAssign: application.NewPolicy().Capabilities(userFromContext(r.Context()).Role).
+			Require(application.CapAssignTicket),
 	}
 	h.renderer.Render(w, r, "tickets_new", "ticket_form", data, http.StatusOK)
 }
@@ -385,6 +400,8 @@ func (h *TicketHandlers) renderCreateError(w http.ResponseWriter, r *http.Reques
 			Priority:    domain.Priority(r.Form.Get("priority")),
 		},
 		Options: opts,
+		CanAssign: application.NewPolicy().Capabilities(userFromContext(r.Context()).Role).
+			Require(application.CapAssignTicket),
 	}
 	_ = field // the inline banner is a single generic error block
 	h.renderer.Render(w, r, "tickets_new", "ticket_form", data, status)

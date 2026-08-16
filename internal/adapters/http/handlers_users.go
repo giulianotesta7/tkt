@@ -32,6 +32,7 @@ func (h *UserHandlers) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /users/{id}/edit", h.editForm)
 	mux.HandleFunc("POST /users/{id}/edit", h.update)
 	mux.HandleFunc("POST /users/{id}/delete", h.delete)
+	mux.HandleFunc("POST /users/{id}/role", h.changeRole)
 }
 
 // usersIndexData is the managed-users list payload; Error carries a
@@ -43,6 +44,9 @@ type usersIndexData struct {
 }
 
 func (h *UserHandlers) index(w http.ResponseWriter, r *http.Request) {
+	if !requireCapability(w, r, application.CapManageUsers) {
+		return
+	}
 	users, err := h.users.List(r.Context())
 	if err != nil {
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
@@ -68,11 +72,17 @@ type userFormValues struct {
 }
 
 func (h *UserHandlers) newForm(w http.ResponseWriter, r *http.Request) {
+	if !requireCapability(w, r, application.CapManageUsers) {
+		return
+	}
 	data := userFormData{pageData: pageDataFrom(r, "users"), Values: userFormValues{Active: true}}
 	h.renderer.Render(w, r, "users_new", "user_form", data, http.StatusOK)
 }
 
 func (h *UserHandlers) create(w http.ResponseWriter, r *http.Request) {
+	if !requireCapability(w, r, application.CapManageUsers) {
+		return
+	}
 	if err := r.ParseForm(); err != nil {
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
@@ -90,6 +100,9 @@ func (h *UserHandlers) create(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *UserHandlers) editForm(w http.ResponseWriter, r *http.Request) {
+	if !requireCapability(w, r, application.CapManageUsers) {
+		return
+	}
 	id, ok := userID(r)
 	if !ok {
 		http.Error(w, "invalid user id", http.StatusBadRequest)
@@ -112,6 +125,9 @@ func (h *UserHandlers) editForm(w http.ResponseWriter, r *http.Request) {
 // optional on edit (blank = keep); the active checkbox is the deactivation
 // switch (D14).
 func (h *UserHandlers) update(w http.ResponseWriter, r *http.Request) {
+	if !requireCapability(w, r, application.CapManageUsers) {
+		return
+	}
 	id, ok := userID(r)
 	if !ok {
 		http.Error(w, "invalid user id", http.StatusBadRequest)
@@ -138,6 +154,9 @@ func (h *UserHandlers) update(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *UserHandlers) delete(w http.ResponseWriter, r *http.Request) {
+	if !requireCapability(w, r, application.CapManageUsers) {
+		return
+	}
 	id, ok := userID(r)
 	if !ok {
 		http.Error(w, "invalid user id", http.StatusBadRequest)
@@ -150,6 +169,31 @@ func (h *UserHandlers) delete(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		h.renderUsersIndexError(w, r, msg, status)
+		return
+	}
+	redirect(w, r, "/users")
+}
+
+func (h *UserHandlers) changeRole(w http.ResponseWriter, r *http.Request) {
+	if !requireCapability(w, r, application.CapChangeRole) {
+		return
+	}
+	id, ok := userID(r)
+	if !ok {
+		http.Error(w, "invalid user id", http.StatusBadRequest)
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+	role, err := domain.ParseRole(r.Form.Get("role"))
+	if err != nil {
+		http.Error(w, "invalid role", http.StatusUnprocessableEntity)
+		return
+	}
+	if _, err := h.users.ChangeRole(r.Context(), *userFromContext(r.Context()), id, role); err != nil {
+		http.Error(w, mapErrorMsg(err), statusFor(err))
 		return
 	}
 	redirect(w, r, "/users")

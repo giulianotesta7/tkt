@@ -236,6 +236,14 @@ func (h *harness) createUser(t *testing.T, name, email, password string) *domain
 	if err != nil {
 		t.Fatalf("create user %q: %v", email, err)
 	}
+	// Most legacy ticket-handler fixtures need an assignable staff member.
+	// New managed users default to the user role; test fixtures explicitly
+	// promote their synthetic target to agent instead of relying on that old
+	// implicit default.
+	u.Role = domain.RoleAgent
+	if err := h.store.UserStore().Update(context.Background(), u); err != nil {
+		t.Fatalf("promote fixture user %q: %v", email, err)
+	}
 	return u
 }
 
