@@ -192,9 +192,9 @@ func (us *userStore) listWhere(ctx context.Context, where string) ([]domain.User
 // Bootstrap is unavailable once ANY user exists (ErrBootstrapUnavailable) —
 // recovery and backfill are the only other root-creating paths.
 func (us *userStore) BootstrapRoot(ctx context.Context, u *domain.User) error {
-	tx, err := us.db.BeginTx(ctx, nil) // _txlock=immediate → BEGIN IMMEDIATE
+	tx, err := beginImmediate(ctx, us.db, "bootstrap")
 	if err != nil {
-		return fmt.Errorf("sqlite: begin bootstrap: %w", err)
+		return err
 	}
 	defer tx.Rollback()
 
