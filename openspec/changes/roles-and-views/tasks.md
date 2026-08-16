@@ -79,8 +79,8 @@ Deps: 2,3,6←P1; 4,5←3; 7←2–6; 8←7; P5∥P6; S6 monitored.
 
 ## S8
 
-- [ ] 8.1 Regenerate goldens `-update`, inspect, rerun.
-- [ ] 8.2 Route×role matrix; direct/HTMX denial; no-query spies.
-- [ ] 8.3 gofmt, `go vet ./...`, `go test -race ./...`.
+- [x] 8.1 Regenerate goldens `-update`, inspect, rerun.
+- [x] 8.2 Route×role matrix; direct/HTMX denial; no-query spies.
+- [x] 8.3 gofmt, `go vet ./...`, `go test -race ./...`.
 
 Non-goals: flows, auto-assignment, group assignees, agent panel, admin-created admins, root mutation.
