@@ -73,7 +73,7 @@ Deps: 2,3,6←P1; 4,5←3; 7←2–6; 8←7; P5∥P6; S6 monitored.
 ## S7
 
 - [x] 7.1 RED admin user↔agent only; root grants admin.
-- [ ] 7.2 Role change + `POST /users/{id}/role`; deactivated: no login/assign.
+- [x] 7.2 Role change + `POST /users/{id}/role`; deactivated: no login/assign. — EXCEPTION (documented): behavior complete and covered (inactive login/assign rejected, role persistence+audit, endpoint matrix); the endpoint test was written post-implementation so its RED-first evidence is invalid. Strict-TDD gatekeeper caught it; user approved documented exception 2026-08-16.
 - [x] 7.3 RED categories admin/root-only; forged fields rejected.
 - [x] 7.4 Handler+middleware gates; shell/ticket views gating; RED direct denial.
 
