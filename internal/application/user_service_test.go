@@ -16,10 +16,12 @@ func newUserService() (*application.UserService, *fakeUserStore, *fakeClock) {
 	return application.NewUserService(users, clock), users, clock
 }
 
+var managerActor = domain.User{ID: 999, Role: domain.RoleAdmin}
+
 func TestCreateUserStoresActiveWithHashedPassword(t *testing.T) {
 	svc, users, clock := newUserService()
 
-	u, err := svc.Create(context.Background(), application.CreateUserInput{
+	u, err := svc.Create(context.Background(), managerActor, application.CreateUserInput{
 		Name: "Ana", Email: "ana@example.com", Password: "s3cret-pass",
 	})
 	if err != nil {
@@ -49,7 +51,7 @@ func TestCreateUserRejectsDuplicateEmail(t *testing.T) {
 	svc, users, _ := newUserService()
 	users.seed("Ana", "ana@example.com", true)
 
-	_, err := svc.Create(context.Background(), application.CreateUserInput{
+	_, err := svc.Create(context.Background(), managerActor, application.CreateUserInput{
 		Name: "Ana 2", Email: "ana@example.com", Password: "s3cret-pass",
 	})
 	var derr *domain.DuplicateError
@@ -75,7 +77,7 @@ func TestCreateUserRejectsMissingFields(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			_, err := svc.Create(context.Background(), tc.in)
+			_, err := svc.Create(context.Background(), managerActor, tc.in)
 			var verr *domain.ValidationError
 			if !errors.As(err, &verr) || verr.Field != tc.field {
 				t.Fatalf("Create: must be a ValidationError on field %q, got %v", tc.field, err)
@@ -89,7 +91,7 @@ func TestCreateUserRejectsMissingFields(t *testing.T) {
 
 func TestUpdateUserReplacesValuesAndRehashesPassword(t *testing.T) {
 	svc, _, _ := newUserService()
-	created, err := svc.Create(context.Background(), application.CreateUserInput{
+	created, err := svc.Create(context.Background(), managerActor, application.CreateUserInput{
 		Name: "Ana", Email: "ana@example.com", Password: "old-pass",
 	})
 	if err != nil {
@@ -100,7 +102,7 @@ func TestUpdateUserReplacesValuesAndRehashesPassword(t *testing.T) {
 	newName := "Ana Maria"
 	newEmail := "ana.maria@example.com"
 	newPassword := "new-pass"
-	updated, err := svc.Update(context.Background(), created.ID, application.UpdateUserInput{
+	updated, err := svc.Update(context.Background(), managerActor, created.ID, application.UpdateUserInput{
 		Name: &newName, Email: &newEmail, Password: &newPassword,
 	})
 	if err != nil {
@@ -126,7 +128,7 @@ func TestUpdateUserRejectsDuplicateEmail(t *testing.T) {
 	beto := users.seed("Beto", "beto@example.com", true)
 
 	newEmail := "ana@example.com"
-	_, err := svc.Update(context.Background(), beto.ID, application.UpdateUserInput{Email: &newEmail})
+	_, err := svc.Update(context.Background(), managerActor, beto.ID, application.UpdateUserInput{Email: &newEmail})
 	var derr *domain.DuplicateError
 	if !errors.As(err, &derr) || derr.Kind != "user" {
 		t.Fatalf("Update: rename to duplicate email must be a DuplicateError(kind=user), got %v", err)
@@ -139,7 +141,7 @@ func TestUpdateUserRejectsDuplicateEmail(t *testing.T) {
 
 func TestUpdateUserRejectsBlankValues(t *testing.T) {
 	svc, _, _ := newUserService()
-	created, err := svc.Create(context.Background(), application.CreateUserInput{
+	created, err := svc.Create(context.Background(), managerActor, application.CreateUserInput{
 		Name: "Ana", Email: "ana@example.com", Password: "x",
 	})
 	if err != nil {
@@ -147,7 +149,7 @@ func TestUpdateUserRejectsBlankValues(t *testing.T) {
 	}
 
 	blank := "   "
-	_, err = svc.Update(context.Background(), created.ID, application.UpdateUserInput{Name: &blank})
+	_, err = svc.Update(context.Background(), managerActor, created.ID, application.UpdateUserInput{Name: &blank})
 	var verr *domain.ValidationError
 	if !errors.As(err, &verr) || verr.Field != "name" {
 		t.Fatalf("Update: blank name must be a ValidationError on field name, got %v", err)
@@ -156,7 +158,7 @@ func TestUpdateUserRejectsBlankValues(t *testing.T) {
 
 func TestDeactivateUserKeepsHistoricalData(t *testing.T) {
 	svc, users, _ := newUserService()
-	created, err := svc.Create(context.Background(), application.CreateUserInput{
+	created, err := svc.Create(context.Background(), managerActor, application.CreateUserInput{
 		Name: "Ana", Email: "ana@example.com", Password: "x",
 	})
 	if err != nil {
@@ -164,7 +166,7 @@ func TestDeactivateUserKeepsHistoricalData(t *testing.T) {
 	}
 
 	inactive := false
-	deactivated, err := svc.Update(context.Background(), created.ID, application.UpdateUserInput{Active: &inactive})
+	deactivated, err := svc.Update(context.Background(), managerActor, created.ID, application.UpdateUserInput{Active: &inactive})
 	if err != nil {
 		t.Fatalf("Update: deactivate: unexpected error: %v", err)
 	}
@@ -186,7 +188,7 @@ func TestDeleteUserReferencedRejected(t *testing.T) {
 	ana := users.seed("Ana", "ana@example.com", true)
 	users.markReferenced(ana.ID) // assigned to tickets
 
-	err := svc.Delete(context.Background(), ana.ID)
+	err := svc.Delete(context.Background(), managerActor, ana.ID)
 	var rerr *domain.ReferencedError
 	if !errors.As(err, &rerr) || rerr.Kind != "user" {
 		t.Fatalf("Delete: referenced user must be a ReferencedError(kind=user), got %v", err)
@@ -200,7 +202,7 @@ func TestDeleteUserUnreferencedRemoves(t *testing.T) {
 	svc, users, _ := newUserService()
 	ana := users.seed("Ana", "ana@example.com", true)
 
-	if err := svc.Delete(context.Background(), ana.ID); err != nil {
+	if err := svc.Delete(context.Background(), managerActor, ana.ID); err != nil {
 		t.Fatalf("Delete: unreferenced user must be deletable, got %v", err)
 	}
 	if _, err := users.GetByID(context.Background(), ana.ID); !errors.Is(err, domain.ErrNotFound) {
@@ -210,15 +212,61 @@ func TestDeleteUserUnreferencedRemoves(t *testing.T) {
 
 func TestUserServiceList(t *testing.T) {
 	svc, _, _ := newUserService()
-	svc.Create(context.Background(), application.CreateUserInput{Name: "Ana", Email: "ana@example.com", Password: "x"})
-	svc.Create(context.Background(), application.CreateUserInput{Name: "Beto", Email: "beto@example.com", Password: "x"})
+	svc.Create(context.Background(), managerActor, application.CreateUserInput{Name: "Ana", Email: "ana@example.com", Password: "x"})
+	svc.Create(context.Background(), managerActor, application.CreateUserInput{Name: "Beto", Email: "beto@example.com", Password: "x"})
 
-	list, err := svc.List(context.Background())
+	list, err := svc.List(context.Background(), managerActor)
 	if err != nil {
 		t.Fatalf("List: unexpected error: %v", err)
 	}
 	if len(list) != 2 {
 		t.Fatalf("List: 2 users expected, got %d", len(list))
+	}
+}
+
+// TestManagedUserOperationsRequireAnAdminActor proves user management is
+// authorized at the application boundary before any user-store mutation.
+func TestManagedUserOperationsRequireAnAdminActor(t *testing.T) {
+	svc, users, _ := newUserService()
+	admin := domain.User{ID: 1, Role: domain.RoleAdmin}
+	agent := domain.User{ID: 2, Role: domain.RoleAgent}
+	target := users.seedRole("Target", "target@example.com", domain.RoleUser, true)
+
+	if _, err := svc.Create(context.Background(), agent, application.CreateUserInput{Name: "Denied", Email: "denied@example.com", Password: "secret"}); err == nil {
+		t.Fatal("agent Create must be denied")
+	}
+	if _, err := svc.List(context.Background(), agent); err == nil {
+		t.Fatal("agent List must be denied")
+	}
+	name := "Changed"
+	if _, err := svc.Update(context.Background(), agent, target.ID, application.UpdateUserInput{Name: &name}); err == nil {
+		t.Fatal("agent Update must be denied")
+	}
+	if err := svc.Delete(context.Background(), agent, target.ID); err == nil {
+		t.Fatal("agent Delete must be denied")
+	}
+	if _, err := svc.Create(context.Background(), admin, application.CreateUserInput{Name: "Allowed", Email: "allowed@example.com", Password: "secret"}); err != nil {
+		t.Fatalf("admin Create: %v", err)
+	}
+}
+
+// TestAdminCannotDeactivateOrDeleteAnotherAdmin proves the role boundary is
+// enforced by the use case, not merely the HTTP handler.
+func TestAdminCannotDeactivateOrDeleteAnotherAdmin(t *testing.T) {
+	svc, users, _ := newUserService()
+	actor := domain.User{ID: 1, Role: domain.RoleAdmin}
+	peer := users.seedRole("Peer", "peer@example.com", domain.RoleAdmin, true)
+	inactive := false
+
+	if _, err := svc.Update(context.Background(), actor, peer.ID, application.UpdateUserInput{Active: &inactive}); err == nil {
+		t.Fatal("admin must not deactivate a peer admin")
+	}
+	if err := svc.Delete(context.Background(), actor, peer.ID); err == nil {
+		t.Fatal("admin must not delete a peer admin")
+	}
+	stored, err := users.GetByID(context.Background(), peer.ID)
+	if err != nil || !stored.Active {
+		t.Fatalf("peer admin must remain active, user=%+v err=%v", stored, err)
 	}
 }
 
@@ -323,7 +371,7 @@ func TestUpdateRootRejected(t *testing.T) {
 
 	name := "Hacker"
 	email := "hack@example.com"
-	_, err := svc.Update(ctx, rootID, application.UpdateUserInput{Name: &name, Email: &email})
+	_, err := svc.Update(ctx, managerActor, rootID, application.UpdateUserInput{Name: &name, Email: &email})
 	if !errors.Is(err, domain.ErrRootProtected) {
 		t.Fatalf("Update root = %v, want RootProtectedError", err)
 	}
@@ -351,7 +399,7 @@ func TestDeactivateRootRejected(t *testing.T) {
 	ctx := context.Background()
 
 	active := false
-	_, err := svc.Update(ctx, rootID, application.UpdateUserInput{Active: &active})
+	_, err := svc.Update(ctx, managerActor, rootID, application.UpdateUserInput{Active: &active})
 	if !errors.Is(err, domain.ErrRootProtected) {
 		t.Fatalf("Deactivate root = %v, want RootProtectedError", err)
 	}
@@ -369,7 +417,7 @@ func TestDeleteRootRejected(t *testing.T) {
 	rootID, _ := seedRoot(t, svc, users)
 	ctx := context.Background()
 
-	err := svc.Delete(ctx, rootID)
+	err := svc.Delete(ctx, managerActor, rootID)
 	if !errors.Is(err, domain.ErrRootProtected) {
 		t.Fatalf("Delete root = %v, want RootProtectedError", err)
 	}
@@ -386,11 +434,11 @@ func TestUpdateAndDeleteRegularUserStillWork(t *testing.T) {
 	ctx := context.Background()
 
 	name := "Ana Maria"
-	_, err := svc.Update(ctx, regularID, application.UpdateUserInput{Name: &name})
+	_, err := svc.Update(ctx, managerActor, regularID, application.UpdateUserInput{Name: &name})
 	if err != nil {
 		t.Fatalf("Update regular user = %v, want success", err)
 	}
-	if err := svc.Delete(ctx, regularID); err != nil {
+	if err := svc.Delete(ctx, managerActor, regularID); err != nil {
 		t.Fatalf("Delete regular user = %v, want success", err)
 	}
 }
@@ -403,7 +451,7 @@ func TestCreateUserIsNeverRoot(t *testing.T) {
 	ctx := context.Background()
 
 	for i := 0; i < 3; i++ {
-		u, err := svc.Create(ctx, application.CreateUserInput{
+		u, err := svc.Create(ctx, managerActor, application.CreateUserInput{
 			Name: "U" + fmt.Sprint(i), Email: fmt.Sprintf("u%d@example.com", i), Password: "secret",
 		})
 		if err != nil {

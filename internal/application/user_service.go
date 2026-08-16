@@ -54,10 +54,14 @@ func (s *UserService) prepareUser(in CreateUserInput, role domain.Role) (*domain
 	}, nil
 }
 
-// Create validates name, email, and password, stores the bcrypt hash (D15),
+// Create validates an authorized management actor, then validates name, email,
+// and password, stores the bcrypt hash (D15),
 // and returns the new active user with the user role. Root is only ever
 // created by BootstrapRoot, never through user creation.
-func (s *UserService) Create(ctx context.Context, in CreateUserInput) (*domain.User, error) {
+func (s *UserService) Create(ctx context.Context, actor domain.User, in CreateUserInput) (*domain.User, error) {
+	if !NewPolicy().Capabilities(actor.Role).Require(CapManageUsers) {
+		return nil, domain.NewForbiddenError("user management is not permitted")
+	}
 	u, err := s.prepareUser(in, domain.RoleUser)
 	if err != nil {
 		return nil, err
@@ -100,7 +104,10 @@ type UpdateUserInput struct {
 // account is protected: no actor — including root itself — may edit,
 // deactivate, or demote it (role-authorization root invariants); the
 // request is rejected before any store call with RootProtectedError.
-func (s *UserService) Update(ctx context.Context, id int64, in UpdateUserInput) (*domain.User, error) {
+func (s *UserService) Update(ctx context.Context, actor domain.User, id int64, in UpdateUserInput) (*domain.User, error) {
+	if !NewPolicy().Capabilities(actor.Role).Require(CapManageUsers) {
+		return nil, domain.NewForbiddenError("user management is not permitted")
+	}
 	if in.Name != nil && strings.TrimSpace(*in.Name) == "" {
 		return nil, &domain.ValidationError{Field: "name", Message: domain.ErrMsgUserNameRequired}
 	}
@@ -117,6 +124,9 @@ func (s *UserService) Update(ctx context.Context, id int64, in UpdateUserInput) 
 	}
 	if u.Role == domain.RoleRoot {
 		return nil, domain.NewRootProtectedError()
+	}
+	if actor.Role == domain.RoleAdmin && u.Role == domain.RoleAdmin {
+		return nil, domain.NewForbiddenError("admin accounts require root")
 	}
 	if in.Name != nil {
 		u.Name = strings.TrimSpace(*in.Name)
@@ -145,13 +155,19 @@ func (s *UserService) Update(ctx context.Context, id int64, in UpdateUserInput) 
 // never deletable by any actor (role-authorization root invariants) — the
 // guard rejects it before the store is reached; the DB trigger is the
 // hard backstop for any other path.
-func (s *UserService) Delete(ctx context.Context, id int64) error {
+func (s *UserService) Delete(ctx context.Context, actor domain.User, id int64) error {
+	if !NewPolicy().Capabilities(actor.Role).Require(CapManageUsers) {
+		return domain.NewForbiddenError("user management is not permitted")
+	}
 	u, err := s.users.GetByID(ctx, id)
 	if err != nil {
 		return err
 	}
 	if u.Role == domain.RoleRoot {
 		return domain.NewRootProtectedError()
+	}
+	if actor.Role == domain.RoleAdmin && u.Role == domain.RoleAdmin {
+		return domain.NewForbiddenError("admin accounts require root")
 	}
 	return s.users.Delete(ctx, id)
 }
@@ -194,7 +210,29 @@ func (s *UserService) GetByID(ctx context.Context, id int64) (*domain.User, erro
 	return s.users.GetByID(ctx, id)
 }
 
-// List returns all managed users.
-func (s *UserService) List(ctx context.Context) ([]domain.User, error) {
+// List returns all managed users to an authorized management actor.
+func (s *UserService) List(ctx context.Context, actor domain.User) ([]domain.User, error) {
+	if !NewPolicy().Capabilities(actor.Role).Require(CapManageUsers) {
+		return nil, domain.NewForbiddenError("user management is not permitted")
+	}
 	return s.users.List(ctx)
+}
+
+// ListAssignable returns active agent-plus users for assignment controls. A
+// user-role actor receives no candidates, preventing managed-user disclosure.
+func (s *UserService) ListAssignable(ctx context.Context, actor domain.User) ([]domain.User, error) {
+	if !NewPolicy().Capabilities(actor.Role).Require(CapAssignTicket) {
+		return nil, nil
+	}
+	users, err := s.users.ListActive(ctx)
+	if err != nil {
+		return nil, err
+	}
+	assignable := make([]domain.User, 0, len(users))
+	for _, u := range users {
+		if u.Role.AtLeast(domain.RoleAgent) {
+			assignable = append(assignable, u)
+		}
+	}
+	return assignable, nil
 }

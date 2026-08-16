@@ -167,7 +167,7 @@ func newHarnessWithAdmin(t *testing.T, seedAdmin bool) *harness {
 	// service calls using the admin as actor exercise the admin capability
 	// path (UserService.Create leaves the in-memory role empty — the store
 	// default would silently make it an agent).
-	admin, err := usersSvc.Create(context.Background(), application.CreateUserInput{Name: "Admin", Email: "admin@tkt.test", Password: "secret"})
+	admin, err := usersSvc.Create(context.Background(), domain.User{Role: domain.RoleRoot}, application.CreateUserInput{Name: "Admin", Email: "admin@tkt.test", Password: "secret"})
 	if err != nil {
 		t.Fatalf("create admin: %v", err)
 	}
@@ -232,7 +232,7 @@ func (h *harness) postFormAs(t *testing.T, path string, form url.Values, session
 // createUser registers a user with a real bcrypt password (login-ready).
 func (h *harness) createUser(t *testing.T, name, email, password string) *domain.User {
 	t.Helper()
-	u, err := h.users.Create(context.Background(), application.CreateUserInput{Name: name, Email: email, Password: password})
+	u, err := h.users.Create(context.Background(), *h.admin, application.CreateUserInput{Name: name, Email: email, Password: password})
 	if err != nil {
 		t.Fatalf("create user %q: %v", email, err)
 	}

@@ -47,7 +47,8 @@ func (h *UserHandlers) index(w http.ResponseWriter, r *http.Request) {
 	if !requireCapability(w, r, application.CapManageUsers) {
 		return
 	}
-	users, err := h.users.List(r.Context())
+	actor := *userFromContext(r.Context())
+	users, err := h.users.List(r.Context(), actor)
 	if err != nil {
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
@@ -87,7 +88,7 @@ func (h *UserHandlers) create(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
-	_, err := h.users.Create(r.Context(), application.CreateUserInput{
+	_, err := h.users.Create(r.Context(), *userFromContext(r.Context()), application.CreateUserInput{
 		Name:     r.Form.Get("name"),
 		Email:    r.Form.Get("email"),
 		Password: r.Form.Get("password"),
@@ -146,7 +147,7 @@ func (h *UserHandlers) update(w http.ResponseWriter, r *http.Request) {
 		in.Password = &pw
 	}
 
-	if _, err := h.users.Update(r.Context(), id, in); err != nil {
+	if _, err := h.users.Update(r.Context(), *userFromContext(r.Context()), id, in); err != nil {
 		h.renderUserFormError(w, r, id, err)
 		return
 	}
@@ -162,7 +163,7 @@ func (h *UserHandlers) delete(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid user id", http.StatusBadRequest)
 		return
 	}
-	if err := h.users.Delete(r.Context(), id); err != nil {
+	if err := h.users.Delete(r.Context(), *userFromContext(r.Context()), id); err != nil {
 		status, msg := mapError(err)
 		if status == http.StatusInternalServerError {
 			http.Error(w, msg, status)
@@ -225,7 +226,7 @@ func (h *UserHandlers) renderUserFormError(w http.ResponseWriter, r *http.Reques
 // renderUsersIndexError re-renders the users list with an inline error
 // (rejected delete; HX → content fragment, full → page).
 func (h *UserHandlers) renderUsersIndexError(w http.ResponseWriter, r *http.Request, msg string, status int) {
-	users, err := h.users.List(r.Context())
+	users, err := h.users.List(r.Context(), *userFromContext(r.Context()))
 	if err != nil {
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return

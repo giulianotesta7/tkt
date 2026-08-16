@@ -99,25 +99,16 @@ func (h *TicketHandlers) collectOptions(r *http.Request) (options, error) {
 	if err != nil {
 		return options{}, err
 	}
-	users, err := h.users.List(r.Context())
+	actor := *userFromContext(r.Context())
+	assignable, err := h.users.ListAssignable(r.Context(), actor)
 	if err != nil {
 		return options{}, err
-	}
-	var assignable []domain.User
-	for _, u := range users {
-		// Assignment targets are ACTIVE agent-plus personnel only (S4.2,
-		// ticket-access spec): the dropdown never offers a user-role
-		// account or a deactivated user; the use case enforces the same
-		// rule server-side when forged values are posted.
-		if u.Active && u.Role.AtLeast(domain.RoleAgent) {
-			assignable = append(assignable, u)
-		}
 	}
 	return options{
 		States:          listStates,
 		Priorities:      listPriorities,
 		Categories:      categories,
-		Users:           users,
+		Users:           assignable,
 		AssignableUsers: assignable,
 	}, nil
 }
