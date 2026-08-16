@@ -1,5 +1,3 @@
-# Verify Report — roles-and-views
-
 ```yaml
 schema: gentle-ai.verify-result/v1
 evidence_revision: sha256:fa6dc052cea02c04db73c853516c14fd57f5a586247e53727eb127dcfc9a9914
@@ -15,6 +13,8 @@ build_command: go vet ./...
 build_exit_code: 0
 build_output_hash: sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
 ```
+
+# Verify Report — roles-and-views
 
 ## Executive Summary
 
