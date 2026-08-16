@@ -72,10 +72,10 @@ Deps: 2,3,6←P1; 4,5←3; 7←2–6; 8←7; P5∥P6; S6 monitored.
 
 ## S7
 
-- [ ] 7.1 RED admin user↔agent only; root grants admin.
+- [x] 7.1 RED admin user↔agent only; root grants admin.
 - [ ] 7.2 Role change + `POST /users/{id}/role`; deactivated: no login/assign.
-- [ ] 7.3 RED categories admin/root-only; forged fields rejected.
-- [ ] 7.4 Handler+middleware gates; shell/ticket views gating; RED direct denial.
+- [x] 7.3 RED categories admin/root-only; forged fields rejected.
+- [x] 7.4 Handler+middleware gates; shell/ticket views gating; RED direct denial.
 
 ## S8
 
