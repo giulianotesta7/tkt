@@ -507,3 +507,30 @@ func TestChangeRoleEnforcesAdminAndRootMatrix(t *testing.T) {
 		t.Fatalf("member role = %q, want %q", stored.Role, domain.RoleAdmin)
 	}
 }
+
+func TestRoleChangesRoundTripWithActorAudit(t *testing.T) {
+	ctx := context.Background()
+	svc, users, _ := newUserService()
+	admin := users.seedRole("Admin", "admin@example.com", domain.RoleAdmin, true)
+	root := users.seedRole("Root", "root@example.com", domain.RoleRoot, true)
+	member := users.seedRole("Member", "member@example.com", domain.RoleUser, true)
+
+	for _, role := range []domain.Role{domain.RoleAgent, domain.RoleUser} {
+		if _, err := svc.ChangeRole(ctx, admin, member.ID, role); err != nil {
+			t.Fatalf("admin role round trip to %s: %v", role, err)
+		}
+	}
+	for _, role := range []domain.Role{domain.RoleAdmin, domain.RoleAgent} {
+		if _, err := svc.ChangeRole(ctx, root, member.ID, role); err != nil {
+			t.Fatalf("root role round trip to %s: %v", role, err)
+		}
+	}
+	if len(users.roleChanges) != 4 {
+		t.Fatalf("role audits = %d, want 4", len(users.roleChanges))
+	}
+	for _, change := range users.roleChanges {
+		if change.actorID != admin.ID && change.actorID != root.ID {
+			t.Errorf("audit actor = %d, want admin or root", change.actorID)
+		}
+	}
+}

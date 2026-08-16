@@ -338,11 +338,14 @@ func (f *fakeUnitOfWork) Update(ctx context.Context, t *domain.Ticket, events ..
 // fakeUserStore implements UserStore: email uniqueness, delete guard via a
 // referenced flag (the real store checks ticket FKs; tests set the flag).
 type fakeUserStore struct {
-	users      map[int64]*domain.User
-	byEmail    map[string]int64
-	nextID     int64
-	referenced map[int64]bool
+	users       map[int64]*domain.User
+	byEmail     map[string]int64
+	nextID      int64
+	referenced  map[int64]bool
+	roleChanges []fakeRoleChange
 }
+
+type fakeRoleChange struct{ actorID int64 }
 
 func newFakeUserStore() *fakeUserStore {
 	return &fakeUserStore{
@@ -431,12 +434,13 @@ func (f *fakeUserStore) Update(_ context.Context, u *domain.User) error {
 	return nil
 }
 
-func (f *fakeUserStore) ChangeRole(_ context.Context, userID, _ int64, _, to domain.Role, _ time.Time) error {
+func (f *fakeUserStore) ChangeRole(_ context.Context, userID, actorID int64, _, to domain.Role, _ time.Time) error {
 	u, ok := f.users[userID]
 	if !ok {
 		return &domain.NotFoundError{Kind: "user", ID: userID}
 	}
 	u.Role = to
+	f.roleChanges = append(f.roleChanges, fakeRoleChange{actorID: actorID})
 	return nil
 }
 
