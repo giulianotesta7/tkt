@@ -132,6 +132,9 @@ func (s *TicketService) Assign(ctx context.Context, actor domain.User, ticketID 
 		return nil, err
 	}
 	if assigneeID != nil {
+		if actor.Role == domain.RoleAgent && t.UserID == nil && *assigneeID != actor.ID {
+			return nil, domain.NewForbiddenError("agents may only claim tickets for themselves")
+		}
 		user, err := s.users.GetByID(ctx, *assigneeID)
 		if err != nil {
 			return nil, err

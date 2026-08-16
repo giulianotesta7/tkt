@@ -468,6 +468,27 @@ func TestAssignTargetInactive(t *testing.T) {
 	}
 }
 
+// TestAssignAgentMayOnlyClaimUnassignedTicketForSelf proves that an agent's
+// initial assignment is a self-claim; only admin/root may assign another user.
+func TestAssignAgentMayOnlyClaimUnassignedTicketForSelf(t *testing.T) {
+	h := newTicketHarness()
+	cat := h.categories.seed("Bugs")
+	ticket := seededTicket(h.tickets, cat.ID, domain.StateNew)
+	actor := h.users.seedRole("Agent A", "a@example.com", domain.RoleAgent, true)
+	target := h.users.seedRole("Agent B", "b@example.com", domain.RoleAgent, true)
+
+	if _, err := h.svc.Assign(context.Background(), actor, ticket.ID, ptr(target.ID), ""); err == nil {
+		t.Fatal("agent must not initially assign an unassigned ticket to another agent")
+	}
+	stored, err := h.tickets.GetByID(context.Background(), ticket.ID, application.TicketQuery{Scope: application.ScopeAll})
+	if err != nil || stored.UserID != nil {
+		t.Fatalf("denied claim must leave ticket unassigned, ticket=%+v err=%v", stored, err)
+	}
+	if _, err := h.svc.Assign(context.Background(), actor, ticket.ID, ptr(actor.ID), ""); err != nil {
+		t.Fatalf("agent self-claim: %v", err)
+	}
+}
+
 // TestAssignAgentCannotReassignOthersTicket proves an agent can only claim
 // an unassigned ticket or reassign THEIR OWN ticket: another agent's
 // assigned ticket is out of scope (ErrNotFound, no existence leak — spec:
