@@ -270,6 +270,9 @@ textarea{min-height:84px;resize:vertical}
   .filter-bar select,.filter-bar .btn{flex:1;min-width:calc(50% - 6px)}
   .evidence{grid-template-columns:1fr}
   .field-row{grid-template-columns:1fr}
+  .category-card{align-items:flex-start;flex-direction:column}
+  .category-card .row-actions{flex-wrap:wrap}
+  .category-card .row-actions form{max-width:100%}
   .ticket-metadata{display:grid;gap:3px}
   .ticket-metadata span+span::before{content:none}
   .auth-entry__form-panel{padding-left:20px;padding-right:20px}
