@@ -393,11 +393,21 @@ textarea{min-height:84px;resize:vertical}
     <div class="evidence">
       <form class="card property-form" method="post" action="/tickets/1/edit">
         <h2>Properties</h2>
-        <dl class="kv">
-          <dt>Category</dt>
-          <dd>Bugs</dd>
-        </dl>
+        <div class="field">
+          <label for="ticket-title">Title</label>
+          <input id="ticket-title" name="title" value="Login page down" required>
+        </div>
+        <div class="field">
+          <label for="ticket-description">Description</label>
+          <textarea id="ticket-description" name="description">The login form 500s on submit</textarea>
+        </div>
         <div class="field-row">
+          <div class="field">
+            <label for="ticket-category">Category</label>
+            <select id="ticket-category" name="category_id">
+              <option value="1" selected>Bugs</option>
+            </select>
+          </div>
           <div class="field">
             <label for="ticket-priority">Priority</label>
             <select id="ticket-priority" name="priority">

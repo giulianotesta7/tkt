@@ -2,11 +2,13 @@ package httpadapter
 
 import (
 	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"strconv"
 	"strings"
 	"testing"
 
+	"github.com/giulianotesta7/tkt/internal/application"
 	"github.com/giulianotesta7/tkt/internal/domain"
 )
 
@@ -44,9 +46,9 @@ func TestTicketShowRendersDetail(t *testing.T) {
 			t.Errorf("assignment form must contain %q, got: %s", want, body)
 		}
 	}
-	for _, banned := range []string{`id="ticket-title"`, `id="ticket-description"`, `id="ticket-category"`, `name="title"`, `name="description"`, `name="category_id"`} {
-		if strings.Contains(body, banned) {
-			t.Errorf("title/description/category must not be editable on detail, found %q in: %s", banned, body)
+	for _, want := range []string{`id="ticket-title"`, `id="ticket-description"`, `id="ticket-category"`, `name="title"`, `name="description"`, `name="category_id"`} {
+		if !strings.Contains(body, want) {
+			t.Errorf("title/description/category must be editable on detail, missing %q in: %s", want, body)
 		}
 	}
 	// Merged timeline DESC: the transition (newer) renders before created.
@@ -72,6 +74,29 @@ func TestTicketShowRendersConciseSemanticMetadata(t *testing.T) {
 	}
 	if !strings.Contains(body, " · ") {
 		t.Errorf("display timestamps must use the human UTC separator, got: %s", body)
+	}
+}
+
+func TestAssignedAgentSeesTicketControls(t *testing.T) {
+	h := newHarness(t)
+	agent := h.createUser(t, "Agent", "agent@tkt.test", "secret")
+	ticket := h.seedTicket(t, "Assigned work", func(in *application.CreateTicketInput) { in.UserID = &agent.ID })
+	session := h.loginCookie(t, agent.Email, "secret")
+	if session == "" {
+		t.Fatal("agent login must succeed")
+	}
+	req := httptest.NewRequest(http.MethodGet, "/tickets/"+strconv.FormatInt(ticket.ID, 10), nil)
+	req.Header.Set("Cookie", sessionCookie+"="+session)
+	rec := httptest.NewRecorder()
+	h.mw.Wrap(h.mux).ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("assigned agent detail = %d, want 200", rec.Code)
+	}
+	body := rec.Body.String()
+	for _, want := range []string{`action="/tickets/1/transition"`, `name="to"`, `name="visibility"`} {
+		if !strings.Contains(body, want) {
+			t.Errorf("assigned agent controls must include %q", want)
+		}
 	}
 }
 
@@ -364,16 +389,20 @@ func TestTicketCommentsNewestFirst(t *testing.T) {
 }
 
 // TestTicketEditUpdatesPriorityAndAudits proves POST /tickets/{id}/edit
-// updates only priority/assignment, ignores forged immutable fields
-// (title/description/category), appends the audit event, and redirects.
+// updates every editable field, appends one audit event per change, and
+// redirects.
 func TestTicketEditUpdatesPriorityAndAudits(t *testing.T) {
 	h := newHarness(t)
 	h.seedTicket(t, "Login page down", nil)
+	support, err := h.categories.Create(t.Context(), "Support")
+	if err != nil {
+		t.Fatalf("create category: %v", err)
+	}
 
 	form := url.Values{
 		"title":       {"Login page is back"},
 		"description": {"Fixed the 500"},
-		"category_id": {"999"}, // nonexistent: must be ignored, not applied
+		"category_id": {strconv.FormatInt(support.ID, 10)},
 		"priority":    {"critical"},
 	}
 	rec := h.postForm(t, "/tickets/1/edit", form, false)
@@ -387,11 +416,11 @@ func TestTicketEditUpdatesPriorityAndAudits(t *testing.T) {
 	if view.Ticket.Priority != domain.PriorityCritical {
 		t.Errorf("priority = %q, want critical", view.Ticket.Priority)
 	}
-	if view.Ticket.Title != "Login page down" {
-		t.Errorf("title = %q, want immutable original", view.Ticket.Title)
+	if view.Ticket.Title != "Login page is back" || view.Ticket.Description != "Fixed the 500" {
+		t.Errorf("editable text fields = %q / %q", view.Ticket.Title, view.Ticket.Description)
 	}
-	if view.Ticket.CategoryID != h.bugCategory.ID {
-		t.Errorf("category = %d, want immutable original", view.Ticket.CategoryID)
+	if view.Ticket.CategoryID != support.ID {
+		t.Errorf("category = %d, want %d", view.Ticket.CategoryID, support.ID)
 	}
 	var fields []string
 	for _, ev := range view.AuditEvents {
@@ -400,11 +429,10 @@ func TestTicketEditUpdatesPriorityAndAudits(t *testing.T) {
 		}
 	}
 	joined := strings.Join(fields, ",")
-	if !strings.Contains(joined, "priority") {
-		t.Errorf("audit must record the priority change, got %v", fields)
-	}
-	if strings.Contains(joined, "title") || strings.Contains(joined, "category") || strings.Contains(joined, "description") {
-		t.Errorf("audit must not record immutable field changes, got %v", fields)
+	for _, field := range []string{"title", "description", "category", "priority"} {
+		if !strings.Contains(joined, field) {
+			t.Errorf("audit must record %s change, got %v", field, fields)
+		}
 	}
 }
 
@@ -414,7 +442,7 @@ func TestTicketEditInvalidPriority422(t *testing.T) {
 	h := newHarness(t)
 	h.seedTicket(t, "Login page down", nil)
 
-	form := url.Values{"priority": {"urgent"}}
+	form := url.Values{"title": {"Login page down"}, "description": {""}, "category_id": {"1"}, "priority": {"urgent"}}
 	rec := h.postForm(t, "/tickets/1/edit", form, false)
 
 	if rec.Code != http.StatusUnprocessableEntity {
@@ -463,7 +491,7 @@ func TestTicketEditHXFragment(t *testing.T) {
 	h := newHarness(t)
 	h.seedTicket(t, "Login page down", nil)
 
-	form := url.Values{"priority": {"high"}}
+	form := url.Values{"title": {"Login page restored"}, "description": {"Fixed"}, "category_id": {"1"}, "priority": {"high"}}
 	rec := h.postForm(t, "/tickets/1/edit", form, true)
 
 	if rec.Code != http.StatusOK {

@@ -466,7 +466,10 @@ func (h *TicketHandlers) detailDataFor(r *http.Request, id int64) (detailData, i
 		opts.AssignableUsers = append(opts.AssignableUsers, *view.AssignedUser)
 	}
 	values := ticketFormValues{
-		Priority: view.Ticket.Priority,
+		Title:       view.Ticket.Title,
+		Description: view.Ticket.Description,
+		CategoryID:  strconv.FormatInt(view.Ticket.CategoryID, 10),
+		Priority:    view.Ticket.Priority,
 	}
 	if view.Ticket.UserID != nil {
 		values.UserID = strconv.FormatInt(*view.Ticket.UserID, 10)
@@ -627,9 +630,7 @@ func (h *TicketHandlers) afterMutation(w http.ResponseWriter, r *http.Request, i
 
 // update applies the inline properties form. Assignment is NOT part of the
 // edit flow: it lives on POST /tickets/{id}/assign, where the reason and
-// target rules are enforced (S4). The immutable ticket fields (title,
-// description, category) are never read from the request: forged values are
-// ignored, matching the requester policy.
+// target rules are enforced (S4).
 func (h *TicketHandlers) update(w http.ResponseWriter, r *http.Request) {
 	id, ok := ticketID(r)
 	if !ok {
@@ -643,7 +644,17 @@ func (h *TicketHandlers) update(w http.ResponseWriter, r *http.Request) {
 	actor := *userFromContext(r.Context())
 
 	u := domain.TicketUpdate{}
+	title := r.Form.Get("title")
+	description := r.Form.Get("description")
+	categoryID := parseID(r.Form.Get("category_id"))
 	p := domain.Priority(r.Form.Get("priority"))
+	u.Title = &title
+	u.Description = &description
+	if categoryID == 0 {
+		h.renderEditError(w, r, id, &domain.ValidationError{Field: "category", Message: "invalid category"})
+		return
+	}
+	u.CategoryID = &categoryID
 	u.Priority = &p
 
 	_, err := h.tickets.Update(r.Context(), actor, id, u)
@@ -668,8 +679,11 @@ func (h *TicketHandlers) renderEditError(w http.ResponseWriter, r *http.Request,
 	}
 	data.Error = msg
 	data.Values = ticketFormValues{
-		UserID:   r.Form.Get("user_id"),
-		Priority: domain.Priority(r.Form.Get("priority")),
+		Title:       r.Form.Get("title"),
+		Description: r.Form.Get("description"),
+		CategoryID:  r.Form.Get("category_id"),
+		UserID:      r.Form.Get("user_id"),
+		Priority:    domain.Priority(r.Form.Get("priority")),
 	}
 	h.renderer.Render(w, r, "tickets_show", "ticket_detail", data, status)
 }
