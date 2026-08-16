@@ -65,10 +65,10 @@ Deps: 2,3,6←P1; 4,5←3; 7←2–6; 8←7; P5∥P6; S6 monitored.
 
 ## S6
 
-- [ ] 6.1 `domain/group.go`; `sqlite/group_store.go` CRUD+N:N, unique names.
-- [ ] 6.2 RED admin/root only;user never member.
-- [ ] 6.3 `group_service.go`, `handlers_groups.go`, group templates.
-- [ ] 6.4 RED group never assignee; least-loaded contract documented.
+- [x] 6.1 `domain/group.go`; `sqlite/group_store.go` CRUD+N:N, unique names.
+- [x] 6.2 RED admin/root only;user never member.
+- [x] 6.3 `group_service.go`, `handlers_groups.go`, group templates.
+- [x] 6.4 RED group never assignee; least-loaded contract documented.
 
 ## S7
 
