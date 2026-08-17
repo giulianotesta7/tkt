@@ -502,7 +502,7 @@ func TestUserTicketViewsHideManagementAndAssignmentControls(t *testing.T) {
 		t.Fatalf("GET /tickets/new status = %d, want 200", rec.Code)
 	}
 	body := rec.Body.String()
-	for _, forbidden := range []string{"name=\"user_id\"", "href=\"/users\"", "href=\"/categories\"", "href=\"/groups\""} {
+	for _, forbidden := range []string{"name=\"user_id\"", "href=\"/users\"", "href=\"/categories\"", "href=\"/desks\""} {
 		if strings.Contains(body, forbidden) {
 			t.Errorf("user ticket form exposed %q", forbidden)
 		}
@@ -547,7 +547,7 @@ func TestManagementRouteRoleMatrix(t *testing.T) {
 	routes := []route{
 		{path: "/users"},
 		{path: "/categories"},
-		{path: "/groups"},
+		{path: "/desks"},
 	}
 	roles := []struct {
 		role       domain.Role

@@ -30,8 +30,8 @@ const (
 	CapChangeRole Capability = "users.change_role"
 	// CapGrantAdmin allows granting or removing the admin role (root only).
 	CapGrantAdmin Capability = "users.grant_admin"
-	// CapManageGroups allows group and membership management (admin+).
-	CapManageGroups Capability = "groups.manage"
+	// CapManageDesks allows desk and membership management (admin+).
+	CapManageDesks Capability = "desks.manage"
 	// CapManageCategories allows category management (admin+).
 	CapManageCategories Capability = "categories.manage"
 )
@@ -59,7 +59,7 @@ var capabilityMatrix = map[domain.Role][]Capability{
 		CapCommentInternal,
 		CapManageUsers,
 		CapChangeRole,
-		CapManageGroups,
+		CapManageDesks,
 		CapManageCategories,
 	},
 	domain.RoleRoot: {
@@ -71,7 +71,7 @@ var capabilityMatrix = map[domain.Role][]Capability{
 		CapManageUsers,
 		CapChangeRole,
 		CapGrantAdmin,
-		CapManageGroups,
+		CapManageDesks,
 		CapManageCategories,
 	},
 }

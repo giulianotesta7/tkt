@@ -58,7 +58,7 @@ type pageData struct {
 	NavActive           string
 	CurrentUser         domain.User
 	CanManageUsers      bool
-	CanManageGroups     bool
+	CanManageDesks      bool
 	CanManageCategories bool
 	CanGrantAdmin       bool
 }
@@ -71,7 +71,7 @@ func pageDataFrom(r *http.Request, nav string) pageData {
 		NavActive:           nav,
 		CurrentUser:         *u,
 		CanManageUsers:      caps.Require(application.CapManageUsers),
-		CanManageGroups:     caps.Require(application.CapManageGroups),
+		CanManageDesks:      caps.Require(application.CapManageDesks),
 		CanManageCategories: caps.Require(application.CapManageCategories),
 		CanGrantAdmin:       caps.Require(application.CapGrantAdmin),
 	}
@@ -570,10 +570,10 @@ func (h *TicketHandlers) assign(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
-	// Groups are membership-only in this iteration. Reject a forged group
+	// Desks are membership-only in this iteration. Reject a forged desk
 	// target instead of treating its missing user_id as an unassignment.
-	if r.Form.Get("group_id") != "" {
-		h.renderDetailError(w, r, id, &domain.ValidationError{Field: "group", Message: "groups cannot be ticket assignees"})
+	if r.Form.Get("desk_id") != "" {
+		h.renderDetailError(w, r, id, &domain.ValidationError{Field: "desk", Message: "desks cannot be ticket assignees"})
 		return
 	}
 	actor := *userFromContext(r.Context())
