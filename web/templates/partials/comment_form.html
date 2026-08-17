@@ -5,18 +5,12 @@
   <div class="field">
     <textarea name="body" placeholder="Write a comment…" aria-label="Comment body"></textarea>
   </div>
-{{if .CanCommentInternal}}
-  <div class="field-row">
-    <div class="field">
-      <label for="comment-visibility">Visibility</label>
-      <select id="comment-visibility" name="visibility">
-        <option value="public">Public</option>
-        <option value="internal">Internal (staff only)</option>
-      </select>
-    </div>
-  </div>
-{{else}}
   <input type="hidden" name="visibility" value="public">
+{{if .CanCommentInternal}}
+  <div class="field checkbox-field">
+    <label for="comment-internal"><input id="comment-internal" type="checkbox" name="internal" value="1"> Internal comment</label>
+    <p class="help">Only staff can see internal comments.</p>
+  </div>
 {{end}}
   <button class="btn primary" type="submit">Add comment</button>
 </form>

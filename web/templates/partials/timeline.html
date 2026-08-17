@@ -2,7 +2,7 @@
 <div id="timeline">
 {{range .View.Timeline}}
 {{if .IsComment}}
-  <div class="timeline-entry timeline-comment">
+  <div class="timeline-entry timeline-comment{{if eq .Comment.Visibility "internal"}} internal{{end}}">
     <div class="who">
       <span class="author">{{.Comment.Author}}</span>
 {{if eq .Comment.Visibility "internal"}}      <span class="badge internal">internal</span>
