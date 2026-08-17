@@ -24,13 +24,3 @@
   
   <button class="btn primary" type="submit">Save changes</button>
 </form>
-
-<form class="card form-card" method="post" action="/users/1/password">
-  <h2>Change password</h2>
-  <div class="field">
-    <label for="password">New password</label>
-    <input type="password" id="password" name="password" autocomplete="new-password" required>
-  </div>
-  <button class="btn secondary" type="submit">Change password</button>
-</form>
-

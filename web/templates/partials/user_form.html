@@ -29,14 +29,4 @@
   {{end}}
   <button class="btn primary" type="submit">{{if .UserID}}Save changes{{else}}Create user{{end}}</button>
 </form>
-{{if .UserID}}
-<form class="card form-card" method="post" action="/users/{{.UserID}}/password">
-  <h2>Change password</h2>
-  <div class="field">
-    <label for="password">New password</label>
-    <input type="password" id="password" name="password" autocomplete="new-password" required>
-  </div>
-  <button class="btn secondary" type="submit">Change password</button>
-</form>
-{{end}}
 {{end}}
