@@ -237,10 +237,11 @@ func fixtureDetailData() detailData {
 		AssignableUsers: []domain.User{ana},
 	}
 	return detailData{
-		pageData: pageData{NavActive: "tickets", CurrentUser: ana},
-		View:     view,
-		Next:     allowedNext(t.State),
-		Options:  opts,
+		pageData:           pageData{NavActive: "tickets", CurrentUser: ana},
+		View:               view,
+		Next:               allowedNext(t.State),
+		Options:            opts,
+		CanCommentInternal: true,
 		Values: ticketFormValues{
 			Title:       t.Title,
 			Description: t.Description,

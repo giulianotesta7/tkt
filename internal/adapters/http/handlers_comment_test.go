@@ -110,10 +110,11 @@ func TestTicketDetailAgentSeesInternalComment(t *testing.T) {
 	if !strings.Contains(body, "badge internal") {
 		t.Errorf("agent detail must mark internal comments with the badge, got: %s", body)
 	}
-	// The comment form offers the internal option only to internal-capable
-	// actors (presentation; the server still enforces on forged values).
-	if !strings.Contains(body, `value="internal"`) || !strings.Contains(body, "Internal (staff only)") {
-		t.Errorf("agent comment form must offer the internal visibility option, got: %s", body)
+	if !strings.Contains(body, `name="internal" value="1"`) || !strings.Contains(body, "Internal comment") {
+		t.Errorf("agent comment form must offer the internal checkbox, got: %s", body)
+	}
+	if !strings.Contains(body, `timeline-comment internal`) {
+		t.Errorf("agent detail must distinguish internal comments, got: %s", body)
 	}
 }
 
