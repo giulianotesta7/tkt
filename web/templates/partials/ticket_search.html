@@ -1,0 +1,11 @@
+{{define "ticket_search"}}
+<form class="ticket-search" method="get" action="/tickets" hx-get="/tickets" hx-target="#ticket-list" hx-swap="outerHTML" hx-indicator="this">
+  <input type="hidden" name="state" value="{{.Filters.State}}">
+  <input type="hidden" name="priority" value="{{.Filters.Priority}}">
+  <input type="hidden" name="category_id" value="{{.Filters.CategoryID}}">
+  <input type="hidden" name="user_id" value="{{.Filters.UserID}}">
+  <input type="search" name="q" value="{{.Filters.Q}}" placeholder="Search by ID or title" aria-label="Search tickets">
+  <button class="btn" type="submit">Search</button>
+  <span class="htmx-indicator spinner" aria-hidden="true"></span>
+</form>
+{{end}}
