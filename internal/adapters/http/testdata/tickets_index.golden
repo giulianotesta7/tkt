@@ -329,6 +329,30 @@ textarea{min-height:84px;resize:vertical}
 </div>
 
 
+<form class="filter-bar" method="get" action="/tickets" hx-get="/tickets" hx-target="#ticket-list" hx-swap="outerHTML" hx-indicator="this"> <span class="htmx-indicator spinner" aria-hidden="true"></span>
+  <input type="hidden" name="q" value="">
+  <select name="state" aria-label="State">
+    <option value="">All states</option>
+    <option value="new" selected>New</option><option value="in_progress" >In Progress</option><option value="resolved" >Resolved</option><option value="closed" >Closed</option><option value="cancelled" >Cancelled</option>
+  </select>
+  <select name="priority" aria-label="Priority">
+    <option value="">All priorities</option>
+    <option value="critical" >Critical</option><option value="high" >High</option><option value="medium" >Medium</option><option value="low" >Low</option>
+  </select>
+  <select name="category_id" aria-label="Category">
+    <option value="">All categories</option>
+    <option value="1" >Bugs</option><option value="2" >Support</option>
+  </select>
+  <select name="user_id" aria-label="Assigned user">
+    <option value="">Anyone</option>
+    <option value="1" >Ana Torres</option>
+  </select>
+  <button class="btn" type="submit">Filter</button>
+  <a class="btn ghost small" href="/tickets">Clear</a>
+</form>
+
+
+
 <div id="ticket-list">
   <div class="queue-shell">
     <table class="queue">

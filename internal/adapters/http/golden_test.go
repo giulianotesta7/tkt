@@ -99,15 +99,16 @@ func fixtureListData() listData {
 		{ID: 1, Number: 1, Title: "Login page down", State: domain.StateNew, Priority: domain.PriorityCritical, CreatedAt: goldenT0, UpdatedAt: goldenT0},
 	}
 	return listData{
-		pageData: pageData{NavActive: "tickets", CurrentUser: ana},
-		Filters:  f,
-		Options:  opts,
-		Tickets:  tickets,
-		Total:    2,
-		Page:     1,
-		Pages:    1,
-		PrevHref: "",
-		NextHref: "",
+		pageData:            pageData{NavActive: "tickets", CurrentUser: ana},
+		Filters:             f,
+		Options:             opts,
+		Tickets:             tickets,
+		Total:               2,
+		Page:                1,
+		Pages:               1,
+		PrevHref:            "",
+		NextHref:            "",
+		ShowAdvancedFilters: true,
 	}
 }
 
