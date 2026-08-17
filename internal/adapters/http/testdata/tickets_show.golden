@@ -182,6 +182,7 @@ textarea,input[type=text],input[type=email],input[type=password]{
 textarea{min-height:84px;resize:vertical}
 .field{margin-bottom:14px}
 .field label{display:block;font-size:12.5px;color:var(--ink-soft);margin-bottom:5px;font-weight:500}
+.field .field-value{margin:0;padding:9px 0;color:var(--ink);font:inherit}
 .checkbox-field label{display:flex;align-items:center;gap:8px;margin:0}
 .checkbox-field input[type=checkbox]{
   appearance:none;-webkit-appearance:none;
@@ -433,19 +434,15 @@ textarea{min-height:84px;resize:vertical}
           <label for="ticket-title">Title</label>
           <input type="text" id="ticket-title" name="title" value="Login page down" required>
         </div>
-        <div class="field-row">
-          <div class="field">
-            <label for="ticket-category">Category</label>
-            <select id="ticket-category" name="category_id">
-              <option value="1" selected>Bugs</option>
-            </select>
-          </div>
-          <div class="field">
-            <label for="ticket-priority">Priority</label>
-            <select id="ticket-priority" name="priority">
-              <option value="critical" >Critical</option><option value="high" selected>High</option><option value="medium" >Medium</option><option value="low" >Low</option>
-            </select>
-          </div>
+        <div class="field">
+          <label for="ticket-category-value">Category</label>
+          <p id="ticket-category-value" class="field-value">Bugs</p>
+        </div>
+        <div class="field">
+          <label for="ticket-priority">Priority</label>
+          <select id="ticket-priority" name="priority">
+            <option value="critical" >Critical</option><option value="high" selected>High</option><option value="medium" >Medium</option><option value="low" >Low</option>
+          </select>
         </div>
         <button class="btn primary" type="submit">Save properties</button>
         </form>

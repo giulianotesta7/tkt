@@ -82,14 +82,15 @@ func (t *Ticket) Transition(to State, reason string, now time.Time) (*AuditEvent
 }
 
 // TicketUpdate describes optional field edits (ticket-management spec:
-// title, category, priority, assigned user). The description is immutable
-// after creation — it is NOT part of the update surface. A nil pointer
-// means "not provided"; a non-nil pointer means "set to this value".
+// title, priority, assigned user). The description AND the category are
+// immutable after creation — they are NOT part of the update surface: the
+// category is fixed once the ticket exists (future: categories get their
+// own management flow), exactly like the description. A nil pointer means
+// "not provided"; a non-nil pointer means "set to this value".
 // Assignment is a tri-state: UserID non-nil assigns, ClearUserID=true
 // clears the assignment, and both together is rejected as ambiguous.
 type TicketUpdate struct {
 	Title       *string
-	CategoryID  *int64
 	Priority    *Priority
 	UserID      *int64
 	ClearUserID bool
@@ -127,10 +128,6 @@ func (t *Ticket) ApplyUpdate(u TicketUpdate, now time.Time) ([]AuditEvent, error
 	if u.Title != nil && *u.Title != t.Title {
 		audit("title", t.Title, *u.Title)
 		t.Title = *u.Title
-	}
-	if u.CategoryID != nil && *u.CategoryID != t.CategoryID {
-		audit("category", strconv.FormatInt(t.CategoryID, 10), strconv.FormatInt(*u.CategoryID, 10))
-		t.CategoryID = *u.CategoryID
 	}
 	if u.Priority != nil && *u.Priority != t.Priority {
 		audit("priority", string(t.Priority), string(*u.Priority))

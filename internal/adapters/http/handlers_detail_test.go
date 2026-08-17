@@ -46,15 +46,23 @@ func TestTicketShowRendersDetail(t *testing.T) {
 			t.Errorf("assignment form must contain %q, got: %s", want, body)
 		}
 	}
-	for _, want := range []string{`id="ticket-title"`, `id="ticket-category"`, `name="title"`, `name="category_id"`} {
+	for _, want := range []string{`id="ticket-title"`, `name="title"`, `id="ticket-priority"`} {
 		if !strings.Contains(body, want) {
-			t.Errorf("title/category must be editable on detail, missing %q in: %s", want, body)
+			t.Errorf("title/priority must be editable on detail, missing %q in: %s", want, body)
 		}
 	}
-	// The description is immutable after creation: the edit form must not
-	// present it (the read-only card above is the only description surface).
+	// The description and the category are immutable after creation: the
+	// edit form must not present either (the read-only card above is the
+	// only description surface, and the category shows as read-only
+	// metadata — no select, no form field).
 	if strings.Contains(body, `name="description"`) || strings.Contains(body, `id="ticket-description"`) {
 		t.Errorf("detail edit form must not render a description field (immutable after creation), got: %s", body)
+	}
+	if strings.Contains(body, `name="category_id"`) || strings.Contains(body, `<select id="ticket-category"`) {
+		t.Errorf("detail edit form must not render a category control (immutable after creation), got: %s", body)
+	}
+	if !strings.Contains(body, `id="ticket-category-value"`) {
+		t.Errorf("the category must stay visible as read-only metadata, got: %s", body)
 	}
 	// Merged timeline DESC: the transition (newer) renders before created.
 	// Match the timeline event markers (not bare words — "transition" also
@@ -440,8 +448,10 @@ func TestTicketCommentsNewestFirst(t *testing.T) {
 }
 
 // TestTicketEditUpdatesPriorityAndAudits proves POST /tickets/{id}/edit
-// updates every editable field, appends one audit event per change, and
-// redirects.
+// updates the editable fields (title, priority), appends one audit event per
+// change, and redirects. The category is immutable after creation — a forged
+// category_id in the POST is ignored (stored category unchanged, no category
+// audit), exactly like the description.
 func TestTicketEditUpdatesPriorityAndAudits(t *testing.T) {
 	h := newHarness(t)
 	h.seedTicket(t, "Login page down", nil)
@@ -467,13 +477,16 @@ func TestTicketEditUpdatesPriorityAndAudits(t *testing.T) {
 	if view.Ticket.Priority != domain.PriorityCritical {
 		t.Errorf("priority = %q, want critical", view.Ticket.Priority)
 	}
-	// The description is immutable after creation: the forged form field is
-	// ignored and the stored value from creation survives untouched.
-	if view.Ticket.Title != "Login page is back" || view.Ticket.Description != "Test description" {
-		t.Errorf("title must update but description must stay immutable = %q / %q", view.Ticket.Title, view.Ticket.Description)
+	if view.Ticket.Title != "Login page is back" {
+		t.Errorf("title = %q, want the submitted title", view.Ticket.Title)
 	}
-	if view.Ticket.CategoryID != support.ID {
-		t.Errorf("category = %d, want %d", view.Ticket.CategoryID, support.ID)
+	// The description and the category are immutable after creation: the
+	// forged form fields are ignored and the stored values survive.
+	if view.Ticket.Description != "Test description" {
+		t.Errorf("description must stay immutable, got %q", view.Ticket.Description)
+	}
+	if view.Ticket.CategoryID != h.bugCategory.ID {
+		t.Errorf("category must stay immutable, got %d want %d", view.Ticket.CategoryID, h.bugCategory.ID)
 	}
 	var fields []string
 	for _, ev := range view.AuditEvents {
@@ -482,13 +495,15 @@ func TestTicketEditUpdatesPriorityAndAudits(t *testing.T) {
 		}
 	}
 	joined := strings.Join(fields, ",")
-	for _, field := range []string{"title", "category", "priority"} {
+	for _, field := range []string{"title", "priority"} {
 		if !strings.Contains(joined, field) {
 			t.Errorf("audit must record %s change, got %v", field, fields)
 		}
 	}
-	if strings.Contains(joined, "description") {
-		t.Errorf("audit must not record a description change (immutable field), got %v", fields)
+	for _, immutable := range []string{"category", "description"} {
+		if strings.Contains(joined, immutable) {
+			t.Errorf("audit must not record a %s change (immutable field), got %v", immutable, fields)
+		}
 	}
 }
 
