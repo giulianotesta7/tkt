@@ -468,10 +468,9 @@ func (h *TicketHandlers) detailDataFor(r *http.Request, id int64) (detailData, i
 		opts.AssignableUsers = append(opts.AssignableUsers, *view.AssignedUser)
 	}
 	values := ticketFormValues{
-		Title:       view.Ticket.Title,
-		Description: view.Ticket.Description,
-		CategoryID:  strconv.FormatInt(view.Ticket.CategoryID, 10),
-		Priority:    view.Ticket.Priority,
+		Title:      view.Ticket.Title,
+		CategoryID: strconv.FormatInt(view.Ticket.CategoryID, 10),
+		Priority:   view.Ticket.Priority,
 	}
 	if view.Ticket.UserID != nil {
 		values.UserID = strconv.FormatInt(*view.Ticket.UserID, 10)
@@ -647,11 +646,12 @@ func (h *TicketHandlers) update(w http.ResponseWriter, r *http.Request) {
 
 	u := domain.TicketUpdate{}
 	title := r.Form.Get("title")
-	description := r.Form.Get("description")
 	categoryID := parseID(r.Form.Get("category_id"))
 	p := domain.Priority(r.Form.Get("priority"))
 	u.Title = &title
-	u.Description = &description
+	// The description is immutable after creation: the edit form carries no
+	// description field, and a forged one is deliberately never read —
+	// mirroring how forged assignment fields are ignored on this route.
 	if categoryID == 0 {
 		h.renderEditError(w, r, id, &domain.ValidationError{Field: "category", Message: "invalid category"})
 		return
@@ -681,11 +681,10 @@ func (h *TicketHandlers) renderEditError(w http.ResponseWriter, r *http.Request,
 	}
 	data.Error = msg
 	data.Values = ticketFormValues{
-		Title:       r.Form.Get("title"),
-		Description: r.Form.Get("description"),
-		CategoryID:  r.Form.Get("category_id"),
-		UserID:      r.Form.Get("user_id"),
-		Priority:    domain.Priority(r.Form.Get("priority")),
+		Title:      r.Form.Get("title"),
+		CategoryID: r.Form.Get("category_id"),
+		UserID:     r.Form.Get("user_id"),
+		Priority:   domain.Priority(r.Form.Get("priority")),
 	}
 	h.renderer.Render(w, r, "tickets_show", "ticket_detail", data, status)
 }

@@ -433,10 +433,6 @@ textarea{min-height:84px;resize:vertical}
           <label for="ticket-title">Title</label>
           <input type="text" id="ticket-title" name="title" value="Login page down" required>
         </div>
-        <div class="field">
-          <label for="ticket-description">Description</label>
-          <textarea id="ticket-description" name="description">The login form 500s on submit</textarea>
-        </div>
         <div class="field-row">
           <div class="field">
             <label for="ticket-category">Category</label>

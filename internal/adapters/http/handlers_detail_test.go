@@ -28,7 +28,7 @@ func TestTicketShowRendersDetail(t *testing.T) {
 		t.Fatalf("status = %d, want 200", rec.Code)
 	}
 	body := rec.Body.String()
-	for _, want := range []string{"Login page down", "TKT-1", "Bugs", "Checking now", "Timeline", "Details", "Save properties"} {
+	for _, want := range []string{"Login page down", "TKT-1", "Bugs", "Checking now", "Timeline", "Details", "Save properties", "<h2>Description</h2>", "Test description"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("detail page must contain %q, got: %s", want, body)
 		}
@@ -46,10 +46,15 @@ func TestTicketShowRendersDetail(t *testing.T) {
 			t.Errorf("assignment form must contain %q, got: %s", want, body)
 		}
 	}
-	for _, want := range []string{`id="ticket-title"`, `id="ticket-description"`, `id="ticket-category"`, `name="title"`, `name="description"`, `name="category_id"`} {
+	for _, want := range []string{`id="ticket-title"`, `id="ticket-category"`, `name="title"`, `name="category_id"`} {
 		if !strings.Contains(body, want) {
-			t.Errorf("title/description/category must be editable on detail, missing %q in: %s", want, body)
+			t.Errorf("title/category must be editable on detail, missing %q in: %s", want, body)
 		}
+	}
+	// The description is immutable after creation: the edit form must not
+	// present it (the read-only card above is the only description surface).
+	if strings.Contains(body, `name="description"`) || strings.Contains(body, `id="ticket-description"`) {
+		t.Errorf("detail edit form must not render a description field (immutable after creation), got: %s", body)
 	}
 	// Merged timeline DESC: the transition (newer) renders before created.
 	// Match the timeline event markers (not bare words — "transition" also
@@ -462,8 +467,10 @@ func TestTicketEditUpdatesPriorityAndAudits(t *testing.T) {
 	if view.Ticket.Priority != domain.PriorityCritical {
 		t.Errorf("priority = %q, want critical", view.Ticket.Priority)
 	}
-	if view.Ticket.Title != "Login page is back" || view.Ticket.Description != "Fixed the 500" {
-		t.Errorf("editable text fields = %q / %q", view.Ticket.Title, view.Ticket.Description)
+	// The description is immutable after creation: the forged form field is
+	// ignored and the stored value from creation survives untouched.
+	if view.Ticket.Title != "Login page is back" || view.Ticket.Description != "Test description" {
+		t.Errorf("title must update but description must stay immutable = %q / %q", view.Ticket.Title, view.Ticket.Description)
 	}
 	if view.Ticket.CategoryID != support.ID {
 		t.Errorf("category = %d, want %d", view.Ticket.CategoryID, support.ID)
@@ -475,10 +482,13 @@ func TestTicketEditUpdatesPriorityAndAudits(t *testing.T) {
 		}
 	}
 	joined := strings.Join(fields, ",")
-	for _, field := range []string{"title", "description", "category", "priority"} {
+	for _, field := range []string{"title", "category", "priority"} {
 		if !strings.Contains(joined, field) {
 			t.Errorf("audit must record %s change, got %v", field, fields)
 		}
+	}
+	if strings.Contains(joined, "description") {
+		t.Errorf("audit must not record a description change (immutable field), got %v", fields)
 	}
 }
 
