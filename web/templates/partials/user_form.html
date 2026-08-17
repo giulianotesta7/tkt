@@ -10,16 +10,33 @@
     <label for="email">Email</label>
     <input type="email" id="email" name="email" value="{{.Values.Email}}" autocomplete="email" required>
   </div>
-  <div class="field">
-    <label for="password">{{if .UserID}}New password (leave blank to keep){{else}}Password{{end}}</label>
-    <input type="password" id="password" name="password" {{if not .UserID}}required{{end}} autocomplete="new-password">
-  </div>
   {{if .UserID}}
   <div class="field">
-    <label><input type="checkbox" name="active" {{if .Values.Active}}checked{{end}}> Active</label>
-    <p class="footnote">Unchecking deactivates the operator — their sessions are killed and they can no longer log in.</p>
+    <label for="role">Role</label>
+    <select id="role" name="role">
+      <option value="user" {{if eq .Values.Role "user"}}selected{{end}}>User</option>
+      <option value="agent" {{if eq .Values.Role "agent"}}selected{{end}}>Agent</option>
+      {{if .CanGrantAdmin}}<option value="admin" {{if eq .Values.Role "admin"}}selected{{end}}>Admin</option>{{end}}
+    </select>
+  </div>
+  <p class="footnote">{{if .Values.Active}}Deactivate this user to end their sessions and prevent login.{{else}}Reactivate this user to allow login.{{end}}</p>
+  <button class="btn {{if .Values.Active}}danger{{else}}secondary{{end}}" type="submit" name="active" value="{{if .Values.Active}}false{{else}}true{{end}}">{{if .Values.Active}}Deactivate user{{else}}Reactivate user{{end}}</button>
+  {{else}}
+  <div class="field">
+    <label for="password">Password</label>
+    <input type="password" id="password" name="password" autocomplete="new-password" required>
   </div>
   {{end}}
   <button class="btn primary" type="submit">{{if .UserID}}Save changes{{else}}Create user{{end}}</button>
 </form>
+{{if .UserID}}
+<form class="card form-card" method="post" action="/users/{{.UserID}}/password">
+  <h2>Change password</h2>
+  <div class="field">
+    <label for="password">New password</label>
+    <input type="password" id="password" name="password" autocomplete="new-password" required>
+  </div>
+  <button class="btn secondary" type="submit">Change password</button>
+</form>
+{{end}}
 {{end}}

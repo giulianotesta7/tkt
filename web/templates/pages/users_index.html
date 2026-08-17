@@ -23,14 +23,6 @@
         <td class="cell-muted">{{template "timestamp" .CreatedAt}}</td>
         <td>
           <div class="row-actions">
-            {{if ne .Role "root"}}<form method="post" action="/users/{{.ID}}/role">
-              <select name="role" aria-label="Role for {{.Name}}">
-                <option value="user" {{if eq .Role "user"}}selected{{end}}>User</option>
-                <option value="agent" {{if eq .Role "agent"}}selected{{end}}>Agent</option>
-                {{if $.CanGrantAdmin}}<option value="admin" {{if eq .Role "admin"}}selected{{end}}>Admin</option>{{end}}
-              </select>
-              <button class="btn ghost small" type="submit">Change role</button>
-            </form>{{end}}
             <a class="btn ghost small" href="/users/{{.ID}}/edit">Edit</a>
             <form method="post" action="/users/{{.ID}}/delete">
               <button class="btn danger small" type="submit">Delete</button>
