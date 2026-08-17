@@ -61,6 +61,52 @@ func TestTicketShowRendersDetail(t *testing.T) {
 	}
 }
 
+func TestTicketCommentCheckboxMapsInternalAndRejectsUserForgery(t *testing.T) {
+	h := newHarness(t)
+	tkt := h.seedTicket(t, "Checkbox visibility", nil)
+	adminSession := seedSession(t, h.store, h.admin.ID)
+
+	staffRec := h.postFormAs(t, "/tickets/1/comments", url.Values{
+		"body":       {"Internal update"},
+		"visibility": {"public"},
+		"internal":   {"1"},
+	}, adminSession.ID)
+	if staffRec.Code != http.StatusSeeOther {
+		t.Fatalf("staff status = %d, want 303", staffRec.Code)
+	}
+	comments, err := h.comments.ListByTicket(t.Context(), tkt.ID, true)
+	if err != nil {
+		t.Fatalf("list staff comments: %v", err)
+	}
+	if len(comments) != 1 || comments[0].Visibility != domain.CommentInternal {
+		t.Fatalf("staff checkbox must store one internal comment, got: %+v", comments)
+	}
+
+	user := seedUserRole(t, h.store, "Ula", "ula@example.com", domain.RoleUser)
+	userSession := seedSession(t, h.store, user.ID)
+	userTicket, err := h.tickets.Create(t.Context(), *user, application.CreateTicketInput{
+		Title: "User visibility", CategoryID: h.bugCategory.ID, Priority: domain.PriorityMedium,
+	})
+	if err != nil {
+		t.Fatalf("create user ticket: %v", err)
+	}
+	forgedRec := h.postFormAs(t, "/tickets/"+strconv.FormatInt(userTicket.ID, 10)+"/comments", url.Values{
+		"body":       {"Forged internal update"},
+		"visibility": {"public"},
+		"internal":   {"1"},
+	}, userSession.ID)
+	if forgedRec.Code != http.StatusForbidden {
+		t.Fatalf("forged user status = %d, want 403", forgedRec.Code)
+	}
+	userComments, err := h.comments.ListByTicket(t.Context(), userTicket.ID, true)
+	if err != nil {
+		t.Fatalf("list user comments: %v", err)
+	}
+	if len(userComments) != 0 {
+		t.Fatalf("forged user input must not store an internal comment, got: %+v", userComments)
+	}
+}
+
 func TestTicketShowRendersConciseSemanticMetadata(t *testing.T) {
 	h := newHarness(t)
 	h.seedTicket(t, "Login page down", nil)

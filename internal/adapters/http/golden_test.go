@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -264,6 +265,74 @@ func TestGoldenCommentForm(t *testing.T) {
 
 func TestGoldenTimeline(t *testing.T) {
 	goldenFile(t, "timeline", renderGolden(t, "tickets_show", "timeline", fixtureDetailData(), true))
+}
+
+func TestTicketDetailPresentationContract(t *testing.T) {
+	staff := fixtureDetailData()
+	staff.CanCommentInternal = true
+	staff.CanManageDesks = true
+	staff.View.Comments = append(staff.View.Comments, domain.Comment{
+		ID:         2,
+		TicketID:   staff.View.Ticket.ID,
+		Author:     "Operator",
+		Body:       "Staff-only note",
+		Visibility: domain.CommentInternal,
+		CreatedAt:  goldenT0,
+	})
+	staff.View.Timeline = append([]application.TimelineItem{{
+		IsComment: true,
+		Comment:   &staff.View.Comments[1],
+	}}, staff.View.Timeline...)
+
+	body := renderGolden(t, "tickets_show", "", staff, false)
+	for _, want := range []string{
+		`<details open id="details"`,
+		`<details open id="assignment"`,
+		`<details open id="state"`,
+		`tkt:ticket-detail:collapsed:v1`,
+		`<summary>Details</summary>`,
+		`name="visibility" value="public"`,
+		`name="internal" value="1"`,
+		`Internal comment`,
+		`class="timeline-entry timeline-comment internal"`,
+		`--internal-comment-bg`,
+		`aria-label="Desks"`,
+		`<svg viewBox="0 0 24 24" width="24" height="24"`,
+		`aria-hidden="true"`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("ticket detail must contain %q, got: %s", want, body)
+		}
+	}
+	if strings.Contains(body, `id="comment-visibility"`) {
+		t.Errorf("staff comment form must not render the visibility select, got: %s", body)
+	}
+	if strings.Contains(body, `>Properties<`) {
+		t.Errorf("ticket detail must not contain the obsolete Properties header, got: %s", body)
+	}
+
+	user := fixtureDetailData()
+	user.CurrentUser.Role = domain.RoleUser
+	user.CanCommentInternal = false
+	userBody := renderGolden(t, "tickets_show", "", user, false)
+	if !strings.Contains(userBody, `name="visibility" value="public"`) {
+		t.Errorf("user comment form must submit public visibility, got: %s", userBody)
+	}
+	if strings.Contains(userBody, `name="internal"`) || strings.Contains(userBody, `Internal comment`) {
+		t.Errorf("user comment form must not render internal controls, got: %s", userBody)
+	}
+}
+
+func TestLoginPresentationContract(t *testing.T) {
+	body := renderGolden(t, "login", "", loginData{}, false)
+	if strings.Contains(body, "Use your work email and password.") {
+		t.Errorf("login must omit obsolete helper copy, got: %s", body)
+	}
+	for _, want := range []string{`action="/login"`, `name="email"`, `name="password"`} {
+		if !strings.Contains(body, want) {
+			t.Errorf("login must retain %q, got: %s", want, body)
+		}
+	}
 }
 
 // ---------------------------------------------------------------------------
