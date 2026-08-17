@@ -64,8 +64,8 @@ func TestTicketDetailUserNeverSeesInternalBody(t *testing.T) {
 	if strings.Contains(body, secret) {
 		t.Errorf("LEAK: user response contains internal comment body %q, got: %s", secret, body)
 	}
-	if strings.Contains(body, "badge internal") {
-		t.Errorf("LEAK: user response renders the internal badge, got: %s", body)
+	if strings.Contains(body, "Internal ·") {
+		t.Errorf("LEAK: user response renders the internal marker, got: %s", body)
 	}
 
 	// The HX timeline fragment must be equally clean.
@@ -107,8 +107,8 @@ func TestTicketDetailAgentSeesInternalComment(t *testing.T) {
 	if !strings.Contains(body, secret) {
 		t.Errorf("agent detail must render the internal comment, got: %s", body)
 	}
-	if !strings.Contains(body, "badge internal") {
-		t.Errorf("agent detail must mark internal comments with the badge, got: %s", body)
+	if !strings.Contains(body, "Internal ·") {
+		t.Errorf("agent detail must mark internal comments with the internal marker, got: %s", body)
 	}
 	if !strings.Contains(body, `name="internal" value="1"`) || !strings.Contains(body, "Internal comment") {
 		t.Errorf("agent comment form must offer the internal checkbox, got: %s", body)
