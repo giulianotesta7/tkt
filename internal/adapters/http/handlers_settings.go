@@ -44,13 +44,13 @@ type appearanceOption struct {
 }
 
 // appearanceOptions lists the four selectable internal-comment background
-// colors in the canonical order (azul/verde/violeta/amarillo).
+// colors in the canonical order.
 func appearanceOptions() []appearanceOption {
 	labels := map[string]string{
-		application.DefaultInternalCommentBg: "Azul",
-		"#E2F2EA":                            "Verde",
-		"#EFE9FB":                            "Violeta",
-		"#FFF6DC":                            "Amarillo",
+		application.DefaultInternalCommentBg: "Blue",
+		"#E2F2EA":                            "Green",
+		"#EFE9FB":                            "Violet",
+		"#FFF6DC":                            "Yellow",
 	}
 	colors := application.AllowedInternalCommentBg()
 	out := make([]appearanceOption, 0, len(colors))

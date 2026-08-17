@@ -393,25 +393,25 @@ textarea{min-height:84px;resize:vertical}
     <label class="swatch">
       <input type="radio" name="internal_comment_bg" value="#E8EEFF" checked>
       <span class="swatch-chip" style="background:#E8EEFF"></span>
-      <span class="swatch-label">Azul</span>
+      <span class="swatch-label">Blue</span>
     </label>
     
     <label class="swatch">
       <input type="radio" name="internal_comment_bg" value="#E2F2EA">
       <span class="swatch-chip" style="background:#E2F2EA"></span>
-      <span class="swatch-label">Verde</span>
+      <span class="swatch-label">Green</span>
     </label>
     
     <label class="swatch">
       <input type="radio" name="internal_comment_bg" value="#EFE9FB">
       <span class="swatch-chip" style="background:#EFE9FB"></span>
-      <span class="swatch-label">Violeta</span>
+      <span class="swatch-label">Violet</span>
     </label>
     
     <label class="swatch">
       <input type="radio" name="internal_comment_bg" value="#FFF6DC">
       <span class="swatch-chip" style="background:#FFF6DC"></span>
-      <span class="swatch-label">Amarillo</span>
+      <span class="swatch-label">Yellow</span>
     </label>
     
   </div>
