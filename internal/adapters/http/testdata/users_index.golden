@@ -332,14 +332,6 @@ textarea{min-height:84px;resize:vertical}
         <td class="cell-muted"><time datetime="2026-08-06T10:00:00Z">10:00 · 06-08-2026</time></td>
         <td>
           <div class="row-actions">
-            <form method="post" action="/users/1/role">
-              <select name="role" aria-label="Role for Ana Torres">
-                <option value="user" >User</option>
-                <option value="agent" >Agent</option>
-                
-              </select>
-              <button class="btn ghost small" type="submit">Change role</button>
-            </form>
             <a class="btn ghost small" href="/users/1/edit">Edit</a>
             <form method="post" action="/users/1/delete">
               <button class="btn danger small" type="submit">Delete</button>
@@ -355,14 +347,6 @@ textarea{min-height:84px;resize:vertical}
         <td class="cell-muted"><time datetime="2026-08-06T10:30:00Z">10:30 · 06-08-2026</time></td>
         <td>
           <div class="row-actions">
-            <form method="post" action="/users/2/role">
-              <select name="role" aria-label="Role for Beto Ruiz">
-                <option value="user" >User</option>
-                <option value="agent" >Agent</option>
-                
-              </select>
-              <button class="btn ghost small" type="submit">Change role</button>
-            </form>
             <a class="btn ghost small" href="/users/2/edit">Edit</a>
             <form method="post" action="/users/2/delete">
               <button class="btn danger small" type="submit">Delete</button>
