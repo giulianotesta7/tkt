@@ -46,6 +46,6 @@ Dependency: complete S1 (migration, source rename, wiring, and route names) befo
 
 ## S4: Ticket Detail and Auth Polish
 
-- [ ] S4.1 RED: test default-open cards, localStorage key `tkt:ticket-detail:collapsed:v1`, checkbox normalization/forgery rejection, staff-only styling/newest-first disclosure, and absent login copy.
-- [ ] S4.2 GREEN: implement native `<details>`, persistence script, hidden public + `internal=1` checkbox, timeline class/background, desk SVG in `base.html`, and login copy removal.
-- [ ] S4.3 REFACTOR: verify user responses never contain internal comments, refresh all listed goldens, and run `gofmt`, `go vet ./...`, `go test ./...`.
+- [x] S4.1 RED: test default-open cards, localStorage key `tkt:ticket-detail:collapsed:v1`, checkbox normalization/forgery rejection, staff-only styling/newest-first disclosure, and absent login copy.
+- [x] S4.2 GREEN: implement native `<details>`, persistence script, hidden public + `internal=1` checkbox, timeline class/background, desk SVG in `base.html`, and login copy removal.
+- [x] S4.3 REFACTOR: verify user responses never contain internal comments, refresh all listed goldens, and run `gofmt`, `go vet ./...`, `go test ./...`.
