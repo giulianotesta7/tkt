@@ -920,25 +920,38 @@ func TestUpdateRejectsInvalidPriorityWithoutChanges(t *testing.T) {
 	}
 }
 
-// TestUpdateValidatesCategory proves category edits validate existence as in
-// creation (ticket-management spec). The assigned-user validation moved to
-// the Assign use case (TestAssignTargetInactive): Update no longer accepts
-// assignment fields (S4: assignment changes use the assign flow).
-func TestUpdateValidatesCategory(t *testing.T) {
+// TestUpdateNeverTouchesCategory proves the category is immutable after
+// creation, mirroring the description: the update input exposes no category
+// field (it was removed from TicketUpdate), so any Update leaves the stored
+// category unchanged and appends no category audit event. The category
+// exists on the aggregate only as a creation-time value.
+func TestUpdateNeverTouchesCategory(t *testing.T) {
 	h := newTicketHarness()
 	cat := h.categories.seed("Bugs")
 	ticket := seededTicket(h.tickets, cat.ID, domain.StateInProgress)
 	actor := domain.User{Name: "Ada", Role: domain.RoleAdmin}
+	h.clock.Advance(timeMinute)
 
-	// Category edits validate existence as in creation.
-	missingCat := int64(999)
-	_, err := h.svc.Update(context.Background(), actor, ticket.ID, domain.TicketUpdate{CategoryID: &missingCat})
-	var nerr *domain.NotFoundError
-	if !errors.As(err, &nerr) || nerr.Kind != "category" {
-		t.Fatalf("Update: unknown category must be a NotFoundError(kind=category), got %v", err)
+	newTitle := "Renamed title"
+	newPriority := domain.PriorityHigh
+	updated, err := h.svc.Update(context.Background(), actor, ticket.ID, domain.TicketUpdate{
+		Title:    &newTitle,
+		Priority: &newPriority,
+	})
+	if err != nil {
+		t.Fatalf("Update: unexpected error: %v", err)
 	}
-	if len(h.audits.events) != 0 {
-		t.Fatal("Update: rejected edits must not be audited")
+	if updated.CategoryID != cat.ID {
+		t.Fatalf("Update: category must stay immutable, got %d want %d", updated.CategoryID, cat.ID)
+	}
+	events, _ := h.audits.ListByTicket(context.Background(), ticket.ID)
+	if len(events) != 2 {
+		t.Fatalf("Update: exactly the title+priority audits expected, got %d", len(events))
+	}
+	for _, ev := range events {
+		if ev.Field != nil && *ev.Field == "category" {
+			t.Fatalf("Update: no category audit may exist, got %+v", events)
+		}
 	}
 }
 

@@ -646,17 +646,12 @@ func (h *TicketHandlers) update(w http.ResponseWriter, r *http.Request) {
 
 	u := domain.TicketUpdate{}
 	title := r.Form.Get("title")
-	categoryID := parseID(r.Form.Get("category_id"))
 	p := domain.Priority(r.Form.Get("priority"))
 	u.Title = &title
-	// The description is immutable after creation: the edit form carries no
-	// description field, and a forged one is deliberately never read —
-	// mirroring how forged assignment fields are ignored on this route.
-	if categoryID == 0 {
-		h.renderEditError(w, r, id, &domain.ValidationError{Field: "category", Message: "invalid category"})
-		return
-	}
-	u.CategoryID = &categoryID
+	// The description and the category are immutable after creation: the
+	// edit form carries no fields for them, and forged ones are deliberately
+	// never read — mirroring how forged assignment fields are ignored on
+	// this route.
 	u.Priority = &p
 
 	_, err := h.tickets.Update(r.Context(), actor, id, u)

@@ -74,13 +74,14 @@ The system MUST assign each ticket a unique readable number in `TKT-N` format, w
 
 ### Requirement: Update Ticket Fields
 
-The system MUST allow editing title, category, and priority, restricted by actor role: `agent` SHALL edit tickets assigned to them; `admin` and `root` SHALL edit any ticket; role `user` MUST NOT edit tickets. The description MUST be immutable after creation: it is a creation-only field, the edit form MUST NOT present it, and an edit request MUST NOT apply or audit a submitted description. Category and priority edits MUST be validated as in creation. Assignment changes are a separate flow (see Ticket Access and Assignment). Each edit MUST update the modification timestamp, MUST append an audit event (see Audit Log), and MUST NOT alter `resolved_at` or `closed_at`. (Previously: any logged-in user could edit any ticket, and the description was editable alongside the other fields; the description is now creation-only and immutable.)
+The system MUST allow editing title and priority, restricted by actor role: `agent` SHALL edit tickets assigned to them; `admin` and `root` SHALL edit any ticket; role `user` MUST NOT edit tickets. The description MUST be immutable after creation: it is a creation-only field, the edit form MUST NOT present it, and an edit request MUST NOT apply or audit a submitted description. The category MUST be immutable after creation: it is a creation-only field (future: categories get their own management flow), the edit form MUST NOT present it, and an edit request MUST NOT apply or audit a submitted category — a forged `category_id` in an edit POST is ignored and the stored category remains unchanged. Title and priority edits MUST be validated as in creation. Assignment changes are a separate flow (see Ticket Access and Assignment). Each edit MUST update the modification timestamp, MUST append an audit event (see Audit Log), and MUST NOT alter `resolved_at` or `closed_at`. (Previously: any logged-in user could edit any ticket, and the description and category were editable alongside the other fields; both are now creation-only and immutable.)
 
-#### Scenario: Edit category
+#### Scenario: Category is immutable after creation
 
-- GIVEN a ticket in state `in_progress` assigned to an `agent`, with `resolved_at` empty
-- WHEN the assigned agent changes its category to another valid category
-- THEN the category is updated, the modification timestamp is refreshed, and an audit event is appended
+- GIVEN a ticket with a stored category
+- WHEN an edit request includes a category value (e.g. a forged `category_id`)
+- THEN the stored category is unchanged
+- AND no audit event is recorded for a category change
 
 #### Scenario: Description is immutable after creation
 

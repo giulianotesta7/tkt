@@ -28,32 +28,41 @@ func baseTicket() *domain.Ticket {
 	}
 }
 
-func TestApplyUpdateCategoryChanged(t *testing.T) {
+func TestApplyUpdateTitleAndPriorityChanged(t *testing.T) {
 	now := time.Date(2026, 8, 5, 12, 0, 0, 0, time.UTC)
 	tt := baseTicket()
 
-	events, err := tt.ApplyUpdate(domain.TicketUpdate{CategoryID: int64Ptr(2)}, now)
+	events, err := tt.ApplyUpdate(domain.TicketUpdate{Title: strPtr("Renamed"), Priority: priorityPtr(domain.PriorityHigh)}, now)
 
 	if err != nil {
-		t.Fatalf("valid category edit must succeed, got %v", err)
+		t.Fatalf("valid edit must succeed, got %v", err)
 	}
-	if tt.CategoryID != 2 {
-		t.Fatalf("category must be updated, got %d", tt.CategoryID)
+	if tt.Title != "Renamed" || tt.Priority != domain.PriorityHigh {
+		t.Fatalf("changed fields must be applied, got title=%q priority=%s", tt.Title, tt.Priority)
+	}
+	if tt.CategoryID != 1 {
+		t.Fatalf("the category is immutable after creation and must stay, got %d", tt.CategoryID)
 	}
 	if !tt.UpdatedAt.Equal(now) {
 		t.Fatalf("updated_at must be refreshed on change, got %v", tt.UpdatedAt)
 	}
-	if len(events) != 1 {
-		t.Fatalf("exactly one audit event expected, got %d", len(events))
+	if len(events) != 2 {
+		t.Fatalf("one audit event per changed field expected (2), got %d", len(events))
 	}
-	e := events[0]
-	if e.Action != domain.ActionUpdate || e.Field == nil || *e.Field != "category" {
-		t.Fatalf("audit event must describe the category update, got action=%q field=%v", e.Action, e.Field)
+	e0, e1 := events[0], events[1]
+	if e0.Action != domain.ActionUpdate || e0.Field == nil || *e0.Field != "title" {
+		t.Fatalf("audit event 0 must describe the title update, got action=%q field=%v", e0.Action, e0.Field)
 	}
-	if e.FromValue == nil || *e.FromValue != "1" || e.ToValue == nil || *e.ToValue != "2" {
-		t.Fatalf("audit event must record 1 -> 2, got from=%v to=%v", e.FromValue, e.ToValue)
+	if e1.Field == nil || *e1.Field != "priority" {
+		t.Fatalf("audit event 1 must describe the priority update, got field=%v", e1.Field)
 	}
-	if e.TicketID != tt.ID || !e.CreatedAt.Equal(now) {
+	if e0.FromValue == nil || *e0.FromValue != "Original title" || e0.ToValue == nil || *e0.ToValue != "Renamed" {
+		t.Fatalf("title audit must record the change, got from=%v to=%v", e0.FromValue, e0.ToValue)
+	}
+	if e1.FromValue == nil || *e1.FromValue != string(domain.PriorityMedium) || e1.ToValue == nil || *e1.ToValue != string(domain.PriorityHigh) {
+		t.Fatalf("priority audit must record the change, got from=%v to=%v", e1.FromValue, e1.ToValue)
+	}
+	if e1.TicketID != tt.ID || !e1.CreatedAt.Equal(now) {
 		t.Fatalf("audit event must reference ticket %d at the injected time", tt.ID)
 	}
 	// Edits never touch lifecycle timestamps or state.
@@ -127,11 +136,10 @@ func TestApplyUpdateAuditsOnlyChangedFields(t *testing.T) {
 	now := time.Date(2026, 8, 5, 12, 0, 0, 0, time.UTC)
 	tt := baseTicket()
 
-	// Title and category change; priority keeps its current value on purpose.
+	// Title and priority change; nothing else is touched.
 	events, err := tt.ApplyUpdate(domain.TicketUpdate{
-		Title:      strPtr("New title"),
-		Priority:   priorityPtr(domain.PriorityMedium),
-		CategoryID: int64Ptr(2),
+		Title:    strPtr("New title"),
+		Priority: priorityPtr(domain.PriorityHigh),
 	}, now)
 
 	if err != nil {
@@ -140,12 +148,12 @@ func TestApplyUpdateAuditsOnlyChangedFields(t *testing.T) {
 	if len(events) != 2 {
 		t.Fatalf("only changed fields must be audited, got %d events: %+v", len(events), events)
 	}
-	if *events[0].Field != "title" || *events[1].Field != "category" {
-		t.Fatalf("audit fields must be [title category] in order, got %v %v", *events[0].Field, *events[1].Field)
+	if *events[0].Field != "title" || *events[1].Field != "priority" {
+		t.Fatalf("audit fields must be [title priority] in order, got %v %v", *events[0].Field, *events[1].Field)
 	}
-	if tt.Title != "New title" || tt.CategoryID != 2 || tt.Priority != domain.PriorityMedium {
-		t.Fatalf("changed fields must apply, unchanged priority must stay, got title=%q category=%d priority=%s",
-			tt.Title, tt.CategoryID, tt.Priority)
+	if tt.Title != "New title" || tt.Priority != domain.PriorityHigh || tt.CategoryID != 1 {
+		t.Fatalf("changed fields must apply, the immutable category must stay, got title=%q priority=%s category=%d",
+			tt.Title, tt.Priority, tt.CategoryID)
 	}
 }
 

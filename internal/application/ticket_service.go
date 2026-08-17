@@ -213,11 +213,11 @@ func (s *TicketService) Transition(ctx context.Context, actor domain.User, ticke
 	return t, nil
 }
 
-// Update applies field edits (title, category, priority). The description
-// is immutable after creation — it exists on the aggregate but the update
-// surface (TicketUpdate) does not carry it, so it can never be changed or
-// audited here. Assignment changes do NOT belong here: they go through
-// Assign, which enforces the reason and target rules
+// Update applies field edits (title, priority). The description and the
+// category are immutable after creation — they exist on the aggregate but
+// the update surface (TicketUpdate) does not carry them, so they can never
+// be changed or audited here. Assignment changes do NOT belong here: they
+// go through Assign, which enforces the reason and target rules
 // (ticket-access-assignment spec) — Update rejects assignment fields so the
 // reassignment-reason rule cannot be bypassed through a generic edit.
 // Authorization is enforced server-side BEFORE the read: role user never
@@ -234,11 +234,6 @@ func (s *TicketService) Update(ctx context.Context, actor domain.User, ticketID 
 	t, err := s.tickets.GetByID(ctx, ticketID, scopedQuery(actor, TicketQuery{}))
 	if err != nil {
 		return nil, err
-	}
-	if u.CategoryID != nil {
-		if _, err := s.categories.GetByID(ctx, *u.CategoryID); err != nil {
-			return nil, err
-		}
 	}
 
 	events, err := t.ApplyUpdate(u, s.clock.Now())
