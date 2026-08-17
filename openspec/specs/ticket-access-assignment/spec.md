@@ -49,7 +49,7 @@ The system MUST scope lists, detail, search, and direct lookup to the actor befo
 
 ### Requirement: Person-Only Assignment
 
-Assignment MUST target a single person with role `agent`, `admin`, or `root` — never a group. Only roles `agent`+ MAY assign. Role `user` MUST NOT assign or change assignment. The initial assignment (unassigned → person) MUST NOT require a reason. A reassignment (person A → person B) MUST require a non-empty reason recorded in an audit event, current session actor as actor.
+Assignment MUST target a single person with role `agent`, `admin`, or `root` — never a desk. Only roles `agent`+ MAY assign. Role `user` MUST NOT assign or change assignment. The initial assignment (unassigned → person) MUST NOT require a reason. A reassignment (person A → person B) MUST require a non-empty reason recorded in an audit event, current session actor as actor.
 
 #### Scenario: Initial assignment without reason
 
