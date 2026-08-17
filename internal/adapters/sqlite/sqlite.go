@@ -82,6 +82,9 @@ func (s *Store) CategoryStore() application.CategoryStore { return newCategorySt
 // DeskStore returns the desk and membership port.
 func (s *Store) DeskStore() application.DeskStore { return newDeskStore(s.db) }
 
+// SettingsStore returns the instance appearance settings port.
+func (s *Store) SettingsStore() application.SettingsStore { return newSettingsStore(s.db) }
+
 // Ping verifies the database connection is alive (SELECT 1). The
 // composition root's -healthcheck flag uses it.
 func (s *Store) Ping(ctx context.Context) error {
