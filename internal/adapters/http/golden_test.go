@@ -152,6 +152,13 @@ func TestGoldenTicketsIndex(t *testing.T) {
 	goldenFile(t, "tickets_index", renderGolden(t, "tickets_index", "", fixtureListData(), false))
 }
 
+func TestGoldenTicketsIndexUser(t *testing.T) {
+	data := fixtureListData()
+	data.CurrentUser.Role = domain.RoleUser
+	data.ShowAdvancedFilters = false
+	goldenFile(t, "tickets_index_user", renderGolden(t, "tickets_index", "", data, false))
+}
+
 func TestGoldenTicketsNew(t *testing.T) {
 	goldenFile(t, "tickets_new", renderGolden(t, "tickets_new", "", fixtureTicketFormData(), false))
 }
