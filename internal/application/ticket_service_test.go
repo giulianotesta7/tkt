@@ -860,6 +860,43 @@ func TestUpdateAppliesChangedFieldsAndAuditsEach(t *testing.T) {
 	}
 }
 
+// TestUpdateNeverTouchesDescription proves the description is immutable
+// after creation: the update input exposes no description field (it was
+// removed from TicketUpdate), so any Update leaves the stored description
+// byte-for-byte unchanged and appends no description audit event. The
+// description exists on the aggregate only as a creation-time value.
+func TestUpdateNeverTouchesDescription(t *testing.T) {
+	h := newTicketHarness()
+	cat := h.categories.seed("Bugs")
+	ticket := seededTicket(h.tickets, cat.ID, domain.StateInProgress)
+	ticket.Description = "Original description"
+	h.tickets.Update(context.Background(), &ticket)
+	actor := domain.User{Name: "Ada", Role: domain.RoleAdmin}
+	h.clock.Advance(timeMinute)
+
+	newTitle := "Renamed title"
+	newPriority := domain.PriorityHigh
+	updated, err := h.svc.Update(context.Background(), actor, ticket.ID, domain.TicketUpdate{
+		Title:    &newTitle,
+		Priority: &newPriority,
+	})
+	if err != nil {
+		t.Fatalf("Update: unexpected error: %v", err)
+	}
+	if updated.Description != "Original description" {
+		t.Fatalf("Update: description must stay immutable, got %q", updated.Description)
+	}
+	events, _ := h.audits.ListByTicket(context.Background(), ticket.ID)
+	if len(events) != 2 {
+		t.Fatalf("Update: exactly the title+priority audits expected, got %d", len(events))
+	}
+	for _, ev := range events {
+		if ev.Field != nil && *ev.Field == "description" {
+			t.Fatalf("Update: no description audit may exist, got %+v", events)
+		}
+	}
+}
+
 func TestUpdateRejectsInvalidPriorityWithoutChanges(t *testing.T) {
 	h := newTicketHarness()
 	cat := h.categories.seed("Bugs")

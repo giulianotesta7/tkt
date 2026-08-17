@@ -213,14 +213,17 @@ func (s *TicketService) Transition(ctx context.Context, actor domain.User, ticke
 	return t, nil
 }
 
-// Update applies field edits (title, description, category, priority).
-// Assignment changes do NOT belong here: they go through Assign, which
-// enforces the reason and target rules (ticket-access-assignment spec) —
-// Update rejects assignment fields so the reassignment-reason rule cannot
-// be bypassed through a generic edit. Authorization is enforced server-side
-// BEFORE the read: role user never edits (design route policy: edit
-// requires an assigned agent or admin/root); the scoped read restricts
-// agents to their own assigned tickets (ticket-access spec).
+// Update applies field edits (title, category, priority). The description
+// is immutable after creation — it exists on the aggregate but the update
+// surface (TicketUpdate) does not carry it, so it can never be changed or
+// audited here. Assignment changes do NOT belong here: they go through
+// Assign, which enforces the reason and target rules
+// (ticket-access-assignment spec) — Update rejects assignment fields so the
+// reassignment-reason rule cannot be bypassed through a generic edit.
+// Authorization is enforced server-side BEFORE the read: role user never
+// edits (design route policy: edit requires an assigned agent or
+// admin/root); the scoped read restricts agents to their own assigned
+// tickets (ticket-access spec).
 func (s *TicketService) Update(ctx context.Context, actor domain.User, ticketID int64, u domain.TicketUpdate) (*domain.Ticket, error) {
 	if !NewPolicy().Capabilities(actor.Role).Require(CapEditTicket) {
 		return nil, domain.NewForbiddenError(domain.ErrMsgUserCannotEdit)
