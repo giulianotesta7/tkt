@@ -264,6 +264,10 @@ textarea{min-height:84px;resize:vertical}
 .category-card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:16px;display:flex;align-items:center;justify-content:space-between;gap:12px}
 .category-card .name{font-weight:600;color:var(--ink-strong)}
 .category-card .when{color:var(--muted);font-size:12px;font-family:var(--mono)}
+.category-card input[type=text],.category-card select{
+  height:32px;border:1px solid var(--line);border-radius:8px;background:var(--card);
+  color:var(--ink-soft);padding:0 10px;font:inherit;font-size:13px;width:140px;
+}
 .empty{color:var(--muted);padding:32px 0;text-align:center}
 .empty.compact{padding:12px 0 0;text-align:left}
 
