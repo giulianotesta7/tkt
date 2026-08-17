@@ -13,7 +13,7 @@
   --accent:#315EFF; --accent-soft:#E8EEFF; --accent-ink:#315EFF;
   --green:#18734D; --green-soft:#E2F2EA; --amber:#8A5A00; --amber-soft:#FFF1D6;
   --red:#B42318; --red-soft:#FBE9E7; --gray-soft:#E2E5EA; --gray-ink:#6D7581;
-  --internal-comment-bg:#FFF6DC;
+  --internal-comment-bg:#E8EEFF;
   --rail:#111318;
   --mono:"Geist Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
 }
@@ -196,7 +196,7 @@ button{font:inherit}
  
 .timeline-entry{margin-top:10px;border-radius:8px}
 .timeline-comment{padding:12px 14px;background:var(--card);border:1px solid var(--line)}
-.timeline-comment.internal{background:var(--internal-comment-bg);border-color:#E8CE8A}
+.timeline-comment.internal{background:var(--internal-comment-bg);border-color:#B7C9F5}
 .timeline-comment .who{display:flex;gap:8px;align-items:baseline;justify-content:space-between}
 .timeline-comment .author{font-weight:600;color:var(--ink-soft);font-size:13px}
 .timeline-comment .when{color:var(--muted);font-size:12px;font-family:var(--mono)}
@@ -298,6 +298,20 @@ textarea{min-height:84px;resize:vertical}
 .empty{color:var(--muted);padding:32px 0;text-align:center}
 .empty.compact{padding:12px 0 0;text-align:left}
 
+ 
+.swatch-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:10px;margin:6px 0 16px}
+.swatch{
+  display:flex;flex-direction:column;align-items:center;gap:7px;cursor:pointer;
+  padding:12px 10px;border:1px solid var(--line);border-radius:10px;background:var(--surface);
+  transition:border-color .12s ease,box-shadow .12s ease;
+}
+.swatch:hover{border-color:var(--line-strong)}
+.swatch:has(input:checked){border-color:var(--accent);box-shadow:0 0 0 2px var(--accent-soft)}
+.swatch:has(input:focus-visible){outline:3px solid var(--accent);outline-offset:2px}
+.swatch input{position:absolute;opacity:0;pointer-events:none}
+.swatch-chip{width:100%;height:34px;border-radius:7px;border:1px solid var(--line-strong)}
+.swatch-label{font-size:12.5px;font-weight:500;color:var(--ink-soft)}
+
 @media (max-width:900px){
   .cards{grid-template-columns:1fr}
   .evidence{display:grid;grid-template-columns:1fr 1fr;gap:16px}
@@ -346,6 +360,7 @@ textarea{min-height:84px;resize:vertical}
       <a class="rail-link active" href="/tickets" title="Tickets" aria-label="Tickets">
         <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v1a2 2 0 0 0 0 4v1a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-1a2 2 0 0 0 0-4V9z"/><path d="M13 7v10"/></svg>
       </a>
+      
       
       
       
