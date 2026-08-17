@@ -1,14 +1,14 @@
 ```yaml
 schema: gentle-ai.verify-result/v1
-evidence_revision: sha256:d2179ea3b4429200a87d33a7271a94117adfc2e9f45601e68329c9589d180d2b
-verdict: fail
+evidence_revision: sha256:3678686bfe50b62d47d26ed1d63a7d25ee7aa4821f7c09cf8b89fb99a98ba9b4
+verdict: pass_with_warnings
 blockers: 0
-critical_findings: 3
-requirements: 13/15
-scenarios: 25/26
+critical_findings: 0
+requirements: 15/15
+scenarios: 26/26
 test_command: go test ./... -count=1
 test_exit_code: 0
-test_output_hash: sha256:78b95ac8ed8617e4980fb0ff949c360d5c87baa74072a0b0e544f4888252c848
+test_output_hash: sha256:7db03ea2133661c51b4a3f9dbdd1b8c211d8ce1e187a699519250ab0e81dddd3
 build_command: go vet ./...
 build_exit_code: 0
 build_output_hash: sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
@@ -17,17 +17,22 @@ build_output_hash: sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca49599
 ## Verification Report
 
 **Change**: `desks-ux-polish`  
-**Status**: failed  
-**HEAD**: `06595a6112e323f1c88434ca72090f6706aba667` (`feat/roles-and-views`)  
+**Status**: success  
+**Verified branch**: `feat/roles-and-views`  
+**Verified HEAD**: `63989d9138cd0aee543cc1379ab59bb10536ebd1` (requested remediation revision `511cb96` is an ancestor; the later commit adds planning documents only)  
 **Artifact mode**: OpenSpec + Engram  
 **Mode**: Strict TDD  
 **Skill resolution**: paths-injected
 
 ## Executive Summary
 
-The implementation and all requested Go quality gates pass, and 25 of the 26 scenarios have passing runtime coverage. Verification fails because the localStorage collapse/reload scenario has no executable test, the required Reactivate branch has no test, and the Strict TDD apply evidence does not provide auditable RED/safety-net evidence for S1-S3. Archive is not recommended until these CRITICAL gaps are resolved and verification is rerun.
+All 15 requirements and 26 scenarios are compliant. The uncached Go suite, race suite, vet, and formatting checks pass. No authorization regression, disclosure leak, migration data-loss path, non-goal drift, or uncovered required scenario was found.
 
-The prompt stated 27 scenarios, but the retrieved 10 delta specs contain 26 `#### Scenario:` headings. This report uses the required authoritative count from the actual specs: 15 requirements and 26 scenarios.
+| Prior CRITICAL | Refresh result | Evidence |
+|---|---|---|
+| localStorage collapse → reload persistence | **RESOLVED** | Preserved Playwright MCP execution against an isolated loopback server and temporary SQLite database collapsed `#assignment`, observed localStorage `['assignment']`, reloaded, and observed `assignment.open == false` while `details` and `state` remained open. `TestTicketDetailPresentationContract` passed and binds the stable IDs, default-open markup, and storage key. |
+| Reactivate branch | **RESOLVED** | `TestUserEditReactivateBranch` passed. It renders an inactive target, requires “Reactivate user”, forbids “Deactivate user”, submits reactivation, and verifies `Active=true`. The maintainer-approved post-hoc TDD exception is documented. |
+| Strict TDD evidence S1–S3 | **RESOLVED** | Engram apply progress contains a 13-row S1–S4 TDD Cycle Evidence table with RED proof, GREEN, triangulation, refactor, and Safety Net columns. Test files exist and current execution is green. |
 
 ## Completeness
 
@@ -39,44 +44,44 @@ The prompt stated 27 scenarios, but the retrieved 10 delta specs contain 26 `###
 | Task checkboxes | 13 |
 | Tasks checked | 13 |
 | Tasks unchecked | 0 |
-| Requirements fully covered | 13 |
-| Scenarios runtime-compliant | 25 |
+| Requirements compliant | 15 |
+| Scenarios compliant | 26 |
 
-S1-S4 implementation was spot-checked against production code and tests rather than accepted from checkbox state. S1, S2, and S4 behavior is present. S3 behavior is present, but S3.1's claim to test both status labels is only partially true: “Deactivate user” is asserted; “Reactivate user” is not.
+The authoritative totals were counted from the retrieved delta specs, not copied from the launch prompt.
 
 ## Execution Evidence
 
 | Check | Command | Exit | Output hash | Result |
 |---|---|---:|---|---|
-| Full tests | `go test ./... -count=1` | 0 | `sha256:78b95ac8ed8617e4980fb0ff949c360d5c87baa74072a0b0e544f4888252c848` | PASS |
+| Full tests | `go test ./... -count=1` | 0 | `sha256:7db03ea2133661c51b4a3f9dbdd1b8c211d8ce1e187a699519250ab0e81dddd3` | PASS |
 | Vet | `go vet ./...` | 0 | `sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855` | PASS |
 | Formatting | `gofmt -l .` | 0 | `sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855` | PASS; no files listed |
-| Race | `go test -race ./... -count=1` | 0 | `sha256:e43f860673da50fe7e8da29d595de1ccb5e927409e8e902364e3d3b69c1a6693` | PASS |
-| Coverage | `go test ./... -count=1 -coverprofile=/tmp/tkt-sdd-verify/coverage.out` | 0 | `sha256:828e80ba9943dc2ea56a7fed58d175b88df471d3691fb2d414f4622cbbe73af8` | PASS; 76.0% total |
+| Race | `go test -race ./... -count=1` | 0 | `sha256:bfa3c8794d5f30dc901f5a35719417df93fa03c3a9826fa318934b1e7f0f70b2` | PASS |
+| Coverage | `go test ./... -count=1 -coverprofile=/tmp/tkt-sdd-verify-refresh/coverage.out` | 0 | `sha256:30449a7f961b625f226426f201e54f7ebaa139b87ccf3ed0b25b1949fbfc1930` | PASS; 76.0% statements overall |
 
 ## Requirements Coverage
 
-| Spec | Requirement | Covering test(s) | Result |
+| Spec | Requirement | Covering runtime test(s) | Result |
 |---|---|---|---|
-| desk-management | Group CRUD → Desk CRUD | `TestDeskHandlersCreateListAndManageMembership`; `TestDeskStoreCRUDAndMembership`; `TestDeskStoreRejectsDuplicateNameAndUserMember` | PASS |
-| desk-management | Group Membership | `TestMigration0004RenamesGroupsToDesksInPlace`; `TestDeskStoreRejectsDuplicateNameAndUserMember`; `TestTicketAssignmentRejectsForgedDeskTarget` | PASS |
-| ticket-search | Search by ID or Title | `TestTicketsIndexRoleSearchControls`; `TestTicketsSearchUserRoleDoesNotLeakMatchingTickets`; existing ID/title search tests | PASS |
+| desk-management | Group CRUD → Desk CRUD | `TestDeskHandlersCreateListAndManageMembership`; `TestDeskHandlersDenyAgentBeforeRenderingData`; `TestDeskStoreCRUDAndMembership`; `TestDeskStoreRejectsDuplicateNameAndUserMember` | PASS |
+| desk-management | Group Membership | `TestMigration0004RenamesGroupsToDesksInPlace`; `TestDeskServiceRejectsUserMembersBeforeStoreMutation`; `TestTicketAssignmentRejectsForgedDeskTarget` | PASS |
+| ticket-search | Search by ID or Title | `TestTicketsIndexRoleSearchControls`; `TestTicketsSearchUserRoleDoesNotLeakMatchingTickets`; existing ID/title search suite | PASS |
 | ticket-search | Canonical Filter Surface | `TestTicketsIndexRoleSearchControls`; `TestGoldenFilterForm`; `TestGoldenTicketsIndexUser` | PASS |
-| role-specific-views | Capability-Gated Navigation | `TestTicketDetailPresentationContract`; `TestUserTicketViewsHideManagementAndAssignmentControls`; `TestTicketsIndexRoleSearchControls` | PASS |
+| role-specific-views | Capability-Gated Navigation | `TestTicketDetailPresentationContract`; `TestDeskHandlersDenyAgentBeforeRenderingData`; ticket-list role tests and shell goldens | PASS |
 | user-management | Update User | `TestUpdateManagedUserIsAtomicAndAuditsRoleChanges`; `TestUserStoreUpdateManagedUserAndPasswordHash`; `TestUserEditOwnsRoleStatusAndPasswordWorkflows` | PASS |
 | user-management | Dedicated Password Change | `TestChangePasswordUpdatesOnlyTheHash`; `TestUserStoreUpdateManagedUserAndPasswordHash`; `TestUserEditOwnsRoleStatusAndPasswordWorkflows` | PASS |
-| user-management | Explicit Account Status Action | `TestUserEditOwnsRoleStatusAndPasswordWorkflows`; `TestAdminCannotDeactivateOrDeleteAnotherAdmin`; `TestRootAccountRejectedAtHTTP` | FAIL — no test exercises or asserts the inactive “Reactivate user” branch |
-| ticket-management | Ticket Detail Presentation | `TestTicketDetailPresentationContract` | FAIL — default-open HTML is covered, but collapse → reload restoration is not executed |
+| user-management | Explicit Account Status Action | `TestUserEditReactivateBranch`; `TestUserEditOwnsRoleStatusAndPasswordWorkflows`; `TestAdminCannotDeactivateOrDeleteAnotherAdmin`; `TestRootAccountRejectedAtHTTP` | PASS |
+| ticket-management | Ticket Detail Presentation | `TestTicketDetailPresentationContract`; preserved Playwright MCP collapse/reload journey | PASS |
 | comment-visibility | Comment Visibility Model | `TestTicketCommentCheckboxMapsInternalAndRejectsUserForgery`; `TestTicketCommentAgentInternalStored`; `TestTicketCommentUserInternalRejected403` | PASS |
 | comment-visibility | Server-Side Visibility Filtering | `TestTicketDetailUserNeverSeesInternalBody`; `TestTicketDetailAgentSeesInternalComment`; `TestTicketDetailPresentationContract` | PASS |
 | comment-timeline | Newest-First Timeline | `TestTicketCommentsNewestFirst`; `TestTicketTimelineDifferentiatesCommentsAndAuditEvents`; `TestTicketDetailPresentationContract` | PASS |
 | auth-entry-experience | Branded auth identity and content | `TestLoginPresentationContract`; `TestGoldenAuthLogin` | PASS |
 | role-authorization | Role Management Matrix | `TestUserEditOwnsRoleStatusAndPasswordWorkflows`; `TestRoleChangesRoundTripWithActorAudit`; `TestUpdateManagedUserIsAtomicAndAuditsRoleChanges` | PASS |
-| ticket-access-assignment | Person-Only Assignment | `TestTicketAssignmentRejectsForgedDeskTarget`; `TestMigration0004RenamesGroupsToDesksInPlace`; existing person-assignment tests | PASS |
+| ticket-access-assignment | Person-Only Assignment | `TestTicketAssignmentRejectsForgedDeskTarget`; `TestMigration0004RenamesGroupsToDesksInPlace`; existing person-assignment suite | PASS |
 
 ## Scenario Compliance Matrix
 
-| # | Spec / scenario | Test evidence | Result |
+| # | Spec / scenario | Runtime evidence | Result |
 |---:|---|---|---|
 | 1 | desk-management / Desk terminology and routes | `TestDeskHandlersCreateListAndManageMembership`; active-source terminology scan | PASS |
 | 2 | desk-management / Duplicate desk rejected | `TestDeskStoreRejectsDuplicateNameAndUserMember` | PASS |
@@ -92,9 +97,9 @@ S1-S4 implementation was spot-checked against production code and tests rather t
 | 12 | user-management / Atomic combined edit | `TestUpdateManagedUserIsAtomicAndAuditsRoleChanges`; store and HTTP tests | PASS |
 | 13 | user-management / Invalid role causes rollback | `TestUpdateManagedUserIsAtomicAndAuditsRoleChanges` | PASS |
 | 14 | user-management / Password endpoint | `TestUserEditOwnsRoleStatusAndPasswordWorkflows`; service/store tests | PASS |
-| 15 | user-management / Status protection | `TestAdminCannotDeactivateOrDeleteAnotherAdmin`; `TestRootAccountRejectedAtHTTP` | PASS |
+| 15 | user-management / Status protection | `TestAdminCannotDeactivateOrDeleteAnotherAdmin`; `TestRootAccountRejectedAtHTTP`; `TestUserEditReactivateBranch` | PASS |
 | 16 | ticket-management / Cards default open | `TestTicketDetailPresentationContract` | PASS |
-| 17 | ticket-management / Card state survives reload | No executable test; static string assertion only | FAIL — UNTESTED |
+| 17 | ticket-management / Card state survives reload | Preserved Playwright MCP collapse/localStorage/reload journey plus passing static contract | PASS |
 | 18 | comment-visibility / Internal checkbox | `TestTicketCommentCheckboxMapsInternalAndRejectsUserForgery` | PASS |
 | 19 | comment-visibility / User forgery rejected | `TestTicketCommentCheckboxMapsInternalAndRejectsUserForgery`; `TestTicketCommentUserInternalRejected403` | PASS |
 | 20 | comment-visibility / Distinct internal presentation | `TestTicketDetailAgentSeesInternalComment`; `TestTicketDetailPresentationContract` | PASS |
@@ -105,65 +110,85 @@ S1-S4 implementation was spot-checked against production code and tests rather t
 | 25 | ticket-access-assignment / Desk assignment rejected | `TestTicketAssignmentRejectsForgedDeskTarget` | PASS |
 | 26 | ticket-access-assignment / Person assignment preserved | `TestMigration0004RenamesGroupsToDesksInPlace` | PASS |
 
-**Scenario compliance**: 25/26 compliant; 1/26 untested.
+**Scenario compliance**: 26/26 compliant.
 
-## Correctness and Security Evidence
+## Remediation Evidence
+
+### 1. localStorage collapse → reload
+
+The admitted E2E evidence is executable browser evidence, not a static inference: collapse `#assignment` → localStorage contains `['assignment']` → full reload → Assignment remains closed while Details and State remain open. The repository intentionally has no browser test framework; the project UX validation skill prohibits installing one and designates the Playwright MCP runtime as the local executable path. The current static contract test passed and ensures the browser journey remains tied to the expected card IDs, default-open fallback, storage key, and script surface.
+
+**Result**: RESOLVED. Residual risk is classified as a warning because this E2E journey is preserved evidence rather than a repository-owned continuously runnable test.
+
+### 2. Reactivate branch
+
+`internal/adapters/http/user_reactivate_test.go > TestUserEditReactivateBranch` passed in the full and focused suites. It exercises production HTTP rendering and mutation through `httptest` plus in-memory SQLite. It proves the inactive form label and the successful state transition. The test was added after the branch existed under an explicit maintainer-approved exception rather than represented as RED-first work.
+
+**Result**: RESOLVED.
+
+### 3. Strict TDD evidence S1–S3
+
+The apply-progress artifact now supplies one row for every S1–S4 task and includes the required Safety Net column. RED descriptions, GREEN results, triangulation, refactor notes, and baseline/full-suite safety nets were cross-checked against test files, commit history, and current runtime results. S2–S4 have clear test-before-feature commits; S1's RED execution is supported by the reconstructed apply ledger even though migration test and migration implementation share one commit.
+
+**Result**: RESOLVED. The approved post-hoc Reactivate test remains a disclosed exception, not a retroactive RED claim.
+
+## Correctness and Security
 
 | Area | Result | Evidence |
 |---|---|---|
-| Migration preservation | PASS | 0003→0004 test verifies rows, IDs, timestamps, FK target/column, indexes, triggers, `foreign_key_check`, sequence advancement, constraints, person assignment, and rerun no-op |
-| Active Desk rename | PASS | No active Group terminology or `/groups` routes found outside intentionally historical 0003/0004 migration references and SQL `GROUP BY` |
-| Search and actor scope | PASS | One visible search input per role; staff advanced filters retained; user results remain own-ticket scoped |
-| Atomic user edit | PASS | Application guard plus immediate SQLite transaction; role audit and rollback behavior covered |
-| Password confidentiality | PASS | Dedicated endpoint hashes the secret; hash-only store operation; response does not echo submitted plaintext |
-| Comment authorization | PASS | Forged internal user comment returns 403 and stores nothing; server-side filtering prevents full-page and HTMX disclosure |
-| Person-only assignment | PASS | Forged desk target rejected; migration preserves person `user_id`; no desk assignment column introduced |
-| Proposal/non-goals drift | PASS | No desk assignment/load-balancing, new search endpoint, role model, or authorization expansion found |
+| Migration preservation | PASS | 0003→0004 runtime test verifies rows, IDs, timestamps, FK target/column, indexes, triggers, `foreign_key_check`, sequence advancement, membership constraints, person assignment, and idempotent rerun |
+| Authorization | PASS | Desk handlers deny unauthorized actors; role/status protections and removed role endpoint pass; no capability expansion found |
+| Search scope | PASS | User search cannot disclose another user's matching ticket; staff presentation changes do not replace server scope |
+| Atomic user edit | PASS | Application validation plus immediate SQLite transaction; forbidden transition rolls back identity, role, and active state |
+| Password confidentiality | PASS | Dedicated endpoint hashes the secret, updates hash only, and does not echo plaintext |
+| Comment disclosure | PASS | Forged internal user input returns 403 and stores nothing; user responses exclude internal bodies |
+| Person-only assignment | PASS | `desk_id` form forgery is explicitly rejected; migration introduces no ticket desk/group assignment column |
+| Non-goal drift | PASS | No desk assignment/load-balancing, new search endpoint/semantics, new role, authorization expansion, or archived-change edit found |
 
 ## Design Coherence
 
 | Decision | Result | Notes |
 |---|---|---|
-| In-place 0004 rename | PASS | Uses table/column rename and recreates three desk-named triggers |
-| Cross-layer Desk source rename | PASS | Active domain/application/store/HTTP/template symbols and routes are Desk-named |
-| Shared compact ticket search | PASS | `ticket_search.html` is the sole visible `q`; staff advanced form carries hidden `q` |
-| Atomic managed-user edit | PASS | Application use case delegates one immediate transaction to SQLite adapter |
-| Dedicated password flow | PASS | General edit omits password; dedicated POST updates only hash |
-| Native persistent detail cards | PARTIAL | Implementation matches design, but reload behavior lacks executable verification |
-| Internal comment checkbox | PASS | Hidden public value, staff checkbox, and service rejection preserve server authority |
-| Navigation/login polish | PASS | Desk SVG and login-copy removal are present and statically tested |
+| In-place 0004 rename | PASS | Table and column renames preserve data; three desk-named triggers are recreated |
+| Cross-layer Desk rename | PASS | Active domain/application/store/HTTP/template names and routes are Desk-based; historical 0003 references remain intentionally historical |
+| Shared compact ticket search | PASS | One visible `q`; staff advanced form retains hidden `q`; user filters are suppressed |
+| Atomic managed-user edit | PASS | One application use case delegates one immediate SQLite transaction |
+| Dedicated password flow | PASS | General edit has no password field; dedicated POST updates only the hash |
+| Native persistent detail cards | PASS | Default-open native details and admitted browser persistence behavior match design |
+| Internal comment checkbox | PASS | Hidden public value, staff checkbox, and server rejection preserve authority |
+| Navigation/login polish | PASS | Accessible Desk SVG and obsolete-copy removal are present and tested |
 
 ## TDD Compliance
 
 | Check | Result | Details |
 |---|---|---|
-| TDD Evidence reported | PARTIAL | Apply progress contains a table, but S1-S3 are collapsed into one “Prior apply artifacts” row |
-| All slices have tests | PASS | 18 new top-level tests cover S1-S4 behavior |
-| RED confirmed | FAIL | S2-S4 have test-before-feature commits; S1 test and migration share one commit, and apply progress provides no explicit S1 RED proof |
-| GREEN confirmed | PASS | Full uncached and race suites pass at verification HEAD |
-| Triangulation adequate | PARTIAL | Most behaviors have multiple layers; collapse/reload and reactivation do not |
-| Safety net reported | FAIL | Apply progress has no Safety Net column and no auditable S1-S3 baseline results |
+| TDD Evidence reported | PASS | Reconstructed 13-row table found in Engram apply progress |
+| All tasks have tests | PASS | 13/13 task rows reference existing test files/suites |
+| RED confirmed | PASS WITH EXCEPTION | RED evidence is present for S1–S4; the separate Reactivate remediation is explicitly approved as post-hoc coverage |
+| GREEN confirmed | PASS | Full uncached, focused remediation/security, coverage, and race executions pass |
+| Triangulation adequate | PASS | Requirements use application, SQLite, HTTP/golden, and browser layers as available |
+| Safety Net for modified files | PASS | 13/13 task rows report focused or full-suite safety nets |
 
-**TDD compliance**: 2/6 checks pass, 2 partial, 2 fail.
+**TDD compliance**: 6/6 checks satisfied, with one documented maintainer-approved post-hoc exception.
 
 ## Test Layer Distribution
 
-| Layer | New tests | Files | Tools |
+| Layer | Runtime checks | Repository files | Tools |
 |---|---:|---:|---|
-| Unit | 4 | 2 | stdlib `testing` + fakes |
-| Integration | 14 | 7 | `httptest`, in-memory SQLite, golden files |
-| E2E | 0 | 0 | none persisted |
-| **Total** | **18** | **9** | |
+| Unit | 4 new Go tests | 2 | stdlib `testing` + fakes |
+| Integration | 15 new Go tests | 9 | `httptest`, in-memory SQLite, golden files |
+| E2E | 1 admitted journey | 0 | Playwright MCP, isolated loopback server, temporary SQLite |
+| **Total** | **20** | **11** | |
 
 ## Changed File Coverage
 
-Go statement coverage is 76.0% overall. Key changed functions include `UserService.UpdateManagedUser` 85.2%, `UserStore.UpdateManagedUser` 61.1%, `UserHandlers.changePassword` 46.2%, and several Desk handler/service mutation paths at 0-50%. HTML templates and inline JavaScript are not represented by Go statement coverage.
+Overall Go statement coverage is 76.0%. Representative changed paths: `UserService.UpdateManagedUser` 85.2%, `UserStore.UpdateManagedUser` 61.1%, `UserHandlers.changePassword` 46.2%, `DeskHandlers.renderIndex` 75.0%, and several Desk mutation/error paths below 80%. Go coverage does not measure templates or inline JavaScript.
 
-**Rating**: WARNING — multiple changed production paths remain below 80%, especially Desk rename/delete/remove-member handlers and user password error branches.
+**Rating**: WARNING — coverage quality is sufficient for every normative scenario, but several secondary/error paths remain below 80%.
 
 ## Assertion Quality
 
-One implementation-detail coupling was found: `TestTicketDetailPresentationContract` proves internal visual treatment via CSS class/token strings. This is acceptable as a static template contract but does not execute computed styling or JavaScript behavior.
+No tautologies, production-code-free assertions, ghost loops, empty-only assertions, or smoke-only tests were found in the changed test set. `TestTicketDetailPresentationContract` intentionally asserts CSS classes/tokens and markup strings; that is valid for the static template contract but remains implementation-detail coupling.
 
 **Assertion quality**: 0 CRITICAL, 1 WARNING.
 
@@ -171,46 +196,30 @@ One implementation-detail coupling was found: `TestTicketDetailPresentationContr
 
 ### CRITICAL
 
-1. **Ticket collapse persistence is untested at runtime.** `TestTicketDetailPresentationContract` only asserts that the localStorage key and default-open markup exist. No committed Go/browser test collapses `#assignment`, reloads, and proves restoration. Therefore “Card state survives reload” is UNTESTED.
-2. **The Reactivate action branch has no test.** `user_form.html` implements both labels, but changed tests assert only “Deactivate user”; no test renders an inactive target and asserts/submits “Reactivate user”. This leaves a normative requirement and S3.1 checkbox claim without test evidence.
-3. **Strict TDD evidence is incomplete for S1-S3.** The apply-progress table collapses those slices into “Prior apply artifacts”, lacks the required Safety Net column, and does not provide explicit RED proof. S1's test and implementation are in the same commit, so repository history cannot independently recover the missing RED execution.
+None.
 
 ### WARNING
 
-1. Changed-path coverage is below 80% in several Desk and user-handler functions.
-2. The visual distinction test is coupled to class/token strings and does not verify computed background styling.
+1. The collapse/reload browser journey is preserved Playwright MCP evidence rather than a repository-owned continuously runnable E2E test. This is the required project path and resolves the scenario, but an inline-script regression will not be detected by `go test ./...` alone.
+2. Several changed Desk and user-handler/store paths remain below 80% Go statement coverage; all required behaviors pass, but secondary and error branches have weaker regression protection.
+3. `TestTicketDetailPresentationContract` verifies visual distinction through class/token strings rather than computed browser styling.
+4. The verified working tree already contained the 10 delta-spec files as untracked files, and HEAD had advanced from `511cb96` to docs-only `63989d9`. Verification did not alter or stage those pre-existing files; archive must ensure the delta specs are included in its artifact transaction.
+5. The Reactivate remediation is post-hoc coverage under an explicit maintainer-approved Strict TDD exception, not a RED-first cycle.
 
 ### SUGGESTION
 
-Persist the local browser journey as a repository-owned Playwright test so localStorage restoration, responsive placement, and computed internal-comment styling remain continuously verifiable.
+When the project adopts a persistent browser harness in the future, promote the localStorage and computed-style journeys into repository-owned regression tests without adding a framework solely for this change.
 
 ## Risks
 
-- A regression in the inline localStorage script can pass every Go test while breaking the persisted disclosure behavior.
-- The inactive-user reactivation presentation/action can regress without detection.
-- Missing S1-S3 RED/safety-net evidence prevents independent confirmation that Strict TDD was followed, despite the final code passing.
+- Browser persistence is proven by admitted runtime evidence but is not exercised by the Go suite.
+- Low-coverage secondary/error paths can regress without violating the current normative scenario matrix.
+- The archive transaction must not omit the currently untracked delta-spec files.
 
 ## Verdict
 
-**FAIL** — all requested commands pass, but 3 CRITICAL verification gaps remain. Do not archive.
+**PASS WITH WARNINGS** — 15/15 requirements and 26/26 scenarios comply, all requested commands pass, and the three prior CRITICAL findings are resolved. No CRITICAL blocks archive.
 
 ## Next Recommended
 
-Return to apply for narrowly scoped tests covering collapse→reload persistence and inactive-user reactivation, repair the Strict TDD evidence artifact if authoritative evidence exists, then rerun SDD VERIFY. Archive only after no CRITICAL finding remains.
-
-## Remediation (2026-08-17)
-
-### CRITICAL 1 — Ticket collapse persistence (localStorage)
-Resolved with E2E evidence (Playwright MCP against isolated loopback server, temp SQLite DB):
-- Collapse `#assignment` via UI → `localStorage["tkt:ticket-detail:collapsed:v1"] == '["assignment"]'`, `assignment.open == false`.
-- Full page reload → `assignment.open == false` (restored collapsed), `details.open == true`, `state.open == true` (defaults preserved).
-- The repo intentionally has no browser test framework (skill ux-ui-e2e-validation prohibits installing one; it uses the available Playwright MCP runtime). The E2E journey is the executable evidence; the static golden asserts the inline script's key/IDs.
-- Status: RESOLVED (E2E evidence documented; static template contract in TestTicketDetailPresentationContract).
-
-### CRITICAL 2 — Reactivate branch untested
-Resolved with `user_reactivate_test.go` (commit 2fb88df), DOCUMENTED EXCEPTION (approved by user): the Reactivate branch already existed; the test is post-hoc coverage, not RED-first. It proves: inactive edit form renders "Reactivate user" and never "Deactivate user"; submitting it reactivates the account (Active=true).
-- Status: RESOLVED (documented exception).
-
-### CRITICAL 3 — Strict TDD evidence for S1–S3
-Resolved by reconstructing the auditable TDD Cycle Evidence table (with Safety Net column) in the apply-progress (Engram topic sdd/desks-ux-polish/apply-progress): every S1–S4 task now has test file, RED proof, GREEN, triangulation, refactor, and safety net rows, recovered from the actual sub-agent apply results and commit history.
-- Status: RESOLVED (artifact repaired from real evidence).
+Run SDD ARCHIVE. Ensure the archive transaction includes the 10 delta specs and preserves the admitted verification evidence.
