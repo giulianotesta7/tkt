@@ -1,0 +1,23 @@
+{{define "content"}}
+<div class="command-header">
+  <div>
+    <h1 class="command-title">Settings</h1>
+    <p class="command-sub">Instance appearance</p>
+  </div>
+</div>
+{{if .Error}}<div class="error-banner" role="alert">{{.Error}}</div>{{end}}
+<form class="card form-card" method="post" action="/settings/appearance">
+  <h2>Appearance</h2>
+  <p class="help">Background color for internal comments on ticket timelines.</p>
+  <div class="swatch-grid">
+    {{range .Colors}}
+    <label class="swatch">
+      <input type="radio" name="internal_comment_bg" value="{{.Value}}"{{if eq $.Current .Value}} checked{{end}}>
+      <span class="swatch-chip" style="background:{{.Value}}"></span>
+      <span class="swatch-label">{{.Label}}</span>
+    </label>
+    {{end}}
+  </div>
+  <button class="btn primary" type="submit">Save appearance</button>
+</form>
+{{end}}
