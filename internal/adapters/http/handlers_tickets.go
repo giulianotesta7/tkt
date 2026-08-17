@@ -441,6 +441,10 @@ type detailData struct {
 	// server-side use case rejects a forged internal value regardless of
 	// what the UI shows.
 	CanCommentInternal bool
+	// CanEdit reports whether the actor may edit this ticket's inline
+	// properties (CapEditTicket). Presentation only; the server-side use
+	// case enforces the actor/ticket authorization.
+	CanEdit bool
 }
 
 // ticketID resolves and validates the {id} path parameter; 0 + false on a
@@ -482,6 +486,7 @@ func (h *TicketHandlers) detailDataFor(r *http.Request, id int64) (detailData, i
 		Options:            opts,
 		Values:             values,
 		CanCommentInternal: application.NewPolicy().Capabilities(actor.Role).Require(application.CapCommentInternal),
+		CanEdit:            application.NewPolicy().Capabilities(actor.Role).Require(application.CapEditTicket),
 	}, 0, nil
 }
 

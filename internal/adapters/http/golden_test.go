@@ -242,6 +242,7 @@ func fixtureDetailData() detailData {
 		Next:               allowedNext(t.State),
 		Options:            opts,
 		CanCommentInternal: true,
+		CanEdit:            true,
 		Values: ticketFormValues{
 			Title:       t.Title,
 			Description: t.Description,
@@ -287,11 +288,18 @@ func TestTicketDetailPresentationContract(t *testing.T) {
 
 	body := renderGolden(t, "tickets_show", "", staff, false)
 	for _, want := range []string{
-		`<details open id="details"`,
-		`<details open id="assignment"`,
-		`<details open id="state"`,
-		`tkt:ticket-detail:collapsed:v1`,
-		`<summary>Details</summary>`,
+		`class="prop-list"`,
+		`class="prop-heading">Properties</`,
+		`class="prop-heading">Assignment</`,
+		`class="prop-heading">State</`,
+		`id="ticket-title"`,
+		`name="title"`,
+		`id="ticket-priority"`,
+		`name="priority"`,
+		`id="assign-user"`,
+		`name="user_id"`,
+		`id="ticket-state"`,
+		`name="to"`,
 		`name="visibility" value="public"`,
 		`name="internal" value="1"`,
 		`Internal comment`,
@@ -305,11 +313,14 @@ func TestTicketDetailPresentationContract(t *testing.T) {
 			t.Errorf("ticket detail must contain %q, got: %s", want, body)
 		}
 	}
+	if strings.Contains(body, `<details open id="details"`) {
+		t.Errorf("variant A must not render the collapsible details cards, got: %s", body)
+	}
+	if strings.Contains(body, `tkt:ticket-detail:collapsed:v1`) {
+		t.Errorf("variant A must not include the localStorage collapse script, got: %s", body)
+	}
 	if strings.Contains(body, `id="comment-visibility"`) {
 		t.Errorf("staff comment form must not render the visibility select, got: %s", body)
-	}
-	if strings.Contains(body, `>Properties<`) {
-		t.Errorf("ticket detail must not contain the obsolete Properties header, got: %s", body)
 	}
 
 	user := fixtureDetailData()

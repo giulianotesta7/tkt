@@ -3,14 +3,23 @@
 {{if .Error}}  <div class="error-banner" role="alert">{{.Error}}</div>
 {{end}}
   <div class="command-header">
-    <div>
+    <div class="detail-head">
       <div class="meta-row">
         <a href="/tickets">← Queue</a>
         <span class="num">{{ticketNumber .View.Ticket.Number}}</span>
         {{template "state_badge" .View.Ticket.State}}
         <span class="priority {{.View.Ticket.Priority}}">{{humanize .View.Ticket.Priority}}</span>
       </div>
+      {{if .CanEdit}}
+      <form class="title-inline" method="post" action="/tickets/{{.View.Ticket.ID}}/edit"
+            hx-post="/tickets/{{.View.Ticket.ID}}/edit" hx-target="#ticket-detail" hx-swap="outerHTML">
+        <input type="text" id="ticket-title" name="title" value="{{.Values.Title}}" required
+               aria-label="Ticket title" class="title-input">
+        <input type="hidden" name="priority" value="{{.Values.Priority}}">
+      </form>
+      {{else}}
       <h1 class="command-title">{{.View.Ticket.Title}}</h1>
+      {{end}}
       <div class="meta-row ticket-metadata">
         <span>Requester: {{.View.Ticket.RequesterName}} &lt;{{.View.Ticket.RequesterEmail}}&gt;</span>
         <span>Created {{template "timestamp" .View.Ticket.CreatedAt}}</span>
@@ -31,90 +40,68 @@
       </div>
     </div>
     <div class="evidence">
-      <details open id="details" class="card property-form">
-        <summary>Details</summary>
-        <form method="post" action="/tickets/{{.View.Ticket.ID}}/edit">
-        <div class="field">
-          <label for="ticket-title">Title</label>
-          <input type="text" id="ticket-title" name="title" value="{{.Values.Title}}" required>
-        </div>
-        <div class="field">
-          <label for="ticket-category-value">Category</label>
-          <p id="ticket-category-value" class="field-value">{{.View.Category.Name}}</p>
-        </div>
-        <div class="field">
-          <label for="ticket-priority">Priority</label>
-          <select id="ticket-priority" name="priority">
-            {{range .Options.Priorities}}<option value="{{.}}" {{if eq . $.Values.Priority}}selected{{end}}>{{humanize .}}</option>{{end}}
-          </select>
-        </div>
-        <button class="btn primary" type="submit">Save properties</button>
-        </form>
-      </details>
-      <details open id="assignment" class="card property-form">
-        <summary>Assignment</summary>
-        <form method="post" action="/tickets/{{.View.Ticket.ID}}/assign">
-        <div class="field">
-          <label for="assign-user">Assigned To</label>
-          <select id="assign-user" name="user_id">
-            <option value="">Unassigned</option>
-            {{range .Options.AssignableUsers}}<option value="{{.ID}}" {{if eq (.ID | printf "%d") $.Values.UserID}}selected{{end}}>{{.Name}}{{if not .Active}} (inactive){{end}}</option>{{end}}
-          </select>
-        </div>
-        <div class="field">
-          <label for="assign-reason">Reason</label>
-          <input type="text" id="assign-reason" name="reason" placeholder="Required when reassigning">
-        </div>
-        <button class="btn primary" type="submit">Save assignment</button>
-        </form>
-      </details>
-      <details open id="state" class="card state-card">
-        <summary>State</summary>
-        <div class="current-state">Current {{template "state_badge" .View.Ticket.State}}</div>
-        <form class="transition-form" method="post" action="/tickets/{{.View.Ticket.ID}}/transition">
-          <div class="field">
-            <label for="ticket-state">Move to</label>
-            <select id="ticket-state" name="to">
-              {{range .Next}}<option value="{{.To}}">{{humanize .To}}{{if .NeedsReason}} (reason required){{end}}</option>{{end}}
-            </select>
+      <div class="prop-list">
+        <div class="prop-section">
+          <div class="prop-heading">Properties</div>
+          <div class="prop-row">
+            <span class="prop-label">Category</span>
+            <span id="ticket-category-value" class="prop-value">{{.View.Category.Name}}</span>
           </div>
-          <div class="field">
-            <label for="transition-reason">Reason</label>
-            <input type="text" id="transition-reason" name="reason" placeholder="Required when reopening a closed ticket">
+          <div class="prop-row">
+            <span class="prop-label">Priority</span>
+            <form class="prop-control" method="post" action="/tickets/{{.View.Ticket.ID}}/edit"
+                  hx-post="/tickets/{{.View.Ticket.ID}}/edit" hx-target="#ticket-detail" hx-swap="outerHTML">
+              <select id="ticket-priority" name="priority" class="prop-select"
+                      aria-label="Priority" onchange="this.form.requestSubmit()">
+                {{range .Options.Priorities}}<option value="{{.}}" {{if eq . $.Values.Priority}}selected{{end}}>{{humanize .}}</option>{{end}}
+              </select>
+              <input type="hidden" name="title" value="{{.Values.Title}}">
+            </form>
           </div>
-{{if .Next}}          <button class="btn primary" type="submit">Update state</button>
-{{end}}
-        </form>
-{{if not .Next}}        <p class="empty compact">This ticket is terminal.</p>
+        </div>
+        <div class="prop-section">
+          <div class="prop-heading">Assignment</div>
+          <div class="prop-row">
+            <span class="prop-label">Assignee</span>
+            <form class="prop-control" method="post" action="/tickets/{{.View.Ticket.ID}}/assign"
+                  hx-post="/tickets/{{.View.Ticket.ID}}/assign" hx-target="#ticket-detail" hx-swap="outerHTML">
+              <select id="assign-user" name="user_id" class="prop-select"
+                      aria-label="Assignee" onchange="this.form.requestSubmit()">
+                <option value="">Unassigned</option>
+                {{range .Options.AssignableUsers}}<option value="{{.ID}}" {{if eq (.ID | printf "%d") $.Values.UserID}}selected{{end}}>{{.Name}}{{if not .Active}} (inactive){{end}}</option>{{end}}
+              </select>
+            </form>
+          </div>
+        </div>
+        <div class="prop-section">
+          <div class="prop-heading">State</div>
+          <div class="prop-row">
+            <span class="prop-label">Current</span>
+            <span class="prop-value">{{template "state_badge" .View.Ticket.State}}</span>
+          </div>
+{{if .Next}}
+          <div class="prop-row">
+            <span class="prop-label">Move to</span>
+            <form class="prop-control" method="post" action="/tickets/{{.View.Ticket.ID}}/transition"
+                  hx-post="/tickets/{{.View.Ticket.ID}}/transition" hx-target="#ticket-detail" hx-swap="outerHTML">
+              <select id="ticket-state" name="to" class="prop-select"
+                      aria-label="Move to state" onchange="this.form.requestSubmit()">
+                {{range .Next}}<option value="{{.To}}">{{humanize .To}}{{if .NeedsReason}} (reason required){{end}}</option>{{end}}
+              </select>
+            </form>
+          </div>
 {{end}}
 {{if or .View.Ticket.ResolvedAt .View.Ticket.ClosedAt}}
-        <dl class="lifecycle-meta">
-{{with .View.Ticket.ResolvedAt}}          <dt>Resolved</dt><dd>{{template "timestamp" .}}</dd>
+          <dl class="lifecycle-meta">
+{{with .View.Ticket.ResolvedAt}}            <dt>Resolved</dt><dd>{{template "timestamp" .}}</dd>
 {{end}}
-{{with .View.Ticket.ClosedAt}}          <dt>Closed</dt><dd>{{template "timestamp" .}}</dd>
+{{with .View.Ticket.ClosedAt}}            <dt>Closed</dt><dd>{{template "timestamp" .}}</dd>
 {{end}}
-        </dl>
+          </dl>
 {{end}}
-      </details>
+        </div>
+      </div>
     </div>
   </div>
 </div>
-<script>
-(() => {
-  const key = "tkt:ticket-detail:collapsed:v1";
-  const cards = document.querySelectorAll("#ticket-detail details[id]");
-  let collapsed = [];
-  try {
-    const stored = JSON.parse(localStorage.getItem(key) || "[]");
-    collapsed = Array.isArray(stored) ? stored : [];
-  } catch (_) {}
-  cards.forEach((card) => {
-    card.open = !collapsed.includes(card.id);
-    card.addEventListener("toggle", () => {
-      collapsed = Array.from(cards).filter((item) => !item.open).map((item) => item.id);
-      localStorage.setItem(key, JSON.stringify(collapsed));
-    });
-  });
-})();
-</script>
 {{end}}
