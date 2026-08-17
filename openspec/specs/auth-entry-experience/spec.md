@@ -62,13 +62,14 @@ The system MUST show the approved welcome statement, lifecycle concepts (`Receiv
 
 ### Requirement: Existing auth contracts remain unchanged
 
-The system MUST preserve routes, endpoints, payloads, bootstrap and first-user active-role semantics, validation, submitted name/email re-rendering, password non-echo, loading and error states, labels, autocomplete values (`name`, `email`, `new-password`), keyboard navigation, visible focus, and WCAG AA contrast. It MUST add no JavaScript, animation, or dependency.
+The system MUST preserve routes, endpoints, payloads, validation, submitted name/email re-rendering, password non-echo, loading and error states, labels, autocomplete values (`name`, `email`, `new-password`), keyboard navigation, visible focus, and WCAG AA contrast. It MUST add no JavaScript, animation, or dependency. The bootstrap role semantics follow Role Authorization: the first user created via `/setup` is created atomically with role `root` rather than as a regular user. (Previously: the first-user bootstrap was described as preserving a regular active first-user role with no special privileges.)
 
-#### Scenario: Valid first-account submission bootstraps normally
+#### Scenario: Valid first-account submission bootstraps root
 
 - GIVEN setup receives valid first-user form data
 - WHEN the user submits the form
-- THEN the existing endpoint, payload, bootstrap behavior, and active first-user role semantics execute unchanged
+- THEN the existing endpoint and payload execute unchanged
+- AND the created first user is active with role `root` per the Role Authorization specification
 
 #### Scenario: Invalid submission preserves safe feedback
 
