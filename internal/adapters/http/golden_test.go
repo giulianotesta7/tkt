@@ -412,3 +412,16 @@ func TestGoldenCategoriesNew(t *testing.T) {
 func TestGoldenCategoryForm(t *testing.T) {
 	goldenFile(t, "category_form", renderGolden(t, "categories_new", "category_form", fixtureCategoryFormData(), true))
 }
+
+func fixtureSettingsIndexData() settingsIndexData {
+	ana := domain.User{ID: 1, Name: "Ana Torres", Email: "ana@example.com", Active: true, CreatedAt: goldenT0}
+	return settingsIndexData{
+		pageData: pageData{NavActive: "settings", CurrentUser: ana, CanManageUsers: true},
+		Current:  "#E8EEFF",
+		Colors:   appearanceOptions(),
+	}
+}
+
+func TestGoldenSettingsIndex(t *testing.T) {
+	goldenFile(t, "settings_index", renderGolden(t, "settings_index", "", fixtureSettingsIndexData(), false))
+}

@@ -357,13 +357,18 @@ textarea{min-height:84px;resize:vertical}
   <aside class="rail">
     <a class="rail-brand" href="/tickets" title="tkt">tkt</a>
     <nav class="rail-nav">
-      <a class="rail-link active" href="/tickets" title="Tickets" aria-label="Tickets">
+      <a class="rail-link" href="/tickets" title="Tickets" aria-label="Tickets">
         <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v1a2 2 0 0 0 0 4v1a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-1a2 2 0 0 0 0-4V9z"/><path d="M13 7v10"/></svg>
+      </a>
+      <a class="rail-link" href="/users" title="Users" aria-label="Users">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0"/><circle cx="17.5" cy="9" r="2.5"/><path d="M16 14.6a6 6 0 0 1 5.5 5.4"/></svg>
       </a>
       
       
       
-      
+      <a class="rail-link active" href="/settings" title="Settings" aria-label="Settings">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></svg>
+      </a>
     </nav>
     <div class="rail-operator" title="Ana Torres">AT</div>
     <form class="rail-logout" method="post" action="/logout">
@@ -375,44 +380,43 @@ textarea{min-height:84px;resize:vertical}
   <main class="main">
 <div class="command-header">
   <div>
-    <h1 class="command-title">New ticket</h1>
-    <p class="command-sub">Open a ticket in state new</p>
-  </div>
-  <div class="command-actions">
-    <a class="btn ghost" href="/tickets">Back to queue</a>
+    <h1 class="command-title">Settings</h1>
+    <p class="command-sub">Instance appearance</p>
   </div>
 </div>
 
-<form class="card form-card" method="post" action="/tickets">
-  <h2>Ticket details</h2>
-  
-  <div class="field">
-    <label for="title">Title</label>
-    <input type="text" id="title" name="title" value="Login page down" required autofocus>
+<form class="card form-card" method="post" action="/settings/appearance">
+  <h2>Appearance</h2>
+  <p class="help">Background color for internal comments on ticket timelines.</p>
+  <div class="swatch-grid">
+    
+    <label class="swatch">
+      <input type="radio" name="internal_comment_bg" value="#E8EEFF" checked>
+      <span class="swatch-chip" style="background:#E8EEFF"></span>
+      <span class="swatch-label">Azul</span>
+    </label>
+    
+    <label class="swatch">
+      <input type="radio" name="internal_comment_bg" value="#E2F2EA">
+      <span class="swatch-chip" style="background:#E2F2EA"></span>
+      <span class="swatch-label">Verde</span>
+    </label>
+    
+    <label class="swatch">
+      <input type="radio" name="internal_comment_bg" value="#EFE9FB">
+      <span class="swatch-chip" style="background:#EFE9FB"></span>
+      <span class="swatch-label">Violeta</span>
+    </label>
+    
+    <label class="swatch">
+      <input type="radio" name="internal_comment_bg" value="#FFF6DC">
+      <span class="swatch-chip" style="background:#FFF6DC"></span>
+      <span class="swatch-label">Amarillo</span>
+    </label>
+    
   </div>
-  <div class="field">
-    <label for="description">Description</label>
-    <textarea id="description" name="description">The login form 500s on submit</textarea>
-  </div>
-  <div class="field-row">
-    <div class="field">
-      <label for="category_id">Category</label>
-      <select id="category_id" name="category_id" required>
-        <option value="">Select category</option>
-        <option value="1" selected>Bugs</option><option value="2" >Support</option>
-      </select>
-    </div>
-    <div class="field">
-      <label for="priority">Priority</label>
-      <select id="priority" name="priority">
-        <option value="critical" >Critical</option><option value="high" selected>High</option><option value="medium" >Medium</option><option value="low" >Low</option>
-      </select>
-    </div>
-  </div>
-  
-  <button class="btn primary" type="submit">Create ticket</button>
+  <button class="btn primary" type="submit">Save appearance</button>
 </form>
-
 </main>
 </div>
 </body>
