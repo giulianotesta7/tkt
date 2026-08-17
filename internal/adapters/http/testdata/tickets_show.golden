@@ -378,7 +378,6 @@ textarea{min-height:84px;resize:vertical}
       </form>
       
       <div class="meta-row ticket-metadata">
-        <span>Requester: Ana Torres &lt;ana@example.com&gt;</span>
         <span>Created <time datetime="2026-08-06T10:00:00Z">10:00 · 06-08-2026</time></span>
         <span>Updated <time datetime="2026-08-06T10:30:00Z">10:30 · 06-08-2026</time></span>
       </div>
@@ -401,7 +400,6 @@ textarea{min-height:84px;resize:vertical}
 
   <div class="field checkbox-field">
     <label for="comment-internal"><input id="comment-internal" type="checkbox" name="internal" value="1"> Internal comment</label>
-    <p class="help">Only staff can see internal comments.</p>
   </div>
 
   <button class="btn primary" type="submit">Add comment</button>
@@ -463,6 +461,10 @@ textarea{min-height:84px;resize:vertical}
       <div class="prop-list">
         <div class="prop-section">
           <div class="prop-heading">Properties</div>
+          <div class="prop-row">
+            <span class="prop-label">Requester</span>
+            <span class="prop-value">Ana Torres</span>
+          </div>
           <div class="prop-row">
             <span class="prop-label">Category</span>
             <span id="ticket-category-value" class="prop-value">Bugs</span>

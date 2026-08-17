@@ -125,8 +125,11 @@ func TestTicketShowRendersConciseSemanticMetadata(t *testing.T) {
 	h.seedTicket(t, "Login page down", nil)
 
 	body := h.get(t, "/tickets/1", false).Body.String()
-	if !strings.Contains(body, "Requester: Admin &lt;admin@tkt.test&gt;") {
-		t.Errorf("requester metadata must come from the session-derived ticket data, got: %s", body)
+	if !strings.Contains(body, `>Requester</span>`) || !strings.Contains(body, "Admin") {
+		t.Errorf("requester must appear as a property row in the sidebar, got: %s", body)
+	}
+	if strings.Contains(body, "Requester:") {
+		t.Errorf("requester must be a sidebar property row, not header metadata, got: %s", body)
 	}
 	if got := strings.Count(body, `<time datetime="`); got < 3 {
 		t.Errorf("detail metadata and timeline must use semantic time elements, got %d: %s", got, body)

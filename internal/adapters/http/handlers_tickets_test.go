@@ -618,8 +618,11 @@ func TestTicketCreateDerivesRequesterFromSession(t *testing.T) {
 		t.Fatalf("status = %d, want 303", rec.Code)
 	}
 	detail := h.get(t, "/tickets/1", false).Body.String()
-	if !strings.Contains(detail, "Admin &lt;admin@tkt.test&gt;") {
-		t.Errorf("requester must be the session operator, got: %s", detail)
+	if !strings.Contains(detail, `>Requester</span>`) || !strings.Contains(detail, "Admin") {
+		t.Errorf("requester must be the session operator shown in the sidebar, got: %s", detail)
+	}
+	if strings.Contains(detail, "Evil Mallory") {
+		t.Errorf("requester must NOT be the forged value, got: %s", detail)
 	}
 }
 
