@@ -535,6 +535,50 @@ func TestUserRoleEndpointAppliesManagementMatrix(t *testing.T) {
 	}
 }
 
+// S3.1 RED: role changes now belong only to the edit form and passwords use
+// their dedicated endpoint, which never re-renders a submitted secret.
+func TestUserEditOwnsRoleStatusAndPasswordWorkflows(t *testing.T) {
+	h := newHarness(t)
+	member := seedUserRole(t, h.store, "Member", "member-s3@tkt.test", domain.RoleUser)
+
+	editPath := "/users/" + strconv.FormatInt(member.ID, 10) + "/edit"
+	rec := h.get(t, editPath, false)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET edit = %d, want 200", rec.Code)
+	}
+	body := rec.Body.String()
+	for _, want := range []string{"name=\"role\"", "Deactivate user"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("edit form missing %q", want)
+		}
+	}
+	if strings.Contains(body, "name=\"password\"") {
+		t.Error("general edit form must not contain a password field")
+	}
+
+	form := url.Values{"name": {"Member Updated"}, "email": {"member.updated@tkt.test"}, "role": {"agent"}, "active": {"false"}}
+	rec = h.postForm(t, editPath, form, false)
+	wantRedirect(t, rec, http.StatusSeeOther, "/users")
+	stored, err := h.store.UserStore().GetByID(context.Background(), member.ID)
+	if err != nil || stored.Role != domain.RoleAgent || stored.Active || stored.Name != "Member Updated" {
+		t.Fatalf("combined edit = %+v err=%v", stored, err)
+	}
+
+	rec = h.postForm(t, "/users/"+strconv.FormatInt(member.ID, 10)+"/role", url.Values{"role": {"user"}}, false)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("former role endpoint = %d, want 404", rec.Code)
+	}
+
+	rec = h.postForm(t, "/users/"+strconv.FormatInt(member.ID, 10)+"/password", url.Values{"password": {"new-secret"}}, false)
+	wantRedirect(t, rec, http.StatusSeeOther, editPath)
+	if strings.Contains(rec.Body.String(), "new-secret") {
+		t.Error("password response must not echo plaintext")
+	}
+	if cookie := h.loginCookie(t, "member.updated@tkt.test", "new-secret"); cookie == "" {
+		t.Error("dedicated password endpoint must update the password hash")
+	}
+}
+
 // TestManagementRouteRoleMatrix proves management routes enforce the same
 // role boundary for full-page and HTMX requests. Presentation-specific
 // responses must not turn a denied request into a data-bearing fragment.

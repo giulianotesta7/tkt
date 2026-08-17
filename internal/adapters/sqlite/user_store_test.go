@@ -284,6 +284,49 @@ func TestUserUpdatePersistsFields(t *testing.T) {
 	}
 }
 
+// S3.1 RED: the store commits the guarded combined edit and role audit in a
+// single immediate transaction, while password changes update only the hash.
+func TestUserStoreUpdateManagedUserAndPasswordHash(t *testing.T) {
+	s := newTestDB(t)
+	ctx := context.Background()
+	u := &domain.User{Name: "Ana", Email: "ana@example.com", PasswordHash: "old-hash", Role: domain.RoleUser, Active: true, CreatedAt: testClock}
+	if err := s.UserStore().Create(ctx, u); err != nil {
+		t.Fatal(err)
+	}
+
+	u.Name = "Ana Torres"
+	u.Email = "ana.torres@example.com"
+	u.Role = domain.RoleAgent
+	u.Active = false
+	if err := s.UserStore().UpdateManagedUser(ctx, u, domain.RoleUser, 77, testClock); err != nil {
+		t.Fatalf("UpdateManagedUser: %v", err)
+	}
+	got, err := s.UserStore().GetByID(ctx, u.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Name != u.Name || got.Email != u.Email || got.Role != domain.RoleAgent || got.Active {
+		t.Fatalf("combined update = %+v", got)
+	}
+	var audits int
+	if err := s.db.QueryRow(`SELECT COUNT(*) FROM role_changes WHERE user_id = ? AND actor_user_id = ?`, u.ID, 77).Scan(&audits); err != nil {
+		t.Fatal(err)
+	}
+	if audits != 1 {
+		t.Fatalf("role audits = %d, want 1", audits)
+	}
+	if err := s.UserStore().UpdatePasswordHash(ctx, u.ID, "new-hash"); err != nil {
+		t.Fatalf("UpdatePasswordHash: %v", err)
+	}
+	got, err = s.UserStore().GetByID(ctx, u.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.PasswordHash != "new-hash" || got.Name != u.Name || got.Email != u.Email || got.Role != u.Role || got.Active != u.Active {
+		t.Fatalf("password-only update = %+v", got)
+	}
+}
+
 func TestUserUpdateDuplicateEmail(t *testing.T) {
 	s := newTestDB(t)
 	ctx := context.Background()
