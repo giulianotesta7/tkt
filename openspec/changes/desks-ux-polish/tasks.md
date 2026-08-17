@@ -34,9 +34,9 @@ Dependency: complete S1 (migration, source rename, wiring, and route names) befo
 
 ## S2: Ticket-List Role UX
 
-- [ ] S2.1 RED: add handler/golden tests for one `/tickets?q` control per role, staff filters, no duplicate search, and user scope against another matching ticket.
-- [ ] S2.2 GREEN: add `ticket_search.html`, role view-model flag, responsive placement, and user filter suppression while retaining SearchService/scoping.
-- [ ] S2.3 REFACTOR: update `tickets_index`, `filter_form`, styles, and goldens; run focused tests plus `go vet ./...`.
+- [x] S2.1 RED: add handler/golden tests for one `/tickets?q` control per role, staff filters, no duplicate search, and user scope against another matching ticket.
+- [x] S2.2 GREEN: add `ticket_search.html`, role view-model flag, responsive placement, and user filter suppression while retaining SearchService/scoping.
+- [x] S2.3 REFACTOR: update `tickets_index`, `filter_form`, styles, and goldens; run focused tests plus `go vet ./...`.
 
 ## S3: User-Management Forms
 
