@@ -28,7 +28,7 @@ func TestTicketShowRendersDetail(t *testing.T) {
 		t.Fatalf("status = %d, want 200", rec.Code)
 	}
 	body := rec.Body.String()
-	for _, want := range []string{"Login page down", "TKT-1", "Bugs", "Checking now", "Timeline", "Details", "Save properties", "<h2>Description</h2>", "Test description"} {
+	for _, want := range []string{"Login page down", "TKT-1", "Bugs", "Checking now", "Timeline", "Properties", "id=\"ticket-title\"", "<h2>Description</h2>", "Test description"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("detail page must contain %q, got: %s", want, body)
 		}

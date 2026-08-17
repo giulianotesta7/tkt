@@ -2,14 +2,21 @@
 <div id="ticket-detail">
 
   <div class="command-header">
-    <div>
+    <div class="detail-head">
       <div class="meta-row">
         <a href="/tickets">← Queue</a>
         <span class="num">TKT-1</span>
         <span class="badge in_progress">In Progress</span>
         <span class="priority high">High</span>
       </div>
-      <h1 class="command-title">Login page down</h1>
+      
+      <form class="title-inline" method="post" action="/tickets/1/edit"
+            hx-post="/tickets/1/edit" hx-target="#ticket-detail" hx-swap="outerHTML">
+        <input type="text" id="ticket-title" name="title" value="Login page down" required
+               aria-label="Ticket title" class="title-input">
+        <input type="hidden" name="priority" value="high">
+      </form>
+      
       <div class="meta-row ticket-metadata">
         <span>Requester: Ana Torres &lt;ana@example.com&gt;</span>
         <span>Created <time datetime="2026-08-06T10:00:00Z">10:00 · 06-08-2026</time></span>
@@ -93,81 +100,60 @@
       </div>
     </div>
     <div class="evidence">
-      <details open id="details" class="card property-form">
-        <summary>Details</summary>
-        <form method="post" action="/tickets/1/edit">
-        <div class="field">
-          <label for="ticket-title">Title</label>
-          <input type="text" id="ticket-title" name="title" value="Login page down" required>
-        </div>
-        <div class="field">
-          <label for="ticket-category-value">Category</label>
-          <p id="ticket-category-value" class="field-value">Bugs</p>
-        </div>
-        <div class="field">
-          <label for="ticket-priority">Priority</label>
-          <select id="ticket-priority" name="priority">
-            <option value="critical" >Critical</option><option value="high" selected>High</option><option value="medium" >Medium</option><option value="low" >Low</option>
-          </select>
-        </div>
-        <button class="btn primary" type="submit">Save properties</button>
-        </form>
-      </details>
-      <details open id="assignment" class="card property-form">
-        <summary>Assignment</summary>
-        <form method="post" action="/tickets/1/assign">
-        <div class="field">
-          <label for="assign-user">Assigned To</label>
-          <select id="assign-user" name="user_id">
-            <option value="">Unassigned</option>
-            <option value="1" selected>Ana Torres</option>
-          </select>
-        </div>
-        <div class="field">
-          <label for="assign-reason">Reason</label>
-          <input type="text" id="assign-reason" name="reason" placeholder="Required when reassigning">
-        </div>
-        <button class="btn primary" type="submit">Save assignment</button>
-        </form>
-      </details>
-      <details open id="state" class="card state-card">
-        <summary>State</summary>
-        <div class="current-state">Current <span class="badge in_progress">In Progress</span></div>
-        <form class="transition-form" method="post" action="/tickets/1/transition">
-          <div class="field">
-            <label for="ticket-state">Move to</label>
-            <select id="ticket-state" name="to">
-              <option value="resolved">Resolved</option><option value="cancelled">Cancelled</option>
-            </select>
+      <div class="prop-list">
+        <div class="prop-section">
+          <div class="prop-heading">Properties</div>
+          <div class="prop-row">
+            <span class="prop-label">Category</span>
+            <span id="ticket-category-value" class="prop-value">Bugs</span>
           </div>
-          <div class="field">
-            <label for="transition-reason">Reason</label>
-            <input type="text" id="transition-reason" name="reason" placeholder="Required when reopening a closed ticket">
+          <div class="prop-row">
+            <span class="prop-label">Priority</span>
+            <form class="prop-control" method="post" action="/tickets/1/edit"
+                  hx-post="/tickets/1/edit" hx-target="#ticket-detail" hx-swap="outerHTML">
+              <select id="ticket-priority" name="priority" class="prop-select"
+                      aria-label="Priority" onchange="this.form.requestSubmit()">
+                <option value="critical" >Critical</option><option value="high" selected>High</option><option value="medium" >Medium</option><option value="low" >Low</option>
+              </select>
+              <input type="hidden" name="title" value="Login page down">
+            </form>
           </div>
-          <button class="btn primary" type="submit">Update state</button>
+        </div>
+        <div class="prop-section">
+          <div class="prop-heading">Assignment</div>
+          <div class="prop-row">
+            <span class="prop-label">Assignee</span>
+            <form class="prop-control" method="post" action="/tickets/1/assign"
+                  hx-post="/tickets/1/assign" hx-target="#ticket-detail" hx-swap="outerHTML">
+              <select id="assign-user" name="user_id" class="prop-select"
+                      aria-label="Assignee" onchange="this.form.requestSubmit()">
+                <option value="">Unassigned</option>
+                <option value="1" selected>Ana Torres</option>
+              </select>
+            </form>
+          </div>
+        </div>
+        <div class="prop-section">
+          <div class="prop-heading">State</div>
+          <div class="prop-row">
+            <span class="prop-label">Current</span>
+            <span class="prop-value"><span class="badge in_progress">In Progress</span></span>
+          </div>
 
-        </form>
+          <div class="prop-row">
+            <span class="prop-label">Move to</span>
+            <form class="prop-control" method="post" action="/tickets/1/transition"
+                  hx-post="/tickets/1/transition" hx-target="#ticket-detail" hx-swap="outerHTML">
+              <select id="ticket-state" name="to" class="prop-select"
+                      aria-label="Move to state" onchange="this.form.requestSubmit()">
+                <option value="resolved">Resolved</option><option value="cancelled">Cancelled</option>
+              </select>
+            </form>
+          </div>
 
 
-      </details>
+        </div>
+      </div>
     </div>
   </div>
 </div>
-<script>
-(() => {
-  const key = "tkt:ticket-detail:collapsed:v1";
-  const cards = document.querySelectorAll("#ticket-detail details[id]");
-  let collapsed = [];
-  try {
-    const stored = JSON.parse(localStorage.getItem(key) || "[]");
-    collapsed = Array.isArray(stored) ? stored : [];
-  } catch (_) {}
-  cards.forEach((card) => {
-    card.open = !collapsed.includes(card.id);
-    card.addEventListener("toggle", () => {
-      collapsed = Array.from(cards).filter((item) => !item.open).map((item) => item.id);
-      localStorage.setItem(key, JSON.stringify(collapsed));
-    });
-  });
-})();
-</script>
