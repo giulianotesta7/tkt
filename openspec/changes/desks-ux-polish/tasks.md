@@ -40,9 +40,9 @@ Dependency: complete S1 (migration, source rename, wiring, and route names) befo
 
 ## S3: User-Management Forms
 
-- [ ] S3.1 RED: test atomic edits, forbidden-role rollback, audited transition, removed `/users/{id}/role`, password hash-only update, protected status rejection, and deactivate/reactivate labels.
-- [ ] S3.2 GREEN: implement `UpdateManagedUser` immediate transaction, `ChangePassword`/`UpdatePasswordHash`, edit-only role select, dedicated password POST, and status action in listed user files.
-- [ ] S3.3 REFACTOR: remove list controls/password fields, update forms/goldens, and run focused plus full Go checks.
+- [x] S3.1 RED: test atomic edits, forbidden-role rollback, audited transition, removed `/users/{id}/role`, password hash-only update, protected status rejection, and deactivate/reactivate labels.
+- [x] S3.2 GREEN: implement `UpdateManagedUser` immediate transaction, `ChangePassword`/`UpdatePasswordHash`, edit-only role select, dedicated password POST, and status action in listed user files.
+- [x] S3.3 REFACTOR: remove list controls/password fields, update forms/goldens, and run focused plus full Go checks.
 
 ## S4: Ticket Detail and Auth Polish
 
