@@ -9,7 +9,6 @@
 
   <div class="field checkbox-field">
     <label for="comment-internal"><input id="comment-internal" type="checkbox" name="internal" value="1"> Internal comment</label>
-    <p class="help">Only staff can see internal comments.</p>
   </div>
 
   <button class="btn primary" type="submit">Add comment</button>

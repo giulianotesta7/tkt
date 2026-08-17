@@ -21,7 +21,6 @@
       <h1 class="command-title">{{.View.Ticket.Title}}</h1>
       {{end}}
       <div class="meta-row ticket-metadata">
-        <span>Requester: {{.View.Ticket.RequesterName}} &lt;{{.View.Ticket.RequesterEmail}}&gt;</span>
         <span>Created {{template "timestamp" .View.Ticket.CreatedAt}}</span>
         <span>Updated {{template "timestamp" .View.Ticket.UpdatedAt}}</span>
       </div>
@@ -43,6 +42,10 @@
       <div class="prop-list">
         <div class="prop-section">
           <div class="prop-heading">Properties</div>
+          <div class="prop-row">
+            <span class="prop-label">Requester</span>
+            <span class="prop-value">{{.View.Ticket.RequesterName}}</span>
+          </div>
           <div class="prop-row">
             <span class="prop-label">Category</span>
             <span id="ticket-category-value" class="prop-value">{{.View.Category.Name}}</span>
