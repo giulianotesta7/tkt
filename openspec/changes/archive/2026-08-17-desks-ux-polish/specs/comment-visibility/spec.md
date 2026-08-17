@@ -1,10 +1,6 @@
-# Comment Visibility Specification
+# Delta for Comment Visibility
 
-## Purpose
-
-Defines public/internal comment creation privileges and server-side disclosure rules. Internal comments are confidential: they MUST be filtered out before any `user`-role view is composed.
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: Comment Visibility Model
 
@@ -21,6 +17,8 @@ Every comment MUST retain exactly `public` or `internal`. Roles `agent`+ MAY sel
 - WHEN the server processes the comment
 - THEN creation is rejected and no internal comment is stored
 
+## MODIFIED Requirements
+
 ### Requirement: Server-Side Visibility Filtering
 
 The system MUST apply the existing server-side visibility filtering before view composition. Internal comments MUST have a visually distinct background in staff timelines and MUST never appear in user responses.
@@ -30,13 +28,3 @@ The system MUST apply the existing server-side visibility filtering before view 
 - GIVEN a staff timeline containing an internal comment
 - WHEN it renders
 - THEN the comment has a distinct internal-comment background treatment
-
-### Requirement: Legacy Comment Backfill
-
-Existing comment rows MUST backfill to visibility `public` so no historical conversation becomes unintentionally hidden.
-
-#### Scenario: Legacy comments become public
-
-- GIVEN existing comments stored without a visibility value
-- WHEN the migration runs
-- THEN each comment is stored with visibility `public`

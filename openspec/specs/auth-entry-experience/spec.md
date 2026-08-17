@@ -8,25 +8,13 @@ Define the branded setup and login entry experience while preserving authenticat
 
 ### Requirement: Branded auth identity and content
 
-The system MUST present setup and login as a unified `tkt` experience using the established palette, compact 34×34 rounded-square blue logo, Geist typography, and approved product-oriented copy. It MUST NOT present prohibited technical, implementation, ticket-state, audit, or hosting-marketing content.
+Login MUST retain the established identity and form behavior while omitting the sentence “Use your work email and password.”
+(Previously: login included that instructional sentence.)
 
-#### Scenario: Setup displays approved copy
-
-- GIVEN a user opens the setup route
-- WHEN the page renders
-- THEN it shows `Set up tkt`, the approved first-account description, `Create account`, and `Your password is stored securely.`
-
-#### Scenario: Login shares the identity
-
+#### Scenario: Obsolete copy absent
 - GIVEN a user opens the login route
-- WHEN the page renders
-- THEN it uses the same tkt identity and product presentation while retaining the login form behavior
-
-#### Scenario: Prohibited content is absent
-
-- GIVEN either auth route is rendered
-- WHEN its HTML and visible copy are inspected
-- THEN Ticket Desk, Server-side ticketing, state/audit wording, implementation stack wording, bcrypt wording, and the rejected promotional blocks are absent
+- WHEN the HTML is rendered
+- THEN the obsolete sentence is absent and authentication controls remain available
 
 ### Requirement: Responsive presentation hierarchy
 

@@ -8,25 +8,17 @@ Defines desks as named sets of agent-plus personnel with N:N membership, managed
 
 ### Requirement: Desk CRUD
 
-Roles `admin` and `root` MUST create, rename, and delete desks. Roles `user` and `agent` MUST NOT manage desks. Desk names MUST be non-empty and unique; duplicate names MUST be rejected.
+Roles `admin` and `root` MUST create, rename, and delete desks. Roles `user` and `agent` MUST NOT manage desks. Desk names MUST be non-empty and unique.
 
-#### Scenario: Admin creates desk
+#### Scenario: Desk terminology and routes
+- GIVEN an authorized admin
+- WHEN the admin opens or submits desk management at `/desks`
+- THEN all rendered labels, links, handlers, errors, and persisted table names use “Desk” terminology
 
-- GIVEN an `admin` and a non-empty unused desk name
-- WHEN the admin creates the desk
-- THEN the desk is stored and listed
-
-#### Scenario: Duplicate desk name rejected
-
-- GIVEN an existing desk "Support"
-- WHEN an `admin` creates another desk named "Support"
-- THEN the creation is rejected with a uniqueness error
-
-#### Scenario: Agent cannot manage desks
-
-- GIVEN an `agent`-role actor
-- WHEN they attempt desk creation, rename, or delete
-- THEN the request is denied
+#### Scenario: Duplicate desk rejected
+- GIVEN an existing desk named “Support”
+- WHEN an admin creates another “Support” desk
+- THEN the request is rejected with a uniqueness error
 
 ### Requirement: Desk Membership
 
