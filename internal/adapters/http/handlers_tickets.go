@@ -211,14 +211,15 @@ func listHref(f filterState, page int) string {
 // listData is the tickets index payload (page + HX fragment share it).
 type listData struct {
 	pageData
-	Filters  filterState
-	Options  options
-	Tickets  []domain.Ticket
-	Total    int
-	Page     int
-	Pages    int
-	PrevHref string
-	NextHref string
+	Filters             filterState
+	Options             options
+	Tickets             []domain.Ticket
+	Total               int
+	Page                int
+	Pages               int
+	PrevHref            string
+	NextHref            string
+	ShowAdvancedFilters bool
 }
 
 func (h *TicketHandlers) index(w http.ResponseWriter, r *http.Request) {
@@ -242,13 +243,14 @@ func (h *TicketHandlers) listData(r *http.Request, f filterState, page int) (lis
 		pages = 1
 	}
 	data := listData{
-		pageData: pageDataFrom(r, "tickets"),
-		Filters:  f,
-		Options:  opts,
-		Tickets:  res.Tickets,
-		Total:    res.Total,
-		Page:     res.Page,
-		Pages:    pages,
+		pageData:            pageDataFrom(r, "tickets"),
+		Filters:             f,
+		Options:             opts,
+		Tickets:             res.Tickets,
+		Total:               res.Total,
+		Page:                res.Page,
+		Pages:               pages,
+		ShowAdvancedFilters: userFromContext(r.Context()).Role != domain.RoleUser,
 	}
 	if res.Page > 1 {
 		data.PrevHref = listHref(f, res.Page-1)

@@ -1,6 +1,6 @@
 {{define "filter_form"}}
 <form class="filter-bar" method="get" action="/tickets" hx-get="/tickets" hx-target="#ticket-list" hx-swap="outerHTML" hx-indicator="this"> <span class="htmx-indicator spinner" aria-hidden="true"></span>
-  <input type="search" name="q" value="{{.Filters.Q}}" placeholder="Search by ID or title" aria-label="Search">
+  <input type="hidden" name="q" value="{{.Filters.Q}}">
   <select name="state" aria-label="State">
     <option value="">All states</option>
     {{range .Options.States}}<option value="{{.}}" {{if eq . $.Filters.State}}selected{{end}}>{{humanize .}}</option>{{end}}
