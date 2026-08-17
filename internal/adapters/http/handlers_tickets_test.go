@@ -154,6 +154,82 @@ func TestTicketsSearchText(t *testing.T) {
 	}
 }
 
+// TestTicketsIndexRoleSearchControls proves the S2 compact search is the
+// single visible text-search control for every role. Staff retain advanced
+// filters while user-role actors receive only the compact control.
+func TestTicketsIndexRoleSearchControls(t *testing.T) {
+	h := newHarness(t)
+
+	tests := []struct {
+		name                string
+		role                domain.Role
+		wantAdvancedFilters bool
+	}{
+		{name: "agent", role: domain.RoleAgent, wantAdvancedFilters: true},
+		{name: "admin", role: domain.RoleAdmin, wantAdvancedFilters: true},
+		{name: "root", role: domain.RoleRoot, wantAdvancedFilters: true},
+		{name: "user", role: domain.RoleUser, wantAdvancedFilters: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			actor := seedUserRole(t, h.store, tt.name, tt.name+"@example.com", tt.role)
+			session := seedSession(t, h.store, actor.ID)
+			rec := doRequest(h.mux, h.mw, http.MethodGet, "/tickets?q=printer", map[string]string{
+				"Cookie": sessionCookie + "=" + session.ID,
+			})
+			if rec.Code != http.StatusOK {
+				t.Fatalf("status = %d, want 200", rec.Code)
+			}
+
+			body := rec.Body.String()
+			if got := strings.Count(body, `class="ticket-search"`); got != 1 {
+				t.Errorf("compact search controls = %d, want 1, got: %s", got, body)
+			}
+			if got := strings.Count(body, `type="search"`); got != 1 {
+				t.Errorf("visible q controls = %d, want 1, got: %s", got, body)
+			}
+			gotAdvancedFilters := strings.Contains(body, `class="filter-bar"`)
+			if gotAdvancedFilters != tt.wantAdvancedFilters {
+				t.Errorf("advanced filters = %t, want %t, got: %s", gotAdvancedFilters, tt.wantAdvancedFilters, body)
+			}
+		})
+	}
+}
+
+// TestTicketsSearchUserRoleDoesNotLeakMatchingTickets proves compact searches
+// preserve the existing server-side own-ticket scope for user-role actors.
+func TestTicketsSearchUserRoleDoesNotLeakMatchingTickets(t *testing.T) {
+	h := newHarness(t)
+	user := seedUserRole(t, h.store, "Ula", "ula@example.com", domain.RoleUser)
+	session := seedSession(t, h.store, user.ID)
+
+	if _, err := h.tickets.Create(t.Context(), *user, application.CreateTicketInput{
+		Title: "Shared printer issue", CategoryID: h.bugCategory.ID, Priority: domain.PriorityMedium,
+	}); err != nil {
+		t.Fatalf("create user ticket: %v", err)
+	}
+	if _, err := h.tickets.Create(t.Context(), *h.admin, application.CreateTicketInput{
+		Title: "Shared printer issue for admin", CategoryID: h.bugCategory.ID, Priority: domain.PriorityMedium,
+	}); err != nil {
+		t.Fatalf("create other ticket: %v", err)
+	}
+
+	rec := doRequest(h.mux, h.mw, http.MethodGet, "/tickets?q=shared+printer", map[string]string{
+		"Cookie": sessionCookie + "=" + session.ID,
+	})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+	body := rec.Body.String()
+	if !strings.Contains(body, "Shared printer issue") {
+		t.Errorf("user search must include own matching ticket, got: %s", body)
+	}
+	if strings.Contains(body, "Shared printer issue for admin") {
+		t.Errorf("user search must exclude another user's matching ticket, got: %s", body)
+	}
+}
+
 // TestTicketsSearchByNumber proves the search box matches the ticket ID
 // (TKT-N) as well as the title.
 func TestTicketsSearchByNumber(t *testing.T) {
