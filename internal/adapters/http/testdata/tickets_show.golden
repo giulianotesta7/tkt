@@ -13,6 +13,7 @@
   --accent:#315EFF; --accent-soft:#E8EEFF; --accent-ink:#315EFF;
   --green:#18734D; --green-soft:#E2F2EA; --amber:#8A5A00; --amber-soft:#FFF1D6;
   --red:#B42318; --red-soft:#FBE9E7; --gray-soft:#E2E5EA; --gray-ink:#6D7581;
+  --internal-comment-bg:#FFF6DC;
   --rail:#111318;
   --mono:"Geist Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
 }
@@ -159,6 +160,8 @@ button{font:inherit}
 .ticket-metadata span+span::before{content:"·";margin-right:10px;color:var(--line-strong)}
 .property-form textarea{min-height:72px}
 .property-form .btn{width:100%;justify-content:center}
+.property-form summary{margin:0 0 12px;font-size:12px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);cursor:pointer}
+.property-form summary::marker{color:var(--muted)}
 .current-state{display:flex;align-items:center;justify-content:space-between;color:var(--muted);font-size:12.5px;margin-bottom:12px}
 .lifecycle-meta{display:grid;grid-template-columns:auto 1fr;gap:6px 12px;margin:14px 0 0;padding-top:12px;border-top:1px solid var(--line);font-size:12px}
 .lifecycle-meta dt{color:var(--muted)}
@@ -167,6 +170,7 @@ button{font:inherit}
  
 .timeline-entry{margin-top:10px;border-radius:8px}
 .timeline-comment{padding:12px 14px;background:var(--card);border:1px solid var(--line)}
+.timeline-comment.internal{background:var(--internal-comment-bg);border-color:#E8CE8A}
 .timeline-comment .who{display:flex;gap:8px;align-items:baseline;justify-content:space-between}
 .timeline-comment .author{font-weight:600;color:var(--ink-soft);font-size:13px}
 .timeline-comment .when{color:var(--muted);font-size:12px;font-family:var(--mono)}
@@ -178,6 +182,9 @@ textarea,input[type=text],input[type=email],input[type=password]{
 textarea{min-height:84px;resize:vertical}
 .field{margin-bottom:14px}
 .field label{display:block;font-size:12.5px;color:var(--ink-soft);margin-bottom:5px;font-weight:500}
+.checkbox-field label{display:flex;align-items:center;gap:8px;margin:0}
+.checkbox-field input{width:auto}
+.help{margin:5px 0 0;color:var(--muted);font-size:12px}
 .field select{width:100%;height:40px;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--ink-soft);padding:0 10px;font:inherit}
 .field-row{display:grid;grid-template-columns:1fr 1fr;gap:12px}
 .form-card{max-width:640px}
@@ -340,8 +347,12 @@ textarea{min-height:84px;resize:vertical}
   <div class="field">
     <textarea name="body" placeholder="Write a comment…" aria-label="Comment body"></textarea>
   </div>
-
   <input type="hidden" name="visibility" value="public">
+
+  <div class="field checkbox-field">
+    <label for="comment-internal"><input id="comment-internal" type="checkbox" name="internal" value="1"> Internal comment</label>
+    <p class="help">Only staff can see internal comments.</p>
+  </div>
 
   <button class="btn primary" type="submit">Add comment</button>
 </form>
@@ -399,8 +410,9 @@ textarea{min-height:84px;resize:vertical}
       </div>
     </div>
     <div class="evidence">
-      <form class="card property-form" method="post" action="/tickets/1/edit">
-        <h2>Properties</h2>
+      <details open id="details" class="card property-form">
+        <summary>Details</summary>
+        <form method="post" action="/tickets/1/edit">
         <div class="field">
           <label for="ticket-title">Title</label>
           <input id="ticket-title" name="title" value="Login page down" required>
@@ -424,9 +436,11 @@ textarea{min-height:84px;resize:vertical}
           </div>
         </div>
         <button class="btn primary" type="submit">Save properties</button>
-      </form>
-      <form class="card property-form" method="post" action="/tickets/1/assign">
-        <h2>Assignment</h2>
+        </form>
+      </details>
+      <details open id="assignment" class="card property-form">
+        <summary>Assignment</summary>
+        <form method="post" action="/tickets/1/assign">
         <div class="field">
           <label for="assign-user">Assigned To</label>
           <select id="assign-user" name="user_id">
@@ -439,9 +453,10 @@ textarea{min-height:84px;resize:vertical}
           <input type="text" id="assign-reason" name="reason" placeholder="Required when reassigning">
         </div>
         <button class="btn primary" type="submit">Save assignment</button>
-      </form>
-      <div class="card state-card">
-        <h2>State</h2>
+        </form>
+      </details>
+      <details open id="state" class="card state-card">
+        <summary>State</summary>
         <div class="current-state">Current <span class="badge in_progress">In Progress</span></div>
         <form class="transition-form" method="post" action="/tickets/1/transition">
           <div class="field">
@@ -459,10 +474,28 @@ textarea{min-height:84px;resize:vertical}
         </form>
 
 
-      </div>
+      </details>
     </div>
   </div>
 </div>
+<script>
+(() => {
+  const key = "tkt:ticket-detail:collapsed:v1";
+  const cards = document.querySelectorAll("#ticket-detail details[id]");
+  let collapsed = [];
+  try {
+    const stored = JSON.parse(localStorage.getItem(key) || "[]");
+    collapsed = Array.isArray(stored) ? stored : [];
+  } catch (_) {}
+  cards.forEach((card) => {
+    card.open = !collapsed.includes(card.id);
+    card.addEventListener("toggle", () => {
+      collapsed = Array.from(cards).filter((item) => !item.open).map((item) => item.id);
+      localStorage.setItem(key, JSON.stringify(collapsed));
+    });
+  });
+})();
+</script>
 
 </main>
 </div>
