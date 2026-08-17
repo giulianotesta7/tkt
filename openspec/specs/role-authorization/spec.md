@@ -61,26 +61,18 @@ When the users table is empty, `/setup` MUST atomically create the first user wi
 
 ### Requirement: Role Management Matrix
 
-The system MUST restrict role management: `admin` SHALL change roles between `user` and `agent` only; `root` SHALL additionally grant and remove `admin`; no actor SHALL create an admin except root. Role changes MUST be explicit, audited use cases with the acting user as actor.
+The existing role hierarchy and permitted transitions MUST remain unchanged. Role changes MUST be initiated only from `/users/{id}/edit`, MUST be audited with the acting user, and MUST be atomic with the permitted identity/status edits submitted in that form. The former list combobox and `POST /users/{id}/role` endpoint MUST NOT be available.
+(Previously: role changes were explicit list/form actions at a separate endpoint.)
 
-#### Scenario: Admin manages user-agent only
+#### Scenario: Role edit from user form
+- GIVEN an admin editing an eligible user
+- WHEN the admin selects an allowed role and submits `/users/{id}/edit`
+- THEN the role changes and the transition is audited
 
-- GIVEN an `admin`
-- WHEN the admin promotes an active `user` to `agent` and later demotes them back
-- THEN both operations succeed
-- AND each change is audited with the admin as actor
-
-#### Scenario: Admin cannot create admin
-
-- GIVEN an `admin`
-- WHEN the admin attempts to grant role `admin` to an `agent`
-- THEN the request is rejected
-
-#### Scenario: Root grants and removes admin
-
-- GIVEN `root`
-- WHEN root grants `admin` to an `agent` and later removes it
-- THEN both operations succeed
+#### Scenario: Former endpoint removed
+- GIVEN any actor
+- WHEN they POST `/users/{id}/role`
+- THEN the endpoint is unavailable or rejected and no role changes
 
 ### Requirement: Operator-Selected Root Recovery
 

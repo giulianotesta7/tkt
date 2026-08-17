@@ -42,26 +42,39 @@ Roles `admin` and `root` MUST create users (name, email, password), with non-emp
 - THEN the request is denied
 ### Requirement: Update User
 
-Roles `admin` and `root` MUST edit name, email, and password, with email uniqueness and bcrypt re-hash on password change. The root account MUST NOT be editable by any actor, including root. (Previously: any logged-in user could edit any user.)
+Roles `admin` and `root` MUST edit name, email, role where permitted, and active state at `/users/{id}/edit`. The edit form MUST NOT contain a password field. Role and identity/status edits MUST succeed atomically or make no changes. The root account MUST NOT be edited.
+(Previously: role changes were list actions and password could be included in the general edit.)
 
-#### Scenario: Update user
+#### Scenario: Atomic combined edit
+- GIVEN an eligible target and a valid name/email plus permitted role
+- WHEN an admin submits the edit form
+- THEN all requested non-password changes commit together
 
-- GIVEN an existing non-root user
-- WHEN an `admin` updates its name, email, and password
-- THEN the updated values are stored and the new password hash replaces the old one
+#### Scenario: Invalid role causes rollback
+- GIVEN a valid identity edit and a forbidden role transition
+- WHEN the form is submitted
+- THEN no identity, role, or active-state change is committed
 
-#### Scenario: Reject update to duplicate email
+### Requirement: Dedicated Password Change
 
-- GIVEN users `ana@example.com` and `beto@example.com`
-- WHEN an `admin` renames the second user to `ana@example.com`
-- THEN the update is rejected with a uniqueness error
+The system MUST accept password changes only at `POST /users/{id}/password`, validate and hash the new password, and MUST NOT echo or persist plaintext.
 
-#### Scenario: Root account not editable
+#### Scenario: Password endpoint
 
-- GIVEN the root account
-- WHEN any actor, including root, attempts to update its name, email, or password
-- THEN the update is rejected
-- AND the root values remain unchanged
+- GIVEN an eligible non-root target and a non-empty password
+- WHEN the endpoint is posted
+- THEN only the password hash changes
+
+### Requirement: Explicit Account Status Action
+
+The edit form MUST present “Deactivate user” or “Reactivate user” according to current state, preserving root and role protections.
+
+#### Scenario: Status protection
+
+- GIVEN a root or protected admin target
+- WHEN a forbidden status action is submitted
+- THEN it is rejected and the target state is unchanged
+
 ### Requirement: Deactivate User
 
 Roles `admin` and `root` MUST deactivate users (active = false). Deactivated users MUST keep historical assignments, MUST NOT be assignable, and MUST NOT log in. The root account MUST NOT be deactivated by any actor; `admin` MUST NOT deactivate `admin`/`root` accounts. (Previously: any logged-in user could deactivate any user.)

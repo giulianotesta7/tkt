@@ -49,33 +49,18 @@ The system MUST scope lists, detail, search, and direct lookup to the actor befo
 
 ### Requirement: Person-Only Assignment
 
-Assignment MUST target a single person with role `agent`, `admin`, or `root` — never a desk. Only roles `agent`+ MAY assign. Role `user` MUST NOT assign or change assignment. The initial assignment (unassigned → person) MUST NOT require a reason. A reassignment (person A → person B) MUST require a non-empty reason recorded in an audit event, current session actor as actor.
+Assignment MUST continue to target only a person with role `agent`, `admin`, or `root`; desk membership MUST NOT alter assignment semantics. No group/desk assignment field or persisted desk assignment MAY be introduced.
+(Previously: the prohibition referred to groups rather than desks.)
 
-#### Scenario: Initial assignment without reason
+#### Scenario: Desk assignment rejected
+- GIVEN a desk and an accessible ticket
+- WHEN a caller submits the desk as assignee
+- THEN the request is rejected and the person assignee remains unchanged
 
-- GIVEN an unassigned ticket and an `agent`
-- WHEN the agent self-assigns the ticket
-- THEN the assignment succeeds without any reason
-- AND an audit event records the assignment with the agent as actor
-
-#### Scenario: Reassignment requires reason
-
-- GIVEN a ticket assigned to agent A
-- WHEN agent A reassigns to agent B without a reason
-- THEN the reassignment is rejected
-- AND with a non-empty reason it succeeds, reason and session actor recorded
-
-#### Scenario: User role cannot assign
-
-- GIVEN a `user`-role actor
-- WHEN they attempt assignment
-- THEN the request is denied
-
-#### Scenario: Assignment target must be agent-plus
-
-- GIVEN an active `user`-role account
-- WHEN an agent attempts to assign a ticket to them
-- THEN the assignment is rejected
+#### Scenario: Person assignment preserved
+- GIVEN a ticket assigned to an agent before migration
+- WHEN migration 0004 runs
+- THEN the assignment remains attached to the same person and ticket
 
 ### Requirement: Legacy Ownership Backfill
 
