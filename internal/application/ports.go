@@ -107,8 +107,11 @@ type UserStore interface {
 	Create(ctx context.Context, u *domain.User) error
 	// Update persists the user's fields, including deactivation (Active).
 	Update(ctx context.Context, u *domain.User) error
-	// ChangeRole atomically persists a permitted role change and its audit row.
-	ChangeRole(ctx context.Context, userID, actorID int64, from, to domain.Role, at time.Time) error
+	// UpdateManagedUser persists identity, role, and active state together. It
+	// guards the expected current role and appends a role audit only on change.
+	UpdateManagedUser(ctx context.Context, u *domain.User, expectedRole domain.Role, actorID int64, at time.Time) error
+	// UpdatePasswordHash changes only the stored password hash.
+	UpdatePasswordHash(ctx context.Context, id int64, passwordHash string) error
 	// Delete removes an unreferenced user; ErrReferenced when the user is
 	// assigned to tickets (deactivation is the removal path then).
 	Delete(ctx context.Context, id int64) error

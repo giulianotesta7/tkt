@@ -294,11 +294,15 @@ func TestUserStoreUpdateManagedUserAndPasswordHash(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	actor := &domain.User{Name: "Actor", Email: "actor@example.com", PasswordHash: "hash", Role: domain.RoleAdmin, Active: true, CreatedAt: testClock}
+	if err := s.UserStore().Create(ctx, actor); err != nil {
+		t.Fatal(err)
+	}
 	u.Name = "Ana Torres"
 	u.Email = "ana.torres@example.com"
 	u.Role = domain.RoleAgent
 	u.Active = false
-	if err := s.UserStore().UpdateManagedUser(ctx, u, domain.RoleUser, 77, testClock); err != nil {
+	if err := s.UserStore().UpdateManagedUser(ctx, u, domain.RoleUser, actor.ID, testClock); err != nil {
 		t.Fatalf("UpdateManagedUser: %v", err)
 	}
 	got, err := s.UserStore().GetByID(ctx, u.ID)
@@ -309,7 +313,7 @@ func TestUserStoreUpdateManagedUserAndPasswordHash(t *testing.T) {
 		t.Fatalf("combined update = %+v", got)
 	}
 	var audits int
-	if err := s.db.QueryRow(`SELECT COUNT(*) FROM role_changes WHERE user_id = ? AND actor_user_id = ?`, u.ID, 77).Scan(&audits); err != nil {
+	if err := s.db.QueryRow(`SELECT COUNT(*) FROM role_changes WHERE user_id = ? AND actor_user_id = ?`, u.ID, actor.ID).Scan(&audits); err != nil {
 		t.Fatal(err)
 	}
 	if audits != 1 {

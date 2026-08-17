@@ -434,13 +434,34 @@ func (f *fakeUserStore) Update(_ context.Context, u *domain.User) error {
 	return nil
 }
 
-func (f *fakeUserStore) ChangeRole(_ context.Context, userID, actorID int64, _, to domain.Role, _ time.Time) error {
-	u, ok := f.users[userID]
+func (f *fakeUserStore) UpdateManagedUser(_ context.Context, updated *domain.User, expectedRole domain.Role, actorID int64, _ time.Time) error {
+	u, ok := f.users[updated.ID]
 	if !ok {
-		return &domain.NotFoundError{Kind: "user", ID: userID}
+		return &domain.NotFoundError{Kind: "user", ID: updated.ID}
 	}
-	u.Role = to
-	f.roleChanges = append(f.roleChanges, fakeRoleChange{actorID: actorID})
+	if u.Role != expectedRole {
+		return &domain.NotFoundError{Kind: "user", ID: updated.ID}
+	}
+	if otherID, dup := f.byEmail[updated.Email]; dup && otherID != updated.ID {
+		return &domain.DuplicateError{Kind: "user", Name: updated.Email}
+	}
+	changedRole := u.Role != updated.Role
+	delete(f.byEmail, u.Email)
+	cp := *updated
+	f.users[updated.ID] = &cp
+	f.byEmail[updated.Email] = updated.ID
+	if changedRole {
+		f.roleChanges = append(f.roleChanges, fakeRoleChange{actorID: actorID})
+	}
+	return nil
+}
+
+func (f *fakeUserStore) UpdatePasswordHash(_ context.Context, id int64, passwordHash string) error {
+	u, ok := f.users[id]
+	if !ok {
+		return &domain.NotFoundError{Kind: "user", ID: id}
+	}
+	u.PasswordHash = passwordHash
 	return nil
 }
 
