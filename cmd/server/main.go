@@ -112,6 +112,7 @@ func main() {
 	ticketSvc := application.NewTicketService(store.TicketStore(), store.UserStore(), store.CategoryStore(), store.TicketUnitOfWork(), viewBuilder, clock)
 	authSvc := application.NewAuthService(store.UserStore(), store.SessionStore(), clock)
 	searchSvc := application.NewSearchService(store.TicketStore(), store.SearchStore())
+	settingsSvc := application.NewSettingsService(store.SettingsStore())
 
 	renderer := httpadapter.NewRenderer()
 
@@ -122,6 +123,7 @@ func main() {
 	httpadapter.NewUserHandlers(userSvc, renderer).Register(mux)
 	httpadapter.NewCategoryHandlers(catSvc, renderer).Register(mux)
 	httpadapter.NewDeskHandlers(deskSvc, renderer).Register(mux)
+	httpadapter.NewSettingsHandlers(settingsSvc, renderer).Register(mux)
 	// D12: /healthz is exempt from auth — registered on the mux before the
 	// session middleware wraps it, and the middleware already exempts the
 	// public setup/login routes.
@@ -129,7 +131,7 @@ func main() {
 		w.Write([]byte("ok"))
 	})
 
-	handler := httpadapter.NewSessionMiddleware(store.SessionStore(), store.UserStore()).Wrap(mux)
+	handler := httpadapter.NewSessionMiddleware(store.SessionStore(), store.UserStore(), store.SettingsStore()).Wrap(mux)
 
 	srv := &http.Server{
 		Addr:              listen,

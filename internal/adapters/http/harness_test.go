@@ -110,6 +110,7 @@ type harness struct {
 	categories   *application.CategoryService
 	desks        *application.DeskService
 	search       *application.SearchService
+	settings     *application.SettingsService
 	renderer     *Renderer
 	mux          *http.ServeMux
 	mw           *SessionMiddleware
@@ -141,6 +142,7 @@ func newHarnessWithAdmin(t *testing.T, seedAdmin bool) *harness {
 	ticketSvc := application.NewTicketService(s.TicketStore(), s.UserStore(), s.CategoryStore(), s.TicketUnitOfWork(), viewBuilder, clock)
 	commentSvc := application.NewCommentService(s.TicketStore(), s.CommentStore(), clock)
 	searchSvc := application.NewSearchService(s.TicketStore(), s.SearchStore())
+	settingsSvc := application.NewSettingsService(s.SettingsStore())
 	renderer := NewRenderer()
 
 	mux := http.NewServeMux()
@@ -150,13 +152,15 @@ func newHarnessWithAdmin(t *testing.T, seedAdmin bool) *harness {
 	NewUserHandlers(usersSvc, renderer).Register(mux)
 	NewCategoryHandlers(catSvc, renderer).Register(mux)
 	NewDeskHandlers(deskSvc, renderer).Register(mux)
-	mw := NewSessionMiddleware(s.SessionStore(), s.UserStore())
+	NewSettingsHandlers(settingsSvc, renderer).Register(mux)
+	mw := NewSessionMiddleware(s.SessionStore(), s.UserStore(), s.SettingsStore())
 
 	h := &harness{
 		store: s, clock: clock,
 		tickets: ticketSvc, comments: commentSvc, users: usersSvc, auth: authSvc,
-		categories: catSvc, desks: deskSvc, search: searchSvc, renderer: renderer,
-		mux: mux, mw: mw,
+		categories: catSvc, desks: deskSvc, search: searchSvc, settings: settingsSvc,
+		renderer: renderer,
+		mux:      mux, mw: mw,
 	}
 	if !seedAdmin {
 		return h

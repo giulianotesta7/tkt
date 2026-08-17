@@ -61,9 +61,13 @@ type pageData struct {
 	CanManageDesks      bool
 	CanManageCategories bool
 	CanGrantAdmin       bool
+	InternalCommentBg   string
 }
 
-// pageDataFrom builds the shell payload from the session user.
+// pageDataFrom builds the shell payload from the session user. The
+// internal-comment background comes from the per-request settings read the
+// middleware stamps into the context (appearance-settings spec); "" leaves
+// the stylesheet default in place.
 func pageDataFrom(r *http.Request, nav string) pageData {
 	u := userFromContext(r.Context())
 	caps := application.NewPolicy().Capabilities(u.Role)
@@ -74,6 +78,7 @@ func pageDataFrom(r *http.Request, nav string) pageData {
 		CanManageDesks:      caps.Require(application.CapManageDesks),
 		CanManageCategories: caps.Require(application.CapManageCategories),
 		CanGrantAdmin:       caps.Require(application.CapGrantAdmin),
+		InternalCommentBg:   internalCommentBgFrom(r.Context()),
 	}
 }
 

@@ -36,10 +36,12 @@ func (h *AuthHandlers) Register(mux *http.ServeMux) {
 }
 
 // loginData is the login page payload: the generic error message (D5) and
-// the email prefilled for a failed attempt.
+// the email prefilled for a failed attempt. InternalCommentBg keeps the
+// shared styles partial happy (auth pages render the static default).
 type loginData struct {
-	Error string
-	Email string
+	Error             string
+	Email             string
+	InternalCommentBg string
 }
 
 func (h *AuthHandlers) loginForm(w http.ResponseWriter, r *http.Request) {
@@ -98,11 +100,13 @@ func (h *AuthHandlers) logout(w http.ResponseWriter, r *http.Request) {
 	redirect(w, r, "/login")
 }
 
-// setupData is the first-user form payload (D16).
+// setupData is the first-user form payload (D16). InternalCommentBg keeps
+// the shared styles partial happy (auth pages render the static default).
 type setupData struct {
-	Error string
-	Name  string
-	Email string
+	Error             string
+	Name              string
+	Email             string
+	InternalCommentBg string
 }
 
 func (h *AuthHandlers) setupForm(w http.ResponseWriter, r *http.Request) {
