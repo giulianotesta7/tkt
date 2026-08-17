@@ -36,7 +36,7 @@
         <form method="post" action="/tickets/{{.View.Ticket.ID}}/edit">
         <div class="field">
           <label for="ticket-title">Title</label>
-          <input id="ticket-title" name="title" value="{{.Values.Title}}" required>
+          <input type="text" id="ticket-title" name="title" value="{{.Values.Title}}" required>
         </div>
         <div class="field">
           <label for="ticket-description">Description</label>
