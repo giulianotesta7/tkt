@@ -23,6 +23,7 @@ func TestTicketViewEnrichesAuditTimelineLabels(t *testing.T) {
 		wantField string
 		wantFrom  string
 		wantTo    string
+		wantSum   string
 	}{
 		{
 			name:      "user assignment resolves empty and numeric values",
@@ -30,6 +31,7 @@ func TestTicketViewEnrichesAuditTimelineLabels(t *testing.T) {
 			from:      func(refs) string { return "" },
 			to:        func(r refs) string { return strconv.FormatInt(r.bruno.ID, 10) },
 			wantField: "Assigned To", wantFrom: "Unassigned", wantTo: "Bruno",
+			wantSum: "Assigned to Bruno",
 		},
 		{
 			name:      "user_id alias resolves both users",
@@ -65,6 +67,7 @@ func TestTicketViewEnrichesAuditTimelineLabels(t *testing.T) {
 			from:      func(refs) string { return "low" },
 			to:        func(refs) string { return "high" },
 			wantField: "Priority", wantFrom: "Low", wantTo: "High",
+			wantSum: "Changed Priority to High",
 		},
 		{
 			name:      "known text field keeps values literal",
@@ -72,6 +75,7 @@ func TestTicketViewEnrichesAuditTimelineLabels(t *testing.T) {
 			from:      func(refs) string { return "old_value" },
 			to:        func(refs) string { return "new_value" },
 			wantField: "Description", wantFrom: "old_value", wantTo: "new_value",
+			wantSum: "Changed Description to new_value",
 		},
 		{
 			name:      "unknown field falls back safely",
@@ -131,6 +135,9 @@ func TestTicketViewEnrichesAuditTimelineLabels(t *testing.T) {
 			item := view.Timeline[0]
 			if item.ActionLabel != "Update" || item.FieldLabel != tt.wantField || item.FromLabel != tt.wantFrom || item.ToLabel != tt.wantTo {
 				t.Errorf("labels = action %q field %q from %q to %q, want Update / %q / %q / %q", item.ActionLabel, item.FieldLabel, item.FromLabel, item.ToLabel, tt.wantField, tt.wantFrom, tt.wantTo)
+			}
+			if tt.wantSum != "" && item.Summary != tt.wantSum {
+				t.Errorf("summary = %q, want %q", item.Summary, tt.wantSum)
 			}
 		})
 	}
