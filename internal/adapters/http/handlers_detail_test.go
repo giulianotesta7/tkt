@@ -65,10 +65,9 @@ func TestTicketShowRendersDetail(t *testing.T) {
 		t.Errorf("the category must stay visible as read-only metadata, got: %s", body)
 	}
 	// Merged timeline DESC: the transition (newer) renders before created.
-	// Match the timeline event markers (not bare words — "transition" also
-	// appears in the inline CSS rules).
-	createdEvent := `<span class="dot created"></span>`
-	transitionEvent := `<span class="dot transition"></span>`
+	// Match the event summary lines (not bare words).
+	createdEvent := "Ticket created"
+	transitionEvent := "Moved to In Progress"
 	if !(strings.Index(body, transitionEvent) < strings.Index(body, createdEvent)) {
 		t.Errorf("merged timeline must be newest-first (transition before created), got: %s", body)
 	}
@@ -171,7 +170,7 @@ func TestTicketTimelineDifferentiatesCommentsAndAuditEvents(t *testing.T) {
 	}
 
 	body := h.get(t, "/tickets/1", false).Body.String()
-	for _, want := range []string{`class="timeline-entry timeline-comment"`, `class="timeline-entry timeline-event"`, "New → In Progress"} {
+	for _, want := range []string{`class="timeline-entry timeline-comment"`, `class="timeline-entry timeline-event"`, "Moved to In Progress"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("timeline must contain %q, got: %s", want, body)
 		}
@@ -596,7 +595,7 @@ func TestTicketEditTimelineResolvesAssignedUserName(t *testing.T) {
 	wantRedirect(t, rec, http.StatusSeeOther, "/tickets/1")
 
 	body := h.get(t, "/tickets/1", false).Body.String()
-	if !strings.Contains(body, "Update · Assigned To · Unassigned → Beto") {
+	if !strings.Contains(body, "Assigned to Beto") {
 		t.Errorf("assignment event must resolve user names, got: %s", body)
 	}
 	if strings.Contains(body, "Assigned To · Unassigned → "+strconv.FormatInt(beto.ID, 10)) {
@@ -634,7 +633,7 @@ func TestTicketAssignInitialHappyPath(t *testing.T) {
 		t.Errorf("assignment event ActorUserID = %v, want session admin %d", assignEv.ActorUserID, h.admin.ID)
 	}
 	body := h.get(t, "/tickets/1", false).Body.String()
-	if !strings.Contains(body, "Update · Assigned To · Unassigned → Beto") {
+	if !strings.Contains(body, "Assigned to Beto") {
 		t.Errorf("timeline must resolve the assignee name, got: %s", body)
 	}
 }
@@ -673,7 +672,7 @@ func TestTicketAssignReassignRequiresReason(t *testing.T) {
 		t.Fatalf("reassigned = %+v, want carla", view.AssignedUser)
 	}
 	body := h.get(t, "/tickets/1", false).Body.String()
-	if !strings.Contains(body, "reason: handoff to second-line") {
+	if !strings.Contains(body, "handoff to second-line") {
 		t.Errorf("timeline must render the reassignment reason, got: %s", body)
 	}
 }
