@@ -397,12 +397,6 @@ textarea{min-height:84px;resize:vertical}
     </label>
     
     <label class="swatch">
-      <input type="radio" name="internal_comment_bg" value="#E2F2EA">
-      <span class="swatch-chip" style="background:#E2F2EA"></span>
-      <span class="swatch-label">Green</span>
-    </label>
-    
-    <label class="swatch">
       <input type="radio" name="internal_comment_bg" value="#EFE9FB">
       <span class="swatch-chip" style="background:#EFE9FB"></span>
       <span class="swatch-label">Violet</span>
