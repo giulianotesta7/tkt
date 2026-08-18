@@ -163,7 +163,12 @@ func (b *ViewBuilder) enrichTimeline(ctx context.Context, view *TicketView) erro
 				item.Summary = "Assigned to " + item.ToLabel
 			}
 		} else if item.Event.Action == domain.ActionUpdate {
-			item.Summary = "Changed " + auditFieldLabel(field)
+			label := auditFieldLabel(field)
+			if item.ToLabel != "" && item.ToLabel != item.FromLabel {
+				item.Summary = "Changed " + label + " to " + item.ToLabel
+			} else {
+				item.Summary = "Changed " + label
+			}
 		}
 	}
 	return nil
