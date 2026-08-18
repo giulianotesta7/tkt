@@ -188,6 +188,14 @@ button{font:inherit}
   transition:border-color .12s ease,box-shadow .12s ease;
 }
 .prop-select:hover{border-color:var(--line-strong)}
+.state-reason,.state-apply{display:none}
+.state-reason{
+  width:140px;height:30px;border:1px solid var(--line);border-radius:7px;
+  background:var(--card);color:var(--ink-soft);padding:0 8px;font:inherit;font-size:13px;
+}
+.state-apply{height:30px;padding:0 12px;font-size:12.5px}
+.state-reason.visible,.state-apply.visible{display:inline-flex}
+.state-reason.visible{display:inline-block}
 .prop-select:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 2px var(--accent-soft)}
 .lifecycle-meta{display:grid;grid-template-columns:auto 1fr;gap:6px 12px;margin:10px 0 0;padding-top:10px;border-top:1px solid var(--line);font-size:12px}
 .lifecycle-meta dt{color:var(--muted)}
@@ -519,9 +527,12 @@ textarea{min-height:84px;resize:vertical}
             <form class="prop-control" method="post" action="/tickets/1/transition"
                   hx-post="/tickets/1/transition" hx-target="#ticket-detail" hx-swap="outerHTML">
               <select id="ticket-state" name="to" class="prop-select"
-                      aria-label="Move to state" onchange="this.form.requestSubmit()">
+                      aria-label="Move to state" onchange="toggleStateReason(this)">
                 <option value="resolved">Resolved</option><option value="cancelled">Cancelled</option>
               </select>
+              <input type="text" id="state-reason" name="reason" class="state-reason"
+                     placeholder="Reason" aria-label="Reopen reason">
+              <button type="submit" id="state-apply" class="btn primary small state-apply">Apply</button>
             </form>
           </div>
 
@@ -531,6 +542,23 @@ textarea{min-height:84px;resize:vertical}
     </div>
   </div>
 </div>
+<script>
+function toggleStateReason(select) {
+  const opt = select.options[select.selectedIndex];
+  const reason = document.getElementById('state-reason');
+  const apply = document.getElementById('state-apply');
+  const needs = opt && opt.hasAttribute('data-needs-reason');
+  if (needs) {
+    reason.classList.add('visible');
+    apply.classList.add('visible');
+    reason.focus();
+  } else {
+    reason.classList.remove('visible');
+    apply.classList.remove('visible');
+    select.form.requestSubmit();
+  }
+}
+</script>
 
 </main>
 </div>

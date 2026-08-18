@@ -188,6 +188,14 @@ button{font:inherit}
   transition:border-color .12s ease,box-shadow .12s ease;
 }
 .prop-select:hover{border-color:var(--line-strong)}
+.state-reason,.state-apply{display:none}
+.state-reason{
+  width:140px;height:30px;border:1px solid var(--line);border-radius:7px;
+  background:var(--card);color:var(--ink-soft);padding:0 8px;font:inherit;font-size:13px;
+}
+.state-apply{height:30px;padding:0 12px;font-size:12.5px}
+.state-reason.visible,.state-apply.visible{display:inline-flex}
+.state-reason.visible{display:inline-block}
 .prop-select:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 2px var(--accent-soft)}
 .lifecycle-meta{display:grid;grid-template-columns:auto 1fr;gap:6px 12px;margin:10px 0 0;padding-top:10px;border-top:1px solid var(--line);font-size:12px}
 .lifecycle-meta dt{color:var(--muted)}
