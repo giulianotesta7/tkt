@@ -440,6 +440,10 @@ type detailData struct {
 	Next    []transitionTarget
 	Options options
 	Values  ticketFormValues
+	// SelectedTo carries the transition target submitted by the user so an
+	// error re-render (e.g. a blank reopen reason, 422) preserves the select
+	// choice instead of resetting it to the "Select…" placeholder.
+	SelectedTo string
 	// CanCommentInternal is the actor's comment-visibility capability
 	// (comment-visibility spec): the comment form offers the internal
 	// option only to agent+ actors. This is presentation only — the
@@ -630,6 +634,9 @@ func (h *TicketHandlers) renderDetailError(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	data.Error = msg
+	// Preserve the transition the user picked so a reopen-reason 422 keeps the
+	// option selected and the reason group revealed after the outerHTML swap.
+	data.SelectedTo = r.Form.Get("to")
 	h.renderer.Render(w, r, "tickets_show", "ticket_detail", data, status)
 }
 

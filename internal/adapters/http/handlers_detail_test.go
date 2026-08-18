@@ -330,6 +330,11 @@ func TestTicketTransitionReopenWithReason(t *testing.T) {
 	if view.Ticket.ClosedAt != nil || view.Ticket.ResolvedAt != nil {
 		t.Error("reopen must clear resolved_at and closed_at")
 	}
+	// The reopen reason surfaces in the timeline as an explicitly labeled line.
+	page := h.get(t, "/tickets/1", false)
+	if !strings.Contains(page.Body.String(), "Reason: fix deployed") {
+		t.Errorf("timeline must label the reopen reason as %q, got: %s", "Reason: fix deployed", page.Body.String())
+	}
 }
 
 // TestTicketTransitionHXFragment proves the HX transition path returns the

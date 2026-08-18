@@ -14,8 +14,8 @@
     <span class="event-icon">›</span>
     <div class="body">
       <div class="main">{{if .Summary}}{{.Summary}}{{else}}{{.ActionLabel}}{{if .FieldLabel}} · {{.FieldLabel}}{{end}}{{if .Event.FromValue}} · {{.FromLabel}} → {{.ToLabel}}{{end}}{{end}}</div>
-{{if .Event.Reason}}      <div class="detail">{{.Event.Reason}}</div>
-{{else if .Event.Note}}      <div class="detail">{{.Event.Note}}</div>
+{{if .Event.Reason}}      <div class="detail">Reason: {{.Event.Reason}}</div>
+{{else if .Event.Note}}      <div class="detail">Reason: {{.Event.Note}}</div>
 {{end}}
       <div class="when">{{template "timestamp" .Event.CreatedAt}} · {{.Event.Actor}}</div>
     </div>
