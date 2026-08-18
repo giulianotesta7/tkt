@@ -495,6 +495,7 @@ textarea{min-height:84px;resize:vertical}
           <div class="prop-heading">Assignment</div>
           <div class="prop-row">
             <span class="prop-label">Assignee</span>
+            
             <form class="prop-control" method="post" action="/tickets/1/assign"
                   hx-post="/tickets/1/assign" hx-target="#ticket-detail" hx-swap="outerHTML">
               <select id="assign-user" name="user_id" class="prop-select"
@@ -503,6 +504,7 @@ textarea{min-height:84px;resize:vertical}
                 <option value="1" selected>Ana Torres</option>
               </select>
             </form>
+            
           </div>
         </div>
         <div class="prop-section">

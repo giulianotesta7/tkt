@@ -844,6 +844,22 @@ func TestTransitionReopenClosedRequiresReason(t *testing.T) {
 	}
 }
 
+func TestTransitionReopenResolvedRequiresReason(t *testing.T) {
+	h := newTicketHarness()
+	cat := h.categories.seed("Bugs")
+	ticket := seededTicket(h.tickets, cat.ID, domain.StateResolved)
+	actor := domain.User{Name: "Ada", Role: domain.RoleAdmin}
+
+	_, err := h.svc.Transition(context.Background(), actor, ticket.ID, domain.StateInProgress, "")
+	var rerr *domain.ReopenReasonRequiredError
+	if !errors.As(err, &rerr) {
+		t.Fatalf("Transition: resolved reopen without reason must be a ReopenReasonRequiredError, got %v", err)
+	}
+	if len(h.audits.events) != 0 {
+		t.Fatal("Transition: rejected reopen must not be audited")
+	}
+}
+
 func TestTransitionReopenClosedWithReasonRecordsNote(t *testing.T) {
 	h := newTicketHarness()
 	cat := h.categories.seed("Bugs")
