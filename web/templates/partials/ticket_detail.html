@@ -90,9 +90,12 @@
             <form class="prop-control" method="post" action="/tickets/{{.View.Ticket.ID}}/transition"
                   hx-post="/tickets/{{.View.Ticket.ID}}/transition" hx-target="#ticket-detail" hx-swap="outerHTML">
               <select id="ticket-state" name="to" class="prop-select"
-                      aria-label="Move to state" onchange="this.form.requestSubmit()">
-                {{range .Next}}<option value="{{.To}}">{{humanize .To}}{{if .NeedsReason}} (reason required){{end}}</option>{{end}}
+                      aria-label="Move to state" onchange="toggleStateReason(this)">
+                {{range .Next}}<option value="{{.To}}"{{if .NeedsReason}} data-needs-reason{{end}}>{{humanize .To}}{{if .NeedsReason}} (reason required){{end}}</option>{{end}}
               </select>
+              <input type="text" id="state-reason" name="reason" class="state-reason"
+                     placeholder="Reason" aria-label="Reopen reason">
+              <button type="submit" id="state-apply" class="btn primary small state-apply">Apply</button>
             </form>
           </div>
 {{end}}
@@ -109,4 +112,21 @@
     </div>
   </div>
 </div>
+<script>
+function toggleStateReason(select) {
+  const opt = select.options[select.selectedIndex];
+  const reason = document.getElementById('state-reason');
+  const apply = document.getElementById('state-apply');
+  const needs = opt && opt.hasAttribute('data-needs-reason');
+  if (needs) {
+    reason.classList.add('visible');
+    apply.classList.add('visible');
+    reason.focus();
+  } else {
+    reason.classList.remove('visible');
+    apply.classList.remove('visible');
+    select.form.requestSubmit();
+  }
+}
+</script>
 {{end}}
