@@ -378,8 +378,6 @@ textarea{min-height:84px;resize:vertical}
       <div class="meta-row">
         <a href="/tickets">← Queue</a>
         <span class="num">TKT-1</span>
-        <span class="badge in_progress">In Progress</span>
-        <span class="priority high">High</span>
       </div>
       
       <form class="title-inline" method="post" action="/tickets/1/edit"

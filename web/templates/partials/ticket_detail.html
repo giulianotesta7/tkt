@@ -7,8 +7,6 @@
       <div class="meta-row">
         <a href="/tickets">← Queue</a>
         <span class="num">{{ticketNumber .View.Ticket.Number}}</span>
-        {{template "state_badge" .View.Ticket.State}}
-        <span class="priority {{.View.Ticket.Priority}}">{{humanize .View.Ticket.Priority}}</span>
       </div>
       {{if .CanEdit}}
       <form class="title-inline" method="post" action="/tickets/{{.View.Ticket.ID}}/edit"
