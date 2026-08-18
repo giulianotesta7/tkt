@@ -447,9 +447,16 @@ type detailData struct {
 	// what the UI shows.
 	CanCommentInternal bool
 	// CanEdit reports whether the actor may edit this ticket's inline
-	// properties (CapEditTicket). Presentation only; the server-side use
-	// case enforces the actor/ticket authorization.
+	// properties (CapEditTicket) on an open ticket. Presentation only; the
+	// server-side use case enforces the actor/ticket authorization.
 	CanEdit bool
+	// Closed reports whether the ticket is in a closed (read-only) state —
+	// resolved, closed, or cancelled. A closed ticket hides the inline edit,
+	// the properties/assignment controls, and the comment form; only the
+	// State control (with its reopen transition) remains (closed-ticket
+	// read-only spec). The server-side use cases also reject mutations on
+	// closed tickets regardless of what the UI shows.
+	Closed bool
 }
 
 // ticketID resolves and validates the {id} path parameter; 0 + false on a
@@ -484,6 +491,7 @@ func (h *TicketHandlers) detailDataFor(r *http.Request, id int64) (detailData, i
 	if view.Ticket.UserID != nil {
 		values.UserID = strconv.FormatInt(*view.Ticket.UserID, 10)
 	}
+	closed := domain.IsClosed(view.Ticket.State)
 	return detailData{
 		pageData:           pageDataFrom(r, "tickets"),
 		View:               view,
@@ -491,7 +499,8 @@ func (h *TicketHandlers) detailDataFor(r *http.Request, id int64) (detailData, i
 		Options:            opts,
 		Values:             values,
 		CanCommentInternal: application.NewPolicy().Capabilities(actor.Role).Require(application.CapCommentInternal),
-		CanEdit:            application.NewPolicy().Capabilities(actor.Role).Require(application.CapEditTicket),
+		CanEdit:            application.NewPolicy().Capabilities(actor.Role).Require(application.CapEditTicket) && !closed,
+		Closed:             closed,
 	}, 0, nil
 }
 

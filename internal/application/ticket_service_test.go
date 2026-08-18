@@ -709,6 +709,63 @@ func TestUpdateRejectsAssignmentFields(t *testing.T) {
 	}
 }
 
+// TestUpdateClosedTicketRejected proves a closed ticket (resolved, closed,
+// or cancelled) is read-only: Update refuses any field edit with a
+// ForbiddenError before any store mutation (closed-ticket read-only spec —
+// only the state transition remains mutable, and cancelled is terminal).
+func TestUpdateClosedTicketRejected(t *testing.T) {
+	for _, state := range []domain.State{domain.StateResolved, domain.StateClosed, domain.StateCancelled} {
+		t.Run(string(state), func(t *testing.T) {
+			h := newTicketHarness()
+			cat := h.categories.seed("Bugs")
+			ticket := seededTicket(h.tickets, cat.ID, state)
+			actor := domain.User{Name: "Ada", Role: domain.RoleAdmin}
+			newTitle := "Renamed"
+
+			_, err := h.svc.Update(context.Background(), actor, ticket.ID, domain.TicketUpdate{Title: &newTitle})
+			var ferr *domain.ForbiddenError
+			if !errors.As(err, &ferr) || ferr.Message != domain.ErrMsgClosedTicketReadOnly {
+				t.Fatalf("Update: closed ticket must be denied with %q, got %v", domain.ErrMsgClosedTicketReadOnly, err)
+			}
+			stored, _ := h.tickets.GetByID(context.Background(), ticket.ID, application.TicketQuery{Scope: application.ScopeAll})
+			if stored.Title != ticket.Title {
+				t.Fatalf("Update: denied edit must not change the title, got %q", stored.Title)
+			}
+			if len(h.audits.events) != 0 {
+				t.Fatal("Update: denied edit must not be audited")
+			}
+		})
+	}
+}
+
+// TestAssignClosedTicketRejected proves assignment is also read-only on a
+// closed ticket: Assign refuses with a ForbiddenError before any store
+// mutation (closed-ticket read-only spec).
+func TestAssignClosedTicketRejected(t *testing.T) {
+	for _, state := range []domain.State{domain.StateResolved, domain.StateClosed, domain.StateCancelled} {
+		t.Run(string(state), func(t *testing.T) {
+			h := newTicketHarness()
+			cat := h.categories.seed("Bugs")
+			ticket := seededTicket(h.tickets, cat.ID, state)
+			assignee := h.users.seedRole("Ana", "ana@example.com", domain.RoleAgent, true)
+			actor := domain.User{Name: "Ada", Role: domain.RoleAdmin}
+
+			_, err := h.svc.Assign(context.Background(), actor, ticket.ID, ptr(assignee.ID), "")
+			var ferr *domain.ForbiddenError
+			if !errors.As(err, &ferr) || ferr.Message != domain.ErrMsgClosedTicketReadOnly {
+				t.Fatalf("Assign: closed ticket must be denied with %q, got %v", domain.ErrMsgClosedTicketReadOnly, err)
+			}
+			stored, _ := h.tickets.GetByID(context.Background(), ticket.ID, application.TicketQuery{Scope: application.ScopeAll})
+			if stored.UserID != nil {
+				t.Fatalf("Assign: denied assign must not set the assignee, got %v", stored.UserID)
+			}
+			if len(h.audits.events) != 0 {
+				t.Fatal("Assign: denied assign must not be audited")
+			}
+		})
+	}
+}
+
 func TestTransitionAppliesAndAuditsWithSessionActor(t *testing.T) {
 	h := newTicketHarness()
 	cat := h.categories.seed("Bugs")

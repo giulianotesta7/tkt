@@ -80,25 +80,71 @@ func TestAddCommentUnknownTicket(t *testing.T) {
 	}
 }
 
-func TestAddCommentOnClosedTicketAccepted(t *testing.T) {
-	clock := fixedClock()
-	tickets := newFakeTicketStore()
-	comments := newFakeCommentStore()
-	cat := newFakeCategoryStore().seed("Bugs")
-	now := clock.Now()
-	ticket := tickets.seed(domain.Ticket{
-		Title: "Closed ticket", CategoryID: cat.ID, Priority: domain.PriorityLow,
-		State: domain.StateClosed, CreatedAt: now, UpdatedAt: now,
-		ClosedAt: &now,
-	})
-	svc := application.NewCommentService(tickets, comments, clock)
-
-	c, err := svc.Add(context.Background(), domain.User{Name: "Ada", Role: domain.RoleAdmin}, ticket.ID, "Still relevant after closure", "public")
-	if err != nil {
-		t.Fatalf("Add: comments on closed tickets must be accepted, got %v", err)
+// TestAddCommentOnClosedTicketRejected proves a closed ticket (resolved,
+// closed, or cancelled) rejects a new comment with a ForbiddenError BEFORE
+// any comment store call (closed-ticket read-only spec): only the state
+// transition remains mutable on a closed ticket, and cancelled is terminal.
+func TestAddCommentOnClosedTicketRejected(t *testing.T) {
+	cases := []struct {
+		name  string
+		state domain.State
+	}{
+		{name: "resolved", state: domain.StateResolved},
+		{name: "closed", state: domain.StateClosed},
+		{name: "cancelled", state: domain.StateCancelled},
 	}
-	if c.Body != "Still relevant after closure" {
-		t.Fatalf("Add: comment must be stored, got %+v", c)
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			clock := fixedClock()
+			tickets := newFakeTicketStore()
+			comments := newFakeCommentStore()
+			cat := newFakeCategoryStore().seed("Bugs")
+			now := clock.Now()
+			ticket := tickets.seed(domain.Ticket{
+				Title: tc.name + " ticket", CategoryID: cat.ID, Priority: domain.PriorityLow,
+				State: tc.state, CreatedAt: now, UpdatedAt: now,
+			})
+			svc := application.NewCommentService(tickets, comments, clock)
+
+			_, err := svc.Add(context.Background(), domain.User{Name: "Ada", Role: domain.RoleAdmin}, ticket.ID, "Still relevant after closure", "public")
+			var ferr *domain.ForbiddenError
+			if !errors.As(err, &ferr) || ferr.Message != domain.ErrMsgCommentOnClosedTicket {
+				t.Fatalf("Add: closed ticket must be denied with %q, got %v", domain.ErrMsgCommentOnClosedTicket, err)
+			}
+			if len(comments.comments[ticket.ID]) != 0 {
+				t.Fatal("Add: rejected comment must not be stored")
+			}
+			if len(comments.addCalls) != 0 {
+				t.Fatalf("Add: denial must fire before the comment store call, got %+v", comments.addCalls)
+			}
+		})
+	}
+}
+
+// TestAddCommentOnOpenTicketAccepted proves open tickets (new, in_progress)
+// still accept comments after the closed-ticket guard (regression guard).
+func TestAddCommentOnOpenTicketAccepted(t *testing.T) {
+	for _, state := range []domain.State{domain.StateNew, domain.StateInProgress} {
+		t.Run(string(state), func(t *testing.T) {
+			clock := fixedClock()
+			tickets := newFakeTicketStore()
+			comments := newFakeCommentStore()
+			cat := newFakeCategoryStore().seed("Bugs")
+			now := clock.Now()
+			ticket := tickets.seed(domain.Ticket{
+				Title: "Open ticket", CategoryID: cat.ID, Priority: domain.PriorityLow,
+				State: state, CreatedAt: now, UpdatedAt: now,
+			})
+			svc := application.NewCommentService(tickets, comments, clock)
+
+			c, err := svc.Add(context.Background(), domain.User{Name: "Ada", Role: domain.RoleAdmin}, ticket.ID, "A note", "public")
+			if err != nil {
+				t.Fatalf("Add: comments on %s tickets must be accepted, got %v", state, err)
+			}
+			if c.Body != "A note" {
+				t.Fatalf("Add: comment must be stored, got %+v", c)
+			}
+		})
 	}
 }
 

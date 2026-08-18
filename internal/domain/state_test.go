@@ -60,6 +60,26 @@ func sameTimePtr(a, b *time.Time) bool {
 	return a.Equal(*b)
 }
 
+func TestIsClosed(t *testing.T) {
+	cases := []struct {
+		state  domain.State
+		closed bool
+	}{
+		{state: domain.StateNew, closed: false},
+		{state: domain.StateInProgress, closed: false},
+		{state: domain.StateResolved, closed: true},
+		{state: domain.StateClosed, closed: true},
+		{state: domain.StateCancelled, closed: true},
+	}
+	for _, tc := range cases {
+		t.Run(string(tc.state), func(t *testing.T) {
+			if got := domain.IsClosed(tc.state); got != tc.closed {
+				t.Fatalf("IsClosed(%q) = %v, want %v", tc.state, got, tc.closed)
+			}
+		})
+	}
+}
+
 func TestTransitionMatrix(t *testing.T) {
 	now := time.Date(2026, 8, 5, 12, 0, 0, 0, time.UTC)
 	clock := fixedClock{now: now}

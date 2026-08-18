@@ -393,21 +393,38 @@ func TestTicketCommentEmptyBody422(t *testing.T) {
 	}
 }
 
-// TestTicketCommentOnClosedTicket proves comments are accepted on a closed
-// ticket (comment-timeline spec).
-func TestTicketCommentOnClosedTicket(t *testing.T) {
-	h := newHarness(t)
-	tkt := h.seedTicket(t, "Login page down", nil)
-	for _, to := range []domain.State{domain.StateInProgress, domain.StateResolved, domain.StateClosed} {
-		h.seedTransition(t, tkt.ID, to, "")
-	}
+// TestTicketCommentOnClosedTicketRejected proves comments are REJECTED on a
+// closed (resolved/closed/cancelled) ticket with a 403 ForbiddenError and
+// nothing stored — enforced at the application boundary, so a forged POST
+// cannot append to a closed ticket (closed-ticket read-only spec).
+func TestTicketCommentOnClosedTicketRejected(t *testing.T) {
+	for _, to := range []domain.State{domain.StateResolved, domain.StateClosed, domain.StateCancelled} {
+		t.Run(string(to), func(t *testing.T) {
+			h := newHarness(t)
+			tkt := h.seedTicket(t, "Login page down", nil)
+			// Walk the legal transition path to the closed target: closed must
+			// be reached via in_progress -> resolved -> closed (matrix).
+			path := []domain.State{to}
+			if to == domain.StateClosed {
+				path = []domain.State{domain.StateInProgress, domain.StateResolved, domain.StateClosed}
+			}
+			for _, step := range path {
+				h.seedTransition(t, tkt.ID, step, "")
+			}
 
-	rec := h.postForm(t, "/tickets/1/comments", url.Values{"body": {"Late note"}}, false)
+			rec := h.postForm(t, "/tickets/1/comments", url.Values{"body": {"Late note"}}, false)
 
-	wantRedirect(t, rec, http.StatusSeeOther, "/tickets/1")
-	view, err := h.tickets.GetByID(t.Context(), *h.admin, 1)
-	if err != nil || len(view.Comments) != 1 {
-		t.Errorf("comment on closed ticket must be stored (len=%d, err=%v)", len(view.Comments), err)
+			if rec.Code != http.StatusForbidden {
+				t.Errorf("status = %d, want 403", rec.Code)
+			}
+			if !strings.Contains(rec.Body.String(), domain.ErrMsgCommentOnClosedTicket) {
+				t.Errorf("response must show %q, got: %s", domain.ErrMsgCommentOnClosedTicket, rec.Body.String())
+			}
+			view, err := h.tickets.GetByID(t.Context(), *h.admin, 1)
+			if err != nil || len(view.Comments) != 0 {
+				t.Errorf("comment on closed ticket must NOT be stored (len=%d, err=%v)", len(view.Comments), err)
+			}
+		})
 	}
 }
 
