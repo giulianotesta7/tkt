@@ -30,6 +30,8 @@ const (
 	ErrMsgRootProtected             = "the root account is protected"
 	ErrMsgCommentVisibilityInvalid  = "invalid comment visibility"
 	ErrMsgUserCannotCommentInternal = "user role cannot add internal comments"
+	ErrMsgCommentOnClosedTicket     = "comments on closed tickets are not allowed"
+	ErrMsgClosedTicketReadOnly      = "closed tickets cannot be modified"
 )
 
 // Sentinel errors naming the store contract failures (ports.go uses them as

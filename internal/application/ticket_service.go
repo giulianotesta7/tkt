@@ -131,6 +131,12 @@ func (s *TicketService) Assign(ctx context.Context, actor domain.User, ticketID 
 	if err != nil {
 		return nil, err
 	}
+	// A closed ticket (resolved/closed/cancelled) is read-only except for its
+	// state transition: assignment is refused BEFORE any store mutation
+	// (closed-ticket read-only spec).
+	if domain.IsClosed(t.State) {
+		return nil, domain.NewForbiddenError(domain.ErrMsgClosedTicketReadOnly)
+	}
 	if assigneeID != nil {
 		if actor.Role == domain.RoleAgent && t.UserID == nil && *assigneeID != actor.ID {
 			return nil, domain.NewForbiddenError("agents may only claim tickets for themselves")
@@ -234,6 +240,12 @@ func (s *TicketService) Update(ctx context.Context, actor domain.User, ticketID 
 	t, err := s.tickets.GetByID(ctx, ticketID, scopedQuery(actor, TicketQuery{}))
 	if err != nil {
 		return nil, err
+	}
+	// A closed ticket (resolved/closed/cancelled) is read-only except for its
+	// state transition: field edits are refused BEFORE any store mutation
+	// (closed-ticket read-only spec).
+	if domain.IsClosed(t.State) {
+		return nil, domain.NewForbiddenError(domain.ErrMsgClosedTicketReadOnly)
 	}
 
 	events, err := t.ApplyUpdate(u, s.clock.Now())

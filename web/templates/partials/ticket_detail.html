@@ -8,7 +8,7 @@
         <a href="/tickets">← Queue</a>
         <span class="num">{{ticketNumber .View.Ticket.Number}}</span>
       </div>
-      {{if .CanEdit}}
+      {{if and .CanEdit (not .Closed)}}
       <form class="title-inline" method="post" action="/tickets/{{.View.Ticket.ID}}/edit"
             hx-post="/tickets/{{.View.Ticket.ID}}/edit" hx-target="#ticket-detail" hx-swap="outerHTML">
         <input type="text" id="ticket-title" name="title" value="{{.Values.Title}}" required
@@ -30,7 +30,7 @@
         <h2>Description</h2>
         {{if .View.Ticket.Description}}<p>{{.View.Ticket.Description}}</p>{{else}}<p class="empty">No description.</p>{{end}}
       </div>
-{{template "comment_form" .}}
+{{if not .Closed}}{{template "comment_form" .}}{{end}}
       <div class="card">
         <h2>Timeline</h2>
 {{template "timeline" .}}
@@ -48,7 +48,7 @@
             <span class="prop-label">Category</span>
             <span id="ticket-category-value" class="prop-value">{{.View.Category.Name}}</span>
           </div>
-          <div class="prop-row">
+          {{if not .Closed}}<div class="prop-row">
             <span class="prop-label">Priority</span>
             <form class="prop-control" method="post" action="/tickets/{{.View.Ticket.ID}}/edit"
                   hx-post="/tickets/{{.View.Ticket.ID}}/edit" hx-target="#ticket-detail" hx-swap="outerHTML">
@@ -58,9 +58,9 @@
               </select>
               <input type="hidden" name="title" value="{{.Values.Title}}">
             </form>
-          </div>
+          </div>{{end}}
         </div>
-        <div class="prop-section">
+        {{if not .Closed}}<div class="prop-section">
           <div class="prop-heading">Assignment</div>
           <div class="prop-row">
             <span class="prop-label">Assignee</span>
@@ -73,7 +73,7 @@
               </select>
             </form>
           </div>
-        </div>
+        </div>{{end}}
         <div class="prop-section">
           <div class="prop-heading">State</div>
           <div class="prop-row">

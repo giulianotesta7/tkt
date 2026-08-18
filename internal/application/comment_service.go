@@ -39,8 +39,16 @@ func (s *CommentService) Add(ctx context.Context, actor domain.User, ticketID in
 	if vis == domain.CommentInternal && !NewPolicy().Capabilities(actor.Role).Require(CapCommentInternal) {
 		return nil, domain.NewForbiddenError(domain.ErrMsgUserCannotCommentInternal)
 	}
-	if _, err := s.tickets.GetByID(ctx, ticketID, scopedQuery(actor, TicketQuery{})); err != nil {
+	t, err := s.tickets.GetByID(ctx, ticketID, scopedQuery(actor, TicketQuery{}))
+	if err != nil {
 		return nil, err
+	}
+	// A closed ticket (resolved/closed/cancelled) is read-only except for its
+	// state transition: no new comments (closed-ticket read-only spec). The
+	// guard runs at the application boundary BEFORE any comment store call, so
+	// a forged POST cannot append to a closed ticket.
+	if domain.IsClosed(t.State) {
+		return nil, domain.NewForbiddenError(domain.ErrMsgCommentOnClosedTicket)
 	}
 	c := &domain.Comment{
 		TicketID:   ticketID,

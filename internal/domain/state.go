@@ -11,6 +11,18 @@ const (
 	StateCancelled  State = "cancelled"
 )
 
+// IsClosed reports whether a ticket state is closed (read-only): resolved,
+// closed, or cancelled. A closed ticket may no longer be edited, assigned,
+// or commented on — only its state may change, and cancelled is fully
+// terminal (no transitions at all, see transitions).
+func IsClosed(s State) bool {
+	switch s {
+	case StateResolved, StateClosed, StateCancelled:
+		return true
+	}
+	return false
+}
+
 // transitions is the single source of truth for legal moves.
 // cancelled is terminal; no transition may move back into new.
 var transitions = map[State]map[State]bool{
