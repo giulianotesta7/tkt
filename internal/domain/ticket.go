@@ -47,7 +47,9 @@ func (t *Ticket) Transition(to State, reason string, now time.Time) (*AuditEvent
 	}
 
 	var note *string
-	if from == StateClosed && to == StateInProgress {
+	if to == StateInProgress && IsClosed(from) {
+		// Reopening a closed ticket (resolved or closed) always requires a
+		// reason; cancelled is terminal so it cannot reach here.
 		if strings.TrimSpace(reason) == "" {
 			return nil, NewReopenReasonRequiredError()
 		}

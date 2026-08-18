@@ -290,6 +290,9 @@ func TestClosedTicketDetailReadOnly(t *testing.T) {
 				`class="prop-heading">Properties</`,
 				`class="prop-label">Requester</`,
 				`class="prop-label">Category</`,
+				`class="prop-heading">Assignment</`, // last assignee shown read-only
+				`class="prop-label">Assignee</`,
+				`>Ana Torres</span>`, // the last assignee name (read-only)
 				`class="prop-heading">State</`,
 				`<h1 class="command-title">`,
 				`class="prop-label">Current</`,

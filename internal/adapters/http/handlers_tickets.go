@@ -424,7 +424,7 @@ func allowedNext(s domain.State) []transitionTarget {
 	case domain.StateInProgress:
 		return []transitionTarget{{To: domain.StateResolved}, {To: domain.StateCancelled}}
 	case domain.StateResolved:
-		return []transitionTarget{{To: domain.StateClosed}, {To: domain.StateInProgress}}
+		return []transitionTarget{{To: domain.StateClosed}, {To: domain.StateInProgress, NeedsReason: true}}
 	case domain.StateClosed:
 		return []transitionTarget{{To: domain.StateInProgress, NeedsReason: true}}
 	default:
