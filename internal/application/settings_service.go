@@ -11,13 +11,15 @@ import (
 // absent.
 const DefaultInternalCommentBg = "#E8EEFF"
 
-// AllowedInternalCommentBg returns the four instance colors an admin may
-// choose for the internal-comment background (azul/verde/violeta/amarillo).
+// AllowedInternalCommentBg returns the instance colors an admin may
+// choose for the internal-comment background (azul/violeta/amarillo).
+// Green is intentionally reserved for a future "commented as solution"
+// comment type, so it is not offered here.
 func AllowedInternalCommentBg() []string {
-	return []string{DefaultInternalCommentBg, "#E2F2EA", "#EFE9FB", "#FFF6DC"}
+	return []string{DefaultInternalCommentBg, "#EFE9FB", "#FFF6DC"}
 }
 
-// isAllowedInternalCommentBg reports whether color is one of the four
+// isAllowedInternalCommentBg reports whether color is one of the
 // selectable instance colors.
 func isAllowedInternalCommentBg(color string) bool {
 	for _, c := range AllowedInternalCommentBg() {

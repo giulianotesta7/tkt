@@ -26,15 +26,15 @@ func TestSettingsStoreRoundTrip(t *testing.T) {
 	s := newTestDB(t)
 	ctx := context.Background()
 
-	if err := s.SettingsStore().SetInternalCommentBg(ctx, "#E2F2EA"); err != nil {
+	if err := s.SettingsStore().SetInternalCommentBg(ctx, "#EFE9FB"); err != nil {
 		t.Fatalf("set: %v", err)
 	}
 	got, err := s.SettingsStore().GetInternalCommentBg(ctx)
 	if err != nil {
 		t.Fatalf("get: %v", err)
 	}
-	if got != "#E2F2EA" {
-		t.Errorf("internal comment bg = %q, want %q", got, "#E2F2EA")
+	if got != "#EFE9FB" {
+		t.Errorf("internal comment bg = %q, want %q", got, "#EFE9FB")
 	}
 }
 

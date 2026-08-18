@@ -61,7 +61,7 @@ func TestSettingsIndexShowsCurrentColor(t *testing.T) {
 func TestSettingsUpdatePersistsAndRedirects(t *testing.T) {
 	h := newHarness(t)
 
-	rec := h.postForm(t, "/settings/appearance", url.Values{"internal_comment_bg": {"#E2F2EA"}}, false)
+	rec := h.postForm(t, "/settings/appearance", url.Values{"internal_comment_bg": {"#EFE9FB"}}, false)
 
 	wantRedirect(t, rec, http.StatusSeeOther, "/settings")
 
@@ -69,8 +69,8 @@ func TestSettingsUpdatePersistsAndRedirects(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read stored color: %v", err)
 	}
-	if got != "#E2F2EA" {
-		t.Errorf("stored bg = %q, want %q", got, "#E2F2EA")
+	if got != "#EFE9FB" {
+		t.Errorf("stored bg = %q, want %q", got, "#EFE9FB")
 	}
 
 	// The following GET renders the new color as selected AND in the CSS.
@@ -80,8 +80,8 @@ func TestSettingsUpdatePersistsAndRedirects(t *testing.T) {
 	}
 	body := rec.Body.String()
 	for _, want := range []string{
-		`value="#E2F2EA" checked`,
-		`--internal-comment-bg:#E2F2EA;`,
+		`value="#EFE9FB" checked`,
+		`--internal-comment-bg:#EFE9FB;`,
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("settings page after update must contain %q, got: %s", want, body)
@@ -123,7 +123,7 @@ func TestSettingsUpdateDeniedForNonAdmin(t *testing.T) {
 		t.Fatal("user login must succeed")
 	}
 
-	req := httptest.NewRequest(http.MethodPost, "/settings/appearance", strings.NewReader(url.Values{"internal_comment_bg": {"#E2F2EA"}}.Encode()))
+	req := httptest.NewRequest(http.MethodPost, "/settings/appearance", strings.NewReader(url.Values{"internal_comment_bg": {"#EFE9FB"}}.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("Cookie", sessionCookie+"="+session)
 	rec := httptest.NewRecorder()

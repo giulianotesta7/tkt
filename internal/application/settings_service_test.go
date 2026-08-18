@@ -38,15 +38,15 @@ func agentActor() domain.User { return domain.User{ID: 2, Name: "Agent", Role: d
 func rootActor() domain.User  { return domain.User{ID: 3, Name: "Root", Role: domain.RoleRoot} }
 
 func TestSettingsGetAppearance(t *testing.T) {
-	st := &fakeSettingsStore{bg: "#E2F2EA"}
+	st := &fakeSettingsStore{bg: "#EFE9FB"}
 	svc := NewSettingsService(st)
 
 	got, err := svc.GetAppearance(context.Background())
 	if err != nil {
 		t.Fatalf("get appearance: %v", err)
 	}
-	if got != "#E2F2EA" {
-		t.Errorf("bg = %q, want %q", got, "#E2F2EA")
+	if got != "#EFE9FB" {
+		t.Errorf("bg = %q, want %q", got, "#EFE9FB")
 	}
 }
 
@@ -54,7 +54,7 @@ func TestSettingsSetRejectsNonAdmin(t *testing.T) {
 	st := &fakeSettingsStore{bg: "#E8EEFF"}
 	svc := NewSettingsService(st)
 
-	err := svc.SetInternalCommentBg(context.Background(), agentActor(), "#E2F2EA")
+	err := svc.SetInternalCommentBg(context.Background(), agentActor(), "#EFE9FB")
 	var forbidden *domain.ForbiddenError
 	if !errors.As(err, &forbidden) {
 		t.Fatalf("err = %v, want ForbiddenError", err)

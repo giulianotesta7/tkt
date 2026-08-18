@@ -43,12 +43,12 @@ type appearanceOption struct {
 	Label string
 }
 
-// appearanceOptions lists the four selectable internal-comment background
-// colors in the canonical order.
+// appearanceOptions lists the selectable internal-comment background
+// colors in the canonical order (green is reserved for a future comment
+// type and is not offered).
 func appearanceOptions() []appearanceOption {
 	labels := map[string]string{
 		application.DefaultInternalCommentBg: "Blue",
-		"#E2F2EA":                            "Green",
 		"#EFE9FB":                            "Violet",
 		"#FFF6DC":                            "Yellow",
 	}
