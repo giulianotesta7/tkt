@@ -183,14 +183,17 @@ button{font:inherit}
   transition:border-color .12s ease,box-shadow .12s ease;
 }
 .prop-select:hover{border-color:var(--line-strong)}
-.state-reason,.state-apply{display:none}
+.transition-control{display:flex;flex-direction:column;align-items:flex-end;gap:8px}
+.state-reason-field{display:none;flex-direction:column;gap:5px;width:220px}
+.state-reason-field.visible{display:flex}
+.state-reason-field label{font-size:11px;font-weight:600;color:var(--muted);letter-spacing:.05em;text-transform:uppercase}
+.state-reason-row{display:flex;gap:8px;width:100%}
 .state-reason{
-  width:140px;height:30px;border:1px solid var(--line);border-radius:7px;
-  background:var(--card);color:var(--ink-soft);padding:0 8px;font:inherit;font-size:13px;
+  flex:1 1 auto;min-width:0;height:30px;border:1px solid var(--line);border-radius:7px;
+  background:var(--card);color:var(--ink);padding:0 8px;font:inherit;font-size:13px;
 }
-.state-apply{height:30px;padding:0 12px;font-size:12.5px}
-.state-reason.visible,.state-apply.visible{display:inline-flex}
-.state-reason.visible{display:inline-block}
+.state-reason:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 2px var(--accent-soft)}
+.state-apply{flex:0 0 auto;height:30px;padding:0 12px;font-size:12.5px}
 .prop-select:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 2px var(--accent-soft)}
 .lifecycle-meta{display:grid;grid-template-columns:auto 1fr;gap:6px 12px;margin:10px 0 0;padding-top:10px;border-top:1px solid var(--line);font-size:12px}
 .lifecycle-meta dt{color:var(--muted)}
