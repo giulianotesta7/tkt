@@ -62,7 +62,7 @@
 
 
   <div class="timeline-entry timeline-event">
-    <span class="dot update"></span>
+    <span class="event-icon">›</span>
     <div class="body">
       <div class="main">Update · Assigned To · Unassigned → Ana Torres</div>
 
@@ -73,7 +73,7 @@
 
 
   <div class="timeline-entry timeline-event">
-    <span class="dot transition"></span>
+    <span class="event-icon">›</span>
     <div class="body">
       <div class="main">Transition · State · New → In Progress</div>
 
@@ -84,7 +84,7 @@
 
 
   <div class="timeline-entry timeline-event">
-    <span class="dot created"></span>
+    <span class="event-icon">›</span>
     <div class="body">
       <div class="main">Created</div>
 

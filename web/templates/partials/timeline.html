@@ -11,11 +11,11 @@
   </div>
 {{else}}
   <div class="timeline-entry timeline-event">
-    <span class="dot {{.Event.Action}}"></span>
+    <span class="event-icon">›</span>
     <div class="body">
-      <div class="main">{{.ActionLabel}}{{if .FieldLabel}} · {{.FieldLabel}}{{end}}{{if .Event.FromValue}} · {{.FromLabel}} → {{.ToLabel}}{{end}}</div>
-{{if .Event.Reason}}      <div class="detail">reason: {{.Event.Reason}}</div>
-{{else if .Event.Note}}      <div class="detail">note: {{.Event.Note}}</div>
+      <div class="main">{{if .Summary}}{{.Summary}}{{else}}{{.ActionLabel}}{{if .FieldLabel}} · {{.FieldLabel}}{{end}}{{if .Event.FromValue}} · {{.FromLabel}} → {{.ToLabel}}{{end}}{{end}}</div>
+{{if .Event.Reason}}      <div class="detail">{{.Event.Reason}}</div>
+{{else if .Event.Note}}      <div class="detail">{{.Event.Note}}</div>
 {{end}}
       <div class="when">{{template "timestamp" .Event.CreatedAt}} · {{.Event.Actor}}</div>
     </div>

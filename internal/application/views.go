@@ -36,7 +36,11 @@ type TimelineItem struct {
 	FieldLabel  string
 	FromLabel   string
 	ToLabel     string
-	seq         int // original list index: deterministic tie-break
+	// Summary is a compact natural-language line for the activity timeline
+	// ("Ticket created", "Moved to In Progress", "Changed Title"). It keeps
+	// state changes terse and unobtrusive next to full comments.
+	Summary string
+	seq     int // original list index: deterministic tie-break
 }
 
 // ViewBuilder assembles TicketViews and resolves historical audit references.
@@ -136,6 +140,7 @@ func (b *ViewBuilder) enrichTimeline(ctx context.Context, view *TicketView) erro
 			continue
 		}
 		item.ActionLabel = humanizeIdentifier(item.Event.Action)
+		item.Summary = eventSummary(item.Event)
 		if item.Event.Field == nil {
 			continue
 		}
@@ -151,8 +156,37 @@ func (b *ViewBuilder) enrichTimeline(ctx context.Context, view *TicketView) erro
 		if err != nil {
 			return err
 		}
+		item.Summary = eventSummary(item.Event)
+		if field == "user" || field == "user_id" {
+			item.Summary = "Changed assignee"
+			if item.ToLabel != "" {
+				item.Summary = "Assigned to " + item.ToLabel
+			}
+		} else if item.Event.Action == domain.ActionUpdate {
+			item.Summary = "Changed " + auditFieldLabel(field)
+		}
 	}
 	return nil
+}
+
+// eventSummary renders a compact natural-language line for a state-change
+// audit event (activity timeline). Transition carries a ToValue target;
+// updates carry a Field; creations have neither.
+func eventSummary(e *domain.AuditEvent) string {
+	switch e.Action {
+	case domain.ActionTransition:
+		if e.ToValue != nil {
+			return "Moved to " + humanizeIdentifier(*e.ToValue)
+		}
+		return "Changed state"
+	case domain.ActionCreated:
+		return "Ticket created"
+	default:
+		if e.Field != nil {
+			return "Changed " + auditFieldLabel(strings.ToLower(strings.TrimSpace(*e.Field)))
+		}
+		return humanizeIdentifier(e.Action)
+	}
 }
 
 func auditFieldLabel(field string) string {
