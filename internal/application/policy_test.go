@@ -29,7 +29,7 @@ func TestPolicyCapabilitiesPerRole(t *testing.T) {
 			denied: []Capability{
 				CapEditTicket, CapAssignTicket, CapCommentInternal,
 				CapManageUsers, CapChangeRole, CapGrantAdmin,
-				CapManageGroups, CapManageCategories,
+				CapManageDesks, CapManageCategories,
 			},
 		},
 		{
@@ -41,7 +41,7 @@ func TestPolicyCapabilitiesPerRole(t *testing.T) {
 			},
 			denied: []Capability{
 				CapManageUsers, CapChangeRole, CapGrantAdmin,
-				CapManageGroups, CapManageCategories,
+				CapManageDesks, CapManageCategories,
 			},
 		},
 		{
@@ -50,7 +50,7 @@ func TestPolicyCapabilitiesPerRole(t *testing.T) {
 			granted: []Capability{
 				CapCreateTicket, CapEditTicket, CapAssignTicket,
 				CapCommentPublic, CapCommentInternal, CapManageUsers,
-				CapChangeRole, CapManageGroups, CapManageCategories,
+				CapChangeRole, CapManageDesks, CapManageCategories,
 			},
 			denied: []Capability{CapGrantAdmin},
 		},
@@ -60,7 +60,7 @@ func TestPolicyCapabilitiesPerRole(t *testing.T) {
 			granted: []Capability{
 				CapCreateTicket, CapEditTicket, CapAssignTicket,
 				CapCommentPublic, CapCommentInternal, CapManageUsers,
-				CapChangeRole, CapGrantAdmin, CapManageGroups,
+				CapChangeRole, CapGrantAdmin, CapManageDesks,
 				CapManageCategories,
 			},
 			denied: nil,
@@ -91,7 +91,7 @@ func TestPolicyUnknownRoleFailsClosed(t *testing.T) {
 	for _, c := range []Capability{
 		CapCreateTicket, CapEditTicket, CapAssignTicket, CapCommentPublic,
 		CapCommentInternal, CapManageUsers, CapChangeRole, CapGrantAdmin,
-		CapManageGroups, CapManageCategories,
+		CapManageDesks, CapManageCategories,
 	} {
 		if caps.Require(c) {
 			t.Errorf("unknown role must not grant %q", c)

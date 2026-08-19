@@ -40,7 +40,7 @@ func columnExists(t *testing.T, s *Store, table, column string) bool {
 }
 
 func TestMigration0003RoleColumnAndCheck(t *testing.T) {
-	s := newTestDB(t)
+	s := newMigration0003DB(t)
 	ctx := context.Background()
 
 	if !columnExists(t, s, "users", "role") {
@@ -67,7 +67,7 @@ func TestMigration0003RoleColumnAndCheck(t *testing.T) {
 }
 
 func TestMigration0003UniqueRoot(t *testing.T) {
-	s := newTestDB(t)
+	s := newMigration0003DB(t)
 	ctx := context.Background()
 
 	rootID := seedUserRaw(t, s, "Root", "root@example.com", "root")
@@ -101,7 +101,7 @@ func TestMigration0003UniqueRoot(t *testing.T) {
 }
 
 func TestMigration0003RootImmutable(t *testing.T) {
-	s := newTestDB(t)
+	s := newMigration0003DB(t)
 	ctx := context.Background()
 
 	rootID := seedUserRaw(t, s, "Root", "root@example.com", "root")
@@ -138,7 +138,7 @@ func TestMigration0003RootImmutable(t *testing.T) {
 }
 
 func TestMigration0003RequesterColumn(t *testing.T) {
-	s := newTestDB(t)
+	s := newMigration0003DB(t)
 	ctx := context.Background()
 
 	if !columnExists(t, s, "tickets", "requester_user_id") {
@@ -173,7 +173,7 @@ func TestMigration0003RequesterColumn(t *testing.T) {
 }
 
 func TestMigration0003CommentVisibility(t *testing.T) {
-	s := newTestDB(t)
+	s := newMigration0003DB(t)
 	ctx := context.Background()
 
 	if !columnExists(t, s, "comments", "visibility") {
@@ -218,7 +218,7 @@ func TestMigration0003CommentVisibility(t *testing.T) {
 }
 
 func TestMigration0003GroupsAndMembers(t *testing.T) {
-	s := newTestDB(t)
+	s := newMigration0003DB(t)
 	ctx := context.Background()
 
 	for _, table := range []string{"groups", "group_members"} {
@@ -290,7 +290,7 @@ func TestMigration0003GroupsAndMembers(t *testing.T) {
 }
 
 func TestMigration0003AuditExtensions(t *testing.T) {
-	s := newTestDB(t)
+	s := newMigration0003DB(t)
 	ctx := context.Background()
 
 	for _, col := range []string{"actor_user_id", "reason"} {
@@ -351,7 +351,7 @@ func TestMigration0003AuditExtensions(t *testing.T) {
 // reassigning an existing membership to a user-role account must abort,
 // while a legitimate reassignment to another agent-plus member works.
 func TestMigration0003GroupMemberUpdateNoUser(t *testing.T) {
-	s := newTestDB(t)
+	s := newMigration0003DB(t)
 	ctx := context.Background()
 
 	agentA := seedUser(t, s, "A", "a@example.com", true)

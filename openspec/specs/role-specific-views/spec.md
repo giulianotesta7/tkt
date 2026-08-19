@@ -8,20 +8,20 @@ Defines capability-gated navigation, forms, and controls per role, and mandates 
 
 ### Requirement: Capability-Gated Navigation
 
-The application shell MUST render navigation and controls according to role capability: `user` SHALL see ticket creation and own-ticket list/detail only; `agent` SHALL additionally see assigned work, assignment/transition controls, and internal comment capability; `admin` and `root` SHALL additionally see the full queue, user management, groups, and configuration (categories) surfaces. Items denied to a role MUST NOT be rendered for it.
+The application shell MUST render navigation and controls according to role capability: `user` SHALL see ticket creation and own-ticket list/detail only; `agent` SHALL additionally see assigned work, assignment/transition controls, and internal comment capability; `admin` and `root` SHALL additionally see the full queue, user management, desks, and configuration (categories) surfaces. Items denied to a role MUST NOT be rendered for it.
 
 #### Scenario: User shell
 
 - GIVEN a `user`-role actor
 - WHEN the shell renders
 - THEN only create-ticket and own-tickets navigation appear
-- AND Users, Groups, and Categories links are absent
+- AND Users, Desks, and Categories links are absent
 
 #### Scenario: Admin shell
 
 - GIVEN an `admin`
 - WHEN the shell renders
-- THEN queue, user management, groups, and categories navigation appear
+- THEN queue, user management, desks, and categories navigation appear
 
 ### Requirement: Presentation Gating Is Not Authorization
 
