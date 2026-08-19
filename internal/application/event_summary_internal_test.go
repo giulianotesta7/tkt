@@ -13,8 +13,8 @@ func TestEventSummaryReopen(t *testing.T) {
 		ev   domain.AuditEvent
 		want string
 	}{
-		{"reopen from resolved", domain.AuditEvent{Action: domain.ActionTransition, FromValue: str("resolved"), ToValue: str("in_progress")}, "Reopen"},
-		{"reopen from closed", domain.AuditEvent{Action: domain.ActionTransition, FromValue: str("closed"), ToValue: str("in_progress")}, "Reopen"},
+		{"reopen from resolved", domain.AuditEvent{Action: domain.ActionTransition, FromValue: str("resolved"), ToValue: str("in_progress")}, "Ticket Reopened"},
+		{"reopen from closed", domain.AuditEvent{Action: domain.ActionTransition, FromValue: str("closed"), ToValue: str("in_progress")}, "Ticket Reopened"},
 		{"normal transition", domain.AuditEvent{Action: domain.ActionTransition, FromValue: str("new"), ToValue: str("in_progress")}, "Moved to In Progress"},
 		{"resolve", domain.AuditEvent{Action: domain.ActionTransition, FromValue: str("in_progress"), ToValue: str("resolved")}, "Moved to Resolved"},
 		{"created", domain.AuditEvent{Action: domain.ActionCreated}, "Ticket created"},
