@@ -8,20 +8,18 @@ Defines capability-gated navigation, forms, and controls per role, and mandates 
 
 ### Requirement: Capability-Gated Navigation
 
-The application shell MUST render navigation and controls according to role capability: `user` SHALL see ticket creation and own-ticket list/detail only; `agent` SHALL additionally see assigned work, assignment/transition controls, and internal comment capability; `admin` and `root` SHALL additionally see the full queue, user management, desks, and configuration (categories) surfaces. Items denied to a role MUST NOT be rendered for it.
+The shell MUST show Desks, not Groups, to authorized `admin` and `root` actors, with an accessible desk/table SVG icon. Users MUST see no desk link. Ticket-list controls MUST follow role-specific search/filter rules while server authorization remains unchanged.
+(Previously: authorized navigation used Groups terminology and a letter icon.)
 
-#### Scenario: User shell
-
-- GIVEN a `user`-role actor
+#### Scenario: Desk navigation
+- GIVEN an admin or root
 - WHEN the shell renders
-- THEN only create-ticket and own-tickets navigation appear
-- AND Users, Desks, and Categories links are absent
+- THEN a `/desks` link labeled “Desks” has an accessible SVG icon
 
-#### Scenario: Admin shell
-
-- GIVEN an `admin`
-- WHEN the shell renders
-- THEN queue, user management, desks, and categories navigation appear
+#### Scenario: User has compact ticket search
+- GIVEN a user-role actor
+- WHEN the ticket list renders
+- THEN ID/title search is present and the full filter bar is absent
 
 ### Requirement: Presentation Gating Is Not Authorization
 

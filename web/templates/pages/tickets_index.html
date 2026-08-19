@@ -4,9 +4,12 @@
     <h1 class="command-title">Tickets</h1>
   </div>
   <div class="command-actions">
+{{template "ticket_search" .}}
     <a class="btn primary" href="/tickets/new">New ticket</a>
   </div>
 </div>
+{{if .ShowAdvancedFilters}}
 {{template "filter_form" .}}
+{{end}}
 {{template "ticket_list" .}}
 {{end}}

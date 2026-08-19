@@ -50,33 +50,14 @@ The system MUST allow adding a comment to an existing ticket the actor can acces
 - AND no comment is stored
 ### Requirement: Newest-First Timeline
 
-The system MUST present a ticket's comments newest first, ordered by creation timestamp descending. The presentation timeline interleaves comments and audit events in one merged, reverse-chronological stream (GitHub-style conversation flow).
+The timeline MUST preserve newest-first ordering and server-side disclosure. Internal comments MUST use a distinct visual treatment from public comments, without exposing internal content to users.
+(Previously: comments and audit events had distinct treatment, but internal-comment styling was unspecified.)
 
-Agent comments and system/audit events MUST use visibly distinct background and border treatments. Audit event dots MUST align with their action text. Visible action, field, state, and priority labels MUST be human-readable while their underlying values remain unchanged. Timeline timestamps MUST use semantic `<time>` elements with human-readable UTC text.
-
-Audit fields `user` and `user_id` MUST display as `Assigned To`; their numeric values MUST resolve to managed-user names and an empty value MUST display as `Unassigned`. Audit fields `category` and `category_id` MUST display as `Category` and resolve numeric values to category names. Missing or malformed historical references MUST degrade to `Unknown user` or `Unknown category` without exposing the stored identifier. Other field labels MUST use readable title case with a safe fallback for unknown fields, while non-reference values remain literal.
-
-#### Scenario: Ordering
-
-- GIVEN three comments created at increasing times
-- WHEN the timeline is rendered
-- THEN the comments appear in reverse creation order (newest first)
-
-#### Scenario: Distinguish comments from audit events
-
-- GIVEN a merged timeline containing a comment and a state transition event
-- WHEN the timeline is rendered
-- THEN the comment and audit event use distinct visual treatments
-- AND the event dot aligns with the action text
-- AND `new` to `in_progress` is displayed as `New` to `In Progress`
-
-#### Scenario: Resolve audit reference values
-
-- GIVEN assignment and category audit events containing stored numeric IDs
-- WHEN the merged timeline is rendered
-- THEN the assignment event shows `Assigned To` with user names or `Unassigned`
-- AND the category event shows category names
-- AND no numeric user or category ID appears in the event text
+#### Scenario: Internal comment styling
+- GIVEN a staff-visible timeline with public and internal comments
+- WHEN it renders
+- THEN internal and public comments have distinguishable backgrounds
+- AND ordering remains newest first
 
 ### Requirement: Append-Only Comments
 

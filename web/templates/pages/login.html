@@ -1,7 +1,6 @@
 {{define "content"}}
 <form class="login-form" method="post" action="/login" novalidate>
   <h2>Sign in to tkt</h2>
-  <p class="lead">Use your work email and password.</p>
   {{if .Error}}<div class="error-banner" role="alert">{{.Error}}</div>{{end}}
   <div class="field">
     <label for="email">Email</label>

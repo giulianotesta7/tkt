@@ -107,21 +107,15 @@ The system MUST set `resolved_at` and `closed_at` only through state machine tra
 
 ### Requirement: Ticket Detail Presentation
 
-The normal ticket detail UI MUST provide inline editing for title, description, category, priority, and assigned user in a compact Properties sidebar. The same sidebar MUST provide state transition controls. The normal UI MUST NOT link to a separate edit screen, though `GET /tickets/{id}/edit` MAY remain available as a technical fallback. Requester, creation time, and modification time MUST remain read-only compact metadata beneath the ticket title.
+The ticket detail UI MUST present compact native `<details><summary>` cards named Details, Assignment, and State, expanded by default. Expansion state MUST be stored in localStorage and restored after reload. Requester and timestamps remain read-only metadata.
+(Previously: a permanently open Properties sidebar contained the fields and state controls.)
 
-All HTTP display timestamps MUST be rendered in UTC as `HH:mm · DD-MM-YYYY` while retaining an RFC3339 value in a semantic `<time datetime="...">` element. Persisted timestamps remain RFC3339 and are not changed by this presentation requirement. Visible state and priority labels MUST use human-readable name case, including `in_progress` rendered as `In Progress`; submitted values, CSS classes, and stored values MUST retain their internal identifiers.
+#### Scenario: Cards default open
+- GIVEN an accessible ticket detail page with no saved preference
+- WHEN the page renders
+- THEN Details, Assignment, and State are expanded and “PROPERTIES” is absent
 
-#### Scenario: Edit from the detail page
-
-- GIVEN an existing ticket
-- WHEN the operator opens its detail page
-- THEN title, description, category, priority, and assigned user controls are available in the Properties sidebar
-- AND state transition controls are available in the same sidebar
-- AND no visible link to a separate edit page is present
-
-#### Scenario: Render concise semantic metadata
-
-- GIVEN a ticket with requester and timestamps
-- WHEN its detail page is rendered
-- THEN requester, created time, and updated time appear beneath the title as read-only metadata
-- AND each visible timestamp uses `HH:mm · DD-MM-YYYY` UTC text with an RFC3339 `datetime` attribute
+#### Scenario: Card state survives reload
+- GIVEN a user collapses the Assignment card
+- WHEN the page is reloaded
+- THEN Assignment remains collapsed using the saved localStorage state

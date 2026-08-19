@@ -34,18 +34,18 @@ Dependency: complete S1 (migration, source rename, wiring, and route names) befo
 
 ## S2: Ticket-List Role UX
 
-- [ ] S2.1 RED: add handler/golden tests for one `/tickets?q` control per role, staff filters, no duplicate search, and user scope against another matching ticket.
-- [ ] S2.2 GREEN: add `ticket_search.html`, role view-model flag, responsive placement, and user filter suppression while retaining SearchService/scoping.
-- [ ] S2.3 REFACTOR: update `tickets_index`, `filter_form`, styles, and goldens; run focused tests plus `go vet ./...`.
+- [x] S2.1 RED: add handler/golden tests for one `/tickets?q` control per role, staff filters, no duplicate search, and user scope against another matching ticket.
+- [x] S2.2 GREEN: add `ticket_search.html`, role view-model flag, responsive placement, and user filter suppression while retaining SearchService/scoping.
+- [x] S2.3 REFACTOR: update `tickets_index`, `filter_form`, styles, and goldens; run focused tests plus `go vet ./...`.
 
 ## S3: User-Management Forms
 
-- [ ] S3.1 RED: test atomic edits, forbidden-role rollback, audited transition, removed `/users/{id}/role`, password hash-only update, protected status rejection, and deactivate/reactivate labels.
-- [ ] S3.2 GREEN: implement `UpdateManagedUser` immediate transaction, `ChangePassword`/`UpdatePasswordHash`, edit-only role select, dedicated password POST, and status action in listed user files.
-- [ ] S3.3 REFACTOR: remove list controls/password fields, update forms/goldens, and run focused plus full Go checks.
+- [x] S3.1 RED: test atomic edits, forbidden-role rollback, audited transition, removed `/users/{id}/role`, password hash-only update, protected status rejection, and deactivate/reactivate labels.
+- [x] S3.2 GREEN: implement `UpdateManagedUser` immediate transaction, `ChangePassword`/`UpdatePasswordHash`, edit-only role select, dedicated password POST, and status action in listed user files.
+- [x] S3.3 REFACTOR: remove list controls/password fields, update forms/goldens, and run focused plus full Go checks.
 
 ## S4: Ticket Detail and Auth Polish
 
-- [ ] S4.1 RED: test default-open cards, localStorage key `tkt:ticket-detail:collapsed:v1`, checkbox normalization/forgery rejection, staff-only styling/newest-first disclosure, and absent login copy.
-- [ ] S4.2 GREEN: implement native `<details>`, persistence script, hidden public + `internal=1` checkbox, timeline class/background, desk SVG in `base.html`, and login copy removal.
-- [ ] S4.3 REFACTOR: verify user responses never contain internal comments, refresh all listed goldens, and run `gofmt`, `go vet ./...`, `go test ./...`.
+- [x] S4.1 RED: test default-open cards, localStorage key `tkt:ticket-detail:collapsed:v1`, checkbox normalization/forgery rejection, staff-only styling/newest-first disclosure, and absent login copy.
+- [x] S4.2 GREEN: implement native `<details>`, persistence script, hidden public + `internal=1` checkbox, timeline class/background, desk SVG in `base.html`, and login copy removal.
+- [x] S4.3 REFACTOR: verify user responses never contain internal comments, refresh all listed goldens, and run `gofmt`, `go vet ./...`, `go test ./...`.

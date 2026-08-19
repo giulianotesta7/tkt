@@ -13,6 +13,7 @@
   --accent:#315EFF; --accent-soft:#E8EEFF; --accent-ink:#315EFF;
   --green:#18734D; --green-soft:#E2F2EA; --amber:#8A5A00; --amber-soft:#FFF1D6;
   --red:#B42318; --red-soft:#FBE9E7; --gray-soft:#E2E5EA; --gray-ink:#6D7581;
+  --internal-comment-bg:#FFF6DC;
   --rail:#111318;
   --mono:"Geist Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
 }
@@ -60,6 +61,12 @@ button{font:inherit}
 .command-title{font-size:20px;font-weight:600;color:var(--ink-strong);margin:0}
 .command-sub{color:var(--muted);font-size:13px}
 .command-actions{display:flex;gap:8px;align-items:center}
+.ticket-search{display:flex;align-items:center;gap:8px}
+.ticket-search input[type=search]{
+  width:240px;height:36px;border:1px solid var(--line);border-radius:8px;background:var(--card);
+  color:var(--ink-soft);padding:0 10px;font:inherit;font-size:13px;
+}
+.ticket-search button{height:36px}
 
  
 .btn{
@@ -111,11 +118,10 @@ button{font:inherit}
   display:flex;align-items:center;gap:10px;background:var(--surface);
   border:1px solid var(--line);border-radius:10px;padding:9px 12px;margin-bottom:16px;
 }
-.filter-bar input[type=search],.filter-bar select{
+.filter-bar select{
   height:34px;border:1px solid var(--line);border-radius:8px;background:var(--card);
   color:var(--ink-soft);padding:0 10px;font:inherit;font-size:13px;
 }
-.filter-bar input[type=search]{flex:1;min-width:160px}
 .filter-bar select{min-width:120px}
 .filter-bar button{height:34px}
 
@@ -154,6 +160,8 @@ button{font:inherit}
 .ticket-metadata span+span::before{content:"·";margin-right:10px;color:var(--line-strong)}
 .property-form textarea{min-height:72px}
 .property-form .btn{width:100%;justify-content:center}
+.property-form summary{margin:0 0 12px;font-size:12px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);cursor:pointer}
+.property-form summary::marker{color:var(--muted)}
 .current-state{display:flex;align-items:center;justify-content:space-between;color:var(--muted);font-size:12.5px;margin-bottom:12px}
 .lifecycle-meta{display:grid;grid-template-columns:auto 1fr;gap:6px 12px;margin:14px 0 0;padding-top:12px;border-top:1px solid var(--line);font-size:12px}
 .lifecycle-meta dt{color:var(--muted)}
@@ -162,6 +170,7 @@ button{font:inherit}
  
 .timeline-entry{margin-top:10px;border-radius:8px}
 .timeline-comment{padding:12px 14px;background:var(--card);border:1px solid var(--line)}
+.timeline-comment.internal{background:var(--internal-comment-bg);border-color:#E8CE8A}
 .timeline-comment .who{display:flex;gap:8px;align-items:baseline;justify-content:space-between}
 .timeline-comment .author{font-weight:600;color:var(--ink-soft);font-size:13px}
 .timeline-comment .when{color:var(--muted);font-size:12px;font-family:var(--mono)}
@@ -173,6 +182,9 @@ textarea,input[type=text],input[type=email],input[type=password]{
 textarea{min-height:84px;resize:vertical}
 .field{margin-bottom:14px}
 .field label{display:block;font-size:12.5px;color:var(--ink-soft);margin-bottom:5px;font-weight:500}
+.checkbox-field label{display:flex;align-items:center;gap:8px;margin:0}
+.checkbox-field input{width:auto}
+.help{margin:5px 0 0;color:var(--muted);font-size:12px}
 .field select{width:100%;height:40px;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--ink-soft);padding:0 10px;font:inherit}
 .field-row{display:grid;grid-template-columns:1fr 1fr;gap:12px}
 .form-card{max-width:640px}
@@ -248,7 +260,6 @@ textarea{min-height:84px;resize:vertical}
   .evidence{display:grid;grid-template-columns:1fr 1fr;gap:16px}
   .evidence .card{margin-bottom:0}
   .filter-bar{flex-wrap:wrap}
-  .filter-bar input[type=search]{flex-basis:100%}
   .auth-entry{display:block;overflow-x:clip}
   .auth-entry__presentation{padding:28px 24px 30px}
   .auth-entry__content{gap:16px}
@@ -266,6 +277,10 @@ textarea{min-height:84px;resize:vertical}
   .rail-logout{margin:0 0 0 auto}
   .main{padding:18px 14px 32px}
   .command-header{align-items:flex-start}
+  .command-header{flex-wrap:wrap}
+  .command-actions{width:100%;flex-wrap:wrap}
+  .ticket-search{width:100%}
+  .ticket-search input[type=search]{flex:1;min-width:0}
   .command-title{font-size:18px}
   .filter-bar select,.filter-bar .btn{flex:1;min-width:calc(50% - 6px)}
   .evidence{grid-template-columns:1fr}
@@ -333,7 +348,6 @@ textarea{min-height:84px;resize:vertical}
     
 <form class="login-form" method="post" action="/login" novalidate>
   <h2>Sign in to tkt</h2>
-  <p class="lead">Use your work email and password.</p>
   
   <div class="field">
     <label for="email">Email</label>

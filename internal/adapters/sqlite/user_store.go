@@ -84,29 +84,50 @@ func (us *userStore) Update(ctx context.Context, u *domain.User) error {
 	return nil
 }
 
-// ChangeRole updates a role and appends its role_changes audit record in one
-// transaction so a successful role mutation is never unaudited.
-func (us *userStore) ChangeRole(ctx context.Context, userID, actorID int64, from, to domain.Role, at time.Time) error {
-	tx, err := beginImmediate(ctx, us.db, "change role")
+// UpdateManagedUser writes the non-password form fields and, when needed,
+// appends the role audit in one immediate transaction.
+func (us *userStore) UpdateManagedUser(ctx context.Context, u *domain.User, expectedRole domain.Role, actorID int64, at time.Time) error {
+	tx, err := beginImmediate(ctx, us.db, "update managed user")
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
-	res, err := tx.ExecContext(ctx, `UPDATE users SET role = ? WHERE id = ? AND role = ?`, string(to), userID, string(from))
+	res, err := tx.ExecContext(ctx, `UPDATE users SET name = ?, email = ?, role = ?, active = ? WHERE id = ? AND role = ?`, u.Name, u.Email, string(u.Role), u.Active, u.ID, string(expectedRole))
 	if err != nil {
-		return fmt.Errorf("sqlite: change role: %w", err)
+		if isUniqueViolation(err) {
+			return &domain.DuplicateError{Kind: "user", Name: u.Email}
+		}
+		return fmt.Errorf("sqlite: update managed user: %w", err)
 	}
 	n, err := res.RowsAffected()
 	if err != nil {
-		return fmt.Errorf("sqlite: change role rows: %w", err)
+		return fmt.Errorf("sqlite: update managed user rows: %w", err)
 	}
 	if n == 0 {
-		return &domain.NotFoundError{Kind: "user", ID: userID}
+		return &domain.NotFoundError{Kind: "user", ID: u.ID}
 	}
-	if _, err := tx.ExecContext(ctx, `INSERT INTO role_changes (user_id, from_role, to_role, actor_user_id, reason, created_at) VALUES (?, ?, ?, ?, ?, ?)`, userID, string(from), string(to), actorID, "role change", formatTime(at)); err != nil {
-		return fmt.Errorf("sqlite: audit role change: %w", err)
+	if u.Role != expectedRole {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO role_changes (user_id, from_role, to_role, actor_user_id, reason, created_at) VALUES (?, ?, ?, ?, ?, ?)`, u.ID, string(expectedRole), string(u.Role), actorID, "role change", formatTime(at)); err != nil {
+			return fmt.Errorf("sqlite: audit role change: %w", err)
+		}
 	}
 	return tx.Commit()
+}
+
+// UpdatePasswordHash changes only the password hash for one existing user.
+func (us *userStore) UpdatePasswordHash(ctx context.Context, id int64, passwordHash string) error {
+	res, err := us.db.ExecContext(ctx, `UPDATE users SET password_hash = ? WHERE id = ?`, passwordHash, id)
+	if err != nil {
+		return fmt.Errorf("sqlite: update password hash: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("sqlite: update password hash rows: %w", err)
+	}
+	if n == 0 {
+		return &domain.NotFoundError{Kind: "user", ID: id}
+	}
+	return nil
 }
 
 // Delete removes an unreferenced user and their sessions in one

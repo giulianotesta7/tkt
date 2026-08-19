@@ -534,3 +534,74 @@ func TestRoleChangesRoundTripWithActorAudit(t *testing.T) {
 		}
 	}
 }
+
+// S3.1 RED: managed edits combine identity, role, and account status in one
+// use case. A rejected role transition must leave every field unchanged.
+func TestUpdateManagedUserIsAtomicAndAuditsRoleChanges(t *testing.T) {
+	ctx := context.Background()
+	svc, users, _ := newUserService()
+	admin := users.seedRole("Admin", "admin@example.com", domain.RoleAdmin, true)
+	member := users.seedRole("Member", "member@example.com", domain.RoleUser, true)
+
+	updated, err := svc.UpdateManagedUser(ctx, admin, member.ID, application.UpdateManagedUserInput{
+		Name:   "Member Updated",
+		Email:  "member.updated@example.com",
+		Role:   domain.RoleAgent,
+		Active: false,
+	})
+	if err != nil {
+		t.Fatalf("UpdateManagedUser: %v", err)
+	}
+	if updated.Name != "Member Updated" || updated.Email != "member.updated@example.com" || updated.Role != domain.RoleAgent || updated.Active {
+		t.Fatalf("updated user = %+v, want combined identity, role, and inactive state", updated)
+	}
+	if len(users.roleChanges) != 1 || users.roleChanges[0].actorID != admin.ID {
+		t.Fatalf("role audit = %+v, want one change by %d", users.roleChanges, admin.ID)
+	}
+
+	_, err = svc.UpdateManagedUser(ctx, admin, member.ID, application.UpdateManagedUserInput{
+		Name:   "Forbidden Change",
+		Email:  "forbidden@example.com",
+		Role:   domain.RoleAdmin,
+		Active: true,
+	})
+	if err == nil {
+		t.Fatal("admin promotion must be rejected")
+	}
+	stored, err := users.GetByID(ctx, member.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.Name != "Member Updated" || stored.Email != "member.updated@example.com" || stored.Role != domain.RoleAgent || stored.Active {
+		t.Fatalf("rejected edit changed stored user = %+v", stored)
+	}
+}
+
+// S3.1 RED: passwords use their own hash-only use case and cannot be changed
+// through UpdateManagedUser.
+func TestChangePasswordUpdatesOnlyTheHash(t *testing.T) {
+	ctx := context.Background()
+	svc, users, _ := newUserService()
+	member := users.seedRole("Member", "member@example.com", domain.RoleUser, true)
+	member.PasswordHash = "old-hash"
+	if err := users.Update(ctx, &member); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := svc.ChangePassword(ctx, managerActor, member.ID, "new-secret"); err != nil {
+		t.Fatalf("ChangePassword: %v", err)
+	}
+	stored, err := users.GetByID(ctx, member.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.Name != "Member" || stored.Email != "member@example.com" || stored.Role != domain.RoleUser || !stored.Active {
+		t.Fatalf("password change mutated non-password fields: %+v", stored)
+	}
+	if !application.VerifyPassword(stored.PasswordHash, "new-secret") {
+		t.Fatal("new password hash must verify")
+	}
+	if err := svc.ChangePassword(ctx, managerActor, member.ID, " "); err == nil {
+		t.Fatal("blank password must be rejected")
+	}
+}

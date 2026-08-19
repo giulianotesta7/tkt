@@ -28,7 +28,7 @@ func TestTicketShowRendersDetail(t *testing.T) {
 		t.Fatalf("status = %d, want 200", rec.Code)
 	}
 	body := rec.Body.String()
-	for _, want := range []string{"Login page down", "TKT-1", "Bugs", "Checking now", "Timeline", "Properties", "Save properties"} {
+	for _, want := range []string{"Login page down", "TKT-1", "Bugs", "Checking now", "Timeline", "Details", "Save properties"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("detail page must contain %q, got: %s", want, body)
 		}
@@ -58,6 +58,52 @@ func TestTicketShowRendersDetail(t *testing.T) {
 	transitionEvent := `<span class="dot transition"></span>`
 	if !(strings.Index(body, transitionEvent) < strings.Index(body, createdEvent)) {
 		t.Errorf("merged timeline must be newest-first (transition before created), got: %s", body)
+	}
+}
+
+func TestTicketCommentCheckboxMapsInternalAndRejectsUserForgery(t *testing.T) {
+	h := newHarness(t)
+	tkt := h.seedTicket(t, "Checkbox visibility", nil)
+	adminSession := seedSession(t, h.store, h.admin.ID)
+
+	staffRec := h.postFormAs(t, "/tickets/1/comments", url.Values{
+		"body":       {"Internal update"},
+		"visibility": {"public"},
+		"internal":   {"1"},
+	}, adminSession.ID)
+	if staffRec.Code != http.StatusSeeOther {
+		t.Fatalf("staff status = %d, want 303", staffRec.Code)
+	}
+	comments, err := h.comments.ListByTicket(t.Context(), tkt.ID, true)
+	if err != nil {
+		t.Fatalf("list staff comments: %v", err)
+	}
+	if len(comments) != 1 || comments[0].Visibility != domain.CommentInternal {
+		t.Fatalf("staff checkbox must store one internal comment, got: %+v", comments)
+	}
+
+	user := seedUserRole(t, h.store, "Ula", "ula@example.com", domain.RoleUser)
+	userSession := seedSession(t, h.store, user.ID)
+	userTicket, err := h.tickets.Create(t.Context(), *user, application.CreateTicketInput{
+		Title: "User visibility", CategoryID: h.bugCategory.ID, Priority: domain.PriorityMedium,
+	})
+	if err != nil {
+		t.Fatalf("create user ticket: %v", err)
+	}
+	forgedRec := h.postFormAs(t, "/tickets/"+strconv.FormatInt(userTicket.ID, 10)+"/comments", url.Values{
+		"body":       {"Forged internal update"},
+		"visibility": {"public"},
+		"internal":   {"1"},
+	}, userSession.ID)
+	if forgedRec.Code != http.StatusForbidden {
+		t.Fatalf("forged user status = %d, want 403", forgedRec.Code)
+	}
+	userComments, err := h.comments.ListByTicket(t.Context(), userTicket.ID, true)
+	if err != nil {
+		t.Fatalf("list user comments: %v", err)
+	}
+	if len(userComments) != 0 {
+		t.Fatalf("forged user input must not store an internal comment, got: %+v", userComments)
 	}
 }
 

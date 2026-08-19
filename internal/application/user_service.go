@@ -89,33 +89,33 @@ func (s *UserService) BootstrapRoot(ctx context.Context, in CreateUserInput) (*d
 	return u, nil
 }
 
-// UpdateUserInput describes optional user edits (name, email, password,
-// active). A nil pointer means "not provided".
-type UpdateUserInput struct {
-	Name     *string
-	Email    *string
-	Password *string
-	Active   *bool
+// UpdateManagedUserInput is the complete non-password edit submitted by the
+// managed-user form. Password changes intentionally use ChangePassword.
+type UpdateManagedUserInput struct {
+	Name   string
+	Email  string
+	Role   domain.Role
+	Active bool
 }
 
-// Update applies the provided fields. Email uniqueness applies to the new
-// email (store); a password change stores a new bcrypt hash; Active=false
-// deactivates without touching historical ticket assignments. The ROOT
-// account is protected: no actor — including root itself — may edit,
-// deactivate, or demote it (role-authorization root invariants); the
-// request is rejected before any store call with RootProtectedError.
-func (s *UserService) Update(ctx context.Context, actor domain.User, id int64, in UpdateUserInput) (*domain.User, error) {
+// UpdateManagedUser applies identity, role, and active state as one guarded
+// store transaction. The root and peer-admin protections are enforced before
+// the store is reached; admins cannot grant or manage admin accounts.
+func (s *UserService) UpdateManagedUser(ctx context.Context, actor domain.User, id int64, in UpdateManagedUserInput) (*domain.User, error) {
 	if !NewPolicy().Capabilities(actor.Role).Require(CapManageUsers) {
 		return nil, domain.NewForbiddenError("user management is not permitted")
 	}
-	if in.Name != nil && strings.TrimSpace(*in.Name) == "" {
+	if strings.TrimSpace(in.Name) == "" {
 		return nil, &domain.ValidationError{Field: "name", Message: domain.ErrMsgUserNameRequired}
 	}
-	if in.Email != nil && strings.TrimSpace(*in.Email) == "" {
+	if strings.TrimSpace(in.Email) == "" {
 		return nil, &domain.ValidationError{Field: "email", Message: domain.ErrMsgUserEmailRequired}
 	}
-	if in.Password != nil && strings.TrimSpace(*in.Password) == "" {
-		return nil, &domain.ValidationError{Field: "password", Message: domain.ErrMsgPasswordRequired}
+	if !in.Role.Valid() {
+		return nil, &domain.ValidationError{Field: "role", Message: "invalid role"}
+	}
+	if in.Role == domain.RoleRoot {
+		return nil, domain.NewRootProtectedError()
 	}
 
 	u, err := s.users.GetByID(ctx, id)
@@ -128,26 +128,90 @@ func (s *UserService) Update(ctx context.Context, actor domain.User, id int64, i
 	if actor.Role == domain.RoleAdmin && u.Role == domain.RoleAdmin {
 		return nil, domain.NewForbiddenError("admin accounts require root")
 	}
+	if actor.Role == domain.RoleAdmin && (u.Role == domain.RoleAdmin || in.Role == domain.RoleAdmin) {
+		return nil, domain.NewForbiddenError("admin accounts require root")
+	}
+	expectedRole := u.Role
+	u.Name = strings.TrimSpace(in.Name)
+	u.Email = strings.TrimSpace(in.Email)
+	u.Role = in.Role
+	u.Active = in.Active
+	if err := s.users.UpdateManagedUser(ctx, u, expectedRole, actor.ID, s.clock.Now()); err != nil {
+		return nil, err
+	}
+	return u, nil
+}
+
+// ChangePassword hashes a non-empty secret then replaces only the target's
+// password hash. It shares the managed-user authorization and protections.
+func (s *UserService) ChangePassword(ctx context.Context, actor domain.User, id int64, password string) error {
+	if !NewPolicy().Capabilities(actor.Role).Require(CapManageUsers) {
+		return domain.NewForbiddenError("user management is not permitted")
+	}
+	if strings.TrimSpace(password) == "" {
+		return &domain.ValidationError{Field: "password", Message: domain.ErrMsgPasswordRequired}
+	}
+	u, err := s.users.GetByID(ctx, id)
+	if err != nil {
+		return err
+	}
+	if u.Role == domain.RoleRoot {
+		return domain.NewRootProtectedError()
+	}
+	if actor.Role == domain.RoleAdmin && u.Role == domain.RoleAdmin {
+		return domain.NewForbiddenError("admin accounts require root")
+	}
+	hash, err := HashPassword(password)
+	if err != nil {
+		return err
+	}
+	return s.users.UpdatePasswordHash(ctx, id, hash)
+}
+
+// UpdateUserInput and Update are retained for non-HTTP compatibility. New
+// managed-user flows must use UpdateManagedUser and ChangePassword directly.
+type UpdateUserInput struct {
+	Name     *string
+	Email    *string
+	Password *string
+	Active   *bool
+}
+
+func (s *UserService) Update(ctx context.Context, actor domain.User, id int64, in UpdateUserInput) (*domain.User, error) {
+	u, err := s.users.GetByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
 	if in.Name != nil {
-		u.Name = strings.TrimSpace(*in.Name)
+		u.Name = *in.Name
 	}
 	if in.Email != nil {
-		u.Email = strings.TrimSpace(*in.Email)
-	}
-	if in.Password != nil {
-		hash, err := HashPassword(*in.Password)
-		if err != nil {
-			return nil, err
-		}
-		u.PasswordHash = hash
+		u.Email = *in.Email
 	}
 	if in.Active != nil {
 		u.Active = *in.Active
 	}
-	if err := s.users.Update(ctx, u); err != nil {
+	if u.Role == "" {
+		u.Role = domain.RoleUser
+	}
+	updated, err := s.UpdateManagedUser(ctx, actor, id, UpdateManagedUserInput{Name: u.Name, Email: u.Email, Role: u.Role, Active: u.Active})
+	if err != nil || in.Password == nil {
+		return updated, err
+	}
+	if err := s.ChangePassword(ctx, actor, id, *in.Password); err != nil {
 		return nil, err
 	}
-	return u, nil
+	return s.users.GetByID(ctx, id)
+}
+
+// ChangeRole is retained for non-HTTP compatibility. New flows use
+// UpdateManagedUser so role changes are atomic with the form edit.
+func (s *UserService) ChangeRole(ctx context.Context, actor domain.User, id int64, to domain.Role) (*domain.User, error) {
+	u, err := s.users.GetByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	return s.UpdateManagedUser(ctx, actor, id, UpdateManagedUserInput{Name: u.Name, Email: u.Email, Role: to, Active: u.Active})
 }
 
 // Delete removes an unreferenced user; a referenced user is rejected with a
@@ -170,39 +234,6 @@ func (s *UserService) Delete(ctx context.Context, actor domain.User, id int64) e
 		return domain.NewForbiddenError("admin accounts require root")
 	}
 	return s.users.Delete(ctx, id)
-}
-
-// ChangeRole applies the closed role-management matrix and records the
-// authorized change atomically. Admins may change only user/agent roles;
-// root additionally grants and removes admin. Root is never grantable.
-func (s *UserService) ChangeRole(ctx context.Context, actor domain.User, id int64, to domain.Role) (*domain.User, error) {
-	if !to.Valid() {
-		return nil, &domain.ValidationError{Field: "role", Message: "invalid role"}
-	}
-	if to == domain.RoleRoot {
-		return nil, domain.NewRootProtectedError()
-	}
-	if !NewPolicy().Capabilities(actor.Role).Require(CapChangeRole) {
-		return nil, domain.NewForbiddenError("role change is not permitted")
-	}
-	u, err := s.users.GetByID(ctx, id)
-	if err != nil {
-		return nil, err
-	}
-	if u.Role == domain.RoleRoot {
-		return nil, domain.NewRootProtectedError()
-	}
-	if actor.Role == domain.RoleAdmin && (u.Role == domain.RoleAdmin || to == domain.RoleAdmin) {
-		return nil, domain.NewForbiddenError("admin role changes require root")
-	}
-	if u.Role == to {
-		return u, nil
-	}
-	if err := s.users.ChangeRole(ctx, u.ID, actor.ID, u.Role, to, s.clock.Now()); err != nil {
-		return nil, err
-	}
-	u.Role = to
-	return u, nil
 }
 
 // GetByID returns the user, including inactive ones (historical display).

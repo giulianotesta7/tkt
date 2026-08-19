@@ -2,6 +2,7 @@ package httpadapter
 
 import (
 	"net/http"
+	"strconv"
 
 	"github.com/giulianotesta7/tkt/internal/application"
 	"github.com/giulianotesta7/tkt/internal/domain"
@@ -31,8 +32,8 @@ func (h *UserHandlers) Register(mux *http.ServeMux) {
 	mux.HandleFunc("POST /users", h.create)
 	mux.HandleFunc("GET /users/{id}/edit", h.editForm)
 	mux.HandleFunc("POST /users/{id}/edit", h.update)
+	mux.HandleFunc("POST /users/{id}/password", h.changePassword)
 	mux.HandleFunc("POST /users/{id}/delete", h.delete)
-	mux.HandleFunc("POST /users/{id}/role", h.changeRole)
 }
 
 // usersIndexData is the managed-users list payload; Error carries a
@@ -66,10 +67,10 @@ type userFormData struct {
 }
 
 type userFormValues struct {
-	Name     string
-	Email    string
-	Password string
-	Active   bool
+	Name   string
+	Email  string
+	Role   domain.Role
+	Active bool
 }
 
 func (h *UserHandlers) newForm(w http.ResponseWriter, r *http.Request) {
@@ -117,14 +118,12 @@ func (h *UserHandlers) editForm(w http.ResponseWriter, r *http.Request) {
 	data := userFormData{
 		pageData: pageDataFrom(r, "users"),
 		UserID:   id,
-		Values:   userFormValues{Name: u.Name, Email: u.Email, Active: u.Active},
+		Values:   userFormValues{Name: u.Name, Email: u.Email, Role: u.Role, Active: u.Active},
 	}
 	h.renderer.Render(w, r, "users_new", "user_form", data, http.StatusOK)
 }
 
-// update applies name/email/password/deactivate. The password field is
-// optional on edit (blank = keep); the active checkbox is the deactivation
-// switch (D14).
+// update applies the complete non-password managed-user edit atomically.
 func (h *UserHandlers) update(w http.ResponseWriter, r *http.Request) {
 	if !requireCapability(w, r, application.CapManageUsers) {
 		return
@@ -141,17 +140,45 @@ func (h *UserHandlers) update(w http.ResponseWriter, r *http.Request) {
 
 	name := r.Form.Get("name")
 	email := r.Form.Get("email")
-	active := r.Form.Get("active") != ""
-	in := application.UpdateUserInput{Name: &name, Email: &email, Active: &active}
-	if pw := r.Form.Get("password"); pw != "" {
-		in.Password = &pw
+	role, err := domain.ParseRole(r.Form.Get("role"))
+	if err != nil {
+		if r.Form.Get("role") != "" {
+			h.renderUserFormError(w, r, id, &domain.ValidationError{Field: "role", Message: "invalid role"})
+			return
+		}
+		u, getErr := h.users.GetByID(r.Context(), id)
+		if getErr != nil {
+			h.renderUserFormError(w, r, id, getErr)
+			return
+		}
+		role = u.Role
 	}
-
-	if _, err := h.users.Update(r.Context(), *userFromContext(r.Context()), id, in); err != nil {
+	active := r.Form.Get("active") == "true" || r.Form.Get("active") == "on"
+	if _, err := h.users.UpdateManagedUser(r.Context(), *userFromContext(r.Context()), id, application.UpdateManagedUserInput{Name: name, Email: email, Role: role, Active: active}); err != nil {
 		h.renderUserFormError(w, r, id, err)
 		return
 	}
 	redirect(w, r, "/users")
+}
+
+func (h *UserHandlers) changePassword(w http.ResponseWriter, r *http.Request) {
+	if !requireCapability(w, r, application.CapManageUsers) {
+		return
+	}
+	id, ok := userID(r)
+	if !ok {
+		http.Error(w, "invalid user id", http.StatusBadRequest)
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+	if err := h.users.ChangePassword(r.Context(), *userFromContext(r.Context()), id, r.Form.Get("password")); err != nil {
+		h.renderUserFormError(w, r, id, err)
+		return
+	}
+	redirect(w, r, "/users/"+strconv.FormatInt(id, 10)+"/edit")
 }
 
 func (h *UserHandlers) delete(w http.ResponseWriter, r *http.Request) {
@@ -175,31 +202,6 @@ func (h *UserHandlers) delete(w http.ResponseWriter, r *http.Request) {
 	redirect(w, r, "/users")
 }
 
-func (h *UserHandlers) changeRole(w http.ResponseWriter, r *http.Request) {
-	if !requireCapability(w, r, application.CapChangeRole) {
-		return
-	}
-	id, ok := userID(r)
-	if !ok {
-		http.Error(w, "invalid user id", http.StatusBadRequest)
-		return
-	}
-	if err := r.ParseForm(); err != nil {
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
-		return
-	}
-	role, err := domain.ParseRole(r.Form.Get("role"))
-	if err != nil {
-		http.Error(w, "invalid role", http.StatusUnprocessableEntity)
-		return
-	}
-	if _, err := h.users.ChangeRole(r.Context(), *userFromContext(r.Context()), id, role); err != nil {
-		http.Error(w, mapErrorMsg(err), statusFor(err))
-		return
-	}
-	redirect(w, r, "/users")
-}
-
 // renderUserFormError re-renders the user form with the submitted values
 // and the mapped status (HX → user_form fragment; full → users_new page).
 func (h *UserHandlers) renderUserFormError(w http.ResponseWriter, r *http.Request, id int64, err error) {
@@ -215,9 +217,8 @@ func (h *UserHandlers) renderUserFormError(w http.ResponseWriter, r *http.Reques
 		Values: userFormValues{
 			Name:   r.Form.Get("name"),
 			Email:  r.Form.Get("email"),
-			Active: r.Form.Get("active") != "",
-			// Password is intentionally NOT echoed: the submitted credential
-			// never returns to the DOM after a rejected form.
+			Role:   domain.Role(r.Form.Get("role")),
+			Active: r.Form.Get("active") == "true",
 		},
 	}
 	h.renderer.Render(w, r, "users_new", "user_form", data, status)

@@ -135,17 +135,16 @@ func TestUserEditFormPrefilled(t *testing.T) {
 	}
 }
 
-// TestUserUpdateSuccess proves name/email/password edits persist and the new
-// password replaces the old hash (update-user spec).
+// TestUserUpdateSuccess proves the non-password edit persists; password
+// changes use the dedicated endpoint.
 func TestUserUpdateSuccess(t *testing.T) {
 	h := newHarness(t)
 	ana := h.createUser(t, "Ana", "ana@example.com", "secret")
 
 	form := url.Values{
-		"name":     {"Ana Torres"},
-		"email":    {"ana.torres@example.com"},
-		"password": {"new-secret"},
-		"active":   {"on"},
+		"name":   {"Ana Torres"},
+		"email":  {"ana.torres@example.com"},
+		"active": {"on"},
 	}
 	rec := h.postForm(t, "/users/"+strconv.FormatInt(ana.ID, 10)+"/edit", form, false)
 
@@ -158,6 +157,8 @@ func TestUserUpdateSuccess(t *testing.T) {
 	if u.Name != "Ana Torres" {
 		t.Errorf("name = %q, want Ana Torres", u.Name)
 	}
+	rec = h.postForm(t, "/users/"+strconv.FormatInt(ana.ID, 10)+"/password", url.Values{"password": {"new-secret"}}, false)
+	wantRedirect(t, rec, http.StatusSeeOther, "/users/"+strconv.FormatInt(ana.ID, 10)+"/edit")
 	if cookie := h.loginCookie(t, "ana.torres@example.com", "new-secret"); cookie == "" {
 		t.Error("the new password must authenticate")
 	}
@@ -509,29 +510,49 @@ func TestUserTicketViewsHideManagementAndAssignmentControls(t *testing.T) {
 	}
 }
 
-func TestUserRoleEndpointAppliesManagementMatrix(t *testing.T) {
+// S3.1 RED: role changes now belong only to the edit form and passwords use
+// their dedicated endpoint, which never re-renders a submitted secret.
+func TestUserEditOwnsRoleStatusAndPasswordWorkflows(t *testing.T) {
 	h := newHarness(t)
-	member := seedUserRole(t, h.store, "Member", "member-role@tkt.test", domain.RoleUser)
+	member := seedUserRole(t, h.store, "Member", "member-s3@tkt.test", domain.RoleUser)
 
-	rec := h.postForm(t, "/users/"+strconv.FormatInt(member.ID, 10)+"/role", url.Values{"role": {"agent"}}, false)
+	editPath := "/users/" + strconv.FormatInt(member.ID, 10) + "/edit"
+	rec := h.get(t, editPath, false)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET edit = %d, want 200", rec.Code)
+	}
+	body := rec.Body.String()
+	for _, want := range []string{"name=\"role\"", "Deactivate user"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("edit form missing %q", want)
+		}
+	}
+	editFormHTML := body[:strings.Index(body, "</form>")+len("</form>")]
+	if strings.Contains(editFormHTML, "name=\"password\"") {
+		t.Error("general edit form must not contain a password field")
+	}
+
+	form := url.Values{"name": {"Member Updated"}, "email": {"member.updated@tkt.test"}, "role": {"agent"}, "active": {"false"}}
+	rec = h.postForm(t, editPath, form, false)
 	wantRedirect(t, rec, http.StatusSeeOther, "/users")
 	stored, err := h.store.UserStore().GetByID(context.Background(), member.ID)
-	if err != nil || stored.Role != domain.RoleAgent {
-		t.Fatalf("admin user->agent result = %+v err=%v", stored, err)
+	if err != nil || stored.Role != domain.RoleAgent || stored.Active || stored.Name != "Member Updated" {
+		t.Fatalf("combined edit = %+v err=%v", stored, err)
 	}
 
-	rec = h.postForm(t, "/users/"+strconv.FormatInt(member.ID, 10)+"/role", url.Values{"role": {"admin"}}, false)
-	if rec.Code != http.StatusForbidden {
-		t.Fatalf("admin agent->admin status = %d, want 403", rec.Code)
+	rec = h.postForm(t, "/users/"+strconv.FormatInt(member.ID, 10)+"/role", url.Values{"role": {"user"}}, false)
+	if rec.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("former role endpoint = %d, want 405", rec.Code)
 	}
 
-	root := seedUserRole(t, h.store, "Root", "root-role@tkt.test", domain.RoleRoot)
-	rootSession := seedSession(t, h.store, root.ID)
-	rec = h.postFormAs(t, "/users/"+strconv.FormatInt(member.ID, 10)+"/role", url.Values{"role": {"admin"}}, rootSession.ID)
-	wantRedirect(t, rec, http.StatusSeeOther, "/users")
+	rec = h.postForm(t, "/users/"+strconv.FormatInt(member.ID, 10)+"/password", url.Values{"password": {"new-secret"}}, false)
+	wantRedirect(t, rec, http.StatusSeeOther, editPath)
+	if strings.Contains(rec.Body.String(), "new-secret") {
+		t.Error("password response must not echo plaintext")
+	}
 	stored, err = h.store.UserStore().GetByID(context.Background(), member.ID)
-	if err != nil || stored.Role != domain.RoleAdmin {
-		t.Fatalf("root agent->admin result = %+v err=%v", stored, err)
+	if err != nil || !application.VerifyPassword(stored.PasswordHash, "new-secret") {
+		t.Errorf("dedicated password endpoint must update only the password hash: user=%+v err=%v", stored, err)
 	}
 }
 
