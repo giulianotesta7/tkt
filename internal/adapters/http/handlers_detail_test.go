@@ -335,8 +335,8 @@ func TestTicketTransitionReopenWithReason(t *testing.T) {
 	if !strings.Contains(page.Body.String(), "Reason: fix deployed") {
 		t.Errorf("timeline must label the reopen reason as %q, got: %s", "Reason: fix deployed", page.Body.String())
 	}
-	// A reopen reads as "Reopen", not "Moved to In Progress".
-	if !strings.Contains(page.Body.String(), "Reopen") {
+	// A reopen reads as "Ticket Reopened", not "Moved to In Progress".
+	if !strings.Contains(page.Body.String(), "Ticket Reopened") {
 		t.Errorf("timeline must summarize a reopen as %q, got: %s", "Reopen", page.Body.String())
 	}
 }
