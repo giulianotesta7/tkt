@@ -31,6 +31,27 @@ func fixedClock() *fakeClock {
 }
 
 func matchesQuery(t *domain.Ticket, q application.TicketQuery) bool {
+	// Actor scope first (ticket-access spec): the zero value (ScopeNone)
+	// fails closed — an unscoped query matches nothing, mirroring the real
+	// store's `0 = 1` clause.
+	switch q.Scope {
+	case application.ScopeOwned:
+		if t.RequesterUserID == nil || *t.RequesterUserID != q.ActorID {
+			return false
+		}
+	case application.ScopeAssigned:
+		if t.UserID == nil || *t.UserID != q.ActorID {
+			return false
+		}
+	case application.ScopeAssignable:
+		if t.UserID != nil && *t.UserID != q.ActorID {
+			return false
+		}
+	case application.ScopeAll:
+		// full queue: no restriction
+	default:
+		return false
+	}
 	if q.State != nil && t.State != *q.State {
 		return false
 	}
@@ -127,10 +148,12 @@ func (f *fakeTicketStore) Update(_ context.Context, t *domain.Ticket) error {
 	return nil
 }
 
-func (f *fakeTicketStore) GetByID(_ context.Context, id int64) (*domain.Ticket, error) {
+func (f *fakeTicketStore) GetByID(_ context.Context, id int64, q application.TicketQuery) (*domain.Ticket, error) {
 	f.getByIDCalls = append(f.getByIDCalls, id)
 	t, ok := f.tickets[id]
-	if !ok {
+	if !ok || !matchesQuery(t, q) {
+		// Out-of-scope tickets are indistinguishable from missing ones
+		// (no existence leak, ticket-access spec).
 		return nil, &domain.NotFoundError{Kind: "ticket", ID: id}
 	}
 	cp := *t
@@ -202,6 +225,9 @@ func (f *fakeSearchStore) SearchCount(ctx context.Context, q application.TicketQ
 }
 
 // fakeCommentStore implements CommentStore with insertion-order timelines.
+// ListByTicket mirrors the real store's visibility contract: when
+// includeInternal is false, internal (staff-only) comments are excluded
+// before the collection is returned (comment-visibility spec).
 type fakeCommentStore struct {
 	comments map[int64][]*domain.Comment
 	nextID   int64
@@ -221,9 +247,12 @@ func (f *fakeCommentStore) Add(_ context.Context, c *domain.Comment) error {
 	return nil
 }
 
-func (f *fakeCommentStore) ListByTicket(_ context.Context, ticketID int64) ([]domain.Comment, error) {
+func (f *fakeCommentStore) ListByTicket(_ context.Context, ticketID int64, includeInternal bool) ([]domain.Comment, error) {
 	var out []domain.Comment
 	for _, c := range f.comments[ticketID] {
+		if !includeInternal && c.Visibility == domain.CommentInternal {
+			continue
+		}
 		out = append(out, *c)
 	}
 	return out, nil
@@ -309,11 +338,14 @@ func (f *fakeUnitOfWork) Update(ctx context.Context, t *domain.Ticket, events ..
 // fakeUserStore implements UserStore: email uniqueness, delete guard via a
 // referenced flag (the real store checks ticket FKs; tests set the flag).
 type fakeUserStore struct {
-	users      map[int64]*domain.User
-	byEmail    map[string]int64
-	nextID     int64
-	referenced map[int64]bool
+	users       map[int64]*domain.User
+	byEmail     map[string]int64
+	nextID      int64
+	referenced  map[int64]bool
+	roleChanges []fakeRoleChange
 }
+
+type fakeRoleChange struct{ actorID int64 }
 
 func newFakeUserStore() *fakeUserStore {
 	return &fakeUserStore{
@@ -327,6 +359,17 @@ func newFakeUserStore() *fakeUserStore {
 // seed inserts a user directly (test arrange).
 func (f *fakeUserStore) seed(name, email string, active bool) domain.User {
 	u := domain.User{Name: name, Email: email, Active: active}
+	u.ID = f.nextID
+	f.nextID++
+	f.users[u.ID] = &u
+	f.byEmail[u.Email] = u.ID
+	return u
+}
+
+// seedRole inserts a user with an explicit role directly (test arrange;
+// assignment rules depend on the target's role, so arrange must control it).
+func (f *fakeUserStore) seedRole(name, email string, role domain.Role, active bool) domain.User {
+	u := domain.User{Name: name, Email: email, Role: role, Active: active}
 	u.ID = f.nextID
 	f.nextID++
 	f.users[u.ID] = &u
@@ -348,6 +391,34 @@ func (f *fakeUserStore) Create(_ context.Context, u *domain.User) error {
 	return nil
 }
 
+// BootstrapRoot mirrors the real store's atomic contract: unavailable once
+// any user exists; otherwise the user is stored as an active root.
+func (f *fakeUserStore) BootstrapRoot(_ context.Context, u *domain.User) error {
+	if len(f.users) > 0 {
+		return domain.NewBootstrapUnavailableError()
+	}
+	u.Role = domain.RoleRoot
+	return f.Create(context.Background(), u)
+}
+
+// RecoverRoot mirrors the real store's fail-closed contract: refused when a
+// root exists or the user is unknown; otherwise activate + promote + return.
+func (f *fakeUserStore) RecoverRoot(_ context.Context, id int64) (*domain.User, error) {
+	for _, u := range f.users {
+		if u.Role == domain.RoleRoot {
+			return nil, errors.New("a root already exists; recovery refused")
+		}
+	}
+	u, ok := f.users[id]
+	if !ok {
+		return nil, &domain.NotFoundError{Kind: "user", ID: id}
+	}
+	u.Role = domain.RoleRoot
+	u.Active = true
+	cp := *u
+	return &cp, nil
+}
+
 func (f *fakeUserStore) Update(_ context.Context, u *domain.User) error {
 	existing, ok := f.users[u.ID]
 	if !ok {
@@ -360,6 +431,16 @@ func (f *fakeUserStore) Update(_ context.Context, u *domain.User) error {
 	cp := *u
 	f.users[u.ID] = &cp
 	f.byEmail[u.Email] = u.ID
+	return nil
+}
+
+func (f *fakeUserStore) ChangeRole(_ context.Context, userID, actorID int64, _, to domain.Role, _ time.Time) error {
+	u, ok := f.users[userID]
+	if !ok {
+		return &domain.NotFoundError{Kind: "user", ID: userID}
+	}
+	u.Role = to
+	f.roleChanges = append(f.roleChanges, fakeRoleChange{actorID: actorID})
 	return nil
 }
 
@@ -419,22 +500,6 @@ func (f *fakeUserStore) ListActive(_ context.Context) ([]domain.User, error) {
 		}
 	}
 	return out, nil
-}
-
-func (f *fakeUserStore) RecoverRoot(_ context.Context, id int64) (*domain.User, error) {
-	for _, u := range f.users {
-		if u.Role == domain.RoleRoot {
-			return nil, errors.New("a root already exists; recovery refused")
-		}
-	}
-	u, ok := f.users[id]
-	if !ok {
-		return nil, &domain.NotFoundError{Kind: "user", ID: id}
-	}
-	u.Role = domain.RoleRoot
-	u.Active = true
-	cp := *u
-	return &cp, nil
 }
 
 // fakeSessionStore implements SessionStore with lazy purge of expired

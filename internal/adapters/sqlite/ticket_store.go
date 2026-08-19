@@ -38,7 +38,7 @@ func newUnitOfWork(db *sql.DB) *unitOfWork { return &unitOfWork{db: db} }
 const timeLayout = time.RFC3339
 
 // ticketColumns is the SELECT column list shared by every ticket read.
-const ticketColumns = `t.id, t.number, t.title, t.description, t.requester_name, t.requester_email, t.category_id, t.priority, t.state, t.user_id, t.created_at, t.updated_at, t.resolved_at, t.closed_at`
+const ticketColumns = `t.id, t.number, t.title, t.description, t.requester_name, t.requester_email, t.requester_user_id, t.category_id, t.priority, t.state, t.user_id, t.created_at, t.updated_at, t.resolved_at, t.closed_at`
 
 // Create persists t inside an immediate transaction, assigning the
 // store-owned identity fields: ID (autoincrement) and Number (MAX+1, D8).
@@ -69,9 +69,10 @@ func createTicketTx(ctx context.Context, tx *sql.Tx, t *domain.Ticket) error {
 	if err := tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(number), 0) + 1 FROM tickets`).Scan(&number); err != nil {
 		return fmt.Errorf("sqlite: next ticket number: %w", err)
 	}
-	res, err := tx.ExecContext(ctx, `INSERT INTO tickets (number, title, description, requester_name, requester_email, category_id, priority, state, user_id, created_at, updated_at, resolved_at, closed_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		number, t.Title, t.Description, t.RequesterName, t.RequesterEmail, t.CategoryID,
+	res, err := tx.ExecContext(ctx, `INSERT INTO tickets (number, title, description, requester_name, requester_email, requester_user_id, category_id, priority, state, user_id, created_at, updated_at, resolved_at, closed_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		number, t.Title, t.Description, t.RequesterName, t.RequesterEmail,
+		nullableInt64(t.RequesterUserID), t.CategoryID,
 		string(t.Priority), string(t.State), nullableInt64(t.UserID),
 		formatTime(t.CreatedAt), formatTime(t.UpdatedAt),
 		formatTimePtr(t.ResolvedAt), formatTimePtr(t.ClosedAt))
@@ -106,9 +107,10 @@ func (st *ticketStore) Update(ctx context.Context, t *domain.Ticket) error {
 
 // updateTicketTx writes the ticket row inside the caller's transaction.
 func updateTicketTx(ctx context.Context, tx *sql.Tx, t *domain.Ticket) error {
-	res, err := tx.ExecContext(ctx, `UPDATE tickets SET title = ?, description = ?, requester_name = ?, requester_email = ?, category_id = ?, priority = ?, state = ?, user_id = ?, created_at = ?, updated_at = ?, resolved_at = ?, closed_at = ?
+	res, err := tx.ExecContext(ctx, `UPDATE tickets SET title = ?, description = ?, requester_name = ?, requester_email = ?, requester_user_id = ?, category_id = ?, priority = ?, state = ?, user_id = ?, created_at = ?, updated_at = ?, resolved_at = ?, closed_at = ?
 		WHERE id = ?`,
-		t.Title, t.Description, t.RequesterName, t.RequesterEmail, t.CategoryID,
+		t.Title, t.Description, t.RequesterName, t.RequesterEmail,
+		nullableInt64(t.RequesterUserID), t.CategoryID,
 		string(t.Priority), string(t.State), nullableInt64(t.UserID),
 		formatTime(t.CreatedAt), formatTime(t.UpdatedAt),
 		formatTimePtr(t.ResolvedAt), formatTimePtr(t.ClosedAt), t.ID)
@@ -125,9 +127,19 @@ func updateTicketTx(ctx context.Context, tx *sql.Tx, t *domain.Ticket) error {
 	return nil
 }
 
-// GetByID returns the ticket or a NotFoundError.
-func (st *ticketStore) GetByID(ctx context.Context, id int64) (*domain.Ticket, error) {
-	t, err := scanTicketFrom(st.db.QueryRowContext(ctx, `SELECT `+ticketColumns+` FROM tickets t WHERE t.id = ?`, id))
+// GetByID returns the ticket or a NotFoundError, restricted to the actor's
+// ticket access scope carried in q (ticket-access spec): a ticket outside
+// the actor's scope is indistinguishable from a missing one, so direct
+// lookups never leak existence. Only the scope restriction of q applies;
+// the filter fields are ignored.
+func (st *ticketStore) GetByID(ctx context.Context, id int64, q application.TicketQuery) (*domain.Ticket, error) {
+	where := "WHERE t.id = ?"
+	args := []any{id}
+	if scope, scopeArgs := scopeClause(q); scope != "" {
+		where += " AND " + scope
+		args = append(args, scopeArgs...)
+	}
+	t, err := scanTicketFrom(st.db.QueryRowContext(ctx, `SELECT `+ticketColumns+` FROM tickets t `+where, args...))
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, &domain.NotFoundError{Kind: "ticket", ID: id}
 	}
@@ -274,10 +286,11 @@ func (u *unitOfWork) Update(ctx context.Context, t *domain.Ticket, events ...dom
 // and reused by the audit store (4.3).
 func appendAuditEventsTx(ctx context.Context, tx *sql.Tx, events ...domain.AuditEvent) error {
 	for _, e := range events {
-		if _, err := tx.ExecContext(ctx, `INSERT INTO audit_events (ticket_id, actor, action, field, from_value, to_value, note, created_at)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		if _, err := tx.ExecContext(ctx, `INSERT INTO audit_events (ticket_id, actor, action, field, from_value, to_value, note, actor_user_id, reason, created_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			e.TicketID, e.Actor, e.Action, nullableString(e.Field), nullableString(e.FromValue),
-			nullableString(e.ToValue), nullableString(e.Note), formatTime(e.CreatedAt)); err != nil {
+			nullableString(e.ToValue), nullableString(e.Note), nullableInt64(e.ActorUserID),
+			nullableString(e.Reason), formatTime(e.CreatedAt)); err != nil {
 			return fmt.Errorf("sqlite: append audit event: %w", err)
 		}
 	}
@@ -299,12 +312,13 @@ func scanTicketFrom(scan rowScanner) (*domain.Ticket, error) {
 	var (
 		t                    domain.Ticket
 		userID               sql.NullInt64
+		requesterUserID      sql.NullInt64
 		priority, state      string
 		createdAt, updatedAt string
 		resolvedAt, closedAt sql.NullString
 	)
 	if err := scan.Scan(&t.ID, &t.Number, &t.Title, &t.Description, &t.RequesterName, &t.RequesterEmail,
-		&t.CategoryID, &priority, &state, &userID, &createdAt, &updatedAt, &resolvedAt, &closedAt); err != nil {
+		&requesterUserID, &t.CategoryID, &priority, &state, &userID, &createdAt, &updatedAt, &resolvedAt, &closedAt); err != nil {
 		return nil, err
 	}
 	t.Priority = domain.Priority(priority)
@@ -334,6 +348,10 @@ func scanTicketFrom(scan rowScanner) (*domain.Ticket, error) {
 	if userID.Valid {
 		v := userID.Int64
 		t.UserID = &v
+	}
+	if requesterUserID.Valid {
+		v := requesterUserID.Int64
+		t.RequesterUserID = &v
 	}
 	return &t, nil
 }

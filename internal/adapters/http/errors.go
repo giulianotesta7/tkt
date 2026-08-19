@@ -17,11 +17,14 @@ func mapError(err error) (int, string) {
 		validation      *domain.ValidationError
 		invalidTrans    *domain.InvalidTransitionError
 		reopenReason    *domain.ReopenReasonRequiredError
+		reassignReason  *domain.ReassignReasonRequiredError
 		inactiveUser    *domain.InactiveUserError
 		invalidPriority *domain.InvalidPriorityError
 		notFound        *domain.NotFoundError
 		duplicate       *domain.DuplicateError
 		referenced      *domain.ReferencedError
+		rootProtected   *domain.RootProtectedError
+		forbidden       *domain.ForbiddenError
 		badCredentials  *application.InvalidCredentialsError
 	)
 	switch {
@@ -31,6 +34,8 @@ func mapError(err error) (int, string) {
 		return 422, invalidTrans.Error()
 	case errors.As(err, &reopenReason):
 		return 422, reopenReason.Error()
+	case errors.As(err, &reassignReason):
+		return 422, reassignReason.Error()
 	case errors.As(err, &inactiveUser):
 		return 422, inactiveUser.Error()
 	case errors.As(err, &invalidPriority):
@@ -41,6 +46,10 @@ func mapError(err error) (int, string) {
 		return 409, duplicate.Error()
 	case errors.As(err, &referenced):
 		return 409, referenced.Error()
+	case errors.As(err, &rootProtected):
+		return 403, rootProtected.Error()
+	case errors.As(err, &forbidden):
+		return 403, forbidden.Error()
 	case errors.As(err, &badCredentials):
 		return 401, application.ErrMsgInvalidCredentials
 	default:

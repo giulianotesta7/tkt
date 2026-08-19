@@ -42,6 +42,9 @@ type categoriesIndexData struct {
 }
 
 func (h *CategoryHandlers) index(w http.ResponseWriter, r *http.Request) {
+	if !requireCapability(w, r, application.CapManageCategories) {
+		return
+	}
 	categories, err := h.categories.List(r.Context())
 	if err != nil {
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
@@ -60,16 +63,22 @@ type categoryFormData struct {
 }
 
 func (h *CategoryHandlers) newForm(w http.ResponseWriter, r *http.Request) {
+	if !requireCapability(w, r, application.CapManageCategories) {
+		return
+	}
 	data := categoryFormData{pageData: pageDataFrom(r, "categories")}
 	h.renderer.Render(w, r, "categories_new", "category_form", data, http.StatusOK)
 }
 
 func (h *CategoryHandlers) create(w http.ResponseWriter, r *http.Request) {
+	if !requireCapability(w, r, application.CapManageCategories) {
+		return
+	}
 	if err := r.ParseForm(); err != nil {
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
-	if _, err := h.categories.Create(r.Context(), r.Form.Get("name")); err != nil {
+	if _, err := h.categories.CreateFor(r.Context(), *userFromContext(r.Context()), r.Form.Get("name")); err != nil {
 		h.renderCategoryFormError(w, r, 0, err)
 		return
 	}
@@ -77,6 +86,9 @@ func (h *CategoryHandlers) create(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *CategoryHandlers) editForm(w http.ResponseWriter, r *http.Request) {
+	if !requireCapability(w, r, application.CapManageCategories) {
+		return
+	}
 	id, ok := categoryID(r)
 	if !ok {
 		http.Error(w, "invalid category id", http.StatusBadRequest)
@@ -92,6 +104,9 @@ func (h *CategoryHandlers) editForm(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *CategoryHandlers) update(w http.ResponseWriter, r *http.Request) {
+	if !requireCapability(w, r, application.CapManageCategories) {
+		return
+	}
 	id, ok := categoryID(r)
 	if !ok {
 		http.Error(w, "invalid category id", http.StatusBadRequest)
@@ -101,7 +116,7 @@ func (h *CategoryHandlers) update(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
-	if _, err := h.categories.Rename(r.Context(), id, r.Form.Get("name")); err != nil {
+	if _, err := h.categories.RenameFor(r.Context(), *userFromContext(r.Context()), id, r.Form.Get("name")); err != nil {
 		h.renderCategoryFormError(w, r, id, err)
 		return
 	}
@@ -109,12 +124,15 @@ func (h *CategoryHandlers) update(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *CategoryHandlers) delete(w http.ResponseWriter, r *http.Request) {
+	if !requireCapability(w, r, application.CapManageCategories) {
+		return
+	}
 	id, ok := categoryID(r)
 	if !ok {
 		http.Error(w, "invalid category id", http.StatusBadRequest)
 		return
 	}
-	if err := h.categories.Delete(r.Context(), id); err != nil {
+	if err := h.categories.DeleteFor(r.Context(), *userFromContext(r.Context()), id); err != nil {
 		status, msg := mapError(err)
 		if status == http.StatusInternalServerError {
 			http.Error(w, msg, status)

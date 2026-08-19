@@ -5,5 +5,8 @@
   <div class="field">
     <textarea name="body" placeholder="Write a comment…" aria-label="Comment body"></textarea>
   </div>
+
+  <input type="hidden" name="visibility" value="public">
+
   <button class="btn primary" type="submit">Add comment</button>
 </form>

@@ -25,12 +25,6 @@
       </select>
     </div>
   </div>
-  <div class="field">
-    <label for="user_id">Assigned user</label>
-    <select id="user_id" name="user_id">
-      <option value="">Unassigned</option>
-      <option value="1" >Ana Torres</option>
-    </select>
-  </div>
+  
   <button class="btn primary" type="submit">Create ticket</button>
 </form>

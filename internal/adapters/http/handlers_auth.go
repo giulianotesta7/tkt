@@ -1,10 +1,12 @@
 package httpadapter
 
 import (
+	"errors"
 	"net/http"
 	"strings"
 
 	"github.com/giulianotesta7/tkt/internal/application"
+	"github.com/giulianotesta7/tkt/internal/domain"
 )
 
 // AuthHandlers implement the authentication and bootstrap routes (design
@@ -125,8 +127,17 @@ func (h *AuthHandlers) setup(w http.ResponseWriter, r *http.Request) {
 	email := r.Form.Get("email")
 	password := r.Form.Get("password")
 
-	_, err := h.users.Create(r.Context(), application.CreateUserInput{Name: name, Email: email, Password: password})
+	// The setup flow bootstraps the ROOT atomically (role-authorization
+	// first-user bootstrap): concurrent submissions serialize on the store's
+	// immediate transaction and exactly one root survives. A loser or a
+	// late-comer hits ErrBootstrapUnavailable and is sent to login — the
+	// bootstrap is gone, not an error page.
+	_, err := h.users.BootstrapRoot(r.Context(), application.CreateUserInput{Name: name, Email: email, Password: password})
 	if err != nil {
+		if errors.Is(err, domain.ErrBootstrapUnavailable) {
+			redirect(w, r, "/login")
+			return
+		}
 		status, msg := mapError(err)
 		if status == http.StatusInternalServerError {
 			http.Error(w, msg, status)

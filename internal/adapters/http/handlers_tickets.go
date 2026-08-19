@@ -46,6 +46,7 @@ func (h *TicketHandlers) Register(mux *http.ServeMux) {
 	mux.HandleFunc("POST /tickets", h.create)
 	mux.HandleFunc("GET /tickets/{id}", h.show)
 	mux.HandleFunc("POST /tickets/{id}/edit", h.update)
+	mux.HandleFunc("POST /tickets/{id}/assign", h.assign)
 	mux.HandleFunc("POST /tickets/{id}/transition", h.transition)
 	mux.HandleFunc("POST /tickets/{id}/comments", h.addComment)
 }
@@ -54,14 +55,26 @@ func (h *TicketHandlers) Register(mux *http.ServeMux) {
 // highlights the active section and the operator chip shows the session
 // user.
 type pageData struct {
-	NavActive   string
-	CurrentUser domain.User
+	NavActive           string
+	CurrentUser         domain.User
+	CanManageUsers      bool
+	CanManageGroups     bool
+	CanManageCategories bool
+	CanGrantAdmin       bool
 }
 
 // pageDataFrom builds the shell payload from the session user.
 func pageDataFrom(r *http.Request, nav string) pageData {
 	u := userFromContext(r.Context())
-	return pageData{NavActive: nav, CurrentUser: *u}
+	caps := application.NewPolicy().Capabilities(u.Role)
+	return pageData{
+		NavActive:           nav,
+		CurrentUser:         *u,
+		CanManageUsers:      caps.Require(application.CapManageUsers),
+		CanManageGroups:     caps.Require(application.CapManageGroups),
+		CanManageCategories: caps.Require(application.CapManageCategories),
+		CanGrantAdmin:       caps.Require(application.CapGrantAdmin),
+	}
 }
 
 // options carries the selectable lists shared by list filters and forms.
@@ -86,21 +99,16 @@ func (h *TicketHandlers) collectOptions(r *http.Request) (options, error) {
 	if err != nil {
 		return options{}, err
 	}
-	users, err := h.users.List(r.Context())
+	actor := *userFromContext(r.Context())
+	assignable, err := h.users.ListAssignable(r.Context(), actor)
 	if err != nil {
 		return options{}, err
-	}
-	var assignable []domain.User
-	for _, u := range users {
-		if u.Active {
-			assignable = append(assignable, u)
-		}
 	}
 	return options{
 		States:          listStates,
 		Priorities:      listPriorities,
 		Categories:      categories,
-		Users:           users,
+		Users:           assignable,
 		AssignableUsers: assignable,
 	}, nil
 }
@@ -218,12 +226,14 @@ func (h *TicketHandlers) index(w http.ResponseWriter, r *http.Request) {
 }
 
 // listData builds the full list payload for the given filters and page.
+// The search is scoped to the session actor (ticket-access spec): the
+// list shows only tickets within the actor's scope.
 func (h *TicketHandlers) listData(r *http.Request, f filterState, page int) (listData, error) {
 	opts, err := h.collectOptions(r)
 	if err != nil {
 		return listData{}, err
 	}
-	res, err := h.search.Search(r.Context(), f.query(), page)
+	res, err := h.search.Search(r.Context(), *userFromContext(r.Context()), f.query(), page)
 	if err != nil {
 		return listData{}, err
 	}
@@ -268,9 +278,10 @@ func (h *TicketHandlers) list(w http.ResponseWriter, r *http.Request) {
 // share it; 422 re-renders carry Error + the submitted values).
 type ticketFormData struct {
 	pageData
-	Error   string
-	Values  ticketFormValues
-	Options options
+	Error     string
+	Values    ticketFormValues
+	Options   options
+	CanAssign bool
 }
 
 type ticketFormValues struct {
@@ -291,6 +302,8 @@ func (h *TicketHandlers) newForm(w http.ResponseWriter, r *http.Request) {
 		pageData: pageDataFrom(r, "tickets"),
 		Values:   ticketFormValues{Priority: domain.PriorityMedium},
 		Options:  opts,
+		CanAssign: application.NewPolicy().Capabilities(userFromContext(r.Context()).Role).
+			Require(application.CapAssignTicket),
 	}
 	h.renderer.Render(w, r, "tickets_new", "ticket_form", data, http.StatusOK)
 }
@@ -378,6 +391,8 @@ func (h *TicketHandlers) renderCreateError(w http.ResponseWriter, r *http.Reques
 			Priority:    domain.Priority(r.Form.Get("priority")),
 		},
 		Options: opts,
+		CanAssign: application.NewPolicy().Capabilities(userFromContext(r.Context()).Role).
+			Require(application.CapAssignTicket),
 	}
 	_ = field // the inline banner is a single generic error block
 	h.renderer.Render(w, r, "tickets_new", "ticket_form", data, status)
@@ -418,6 +433,12 @@ type detailData struct {
 	Next    []transitionTarget
 	Options options
 	Values  ticketFormValues
+	// CanCommentInternal is the actor's comment-visibility capability
+	// (comment-visibility spec): the comment form offers the internal
+	// option only to agent+ actors. This is presentation only — the
+	// server-side use case rejects a forged internal value regardless of
+	// what the UI shows.
+	CanCommentInternal bool
 }
 
 // ticketID resolves and validates the {id} path parameter; 0 + false on a
@@ -427,9 +448,12 @@ func ticketID(r *http.Request) (int64, bool) {
 	return id, id != 0
 }
 
-// detailDataFor loads the composed view and builds the detail payload.
+// detailDataFor loads the composed view (scoped to the session actor:
+// out-of-scope tickets are denied as NotFound) and builds the detail
+// payload.
 func (h *TicketHandlers) detailDataFor(r *http.Request, id int64) (detailData, int, error) {
-	view, err := h.tickets.GetByID(r.Context(), id)
+	actor := *userFromContext(r.Context())
+	view, err := h.tickets.GetByID(r.Context(), actor, id)
 	if err != nil {
 		status, _ := mapError(err)
 		return detailData{}, status, err
@@ -442,17 +466,21 @@ func (h *TicketHandlers) detailDataFor(r *http.Request, id int64) (detailData, i
 		opts.AssignableUsers = append(opts.AssignableUsers, *view.AssignedUser)
 	}
 	values := ticketFormValues{
-		Priority: view.Ticket.Priority,
+		Title:       view.Ticket.Title,
+		Description: view.Ticket.Description,
+		CategoryID:  strconv.FormatInt(view.Ticket.CategoryID, 10),
+		Priority:    view.Ticket.Priority,
 	}
 	if view.Ticket.UserID != nil {
 		values.UserID = strconv.FormatInt(*view.Ticket.UserID, 10)
 	}
 	return detailData{
-		pageData: pageDataFrom(r, "tickets"),
-		View:     view,
-		Next:     allowedNext(view.Ticket.State),
-		Options:  opts,
-		Values:   values,
+		pageData:           pageDataFrom(r, "tickets"),
+		View:               view,
+		Next:               allowedNext(view.Ticket.State),
+		Options:            opts,
+		Values:             values,
+		CanCommentInternal: application.NewPolicy().Capabilities(actor.Role).Require(application.CapCommentInternal),
 	}, 0, nil
 }
 
@@ -504,7 +532,11 @@ func (h *TicketHandlers) addComment(w http.ResponseWriter, r *http.Request) {
 	}
 	actor := *userFromContext(r.Context())
 
-	_, err := h.comments.Add(r.Context(), actor, id, r.Form.Get("body"))
+	// S5: the visibility form field flows to the use case, which enforces
+	// the role rules (user public-only; agent+ both). The template renders
+	// the selector only for internal-capable actors; a forged internal value
+	// from a user-role actor is rejected here regardless of what the UI shows.
+	_, err := h.comments.Add(r.Context(), actor, id, r.Form.Get("body"), r.Form.Get("visibility"))
 	if err != nil {
 		h.renderDetailError(w, r, id, err)
 		return
@@ -520,6 +552,48 @@ func (h *TicketHandlers) addComment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	redirect(w, r, "/tickets/"+strconv.FormatInt(id, 10))
+}
+
+// assign applies the assignment form (assigned-to dropdown + optional
+// reason) via the Assign use case, which enforces the person-only rules:
+// agent+ actors only, active agent-plus target, reason required only for a
+// reassignment (ticket-access spec; approved decision). Empty user_id
+// clears the assignment. The form carries no other ticket fields — forged
+// values are ignored, matching the requester policy.
+func (h *TicketHandlers) assign(w http.ResponseWriter, r *http.Request) {
+	id, ok := ticketID(r)
+	if !ok {
+		http.Error(w, "invalid ticket id", http.StatusBadRequest)
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+	// Groups are membership-only in this iteration. Reject a forged group
+	// target instead of treating its missing user_id as an unassignment.
+	if r.Form.Get("group_id") != "" {
+		h.renderDetailError(w, r, id, &domain.ValidationError{Field: "group", Message: "groups cannot be ticket assignees"})
+		return
+	}
+	actor := *userFromContext(r.Context())
+
+	var assigneeID *int64
+	if raw := r.Form.Get("user_id"); raw != "" {
+		uid := parseID(raw)
+		if uid == 0 {
+			h.renderDetailError(w, r, id, &domain.ValidationError{Field: "user", Message: "invalid user"})
+			return
+		}
+		assigneeID = &uid
+	}
+
+	_, err := h.tickets.Assign(r.Context(), actor, id, assigneeID, r.Form.Get("reason"))
+	if err != nil {
+		h.renderDetailError(w, r, id, err)
+		return
+	}
+	h.afterMutation(w, r, id, "ticket_detail")
 }
 
 // renderDetailError re-renders the detail view with an inline error and the
@@ -554,9 +628,9 @@ func (h *TicketHandlers) afterMutation(w http.ResponseWriter, r *http.Request, i
 	redirect(w, r, "/tickets/"+strconv.FormatInt(id, 10))
 }
 
-// update applies the inline properties form (priority + assignment). The
-// immutable ticket fields (title, description, category) are never read from
-// the request: forged values are ignored, matching the requester policy.
+// update applies the inline properties form. Assignment is NOT part of the
+// edit flow: it lives on POST /tickets/{id}/assign, where the reason and
+// target rules are enforced (S4).
 func (h *TicketHandlers) update(w http.ResponseWriter, r *http.Request) {
 	id, ok := ticketID(r)
 	if !ok {
@@ -570,19 +644,18 @@ func (h *TicketHandlers) update(w http.ResponseWriter, r *http.Request) {
 	actor := *userFromContext(r.Context())
 
 	u := domain.TicketUpdate{}
+	title := r.Form.Get("title")
+	description := r.Form.Get("description")
+	categoryID := parseID(r.Form.Get("category_id"))
 	p := domain.Priority(r.Form.Get("priority"))
-	u.Priority = &p
-
-	if raw := r.Form.Get("user_id"); raw != "" {
-		uid := parseID(raw)
-		if uid == 0 {
-			h.renderEditError(w, r, id, &domain.ValidationError{Field: "user", Message: "invalid user"})
-			return
-		}
-		u.UserID = &uid
-	} else {
-		u.ClearUserID = true
+	u.Title = &title
+	u.Description = &description
+	if categoryID == 0 {
+		h.renderEditError(w, r, id, &domain.ValidationError{Field: "category", Message: "invalid category"})
+		return
 	}
+	u.CategoryID = &categoryID
+	u.Priority = &p
 
 	_, err := h.tickets.Update(r.Context(), actor, id, u)
 	if err != nil {
@@ -606,8 +679,11 @@ func (h *TicketHandlers) renderEditError(w http.ResponseWriter, r *http.Request,
 	}
 	data.Error = msg
 	data.Values = ticketFormValues{
-		UserID:   r.Form.Get("user_id"),
-		Priority: domain.Priority(r.Form.Get("priority")),
+		Title:       r.Form.Get("title"),
+		Description: r.Form.Get("description"),
+		CategoryID:  r.Form.Get("category_id"),
+		UserID:      r.Form.Get("user_id"),
+		Priority:    domain.Priority(r.Form.Get("priority")),
 	}
 	h.renderer.Render(w, r, "tickets_show", "ticket_detail", data, status)
 }

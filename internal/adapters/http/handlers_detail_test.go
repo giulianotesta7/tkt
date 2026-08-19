@@ -2,11 +2,13 @@ package httpadapter
 
 import (
 	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"strconv"
 	"strings"
 	"testing"
 
+	"github.com/giulianotesta7/tkt/internal/application"
 	"github.com/giulianotesta7/tkt/internal/domain"
 )
 
@@ -16,7 +18,7 @@ func TestTicketShowRendersDetail(t *testing.T) {
 	h := newHarness(t)
 	tkt := h.seedTicket(t, "Login page down", nil)
 	h.seedTransition(t, tkt.ID, domain.StateInProgress, "")
-	if _, err := h.comments.Add(t.Context(), *h.admin, tkt.ID, "Checking now"); err != nil {
+	if _, err := h.comments.Add(t.Context(), *h.admin, tkt.ID, "Checking now", "public"); err != nil {
 		t.Fatalf("seed comment: %v", err)
 	}
 
@@ -34,14 +36,19 @@ func TestTicketShowRendersDetail(t *testing.T) {
 	if strings.Contains(body, `href="/tickets/1/edit"`) {
 		t.Errorf("detail page must not expose the fallback edit screen, got: %s", body)
 	}
-	for _, want := range []string{`action="/tickets/1/edit"`, `id="ticket-priority"`, `id="ticket-user"`} {
+	for _, want := range []string{`action="/tickets/1/edit"`, `id="ticket-priority"`} {
 		if !strings.Contains(body, want) {
 			t.Errorf("inline properties form must contain %q, got: %s", want, body)
 		}
 	}
-	for _, banned := range []string{`id="ticket-title"`, `id="ticket-description"`, `id="ticket-category"`, `name="title"`, `name="description"`, `name="category_id"`} {
-		if strings.Contains(body, banned) {
-			t.Errorf("title/description/category must not be editable on detail, found %q in: %s", banned, body)
+	for _, want := range []string{`action="/tickets/1/assign"`, `id="assign-user"`} {
+		if !strings.Contains(body, want) {
+			t.Errorf("assignment form must contain %q, got: %s", want, body)
+		}
+	}
+	for _, want := range []string{`id="ticket-title"`, `id="ticket-description"`, `id="ticket-category"`, `name="title"`, `name="description"`, `name="category_id"`} {
+		if !strings.Contains(body, want) {
+			t.Errorf("title/description/category must be editable on detail, missing %q in: %s", want, body)
 		}
 	}
 	// Merged timeline DESC: the transition (newer) renders before created.
@@ -70,11 +77,34 @@ func TestTicketShowRendersConciseSemanticMetadata(t *testing.T) {
 	}
 }
 
+func TestAssignedAgentSeesTicketControls(t *testing.T) {
+	h := newHarness(t)
+	agent := h.createUser(t, "Agent", "agent@tkt.test", "secret")
+	ticket := h.seedTicket(t, "Assigned work", func(in *application.CreateTicketInput) { in.UserID = &agent.ID })
+	session := h.loginCookie(t, agent.Email, "secret")
+	if session == "" {
+		t.Fatal("agent login must succeed")
+	}
+	req := httptest.NewRequest(http.MethodGet, "/tickets/"+strconv.FormatInt(ticket.ID, 10), nil)
+	req.Header.Set("Cookie", sessionCookie+"="+session)
+	rec := httptest.NewRecorder()
+	h.mw.Wrap(h.mux).ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("assigned agent detail = %d, want 200", rec.Code)
+	}
+	body := rec.Body.String()
+	for _, want := range []string{`action="/tickets/1/transition"`, `name="to"`, `name="visibility"`} {
+		if !strings.Contains(body, want) {
+			t.Errorf("assigned agent controls must include %q", want)
+		}
+	}
+}
+
 func TestTicketTimelineDifferentiatesCommentsAndAuditEvents(t *testing.T) {
 	h := newHarness(t)
 	tkt := h.seedTicket(t, "Login page down", nil)
 	h.seedTransition(t, tkt.ID, domain.StateInProgress, "")
-	if _, err := h.comments.Add(t.Context(), *h.admin, tkt.ID, "Checking now"); err != nil {
+	if _, err := h.comments.Add(t.Context(), *h.admin, tkt.ID, "Checking now", "public"); err != nil {
 		t.Fatalf("seed comment: %v", err)
 	}
 
@@ -135,7 +165,7 @@ func TestTicketTransitionHappyPath(t *testing.T) {
 
 	wantRedirect(t, rec, http.StatusSeeOther, "/tickets/1")
 
-	view, err := h.tickets.GetByID(t.Context(), 1)
+	view, err := h.tickets.GetByID(t.Context(), *h.admin, 1)
 	if err != nil {
 		t.Fatalf("view: %v", err)
 	}
@@ -162,7 +192,7 @@ func TestTicketTransitionFullCycle(t *testing.T) {
 		wantRedirect(t, rec, http.StatusSeeOther, "/tickets/1")
 	}
 
-	view, err := h.tickets.GetByID(t.Context(), 1)
+	view, err := h.tickets.GetByID(t.Context(), *h.admin, 1)
 	if err != nil {
 		t.Fatalf("view: %v", err)
 	}
@@ -188,7 +218,7 @@ func TestTicketTransitionInvalid422(t *testing.T) {
 	if !strings.Contains(rec.Body.String(), "transition not allowed from new to closed") {
 		t.Errorf("re-render must show the transition message, got: %s", rec.Body.String())
 	}
-	view, err := h.tickets.GetByID(t.Context(), 1)
+	view, err := h.tickets.GetByID(t.Context(), *h.admin, 1)
 	if err != nil || view.Ticket.State != domain.StateNew {
 		t.Errorf("rejected transition must leave the state unchanged (state=%q, err=%v)", view.Ticket.State, err)
 	}
@@ -225,7 +255,7 @@ func TestTicketTransitionReopenWithReason(t *testing.T) {
 	rec := h.postForm(t, "/tickets/1/transition", url.Values{"to": {"in_progress"}, "reason": {"fix deployed"}}, false)
 
 	wantRedirect(t, rec, http.StatusSeeOther, "/tickets/1")
-	view, err := h.tickets.GetByID(t.Context(), 1)
+	view, err := h.tickets.GetByID(t.Context(), *h.admin, 1)
 	if err != nil {
 		t.Fatalf("view: %v", err)
 	}
@@ -270,7 +300,7 @@ func TestTicketCommentAdd(t *testing.T) {
 	rec := h.postForm(t, "/tickets/1/comments", url.Values{"body": {"Checking now"}}, false)
 
 	wantRedirect(t, rec, http.StatusSeeOther, "/tickets/1")
-	view, err := h.tickets.GetByID(t.Context(), 1)
+	view, err := h.tickets.GetByID(t.Context(), *h.admin, 1)
 	if err != nil {
 		t.Fatalf("view: %v", err)
 	}
@@ -296,7 +326,7 @@ func TestTicketCommentEmptyBody422(t *testing.T) {
 	if !strings.Contains(rec.Body.String(), domain.ErrMsgCommentBodyRequired) {
 		t.Errorf("re-render must show %q, got: %s", domain.ErrMsgCommentBodyRequired, rec.Body.String())
 	}
-	view, err := h.tickets.GetByID(t.Context(), 1)
+	view, err := h.tickets.GetByID(t.Context(), *h.admin, 1)
 	if err != nil || len(view.Comments) != 0 {
 		t.Errorf("no comment may be stored (len=%d, err=%v)", len(view.Comments), err)
 	}
@@ -314,7 +344,7 @@ func TestTicketCommentOnClosedTicket(t *testing.T) {
 	rec := h.postForm(t, "/tickets/1/comments", url.Values{"body": {"Late note"}}, false)
 
 	wantRedirect(t, rec, http.StatusSeeOther, "/tickets/1")
-	view, err := h.tickets.GetByID(t.Context(), 1)
+	view, err := h.tickets.GetByID(t.Context(), *h.admin, 1)
 	if err != nil || len(view.Comments) != 1 {
 		t.Errorf("comment on closed ticket must be stored (len=%d, err=%v)", len(view.Comments), err)
 	}
@@ -346,7 +376,7 @@ func TestTicketCommentsNewestFirst(t *testing.T) {
 	h := newHarness(t)
 	h.seedTicket(t, "Login page down", nil)
 	for _, body := range []string{"first", "second", "third"} {
-		if _, err := h.comments.Add(t.Context(), *h.admin, 1, body); err != nil {
+		if _, err := h.comments.Add(t.Context(), *h.admin, 1, body, "public"); err != nil {
 			t.Fatalf("seed comment %q: %v", body, err)
 		}
 	}
@@ -359,34 +389,38 @@ func TestTicketCommentsNewestFirst(t *testing.T) {
 }
 
 // TestTicketEditUpdatesPriorityAndAudits proves POST /tickets/{id}/edit
-// updates only priority/assignment, ignores forged immutable fields
-// (title/description/category), appends the audit event, and redirects.
+// updates every editable field, appends one audit event per change, and
+// redirects.
 func TestTicketEditUpdatesPriorityAndAudits(t *testing.T) {
 	h := newHarness(t)
 	h.seedTicket(t, "Login page down", nil)
+	support, err := h.categories.Create(t.Context(), "Support")
+	if err != nil {
+		t.Fatalf("create category: %v", err)
+	}
 
 	form := url.Values{
 		"title":       {"Login page is back"},
 		"description": {"Fixed the 500"},
-		"category_id": {"999"}, // nonexistent: must be ignored, not applied
+		"category_id": {strconv.FormatInt(support.ID, 10)},
 		"priority":    {"critical"},
 	}
 	rec := h.postForm(t, "/tickets/1/edit", form, false)
 
 	wantRedirect(t, rec, http.StatusSeeOther, "/tickets/1")
 
-	view, err := h.tickets.GetByID(t.Context(), 1)
+	view, err := h.tickets.GetByID(t.Context(), *h.admin, 1)
 	if err != nil {
 		t.Fatalf("view: %v", err)
 	}
 	if view.Ticket.Priority != domain.PriorityCritical {
 		t.Errorf("priority = %q, want critical", view.Ticket.Priority)
 	}
-	if view.Ticket.Title != "Login page down" {
-		t.Errorf("title = %q, want immutable original", view.Ticket.Title)
+	if view.Ticket.Title != "Login page is back" || view.Ticket.Description != "Fixed the 500" {
+		t.Errorf("editable text fields = %q / %q", view.Ticket.Title, view.Ticket.Description)
 	}
-	if view.Ticket.CategoryID != h.bugCategory.ID {
-		t.Errorf("category = %d, want immutable original", view.Ticket.CategoryID)
+	if view.Ticket.CategoryID != support.ID {
+		t.Errorf("category = %d, want %d", view.Ticket.CategoryID, support.ID)
 	}
 	var fields []string
 	for _, ev := range view.AuditEvents {
@@ -395,11 +429,10 @@ func TestTicketEditUpdatesPriorityAndAudits(t *testing.T) {
 		}
 	}
 	joined := strings.Join(fields, ",")
-	if !strings.Contains(joined, "priority") {
-		t.Errorf("audit must record the priority change, got %v", fields)
-	}
-	if strings.Contains(joined, "title") || strings.Contains(joined, "category") || strings.Contains(joined, "description") {
-		t.Errorf("audit must not record immutable field changes, got %v", fields)
+	for _, field := range []string{"title", "description", "category", "priority"} {
+		if !strings.Contains(joined, field) {
+			t.Errorf("audit must record %s change, got %v", field, fields)
+		}
 	}
 }
 
@@ -409,7 +442,7 @@ func TestTicketEditInvalidPriority422(t *testing.T) {
 	h := newHarness(t)
 	h.seedTicket(t, "Login page down", nil)
 
-	form := url.Values{"priority": {"urgent"}}
+	form := url.Values{"title": {"Login page down"}, "description": {""}, "category_id": {"1"}, "priority": {"urgent"}}
 	rec := h.postForm(t, "/tickets/1/edit", form, false)
 
 	if rec.Code != http.StatusUnprocessableEntity {
@@ -418,36 +451,35 @@ func TestTicketEditInvalidPriority422(t *testing.T) {
 	if !strings.Contains(rec.Body.String(), domain.ErrMsgInvalidPriority) {
 		t.Errorf("re-render must show %q, got: %s", domain.ErrMsgInvalidPriority, rec.Body.String())
 	}
-	view, err := h.tickets.GetByID(t.Context(), 1)
+	view, err := h.tickets.GetByID(t.Context(), *h.admin, 1)
 	if err != nil || view.Ticket.Priority != domain.PriorityMedium || view.Ticket.Title != "Login page down" {
 		t.Errorf("rejected edit must change nothing (title=%q priority=%q err=%v)", view.Ticket.Title, view.Ticket.Priority, err)
 	}
 }
 
-// TestTicketEditUnassign proves clearing the assignment via the edit form
-// works.
+// TestTicketAssignClearsAssignment proves clearing the assignment through
+// the assign form works (the S4 replacement for the old edit-form unassign).
 func TestTicketEditUnassign(t *testing.T) {
 	h := newHarness(t)
 	beto := h.createUser(t, "Beto", "beto@example.com", "secret")
 	h.seedTicket(t, "Login page down", nil)
-	// Assign beto through an edit, then unassign through another edit.
+	// Assign beto through the assign route, then unassign through it again.
 	form := url.Values{
-		"priority": {"medium"},
-		"user_id":  {strconv.FormatInt(beto.ID, 10)},
+		"user_id": {strconv.FormatInt(beto.ID, 10)},
 	}
-	if rec := h.postForm(t, "/tickets/1/edit", form, false); rec.Code != http.StatusSeeOther {
-		t.Fatalf("assign edit status = %d", rec.Code)
+	if rec := h.postForm(t, "/tickets/1/assign", form, false); rec.Code != http.StatusSeeOther {
+		t.Fatalf("assign status = %d", rec.Code)
 	}
-	view, err := h.tickets.GetByID(t.Context(), 1)
+	view, err := h.tickets.GetByID(t.Context(), *h.admin, 1)
 	if err != nil || view.AssignedUser == nil || view.AssignedUser.ID != beto.ID {
 		t.Fatalf("assignment failed: %+v err=%v", view.AssignedUser, err)
 	}
 
-	clearForm := url.Values{"priority": {"medium"}, "user_id": {""}}
-	rec := h.postForm(t, "/tickets/1/edit", clearForm, false)
+	clearForm := url.Values{"user_id": {""}}
+	rec := h.postForm(t, "/tickets/1/assign", clearForm, false)
 	wantRedirect(t, rec, http.StatusSeeOther, "/tickets/1")
 
-	view, err = h.tickets.GetByID(t.Context(), 1)
+	view, err = h.tickets.GetByID(t.Context(), *h.admin, 1)
 	if err != nil || view.AssignedUser != nil {
 		t.Errorf("unassign failed: assigned=%+v err=%v", view.AssignedUser, err)
 	}
@@ -459,7 +491,7 @@ func TestTicketEditHXFragment(t *testing.T) {
 	h := newHarness(t)
 	h.seedTicket(t, "Login page down", nil)
 
-	form := url.Values{"priority": {"high"}}
+	form := url.Values{"title": {"Login page restored"}, "description": {"Fixed"}, "category_id": {"1"}, "priority": {"high"}}
 	rec := h.postForm(t, "/tickets/1/edit", form, true)
 
 	if rec.Code != http.StatusOK {
@@ -474,16 +506,19 @@ func TestTicketEditHXFragment(t *testing.T) {
 	}
 }
 
+// TestTicketEditTimelineResolvesAssignedUserName proves the assignment
+// event resolves the assigned user's name on the timeline — the assignment
+// now flows through POST /tickets/{id}/assign (S4: the single assignment
+// path).
 func TestTicketEditTimelineResolvesAssignedUserName(t *testing.T) {
 	h := newHarness(t)
 	beto := h.createUser(t, "Beto", "beto@example.com", "secret")
 	h.seedTicket(t, "Login page down", nil)
 
 	form := url.Values{
-		"priority": {"medium"},
-		"user_id":  {strconv.FormatInt(beto.ID, 10)},
+		"user_id": {strconv.FormatInt(beto.ID, 10)},
 	}
-	rec := h.postForm(t, "/tickets/1/edit", form, false)
+	rec := h.postForm(t, "/tickets/1/assign", form, false)
 	wantRedirect(t, rec, http.StatusSeeOther, "/tickets/1")
 
 	body := h.get(t, "/tickets/1", false).Body.String()
@@ -492,5 +527,188 @@ func TestTicketEditTimelineResolvesAssignedUserName(t *testing.T) {
 	}
 	if strings.Contains(body, "Assigned To · Unassigned → "+strconv.FormatInt(beto.ID, 10)) {
 		t.Errorf("assignment event must not expose the user id, got: %s", body)
+	}
+}
+
+// --- S4: assignment + transition authorization (runtime harness) -----------
+
+// TestTicketAssignInitialHappyPath proves POST /tickets/{id}/assign assigns
+// an active agent-plus person to an unassigned ticket WITHOUT a reason and
+// records the assignment event with the session actor (spec: "Initial
+// assignment without reason").
+func TestTicketAssignInitialHappyPath(t *testing.T) {
+	h := newHarness(t)
+	beto := h.createUser(t, "Beto", "beto@example.com", "secret")
+	h.seedTicket(t, "Login page down", nil)
+
+	rec := h.postForm(t, "/tickets/1/assign", url.Values{"user_id": {strconv.FormatInt(beto.ID, 10)}}, false)
+	wantRedirect(t, rec, http.StatusSeeOther, "/tickets/1")
+
+	view, err := h.tickets.GetByID(t.Context(), *h.admin, 1)
+	if err != nil {
+		t.Fatalf("view: %v", err)
+	}
+	if view.AssignedUser == nil || view.AssignedUser.ID != beto.ID {
+		t.Fatalf("assigned = %+v, want beto", view.AssignedUser)
+	}
+	// Assignment audit event: session actor id, no reason.
+	assignEv := view.AuditEvents[len(view.AuditEvents)-1]
+	if assignEv.Reason != nil {
+		t.Errorf("initial assignment must record no reason, got %q", *assignEv.Reason)
+	}
+	if assignEv.ActorUserID == nil || *assignEv.ActorUserID != h.admin.ID {
+		t.Errorf("assignment event ActorUserID = %v, want session admin %d", assignEv.ActorUserID, h.admin.ID)
+	}
+	body := h.get(t, "/tickets/1", false).Body.String()
+	if !strings.Contains(body, "Update · Assigned To · Unassigned → Beto") {
+		t.Errorf("timeline must resolve the assignee name, got: %s", body)
+	}
+}
+
+// TestTicketAssignReassignRequiresReason proves a reassignment (A → B)
+// without a reason is rejected 422 and the assignment stays; with a reason
+// it succeeds and the reason is shown in the timeline (approved decision:
+// reason required only for reassignment).
+func TestTicketAssignReassignRequiresReason(t *testing.T) {
+	h := newHarness(t)
+	beto := h.createUser(t, "Beto", "beto@example.com", "secret")
+	carla := h.createUser(t, "Carla", "carla@example.com", "secret")
+	h.seedTicket(t, "Login page down", nil)
+	if rec := h.postForm(t, "/tickets/1/assign", url.Values{"user_id": {strconv.FormatInt(beto.ID, 10)}}, false); rec.Code != http.StatusSeeOther {
+		t.Fatalf("initial assign status = %d, want 303", rec.Code)
+	}
+
+	// Reassignment without a reason: 422 + message, assignment unchanged.
+	rec := h.postForm(t, "/tickets/1/assign", url.Values{"user_id": {strconv.FormatInt(carla.ID, 10)}}, false)
+	if rec.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("status = %d, want 422", rec.Code)
+	}
+	if !strings.Contains(rec.Body.String(), domain.ErrMsgReassignReasonRequired) {
+		t.Errorf("re-render must show %q, got: %s", domain.ErrMsgReassignReasonRequired, rec.Body.String())
+	}
+	view, _ := h.tickets.GetByID(t.Context(), *h.admin, 1)
+	if view.AssignedUser == nil || view.AssignedUser.ID != beto.ID {
+		t.Fatalf("rejected reassignment must keep beto, got %+v", view.AssignedUser)
+	}
+
+	// Reassignment with a reason: succeeds, reason rendered in the timeline.
+	rec = h.postForm(t, "/tickets/1/assign", url.Values{"user_id": {strconv.FormatInt(carla.ID, 10)}, "reason": {"handoff to second-line"}}, false)
+	wantRedirect(t, rec, http.StatusSeeOther, "/tickets/1")
+	view, _ = h.tickets.GetByID(t.Context(), *h.admin, 1)
+	if view.AssignedUser == nil || view.AssignedUser.ID != carla.ID {
+		t.Fatalf("reassigned = %+v, want carla", view.AssignedUser)
+	}
+	body := h.get(t, "/tickets/1", false).Body.String()
+	if !strings.Contains(body, "reason: handoff to second-line") {
+		t.Errorf("timeline must render the reassignment reason, got: %s", body)
+	}
+}
+
+// TestTicketAssignUnassign proves clearing the assignment via the assign
+// form (empty user_id) works and is audited (person → unassigned).
+func TestTicketAssignUnassign(t *testing.T) {
+	h := newHarness(t)
+	beto := h.createUser(t, "Beto", "beto@example.com", "secret")
+	h.seedTicket(t, "Login page down", nil)
+	if rec := h.postForm(t, "/tickets/1/assign", url.Values{"user_id": {strconv.FormatInt(beto.ID, 10)}}, false); rec.Code != http.StatusSeeOther {
+		t.Fatalf("assign status = %d", rec.Code)
+	}
+	view, err := h.tickets.GetByID(t.Context(), *h.admin, 1)
+	if err != nil || view.AssignedUser == nil || view.AssignedUser.ID != beto.ID {
+		t.Fatalf("assignment failed: %+v err=%v", view.AssignedUser, err)
+	}
+
+	rec := h.postForm(t, "/tickets/1/assign", url.Values{"user_id": {""}}, false)
+	wantRedirect(t, rec, http.StatusSeeOther, "/tickets/1")
+
+	view, err = h.tickets.GetByID(t.Context(), *h.admin, 1)
+	if err != nil || view.AssignedUser != nil {
+		t.Errorf("unassign failed: assigned=%+v err=%v", view.AssignedUser, err)
+	}
+}
+
+// TestTicketAssignUserRoleDenied proves a user-role actor cannot assign
+// (spec: "User role cannot assign") — 422 with the dedicated message, even
+// when posting a valid agent-plus target (the capability gate fires before
+// any target or ticket logic).
+func TestTicketAssignUserRoleDenied(t *testing.T) {
+	h := newHarness(t)
+	user := seedUserRole(t, h.store, "Ula", "ula@example.com", domain.RoleUser)
+	sess := seedSession(t, h.store, user.ID)
+	beto := h.createUser(t, "Beto", "beto@example.com", "secret")
+	rec := h.postFormAs(t, "/tickets", url.Values{
+		"title":       {"My ticket"},
+		"category_id": {strconv.FormatInt(h.bugCategory.ID, 10)},
+		"priority":    {"medium"},
+	}, sess.ID)
+	if rec.Code != http.StatusSeeOther {
+		t.Fatalf("create status = %d, want 303", rec.Code)
+	}
+
+	rec = h.postFormAs(t, "/tickets/1/assign", url.Values{"user_id": {strconv.FormatInt(beto.ID, 10)}}, sess.ID)
+	if rec.Code != http.StatusUnprocessableEntity {
+		t.Errorf("status = %d, want 422", rec.Code)
+	}
+	if !strings.Contains(rec.Body.String(), domain.ErrMsgUserRoleCannotAssign) {
+		t.Errorf("re-render must show %q, got: %s", domain.ErrMsgUserRoleCannotAssign, rec.Body.String())
+	}
+	view, err := h.tickets.GetByID(t.Context(), *h.admin, 1)
+	if err != nil || view.AssignedUser != nil {
+		t.Errorf("denied assign must leave the ticket unassigned, got %+v err=%v", view.AssignedUser, err)
+	}
+}
+
+// TestTicketAssignTargetUserRoleRejected proves the assignment target must
+// be agent-plus: an active user-role account is rejected 422 (spec:
+// "Assignment target must be agent-plus").
+func TestTicketAssignTargetUserRoleRejected(t *testing.T) {
+	h := newHarness(t)
+	user := seedUserRole(t, h.store, "Ula", "ula@example.com", domain.RoleUser)
+	h.seedTicket(t, "Login page down", nil)
+
+	rec := h.postForm(t, "/tickets/1/assign", url.Values{"user_id": {strconv.FormatInt(user.ID, 10)}}, false)
+	if rec.Code != http.StatusUnprocessableEntity {
+		t.Errorf("status = %d, want 422", rec.Code)
+	}
+	if !strings.Contains(rec.Body.String(), domain.ErrMsgAssignTargetRole) {
+		t.Errorf("re-render must show %q, got: %s", domain.ErrMsgAssignTargetRole, rec.Body.String())
+	}
+	view, _ := h.tickets.GetByID(t.Context(), *h.admin, 1)
+	if view.AssignedUser != nil {
+		t.Errorf("rejected target must leave the ticket unassigned, got %+v", view.AssignedUser)
+	}
+}
+
+// TestTicketTransitionUserDenied proves a user-role actor gets 403 when
+// transitioning their own ticket and the state stays unchanged (spec: "User
+// role cannot transition"; design: server-side enforcement before state
+// change).
+func TestTicketTransitionUserDenied(t *testing.T) {
+	h := newHarness(t)
+	user := seedUserRole(t, h.store, "Ula", "ula@example.com", domain.RoleUser)
+	sess := seedSession(t, h.store, user.ID)
+
+	rec := h.postFormAs(t, "/tickets", url.Values{
+		"title":       {"My ticket"},
+		"category_id": {strconv.FormatInt(h.bugCategory.ID, 10)},
+		"priority":    {"medium"},
+	}, sess.ID)
+	if rec.Code != http.StatusSeeOther {
+		t.Fatalf("create status = %d, want 303", rec.Code)
+	}
+
+	rec = h.postFormAs(t, "/tickets/1/transition", url.Values{"to": {"in_progress"}}, sess.ID)
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("status = %d, want 403", rec.Code)
+	}
+	if !strings.Contains(rec.Body.String(), domain.ErrMsgUserCannotTransition) {
+		t.Errorf("re-render must show %q, got: %s", domain.ErrMsgUserCannotTransition, rec.Body.String())
+	}
+	view, err := h.tickets.GetByID(t.Context(), *h.admin, 1)
+	if err != nil {
+		t.Fatalf("view: %v", err)
+	}
+	if view.Ticket.State != domain.StateNew {
+		t.Errorf("denied transition must leave state %q, got %q", domain.StateNew, view.Ticket.State)
 	}
 }

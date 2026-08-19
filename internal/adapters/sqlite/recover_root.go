@@ -25,9 +25,9 @@ import (
 // immutability triggers (which fire only when OLD.role = 'root') do not
 // interfere. Recovery never guesses: the operator's id is the only input.
 func (us *userStore) RecoverRoot(ctx context.Context, id int64) (*domain.User, error) {
-	tx, err := us.db.BeginTx(ctx, nil) // _txlock=immediate → BEGIN IMMEDIATE
+	tx, err := beginImmediate(ctx, us.db, "recover root")
 	if err != nil {
-		return nil, fmt.Errorf("sqlite: begin recover root: %w", err)
+		return nil, err
 	}
 	defer tx.Rollback()
 

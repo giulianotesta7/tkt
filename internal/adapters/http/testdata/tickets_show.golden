@@ -270,6 +270,9 @@ textarea{min-height:84px;resize:vertical}
   .filter-bar select,.filter-bar .btn{flex:1;min-width:calc(50% - 6px)}
   .evidence{grid-template-columns:1fr}
   .field-row{grid-template-columns:1fr}
+  .category-card{align-items:flex-start;flex-direction:column}
+  .category-card .row-actions{flex-wrap:wrap}
+  .category-card .row-actions form{max-width:100%}
   .ticket-metadata{display:grid;gap:3px}
   .ticket-metadata span+span::before{content:none}
   .auth-entry__form-panel{padding-left:20px;padding-right:20px}
@@ -285,12 +288,9 @@ textarea{min-height:84px;resize:vertical}
       <a class="rail-link active" href="/tickets" title="Tickets" aria-label="Tickets">
         <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v1a2 2 0 0 0 0 4v1a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-1a2 2 0 0 0 0-4V9z"/><path d="M13 7v10"/></svg>
       </a>
-      <a class="rail-link" href="/users" title="Users" aria-label="Users">
-        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0"/><circle cx="17.5" cy="9" r="2.5"/><path d="M16 14.6a6 6 0 0 1 5.5 5.4"/></svg>
-      </a>
-      <a class="rail-link" href="/categories" title="Categories" aria-label="Categories">
-        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h6l2 2.5H20a1 1 0 0 1 1 1V19a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1z"/></svg>
-      </a>
+      
+      
+      
     </nav>
     <div class="rail-operator" title="Ana Torres">AT</div>
     <form class="rail-logout" method="post" action="/logout">
@@ -332,6 +332,9 @@ textarea{min-height:84px;resize:vertical}
   <div class="field">
     <textarea name="body" placeholder="Write a comment…" aria-label="Comment body"></textarea>
   </div>
+
+  <input type="hidden" name="visibility" value="public">
+
   <button class="btn primary" type="submit">Add comment</button>
 </form>
 
@@ -390,26 +393,44 @@ textarea{min-height:84px;resize:vertical}
     <div class="evidence">
       <form class="card property-form" method="post" action="/tickets/1/edit">
         <h2>Properties</h2>
-        <dl class="kv">
-          <dt>Category</dt>
-          <dd>Bugs</dd>
-        </dl>
+        <div class="field">
+          <label for="ticket-title">Title</label>
+          <input id="ticket-title" name="title" value="Login page down" required>
+        </div>
+        <div class="field">
+          <label for="ticket-description">Description</label>
+          <textarea id="ticket-description" name="description">The login form 500s on submit</textarea>
+        </div>
         <div class="field-row">
+          <div class="field">
+            <label for="ticket-category">Category</label>
+            <select id="ticket-category" name="category_id">
+              <option value="1" selected>Bugs</option>
+            </select>
+          </div>
           <div class="field">
             <label for="ticket-priority">Priority</label>
             <select id="ticket-priority" name="priority">
               <option value="critical" >Critical</option><option value="high" selected>High</option><option value="medium" >Medium</option><option value="low" >Low</option>
             </select>
           </div>
-          <div class="field">
-            <label for="ticket-user">Assigned To</label>
-            <select id="ticket-user" name="user_id">
-              <option value="">Unassigned</option>
-              <option value="1" selected>Ana Torres</option>
-            </select>
-          </div>
         </div>
         <button class="btn primary" type="submit">Save properties</button>
+      </form>
+      <form class="card property-form" method="post" action="/tickets/1/assign">
+        <h2>Assignment</h2>
+        <div class="field">
+          <label for="assign-user">Assigned To</label>
+          <select id="assign-user" name="user_id">
+            <option value="">Unassigned</option>
+            <option value="1" selected>Ana Torres</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="assign-reason">Reason</label>
+          <input type="text" id="assign-reason" name="reason" placeholder="Required when reassigning">
+        </div>
+        <button class="btn primary" type="submit">Save assignment</button>
       </form>
       <div class="card state-card">
         <h2>State</h2>

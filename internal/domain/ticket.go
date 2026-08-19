@@ -16,14 +16,20 @@ type Ticket struct {
 	Description    string
 	RequesterName  string
 	RequesterEmail string
-	CategoryID     int64
-	UserID         *int64 // nil = unassigned
-	Priority       Priority
-	State          State
-	CreatedAt      time.Time
-	UpdatedAt      time.Time
-	ResolvedAt     *time.Time
-	ClosedAt       *time.Time
+	// RequesterUserID is the immutable creating-session user id
+	// (ticket-access spec): persisted from the session at creation, never
+	// supplied or edited by a caller. NULL means "legacy ticket without a
+	// provable creator" — visible to roles agent+ only, never attributed
+	// to a guessed user.
+	RequesterUserID *int64
+	CategoryID      int64
+	UserID          *int64 // nil = unassigned
+	Priority        Priority
+	State           State
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
+	ResolvedAt      *time.Time
+	ClosedAt        *time.Time
 }
 
 // Transition validates a move against the 5x5 matrix and, when legal, applies

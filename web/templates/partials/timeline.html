@@ -5,7 +5,8 @@
   <div class="timeline-entry timeline-comment">
     <div class="who">
       <span class="author">{{.Comment.Author}}</span>
-      <span class="when">{{template "timestamp" .Comment.CreatedAt}}</span>
+{{if eq .Comment.Visibility "internal"}}      <span class="badge internal">internal</span>
+{{end}}      <span class="when">{{template "timestamp" .Comment.CreatedAt}}</span>
     </div>
     <div class="body">{{.Comment.Body}}</div>
   </div>
@@ -14,7 +15,8 @@
     <span class="dot {{.Event.Action}}"></span>
     <div class="body">
       <div class="main">{{.ActionLabel}}{{if .FieldLabel}} · {{.FieldLabel}}{{end}}{{if .Event.FromValue}} · {{.FromLabel}} → {{.ToLabel}}{{end}}</div>
-{{if .Event.Note}}      <div class="detail">note: {{.Event.Note}}</div>
+{{if .Event.Reason}}      <div class="detail">reason: {{.Event.Reason}}</div>
+{{else if .Event.Note}}      <div class="detail">note: {{.Event.Note}}</div>
 {{end}}
       <div class="when">{{template "timestamp" .Event.CreatedAt}} · {{.Event.Actor}}</div>
     </div>

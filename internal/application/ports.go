@@ -5,6 +5,7 @@ package application
 
 import (
 	"context"
+	"time"
 
 	"github.com/giulianotesta7/tkt/internal/domain"
 )
@@ -27,8 +28,12 @@ type TicketStore interface {
 	Create(ctx context.Context, t *domain.Ticket) error
 	// Update persists the ticket's fields, state, and timestamps.
 	Update(ctx context.Context, t *domain.Ticket) error
-	// GetByID returns the ticket or ErrNotFound.
-	GetByID(ctx context.Context, id int64) (*domain.Ticket, error)
+	// GetByID returns the ticket or ErrNotFound, restricted to the actor's
+	// ticket access scope carried in q (ticket-access spec): a ticket
+	// outside the actor's scope is indistinguishable from a missing one
+	// (ErrNotFound — no existence leak). Only the scope restriction of q
+	// applies; the filter fields are ignored.
+	GetByID(ctx context.Context, id int64, q TicketQuery) (*domain.Ticket, error)
 	// List returns tickets matching q, ordered created_at DESC, id DESC (D2),
 	// limited by p.
 	List(ctx context.Context, q TicketQuery, p Page) ([]domain.Ticket, error)
@@ -73,10 +78,17 @@ type SearchStore interface {
 // CommentStore persists the append-only comment timeline
 // (comment-timeline spec).
 type CommentStore interface {
-	// Add stores c, assigning c.ID.
+	// Add stores c, assigning c.ID. c.Visibility is persisted; an empty
+	// visibility falls back to 'public' (migration 0003 default — legacy
+	// comments backfill to public, and legacy callers keep producing
+	// public comments).
 	Add(ctx context.Context, c *domain.Comment) error
 	// ListByTicket returns the ticket's comments in creation order (ASC).
-	ListByTicket(ctx context.Context, ticketID int64) ([]domain.Comment, error)
+	// includeInternal controls the internal (staff-only) rows: false
+	// excludes them at the SQL boundary, so a user-role actor never
+	// receives internal content (comment-visibility spec — filtering
+	// precedes composition, it is not markup hiding).
+	ListByTicket(ctx context.Context, ticketID int64, includeInternal bool) ([]domain.Comment, error)
 }
 
 // AuditStore persists the append-only audit trail (audit-log spec).
@@ -90,9 +102,13 @@ type AuditStore interface {
 // UserStore persists managed users (user-management spec).
 type UserStore interface {
 	// Create stores u, assigning u.ID; ErrDuplicate when the email exists.
+	// u.Role is persisted when set; a zero Role falls back to the migration
+	// default ('agent') so legacy callers keep working.
 	Create(ctx context.Context, u *domain.User) error
 	// Update persists the user's fields, including deactivation (Active).
 	Update(ctx context.Context, u *domain.User) error
+	// ChangeRole atomically persists a permitted role change and its audit row.
+	ChangeRole(ctx context.Context, userID, actorID int64, from, to domain.Role, at time.Time) error
 	// Delete removes an unreferenced user; ErrReferenced when the user is
 	// assigned to tickets (deactivation is the removal path then).
 	Delete(ctx context.Context, id int64) error
@@ -107,6 +123,14 @@ type UserStore interface {
 	List(ctx context.Context) ([]domain.User, error)
 	// ListActive returns only active users.
 	ListActive(ctx context.Context) ([]domain.User, error)
+	// BootstrapRoot creates the very first user with role root ATOMICALLY
+	// (role-authorization "First-User Root Bootstrap"). The count check and
+	// the insert share one immediate transaction, so concurrent calls yield
+	// exactly one root; every later call fails with
+	// ErrBootstrapUnavailable without creating an account. BootstrapRoot is
+	// the ONLY store operation that may insert a root — user creation and
+	// role-grant flows must never do so.
+	BootstrapRoot(ctx context.Context, u *domain.User) error
 	// RecoverRoot is the one-shot operator-selected root recovery (design
 	// "Persistence and Recovery"; role-authorization "Operator-Selected Root
 	// Recovery"). In one immediate transaction it verifies NO root exists
@@ -144,9 +168,28 @@ type CategoryStore interface {
 	List(ctx context.Context) ([]domain.Category, error)
 }
 
+// GroupStore persists named groups and their N:N memberships. Membership is
+// limited to agent-plus users by both the application and SQLite triggers.
+type GroupStore interface {
+	Create(ctx context.Context, g *domain.Group) error
+	Update(ctx context.Context, g *domain.Group) error
+	Delete(ctx context.Context, id int64) error
+	GetByID(ctx context.Context, id int64) (*domain.Group, error)
+	List(ctx context.Context) ([]domain.Group, error)
+	AddMember(ctx context.Context, groupID, userID int64, createdAt time.Time) error
+	RemoveMember(ctx context.Context, groupID, userID int64) error
+	ListMembers(ctx context.Context, groupID int64) ([]domain.User, error)
+}
+
 // TicketQuery is the filter set shared by list, count, and search queries
 // (ticket-search spec). All active filters compose with AND semantics; an
-// empty filter set returns all tickets.
+// empty filter set returns all tickets within the actor's scope.
+//
+// Scope carries the actor's ticket access scope (ticket-access spec) and is
+// stamped by the application use cases from the session role BEFORE any
+// store call — scoped methods exclude unauthorized rows so the store never
+// returns tickets outside the actor's scope. The zero value (ScopeNone)
+// fails closed: an unscoped query returns no rows.
 type TicketQuery struct {
 	State      *domain.State
 	Priority   *domain.Priority
@@ -161,6 +204,13 @@ type TicketQuery struct {
 	// SortByPriority orders results by the D11 priority rank
 	// (critical > high > medium > low) before the created/id tiebreak.
 	SortByPriority bool
+	// Scope restricts the query to the actor's ticket access scope
+	// (ticket-access spec): ScopeOwned → requester = self, ScopeAssigned →
+	// assignee = self, ScopeAll → full queue. ScopeNone (zero) denies all.
+	Scope TicketScope
+	// ActorID is the session user whose scope applies (the requester for
+	// ScopeOwned, the assignee for ScopeAssigned).
+	ActorID int64
 }
 
 // Page is the pagination window (D2). Limit is FIXED at 10 — the service

@@ -72,6 +72,22 @@ func TestUserCreateSuccess(t *testing.T) {
 	}
 }
 
+func TestUserCreateDeniedForNonAdmin(t *testing.T) {
+	h := newHarness(t)
+	user, err := h.users.Create(t.Context(), *h.admin, application.CreateUserInput{Name: "User", Email: "user@tkt.test", Password: "secret"})
+	if err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+	session := h.loginCookie(t, user.Email, "secret")
+	if session == "" {
+		t.Fatal("user login must succeed")
+	}
+	rec := h.postFormAs(t, "/users", userForm(nil), session)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("user POST /users = %d, want 403", rec.Code)
+	}
+}
+
 // TestUserCreateDuplicateEmail409 proves duplicate emails are rejected with
 // a 409 and the message is re-rendered (create-user spec).
 func TestUserCreateDuplicateEmail409(t *testing.T) {
@@ -380,4 +396,294 @@ func TestStaticServesVendoredHtmx(t *testing.T) {
 	if !strings.Contains(body, "htmx") || len(body) < 10000 {
 		t.Errorf("body must be the vendored htmx script, got %d bytes", len(body))
 	}
+}
+
+// TestRootAccountRejectedAtHTTP proves the root invariants end to end (task
+// 2.4; role-authorization "Nobody touches root"): an authenticated operator
+// editing or deleting the root account is refused with 403 and the root row
+// stays untouched. The root is bootstrapped through the real store port, so
+// the whole handler → use-case → guard chain runs.
+func TestRootAccountRejectedAtHTTP(t *testing.T) {
+	h := newHarness(t)
+	ctx := context.Background()
+
+	// Seed a root through the real store port with an explicit role (the
+	// harness admin is a regular agent-role user, so it cannot bootstrap a
+	// root itself — and BootstrapRoot correctly refuses once users exist).
+	// The store port persists the role; the DB allows exactly one root row.
+	root := &domain.User{Name: "Root", Email: "root@example.com", PasswordHash: "hash",
+		Role: domain.RoleRoot, Active: true, CreatedAt: fixedNow}
+	if err := h.store.UserStore().Create(ctx, root); err != nil {
+		t.Fatalf("seed root: %v", err)
+	}
+
+	// Edit (including deactivate) is refused with 403.
+	editForm := url.Values{
+		"name":   {"Hacker"},
+		"email":  {"hack@example.com"},
+		"active": {"false"},
+	}
+	rec := h.postForm(t, "/users/"+strconv.FormatInt(root.ID, 10)+"/edit", editForm, false)
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("edit root status = %d, want 403", rec.Code)
+	}
+	if !strings.Contains(rec.Body.String(), domain.ErrMsgRootProtected) {
+		t.Errorf("edit root body must show %q, got: %s", domain.ErrMsgRootProtected, rec.Body.String())
+	}
+
+	// Delete is refused with 403.
+	rec = h.postForm(t, "/users/"+strconv.FormatInt(root.ID, 10)+"/delete", url.Values{}, false)
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("delete root status = %d, want 403", rec.Code)
+	}
+
+	// The root row is untouched: active, role root, original identity.
+	got, err := h.store.UserStore().GetByID(ctx, root.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Name != "Root" || got.Email != "root@example.com" {
+		t.Errorf("root mutated = %+v, want unchanged", got)
+	}
+	if !got.Active {
+		t.Error("root must remain active")
+	}
+	if got.Role != domain.RoleRoot {
+		t.Errorf("root role = %q, want %q", got.Role, domain.RoleRoot)
+	}
+}
+
+// S7.4 RED: hidden management UI never substitutes for server authorization.
+// A user direct-requesting management pages and forging a category POST gets
+// denied before any restricted data or mutation is reached.
+func TestManagementRoutesDenyDirectUserRequests(t *testing.T) {
+	h := newHarness(t)
+	user := seedUserRole(t, h.store, "User", "user@tkt.test", domain.RoleUser)
+	session := seedSession(t, h.store, user.ID)
+
+	for _, target := range []string{"/users", "/categories"} {
+		req := httptest.NewRequest(http.MethodGet, target, nil)
+		req.Header.Set("Cookie", sessionCookie+"="+session.ID)
+		rec := httptest.NewRecorder()
+		h.mw.Wrap(h.mux).ServeHTTP(rec, req)
+		if rec.Code != http.StatusForbidden {
+			t.Errorf("GET %s status = %d, want 403", target, rec.Code)
+		}
+		if strings.Contains(rec.Body.String(), "admin@tkt.test") || strings.Contains(rec.Body.String(), "Bugs") {
+			t.Errorf("GET %s leaked management data: %s", target, rec.Body.String())
+		}
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/categories", strings.NewReader(url.Values{"name": {"Forged"}}.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Cookie", sessionCookie+"="+session.ID)
+	rec := httptest.NewRecorder()
+	h.mw.Wrap(h.mux).ServeHTTP(rec, req)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("POST /categories status = %d, want 403", rec.Code)
+	}
+	if _, err := h.categories.GetByID(context.Background(), 2); !errors.Is(err, domain.ErrNotFound) {
+		t.Fatalf("forged category POST created a category: %v", err)
+	}
+}
+
+// S7.4 RED: user presentation exposes only own-ticket surfaces. Hidden
+// assignment and management controls complement (but never replace) gates.
+func TestUserTicketViewsHideManagementAndAssignmentControls(t *testing.T) {
+	h := newHarness(t)
+	user := seedUserRole(t, h.store, "User", "user-views@tkt.test", domain.RoleUser)
+	session := seedSession(t, h.store, user.ID)
+
+	req := httptest.NewRequest(http.MethodGet, "/tickets/new", nil)
+	req.Header.Set("Cookie", sessionCookie+"="+session.ID)
+	rec := httptest.NewRecorder()
+	h.mw.Wrap(h.mux).ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /tickets/new status = %d, want 200", rec.Code)
+	}
+	body := rec.Body.String()
+	for _, forbidden := range []string{"name=\"user_id\"", "href=\"/users\"", "href=\"/categories\"", "href=\"/groups\""} {
+		if strings.Contains(body, forbidden) {
+			t.Errorf("user ticket form exposed %q", forbidden)
+		}
+	}
+}
+
+func TestUserRoleEndpointAppliesManagementMatrix(t *testing.T) {
+	h := newHarness(t)
+	member := seedUserRole(t, h.store, "Member", "member-role@tkt.test", domain.RoleUser)
+
+	rec := h.postForm(t, "/users/"+strconv.FormatInt(member.ID, 10)+"/role", url.Values{"role": {"agent"}}, false)
+	wantRedirect(t, rec, http.StatusSeeOther, "/users")
+	stored, err := h.store.UserStore().GetByID(context.Background(), member.ID)
+	if err != nil || stored.Role != domain.RoleAgent {
+		t.Fatalf("admin user->agent result = %+v err=%v", stored, err)
+	}
+
+	rec = h.postForm(t, "/users/"+strconv.FormatInt(member.ID, 10)+"/role", url.Values{"role": {"admin"}}, false)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("admin agent->admin status = %d, want 403", rec.Code)
+	}
+
+	root := seedUserRole(t, h.store, "Root", "root-role@tkt.test", domain.RoleRoot)
+	rootSession := seedSession(t, h.store, root.ID)
+	rec = h.postFormAs(t, "/users/"+strconv.FormatInt(member.ID, 10)+"/role", url.Values{"role": {"admin"}}, rootSession.ID)
+	wantRedirect(t, rec, http.StatusSeeOther, "/users")
+	stored, err = h.store.UserStore().GetByID(context.Background(), member.ID)
+	if err != nil || stored.Role != domain.RoleAdmin {
+		t.Fatalf("root agent->admin result = %+v err=%v", stored, err)
+	}
+}
+
+// TestManagementRouteRoleMatrix proves management routes enforce the same
+// role boundary for full-page and HTMX requests. Presentation-specific
+// responses must not turn a denied request into a data-bearing fragment.
+func TestManagementRouteRoleMatrix(t *testing.T) {
+	h := newHarness(t)
+
+	type route struct {
+		path string
+	}
+	routes := []route{
+		{path: "/users"},
+		{path: "/categories"},
+		{path: "/groups"},
+	}
+	roles := []struct {
+		role       domain.Role
+		wantStatus int
+	}{
+		{role: domain.RoleUser, wantStatus: http.StatusForbidden},
+		{role: domain.RoleAgent, wantStatus: http.StatusForbidden},
+		{role: domain.RoleAdmin, wantStatus: http.StatusOK},
+		{role: domain.RoleRoot, wantStatus: http.StatusOK},
+	}
+
+	for _, tt := range roles {
+		t.Run(string(tt.role), func(t *testing.T) {
+			actor := seedUserRole(t, h.store, string(tt.role), string(tt.role)+"-matrix@tkt.test", tt.role)
+			session := seedSession(t, h.store, actor.ID)
+
+			for _, r := range routes {
+				for _, hx := range []bool{false, true} {
+					name := r.path
+					if hx {
+						name += "/htmx"
+					}
+					t.Run(name, func(t *testing.T) {
+						req := httptest.NewRequest(http.MethodGet, r.path, nil)
+						req.Header.Set("Cookie", sessionCookie+"="+session.ID)
+						if hx {
+							req.Header.Set("HX-Request", "true")
+						}
+						rec := httptest.NewRecorder()
+						h.mw.Wrap(h.mux).ServeHTTP(rec, req)
+
+						if rec.Code != tt.wantStatus {
+							t.Errorf("GET %s (HX=%t) as %s status = %d, want %d", r.path, hx, tt.role, rec.Code, tt.wantStatus)
+						}
+						if tt.wantStatus == http.StatusForbidden && strings.Contains(rec.Body.String(), "admin@tkt.test") {
+							t.Errorf("GET %s (HX=%t) as %s leaked management data: %s", r.path, hx, tt.role, rec.Body.String())
+						}
+					})
+				}
+			}
+		})
+	}
+}
+
+// TestForbiddenManagementPostsRejectFullAndHTMX proves hidden management
+// controls remain unavailable when a user or agent forges either submission
+// style. No category may be created by either denied request.
+func TestForbiddenManagementPostsRejectFullAndHTMX(t *testing.T) {
+	for _, role := range []domain.Role{domain.RoleUser, domain.RoleAgent} {
+		t.Run(string(role), func(t *testing.T) {
+			h := newHarness(t)
+			actor := seedUserRole(t, h.store, string(role), string(role)+"-post@tkt.test", role)
+			session := seedSession(t, h.store, actor.ID)
+
+			for _, hx := range []bool{false, true} {
+				name := "direct"
+				if hx {
+					name = "htmx"
+				}
+				t.Run(name, func(t *testing.T) {
+					req := httptest.NewRequest(http.MethodPost, "/categories", strings.NewReader(url.Values{"name": {"Forged " + string(role)}}.Encode()))
+					req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+					req.Header.Set("Cookie", sessionCookie+"="+session.ID)
+					if hx {
+						req.Header.Set("HX-Request", "true")
+					}
+					rec := httptest.NewRecorder()
+					h.mw.Wrap(h.mux).ServeHTTP(rec, req)
+
+					if rec.Code != http.StatusForbidden {
+						t.Errorf("POST /categories (HX=%t) status = %d, want 403", hx, rec.Code)
+					}
+					if _, err := h.categories.GetByID(context.Background(), 2); !errors.Is(err, domain.ErrNotFound) {
+						t.Errorf("forged category POST created a category: %v", err)
+					}
+				})
+			}
+		})
+	}
+}
+
+type noQueryUserStore struct {
+	application.UserStore
+	listCalls int
+}
+
+func (s *noQueryUserStore) List(context.Context) ([]domain.User, error) {
+	s.listCalls++
+	return nil, errors.New("user list must not run for a denied request")
+}
+
+type noQueryCategoryStore struct {
+	application.CategoryStore
+	listCalls int
+}
+
+func (s *noQueryCategoryStore) List(context.Context) ([]domain.Category, error) {
+	s.listCalls++
+	return nil, errors.New("category list must not run for a denied request")
+}
+
+// TestDeniedManagementHandlersQueryNothing isolates the early authorization
+// boundary: denied management requests must stop before their list stores.
+func TestDeniedManagementHandlersQueryNothing(t *testing.T) {
+	actor := &domain.User{Role: domain.RoleUser}
+	renderer := NewRenderer()
+
+	t.Run("users", func(t *testing.T) {
+		store := &noQueryUserStore{}
+		handler := NewUserHandlers(application.NewUserService(store, testClock{now: fixedNow}), renderer)
+		req := httptest.NewRequest(http.MethodGet, "/users", nil).WithContext(context.WithValue(context.Background(), ctxKeyUser{}, actor))
+		rec := httptest.NewRecorder()
+
+		handler.index(rec, req)
+
+		if rec.Code != http.StatusForbidden {
+			t.Errorf("status = %d, want 403", rec.Code)
+		}
+		if store.listCalls != 0 {
+			t.Errorf("user store list calls = %d, want 0", store.listCalls)
+		}
+	})
+
+	t.Run("categories", func(t *testing.T) {
+		store := &noQueryCategoryStore{}
+		handler := NewCategoryHandlers(application.NewCategoryService(store, testClock{now: fixedNow}), renderer)
+		req := httptest.NewRequest(http.MethodGet, "/categories", nil).WithContext(context.WithValue(context.Background(), ctxKeyUser{}, actor))
+		rec := httptest.NewRecorder()
+
+		handler.index(rec, req)
+
+		if rec.Code != http.StatusForbidden {
+			t.Errorf("status = %d, want 403", rec.Code)
+		}
+		if store.listCalls != 0 {
+			t.Errorf("category store list calls = %d, want 0", store.listCalls)
+		}
+	})
 }

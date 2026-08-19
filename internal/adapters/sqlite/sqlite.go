@@ -79,6 +79,9 @@ func (s *Store) SearchStore() application.SearchStore { return newSearchStore(s.
 // task 5.4 is its first consumer — ticket forms and filters list categories.
 func (s *Store) CategoryStore() application.CategoryStore { return newCategoryStore(s.db) }
 
+// GroupStore returns the group and membership port.
+func (s *Store) GroupStore() application.GroupStore { return newGroupStore(s.db) }
+
 // Ping verifies the database connection is alive (SELECT 1). The
 // composition root's -healthcheck flag uses it.
 func (s *Store) Ping(ctx context.Context) error {
@@ -114,6 +117,41 @@ func isUniqueViolation(err error) bool {
 // isForeignKeyViolation reports a FOREIGN KEY constraint failure.
 func isForeignKeyViolation(err error) bool {
 	return isConstraint(err) && strings.Contains(err.Error(), "FOREIGN KEY constraint failed")
+}
+
+// isBusy reports whether err is a transient lock failure that a retry can
+// clear: SQLITE_BUSY (5) or SQLITE_LOCKED (6), including the extended
+// shared-cache form (262 = SQLITE_LOCKED_SHAREDCACHE) that the busy_timeout
+// pragma does NOT cover. In-memory shared caches can return LOCKED instead
+// of BUSY when two connections BEGIN IMMEDIATE at once.
+func isBusy(err error) bool {
+	var se *sqlite.Error
+	if !errors.As(err, &se) {
+		return false
+	}
+	code := se.Code() & 0xFF
+	return code == sqlite3.SQLITE_BUSY || code == sqlite3.SQLITE_LOCKED
+}
+
+// beginImmediate starts a write transaction in immediate mode, retrying a
+// bounded number of times while the database is transiently locked. The
+// busy_timeout covers SQLITE_BUSY on file-backed WAL databases, but an
+// in-memory shared cache can surface SQLITE_LOCKED_SHAREDCACHE (262) which
+// the timeout does not handle — the retry closes that gap so concurrent
+// bootstrap/recovery writers serialize instead of failing spuriously.
+func beginImmediate(ctx context.Context, db *sql.DB, op string) (*sql.Tx, error) {
+	const attempts = 5
+	const sleep = 10 * time.Millisecond
+	var tx *sql.Tx
+	var err error
+	for i := 0; i < attempts; i++ {
+		tx, err = db.BeginTx(ctx, nil) // _txlock=immediate → BEGIN IMMEDIATE
+		if err == nil || !isBusy(err) {
+			return tx, err
+		}
+		time.Sleep(sleep)
+	}
+	return nil, fmt.Errorf("sqlite: begin %s: %w", op, err)
 }
 
 // retryUnique re-runs fn up to attempts times while it fails with a UNIQUE

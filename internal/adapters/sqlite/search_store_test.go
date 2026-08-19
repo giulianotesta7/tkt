@@ -27,7 +27,7 @@ func mustSearch(t *testing.T, s *Store, q application.TicketQuery) []domain.Tick
 
 // textQuery builds the store-side query for a raw search-box input.
 func textQuery(raw string) application.TicketQuery {
-	q := application.TicketQuery{}
+	q := application.TicketQuery{Scope: application.ScopeAll}
 	q.Text, q.Numbers = application.BuildTitleQuery(raw)
 	return q
 }
@@ -148,6 +148,38 @@ func TestFTS5SearchSpecialCharsNeverError(t *testing.T) {
 	}
 }
 
+// TestFTS5SearchScopedToAssignment proves the actor scope is applied to
+// search BEFORE the text filter: agent X's search never returns Y's
+// assigned tickets even when the title matches, and the count agrees
+// (ticket-search spec: agent search is scoped to assignment).
+func TestFTS5SearchScopedToAssignment(t *testing.T) {
+	s := newTestDB(t)
+	cat := seedCategory(t, s, "Bugs")
+	x := seedUser(t, s, "X", "x@example.com", true)
+	y := seedUser(t, s, "Y", "y@example.com", true)
+	ctx := context.Background()
+
+	seedTicket(t, s, domain.Ticket{Number: 1, Title: "shared term", CategoryID: cat, UserID: ptr(x),
+		Priority: domain.PriorityMedium, State: domain.StateNew, CreatedAt: testClock, UpdatedAt: testClock})
+	seedTicket(t, s, domain.Ticket{Number: 2, Title: "shared term", CategoryID: cat, UserID: ptr(y),
+		Priority: domain.PriorityMedium, State: domain.StateNew, CreatedAt: testClock, UpdatedAt: testClock})
+
+	q := textQuery("shared term")
+	q.Scope = application.ScopeAssigned
+	q.ActorID = x
+	got := mustSearch(t, s, q)
+	if len(got) != 1 || got[0].Number != 1 {
+		t.Fatalf("agent X's search = %+v, want [1] only (Y's ticket must not match)", got)
+	}
+	n, err := s.SearchStore().SearchCount(ctx, q)
+	if err != nil {
+		t.Fatalf("search count: %v", err)
+	}
+	if n != 1 {
+		t.Fatalf("agent X's search count = %d, want 1", n)
+	}
+}
+
 func TestFTS5SearchComposesWithFilters(t *testing.T) {
 	s := newTestDB(t)
 	bugs := seedCategory(t, s, "Bugs")
@@ -162,23 +194,24 @@ func TestFTS5SearchComposesWithFilters(t *testing.T) {
 	text := textQuery("timeout")
 
 	// Text AND state: A and C.
-	got := mustSearch(t, s, application.TicketQuery{Text: text.Text, Numbers: text.Numbers, State: ptr(domain.StateResolved)})
+	got := mustSearch(t, s, application.TicketQuery{Scope: application.ScopeAll, Text: text.Text, Numbers: text.Numbers, State: ptr(domain.StateResolved)})
 	if len(got) != 2 {
 		t.Errorf("timeout+resolved = %d, want 2", len(got))
 	}
 	// Text AND state AND category: only A.
 	got = mustSearch(t, s, application.TicketQuery{
-		Text: text.Text, Numbers: text.Numbers, State: ptr(domain.StateResolved), CategoryID: ptr(bugs)})
+		Scope: application.ScopeAll,
+		Text:  text.Text, Numbers: text.Numbers, State: ptr(domain.StateResolved), CategoryID: ptr(bugs)})
 	if len(got) != 1 || got[0].Number != 1 {
 		t.Errorf("timeout+resolved+bugs = %+v, want [1]", got)
 	}
 	// No text: plain filter list (SearchStore handles empty text).
-	got = mustSearch(t, s, application.TicketQuery{State: ptr(domain.StateNew)})
+	got = mustSearch(t, s, application.TicketQuery{Scope: application.ScopeAll, State: ptr(domain.StateNew)})
 	if len(got) != 2 {
 		t.Errorf("state=new = %d, want 2 (no text clause)", len(got))
 	}
 
-	n, err := s.SearchStore().SearchCount(ctx, application.TicketQuery{Text: text.Text, Numbers: text.Numbers, State: ptr(domain.StateResolved)})
+	n, err := s.SearchStore().SearchCount(ctx, application.TicketQuery{Scope: application.ScopeAll, Text: text.Text, Numbers: text.Numbers, State: ptr(domain.StateResolved)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -199,7 +232,7 @@ func TestFTS5ChipsReflectTextFilter(t *testing.T) {
 	// Chips must reflect the TEXT-filtered result set (the shared filter
 	// builder carries the text clause into the chip queries).
 	text := textQuery("timeout")
-	byState, err := s.TicketStore().CountsByState(ctx, application.TicketQuery{Text: text.Text, Numbers: text.Numbers})
+	byState, err := s.TicketStore().CountsByState(ctx, application.TicketQuery{Scope: application.ScopeAll, Text: text.Text, Numbers: text.Numbers})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -207,7 +240,8 @@ func TestFTS5ChipsReflectTextFilter(t *testing.T) {
 		t.Errorf("chips by state under text=timeout: %v, want {resolved:1, new:1}", byState)
 	}
 	byPriority, err := s.TicketStore().CountsByPriority(ctx, application.TicketQuery{
-		Text: text.Text, Numbers: text.Numbers, State: ptr(domain.StateNew)})
+		Scope: application.ScopeAll,
+		Text:  text.Text, Numbers: text.Numbers, State: ptr(domain.StateNew)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -227,7 +261,7 @@ func TestFTS5TicketListSupportsText(t *testing.T) {
 	seedSearchTicket(t, s, 2, "Printer", "ignored", domain.StateNew, domain.PriorityLow, cat)
 
 	text := textQuery("timeout")
-	got, err := s.TicketStore().List(ctx, application.TicketQuery{Text: text.Text, Numbers: text.Numbers},
+	got, err := s.TicketStore().List(ctx, application.TicketQuery{Scope: application.ScopeAll, Text: text.Text, Numbers: text.Numbers},
 		application.Page{Offset: 0, Limit: 10})
 	if err != nil {
 		t.Fatal(err)

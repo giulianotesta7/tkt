@@ -3,7 +3,9 @@ package sqlite
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -39,6 +41,197 @@ func TestUserCreateAssignsIDAndPersists(t *testing.T) {
 	}
 	if !got.CreatedAt.Equal(testClock) {
 		t.Errorf("created_at = %v, want %v", got.CreatedAt, testClock)
+	}
+}
+
+// S2 role round-trip RED: the store must persist and scan User.Role so the
+// bootstrap/recovery flows can prove what the database holds. Written before
+// the role column is wired into Create/Update/scan — the assertions fail
+// until the store projects the role (strict TDD RED).
+
+func TestUserRolePersistsAndScans(t *testing.T) {
+	s := newTestDB(t)
+	ctx := context.Background()
+
+	// An explicit role on create survives the round trip (Create → GetByID).
+	root := &domain.User{Name: "Root", Email: "root@example.com", PasswordHash: "hash",
+		Role: domain.RoleRoot, Active: true, CreatedAt: testClock}
+	if err := s.UserStore().Create(ctx, root); err != nil {
+		t.Fatalf("create with role: %v", err)
+	}
+	got, err := s.UserStore().GetByID(ctx, root.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Role != domain.RoleRoot {
+		t.Errorf("get by id role = %q, want %q", got.Role, domain.RoleRoot)
+	}
+
+	// A role change on update persists (Update → GetByID).
+	agent := &domain.User{Name: "Agent", Email: "agent@example.com", PasswordHash: "hash",
+		Role: domain.RoleAgent, Active: true, CreatedAt: testClock}
+	if err := s.UserStore().Create(ctx, agent); err != nil {
+		t.Fatal(err)
+	}
+	agent.Role = domain.RoleAdmin
+	if err := s.UserStore().Update(ctx, agent); err != nil {
+		t.Fatalf("update role: %v", err)
+	}
+	got, err = s.UserStore().GetByID(ctx, agent.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Role != domain.RoleAdmin {
+		t.Errorf("updated role = %q, want %q", got.Role, domain.RoleAdmin)
+	}
+
+	// GetByEmail and List project the role too.
+	byEmail, err := s.UserStore().GetByEmail(ctx, "root@example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if byEmail.Role != domain.RoleRoot {
+		t.Errorf("get by email role = %q, want %q", byEmail.Role, domain.RoleRoot)
+	}
+	all, err := s.UserStore().List(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	roles := map[int64]domain.Role{}
+	for _, u := range all {
+		roles[u.ID] = u.Role
+	}
+	if roles[root.ID] != domain.RoleRoot || roles[agent.ID] != domain.RoleAdmin {
+		t.Errorf("list roles = %v, want root=%q admin=%q", roles, domain.RoleRoot, domain.RoleAdmin)
+	}
+}
+
+// TestUserCreateWithoutRoleFallsBackToAgent pins the legacy contract:
+// callers that do not set a role (the pre-S2 user-management create flow)
+// still get the migration default 'agent' — never a guessed role and never
+// root (root is only ever created by BootstrapRoot/recovery).
+func TestUserCreateWithoutRoleFallsBackToAgent(t *testing.T) {
+	s := newTestDB(t)
+	ctx := context.Background()
+
+	u := &domain.User{Name: "Legacy", Email: "legacy@example.com", PasswordHash: "hash",
+		Active: true, CreatedAt: testClock}
+	if err := s.UserStore().Create(ctx, u); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	got, err := s.UserStore().GetByID(ctx, u.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Role != domain.RoleAgent {
+		t.Errorf("default role = %q, want %q (migration default)", got.Role, domain.RoleAgent)
+	}
+}
+
+// TestBootstrapRootCreatesRootAtomically proves the atomic bootstrap
+// contract (role-authorization "First-User Root Bootstrap"): on an empty
+// table the first BootstrapRoot creates an active root; any later call —
+// even with a different identity — fails with ErrBootstrapUnavailable and
+// creates nothing. Written before BootstrapRoot exists: compile-error RED.
+func TestBootstrapRootCreatesRootAtomically(t *testing.T) {
+	s := newTestDB(t)
+	ctx := context.Background()
+
+	root := &domain.User{Name: "Root", Email: "root@example.com", PasswordHash: "hash",
+		Active: true, CreatedAt: testClock}
+	if err := s.UserStore().BootstrapRoot(ctx, root); err != nil {
+		t.Fatalf("bootstrap: %v", err)
+	}
+	if root.ID == 0 {
+		t.Error("bootstrap did not assign an id")
+	}
+
+	got, err := s.UserStore().GetByID(ctx, root.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Role != domain.RoleRoot {
+		t.Errorf("bootstrap role = %q, want %q", got.Role, domain.RoleRoot)
+	}
+	if !got.Active {
+		t.Error("bootstrap user must be active")
+	}
+
+	// Bootstrap is unavailable once a user exists — the concurrent loser
+	// and any later visitor both fail without creating an account.
+	other := &domain.User{Name: "Other", Email: "other@example.com", PasswordHash: "hash",
+		Active: true, CreatedAt: testClock}
+	err = s.UserStore().BootstrapRoot(ctx, other)
+	if !errors.Is(err, domain.ErrBootstrapUnavailable) {
+		t.Fatalf("second bootstrap err = %v, want ErrBootstrapUnavailable", err)
+	}
+	var be *domain.BootstrapUnavailableError
+	if !errors.As(err, &be) {
+		t.Errorf("err = %v, want *BootstrapUnavailableError", err)
+	}
+	count, err := s.UserStore().Count(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if count != 1 {
+		t.Errorf("user count = %d, want 1 (loser created nothing)", count)
+	}
+}
+
+// TestBootstrapRootConcurrentYieldsOneRoot races two bootstrap writers on a
+// two-connection pool. Only a BEGIN IMMEDIATE transaction with the count
+// check INSIDE it yields exactly one root: a naive check-then-insert lets
+// both writers observe an empty table and create two users. The shared-cache
+// memory database plus two live connections exercises the real SQLite write
+// serialization (the DSN carries _txlock=immediate).
+func TestBootstrapRootConcurrentYieldsOneRoot(t *testing.T) {
+	s, err := openDSN(testDSN(t))
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	t.Cleanup(func() { s.db.Close() })
+	s.db.SetMaxOpenConns(2)
+	ctx := context.Background()
+	if err := s.Migrate(ctx); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+
+	start := make(chan struct{})
+	errs := make([]error, 2)
+	var wg sync.WaitGroup
+	for i := 0; i < 2; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			u := &domain.User{Name: fmt.Sprintf("R%d", i), Email: fmt.Sprintf("r%d@example.com", i),
+				PasswordHash: "hash", Active: true, CreatedAt: testClock}
+			<-start
+			errs[i] = s.UserStore().BootstrapRoot(ctx, u)
+		}(i)
+	}
+	close(start)
+	wg.Wait()
+
+	succeeds := 0
+	for i, err := range errs {
+		switch {
+		case err == nil:
+			succeeds++
+		case errors.Is(err, domain.ErrBootstrapUnavailable):
+			// expected loser
+		default:
+			t.Fatalf("writer %d err = %v", i, err)
+		}
+	}
+	if succeeds != 1 {
+		t.Fatalf("successful bootstraps = %d, want exactly 1", succeeds)
+	}
+	count, err := s.UserStore().Count(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if count != 1 {
+		t.Fatalf("user count = %d, want exactly 1", count)
 	}
 }
 

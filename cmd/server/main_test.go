@@ -44,10 +44,11 @@ func TestHealthcheckExec(t *testing.T) {
 	})
 }
 
-// --- S1 (pulled forward from S2 task 2.3): -recover-root (operator-selected
-// root recovery) and fail-closed startup. These run the real binary against
-// file-backed databases (design "Persistence and Recovery"; role-
-// authorization "Operator-Selected Root Recovery").
+// --- S2: -recover-root (operator-selected root recovery) and fail-closed
+// startup. These run the real binary against file-backed databases (design
+// "Persistence and Recovery"; role-authorization "Operator-Selected Root
+// Recovery"). Written before the flag exists: the tests fail until main.go
+// parses -recover-root and calls the store's RecoverRoot.
 
 // buildServer compiles the server binary once per test (Go's build cache
 // keeps repeat builds cheap).
@@ -222,8 +223,8 @@ func TestRecoverRootRejectsNonPositiveID(t *testing.T) {
 }
 
 // TestStartupFailsClosedWithoutRecoverRoot proves the fail-closed startup
-// contract end to end: on a database where no root can be proven, the plain
-// server refuses to serve and names -recover-root as the exit.
+// contract end to end (task 2.4): on a database where no root can be proven,
+// the plain server refuses to serve and names -recover-root as the exit.
 func TestStartupFailsClosedWithoutRecoverRoot(t *testing.T) {
 	bin := buildServer(t)
 	db := filepath.Join(t.TempDir(), "tkt.db")

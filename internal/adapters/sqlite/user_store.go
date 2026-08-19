@@ -25,8 +25,10 @@ func newUserStore(db *sql.DB) *userStore { return &userStore{db: db} }
 
 // Create stores u, assigning u.ID. A duplicate email is a DuplicateError.
 // u.Role is persisted when set; a zero Role omits the column so the
-// migration default 'agent' applies (role round-trip, pulled forward from
-// S2 so -recover-root verification is observable through the store API).
+// migration DEFAULT ('agent') applies — legacy callers that never set a
+// role keep working unchanged (S2 role round-trip). SQLite applies a column
+// DEFAULT only when the column is omitted from the statement, never for an
+// explicit NULL, hence the conditional column list.
 func (us *userStore) Create(ctx context.Context, u *domain.User) error {
 	query := `INSERT INTO users (name, email, password_hash, role, active, created_at)
 		VALUES (?, ?, ?, ?, ?, ?)`
@@ -51,12 +53,11 @@ func (us *userStore) Create(ctx context.Context, u *domain.User) error {
 	return nil
 }
 
-// Update persists the user's fields, including deactivation (Active).
-// A rename onto an existing email is a DuplicateError. A zero Role leaves
-// the stored role untouched (the service always populates Role from GetByID
+// Update persists the user's fields, including deactivation (Active). A
+// rename onto an existing email is a DuplicateError. A zero Role leaves the
+// stored role untouched (the service always populates Role from GetByID
 // before updating; direct store callers keep the existing row's role). Root
-// rows are immutable at the trigger level, so no path here can mutate a
-// root account.
+// rows are protected by the DB trigger regardless of what the caller sends.
 func (us *userStore) Update(ctx context.Context, u *domain.User) error {
 	query := `UPDATE users SET name = ?, email = ?, password_hash = ?, role = ?, active = ?
 		WHERE id = ?`
@@ -81,6 +82,31 @@ func (us *userStore) Update(ctx context.Context, u *domain.User) error {
 		return &domain.NotFoundError{Kind: "user", ID: u.ID}
 	}
 	return nil
+}
+
+// ChangeRole updates a role and appends its role_changes audit record in one
+// transaction so a successful role mutation is never unaudited.
+func (us *userStore) ChangeRole(ctx context.Context, userID, actorID int64, from, to domain.Role, at time.Time) error {
+	tx, err := beginImmediate(ctx, us.db, "change role")
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	res, err := tx.ExecContext(ctx, `UPDATE users SET role = ? WHERE id = ? AND role = ?`, string(to), userID, string(from))
+	if err != nil {
+		return fmt.Errorf("sqlite: change role: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("sqlite: change role rows: %w", err)
+	}
+	if n == 0 {
+		return &domain.NotFoundError{Kind: "user", ID: userID}
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO role_changes (user_id, from_role, to_role, actor_user_id, reason, created_at) VALUES (?, ?, ?, ?, ?, ?)`, userID, string(from), string(to), actorID, "role change", formatTime(at)); err != nil {
+		return fmt.Errorf("sqlite: audit role change: %w", err)
+	}
+	return tx.Commit()
 }
 
 // Delete removes an unreferenced user and their sessions in one
@@ -181,6 +207,49 @@ func (us *userStore) listWhere(ctx context.Context, where string) ([]domain.User
 		return nil, fmt.Errorf("sqlite: list users: %w", err)
 	}
 	return out, nil
+}
+
+// BootstrapRoot creates the very first user with role root ATOMICALLY
+// (role-authorization "First-User Root Bootstrap"). The count check and the
+// insert share one immediate transaction (the DSN's _txlock=immediate):
+// concurrent bootstrap calls serialize on the write lock, the loser's count
+// check observes the winner's committed row, and exactly one root exists.
+// Bootstrap is unavailable once ANY user exists (ErrBootstrapUnavailable) —
+// recovery and backfill are the only other root-creating paths.
+func (us *userStore) BootstrapRoot(ctx context.Context, u *domain.User) error {
+	tx, err := beginImmediate(ctx, us.db, "bootstrap")
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	var n int
+	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM users`).Scan(&n); err != nil {
+		return fmt.Errorf("sqlite: bootstrap count users: %w", err)
+	}
+	if n > 0 {
+		return domain.NewBootstrapUnavailableError()
+	}
+
+	res, err := tx.ExecContext(ctx, `INSERT INTO users (name, email, password_hash, role, active, created_at)
+		VALUES (?, ?, ?, 'root', ?, ?)`,
+		u.Name, u.Email, u.PasswordHash, u.Active, formatTime(u.CreatedAt))
+	if err != nil {
+		if isUniqueViolation(err) {
+			return &domain.DuplicateError{Kind: "user", Name: u.Email}
+		}
+		return fmt.Errorf("sqlite: bootstrap insert: %w", err)
+	}
+	id, err := res.LastInsertId()
+	if err != nil {
+		return fmt.Errorf("sqlite: bootstrap id: %w", err)
+	}
+	u.ID = id
+	u.Role = domain.RoleRoot
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("sqlite: commit bootstrap: %w", err)
+	}
+	return nil
 }
 
 // scanUserFrom projects one row into a domain.User. active is stored as

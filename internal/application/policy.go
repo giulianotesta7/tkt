@@ -91,16 +91,21 @@ func (c Capabilities) Require(cap Capability) bool {
 // TicketScope is the actor's ticket read scope (ticket-access-assignment
 // spec), derived from the role before any store query:
 //
-//	ScopeOwned    user:  only tickets the actor created (requester = self)
-//	ScopeAssigned agent: only tickets assigned to the actor
-//	ScopeAll      admin/root: the full queue, including unassigned tickets
+//	ScopeOwned       user:  only tickets the actor created (requester = self)
+//	ScopeAssigned    agent: only tickets assigned to the actor
+//	ScopeAll         admin/root: the full queue, including unassigned tickets
+//	ScopeAssignable  agent: unassigned tickets OR tickets assigned to the
+//	                 actor — the assignment read scope (agents may claim an
+//	                 unassigned ticket or reassign their own, never touch
+//	                 another agent's ticket)
 type TicketScope int
 
 const (
-	ScopeNone     TicketScope = iota // no ticket access (unknown role)
-	ScopeOwned                       // requester = self
-	ScopeAssigned                    // user_id = self
-	ScopeAll                         // full queue
+	ScopeNone       TicketScope = iota // no ticket access (unknown role)
+	ScopeOwned                         // requester = self
+	ScopeAssigned                      // user_id = self
+	ScopeAll                           // full queue
+	ScopeAssignable                    // agent assignment scope: self or unassigned
 )
 
 // Policy is the single authorization authority. Handlers and services
@@ -142,4 +147,33 @@ func (p *Policy) TicketScope(role domain.Role) TicketScope {
 	default:
 		return ScopeNone
 	}
+}
+
+// scopedQuery returns q restricted to the actor's ticket access scope
+// (ticket-access spec): the policy derives the scope from the session role
+// and stamps the query BEFORE any store call, so scoped store methods
+// exclude unauthorized rows and the actor never sees tickets outside their
+// scope (design "Domain, Contracts": policy → scoped store query).
+func scopedQuery(actor domain.User, q TicketQuery) TicketQuery {
+	q.Scope = NewPolicy().TicketScope(actor.Role)
+	q.ActorID = actor.ID
+	return q
+}
+
+// assignQuery returns the assignment read scope (ticket-access-assignment
+// spec): agents may claim an unassigned ticket or reassign a ticket already
+// assigned to them (ScopeAssignable); admin/root may assign any ticket
+// (ScopeAll). The capability gate already rejects user-role actors before
+// this query is built.
+func assignQuery(actor domain.User) TicketQuery {
+	q := TicketQuery{ActorID: actor.ID}
+	switch actor.Role {
+	case domain.RoleAgent:
+		q.Scope = ScopeAssignable
+	case domain.RoleAdmin, domain.RoleRoot:
+		q.Scope = ScopeAll
+	default:
+		q.Scope = ScopeNone
+	}
+	return q
 }

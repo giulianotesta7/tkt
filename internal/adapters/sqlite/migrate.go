@@ -68,9 +68,9 @@ func migrate(ctx context.Context, db *sql.DB, fsys fs.FS) error {
 			return fmt.Errorf("sqlite: read %s: %w", name, err)
 		}
 
-		tx, err := db.BeginTx(ctx, nil) // _txlock=immediate → BEGIN IMMEDIATE
+		tx, err := beginImmediate(ctx, db, name)
 		if err != nil {
-			return fmt.Errorf("sqlite: begin %s: %w", name, err)
+			return err
 		}
 		if _, err := tx.ExecContext(ctx, string(script)); err != nil {
 			tx.Rollback()
@@ -147,9 +147,9 @@ func backfillRolesAndRequesters(ctx context.Context, db *sql.DB) error {
 		return nil // pre-0003 schema: nothing to normalize
 	}
 
-	tx, err := db.BeginTx(ctx, nil) // _txlock=immediate → BEGIN IMMEDIATE
+	tx, err := beginImmediate(ctx, db, "backfill")
 	if err != nil {
-		return fmt.Errorf("sqlite: begin backfill: %w", err)
+		return err
 	}
 	if err := backfillRoot(ctx, tx); err != nil {
 		tx.Rollback()

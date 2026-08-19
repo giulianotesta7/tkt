@@ -33,12 +33,17 @@ type SearchResult struct {
 	Page    int
 }
 
-// Search applies the filters (AND), the D4-tokenized title/ID text filter,
-// and pagination (page is 1-based; 0 behaves as 1).
-func (s *SearchService) Search(ctx context.Context, q TicketQuery, page int) (*SearchResult, error) {
+// Search applies the actor's ticket access scope (ticket-access spec)
+// BEFORE the filters: user → own tickets, agent → assigned, admin/root →
+// full queue. An empty filter set returns all tickets within the actor's
+// scope and never tickets outside it. The filters (AND), the D4-tokenized
+// title/ID text filter, and pagination (page is 1-based; 0 behaves as 1)
+// then compose on the scoped set.
+func (s *SearchService) Search(ctx context.Context, actor domain.User, q TicketQuery, page int) (*SearchResult, error) {
 	if page < 1 {
 		page = 1
 	}
+	q = scopedQuery(actor, q)
 	q.Text, q.Numbers = BuildTitleQuery(q.Text)
 	hasText := q.Text != "" || len(q.Numbers) > 0
 	p := Page{Offset: (page - 1) * PageSize, Limit: PageSize}
