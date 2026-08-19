@@ -36,7 +36,7 @@ func (failingUserStore) GetByID(context.Context, int64) (*domain.User, error) {
 func TestMiddlewareNoCookieRedirectsToLogin(t *testing.T) {
 	s := openTestStore(t)
 	seedUser(t, s, "Ana", "ana@example.com")
-	mw := NewSessionMiddleware(s.SessionStore(), s.UserStore())
+	mw := NewSessionMiddleware(s.SessionStore(), s.UserStore(), s.SettingsStore())
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /tickets", func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("protected")) })
 
@@ -56,7 +56,7 @@ func TestMiddlewareExpiredAndForgedTokenRedirectToLogin(t *testing.T) {
 	if err := s.SessionStore().Create(context.Background(), expired); err != nil {
 		t.Fatalf("seed expired session: %v", err)
 	}
-	mw := NewSessionMiddleware(s.SessionStore(), s.UserStore())
+	mw := NewSessionMiddleware(s.SessionStore(), s.UserStore(), s.SettingsStore())
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /tickets", func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("protected")) })
 
@@ -79,7 +79,7 @@ func TestMiddlewareExpiredAndForgedTokenRedirectToLogin(t *testing.T) {
 // with an empty users table every protected route redirects 303 to /setup.
 func TestMiddlewareEmptyUsersRedirectsToSetup(t *testing.T) {
 	s := openTestStore(t)
-	mw := NewSessionMiddleware(s.SessionStore(), s.UserStore())
+	mw := NewSessionMiddleware(s.SessionStore(), s.UserStore(), s.SettingsStore())
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /tickets", func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("protected")) })
 	mux.HandleFunc("GET /users", func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("users")) })
@@ -94,7 +94,7 @@ func TestMiddlewareEmptyUsersRedirectsToSetup(t *testing.T) {
 // the users table is empty (first-user bootstrap flow).
 func TestMiddlewareSetupExemptWithEmptyUsers(t *testing.T) {
 	s := openTestStore(t)
-	mw := NewSessionMiddleware(s.SessionStore(), s.UserStore())
+	mw := NewSessionMiddleware(s.SessionStore(), s.UserStore(), s.SettingsStore())
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /setup", func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("setup-form")) })
 
@@ -114,7 +114,7 @@ func TestMiddlewareSetupUnavailableWithUsers(t *testing.T) {
 	s := openTestStore(t)
 	user := seedUser(t, s, "Ana", "ana@example.com")
 	session := seedSession(t, s, user.ID)
-	mw := NewSessionMiddleware(s.SessionStore(), s.UserStore())
+	mw := NewSessionMiddleware(s.SessionStore(), s.UserStore(), s.SettingsStore())
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /setup", func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("setup-form")) })
 
@@ -134,7 +134,7 @@ func TestMiddlewareValidSessionReachesHandler(t *testing.T) {
 	s := openTestStore(t)
 	user := seedUser(t, s, "Ana", "ana@example.com")
 	session := seedSession(t, s, user.ID)
-	mw := NewSessionMiddleware(s.SessionStore(), s.UserStore())
+	mw := NewSessionMiddleware(s.SessionStore(), s.UserStore(), s.SettingsStore())
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /tickets", func(w http.ResponseWriter, r *http.Request) {
 		u := userFromContext(r.Context())
@@ -167,7 +167,7 @@ func TestMiddlewareDeactivatedUserSessionKilled(t *testing.T) {
 	if err := s.UserStore().Update(context.Background(), user); err != nil {
 		t.Fatalf("deactivate user: %v", err)
 	}
-	mw := NewSessionMiddleware(s.SessionStore(), s.UserStore())
+	mw := NewSessionMiddleware(s.SessionStore(), s.UserStore(), s.SettingsStore())
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /tickets", func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("protected")) })
 
@@ -186,7 +186,7 @@ func TestMiddlewareAuthedUserOnLoginRedirectsToTickets(t *testing.T) {
 	s := openTestStore(t)
 	user := seedUser(t, s, "Ana", "ana@example.com")
 	session := seedSession(t, s, user.ID)
-	mw := NewSessionMiddleware(s.SessionStore(), s.UserStore())
+	mw := NewSessionMiddleware(s.SessionStore(), s.UserStore(), s.SettingsStore())
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /login", func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("login-form")) })
 
@@ -203,7 +203,7 @@ func TestMiddlewareAuthedUserOnLoginRedirectsToTickets(t *testing.T) {
 // TestMiddlewareHealthzExempt proves /healthz needs no session.
 func TestMiddlewareHealthzExempt(t *testing.T) {
 	s := openTestStore(t)
-	mw := NewSessionMiddleware(s.SessionStore(), s.UserStore())
+	mw := NewSessionMiddleware(s.SessionStore(), s.UserStore(), s.SettingsStore())
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("ok")) })
 
@@ -219,7 +219,7 @@ func TestMiddlewareHealthzExempt(t *testing.T) {
 func TestMiddlewareCrossSiteOriginPOSTRejected(t *testing.T) {
 	s := openTestStore(t)
 	seedUser(t, s, "Ana", "ana@example.com")
-	mw := NewSessionMiddleware(s.SessionStore(), s.UserStore())
+	mw := NewSessionMiddleware(s.SessionStore(), s.UserStore(), s.SettingsStore())
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /tickets", func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("created")) })
 	mux.HandleFunc("POST /login", func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("login")) })
@@ -244,7 +244,7 @@ func TestMiddlewareCrossSiteOriginPOSTRejected(t *testing.T) {
 // POSTs pass the D17 gate.
 func TestMiddlewareSameOriginPOSTAllowed(t *testing.T) {
 	s := openTestStore(t)
-	mw := NewSessionMiddleware(s.SessionStore(), s.UserStore())
+	mw := NewSessionMiddleware(s.SessionStore(), s.UserStore(), s.SettingsStore())
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /tickets", func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("created")) })
 
@@ -270,7 +270,7 @@ func TestMiddlewareSameOriginPOSTAllowed(t *testing.T) {
 func TestMiddlewareGetWithOriginIgnored(t *testing.T) {
 	s := openTestStore(t)
 	seedUser(t, s, "Ana", "ana@example.com")
-	mw := NewSessionMiddleware(s.SessionStore(), s.UserStore())
+	mw := NewSessionMiddleware(s.SessionStore(), s.UserStore(), s.SettingsStore())
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /login", func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("login-form")) })
 
@@ -284,7 +284,7 @@ func TestMiddlewareGetWithOriginIgnored(t *testing.T) {
 // failure answers 500 — never a misleading login redirect for a valid user.
 func TestMiddlewareSessionStoreFailure500(t *testing.T) {
 	s := openTestStore(t)
-	mw := NewSessionMiddleware(failingSessionStore{}, s.UserStore())
+	mw := NewSessionMiddleware(failingSessionStore{}, s.UserStore(), s.SettingsStore())
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /tickets", func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("protected")) })
 
@@ -304,7 +304,7 @@ func TestMiddlewareUserStoreFailure500(t *testing.T) {
 	s := openTestStore(t)
 	user := seedUser(t, s, "Ana", "ana@example.com")
 	session := seedSession(t, s, user.ID)
-	mw := NewSessionMiddleware(s.SessionStore(), failingUserStore{})
+	mw := NewSessionMiddleware(s.SessionStore(), failingUserStore{}, s.SettingsStore())
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /tickets", func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("protected")) })
 
@@ -323,7 +323,7 @@ func TestMiddlewareUserStoreFailure500(t *testing.T) {
 // the middleware must never redirect it.
 func TestMiddlewareStaticBypass(t *testing.T) {
 	s := openTestStore(t)
-	mw := NewSessionMiddleware(s.SessionStore(), s.UserStore())
+	mw := NewSessionMiddleware(s.SessionStore(), s.UserStore(), s.SettingsStore())
 	mux := http.NewServeMux()
 	RegisterStatic(mux)
 	mux.HandleFunc("GET /tickets", func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("protected")) })

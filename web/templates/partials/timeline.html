@@ -5,18 +5,17 @@
   <div class="timeline-entry timeline-comment{{if eq .Comment.Visibility "internal"}} internal{{end}}">
     <div class="who">
       <span class="author">{{.Comment.Author}}</span>
-{{if eq .Comment.Visibility "internal"}}      <span class="badge internal">internal</span>
-{{end}}      <span class="when">{{template "timestamp" .Comment.CreatedAt}}</span>
+      <span class="when">{{if eq .Comment.Visibility "internal"}}Internal · {{end}}{{template "timestamp" .Comment.CreatedAt}}</span>
     </div>
     <div class="body">{{.Comment.Body}}</div>
   </div>
 {{else}}
-  <div class="timeline-entry timeline-event">
-    <span class="dot {{.Event.Action}}"></span>
+  <div class="timeline-entry timeline-event{{if .Event.ToValue}} st-{{.Event.ToValue}}{{else if eq .Summary "Ticket created"}} st-new{{end}}">
+    <span class="event-icon">›</span>
     <div class="body">
-      <div class="main">{{.ActionLabel}}{{if .FieldLabel}} · {{.FieldLabel}}{{end}}{{if .Event.FromValue}} · {{.FromLabel}} → {{.ToLabel}}{{end}}</div>
-{{if .Event.Reason}}      <div class="detail">reason: {{.Event.Reason}}</div>
-{{else if .Event.Note}}      <div class="detail">note: {{.Event.Note}}</div>
+      <div class="main">{{if .Summary}}{{.Summary}}{{else}}{{.ActionLabel}}{{if .FieldLabel}} · {{.FieldLabel}}{{end}}{{if .Event.FromValue}} · {{.FromLabel}} → {{.ToLabel}}{{end}}{{end}}</div>
+{{if .Event.Reason}}      <div class="detail">Reason: {{.Event.Reason}}</div>
+{{else if .Event.Note}}      <div class="detail">Reason: {{.Event.Note}}</div>
 {{end}}
       <div class="when">{{template "timestamp" .Event.CreatedAt}} · {{.Event.Actor}}</div>
     </div>

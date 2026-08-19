@@ -242,6 +242,7 @@ func fixtureDetailData() detailData {
 		Next:               allowedNext(t.State),
 		Options:            opts,
 		CanCommentInternal: true,
+		CanEdit:            true,
 		Values: ticketFormValues{
 			Title:       t.Title,
 			Description: t.Description,
@@ -249,6 +250,92 @@ func fixtureDetailData() detailData {
 			UserID:      "1",
 			Priority:    t.Priority,
 		},
+	}
+}
+
+// closedDetailData derives a closed-state detail fixture from the open
+// fixture: same view/comments, but the ticket is in a closed (read-only)
+// state so the detail must hide every mutation control.
+func closedDetailData(state domain.State) detailData {
+	d := fixtureDetailData()
+	now := goldenT0
+	d.View.Ticket.State = state
+	d.View.Ticket.ResolvedAt = nil
+	d.View.Ticket.ClosedAt = nil
+	switch state {
+	case domain.StateResolved:
+		d.View.Ticket.ResolvedAt = &now
+	case domain.StateClosed:
+		d.View.Ticket.ResolvedAt = &now
+		d.View.Ticket.ClosedAt = &now
+	}
+	d.Next = allowedNext(state)
+	d.Closed = true
+	d.CanEdit = false
+	return d
+}
+
+// TestClosedTicketDetailReadOnly proves a closed ticket (resolved/closed/
+// cancelled) renders read-only: no comment form, no inline title edit (plain
+// <h1>), no priority/assignment controls — but keeps the read-only metadata
+// (Requester, Category) and the State control. Only resolved/closed offer a
+// "Move to" reopen; cancelled is terminal (closed-ticket read-only spec).
+func TestClosedTicketDetailReadOnly(t *testing.T) {
+	for _, state := range []domain.State{domain.StateResolved, domain.StateClosed, domain.StateCancelled} {
+		t.Run(string(state), func(t *testing.T) {
+			body := renderGolden(t, "tickets_show", "ticket_detail", closedDetailData(state), true)
+
+			// Read-only metadata stays visible.
+			for _, want := range []string{
+				`class="prop-heading">Properties</`,
+				`class="prop-label">Requester</`,
+				`class="prop-label">Category</`,
+				`class="prop-heading">Assignment</`, // last assignee shown read-only
+				`class="prop-label">Assignee</`,
+				`>Ana Torres</span>`, // the last assignee name (read-only)
+				`class="prop-heading">State</`,
+				`<h1 class="command-title">`,
+				`class="prop-label">Current</`,
+			} {
+				if !strings.Contains(body, want) {
+					t.Errorf("closed detail must contain %q, got: %s", want, body)
+				}
+			}
+
+			// Every mutation control is hidden.
+			for _, absent := range []string{
+				`id="ticket-title"`,    // inline title edit
+				`name="title"`,         // title input
+				`id="ticket-priority"`, // priority select
+				`name="priority"`,      // priority form
+				`id="assign-user"`,     // assignment select
+				`name="user_id"`,       // assign form
+				`Add comment`,          // comment form
+				`name="body"`,          // comment textarea
+				`name="visibility"`,    // comment visibility
+			} {
+				if strings.Contains(body, absent) {
+					t.Errorf("closed detail must NOT contain %q, got: %s", absent, body)
+				}
+			}
+
+			// State control: reopen only for resolved/closed, none for cancelled.
+			if state == domain.StateCancelled {
+				if strings.Contains(body, `id="ticket-state"`) {
+					t.Errorf("cancelled detail must not render a Move to control, got: %s", body)
+				}
+				if strings.Contains(body, `class="prop-label">Move to</`) {
+					t.Errorf("cancelled detail must not render Move to, got: %s", body)
+				}
+			} else {
+				if !strings.Contains(body, `id="ticket-state"`) {
+					t.Errorf("%s detail must render the Move to control, got: %s", state, body)
+				}
+				if !strings.Contains(body, `class="prop-label">Move to</`) {
+					t.Errorf("%s detail must render Move to, got: %s", state, body)
+				}
+			}
+		})
 	}
 }
 
@@ -287,11 +374,18 @@ func TestTicketDetailPresentationContract(t *testing.T) {
 
 	body := renderGolden(t, "tickets_show", "", staff, false)
 	for _, want := range []string{
-		`<details open id="details"`,
-		`<details open id="assignment"`,
-		`<details open id="state"`,
-		`tkt:ticket-detail:collapsed:v1`,
-		`<summary>Details</summary>`,
+		`class="prop-list"`,
+		`class="prop-heading">Properties</`,
+		`class="prop-heading">Assignment</`,
+		`class="prop-heading">State</`,
+		`id="ticket-title"`,
+		`name="title"`,
+		`id="ticket-priority"`,
+		`name="priority"`,
+		`id="assign-user"`,
+		`name="user_id"`,
+		`id="ticket-state"`,
+		`name="to"`,
 		`name="visibility" value="public"`,
 		`name="internal" value="1"`,
 		`Internal comment`,
@@ -305,11 +399,14 @@ func TestTicketDetailPresentationContract(t *testing.T) {
 			t.Errorf("ticket detail must contain %q, got: %s", want, body)
 		}
 	}
+	if strings.Contains(body, `<details open id="details"`) {
+		t.Errorf("variant A must not render the collapsible details cards, got: %s", body)
+	}
+	if strings.Contains(body, `tkt:ticket-detail:collapsed:v1`) {
+		t.Errorf("variant A must not include the localStorage collapse script, got: %s", body)
+	}
 	if strings.Contains(body, `id="comment-visibility"`) {
 		t.Errorf("staff comment form must not render the visibility select, got: %s", body)
-	}
-	if strings.Contains(body, `>Properties<`) {
-		t.Errorf("ticket detail must not contain the obsolete Properties header, got: %s", body)
 	}
 
 	user := fixtureDetailData()
@@ -400,4 +497,17 @@ func TestGoldenCategoriesNew(t *testing.T) {
 
 func TestGoldenCategoryForm(t *testing.T) {
 	goldenFile(t, "category_form", renderGolden(t, "categories_new", "category_form", fixtureCategoryFormData(), true))
+}
+
+func fixtureSettingsIndexData() settingsIndexData {
+	ana := domain.User{ID: 1, Name: "Ana Torres", Email: "ana@example.com", Active: true, CreatedAt: goldenT0}
+	return settingsIndexData{
+		pageData: pageData{NavActive: "settings", CurrentUser: ana, CanManageUsers: true},
+		Current:  "#E8EEFF",
+		Colors:   appearanceOptions(),
+	}
+}
+
+func TestGoldenSettingsIndex(t *testing.T) {
+	goldenFile(t, "settings_index", renderGolden(t, "settings_index", "", fixtureSettingsIndexData(), false))
 }

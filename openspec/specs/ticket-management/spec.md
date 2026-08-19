@@ -14,7 +14,7 @@ Defines the ticket aggregate: creation, readable numbering, editable fields, req
 
 ### Requirement: Create Ticket
 
-The system MUST allow any authenticated actor to create a ticket from a title, description, category, priority, and optional assigned user. The title MUST be non-empty. The category MUST exist in the managed categories. The priority MUST be one of `low`, `medium`, `high`, `critical`. When a user is assigned, the assigned user MUST exist in the managed users, MUST be active, and MUST have role `agent`, `admin`, or `root`. An actor with role `user` MUST create tickets unassigned; assignment inputs MUST be accepted only from roles `agent`+ and MUST be rejected for role `user`. The requester name and email MUST be derived from the creating session user at creation time, and the requester user ID MUST be persisted from the session; the caller cannot supply or edit requester identity. A new ticket MUST start in state `new` and MUST record its creation timestamp. (Previously: any logged-in user could create assigned tickets; requester had no persisted user ID.)
+The system MUST allow any authenticated actor to create a ticket from a title, description, category, priority, and optional assigned user. The title MUST be non-empty. The description MUST be supplied at creation and MUST be immutable afterwards (see Update Ticket Fields). The category MUST exist in the managed categories. The priority MUST be one of `low`, `medium`, `high`, `critical`. When a user is assigned, the assigned user MUST exist in the managed users, MUST be active, and MUST have role `agent`, `admin`, or `root`. An actor with role `user` MUST create tickets unassigned; assignment inputs MUST be accepted only from roles `agent`+ and MUST be rejected for role `user`. The requester name and email MUST be derived from the creating session user at creation time, and the requester user ID MUST be persisted from the session; the caller cannot supply or edit requester identity. A new ticket MUST start in state `new` and MUST record its creation timestamp. (Previously: any logged-in user could create assigned tickets; requester had no persisted user ID.)
 
 #### Scenario: Create a valid unassigned ticket
 
@@ -74,13 +74,21 @@ The system MUST assign each ticket a unique readable number in `TKT-N` format, w
 
 ### Requirement: Update Ticket Fields
 
-The system MUST allow editing title, description, category, priority, and assigned user, restricted by actor role: `agent` SHALL edit tickets assigned to them; `admin` and `root` SHALL edit any ticket; role `user` MUST NOT edit tickets. Category, priority, and user edits MUST be validated as in creation, including agent-plus assignment and reassignment-reason rules (see Ticket Access and Assignment). Each edit MUST update the modification timestamp, MUST append an audit event (see Audit Log), and MUST NOT alter `resolved_at` or `closed_at`. (Previously: any logged-in user could edit any ticket.)
+The system MUST allow editing title and priority, restricted by actor role: `agent` SHALL edit tickets assigned to them; `admin` and `root` SHALL edit any ticket; role `user` MUST NOT edit tickets. The description MUST be immutable after creation: it is a creation-only field, the edit form MUST NOT present it, and an edit request MUST NOT apply or audit a submitted description. The category MUST be immutable after creation: it is a creation-only field (future: categories get their own management flow), the edit form MUST NOT present it, and an edit request MUST NOT apply or audit a submitted category — a forged `category_id` in an edit POST is ignored and the stored category remains unchanged. Title and priority edits MUST be validated as in creation. Assignment changes are a separate flow (see Ticket Access and Assignment). Each edit MUST update the modification timestamp, MUST append an audit event (see Audit Log), and MUST NOT alter `resolved_at` or `closed_at`. (Previously: any logged-in user could edit any ticket, and the description and category were editable alongside the other fields; both are now creation-only and immutable.)
 
-#### Scenario: Edit category
+#### Scenario: Category is immutable after creation
 
-- GIVEN a ticket in state `in_progress` assigned to an `agent`, with `resolved_at` empty
-- WHEN the assigned agent changes its category to another valid category
-- THEN the category is updated, the modification timestamp is refreshed, and an audit event is appended
+- GIVEN a ticket with a stored category
+- WHEN an edit request includes a category value (e.g. a forged `category_id`)
+- THEN the stored category is unchanged
+- AND no audit event is recorded for a category change
+
+#### Scenario: Description is immutable after creation
+
+- GIVEN a ticket with a stored description
+- WHEN an edit request includes a description value
+- THEN the stored description is unchanged
+- AND no audit event is recorded for a description change
 
 #### Scenario: Edit to invalid priority
 

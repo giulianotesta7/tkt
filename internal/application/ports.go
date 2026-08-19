@@ -184,6 +184,17 @@ type DeskStore interface {
 	ListMembers(ctx context.Context, deskID int64) ([]domain.User, error)
 }
 
+// SettingsStore persists single-row instance settings (appearance-settings
+// spec). The internal-comment background row is seeded by migration 0005;
+// a missing row reads back the application default.
+type SettingsStore interface {
+	// GetInternalCommentBg returns the configured internal-comment
+	// background color, or DefaultInternalCommentBg when the row is absent.
+	GetInternalCommentBg(ctx context.Context) (string, error)
+	// SetInternalCommentBg persists the internal-comment background color.
+	SetInternalCommentBg(ctx context.Context, color string) error
+}
+
 // TicketQuery is the filter set shared by list, count, and search queries
 // (ticket-search spec). All active filters compose with AND semantics; an
 // empty filter set returns all tickets within the actor's scope.

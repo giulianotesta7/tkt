@@ -709,6 +709,63 @@ func TestUpdateRejectsAssignmentFields(t *testing.T) {
 	}
 }
 
+// TestUpdateClosedTicketRejected proves a closed ticket (resolved, closed,
+// or cancelled) is read-only: Update refuses any field edit with a
+// ForbiddenError before any store mutation (closed-ticket read-only spec —
+// only the state transition remains mutable, and cancelled is terminal).
+func TestUpdateClosedTicketRejected(t *testing.T) {
+	for _, state := range []domain.State{domain.StateResolved, domain.StateClosed, domain.StateCancelled} {
+		t.Run(string(state), func(t *testing.T) {
+			h := newTicketHarness()
+			cat := h.categories.seed("Bugs")
+			ticket := seededTicket(h.tickets, cat.ID, state)
+			actor := domain.User{Name: "Ada", Role: domain.RoleAdmin}
+			newTitle := "Renamed"
+
+			_, err := h.svc.Update(context.Background(), actor, ticket.ID, domain.TicketUpdate{Title: &newTitle})
+			var ferr *domain.ForbiddenError
+			if !errors.As(err, &ferr) || ferr.Message != domain.ErrMsgClosedTicketReadOnly {
+				t.Fatalf("Update: closed ticket must be denied with %q, got %v", domain.ErrMsgClosedTicketReadOnly, err)
+			}
+			stored, _ := h.tickets.GetByID(context.Background(), ticket.ID, application.TicketQuery{Scope: application.ScopeAll})
+			if stored.Title != ticket.Title {
+				t.Fatalf("Update: denied edit must not change the title, got %q", stored.Title)
+			}
+			if len(h.audits.events) != 0 {
+				t.Fatal("Update: denied edit must not be audited")
+			}
+		})
+	}
+}
+
+// TestAssignClosedTicketRejected proves assignment is also read-only on a
+// closed ticket: Assign refuses with a ForbiddenError before any store
+// mutation (closed-ticket read-only spec).
+func TestAssignClosedTicketRejected(t *testing.T) {
+	for _, state := range []domain.State{domain.StateResolved, domain.StateClosed, domain.StateCancelled} {
+		t.Run(string(state), func(t *testing.T) {
+			h := newTicketHarness()
+			cat := h.categories.seed("Bugs")
+			ticket := seededTicket(h.tickets, cat.ID, state)
+			assignee := h.users.seedRole("Ana", "ana@example.com", domain.RoleAgent, true)
+			actor := domain.User{Name: "Ada", Role: domain.RoleAdmin}
+
+			_, err := h.svc.Assign(context.Background(), actor, ticket.ID, ptr(assignee.ID), "")
+			var ferr *domain.ForbiddenError
+			if !errors.As(err, &ferr) || ferr.Message != domain.ErrMsgClosedTicketReadOnly {
+				t.Fatalf("Assign: closed ticket must be denied with %q, got %v", domain.ErrMsgClosedTicketReadOnly, err)
+			}
+			stored, _ := h.tickets.GetByID(context.Background(), ticket.ID, application.TicketQuery{Scope: application.ScopeAll})
+			if stored.UserID != nil {
+				t.Fatalf("Assign: denied assign must not set the assignee, got %v", stored.UserID)
+			}
+			if len(h.audits.events) != 0 {
+				t.Fatal("Assign: denied assign must not be audited")
+			}
+		})
+	}
+}
+
 func TestTransitionAppliesAndAuditsWithSessionActor(t *testing.T) {
 	h := newTicketHarness()
 	cat := h.categories.seed("Bugs")
@@ -781,6 +838,22 @@ func TestTransitionReopenClosedRequiresReason(t *testing.T) {
 	var rerr *domain.ReopenReasonRequiredError
 	if !errors.As(err, &rerr) {
 		t.Fatalf("Transition: closed reopen without reason must be a ReopenReasonRequiredError, got %v", err)
+	}
+	if len(h.audits.events) != 0 {
+		t.Fatal("Transition: rejected reopen must not be audited")
+	}
+}
+
+func TestTransitionReopenResolvedRequiresReason(t *testing.T) {
+	h := newTicketHarness()
+	cat := h.categories.seed("Bugs")
+	ticket := seededTicket(h.tickets, cat.ID, domain.StateResolved)
+	actor := domain.User{Name: "Ada", Role: domain.RoleAdmin}
+
+	_, err := h.svc.Transition(context.Background(), actor, ticket.ID, domain.StateInProgress, "")
+	var rerr *domain.ReopenReasonRequiredError
+	if !errors.As(err, &rerr) {
+		t.Fatalf("Transition: resolved reopen without reason must be a ReopenReasonRequiredError, got %v", err)
 	}
 	if len(h.audits.events) != 0 {
 		t.Fatal("Transition: rejected reopen must not be audited")
@@ -860,6 +933,43 @@ func TestUpdateAppliesChangedFieldsAndAuditsEach(t *testing.T) {
 	}
 }
 
+// TestUpdateNeverTouchesDescription proves the description is immutable
+// after creation: the update input exposes no description field (it was
+// removed from TicketUpdate), so any Update leaves the stored description
+// byte-for-byte unchanged and appends no description audit event. The
+// description exists on the aggregate only as a creation-time value.
+func TestUpdateNeverTouchesDescription(t *testing.T) {
+	h := newTicketHarness()
+	cat := h.categories.seed("Bugs")
+	ticket := seededTicket(h.tickets, cat.ID, domain.StateInProgress)
+	ticket.Description = "Original description"
+	h.tickets.Update(context.Background(), &ticket)
+	actor := domain.User{Name: "Ada", Role: domain.RoleAdmin}
+	h.clock.Advance(timeMinute)
+
+	newTitle := "Renamed title"
+	newPriority := domain.PriorityHigh
+	updated, err := h.svc.Update(context.Background(), actor, ticket.ID, domain.TicketUpdate{
+		Title:    &newTitle,
+		Priority: &newPriority,
+	})
+	if err != nil {
+		t.Fatalf("Update: unexpected error: %v", err)
+	}
+	if updated.Description != "Original description" {
+		t.Fatalf("Update: description must stay immutable, got %q", updated.Description)
+	}
+	events, _ := h.audits.ListByTicket(context.Background(), ticket.ID)
+	if len(events) != 2 {
+		t.Fatalf("Update: exactly the title+priority audits expected, got %d", len(events))
+	}
+	for _, ev := range events {
+		if ev.Field != nil && *ev.Field == "description" {
+			t.Fatalf("Update: no description audit may exist, got %+v", events)
+		}
+	}
+}
+
 func TestUpdateRejectsInvalidPriorityWithoutChanges(t *testing.T) {
 	h := newTicketHarness()
 	cat := h.categories.seed("Bugs")
@@ -883,25 +993,38 @@ func TestUpdateRejectsInvalidPriorityWithoutChanges(t *testing.T) {
 	}
 }
 
-// TestUpdateValidatesCategory proves category edits validate existence as in
-// creation (ticket-management spec). The assigned-user validation moved to
-// the Assign use case (TestAssignTargetInactive): Update no longer accepts
-// assignment fields (S4: assignment changes use the assign flow).
-func TestUpdateValidatesCategory(t *testing.T) {
+// TestUpdateNeverTouchesCategory proves the category is immutable after
+// creation, mirroring the description: the update input exposes no category
+// field (it was removed from TicketUpdate), so any Update leaves the stored
+// category unchanged and appends no category audit event. The category
+// exists on the aggregate only as a creation-time value.
+func TestUpdateNeverTouchesCategory(t *testing.T) {
 	h := newTicketHarness()
 	cat := h.categories.seed("Bugs")
 	ticket := seededTicket(h.tickets, cat.ID, domain.StateInProgress)
 	actor := domain.User{Name: "Ada", Role: domain.RoleAdmin}
+	h.clock.Advance(timeMinute)
 
-	// Category edits validate existence as in creation.
-	missingCat := int64(999)
-	_, err := h.svc.Update(context.Background(), actor, ticket.ID, domain.TicketUpdate{CategoryID: &missingCat})
-	var nerr *domain.NotFoundError
-	if !errors.As(err, &nerr) || nerr.Kind != "category" {
-		t.Fatalf("Update: unknown category must be a NotFoundError(kind=category), got %v", err)
+	newTitle := "Renamed title"
+	newPriority := domain.PriorityHigh
+	updated, err := h.svc.Update(context.Background(), actor, ticket.ID, domain.TicketUpdate{
+		Title:    &newTitle,
+		Priority: &newPriority,
+	})
+	if err != nil {
+		t.Fatalf("Update: unexpected error: %v", err)
 	}
-	if len(h.audits.events) != 0 {
-		t.Fatal("Update: rejected edits must not be audited")
+	if updated.CategoryID != cat.ID {
+		t.Fatalf("Update: category must stay immutable, got %d want %d", updated.CategoryID, cat.ID)
+	}
+	events, _ := h.audits.ListByTicket(context.Background(), ticket.ID)
+	if len(events) != 2 {
+		t.Fatalf("Update: exactly the title+priority audits expected, got %d", len(events))
+	}
+	for _, ev := range events {
+		if ev.Field != nil && *ev.Field == "category" {
+			t.Fatalf("Update: no category audit may exist, got %+v", events)
+		}
 	}
 }
 

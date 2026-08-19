@@ -29,6 +29,18 @@ func userFromContext(ctx context.Context) *domain.User {
 	return u
 }
 
+// ctxKeyInternalCommentBg carries the instance appearance color read once
+// per authenticated request (appearance-settings spec: every shell render
+// styles internal comments with the configured background).
+type ctxKeyInternalCommentBg struct{}
+
+// internalCommentBgFrom returns the appearance color stamped by the
+// middleware, or "" when absent (auth pages, handlers used in isolation).
+func internalCommentBgFrom(ctx context.Context) string {
+	s, _ := ctx.Value(ctxKeyInternalCommentBg{}).(string)
+	return s
+}
+
 // SessionMiddleware enforces the session, bootstrap, and CSRF gates (D14,
 // D16, D17). It wraps the whole mux:
 //
@@ -47,12 +59,13 @@ func userFromContext(ctx context.Context) *domain.User {
 type SessionMiddleware struct {
 	sessions application.SessionStore
 	users    application.UserStore
+	settings application.SettingsStore
 }
 
-// NewSessionMiddleware wires the middleware against the session and user
-// ports.
-func NewSessionMiddleware(sessions application.SessionStore, users application.UserStore) *SessionMiddleware {
-	return &SessionMiddleware{sessions: sessions, users: users}
+// NewSessionMiddleware wires the middleware against the session, user, and
+// instance settings ports.
+func NewSessionMiddleware(sessions application.SessionStore, users application.UserStore, settings application.SettingsStore) *SessionMiddleware {
+	return &SessionMiddleware{sessions: sessions, users: users, settings: settings}
 }
 
 // Wrap returns the mux-wrapping handler.
@@ -145,7 +158,16 @@ func (m *SessionMiddleware) Wrap(next http.Handler) http.Handler {
 			return
 		}
 
-		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), ctxKeyUser{}, user)))
+		bg, err := m.settings.GetInternalCommentBg(r.Context())
+		if err != nil {
+			// Operational failure (settings store unavailable): a
+			// recoverable 500, consistent with the session/user reads.
+			http.Error(w, "Internal server error", http.StatusInternalServerError)
+			return
+		}
+		ctx := context.WithValue(r.Context(), ctxKeyUser{}, user)
+		ctx = context.WithValue(ctx, ctxKeyInternalCommentBg{}, bg)
+		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }
 

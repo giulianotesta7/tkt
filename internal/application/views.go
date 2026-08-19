@@ -36,7 +36,11 @@ type TimelineItem struct {
 	FieldLabel  string
 	FromLabel   string
 	ToLabel     string
-	seq         int // original list index: deterministic tie-break
+	// Summary is a compact natural-language line for the activity timeline
+	// ("Ticket created", "Moved to In Progress", "Changed Title"). It keeps
+	// state changes terse and unobtrusive next to full comments.
+	Summary string
+	seq     int // original list index: deterministic tie-break
 }
 
 // ViewBuilder assembles TicketViews and resolves historical audit references.
@@ -136,6 +140,7 @@ func (b *ViewBuilder) enrichTimeline(ctx context.Context, view *TicketView) erro
 			continue
 		}
 		item.ActionLabel = humanizeIdentifier(item.Event.Action)
+		item.Summary = eventSummary(item.Event)
 		if item.Event.Field == nil {
 			continue
 		}
@@ -151,8 +156,56 @@ func (b *ViewBuilder) enrichTimeline(ctx context.Context, view *TicketView) erro
 		if err != nil {
 			return err
 		}
+		item.Summary = eventSummary(item.Event)
+		if field == "user" || field == "user_id" {
+			item.Summary = "Changed assignee"
+			if item.ToLabel != "" {
+				item.Summary = "Assigned to " + item.ToLabel
+			}
+		} else if item.Event.Action == domain.ActionUpdate {
+			label := auditFieldLabel(field)
+			if item.ToLabel != "" && item.ToLabel != item.FromLabel {
+				item.Summary = "Changed " + label + " to " + item.ToLabel
+			} else {
+				item.Summary = "Changed " + label
+			}
+		}
 	}
 	return nil
+}
+
+// eventSummary renders a compact natural-language line for a state-change
+// audit event (activity timeline). Transition carries a ToValue target;
+// updates carry a Field; creations have neither. Transitions read as a
+// contextual outcome statement in a uniform "Ticket …" family ("Ticket
+// in progress", "Ticket resolved"); a reopen — from a closed state
+// (resolved/closed) back into in_progress — reads as "Ticket Reopened".
+func eventSummary(e *domain.AuditEvent) string {
+	switch e.Action {
+	case domain.ActionTransition:
+		if e.ToValue != nil {
+			if *e.ToValue == "in_progress" && e.FromValue != nil && isClosedState(*e.FromValue) {
+				return "Ticket Reopened"
+			}
+			return "Ticket " + strings.ReplaceAll(*e.ToValue, "_", " ")
+		}
+		return "Changed state"
+	case domain.ActionCreated:
+		return "Ticket created"
+	default:
+		if e.Field != nil {
+			return "Changed " + auditFieldLabel(strings.ToLower(strings.TrimSpace(*e.Field)))
+		}
+		return humanizeIdentifier(e.Action)
+	}
+}
+
+func isClosedState(s string) bool {
+	switch s {
+	case string(domain.StateResolved), string(domain.StateClosed):
+		return true
+	}
+	return false
 }
 
 func auditFieldLabel(field string) string {

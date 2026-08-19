@@ -3,16 +3,22 @@
 {{if .Error}}  <div class="error-banner" role="alert">{{.Error}}</div>
 {{end}}
   <div class="command-header">
-    <div>
+    <div class="detail-head">
       <div class="meta-row">
         <a href="/tickets">← Queue</a>
         <span class="num">{{ticketNumber .View.Ticket.Number}}</span>
-        {{template "state_badge" .View.Ticket.State}}
-        <span class="priority {{.View.Ticket.Priority}}">{{humanize .View.Ticket.Priority}}</span>
       </div>
+      {{if and .CanEdit (not .Closed)}}
+      <form class="title-inline" method="post" action="/tickets/{{.View.Ticket.ID}}/edit"
+            hx-post="/tickets/{{.View.Ticket.ID}}/edit" hx-target="#ticket-detail" hx-swap="outerHTML">
+        <input type="text" id="ticket-title" name="title" value="{{.Values.Title}}" required
+               aria-label="Ticket title" class="title-input">
+        <input type="hidden" name="priority" value="{{.Values.Priority}}">
+      </form>
+      {{else}}
       <h1 class="command-title">{{.View.Ticket.Title}}</h1>
+      {{end}}
       <div class="meta-row ticket-metadata">
-        <span>Requester: {{.View.Ticket.RequesterName}} &lt;{{.View.Ticket.RequesterEmail}}&gt;</span>
         <span>Created {{template "timestamp" .View.Ticket.CreatedAt}}</span>
         <span>Updated {{template "timestamp" .View.Ticket.UpdatedAt}}</span>
       </div>
@@ -24,105 +30,122 @@
         <h2>Description</h2>
         {{if .View.Ticket.Description}}<p>{{.View.Ticket.Description}}</p>{{else}}<p class="empty">No description.</p>{{end}}
       </div>
-{{template "comment_form" .}}
+{{if not .Closed}}{{template "comment_form" .}}{{end}}
       <div class="card">
         <h2>Timeline</h2>
 {{template "timeline" .}}
       </div>
     </div>
     <div class="evidence">
-      <details open id="details" class="card property-form">
-        <summary>Details</summary>
-        <form method="post" action="/tickets/{{.View.Ticket.ID}}/edit">
-        <div class="field">
-          <label for="ticket-title">Title</label>
-          <input id="ticket-title" name="title" value="{{.Values.Title}}" required>
-        </div>
-        <div class="field">
-          <label for="ticket-description">Description</label>
-          <textarea id="ticket-description" name="description">{{.Values.Description}}</textarea>
-        </div>
-        <div class="field-row">
-          <div class="field">
-            <label for="ticket-category">Category</label>
-            <select id="ticket-category" name="category_id">
-              {{range .Options.Categories}}<option value="{{.ID}}" {{if eq (.ID | printf "%d") $.Values.CategoryID}}selected{{end}}>{{.Name}}</option>{{end}}
-            </select>
+      <div class="prop-list">
+        <div class="prop-section">
+          <div class="prop-heading">Properties</div>
+          <div class="prop-row">
+            <span class="prop-label">Requester</span>
+            <span class="prop-value">{{.View.Ticket.RequesterName}}</span>
           </div>
-          <div class="field">
-            <label for="ticket-priority">Priority</label>
-            <select id="ticket-priority" name="priority">
-              {{range .Options.Priorities}}<option value="{{.}}" {{if eq . $.Values.Priority}}selected{{end}}>{{humanize .}}</option>{{end}}
-            </select>
+          <div class="prop-row">
+            <span class="prop-label">Category</span>
+            <span id="ticket-category-value" class="prop-value">{{.View.Category.Name}}</span>
+          </div>
+          {{if not .Closed}}<div class="prop-row">
+            <span class="prop-label">Priority</span>
+            <form class="prop-control" method="post" action="/tickets/{{.View.Ticket.ID}}/edit"
+                  hx-post="/tickets/{{.View.Ticket.ID}}/edit" hx-target="#ticket-detail" hx-swap="outerHTML">
+              <select id="ticket-priority" name="priority" class="prop-select"
+                      aria-label="Priority" onchange="this.form.requestSubmit()">
+                {{range .Options.Priorities}}<option value="{{.}}" {{if eq . $.Values.Priority}}selected{{end}}>{{humanize .}}</option>{{end}}
+              </select>
+              <input type="hidden" name="title" value="{{.Values.Title}}">
+            </form>
+          </div>{{end}}
+        </div>
+        <div class="prop-section">
+          <div class="prop-heading">Assignment</div>
+          <div class="prop-row">
+            <span class="prop-label">Assignee</span>
+            {{if .Closed}}
+            <span class="prop-value">{{if .View.AssignedUser}}{{.View.AssignedUser.Name}}{{else}}Unassigned{{end}}</span>
+            {{else}}
+            <form class="prop-control" method="post" action="/tickets/{{.View.Ticket.ID}}/assign"
+                  hx-post="/tickets/{{.View.Ticket.ID}}/assign" hx-target="#ticket-detail" hx-swap="outerHTML">
+              <select id="assign-user" name="user_id" class="prop-select"
+                      aria-label="Assignee" onchange="this.form.requestSubmit()">
+                <option value="">Unassigned</option>
+                {{range .Options.AssignableUsers}}<option value="{{.ID}}" {{if eq (.ID | printf "%d") $.Values.UserID}}selected{{end}}>{{.Name}}{{if not .Active}} (inactive){{end}}</option>{{end}}
+              </select>
+            </form>
+            {{end}}
           </div>
         </div>
-        <button class="btn primary" type="submit">Save properties</button>
-        </form>
-      </details>
-      <details open id="assignment" class="card property-form">
-        <summary>Assignment</summary>
-        <form method="post" action="/tickets/{{.View.Ticket.ID}}/assign">
-        <div class="field">
-          <label for="assign-user">Assigned To</label>
-          <select id="assign-user" name="user_id">
-            <option value="">Unassigned</option>
-            {{range .Options.AssignableUsers}}<option value="{{.ID}}" {{if eq (.ID | printf "%d") $.Values.UserID}}selected{{end}}>{{.Name}}{{if not .Active}} (inactive){{end}}</option>{{end}}
-          </select>
-        </div>
-        <div class="field">
-          <label for="assign-reason">Reason</label>
-          <input type="text" id="assign-reason" name="reason" placeholder="Required when reassigning">
-        </div>
-        <button class="btn primary" type="submit">Save assignment</button>
-        </form>
-      </details>
-      <details open id="state" class="card state-card">
-        <summary>State</summary>
-        <div class="current-state">Current {{template "state_badge" .View.Ticket.State}}</div>
-        <form class="transition-form" method="post" action="/tickets/{{.View.Ticket.ID}}/transition">
-          <div class="field">
-            <label for="ticket-state">Move to</label>
-            <select id="ticket-state" name="to">
-              {{range .Next}}<option value="{{.To}}">{{humanize .To}}{{if .NeedsReason}} (reason required){{end}}</option>{{end}}
-            </select>
+        <div class="prop-section">
+          <div class="prop-heading">State</div>
+          <div class="prop-row">
+            <span class="prop-label">Current</span>
+            <span class="prop-value">{{template "state_badge" .View.Ticket.State}}</span>
           </div>
-          <div class="field">
-            <label for="transition-reason">Reason</label>
-            <input type="text" id="transition-reason" name="reason" placeholder="Required when reopening a closed ticket">
+{{if .Next}}
+          <div class="prop-row">
+            <span class="prop-label">Move to</span>
+            <form class="prop-control transition-control" method="post" action="/tickets/{{.View.Ticket.ID}}/transition"
+                  hx-post="/tickets/{{.View.Ticket.ID}}/transition" hx-target="#ticket-detail" hx-swap="outerHTML">
+              <select id="ticket-state" name="to" class="prop-select"
+                      aria-label="Move to state" onchange="toggleStateReason(this)">
+                <option value="" disabled selected>Select…</option>
+                {{range .Next}}<option value="{{.To}}"{{if eq (printf "%s" .To) $.SelectedTo}} selected{{end}}{{if .NeedsReason}} data-needs-reason{{end}}>{{humanize .To}}{{if .NeedsReason}} (reason required){{end}}</option>{{end}}
+              </select>
+              <div id="state-reason-field" class="state-reason-field">
+                <label for="state-reason">Reopen reason</label>
+                <div class="state-reason-row">
+                  <input type="text" id="state-reason" name="reason" class="state-reason"
+                         placeholder="Required" required>
+                  <button type="submit" id="state-apply" class="btn primary small state-apply">Apply</button>
+                </div>
+              </div>
+            </form>
           </div>
-{{if .Next}}          <button class="btn primary" type="submit">Update state</button>
-{{end}}
-        </form>
-{{if not .Next}}        <p class="empty compact">This ticket is terminal.</p>
 {{end}}
 {{if or .View.Ticket.ResolvedAt .View.Ticket.ClosedAt}}
-        <dl class="lifecycle-meta">
-{{with .View.Ticket.ResolvedAt}}          <dt>Resolved</dt><dd>{{template "timestamp" .}}</dd>
+          <dl class="lifecycle-meta">
+{{with .View.Ticket.ResolvedAt}}            <dt>Resolved</dt><dd>{{template "timestamp" .}}</dd>
 {{end}}
-{{with .View.Ticket.ClosedAt}}          <dt>Closed</dt><dd>{{template "timestamp" .}}</dd>
+{{with .View.Ticket.ClosedAt}}            <dt>Closed</dt><dd>{{template "timestamp" .}}</dd>
 {{end}}
-        </dl>
+          </dl>
 {{end}}
-      </details>
+        </div>
+      </div>
     </div>
   </div>
 </div>
 <script>
-(() => {
-  const key = "tkt:ticket-detail:collapsed:v1";
-  const cards = document.querySelectorAll("#ticket-detail details[id]");
-  let collapsed = [];
-  try {
-    const stored = JSON.parse(localStorage.getItem(key) || "[]");
-    collapsed = Array.isArray(stored) ? stored : [];
-  } catch (_) {}
-  cards.forEach((card) => {
-    card.open = !collapsed.includes(card.id);
-    card.addEventListener("toggle", () => {
-      collapsed = Array.from(cards).filter((item) => !item.open).map((item) => item.id);
-      localStorage.setItem(key, JSON.stringify(collapsed));
-    });
-  });
+// syncStateReason reveals the reopen-reason group (label + required input +
+// Apply) only for transitions that demand a reason (reopen, data-needs-reason).
+// A display:none control is barred from constraint validation, so the input
+// can stay `required` at all times: hidden it never blocks the auto-submit of
+// a non-reopen transition; visible it enforces a reason client-side.
+function syncStateReason(select, autoSubmit) {
+  const field = document.getElementById('state-reason-field');
+  const reason = document.getElementById('state-reason');
+  if (!field || !reason) return;
+  const opt = select && select.options[select.selectedIndex];
+  const needs = opt && opt.hasAttribute('data-needs-reason');
+  field.classList.toggle('visible', !!needs);
+  reason.required = !!needs;
+  if (needs) {
+    reason.focus();
+  } else if (autoSubmit && opt && opt.value) {
+    select.form.requestSubmit();
+  }
+}
+function toggleStateReason(select) { syncStateReason(select, true); }
+// The ticket_detail partial is re-rendered via hx-swap outerHTML; HTMX
+// re-executes this inline script on every swap. The IIFE reveals the reason
+// group when a reason-requiring option was pre-selected (e.g. an error
+// re-render preserved the choice) without auto-submitting.
+(function () {
+  const select = document.getElementById('ticket-state');
+  if (select) syncStateReason(select, false);
 })();
 </script>
 {{end}}

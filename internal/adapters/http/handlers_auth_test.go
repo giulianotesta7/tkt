@@ -258,7 +258,7 @@ func TestLogoutSessionStoreFailure500(t *testing.T) {
 
 	mux := http.NewServeMux()
 	NewAuthHandlers(authSvc, usersSvc, renderer).Register(mux)
-	mw := NewSessionMiddleware(s.SessionStore(), s.UserStore())
+	mw := NewSessionMiddleware(s.SessionStore(), s.UserStore(), s.SettingsStore())
 
 	req := httptest.NewRequest(http.MethodPost, "/logout", nil)
 	req.Header.Set("Cookie", sessionCookie+"="+session.ID)

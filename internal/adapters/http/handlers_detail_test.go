@@ -28,7 +28,7 @@ func TestTicketShowRendersDetail(t *testing.T) {
 		t.Fatalf("status = %d, want 200", rec.Code)
 	}
 	body := rec.Body.String()
-	for _, want := range []string{"Login page down", "TKT-1", "Bugs", "Checking now", "Timeline", "Details", "Save properties"} {
+	for _, want := range []string{"Login page down", "TKT-1", "Bugs", "Checking now", "Timeline", "Properties", "id=\"ticket-title\"", "<h2>Description</h2>", "Test description"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("detail page must contain %q, got: %s", want, body)
 		}
@@ -46,16 +46,28 @@ func TestTicketShowRendersDetail(t *testing.T) {
 			t.Errorf("assignment form must contain %q, got: %s", want, body)
 		}
 	}
-	for _, want := range []string{`id="ticket-title"`, `id="ticket-description"`, `id="ticket-category"`, `name="title"`, `name="description"`, `name="category_id"`} {
+	for _, want := range []string{`id="ticket-title"`, `name="title"`, `id="ticket-priority"`} {
 		if !strings.Contains(body, want) {
-			t.Errorf("title/description/category must be editable on detail, missing %q in: %s", want, body)
+			t.Errorf("title/priority must be editable on detail, missing %q in: %s", want, body)
 		}
 	}
+	// The description and the category are immutable after creation: the
+	// edit form must not present either (the read-only card above is the
+	// only description surface, and the category shows as read-only
+	// metadata — no select, no form field).
+	if strings.Contains(body, `name="description"`) || strings.Contains(body, `id="ticket-description"`) {
+		t.Errorf("detail edit form must not render a description field (immutable after creation), got: %s", body)
+	}
+	if strings.Contains(body, `name="category_id"`) || strings.Contains(body, `<select id="ticket-category"`) {
+		t.Errorf("detail edit form must not render a category control (immutable after creation), got: %s", body)
+	}
+	if !strings.Contains(body, `id="ticket-category-value"`) {
+		t.Errorf("the category must stay visible as read-only metadata, got: %s", body)
+	}
 	// Merged timeline DESC: the transition (newer) renders before created.
-	// Match the timeline event markers (not bare words — "transition" also
-	// appears in the inline CSS rules).
-	createdEvent := `<span class="dot created"></span>`
-	transitionEvent := `<span class="dot transition"></span>`
+	// Match the event summary lines (not bare words).
+	createdEvent := "Ticket created"
+	transitionEvent := "Ticket in progress"
 	if !(strings.Index(body, transitionEvent) < strings.Index(body, createdEvent)) {
 		t.Errorf("merged timeline must be newest-first (transition before created), got: %s", body)
 	}
@@ -112,8 +124,11 @@ func TestTicketShowRendersConciseSemanticMetadata(t *testing.T) {
 	h.seedTicket(t, "Login page down", nil)
 
 	body := h.get(t, "/tickets/1", false).Body.String()
-	if !strings.Contains(body, "Requester: Admin &lt;admin@tkt.test&gt;") {
-		t.Errorf("requester metadata must come from the session-derived ticket data, got: %s", body)
+	if !strings.Contains(body, `>Requester</span>`) || !strings.Contains(body, "Admin") {
+		t.Errorf("requester must appear as a property row in the sidebar, got: %s", body)
+	}
+	if strings.Contains(body, "Requester:") {
+		t.Errorf("requester must be a sidebar property row, not header metadata, got: %s", body)
 	}
 	if got := strings.Count(body, `<time datetime="`); got < 3 {
 		t.Errorf("detail metadata and timeline must use semantic time elements, got %d: %s", got, body)
@@ -155,7 +170,7 @@ func TestTicketTimelineDifferentiatesCommentsAndAuditEvents(t *testing.T) {
 	}
 
 	body := h.get(t, "/tickets/1", false).Body.String()
-	for _, want := range []string{`class="timeline-entry timeline-comment"`, `class="timeline-entry timeline-event"`, "New → In Progress"} {
+	for _, want := range []string{`class="timeline-entry timeline-comment"`, `class="timeline-entry timeline-event`, "Ticket in progress", "st-in_progress"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("timeline must contain %q, got: %s", want, body)
 		}
@@ -315,6 +330,15 @@ func TestTicketTransitionReopenWithReason(t *testing.T) {
 	if view.Ticket.ClosedAt != nil || view.Ticket.ResolvedAt != nil {
 		t.Error("reopen must clear resolved_at and closed_at")
 	}
+	// The reopen reason surfaces in the timeline as an explicitly labeled line.
+	page := h.get(t, "/tickets/1", false)
+	if !strings.Contains(page.Body.String(), "Reason: fix deployed") {
+		t.Errorf("timeline must label the reopen reason as %q, got: %s", "Reason: fix deployed", page.Body.String())
+	}
+	// A reopen reads as "Ticket Reopened", not "Ticket in progress".
+	if !strings.Contains(page.Body.String(), "Ticket Reopened") {
+		t.Errorf("timeline must summarize a reopen as %q, got: %s", "Reopen", page.Body.String())
+	}
 }
 
 // TestTicketTransitionHXFragment proves the HX transition path returns the
@@ -378,21 +402,38 @@ func TestTicketCommentEmptyBody422(t *testing.T) {
 	}
 }
 
-// TestTicketCommentOnClosedTicket proves comments are accepted on a closed
-// ticket (comment-timeline spec).
-func TestTicketCommentOnClosedTicket(t *testing.T) {
-	h := newHarness(t)
-	tkt := h.seedTicket(t, "Login page down", nil)
-	for _, to := range []domain.State{domain.StateInProgress, domain.StateResolved, domain.StateClosed} {
-		h.seedTransition(t, tkt.ID, to, "")
-	}
+// TestTicketCommentOnClosedTicketRejected proves comments are REJECTED on a
+// closed (resolved/closed/cancelled) ticket with a 403 ForbiddenError and
+// nothing stored — enforced at the application boundary, so a forged POST
+// cannot append to a closed ticket (closed-ticket read-only spec).
+func TestTicketCommentOnClosedTicketRejected(t *testing.T) {
+	for _, to := range []domain.State{domain.StateResolved, domain.StateClosed, domain.StateCancelled} {
+		t.Run(string(to), func(t *testing.T) {
+			h := newHarness(t)
+			tkt := h.seedTicket(t, "Login page down", nil)
+			// Walk the legal transition path to the closed target: closed must
+			// be reached via in_progress -> resolved -> closed (matrix).
+			path := []domain.State{to}
+			if to == domain.StateClosed {
+				path = []domain.State{domain.StateInProgress, domain.StateResolved, domain.StateClosed}
+			}
+			for _, step := range path {
+				h.seedTransition(t, tkt.ID, step, "")
+			}
 
-	rec := h.postForm(t, "/tickets/1/comments", url.Values{"body": {"Late note"}}, false)
+			rec := h.postForm(t, "/tickets/1/comments", url.Values{"body": {"Late note"}}, false)
 
-	wantRedirect(t, rec, http.StatusSeeOther, "/tickets/1")
-	view, err := h.tickets.GetByID(t.Context(), *h.admin, 1)
-	if err != nil || len(view.Comments) != 1 {
-		t.Errorf("comment on closed ticket must be stored (len=%d, err=%v)", len(view.Comments), err)
+			if rec.Code != http.StatusForbidden {
+				t.Errorf("status = %d, want 403", rec.Code)
+			}
+			if !strings.Contains(rec.Body.String(), domain.ErrMsgCommentOnClosedTicket) {
+				t.Errorf("response must show %q, got: %s", domain.ErrMsgCommentOnClosedTicket, rec.Body.String())
+			}
+			view, err := h.tickets.GetByID(t.Context(), *h.admin, 1)
+			if err != nil || len(view.Comments) != 0 {
+				t.Errorf("comment on closed ticket must NOT be stored (len=%d, err=%v)", len(view.Comments), err)
+			}
+		})
 	}
 }
 
@@ -435,8 +476,10 @@ func TestTicketCommentsNewestFirst(t *testing.T) {
 }
 
 // TestTicketEditUpdatesPriorityAndAudits proves POST /tickets/{id}/edit
-// updates every editable field, appends one audit event per change, and
-// redirects.
+// updates the editable fields (title, priority), appends one audit event per
+// change, and redirects. The category is immutable after creation — a forged
+// category_id in the POST is ignored (stored category unchanged, no category
+// audit), exactly like the description.
 func TestTicketEditUpdatesPriorityAndAudits(t *testing.T) {
 	h := newHarness(t)
 	h.seedTicket(t, "Login page down", nil)
@@ -462,11 +505,16 @@ func TestTicketEditUpdatesPriorityAndAudits(t *testing.T) {
 	if view.Ticket.Priority != domain.PriorityCritical {
 		t.Errorf("priority = %q, want critical", view.Ticket.Priority)
 	}
-	if view.Ticket.Title != "Login page is back" || view.Ticket.Description != "Fixed the 500" {
-		t.Errorf("editable text fields = %q / %q", view.Ticket.Title, view.Ticket.Description)
+	if view.Ticket.Title != "Login page is back" {
+		t.Errorf("title = %q, want the submitted title", view.Ticket.Title)
 	}
-	if view.Ticket.CategoryID != support.ID {
-		t.Errorf("category = %d, want %d", view.Ticket.CategoryID, support.ID)
+	// The description and the category are immutable after creation: the
+	// forged form fields are ignored and the stored values survive.
+	if view.Ticket.Description != "Test description" {
+		t.Errorf("description must stay immutable, got %q", view.Ticket.Description)
+	}
+	if view.Ticket.CategoryID != h.bugCategory.ID {
+		t.Errorf("category must stay immutable, got %d want %d", view.Ticket.CategoryID, h.bugCategory.ID)
 	}
 	var fields []string
 	for _, ev := range view.AuditEvents {
@@ -475,9 +523,14 @@ func TestTicketEditUpdatesPriorityAndAudits(t *testing.T) {
 		}
 	}
 	joined := strings.Join(fields, ",")
-	for _, field := range []string{"title", "description", "category", "priority"} {
+	for _, field := range []string{"title", "priority"} {
 		if !strings.Contains(joined, field) {
 			t.Errorf("audit must record %s change, got %v", field, fields)
+		}
+	}
+	for _, immutable := range []string{"category", "description"} {
+		if strings.Contains(joined, immutable) {
+			t.Errorf("audit must not record a %s change (immutable field), got %v", immutable, fields)
 		}
 	}
 }
@@ -568,7 +621,7 @@ func TestTicketEditTimelineResolvesAssignedUserName(t *testing.T) {
 	wantRedirect(t, rec, http.StatusSeeOther, "/tickets/1")
 
 	body := h.get(t, "/tickets/1", false).Body.String()
-	if !strings.Contains(body, "Update · Assigned To · Unassigned → Beto") {
+	if !strings.Contains(body, "Assigned to Beto") {
 		t.Errorf("assignment event must resolve user names, got: %s", body)
 	}
 	if strings.Contains(body, "Assigned To · Unassigned → "+strconv.FormatInt(beto.ID, 10)) {
@@ -606,7 +659,7 @@ func TestTicketAssignInitialHappyPath(t *testing.T) {
 		t.Errorf("assignment event ActorUserID = %v, want session admin %d", assignEv.ActorUserID, h.admin.ID)
 	}
 	body := h.get(t, "/tickets/1", false).Body.String()
-	if !strings.Contains(body, "Update · Assigned To · Unassigned → Beto") {
+	if !strings.Contains(body, "Assigned to Beto") {
 		t.Errorf("timeline must resolve the assignee name, got: %s", body)
 	}
 }
@@ -645,7 +698,7 @@ func TestTicketAssignReassignRequiresReason(t *testing.T) {
 		t.Fatalf("reassigned = %+v, want carla", view.AssignedUser)
 	}
 	body := h.get(t, "/tickets/1", false).Body.String()
-	if !strings.Contains(body, "reason: handoff to second-line") {
+	if !strings.Contains(body, "handoff to second-line") {
 		t.Errorf("timeline must render the reassignment reason, got: %s", body)
 	}
 }

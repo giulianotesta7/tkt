@@ -131,6 +131,12 @@ func (s *TicketService) Assign(ctx context.Context, actor domain.User, ticketID 
 	if err != nil {
 		return nil, err
 	}
+	// A closed ticket (resolved/closed/cancelled) is read-only except for its
+	// state transition: assignment is refused BEFORE any store mutation
+	// (closed-ticket read-only spec).
+	if domain.IsClosed(t.State) {
+		return nil, domain.NewForbiddenError(domain.ErrMsgClosedTicketReadOnly)
+	}
 	if assigneeID != nil {
 		if actor.Role == domain.RoleAgent && t.UserID == nil && *assigneeID != actor.ID {
 			return nil, domain.NewForbiddenError("agents may only claim tickets for themselves")
@@ -213,14 +219,17 @@ func (s *TicketService) Transition(ctx context.Context, actor domain.User, ticke
 	return t, nil
 }
 
-// Update applies field edits (title, description, category, priority).
-// Assignment changes do NOT belong here: they go through Assign, which
-// enforces the reason and target rules (ticket-access-assignment spec) —
-// Update rejects assignment fields so the reassignment-reason rule cannot
-// be bypassed through a generic edit. Authorization is enforced server-side
-// BEFORE the read: role user never edits (design route policy: edit
-// requires an assigned agent or admin/root); the scoped read restricts
-// agents to their own assigned tickets (ticket-access spec).
+// Update applies field edits (title, priority). The description and the
+// category are immutable after creation — they exist on the aggregate but
+// the update surface (TicketUpdate) does not carry them, so they can never
+// be changed or audited here. Assignment changes do NOT belong here: they
+// go through Assign, which enforces the reason and target rules
+// (ticket-access-assignment spec) — Update rejects assignment fields so the
+// reassignment-reason rule cannot be bypassed through a generic edit.
+// Authorization is enforced server-side BEFORE the read: role user never
+// edits (design route policy: edit requires an assigned agent or
+// admin/root); the scoped read restricts agents to their own assigned
+// tickets (ticket-access spec).
 func (s *TicketService) Update(ctx context.Context, actor domain.User, ticketID int64, u domain.TicketUpdate) (*domain.Ticket, error) {
 	if !NewPolicy().Capabilities(actor.Role).Require(CapEditTicket) {
 		return nil, domain.NewForbiddenError(domain.ErrMsgUserCannotEdit)
@@ -232,10 +241,11 @@ func (s *TicketService) Update(ctx context.Context, actor domain.User, ticketID 
 	if err != nil {
 		return nil, err
 	}
-	if u.CategoryID != nil {
-		if _, err := s.categories.GetByID(ctx, *u.CategoryID); err != nil {
-			return nil, err
-		}
+	// A closed ticket (resolved/closed/cancelled) is read-only except for its
+	// state transition: field edits are refused BEFORE any store mutation
+	// (closed-ticket read-only spec).
+	if domain.IsClosed(t.State) {
+		return nil, domain.NewForbiddenError(domain.ErrMsgClosedTicketReadOnly)
 	}
 
 	events, err := t.ApplyUpdate(u, s.clock.Now())

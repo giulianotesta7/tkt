@@ -61,9 +61,13 @@ type pageData struct {
 	CanManageDesks      bool
 	CanManageCategories bool
 	CanGrantAdmin       bool
+	InternalCommentBg   string
 }
 
-// pageDataFrom builds the shell payload from the session user.
+// pageDataFrom builds the shell payload from the session user. The
+// internal-comment background comes from the per-request settings read the
+// middleware stamps into the context (appearance-settings spec); "" leaves
+// the stylesheet default in place.
 func pageDataFrom(r *http.Request, nav string) pageData {
 	u := userFromContext(r.Context())
 	caps := application.NewPolicy().Capabilities(u.Role)
@@ -74,6 +78,7 @@ func pageDataFrom(r *http.Request, nav string) pageData {
 		CanManageDesks:      caps.Require(application.CapManageDesks),
 		CanManageCategories: caps.Require(application.CapManageCategories),
 		CanGrantAdmin:       caps.Require(application.CapGrantAdmin),
+		InternalCommentBg:   internalCommentBgFrom(r.Context()),
 	}
 }
 
@@ -419,7 +424,7 @@ func allowedNext(s domain.State) []transitionTarget {
 	case domain.StateInProgress:
 		return []transitionTarget{{To: domain.StateResolved}, {To: domain.StateCancelled}}
 	case domain.StateResolved:
-		return []transitionTarget{{To: domain.StateClosed}, {To: domain.StateInProgress}}
+		return []transitionTarget{{To: domain.StateClosed}, {To: domain.StateInProgress, NeedsReason: true}}
 	case domain.StateClosed:
 		return []transitionTarget{{To: domain.StateInProgress, NeedsReason: true}}
 	default:
@@ -435,12 +440,27 @@ type detailData struct {
 	Next    []transitionTarget
 	Options options
 	Values  ticketFormValues
+	// SelectedTo carries the transition target submitted by the user so an
+	// error re-render (e.g. a blank reopen reason, 422) preserves the select
+	// choice instead of resetting it to the "Select…" placeholder.
+	SelectedTo string
 	// CanCommentInternal is the actor's comment-visibility capability
 	// (comment-visibility spec): the comment form offers the internal
 	// option only to agent+ actors. This is presentation only — the
 	// server-side use case rejects a forged internal value regardless of
 	// what the UI shows.
 	CanCommentInternal bool
+	// CanEdit reports whether the actor may edit this ticket's inline
+	// properties (CapEditTicket) on an open ticket. Presentation only; the
+	// server-side use case enforces the actor/ticket authorization.
+	CanEdit bool
+	// Closed reports whether the ticket is in a closed (read-only) state —
+	// resolved, closed, or cancelled. A closed ticket hides the inline edit,
+	// the properties/assignment controls, and the comment form; only the
+	// State control (with its reopen transition) remains (closed-ticket
+	// read-only spec). The server-side use cases also reject mutations on
+	// closed tickets regardless of what the UI shows.
+	Closed bool
 }
 
 // ticketID resolves and validates the {id} path parameter; 0 + false on a
@@ -468,14 +488,14 @@ func (h *TicketHandlers) detailDataFor(r *http.Request, id int64) (detailData, i
 		opts.AssignableUsers = append(opts.AssignableUsers, *view.AssignedUser)
 	}
 	values := ticketFormValues{
-		Title:       view.Ticket.Title,
-		Description: view.Ticket.Description,
-		CategoryID:  strconv.FormatInt(view.Ticket.CategoryID, 10),
-		Priority:    view.Ticket.Priority,
+		Title:      view.Ticket.Title,
+		CategoryID: strconv.FormatInt(view.Ticket.CategoryID, 10),
+		Priority:   view.Ticket.Priority,
 	}
 	if view.Ticket.UserID != nil {
 		values.UserID = strconv.FormatInt(*view.Ticket.UserID, 10)
 	}
+	closed := domain.IsClosed(view.Ticket.State)
 	return detailData{
 		pageData:           pageDataFrom(r, "tickets"),
 		View:               view,
@@ -483,6 +503,8 @@ func (h *TicketHandlers) detailDataFor(r *http.Request, id int64) (detailData, i
 		Options:            opts,
 		Values:             values,
 		CanCommentInternal: application.NewPolicy().Capabilities(actor.Role).Require(application.CapCommentInternal),
+		CanEdit:            application.NewPolicy().Capabilities(actor.Role).Require(application.CapEditTicket) && !closed,
+		Closed:             closed,
 	}, 0, nil
 }
 
@@ -612,6 +634,9 @@ func (h *TicketHandlers) renderDetailError(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	data.Error = msg
+	// Preserve the transition the user picked so a reopen-reason 422 keeps the
+	// option selected and the reason group revealed after the outerHTML swap.
+	data.SelectedTo = r.Form.Get("to")
 	h.renderer.Render(w, r, "tickets_show", "ticket_detail", data, status)
 }
 
@@ -647,16 +672,12 @@ func (h *TicketHandlers) update(w http.ResponseWriter, r *http.Request) {
 
 	u := domain.TicketUpdate{}
 	title := r.Form.Get("title")
-	description := r.Form.Get("description")
-	categoryID := parseID(r.Form.Get("category_id"))
 	p := domain.Priority(r.Form.Get("priority"))
 	u.Title = &title
-	u.Description = &description
-	if categoryID == 0 {
-		h.renderEditError(w, r, id, &domain.ValidationError{Field: "category", Message: "invalid category"})
-		return
-	}
-	u.CategoryID = &categoryID
+	// The description and the category are immutable after creation: the
+	// edit form carries no fields for them, and forged ones are deliberately
+	// never read — mirroring how forged assignment fields are ignored on
+	// this route.
 	u.Priority = &p
 
 	_, err := h.tickets.Update(r.Context(), actor, id, u)
@@ -681,11 +702,10 @@ func (h *TicketHandlers) renderEditError(w http.ResponseWriter, r *http.Request,
 	}
 	data.Error = msg
 	data.Values = ticketFormValues{
-		Title:       r.Form.Get("title"),
-		Description: r.Form.Get("description"),
-		CategoryID:  r.Form.Get("category_id"),
-		UserID:      r.Form.Get("user_id"),
-		Priority:    domain.Priority(r.Form.Get("priority")),
+		Title:      r.Form.Get("title"),
+		CategoryID: r.Form.Get("category_id"),
+		UserID:     r.Form.Get("user_id"),
+		Priority:   domain.Priority(r.Form.Get("priority")),
 	}
 	h.renderer.Render(w, r, "tickets_show", "ticket_detail", data, status)
 }

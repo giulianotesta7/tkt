@@ -60,6 +60,26 @@ func sameTimePtr(a, b *time.Time) bool {
 	return a.Equal(*b)
 }
 
+func TestIsClosed(t *testing.T) {
+	cases := []struct {
+		state  domain.State
+		closed bool
+	}{
+		{state: domain.StateNew, closed: false},
+		{state: domain.StateInProgress, closed: false},
+		{state: domain.StateResolved, closed: true},
+		{state: domain.StateClosed, closed: true},
+		{state: domain.StateCancelled, closed: true},
+	}
+	for _, tc := range cases {
+		t.Run(string(tc.state), func(t *testing.T) {
+			if got := domain.IsClosed(tc.state); got != tc.closed {
+				t.Fatalf("IsClosed(%q) = %v, want %v", tc.state, got, tc.closed)
+			}
+		})
+	}
+}
+
 func TestTransitionMatrix(t *testing.T) {
 	now := time.Date(2026, 8, 5, 12, 0, 0, 0, time.UTC)
 	clock := fixedClock{now: now}
@@ -79,7 +99,7 @@ func TestTransitionMatrix(t *testing.T) {
 		{from: domain.StateInProgress, to: domain.StateCancelled, allow: true},
 		// From resolved.
 		{from: domain.StateResolved, to: domain.StateNew},
-		{from: domain.StateResolved, to: domain.StateInProgress, allow: true, clearResolved: true},
+		{from: domain.StateResolved, to: domain.StateInProgress, allow: true, clearResolved: true, reason: "reopen to fix"},
 		{from: domain.StateResolved, to: domain.StateResolved},
 		{from: domain.StateResolved, to: domain.StateClosed, allow: true, setClosed: true},
 		{from: domain.StateResolved, to: domain.StateCancelled},
@@ -189,9 +209,9 @@ func TestTransitionMatrix(t *testing.T) {
 			}
 
 			// Reopen reason must land in the audit note; other transitions have none.
-			if tc.from == domain.StateClosed && tc.to == domain.StateInProgress {
+			if tc.to == domain.StateInProgress && domain.IsClosed(tc.from) {
 				if event.Note == nil || *event.Note != tc.reason {
-					t.Fatalf("reopen from closed must record the reason in the audit note, got %v", event.Note)
+					t.Fatalf("reopen from a closed state must record the reason in the audit note, got %v", event.Note)
 				}
 			} else if event.Note != nil {
 				t.Fatalf("no reason expected for %s -> %s, got %q", tc.from, tc.to, *event.Note)
