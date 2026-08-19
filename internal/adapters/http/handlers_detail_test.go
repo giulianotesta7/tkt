@@ -170,7 +170,7 @@ func TestTicketTimelineDifferentiatesCommentsAndAuditEvents(t *testing.T) {
 	}
 
 	body := h.get(t, "/tickets/1", false).Body.String()
-	for _, want := range []string{`class="timeline-entry timeline-comment"`, `class="timeline-entry timeline-event"`, "Moved to In Progress"} {
+	for _, want := range []string{`class="timeline-entry timeline-comment"`, `class="timeline-entry timeline-event`, "Moved to In Progress", "st-in_progress"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("timeline must contain %q, got: %s", want, body)
 		}

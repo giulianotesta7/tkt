@@ -59,7 +59,7 @@
 
 
 
-  <div class="timeline-entry timeline-event">
+  <div class="timeline-entry timeline-event st-1">
     <span class="event-icon">›</span>
     <div class="body">
       <div class="main">Update · Assigned To · Unassigned → Ana Torres</div>
@@ -70,7 +70,7 @@
 
 
 
-  <div class="timeline-entry timeline-event">
+  <div class="timeline-entry timeline-event st-in_progress">
     <span class="event-icon">›</span>
     <div class="body">
       <div class="main">Transition · State · New → In Progress</div>
