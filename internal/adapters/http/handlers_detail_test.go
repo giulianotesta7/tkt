@@ -67,7 +67,7 @@ func TestTicketShowRendersDetail(t *testing.T) {
 	// Merged timeline DESC: the transition (newer) renders before created.
 	// Match the event summary lines (not bare words).
 	createdEvent := "Ticket created"
-	transitionEvent := "Moved to In Progress"
+	transitionEvent := "Ticket in progress"
 	if !(strings.Index(body, transitionEvent) < strings.Index(body, createdEvent)) {
 		t.Errorf("merged timeline must be newest-first (transition before created), got: %s", body)
 	}
@@ -170,7 +170,7 @@ func TestTicketTimelineDifferentiatesCommentsAndAuditEvents(t *testing.T) {
 	}
 
 	body := h.get(t, "/tickets/1", false).Body.String()
-	for _, want := range []string{`class="timeline-entry timeline-comment"`, `class="timeline-entry timeline-event`, "Moved to In Progress", "st-in_progress"} {
+	for _, want := range []string{`class="timeline-entry timeline-comment"`, `class="timeline-entry timeline-event`, "Ticket in progress", "st-in_progress"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("timeline must contain %q, got: %s", want, body)
 		}
@@ -335,7 +335,7 @@ func TestTicketTransitionReopenWithReason(t *testing.T) {
 	if !strings.Contains(page.Body.String(), "Reason: fix deployed") {
 		t.Errorf("timeline must label the reopen reason as %q, got: %s", "Reason: fix deployed", page.Body.String())
 	}
-	// A reopen reads as "Ticket Reopened", not "Moved to In Progress".
+	// A reopen reads as "Ticket Reopened", not "Ticket in progress".
 	if !strings.Contains(page.Body.String(), "Ticket Reopened") {
 		t.Errorf("timeline must summarize a reopen as %q, got: %s", "Reopen", page.Body.String())
 	}
