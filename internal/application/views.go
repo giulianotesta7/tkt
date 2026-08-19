@@ -176,9 +176,10 @@ func (b *ViewBuilder) enrichTimeline(ctx context.Context, view *TicketView) erro
 
 // eventSummary renders a compact natural-language line for a state-change
 // audit event (activity timeline). Transition carries a ToValue target;
-// updates carry a Field; creations have neither. A reopen is a transition
-// from a closed state (resolved/closed) back into in_progress; it reads as
-// "Ticket Reopened" rather than "Moved to In Progress".
+// updates carry a Field; creations have neither. Transitions read as a
+// contextual outcome statement in a uniform "Ticket …" family ("Ticket
+// in progress", "Ticket resolved"); a reopen — from a closed state
+// (resolved/closed) back into in_progress — reads as "Ticket Reopened".
 func eventSummary(e *domain.AuditEvent) string {
 	switch e.Action {
 	case domain.ActionTransition:
@@ -186,7 +187,7 @@ func eventSummary(e *domain.AuditEvent) string {
 			if *e.ToValue == "in_progress" && e.FromValue != nil && isClosedState(*e.FromValue) {
 				return "Ticket Reopened"
 			}
-			return "Moved to " + humanizeIdentifier(*e.ToValue)
+			return "Ticket " + strings.ReplaceAll(*e.ToValue, "_", " ")
 		}
 		return "Changed state"
 	case domain.ActionCreated:
