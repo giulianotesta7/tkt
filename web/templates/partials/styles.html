@@ -245,8 +245,14 @@ textarea{min-height:84px;resize:vertical}
 .timeline-event .event-icon{color:var(--faint);font-size:14px;line-height:20px;text-align:center;user-select:none}
 .timeline-event .body{min-width:0}
 .timeline-event .main{padding:0;color:var(--ink-soft);font-size:13px;line-height:18px}
-.timeline-event.reopen .main{color:var(--amber);font-weight:600}
-.timeline-event.reopen .event-icon{color:var(--amber)}
+/* state-transition events pick up the same semantic color as their target
+   state badge (new=accent, in_progress=amber, resolved=green, closed=gray,
+   cancelled=red); a reopen targets in_progress so it is amber. */
+.timeline-event.st-new .main,.timeline-event.st-new .event-icon{color:var(--accent);font-weight:600}
+.timeline-event.st-in_progress .main,.timeline-event.st-in_progress .event-icon{color:var(--amber);font-weight:600}
+.timeline-event.st-resolved .main,.timeline-event.st-resolved .event-icon{color:var(--green);font-weight:600}
+.timeline-event.st-closed .main,.timeline-event.st-closed .event-icon{color:var(--gray-ink);font-weight:600}
+.timeline-event.st-cancelled .main,.timeline-event.st-cancelled .event-icon{color:var(--red);font-weight:600}
 .timeline-event .detail{color:var(--muted);font-size:12.5px;margin-top:2px}
 .timeline-event .when{color:var(--faint);font-size:11.5px;font-family:var(--mono);margin-top:2px}
 

@@ -10,7 +10,7 @@
     <div class="body">{{.Comment.Body}}</div>
   </div>
 {{else}}
-  <div class="timeline-entry timeline-event{{if eq .Summary "Ticket Reopened"}} reopen{{end}}">
+  <div class="timeline-entry timeline-event{{if .Event.ToValue}} st-{{.Event.ToValue}}{{else if eq .Summary "Ticket created"}} st-new{{end}}">
     <span class="event-icon">›</span>
     <div class="body">
       <div class="main">{{if .Summary}}{{.Summary}}{{else}}{{.ActionLabel}}{{if .FieldLabel}} · {{.FieldLabel}}{{end}}{{if .Event.FromValue}} · {{.FromLabel}} → {{.ToLabel}}{{end}}{{end}}</div>
