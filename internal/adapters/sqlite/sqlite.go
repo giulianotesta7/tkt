@@ -85,6 +85,18 @@ func (s *Store) DeskStore() application.DeskStore { return newDeskStore(s.db) }
 // WorkflowStore returns the category workflow draft/version port.
 func (s *Store) WorkflowStore() application.WorkflowStore { return newWorkflowStore(s.db) }
 
+// WorkflowVersionStore returns the current-version resolution port for
+// ticket creation (design S5).
+func (s *Store) WorkflowVersionStore() application.WorkflowVersionStore {
+	return newWorkflowStore(s.db)
+}
+
+// WorkflowUnitOfWork returns the atomic fixed-plan workflow mutation port
+// (design S5).
+func (s *Store) WorkflowUnitOfWork() application.WorkflowUnitOfWork {
+	return newWorkflowUnitOfWork(s.db)
+}
+
 // SettingsStore returns the instance appearance settings port.
 func (s *Store) SettingsStore() application.SettingsStore { return newSettingsStore(s.db) }
 

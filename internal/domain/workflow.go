@@ -225,6 +225,62 @@ func validateManual(n int, m *ManualTaskStep, add func(int, string, string)) {
 		add(n, "instructions", fmt.Sprintf("Step %d: instructions are required", n))
 	}
 }
+
+// Clone returns a deep copy of d that preserves EVERY nil-vs-empty distinction
+// (PR5 second-attempt gate blocker 1): a nil definition stays nil, a non-nil
+// empty definition stays a non-nil empty slice, nil Form.Fields stay nil
+// (non-nil empty Fields stay non-nil empty), and nil per-field Options stay
+// nil (non-nil empty Options stay non-nil empty), while every closed config
+// pointer (AssignToDesk/Form/ManualTask), every field value, and every
+// Options slice is deep-copied into fresh allocations. The clone shares NO
+// step, config pointer, field, or option with the source, so mutating the
+// original (or a store/caller-owned object) can never alter a captured
+// snapshot. Clone is the application trust boundary's capture mechanism;
+// canonical normalization (normalizedCopy) is intentionally NOT built on it so
+// historical canonical bytes stay byte-for-byte stable for incomplete drafts.
+func (d WorkflowDefinition) Clone() WorkflowDefinition {
+	if d == nil {
+		return nil
+	}
+	o := make(WorkflowDefinition, len(d))
+	for i, s := range d {
+		ns := WorkflowStep{Type: s.Type}
+		if s.AssignToDesk != nil {
+			ad := *s.AssignToDesk
+			ns.AssignToDesk = &ad
+		}
+		if s.Form != nil {
+			nf := FormStep{Actor: s.Form.Actor}
+			if s.Form.Fields != nil {
+				nf.Fields = make([]FormField, len(s.Form.Fields))
+				for j, f := range s.Form.Fields {
+					nf.Fields[j] = f
+					if f.Options != nil {
+						nf.Fields[j].Options = make([]string, len(f.Options))
+						copy(nf.Fields[j].Options, f.Options)
+					}
+				}
+			}
+			ns.Form = &nf
+		}
+		if s.ManualTask != nil {
+			mt := *s.ManualTask
+			ns.ManualTask = &mt
+		}
+		o[i] = ns
+	}
+	return o
+}
+
+// normalizedCopy is the EXACT historical canonical shape-walk (8350e5a),
+// restored verbatim (PR5 second-attempt gate blocker 2). It does NOT delegate
+// to Clone because the canonical contract is byte-for-byte stable for
+// INCOMPLETE drafts: notably a non-nil empty Form.Fields must canonicalize as
+// "fields":null (built with nil-append), never "fields":[] (what Clone's
+// nil-preserving copy would emit). Every string is trimmed (type, strategy,
+// actor, field key/label/kind, instructions) and options are trimmed only for
+// single_select keyed on the pre-trim kind, in the historical order. The
+// receiver is never mutated.
 func (d WorkflowDefinition) normalizedCopy() WorkflowDefinition {
 	o := make(WorkflowDefinition, len(d))
 	for i, s := range d {

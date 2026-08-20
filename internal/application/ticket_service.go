@@ -4,6 +4,7 @@ import (
 	"context"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/giulianotesta7/tkt/internal/domain"
 )
@@ -22,13 +23,39 @@ type TicketService struct {
 	tx         TicketUnitOfWork
 	builder    *ViewBuilder
 	clock      domain.Clock
+	// Workflow create path (design S5): resolved version store, runner, and
+	// workflow unit of work. Wired only by
+	// NewTicketServiceWithWorkflowCreate — nil keeps the legacy create path so
+	// cmd/server and the HTTP harness compile unchanged until the SQLite
+	// adapters land (PR5 Batch B).
+	versions   WorkflowVersionStore
+	runner     *WorkflowRunner
+	workflowTx WorkflowUnitOfWork
 }
 
 // NewTicketService wires the ticket use cases against the given ports: the
 // ticket store (reads), user/category stores (validation refs), the
 // unit-of-work (atomic ticket+audit mutations), the view builder (composed
-// reads, D13), and the injected clock (D7).
+// reads, D13), and the injected clock (D7). This constructor keeps the legacy
+// create path; wire the workflow create path with
+// NewTicketServiceWithWorkflowCreate.
 func NewTicketService(tickets TicketStore, users UserStore, categories CategoryStore, tx TicketUnitOfWork, builder *ViewBuilder, clock domain.Clock) *TicketService {
+	return newTicketService(tickets, users, categories, tx, builder, clock, nil, nil, nil)
+}
+
+// NewTicketServiceWithWorkflowCreate wires the atomic create+pin+run path
+// (design S5): Create resolves the category's current published version, pins
+// that exact version id on the ticket, plans the initial automatic advancement
+// with the WorkflowRunner, and submits ONE CreateTicketWithRun plan to the
+// WorkflowUnitOfWork. A category without a published version is unavailable for
+// new tickets (exact 422 category ValidationError, no writes). SQLite
+// implementations of WorkflowVersionStore/WorkflowUnitOfWork arrive with PR5
+// Batch B; the application contract is served by fakes in Batch A.
+func NewTicketServiceWithWorkflowCreate(tickets TicketStore, users UserStore, categories CategoryStore, tx TicketUnitOfWork, builder *ViewBuilder, clock domain.Clock, versions WorkflowVersionStore, runner *WorkflowRunner, workflowTx WorkflowUnitOfWork) *TicketService {
+	return newTicketService(tickets, users, categories, tx, builder, clock, versions, runner, workflowTx)
+}
+
+func newTicketService(tickets TicketStore, users UserStore, categories CategoryStore, tx TicketUnitOfWork, builder *ViewBuilder, clock domain.Clock, versions WorkflowVersionStore, runner *WorkflowRunner, workflowTx WorkflowUnitOfWork) *TicketService {
 	return &TicketService{
 		tickets:    tickets,
 		users:      users,
@@ -36,6 +63,9 @@ func NewTicketService(tickets TicketStore, users UserStore, categories CategoryS
 		tx:         tx,
 		builder:    builder,
 		clock:      clock,
+		versions:   versions,
+		runner:     runner,
+		workflowTx: workflowTx,
 	}
 }
 
@@ -87,6 +117,82 @@ func (s *TicketService) Create(ctx context.Context, actor domain.User, in Create
 	}
 
 	now := s.clock.Now()
+	// Workflow create path (design S5): a category must have a published workflow
+	// version to accept new tickets; the create pins that version and applies the
+	// planned initial automatic advancement in one unit-of-work call. Without
+	// published workflows the exact 422 category message is returned and nothing
+	// is written.
+	if s.workflowTx != nil {
+		return s.createWithWorkflow(ctx, actor, in, now)
+	}
+
+	t, event := newCreateTicket(actor, in, now)
+	if err := s.tx.Create(ctx, t, event); err != nil {
+		return nil, err
+	}
+	return t, nil
+}
+
+// createWithWorkflow orchestrates the atomic create+pin+run contract: resolve
+// the immutable current version once, require it (exact 422 category
+// ValidationError when the category has no published workflow), pin the exact
+// version id on the ticket, plan the initial automatic advancement, and submit
+// ONE fixed CreateTicketWithRun plan to the WorkflowUnitOfWork. The service
+// never retries, never falls back to the legacy create, and never writes
+// itself — persistence atomicity is entirely the WorkflowUnitOfWork's
+// responsibility (design S5 all-or-nothing: ticket + pin + created audit +
+// active run + planned automatic operations).
+func (s *TicketService) createWithWorkflow(ctx context.Context, actor domain.User, in CreateTicketInput, now time.Time) (*domain.Ticket, error) {
+	pv, err := s.versions.GetCurrentVersion(ctx, in.CategoryID)
+	if err != nil {
+		return nil, err
+	}
+	if pv == nil {
+		return nil, &domain.ValidationError{Field: "category", Message: domain.ErrMsgCategoryWorkflowUnavailable}
+	}
+
+	t, event := newCreateTicket(actor, in, now)
+	// Deep-snapshot the untrusted published definition EXACTLY ONCE at the
+	// application trust boundary (createWithWorkflow): pv.Workflow is
+	// store/caller-owned memory the adapter may cache or alias, and a concurrent
+	// publisher can replace it between reads. The runner-planning definition and
+	// the persisted CreateTicketWithRunInput.Workflow are two INDEPENDENT clones
+	// derived from THIS single trusted snapshot, so a mutation of the original
+	// can never yield operations from snapshot A and a persisted workflow from
+	// snapshot B. pv.Workflow is never read again after this capture, and the
+	// version id is pinned by value for the same reason.
+	trusted := pv.Workflow.Clone()
+	ver := pv.VersionID
+	t.WorkflowVersionID = &ver
+	plan, err := s.runner.PlanInitialAutomatic(ctx, *t, trusted.Clone())
+	if err != nil {
+		return nil, err
+	}
+	input := CreateTicketWithRunInput{
+		CategoryID:        in.CategoryID,
+		ExpectedVersionID: pv.VersionID,
+		Workflow:          trusted.Clone(),
+		Ticket:            t,
+		CreatedAudit:      event,
+		StartedAt:         now,
+		ExpectedCursor:    0,
+		ExpectedRunStatus: "active",
+		Operations:        plan.Operations,
+		NextCursor:        plan.NextCursor,
+		NextRunStatus:     plan.NextRunStatus,
+		NextTicketState:   plan.NextTicketState,
+	}
+	if plan.NextRunStatus == "completed" {
+		ct := now
+		input.CompletedAt = &ct
+	}
+	return s.workflowTx.CreateTicketWithRun(ctx, input)
+}
+
+// newCreateTicket builds the creation aggregate and its created audit event:
+// requester is ALWAYS the creating session actor, timestamps come from the
+// injected clock, and the created audit carries the session actor identity.
+func newCreateTicket(actor domain.User, in CreateTicketInput, now time.Time) (*domain.Ticket, domain.AuditEvent) {
 	t := &domain.Ticket{
 		Title:           strings.TrimSpace(in.Title),
 		Description:     in.Description,
@@ -106,10 +212,7 @@ func (s *TicketService) Create(ctx context.Context, actor domain.User, in Create
 		Action:      domain.ActionCreated,
 		CreatedAt:   now,
 	}
-	if err := s.tx.Create(ctx, t, event); err != nil {
-		return nil, err
-	}
-	return t, nil
+	return t, event
 }
 
 // Assign sets or clears the ticket's assignee under the person-only

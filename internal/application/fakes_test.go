@@ -294,6 +294,9 @@ type fakeUnitOfWork struct {
 	tickets         *fakeTicketStore
 	audits          *fakeAuditStore
 	failAuditAppend bool
+	// createCalls counts Create invocations: it proves the workflow create path
+	// never falls back to the legacy TicketUnitOfWork create (PR5 S5).
+	createCalls int
 }
 
 func newFakeUnitOfWork(tickets *fakeTicketStore, audits *fakeAuditStore) *fakeUnitOfWork {
@@ -303,6 +306,7 @@ func newFakeUnitOfWork(tickets *fakeTicketStore, audits *fakeAuditStore) *fakeUn
 // Create persists the ticket (store-assigned ID and number, D8) and its
 // created event as one unit: a failing audit append rolls the ticket back.
 func (f *fakeUnitOfWork) Create(ctx context.Context, t *domain.Ticket, event domain.AuditEvent) error {
+	f.createCalls++
 	if err := f.tickets.Create(ctx, t); err != nil {
 		return err
 	}
@@ -706,4 +710,134 @@ func (f *fakeWorkflowStore) ListSummaries(_ context.Context) ([]application.Work
 }
 func (f *fakeWorkflowStore) ListAvailableCategories(_ context.Context) ([]domain.Category, error) {
 	return []domain.Category{}, nil
+}
+
+// --- PR5 S5 fakes: workflow create+pin+run orchestration ---
+
+// fakeWorkflowVersionStore resolves a category's current published workflow
+// version for ticket creation (WorkflowVersionStore, design S5: availability =
+// a published version exists; new tickets read current_version_id only).
+// publish() mirrors the store contract: it allocates MAX+1 version ids per
+// category, switches the current pointer, and persists a DEEP COPY of the
+// definition (the real store persists canonical bytes) so mutations of the
+// caller's definition after publish never corrupt the published version.
+type fakeWorkflowVersionStore struct {
+	versions map[int64]*application.PublishedWorkflow
+	next     map[int64]int
+	calls    []int64
+	// failWith, when non-nil, makes GetCurrentVersion fail with this exact
+	// error: the service must propagate it untouched and write/plan nothing
+	// (version-store-error regression).
+	failWith error
+}
+
+func newFakeWorkflowVersionStore() *fakeWorkflowVersionStore {
+	return &fakeWorkflowVersionStore{versions: map[int64]*application.PublishedWorkflow{}, next: map[int64]int{}}
+}
+
+// publish makes def the category's CURRENT published version (MAX+1 per
+// category) and returns the new version id. The stored Workflow is a deep copy
+// (domain.WorkflowDefinition.Clone), mirroring the real store persisting
+// canonical bytes: mutating the caller's definition after publish must never
+// corrupt the published version — OriginalDefMutationAfterPublishDoesNotLeak
+// proves it.
+func (f *fakeWorkflowVersionStore) publish(catID int64, def domain.WorkflowDefinition) int64 {
+	f.next[catID]++
+	ver := int64(f.next[catID])
+	f.versions[catID] = &application.PublishedWorkflow{CategoryID: catID, VersionID: ver, Workflow: def.Clone()}
+	return ver
+}
+
+// GetCurrentVersion returns a fresh struct copy of the store's current
+// PublishedWorkflow, but its Workflow deliberately ALIASES the store-owned
+// definition — like an adapter that caches/re-serves shared step/config memory.
+// The application trust boundary MUST deep-snapshot what it receives before
+// planning or capture; CapturedPlanImmuneToStoreMutation proves that contract
+// by mutating the store-owned definition after a plan was captured.
+func (f *fakeWorkflowVersionStore) GetCurrentVersion(_ context.Context, categoryID int64) (*application.PublishedWorkflow, error) {
+	f.calls = append(f.calls, categoryID)
+	if f.failWith != nil {
+		return nil, f.failWith
+	}
+	p, ok := f.versions[categoryID]
+	if !ok || p == nil {
+		return nil, nil
+	}
+	cp := *p
+	return &cp, nil
+}
+
+// fakeWorkflowUnitOfWork implements WorkflowUnitOfWork.CreateTicketWithRun as a
+// scripted port: it records the EXACT CreateTicketWithRunInput for assertions,
+// persists the ticket (store-assigned ID/Number, state from the plan) plus the
+// created audit on success, and writes NOTHING when failCreate is set. It
+// deliberately does not apply the planned operations — atomic application
+// against real SQLite belongs to PR5 Batch B (workflow_uow_create_test.go).
+type fakeWorkflowUnitOfWork struct {
+	tickets    *fakeTicketStore
+	audits     *fakeAuditStore
+	calls      []application.CreateTicketWithRunInput
+	applyCalls []application.WorkflowMutationPlan
+	failCreate bool
+	failWith   error
+}
+
+func newFakeWorkflowUnitOfWork(tickets *fakeTicketStore, audits *fakeAuditStore) *fakeWorkflowUnitOfWork {
+	return &fakeWorkflowUnitOfWork{tickets: tickets, audits: audits}
+}
+
+func (f *fakeWorkflowUnitOfWork) CreateTicketWithRun(ctx context.Context, in application.CreateTicketWithRunInput) (*domain.Ticket, error) {
+	// Record the EXACT plan the service submitted. The recording intentionally
+	// aliases the submitted definition/operations slices (only the ticket gets
+	// a struct-level copy): it is the alias canary — if the service ever
+	// captures caller/store-owned memory instead of its own deep snapshot, the
+	// caller-mutation regression
+	// (TestTicketService_CreateWithWorkflow_CapturedPlanImmuneToStoreMutation)
+	// fails immediately. The recording must not hide aliasing.
+	rec := in
+	if in.Ticket != nil {
+		cp := *in.Ticket
+		rec.Ticket = &cp
+	}
+	f.calls = append(f.calls, rec)
+	if f.failCreate {
+		return nil, f.failWith
+	}
+	t := *in.Ticket
+	t.State = in.NextTicketState
+	if err := f.tickets.Create(ctx, &t); err != nil {
+		return nil, err
+	}
+	ev := in.CreatedAudit
+	ev.TicketID = t.ID
+	if err := f.audits.Append(ctx, ev); err != nil {
+		return nil, err
+	}
+	return &t, nil
+}
+
+// ApplyWorkflowPlan implements WorkflowUnitOfWork.ApplyWorkflowPlan as a scripted
+// port: it records the submitted plan and applies the fixed ticket state/cursor
+// facts (NextTicketState/NextAssigneeUserID) without simulating per-operation
+// writes — real atomic application belongs to the SQLite adapter. It returns a
+// refreshed result built from the persisted ticket so application consumers can
+// invoke both methods on the same seam.
+func (f *fakeWorkflowUnitOfWork) ApplyWorkflowPlan(ctx context.Context, in application.WorkflowMutationPlan) (application.WorkflowExecutionResult, error) {
+	f.applyCalls = append(f.applyCalls, in)
+	if f.failCreate {
+		return application.WorkflowExecutionResult{}, f.failWith
+	}
+	t, err := f.tickets.GetByID(ctx, in.TicketID, application.TicketQuery{Scope: application.ScopeAll})
+	if err != nil {
+		return application.WorkflowExecutionResult{}, err
+	}
+	t.State = in.NextTicketState
+	if in.NextAssigneeUserID != nil {
+		v := *in.NextAssigneeUserID
+		t.UserID = &v
+	}
+	if err := f.tickets.Update(ctx, t); err != nil {
+		return application.WorkflowExecutionResult{}, err
+	}
+	return application.WorkflowExecutionResult{Ticket: t, Run: &application.WorkflowRun{TicketID: t.ID, CurrentStepIndex: in.NextCursor, Status: in.NextRunStatus}}, nil
 }

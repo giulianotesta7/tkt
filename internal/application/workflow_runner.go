@@ -15,6 +15,30 @@ type WorkflowRunner struct{ clock domain.Clock }
 
 func NewWorkflowRunner(c domain.Clock) *WorkflowRunner { return &WorkflowRunner{clock: c} }
 
+// PlanInitialAutomatic plans a fresh run's creation-time automatic advancement
+// (design S5): from cursor 0, every automatic step (least_loaded, resolve_ticket,
+// close_ticket) is planned until a human-pending step (claim, form, manual_task)
+// stops the walk or the pinned definition ends. Ticket state changes only on the
+// in-memory copy; the planned transitions carry the exact Ticket.Transition
+// facts (actor "workflow", NULL user id, timestamps) for the adapter. The
+// caller (TicketService.Create) pins the resolved version id before submitting
+// the plan, so a later publication never alters an in-flight create.
+func (r *WorkflowRunner) PlanInitialAutomatic(_ context.Context, ticket domain.Ticket, wf domain.WorkflowDefinition) (InitialAutomaticPlan, error) {
+	if len(wf) == 0 {
+		return InitialAutomaticPlan{}, &domain.ValidationError{Field: "workflow", Message: "workflow definition is empty"}
+	}
+	copyTicket := ticket
+	ops, next, err := advanceAutomatics(WorkflowExecutionSnapshot{Workflow: wf}, &copyTicket, nil, 0, r.clock.Now())
+	if err != nil {
+		return InitialAutomaticPlan{}, err
+	}
+	status := "active"
+	if next >= len(wf) {
+		status = "completed"
+	}
+	return InitialAutomaticPlan{Operations: ops, NextCursor: next, NextRunStatus: status, NextTicketState: copyTicket.State}, nil
+}
+
 func (r *WorkflowRunner) PlanComplete(_ context.Context, snap WorkflowExecutionSnapshot, cmd CompleteWorkflowCommand) (WorkflowMutationPlan, error) {
 	if cmd.ExpectedPosition <= 0 || snap.Run == nil || snap.Ticket == nil || snap.Run.Status != "active" || len(snap.Workflow) == 0 {
 		return WorkflowMutationPlan{}, domain.NewWorkflowPositionConflictError("workflow position conflict")
@@ -126,14 +150,21 @@ func (r *WorkflowRunner) PlanComplete(_ context.Context, snap WorkflowExecutionS
 		status = "completed"
 	}
 	plan := WorkflowMutationPlan{
-		TicketID:          ticket.ID,
-		ExpectedCursor:    snap.Run.CurrentStepIndex,
-		ExpectedRunStatus: snap.Run.Status,
-		TicketBeforeState: snap.Ticket.State,
-		Operations:        ops,
-		NextCursor:        nextCursor,
-		NextRunStatus:     status,
-		NextTicketState:   ticket.State,
+		TicketID:           ticket.ID,
+		ExpectedVersionID:  pinnedVersionID(snap.Ticket),
+		Workflow:           snap.Workflow.Clone(),
+		RequesterUserID:    int64Ptr(&snap.Ticket.RequesterUserID),
+		AssigneeUserID:     int64Ptr(&snap.Ticket.UserID),
+		ActorUserID:        actor,
+		ActorName:          actorName,
+		ExpectedCursor:     snap.Run.CurrentStepIndex,
+		ExpectedRunStatus:  snap.Run.Status,
+		TicketBeforeState:  snap.Ticket.State,
+		Operations:         ops,
+		NextCursor:         nextCursor,
+		NextRunStatus:      status,
+		NextTicketState:    ticket.State,
+		NextAssigneeUserID: int64Ptr(&ticket.UserID),
 		Result: WorkflowExecutionResult{Ticket: &ticket, Run: &WorkflowRun{
 			TicketID: ticket.ID, CurrentStepIndex: nextCursor, Status: status, StartedAt: snap.Run.StartedAt,
 		}},
@@ -143,6 +174,27 @@ func (r *WorkflowRunner) PlanComplete(_ context.Context, snap WorkflowExecutionS
 		plan.Result.Run.CompletedAt = &ct
 	}
 	return plan, nil
+}
+
+// pinnedVersionID returns the ticket's pinned workflow version id, or 0 when the
+// ticket is an unpinned legacy ticket. The adapter treats a 0 expected version on
+// a workflow plan as a nil-safe mismatch against an unpinned persisted ticket.
+func pinnedVersionID(t *domain.Ticket) int64 {
+	if t == nil || t.WorkflowVersionID == nil {
+		return 0
+	}
+	return *t.WorkflowVersionID
+}
+
+// int64Ptr copies a *int64 field value into a fresh allocation: nil stays nil,
+// non-nil is dereferenced into a NEW +int64 so the plan never aliases the
+// snapshot/ticket it was derived from (nil-safe identity semantics).
+func int64Ptr(p **int64) *int64 {
+	if p == nil || *p == nil {
+		return nil
+	}
+	v := **p
+	return &v
 }
 
 // requireFormActor enforces strict form actor identity: requester forms accept

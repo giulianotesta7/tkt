@@ -3,6 +3,7 @@ package sqlite
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"time"
 
@@ -13,8 +14,45 @@ import (
 type workflowStore struct{ db *sql.DB }
 
 var _ application.WorkflowStore = (*workflowStore)(nil)
+var _ application.WorkflowVersionStore = (*workflowStore)(nil)
 
 func newWorkflowStore(db *sql.DB) *workflowStore { return &workflowStore{db: db} }
+
+// GetCurrentVersion resolves a category's current published workflow for ticket
+// creation (WorkflowVersionStore, design S5). Availability is a published
+// version: the query reads category_workflows.current_version_id joined to the
+// IMMUTABLE workflow_versions.steps_json and NEVER touches draft_json. A
+// category with no row or a NULL current pointer returns (nil, nil) — the
+// application answers the exact 422 category-unavailable message and writes
+// nothing. The returned PublishedWorkflow.Workflow is parsed fresh from the
+// stored canonical JSON, so it is a deep INDEPENDENT snapshot owned by the
+// caller (no aliasing of store memory).
+func (w *workflowStore) GetCurrentVersion(ctx context.Context, categoryID int64) (*application.PublishedWorkflow, error) {
+	var (
+		ver   int64
+		steps string
+	)
+	err := w.db.QueryRowContext(ctx, `SELECT wv.id, wv.steps_json FROM category_workflows cw
+		JOIN workflow_versions wv ON wv.id = cw.current_version_id AND wv.category_id = cw.category_id
+		WHERE cw.category_id = ?`, categoryID).Scan(&ver, &steps)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil // draft-only or no workflow row: unavailable
+	}
+	if err != nil {
+		return nil, fmt.Errorf("sqlite: get current version: %w", err)
+	}
+	wf, err := domain.ParseWorkflowDefinition([]byte(steps))
+	if err != nil {
+		return nil, fmt.Errorf("sqlite: parse current workflow: %w", err)
+	}
+	// The immutable steps_json must be a VALID closed definition: domain
+	// validation runs after JSON decode so a corrupt/unknown persisted snapshot
+	// returns an error and never escapes as a usable current workflow.
+	if iss := wf.Validate(); len(iss) > 0 {
+		return nil, fmt.Errorf("sqlite: invalid current workflow: %v", iss)
+	}
+	return &application.PublishedWorkflow{CategoryID: categoryID, VersionID: ver, Workflow: wf}, nil
+}
 func (w *workflowStore) GetDraft(ctx context.Context, categoryID int64) ([]byte, error) {
 	var d sql.NullString
 	err := w.db.QueryRowContext(ctx, `SELECT draft_json FROM category_workflows WHERE category_id=?`, categoryID).Scan(&d)
