@@ -184,6 +184,24 @@ type DeskStore interface {
 	ListMembers(ctx context.Context, deskID int64) ([]domain.User, error)
 }
 
+// WorkflowSummary is the derived badge for the category list (none | Draft | Published vN).
+type WorkflowSummary struct {
+	CategoryID   int64
+	CategoryName string
+	Badge        string
+}
+
+// WorkflowStore persists the category workflow draft and published versions (category-workflows spec).
+// GetDraft is safe: absent row returns nil,nil and creates no row. UpsertDraft lazily creates on first mutation.
+// Publish validates via domain, rechecks desks, allocates version_no, and switches current pointer atomically.
+type WorkflowStore interface {
+	GetDraft(ctx context.Context, categoryID int64) ([]byte, error)
+	UpsertDraft(ctx context.Context, categoryID int64, draft []byte) error
+	Publish(ctx context.Context, categoryID int64, draft []byte, publishedByUserID *int64) (int64, []domain.WorkflowValidationIssue, error)
+	ListSummaries(ctx context.Context) ([]WorkflowSummary, error)
+	ListAvailableCategories(ctx context.Context) ([]domain.Category, error)
+}
+
 // SettingsStore persists single-row instance settings (appearance-settings
 // spec). The internal-comment background row is seeded by migration 0005;
 // a missing row reads back the application default.
