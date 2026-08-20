@@ -24,26 +24,23 @@ func (r *WorkflowRunner) PlanComplete(_ context.Context, snap WorkflowExecutionS
 		return WorkflowMutationPlan{}, domain.NewWorkflowPositionConflictError("workflow position conflict")
 	}
 	step := snap.Workflow[exp]
-	if domain.IsClosed(snap.Ticket.State) {
-		return WorkflowMutationPlan{}, &domain.ValidationError{Field: "state", Message: "workflow step cannot complete in current ticket state"}
-	}
 	ticket := *snap.Ticket
 	now := r.clock.Now()
 	actor := cmd.ActorUserID
 	actorName := cmd.ActorName
 	var ops []WorkflowOperation
-	nextState := ticket.State
+
+	// Read-only lifecycle guard: a non-terminal step MUST NOT complete on a
+	// resolved/closed/cancelled ticket; automatic terminal steps follow their
+	// own state matrices instead (resolve/close from resolved/closed complete
+	// as a no-op, cancelled rejects with no writes — ticket-workflow-execution
+	// spec).
+	if domain.IsClosed(ticket.State) && step.Type != domain.StepResolve && step.Type != domain.StepClose {
+		return WorkflowMutationPlan{}, &domain.ValidationError{Field: "state", Message: "workflow step cannot complete in current ticket state"}
+	}
+
 	stepAudit := func() {
 		ops = append(ops, WorkflowStepOperation{StepIndex: exp, Audit: domain.AuditEvent{TicketID: ticket.ID, Actor: actorName, ActorUserID: &actor, Action: domain.ActionWorkflowStep, CreatedAt: now}})
-	}
-	transitionNew := func() {
-		if nextState == domain.StateNew {
-			if ev, err := ticket.Transition(domain.StateInProgress, "", now); err == nil {
-				ev.Actor = "workflow"
-				ops = append(ops, TransitionOperation{StepIndex: exp, Audit: *ev})
-				nextState = ticket.State
-			}
-		}
 	}
 	switch step.Type {
 	case domain.StepAssignToDesk:
@@ -59,11 +56,23 @@ func (r *WorkflowRunner) PlanComplete(_ context.Context, snap WorkflowExecutionS
 			if claim != nil {
 				ops = append(ops, *claim)
 			}
-			transitionNew()
+			op, err := inProgressTransitionOp(&ticket, exp, now)
+			if err != nil {
+				return WorkflowMutationPlan{}, err
+			}
+			if op != nil {
+				ops = append(ops, *op)
+			}
 			stepAudit()
 		case domain.StrategyLeastLoaded:
 			ops = append(ops, LeastLoadedAssignmentOperation{StepIndex: exp, DeskID: step.AssignToDesk.DeskID})
-			transitionNew()
+			op, err := inProgressTransitionOp(&ticket, exp, now)
+			if err != nil {
+				return WorkflowMutationPlan{}, err
+			}
+			if op != nil {
+				ops = append(ops, *op)
+			}
 		default:
 			return WorkflowMutationPlan{}, &domain.ValidationError{Field: "strategy", Message: "unknown strategy"}
 		}
@@ -89,11 +98,29 @@ func (r *WorkflowRunner) PlanComplete(_ context.Context, snap WorkflowExecutionS
 		}
 		stepAudit()
 	case domain.StepResolve, domain.StepClose:
-		return WorkflowMutationPlan{}, &domain.ValidationError{Field: "type", Message: fmt.Sprintf("terminal step %q not supported in this slice", step.Type)}
+		termOps, err := applyTerminal(&ticket, step.Type, exp, now)
+		if err != nil {
+			return WorkflowMutationPlan{}, err
+		}
+		ops = append(ops, termOps...)
 	default:
 		return WorkflowMutationPlan{}, &domain.ValidationError{Field: "type", Message: fmt.Sprintf("unknown step type %q", step.Type)}
 	}
-	nextCursor := snap.Run.CurrentStepIndex + 1
+
+	// One request transaction includes the submitted human completion and all
+	// immediately following automatic steps, so no automatic step is stranded
+	// without a scheduler (design S4 linear execution). Terminal steps are final
+	// and always end the run.
+	nextCursor := exp + 1
+	if step.Type == domain.StepResolve || step.Type == domain.StepClose {
+		nextCursor = len(snap.Workflow)
+	} else {
+		var err error
+		ops, nextCursor, err = advanceAutomatics(snap, &ticket, ops, nextCursor, now)
+		if err != nil {
+			return WorkflowMutationPlan{}, err
+		}
+	}
 	status := "active"
 	if nextCursor >= len(snap.Workflow) {
 		status = "completed"
@@ -106,7 +133,7 @@ func (r *WorkflowRunner) PlanComplete(_ context.Context, snap WorkflowExecutionS
 		Operations:        ops,
 		NextCursor:        nextCursor,
 		NextRunStatus:     status,
-		NextTicketState:   nextState,
+		NextTicketState:   ticket.State,
 		Result: WorkflowExecutionResult{Ticket: &ticket, Run: &WorkflowRun{
 			TicketID: ticket.ID, CurrentStepIndex: nextCursor, Status: status, StartedAt: snap.Run.StartedAt,
 		}},
@@ -164,6 +191,128 @@ func newClaimOperation(t domain.Ticket, stepIndex int, deskID int64, actor int64
 		audit.Reason = &trimmed
 	}
 	return &ClaimAssignmentOperation{StepIndex: stepIndex, DeskID: deskID, AssigneeUserID: actor, Reason: trimmed, AssignmentAudit: audit}, nil
+}
+
+// inProgressTransitionOp returns the new→in_progress workflow transition
+// operation when the ticket copy is still new (person routing assigns a person
+// to a new ticket, so the same atomic unit transitions it; ticket-workflow
+// execution spec). An in_progress or later ticket receives no redundant
+// transition. The audit keeps the exact Ticket.Transition facts and stamps
+// actor "workflow" with a NULL user id (audit-log spec).
+func inProgressTransitionOp(ticket *domain.Ticket, stepIndex int, now time.Time) (*TransitionOperation, error) {
+	if ticket.State != domain.StateNew {
+		return nil, nil
+	}
+	ev, err := ticket.Transition(domain.StateInProgress, "", now)
+	if err != nil {
+		return nil, err
+	}
+	ev.Actor = "workflow"
+	return &TransitionOperation{StepIndex: stepIndex, Audit: *ev}, nil
+}
+
+// applyTerminal plans the automatic lifecycle transition(s) for a terminal step
+// on the in-memory ticket copy (design S4 terminal matrices):
+//
+//	resolve_ticket: new/in_progress → resolved (one workflow audit);
+//	                resolved/closed → completed no-op with no transition audit.
+//	close_ticket:   new/in_progress → resolved then closed (two ordered audits);
+//	                resolved → closed (one audit); closed → completed no-op.
+//	cancelled:      always rejected with no writes.
+//
+// Every planned transition keeps the exact Ticket.Transition facts/time/order
+// and stamps actor "workflow" with a NULL user id.
+func applyTerminal(ticket *domain.Ticket, stepType domain.StepType, stepIndex int, now time.Time) ([]WorkflowOperation, error) {
+	if ticket.State == domain.StateCancelled {
+		return nil, &domain.ValidationError{Field: "state", Message: "terminal step cannot complete on a cancelled ticket"}
+	}
+	transition := func(to domain.State) (WorkflowOperation, error) {
+		ev, err := ticket.Transition(to, "", now)
+		if err != nil {
+			return nil, err
+		}
+		ev.Actor = "workflow"
+		return TransitionOperation{StepIndex: stepIndex, Audit: *ev}, nil
+	}
+	var ops []WorkflowOperation
+	switch stepType {
+	case domain.StepResolve:
+		if ticket.State == domain.StateResolved || ticket.State == domain.StateClosed {
+			return nil, nil // already in a terminal lifecycle state: completed no-op
+		}
+		op, err := transition(domain.StateResolved)
+		if err != nil {
+			return nil, err
+		}
+		ops = append(ops, op)
+	case domain.StepClose:
+		switch ticket.State {
+		case domain.StateClosed:
+			return nil, nil // completed no-op
+		case domain.StateResolved:
+			op, err := transition(domain.StateClosed)
+			if err != nil {
+				return nil, err
+			}
+			ops = append(ops, op)
+		default: // new or in_progress: resolve first, then close
+			r, err := transition(domain.StateResolved)
+			if err != nil {
+				return nil, err
+			}
+			ops = append(ops, r)
+			c, err := transition(domain.StateClosed)
+			if err != nil {
+				return nil, err
+			}
+			ops = append(ops, c)
+		}
+	default:
+		return nil, &domain.ValidationError{Field: "type", Message: fmt.Sprintf("unknown terminal step type %q", stepType)}
+	}
+	return ops, nil
+}
+
+// advanceAutomatics walks the pinned steps immediately following the submitted
+// human completion and plans every automatic step (least_loaded, resolve_ticket,
+// close_ticket) until a step needs human input (claim, form, manual_task) or the
+// definition ends. It returns the extended operations and the planned cursor.
+// The loop is finite and closed: definitions are linear and immutable, the walk
+// only moves forward, and every step type takes exactly one branch — no
+// registry, callback, function payload, or generic transaction API.
+func advanceAutomatics(snap WorkflowExecutionSnapshot, ticket *domain.Ticket, ops []WorkflowOperation, from int, now time.Time) ([]WorkflowOperation, int, error) {
+	next := from
+	for next < len(snap.Workflow) {
+		step := snap.Workflow[next]
+		switch step.Type {
+		case domain.StepAssignToDesk:
+			if step.AssignToDesk == nil {
+				return ops, next, &domain.ValidationError{Field: "type", Message: "assign_to_desk requires config"}
+			}
+			if step.AssignToDesk.Strategy != domain.StrategyLeastLoaded {
+				return ops, next, nil // claim is a human decision: stop pending input
+			}
+			ops = append(ops, LeastLoadedAssignmentOperation{StepIndex: next, DeskID: step.AssignToDesk.DeskID})
+			op, err := inProgressTransitionOp(ticket, next, now)
+			if err != nil {
+				return ops, next, err
+			}
+			if op != nil {
+				ops = append(ops, *op)
+			}
+			next++
+		case domain.StepResolve, domain.StepClose:
+			termOps, err := applyTerminal(ticket, step.Type, next, now)
+			if err != nil {
+				return ops, next, err
+			}
+			ops = append(ops, termOps...)
+			return ops, len(snap.Workflow), nil // terminal is final: the run completes
+		default:
+			return ops, next, nil // form and manual_task stop pending human input
+		}
+	}
+	return ops, next, nil
 }
 
 func decodePositionalAnswers(fields []domain.FormField, raw RawPositionalValues) ([]byte, error) {

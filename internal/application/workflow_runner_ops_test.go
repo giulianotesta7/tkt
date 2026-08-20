@@ -402,6 +402,9 @@ func TestWorkflowRunner_NoFunctionsDeep(t *testing.T) {
 		{"form", snapWith(domain.StateNew, 0, wf(fm(domain.FormActorRequester, fields...)), ptr(int64(1)), nil), cmdFor(1, application.RawPositionalValues{{Position: 0, Values: []string{"x"}}})},
 		{"claim", snapWith(domain.StateNew, 0, wf(claim(42)), nil, nil), cmdFor(7, nil)},
 		{"least loaded", snapWith(domain.StateNew, 0, wf(least(5)), nil, nil), cmdFor(7, nil)},
+		{"terminal resolve", snapWith(domain.StateNew, 0, wf(res()), nil, nil), cmdFor(1, nil)},
+		{"terminal close", snapWith(domain.StateNew, 0, wf(clo()), nil, nil), cmdFor(1, nil)},
+		{"auto chain", snapWith(domain.StateNew, 0, wf(fm(domain.FormActorRequester, fields...), least(5), man(), res()), ptr(int64(1)), nil), cmdFor(1, application.RawPositionalValues{{Position: 0, Values: []string{"x"}}})},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			pl, err := r.PlanComplete(context.Background(), tc.s, tc.cmd)

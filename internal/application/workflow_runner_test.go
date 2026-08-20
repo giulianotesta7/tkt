@@ -112,10 +112,13 @@ func TestWorkflowRunner_LifecycleAndAssignment(t *testing.T) {
 			t.Fatalf("manual op %+v", pl.Operations[0])
 		}
 	})
-	t.Run("terminal deferred", func(t *testing.T) {
-		_, err := r.PlanComplete(context.Background(), snap(domain.StateNew, 0, wf(domain.WorkflowStep{Type: domain.StepResolve})), application.CompleteWorkflowCommand{TicketID: 1, ActorUserID: 1, ExpectedPosition: 1})
-		if err == nil {
-			t.Fatalf("want not-supported")
+	t.Run("terminal resolve from new completes", func(t *testing.T) {
+		pl, err := r.PlanComplete(context.Background(), snap(domain.StateNew, 0, wf(domain.WorkflowStep{Type: domain.StepResolve})), application.CompleteWorkflowCommand{TicketID: 1, ActorUserID: 1, ExpectedPosition: 1})
+		if err != nil {
+			t.Fatalf("terminal resolve from new must plan: %v", err)
+		}
+		if len(pl.Operations) != 1 || pl.NextRunStatus != "completed" || pl.NextTicketState != domain.StateResolved {
+			t.Fatalf("terminal resolve %+v", pl)
 		}
 	})
 }
