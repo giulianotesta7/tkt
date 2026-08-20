@@ -644,3 +644,66 @@ func (f *fakeCategoryStore) List(_ context.Context) ([]domain.Category, error) {
 	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
 	return out, nil
 }
+
+// fakeWorkflowStore is PR3 fake for WorkflowStore.
+type fakeWorkflowStore struct {
+	getCalls    []int64
+	upsertCalls []struct {
+		cat   int64
+		draft []byte
+	}
+	publishCalls []struct {
+		cat   int64
+		draft []byte
+		by    *int64
+	}
+	drafts    map[int64][]byte
+	published *domain.WorkflowDefinition
+}
+
+func newFakeWorkflowStore() *fakeWorkflowStore { return &fakeWorkflowStore{drafts: map[int64][]byte{}} }
+func (f *fakeWorkflowStore) GetDraft(_ context.Context, categoryID int64) ([]byte, error) {
+	f.getCalls = append(f.getCalls, categoryID)
+	if d, ok := f.drafts[categoryID]; ok {
+		cp := make([]byte, len(d))
+		copy(cp, d)
+		return cp, nil
+	}
+	return nil, nil
+}
+func (f *fakeWorkflowStore) UpsertDraft(_ context.Context, categoryID int64, draft []byte) error {
+	cp := make([]byte, len(draft))
+	copy(cp, draft)
+	f.upsertCalls = append(f.upsertCalls, struct {
+		cat   int64
+		draft []byte
+	}{cat: categoryID, draft: cp})
+	f.drafts[categoryID] = cp
+	return nil
+}
+func (f *fakeWorkflowStore) Publish(_ context.Context, categoryID int64, draft []byte, by *int64) (int64, []domain.WorkflowValidationIssue, error) {
+	def, err := domain.ParseWorkflowDefinition(draft)
+	if err != nil {
+		return 0, []domain.WorkflowValidationIssue{{Step: 1, Field: "steps", Message: err.Error()}}, nil
+	}
+	if iss := def.Validate(); len(iss) > 0 {
+		return 0, iss, nil
+	}
+	cp := make([]byte, len(draft))
+	copy(cp, draft)
+	f.publishCalls = append(f.publishCalls, struct {
+		cat   int64
+		draft []byte
+		by    *int64
+	}{cat: categoryID, draft: cp, by: by})
+	f.drafts[categoryID] = cp
+	c := def
+	f.published = &c
+	return int64(len(f.publishCalls)), nil, nil
+}
+func (f *fakeWorkflowStore) ListSummaries(_ context.Context) ([]application.WorkflowSummary, error) {
+	return []application.WorkflowSummary{}, nil
+}
+func (f *fakeWorkflowStore) ListAvailableCategories(_ context.Context) ([]domain.Category, error) {
+	return []domain.Category{}, nil
+}
