@@ -184,6 +184,54 @@ type DeskStore interface {
 	ListMembers(ctx context.Context, deskID int64) ([]domain.User, error)
 }
 
+type WorkflowRun struct {
+	TicketID         int64
+	CurrentStepIndex int
+	Status           string
+	StartedAt        time.Time
+	CompletedAt      *time.Time
+}
+type WorkflowExecutionSnapshot struct {
+	Ticket   *domain.Ticket
+	Run      *WorkflowRun
+	Workflow domain.WorkflowDefinition
+}
+type RawPositionalValue struct {
+	Position int
+	Values   []string
+}
+type RawPositionalValues []RawPositionalValue
+type CompleteWorkflowCommand struct {
+	TicketID         int64
+	ActorUserID      int64
+	ExpectedPosition int
+	Reason           string
+	RawAnswers       RawPositionalValues
+}
+type AssignmentRequest struct {
+	DeskID         int64
+	Strategy       domain.AssignmentStrategy
+	AssigneeUserID *int64
+}
+type WorkflowMutationPlan struct {
+	TicketID          int64
+	ExpectedCursor    int
+	ExpectedRunStatus string
+	TicketBeforeState domain.State
+	Assignment        *AssignmentRequest
+	AnswersJSON       []byte
+	AnswersStepIndex  *int
+	NextCursor        int
+	NextRunStatus     string
+	NextTicketState   domain.State
+	Audits            []domain.AuditEvent
+	Result            WorkflowExecutionResult
+}
+type WorkflowExecutionResult struct {
+	Ticket *domain.Ticket
+	Run    *WorkflowRun
+}
+
 // WorkflowSummary is the derived badge for the category list (none | Draft | Published vN).
 type WorkflowSummary struct {
 	CategoryID   int64
