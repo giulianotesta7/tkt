@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/giulianotesta7/tkt/internal/domain"
 )
@@ -27,14 +29,22 @@ func (r *WorkflowRunner) PlanComplete(_ context.Context, snap WorkflowExecutionS
 	}
 	ticket := *snap.Ticket
 	now := r.clock.Now()
-	var plan WorkflowMutationPlan
-	plan.TicketID = ticket.ID
-	plan.ExpectedCursor = snap.Run.CurrentStepIndex
-	plan.ExpectedRunStatus = snap.Run.Status
-	plan.TicketBeforeState = snap.Ticket.State
-	nextCursor := snap.Run.CurrentStepIndex
+	actor := cmd.ActorUserID
+	actorName := cmd.ActorName
+	var ops []WorkflowOperation
 	nextState := ticket.State
-	var audits []domain.AuditEvent
+	stepAudit := func() {
+		ops = append(ops, WorkflowStepOperation{StepIndex: exp, Audit: domain.AuditEvent{TicketID: ticket.ID, Actor: actorName, ActorUserID: &actor, Action: domain.ActionWorkflowStep, CreatedAt: now}})
+	}
+	transitionNew := func() {
+		if nextState == domain.StateNew {
+			if ev, err := ticket.Transition(domain.StateInProgress, "", now); err == nil {
+				ev.Actor = "workflow"
+				ops = append(ops, TransitionOperation{StepIndex: exp, Audit: *ev})
+				nextState = ticket.State
+			}
+		}
+	}
 	switch step.Type {
 	case domain.StepAssignToDesk:
 		if step.AssignToDesk == nil {
@@ -42,57 +52,118 @@ func (r *WorkflowRunner) PlanComplete(_ context.Context, snap WorkflowExecutionS
 		}
 		switch step.AssignToDesk.Strategy {
 		case domain.StrategyClaim:
-			uid := cmd.ActorUserID
-			plan.Assignment = &AssignmentRequest{DeskID: step.AssignToDesk.DeskID, Strategy: domain.StrategyClaim, AssigneeUserID: &uid}
+			claim, err := newClaimOperation(ticket, exp, step.AssignToDesk.DeskID, actor, actorName, cmd.Reason, now)
+			if err != nil {
+				return WorkflowMutationPlan{}, err
+			}
+			if claim != nil {
+				ops = append(ops, *claim)
+			}
+			transitionNew()
+			stepAudit()
 		case domain.StrategyLeastLoaded:
-			plan.Assignment = &AssignmentRequest{DeskID: step.AssignToDesk.DeskID, Strategy: domain.StrategyLeastLoaded}
+			ops = append(ops, LeastLoadedAssignmentOperation{StepIndex: exp, DeskID: step.AssignToDesk.DeskID})
+			transitionNew()
 		default:
 			return WorkflowMutationPlan{}, &domain.ValidationError{Field: "strategy", Message: "unknown strategy"}
 		}
-		if ticket.State == domain.StateNew {
-			if ev, err := ticket.Transition(domain.StateInProgress, "", now); err == nil {
-				ev.Actor = "workflow"
-				audits = append(audits, *ev)
-				nextState = ticket.State
-			}
-		}
-		nextCursor++
 	case domain.StepForm:
 		if step.Form == nil {
 			return WorkflowMutationPlan{}, &domain.ValidationError{Field: "type", Message: "form requires config"}
+		}
+		if err := requireFormActor(ticket, step.Form.Actor, actor); err != nil {
+			return WorkflowMutationPlan{}, err
 		}
 		b, err := decodePositionalAnswers(step.Form.Fields, cmd.RawAnswers)
 		if err != nil {
 			return WorkflowMutationPlan{}, err
 		}
-		plan.AnswersJSON = b
-		idx := exp
-		plan.AnswersStepIndex = &idx
-		nextCursor++
+		ops = append(ops, FormAnswerOperation{StepIndex: exp, AnswersJSON: b, SubmittedByUserID: actor, SubmittedAt: now})
+		stepAudit()
 	case domain.StepManualTask:
 		if step.ManualTask == nil {
 			return WorkflowMutationPlan{}, &domain.ValidationError{Field: "type", Message: "manual_task requires config"}
 		}
-		nextCursor++
+		if ticket.UserID == nil || *ticket.UserID != actor {
+			return WorkflowMutationPlan{}, domain.NewForbiddenError("manual_task requires the current assignee")
+		}
+		stepAudit()
 	case domain.StepResolve, domain.StepClose:
 		return WorkflowMutationPlan{}, &domain.ValidationError{Field: "type", Message: fmt.Sprintf("terminal step %q not supported in this slice", step.Type)}
 	default:
 		return WorkflowMutationPlan{}, &domain.ValidationError{Field: "type", Message: fmt.Sprintf("unknown step type %q", step.Type)}
 	}
+	nextCursor := snap.Run.CurrentStepIndex + 1
 	status := "active"
 	if nextCursor >= len(snap.Workflow) {
 		status = "completed"
 	}
-	plan.NextCursor = nextCursor
-	plan.NextRunStatus = status
-	plan.NextTicketState = nextState
-	plan.Audits = audits
-	plan.Result = WorkflowExecutionResult{Ticket: &ticket, Run: &WorkflowRun{TicketID: ticket.ID, CurrentStepIndex: nextCursor, Status: status, StartedAt: snap.Run.StartedAt}}
+	plan := WorkflowMutationPlan{
+		TicketID:          ticket.ID,
+		ExpectedCursor:    snap.Run.CurrentStepIndex,
+		ExpectedRunStatus: snap.Run.Status,
+		TicketBeforeState: snap.Ticket.State,
+		Operations:        ops,
+		NextCursor:        nextCursor,
+		NextRunStatus:     status,
+		NextTicketState:   nextState,
+		Result: WorkflowExecutionResult{Ticket: &ticket, Run: &WorkflowRun{
+			TicketID: ticket.ID, CurrentStepIndex: nextCursor, Status: status, StartedAt: snap.Run.StartedAt,
+		}},
+	}
 	if status == "completed" {
 		ct := now
 		plan.Result.Run.CompletedAt = &ct
 	}
 	return plan, nil
+}
+
+// requireFormActor enforces strict form actor identity: requester forms accept
+// only the requester, assignee forms only the current assignee, no role bypass.
+func requireFormActor(t domain.Ticket, a domain.FormActor, actor int64) error {
+	switch a {
+	case domain.FormActorRequester:
+		if t.RequesterUserID == nil || *t.RequesterUserID != actor {
+			return domain.NewForbiddenError("form requires the ticket requester")
+		}
+	case domain.FormActorAssignee:
+		if t.UserID == nil || *t.UserID != actor {
+			return domain.NewForbiddenError("form requires the current assignee")
+		}
+	default:
+		return &domain.ValidationError{Field: "actor", Message: "unknown form actor"}
+	}
+	return nil
+}
+
+// newClaimOperation builds the claim assignment operation for the human
+// claimant. A same-person claim returns (nil, nil): no assignment operation and
+// no audit. An assignment that changes the person always carries the assignment
+// audit (human actor, field/from/to, timestamp); a reassignment additionally
+// requires a non-blank trimmed reason, mirroring TicketService.Assign.
+func newClaimOperation(t domain.Ticket, stepIndex int, deskID int64, actor int64, actorName string, reason string, now time.Time) (*ClaimAssignmentOperation, error) {
+	if t.UserID != nil && *t.UserID == actor {
+		return nil, nil
+	}
+	from := ""
+	var trimmed string
+	if t.UserID != nil {
+		from = strconv.FormatInt(*t.UserID, 10)
+		trimmed = strings.TrimSpace(reason)
+		if trimmed == "" {
+			return nil, domain.NewReassignReasonRequiredError()
+		}
+	}
+	to := strconv.FormatInt(actor, 10)
+	field := "user"
+	audit := domain.AuditEvent{
+		TicketID: t.ID, Actor: actorName, ActorUserID: &actor, Action: domain.ActionUpdate, Field: &field,
+		FromValue: &from, ToValue: &to, CreatedAt: now,
+	}
+	if trimmed != "" {
+		audit.Reason = &trimmed
+	}
+	return &ClaimAssignmentOperation{StepIndex: stepIndex, DeskID: deskID, AssigneeUserID: actor, Reason: trimmed, AssignmentAudit: audit}, nil
 }
 
 func decodePositionalAnswers(fields []domain.FormField, raw RawPositionalValues) ([]byte, error) {

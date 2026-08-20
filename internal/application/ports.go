@@ -202,29 +202,82 @@ type RawPositionalValue struct {
 }
 type RawPositionalValues []RawPositionalValue
 type CompleteWorkflowCommand struct {
-	TicketID         int64
-	ActorUserID      int64
+	TicketID    int64
+	ActorUserID int64
+	// ActorName is the human actor's display name at submission time. The
+	// application stamps it together with ActorUserID on every human audit
+	// (workflow_step and assignment), matching TicketService.Assign (audit
+	// spec D14). It is session/command-derived and never taken from
+	// RawAnswers.
+	ActorName        string
 	ExpectedPosition int
 	Reason           string
 	RawAnswers       RawPositionalValues
 }
-type AssignmentRequest struct {
-	DeskID         int64
-	Strategy       domain.AssignmentStrategy
-	AssigneeUserID *int64
+
+// WorkflowOperation is the sealed, ordered, data-only mutation contract: only
+// value structs below implement it (unexported marker, closed at compile
+// time — no callbacks/functions/registries). Applied in literal slice order.
+type WorkflowOperation interface {
+	isWorkflowOperation()
 }
+
+// FormAnswerOperation persists one form step's typed positional JSON answers
+// with the submitting human actor and timestamp.
+type FormAnswerOperation struct {
+	StepIndex         int
+	AnswersJSON       []byte
+	SubmittedByUserID int64
+	SubmittedAt       time.Time
+}
+
+// ClaimAssignmentOperation persists a known claim: desk, claimant as assignee,
+// optional reassignment reason, and the required assignment audit (populated
+// whenever the assignee changes; same-person claims emit no assignment op).
+type ClaimAssignmentOperation struct {
+	StepIndex       int
+	DeskID          int64
+	AssigneeUserID  int64
+	Reason          string
+	AssignmentAudit domain.AuditEvent
+}
+
+// LeastLoadedAssignmentOperation is the explicit automatic least_loaded intent;
+// the chosen user/audit are persistence facts owned by the WorkflowUnitOfWork
+// (S6), so no assignee or audit exists by construction.
+type LeastLoadedAssignmentOperation struct {
+	StepIndex int
+	DeskID    int64
+}
+
+// TransitionOperation carries the exact domain.Ticket.Transition audit.
+type TransitionOperation struct {
+	StepIndex int
+	Audit     domain.AuditEvent
+}
+
+// WorkflowStepOperation records human step completion with its workflow_step
+// audit (human actor, step index, timestamp).
+type WorkflowStepOperation struct {
+	StepIndex int
+	Audit     domain.AuditEvent
+}
+
+func (FormAnswerOperation) isWorkflowOperation()            {}
+func (ClaimAssignmentOperation) isWorkflowOperation()       {}
+func (LeastLoadedAssignmentOperation) isWorkflowOperation() {}
+func (TransitionOperation) isWorkflowOperation()            {}
+func (WorkflowStepOperation) isWorkflowOperation()          {}
+
 type WorkflowMutationPlan struct {
 	TicketID          int64
 	ExpectedCursor    int
 	ExpectedRunStatus string
 	TicketBeforeState domain.State
-	Assignment        *AssignmentRequest
-	AnswersJSON       []byte
-	AnswersStepIndex  *int
+	Operations        []WorkflowOperation
 	NextCursor        int
 	NextRunStatus     string
 	NextTicketState   domain.State
-	Audits            []domain.AuditEvent
 	Result            WorkflowExecutionResult
 }
 type WorkflowExecutionResult struct {

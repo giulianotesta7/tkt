@@ -26,7 +26,7 @@ func man() domain.WorkflowStep {
 }
 func snap(st domain.State, cur int, def domain.WorkflowDefinition) application.WorkflowExecutionSnapshot {
 	n := time.Date(2026, 8, 20, 10, 0, 0, 0, time.UTC)
-	t := &domain.Ticket{ID: 1, State: st, CreatedAt: n, UpdatedAt: n}
+	t := &domain.Ticket{ID: 1, State: st, CreatedAt: n, UpdatedAt: n, RequesterUserID: ptr(int64(1))}
 	return application.WorkflowExecutionSnapshot{Ticket: t, Run: &application.WorkflowRun{TicketID: 1, CurrentStepIndex: cur, Status: "active", StartedAt: n}, Workflow: def}
 }
 func TestWorkflowRunner_PositionConflict(t *testing.T) {
@@ -72,26 +72,44 @@ func TestWorkflowRunner_LifecycleAndAssignment(t *testing.T) {
 	}
 	t.Run("claim new transitions", func(t *testing.T) {
 		pl, err := r.PlanComplete(context.Background(), snap(domain.StateNew, 0, wf(claim(42))), application.CompleteWorkflowCommand{TicketID: 1, ActorUserID: 7, ExpectedPosition: 1})
-		if err != nil || pl.Assignment == nil || *pl.Assignment.AssigneeUserID != 7 || pl.Assignment.DeskID != 42 || pl.NextTicketState != domain.StateInProgress || len(pl.Audits) != 1 || pl.Result.Ticket.State != domain.StateInProgress {
+		if err != nil || len(pl.Operations) != 3 || pl.NextTicketState != domain.StateInProgress || pl.Result.Ticket.State != domain.StateInProgress {
 			t.Fatalf("claim %+v %v", pl, err)
+		}
+		ca, ok := pl.Operations[0].(application.ClaimAssignmentOperation)
+		if !ok || ca.DeskID != 42 || ca.AssigneeUserID != 7 {
+			t.Fatalf("claim op %+v", pl.Operations[0])
 		}
 	})
 	t.Run("claim in_progress no re-transition", func(t *testing.T) {
 		pl, _ := r.PlanComplete(context.Background(), snap(domain.StateInProgress, 0, wf(claim(1))), application.CompleteWorkflowCommand{TicketID: 1, ActorUserID: 7, ExpectedPosition: 1})
-		if pl.NextTicketState != domain.StateInProgress || len(pl.Audits) != 0 {
+		if pl.NextTicketState != domain.StateInProgress || len(pl.Operations) != 2 {
 			t.Fatalf("no re-transition %+v", pl)
+		}
+		for _, op := range pl.Operations {
+			if _, ok := op.(application.TransitionOperation); ok {
+				t.Fatalf("unexpected transition op %+v", op)
+			}
 		}
 	})
 	t.Run("least_loaded no sql", func(t *testing.T) {
 		pl, _ := r.PlanComplete(context.Background(), snap(domain.StateNew, 0, wf(least(5))), application.CompleteWorkflowCommand{TicketID: 1, ActorUserID: 7, ExpectedPosition: 1})
-		if pl.Assignment == nil || pl.Assignment.AssigneeUserID != nil || pl.Assignment.Strategy != domain.StrategyLeastLoaded || len(pl.Audits) != 1 {
-			t.Fatalf("least %+v", pl.Assignment)
+		if len(pl.Operations) != 2 {
+			t.Fatalf("least ops %+v", pl.Operations)
+		}
+		lo, ok := pl.Operations[0].(application.LeastLoadedAssignmentOperation)
+		if !ok || lo.DeskID != 5 {
+			t.Fatalf("least op %+v", pl.Operations[0])
 		}
 	})
 	t.Run("manual advances", func(t *testing.T) {
-		pl, err := r.PlanComplete(context.Background(), snap(domain.StateNew, 0, wf(man())), application.CompleteWorkflowCommand{TicketID: 1, ActorUserID: 1, ExpectedPosition: 1})
-		if err != nil || pl.NextCursor != 1 || pl.Assignment != nil || pl.AnswersJSON != nil {
-			t.Fatalf("manual %v %+v", err, pl)
+		s := snap(domain.StateNew, 0, wf(man()))
+		s.Ticket.UserID = ptr(int64(1))
+		pl, err := r.PlanComplete(context.Background(), s, application.CompleteWorkflowCommand{TicketID: 1, ActorUserID: 1, ExpectedPosition: 1})
+		if err != nil || pl.NextCursor != 1 || len(pl.Operations) != 1 {
+			t.Fatalf("manual %v %+v", err, pl.Operations)
+		}
+		if _, ok := pl.Operations[0].(application.WorkflowStepOperation); !ok {
+			t.Fatalf("manual op %+v", pl.Operations[0])
 		}
 	})
 	t.Run("terminal deferred", func(t *testing.T) {
@@ -120,8 +138,9 @@ func TestWorkflowRunner_FormDecoding(t *testing.T) {
 				t.Fatalf("unexpected %v", err)
 			}
 			if !tc.wantErr {
+				fa := formAnswerOf(t, pl)
 				var raw []json.RawMessage
-				if err := json.Unmarshal(pl.AnswersJSON, &raw); err != nil || len(raw) != len(fields) {
+				if err := json.Unmarshal(fa.AnswersJSON, &raw); err != nil || len(raw) != len(fields) {
 					t.Fatalf("typed array %v", err)
 				}
 			}
@@ -129,16 +148,18 @@ func TestWorkflowRunner_FormDecoding(t *testing.T) {
 	}
 	t.Run("trim and typed values", func(t *testing.T) {
 		pl, _ := r.PlanComplete(context.Background(), s0, application.CompleteWorkflowCommand{TicketID: 1, ActorUserID: 1, ExpectedPosition: 1, RawAnswers: application.RawPositionalValues{{Position: 0, Values: []string{"  hello  "}}, {Position: 1, Values: []string{"on"}}}})
+		fa := formAnswerOf(t, pl)
 		var a []json.RawMessage
-		_ = json.Unmarshal(pl.AnswersJSON, &a)
+		_ = json.Unmarshal(fa.AnswersJSON, &a)
 		var s string
 		_ = json.Unmarshal(a[0], &s)
 		if s != "hello" {
 			t.Fatalf("trim %q", s)
 		}
 		pl2, _ := r.PlanComplete(context.Background(), s0, application.CompleteWorkflowCommand{TicketID: 1, ActorUserID: 1, ExpectedPosition: 1, RawAnswers: application.RawPositionalValues{{Position: 0, Values: []string{"api-01"}}, {Position: 1, Values: []string{"true"}}, {Position: 2, Values: []string{"eu-west-1"}}, {Position: 3, Values: []string{""}}}})
+		fa2 := formAnswerOf(t, pl2)
 		var arr []any
-		_ = json.Unmarshal(pl2.AnswersJSON, &arr)
+		_ = json.Unmarshal(fa2.AnswersJSON, &arr)
 		if arr[0] != "api-01" || arr[1] != true {
 			t.Fatalf("typed %v", arr)
 		}
@@ -156,8 +177,9 @@ func TestWorkflowRunner_FormDecoding(t *testing.T) {
 		if err != nil {
 			t.Fatalf("%v", err)
 		}
+		fa := formAnswerOf(t, pl)
 		var a []string
-		_ = json.Unmarshal(pl.AnswersJSON, &a)
+		_ = json.Unmarshal(fa.AnswersJSON, &a)
 		if a[0] != "imp" {
 			t.Fatalf("pinned")
 		}
