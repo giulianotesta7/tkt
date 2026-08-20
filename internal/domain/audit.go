@@ -4,9 +4,10 @@ import "time"
 
 // Audit action identifiers (audit-log spec).
 const (
-	ActionCreated    = "created"
-	ActionTransition = "transition"
-	ActionUpdate     = "update"
+	ActionCreated      = "created"
+	ActionTransition   = "transition"
+	ActionUpdate       = "update"
+	ActionWorkflowStep = "workflow_step"
 )
 
 // AuditEvent records a single mutation on a ticket. The domain fills

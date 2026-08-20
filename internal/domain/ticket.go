@@ -21,15 +21,16 @@ type Ticket struct {
 	// supplied or edited by a caller. NULL means "legacy ticket without a
 	// provable creator" — visible to roles agent+ only, never attributed
 	// to a guessed user.
-	RequesterUserID *int64
-	CategoryID      int64
-	UserID          *int64 // nil = unassigned
-	Priority        Priority
-	State           State
-	CreatedAt       time.Time
-	UpdatedAt       time.Time
-	ResolvedAt      *time.Time
-	ClosedAt        *time.Time
+	RequesterUserID   *int64
+	CategoryID        int64
+	UserID            *int64 // nil = unassigned
+	WorkflowVersionID *int64 // nil = legacy pre-workflow ticket
+	Priority          Priority
+	State             State
+	CreatedAt         time.Time
+	UpdatedAt         time.Time
+	ResolvedAt        *time.Time
+	ClosedAt          *time.Time
 }
 
 // Transition validates a move against the 5x5 matrix and, when legal, applies

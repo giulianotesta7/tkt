@@ -38,11 +38,12 @@ const (
 // ErrNotFound/ErrDuplicate/ErrReferenced). The typed errors below carry
 // structured data and satisfy errors.Is against these sentinels.
 var (
-	ErrNotFound             = errors.New("not found")
-	ErrDuplicate            = errors.New("duplicate")
-	ErrReferenced           = errors.New("referenced")
-	ErrBootstrapUnavailable = errors.New("bootstrap unavailable")
-	ErrRootProtected        = errors.New("root protected")
+	ErrNotFound                 = errors.New("not found")
+	ErrDuplicate                = errors.New("duplicate")
+	ErrReferenced               = errors.New("referenced")
+	ErrBootstrapUnavailable     = errors.New("bootstrap unavailable")
+	ErrRootProtected            = errors.New("root protected")
+	ErrWorkflowPositionConflict = errors.New("workflow position conflict")
 )
 
 // ValidationError reports a field-level validation failure (422).
@@ -207,3 +208,21 @@ func NewRootProtectedError() *RootProtectedError {
 }
 
 func (e *RootProtectedError) Is(target error) bool { return target == ErrRootProtected }
+
+// WorkflowPositionConflictError reports a stale or mismatched workflow cursor (422).
+type WorkflowPositionConflictError struct {
+	Message string
+}
+
+func (e *WorkflowPositionConflictError) Error() string { return e.Message }
+
+func (e *WorkflowPositionConflictError) Is(target error) bool {
+	return target == ErrWorkflowPositionConflict
+}
+
+func NewWorkflowPositionConflictError(msg string) *WorkflowPositionConflictError {
+	if msg == "" {
+		msg = "workflow position conflict"
+	}
+	return &WorkflowPositionConflictError{Message: msg}
+}
