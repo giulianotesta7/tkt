@@ -372,6 +372,27 @@ type WorkflowExecutionResult struct {
 	Run    *WorkflowRun
 }
 
+// WorkflowResponse is a read-only, trusted projection of one persisted form
+// answer set. Labels and values are derived from the ticket's pinned immutable
+// workflow definition; callers never receive raw answers_json.
+type WorkflowResponse struct {
+	StepIndex   int
+	SubmittedAt time.Time
+	Fields      []WorkflowResponseField
+}
+
+type WorkflowResponseField struct {
+	Label string
+	Value string
+}
+
+// WorkflowResponseStore projects completed workflow form answers for an
+// already-authorized ticket read. Implementations must validate persisted row
+// indexes and typed values against the immutable pinned definition.
+type WorkflowResponseStore interface {
+	ListWorkflowResponses(ctx context.Context, ticketID int64) ([]WorkflowResponse, error)
+}
+
 // InitialAutomaticPlan is the creation-time automatic advancement of a fresh
 // run (design S5): from cursor 0, every automatic step (least_loaded,
 // resolve_ticket, close_ticket) is planned until a human-pending step (claim,

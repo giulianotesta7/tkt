@@ -18,12 +18,13 @@ import (
 // one reverse-chronological feed (newest first). Comments and AuditEvents
 // stay available as the underlying data contracts.
 type TicketView struct {
-	Ticket       *domain.Ticket
-	Category     *domain.Category
-	AssignedUser *domain.User // nil when the ticket is unassigned
-	Comments     []domain.Comment
-	AuditEvents  []domain.AuditEvent
-	Timeline     []TimelineItem
+	Ticket            *domain.Ticket
+	Category          *domain.Category
+	AssignedUser      *domain.User // nil when the ticket is unassigned
+	Comments          []domain.Comment
+	AuditEvents       []domain.AuditEvent
+	Timeline          []TimelineItem
+	WorkflowResponses []WorkflowResponse
 }
 
 // TimelineItem is one entry of the merged detail-page timeline: either a
@@ -39,8 +40,9 @@ type TimelineItem struct {
 	// Summary is a compact natural-language line for the activity timeline
 	// ("Ticket created", "Moved to In Progress", "Changed Title"). It keeps
 	// state changes terse and unobtrusive next to full comments.
-	Summary string
-	seq     int // original list index: deterministic tie-break
+	Summary    string
+	ActorLabel string
+	seq        int // original list index: deterministic tie-break
 }
 
 // ViewBuilder assembles TicketViews and resolves historical audit references.
@@ -51,17 +53,24 @@ type ViewBuilder struct {
 	categories CategoryStore
 	comments   CommentStore
 	audits     AuditStore
+	responses  WorkflowResponseStore
 }
 
-// NewViewBuilder wires the view assembly against the given ports.
-func NewViewBuilder(tickets TicketStore, users UserStore, categories CategoryStore, comments CommentStore, audits AuditStore) *ViewBuilder {
-	return &ViewBuilder{
+// NewViewBuilder wires the view assembly against the given ports. The optional
+// response store preserves legacy composition while workflow-enabled callers
+// project answers only after the scoped ticket read succeeds.
+func NewViewBuilder(tickets TicketStore, users UserStore, categories CategoryStore, comments CommentStore, audits AuditStore, responses ...WorkflowResponseStore) *ViewBuilder {
+	builder := &ViewBuilder{
 		tickets:    tickets,
 		users:      users,
 		categories: categories,
 		comments:   comments,
 		audits:     audits,
 	}
+	if len(responses) > 0 {
+		builder.responses = responses[0]
+	}
+	return builder
 }
 
 // TicketView composes the ticket with its category, assigned user (if any),
@@ -82,6 +91,15 @@ func (b *ViewBuilder) TicketView(ctx context.Context, ticketID int64, q TicketQu
 		return nil, err
 	}
 	view := &TicketView{Ticket: t, Category: cat}
+	// The ticket read above is the authorization boundary. Workflow responses
+	// are never queried for an out-of-scope ticket or through a weaker endpoint.
+	if b.responses != nil {
+		responses, err := b.responses.ListWorkflowResponses(ctx, ticketID)
+		if err != nil {
+			return nil, err
+		}
+		view.WorkflowResponses = responses
+	}
 	if t.UserID != nil {
 		user, err := b.users.GetByID(ctx, *t.UserID)
 		if err != nil {
@@ -140,6 +158,10 @@ func (b *ViewBuilder) enrichTimeline(ctx context.Context, view *TicketView) erro
 			continue
 		}
 		item.ActionLabel = humanizeIdentifier(item.Event.Action)
+		item.ActorLabel = item.Event.Actor
+		if item.Event.Actor == "workflow" {
+			item.ActorLabel = "Workflow"
+		}
 		item.Summary = eventSummary(item.Event)
 		if item.Event.Field == nil {
 			continue
@@ -192,6 +214,8 @@ func eventSummary(e *domain.AuditEvent) string {
 		return "Changed state"
 	case domain.ActionCreated:
 		return "Ticket created"
+	case domain.ActionWorkflowStep:
+		return "Completed workflow step"
 	default:
 		if e.Field != nil {
 			return "Changed " + auditFieldLabel(strings.ToLower(strings.TrimSpace(*e.Field)))

@@ -30,7 +30,7 @@
         <h2>Description</h2>
         {{if .View.Ticket.Description}}<p>{{.View.Ticket.Description}}</p>{{else}}<p class="empty">No description.</p>{{end}}
       </div>
-{{if not .Closed}}{{template "comment_form" .}}{{end}}
+{{if not .Closed}}{{template "comment_form" .}}{{end}}{{template "workflow_answers" .}}
       <div class="card">
         <h2>Timeline</h2>
 {{template "timeline" .}}

@@ -2498,3 +2498,131 @@ Existing 6.1 tests already prove the same immutable claim plan fails after membe
 Task 6.3 passed with evidence `sha256:6028108851477b6c00707c373e5d9113b503f4397c5fbc2f7948f417c9ba46d2`. Full repository race passed once (server, HTTP, SQLite, application, domain; templates have no tests), and vet/build/gofmt/diff plus current parent LSP/lens passed. Semantic inspection accepted deterministic global least-loaded selection inside `BEGIN IMMEDIATE`, universal claim authorization rechecks, same-person no-false-audit behavior, claimable read isolation from mutation scopes, NULL-pin readability, and unchanged FTS semantics.
 
 Final PR6 Go delta against `eaca426` is **1,439 authored lines**: 520 tracked churn plus the 919-line assignment integration test. The final-PR `exception-ok` decision applies. Complete rollback restores ten tracked PR6 Go paths plus `tasks.md`/`apply-progress.md` to `eaca426` and removes `workflow_uow_assignment_test.go`; PR1–PR5 and production data remain intact. The pre-existing untracked `desks-ux-polish` artifact is unchanged, outside PR6 causality, and explicitly excluded—scope adjudication confirmed it cannot block this change and must not be touched. Tasks 6.1–6.3 are checked; PR7 is next. No stage, commit, push, PR, review, receipt, merge, or rollback occurred.
+
+## PR7 Partial Continuation — Timeline/Form-Response Projection Only
+
+- Status: technically green partial candidate; **tasks 7.1–7.3 remain unchecked**. This continuation intentionally excludes terminal UoW persistence, terminal audits, and task-checkbox completion.
+- Scoped read: `ViewBuilder.TicketView` invokes `WorkflowResponseStore` only after the existing scoped `TicketStore.GetByID`; a focused fake test proves failed/out-of-scope reads make zero response-store calls. No route or weaker authorization path was added.
+- Projection: SQLite reads the ticket's immutable pinned `workflow_versions.steps_json`, validates the definition, then decodes typed positional arrays strictly. It rejects negative, out-of-range, duplicate, non-form, malformed/type/count, required, and pinned-option-invalid shapes without panicking or including raw answer JSON in errors. It never reads draft/current workflow definitions.
+- Presentation: legacy NULL pins and no responses produce no card. The deterministic read-only `Workflow responses` card uses escaped `html/template` `<dl><dt>/<dd>` values. `workflow` renders as `Workflow` without a user lookup; `workflow_step` remains the content-free `Completed workflow step` summary and its note/reason is not rendered. Answer values remain outside FTS, audits, and timeline output.
+- Strict TDD: RED `go test ./internal/adapters/http -run 'TestWorkflow(StepTimelineDoesNotRenderAnswerContent|AnswersRenderDefinitionListAndEscapesValues)' -count=1` failed because the timeline rendered a workflow-step note. GREEN reran that command after suppressing workflow-step detail; triangulation added focused table-driven strict pinned-type/duplicate/negative-index, scoped-read, no-card, and escaping coverage; focused application/SQLite/HTTP tests passed with `-race`.
+- Verification: `go vet ./cmd/server ./internal/application ./internal/adapters/sqlite ./internal/adapters/http`, `go build ./...`, `gofmt -l` on touched Go files, and `git diff --check` passed. Full-repository race, Playwright, terminal-persistence tests, and lifecycle operations were intentionally not run.
+- Candidate churn at handoff: 67 tracked additions/deletions plus 429 lines in five untracked projection/template/test files (496 authored lines before OpenSpec note); `openspec/changes/desks-ux-polish/` remains untouched.
+    - Native status consumed: authoritative OpenSpec `applyState: ready`, repo-local `/home/gtesta/Projects/tkt`, allowed root `/home/gtesta/Projects/tkt`, no blockers. Parent retains active attempt token and owns settlement.
+
+## PR7 Partial Continuation — Terminal Persistence Slice
+
+- Status: **partial green only**. Tasks 7.1–7.3 remain unchecked; this slice is not independently validated and no Playwright journey was run.
+- Scope: `ApplyWorkflowPlan` terminal persistence proof and the shared ticket read projection needed for a refreshed workflow result. The pre-existing timeline/form-response projection remains intact and was not redesigned or duplicated. No route, UI, builder, authorization, lifecycle, native-attempt, review, stage, commit, or PR operation was performed.
+
+### Strict TDD evidence
+
+| Phase | Command / evidence | Result |
+| --- | --- | --- |
+| RED | `go test ./internal/adapters/sqlite -run 'TestWorkflowUoW_TerminalPersistedMatrix|TestWorkflowUoW_FormThenTerminalRollsBackAndRetriesOnce|TestTicketReadsAndWorkflowResultPreserveWorkflowVersionID' -count=1` | **FAIL**: public `ApplyWorkflowPlan` refreshed results and `GetByID` lost `WorkflowVersionID` (`<nil>` instead of the pinned version). |
+| GREEN | same focused SQLite command with `-race` | **PASS**. |
+| TRIANGULATE | `go test ./internal/application -run 'TestWorkflowRunner_(TerminalMatrix|AutoAdvance|LifecycleAndAssignment)' -count=1 -race`; focused SQLite terminal/form/manual/response tests with `-race` | **PASS**. Covers resolve/close matrices, ordered workflow audits, form→close rollback/retry, typed answers, and manual-task closed-state rejection. |
+| REFACTOR | No production helper extraction was needed; the existing closed operation grammar remains unchanged. | **PASS** after formatting and focused rerun. |
+
+### Implemented / proven behavior
+
+- The shared ticket scan now selects and restores nullable `workflow_version_id`; `GetByID`, `List`, `Search`, and the refreshed `WorkflowExecutionResult` preserve the exact pin, while legacy `NULL` pins remain nil.
+- Table-driven terminal persistence coverage proves resolve/close terminal matrices through public `ApplyWorkflowPlan`: domain transition state, `resolved_at`/`closed_at`, deterministic `created_at`/`updated_at`, completed cursor/run timestamp, exact refreshed result, and ordered workflow-attributed transition audits.
+- Terminal audit assertions require `actor='workflow'`, `actor_user_id=NULL`, action `transition`, field/state transitions, and content-free notes. A form followed by automatic close proves its typed positional answer is stored atomically, does not appear in audit fields/notes, and is fully rolled back when a later injected transition-audit failure aborts the transaction.
+- After that rollback, the same plan succeeds once; reuse after completion returns the existing typed workflow-position conflict with no duplicate answers, audits, or state.
+- Manual-task attempts on resolved and closed tickets continue to fail through the existing runner validation contract; no authorization or impersonation behavior was added.
+
+### Files changed
+
+- `internal/adapters/sqlite/ticket_store.go` — include/scan nullable workflow-version pins in every shared ticket projection.
+- `internal/adapters/sqlite/workflow_uow_terminal_test.go` — compact table-driven terminal persistence, atomic rollback/retry, audit-content isolation, manual closed-state, and pin-read coverage.
+- `openspec/changes/category-workflows/apply-progress.md` — this merged note.
+
+### Verification and cleanup
+
+- `go test ./internal/adapters/sqlite ./internal/application -count=1 -race` — PASS.
+- `gofmt -l internal/adapters/sqlite/ticket_store.go internal/adapters/sqlite/workflow_uow_terminal_test.go` — empty.
+- `go vet ./internal/adapters/sqlite ./internal/application` — PASS.
+- `go build ./...` — PASS.
+- `git diff --check` — PASS.
+- The injected SQLite failure trigger was explicitly dropped after rollback proof; no server, browser, or background process was started. Full repository race and Playwright were intentionally not run.
+
+### Workload, rollback, and remaining work
+
+- Terminal slice churn: **238 authored lines** (7 additions + 2 deletions in `ticket_store.go`; 229-line dedicated test). Combined active candidate: **734 authored lines** (parent-reported 496-line response projection + this 238-line terminal slice), within the 1,200-line active objective.
+- Rollback boundary: restore `internal/adapters/sqlite/ticket_store.go` to `d34ed9d` and remove `internal/adapters/sqlite/workflow_uow_terminal_test.go`; the response-projection slice remains separately preserved. The injected trigger is test-local and removed.
+- Persisted task checkboxes deliberately remain unchanged pending independent technical and E2E validation:
+  - [ ] **7.1 RED/GREEN — terminal persistence + audit/timeline.**
+  - [ ] **7.2 TRIANGULATE + REFACTOR.**
+  - [ ] **7.3 PR7 gates + rollback.**
+
+### Structured status consumed
+
+- Authoritative status: change `category-workflows`; `artifactStore: openspec`; `applyState: ready`; `nextRecommended: apply`; no `blockedReasons`; `actionContext.mode: repo-local`; workspace and only allowed edit root `/home/gtesta/Projects/tkt`.
+- Strict TDD active from `openspec/config.yaml`; test runner `go test ./...`.
+- Parent-held active token `sha256:4b2deee04fc53a4cacb707687b4a53907928b8f5866022ec5fb95b98ab4dcef7` was consumed as context only. No lifecycle command was issued.
+- `openspec/changes/desks-ux-polish/` remains untracked and untouched.
+
+### Candidate disposition
+
+This candidate remediates the narrow RED evidence that pinned workflow versions were lost on ticket reads and refreshed UoW results. It still awaits independent technical validation and final Playwright/E2E validation; it does **not** mark PR7 complete or claim remediation of any broader parent-held failed evidence beyond the demonstrated pin-loss defect.
+
+## PR7 Task 7.1 — Independent Technical + Seeded Playwright PASS
+
+- Native attempt settled `complete` with evidence `sha256:20f88e3208a062879b24745e9cc87f9ed1d5fd452e55bb8207004ac53ced6909`, explicitly remediating rejected evidence `sha256:3f96619a46bdbab8e16c71a7c591c8b23bcfcdff1f8de854866899a8c2012c07`.
+- Independent technical verification passed focused SQLite/application/HTTP suites under race, relevant vet, build, gofmt check, diff check, and primary LSP. The accepted candidate proves terminal matrices, exact refreshed pins, ordered workflow audits, atomic answer rollback/retry, strict pinned response decoding, authorization-before-response-read, valid `dl` semantics, escaping, FTS isolation, and content-free workflow-step summaries.
+- Playwright MCP seeded-detail journey passed on an isolated temporary SQLite database and loopback-only server at desktop 1440×900 and mobile 390×844. Requester/root parity, pinned v1 labels after v2 publication, deterministic responses, `Workflow` actor labels, hostile-text non-execution, legacy no-card behavior, zero console errors, and successful network requests were observed.
+- Mobile showed a 5 px top-level rail/main overflow that reproduced identically on the legacy no-card ticket; the response card was not an offender. This is recorded as pre-existing baseline behavior, not introduced or worsened by PR7.
+- Browser, exact server PID, temporary DB/binary/log/meta/fixture, and temporary seed source were removed; no residual process remains. The index stayed empty and `desks-ux-polish` remained untouched.
+- Independent measured churn: 819 authored lines total, including 68 OpenSpec progress lines; code/template churn 751. The final-PR `exception-ok` decision remains applicable.
+- Task 7.1 is checked. Tasks 7.2 and 7.3 remain unchecked pending explicit triangulation/refactor evidence and the single final repository-wide race/static/rollback gate.
+
+## PR7 Task 7.2 — Triangulation / Refactor Partial-Green
+
+- Status: **functionally ready, intentionally partial green**. Task 7.2 remains unchecked because its declared repository-wide `go test ./... -count=1 -race` evidence is reserved for task 7.3. Task 7.3 also remains unchecked.
+- Scope: narrow acceptance-proof work only. No production code, routes, templates, migrations, lifecycle/review operation, staging, commit, or PR action was performed. `openspec/changes/desks-ux-polish/` remains unrelated, untracked, and untouched.
+
+### Exact coverage disposition
+
+- `manual_task` completion on both `resolved` and `closed` was already covered by `TestWorkflowRunner_ManualTaskRejectsClosedTickets`. The test now also asserts the typed `*domain.ValidationError` returns an empty operation list, proving the runner emits no plan for a UoW to apply (zero writes through the existing domain/application contract).
+- The exact immutable-plan stale/CAS retry was already covered by `TestWorkflowUoW_SamePlanRetryAfterStaleConflict`: typed conflict and zero audits/answers/cursor mutation, repair only `current_step_index`, then retry the same plan once for exactly one workflow-step audit and one cursor advance. No duplicate test was added.
+- Terminal audit construction has no demonstrated production duplication: `applyTerminal` already uses its single local `transition` closure for resolve and both close transitions. No helper extraction or production refactor was warranted.
+- Added the missing real-SQLite FTS proof: `TestFTS5SearchExcludesWorkflowAnswers` inserts a typed workflow answer and exercises `Search` plus `SearchCount`. It proves the answer-only unique term returns zero while direct FTS title and comment controls return the ticket; audit/timeline storage contains no answer term. The application search remains title-scoped, as independently covered by `TestFTS5SearchMatchesTitleOnly`.
+
+### TDD Cycle Evidence
+
+| Task | Layer | RED / already-proven evidence | GREEN / triangulation | REFACTOR |
+| --- | --- | --- | --- | --- |
+| 7.2 manual lifecycle | application + real SQLite boundary | Already proven typed rejection for resolved/closed; the smallest missing assertion was test-only zero-operation-plan evidence. No production code was changed. | `TestWorkflowRunner_ManualTaskRejectsClosedTickets` PASS under `-race` for both states. | No production refactor needed. |
+| 7.2 stale retry | real SQLite UoW | Already exactly proven by `TestWorkflowUoW_SamePlanRetryAfterStaleConflict`; no duplicate RED added. | PASS under `-race`: stale conflict/no writes, repair only cursor, same plan succeeds once. | No change. |
+| 7.2 FTS exclusion | real SQLite FTS5 | Test written first; it passed immediately as a characterization of the existing schema boundary. An artificial failing RED was not manufactured because no production implementation was changed and the existing `tickets_fts` triggers never observe `ticket_form_answers`. | Three table cases PASS under `-race`: title control, comment control, answer-only exclusion; Search and SearchCount agree. | Test-only table-driven compacting; no production seam to extract. |
+
+### Verification
+
+- `go test ./internal/adapters/sqlite -run '^TestFTS5SearchExcludesWorkflowAnswers$' -count=1 -v` — PASS.
+- `go test ./internal/adapters/sqlite -run '^(TestFTS5SearchExcludesWorkflowAnswers|TestFTS5SearchMatchesTitleOnly|TestWorkflowUoW_TerminalPersistedMatrix|TestWorkflowUoW_FormThenTerminalRollsBackAndRetriesOnce|TestWorkflowUoW_SamePlanRetryAfterStaleConflict|TestWorkflowRunner_ManualTaskRejectsClosedTickets)$' -count=1 -race -v` — PASS.
+- `go test ./internal/application -run '^(TestWorkflowRunner_PositionConflict|TestWorkflowRunner_LifecycleAndAssignment)$' -count=1 -race -v` — PASS.
+- `go test ./internal/adapters/http -run '^(TestWorkflowAnswersRenderDefinitionListAndEscapesValues|TestWorkflowStepTimelineDoesNotRenderAnswerContent)$' -count=1 -race -v` — PASS.
+- `go vet ./internal/adapters/sqlite ./internal/application ./internal/adapters/http`, `go build ./...`, and `git diff --check` — PASS. `gofmt` was applied to both touched Go tests. `gopls` is unavailable.
+- No process, temporary database, trigger, browser, server, or other harness artifact was started by this work unit; therefore no cleanup was required.
+
+### Files, churn, rollback, and remaining gate
+
+- Changed by this work unit: `internal/adapters/sqlite/search_store_test.go` (+49 Go lines); the existing `internal/adapters/sqlite/workflow_uow_terminal_test.go` gained a +3-line no-write-plan assertion; this merged `apply-progress.md` note. Authored Go churn: **52 lines**, within the 300-line work-unit bound.
+- Rollback boundary: restore `internal/adapters/sqlite/search_store_test.go` to its pre-7.2 revision and remove only the three-line no-write-plan assertion from `workflow_uow_terminal_test.go`; preserve accepted 7.1 terminal/projection work.
+- Required final gate, deliberately not run: `go test ./... -count=1 -race` under task 7.3. Re-read `tasks.md`: `7.1 [x]`; `7.2 [ ]`; `7.3 [ ]`.
+
+### Structured status consumed
+
+- Authoritative OpenSpec status for `category-workflows`: `artifactStore: openspec`, `applyState: ready`, `nextRecommended: apply`, no blockers; `actionContext.mode: repo-local`, workspace and allowed edit root `/home/gtesta/Projects/tkt`.
+- Parent-held token `sha256:720e8dd975cf1b775df83879a44256687af7cd4a10f27fab9e4dba1ea2e897c2` was context only. No attempt, review, or delivery lifecycle command was invoked.
+
+## PR7 Tasks 7.2–7.3 — Final Gate PASS with Approved Size Exception
+
+- The single reserved `go test ./... -count=1 -race` run passed in 203.298s. Package evidence: server 5.131s, HTTP 196.322s, SQLite 69.764s, application 22.281s, domain 1.019s; templates have no tests.
+- `go vet ./...`, `go build ./...`, `gofmt -l .`, `git diff --check`, and `gopls check` on the 12 changed Go files passed. Before/after status matched, the index remained empty, rollback paths were enumerated, and no test/build/server/browser process remained.
+- Exact candidate churn against `d34ed9d`, including untracked candidate files and excluding only `desks-ux-polish`: production Go 237, tests 545, templates 21, OpenSpec tasks/progress 120; total **923 authored lines (+903/-20)**.
+- Initial final-gate evidence `sha256:a26061ee1a157786f93f234c19c9737dffa1bbd5ace3aedbbd27d655260a3483` truthfully failed only because task 7.3 retained a stale `<400` slice criterion. All executable, static, safety, cleanup, and rollback checks had passed.
+- The task artifact was reconciled with the maintainer's pre-PR7 decision recorded at the top of `tasks.md`: one direct final PR, `delivery_strategy=exception-ok`, and the 400-line split threshold explicitly waived. Exact 923-line measurement remains visible; the criterion was not silently removed.
+- Targeted read-only revalidation passed without rerunning immutable executable evidence. It confirmed the prior size exception remediates the sole documentary failure and authorized checking both 7.2 and 7.3.
+- Tasks 7.1, 7.2, and 7.3 are checked. PR7 is functionally complete and remains unstaged/uncommitted pending explicit maintainer delivery authorization.

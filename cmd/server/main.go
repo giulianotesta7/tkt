@@ -104,7 +104,7 @@ func main() {
 
 	clock := systemClock{}
 
-	viewBuilder := application.NewViewBuilder(store.TicketStore(), store.UserStore(), store.CategoryStore(), store.CommentStore(), store.AuditStore())
+	viewBuilder := application.NewViewBuilder(store.TicketStore(), store.UserStore(), store.CategoryStore(), store.CommentStore(), store.AuditStore(), store.WorkflowResponseStore())
 	userSvc := application.NewUserService(store.UserStore(), clock)
 	catSvc := application.NewCategoryService(store.CategoryStore(), clock)
 	deskSvc := application.NewDeskService(store.DeskStore(), store.UserStore(), clock)

@@ -38,7 +38,7 @@ func newUnitOfWork(db *sql.DB) *unitOfWork { return &unitOfWork{db: db} }
 const timeLayout = time.RFC3339
 
 // ticketColumns is the SELECT column list shared by every ticket read.
-const ticketColumns = `t.id, t.number, t.title, t.description, t.requester_name, t.requester_email, t.requester_user_id, t.category_id, t.priority, t.state, t.user_id, t.created_at, t.updated_at, t.resolved_at, t.closed_at`
+const ticketColumns = `t.id, t.number, t.title, t.description, t.requester_name, t.requester_email, t.requester_user_id, t.category_id, t.priority, t.state, t.user_id, t.workflow_version_id, t.created_at, t.updated_at, t.resolved_at, t.closed_at`
 
 // Create persists t inside an immediate transaction, assigning the
 // store-owned identity fields: ID (autoincrement) and Number (MAX+1, D8).
@@ -313,12 +313,13 @@ func scanTicketFrom(scan rowScanner) (*domain.Ticket, error) {
 		t                    domain.Ticket
 		userID               sql.NullInt64
 		requesterUserID      sql.NullInt64
+		workflowVersionID    sql.NullInt64
 		priority, state      string
 		createdAt, updatedAt string
 		resolvedAt, closedAt sql.NullString
 	)
 	if err := scan.Scan(&t.ID, &t.Number, &t.Title, &t.Description, &t.RequesterName, &t.RequesterEmail,
-		&requesterUserID, &t.CategoryID, &priority, &state, &userID, &createdAt, &updatedAt, &resolvedAt, &closedAt); err != nil {
+		&requesterUserID, &t.CategoryID, &priority, &state, &userID, &workflowVersionID, &createdAt, &updatedAt, &resolvedAt, &closedAt); err != nil {
 		return nil, err
 	}
 	t.Priority = domain.Priority(priority)
@@ -352,6 +353,10 @@ func scanTicketFrom(scan rowScanner) (*domain.Ticket, error) {
 	if requesterUserID.Valid {
 		v := requesterUserID.Int64
 		t.RequesterUserID = &v
+	}
+	if workflowVersionID.Valid {
+		v := workflowVersionID.Int64
+		t.WorkflowVersionID = &v
 	}
 	return &t, nil
 }

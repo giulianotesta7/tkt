@@ -14,10 +14,10 @@
     <span class="event-icon">›</span>
     <div class="body">
       <div class="main">{{if .Summary}}{{.Summary}}{{else}}{{.ActionLabel}}{{if .FieldLabel}} · {{.FieldLabel}}{{end}}{{if .Event.FromValue}} · {{.FromLabel}} → {{.ToLabel}}{{end}}{{end}}</div>
-{{if .Event.Reason}}      <div class="detail">Reason: {{.Event.Reason}}</div>
+{{if ne .Event.Action "workflow_step"}}{{if .Event.Reason}}      <div class="detail">Reason: {{.Event.Reason}}</div>
 {{else if .Event.Note}}      <div class="detail">Reason: {{.Event.Note}}</div>
-{{end}}
-      <div class="when">{{template "timestamp" .Event.CreatedAt}} · {{.Event.Actor}}</div>
+{{end}}{{end}}
+      <div class="when">{{template "timestamp" .Event.CreatedAt}} · {{if .ActorLabel}}{{.ActorLabel}}{{else}}{{.Event.Actor}}{{end}}</div>
     </div>
   </div>
 {{end}}

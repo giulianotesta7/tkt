@@ -60,6 +60,55 @@ func TestFTS5SearchMatchesTitleOnly(t *testing.T) {
 	}
 }
 
+func TestFTS5SearchExcludesWorkflowAnswers(t *testing.T) {
+	s := newTestDB(t)
+	ctx := context.Background()
+	cat := seedCategory(t, s, "Workflow search")
+	req := seedUser(t, s, "Requester", "requester@example.test", true)
+	def := domain.WorkflowDefinition{{Type: domain.StepForm, Form: &domain.FormStep{Actor: domain.FormActorRequester, Fields: []domain.FormField{{Key: "secret", Label: "Secret", Kind: domain.FieldShortText, Required: true}}}}}
+	versionID := seedPublished(t, s, cat, def)
+	ticket := seedPinnedTicket(t, s, domain.Ticket{
+		Number: 91, Title: "title-visible-control", Description: "description-visible-control",
+		RequesterName: "Requester", RequesterEmail: "requester@example.test", RequesterUserID: &req,
+		CategoryID: cat, Priority: domain.PriorityMedium, State: domain.StateNew,
+		CreatedAt: testClock, UpdatedAt: testClock, WorkflowVersionID: &versionID,
+	})
+	seedRun(t, s, ticket.ID, 0, "active", testClock)
+	if err := s.CommentStore().Add(ctx, &domain.Comment{TicketID: ticket.ID, Author: "Requester", Body: "comment-visible-control", CreatedAt: testClock}); err != nil {
+		t.Fatalf("add searchable comment: %v", err)
+	}
+	if _, err := s.db.Exec(`INSERT INTO ticket_form_answers(ticket_id, step_index, answers_json, submitted_by_user_id, submitted_at) VALUES (?, 0, ?, ?, ?)`, ticket.ID, `["answer-only-unique"]`, req, formatTime(testClock)); err != nil {
+		t.Fatalf("insert workflow answer: %v", err)
+	}
+
+	for _, tc := range []struct {
+		name string
+		term string
+		want int
+	}{
+		{"title control remains indexed", "title-visible-control", 1},
+		{"comment control remains indexed", "comment-visible-control", 1},
+		{"answer-only term is excluded", "answer-only-unique", 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			q := application.TicketQuery{Scope: application.ScopeAll, Text: `"` + tc.term + `"`}
+			got := mustSearch(t, s, q)
+			if len(got) != tc.want {
+				t.Fatalf("search %q returned %d tickets, want %d", tc.term, len(got), tc.want)
+			}
+			n, err := s.SearchStore().SearchCount(ctx, q)
+			if err != nil || n != tc.want {
+				t.Fatalf("search count %q = %d, %v; want %d", tc.term, n, err, tc.want)
+			}
+		})
+	}
+
+	var leaks int
+	if err := s.db.QueryRow(`SELECT COUNT(*) FROM audit_events WHERE ticket_id=? AND (COALESCE(note, '') LIKE '%answer-only-unique%' OR COALESCE(from_value, '') LIKE '%answer-only-unique%' OR COALESCE(to_value, '') LIKE '%answer-only-unique%')`, ticket.ID).Scan(&leaks); err != nil || leaks != 0 {
+		t.Fatalf("answer leaked into audit/timeline data: count=%d err=%v", leaks, err)
+	}
+}
+
 func TestFTS5SearchByNumber(t *testing.T) {
 	s := newTestDB(t)
 	cat := seedCategory(t, s, "Bugs")

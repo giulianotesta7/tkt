@@ -91,6 +91,11 @@ func (s *Store) WorkflowVersionStore() application.WorkflowVersionStore {
 	return newWorkflowStore(s.db)
 }
 
+// WorkflowResponseStore returns the pinned-definition form-response projection.
+func (s *Store) WorkflowResponseStore() application.WorkflowResponseStore {
+	return newWorkflowResponseStore(s.db)
+}
+
 // WorkflowUnitOfWork returns the atomic fixed-plan workflow mutation port
 // (design S5).
 func (s *Store) WorkflowUnitOfWork() application.WorkflowUnitOfWork {
