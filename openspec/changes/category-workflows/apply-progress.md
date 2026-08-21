@@ -2444,3 +2444,57 @@ Tasks 5.1–5.5 are checked. Independent re-gate PASS: exact least_loaded HTTP 5
 
 - PR6 (assignment + claim scope, deterministic least_loaded, filters) remains — the only next PR.
 - No stage/commit/push/PR/review/receipt/merge performed; nothing staged (`git diff --cached --stat` empty). No temp processes left.
+
+## PR6 Task 6.1 Candidate — Assignment Atomicity, Claim Scope, and Deterministic Selection
+
+The preserved candidate after one timed-out broad worker was completed by a resume-only worker reading the current diff. Task 6.1 remains unchecked pending independent semantic verification.
+
+### Implemented candidate
+
+- `least_loaded` resolves inside the existing `BEGIN IMMEDIATE` from all active `agent|admin|root` desk members, using global `new|in_progress` assigned load only, `COUNT ASC, user_id ASC`, and no category predicate.
+- Claim assignment rechecks actor eligibility and desk membership; pending claim writes nothing; successful claim persists a person, conditionally transitions `new→in_progress`, emits exact ordered audits, and advances the cursor atomically.
+- `ScopeAssignedOrClaimable` widens list/detail reads for agents whose desk owns the current pinned claim step; strict mutation scopes remain assigned/all and do not inherit claim visibility.
+- New `workflow_uow_assignment_test.go` has seven tests covering single-candidate atomicity, global load and tie-breaking, ID tie-break, empty-desk rollback, claim race one-winner/one-conflict, pending-claim no writes, and claimable read scope.
+
+### Focused evidence
+
+- Seven new tests: PASS without race and with race.
+- Focused assignment/least-loaded/scope SQLite race: PASS.
+- Focused policy/ticket-service application race: PASS.
+- Full SQLite package race: PASS (60.5s).
+- Full application package race: PASS (21.8s).
+- Affected-package vet, repository build, gofmt, diff check, and primary LSP: PASS.
+- Full repository race intentionally deferred to task 6.3 so it runs once at PR6 close.
+
+### Scope and rollback
+
+Against `eaca426`, tracked delta is 312 additions + 41 deletions and the new assignment test is 354 lines: **707 authored lines**. Rollback is `git restore` for the eight tracked PR6 files plus removal of `internal/adapters/sqlite/workflow_uow_assignment_test.go`; commit `eaca426` preserves accepted PR1–PR5. Nothing staged or committed; `desks-ux-polish` untouched.
+
+### Independent 6.1 Gate — FAIL, Correction Required
+
+Evidence `sha256:493f2f3f4c88865e790e71aaa3eea6149c36a33ceba797caef43cbceaa91deab` found that same-person `least_loaded` unconditionally emits an identical from/to assignment audit. Coverage also failed to prove same-person claim/least-loaded, in-progress claim, A→B without reason, eligibility changes, a real assigned read branch, NULL-pin readability, and list/detail behavior. Task 6.1 remains unchecked. Successor token `sha256:63e54d4971443c1a69cb17d815068248953ad90984464610a578b699e23b30b0` is bound to remediate this exact evidence.
+
+### 6.1 Correction Candidate
+
+Both claim and `least_loaded` operation application now skip the user update and user-field audit when the resolved assignee already equals `ticket.user_id`; separately planned `new→in_progress` state transition, state audit, cursor advancement, and result facts remain intact. The assignment test grew to 732 lines with direct matrices for same-person new/in-progress claim and least-loaded, A→B without reason, inactive/role/membership changes with retry, actual assigned OR claimable reads, NULL-pinned assigned readability, and strict mutation denial. Exact focused tests pass with race; full SQLite without race, affected vet/build/gofmt/diff, and Pi primary LSP (9 files, 0 errors) pass. Current PR6 code delta is 331 additions + 41 deletions plus the 732-line new test: **1,104 authored lines**. Independent remediation re-gate remains pending; 6.1 stays unchecked.
+
+### Second 6.1 Gate, Authorized Reset, and Same-Person Authorization Candidate
+
+Evidence `sha256:06cd19df41a8558971fa0003e178c01e9268aac37469324e5ffd9b73662236c4` found that the same-person runner plan omitted `ClaimAssignmentOperation`, bypassing active/role/membership rechecks. After maintainer authorization, runtime reset `sha256:96923d30bc7aa49f7e7c26dff1f8839736b82da9878bb555168921fd486c02b0` preserved the candidate and opened `PR6-same-person-claim-authorization`.
+
+The runner now emits `[ClaimAssignment, (new→in_progress Transition), WorkflowStep]` for every submitted claim, including same-person. UoW validation always rechecks actor activity, agent-or-higher role, and pinned desk membership; reason remains required only for A→B. Applying the same-person operation mutates/audits no user field while state, workflow-step, cursor, and result facts remain exact. The same immutable plan is proven to fail with total rollback after inactivity or membership loss, then succeed once after full restoration. Focused runner/UoW tests pass with race; affected vet/build/gofmt and Pi primary LSP (11 files, 0 errors) pass. Aggregate PR6 code is 413 additions + 81 deletions plus the 869-line assignment test: **1,363 authored lines** against `eaca426`. Native settlement accepted the reset-scoped correction at **134 changed lines** within its 600-line budget, evidence `sha256:5086c41ab892f05c6b0e0d960b621e9c960dbc8510039e58861ebcd81022bde2`, explicitly remediating `sha256:06cd19df41a8558971fa0003e178c01e9268aac37469324e5ffd9b73662236c4`. Task 6.1 is checked; tasks 6.2–6.3 remain.
+
+## PR6 Task 6.2 Candidate — Triangulation and Refactor Proof
+
+No production refactor was necessary: `leastLoadedAssigneeTx` is already the single deterministic query path shared by Create validation, Apply corroboration, and operation execution inside the caller's existing `BEGIN IMMEDIATE`; no callback, DSL, or generic transaction API exists. Two focused tests close the actual evidence gaps:
+
+- Apply-time empty least-loaded desk returns typed `ErrLeastLoadedUnresolved`, preserves ticket/run cursor/audits/answers, leaves the connection reusable, and the same immutable plan succeeds exactly once after a member joins.
+- `manual_task` completion on `resolved` returns typed validation before persistence.
+
+Existing 6.1 tests already prove the same immutable claim plan fails after membership loss and succeeds after full restoration with exact audit/cursor facts. Exact new tests pass without race and with race; focused least-loaded/claim/manual and runner suites pass with race; affected packages pass without race; build, vet, gofmt, diff, and primary LSP pass. Independent gate accepted an exact **76 test-only line** delta (50 SQLite + 26 runner) with evidence `sha256:b70b7200ad89901b10b26de4e2a20f039c4409522ea1a0e10894cd08ec664bae`. Task 6.2 is checked.
+
+## PR6 Final Gate — PASS
+
+Task 6.3 passed with evidence `sha256:6028108851477b6c00707c373e5d9113b503f4397c5fbc2f7948f417c9ba46d2`. Full repository race passed once (server, HTTP, SQLite, application, domain; templates have no tests), and vet/build/gofmt/diff plus current parent LSP/lens passed. Semantic inspection accepted deterministic global least-loaded selection inside `BEGIN IMMEDIATE`, universal claim authorization rechecks, same-person no-false-audit behavior, claimable read isolation from mutation scopes, NULL-pin readability, and unchanged FTS semantics.
+
+Final PR6 Go delta against `eaca426` is **1,439 authored lines**: 520 tracked churn plus the 919-line assignment integration test. The final-PR `exception-ok` decision applies. Complete rollback restores ten tracked PR6 Go paths plus `tasks.md`/`apply-progress.md` to `eaca426` and removes `workflow_uow_assignment_test.go`; PR1–PR5 and production data remain intact. The pre-existing untracked `desks-ux-polish` artifact is unchanged, outside PR6 causality, and explicitly excluded—scope adjudication confirmed it cannot block this change and must not be touched. Tasks 6.1–6.3 are checked; PR7 is next. No stage, commit, push, PR, review, receipt, merge, or rollback occurred.

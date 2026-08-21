@@ -374,5 +374,8 @@ func (s *TicketService) Update(ctx context.Context, actor domain.User, ticketID 
 // internal (staff-only) comments (comment-visibility spec).
 func (s *TicketService) GetByID(ctx context.Context, actor domain.User, id int64) (*TicketView, error) {
 	includeInternal := NewPolicy().Capabilities(actor.Role).Require(CapCommentInternal)
-	return s.builder.TicketView(ctx, id, scopedQuery(actor, TicketQuery{}), includeInternal)
+	// Read-only detail uses the widened READ scope (ScopeAssignedOrClaimable for
+	// agents) so a claim-pending ticket on the actor's desk is visible; the
+	// mutation paths keep the strict scopedQuery and never inherit this widening.
+	return s.builder.TicketView(ctx, id, readQuery(actor, TicketQuery{}), includeInternal)
 }

@@ -189,21 +189,33 @@ func TestWorkflowRunner_OrderedOperations(t *testing.T) {
 			},
 		},
 		{
-			name:  "same person claim workflow step only",
-			s:     snapWith(domain.StateInProgress, 0, wf(claim(1)), nil, ptr(int64(7))),
+			name:  "same person claim in progress preserves claim intent plus step",
+			s:     snapWith(domain.StateInProgress, 0, wf(claim(9)), nil, ptr(int64(7))),
 			cmd:   cmdFor(7, nil),
-			kinds: []string{"WorkflowStepOperation"},
+			kinds: []string{"ClaimAssignmentOperation", "WorkflowStepOperation"},
+			verify: func(t *testing.T, pl application.WorkflowMutationPlan) {
+				ca, ok := pl.Operations[0].(application.ClaimAssignmentOperation)
+				if !ok || ca.StepIndex != 0 || ca.DeskID != 9 || ca.AssigneeUserID != 7 || ca.Reason != "" {
+					t.Fatalf("same-person claim op %+v", ca)
+				}
+				// The same-person claim carries exact from==to facts and no fake reason.
+				assertAssignAudit(t, ca.AssignmentAudit, 7, "7", "7", "")
+			},
 		},
 		{
-			name:  "same person claim from new transitions without assignment",
-			s:     snapWith(domain.StateNew, 0, wf(claim(1)), nil, ptr(int64(7))),
+			name:  "same person claim from new preserves intent plus transition and step",
+			s:     snapWith(domain.StateNew, 0, wf(claim(9)), nil, ptr(int64(7))),
 			cmd:   cmdFor(7, nil),
-			kinds: []string{"TransitionOperation", "WorkflowStepOperation"},
+			kinds: []string{"ClaimAssignmentOperation", "TransitionOperation", "WorkflowStepOperation"},
 			verify: func(t *testing.T, pl application.WorkflowMutationPlan) {
 				if pl.NextTicketState != domain.StateInProgress {
 					t.Fatalf("same-person claim on new must transition, got %s", pl.NextTicketState)
 				}
-				assertTransition(t, pl.Operations[0].(application.TransitionOperation), "new", "in_progress")
+				ca, ok := pl.Operations[0].(application.ClaimAssignmentOperation)
+				if !ok || ca.StepIndex != 0 || ca.DeskID != 9 || ca.AssigneeUserID != 7 || ca.Reason != "" {
+					t.Fatalf("same-person claim op %+v", ca)
+				}
+				assertTransition(t, pl.Operations[1].(application.TransitionOperation), "new", "in_progress")
 			},
 		},
 		{
@@ -307,6 +319,32 @@ func TestWorkflowRunner_ActorAndClaim(t *testing.T) {
 				tc.verify(t, pl)
 			}
 		})
+	}
+}
+
+// TestWorkflowRunner_ManualTaskOnResolvedRejected proves task 6.2's contract that
+// a manual_task completion must NOT advance a resolved/closed ticket: the read-only
+// lifecycle guard rejects it with a typed domain.ValidationError before any plan is
+// produced (so nothing persists and the run cursor never moves). A blocked ticket
+// can only be completed by its own terminal resolve/close step, not by a manual_task.
+func TestWorkflowRunner_ManualTaskOnResolvedRejected(t *testing.T) {
+	r := application.NewWorkflowRunner(fixedClock())
+	// The pinned step is a manual_task whose current assignee is the actor (so the
+	// assignee-only check would otherwise pass); only the resolved-state guard rejects.
+	manual := snapWith(domain.StateResolved, 0, wf(man()), nil, ptr(int64(9)))
+	pl, err := r.PlanComplete(context.Background(), manual, cmdFor(9, nil))
+	if err == nil {
+		t.Fatal("manual completion on a resolved ticket must be rejected")
+	}
+	var ve *domain.ValidationError
+	if !errors.As(err, &ve) {
+		t.Fatalf("want typed ValidationError, got %T: %v", err, err)
+	}
+	if ve.Field != "state" {
+		t.Fatalf("validation field = %q want \"state\"", ve.Field)
+	}
+	if len(pl.Operations) != 0 {
+		t.Fatalf("rejected manual completion produced %d ops, want 0 (nothing persists)", len(pl.Operations))
 	}
 }
 

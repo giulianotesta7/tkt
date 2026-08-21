@@ -48,6 +48,24 @@ func scopeClause(q application.TicketQuery) (string, []any) {
 		return "t.user_id = ?", []any{q.ActorID}
 	case application.ScopeAssignable:
 		return "(t.user_id = ? OR t.user_id IS NULL)", []any{q.ActorID}
+	case application.ScopeAssignedOrClaimable:
+		// READ-only claim scope (design S6): assigned to the actor OR an active
+		// run whose pinned immutable step at the current cursor is
+		// assign_to_desk[claim] whose desk contains the actor. Uses json_extract on
+		// the ticket's pinned workflow version and the run cursor. NULL-pin legacy
+		// tickets fall through to the assignee predicate only (never a bare full
+		// list for an agent). This is read-only: mutation helpers never use it.
+		return `(t.user_id = ? OR EXISTS (
+			SELECT 1 FROM ticket_workflow_runs r
+			JOIN workflow_versions wv ON wv.id = t.workflow_version_id
+			WHERE r.ticket_id = t.id AND r.status = 'active'
+			  AND wv.category_id = t.category_id
+			  AND json_extract(wv.steps_json, '$[' || r.current_step_index || '].type') = 'assign_to_desk'
+			  AND json_extract(wv.steps_json, '$[' || r.current_step_index || '].assign_to_desk.strategy') = 'claim'
+			  AND CAST(json_extract(wv.steps_json, '$[' || r.current_step_index || '].assign_to_desk.desk_id') AS INTEGER) IN (
+				SELECT dm.desk_id FROM desk_members dm WHERE dm.user_id = ?
+			)
+		))`, []any{q.ActorID, q.ActorID}
 	case application.ScopeAll:
 		return "", nil
 	default:

@@ -117,3 +117,31 @@ func TestPolicyTicketScope(t *testing.T) {
 		}
 	}
 }
+
+// TestPolicyReadScopeClaimable proves the READ scope (ScopeAssignedOrClaimable)
+// is a distinct, more permissive read scope used for list/detail reads only — it
+// NEVER replaces the mutation scope. TicketScope (mutation/read-baseline) keeps
+// agent → ScopeAssigned so claim visibility cannot authorize edits/comments/
+// transitions; the read path may widen to ScopeAssignedOrClaimable.
+func TestPolicyReadScopeClaimable(t *testing.T) {
+	p := NewPolicy()
+	cases := []struct {
+		role domain.Role
+		want TicketScope
+	}{
+		{domain.RoleUser, ScopeOwned},
+		{domain.RoleAgent, ScopeAssignedOrClaimable}, // read widens to claimable
+		{domain.RoleAdmin, ScopeAll},
+		{domain.RoleRoot, ScopeAll},
+		{domain.Role(""), ScopeNone},
+	}
+	for _, tc := range cases {
+		if got := p.ReadScope(tc.role); got != tc.want {
+			t.Errorf("ReadScope(%s) = %v, want %v", tc.role, got, tc.want)
+		}
+	}
+	// The mutation scope is unchanged: agent stays ScopeAssigned, never claimable.
+	if got := p.TicketScope(domain.RoleAgent); got != ScopeAssigned {
+		t.Errorf("TicketScope(agent) = %v, want ScopeAssigned (mutation stays strict)", got)
+	}
+}

@@ -30,13 +30,11 @@ var _ application.WorkflowUnitOfWork = (*workflowUnitOfWork)(nil)
 
 func newWorkflowUnitOfWork(db *sql.DB) *workflowUnitOfWork { return &workflowUnitOfWork{db: db} }
 
-// ErrLeastLoadedUnresolved is the PR5 guard: deterministic least_loaded
-// selection is a PR6 feature. If a runner-decided LeastLoadedAssignmentOperation
-// is ever presented to this PR (a definition whose automatic walk reaches a
-// least_loaded step at creation), the adapter refuses with this typed error and
-// rolls back the ENTIRE create — it never invents a user, an audit, or a
-// selection without PR6's deterministic global-load ordering.
-var ErrLeastLoadedUnresolved = errors.New("least_loaded assignment is unresolved in this PR")
+// ErrLeastLoadedUnresolved is returned when a least_loaded step cannot resolve
+// an assignee inside the transaction (design S6): the desk's candidate pool is
+// empty (no active agent|admin|root member) or selection fails. The entire
+// submit — assignment, state, audits, cursor — rolls back with no partial rows.
+var ErrLeastLoadedUnresolved = errors.New("least_loaded assignment is unresolved")
 
 // CreateTicketWithRun persists the ticket (pinned to the exact expected current
 // version), the created audit, the fresh active run, and the runner-planned
@@ -93,7 +91,7 @@ func (u *workflowUnitOfWork) CreateTicketWithRun(ctx context.Context, in applica
 	// enforce that every audit/answer ticket id is a ZERO placeholder (creation
 	// owns the id): a caller-supplied wrong nonzero id is rejected, never silently
 	// overwritten.
-	if err := validateCreateWorkflowOperations(in.Ticket, storedDef, in); err != nil {
+	if err := validateCreateWorkflowOperations(ctx, tx, in.Ticket, storedDef, in); err != nil {
 		return nil, err
 	}
 
@@ -115,8 +113,8 @@ func (u *workflowUnitOfWork) CreateTicketWithRun(ctx context.Context, in applica
 	}
 
 	// Apply only the runner-decided fixed operations in literal order. Any error
-	// (including an unresolved least_loaded step) rolls back everything.
-	if err := applyWorkflowOperations(ctx, tx, in.Ticket, in.Operations); err != nil {
+	// (including an empty least_loaded desk) rolls back everything.
+	if err := applyWorkflowOperations(ctx, tx, in.Ticket, in.Operations, in.StartedAt); err != nil {
 		return nil, err
 	}
 
@@ -193,7 +191,7 @@ func (u *workflowUnitOfWork) ApplyWorkflowPlan(ctx context.Context, in applicati
 
 	// Apply the fixed data-only operations in literal order (audits/answers/
 	// assignee/state). The validator proved they reproduce in.NextTicketState.
-	if err := applyWorkflowOperations(ctx, tx, ticket, in.Operations); err != nil {
+	if err := applyWorkflowOperations(ctx, tx, ticket, in.Operations, run.StartedAt); err != nil {
 		return application.WorkflowExecutionResult{}, err
 	}
 
@@ -535,7 +533,7 @@ func validateTerminalMatrix(conflict func(string) error, stepType domain.StepTyp
 //	manual:     [WorkflowStep]
 //	resolve:    [Transition]  (exactly one)
 //	close:      [Transition, (Transition)]  (one or two ordered transitions)
-//	least_load: ErrLeastLoadedUnresolved (PR5 refuses selection)
+//	least_load: [LeastLoaded, (new->in_progress Transition if new)] (resolved in-tx)
 //
 // It returns the number of operations consumed by THIS group's prefix only — the
 // enclosing loop continues with any contiguous automatic groups. A terminal
@@ -565,28 +563,35 @@ func corroborateGroup(ctx context.Context, tx *sql.Tx, conflict func(string) err
 		if step.AssignToDesk == nil {
 			return 0, conflict("claim at non-claim step")
 		}
+		if step.AssignToDesk.Strategy == domain.StrategyLeastLoaded {
+			// least_loaded is an automatic assignment the adapter resolves via the
+			// deterministic global-load query INSIDE this same immediate transaction
+			// (design S6); the selected person is a persistence-derived fact.
+			return corroborateLeastLoadedGroup(ctx, tx, conflict, t, step, in.TicketID, expectedIdx, ops)
+		}
 		if step.AssignToDesk.Strategy != domain.StrategyClaim {
-			return 0, ErrLeastLoadedUnresolved
+			return 0, conflict("unknown assignment strategy")
 		}
 		if len(ops) == 0 {
 			return 0, conflict("claim group missing")
 		}
-		n := 0
 		// The exact claim group is [ClaimAssignment]? [new->in_progress Transition]? [WorkflowStep].
-		// The assignment operation is present only when the claim actually changes the
-		// assignee; a same-person claim carries none.
-		assignmentRequired := t.UserID == nil || *t.UserID != in.ActorUserID
-		if c, ok := ops[0].(application.ClaimAssignmentOperation); ok {
-			if err := requireIdx(ops[0]); err != nil {
-				return 0, err
-			}
-			if err := validateClaimOp(ctx, tx, conflict, t, step, run, in, c); err != nil {
-				return 0, err
-			}
-			n++
-		} else if assignmentRequired {
+		// A ClaimAssignmentOperation is ALWAYS present: it is both the assignment
+		// intent and the authorization fact the runner preserves even for a
+		// same-person claim, and the adapter always re-checks eligibility/membership
+		// for it (validateClaimOp applies a same-person claim as a user-field no-op).
+		n := 0
+		c, ok := ops[0].(application.ClaimAssignmentOperation)
+		if !ok {
 			return 0, conflict("claim assignment missing")
 		}
+		if err := requireIdx(ops[0]); err != nil {
+			return 0, err
+		}
+		if err := validateClaimOp(ctx, tx, conflict, t, step, run, in, c); err != nil {
+			return 0, err
+		}
+		n++
 		// A claim on a NEW ticket MUST carry the exact new->in_progress transition; a
 		// claim on an in_progress/later ticket MUST NOT carry one.
 		if t.State == domain.StateNew {
@@ -720,7 +725,11 @@ func validateResultFacts(conflict func(string) error, t *domain.Ticket, run *app
 	if t.State != in.NextTicketState {
 		return conflict("workflow next state mismatch")
 	}
-	if !sameIntPtr(t.UserID, in.NextAssigneeUserID) {
+	// When a plan resolves least_loaded the selected assignee is a
+	// persistence-derived fact resolved inside the transaction (design S6), so the
+	// exact-assignee reproduction check is relaxed for that dimension only.
+	leastLoaded := planHasLeastLoaded(in.Operations)
+	if !leastLoaded && !sameIntPtr(t.UserID, in.NextAssigneeUserID) {
 		return conflict("workflow next assignee mismatch")
 	}
 	// An active-plan Result is authoritative and REQUIRED — no nil bypass — and must
@@ -750,7 +759,10 @@ func validateResultFacts(conflict func(string) error, t *domain.Ticket, run *app
 	if in.Result.Run.CompletedAt != nil && in.Result.Run.CompletedAt.Before(run.StartedAt) {
 		return conflict("workflow completion before run start")
 	}
-	if in.Result.Ticket.State != t.State || !sameIntPtr(in.Result.Ticket.UserID, t.UserID) {
+	if in.Result.Ticket.State != t.State {
+		return conflict("workflow result ticket facts mismatch")
+	}
+	if !leastLoaded && !sameIntPtr(in.Result.Ticket.UserID, t.UserID) {
 		return conflict("workflow result ticket facts mismatch")
 	}
 	return nil
@@ -762,7 +774,7 @@ func validateResultFacts(conflict func(string) error, t *domain.Ticket, run *app
 // cursor; a human step always stops the walk. Every audit ticket id must be a ZERO
 // placeholder (creation assigns the ticket id) — a wrong nonzero id is rejected
 // with a typed conflict, never silently overwritten by the create.
-func validateCreateWorkflowOperations(t *domain.Ticket, def domain.WorkflowDefinition, in application.CreateTicketWithRunInput) error {
+func validateCreateWorkflowOperations(ctx context.Context, tx *sql.Tx, t *domain.Ticket, def domain.WorkflowDefinition, in application.CreateTicketWithRunInput) error {
 	conflict := func(msg string) error { return domain.NewWorkflowPositionConflictError(msg) }
 	// The created audit is validated FULLY (actor/id/action/nil-convention/plan
 	// time) BEFORE any stamping or persistence; a wrong fact is rejected with a
@@ -812,28 +824,41 @@ func validateCreateWorkflowOperations(t *domain.Ticket, def domain.WorkflowDefin
 		if first != idx {
 			return conflict("workflow operation before current step")
 		}
-		// Creation only auto-advances automatic steps; a least_loaded selection is
-		// unresolved in PR5 and a human step (claim/form/manual) always stops.
+		// Creation only auto-advances automatic steps. A least_loaded step resolves its
+		// deterministic selection INSIDE this same transaction (design S6); an empty
+		// desk pool rolls back the whole create. A human step (claim/form/manual)
+		// always stops the walk.
+		step := def[idx]
 		switch v := ops[i].(type) {
 		case application.LeastLoadedAssignmentOperation:
-			return ErrLeastLoadedUnresolved
+			if step.Type != domain.StepAssignToDesk || step.AssignToDesk == nil || step.AssignToDesk.Strategy != domain.StrategyLeastLoaded {
+				return conflict("least_loaded at non-least-loaded step")
+			}
+			n, err := corroborateLeastLoadedGroup(ctx, tx, conflict, &copyTicket, step, 0, idx, ops[i:])
+			if err != nil {
+				return err
+			}
+			if n <= 0 {
+				return conflict("workflow operation group mismatch")
+			}
+			i += n
+			idx++
 		case application.TransitionOperation:
 			if v.Audit.TicketID != 0 {
 				return conflict("transition audit ticket id must be zero placeholder")
 			}
+			n, err := corroborateAutomaticGroup(conflict, &copyTicket, step, idx, ops[i:])
+			if err != nil {
+				return err
+			}
+			if n <= 0 {
+				return conflict("workflow operation group mismatch")
+			}
+			i += n
+			idx++
 		default:
 			return conflict("automatic step at human step")
 		}
-		step := def[idx]
-		n, err := corroborateAutomaticGroup(conflict, &copyTicket, step, idx, ops[i:])
-		if err != nil {
-			return err
-		}
-		if n <= 0 {
-			return conflict("workflow operation group mismatch")
-		}
-		i += n
-		idx++
 	}
 	if idx != in.NextCursor {
 		return conflict("workflow next cursor mismatch")
@@ -1008,6 +1033,92 @@ func corroborateAutomaticGroup(conflict func(string) error, t *domain.Ticket, st
 	return n, nil
 }
 
+// planHasLeastLoaded reports whether a plan contains a LeastLoadedAssignmentOperation.
+// When a plan resolves least_loaded inside the transaction, the selected assignee
+// is a persistence-derived fact, so the strict assignee-fact reproduction check
+// (validateResultFacts) is relaxed for that dimension only — never for state/cursor/
+// completion, which remain exact.
+func planHasLeastLoaded(ops []application.WorkflowOperation) bool {
+	for _, op := range ops {
+		if _, ok := op.(application.LeastLoadedAssignmentOperation); ok {
+			return true
+		}
+	}
+	return false
+}
+
+// corroborateLeastLoadedGroup validates the EXACT least_loaded group prefix for a
+// pinned least_loaded step: [LeastLoadedAssignmentOperation, (new->in_progress
+// Transition if the ticket is new)] — it resolves the deterministic selection via
+// leastLoadedAssigneeTx INSIDE the caller's immediate transaction and applies the
+// selected person + state to the ticket copy, then returns the number of
+// operations consumed by THIS group only (the enclosing loop continues with any
+// contiguous automatic groups). An empty desk pool returns ErrLeastLoadedUnresolved
+// so the whole submit rolls back (design S6). expectedTicketID is the ticket id the
+// transition audit must carry (0 = create placeholder). Pure validation — EXECUTION
+// happens in applyWorkflowOperations and never dispatches by step.Type.
+func corroborateLeastLoadedGroup(ctx context.Context, tx *sql.Tx, conflict func(string) error, t *domain.Ticket, step domain.WorkflowStep, expectedTicketID int64, expectedIdx int, ops []application.WorkflowOperation) (int, error) {
+	requireIdx := func(op application.WorkflowOperation) error {
+		oi, err := opStepIndex(op)
+		if err != nil {
+			return err
+		}
+		if oi != expectedIdx {
+			return conflict("workflow step group interleaved")
+		}
+		return nil
+	}
+	if len(ops) == 0 {
+		return 0, conflict("least_loaded group missing")
+	}
+	l, ok := ops[0].(application.LeastLoadedAssignmentOperation)
+	if !ok {
+		return 0, conflict("least_loaded group mismatch")
+	}
+	if err := requireIdx(ops[0]); err != nil {
+		return 0, err
+	}
+	if l.DeskID != step.AssignToDesk.DeskID {
+		return 0, conflict("least_loaded desk mismatch")
+	}
+	selected, err := leastLoadedAssigneeTx(ctx, tx, l.DeskID)
+	if err != nil {
+		return 0, err
+	}
+	if selected == 0 {
+		return 0, ErrLeastLoadedUnresolved
+	}
+	// The selection is a persistence-derived fact; apply it to the copy so the
+	// enclosing result-fact validation sees the resulting state (not the exact
+	// assignee id, which the plan cannot know before the transaction).
+	assign := selected
+	t.UserID = &assign
+	n := 1
+	// A least_loaded assignment on a NEW ticket MUST carry the exact new->in_progress
+	// transition (the runner plans it); an in_progress/later ticket MUST NOT carry one.
+	if t.State == domain.StateNew {
+		if n >= len(ops) {
+			return 0, conflict("least_loaded on new missing in-progress transition")
+		}
+		tr, ok := ops[n].(application.TransitionOperation)
+		if !ok {
+			return 0, conflict("least_loaded group mismatch")
+		}
+		if err := requireIdx(ops[n]); err != nil {
+			return 0, err
+		}
+		if err := validateTransitionOp(conflict, t, step, expectedTicketID, tr); err != nil {
+			return 0, err
+		}
+		n++
+	} else if n < len(ops) {
+		if _, ok := ops[n].(application.TransitionOperation); ok {
+			return 0, conflict("least_loaded transition on non-new step")
+		}
+	}
+	return n, nil
+}
+
 // opStepIndex extracts the targeted step index from a sealed operation. An
 // unknown operation is an application/adaptation contract bug, not a conflict.
 func opStepIndex(op application.WorkflowOperation) (int, error) {
@@ -1083,9 +1194,14 @@ func validateTransitionOp(conflict func(string) error, t *domain.Ticket, step do
 }
 
 // validateClaimOp corroborates a known claim against the pinned assign_to_desk
-// claim step, requires the claimant to be the active agent+ desk member, and
-// checks every assignment audit fact (action/field/ticket/actor/name/from/to/time
-// and that the trimmed Reason equals the audit Reason exactly).
+// claim step. It ALWAYS rechecks the claimant is active, holds an agent/admin/root
+// role, and is a member of the current pinned desk — the same authorization for a
+// same-person claim and an A→B reassignment alike. It checks every assignment
+// audit fact (action/field/ticket/actor/name/from/to/time and that the trimmed
+// Reason equals the audit Reason exactly). A reassignment reason remains required
+// ONLY when the claim actually changes the assignee (A→B); a same-person claim
+// needs no fake reason. A same-person claim applies as a mutation/audit no-op for
+// the user field: it never re-writes the user or its audit on the copy.
 func validateClaimOp(ctx context.Context, tx *sql.Tx, conflict func(string) error, t *domain.Ticket, step domain.WorkflowStep, run *application.WorkflowRun, in application.WorkflowMutationPlan, v application.ClaimAssignmentOperation) error {
 	if step.Type != domain.StepAssignToDesk || step.AssignToDesk == nil {
 		return conflict("claim at non-claim step")
@@ -1099,6 +1215,8 @@ func validateClaimOp(ctx context.Context, tx *sql.Tx, conflict func(string) erro
 	if v.AssigneeUserID != in.ActorUserID {
 		return conflict("claim assignee mismatch")
 	}
+	// Authorization recheck — active agent/admin/root AND current pinned desk member
+	// (same rules for same-person and A→B claims alike).
 	if ok, err := claimantEligibleTx(ctx, tx, v.AssigneeUserID); err != nil {
 		return err
 	} else if !ok {
@@ -1109,6 +1227,7 @@ func validateClaimOp(ctx context.Context, tx *sql.Tx, conflict func(string) erro
 	} else if !ok {
 		return conflict("claim assignee not a desk member")
 	}
+	same := t.UserID != nil && *t.UserID == v.AssigneeUserID
 	a := v.AssignmentAudit
 	if a.Action != domain.ActionUpdate {
 		return conflict("assignment audit action mismatch")
@@ -1151,12 +1270,20 @@ func validateClaimOp(ctx context.Context, tx *sql.Tx, conflict func(string) erro
 	if a.Note != nil {
 		return conflict("assignment audit must carry no note")
 	}
-	if cur != "" && trimmed == "" {
+	// A reassignment reason is required ONLY when the claim actually changes the
+	// assignee (A→B). A same-person claim owns the ticket already and needs no fake
+	// reason.
+	if cur != "" && !same && trimmed == "" {
 		return conflict("reassignment requires a reason")
 	}
-	assign := v.AssigneeUserID
-	t.UserID = &assign
-	t.UpdatedAt = a.CreatedAt
+	// A same-person claim is an authorization/intent no-op for the user field: it
+	// never re-writes the user or its audit on the copy. Only a real A→B assignment
+	// mutates the copy here (the enclosing apply also refuses to write the audit).
+	if !same {
+		assign := v.AssigneeUserID
+		t.UserID = &assign
+		t.UpdatedAt = a.CreatedAt
+	}
 	return nil
 }
 
@@ -1391,6 +1518,38 @@ func deskMemberTx(ctx context.Context, tx *sql.Tx, deskID, userID int64) (bool, 
 	return true, nil
 }
 
+// leastLoadedAssigneeTx resolves the DETERMINISTIC least_loaded assignee for a
+// desk INSIDE the caller's immediate transaction (design S6). The candidate pool
+// is ALL active agent|admin|root users who are members of deskID; the load is
+// the GLOBAL count of tickets assigned to each candidate in state new/in_progress
+// only (resolved/closed/cancelled never count), across every category (no
+// category predicate). Selection is GROUP BY user id, ORDER BY COUNT(t.id) ASC,
+// u.id ASC, LIMIT 1 — stable and race-free because selection shares the same
+// BEGIN IMMEDIATE as the assignment/state/audit/cursor writes, so a concurrent
+// assignment observes the committed load before selecting. Returns 0 when the
+// pool is empty (the caller rolls back the whole submit). Claim membership stays
+// actor-specific and separate (deskMemberTx); this is a global pool query.
+func leastLoadedAssigneeTx(ctx context.Context, tx *sql.Tx, deskID int64) (int64, error) {
+	var id int64
+	err := tx.QueryRowContext(ctx, `SELECT u.id
+		FROM desk_members dm
+		JOIN users u ON u.id = dm.user_id
+		LEFT JOIN tickets t ON t.user_id = u.id AND t.state IN ('new', 'in_progress')
+		WHERE dm.desk_id = ?
+		  AND u.active = 1
+		  AND u.role IN ('agent', 'admin', 'root')
+		GROUP BY u.id
+		ORDER BY COUNT(t.id) ASC, u.id ASC
+		LIMIT 1`, deskID).Scan(&id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return 0, nil
+	}
+	if err != nil {
+		return 0, fmt.Errorf("sqlite: least_loaded selection: %w", err)
+	}
+	return id, nil
+}
+
 // sameIntPtr is the nil-safe identity comparison for plan facts.
 func sameIntPtr(a, b *int64) bool {
 	if a == nil || b == nil {
@@ -1588,10 +1747,13 @@ func requireActiveAgentTx(ctx context.Context, tx *sql.Tx, id int64) error {
 }
 
 // applyWorkflowOperations applies the sealed, ordered, data-only operation list
-// (design S5). This is the ONLY closed type switch over WorkflowOperation values
-// in the adapter; it never inspects step.Type. A least_loaded operation is the
-// PR5 refusal path (ErrLeastLoadedUnresolved → total rollback).
-func applyWorkflowOperations(ctx context.Context, tx *sql.Tx, t *domain.Ticket, ops []application.WorkflowOperation) error {
+// (design S5/S6). This is the ONLY closed type switch over WorkflowOperation values
+// in the adapter; it never inspects step.Type. baseAt is the run start; the
+// least_loaded assignment audit is stamped at the most recent prior stored event
+// time so it stays monotonic with the ordered operations while the selection is
+// still resolved inside the same immediate transaction.
+func applyWorkflowOperations(ctx context.Context, tx *sql.Tx, t *domain.Ticket, ops []application.WorkflowOperation, baseAt time.Time) error {
+	lastAt := baseAt
 	for _, op := range ops {
 		switch v := op.(type) {
 		case application.TransitionOperation:
@@ -1600,6 +1762,7 @@ func applyWorkflowOperations(ctx context.Context, tx *sql.Tx, t *domain.Ticket, 
 				return err
 			}
 			t.UpdatedAt = v.Audit.CreatedAt
+			lastAt = v.Audit.CreatedAt
 			if v.Audit.ToValue != nil {
 				t.State = domain.State(*v.Audit.ToValue)
 				switch t.State {
@@ -1617,23 +1780,68 @@ func applyWorkflowOperations(ctx context.Context, tx *sql.Tx, t *domain.Ticket, 
 				return err
 			}
 			t.UpdatedAt = v.Audit.CreatedAt
+			lastAt = v.Audit.CreatedAt
 		case application.FormAnswerOperation:
 			if err := insertAnswerTx(ctx, tx, t.ID, v.StepIndex, v.AnswersJSON, v.SubmittedByUserID, v.SubmittedAt); err != nil {
 				return err
 			}
 			t.UpdatedAt = v.SubmittedAt
+			lastAt = v.SubmittedAt
 		case application.ClaimAssignmentOperation:
 			if err := requireActiveAgentTx(ctx, tx, v.AssigneeUserID); err != nil {
 				return err
 			}
+			// No-false-audit rule (task 6.1): a same-person claim (the assignee is
+			// already the ticket user) changes nothing, so it writes no user
+			// assignment audit and no user change, even though the runner now always
+			// preserves an explicit ClaimAssignmentOperation as the authorization
+			// fact. The guard is defense-in-depth so no path can ever emit a false
+			// assignment audit.
+			if t.UserID != nil && *t.UserID == v.AssigneeUserID {
+				break
+			}
 			t.UserID = &v.AssigneeUserID
 			t.UpdatedAt = v.AssignmentAudit.CreatedAt
+			lastAt = v.AssignmentAudit.CreatedAt
 			v.AssignmentAudit.TicketID = t.ID
 			if err := appendAuditEventsTx(ctx, tx, v.AssignmentAudit); err != nil {
 				return err
 			}
 		case application.LeastLoadedAssignmentOperation:
-			return ErrLeastLoadedUnresolved
+			// Deterministic selection inside the SAME immediate transaction (design
+			// S6): the selected person + assignment audit + (separately-planned)
+			// state transition + cursor persist as one atomic unit. An empty desk
+			// pool fails the whole submit with no partial writes.
+			selected, err := leastLoadedAssigneeTx(ctx, tx, v.DeskID)
+			if err != nil {
+				return err
+			}
+			if selected == 0 {
+				return ErrLeastLoadedUnresolved
+			}
+			// No-false-audit rule (task 6.1): when the deterministic selection already
+			// owns the ticket there is no assignment change, so no user-field audit is
+			// written and the user is left unchanged. Any separately-planned
+			// new->in_progress transition still applies as its own operation and the
+			// cursor still advances. A NEW ticket is always unassigned here, so a
+			// create-path selection always emits the assignment audit; this branch only
+			// suppresses a false audit for an apply-path least_loaded on an already-owned
+			// ticket.
+			if t.UserID != nil && *t.UserID == selected {
+				break
+			}
+			field := "user"
+			from := ""
+			if t.UserID != nil {
+				from = strconv.FormatInt(*t.UserID, 10)
+			}
+			to := strconv.FormatInt(selected, 10)
+			a := domain.AuditEvent{TicketID: t.ID, Actor: "workflow", ActorUserID: nil, Action: domain.ActionUpdate, Field: &field, FromValue: &from, ToValue: &to, CreatedAt: lastAt}
+			if err := appendAuditEventsTx(ctx, tx, a); err != nil {
+				return err
+			}
+			t.UserID = &selected
+			t.UpdatedAt = lastAt
 		default:
 			return fmt.Errorf("sqlite: unknown workflow operation %T", op)
 		}

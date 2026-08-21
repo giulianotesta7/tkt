@@ -43,6 +43,14 @@ func matchesQuery(t *domain.Ticket, q application.TicketQuery) bool {
 		if t.UserID == nil || *t.UserID != q.ActorID {
 			return false
 		}
+	case application.ScopeAssignedOrClaimable:
+		// The in-memory fake carries no workflow runs / desk memberships, so the
+		// claimable half of the read scope adds nothing here: it reduces to assigned
+		// (design S6). The real SQLite store implements the claim EXCEPTION via its
+		// own scope clause; policy-level read-scoping is tested against policy.go.
+		if t.UserID == nil || *t.UserID != q.ActorID {
+			return false
+		}
 	case application.ScopeAssignable:
 		if t.UserID != nil && *t.UserID != q.ActorID {
 			return false

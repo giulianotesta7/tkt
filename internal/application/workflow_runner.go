@@ -216,20 +216,23 @@ func requireFormActor(t domain.Ticket, a domain.FormActor, actor int64) error {
 }
 
 // newClaimOperation builds the claim assignment operation for the human
-// claimant. A same-person claim returns (nil, nil): no assignment operation and
-// no audit. An assignment that changes the person always carries the assignment
-// audit (human actor, field/from/to, timestamp); a reassignment additionally
-// requires a non-blank trimmed reason, mirroring TicketService.Assign.
+// claimant. EVERY claim preserves an explicit ClaimAssignmentOperation carrying
+// the exact step/desk/actor facts (no same-person short-circuit): it is both the
+// assignment intent and the authorization fact the adapter re-checks. The
+// AssignmentAudit records the user field exactly (from == to on a same-person
+// claim and a NULL/nil reason, because a same-person claim never fabricates a
+// reassignment reason); the adapter applies a same-person claim as a mutation/
+// audit no-op for the user field. A reassignment (A→B) additionally requires a
+// non-blank trimmed reason, mirroring TicketService.Assign.
 func newClaimOperation(t domain.Ticket, stepIndex int, deskID int64, actor int64, actorName string, reason string, now time.Time) (*ClaimAssignmentOperation, error) {
-	if t.UserID != nil && *t.UserID == actor {
-		return nil, nil
-	}
 	from := ""
 	var trimmed string
 	if t.UserID != nil {
 		from = strconv.FormatInt(*t.UserID, 10)
 		trimmed = strings.TrimSpace(reason)
-		if trimmed == "" {
+		// A reassignment (A→B) requires a non-blank trimmed reason; a same-person
+		// claim (actor already owns the ticket) needs no reason and carries none.
+		if *t.UserID != actor && trimmed == "" {
 			return nil, domain.NewReassignReasonRequiredError()
 		}
 	}

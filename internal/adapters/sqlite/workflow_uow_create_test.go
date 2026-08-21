@@ -353,7 +353,12 @@ func TestWorkflowUoW_Create_IdentityMismatchRollback(t *testing.T) {
 	assertTotalRollback(t, s)
 }
 
-func TestWorkflowUoW_Create_LeastLoadedRollback(t *testing.T) {
+func TestWorkflowUoW_Create_LeastLoadedStepMismatchRollback(t *testing.T) {
+	// A LeastLoadedAssignmentOperation presented at a NON-least-loaded (manual)
+	// step is a plan/step contradiction: since PR6 resolves least_loaded only at
+	// an assign_to_desk[least_loaded] pinned step, this is rejected with a typed
+	// conflict and total rollback (no invented user/audit/state). The dedicated
+	// least_loaded empty-desk rollback is TestWorkflowUoW_LeastLoaded_EmptyDeskRollsBack.
 	s := newTestDB(t)
 	cat := seedCategory(t, s, "C1")
 	req := seedUser(t, s, "Req", "r@x", true)
@@ -362,10 +367,10 @@ func TestWorkflowUoW_Create_LeastLoadedRollback(t *testing.T) {
 	ctx := context.Background()
 	ops := []application.WorkflowOperation{application.LeastLoadedAssignmentOperation{StepIndex: 0, DeskID: 7}}
 	in := buildCreateInput(cat, vid, req, def, ops, 1, "active", domain.StateNew, nil)
-	// least_loaded is NOT selected in PR5: typed error, total rollback, no invented user/audit.
 	_, err := newWorkflowUnitOfWork(s.db).CreateTicketWithRun(ctx, in)
-	if !errors.Is(err, ErrLeastLoadedUnresolved) {
-		t.Fatalf("least_loaded must be refused with ErrLeastLoadedUnresolved, got %v", err)
+	var wpc *domain.WorkflowPositionConflictError
+	if !errors.As(err, &wpc) {
+		t.Fatalf("least_loaded at non-least-loaded step must be a typed conflict, got %v", err)
 	}
 	assertTotalRollback(t, s)
 }
@@ -2460,14 +2465,16 @@ func TestWorkflowUoW_Apply_ClaimInProgressRedundantTransitionRejected(t *testing
 	def := claimDef(deskID)
 	vid := seedPublished(t, s, cat, def)
 
-	// 1) Valid same-person in_progress claim: LONE workflow_step (no assignment op,
-	//    no transition) succeeds with exactly one audit.
-	t.Run("valid-lone-workflow-step", func(t *testing.T) {
+	// 1) Valid same-person in_progress claim: [ClaimAssignment(same-person),
+	//    WorkflowStep] (no redundant transition) succeeds with exactly one audit —
+	//    the claim asset op applies as a user-field no-op, so only the workflow_step
+	//    is persisted.
+	t.Run("valid-same-person-claim-op", func(t *testing.T) {
 		v := vid
 		tk := seedPinnedTicket(t, s, domain.Ticket{Number: 312, Title: "T", Description: "", RequesterName: "Req", RequesterEmail: "r@x", RequesterUserID: &req, CategoryID: cat, Priority: domain.PriorityMedium, State: domain.StateInProgress, UserID: &agent, CreatedAt: now, UpdatedAt: now, WorkflowVersionID: &v})
 		seedRun(t, s, tk.ID, 0, "active", now)
-		ws := domain.AuditEvent{TicketID: tk.ID, Actor: "Ag", ActorUserID: &agent, Action: domain.ActionWorkflowStep, CreatedAt: now}
-		plan := buildApplyPlan(tk, vid, def, agent, "Ag", []application.WorkflowOperation{application.WorkflowStepOperation{StepIndex: 0, Audit: ws}}, 1, "active", domain.StateInProgress, &agent, nil)
+		ops := samePersonClaimOps(tk, deskID, agent, now)
+		plan := buildApplyPlan(tk, vid, def, agent, "Ag", ops, 1, "active", domain.StateInProgress, &agent, nil)
 		if _, err := newWorkflowUnitOfWork(s.db).ApplyWorkflowPlan(context.Background(), plan); err != nil {
 			t.Fatalf("valid in_progress claim (no transition) must succeed, got %v", err)
 		}
@@ -2493,7 +2500,14 @@ func TestWorkflowUoW_Apply_ClaimInProgressRedundantTransitionRejected(t *testing
 		seedRun(t, s, tk.ID, 0, "active", now)
 		tr := domain.AuditEvent{TicketID: tk.ID, Actor: "workflow", Action: domain.ActionTransition, Field: ptr("state"), FromValue: ptr("in_progress"), ToValue: ptr("resolved"), CreatedAt: now}
 		ws := domain.AuditEvent{TicketID: tk.ID, Actor: "Ag", ActorUserID: &agent, Action: domain.ActionWorkflowStep, CreatedAt: now}
+		// The claim group starts with the same-person ClaimAssignmentOperation (the
+		// runner always preserves it); a redundant in_progress->resolved transition
+		// placed in the claim's transition slot must be rejected by the grammar rule.
+		field := "user"
+		f := strconv.FormatInt(agent, 10)
+		ca := domain.AuditEvent{TicketID: tk.ID, Actor: "Ag", ActorUserID: &agent, Action: domain.ActionUpdate, Field: &field, FromValue: &f, ToValue: &f, CreatedAt: now}
 		ops := []application.WorkflowOperation{
+			application.ClaimAssignmentOperation{StepIndex: 0, DeskID: deskID, AssigneeUserID: agent, Reason: "", AssignmentAudit: ca},
 			application.TransitionOperation{StepIndex: 0, Audit: tr},
 			application.WorkflowStepOperation{StepIndex: 0, Audit: ws},
 		}

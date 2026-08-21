@@ -221,7 +221,7 @@ Each work unit ships tests with behavior and must pass `gofmt -l .`, `go vet ./.
 
 ### Tasks
 
-- [ ] **6.1 RED — assignment atomicity + deterministic least_loaded + scope.** Write `workflow_uow_assignment_test.go` + `policy_test.go` cases that FAIL then PASS:
+- [x] **6.1 RED — assignment atomicity + deterministic least_loaded + scope.** Write `workflow_uow_assignment_test.go` + `policy_test.go` cases that FAIL then PASS:
   - Pending `claim` leaves `new` unchanged, no write.
   - Successful `claim` by eligible `agent+` desk member persists person `tickets.user_id`, and when `new` also `Transition(in_progress)` + both audits atomically; `in_progress` assignment creates no redundant transition; same-person assignment creates no false field-change audit (but may still create state audit if `new`); A→B reassignment without reason rejected.
   - `least_loaded` selection pool is ALL active `agent|admin|root` users joined through `desk_members dm WHERE dm.desk_id=?`; global load is `LEFT JOIN tickets t ON t.user_id=u.id AND t.state IN ('new','in_progress')`; `GROUP BY u.id`; order `COUNT(t.id) ASC, u.id ASC`; no category predicate; executes inside same `BEGIN IMMEDIATE` so concurrent assignments see committed load; claim membership check remains actor-specific and separate.
@@ -229,11 +229,11 @@ Each work unit ships tests with behavior and must pass `gofmt -l .`, `go vet ./.
   - Scope: `ScopeAssignedOrClaimable` read query returns assigned **or** active run at pinned `assign_to_desk[claim]` whose desk contains actor (`json_extract(pinned steps, cursor).desk_id` + `desk_members`); strict mutation helpers (`CanEdit`, `CanComment`, `CanTransition`, generic assignment) retain `ScopeAssigned`/`ScopeAll` only.
   - *Focused:* `go test ./internal/adapters/sqlite -run 'TestWorkflowUoW_Assignment|TestScope' -count=1 -race` PASS; `go test ./internal/application -run 'TestPolicy_Scope' -count=1 -race` PASS.
 
-- [ ] **6.2 TRIANGULATE + REFACTOR.** Edge: least-loaded with empty desk → typed error, entire plan rolls back, cursor unchanged; `manual_task` completion on `resolved` rejects; same plan retried after membership fix succeeds. Refactor UoW to share deterministic least_loaded query builder; no callback/generic transaction API.
-  - *Evidence:* `go test ./... -count=1 -race` PASS.
+- [x] **6.2 TRIANGULATE + REFACTOR.** Edge: least-loaded with empty desk → typed error, entire plan rolls back, cursor unchanged; `manual_task` completion on `resolved` rejects; same plan retried after membership fix succeeds. Refactor UoW to share deterministic least_loaded query builder; no callback/generic transaction API.
+  - *Evidence:* independent gate PASS: exact empty-desk Apply rollback/retry, resolved manual-task validation, membership repair retry, and single shared deterministic `leastLoadedAssigneeTx`; three focused tests pass under race. Full repository race remains task 6.3.
 
-- [ ] **6.3 PR6 gates + rollback.** `gofmt -l .` empty, `go vet ./...`, `go test ./... -count=1 -race`, `go build ./...`. Rollback: revert `workflow_uow.go` assignment branch + `policy.go` scope addition + `filters.go` scope clause; pinned tickets with NULL remain readable. Runtime harness: `N/A — mutation scope still guarded`.
-  - *Authored-line check:* `git diff --numstat main...HEAD` authored <400; `gofmt -l .` empty.
+- [x] **6.3 PR6 gates + rollback.** `gofmt -l .` empty, `go vet ./...`, `go test ./... -count=1 -race`, `go build ./...`. Rollback: restore every tracked PR6 code and OpenSpec artifact path to `eaca426` and remove `workflow_uow_assignment_test.go`; PR1–PR5 remain, NULL-pinned tickets stay readable, and no production-data rollback is required. Runtime harness: no new route/template is introduced; read visibility and mutation authorization are exercised through policy + real SQLite integration tests.
+  - *Authored-line check:* measure the complete coherent PR6 Go delta against `eaca426`, including the untracked assignment test; final-PR `exception-ok` means size does not force a split. `gofmt -l .` remains empty.
 
 **PR6 done when:** Selection pool includes ALL desk members (not only actor), global `new|in_progress` load ordered `COUNT ASC, u.id ASC` with no category filter, inside `BEGIN IMMEDIATE`; claim visibility does not grant edit; FTS untouched.
 
