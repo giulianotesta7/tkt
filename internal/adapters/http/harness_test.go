@@ -123,6 +123,7 @@ type harness struct {
 	desks        *application.DeskService
 	search       *application.SearchService
 	settings     *application.SettingsService
+	workflows    *application.WorkflowService
 	renderer     *Renderer
 	mux          *http.ServeMux
 	mw           *SessionMiddleware
@@ -156,6 +157,7 @@ func newHarnessWithAdmin(t *testing.T, seedAdmin bool) *harness {
 	commentSvc := application.NewCommentService(s.TicketStore(), s.CommentStore(), clock)
 	searchSvc := application.NewSearchService(s.TicketStore(), s.SearchStore())
 	settingsSvc := application.NewSettingsService(s.SettingsStore())
+	workflowSvc := application.NewWorkflowService(s.WorkflowStore())
 	renderer := NewRenderer()
 
 	mux := http.NewServeMux()
@@ -163,7 +165,8 @@ func newHarnessWithAdmin(t *testing.T, seedAdmin bool) *harness {
 	NewAuthHandlers(authSvc, usersSvc, renderer).Register(mux)
 	NewTicketHandlers(ticketSvc, commentSvc, searchSvc, catSvc, usersSvc, renderer).Register(mux)
 	NewUserHandlers(usersSvc, renderer).Register(mux)
-	NewCategoryHandlers(catSvc, renderer).Register(mux)
+	NewCategoryHandlersWithWorkflows(catSvc, workflowSvc, renderer).Register(mux)
+	NewCategoryWorkflowHandlers(workflowSvc, deskSvc, renderer).Register(mux)
 	NewDeskHandlers(deskSvc, renderer).Register(mux)
 	NewSettingsHandlers(settingsSvc, renderer).Register(mux)
 	mw := NewSessionMiddleware(s.SessionStore(), s.UserStore(), s.SettingsStore())
@@ -171,7 +174,7 @@ func newHarnessWithAdmin(t *testing.T, seedAdmin bool) *harness {
 	h := &harness{
 		store: s, dbPath: dbPath, clock: clock,
 		tickets: ticketSvc, comments: commentSvc, users: usersSvc, auth: authSvc,
-		categories: catSvc, desks: deskSvc, search: searchSvc, settings: settingsSvc,
+		categories: catSvc, desks: deskSvc, search: searchSvc, settings: settingsSvc, workflows: workflowSvc,
 		renderer: renderer,
 		mux:      mux, mw: mw,
 	}

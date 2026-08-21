@@ -313,6 +313,18 @@ textarea{min-height:84px;resize:vertical}
 .empty.compact{padding:12px 0 0;text-align:left}
 
  
+.workflow-builder{max-width:760px;background:var(--card);border:1px solid var(--line);border-radius:10px;padding:18px}
+.workflow-builder-head,.workflow-step-head,.workflow-actions{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.workflow-builder-head h2{margin:0;color:var(--ink-strong);font-size:16px}
+.workflow-builder-head p,.workflow-step p,.workflow-live{margin:4px 0 0;color:var(--muted);font-size:13px}
+.workflow-live{min-height:20px;margin:14px 0 0}
+.workflow-steps{margin:12px 0;padding-left:26px}
+.workflow-step{padding:12px 0 12px 4px;border-bottom:1px solid var(--line)}
+.workflow-step:last-child{border-bottom:0}
+.workflow-step-head strong{color:var(--ink-strong)}
+.workflow-actions{justify-content:flex-start;margin-top:14px}
+.workflow-preview li{padding:5px 0;color:var(--ink-soft)}
+
 .swatch-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:10px;margin:6px 0 16px}
 .swatch{
   display:flex;flex-direction:column;align-items:center;gap:7px;cursor:pointer;
@@ -362,6 +374,15 @@ textarea{min-height:84px;resize:vertical}
   .ticket-metadata{display:grid;gap:3px}
   .ticket-metadata span+span::before{content:none}
   .auth-entry__form-panel{padding-left:20px;padding-right:20px}
+  .workflow-builder-head{flex-wrap:wrap}
+  .workflow-step-head{flex-wrap:wrap}
+  .workflow-actions{flex-wrap:wrap}
+  .workflow-builder-head .row-actions{flex-wrap:wrap}
+  .workflow-step-head .row-actions{flex-wrap:wrap}
+  .step-type-label{flex:1 1 auto;min-width:0}
+  .step-type{width:100%;min-width:0}
+  .rail{flex-wrap:wrap}
+  .rail-nav{flex-wrap:wrap;min-width:0}
 }
 </style>
 <script src="/static/htmx.min.js" defer></script>
@@ -405,6 +426,7 @@ textarea{min-height:84px;resize:vertical}
       <div class="when">Created <time datetime="2026-08-06T10:00:00Z">10:00 · 06-08-2026</time></div>
     </div>
     <div class="row-actions">
+      <a class="btn ghost small" href="/categories/1/workflow">Configure workflow</a>
       <a class="btn ghost small" href="/categories/1/edit">Edit</a>
       <form method="post" action="/categories/1/delete">
         <button class="btn danger small" type="submit">Delete</button>
@@ -418,6 +440,7 @@ textarea{min-height:84px;resize:vertical}
       <div class="when">Created <time datetime="2026-08-06T10:30:00Z">10:30 · 06-08-2026</time></div>
     </div>
     <div class="row-actions">
+      <a class="btn ghost small" href="/categories/2/workflow">Configure workflow</a>
       <a class="btn ghost small" href="/categories/2/edit">Edit</a>
       <form method="post" action="/categories/2/delete">
         <button class="btn danger small" type="submit">Delete</button>

@@ -113,6 +113,7 @@ func main() {
 	authSvc := application.NewAuthService(store.UserStore(), store.SessionStore(), clock)
 	searchSvc := application.NewSearchService(store.TicketStore(), store.SearchStore())
 	settingsSvc := application.NewSettingsService(store.SettingsStore())
+	workflowSvc := application.NewWorkflowService(store.WorkflowStore())
 
 	renderer := httpadapter.NewRenderer()
 
@@ -121,7 +122,8 @@ func main() {
 	httpadapter.NewAuthHandlers(authSvc, userSvc, renderer).Register(mux)
 	httpadapter.NewTicketHandlers(ticketSvc, commentSvc, searchSvc, catSvc, userSvc, renderer).Register(mux)
 	httpadapter.NewUserHandlers(userSvc, renderer).Register(mux)
-	httpadapter.NewCategoryHandlers(catSvc, renderer).Register(mux)
+	httpadapter.NewCategoryHandlersWithWorkflows(catSvc, workflowSvc, renderer).Register(mux)
+	httpadapter.NewCategoryWorkflowHandlers(workflowSvc, deskSvc, renderer).Register(mux)
 	httpadapter.NewDeskHandlers(deskSvc, renderer).Register(mux)
 	httpadapter.NewSettingsHandlers(settingsSvc, renderer).Register(mux)
 	// D12: /healthz is exempt from auth — registered on the mux before the

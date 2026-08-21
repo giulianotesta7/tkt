@@ -17,6 +17,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/giulianotesta7/tkt/internal/domain"
 	"github.com/giulianotesta7/tkt/web/templates"
 )
 
@@ -64,6 +65,14 @@ var templateFuncs = template.FuncMap{
 			out += strings.ToUpper(parts[len(parts)-1][:1])
 		}
 		return out
+	},
+	"hasDesk": func(desks []domain.Desk, id int64) bool {
+		for _, d := range desks {
+			if d.ID == id {
+				return true
+			}
+		}
+		return false
 	},
 }
 

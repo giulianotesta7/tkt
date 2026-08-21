@@ -14,9 +14,10 @@
   <div class="category-card">
     <div>
       <div class="name">{{.Name}}</div>
-      <div class="when">Created {{template "timestamp" .CreatedAt}}</div>
+      <div class="when">Created {{template "timestamp" .CreatedAt}}</div>{{with index $.Badges .ID}}<span class="badge {{if eq . "Draft"}}in_progress{{else}}resolved{{end}}">{{.}}</span>{{end}}
     </div>
     <div class="row-actions">
+      <a class="btn ghost small" href="/categories/{{.ID}}/workflow">Configure workflow</a>
       <a class="btn ghost small" href="/categories/{{.ID}}/edit">Edit</a>
       <form method="post" action="/categories/{{.ID}}/delete">
         <button class="btn danger small" type="submit">Delete</button>
