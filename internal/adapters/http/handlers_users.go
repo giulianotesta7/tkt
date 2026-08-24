@@ -86,9 +86,9 @@ type userDrawerData struct {
 	HasServerError  bool
 }
 
-// usersIndexData is the managed-users list payload; Error carries a
-// rejected-delete message (409 re-render). Users remains for legacy templates
-// until the Users screen template is introduced in the next slice.
+// usersIndexData is the managed-users list payload. Users remains for
+// compatibility with the create/delete form paths while Rows powers the Users
+// screen.
 type usersIndexData struct {
 	pageData
 	Error        string
@@ -220,17 +220,32 @@ func buildUsersIndexData(actor domain.User, users []domain.User, status usersSta
 }
 
 func (h *UserHandlers) index(w http.ResponseWriter, r *http.Request) {
+	setUsersVary(w)
 	if !requireCapability(w, r, application.CapManageUsers) {
 		return
 	}
 	actor := *userFromContext(r.Context())
-	users, err := h.users.List(r.Context(), actor)
+	data, err := h.usersIndexData(r, actor, normalizeUsersStatus(r.URL.Query().Get("status")))
 	if err != nil {
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
-	data := usersIndexData{pageData: pageDataFrom(r, "users"), Users: users}
-	h.renderer.Render(w, r, "users_index", "", data, http.StatusOK)
+	data.UsersAssets = true
+	h.renderer.Render(w, r, "users_index", "users_screen", data, http.StatusOK)
+}
+
+func setUsersVary(w http.ResponseWriter) {
+	w.Header().Add("Vary", "HX-Request")
+}
+
+func (h *UserHandlers) usersIndexData(r *http.Request, actor domain.User, status usersStatus) (usersIndexData, error) {
+	users, err := h.users.List(r.Context(), actor)
+	if err != nil {
+		return usersIndexData{}, err
+	}
+	data := buildUsersIndexData(actor, users, status)
+	data.pageData = pageDataFrom(r, "users")
+	return data, nil
 }
 
 // userFormData is the create/edit form payload. UserID 0 = create.
@@ -276,7 +291,23 @@ func (h *UserHandlers) create(w http.ResponseWriter, r *http.Request) {
 	redirect(w, r, "/users")
 }
 
+func newUserDrawerData(actor domain.User, user *domain.User, status usersStatus, values userFormValues, msg, field string, hasError bool) userDrawerData {
+	return userDrawerData{
+		Error:           msg,
+		ErrorField:      field,
+		UserID:          user.ID,
+		Values:          values,
+		RoleOptions:     usersRoleOptions(actor.Role),
+		RoleDescription: roleDescription(values.Role),
+		Status:          status,
+		ListURL:         usersListURL(status),
+		EditURL:         "/users/" + strconv.FormatInt(user.ID, 10) + "/edit",
+		HasServerError:  hasError,
+	}
+}
+
 func (h *UserHandlers) editForm(w http.ResponseWriter, r *http.Request) {
+	setUsersVary(w)
 	if !requireCapability(w, r, application.CapManageUsers) {
 		return
 	}
@@ -285,21 +316,44 @@ func (h *UserHandlers) editForm(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid user id", http.StatusBadRequest)
 		return
 	}
+	actor := *userFromContext(r.Context())
 	u, err := h.users.GetByID(r.Context(), id)
 	if err != nil {
 		http.Error(w, mapErrorMsg(err), statusFor(err))
 		return
 	}
-	data := userFormData{
-		pageData: pageDataFrom(r, "users"),
-		UserID:   id,
-		Values:   userFormValues{Name: u.Name, Email: u.Email, Role: u.Role, Active: u.Active},
+	policy := application.NewPolicy()
+	targetRole := u.Role
+	if targetRole == "" {
+		targetRole = domain.RoleUser
 	}
-	h.renderer.Render(w, r, "users_new", "user_form", data, http.StatusOK)
+	if targetRole == domain.RoleRoot {
+		http.Error(w, mapErrorMsg(domain.NewRootProtectedError()), http.StatusForbidden)
+		return
+	}
+	if !policy.CanManageUser(actor.Role, targetRole) {
+		http.Error(w, "admin accounts require root", http.StatusForbidden)
+		return
+	}
+	status := normalizeUsersStatus(r.URL.Query().Get("status"))
+	drawer := newUserDrawerData(actor, u, status, userFormValues{Name: u.Name, Email: u.Email, Role: u.Role, Active: u.Active}, "", "", false)
+	if r.Header.Get("HX-Request") != "" {
+		h.renderer.Render(w, r, "users_index", "user_drawer", drawer, http.StatusOK)
+		return
+	}
+	data, err := h.usersIndexData(r, actor, status)
+	if err != nil {
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+	data.UsersAssets = true
+	data.Drawer = &drawer
+	h.renderer.Render(w, r, "users_index", "users_screen", data, http.StatusOK)
 }
 
 // update applies the complete non-password managed-user edit atomically.
 func (h *UserHandlers) update(w http.ResponseWriter, r *http.Request) {
+	setUsersVary(w)
 	if !requireCapability(w, r, application.CapManageUsers) {
 		return
 	}
@@ -318,22 +372,42 @@ func (h *UserHandlers) update(w http.ResponseWriter, r *http.Request) {
 	role, err := domain.ParseRole(r.Form.Get("role"))
 	if err != nil {
 		if r.Form.Get("role") != "" {
-			h.renderUserFormError(w, r, id, &domain.ValidationError{Field: "role", Message: "invalid role"})
+			h.renderUsersDrawerError(w, r, id, &domain.ValidationError{Field: "role", Message: "invalid role"})
 			return
 		}
 		u, getErr := h.users.GetByID(r.Context(), id)
 		if getErr != nil {
-			h.renderUserFormError(w, r, id, getErr)
+			h.renderUsersDrawerError(w, r, id, getErr)
 			return
 		}
 		role = u.Role
 	}
-	active := r.Form.Get("active") == "true" || r.Form.Get("active") == "on"
+	activeValues := r.Form["active"]
+	active := false
+	if len(activeValues) > 0 {
+		last := activeValues[len(activeValues)-1]
+		active = last == "true" || last == "on"
+	}
 	if _, err := h.users.UpdateManagedUser(r.Context(), *userFromContext(r.Context()), id, application.UpdateManagedUserInput{Name: name, Email: email, Role: role, Active: active}); err != nil {
-		h.renderUserFormError(w, r, id, err)
+		h.renderUsersDrawerError(w, r, id, err)
 		return
 	}
-	redirect(w, r, "/users")
+	status := normalizeUsersStatus(r.Form.Get("status"))
+	if r.Header.Get("HX-Request") != "" {
+		data, err := h.usersIndexData(r, *userFromContext(r.Context()), status)
+		if err != nil {
+			http.Error(w, "Internal server error", http.StatusInternalServerError)
+			return
+		}
+		data.UsersAssets = true
+		w.Header().Set("HX-Retarget", "#users-root")
+		w.Header().Set("HX-Reswap", "outerHTML")
+		w.Header().Set("HX-Replace-Url", data.ListURL)
+		w.Header().Set("HX-Trigger-After-Swap", "users:saved")
+		h.renderer.Render(w, r, "users_index", "users_screen", data, http.StatusOK)
+		return
+	}
+	redirect(w, r, usersListURL(status))
 }
 
 func (h *UserHandlers) changePassword(w http.ResponseWriter, r *http.Request) {
@@ -377,8 +451,7 @@ func (h *UserHandlers) delete(w http.ResponseWriter, r *http.Request) {
 	redirect(w, r, "/users")
 }
 
-// renderUserFormError re-renders the user form with the submitted values
-// and the mapped status (HX → user_form fragment; full → users_new page).
+// renderUserFormError preserves the create and password form contract.
 func (h *UserHandlers) renderUserFormError(w http.ResponseWriter, r *http.Request, id int64, err error) {
 	status, msg := mapError(err)
 	if status == http.StatusInternalServerError {
@@ -397,6 +470,49 @@ func (h *UserHandlers) renderUserFormError(w http.ResponseWriter, r *http.Reques
 		},
 	}
 	h.renderer.Render(w, r, "users_new", "user_form", data, status)
+}
+
+func (h *UserHandlers) renderUsersDrawerError(w http.ResponseWriter, r *http.Request, id int64, err error) {
+	status, msg := mapError(err)
+	if status == http.StatusInternalServerError {
+		http.Error(w, msg, status)
+		return
+	}
+	actor := *userFromContext(r.Context())
+	statusFilter := normalizeUsersStatus(r.Form.Get("status"))
+	values := userFormValues{
+		Name:   r.Form.Get("name"),
+		Email:  r.Form.Get("email"),
+		Role:   domain.Role(r.Form.Get("role")),
+		Active: lastActiveValue(r.Form["active"]),
+	}
+	u := &domain.User{ID: id, Name: values.Name, Email: values.Email, Role: values.Role, Active: values.Active}
+	if current, getErr := h.users.GetByID(r.Context(), id); getErr == nil {
+		u = current
+	}
+	drawer := newUserDrawerData(actor, u, statusFilter, values, msg, "", true)
+	if r.Header.Get("HX-Request") != "" {
+		w.Header().Set("HX-Retarget", "#users-drawer-host")
+		w.Header().Set("HX-Reswap", "outerHTML")
+		h.renderer.Render(w, r, "users_index", "user_drawer", drawer, status)
+		return
+	}
+	data, dataErr := h.usersIndexData(r, actor, statusFilter)
+	if dataErr != nil {
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+	data.UsersAssets = true
+	data.Drawer = &drawer
+	h.renderer.Render(w, r, "users_index", "users_screen", data, status)
+}
+
+func lastActiveValue(values []string) bool {
+	if len(values) == 0 {
+		return false
+	}
+	last := values[len(values)-1]
+	return last == "true" || last == "on"
 }
 
 // renderUsersIndexError re-renders the users list with an inline error

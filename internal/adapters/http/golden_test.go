@@ -440,10 +440,7 @@ func TestLoginPresentationContract(t *testing.T) {
 func fixtureUsersIndexData() usersIndexData {
 	ana := domain.User{ID: 1, Name: "Ana Torres", Email: "ana@example.com", Active: true, CreatedAt: goldenT0}
 	beto := domain.User{ID: 2, Name: "Beto Ruiz", Email: "beto@example.com", Active: false, CreatedAt: goldenT1}
-	return usersIndexData{
-		pageData: pageData{NavActive: "users", CurrentUser: ana},
-		Users:    []domain.User{ana, beto},
-	}
+	return usersIndexData{pageData: pageData{NavActive: "users", CurrentUser: ana}, Users: []domain.User{ana, beto}}
 }
 
 func fixtureUserFormData() userFormData {
