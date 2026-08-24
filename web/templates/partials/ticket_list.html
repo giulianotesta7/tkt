@@ -6,7 +6,7 @@
         <tr><th>ID</th><th>Title</th><th>State</th><th>Priority</th><th>Updated</th></tr>
       </thead>
       <tbody>
-        {{range .Tickets}}
+{{range .Tickets}}
         <tr>
           <td class="num"><a href="/tickets/{{.ID}}">{{ticketNumber .Number}}</a></td>
           <td class="cell-title"><a href="/tickets/{{.ID}}">{{.Title}}</a></td>
@@ -14,12 +14,12 @@
           <td class="priority {{.Priority}}">{{humanize .Priority}}</td>
           <td class="cell-muted">{{template "timestamp" .UpdatedAt}}</td>
         </tr>
-        {{else}}
+{{else}}
         <tr><td colspan="5"><div class="empty">No tickets match your filters.</div></td></tr>
-        {{end}}
+{{end}}
       </tbody>
     </table>
   </div>
-  {{template "pagination" .}}
+{{template "pagination" .}}
 </div>
 {{end}}

@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"reflect"
 	"regexp"
 	"strconv"
 	"strings"
@@ -165,8 +166,11 @@ func TestCategoryWorkflowBuilder_PreviewPublishAndHTMXParity(t *testing.T) {
 		}
 
 		index := h.get(t, "/categories", false)
-		if !strings.Contains(index.Body.String(), "Published v1") {
-			t.Errorf("category index must derive Published v1 badge, got: %s", index.Body.String())
+		if !strings.Contains(index.Body.String(), `>Published</span>`) {
+			t.Errorf("category index must derive exactly Published when draft equals the published definition, got: %s", index.Body.String())
+		}
+		if strings.Contains(index.Body.String(), "Published v") {
+			t.Errorf("equal published draft must not show a version number, got: %s", index.Body.String())
 		}
 
 		edited := builderDraft(t, "edited")
@@ -315,7 +319,7 @@ func TestCategoryWorkflowBuilder_EditControlsSubmitCompleteOrderedValues(t *test
 	steps := []bstep{
 		{typ: "manual_task", manual: "first"},
 		{typ: "assign_to_desk", desk: "7", strategy: "least_loaded"},
-		{typ: "form", actor: "assignee", fields: []bfield{{key: "server", label: "Server", kind: "single_select", options: "eu\nus"}}},
+		{typ: "form", actor: "assignee", fields: []bfield{{key: "server", label: "Server", kind: "single_select", options: "eu; us"}}},
 	}
 	wantRedirect(t, h.postForm(t, path, builderFieldForm("save", steps...), false), http.StatusSeeOther, path)
 
@@ -344,6 +348,394 @@ func TestCategoryWorkflowBuilder_EditControlsSubmitCompleteOrderedValues(t *test
 			t.Errorf("re-render missing editable control %s, got: %s", want, body)
 		}
 	}
+}
+
+// RED — field keys become server-owned identity. The builder must stop exposing
+// an editable Key control (users edit labels; keys are opaque stable identifiers
+// used by validation and runtime responses). Server-side code assigns a
+// deterministic opaque field_N sequence key unique across ALL form steps: new
+// fields get one automatically, editing the Label never rewrites an existing
+// key, the rendered builder carries the stable key only in a hidden input, and
+// old/incomplete drafts with empty keys are filled on save.
+func TestCategoryWorkflowBuilder_RED_FieldKeysAreServerOwned(t *testing.T) {
+	t.Run("add_field assigns the smallest unused field_N across all form steps", func(t *testing.T) {
+		h := newHarness(t)
+		category, err := h.categories.Create(t.Context(), "AutoKey")
+		if err != nil {
+			t.Fatalf("create: %v", err)
+		}
+		path := "/categories/" + strconv.FormatInt(category.ID, 10) + "/workflow"
+		steps := []bstep{
+			{typ: "form", actor: "requester", fields: []bfield{{key: "a", label: "A", kind: "short_text"}}},
+			{typ: "form", actor: "requester", fields: []bfield{{key: "field_1", label: "B", kind: "short_text"}}},
+		}
+		wantRedirect(t, h.postForm(t, path, builderFieldForm("save", steps...), false), http.StatusSeeOther, path)
+
+		f := builderFieldForm("add_field", steps...)
+		f.Set("step_index", "0")
+		wantRedirect(t, h.postForm(t, path, f, false), http.StatusSeeOther, path)
+
+		def := h.persistedDefinition(t, path)
+		step0, step1 := def[0].Form, def[1].Form
+		if step0 == nil || step1 == nil || len(step0.Fields) != 2 {
+			t.Fatalf("after add_field step 0 must hold 2 fields: %+v", def)
+		}
+		if got := step0.Fields[1].Key; got != "field_2" {
+			t.Errorf("new field key = %q, want field_2 (smallest unused across both form steps; field_1 is taken by step 1)", got)
+		}
+		assertUniqueFieldKeys(t, def)
+
+		// Deterministic reuse: removing the auto field and adding again selects
+		// the same smallest unused key (field_2 is free again).
+		fr := builderFieldForm("remove_field", defToSteps(def)...)
+		fr.Set("step_index", "0")
+		fr.Set("field_index", "1")
+		wantRedirect(t, h.postForm(t, path, fr, false), http.StatusSeeOther, path)
+
+		fa := builderFieldForm("add_field", defToSteps(h.persistedDefinition(t, path))...)
+		fa.Set("step_index", "0")
+		wantRedirect(t, h.postForm(t, path, fa, false), http.StatusSeeOther, path)
+		after := h.persistedDefinition(t, path)
+		if got := after[0].Form.Fields[1].Key; got != "field_2" {
+			t.Errorf("re-added field key = %q, want field_2 (deterministic reuse of the smallest unused key)", got)
+		}
+		assertUniqueFieldKeys(t, after)
+	})
+
+	t.Run("editing Label preserves the existing stable key", func(t *testing.T) {
+		h := newHarness(t)
+		category, err := h.categories.Create(t.Context(), "LabelStable")
+		if err != nil {
+			t.Fatalf("create: %v", err)
+		}
+		path := "/categories/" + strconv.FormatInt(category.ID, 10) + "/workflow"
+		wantRedirect(t, h.postForm(t, path, builderFieldForm("save", bstep{typ: "form", actor: "requester", fields: []bfield{{key: "server", label: "Server", kind: "short_text"}}}), false), http.StatusSeeOther, path)
+		edited := []bstep{{typ: "form", actor: "requester", fields: []bfield{{key: "server", label: "Production server", kind: "short_text"}}}}
+		wantRedirect(t, h.postForm(t, path, builderFieldForm("save", edited...), false), http.StatusSeeOther, path)
+		fields := h.persistedDefinition(t, path)[0].Form.Fields
+		if len(fields) != 1 || fields[0].Key != "server" || fields[0].Label != "Production server" {
+			t.Errorf("label edit must keep key=server and update label, got %+v", fields)
+		}
+	})
+
+	t.Run("rendered builder hides Key but round-trips the hidden stable key", func(t *testing.T) {
+		h := newHarness(t)
+		category, err := h.categories.Create(t.Context(), "HiddenKey")
+		if err != nil {
+			t.Fatalf("create: %v", err)
+		}
+		path := "/categories/" + strconv.FormatInt(category.ID, 10) + "/workflow"
+		wantRedirect(t, h.postForm(t, path, builderFieldForm("save", bstep{typ: "form", actor: "requester", fields: []bfield{{key: "server", label: "Server", kind: "short_text"}}}), false), http.StatusSeeOther, path)
+		body := h.get(t, path, false).Body.String()
+		if !strings.Contains(body, `type="hidden" name="step_0_field_0_key" value="server"`) {
+			t.Errorf("builder must round-trip the stable key through a hidden input, got: %s", body)
+		}
+		if strings.Contains(body, `type="text" name="step_0_field_0_key"`) {
+			t.Errorf("builder must not render an editable Key textbox, got: %s", body)
+		}
+		if strings.Contains(body, `label for="step_0_field_0_key"`) {
+			t.Errorf("builder must not render a Key label, got: %s", body)
+		}
+	})
+
+	t.Run("old incomplete drafts get deterministic keys filled on save", func(t *testing.T) {
+		h := newHarness(t)
+		category, err := h.categories.Create(t.Context(), "FillKeys")
+		if err != nil {
+			t.Fatalf("create: %v", err)
+		}
+		path := "/categories/" + strconv.FormatInt(category.ID, 10) + "/workflow"
+		// A legacy/incomplete draft may carry empty keys (no hidden value yet);
+		// saving must fill them so the draft stays editable and publishable.
+		wantRedirect(t, h.postForm(t, path, builderFieldForm("save", bstep{typ: "form", actor: "requester", fields: []bfield{
+			{key: "", label: "Name", kind: "short_text"},
+			{key: "", label: "Email", kind: "short_text"},
+		}}), false), http.StatusSeeOther, path)
+		fields := h.persistedDefinition(t, path)[0].Form.Fields
+		if len(fields) != 2 || fields[0].Key != "field_1" || fields[1].Key != "field_2" {
+			t.Errorf("empty keys must be filled deterministically, got %+v", fields)
+		}
+	})
+}
+
+// assertUniqueFieldKeys fails when any Form field across the whole definition
+// has an empty key or a key duplicated by another Form field in any step.
+func assertUniqueFieldKeys(t *testing.T, def domain.WorkflowDefinition) {
+	t.Helper()
+	seen := map[string]bool{}
+	for _, s := range def {
+		if s.Form == nil {
+			continue
+		}
+		for _, f := range s.Form.Fields {
+			if f.Key == "" {
+				t.Errorf("Form field %q must have a non-empty key", f.Label)
+				continue
+			}
+			if seen[f.Key] {
+				t.Errorf("duplicate field key %q across form steps", f.Key)
+			}
+			seen[f.Key] = true
+		}
+	}
+}
+
+// defToSteps converts a parsed definition back into the editable per-step
+// control submission shape, mirroring how the browser round-trips the builder.
+func defToSteps(def domain.WorkflowDefinition) []bstep {
+	var out []bstep
+	for _, s := range def {
+		switch s.Type {
+		case domain.StepManualTask:
+			out = append(out, bstep{typ: "manual_task", manual: s.ManualTask.Instructions})
+		case domain.StepForm:
+			bs := bstep{typ: "form", actor: string(s.Form.Actor)}
+			for _, f := range s.Form.Fields {
+				bs.fields = append(bs.fields, bfield{key: f.Key, label: f.Label, kind: string(f.Kind), options: strings.Join(f.Options, "; "), required: f.Required})
+			}
+			out = append(out, bs)
+		}
+	}
+	return out
+}
+
+// TypeSelectOwnsChangeTriggeredSubmission is the regression for the manual UX
+// defect: re-typing a step (e.g. Manual task -> Form) must fire a change-triggered
+// HTMX POST carrying action=change_type and the containing form, so the new
+// type-specific fields appear without a separate Apply button click. Apply is
+// rendered only inside noscript as the full-page fallback.
+func TestCategoryWorkflowBuilder_TypeSelectOwnsChangeTriggeredSubmission(t *testing.T) {
+	h := newHarness(t)
+	category, err := h.categories.Create(t.Context(), "TypeHTMX")
+	if err != nil {
+		t.Fatalf("create category: %v", err)
+	}
+	path := "/categories/" + strconv.FormatInt(category.ID, 10) + "/workflow"
+	wantRedirect(t, h.postForm(t, path, builderFieldForm("save", buildingSteps()...), false), http.StatusSeeOther, path)
+
+	body := h.get(t, path, false).Body.String()
+	tag := stepTypeTag(t, body, "0")
+	for _, want := range []string{
+		`name="step_0_type"`,
+		`hx-trigger="change"`,
+		`hx-post="/categories/` + strconv.FormatInt(category.ID, 10) + `/workflow?step_index=0"`,
+		`hx-include="closest form"`,
+		`hx-vals='{"action":"change_type"}'`,
+		`hx-target="#workflow-builder"`,
+		`hx-swap="outerHTML"`,
+	} {
+		if !strings.Contains(tag, want) {
+			t.Errorf("step 0 type select must own %q, got: %s", want, tag)
+		}
+	}
+	// Apply must not be a redundant visible action with HTMX active; it remains
+	// available only to no-JS clients as the full-page change_type submitter.
+	wantFallback := `<noscript><button class="btn ghost small" type="submit" name="action" value="change_type"`
+	if !strings.Contains(body, wantFallback) {
+		t.Errorf("Apply must remain only as the no-JS change_type fallback, got: %s", body)
+	}
+	if got := strings.Count(body, `name="action" value="change_type"`); got != len(buildingSteps()) {
+		t.Errorf("change_type submitters = %d, want one noscript fallback per step", got)
+	}
+}
+
+// ==== Autosave UX contract ====
+//
+// RED — Save draft disappears. Free-text controls autosave after 600ms of
+// changed input WITHOUT swapping the builder fragment (focus/caret preserved),
+// discrete controls autosave immediately, structural Field Kind persists and
+// rerenders the builder to reveal/remove Options, step Type stays single-
+// submitted on change_type, and form-level queue synchronization makes the
+// final user action win over an in-flight autosave.
+func TestCategoryWorkflowBuilder_RED_AutosaveMarkupContract(t *testing.T) {
+	h := newHarness(t)
+	category, err := h.categories.Create(t.Context(), "Autosave")
+	if err != nil {
+		t.Fatalf("create category: %v", err)
+	}
+	path := "/categories/" + strconv.FormatInt(category.ID, 10) + "/workflow"
+	steps := []bstep{
+		{typ: "manual_task", manual: "a"},
+		{typ: "assign_to_desk", desk: "7", strategy: "least_loaded"},
+		{typ: "form", actor: "requester", fields: []bfield{{key: "server", label: "Server", kind: "single_select", options: "North; South, Buenos Aires, Argentina"}}},
+	}
+	wantRedirect(t, h.postForm(t, path, builderFieldForm("save", steps...), false), http.StatusSeeOther, path)
+	body := h.get(t, path, false).Body.String()
+	cid := strconv.FormatInt(category.ID, 10)
+	savePost := `hx-post="/categories/` + cid + `/workflow"`
+	saveVals := `hx-vals='{"action":"save"}'`
+	saveInclude := `hx-include="closest form"`
+
+	t.Run("Save draft button is gone and copy says automatic", func(t *testing.T) {
+		if strings.Contains(body, "Save draft") || strings.Contains(body, `value="save"`) {
+			t.Errorf("visible Save draft button must be removed entirely, got: %s", body)
+		}
+		if !strings.Contains(body, "Changes save automatically") {
+			t.Errorf("helper copy must say changes save automatically, got: %s", body)
+		}
+	})
+
+	t.Run("text controls autosave after 600ms without swapping the builder", func(t *testing.T) {
+		for _, name := range []string{"step_0_instructions", "step_2_field_0_label", "step_2_field_0_options"} {
+			tag := controlTag(t, body, name)
+			for _, want := range []string{
+				`hx-trigger="input changed delay:600ms"`,
+				savePost,
+				saveInclude,
+				saveVals,
+				`hx-swap="none"`,
+			} {
+				if !strings.Contains(tag, want) {
+					t.Errorf("text control %s must carry %q for no-swap 600ms autosave, got: %s", name, want, tag)
+				}
+			}
+		}
+	})
+
+	t.Run("single select options use a native single-line input and semicolon transport", func(t *testing.T) {
+		tag := controlTag(t, body, "step_2_field_0_options")
+		if !strings.HasPrefix(tag, "<input") || !strings.Contains(tag, `type="text"`) || strings.Contains(tag, "<textarea") {
+			t.Fatalf("single select Options must be a native single-line text input, got: %s", tag)
+		}
+		for _, want := range []string{
+			`<label for="step_2_field_0_options">Options</label>`,
+			"Separate options with semicolons. Semicolons cannot be used in option names.",
+			`value="North; South, Buenos Aires, Argentina"`,
+		} {
+			if !strings.Contains(body, want) {
+				t.Errorf("single select builder must contain %q, got: %s", want, body)
+			}
+		}
+	})
+
+	t.Run("discrete controls autosave immediately without swapping the builder", func(t *testing.T) {
+		for _, name := range []string{"step_1_desk", "step_1_strategy", "step_2_actor", "step_2_field_0_required"} {
+			tag := controlTag(t, body, name)
+			for _, want := range []string{`hx-trigger="change"`, savePost, saveInclude, saveVals, `hx-swap="none"`} {
+				if !strings.Contains(tag, want) {
+					t.Errorf("discrete control %s must carry %q for immediate no-swap autosave, got: %s", name, want, tag)
+				}
+			}
+			if strings.Contains(tag, "delay:600ms") {
+				t.Errorf("discrete control %s must not debounce, got: %s", name, tag)
+			}
+		}
+	})
+
+	t.Run("structural Field Kind persists immediately and rerenders the builder fragment", func(t *testing.T) {
+		tag := controlTag(t, body, "step_2_field_0_kind")
+		for _, want := range []string{
+			`hx-trigger="change"`,
+			savePost,
+			saveInclude,
+			saveVals,
+			`hx-target="#workflow-builder"`,
+			`hx-swap="outerHTML"`,
+		} {
+			if !strings.Contains(tag, want) {
+				t.Errorf("field Kind select must carry %q to persist and reveal/remove Options, got: %s", want, tag)
+			}
+		}
+	})
+
+	t.Run("containing form queues requests so the final user action wins", func(t *testing.T) {
+		form := formOpenTag(t, body)
+		if !strings.Contains(form, `hx-sync="this:queue last"`) {
+			t.Errorf("builder form must inherit queue-last synchronization so a stale autosave cannot overwrite a later structural mutation, got: %s", form)
+		}
+	})
+
+	t.Run("existing step Type change is not double-submitted", func(t *testing.T) {
+		tag := stepTypeTag(t, body, "0")
+		if !strings.Contains(tag, `hx-vals='{"action":"change_type"}'`) || !strings.Contains(tag, `hx-trigger="change"`) {
+			t.Errorf("step Type select must keep owning its change_type submission, got: %s", tag)
+		}
+		if strings.Contains(tag, "delay:600ms") || strings.Contains(tag, `"action":"save"`) {
+			t.Errorf("step Type select must not participate in generic autosave triggers (double submit), got: %s", tag)
+		}
+	})
+}
+
+// RED — Single Select transport uses a literal semicolon delimiter only. Empty
+// segments are ignored, surrounding Unicode whitespace is trimmed, order and
+// duplicates are preserved, and commas remain ordinary label characters.
+func TestCategoryWorkflowBuilder_RED_SplitOptionsSemicolonGrammar(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		want  []string
+	}{
+		{name: "normal split", input: "North; South; Buenos Aires, Argentina", want: []string{"North", "South", "Buenos Aires, Argentina"}},
+		{name: "unicode whitespace", input: "\u00a0North\u2003;\u3000South\u00a0", want: []string{"North", "South"}},
+		{name: "empty segments", input: ";North;; ;South;", want: []string{"North", "South"}},
+		{name: "duplicate preservation", input: "North;North;South", want: []string{"North", "North", "South"}},
+		{name: "empty input", input: "", want: nil},
+		{name: "comma preservation", input: "Buenos Aires, Argentina;New York, NY", want: []string{"Buenos Aires, Argentina", "New York, NY"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := splitOptions(tt.input); !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("splitOptions(%q) = %#v, want %#v", tt.input, got, tt.want)
+			}
+		})
+	}
+}
+
+// controlTag extracts the full opening tag of the control carrying name.
+func controlTag(t *testing.T, body, name string) string {
+	t.Helper()
+	marker := `name="` + name + `"`
+	idx := strings.Index(body, marker)
+	if idx < 0 {
+		t.Fatalf("builder must render control %s, got: %s", name, body)
+	}
+	start := -1
+	for _, open := range []string{"<input", "<select", "<textarea"} {
+		if p := strings.LastIndex(body[:idx], open); p > start {
+			start = p
+		}
+	}
+	if start < 0 {
+		t.Fatalf("control %s must be an input/select/textarea, got: %s", name, body[idx-200:idx])
+	}
+	end := strings.Index(body[idx:], ">")
+	if end < 0 {
+		t.Fatalf("control %s opening tag unterminated", name)
+	}
+	return body[start : idx+end+1]
+}
+
+// formOpenTag extracts the full opening <form ...> tag of the builder form.
+func formOpenTag(t *testing.T, body string) string {
+	t.Helper()
+	idx := strings.Index(body, `<form method="post" action="/categories/`)
+	if idx < 0 {
+		t.Fatalf("builder must render a form, got: %s", body)
+	}
+	end := strings.Index(body[idx:], ">")
+	if end < 0 {
+		t.Fatalf("builder form opening tag unterminated")
+	}
+	return body[idx : idx+end+1]
+}
+
+// stepTypeTag extracts the full opening <select ...> tag for step i's type control.
+func stepTypeTag(t *testing.T, body, control string) string {
+	t.Helper()
+	name := `name="step_` + control + `_type"`
+	idx := strings.Index(body, name)
+	if idx < 0 {
+		t.Fatalf("builder must render type control %s, got: %s", name, body)
+	}
+	open := strings.LastIndex(body[:idx], "<select")
+	if open < 0 {
+		t.Fatalf("type control %s must be a <select>, got: %s", name, body[:idx])
+	}
+	end := strings.Index(body[idx:], ">")
+	if end < 0 {
+		t.Fatalf("type control %s opening tag unterminated", name)
+	}
+	return body[open : idx+end+1]
 }
 
 // ActionsWithIndexes proves each mutable server action applies on the submitted
@@ -499,7 +891,7 @@ func TestCategoryWorkflowBuilder_ReorderFocusAndHTMXIndexes(t *testing.T) {
 
 	// HTMX move_down uses the same query index and swaps the builder fragment.
 	fd := builderFieldForm("move_down", buildingSteps()...)
-	fd.Set("step_index", "1")
+	fd.Set("step_index", "0")
 	hx := h.postForm(t, path, fd, true)
 	if hx.Code != http.StatusOK {
 		t.Fatalf("HTMX move status = %d, want 200", hx.Code)
@@ -509,6 +901,12 @@ func TestCategoryWorkflowBuilder_ReorderFocusAndHTMXIndexes(t *testing.T) {
 		if !strings.Contains(body, want) {
 			t.Errorf("HTMX builder response must contain %q, got: %s", want, body)
 		}
+	}
+	if got := strings.Count(body, "autofocus"); got != 1 {
+		t.Errorf("moved step must render exactly one focus target, got %d", got)
+	}
+	if !strings.Contains(body, `name="action" value="move_up" autofocus`) {
+		t.Errorf("move_down must focus the moved step's Up control, got: %s", body)
 	}
 }
 

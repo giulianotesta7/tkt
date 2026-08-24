@@ -281,16 +281,24 @@ func (u *unitOfWork) Update(ctx context.Context, t *domain.Ticket, events ...dom
 	return nil
 }
 
+// nullableInt converts a *int into a driver value: nil stays SQL NULL.
+func nullableInt(p *int) any {
+	if p == nil {
+		return nil
+	}
+	return *p
+}
+
 // appendAuditEventsTx inserts the events in occurrence order inside the
 // caller's transaction. Defined here (the unit-of-work's atomicity half)
 // and reused by the audit store (4.3).
 func appendAuditEventsTx(ctx context.Context, tx *sql.Tx, events ...domain.AuditEvent) error {
 	for _, e := range events {
-		if _, err := tx.ExecContext(ctx, `INSERT INTO audit_events (ticket_id, actor, action, field, from_value, to_value, note, actor_user_id, reason, created_at)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		if _, err := tx.ExecContext(ctx, `INSERT INTO audit_events (ticket_id, actor, action, field, from_value, to_value, note, actor_user_id, reason, desk_id, step_index, created_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			e.TicketID, e.Actor, e.Action, nullableString(e.Field), nullableString(e.FromValue),
 			nullableString(e.ToValue), nullableString(e.Note), nullableInt64(e.ActorUserID),
-			nullableString(e.Reason), formatTime(e.CreatedAt)); err != nil {
+			nullableString(e.Reason), nullableInt64(e.DeskID), nullableInt(e.StepIndex), formatTime(e.CreatedAt)); err != nil {
 			return fmt.Errorf("sqlite: append audit event: %w", err)
 		}
 	}

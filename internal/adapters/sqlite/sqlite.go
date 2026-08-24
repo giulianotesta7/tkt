@@ -96,6 +96,11 @@ func (s *Store) WorkflowResponseStore() application.WorkflowResponseStore {
 	return newWorkflowResponseStore(s.db)
 }
 
+// WorkflowRunStore returns the ticket workflow-execution snapshot port (PR9).
+func (s *Store) WorkflowRunStore() application.WorkflowRunStore {
+	return newWorkflowRunStore(s.db)
+}
+
 // WorkflowUnitOfWork returns the atomic fixed-plan workflow mutation port
 // (design S5).
 func (s *Store) WorkflowUnitOfWork() application.WorkflowUnitOfWork {

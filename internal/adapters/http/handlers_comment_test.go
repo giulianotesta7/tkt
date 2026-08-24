@@ -87,11 +87,11 @@ func TestTicketDetailAgentSeesInternalComment(t *testing.T) {
 		Description: "agent ticket",
 		CategoryID:  h.bugCategory.ID,
 		Priority:    domain.PriorityMedium,
-		UserID:      &agent.ID,
 	})
 	if err != nil {
 		t.Fatalf("create agent ticket: %v", err)
 	}
+	h.assignTicket(t, tkt.ID, agent.ID)
 
 	const secret = "AGENT-SECRET-BODY"
 	if _, err := h.comments.Add(t.Context(), *h.admin, tkt.ID, secret, "internal"); err != nil {
@@ -180,11 +180,11 @@ func TestTicketCommentAgentInternalStored(t *testing.T) {
 		Description: "agent ticket",
 		CategoryID:  h.bugCategory.ID,
 		Priority:    domain.PriorityMedium,
-		UserID:      &agent.ID,
 	})
 	if err != nil {
 		t.Fatalf("create agent ticket: %v", err)
 	}
+	h.assignTicket(t, tkt.ID, agent.ID)
 
 	path := "/tickets/" + strconv.FormatInt(tkt.ID, 10) + "/comments"
 	rec := h.postFormAs(t, path, url.Values{"body": {"Staff note"}, "visibility": {"internal"}}, sess.ID)

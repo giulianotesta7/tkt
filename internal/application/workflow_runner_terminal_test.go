@@ -337,17 +337,17 @@ func TestWorkflowRunner_AutoAdvance(t *testing.T) {
 			name:       "human claim then automatic least_loaded and resolve",
 			s:          snapWith(domain.StateNew, 0, wf(claim(42), least(5), res()), nil, nil),
 			cmd:        cmdFor(7, nil),
-			kinds:      []string{"ClaimAssignmentOperation", "TransitionOperation", "WorkflowStepOperation", "LeastLoadedAssignmentOperation", "TransitionOperation"},
+			kinds:      []string{"ClaimAssignmentOperation", "TransitionOperation", "LeastLoadedAssignmentOperation", "TransitionOperation"},
 			wantCursor: 3,
 			wantStatus: "completed",
 			wantState:  domain.StateResolved,
 			verify: func(t *testing.T, pl application.WorkflowMutationPlan) {
 				assertTransition(t, pl.Operations[1].(application.TransitionOperation), "new", "in_progress")
-				assertTransition(t, pl.Operations[4].(application.TransitionOperation), "in_progress", "resolved")
-				if pl.Operations[3].(application.LeastLoadedAssignmentOperation).StepIndex != 1 {
+				assertTransition(t, pl.Operations[3].(application.TransitionOperation), "in_progress", "resolved")
+				if pl.Operations[2].(application.LeastLoadedAssignmentOperation).StepIndex != 1 {
 					t.Fatalf("automatic least_loaded index")
 				}
-				if pl.Operations[4].(application.TransitionOperation).StepIndex != 2 {
+				if pl.Operations[3].(application.TransitionOperation).StepIndex != 2 {
 					t.Fatalf("automatic resolve index")
 				}
 				completedRun(t, pl, 3, now)
@@ -413,7 +413,7 @@ func TestWorkflowRunner_AutoAdvance(t *testing.T) {
 			name:       "claim-only run completes in in_progress",
 			s:          snapWith(domain.StateNew, 0, wf(claim(42)), nil, nil),
 			cmd:        cmdFor(7, nil),
-			kinds:      []string{"ClaimAssignmentOperation", "TransitionOperation", "WorkflowStepOperation"},
+			kinds:      []string{"ClaimAssignmentOperation", "TransitionOperation"},
 			wantCursor: 1,
 			wantStatus: "completed",
 			wantState:  domain.StateInProgress,

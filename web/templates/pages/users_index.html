@@ -15,7 +15,7 @@
       <tr><th>Name</th><th>Email</th><th>Status</th><th>Created</th><th></th></tr>
     </thead>
     <tbody>
-      {{range .Users}}
+{{range .Users}}
       <tr>
         <td><div class="user-cell"><span class="avatar">{{initials .Name}}</span><span class="cell-title">{{.Name}}</span></div></td>
         <td class="cell-muted">{{.Email}}</td>
@@ -30,9 +30,9 @@
           </div>
         </td>
       </tr>
-      {{else}}
+{{else}}
       <tr><td colspan="5"><div class="empty">No users yet.</div></td></tr>
-      {{end}}
+{{end}}
     </tbody>
   </table>
 </div>

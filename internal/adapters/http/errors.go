@@ -14,18 +14,19 @@ import (
 // generic text — internal details never reach the client.
 func mapError(err error) (int, string) {
 	var (
-		validation      *domain.ValidationError
-		invalidTrans    *domain.InvalidTransitionError
-		reopenReason    *domain.ReopenReasonRequiredError
-		reassignReason  *domain.ReassignReasonRequiredError
-		inactiveUser    *domain.InactiveUserError
-		invalidPriority *domain.InvalidPriorityError
-		notFound        *domain.NotFoundError
-		duplicate       *domain.DuplicateError
-		referenced      *domain.ReferencedError
-		rootProtected   *domain.RootProtectedError
-		forbidden       *domain.ForbiddenError
-		badCredentials  *application.InvalidCredentialsError
+		validation       *domain.ValidationError
+		invalidTrans     *domain.InvalidTransitionError
+		reopenReason     *domain.ReopenReasonRequiredError
+		reassignReason   *domain.ReassignReasonRequiredError
+		inactiveUser     *domain.InactiveUserError
+		invalidPriority  *domain.InvalidPriorityError
+		notFound         *domain.NotFoundError
+		duplicate        *domain.DuplicateError
+		referenced       *domain.ReferencedError
+		rootProtected    *domain.RootProtectedError
+		forbidden        *domain.ForbiddenError
+		workflowConflict *domain.WorkflowPositionConflictError
+		badCredentials   *application.InvalidCredentialsError
 	)
 	switch {
 	case errors.As(err, &validation):
@@ -50,6 +51,8 @@ func mapError(err error) (int, string) {
 		return 403, rootProtected.Error()
 	case errors.As(err, &forbidden):
 		return 403, forbidden.Error()
+	case errors.As(err, &workflowConflict):
+		return 422, workflowConflict.Error()
 	case errors.As(err, &badCredentials):
 		return 401, application.ErrMsgInvalidCredentials
 	default:

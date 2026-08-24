@@ -7,14 +7,14 @@
         <a href="/tickets">← Queue</a>
         <span class="num">TKT-1</span>
       </div>
-      
+
       <form class="title-inline" method="post" action="/tickets/1/edit"
             hx-post="/tickets/1/edit" hx-target="#ticket-detail" hx-swap="outerHTML">
         <input type="text" id="ticket-title" name="title" value="Login page down" required
                aria-label="Ticket title" class="title-input">
         <input type="hidden" name="priority" value="high">
       </form>
-      
+
       <div class="meta-row ticket-metadata">
         <span>Created <time datetime="2026-08-06T10:00:00Z">10:00 · 06-08-2026</time></span>
         <span>Updated <time datetime="2026-08-06T10:30:00Z">10:30 · 06-08-2026</time></span>
@@ -30,7 +30,7 @@
 
 <form class="card" method="post" action="/tickets/1/comments">
   <h2>Add comment</h2>
-  
+
   <div class="field">
     <textarea name="body" placeholder="Write a comment…" aria-label="Comment body"></textarea>
   </div>
@@ -121,19 +121,19 @@
         </div>
         <div class="prop-section">
           <div class="prop-heading">Assignment</div>
+
           <div class="prop-row">
             <span class="prop-label">Assignee</span>
-            
-            <form class="prop-control" method="post" action="/tickets/1/assign"
-                  hx-post="/tickets/1/assign" hx-target="#ticket-detail" hx-swap="outerHTML">
-              <select id="assign-user" name="user_id" class="prop-select"
-                      aria-label="Assignee" onchange="this.form.requestSubmit()">
+
+            <form class="prop-control" method="post" action="/tickets/1/assign" hx-post="/tickets/1/assign" hx-target="#ticket-detail" hx-swap="outerHTML">
+              <select id="assign-user" name="user_id" class="prop-select" aria-label="Assignee" onchange="this.form.requestSubmit()">
                 <option value="">Unassigned</option>
                 <option value="1" selected>Ana Torres</option>
               </select>
             </form>
-            
+
           </div>
+
         </div>
         <div class="prop-section">
           <div class="prop-heading">State</div>

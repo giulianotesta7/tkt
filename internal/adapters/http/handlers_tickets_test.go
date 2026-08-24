@@ -3,6 +3,7 @@ package httpadapter
 import (
 	"errors"
 	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"strconv"
 	"strings"
@@ -26,6 +27,163 @@ func ticketForm(mod func(url.Values)) url.Values {
 		mod(f)
 	}
 	return f
+}
+
+// Amendment 2 (WB): creation is strictly unassigned. The mere PRESENCE of a
+// user_id or assignee_id parameter — ANY value, including the empties a stale
+// cached form submits — must be rejected with the typed assignee validation
+// error through renderCreateError (422) with ZERO ticket/pin/run/audit rows,
+// for every role. No silent drop, no normalization, no hidden direct path.
+func TestCreateTicket_UnassignedOnly(t *testing.T) {
+	const wantMsg = "tickets are created unassigned — assignment happens later through the category flow"
+
+	roles := []struct {
+		name string
+		role domain.Role
+	}{
+		{"user", domain.RoleUser},
+		{"agent", domain.RoleAgent},
+		{"admin", domain.RoleAdmin},
+		{"root", domain.RoleRoot},
+	}
+	params := []string{"user_id", "assignee_id"}
+	values := []struct {
+		name  string
+		value func(h *harness) string
+	}{
+		{"empty value (stale cached form)", func(*harness) string { return "" }},
+		{"populated valid staff id", func(h *harness) string { return strconv.FormatInt(h.admin.ID, 10) }},
+		{"populated unknown id", func(*harness) string { return "9999" }},
+	}
+
+	for _, role := range roles {
+		t.Run("role="+role.name, func(t *testing.T) {
+			for _, param := range params {
+				for _, v := range values {
+					t.Run(param+"/"+v.name, func(t *testing.T) {
+						h := newHarness(t)
+						actor := seedUserRole(t, h.store, role.name, role.name+"-creator@tkt.test", role.role)
+						sess := seedSession(t, h.store, actor.ID)
+
+						form := ticketForm(func(f url.Values) {
+							f.Set("category_id", strconv.FormatInt(h.bugCategory.ID, 10))
+							f.Set(param, v.value(h))
+						})
+						rec := h.postFormAs(t, "/tickets", form, sess.ID)
+
+						if rec.Code != http.StatusUnprocessableEntity {
+							t.Errorf("status = %d, want 422 (body %.300s)", rec.Code, rec.Body.String())
+						}
+						if !strings.Contains(rec.Body.String(), wantMsg) {
+							t.Errorf("re-render must carry the typed assignee message %q, got: %.400s", wantMsg, rec.Body.String())
+						}
+
+						// A rejected creation persists NOTHING: no ticket, no pin
+						// (tickets row), no run, no audit of any kind.
+						db := h.rawDB(t)
+						for _, probe := range []struct {
+							what  string
+							query string
+						}{
+							{"tickets", "SELECT COUNT(*) FROM tickets"},
+							{"workflow runs", "SELECT COUNT(*) FROM ticket_workflow_runs"},
+							{"audit events", "SELECT COUNT(*) FROM audit_events"},
+						} {
+							if n := scanOneInt(t, db, probe.query); n != 0 {
+								t.Errorf("%s rows = %d, want 0 (rejected creation must write nothing)", probe.what, n)
+							}
+						}
+					})
+				}
+			}
+		})
+	}
+}
+
+// TestCreateTicket_UnassignedOnly_Precedence proves the assignee presence
+// check runs BEFORE any other binding/validation: an assignee-carrying form
+// that ALSO lacks a title answers the assignee message, not the title one.
+func TestCreateTicket_UnassignedOnly_Precedence(t *testing.T) {
+	h := newHarness(t)
+	form := ticketForm(func(f url.Values) {
+		f.Set("title", "   ")
+		f.Set("user_id", strconv.FormatInt(h.admin.ID, 10))
+	})
+	rec := h.postForm(t, "/tickets", form, false)
+	if rec.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("status = %d, want 422", rec.Code)
+	}
+	if !strings.Contains(rec.Body.String(), "tickets are created unassigned") {
+		t.Errorf("assignee presence must win over later validation, got: %.400s", rec.Body.String())
+	}
+}
+
+// TestCreateTicket_UnassignedOnly_PositiveControl proves the rejection is not
+// over-broad: the same form WITHOUT any assignee parameter still creates an
+// unassigned ticket with its active pinned run.
+func TestCreateTicket_UnassignedOnly_PositiveControl(t *testing.T) {
+	h := newHarness(t)
+	rec := h.postForm(t, "/tickets", ticketForm(func(f url.Values) {
+		f.Set("category_id", strconv.FormatInt(h.bugCategory.ID, 10))
+	}), false)
+	wantRedirect(t, rec, http.StatusSeeOther, "/tickets")
+
+	view, err := h.tickets.GetByID(t.Context(), *h.admin, 1)
+	if err != nil {
+		t.Fatalf("created ticket must be readable: %v", err)
+	}
+	if view.Ticket.UserID != nil {
+		t.Errorf("every created ticket starts unassigned, got assignee %d", *view.Ticket.UserID)
+	}
+	db := h.rawDB(t)
+	if n := scanOneInt(t, db, "SELECT COUNT(*) FROM ticket_workflow_runs WHERE ticket_id=1"); n != 1 {
+		t.Errorf("workflow runs for created ticket = %d, want 1 active run", n)
+	}
+}
+
+// TestRenderNewTicketFormNoAssigneeControl proves the create form renders NO
+// assignee selector or input for ANY role (Amendment 2 WB.3), while the
+// detail-page assignment control keeps its own separate plumbing.
+func TestRenderNewTicketFormNoAssigneeControl(t *testing.T) {
+	roles := []domain.Role{domain.RoleUser, domain.RoleAgent, domain.RoleAdmin, domain.RoleRoot}
+	for _, role := range roles {
+		t.Run(string(role), func(t *testing.T) {
+			h := newHarness(t)
+			if role != domain.RoleAdmin {
+				actor := seedUserRole(t, h.store, string(role), string(role)+"@tkt.test", role)
+				sess := seedSession(t, h.store, actor.ID)
+				req := httptest.NewRequest(http.MethodGet, "/tickets/new", nil)
+				req.Header.Set("Cookie", sessionCookie+"="+sess.ID)
+				rec := httptest.NewRecorder()
+				h.mw.Wrap(h.mux).ServeHTTP(rec, req)
+				assertNewFormHasNoAssignee(t, rec)
+				return
+			}
+			assertNewFormHasNoAssignee(t, h.get(t, "/tickets/new", false))
+		})
+	}
+
+	// The detail-page assignment flow keeps its own select (POST
+	// /tickets/{id}/assign plumbing stays untouched).
+	h := newHarness(t)
+	tkt := h.seedTicket(t, "detail assign control", nil)
+	detail := h.get(t, "/tickets/"+strconv.FormatInt(tkt.ID, 10), false)
+	if detail.Code != http.StatusOK || !strings.Contains(detail.Body.String(), `id="assign-user"`) {
+		t.Errorf("detail-page assignment UI must stay unaffected (status %d)", detail.Code)
+	}
+}
+
+func assertNewFormHasNoAssignee(t *testing.T, rec *httptest.ResponseRecorder) {
+	t.Helper()
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+	body := rec.Body.String()
+	for _, absent := range []string{`Assigned user`, `id="user_id"`, `name="user_id"`} {
+		if strings.Contains(body, absent) {
+			t.Errorf("create form must not render assignee control %q for any role, got: %.500s", absent, body)
+		}
+	}
 }
 
 // TestRootRedirectsToTickets proves GET / redirects 303 to /tickets.
@@ -341,10 +499,11 @@ func TestTicketsIndexAgentScopeAssignedOnly(t *testing.T) {
 	sess := seedSession(t, h.store, agent.ID)
 
 	if _, err := h.tickets.Create(t.Context(), *h.admin, application.CreateTicketInput{
-		Title: "Mine", CategoryID: h.bugCategory.ID, Priority: domain.PriorityMedium, UserID: &agent.ID,
+		Title: "Mine", CategoryID: h.bugCategory.ID, Priority: domain.PriorityMedium,
 	}); err != nil {
-		t.Fatalf("create assigned ticket: %v", err)
+		t.Fatalf("create unassigned ticket: %v", err)
 	}
+	h.assignTicket(t, 1, agent.ID)
 	if _, err := h.tickets.Create(t.Context(), *h.admin, application.CreateTicketInput{
 		Title: "Not mine", CategoryID: h.bugCategory.ID, Priority: domain.PriorityMedium,
 	}); err != nil {
@@ -535,52 +694,6 @@ func TestTicketCreateInvalidPriority422(t *testing.T) {
 	}
 	if !strings.Contains(rec.Body.String(), domain.ErrMsgInvalidPriority) {
 		t.Errorf("re-render must show %q, got: %s", domain.ErrMsgInvalidPriority, rec.Body.String())
-	}
-}
-
-// TestTicketCreateRejectsInactiveUser proves assigning an inactive user is
-// rejected 422 (inactive-assignment spec).
-func TestTicketCreateRejectsInactiveUser(t *testing.T) {
-	h := newHarness(t)
-	beto := h.createUser(t, "Beto", "beto@example.com", "secret")
-	beto.Active = false
-	if err := h.store.UserStore().Update(t.Context(), beto); err != nil {
-		t.Fatalf("deactivate beto: %v", err)
-	}
-
-	form := ticketForm(func(f url.Values) {
-		f.Set("category_id", strconv.FormatInt(h.bugCategory.ID, 10))
-		f.Set("user_id", strconv.FormatInt(beto.ID, 10))
-	})
-	rec := h.postForm(t, "/tickets", form, false)
-
-	if rec.Code != http.StatusUnprocessableEntity {
-		t.Errorf("status = %d, want 422", rec.Code)
-	}
-	if !strings.Contains(rec.Body.String(), domain.ErrMsgUserInactive) {
-		t.Errorf("re-render must show %q, got: %s", domain.ErrMsgUserInactive, rec.Body.String())
-	}
-}
-
-// TestTicketCreateAssignsActiveUser proves assigning an active user works
-// and the ticket renders assigned.
-func TestTicketCreateAssignsActiveUser(t *testing.T) {
-	h := newHarness(t)
-	beto := h.createUser(t, "Beto", "beto@example.com", "secret")
-
-	form := ticketForm(func(f url.Values) {
-		f.Set("category_id", strconv.FormatInt(h.bugCategory.ID, 10))
-		f.Set("user_id", strconv.FormatInt(beto.ID, 10))
-	})
-	rec := h.postForm(t, "/tickets", form, false)
-
-	wantRedirect(t, rec, http.StatusSeeOther, "/tickets")
-	view, err := h.tickets.GetByID(t.Context(), *h.admin, 1)
-	if err != nil {
-		t.Fatalf("ticket must exist: %v", err)
-	}
-	if view.AssignedUser == nil || view.AssignedUser.ID != beto.ID {
-		t.Errorf("assigned user = %+v, want beto", view.AssignedUser)
 	}
 }
 

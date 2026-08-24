@@ -104,7 +104,7 @@ func main() {
 
 	clock := systemClock{}
 
-	viewBuilder := application.NewViewBuilder(store.TicketStore(), store.UserStore(), store.CategoryStore(), store.CommentStore(), store.AuditStore(), store.WorkflowResponseStore())
+	viewBuilder := application.NewViewBuilder(store.TicketStore(), store.UserStore(), store.CategoryStore(), store.CommentStore(), store.AuditStore(), store.DeskStore(), store.WorkflowResponseStore())
 	userSvc := application.NewUserService(store.UserStore(), clock)
 	catSvc := application.NewCategoryService(store.CategoryStore(), clock)
 	deskSvc := application.NewDeskService(store.DeskStore(), store.UserStore(), clock)
@@ -120,7 +120,7 @@ func main() {
 	mux := http.NewServeMux()
 	httpadapter.RegisterStatic(mux)
 	httpadapter.NewAuthHandlers(authSvc, userSvc, renderer).Register(mux)
-	httpadapter.NewTicketHandlers(ticketSvc, commentSvc, searchSvc, catSvc, userSvc, renderer).Register(mux)
+	httpadapter.NewTicketHandlers(ticketSvc, commentSvc, searchSvc, catSvc, userSvc, store.DeskStore(), workflowSvc, application.NewWorkflowRunner(clock), store.WorkflowRunStore(), store.WorkflowUnitOfWork(), renderer).Register(mux)
 	httpadapter.NewUserHandlers(userSvc, renderer).Register(mux)
 	httpadapter.NewCategoryHandlersWithWorkflows(catSvc, workflowSvc, renderer).Register(mux)
 	httpadapter.NewCategoryWorkflowHandlers(workflowSvc, deskSvc, renderer).Register(mux)

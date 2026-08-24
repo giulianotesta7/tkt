@@ -1,7 +1,7 @@
 {{define "ticket_form"}}
 <form class="card form-card" method="post" action="/tickets">
   <h2>Ticket details</h2>
-  {{if .Error}}<div class="error-banner" role="alert">{{.Error}}</div>{{end}}
+{{if .Error}}<div class="error-banner" role="alert">{{.Error}}</div>{{end}}
   <div class="field">
     <label for="title">Title</label>
     <input type="text" id="title" name="title" value="{{.Values.Title}}" required autofocus>
@@ -25,14 +25,6 @@
       </select>
     </div>
   </div>
-  {{if .CanAssign}}<div class="field">
-    <label for="user_id">Assigned user</label>
-    <select id="user_id" name="user_id">
-      <option value="">Unassigned</option>
-      {{range .Options.AssignableUsers}}<option value="{{.ID}}" {{if eq (.ID | printf "%d") $.Values.UserID}}selected{{end}}>{{.Name}}</option>{{end}}
-    </select>
-  </div>
-  {{end}}
   <button class="btn primary" type="submit">Create ticket</button>
 </form>
 {{end}}

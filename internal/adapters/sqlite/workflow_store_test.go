@@ -2,6 +2,7 @@ package sqlite
 
 import (
 	"context"
+	"strings"
 	"sync"
 	"testing"
 
@@ -158,15 +159,43 @@ func TestWorkflowStore_Summaries(t *testing.T) {
 	for _, v := range sums {
 		m[v.CategoryID] = v.Badge
 	}
-	if m[cNone] != "none" || m[cDraft] != "Draft" || m[cPub] != "Published v1" {
+	if m[cNone] != "none" || m[cDraft] != "Draft" || m[cPub] != "Published" {
 		t.Fatalf("badges %v", m)
 	}
-	ws.UpsertDraft(context.Background(), cPub, mustCanon(t, domain.WorkflowDefinition{{Type: domain.StepManualTask, ManualTask: &domain.ManualTaskStep{Instructions: "diff"}}}))
+	if strings.Contains(m[cPub], "v") {
+		t.Fatalf("equal published draft must show exactly Published without vN, got %q", m[cPub])
+	}
+	divergent := mustCanon(t, domain.WorkflowDefinition{{Type: domain.StepManualTask, ManualTask: &domain.ManualTaskStep{Instructions: "diff"}}})
+	ws.UpsertDraft(context.Background(), cPub, divergent)
 	sums, _ = ws.ListSummaries(context.Background())
 	for _, v := range sums {
 		if v.CategoryID == cPub && v.Badge != "Draft" {
 			t.Fatalf("diff %q", v.Badge)
 		}
+	}
+	// Draft edits never touch immutable versions: rows and numbers stay fixed,
+	// and reconverging the draft restores exactly "Published".
+	good := mustCanon(t, domain.WorkflowDefinition{{Type: domain.StepAssignToDesk, AssignToDesk: &domain.AssignToDeskStep{DeskID: desk, Strategy: domain.StrategyClaim}}})
+	var vid int64
+	var vno int
+	if err := s.db.QueryRow(`SELECT id, version_no FROM workflow_versions WHERE category_id=? ORDER BY version_no DESC LIMIT 1`, cPub).Scan(&vid, &vno); err != nil || vno != 1 {
+		t.Fatalf("published version before reconverge: (%v, %d)", err, vno)
+	}
+	ws.UpsertDraft(context.Background(), cPub, good)
+	sums, _ = ws.ListSummaries(context.Background())
+	for _, v := range sums {
+		if v.CategoryID == cPub && v.Badge != "Published" {
+			t.Fatalf("reconverged draft badge = %q, want exactly Published", v.Badge)
+		}
+	}
+	var n int
+	if err := s.db.QueryRow(`SELECT COUNT(*) FROM workflow_versions WHERE category_id=?`, cPub).Scan(&n); err != nil || n != 1 {
+		t.Fatalf("draft upserts must not create versions, rows = %d (%v)", n, err)
+	}
+	var curID int64
+	var curNo int
+	if err := s.db.QueryRow(`SELECT wv.id, wv.version_no FROM workflow_versions wv JOIN category_workflows cw ON cw.current_version_id=wv.id WHERE cw.category_id=?`, cPub).Scan(&curID, &curNo); err != nil || curID != vid || curNo != 1 {
+		t.Fatalf("current version pointer must stay immutable, got (%v, %d, %d)", curID, curNo, err)
 	}
 	avail, _ := ws.ListAvailableCategories(context.Background())
 	ids := map[int64]bool{}

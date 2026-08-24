@@ -1,7 +1,7 @@
 {{define "user_form"}}
 <form class="card form-card" method="post" action="{{if .UserID}}/users/{{.UserID}}/edit{{else}}/users{{end}}">
   <h2>{{if .UserID}}Operator details{{else}}New operator{{end}}</h2>
-  {{if .Error}}<div class="error-banner" role="alert">{{.Error}}</div>{{end}}
+{{if .Error}}<div class="error-banner" role="alert">{{.Error}}</div>{{end}}
   <div class="field">
     <label for="name">Name</label>
     <input type="text" id="name" name="name" value="{{.Values.Name}}" required autofocus>
@@ -10,23 +10,23 @@
     <label for="email">Email</label>
     <input type="email" id="email" name="email" value="{{.Values.Email}}" autocomplete="email" required>
   </div>
-  {{if .UserID}}
+{{if .UserID}}
   <div class="field">
     <label for="role">Role</label>
     <select id="role" name="role">
       <option value="user" {{if eq .Values.Role "user"}}selected{{end}}>User</option>
       <option value="agent" {{if eq .Values.Role "agent"}}selected{{end}}>Agent</option>
-      {{if .CanGrantAdmin}}<option value="admin" {{if eq .Values.Role "admin"}}selected{{end}}>Admin</option>{{end}}
+{{if .CanGrantAdmin}}<option value="admin" {{if eq .Values.Role "admin"}}selected{{end}}>Admin</option>{{end}}
     </select>
   </div>
   <p class="footnote">{{if .Values.Active}}Deactivate this user to end their sessions and prevent login.{{else}}Reactivate this user to allow login.{{end}}</p>
   <button class="btn {{if .Values.Active}}danger{{else}}secondary{{end}}" type="submit" name="active" value="{{if .Values.Active}}false{{else}}true{{end}}">{{if .Values.Active}}Deactivate user{{else}}Reactivate user{{end}}</button>
-  {{else}}
+{{else}}
   <div class="field">
     <label for="password">Password</label>
     <input type="password" id="password" name="password" autocomplete="new-password" required>
   </div>
-  {{end}}
+{{end}}
   <button class="btn primary" type="submit">{{if .UserID}}Save changes{{else}}Create user{{end}}</button>
 </form>
 {{end}}

@@ -1,13 +1,17 @@
 {{define "workflow_answers"}}{{if .View.WorkflowResponses}}
 <div class="card workflow-responses-card">
   <h2>Workflow responses</h2>
-  {{range .View.WorkflowResponses}}
-  <dl class="workflow-responses">
-    {{range .Fields}}
-    <dt>{{.Label}}</dt>
-    <dd>{{.Value}}</dd>
+  <ol class="workflow-response-steps">
+    {{range .View.WorkflowResponses}}
+    <li>
+      <dl class="workflow-responses">
+        {{range .Fields}}
+        <dt>{{.Label}}</dt>
+        <dd>{{.Value}}</dd>
+        {{end}}
+      </dl>
+    </li>
     {{end}}
-  </dl>
-  {{end}}
+  </ol>
 </div>
 {{end}}{{end}}

@@ -91,7 +91,7 @@ func TestTicketService_CreateWithWorkflow_CapturedPlanImmuneToStoreMutation(t *t
 	versionID := h.versions.publish(cat.ID, want)
 	actor := domain.User{ID: 7, Name: "Ada", Email: "ada@example.com", Role: domain.RoleUser}
 
-	if _, err := h.svc.Create(context.Background(), actor, validCreateInput(cat.ID, nil)); err != nil {
+	if _, err := h.svc.Create(context.Background(), actor, validCreateInput(cat.ID)); err != nil {
 		t.Fatalf("Create: unexpected error: %v", err)
 	}
 
@@ -146,7 +146,7 @@ func TestTicketService_CreateWithWorkflow_OriginalDefMutationAfterPublishDoesNot
 	// Mutate the caller-owned definition after publish, before Create...
 	mutateWorkflowAllShapes(def)
 
-	if _, err := h.svc.Create(context.Background(), domain.User{ID: 7, Name: "Ada", Email: "ada@example.com", Role: domain.RoleUser}, validCreateInput(cat.ID, nil)); err != nil {
+	if _, err := h.svc.Create(context.Background(), domain.User{ID: 7, Name: "Ada", Email: "ada@example.com", Role: domain.RoleUser}, validCreateInput(cat.ID)); err != nil {
 		t.Fatalf("Create: unexpected error: %v", err)
 	}
 	in := h.wfTx.calls[0]
@@ -184,7 +184,7 @@ func TestTicketService_CreateWithWorkflow_CapturesUntrustedSourceOnce(t *testing
 	versions := newFakeWorkflowVersionStore()
 	runner := application.NewWorkflowRunner(clock)
 	wfTx := newFakeWorkflowUnitOfWork(tickets, audits)
-	builder := application.NewViewBuilder(tickets, users, categories, comments, audits)
+	builder := application.NewViewBuilder(tickets, users, categories, comments, audits, newFakeDeskStore())
 	svc := application.NewTicketServiceWithWorkflowCreate(tickets, users, categories, tx, builder, clock, versions, runner, wfTx)
 
 	cat := categories.seed("Bugs")
@@ -196,7 +196,7 @@ func TestTicketService_CreateWithWorkflow_CapturesUntrustedSourceOnce(t *testing
 	clock.published = versions.versions[cat.ID]
 	actor := domain.User{ID: 7, Name: "Ada", Email: "ada@example.com", Role: domain.RoleUser}
 
-	if _, err := svc.Create(context.Background(), actor, validCreateInput(cat.ID, nil)); err != nil {
+	if _, err := svc.Create(context.Background(), actor, validCreateInput(cat.ID)); err != nil {
 		t.Fatalf("Create: unexpected error: %v", err)
 	}
 	if len(wfTx.calls) != 1 {
@@ -263,7 +263,7 @@ func TestTicketService_CreateWithWorkflow_VersionStoreErrorPropagates(t *testing
 	h.versions.failWith = errVersionStoreFailed
 	actor := domain.User{ID: 7, Name: "Ada", Email: "ada@example.com", Role: domain.RoleUser}
 
-	_, err := h.svc.Create(context.Background(), actor, validCreateInput(cat.ID, nil))
+	_, err := h.svc.Create(context.Background(), actor, validCreateInput(cat.ID))
 	if !errors.Is(err, errVersionStoreFailed) {
 		t.Fatalf("Create: the version-store failure must propagate untouched, got %v", err)
 	}

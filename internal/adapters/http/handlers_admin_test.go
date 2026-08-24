@@ -250,7 +250,8 @@ func TestUserDeleteWithLiveSession(t *testing.T) {
 func TestUserDeleteReferenced409(t *testing.T) {
 	h := newHarness(t)
 	beto := h.createUser(t, "Beto", "beto@example.com", "secret")
-	h.seedTicket(t, "Assigned ticket", func(in *application.CreateTicketInput) { in.UserID = &beto.ID })
+	assigned := h.seedTicket(t, "Assigned ticket", nil)
+	h.assignTicket(t, assigned.ID, beto.ID)
 
 	rec := h.postForm(t, "/users/"+strconv.FormatInt(beto.ID, 10)+"/delete", url.Values{}, false)
 

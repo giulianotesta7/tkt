@@ -35,7 +35,7 @@ func newTicketHarness() *ticketHarness {
 	comments := newFakeCommentStore()
 	audits := newFakeAuditStore()
 	tx := newFakeUnitOfWork(tickets, audits)
-	builder := application.NewViewBuilder(tickets, users, categories, comments, audits)
+	builder := application.NewViewBuilder(tickets, users, categories, comments, audits, newFakeDeskStore())
 	svc := application.NewTicketService(tickets, users, categories, tx, builder, clock)
 	return &ticketHarness{
 		svc: svc, tickets: tickets, users: users, categories: categories,
@@ -43,12 +43,11 @@ func newTicketHarness() *ticketHarness {
 	}
 }
 
-func validCreateInput(catID int64, userID *int64) application.CreateTicketInput {
+func validCreateInput(catID int64) application.CreateTicketInput {
 	return application.CreateTicketInput{
 		Title:       "Fix login redirect",
 		Description: "After login the user lands on the wrong page",
 		CategoryID:  catID,
-		UserID:      userID,
 		Priority:    domain.PriorityHigh,
 	}
 }
@@ -56,10 +55,9 @@ func validCreateInput(catID int64, userID *int64) application.CreateTicketInput 
 func TestCreateStoresTicketWithNumberAndStateNew(t *testing.T) {
 	h := newTicketHarness()
 	cat := h.categories.seed("Bugs")
-	user := h.users.seedRole("Ana", "ana@example.com", domain.RoleAgent, true)
 	actor := domain.User{Name: "Ada", Email: "ada@example.com", Role: domain.RoleAdmin}
 
-	ticket, err := h.svc.Create(context.Background(), actor, validCreateInput(cat.ID, ptr(user.ID)))
+	ticket, err := h.svc.Create(context.Background(), actor, validCreateInput(cat.ID))
 	if err != nil {
 		t.Fatalf("Create: unexpected error: %v", err)
 	}
@@ -75,12 +73,12 @@ func TestCreateStoresTicketWithNumberAndStateNew(t *testing.T) {
 	if !ticket.CreatedAt.Equal(h.clock.now) || !ticket.UpdatedAt.Equal(h.clock.now) {
 		t.Fatalf("Create: timestamps must come from the injected clock, got created=%v updated=%v", ticket.CreatedAt, ticket.UpdatedAt)
 	}
-	if ticket.UserID == nil || *ticket.UserID != user.ID {
-		t.Fatalf("Create: assigned user must be stored, got %v", ticket.UserID)
+	if ticket.UserID != nil {
+		t.Fatalf("Create: every ticket starts unassigned (Amendment 2), got assignee %v", *ticket.UserID)
 	}
 
 	// MAX+1 numbering is a store concern (D8): the second ticket follows.
-	second, err := h.svc.Create(context.Background(), actor, validCreateInput(cat.ID, nil))
+	second, err := h.svc.Create(context.Background(), actor, validCreateInput(cat.ID))
 	if err != nil {
 		t.Fatalf("Create (second): unexpected error: %v", err)
 	}
@@ -110,7 +108,7 @@ func TestCreateStoresSessionRequester(t *testing.T) {
 	cat := h.categories.seed("Bugs")
 	actor := domain.User{ID: 7, Name: "Ada", Email: "ada@example.com", Role: domain.RoleUser}
 
-	ticket, err := h.svc.Create(context.Background(), actor, validCreateInput(cat.ID, nil))
+	ticket, err := h.svc.Create(context.Background(), actor, validCreateInput(cat.ID))
 	if err != nil {
 		t.Fatalf("Create: unexpected error: %v", err)
 	}
@@ -122,43 +120,26 @@ func TestCreateStoresSessionRequester(t *testing.T) {
 	}
 }
 
-// TestCreateUserRoleRejectsAssignment proves assignment inputs are rejected
-// for role user (ticket-management spec: assignment accepted only from
-// agent+ and rejected for user).
-func TestCreateUserRoleRejectsAssignment(t *testing.T) {
-	h := newTicketHarness()
-	cat := h.categories.seed("Bugs")
-	assignee := h.users.seed("Ana", "ana@example.com", true)
-	actor := domain.User{ID: 7, Name: "Ada", Email: "ada@example.com", Role: domain.RoleUser}
+// TestCreateAlwaysStartsUnassigned proves creation structurally stamps an
+// EMPTY assignee for EVERY role (Amendment 2): CreateTicketInput carries no
+// assignee at all, so no application path can smuggle a creation-time one.
+// Person assignment happens only later through the audited Assign flow.
+func TestCreateAlwaysStartsUnassigned(t *testing.T) {
+	for _, role := range []domain.Role{domain.RoleUser, domain.RoleAgent, domain.RoleAdmin, domain.RoleRoot} {
+		h := newTicketHarness()
+		cat := h.categories.seed("Bugs")
+		actor := domain.User{ID: 9, Name: "Beto", Email: "beto@example.com", Role: role}
 
-	_, err := h.svc.Create(context.Background(), actor, validCreateInput(cat.ID, ptr(assignee.ID)))
-	if err == nil {
-		t.Fatal("Create: a user-role actor must not be able to assign a ticket")
-	}
-	var validation *domain.ValidationError
-	if !errors.As(err, &validation) || validation.Field != "user" {
-		t.Fatalf("Create: err = %v, want ValidationError{Field: user}", err)
-	}
-}
-
-// TestCreateAgentStoresRequesterAndAssignee proves an agent-role actor may
-// create an assigned ticket, and the requester is STILL the session actor
-// (ticket-management spec: requester always derived from the session).
-func TestCreateAgentStoresRequesterAndAssignee(t *testing.T) {
-	h := newTicketHarness()
-	cat := h.categories.seed("Bugs")
-	assignee := h.users.seedRole("Ana", "ana@example.com", domain.RoleAgent, true)
-	actor := domain.User{ID: 9, Name: "Beto", Email: "beto@example.com", Role: domain.RoleAgent}
-
-	ticket, err := h.svc.Create(context.Background(), actor, validCreateInput(cat.ID, ptr(assignee.ID)))
-	if err != nil {
-		t.Fatalf("Create: unexpected error: %v", err)
-	}
-	if ticket.RequesterUserID == nil || *ticket.RequesterUserID != actor.ID {
-		t.Fatalf("Create: requester_user_id = %v, want session user id %d", ticket.RequesterUserID, actor.ID)
-	}
-	if ticket.UserID == nil || *ticket.UserID != assignee.ID {
-		t.Fatalf("Create: assignee = %v, want %d", ticket.UserID, assignee.ID)
+		ticket, err := h.svc.Create(context.Background(), actor, validCreateInput(cat.ID))
+		if err != nil {
+			t.Fatalf("Create (role %s): unexpected error: %v", role, err)
+		}
+		if ticket.UserID != nil {
+			t.Fatalf("Create (role %s): ticket must start unassigned, got assignee %v", role, *ticket.UserID)
+		}
+		if ticket.RequesterUserID == nil || *ticket.RequesterUserID != actor.ID {
+			t.Fatalf("Create (role %s): requester_user_id = %v, want session user id %d", role, ticket.RequesterUserID, actor.ID)
+		}
 	}
 }
 
@@ -167,7 +148,7 @@ func TestCreateRejectsMissingTitle(t *testing.T) {
 	cat := h.categories.seed("Bugs")
 	actor := domain.User{Name: "Ada", Role: domain.RoleAdmin}
 
-	in := validCreateInput(cat.ID, nil)
+	in := validCreateInput(cat.ID)
 	in.Title = "  "
 	_, err := h.svc.Create(context.Background(), actor, in)
 
@@ -183,54 +164,15 @@ func TestCreateRejectsMissingTitle(t *testing.T) {
 	}
 }
 
-func TestCreateRejectsInactiveUserAssignment(t *testing.T) {
-	h := newTicketHarness()
-	cat := h.categories.seed("Bugs")
-	inactive := h.users.seed("Ana", "ana@example.com", false)
-	actor := domain.User{Name: "Ada", Role: domain.RoleAdmin}
-
-	_, err := h.svc.Create(context.Background(), actor, validCreateInput(cat.ID, ptr(inactive.ID)))
-
-	var ierr *domain.InactiveUserError
-	if !errors.As(err, &ierr) {
-		t.Fatalf("Create: inactive assignment must be an InactiveUserError, got %v", err)
-	}
-	if len(h.tickets.tickets) != 0 {
-		t.Fatal("Create: rejected ticket must not be stored")
-	}
-	if len(h.audits.events) != 0 {
-		t.Fatal("Create: rejected ticket must not be audited")
-	}
-}
-
 func TestCreateRejectsUnknownCategory(t *testing.T) {
 	h := newTicketHarness()
 	actor := domain.User{Name: "Ada", Role: domain.RoleAdmin}
 
-	_, err := h.svc.Create(context.Background(), actor, validCreateInput(999, nil))
+	_, err := h.svc.Create(context.Background(), actor, validCreateInput(999))
 
 	var nerr *domain.NotFoundError
 	if !errors.As(err, &nerr) || nerr.Kind != "category" {
 		t.Fatalf("Create: unknown category must be a NotFoundError(kind=category), got %v", err)
-	}
-	if len(h.tickets.tickets) != 0 {
-		t.Fatal("Create: rejected ticket must not be stored")
-	}
-	if len(h.audits.events) != 0 {
-		t.Fatal("Create: rejected ticket must not be audited")
-	}
-}
-
-func TestCreateRejectsUnknownAssignedUser(t *testing.T) {
-	h := newTicketHarness()
-	cat := h.categories.seed("Bugs")
-	actor := domain.User{Name: "Ada", Role: domain.RoleAdmin}
-
-	_, err := h.svc.Create(context.Background(), actor, validCreateInput(cat.ID, ptr(int64(999))))
-
-	var nerr *domain.NotFoundError
-	if !errors.As(err, &nerr) || nerr.Kind != "user" {
-		t.Fatalf("Create: unknown assigned user must be a NotFoundError(kind=user), got %v", err)
 	}
 	if len(h.tickets.tickets) != 0 {
 		t.Fatal("Create: rejected ticket must not be stored")
@@ -245,7 +187,7 @@ func TestCreateRejectsInvalidPriority(t *testing.T) {
 	cat := h.categories.seed("Bugs")
 	actor := domain.User{Name: "Ada", Role: domain.RoleAdmin}
 
-	in := validCreateInput(cat.ID, nil)
+	in := validCreateInput(cat.ID)
 	in.Priority = domain.Priority("urgent")
 	_, err := h.svc.Create(context.Background(), actor, in)
 
@@ -555,25 +497,6 @@ func TestAssignUnknownTarget(t *testing.T) {
 	var nerr *domain.NotFoundError
 	if !errors.As(err, &nerr) || nerr.Kind != "user" {
 		t.Fatalf("Assign: unknown target must be a NotFoundError(kind=user), got %v", err)
-	}
-}
-
-// TestCreateRejectsUserRoleTarget proves the assignment target rule applies
-// at creation too: an agent+ actor cannot create a ticket assigned to an
-// active user-role account (spec: "Assignment target must be agent-plus").
-func TestCreateRejectsUserRoleTarget(t *testing.T) {
-	h := newTicketHarness()
-	cat := h.categories.seed("Bugs")
-	userRole := h.users.seedRole("Ula", "ula@example.com", domain.RoleUser, true)
-	actor := domain.User{ID: 101, Name: "Ada", Role: domain.RoleAdmin}
-
-	_, err := h.svc.Create(context.Background(), actor, validCreateInput(cat.ID, ptr(userRole.ID)))
-	var verr *domain.ValidationError
-	if !errors.As(err, &verr) || verr.Field != "user" || verr.Message != domain.ErrMsgAssignTargetRole {
-		t.Fatalf("Create: user-role target must be rejected with ErrMsgAssignTargetRole, got %v", err)
-	}
-	if len(h.tickets.tickets) != 0 {
-		t.Fatal("Create: rejected ticket must not be stored")
 	}
 }
 
@@ -1031,11 +954,10 @@ func TestUpdateNeverTouchesCategory(t *testing.T) {
 func TestEveryMutationAuditedInOccurrenceOrder(t *testing.T) {
 	h := newTicketHarness()
 	cat := h.categories.seed("Bugs")
-	user := h.users.seedRole("Ana", "ana@example.com", domain.RoleAgent, true)
 	actor := domain.User{Name: "Ada", Email: "ada@example.com", Role: domain.RoleAdmin}
 
 	// GIVEN a ticket (audit-log scenario: one transition and two field edits).
-	ticket, err := h.svc.Create(context.Background(), actor, validCreateInput(cat.ID, ptr(user.ID)))
+	ticket, err := h.svc.Create(context.Background(), actor, validCreateInput(cat.ID))
 	if err != nil {
 		t.Fatalf("Create: unexpected error: %v", err)
 	}
@@ -1080,11 +1002,10 @@ func TestEveryMutationAuditedInOccurrenceOrder(t *testing.T) {
 func TestCreateRollsBackTicketWhenAuditAppendFails(t *testing.T) {
 	h := newTicketHarness()
 	cat := h.categories.seed("Bugs")
-	user := h.users.seedRole("Ana", "ana@example.com", domain.RoleAgent, true)
 	actor := domain.User{Name: "Ada", Role: domain.RoleAdmin}
 	h.tx.failAuditAppend = true
 
-	_, err := h.svc.Create(context.Background(), actor, validCreateInput(cat.ID, ptr(user.ID)))
+	_, err := h.svc.Create(context.Background(), actor, validCreateInput(cat.ID))
 	if !errors.Is(err, errAuditAppendFailed) {
 		t.Fatalf("Create: audit append failure must propagate to the caller, got %v", err)
 	}
@@ -1131,7 +1052,7 @@ func TestMutationAuditEventsCarryActorUserID(t *testing.T) {
 	cat := h.categories.seed("Bugs")
 	actor := domain.User{ID: 11, Name: "Ada", Email: "ada@example.com", Role: domain.RoleAdmin}
 
-	ticket, err := h.svc.Create(context.Background(), actor, validCreateInput(cat.ID, nil))
+	ticket, err := h.svc.Create(context.Background(), actor, validCreateInput(cat.ID))
 	if err != nil {
 		t.Fatalf("Create: unexpected error: %v", err)
 	}
@@ -1281,7 +1202,7 @@ func newWorkflowCreateHarness() *workflowCreateHarness {
 	versions := newFakeWorkflowVersionStore()
 	runner := application.NewWorkflowRunner(clock)
 	wfTx := newFakeWorkflowUnitOfWork(tickets, audits)
-	builder := application.NewViewBuilder(tickets, users, categories, comments, audits)
+	builder := application.NewViewBuilder(tickets, users, categories, comments, audits, newFakeDeskStore())
 	svc := application.NewTicketServiceWithWorkflowCreate(tickets, users, categories, tx, builder, clock, versions, runner, wfTx)
 	return &workflowCreateHarness{
 		svc: svc, tickets: tickets, users: users, categories: categories,
@@ -1299,7 +1220,7 @@ func TestTicketService_CreateWithWorkflow_UnpublishedCategoryIsUnavailable(t *te
 	cat := h.categories.seed("Bugs")
 	actor := domain.User{ID: 7, Name: "Ada", Email: "ada@example.com", Role: domain.RoleAdmin}
 
-	_, err := h.svc.Create(context.Background(), actor, validCreateInput(cat.ID, nil))
+	_, err := h.svc.Create(context.Background(), actor, validCreateInput(cat.ID))
 	var verr *domain.ValidationError
 	if !errors.As(err, &verr) || verr.Field != "category" || verr.Message != domain.ErrMsgCategoryWorkflowUnavailable {
 		t.Fatalf("Create: unavailable category must be ValidationError{Field: category, Message: %q}, got %v", domain.ErrMsgCategoryWorkflowUnavailable, err)
@@ -1332,7 +1253,7 @@ func TestTicketService_CreateWithWorkflow_PinsVersionAndPlansInitialAutomatic(t 
 	versionID := h.versions.publish(cat.ID, def)
 	actor := domain.User{ID: 7, Name: "Ada", Email: "ada@example.com", Role: domain.RoleUser}
 
-	ticket, err := h.svc.Create(context.Background(), actor, validCreateInput(cat.ID, nil))
+	ticket, err := h.svc.Create(context.Background(), actor, validCreateInput(cat.ID))
 	if err != nil {
 		t.Fatalf("Create: unexpected error: %v", err)
 	}
@@ -1406,7 +1327,7 @@ func TestTicketService_CreateWithWorkflow_HumanFirstStepStopsInitialAdvancement(
 	versionID := h.versions.publish(cat.ID, def)
 	actor := domain.User{ID: 7, Name: "Ada", Email: "ada@example.com", Role: domain.RoleUser}
 
-	ticket, err := h.svc.Create(context.Background(), actor, validCreateInput(cat.ID, nil))
+	ticket, err := h.svc.Create(context.Background(), actor, validCreateInput(cat.ID))
 	if err != nil {
 		t.Fatalf("Create: unexpected error: %v", err)
 	}
@@ -1436,7 +1357,7 @@ func TestTicketService_CreateWithWorkflow_AllAutomaticCompletesAtCreation(t *tes
 	versionID := h.versions.publish(cat.ID, domain.WorkflowDefinition{{Type: domain.StepResolve}})
 	actor := domain.User{ID: 7, Name: "Ada", Email: "ada@example.com", Role: domain.RoleUser}
 
-	ticket, err := h.svc.Create(context.Background(), actor, validCreateInput(cat.ID, nil))
+	ticket, err := h.svc.Create(context.Background(), actor, validCreateInput(cat.ID))
 	if err != nil {
 		t.Fatalf("Create: unexpected error: %v", err)
 	}
@@ -1477,7 +1398,7 @@ func TestTicketService_CreateWithWorkflow_PropagatesUnitOfWorkFailure(t *testing
 	h.wfTx.failCreate = true
 	h.wfTx.failWith = errWorkflowUoWFailed
 
-	_, err := h.svc.Create(context.Background(), actor, validCreateInput(cat.ID, nil))
+	_, err := h.svc.Create(context.Background(), actor, validCreateInput(cat.ID))
 	if !errors.Is(err, errWorkflowUoWFailed) {
 		t.Fatalf("Create: the WorkflowUnitOfWork failure must propagate untouched, got %v", err)
 	}
@@ -1502,7 +1423,7 @@ func TestTicketService_CreateWithWorkflow_LaterPublicationDoesNotChangePinnedVer
 	cat := h.categories.seed("Bugs")
 	v1 := h.versions.publish(cat.ID, domain.WorkflowDefinition{{Type: domain.StepManualTask, ManualTask: &domain.ManualTaskStep{Instructions: "First pass"}}})
 	actor := domain.User{ID: 7, Name: "Ada", Email: "ada@example.com", Role: domain.RoleUser}
-	ticket, err := h.svc.Create(context.Background(), actor, validCreateInput(cat.ID, nil))
+	ticket, err := h.svc.Create(context.Background(), actor, validCreateInput(cat.ID))
 	if err != nil {
 		t.Fatalf("Create (v1): unexpected error: %v", err)
 	}
@@ -1529,7 +1450,7 @@ func TestTicketService_CreateWithWorkflow_LaterPublicationDoesNotChangePinnedVer
 	}
 
 	// A new create pins the newer version.
-	second, err := h.svc.Create(context.Background(), actor, validCreateInput(cat.ID, nil))
+	second, err := h.svc.Create(context.Background(), actor, validCreateInput(cat.ID))
 	if err != nil {
 		t.Fatalf("Create (v2): unexpected error: %v", err)
 	}

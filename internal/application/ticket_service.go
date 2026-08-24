@@ -69,15 +69,18 @@ func newTicketService(tickets TicketStore, users UserStore, categories CategoryS
 	}
 }
 
-// CreateTicketInput is the creation payload. UserID is optional (nil =
-// unassigned). There are no requester fields: the requester is ALWAYS the
-// creating actor, derived from the session (ticket-management spec) — the
-// caller can never file a ticket impersonating someone else.
+// CreateTicketInput is the creation payload. There is NO assignee input:
+// Amendment 2 makes creation strictly unassigned (the handler rejects any
+// assignee-carrying request before binding) so no application path can
+// smuggle a creation-time assignee — person assignment happens only later
+// through the pinned category workflow flow. There are no requester fields:
+// the requester is ALWAYS the creating actor, derived from the session
+// (ticket-management spec) — the caller can never file a ticket impersonating
+// someone else.
 type CreateTicketInput struct {
 	Title       string
 	Description string
 	CategoryID  int64
-	UserID      *int64
 	Priority    domain.Priority
 }
 
@@ -92,28 +95,8 @@ func (s *TicketService) Create(ctx context.Context, actor domain.User, in Create
 	if !domain.IsValidPriority(in.Priority) {
 		return nil, &domain.InvalidPriorityError{Field: "priority", Message: domain.ErrMsgInvalidPriority}
 	}
-	// Assignment inputs are accepted only from agent+ roles; a user-role
-	// actor's ticket always starts unassigned (ticket-management spec).
-	if in.UserID != nil && !actor.Role.AtLeast(domain.RoleAgent) {
-		return nil, &domain.ValidationError{Field: "user", Message: domain.ErrMsgUserRoleCannotAssign}
-	}
 	if _, err := s.categories.GetByID(ctx, in.CategoryID); err != nil {
 		return nil, err
-	}
-	if in.UserID != nil {
-		user, err := s.users.GetByID(ctx, *in.UserID)
-		if err != nil {
-			return nil, err
-		}
-		if !user.Active {
-			return nil, domain.NewInactiveUserError("user")
-		}
-		// The assignment target rule applies at creation too: tickets are
-		// assigned to agent-plus personnel only, never to a user-role
-		// account (ticket-access-assignment spec).
-		if !user.Role.AtLeast(domain.RoleAgent) {
-			return nil, &domain.ValidationError{Field: "user", Message: domain.ErrMsgAssignTargetRole}
-		}
 	}
 
 	now := s.clock.Now()
@@ -200,7 +183,6 @@ func newCreateTicket(actor domain.User, in CreateTicketInput, now time.Time) (*d
 		RequesterEmail:  actor.Email,
 		RequesterUserID: &actor.ID,
 		CategoryID:      in.CategoryID,
-		UserID:          in.UserID,
 		Priority:        in.Priority,
 		State:           domain.StateNew,
 		CreatedAt:       now,

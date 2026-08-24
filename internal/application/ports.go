@@ -270,13 +270,17 @@ type CompleteWorkflowCommand struct {
 	ActorUserID int64
 	// ActorName is the human actor's display name at submission time. The
 	// application stamps it together with ActorUserID on every human audit
-	// (workflow_step and assignment), matching TicketService.Assign (audit
-	// spec D14). It is session/command-derived and never taken from
-	// RawAnswers.
+	// (semantic workflow completion and contextual workflow_assignment),
+	// matching TicketService.Assign (audit spec D14). It is
+	// session/command-derived and never taken from RawAnswers.
 	ActorName        string
 	ExpectedPosition int
-	Reason           string
 	RawAnswers       RawPositionalValues
+	// Solution is the OPTIONAL manual-task solution (Amendment 2): trimmed by
+	// the HTTP layer, so whitespace-only submissions arrive empty and complete
+	// normally without one. Only a manual_task completion may carry a non-empty
+	// value — any other step type receiving one is a plan contradiction.
+	Solution string
 }
 
 // WorkflowOperation is the sealed, ordered, data-only mutation contract: only
@@ -295,14 +299,15 @@ type FormAnswerOperation struct {
 	SubmittedAt       time.Time
 }
 
-// ClaimAssignmentOperation persists a known claim: desk, claimant as assignee,
-// optional reassignment reason, and the required assignment audit (populated
-// whenever the assignee changes; same-person claims emit no assignment op).
+// ClaimAssignmentOperation persists a known pinned workflow claim: desk,
+// authenticated claimant, and one contextual workflow_assignment audit. A claim
+// has no caller-controlled target or reason; manual reassignment uses the separate
+// TicketService.Assign contract. Every claim carries this operation, including
+// same-person claims, and never emits a trailing workflow_step audit.
 type ClaimAssignmentOperation struct {
 	StepIndex       int
 	DeskID          int64
 	AssigneeUserID  int64
-	Reason          string
 	AssignmentAudit domain.AuditEvent
 }
 
@@ -320,11 +325,18 @@ type TransitionOperation struct {
 	Audit     domain.AuditEvent
 }
 
-// WorkflowStepOperation records human step completion with its workflow_step
-// audit (human actor, step index, timestamp).
+// WorkflowStepOperation records human step completion with its semantic
+// workflow-completion audit (workflow_manual_task, workflow_requester_form, or
+// workflow_assignee_form — human actor, step index, timestamp). The legacy
+// workflow_step action is read-only history and is never written to new events.
+// Solution is the optional manual-task completion solution (Amendment 2): it
+// persists in ticket_manual_solutions reusing the audit's actor-user-id and
+// created-at facts; empty means none, and a form-step operation must never
+// carry one.
 type WorkflowStepOperation struct {
 	StepIndex int
 	Audit     domain.AuditEvent
+	Solution  string
 }
 
 func (FormAnswerOperation) isWorkflowOperation()            {}
@@ -372,9 +384,9 @@ type WorkflowExecutionResult struct {
 	Run    *WorkflowRun
 }
 
-// WorkflowResponse is a read-only, trusted projection of one persisted form
-// answer set. Labels and values are derived from the ticket's pinned immutable
-// workflow definition; callers never receive raw answers_json.
+// WorkflowResponse is retained only as the legacy list projection type; the
+// timeline consumes WorkflowStepContext below (PR10 removed the standalone
+// responses card).
 type WorkflowResponse struct {
 	StepIndex   int
 	SubmittedAt time.Time
@@ -386,11 +398,52 @@ type WorkflowResponseField struct {
 	Value string
 }
 
+// WorkflowStepContext is the read-only, trusted projection of ONE pinned step's
+// presentation context, resolved strictly by an audit row's persisted step_index.
+// Kind is "form" or "manual"; a form context carries FormActor and the decoded,
+// definition-validated Fields; a manual context carries the pinned Instruction.
+type WorkflowStepContext struct {
+	Kind        string
+	FormActor   domain.FormActor
+	Fields      []WorkflowResponseField
+	Instruction string
+	// Solution is the stored manual-task solution (Amendment 2), joined only in
+	// the manual branch by the event's exact persisted step index; a missing or
+	// legacy row yields an empty value — never a fabricated placeholder.
+	Solution string
+}
+
 // WorkflowResponseStore projects completed workflow form answers for an
-// already-authorized ticket read. Implementations must validate persisted row
-// indexes and typed values against the immutable pinned definition.
+// already-authorized ticket read and resolves one pinned step's presentation
+// context for the merged ticket timeline (PR10). Implementations must validate
+// persisted row indexes and typed values against the immutable pinned
+// definition and fail closed on corrupt persisted answer rows.
 type WorkflowResponseStore interface {
 	ListWorkflowResponses(ctx context.Context, ticketID int64) ([]WorkflowResponse, error)
+	WorkflowStepContextStore
+}
+
+// WorkflowStepContextStore is the timeline-facing half of the response store:
+// it resolves one pinned workflow step's presentation context for an
+// already-authorized ticket read, joined ONLY by the exact persisted
+// audit_events.step_index (PR10 task 10.2) — never by timestamps or occurrence
+// order. Implementations must reuse the immutable pinned-definition decoding
+// path and fail closed on corrupt persisted answer rows. A missing pin, run,
+// or answers row — or an index outside the pinned bounds — degrades to
+// (nil, nil) so the timeline renders the safe summary alone.
+type WorkflowStepContextStore interface {
+	WorkflowStepContext(ctx context.Context, ticketID int64, stepIndex int) (*WorkflowStepContext, error)
+}
+
+// WorkflowRunStore resolves a ticket's workflow execution in one consistent
+// read: the ticket, its run (current cursor/status), and the pinned immutable
+// definition. It returns (nil, nil) when the ticket has NO workflow execution
+// (a legacy unpinned ticket, or a pinned ticket with no run) so callers can
+// distinguish "no pending workflow" from an error. Used by the completion
+// route to build the runner snapshot and by the detail renderer to compute the
+// Pending Actions card.
+type WorkflowRunStore interface {
+	GetWorkflowExecution(ctx context.Context, ticketID int64) (*WorkflowExecutionSnapshot, error)
 }
 
 // InitialAutomaticPlan is the creation-time automatic advancement of a fresh
@@ -407,7 +460,7 @@ type InitialAutomaticPlan struct {
 	NextTicketState domain.State
 }
 
-// WorkflowSummary is the derived badge for the category list (none | Draft | Published vN).
+// WorkflowSummary is the derived badge for the category list (none | Draft | Published).
 type WorkflowSummary struct {
 	CategoryID   int64
 	CategoryName string

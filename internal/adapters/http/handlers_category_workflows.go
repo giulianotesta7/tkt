@@ -272,7 +272,7 @@ func localAddField(d domain.WorkflowDefinition, r *http.Request) (result domain.
 		return d, -1
 	}
 	nd := d.Clone()
-	nd[i].Form.Fields = append(nd[i].Form.Fields, domain.FormField{})
+	nd[i].Form.Fields = append(nd[i].Form.Fields, domain.FormField{Key: nextFieldKey(nd)})
 	return nd, i
 }
 
@@ -303,12 +303,55 @@ func parseBuilderDraft(r *http.Request) (domain.WorkflowDefinition, []domain.Wor
 		if err != nil {
 			return nil, builderIssue(err.Error())
 		}
-		return draft, nil
+		return ensureFieldKeys(draft), nil
 	}
 	if hasBareStepJSON(r) {
-		return parsePositionalJSONDraft(r)
+		draft, issues := parsePositionalJSONDraft(r)
+		return ensureFieldKeys(draft), issues
 	}
-	return draftFromFields(r), nil
+	return ensureFieldKeys(draftFromFields(r)), nil
+}
+
+// nextFieldKey returns the smallest deterministic field_N key not already used
+// by any Form field in d. Keys are opaque sequence numbers (field_1, field_2,
+// ...) rather than label slugs because labels may change or collide; removing a
+// field frees its number for the next deterministic reuse.
+func nextFieldKey(d domain.WorkflowDefinition) string {
+	used := map[string]bool{}
+	for _, s := range d {
+		if s.Form == nil {
+			continue
+		}
+		for _, f := range s.Form.Fields {
+			if k := strings.TrimSpace(f.Key); k != "" {
+				used[k] = true
+			}
+		}
+	}
+	for n := 1; ; n++ {
+		if k := fmt.Sprintf("field_%d", n); !used[k] {
+			return k
+		}
+	}
+}
+
+// ensureFieldKeys assigns a deterministic unique field_N key to every Form
+// field that lacks one, preserving all existing stable keys (never rewriting
+// compatibility data). It returns a cloned definition and is a no-op for drafts
+// whose fields all have keys, so old/incomplete drafts stay editable.
+func ensureFieldKeys(d domain.WorkflowDefinition) domain.WorkflowDefinition {
+	nd := d.Clone()
+	for _, s := range nd {
+		if s.Form == nil {
+			continue
+		}
+		for j := range s.Form.Fields {
+			if strings.TrimSpace(s.Form.Fields[j].Key) == "" {
+				s.Form.Fields[j].Key = nextFieldKey(nd)
+			}
+		}
+	}
+	return nd
 }
 
 // hasBareStepJSON reports whether any submitted key is the legacy bare
@@ -408,13 +451,13 @@ func draftFromFields(r *http.Request) domain.WorkflowDefinition {
 	return d
 }
 
-// splitOptions parses the newline-separated single_select options input.
+// splitOptions parses the semicolon-separated single_select options input.
 func splitOptions(v string) []string {
 	if v == "" {
 		return nil
 	}
 	var out []string
-	for _, o := range strings.Split(v, "\n") {
+	for _, o := range strings.Split(v, ";") {
 		if o = strings.TrimSpace(o); o != "" {
 			out = append(out, o)
 		}

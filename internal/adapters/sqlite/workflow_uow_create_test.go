@@ -607,9 +607,9 @@ func TestWorkflowUoW_Apply_ClaimSuccessAuditFacts(t *testing.T) {
 	if cur != 1 || status != "active" || comp != nil {
 		t.Errorf("run = cur %d status %s completed %v, want 1/active/<nil>", cur, status, comp)
 	}
-	// Exact literal audit order and facts: assignment update (user from->to),
-	// then the new->in_progress workflow transition, then the human workflow_step.
-	wantAudits := []string{"update||" + strconv.FormatInt(agent, 10), "transition|new|in_progress", "workflow_step||"}
+	// Exact literal audit order and facts: the contextual workflow_assignment
+	// row (user from->to, desk context), then the new->in_progress transition.
+	wantAudits := []string{"workflow_assignment||" + strconv.FormatInt(agent, 10), "transition|new|in_progress"}
 	gotAudits := auditActionOrder(t, s, tk.ID)
 	if strings.Join(gotAudits, ";") != strings.Join(wantAudits, ";") {
 		t.Fatalf("audit order = %v want %v", gotAudits, wantAudits)
@@ -618,11 +618,15 @@ func TestWorkflowUoW_Apply_ClaimSuccessAuditFacts(t *testing.T) {
 	var actor string
 	var actorID *int64
 	var f, to string
-	if err := s.db.QueryRow(`SELECT actor, actor_user_id, COALESCE(from_value,''), COALESCE(to_value,'') FROM audit_events WHERE ticket_id=? AND action='update'`, tk.ID).Scan(&actor, &actorID, &f, &to); err != nil {
+	var desk *int64
+	if err := s.db.QueryRow(`SELECT actor, actor_user_id, COALESCE(from_value,''), COALESCE(to_value,''), desk_id FROM audit_events WHERE ticket_id=? AND action='workflow_assignment'`, tk.ID).Scan(&actor, &actorID, &f, &to, &desk); err != nil {
 		t.Fatalf("read assignment audit: %v", err)
 	}
 	if actor != "Ag" || actorID == nil || *actorID != agent || f != "" || to != strconv.FormatInt(agent, 10) {
 		t.Fatalf("assignment audit = actor %q id %v from %q to %q", actor, actorID, f, to)
+	}
+	if desk == nil || *desk != deskID {
+		t.Fatalf("assignment audit desk = %v, want %d (structured desk context)", desk, deskID)
 	}
 	// The new->in_progress transition audit persists exact workflow actor facts
 	// (workflow/NULL id, field state, new->in_progress, no reason/note).
@@ -635,16 +639,14 @@ func TestWorkflowUoW_Apply_ClaimSuccessAuditFacts(t *testing.T) {
 	if trActor != "workflow" || trActorID != nil || trField != "state" || trFrom != "new" || trTo != "in_progress" || trReason != "" || trNote != "" {
 		t.Fatalf("transition audit = actor %q id %v field %q from %q to %q reason %q note %q", trActor, trActorID, trField, trFrom, trTo, trReason, trNote)
 	}
-	// The human workflow_step audit persists the exact human actor/id, ticket id,
-	// and time, carrying no field/from/to/reason/note.
-	var wsActor string
-	var wsActorID *int64
-	var wsField *string
-	if err := s.db.QueryRow(`SELECT actor, actor_user_id, field FROM audit_events WHERE ticket_id=? AND action='workflow_step'`, tk.ID).Scan(&wsActor, &wsActorID, &wsField); err != nil {
-		t.Fatalf("read workflow_step audit: %v", err)
+	// A claim emits NO separate generic completion audit: the contextual row is
+	// the visible completion.
+	var wsCount int
+	if err := s.db.QueryRow(`SELECT COUNT(*) FROM audit_events WHERE ticket_id=? AND action IN ('workflow_step','workflow_manual_task','workflow_requester_form','workflow_assignee_form')`, tk.ID).Scan(&wsCount); err != nil {
+		t.Fatalf("count completion audits: %v", err)
 	}
-	if wsActor != "Ag" || wsActorID == nil || *wsActorID != agent || wsField != nil {
-		t.Fatalf("workflow_step audit = actor %q id %v field %v", wsActor, wsActorID, wsField)
+	if wsCount != 0 {
+		t.Fatalf("claim wrote %d generic completion audits, want 0 (contextual row only)", wsCount)
 	}
 	// Every audit created at the single plan timestamp, in the exact order.
 	var times []string
@@ -660,8 +662,8 @@ func TestWorkflowUoW_Apply_ClaimSuccessAuditFacts(t *testing.T) {
 		}
 		times = append(times, at)
 	}
-	if len(times) != 3 {
-		t.Fatalf("got %d audit times, want 3", len(times))
+	if len(times) != 2 {
+		t.Fatalf("got %d audit times, want 2", len(times))
 	}
 	for _, at := range times {
 		if at != formatTime(now) {
@@ -697,8 +699,8 @@ func TestWorkflowUoW_Apply_FormAnswerSuccess(t *testing.T) {
 		t.Fatalf("answer = step %d json %s by %v", step, answers, by)
 	}
 	gotAudits := auditActionOrder(t, s, tk.ID)
-	if len(gotAudits) != 1 || gotAudits[0] != "workflow_step||" {
-		t.Fatalf("audit order = %v want [workflow_step||]", gotAudits)
+	if len(gotAudits) != 1 || gotAudits[0] != "workflow_requester_form||" {
+		t.Fatalf("audit order = %v want [workflow_requester_form||]", gotAudits)
 	}
 	// The single workflow_step audit persists the exact human actor/id, ticket id,
 	// timestamp, and no field/from/to/reason/note.
@@ -708,8 +710,8 @@ func TestWorkflowUoW_Apply_FormAnswerSuccess(t *testing.T) {
 	var wsField *string
 	var wsFrom *string
 	var wsAt string
-	if err := s.db.QueryRow(`SELECT actor, actor_user_id, ticket_id, field, from_value, created_at FROM audit_events WHERE ticket_id=? AND action='workflow_step'`, tk.ID).Scan(&wsActor, &wsActorID, &wsTicket, &wsField, &wsFrom, &wsAt); err != nil {
-		t.Fatalf("read workflow_step audit: %v", err)
+	if err := s.db.QueryRow(`SELECT actor, actor_user_id, ticket_id, field, from_value, created_at FROM audit_events WHERE ticket_id=? AND action='workflow_requester_form'`, tk.ID).Scan(&wsActor, &wsActorID, &wsTicket, &wsField, &wsFrom, &wsAt); err != nil {
+		t.Fatalf("read requester-form audit: %v", err)
 	}
 	if wsActor != "A" || wsActorID == nil || *wsActorID != req || wsTicket != tk.ID || wsField != nil || wsFrom != nil || wsAt != formatTime(now) {
 		t.Fatalf("workflow_step audit = actor %q id %v ticket %d field %v from %v at %q", wsActor, wsActorID, wsTicket, wsField, wsFrom, wsAt)
@@ -748,12 +750,12 @@ func TestWorkflowUoW_Apply_ManualStepAuditSuccess(t *testing.T) {
 		t.Fatalf("manual apply: %v", err)
 	}
 	gotAudits := auditActionOrder(t, s, tk.ID)
-	if len(gotAudits) != 1 || gotAudits[0] != "workflow_step||" {
-		t.Fatalf("audit = %v want [workflow_step||]", gotAudits)
+	if len(gotAudits) != 1 || gotAudits[0] != "workflow_manual_task||" {
+		t.Fatalf("audit = %v want [workflow_manual_task||]", gotAudits)
 	}
 	var actor string
 	var actorID *int64
-	if err := s.db.QueryRow(`SELECT actor, actor_user_id FROM audit_events WHERE ticket_id=? AND action='workflow_step'`, tk.ID).Scan(&actor, &actorID); err != nil {
+	if err := s.db.QueryRow(`SELECT actor, actor_user_id FROM audit_events WHERE ticket_id=? AND action='workflow_manual_task'`, tk.ID).Scan(&actor, &actorID); err != nil {
 		t.Fatalf("read step audit: %v", err)
 	}
 	if actor != "A" || actorID == nil || *actorID != agent {
@@ -936,7 +938,7 @@ func TestWorkflowUoW_Apply_NonMemberClaimantNoWrites(t *testing.T) {
 	// authorizes the operation, so only the membership precondition fails.
 	field := "user"
 	from, to := "", strconv.FormatInt(outsider, 10)
-	claimAudit := domain.AuditEvent{TicketID: tk.ID, Actor: "Out", ActorUserID: &outsider, Action: domain.ActionUpdate, Field: &field, FromValue: &from, ToValue: &to, CreatedAt: now}
+	claimAudit := domain.AuditEvent{TicketID: tk.ID, Actor: "Out", ActorUserID: &outsider, Action: domain.ActionWorkflowAssignment, Field: &field, FromValue: &from, ToValue: &to, DeskID: &deskID, CreatedAt: now}
 	ops := []application.WorkflowOperation{
 		application.ClaimAssignmentOperation{StepIndex: 0, DeskID: deskID, AssigneeUserID: outsider, AssignmentAudit: claimAudit},
 	}
@@ -1104,27 +1106,26 @@ func claimDef(deskID int64) domain.WorkflowDefinition {
 }
 
 // applyClaimOps returns the coherent claim-operation group for a claim step:
-// [claim assignment, new->in_progress transition, workflow_step audit], all at
-// step 0. This is the literal sequence the runner plans for a claim step.
+// [contextual claim assignment, new->in_progress transition], all at step 0.
+// This is the literal sequence the runner plans for a claim step — the visible
+// completion IS the contextual assignment row, so no workflow_step op exists.
 func applyClaimOps(t *testing.T, now time.Time, tk domain.Ticket, agent int64, deskID int64) []application.WorkflowOperation {
 	t.Helper()
 	field := "user"
 	from := ""
 	to := strconv.FormatInt(agent, 10)
-	claimAudit := domain.AuditEvent{TicketID: tk.ID, Actor: "Ag", ActorUserID: &agent, Action: domain.ActionUpdate, Field: &field, FromValue: &from, ToValue: &to, CreatedAt: now}
+	claimAudit := domain.AuditEvent{TicketID: tk.ID, Actor: "Ag", ActorUserID: &agent, Action: domain.ActionWorkflowAssignment, Field: &field, FromValue: &from, ToValue: &to, DeskID: &deskID, CreatedAt: now}
 	tr := &domain.AuditEvent{TicketID: tk.ID, Actor: "workflow", Action: domain.ActionTransition, Field: ptr("state"), FromValue: ptr("new"), ToValue: ptr("in_progress"), CreatedAt: now}
-	ws := &domain.AuditEvent{TicketID: tk.ID, Actor: "Ag", ActorUserID: &agent, Action: domain.ActionWorkflowStep, CreatedAt: now}
 	return []application.WorkflowOperation{
 		application.ClaimAssignmentOperation{StepIndex: 0, DeskID: deskID, AssigneeUserID: agent, AssignmentAudit: claimAudit},
 		application.TransitionOperation{StepIndex: 0, Audit: *tr},
-		application.WorkflowStepOperation{StepIndex: 0, Audit: *ws},
 	}
 }
 
 // applyFormOps returns the coherent form-operation group: [form answer,
 // workflow_step audit] at step 0.
 func applyFormOps(now time.Time, tk domain.Ticket, actor int64, answers string) []application.WorkflowOperation {
-	ws := domain.AuditEvent{TicketID: tk.ID, Actor: "A", ActorUserID: &actor, Action: domain.ActionWorkflowStep, CreatedAt: now}
+	ws := domain.AuditEvent{TicketID: tk.ID, Actor: "A", ActorUserID: &actor, Action: domain.ActionWorkflowRequesterForm, CreatedAt: now}
 	return []application.WorkflowOperation{
 		application.FormAnswerOperation{StepIndex: 0, AnswersJSON: []byte(answers), SubmittedByUserID: actor, SubmittedAt: now},
 		application.WorkflowStepOperation{StepIndex: 0, Audit: ws},
@@ -1134,7 +1135,7 @@ func applyFormOps(now time.Time, tk domain.Ticket, actor int64, answers string) 
 // applyManualOps returns the coherent manual-step operation group: a single
 // workflow_step audit at step 0 (manual_task completes with no answer/write).
 func applyManualOps(now time.Time, tk domain.Ticket, actor int64) []application.WorkflowOperation {
-	ws := domain.AuditEvent{TicketID: tk.ID, Actor: "A", ActorUserID: &actor, Action: domain.ActionWorkflowStep, CreatedAt: now}
+	ws := domain.AuditEvent{TicketID: tk.ID, Actor: "A", ActorUserID: &actor, Action: domain.ActionWorkflowManualTask, CreatedAt: now}
 	return []application.WorkflowOperation{application.WorkflowStepOperation{StepIndex: 0, Audit: ws}}
 }
 
@@ -1179,11 +1180,10 @@ func TestWorkflowUoW_Apply_ClaimDeskMismatchConflict(t *testing.T) {
 	// Claim names a different desk than the pinned step's desk.
 	field := "user"
 	from, to := "", strconv.FormatInt(agent, 10)
-	claimAudit := domain.AuditEvent{TicketID: tk.ID, Actor: "Ag", ActorUserID: &agent, Action: domain.ActionUpdate, Field: &field, FromValue: &from, ToValue: &to, CreatedAt: now}
+	claimAudit := domain.AuditEvent{TicketID: tk.ID, Actor: "Ag", ActorUserID: &agent, Action: domain.ActionWorkflowAssignment, Field: &field, FromValue: &from, ToValue: &to, DeskID: &otherDesk, CreatedAt: now}
 	ops := []application.WorkflowOperation{
 		application.ClaimAssignmentOperation{StepIndex: 0, DeskID: otherDesk, AssigneeUserID: agent, AssignmentAudit: claimAudit},
 		application.TransitionOperation{StepIndex: 0, Audit: domain.AuditEvent{TicketID: tk.ID, Actor: "workflow", Action: domain.ActionTransition, Field: ptr("state"), FromValue: ptr("new"), ToValue: ptr("in_progress"), CreatedAt: now}},
-		application.WorkflowStepOperation{StepIndex: 0, Audit: domain.AuditEvent{TicketID: tk.ID, Actor: "Ag", ActorUserID: &agent, Action: domain.ActionWorkflowStep, CreatedAt: now}},
 	}
 	plan := buildApplyPlan(tk, vid, def, agent, "Ag", ops, 1, "active", domain.StateInProgress, &agent, nil)
 	_, err := newWorkflowUnitOfWork(s.db).ApplyWorkflowPlan(ctx, plan)
@@ -1214,11 +1214,10 @@ func TestWorkflowUoW_Apply_ClaimReasonMismatchConflict(t *testing.T) {
 	field := "user"
 	from, to := strconv.FormatInt(prev, 10), strconv.FormatInt(agent, 10)
 	trimmed := "hand-off"
-	claimAudit := domain.AuditEvent{TicketID: tk.ID, Actor: "Ag", ActorUserID: &agent, Action: domain.ActionUpdate, Field: &field, FromValue: &from, ToValue: &to, Reason: &trimmed, CreatedAt: now}
+	claimAudit := domain.AuditEvent{TicketID: tk.ID, Actor: "Ag", ActorUserID: &agent, Action: domain.ActionWorkflowAssignment, Field: &field, FromValue: &from, ToValue: &to, DeskID: &deskID, Reason: &trimmed, CreatedAt: now}
 	ops := []application.WorkflowOperation{
-		application.ClaimAssignmentOperation{StepIndex: 0, DeskID: deskID, AssigneeUserID: agent, Reason: "other-reason", AssignmentAudit: claimAudit},
+		application.ClaimAssignmentOperation{StepIndex: 0, DeskID: deskID, AssigneeUserID: agent, AssignmentAudit: claimAudit},
 		application.TransitionOperation{StepIndex: 0, Audit: domain.AuditEvent{TicketID: tk.ID, Actor: "workflow", Action: domain.ActionTransition, Field: ptr("state"), FromValue: ptr("new"), ToValue: ptr("in_progress"), CreatedAt: now}},
-		application.WorkflowStepOperation{StepIndex: 0, Audit: domain.AuditEvent{TicketID: tk.ID, Actor: "Ag", ActorUserID: &agent, Action: domain.ActionWorkflowStep, CreatedAt: now}},
 	}
 	plan := buildApplyPlan(tk, vid, def, agent, "Ag", ops, 1, "active", domain.StateInProgress, &agentPtr, nil)
 	_, err := newWorkflowUnitOfWork(s.db).ApplyWorkflowPlan(ctx, plan)
@@ -1469,7 +1468,7 @@ func TestWorkflowUoW_Apply_LateCursorCASRollback(t *testing.T) {
 	now := testClock
 	tk := seedPinnedTicket(t, s, domain.Ticket{Number: 40, Title: "T", Description: "", RequesterName: "Req", RequesterEmail: "r@x", RequesterUserID: &req, CategoryID: cat, Priority: domain.PriorityMedium, State: domain.StateNew, CreatedAt: now, UpdatedAt: now, WorkflowVersionID: &vid})
 	seedRun(t, s, tk.ID, 0, "active", now)
-	// Test-scoped schema action: every audit insert bumps the run cursor, so
+	// Test-scoped schema action:
 	// the apply's earlier claim/transition/workflow_step audits move the cursor
 	// past the CAS's expected position, forcing RowsAffected=0 after writes.
 	if _, err := s.db.Exec(`CREATE TRIGGER trg_cas_bump AFTER INSERT ON audit_events
@@ -1522,8 +1521,10 @@ func TestWorkflowUoW_Apply_LateAuditFailureRollsBackAll(t *testing.T) {
 	now := testClock
 	tk := seedPinnedTicket(t, s, domain.Ticket{Number: 41, Title: "T", Description: "", RequesterName: "Req", RequesterEmail: "r@x", RequesterUserID: &req, CategoryID: cat, Priority: domain.PriorityMedium, State: domain.StateNew, CreatedAt: now, UpdatedAt: now, WorkflowVersionID: &vid})
 	seedRun(t, s, tk.ID, 0, "active", now)
+	// The claim group's LAST audit write is its new->in_progress transition;
+	// aborting it must roll back the earlier contextual assignment audit too.
 	if _, err := s.db.Exec(`CREATE TRIGGER trg_fail AFTER INSERT ON audit_events
-		WHEN NEW.action = 'workflow_step'
+		WHEN NEW.action = 'transition'
 		BEGIN SELECT RAISE(ABORT, 'boom'); END`); err != nil {
 		t.Fatalf("create trigger: %v", err)
 	}
@@ -1532,7 +1533,7 @@ func TestWorkflowUoW_Apply_LateAuditFailureRollsBackAll(t *testing.T) {
 	plan := buildApplyPlan(tk, vid, def, agent, "Ag", ops, 1, "active", domain.StateInProgress, &agent, nil)
 	_, err := newWorkflowUnitOfWork(s.db).ApplyWorkflowPlan(ctx, plan)
 	if err == nil {
-		t.Fatal("injected workflow_step audit failure must fail the apply")
+		t.Fatal("injected late audit failure must fail the apply")
 	}
 	if errors.Is(err, domain.ErrWorkflowPositionConflict) {
 		t.Fatalf("a DB failure must propagate as an infrastructure error, not a position conflict: %v", err)
@@ -1625,7 +1626,7 @@ func TestWorkflowUoW_Apply_SkippedCurrentHumanStep(t *testing.T) {
 	tk := seedPinnedTicket(t, s, domain.Ticket{Number: 202, Title: "T", Description: "", RequesterName: "Req", RequesterEmail: "r@x", RequesterUserID: &req, CategoryID: cat, Priority: domain.PriorityMedium, State: domain.StateNew, UserID: &agent, CreatedAt: now, UpdatedAt: now, WorkflowVersionID: &vid})
 	seedRun(t, s, tk.ID, 0, "active", now)
 	// Complete ONLY step 1 (skipping the pending step 0).
-	audit := domain.AuditEvent{TicketID: tk.ID, Actor: "A", ActorUserID: &agent, Action: domain.ActionWorkflowStep, CreatedAt: now}
+	audit := domain.AuditEvent{TicketID: tk.ID, Actor: "A", ActorUserID: &agent, Action: domain.ActionWorkflowManualTask, CreatedAt: now}
 	ops := []application.WorkflowOperation{application.WorkflowStepOperation{StepIndex: 1, Audit: audit}}
 	plan := buildApplyPlan(tk, vid, def, agent, "A", ops, 2, "active", domain.StateNew, &agent, nil)
 	_, err := newWorkflowUnitOfWork(s.db).ApplyWorkflowPlan(context.Background(), plan)
@@ -1647,7 +1648,7 @@ func TestWorkflowUoW_Apply_DuplicateGroupOperation(t *testing.T) {
 	now := testClock
 	tk := seedPinnedTicket(t, s, domain.Ticket{Number: 203, Title: "T", Description: "", RequesterName: "Req", RequesterEmail: "r@x", RequesterUserID: &req, CategoryID: cat, Priority: domain.PriorityMedium, State: domain.StateNew, UserID: &agent, CreatedAt: now, UpdatedAt: now, WorkflowVersionID: &vid})
 	seedRun(t, s, tk.ID, 0, "active", now)
-	audit := domain.AuditEvent{TicketID: tk.ID, Actor: "A", ActorUserID: &agent, Action: domain.ActionWorkflowStep, CreatedAt: now}
+	audit := domain.AuditEvent{TicketID: tk.ID, Actor: "A", ActorUserID: &agent, Action: domain.ActionWorkflowManualTask, CreatedAt: now}
 	ops := []application.WorkflowOperation{
 		application.WorkflowStepOperation{StepIndex: 0, Audit: audit},
 		application.WorkflowStepOperation{StepIndex: 0, Audit: audit},
@@ -1778,7 +1779,7 @@ func TestWorkflowUoW_Apply_WorkflowStepExtraFieldConflict(t *testing.T) {
 	tk := seedPinnedTicket(t, s, domain.Ticket{Number: 208, Title: "T", Description: "", RequesterName: "Req", RequesterEmail: "r@x", RequesterUserID: &req, CategoryID: cat, Priority: domain.PriorityMedium, State: domain.StateNew, UserID: &agent, CreatedAt: now, UpdatedAt: now, WorkflowVersionID: &vid})
 	seedRun(t, s, tk.ID, 0, "active", now)
 	field := "user"
-	audit := domain.AuditEvent{TicketID: tk.ID, Actor: "A", ActorUserID: &agent, Action: domain.ActionWorkflowStep, Field: &field, CreatedAt: now}
+	audit := domain.AuditEvent{TicketID: tk.ID, Actor: "A", ActorUserID: &agent, Action: domain.ActionWorkflowManualTask, Field: &field, CreatedAt: now}
 	ops := []application.WorkflowOperation{application.WorkflowStepOperation{StepIndex: 0, Audit: audit}}
 	plan := buildApplyPlan(tk, vid, def, agent, "A", ops, 1, "active", domain.StateNew, &agent, nil)
 	_, err := newWorkflowUnitOfWork(s.db).ApplyWorkflowPlan(context.Background(), plan)
@@ -1926,7 +1927,7 @@ func TestWorkflowUoW_Apply_HumanThenAutomaticTail(t *testing.T) {
 	v := vid
 	tk := seedPinnedTicket(t, s, domain.Ticket{Number: 300, Title: "T", Description: "", RequesterName: "Req", RequesterEmail: "r@x", RequesterUserID: &req, CategoryID: cat, Priority: domain.PriorityMedium, State: domain.StateInProgress, UserID: &agent, CreatedAt: now, UpdatedAt: now, WorkflowVersionID: &v})
 	seedRun(t, s, tk.ID, 0, "active", now)
-	ws := domain.AuditEvent{TicketID: tk.ID, Actor: "A", ActorUserID: &agent, Action: domain.ActionWorkflowStep, CreatedAt: now}
+	ws := domain.AuditEvent{TicketID: tk.ID, Actor: "A", ActorUserID: &agent, Action: domain.ActionWorkflowManualTask, CreatedAt: now}
 	tr := domain.AuditEvent{TicketID: tk.ID, Actor: "workflow", Action: domain.ActionTransition, Field: ptr("state"), FromValue: ptr("in_progress"), ToValue: ptr("resolved"), CreatedAt: now}
 	ops := []application.WorkflowOperation{
 		application.WorkflowStepOperation{StepIndex: 0, Audit: ws},
@@ -1942,7 +1943,7 @@ func TestWorkflowUoW_Apply_HumanThenAutomaticTail(t *testing.T) {
 		t.Fatalf("ticket state = %s want resolved", state)
 	}
 	gotAudits := auditActionOrder(t, s, tk.ID)
-	want := []string{"workflow_step||", "transition|in_progress|resolved"}
+	want := []string{"workflow_manual_task||", "transition|in_progress|resolved"}
 	if strings.Join(gotAudits, ";") != strings.Join(want, ";") {
 		t.Fatalf("audit order = %v want %v", gotAudits, want)
 	}
@@ -2026,7 +2027,7 @@ func TestWorkflowUoW_Apply_ClaimNewMissingTransitionRejected(t *testing.T) {
 	tk := seedPinnedTicket(t, s, domain.Ticket{Number: 311, Title: "T", Description: "", RequesterName: "Req", RequesterEmail: "r@x", RequesterUserID: &req, CategoryID: cat, Priority: domain.PriorityMedium, State: domain.StateNew, CreatedAt: now, UpdatedAt: now, WorkflowVersionID: &vid})
 	seedRun(t, s, tk.ID, 0, "active", now)
 	full := applyClaimOps(t, now, tk, agent, deskID)
-	ops := []application.WorkflowOperation{full[0], full[2]} // claim + workflow_step, NO transition
+	ops := []application.WorkflowOperation{full[0]} // claim only, NO transition
 	// The lying plan declares the ticket STILL new (no transition fired); on a new
 	// claim the new->in_progress transition is REQUIRED, so this is rejected.
 	plan := buildApplyPlan(tk, vid, def, agent, "Ag", ops, 1, "active", domain.StateNew, &agent, nil)
@@ -2057,7 +2058,7 @@ func TestWorkflowUoW_Apply_TimestampReversalRejected(t *testing.T) {
 	later := now.Add(time.Hour)
 	ops := []application.WorkflowOperation{
 		application.FormAnswerOperation{StepIndex: 0, AnswersJSON: []byte(`["x"]`), SubmittedByUserID: req, SubmittedAt: later},
-		application.WorkflowStepOperation{StepIndex: 0, Audit: domain.AuditEvent{TicketID: tk.ID, Actor: "A", ActorUserID: &req, Action: domain.ActionWorkflowStep, CreatedAt: now}},
+		application.WorkflowStepOperation{StepIndex: 0, Audit: domain.AuditEvent{TicketID: tk.ID, Actor: "A", ActorUserID: &req, Action: domain.ActionWorkflowRequesterForm, CreatedAt: now}},
 	}
 	plan := buildApplyPlan(tk, vid, def, req, "A", ops, 1, "active", domain.StateNew, nil, nil)
 	_, err := newWorkflowUnitOfWork(s.db).ApplyWorkflowPlan(context.Background(), plan)
@@ -2156,6 +2157,7 @@ type fullAuditRow struct {
 	field       *string
 	fromValue   *string
 	toValue     *string
+	deskID      *int64
 	reason      *string
 	note        *string
 	createdAt   string
@@ -2452,9 +2454,10 @@ func TestWorkflowUoW_Apply_TerminalMatrix(t *testing.T) {
 // TestWorkflowUoW_Apply_ClaimInProgressRedundantTransitionRejected — UNMASKED:
 // two INDEPENDENT in_progress same-person claim plans with run cursor and
 // ExpectedCursor ALIGNED so the redundant-transition decision reaches the grammar
-// validator (not a stale cursor precheck). The valid claim is a LONE workflow_step;
-// a transition placed where the claim's transition slot is checked is rejected as
-// "claim transition on non-new step" with zero writes and the message surfaced.
+// validator (not a stale cursor precheck). The valid claim is the lone contextual
+// assignment; a transition placed where the claim's transition slot is checked is
+// rejected as "claim transition on non-new step" with zero writes and the message
+// surfaced.
 func TestWorkflowUoW_Apply_ClaimInProgressRedundantTransitionRejected(t *testing.T) {
 	now := testClock
 	s := newTestDB(t)
@@ -2465,10 +2468,10 @@ func TestWorkflowUoW_Apply_ClaimInProgressRedundantTransitionRejected(t *testing
 	def := claimDef(deskID)
 	vid := seedPublished(t, s, cat, def)
 
-	// 1) Valid same-person in_progress claim: [ClaimAssignment(same-person),
-	//    WorkflowStep] (no redundant transition) succeeds with exactly one audit —
-	//    the claim asset op applies as a user-field no-op, so only the workflow_step
-	//    is persisted.
+	// 1) Valid same-person in_progress claim: [ClaimAssignment(same-person)]
+	//    (no redundant transition) succeeds with exactly ONE contextual audit —
+	//    the claim applies as a user-field no-op on the copy while the structured
+	//    workflow_assignment row (from==to) is still persisted.
 	t.Run("valid-same-person-claim-op", func(t *testing.T) {
 		v := vid
 		tk := seedPinnedTicket(t, s, domain.Ticket{Number: 312, Title: "T", Description: "", RequesterName: "Req", RequesterEmail: "r@x", RequesterUserID: &req, CategoryID: cat, Priority: domain.PriorityMedium, State: domain.StateInProgress, UserID: &agent, CreatedAt: now, UpdatedAt: now, WorkflowVersionID: &v})
@@ -2483,8 +2486,9 @@ func TestWorkflowUoW_Apply_ClaimInProgressRedundantTransitionRejected(t *testing
 			t.Fatalf("valid claim audits = %d, want 1", len(got))
 		}
 		requireFullAudit(t, 0, got[0], fullAuditRow{
-			ticketID: tk.ID, actor: "Ag", actorUserID: &agent, action: "workflow_step",
-			field: nil, fromValue: nil, toValue: nil, reason: nil, note: nil, createdAt: formatTime(now),
+			ticketID: tk.ID, actor: "Ag", actorUserID: &agent, action: "workflow_assignment",
+			field: ptr("user"), fromValue: ptr(strconv.FormatInt(agent, 10)), toValue: ptr(strconv.FormatInt(agent, 10)),
+			reason: nil, note: nil, createdAt: formatTime(now),
 		})
 		requireTicketAndRun(t, s, tk.ID,
 			ticketFacts{state: "in_progress", assignee: &agent, updatedAt: formatTime(now)},
@@ -2499,17 +2503,15 @@ func TestWorkflowUoW_Apply_ClaimInProgressRedundantTransitionRejected(t *testing
 		tk := seedPinnedTicket(t, s, domain.Ticket{Number: 313, Title: "T", Description: "", RequesterName: "Req", RequesterEmail: "r@x", RequesterUserID: &req, CategoryID: cat, Priority: domain.PriorityMedium, State: domain.StateInProgress, UserID: &agent, CreatedAt: now, UpdatedAt: now, WorkflowVersionID: &v})
 		seedRun(t, s, tk.ID, 0, "active", now)
 		tr := domain.AuditEvent{TicketID: tk.ID, Actor: "workflow", Action: domain.ActionTransition, Field: ptr("state"), FromValue: ptr("in_progress"), ToValue: ptr("resolved"), CreatedAt: now}
-		ws := domain.AuditEvent{TicketID: tk.ID, Actor: "Ag", ActorUserID: &agent, Action: domain.ActionWorkflowStep, CreatedAt: now}
 		// The claim group starts with the same-person ClaimAssignmentOperation (the
 		// runner always preserves it); a redundant in_progress->resolved transition
 		// placed in the claim's transition slot must be rejected by the grammar rule.
 		field := "user"
 		f := strconv.FormatInt(agent, 10)
-		ca := domain.AuditEvent{TicketID: tk.ID, Actor: "Ag", ActorUserID: &agent, Action: domain.ActionUpdate, Field: &field, FromValue: &f, ToValue: &f, CreatedAt: now}
+		ca := domain.AuditEvent{TicketID: tk.ID, Actor: "Ag", ActorUserID: &agent, Action: domain.ActionWorkflowAssignment, Field: &field, FromValue: &f, ToValue: &f, DeskID: &deskID, CreatedAt: now}
 		ops := []application.WorkflowOperation{
-			application.ClaimAssignmentOperation{StepIndex: 0, DeskID: deskID, AssigneeUserID: agent, Reason: "", AssignmentAudit: ca},
+			application.ClaimAssignmentOperation{StepIndex: 0, DeskID: deskID, AssigneeUserID: agent, AssignmentAudit: ca},
 			application.TransitionOperation{StepIndex: 0, Audit: tr},
-			application.WorkflowStepOperation{StepIndex: 0, Audit: ws},
 		}
 		// ExpectedCursor stays 0 == the seeded run cursor 0, so the stale precheck
 		// does NOT fire and the grammar validator decides the redundant transition.
@@ -2559,12 +2561,11 @@ func TestWorkflowUoW_Apply_ExhaustiveClaimAuditEvidence(t *testing.T) {
 	agentStr := strconv.FormatInt(agent, 10)
 	got := readFullAudits(t, s, tk.ID)
 	want := []fullAuditRow{
-		{ticketID: tk.ID, actor: "Ag", actorUserID: &agent, action: "update", field: sptr("user"), fromValue: sptr(""), toValue: sptr(agentStr), reason: nil, note: nil, createdAt: nowStr},
+		{ticketID: tk.ID, actor: "Ag", actorUserID: &agent, action: "workflow_assignment", field: sptr("user"), fromValue: sptr(""), toValue: sptr(agentStr), deskID: &deskID, reason: nil, note: nil, createdAt: nowStr},
 		{ticketID: tk.ID, actor: "workflow", actorUserID: nil, action: "transition", field: sptr("state"), fromValue: sptr("new"), toValue: sptr("in_progress"), reason: nil, note: nil, createdAt: nowStr},
-		{ticketID: tk.ID, actor: "Ag", actorUserID: &agent, action: "workflow_step", field: nil, fromValue: nil, toValue: nil, reason: nil, note: nil, createdAt: nowStr},
 	}
 	if len(got) != len(want) {
-		t.Fatalf("claim audits = %d rows, want %d", len(got), len(want))
+		t.Fatalf("claim audits = %d rows, want %d (contextual assignment + transition)", len(got), len(want))
 	}
 	for i := range want {
 		requireFullAudit(t, i, got[i], want[i])
@@ -2593,7 +2594,7 @@ func TestWorkflowUoW_Apply_ExhaustiveFormAuditEvidence(t *testing.T) {
 	}
 	got := readFullAudits(t, s, tk.ID)
 	want := []fullAuditRow{
-		{ticketID: tk.ID, actor: "A", actorUserID: &req, action: "workflow_step", field: nil, fromValue: nil, toValue: nil, reason: nil, note: nil, createdAt: nowStr},
+		{ticketID: tk.ID, actor: "A", actorUserID: &req, action: "workflow_requester_form", field: nil, fromValue: nil, toValue: nil, reason: nil, note: nil, createdAt: nowStr},
 	}
 	if len(got) != len(want) {
 		t.Fatalf("form audits = %d rows, want %d", len(got), len(want))
@@ -2638,7 +2639,7 @@ func TestWorkflowUoW_Apply_ExhaustiveManualAuditEvidence(t *testing.T) {
 	}
 	got := readFullAudits(t, s, tk.ID)
 	want := []fullAuditRow{
-		{ticketID: tk.ID, actor: "A", actorUserID: &agent, action: "workflow_step", field: nil, fromValue: nil, toValue: nil, reason: nil, note: nil, createdAt: nowStr},
+		{ticketID: tk.ID, actor: "A", actorUserID: &agent, action: "workflow_manual_task", field: nil, fromValue: nil, toValue: nil, reason: nil, note: nil, createdAt: nowStr},
 	}
 	if len(got) != len(want) {
 		t.Fatalf("manual audits = %d rows, want %d", len(got), len(want))
@@ -2776,7 +2777,7 @@ func TestWorkflowUoW_SamePlanRetryAfterStaleConflict(t *testing.T) {
 		t.Fatalf("retry produced %d audits, want exactly 1 (no duplicate writes)", len(got))
 	}
 	requireFullAudit(t, 0, got[0], fullAuditRow{
-		ticketID: tk.ID, actor: "A", actorUserID: &agent, action: "workflow_step",
+		ticketID: tk.ID, actor: "A", actorUserID: &agent, action: "workflow_manual_task",
 		field: nil, fromValue: nil, toValue: nil, reason: nil, note: nil, createdAt: nowStr,
 	})
 	var ansAfter int

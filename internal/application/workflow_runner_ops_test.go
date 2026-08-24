@@ -54,16 +54,19 @@ func wantOps(t *testing.T, pl application.WorkflowMutationPlan, want ...string) 
 	}
 }
 
-func assertAssignAudit(t *testing.T, a domain.AuditEvent, actor int64, from, to, reason string) {
+func assertAssignAudit(t *testing.T, a domain.AuditEvent, actor int64, from, to, reason string, deskID int64) {
 	t.Helper()
 	got := ""
 	if a.Reason != nil {
 		got = *a.Reason
 	}
-	if a.TicketID != 1 || a.Actor != actorName(actor) || a.ActorUserID == nil || *a.ActorUserID != actor || a.Action != domain.ActionUpdate ||
+	if a.TicketID != 1 || a.Actor != actorName(actor) || a.ActorUserID == nil || *a.ActorUserID != actor || a.Action != domain.ActionWorkflowAssignment ||
 		a.Field == nil || *a.Field != "user" || a.FromValue == nil || *a.FromValue != from ||
 		a.ToValue == nil || *a.ToValue != to || got != reason || !a.CreatedAt.Equal(fixedClock().Now()) {
 		t.Fatalf("assignment audit %+v", a)
+	}
+	if a.DeskID == nil || *a.DeskID != deskID {
+		t.Fatalf("assignment audit desk = %v, want %d", a.DeskID, deskID)
 	}
 }
 
@@ -90,12 +93,6 @@ func cmdFor(actor int64, raw application.RawPositionalValues) application.Comple
 // (audit-log spec: application stamps both Actor and ActorUserID).
 func actorName(id int64) string { return fmt.Sprintf("human-%d", id) }
 
-func cmdReason(actor int64, reason string) application.CompleteWorkflowCommand {
-	c := cmdFor(actor, nil)
-	c.Reason = reason
-	return c
-}
-
 // TestWorkflowRunner_OrderedOperations proves the closed ordered operation
 // contract: every human-supported step emits exactly its literal operation
 // sequence with complete persistence facts (step index, identity, timestamp,
@@ -105,13 +102,6 @@ func TestWorkflowRunner_OrderedOperations(t *testing.T) {
 	now := fixedClock().Now()
 	nameFields := []domain.FormField{{Key: "name", Label: "Name", Kind: domain.FieldShortText, Required: true}, {Key: "agree", Label: "Agree", Kind: domain.FieldCheckbox, Required: true}}
 	formRaw := application.RawPositionalValues{{Position: 0, Values: []string{"  api  "}}, {Position: 1, Values: []string{"on"}}}
-	reassignErr := func(t *testing.T, err error) {
-		t.Helper()
-		var rerr *domain.ReassignReasonRequiredError
-		if !errors.As(err, &rerr) {
-			t.Fatalf("want ReassignReasonRequiredError got %v", err)
-		}
-	}
 	cases := []struct {
 		name    string
 		s       application.WorkflowExecutionSnapshot
@@ -136,9 +126,9 @@ func TestWorkflowRunner_OrderedOperations(t *testing.T) {
 					t.Fatalf("typed answers %v %v", arr, err)
 				}
 				ws := pl.Operations[1].(application.WorkflowStepOperation)
-				if ws.StepIndex != 0 || ws.Audit.Actor != actorName(1) || ws.Audit.Action != domain.ActionWorkflowStep || ws.Audit.ActorUserID == nil ||
+				if ws.StepIndex != 0 || ws.Audit.Actor != actorName(1) || ws.Audit.Action != domain.ActionWorkflowRequesterForm || ws.Audit.ActorUserID == nil ||
 					*ws.Audit.ActorUserID != 1 || !ws.Audit.CreatedAt.Equal(now) {
-					t.Fatalf("workflow_step audit %+v", ws.Audit)
+					t.Fatalf("requester form completion audit %+v", ws.Audit)
 				}
 			},
 		},
@@ -149,70 +139,63 @@ func TestWorkflowRunner_OrderedOperations(t *testing.T) {
 			kinds: []string{"WorkflowStepOperation"},
 			verify: func(t *testing.T, pl application.WorkflowMutationPlan) {
 				ws := pl.Operations[0].(application.WorkflowStepOperation)
-				if ws.StepIndex != 0 || ws.Audit.Actor != actorName(9) || ws.Audit.ActorUserID == nil || *ws.Audit.ActorUserID != 9 {
+				if ws.StepIndex != 0 || ws.Audit.Actor != actorName(9) || ws.Audit.Action != domain.ActionWorkflowManualTask || ws.Audit.ActorUserID == nil || *ws.Audit.ActorUserID != 9 {
 					t.Fatalf("manual step %+v", ws)
 				}
 			},
 		},
 		{
-			name:  "claim new unassigned orders assignment transition workflow step",
+			name:  "claim new unassigned orders contextual assignment plus transition",
 			s:     snapWith(domain.StateNew, 0, wf(claim(42)), nil, nil),
 			cmd:   cmdFor(7, nil),
-			kinds: []string{"ClaimAssignmentOperation", "TransitionOperation", "WorkflowStepOperation"},
+			kinds: []string{"ClaimAssignmentOperation", "TransitionOperation"},
 			verify: func(t *testing.T, pl application.WorkflowMutationPlan) {
 				ca := pl.Operations[0].(application.ClaimAssignmentOperation)
-				if ca.StepIndex != 0 || ca.DeskID != 42 || ca.AssigneeUserID != 7 || ca.Reason != "" {
+				if ca.StepIndex != 0 || ca.DeskID != 42 || ca.AssigneeUserID != 7 || ca.AssignmentAudit.Reason != nil {
 					t.Fatalf("claim op %+v", ca)
 				}
-				assertAssignAudit(t, ca.AssignmentAudit, 7, "", "7", "")
+				assertAssignAudit(t, ca.AssignmentAudit, 7, "", "7", "", 42)
 				assertTransition(t, pl.Operations[1].(application.TransitionOperation), "new", "in_progress")
 			},
 		},
 		{
-			name:    "claim reassignment requires reason",
-			s:       snapWith(domain.StateInProgress, 0, wf(claim(1)), nil, ptr(int64(5))),
-			cmd:     cmdReason(7, "   "),
-			wantErr: true,
-			errChk:  reassignErr,
-		},
-		{
-			name:  "claim reassignment propagates trimmed reason and audit",
+			name:  "claim reassignment is reasonless",
 			s:     snapWith(domain.StateInProgress, 0, wf(claim(9)), nil, ptr(int64(5))),
-			cmd:   cmdReason(7, "  handoff  "),
-			kinds: []string{"ClaimAssignmentOperation", "WorkflowStepOperation"},
+			cmd:   cmdFor(7, nil),
+			kinds: []string{"ClaimAssignmentOperation"},
 			verify: func(t *testing.T, pl application.WorkflowMutationPlan) {
 				ca := pl.Operations[0].(application.ClaimAssignmentOperation)
-				if ca.Reason != "handoff" {
-					t.Fatalf("claim reason %+v", ca)
+				if ca.AssignmentAudit.Reason != nil {
+					t.Fatalf("workflow claim must not carry a reason: %+v", ca)
 				}
-				assertAssignAudit(t, ca.AssignmentAudit, 7, "5", "7", "handoff")
+				assertAssignAudit(t, ca.AssignmentAudit, 7, "5", "7", "", 9)
 			},
 		},
 		{
-			name:  "same person claim in progress preserves claim intent plus step",
+			name:  "same person claim in progress preserves claim intent",
 			s:     snapWith(domain.StateInProgress, 0, wf(claim(9)), nil, ptr(int64(7))),
 			cmd:   cmdFor(7, nil),
-			kinds: []string{"ClaimAssignmentOperation", "WorkflowStepOperation"},
+			kinds: []string{"ClaimAssignmentOperation"},
 			verify: func(t *testing.T, pl application.WorkflowMutationPlan) {
 				ca, ok := pl.Operations[0].(application.ClaimAssignmentOperation)
-				if !ok || ca.StepIndex != 0 || ca.DeskID != 9 || ca.AssigneeUserID != 7 || ca.Reason != "" {
+				if !ok || ca.StepIndex != 0 || ca.DeskID != 9 || ca.AssigneeUserID != 7 || ca.AssignmentAudit.Reason != nil {
 					t.Fatalf("same-person claim op %+v", ca)
 				}
 				// The same-person claim carries exact from==to facts and no fake reason.
-				assertAssignAudit(t, ca.AssignmentAudit, 7, "7", "7", "")
+				assertAssignAudit(t, ca.AssignmentAudit, 7, "7", "7", "", 9)
 			},
 		},
 		{
-			name:  "same person claim from new preserves intent plus transition and step",
+			name:  "same person claim from new preserves intent plus transition",
 			s:     snapWith(domain.StateNew, 0, wf(claim(9)), nil, ptr(int64(7))),
 			cmd:   cmdFor(7, nil),
-			kinds: []string{"ClaimAssignmentOperation", "TransitionOperation", "WorkflowStepOperation"},
+			kinds: []string{"ClaimAssignmentOperation", "TransitionOperation"},
 			verify: func(t *testing.T, pl application.WorkflowMutationPlan) {
 				if pl.NextTicketState != domain.StateInProgress {
 					t.Fatalf("same-person claim on new must transition, got %s", pl.NextTicketState)
 				}
 				ca, ok := pl.Operations[0].(application.ClaimAssignmentOperation)
-				if !ok || ca.StepIndex != 0 || ca.DeskID != 9 || ca.AssigneeUserID != 7 || ca.Reason != "" {
+				if !ok || ca.StepIndex != 0 || ca.DeskID != 9 || ca.AssigneeUserID != 7 || ca.AssignmentAudit.Reason != nil {
 					t.Fatalf("same-person claim op %+v", ca)
 				}
 				assertTransition(t, pl.Operations[1].(application.TransitionOperation), "new", "in_progress")
@@ -297,7 +280,12 @@ func TestWorkflowRunner_ActorAndClaim(t *testing.T) {
 		{name: "admin cannot complete requester form", s: reqForm, cmd: cmdFor(2, raw), forbid: true},
 		{name: "root cannot complete requester form", s: reqForm, cmd: cmdFor(3, raw), forbid: true},
 		{name: "current assignee cannot complete requester form", s: reqFormAssigned, cmd: cmdFor(2, raw), forbid: true},
-		{name: "assignee form only assignee", s: asgForm, cmd: cmdFor(9, raw)},
+		{name: "assignee form only assignee", s: asgForm, cmd: cmdFor(9, raw), verify: func(t *testing.T, pl application.WorkflowMutationPlan) {
+			ws := pl.Operations[len(pl.Operations)-1].(application.WorkflowStepOperation)
+			if ws.Audit.Action != domain.ActionWorkflowAssigneeForm {
+				t.Fatalf("assignee form completion action = %q, want %q", ws.Audit.Action, domain.ActionWorkflowAssigneeForm)
+			}
+		}},
 		{name: "non-assignee cannot complete assignee form", s: asgForm, cmd: cmdFor(2, raw), forbid: true},
 		{name: "manual only current assignee", s: manual, cmd: cmdFor(9, nil)},
 		{name: "admin cannot complete manual", s: manual, cmd: cmdFor(2, nil), forbid: true},
@@ -481,4 +469,131 @@ func assertNoFunctions(t *testing.T, v reflect.Value) {
 			assertNoFunctions(t, v.Index(i))
 		}
 	}
+}
+
+// TestWorkflowRunner_SolutionPortSurface (Amendment 2 WA.2): the optional
+// manual-task solution is a plain data field on the completion command, on the
+// sealed WorkflowStepOperation, and on the read-side WorkflowStepContext — the
+// operation-group grammar stays EXACTLY [WorkflowStep] with no new group kind,
+// so the field is the entire port surface.
+func TestWorkflowRunner_SolutionPortSurface(t *testing.T) {
+	cmd := application.CompleteWorkflowCommand{TicketID: 1, ActorUserID: 7, ExpectedPosition: 1, Solution: "rack the server"}
+	if cmd.Solution != "rack the server" {
+		t.Fatalf("command solution = %q", cmd.Solution)
+	}
+	idx := 0
+	op := application.WorkflowStepOperation{
+		StepIndex: idx,
+		Audit:     domain.AuditEvent{TicketID: 1, Actor: "human-7", Action: domain.ActionWorkflowManualTask, StepIndex: &idx},
+		Solution:  cmd.Solution,
+	}
+	if op.Solution != "rack the server" || op.StepIndex != 0 {
+		t.Fatalf("step operation solution/index = %q/%d", op.Solution, op.StepIndex)
+	}
+	stepCtx := application.WorkflowStepContext{Kind: "manual", Instruction: "do", Solution: op.Solution}
+	if stepCtx.Solution != "rack the server" {
+		t.Fatalf("step context solution = %q", stepCtx.Solution)
+	}
+}
+
+// TestWorkflowRunner_SolutionManualStamping (Amendment 2 WA.3): the manual
+// branch stamps the submitted solution — trimmed — onto the sealed
+// WorkflowStepOperation; absent/whitespace-only submissions complete normally
+// with an EMPTY op solution; actor authority is unchanged (current assignee
+// only). The runner never persists anything itself: stamping is data-only.
+func TestWorkflowRunner_SolutionManualStamping(t *testing.T) {
+	r := application.NewWorkflowRunner(fixedClock())
+	assignee := int64(9)
+	for _, tc := range []struct {
+		name      string
+		submitted string
+		wantOp    string
+	}{
+		{"trimmed solution stamps onto the sealed op", "  rack the server\t ", "rack the server"},
+		{"whitespace-only solution completes empty", "   \t ", ""},
+		{"absent solution completes normally", "", ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := snapWith(domain.StateInProgress, 0, wf(man()), ptr(int64(1)), &assignee)
+			cmd := cmdFor(assignee, nil)
+			cmd.Solution = tc.submitted
+			pl, err := r.PlanComplete(context.Background(), s, cmd)
+			if err != nil {
+				t.Fatalf("plan manual completion with solution %q: %v", tc.submitted, err)
+			}
+			ws, ok := pl.Operations[0].(application.WorkflowStepOperation)
+			if !ok {
+				t.Fatalf("first op = %T, want WorkflowStepOperation", pl.Operations[0])
+			}
+			if ws.Solution != tc.wantOp {
+				t.Fatalf("op.Solution = %q, want %q", ws.Solution, tc.wantOp)
+			}
+			if ws.StepIndex != 0 || ws.Audit.Action != domain.ActionWorkflowManualTask ||
+				ws.Audit.ActorUserID == nil || *ws.Audit.ActorUserID != assignee ||
+				ws.Audit.Actor != actorName(assignee) || !ws.Audit.CreatedAt.Equal(fixedClock().Now()) {
+				t.Fatalf("completion audit facts changed by solution stamping: %+v", ws.Audit)
+			}
+		})
+	}
+	t.Run("actor authority unchanged: non-assignee carrying a solution stays forbidden", func(t *testing.T) {
+		s := snapWith(domain.StateInProgress, 0, wf(man()), ptr(int64(1)), &assignee)
+		cmd := cmdFor(7, nil)
+		cmd.Solution = "sneaky solution"
+		if _, err := r.PlanComplete(context.Background(), s, cmd); err == nil {
+			t.Fatal("non-assignee must stay forbidden")
+		} else {
+			wantForbidden(t, err)
+		}
+	})
+}
+
+// TestWorkflowRunner_SolutionFormContradiction (Amendment 2 WA.3): a form-step
+// operation carrying a non-empty solution is a plan CONTRADICTION rejected with
+// a typed error and zero mutations before any write; whitespace-only collapses
+// to none; position-conflict precedence is unchanged.
+func TestWorkflowRunner_SolutionFormContradiction(t *testing.T) {
+	r := application.NewWorkflowRunner(fixedClock())
+	fields := []domain.FormField{{Key: "host", Label: "Host", Kind: domain.FieldShortText}}
+
+	t.Run("non-empty solution on a form step rejects before any write", func(t *testing.T) {
+		s := snapWith(domain.StateNew, 0, wf(fm(domain.FormActorRequester, fields...)), ptr(int64(1)), nil)
+		cmd := cmdFor(1, application.RawPositionalValues{{Position: 0, Values: []string{"api-01"}}})
+		cmd.Solution = "form steps take no solution"
+		pl, err := r.PlanComplete(context.Background(), s, cmd)
+		if err == nil {
+			t.Fatal("form-step completion with a solution must be rejected")
+		}
+		var verr *domain.ValidationError
+		if !errors.As(err, &verr) || verr.Field != "solution" {
+			t.Fatalf("want typed ValidationError{field: solution}, got %v", err)
+		}
+		if len(pl.Operations) != 0 {
+			t.Fatalf("rejected plan carries %d operations, want zero mutations", len(pl.Operations))
+		}
+	})
+
+	t.Run("whitespace-only solution on a form step completes without one", func(t *testing.T) {
+		s := snapWith(domain.StateNew, 0, wf(fm(domain.FormActorRequester, fields...)), ptr(int64(1)), nil)
+		cmd := cmdFor(1, application.RawPositionalValues{{Position: 0, Values: []string{"api-01"}}})
+		cmd.Solution = " \n "
+		pl, err := r.PlanComplete(context.Background(), s, cmd)
+		if err != nil {
+			t.Fatalf("whitespace-only solution must not reject: %v", err)
+		}
+		for _, op := range pl.Operations {
+			if ws, ok := op.(application.WorkflowStepOperation); ok && ws.Solution != "" {
+				t.Fatalf("form-step op carries solution %q, want empty", ws.Solution)
+			}
+		}
+	})
+
+	t.Run("stale position with a solution stays a position conflict", func(t *testing.T) {
+		s := snapWith(domain.StateNew, 0, wf(fm(domain.FormActorRequester, fields...)), ptr(int64(1)), nil)
+		cmd := cmdFor(1, nil)
+		cmd.Solution = "late solution"
+		cmd.ExpectedPosition = 5
+		if _, err := r.PlanComplete(context.Background(), s, cmd); !errors.Is(err, domain.ErrWorkflowPositionConflict) {
+			t.Fatalf("want position conflict precedence, got %v", err)
+		}
+	})
 }

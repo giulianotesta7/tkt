@@ -72,7 +72,7 @@ func TestWorkflowRunner_LifecycleAndAssignment(t *testing.T) {
 	}
 	t.Run("claim new transitions", func(t *testing.T) {
 		pl, err := r.PlanComplete(context.Background(), snap(domain.StateNew, 0, wf(claim(42))), application.CompleteWorkflowCommand{TicketID: 1, ActorUserID: 7, ExpectedPosition: 1})
-		if err != nil || len(pl.Operations) != 3 || pl.NextTicketState != domain.StateInProgress || pl.Result.Ticket.State != domain.StateInProgress {
+		if err != nil || len(pl.Operations) != 2 || pl.NextTicketState != domain.StateInProgress || pl.Result.Ticket.State != domain.StateInProgress {
 			t.Fatalf("claim %+v %v", pl, err)
 		}
 		ca, ok := pl.Operations[0].(application.ClaimAssignmentOperation)
@@ -82,7 +82,7 @@ func TestWorkflowRunner_LifecycleAndAssignment(t *testing.T) {
 	})
 	t.Run("claim in_progress no re-transition", func(t *testing.T) {
 		pl, _ := r.PlanComplete(context.Background(), snap(domain.StateInProgress, 0, wf(claim(1))), application.CompleteWorkflowCommand{TicketID: 1, ActorUserID: 7, ExpectedPosition: 1})
-		if pl.NextTicketState != domain.StateInProgress || len(pl.Operations) != 2 {
+		if pl.NextTicketState != domain.StateInProgress || len(pl.Operations) != 1 {
 			t.Fatalf("no re-transition %+v", pl)
 		}
 		for _, op := range pl.Operations {

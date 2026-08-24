@@ -63,8 +63,21 @@ func (r *WorkflowRunner) PlanComplete(_ context.Context, snap WorkflowExecutionS
 		return WorkflowMutationPlan{}, &domain.ValidationError{Field: "state", Message: "workflow step cannot complete in current ticket state"}
 	}
 
-	stepAudit := func() {
-		ops = append(ops, WorkflowStepOperation{StepIndex: exp, Audit: domain.AuditEvent{TicketID: ticket.ID, Actor: actorName, ActorUserID: &actor, Action: domain.ActionWorkflowStep, CreatedAt: now}})
+	stepAudit := func(action string, solution string) {
+		// Seal the exact zero-based pinned index onto the semantic completion
+		// audit: it is the only correlation key the view may use (PR10). A
+		// fresh allocation per event prevents later cursor moves from aliasing
+		// an already-sealed index.
+		idx := exp
+		ops = append(ops, WorkflowStepOperation{StepIndex: exp, Audit: domain.AuditEvent{TicketID: ticket.ID, Actor: actorName, ActorUserID: &actor, Action: action, StepIndex: &idx, CreatedAt: now}, Solution: solution})
+	}
+	// Amendment 2 (WA.3): the optional solution is a manual-task-only fact.
+	// The runner trims defensively (the HTTP layer trims first), whitespace-
+	// only collapses to none, and a non-empty solution on any other step type
+	// is a plan CONTRADICTION rejected before any operation is built.
+	solution := strings.TrimSpace(cmd.Solution)
+	if solution != "" && step.Type != domain.StepManualTask {
+		return WorkflowMutationPlan{}, &domain.ValidationError{Field: "solution", Message: "a solution is only accepted for manual task completions"}
 	}
 	switch step.Type {
 	case domain.StepAssignToDesk:
@@ -73,12 +86,17 @@ func (r *WorkflowRunner) PlanComplete(_ context.Context, snap WorkflowExecutionS
 		}
 		switch step.AssignToDesk.Strategy {
 		case domain.StrategyClaim:
-			claim, err := newClaimOperation(ticket, exp, step.AssignToDesk.DeskID, actor, actorName, cmd.Reason, now)
+			claim, err := newClaimOperation(ticket, exp, step.AssignToDesk.DeskID, actor, actorName, now)
 			if err != nil {
 				return WorkflowMutationPlan{}, err
 			}
 			if claim != nil {
 				ops = append(ops, *claim)
+				// A claim assigns the claimant as the ticket assignee (a same-person
+				// claim is already the owner, an unassigned claim takes ownership).
+				// Reflect that on the local copy so NextAssigneeUserID and the final
+				// plan facts agree with the persisted assignment the adapter rechecks.
+				ticket.UserID = &actor
 			}
 			op, err := inProgressTransitionOp(&ticket, exp, now)
 			if err != nil {
@@ -87,7 +105,9 @@ func (r *WorkflowRunner) PlanComplete(_ context.Context, snap WorkflowExecutionS
 			if op != nil {
 				ops = append(ops, *op)
 			}
-			stepAudit()
+			// A claim's visible completion IS its contextual assignment row (the
+			// structured "Assigned to …" timeline entry); no separate workflow_step
+			// audit is emitted.
 		case domain.StrategyLeastLoaded:
 			ops = append(ops, LeastLoadedAssignmentOperation{StepIndex: exp, DeskID: step.AssignToDesk.DeskID})
 			op, err := inProgressTransitionOp(&ticket, exp, now)
@@ -112,7 +132,11 @@ func (r *WorkflowRunner) PlanComplete(_ context.Context, snap WorkflowExecutionS
 			return WorkflowMutationPlan{}, err
 		}
 		ops = append(ops, FormAnswerOperation{StepIndex: exp, AnswersJSON: b, SubmittedByUserID: actor, SubmittedAt: now})
-		stepAudit()
+		formAction := domain.ActionWorkflowAssigneeForm
+		if step.Form.Actor == domain.FormActorRequester {
+			formAction = domain.ActionWorkflowRequesterForm
+		}
+		stepAudit(formAction, "")
 	case domain.StepManualTask:
 		if step.ManualTask == nil {
 			return WorkflowMutationPlan{}, &domain.ValidationError{Field: "type", Message: "manual_task requires config"}
@@ -120,7 +144,7 @@ func (r *WorkflowRunner) PlanComplete(_ context.Context, snap WorkflowExecutionS
 		if ticket.UserID == nil || *ticket.UserID != actor {
 			return WorkflowMutationPlan{}, domain.NewForbiddenError("manual_task requires the current assignee")
 		}
-		stepAudit()
+		stepAudit(domain.ActionWorkflowManualTask, solution)
 	case domain.StepResolve, domain.StepClose:
 		termOps, err := applyTerminal(&ticket, step.Type, exp, now)
 		if err != nil {
@@ -215,37 +239,23 @@ func requireFormActor(t domain.Ticket, a domain.FormActor, actor int64) error {
 	return nil
 }
 
-// newClaimOperation builds the claim assignment operation for the human
-// claimant. EVERY claim preserves an explicit ClaimAssignmentOperation carrying
-// the exact step/desk/actor facts (no same-person short-circuit): it is both the
-// assignment intent and the authorization fact the adapter re-checks. The
-// AssignmentAudit records the user field exactly (from == to on a same-person
-// claim and a NULL/nil reason, because a same-person claim never fabricates a
-// reassignment reason); the adapter applies a same-person claim as a mutation/
-// audit no-op for the user field. A reassignment (A→B) additionally requires a
-// non-blank trimmed reason, mirroring TicketService.Assign.
-func newClaimOperation(t domain.Ticket, stepIndex int, deskID int64, actor int64, actorName string, reason string, now time.Time) (*ClaimAssignmentOperation, error) {
+// newClaimOperation builds the reasonless pinned-workflow claim operation for
+// the authenticated claimant. It preserves exact step/desk/actor facts for the
+// UoW recheck and one contextual assignment audit; generic manual reassignment
+// remains the only path that accepts or requires a reason.
+func newClaimOperation(t domain.Ticket, stepIndex int, deskID int64, actor int64, actorName string, now time.Time) (*ClaimAssignmentOperation, error) {
 	from := ""
-	var trimmed string
 	if t.UserID != nil {
 		from = strconv.FormatInt(*t.UserID, 10)
-		trimmed = strings.TrimSpace(reason)
-		// A reassignment (A→B) requires a non-blank trimmed reason; a same-person
-		// claim (actor already owns the ticket) needs no reason and carries none.
-		if *t.UserID != actor && trimmed == "" {
-			return nil, domain.NewReassignReasonRequiredError()
-		}
 	}
 	to := strconv.FormatInt(actor, 10)
 	field := "user"
+	idx := stepIndex
 	audit := domain.AuditEvent{
-		TicketID: t.ID, Actor: actorName, ActorUserID: &actor, Action: domain.ActionUpdate, Field: &field,
-		FromValue: &from, ToValue: &to, CreatedAt: now,
+		TicketID: t.ID, Actor: actorName, ActorUserID: &actor, Action: domain.ActionWorkflowAssignment, Field: &field,
+		FromValue: &from, ToValue: &to, DeskID: &deskID, StepIndex: &idx, CreatedAt: now,
 	}
-	if trimmed != "" {
-		audit.Reason = &trimmed
-	}
-	return &ClaimAssignmentOperation{StepIndex: stepIndex, DeskID: deskID, AssigneeUserID: actor, Reason: trimmed, AssignmentAudit: audit}, nil
+	return &ClaimAssignmentOperation{StepIndex: stepIndex, DeskID: deskID, AssigneeUserID: actor, AssignmentAudit: audit}, nil
 }
 
 // inProgressTransitionOp returns the new→in_progress workflow transition

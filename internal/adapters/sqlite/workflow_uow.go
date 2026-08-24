@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/giulianotesta7/tkt/internal/application"
@@ -528,7 +527,7 @@ func validateTerminalMatrix(conflict func(string) error, stepType domain.StepTyp
 // simulates its writes on the ticket copy. The exact group depends on the pinned
 // step type:
 //
-//	claim:      [ClaimAssignment]? [new->in_progress Transition if ticket is new]? [WorkflowStep]
+//	claim:      [ClaimAssignment] [new->in_progress Transition if ticket is new]
 //	form:       [FormAnswer, WorkflowStep]
 //	manual:     [WorkflowStep]
 //	resolve:    [Transition]  (exactly one)
@@ -575,11 +574,12 @@ func corroborateGroup(ctx context.Context, tx *sql.Tx, conflict func(string) err
 		if len(ops) == 0 {
 			return 0, conflict("claim group missing")
 		}
-		// The exact claim group is [ClaimAssignment]? [new->in_progress Transition]? [WorkflowStep].
-		// A ClaimAssignmentOperation is ALWAYS present: it is both the assignment
-		// intent and the authorization fact the runner preserves even for a
-		// same-person claim, and the adapter always re-checks eligibility/membership
-		// for it (validateClaimOp applies a same-person claim as a user-field no-op).
+		// The exact claim group is [ClaimAssignment] plus the exact new->in_progress
+		// Transition when the ticket is new. A ClaimAssignmentOperation is ALWAYS
+		// present: it is both the authorization fact the runner preserves for every
+		// claim (same-person included) and the visible contextual completion — its
+		// structured workflow_assignment row IS the timeline entry, so no separate
+		// workflow_step audit exists in the group.
 		n := 0
 		c, ok := ops[0].(application.ClaimAssignmentOperation)
 		if !ok {
@@ -614,21 +614,6 @@ func corroborateGroup(ctx context.Context, tx *sql.Tx, conflict func(string) err
 				return 0, conflict("claim transition on non-new step")
 			}
 		}
-		// The human workflow_step completion audit closes the claim group.
-		if n >= len(ops) {
-			return 0, conflict("claim step missing completion audit")
-		}
-		ws, ok := ops[n].(application.WorkflowStepOperation)
-		if !ok {
-			return 0, conflict("claim group mismatch")
-		}
-		if err := requireIdx(ops[n]); err != nil {
-			return 0, err
-		}
-		if err := validateWorkflowStepOp(conflict, step, run, in, ws); err != nil {
-			return 0, err
-		}
-		n++
 		return n, nil
 
 	case domain.StepForm:
@@ -1229,8 +1214,13 @@ func validateClaimOp(ctx context.Context, tx *sql.Tx, conflict func(string) erro
 	}
 	same := t.UserID != nil && *t.UserID == v.AssigneeUserID
 	a := v.AssignmentAudit
-	if a.Action != domain.ActionUpdate {
+	if a.Action != domain.ActionWorkflowAssignment {
 		return conflict("assignment audit action mismatch")
+	}
+	// The contextual row must name the PINNED step's desk — that desk context is
+	// what the timeline renders as "Assigned to … · desk".
+	if a.DeskID == nil || *a.DeskID != v.DeskID {
+		return conflict("assignment audit desk mismatch")
 	}
 	if a.Field == nil || *a.Field != "user" {
 		return conflict("assignment audit field mismatch")
@@ -1257,24 +1247,11 @@ func validateClaimOp(ctx context.Context, tx *sql.Tx, conflict func(string) erro
 	if a.CreatedAt.Before(run.StartedAt) {
 		return conflict("assignment audit before run start")
 	}
-	trimmed := strings.TrimSpace(v.Reason)
-	auditReason := ""
-	if a.Reason != nil {
-		auditReason = *a.Reason
-	}
-	if trimmed != auditReason {
-		return conflict("assignment audit reason mismatch")
-	}
-	// A claim assignment audit carries NO note (audit-log spec); a fabricated note
-	// is a contradiction, never silently dropped.
-	if a.Note != nil {
-		return conflict("assignment audit must carry no note")
-	}
-	// A reassignment reason is required ONLY when the claim actually changes the
-	// assignee (A→B). A same-person claim owns the ticket already and needs no fake
-	// reason.
-	if cur != "" && !same && trimmed == "" {
-		return conflict("reassignment requires a reason")
+	// Pinned workflow claims are reasonless, including A→B. A fabricated reason or
+	// note is a plan contradiction; generic manual assignment keeps its separate
+	// reason requirement and rendering.
+	if a.Reason != nil || a.Note != nil {
+		return conflict("workflow claim must carry no reason or note")
 	}
 	// A same-person claim is an authorization/intent no-op for the user field: it
 	// never re-writes the user or its audit on the copy. Only a real A→B assignment
@@ -1287,12 +1264,25 @@ func validateClaimOp(ctx context.Context, tx *sql.Tx, conflict func(string) erro
 	return nil
 }
 
-// validateWorkflowStepOp corroborates a human workflow_step audit against a
-// NON-terminal human step (claim, form, manual) and validates the exact human
-// actor/id/ticket/time facts.
+// validateWorkflowStepOp corroborates a human step-completion audit against a
+// NON-terminal human step (form, manual) and validates the exact human
+// actor/id/ticket/time facts. The action is the CLOSED semantic vocabulary:
+// workflow_requester_form / workflow_assignee_form for a form step (matching the
+// pinned form actor) and workflow_manual_task for a manual task. The legacy
+// workflow_step action is never accepted on a new event.
 func validateWorkflowStepOp(conflict func(string) error, step domain.WorkflowStep, run *application.WorkflowRun, in application.WorkflowMutationPlan, v application.WorkflowStepOperation) error {
 	a := v.Audit
-	if a.Action != domain.ActionWorkflowStep {
+	want := domain.ActionWorkflowManualTask
+	if step.Type == domain.StepForm {
+		if step.Form == nil {
+			return conflict("workflow step audit at non-form step")
+		}
+		want = domain.ActionWorkflowAssigneeForm
+		if step.Form.Actor == domain.FormActorRequester {
+			want = domain.ActionWorkflowRequesterForm
+		}
+	}
+	if a.Action != want {
 		return conflict("workflow step audit action mismatch")
 	}
 	if a.TicketID != in.TicketID {
@@ -1304,16 +1294,17 @@ func validateWorkflowStepOp(conflict func(string) error, step domain.WorkflowSte
 	if a.ActorUserID == nil || *a.ActorUserID != in.ActorUserID {
 		return conflict("workflow step audit actor id mismatch")
 	}
-	// The workflow_step completion audit carries ONLY actor/action/ticket/time —
-	// no field/from/to/reason/note (those belong to transitions/assignments).
-	if a.Field != nil || a.FromValue != nil || a.ToValue != nil || a.Reason != nil || a.Note != nil {
-		return conflict("workflow step audit must carry no field/from/to/reason/note")
+	// The completion audit carries ONLY actor/action/ticket/time — no
+	// field/from/to/reason/note (those belong to transitions/assignments) and no
+	// desk id (only a workflow_assignment carries desk context).
+	if a.Field != nil || a.FromValue != nil || a.ToValue != nil || a.Reason != nil || a.Note != nil || a.DeskID != nil {
+		return conflict("workflow step audit must carry no field/from/to/reason/note/desk")
 	}
 	if a.CreatedAt.Before(run.StartedAt) {
 		return conflict("workflow step before run start")
 	}
 	switch step.Type {
-	case domain.StepAssignToDesk, domain.StepForm, domain.StepManualTask:
+	case domain.StepForm, domain.StepManualTask:
 	default:
 		return conflict("workflow step audit at terminal/unknown step")
 	}
@@ -1779,6 +1770,15 @@ func applyWorkflowOperations(ctx context.Context, tx *sql.Tx, t *domain.Ticket, 
 			if err := appendAuditEventsTx(ctx, tx, v.Audit); err != nil {
 				return err
 			}
+			// Amendment 2 (WA.4): the optional manual-task solution persists in
+			// ticket_manual_solutions ONLY when non-empty, reusing the operation's
+			// audit actor-user-id/created-at facts so completion, cursor, audit,
+			// and solution commit or roll back together in this one unit.
+			if v.Solution != "" {
+				if err := insertManualSolutionTx(ctx, tx, t.ID, v.StepIndex, v.Solution, v.Audit.ActorUserID, v.Audit.CreatedAt); err != nil {
+					return err
+				}
+			}
 			t.UpdatedAt = v.Audit.CreatedAt
 			lastAt = v.Audit.CreatedAt
 		case application.FormAnswerOperation:
@@ -1791,15 +1791,10 @@ func applyWorkflowOperations(ctx context.Context, tx *sql.Tx, t *domain.Ticket, 
 			if err := requireActiveAgentTx(ctx, tx, v.AssigneeUserID); err != nil {
 				return err
 			}
-			// No-false-audit rule (task 6.1): a same-person claim (the assignee is
-			// already the ticket user) changes nothing, so it writes no user
-			// assignment audit and no user change, even though the runner now always
-			// preserves an explicit ClaimAssignmentOperation as the authorization
-			// fact. The guard is defense-in-depth so no path can ever emit a false
-			// assignment audit.
-			if t.UserID != nil && *t.UserID == v.AssigneeUserID {
-				break
-			}
+			// The claim's contextual workflow_assignment row IS its visible completion
+			// (the structured "Assigned to … · desk" timeline entry), so it is written
+			// for EVERY accepted claim — a same-person claim carries exact from==to
+			// facts with no fake reason, while the user field itself stays unchanged.
 			t.UserID = &v.AssigneeUserID
 			t.UpdatedAt = v.AssignmentAudit.CreatedAt
 			lastAt = v.AssignmentAudit.CreatedAt
@@ -1819,24 +1814,25 @@ func applyWorkflowOperations(ctx context.Context, tx *sql.Tx, t *domain.Ticket, 
 			if selected == 0 {
 				return ErrLeastLoadedUnresolved
 			}
-			// No-false-audit rule (task 6.1): when the deterministic selection already
-			// owns the ticket there is no assignment change, so no user-field audit is
-			// written and the user is left unchanged. Any separately-planned
-			// new->in_progress transition still applies as its own operation and the
-			// cursor still advances. A NEW ticket is always unassigned here, so a
-			// create-path selection always emits the assignment audit; this branch only
-			// suppresses a false audit for an apply-path least_loaded on an already-owned
-			// ticket.
-			if t.UserID != nil && *t.UserID == selected {
-				break
-			}
+			// The deterministic selection resolves INSIDE the SAME immediate transaction
+			// (design S6): the selected person's contextual workflow_assignment row +
+			// (separately-planned) state transition + cursor persist as one atomic unit.
+			// An empty desk pool fails the whole submit with no partial writes. EVERY
+			// least_loaded completion writes EXACTLY ONE structured row — including a
+			// same-person selection (from==to, no fake reason). The from fact is read
+			// BEFORE the user field is set so the row records the true prior assignee.
 			field := "user"
 			from := ""
 			if t.UserID != nil {
 				from = strconv.FormatInt(*t.UserID, 10)
 			}
 			to := strconv.FormatInt(selected, 10)
-			a := domain.AuditEvent{TicketID: t.ID, Actor: "workflow", ActorUserID: nil, Action: domain.ActionUpdate, Field: &field, FromValue: &from, ToValue: &to, CreatedAt: lastAt}
+			desk := v.DeskID
+			// Seal the operation's zero-based pinned step index onto the
+			// adapter-built assignment row (PR10): the selection resolves inside
+			// this transaction, but its correlation key was planned up front.
+			idx := v.StepIndex
+			a := domain.AuditEvent{TicketID: t.ID, Actor: "workflow", ActorUserID: nil, Action: domain.ActionWorkflowAssignment, Field: &field, FromValue: &from, ToValue: &to, DeskID: &desk, StepIndex: &idx, CreatedAt: lastAt}
 			if err := appendAuditEventsTx(ctx, tx, a); err != nil {
 				return err
 			}
@@ -1855,6 +1851,22 @@ func insertAnswerTx(ctx context.Context, tx *sql.Tx, ticketID int64, stepIndex i
 	if _, err := tx.ExecContext(ctx, `INSERT INTO ticket_form_answers (ticket_id, step_index, answers_json, submitted_by_user_id, submitted_at)
 		VALUES (?, ?, ?, ?, ?)`, ticketID, stepIndex, string(answers), submittedBy, formatTime(at)); err != nil {
 		return fmt.Errorf("sqlite: insert form answer: %w", err)
+	}
+	return nil
+}
+
+// insertManualSolutionTx persists one completed manual task's optional solution
+// (Amendment 2 migration 0009), keyed by the sealed persisted step index and
+// attributed with the SAME actor-user-id/timestamp facts as its completion
+// audit. The actor id is mandatory: a manual completion audit without a human
+// actor fails closed rather than writing an unattributable solution.
+func insertManualSolutionTx(ctx context.Context, tx *sql.Tx, ticketID int64, stepIndex int, solution string, actorUserID *int64, at time.Time) error {
+	if actorUserID == nil {
+		return fmt.Errorf("sqlite: manual solution requires the completion audit's human actor id")
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO ticket_manual_solutions (ticket_id, step_index, solution, created_by_user_id, created_at)
+		VALUES (?, ?, ?, ?, ?)`, ticketID, stepIndex, solution, *actorUserID, formatTime(at)); err != nil {
+		return fmt.Errorf("sqlite: insert manual solution: %w", err)
 	}
 	return nil
 }

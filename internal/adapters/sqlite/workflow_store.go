@@ -167,7 +167,7 @@ func (w *workflowStore) ListSummaries(ctx context.Context) ([]application.Workfl
 			if !cur.Valid {
 				badge = "Draft"
 			} else if vno.Valid && steps.Valid && draft.String == steps.String {
-				badge = fmt.Sprintf("Published v%d", vno.Int64)
+				badge = "Published"
 			} else {
 				badge = "Draft"
 			}

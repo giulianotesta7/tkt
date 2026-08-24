@@ -141,7 +141,8 @@ func TestTicketShowRendersConciseSemanticMetadata(t *testing.T) {
 func TestAssignedAgentSeesTicketControls(t *testing.T) {
 	h := newHarness(t)
 	agent := h.createUser(t, "Agent", "agent@tkt.test", "secret")
-	ticket := h.seedTicket(t, "Assigned work", func(in *application.CreateTicketInput) { in.UserID = &agent.ID })
+	ticket := h.seedTicket(t, "Assigned work", nil)
+	h.assignTicket(t, ticket.ID, agent.ID)
 	session := h.loginCookie(t, agent.Email, "secret")
 	if session == "" {
 		t.Fatal("agent login must succeed")

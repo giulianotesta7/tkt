@@ -152,7 +152,7 @@ func newHarnessWithAdmin(t *testing.T, seedAdmin bool) *harness {
 	authSvc := application.NewAuthService(s.UserStore(), s.SessionStore(), clock)
 	catSvc := application.NewCategoryService(s.CategoryStore(), clock)
 	deskSvc := application.NewDeskService(s.DeskStore(), s.UserStore(), clock)
-	viewBuilder := application.NewViewBuilder(s.TicketStore(), s.UserStore(), s.CategoryStore(), s.CommentStore(), s.AuditStore(), s.WorkflowResponseStore())
+	viewBuilder := application.NewViewBuilder(s.TicketStore(), s.UserStore(), s.CategoryStore(), s.CommentStore(), s.AuditStore(), s.DeskStore(), s.WorkflowResponseStore())
 	ticketSvc := application.NewTicketServiceWithWorkflowCreate(s.TicketStore(), s.UserStore(), s.CategoryStore(), s.TicketUnitOfWork(), viewBuilder, clock, s.WorkflowVersionStore(), application.NewWorkflowRunner(clock), s.WorkflowUnitOfWork())
 	commentSvc := application.NewCommentService(s.TicketStore(), s.CommentStore(), clock)
 	searchSvc := application.NewSearchService(s.TicketStore(), s.SearchStore())
@@ -163,7 +163,7 @@ func newHarnessWithAdmin(t *testing.T, seedAdmin bool) *harness {
 	mux := http.NewServeMux()
 	RegisterStatic(mux)
 	NewAuthHandlers(authSvc, usersSvc, renderer).Register(mux)
-	NewTicketHandlers(ticketSvc, commentSvc, searchSvc, catSvc, usersSvc, renderer).Register(mux)
+	NewTicketHandlers(ticketSvc, commentSvc, searchSvc, catSvc, usersSvc, s.DeskStore(), workflowSvc, application.NewWorkflowRunner(clock), s.WorkflowRunStore(), s.WorkflowUnitOfWork(), renderer).Register(mux)
 	NewUserHandlers(usersSvc, renderer).Register(mux)
 	NewCategoryHandlersWithWorkflows(catSvc, workflowSvc, renderer).Register(mux)
 	NewCategoryWorkflowHandlers(workflowSvc, deskSvc, renderer).Register(mux)
@@ -292,6 +292,17 @@ func (h *harness) seedTicket(t *testing.T, title string, mod func(*application.C
 		t.Fatalf("seed ticket %q: %v", title, err)
 	}
 	return tkt
+}
+
+// assignTicket seeds an assignment through the audited Assign service call
+// (Amendment 2: creation no longer accepts an assignee, so test fixtures that
+// need an assigned ticket create unassigned and then assign — the same audited
+// path the production assign flow uses).
+func (h *harness) assignTicket(t *testing.T, ticketID, assigneeID int64) {
+	t.Helper()
+	if _, err := h.tickets.Assign(context.Background(), *h.admin, ticketID, &assigneeID, ""); err != nil {
+		t.Fatalf("assign ticket %d to user %d: %v", ticketID, assigneeID, err)
+	}
 }
 
 // seedTransition moves a seeded ticket through the state machine via the

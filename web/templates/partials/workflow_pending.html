@@ -1,0 +1,69 @@
+{{define "workflow_pending"}}{{if .Pending.Active}}
+<section class="card current-task-card" id="workflow-pending" aria-labelledby="current-task-title">
+  <h2 id="current-task-title">Current task</h2>
+{{if eq .Pending.Kind "auto"}}
+  <p class="empty">
+    An automatic step runs next; it completes on its own as the request
+    advances.
+  </p>
+{{else}}{{if eq .Pending.Kind "manual"}}
+  <p class="current-task-kicker">Complete this task:</p>
+  <p class="workflow-instruction">{{.Pending.Instruction}}</p>
+{{end}}{{if not .Pending.CanAct}}
+  <p class="empty">
+    Awaiting another participant to complete the current step.
+  </p>
+  {{else}}
+  <form
+    method="post"
+    action="/tickets/{{.View.Ticket.ID}}/workflow/steps/{{.Pending.Position}}/complete"
+    hx-post="/tickets/{{.View.Ticket.ID}}/workflow/steps/{{.Pending.Position}}/complete"
+    hx-target="#ticket-detail"
+    hx-swap="outerHTML"
+  >
+{{if eq .Pending.Kind "claim"}}
+    <div class="field">
+      <label for="reason">Reason</label>
+      <input
+        type="text"
+        id="reason"
+        name="reason"
+        placeholder="Optional reassignment reason"
+      />
+    </div>
+{{else if eq .Pending.Kind "manual"}}
+    <div class="field">
+      <label for="solution">Solution (optional)</label>
+      <textarea id="solution" name="solution"></textarea>
+    </div>
+{{else if eq .Pending.Kind "form"}} {{range $i, $f := .Pending.Fields}}
+    <div class="field">
+      <label for="answer_{{$i}}">{{$f.Label}}</label>
+      {{if eq (printf "%s" $f.Kind) "short_text"}}<input
+        type="text"
+        id="answer_{{$i}}"
+        name="answer_{{$i}}"{{if $f.Required}} required{{end}}
+      />
+      {{else if eq (printf "%s" $f.Kind) "long_text"}}<textarea
+        id="answer_{{$i}}"
+        name="answer_{{$i}}"{{if $f.Required}} required{{end}}
+      ></textarea>
+      {{else if eq (printf "%s" $f.Kind) "checkbox"}}<input
+        type="checkbox"
+        id="answer_{{$i}}"
+        name="answer_{{$i}}"
+        value="on"{{if $f.Required}} required{{end}}
+      />
+      {{else}}<select id="answer_{{$i}}" name="answer_{{$i}}"{{if $f.Required}} required{{end}}>
+        <option value=""></option>
+        {{range $f.Options}}
+        <option value="{{.}}">{{.}}</option>
+        {{end}}</select
+      >{{end}}
+    </div>
+    {{end}}{{end}}
+    <button class="btn primary" type="submit">Complete</button>
+  </form>
+{{end}}{{end}}
+</section>
+{{end}}{{end}}

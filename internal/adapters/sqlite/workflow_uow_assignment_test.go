@@ -93,19 +93,24 @@ func TestWorkflowUoW_LeastLoaded_SingleCandidateAtomic(t *testing.T) {
 	if cur != 1 || status != "completed" || comp == nil {
 		t.Errorf("run = cur %d status %s completed %v, want 1/completed/non-nil", cur, status, comp)
 	}
-	want := []string{"created||", "update||" + strconv.FormatInt(agent, 10), "transition|new|in_progress"}
+	want := []string{"created||", "workflow_assignment||" + strconv.FormatInt(agent, 10), "transition|new|in_progress"}
 	if got := auditActionOrder(t, s, tk.ID); strings.Join(got, ";") != strings.Join(want, ";") {
 		t.Fatalf("audit order = %v want %v", got, want)
 	}
-	// The assignment audit is a workflow actor with NULL user id.
+	// The contextual assignment row is a workflow actor with NULL user id and the
+	// pinned desk context.
 	var actor string
 	var actorID *int64
 	var fromV, toV string
-	if err := s.db.QueryRow(`SELECT actor, actor_user_id, COALESCE(from_value,''), COALESCE(to_value,'') FROM audit_events WHERE ticket_id=? AND action='update'`, tk.ID).Scan(&actor, &actorID, &fromV, &toV); err != nil {
+	var desk *int64
+	if err := s.db.QueryRow(`SELECT actor, actor_user_id, COALESCE(from_value,''), COALESCE(to_value,''), desk_id FROM audit_events WHERE ticket_id=? AND action='workflow_assignment'`, tk.ID).Scan(&actor, &actorID, &fromV, &toV, &desk); err != nil {
 		t.Fatalf("read assignment audit: %v", err)
 	}
 	if actor != "workflow" || actorID != nil || fromV != "" || toV != strconv.FormatInt(agent, 10) {
 		t.Fatalf("least_loaded assignment audit = actor %q id %v from %q to %q", actor, actorID, fromV, toV)
+	}
+	if desk == nil || *desk != deskID {
+		t.Fatalf("least_loaded assignment audit desk = %v, want %d", desk, deskID)
 	}
 }
 
@@ -309,7 +314,7 @@ func TestWorkflowUoW_ClaimRace_CursorCASAtLeastOneCommit(t *testing.T) {
 	if cur != 1 || status != "active" {
 		t.Fatalf("run = cur %d status %s, want 1/active", cur, status)
 	}
-	// The winner's person + new->in_progress + workflow_step audits exist once.
+	// The winner's contextual assignment + new->in_progress audits exist once.
 	state, assignee, _ := ticketRow(t, s, tk.ID)
 	if state != "in_progress" || assignee == nil {
 		t.Fatalf("state=%s assignee=%v want in_progress/person", state, assignee)
@@ -318,8 +323,8 @@ func TestWorkflowUoW_ClaimRace_CursorCASAtLeastOneCommit(t *testing.T) {
 		t.Fatalf("assignee=%d want one of the claimers", *assignee)
 	}
 	audits := auditActionOrder(t, s, tk.ID)
-	if len(audits) != 3 {
-		t.Fatalf("audits=%v want exactly one claim's 3 audits", audits)
+	if len(audits) != 2 {
+		t.Fatalf("audits=%v want exactly one claim's 2 audits", audits)
 	}
 }
 
@@ -405,12 +410,13 @@ func TestScopeAssignedOrClaimableRead(t *testing.T) {
 
 // ---- PR6 6.1 narrow correction proofs ----
 //
-// These tests prove the no-false-audit rule and the claim/scope guarantees that
-// close out task 6.1:
-//   1. same-person least_loaded: no user audit; a new ticket still transitions,
-//      an in_progress ticket does not;
-//   2. same-person claim: same no-false-audit rule;
-//   3. in_progress A->B claim assignment: user audit only, no state audit;
+// These tests prove the contextual assignment contract and the claim/scope
+// guarantees that close out task 6.1:
+//   1. same-person least_loaded: exactly one structured workflow_assignment row
+//      (from==to, no fake reason); a new ticket still transitions, an in_progress
+//      ticket does not;
+//   2. same-person claim: same single-contextual-row rule;
+//   3. in_progress A->B claim assignment: the contextual row only, no state audit;
 //   4. A->B claim without a valid reason: typed conflict + total rollback;
 //   5. a planned claimant that becomes inactive / role-below-agent / loses desk
 //      membership before apply: typed conflict + total rollback, and the same
@@ -436,41 +442,34 @@ func leastLoadedApplyOps(tk domain.Ticket, deskID int64, now time.Time) []applic
 
 // samePersonClaimOps is the apply-path group for a claim whose claimant is already
 // the ticket assignee. The runner ALWAYS preserves an explicit ClaimAssignmentOperation
-// as the authorization fact (even though it applies as a user-field no-op), leaving
-// [ClaimAssignment, new->in_progress Transition, WorkflowStep] when the ticket is new
-// and [ClaimAssignment, WorkflowStep] when it is in_progress. The same-person claim
-// audit carries exact from==to facts and NO reason (no fake reassignment reason).
+// as the authorization fact (even though it applies as a user-field no-op on the
+// copy), leaving [ClaimAssignment, new->in_progress Transition] when the ticket is
+// new and [ClaimAssignment] when it is in_progress. The contextual same-person row
+// carries exact from==to facts and NO reason (no fake reassignment reason).
 func samePersonClaimOps(tk domain.Ticket, deskID, agent int64, now time.Time) []application.WorkflowOperation {
 	field := "user"
 	f := strconv.FormatInt(agent, 10)
-	claimAudit := domain.AuditEvent{TicketID: tk.ID, Actor: "Ag", ActorUserID: &agent, Action: domain.ActionUpdate, Field: &field, FromValue: &f, ToValue: &f, CreatedAt: now}
+	claimAudit := domain.AuditEvent{TicketID: tk.ID, Actor: "Ag", ActorUserID: &agent, Action: domain.ActionWorkflowAssignment, Field: &field, FromValue: &f, ToValue: &f, DeskID: &deskID, CreatedAt: now}
 	ops := []application.WorkflowOperation{
-		application.ClaimAssignmentOperation{StepIndex: 0, DeskID: deskID, AssigneeUserID: agent, Reason: "", AssignmentAudit: claimAudit},
+		application.ClaimAssignmentOperation{StepIndex: 0, DeskID: deskID, AssigneeUserID: agent, AssignmentAudit: claimAudit},
 	}
 	if tk.State == domain.StateNew {
 		sfield := "state"
 		tr := domain.AuditEvent{TicketID: tk.ID, Actor: "workflow", Action: domain.ActionTransition, Field: &sfield, FromValue: ptr("new"), ToValue: ptr("in_progress"), CreatedAt: now}
 		ops = append(ops, application.TransitionOperation{StepIndex: 0, Audit: tr})
 	}
-	ws := domain.AuditEvent{TicketID: tk.ID, Actor: "Ag", ActorUserID: &agent, Action: domain.ActionWorkflowStep, CreatedAt: now}
-	ops = append(ops, application.WorkflowStepOperation{StepIndex: 0, Audit: ws})
 	return ops
 }
 
-// reassignClaimOps builds the apply-path group for an A->B claim on an
-// in_progress (non-new) ticket: [ClaimAssignment(A->B), WorkflowStep]. The claim
-// audit carries the explicit reason (a reassignment requires one).
-func reassignClaimOps(tk domain.Ticket, deskID int64, from, to int64, reason string, now time.Time) []application.WorkflowOperation {
+// reassignClaimOps builds the reasonless apply-path group for an in-progress
+// A->B pinned workflow claim.
+func reassignClaimOps(tk domain.Ticket, deskID int64, from, to int64, now time.Time) []application.WorkflowOperation {
 	field := "user"
 	f := strconv.FormatInt(from, 10)
 	toStr := strconv.FormatInt(to, 10)
-	audit := domain.AuditEvent{TicketID: tk.ID, Actor: "AgB", ActorUserID: &to, Action: domain.ActionUpdate, Field: &field, FromValue: &f, ToValue: &toStr, CreatedAt: now}
-	r := reason
-	audit.Reason = &r
-	ws := domain.AuditEvent{TicketID: tk.ID, Actor: "AgB", ActorUserID: &to, Action: domain.ActionWorkflowStep, CreatedAt: now}
+	audit := domain.AuditEvent{TicketID: tk.ID, Actor: "AgB", ActorUserID: &to, Action: domain.ActionWorkflowAssignment, Field: &field, FromValue: &f, ToValue: &toStr, DeskID: &deskID, CreatedAt: now}
 	return []application.WorkflowOperation{
-		application.ClaimAssignmentOperation{StepIndex: 0, DeskID: deskID, AssigneeUserID: to, Reason: reason, AssignmentAudit: audit},
-		application.WorkflowStepOperation{StepIndex: 0, Audit: ws},
+		application.ClaimAssignmentOperation{StepIndex: 0, DeskID: deskID, AssigneeUserID: to, AssignmentAudit: audit},
 	}
 }
 
@@ -490,15 +489,16 @@ func seedClaimPending(t *testing.T, s *Store, b int64, deskID int64) (domain.Tic
 	return tk, vid, def, ops
 }
 
-// TestWorkflowUoW_LeastLoaded_SamePersonNoFalseAudit proves the apply-path
-// least_loaded no-false-audit rule: when the deterministic selection already owns
-// the ticket, no user-field audit is written. A new ticket still carries its
-// new->in_progress transition; an in_progress ticket gets no state/audit change.
-func TestWorkflowUoW_LeastLoaded_SamePersonNoFalseAudit(t *testing.T) {
+// TestWorkflowUoW_LeastLoaded_SamePersonContextualRow proves the approved
+// contextual contract: EVERY least_loaded completion writes EXACTLY ONE structured
+// workflow_assignment row — including a same-person selection (from==to, no fake
+// reason) — while the user field itself stays unchanged. A new ticket still carries
+// its new->in_progress transition; an in_progress ticket gets no state change.
+func TestWorkflowUoW_LeastLoaded_SamePersonContextualRow(t *testing.T) {
 	cases := []struct {
-		name      string
-		state     domain.State
-		wantAudit []string
+		name         string
+		state        domain.State
+		wantTrailing []string // expected audit order AFTER the leading contextual row
 	}{
 		{"new ticket still transitions", domain.StateNew, []string{"transition|new|in_progress"}},
 		{"in_progress does not transition", domain.StateInProgress, nil},
@@ -527,19 +527,23 @@ func TestWorkflowUoW_LeastLoaded_SamePersonNoFalseAudit(t *testing.T) {
 			if assignee == nil || *assignee != agent {
 				t.Errorf("assignee = %v want %d (unchanged)", assignee, agent)
 			}
-			if got := auditActionOrder(t, s, tk.ID); strings.Join(got, ";") != strings.Join(tc.wantAudit, ";") {
-				t.Fatalf("audits = %v want %v (no user audit for the same person)", got, tc.wantAudit)
+			// Exactly one contextual row (from==to for the same-person selection), then
+			// the transition only when the ticket was new.
+			row := "workflow_assignment|" + strconv.FormatInt(agent, 10) + "|" + strconv.FormatInt(agent, 10)
+			want := append([]string{row}, tc.wantTrailing...)
+			if got := auditActionOrder(t, s, tk.ID); strings.Join(got, ";") != strings.Join(want, ";") {
+				t.Fatalf("audits = %v want %v (exactly one contextual row, user field unchanged)", got, want)
 			}
 		})
 	}
 }
 
-// TestWorkflowUoW_Claim_SamePersonNoFalseAudit proves the claim no-false-audit
-// rule: a claim whose claimant is already the assignee writes no user audit — the
-// ClaimAssignmentOperation is preserved as the authorization fact but applies as a
-// user-field no-op, leaving only the new->in_progress transition and the
-// workflow_step completion audit on a new ticket.
-func TestWorkflowUoW_Claim_SamePersonNoFalseAudit(t *testing.T) {
+// TestWorkflowUoW_Claim_SamePersonContextualRow proves the approved contextual
+// contract for claims: a claim whose claimant is already the assignee applies as a
+// user-field no-op on the copy while writing EXACTLY ONE structured
+// workflow_assignment row (from==to, no fake reason), plus the new->in_progress
+// transition on a new ticket.
+func TestWorkflowUoW_Claim_SamePersonContextualRow(t *testing.T) {
 	s := newTestDB(t)
 	cat := seedCategory(t, s, "C1")
 	req := seedUserRole(t, s, "Req", "r@x", true, domain.RoleUser)
@@ -554,9 +558,9 @@ func TestWorkflowUoW_Claim_SamePersonNoFalseAudit(t *testing.T) {
 	if _, err := newWorkflowUnitOfWork(s.db).ApplyWorkflowPlan(context.Background(), plan); err != nil {
 		t.Fatalf("same-person claim apply: %v", err)
 	}
-	want := []string{"transition|new|in_progress", "workflow_step||"}
+	want := []string{"workflow_assignment|" + strconv.FormatInt(agent, 10) + "|" + strconv.FormatInt(agent, 10), "transition|new|in_progress"}
 	if got := auditActionOrder(t, s, tk.ID); strings.Join(got, ";") != strings.Join(want, ";") {
-		t.Fatalf("audits = %v want %v (no user audit for the same person)", got, want)
+		t.Fatalf("audits = %v want %v (one contextual row + transition)", got, want)
 	}
 	_, assignee, _ := ticketRow(t, s, tk.ID)
 	if assignee == nil || *assignee != agent {
@@ -584,12 +588,12 @@ func seedSamePersonClaim(t *testing.T, s *Store, agent, deskID int64) (domain.Ti
 
 // TestWorkflowUoW_Claim_SamePerson_AuthorizationRecheck proves the PR6 same-person
 // correction end-to-end with a SINGLE immutable same-person plan: an active,
-// eligible, desk-member claimant succeeds with NO user audit; making the claimant
-// inactive or losing desk membership before apply is a typed
+// eligible, desk-member claimant succeeds with exactly one contextual row; making
+// the claimant inactive or losing desk membership before apply is a typed
 // ErrWorkflowPositionConflict with total rollback; and the same plan succeeds
 // once every precondition is restored.
 func TestWorkflowUoW_Claim_SamePerson_AuthorizationRecheck(t *testing.T) {
-	t.Run("eligible member succeeds with no user audit", func(t *testing.T) {
+	t.Run("eligible member succeeds with one contextual row", func(t *testing.T) {
 		s := newTestDB(t)
 		agent := seedUserRole(t, s, "Ag", "a@x", true, domain.RoleAgent)
 		deskID := seedDeskWithMember(t, s, agent)
@@ -598,9 +602,9 @@ func TestWorkflowUoW_Claim_SamePerson_AuthorizationRecheck(t *testing.T) {
 		if _, err := newWorkflowUnitOfWork(s.db).ApplyWorkflowPlan(context.Background(), plan); err != nil {
 			t.Fatalf("eligible same-person claim must succeed, got %v", err)
 		}
-		want := []string{"transition|new|in_progress", "workflow_step||"}
+		want := []string{"workflow_assignment|" + strconv.FormatInt(agent, 10) + "|" + strconv.FormatInt(agent, 10), "transition|new|in_progress"}
 		if got := auditActionOrder(t, s, tk.ID); strings.Join(got, ";") != strings.Join(want, ";") {
-			t.Fatalf("audits = %v want %v (no user audit for same person)", got, want)
+			t.Fatalf("audits = %v want %v (one contextual row + transition)", got, want)
 		}
 		state, assignee, _ := ticketRow(t, s, tk.ID)
 		if state != "in_progress" || assignee == nil || *assignee != agent {
@@ -684,8 +688,9 @@ func TestWorkflowUoW_Claim_SamePerson_AuthorizationRecheck(t *testing.T) {
 		if state != "in_progress" || assignee == nil || *assignee != agent {
 			t.Errorf("state=%s assignee=%v want in_progress/%d", state, assignee, agent)
 		}
-		if got := auditActionOrder(t, s, tk.ID); strings.Join(got, ";") != strings.Join([]string{"transition|new|in_progress", "workflow_step||"}, ";") {
-			t.Fatalf("audits = %v want transition+workflow_step only (no user audit)", got)
+		prior := strconv.FormatInt(agent, 10)
+		if got := auditActionOrder(t, s, tk.ID); strings.Join(got, ";") != strings.Join([]string{"workflow_assignment|" + prior + "|" + prior, "transition|new|in_progress"}, ";") {
+			t.Fatalf("audits = %v want contextual row + transition", got)
 		}
 	})
 }
@@ -706,11 +711,11 @@ func TestWorkflowUoW_Claim_InProgressReassignUserAuditOnly(t *testing.T) {
 	now := testClock
 	tk := seedPinnedTicket(t, s, domain.Ticket{Number: 7, Title: "T", Description: "", RequesterName: "Req", RequesterEmail: "r@x", RequesterUserID: &req, CategoryID: cat, Priority: domain.PriorityMedium, State: domain.StateInProgress, UserID: &a, CreatedAt: now, UpdatedAt: now, WorkflowVersionID: &vid})
 	seedRun(t, s, tk.ID, 0, "active", now)
-	plan := buildApplyPlan(tk, vid, def, b, "AgB", reassignClaimOps(tk, deskID, a, b, "handoff", now), 1, "active", domain.StateInProgress, &b, nil)
+	plan := buildApplyPlan(tk, vid, def, b, "AgB", reassignClaimOps(tk, deskID, a, b, now), 1, "active", domain.StateInProgress, &b, nil)
 	if _, err := newWorkflowUnitOfWork(s.db).ApplyWorkflowPlan(context.Background(), plan); err != nil {
 		t.Fatalf("A->B reassign apply: %v", err)
 	}
-	want := []string{"update|" + strconv.FormatInt(a, 10) + "|" + strconv.FormatInt(b, 10), "workflow_step||"}
+	want := []string{"workflow_assignment|" + strconv.FormatInt(a, 10) + "|" + strconv.FormatInt(b, 10)}
 	if got := auditActionOrder(t, s, tk.ID); strings.Join(got, ";") != strings.Join(want, ";") {
 		t.Fatalf("audits = %v want %v (user audit only, no state audit)", got, want)
 	}
@@ -723,9 +728,9 @@ func TestWorkflowUoW_Claim_InProgressReassignUserAuditOnly(t *testing.T) {
 	}
 }
 
-// TestWorkflowUoW_Claim_ReassignWithoutReasonConflict proves an A->B claim with no
-// valid reason is a typed position conflict with total rollback (zero writes).
-func TestWorkflowUoW_Claim_ReassignWithoutReasonConflict(t *testing.T) {
+// TestWorkflowUoW_Claim_ReassignWithoutReasonSucceeds proves an A->B pinned
+// claim is reasonless while retaining its atomic assignment event.
+func TestWorkflowUoW_Claim_ReassignWithoutReasonSucceeds(t *testing.T) {
 	s := newTestDB(t)
 	cat := seedCategory(t, s, "C1")
 	req := seedUserRole(t, s, "Req", "r@x", true, domain.RoleUser)
@@ -738,13 +743,13 @@ func TestWorkflowUoW_Claim_ReassignWithoutReasonConflict(t *testing.T) {
 	now := testClock
 	tk := seedPinnedTicket(t, s, domain.Ticket{Number: 7, Title: "T", Description: "", RequesterName: "Req", RequesterEmail: "r@x", RequesterUserID: &req, CategoryID: cat, Priority: domain.PriorityMedium, State: domain.StateInProgress, UserID: &a, CreatedAt: now, UpdatedAt: now, WorkflowVersionID: &vid})
 	seedRun(t, s, tk.ID, 0, "active", now)
-	plan := buildApplyPlan(tk, vid, def, b, "AgB", reassignClaimOps(tk, deskID, a, b, "", now), 1, "active", domain.StateInProgress, &b, nil)
-	_, err := newWorkflowUnitOfWork(s.db).ApplyWorkflowPlan(context.Background(), plan)
-	var wpc *domain.WorkflowPositionConflictError
-	if !errors.As(err, &wpc) {
-		t.Fatalf("reassignment without a reason must be a typed conflict, got %v", err)
+	plan := buildApplyPlan(tk, vid, def, b, "AgB", reassignClaimOps(tk, deskID, a, b, now), 1, "active", domain.StateInProgress, &b, nil)
+	if _, err := newWorkflowUnitOfWork(s.db).ApplyWorkflowPlan(context.Background(), plan); err != nil {
+		t.Fatalf("reasonless workflow reassignment must succeed, got %v", err)
 	}
-	assertApplyNoWrites(t, s, tk)
+	if _, assignee, _ := ticketRow(t, s, tk.ID); assignee == nil || *assignee != b {
+		t.Fatalf("reasonless workflow reassignment assignee = %v, want %d", assignee, b)
+	}
 }
 
 // TestWorkflowUoW_Claim_ClaimantPreconditionRecheck proves each claimant

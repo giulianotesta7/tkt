@@ -23,10 +23,10 @@ func newWorkflowResponseStore(db *sql.DB) *workflowResponseStore {
 	return &workflowResponseStore{db: db}
 }
 
-// ListWorkflowResponses decodes persisted answer rows only through the ticket's
-// immutable pinned definition. It never reads draft/current definitions, exposes
-// raw JSON, or indexes a response slice with persisted step_index values.
-func (s *workflowResponseStore) ListWorkflowResponses(ctx context.Context, ticketID int64) ([]application.WorkflowResponse, error) {
+// pinnedDefinition resolves the ticket's immutable pinned workflow definition
+// through its persisted version pin. A legacy unpinned ticket degrades to a
+// nil definition; every other read failure is an error.
+func (s *workflowResponseStore) pinnedDefinition(ctx context.Context, ticketID int64) (domain.WorkflowDefinition, error) {
 	var versionID sql.NullInt64
 	if err := s.db.QueryRowContext(ctx, `SELECT workflow_version_id FROM tickets WHERE id=?`, ticketID).Scan(&versionID); err != nil {
 		return nil, fmt.Errorf("sqlite: read response workflow pin: %w", err)
@@ -44,6 +44,17 @@ func (s *workflowResponseStore) ListWorkflowResponses(ctx context.Context, ticke
 	}
 	if issues := definition.Validate(); len(issues) > 0 {
 		return nil, fmt.Errorf("sqlite: invalid response workflow version: %v", issues)
+	}
+	return definition, nil
+}
+
+// ListWorkflowResponses decodes persisted answer rows only through the ticket's
+// immutable pinned definition. It never reads draft/current definitions, exposes
+// raw JSON, or indexes a response slice with persisted step_index values.
+func (s *workflowResponseStore) ListWorkflowResponses(ctx context.Context, ticketID int64) ([]application.WorkflowResponse, error) {
+	definition, err := s.pinnedDefinition(ctx, ticketID)
+	if err != nil || definition == nil {
+		return nil, err
 	}
 
 	rows, err := s.db.QueryContext(ctx, `SELECT step_index, answers_json, submitted_at
@@ -91,6 +102,55 @@ func (s *workflowResponseStore) ListWorkflowResponses(ctx context.Context, ticke
 		return nil, fmt.Errorf("sqlite: list workflow responses: %w", err)
 	}
 	return responses, nil
+}
+
+// WorkflowStepContext resolves ONE pinned step's presentation context for the
+// merged ticket timeline, joined ONLY by the exact requested step index — never
+// by timestamps or occurrence order. A form step decodes its persisted answers
+// through the immutable pinned definition; a manual_task step carries its
+// pinned instruction. A missing pin or answers row, an index outside the
+// pinned bounds, or an automatic (non-presentation) step degrades to (nil, nil);
+// corrupt persisted answers fail closed.
+func (s *workflowResponseStore) WorkflowStepContext(ctx context.Context, ticketID int64, stepIndex int) (*application.WorkflowStepContext, error) {
+	definition, err := s.pinnedDefinition(ctx, ticketID)
+	if err != nil || definition == nil {
+		return nil, err
+	}
+	if stepIndex < 0 || stepIndex >= len(definition) {
+		return nil, nil // outside the pinned bounds: safe summary alone
+	}
+	step := definition[stepIndex]
+	switch {
+	case step.Type == domain.StepForm && step.Form != nil:
+		var answers string
+		err := s.db.QueryRowContext(ctx, `SELECT answers_json FROM ticket_form_answers WHERE ticket_id=? AND step_index=?`, ticketID, stepIndex).Scan(&answers)
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, nil // no persisted answers yet: safe summary alone
+		}
+		if err != nil {
+			return nil, fmt.Errorf("sqlite: read workflow step context answers: %w", err)
+		}
+		fields, err := decodeWorkflowResponseFields(step.Form.Fields, []byte(answers))
+		if err != nil {
+			return nil, fmt.Errorf("sqlite: workflow response step index %d: %w", stepIndex, err)
+		}
+		return &application.WorkflowStepContext{Kind: "form", FormActor: step.Form.Actor, Fields: fields}, nil
+	case step.Type == domain.StepManualTask && step.ManualTask != nil:
+		// Amendment 2 (WA.5): the stored solution joins ONLY here, by the exact
+		// persisted step index against this immutable pinned definition. A
+		// missing row (no solution submitted, or a legacy pre-0009 completion)
+		// yields an empty value — never a fabricated placeholder.
+		var solution string
+		err := s.db.QueryRowContext(ctx, `SELECT solution FROM ticket_manual_solutions WHERE ticket_id=? AND step_index=?`, ticketID, stepIndex).Scan(&solution)
+		if errors.Is(err, sql.ErrNoRows) {
+			solution = "" // no stored solution: instruction alone
+		} else if err != nil {
+			return nil, fmt.Errorf("sqlite: read workflow step context solution: %w", err)
+		}
+		return &application.WorkflowStepContext{Kind: "manual", Instruction: step.ManualTask.Instructions, Solution: solution}, nil
+	default:
+		return nil, nil // assignment/lifecycle steps carry no presentation context
+	}
 }
 
 func decodeWorkflowResponseFields(definition []domain.FormField, raw []byte) ([]application.WorkflowResponseField, error) {

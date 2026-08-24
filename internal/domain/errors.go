@@ -33,6 +33,8 @@ const (
 	ErrMsgCommentOnClosedTicket       = "comments on closed tickets are not allowed"
 	ErrMsgClosedTicketReadOnly        = "closed tickets cannot be modified"
 	ErrMsgCategoryWorkflowUnavailable = "category is not available for new tickets — publish its workflow first"
+	ErrMsgCreateUnassignedOnly        = "tickets are created unassigned — assignment happens later through the category flow"
+	ErrMsgSolutionTooLong             = "solution must be 2,000 characters or fewer"
 )
 
 // Sentinel errors naming the store contract failures (ports.go uses them as
