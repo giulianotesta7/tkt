@@ -142,6 +142,31 @@ func (p *Policy) Capabilities(role domain.Role) Capabilities {
 	return Capabilities{caps: caps}
 }
 
+// CanManageUser reports whether actor may manage a target user. Protected root
+// accounts and admin peers are denied before any presentation or mutation path.
+func (p *Policy) CanManageUser(actor, target domain.Role) bool {
+	if !actor.Valid() || !target.Valid() || !p.Capabilities(actor).Require(CapManageUsers) {
+		return false
+	}
+	return target != domain.RoleRoot && !(actor == domain.RoleAdmin && target == domain.RoleAdmin)
+}
+
+// CanGrantUserRole reports whether actor may assign the proposed role. Root is
+// never a grantable role and unknown values fail closed.
+func (p *Policy) CanGrantUserRole(actor, target domain.Role) bool {
+	if !actor.Valid() || !target.Valid() || !p.Capabilities(actor).Require(CapChangeRole) {
+		return false
+	}
+	switch target {
+	case domain.RoleUser, domain.RoleAgent:
+		return true
+	case domain.RoleAdmin:
+		return p.Capabilities(actor).Require(CapGrantAdmin)
+	default:
+		return false
+	}
+}
+
 // TicketScope returns the actor's ticket access scope for their role.
 // Unknown roles get ScopeNone so reads return nothing (fail closed).
 func (p *Policy) TicketScope(role domain.Role) TicketScope {

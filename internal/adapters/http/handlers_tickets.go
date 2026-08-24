@@ -78,6 +78,7 @@ type pageData struct {
 	CanManageDesks      bool
 	CanManageCategories bool
 	CanGrantAdmin       bool
+	UsersAssets         bool
 	InternalCommentBg   string
 }
 

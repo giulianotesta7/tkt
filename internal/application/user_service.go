@@ -102,7 +102,8 @@ type UpdateManagedUserInput struct {
 // store transaction. The root and peer-admin protections are enforced before
 // the store is reached; admins cannot grant or manage admin accounts.
 func (s *UserService) UpdateManagedUser(ctx context.Context, actor domain.User, id int64, in UpdateManagedUserInput) (*domain.User, error) {
-	if !NewPolicy().Capabilities(actor.Role).Require(CapManageUsers) {
+	policy := NewPolicy()
+	if !policy.Capabilities(actor.Role).Require(CapManageUsers) {
 		return nil, domain.NewForbiddenError("user management is not permitted")
 	}
 	if strings.TrimSpace(in.Name) == "" {
@@ -117,18 +118,22 @@ func (s *UserService) UpdateManagedUser(ctx context.Context, actor domain.User, 
 	if in.Role == domain.RoleRoot {
 		return nil, domain.NewRootProtectedError()
 	}
+	if !policy.CanGrantUserRole(actor.Role, in.Role) {
+		return nil, domain.NewForbiddenError("admin accounts require root")
+	}
 
 	u, err := s.users.GetByID(ctx, id)
 	if err != nil {
 		return nil, err
 	}
-	if u.Role == domain.RoleRoot {
+	targetRole := u.Role
+	if targetRole == "" {
+		targetRole = domain.RoleUser
+	}
+	if targetRole == domain.RoleRoot {
 		return nil, domain.NewRootProtectedError()
 	}
-	if actor.Role == domain.RoleAdmin && u.Role == domain.RoleAdmin {
-		return nil, domain.NewForbiddenError("admin accounts require root")
-	}
-	if actor.Role == domain.RoleAdmin && (u.Role == domain.RoleAdmin || in.Role == domain.RoleAdmin) {
+	if !policy.CanManageUser(actor.Role, targetRole) {
 		return nil, domain.NewForbiddenError("admin accounts require root")
 	}
 	expectedRole := u.Role
@@ -145,7 +150,8 @@ func (s *UserService) UpdateManagedUser(ctx context.Context, actor domain.User, 
 // ChangePassword hashes a non-empty secret then replaces only the target's
 // password hash. It shares the managed-user authorization and protections.
 func (s *UserService) ChangePassword(ctx context.Context, actor domain.User, id int64, password string) error {
-	if !NewPolicy().Capabilities(actor.Role).Require(CapManageUsers) {
+	policy := NewPolicy()
+	if !policy.Capabilities(actor.Role).Require(CapManageUsers) {
 		return domain.NewForbiddenError("user management is not permitted")
 	}
 	if strings.TrimSpace(password) == "" {
@@ -155,10 +161,14 @@ func (s *UserService) ChangePassword(ctx context.Context, actor domain.User, id 
 	if err != nil {
 		return err
 	}
-	if u.Role == domain.RoleRoot {
+	targetRole := u.Role
+	if targetRole == "" {
+		targetRole = domain.RoleUser
+	}
+	if targetRole == domain.RoleRoot {
 		return domain.NewRootProtectedError()
 	}
-	if actor.Role == domain.RoleAdmin && u.Role == domain.RoleAdmin {
+	if !policy.CanManageUser(actor.Role, targetRole) {
 		return domain.NewForbiddenError("admin accounts require root")
 	}
 	hash, err := HashPassword(password)
@@ -220,17 +230,22 @@ func (s *UserService) ChangeRole(ctx context.Context, actor domain.User, id int6
 // guard rejects it before the store is reached; the DB trigger is the
 // hard backstop for any other path.
 func (s *UserService) Delete(ctx context.Context, actor domain.User, id int64) error {
-	if !NewPolicy().Capabilities(actor.Role).Require(CapManageUsers) {
+	policy := NewPolicy()
+	if !policy.Capabilities(actor.Role).Require(CapManageUsers) {
 		return domain.NewForbiddenError("user management is not permitted")
 	}
 	u, err := s.users.GetByID(ctx, id)
 	if err != nil {
 		return err
 	}
-	if u.Role == domain.RoleRoot {
+	targetRole := u.Role
+	if targetRole == "" {
+		targetRole = domain.RoleUser
+	}
+	if targetRole == domain.RoleRoot {
 		return domain.NewRootProtectedError()
 	}
-	if actor.Role == domain.RoleAdmin && u.Role == domain.RoleAdmin {
+	if !policy.CanManageUser(actor.Role, targetRole) {
 		return domain.NewForbiddenError("admin accounts require root")
 	}
 	return s.users.Delete(ctx, id)
