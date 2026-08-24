@@ -3,7 +3,12 @@
 *.db-wal
 *.db-shm
 .env
+
+# Local design artifacts
+design/
+
 # Local AI runtime state
 .atl/
+.pi/
 .playwright-mcp/
 .codegraph/
