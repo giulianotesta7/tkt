@@ -1,16 +1,6 @@
----
-name: ticket-management
-status: proposed
-change: tkt-mvp
----
+# Delta for Ticket Management
 
-# Ticket Management Specification
-
-## Purpose
-
-Defines the ticket aggregate: creation, readable numbering, editable fields, requester information, and lifecycle timestamps. The state machine, comment, audit, and search capabilities build on this aggregate.
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: Create Ticket
 
@@ -76,77 +66,8 @@ The system MUST allow any authenticated actor to create a ticket from a title, d
 - WHEN creation succeeds
 - THEN the ticket and its run reference one valid version that was current for that atomic creation
 - AND no partial ticket or run exists
-### Requirement: Readable Numbering
 
-The system MUST assign each ticket a unique readable number in `TKT-N` format, where N is a monotonically increasing integer. Concurrent creation MUST NOT produce duplicate numbers at MVP scale.
-
-#### Scenario: Consecutive creation
-
-- GIVEN an existing ticket numbered TKT-1042
-- WHEN a new ticket is created
-- THEN the new ticket is numbered TKT-1043
-
-#### Scenario: Concurrent creation
-
-- GIVEN two creation requests submitted concurrently
-- WHEN both are processed
-- THEN each ticket receives a distinct, unique number
-
-### Requirement: Update Ticket Fields
-
-The system MUST allow editing title and priority, restricted by actor role: `agent` SHALL edit tickets assigned to them; `admin` and `root` SHALL edit any ticket; role `user` MUST NOT edit tickets. The description MUST be immutable after creation: it is a creation-only field, the edit form MUST NOT present it, and an edit request MUST NOT apply or audit a submitted description. The category MUST be immutable after creation: it is a creation-only field (future: categories get their own management flow), the edit form MUST NOT present it, and an edit request MUST NOT apply or audit a submitted category — a forged `category_id` in an edit POST is ignored and the stored category remains unchanged. Title and priority edits MUST be validated as in creation. Assignment changes are a separate flow (see Ticket Access and Assignment). Each edit MUST update the modification timestamp, MUST append an audit event (see Audit Log), and MUST NOT alter `resolved_at` or `closed_at`. (Previously: any logged-in user could edit any ticket, and the description and category were editable alongside the other fields; both are now creation-only and immutable.)
-
-#### Scenario: Category is immutable after creation
-
-- GIVEN a ticket with a stored category
-- WHEN an edit request includes a category value (e.g. a forged `category_id`)
-- THEN the stored category is unchanged
-- AND no audit event is recorded for a category change
-
-#### Scenario: Description is immutable after creation
-
-- GIVEN a ticket with a stored description
-- WHEN an edit request includes a description value
-- THEN the stored description is unchanged
-- AND no audit event is recorded for a description change
-
-#### Scenario: Edit to invalid priority
-
-- GIVEN a ticket assigned to an `agent`
-- WHEN the agent sets priority to an unsupported value
-- THEN the edit is rejected
-- AND no field changes are applied
-
-#### Scenario: Non-assigned actor cannot edit
-
-- GIVEN a ticket assigned to agent X and a `user`-role actor
-- WHEN the user attempts to edit the ticket's fields
-- THEN the request is denied
-- AND no field changes are applied
-### Requirement: Lifecycle Timestamps
-
-The system MUST set `resolved_at` and `closed_at` only through state machine transitions (see Ticket State Machine). `created_at` and `updated_at` MUST reflect creation and last modification.
-
-#### Scenario: Timestamps follow transitions only
-
-- GIVEN a ticket resolved then closed via transitions
-- WHEN its fields are later edited
-- THEN `resolved_at` and `closed_at` remain unchanged
-
-### Requirement: Ticket Detail Presentation
-
-The ticket detail UI MUST present compact native `<details><summary>` cards named Details, Assignment, and State, expanded by default. Expansion state MUST be stored in localStorage and restored after reload. Requester and timestamps remain read-only metadata.
-(Previously: a permanently open Properties sidebar contained the fields and state controls.)
-
-#### Scenario: Cards default open
-- GIVEN an accessible ticket detail page with no saved preference
-- WHEN the page renders
-- THEN Details, Assignment, and State are expanded and “PROPERTIES” is absent
-
-#### Scenario: Card state survives reload
-- GIVEN a user collapses the Assignment card
-- WHEN the page is reloaded
-- THEN Assignment remains collapsed using the saved localStorage state
+## ADDED Requirements
 
 ### Requirement: Pending Workflow Presentation
 
@@ -213,14 +134,13 @@ When a ticket has an active workflow run, the ticket detail UI MUST show a `Pend
 
 ### Requirement: Current Task Card Presentation
 
-The CURRENT pending form and manual task in the ticket activity area MUST use the supplied `Current task` card structure while preserving existing server-rendered behavior. The card background MUST use exactly `color-mix(in srgb,var(--amber-soft) 30%,var(--card))`, and its contour MUST include exactly `border-top:2px solid var(--amber)`. The card MUST retain its existing server-rendered behavior without arbitrary or unpaired color input. Pending forms MUST retain their labels, required semantics, native text fields/selects/checkboxes, validation rendering, and existing submit behavior. Pending manual tasks MUST retain pinned instructions, the optional solution field, and existing completion behavior. The card MUST preserve keyboard focus and responsive usability. Completed historical events MUST remain in the existing merged timeline with their current ordering and semantics unless a narrow wrapper is needed solely for visual coherence. GET rendering remains read-only and all mutations remain on the existing POST completion route.
+The CURRENT pending form and manual task in the ticket activity area MUST use the supplied `Current task` card structure while preserving existing server-rendered behavior. The card background MUST use exactly `var(--amber-soft)`; it MUST NOT derive a new color or use blue. Pending forms MUST retain their labels, required semantics, native text fields/selects/checkboxes, validation rendering, and existing submit behavior. Pending manual tasks MUST retain pinned instructions, the optional solution field, and existing completion behavior. The card MUST preserve keyboard focus and responsive usability. Completed historical events MUST remain in the existing merged timeline with their current ordering and semantics unless a narrow wrapper is needed solely for visual coherence. GET rendering remains read-only and all mutations remain on the existing POST completion route.
 
 #### Scenario: Pending form retains native semantics inside the current-task card
 
 - GIVEN an authorized actor views a ticket with a current pending form task
 - WHEN the ticket activity area renders
-- THEN the form appears in the `Current task` card using background `color-mix(in srgb,var(--amber-soft) 30%,var(--card))`
-- AND the card contour includes exactly `border-top:2px solid var(--amber)`
+- THEN the form appears in the `Current task` card using background `var(--amber-soft)`
 - AND its labels, required semantics, native fields, selects, checkboxes, validation rendering, and submit behavior remain unchanged
 - AND the card remains keyboard usable without horizontal overflow at 390px wide
 
@@ -228,10 +148,9 @@ The CURRENT pending form and manual task in the ticket activity area MUST use th
 
 - GIVEN the current assignee views a ticket with a pending manual task
 - WHEN the ticket activity area renders
-- THEN pinned instructions and the optional solution field appear in the `Current task` card using background `color-mix(in srgb,var(--amber-soft) 30%,var(--card))`
-- AND the card contour includes exactly `border-top:2px solid var(--amber)`
+- THEN pinned instructions and the optional solution field appear in the `Current task` card using background `var(--amber-soft)`
 - AND the existing completion route and authorization remain authoritative
-- AND no arbitrary or unpaired color input can alter the card palette
+- AND no blue or derived background color is used
 
 #### Scenario: Historical activity remains merged and ordered
 

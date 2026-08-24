@@ -57,3 +57,15 @@ The system MUST authorize task completion from the current persisted ticket and 
 - WHEN the agent submits the claim endpoint directly
 - THEN completion is denied
 - AND the ticket remains unassigned by that claim
+
+### Requirement: Pinned Claim Visibility and Transactional Recheck
+
+For a current pinned `assign_to_desk[claim]` step, the Assignment sidebar MUST render `Assign to me` only for an active `agent`, `admin`, or `root` actor who is currently a member of that pinned desk. The server MUST NOT trust this projection: inside the workflow completion transaction it MUST recheck the pinned version, active run/current cursor, actor activity, actor role, and current desk membership before writing. Pending Actions and the timeline MUST render no claim or reason form. A stale cursor, removed membership, deactivated actor, or lost eligible role MUST return its typed failure with zero writes.
+
+#### Scenario: Removed member cannot use a stale claim button
+
+- GIVEN an eligible desk member rendered `Assign to me`
+- AND that membership is removed before the member submits the workflow completion route
+- WHEN the member submits the stale request
+- THEN the server returns the typed authorization or conflict failure
+- AND no assignment, cursor, state, or audit write occurs

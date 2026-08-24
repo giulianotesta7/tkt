@@ -1,16 +1,6 @@
----
-name: audit-log
-status: proposed
-change: tkt-mvp
----
+# Delta for Audit Log
 
-# Audit Log Specification
-
-## Purpose
-
-Defines the append-only audit trail covering every state transition and field change. There are no silent mutations. The actor of every event is the logged-in user from the session.
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: Transition Audit Events
 
@@ -61,32 +51,7 @@ The system MUST append an audit event for every field change, recording actor, f
 - WHEN the assignment commits
 - THEN the assignment audit uses actor `workflow` and actor user ID NULL
 
-### Requirement: No Silent Mutations
-
-Every state transition and every field change MUST produce an audit event. The system MUST NOT apply a mutation without recording it.
-
-#### Scenario: Every mutation audited
-
-- GIVEN a ticket
-- WHEN one transition and two field edits occur
-- THEN exactly three corresponding audit events exist, in occurrence order
-
-### Requirement: Audit History Retrieval
-
-The system MUST expose each ticket's audit events in chronological occurrence order at the storage boundary. The ticket detail presentation MUST merge those events with comments into a newest-first timeline and visually distinguish audit events from agent comments.
-
-#### Scenario: History order
-
-- GIVEN multiple audit events for one ticket
-- WHEN the history is retrieved
-- THEN the events are returned in the order they occurred
-
-#### Scenario: Audit events in merged presentation timeline
-
-- GIVEN audit events and comments on one ticket
-- WHEN the ticket detail timeline is rendered
-- THEN all entries are merged newest first
-- AND audit events have system styling distinct from comments
+## ADDED Requirements
 
 ### Requirement: Atomic Workflow Audit Sets
 

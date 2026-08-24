@@ -3031,3 +3031,875 @@ HTMX 2.0.4 default `responseHandling` swaps only `[23]..` and treats `[45]..` as
 - The accepted `delivery_strategy=exception-ok` keeps this as one coherent builder work unit; size is measured and visible, not hidden.
 - Rollback: restore the 19 tracked PR8 paths, remove the four untracked builder handler/test/page/partial files, and revert all 11 CSS-derived full-page goldens. No migration or data rollback; committed PR1–PR7 remain byte-for-byte intact, builder routes disappear, ticket creation keeps the previous category behavior, and pinned tickets remain readable.
 - Tasks 8.1, 8.2, 8.3, and 8.4 are complete. PR8 remains unstaged/uncommitted pending explicit maintainer delivery authorization.
+
+---
+
+## PR9 Task 9.1 — RED contract for ticket HTTP runtime + published-only options
+
+Strict TDD RED only. No production/template/route implementation, no PR9 GREEN. No lifecycle/review/stage/commit/push; `desks-ux-polish` untouched.
+
+### Scenarios covered (all `TestTicketWorkflowRuntime_*` in `internal/adapters/http/handlers_ticket_workflow_runtime_test.go`, new, 260 lines)
+
+1. **Published-only create options** — `GET /tickets/new` must filter category options through `ListAvailableCategories`; an existing unpublished category is absent for the acting role while a published category stays listable.
+2. **Unavailable category exact 422** — `POST /tickets` with an unavailable `category_id` re-renders 422 with the exact message `category is not available for new tickets — publish its workflow first` and persists no ticket/audit/run rows (already held from the workflow-aware create path; locked under the PR9 name).
+3. **Only completion route + position contract** — `POST /tickets/{id}/workflow/steps/{position}/complete` is the only completion route; nonpositive / mismatched-later / missing-out-of-range one-based positions map to typed `ErrWorkflowPositionConflict` → 422 with no writes.
+4. **Claim posts no assignee id** — claim completion carries only an optional reassignment `reason` (no `assignee_id`/`user_id` field).
+5. **Form positional answers** — requester form completion posts raw `answer_<zeroPos>`; an unknown/extra position (`answer_5`) is rejected before any write.
+6. **Manual task no metadata** — `manual_task` completion posts no metadata; a forged answer is rejected.
+7. **Pending Actions above timeline** — an active run renders a `Pending Actions` card above the timeline.
+8. **Legacy unpinned + no version exposure** — an unpinned legacy ticket (no run, no pin, seeded via `TicketStore.Create`) stays readable, renders no Pending Actions card, and exposes no internal version pin/`workflow_version`/cursor/version-browser text to the requester (guard holds today).
+
+### Exact RED (focused command, one run)
+
+`go test ./internal/adapters/http -run 'TestTicketWorkflowRuntime' -count=1` → FAIL (0.898s):
+
+- `TestTicketWorkflowRuntime_CreateOptionsPublishedOnly` — unpublished category leaks into create options (published-only filter absent).
+- `TestTicketWorkflowRuntime_CompletionPositionConflict422/{nonpositive,mismatched_later,missing_(out-of-range)_position}` — route not registered (Go mux answers `405 Method Not Allowed` for the unmatched method+path); want 422.
+- `TestTicketWorkflowRuntime_CompletionClaimOnlyReason` — route absent (405); want 200.
+- `TestTicketWorkflowRuntime_CompletionFormPositionalAnswers` — route absent (405); want 200 (valid `answer_0`) and 422 (`answer_5`).
+- `TestTicketWorkflowRuntime_CompletionManualNoMetadata` — route absent (405); want 200 (no metadata) and 422 (forged answer).
+- `TestTicketWorkflowRuntime_PendingActionsAboveTimelineForActiveRun` — no `Pending Actions` card rendered for an active run.
+
+PASS (contract guards): `TestTicketWorkflowRuntime_CreateUnavailableCategory422Exact` (exact message + zero writes) and `TestTicketWorkflowRuntime_LegacyUnpinnedReadableNoVersionExposure` (readable, no card, no leak).
+
+`grep` confirms no `workflow/steps` / `{position}` route is registered anywhere in the http adapter, so the 405s are genuinely absent-handler signals, not compile errors — the contract compiles against current public surfaces and fails only on missing PR9 HTTP/UI behavior.
+
+### Files changed (this RED slice only)
+
+- `internal/adapters/http/handlers_ticket_workflow_runtime_test.go` — new RED contract (untracked). Churn: +260 lines / 0 deletions.
+
+### Verification hygiene
+
+- `gofmt -l .` empty; `git diff --check` clean.
+- Ran exactly the focused command (no race, no full package, no vet/build, no Playwright per instruction).
+
+### Task state at this boundary
+
+- Tasks 9.1–9.6 remain `- [ ]` (RED for 9.1 authored; GREEN not started). No persisted checkbox was flipped because no implementation task is complete yet.
+- Next GREEN boundary: implement the PR9 runtime handler/route + `workflow_pending.html`/`workflow_answers.html` integration + create-options filter to satisfy 9.1, then iterate RED → GREEN per strict TDD.
+
+---
+
+## PR9 Task 9.1 — GREEN (ticket HTTP runtime + published-only options)
+
+Strict TDD GREEN for task 9.1. No lifecycle/review/stage/commit/push; `desks-ux-polish` untouched; shared `styles.html` untouched. 9.2–9.6 remain unchecked.
+
+### Route / input / action matrix
+
+| Route | Input grammar | Production action |
+| ----- | ------------- | ----------------- |
+| `GET /tickets/new` | — | `createOptions` filters `.Options.Categories` through `WorkflowService.ListAvailableCategories` (published-only) for every role; list/detail keep all categories (`collectOptions`) so legacy tickets stay filterable |
+| `POST /tickets` | unavailable `category_id` | unchanged exact 422 `category is not available for new tickets — publish its workflow first`, zero ticket/audit/run rows (already held; re-locked by `TestTicketWorkflowRuntime_CreateUnavailableCategory422Exact`) |
+| `POST /tickets/{id}/workflow/steps/{position}/complete` | `{position}` one-based, strict no-leading-zero parse | sole completion route; runner `PlanComplete` maps 1→0 cursor; typed `ErrWorkflowPositionConflict` → 422 / `renderDetailError`; stale/missing/non-positive/mismatched → no writes; HTMX success re-renders `ticket_detail` outerHTML, full success renders `tickets_show` (both 200 per RED) |
+| claim step | only optional `reason`; forged `answer_*` / `assignee_id` / `user_id` → 422 `claim posts only a reason` | runner `newClaimOperation` + `inProgressTransitionOp`; UoW rechecks desk membership |
+| form step | raw `answer_<zeroPos>`; unknown/duplicate/extra/ambiguous rejected by runner `decodePositionalAnswers` | `FormAnswerOperation` pinned typed JSON array |
+| manual step | empty form only; forged `answer_*` → 422 `manual_task ignores metadata` | `WorkflowStepOperation` audit, no metadata |
+| least_loaded / terminal steps | never accept a human completion form (422) | no button in Pending card (auto-advance synchronously) |
+| `GET /tickets/{id}` | — | `pendingFor` renders `Pending Actions` card above timeline only for active run + persisted-actor predicate; no version/pin/cursor exposure |
+
+### Files changed
+
+- `internal/application/ports.go` — `WorkflowRunStore` port (`GetWorkflowExecution`).
+- `internal/adapters/sqlite/workflow_run_store.go` — new; consistent ticket+run+pinned-definition snapshot, `nil,nil` for legacy/no-run.
+- `internal/adapters/sqlite/sqlite.go` — `WorkflowRunStore()` accessor.
+- `internal/application/workflow_runner.go` — latent claim fix: reflect claimant as assignee on the local copy so `NextAssigneeUserID`/final facts agree with the persisted assignment the UoW rechecks (exposed by the new route consuming `PlanComplete`+`ApplyWorkflowPlan`; UoW tests built plans by hand).
+- `internal/adapters/http/handlers_tickets.go` — new ports, `POST …/workflow/steps/{position}/complete` route, `createOptions` published-only filter, `completeWorkflow` + grammar (`workflowFormAnswers`/`hasWorkflowMeta`/`parsePositionalAnswers`), `pendingFor` Pending card state.
+- `internal/adapters/http/errors.go` — `WorkflowPositionConflictError` → 422.
+- `internal/adapters/http/harness_test.go`, `cmd/server/main.go` — handler wiring (workflows, runner, run store, workflow UoW).
+- `web/templates/partials/workflow_pending.html` — new minimal Pending card partial (emits zero bytes when inactive so existing goldens are stable).
+- `web/templates/partials/ticket_detail.html` — `{{template "workflow_pending" .}}` above `workflow_answers`/timeline.
+- `internal/adapters/http/handlers_ticket_workflow_runtime_test.go` — arrange-only fixture corrections (see Deviations).
+
+### Strict TDD evidence
+
+| Phase | Command | Result |
+| ----- | ------- | ------ |
+| RED (pre-existing authored) | `go test ./internal/adapters/http -run 'TestTicketWorkflowRuntime_CreateOptionsPublishedOnly\|TestTicketWorkflowRuntime_PendingActionsAboveTimelineForActiveRun' -count=1` | FAIL — unpublished category leaked; no Pending card |
+| GREEN (focused, non-race) | `go test ./internal/adapters/http -run 'TestTicketWorkflowRuntime' -count=1` | PASS (8/8) |
+| GREEN (focused race) | `go test ./internal/adapters/http -run 'TestTicketWorkflowRuntime' -count=1 -race` | PASS |
+| Relevant packages non-race | `go test ./internal/application ./internal/domain ./internal/adapters/sqlite ./cmd/server -count=1` | PASS |
+| Relevant packages race | `go test ./internal/application ./internal/domain ./internal/adapters/sqlite -count=1 -race` | PASS |
+| HTTP package non-race | `go test ./internal/adapters/http -count=1` | PASS (goldens stable; no `-update`) |
+| Gates | `gofmt -l .` empty; `go vet ./...` clean; `go build ./...` clean; `git diff --check` clean | PASS |
+
+Full repository HTTP race (≈3 min) and Playwright/golden regeneration are intentionally deferred (task 9.3 rewards goldens; no golden `-update` run performed). The `workflow_pending` partial was authored to emit zero bytes for an inactive run so existing `ticket_detail`/`tickets_show` goldens remain byte-identical (verified by diff against committed golden).
+
+### Deviations from design / RED
+
+1. **RED fixture corrections (arrange-only, no assertion weakened).** The two actor-driven completion tests did not position the actor, so the (correct, security-required) persisted-actor predicate legitimately rejected them: `TestTicketWorkflowRuntime_CompletionManualNoMetadata` posted as a non-assignee (403) and `TestTicketWorkflowRuntime_CompletionClaimOnlyReason` as a non-member (422). The fix seeds the actor as the current assignee (manual, `in.UserID = &h.admin.ID`) and as a desk member (claim, `h.desks.AddMember(admin)`). Task 9.2 explicitly requires non-assignee/non-member denial, so these predicates MUST hold; the fixtures were corrected, not the security.
+2. **Completion success answers 200 in both modes.** The authored RED pins 200 for non-HTMX success (`mustHaveCompletionRoute(_, http.StatusOK, _)` on `postForm(..., false)`), overriding the general mutation-route "non-HTMX 303" note. Implemented `h.renderer.Render(w, r, "tickets_show", "ticket_detail", data, 200)` (HTMX → outerHTML fragment, full → `tickets_show` page), same inline errors on 422 via `renderDetailError`.
+3. **Latent runner claim bug fixed** so claim completion green (see Files changed).
+
+### Authz boundary deferred to 9.2
+
+Forged `form[requester]`/`form[assignee]`/`manual_task` actor denial, forged-`ExpectedPosition` on an already-advanced cursor, XSS escaping of `answer_*`, and plain per-step English messages are NOT implemented in this slice — they are task 9.2 (and the runner/UoW already enforce most downstream). 9.2–9.6 remain `- [ ]`.
+
+### Workload / PR boundary
+
+Tracked churn: 345 insertions / 31 deletions (+ untracked `workflow_run_store.go` ≈ 70, `workflow_pending.html` ≈ 35, and the 260-line RED test file). Final-PR `exception-ok` means size does not force a further split. Rollback: revert `handlers_tickets.go`/`errors.go`/`workflow_runner.go`/`ports.go`/`sqlite.go`/`harness_test.go`/`cmd/server/main.go`, delete `workflow_run_store.go`/`workflow_pending.html`/`handlers_ticket_workflow_runtime_test.go`, revert `ticket_detail.html`; PR1–PR8 remain green, no migration/data rollback.
+
+### Task state at this boundary
+
+- Task 9.1 marked `[x]`; 9.2–9.6, G1–G3 remain `- [ ]`.
+- Next boundary: task 9.2 TRIANGULATE (forged + stale + XSS).
+
+---
+
+## PR9 Task 9.2 — TRIANGULATE (forged + stale + XSS edge) — authz/no-write matrix, XSS proof
+
+Strict TDD TRIANGULATE on the 9.1 GREEN candidate. No lifecycle/review/stage/commit/push; `desks-ux-polish` untouched; shared `styles.html` untouched; no goldens touched; no production handler/view/template change. Task 9.3–9.6 remain `- [ ]`.
+
+### Workload / PR boundary
+
+- New file: `internal/adapters/http/handlers_ticket_workflow_authz_test.go` — 366 lines, untracked.
+  - 366 authored (<400). No other tracked/untracked production line changed in this slice (revised by the XSS decode assertion only).
+- Scope minimal per task: only focused authz/stale/XSS/runtime-answer tests. No route, port, template, or golden change.
+
+### Persisted Task Checkbox Update (openspec)
+
+- **Marked complete in this run:** `9.2` → `[x]`.
+- **Kept checked (preserved):** 9.1 `[x]` (re-verified by 9.1 focused race re-run).
+- **Left unchecked (deferred):** 9.3, 9.4, 9.5, 9.6, G1–G3 remain `- [ ]`.
+- Re-read `tasks.md` after edit confirms `9.2` is `- [x]` and 9.3–9.6 are `- [ ]`.
+
+### Strict TDD evidence — 9.2
+
+| Phase | Command | Result | Note |
+| ----- | ------- | ------ | ---- |
+| RED (honest, one run) | `go test ./internal/adapters/http -run 'TestTicketWorkflow_Authz|TestTicketWorkflow_Stale' -count=1` | **FAIL** — 1 failure: XSS test | All 6 other 9.2 probes PASSED immediately (runtime already enforced authz/stale via runner+UoW). The single RED was `TestTicketWorkflow_Authz_XSSAnswerStoredTypedRenderedEscaped`: my assertion compared the RAW persisted bytes `["<script>..."]` but `encoding/json` HTML-escapes `< > &` to `\u003c`, so the persisted bytes are `["\u003cscript\u003e..."]`. That is DEFENSIVE (an added encoding layer), not a security defect; the stored value is still a typed JSON string that decodes to the exact payload, and the template renders it escaped. |
+| GREEN (focused, race) | `go test ./internal/adapters/http -run 'TestTicketWorkflow_Authz|TestTicketWorkflow_Stale' -count=1 -race` | **PASS** — 7/7 | After correcting the XSS assertion to decode the typed string (invariant: stored JSON array whose element equals the exact payload), never weakening a security check. |
+| 9.1 re-run (race) | `go test ./internal/adapters/http -run 'TestTicketWorkflowRuntime' -count=1 -race` | **PASS** | No regression from the 9.1 runtime contract. |
+| Relevant pkgs (race) | `go test ./internal/application ./internal/domain ./internal/adapters/sqlite -count=1 -race` | **PASS** | Runner/UoW/store untouched, still green. |
+| Gates | `gofmt -l .` empty; `go vet ./...` clean; `go build ./...` clean; `git diff --check` clean | **PASS** | |
+
+RED excerpt (9.2, honest — exact one-liner):
+
+```text
+=== RUN   TestTicketWorkflow_Authz_XSSAnswerStoredTypedRenderedEscaped
+    handlers_ticket_workflow_authz_test.go:258: answer stored as typed string, got "[\"\\u003cscript\\u003ealert('xss')\\u003c/script\\u003e\"]", want "[\"<script>alert('xss')</script>\"]"
+--- FAIL: TestTicketWorkflow_Authz_XSSAnswerStoredTypedRenderedEscaped (0.11s)
+FAIL github.com/giulianotesta7/tkt/internal/adapters/http 0.911s
+```
+
+The RED was a test-expectation nuance, not a code defect: the production path already stores the answer as a typed JSON string (JSON-encoded, with default HTML-escape `\u003c` as an extra defense) and the template renders `{{.Value}}` through html/template escaping. No smallest handler/view/template correction was warranted; the correction was to the honest invariant assertion.
+
+### Authz / no-write matrix (all pass, race)
+
+| Requirement (9.2) | Test | Enforced by | Result |
+| ------------------ | ---- | ----------- | ------ |
+| Non-requester posting `form[requester]` denied, no writes | `TestTicketWorkflow_Authz_RequesterFormDeniedNonRequester` | runner `requireFormActor` (persisted `tickets.requester_user_id`) → `ForbiddenError` 403 | PASS (403, 0 answers, 0 `workflow_step` audits, cursor 0; requester positive 200) |
+| Non-assignee posting `form[assignee]` denied, no writes | `TestTicketWorkflow_Authz_AssigneeFormDeniedNonAssignee` | runner `requireFormActor` (persisted `tickets.user_id`) → 403 | PASS (403, 0 writes; forged `assignee_id` ignored; assignee positive 200) |
+| Non-assignee posting `manual_task` denied, no writes | `TestTicketWorkflow_Authz_ManualTaskDeniedNonAssignee` | runner manual branch (`tickets.user_id == actor`) → 403 | PASS (403, 0 writes; assignee positive 200) |
+| Unknown/duplicate/extra/ambiguous positions rejected before write | `TestTicketWorkflow_Authz_PositionalAnswerRejectedBeforeWrite` | runner `decodePositionalAnswers` (`unknown position N`, `duplicate position N`, `ambiguous values for position N`) | PASS (422 × 3, 0 answers, cursor 0) |
+| `answer_0` XSS stored typed + rendered escaped | `TestTicketWorkflow_Authz_XSSAnswerStoredTypedRenderedEscaped` | runner JSON string + `workflow_answers.html` `{{.Value}}` html/template escape (+ encoding/json `\u003c` defense) | PASS (stored decodes to exact typed payload; view contains `&lt;script&gt;`, never raw payload) |
+| Plain per-step English 422 | `TestTicketWorkflow_Authz_PlainEnglishPerStepError` | runner `Step %d: %s is required` | PASS (`Step 1: host is required` in body) |
+| Forged/already-advanced position → 422, no cursor/audit change | `TestTicketWorkflow_Stale_AdvancedPosition422NoCursorChange` | `PlanComplete` typed `ErrWorkflowPositionConflict` (cursor compare) | PASS (422, cursor stays 1, 1 answer row, 1 `workflow_step` audit) |
+
+Authorization everywhere derives from PERSISTED ticket/run facts (requester_user_id, user_id, run cursor/version), never from request claims: forged `assignee_id`/`user_id`/`reason`/position are ignored or rejected. No roles broadened, no pins/version leaked, no endpoint added. Latent runner-claim fix from 9.1 preserved untouched.
+
+### Files changed (9.2)
+
+| File | Lines / Δ | State | Nature |
+| ---- | -------- | ----- | ------ |
+| `internal/adapters/http/handlers_ticket_workflow_authz_test.go` | 366 | untracked (new) | Focused 9.2 TRIANGULATE tests matching `TestTicketWorkflow_Authz|TestTicketWorkflow_Stale` |
+
+No production handler/view/template code changed; no goldens; `desks-ux-polish` untouched; shared `styles.html` untouched.
+
+### Rollback / cleanup / risks
+
+- **Rollback:** `rm -f internal/adapters/http/handlers_ticket_workflow_authz_test.go` and revert `tasks.md` 9.2 → `[ ]` — removes all 9.2 evidence with zero impact on 9.1 or any prior PR (test-only slice).
+- **Cleanup:** none (no temp DBs, servers, or golden regenerations). Test store uses `t.TempDir()`; `desks-ux-polish` unmodified.
+- **Risks:** the 9.2 tests depend on the persisted-fact actor predicates the 9.1 runtime already enforces; if a future change routes authz through request claims it will fail these tests (intended guard). XSS test asserts typed-string storage + escaped render; it does not couple to `encoding/json` raw-byte formatting (correctly, since that is an implementation detail that may change).
+- **Remaining tasks:** 9.3 (goldens), 9.4 (refactor), 9.5 (Playwright), 9.6 (gates+rollback), G1–G3 still `- [ ]`.
+
+### Structured status consumed / produced
+
+- Consumed: `openspec/config.yaml` (strict_tdd true, `go test ./...`, gofmt, go vet), `design.md` S9 authz table + `Step N` plain-English labels, `tasks.md` 9.2 + 9.1, existing merged `apply-progress.md` (PR1–PR8 + PR9.1), `handlers_tickets.go`, `workflow_runner.go`, `workflow_uow.go`, `workflow_run_store.go`, `workflow_response_store.go`, `harness_test.go`, `workflow_answers.html`/`workflow_pending.html`, `errors.go`.
+- Produced: `openspec/changes/category-workflows/apply-progress.md` (merged, this section) + reconciled `tasks.md` (`9.2 → [x]`).
+- `actionContext`: repo-local workspace `/home/gtesta/Projects/tkt`, allowed root limited to that repository; `desks-ux-polish` untouched.
+- No commit, push, PR, review, receipt, or merge created.
+
+### Skill resolution
+
+- `go-testing` — loaded (table-driven, behavior/state, `t.TempDir`, focused+broad, race).
+- `ux-ui-e2e-validation` — loaded; not executed in this slice (no Playwright per instruction, and no golden/excluded-only path); noted for 9.5.
+- Resolution: `paths-injected` (explicit skill paths read before work).
+
+---
+
+## PR9 Task 9.3 — Deterministic Goldens and Broader Gates PASS
+
+### Golden lifecycle
+
+- The focused 9.1/9.2 handler and authorization contracts passed before golden regeneration.
+- The repository update path `go test ./internal/adapters/http -update -count=1` ran exactly once in the first delegated 9.3 worker. That worker stalled after the command returned, so the command was not repeated.
+- Post-update inspection found **zero changed golden files**: `git diff -- internal/adapters/http/testdata` is empty. The inactive Pending Actions partial emits no bytes, and all existing snapshots were already deterministic and current.
+- Subsequent workers stalled before command execution while investigating process state. One stale PR8 E2E `go run` tree was conclusively identified from `/proc` as PID 15082/15128, bound to the deleted isolated DB `/tmp/tkt-pr8-e2e-KwZMMs/tkt.db` and loopback port 55511; only that owned tree was terminated and the port closed.
+- After four verifier/runtime stalls, the maintainer explicitly authorized a controlled inline verification fallback. No test requirement was relaxed and `-update` was never rerun.
+
+### Stable reruns and exact gates
+
+| Command | Result |
+| --- | --- |
+| `go test ./internal/adapters/http -count=1` | PASS — package 20.699s, wall 21.02s |
+| `go test ./internal/adapters/http -count=1 -race` | PASS — package 247.539s, wall 248.00s |
+| `go test ./... -count=1 -race` | PASS exactly once in the inline fallback — server 4.638s, HTTP 247.399s, SQLite 68.396s, application 21.893s, domain 1.022s; templates no tests; wall 248.00s |
+| `go vet ./...` | PASS — wall 0.20s |
+| `go build ./...` | PASS — wall 0.43s |
+| `gofmt -l .` | empty |
+| `git diff --check` | PASS |
+| Pi primary LSP | all 10 changed/new Go files confirmed clean |
+
+Raw command logs and timings are retained under `/tmp/tkt-pr9-task-9.3-inline` for this session.
+
+### Safety, rollback, and task state
+
+- Pre/post worktree status matched; index remained empty; verification introduced no repository mutation or golden drift.
+- No residual Go test/build/vet/server process remains. The only process cleanup was the proven-owned stale PR8 E2E wrapper and child.
+- `openspec/changes/desks-ux-polish/` remains untracked, excluded, and untouched; shared `styles.html` remains byte-for-byte at committed PR8 HEAD.
+- Golden rollback is **N/A** because 9.3 changed zero snapshots. Runtime rollback remains the 9.1 boundary: revert ticket handler/wiring/runner/store/ports/detail changes and remove the new runtime tests/store/pending partial; PR1–PR8 remain intact.
+- Task 9.3 is checked. Tasks 9.4–9.6 and G1–G3 remain pending.
+
+---
+
+## PR9 Task 9.4 — Runtime Handler and Template Refactor PASS
+
+Two delegated read-only/refactor workers stalled during inspection without editing. The maintainer authorized a bounded inline fallback limited to three handler symbols and the pending/answers/detail templates.
+
+### Refactor
+
+- `parsePositionalAnswers(form, fieldCount)` is now a standalone transport-boundary helper. It validates malformed, negative, out-of-range, duplicate, and ambiguous `answer_<zeroPos>` submissions before runner planning, sorts accepted values deterministically, and preserves the runner's typed field decoding as defense in depth.
+- `workflowFormAnswers` passes the pinned form field count into that helper; no request-supplied schema or actor claim participates.
+- Pending actions render as a semantic numbered `<ol class="workflow-pending-list">` above the timeline. The single current step exposes only its contextual claim/manual/form controls; automatic least-loaded/resolve/close steps retain explanatory copy and no completion button.
+- Completed forms render as `<ol class="workflow-response-steps">`, with each pinned response retaining valid `<dl>/<dt>/<dd>` semantics and normal `html/template` escaping.
+- Focused render assertions lock the Pending card ordering/list semantics and completed-response numbered list. No graph, nodes, connectors, branching, version browser, workflow pin, or cursor is exposed.
+- Shared styles and goldens were not changed. Existing tkt card/field/button structures are reused without a new visual system.
+
+### Evidence
+
+| Command | Result |
+| --- | --- |
+| `go test ./internal/adapters/http -run 'TestTicketWorkflowRuntime|TestTicketWorkflow_Authz|TestTicketWorkflow_Stale' -count=1 -race` | PASS — package 22.788s, wall 24.24s |
+| `go test ./internal/adapters/http -count=1 -race` | PASS — package 247.692s, wall 248.15s |
+| `go vet ./...` | PASS — wall 0.28s |
+| `go build ./...` | PASS — wall 0.48s |
+| `gofmt -l .` | empty |
+| `git diff --check` | PASS |
+| Pi primary LSP | handler and both workflow runtime test files clean |
+
+- Existing goldens remain unchanged and stable under the HTTP race.
+- No residual test/build/server process; index empty; desks-ux-polish untouched.
+- Rollback: revert the parser signature/pre-write validation and semantic list wrappers/assertions. Runtime behavior remains protected by runner validation; PR1–PR8 and PR9 tasks 9.1–9.3 remain intact.
+- Task 9.4 is checked. Tasks 9.5–9.6 and G1–G3 remain pending.
+
+---
+
+## PR9 Task 9.5 — Final Isolated Playwright E2E PASS
+
+### Browser-driven correction
+
+- Initial isolated evidence `sha256:48ed3578ce44f5e5c160e2b4ed19965da1342f645b80b543343d6053823dfebf` failed the builder keyboard journey: move_up retained focus, but the immediate move_down swap exposed two `autofocus` targets and appeared to drop focus to BODY.
+- Strict RED: `TestCategoryWorkflowBuilder_ReorderFocusAndHTMXIndexes` was tightened to move down a real first step and require exactly one focus target; it failed with `got 2`.
+- GREEN: the builder now assigns `autofocus` to Down only when the moved step is first, otherwise to Up. Focused builder test and full focused builder race passed (35.496s).
+- On the clean browser retry, Enter on Up moved the step to position 1, announced `Step 1 of 2`, and focused Down. Space on Down moved it to position 2, announced `Step 2 of 2`, and after HTMX settle focused Up. The earlier immediate BODY observation was measured before settle; the duplicate-autofocus defect was still real and is now prevented by the exact-one-target test.
+
+### Isolation and safe fixture
+
+- Each run used a unique `/tmp` directory, SQLite DB, manifest, loopback-only free port, and bounded `/healthz` readiness polling.
+- A temporary `zz_pr9_e2e_seed_test.go` fixture used real test-harness stores/services to seed only the isolated DB. It was removed before server startup and confirmed absent after cleanup; it never entered candidate scope.
+- Final run: loopback `127.0.0.1:35573`, isolated DB `/tmp/tkt-pr9-e2e-retry-XgGZwf/e2e.db`.
+
+### Journey results
+
+1. **Builder lifecycle — PASS**
+   - Unconfigured GET rendered an empty numbered builder; direct DB check proved zero `category_workflows` rows.
+   - Empty publish returned semantic 422 with visible `role="alert"`; first add created the draft.
+   - Contextual manual/terminal controls, automatic-final explanation, keyboard Tab/Enter/Space reorder, focus retention, and `aria-live` positions passed.
+   - Preview rendered the ordered read-only summary; valid publish produced `Published v1`, and the category appeared in `/tickets/new`.
+2. **Requester create + immutable pin — PASS**
+   - Requester created ticket 2 in `Requester pin flow` while category version 1 was current.
+   - Admin published version 2 with a fourth `Contact` field. Ticket 2 remained pinned to version id 2 while category current moved to version id 6.
+   - Ticket 2 still rendered only v1 fields Host/Urgent/Severity; submitted `"  edge-01  "`, checkbox on, and select High persisted canonically as `["edge-01",true,"High"]`.
+3. **Desk claim + assignee work — PASS**
+   - Alice claimed Network with reason; UI showed Assigned to Alice Agent and `new→in_progress` with Workflow actor.
+   - Alice completed manual task and assignee Resolution form. Read-only typed requester/assignee response lists rendered; terminal resolve produced state Resolved and Workflow timeline actor.
+4. **Stale + least_loaded + offboarding close — PASS**
+   - A single bounded `page.request.post` was used because MCP has no safe arbitrary authenticated POST tool and the stale button no longer exists. Old position 1 returned 422; before/after cursor stayed 1 and audit count stayed 2.
+   - With one pre-existing active Alice ticket and zero Bob tickets, first least-loaded ticket assigned Bob. The next ticket made counts tie and selected lower user id Alice (3 before Bob 4). Admin UI and DB facts agreed; no category-local filter influenced the global load.
+   - Alice claimed HR→IT→Finance. The workflow definition contains three claim steps then `close_ticket` and no `resolve_ticket`. Final detail went directly Closed and showed ordered Workflow transitions `in_progress→resolved` then `resolved→closed`.
+
+### Responsive, console, network, cleanup
+
+- Desktop affected pages measured `scrollWidth=clientWidth=1280`.
+- Mobile 390×844 builder, pinned response detail, least-loaded detail, and closed offboarding detail measured `scrollWidth=clientWidth=390`; accessibility snapshots retained all controls/content.
+- Semantic 422 resource entries were classified during invalid submissions. Clean post-action navigations reported zero console errors, zero warnings, and no failed dynamic request.
+- Final browser closed; only launched server wrapper/child PIDs 197778/197840 stopped; temp DB/WAL/SHM/manifest/log/PID directory removed; port closed; no residual process.
+- Candidate/index remained unstaged/empty; desks-ux-polish untouched.
+- Task 9.5 is checked. Task 9.6 and G1–G3 remain pending.
+
+---
+
+## PR9 Task 9.6 + Global Gates — Final PASS
+
+### Final post-Playwright technical gate
+
+The delegated verifier stalled immediately after announcing the race command and left no process or evidence. Because this verifier failure pattern was already established and no process survived, the remaining native attempt ran the exact gate inline; no requirement was relaxed.
+
+| Command | Result |
+| --- | --- |
+| `go test ./... -count=1 -race` | PASS exactly once after the final builder-focus correction — server 4.637s, HTTP 248.188s, SQLite 68.256s, application 21.835s, domain 1.021s; templates no tests; wall 248.76s |
+| `go vet ./...` | PASS — wall 0.21s |
+| `go build ./...` | PASS — wall 0.43s |
+| `gofmt -l .` | empty |
+| `git diff --check` | PASS |
+| Golden diff | empty; PR9 changed zero snapshots |
+| Pi Lens blocking errors | none |
+| Pi primary LSP | all 11 changed/new Go files confirmed clean (timed file rechecked individually) |
+
+- Pre/post status matched; index remained empty; no residual test/build/vet/server process. The process snapshot contained only the gate's own shell while it was running.
+- Final logs and timings: `/tmp/tkt-pr9-final-gates`.
+
+### Exact PR9 workload
+
+Against committed PR8 baseline `bcf1d46`, including untracked PR9 files and excluding only `openspec/changes/desks-ux-polish/`:
+
+| Category | Additions | Deletions | Authored | Paths |
+| --- | ---: | ---: | ---: | ---: |
+| Production Go/SQL | 649 | 141 | 790 | 15 |
+| Tests | 1,781 | 160 | 1,941 | 21 |
+| Templates | 98 | 27 | 125 | 5 |
+| OpenSpec evidence/tasks | 512 | 10 | 522 | 2 |
+| Goldens | 0 | 0 | 0 | 0 |
+| **Total** | **3,040** | **338** | **3,378** | **43** |
+
+The accepted `delivery_strategy=exception-ok` keeps ticket runtime, persisted-actor security tests, semantic templates, and Playwright evidence as one coherent work unit. The exact size remains visible; no artificial split was introduced.
+
+### Global gate evidence
+
+- **G1 strict TDD — PASS:** every behavioral work unit records honest RED/GREEN or triangulation, focused race, broader gate, harness applicability, and rollback. The final full race covers the integrated repository after all corrections.
+- **G2 representative journeys — PASS:**
+  - simple routing is covered by claim runner/UoW/HTTP actor tests and the live Network claim;
+  - new-server behavior is covered by immutable pin + requester form + global least-loaded + manual/assignee form evidence;
+  - AWS-access behavior is covered live by requester checkbox/select/text, Network claim, manual task, assignee form, requester-visible typed answers, and workflow resolve;
+  - offboarding is covered live by sequential HR→IT→Finance claims and direct close, with underlying manual-task authorization/terminal atomicity matrices. No journey relies solely on screenshots.
+- **G3 no design drift — PASS:** source/template/schema searches found no workflow graph/edges, branching surface, executor registry, normalized `workflow_steps`, task-instance rows, synthetic workflow user, historic version browser, or answer FTS integration. Safe GET zero-row behavior, no pin/version leak, and unchanged search paths are locked by tests and Playwright.
+
+### Rollback and final task state
+
+- Rollback all 18 PR9 candidate paths: restore tracked handler/wiring/runner/ports/templates/OpenSpec to `bcf1d46`; remove new runtime/authz tests, run store, and Pending Actions partial. The builder focus, automatic Type switch, and server-owned field-key corrections revert with the PR8 builder handler/template/test versions.
+- PR1–PR8 remain intact. PR8 builder stays available; PR9 ticket completion route/pending controls disappear; create options return to previous all-category behavior; existing pinned tickets remain readable. No migration or data rollback and no golden rollback.
+- Tasks 9.1–9.6 and G1–G3 are checked. PR9 remains unstaged/uncommitted pending explicit maintainer delivery authorization.
+
+---
+
+## PR9 Manual QA Follow-up — Builder Type Switching and Server-owned Field Keys
+
+Manual maintainer testing after the first PR9 close found two real builder usability defects. They were corrected before independent SDD verification; the prior final-gate evidence above is superseded by the gate in this section.
+
+### Defect 1 — Type switching required a redundant Apply click
+
+- **Observed:** selecting `Manual task → Form` changed the select value but did not reveal Form controls until the separate Apply button was clicked.
+- **Cause:** the server's closed `change_type` mutation and HTMX fragment response already worked, but the Type select owned no change-triggered request.
+- **RED:** `TestCategoryWorkflowBuilder_TypeSelectOwnsChangeTriggeredSubmission` proved the select lacked `hx-trigger`, `hx-post`, containing-form inclusion, `action=change_type`, target, and swap attributes.
+- **GREEN:** the Type select now posts `change_type` on `change`, includes the containing form, and swaps `#workflow-builder` as `outerHTML`. Up/Down remain immediate actions. Apply is visible only inside `<noscript>` as the honest ordinary-form fallback.
+
+### Defect 2 — Administrators had to author a technical Form field Key
+
+- **Observed:** the builder exposed `Key` even though persisted responses are positional and requester-visible responses use the pinned field Label.
+- **Decision:** keep `FormField.Key` in immutable definitions for compatibility, workflow-global uniqueness, and validation identity, but remove it from user-owned input.
+- **RED:** `TestCategoryWorkflowBuilder_RED_FieldKeysAreServerOwned` proved new fields had empty keys, Key was visibly editable, and incomplete drafts persisted empty identifiers.
+- **GREEN:** the builder round-trips the stable key only as a hidden input. `ensureFieldKeys` preserves every non-empty existing key and fills missing values in step/field order. `nextFieldKey` scans all Form steps and chooses the smallest unused opaque `field_N`; add/remove/reorder keep keys with their fields, Label edits never rewrite them, and a removed number may be reused deterministically before publish.
+- **Compatibility:** domain/publication JSON keeps `key`; published pinned versions remain immutable; positional answer storage/rendering is unchanged. Focused domain/application/SQLite/runtime/authz suites passed.
+
+### Delegated Playwright evidence
+
+The standard lean verifier exposed `mcp` but could not initialize it because `pi-subagents-j0k3r` strips `session_start`, while lazy `pi-mcp-adapter` initializes state from that event. The user selected the documented narrow workaround: the verifier launched a one-off full Child Pi with only `mcpScript`, rather than broadening every subagent or patching `node_modules`.
+
+- The first child initialized `@playwright/mcp` but the outer verifier blocked on a foreground command and hit its 240-second stall watchdog. Exact server/child/MCP process groups and port were proven and removed; no result was admitted.
+- The corrective verifier launched child/server asynchronously and polled with bounded calls. Isolated DB/port `127.0.0.1:44331`; Child Pi exit 0; browser closed; child/server descendants absent; port closed; fixture removed; user's PID 232107 untouched.
+- Public UI journey PASS:
+  - Manual task Type changed to Form with the select only; HTMX `POST …?step_index=0` returned 200 and Actor/Add field appeared immediately.
+  - Accessibility snapshots exposed no Apply or Key controls. Label/Kind/Required remained visible.
+  - `Server name → field_1`, `Region → field_2`; keys stayed with Labels through Save and Down/Up. Status announced `Step 2 of 2.` then `Step 1 of 2.` with focus retained.
+  - Removing the first field and adding again reused the smallest unused `field_1` without exposing it.
+  - Desktop `1280/1280` and mobile `390/390` had no horizontal overflow; zero console warnings/errors and zero relevant failed requests. All 29 network requests were 200 or expected 303.
+
+### Superseding final gate
+
+After the last executable/template correction:
+
+| Command | Result |
+| --- | --- |
+| `go test ./... -count=1 -race` | PASS exactly once; wall 258s — server 4.585s, HTTP 255.453s, SQLite 68.235s, application 21.825s, domain 1.018s |
+| `go vet ./...` | PASS, <1s |
+| `go build ./...` | PASS, 1s |
+| `gofmt -l .` | empty |
+| `git diff --check` | PASS |
+| Goldens | 23 discovered, full race PASS, zero snapshot diff |
+| LSP / Pi Lens | changed handler/test primary LSP clean; no blocking Pi Lens errors |
+
+Pre/post status was identical, index stayed empty, `styles.html` matched HEAD with literal `</style>{{end}}`, `desks-ux-polish` remained untouched/untracked, no verifier process survived, and the user's local server remained running. Rollback now covers all 18 PR9 candidate paths: restore tracked files to `bcf1d46` and remove the new runtime/authz/run-store/Pending files; PR1–PR8 and existing pinned data remain intact, with no migration or golden rollback.
+
+---
+
+## PR9 Manual QA Follow-up — Automatic Draft Persistence
+
+The maintainer removed the explicit draft-save affordance from the v1 product model: editing is automatic, while publishing remains deliberate. Internal immutable versions remain authoritative for ticket pins and future history/rollback work, but the current UI exposes only `none`, `Draft`, or `Published`.
+
+### Behavior and TDD
+
+- The visible `Save draft` button was removed; the server `action=save` path remains the autosave boundary.
+- Instructions, Labels, and Options post the complete form after `input changed delay:600ms` with `hx-swap="none"`, preserving the editor node, focus, and caret.
+- Desk, Strategy, Actor, and Required post immediately on `change` without replacing the builder.
+- Form field Kind posts immediately and swaps the builder because `single_select` must reveal Options. Step Type remains the sole `change_type` owner and is never double-submitted.
+- The builder form owns `hx-sync="this:queue last"`; full-draft requests serialize so a later structural action wins over an earlier autosave.
+- Category summaries still compare `draft_json` with the current immutable `steps_json`: equal bytes now display `Published` rather than `Published vN`; divergent bytes display `Draft`; absent rows display `none`.
+- RED coverage locked the removed button, exact debounce/no-swap/discrete/structural/synchronization markup, no Type double-submit, badge text, divergence/reconvergence, and zero version-row/current-pointer changes under draft upserts. Focused HTTP/SQLite/application tests and goldens turned GREEN without `-update`.
+
+### Inline Playwright evidence
+
+Delegated ox-alpha browser attempts were not admitted: a monolithic run hit its 15-minute limit, a split run exited before a final result, and a worker retry encountered a provider API error before launching a fixture. After explicit maintainer authorization, the parent ran one isolated inline journey at `127.0.0.1:36449`.
+
+- No visible Save draft, Apply, or Key; helper text was `Changes save automatically.`
+- Instructions produced no save request at 300ms; after 700ms, `action=save` returned 200 with `Prepare server image`. Builder and textarea nodes stayed identical, focus remained on Instructions, caret was 20/20, and reload preserved the value.
+- Form conversion, field add, hidden `field_1`, Label debounce (caret 11/11), Kind→single-select structural swap, `Linux\nWindows`, Required, Actor, and reload persistence all passed.
+- Typing `Verify deployment immediately` and immediately moving the step Up/Down preserved the pending value and Form key. Aria-live announced `Step 1 of 2.` then `Step 2 of 2.`; focus moved to Down then Up; reload preserved final order and values with no stale overwrite.
+- A second category proved `Published → Draft → Published` with no `vN`. Immediate Publish carried `Immediate publish verified` in the publish body, was the sole POST after the edit, remained Published after the debounce window, and reloaded the final value.
+- Desktop `1280/1280` and mobile `390/390` had no overflow; accessibility snapshots retained controls; console reported zero warnings/errors. Browser closed through MCP; only the launched PID/port/DB/log/fixture were removed and no residual process remained.
+
+### Superseding final technical gate
+
+| Command | Result |
+| --- | --- |
+| `go test ./... -count=1 -race` | PASS exactly once after autosave implementation; 258.922s — server 5.089s, HTTP 256.776s, SQLite 68.248s, application 21.921s, domain 1.016s |
+| `go vet ./...` | PASS, 213ms |
+| `go build ./...` | PASS, 447ms |
+| `gofmt -l .` | empty, 41ms |
+| `git diff --check` | PASS, 6ms |
+| Repository safety | pre/post status identical; index empty; 24 tracked golden/testdata hashes unchanged; styles clean; desks artifact hash-identical/untracked; no residual project process |
+
+Rollback now covers all 20 PR9 candidate paths: restore tracked files to `bcf1d46` and remove the new runtime/authz/run-store/Pending files. No schema rollback is needed: internal version rows, version numbers, current pointers, and ticket pins were never removed or changed by autosave.
+
+---
+
+## PR9 Manual QA Follow-up — Contextual Workflow Timeline
+
+The generic `Completed workflow step` summary was replaced with a closed semantic audit vocabulary. The approved copy is:
+
+- every claim or least-loaded assignment: `Assigned to {person} · {desk}`;
+- manual task: `Completed task`;
+- requester form: `Submitted request details`;
+- assignee form: `Submitted work details`;
+- legacy context-free event: `Completed step`;
+- transition summaries remain `Ticket in progress`, `Ticket resolved`, and `Ticket closed`.
+
+### Audit contract and migration
+
+- New closed actions are `workflow_assignment`, `workflow_manual_task`, `workflow_requester_form`, and `workflow_assignee_form`. Legacy `workflow_step` remains readable but is no longer emitted.
+- Migration 0007 adds nullable `audit_events.desk_id REFERENCES desks(id) ON DELETE SET NULL`. Fixed insert/select/scan paths round-trip the value; desk deletion preserves the audit with an Unknown desk fallback.
+- Claim now persists one contextual assignment row plus an optional state transition. It emits no duplicate generic user update or workflow-step row.
+- Least-loaded persists the same contextual row after transactional selection, including same-person selections, plus an optional transition. Generic non-workflow assignment still suppresses false same-person user-change audits.
+- Form/manual actions are selected from the pinned step at plan time and validated as bare semantic events; answer values, instructions, notes, and arbitrary fields cannot enter the timeline event.
+- Reassignment reasons remain allowed only on validated A→B workflow assignments. CAS, rollback, membership, deterministic least-loaded, monotonic time, and atomic group invariants remain unchanged.
+
+### Presentation and security
+
+- `NewViewBuilder` requires `DeskStore` explicitly at every composition/test call site. It resolves user/desk labels with per-view caches and Unknown fallbacks.
+- Assignment variables remain plain view-model strings. `html/template` renders exactly `Assigned to <strong>{person}</strong> · <strong>{desk}</strong>`; Go never builds trusted HTML.
+- Assignment user IDs no longer produce state CSS classes. Completion notes stay hidden; validated assignment reasons remain visible.
+- Hostile labels are escaped once. Lower-level tests cover unknown/deleted desk, missing/inactive user, renamed labels, legacy events, same-person/least-loaded row uniqueness, XSS, reason rules, and zero-write denial/stale paths.
+- Existing golden fixtures contain no workflow audit row, so all 23 golden files remained byte-identical; no `-update` run occurred.
+
+### Browser evidence
+
+The first delegated worker/ox journey proved functionality but generated two invalid harness submissions; it was not admitted as clean evidence. A corrective delegated run stalled and its exact child/server/browser groups, port, and fixture were removed. After explicit maintainer authorization, one clean inline journey ran on isolated `127.0.0.1:51861` while preserving unrelated server PID 389529.
+
+- Public UI created hostile user `<b>Root</b>`, hostile desk `<i>Network</i>`, membership, category, ticket, requester form, manual task, assignee form, and terminal resolution. One bounded authenticated public POST saved the valid five-step draft; Publish remained a separate UI action.
+- Timeline exact order included `Ticket resolved`, `Submitted work details`, `Completed task`, `Ticket in progress`, one assignment, `Submitted request details`, and `Ticket created`.
+- Assignment text was exactly `Assigned to <b>Root</b> · <i>Network</i>` as literal text, with two `<strong>` elements, zero nested executable `<b>/<i>`, actor `Workflow`, timestamp visible, and count exactly one.
+- No `Completed workflow step`, no legacy `Completed step` for new events, no duplicate assignment, and no answer/instruction detail leaked.
+- Workflow completion POST positions 1, 3, and 4 all returned 200. The clean application request path produced zero 4xx/5xx; console had zero warnings/errors.
+- Desktop `1280/1280` and mobile `390/390` had no overflow and retained the timeline in accessibility snapshots. Browser closed; only launched PID 516738, port 51861, DB/log/fixture were removed; PID 389529 remained untouched.
+
+### Superseding final gate
+
+| Command | Result |
+| --- | --- |
+| `go test ./... -count=1 -race` | PASS exactly once after migration/timeline changes; 274s — server 4.990s, HTTP 271.181s, SQLite 73.355s, application 21.889s, domain 1.017s |
+| `go vet ./...` | PASS |
+| `go build ./...` | PASS, 1s |
+| `gofmt -l .` | empty |
+| `git diff --check` | PASS |
+| Repository safety | pre/post 34 modified + 10 untracked paths identical; index empty; 23 goldens unchanged; styles/desks hashes unchanged; no residual verifier process; unrelated server preserved |
+
+Rollback now covers all 43 PR9 candidate paths. Restore tracked files to `bcf1d46` and remove the new runtime/authz/run-store/Pending/timeline tests plus migration 0007. The repository uses forward-only migrations; no down migration is shipped. A database already migrated during local testing would retain the nullable column unless manually dropped, while all pre-0007 rows remain readable with `desk_id=NULL`.
+
+### PR10 task 10.1 evidence — migration 0008 + step-index persistence
+
+Structural seam: `TimelineItem` gained `StepFields []WorkflowResponseField` and `StepInstruction string` (views.go) — fields only, no enrichment/rendering behavior (task 10.2 scope). No production test-only helper was added; the partial RED view fixture (`stepTimelineFixture`) now retains its own `*fakeAuditStore` and appends through that fake store's existing `Append` method directly. The legacy `WorkflowResponseStore` + separate `WorkflowStepContextStore` port split is preserved.
+
+Coverage confirmed in tests:
+
+- `migration_0008_test.go`: nullable `step_index`, no default/backfill, `schema_migrations` version 8, nil-safe `AuditEvent.StepIndex *int` round-trip, semantic index persisted, transition + legacy raw rows NULL.
+- `workflow_uow_stepindex_test.go`: least-loaded assignment sealed index 0; form/manual exact indexes 0/1; non-flow and transition rows NULL.
+- `workflow_runner_stepindex_test.go`: requester-form sealed 0, manual sealed 1, claim assignment sealed 0, assignment-triggered transition NULL.
+- Task-10.2 behavior tests compile and remain RED under `-race` (enrichment not implemented).
+
+| Command | Result |
+| --- | --- |
+| `go build ./internal/domain/... ./internal/application/... ./internal/adapters/sqlite/...` | PASS |
+| `go test -race -run TestWorkflowRunner_StepIndexSealedOnSemanticAudits -v ./internal/application/` | PASS |
+| `go test -race -run 'TestMigration0008\|TestWorkflowUoW_LeastLoadedAssignment_StepIndexPersisted\|TestWorkflowUoW_FormAndManual_StepIndexRoundTrip' -v ./internal/adapters/sqlite/` | PASS (3/3) |
+| `go test -race -run 'TestViews_…' ./internal/application/` (10.2 selection) | compiles, FAILs on behavior as intended (RED) |
+| `gofmt -l internal/application/views.go internal/application/workflow_responses_test.go` | empty |
+| `git diff --check` | clean |
+
+Tasks 10.2–10.6 remain unchecked.
+
+### PR10 tasks 10.2–10.4 bounded continuation evidence — inline timeline assertion correction
+
+The authorized correction updated only the obsolete assertion in `internal/adapters/http/handlers_ticket_workflow_authz_test.go`: completed form responses must render in the timeline as an escaped `<dl class="workflow-responses">` with the pinned `Host` label, and the removed standalone `<ol class="workflow-response-steps">` card must be absent. Authorization and XSS assertions were preserved. No production behavior or goldens changed.
+
+| Command | Result |
+| --- | --- |
+| `gofmt -w internal/adapters/http/handlers_ticket_workflow_authz_test.go` | PASS |
+| `go test ./internal/adapters/http -run 'TestTicketWorkflow_Authz_XSSAnswerStoredTypedRenderedEscaped' -race -count=1` | PASS |
+| `go test ./... -count=1` | PASS |
+| `gofmt -l internal/adapters/http/handlers_ticket_workflow_authz_test.go` | empty |
+| `git diff --check` | PASS |
+| Golden changes | zero; no `-update` run |
+| Reused evidence | focused application/SQLite/HTTP race, `go vet ./...`, and `go build ./...` PASS from `/tmp/tkt-pr10-view-luna-evidence.txt`; not rerun |
+
+Correction workload: 9 added + 3 deleted assertion lines = 12 authored changed lines; generated changes = 0. Rollback boundary: revert the assertion block in `internal/adapters/http/handlers_ticket_workflow_authz_test.go`; retain all PR10 production implementation and other tests. Tasks 10.2–10.4 are complete; 10.5–10.6 remain pending (including the reserved final full-repository race gate).
+
+### PR10 task 10.5 evidence — isolated external Playwright
+
+The first read-only verifier was procedurally blocked because its child runtime had no initialized Playwright MCP. It launched and cleaned an isolated loopback server but ran no browser assertions; evidence revision `sha256:7d27249d95920ea52e76bbf95bac9e24e42b91ae44576e0d1812e21730097a53` is superseded by the successful external Pi validation below.
+
+A fresh external Pi session explicitly connected Playwright MCP and used only public UI behavior against a unique temporary SQLite database and `127.0.0.1:52645`. It created a pinned requester-form → claim → manual-task → assignee-form → automatic-resolve sequence, completed it, reopened the ticket, and added a later public comment to prove merged newest-first ordering.
+
+- Desktop `1280x900` and mobile `390x844` each exposed exactly one Timeline with the later comment above prior completion events.
+- Exactly two semantic event-local `dl/dt/dd` response groups rendered the pinned requester and assignee labels/values; the pinned manual instruction rendered inside its event.
+- Hostile labels, values, and instructions remained literal escaped text with zero injected `script`, `img`, or `svg` nodes.
+- No standalone `Workflow responses` card, ticket-facing `workflow` actor/copy, dangling separator, or new exact `Completed step` summary appeared.
+- Keyboard completion retained a visible solid `3px` focus outline; accessibility snapshots remained semantic at both viewports.
+- Console contained zero messages/errors/warnings; final detail and static requests returned 200 with no failed requests.
+- No horizontal overflow: `1280/1280` desktop and `390/390` mobile.
+- Browser closed; only launched PGID 12608 stopped; PID/group and port were gone; DB/WAL/SHM/log/meta artifacts were removed. Repository files were not edited by the validation.
+
+Evidence: `/tmp/tkt-pr10-task-10.5-playwright-external-evidence.txt`, `sha256:e72d7585406c8cdbd8cd2d32ecdca30505fdf5fd58f9dd2894bc7a54444c4452`. Task 10.5 is complete. Task 10.6 remains the reserved single full-repository race after the last executable correction.
+
+### PR10 task 10.6 procedural failure and authorized replacement
+
+The first full-race invocation started once and emitted `cmd/server` PASS, but the pi-subagents 240-second stall watchdog aborted the verifier before the remaining packages returned. No final exit status exists, no process survived, and no PASS was claimed. Failed procedural evidence is `/tmp/tkt-pr10-task-10.6-final-race-evidence.txt`, `sha256:637faa9f82d154524b838c7b0e86e0e217c082943dcb9182800863cfb3ab8514`.
+
+The maintainer explicitly authorized one replacement invocation after increasing global `stall_timeout_ms` to 600000. This is a documented harness exception, not a hidden rerun: the aborted invocation remains in the native attempt ledger and task evidence. No third invocation is permitted. Task 10.6 remains pending until the replacement returns a complete PASS.
+
+### PR10 Amendment 2 WC.1–WC.2 evidence — approved styling tokens + golden refresh
+
+Two delegated workers timed out before completing this slice (one read-only, one mid-investigation after landing CSS with whitespace damage on pre-existing rules). The parent completed closure inline with byte-level audits; deviations are recorded honestly.
+
+- `styles.html` vs HEAD is purely additive (+36/−0): `.workflow-responses` grid (104px muted dt, wrapping dd, hairline separators), `.timeline-event .body p + p` spacing, `@media(max-width:640px)` single-column stacking; existing variables reused; pre-existing rules restored to HEAD-exact bytes after the worker's indentation drift was found and fixed numerically (`cat -A`/lead-count audits).
+- Golden refresh required three `-update` invocations instead of one: two intermediate cycles captured the worker's broken indentation and are superseded by the corrective final cycle after restoring HEAD-exact source bytes. Every cycle diff was inspected; final state verified numerically (golden quartet lead=2 matching HEAD style; auth_login spot-diff contains only the additive block).
+- Cumulative golden delta vs HEAD: 12 fixtures carry the embedded style block (~+33 lines each); repository-wide deletions are exactly two whitespace-only lines in `ticket_form`/`tickets_new` (WB selector remnants); zero content deletions anywhere.
+
+| Command | Result |
+| --- | --- |
+| `go test ./internal/adapters/http -update -count=1` | ok ×3 documented cycles (26.748s / 26.731s / 26.803s) |
+| `go test ./internal/adapters/http -run 'Golden\|Render' -count=1 -race` | ok 27.883s stability rerun without `-update` |
+| `go build ./...` / `go vet ./...` | PASS / PASS |
+| `gofmt -l .` / `git diff --check` | empty / clean |
+
+Evidence: `/tmp/tkt-pr10-a2-wc-evidence.txt`, `sha256:21ec6e53384a11b3a790dc591648f951b5e47c69d8e2574f11b71569df21ed98`. Rollback boundary: revert the additive block in `styles.html`, restore goldens from HEAD, revert these checkbox/progress edits. Pending: WC.3 isolated Playwright journeys (parent-orchestrated external session) and WC.4 single post-correction full-repository race.
+
+The single authorized replacement completed without retry:
+
+| Command | Result |
+| --- | --- |
+| `go test ./... -count=1 -race` | PASS once; 271.578s total — server 4.727s, HTTP 270.927s, SQLite 76.098s, application 21.827s, domain 1.023s |
+| `go vet ./...` | PASS, no output |
+| `go build ./...` | PASS, no output |
+| `gofmt -l .` | empty |
+| `git diff --check` | PASS |
+| Golden stability | all 23 pre/post SHA-256 values identical; no `-update` |
+| Repository safety | branch/HEAD unchanged; index empty; 39 modified + 14 untracked paths identical before/after; no residual process; desks-ux-polish preserved |
+
+Replacement evidence: `/tmp/tkt-pr10-task-10.6-final-race-replacement-evidence.txt`, `sha256:6a3d6fa01d2e85ab68b00b7e3dd9bc74e24f6182926aa90add0882fea5a42e68`. Final workload against `bcf1d46`, excluding only `openspec/changes/desks-ux-polish/`: tracked `+2388/-405`, untracked `+1731/-0`, total 4,524 authored changed lines; generated and golden changes: zero. The approved `exception-ok` delivery strategy remains in force.
+
+PR10 rollback boundary: migration 0008 and its test; step-index domain/audit/store/UoW/runner/ports/view projection; inline timeline and pending-response templates; focused step-index/timeline/rendering/authz/runtime tests; PR10 OpenSpec design/spec/task/apply evidence. The repository uses forward-only migrations, so a locally migrated database retains the nullable column unless manually dropped. Task 10.6 is complete; no further full-race invocation is permitted.
+
+---
+
+## Amendment 2 — Unit WA: Solution persistence (this run)
+
+- change: `category-workflows` (Amendment 2 follow-up)
+- work unit: `WA` (single final PR under `delivery_strategy=exception-ok`, maintainer-approved `size:exception`; WB/WC later)
+- artifact store: `openspec`
+- strict TDD: active (`go test ./...`); every unit below ran honest RED before GREEN
+- status: WA.1–WA.8 complete; nothing staged/committed; desks-ux-polish untouched; no goldens touched; NO full-repository race (reserved WC.4)
+
+### Files Changed (WA)
+
+| File | Δ | Nature |
+| ---- | - | ------ |
+| `internal/adapters/sqlite/migrations/0009_ticket_manual_solutions.sql` | new, 17 lines | additive table keyed PRIMARY KEY(ticket_id, step_index), CHECKs (step_index >= 0, length <= 2000), FKs run-cascade + users, NO backfill |
+| `internal/adapters/sqlite/migration_0009_test.go` | new, 284 lines | schema shape/checks/FK/PK, version 0009 once, no-backfill, genuine pre-0009 dev-DB upgrade via filtered fstest.MapFS gaining exactly one object |
+| `internal/application/ports.go` | +14 | CompleteWorkflowCommand.Solution, WorkflowStepOperation.Solution, WorkflowStepContext.Solution |
+| `internal/application/workflow_runner.go` | +8 | manual branch stamps trimmed solution on sealed op; non-manual step with non-empty solution = typed ValidationError{solution}, zero ops |
+| `internal/adapters/sqlite/workflow_uow.go` | +25 | conditional insertManualSolutionTx when op.Solution != "" reusing audit actor-id/created-at facts inside the same BEGIN IMMEDIATE |
+| `internal/adapters/sqlite/workflow_response_store.go` | +11 | manual branch joins solution by exact persisted step index; missing/legacy → empty; form branch untouched |
+| `internal/application/views.go` | +5 | TimelineItem.StepSolution data-only field + bindStepContext copy in manual case |
+| `internal/application/workflow_runner_ops_test.go` | +127 | port-surface, stamping/trimming/whitespace-collapse, form contradiction, precedence, actor authority |
+| `internal/adapters/sqlite/workflow_uow_stepindex_test.go` | +280 net (140→420) | facts-reuse insert, empty→no row, CHECK-injected whole-unit rollback, non-membership marker probe, 2000-char round-trip, stale-duplicate conflict |
+| `internal/adapters/sqlite/workflow_response_store_test.go` | +69 | manual-context join by exact index, form branch never reads the table, legacy degradation |
+| `internal/application/views_test.go` | +42 | StepSolution enrichment, missing-context degradation, form events never carry solution |
+| `internal/adapters/sqlite/sqlite_test.go` | ~6 lines within already-modified hunks | migration bookkeeping expectations 8→9 |
+
+### Strict TDD Evidence — WA
+
+| Task | Phase | Focused command (exact) | Observed result |
+| ---- | ----- | ------------------------ | --------------- |
+| WA.1 | RED | `go test ./internal/adapters/sqlite -run 'TestMigration0009' -count=1 -race` | FAIL — `ticket_manual_solutions.created_at missing: sql: no rows in result set` |
+| WA.1 | GREEN | same | PASS |
+| WA.2 | RED | `go test ./internal/application -run 'TestWorkflowRunner' -count=1` | FAIL-first — compile errors: `unknown field Solution` on command/op/context |
+| WA.2 | GREEN | same | PASS |
+| WA.3 | RED | `go test ./internal/application -run 'TestWorkflowRunner_Solution|TestWorkflowRunner_FormDecoding' -count=1 -race` | FAIL — `op.Solution = "", want "rack the server"`; `form-step completion with a solution must be rejected` |
+| WA.3 | GREEN | same | PASS |
+| WA.4 | RED | `go test ./internal/adapters/sqlite -run 'TestWorkflowUoW.*Solution' -count=1 -race` | FAIL — `read stored solution: sql: no rows in result set`; `oversized solution must fail the unit at the storage CHECK` |
+| WA.4 | GREEN | same | PASS |
+| WA.5 | RED | `go test ./internal/adapters/sqlite -run 'TestWorkflowStepContext' -count=1 -race` | FAIL — `manual context Solution = "", want the stored value joined by exact index` |
+| WA.5 | GREEN | same (+ `TestWorkflowResponseStore` rerun) | PASS |
+| WA.6 | RED | `go test ./internal/application -run 'TestViews' -count=1 -race` | FAIL-first — `item.StepSolution undefined` |
+| WA.6 | GREEN | same | PASS |
+| WA.7 | TRIANGULATE | `go test ./internal/adapters/sqlite ./internal/application -run 'Solution' -count=1 -race` | PASS first run — marker absent from audit note AND reason, comments, tickets_fts; present in exactly 1 solution row; 2,000-char round-trip byte-exact; stale duplicate gets ErrWorkflowPositionConflict with exactly 1 surviving row |
+
+### Gates (WA.8)
+
+| Gate | Result |
+| ---- | ------ |
+| `gofmt -l .` | empty (after formatting the two new/extended sqlite test files) |
+| `go vet ./...` | PASS, no output |
+| `go build ./...` | PASS |
+| `go test ./internal/adapters/sqlite -count=1` | PASS (after expected bookkeeping bump 8→9 in TestMigrateCreatesSchema/TestMigrateRerunIsNoOp) |
+| `go test ./internal/application -count=1` | PASS |
+| Full-repo race | NOT RUN — reserved WC.4 closing gate |
+| Goldens / Playwright | N/A — WA changes no rendered output; rendering lands in WB.6–WB.7 |
+| Runtime harness | N/A — WA touches no HTTP surface |
+
+### Authored churn measurement (WA)
+
+Measured as per-file delta of `git diff --numstat` against a pre-run snapshot (`/tmp/tkt-baseline-diff.txt`, taken before any WA edit; untracked files counted by line delta): tracked deltas +598, plus new `migration_0009_test.go` 284 lines = **≈882 authored additions+deletions**. This exceeds the WA forecast (~340–480) mainly through test depth (284-line migration upgrade-path test, 280-line UoW suite). The named split seam (detach WA.5–WA.6) was superseded by the maintainer's explicit `exception-ok` + `size:exception` single-final-PR instruction for this run; no split performed.
+
+### Rollback boundary (WA)
+
+Revert exactly these deltas: delete `migrations/0009_ticket_manual_solutions.sql` + `migration_0009_test.go`; revert ports/runner/UoW/response-store/views field-and-branch changes and the WA test additions in `workflow_runner_ops_test.go`, `workflow_uow_stepindex_test.go`, `workflow_response_store_test.go`, `views_test.go`; restore `sqlite_test.go` bookkeeping to 8. Forward-only policy: a locally migrated dev DB retains the empty `ticket_manual_solutions` table unless manually dropped (`DROP TABLE ticket_manual_solutions`). PR1–PR10 behavior remains byte-for-byte green after revert; no other file is touched by WA.
+
+### REFACTOR decision (WA.8)
+
+`insertAnswerTx` and `insertManualSolutionTx` stay separate helpers: different tables, columns, and CHECK semantics; sharing them would require the callback/generic transaction API the design forbids. No real duplication exists.
+
+---
+
+## Amendment 2 — Unit WB: Handlers/presentation (closure run after interrupted worker)
+
+- change: `category-workflows` (Amendment 2 follow-up, WB unit)
+- artifact store: `openspec`; strict TDD active (`go test ./...`)
+- nature: VERIFICATION AND BOOKKEEPING CLOSURE. The prior WB worker timed out after landing nearly the whole slice; this run audited the landed state, found ONE genuine RED (test determinism), fixed it minimally within allowed surfaces, ran all mandated verification, refreshed goldens through exactly one `-update`, and ticked WB.1–WB.8.
+- status: WB complete; nothing staged/committed; `desks-ux-polish` untouched; NO full-repo race and NO Playwright (both reserved to WC).
+
+### Audit verdict
+
+All six WB behaviors verified present with tests: presence-based create rejection (`handlers_tickets.go:365` via `domain.ErrMsgCreateUnassignedOnly`, 4 roles × 2 params × 3 values matrix with zero-write probes + precedence + positive control), structurally unassigned creation (`CreateTicketInput` has no UserID; harness migrated to audited `Assign`), selector removal for every role with detail-page assign UI intact, solution transport bound (2001-reject-zero-writes / 2000-trimmed-store / whitespace-absent / claim contradiction / forged keys kept), pending card leads with escaped pinned instruction from the pinned snapshot (no numbering/generic copy, GET read-only), timeline solution escaped inside event only-when-non-empty.
+
+### Honest RED→GREEN (the one defect found)
+
+| Phase | Command | Result |
+| ----- | ------- | ------ |
+| RED | `go test ./internal/adapters/http -run 'Unassigned\|Assignee\|Solution\|Pending\|Timeline\|Workflow' -count=1 -race` | FAIL — `TestWorkflowStepTimelineManualSolutionRendersInsideEvent`: "newest-first ordering broken (event at 26026, older comment at 25755)"; reproduced deterministically non-race |
+| Root cause | — | Test determinism, NOT product: fixed harness clock ties seeded comment + completion event at the same RFC3339 second; preserved comments-before-events rule (`views.go` stable sort) correctly rendered the comment above the event, invalidating the unconditional strict assertion. No other test locked the tie rule. |
+| Fix (test-only, allowed surface) | backdate seeded comment −1h via raw SQL so newest-first is genuinely proven; add explicit same-second tie lock on the unsolved twin (comment above its completion event) | No production change; tie rule now positively locked per WB.6 contract |
+| GREEN | same focused command → ok 141.730s; single test `-race` PASS 1.54s | PASS |
+
+### Verification runs
+
+- `go test ./internal/adapters/http -run 'Unassigned|Assignee|Solution|Pending|Timeline|Workflow' -count=1 -race` → ok 141.730s
+- `go test ./internal/application -count=1 -race` → ok 21.747s
+- `go test ./... -count=1` (full non-race) → only TestGoldenTicketsNew/TestGoldenTicketForm FAIL (expected pre-cycle drift); all handler/view assertions green
+- Golden cycle: ONE `go test ./internal/adapters/http -update -count=1` → ok; `git diff --stat internal/adapters/http/testdata/` = exactly `tickets_new.golden` + `ticket_form.golden`, 1 deletion each (selector remnant); stability rerun without `-update` under `-race` → ok 326.979s
+- Gates: `gofmt -l .` empty (after formatting two prior-worker files: handlers_tickets_test.go, ticket_service_test.go); `go vet ./...` PASS; `go build ./...` PASS; `git diff --check` clean
+- Post-format focused re-checks: HTTP `'Unassigned|TestRenderNewTicketForm'` ok; application `'TestTicketService_Create'` ok
+- Runtime harness: covered by httptest+real-SQLite suites; isolated browser journeys reserved to WC.3
+
+### Persisted task checkbox updates
+
+WB.1–WB.8 marked `[x]` in `openspec/changes/category-workflows/tasks.md` with evidence notes; re-read confirms all eight visible as `[x]`. WA/PR10 and earlier remain untouched.
+
+### Authored churn (WB)
+
+Tracked WB-attributable Δ ≈ **587** additions+deletions (current numstat minus pre-WA snapshot `/tmp/tkt-baseline-diff.txt`, minus WA deltas): errors.go +2, handlers_tickets.go +40/−20, handlers_tickets_test.go +161/−48, ticket_service.go +8/−26, ticket_service_test.go +39/−118, ticket_form.html −8, timeline.html +1, workflow_answers_render_test.go +87, harness_test.go +11, handlers_admin/comment/detail tests +10, workflow_create_immutability_test.go +4/−4. Untracked WB surfaces counted whole (content mixes earlier PR9/PR10-era lines; exact split not reconstructible — interrupted worker settled no baseline): runtime_test 565 + authz_test 372 + timeline_test 272 + workflow_pending.html 72 = 1281. Generated: 2 golden deletions (excluded). Forecast ~380–540 exceeded via test depth — accepted under maintainer's explicit exception-ok + size:exception single-final-PR instruction.
+
+### Rollback boundary (WB)
+
+Revert tracked deltas on domain/errors.go; http handlers_tickets{,_test}.go, workflow_answers_render_test.go, harness_test.go, handlers_admin/comment/detail_test.go; application ticket_service{,_test}.go, workflow_create_immutability_test.go; templates ticket_form.html + timeline.html; restore tickets_new/ticket_form goldens to pre-cycle bytes; remove WB extensions from the three untracked workflow test files and restore/remove workflow_pending.html. No DB rollback (WB adds no migration); PR1–PR10 + WA remain green.
+
+### Deviations from design
+
+None in product code. One test-level correction (WB.6 ordering fixture determinism + tie-rule lock) strengthens rather than relaxes the WB.6 assertion set.
+
+### Structured status consumed / produced
+
+Consumed: tasks.md Amendment 2 section, apply-progress.md WA section, parent delegation context (prior-worker verified behaviors), current tree. Produced: this WB section, ticked WB checkboxes, `/tmp/tkt-pr10-a2-wb-evidence.txt` sha256 `645c5c8dcb2b58a11c59edd36cb870d44bc3d422ff9b0643fdf6f966e26bd76e`. actionContext: repo-local workspace `/home/gtesta/Projects/tkt`, allowed edit roots respected (only listed WB surfaces + goldens via authorized `-update`). skill_resolution: paths-injected (go-testing, work-unit-commits read before work).
+
+### Remaining work
+
+WC.1–WC.4 only: approved style tokens, full-page detail goldens, isolated Playwright journeys, closing full-repo race + static gates.
+
+---
+
+## Amendment 2 closure — WC.3 isolated Playwright journeys (parent-orchestrated)
+
+- change: `category-workflows` (Amendment 2, WC.3 unit)
+- artifact store: `openspec`; strict TDD context preserved (unit is journey-level, no code change)
+- nature: VERIFICATION UNIT. All four isolated journeys PASS with isolation + cleanup evidence.
+- status: WC.3 complete; nothing staged/committed; `desks-ux-polish` untouched; full evidence at `/tmp/tkt-a2-wc3-evidence-final.txt`.
+
+### Journey verdicts
+
+| Journey | Result |
+| --- | --- |
+| 1 create-without-assignee + forged `assignee_id` 422 | PASS — form exposes only title/description/category_id/priority (DOM audit `hasAssigneeControl=false`); forged POST → 422 with visible banner "tickets are created unassigned — assignment happens later through the category flow"; DB audit: zero forged tickets |
+| 2 pending manual card + optional solution | PASS — "Complete this task:" with pinned instruction, no numbering/generic copy, instruction escaped in DOM; completed with hostile solution via HTMX |
+| 3 solution round-trip escaped only-when-written | PASS — solved shows instruction+solution escaped (`&lt;b&gt;`, `&lt;script&gt;` literal); unsolved shows instruction only; no standalone Workflow responses card |
+| 4 completed-form readability at 390px | PASS — dl.workflow-responses dt above dd (single column), no horizontal overflow (390==390), visible focus ring solid `#315EFF` offset 2px; desktop dt 104px side-by-side, no overflow |
+
+### Isolation / cleanup
+
+- temp SQLite `/tmp/tkt-a2-wc3-final-aSGePj.sqlite` + loopback `127.0.0.1:60725`; `/healthz` OK; server chain 769090→769094→769170
+- cleanup stopped ONLY the launched chain (port verified FREE after kill); temp DB/WAL/SHM/log/pngs deleted with `ls` proof; repo untouched by the run
+- NOT touched: prior WC.3-attempt server still alive on 51479 (PID chain 357808→357879) — external residue, reported as follow-up
+
+### Product findings surfaced (outside WC.3 scope)
+
+1. Users edit form: "Save changes" without touching the activate toggle sends `active=false` → deactivates the user. Pre-existing form behaviour; follow-up candidate.
+2. Legacy tkt server from the earlier WC.3 attempt still running on 127.0.0.1:51479 (residue).
+
+### Remaining
+
+    WC.4 only: exactly ONE post-correction `go test ./... -count=1 -race` PASS + `gofmt -l .` empty + `go vet ./...` + `go build ./...` + `git diff --check` clean + golden-stability confirmation + final churn measurement; then the single final PR under the maintainer's exception-ok instruction.
+
+---
+
+## Amendment 3 — Planning amendment (artifact-only)
+
+- change: `category-workflows`
+- artifact store: `openspec`
+- nature: PLANNING ONLY — no production, test, golden, or design-image files changed; no tests/builds run; no existing evidence rewritten.
+- status: planned; all Amendment 3 implementation tasks are intentionally unchecked.
+- delivery: explicitly deferred until after implementation evidence. This amendment does not select, create, or imply a PR.
+
+### Approved scope recorded
+
+1. Native workflow-configurator selects receive tkt-consistent presentation while preserving native semantics, HTMX/autosave, keyboard focus, high contrast, and narrow layout.
+2. Categories receive the structural table/overflow/mobile contract, and desks receive the structural responsive master/detail contract. Supplied screenshots are structural references only; tkt tokens and simple product philosophy remain authoritative.
+3. Pinned `assign_to_desk[claim]` moves from Pending Actions/timeline input to the Assignment sidebar, where Desk/current Assignee and `Assign to me` are projected only for an active `agent`/`admin`/`root` current member of the pinned desk.
+4. Workflow claims are reasonless, including true A→B. The removal is limited to the workflow claim command/operation path. Generic manual reassignment and historical audit-reason rendering remain unchanged.
+5. The existing workflow completion route and immediate UoW remain authoritative: they recheck pinned version, current cursor, actor activity/role, and desk membership before writes; first concurrent claim wins; stale/removed/deactivated actors receive typed zero-write failures; success produces exactly one `Assigned to {person} · {desk}` event plus the existing optional `new→in_progress` transition.
+
+### Planned work units and validation
+
+- **A:** categories plus workflow-select presentation.
+- **B:** desks master/detail.
+- **C:** workflow claim semantics and read projection.
+- **D:** claim sidebar and focused Go/isolated Playwright closing verification.
+
+The tasks artifact contains the authoritative unchecked RED→GREEN→TRIANGULATE→REFACTOR plan, review workload forecast, rollback seams, and focused desktop/390px validation matrix. Implementation has not started under Amendment 3.
+
+---
+
+## Amendment 3 — A/B/C/D.1 implementation evidence (2026-08-23)
+
+- **Status:** A, B, C, and D.1 implemented and focused-tested. D.2 Playwright and D.3 closing verification remain unchecked and are parent-owned.
+- **A — categories and native configurator selects:** category index is a semantic `Category` / `Created` / `Status` / `Actions` table with labelled native disclosure for Delete; mobile rules stack labelled table cells at ≤640px. Builder `<select>` controls remain native and retain their existing names, HTMX attributes, and autosave routes; scoped token styling adds narrow-width and visible-focus treatment.
+- **B — desks master/detail:** `/desks?desk_id=` selects the requested desk, defaults to the first, and falls back safely. The UI has a disclosed create form, list member counts, selected detail, rename/delete/add/remove forms on existing routes, selected-context redirects, and excludes current members from the add selector. Existing service authorization remains authoritative.
+- **C — reasonless pinned claim:** `CompleteWorkflowCommand` and `ClaimAssignmentOperation` no longer carry a reason. The runner/UoW permit true A→B pinned claims without one and reject fabricated workflow-claim audit reasons. Generic `TicketService.Assign` and `POST /tickets/{id}/assign` remain unchanged. Claim presentation moved from Pending Actions to Assignment sidebar; it derives desk/current assignee and renders `Assign to me` only for active agent-plus current desk members. The immediate UoW rechecks pin/snapshot, cursor, actor activity/role, membership, and first-wins CAS before writes. Claim event remains the single contextual `Assigned to {person} · {desk}` audit plus optional atomic `new→in_progress` transition.
+
+### Strict TDD evidence
+
+- **A/B RED:** `go test ./internal/adapters/http -run 'TestAmendment3_(CategoryIndex|DesksMasterDetail)' -count=1` failed before implementation: missing table headers/disclosure and master/detail/selection/member-filter markup.
+- **A/B GREEN:** same command passed after templates, handler selection, and scoped styles.
+- **C RED:** `go test ./internal/application -run TestWorkflowRunner_OrderedOperations -count=1` failed at `claim reassignment is reasonless` with `a reason is required to reassign the ticket`.
+- **C GREEN:** runner test passed after removal of claim-only reason plumbing; focused combined HTTP/SQLite/application commands passed.
+- **TRIANGULATE:** focused suites cover selection fallback/member filtering, native builder mobile CSS contract, eligible sidebar claim/nonmember denial, A→B reasonless claim, generic assignment regression, stale activity/membership/role UoW rechecks, and claim concurrency/CAS through `TestWorkflowUoW_Claim`.
+- **REFACTOR:** no new client-side authority or select library; reused the closed runner/UoW operation grammar and existing routes.
+
+### Commands and evidence
+
+- `go test ./internal/adapters/http -run 'TestAmendment3_(CategoryIndex|DesksMasterDetail)' -count=1` → FAIL then PASS.
+- `go test ./internal/application -run TestWorkflowRunner_OrderedOperations -count=1` → FAIL then PASS.
+- `go test ./internal/adapters/http -run 'Test(CategoryWorkflowBuilder_MobileStyles_WrapNarrow|DeskHandlersCreateListAndManageMembership|Amendment3_|TicketWorkflowTimelineClaim|TicketWorkflowRuntime_CompletionClaim)' -count=1` → PASS.
+- `go test ./internal/adapters/sqlite -run 'TestWorkflowUoW_Claim|TestMigration0009|TestWorkflowStepContext' -count=1` → PASS.
+- `go test ./internal/application -run 'TestWorkflowRunner|TestTicketService_Assign' -count=1` → PASS.
+- `go test ./internal/adapters/http -count=1` → PASS.
+- Golden update: `go test ./internal/adapters/http -run TestGolden -update -count=1` followed by `go test ./internal/adapters/http -run TestGolden -count=1` → PASS. The first update was superseded by the required shared-style closing-tag correction; the recorded second update is the authoritative final cycle.
+- `gofmt -w` on touched Go paths → completed; focused suites passed afterward.
+- `git diff --check` → **FAIL** only on generated HTTP golden trailing whitespace added by the repository update path (all listed `internal/adapters/http/testdata/*.golden`); no manual golden rewrite was performed because golden policy requires the repository `-update` path.
+
+### Goldens and rollback
+
+- Goldens touched by the update path: `auth_login`, `auth_setup`, `categories_index`, `categories_new`, `settings_index`, `ticket_detail`, `ticket_form`, `tickets_index`, `tickets_index_user`, `tickets_new`, `tickets_show`, `users_index`, `users_new`.
+- Authored numstat estimate across Amendment 3 touched implementation/test/OpenSpec paths, excluding generated goldens: **3,154** additions+deletions in the dirty cumulative tree; this cannot isolate prior dirty work exactly.
+- **Rollback boundary:** revert Amendment 3 handler/template/style/claim-port/UoW/test deltas and the regenerated goldens together. No migration was added. Existing tickets, generic manual assignment, and all pre-Amendment-3 workflow data remain readable.
+- **Remaining risk:** resolve the generated-golden trailing-whitespace `git diff --check` failure without bypassing the repository golden update path; D.2 and D.3 remain parent-owned.
+
+---
+
+## Amendment 3 — Golden correction and D.2 isolated Playwright closure
+
+- **Golden correction:** the original update cycle exposed rendered whitespace from source template boundaries. Three source-only corrections removed whitespace emission in `styles.html`, `categories_index.html`, and `ticket_detail.html`; the final remaining byte came from an adjacent CSS comment stripped by `html/template`. The user explicitly authorized the documented additional `-update` cycles. Final `go test ./internal/adapters/http -run TestGolden -count=1` PASS, focused Amendment 3 HTTP/render tests PASS, source-template trailing-whitespace grep empty, and `git diff --check` PASS. No golden was edited manually.
+- **D.2 runtime:** parent Playwright MCP on unique loopback/temp SQLite validated Categories table/actions, native styled workflow selects with HTMX/autosave and keyboard focus, Desks CRUD/member/master-detail, nonmember-hidden/eligible-visible claim button, stale membership 422 with transactional zero-write proof, successful reasonless self-claim, exactly one contextual `Assigned to Root Tester · Network` event, and `new→in_progress` at desktop and 390px. Final clean navigations had zero console errors/warnings and no failed dynamic requests; the expected stale 422 was classified separately.
+- **Accessibility correction:** the first browser pass found selected desk links lacked `aria-current`. Focused RED/GREEN added `aria-current="page"` only to the resolved selected desk; a second isolated desk pass proved default, explicit, and invalid-fallback selection each expose exactly one current link matching the detail at desktop/390px, with no overflow and clean console/network.
+- **Isolation/cleanup:** both launched server process groups, ports, temp DB/WAL/SHM/log roots, and browser tabs were removed; unrelated legacy server `127.0.0.1:51479` remained untouched. Repository files were unchanged by browser execution.
+- **Evidence:** `/tmp/tkt-amendment3-playwright-parent-evidence.txt`, `sha256:f47ad1544e3c0d28f2cad0b4535e7fb7afbdb3915ae15bb18a53d733482a8e1b`.
+- **Status:** Amendment 3 A–C and D.1–D.2 complete. D.3 closing static/broad verification and delivery planning remain pending.
+
+---
+
+## Amendment 4 — Focused implementation and H.2 golden stabilization
+
+- **Implementation status:** E.1–G.3 and H.1 remain complete. Direct category/desk delete submits, exact `var(--amber-soft)` Current task cards, and the responsive semantic editor/read-only linear preview passed the expanded focused Amendment 4 suite. I.1–I.2, A4.1, D.3, and WC.4 remain pending.
+- **Source-whitespace TDD:** The rendered-output regression was expanded from representative pages to 15 outputs (11 full pages plus `category_form`, `ticket_form`, `ticket_list`, and `user_form`). RED captured 59 full-page violations with exact per-page counts; source-only control-action placement removed those lines without route, condition, authorization, fixture, or semantic markup changes. The four component cases were added as triangulation after their golden deltas exposed the validation gap.
+- **Golden update discipline:** The final authorized `go test ./internal/adapters/http -run '^TestGolden' -update -count=1` ran exactly once. The following no-update run was byte-stable. No golden was edited manually and no second update was executed.
+- **Golden scope:** Durable baseline tree `7ccb387f27c9b12e4ac41a6bc4ecd53012c1231d` proves exactly 15 changed goldens: 69 whitespace-only normalizations plus two indentation-only nonempty lines in `settings_index.golden`; line counts are equal and route/auth/fixture/tag/content payload drift is zero. All 23 final goldens have zero trailing-whitespace or whitespace-only lines and pass `git diff --check`.
+- **Focused verification:** `TestAmendment4_FullPageHasNoTrailingWhitespace` passes with exactly 15 named subtests; all `^TestAmendment4_` tests pass; `^TestGolden` passes without update; all 23 golden hashes remain unchanged across the stability run. The 10 source-cleanup templates and `styles.html` match the durable baseline; `styles.html` remains `sha256:17e50d5aad79af7aff0fad0dc1d9849c4bc699a7a33e26f336da7a5301b5f9ad`.
+- **Recovery note:** A host power loss interrupted one read-only validator and removed its `/tmp` copies. Native state was settled as interrupted; the maintainer authorized a one-attempt read-only recovery. Git object storage supplied the immutable baseline, avoiding any regeneration. `workflow_pending.html` is an existing untracked Amendment 4 source outside the whitespace-cleanup touch set and did not affect H.2 evidence.
+- **Evidence:** source map `/tmp/tkt-amendment4-whitespace-map.txt` (`sha256:117064a1e0dff5948b5e84065116b0b6d859e59be4650af67530d0b1ea3a0e23`); source RED/GREEN `/tmp/tkt-amendment4-whitespace-red.txt` and `/tmp/tkt-amendment4-whitespace-green.txt`; final recovery `/tmp/tkt-amendment4-final-golden-validation-evidence.txt` (`sha256:4b95e2536ab58383521a9190d94e0cfb1af5d48d68950c21094aa1d6795f755a`). Native recovery settled `complete` while remediating prior path-scope validation evidence.
+- **Status:** H.2 complete. No Playwright, broad race/static closing gate, stage, commit, push, PR, or delivery action was performed.
+
+---
+
+## Amendment 4 — I.1-I.2 isolated Playwright closure
+
+- **Applicability and fallback:** `ux-ui-e2e-validation` activated for the UI/forms/HTMX/responsive diff. The first delegated verifier was procedurally BLOCKED because its child tool surface lacked Playwright MCP and stopped before server launch. The native attempt was settled failed with no resources created; the parent then acquired the bounded fallback attempt and used its available Playwright MCP.
+- **Isolation:** Empty unique SQLite `/tmp/tkt-amendment4-e2e-YH54RC/tkt.sqlite`, loopback-only `127.0.0.1:40519`, bounded `/healthz`, and public setup/login/UI seed flows. No existing server or data was reused. Launch PID 21946 spawned server PID 22036; cleanup re-read the actual setsid PGID as 21946 before signalling only that group.
+- **Categories:** Semantic Category/Created/Status/Actions table and direct native POST `Delete category` buttons rendered with no More actions. Disposable deletion succeeded. Referenced category deletion re-rendered the management surface with visible 409 alert; HX replay returned the same alert/table fragment without a full shell. Mobile cells retained labels and controls with 390/390 overflow metrics.
+- **Desks:** Responsive selected master/detail exposed exactly one `aria-current=page`, direct native POST `Delete desk`, member controls, and no More actions. Disposable deletion/fallback passed. Existing domain deletion intentionally permits members/references; the authoritative rejected path was a stale duplicate POST, which visibly re-rendered `desk not found` (404) in full and HX fragment responses. At 390px the 362px list stacked before the 362px detail, controls stayed visible, and overflow was 390/390.
+- **Current task cards:** Pending manual and requester-form work each rendered as one semantic Current task section with native controls. Root `--amber-soft` was exactly `#FFF1D6`; both computed card backgrounds were `rgb(255, 241, 214)`. Keyboard focus moved to Complete with solid 3px `rgb(49,94,255)` outline and 2px offset at desktop/mobile. Completed manual instruction/solution moved into the external newest-first timeline while the form remained current.
+- **Workflow editor/preview:** Native named selects retained HTMX change posts; observed autosaves returned 200. Preview/Publish worked. Keyboard Up/Enter changed editor and preview order, announced `Step 1 of 2`, and restored focus to Down; Space restored order, announced `Step 2 of 2`, and restored focus to Up. Submitted flow was a read-only ordered list with zero interactive descendants and no graph/canvas. Desktop panels were side-by-side with identical y origin; mobile panels stacked at 324px; overflow was exact at both viewports.
+- **Console/network and DB:** Intentional 409/404 rejection requests were classified separately. Final clean navigation had zero console errors/warnings and no failed dynamic requests. Read-only DB proof before cleanup: users 1, categories 1, desks 1, tickets 1, workflow versions 2, audit events 3, manual solutions 1; all isolated.
+- **Cleanup:** Browser closed; only PGID 21946 terminated; port 40519 closed; temp root including DB/WAL/SHM/log and launch manifest removed. No screenshots/fixtures retained. Port 51479 was absent before/after and never targeted. Index remained empty.
+- **Evidence:** `/tmp/tkt-amendment4-playwright-evidence.txt`, `sha256:8ccf71d57959fdb3da02f9e3fe65a46c90d94bc55434286a97e9b48455eb5392`.
+- **Status:** I.1 and I.2 complete. A4.1, Amendment 3 D.3, Amendment 2 WC.4, stage, commit, push, PR, and delivery remain pending.
+
+---
+
+## PASS — Final closing record
+
+- **Completed records:** Amendment 4 A4.1, Amendment 3 D.3, and Amendment 2 WC.4 are closed; their persisted task checkboxes are marked `[x]`.
+- **Test-only remediation:** `handlers_amendment3_test.go` now accepts whitespace in a valid `</a ... >` closure while rejecting malformed closure; focused test exit 0; gofmt diff empty; Go LSP and pi-lens clean.
+- **Race evidence:** the prior failure remains separately retained at `/tmp/tkt-category-workflows-final-gates-FkQVFH/race.log` (`sha256:f8f73fbe10ce6fc56de30c8e1a378a26b9e266fc68946d68d402aad40053143c`). The replacement race ran exactly once and passed in 344639ms; complete evidence root: `/tmp/tkt-category-workflows-final-replacement-bc0AXu`.
+- **Static and golden gates:** `gofmt -l .` empty; `go vet ./...`, `go build ./...`, and `git diff --check` passed. Corrected no-update golden command `go test ./internal/adapters/http -count=1 -run '^TestGolden'` passed with no no-tests marker; 23 before/after manifests were identical (`sha256:b9bf522c07c72facd167f16d5d6743ee8acf0c7b35006ed526fc22ae0a47bf5d`).
+- **Browser closure:** final Playwright I.1–I.2 evidence: `/tmp/tkt-amendment4-playwright-evidence.txt` (`sha256:8ccf71d57959fdb3da02f9e3fe65a46c90d94bc55434286a97e9b48455eb5392`); final clean navigation had zero console errors/warnings, no unexpected request failures, and cleanup completed.
+- **Aggregate evidence:** `/tmp/tkt-category-workflows-final-closing-evidence.txt` (`sha256:5c750efd9437d8a28c02b0f143480f355aea263c56977c505dbc270af3bde813`). Index was empty before/after, no verification processes remain, and protected `desks-ux-polish` was excluded and untouched.
+- **Final scoped churn:** 9370 additions / 5404 deletions, excluding only openspec/changes/desks-ux-polish.
+- **Delivery status:** category-workflows implementation is closed. Archive, delivery, stage, commit, push, and PR remain unperformed and require separate user direction.
+- **Structured status:** manual status produced because native lifecycle/status handling is parent-owned: OpenSpec proposal, design, relevant specs, tasks, and prior apply-progress were readable; all implementation checkboxes are complete; `applyState: all_done`; `actionContext: repo-local` at `/home/gtesta/Projects/tkt` with edits limited to the two delegated records and no warnings; next recommendation is separate verification/sync/archive routing.

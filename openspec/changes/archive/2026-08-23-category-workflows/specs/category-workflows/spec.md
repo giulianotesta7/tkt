@@ -106,7 +106,7 @@ An `assign_to_desk` step MUST identify an existing desk and MUST use strategy `c
 
 ### Requirement: Friendly Vertical Builder
 
-The workflow builder MUST present the draft as a vertical numbered list and MUST show only fields relevant to the selected step type. An authorized actor MUST be able to add, move, remove, preview, and publish steps. Preview MUST be a read-only ordered summary of the current draft. Reordering MUST be keyboard accessible, and every builder action and validation result MUST remain usable through a full-page request when HTMX is unavailable. Validation errors MUST appear inline in plain language without exposing a graph, canvas, nodes, connectors, or branch controls.
+The workflow builder MUST present a top header with its existing actions and a responsive two-panel information architecture: the semantic vertical numbered-list editor on the left and a read-only vertical linear-flow preview on the right at desktop widths. The editor MUST show only fields relevant to the selected step type. An authorized actor MUST be able to add, move, remove, preview, and publish steps. The read-only preview MUST be derived from the submitted/server-rendered current draft, and MAY use restrained static visual connectors solely to clarify sequence. It MUST NOT become a graph, canvas, interactive node editor, branching control, drag-and-drop surface, client-side state store, or new workflow semantic. At narrow widths the panels MUST stack without horizontal overflow. Reordering MUST be keyboard accessible, and every builder action and validation result MUST remain usable through a full-page request when HTMX is unavailable; HTMX and full-page responses MUST preserve equivalent editor and preview state. Validation errors MUST appear inline in plain language.
 
 #### Scenario: Contextual step fields
 
@@ -128,11 +128,27 @@ The workflow builder MUST present the draft as a vertical numbered list and MUST
 - THEN a read-only ordered summary of the draft is shown
 - AND the older published version remains active
 
+#### Scenario: Read-only linear flow preview mirrors the draft
+
+- GIVEN an authorized actor edits a linear draft with multiple ordered steps
+- WHEN the builder renders at desktop width
+- THEN the semantic ordered editor appears beside a read-only vertical flow preview
+- AND the preview reflects the same submitted/server-rendered linear order
+- AND the preview exposes no drag-and-drop, branching, node editing, or independent mutation control
+
+#### Scenario: Builder stacks without overflow on narrow screens
+
+- GIVEN an authorized actor opens the builder at 390px wide
+- WHEN the editor and read-only preview render
+- THEN the panels stack in a readable order without horizontal scrolling
+- AND native controls, add/reorder/remove, preview, publish, visible focus, and live announcements remain usable
+
 #### Scenario: Full-page validation fallback
 
 - GIVEN HTMX is unavailable and the draft contains an invalid step
 - WHEN an authorized actor submits Publish
 - THEN the full builder page is rendered with the same inline validation error
+- AND the editor and read-only preview preserve the submitted draft state
 - AND no version is created
 
 ### Requirement: Additive Workflow Adoption
@@ -162,3 +178,15 @@ Workflow form answers MUST belong to workflow tasks and MUST remain outside tick
 - GIVEN a completed workflow form whose answer contains a unique term absent from the ticket's searchable fields
 - WHEN an actor searches tickets for that term
 - THEN the ticket does not match because of the workflow answer
+
+### Requirement: Native Workflow Configurator Select Presentation
+
+Workflow-configurator step selects MUST remain native semantic `<select>` controls with their existing names, values, HTMX/autosave behavior, and keyboard operation. Their presentation MUST use existing tkt visual tokens, retain clearly visible high-contrast focus, and fit narrow layouts without horizontal overflow. The system MUST NOT replace them with a scripted custom combobox or alter their server-side mutation contract.
+
+#### Scenario: Configurator select remains operable
+
+- GIVEN an admin or root edits a workflow step
+- WHEN they operate its native type, desk, actor, strategy, or field-kind select by keyboard
+- THEN the selected value participates in the existing HTMX/autosave flow
+- AND visible focus remains clear at desktop and 390px widths
+- AND no custom control changes the select's native semantics
