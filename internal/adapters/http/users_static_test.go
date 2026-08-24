@@ -9,9 +9,9 @@ import (
 
 func TestUsersStaticAssetsAreExplicitAndConditionallyLoaded(t *testing.T) {
 	h := newHarness(t)
-	for _, tc := range []struct{ path, kind, marker string }{{"/static/users.css", "text/css; charset=utf-8", ".users-root"}, {"/static/users.js", "text/javascript; charset=utf-8", "void 0"}} {
+	for _, tc := range []struct{ path, kind, marker string }{{"/static/users.css", "text/css; charset=utf-8", ".users-drawer"}, {"/static/users.js", "text/javascript; charset=utf-8", "history.back"}} {
 		rec := h.get(t, tc.path, false)
-		if rec.Code != http.StatusOK || rec.Header().Get("Content-Type") != tc.kind || rec.Header().Get("Cache-Control") != "public, max-age=86400" || !strings.Contains(rec.Body.String(), tc.marker) {
+		if rec.Code != http.StatusOK || rec.Header().Get("Content-Type") != tc.kind || rec.Header().Get("Cache-Control") != "no-cache" || !strings.Contains(rec.Body.String(), tc.marker) {
 			t.Fatalf("asset %s response = %d/%q", tc.path, rec.Code, rec.Header().Get("Content-Type"))
 		}
 	}
