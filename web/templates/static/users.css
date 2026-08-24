@@ -2,7 +2,7 @@
 .users-page-body .main{min-width:0;background:#f7f8fa}
 .users-root{min-width:0;color:#182230;font-family:"DM Sans","Geist Sans",system-ui,sans-serif;font-size:14px}
 .users-root *{box-sizing:border-box}
-.users-root #users-background{max-width:1120px;margin:0 auto;padding:48px 40px 64px}
+.users-root #users-background{max-width:none;margin:0;padding:0}
 .users-root .users-header{display:flex;align-items:flex-start;justify-content:space-between;gap:24px;margin-bottom:32px}
 .users-root h1,.users-root h2{margin:0;color:#182230;letter-spacing:-.035em}
 .users-root h1{font-family:"Space Grotesk","Geist Sans",system-ui,sans-serif;font-size:30px;line-height:1.1}
@@ -10,12 +10,25 @@
 .users-root .users-primary-action,.users-root .users-secondary-action,.users-root .users-danger-action,.users-root .users-cancel,.users-root dialog button{border:1px solid transparent;border-radius:5px;cursor:pointer;font:600 13px/1.2 inherit;text-decoration:none}
 .users-root .users-primary-action{display:inline-flex;align-items:center;justify-content:center;background:#2f5bff;color:#fff;padding:11px 16px}
 .users-root .users-primary-action:hover{background:#2349dd}
-.users-root .users-filters{display:flex;gap:24px;border-bottom:1px solid #dce2eb;margin-bottom:20px}
-.users-root .users-filters a{position:relative;padding:11px 0;color:#667085;text-decoration:none}
-.users-root .users-filters a span{margin-left:5px;font-variant-numeric:tabular-nums}
-.users-root .users-filters a.is-selected{color:#2f5bff;font-weight:700}
-.users-root .users-filters a.is-selected:after{position:absolute;right:0;bottom:-1px;left:0;height:2px;background:#2f5bff;content:""}
-.users-root .users-list{overflow:hidden;border:1px solid #e2e7ee;border-radius:10px;background:#fff}
+.users-root .users-filters{grid-area:filters;display:flex;align-items:flex-end;justify-content:space-between;gap:20px;border-bottom:1px solid #dce2eb}
+.users-root .users-status-tabs{display:flex;gap:24px;min-width:0}
+.users-root .users-status-tabs a{position:relative;padding:11px 0;color:#667085;text-decoration:none}
+.users-root .users-status-tabs a span{margin-left:5px;font-variant-numeric:tabular-nums}
+.users-root .users-status-tabs a.is-selected{color:#2f5bff;font-weight:700}
+.users-root .users-status-tabs a.is-selected:after{position:absolute;right:0;bottom:-1px;left:0;height:2px;background:#2f5bff;content:""}
+.users-root .users-search{position:relative;flex:0 0 320px;margin-bottom:4px}
+.users-root .users-search svg{position:absolute;top:50%;left:12px;transform:translateY(-50%);color:#98a2b3;pointer-events:none}
+.users-root .users-search input{width:100%;height:44px;border:1px solid #cbd3df;border-radius:6px;background:#fff;color:#182230;font:inherit;padding:0 12px 0 38px}
+.users-root .users-search input:focus{outline:3px solid rgba(47,91,255,.28);outline-offset:2px}
+.users-root .users-layout{display:grid;grid-template-areas:"filters ." "list access";grid-template-columns:minmax(0,73fr) minmax(0,27fr);column-gap:24px;row-gap:20px;align-items:start}
+.users-root .users-list{grid-area:list;overflow:hidden;border:1px solid #e2e7ee;border-radius:10px;background:#fff}
+.users-root .users-access-card{grid-area:access;min-width:0;border:1px solid #e2e7ee;border-radius:10px;background:#fff;padding:18px}
+.users-root .users-access-card h2{font-size:18px;line-height:1.2}
+.users-root .users-access-subtitle{margin:6px 0 16px;color:#667085;font-size:13px}
+.users-root .users-access-card dl{margin:0}
+.users-root .users-access-card dl>div{padding:12px 0;border-top:1px solid #edf0f4}
+.users-root .users-access-card dt{font-weight:700}
+.users-root .users-access-card dd{margin:4px 0 0;color:#667085;font-size:13px;line-height:1.45}
 .users-root table{width:100%;border-collapse:collapse}
 .users-root th{color:#667085;font-size:11px;font-weight:700;letter-spacing:.07em;text-align:left;text-transform:uppercase}
 .users-root th,.users-root td{padding:15px 18px;border-bottom:1px solid #edf0f4;vertical-align:middle}
@@ -56,8 +69,13 @@
 .users-root dialog p{color:#667085;line-height:1.55}
 .users-root dialog div{display:flex;justify-content:flex-end;gap:10px}
 .users-root .users-drawer[aria-busy=true]{pointer-events:none;opacity:.7}
+@media(max-width:900px){
+  .users-root .users-layout{grid-template-areas:"filters" "list" "access";grid-template-columns:1fr;row-gap:24px}
+  .users-root .users-filters{align-items:stretch;flex-direction:column;gap:12px}
+  .users-root .users-status-tabs{flex-wrap:wrap}
+  .users-root .users-search{flex-basis:auto;width:100%;margin:0 0 12px}
+}
 @media(max-width:640px){
-  .users-root #users-background{padding:28px 24px 40px}
   .users-root .users-header{margin-bottom:24px}
   .users-root table{min-width:620px}
   .users-root .users-list{overflow:auto}
