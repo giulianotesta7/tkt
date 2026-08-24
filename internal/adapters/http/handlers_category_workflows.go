@@ -17,13 +17,14 @@ import (
 // persistence to WorkflowService, and renders real editable per-step controls
 // (no JS-dependent hidden JSON round-trip).
 type CategoryWorkflowHandlers struct {
-	workflows *application.WorkflowService
-	desks     *application.DeskService
-	renderer  *Renderer
+	categories *application.CategoryService
+	workflows  *application.WorkflowService
+	desks      *application.DeskService
+	renderer   *Renderer
 }
 
-func NewCategoryWorkflowHandlers(workflows *application.WorkflowService, desks *application.DeskService, renderer *Renderer) *CategoryWorkflowHandlers {
-	return &CategoryWorkflowHandlers{workflows: workflows, desks: desks, renderer: renderer}
+func NewCategoryWorkflowHandlers(categories *application.CategoryService, workflows *application.WorkflowService, desks *application.DeskService, renderer *Renderer) *CategoryWorkflowHandlers {
+	return &CategoryWorkflowHandlers{categories: categories, workflows: workflows, desks: desks, renderer: renderer}
 }
 
 func (h *CategoryWorkflowHandlers) Register(mux *http.ServeMux) {
@@ -33,13 +34,14 @@ func (h *CategoryWorkflowHandlers) Register(mux *http.ServeMux) {
 
 type workflowBuilderData struct {
 	pageData
-	CategoryID int64
-	Draft      domain.WorkflowDefinition
-	Desks      []domain.Desk
-	Issues     []domain.WorkflowValidationIssue
-	Preview    bool
-	Live       string
-	FocusStep  int
+	CategoryID   int64
+	CategoryName string
+	Draft        domain.WorkflowDefinition
+	Desks        []domain.Desk
+	Issues       []domain.WorkflowValidationIssue
+	Preview      bool
+	Live         string
+	FocusStep    int
 }
 
 func (h *CategoryWorkflowHandlers) get(w http.ResponseWriter, r *http.Request) {
@@ -201,16 +203,23 @@ func (h *CategoryWorkflowHandlers) deskOptions(r *http.Request) []domain.Desk {
 }
 
 func (h *CategoryWorkflowHandlers) render(w http.ResponseWriter, r *http.Request, categoryID int64, draft domain.WorkflowDefinition, desks []domain.Desk, issues []domain.WorkflowValidationIssue, preview bool, live string, focus int, status int) {
-	data := workflowBuilderData{
-		pageData:   pageDataFrom(r, "categories"),
-		CategoryID: categoryID,
-		Draft:      draft,
-		Desks:      desks,
-		Issues:     issues,
-		Preview:    preview,
-		Live:       live,
-		FocusStep:  focus,
+	category, err := h.categories.GetByID(r.Context(), categoryID)
+	if err != nil {
+		http.Error(w, mapErrorMsg(err), statusFor(err))
+		return
 	}
+	data := workflowBuilderData{
+		pageData:     pageDataFrom(r, "categories"),
+		CategoryID:   categoryID,
+		CategoryName: category.Name,
+		Draft:        draft,
+		Desks:        desks,
+		Issues:       issues,
+		Preview:      preview,
+		Live:         live,
+		FocusStep:    focus,
+	}
+	data.PageFoundationAssets = true
 	h.renderer.Render(w, r, "category_workflow", "workflow_builder", data, status)
 }
 

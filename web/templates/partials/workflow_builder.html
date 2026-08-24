@@ -1,9 +1,8 @@
 {{define "workflow_builder"}}
-<section id="workflow-builder" class="workflow-builder" aria-labelledby="workflow-builder-title" hx-on::before-swap="if(event.detail.xhr.status === 422){event.detail.shouldSwap = true; event.detail.isError = false}">
-  <form method="post" action="/categories/{{.CategoryID}}/workflow" hx-post="/categories/{{.CategoryID}}/workflow" hx-target="#workflow-builder" hx-swap="outerHTML" hx-sync="this:queue last">
+<section id="workflow-builder" class="workflow-builder page-panel" aria-labelledby="workflow-builder-title" hx-on::before-swap="if(event.detail.xhr.status === 422){event.detail.shouldSwap = true; event.detail.isError = false}">
+  <form method="post" action="/categories/{{.CategoryID}}/workflow" id="workflow-form" hx-post="/categories/{{.CategoryID}}/workflow" hx-target="#workflow-builder" hx-swap="outerHTML" hx-sync="this:queue last">
     <div class="workflow-builder-head">
       <div><h2 id="workflow-builder-title">Workflow steps</h2><p>Changes save automatically.</p></div>
-      <div class="row-actions"><button class="btn ghost small" type="submit" name="action" value="preview">Preview</button><button class="btn primary small" type="submit" name="action" value="publish">Publish</button></div>
     </div>
     {{range .Issues}}<div class="error-banner" role="alert">{{.Message}}</div>{{end}}
     <p class="workflow-live" aria-live="polite">{{if .Live}}{{.Live}}{{else}}Use Up and Down to change a step position.{{end}}</p>

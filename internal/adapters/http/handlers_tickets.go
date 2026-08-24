@@ -72,14 +72,15 @@ func (h *TicketHandlers) Register(mux *http.ServeMux) {
 // highlights the active section and the operator chip shows the session
 // user.
 type pageData struct {
-	NavActive           string
-	CurrentUser         domain.User
-	CanManageUsers      bool
-	CanManageDesks      bool
-	CanManageCategories bool
-	CanGrantAdmin       bool
-	UsersAssets         bool
-	InternalCommentBg   string
+	NavActive            string
+	CurrentUser          domain.User
+	CanManageUsers       bool
+	CanManageDesks       bool
+	CanManageCategories  bool
+	CanGrantAdmin        bool
+	UsersAssets          bool
+	PageFoundationAssets bool
+	InternalCommentBg    string
 }
 
 // pageDataFrom builds the shell payload from the session user. The

@@ -14,6 +14,112 @@ import (
 	"github.com/giulianotesta7/tkt/internal/domain"
 )
 
+func TestCategoryWorkflowBuilder_UsesUsersHeaderFoundationAndCategoryIdentity(t *testing.T) {
+	h := newHarness(t)
+	category, err := h.categories.Create(t.Context(), "Hardware")
+	if err != nil {
+		t.Fatalf("create category: %v", err)
+	}
+
+	rec := h.get(t, "/categories/"+strconv.FormatInt(category.ID, 10)+"/workflow", false)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET status = %d, want 200", rec.Code)
+	}
+	body := rec.Body.String()
+	for _, want := range []string{
+		`class="page-foundation category-workflow-page"`,
+		`<nav class="page-breadcrumb" aria-label="Breadcrumb"><a href="/categories">Categories</a><span aria-hidden="true"> / </span><span>Hardware</span></nav>`,
+		`class="page-title">Category workflow</h1>`,
+		`class="page-subtitle">Build one ordered path for this category.</p>`,
+		`<span class="page-status" role="status">Saved</span>`,
+		`class="page-action page-action-secondary" type="submit" form="workflow-form" name="action" value="preview">Preview</button>`,
+		`class="page-action page-action-primary" type="submit" form="workflow-form" name="action" value="publish">Publish</button>`,
+		`<form method="post" action="/categories/`,
+		`id="workflow-form"`,
+		`/static/users.css`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("workflow header must contain %q, got: %s", want, body)
+		}
+	}
+
+	usersBody := h.get(t, "/users", false).Body.String()
+	for _, want := range []string{
+		`class="users-root"`,
+		`class="users-header"`,
+		`id="users-list-title"`,
+		`class="users-primary-action"`,
+		`class="users-list"`,
+	} {
+		if !strings.Contains(usersBody, want) {
+			t.Errorf("Users page must contain %q, got: %s", want, usersBody)
+		}
+	}
+
+	cssRec := h.get(t, "/static/users.css", false)
+	if cssRec.Code != http.StatusOK {
+		t.Fatalf("users.css status = %d, want 200", cssRec.Code)
+	}
+	css := cssRec.Body.String()
+	for _, tc := range []struct {
+		name         string
+		selectors    []string
+		declarations []string
+	}{
+		{"header geometry", []string{".users-root .users-header", ".page-foundation .page-header"}, []string{"display:flex", "align-items:flex-start", "justify-content:space-between", "gap:24px"}},
+		{"title geometry", []string{".users-root h1", ".page-foundation .page-title"}, []string{"font-size:30px", "line-height:1.1"}},
+		{"subtitle styling", []string{".users-root .users-header p", ".page-foundation .page-subtitle"}, []string{"margin:8px 0 0", "color:#667085"}},
+		{"primary action geometry", []string{".users-root .users-primary-action", ".page-foundation .page-action-primary"}, []string{"display:inline-flex", "align-items:center", "justify-content:center", "padding:11px 16px"}},
+		{"panel surface", []string{".users-root .users-list", ".page-foundation .page-panel"}, []string{"border:1px solid #e2e7ee", "border-radius:10px", "background:#fff"}},
+	} {
+		assertCSSRuleContains(t, css, tc.name, tc.selectors, tc.declarations)
+	}
+	statusRule := cssRuleForSelectors(css, ".page-foundation .page-status")
+	if statusRule == "" {
+		t.Fatal("users.css must define the Saved status text class")
+	}
+	for _, forbidden := range []string{"border", "background", "padding"} {
+		if strings.Contains(statusRule, forbidden) {
+			t.Errorf("Saved status rule must not contain button styling %q: %s", forbidden, statusRule)
+		}
+	}
+}
+
+func assertCSSRuleContains(t *testing.T, css, name string, selectors, declarations []string) {
+	t.Helper()
+	rule := cssRuleForSelectors(css, selectors...)
+	if rule == "" {
+		t.Errorf("%s must bind selectors %q in one shared rule", name, selectors)
+		return
+	}
+	for _, declaration := range declarations {
+		if !strings.Contains(rule, declaration) {
+			t.Errorf("%s rule must contain %q, got: %s", name, declaration, rule)
+		}
+	}
+}
+
+func cssRuleForSelectors(css string, selectors ...string) string {
+	for _, rawRule := range strings.Split(css, "}") {
+		open := strings.LastIndex(rawRule, "{")
+		if open < 0 {
+			continue
+		}
+		selectorText := rawRule[:open]
+		matches := true
+		for _, selector := range selectors {
+			if !strings.Contains(selectorText, selector) {
+				matches = false
+				break
+			}
+		}
+		if matches {
+			return rawRule[open+1:]
+		}
+	}
+	return ""
+}
+
 // These integration contracts intentionally exercise the public builder routes
 // through the real SQLite-backed HTTP harness. The form's draft value is the
 // complete ordered client draft; no server-side builder state is trusted.

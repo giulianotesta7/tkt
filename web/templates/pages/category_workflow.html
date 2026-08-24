@@ -1,10 +1,17 @@
 {{define "content"}}
-<div class="command-header">
-  <div>
-    <h1 class="command-title">Category workflow</h1>
-    <p class="command-sub">Build one ordered path for this category.</p>
-  </div>
-  <div class="command-actions"><a class="btn ghost" href="/categories">Back to categories</a></div>
+<div class="page-foundation category-workflow-page">
+  <header class="page-header">
+    <div>
+      <nav class="page-breadcrumb" aria-label="Breadcrumb"><a href="/categories">Categories</a><span aria-hidden="true"> / </span><span>{{.CategoryName}}</span></nav>
+      <h1 class="page-title">Category workflow</h1>
+      <p class="page-subtitle">Build one ordered path for this category.</p>
+    </div>
+    <div class="page-actions">
+      <span class="page-status" role="status">Saved</span>
+      <button class="page-action page-action-secondary" type="submit" form="workflow-form" name="action" value="preview">Preview</button>
+      <button class="page-action page-action-primary" type="submit" form="workflow-form" name="action" value="publish">Publish</button>
+    </div>
+  </header>
+  {{template "workflow_builder" .}}
 </div>
-{{template "workflow_builder" .}}
 {{end}}

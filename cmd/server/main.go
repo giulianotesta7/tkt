@@ -123,7 +123,7 @@ func main() {
 	httpadapter.NewTicketHandlers(ticketSvc, commentSvc, searchSvc, catSvc, userSvc, store.DeskStore(), workflowSvc, application.NewWorkflowRunner(clock), store.WorkflowRunStore(), store.WorkflowUnitOfWork(), renderer).Register(mux)
 	httpadapter.NewUserHandlers(userSvc, renderer).Register(mux)
 	httpadapter.NewCategoryHandlersWithWorkflows(catSvc, workflowSvc, renderer).Register(mux)
-	httpadapter.NewCategoryWorkflowHandlers(workflowSvc, deskSvc, renderer).Register(mux)
+	httpadapter.NewCategoryWorkflowHandlers(catSvc, workflowSvc, deskSvc, renderer).Register(mux)
 	httpadapter.NewDeskHandlers(deskSvc, renderer).Register(mux)
 	httpadapter.NewSettingsHandlers(settingsSvc, renderer).Register(mux)
 	// D12: /healthz is exempt from auth — registered on the mux before the
