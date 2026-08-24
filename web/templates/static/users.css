@@ -1,7 +1,71 @@
-.users-root {
-  min-width: 0;
+.users-page-body{overflow-x:hidden;background:#f7f8fa}
+.users-page-body .main{min-width:0;background:#f7f8fa}
+.users-root{min-width:0;color:#182230;font-family:"DM Sans","Geist Sans",system-ui,sans-serif;font-size:14px}
+.users-root *{box-sizing:border-box}
+.users-root #users-background{max-width:1120px;margin:0 auto;padding:48px 40px 64px}
+.users-root .users-header{display:flex;align-items:flex-start;justify-content:space-between;gap:24px;margin-bottom:32px}
+.users-root h1,.users-root h2{margin:0;color:#182230;letter-spacing:-.035em}
+.users-root h1{font-family:"Space Grotesk","Geist Sans",system-ui,sans-serif;font-size:30px;line-height:1.1}
+.users-root .users-header p{margin:8px 0 0;color:#667085}
+.users-root .users-primary-action,.users-root .users-secondary-action,.users-root .users-danger-action,.users-root .users-cancel,.users-root dialog button{border:1px solid transparent;border-radius:5px;cursor:pointer;font:600 13px/1.2 inherit;text-decoration:none}
+.users-root .users-primary-action{display:inline-flex;align-items:center;justify-content:center;background:#2f5bff;color:#fff;padding:11px 16px}
+.users-root .users-primary-action:hover{background:#2349dd}
+.users-root .users-filters{display:flex;gap:24px;border-bottom:1px solid #dce2eb;margin-bottom:20px}
+.users-root .users-filters a{position:relative;padding:11px 0;color:#667085;text-decoration:none}
+.users-root .users-filters a span{margin-left:5px;font-variant-numeric:tabular-nums}
+.users-root .users-filters a.is-selected{color:#2f5bff;font-weight:700}
+.users-root .users-filters a.is-selected:after{position:absolute;right:0;bottom:-1px;left:0;height:2px;background:#2f5bff;content:""}
+.users-root .users-list{overflow:hidden;border:1px solid #e2e7ee;border-radius:10px;background:#fff}
+.users-root table{width:100%;border-collapse:collapse}
+.users-root th{color:#667085;font-size:11px;font-weight:700;letter-spacing:.07em;text-align:left;text-transform:uppercase}
+.users-root th,.users-root td{padding:15px 18px;border-bottom:1px solid #edf0f4;vertical-align:middle}
+.users-root tbody tr:last-child td{border-bottom:0}
+.users-root th:first-child,.users-root td:first-child{width:46%}
+.users-root .user-launcher,.users-root .user-factual{display:flex;align-items:center;gap:11px;color:inherit;text-decoration:none}
+.users-root .user-launcher:hover strong{text-decoration:underline}
+.users-root .user-initials{display:grid;place-items:center;flex:0 0 34px;width:34px;height:34px;border-radius:8px;background:#eef2ff;color:#2f5bff;font-size:12px;font-weight:700}
+.users-root strong,.users-root small{display:block}
+.users-root small{margin-top:3px;color:#667085;font-size:12px}
+.users-root .user-status{display:inline-block;border-radius:4px;background:#f0f2f5;color:#667085;padding:5px 8px;font-size:12px}
+.users-root .user-status.is-active{background:#eaf7f0;color:#217653}
+.users-root time{color:#667085;font-size:13px}
+.users-root .user-actions{display:grid;place-items:center;width:30px;height:30px;border:0;background:transparent;color:#667085;cursor:pointer}
+.users-root .user-actions:hover{color:#2f5bff}
+.users-root .users-empty{margin:0;padding:40px;text-align:center;color:#667085}
+.users-root .users-error{margin:0 0 16px;border-left:3px solid #9c3d4b;background:#fff1f2;color:#762f3c;padding:12px 14px}
+.users-root .users-drawer-backdrop{position:fixed;inset:0;background:rgba(18,23,32,.28);z-index:20}
+.users-root .users-drawer{position:fixed;inset:0 0 0 auto;z-index:21;display:flex;flex-direction:column;width:min(430px,100vw);height:100dvh;margin:0;border:0;padding:0;background:#fff;box-shadow:-10px 0 28px rgba(18,23,32,.12)}
+.users-root .users-drawer-header{display:flex;justify-content:space-between;gap:16px;align-items:flex-start;padding:28px 32px 20px;border-bottom:1px solid #e2e7ee}
+.users-root .users-eyebrow{margin:0 0 7px;color:#667085;font-size:11px;letter-spacing:.08em;text-transform:uppercase}
+.users-root .users-drawer h2{font-size:22px}
+.users-root .users-drawer-close{border:0;background:transparent;color:#667085;cursor:pointer;font-size:25px;line-height:1}
+.users-root .users-drawer-body{overflow:auto;flex:1;padding:24px 32px}
+.users-root .users-field{margin-bottom:20px}
+.users-root .users-field label{display:block;margin-bottom:7px;font-weight:700}
+.users-root .users-field input,.users-root .users-field select{width:100%;border:1px solid #cbd3df;border-radius:5px;background:#fff;color:#182230;font:inherit;padding:11px 12px}
+.users-root .users-field input:focus,.users-root .users-field select:focus,.users-root button:focus-visible,.users-root a:focus-visible{outline:3px solid rgba(47,91,255,.28);outline-offset:2px}
+.users-root .users-help,.users-root .users-lifecycle-copy{margin:7px 0 0;color:#667085;font-size:13px;line-height:1.5}
+.users-root .users-danger-action{margin-top:8px;border-color:#d8a8b0;background:#fff;color:#8d3948;padding:10px 12px}
+.users-root .users-secondary-action{margin-top:8px;border-color:#b9c6ff;background:#fff;color:#2f5bff;padding:10px 12px}
+.users-root .users-drawer-footer{display:flex;justify-content:flex-end;gap:10px;margin:30px -32px -24px;padding:16px 32px;border-top:1px solid #e2e7ee;background:#fff}
+.users-root .users-cancel,.users-root dialog button{background:#fff;border-color:#cbd3df;color:#344054;padding:10px 13px}
+.users-root dialog [data-discard],.users-root dialog [data-confirm-deactivate]{border-color:#8d3948;background:#8d3948;color:#fff}
+.users-root dialog{width:min(520px,calc(100vw - 32px));border:0;border-radius:12px;padding:28px;background:#fff;color:#182230;box-shadow:0 18px 50px rgba(18,23,32,.18)}
+.users-root dialog::backdrop{background:rgba(18,23,32,.28)}
+.users-root dialog h2{font-size:20px}
+.users-root dialog p{color:#667085;line-height:1.55}
+.users-root dialog div{display:flex;justify-content:flex-end;gap:10px}
+.users-root .users-drawer[aria-busy=true]{pointer-events:none;opacity:.7}
+@media(max-width:640px){
+  .users-root #users-background{padding:28px 24px 40px}
+  .users-root .users-header{margin-bottom:24px}
+  .users-root table{min-width:620px}
+  .users-root .users-list{overflow:auto}
+  .users-root .users-drawer-header{height:64px;padding:20px 24px}
+  .users-root .users-drawer-body{padding:24px}
+  .users-root .users-drawer-footer{margin:30px -24px -24px;padding:16px 24px}
+  .users-root th,.users-root td{padding:13px 14px}
 }
-
-.users-page-body .users-root {
-  min-height: 100%;
+@media(prefers-reduced-motion:reduce){
+  .users-root *{scroll-behavior:auto!important;transition:none!important}
 }

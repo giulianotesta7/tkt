@@ -1,6 +1,7 @@
 package httpadapter
 
 import (
+	"errors"
 	"net/http"
 	"strconv"
 	"strings"
@@ -402,7 +403,6 @@ func (h *UserHandlers) update(w http.ResponseWriter, r *http.Request) {
 		data.UsersAssets = true
 		w.Header().Set("HX-Retarget", "#users-root")
 		w.Header().Set("HX-Reswap", "outerHTML")
-		w.Header().Set("HX-Replace-Url", data.ListURL)
 		w.Header().Set("HX-Trigger-After-Swap", "users:saved")
 		h.renderer.Render(w, r, "users_index", "users_screen", data, http.StatusOK)
 		return
@@ -490,7 +490,16 @@ func (h *UserHandlers) renderUsersDrawerError(w http.ResponseWriter, r *http.Req
 	if current, getErr := h.users.GetByID(r.Context(), id); getErr == nil {
 		u = current
 	}
-	drawer := newUserDrawerData(actor, u, statusFilter, values, msg, "", true)
+	field := ""
+	var validation *domain.ValidationError
+	var duplicate *domain.DuplicateError
+	switch {
+	case errors.As(err, &validation):
+		field = validation.Field
+	case errors.As(err, &duplicate) && duplicate.Kind == "user":
+		field = "email"
+	}
+	drawer := newUserDrawerData(actor, u, statusFilter, values, msg, field, true)
 	if r.Header.Get("HX-Request") != "" {
 		w.Header().Set("HX-Retarget", "#users-drawer-host")
 		w.Header().Set("HX-Reswap", "outerHTML")

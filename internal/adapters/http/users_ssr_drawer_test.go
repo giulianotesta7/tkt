@@ -63,12 +63,13 @@ func TestUsersEmptyAndIneligibleRows(t *testing.T) {
 func TestUsersDrawerGETUpdateAndFailureContracts(t *testing.T) {
 	h := newHarness(t)
 	target := h.createUser(t, "Ana Torres", "ana@example.com", "secret")
+	other := h.createUser(t, "Bea Smith", "bea@example.com", "secret")
 	path := "/users/" + strconv.FormatInt(target.ID, 10) + "/edit"
 	normal := h.get(t, path+"?status=active", false)
 	if normal.Code != http.StatusOK || normal.Header().Get("Vary") != "HX-Request" {
 		t.Fatalf("normal edit status/vary = %d/%q", normal.Code, normal.Header().Get("Vary"))
 	}
-	mustContain(t, normal.Body.String(), `id="users-root"`, `id="users-drawer-host"`, `role="dialog"`, `name="name"`, `name="email"`, `name="role"`, `name="active"`, "Includes User access")
+	mustContain(t, normal.Body.String(), `id="users-root"`, `id="users-drawer-host"`, `role="dialog"`, `hx-post="`, `data-server-error="false"`, `name="name"`, `name="email"`, `name="role"`, `name="active"`, "Includes User access")
 	if strings.Contains(normal.Body.String(), `name="password"`) || strings.Contains(normal.Body.String(), `>Delete<`) {
 		t.Fatalf("drawer exposes forbidden data: %s", normal.Body.String())
 	}
@@ -81,15 +82,21 @@ func TestUsersDrawerGETUpdateAndFailureContracts(t *testing.T) {
 	if saved.Code != http.StatusOK || strings.Count(saved.Body.String(), `id="users-root"`) != 1 {
 		t.Fatalf("HX save body/status = %d/%s", saved.Code, saved.Body.String())
 	}
-	for key, want := range map[string]string{"HX-Retarget": "#users-root", "HX-Reswap": "outerHTML", "HX-Replace-Url": "/users?status=active", "HX-Trigger-After-Swap": "users:saved"} {
+	for key, want := range map[string]string{"HX-Retarget": "#users-root", "HX-Reswap": "outerHTML", "HX-Trigger-After-Swap": "users:saved"} {
 		if saved.Header().Get(key) != want {
 			t.Errorf("%s = %q, want %q", key, saved.Header().Get(key), want)
 		}
 	}
 	invalid := url.Values{"name": {""}, "email": {"ana@example.com"}, "role": {"agent"}, "active": {"true"}, "status": {"active"}}
 	failure := h.postForm(t, path, invalid, true)
-	if failure.Code != http.StatusUnprocessableEntity || failure.Header().Get("HX-Retarget") != "#users-drawer-host" || !strings.Contains(failure.Body.String(), `id="users-drawer-host"`) {
-		t.Fatalf("HX failure contract = %d/%s", failure.Code, failure.Body.String())
+	if failure.Code != http.StatusUnprocessableEntity || failure.Header().Get("HX-Retarget") != "#users-drawer-host" || !strings.Contains(failure.Body.String(), `id="user-name" name="name" type="text" value="" required aria-invalid="true"`) {
+		t.Fatalf("HX validation contract = %d/%s", failure.Code, failure.Body.String())
+	}
+	duplicate := form
+	duplicate.Set("email", other.Email)
+	conflict := h.postForm(t, path, duplicate, true)
+	if conflict.Code != http.StatusConflict || !strings.Contains(conflict.Body.String(), `id="user-email" name="email" type="email" value="bea@example.com" required aria-invalid="true"`) {
+		t.Fatalf("HX duplicate field contract = %d/%s", conflict.Code, conflict.Body.String())
 	}
 }
 
