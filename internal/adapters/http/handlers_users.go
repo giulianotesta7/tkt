@@ -3,6 +3,8 @@ package httpadapter
 import (
 	"net/http"
 	"strconv"
+	"strings"
+	"time"
 
 	"github.com/giulianotesta7/tkt/internal/application"
 	"github.com/giulianotesta7/tkt/internal/domain"
@@ -36,12 +38,185 @@ func (h *UserHandlers) Register(mux *http.ServeMux) {
 	mux.HandleFunc("POST /users/{id}/delete", h.delete)
 }
 
+type usersStatus string
+
+const (
+	usersStatusAll         usersStatus = "all"
+	usersStatusActive      usersStatus = "active"
+	usersStatusDeactivated usersStatus = "deactivated"
+)
+
+type usersCounts struct {
+	All         int
+	Active      int
+	Deactivated int
+}
+
+type userRowView struct {
+	ID          int64
+	Initials    string
+	Name        string
+	Email       string
+	RoleLabel   string
+	StatusLabel string
+	Active      bool
+	CreatedAt   time.Time
+	CanManage   bool
+	EditHref    string
+	EditURL     string
+	LauncherID  string
+}
+
+type userRoleOption struct {
+	Value       domain.Role
+	Label       string
+	Description string
+}
+
+type userDrawerData struct {
+	Error           string
+	ErrorField      string
+	UserID          int64
+	Values          userFormValues
+	RoleOptions     []userRoleOption
+	RoleDescription string
+	Status          usersStatus
+	ListURL         string
+	EditURL         string
+	HasServerError  bool
+}
+
 // usersIndexData is the managed-users list payload; Error carries a
-// rejected-delete message (409 re-render).
+// rejected-delete message (409 re-render). Users remains for legacy templates
+// until the Users screen template is introduced in the next slice.
 type usersIndexData struct {
 	pageData
-	Error string
-	Users []domain.User
+	Error        string
+	Users        []domain.User
+	Status       usersStatus
+	ListURL      string
+	Counts       usersCounts
+	Rows         []userRowView
+	EmptyMessage string
+	Drawer       *userDrawerData
+}
+
+func normalizeUsersStatus(raw string) usersStatus {
+	switch usersStatus(raw) {
+	case usersStatusActive:
+		return usersStatusActive
+	case usersStatusDeactivated:
+		return usersStatusDeactivated
+	default:
+		return usersStatusAll
+	}
+}
+
+func usersListURL(status usersStatus) string {
+	if status == usersStatusAll {
+		return "/users"
+	}
+	return "/users?status=" + string(status)
+}
+
+func userRoleLabel(role domain.Role) string {
+	switch role {
+	case domain.RoleUser:
+		return "User"
+	case domain.RoleAgent:
+		return "Agent"
+	case domain.RoleAdmin:
+		return "Admin"
+	case domain.RoleRoot:
+		return "Root"
+	default:
+		return "Unknown"
+	}
+}
+
+func roleDescription(role domain.Role) string {
+	switch role {
+	case domain.RoleUser:
+		return "Standard user access."
+	case domain.RoleAgent:
+		return "Includes User access and agent permissions."
+	case domain.RoleAdmin:
+		return "Includes Agent access and user management. Only Root can grant this role."
+	case domain.RoleRoot:
+		return "Highest access, including Admin capabilities. Protected from user-management changes."
+	default:
+		return ""
+	}
+}
+
+func usersInitials(name string) string {
+	parts := strings.Fields(name)
+	if len(parts) == 0 {
+		return "?"
+	}
+	out := strings.ToUpper(parts[0][:1])
+	if len(parts) > 1 {
+		out += strings.ToUpper(parts[len(parts)-1][:1])
+	}
+	return out
+}
+
+func usersRoleOptions(actor domain.Role) []userRoleOption {
+	policy := application.NewPolicy()
+	options := make([]userRoleOption, 0, 3)
+	for _, role := range []domain.Role{domain.RoleUser, domain.RoleAgent, domain.RoleAdmin} {
+		if policy.CanGrantUserRole(actor, role) {
+			options = append(options, userRoleOption{Value: role, Label: userRoleLabel(role), Description: roleDescription(role)})
+		}
+	}
+	return options
+}
+
+func buildUsersIndexData(actor domain.User, users []domain.User, status usersStatus) usersIndexData {
+	status = normalizeUsersStatus(string(status))
+	data := usersIndexData{Users: users, Status: status, ListURL: usersListURL(status)}
+	policy := application.NewPolicy()
+	for _, user := range users {
+		data.Counts.All++
+		if user.Active {
+			data.Counts.Active++
+		} else {
+			data.Counts.Deactivated++
+		}
+		if status == usersStatusActive && !user.Active || status == usersStatusDeactivated && user.Active {
+			continue
+		}
+		canManage := policy.CanManageUser(actor.Role, user.Role)
+		editURL := "/users/" + strconv.FormatInt(user.ID, 10) + "/edit"
+		editHref := editURL
+		if status != usersStatusAll {
+			editHref += "?status=" + string(status)
+		}
+		statusLabel := "Deactivated"
+		if user.Active {
+			statusLabel = "Active"
+		}
+		row := userRowView{
+			ID: user.ID, Initials: usersInitials(user.Name), Name: user.Name, Email: user.Email,
+			RoleLabel: userRoleLabel(user.Role), StatusLabel: statusLabel,
+			Active: user.Active, CreatedAt: user.CreatedAt, CanManage: canManage, EditHref: editHref, EditURL: editURL,
+		}
+		if canManage {
+			row.LauncherID = "user-launcher-" + strconv.FormatInt(user.ID, 10)
+		}
+		data.Rows = append(data.Rows, row)
+	}
+	if len(data.Rows) == 0 {
+		switch status {
+		case usersStatusActive:
+			data.EmptyMessage = "No active users."
+		case usersStatusDeactivated:
+			data.EmptyMessage = "No deactivated users."
+		default:
+			data.EmptyMessage = "No users have been created."
+		}
+	}
+	return data
 }
 
 func (h *UserHandlers) index(w http.ResponseWriter, r *http.Request) {

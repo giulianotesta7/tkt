@@ -84,6 +84,50 @@ func TestPolicyCapabilitiesPerRole(t *testing.T) {
 	}
 }
 
+func TestPolicyCanManageUser(t *testing.T) {
+	p := NewPolicy()
+	cases := []struct {
+		name          string
+		actor, target domain.Role
+		want          bool
+	}{
+		{"admin manages user", domain.RoleAdmin, domain.RoleUser, true},
+		{"admin manages agent", domain.RoleAdmin, domain.RoleAgent, true},
+		{"admin cannot manage peer", domain.RoleAdmin, domain.RoleAdmin, false},
+		{"root manages admin", domain.RoleRoot, domain.RoleAdmin, true},
+		{"root cannot manage root", domain.RoleRoot, domain.RoleRoot, false},
+		{"user denied", domain.RoleUser, domain.RoleUser, false},
+		{"unknown actor denied", domain.Role("unknown"), domain.RoleUser, false},
+		{"unknown target denied", domain.RoleRoot, domain.Role("unknown"), false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := p.CanManageUser(tc.actor, tc.target); got != tc.want {
+				t.Fatalf("CanManageUser(%q, %q) = %t, want %t", tc.actor, tc.target, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestPolicyCanGrantUserRole(t *testing.T) {
+	p := NewPolicy()
+	roles := []domain.Role{domain.RoleUser, domain.RoleAgent, domain.RoleAdmin, domain.RoleRoot, domain.Role("unknown")}
+	for _, actor := range []domain.Role{domain.RoleAdmin, domain.RoleRoot, domain.RoleUser, domain.Role("unknown")} {
+		for _, target := range roles {
+			want := actor == domain.RoleRoot && target != domain.RoleRoot && target != domain.Role("unknown")
+			if actor == domain.RoleAdmin {
+				want = target == domain.RoleUser || target == domain.RoleAgent
+			}
+			name := string(actor) + " grants " + string(target)
+			t.Run(name, func(t *testing.T) {
+				if got := p.CanGrantUserRole(actor, target); got != want {
+					t.Fatalf("CanGrantUserRole(%q, %q) = %t, want %t", actor, target, got, want)
+				}
+			})
+		}
+	}
+}
+
 func TestPolicyUnknownRoleFailsClosed(t *testing.T) {
 	p := NewPolicy()
 	// An unset/unknown role must grant nothing — never silently escalate.
