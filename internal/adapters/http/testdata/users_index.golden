@@ -447,55 +447,15 @@
     </form>
   </aside>
   <main class="main">
-<div class="command-header">
-  <div>
-    <h1 class="command-title">Users</h1>
-    <p class="command-sub">2 managed operators</p>
-  </div>
-  <div class="command-actions">
-    <a class="btn primary" href="/users/new">New user</a>
-  </div>
+<div id="users-root" class="users-root" data-users-status="" data-users-list-url="">
+<div id="users-background">
+<header class="users-header"><div><h1 id="users-list-title">Users</h1><p>0 managed operators</p></div><a class="users-primary-action" href="/users/new">New user</a></header>
+
+<nav class="users-filters" aria-label="User status"><a class="" href="/users" hx-get="/users" hx-target="#users-root" hx-swap="outerHTML" hx-push-url="true">All <span>0</span></a><a class="" href="/users?status=active" hx-get="/users?status=active" hx-target="#users-root" hx-swap="outerHTML" hx-push-url="true">Active <span>0</span></a><a class="" href="/users?status=deactivated" hx-get="/users?status=deactivated" hx-target="#users-root" hx-swap="outerHTML" hx-push-url="true">Deactivated <span>0</span></a></nav>
+<section class="users-list" aria-labelledby="users-list-title"><table><thead><tr><th>User</th><th>Role</th><th>Status</th><th>Created</th><th><span class="visually-hidden">Actions</span></th></tr></thead><tbody>
+<tr><td colspan="5"><p class="users-empty"></p></td></tr></tbody></table></section>
 </div>
-
-<div class="queue-shell">
-  <table class="queue">
-    <thead>
-      <tr><th>Name</th><th>Email</th><th>Status</th><th>Created</th><th></th></tr>
-    </thead>
-    <tbody>
-
-      <tr>
-        <td><div class="user-cell"><span class="avatar">AT</span><span class="cell-title">Ana Torres</span></div></td>
-        <td class="cell-muted">ana@example.com</td>
-        <td><span class="status active">Active</span> · </td>
-        <td class="cell-muted"><time datetime="2026-08-06T10:00:00Z">10:00 · 06-08-2026</time></td>
-        <td>
-          <div class="row-actions">
-            <a class="btn ghost small" href="/users/1/edit">Edit</a>
-            <form method="post" action="/users/1/delete">
-              <button class="btn danger small" type="submit">Delete</button>
-            </form>
-          </div>
-        </td>
-      </tr>
-
-      <tr>
-        <td><div class="user-cell"><span class="avatar">BR</span><span class="cell-title">Beto Ruiz</span></div></td>
-        <td class="cell-muted">beto@example.com</td>
-        <td><span class="status inactive">Inactive</span> · </td>
-        <td class="cell-muted"><time datetime="2026-08-06T10:30:00Z">10:30 · 06-08-2026</time></td>
-        <td>
-          <div class="row-actions">
-            <a class="btn ghost small" href="/users/2/edit">Edit</a>
-            <form method="post" action="/users/2/delete">
-              <button class="btn danger small" type="submit">Delete</button>
-            </form>
-          </div>
-        </td>
-      </tr>
-
-    </tbody>
-  </table>
+<div id="users-drawer-host"></div>
 </div>
 </main>
 </div>

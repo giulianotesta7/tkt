@@ -1,0 +1,7 @@
+.users-root {
+  min-width: 0;
+}
+
+.users-page-body .users-root {
+  min-height: 100%;
+}

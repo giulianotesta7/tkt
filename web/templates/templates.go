@@ -13,5 +13,5 @@ import "embed"
 // swap fragments (partials/*.html) and the vendored htmx script
 // (static/htmx.min.js, BSD-2-Clause, htmx.org v2.0.4).
 //
-//go:embed base.html auth.html pages/*.html partials/*.html static/htmx.min.js
+//go:embed base.html auth.html pages/*.html partials/*.html static/htmx.min.js static/users.css static/users.js
 var FS embed.FS
