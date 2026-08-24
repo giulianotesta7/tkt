@@ -106,6 +106,14 @@ const (
 	ScopeAssigned                      // user_id = self
 	ScopeAll                           // full queue
 	ScopeAssignable                    // agent assignment scope: self or unassigned
+	// ScopeAssignedOrClaimable is the READ scope for list/detail (design S6):
+	// assigned to the actor OR an active workflow run whose pinned immutable step at
+	// the current cursor is assign_to_desk[claim] whose desk contains the actor. It
+	// is a READ-ONLY widening for agent list/detail so agents see tickets waiting on
+	// a claim to their desk. It is NEVER the mutation scope — edit/comment/
+	// transition/assignment helpers retain ScopeAssigned/ScopeAll so claim
+	// visibility cannot authorize generic mutations.
+	ScopeAssignedOrClaimable
 )
 
 // Policy is the single authorization authority. Handlers and services
@@ -149,13 +157,43 @@ func (p *Policy) TicketScope(role domain.Role) TicketScope {
 	}
 }
 
+// ReadScope returns the READ-only ticket scope for list/detail (design S6): an
+// agent widens to ScopeAssignedOrClaimable so they see tickets pending a claim on
+// their desk, while user and admin/root keep their read scope. This is the scope
+// stamped on read-only queries (GetByID/List/Search). Mutation paths must keep
+// using TicketScope/scopedQuery (strict assigned/all) so claim visibility never
+// authorizes an edit, comment, transition, or generic assignment.
+func (p *Policy) ReadScope(role domain.Role) TicketScope {
+	switch role {
+	case domain.RoleUser:
+		return ScopeOwned
+	case domain.RoleAgent:
+		return ScopeAssignedOrClaimable
+	case domain.RoleAdmin, domain.RoleRoot:
+		return ScopeAll
+	default:
+		return ScopeNone
+	}
+}
+
 // scopedQuery returns q restricted to the actor's ticket access scope
 // (ticket-access spec): the policy derives the scope from the session role
 // and stamps the query BEFORE any store call, so scoped store methods
 // exclude unauthorized rows and the actor never sees tickets outside their
-// scope (design "Domain, Contracts": policy → scoped store query).
+// scope (design "Domain, Contracts": policy → scoped store query). It is
+// the STRICT mutation/read-baseline scope: an agent is ScopeAssigned only.
 func scopedQuery(actor domain.User, q TicketQuery) TicketQuery {
 	q.Scope = NewPolicy().TicketScope(actor.Role)
+	q.ActorID = actor.ID
+	return q
+}
+
+// readQuery returns q restricted to the actor's READ scope (design S6): an
+// agent widens to ScopeAssignedOrClaimable so list/detail reads surface tickets
+// waiting on a claim to the actor's desk, while the strict TicketScope remains
+// the mutation baseline (never widened here). Used only by read-only paths.
+func readQuery(actor domain.User, q TicketQuery) TicketQuery {
+	q.Scope = NewPolicy().ReadScope(actor.Role)
 	q.ActorID = actor.ID
 	return q
 }

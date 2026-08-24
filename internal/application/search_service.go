@@ -43,7 +43,7 @@ func (s *SearchService) Search(ctx context.Context, actor domain.User, q TicketQ
 	if page < 1 {
 		page = 1
 	}
-	q = scopedQuery(actor, q)
+	q = readQuery(actor, q)
 	q.Text, q.Numbers = BuildTitleQuery(q.Text)
 	hasText := q.Text != "" || len(q.Numbers) > 0
 	p := Page{Offset: (page - 1) * PageSize, Limit: PageSize}

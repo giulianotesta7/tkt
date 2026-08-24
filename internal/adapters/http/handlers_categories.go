@@ -14,13 +14,20 @@ import (
 // 409 (category-management spec).
 type CategoryHandlers struct {
 	categories *application.CategoryService
+	workflows  *application.WorkflowService
 	renderer   *Renderer
 }
 
-// NewCategoryHandlers wires the category routes against the category use
-// cases and the renderer.
+// NewCategoryHandlers wires category routes without workflow projections. It
+// remains available for focused legacy handler tests.
 func NewCategoryHandlers(categories *application.CategoryService, renderer *Renderer) *CategoryHandlers {
 	return &CategoryHandlers{categories: categories, renderer: renderer}
+}
+
+// NewCategoryHandlersWithWorkflows adds derived workflow badges to the category
+// index used by the production and integration composition roots.
+func NewCategoryHandlersWithWorkflows(categories *application.CategoryService, workflows *application.WorkflowService, renderer *Renderer) *CategoryHandlers {
+	return &CategoryHandlers{categories: categories, workflows: workflows, renderer: renderer}
 }
 
 // Register mounts the category routes.
@@ -39,19 +46,14 @@ type categoriesIndexData struct {
 	pageData
 	Error      string
 	Categories []domain.Category
+	Badges     map[int64]string
 }
 
 func (h *CategoryHandlers) index(w http.ResponseWriter, r *http.Request) {
 	if !requireCapability(w, r, application.CapManageCategories) {
 		return
 	}
-	categories, err := h.categories.List(r.Context())
-	if err != nil {
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
-		return
-	}
-	data := categoriesIndexData{pageData: pageDataFrom(r, "categories"), Categories: categories}
-	h.renderer.Render(w, r, "categories_index", "", data, http.StatusOK)
+	h.renderIndex(w, r, "", http.StatusOK)
 }
 
 // categoryFormData is the create/rename form payload. CategoryID 0 = create.
@@ -164,12 +166,27 @@ func (h *CategoryHandlers) renderCategoryFormError(w http.ResponseWriter, r *htt
 // renderCategoriesIndexError re-renders the category list with an inline
 // error (rejected delete).
 func (h *CategoryHandlers) renderCategoriesIndexError(w http.ResponseWriter, r *http.Request, msg string, status int) {
+	h.renderIndex(w, r, msg, status)
+}
+
+func (h *CategoryHandlers) renderIndex(w http.ResponseWriter, r *http.Request, message string, status int) {
 	categories, err := h.categories.List(r.Context())
 	if err != nil {
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
-	data := categoriesIndexData{pageData: pageDataFrom(r, "categories"), Error: msg, Categories: categories}
+	badges := make(map[int64]string)
+	if h.workflows != nil {
+		summaries, err := h.workflows.ListSummaries(r.Context(), *userFromContext(r.Context()))
+		if err != nil {
+			http.Error(w, mapErrorMsg(err), statusFor(err))
+			return
+		}
+		for _, summary := range summaries {
+			badges[summary.CategoryID] = summary.Badge
+		}
+	}
+	data := categoriesIndexData{pageData: pageDataFrom(r, "categories"), Error: message, Categories: categories, Badges: badges}
 	h.renderer.Render(w, r, "categories_index", "", data, status)
 }
 

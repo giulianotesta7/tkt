@@ -104,24 +104,26 @@ func main() {
 
 	clock := systemClock{}
 
-	viewBuilder := application.NewViewBuilder(store.TicketStore(), store.UserStore(), store.CategoryStore(), store.CommentStore(), store.AuditStore())
+	viewBuilder := application.NewViewBuilder(store.TicketStore(), store.UserStore(), store.CategoryStore(), store.CommentStore(), store.AuditStore(), store.DeskStore(), store.WorkflowResponseStore())
 	userSvc := application.NewUserService(store.UserStore(), clock)
 	catSvc := application.NewCategoryService(store.CategoryStore(), clock)
 	deskSvc := application.NewDeskService(store.DeskStore(), store.UserStore(), clock)
 	commentSvc := application.NewCommentService(store.TicketStore(), store.CommentStore(), clock)
-	ticketSvc := application.NewTicketService(store.TicketStore(), store.UserStore(), store.CategoryStore(), store.TicketUnitOfWork(), viewBuilder, clock)
+	ticketSvc := application.NewTicketServiceWithWorkflowCreate(store.TicketStore(), store.UserStore(), store.CategoryStore(), store.TicketUnitOfWork(), viewBuilder, clock, store.WorkflowVersionStore(), application.NewWorkflowRunner(clock), store.WorkflowUnitOfWork())
 	authSvc := application.NewAuthService(store.UserStore(), store.SessionStore(), clock)
 	searchSvc := application.NewSearchService(store.TicketStore(), store.SearchStore())
 	settingsSvc := application.NewSettingsService(store.SettingsStore())
+	workflowSvc := application.NewWorkflowService(store.WorkflowStore())
 
 	renderer := httpadapter.NewRenderer()
 
 	mux := http.NewServeMux()
 	httpadapter.RegisterStatic(mux)
 	httpadapter.NewAuthHandlers(authSvc, userSvc, renderer).Register(mux)
-	httpadapter.NewTicketHandlers(ticketSvc, commentSvc, searchSvc, catSvc, userSvc, renderer).Register(mux)
+	httpadapter.NewTicketHandlers(ticketSvc, commentSvc, searchSvc, catSvc, userSvc, store.DeskStore(), workflowSvc, application.NewWorkflowRunner(clock), store.WorkflowRunStore(), store.WorkflowUnitOfWork(), renderer).Register(mux)
 	httpadapter.NewUserHandlers(userSvc, renderer).Register(mux)
-	httpadapter.NewCategoryHandlers(catSvc, renderer).Register(mux)
+	httpadapter.NewCategoryHandlersWithWorkflows(catSvc, workflowSvc, renderer).Register(mux)
+	httpadapter.NewCategoryWorkflowHandlers(workflowSvc, deskSvc, renderer).Register(mux)
 	httpadapter.NewDeskHandlers(deskSvc, renderer).Register(mux)
 	httpadapter.NewSettingsHandlers(settingsSvc, renderer).Register(mux)
 	// D12: /healthz is exempt from auth — registered on the mux before the

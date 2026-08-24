@@ -1,30 +1,33 @@
 {{define "content"}}
-<div class="command-header">
-  <div>
-    <h1 class="command-title">Categories</h1>
-    <p class="command-sub">{{len .Categories}} ticket categor{{if eq (len .Categories) 1}}y{{else}}ies{{end}}</p>
-  </div>
-  <div class="command-actions">
-    <a class="btn primary" href="/categories/new">New category</a>
-  </div>
-</div>
-{{if .Error}}<div class="error-banner" role="alert">{{.Error}}</div>{{end}}
-<div class="category-grid">
-  {{range .Categories}}
-  <div class="category-card">
+  <div class="command-header">
     <div>
-      <div class="name">{{.Name}}</div>
-      <div class="when">Created {{template "timestamp" .CreatedAt}}</div>
+      <h1 class="command-title">Categories</h1>
+      <p class="command-sub">{{len .Categories}} ticket categor{{if eq (len .Categories) 1}}y{{else}}ies{{end}}</p>
     </div>
-    <div class="row-actions">
-      <a class="btn ghost small" href="/categories/{{.ID}}/edit">Edit</a>
-      <form method="post" action="/categories/{{.ID}}/delete">
-        <button class="btn danger small" type="submit">Delete</button>
-      </form>
-    </div>
+    <div class="command-actions"><a class="btn primary" href="/categories/new">New category</a></div>
   </div>
-  {{else}}
-  <div class="empty">No categories yet — tickets need at least one.</div>
-  {{end}}
-</div>
+{{if .Error}}<div class="error-banner" role="alert">{{.Error}}</div>{{end}}
+  <div class="category-table-shell">
+    <table class="category-table">
+      <thead><tr><th scope="col">Category</th><th scope="col">Created</th><th scope="col">Status</th><th scope="col">Actions</th></tr></thead>
+      <tbody>
+{{range .Categories}}
+        <tr>
+          <td data-label="Category"><span class="category-name">{{.Name}}</span></td>
+          <td data-label="Created" class="category-created">{{template "timestamp" .CreatedAt}}</td>
+          <td data-label="Status">{{with index $.Badges .ID}}<span class="badge {{if eq . "Draft"}}in_progress{{else}}resolved{{end}}">{{.}}</span>{{else}}<span class="category-status-empty">Not configured</span>{{end}}</td>
+          <td data-label="Actions">
+            <div class="category-actions">
+              <a class="btn ghost small" href="/categories/{{.ID}}/workflow">Configure workflow</a>
+              <a class="btn ghost small" href="/categories/{{.ID}}/edit">Edit</a>
+              <form method="post" action="/categories/{{.ID}}/delete"><button class="btn danger small" type="submit">Delete category</button></form>
+            </div>
+          </td>
+        </tr>
+{{else}}
+        <tr><td class="empty" colspan="4">No categories yet — tickets need at least one.</td></tr>
+{{end}}
+      </tbody>
+    </table>
+  </div>
 {{end}}

@@ -63,6 +63,70 @@ type TicketUnitOfWork interface {
 	Update(ctx context.Context, t *domain.Ticket, events ...domain.AuditEvent) error
 }
 
+// WorkflowUnitOfWork persists application-planned workflow mutations as ONE
+// atomic unit (design S5/S6). The application decides transitions, operations,
+// and their literal order; implementations re-read and recheck every expected
+// fact inside one BEGIN IMMEDIATE and then apply only fixed writes/CAS/audits —
+// they never choose a transition, assignment, or step behavior themselves.
+// The SQLite adapter lands with PR5 Batch B; the application contract is served
+// by fakes in Batch A.
+type WorkflowUnitOfWork interface {
+	// CreateTicketWithRun persists the ticket (pinned to the expected current
+	// version), the created audit, the fresh active run, and the planned
+	// initial automatic operations as one atomic unit. It rechecks the
+	// category's current version still equals in.ExpectedVersionID before any
+	// write and refuses a stale plan with no writes. Returns the persisted
+	// ticket (store-assigned ID and Number, D8) in the application-decided
+	// final state.
+	CreateTicketWithRun(ctx context.Context, in CreateTicketWithRunInput) (*domain.Ticket, error)
+
+	// ApplyWorkflowPlan reloads the ticket, its run, and the pinned workflow
+	// snapshot inside one immediate transaction, then rechecks EVERY expected
+	// immutable fact the plan carries (pinned workflow version id + canonical
+	// immutable content, requester/assignee identity, run cursor/status, ticket
+	// state, and the relevant user/desk-membership preconditions). Any mismatch
+	// is a typed ErrWorkflowPositionConflict with ZERO writes — the adapter never
+	// overwrites or chooses a different fact. On success it applies only the
+	// fixed data-only operations (form/manual/known-claim/transition) plus the
+	// ticket-write and cursor CAS already decided by the plan, and returns a
+	// REFRESHED WorkflowExecutionResult read back after the writes — never the
+	// caller-provided Result.
+	ApplyWorkflowPlan(ctx context.Context, in WorkflowMutationPlan) (WorkflowExecutionResult, error)
+}
+
+// CreateTicketWithRunInput is the fixed, data-only create+pin+run plan (design
+// S5):
+//   - the expected category/current-version facts the adapter rechecks
+//     atomically, so a concurrent publish aborts creation,
+//   - the pinned immutable workflow definition the run executes — an
+//     application-OWNED deep snapshot (domain.WorkflowDefinition.Clone at the
+//     trust boundary) that never aliases version-store/caller memory and is
+//     never shared with runner-side work,
+//   - the ticket to insert (state new, version pinned; the store assigns ID and
+//     Number, D8) and the created audit carrying the creating session actor,
+//   - the run starting facts (active at cursor 0, StartedAt),
+//   - the application-planned initial automatic operations, applied as fixed
+//     writes/audits in literal order, with the resulting cursor/status/state
+//     and the completion timestamp when the run completes at creation.
+//
+// There is no callback, function, generic transaction API, or step-type
+// dispatch: the adapter only rechecks and applies.
+type CreateTicketWithRunInput struct {
+	CategoryID        int64
+	ExpectedVersionID int64
+	Workflow          domain.WorkflowDefinition
+	Ticket            *domain.Ticket
+	CreatedAudit      domain.AuditEvent
+	StartedAt         time.Time
+	ExpectedCursor    int
+	ExpectedRunStatus string
+	Operations        []WorkflowOperation
+	NextCursor        int
+	NextRunStatus     string
+	NextTicketState   domain.State
+	CompletedAt       *time.Time
+}
+
 // SearchStore provides FTS5 full-text search over title, description, and
 // comment bodies (ticket-search spec). TicketQuery.Text carries the
 // D4-tokenized expression: each token double-quoted with embedded quotes
@@ -182,6 +246,260 @@ type DeskStore interface {
 	AddMember(ctx context.Context, deskID, userID int64, createdAt time.Time) error
 	RemoveMember(ctx context.Context, deskID, userID int64) error
 	ListMembers(ctx context.Context, deskID int64) ([]domain.User, error)
+}
+
+type WorkflowRun struct {
+	TicketID         int64
+	CurrentStepIndex int
+	Status           string
+	StartedAt        time.Time
+	CompletedAt      *time.Time
+}
+type WorkflowExecutionSnapshot struct {
+	Ticket   *domain.Ticket
+	Run      *WorkflowRun
+	Workflow domain.WorkflowDefinition
+}
+type RawPositionalValue struct {
+	Position int
+	Values   []string
+}
+type RawPositionalValues []RawPositionalValue
+type CompleteWorkflowCommand struct {
+	TicketID    int64
+	ActorUserID int64
+	// ActorName is the human actor's display name at submission time. The
+	// application stamps it together with ActorUserID on every human audit
+	// (semantic workflow completion and contextual workflow_assignment),
+	// matching TicketService.Assign (audit spec D14). It is
+	// session/command-derived and never taken from RawAnswers.
+	ActorName        string
+	ExpectedPosition int
+	RawAnswers       RawPositionalValues
+	// Solution is the OPTIONAL manual-task solution (Amendment 2): trimmed by
+	// the HTTP layer, so whitespace-only submissions arrive empty and complete
+	// normally without one. Only a manual_task completion may carry a non-empty
+	// value — any other step type receiving one is a plan contradiction.
+	Solution string
+}
+
+// WorkflowOperation is the sealed, ordered, data-only mutation contract: only
+// value structs below implement it (unexported marker, closed at compile
+// time — no callbacks/functions/registries). Applied in literal slice order.
+type WorkflowOperation interface {
+	isWorkflowOperation()
+}
+
+// FormAnswerOperation persists one form step's typed positional JSON answers
+// with the submitting human actor and timestamp.
+type FormAnswerOperation struct {
+	StepIndex         int
+	AnswersJSON       []byte
+	SubmittedByUserID int64
+	SubmittedAt       time.Time
+}
+
+// ClaimAssignmentOperation persists a known pinned workflow claim: desk,
+// authenticated claimant, and one contextual workflow_assignment audit. A claim
+// has no caller-controlled target or reason; manual reassignment uses the separate
+// TicketService.Assign contract. Every claim carries this operation, including
+// same-person claims, and never emits a trailing workflow_step audit.
+type ClaimAssignmentOperation struct {
+	StepIndex       int
+	DeskID          int64
+	AssigneeUserID  int64
+	AssignmentAudit domain.AuditEvent
+}
+
+// LeastLoadedAssignmentOperation is the explicit automatic least_loaded intent;
+// the chosen user/audit are persistence facts owned by the WorkflowUnitOfWork
+// (S6), so no assignee or audit exists by construction.
+type LeastLoadedAssignmentOperation struct {
+	StepIndex int
+	DeskID    int64
+}
+
+// TransitionOperation carries the exact domain.Ticket.Transition audit.
+type TransitionOperation struct {
+	StepIndex int
+	Audit     domain.AuditEvent
+}
+
+// WorkflowStepOperation records human step completion with its semantic
+// workflow-completion audit (workflow_manual_task, workflow_requester_form, or
+// workflow_assignee_form — human actor, step index, timestamp). The legacy
+// workflow_step action is read-only history and is never written to new events.
+// Solution is the optional manual-task completion solution (Amendment 2): it
+// persists in ticket_manual_solutions reusing the audit's actor-user-id and
+// created-at facts; empty means none, and a form-step operation must never
+// carry one.
+type WorkflowStepOperation struct {
+	StepIndex int
+	Audit     domain.AuditEvent
+	Solution  string
+}
+
+func (FormAnswerOperation) isWorkflowOperation()            {}
+func (ClaimAssignmentOperation) isWorkflowOperation()       {}
+func (LeastLoadedAssignmentOperation) isWorkflowOperation() {}
+func (TransitionOperation) isWorkflowOperation()            {}
+func (WorkflowStepOperation) isWorkflowOperation()          {}
+
+// WorkflowMutationPlan is the concrete, data-only one-request mutation the
+// application submits to WorkflowUnitOfWork.ApplyWorkflowPlan. It names every
+// expected persisted fact the adapter MUST recheck before any write, alongside
+// the already-decided operations and final cursor/status/state. Contradictory
+// duplicated facts (operations that would not produce NextTicketState /
+// NextAssigneeUserID, an assignment audit that disagrees with current/next
+// facts, completion facts inconsistent with NextRunStatus) are rejected with a
+// typed ErrWorkflowPositionConflict and no writes, never silently overwritten.
+//
+// Identity pointers follow nil-safe semantics: two nil pointers are equal, a
+// nil vs a non-nil pointer is a mismatch. RequesterUserID/AssigneeUserID are
+// expected CURRENT identities read from the persisted ticket's
+// requester_user_id / user_id; Workflow is the immutable deep snapshot
+// (WorkflowDefinition.Clone) the run executes; ExpectedVersionID is the pinned
+// workflow version the ticket references. All values are immutable — no
+// callback, function payload, or generic transaction API.
+type WorkflowMutationPlan struct {
+	TicketID           int64
+	ExpectedVersionID  int64
+	Workflow           domain.WorkflowDefinition
+	RequesterUserID    *int64
+	AssigneeUserID     *int64
+	ActorUserID        int64
+	ActorName          string
+	ExpectedCursor     int
+	ExpectedRunStatus  string
+	TicketBeforeState  domain.State
+	Operations         []WorkflowOperation
+	NextCursor         int
+	NextRunStatus      string
+	NextTicketState    domain.State
+	NextAssigneeUserID *int64
+	Result             WorkflowExecutionResult
+}
+type WorkflowExecutionResult struct {
+	Ticket *domain.Ticket
+	Run    *WorkflowRun
+}
+
+// WorkflowResponse is retained only as the legacy list projection type; the
+// timeline consumes WorkflowStepContext below (PR10 removed the standalone
+// responses card).
+type WorkflowResponse struct {
+	StepIndex   int
+	SubmittedAt time.Time
+	Fields      []WorkflowResponseField
+}
+
+type WorkflowResponseField struct {
+	Label string
+	Value string
+}
+
+// WorkflowStepContext is the read-only, trusted projection of ONE pinned step's
+// presentation context, resolved strictly by an audit row's persisted step_index.
+// Kind is "form" or "manual"; a form context carries FormActor and the decoded,
+// definition-validated Fields; a manual context carries the pinned Instruction.
+type WorkflowStepContext struct {
+	Kind        string
+	FormActor   domain.FormActor
+	Fields      []WorkflowResponseField
+	Instruction string
+	// Solution is the stored manual-task solution (Amendment 2), joined only in
+	// the manual branch by the event's exact persisted step index; a missing or
+	// legacy row yields an empty value — never a fabricated placeholder.
+	Solution string
+}
+
+// WorkflowResponseStore projects completed workflow form answers for an
+// already-authorized ticket read and resolves one pinned step's presentation
+// context for the merged ticket timeline (PR10). Implementations must validate
+// persisted row indexes and typed values against the immutable pinned
+// definition and fail closed on corrupt persisted answer rows.
+type WorkflowResponseStore interface {
+	ListWorkflowResponses(ctx context.Context, ticketID int64) ([]WorkflowResponse, error)
+	WorkflowStepContextStore
+}
+
+// WorkflowStepContextStore is the timeline-facing half of the response store:
+// it resolves one pinned workflow step's presentation context for an
+// already-authorized ticket read, joined ONLY by the exact persisted
+// audit_events.step_index (PR10 task 10.2) — never by timestamps or occurrence
+// order. Implementations must reuse the immutable pinned-definition decoding
+// path and fail closed on corrupt persisted answer rows. A missing pin, run,
+// or answers row — or an index outside the pinned bounds — degrades to
+// (nil, nil) so the timeline renders the safe summary alone.
+type WorkflowStepContextStore interface {
+	WorkflowStepContext(ctx context.Context, ticketID int64, stepIndex int) (*WorkflowStepContext, error)
+}
+
+// WorkflowRunStore resolves a ticket's workflow execution in one consistent
+// read: the ticket, its run (current cursor/status), and the pinned immutable
+// definition. It returns (nil, nil) when the ticket has NO workflow execution
+// (a legacy unpinned ticket, or a pinned ticket with no run) so callers can
+// distinguish "no pending workflow" from an error. Used by the completion
+// route to build the runner snapshot and by the detail renderer to compute the
+// Pending Actions card.
+type WorkflowRunStore interface {
+	GetWorkflowExecution(ctx context.Context, ticketID int64) (*WorkflowExecutionSnapshot, error)
+}
+
+// InitialAutomaticPlan is the creation-time automatic advancement of a fresh
+// run (design S5): from cursor 0, every automatic step (least_loaded,
+// resolve_ticket, close_ticket) is planned until a human-pending step (claim,
+// form, manual_task) stops the walk or the definition ends. NextRunStatus is
+// "completed" when the walk reaches the end of the pinned definition at
+// creation; NextTicketState is the application-decided final state after the
+// planned transitions.
+type InitialAutomaticPlan struct {
+	Operations      []WorkflowOperation
+	NextCursor      int
+	NextRunStatus   string
+	NextTicketState domain.State
+}
+
+// WorkflowSummary is the derived badge for the category list (none | Draft | Published).
+type WorkflowSummary struct {
+	CategoryID   int64
+	CategoryName string
+	Badge        string
+}
+
+// WorkflowStore persists the category workflow draft and published versions (category-workflows spec).
+// GetDraft is safe: absent row returns nil,nil and creates no row. UpsertDraft lazily creates on first mutation.
+// Publish validates via domain, rechecks desks, allocates version_no, and switches current pointer atomically.
+type WorkflowStore interface {
+	GetDraft(ctx context.Context, categoryID int64) ([]byte, error)
+	UpsertDraft(ctx context.Context, categoryID int64, draft []byte) error
+	Publish(ctx context.Context, categoryID int64, draft []byte, publishedByUserID *int64) (int64, []domain.WorkflowValidationIssue, error)
+	ListSummaries(ctx context.Context) ([]WorkflowSummary, error)
+	ListAvailableCategories(ctx context.Context) ([]domain.Category, error)
+}
+
+// PublishedWorkflow is the immutable current version a new ticket pins at
+// creation (design S5): the category's current version id and its validated
+// definition. New tickets read current_version_id only, never draft_json. The
+// Workflow field is the store/caller-owned object: the application MUST
+// deep-snapshot it (domain.WorkflowDefinition.Clone) at the trust boundary
+// before planning or capture and must never alias it into the runner or a
+// persisted plan.
+type PublishedWorkflow struct {
+	CategoryID int64
+	VersionID  int64
+	Workflow   domain.WorkflowDefinition
+}
+
+// WorkflowVersionStore resolves a category's current published workflow for
+// ticket creation (design S5: availability = a published version exists). A
+// category without a published version (no workflow row or draft-only) returns
+// (nil, nil) and is unavailable for new tickets — the application answers the
+// exact 422 category message and performs no writes. The SQLite adapter for
+// this port lands with PR5 Batch B; the application contract is served by fakes
+// in Batch A.
+type WorkflowVersionStore interface {
+	GetCurrentVersion(ctx context.Context, categoryID int64) (*PublishedWorkflow, error)
 }
 
 // SettingsStore persists single-row instance settings (appearance-settings

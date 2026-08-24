@@ -124,7 +124,7 @@ func TestTicketViewEnrichesAuditTimelineLabels(t *testing.T) {
 				Field: ptr(tt.field), FromValue: ptr(tt.from(r)), ToValue: ptr(tt.to(r)), CreatedAt: clock.now,
 			})
 
-			builder := application.NewViewBuilder(tickets, users, categories, comments, audits)
+			builder := application.NewViewBuilder(tickets, users, categories, comments, audits, newFakeDeskStore())
 			view, err := builder.TicketView(context.Background(), ticket.ID, application.TicketQuery{Scope: application.ScopeAll}, true)
 			if err != nil {
 				t.Fatalf("TicketView: unexpected error: %v", err)
@@ -173,7 +173,7 @@ func seededCommentTimeline(t *testing.T) (*application.ViewBuilder, *fakeTicketS
 		TicketID: ticket.ID, Actor: "Ada", Action: domain.ActionCreated, CreatedAt: clock.now,
 	})
 
-	builder := application.NewViewBuilder(tickets, users, categories, comments, audits)
+	builder := application.NewViewBuilder(tickets, users, categories, comments, audits, newFakeDeskStore())
 	return builder, tickets, users, ticket, user, cat
 }
 
@@ -230,7 +230,7 @@ func TestTicketViewUnassignedUserIsNil(t *testing.T) {
 		Title: "Unassigned", CategoryID: cat.ID, Priority: domain.PriorityLow,
 		State: domain.StateNew, CreatedAt: clock.now, UpdatedAt: clock.now,
 	})
-	builder := application.NewViewBuilder(tickets, newFakeUserStore(), categories, newFakeCommentStore(), newFakeAuditStore())
+	builder := application.NewViewBuilder(tickets, newFakeUserStore(), categories, newFakeCommentStore(), newFakeAuditStore(), newFakeDeskStore())
 
 	view, err := builder.TicketView(context.Background(), ticket.ID, application.TicketQuery{Scope: application.ScopeAll}, true)
 	if err != nil {
@@ -265,7 +265,7 @@ func TestTicketViewShowsInactiveAssignedUser(t *testing.T) {
 }
 
 func TestTicketViewUnknownTicket(t *testing.T) {
-	builder := application.NewViewBuilder(newFakeTicketStore(), newFakeUserStore(), newFakeCategoryStore(), newFakeCommentStore(), newFakeAuditStore())
+	builder := application.NewViewBuilder(newFakeTicketStore(), newFakeUserStore(), newFakeCategoryStore(), newFakeCommentStore(), newFakeAuditStore(), newFakeDeskStore())
 
 	_, err := builder.TicketView(context.Background(), 4242, application.TicketQuery{Scope: application.ScopeAll}, true)
 	var nerr *domain.NotFoundError
@@ -304,7 +304,7 @@ func seededMixedVisibilityTicket(t *testing.T) (*application.ViewBuilder, domain
 	comments.Add(context.Background(), &domain.Comment{
 		TicketID: ticket.ID, Author: "Bruno", Body: "internal-body", Visibility: domain.CommentInternal, CreatedAt: clock.now,
 	})
-	return application.NewViewBuilder(tickets, users, categories, comments, audits), ticket
+	return application.NewViewBuilder(tickets, users, categories, comments, audits, newFakeDeskStore()), ticket
 }
 
 // TestTicketViewFiltersInternalBeforeComposition proves a non-internal
@@ -348,4 +348,46 @@ func TestTicketViewIncludesInternalForAgentPlus(t *testing.T) {
 	if len(view.Timeline) != 2 || !view.Timeline[0].IsComment || view.Timeline[0].Comment.Body != "internal-body" {
 		t.Fatalf("Timeline = %+v, want newest-first with the internal comment first", view.Timeline)
 	}
+}
+
+// TestViews_ManualSolutionEnrichesTimelineItem (Amendment 2 WA.6): the existing
+// step-context enrichment pass copies the stored solution into the new
+// DATA-ONLY TimelineItem.StepSolution alongside StepInstruction; missing or
+// incompatible contexts degrade to the safe summary alone. Rendering stays in
+// WB — this is purely model enrichment.
+func TestViews_ManualSolutionEnrichesTimelineItem(t *testing.T) {
+	t.Run("stored solution enriches the manual completion item", func(t *testing.T) {
+		f := seedStepTimelineFixture(t)
+		f.responses.byIndex[0] = &application.WorkflowStepContext{Kind: "manual", Instruction: "Rack the server", Solution: "racked u12 in cabinet B7"}
+		f.append(t, domain.AuditEvent{Actor: "Ada", Action: domain.ActionWorkflowManualTask, StepIndex: ptr(0)})
+
+		item := f.view(t).Timeline[0]
+		if item.StepSolution != "racked u12 in cabinet B7" {
+			t.Fatalf("StepSolution = %q, want the stored value copied through the enrichment pass", item.StepSolution)
+		}
+		if item.StepInstruction != "Rack the server" {
+			t.Fatalf("StepInstruction = %q, want the pinned instruction alongside the solution", item.StepInstruction)
+		}
+	})
+
+	t.Run("missing context degrades to the safe summary alone", func(t *testing.T) {
+		f := seedStepTimelineFixture(t)
+		f.append(t, domain.AuditEvent{Actor: "Ada", Action: domain.ActionWorkflowManualTask, StepIndex: ptr(0)})
+
+		item := f.view(t).Timeline[0]
+		if item.StepSolution != "" || item.StepInstruction != "" {
+			t.Fatalf("degraded item solution/instruction = %q/%q, want both empty", item.StepSolution, item.StepInstruction)
+		}
+	})
+
+	t.Run("form events never carry a solution field", func(t *testing.T) {
+		f := seedStepTimelineFixture(t)
+		f.responses.byIndex[0] = &application.WorkflowStepContext{Kind: "manual", Instruction: "misfiled", Solution: "should not leak"}
+		f.append(t, domain.AuditEvent{Actor: "Ada", Action: domain.ActionWorkflowRequesterForm, StepIndex: ptr(0)})
+
+		item := f.view(t).Timeline[0]
+		if item.StepSolution != "" {
+			t.Fatalf("form item StepSolution = %q, want empty (solution binds to manual completions only)", item.StepSolution)
+		}
+	})
 }

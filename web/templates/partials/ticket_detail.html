@@ -8,16 +8,16 @@
         <a href="/tickets">← Queue</a>
         <span class="num">{{ticketNumber .View.Ticket.Number}}</span>
       </div>
-      {{if and .CanEdit (not .Closed)}}
+{{if and .CanEdit (not .Closed)}}
       <form class="title-inline" method="post" action="/tickets/{{.View.Ticket.ID}}/edit"
             hx-post="/tickets/{{.View.Ticket.ID}}/edit" hx-target="#ticket-detail" hx-swap="outerHTML">
         <input type="text" id="ticket-title" name="title" value="{{.Values.Title}}" required
                aria-label="Ticket title" class="title-input">
         <input type="hidden" name="priority" value="{{.Values.Priority}}">
       </form>
-      {{else}}
+{{else}}
       <h1 class="command-title">{{.View.Ticket.Title}}</h1>
-      {{end}}
+{{end}}
       <div class="meta-row ticket-metadata">
         <span>Created {{template "timestamp" .View.Ticket.CreatedAt}}</span>
         <span>Updated {{template "timestamp" .View.Ticket.UpdatedAt}}</span>
@@ -30,7 +30,7 @@
         <h2>Description</h2>
         {{if .View.Ticket.Description}}<p>{{.View.Ticket.Description}}</p>{{else}}<p class="empty">No description.</p>{{end}}
       </div>
-{{if not .Closed}}{{template "comment_form" .}}{{end}}
+{{if not .Closed}}{{template "comment_form" .}}{{end}}{{template "workflow_pending" .}}
       <div class="card">
         <h2>Timeline</h2>
 {{template "timeline" .}}
@@ -62,21 +62,25 @@
         </div>
         <div class="prop-section">
           <div class="prop-heading">Assignment</div>
+{{if .Claim.Active}}
+          <div class="prop-row"><span class="prop-label">Desk</span><span class="prop-value">{{.Claim.DeskName}}</span></div>
+          <div class="prop-row"><span class="prop-label">Assignee</span><span class="prop-value">{{if .View.AssignedUser}}{{.View.AssignedUser.Name}}{{else}}Unassigned{{end}}</span></div>
+          {{if .Claim.CanAct}}<form class="claim-control" method="post" action="/tickets/{{.View.Ticket.ID}}/workflow/steps/{{.Claim.Position}}/complete" hx-post="/tickets/{{.View.Ticket.ID}}/workflow/steps/{{.Claim.Position}}/complete" hx-target="#ticket-detail" hx-swap="outerHTML"><button class="btn primary" type="submit">Assign to me</button></form>{{end}}
+          {{else}}
           <div class="prop-row">
             <span class="prop-label">Assignee</span>
-            {{if .Closed}}
+{{if .Closed}}
             <span class="prop-value">{{if .View.AssignedUser}}{{.View.AssignedUser.Name}}{{else}}Unassigned{{end}}</span>
             {{else}}
-            <form class="prop-control" method="post" action="/tickets/{{.View.Ticket.ID}}/assign"
-                  hx-post="/tickets/{{.View.Ticket.ID}}/assign" hx-target="#ticket-detail" hx-swap="outerHTML">
-              <select id="assign-user" name="user_id" class="prop-select"
-                      aria-label="Assignee" onchange="this.form.requestSubmit()">
+            <form class="prop-control" method="post" action="/tickets/{{.View.Ticket.ID}}/assign" hx-post="/tickets/{{.View.Ticket.ID}}/assign" hx-target="#ticket-detail" hx-swap="outerHTML">
+              <select id="assign-user" name="user_id" class="prop-select" aria-label="Assignee" onchange="this.form.requestSubmit()">
                 <option value="">Unassigned</option>
                 {{range .Options.AssignableUsers}}<option value="{{.ID}}" {{if eq (.ID | printf "%d") $.Values.UserID}}selected{{end}}>{{.Name}}{{if not .Active}} (inactive){{end}}</option>{{end}}
               </select>
             </form>
-            {{end}}
+{{end}}
           </div>
+{{end}}
         </div>
         <div class="prop-section">
           <div class="prop-heading">State</div>

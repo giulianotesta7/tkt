@@ -35,7 +35,7 @@ func newTicketHarness() *ticketHarness {
 	comments := newFakeCommentStore()
 	audits := newFakeAuditStore()
 	tx := newFakeUnitOfWork(tickets, audits)
-	builder := application.NewViewBuilder(tickets, users, categories, comments, audits)
+	builder := application.NewViewBuilder(tickets, users, categories, comments, audits, newFakeDeskStore())
 	svc := application.NewTicketService(tickets, users, categories, tx, builder, clock)
 	return &ticketHarness{
 		svc: svc, tickets: tickets, users: users, categories: categories,
@@ -43,12 +43,11 @@ func newTicketHarness() *ticketHarness {
 	}
 }
 
-func validCreateInput(catID int64, userID *int64) application.CreateTicketInput {
+func validCreateInput(catID int64) application.CreateTicketInput {
 	return application.CreateTicketInput{
 		Title:       "Fix login redirect",
 		Description: "After login the user lands on the wrong page",
 		CategoryID:  catID,
-		UserID:      userID,
 		Priority:    domain.PriorityHigh,
 	}
 }
@@ -56,10 +55,9 @@ func validCreateInput(catID int64, userID *int64) application.CreateTicketInput 
 func TestCreateStoresTicketWithNumberAndStateNew(t *testing.T) {
 	h := newTicketHarness()
 	cat := h.categories.seed("Bugs")
-	user := h.users.seedRole("Ana", "ana@example.com", domain.RoleAgent, true)
 	actor := domain.User{Name: "Ada", Email: "ada@example.com", Role: domain.RoleAdmin}
 
-	ticket, err := h.svc.Create(context.Background(), actor, validCreateInput(cat.ID, ptr(user.ID)))
+	ticket, err := h.svc.Create(context.Background(), actor, validCreateInput(cat.ID))
 	if err != nil {
 		t.Fatalf("Create: unexpected error: %v", err)
 	}
@@ -75,12 +73,12 @@ func TestCreateStoresTicketWithNumberAndStateNew(t *testing.T) {
 	if !ticket.CreatedAt.Equal(h.clock.now) || !ticket.UpdatedAt.Equal(h.clock.now) {
 		t.Fatalf("Create: timestamps must come from the injected clock, got created=%v updated=%v", ticket.CreatedAt, ticket.UpdatedAt)
 	}
-	if ticket.UserID == nil || *ticket.UserID != user.ID {
-		t.Fatalf("Create: assigned user must be stored, got %v", ticket.UserID)
+	if ticket.UserID != nil {
+		t.Fatalf("Create: every ticket starts unassigned (Amendment 2), got assignee %v", *ticket.UserID)
 	}
 
 	// MAX+1 numbering is a store concern (D8): the second ticket follows.
-	second, err := h.svc.Create(context.Background(), actor, validCreateInput(cat.ID, nil))
+	second, err := h.svc.Create(context.Background(), actor, validCreateInput(cat.ID))
 	if err != nil {
 		t.Fatalf("Create (second): unexpected error: %v", err)
 	}
@@ -110,7 +108,7 @@ func TestCreateStoresSessionRequester(t *testing.T) {
 	cat := h.categories.seed("Bugs")
 	actor := domain.User{ID: 7, Name: "Ada", Email: "ada@example.com", Role: domain.RoleUser}
 
-	ticket, err := h.svc.Create(context.Background(), actor, validCreateInput(cat.ID, nil))
+	ticket, err := h.svc.Create(context.Background(), actor, validCreateInput(cat.ID))
 	if err != nil {
 		t.Fatalf("Create: unexpected error: %v", err)
 	}
@@ -122,43 +120,26 @@ func TestCreateStoresSessionRequester(t *testing.T) {
 	}
 }
 
-// TestCreateUserRoleRejectsAssignment proves assignment inputs are rejected
-// for role user (ticket-management spec: assignment accepted only from
-// agent+ and rejected for user).
-func TestCreateUserRoleRejectsAssignment(t *testing.T) {
-	h := newTicketHarness()
-	cat := h.categories.seed("Bugs")
-	assignee := h.users.seed("Ana", "ana@example.com", true)
-	actor := domain.User{ID: 7, Name: "Ada", Email: "ada@example.com", Role: domain.RoleUser}
+// TestCreateAlwaysStartsUnassigned proves creation structurally stamps an
+// EMPTY assignee for EVERY role (Amendment 2): CreateTicketInput carries no
+// assignee at all, so no application path can smuggle a creation-time one.
+// Person assignment happens only later through the audited Assign flow.
+func TestCreateAlwaysStartsUnassigned(t *testing.T) {
+	for _, role := range []domain.Role{domain.RoleUser, domain.RoleAgent, domain.RoleAdmin, domain.RoleRoot} {
+		h := newTicketHarness()
+		cat := h.categories.seed("Bugs")
+		actor := domain.User{ID: 9, Name: "Beto", Email: "beto@example.com", Role: role}
 
-	_, err := h.svc.Create(context.Background(), actor, validCreateInput(cat.ID, ptr(assignee.ID)))
-	if err == nil {
-		t.Fatal("Create: a user-role actor must not be able to assign a ticket")
-	}
-	var validation *domain.ValidationError
-	if !errors.As(err, &validation) || validation.Field != "user" {
-		t.Fatalf("Create: err = %v, want ValidationError{Field: user}", err)
-	}
-}
-
-// TestCreateAgentStoresRequesterAndAssignee proves an agent-role actor may
-// create an assigned ticket, and the requester is STILL the session actor
-// (ticket-management spec: requester always derived from the session).
-func TestCreateAgentStoresRequesterAndAssignee(t *testing.T) {
-	h := newTicketHarness()
-	cat := h.categories.seed("Bugs")
-	assignee := h.users.seedRole("Ana", "ana@example.com", domain.RoleAgent, true)
-	actor := domain.User{ID: 9, Name: "Beto", Email: "beto@example.com", Role: domain.RoleAgent}
-
-	ticket, err := h.svc.Create(context.Background(), actor, validCreateInput(cat.ID, ptr(assignee.ID)))
-	if err != nil {
-		t.Fatalf("Create: unexpected error: %v", err)
-	}
-	if ticket.RequesterUserID == nil || *ticket.RequesterUserID != actor.ID {
-		t.Fatalf("Create: requester_user_id = %v, want session user id %d", ticket.RequesterUserID, actor.ID)
-	}
-	if ticket.UserID == nil || *ticket.UserID != assignee.ID {
-		t.Fatalf("Create: assignee = %v, want %d", ticket.UserID, assignee.ID)
+		ticket, err := h.svc.Create(context.Background(), actor, validCreateInput(cat.ID))
+		if err != nil {
+			t.Fatalf("Create (role %s): unexpected error: %v", role, err)
+		}
+		if ticket.UserID != nil {
+			t.Fatalf("Create (role %s): ticket must start unassigned, got assignee %v", role, *ticket.UserID)
+		}
+		if ticket.RequesterUserID == nil || *ticket.RequesterUserID != actor.ID {
+			t.Fatalf("Create (role %s): requester_user_id = %v, want session user id %d", role, ticket.RequesterUserID, actor.ID)
+		}
 	}
 }
 
@@ -167,7 +148,7 @@ func TestCreateRejectsMissingTitle(t *testing.T) {
 	cat := h.categories.seed("Bugs")
 	actor := domain.User{Name: "Ada", Role: domain.RoleAdmin}
 
-	in := validCreateInput(cat.ID, nil)
+	in := validCreateInput(cat.ID)
 	in.Title = "  "
 	_, err := h.svc.Create(context.Background(), actor, in)
 
@@ -183,54 +164,15 @@ func TestCreateRejectsMissingTitle(t *testing.T) {
 	}
 }
 
-func TestCreateRejectsInactiveUserAssignment(t *testing.T) {
-	h := newTicketHarness()
-	cat := h.categories.seed("Bugs")
-	inactive := h.users.seed("Ana", "ana@example.com", false)
-	actor := domain.User{Name: "Ada", Role: domain.RoleAdmin}
-
-	_, err := h.svc.Create(context.Background(), actor, validCreateInput(cat.ID, ptr(inactive.ID)))
-
-	var ierr *domain.InactiveUserError
-	if !errors.As(err, &ierr) {
-		t.Fatalf("Create: inactive assignment must be an InactiveUserError, got %v", err)
-	}
-	if len(h.tickets.tickets) != 0 {
-		t.Fatal("Create: rejected ticket must not be stored")
-	}
-	if len(h.audits.events) != 0 {
-		t.Fatal("Create: rejected ticket must not be audited")
-	}
-}
-
 func TestCreateRejectsUnknownCategory(t *testing.T) {
 	h := newTicketHarness()
 	actor := domain.User{Name: "Ada", Role: domain.RoleAdmin}
 
-	_, err := h.svc.Create(context.Background(), actor, validCreateInput(999, nil))
+	_, err := h.svc.Create(context.Background(), actor, validCreateInput(999))
 
 	var nerr *domain.NotFoundError
 	if !errors.As(err, &nerr) || nerr.Kind != "category" {
 		t.Fatalf("Create: unknown category must be a NotFoundError(kind=category), got %v", err)
-	}
-	if len(h.tickets.tickets) != 0 {
-		t.Fatal("Create: rejected ticket must not be stored")
-	}
-	if len(h.audits.events) != 0 {
-		t.Fatal("Create: rejected ticket must not be audited")
-	}
-}
-
-func TestCreateRejectsUnknownAssignedUser(t *testing.T) {
-	h := newTicketHarness()
-	cat := h.categories.seed("Bugs")
-	actor := domain.User{Name: "Ada", Role: domain.RoleAdmin}
-
-	_, err := h.svc.Create(context.Background(), actor, validCreateInput(cat.ID, ptr(int64(999))))
-
-	var nerr *domain.NotFoundError
-	if !errors.As(err, &nerr) || nerr.Kind != "user" {
-		t.Fatalf("Create: unknown assigned user must be a NotFoundError(kind=user), got %v", err)
 	}
 	if len(h.tickets.tickets) != 0 {
 		t.Fatal("Create: rejected ticket must not be stored")
@@ -245,7 +187,7 @@ func TestCreateRejectsInvalidPriority(t *testing.T) {
 	cat := h.categories.seed("Bugs")
 	actor := domain.User{Name: "Ada", Role: domain.RoleAdmin}
 
-	in := validCreateInput(cat.ID, nil)
+	in := validCreateInput(cat.ID)
 	in.Priority = domain.Priority("urgent")
 	_, err := h.svc.Create(context.Background(), actor, in)
 
@@ -555,25 +497,6 @@ func TestAssignUnknownTarget(t *testing.T) {
 	var nerr *domain.NotFoundError
 	if !errors.As(err, &nerr) || nerr.Kind != "user" {
 		t.Fatalf("Assign: unknown target must be a NotFoundError(kind=user), got %v", err)
-	}
-}
-
-// TestCreateRejectsUserRoleTarget proves the assignment target rule applies
-// at creation too: an agent+ actor cannot create a ticket assigned to an
-// active user-role account (spec: "Assignment target must be agent-plus").
-func TestCreateRejectsUserRoleTarget(t *testing.T) {
-	h := newTicketHarness()
-	cat := h.categories.seed("Bugs")
-	userRole := h.users.seedRole("Ula", "ula@example.com", domain.RoleUser, true)
-	actor := domain.User{ID: 101, Name: "Ada", Role: domain.RoleAdmin}
-
-	_, err := h.svc.Create(context.Background(), actor, validCreateInput(cat.ID, ptr(userRole.ID)))
-	var verr *domain.ValidationError
-	if !errors.As(err, &verr) || verr.Field != "user" || verr.Message != domain.ErrMsgAssignTargetRole {
-		t.Fatalf("Create: user-role target must be rejected with ErrMsgAssignTargetRole, got %v", err)
-	}
-	if len(h.tickets.tickets) != 0 {
-		t.Fatal("Create: rejected ticket must not be stored")
 	}
 }
 
@@ -1031,11 +954,10 @@ func TestUpdateNeverTouchesCategory(t *testing.T) {
 func TestEveryMutationAuditedInOccurrenceOrder(t *testing.T) {
 	h := newTicketHarness()
 	cat := h.categories.seed("Bugs")
-	user := h.users.seedRole("Ana", "ana@example.com", domain.RoleAgent, true)
 	actor := domain.User{Name: "Ada", Email: "ada@example.com", Role: domain.RoleAdmin}
 
 	// GIVEN a ticket (audit-log scenario: one transition and two field edits).
-	ticket, err := h.svc.Create(context.Background(), actor, validCreateInput(cat.ID, ptr(user.ID)))
+	ticket, err := h.svc.Create(context.Background(), actor, validCreateInput(cat.ID))
 	if err != nil {
 		t.Fatalf("Create: unexpected error: %v", err)
 	}
@@ -1080,11 +1002,10 @@ func TestEveryMutationAuditedInOccurrenceOrder(t *testing.T) {
 func TestCreateRollsBackTicketWhenAuditAppendFails(t *testing.T) {
 	h := newTicketHarness()
 	cat := h.categories.seed("Bugs")
-	user := h.users.seedRole("Ana", "ana@example.com", domain.RoleAgent, true)
 	actor := domain.User{Name: "Ada", Role: domain.RoleAdmin}
 	h.tx.failAuditAppend = true
 
-	_, err := h.svc.Create(context.Background(), actor, validCreateInput(cat.ID, ptr(user.ID)))
+	_, err := h.svc.Create(context.Background(), actor, validCreateInput(cat.ID))
 	if !errors.Is(err, errAuditAppendFailed) {
 		t.Fatalf("Create: audit append failure must propagate to the caller, got %v", err)
 	}
@@ -1131,7 +1052,7 @@ func TestMutationAuditEventsCarryActorUserID(t *testing.T) {
 	cat := h.categories.seed("Bugs")
 	actor := domain.User{ID: 11, Name: "Ada", Email: "ada@example.com", Role: domain.RoleAdmin}
 
-	ticket, err := h.svc.Create(context.Background(), actor, validCreateInput(cat.ID, nil))
+	ticket, err := h.svc.Create(context.Background(), actor, validCreateInput(cat.ID))
 	if err != nil {
 		t.Fatalf("Create: unexpected error: %v", err)
 	}
@@ -1234,5 +1155,344 @@ func TestGetByIDUserCannotReadOthersTicket(t *testing.T) {
 	_, err = h.svc.GetByID(context.Background(), owner, others.ID)
 	if !errors.Is(err, domain.ErrNotFound) {
 		t.Fatalf("GetByID(other's ticket) err = %v, want ErrNotFound", err)
+	}
+}
+
+// --- PR5 S5: atomic create+pin+run (application orchestration, tasks 5.1-5.2) ---
+//
+// Batch A proves the TicketService orchestration contract against fakes: the
+// service resolves the category's current published version, pins that exact
+// version, plans the initial automatic advancement through the WorkflowRunner,
+// and submits ONE CreateTicketWithRun plan to the WorkflowUnitOfWork. The
+// SQLite adapter (WorkflowVersionStore/WorkflowUnitOfWork implementations) and
+// its atomicity proof arrive with PR5 Batch B; this batch asserts the exact
+// plan and error propagation, never simulated atomicity.
+
+// errWorkflowUoWFailed is the simulated WorkflowUnitOfWork failure the fake
+// returns when failCreate is set: the service must propagate it untouched and
+// must never fall back to the legacy TicketUnitOfWork create path.
+var errWorkflowUoWFailed = errors.New("workflow create unit of work failed")
+
+// workflowCreateHarness wires a TicketService with the workflow create path
+// (NewTicketServiceWithWorkflowCreate): a fake WorkflowVersionStore holding
+// published versions, the REAL WorkflowRunner planning initial automatic
+// advancement, and a fake WorkflowUnitOfWork recording the exact plan.
+type workflowCreateHarness struct {
+	svc        *application.TicketService
+	tickets    *fakeTicketStore
+	users      *fakeUserStore
+	categories *fakeCategoryStore
+	comments   *fakeCommentStore
+	audits     *fakeAuditStore
+	tx         *fakeUnitOfWork
+	clock      *fakeClock
+	versions   *fakeWorkflowVersionStore
+	runner     *application.WorkflowRunner
+	wfTx       *fakeWorkflowUnitOfWork
+}
+
+func newWorkflowCreateHarness() *workflowCreateHarness {
+	clock := fixedClock()
+	users := newFakeUserStore()
+	categories := newFakeCategoryStore()
+	tickets := newFakeTicketStore()
+	comments := newFakeCommentStore()
+	audits := newFakeAuditStore()
+	tx := newFakeUnitOfWork(tickets, audits)
+	versions := newFakeWorkflowVersionStore()
+	runner := application.NewWorkflowRunner(clock)
+	wfTx := newFakeWorkflowUnitOfWork(tickets, audits)
+	builder := application.NewViewBuilder(tickets, users, categories, comments, audits, newFakeDeskStore())
+	svc := application.NewTicketServiceWithWorkflowCreate(tickets, users, categories, tx, builder, clock, versions, runner, wfTx)
+	return &workflowCreateHarness{
+		svc: svc, tickets: tickets, users: users, categories: categories,
+		comments: comments, audits: audits, tx: tx, clock: clock,
+		versions: versions, runner: runner, wfTx: wfTx,
+	}
+}
+
+// TestTicketService_CreateWithWorkflow_UnpublishedCategoryIsUnavailable proves a
+// category without a published workflow version returns the EXACT 422 category
+// message and performs no create or unit-of-work writes (the service must not
+// fall back to the legacy create path).
+func TestTicketService_CreateWithWorkflow_UnpublishedCategoryIsUnavailable(t *testing.T) {
+	h := newWorkflowCreateHarness()
+	cat := h.categories.seed("Bugs")
+	actor := domain.User{ID: 7, Name: "Ada", Email: "ada@example.com", Role: domain.RoleAdmin}
+
+	_, err := h.svc.Create(context.Background(), actor, validCreateInput(cat.ID))
+	var verr *domain.ValidationError
+	if !errors.As(err, &verr) || verr.Field != "category" || verr.Message != domain.ErrMsgCategoryWorkflowUnavailable {
+		t.Fatalf("Create: unavailable category must be ValidationError{Field: category, Message: %q}, got %v", domain.ErrMsgCategoryWorkflowUnavailable, err)
+	}
+	if len(h.wfTx.calls) != 0 {
+		t.Fatalf("Create: unavailable category must NOT submit a CreateTicketWithRun plan, got %d calls", len(h.wfTx.calls))
+	}
+	if len(h.tickets.tickets) != 0 || len(h.audits.events) != 0 {
+		t.Fatal("Create: unavailable category must not persist a ticket or an audit")
+	}
+}
+
+// TestTicketService_CreateWithWorkflow_PinsVersionAndPlansInitialAutomatic
+// proves the full orchestration contract for a published category: the service
+// resolves the immutable current version ONCE, submits exactly ONE
+// CreateTicketWithRun plan carrying the expected version identity (adapter
+// recheck), the pinned definition, the created audit with the session actor,
+// and the runner-planned initial automatic advancement (least_loaded intent +
+// exact new→in_progress workflow transition), and persists the pinned ticket.
+func TestTicketService_CreateWithWorkflow_PinsVersionAndPlansInitialAutomatic(t *testing.T) {
+	h := newWorkflowCreateHarness()
+	cat := h.categories.seed("Bugs")
+	// [assign_to_desk[least_loaded], manual_task]: creation auto-plans the
+	// least_loaded assignment and the new→in_progress transition, then the run
+	// waits at the human manual step.
+	def := domain.WorkflowDefinition{
+		{Type: domain.StepAssignToDesk, AssignToDesk: &domain.AssignToDeskStep{DeskID: 3, Strategy: domain.StrategyLeastLoaded}},
+		{Type: domain.StepManualTask, ManualTask: &domain.ManualTaskStep{Instructions: "Provision the server"}},
+	}
+	versionID := h.versions.publish(cat.ID, def)
+	actor := domain.User{ID: 7, Name: "Ada", Email: "ada@example.com", Role: domain.RoleUser}
+
+	ticket, err := h.svc.Create(context.Background(), actor, validCreateInput(cat.ID))
+	if err != nil {
+		t.Fatalf("Create: unexpected error: %v", err)
+	}
+	if len(h.versions.calls) != 1 || h.versions.calls[0] != cat.ID {
+		t.Fatalf("Create: must resolve the current version exactly once for the category, got %v", h.versions.calls)
+	}
+	if len(h.wfTx.calls) != 1 {
+		t.Fatalf("Create: must submit exactly one CreateTicketWithRun plan, got %d", len(h.wfTx.calls))
+	}
+	in := h.wfTx.calls[0]
+	if in.CategoryID != cat.ID || in.ExpectedVersionID != versionID {
+		t.Fatalf("Create: plan must carry the expected category/current-version identity for the adapter recheck, got cat=%d version=%d", in.CategoryID, in.ExpectedVersionID)
+	}
+	if !reflect.DeepEqual(in.Workflow, def) {
+		t.Fatal("Create: plan must carry the pinned immutable workflow definition")
+	}
+	if in.Ticket == nil || in.Ticket.WorkflowVersionID == nil || *in.Ticket.WorkflowVersionID != versionID {
+		t.Fatalf("Create: ticket must pin the exact current version id %d, got %v", versionID, in.Ticket)
+	}
+	if in.Ticket.State != domain.StateNew {
+		t.Fatalf("Create: ticket must be planned in state new, got %q", in.Ticket.State)
+	}
+	if in.CreatedAudit.Action != domain.ActionCreated || in.CreatedAudit.Actor != actor.Name ||
+		in.CreatedAudit.ActorUserID == nil || *in.CreatedAudit.ActorUserID != actor.ID {
+		t.Fatalf("Create: created audit must carry the creating session actor, got %+v", in.CreatedAudit)
+	}
+	if !in.CreatedAudit.CreatedAt.Equal(h.clock.now) || !in.StartedAt.Equal(h.clock.now) {
+		t.Fatal("Create: created audit and run start must use the injected clock")
+	}
+	if in.ExpectedCursor != 0 || in.ExpectedRunStatus != "active" {
+		t.Fatalf("Create: fresh run must start active at cursor 0, got cursor %d status %q", in.ExpectedCursor, in.ExpectedRunStatus)
+	}
+	// Initial automatic advancement: least_loaded intent + exact workflow
+	// new→in_progress transition, then the run waits at the manual step.
+	if len(in.Operations) != 2 {
+		t.Fatalf("Create: plan must carry exactly 2 initial automatic operations, got %d", len(in.Operations))
+	}
+	least, ok := in.Operations[0].(application.LeastLoadedAssignmentOperation)
+	if !ok || least.StepIndex != 0 || least.DeskID != 3 {
+		t.Fatalf("Create: first automatic op must be the least_loaded intent at step 0 for desk 3, got %#v", in.Operations[0])
+	}
+	tr, ok := in.Operations[1].(application.TransitionOperation)
+	if !ok || tr.Audit.Action != domain.ActionTransition || tr.Audit.FromValue == nil || *tr.Audit.FromValue != string(domain.StateNew) ||
+		tr.Audit.ToValue == nil || *tr.Audit.ToValue != string(domain.StateInProgress) {
+		t.Fatalf("Create: second automatic op must be the exact new→in_progress transition audit, got %#v", in.Operations[1])
+	}
+	if tr.Audit.Actor != "workflow" || tr.Audit.ActorUserID != nil {
+		t.Fatalf("Create: automatic transition audit must stamp actor workflow with no user id, got %+v", tr.Audit)
+	}
+	if in.NextCursor != 1 || in.NextRunStatus != "active" || in.NextTicketState != domain.StateInProgress {
+		t.Fatalf("Create: plan must advance to cursor 1 / active / in_progress, got cursor %d status %q state %q", in.NextCursor, in.NextRunStatus, in.NextTicketState)
+	}
+	if in.CompletedAt != nil {
+		t.Fatal("Create: an active run must not carry a completion timestamp")
+	}
+	if ticket.ID == 0 || ticket.Number != 1 || ticket.WorkflowVersionID == nil || *ticket.WorkflowVersionID != versionID {
+		t.Fatalf("Create: returned ticket must be persisted with id/number and the pinned version, got %+v", ticket)
+	}
+}
+
+// TestTicketService_CreateWithWorkflow_HumanFirstStepStopsInitialAdvancement
+// proves automatic advancement stops at the FIRST human-pending step: a form at
+// cursor 0 yields an empty operations list and a run waiting at cursor 0 in new.
+func TestTicketService_CreateWithWorkflow_HumanFirstStepStopsInitialAdvancement(t *testing.T) {
+	h := newWorkflowCreateHarness()
+	cat := h.categories.seed("Bugs")
+	def := domain.WorkflowDefinition{
+		{Type: domain.StepForm, Form: &domain.FormStep{Actor: domain.FormActorRequester, Fields: []domain.FormField{{Key: "reason", Label: "Reason", Kind: domain.FieldShortText, Required: true}}}},
+		{Type: domain.StepResolve},
+	}
+	versionID := h.versions.publish(cat.ID, def)
+	actor := domain.User{ID: 7, Name: "Ada", Email: "ada@example.com", Role: domain.RoleUser}
+
+	ticket, err := h.svc.Create(context.Background(), actor, validCreateInput(cat.ID))
+	if err != nil {
+		t.Fatalf("Create: unexpected error: %v", err)
+	}
+	in := h.wfTx.calls[0]
+	if len(in.Operations) != 0 {
+		t.Fatalf("Create: a run starting with a human form must not auto-advance, got %d operations", len(in.Operations))
+	}
+	if in.NextCursor != 0 || in.NextRunStatus != "active" || in.NextTicketState != domain.StateNew {
+		t.Fatalf("Create: run must wait at cursor 0 active in new, got cursor %d status %q state %q", in.NextCursor, in.NextRunStatus, in.NextTicketState)
+	}
+	if ticket.State != domain.StateNew {
+		t.Fatalf("Create: human-first workflow must leave the ticket new, got %q", ticket.State)
+	}
+	if ticket.WorkflowVersionID == nil || *ticket.WorkflowVersionID != versionID {
+		t.Fatalf("Create: ticket must pin version %d, got %v", versionID, ticket.WorkflowVersionID)
+	}
+}
+
+// TestTicketService_CreateWithWorkflow_AllAutomaticCompletesAtCreation proves an
+// entirely automatic workflow resolves/advances within the same atomic create
+// unit: [resolve_ticket] alone plans the exact workflow transition, completes
+// the run at creation (CompletedAt from the injected clock), and the ticket is
+// stored resolved.
+func TestTicketService_CreateWithWorkflow_AllAutomaticCompletesAtCreation(t *testing.T) {
+	h := newWorkflowCreateHarness()
+	cat := h.categories.seed("Bugs")
+	versionID := h.versions.publish(cat.ID, domain.WorkflowDefinition{{Type: domain.StepResolve}})
+	actor := domain.User{ID: 7, Name: "Ada", Email: "ada@example.com", Role: domain.RoleUser}
+
+	ticket, err := h.svc.Create(context.Background(), actor, validCreateInput(cat.ID))
+	if err != nil {
+		t.Fatalf("Create: unexpected error: %v", err)
+	}
+	in := h.wfTx.calls[0]
+	if len(in.Operations) != 1 {
+		t.Fatalf("Create: [resolve_ticket] must plan exactly 1 terminal transition, got %d", len(in.Operations))
+	}
+	tr, ok := in.Operations[0].(application.TransitionOperation)
+	if !ok || tr.Audit.ToValue == nil || *tr.Audit.ToValue != string(domain.StateResolved) {
+		t.Fatalf("Create: terminal op must be the exact resolved transition, got %#v", in.Operations[0])
+	}
+	if tr.Audit.Actor != "workflow" || tr.Audit.ActorUserID != nil {
+		t.Fatalf("Create: terminal transition audit must stamp actor workflow, got %+v", tr.Audit)
+	}
+	if in.NextCursor != 1 || in.NextRunStatus != "completed" || in.NextTicketState != domain.StateResolved {
+		t.Fatalf("Create: run must complete at creation in resolved, got cursor %d status %q state %q", in.NextCursor, in.NextRunStatus, in.NextTicketState)
+	}
+	if in.CompletedAt == nil || !in.CompletedAt.Equal(h.clock.now) {
+		t.Fatal("Create: a run completed at creation must carry the injected completion time")
+	}
+	if ticket.State != domain.StateResolved {
+		t.Fatalf("Create: ticket must be stored resolved, got %q", ticket.State)
+	}
+	if ticket.WorkflowVersionID == nil || *ticket.WorkflowVersionID != versionID {
+		t.Fatalf("Create: ticket must pin version %d, got %v", versionID, ticket.WorkflowVersionID)
+	}
+}
+
+// TestTicketService_CreateWithWorkflow_PropagatesUnitOfWorkFailure proves the
+// service never simulates atomicity: a WorkflowUnitOfWork failure propagates
+// untouched, exactly one plan is submitted, nothing is partially persisted, and
+// the service does NOT fall back to the legacy TicketUnitOfWork create.
+func TestTicketService_CreateWithWorkflow_PropagatesUnitOfWorkFailure(t *testing.T) {
+	h := newWorkflowCreateHarness()
+	cat := h.categories.seed("Bugs")
+	h.versions.publish(cat.ID, domain.WorkflowDefinition{{Type: domain.StepManualTask, ManualTask: &domain.ManualTaskStep{Instructions: "Do the thing"}}})
+	actor := domain.User{ID: 7, Name: "Ada", Email: "ada@example.com", Role: domain.RoleUser}
+	h.wfTx.failCreate = true
+	h.wfTx.failWith = errWorkflowUoWFailed
+
+	_, err := h.svc.Create(context.Background(), actor, validCreateInput(cat.ID))
+	if !errors.Is(err, errWorkflowUoWFailed) {
+		t.Fatalf("Create: the WorkflowUnitOfWork failure must propagate untouched, got %v", err)
+	}
+	if len(h.wfTx.calls) != 1 {
+		t.Fatalf("Create: exactly one CreateTicketWithRun attempt expected, got %d", len(h.wfTx.calls))
+	}
+	if len(h.tickets.tickets) != 0 || len(h.audits.events) != 0 {
+		t.Fatal("Create: a failed unit must leave no partial ticket or audit — the service never retries or falls back")
+	}
+	if h.tx.createCalls != 0 {
+		t.Fatal("Create: the service must NOT fall back to the legacy TicketUnitOfWork create path")
+	}
+}
+
+// TestTicketService_CreateWithWorkflow_LaterPublicationDoesNotChangePinnedVersion
+// proves the pin immutability contract (spec "In-flight ticket keeps its pinned
+// version"): a later publication switches the category's current version, but the
+// in-flight ticket and its already-submitted plan keep the originally resolved
+// version id; a NEW create pins the newer version.
+func TestTicketService_CreateWithWorkflow_LaterPublicationDoesNotChangePinnedVersion(t *testing.T) {
+	h := newWorkflowCreateHarness()
+	cat := h.categories.seed("Bugs")
+	v1 := h.versions.publish(cat.ID, domain.WorkflowDefinition{{Type: domain.StepManualTask, ManualTask: &domain.ManualTaskStep{Instructions: "First pass"}}})
+	actor := domain.User{ID: 7, Name: "Ada", Email: "ada@example.com", Role: domain.RoleUser}
+	ticket, err := h.svc.Create(context.Background(), actor, validCreateInput(cat.ID))
+	if err != nil {
+		t.Fatalf("Create (v1): unexpected error: %v", err)
+	}
+
+	// A later publication switches the category's current version...
+	v2 := h.versions.publish(cat.ID, domain.WorkflowDefinition{{Type: domain.StepManualTask, ManualTask: &domain.ManualTaskStep{Instructions: "Second pass"}}})
+	if v2 == v1 {
+		t.Fatal("arrange: a later publish must allocate a new version id")
+	}
+
+	// ...but the in-flight ticket, its stored row, and the submitted plan keep v1.
+	if ticket.WorkflowVersionID == nil || *ticket.WorkflowVersionID != v1 {
+		t.Fatalf("Create: in-flight ticket must keep pinned version %d after a later publish, got %v", v1, ticket.WorkflowVersionID)
+	}
+	stored, err := h.tickets.GetByID(context.Background(), ticket.ID, application.TicketQuery{Scope: application.ScopeAll})
+	if err != nil {
+		t.Fatalf("GetByID after later publish: %v", err)
+	}
+	if stored.WorkflowVersionID == nil || *stored.WorkflowVersionID != v1 {
+		t.Fatalf("Create: stored ticket must keep pinned version %d, got %v", v1, stored.WorkflowVersionID)
+	}
+	if in := h.wfTx.calls[0]; in.ExpectedVersionID != v1 {
+		t.Fatalf("Create: plan must carry the originally resolved version %d, got %d", v1, in.ExpectedVersionID)
+	}
+
+	// A new create pins the newer version.
+	second, err := h.svc.Create(context.Background(), actor, validCreateInput(cat.ID))
+	if err != nil {
+		t.Fatalf("Create (v2): unexpected error: %v", err)
+	}
+	if second.WorkflowVersionID == nil || *second.WorkflowVersionID != v2 {
+		t.Fatalf("Create: a new ticket after the later publish must pin version %d, got %v", v2, second.WorkflowVersionID)
+	}
+	if len(h.wfTx.calls) != 2 {
+		t.Fatalf("Create: two creates must submit exactly two plans, got %d", len(h.wfTx.calls))
+	}
+}
+
+// TestTicketService_CreateWithWorkflow_LegacyNullPinTicketsUnchanged proves the
+// workflow wiring does not change legacy behavior: a NULL-pin (pre-workflow)
+// ticket stays readable through the existing scopes, and the non-workflow
+// mutation paths (Assign, Transition) keep their exact behavior.
+func TestTicketService_CreateWithWorkflow_LegacyNullPinTicketsUnchanged(t *testing.T) {
+	h := newWorkflowCreateHarness()
+	cat := h.categories.seed("Bugs")
+	legacy := seededTicket(h.tickets, cat.ID, domain.StateNew) // WorkflowVersionID nil = legacy pre-workflow ticket
+	admin := domain.User{Name: "Ada", Role: domain.RoleAdmin}
+	agent := h.users.seedRole("Ana", "ana@example.com", domain.RoleAgent, true)
+
+	view, err := h.svc.GetByID(context.Background(), admin, legacy.ID)
+	if err != nil {
+		t.Fatalf("GetByID: legacy NULL-pin ticket must remain readable, got %v", err)
+	}
+	if view.Ticket.WorkflowVersionID != nil {
+		t.Fatalf("GetByID: legacy ticket must keep a NULL pin, got %v", view.Ticket.WorkflowVersionID)
+	}
+
+	updated, err := h.svc.Assign(context.Background(), agent, legacy.ID, ptr(agent.ID), "")
+	if err != nil {
+		t.Fatalf("Assign: legacy ticket must remain assignable, got %v", err)
+	}
+	if updated.UserID == nil || *updated.UserID != agent.ID {
+		t.Fatalf("Assign: assignee = %v, want %d", updated.UserID, agent.ID)
+	}
+	trans, err := h.svc.Transition(context.Background(), admin, legacy.ID, domain.StateInProgress, "")
+	if err != nil {
+		t.Fatalf("Transition: legacy ticket must remain transitionable, got %v", err)
+	}
+	if trans.State != domain.StateInProgress {
+		t.Fatalf("Transition: state = %q, want in_progress", trans.State)
 	}
 }

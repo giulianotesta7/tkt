@@ -9,40 +9,44 @@ import (
 // domain. The HTTP adapter maps typed errors to status codes, never rewrites
 // these messages.
 const (
-	ErrMsgTransitionNotAllowed      = "transition not allowed"
-	ErrMsgReopenReasonRequired      = "a reason is required to reopen the ticket"
-	ErrMsgTitleRequired             = "title is required"
-	ErrMsgInvalidPriority           = "invalid priority"
-	ErrMsgConflictingUserAssignment = "cannot assign and unassign the user at the same time"
-	ErrMsgPasswordRequired          = "password is required"
-	ErrMsgCommentBodyRequired       = "comment body is required"
-	ErrMsgUserNameRequired          = "name is required"
-	ErrMsgUserEmailRequired         = "email is required"
-	ErrMsgCategoryNameRequired      = "category name is required"
-	ErrMsgUserInactive              = "user is inactive"
-	ErrMsgUserRoleCannotAssign      = "user role cannot assign tickets"
-	ErrMsgAssignTargetRole          = "assignment target must be an agent or above"
-	ErrMsgReassignReasonRequired    = "a reason is required to reassign the ticket"
-	ErrMsgUserCannotTransition      = "user role cannot transition tickets"
-	ErrMsgUserCannotEdit            = "user role cannot edit tickets"
-	ErrMsgAssignmentViaAssign       = "assignment changes must use the assign flow"
-	ErrMsgBootstrapUnavailable      = "first-user setup is no longer available"
-	ErrMsgRootProtected             = "the root account is protected"
-	ErrMsgCommentVisibilityInvalid  = "invalid comment visibility"
-	ErrMsgUserCannotCommentInternal = "user role cannot add internal comments"
-	ErrMsgCommentOnClosedTicket     = "comments on closed tickets are not allowed"
-	ErrMsgClosedTicketReadOnly      = "closed tickets cannot be modified"
+	ErrMsgTransitionNotAllowed        = "transition not allowed"
+	ErrMsgReopenReasonRequired        = "a reason is required to reopen the ticket"
+	ErrMsgTitleRequired               = "title is required"
+	ErrMsgInvalidPriority             = "invalid priority"
+	ErrMsgConflictingUserAssignment   = "cannot assign and unassign the user at the same time"
+	ErrMsgPasswordRequired            = "password is required"
+	ErrMsgCommentBodyRequired         = "comment body is required"
+	ErrMsgUserNameRequired            = "name is required"
+	ErrMsgUserEmailRequired           = "email is required"
+	ErrMsgCategoryNameRequired        = "category name is required"
+	ErrMsgUserInactive                = "user is inactive"
+	ErrMsgUserRoleCannotAssign        = "user role cannot assign tickets"
+	ErrMsgAssignTargetRole            = "assignment target must be an agent or above"
+	ErrMsgReassignReasonRequired      = "a reason is required to reassign the ticket"
+	ErrMsgUserCannotTransition        = "user role cannot transition tickets"
+	ErrMsgUserCannotEdit              = "user role cannot edit tickets"
+	ErrMsgAssignmentViaAssign         = "assignment changes must use the assign flow"
+	ErrMsgBootstrapUnavailable        = "first-user setup is no longer available"
+	ErrMsgRootProtected               = "the root account is protected"
+	ErrMsgCommentVisibilityInvalid    = "invalid comment visibility"
+	ErrMsgUserCannotCommentInternal   = "user role cannot add internal comments"
+	ErrMsgCommentOnClosedTicket       = "comments on closed tickets are not allowed"
+	ErrMsgClosedTicketReadOnly        = "closed tickets cannot be modified"
+	ErrMsgCategoryWorkflowUnavailable = "category is not available for new tickets — publish its workflow first"
+	ErrMsgCreateUnassignedOnly        = "tickets are created unassigned — assignment happens later through the category flow"
+	ErrMsgSolutionTooLong             = "solution must be 2,000 characters or fewer"
 )
 
 // Sentinel errors naming the store contract failures (ports.go uses them as
 // ErrNotFound/ErrDuplicate/ErrReferenced). The typed errors below carry
 // structured data and satisfy errors.Is against these sentinels.
 var (
-	ErrNotFound             = errors.New("not found")
-	ErrDuplicate            = errors.New("duplicate")
-	ErrReferenced           = errors.New("referenced")
-	ErrBootstrapUnavailable = errors.New("bootstrap unavailable")
-	ErrRootProtected        = errors.New("root protected")
+	ErrNotFound                 = errors.New("not found")
+	ErrDuplicate                = errors.New("duplicate")
+	ErrReferenced               = errors.New("referenced")
+	ErrBootstrapUnavailable     = errors.New("bootstrap unavailable")
+	ErrRootProtected            = errors.New("root protected")
+	ErrWorkflowPositionConflict = errors.New("workflow position conflict")
 )
 
 // ValidationError reports a field-level validation failure (422).
@@ -207,3 +211,21 @@ func NewRootProtectedError() *RootProtectedError {
 }
 
 func (e *RootProtectedError) Is(target error) bool { return target == ErrRootProtected }
+
+// WorkflowPositionConflictError reports a stale or mismatched workflow cursor (422).
+type WorkflowPositionConflictError struct {
+	Message string
+}
+
+func (e *WorkflowPositionConflictError) Error() string { return e.Message }
+
+func (e *WorkflowPositionConflictError) Is(target error) bool {
+	return target == ErrWorkflowPositionConflict
+}
+
+func NewWorkflowPositionConflictError(msg string) *WorkflowPositionConflictError {
+	if msg == "" {
+		msg = "workflow position conflict"
+	}
+	return &WorkflowPositionConflictError{Message: msg}
+}

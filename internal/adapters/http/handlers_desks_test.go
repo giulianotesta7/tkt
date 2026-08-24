@@ -22,7 +22,7 @@ func TestDeskHandlersCreateListAndManageMembership(t *testing.T) {
 	create := deskRequest(http.MethodPost, "/desks", url.Values{"name": {"Support"}}, *h.admin)
 	created := httptest.NewRecorder()
 	mux.ServeHTTP(created, create)
-	wantRedirect(t, created, http.StatusSeeOther, "/desks")
+	wantRedirect(t, created, http.StatusSeeOther, "/desks?desk_id=1")
 
 	listed := httptest.NewRecorder()
 	mux.ServeHTTP(listed, deskRequest(http.MethodGet, "/desks", nil, *h.admin))
@@ -37,7 +37,7 @@ func TestDeskHandlersCreateListAndManageMembership(t *testing.T) {
 	}
 	member := httptest.NewRecorder()
 	mux.ServeHTTP(member, deskRequest(http.MethodPost, "/desks/"+itoa(desk[0].ID)+"/members", url.Values{"user_id": {itoa(agent.ID)}}, *h.admin))
-	wantRedirect(t, member, http.StatusSeeOther, "/desks")
+	wantRedirect(t, member, http.StatusSeeOther, "/desks?desk_id="+itoa(desk[0].ID))
 	members, err := desks.ListMembers(context.Background(), *h.admin, desk[0].ID)
 	if err != nil || len(members) != 1 || members[0].ID != agent.ID {
 		t.Fatalf("stored membership = %+v, %v", members, err)

@@ -1,17 +1,100 @@
 {{define "content"}}
 <div class="command-header">
-  <div><h1 class="command-title">Desks</h1><p class="command-sub">Agent-plus teams for future routing</p></div>
+  <div>
+    <h1 class="command-title">Desks</h1>
+    <p class="command-sub">Manage agent teams</p>
+  </div>
+  <details class="desk-create">
+    <summary class="btn primary">New desk</summary>
+    <form class="card form-card" method="post" action="/desks">
+      <div class="field">
+        <label for="name">Desk name</label
+        ><input type="text" id="name" name="name" required />
+      </div>
+      <button class="btn primary" type="submit">Create desk</button>
+    </form>
+  </details>
 </div>
-{{if .Error}}<div class="error-banner" role="alert">{{.Error}}</div>{{end}}
-<form class="card form-card" method="post" action="/desks">
-  <h2>New desk</h2><div class="field"><label for="name">Name</label><input type="text" id="name" name="name" required></div><button class="btn primary" type="submit">Create desk</button>
-</form>
-<div class="category-grid">
-{{range .Desks}}
-  <div class="category-card"><div><div class="name">{{.Name}}</div><div class="when">{{len .Members}} members</div>
-  <ul>{{range .Members}}<li>{{.Name}} <form method="post" action="/desks/{{.DeskID}}/members/{{.ID}}/delete"><button class="btn ghost small" type="submit">Remove</button></form></li>{{end}}</ul></div>
-  <div class="row-actions"><form method="post" action="/desks/{{.ID}}/edit"><input type="text" name="name" value="{{.Name}}" required><button class="btn ghost small" type="submit">Rename</button></form><form method="post" action="/desks/{{.ID}}/delete"><button class="btn danger small" type="submit">Delete</button></form></div>
-  <form method="post" action="/desks/{{.ID}}/members"><select name="user_id">{{range $.Eligible}}<option value="{{.ID}}">{{.Name}}</option>{{end}}</select><button class="btn ghost small" type="submit">Add member</button></form></div>
-{{else}}<div class="empty">No desks yet.</div>{{end}}
+{{if .Error}}
+<div class="error-banner" role="alert">{{.Error}}</div>
+{{end}} {{if .Desks}}
+<div class="desks-layout">
+  <nav class="desk-list" aria-label="Desks">
+    <h2>Desks</h2>
+    {{range .Desks}}<a
+      data-desk-id="{{.ID}}"
+      class="desk-list-item {{if and $.Selected (eq $.Selected.ID .ID)}}selected{{end}}"
+      {{if
+      and
+      $.Selected
+      (eq
+      $.Selected.ID
+      .ID)}}
+      aria-current="page"
+      {{end}}
+      href="/desks?desk_id={{.ID}}"
+      ><strong>{{.Name}}</strong
+      ><span>{{len .Members}} member{{if ne (len .Members) 1}}s{{end}}</span></a
+    >{{end}}
+  </nav>
+  {{with .Selected}}
+  <section class="desk-detail" aria-labelledby="desk-{{.ID}}-title">
+    <div class="desk-detail-head">
+      <h2 id="desk-{{.ID}}-title">{{.Name}}</h2>
+      <form method="post" action="/desks/{{.ID}}/delete">
+        <button class="btn danger small" type="submit">Delete desk</button>
+      </form>
+    </div>
+    <form class="desk-rename" method="post" action="/desks/{{.ID}}/edit">
+      <input type="text" name="name" value="{{.Name}}" required /><button
+        class="btn ghost small"
+        type="submit"
+      >
+        Rename
+      </button>
+    </form>
+    <section class="desk-members" aria-labelledby="desk-{{.ID}}-members">
+      <h3 id="desk-{{.ID}}-members">Members</h3>
+      <p>Members can receive tickets assigned to this desk.</p>
+      <form
+        class="desk-add-member"
+        method="post"
+        action="/desks/{{.ID}}/members"
+      >
+        <input type="hidden" name="selected_desk_id" value="{{.ID}}" /><label
+          for="desk-{{.ID}}-member"
+          >Add member</label
+        >
+        <div>
+          {{if $.Eligible}}<select id="desk-{{.ID}}-member" name="user_id">
+            {{range $.Eligible}}
+            <option value="{{.ID}}">{{.Name}}</option>
+            {{end}}</select
+          ><button class="btn ghost small" type="submit">Add member</button
+          >{{else}}<span class="empty compact"
+            >All eligible members are already added.</span
+          >{{end}}
+        </div>
+      </form>
+      <ul class="desk-member-list">
+        {{range .Members}}
+        <li>
+          <span>{{.Name}}</span>
+          <form
+            method="post"
+            action="/desks/{{.DeskID}}/members/{{.ID}}/delete"
+          >
+            <button class="btn ghost small" type="submit">Remove</button>
+          </form>
+        </li>
+        {{else}}
+        <li class="empty compact">No members yet.</li>
+        {{end}}
+      </ul>
+    </section>
+  </section>
+  {{end}}
 </div>
-{{end}}
+{{else}}
+<div class="empty">No desks yet.</div>
+{{end}} {{end}}

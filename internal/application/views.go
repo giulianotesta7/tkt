@@ -18,16 +18,19 @@ import (
 // one reverse-chronological feed (newest first). Comments and AuditEvents
 // stay available as the underlying data contracts.
 type TicketView struct {
-	Ticket       *domain.Ticket
-	Category     *domain.Category
-	AssignedUser *domain.User // nil when the ticket is unassigned
-	Comments     []domain.Comment
-	AuditEvents  []domain.AuditEvent
-	Timeline     []TimelineItem
+	Ticket            *domain.Ticket
+	Category          *domain.Category
+	AssignedUser      *domain.User // nil when the ticket is unassigned
+	Comments          []domain.Comment
+	AuditEvents       []domain.AuditEvent
+	Timeline          []TimelineItem
+	WorkflowResponses []WorkflowResponse
 }
 
 // TimelineItem is one entry of the merged detail-page timeline: either a
-// comment or an audit event (comment-timeline spec: newest-first feed).
+// comment or an audit event (comment-timeline spec: newest-first feed). All
+// label fields are plain strings — html/template escapes them exactly once,
+// so no raw HTML ever enters this model.
 type TimelineItem struct {
 	IsComment   bool
 	Comment     *domain.Comment
@@ -38,30 +41,70 @@ type TimelineItem struct {
 	ToLabel     string
 	// Summary is a compact natural-language line for the activity timeline
 	// ("Ticket created", "Moved to In Progress", "Changed Title"). It keeps
-	// state changes terse and unobtrusive next to full comments.
-	Summary string
-	seq     int // original list index: deterministic tie-break
+	// state changes terse and unobtrusive next to full comments. A workflow
+	// assignment carries only the exact prefix "Assigned to"; the template
+	// composes the structured person/desk strong pair from the fields below.
+	Summary    string
+	ActorLabel string
+	// IsWorkflowAssignment marks a contextual workflow_assignment event: the
+	// main line is the structured "Assigned to person · desk" pair below, and
+	// no st-class is derived from the raw ToValue user id.
+	IsWorkflowAssignment bool
+	// AssignmentPerson/AssignmentDesk are the resolved display labels of the
+	// assignment's ToValue user id and DeskID (missing references degrade to
+	// "Unknown user"/"Unknown desk").
+	AssignmentPerson string
+	AssignmentDesk   string
+	// SuppressDetail hides the Reason/Note detail line for legacy and semantic
+	// workflow-completion events (workflow_step, manual task, both forms):
+	// their answers stay behind the protected answers projection. Transitions,
+	// updates, and validated assignment reasons keep their detail visible.
+	SuppressDetail bool
+	// StepFields carries the pinned form answers joined strictly by the event's
+	// persisted step_index (PR10 task 10.2); nil when no compatible context
+	// resolves. StepInstruction carries a manual step's pinned instruction.
+	// Structural seam only: enrichment lands with task 10.2.
+	StepFields      []WorkflowResponseField
+	StepInstruction string
+	// StepSolution carries the stored manual-task solution (Amendment 2) joined
+	// through the same enrichment pass as StepInstruction; empty when none was
+	// submitted or for legacy completions. Data-only: rendering lands in WB.
+	StepSolution string
+	seq          int // original list index: deterministic tie-break
 }
 
 // ViewBuilder assembles TicketViews and resolves historical audit references.
-// Per-view caches avoid repeating user/category lookups within one timeline.
+// Per-view caches avoid repeating user/category/desk lookups within one
+// timeline.
 type ViewBuilder struct {
 	tickets    TicketStore
 	users      UserStore
 	categories CategoryStore
 	comments   CommentStore
 	audits     AuditStore
+	desks      DeskStore
+	responses  WorkflowResponseStore
 }
 
-// NewViewBuilder wires the view assembly against the given ports.
-func NewViewBuilder(tickets TicketStore, users UserStore, categories CategoryStore, comments CommentStore, audits AuditStore) *ViewBuilder {
-	return &ViewBuilder{
+// NewViewBuilder wires the view assembly against the given ports. The desk
+// store is REQUIRED: workflow_assignment timelines resolve their desk labels
+// through it, and composition fails closed rather than rendering without it.
+// The optional response store preserves legacy composition while
+// workflow-enabled callers project answers only after the scoped ticket read
+// succeeds.
+func NewViewBuilder(tickets TicketStore, users UserStore, categories CategoryStore, comments CommentStore, audits AuditStore, desks DeskStore, responses ...WorkflowResponseStore) *ViewBuilder {
+	builder := &ViewBuilder{
 		tickets:    tickets,
 		users:      users,
 		categories: categories,
 		comments:   comments,
 		audits:     audits,
+		desks:      desks,
 	}
+	if len(responses) > 0 {
+		builder.responses = responses[0]
+	}
+	return builder
 }
 
 // TicketView composes the ticket with its category, assigned user (if any),
@@ -82,6 +125,15 @@ func (b *ViewBuilder) TicketView(ctx context.Context, ticketID int64, q TicketQu
 		return nil, err
 	}
 	view := &TicketView{Ticket: t, Category: cat}
+	// The ticket read above is the authorization boundary. Workflow responses
+	// are never queried for an out-of-scope ticket or through a weaker endpoint.
+	if b.responses != nil {
+		responses, err := b.responses.ListWorkflowResponses(ctx, ticketID)
+		if err != nil {
+			return nil, err
+		}
+		view.WorkflowResponses = responses
+	}
 	if t.UserID != nil {
 		user, err := b.users.GetByID(ctx, *t.UserID)
 		if err != nil {
@@ -133,6 +185,7 @@ func (b *ViewBuilder) enrichTimeline(ctx context.Context, view *TicketView) erro
 		userNames[view.AssignedUser.ID] = view.AssignedUser.Name
 	}
 	categoryNames := map[int64]string{view.Category.ID: view.Category.Name}
+	deskNames := map[int64]string{}
 
 	for i := range view.Timeline {
 		item := &view.Timeline[i]
@@ -140,7 +193,49 @@ func (b *ViewBuilder) enrichTimeline(ctx context.Context, view *TicketView) erro
 			continue
 		}
 		item.ActionLabel = humanizeIdentifier(item.Event.Action)
+		// Audit-log spec: the persisted automatic actor `workflow` renders no
+		// actor text at all (never a `Workflow` label); human events keep their
+		// attributed names.
+		if item.Event.Actor != "workflow" {
+			item.ActorLabel = item.Event.Actor
+		}
 		item.Summary = eventSummary(item.Event)
+		switch item.Event.Action {
+		case domain.ActionWorkflowStep, domain.ActionWorkflowManualTask,
+			domain.ActionWorkflowRequesterForm, domain.ActionWorkflowAssigneeForm:
+			item.SuppressDetail = true
+		}
+		// PR10 task 10.2: a semantic completion event binds its pinned step
+		// context strictly through the persisted step_index. Missing, out-of-
+		// range, or incompatible contexts leave the safe summary alone; corrupt
+		// persisted answers fail closed through the store error.
+		switch item.Event.Action {
+		case domain.ActionWorkflowManualTask, domain.ActionWorkflowRequesterForm, domain.ActionWorkflowAssigneeForm:
+			if item.Event.StepIndex != nil && b.responses != nil {
+				stepCtx, err := b.responses.WorkflowStepContext(ctx, view.Ticket.ID, *item.Event.StepIndex)
+				if err != nil {
+					return err
+				}
+				item.bindStepContext(stepCtx)
+			}
+		}
+		if item.Event.Action == domain.ActionWorkflowAssignment {
+			// Contextual assignment: resolve the structured person/desk labels;
+			// the template renders the single "Assigned to … · …" main line from
+			// these facts and never derives markup from the raw values.
+			item.IsWorkflowAssignment = true
+			person, err := b.userValueLabel(ctx, item.Event.ToValue, userNames)
+			if err != nil {
+				return err
+			}
+			desk, err := b.deskValueLabel(ctx, item.Event.DeskID, deskNames)
+			if err != nil {
+				return err
+			}
+			item.AssignmentPerson = person
+			item.AssignmentDesk = desk
+			continue
+		}
 		if item.Event.Field == nil {
 			continue
 		}
@@ -174,6 +269,31 @@ func (b *ViewBuilder) enrichTimeline(ctx context.Context, view *TicketView) erro
 	return nil
 }
 
+// bindStepContext attaches a resolved pinned-step projection when it is
+// compatible with the completion event's kind; any missing or incompatible
+// context leaves the timeline item as its safe summary alone (nothing is
+// fabricated).
+func (t *TimelineItem) bindStepContext(stepCtx *WorkflowStepContext) {
+	if stepCtx == nil {
+		return
+	}
+	switch t.Event.Action {
+	case domain.ActionWorkflowManualTask:
+		if stepCtx.Kind == "manual" {
+			t.StepInstruction = stepCtx.Instruction
+			t.StepSolution = stepCtx.Solution
+		}
+	case domain.ActionWorkflowRequesterForm:
+		if stepCtx.Kind == "form" && stepCtx.FormActor == domain.FormActorRequester {
+			t.StepFields = stepCtx.Fields
+		}
+	case domain.ActionWorkflowAssigneeForm:
+		if stepCtx.Kind == "form" && stepCtx.FormActor == domain.FormActorAssignee {
+			t.StepFields = stepCtx.Fields
+		}
+	}
+}
+
 // eventSummary renders a compact natural-language line for a state-change
 // audit event (activity timeline). Transition carries a ToValue target;
 // updates carry a Field; creations have neither. Transitions read as a
@@ -192,6 +312,18 @@ func eventSummary(e *domain.AuditEvent) string {
 		return "Changed state"
 	case domain.ActionCreated:
 		return "Ticket created"
+	case domain.ActionWorkflowAssignment:
+		// Structured prefix only: person and desk render from the resolved
+		// TimelineItem fields as one "Assigned to <person> · <desk>" line.
+		return "Assigned to"
+	case domain.ActionWorkflowStep:
+		return "Completed step"
+	case domain.ActionWorkflowManualTask:
+		return "Completed task"
+	case domain.ActionWorkflowRequesterForm:
+		return "Submitted request details"
+	case domain.ActionWorkflowAssigneeForm:
+		return "Submitted work details"
 	default:
 		if e.Field != nil {
 			return "Changed " + auditFieldLabel(strings.ToLower(strings.TrimSpace(*e.Field)))
@@ -226,25 +358,7 @@ func (b *ViewBuilder) auditValueLabel(ctx context.Context, field string, value *
 	raw := *value
 	switch field {
 	case "user", "user_id":
-		if raw == "" {
-			return "Unassigned", nil
-		}
-		id, err := parseAuditID(raw)
-		if err != nil {
-			return "Unknown user", nil
-		}
-		if name, ok := userNames[id]; ok {
-			return name, nil
-		}
-		user, err := b.users.GetByID(ctx, id)
-		if errors.Is(err, domain.ErrNotFound) {
-			return "Unknown user", nil
-		}
-		if err != nil {
-			return "", err
-		}
-		userNames[id] = user.Name
-		return user.Name, nil
+		return b.userValueLabel(ctx, value, userNames)
 	case "category", "category_id":
 		id, err := parseAuditID(raw)
 		if err != nil {
@@ -267,6 +381,60 @@ func (b *ViewBuilder) auditValueLabel(ctx context.Context, field string, value *
 	default:
 		return raw, nil
 	}
+}
+
+// userValueLabel resolves an audit user-id value into its display label under
+// the existing user/category policy: an empty value reads as Unassigned, an
+// unparseable or missing/deleted id degrades to Unknown user, and a renamed or
+// inactive user still shows their current stored name (historical display).
+func (b *ViewBuilder) userValueLabel(ctx context.Context, value *string, userNames map[int64]string) (string, error) {
+	if value == nil {
+		return "", nil
+	}
+	raw := *value
+	if raw == "" {
+		return "Unassigned", nil
+	}
+	id, err := parseAuditID(raw)
+	if err != nil {
+		return "Unknown user", nil
+	}
+	if name, ok := userNames[id]; ok {
+		return name, nil
+	}
+	user, err := b.users.GetByID(ctx, id)
+	if errors.Is(err, domain.ErrNotFound) {
+		return "Unknown user", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	userNames[id] = user.Name
+	return user.Name, nil
+}
+
+// deskValueLabel resolves an assignment DeskID into its display label. A nil
+// id (deleted desk via the ON DELETE SET NULL FK) or a missing/stale id
+// degrades to Unknown desk; a live desk shows its current stored name.
+func (b *ViewBuilder) deskValueLabel(ctx context.Context, value *int64, deskNames map[int64]string) (string, error) {
+	if value == nil {
+		return "Unknown desk", nil
+	}
+	if name, ok := deskNames[*value]; ok {
+		return name, nil
+	}
+	desk, err := b.desks.GetByID(ctx, *value)
+	if errors.Is(err, domain.ErrNotFound) {
+		return "Unknown desk", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	if desk == nil {
+		return "Unknown desk", nil
+	}
+	deskNames[*value] = desk.Name
+	return desk.Name, nil
 }
 
 func parseAuditID(raw string) (int64, error) {

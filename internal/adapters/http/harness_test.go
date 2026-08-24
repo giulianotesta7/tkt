@@ -2,6 +2,7 @@ package httpadapter
 
 import (
 	"context"
+	"database/sql"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -21,7 +22,17 @@ import (
 // same code path production runs.
 func openTestStore(t *testing.T) *sqlite.Store {
 	t.Helper()
-	s, err := sqlite.Open(t.TempDir() + "/app.db")
+	return openTestStoreAt(t, t.TempDir()+"/app.db")
+}
+
+// openTestStoreAt opens a real modernc SQLite database at an explicit path,
+// applies ALL migrations, and registers cleanup. The path is recorded by the
+// harness so integration tests can open a second read handle for raw-row
+// assertions (e.g. proving a workflow create pinned the version and that a
+// rollback left zero run/audit rows).
+func openTestStoreAt(t *testing.T, dbPath string) *sqlite.Store {
+	t.Helper()
+	s, err := sqlite.Open(dbPath)
 	if err != nil {
 		t.Fatalf("open test store: %v", err)
 	}
@@ -102,6 +113,7 @@ func wantRedirect(t *testing.T, rec *httptest.ResponseRecorder, wantStatus int, 
 // tests can exercise authenticated routes directly.
 type harness struct {
 	store        *sqlite.Store
+	dbPath       string
 	clock        domain.Clock
 	tickets      *application.TicketService
 	comments     *application.CommentService
@@ -111,6 +123,7 @@ type harness struct {
 	desks        *application.DeskService
 	search       *application.SearchService
 	settings     *application.SettingsService
+	workflows    *application.WorkflowService
 	renderer     *Renderer
 	mux          *http.ServeMux
 	mw           *SessionMiddleware
@@ -131,34 +144,37 @@ func newEmptyHarness(t *testing.T) *harness {
 
 func newHarnessWithAdmin(t *testing.T, seedAdmin bool) *harness {
 	t.Helper()
-	s := openTestStore(t)
+	dbPath := t.TempDir() + "/app.db"
+	s := openTestStoreAt(t, dbPath)
 	clock := testClock{now: fixedNow}
 
 	usersSvc := application.NewUserService(s.UserStore(), clock)
 	authSvc := application.NewAuthService(s.UserStore(), s.SessionStore(), clock)
 	catSvc := application.NewCategoryService(s.CategoryStore(), clock)
 	deskSvc := application.NewDeskService(s.DeskStore(), s.UserStore(), clock)
-	viewBuilder := application.NewViewBuilder(s.TicketStore(), s.UserStore(), s.CategoryStore(), s.CommentStore(), s.AuditStore())
-	ticketSvc := application.NewTicketService(s.TicketStore(), s.UserStore(), s.CategoryStore(), s.TicketUnitOfWork(), viewBuilder, clock)
+	viewBuilder := application.NewViewBuilder(s.TicketStore(), s.UserStore(), s.CategoryStore(), s.CommentStore(), s.AuditStore(), s.DeskStore(), s.WorkflowResponseStore())
+	ticketSvc := application.NewTicketServiceWithWorkflowCreate(s.TicketStore(), s.UserStore(), s.CategoryStore(), s.TicketUnitOfWork(), viewBuilder, clock, s.WorkflowVersionStore(), application.NewWorkflowRunner(clock), s.WorkflowUnitOfWork())
 	commentSvc := application.NewCommentService(s.TicketStore(), s.CommentStore(), clock)
 	searchSvc := application.NewSearchService(s.TicketStore(), s.SearchStore())
 	settingsSvc := application.NewSettingsService(s.SettingsStore())
+	workflowSvc := application.NewWorkflowService(s.WorkflowStore())
 	renderer := NewRenderer()
 
 	mux := http.NewServeMux()
 	RegisterStatic(mux)
 	NewAuthHandlers(authSvc, usersSvc, renderer).Register(mux)
-	NewTicketHandlers(ticketSvc, commentSvc, searchSvc, catSvc, usersSvc, renderer).Register(mux)
+	NewTicketHandlers(ticketSvc, commentSvc, searchSvc, catSvc, usersSvc, s.DeskStore(), workflowSvc, application.NewWorkflowRunner(clock), s.WorkflowRunStore(), s.WorkflowUnitOfWork(), renderer).Register(mux)
 	NewUserHandlers(usersSvc, renderer).Register(mux)
-	NewCategoryHandlers(catSvc, renderer).Register(mux)
+	NewCategoryHandlersWithWorkflows(catSvc, workflowSvc, renderer).Register(mux)
+	NewCategoryWorkflowHandlers(workflowSvc, deskSvc, renderer).Register(mux)
 	NewDeskHandlers(deskSvc, renderer).Register(mux)
 	NewSettingsHandlers(settingsSvc, renderer).Register(mux)
 	mw := NewSessionMiddleware(s.SessionStore(), s.UserStore(), s.SettingsStore())
 
 	h := &harness{
-		store: s, clock: clock,
+		store: s, dbPath: dbPath, clock: clock,
 		tickets: ticketSvc, comments: commentSvc, users: usersSvc, auth: authSvc,
-		categories: catSvc, desks: deskSvc, search: searchSvc, settings: settingsSvc,
+		categories: catSvc, desks: deskSvc, search: searchSvc, settings: settingsSvc, workflows: workflowSvc,
 		renderer: renderer,
 		mux:      mux, mw: mw,
 	}
@@ -190,6 +206,12 @@ func newHarnessWithAdmin(t *testing.T, seedAdmin bool) *harness {
 	h.admin = admin
 	h.adminSession = sess
 	h.bugCategory = bugs
+	// Publish a simple valid workflow for the default Bugs category so every
+	// ticket-seeding test exercises the REAL workflow-aware create path (design
+	// S5 availability = a published version exists). The manual-task fixture is
+	// human-pending, so created tickets stay "new" with an active run — exactly
+	// the shape unrelated create tests already expect.
+	h.publishWorkflow(t, bugs.ID, simpleManualDef())
 	return h
 }
 
@@ -272,6 +294,17 @@ func (h *harness) seedTicket(t *testing.T, title string, mod func(*application.C
 	return tkt
 }
 
+// assignTicket seeds an assignment through the audited Assign service call
+// (Amendment 2: creation no longer accepts an assignee, so test fixtures that
+// need an assigned ticket create unassigned and then assign — the same audited
+// path the production assign flow uses).
+func (h *harness) assignTicket(t *testing.T, ticketID, assigneeID int64) {
+	t.Helper()
+	if _, err := h.tickets.Assign(context.Background(), *h.admin, ticketID, &assigneeID, ""); err != nil {
+		t.Fatalf("assign ticket %d to user %d: %v", ticketID, assigneeID, err)
+	}
+}
+
 // seedTransition moves a seeded ticket through the state machine via the
 // real service.
 func (h *harness) seedTransition(t *testing.T, id int64, to domain.State, reason string) {
@@ -279,6 +312,77 @@ func (h *harness) seedTransition(t *testing.T, id int64, to domain.State, reason
 	if _, err := h.tickets.Transition(context.Background(), *h.admin, id, to, reason); err != nil {
 		t.Fatalf("transition ticket %d -> %s: %v", id, to, err)
 	}
+}
+
+// rawDB opens a second read handle to the harness's file-backed sqlite db so
+// integration tests can assert raw persistence rows (workflow pin, run rows,
+// audit rows) that no public store port exposes. The sqlite driver is already
+// registered by the sqlite package import above.
+func (h *harness) rawDB(t *testing.T) *sql.DB {
+	t.Helper()
+	db, err := sql.Open("sqlite", "file:"+h.dbPath)
+	if err != nil {
+		t.Fatalf("open raw db: %v", err)
+	}
+	t.Cleanup(func() { db.Close() })
+	return db
+}
+
+// scanOneInt runs a scalar-SELECT query against the harness db and returns the
+// single int64 it produced, fataling on no rows or scan error.
+func scanOneInt(t *testing.T, db *sql.DB, query string, args ...any) int64 {
+	t.Helper()
+	var v int64
+	if err := db.QueryRow(query, args...).Scan(&v); err != nil {
+		t.Fatalf("raw query %q: %v", query, err)
+	}
+	return v
+}
+
+// scanOneString runs a scalar-SELECT query against the harness db and returns
+// the single string it produced, fataling on no rows or scan error.
+func scanOneString(t *testing.T, db *sql.DB, query string, args ...any) string {
+	t.Helper()
+	var v string
+	if err := db.QueryRow(query, args...).Scan(&v); err != nil {
+		t.Fatalf("raw query %q: %v", query, err)
+	}
+	return v
+}
+
+// scanOneNullableInt runs a scalar-SELECT that may return NULL and returns the
+// value plus whether it was non-NULL.
+func scanOneNullableInt(t *testing.T, db *sql.DB, query string, args ...any) (int64, bool) {
+	t.Helper()
+	var v sql.NullInt64
+	if err := db.QueryRow(query, args...).Scan(&v); err != nil {
+		t.Fatalf("raw query %q: %v", query, err)
+	}
+	if !v.Valid {
+		return 0, false
+	}
+	return v.Int64, true
+}
+
+// publishWorkflow publishes a simple valid workflow for a category so that the
+// category becomes available for new tickets (design S5 availability = a
+// published version exists). Tests that merely arrange a working create use
+// this; tests that exercise workflow-create semantics use explicit fixtures.
+// It returns the published immutable version id.
+func (h *harness) publishWorkflow(t *testing.T, catID int64, def domain.WorkflowDefinition) int64 {
+	t.Helper()
+	b, err := def.MarshalCanonical()
+	if err != nil {
+		t.Fatalf("canonical workflow: %v", err)
+	}
+	vid, iss, err := h.store.WorkflowStore().Publish(t.Context(), catID, b, nil)
+	if err != nil {
+		t.Fatalf("publish workflow: %v", err)
+	}
+	if len(iss) > 0 {
+		t.Fatalf("publish workflow rejected: %v", iss)
+	}
+	return vid
 }
 
 // loginCookie returns a fresh session token for email/password (or "" on

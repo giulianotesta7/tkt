@@ -21,6 +21,11 @@ func TestEventSummaryReopen(t *testing.T) {
 		{"cancel", domain.AuditEvent{Action: domain.ActionTransition, FromValue: str("in_progress"), ToValue: str("cancelled")}, "Ticket cancelled"},
 		{"created", domain.AuditEvent{Action: domain.ActionCreated}, "Ticket created"},
 		{"update field", domain.AuditEvent{Action: domain.ActionUpdate, Field: str("title")}, "Changed Title"},
+		{"workflow assignment reads the structured prefix", domain.AuditEvent{Action: domain.ActionWorkflowAssignment}, "Assigned to"},
+		{"workflow manual task", domain.AuditEvent{Action: domain.ActionWorkflowManualTask}, "Completed task"},
+		{"workflow requester form", domain.AuditEvent{Action: domain.ActionWorkflowRequesterForm}, "Submitted request details"},
+		{"workflow assignee form", domain.AuditEvent{Action: domain.ActionWorkflowAssigneeForm}, "Submitted work details"},
+		{"legacy workflow_step reads as Completed step", domain.AuditEvent{Action: domain.ActionWorkflowStep}, "Completed step"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

@@ -10,14 +10,20 @@
     <div class="body">{{.Comment.Body}}</div>
   </div>
 {{else}}
-  <div class="timeline-entry timeline-event{{if .Event.ToValue}} st-{{.Event.ToValue}}{{else if eq .Summary "Ticket created"}} st-new{{end}}">
+  <div class="timeline-entry timeline-event{{if .IsWorkflowAssignment}}{{else if .Event.ToValue}} st-{{.Event.ToValue}}{{else if eq .Summary "Ticket created"}} st-new{{end}}">
     <span class="event-icon">›</span>
     <div class="body">
-      <div class="main">{{if .Summary}}{{.Summary}}{{else}}{{.ActionLabel}}{{if .FieldLabel}} · {{.FieldLabel}}{{end}}{{if .Event.FromValue}} · {{.FromLabel}} → {{.ToLabel}}{{end}}{{end}}</div>
-{{if .Event.Reason}}      <div class="detail">Reason: {{.Event.Reason}}</div>
+      <div class="main">{{if .IsWorkflowAssignment}}Assigned to <strong>{{.AssignmentPerson}}</strong> · <strong>{{.AssignmentDesk}}</strong>{{else if .Summary}}{{.Summary}}{{else}}{{.ActionLabel}}{{if .FieldLabel}} · {{.FieldLabel}}{{end}}{{if .Event.FromValue}} · {{.FromLabel}} → {{.ToLabel}}{{end}}{{end}}</div>
+{{if .StepFields}}          <dl class="workflow-responses">
+{{range .StepFields}}            <dt>{{.Label}}</dt>
+                <dd>{{.Value}}</dd>
+{{end}}          </dl>
+{{else if .StepInstruction}}          <p class="workflow-instruction">{{.StepInstruction}}</p>
+    {{if .StepSolution}}<p class="workflow-solution">{{.StepSolution}}</p>{{end}}
+{{end}}{{if not .SuppressDetail}}{{if .Event.Reason}}      <div class="detail">Reason: {{.Event.Reason}}</div>
 {{else if .Event.Note}}      <div class="detail">Reason: {{.Event.Note}}</div>
-{{end}}
-      <div class="when">{{template "timestamp" .Event.CreatedAt}} · {{.Event.Actor}}</div>
+{{end}}{{end}}
+      <div class="when">{{template "timestamp" .Event.CreatedAt}}{{if .ActorLabel}} · {{.ActorLabel}}{{else if ne .Event.Actor "workflow"}} · {{.Event.Actor}}{{end}}</div>
     </div>
   </div>
 {{end}}

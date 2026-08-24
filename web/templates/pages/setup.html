@@ -2,7 +2,7 @@
 <form class="login-form" method="post" action="/setup" novalidate>
   <h2>Set up tkt</h2>
   <p class="lead">Create the first account for your support team. This only happens once.</p>
-  {{if .Error}}<div class="error-banner" role="alert">{{.Error}}</div>{{end}}
+{{if .Error}}<div class="error-banner" role="alert">{{.Error}}</div>{{end}}
   <div class="field">
     <label for="name">Name</label>
     <input type="text" id="name" name="name" value="{{.Name}}" placeholder="Ana Torres" autocomplete="name" required autofocus>

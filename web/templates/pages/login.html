@@ -1,7 +1,7 @@
 {{define "content"}}
 <form class="login-form" method="post" action="/login" novalidate>
   <h2>Sign in to tkt</h2>
-  {{if .Error}}<div class="error-banner" role="alert">{{.Error}}</div>{{end}}
+{{if .Error}}<div class="error-banner" role="alert">{{.Error}}</div>{{end}}
   <div class="field">
     <label for="email">Email</label>
     <input type="email" id="email" name="email" value="{{.Email}}" placeholder="you@example.com" autocomplete="email" required autofocus>

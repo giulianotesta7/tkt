@@ -41,6 +41,7 @@ type desksIndexData struct {
 	pageData
 	Error    string
 	Desks    []deskView
+	Selected *deskView
 	Eligible []domain.User
 }
 
@@ -73,7 +74,31 @@ func (h *DeskHandlers) renderIndex(w http.ResponseWriter, r *http.Request, messa
 		http.Error(w, mapErrorMsg(err), statusFor(err))
 		return
 	}
-	h.renderer.Render(w, r, "desks_index", "", desksIndexData{pageData: pageDataFrom(r, "desks"), Error: message, Desks: views, Eligible: eligible}, status)
+	selectedID := parseID(r.URL.Query().Get("desk_id"))
+	var selected *deskView
+	for i := range views {
+		if views[i].ID == selectedID {
+			selected = &views[i]
+			break
+		}
+	}
+	if selected == nil && len(views) > 0 {
+		selected = &views[0]
+	}
+	if selected != nil {
+		memberIDs := make(map[int64]struct{}, len(selected.Members))
+		for _, member := range selected.Members {
+			memberIDs[member.ID] = struct{}{}
+		}
+		filtered := make([]domain.User, 0, len(eligible))
+		for _, user := range eligible {
+			if _, exists := memberIDs[user.ID]; !exists {
+				filtered = append(filtered, user)
+			}
+		}
+		eligible = filtered
+	}
+	h.renderer.Render(w, r, "desks_index", "", desksIndexData{pageData: pageDataFrom(r, "desks"), Error: message, Desks: views, Selected: selected, Eligible: eligible}, status)
 }
 
 func (h *DeskHandlers) create(w http.ResponseWriter, r *http.Request) {
@@ -81,11 +106,12 @@ func (h *DeskHandlers) create(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
-	if _, err := h.desks.Create(r.Context(), *userFromContext(r.Context()), r.Form.Get("name")); err != nil {
+	desk, err := h.desks.Create(r.Context(), *userFromContext(r.Context()), r.Form.Get("name"))
+	if err != nil {
 		h.renderIndexError(w, r, err)
 		return
 	}
-	redirect(w, r, "/desks")
+	redirect(w, r, deskURL(desk.ID))
 }
 
 func (h *DeskHandlers) rename(w http.ResponseWriter, r *http.Request) {
@@ -102,7 +128,7 @@ func (h *DeskHandlers) rename(w http.ResponseWriter, r *http.Request) {
 		h.renderIndexError(w, r, err)
 		return
 	}
-	redirect(w, r, "/desks")
+	redirect(w, r, deskURL(id))
 }
 
 func (h *DeskHandlers) delete(w http.ResponseWriter, r *http.Request) {
@@ -132,7 +158,7 @@ func (h *DeskHandlers) addMember(w http.ResponseWriter, r *http.Request) {
 		h.renderIndexError(w, r, err)
 		return
 	}
-	redirect(w, r, "/desks")
+	redirect(w, r, deskURL(deskID))
 }
 
 func (h *DeskHandlers) removeMember(w http.ResponseWriter, r *http.Request) {
@@ -150,7 +176,11 @@ func (h *DeskHandlers) removeMember(w http.ResponseWriter, r *http.Request) {
 		h.renderIndexError(w, r, err)
 		return
 	}
-	redirect(w, r, "/desks")
+	redirect(w, r, deskURL(deskID))
+}
+
+func deskURL(id int64) string {
+	return "/desks?desk_id=" + strconv.FormatInt(id, 10)
 }
 
 func (h *DeskHandlers) renderIndexError(w http.ResponseWriter, r *http.Request, err error) {
