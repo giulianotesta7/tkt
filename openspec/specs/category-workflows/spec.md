@@ -111,52 +111,114 @@ An `assign_to_desk` step MUST identify an existing desk and MUST use strategy `c
 - THEN no version is created
 - AND a plain error identifies the affected step
 
-### Requirement: Friendly Vertical Builder
+### Requirement: Horizontal master-detail workflow builder
 
-The workflow builder MUST present a top header with its existing actions and a responsive two-panel information architecture: the semantic vertical numbered-list editor on the left and a read-only vertical linear-flow preview on the right at desktop widths. The editor MUST show only fields relevant to the selected step type. An authorized actor MUST be able to add, move, remove, preview, and publish steps. The read-only preview MUST be derived from the submitted/server-rendered current draft, and MAY use restrained static visual connectors solely to clarify sequence. It MUST NOT become a graph, canvas, interactive node editor, branching control, drag-and-drop surface, client-side state store, or new workflow semantic. At narrow widths the panels MUST stack without horizontal overflow. Reordering MUST be keyboard accessible, and every builder action and validation result MUST remain usable through a full-page request when HTMX is unavailable; HTMX and full-page responses MUST preserve equivalent editor and preview state. Validation errors MUST appear inline in plain language.
+The workflow builder MUST use the Users page layout primitives and present a horizontal, non-wrapping step rail with a selected-step master-detail editor below it. The rail MUST show compact cards with each step's handle, position, type, dynamic summary, menu, and a neutral `Final` marker for the final step. The domain has no stable step identifier, so the HTTP layer MUST accept the optional presentation-only position `selected_step_index` and MUST NOT treat it as stable identity. Selecting a card MUST update presentation state and MUST NOT autosave or mutate the draft. The detail editor MUST render the existing form and validation for the selected step type. The existing POST endpoint and action set MUST remain unchanged. The HTTP layer MUST accept optional `selected_step_index` and `add_step_type` inputs, MUST validate them, and MUST preserve prior behavior when either is absent. Neither value may enter session state, process memory, domain/application models, persistence, or migrations. The workflow header MUST expose only the Saved state and Publish action. This screen MUST expose no Preview action or Flow preview UI, while the existing backend preview route and action remain intact.
 
-#### Scenario: Contextual step fields
+#### Scenario: Selected step opens its existing editor
 
-- GIVEN an authorized actor is editing a draft
-- WHEN they select `form` as a step type
-- THEN only form-specific actor and field controls are shown for that step
+- GIVEN an authorized actor edits a draft with an existing `form` step
+- WHEN the actor selects that step card
+- THEN the presentation-only `selected_step_index` updates to that position without representing stable identity
+- AND the detail editor shows the existing form-specific fields and controls for that step
+- AND no draft field, version, or persistence record changes because of selection alone
 
-#### Scenario: Keyboard reordering
+#### Scenario: Selection does not autosave
 
-- GIVEN a draft with at least two steps
-- WHEN a keyboard user moves the second step upward
-- THEN the numbered order updates
-- AND focus remains usable for the next builder action
+- GIVEN an authorized actor edits a draft with at least two steps
+- WHEN the actor selects a different step without submitting a field or form action
+- THEN the server receives no autosave mutation for the selection
+- AND the optional selected index remains available for the next builder action through presentation-only query or form data
 
-#### Scenario: Preview does not publish
+#### Scenario: Rail scrolls horizontally at a narrow width
 
-- GIVEN an edited draft and an older active published version
-- WHEN an authorized actor previews the draft
-- THEN a read-only ordered summary of the draft is shown
-- AND the older published version remains active
+- GIVEN an authorized actor opens a draft with enough steps to exceed 390px
+- WHEN the builder renders in a 390px viewport
+- THEN the step rail remains horizontal and non-wrapping
+- AND the rail provides horizontal overflow access to every step card
+- AND the surrounding page does not require horizontal scrolling to reach the detail editor or page actions
 
-#### Scenario: Read-only linear flow preview mirrors the draft
+#### Scenario: Typed Add step popover uses allowed types
 
-- GIVEN an authorized actor edits a linear draft with multiple ordered steps
-- WHEN the builder renders at desktop width
-- THEN the semantic ordered editor appears beside a read-only vertical flow preview
-- AND the preview reflects the same submitted/server-rendered linear order
-- AND the preview exposes no drag-and-drop, branching, node editing, or independent mutation control
+- GIVEN an authorized actor edits a draft
+- WHEN the actor opens Add step
+- THEN an anchored popover presents the existing allowed step types `Assign to desk`, `Form`, `Manual task`, `Resolve ticket`, and `Close ticket`
+- AND each choice identifies the type that the actor will add
+- AND choosing a type submits the existing `add_step` action with an optional `add_step_type` value
+- AND the HTTP layer validates that value against the existing closed step-type set
+- AND omitting `add_step_type` preserves the existing default manual-step behavior
 
-#### Scenario: Builder stacks without overflow on narrow screens
+#### Scenario: Typed Add step protects terminal order
 
-- GIVEN an authorized actor opens the builder at 390px wide
-- WHEN the editor and read-only preview render
-- THEN the panels stack in a readable order without horizontal scrolling
-- AND native controls, add/reorder/remove, preview, publish, visible focus, and live announcements remain usable
+- GIVEN a draft already contains a terminal step
+- WHEN an authorized actor opens Add step
+- THEN the popover hides terminal choices that the existing rules disallow
+- AND the builder offers no insertion position after the terminal step
+- AND the terminal step remains final and mutually exclusive under the existing rules
+
+#### Scenario: Removing the selected step chooses a safe neighbor
+
+- GIVEN an authorized actor edits a draft with at least two steps
+- AND the selected step has a neighboring step
+- WHEN the actor removes the selected step through the existing remove action
+- THEN the selected step is removed through the existing request and persistence contract
+- AND the HTTP layer recalculates `selected_step_index` to a safe adjacent remaining step
+- AND the detail editor shows that newly selected step without showing removed-step state
+
+#### Scenario: Removing the only step clears selection
+
+- GIVEN an authorized actor edits a draft with exactly one selected step
+- WHEN the actor removes that step
+- THEN the existing remove rules determine whether the draft may be empty
+- AND if the draft is empty, presentation-only selection clears
+- AND the builder shows its empty state without a stale detail editor
+- AND if the existing rules reject the removal, the builder shows the existing validation error and preserves the selected step
+
+#### Scenario: Horizontal reorder retains the moved selection
+
+- GIVEN an authorized actor edits a draft with at least two steps
+- AND one step is selected
+- WHEN the actor drags that step horizontally to a valid position
+- THEN the rail shows a placeholder at the source position and a blue insertion indicator at the target position
+- AND the existing reorder request applies the new order
+- AND the HTTP layer recalculates `selected_step_index` to the moved step's destination after the reorder
+- AND the final step and terminal constraints remain valid
+
+#### Scenario: Terminal step cannot move from the final position
+
+- GIVEN a draft contains a terminal step at the end
+- WHEN an authorized actor attempts to move that terminal step before another step or place another step after it
+- THEN the builder rejects the invalid reorder through the existing validation and request rules
+- AND the terminal step remains final
+- AND no invalid order is persisted
+
+#### Scenario: Keyboard actions provide reorder and remove fallbacks
+
+- GIVEN an authorized actor focuses a step card or its action menu
+- WHEN the actor invokes Move left, Move right, or Remove with the keyboard
+- THEN the corresponding existing reorder or remove request runs without requiring drag input
+- AND visible focus remains on a usable builder control
+- AND a successful move recalculates the selected index to the moved step's destination
+- AND a successful removal selects a safe adjacent step or clears selection when no step remains
+
+#### Scenario: Preview access is removed from this screen
+
+- GIVEN an authorized actor opens the category workflow builder
+- WHEN the page renders
+- THEN the header contains the Saved state and Publish action only
+- AND the page contains no Preview button, Open preview action, or Flow preview UI
+- AND the existing backend preview route and action remain available to their existing callers
+- AND this requirement introduces no endpoint, action, domain/application model, persistence contract, migration, session state, process-memory state, or dependency change
 
 #### Scenario: Full-page validation fallback
 
 - GIVEN HTMX is unavailable and the draft contains an invalid step
 - WHEN an authorized actor submits Publish
-- THEN the full builder page is rendered with the same inline validation error
-- AND the editor and read-only preview preserve the submitted draft state
+- THEN the full builder page renders with the same inline validation error
+- AND the horizontal rail preserves the submitted step order and optional presentation-only selected index when that value is valid
+- AND the selected step editor preserves the submitted values needed to correct the error
 - AND no version is created
+- AND the page still exposes only the Saved state and Publish action, with no Preview or Flow preview UI
 
 ### Requirement: Additive Workflow Adoption
 
