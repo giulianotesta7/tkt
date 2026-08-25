@@ -1399,3 +1399,249 @@ func builderDraft(t *testing.T, instructions ...string) string {
 func builderForm(action, draft string) url.Values {
 	return url.Values{"action": {action}, "draft": {draft}}
 }
+
+// ==== PR4: typed Add step + horizontal menu actions ====
+//
+// add_step_type is an optional presentation-only HTTP input validated against
+// the closed domain step-type set; absent or unknown values preserve the
+// existing default manual-step behavior, and the value never persists.
+func TestCategoryWorkflowBuilder_TypedAddStepTypeValidation(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		typ  string
+		want domain.StepType
+	}{
+		{name: "manual task", typ: "manual_task", want: domain.StepManualTask},
+		{name: "assign to desk", typ: "assign_to_desk", want: domain.StepAssignToDesk},
+		{name: "form", typ: "form", want: domain.StepForm},
+		{name: "resolve ticket", typ: "resolve_ticket", want: domain.StepResolve},
+		{name: "close ticket", typ: "close_ticket", want: domain.StepClose},
+		{name: "unknown type falls back to manual", typ: "review_ticket", want: domain.StepManualTask},
+		{name: "absent type keeps default manual", typ: "", want: domain.StepManualTask},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h := newHarness(t)
+			category, err := h.categories.Create(t.Context(), "Typed "+tc.name)
+			if err != nil {
+				t.Fatalf("create: %v", err)
+			}
+			path := "/categories/" + strconv.FormatInt(category.ID, 10) + "/workflow"
+			f := builderFieldForm("add_step")
+			if tc.typ != "" {
+				f.Set("add_step_type", tc.typ)
+			}
+			wantRedirect(t, h.postForm(t, path, f, false), http.StatusSeeOther, path)
+			def := h.persistedDefinition(t, path)
+			if len(def) != 1 {
+				t.Fatalf("typed add must append exactly one step, got %d: %+v", len(def), def)
+			}
+			if def[0].Type != tc.want {
+				t.Errorf("typed add type = %s, want %s", def[0].Type, tc.want)
+			}
+			switch tc.want {
+			case domain.StepAssignToDesk:
+				if def[0].AssignToDesk == nil {
+					t.Error("assign_to_desk add must initialize its closed payload")
+				}
+			case domain.StepForm:
+				if def[0].Form == nil || def[0].Form.Actor != domain.FormActorRequester {
+					t.Error("form add must initialize a requester form payload")
+				}
+			case domain.StepResolve, domain.StepClose:
+				if def[0].AssignToDesk != nil || def[0].Form != nil || def[0].ManualTask != nil {
+					t.Error("terminal add must carry no config")
+				}
+			}
+		})
+	}
+}
+
+// TypedAddPopoverMarkup freezes the anchored popover contract: the + Add step
+// control opens a disclosure listing exactly the five closed step types with
+// human labels; every choice submits the EXISTING add_step action with the
+// optional add_step_type for both HTMX (outerHTML swap, no history push) and the
+// full-page no-JS submit on the same endpoint/action.
+func TestCategoryWorkflowBuilder_TypedAddPopoverMarkup(t *testing.T) {
+	h := newHarness(t)
+	category, err := h.categories.Create(t.Context(), "Popover")
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	path := "/categories/" + strconv.FormatInt(category.ID, 10) + "/workflow"
+	wantRedirect(t, h.postForm(t, path, builderFieldForm("save", bstep{typ: "manual_task", manual: "seed"}), false), http.StatusSeeOther, path)
+	body := h.get(t, path, false).Body.String()
+	if !strings.Contains(body, `class="workflow-add-popover"`) || !strings.Contains(body, `<summary class="btn ghost">+ Add step</summary>`) {
+		t.Fatalf("builder must render the anchored + Add step popover, got: %s", body)
+	}
+	if got := strings.Count(body, `name="action" value="add_step"`); got != 5 {
+		t.Errorf("typed add submitters = %d, want 5", got)
+	}
+	for _, tc := range []struct {
+		typ   string
+		label string
+	}{
+		{"manual_task", "Manual task"},
+		{"assign_to_desk", "Assign to desk"},
+		{"form", "Form"},
+		{"resolve_ticket", "Resolve ticket"},
+		{"close_ticket", "Close ticket"},
+	} {
+		if !strings.Contains(body, "?add_step_type="+tc.typ+"\"") || !strings.Contains(body, ">"+tc.label+"</button>") {
+			t.Errorf("popover must offer %q carrying add_step_type=%s, got: %s", tc.label, tc.typ, body)
+		}
+	}
+	if !strings.Contains(body, `type="submit" name="action" value="add_step" formaction="`+path+`?add_step_type=`) || !strings.Contains(body, `hx-include="closest form"`) || !strings.Contains(body, `hx-swap="outerHTML show:none"`) || !strings.Contains(body, `hx-push-url="false"`) {
+		t.Errorf("popover choices must work as no-JS submits and HTMX outerHTML swaps without history push, got: %s", body)
+	}
+}
+
+// TypedAddTerminalProtection freezes scenario protection: a draft that already
+// contains a terminal step offers no terminal choice and no insertion position
+// after the final step, and crafted add requests leave the draft unchanged; the
+// terminal keeps its Final badge and removal guard.
+func TestCategoryWorkflowBuilder_TypedAddTerminalProtection(t *testing.T) {
+	h := newHarness(t)
+	category, err := h.categories.Create(t.Context(), "Terminal guard")
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	path := "/categories/" + strconv.FormatInt(category.ID, 10) + "/workflow"
+	steps := []bstep{{typ: "manual_task", manual: "first"}, {typ: "close_ticket"}}
+	wantRedirect(t, h.postForm(t, path, builderFieldForm("save", steps...), false), http.StatusSeeOther, path)
+	body := h.get(t, path, false).Body.String()
+	if strings.Contains(body, `class="workflow-add-popover"`) || strings.Contains(body, "add_step_type=") {
+		t.Errorf("terminal draft must hide the Add step popover and any insertion position, got: %s", body)
+	}
+	for _, want := range []string{"The final step ends the workflow.", `workflow-final-badge">Final</span>`, `name="action" value="remove_step" disabled`} {
+		if !strings.Contains(body, want) {
+			t.Errorf("terminal draft must contain %q, got: %s", want, body)
+		}
+	}
+	for _, tc := range []struct {
+		name string
+		typ  string
+	}{
+		{"default add", ""},
+		{"duplicate terminal", "close_ticket"},
+		{"non-terminal after final", "form"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := builderFieldForm("add_step", steps...)
+			if tc.typ != "" {
+				f.Set("add_step_type", tc.typ)
+			}
+			wantRedirect(t, h.postForm(t, path, f, false), http.StatusSeeOther, path)
+			def := h.persistedDefinition(t, path)
+			if len(def) != 2 || def[0].Type != domain.StepManualTask || def[1].Type != domain.StepClose {
+				t.Errorf("add after a terminal must keep the draft unchanged, got %+v", def)
+			}
+		})
+	}
+}
+
+// MenuLabelsHorizontal freezes the horizontal rail action names: Move left and
+// Move right replace the vertical labels while the backend action values,
+// endpoints, and persistence contract stay byte-for-byte unchanged.
+func TestCategoryWorkflowBuilder_MenuLabelsHorizontal(t *testing.T) {
+	h := newHarness(t)
+	category, err := h.categories.Create(t.Context(), "Horizontal menu")
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	path := "/categories/" + strconv.FormatInt(category.ID, 10) + "/workflow"
+	steps := []bstep{{typ: "manual_task", manual: "a"}, {typ: "manual_task", manual: "b"}}
+	wantRedirect(t, h.postForm(t, path, builderFieldForm("save", steps...), false), http.StatusSeeOther, path)
+	body := h.get(t, path, false).Body.String()
+	if !strings.Contains(body, ">Move left</button>") || !strings.Contains(body, ">Move right</button>") {
+		t.Errorf("menu must label horizontal actions Move left/Move right, got: %s", body)
+	}
+	for _, legacy := range []string{">Move up<", ">Move down<"} {
+		if strings.Contains(body, legacy) {
+			t.Errorf("menu must not keep vertical label %q, got: %s", legacy, body)
+		}
+	}
+	for _, action := range []string{"move_up", "move_down", "remove_step"} {
+		if got := strings.Count(body, `name="action" value="`+action+`"`); got != 2 {
+			t.Errorf("action %s submitters = %d, want 2 (one per card)", action, got)
+		}
+	}
+	if !strings.Contains(body, `name="action" value="move_up" disabled`) || !strings.Contains(body, `name="action" value="move_down" disabled`) {
+		t.Errorf("first/last card guards must keep their disabled states, got: %s", body)
+	}
+}
+
+// KeyboardActionFallbacks freezes the no-drag fallback contract: menu actions
+// are real native submit buttons (Enter/Space run the same reorder/remove
+// request) for no-JS and HTMX, the page restores visible focus to the selected
+// card (or the Add step control when the draft empties), and removal
+// recalculates a safe neighbor or clears selection.
+func TestCategoryWorkflowBuilder_KeyboardActionFallbacks(t *testing.T) {
+	t.Run("menu buttons are native submits with no-JS and HTMX requests", func(t *testing.T) {
+		h := newHarness(t)
+		category, err := h.categories.Create(t.Context(), "Keyboard")
+		if err != nil {
+			t.Fatalf("create: %v", err)
+		}
+		path := "/categories/" + strconv.FormatInt(category.ID, 10) + "/workflow"
+		steps := []bstep{{typ: "manual_task", manual: "a"}, {typ: "manual_task", manual: "b"}, {typ: "manual_task", manual: "c"}}
+		wantRedirect(t, h.postForm(t, path, builderFieldForm("save", steps...), false), http.StatusSeeOther, path)
+		body := h.get(t, path+"?selected_step_index=1", false).Body.String()
+		for _, action := range []string{"move_up", "move_down", "remove_step"} {
+			if !strings.Contains(body, `type="submit" name="action" value="`+action+`"`) || !strings.Contains(body, `formaction="`+path+`?step_index=`) || !strings.Contains(body, `hx-post="`+path+`?step_index=`) {
+				t.Errorf("menu %s must stay a keyboard-operable submit with no-JS formaction and HTMX post, got: %s", action, body)
+			}
+		}
+		if !strings.Contains(body, `.workflow-step-card.selected .workflow-step-card-link`) || !strings.Contains(body, `.workflow-add-step summary`) {
+			t.Errorf("page must restore visible focus to the selected card or the Add step control after swaps, got: %s", body)
+		}
+	})
+
+	t.Run("HTMX remove of the selected step selects a safe neighbor", func(t *testing.T) {
+		h := newHarness(t)
+		category, err := h.categories.Create(t.Context(), "Safe neighbor")
+		if err != nil {
+			t.Fatalf("create: %v", err)
+		}
+		path := "/categories/" + strconv.FormatInt(category.ID, 10) + "/workflow"
+		steps := []bstep{{typ: "manual_task", manual: "a"}, {typ: "manual_task", manual: "b"}, {typ: "manual_task", manual: "c"}}
+		wantRedirect(t, h.postForm(t, path, builderFieldForm("save", steps...), false), http.StatusSeeOther, path)
+		f := builderFieldForm("remove_step", steps...)
+		f.Set("step_index", "1")
+		f.Set("selected_step_index", "1")
+		rec := h.postForm(t, path, f, true)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("HTMX remove status = %d, want 200", rec.Code)
+		}
+		body := rec.Body.String()
+		for _, want := range []string{`name="selected_step_index" value="1"`, `class="workflow-step-card selected"`, ">c</textarea>", `id="workflow-builder"`} {
+			if !strings.Contains(body, want) {
+				t.Errorf("remove must select the safe neighbor at index 1, missing %q: %s", want, body)
+			}
+		}
+		if got := strings.Count(body, `class="workflow-editor-panel"`); got != 1 {
+			t.Errorf("remove must keep exactly one editor, got %d", got)
+		}
+	})
+
+	t.Run("HTMX remove of the only step clears selection and shows the empty state", func(t *testing.T) {
+		h := newHarness(t)
+		category, err := h.categories.Create(t.Context(), "Only step")
+		if err != nil {
+			t.Fatalf("create: %v", err)
+		}
+		path := "/categories/" + strconv.FormatInt(category.ID, 10) + "/workflow"
+		wantRedirect(t, h.postForm(t, path, builderFieldForm("save", bstep{typ: "manual_task", manual: "only"}), false), http.StatusSeeOther, path)
+		f := builderFieldForm("remove_step", bstep{typ: "manual_task", manual: "only"})
+		f.Set("step_index", "0")
+		f.Set("selected_step_index", "0")
+		body := h.postForm(t, path, f, true).Body.String()
+		if strings.Contains(body, `class="workflow-editor-panel"`) || strings.Contains(body, `name="selected_step_index"`) {
+			t.Errorf("removing the only step must clear selection and the stale editor, got: %s", body)
+		}
+		for _, want := range []string{"No steps yet. Add a step to begin configuration.", `class="workflow-add-popover"`} {
+			if !strings.Contains(body, want) {
+				t.Errorf("empty draft must show the empty state and keep Add step, missing %q: %s", want, body)
+			}
+		}
+	})
+}
