@@ -1645,3 +1645,202 @@ func TestCategoryWorkflowBuilder_KeyboardActionFallbacks(t *testing.T) {
 		}
 	})
 }
+
+// DragReorder freezes the horizontal reorder contract: the existing POST
+// action persists the drag order, recalculates selected_step_index to the
+// moved step's destination, and fails closed server-side for terminal moves
+// and out-of-range indexes with the inline error and the persisted order
+// unchanged.
+func TestCategoryWorkflowBuilder_DragReorder(t *testing.T) {
+	t.Run("applies a valid order and recalculates selection to the moved destination", func(t *testing.T) {
+		h := newHarness(t)
+		category, err := h.categories.Create(t.Context(), "Drag")
+		if err != nil {
+			t.Fatalf("create: %v", err)
+		}
+		path := "/categories/" + strconv.FormatInt(category.ID, 10) + "/workflow"
+		steps := []bstep{{typ: "manual_task", manual: "first"}, {typ: "manual_task", manual: "second"}, {typ: "manual_task", manual: "third"}}
+		wantRedirect(t, h.postForm(t, path, builderFieldForm("save", steps...), false), http.StatusSeeOther, path)
+		f := builderFieldForm("reorder", steps...)
+		f.Set("source_index", "0")
+		f.Set("target_index", "2")
+		f.Set("selected_step_index", "1")
+		rec := h.postForm(t, path, f, true)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("HTMX reorder status = %d, want 200", rec.Code)
+		}
+		def := h.persistedDefinition(t, path)
+		if def[0].ManualTask.Instructions != "second" || def[1].ManualTask.Instructions != "third" || def[2].ManualTask.Instructions != "first" {
+			t.Errorf("reorder order = [%s %s %s], want [second third first]", def[0].ManualTask.Instructions, def[1].ManualTask.Instructions, def[2].ManualTask.Instructions)
+		}
+		// The dragged step (was index 0) now sits at index 2 and the HTTP layer
+		// must follow the selection to its destination.
+		for _, want := range []string{`name="selected_step_index" value="2"`, `class="workflow-step-card selected"`} {
+			if !strings.Contains(rec.Body.String(), want) {
+				t.Errorf("reorder response must carry moved-step selection, missing %q: %s", want, rec.Body.String())
+			}
+		}
+	})
+
+	t.Run("full-page reorder redirects and persists the same order", func(t *testing.T) {
+		h := newHarness(t)
+		category, err := h.categories.Create(t.Context(), "Drag no-JS")
+		if err != nil {
+			t.Fatalf("create: %v", err)
+		}
+		path := "/categories/" + strconv.FormatInt(category.ID, 10) + "/workflow"
+		steps := []bstep{{typ: "manual_task", manual: "first"}, {typ: "manual_task", manual: "second"}}
+		wantRedirect(t, h.postForm(t, path, builderFieldForm("save", steps...), false), http.StatusSeeOther, path)
+		f := builderFieldForm("reorder", steps...)
+		f.Set("source_index", "1")
+		f.Set("target_index", "0")
+		wantRedirect(t, h.postForm(t, path, f, false), http.StatusSeeOther, path)
+		def := h.persistedDefinition(t, path)
+		if def[0].ManualTask.Instructions != "second" || def[1].ManualTask.Instructions != "first" {
+			t.Errorf("no-JS reorder order = [%s %s], want [second first]", def[0].ManualTask.Instructions, def[1].ManualTask.Instructions)
+		}
+	})
+
+	t.Run("rejects terminal and out-of-range reorders with inline error and unchanged order", func(t *testing.T) {
+		steps := buildingSteps() // [manual_task, form, close_ticket]
+		for _, tc := range []struct {
+			name, source, target string
+		}{
+			{"terminal source move", "2", "0"},
+			{"non-terminal after terminal", "0", "2"},
+			{"out of range source", "5", "0"},
+			{"out of range target", "0", "9"},
+			{"negative source", "-1", "0"},
+			{"malformed target", "0", "x"},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				h := newHarness(t)
+				category, err := h.categories.Create(t.Context(), "Reject "+tc.name)
+				if err != nil {
+					t.Fatalf("create: %v", err)
+				}
+				path := "/categories/" + strconv.FormatInt(category.ID, 10) + "/workflow"
+				wantRedirect(t, h.postForm(t, path, builderFieldForm("save", steps...), false), http.StatusSeeOther, path)
+				before := h.persistedDefinition(t, path)
+				f := builderFieldForm("reorder", steps...)
+				f.Set("source_index", tc.source)
+				f.Set("target_index", tc.target)
+				rec := h.postForm(t, path, f, true)
+				if rec.Code != http.StatusUnprocessableEntity {
+					t.Fatalf("status = %d, want 422", rec.Code)
+				}
+				if !strings.Contains(rec.Body.String(), `class="error-banner" role="alert"`) {
+					t.Errorf("rejected reorder must render an inline validation error, got: %s", rec.Body.String())
+				}
+				if after := h.persistedDefinition(t, path); !reflect.DeepEqual(after, before) {
+					t.Errorf("rejected reorder mutated the persisted draft: before=%+v after=%+v", before, after)
+				}
+			})
+		}
+	})
+
+	t.Run("rejects a step after the terminal in an invalid reachable draft", func(t *testing.T) {
+		h := newHarness(t)
+		category, err := h.categories.Create(t.Context(), "Source after terminal")
+		if err != nil {
+			t.Fatalf("create: %v", err)
+		}
+		path := "/categories/" + strconv.FormatInt(category.ID, 10) + "/workflow"
+		steps := []bstep{{typ: "manual_task", manual: "before"}, {typ: "close_ticket"}, {typ: "form", actor: "requester", fields: []bfield{{key: "after", label: "After", kind: "short_text"}}}}
+		wantRedirect(t, h.postForm(t, path, builderFieldForm("save", steps...), false), http.StatusSeeOther, path)
+		before := h.persistedDefinition(t, path)
+		f := builderFieldForm("reorder", steps...)
+		f.Set("source_index", "2")
+		f.Set("target_index", "0")
+		if rec := h.postForm(t, path, f, true); rec.Code != http.StatusUnprocessableEntity {
+			t.Fatalf("status = %d, want 422", rec.Code)
+		}
+		if after := h.persistedDefinition(t, path); !reflect.DeepEqual(after, before) {
+			t.Errorf("source-after-terminal reorder mutated the persisted draft: before=%+v after=%+v", before, after)
+		}
+	})
+}
+
+// DragMarkup freezes the horizontal drag UI: every non-terminal card exposes
+// a draggable grip labeled with its position, the final terminal card exposes
+// no grip, and the builder carries exactly one permanent source_index/
+// target_index pair plus the reorder submitter, wired only into this page.
+func TestCategoryWorkflowBuilder_DragMarkup(t *testing.T) {
+	h := newHarness(t)
+	category, err := h.categories.Create(t.Context(), "Drag markup")
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	path := "/categories/" + strconv.FormatInt(category.ID, 10) + "/workflow"
+	wantRedirect(t, h.postForm(t, path, builderFieldForm("save", buildingSteps()...), false), http.StatusSeeOther, path)
+	body := h.get(t, path, false).Body.String()
+	for _, want := range []string{`class="workflow-drag-handle" draggable="true" aria-label="Drag step 1"`, `class="workflow-drag-handle" draggable="true" aria-label="Drag step 2"`} {
+		if !strings.Contains(body, want) {
+			t.Errorf("non-terminal cards must expose draggable grips, missing %q: %s", want, body)
+		}
+	}
+	if strings.Contains(body, `aria-label="Drag step 3"`) {
+		t.Errorf("terminal card must not expose a drag grip, got: %s", body)
+	}
+	for _, field := range []string{`name="source_index"`, `name="target_index"`} {
+		if got := strings.Count(body, field); got != 1 {
+			t.Errorf("builder must expose exactly one permanent %s field, got %d", field, got)
+		}
+	}
+	reorderStart := strings.Index(body, "data-workflow-reorder")
+	if reorderStart < 0 {
+		t.Fatalf("builder must expose the permanent reorder submitter, got: %s", body)
+	}
+	buttonStart := strings.LastIndex(body[:reorderStart], "<button")
+	tagEnd := strings.Index(body[reorderStart:], ">")
+	reorderTag := body[buttonStart : reorderStart+tagEnd+1]
+	for _, want := range []string{`type="submit"`, `name="action" value="reorder"`, `class="visually-hidden"`, `aria-hidden="true"`, `tabindex="-1"`, `hx-post="` + path + `"`, `hx-target="#workflow-builder"`, `hx-swap="outerHTML"`, `hx-include="closest form"`} {
+		if !strings.Contains(reorderTag, want) {
+			t.Errorf("reorder submitter must contain %q, got: %s", want, reorderTag)
+		}
+	}
+	if strings.Contains(reorderTag, " hidden") || strings.Contains(reorderTag, "hx-vals") {
+		t.Errorf("reorder submitter must not use hidden state or duplicate hx-vals, got: %s", reorderTag)
+	}
+	if users := h.get(t, "/users", false).Body.String(); strings.Contains(users, "/static/workflow.js") {
+		t.Error("workflow asset must not load on Users")
+	}
+	asset := h.get(t, "/static/workflow.js", false)
+	if asset.Code != http.StatusOK {
+		t.Fatalf("workflow asset status = %d, want 200", asset.Code)
+	}
+	for _, want := range []string{"dragstart", "dragover", "workflow-drag-indicator", "is-dragging", "source_index", "target_index", "data-workflow-reorder", "button.click", "workflow-step-card"} {
+		if !strings.Contains(asset.Body.String(), want) {
+			t.Errorf("workflow asset must contain %q", want)
+		}
+	}
+	if strings.Contains(asset.Body.String(), "requestSubmit") {
+		t.Error("workflow asset must activate the explicit reorder button without form-level requestSubmit")
+	}
+}
+
+// DragResponsiveCSS freezes the 390px drag polish: the rail keeps its internal
+// horizontal overflow so cards and the insertion indicator never spill onto
+// the document, the indicator is inert and hidden by default, and the grip
+// compacts under 640px.
+func TestCategoryWorkflowBuilder_DragResponsiveCSS(t *testing.T) {
+	body := renderGolden(t, "category_workflow", "", mobileBuilderPageData(), false)
+	style := extractStyleBlock(t, body)
+	mobile := extractMediaBlock(t, style, "max-width:640px")
+	for _, tc := range []struct {
+		name, sel, decl string
+	}{
+		{"rail scrolls without document overflow", ".workflow-step-rail{", "overflow-x:auto"},
+		{"indicator stays inside the rail", ".workflow-drag-indicator{", "pointer-events:none"},
+		{"indicator hidden until a drag starts", ".workflow-drag-indicator{", "display:none"},
+		{"grip compacts on narrow screens", ".workflow-drag-handle{", "flex-basis:20px"},
+	} {
+		if tc.sel == ".workflow-drag-handle{" {
+			if !cssRuleDeclares(mobile, tc.sel, tc.decl) {
+				t.Errorf("max-width:640 block must declare %s on %s", tc.decl, tc.name)
+			}
+		} else if !cssRuleDeclares(style, tc.sel, tc.decl) {
+			t.Errorf("%s must stay declared: %s on %s", tc.name, tc.decl, tc.sel)
+		}
+	}
+}

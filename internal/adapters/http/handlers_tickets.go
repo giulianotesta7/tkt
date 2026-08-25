@@ -80,6 +80,7 @@ type pageData struct {
 	CanGrantAdmin        bool
 	UsersAssets          bool
 	PageFoundationAssets bool
+	WorkflowAssets       bool
 	InternalCommentBg    string
 }
 
