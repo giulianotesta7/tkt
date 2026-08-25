@@ -1,16 +1,21 @@
 {{define "workflow_builder"}}
 <section id="workflow-builder" class="workflow-builder page-panel" aria-labelledby="workflow-builder-title" hx-on::before-swap="if(event.detail.xhr.status === 422){event.detail.shouldSwap = true; event.detail.isError = false}">
   <form method="post" action="/categories/{{.CategoryID}}/workflow" id="workflow-form" hx-post="/categories/{{.CategoryID}}/workflow" hx-target="#workflow-builder" hx-swap="outerHTML" hx-sync="this:queue last">
+    {{if ge .SelectedStepIndex 0}}<input type="hidden" name="selected_step_index" value="{{.SelectedStepIndex}}">{{end}}
+    {{range .Steps}}{{if not .Selected}}<input type="hidden" name="step_{{.Index}}_snapshot" value="{{.Snapshot}}">{{end}}{{end}}
     <div class="workflow-builder-head">
-      <div><h2 id="workflow-builder-title">Workflow steps</h2><p>Changes save automatically.</p></div>
+      <div><h2 id="workflow-builder-title">Workflow steps</h2><p>Select a step to configure it. Drag to reorder.</p></div>
     </div>
     {{range .Issues}}<div class="error-banner" role="alert">{{.Message}}</div>{{end}}
     <p class="workflow-live" aria-live="polite">{{if .Live}}{{.Live}}{{else}}Use Up and Down to change a step position.{{end}}</p>
-    <div class="workflow-builder-panels">
-      <section class="workflow-editor-panel" aria-labelledby="workflow-editor-title">
-        <h3 id="workflow-editor-title">Editor</h3>
-        <ol class="workflow-steps">
-        {{range $index, $step := .Draft}}
+    <ol class="workflow-step-rail" aria-label="Workflow steps">
+      {{range .Steps}}<li class="workflow-step-card{{if .Selected}} selected{{end}}"><button class="workflow-step-card-link" type="submit" name="selection_step_index" value="{{.Index}}" formaction="/categories/{{$.CategoryID}}/workflow?action=select_step" hx-post="/categories/{{$.CategoryID}}/workflow" hx-include="closest form" hx-vals='{"action":"select_step","selection_step_index":"{{.Index}}"}' hx-target="#workflow-builder" hx-swap="outerHTML show:none" hx-push-url="false"{{if .Selected}} aria-current="step"{{end}}><span class="workflow-step-position">{{.Position}}</span><strong>{{if eq .Step.Type "assign_to_desk"}}Assign to desk{{else if eq .Step.Type "manual_task"}}Manual task{{else if eq .Step.Type "resolve_ticket"}}Resolve ticket{{else}}Form{{end}}</strong><span class="workflow-step-summary">{{.Summary}}</span>{{if .Final}}<span class="workflow-final-badge">Final</span>{{end}}</button><details class="workflow-step-menu"><summary aria-label="Actions for step {{.Position}}">⋯</summary><div class="workflow-step-menu-actions"><button class="btn ghost small" type="submit" name="action" value="move_up"{{if or (eq .Index 0) .Final}} disabled{{end}} formaction="/categories/{{$.CategoryID}}/workflow?step_index={{.Index}}&amp;selected_step_index={{$.SelectedStepIndex}}" hx-post="/categories/{{$.CategoryID}}/workflow?step_index={{.Index}}&amp;selected_step_index={{$.SelectedStepIndex}}">Move up</button><button class="btn ghost small" type="submit" name="action" value="move_down"{{if or .Final .Last}} disabled{{end}} formaction="/categories/{{$.CategoryID}}/workflow?step_index={{.Index}}&amp;selected_step_index={{$.SelectedStepIndex}}" hx-post="/categories/{{$.CategoryID}}/workflow?step_index={{.Index}}&amp;selected_step_index={{$.SelectedStepIndex}}">Move down</button><button class="btn danger small" type="submit" name="action" value="remove_step"{{if .Final}} disabled{{end}} formaction="/categories/{{$.CategoryID}}/workflow?step_index={{.Index}}&amp;selected_step_index={{$.SelectedStepIndex}}" hx-post="/categories/{{$.CategoryID}}/workflow?step_index={{.Index}}&amp;selected_step_index={{$.SelectedStepIndex}}">Remove</button></div></details></li>{{else}}<li class="empty compact">No steps yet. Add a step to begin configuration.</li>{{end}}
+      <li class="workflow-add-step"><button class="btn ghost" type="submit" name="action" value="add_step">+ Add step</button></li>
+    </ol>
+    {{if .HasSelection}}<section class="workflow-editor-panel" aria-labelledby="workflow-editor-title">
+      {{with index .Steps .SelectedStepIndex}}<div class="workflow-editor-head"><div><h3 id="workflow-editor-title">Step {{$.SelectedStepPosition}} · {{if eq .Step.Type "assign_to_desk"}}Assign to desk{{else if eq .Step.Type "manual_task"}}Manual task{{else if eq .Step.Type "resolve_ticket"}}Resolve ticket{{else if eq .Step.Type "close_ticket"}}Close ticket{{else}}Form{{end}}</h3><p>{{if eq .Step.Type "assign_to_desk"}}Route the ticket to a desk.{{else if eq .Step.Type "form"}}Collect information from the requester or assignee.{{else if eq .Step.Type "manual_task"}}Give the assignee instructions to complete.{{else if eq .Step.Type "resolve_ticket"}}Resolve the ticket automatically.{{else if eq .Step.Type "close_ticket"}}Close the ticket automatically.{{else}}Choose a step type to configure it.{{end}}</p></div></div>{{end}}
+      <ol class="workflow-steps">
+      {{range $index, $step := .Draft}}{{if eq $index $.SelectedStepIndex}}
         <li class="workflow-step">
           <div class="workflow-step-head">
             <label class="step-type-label">Type
@@ -22,12 +27,7 @@
                 <option value="close_ticket" {{if eq $step.Type "close_ticket"}}selected{{end}}>Close ticket</option>
               </select>
             </label>
-            <div class="row-actions">
-              <noscript><button class="btn ghost small" type="submit" name="action" value="change_type" formaction="/categories/{{$.CategoryID}}/workflow?step_index={{$index}}">Apply</button></noscript>
-              <button class="btn ghost small" type="submit" name="action" value="move_up" {{if eq $index 0}}disabled{{else}}{{if eq $.FocusStep $index}}autofocus{{end}}{{end}} formaction="/categories/{{$.CategoryID}}/workflow?step_index={{$index}}" hx-post="/categories/{{$.CategoryID}}/workflow?step_index={{$index}}">Up</button>
-              <button class="btn ghost small" type="submit" name="action" value="move_down" {{if and (eq $.FocusStep $index) (eq $index 0)}}autofocus{{end}} formaction="/categories/{{$.CategoryID}}/workflow?step_index={{$index}}" hx-post="/categories/{{$.CategoryID}}/workflow?step_index={{$index}}">Down</button>
-              <button class="btn danger small" type="submit" name="action" value="remove_step" formaction="/categories/{{$.CategoryID}}/workflow?step_index={{$index}}" hx-post="/categories/{{$.CategoryID}}/workflow?step_index={{$index}}">Remove</button>
-            </div>
+            <noscript><button class="btn ghost small" type="submit" name="action" value="change_type" formaction="/categories/{{$.CategoryID}}/workflow?step_index={{$index}}">Apply</button></noscript>
           </div>
           <div class="step-body">
             {{if eq $step.Type "manual_task"}}
@@ -77,17 +77,9 @@
             {{end}}
           </div>
         </li>
-        {{else}}<li class="empty compact">No steps yet. Add a step to begin configuration.</li>{{end}}
+      {{end}}{{end}}
       </ol>
-            <div class="workflow-actions"><button class="btn ghost" type="submit" name="action" value="add_step">Add step</button></div>
-          </section>
-          <aside class="workflow-preview-panel" aria-labelledby="workflow-preview-title">
-            <h3 id="workflow-preview-title">Submitted flow</h3>
-            <ol class="workflow-flow-preview" aria-label="Workflow preview">
-              {{range .Draft}}<li>{{if eq .Type "manual_task"}}{{.ManualTask.Instructions}}{{else if eq .Type "assign_to_desk"}}Assign to desk {{.AssignToDesk.DeskID}}{{else if eq .Type "form"}}Form · {{.Form.Actor}}{{else}}{{.Type}}{{end}}</li>{{else}}<li>No steps to preview.</li>{{end}}
-            </ol>
-          </aside>
-        </div>
-      </form>
+    </section>{{end}}
+  </form>
 </section>
 {{end}}

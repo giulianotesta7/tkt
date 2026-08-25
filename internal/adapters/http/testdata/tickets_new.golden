@@ -316,6 +316,13 @@
   .workflow-builder select,.step-type{width:100%;min-width:0;height:38px;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--ink-soft);padding:0 28px 0 10px;font:inherit}
   .workflow-builder select:hover{border-color:var(--line-strong)}
   .workflow-builder select:focus-visible{outline:3px solid var(--accent);outline-offset:2px;border-color:var(--accent)}
+  .workflow-step-rail{display:flex;gap:10px;overflow-x:auto;flex-wrap:nowrap;margin:14px 0 20px;padding:0 0 8px;list-style:none}
+  .workflow-step-card{position:relative;display:flex;flex:0 0 198px;min-width:0;min-height:116px;border:1px solid var(--line);border-radius:9px;background:var(--surface)}
+  .workflow-step-card.selected{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent-soft)}
+  .workflow-step-card-link{display:flex;flex:1;min-width:0;flex-direction:column;align-items:flex-start;gap:5px;padding:12px 38px 12px 12px;border:0;background:transparent;color:var(--ink-soft);font:inherit;text-align:left;text-decoration:none;cursor:pointer}
+  .workflow-step-card-link strong{color:var(--ink-strong);font-size:13px}.workflow-step-position{color:var(--muted);font:12px var(--mono)}.workflow-step-summary{color:var(--muted);font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%}.workflow-final-badge{margin-top:auto;color:var(--muted);font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase}
+  .workflow-step-menu{position:absolute;top:8px;right:8px}.workflow-step-menu summary{cursor:pointer;color:var(--muted);font-size:20px;line-height:20px;list-style:none}.workflow-step-menu summary::-webkit-details-marker{display:none}.workflow-step-menu-actions{position:absolute;right:0;z-index:2;display:grid;gap:5px;width:132px;margin-top:5px;padding:8px;border:1px solid var(--line);border-radius:8px;background:var(--card);box-shadow:0 8px 20px rgba(16,24,40,.12)}
+  .workflow-add-step{display:flex;align-items:center;flex:0 0 auto;min-height:116px}.workflow-editor-head{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:16px 0 12px}.workflow-editor-head h3{margin:0;color:var(--ink-strong);font-size:15px}.workflow-step-body{display:grid;gap:14px}.workflow-step-body .step-type-label{max-width:320px}
 
   .category-table-shell{overflow:hidden;border:1px solid var(--line);border-radius:10px;background:var(--card)}
   .category-table{width:100%;border-collapse:collapse}.category-table th{text-align:left;padding:12px 14px;background:var(--surface);border-bottom:1px solid var(--line);font-size:12px;color:var(--muted);font-weight:600}.category-table td{padding:14px;border-bottom:1px solid var(--line);vertical-align:middle}.category-table tr:last-child td{border-bottom:0}
@@ -379,6 +386,9 @@
     .workflow-builder-head .row-actions{flex-wrap:wrap}
     .workflow-step-head .row-actions{flex-wrap:wrap}
     .step-type-label{flex:1 1 auto;min-width:0}
+    .workflow-editor-head{align-items:flex-start;flex-wrap:wrap}
+    .workflow-step-card{flex-basis:180px}
+    .workflow-step-menu-actions{right:-4px}
     .step-type{width:100%;min-width:0}
     .category-table-shell{overflow:visible;border:0;background:transparent}
     .category-table,.category-table tbody,.category-table tr,.category-table td{display:block;width:100%}

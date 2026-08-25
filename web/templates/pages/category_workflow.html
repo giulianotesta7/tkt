@@ -1,5 +1,5 @@
 {{define "content"}}
-<div class="page-foundation category-workflow-page">
+<div class="page-foundation category-workflow-page" hx-on::before-request="if(event.target.matches('.workflow-step-card-link')){var rail=this.querySelector('.workflow-step-rail');if(rail)this.dataset.workflowRailScrollLeft=rail.scrollLeft}" hx-on::after-swap="if(event.target.id==='workflow-builder'){var position=this.dataset.workflowRailScrollLeft,rail=this.querySelector('.workflow-step-rail');if(position!==undefined){if(rail)rail.scrollLeft=Number(position);delete this.dataset.workflowRailScrollLeft;var link=this.querySelector('.workflow-step-card.selected .workflow-step-card-link');if(link)link.focus({preventScroll:true})}}">
   <header class="page-header">
     <div>
       <nav class="page-breadcrumb" aria-label="Breadcrumb"><a href="/categories">Categories</a><span aria-hidden="true"> / </span><span>{{.CategoryName}}</span></nav>
@@ -8,7 +8,6 @@
     </div>
     <div class="page-actions">
       <span class="page-status" role="status">Saved</span>
-      <button class="page-action page-action-secondary" type="submit" form="workflow-form" name="action" value="preview">Preview</button>
       <button class="page-action page-action-primary" type="submit" form="workflow-form" name="action" value="publish">Publish</button>
     </div>
   </header>
