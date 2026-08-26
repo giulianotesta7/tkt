@@ -166,7 +166,7 @@ func newHarnessWithAdmin(t *testing.T, seedAdmin bool) *harness {
 	NewTicketHandlers(ticketSvc, commentSvc, searchSvc, catSvc, usersSvc, s.DeskStore(), workflowSvc, application.NewWorkflowRunner(clock), s.WorkflowRunStore(), s.WorkflowUnitOfWork(), renderer).Register(mux)
 	NewUserHandlers(usersSvc, renderer).Register(mux)
 	NewCategoryHandlersWithWorkflows(catSvc, workflowSvc, renderer).Register(mux)
-	NewCategoryWorkflowHandlers(workflowSvc, deskSvc, renderer).Register(mux)
+	NewCategoryWorkflowHandlers(catSvc, workflowSvc, deskSvc, renderer).Register(mux)
 	NewDeskHandlers(deskSvc, renderer).Register(mux)
 	NewSettingsHandlers(settingsSvc, renderer).Register(mux)
 	mw := NewSessionMiddleware(s.SessionStore(), s.UserStore(), s.SettingsStore())
