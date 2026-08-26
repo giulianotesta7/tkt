@@ -56,6 +56,7 @@ type workflowBuilderData struct {
 	Issues               []domain.WorkflowValidationIssue
 	Live                 string
 	FocusStep            int
+	AddStepAllowed       bool
 }
 
 func (h *CategoryWorkflowHandlers) get(w http.ResponseWriter, r *http.Request) {
@@ -116,7 +117,18 @@ func (h *CategoryWorkflowHandlers) post(w http.ResponseWriter, r *http.Request) 
 		}
 		h.afterMutation(w, r, categoryID, draft, desks, nil, defaultLive(), -1)
 	case "add_step":
-		step := defaultStep()
+		if hasTerminalStep(draft) {
+			// A terminal step must stay final: the only insertion position (append)
+			// would follow it, so the builder hides Add step and the server keeps
+			// the draft unchanged against crafted requests.
+			if err := h.workflows.SaveDraft(r.Context(), actor, categoryID, draft); err != nil {
+				http.Error(w, mapErrorMsg(err), statusFor(err))
+				return
+			}
+			h.afterMutation(w, r, categoryID, draft, desks, nil, "The final step ends the workflow.", -1)
+			break
+		}
+		step := typedAddStep(draft, r.Form.Get("add_step_type"))
 		if err := h.workflows.AddStep(r.Context(), actor, categoryID, draft, step); err != nil {
 			http.Error(w, mapErrorMsg(err), statusFor(err))
 			return
@@ -278,6 +290,7 @@ func (h *CategoryWorkflowHandlers) render(w http.ResponseWriter, r *http.Request
 		Desks:        desks,
 		Issues:       issues,
 		Live:         live, FocusStep: focus,
+		AddStepAllowed: !hasTerminalStep(draft),
 	}
 	data.PageFoundationAssets = true
 	h.renderer.Render(w, r, "category_workflow", "workflow_builder", data, status)
@@ -336,6 +349,39 @@ func focusLive(pos, total int) string {
 // defaultStep is the step a fresh "Add step" appends: an editable manual task.
 func defaultStep() domain.WorkflowStep {
 	return domain.WorkflowStep{Type: domain.StepManualTask, ManualTask: &domain.ManualTaskStep{}}
+}
+
+// typedAddStep builds the step appended by the add_step action from the optional
+// presentation-only add_step_type input. The value is strictly validated against
+// the closed domain set: absent, empty, or unknown values preserve the existing
+// default manual-step behavior, and each accepted type gets its closed payload.
+func typedAddStep(d domain.WorkflowDefinition, raw string) domain.WorkflowStep {
+	switch typ := domain.StepType(strings.TrimSpace(raw)); typ {
+	case domain.StepAssignToDesk:
+		return domain.WorkflowStep{Type: domain.StepAssignToDesk, AssignToDesk: &domain.AssignToDeskStep{}}
+	case domain.StepForm:
+		return domain.WorkflowStep{Type: domain.StepForm, Form: &domain.FormStep{Actor: domain.FormActorRequester}}
+	case domain.StepManualTask:
+		return defaultStep()
+	case domain.StepResolve, domain.StepClose:
+		if hasTerminalStep(d) {
+			return defaultStep()
+		}
+		return domain.WorkflowStep{Type: typ}
+	default:
+		return defaultStep()
+	}
+}
+
+// hasTerminalStep reports whether the draft already contains a terminal step, in
+// which case no further step may follow it (final and mutually exclusive).
+func hasTerminalStep(d domain.WorkflowDefinition) bool {
+	for _, s := range d {
+		if isTerminalStep(s.Type) {
+			return true
+		}
+	}
+	return false
 }
 
 func formIndex(r *http.Request, key string) (int, bool) {
