@@ -395,6 +395,7 @@ type WorkflowResponse struct {
 
 type WorkflowResponseField struct {
 	Label string
+	Kind  string
 	Value string
 }
 

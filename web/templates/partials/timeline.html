@@ -16,7 +16,7 @@
       <div class="main">{{if .IsWorkflowAssignment}}Assigned to <strong>{{.AssignmentPerson}}</strong> · <strong>{{.AssignmentDesk}}</strong>{{else if .Summary}}{{.Summary}}{{else}}{{.ActionLabel}}{{if .FieldLabel}} · {{.FieldLabel}}{{end}}{{if .Event.FromValue}} · {{.FromLabel}} → {{.ToLabel}}{{end}}{{end}}</div>
 {{if .StepFields}}          <dl class="workflow-responses">
 {{range .StepFields}}            <dt>{{.Label}}</dt>
-                <dd>{{.Value}}</dd>
+            <dd>{{if eq .Kind "checkbox"}}{{if eq .Value "true"}}<span class="workflow-bool workflow-bool-true" role="img" aria-label="Yes">✓</span>{{else}}<span class="workflow-bool workflow-bool-false" role="img" aria-label="No">×</span>{{end}}{{else}}{{.Value}}{{end}}</dd>
 {{end}}          </dl>
 {{else if .StepInstruction}}          <p class="workflow-instruction">{{.StepInstruction}}</p>
     {{if .StepSolution}}<p class="workflow-solution">{{.StepSolution}}</p>{{end}}

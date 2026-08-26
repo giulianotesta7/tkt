@@ -85,5 +85,74 @@
     }
     clearDrag();
   });
-  document.addEventListener("dragend", clearDrag);
-})();
+      document.addEventListener("dragend", clearDrag);
+
+      // Dropdowns (node menus, the typed-add popover, field menus) are anchored to
+      // the viewport with position:fixed so no ancestor scroll container can clip
+      // them; they flip above the trigger when they would exceed the bottom edge.
+      // Some browsers do not fire the details "toggle" event on click, so the
+      // positioning is driven from the summary click and the toggle event is kept
+      // as a fallback for the browsers that do emit it.
+      const positionDropdown = details => {
+        const body = details.querySelector(".workflow-step-menu-actions, .workflow-add-options, .workflow-field-menu-actions");
+        if (!body) return;
+        if (!details.open) {
+          body.style.position = "";
+          body.style.top = "";
+          body.style.left = "";
+          return;
+        }
+        const summary = details.querySelector("summary");
+        if (!summary) return;
+        const rect = summary.getBoundingClientRect();
+        const height = body.offsetHeight;
+        const width = body.offsetWidth;
+        const below = rect.bottom + 5;
+        const up = rect.top - height - 5;
+        let top;
+        if (below + height <= window.innerHeight - 8) top = below;
+        else if (up >= 4) top = up;
+        else top = Math.max(4, Math.min(below, window.innerHeight - 8 - height));
+        body.style.position = "fixed";
+        body.style.top = top + "px";
+        body.style.left = Math.max(8, rect.right - width) + "px";
+        body.style.bottom = "auto";
+      };
+      document.addEventListener("click", event => {
+        const summary = event.target instanceof Element ? event.target.closest("summary") : null;
+        const details = summary?.closest(".workflow-step-menu, .workflow-add-popover, .workflow-field-menu");
+        if (!details) return;
+        requestAnimationFrame(() => positionDropdown(details));
+      });
+      document.addEventListener("toggle", event => {
+        const details = event.target instanceof HTMLDetailsElement ? event.target : null;
+        if (details) positionDropdown(details);
+      });
+
+      // The summary already provides focus and Enter/Space activation, but
+      // browsers do not close an open <details> on Escape. Close the open
+      // step/field menu and return focus to its trigger, mirroring native
+      // menu behavior without touching the fixed viewport positioning.
+      document.addEventListener("keydown", event => {
+        if (event.key !== "Escape") return;
+        const details = event.target instanceof Element ? event.target.closest(".workflow-step-menu, .workflow-field-menu") : null;
+        if (!details || !details.open) return;
+        details.open = false;
+        const summary = details.querySelector("summary");
+        if (summary) summary.focus();
+      });
+
+      // Transient mutation feedback (e.g. "Added a step.") fades out on its own so
+      // it reserves no permanent space in the panel.
+      let liveTimer = null;
+      const fadeLive = () => {
+        const node = document.querySelector("[data-workflow-live]");
+        if (!node) return;
+        if (liveTimer) clearTimeout(liveTimer);
+        node.style.opacity = "1";
+        liveTimer = setTimeout(() => { node.style.opacity = "0"; }, 2600);
+      };
+      document.addEventListener("htmx:afterSwap", () => fadeLive());
+      document.addEventListener("htmx:afterRequest", () => fadeLive());
+      if (document.querySelector("[data-workflow-live]")) fadeLive();
+    })();

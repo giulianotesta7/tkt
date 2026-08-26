@@ -6,89 +6,78 @@
     {{range .Steps}}{{if not .Selected}}<input type="hidden" name="step_{{.Index}}_snapshot" value="{{.Snapshot}}">{{end}}{{end}}
     <div class="workflow-builder-head">
       <div><h2 id="workflow-builder-title">Workflow steps</h2><p>Select a step to configure it. Drag to reorder.</p></div>
+      {{if .Live}}<p class="workflow-live" role="status" aria-live="polite" data-workflow-live>{{.Live}}</p>{{end}}
     </div>
     {{range .Issues}}<div class="error-banner" role="alert">{{.Message}}</div>{{end}}
-    <p class="workflow-live" aria-live="polite">{{if .Live}}{{.Live}}{{else}}Use Up and Down to change a step position.{{end}}</p>
     <div class="workflow-rail-wrap">
-    <ol class="workflow-step-rail" aria-label="Workflow steps">
-      {{range .Steps}}<li class="workflow-step-card{{if .Selected}} selected{{end}}">{{if not .Final}}<span class="workflow-drag-handle" draggable="true" aria-label="Drag step {{.Position}}"><span aria-hidden="true">⋮⋮</span></span>{{end}}<button class="workflow-step-card-link" type="submit" name="selection_step_index" value="{{.Index}}" formaction="/categories/{{$.CategoryID}}/workflow?action=select_step" hx-post="/categories/{{$.CategoryID}}/workflow" hx-include="closest form" hx-vals='{"action":"select_step","selection_step_index":"{{.Index}}"}' hx-target="#workflow-builder" hx-swap="outerHTML show:none" hx-push-url="false"{{if .Selected}} aria-current="step"{{end}}><span class="workflow-step-position">{{.Position}}</span><strong>{{if eq .Step.Type "assign_to_desk"}}Assign to desk{{else if eq .Step.Type "manual_task"}}Manual task{{else if eq .Step.Type "resolve_ticket"}}Resolve ticket{{else}}Form{{end}}</strong><span class="workflow-step-summary">{{.Summary}}</span>{{if .Final}}<span class="workflow-final-badge">Final</span>{{end}}</button><details class="workflow-step-menu"><summary aria-label="Actions for step {{.Position}}">⋯</summary><div class="workflow-step-menu-actions"><button class="btn ghost small" type="submit" name="action" value="move_up"{{if or (eq .Index 0) .Final}} disabled{{end}} formaction="/categories/{{$.CategoryID}}/workflow?step_index={{.Index}}&amp;selected_step_index={{$.SelectedStepIndex}}" hx-post="/categories/{{$.CategoryID}}/workflow?step_index={{.Index}}&amp;selected_step_index={{$.SelectedStepIndex}}">Move left</button><button class="btn ghost small" type="submit" name="action" value="move_down"{{if or .Final .Last}} disabled{{end}} formaction="/categories/{{$.CategoryID}}/workflow?step_index={{.Index}}&amp;selected_step_index={{$.SelectedStepIndex}}" hx-post="/categories/{{$.CategoryID}}/workflow?step_index={{.Index}}&amp;selected_step_index={{$.SelectedStepIndex}}">Move right</button><button class="btn danger small" type="submit" name="action" value="remove_step"{{if .Final}} disabled{{end}} formaction="/categories/{{$.CategoryID}}/workflow?step_index={{.Index}}&amp;selected_step_index={{$.SelectedStepIndex}}" hx-post="/categories/{{$.CategoryID}}/workflow?step_index={{.Index}}&amp;selected_step_index={{$.SelectedStepIndex}}">Remove</button></div></details></li>{{else}}<li class="empty compact">No steps yet. Add a step to begin configuration.</li>{{end}}
-    </ol>
-    {{if .AddStepAllowed}}<div class="workflow-add-step"><details class="workflow-add-popover"><summary class="btn ghost">+ Add step</summary><div class="workflow-add-options">
-      <button type="submit" name="action" value="add_step" formaction="/categories/{{$.CategoryID}}/workflow?add_step_type=manual_task" hx-post="/categories/{{$.CategoryID}}/workflow?add_step_type=manual_task" hx-include="closest form" hx-target="#workflow-builder" hx-swap="outerHTML show:none" hx-push-url="false">Manual task</button>
-      <button type="submit" name="action" value="add_step" formaction="/categories/{{$.CategoryID}}/workflow?add_step_type=assign_to_desk" hx-post="/categories/{{$.CategoryID}}/workflow?add_step_type=assign_to_desk" hx-include="closest form" hx-target="#workflow-builder" hx-swap="outerHTML show:none" hx-push-url="false">Assign to desk</button>
-      <button type="submit" name="action" value="add_step" formaction="/categories/{{$.CategoryID}}/workflow?add_step_type=form" hx-post="/categories/{{$.CategoryID}}/workflow?add_step_type=form" hx-include="closest form" hx-target="#workflow-builder" hx-swap="outerHTML show:none" hx-push-url="false">Form</button>
-      <button type="submit" name="action" value="add_step" formaction="/categories/{{$.CategoryID}}/workflow?add_step_type=resolve_ticket" hx-post="/categories/{{$.CategoryID}}/workflow?add_step_type=resolve_ticket" hx-include="closest form" hx-target="#workflow-builder" hx-swap="outerHTML show:none" hx-push-url="false">Resolve ticket</button>
-      <button type="submit" name="action" value="add_step" formaction="/categories/{{$.CategoryID}}/workflow?add_step_type=close_ticket" hx-post="/categories/{{$.CategoryID}}/workflow?add_step_type=close_ticket" hx-include="closest form" hx-target="#workflow-builder" hx-swap="outerHTML show:none" hx-push-url="false">Close ticket</button>
-    </div></details></div>{{else}}<div class="workflow-add-step workflow-add-disabled"><span class="workflow-add-hint">The final step ends the workflow.</span></div>{{end}}
-    </div>
-    {{if .HasSelection}}<section class="workflow-editor-panel" aria-labelledby="workflow-editor-title">
-      {{with index .Steps .SelectedStepIndex}}<div class="workflow-editor-head"><div><h3 id="workflow-editor-title">Step {{$.SelectedStepPosition}} · {{if eq .Step.Type "assign_to_desk"}}Assign to desk{{else if eq .Step.Type "manual_task"}}Manual task{{else if eq .Step.Type "resolve_ticket"}}Resolve ticket{{else if eq .Step.Type "close_ticket"}}Close ticket{{else}}Form{{end}}</h3><p>{{if eq .Step.Type "assign_to_desk"}}Route the ticket to a desk.{{else if eq .Step.Type "form"}}Collect information from the requester or assignee.{{else if eq .Step.Type "manual_task"}}Give the assignee instructions to complete.{{else if eq .Step.Type "resolve_ticket"}}Resolve the ticket automatically.{{else if eq .Step.Type "close_ticket"}}Close the ticket automatically.{{else}}Choose a step type to configure it.{{end}}</p></div></div>{{end}}
-      <ol class="workflow-steps">
-      {{range $index, $step := .Draft}}{{if eq $index $.SelectedStepIndex}}
-        <li class="workflow-step">
-          <div class="workflow-step-head">
-            <label class="step-type-label">Type
-              <select class="step-type" name="step_{{$index}}_type" hx-trigger="change" hx-post="/categories/{{$.CategoryID}}/workflow?step_index={{$index}}" hx-include="closest form" hx-vals='{"action":"change_type"}' hx-target="#workflow-builder" hx-swap="outerHTML">
-                <option value="manual_task" {{if eq $step.Type "manual_task"}}selected{{end}}>Manual task</option>
-                <option value="assign_to_desk" {{if eq $step.Type "assign_to_desk"}}selected{{end}}>Assign to desk</option>
-                <option value="form" {{if eq $step.Type "form"}}selected{{end}}>Form</option>
-                <option value="resolve_ticket" {{if eq $step.Type "resolve_ticket"}}selected{{end}}>Resolve ticket</option>
-                <option value="close_ticket" {{if eq $step.Type "close_ticket"}}selected{{end}}>Close ticket</option>
-              </select>
-            </label>
-            <noscript><button class="btn ghost small" type="submit" name="action" value="change_type" formaction="/categories/{{$.CategoryID}}/workflow?step_index={{$index}}">Apply</button></noscript>
-          </div>
-          <div class="step-body">
-            {{if eq $step.Type "manual_task"}}
-            <div class="field"><label for="step_{{$index}}_instructions">Instructions</label><textarea id="step_{{$index}}_instructions" name="step_{{$index}}_instructions" hx-trigger="input changed delay:600ms" hx-post="/categories/{{$.CategoryID}}/workflow" hx-include="closest form" hx-vals='{"action":"save"}' hx-swap="none">{{$step.ManualTask.Instructions}}</textarea></div>
-            {{end}}
-            {{if eq $step.Type "assign_to_desk"}}
-            <div class="field-row">
-              <div class="field"><label for="step_{{$index}}_desk">Desk</label><select id="step_{{$index}}_desk" name="step_{{$index}}_desk" hx-trigger="change" hx-post="/categories/{{$.CategoryID}}/workflow" hx-include="closest form" hx-vals='{"action":"save"}' hx-swap="none">
-                {{$current := $step.AssignToDesk.DeskID}}{{range $.Desks}}<option value="{{.ID}}" {{if eq $current .ID}}selected{{end}}>{{.Name}}</option>{{end}}{{if and (gt $current 0) (not (hasDesk $.Desks $current))}}<option value="{{$current}}" selected>Desk {{$current}}</option>{{end}}
-              </select></div>
-              <div class="field"><label for="step_{{$index}}_strategy">Strategy</label><select id="step_{{$index}}_strategy" name="step_{{$index}}_strategy" hx-trigger="change" hx-post="/categories/{{$.CategoryID}}/workflow" hx-include="closest form" hx-vals='{"action":"save"}' hx-swap="none">
-                <option value="claim" {{if eq $step.AssignToDesk.Strategy "claim"}}selected{{end}}>Claim</option>
-                <option value="least_loaded" {{if eq $step.AssignToDesk.Strategy "least_loaded"}}selected{{end}}>Least loaded</option>
-              </select></div>
-            </div>
-            {{end}}
-            {{if eq $step.Type "form"}}
-            <div class="field"><label for="step_{{$index}}_actor">Actor</label><select id="step_{{$index}}_actor" name="step_{{$index}}_actor" hx-trigger="change" hx-post="/categories/{{$.CategoryID}}/workflow" hx-include="closest form" hx-vals='{"action":"save"}' hx-swap="none">
-              <option value="requester" {{if eq $step.Form.Actor "requester"}}selected{{end}}>Requester</option>
-              <option value="assignee" {{if eq $step.Form.Actor "assignee"}}selected{{end}}>Assignee</option>
-            </select></div>
-            {{range $fi, $field := $step.Form.Fields}}
-            <div class="form-field">
-              <input type="hidden" name="step_{{$index}}_field_{{$fi}}_key" value="{{$field.Key}}">
-              <div class="field-row">
-                <div class="field"><label for="step_{{$index}}_field_{{$fi}}_label">Label</label><input id="step_{{$index}}_field_{{$fi}}_label" type="text" name="step_{{$index}}_field_{{$fi}}_label" value="{{$field.Label}}" hx-trigger="input changed delay:600ms" hx-post="/categories/{{$.CategoryID}}/workflow" hx-include="closest form" hx-vals='{"action":"save"}' hx-swap="none"></div>
-              </div>
-              <div class="field-row">
-                <div class="field"><label for="step_{{$index}}_field_{{$fi}}_kind">Kind</label><select id="step_{{$index}}_field_{{$fi}}_kind" name="step_{{$index}}_field_{{$fi}}_kind" hx-trigger="change" hx-post="/categories/{{$.CategoryID}}/workflow" hx-include="closest form" hx-vals='{"action":"save"}' hx-target="#workflow-builder" hx-swap="outerHTML">
-                  <option value="short_text" {{if eq $field.Kind "short_text"}}selected{{end}}>Short text</option>
-                  <option value="long_text" {{if eq $field.Kind "long_text"}}selected{{end}}>Long text</option>
-                  <option value="checkbox" {{if eq $field.Kind "checkbox"}}selected{{end}}>Checkbox</option>
-                  <option value="single_select" {{if eq $field.Kind "single_select"}}selected{{end}}>Single select</option>
-                </select></div>
-                <div class="field checkbox-field"><label><input type="checkbox" name="step_{{$index}}_field_{{$fi}}_required" value="on" {{if $field.Required}}checked{{end}} hx-trigger="change" hx-post="/categories/{{$.CategoryID}}/workflow" hx-include="closest form" hx-vals='{"action":"save"}' hx-swap="none"> Required</label></div>
-                <button class="btn danger small" type="submit" name="action" value="remove_field" formaction="/categories/{{$.CategoryID}}/workflow?step_index={{$index}}&amp;field_index={{$fi}}" hx-post="/categories/{{$.CategoryID}}/workflow?step_index={{$index}}&amp;field_index={{$fi}}">Remove field</button>
-              </div>
-              {{if eq $field.Kind "single_select"}}
-              <div class="field"><label for="step_{{$index}}_field_{{$fi}}_options">Options</label><input id="step_{{$index}}_field_{{$fi}}_options" type="text" name="step_{{$index}}_field_{{$fi}}_options" value="{{range $oi, $opt := $field.Options}}{{if $oi}}; {{end}}{{$opt}}{{end}}" hx-trigger="input changed delay:600ms" hx-post="/categories/{{$.CategoryID}}/workflow" hx-include="closest form" hx-vals='{"action":"save"}' hx-swap="none"><p class="help">Separate options with semicolons. Semicolons cannot be used in option names.</p></div>
-              {{end}}
-            </div>
-            {{end}}
-            <button class="btn ghost small" type="submit" name="action" value="add_field" formaction="/categories/{{$.CategoryID}}/workflow?step_index={{$index}}" hx-post="/categories/{{$.CategoryID}}/workflow?step_index={{$index}}">Add field</button>
-            {{end}}
-            {{if or (eq $step.Type "resolve_ticket") (eq $step.Type "close_ticket")}}
-            <p>Runs automatically and must remain final.</p>
-            {{end}}
-          </div>
+      <ol class="workflow-step-rail" aria-label="Workflow steps">
+        {{range .Steps}}
+        {{if .Final}}<li class="workflow-add-step">{{template "workflow_add" $}}</li>{{end}}
+        <li class="workflow-step-card{{if .Selected}} selected{{end}}">
+          {{if not .Final}}<span class="workflow-drag-handle" draggable="true" aria-label="Drag step {{.Position}}"><span aria-hidden="true">⋮⋮</span></span>{{end}}
+          <button class="workflow-step-card-link" type="submit" name="selection_step_index" value="{{.Index}}" formaction="/categories/{{$.CategoryID}}/workflow?action=select_step" hx-post="/categories/{{$.CategoryID}}/workflow" hx-include="closest form" hx-vals='{"action":"select_step","selection_step_index":"{{.Index}}"}' hx-target="#workflow-builder" hx-swap="outerHTML show:none" hx-push-url="false"{{if .Selected}} aria-current="step"{{end}}><span class="workflow-step-position">{{.Position}}</span><strong>{{workflowTypeLabel .Step.Type}}</strong><span class="workflow-step-summary">{{.Summary}}</span>{{if .Final}}<span class="workflow-final-badge">Final</span>{{end}}</button>
+          {{if not .Final}}<details class="workflow-step-menu"><summary class="workflow-trigger" aria-label="Step actions">⋯</summary><div class="workflow-step-menu-actions">
+            {{if .CanMoveLeft}}<button class="btn ghost small" type="submit" name="action" value="move_up" formaction="/categories/{{$.CategoryID}}/workflow?step_index={{.Index}}&amp;selected_step_index={{$.SelectedStepIndex}}" hx-post="/categories/{{$.CategoryID}}/workflow?step_index={{.Index}}&amp;selected_step_index={{$.SelectedStepIndex}}">Move left</button>{{end}}
+            {{if .CanMoveRight}}<button class="btn ghost small" type="submit" name="action" value="move_down" formaction="/categories/{{$.CategoryID}}/workflow?step_index={{.Index}}&amp;selected_step_index={{$.SelectedStepIndex}}" hx-post="/categories/{{$.CategoryID}}/workflow?step_index={{.Index}}&amp;selected_step_index={{$.SelectedStepIndex}}">Move right</button>{{end}}
+            <span class="workflow-menu-sep" aria-hidden="true"></span>
+            <button class="btn danger small" type="submit" name="action" value="remove_step" formaction="/categories/{{$.CategoryID}}/workflow?step_index={{.Index}}&amp;selected_step_index={{$.SelectedStepIndex}}" hx-post="/categories/{{$.CategoryID}}/workflow?step_index={{.Index}}&amp;selected_step_index={{$.SelectedStepIndex}}">Remove step</button>
+          </div></details>{{end}}
         </li>
-      {{end}}{{end}}
+        {{else}}<li class="empty compact">No steps yet. Add a step to begin configuration.</li>{{end}}
+        {{if not .HasFinal}}<li class="workflow-add-step">{{template "workflow_add" $}}</li>{{end}}
       </ol>
-    </section>{{end}}
+    </div>
+    {{if .HasSelection}}
+    {{$sel := index .Steps .SelectedStepIndex}}
+    <section class="workflow-editor-panel" aria-labelledby="workflow-editor-title">
+      <div class="workflow-editor-head"><div><h3 id="workflow-editor-title">Step {{.SelectedStepPosition}} · {{workflowTypeLabel $sel.Step.Type}}</h3><p>{{if eq $sel.Step.Type "assign_to_desk"}}Route the ticket to a desk.{{else if eq $sel.Step.Type "form"}}Collect information from the requester or assignee.{{else if eq $sel.Step.Type "manual_task"}}Give the assignee instructions to complete.{{else}}Resolve the ticket automatically.{{end}}</p></div></div>
+      <div class="step-body">
+        {{if or (eq $sel.Step.Type "resolve_ticket") (eq $sel.Step.Type "close_ticket")}}
+        <p class="workflow-final-helper">Runs automatically and must remain final.</p>
+        <div class="field workflow-terminal-type"><label for="step_{{.SelectedStepIndex}}_terminal">Final type</label><select id="step_{{.SelectedStepIndex}}_terminal" name="step_{{.SelectedStepIndex}}_type" hx-trigger="change" hx-post="/categories/{{$.CategoryID}}/workflow?step_index={{.SelectedStepIndex}}" hx-include="closest form" hx-vals='{"action":"change_type"}' hx-target="#workflow-builder" hx-swap="outerHTML"><option value="resolve_ticket" {{if eq $sel.Step.Type "resolve_ticket"}}selected{{end}}>Resolve ticket</option><option value="close_ticket" {{if eq $sel.Step.Type "close_ticket"}}selected{{end}}>Close ticket</option></select></div>
+        <noscript><button class="btn ghost small" type="submit" name="action" value="change_type" formaction="/categories/{{$.CategoryID}}/workflow?step_index={{.SelectedStepIndex}}">Apply</button></noscript>
+        {{else}}
+        <input type="hidden" name="step_{{.SelectedStepIndex}}_type" value="{{$sel.Step.Type}}">
+        {{if eq $sel.Step.Type "manual_task"}}
+        <div class="field"><label for="step_{{.SelectedStepIndex}}_instructions">Instructions</label><textarea id="step_{{.SelectedStepIndex}}_instructions" name="step_{{.SelectedStepIndex}}_instructions" hx-trigger="input changed delay:600ms" hx-post="/categories/{{$.CategoryID}}/workflow" hx-include="closest form" hx-vals='{"action":"save"}' hx-swap="none">{{$sel.Step.ManualTask.Instructions}}</textarea></div>
+        {{end}}
+        {{if eq $sel.Step.Type "assign_to_desk"}}
+        <div class="field-row">
+          <div class="field"><label for="step_{{.SelectedStepIndex}}_desk">Desk</label><select id="step_{{.SelectedStepIndex}}_desk" name="step_{{.SelectedStepIndex}}_desk" hx-trigger="change" hx-post="/categories/{{$.CategoryID}}/workflow" hx-include="closest form" hx-vals='{"action":"save"}' hx-swap="none">{{$current := $sel.Step.AssignToDesk.DeskID}}{{range $.Desks}}<option value="{{.ID}}" {{if eq $current .ID}}selected{{end}}>{{.Name}}</option>{{end}}{{if and (gt $current 0) (not (hasDesk $.Desks $current))}}<option value="{{$current}}" selected>Desk {{$current}}</option>{{end}}</select></div>
+          <div class="field"><label for="step_{{.SelectedStepIndex}}_strategy">Strategy</label><select id="step_{{.SelectedStepIndex}}_strategy" name="step_{{.SelectedStepIndex}}_strategy" hx-trigger="change" hx-post="/categories/{{$.CategoryID}}/workflow" hx-include="closest form" hx-vals='{"action":"save"}' hx-swap="none"><option value="claim" {{if eq $sel.Step.AssignToDesk.Strategy "claim"}}selected{{end}}>Claim</option><option value="least_loaded" {{if eq $sel.Step.AssignToDesk.Strategy "least_loaded"}}selected{{end}}>Least loaded</option></select></div>
+        </div>
+        {{end}}
+        {{if eq $sel.Step.Type "form"}}
+        <div class="field"><label for="step_{{.SelectedStepIndex}}_actor">Actor</label><select id="step_{{.SelectedStepIndex}}_actor" name="step_{{.SelectedStepIndex}}_actor" hx-trigger="change" hx-post="/categories/{{$.CategoryID}}/workflow" hx-include="closest form" hx-vals='{"action":"save"}' hx-swap="none"><option value="requester" {{if eq $sel.Step.Form.Actor "requester"}}selected{{end}}>Requester</option><option value="assignee" {{if eq $sel.Step.Form.Actor "assignee"}}selected{{end}}>Assignee</option></select></div>
+        <div class="workflow-fields-head"><h4>Fields</h4><button class="btn ghost small" type="submit" name="action" value="add_field" formaction="/categories/{{$.CategoryID}}/workflow?step_index={{.SelectedStepIndex}}" hx-post="/categories/{{$.CategoryID}}/workflow?step_index={{.SelectedStepIndex}}">+ Add field</button></div>
+          <div class="workflow-form-fields">
+          {{$stepIdx := .SelectedStepIndex}}
+          {{range $fi, $f := $sel.Step.Form.Fields}}
+          <div class="workflow-field-row">
+            <input type="hidden" name="step_{{$stepIdx}}_field_{{$fi}}_key" value="{{$f.Key}}">
+            <div class="field workflow-field-label"><label for="step_{{$stepIdx}}_field_{{$fi}}_label">Label</label><input id="step_{{$stepIdx}}_field_{{$fi}}_label" type="text" name="step_{{$stepIdx}}_field_{{$fi}}_label" value="{{$f.Label}}" hx-trigger="input changed delay:600ms" hx-post="/categories/{{$.CategoryID}}/workflow" hx-include="closest form" hx-vals='{"action":"save"}' hx-swap="none"></div>
+            <div class="field workflow-field-kind"><label for="step_{{$stepIdx}}_field_{{$fi}}_kind">Kind</label><select id="step_{{$stepIdx}}_field_{{$fi}}_kind" name="step_{{$stepIdx}}_field_{{$fi}}_kind" hx-trigger="change" hx-post="/categories/{{$.CategoryID}}/workflow" hx-include="closest form" hx-vals='{"action":"save"}' hx-target="#workflow-builder" hx-swap="outerHTML"><option value="short_text" {{if eq $f.Kind "short_text"}}selected{{end}}>Short text</option><option value="long_text" {{if eq $f.Kind "long_text"}}selected{{end}}>Long text</option><option value="checkbox" {{if eq $f.Kind "checkbox"}}selected{{end}}>Checkbox</option><option value="single_select" {{if eq $f.Kind "single_select"}}selected{{end}}>Single select</option></select></div>
+            {{if eq $f.Kind "single_select"}}<div class="field workflow-field-options"><label for="step_{{$stepIdx}}_field_{{$fi}}_options">Options</label><input id="step_{{$stepIdx}}_field_{{$fi}}_options" type="text" name="step_{{$stepIdx}}_field_{{$fi}}_options" value="{{range $oi, $opt := $f.Options}}{{if $oi}}; {{end}}{{$opt}}{{end}}" hx-trigger="input changed delay:600ms" hx-post="/categories/{{$.CategoryID}}/workflow" hx-include="closest form" hx-vals='{"action":"save"}' hx-swap="none"><p class="help">Separate options with semicolons. Semicolons cannot be used in option names.</p></div>{{end}}
+            {{if ne $f.Kind "checkbox"}}<div class="field checkbox-field workflow-field-required"><label><input type="checkbox" name="step_{{$stepIdx}}_field_{{$fi}}_required" value="on" {{if $f.Required}}checked{{end}} hx-trigger="change" hx-post="/categories/{{$.CategoryID}}/workflow" hx-include="closest form" hx-vals='{"action":"save"}' hx-swap="none"> Required</label></div>{{end}}
+            <div class="workflow-field-actions"><details class="workflow-field-menu"><summary class="workflow-trigger" aria-label="Field actions">⋯</summary><div class="workflow-field-menu-actions"><button class="btn danger small" type="submit" name="action" value="remove_field" formaction="/categories/{{$.CategoryID}}/workflow?step_index={{$stepIdx}}&amp;field_index={{$fi}}" hx-post="/categories/{{$.CategoryID}}/workflow?step_index={{$stepIdx}}&amp;field_index={{$fi}}">Remove field</button></div></details></div>
+          </div>
+          {{end}}
+          </div>
+        {{end}}
+        {{end}}
+      </div>
+    </section>
+    {{end}}
   </form>
 </section>
+{{end}}
+
+{{define "workflow_add"}}
+<details class="workflow-add-popover"><summary class="btn ghost">+ Add step</summary><div class="workflow-add-options">
+  <button type="submit" name="action" value="add_step" formaction="/categories/{{.CategoryID}}/workflow?add_step_type=manual_task" hx-post="/categories/{{.CategoryID}}/workflow?add_step_type=manual_task" hx-include="closest form" hx-target="#workflow-builder" hx-swap="outerHTML show:none" hx-push-url="false">Manual task</button>
+  <button type="submit" name="action" value="add_step" formaction="/categories/{{.CategoryID}}/workflow?add_step_type=assign_to_desk" hx-post="/categories/{{.CategoryID}}/workflow?add_step_type=assign_to_desk" hx-include="closest form" hx-target="#workflow-builder" hx-swap="outerHTML show:none" hx-push-url="false">Assign to desk</button>
+  <button type="submit" name="action" value="add_step" formaction="/categories/{{.CategoryID}}/workflow?add_step_type=form" hx-post="/categories/{{.CategoryID}}/workflow?add_step_type=form" hx-include="closest form" hx-target="#workflow-builder" hx-swap="outerHTML show:none" hx-push-url="false">Form</button>
+  {{if not .HasFinal}}<button type="submit" name="action" value="add_step" formaction="/categories/{{.CategoryID}}/workflow?add_step_type=resolve_ticket" hx-post="/categories/{{.CategoryID}}/workflow?add_step_type=resolve_ticket" hx-include="closest form" hx-target="#workflow-builder" hx-swap="outerHTML show:none" hx-push-url="false">Resolve ticket</button>
+  <button type="submit" name="action" value="add_step" formaction="/categories/{{.CategoryID}}/workflow?add_step_type=close_ticket" hx-post="/categories/{{.CategoryID}}/workflow?add_step_type=close_ticket" hx-include="closest form" hx-target="#workflow-builder" hx-swap="outerHTML show:none" hx-push-url="false">Close ticket</button>{{end}}
+</div></details>
 {{end}}
