@@ -176,9 +176,9 @@ func TestAmendment4_FullPageHasNoTrailingWhitespace(t *testing.T) {
 	}
 }
 
-func TestAmendment4_BuilderRendersLinearPreviewBesideOrderedEditor(t *testing.T) {
+func TestAmendment4_BuilderRendersMasterDetailWithoutPreviewUI(t *testing.T) {
 	h := newHarness(t)
-	category, err := h.categories.Create(t.Context(), "Linear preview")
+	category, err := h.categories.Create(t.Context(), "Linear workflow")
 	if err != nil {
 		t.Fatalf("create category: %v", err)
 	}
@@ -187,38 +187,15 @@ func TestAmendment4_BuilderRendersLinearPreviewBesideOrderedEditor(t *testing.T)
 		{Type: domain.StepManualTask, ManualTask: &domain.ManualTaskStep{Instructions: "Inspect intake"}},
 		{Type: domain.StepManualTask, ManualTask: &domain.ManualTaskStep{Instructions: "Resolve request"}},
 	}
-	form := builderFieldForm("preview", defToSteps(draft)...)
-	rec := h.postForm(t, path, form, false)
+	rec := h.postForm(t, path, builderFieldForm("preview", defToSteps(draft)...), false)
 	if rec.Code != http.StatusOK {
-		t.Fatalf("preview = %d, want 200", rec.Code)
+		t.Fatalf("backend preview action = %d, want 200", rec.Code)
 	}
 	body := rec.Body.String()
-	for _, want := range []string{
-		`class="workflow-builder-panels"`,
-		`class="workflow-editor-panel"`,
-		`class="workflow-flow-preview"`,
-		`aria-label="Workflow preview"`,
-		"Inspect intake",
-		"Resolve request",
-		`<ol class="workflow-steps">`,
-	} {
+	for _, want := range []string{`class="workflow-step-rail"`, `class="workflow-step-card"`, `class="workflow-editor-panel"`, "Inspect intake", "Resolve request", "Drag to reorder."} {
 		if !strings.Contains(body, want) {
 			t.Errorf("builder layout missing %q", want)
 		}
 	}
-	if strings.Index(body, "Inspect intake") >= strings.Index(body, "Resolve request") {
-		t.Error("read-only preview must retain submitted linear draft order")
-	}
-	if strings.Contains(body, "canvas") || strings.Contains(body, "drag") {
-		t.Error("preview must not expose graph or drag/drop controls")
-	}
 
-	style := extractStyleBlock(t, body)
-	if !cssRuleDeclares(style, ".workflow-builder-panels{", "grid-template-columns:minmax(0,1fr) minmax(220px,.72fr)") {
-		t.Error("desktop builder must use two panels")
-	}
-	mobile := extractMediaBlock(t, style, "max-width:640px")
-	if !cssRuleDeclares(mobile, ".workflow-builder-panels{", "grid-template-columns:1fr") {
-		t.Error("mobile builder panels must stack")
-	}
 }

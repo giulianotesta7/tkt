@@ -1,6 +1,7 @@
 package httpadapter
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"regexp"
@@ -32,16 +33,29 @@ func (h *CategoryWorkflowHandlers) Register(mux *http.ServeMux) {
 	mux.HandleFunc("POST /categories/{id}/workflow", h.post)
 }
 
+type workflowStepView struct {
+	Index    int
+	Position int
+	Summary  string
+	Snapshot string
+	Step     domain.WorkflowStep
+	Selected bool
+	Final    bool
+	Last     bool
+}
 type workflowBuilderData struct {
 	pageData
-	CategoryID   int64
-	CategoryName string
-	Draft        domain.WorkflowDefinition
-	Desks        []domain.Desk
-	Issues       []domain.WorkflowValidationIssue
-	Preview      bool
-	Live         string
-	FocusStep    int
+	CategoryID           int64
+	CategoryName         string
+	Draft                domain.WorkflowDefinition
+	Steps                []workflowStepView
+	SelectedStepIndex    int
+	SelectedStepPosition int
+	HasSelection         bool
+	Desks                []domain.Desk
+	Issues               []domain.WorkflowValidationIssue
+	Live                 string
+	FocusStep            int
 }
 
 func (h *CategoryWorkflowHandlers) get(w http.ResponseWriter, r *http.Request) {
@@ -59,7 +73,7 @@ func (h *CategoryWorkflowHandlers) get(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	desks := h.deskOptions(r)
-	h.render(w, r, categoryID, draft, desks, nil, false, "", -1, http.StatusOK)
+	h.render(w, r, categoryID, draft, desks, nil, "", selectedStepIndex(r, len(draft)), http.StatusOK)
 }
 
 func (h *CategoryWorkflowHandlers) post(w http.ResponseWriter, r *http.Request) {
@@ -76,8 +90,9 @@ func (h *CategoryWorkflowHandlers) post(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	draft, issues := parseBuilderDraft(r)
+	selection := selectedStepIndex(r, len(draft))
 	if len(issues) > 0 {
-		h.render(w, r, categoryID, draft, h.deskOptions(r), issues, false, "", -1, http.StatusUnprocessableEntity)
+		h.render(w, r, categoryID, draft, h.deskOptions(r), issues, "", selection, http.StatusUnprocessableEntity)
 		return
 	}
 
@@ -85,6 +100,12 @@ func (h *CategoryWorkflowHandlers) post(w http.ResponseWriter, r *http.Request) 
 	desks := h.deskOptions(r)
 	action := r.Form.Get("action")
 	switch action {
+	case "select_step":
+		target, err := strconv.Atoi(r.Form.Get("selection_step_index"))
+		if err != nil || target < 0 || target >= len(draft) {
+			target = selection
+		}
+		h.render(w, r, categoryID, draft, desks, nil, "", target, http.StatusOK)
 	case "save", "change_type":
 		// save persists the reconstructed draft as-is; change_type is already
 		// reflected in the reconstructed step payloads (selected closed payload
@@ -138,7 +159,7 @@ func (h *CategoryWorkflowHandlers) post(w http.ResponseWriter, r *http.Request) 
 			http.Error(w, mapErrorMsg(err), statusFor(err))
 			return
 		}
-		h.afterMutation(w, r, categoryID, result, desks, nil, defaultLive(), -1)
+		h.afterMutation(w, r, categoryID, result, desks, nil, defaultLive(), selectionAfterRemove(focus, len(result)))
 	case "add_field":
 		result, idx := localAddField(draft, r)
 		if err := h.workflows.SaveDraft(r.Context(), actor, categoryID, result); err != nil {
@@ -163,7 +184,7 @@ func (h *CategoryWorkflowHandlers) post(w http.ResponseWriter, r *http.Request) 
 		if len(previewIssues) > 0 {
 			status = http.StatusUnprocessableEntity
 		}
-		h.render(w, r, categoryID, preview, desks, previewIssues, true, "", -1, status)
+		h.render(w, r, categoryID, preview, desks, previewIssues, "", selectedStepIndex(r, len(preview)), status)
 	case "publish":
 		publishIssues, err := h.workflows.Publish(r.Context(), actor, categoryID, draft)
 		if err != nil {
@@ -171,29 +192,62 @@ func (h *CategoryWorkflowHandlers) post(w http.ResponseWriter, r *http.Request) 
 			return
 		}
 		if len(publishIssues) > 0 {
-			h.render(w, r, categoryID, draft, desks, publishIssues, false, "", -1, http.StatusUnprocessableEntity)
+			h.render(w, r, categoryID, draft, desks, publishIssues, "", selection, http.StatusUnprocessableEntity)
 			return
 		}
 		if r.Header.Get("HX-Request") == "" {
-			redirect(w, r, r.URL.Path)
+			redirect(w, r, workflowLocation(r, selection))
 			return
 		}
-		h.render(w, r, categoryID, draft, desks, nil, false, "", -1, http.StatusOK)
+		h.render(w, r, categoryID, draft, desks, nil, "", selection, http.StatusOK)
 	default:
-		h.render(w, r, categoryID, draft, desks, []domain.WorkflowValidationIssue{{Step: 1, Field: "action", Message: "unknown workflow action"}}, false, "", -1, http.StatusUnprocessableEntity)
+		h.render(w, r, categoryID, draft, desks, []domain.WorkflowValidationIssue{{Step: 1, Field: "action", Message: "unknown workflow action"}}, "", selection, http.StatusUnprocessableEntity)
 	}
 }
 
 // afterMutation persists a successful mutation: full-page requests redirect so
 // the GET re-reads the persisted draft; HTMX requests swap the rebuilt fragment.
 func (h *CategoryWorkflowHandlers) afterMutation(w http.ResponseWriter, r *http.Request, categoryID int64, draft domain.WorkflowDefinition, desks []domain.Desk, issues []domain.WorkflowValidationIssue, live string, focus int) {
+	if focus < 0 {
+		focus = selectedStepIndex(r, len(draft))
+	}
 	if r.Header.Get("HX-Request") == "" {
-		redirect(w, r, r.URL.Path)
+		redirect(w, r, workflowLocation(r, focus))
 		return
 	}
-	h.render(w, r, categoryID, draft, desks, issues, false, live, focus, http.StatusOK)
+	h.render(w, r, categoryID, draft, desks, issues, live, focus, http.StatusOK)
 }
 
+func workflowLocation(r *http.Request, selection int) string {
+	if selection < 0 || r.FormValue("selected_step_index") == "" {
+		return r.URL.Path
+	}
+	return r.URL.Path + "?selected_step_index=" + strconv.Itoa(selection)
+}
+func selectedStepIndex(r *http.Request, total int) int {
+	if total == 0 {
+		return -1
+	}
+	raw := r.FormValue("selected_step_index")
+	if raw == "" {
+		raw = r.URL.Query().Get("selected_step_index")
+	}
+	index, err := strconv.Atoi(raw)
+	if err != nil || index < 0 || index >= total {
+		return 0
+	}
+	return index
+}
+
+func selectionAfterRemove(previous, total int) int {
+	if total == 0 {
+		return -1
+	}
+	if previous < 0 || previous >= total {
+		return 0
+	}
+	return previous
+}
 func (h *CategoryWorkflowHandlers) deskOptions(r *http.Request) []domain.Desk {
 	desks, err := h.desks.List(r.Context(), *userFromContext(r.Context()))
 	if err != nil {
@@ -202,25 +256,76 @@ func (h *CategoryWorkflowHandlers) deskOptions(r *http.Request) []domain.Desk {
 	return desks
 }
 
-func (h *CategoryWorkflowHandlers) render(w http.ResponseWriter, r *http.Request, categoryID int64, draft domain.WorkflowDefinition, desks []domain.Desk, issues []domain.WorkflowValidationIssue, preview bool, live string, focus int, status int) {
+func (h *CategoryWorkflowHandlers) render(w http.ResponseWriter, r *http.Request, categoryID int64, draft domain.WorkflowDefinition, desks []domain.Desk, issues []domain.WorkflowValidationIssue, live string, focus int, status int) {
 	category, err := h.categories.GetByID(r.Context(), categoryID)
 	if err != nil {
 		http.Error(w, mapErrorMsg(err), statusFor(err))
 		return
 	}
+	selection := focus
+	if selection < 0 {
+		selection = selectedStepIndex(r, len(draft))
+	}
+	steps := workflowStepViews(draft, selection)
 	data := workflowBuilderData{
-		pageData:     pageDataFrom(r, "categories"),
-		CategoryID:   categoryID,
-		CategoryName: category.Name,
-		Draft:        draft,
+		pageData:          pageDataFrom(r, "categories"),
+		CategoryID:        categoryID,
+		CategoryName:      category.Name,
+		Draft:             draft,
+		Steps:             steps,
+		SelectedStepIndex: selection, SelectedStepPosition: selection + 1,
+		HasSelection: selection >= 0 && selection < len(steps),
 		Desks:        desks,
 		Issues:       issues,
-		Preview:      preview,
-		Live:         live,
-		FocusStep:    focus,
+		Live:         live, FocusStep: focus,
 	}
 	data.PageFoundationAssets = true
 	h.renderer.Render(w, r, "category_workflow", "workflow_builder", data, status)
+}
+
+func workflowStepViews(draft domain.WorkflowDefinition, selected int) []workflowStepView {
+	views := make([]workflowStepView, 0, len(draft))
+	for i, step := range draft {
+		raw, _ := json.Marshal(step)
+		views = append(views, workflowStepView{Index: i, Position: i + 1, Summary: workflowStepSummary(step), Snapshot: string(raw), Step: step, Selected: i == selected, Final: isTerminalStep(step.Type) && i == len(draft)-1, Last: i == len(draft)-1})
+	}
+	return views
+}
+
+func isTerminalStep(typ domain.StepType) bool {
+	return typ == domain.StepResolve || typ == domain.StepClose
+}
+func workflowStepSummary(step domain.WorkflowStep) string {
+	switch step.Type {
+	case domain.StepAssignToDesk:
+		if step.AssignToDesk != nil && step.AssignToDesk.DeskID > 0 {
+			return fmt.Sprintf("Desk %d", step.AssignToDesk.DeskID)
+		}
+		return "Choose a desk"
+	case domain.StepForm:
+		if step.Form == nil || len(step.Form.Fields) == 0 {
+			return "No fields yet"
+		}
+		suffix := "s"
+		if len(step.Form.Fields) == 1 {
+			suffix = ""
+		}
+		return fmt.Sprintf("%d field%s · %s", len(step.Form.Fields), suffix, step.Form.Actor)
+	case domain.StepManualTask:
+		if step.ManualTask == nil || strings.TrimSpace(step.ManualTask.Instructions) == "" {
+			return "Add instructions"
+		}
+		text := strings.Join(strings.Fields(step.ManualTask.Instructions), " ")
+		runes := []rune(text)
+		if len(runes) > 44 {
+			return string(runes[:41]) + "..."
+		}
+		return text
+	case domain.StepResolve, domain.StepClose:
+		return "Runs automatically"
+	default:
+		return "Configure this step"
+	}
 }
 
 func defaultLive() string { return "Use Up and Down to change a step position." }
@@ -267,7 +372,7 @@ func localMoveDown(d domain.WorkflowDefinition, r *http.Request) (result domain.
 
 func localRemoveStep(d domain.WorkflowDefinition, r *http.Request) (result domain.WorkflowDefinition, removedIdx int, removed bool) {
 	i, ok := formIndex(r, "step_index")
-	if !ok || i < 0 || i >= len(d) {
+	if !ok || i < 0 || i >= len(d) || (i == len(d)-1 && isTerminalStep(d[i].Type)) {
 		return d, 0, false
 	}
 	nd := append(domain.WorkflowDefinition(nil), d[:i]...)
@@ -318,7 +423,8 @@ func parseBuilderDraft(r *http.Request) (domain.WorkflowDefinition, []domain.Wor
 		draft, issues := parsePositionalJSONDraft(r)
 		return ensureFieldKeys(draft), issues
 	}
-	return ensureFieldKeys(draftFromFields(r)), nil
+	draft, issues := draftFromFields(r)
+	return ensureFieldKeys(draft), issues
 }
 
 // nextFieldKey returns the smallest deterministic field_N key not already used
@@ -420,13 +526,25 @@ func parsePositionalJSONDraft(r *http.Request) (domain.WorkflowDefinition, []dom
 // controls. Step count is derived from consecutive step_<i>_type values; form
 // fields from consecutive step_<i>_field_<j>_* keys. Incomplete drafts are kept
 // (publish validation remains authoritative).
-func draftFromFields(r *http.Request) domain.WorkflowDefinition {
+func draftFromFields(r *http.Request) (domain.WorkflowDefinition, []domain.WorkflowValidationIssue) {
 	var d domain.WorkflowDefinition
 	for i := 0; ; i++ {
 		pi := strconv.Itoa(i)
 		typ := r.Form.Get("step_" + pi + "_type")
-		if typ == "" {
+		snapshotValues, hasSnapshot := r.Form["step_"+pi+"_snapshot"]
+		if typ == "" && !hasSnapshot {
 			break
+		}
+		if typ == "" {
+			if len(snapshotValues) != 1 {
+				return nil, builderIssue(fmt.Sprintf("Step %d: invalid step snapshot", i+1))
+			}
+			one, err := domain.ParseWorkflowDefinition([]byte("[" + snapshotValues[0] + "]"))
+			if err != nil || len(one) != 1 {
+				return nil, builderIssue(fmt.Sprintf("Step %d: invalid step snapshot", i+1))
+			}
+			d = append(d, one[0])
+			continue
 		}
 		s := domain.WorkflowStep{Type: domain.StepType(typ)}
 		switch s.Type {
@@ -457,7 +575,7 @@ func draftFromFields(r *http.Request) domain.WorkflowDefinition {
 		}
 		d = append(d, s)
 	}
-	return d
+	return d, nil
 }
 
 // splitOptions parses the semicolon-separated single_select options input.

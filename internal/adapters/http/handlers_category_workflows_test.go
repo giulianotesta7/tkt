@@ -32,7 +32,6 @@ func TestCategoryWorkflowBuilder_UsesUsersHeaderFoundationAndCategoryIdentity(t 
 		`class="page-title">Category workflow</h1>`,
 		`class="page-subtitle">Build one ordered path for this category.</p>`,
 		`<span class="page-status" role="status">Saved</span>`,
-		`class="page-action page-action-secondary" type="submit" form="workflow-form" name="action" value="preview">Preview</button>`,
 		`class="page-action page-action-primary" type="submit" form="workflow-form" name="action" value="publish">Publish</button>`,
 		`<form method="post" action="/categories/`,
 		`id="workflow-form"`,
@@ -43,6 +42,9 @@ func TestCategoryWorkflowBuilder_UsesUsersHeaderFoundationAndCategoryIdentity(t 
 		}
 	}
 
+	if strings.Contains(body, `value="preview"`) || strings.Contains(body, `aria-label="Workflow preview"`) {
+		t.Error("workflow screen must not expose preview UI")
+	}
 	usersBody := h.get(t, "/users", false).Body.String()
 	for _, want := range []string{
 		`class="users-root"`,
@@ -123,6 +125,32 @@ func cssRuleForSelectors(css string, selectors ...string) string {
 // These integration contracts intentionally exercise the public builder routes
 // through the real SQLite-backed HTTP harness. The form's draft value is the
 // complete ordered client draft; no server-side builder state is trusted.
+func TestCategoryWorkflowBuilder_MasterDetailSelectionPresentation(t *testing.T) {
+	h := newHarness(t)
+	category, err := h.categories.Create(t.Context(), "Master detail")
+	if err != nil {
+		t.Fatalf("create category: %v", err)
+	}
+	path := "/categories/" + strconv.FormatInt(category.ID, 10) + "/workflow"
+	steps := []bstep{{typ: "manual_task", manual: "First instructions"}, {typ: "manual_task", manual: "Second instructions"}}
+	wantRedirect(t, h.postForm(t, path, builderFieldForm("save", steps...), false), http.StatusSeeOther, path)
+	selection := builderFieldForm("select_step", bstep{typ: "manual_task", manual: "Unsaved first"}, bstep{typ: "manual_task", manual: "Unsaved second"})
+	selection.Set("selection_step_index", "1")
+	noJS := h.postForm(t, path+"?action=select_step", selection, false)
+	if noJS.Code != http.StatusOK || !strings.Contains(noJS.Body.String(), `name="step_1_instructions"`) || !strings.Contains(noJS.Body.String(), "Unsaved second") {
+		t.Fatalf("no-JS selection must render the requested unsaved editor, got %d: %s", noJS.Code, noJS.Body.String())
+	}
+	persisted := h.persistedDefinition(t, path)
+	if len(persisted) != 2 || persisted[0].ManualTask.Instructions != "First instructions" || persisted[1].ManualTask.Instructions != "Second instructions" {
+		t.Fatalf("selection must not persist the submitted draft: %+v", persisted)
+	}
+	body := h.get(t, path+"?selected_step_index=1", true).Body.String()
+	fullBody := h.get(t, path+"?selected_step_index=1", false).Body.String()
+	if !strings.Contains(body, `name="selected_step_index" value="1"`) || !strings.Contains(body, `name="step_0_snapshot"`) || !strings.Contains(body, `type="submit" name="selection_step_index" value="1"`) || !strings.Contains(body, `hx-post="`+path+`"`) || !strings.Contains(body, `hx-swap="outerHTML show:none"`) || !strings.Contains(body, `hx-push-url="false"`) || strings.Contains(fullBody, `href="`+path+`?selected_step_index=1"`) || strings.Contains(fullBody, `hx-get="`+path+`?selected_step_index=1"`) {
+		t.Errorf("selection must use a POST submitter with a distinct target index, got: %s", body)
+	}
+}
+
 func TestCategoryWorkflowBuilder_SafeGetAuthorizationAndIndex(t *testing.T) {
 	h := newHarness(t)
 	category, err := h.categories.Create(t.Context(), "Unconfigured")
@@ -265,7 +293,7 @@ func TestCategoryWorkflowBuilder_PreviewPublishAndHTMXParity(t *testing.T) {
 		if hx.Code != http.StatusOK {
 			t.Fatalf("HTMX mutation status = %d, want 200", hx.Code)
 		}
-		for _, want := range []string{`id="workflow-builder"`, "<ol", "<button", `name="action" value="move_up"`, "autofocus", "aria-live"} {
+		for _, want := range []string{`id="workflow-builder"`, "<ol", "<button", `name="action" value="move_up"`, `class="workflow-step-card selected"`, "aria-live"} {
 			if !strings.Contains(hx.Body.String(), want) {
 				t.Errorf("HTMX builder response must contain %q, got: %s", want, hx.Body.String())
 			}
@@ -447,11 +475,14 @@ func TestCategoryWorkflowBuilder_EditControlsSubmitCompleteOrderedValues(t *test
 		t.Errorf("form field round-trip mismatch: %+v", f)
 	}
 
-	// Re-render must expose the editable controls, ordered.
-	body := h.get(t, path, false).Body.String()
-	for _, want := range []string{`name="step_0_type"`, `name="step_1_desk"`, `name="step_1_strategy"`, `name="step_2_actor"`, `name="step_2_field_0_key"`} {
-		if !strings.Contains(body, want) {
-			t.Errorf("re-render missing editable control %s, got: %s", want, body)
+	// Re-render exposes the editable controls for the selected step only.
+	for _, tc := range []struct {
+		index int
+		want  string
+	}{{0, `name="step_0_type"`}, {1, `name="step_1_desk"`}, {1, `name="step_1_strategy"`}, {2, `name="step_2_actor"`}, {2, `name="step_2_field_0_key"`}} {
+		body := h.get(t, path+"?selected_step_index="+strconv.Itoa(tc.index), false).Body.String()
+		if !strings.Contains(body, tc.want) {
+			t.Errorf("re-render missing editable control %s, got: %s", tc.want, body)
 		}
 	}
 }
@@ -640,8 +671,35 @@ func TestCategoryWorkflowBuilder_TypeSelectOwnsChangeTriggeredSubmission(t *test
 	if !strings.Contains(body, wantFallback) {
 		t.Errorf("Apply must remain only as the no-JS change_type fallback, got: %s", body)
 	}
-	if got := strings.Count(body, `name="action" value="change_type"`); got != len(buildingSteps()) {
-		t.Errorf("change_type submitters = %d, want one noscript fallback per step", got)
+	if got := strings.Count(body, `name="action" value="change_type"`); got != 1 {
+		t.Errorf("change_type submitters = %d, want one fallback for the selected step", got)
+	}
+}
+func TestWorkflowBuilderValidationAndStepViews(t *testing.T) {
+	r := httptest.NewRequest(http.MethodPost, "/categories/1/workflow", nil)
+	r.Form = url.Values{"step_0_type": {"manual_task"}, "step_0_instructions": {"keep this step"}, "step_1_snapshot": {"not-json"}}
+	if draft, issues := parseBuilderDraft(r); draft != nil || len(issues) != 1 || !strings.Contains(issues[0].Message, "invalid step snapshot") {
+		t.Fatalf("malformed snapshot must fail closed: draft=%v issues=%v", draft, issues)
+	}
+	for _, tc := range []struct {
+		name  string
+		draft domain.WorkflowDefinition
+		index int
+		want  bool
+	}{
+		{"terminal middle", domain.WorkflowDefinition{{Type: domain.StepResolve}, {Type: domain.StepManualTask}}, 0, false},
+		{"terminal last", domain.WorkflowDefinition{{Type: domain.StepManualTask}, {Type: domain.StepResolve}}, 1, true},
+		{"nonterminal last", domain.WorkflowDefinition{{Type: domain.StepManualTask}, {Type: domain.StepManualTask}}, 1, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := workflowStepViews(tc.draft, tc.index)[tc.index].Final; got != tc.want {
+				t.Fatalf("Final = %t, want %t", got, tc.want)
+			}
+		})
+	}
+	views := workflowStepViews(domain.WorkflowDefinition{{Type: domain.StepManualTask, ManualTask: &domain.ManualTaskStep{Instructions: strings.Repeat("界", 45)}}, {Type: domain.StepResolve}}, 0)
+	if views[0].Final || !views[1].Final || !views[1].Last || views[0].Summary != strings.Repeat("界", 41)+"..." {
+		t.Fatalf("terminal badge or Unicode summary is wrong: %+v", views)
 	}
 }
 
@@ -667,6 +725,9 @@ func TestCategoryWorkflowBuilder_RED_AutosaveMarkupContract(t *testing.T) {
 	}
 	wantRedirect(t, h.postForm(t, path, builderFieldForm("save", steps...), false), http.StatusSeeOther, path)
 	body := h.get(t, path, false).Body.String()
+	bodyAt := func(index int) string {
+		return h.get(t, path+"?selected_step_index="+strconv.Itoa(index), false).Body.String()
+	}
 	cid := strconv.FormatInt(category.ID, 10)
 	savePost := `hx-post="/categories/` + cid + `/workflow"`
 	saveVals := `hx-vals='{"action":"save"}'`
@@ -676,14 +737,17 @@ func TestCategoryWorkflowBuilder_RED_AutosaveMarkupContract(t *testing.T) {
 		if strings.Contains(body, "Save draft") || strings.Contains(body, `value="save"`) {
 			t.Errorf("visible Save draft button must be removed entirely, got: %s", body)
 		}
-		if !strings.Contains(body, "Changes save automatically") {
-			t.Errorf("helper copy must say changes save automatically, got: %s", body)
+		if !strings.Contains(body, "Select a step to configure it. Drag to reorder.") {
+			t.Errorf("helper copy must explain selection and reorder, got: %s", body)
 		}
 	})
 
 	t.Run("text controls autosave after 600ms without swapping the builder", func(t *testing.T) {
-		for _, name := range []string{"step_0_instructions", "step_2_field_0_label", "step_2_field_0_options"} {
-			tag := controlTag(t, body, name)
+		for _, tc := range []struct {
+			index int
+			name  string
+		}{{0, "step_0_instructions"}, {2, "step_2_field_0_label"}, {2, "step_2_field_0_options"}} {
+			tag := controlTag(t, bodyAt(tc.index), tc.name)
 			for _, want := range []string{
 				`hx-trigger="input changed delay:600ms"`,
 				savePost,
@@ -692,14 +756,14 @@ func TestCategoryWorkflowBuilder_RED_AutosaveMarkupContract(t *testing.T) {
 				`hx-swap="none"`,
 			} {
 				if !strings.Contains(tag, want) {
-					t.Errorf("text control %s must carry %q for no-swap 600ms autosave, got: %s", name, want, tag)
+					t.Errorf("text control %s must carry %q for no-swap 600ms autosave, got: %s", tc.name, want, tag)
 				}
 			}
 		}
 	})
 
 	t.Run("single select options use a native single-line input and semicolon transport", func(t *testing.T) {
-		tag := controlTag(t, body, "step_2_field_0_options")
+		tag := controlTag(t, bodyAt(2), "step_2_field_0_options")
 		if !strings.HasPrefix(tag, "<input") || !strings.Contains(tag, `type="text"`) || strings.Contains(tag, "<textarea") {
 			t.Fatalf("single select Options must be a native single-line text input, got: %s", tag)
 		}
@@ -708,28 +772,31 @@ func TestCategoryWorkflowBuilder_RED_AutosaveMarkupContract(t *testing.T) {
 			"Separate options with semicolons. Semicolons cannot be used in option names.",
 			`value="North; South, Buenos Aires, Argentina"`,
 		} {
-			if !strings.Contains(body, want) {
-				t.Errorf("single select builder must contain %q, got: %s", want, body)
+			if !strings.Contains(bodyAt(2), want) {
+				t.Errorf("single select builder must contain %q, got: %s", want, bodyAt(2))
 			}
 		}
 	})
 
 	t.Run("discrete controls autosave immediately without swapping the builder", func(t *testing.T) {
-		for _, name := range []string{"step_1_desk", "step_1_strategy", "step_2_actor", "step_2_field_0_required"} {
-			tag := controlTag(t, body, name)
+		for _, tc := range []struct {
+			index int
+			name  string
+		}{{1, "step_1_desk"}, {1, "step_1_strategy"}, {2, "step_2_actor"}, {2, "step_2_field_0_required"}} {
+			tag := controlTag(t, bodyAt(tc.index), tc.name)
 			for _, want := range []string{`hx-trigger="change"`, savePost, saveInclude, saveVals, `hx-swap="none"`} {
 				if !strings.Contains(tag, want) {
-					t.Errorf("discrete control %s must carry %q for immediate no-swap autosave, got: %s", name, want, tag)
+					t.Errorf("discrete control %s must carry %q for immediate no-swap autosave, got: %s", tc.name, want, tag)
 				}
 			}
 			if strings.Contains(tag, "delay:600ms") {
-				t.Errorf("discrete control %s must not debounce, got: %s", name, tag)
+				t.Errorf("discrete control %s must not debounce, got: %s", tc.name, tag)
 			}
 		}
 	})
 
 	t.Run("structural Field Kind persists immediately and rerenders the builder fragment", func(t *testing.T) {
-		tag := controlTag(t, body, "step_2_field_0_kind")
+		tag := controlTag(t, bodyAt(2), "step_2_field_0_kind")
 		for _, want := range []string{
 			`hx-trigger="change"`,
 			savePost,
@@ -883,7 +950,7 @@ func TestCategoryWorkflowBuilder_ActionsWithIndexes(t *testing.T) {
 		}
 	})
 
-	// remove_step drops the terminal at index 2.
+	// remove_step keeps the final terminal at index 2.
 	t.Run("remove_step", func(t *testing.T) {
 		h := newHarness(t)
 		category, err := h.categories.Create(t.Context(), "RemoveStep")
@@ -896,8 +963,8 @@ func TestCategoryWorkflowBuilder_ActionsWithIndexes(t *testing.T) {
 		f.Set("step_index", "2")
 		wantRedirect(t, h.postForm(t, path, f, false), http.StatusSeeOther, path)
 		def := h.persistedDefinition(t, path)
-		if len(def) != 2 || def[0].Type != domain.StepManualTask || def[1].Type != domain.StepForm {
-			t.Errorf("remove_step result = %v, want [manual_task form]", def)
+		if len(def) != 3 || def[0].Type != domain.StepManualTask || def[1].Type != domain.StepForm || def[2].Type != domain.StepClose || strings.Count(h.get(t, path, false).Body.String(), `name="action" value="remove_step"`) != 3 || strings.Count(h.get(t, path, false).Body.String(), `name="action" value="remove_step" disabled`) != 1 {
+			t.Errorf("final remove_step bypass or markup guard failed: %v", def)
 		}
 	})
 
@@ -1003,16 +1070,13 @@ func TestCategoryWorkflowBuilder_ReorderFocusAndHTMXIndexes(t *testing.T) {
 		t.Fatalf("HTMX move status = %d, want 200", hx.Code)
 	}
 	body := hx.Body.String()
-	for _, want := range []string{`id="workflow-builder"`, `name="action" value="move_down"`, `name="step_0_type"`, `aria-live`, `autofocus`} {
+	for _, want := range []string{`id="workflow-builder"`, `name="action" value="move_down"`, `name="step_1_type"`, `aria-live`, `class="workflow-step-card selected"`} {
 		if !strings.Contains(body, want) {
 			t.Errorf("HTMX builder response must contain %q, got: %s", want, body)
 		}
 	}
-	if got := strings.Count(body, "autofocus"); got != 1 {
-		t.Errorf("moved step must render exactly one focus target, got %d", got)
-	}
-	if !strings.Contains(body, `name="action" value="move_up" autofocus`) {
-		t.Errorf("move_down must focus the moved step's Up control, got: %s", body)
+	if got := strings.Count(body, `class="workflow-editor-panel"`); got != 1 {
+		t.Errorf("HTMX response must render exactly one editor, got %d", got)
 	}
 }
 
@@ -1181,10 +1245,8 @@ func TestCategoryWorkflowBuilder_MobileStyles_WrapNarrow(t *testing.T) {
 		decl string
 	}{
 		{"builder head wraps", ".workflow-builder-head{", "flex-wrap:wrap"},
-		{"step head wraps", ".workflow-step-head{", "flex-wrap:wrap"},
-		{"step action row wraps", ".workflow-step-head .row-actions{", "flex-wrap:wrap"},
-		{"header action row wraps", ".workflow-builder-head .row-actions{", "flex-wrap:wrap"},
-		{"bottom actions wrap", ".workflow-actions{", "flex-wrap:wrap"},
+		{"editor head wraps", ".workflow-editor-head{", "flex-wrap:wrap"},
+		{"step cards stay compact", ".workflow-step-card{", "flex-basis:180px"},
 		{"type control can shrink", ".step-type{", "min-width:0"},
 		{"type label can shrink", ".step-type-label{", "min-width:0"},
 		{"mobile rail wraps", ".rail{", "flex-wrap:wrap"},
@@ -1212,8 +1274,8 @@ func TestCategoryWorkflowBuilder_MobileStyles_WrapNarrow(t *testing.T) {
 
 	// Desktop is untouched: the base flex rules stay as-is (wrap only under
 	// 640px — no redesign).
-	if !cssRuleDeclares(style, ".workflow-builder-head,.workflow-step-head,.workflow-actions{", "display:flex") {
-		t.Error("desktop builder header/action flex layout must remain unchanged")
+	if !cssRuleDeclares(style, ".workflow-editor-head{", "display:flex") {
+		t.Error("desktop editor flex layout must remain defined")
 	}
 }
 
