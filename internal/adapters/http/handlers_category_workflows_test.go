@@ -886,25 +886,6 @@ func formOpenTag(t *testing.T, body string) string {
 	return body[idx : idx+end+1]
 }
 
-// stepTypeTag extracts the full opening <select ...> tag for step i's type control.
-func stepTypeTag(t *testing.T, body, control string) string {
-	t.Helper()
-	name := `name="step_` + control + `_type"`
-	idx := strings.Index(body, name)
-	if idx < 0 {
-		t.Fatalf("builder must render type control %s, got: %s", name, body)
-	}
-	open := strings.LastIndex(body[:idx], "<select")
-	if open < 0 {
-		t.Fatalf("type control %s must be a <select>, got: %s", name, body[:idx])
-	}
-	end := strings.Index(body[idx:], ">")
-	if end < 0 {
-		t.Fatalf("type control %s opening tag unterminated", name)
-	}
-	return body[open : idx+end+1]
-}
-
 // ActionsWithIndexes proves each mutable server action applies on the submitted
 // draft using explicit numeric step/field indexes and persists the result.
 func TestCategoryWorkflowBuilder_ActionsWithIndexes(t *testing.T) {
