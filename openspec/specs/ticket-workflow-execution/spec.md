@@ -124,6 +124,9 @@ When either strategy successfully assigns a person to a `new` ticket, the same a
 
 A `form[requester]` task MUST accept answers only from the authenticated requester. A `form[assignee]` task MUST accept answers only from the current assignee. Submitted values MUST be validated against the form's pinned field definitions before the task advances. Answers MUST be stored as workflow-task answers rather than comments or audit notes. Completed answers MUST be read-only, and every answer submitted by an assignee MUST be visible to the requester inline within the merged activity timeline under that step's own completion event.
 
+Form answers MUST decode strictly by pinned field position and type. A checkbox answer MUST decode absent or empty as false, a string `on` or `true` as true, and a JSON boolean `true` as true; a JSON boolean `false` is valid and stays false. Any other checkbox value MUST be rejected. A required checkbox MUST accept a decodable false or absent answer, so Required MUST NOT force a checkbox to be true. Text values MUST be trimmed, and blank text on a required field MUST be invalid. A single-select MUST match a pinned option exactly, and a padded or unknown option MUST be rejected. The answer array MUST match the pinned field count and every position; a wrong count, an unknown position, a duplicate position, an ambiguous multi-value position, or extra entries beyond the pinned definition MUST be rejected. At the storage boundary a checkbox MUST decode only from a JSON boolean, and a JSON string such as `"true"` MUST be rejected. Decode errors MUST NOT leak raw persisted values. Answers MUST persist as a typed JSON positional array.
+(Previously: the requirement defined actor ownership, pinned validation before advancement, answer storage outside comments/audit notes, and requester visibility, but did not state the strict positional typed decoding matrix.)
+
 #### Scenario: Requester completes supported fields
 
 - GIVEN a requester form with short text, long text, checkbox, and single-select fields
@@ -150,6 +153,59 @@ A `form[requester]` task MUST accept answers only from the authenticated request
 - WHEN an assignee, admin, or root who is not the requester submits answers
 - THEN completion is denied
 - AND no answers or cursor change are persisted
+
+#### Scenario: Checkbox decodes strictly
+
+- GIVEN a checkbox field pinned in a form
+- WHEN an absent answer, an empty string, `on`, `true`, or a JSON boolean `true` is submitted
+- THEN the stored checkbox value is false for absent and empty, and true for `on`, `true`, and JSON boolean `true`
+- WHEN any other string such as `yes` is submitted
+- THEN decoding is rejected
+
+#### Scenario: Required checkbox accepts false or absent
+
+- GIVEN a pinned checkbox field marked Required
+- WHEN the answer is absent, empty, or a JSON boolean `false`
+- THEN decoding succeeds
+- AND the stored value stays false
+- AND no true answer is forced
+
+#### Scenario: Strict positional shape is enforced
+
+- GIVEN a pinned form whose answer array is submitted
+- WHEN the array has an unknown position, a duplicate position, an ambiguous multi-value position, extra entries beyond the pinned definition, or a wrong total count
+- THEN decoding is rejected
+- AND no answers are committed
+
+#### Scenario: Single-select matches a pinned option exactly
+
+- GIVEN a single-select field pinned with options such as `eu-west-1` and `us-east-1`
+- WHEN the submitted value is a pinned option
+- THEN decoding succeeds
+- WHEN the submitted value is unknown or carries padding such as ` eu-west-1 `
+- THEN decoding is rejected
+
+#### Scenario: Text values are trimmed and required blanks are invalid
+
+- GIVEN a required text field
+- WHEN a value such as `  hello  ` is submitted
+- THEN the stored value is trimmed to `hello`
+- WHEN only whitespace is submitted
+- THEN decoding is rejected
+
+#### Scenario: Answers persist as a typed JSON positional array
+
+- GIVEN a valid answer set for a pinned form
+- WHEN the task completes
+- THEN the answers persist as a typed JSON positional array in pinned field order
+- AND a checkbox persists as a JSON boolean, not a string
+
+#### Scenario: Store decodes checkbox strictly and never leaks raw values
+
+- GIVEN persisted answer bytes for a pinned form
+- WHEN a checkbox position holds a JSON string such as `"true"` or the answer count differs from the pinned fields
+- THEN decoding is rejected
+- AND when a single-select value lies outside the pinned options, the decode error does not expose the raw persisted value
 
 ### Requirement: Manual Task Completion
 

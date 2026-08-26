@@ -183,23 +183,12 @@ func newHarnessWithAdmin(t *testing.T, seedAdmin bool) *harness {
 		return h
 	}
 
-	// Admin operator + live session for authenticated requests. The harness
-	// admin is a REAL admin: assign the role in memory AND persist it, so
-	// service calls using the admin as actor exercise the admin capability
-	// path (UserService.Create leaves the in-memory role empty — the store
-	// default would silently make it an agent).
-	admin, err := usersSvc.Create(context.Background(), domain.User{Role: domain.RoleRoot}, application.CreateUserInput{Name: "Admin", Email: "admin@tkt.test", Password: "secret"})
-	if err != nil {
-		t.Fatalf("create admin: %v", err)
-	}
-	admin.Role = domain.RoleAdmin
-	if err := s.UserStore().Update(context.Background(), admin); err != nil {
-		t.Fatalf("promote admin role: %v", err)
-	}
-	sess, err := authSvc.Login(context.Background(), "admin@tkt.test", "secret")
-	if err != nil {
-		t.Fatalf("admin login: %v", err)
-	}
+	// Admin operator + live session for authenticated requests. Seed the
+	// fixture directly so generic HTTP harness setup does not pay bcrypt's
+	// hashing and verification cost; authentication-specific tests still use
+	// the real user and auth services.
+	admin := seedUserRole(t, s, "Admin", "admin@tkt.test", domain.RoleAdmin)
+	sess := seedSession(t, s, admin.ID)
 	bugs, err := catSvc.Create(context.Background(), "Bugs")
 	if err != nil {
 		t.Fatalf("seed category: %v", err)

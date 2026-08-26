@@ -145,6 +145,9 @@ A semantic category-flow completion or assignment audit MUST persist the sealed 
 
 The ticket detail MUST present ONE merged activity timeline, newest-first, containing comments, assignments, every completed category-flow step, and state transitions; a separate ticket-facing responses card for completed steps MUST NOT be rendered. A form completion timeline item MUST render its pinned submitted field labels and values inline as a definition list inside that item, using the immutable pinned labels joined by the persisted step index; answer values remain stored only in `ticket_form_answers` and MUST NOT be duplicated into audit notes or full-text search. A manual completion timeline item MUST render its contextual pinned instruction from the immutable pinned version at the persisted step index, and MUST additionally render the assignee's submitted solution only when that solution is non-empty; solutions remain stored only with their workflow task records and MUST NOT be duplicated into audit note/reason fields or full-text search. Completed form results MUST use the approved restrained treatment consistent with tkt: semantic `dl`/`dt`/`dd` markup with clear per-field grouping separated by hairlines, fixed-width muted labels whose long values wrap inside the entry instead of overflowing it, single-column stacking at narrow viewports such as 390px with no horizontal overflow at any width, plainly visible keyboard focus states and sufficient contrast, HTML escaping of every label and value as plain text, and no technical `workflow` wording anywhere ticket-facing. Human events MUST keep their attributed actor names while automatic events omit actor text, and all existing behavior MUST be preserved: exact timestamps, newest-first ordering, internal-comment visibility, and comments-before-events ordering on same-second ties.
 
+A submitted checkbox value MUST render inside the inline definition list as `✓` for true and `×` for false, each inside a `role="img"` span with the accessible name `Yes` or `No` respectively. Every other field kind MUST keep its literal submitted value. The meaning of the rendered value MUST NOT rely on color alone.
+(Previously: the requirement specified the merged timeline, inline definition list rendering, pinned instruction and solution rendering, restrained styling, escaping, and ordering, but did not state the checkbox boolean glyph rendering.)
+
 #### Scenario: Merged timeline replaces the separate responses card
 
 - GIVEN a ticket has comments, an assignment, a completed form step, and a resolved transition
@@ -209,6 +212,21 @@ The ticket detail MUST present ONE merged activity timeline, newest-first, conta
 - AND long values wrap inside the entry while labels stay clearly grouped
 - AND interactive elements show plainly visible keyboard focus states with sufficient contrast
 - AND all rendered labels and values are escaped plain text
+
+#### Scenario: Checkbox boolean values render with accessible glyphs
+
+- GIVEN a completed form whose submitted values include a checkbox answered true and a checkbox answered false
+- WHEN its timeline item renders
+- THEN the true value renders `✓` inside a `role="img"` span with the accessible name `Yes`
+- AND the false value renders `×` inside a `role="img"` span with the accessible name `No`
+- AND no submitted markup executes or changes page structure
+
+#### Scenario: Non-checkbox values keep their literal text
+
+- GIVEN a completed form whose submitted values include a short-text field
+- WHEN its timeline item renders
+- THEN the short-text value renders verbatim as plain escaped text
+- AND neither the `✓` nor the `×` glyph replaces it
 
 ### Requirement: Contextual Workflow Claim Assignment Event
 

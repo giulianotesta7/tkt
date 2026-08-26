@@ -215,6 +215,9 @@ When a ticket has an active workflow run, the ticket detail UI MUST show a `Pend
 
 The CURRENT pending form and manual task in the ticket activity area MUST use the supplied `Current task` card structure while preserving existing server-rendered behavior. The card background MUST use exactly `color-mix(in srgb,var(--amber-soft) 30%,var(--card))`, and its contour MUST include exactly `border-top:2px solid var(--amber)`. The card MUST retain its existing server-rendered behavior without arbitrary or unpaired color input. Pending forms MUST retain their labels, required semantics, native text fields/selects/checkboxes, validation rendering, and existing submit behavior. Pending manual tasks MUST retain pinned instructions, the optional solution field, and existing completion behavior. The card MUST preserve keyboard focus and responsive usability. Completed historical events MUST remain in the existing merged timeline with their current ordering and semantics unless a narrow wrapper is needed solely for visual coherence. GET rendering remains read-only and all mutations remain on the existing POST completion route.
 
+Required MUST apply only to compatible field types, the text and single-select kinds. A pinned checkbox MAY carry a legacy Required flag or render the native `required` control, but a true and a false answer MUST both remain valid and decodable, and a false or absent answer MUST stay false; checkbox Required MUST NOT force a true answer.
+(Previously: the requirement specified the card palette, native form control retention, manual task retention, keyboard and responsive usability, and the read-only GET / POST mutation boundary, but did not state the Required-compatibility rule for checkboxes.)
+
 #### Scenario: Pending form retains native semantics inside the current-task card
 
 - GIVEN an authorized actor views a ticket with a current pending form task
@@ -239,6 +242,13 @@ The CURRENT pending form and manual task in the ticket activity area MUST use th
 - WHEN the current task card is introduced for a pending task
 - THEN completed historical events remain in the merged timeline with their existing ordering and semantics
 - AND the presentation introduces no new client-side mutation authority
+
+#### Scenario: Pending checkbox accepts false or absent regardless of Required
+
+- GIVEN a pending form with a pinned checkbox that carries `Required: true` and renders the native `required` control
+- WHEN the authorized actor submits an absent or a false answer
+- THEN the command layer accepts the completion and the stored checkbox value stays false
+- AND no true answer is forced, and the run advances once
 
 ### Requirement: Claim Assignment Sidebar
 
