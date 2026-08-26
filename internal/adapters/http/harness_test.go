@@ -36,6 +36,7 @@ func openTestStoreAt(t *testing.T, dbPath string) *sqlite.Store {
 	if err != nil {
 		t.Fatalf("open test store: %v", err)
 	}
+	t.Cleanup(func() { _ = s.Close() })
 	if err := s.Migrate(context.Background()); err != nil {
 		t.Fatalf("migrate test store: %v", err)
 	}
