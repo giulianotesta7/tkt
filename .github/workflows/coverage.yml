@@ -1,0 +1,71 @@
+name: Coverage
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: coverage-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: minimum threshold
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Run tests with coverage
+        run: |
+          go test ./... \
+            -covermode=atomic \
+            -coverprofile=coverage.out \
+            -count=1
+
+      - name: Generate coverage reports
+        run: |
+          go tool cover -func=coverage.out
+          go tool cover -html=coverage.out -o coverage.html
+
+      - name: Check coverage threshold
+        run: |
+          THRESHOLD=75.0
+          COVERAGE=$(go tool cover -func=coverage.out | awk '/^total:/ {print $NF}' | tr -d '%')
+
+          echo "## Coverage Summary" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Obtained:** ${COVERAGE}%" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Threshold:** ${THRESHOLD}%" >> "$GITHUB_STEP_SUMMARY"
+
+          # Numeric comparison: must be >= threshold (no rounding)
+          RESULT=$(awk -v c="$COVERAGE" -v t="$THRESHOLD" 'BEGIN { if (c >= t) { print "PASS" } else { print "FAIL" } }')
+
+          echo "- **Status:** ${RESULT}" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+
+          echo "Coverage: ${COVERAGE}% | Threshold: ${THRESHOLD}% | ${RESULT}"
+
+          if [ "${RESULT}" = "FAIL" ]; then
+            echo "FAILED: Coverage ${COVERAGE}% is below threshold ${THRESHOLD}%"
+            exit 1
+          fi
+
+      - name: Upload coverage reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-reports
+          path: |
+            coverage.out
+            coverage.html
