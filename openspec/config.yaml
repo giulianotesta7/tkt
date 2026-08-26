@@ -2,10 +2,10 @@
 schema: spec-driven
 
 context: |
-  Project: tkt — greenfield Go web application (server-side rendered).
-  Tech stack: Go 1.25.11; backend with net/http; frontend via HTMX + html/template (SSR, no JS framework); SQLite storage (driver choice: modernc.org/sqlite vs mattn/go-sqlite3 — decided during design); Docker multi-stage delivery.
-  Architecture: not yet defined (no code). Domain layout established during design phase.
-  Testing: Go stdlib testing + net/http/httptest + in-memory SQLite + golden files for rendered HTML.
+  Project: tkt — Go web application (server-side rendered).
+  Tech stack: Go 1.25.11; backend with net/http; frontend via html/template with HTMX (SSR, no JS framework); JavaScript limited to user/workflow interactions (drag reorder, menu Escape handling); SQLite storage via modernc.org/sqlite (pure Go, CGO_ENABLED=0); multi-stage Docker build into a Distroless static image running as non-root (UID 65532).
+  Architecture: layered — domain, application, adapters/http, adapters/sqlite.
+  Testing: Go stdlib testing; suites in domain, application, adapters/http, and adapters/sqlite; SQL migrations; golden files for rendered HTML; Playwright MCP used locally for visual validation, with no versioned Playwright suite.
   Style: gofmt formatting, go vet clean; no external linters installed.
 
 strict_tdd: true
@@ -17,7 +17,7 @@ testing:
   layers:
     unit: stdlib testing
     integration: net/http/httptest + in-memory SQLite
-    e2e: none (no browser tooling detected; golden-file assertions planned for HTML)
+    e2e: Playwright MCP local visual validation only; no versioned Playwright suite
   quality:
     formatter: gofmt
     linter: go vet (staticcheck/golangci-lint not installed)
@@ -30,7 +30,7 @@ rules:
     - Use Given/When/Then for scenarios
     - Use RFC 2119 keywords (MUST, SHALL, SHOULD, MAY)
   design:
-    - Decide SQLite driver (modernc.org/sqlite vs mattn/go-sqlite3) with rationale
+    - SQLite store persists through modernc.org/sqlite; builds stay CGO_ENABLED=0 for the Distroless static image
     - Document architecture decisions with rationale
   tasks:
     - Group by phase, use hierarchical numbering
