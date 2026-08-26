@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>tkt — Ticket Desk</title>
 {{template "styles" .}}
-{{if .UsersAssets}}<link rel="stylesheet" href="/static/users.css"><script src="/static/users.js" defer></script>{{else if .PageFoundationAssets}}<link rel="stylesheet" href="/static/users.css">{{end}}<script src="/static/htmx.min.js" defer></script>
+{{if .UsersAssets}}<link rel="stylesheet" href="/static/users.css"><script src="/static/users.js" defer></script>{{else if .PageFoundationAssets}}<link rel="stylesheet" href="/static/users.css">{{end}}{{if .WorkflowAssets}}<script src="/static/workflow.js" defer></script>{{end}}<script src="/static/htmx.min.js" defer></script>
 </head>
 <body{{if or .UsersAssets .PageFoundationAssets}} class="users-page-body"{{end}}>
 <div class="layout">

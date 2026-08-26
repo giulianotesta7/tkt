@@ -172,6 +172,17 @@ func (h *CategoryWorkflowHandlers) post(w http.ResponseWriter, r *http.Request) 
 			return
 		}
 		h.afterMutation(w, r, categoryID, result, desks, nil, defaultLive(), selectionAfterRemove(focus, len(result)))
+	case "reorder":
+		result, movedTo, err := localReorder(draft, r)
+		if err != nil {
+			h.render(w, r, categoryID, draft, desks, []domain.WorkflowValidationIssue{{Step: 1, Field: "steps", Message: err.Error()}}, "", selection, http.StatusUnprocessableEntity)
+			return
+		}
+		if err := h.workflows.SaveDraft(r.Context(), actor, categoryID, result); err != nil {
+			http.Error(w, mapErrorMsg(err), statusFor(err))
+			return
+		}
+		h.afterMutation(w, r, categoryID, result, desks, nil, focusLive(movedTo, len(result)), movedTo)
 	case "add_field":
 		result, idx := localAddField(draft, r)
 		if err := h.workflows.SaveDraft(r.Context(), actor, categoryID, result); err != nil {
@@ -293,6 +304,7 @@ func (h *CategoryWorkflowHandlers) render(w http.ResponseWriter, r *http.Request
 		AddStepAllowed: !hasTerminalStep(draft),
 	}
 	data.PageFoundationAssets = true
+	data.WorkflowAssets = true
 	h.renderer.Render(w, r, "category_workflow", "workflow_builder", data, status)
 }
 
@@ -384,6 +396,23 @@ func hasTerminalStep(d domain.WorkflowDefinition) bool {
 	return false
 }
 
+// strictBuilderIndex rejects any non-canonical or negative index so crafted
+// reorder requests fail closed instead of silently defaulting.
+var strictBuilderIndex = regexp.MustCompile(`^(0|[1-9][0-9]*)$`)
+
+// strictFormIndex reads key as a single canonical non-negative numeric index.
+func strictFormIndex(r *http.Request, key string) (int, error) {
+	values, ok := r.Form[key]
+	if !ok || len(values) != 1 || !strictBuilderIndex.MatchString(values[0]) {
+		return 0, fmt.Errorf("%s must be one non-negative numeric index", key)
+	}
+	i, err := strconv.Atoi(values[0])
+	if err != nil {
+		return 0, fmt.Errorf("%s is out of range", key)
+	}
+	return i, nil
+}
+
 func formIndex(r *http.Request, key string) (int, bool) {
 	v := r.Form.Get(key)
 	if v == "" {
@@ -404,6 +433,48 @@ func localMoveUp(d domain.WorkflowDefinition, r *http.Request) (result domain.Wo
 	nd := d.Clone()
 	nd[i], nd[i-1] = nd[i-1], nd[i]
 	return nd, i - 1, true
+}
+
+// localReorder applies a drag reorder: the step at source_index is moved so it
+// lands at target_index in the resulting order. A terminal step must stay final
+// and mutually exclusive, so nothing may be moved from or into the terminal's
+// position or beyond; crafted violations fail closed with an inline error and
+// the persisted draft is left unchanged (the caller saves only on success).
+func localReorder(d domain.WorkflowDefinition, r *http.Request) (domain.WorkflowDefinition, int, error) {
+	source, err := strictFormIndex(r, "source_index")
+	if err != nil {
+		return d, 0, err
+	}
+	target, err := strictFormIndex(r, "target_index")
+	if err != nil {
+		return d, 0, err
+	}
+	if source >= len(d) || target >= len(d) {
+		return d, 0, fmt.Errorf("reorder indexes are out of range")
+	}
+	terminal := len(d)
+	for i, s := range d {
+		if isTerminalStep(s.Type) {
+			terminal = i
+			break
+		}
+	}
+	if source >= terminal {
+		return d, 0, fmt.Errorf("steps must remain before the final step")
+	}
+	if target >= terminal {
+		return d, 0, fmt.Errorf("steps must remain before the final step")
+	}
+	if source == target {
+		return d, target, nil
+	}
+	result := d.Clone()
+	step := result[source]
+	result = append(result[:source], result[source+1:]...)
+	result = append(result, domain.WorkflowStep{})
+	copy(result[target+1:], result[target:])
+	result[target] = step
+	return result, target, nil
 }
 
 func localMoveDown(d domain.WorkflowDefinition, r *http.Request) (result domain.WorkflowDefinition, newPos int, moved bool) {
