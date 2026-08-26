@@ -131,7 +131,7 @@ func TestWorkflowRunner_FormDecoding(t *testing.T) {
 		name    string
 		raw     application.RawPositionalValues
 		wantErr bool
-	}{{"checkbox absent required", application.RawPositionalValues{{Position: 0, Values: []string{"hi"}}}, true}, {"checkbox empty required", application.RawPositionalValues{{Position: 0, Values: []string{"a"}}, {Position: 1, Values: []string{""}}}, true}, {"checkbox on", application.RawPositionalValues{{Position: 0, Values: []string{"hi"}}, {Position: 1, Values: []string{"on"}}}, false}, {"checkbox true", application.RawPositionalValues{{Position: 0, Values: []string{"hi"}}, {Position: 1, Values: []string{"true"}}}, false}, {"checkbox invalid", application.RawPositionalValues{{Position: 0, Values: []string{"hi"}}, {Position: 1, Values: []string{"yes"}}}, true}, {"text trimmed", application.RawPositionalValues{{Position: 0, Values: []string{"  hello  "}}, {Position: 1, Values: []string{"on"}}}, false}, {"text blank required", application.RawPositionalValues{{Position: 0, Values: []string{"  "}}, {Position: 1, Values: []string{"on"}}}, true}, {"select optional empty", application.RawPositionalValues{{Position: 0, Values: []string{"x"}}, {Position: 1, Values: []string{"on"}}}, false}, {"select valid", application.RawPositionalValues{{Position: 0, Values: []string{"x"}}, {Position: 1, Values: []string{"on"}}, {Position: 2, Values: []string{"eu-west-1"}}}, false}, {"select invalid", application.RawPositionalValues{{Position: 0, Values: []string{"x"}}, {Position: 1, Values: []string{"on"}}, {Position: 2, Values: []string{"bad"}}}, true}, {"select padded rejected", application.RawPositionalValues{{Position: 0, Values: []string{"x"}}, {Position: 1, Values: []string{"on"}}, {Position: 2, Values: []string{" eu-west-1 "}}}, true}, {"unknown pos", application.RawPositionalValues{{Position: 0, Values: []string{"x"}}, {Position: 1, Values: []string{"on"}}, {Position: 5, Values: []string{"hi"}}}, true}, {"duplicate pos", application.RawPositionalValues{{Position: 0, Values: []string{"a"}}, {Position: 0, Values: []string{"b"}}}, true}, {"ambiguous", application.RawPositionalValues{{Position: 0, Values: []string{"a", "b"}}}, true}, {"extra beyond pinned", application.RawPositionalValues{{Position: 0, Values: []string{"x"}}, {Position: 1, Values: []string{"on"}}, {Position: 4, Values: []string{"hi"}}}, true}, {"typed array", application.RawPositionalValues{{Position: 0, Values: []string{"api-01"}}, {Position: 1, Values: []string{"true"}}, {Position: 2, Values: []string{"eu-west-1"}}, {Position: 3, Values: []string{""}}}, false}} {
+	}{{"checkbox absent required", application.RawPositionalValues{{Position: 0, Values: []string{"hi"}}}, false}, {"checkbox empty required", application.RawPositionalValues{{Position: 0, Values: []string{"a"}}, {Position: 1, Values: []string{""}}}, false}, {"checkbox on", application.RawPositionalValues{{Position: 0, Values: []string{"hi"}}, {Position: 1, Values: []string{"on"}}}, false}, {"checkbox true", application.RawPositionalValues{{Position: 0, Values: []string{"hi"}}, {Position: 1, Values: []string{"true"}}}, false}, {"checkbox invalid", application.RawPositionalValues{{Position: 0, Values: []string{"hi"}}, {Position: 1, Values: []string{"yes"}}}, true}, {"text trimmed", application.RawPositionalValues{{Position: 0, Values: []string{"  hello  "}}, {Position: 1, Values: []string{"on"}}}, false}, {"text blank required", application.RawPositionalValues{{Position: 0, Values: []string{"  "}}, {Position: 1, Values: []string{"on"}}}, true}, {"select optional empty", application.RawPositionalValues{{Position: 0, Values: []string{"x"}}, {Position: 1, Values: []string{"on"}}}, false}, {"select valid", application.RawPositionalValues{{Position: 0, Values: []string{"x"}}, {Position: 1, Values: []string{"on"}}, {Position: 2, Values: []string{"eu-west-1"}}}, false}, {"select invalid", application.RawPositionalValues{{Position: 0, Values: []string{"x"}}, {Position: 1, Values: []string{"on"}}, {Position: 2, Values: []string{"bad"}}}, true}, {"select padded rejected", application.RawPositionalValues{{Position: 0, Values: []string{"x"}}, {Position: 1, Values: []string{"on"}}, {Position: 2, Values: []string{" eu-west-1 "}}}, true}, {"unknown pos", application.RawPositionalValues{{Position: 0, Values: []string{"x"}}, {Position: 1, Values: []string{"on"}}, {Position: 5, Values: []string{"hi"}}}, true}, {"duplicate pos", application.RawPositionalValues{{Position: 0, Values: []string{"a"}}, {Position: 0, Values: []string{"b"}}}, true}, {"ambiguous", application.RawPositionalValues{{Position: 0, Values: []string{"a", "b"}}}, true}, {"extra beyond pinned", application.RawPositionalValues{{Position: 0, Values: []string{"x"}}, {Position: 1, Values: []string{"on"}}, {Position: 4, Values: []string{"hi"}}}, true}, {"typed array", application.RawPositionalValues{{Position: 0, Values: []string{"api-01"}}, {Position: 1, Values: []string{"true"}}, {Position: 2, Values: []string{"eu-west-1"}}, {Position: 3, Values: []string{""}}}, false}} {
 		t.Run(tc.name, func(t *testing.T) {
 			pl, err := r.PlanComplete(context.Background(), s0, application.CompleteWorkflowCommand{TicketID: 1, ActorUserID: 1, ExpectedPosition: 1, RawAnswers: tc.raw})
 			if tc.wantErr && err == nil {
@@ -165,6 +165,26 @@ func TestWorkflowRunner_FormDecoding(t *testing.T) {
 		_ = json.Unmarshal(fa2.AnswersJSON, &arr)
 		if arr[0] != "api-01" || arr[1] != true {
 			t.Fatalf("typed %v", arr)
+		}
+	})
+	t.Run("checkbox absent stores false", func(t *testing.T) {
+		pl, err := r.PlanComplete(context.Background(), s0, application.CompleteWorkflowCommand{TicketID: 1, ActorUserID: 1, ExpectedPosition: 1, RawAnswers: application.RawPositionalValues{{Position: 0, Values: []string{"x"}}}})
+		if err != nil {
+			t.Fatalf("%v", err)
+		}
+		var a []any
+		if err := json.Unmarshal(formAnswerOf(t, pl).AnswersJSON, &a); err != nil || len(a) != 4 || a[1] != false {
+			t.Fatalf("absent checkbox must store false, got %v (%v)", a, err)
+		}
+	})
+	t.Run("checkbox on stores true", func(t *testing.T) {
+		pl, err := r.PlanComplete(context.Background(), s0, application.CompleteWorkflowCommand{TicketID: 1, ActorUserID: 1, ExpectedPosition: 1, RawAnswers: application.RawPositionalValues{{Position: 0, Values: []string{"x"}}, {Position: 1, Values: []string{"on"}}}})
+		if err != nil {
+			t.Fatalf("%v", err)
+		}
+		var a []any
+		if err := json.Unmarshal(formAnswerOf(t, pl).AnswersJSON, &a); err != nil || len(a) != 4 || a[1] != true {
+			t.Fatalf("checked checkbox must store true, got %v (%v)", a, err)
 		}
 	})
 	t.Run("required select empty", func(t *testing.T) {

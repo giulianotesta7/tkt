@@ -42,6 +42,9 @@ type workflowStepView struct {
 	Selected bool
 	Final    bool
 	Last     bool
+
+	CanMoveLeft  bool
+	CanMoveRight bool
 }
 type workflowBuilderData struct {
 	pageData
@@ -56,7 +59,7 @@ type workflowBuilderData struct {
 	Issues               []domain.WorkflowValidationIssue
 	Live                 string
 	FocusStep            int
-	AddStepAllowed       bool
+	HasFinal             bool
 }
 
 func (h *CategoryWorkflowHandlers) get(w http.ResponseWriter, r *http.Request) {
@@ -117,24 +120,15 @@ func (h *CategoryWorkflowHandlers) post(w http.ResponseWriter, r *http.Request) 
 		}
 		h.afterMutation(w, r, categoryID, draft, desks, nil, defaultLive(), -1)
 	case "add_step":
-		if hasTerminalStep(draft) {
-			// A terminal step must stay final: the only insertion position (append)
-			// would follow it, so the builder hides Add step and the server keeps
-			// the draft unchanged against crafted requests.
-			if err := h.workflows.SaveDraft(r.Context(), actor, categoryID, draft); err != nil {
-				http.Error(w, mapErrorMsg(err), statusFor(err))
-				return
-			}
-			h.afterMutation(w, r, categoryID, draft, desks, nil, "The final step ends the workflow.", -1)
-			break
-		}
+		// A terminal step stays final and last: new steps insert immediately before
+		// it (the builder offers the insertion point before the final card), or
+		// append when no terminal exists.
 		step := typedAddStep(draft, r.Form.Get("add_step_type"))
-		if err := h.workflows.AddStep(r.Context(), actor, categoryID, draft, step); err != nil {
+		result, focus := insertBeforeTerminal(draft, step)
+		if err := h.workflows.SaveDraft(r.Context(), actor, categoryID, result); err != nil {
 			http.Error(w, mapErrorMsg(err), statusFor(err))
 			return
 		}
-		result := append(append(domain.WorkflowDefinition(nil), draft...), step)
-		focus := len(result) - 1
 		h.afterMutation(w, r, categoryID, result, desks, nil, "Added a step.", focus)
 	case "move_up":
 		result, focus, mv := localMoveUp(draft, r)
@@ -289,7 +283,7 @@ func (h *CategoryWorkflowHandlers) render(w http.ResponseWriter, r *http.Request
 	if selection < 0 {
 		selection = selectedStepIndex(r, len(draft))
 	}
-	steps := workflowStepViews(draft, selection)
+	steps := workflowStepViews(draft, selection, desks)
 	data := workflowBuilderData{
 		pageData:          pageDataFrom(r, "categories"),
 		CategoryID:        categoryID,
@@ -301,18 +295,27 @@ func (h *CategoryWorkflowHandlers) render(w http.ResponseWriter, r *http.Request
 		Desks:        desks,
 		Issues:       issues,
 		Live:         live, FocusStep: focus,
-		AddStepAllowed: !hasTerminalStep(draft),
+		HasFinal: hasTerminalStep(draft),
 	}
 	data.PageFoundationAssets = true
 	data.WorkflowAssets = true
 	h.renderer.Render(w, r, "category_workflow", "workflow_builder", data, status)
 }
 
-func workflowStepViews(draft domain.WorkflowDefinition, selected int) []workflowStepView {
+func workflowStepViews(draft domain.WorkflowDefinition, selected int, desks []domain.Desk) []workflowStepView {
 	views := make([]workflowStepView, 0, len(draft))
 	for i, step := range draft {
 		raw, _ := json.Marshal(step)
-		views = append(views, workflowStepView{Index: i, Position: i + 1, Summary: workflowStepSummary(step), Snapshot: string(raw), Step: step, Selected: i == selected, Final: isTerminalStep(step.Type) && i == len(draft)-1, Last: i == len(draft)-1})
+		canRight := i+1 < len(draft) && !isTerminalStep(draft[i+1].Type)
+		views = append(views, workflowStepView{
+			Index: i, Position: i + 1, Summary: workflowStepSummary(step, desks), Snapshot: string(raw), Step: step,
+			Selected: i == selected,
+			Final:    isTerminalStep(step.Type) && i == len(draft)-1,
+			Last:     i == len(draft)-1,
+
+			CanMoveLeft:  i > 0 && !isTerminalStep(step.Type),
+			CanMoveRight: canRight && !isTerminalStep(step.Type),
+		})
 	}
 	return views
 }
@@ -320,10 +323,15 @@ func workflowStepViews(draft domain.WorkflowDefinition, selected int) []workflow
 func isTerminalStep(typ domain.StepType) bool {
 	return typ == domain.StepResolve || typ == domain.StepClose
 }
-func workflowStepSummary(step domain.WorkflowStep) string {
+func workflowStepSummary(step domain.WorkflowStep, desks []domain.Desk) string {
 	switch step.Type {
 	case domain.StepAssignToDesk:
 		if step.AssignToDesk != nil && step.AssignToDesk.DeskID > 0 {
+			for _, d := range desks {
+				if d.ID == step.AssignToDesk.DeskID {
+					return d.Name
+				}
+			}
 			return fmt.Sprintf("Desk %d", step.AssignToDesk.DeskID)
 		}
 		return "Choose a desk"
@@ -353,9 +361,26 @@ func workflowStepSummary(step domain.WorkflowStep) string {
 	}
 }
 
-func defaultLive() string { return "Use Up and Down to change a step position." }
+// defaultLive returns no standing instruction; mutation feedback is transient.
+func defaultLive() string { return "" }
 func focusLive(pos, total int) string {
 	return fmt.Sprintf("Step %d of %d.", pos+1, total)
+}
+
+// insertBeforeTerminal places step directly before the existing terminal (keeping
+// it last), or appends when none exists. It returns the new definition and the
+// inserted step's focus index.
+func insertBeforeTerminal(d domain.WorkflowDefinition, step domain.WorkflowStep) (domain.WorkflowDefinition, int) {
+	for i, s := range d {
+		if isTerminalStep(s.Type) {
+			result := append(domain.WorkflowDefinition(nil), d[:i]...)
+			result = append(result, step)
+			result = append(result, d[i:]...)
+			return result, i
+		}
+	}
+	result := append(append(domain.WorkflowDefinition(nil), d...), step)
+	return result, len(result) - 1
 }
 
 // defaultStep is the step a fresh "Add step" appends: an editable manual task.
@@ -685,6 +710,11 @@ func draftFromFields(r *http.Request) (domain.WorkflowDefinition, []domain.Workf
 					Required: r.Form.Has(base + "_required"),
 					Options:  splitOptions(r.Form.Get(base + "_options")),
 				})
+				if fs.Fields[len(fs.Fields)-1].Kind == domain.FieldCheckbox {
+					// Checkbox is boolean: it never supports a Required constraint;
+					// a legacy persisted required=true is normalized to non-required.
+					fs.Fields[len(fs.Fields)-1].Required = false
+				}
 			}
 			s.Form = fs
 		case domain.StepResolve, domain.StepClose:

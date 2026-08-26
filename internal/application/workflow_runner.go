@@ -417,9 +417,9 @@ func decodePositionalAnswers(fields []domain.FormField, raw RawPositionalValues)
 					return nil, &domain.ValidationError{Field: f.Key, Message: fmt.Sprintf("Step %d: invalid checkbox value", i+1)}
 				}
 			}
-			if f.Required && !b {
-				return nil, &domain.ValidationError{Field: f.Key, Message: fmt.Sprintf("Step %d: %s is required", i+1, f.Key)}
-			}
+			// Checkbox fields never carry a Required constraint (a required checkbox
+			// would force the answer to always be true); legacy persisted required
+			// values are treated as non-required.
 			out[i] = b
 		case domain.FieldShortText, domain.FieldLongText:
 			s := ""

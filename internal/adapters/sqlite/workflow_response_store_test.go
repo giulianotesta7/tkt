@@ -103,11 +103,11 @@ func TestDecodeWorkflowResponseFields_StrictPinnedTypes(t *testing.T) {
 		{"valid typed positional values", `["api-01",true,"eu-west-1"]`, "", ""},
 		{"wrong answer count", `["api-01",true]`, "answer count", ""},
 		{"checkbox string", `["api-01","true","eu-west-1"]`, "boolean", ""},
-		{"required checkbox false", `["api-01",false,"eu-west-1"]`, "required checkbox", ""},
+		{"required checkbox false stays non-required", `["api-01",false,"eu-west-1"]`, "", ""},
 		{"select outside pinned options", `["api-01",true,"secret-option"]`, "outside pinned options", "secret-option"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := decodeWorkflowResponseFields(definition, []byte(tt.raw))
+			fields, err := decodeWorkflowResponseFields(definition, []byte(tt.raw))
 			if tt.want == "" && err != nil {
 				t.Fatalf("decode: %v", err)
 			}
@@ -116,6 +116,14 @@ func TestDecodeWorkflowResponseFields_StrictPinnedTypes(t *testing.T) {
 			}
 			if err != nil && tt.absent != "" && strings.Contains(err.Error(), tt.absent) {
 				t.Fatalf("decode error exposed raw value: %v", err)
+			}
+			if tt.name == "required checkbox false stays non-required" {
+				if len(fields) != 3 || fields[1].Kind != "checkbox" || fields[1].Value != "false" {
+					t.Fatalf("checkbox false must decode to Kind checkbox Value false, got %+v", fields)
+				}
+			}
+			if tt.name == "valid typed positional values" && (fields[1].Kind != "checkbox" || fields[1].Value != "true") {
+				t.Fatalf("checkbox true must decode to Kind checkbox Value true, got %+v", fields)
 			}
 		})
 	}

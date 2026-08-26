@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/giulianotesta7/tkt/internal/application"
 	"github.com/giulianotesta7/tkt/internal/domain"
 )
 
@@ -641,9 +642,9 @@ func defToSteps(def domain.WorkflowDefinition) []bstep {
 // HTMX POST carrying action=change_type and the containing form, so the new
 // type-specific fields appear without a separate Apply button click. Apply is
 // rendered only inside noscript as the full-page fallback.
-func TestCategoryWorkflowBuilder_TypeSelectOwnsChangeTriggeredSubmission(t *testing.T) {
+func TestCategoryWorkflowBuilder_PreservesTypeWithoutVisibleSelector(t *testing.T) {
 	h := newHarness(t)
-	category, err := h.categories.Create(t.Context(), "TypeHTMX")
+	category, err := h.categories.Create(t.Context(), "Type hidden")
 	if err != nil {
 		t.Fatalf("create category: %v", err)
 	}
@@ -651,28 +652,17 @@ func TestCategoryWorkflowBuilder_TypeSelectOwnsChangeTriggeredSubmission(t *test
 	wantRedirect(t, h.postForm(t, path, builderFieldForm("save", buildingSteps()...), false), http.StatusSeeOther, path)
 
 	body := h.get(t, path, false).Body.String()
-	tag := stepTypeTag(t, body, "0")
-	for _, want := range []string{
-		`name="step_0_type"`,
-		`hx-trigger="change"`,
-		`hx-post="/categories/` + strconv.FormatInt(category.ID, 10) + `/workflow?step_index=0"`,
-		`hx-include="closest form"`,
-		`hx-vals='{"action":"change_type"}'`,
-		`hx-target="#workflow-builder"`,
-		`hx-swap="outerHTML"`,
-	} {
-		if !strings.Contains(tag, want) {
-			t.Errorf("step 0 type select must own %q, got: %s", want, tag)
+	// The type is chosen at Add step and shown in the node and editor heading;
+	// there must be no visible editable Type <select> or change_type submitter.
+	for _, bad := range []string{`class="step-type"`, `<select class="step-type"`, `name="action" value="change_type"`, `hx-vals='{"action":"change_type"}'`} {
+		if strings.Contains(body, bad) {
+			t.Errorf("type must not be editable via a visible selector, found %q", bad)
 		}
 	}
-	// Apply must not be a redundant visible action with HTMX active; it remains
-	// available only to no-JS clients as the full-page change_type submitter.
-	wantFallback := `<noscript><button class="btn ghost small" type="submit" name="action" value="change_type"`
-	if !strings.Contains(body, wantFallback) {
-		t.Errorf("Apply must remain only as the no-JS change_type fallback, got: %s", body)
-	}
-	if got := strings.Count(body, `name="action" value="change_type"`); got != 1 {
-		t.Errorf("change_type submitters = %d, want one fallback for the selected step", got)
+	// The selected step still submits its type through a hidden field so the
+	// backend can rebuild the full draft while hiding it as a UI control.
+	if !strings.Contains(body, `<input type="hidden" name="step_0_type"`) {
+		t.Errorf("selected step must carry its type in a hidden input, got: %s", body)
 	}
 }
 func TestWorkflowBuilderValidationAndStepViews(t *testing.T) {
@@ -692,14 +682,18 @@ func TestWorkflowBuilderValidationAndStepViews(t *testing.T) {
 		{"nonterminal last", domain.WorkflowDefinition{{Type: domain.StepManualTask}, {Type: domain.StepManualTask}}, 1, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := workflowStepViews(tc.draft, tc.index)[tc.index].Final; got != tc.want {
+			if got := workflowStepViews(tc.draft, tc.index, nil)[tc.index].Final; got != tc.want {
 				t.Fatalf("Final = %t, want %t", got, tc.want)
 			}
 		})
 	}
-	views := workflowStepViews(domain.WorkflowDefinition{{Type: domain.StepManualTask, ManualTask: &domain.ManualTaskStep{Instructions: strings.Repeat("界", 45)}}, {Type: domain.StepResolve}}, 0)
+	views := workflowStepViews(domain.WorkflowDefinition{{Type: domain.StepManualTask, ManualTask: &domain.ManualTaskStep{Instructions: strings.Repeat("界", 45)}}, {Type: domain.StepResolve}}, 0, nil)
 	if views[0].Final || !views[1].Final || !views[1].Last || views[0].Summary != strings.Repeat("界", 41)+"..." {
 		t.Fatalf("terminal badge or Unicode summary is wrong: %+v", views)
+	}
+	assign := workflowStepViews(domain.WorkflowDefinition{{Type: domain.StepAssignToDesk, AssignToDesk: &domain.AssignToDeskStep{DeskID: 7}}}, 0, []domain.Desk{{ID: 7, Name: "Billing"}})
+	if assign[0].Summary != "Billing" {
+		t.Errorf("assign summary must show the desk name, got %q", assign[0].Summary)
 	}
 }
 
@@ -818,13 +812,13 @@ func TestCategoryWorkflowBuilder_RED_AutosaveMarkupContract(t *testing.T) {
 		}
 	})
 
-	t.Run("existing step Type change is not double-submitted", func(t *testing.T) {
-		tag := stepTypeTag(t, body, "0")
-		if !strings.Contains(tag, `hx-vals='{"action":"change_type"}'`) || !strings.Contains(tag, `hx-trigger="change"`) {
-			t.Errorf("step Type select must keep owning its change_type submission, got: %s", tag)
+	t.Run("selected step type is a hidden inert field, never a change submitter", func(t *testing.T) {
+		hidden := strings.Contains(bodyAt(0), `<input type="hidden" name="step_0_type"`)
+		if !hidden {
+			t.Errorf("selected step must carry its type as a hidden field, got: %s", bodyAt(0))
 		}
-		if strings.Contains(tag, "delay:600ms") || strings.Contains(tag, `"action":"save"`) {
-			t.Errorf("step Type select must not participate in generic autosave triggers (double submit), got: %s", tag)
+		if strings.Contains(bodyAt(0), `hx-vals='{"action":"change_type"}'`) || strings.Contains(bodyAt(0), `<select class="step-type"`) {
+			t.Errorf("type must not be editable or double-submitted via an autosave/change control, got: %s", bodyAt(0))
 		}
 	})
 }
@@ -963,7 +957,8 @@ func TestCategoryWorkflowBuilder_ActionsWithIndexes(t *testing.T) {
 		f.Set("step_index", "2")
 		wantRedirect(t, h.postForm(t, path, f, false), http.StatusSeeOther, path)
 		def := h.persistedDefinition(t, path)
-		if len(def) != 3 || def[0].Type != domain.StepManualTask || def[1].Type != domain.StepForm || def[2].Type != domain.StepClose || strings.Count(h.get(t, path, false).Body.String(), `name="action" value="remove_step"`) != 3 || strings.Count(h.get(t, path, false).Body.String(), `name="action" value="remove_step" disabled`) != 1 {
+		body := h.get(t, path, false).Body.String()
+		if len(def) != 3 || def[0].Type != domain.StepManualTask || def[1].Type != domain.StepForm || def[2].Type != domain.StepClose || strings.Count(body, `name="action" value="remove_step"`) != 2 || strings.Contains(body, `name="action" value="remove_step" disabled`) {
 			t.Errorf("final remove_step bypass or markup guard failed: %v", def)
 		}
 	})
@@ -1247,8 +1242,7 @@ func TestCategoryWorkflowBuilder_MobileStyles_WrapNarrow(t *testing.T) {
 		{"builder head wraps", ".workflow-builder-head{", "flex-wrap:wrap"},
 		{"editor head wraps", ".workflow-editor-head{", "flex-wrap:wrap"},
 		{"step cards stay compact", ".workflow-step-card{", "flex-basis:180px"},
-		{"type control can shrink", ".step-type{", "min-width:0"},
-		{"type label can shrink", ".step-type-label{", "min-width:0"},
+		{"field rows stack in mobile grid", ".workflow-field-row{", "grid-template-columns:1fr 44px"},
 		{"mobile rail wraps", ".rail{", "flex-wrap:wrap"},
 		{"mobile nav wraps", ".rail-nav{", "flex-wrap:wrap"},
 	} {
@@ -1509,21 +1503,40 @@ func TestCategoryWorkflowBuilder_TypedAddTerminalProtection(t *testing.T) {
 	steps := []bstep{{typ: "manual_task", manual: "first"}, {typ: "close_ticket"}}
 	wantRedirect(t, h.postForm(t, path, builderFieldForm("save", steps...), false), http.StatusSeeOther, path)
 	body := h.get(t, path, false).Body.String()
-	if strings.Contains(body, `class="workflow-add-popover"`) || strings.Contains(body, "add_step_type=") {
-		t.Errorf("terminal draft must hide the Add step popover and any insertion position, got: %s", body)
+	if !strings.Contains(body, `class="workflow-add-popover"`) {
+		t.Errorf("final draft must still offer the Add step popover, got: %s", body)
 	}
-	for _, want := range []string{"The final step ends the workflow.", `workflow-final-badge">Final</span>`, `name="action" value="remove_step" disabled`} {
+	for _, disallowed := range []string{"add_step_type=resolve_ticket", "add_step_type=close_ticket"} {
+		if strings.Contains(body, disallowed) {
+			t.Errorf("final draft must not offer terminal add choices, found %q", disallowed)
+		}
+	}
+	for _, want := range []string{`workflow-final-badge">Final</span>`} {
 		if !strings.Contains(body, want) {
 			t.Errorf("terminal draft must contain %q, got: %s", want, body)
 		}
 	}
+	// The final card must not be draggable and must expose no action menu; only
+	// the single editable step has a drag handle, a menu, and a removal.
+	if strings.Count(body, `class="workflow-drag-handle"`) != 1 {
+		t.Errorf("final draft must expose exactly one drag handle (only the editable step), body=%s", body)
+	}
+	if got := strings.Count(body, `class="workflow-step-menu"`); got != 1 {
+		t.Errorf("final draft must expose exactly one step menu (only the editable step), got %d", got)
+	}
+	if got := strings.Count(body, `name="action" value="remove_step"`); got != 1 {
+		t.Errorf("final draft must expose exactly one removal (only the editable step), got %d", got)
+	}
+	// Every add (default, terminal-typed, non-terminal) inserts immediately before
+	// the final step and keeps the terminal last and final.
 	for _, tc := range []struct {
 		name string
 		typ  string
+		want domain.StepType
 	}{
-		{"default add", ""},
-		{"duplicate terminal", "close_ticket"},
-		{"non-terminal after final", "form"},
+		{"default add", "", domain.StepManualTask},
+		{"duplicate terminal", "close_ticket", domain.StepManualTask},
+		{"non-terminal after final", "form", domain.StepForm},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			f := builderFieldForm("add_step", steps...)
@@ -1532,9 +1545,11 @@ func TestCategoryWorkflowBuilder_TypedAddTerminalProtection(t *testing.T) {
 			}
 			wantRedirect(t, h.postForm(t, path, f, false), http.StatusSeeOther, path)
 			def := h.persistedDefinition(t, path)
-			if len(def) != 2 || def[0].Type != domain.StepManualTask || def[1].Type != domain.StepClose {
-				t.Errorf("add after a terminal must keep the draft unchanged, got %+v", def)
+			if len(def) != 3 || def[2].Type != domain.StepClose || def[1].Type != tc.want {
+				t.Errorf("%s: insert must land directly before the final step, got %+v", tc.name, def)
 			}
+			// Reset to the two-step baseline for the next case.
+			wantRedirect(t, h.postForm(t, path, builderFieldForm("save", steps...), false), http.StatusSeeOther, path)
 		})
 	}
 }
@@ -1560,13 +1575,19 @@ func TestCategoryWorkflowBuilder_MenuLabelsHorizontal(t *testing.T) {
 			t.Errorf("menu must not keep vertical label %q, got: %s", legacy, body)
 		}
 	}
-	for _, action := range []string{"move_up", "move_down", "remove_step"} {
-		if got := strings.Count(body, `name="action" value="`+action+`"`); got != 2 {
-			t.Errorf("action %s submitters = %d, want 2 (one per card)", action, got)
-		}
+	// Impossible moves are hidden, not disabled: the first card has no Move left,
+	// the last card (no final step here) has no Move right.
+	if got := strings.Count(body, `name="action" value="move_up"`); got != 1 {
+		t.Errorf("move_up submitters = %d, want 1 (only the not-first card)", got)
 	}
-	if !strings.Contains(body, `name="action" value="move_up" disabled`) || !strings.Contains(body, `name="action" value="move_down" disabled`) {
-		t.Errorf("first/last card guards must keep their disabled states, got: %s", body)
+	if got := strings.Count(body, `name="action" value="move_down"`); got != 1 {
+		t.Errorf("move_down submitters = %d, want 1 (only the not-last card)", got)
+	}
+	if got := strings.Count(body, `name="action" value="remove_step"`); got != 2 {
+		t.Errorf("remove_step submitters = %d, want 2 (one per card)", got)
+	}
+	if strings.Contains(body, `value="move_up" disabled`) || strings.Contains(body, `value="move_down" disabled`) {
+		t.Errorf("impossible moves must be hidden rather than disabled, got: %s", body)
 	}
 }
 
@@ -1575,6 +1596,164 @@ func TestCategoryWorkflowBuilder_MenuLabelsHorizontal(t *testing.T) {
 // request) for no-JS and HTMX, the page restores visible focus to the selected
 // card (or the Add step control when the draft empties), and removal
 // recalculates a safe neighbor or clears selection.
+// Polish: the Form editor lays fields out in compact rows (Label, Kind, Required,
+// and a field menu with Remove field) under a Fields header; selecting a final
+// Resolve/Close step renders only its title, description, and helper with no
+// editable controls. The Type selector is gone from every editor.
+func TestCategoryWorkflowBuilder_PolishFormAndFinalEditors(t *testing.T) {
+	h := newHarness(t)
+	category, err := h.categories.Create(t.Context(), "Editor polish")
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	path := "/categories/" + strconv.FormatInt(category.ID, 10) + "/workflow"
+	wantRedirect(t, h.postForm(t, path, builderFieldForm("save", buildingSteps()...), false), http.StatusSeeOther, path)
+	// Form editor (index 1): Fields header + right-aligned Add field + compact
+	// field row holding Label, Kind, Required, and a field menu with Remove field;
+	// no visible Type selector.
+	body := h.get(t, path+"?selected_step_index=1", false).Body.String()
+	for _, want := range []string{"<h4>Fields</h4>", ">+ Add field</button>", `class="workflow-field-row"`, `name="step_1_field_0_label"`, `name="step_1_field_0_required"`, `class="workflow-field-menu"`, `value="remove_field"`} {
+		if !strings.Contains(body, want) {
+			t.Errorf("form editor missing %q", want)
+		}
+	}
+	// Final editor (index 2) shows only title/desc/helper and no editable controls.
+	body = h.get(t, path+"?selected_step_index=2", false).Body.String()
+	editor := body
+	if i := strings.Index(editor, `<section class="workflow-editor-panel"`); i >= 0 {
+		editor = editor[i:]
+		if j := strings.Index(editor, `</section>`); j >= 0 {
+			editor = editor[:j]
+		}
+	}
+	for _, want := range []string{"Step 3 · Close ticket", "Runs automatically and must remain final."} {
+		if !strings.Contains(editor, want) {
+			t.Errorf("final editor missing %q", want)
+		}
+	}
+	for _, bad := range []string{`name="step_2_instructions"`, `<textarea`, `name="action" value="remove_step"`} {
+		if strings.Contains(editor, bad) {
+			t.Errorf("final editor must not expose editable controls %q", bad)
+		}
+	}
+}
+
+// ThreeDotTriggerPolish freezes the shared trigger contract: step and field
+// menus use one reusable .workflow-trigger style (exactly 32x32, centered
+// glyph, no border at rest, gray hover, accent focus ring) with the exact
+// contextual accessible names, the immutable terminal step stays trigger-less,
+// the upper-right placements survive, and the asset closes an open menu on
+// Escape and returns focus to the trigger.
+func TestCategoryWorkflowBuilder_ThreeDotTriggerPolish(t *testing.T) {
+	h := newHarness(t)
+	category, err := h.categories.Create(t.Context(), "Trigger polish")
+	if err != nil {
+		t.Fatalf("create category: %v", err)
+	}
+	path := "/categories/" + strconv.FormatInt(category.ID, 10) + "/workflow"
+	steps := []bstep{
+		{typ: "manual_task", manual: "a"},
+		{typ: "form", actor: "requester", fields: []bfield{{key: "f0", label: "Text", kind: "short_text"}}},
+	}
+	wantRedirect(t, h.postForm(t, path, builderFieldForm("save", steps...), false), http.StatusSeeOther, path)
+	body := h.get(t, path+"?selected_step_index=1", false).Body.String()
+	// Both rail steps and the selected form's field share one trigger class;
+	// each carries its contextual accessible name and the centered glyph.
+	if got := strings.Count(body, `class="workflow-trigger"`); got != 3 {
+		t.Errorf("shared trigger instances = %d, want 3 (two steps + one field), body=%s", got, body)
+	}
+	if got := strings.Count(body, `aria-label="Step actions"`); got != 2 {
+		t.Errorf(`aria-label="Step actions" count = %d, want 2 (one per step card)`, got)
+	}
+	if got := strings.Count(body, `aria-label="Field actions"`); got != 1 {
+		t.Errorf(`aria-label="Field actions" count = %d, want 1 (the form field row)`, got)
+	}
+	if strings.Contains(body, "Actions for step") {
+		t.Errorf("step trigger must use the exact 'Step actions' name, got: %s", body)
+	}
+	if got := strings.Count(body, "⋯"); got != 3 {
+		t.Errorf("centered ellipsis count = %d, want 3", got)
+	}
+	// Shared style rules: fixed hit area, centered glyph, transparent rest
+	// state, gray hover, accent focus ring, and preserved upper-right spots.
+	page := renderGolden(t, "category_workflow", "", mobileBuilderPageData(), false)
+	style := extractStyleBlock(t, page)
+	for _, tc := range []struct {
+		name, sel, decl string
+	}{
+		{"hit area exactly 32x32", ".workflow-trigger{", "width:32px;height:32px"},
+		{"glyph centered via flex", ".workflow-trigger{", "display:flex"},
+		{"no visible border at rest", ".workflow-trigger{", "border:0"},
+		{"transparent at rest", ".workflow-trigger{", "background:transparent"},
+		{"gray hover background", ".workflow-trigger:hover{", "background:var(--gray-soft)"},
+		{"accent focus ring", ".workflow-trigger:focus-visible{", "outline:3px solid var(--accent)"},
+		{"step trigger stays upper-right", ".workflow-step-menu{", "position:absolute"},
+		{"field trigger stays in fixed actions column", ".workflow-field-actions{", "grid-column:4"},
+	} {
+		if !cssRuleDeclares(style, tc.sel, tc.decl) {
+			t.Errorf("%s: rule %s must declare %s", tc.name, tc.sel, tc.decl)
+		}
+	}
+	// An immutable terminal step keeps its Final position and exposes no
+	// trigger at all, so a final-only draft leaves the editor trigger-less.
+	terminal, err := h.categories.Create(t.Context(), "Trigger polish terminal")
+	if err != nil {
+		t.Fatalf("create terminal category: %v", err)
+	}
+	tpath := "/categories/" + strconv.FormatInt(terminal.ID, 10) + "/workflow"
+	wantRedirect(t, h.postForm(t, tpath, builderFieldForm("save", []bstep{{typ: "close_ticket"}}...), false), http.StatusSeeOther, tpath)
+	tbody := h.get(t, tpath, false).Body.String()
+	if got := strings.Count(tbody, `class="workflow-step-menu"`); got != 0 {
+		t.Errorf("terminal-only draft must render no step menu, got %d", got)
+	}
+	if got := strings.Count(tbody, `class="workflow-trigger"`); got != 0 {
+		t.Errorf("terminal-only draft must render no trigger, got %d", got)
+	}
+	// The asset keeps the viewport-fixed positioning and adds the narrow
+	// Escape contract: closing the open menu and refocusing its trigger.
+	asset := h.get(t, "/static/workflow.js", false)
+	if asset.Code != http.StatusOK {
+		t.Fatalf("workflow asset status = %d, want 200", asset.Code)
+	}
+	for _, want := range []string{`event.key !== "Escape"`, `closest(".workflow-step-menu, .workflow-field-menu")`, `details.open = false`, `summary.focus()`} {
+		if !strings.Contains(asset.Body.String(), want) {
+			t.Errorf("workflow asset must contain %q", want)
+		}
+	}
+}
+
+// The final terminal is switched between Resolve and Close through a small select
+// with exactly those two options (existing change_type action); other types are
+// not offered, and the terminal stays last and non-removable.
+func TestCategoryWorkflowBuilder_TerminalSelect(t *testing.T) {
+	h := newHarness(t)
+	category, err := h.categories.Create(t.Context(), "Terminal select")
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	path := "/categories/" + strconv.FormatInt(category.ID, 10) + "/workflow"
+	steps := []bstep{{typ: "manual_task", manual: "a"}, {typ: "close_ticket"}}
+	wantRedirect(t, h.postForm(t, path, builderFieldForm("save", steps...), false), http.StatusSeeOther, path)
+	body := h.get(t, path+"?selected_step_index=1", false).Body.String()
+	for _, want := range []string{`name="step_1_type"`, `value="resolve_ticket"`, `value="close_ticket"`, `>Close ticket</option>`} {
+		if !strings.Contains(body, want) {
+			t.Errorf("terminal select missing %q, got: %s", want, body)
+		}
+	}
+	if strings.Contains(body, `value="manual_task"`) || strings.Contains(body, `value="form"`) || strings.Contains(body, `value="assign_to_desk"`) {
+		t.Errorf("terminal select must offer only the two terminal types, got: %s", body)
+	}
+	// Changing the terminal to Resolve via the existing change_type action.
+	f := builderFieldForm("change_type", steps...)
+	f.Set("step_index", "1")
+	f.Set("step_1_type", "resolve_ticket")
+	wantRedirect(t, h.postForm(t, path, f, false), http.StatusSeeOther, path)
+	def := h.persistedDefinition(t, path)
+	if len(def) != 2 || def[0].Type != domain.StepManualTask || def[1].Type != domain.StepResolve {
+		t.Errorf("terminal select must convert Close to Resolve, got %+v", def)
+	}
+}
+
 func TestCategoryWorkflowBuilder_KeyboardActionFallbacks(t *testing.T) {
 	t.Run("menu buttons are native submits with no-JS and HTMX requests", func(t *testing.T) {
 		h := newHarness(t)
@@ -1841,6 +2020,80 @@ func TestCategoryWorkflowBuilder_DragResponsiveCSS(t *testing.T) {
 			}
 		} else if !cssRuleDeclares(style, tc.sel, tc.decl) {
 			t.Errorf("%s must stay declared: %s on %s", tc.name, tc.decl, tc.sel)
+		}
+	}
+}
+
+// Checkbox semantics: a Checkbox field is boolean — Required stays available for
+// text/select fields, is hidden for checkbox fields, and any legacy persisted
+// required=true on a checkbox is normalized to non-required. The field row keeps
+// the actions cell (with the field menu) in a fixed upper-right slot.
+func TestCategoryWorkflowBuilder_CheckboxRequiredSemantics(t *testing.T) {
+	h := newHarness(t)
+	category, err := h.categories.Create(t.Context(), "Checkbox semantics")
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	path := "/categories/" + strconv.FormatInt(category.ID, 10) + "/workflow"
+	steps := []bstep{
+		{typ: "manual_task", manual: "a"},
+		{typ: "form", actor: "requester", fields: []bfield{
+			{key: "f0", label: "Text", kind: "short_text", required: true},
+			{key: "f1", label: "Flag", kind: "checkbox", required: true},
+			{key: "f2", label: "Pick", kind: "single_select", options: "A; B", required: true},
+		}},
+	}
+	wantRedirect(t, h.postForm(t, path, builderFieldForm("save", steps...), false), http.StatusSeeOther, path)
+	def := h.persistedDefinition(t, path)
+	if !def[1].Form.Fields[0].Required || def[1].Form.Fields[1].Required || !def[1].Form.Fields[2].Required {
+		t.Fatalf("checkbox required must normalize to false while text/select keep required, got %+v", def[1].Form.Fields)
+	}
+
+	body := h.get(t, path+"?selected_step_index=1", false).Body.String()
+	for _, want := range []string{`name="step_1_field_0_required"`, `name="step_1_field_2_required"`, `class="workflow-field-actions"`, `aria-label="Field actions"`} {
+		if !strings.Contains(body, want) {
+			t.Errorf("checkbox semantics editor missing %q", want)
+		}
+	}
+	if strings.Contains(body, `name="step_1_field_1_required"`) {
+		t.Errorf("checkbox field must not expose a Required control, got: %s", body)
+	}
+	if !strings.Contains(body, `class="field workflow-field-options"`) {
+		t.Errorf("single-select field must keep its full-width Options row, got: %s", body)
+	}
+
+	// Changing a required text field to Checkbox clears Required on the round trip.
+	changed := builderFieldForm("save", steps...)
+	changed.Set("step_1_field_0_kind", "checkbox")
+	changed.Set("step_1_field_0_required", "on")
+	wantRedirect(t, h.postForm(t, path, changed, false), http.StatusSeeOther, path)
+	after := h.persistedDefinition(t, path)
+	if after[1].Form.Fields[0].Kind != domain.FieldCheckbox || after[1].Form.Fields[0].Required {
+		t.Errorf("text->checkbox must clear required, got %+v", after[1].Form.Fields[0])
+	}
+}
+
+// Timeline boolean rendering: submitted checkbox values render as ✓ (true) and
+// × (false) with an accessible Yes/No description, while every other field keeps
+// its literal value.
+func TestTimelineRendersCheckboxBooleanGlyphs(t *testing.T) {
+	r := NewRenderer()
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/tickets/1", nil)
+	req.Header.Set("HX-Request", "true")
+	data := detailData{View: &application.TicketView{Timeline: []application.TimelineItem{{
+		Event: &domain.AuditEvent{},
+		StepFields: []application.WorkflowResponseField{
+			{Label: "Opt in", Kind: "checkbox", Value: "true"},
+			{Label: "Opt out", Kind: "checkbox", Value: "false"},
+			{Label: "Note", Kind: "short_text", Value: "plain text"},
+		},
+	}}}}
+	r.Render(rec, req, "tickets_show", "timeline", data, http.StatusOK)
+	body := rec.Body.String()
+	for _, want := range []string{`role="img" aria-label="Yes">✓`, `role="img" aria-label="No">×`, "plain text"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("timeline checkbox rendering missing %q, got: %s", want, body)
 		}
 	}
 }

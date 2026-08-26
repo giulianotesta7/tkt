@@ -171,7 +171,7 @@ func decodeWorkflowResponseFields(definition []domain.FormField, raw []byte) ([]
 		if err != nil {
 			return nil, err
 		}
-		fields = append(fields, application.WorkflowResponseField{Label: field.Label, Value: value})
+		fields = append(fields, application.WorkflowResponseField{Label: field.Label, Kind: string(field.Kind), Value: value})
 	}
 	return fields, nil
 }
@@ -183,9 +183,8 @@ func decodeWorkflowResponseValue(field domain.FormField, raw json.RawMessage) (s
 		if err := json.Unmarshal(raw, &value); err != nil {
 			return "", errors.New("checkbox answer is not a boolean")
 		}
-		if field.Required && !value {
-			return "", errors.New("required checkbox answer is false")
-		}
+		// A checkbox is a boolean field: it never carries a Required constraint, so
+		// a persisted required=true (legacy) is treated as non-required.
 		return strconv.FormatBool(value), nil
 	case domain.FieldShortText, domain.FieldLongText, domain.FieldSingleSelect:
 		var value string

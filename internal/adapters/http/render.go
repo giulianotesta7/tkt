@@ -74,6 +74,22 @@ var templateFuncs = template.FuncMap{
 		}
 		return false
 	},
+	"workflowTypeLabel": func(t domain.StepType) string {
+		switch t {
+		case domain.StepAssignToDesk:
+			return "Assign to desk"
+		case domain.StepForm:
+			return "Form"
+		case domain.StepManualTask:
+			return "Manual task"
+		case domain.StepResolve:
+			return "Resolve ticket"
+		case domain.StepClose:
+			return "Close ticket"
+		default:
+			return "Workflow step"
+		}
+	},
 }
 
 // shellFor maps a page to its shell root. Application pages use the rail
