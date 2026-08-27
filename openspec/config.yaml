@@ -5,7 +5,7 @@ context: |
   Project: tkt — Go web application (server-side rendered).
   Tech stack: Go 1.25.14; backend with net/http; frontend via html/template with HTMX (SSR, no JS framework); JavaScript limited to user/workflow interactions (drag reorder, menu Escape handling); SQLite storage via modernc.org/sqlite (pure Go, CGO_ENABLED=0); multi-stage Docker build into a Distroless static image running as non-root (UID 65532).
   Architecture: layered — domain, application, adapters/http, adapters/sqlite.
-  Testing: Go stdlib testing; suites in domain, application, adapters/http, and adapters/sqlite; SQL migrations; golden files for rendered HTML; Playwright MCP used locally for visual validation, with no versioned Playwright suite.
+Testing: Go stdlib testing; suites in domain, application, adapters/http, and adapters/sqlite; SQL migrations; golden files for rendered HTML; there is also a versioned Playwright E2E test suite under e2e/ with Chromium, executed in CI on every push and pull request.
   Style: gofmt formatting, go vet clean. CI runs staticcheck@v0.7.0 (static analysis) and govulncheck@v1.7.0 (vulnerability detection) on PRs, pushes to main, weekly schedule, and manual dispatch.
 
 strict_tdd: true
@@ -19,7 +19,7 @@ testing:
   layers:
     unit: stdlib testing
     integration: net/http/httptest + in-memory SQLite
-    e2e: Playwright MCP local visual validation only; no versioned Playwright suite
+    e2e: Versioned Playwright test suite (e2e/) with Chromium, executed in CI via .github/workflows/e2e.yml; Playwright CLI also available for ad-hoc exploration
   quality:
     formatter: gofmt
     linter: go vet + staticcheck@v0.7.0
