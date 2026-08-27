@@ -1,0 +1,190 @@
+# Validates the tkt container image on every PR: build, identity, health,
+# SQLite persistence across restarts. Does NOT push to a registry.
+name: Container
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: container-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Unique resources per run: run_id guarantees isolation; run_attempt
+  # distinguishes retries of the same run.
+  RUN_SUFFIX: ${{ github.run_id }}-${{ github.run_attempt }}
+  IMAGE_NAME: tkt-container-test-${{ github.run_id }}-${{ github.run_attempt }}
+  CONTAINER_NAME: tkt-container-test-${{ github.run_id }}-${{ github.run_attempt }}
+  NETWORK_NAME: tkt-container-test-net-${{ github.run_id }}-${{ github.run_attempt }}
+  VOLUME_NAME: tkt-container-test-data-${{ github.run_id }}-${{ github.run_attempt }}
+
+jobs:
+  check:
+    name: build and smoke test
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Build
+        run: |
+          docker build \
+            --tag ${{ env.IMAGE_NAME }} \
+            --file Dockerfile \
+            .
+
+      - name: Verify non-root user
+        run: |
+          user=$(docker inspect ${{ env.IMAGE_NAME }} --format '{{.Config.User}}')
+          if [ -z "$user" ] || [ "$user" = "root" ] || [ "$user" = "0" ]; then
+            echo "FAIL: container runs as user '$user' (expected non-root distroless user)"
+            docker inspect ${{ env.IMAGE_NAME }} --format '{{json .Config}}'
+            exit 1
+          fi
+          echo "OK: container user is '$user'"
+
+      - name: Smoke test — start, healthcheck, persist, restart
+        run: |
+          set -e
+
+          # Use ephemeral ports to avoid collisions
+          PORT=$(python3 -c 'import socket; s=socket.socket(); s.bind(("",0)); print(s.getsockname()[1]); s.close()')
+
+          docker network create "${{ env.NETWORK_NAME }}"
+          docker volume create "${{ env.VOLUME_NAME }}"
+
+          # trap cleans up only the exact resources owned by this run
+          cleanup() {
+            echo ""
+            echo "=== Cleanup ==="
+            docker stop "${{ env.CONTAINER_NAME }}" 2>/dev/null || true
+            docker rm "${{ env.CONTAINER_NAME }}" 2>/dev/null || true
+            docker network rm "${{ env.NETWORK_NAME }}" 2>/dev/null || true
+            docker volume rm "${{ env.VOLUME_NAME }}" 2>/dev/null || true
+            echo "Cleanup done."
+          }
+          trap cleanup EXIT
+
+          # --- First start ---
+          echo "=== Starting container (first run) ==="
+          docker run \
+            --name "${{ env.CONTAINER_NAME }}" \
+            --network "${{ env.NETWORK_NAME }}" \
+            --volume "${{ env.VOLUME_NAME }}:/data" \
+            --env TKT_DB_PATH=/data/tkt.db \
+            --env TKT_LISTEN=:8080 \
+            --publish 127.0.0.1:$PORT:8080 \
+            --detach \
+            ${{ env.IMAGE_NAME }}
+
+          # --- Healthcheck via /healthz ---
+          echo "=== Waiting for /healthz ==="
+          HEALTH_URL="http://127.0.0.1:$PORT/healthz"
+          success=false
+          for i in $(seq 1 15); do
+            if curl -sf "$HEALTH_URL" >/dev/null 2>&1; then
+              echo "Healthz OK (attempt $i)"
+              success=true
+              break
+            fi
+            echo "Waiting… attempt $i"
+            sleep 1
+          done
+          if [ "$success" = false ]; then
+            echo "FAIL: /healthz never responded"
+            docker logs "${{ env.CONTAINER_NAME }}"
+            exit 1
+          fi
+
+          # --- Verify healthcheck via binary ---
+          echo "=== Binary healthcheck ==="
+          if docker exec "${{ env.CONTAINER_NAME }}" /server -healthcheck; then
+            echo "Binary healthcheck: OK"
+          else
+            echo "FAIL: binary healthcheck failed"
+            docker logs "${{ env.CONTAINER_NAME }}"
+            exit 1
+          fi
+
+          # --- Verify SQLite database was created ---
+          echo "=== Checking SQLite persistence ==="
+          if docker run --rm \
+            --volume "${{ env.VOLUME_NAME }}:/data" \
+            busybox:1.36.1@sha256:73aaf090f3d85aa34ee199857f03fa3a95c8ede2ffd4cc2cdb5b94e566b11662 \
+            test -f /data/tkt.db; then
+            echo "SQLite database exists at /data/tkt.db"
+          else
+            echo "FAIL: SQLite database not created at /data/tkt.db"
+            docker logs "${{ env.CONTAINER_NAME }}"
+            exit 1
+          fi
+
+          # --- Stop first container ---
+          echo "=== Stopping first container ==="
+          docker stop "${{ env.CONTAINER_NAME }}"
+          docker rm "${{ env.CONTAINER_NAME }}"
+
+          # --- Second start using same volume ---
+          echo "=== Starting container (second run, same volume) ==="
+          PORT2=$(python3 -c 'import socket; s=socket.socket(); s.bind(("",0)); print(s.getsockname()[1]); s.close()')
+          docker run \
+            --name "${{ env.CONTAINER_NAME }}" \
+            --network "${{ env.NETWORK_NAME }}" \
+            --volume "${{ env.VOLUME_NAME }}:/data" \
+            --env TKT_DB_PATH=/data/tkt.db \
+            --env TKT_LISTEN=:8080 \
+            --publish 127.0.0.1:$PORT2:8080 \
+            --detach \
+            ${{ env.IMAGE_NAME }}
+
+          # --- Wait for health again ---
+          echo "=== Waiting for /healthz (restart) ==="
+          HEALTH_URL2="http://127.0.0.1:$PORT2/healthz"
+          success=false
+          for i in $(seq 1 15); do
+            if curl -sf "$HEALTH_URL2" >/dev/null 2>&1; then
+              echo "Healthz OK after restart (attempt $i)"
+              success=true
+              break
+            fi
+            echo "Waiting… attempt $i"
+            sleep 1
+          done
+          if [ "$success" = false ]; then
+            echo "FAIL: /healthz never responded after restart"
+            docker logs "${{ env.CONTAINER_NAME }}"
+            exit 1
+          fi
+
+          # --- Verify database still exists (volume persistence) ---
+          if docker run --rm \
+            --volume "${{ env.VOLUME_NAME }}:/data" \
+            busybox:1.36.1@sha256:73aaf090f3d85aa34ee199857f03fa3a95c8ede2ffd4cc2cdb5b94e566b11662 \
+            test -f /data/tkt.db; then
+            echo "SQLite database preserved after restart"
+          else
+            echo "FAIL: database missing after restart"
+            docker logs "${{ env.CONTAINER_NAME }}"
+            exit 1
+          fi
+
+          echo ""
+          echo "=== All smoke tests passed ==="
+
+      - name: Diagnostics on failure
+        if: failure()
+        run: |
+          echo "=== Container logs ==="
+          docker logs "${{ env.CONTAINER_NAME }}" 2>/dev/null || echo "(no logs)"
+          echo ""
+          echo "=== Docker ps ==="
+          docker ps -a --filter "name=${{ env.CONTAINER_NAME }}" 2>/dev/null || true
+          echo ""
+          echo "=== Container inspect ==="
+          docker inspect "${{ env.CONTAINER_NAME }}" 2>/dev/null || true
