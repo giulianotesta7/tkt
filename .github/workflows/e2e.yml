@@ -1,0 +1,75 @@
+name: E2E
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: e2e-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  critical-journeys:
+    name: E2E / critical journeys
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: e2e/package-lock.json
+
+      - name: Install npm dependencies
+        working-directory: e2e
+        run: npm ci
+
+      - name: Install Chromium
+        working-directory: e2e
+        run: npx playwright install chromium
+
+      - name: Install system dependencies for Chromium
+        working-directory: e2e
+        run: npx playwright install-deps chromium
+
+      - name: Build tkt server
+        run: go build -o tkt-server ./cmd/server
+
+      - name: Run E2E tests
+        working-directory: e2e
+        run: npx playwright test
+        env:
+          CI: "true"
+
+      - name: Upload Playwright report on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report-${{ github.run_id }}
+          path: playwright-report/
+          retention-days: 7
+
+      - name: Upload test results on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-${{ github.run_id }}
+          path: test-results/
+          retention-days: 7
+
+      - name: Clean up tkt binary
+        if: always()
+        run: rm -f tkt-server
