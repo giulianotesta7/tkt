@@ -16,10 +16,13 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  IMAGE_NAME: tkt-container-test
-  CONTAINER_NAME: tkt-container-test
-  NETWORK_NAME: tkt-container-test-net
-  VOLUME_NAME: tkt-container-test-data
+  # Unique resources per run: run_id guarantees isolation; run_attempt
+  # distinguishes retries of the same run.
+  RUN_SUFFIX: ${{ github.run_id }}-${{ github.run_attempt }}
+  IMAGE_NAME: tkt-container-test-${{ github.run_id }}-${{ github.run_attempt }}
+  CONTAINER_NAME: tkt-container-test-${{ github.run_id }}-${{ github.run_attempt }}
+  NETWORK_NAME: tkt-container-test-net-${{ github.run_id }}-${{ github.run_attempt }}
+  VOLUME_NAME: tkt-container-test-data-${{ github.run_id }}-${{ github.run_attempt }}
 
 jobs:
   check:
@@ -27,7 +30,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Build
         run: |
@@ -53,19 +56,10 @@ jobs:
           # Use ephemeral ports to avoid collisions
           PORT=$(python3 -c 'import socket; s=socket.socket(); s.bind(("",0)); print(s.getsockname()[1]); s.close()')
 
-          # --- Port conflict guard ---
-          if docker container inspect "${{ env.CONTAINER_NAME }}" >/dev/null 2>&1; then
-            docker rm -f "${{ env.CONTAINER_NAME }}"
-          fi
-          if docker network inspect "${{ env.NETWORK_NAME }}" >/dev/null 2>&1; then
-            docker network rm "${{ env.NETWORK_NAME }}" 2>/dev/null || true
-          fi
-          docker volume rm "${{ env.VOLUME_NAME }}" 2>/dev/null || true
-
-          # Create network and volume
           docker network create "${{ env.NETWORK_NAME }}"
           docker volume create "${{ env.VOLUME_NAME }}"
 
+          # trap cleans up only the exact resources owned by this run
           cleanup() {
             echo ""
             echo "=== Cleanup ==="
@@ -120,7 +114,10 @@ jobs:
 
           # --- Verify SQLite database was created ---
           echo "=== Checking SQLite persistence ==="
-          if docker run --rm --volume "${{ env.VOLUME_NAME }}:/data" busybox:latest test -f /data/tkt.db; then
+          if docker run --rm \
+            --volume "${{ env.VOLUME_NAME }}:/data" \
+            busybox:1.36.1@sha256:73aaf090f3d85aa34ee199857f03fa3a95c8ede2ffd4cc2cdb5b94e566b11662 \
+            test -f /data/tkt.db; then
             echo "SQLite database exists at /data/tkt.db"
           else
             echo "FAIL: SQLite database not created at /data/tkt.db"
@@ -166,7 +163,10 @@ jobs:
           fi
 
           # --- Verify database still exists (volume persistence) ---
-          if docker run --rm --volume "${{ env.VOLUME_NAME }}:/data" busybox:latest test -f /data/tkt.db; then
+          if docker run --rm \
+            --volume "${{ env.VOLUME_NAME }}:/data" \
+            busybox:1.36.1@sha256:73aaf090f3d85aa34ee199857f03fa3a95c8ede2ffd4cc2cdb5b94e566b11662 \
+            test -f /data/tkt.db; then
             echo "SQLite database preserved after restart"
           else
             echo "FAIL: database missing after restart"
