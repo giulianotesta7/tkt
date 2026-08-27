@@ -37,16 +37,9 @@ jobs:
         working-directory: e2e
         run: npm ci
 
-      - name: Install Chromium
+      - name: Install Chromium with system dependencies
         working-directory: e2e
-        run: npm exec -- playwright install chromium
-
-      - name: Install system dependencies for Chromium
-        working-directory: e2e
-        run: npm exec -- playwright install-deps chromium
-
-      - name: Build tkt server
-        run: go build -o tkt-server ./cmd/server
+        run: npm exec -- playwright install --with-deps chromium
 
       - name: Run E2E tests
         working-directory: e2e

@@ -4,7 +4,7 @@ description: "Trigger: implementing or changing a visible feature, modifying a c
 license: MIT
 metadata:
   author: "giulianotesta7"
-  version: "1.1"
+  version: "1.2"
 ---
 
 ## Activation Contract
@@ -27,35 +27,45 @@ Do NOT activate for:
 - Before assuming behavior, read the relevant OpenSpec spec under `openspec/specs/` or `openspec/changes/*/specs/`. Do NOT invent expected behavior.
 - Identify the affected journeys from the spec's scenarios and the application's actual routes.
 - Decide whether E2E is warranted: if the behavior can be verified at the unit or integration layer with equivalent confidence, prefer the lower layer. E2E is for full-stack journeys that cross service boundaries, involve HTMX swaps, or require actual browser rendering.
-- Start an isolated tkt instance with a temporary SQLite database and a free loopback port before any browser interaction. Use the shared `server-lifecycle.ts` module:
+- Start an isolated tkt instance with a temporary SQLite database and a free loopback port before any browser interaction. Use the shared `server-lifecycle.ts` module.
+
+  Two modes — choose ONE per `test.describe`:
+
+  **Empty DB (first-user setup):**
   ```typescript
   import { startServer, stopServer } from "../server-lifecycle.js";
-
-  test.beforeAll(async () => {
-    // Empty migrated DB (for first-user setup):
-    await startServer({ seed: false });
-    // Or pre-seeded DB (for login + ticket journeys):
-    await startServer({ seed: true });
-  });
-  test.afterAll(async () => {
-    await stopServer();
+  test.describe("First-User Setup", () => {
+    test.beforeAll(async () => { await startServer({ seed: false }); });
+    test.afterAll(async () => { await stopServer(); });
   });
   ```
+
+  **Pre-seeded DB (login + ticket journeys):**
+  ```typescript
+  import { startServer, stopServer } from "../server-lifecycle.js";
+  test.describe("Ticket Lifecycle", () => {
+    test.beforeAll(async () => { await startServer({ seed: true }); });
+    test.afterAll(async () => { await stopServer(); });
+  });
+  ```
+
 - Use Playwright CLI from the `e2e/` directory for ad-hoc exploration before writing assertions:
   ```bash
   cd e2e
-  # Start the server with your preferred DB state
+  npm run server:start:empty   # or server:start:seeded
+  # URL is printed to stdout
   npm run explore -- open http://127.0.0.1:PORT
   npm run explore -- snapshot
   npm run explore -- console
   npm run explore -- requests
   npm run explore -- screenshot
   npm run explore -- close-all
+  npm run server:stop
   ```
 - For versioned regression: inspect the interface with accessibility snapshots/selectors, check the console for errors and relevant network requests, then create or update a test in `e2e/tests/`.
 - After writing a test, run both the affected test file AND the full E2E suite (`npm test` in `e2e/`).
 - On test failure, preserve the Playwright trace, screenshot, and report as failure evidence.
-- Close all browser sessions and clean up the server process after each test.
+- Close all browser sessions (`npm run explore -- close-all`) before stopping the server.
 
 ## Regression Rule
 
@@ -81,27 +91,30 @@ When fixing a browser-observable bug, you MUST add or update a Playwright test t
 
 ## How to Explore Interactively
 
-1. Start a server from the `e2e/` tests directory or from the project root:
+1. Start an isolated server:
    ```bash
    cd e2e
-   go run ./migrate.go --db=/tmp/tkt-e2e.db
-   go run ../cmd/server &
-   # or for a seeded instance:
-   go run ./seed.go --db=/tmp/tkt-e2e.db
+   npm run server:start:empty
+   # TKT server ready at http://127.0.0.1:PORT
    ```
-2. Use the explore script with Playwright CLI commands:
+   Or with pre-seeded data:
    ```bash
-   npm run explore -- open http://127.0.0.1:PORT
+   npm run server:start:seeded
+   ```
+
+2. Use the Playwright CLI to explore:
+   ```bash
+   npm run explore -- open URL
    npm run explore -- snapshot
    npm run explore -- console
    npm run explore -- requests
    npm run explore -- screenshot
-   npm run explore -- close-all
    ```
-3. Stop the server and clean up:
+
+3. Clean up:
    ```bash
-   kill %1
-   rm -f /tmp/tkt-e2e.db /tmp/tkt-e2e.db-wal /tmp/tkt-e2e.db-shm
+   npm run explore -- close-all
+   npm run server:stop
    ```
 
 ## References
@@ -109,6 +122,9 @@ When fixing a browser-observable bug, you MUST add or update a Playwright test t
 - `../../../openspec/` — canonical specs and active changes.
 - `../../../e2e/` — Playwright tests, config, server-lifecycle, and CLI scripts.
 - `../../../e2e/server-lifecycle.ts` — isolated server start/stop for tests.
+- `../../../e2e/scripts/start-empty.mjs` — CLI entry point for empty DB.
+- `../../../e2e/scripts/start-seeded.mjs` — CLI entry point for seeded DB.
+- `../../../e2e/scripts/stop.mjs` — CLI entry point for stop + cleanup.
 - `../../../e2e/cmd/seed/main.go` — database seeder for root, category, desk, workflow.
 - `../../../e2e/cmd/migrate/main.go` — database migrator for empty-DB tests.
 - `../../../cmd/server/main.go` — local server environment and health endpoint.

@@ -1,36 +1,34 @@
 /**
  * Shared server lifecycle for E2E tests.
  *
- * Each test file starts its own isolated tkt server with its own temporary
- * SQLite database.  This provides full test isolation: the first-user-setup
- * test runs on an empty DB, while the login + ticket tests start from a
- * pre-seeded DB.  Tests can run individually, in any order, or repeated,
- * without sharing mutable state.
+ * Each test.describe block starts its own isolated tkt server with its own
+ * temporary SQLite database.  Provides full test isolation: first-user-setup
+ * runs on an empty DB, login + ticket tests start from a pre-seeded DB.
+ * Tests can run individually, in any order, or repeated, without sharing
+ * mutable state.
+ *
+ * State is persisted to e2e/.e2e-state.json so global-teardown can recover
+ * orphaned servers if a worker crashes before afterAll.
  *
  * Usage:
- *   import { startServer, stopServer } from "./server-lifecycle.js";
- *   import { seed } from "./seed-db.js";
+ *   import { startServer, stopServer } from "../server-lifecycle.js";
  *
  *   test.describe("My Journey", () => {
- *     test.beforeAll(async () => {
- *       await startServer();       // empty migrated DB (for first-user setup)
- *       // OR
- *       await startServer({ seed: true });  // seeded DB (for login + tickets)
- *     });
- *     test.afterAll(async () => {
- *       await stopServer();
- *     });
+ *     test.beforeAll(async () => { await startServer({ seed: false }); });
+ *     test.afterAll(async () => { await stopServer(); });
  *   });
  */
 import { execSync, spawn, type ChildProcess } from "node:child_process";
-import { randomBytes } from "node:crypto";
 import { createServer } from "node:net";
-import { mkdtempSync, rmSync } from "node:fs";
+import { randomBytes } from "node:crypto";
+import { mkdtempSync, rmSync, writeFileSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
 const PROJECT_ROOT = resolve(import.meta.dirname, "..");
+const E2E_DIR = join(PROJECT_ROOT, "e2e");
 const BIN = join(PROJECT_ROOT, "tkt-server");
+const STATE_FILE = join(E2E_DIR, ".e2e-state.json");
 
 export interface ServerHandle {
   baseURL: string;
@@ -79,90 +77,96 @@ export async function startServer(options: { seed?: boolean } = {}): Promise<Ser
     throw new Error("a server is already running; call stopServer() first");
   }
 
-  const bin = BIN;
   const dbDir = mkdtempSync(join(tmpdir(), "tkt-e2e-"));
   const dbPath = join(dbDir, "tkt.db");
 
-  // Run migrations
-  execSync(`go run ./e2e/cmd/migrate/main.go --db=${dbPath}`, {
-    cwd: PROJECT_ROOT,
-    stdio: "pipe",
-    env: { ...process.env, GOTOOLCHAIN: "auto" },
-  });
-
-  // Optionally seed
-  if (options.seed) {
-    execSync(`go run ./e2e/cmd/seed/main.go --db=${dbPath}`, {
+  try {
+    // Run migrations
+    execSync(`go run ./e2e/cmd/migrate/main.go --db=${dbPath}`, {
       cwd: PROJECT_ROOT,
       stdio: "pipe",
       env: { ...process.env, GOTOOLCHAIN: "auto" },
     });
-  }
 
-  const port = await findFreePort();
-  const baseURL = `http://127.0.0.1:${port}`;
-
-  const proc = spawn(bin, [], {
-    cwd: PROJECT_ROOT,
-    stdio: ["ignore", "pipe", "pipe"],
-    env: {
-      ...process.env,
-      TKT_DB_PATH: dbPath,
-      TKT_LISTEN: `127.0.0.1:${port}`,
-    },
-  });
-
-  let stdout = "";
-  let stderr = "";
-  let killed = false;
-
-  if (proc.stdout) {
-    proc.stdout.on("data", (chunk: Buffer) => { stdout += chunk.toString(); });
-  }
-  if (proc.stderr) {
-    proc.stderr.on("data", (chunk: Buffer) => { stderr += chunk.toString(); });
-  }
-
-  const cleanup = () => {
-    if (killed) return;
-    killed = true;
-    try { if (proc.exitCode === null) proc.kill("SIGKILL"); } catch { /* ignore */ }
-    try { rmSync(dbDir, { recursive: true, force: true }); } catch { /* ignore */ }
-  };
-
-  // Wait for health endpoint
-  const deadline = Date.now() + 15_000;
-  let ready = false;
-  while (Date.now() < deadline) {
-    try {
-      const res = await fetch(`${baseURL}/healthz`, {
-        signal: AbortSignal.timeout(3_000),
+    // Optionally seed
+    if (options.seed) {
+      execSync(`go run ./e2e/cmd/seed/main.go --db=${dbPath}`, {
+        cwd: PROJECT_ROOT,
+        stdio: "pipe",
+        env: { ...process.env, GOTOOLCHAIN: "auto" },
       });
-      if (res.ok) {
-        ready = true;
-        break;
-      }
-    } catch {
-      // not ready yet
     }
-    await new Promise((r) => setTimeout(r, 200));
+
+    const port = await findFreePort();
+    const baseURL = `http://127.0.0.1:${port}`;
+
+    const proc = spawn(BIN, [], {
+      cwd: PROJECT_ROOT,
+      stdio: ["ignore", "pipe", "pipe"],
+      env: {
+        ...process.env,
+        TKT_DB_PATH: dbPath,
+        TKT_LISTEN: `127.0.0.1:${port}`,
+      },
+    });
+
+    let stdout = "";
+    let stderr = "";
+
+    if (proc.stdout) {
+      proc.stdout.on("data", (chunk: Buffer) => { stdout += chunk.toString(); });
+    }
+    if (proc.stderr) {
+      proc.stderr.on("data", (chunk: Buffer) => { stderr += chunk.toString(); });
+    }
+
+    // Handle process error
+    proc.on("error", (err) => {
+      throw new Error(`spawn failed: ${err.message}`);
+    });
+
+    // Wait for health endpoint
+    const deadline = Date.now() + 15_000;
+    let ready = false;
+    while (Date.now() < deadline) {
+      try {
+        const res = await fetch(`${baseURL}/healthz`, {
+          signal: AbortSignal.timeout(3_000),
+        });
+        if (res.ok) {
+          ready = true;
+          break;
+        }
+      } catch {
+        // not ready yet
+      }
+      await new Promise((r) => setTimeout(r, 200));
+    }
+
+    if (!ready) {
+      try { if (proc.exitCode === null) proc.kill("SIGKILL"); } catch {}
+      throw new Error(
+        `tkt server did not become ready within 15s\nstdout: ${stdout.slice(0, 500)}\nstderr: ${stderr.slice(0, 500)}`,
+      );
+    }
+
+    running.proc = proc;
+    running.dbDir = dbDir;
+    activeServer = { baseURL, dbDir, port, pid: proc.pid! };
+
+    // Persist state for global-teardown recovery
+    writeFileSync(STATE_FILE, JSON.stringify({ dbDir, port, pid: proc.pid!, baseURL }, null, 2));
+
+    return activeServer;
+  } catch (err) {
+    // Cleanup on any failure during setup
+    try { rmSync(dbDir, { recursive: true, force: true }); } catch {}
+    try { rmSync(STATE_FILE, { force: true }); } catch {}
+    running.proc = null;
+    running.dbDir = null;
+    activeServer = null;
+    throw err;
   }
-
-  if (!ready) {
-    cleanup();
-    throw new Error(
-      `tkt server did not become ready within 15s\nstdout: ${stdout.slice(0, 500)}\nstderr: ${stderr.slice(0, 500)}`,
-    );
-  }
-
-  running.proc = proc;
-  running.dbDir = dbDir;
-  activeServer = { baseURL, dbDir, port, pid: proc.pid! };
-
-  // Set TKT_BASE_URL for this test's page requests
-  process.env.TKT_BASE_URL = baseURL;
-
-  return activeServer;
 }
 
 /**
@@ -172,10 +176,10 @@ export async function stopServer(): Promise<void> {
   const { proc, dbDir } = running;
 
   if (!proc) {
-    // Nothing running — still clean up any orphaned temp dir
     if (dbDir) {
       try { rmSync(dbDir, { recursive: true, force: true }); } catch { /* ignore */ }
     }
+    try { rmSync(STATE_FILE, { force: true }); } catch { /* ignore */ }
     running.dbDir = null;
     return;
   }
@@ -196,21 +200,20 @@ export async function stopServer(): Promise<void> {
     try { proc.kill("SIGKILL"); } catch { /* ignore */ }
   }
 
-  // Remove temp database directory
+  // Remove the exact temp directory only
   if (dbDir) {
     try { rmSync(dbDir, { recursive: true, force: true }); } catch { /* ignore */ }
   }
 
-  // Clean up Playwright CLI artifacts
+  // Remove state file
+  try { rmSync(STATE_FILE, { force: true }); } catch { /* ignore */ }
+
+  // Clean up Playwright CLI artifacts in e2e/
   try {
-    rmSync(join(PROJECT_ROOT, ".playwright-cli"), { recursive: true, force: true });
+    rmSync(join(E2E_DIR, ".playwright-cli"), { recursive: true, force: true });
   } catch { /* ignore */ }
 
   running.proc = null;
   running.dbDir = null;
   activeServer = null;
-
-  // Verify no leftover temp dirs
-  const leftover = join(tmpdir(), "tkt-e2e-");
-  // Only check pattern if the tmpdir isn't the standard one
 }

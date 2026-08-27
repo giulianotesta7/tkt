@@ -6,6 +6,9 @@
     "test": "playwright test",
     "test:headed": "playwright test --headed",
     "explore": "playwright cli",
+    "server:start:empty": "node scripts/start-empty.mjs",
+    "server:start:seeded": "node scripts/start-seeded.mjs",
+    "server:stop": "node scripts/stop.mjs",
     "install-browser": "playwright install chromium",
     "install-browser-deps": "playwright install-deps chromium"
   },

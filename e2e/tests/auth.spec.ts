@@ -56,8 +56,8 @@ test.describe("First-User Setup", () => {
     // After login, redirect to /tickets
     await expect(page).toHaveURL(/\/tickets/);
 
-    // Tickets page should show empty state
-    await expect(page.locator("h1, h2").first()).toBeVisible();
+    // Tickets page should show the concrete empty state
+    await expect(page.getByText("No tickets match your filters.")).toBeVisible();
 
     // Verify the user's initials appear in the sidebar rail
     await expect(page.getByText("AA")).toBeVisible();
@@ -84,8 +84,8 @@ test.describe("Login", () => {
     // After login, redirect to /tickets
     await expect(page).toHaveURL(/\/tickets/);
 
-    // Tickets page should show empty state
-    await expect(page.locator("h1, h2").first()).toBeVisible();
+    // Tickets page should show the concrete empty state
+    await expect(page.getByText("No tickets match your filters.")).toBeVisible();
 
     // Verify the user's initials appear in the sidebar rail
     await expect(page.getByText("AA")).toBeVisible();
