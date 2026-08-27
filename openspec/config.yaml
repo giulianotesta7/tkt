@@ -13,7 +13,9 @@ strict_tdd: true
 testing:
   runner: go test
   test_command: "go test ./..."
+  build_command: "go build ./..."
   coverage_command: "go test -cover ./..."
+  coverage_threshold: 0
   layers:
     unit: stdlib testing
     integration: net/http/httptest + in-memory SQLite
@@ -36,13 +38,11 @@ rules:
     - Group by phase, use hierarchical numbering
     - Keep tasks completable in one session
   apply:
-    guidelines:
-      - Follow existing code patterns
-    tdd: true
-    test_command: "go test ./..."
+    - Follow existing code patterns
+    - Write tests before implementation (TDD)
+    - Run "go test ./..." after each work unit
   verify:
-    test_command: "go test ./..."
-    build_command: "go build ./..."
-    coverage_threshold: 0
+    - Run "go test ./..." for verification
+    - Run "go build ./..." for build verification
   archive:
     - Warn before merging destructive deltas

@@ -22,117 +22,20 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-node@v4
         with:
-          go-version-file: go.mod
-          cache: false
+          node-version: 22
 
-      - name: Install gentle-ai
+      - name: Validate canonical specs
         run: |
-          go install github.com/gentleman-programming/gentle-ai/v2/cmd/gentle-ai@v2.4.0
-          echo "$HOME/go/bin" >> "$GITHUB_PATH"
+          npx --yes --package=@fission-ai/openspec@1.11.0 -- \
+            openspec validate --all --strict --no-interactive
+        env:
+          OPENSPEC_TELEMETRY: 0
 
-      - name: Validate OpenSpec structure
+      - name: Validate archived changes
         run: |
-          # Validate the OpenSpec directory structure and spec format
-          # This runs structural validation until the official openspec CLI ships.
-
-          errors=0
-          config_path="openspec/config.yaml"
-
-          # 1. Config exists
-          if [ ! -f "$config_path" ]; then
-            echo "FAIL: $config_path not found"
-            errors=$((errors + 1))
-          else
-            echo "PASS: $config_path exists"
-
-            # Check for required config keys
-            if grep -q "^schema:" "$config_path" 2>/dev/null; then
-              echo "PASS: config.yaml has schema key"
-            else
-              echo "FAIL: config.yaml missing 'schema' key"
-              errors=$((errors + 1))
-            fi
-            if grep -q "^context:" "$config_path" 2>/dev/null; then
-              echo "PASS: config.yaml has context key"
-            else
-              echo "FAIL: config.yaml missing 'context' key"
-              errors=$((errors + 1))
-            fi
-          fi
-
-          # 2. Specs directory structure
-          if [ ! -d "openspec/specs" ]; then
-            echo "FAIL: openspec/specs/ directory not found"
-            errors=$((errors + 1))
-          else
-            echo "PASS: openspec/specs/ directory exists"
-            for spec_dir in openspec/specs/*/; do
-              spec_name=$(basename "$spec_dir")
-              spec_file="${spec_dir}spec.md"
-              if [ -f "$spec_file" ]; then
-                echo "  PASS: $spec_name/spec.md exists"
-                # Check required sections
-                if grep -q "^## Purpose" "$spec_file" 2>/dev/null; then
-                  echo "    PASS: Has 'Purpose' section"
-                else
-                  echo "    FAIL: Missing 'Purpose' section"
-                  errors=$((errors + 1))
-                fi
-                if grep -q "^## Requirements" "$spec_file" 2>/dev/null; then
-                  echo "    PASS: Has 'Requirements' section"
-                else
-                  echo "    FAIL: Missing 'Requirements' section"
-                  errors=$((errors + 1))
-                fi
-                # Check for RFC 2119 keywords
-                if grep -q -E '\b(MUST|SHALL|SHOULD|MAY)\b' "$spec_file" 2>/dev/null; then
-                  echo "    PASS: Uses RFC 2119 keywords"
-                else
-                  echo "    WARN: No RFC 2119 keywords found (MUST/SHALL/SHOULD/MAY)"
-                fi
-              else
-                echo "  FAIL: $spec_name/ has no spec.md"
-                errors=$((errors + 1))
-              fi
-            done
-          fi
-
-          # 3. Changes directory structure
-          if [ ! -d "openspec/changes" ]; then
-            echo "FAIL: openspec/changes/ directory not found"
-            errors=$((errors + 1))
-          else
-            echo "PASS: openspec/changes/ directory exists"
-            for change in openspec/changes/*/; do
-              echo "  Found change: $(basename "$change")"
-            done
-          fi
-
-          # Summary
-          echo ""
-          if [ "$errors" -eq 0 ]; then
-            echo "SUCCESS: OpenSpec structure validation passed"
-          else
-            echo "FAILED: $errors validation error(s) found"
-            exit 1
-          fi
-
-      - name: Validate OpenSpec config YAML
-        run: |
-          # Basic YAML key validation (no pyyaml dependency)
-          errors=0
-          for key in schema context testing rules; do
-            if grep -q "^${key}:" openspec/config.yaml 2>/dev/null; then
-              echo "  PASS: config.yaml has '$key' key"
-            else
-              echo "  FAIL: config.yaml missing '$key' key"
-              errors=$((errors + 1))
-            fi
-          done
-          if [ "$errors" -gt 0 ]; then
-            echo "FAILED: YAML config validation failed ($errors errors)"
-            exit 1
-          fi
-          echo "PASS: openspec/config.yaml YAML structure valid"
+          npx --yes --package=@fission-ai/openspec@1.11.0 -- \
+            openspec validate --archived --no-interactive
+        env:
+          OPENSPEC_TELEMETRY: 0
