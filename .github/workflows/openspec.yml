@@ -1,0 +1,41 @@
+name: OpenSpec
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: openspec-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    name: OpenSpec / validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Validate canonical specs
+        run: |
+          npx --yes --package=@fission-ai/openspec@1.11.0 -- \
+            openspec validate --all --strict --no-interactive
+        env:
+          OPENSPEC_TELEMETRY: 0
+
+      - name: Validate archived changes
+        run: |
+          npx --yes --package=@fission-ai/openspec@1.11.0 -- \
+            openspec validate --archived --no-interactive
+        env:
+          OPENSPEC_TELEMETRY: 0
