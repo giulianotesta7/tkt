@@ -5,11 +5,12 @@
   "scripts": {
     "test": "playwright test",
     "test:headed": "playwright test --headed",
-    "explore": "playwright open",
+    "explore": "playwright cli",
     "install-browser": "playwright install chromium",
     "install-browser-deps": "playwright install-deps chromium"
   },
   "devDependencies": {
-    "@playwright/test": "1.62.1"
+    "@playwright/test": "1.62.1",
+    "playwright": "1.62.1"
   }
 }
