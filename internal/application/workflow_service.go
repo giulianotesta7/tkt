@@ -32,7 +32,7 @@ func (s *WorkflowService) GetForBuilder(ctx context.Context, actor domain.User, 
 	if err != nil {
 		return nil, err
 	}
-	if raw == nil || len(raw) == 0 {
+	if len(raw) == 0 {
 		return domain.WorkflowDefinition{}, nil
 	}
 	return domain.ParseWorkflowDefinition(raw)
