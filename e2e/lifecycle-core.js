@@ -10,7 +10,9 @@
  *   - global-teardown.ts       (Playwright global teardown)
  *
  * State is persisted to e2e/.e2e-state.json immediately after temp dir
- * creation, so global-teardown can recover from any interruption point.
+ * creation AND immediately after spawn (before healthcheck), so
+ * global-teardown can recover from any interruption point — including
+ * during migration, spawn, or readiness.
  */
 
 import { execFileSync, spawn } from "node:child_process";
@@ -36,9 +38,8 @@ function nextRunId() {
 }
 
 /**
- * Write state atomically.  Called immediately after temp dir creation and
- * updated after each bootstrap phase so any interrupted execution leaves
- * a recoverable record.
+ * Write state atomically.  Called immediately after temp dir creation,
+ * after each bootstrap phase, and immediately after spawn.
  */
 export function writeState(state) {
   writeFileSync(STATE_TMP, JSON.stringify(state, null, 2) + "\n", "utf8");
@@ -57,6 +58,36 @@ export function readState() {
 export function removeState() {
   try { rmSync(STATE_FILE, { force: true }); } catch {}
   try { rmSync(STATE_TMP, { force: true }); } catch {}
+}
+
+/** Check whether a PID is alive (exists and we can signal it). */
+function pidAlive(pid) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Kill a PID: SIGTERM + grace window + SIGKILL.
+ * Returns true if the process was killed, false if it was already dead.
+ */
+export async function killPID(pid) {
+  if (!pidAlive(pid)) return false;
+  try {
+    process.kill(pid, "SIGTERM");
+  } catch { /* race */ }
+  const deadline = Date.now() + 3000;
+  while (Date.now() < deadline) {
+    if (!pidAlive(pid)) return true;
+    await new Promise((r) => setTimeout(r, 50));
+  }
+  try {
+    process.kill(pid, "SIGKILL");
+  } catch { /* race */ }
+  return true;
 }
 
 // ── Port allocation ────────────────────────────────────────────────────
@@ -116,20 +147,32 @@ export function runSeed(dbPath) {
   });
 }
 
-// ── Spawn as Promise — captures stderr for diagnostics ─────────────────
-export function spawnServer(port, dbPath) {
+// ── Spawn + persist PID + healthcheck ─────────────────────────────────
+/**
+ * Spawn the server, persist PID immediately, then wait for readiness.
+ *
+ * Returns { proc, baseURL, stderr } on success.
+ * On failure (spawn error, exit before ready, or readiness timeout):
+ *   - kills the local ChildProcess
+ *   - removes the temp directory
+ *   - removes the state file
+ *   - rejects with a descriptive error
+ */
+export async function spawnServer(port, dbPath, state) {
   const baseURL = `http://127.0.0.1:${port}`;
-  return new Promise((resolve, reject) => {
-    const proc = spawn(BIN, [], {
-      cwd: PROJECT_ROOT,
-      stdio: ["ignore", "pipe", "pipe"],
-      env: {
-        ...process.env,
-        TKT_DB_PATH: dbPath,
-        TKT_LISTEN: `127.0.0.1:${port}`,
-      },
-    });
+  const { dbDir, runId } = state;
 
+  const proc = spawn(BIN, [], {
+    cwd: PROJECT_ROOT,
+    stdio: ["ignore", "pipe", "pipe"],
+    env: {
+      ...process.env,
+      TKT_DB_PATH: dbPath,
+      TKT_LISTEN: `127.0.0.1:${port}`,
+    },
+  });
+
+  return new Promise((resolve, reject) => {
     let resolved = false;
     let stderr = "";
 
@@ -139,16 +182,31 @@ export function spawnServer(port, dbPath) {
       });
     }
 
+    // Persist PID immediately — before healthcheck — so recovery is possible
+    writeState({ runId, dbDir, dbPath, bootstrapStatus: "starting", pid: proc.pid, port: port, baseURL });
+
+    // Shared cleanup helper: kill the local proc, remove dir, remove state.
+    // Does NOT re-read the state file — uses the local references.
+    const cleanup = () => {
+      try { if (proc.exitCode === null) proc.kill("SIGKILL"); } catch { /* ignore */ }
+      try { rmSync(dbDir, { recursive: true, force: true }); } catch { /* ignore */ }
+      removeState();
+    };
+
     proc.on("error", (err) => {
       if (!resolved) {
         resolved = true;
-        reject(new Error("spawn failed: " + err.message + (stderr ? "\nstderr:\n" + stderr.slice(0, 500) : "")));
+        cleanup();
+        reject(new Error(
+          "spawn failed: " + err.message + (stderr ? "\nstderr:\n" + stderr.slice(0, 500) : ""),
+        ));
       }
     });
 
     proc.on("exit", (code, signal) => {
       if (!resolved) {
         resolved = true;
+        cleanup();
         reject(new Error(
           "process exited with code " + code + " signal " + signal + " before ready" +
           (stderr ? "\nstderr:\n" + stderr.slice(0, 500) : ""),
@@ -178,6 +236,7 @@ export function spawnServer(port, dbPath) {
       }
       if (!resolved) {
         resolved = true;
+        cleanup();
         reject(new Error("server not ready within 15s" + (stderr ? "\nstderr:\n" + stderr.slice(0, 500) : "")));
       }
     })();
@@ -194,29 +253,7 @@ export async function stopServer() {
 
   // Kill the exact PID we own
   if (state.pid) {
-    try {
-      process.kill(state.pid, "SIGTERM");
-    } catch {
-      // already dead
-    }
-
-    // Busy-wait grace period
-    const deadline = Date.now() + 3000;
-    while (Date.now() < deadline) {
-      try {
-        process.kill(state.pid, 0);
-      } catch {
-        break; // process is gone
-      }
-      await new Promise((r) => setTimeout(r, 50));
-    }
-
-    // Force kill
-    try {
-      process.kill(state.pid, "SIGKILL");
-    } catch {
-      // already dead
-    }
+    await killPID(state.pid);
   }
 
   // Remove the exact temp directory only
@@ -247,13 +284,35 @@ export async function startServer(options = {}) {
   const { seed = false, mode = "test" } = options;
   const isCLI = mode === "cli";
 
+  // ── Guard: don't overwrite a running server ────────────────────────
+  const existing = readState();
+  if (existing) {
+    if (existing.pid && pidAlive(existing.pid)) {
+      throw new Error(
+        "A server is already running (PID " + existing.pid + "). " +
+        "Run `npm run server:stop` first, or kill the process manually.",
+      );
+    }
+    // Stale state: clean up its exact resources, then continue
+    if (existing.dbDir) {
+      try { rmSync(existing.dbDir, { recursive: true, force: true }); } catch { /* ignore */ }
+    }
+    removeState();
+  }
+
   // Build (idempotent — fast if already built)
   buildServer();
 
   // Create temp dir — state persisted immediately for recovery
-  const { dbDir, dbPath, runId } = createTempDir();
-
+  let dbDir;
+  let dbPath;
+  let runId;
   try {
+    const tmp = createTempDir();
+    dbDir = tmp.dbDir;
+    dbPath = tmp.dbPath;
+    runId = tmp.runId;
+
     // Migrate
     runMigrate(dbPath);
     writeState({ runId, dbDir, dbPath, bootstrapStatus: "migrated", pid: null, port: null, baseURL: null });
@@ -268,10 +327,11 @@ export async function startServer(options = {}) {
     const port = await findFreePort();
     const baseURL = `http://127.0.0.1:${port}`;
 
-    // Spawn + wait for readiness
-    const { proc } = await spawnServer(port, dbPath);
+    // Spawn: persists PID immediately (before healthcheck), then waits for readiness.
+    // On failure, spawnServer handles its own cleanup (kill proc, remove dir, remove state).
+    const { proc } = await spawnServer(port, dbPath, { dbDir, runId });
 
-    // Persist final state with PID and connection info
+    // Persist final state with ready status
     writeState({ runId, dbDir, dbPath, bootstrapStatus: "ready", pid: proc.pid, port, baseURL });
 
     if (isCLI) {
@@ -287,20 +347,10 @@ export async function startServer(options = {}) {
     // For tests: return the handle
     return { dbDir, port, pid: proc.pid, baseURL, proc };
   } catch (err) {
-    // Cleanup on any failure: kill process if spawned, remove dir, remove state
-    const currentState = readState();
-    if (currentState && currentState.pid) {
-      try {
-        process.kill(currentState.pid, "SIGKILL");
-      } catch {
-        // already dead
-      }
-    }
-    try {
-      rmSync(dbDir, { recursive: true, force: true });
-    } catch {
-      // ignore
-    }
+    // If the error came from outside spawnServer (migrate, seed, port),
+    // we need to clean up here.  If it came from spawnServer, cleanup
+    // already happened inside that function — but it's safe to repeat.
+    try { rmSync(dbDir, { recursive: true, force: true }); } catch { /* ignore */ }
     removeState();
     throw err;
   }
