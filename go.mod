@@ -1,6 +1,6 @@
 module github.com/giulianotesta7/tkt
 
-go 1.25.11
+go 1.25.14
 
 require (
 	golang.org/x/crypto v0.54.0
