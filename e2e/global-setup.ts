@@ -1,17 +1,9 @@
-import { execSync } from "node:child_process";
-import { resolve } from "node:path";
-
-const PROJECT_ROOT = resolve(import.meta.dirname, "..");
+import { buildServer } from "./lifecycle-core.js";
 
 export async function setup(): Promise<void> {
   // Build the binary once — each test file starts its own server
   // from the prebuilt binary for full isolation.
-  const bin = resolve(PROJECT_ROOT, "tkt-server");
-  execSync(`go build -o ${bin} ./cmd/server`, {
-    cwd: PROJECT_ROOT,
-    stdio: "pipe",
-    env: { ...process.env, GOTOOLCHAIN: "auto" },
-  });
+  buildServer();
   console.log("tkt-server binary built");
 }
 
