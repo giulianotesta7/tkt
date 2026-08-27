@@ -15,7 +15,7 @@ testing:
   test_command: "go test ./..."
   build_command: "go build ./..."
   coverage_command: "go test -cover ./..."
-  coverage_threshold: 0
+  coverage_threshold: 75
   layers:
     unit: stdlib testing
     integration: net/http/httptest + in-memory SQLite
