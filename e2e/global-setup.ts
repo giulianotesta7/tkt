@@ -75,7 +75,7 @@ export async function setup(): Promise<void> {
   let ready = false;
   while (Date.now() < deadline) {
     try {
-      const res = await fetch(`${baseURL}/healthz`);
+      const res = await fetch(`${baseURL}/healthz`, { signal: AbortSignal.timeout(5_000) });
       if (res.ok) {
         ready = true;
         break;
