@@ -36,7 +36,7 @@ Shared assertion lives in `e2e/tests/helpers/layout.ts` (`assertNoHorizontalOver
 
 - Isolated temp SQLite DB per `test.describe` via `server-lifecycle.ts` / `lifecycle-core.js` (loopback-only, cleanup of temp DB + `.e2e-state.json`)
 - `playwright.config.ts` — `chromium` only, `workers: 1`, `trace/on-first-retry`
-- CI — `.github/workflows/e2e.yml` job `E2E / frontend coverage` (`npm test` in `e2e/`)
+- CI — `.github/workflows/e2e.yml` job `E2E / critical journeys` (`npm test` in `e2e/`)
 
 ## How to run
 

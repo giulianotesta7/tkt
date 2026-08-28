@@ -9,6 +9,7 @@
 import { test, expect } from "@playwright/test";
 import { startServer, stopServer } from "../server-lifecycle.js";
 import { loginAsSeeded, base } from "./helpers/auth.js";
+import { resolveWorkflowHref } from "./helpers/navigation.js";
 
 test.describe("HTMX interactions", () => {
   test.beforeAll(async () => {
@@ -64,17 +65,9 @@ test.describe("HTMX interactions", () => {
   test("workflow builder partial swap does not reload surrounding header", async ({ page }) => {
     await loginAsSeeded(page);
     await page.goto(base() + "/categories");
-    const row = page.locator("tr").filter({ hasText: "General" });
-    let wfHref: string | null = null;
-    const wfLink = row.locator('a[href*="/workflow"]').first();
-    if (await wfLink.count()) wfHref = await wfLink.getAttribute("href");
-    else {
-      const editHref = await row.locator('a[href*="/edit"]').getAttribute("href");
-      const m = editHref?.match(/\/categories\/(\d+)\/edit/);
-      if (m) wfHref = `/categories/${m[1]}/workflow`;
-    }
+    const wfHref = await resolveWorkflowHref(page);
     if (!wfHref) test.skip(true, "no workflow link");
-    await page.goto(base() + wfHref!);
+    await page.goto(base() + wfHref);
     await expect(page.locator("#workflow-builder")).toBeVisible();
     const headerTextBefore = await page.locator(".page-header h1").textContent();
     // Trigger a workflow builder HTMX action: add manual_task via its button

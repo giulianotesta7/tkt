@@ -7,37 +7,7 @@ import { test, expect } from "@playwright/test";
 import { startServer, stopServer } from "../server-lifecycle.js";
 import { loginAsSeeded, base } from "./helpers/auth.js";
 import { collectObservability, expectNoConsoleOrPageErrors } from "./helpers/layout.js";
-
-async function createTicket(page: import("@playwright/test").Page, title: string): Promise<string> {
-  await page.goto(base() + "/tickets/new");
-  await expect(page.locator("h2")).toContainText(/ticket details/i);
-  await page.getByLabel(/title/i).fill(title);
-  await page.getByLabel(/description/i).fill("detail probe");
-  await page.getByLabel(/category/i).selectOption({ label: "General" });
-  await page.getByLabel(/priority/i).selectOption("high");
-  await page.getByRole("button", { name: /create ticket/i }).click();
-  // Creation currently redirects to /tickets list (slice 1); detail lands later. Follow the list link to detail.
-  await expect(page).toHaveURL(/\/tickets/);
-  await expect(page.getByText(title)).toBeVisible({ timeout: 10_000 });
-  const href = await page.getByText(title).first().getAttribute("href");
-  // Ticket list renders title as link to /tickets/{id}; fallback: first TKT link in same row
-  let id: string | null = null;
-  if (href) {
-    const m = href.match(/\/tickets\/(\d+)/);
-    if (m) id = m[1];
-  }
-  if (!id) {
-    const link = page.locator('a[href*="/tickets/"]').first();
-    const h = await link.getAttribute("href");
-    const m = h?.match(/\/tickets\/(\d+)/);
-    if (m) id = m[1];
-  }
-  if (!id) throw new Error("could not extract ticket id for " + title + " at " + page.url());
-  // Navigate to detail for caller convenience (caller may goto again anyway)
-  await page.goto(base() + `/tickets/${id}`);
-  await expect(page.locator("#ticket-detail")).toBeVisible({ timeout: 10_000 });
-  return id;
-}
+import { createTicketViaUi } from "./helpers/navigation.js";
 
 test.describe("Ticket detail", () => {
   test.beforeAll(async () => {
@@ -51,7 +21,7 @@ test.describe("Ticket detail", () => {
     const obs = collectObservability(page);
     await loginAsSeeded(page);
     const title = "Detail probe " + Date.now();
-    const id = await createTicket(page, title);
+    const id = await createTicketViaUi(page, { title, description: "detail probe", category: "General", priority: "high" });
 
     await page.goto(base() + `/tickets/${id}`);
     await expect(page.locator("#ticket-detail")).toBeVisible();
@@ -78,7 +48,7 @@ test.describe("Ticket detail", () => {
   test("comment rejection on resolved / closed / cancelled is enforced", async ({ page }) => {
     await loginAsSeeded(page);
     const title = "Closed comment probe " + Date.now();
-    const id = await createTicket(page, title);
+    const id = await createTicketViaUi(page, { title, description: "detail probe", category: "General", priority: "high" });
 
     // Drive ticket to resolved via transitions (admin can transition any ticket)
     // new -> in_progress -> resolved (auto-submit without Apply for these)
@@ -135,7 +105,7 @@ test.describe("Ticket detail", () => {
 
     // Transition closed -> cancelled is NOT allowed; instead create a fresh ticket and cancel it from new
     const cancelTitle = "Cancel probe " + Date.now();
-    const cancelId = await createTicket(page, cancelTitle);
+    const cancelId = await createTicketViaUi(page, { title: cancelTitle, description: "detail probe", category: "General", priority: "high" });
     await page.goto(base() + `/tickets/${cancelId}`);
     const toCancel = page.locator("#ticket-state");
     await toCancel.selectOption("cancelled");
@@ -153,7 +123,7 @@ test.describe("Ticket detail", () => {
 
   test("HTMX partial swap attributes exist on ticket detail", async ({ page }) => {
     await loginAsSeeded(page);
-    const id = await createTicket(page, "HTMX probe " + Date.now());
+    const id = await createTicketViaUi(page, { title: "HTMX probe " + Date.now(), description: "detail probe", category: "General", priority: "high" });
     await page.goto(base() + `/tickets/${id}`);
     // Title inline edit form, priority select, assign select, transition, comment form all carry hx-post / hx-target
     const hxForms = page.locator('[hx-post][hx-target="#ticket-detail"]');

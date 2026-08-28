@@ -6,6 +6,7 @@ import { test, expect } from "@playwright/test";
 import { startServer, stopServer } from "../server-lifecycle.js";
 import { loginAsSeeded, base } from "./helpers/auth.js";
 import { collectObservability, expectNoConsoleOrPageErrors } from "./helpers/layout.js";
+import { openWorkflowBuilder, resolveWorkflowHref } from "./helpers/navigation.js";
 
 test.describe("Categories", () => {
   test.beforeAll(async () => {
@@ -61,22 +62,7 @@ test.describe("Categories", () => {
     const obs = collectObservability(page);
     await loginAsSeeded(page);
     await page.goto(base() + "/categories");
-
-    // Find workflow link for General
-    const generalRow = page.locator("tr").filter({ hasText: "General" });
-    // Workflow link might be an anchor containing /workflow
-    const wfLink = generalRow.locator('a[href*="/workflow"]').first();
-    if (await wfLink.count()) {
-      await wfLink.click();
-    } else {
-      // fallback: click via category id extraction from edit link
-      const editHref = await generalRow.locator('a[href*="/edit"]').getAttribute("href");
-      const m = editHref?.match(/\/categories\/(\d+)\/edit/);
-      if (!m) throw new Error("could not find category id for workflow");
-      await page.goto(base() + `/categories/${m[1]}/workflow`);
-    }
-
-    await expect(page.locator("#workflow-builder")).toBeVisible();
+    await openWorkflowBuilder(page);
     await expect(page.locator("h2#workflow-builder-title")).toContainText(/workflow steps/i);
     await expect(page.locator(".workflow-step-rail")).toBeVisible();
 
@@ -124,17 +110,9 @@ test.describe("Categories", () => {
   test("workflow builder HTMX attributes are present (partial swap contract)", async ({ page }) => {
     await loginAsSeeded(page);
     await page.goto(base() + "/categories");
-    const generalRow = page.locator("tr").filter({ hasText: "General" });
-    let wfHref: string | null = null;
-    const wfLink = generalRow.locator('a[href*="/workflow"]').first();
-    if (await wfLink.count()) wfHref = await wfLink.getAttribute("href");
-    else {
-      const editHref = await generalRow.locator('a[href*="/edit"]').getAttribute("href");
-      const m = editHref?.match(/\/categories\/(\d+)\/edit/);
-      if (m) wfHref = `/categories/${m[1]}/workflow`;
-    }
+    const wfHref = await resolveWorkflowHref(page);
     if (!wfHref) test.skip(true, "no workflow link found");
-    await page.goto(base() + wfHref!);
+    await page.goto(base() + wfHref);
     await expect(page.locator("#workflow-builder")).toBeVisible();
     const form = page.locator("#workflow-builder form#workflow-form");
     await expect(form).toHaveAttribute("hx-post", /\/workflow/);
