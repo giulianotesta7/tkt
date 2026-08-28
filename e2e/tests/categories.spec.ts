@@ -76,11 +76,12 @@ test.describe("Categories", () => {
     const addBtn = page.locator(".workflow-add-options button").filter({ hasText: "Manual task" }).first();
     // Ensure HTMX is present
     await expect(page.locator("#workflow-builder form")).toHaveAttribute("hx-post", /\/workflow/);
-    await addBtn.click();
-    // After HTMX swap, builder remains and step count grows
-    await expect(page.locator("#workflow-builder")).toBeVisible();
     const cards = page.locator(".workflow-step-card");
-    await expect(cards).not.toHaveCount(0);
+    const cardsBeforeAdd = await cards.count();
+    await addBtn.click();
+    // After HTMX swap, builder remains and the step count actually grows
+    await expect(page.locator("#workflow-builder")).toBeVisible();
+    await expect(cards).toHaveCount(cardsBeforeAdd + 1);
     // Live region should announce addition
     await expect(page.locator("[data-workflow-live]")).toContainText(/added a step/i);
 
