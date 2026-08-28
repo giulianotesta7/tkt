@@ -69,21 +69,20 @@ test.describe("Categories", () => {
     // The seeded General category has at least one step (manual_task) already published and loaded as draft
     await expect(page.locator(".workflow-step-card").first()).toBeVisible();
 
-    // Add a step via the + Add step popover -> Manual task
+    // Add a step via the + Add step popover -> Manual task (must exist; a silent skip would mask a regression)
     const addSummary = page.locator(".workflow-add-step summary").first();
-    if (await addSummary.count()) {
-      await addSummary.click();
-      const addBtn = page.locator(".workflow-add-options button").filter({ hasText: "Manual task" }).first();
-      // Ensure HTMX is present
-      await expect(page.locator("#workflow-builder form")).toHaveAttribute("hx-post", /\/workflow/);
-      await addBtn.click();
-      // After HTMX swap, builder remains and step count grows
-      await expect(page.locator("#workflow-builder")).toBeVisible();
-      const cards = page.locator(".workflow-step-card");
-      await expect(cards).not.toHaveCount(0);
-      // Live region should announce addition
-      await expect(page.locator("[data-workflow-live]")).toContainText(/added a step/i);
-    }
+    await expect(addSummary).toBeVisible();
+    await addSummary.click();
+    const addBtn = page.locator(".workflow-add-options button").filter({ hasText: "Manual task" }).first();
+    // Ensure HTMX is present
+    await expect(page.locator("#workflow-builder form")).toHaveAttribute("hx-post", /\/workflow/);
+    await addBtn.click();
+    // After HTMX swap, builder remains and step count grows
+    await expect(page.locator("#workflow-builder")).toBeVisible();
+    const cards = page.locator(".workflow-step-card");
+    await expect(cards).not.toHaveCount(0);
+    // Live region should announce addition
+    await expect(page.locator("[data-workflow-live]")).toContainText(/added a step/i);
 
     // Publish button exists and is HTMX-capable form
     await expect(page.getByRole("button", { name: /publish/i })).toBeVisible();
