@@ -99,11 +99,50 @@ function authenticatedScreens(deps: {
   ];
 }
 
-let suiteDeps: { ticketId: string; workflowHref: string; categoryEditHref: string; userEditHref: string } | undefined;
+let fixture: { ticketId: string; workflowHref: string; categoryEditHref: string; userEditHref: string } | undefined;
 
 test.describe("Structural — seeded canonical screens", () => {
-  test.beforeAll(async () => {
+  test.beforeAll(async ({ browser }) => {
     await startServer({ seed: true });
+    // Prepare dynamic IDs once in an isolated page
+    const ctx = await browser.newContext();
+    const page = await ctx.newPage();
+    try {
+      await page.goto(base() + "/login", { waitUntil: "networkidle" });
+      await expect(page.getByLabel(/email/i)).toBeVisible({ timeout: 10_000 });
+      await page.getByLabel(/email/i).fill(seededCredentials.email);
+      await page.getByLabel(/password/i).fill(seededCredentials.password);
+      await page.getByRole("button", { name: /log in|sign in/i }).click();
+      await expect(page).toHaveURL(/\/tickets/);
+
+      const ticketTitle = "Structural ticket " + Date.now() + Math.random().toString(36).slice(2, 6);
+      const ticketId = await createTicketViaUi(page, {
+        title: ticketTitle,
+        description: "probe",
+        category: "General",
+        priority: "high",
+      });
+
+      await page.goto(base() + "/categories");
+      const workflowHref = await resolveWorkflowHref(page);
+      const categoryEditHref = await resolveCategoryEditHref(page, "General");
+
+      const seededUserName = "StructUser " + Date.now().toString(36).slice(2, 6);
+      const seededUserEmail = `struct-${Date.now().toString(36).slice(2, 8)}@example.com`;
+      await page.goto(base() + "/users/new");
+      await page.getByLabel(/^name$/i).fill(seededUserName);
+      await page.getByLabel(/^email$/i).fill(seededUserEmail);
+      await page.getByLabel(/^password$/i).fill("Secret123!");
+      await page.getByRole("button", { name: /create user/i }).click();
+      await expect(page).toHaveURL(/\/users/);
+
+      await page.goto(base() + "/users");
+      const userEditHref = await resolveUserEditHref(page);
+
+      fixture = { ticketId, workflowHref, categoryEditHref, userEditHref };
+    } finally {
+      await ctx.close();
+    }
   });
   test.afterAll(async () => {
     await stopServer();
@@ -113,46 +152,7 @@ test.describe("Structural — seeded canonical screens", () => {
     test(`seeded structural baselines at ${vp.label}`, async ({ page, context }) => {
       await page.setViewportSize({ width: vp.width, height: vp.height });
       const obs = collectObservability(page);
-
-      // ---- Step 1: prepare dynamic IDs (login first, create data) ----
-      // Resolve dynamic IDs once per test suite (lazy singleton)
-      if (!suiteDeps) {
-        await page.goto(base() + "/login", { waitUntil: "networkidle" });
-        await expect(page.getByLabel(/email/i)).toBeVisible({ timeout: 10_000 });
-        await page.getByLabel(/email/i).fill(seededCredentials.email);
-        await page.getByLabel(/password/i).fill(seededCredentials.password);
-        await page.getByRole("button", { name: /log in|sign in/i }).click();
-        await expect(page).toHaveURL(/\/tickets/);
-
-        const ticketTitle = "Structural ticket " + Date.now() + Math.random().toString(36).slice(2, 6);
-        const ticketId = await createTicketViaUi(page, {
-          title: ticketTitle,
-          description: "probe",
-          category: "General",
-          priority: "high",
-        });
-
-        await page.goto(base() + "/categories");
-        const workflowHref = await resolveWorkflowHref(page);
-        const categoryEditHref = await resolveCategoryEditHref(page, "General");
-
-        const seededUserName = "StructUser " + Date.now().toString(36).slice(2, 6);
-        const seededUserEmail = `struct-${Date.now().toString(36).slice(2, 8)}@example.com`;
-        await page.goto(base() + "/users/new");
-        await page.getByLabel(/^name$/i).fill(seededUserName);
-        await page.getByLabel(/^email$/i).fill(seededUserEmail);
-        await page.getByLabel(/^password$/i).fill("Secret123!");
-        await page.getByRole("button", { name: /create user/i }).click();
-        await expect(page).toHaveURL(/\/users/);
-
-        await page.goto(base() + "/users");
-        const userEditHref = await resolveUserEditHref(page);
-
-        suiteDeps = { ticketId, workflowHref, categoryEditHref, userEditHref };
-      }
-
-      // Clear cookies so anonymous sections are truly unauthenticated
-      await context.clearCookies();
+      const deps = fixture!;
 
       // --- Anonymous screens (seeded) ---
       await page.goto(base() + "/login");
@@ -238,7 +238,6 @@ test.describe("Structural — seeded canonical screens", () => {
       });
 
       // --- Data-driven authenticated screens ---
-      const deps = suiteDeps!;
 
       for (const entry of authenticatedScreens(deps)) {
         const path = await resolvePath(entry);

@@ -46,13 +46,14 @@ test.describe("Ticket detail", () => {
 
     const comment = "Hello from play " + Date.now().toString(36).slice(2, 6);
     await page.getByLabel(/comment body/i).fill(comment);
-    await assertHtmxSwap(page, async () => {
-      await page.getByRole("button", { name: /add comment/i }).click();
-    }, {
-      urlPattern: (url) => url.includes(`/tickets/${id}/comments`),
-      hxTarget: "#ticket-detail",
-      skipHxRequestCheck: true,
-    });
+    // Comment form is a native POST (no hx-post) — submit and wait for navigation
+    const responsePromise = page.waitForResponse(
+      (resp) => resp.url().includes(`/tickets/${id}/comments`) && resp.request().method() === "POST"
+    );
+    await page.getByRole("button", { name: /add comment/i }).click();
+    const response = await responsePromise;
+    expect(response.status()).toBe(303);
+    await page.waitForURL(/\/tickets\/\d+/);
     await expect(page.locator("#timeline")).toContainText(comment);
 
     await assertCanonicalScreen(page, {
@@ -83,7 +84,9 @@ test.describe("Ticket detail", () => {
       const resp = await assertHtmxSwap(page, async () => {
         await moveSelect.selectOption(target);
       }, {
-        urlPattern: (url) => url.includes(`/tickets/${id}/transition`),
+        endpoint: `/tickets/${id}/transition`,
+        method: "POST",
+        expectedStatus: 200,
         hxTarget: "#ticket-detail",
       });
       expect(resp.status()).toBe(200);
@@ -106,7 +109,9 @@ test.describe("Ticket detail", () => {
       const resp = await assertHtmxSwap(page, async () => {
         await toClosed.selectOption("closed");
       }, {
-        urlPattern: (url) => url.includes(`/tickets/${id}/transition`),
+        endpoint: `/tickets/${id}/transition`,
+        method: "POST",
+        expectedStatus: 200,
         hxTarget: "#ticket-detail",
       });
       expect(resp.status()).toBe(200);
@@ -126,7 +131,9 @@ test.describe("Ticket detail", () => {
       const resp = await assertHtmxSwap(page, async () => {
         await toCancel.selectOption("cancelled");
       }, {
-        urlPattern: (url) => url.includes(`/tickets/${cancelId}/transition`),
+        endpoint: `/tickets/${cancelId}/transition`,
+        method: "POST",
+        expectedStatus: 200,
         hxTarget: "#ticket-detail",
       });
       expect(resp.status()).toBe(200);
@@ -170,7 +177,9 @@ test.describe("Ticket detail", () => {
     await assertHtmxSwap(page, async () => {
       await prioritySelect.selectOption("critical");
     }, {
-      urlPattern: (url) => url.includes(`/tickets/${id}/edit`),
+      endpoint: `/tickets/${id}/edit`,
+      method: "POST",
+      expectedStatus: 200,
       hxTarget: "#ticket-detail",
     });
 

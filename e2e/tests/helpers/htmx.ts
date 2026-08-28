@@ -1,125 +1,146 @@
 /**
  * HTMX swap helper — shared across all HTMX-interaction tests.
  *
- * Asserts:
- *  - request has HX-Request: true header
- *  - response status is 200
- *  - no document navigation (URL unchanged or matches expectedUrl)
- *  - target region innerHTML changed
- *  - non-target region (page chrome, e.g. h1) remained unchanged
+ * Asserts jointly:
+ *  - A request matching endpoint, method, and HX-Request: true header
+ *  - The exact expected response status
+ *  - The hx-target region's innerHTML changed
+ *  - Zero document navigation requests on the main frame during the swap
+ *  - A non-target chrome region (h1) remained unchanged
+ *  - URL unchanged or satisfies hx-push-url contract
  *
- * Returns the response for further assertions.
+ * The consumer test must also assert the domain-visible result.
+ *
+ * A native form submission (no hx-post) must NOT use this helper.
+ * Test it as an ordinary navigation: request, expected navigation, final URL, visible result.
  */
 
-import { expect, type APIResponse, type Locator, type Page } from "@playwright/test";
+import { expect, type Locator, type Page, type Response } from "@playwright/test";
 
 export interface HtmxSwapOptions {
-  /** URL pattern to match the HTMX request. Function receives (url, { method }). */
-  urlPattern: RegExp | ((url: string, meta: { method: string }) => boolean);
-  /** CSS selector of the hx-target region */
+  /** Endpoint URL pattern (string, RegExp, or predicate). */
+  endpoint: string | RegExp | ((url: string) => boolean);
+  /** Expected HTTP method (GET, POST, etc.). */
+  method: string;
+  /** Expected response status code. */
+  expectedStatus: number;
+  /** CSS selector of the hx-target region. */
   hxTarget: string;
-  /** Expected URL after the swap (e.g. when hx-push-url is used). Default: URL unchanged. */
-  expectedUrl?: RegExp;
   /**
-   * When true, skip the HX-Request header check.
-   * Use only for mixed HTMX/native forms where the native response comes first.
-   * Default: false (all HTMX responses must have HX-Request: true).
+   * Expected URL after the swap.
+   * Omit to assert URL unchanged. Provide a RegExp when hx-push-url is used.
    */
-  skipHxRequestCheck?: boolean;
+  expectedUrl?: RegExp;
+}
+
+interface NavigationEvent {
+  method: string;
+  url: string;
 }
 
 /**
  * Assert an HTMX partial swap.
  *
- * HTMX redirect-based forms return 303 See Other, which HTMX follows
- * internally to fetch the swapped content. Both 200 and 303 are valid
- * HTMX response codes for swap-triggering requests.
- *
- * The waitForResponse predicate checks the request's HX-Request header
- * to ensure we only intercept HTMX-triggered responses, not parallel
- * native form submissions.
+ * 1. Sets up interceptor for the expected HTMX request.
+ * 2. Sets up a listener for main-frame navigation requests.
+ * 3. Captures before-state of target and chrome.
+ * 4. Executes the trigger action.
+ * 5. Waits for the HTMX response and validates it.
+ * 6. Asserts zero navigation events.
+ * 7. Asserts target region changed, chrome intact, URL correct.
+ * 8. Cleans up all listeners in a finally block.
  */
-function isValidHtmxStatus(status: number): boolean {
-  return (status >= 200 && status < 300) || status === 303;
-}
-
 export async function assertHtmxSwap(
   page: Page,
   trigger: () => Promise<void>,
   opts: HtmxSwapOptions,
-): Promise<APIResponse> {
+): Promise<Response> {
   const targetLocator: Locator = page.locator(opts.hxTarget).first();
   await expect(targetLocator).toBeVisible({ timeout: 10_000 });
 
-  // Set up response interceptor FIRST to avoid race conditions
-  const hxRequestHeaderCheck = (resp: APIResponse): boolean => {
-    if (opts.skipHxRequestCheck) {
-      const url = resp.url();
-      const method = resp.request().method();
-      return opts.urlPattern instanceof RegExp
-        ? opts.urlPattern.test(url)
-        : opts.urlPattern(url, { method });
+  // Navigation events accumulator
+  const navigations: NavigationEvent[] = [];
+  const navigationHandler = (request: {
+    isNavigationRequest: () => boolean;
+    frame: () => { equals: (f: unknown) => boolean };
+    method: () => string;
+    url: () => string;
+  }) => {
+    if (request.isNavigationRequest() && request.frame() === page.mainFrame()) {
+      navigations.push({ method: request.method(), url: request.url() });
     }
-    if (resp.request().headers()["hx-request"] !== "true") return false;
-    const url = resp.url();
-    const method = resp.request().method();
-    return opts.urlPattern instanceof RegExp
-      ? opts.urlPattern.test(url)
-      : opts.urlPattern(url, { method });
   };
 
-  const responsePromise = page.waitForResponse(hxRequestHeaderCheck);
+  let responsePromise: Promise<Response>;
 
-  // Capture before state AFTER the interceptor is set up
-  const beforeHTML: string = await targetLocator.innerHTML();
-  const urlBefore: string = page.url();
+  try {
+    page.on("request", navigationHandler);
 
-  const chromeLocator: Locator = page.locator("h1").first();
-  const chromeBefore: string | null =
-    (await chromeLocator.count()) > 0 ? await chromeLocator.textContent() : null;
+    // Set up response interceptor for the HTMX request
+    const endpointMatcher = (resp: Response): boolean => {
+      if (resp.request().headers()["hx-request"] !== "true") return false;
+      const url = resp.url();
+      const method = resp.request().method();
+      if (method !== opts.method) return false;
+      if (opts.endpoint instanceof RegExp) return opts.endpoint.test(url);
+      if (typeof opts.endpoint === "function") return opts.endpoint(url);
+      return url.includes(opts.endpoint);
+    };
 
-  // Execute the trigger action
-  await trigger();
+    responsePromise = page.waitForResponse(endpointMatcher);
 
-  // Wait for the HTMX response
-  const response: APIResponse = await responsePromise;
-  expect(
-    isValidHtmxStatus(response.status()),
-    `HTMX response expected 2xx or 303 got ${response.status()} for ${opts.hxTarget}`,
-  ).toBe(true);
+    // Capture before state AFTER the interceptor is set up
+    const beforeHTML: string = await targetLocator.innerHTML();
+    const urlBefore: string = page.url();
 
-  // If we used the header-based filter, header was already verified by the predicate.
-  // If skipHxRequestCheck was set, catch up by asserting it here.
-  if (opts.skipHxRequestCheck) {
-    const hxRequest: string | undefined = response.request().headers()["hx-request"];
-    if (hxRequest !== "true") {
-      console.warn(`[assertHtmxSwap] Response for ${opts.hxTarget} lacks HX-Request header — swap verified by other means`);
-    }
-  }
+    const chromeLocator: Locator = page.locator("h1").first();
+    const chromeBefore: string | null =
+      (await chromeLocator.count()) > 0 ? await chromeLocator.textContent() : null;
 
-  // No document navigation — URL unchanged or matches expectedUrl
-  if (opts.expectedUrl) {
-    expect(page.url()).toMatch(opts.expectedUrl);
-  } else {
-    expect(page.url()).toBe(urlBefore);
-  }
+    // Execute the trigger action
+    await trigger();
 
-  // Target region content must have changed
-  await expect(targetLocator).toBeVisible();
-  const afterHTML: string = await targetLocator.innerHTML();
-  expect(
-    afterHTML,
-    `HTMX target ${opts.hxTarget} innerHTML did not change after swap`,
-  ).not.toBe(beforeHTML);
+    // Wait for the HTMX response
+    const response: Response = await responsePromise;
 
-  // Chrome (non-target region) unchanged
-  if (chromeBefore !== null) {
-    const chromeAfter: string | null = await chromeLocator.textContent();
+    // Assert exact expected status
     expect(
-      chromeAfter,
-      `Non-target region (h1) changed after HTMX swap for ${opts.hxTarget}`,
-    ).toBe(chromeBefore);
-  }
+      response.status(),
+      `HTMX ${opts.method} ${opts.endpoint} expected ${opts.expectedStatus} got ${response.status()}`,
+    ).toBe(opts.expectedStatus);
 
-  return response;
+    // Assert zero document navigation events
+    expect(
+      navigations,
+      `Expected zero document navigations during HTMX swap for ${opts.hxTarget} — found: ${JSON.stringify(navigations)}`,
+    ).toEqual([]);
+
+    // URL unchanged or matches expectedUrl
+    if (opts.expectedUrl) {
+      expect(page.url()).toMatch(opts.expectedUrl);
+    } else {
+      expect(page.url()).toBe(urlBefore);
+    }
+
+    // Target region content must have changed
+    await expect(targetLocator).toBeVisible();
+    const afterHTML: string = await targetLocator.innerHTML();
+    expect(
+      afterHTML,
+      `HTMX target ${opts.hxTarget} innerHTML did not change after swap`,
+    ).not.toBe(beforeHTML);
+
+    // Chrome (non-target region) unchanged
+    if (chromeBefore !== null) {
+      const chromeAfter: string | null = await chromeLocator.textContent();
+      expect(
+        chromeAfter,
+        `Non-target region (h1) changed after HTMX swap for ${opts.hxTarget}`,
+      ).toBe(chromeBefore);
+    }
+
+    return response;
+  } finally {
+    page.removeListener("request", navigationHandler);
+  }
 }

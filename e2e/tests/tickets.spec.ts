@@ -2,9 +2,9 @@
  * Ticket journeys: creation, list, detail, search/filter, public comment, transition.
  *
  * Logout and auth gate are covered in auth.spec.ts (auth domain).
- * HTMX swap mechanism is verified in htmx.spec.ts; here we use assertHtmxSwap for
- * functional assertions (comment POST, transition) while the swap mechanism itself
- * is tested in the dedicated HTMX spec.
+ * HTMX swap mechanism is covered in htmx.spec.ts (users tabs, workflow builder).
+ * Search filter, transition, and priority change use assertHtmxSwap for swap verification.
+ * Comment POST is a native form submission (no hx-post) — tested via ordinary navigation.
  */
 
 import { test, expect } from "@playwright/test";
@@ -91,14 +91,14 @@ test.describe("Ticket Lifecycle", () => {
     // Search for the unique title — verify filtered result is visible via HTMX swap
     const searchInput = page.getByPlaceholder(/search by id or title/i);
     await expect(searchInput).toBeVisible();
-    const searchBtn = page.getByRole("button", { name: /search/i });
-    const searchPromise = page.waitForResponse((resp) => {
-      const url = resp.url();
-      return url.includes("/tickets") && url.includes("q=") && resp.request().headers()["hx-request"] === "true";
-    });
+
+    // Set up response interceptor FIRST, then trigger
+    const searchResponsePromise = page.waitForResponse(
+      (resp) => resp.url().includes("/tickets") && resp.url().includes("q=") && resp.request().headers()["hx-request"] === "true",
+    );
     await searchInput.fill(uniqueTitle);
-    await searchBtn.click();
-    const searchResp = await searchPromise;
+    await page.getByRole("button", { name: /search/i }).click();
+    const searchResp = await searchResponsePromise;
     expect(searchResp.status()).toBe(200);
     await expect(page.locator("#ticket-list").getByText(uniqueTitle)).toBeVisible({ timeout: 10_000 });
     expect(page.url()).toContain("/tickets");
@@ -108,7 +108,7 @@ test.describe("Ticket Lifecycle", () => {
     await expect(page.locator("#ticket-list")).toBeVisible();
     // Clear the search input and submit to show the full list again
     await searchInput.clear();
-    await searchBtn.click();
+    await page.getByRole("button", { name: /search/i }).click();
     await expect(page.locator("#ticket-list").getByText(uniqueTitle)).toBeVisible({ timeout: 10_000 });
     // URL check — search HTMX swap should not cause full navigation
     expect(page.url()).toContain("/tickets");
@@ -140,13 +140,14 @@ test.describe("Ticket Lifecycle", () => {
     await expect(page.locator("#ticket-detail")).toBeVisible();
     const commentBody = "Public comment " + Date.now().toString(36).slice(2, 6);
     await page.getByLabel(/comment body/i).fill(commentBody);
-    await assertHtmxSwap(page, async () => {
-      await page.getByRole("button", { name: /add comment/i }).click();
-    }, {
-      urlPattern: (url) => url.includes(`/tickets/${id}/comments`),
-      hxTarget: "#ticket-detail",
-      skipHxRequestCheck: true,
-    });
+    // Comment form is a native POST (no hx-post) — submit and wait for navigation
+    const responsePromise = page.waitForResponse(
+      (resp) => resp.url().includes(`/tickets/${id}/comments`) && resp.request().method() === "POST"
+    );
+    await page.getByRole("button", { name: /add comment/i }).click();
+    const response = await responsePromise;
+    expect(response.status()).toBe(303);
+    await page.waitForURL(/\/tickets\/\d+/);
     await expect(page.locator("#timeline")).toContainText(commentBody);
     // Reload persistence
     await page.reload();
@@ -184,7 +185,9 @@ test.describe("Ticket Lifecycle", () => {
     await assertHtmxSwap(page, async () => {
       await moveSelect.selectOption("in_progress");
     }, {
-      urlPattern: (url) => url.includes(`/tickets/${id}/transition`),
+      endpoint: `/tickets/${id}/transition`,
+      method: "POST",
+      expectedStatus: 200,
       hxTarget: "#ticket-detail",
     });
 

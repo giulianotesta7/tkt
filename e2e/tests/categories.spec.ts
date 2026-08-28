@@ -123,7 +123,9 @@ test.describe("Categories", () => {
     await assertHtmxSwap(page, async () => {
       await addBtn.click();
     }, {
-      urlPattern: (url) => url.includes("/workflow"),
+      endpoint: "/workflow",
+      method: "POST",
+      expectedStatus: 200,
       hxTarget: "#workflow-builder",
     });
     await expect(cards).toHaveCount(countBeforeAdd + 1);
@@ -149,7 +151,9 @@ test.describe("Categories", () => {
     await assertHtmxSwap(page, async () => {
       await removeBtn.click();
     }, {
-      urlPattern: (url) => url.includes("/workflow"),
+      endpoint: "/workflow",
+      method: "POST",
+      expectedStatus: 200,
       hxTarget: "#workflow-builder",
     });
     await expect(cards).toHaveCount(countBeforeRemove - 1);
@@ -163,7 +167,9 @@ test.describe("Categories", () => {
       await assertHtmxSwap(page, async () => {
         await addBtn.click();
       }, {
-        urlPattern: (url) => url.includes("/workflow"),
+        endpoint: "/workflow",
+        method: "POST",
+        expectedStatus: 200,
         hxTarget: "#workflow-builder",
       });
       await expect(cards).toHaveCount(1);
@@ -182,7 +188,9 @@ test.describe("Categories", () => {
     const publishResp = await assertHtmxSwap(page, async () => {
       await publishBtn.click();
     }, {
-      urlPattern: (url) => url.includes(`/categories/${categoryId}/workflow`),
+      endpoint: `/categories/${categoryId}/workflow`,
+      method: "POST",
+      expectedStatus: 200,
       hxTarget: "#workflow-builder",
     });
     expect(publishResp.status()).toBe(200);

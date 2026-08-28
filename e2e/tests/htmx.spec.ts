@@ -1,16 +1,16 @@
 /**
  * HTMX interaction specs: verify partial swaps without full reload where observable.
  *
- * HTMX swaps MUST modify the expected region WITHOUT full navigation (assert region
- * content changed AND URL unchanged or only hx-push-url managed). hx-* attributes
- * may be complementary evidence but not the sole proof.
- *
  * Each HTMX interaction uses the shared assertHtmxSwap helper which verifies:
  *  - HX-Request: true header on the request
- *  - 200 response status
+ *  - exact expected method and status
  *  - target region innerHTML changed
+ *  - zero document navigation events on the main frame
  *  - non-target chrome (h1) unchanged
  *  - URL unchanged or matched expectedUrl
+ *
+ * Search filter is covered in tickets.spec.ts (functional home).
+ * Priority change is covered in ticket-detail.spec.ts (functional home).
  */
 
 import { test, expect } from "@playwright/test";
@@ -18,7 +18,7 @@ import { startServer, stopServer } from "../server-lifecycle.js";
 import { loginAsSeeded, base } from "./helpers/auth.js";
 import { assertCanonicalScreen, collectObservability } from "./helpers/layout.js";
 import { assertHtmxSwap } from "./helpers/htmx.js";
-import { createTicketViaUi, resolveWorkflowHref } from "./helpers/navigation.js";
+import { resolveWorkflowHref } from "./helpers/navigation.js";
 
 test.describe("HTMX interactions", () => {
   test.beforeAll(async () => {
@@ -26,49 +26,6 @@ test.describe("HTMX interactions", () => {
   });
   test.afterAll(async () => {
     await stopServer();
-  });
-
-  test("ticket list filters hx-get swap changes #ticket-list without full reload", async ({ page }) => {
-    await page.setViewportSize({ width: 1280, height: 800 });
-    const obs = collectObservability(page);
-    await loginAsSeeded(page);
-    // Seed a unique ticket to filter for
-    const unique = "HtmxSearch " + Date.now().toString(36).slice(2, 8);
-    await createTicketViaUi(page, { title: unique, description: "htmx search", category: "General", priority: "medium" });
-
-    await page.goto(base() + "/tickets");
-    await expect(page.locator("#ticket-list")).toBeVisible();
-    // Complementary: hx-* attributes present
-    const htmxFilterForm = page.locator('form[hx-get][hx-target="#ticket-list"]');
-    await expect(htmxFilterForm.first()).toBeVisible();
-    await expect(htmxFilterForm.first()).toHaveAttribute("hx-target", "#ticket-list");
-    await expect(htmxFilterForm.first()).toHaveAttribute("hx-swap", /outerHTML/);
-
-    // Search for the unique ticket — verify the HTMX request and filtered result
-    const searchInput = page.getByPlaceholder(/search by id or title/i);
-    const urlBefore = page.url();
-    await searchInput.fill(unique);
-    // Set up response interceptor BEFORE the action to avoid race conditions
-    const searchPromise = page.waitForResponse(
-      (resp) => resp.url().includes("/tickets") && resp.request().headers()["hx-request"] === "true",
-    );
-    await page.getByRole("button", { name: /search/i }).click();
-    const searchResp = await searchPromise;
-    expect(searchResp.status()).toBe(200);
-    await expect(page.locator("#ticket-list").getByText(unique)).toBeVisible({ timeout: 10_000 });
-    // URL unchanged (HTMX state swap, no push)
-    expect(page.url()).toBe(urlBefore);
-
-    await assertCanonicalScreen(page, {
-      viewport: 1280,
-      label: "htmx ticket list filter swap",
-      url: page.url(),
-      role: "root",
-      consoleErrors: obs.consoleErrors,
-      pageErrors: obs.pageErrors,
-      failedRequests: obs.failedRequests,
-      failedResponses: obs.failedResponses,
-    });
   });
 
   test("users tabs HTMX swap changes #users-root without full page reload", async ({ page }) => {
@@ -88,7 +45,9 @@ test.describe("HTMX interactions", () => {
     await assertHtmxSwap(page, async () => {
       await deactivatedTab.click();
     }, {
-      urlPattern: (url) => url.includes("/users"),
+      endpoint: "/users",
+      method: "GET",
+      expectedStatus: 200,
       hxTarget: "#users-root",
       expectedUrl: /\/users/,
     });
@@ -131,7 +90,9 @@ test.describe("HTMX interactions", () => {
     await assertHtmxSwap(page, async () => {
       await btn.click();
     }, {
-      urlPattern: (url) => url.includes("/workflow"),
+      endpoint: "/workflow",
+      method: "POST",
+      expectedStatus: 200,
       hxTarget: "#workflow-builder",
     });
 

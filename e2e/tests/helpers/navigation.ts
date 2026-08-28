@@ -36,18 +36,17 @@ export async function createTicketViaUi(
   await expect(page).toHaveURL(/\/tickets/);
   await expect(page.getByText(title)).toBeVisible({ timeout: 10_000 });
 
-  // Extract ticket ID from the visible ticket link
+  // Extract ticket ID exclusively from the visible link matching the created title
   const href = await page.getByText(title).first().getAttribute("href");
   if (href) {
     const m = href.match(/\/tickets\/(\d+)/);
     if (m) return m[1];
   }
 
-  const fallbackHref = await page.locator('a[href*="/tickets/"]').first().getAttribute("href");
-  const m2 = fallbackHref?.match(/\/tickets\/(\d+)/);
-  if (m2) return m2[1];
-
-  throw new Error("could not extract ticket id for " + title + " at " + page.url());
+  throw new Error(
+    `could not extract ticket id for "${title}" at ${page.url()} — ` +
+    `href was ${href ?? "null"}`,
+  );
 }
 
 /**

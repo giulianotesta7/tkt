@@ -4,7 +4,7 @@ description: "Trigger: implementing or changing a visible feature, modifying a c
 license: MIT
 metadata:
   author: "giulianotesta7"
-  version: "1.4"
+  version: "1.5"
 ---
 
 ## Activation Contract
@@ -117,38 +117,84 @@ When fixing a browser-observable bug, you MUST add or update a Playwright test t
    npm run server:stop
    ```
 
-## Coverage Baseline (frontend coverage, issue #78)
+## Permanent HTMX Contract
+
+A HTMX interaction is only covered when the test demonstrates jointly:
+
+1. A request with `HX-Request: true` header, matching the expected endpoint, method and status.
+2. The hx-target region's innerHTML changed after the swap.
+3. Zero document navigation requests on the main frame during the swap.
+4. A non-target chrome region (h1) remained intact.
+5. URL unchanged or satisfies the explicit `hx-push-url` contract.
+6. The domain-visible result is also asserted (consumer responsibility).
+
+Prohibited:
+- Assuming URL unchanged proves absence of reload (navigation events must be checked).
+- Using only `hx-*` HTML attributes as proof of a swap.
+- Omitting `HX-Request` header validation.
+- Using bypass flags, warnings, or catches that make the assertion optional.
+- Accepting broad status ranges without an exact contract.
+- Confusing a native form submission with an HTMX swap.
+
+A native form submission (no `hx-post`) is tested as an ordinary navigation: request, expected navigation, final URL, visible result — never through `assertHtmxSwap`.
+
+## Permanent False-Positive Rule
+
+No precondition, operation, or mandatory assertion may be nullified by:
+- Conditional guards that skip the assertion when a control is absent.
+- Silent catches that ignore a request, response or precondition.
+- Warnings that substitute for a failing assertion.
+- Fallbacks to a different entity (first available link, row, or user).
+- Optional checks that can pass without exercising the required behavior.
+
+If the required contract cannot be demonstrated, the test must fail with context.
+
+## Permanent Fixture Rule
+
+Preconditions that are not the behavior under test must be prepared via seed or fixture helpers before the test runs. Shared data must be read-only during execution; no viewport or test may depend on another having run first. When the operation under test IS creating or modifying an entity, the UI is the correct path.
+
+## Permanent Identity Rule
+
+Helpers must resolve exactly the requested entity or fail, indicating entity, selector and URL. They must never silently continue using the first available entity as a fallback.
+
+## Permanent Journey Ownership Rule
+
+Each behavior must have exactly one canonical test. Before creating a new scenario, find and update the existing one. Cross-cutting helpers may be reused, but they do not justify duplicating entire journeys.
+
+## Permanent Coverage Claim Rule
+
+The skill must distinguish between:
+- Structural screen baseline (every canonical route visited at both viewports, asserting URL, heading, control, overflow, observability).
+- Functional journey (one representative scenario per domain, exercising the UI).
+- Validations delegated to Go (exhaustive authorization, state machine, edge cases).
+- Visual regression (not used in this suite).
+
+"Full frontend coverage" may not be claimed on structural baselines alone — the distinction must be explicit.
+
+## Decision Gates
+
+| Condition | Result |
+| --- | --- |
+| Diff affects no visible behavior | SKIP with reason |
+| Behavior verifiable at unit/integration layer | Prefer lower layer; SKIP E2E |
+| Playwright CLI or test runtime unavailable | BLOCKED after reporting required journeys |
+| Isolated server cannot start within timeout | BLOCKED with sanitized logs |
+| OpenSpec contradicts implementation | BLOCKED — report discrepancy before creating E2E |
+| Existing test covers the affected journey | UPDATE existing test instead of creating a new one |
+
+## Coverage Baseline
 
 Every canonical frontend screen has a structural browser baseline. Selected critical journeys have functional E2E coverage. Domain edge cases and exhaustive authorization remain covered by Go tests.
 
-Versioned regression covers every canonical screen at 390px and 1280px via `e2e/tests/helpers/layout.ts` (`collectObservability` + `assertCanonicalScreen`): `html.scrollWidth <= viewport`, zero `console.error`, zero `pageerror`, zero failed loopback requests, zero loopback 5xx responses. Failures report screen label, URL, and role. External origins are ignored (app is loopback-only).
+The current inventory lives in `e2e/README.md` — consult it before adding or modifying coverage. It lists: routes, viewports, roles, responsible test file, functional journey, deliberate exclusions, and Go layer responsible. Add a new route by adding one entry to the data table in `structural.spec.ts`; update the README when the inventory changes.
 
-Structural spec (`structural.spec.ts`) uses a **data-driven table** — add a route by adding one entry to the array, not by copying a block.
-
-**Seeded profile** covers all canonical screens at both viewports (anonymous + authenticated). Dynamic IDs (ticket, user edit, category edit, workflow) are prepared once in `beforeAll` via fixture helpers.
-
-**Empty profile** covers ONLY `/login`, `/setup`, and `/` (onboarding redirects and bootstrap). Authenticated screens are NOT re-asserted after bootstrap — the empty profile's purpose is to verify empty-state redirects and first-user setup.
-
-Canonical screens (structural baseline — see `e2e/README.md` matrix for viewports/roles/journey mapping):
-- `/login`, `/setup` (empty + with users), `/` (redirects per session), `/tickets`, `/tickets/new`, `/tickets/{id}`, `/users`, `/users/new`, `/users/{id}/edit`, `/categories`, `/categories/new`, `/categories/{id}/edit`, `/categories/{id}/workflow`, `/desks`, `/settings`
-
-Representative functional journeys (one per domain, not exhaustive):
-- `desks.spec.ts` — create/rename/delete + membership add/remove with reload persistence
-- `categories.spec.ts` — integrated workflow: create category → add step (HTMX swap verified) → configure → remove step → re-add → publish (200, badge Published, reload) → create ticket with category → **`#workflow-pending` visible** + `.workflow-instruction` shows instruction text. Published workflow IS observable without product changes.
-- `settings.spec.ts` — appearance 3 radios, `input:checked` assertion (no invalid `hasAttribute`), Violet→Blue persistence via reload, POST `/settings/appearance`
-- `tickets.spec.ts` — creation/list/detail, search filter (functional assertion: results visible, swap mechanism verified via shared helper), public comment + timeline persistence, transition `new→in_progress` with visible result
-- `ticket-detail.spec.ts` — properties sidebar, timeline, public comment, closed-state comment form hidden, priority change via HTMX swap (verified via shared `assertHtmxSwap`)
-- `htmx.spec.ts` — partial swaps assert `HX-Request: true` header, 200 response, target region content changed, chrome intact, URL unchanged; uses shared `helpers/htmx.ts` `assertHtmxSwap` helper
-- `roles.spec.ts` — minimal matrix: root via empty bootstrap, admin creates category, agent creates ticket + `Forbidden` on direct admin navigation (browser), user creates ticket + internal checkbox hidden + `Forbidden` on admin navigation
-- `users.spec.ts` — single creation+edition journey (overflow baselines covered by structural.spec.ts)
-- `structural.spec.ts` — data-driven table covering all canonical screens at 390px + 1280px for seeded profile; empty profile covers only onboarding/redirects
-- `auth.spec.ts` — setup/login/logout, `/setup` with users (redirect), `/` redirect
-- `helpers/navigation.ts` — properly formatted, throws on not-found, General-specific workflow href
-- `helpers/htmx.ts` — `assertHtmxSwap` shared across all HTMX-interaction tests; verifies HX-Request header, 200, target changed, chrome intact, URL unchanged
-
-Exclusions delegated to Go remain covered there (see `e2e/README.md`): password change, deactivation/reactivation + session kill (D14), deletion, exhaustive role-change protections, exhaustive state machine, comment rejection status codes, workflow step validations, exhaustive filter combos. E2E does not replace unit/integration tests.
-
-Duplicates eliminated: logout/auth gate lives only in `auth.spec.ts`; user overflow baselines live only in `structural.spec.ts`; ticket detail HTMX swap lives in `ticket-detail.spec.ts` (functional home); search filter HTMX swap mechanism lives in `htmx.spec.ts`; `.catch(() => {})` and `.catch(() => null)` are absent from all specs.
+- **Seeded profile**: all canonical screens at 390px and 1280px (anonymous + authenticated). Dynamic IDs prepared once in `beforeAll` via fixture helpers.
+- **Empty profile**: only `/login`, `/setup`, and `/` (onboarding redirects and bootstrap). Authenticated screens are not re-asserted after bootstrap.
+- **Functional journeys**: one per domain (tickets, users, desks, categories/workflows, settings, auth, HTMX, roles). Not exhaustive.
+- **HTMX swaps**: verified via shared `assertHtmxSwap` helper (HX-Request header, exact status, zero document navigations, target changed, chrome intact, URL contract).
+- **Published workflow**: observed via `#workflow-pending` + `.workflow-instruction` in `/tickets/{id}` — no product changes needed.
+- **Roles**: minimal matrix with root, admin, agent, user — browser-visible authorization (not HTTP-only).
+- **Exclusions**: password change, deactivation, deletion, exhaustive state machine, exhaustive authorization, exhaustive filter combos — all covered by Go tests as documented in `e2e/README.md`.
 
 ## References
 
