@@ -20,16 +20,16 @@ jobs:
     timeout-minutes: 20
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
           cache: true
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
-          node-version: "22"
+          node-version: "24"
           cache: npm
           cache-dependency-path: e2e/package-lock.json
 
@@ -37,36 +37,29 @@ jobs:
         working-directory: e2e
         run: npm ci
 
-      - name: Install Chromium
+      - name: Install Chromium with system dependencies
         working-directory: e2e
-        run: npx playwright install chromium
-
-      - name: Install system dependencies for Chromium
-        working-directory: e2e
-        run: npx playwright install-deps chromium
-
-      - name: Build tkt server
-        run: go build -o tkt-server ./cmd/server
+        run: npm exec -- playwright install --with-deps chromium
 
       - name: Run E2E tests
         working-directory: e2e
-        run: npx playwright test
+        run: npm test
         env:
           CI: "true"
 
       - name: Upload Playwright report on failure
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
-          name: playwright-report-${{ github.run_id }}
+          name: playwright-report-${{ github.run_id }}-${{ github.run_attempt }}
           path: playwright-report/
           retention-days: 7
 
       - name: Upload test results on failure
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
-          name: test-results-${{ github.run_id }}
+          name: test-results-${{ github.run_id }}-${{ github.run_attempt }}
           path: test-results/
           retention-days: 7
 

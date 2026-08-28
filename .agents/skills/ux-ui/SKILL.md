@@ -56,7 +56,14 @@ Those decisions MUST come from an OpenSpec spec, an explicit instruction, an app
 
 ## Browser Exploration
 
-You MAY use Playwright CLI (`npx playwright open`) from the `e2e/` directory to inspect and compare the running interface.  The Playwright MCP runtime is also available when connected.
+You MAY use Playwright CLI from the `e2e/` directory to inspect and compare the running interface:
+```bash
+cd e2e
+npm run explore -- open http://127.0.0.1:PORT
+npm run explore -- snapshot
+npm run explore -- screenshot
+npm run explore -- close-all
+```
 
 However, creating and maintaining versioned regression E2E tests belongs to the `tkt-e2e` skill, not this one.
 

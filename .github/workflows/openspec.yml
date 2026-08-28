@@ -20,22 +20,29 @@ jobs:
     timeout-minutes: 10
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
-          node-version: 22
+          node-version: "24"
 
       - name: Validate canonical specs
         run: |
-          npx --yes --package=@fission-ai/openspec@1.11.0 -- \
-            openspec validate --all --strict --no-interactive
-        env:
-          OPENSPEC_TELEMETRY: 0
+          OUTPUT=$(OPENSPEC_TELEMETRY=0 npx --yes --package=@fission-ai/openspec@1.11.0 -- \
+            openspec validate --all --strict --no-interactive 2>&1)
+          echo "$OUTPUT"
+          # Fail if the CLI reports it could not parse or ignored openspec/config.yaml
+          if echo "$OUTPUT" | grep -qiE "could not parse|ignoring it"; then
+            echo "ERROR: OpenSpec CLI reported a parse failure. Check openspec/config.yaml indentation."
+            exit 1
+          fi
 
       - name: Validate archived changes
         run: |
-          npx --yes --package=@fission-ai/openspec@1.11.0 -- \
-            openspec validate --archived --no-interactive
-        env:
-          OPENSPEC_TELEMETRY: 0
+          OUTPUT=$(OPENSPEC_TELEMETRY=0 npx --yes --package=@fission-ai/openspec@1.11.0 -- \
+            openspec validate --archived --no-interactive 2>&1)
+          echo "$OUTPUT"
+          if echo "$OUTPUT" | grep -qiE "could not parse|ignoring it"; then
+            echo "ERROR: OpenSpec CLI reported a parse failure in archived changes."
+            exit 1
+          fi

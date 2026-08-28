@@ -1,7 +1,7 @@
 // Seed the tkt database: creates root user, category, and published workflow.
 // Used by the E2E global setup to prepare the database before tests run.
 //
-// Usage: go run ./e2e/seed.go --db=<path>
+// Usage: go run ./e2e/cmd/seed/main.go --db=<path>
 package main
 
 import (
@@ -21,7 +21,7 @@ func main() {
 	dbPath := flag.String("db", "", "path to the SQLite database")
 	flag.Parse()
 	if *dbPath == "" {
-		fmt.Fprintln(os.Stderr, "usage: go run ./e2e/seed.go --db=<path>")
+		fmt.Fprintln(os.Stderr, "usage: go run ./e2e/cmd/seed/main.go --db=<path>")
 		os.Exit(1)
 	}
 
