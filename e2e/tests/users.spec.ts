@@ -1,21 +1,24 @@
 /**
- * Regression: /users must not produce document-level horizontal overflow on mobile.
+ * Users: mobile overflow baselines + one creation+edition journey.
  *
- * Fix: web/templates/static/users.css — contain the 620px table inside the
- * .users-list card via grid min-width:0 and in-panel scroll, preventing
- * document scrollWidth from exceeding the viewport at 390px.
- * Desktop layout (>900px) must remain untouched.
+ * Exclusions (remain covered by Go tests):
+ *  - password change via /users/{id}/password
+ *  - deactivation / reactivation lifecycle and session invalidation (D14)
+ *  - deletion
+ *  - exhaustive role-change protections and authorization matrix
+ * See Go tests: internal/adapters/http/handlers_users*, user_reactivate_test, etc.
  */
 
 import { test, expect } from "@playwright/test";
 import { startServer, stopServer, activeServer } from "../server-lifecycle.js";
+import { assertCanonicalScreen, collectObservability } from "./helpers/layout.js";
 
 function base(): string {
   if (!activeServer) throw new Error("server not started");
   return activeServer.baseURL;
 }
 
-async function login(page) {
+async function login(page: import("@playwright/test").Page) {
   await page.goto(base() + "/login");
   await page.getByLabel(/email/i).fill("alice@example.com");
   await page.getByLabel(/password/i).fill("SuperSecret42!");
@@ -23,25 +26,17 @@ async function login(page) {
   await expect(page).toHaveURL(/\/tickets/);
 }
 
-test.describe("Users mobile overflow", () => {
+test.describe("Users", () => {
   test.beforeAll(async () => {
     await startServer({ seed: true });
   });
-
   test.afterAll(async () => {
     await stopServer();
   });
 
   test("no document overflow at 390px and table remains scrollable in-panel", async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
-
-    const consoleErrors: string[] = [];
-    const pageErrors: string[] = [];
-    page.on("console", (msg) => {
-      if (msg.type() === "error") consoleErrors.push(msg.text());
-    });
-    page.on("pageerror", (err) => pageErrors.push(String(err)));
-
+    const obs = collectObservability(page);
     await login(page);
     await page.goto(base() + "/users");
     await expect(page.locator(".users-root")).toBeVisible();
@@ -55,17 +50,12 @@ test.describe("Users mobile overflow", () => {
       listScroll: document.querySelector<HTMLElement>(".users-list")!.scrollWidth,
       listOverflowX: getComputedStyle(document.querySelector<HTMLElement>(".users-list")!).overflowX,
     }));
-
     expect(metrics.viewport).toBe(390);
     expect(metrics.htmlScroll).toBeLessThanOrEqual(390);
     expect(metrics.htmlClient).toBe(390);
     expect(metrics.bodyScroll).toBeLessThanOrEqual(390);
-
-    // table remains usable via in-panel scroll
     expect(metrics.listScroll).toBeGreaterThan(metrics.listClient);
     expect(metrics.listOverflowX).toBe("auto");
-
-    // verify scroll actually moves content
     const canScroll = await page.evaluate(() => {
       const el = document.querySelector<HTMLElement>(".users-list")!;
       const before = el.scrollLeft;
@@ -76,35 +66,109 @@ test.describe("Users mobile overflow", () => {
     });
     expect(canScroll).toBe(true);
 
-    expect(consoleErrors, `console errors: ${consoleErrors.join("; ")}`).toEqual([]);
-    expect(pageErrors, `page errors: ${pageErrors.join("; ")}`).toEqual([]);
+    await assertCanonicalScreen(page, {
+      viewport: 390,
+      label: "/users overflow 390px",
+      url: page.url(),
+      role: "root",
+      consoleErrors: obs.consoleErrors,
+      pageErrors: obs.pageErrors,
+      failedRequests: obs.failedRequests,
+      failedResponses: obs.failedResponses,
+    });
   });
 
   test("no document overflow at desktop 1280px", async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 800 });
-
-    const consoleErrors: string[] = [];
-    const pageErrors: string[] = [];
-    page.on("console", (msg) => {
-      if (msg.type() === "error") consoleErrors.push(msg.text());
-    });
-    page.on("pageerror", (err) => pageErrors.push(String(err)));
-
+    const obs = collectObservability(page);
     await login(page);
     await page.goto(base() + "/users");
     await expect(page.locator(".users-root")).toBeVisible();
-
     const metrics = await page.evaluate(() => ({
       viewport: window.innerWidth,
       htmlScroll: document.documentElement.scrollWidth,
       htmlClient: document.documentElement.clientWidth,
     }));
-
     expect(metrics.viewport).toBe(1280);
     expect(metrics.htmlScroll).toBeLessThanOrEqual(1280);
     expect(metrics.htmlClient).toBe(1280);
+    await assertCanonicalScreen(page, {
+      viewport: 1280,
+      label: "/users overflow 1280px",
+      url: page.url(),
+      role: "root",
+      consoleErrors: obs.consoleErrors,
+      pageErrors: obs.pageErrors,
+      failedRequests: obs.failedRequests,
+      failedResponses: obs.failedResponses,
+    });
+  });
 
-    expect(consoleErrors).toEqual([]);
-    expect(pageErrors).toEqual([]);
+  test("creation+edition journey via UI with persistence", async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    const obs = collectObservability(page);
+    await login(page);
+
+    const baseName = "Probe User " + Date.now().toString(36).slice(2, 6);
+    const email = `probe-${Date.now().toString(36).slice(2, 8)}@example.com`;
+    const password = "ProbeSecret123!";
+
+    // Create
+    await page.goto(base() + "/users/new");
+    await expect(page.locator('h1:has-text("New user")')).toBeVisible();
+    await expect(page.getByRole("button", { name: /create user/i })).toBeVisible();
+    await page.getByLabel(/^name$/i).fill(baseName);
+    await page.getByLabel(/^email$/i).fill(email);
+    await page.getByLabel(/^password$/i).fill(password);
+    await Promise.all([
+      page.waitForResponse((r) => r.url().includes("/users") && r.request().method() === "POST"),
+      page.getByRole("button", { name: /create user/i }).click(),
+    ]).catch(() => {});
+    await expect(page).toHaveURL(/\/users/);
+    await expect(page.getByText(baseName)).toBeVisible();
+    await expect(page.getByText(email)).toBeVisible();
+
+    // Resolve edit href for that user (drawer link)
+    const row = page.locator("tr").filter({ hasText: baseName });
+    await expect(row).toHaveCount(1);
+    // Click the user launcher which hx-gets the drawer — but we directly navigate to the edit URL for determinism
+    const editLink = row.locator('a[href*="/users/"][href*="/edit"]').first();
+    let editHref: string | null = await editLink.getAttribute("href");
+    if (!editHref) {
+      const fallback = page.locator('a[href*="/edit"]').first();
+      editHref = await fallback.getAttribute("href");
+    }
+    if (!editHref) throw new Error("could not resolve user edit href for " + baseName);
+    const cleanHref = editHref.split("?")[0];
+    await page.goto(base() + cleanHref);
+    await expect(page.getByRole("heading", { name: /edit user/i })).toBeVisible();
+
+    const renamed = baseName + " Renamed";
+    await page.getByLabel(/^name$/i).fill(renamed);
+    const roleSelect = page.locator('select[name="role"]');
+    await expect(roleSelect).toBeVisible();
+    await roleSelect.selectOption("agent");
+    await Promise.all([
+      page.waitForResponse((r) => r.url().includes(cleanHref) && r.request().method() === "POST"),
+      page.getByRole("button", { name: /save changes/i }).click(),
+    ]).catch(() => {});
+    await expect(page).toHaveURL(/\/users/, { timeout: 10000 });
+    await expect(page.getByText(renamed)).toBeVisible();
+
+    // Persistence: reload and verify renamed visible in list
+    await page.goto(base() + "/users");
+    await expect(page.getByText(renamed)).toBeVisible();
+    await expect(page.getByText(email)).toBeVisible();
+
+    await assertCanonicalScreen(page, {
+      viewport: 1280,
+      label: "users creation+edition",
+      url: page.url(),
+      role: "root",
+      consoleErrors: obs.consoleErrors,
+      pageErrors: obs.pageErrors,
+      failedRequests: obs.failedRequests,
+      failedResponses: obs.failedResponses,
+    });
   });
 });

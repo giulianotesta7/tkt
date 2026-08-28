@@ -119,16 +119,25 @@ When fixing a browser-observable bug, you MUST add or update a Playwright test t
 
 ## Coverage Baseline (frontend coverage, issue #78)
 
-Versioned regression now covers every canonical screen at 390px and 1280px (no document-level horizontal overflow, zero console/page errors via `e2e/tests/helpers/layout.ts`):
+Every canonical frontend screen has a structural browser baseline. Selected critical journeys have functional E2E coverage. Domain edge cases and exhaustive authorization remain covered by Go tests.
 
-- `/tickets` — list + filters (HTMX `hx-get` → `#ticket-list`)
-- `/tickets/{id}` — detail with Properties sidebar, timeline, comments (rejection on resolved/closed/cancelled), state transitions, HTMX `hx-target="#ticket-detail"`
-- `/desks` — list, create, rename, delete, membership add/remove
-- `/categories` — index with workflow badge, create/rename/delete, workflow builder rail + `hx-target="#workflow-builder"` (add/remove step, publish)
-- `/users` — mobile 390px in-panel scroll baseline + desktop baseline (existing `users.spec.ts`)
-- `/settings` — appearance panel (3 swatches), persist on POST `/settings/appearance`
+Versioned regression covers every canonical screen at 390px and 1280px via `e2e/tests/helpers/layout.ts` (`collectObservability` + `assertCanonicalScreen`): `html.scrollWidth <= viewport`, zero `console.error`, zero `pageerror`, zero failed loopback requests, zero loopback 5xx responses. Failures report screen label, URL, and role. External origins are ignored (app is loopback-only).
 
-Journey groups (see `e2e/README.md` matrix for spec mapping): `desks.spec.ts`, `categories.spec.ts`, `settings.spec.ts`, `ticket-detail.spec.ts`, `htmx.spec.ts` (partial swaps without full reload), `roles.spec.ts` (admin vs `user` gates via seeded data), `structural.spec.ts` (shared baseline helper across all canonical routes).
+Canonical screens (structural baseline — see `e2e/README.md` matrix for viewports/roles/ journey mapping):
+- `/login`, `/setup` (empty + with users), `/` (redirects per session), `/tickets`, `/tickets/new`, `/tickets/{id}`, `/users`, `/users/new`, `/users/{id}/edit`, `/categories`, `/categories/new`, `/categories/{id}/edit`, `/categories/{id}/workflow`, `/desks`, `/settings`
+
+Representative functional journeys (one per domain, not exhaustive):
+- `desks.spec.ts` — create/rename/delete + membership add/remove with reload persistence
+- `categories.spec.ts` — integrated workflow: create category → add step (count+1, live region, HTMX swap) → remove (count-1) → publish (200, badge Published, reload) → create ticket with category (strongest observable published linkage; version stamp not surfaced without product changes)
+- `settings.spec.ts` — appearance 3 radios, `input:checked` assertion (no invalid `hasAttribute`), Violet→Blue persistence via reload, POST `/settings/appearance`
+- `tickets.spec.ts` / `ticket-detail.spec.ts` — creation/list/detail, real `hx-get` search filter changing `#ticket-list`, public comment + timeline, real transition `new→in_progress` with visible result
+- `htmx.spec.ts` — partial swaps assert target region content changed AND chrome intact AND URL (unchanged or only `hx-push-url`); `hx-*` attributes are complementary, not sole proof
+- `roles.spec.ts` — minimal matrix: root via empty bootstrap, admin creates category, agent creates ticket + `Forbidden` on direct admin navigation (browser), user creates ticket + internal checkbox hidden + `Forbidden` on admin navigation
+- `users.spec.ts` — 390px in-panel scroll + 1280px baselines, plus single creation+edition journey (password change / deactivation / deletion delegated to Go)
+- `structural.spec.ts` — horizontal coverage of all canonical screens at 390px + 1280px for empty-base and seeded profiles
+- `auth.spec.ts` — setup/login/logout, `/setup` with users (redirect), `/` redirect
+
+Exclusions delegated to Go remain covered there (see `e2e/README.md`): password change, deactivation/reactivation + session kill (D14), deletion, exhaustive role-change protections, exhaustive state machine, comment rejection status codes, workflow step validations, exhaustive filter combos. E2E does not replace unit/integration tests.
 
 ## References
 

@@ -4,7 +4,12 @@ export async function createTicketViaUi(page: Page, o: { title: string; descript
   const t=o.title,d=o.description??"probe",c=o.category??"General",p=o.priority??"high";
   await page.goto(base()+"/tickets/new");await expect(page.locator("h2")).toContainText(/ticket details/i);
   await page.getByLabel(/title/i).fill(t);await page.getByLabel(/description/i).fill(d);
-  await page.getByLabel(/category/i).selectOption({label:c});await page.getByLabel(/priority/i).selectOption(p);
+  await expect(page.getByLabel(/category/i)).toBeVisible();
+  // Ensure the desired category option is present before selecting (handles empty-base published case)
+  const categorySelect = page.getByLabel(/category/i);
+  await expect(categorySelect.locator(`option:has-text("${c}")`).first()).toBeAttached({ timeout: 10000 });
+  await categorySelect.selectOption({label:c});
+  await page.getByLabel(/priority/i).selectOption(p);
   await page.getByRole("button",{name:/create ticket/i}).click();
   await expect(page).toHaveURL(/\/tickets/);await expect(page.getByText(t)).toBeVisible({timeout:10_000});
   const h=await page.getByText(t).first().getAttribute("href");if(h){const m=h.match(/\/tickets\/(\d+)/);if(m) return m[1];}
@@ -22,4 +27,38 @@ export async function resolveWorkflowHref(page: Page): Promise<string|null> {
 export async function openWorkflowBuilder(page: Page): Promise<string> {
   const h=await resolveWorkflowHref(page);if(!h) throw new Error("could not find workflow href");
   await page.goto(base()+h);await expect(page.locator("#workflow-builder")).toBeVisible({timeout:10_000});return h;
+}
+
+export async function resolveCategoryEditHref(page: Page, name: string = "General"): Promise<string|null> {
+  await expect(page.locator('h1:has-text("Categories")')).toBeVisible({ timeout: 10000 });
+  const row = page.locator("tr").filter({ hasText: name });
+  if (await row.count()) {
+    const e = row.locator('a[href*="/edit"]').first();
+    if (await e.count()) {
+      const h = await e.getAttribute("href");
+      if (h) return h;
+    }
+  }
+  const any = page.locator('a[href*="/categories/"][href*="/edit"]').first();
+  if (await any.count()) {
+    const h = await any.getAttribute("href");
+    if (h) return h;
+  }
+  return null;
+}
+
+export async function resolveUserEditHref(page: Page): Promise<string|null> {
+  await expect(page.locator("#users-list-title")).toBeVisible({ timeout: 10000 });
+  // Prefer the user-launcher anchor (drawer) which is the primary edit entry
+  const launcher = page.locator('a.user-launcher').first();
+  if (await launcher.count()) {
+    const h = await launcher.getAttribute("href");
+    if (h) return h.split("?")[0];
+  }
+  const any = page.locator('a[href*="/users/"][href*="/edit"]').first();
+  if (await any.count()) {
+    const h = await any.getAttribute("href");
+    if (h) return h.split("?")[0];
+  }
+  return null;
 }

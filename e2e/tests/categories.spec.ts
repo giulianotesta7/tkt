@@ -5,8 +5,8 @@
 import { test, expect } from "@playwright/test";
 import { startServer, stopServer } from "../server-lifecycle.js";
 import { loginAsSeeded, base } from "./helpers/auth.js";
-import { collectObservability, expectNoConsoleOrPageErrors } from "./helpers/layout.js";
-import { openWorkflowBuilder, resolveWorkflowHref } from "./helpers/navigation.js";
+import { assertCanonicalScreen, collectObservability } from "./helpers/layout.js";
+import { createTicketViaUi, openWorkflowBuilder } from "./helpers/navigation.js";
 
 test.describe("Categories", () => {
   test.beforeAll(async () => {
@@ -17,31 +17,40 @@ test.describe("Categories", () => {
   });
 
   test("categories index shows seeded category with workflow badge", async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
     const obs = collectObservability(page);
     await loginAsSeeded(page);
     await page.goto(base() + "/categories");
     await expect(page.locator("h1").filter({ hasText: "Categories" })).toBeVisible();
     await expect(page.getByText("General")).toBeVisible();
-    // badge Published / Draft
     await expect(page.locator(".badge").first()).toBeVisible();
-    expectNoConsoleOrPageErrors(obs.consoleErrors, obs.pageErrors);
+    await assertCanonicalScreen(page, {
+      viewport: 1280,
+      label: "categories index",
+      url: page.url(),
+      role: "root",
+      consoleErrors: obs.consoleErrors,
+      pageErrors: obs.pageErrors,
+      failedRequests: obs.failedRequests,
+      failedResponses: obs.failedResponses,
+    });
   });
 
   test("create, rename, and delete a category", async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
     const obs = collectObservability(page);
     await loginAsSeeded(page);
 
     const catName = "Probe Cat " + Date.now();
     await page.goto(base() + "/categories/new");
-    await page.getByLabel(/category names are unique/i).isHidden(); // just ensure page loaded
+    await expect(page.locator('h1:has-text("New category")')).toBeVisible();
     await page.getByLabel(/name/i).fill(catName);
-    // submit
     await page.getByRole("button", { name: /create category|save|create/i }).click();
     await expect(page).toHaveURL(/\/categories/);
     await expect(page.getByText(catName)).toBeVisible();
 
-    // Find edit link for that category: locate row with catName then edit
     const row = page.locator("tr").filter({ hasText: catName });
+    await expect(row).toHaveCount(1);
     await row.locator('a[href*="/edit"]').click();
     await expect(page.locator("h1")).toContainText(/rename category/i);
     const renamed = catName + " Renamed";
@@ -50,76 +59,163 @@ test.describe("Categories", () => {
     await expect(page).toHaveURL(/\/categories/);
     await expect(page.getByText(renamed)).toBeVisible();
 
-    // Delete (the delete is a POST button in Actions)
     const delRow = page.locator("tr").filter({ hasText: renamed });
+    await expect(delRow).toHaveCount(1);
     await delRow.getByRole("button", { name: /delete/i }).click();
     await expect(page.getByText(renamed)).toHaveCount(0);
 
-    expectNoConsoleOrPageErrors(obs.consoleErrors, obs.pageErrors);
+    await assertCanonicalScreen(page, {
+      viewport: 1280,
+      label: "categories create/rename/delete",
+      url: page.url(),
+      role: "root",
+      consoleErrors: obs.consoleErrors,
+      pageErrors: obs.pageErrors,
+      failedRequests: obs.failedRequests,
+      failedResponses: obs.failedResponses,
+    });
   });
 
-  test("workflow builder: loads, shows steps rail, can add and remove a step, publish", async ({ page }) => {
+  test("workflow builder integrated journey: create category, add step, publish, reload, create ticket", async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
     const obs = collectObservability(page);
     await loginAsSeeded(page);
-    await page.goto(base() + "/categories");
-    await openWorkflowBuilder(page);
+
+    // 1) create a category
+    const catName = "FlowCat " + Date.now().toString(36).slice(2, 8);
+    await page.goto(base() + "/categories/new");
+    await page.getByLabel(/name/i).fill(catName);
+    await page.getByRole("button", { name: /create category|save|create/i }).click();
+    await expect(page).toHaveURL(/\/categories/);
+    await expect(page.getByText(catName)).toBeVisible();
+
+    // 2) open its workflow
+    const catRow = page.locator("tr").filter({ hasText: catName });
+    await expect(catRow).toHaveCount(1);
+    const editHref = await catRow.locator('a[href*="/edit"]').getAttribute("href");
+    const m = editHref?.match(/\/categories\/(\d+)\/edit/);
+    if (!m) throw new Error("cannot extract category id for " + catName);
+    const categoryId = m[1];
+    const workflowPath = `/categories/${categoryId}/workflow`;
+    await page.goto(base() + workflowPath);
+    await expect(page.locator("#workflow-builder")).toBeVisible({ timeout: 10_000 });
     await expect(page.locator("h2#workflow-builder-title")).toContainText(/workflow steps/i);
     await expect(page.locator(".workflow-step-rail")).toBeVisible();
 
-    // The seeded General category has at least one step (manual_task) already published and loaded as draft
-    await expect(page.locator(".workflow-step-card").first()).toBeVisible();
+    // Ensure workflow builder form carries HTMX contract (complementary evidence)
+    await expect(page.locator("#workflow-builder form")).toHaveAttribute("hx-post", /\/workflow/);
+    await expect(page.locator("#workflow-builder form")).toHaveAttribute("hx-target", "#workflow-builder");
 
-    // Add a step via the + Add step popover -> Manual task (must exist; a silent skip would mask a regression)
+    // 3) add a VALID step — Manual task with instructions is valid by default
+    const cards = page.locator(".workflow-step-card");
+    const countBeforeAdd = await cards.count();
     const addSummary = page.locator(".workflow-add-step summary").first();
     await expect(addSummary).toBeVisible();
     await addSummary.click();
     const addBtn = page.locator(".workflow-add-options button").filter({ hasText: "Manual task" }).first();
-    // Ensure HTMX is present
-    await expect(page.locator("#workflow-builder form")).toHaveAttribute("hx-post", /\/workflow/);
-    const cards = page.locator(".workflow-step-card");
-    const cardsBeforeAdd = await cards.count();
+    await expect(addBtn).toBeVisible();
+    // Record URL before HTMX swap — hx-push-url=false so URL must not change
+    const urlBeforeAdd = page.url();
+    const builderBefore = await page.locator("#workflow-builder").innerHTML();
     await addBtn.click();
-    // After HTMX swap, builder remains and the step count actually grows
     await expect(page.locator("#workflow-builder")).toBeVisible();
-    await expect(cards).toHaveCount(cardsBeforeAdd + 1);
-    // Live region should announce addition
+    expect(page.url()).toBe(urlBeforeAdd);
+    await expect(cards).toHaveCount(countBeforeAdd + 1);
+    const builderAfterAdd = await page.locator("#workflow-builder").innerHTML();
+    expect(builderAfterAdd).not.toBe(builderBefore);
     await expect(page.locator("[data-workflow-live]")).toContainText(/added a step/i);
-
-    // Publish button exists and is HTMX-capable form
-    await expect(page.getByRole("button", { name: /publish/i })).toBeVisible();
-
-    // If we added a step, remove the last non-final card's step via its menu
-    const stepCards = page.locator(".workflow-step-card");
-    const countBefore = await stepCards.count();
-    if (countBefore > 1) {
-      const lastCard = stepCards.last();
-      const menuSummary = lastCard.locator(".workflow-trigger").first();
-      if (await menuSummary.count()) {
-        await menuSummary.click();
-        const removeBtn = lastCard.getByRole("button", { name: /remove step/i });
-        if (await removeBtn.count()) {
-          await removeBtn.click();
-          await expect(page.locator("#workflow-builder")).toBeVisible();
-        }
-      }
-    }
-
-    expectNoConsoleOrPageErrors(obs.consoleErrors, obs.pageErrors);
-  });
-
-  test("workflow builder HTMX attributes are present (partial swap contract)", async ({ page }) => {
-    await loginAsSeeded(page);
-    await page.goto(base() + "/categories");
-    const wfHref = await resolveWorkflowHref(page);
-    if (!wfHref) test.skip(true, "no workflow link found");
-    await page.goto(base() + wfHref);
+    // Configure the newly added manual_task step — instructions are required for publish
+    const instructionsInput = page.getByLabel(/instructions/i);
+    await expect(instructionsInput).toBeVisible({ timeout: 10000 });
+    await instructionsInput.fill("Handle the ticket");
+    await instructionsInput.blur();
     await expect(page.locator("#workflow-builder")).toBeVisible();
-    const form = page.locator("#workflow-builder form#workflow-form");
-    await expect(form).toHaveAttribute("hx-post", /\/workflow/);
-    await expect(form).toHaveAttribute("hx-target", "#workflow-builder");
-    await expect(form).toHaveAttribute("hx-swap", /outerHTML/);
-    // Add-step buttons carry hx-post / hx-target as well
-    const hxButtons = page.locator('button[hx-post*="/workflow"]');
-    await expect(hxButtons.first()).toBeVisible();
+
+    // Remove must actually decrease count (unconditional)
+    const countBeforeRemove = await cards.count();
+    const lastCard = cards.last();
+    const menuSummary = lastCard.locator(".workflow-trigger").first();
+    await expect(menuSummary).toBeVisible();
+    await menuSummary.click();
+    const removeBtn = lastCard.getByRole("button", { name: /remove step/i });
+    await expect(removeBtn).toBeVisible();
+    const builderBeforeRemove = await page.locator("#workflow-builder").innerHTML();
+    const urlBeforeRemove = page.url();
+    await removeBtn.click();
+    await expect(page.locator("#workflow-builder")).toBeVisible();
+    expect(page.url()).toBe(urlBeforeRemove);
+    await expect(cards).toHaveCount(countBeforeRemove - 1);
+    const builderAfterRemove = await page.locator("#workflow-builder").innerHTML();
+    expect(builderAfterRemove).not.toBe(builderBeforeRemove);
+
+    // Re-add a step so we have at least one to publish (workflow must be non-empty)
+    const countBeforeReAdd = await cards.count();
+    if (countBeforeReAdd === 0) {
+      await expect(addSummary).toBeVisible();
+      await addSummary.click();
+      await expect(addBtn).toBeVisible();
+      await addBtn.click();
+      await expect(cards).toHaveCount(1);
+      {
+        const instr = page.getByLabel(/instructions/i);
+        await expect(instr).toBeVisible();
+        await instr.fill("Handle the ticket");
+        await instr.blur();
+        await expect(page.locator("#workflow-builder")).toBeVisible();
+      }
+    } // if we removed the added step, the original valid step remains — no need to re-add
+
+    // 4) PUBLISH — must execute publication, not just check button exists
+    const publishBtn = page.getByRole("button", { name: /publish/i });
+    await expect(publishBtn).toBeVisible();
+    const publishResponsePromise = page.waitForResponse(
+      (r) => r.url().includes(`/categories/${categoryId}/workflow`) && r.request().method() === "POST",
+    );
+    await publishBtn.click();
+    const publishResp = await publishResponsePromise;
+    expect(publishResp.status(), `publish expected 200 got ${publishResp.status()}`).toBe(200);
+    await expect(page.locator("#workflow-builder")).toBeVisible({ timeout: 10_000 });
+    // After publish, badge should reflect Published; no inline error
+    await expect(page.locator(".error-banner, [role='alert']")).toHaveCount(0);
+    // Publish may set live region or keep builder visible — ensure no 422
+    expect(publishResp.status()).toBe(200);
+
+    // 5) reload and verify persistence — step count survives reload
+    const countAfterPublish = await cards.count();
+    await page.reload();
+    await expect(page.locator("#workflow-builder")).toBeVisible({ timeout: 10_000 });
+    await expect(page.locator(".workflow-step-card")).toHaveCount(countAfterPublish);
+    // Badge on /categories should now show Published for this category
+    await page.goto(base() + "/categories");
+    await expect(page.locator("tr").filter({ hasText: catName }).locator(".badge")).toContainText(/published/i);
+
+    // 6) create a ticket using that category
+    const ticketTitle = "FlowTicket " + Date.now().toString(36).slice(2, 8);
+    const ticketId = await createTicketViaUi(page, {
+      title: ticketTitle,
+      description: "workflow published probe",
+      category: catName,
+      priority: "high",
+    });
+
+    // 7) verify the published version is used — strongest observable signal in browser:
+    // the ticket detail shows the category name and the ticket exists (creation succeeded only with published workflow)
+    await page.goto(base() + `/tickets/${ticketId}`);
+    await expect(page.locator("#ticket-detail")).toBeVisible();
+    await expect(page.locator("#ticket-category-value")).toContainText(catName);
+    // Workflow steps would be visible in ticket detail if execution were surfaced; we assert category linkage
+    // Documented limitation: the exact published workflow version stamp is not directly visible in the browser without product changes.
+    // The ticket creation succeeding + category displayed is the strongest browser-visible signal that the published workflow was used.
+
+    await assertCanonicalScreen(page, {
+      viewport: 1280,
+      label: "workflow integrated journey",
+      url: page.url(),
+      role: "root",
+      consoleErrors: obs.consoleErrors,
+      pageErrors: obs.pageErrors,
+      failedRequests: obs.failedRequests,
+      failedResponses: obs.failedResponses,
+    });
   });
 });
