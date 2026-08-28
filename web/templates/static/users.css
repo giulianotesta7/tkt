@@ -79,7 +79,8 @@
 .users-root dialog div{display:flex;justify-content:flex-end;gap:10px}
 .users-root .users-drawer[aria-busy=true]{pointer-events:none;opacity:.7}
 @media(max-width:900px){
-  .users-root .users-layout{grid-template-areas:"filters" "list" "access";grid-template-columns:1fr;row-gap:24px}
+  .users-root .users-layout{grid-template-areas:"filters" "list" "access";grid-template-columns:minmax(0,1fr);row-gap:24px;min-width:0}
+  .users-root .users-layout > *{min-width:0}
   .users-root .users-filters{align-items:stretch;flex-direction:column;gap:12px}
   .users-root .users-status-tabs{flex-wrap:wrap}
   .users-root .users-search{flex-basis:auto;width:100%;margin:0 0 12px}
@@ -88,8 +89,11 @@
   .users-root .users-header,.page-foundation .page-header{margin-bottom:24px}
   .page-foundation .page-header{flex-wrap:wrap}
   .page-foundation .page-actions{width:100%}
+  .users-root #users-background{min-width:0}
+  .users-root .users-layout{min-width:0}
+  .users-root .users-layout > *{min-width:0}
   .users-root table{min-width:620px}
-  .users-root .users-list{overflow:auto}
+  .users-root .users-list{min-width:0;max-width:100%;overflow:auto;position:relative}
   .users-root .users-drawer-header{height:64px;padding:20px 24px}
   .users-root .users-drawer-body{padding:24px}
   .users-root .users-drawer-footer{margin:30px -24px -24px;padding:16px 24px}
