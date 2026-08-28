@@ -358,6 +358,7 @@ export async function startServer(options = {}) {
   let dbDir;
   let dbPath;
   let runId;
+  let proc = null;
   try {
     const tmp = createTempDir();
     dbDir = tmp.dbDir;
@@ -380,7 +381,7 @@ export async function startServer(options = {}) {
 
     // Spawn: persists PID immediately (before healthcheck), then waits for readiness.
     // On failure, spawnServer handles its own async cleanup (kill proc, wait, remove dir, remove state).
-    const { proc } = await spawnServer(port, dbPath, { dbDir, runId });
+    proc = (await spawnServer(port, dbPath, { dbDir, runId })).proc;
 
     // Persist final state with ready status
     writeState({ runId, dbDir, dbPath, bootstrapStatus: "ready", controllerPid: process.pid, pid: proc.pid, port, baseURL });
@@ -398,6 +399,11 @@ export async function startServer(options = {}) {
     // For tests: return the handle
     return { dbDir, port, pid: proc.pid, baseURL, proc };
   } catch (err) {
+    // If spawnServer succeeded (proc is set) but a later step failed
+    // (e.g. writeState of ready status), kill the child process first.
+    if (proc) {
+      await killChildAndWait(proc);
+    }
     // If the error came from outside spawnServer (migrate, seed, port),
     // we need to clean up here.  If it came from spawnServer, cleanup
     // already happened inside that function — but it's safe to repeat.
