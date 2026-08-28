@@ -4,7 +4,7 @@ description: "Trigger: implementing or changing a visible feature, modifying a c
 license: MIT
 metadata:
   author: "giulianotesta7"
-  version: "1.2"
+  version: "1.3"
 ---
 
 ## Activation Contract
@@ -117,6 +117,19 @@ When fixing a browser-observable bug, you MUST add or update a Playwright test t
    npm run server:stop
    ```
 
+## Coverage Baseline (frontend coverage, issue #78)
+
+Versioned regression now covers every canonical screen at 390px and 1280px (no document-level horizontal overflow, zero console/page errors via `e2e/tests/helpers/layout.ts`):
+
+- `/tickets` — list + filters (HTMX `hx-get` → `#ticket-list`)
+- `/tickets/{id}` — detail with Properties sidebar, timeline, comments (rejection on resolved/closed/cancelled), state transitions, HTMX `hx-target="#ticket-detail"`
+- `/desks` — list, create, rename, delete, membership add/remove
+- `/categories` — index with workflow badge, create/rename/delete, workflow builder rail + `hx-target="#workflow-builder"` (add/remove step, publish)
+- `/users` — mobile 390px in-panel scroll baseline + desktop baseline (existing `users.spec.ts`)
+- `/settings` — appearance panel (3 swatches), persist on POST `/settings/appearance`
+
+Journey groups (see `e2e/README.md` matrix for spec mapping): `desks.spec.ts`, `categories.spec.ts`, `settings.spec.ts`, `ticket-detail.spec.ts`, `htmx.spec.ts` (partial swaps without full reload), `roles.spec.ts` (admin vs `user` gates via seeded data), `structural.spec.ts` (shared baseline helper across all canonical routes).
+
 ## References
 
 - `../../../openspec/` — canonical specs and active changes.
@@ -128,3 +141,5 @@ When fixing a browser-observable bug, you MUST add or update a Playwright test t
 - `../../../e2e/cmd/seed/main.go` — database seeder for root, category, desk, workflow.
 - `../../../e2e/cmd/migrate/main.go` — database migrator for empty-DB tests.
 - `../../../cmd/server/main.go` — local server environment and health endpoint.
+- `../../../e2e/README.md` — coverage matrix (screen → journeys → specs).
+- `../../../e2e/tests/helpers/layout.ts` — shared structural baseline assertion (overflow + console/page errors).
