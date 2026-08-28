@@ -106,10 +106,12 @@ test.describe("Desks", () => {
       const roleSelect = page.locator('select[name="role"]');
       await expect(roleSelect).toBeVisible();
       await roleSelect.selectOption("agent");
-      await Promise.all([
-        page.waitForResponse((r) => r.url().includes(href) && r.request().method() === "POST").catch(() => {}),
-        page.getByRole("button", { name: /save changes/i }).click(),
-      ]);
+      const respPromise = page.waitForResponse(
+        (r) => r.url().includes(href) && r.request().method() === "POST",
+      );
+      await page.getByRole("button", { name: /save changes/i }).click();
+      const resp = await respPromise;
+      expect(resp.status()).toBe(200);
       await page.goto(base() + "/users");
       await expect(page.getByText(uname)).toBeVisible();
     }

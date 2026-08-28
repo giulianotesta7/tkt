@@ -1,6 +1,7 @@
 /**
- * Users: mobile overflow baselines + one creation+edition journey.
+ * Users: single creation+edition journey.
  *
+ * Overflow baselines are covered by structural.spec.ts (all canonical screens).
  * Exclusions (remain covered by Go tests):
  *  - password change via /users/{id}/password
  *  - deactivation / reactivation lifecycle and session invalidation (D14)
@@ -34,76 +35,6 @@ test.describe("Users", () => {
     await stopServer();
   });
 
-  test("no document overflow at 390px and table remains scrollable in-panel", async ({ page }) => {
-    await page.setViewportSize({ width: 390, height: 844 });
-    const obs = collectObservability(page);
-    await login(page);
-    await page.goto(base() + "/users");
-    await expect(page.locator(".users-root")).toBeVisible();
-
-    const metrics = await page.evaluate(() => ({
-      viewport: window.innerWidth,
-      htmlScroll: document.documentElement.scrollWidth,
-      htmlClient: document.documentElement.clientWidth,
-      bodyScroll: document.body.scrollWidth,
-      listClient: document.querySelector<HTMLElement>(".users-list")!.clientWidth,
-      listScroll: document.querySelector<HTMLElement>(".users-list")!.scrollWidth,
-      listOverflowX: getComputedStyle(document.querySelector<HTMLElement>(".users-list")!).overflowX,
-    }));
-    expect(metrics.viewport).toBe(390);
-    expect(metrics.htmlScroll).toBeLessThanOrEqual(390);
-    expect(metrics.htmlClient).toBe(390);
-    expect(metrics.bodyScroll).toBeLessThanOrEqual(390);
-    expect(metrics.listScroll).toBeGreaterThan(metrics.listClient);
-    expect(metrics.listOverflowX).toBe("auto");
-    const canScroll = await page.evaluate(() => {
-      const el = document.querySelector<HTMLElement>(".users-list")!;
-      const before = el.scrollLeft;
-      el.scrollLeft = 50;
-      const after = el.scrollLeft;
-      el.scrollLeft = before;
-      return after === 50;
-    });
-    expect(canScroll).toBe(true);
-
-    await assertCanonicalScreen(page, {
-      viewport: 390,
-      label: "/users overflow 390px",
-      url: page.url(),
-      role: "root",
-      consoleErrors: obs.consoleErrors,
-      pageErrors: obs.pageErrors,
-      failedRequests: obs.failedRequests,
-      failedResponses: obs.failedResponses,
-    });
-  });
-
-  test("no document overflow at desktop 1280px", async ({ page }) => {
-    await page.setViewportSize({ width: 1280, height: 800 });
-    const obs = collectObservability(page);
-    await login(page);
-    await page.goto(base() + "/users");
-    await expect(page.locator(".users-root")).toBeVisible();
-    const metrics = await page.evaluate(() => ({
-      viewport: window.innerWidth,
-      htmlScroll: document.documentElement.scrollWidth,
-      htmlClient: document.documentElement.clientWidth,
-    }));
-    expect(metrics.viewport).toBe(1280);
-    expect(metrics.htmlScroll).toBeLessThanOrEqual(1280);
-    expect(metrics.htmlClient).toBe(1280);
-    await assertCanonicalScreen(page, {
-      viewport: 1280,
-      label: "/users overflow 1280px",
-      url: page.url(),
-      role: "root",
-      consoleErrors: obs.consoleErrors,
-      pageErrors: obs.pageErrors,
-      failedRequests: obs.failedRequests,
-      failedResponses: obs.failedResponses,
-    });
-  });
-
   test("creation+edition journey via UI with persistence", async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 800 });
     const obs = collectObservability(page);
@@ -123,7 +54,7 @@ test.describe("Users", () => {
     await Promise.all([
       page.waitForResponse((r) => r.url().includes("/users") && r.request().method() === "POST"),
       page.getByRole("button", { name: /create user/i }).click(),
-    ]).catch(() => {});
+    ]);
     await expect(page).toHaveURL(/\/users/);
     await expect(page.getByText(baseName)).toBeVisible();
     await expect(page.getByText(email)).toBeVisible();
@@ -131,7 +62,6 @@ test.describe("Users", () => {
     // Resolve edit href for that user (drawer link)
     const row = page.locator("tr").filter({ hasText: baseName });
     await expect(row).toHaveCount(1);
-    // Click the user launcher which hx-gets the drawer — but we directly navigate to the edit URL for determinism
     const editLink = row.locator('a[href*="/users/"][href*="/edit"]').first();
     let editHref: string | null = await editLink.getAttribute("href");
     if (!editHref) {
@@ -151,7 +81,7 @@ test.describe("Users", () => {
     await Promise.all([
       page.waitForResponse((r) => r.url().includes(cleanHref) && r.request().method() === "POST"),
       page.getByRole("button", { name: /save changes/i }).click(),
-    ]).catch(() => {});
+    ]);
     await expect(page).toHaveURL(/\/users/, { timeout: 10000 });
     await expect(page.getByText(renamed)).toBeVisible();
 

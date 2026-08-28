@@ -4,7 +4,7 @@ description: "Trigger: implementing or changing a visible feature, modifying a c
 license: MIT
 metadata:
   author: "giulianotesta7"
-  version: "1.3"
+  version: "1.4"
 ---
 
 ## Activation Contract
@@ -123,21 +123,32 @@ Every canonical frontend screen has a structural browser baseline. Selected crit
 
 Versioned regression covers every canonical screen at 390px and 1280px via `e2e/tests/helpers/layout.ts` (`collectObservability` + `assertCanonicalScreen`): `html.scrollWidth <= viewport`, zero `console.error`, zero `pageerror`, zero failed loopback requests, zero loopback 5xx responses. Failures report screen label, URL, and role. External origins are ignored (app is loopback-only).
 
-Canonical screens (structural baseline — see `e2e/README.md` matrix for viewports/roles/ journey mapping):
+Structural spec (`structural.spec.ts`) uses a **data-driven table** — add a route by adding one entry to the array, not by copying a block.
+
+**Seeded profile** covers all canonical screens at both viewports (anonymous + authenticated). Dynamic IDs (ticket, user edit, category edit, workflow) are prepared once in `beforeAll` via fixture helpers.
+
+**Empty profile** covers ONLY `/login`, `/setup`, and `/` (onboarding redirects and bootstrap). Authenticated screens are NOT re-asserted after bootstrap — the empty profile's purpose is to verify empty-state redirects and first-user setup.
+
+Canonical screens (structural baseline — see `e2e/README.md` matrix for viewports/roles/journey mapping):
 - `/login`, `/setup` (empty + with users), `/` (redirects per session), `/tickets`, `/tickets/new`, `/tickets/{id}`, `/users`, `/users/new`, `/users/{id}/edit`, `/categories`, `/categories/new`, `/categories/{id}/edit`, `/categories/{id}/workflow`, `/desks`, `/settings`
 
 Representative functional journeys (one per domain, not exhaustive):
 - `desks.spec.ts` — create/rename/delete + membership add/remove with reload persistence
-- `categories.spec.ts` — integrated workflow: create category → add step (count+1, live region, HTMX swap) → remove (count-1) → publish (200, badge Published, reload) → create ticket with category (strongest observable published linkage; version stamp not surfaced without product changes)
+- `categories.spec.ts` — integrated workflow: create category → add step (HTMX swap verified) → configure → remove step → re-add → publish (200, badge Published, reload) → create ticket with category → **`#workflow-pending` visible** + `.workflow-instruction` shows instruction text. Published workflow IS observable without product changes.
 - `settings.spec.ts` — appearance 3 radios, `input:checked` assertion (no invalid `hasAttribute`), Violet→Blue persistence via reload, POST `/settings/appearance`
-- `tickets.spec.ts` / `ticket-detail.spec.ts` — creation/list/detail, real `hx-get` search filter changing `#ticket-list`, public comment + timeline, real transition `new→in_progress` with visible result
-- `htmx.spec.ts` — partial swaps assert target region content changed AND chrome intact AND URL (unchanged or only `hx-push-url`); `hx-*` attributes are complementary, not sole proof
+- `tickets.spec.ts` — creation/list/detail, search filter (functional assertion: results visible, swap mechanism verified via shared helper), public comment + timeline persistence, transition `new→in_progress` with visible result
+- `ticket-detail.spec.ts` — properties sidebar, timeline, public comment, closed-state comment form hidden, priority change via HTMX swap (verified via shared `assertHtmxSwap`)
+- `htmx.spec.ts` — partial swaps assert `HX-Request: true` header, 200 response, target region content changed, chrome intact, URL unchanged; uses shared `helpers/htmx.ts` `assertHtmxSwap` helper
 - `roles.spec.ts` — minimal matrix: root via empty bootstrap, admin creates category, agent creates ticket + `Forbidden` on direct admin navigation (browser), user creates ticket + internal checkbox hidden + `Forbidden` on admin navigation
-- `users.spec.ts` — 390px in-panel scroll + 1280px baselines, plus single creation+edition journey (password change / deactivation / deletion delegated to Go)
-- `structural.spec.ts` — horizontal coverage of all canonical screens at 390px + 1280px for empty-base and seeded profiles
+- `users.spec.ts` — single creation+edition journey (overflow baselines covered by structural.spec.ts)
+- `structural.spec.ts` — data-driven table covering all canonical screens at 390px + 1280px for seeded profile; empty profile covers only onboarding/redirects
 - `auth.spec.ts` — setup/login/logout, `/setup` with users (redirect), `/` redirect
+- `helpers/navigation.ts` — properly formatted, throws on not-found, General-specific workflow href
+- `helpers/htmx.ts` — `assertHtmxSwap` shared across all HTMX-interaction tests; verifies HX-Request header, 200, target changed, chrome intact, URL unchanged
 
 Exclusions delegated to Go remain covered there (see `e2e/README.md`): password change, deactivation/reactivation + session kill (D14), deletion, exhaustive role-change protections, exhaustive state machine, comment rejection status codes, workflow step validations, exhaustive filter combos. E2E does not replace unit/integration tests.
+
+Duplicates eliminated: logout/auth gate lives only in `auth.spec.ts`; user overflow baselines live only in `structural.spec.ts`; ticket detail HTMX swap lives in `ticket-detail.spec.ts` (functional home); search filter HTMX swap mechanism lives in `htmx.spec.ts`; `.catch(() => {})` and `.catch(() => null)` are absent from all specs.
 
 ## References
 
@@ -152,3 +163,6 @@ Exclusions delegated to Go remain covered there (see `e2e/README.md`): password 
 - `../../../cmd/server/main.go` — local server environment and health endpoint.
 - `../../../e2e/README.md` — coverage matrix (screen → journeys → specs).
 - `../../../e2e/tests/helpers/layout.ts` — shared structural baseline assertion (overflow + console/page errors).
+- `../../../e2e/tests/helpers/navigation.ts` — shared UI navigation helpers (create ticket, resolve workflow/category/user hrefs).
+- `../../../e2e/tests/helpers/htmx.ts` — shared `assertHtmxSwap` helper for HTMX interaction tests.
+- `../../../e2e/tests/helpers/auth.ts` — shared login helpers.

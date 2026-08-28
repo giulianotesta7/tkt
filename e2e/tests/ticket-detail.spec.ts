@@ -16,6 +16,7 @@ import { test, expect } from "@playwright/test";
 import { startServer, stopServer } from "../server-lifecycle.js";
 import { loginAsSeeded, base } from "./helpers/auth.js";
 import { assertCanonicalScreen, collectObservability } from "./helpers/layout.js";
+import { assertHtmxSwap } from "./helpers/htmx.js";
 import { createTicketViaUi } from "./helpers/navigation.js";
 
 test.describe("Ticket detail", () => {
@@ -26,7 +27,7 @@ test.describe("Ticket detail", () => {
     await stopServer();
   });
 
-  test("detail shows Properties sidebar and timeline, allows public comment", async ({ page }) => {
+  test("detail shows Properties sidebar and timeline, allows public comment (HTMX swap)", async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 800 });
     const obs = collectObservability(page);
     await loginAsSeeded(page);
@@ -45,11 +46,13 @@ test.describe("Ticket detail", () => {
 
     const comment = "Hello from play " + Date.now().toString(36).slice(2, 6);
     await page.getByLabel(/comment body/i).fill(comment);
-    await Promise.all([
-      page.waitForResponse((r) => r.url().includes(`/tickets/${id}/comments`) && r.request().method() === "POST"),
-      page.getByRole("button", { name: /add comment/i }).click(),
-    ]);
-    await expect(page.locator("#ticket-detail")).toBeVisible();
+    await assertHtmxSwap(page, async () => {
+      await page.getByRole("button", { name: /add comment/i }).click();
+    }, {
+      urlPattern: (url) => url.includes(`/tickets/${id}/comments`),
+      hxTarget: "#ticket-detail",
+      skipHxRequestCheck: true,
+    });
     await expect(page.locator("#timeline")).toContainText(comment);
 
     await assertCanonicalScreen(page, {
@@ -77,13 +80,13 @@ test.describe("Ticket detail", () => {
       await expect(page.locator("#ticket-detail")).toBeVisible();
       const moveSelect = page.locator("#ticket-state");
       await expect(moveSelect).toBeVisible();
-      const respPromise = page.waitForResponse(
-        (r) => r.url().includes(`/tickets/${id}/transition`) && r.request().method() === "POST",
-      );
-      await moveSelect.selectOption(target);
-      const resp = await respPromise;
-      expect(resp.status(), `transition to ${target} status`).toBe(200);
-      await expect(page.locator("#ticket-detail")).toBeVisible();
+      const resp = await assertHtmxSwap(page, async () => {
+        await moveSelect.selectOption(target);
+      }, {
+        urlPattern: (url) => url.includes(`/tickets/${id}/transition`),
+        hxTarget: "#ticket-detail",
+      });
+      expect(resp.status()).toBe(200);
     }
     await page.goto(base() + `/tickets/${id}`);
     await expect(page.getByText("Resolved").first()).toBeVisible({ timeout: 10_000 });
@@ -100,11 +103,12 @@ test.describe("Ticket detail", () => {
     const toClosed = page.locator("#ticket-state");
     await expect(toClosed).toBeVisible();
     {
-      const respPromise = page.waitForResponse(
-        (r) => r.url().includes(`/tickets/${id}/transition`) && r.request().method() === "POST",
-      );
-      await toClosed.selectOption("closed");
-      const resp = await respPromise;
+      const resp = await assertHtmxSwap(page, async () => {
+        await toClosed.selectOption("closed");
+      }, {
+        urlPattern: (url) => url.includes(`/tickets/${id}/transition`),
+        hxTarget: "#ticket-detail",
+      });
       expect(resp.status()).toBe(200);
     }
     await expect(page.locator("#ticket-detail")).toBeVisible();
@@ -119,11 +123,12 @@ test.describe("Ticket detail", () => {
     const toCancel = page.locator("#ticket-state");
     await expect(toCancel).toBeVisible();
     {
-      const respPromise = page.waitForResponse(
-        (r) => r.url().includes(`/tickets/${cancelId}/transition`) && r.request().method() === "POST",
-      );
-      await toCancel.selectOption("cancelled");
-      const resp = await respPromise;
+      const resp = await assertHtmxSwap(page, async () => {
+        await toCancel.selectOption("cancelled");
+      }, {
+        urlPattern: (url) => url.includes(`/tickets/${cancelId}/transition`),
+        hxTarget: "#ticket-detail",
+      });
       expect(resp.status()).toBe(200);
     }
     await expect(page.locator("#ticket-detail")).toBeVisible();
@@ -143,7 +148,7 @@ test.describe("Ticket detail", () => {
     });
   });
 
-  test("ticket detail HTMX swap updates #ticket-detail without full navigation", async ({ page }) => {
+  test("priority change via HTMX swap updates #ticket-detail without full navigation", async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 800 });
     const obs = collectObservability(page);
     await loginAsSeeded(page);
@@ -159,18 +164,16 @@ test.describe("Ticket detail", () => {
     const hxForms = page.locator('[hx-post][hx-target="#ticket-detail"]');
     await expect(hxForms.first()).toBeVisible();
 
-    const urlBefore = page.url();
-    const detailBefore = await page.locator("#ticket-detail").innerHTML();
     const prioritySelect = page.locator("#ticket-priority");
     await expect(prioritySelect).toBeVisible();
-    await Promise.all([
-      page.waitForResponse((r) => r.url().includes(`/tickets/${id}/edit`) && r.request().method() === "POST"),
-      prioritySelect.selectOption("critical"),
-    ]);
-    await expect(page.locator("#ticket-detail")).toBeVisible();
-    expect(page.url()).toBe(urlBefore);
-    const detailAfter = await page.locator("#ticket-detail").innerHTML();
-    expect(detailAfter).not.toBe(detailBefore);
+
+    await assertHtmxSwap(page, async () => {
+      await prioritySelect.selectOption("critical");
+    }, {
+      urlPattern: (url) => url.includes(`/tickets/${id}/edit`),
+      hxTarget: "#ticket-detail",
+    });
+
     await expect(page.locator("#ticket-detail")).toContainText(/critical/i);
 
     await assertCanonicalScreen(page, {

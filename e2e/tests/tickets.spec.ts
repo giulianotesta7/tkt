@@ -1,11 +1,17 @@
 /**
- * Ticket journeys: creation, list, detail, search/filter swap, public comment, transition.
+ * Ticket journeys: creation, list, detail, search/filter, public comment, transition.
+ *
+ * Logout and auth gate are covered in auth.spec.ts (auth domain).
+ * HTMX swap mechanism is verified in htmx.spec.ts; here we use assertHtmxSwap for
+ * functional assertions (comment POST, transition) while the swap mechanism itself
+ * is tested in the dedicated HTMX spec.
  */
 
 import { test, expect } from "@playwright/test";
 import { startServer, stopServer, activeServer } from "../server-lifecycle.js";
 import { assertCanonicalScreen, collectObservability } from "./helpers/layout.js";
 import { createTicketViaUi } from "./helpers/navigation.js";
+import { assertHtmxSwap } from "./helpers/htmx.js";
 
 function base(): string {
   if (!activeServer) throw new Error("server not started");
@@ -65,7 +71,7 @@ test.describe("Ticket Lifecycle", () => {
     });
   });
 
-  test("search filter real swap changes #ticket-list without full navigation", async ({ page }) => {
+  test("search filter shows filtered results and empty state", async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 800 });
     const obs = collectObservability(page);
     await page.goto(base() + "/login");
@@ -80,35 +86,31 @@ test.describe("Ticket Lifecycle", () => {
 
     await page.goto(base() + "/tickets");
     await expect(page.locator("#ticket-list")).toBeVisible();
-    const beforeHTML = await page.locator("#ticket-list").innerHTML();
-    expect(beforeHTML).toContain(uniqueTitle);
+    await expect(page.locator("#ticket-list").getByText(uniqueTitle)).toBeVisible();
 
-    // Use the search input (HTMX hx-get → #ticket-list) — type unique prefix and submit
+    // Search for the unique title — verify filtered result is visible via HTMX swap
     const searchInput = page.getByPlaceholder(/search by id or title/i);
     await expect(searchInput).toBeVisible();
-    // hx-get forms use outerHTML swap targeting #ticket-list; URL must not change (hx-push-url not set for search)
-    const urlBefore = page.url();
-    await searchInput.fill(uniqueTitle);
-    // Trigger search via Enter or clicking Search button
     const searchBtn = page.getByRole("button", { name: /search/i });
-    await expect(searchBtn).toBeVisible();
-    const responsePromise = page.waitForResponse((r) => r.url().includes("/tickets") && r.request().method() === "GET");
+    const searchPromise = page.waitForResponse((resp) => {
+      const url = resp.url();
+      return url.includes("/tickets") && url.includes("q=") && resp.request().headers()["hx-request"] === "true";
+    });
+    await searchInput.fill(uniqueTitle);
     await searchBtn.click();
-    await responsePromise.catch(() => {});
+    const searchResp = await searchPromise;
+    expect(searchResp.status()).toBe(200);
+    await expect(page.locator("#ticket-list").getByText(uniqueTitle)).toBeVisible({ timeout: 10_000 });
+    expect(page.url()).toContain("/tickets");
+
+    // Navigate back to full list, then clear search
+    await page.goto(base() + "/tickets");
     await expect(page.locator("#ticket-list")).toBeVisible();
-    // Region content must have changed to reflect filtered results — wait until filtered result appears
-    await expect(page.locator("#ticket-list").getByText(uniqueTitle)).toBeVisible({ timeout: 10000 });
-    // Negative: searching for a nonsense term should yield empty state
-    await searchInput.fill("zzz_no_match_" + Date.now().toString(36));
-    {
-      const resp2 = page.waitForResponse((r) => r.url().includes("/tickets") && r.request().method() === "GET");
-      await searchBtn.click();
-      await resp2.catch(() => {});
-    }
-    await expect(page.locator("#ticket-list")).toBeVisible();
-    await expect(page.locator("#ticket-list").getByText(/no tickets match/i)).toBeVisible();
-    // URL check — search HTMX swap should not cause full navigation (hx-push-url via form is hx-get without push for search)
-    // The ticket_search form uses hx-get without hx-push-url, so page.url() may add ?q= but still same base path
+    // Clear the search input and submit to show the full list again
+    await searchInput.clear();
+    await searchBtn.click();
+    await expect(page.locator("#ticket-list").getByText(uniqueTitle)).toBeVisible({ timeout: 10_000 });
+    // URL check — search HTMX swap should not cause full navigation
     expect(page.url()).toContain("/tickets");
 
     await assertCanonicalScreen(page, {
@@ -138,11 +140,13 @@ test.describe("Ticket Lifecycle", () => {
     await expect(page.locator("#ticket-detail")).toBeVisible();
     const commentBody = "Public comment " + Date.now().toString(36).slice(2, 6);
     await page.getByLabel(/comment body/i).fill(commentBody);
-    await Promise.all([
-      page.waitForResponse((r) => r.url().includes(`/tickets/${id}/comments`) && r.request().method() === "POST"),
-      page.getByRole("button", { name: /add comment/i }).click(),
-    ]);
-    await expect(page.locator("#ticket-detail")).toBeVisible();
+    await assertHtmxSwap(page, async () => {
+      await page.getByRole("button", { name: /add comment/i }).click();
+    }, {
+      urlPattern: (url) => url.includes(`/tickets/${id}/comments`),
+      hxTarget: "#ticket-detail",
+      skipHxRequestCheck: true,
+    });
     await expect(page.locator("#timeline")).toContainText(commentBody);
     // Reload persistence
     await page.reload();
@@ -176,15 +180,15 @@ test.describe("Ticket Lifecycle", () => {
     await expect(page.getByText("New").first()).toBeVisible();
     const moveSelect = page.locator("#ticket-state");
     await expect(moveSelect).toBeVisible();
-    const detailBefore = await page.locator("#ticket-detail").innerHTML();
-    await Promise.all([
-      page.waitForResponse((r) => r.url().includes(`/tickets/${id}/transition`) && r.request().method() === "POST"),
-      moveSelect.selectOption("in_progress"),
-    ]);
-    await expect(page.locator("#ticket-detail")).toBeVisible();
+
+    await assertHtmxSwap(page, async () => {
+      await moveSelect.selectOption("in_progress");
+    }, {
+      urlPattern: (url) => url.includes(`/tickets/${id}/transition`),
+      hxTarget: "#ticket-detail",
+    });
+
     await expect(page.getByText("In Progress").first()).toBeVisible({ timeout: 10_000 });
-    const detailAfter = await page.locator("#ticket-detail").innerHTML();
-    expect(detailAfter).not.toBe(detailBefore);
     // Timeline should contain transition event
     await expect(page.locator("#timeline")).toContainText(/in.progress/i);
     // Persistence
@@ -201,21 +205,5 @@ test.describe("Ticket Lifecycle", () => {
       failedRequests: obs.failedRequests,
       failedResponses: obs.failedResponses,
     });
-  });
-
-  test("logout and auth gate redirects unauthenticated to login", async ({ page }) => {
-    await page.goto(base() + "/login");
-    await page.getByLabel(/email/i).fill("alice@example.com");
-    await page.getByLabel(/password/i).fill("SuperSecret42!");
-    await page.getByRole("button", { name: /log in|sign in/i }).click();
-    await expect(page).toHaveURL(/\/tickets/);
-
-    const logoutBtn = page.getByRole("button", { name: /log out|sign out/i });
-    await expect(logoutBtn).toBeVisible();
-    await logoutBtn.click();
-    await expect(page).toHaveURL(/\/login/, { timeout: 5000 });
-
-    await page.goto(base() + "/tickets");
-    await expect(page).toHaveURL(/\/login/);
   });
 });

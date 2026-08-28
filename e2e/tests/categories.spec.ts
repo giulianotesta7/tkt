@@ -1,11 +1,15 @@
 /**
  * Categories + Workflow Builder journeys.
+ *
+ * The published workflow version CAN be observed via #workflow-pending + .workflow-instruction
+ * on the ticket detail page — no product changes needed.
  */
 
 import { test, expect } from "@playwright/test";
 import { startServer, stopServer } from "../server-lifecycle.js";
 import { loginAsSeeded, base } from "./helpers/auth.js";
 import { assertCanonicalScreen, collectObservability } from "./helpers/layout.js";
+import { assertHtmxSwap } from "./helpers/htmx.js";
 import { createTicketViaUi, openWorkflowBuilder } from "./helpers/navigation.js";
 
 test.describe("Categories", () => {
@@ -76,7 +80,8 @@ test.describe("Categories", () => {
     });
   });
 
-  test("workflow builder integrated journey: create category, add step, publish, reload, create ticket", async ({ page }) => {
+  test("workflow builder integrated journey: create category, add step, publish, reload, create ticket, verify published workflow in ticket", async ({ page }) => {
+    test.setTimeout(60000);
     await page.setViewportSize({ width: 1280, height: 800 });
     const obs = collectObservability(page);
     await loginAsSeeded(page);
@@ -114,24 +119,25 @@ test.describe("Categories", () => {
     await addSummary.click();
     const addBtn = page.locator(".workflow-add-options button").filter({ hasText: "Manual task" }).first();
     await expect(addBtn).toBeVisible();
-    // Record URL before HTMX swap — hx-push-url=false so URL must not change
-    const urlBeforeAdd = page.url();
-    const builderBefore = await page.locator("#workflow-builder").innerHTML();
-    await addBtn.click();
-    await expect(page.locator("#workflow-builder")).toBeVisible();
-    expect(page.url()).toBe(urlBeforeAdd);
+
+    await assertHtmxSwap(page, async () => {
+      await addBtn.click();
+    }, {
+      urlPattern: (url) => url.includes("/workflow"),
+      hxTarget: "#workflow-builder",
+    });
     await expect(cards).toHaveCount(countBeforeAdd + 1);
-    const builderAfterAdd = await page.locator("#workflow-builder").innerHTML();
-    expect(builderAfterAdd).not.toBe(builderBefore);
     await expect(page.locator("[data-workflow-live]")).toContainText(/added a step/i);
+
     // Configure the newly added manual_task step — instructions are required for publish
     const instructionsInput = page.getByLabel(/instructions/i);
     await expect(instructionsInput).toBeVisible({ timeout: 10000 });
     await instructionsInput.fill("Handle the ticket");
+    // Blur may or may not trigger an HTMX save; we just need the value persisted locally
     await instructionsInput.blur();
     await expect(page.locator("#workflow-builder")).toBeVisible();
 
-    // Remove must actually decrease count (unconditional)
+    // Remove step unconditionally (prove removal works)
     const countBeforeRemove = await cards.count();
     const lastCard = cards.last();
     const menuSummary = lastCard.locator(".workflow-trigger").first();
@@ -139,14 +145,14 @@ test.describe("Categories", () => {
     await menuSummary.click();
     const removeBtn = lastCard.getByRole("button", { name: /remove step/i });
     await expect(removeBtn).toBeVisible();
-    const builderBeforeRemove = await page.locator("#workflow-builder").innerHTML();
-    const urlBeforeRemove = page.url();
-    await removeBtn.click();
-    await expect(page.locator("#workflow-builder")).toBeVisible();
-    expect(page.url()).toBe(urlBeforeRemove);
+
+    await assertHtmxSwap(page, async () => {
+      await removeBtn.click();
+    }, {
+      urlPattern: (url) => url.includes("/workflow"),
+      hxTarget: "#workflow-builder",
+    });
     await expect(cards).toHaveCount(countBeforeRemove - 1);
-    const builderAfterRemove = await page.locator("#workflow-builder").innerHTML();
-    expect(builderAfterRemove).not.toBe(builderBeforeRemove);
 
     // Re-add a step so we have at least one to publish (workflow must be non-empty)
     const countBeforeReAdd = await cards.count();
@@ -154,7 +160,12 @@ test.describe("Categories", () => {
       await expect(addSummary).toBeVisible();
       await addSummary.click();
       await expect(addBtn).toBeVisible();
-      await addBtn.click();
+      await assertHtmxSwap(page, async () => {
+        await addBtn.click();
+      }, {
+        urlPattern: (url) => url.includes("/workflow"),
+        hxTarget: "#workflow-builder",
+      });
       await expect(cards).toHaveCount(1);
       {
         const instr = page.getByLabel(/instructions/i);
@@ -163,22 +174,20 @@ test.describe("Categories", () => {
         await instr.blur();
         await expect(page.locator("#workflow-builder")).toBeVisible();
       }
-    } // if we removed the added step, the original valid step remains — no need to re-add
+    }
 
     // 4) PUBLISH — must execute publication, not just check button exists
     const publishBtn = page.getByRole("button", { name: /publish/i });
     await expect(publishBtn).toBeVisible();
-    const publishResponsePromise = page.waitForResponse(
-      (r) => r.url().includes(`/categories/${categoryId}/workflow`) && r.request().method() === "POST",
-    );
-    await publishBtn.click();
-    const publishResp = await publishResponsePromise;
-    expect(publishResp.status(), `publish expected 200 got ${publishResp.status()}`).toBe(200);
-    await expect(page.locator("#workflow-builder")).toBeVisible({ timeout: 10_000 });
-    // After publish, badge should reflect Published; no inline error
-    await expect(page.locator(".error-banner, [role='alert']")).toHaveCount(0);
-    // Publish may set live region or keep builder visible — ensure no 422
+    const publishResp = await assertHtmxSwap(page, async () => {
+      await publishBtn.click();
+    }, {
+      urlPattern: (url) => url.includes(`/categories/${categoryId}/workflow`),
+      hxTarget: "#workflow-builder",
+    });
     expect(publishResp.status()).toBe(200);
+    // After publish, no inline errors
+    await expect(page.locator(".error-banner, [role='alert']")).toHaveCount(0);
 
     // 5) reload and verify persistence — step count survives reload
     const countAfterPublish = await cards.count();
@@ -198,14 +207,14 @@ test.describe("Categories", () => {
       priority: "high",
     });
 
-    // 7) verify the published version is used — strongest observable signal in browser:
-    // the ticket detail shows the category name and the ticket exists (creation succeeded only with published workflow)
+    // 7) verify the published workflow IS observable in the ticket — no product changes needed
     await page.goto(base() + `/tickets/${ticketId}`);
     await expect(page.locator("#ticket-detail")).toBeVisible();
     await expect(page.locator("#ticket-category-value")).toContainText(catName);
-    // Workflow steps would be visible in ticket detail if execution were surfaced; we assert category linkage
-    // Documented limitation: the exact published workflow version stamp is not directly visible in the browser without product changes.
-    // The ticket creation succeeding + category displayed is the strongest browser-visible signal that the published workflow was used.
+    // workflow-pending is present when the ticket has a pending workflow step
+    await expect(page.locator("#workflow-pending")).toBeVisible({ timeout: 10_000 });
+    // The instruction text from the published Manual task appears
+    await expect(page.locator(".workflow-instruction")).toContainText("Handle the ticket");
 
     await assertCanonicalScreen(page, {
       viewport: 1280,

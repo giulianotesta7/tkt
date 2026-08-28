@@ -51,10 +51,12 @@ async function createUserAndSetRole(
     const roleSelect = page.locator('select[name="role"]');
     await expect(roleSelect).toBeVisible();
     await roleSelect.selectOption(opts.role);
-    await Promise.all([
-      page.waitForResponse((r) => r.url().includes(href) && r.request().method() === "POST").catch(() => {}),
-      page.getByRole("button", { name: /save changes/i }).click(),
-    ]);
+    const saveRespPromise = page.waitForResponse(
+      (r) => r.url().includes(href) && r.request().method() === "POST",
+    );
+    await page.getByRole("button", { name: /save changes/i }).click();
+    const saveResp = await saveRespPromise;
+    expect(saveResp.status()).toBe(200);
     await page.goto(baseURL() + "/users");
     await expect(page.getByText(opts.name)).toBeVisible();
   }

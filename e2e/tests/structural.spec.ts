@@ -9,13 +9,16 @@
  *  - zero console errors, page errors, failed own-requests, own 5xx responses
  *
  * Uses the shared layout helper — no copy-pasted viewport assertions.
- * Covers both empty-base and seeded profiles.
+ *
+ * Seeded profile covers all canonical screens (anonymous + authenticated) at both viewports.
+ * Empty profile covers ONLY /login, /setup, and / (onboarding redirects and bootstrap).
+ * Add a new route by adding one entry to the data table — not by copying a block.
  */
 
-import { test, expect } from "@playwright/test";
+import { test, expect, type Locator, type Page } from "@playwright/test";
 import { startServer, stopServer } from "../server-lifecycle.js";
 import { assertCanonicalScreen, collectObservability } from "./helpers/layout.js";
-import { base, loginAsSeeded } from "./helpers/auth.js";
+import { base, seededCredentials, loginAsSeeded } from "./helpers/auth.js";
 import { createTicketViaUi, resolveCategoryEditHref, resolveUserEditHref, resolveWorkflowHref } from "./helpers/navigation.js";
 
 const viewports = [
@@ -23,8 +26,25 @@ const viewports = [
   { width: 1280, height: 800, label: "1280px" },
 ] as const;
 
+interface StructuralScreen {
+  /** Display label for this screen */
+  label: string;
+  /** Static path or async resolver */
+  path: string | (() => Promise<string>);
+  /** Expected URL regex after navigation (default: path contained in URL) */
+  expectedUrl?: RegExp;
+  /** Function returning the heading locator */
+  heading: (page: Page) => Locator;
+  /** Function returning the primary control locator */
+  control: (page: Page) => Locator;
+}
+
+async function resolvePath(entry: StructuralScreen): Promise<string> {
+  return typeof entry.path === "function" ? await entry.path() : entry.path;
+}
+
 async function assertScreen(
-  page: import("@playwright/test").Page,
+  page: Page,
   opts: {
     viewport: number;
     label: string;
@@ -32,8 +52,8 @@ async function assertScreen(
     expectedUrl?: RegExp;
     role: string;
     obs: ReturnType<typeof collectObservability>;
-    heading: import("@playwright/test").Locator;
-    control: import("@playwright/test").Locator;
+    heading: Locator;
+    control: Locator;
   },
 ) {
   await page.goto(base() + opts.path);
@@ -56,6 +76,31 @@ async function assertScreen(
   });
 }
 
+// Data-driven table — add a route here to cover a new screen
+function authenticatedScreens(deps: {
+  ticketId: string;
+  workflowHref: string;
+  categoryEditHref: string;
+  userEditHref: string;
+}): StructuralScreen[] {
+  return [
+    { label: `/tickets`, path: "/tickets", heading: (p) => p.locator('h1:has-text("Tickets")'), control: (p) => p.getByRole("link", { name: /new ticket/i }).or(p.locator('input[aria-label="Search tickets"]')) },
+    { label: `/tickets/new`, path: "/tickets/new", heading: (p) => p.locator('h1:has-text("New ticket")'), control: (p) => p.getByRole("button", { name: /create ticket/i }) },
+    { label: `/tickets/{id}`, path: () => Promise.resolve(`/tickets/${deps.ticketId}`), heading: (p) => p.locator("#ticket-detail"), control: (p) => p.locator("#ticket-detail").locator('textarea, [aria-label="Ticket title"], button:has-text("Add comment")').first() },
+    { label: `/users`, path: "/users", heading: (p) => p.locator("#users-list-title"), control: (p) => p.getByRole("link", { name: /new user/i }) },
+    { label: `/users/new`, path: "/users/new", heading: (p) => p.locator('h1:has-text("New user")'), control: (p) => p.getByRole("button", { name: /create user/i }) },
+    { label: `/users/{id}/edit`, path: () => Promise.resolve(deps.userEditHref), heading: (p) => p.locator("h2").filter({ hasText: /edit user|operator details/i }), control: (p) => p.getByRole("button", { name: /save changes/i }) },
+    { label: `/categories`, path: "/categories", heading: (p) => p.locator('h1:has-text("Categories")'), control: (p) => p.getByRole("link", { name: /new category/i }) },
+    { label: `/categories/new`, path: "/categories/new", heading: (p) => p.locator('h1:has-text("New category")'), control: (p) => p.getByRole("button", { name: /create category|save/i }) },
+    { label: `/categories/{id}/edit`, path: () => Promise.resolve(deps.categoryEditHref), heading: (p) => p.locator('h1:has-text("Rename category")'), control: (p) => p.getByRole("button", { name: /save/i }) },
+    { label: `/categories/{id}/workflow`, path: () => Promise.resolve(deps.workflowHref), heading: (p) => p.locator("h1").filter({ hasText: /category workflow/i }), control: (p) => p.locator("#workflow-builder") },
+    { label: `/desks`, path: "/desks", heading: (p) => p.locator('h1:has-text("Desks")'), control: (p) => p.locator("details.desk-create summary") },
+    { label: `/settings`, path: "/settings", heading: (p) => p.locator('h1:has-text("Settings")'), control: (p) => p.locator('input[name="internal_comment_bg"]') },
+  ];
+}
+
+let suiteDeps: { ticketId: string; workflowHref: string; categoryEditHref: string; userEditHref: string } | undefined;
+
 test.describe("Structural — seeded canonical screens", () => {
   test.beforeAll(async () => {
     await startServer({ seed: true });
@@ -65,12 +110,51 @@ test.describe("Structural — seeded canonical screens", () => {
   });
 
   for (const vp of viewports) {
-    test(`seeded structural baselines at ${vp.label}`, async ({ page }) => {
+    test(`seeded structural baselines at ${vp.label}`, async ({ page, context }) => {
       await page.setViewportSize({ width: vp.width, height: vp.height });
       const obs = collectObservability(page);
 
-      // Unauthenticated canonical screens (loopback, no session)
-      // /login — canonical login form
+      // ---- Step 1: prepare dynamic IDs (login first, create data) ----
+      // Resolve dynamic IDs once per test suite (lazy singleton)
+      if (!suiteDeps) {
+        await page.goto(base() + "/login", { waitUntil: "networkidle" });
+        await expect(page.getByLabel(/email/i)).toBeVisible({ timeout: 10_000 });
+        await page.getByLabel(/email/i).fill(seededCredentials.email);
+        await page.getByLabel(/password/i).fill(seededCredentials.password);
+        await page.getByRole("button", { name: /log in|sign in/i }).click();
+        await expect(page).toHaveURL(/\/tickets/);
+
+        const ticketTitle = "Structural ticket " + Date.now() + Math.random().toString(36).slice(2, 6);
+        const ticketId = await createTicketViaUi(page, {
+          title: ticketTitle,
+          description: "probe",
+          category: "General",
+          priority: "high",
+        });
+
+        await page.goto(base() + "/categories");
+        const workflowHref = await resolveWorkflowHref(page);
+        const categoryEditHref = await resolveCategoryEditHref(page, "General");
+
+        const seededUserName = "StructUser " + Date.now().toString(36).slice(2, 6);
+        const seededUserEmail = `struct-${Date.now().toString(36).slice(2, 8)}@example.com`;
+        await page.goto(base() + "/users/new");
+        await page.getByLabel(/^name$/i).fill(seededUserName);
+        await page.getByLabel(/^email$/i).fill(seededUserEmail);
+        await page.getByLabel(/^password$/i).fill("Secret123!");
+        await page.getByRole("button", { name: /create user/i }).click();
+        await expect(page).toHaveURL(/\/users/);
+
+        await page.goto(base() + "/users");
+        const userEditHref = await resolveUserEditHref(page);
+
+        suiteDeps = { ticketId, workflowHref, categoryEditHref, userEditHref };
+      }
+
+      // Clear cookies so anonymous sections are truly unauthenticated
+      await context.clearCookies();
+
+      // --- Anonymous screens (seeded) ---
       await page.goto(base() + "/login");
       await expect(page).toHaveURL(/\/login/);
       await expect(page.getByRole("heading", { name: /sign in to tkt/i })).toBeVisible();
@@ -87,7 +171,7 @@ test.describe("Structural — seeded canonical screens", () => {
         failedResponses: obs.failedResponses,
       });
 
-      // /setup when users already exist — anonymous must be sent to /login (observed canonical behavior)
+      // /setup when users already exist — anonymous redirects to /login
       await page.goto(base() + "/setup");
       await expect(page).toHaveURL(/\/login/);
       await expect(page.getByRole("heading", { name: /sign in to tkt/i })).toBeVisible();
@@ -105,7 +189,6 @@ test.describe("Structural — seeded canonical screens", () => {
       // / unauthenticated — redirects to /login when users exist
       await page.goto(base() + "/");
       await expect(page).toHaveURL(/\/login/);
-      await expect(page.getByLabel(/email/i)).toBeVisible();
       await assertCanonicalScreen(page, {
         viewport: vp.width,
         label: `/ (anonymous redirect) @ ${vp.label}`,
@@ -117,8 +200,13 @@ test.describe("Structural — seeded canonical screens", () => {
         failedResponses: obs.failedResponses,
       });
 
-      // Authenticate as seeded root for the remaining canonical screens
-      await loginAsSeeded(page);
+      // After anonymous screens, re-login for authenticated section
+      await page.goto(base() + "/login", { waitUntil: "networkidle" });
+      await expect(page.getByLabel(/email/i)).toBeVisible({ timeout: 10_000 });
+      await page.getByLabel(/email/i).fill(seededCredentials.email);
+      await page.getByLabel(/password/i).fill(seededCredentials.password);
+      await page.getByRole("button", { name: /log in|sign in/i }).click();
+      await expect(page).toHaveURL(/\/tickets/);
 
       // / when authenticated — redirects to /tickets
       await page.goto(base() + "/");
@@ -135,36 +223,6 @@ test.describe("Structural — seeded canonical screens", () => {
         failedResponses: obs.failedResponses,
       });
 
-      // Prepare dynamic IDs: create a ticket for detail, resolve category/workflow/user edit hrefs
-      const ticketTitle = "Structural probe " + Date.now() + Math.random().toString(36).slice(2, 6);
-      const ticketId = await createTicketViaUi(page, {
-        title: ticketTitle,
-        description: "probe",
-        category: "General",
-        priority: "high",
-      });
-
-      await page.goto(base() + "/categories");
-      const workflowHref = await resolveWorkflowHref(page);
-      if (!workflowHref) throw new Error("seeded workflow href not found");
-      const categoryEditHref = await resolveCategoryEditHref(page, "General");
-      if (!categoryEditHref) throw new Error("seeded category edit href not found");
-
-      // Create a non-root user so we have a manageable edit target (root is protected)
-      const seededUserName = "StructUser " + Date.now().toString(36).slice(2, 6);
-      const seededUserEmail = `struct-${Date.now().toString(36).slice(2, 8)}@example.com`;
-      await page.goto(base() + "/users/new");
-      await page.getByLabel(/^name$/i).fill(seededUserName);
-      await page.getByLabel(/^email$/i).fill(seededUserEmail);
-      await page.getByLabel(/^password$/i).fill("Secret123!");
-      await page.getByRole("button", { name: /create user/i }).click();
-      await expect(page).toHaveURL(/\/users/);
-      await expect(page.getByText(seededUserName)).toBeVisible();
-
-      await page.goto(base() + "/users");
-      const userEditHref = await resolveUserEditHref(page);
-      if (!userEditHref) throw new Error("seeded user edit href not found");
-
       // /setup when already authenticated with users — redirects to /tickets
       await page.goto(base() + "/setup");
       await expect(page).toHaveURL(/\/tickets/);
@@ -179,126 +237,22 @@ test.describe("Structural — seeded canonical screens", () => {
         failedResponses: obs.failedResponses,
       });
 
-      // Canonical screens (authenticated, seeded)
-      await assertScreen(page, {
-        viewport: vp.width,
-        label: `/tickets @ ${vp.label}`,
-        path: "/tickets",
-        role: "root",
-        obs,
-        heading: page.locator('h1:has-text("Tickets")'),
-        control: page.getByRole("link", { name: /new ticket/i }).or(page.locator('input[aria-label="Search tickets"]')),
-      });
+      // --- Data-driven authenticated screens ---
+      const deps = suiteDeps!;
 
-      await assertScreen(page, {
-        viewport: vp.width,
-        label: `/tickets/new @ ${vp.label}`,
-        path: "/tickets/new",
-        role: "root",
-        obs,
-        heading: page.locator('h1:has-text("New ticket")'),
-        control: page.getByRole("button", { name: /create ticket/i }),
-      });
-
-      await assertScreen(page, {
-        viewport: vp.width,
-        label: `/tickets/{id} @ ${vp.label}`,
-        path: `/tickets/${ticketId}`,
-        role: "root",
-        obs,
-        heading: page.locator("#ticket-detail"),
-        control: page.locator("#ticket-detail").locator('textarea, [aria-label="Ticket title"], button:has-text("Add comment")').first(),
-      });
-
-      await assertScreen(page, {
-        viewport: vp.width,
-        label: `/users @ ${vp.label}`,
-        path: "/users",
-        role: "root",
-        obs,
-        heading: page.locator("#users-list-title"),
-        control: page.getByRole("link", { name: /new user/i }),
-      });
-
-      await assertScreen(page, {
-        viewport: vp.width,
-        label: `/users/new @ ${vp.label}`,
-        path: "/users/new",
-        role: "root",
-        obs,
-        heading: page.locator('h1:has-text("New user")'),
-        control: page.getByRole("button", { name: /create user/i }),
-      });
-
-      await assertScreen(page, {
-        viewport: vp.width,
-        label: `/users/{id}/edit @ ${vp.label}`,
-        path: userEditHref,
-        role: "root",
-        obs,
-        heading: page.locator("h2").filter({ hasText: /edit user|operator details/i }),
-        control: page.getByRole("button", { name: /save changes/i }),
-      });
-
-      await assertScreen(page, {
-        viewport: vp.width,
-        label: `/categories @ ${vp.label}`,
-        path: "/categories",
-        role: "root",
-        obs,
-        heading: page.locator('h1:has-text("Categories")'),
-        control: page.getByRole("link", { name: /new category/i }),
-      });
-
-      await assertScreen(page, {
-        viewport: vp.width,
-        label: `/categories/new @ ${vp.label}`,
-        path: "/categories/new",
-        role: "root",
-        obs,
-        heading: page.locator('h1:has-text("New category")'),
-        control: page.getByRole("button", { name: /create category|save/i }),
-      });
-
-      await assertScreen(page, {
-        viewport: vp.width,
-        label: `/categories/{id}/edit @ ${vp.label}`,
-        path: categoryEditHref,
-        role: "root",
-        obs,
-        heading: page.locator('h1:has-text("Rename category")'),
-        control: page.getByRole("button", { name: /save/i }),
-      });
-
-      await assertScreen(page, {
-        viewport: vp.width,
-        label: `/categories/{id}/workflow @ ${vp.label}`,
-        path: workflowHref,
-        role: "root",
-        obs,
-        heading: page.locator("h1").filter({ hasText: /category workflow/i }),
-        control: page.locator("#workflow-builder"),
-      });
-
-      await assertScreen(page, {
-        viewport: vp.width,
-        label: `/desks @ ${vp.label}`,
-        path: "/desks",
-        role: "root",
-        obs,
-        heading: page.locator('h1:has-text("Desks")'),
-        control: page.locator("details.desk-create summary"),
-      });
-
-      await assertScreen(page, {
-        viewport: vp.width,
-        label: `/settings @ ${vp.label}`,
-        path: "/settings",
-        role: "root",
-        obs,
-        heading: page.locator('h1:has-text("Settings")'),
-        control: page.locator('input[name="internal_comment_bg"]'),
-      });
+      for (const entry of authenticatedScreens(deps)) {
+        const path = await resolvePath(entry);
+        await assertScreen(page, {
+          viewport: vp.width,
+          label: `${entry.label} @ ${vp.label}`,
+          path,
+          expectedUrl: entry.expectedUrl,
+          role: "root",
+          obs,
+          heading: entry.heading(page),
+          control: entry.control(page),
+        });
+      }
     });
   }
 });
@@ -311,267 +265,80 @@ test.describe("Structural — empty base", () => {
         await page.setViewportSize({ width: vp.width, height: vp.height });
         const obs = collectObservability(page);
 
-      // /login with empty users — redirects to /setup (observed canonical behavior)
-      await page.goto(base() + "/login");
-      await expect(page).toHaveURL(/\/setup/);
-      await expect(page.getByRole("heading", { name: /set up tkt/i })).toBeVisible();
-      await assertCanonicalScreen(page, {
-        viewport: vp.width,
-        label: `/login (empty redirect) @ ${vp.label}`,
-        url: page.url(),
-        role: "anonymous",
-        consoleErrors: obs.consoleErrors,
-        pageErrors: obs.pageErrors,
-        failedRequests: obs.failedRequests,
-        failedResponses: obs.failedResponses,
-      });
+        // /login with empty DB — redirects to /setup
+        await page.goto(base() + "/login");
+        await expect(page).toHaveURL(/\/setup/);
+        await expect(page.getByRole("heading", { name: /set up tkt/i })).toBeVisible();
+        await assertCanonicalScreen(page, {
+          viewport: vp.width,
+          label: `/login (empty redirect) @ ${vp.label}`,
+          url: page.url(),
+          role: "anonymous",
+          consoleErrors: obs.consoleErrors,
+          pageErrors: obs.pageErrors,
+          failedRequests: obs.failedRequests,
+          failedResponses: obs.failedResponses,
+        });
 
-      // /setup with empty base — bootstrap form is reachable
-      await page.goto(base() + "/setup");
-      await expect(page).toHaveURL(/\/setup/);
-      await expect(page.getByRole("heading", { name: /set up tkt/i })).toBeVisible();
-      await expect(page.getByLabel(/name/i)).toBeVisible();
-      await expect(page.getByRole("button", { name: /create account/i })).toBeVisible();
-      await assertCanonicalScreen(page, {
-        viewport: vp.width,
-        label: `/setup (empty) @ ${vp.label}`,
-        url: page.url(),
-        role: "anonymous",
-        consoleErrors: obs.consoleErrors,
-        pageErrors: obs.pageErrors,
-        failedRequests: obs.failedRequests,
-        failedResponses: obs.failedResponses,
-      });
+        // /setup with empty DB — bootstrap form is reachable
+        await page.goto(base() + "/setup");
+        await expect(page).toHaveURL(/\/setup/);
+        await expect(page.getByRole("heading", { name: /set up tkt/i })).toBeVisible();
+        await expect(page.getByLabel(/name/i)).toBeVisible();
+        await expect(page.getByRole("button", { name: /create account/i })).toBeVisible();
+        await assertCanonicalScreen(page, {
+          viewport: vp.width,
+          label: `/setup (empty) @ ${vp.label}`,
+          url: page.url(),
+          role: "anonymous",
+          consoleErrors: obs.consoleErrors,
+          pageErrors: obs.pageErrors,
+          failedRequests: obs.failedRequests,
+          failedResponses: obs.failedResponses,
+        });
 
-      // / with empty base — anonymous redirects to /setup
-      await page.goto(base() + "/");
-      await expect(page).toHaveURL(/\/setup/);
-      await assertCanonicalScreen(page, {
-        viewport: vp.width,
-        label: `/(empty anonymous redirect) @ ${vp.label}`,
-        url: page.url(),
-        role: "anonymous",
-        consoleErrors: obs.consoleErrors,
-        pageErrors: obs.pageErrors,
-        failedRequests: obs.failedRequests,
-        failedResponses: obs.failedResponses,
-      });
+        // / with empty DB — anonymous redirects to /setup
+        await page.goto(base() + "/");
+        await expect(page).toHaveURL(/\/setup/);
+        await assertCanonicalScreen(page, {
+          viewport: vp.width,
+          label: `/(empty anonymous redirect) @ ${vp.label}`,
+          url: page.url(),
+          role: "anonymous",
+          consoleErrors: obs.consoleErrors,
+          pageErrors: obs.pageErrors,
+          failedRequests: obs.failedRequests,
+          failedResponses: obs.failedResponses,
+        });
 
-      // Perform first-user bootstrap via the UI (empty base → root)
-      const name = "Empty Root";
-      const email = "empty-root@example.com";
-      const password = "SuperSecret42!";
-      await page.goto(base() + "/setup");
-      await page.getByLabel(/name/i).fill(name);
-      await page.getByLabel(/email/i).fill(email);
-      await page.getByLabel(/password/i).fill(password);
-      await page.getByRole("button", { name: /create account|set up|sign up|create/i }).click();
-      await expect(page).toHaveURL(/\/login/);
-      await page.getByLabel(/email/i).fill(email);
-      await page.getByLabel(/password/i).fill(password);
-      await page.getByRole("button", { name: /log in|sign in/i }).click();
-      await expect(page).toHaveURL(/\/tickets/);
+        // Perform first-user bootstrap via UI
+        const name = "Empty Root";
+        const email = "empty-root@example.com";
+        const password = "SuperSecret42!";
+        await page.goto(base() + "/setup");
+        await page.getByLabel(/name/i).fill(name);
+        await page.getByLabel(/email/i).fill(email);
+        await page.getByLabel(/password/i).fill(password);
+        await page.getByRole("button", { name: /create account|set up|sign up|create/i }).click();
+        await expect(page).toHaveURL(/\/login/);
+        await page.getByLabel(/email/i).fill(email);
+        await page.getByLabel(/password/i).fill(password);
+        await page.getByRole("button", { name: /log in|sign in/i }).click();
+        await expect(page).toHaveURL(/\/tickets/);
 
-      // After bootstrap, /setup must redirect to /login when anonymous and to /tickets when authenticated
-      // Check authenticated redirect first (already logged in)
-      await page.goto(base() + "/setup");
-      await expect(page).toHaveURL(/\/tickets/);
-      await assertCanonicalScreen(page, {
-        viewport: vp.width,
-        label: `/setup with users (authenticated redirect, empty→seeded) @ ${vp.label}`,
-        url: page.url(),
-        role: "root",
-        consoleErrors: obs.consoleErrors,
-        pageErrors: obs.pageErrors,
-        failedRequests: obs.failedRequests,
-        failedResponses: obs.failedResponses,
-      });
-
-      // Minimal data for dynamic screens on empty base: create a category so we have edit/workflow targets
-      const catName = "EmptyCat " + Date.now().toString(36).slice(2, 6);
-      await page.goto(base() + "/categories/new");
-      await page.getByLabel(/name/i).fill(catName);
-      await page.getByRole("button", { name: /create category|save|create/i }).click();
-      await expect(page).toHaveURL(/\/categories/);
-      await page.goto(base() + "/categories");
-      const categoryEditHref = await resolveCategoryEditHref(page, catName);
-      if (!categoryEditHref) throw new Error("empty category edit href not found");
-      const workflowHref = categoryEditHref.replace(/\/edit$/, "/workflow");
-
-      // Create a user so we have a user edit target
-      const userName = "Empty User " + Date.now().toString(36).slice(2, 4);
-      const userEmail = `empty-${Date.now()}@example.com`;
-      await page.goto(base() + "/users/new");
-      await page.getByLabel(/^name$/i).fill(userName);
-      await page.getByLabel(/^email$/i).fill(userEmail);
-      await page.getByLabel(/^password$/i).fill("Secret123!");
-      await page.getByRole("button", { name: /create user/i }).click();
-      await expect(page).toHaveURL(/\/users/);
-      await page.goto(base() + "/users");
-      const userEditHref = await resolveUserEditHref(page);
-      if (!userEditHref) throw new Error("empty user edit href not found");
-
-      // Create a ticket is not possible without a published workflow on empty base —
-      // we publish a minimal workflow first to obtain a ticket detail target
-      await page.goto(base() + workflowHref);
-      await expect(page.locator("#workflow-builder")).toBeVisible({ timeout: 10_000 });
-      // Add one step if none exist (empty draft case)
-      const cards = page.locator(".workflow-step-card");
-      const before = await cards.count();
-      if (before === 0) {
-        const addSummary = page.locator(".workflow-add-step summary").first();
-        await expect(addSummary).toBeVisible();
-        await addSummary.click();
-        const addBtn = page.locator(".workflow-add-options button").filter({ hasText: "Manual task" }).first();
-        await expect(addBtn).toBeVisible();
-        await addBtn.click();
-        await expect(page.locator("#workflow-builder")).toBeVisible();
-        await expect(cards).toHaveCount(1);
-        // Fill required instructions so publish succeeds
-        const instr = page.getByLabel(/instructions/i);
-        await expect(instr).toBeVisible({ timeout: 10000 });
-        await instr.fill("Handle the ticket");
-        await instr.blur();
-        await expect(page.locator("#workflow-builder")).toBeVisible();
-      }
-      // Publish so tickets can use this category
-      const publishBtn = page.getByRole("button", { name: /publish/i });
-      await expect(publishBtn).toBeVisible();
-      const pubResp = await Promise.all([
-        page.waitForResponse((r) => r.url().includes("/workflow") && r.request().method() === "POST"),
-        publishBtn.click().then(() => {}),
-      ]).then(([resp]) => resp).catch(() => null);
-      if (pubResp) expect(pubResp.status(), `publish expected 200 got ${pubResp.status()}`).toBe(200);
-      await expect(page.locator("#workflow-builder")).toBeVisible({ timeout: 10_000 });
-
-      const ticketTitle = "Empty probe " + Date.now().toString(36).slice(2, 6);
-      const ticketId = await createTicketViaUi(page, {
-        title: ticketTitle,
-        description: "empty probe",
-        category: catName,
-        priority: "medium",
-      });
-
-      // Authenticated canonical screens on empty base (after minimal seeding)
-      await assertScreen(page, {
-        viewport: vp.width,
-        label: `/tickets (empty) @ ${vp.label}`,
-        path: "/tickets",
-        role: "root",
-        obs,
-        heading: page.locator('h1:has-text("Tickets")'),
-        control: page.getByRole("link", { name: /new ticket/i }),
-      });
-
-      await assertScreen(page, {
-        viewport: vp.width,
-        label: `/tickets/new (empty) @ ${vp.label}`,
-        path: "/tickets/new",
-        role: "root",
-        obs,
-        heading: page.locator('h1:has-text("New ticket")'),
-        control: page.getByRole("button", { name: /create ticket/i }),
-      });
-
-      await assertScreen(page, {
-        viewport: vp.width,
-        label: `/tickets/{id} (empty) @ ${vp.label}`,
-        path: `/tickets/${ticketId}`,
-        role: "root",
-        obs,
-        heading: page.locator("#ticket-detail"),
-        control: page.locator('#ticket-detail textarea, #ticket-detail [aria-label="Comment body"]').first(),
-      });
-
-      await assertScreen(page, {
-        viewport: vp.width,
-        label: `/users (empty) @ ${vp.label}`,
-        path: "/users",
-        role: "root",
-        obs,
-        heading: page.locator("#users-list-title"),
-        control: page.getByRole("link", { name: /new user/i }),
-      });
-
-      await assertScreen(page, {
-        viewport: vp.width,
-        label: `/users/new (empty) @ ${vp.label}`,
-        path: "/users/new",
-        role: "root",
-        obs,
-        heading: page.locator('h1:has-text("New user")'),
-        control: page.getByRole("button", { name: /create user/i }),
-      });
-
-      await assertScreen(page, {
-        viewport: vp.width,
-        label: `/users/{id}/edit (empty) @ ${vp.label}`,
-        path: userEditHref,
-        role: "root",
-        obs,
-        heading: page.locator("h2").filter({ hasText: /edit user|operator details/i }),
-        control: page.getByRole("button", { name: /save changes/i }),
-      });
-
-      await assertScreen(page, {
-        viewport: vp.width,
-        label: `/categories (empty) @ ${vp.label}`,
-        path: "/categories",
-        role: "root",
-        obs,
-        heading: page.locator('h1:has-text("Categories")'),
-        control: page.getByRole("link", { name: /new category/i }),
-      });
-
-      await assertScreen(page, {
-        viewport: vp.width,
-        label: `/categories/new (empty) @ ${vp.label}`,
-        path: "/categories/new",
-        role: "root",
-        obs,
-        heading: page.locator('h1:has-text("New category")'),
-        control: page.getByRole("button", { name: /create category|save/i }),
-      });
-
-      await assertScreen(page, {
-        viewport: vp.width,
-        label: `/categories/{id}/edit (empty) @ ${vp.label}`,
-        path: categoryEditHref,
-        role: "root",
-        obs,
-        heading: page.locator('h1:has-text("Rename category")'),
-        control: page.getByRole("button", { name: /save/i }),
-      });
-
-      await assertScreen(page, {
-        viewport: vp.width,
-        label: `/categories/{id}/workflow (empty) @ ${vp.label}`,
-        path: workflowHref,
-        role: "root",
-        obs,
-        heading: page.locator("h1").filter({ hasText: /category workflow/i }),
-        control: page.locator("#workflow-builder"),
-      });
-
-      await assertScreen(page, {
-        viewport: vp.width,
-        label: `/desks (empty) @ ${vp.label}`,
-        path: "/desks",
-        role: "root",
-        obs,
-        heading: page.locator('h1:has-text("Desks")'),
-        control: page.locator("details.desk-create summary"),
-      });
-
-      await assertScreen(page, {
-        viewport: vp.width,
-        label: `/settings (empty) @ ${vp.label}`,
-        path: "/settings",
-        role: "root",
-        obs,
-        heading: page.locator('h1:has-text("Settings")'),
-        control: page.locator('input[name="internal_comment_bg"]'),
-      });
+        // After bootstrap, /setup must redirect to /tickets when authenticated
+        await page.goto(base() + "/setup");
+        await expect(page).toHaveURL(/\/tickets/);
+        await assertCanonicalScreen(page, {
+          viewport: vp.width,
+          label: `/setup with users (authenticated redirect, empty bootstrapped) @ ${vp.label}`,
+          url: page.url(),
+          role: "root",
+          consoleErrors: obs.consoleErrors,
+          pageErrors: obs.pageErrors,
+          failedRequests: obs.failedRequests,
+          failedResponses: obs.failedResponses,
+        });
       } finally {
         await stopServer();
       }
