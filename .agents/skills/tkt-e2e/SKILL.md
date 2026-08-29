@@ -1,130 +1,54 @@
 ---
 name: tkt-e2e
-description: "Trigger: implementing or changing a visible feature, modifying a critical journey, fixing a browser-observable bug, reviewing user-facing behavior, or adding/updating E2E coverage. Explore browser behavior and maintain versioned Playwright regression tests."
+description: "Trigger: visible features, critical journeys, browser-observable bugs, or E2E coverage. Maintain versioned Playwright regression tests."
 license: MIT
 metadata:
   author: "giulianotesta7"
-  version: "1.2"
+  version: "1.5"
 ---
 
 ## Activation Contract
 
-Activate when the work:
-- implements or changes a user-visible feature;
-- modifies a critical user journey;
-- fixes a bug observable from the browser;
-- reviews or validates user-facing behavior;
-- adds or updates E2E test coverage.
-
-Do NOT activate for:
-- backend-only refactors with no visible behavior change;
-- internal test infrastructure changes (Go unit/integration only);
-- CI-only configuration changes;
-- documentation or copy-only changes with no behavioral impact.
+Activate for visible features, critical journeys, browser-observable bugs, user-facing behavior review, or E2E coverage. Do not activate for backend-only refactors, Go-only tests, CI-only changes, or cosmetic changes covered with equivalent lower-layer tests.
 
 ## Hard Rules
 
-- Before assuming behavior, read the relevant OpenSpec spec under `openspec/specs/` or `openspec/changes/*/specs/`. Do NOT invent expected behavior.
-- Identify the affected journeys from the spec's scenarios and the application's actual routes.
-- Decide whether E2E is warranted: if the behavior can be verified at the unit or integration layer with equivalent confidence, prefer the lower layer. E2E is for full-stack journeys that cross service boundaries, involve HTMX swaps, or require actual browser rendering.
-- Start an isolated tkt instance with a temporary SQLite database and a free loopback port before any browser interaction. Use the shared `server-lifecycle.ts` module.
-
-  Two modes — choose ONE per `test.describe`:
-
-  **Empty DB (first-user setup):**
-  ```typescript
-  import { startServer, stopServer } from "../server-lifecycle.js";
-  test.describe("First-User Setup", () => {
-    test.beforeAll(async () => { await startServer({ seed: false }); });
-    test.afterAll(async () => { await stopServer(); });
-  });
-  ```
-
-  **Pre-seeded DB (login + ticket journeys):**
-  ```typescript
-  import { startServer, stopServer } from "../server-lifecycle.js";
-  test.describe("Ticket Lifecycle", () => {
-    test.beforeAll(async () => { await startServer({ seed: true }); });
-    test.afterAll(async () => { await stopServer(); });
-  });
-  ```
-
-- Use Playwright CLI from the `e2e/` directory for ad-hoc exploration before writing assertions:
-  ```bash
-  cd e2e
-  npm run server:start:empty   # or server:start:seeded
-  # URL is printed to stdout
-  npm run explore -- open http://127.0.0.1:PORT
-  npm run explore -- snapshot
-  npm run explore -- console
-  npm run explore -- requests
-  npm run explore -- screenshot
-  npm run explore -- close-all
-  npm run server:stop
-  ```
-- For versioned regression: inspect the interface with accessibility snapshots/selectors, check the console for errors and relevant network requests, then create or update a test in `e2e/tests/`.
-- After writing a test, run both the affected test file AND the full E2E suite (`npm test` in `e2e/`).
-- On test failure, preserve the Playwright trace, screenshot, and report as failure evidence.
-- Close all browser sessions (`npm run explore -- close-all`) before stopping the server.
-
-## Regression Rule
-
-When fixing a browser-observable bug, you MUST add or update a Playwright test that reproduces the original failure and proves the fix, before merging.
-
-## Exclusions
-
-- Unit or integration tests (these belong in the Go test suite under `internal/`).
-- Behavioral specs that can be verified entirely through `httptest` and an in-memory store.
-- E2E for trivial or cosmetic-only changes where lower-level tests provide sufficient coverage.
-- Product or design decisions (these must come from OpenSpec, explicit instructions, or approved designs).
+- Read the relevant OpenSpec spec and actual routes before assuming behavior.
+- Use `server-lifecycle.ts` with an isolated temporary SQLite database and free loopback port. Choose either `seed: false` or `seed: true` per `test.describe`.
+- Use Playwright CLI exploration before adding assertions. Inspect accessibility, console, and relevant requests.
+- Keep fixtures outside the behavior under test. Keep shared data read-only and tests independent.
+- Resolve the exact requested entity or fail with entity, selector, and `page.url()`. Never fall back to the first entity.
+- Give each behavior one canonical journey. Update an existing test rather than creating a duplicate or debug spec.
+- An HTMX assertion must prove `HX-Request: true`, exact endpoint, method, and status; changed target `innerHTML`; zero main-frame navigation; unchanged `h1` chrome; and the URL or `hx-push-url` contract. Assert the visible domain result separately. Never rely on `hx-*` attributes alone, broad statuses, bypasses, optional assertions, or silent catches. Native forms use ordinary navigation assertions.
+- A legitimate `hx-swap="none"` autosave exception may use `assertHtmxNoSwap`: prove `HX-Request: true`, exact endpoint and query, method, status, zero main-frame navigation, and unchanged URL. Do not require target HTML mutation. Assert the persisted effect later.
+- Preserve the distinction between structural baselines, representative functional journeys, Go-owned exhaustive validation and authorization, and unused visual regression. Do not claim full frontend coverage from baselines alone.
 
 ## Decision Gates
 
-| Condition | Result |
+| Condition | Action |
 | --- | --- |
-| Diff affects no visible behavior | SKIP with reason |
-| Behavior verifiable at unit/integration layer | Prefer lower layer; SKIP E2E |
-| Playwright CLI or test runtime unavailable | BLOCKED after reporting required journeys |
-| Isolated server cannot start within timeout | BLOCKED with sanitized logs |
-| OpenSpec contradicts implementation | BLOCKED — report discrepancy before creating E2E |
-| Existing test covers the affected journey | UPDATE existing test instead of creating a new one |
+| OpenSpec conflicts with implementation | Block and report the discrepancy. |
+| Unit or integration tests provide equivalent confidence | Prefer the lower layer. |
+| Runtime or isolated server cannot run | Block and report required journeys with sanitized evidence. |
+| The journey already exists | Update the canonical test. |
 
-## How to Explore Interactively
+## Execution Steps
 
-1. Start an isolated server:
-   ```bash
-   cd e2e
-   npm run server:start:empty
-   # TKT server ready at http://127.0.0.1:PORT
-   ```
-   Or with pre-seeded data:
-   ```bash
-   npm run server:start:seeded
-   ```
+1. Consult `e2e/README.md`, OpenSpec, routes, and existing journey ownership.
+2. Start the isolated server and inspect the browser with the CLI.
+3. Prepare fixtures with seed or helpers, then update the smallest existing test and shared helper.
+4. Run the affected spec and the full `npm test` suite from `e2e/`. Preserve trace, screenshot, and report on failure.
+5. Close browser sessions and stop the server.
 
-2. Use the Playwright CLI to explore:
-   ```bash
-   npm run explore -- open URL
-   npm run explore -- snapshot
-   npm run explore -- console
-   npm run explore -- requests
-   npm run explore -- screenshot
-   ```
+## Output Contract
 
-3. Clean up:
-   ```bash
-   npm run explore -- close-all
-   npm run server:stop
-   ```
+Report exact files changed, focused and full-suite commands with results, runtime cleanup, unresolved issues, and whether coverage is structural or functional.
 
 ## References
 
-- `../../../openspec/` — canonical specs and active changes.
-- `../../../e2e/` — Playwright tests, config, server-lifecycle, and CLI scripts.
-- `../../../e2e/server-lifecycle.ts` — isolated server start/stop for tests.
-- `../../../e2e/scripts/start-empty.mjs` — CLI entry point for empty DB.
-- `../../../e2e/scripts/start-seeded.mjs` — CLI entry point for seeded DB.
-- `../../../e2e/scripts/stop.mjs` — CLI entry point for stop + cleanup.
-- `../../../e2e/cmd/seed/main.go` — database seeder for root, category, desk, workflow.
-- `../../../e2e/cmd/migrate/main.go` — database migrator for empty-DB tests.
-- `../../../cmd/server/main.go` — local server environment and health endpoint.
+- `../../../e2e/README.md`
+- `../../../e2e/server-lifecycle.ts`
+- `../../../e2e/tests/helpers/htmx.ts`
+- `../../../e2e/tests/helpers/network.ts`
+- `../../../e2e/tests/helpers/navigation.ts`
+- `../../../openspec/`

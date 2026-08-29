@@ -14,8 +14,8 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  critical-journeys:
-    name: E2E / critical journeys
+  frontend-coverage:
+    name: E2E / frontend coverage
     runs-on: ubuntu-latest
     timeout-minutes: 20
 
