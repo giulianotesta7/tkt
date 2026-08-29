@@ -6,6 +6,7 @@ import { test, expect } from "@playwright/test";
 import { startServer, stopServer } from "../server-lifecycle.js";
 import { loginAsSeeded, base } from "./helpers/auth.js";
 import { assertCanonicalScreen, collectObservability } from "./helpers/layout.js";
+import { assertHtmxSwap } from "./helpers/htmx.js";
 import { waitForExactPost } from "./helpers/network.js";
 
 async function selectDesk(page: import("@playwright/test").Page, name: string): Promise<string> {
@@ -133,12 +134,20 @@ test.describe("Desks", () => {
       const roleSelect = page.locator('select[name="role"]');
       await expect(roleSelect).toBeVisible();
       await roleSelect.selectOption("agent");
-      const respPromise = waitForExactPost(page, href);
-      await page.getByRole("button", { name: /save changes/i }).click();
-      const resp = await respPromise;
-      expect(resp.status()).toBe(200);
-      await page.goto(base() + "/users");
-      await expect(page.getByText(uname)).toBeVisible();
+      const userID = new URL(href, page.url()).pathname.match(/^\/users\/(\d+)\/edit$/)?.[1];
+      if (!userID) throw new Error(`Could not resolve exact user ID from ${href} at ${page.url()}`);
+      await assertHtmxSwap(page, async () => {
+        await page.getByRole("button", { name: /save changes/i }).click();
+      }, {
+        endpoint: `/users/${userID}/edit`,
+        method: "POST",
+        expectedStatus: 200,
+        hxTarget: "#users-root",
+        expectedUrl: /\/users$/,
+      });
+      const savedRow = page.locator(`tr[data-user-name="${uname}"]`);
+      await expect(savedRow).toHaveCount(1);
+      await expect(savedRow).toContainText("Agent");
     }
 
     await page.goto(base() + "/desks");

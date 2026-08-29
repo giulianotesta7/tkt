@@ -13,6 +13,7 @@
 import { test, expect } from "@playwright/test";
 import { startServer, stopServer, activeServer } from "../server-lifecycle.js";
 import { assertCanonicalScreen, collectObservability } from "./helpers/layout.js";
+import { assertHtmxSwap } from "./helpers/htmx.js";
 import { resolveUserEditHref } from "./helpers/navigation.js";
 import { waitForExactPost } from "./helpers/network.js";
 
@@ -74,15 +75,20 @@ test.describe("Users", () => {
     const roleSelect = page.locator('select[name="role"]');
     await expect(roleSelect).toBeVisible();
     await roleSelect.selectOption("agent");
-    const saveResponsePromise = waitForExactPost(page, cleanHref);
-    await Promise.all([
-      saveResponsePromise,
-      page.getByRole("button", { name: /save changes/i }).click(),
-    ]);
-    const saveResponse = await saveResponsePromise;
-    expect(saveResponse.status()).toBe(200);
-    await expect.poll(() => new URL(page.url()).pathname, { timeout: 10000 }).toBe("/users");
-    await expect(page.getByText(renamed)).toBeVisible();
+    const userID = new URL(cleanHref, page.url()).pathname.match(/^\/users\/(\d+)\/edit$/)?.[1];
+    if (!userID) throw new Error(`Could not resolve exact user ID from ${cleanHref} at ${page.url()}`);
+    await assertHtmxSwap(page, async () => {
+      await page.getByRole("button", { name: /save changes/i }).click();
+    }, {
+      endpoint: `/users/${userID}/edit`,
+      method: "POST",
+      expectedStatus: 200,
+      hxTarget: "#users-root",
+      expectedUrl: /\/users$/,
+    });
+    const savedRow = page.locator(`tr[data-user-name="${renamed}"]`);
+    await expect(savedRow).toHaveCount(1);
+    await expect(savedRow).toContainText("Agent");
 
     // Persistence: reload and verify renamed visible in list
     await page.goto(base() + "/users");

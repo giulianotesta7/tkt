@@ -7,8 +7,9 @@ Versioned Playwright regression for canonical frontend screens and selected crit
 ## What this suite does
 
 - Structural baseline: every canonical route, visited at 390px and 1280px, asserting URL or redirect, heading, primary control, no horizontal overflow, and zero console errors, page errors, failed loopback requests, and loopback 5xx responses.
-- Functional journeys: one per domain. Not exhaustive.
+- Functional journeys: representative journeys per domain. Not exhaustive.
 - HTMX swaps: proven by request evidence (`HX-Request: true`, exact endpoint, method, status), zero document navigation on the main frame, target region change, chrome intact, URL contract. Never by `hx-*` attributes alone.
+- HTMX no-swap autosaves: `assertHtmxNoSwap` proves `HX-Request: true`, exact endpoint and query, method, status 200, zero main-frame navigation, and unchanged URL for controls using `hx-swap="none"`; the consumer proves the persisted effect later.
 - Native form submissions (comments, ticket creation) are tested as ordinary navigations, not through `assertHtmxSwap`.
 - Out of scope: domain edge cases, exhaustive authorization, exhaustive workflow validation, password change, deactivation, deletion. Covered by Go tests.
 
@@ -50,7 +51,7 @@ All screens below use `e2e/tests/helpers/layout.ts` (`collectObservability` + `a
 | Ticket detail — priority change | HTMX swap on `#ticket-detail`: `critical` visible after swap, no navigation | `tests/ticket-detail.spec.ts` |
 | Users — creation+edition | create user, edit name and role via `/users/{id}/edit`, list reflects change, persists after reload | `tests/users.spec.ts` |
 | Desks — create, rename, delete, membership | each operation executed with visible result and reload persistence | `tests/desks.spec.ts` |
-| Categories/workflows — integrated | create category → open workflow → add Manual task (count+1, live region, `assertHtmxSwap` on `/categories/{id}/workflow`) → configure instructions → remove (count-1) → re-add → publish (POST 200, badge Published) → reload persistence → create ticket with category → `#workflow-pending` + `.workflow-instruction` show `Handle the ticket` on ticket detail | `tests/categories.spec.ts` |
+| Categories/workflows — integrated | create category → open workflow → add Manual task (count+1, live region, `assertHtmxSwap` on `/categories/{id}/workflow`) → autosave Instructions with `assertHtmxNoSwap` → remove (count-1) → re-add → autosave Instructions → publish (POST 200, badge Published) → reload persistence → create ticket with category → `#workflow-pending` + `.workflow-instruction` show `Handle the ticket` on ticket detail | `tests/categories.spec.ts` |
 | Settings — appearance | three radios, `:checked` assertion, Violet persists after reload, back to Blue | `tests/settings.spec.ts` |
 | HTMX — users tabs | swap on `#users-root` via Deactivated tab: `assertHtmxSwap` proves request, status, zero navigation, region change, URL gains `?status=deactivated` per `hx-push-url` | `tests/htmx.spec.ts` |
 | HTMX — workflow builder | add-step swap on `#workflow-builder` (mechanism-level; the functional journey lives in `categories.spec.ts`) | `tests/htmx.spec.ts` |
@@ -69,7 +70,7 @@ The role matrix exercises real actors (root, admin, agent, user) without a Carte
 
 - Isolated temp SQLite per `test.describe` via `server-lifecycle.ts` (loopback-only, cleanup of temp DB and state file).
 - `playwright.config.ts` — chromium only, one worker, trace on first retry.
-- Shared helpers: `helpers/layout.ts` (structural assertions), `helpers/htmx.ts` (`assertHtmxSwap`), `helpers/network.ts` (exact native POST responses), `helpers/navigation.ts` (entity-strict navigation), `helpers/auth.ts` (login).
+- Shared helpers: `helpers/layout.ts` (structural assertions), `helpers/htmx.ts` (`assertHtmxSwap` and `assertHtmxNoSwap`), `helpers/network.ts` (exact native POST responses), `helpers/navigation.ts` (entity-strict navigation), `helpers/auth.ts` (login). Keep one owner per behavior.
 - CI: `.github/workflows/e2e.yml`, job `E2E / frontend coverage`.
 
 ## Run

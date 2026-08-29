@@ -1,6 +1,6 @@
 ---
 name: tkt-e2e
-description: "Trigger: implementing or changing a visible feature, critical journey, browser-observable bug, or E2E coverage. Maintain versioned Playwright regression tests."
+description: "Trigger: visible features, critical journeys, browser-observable bugs, or E2E coverage. Maintain versioned Playwright regression tests."
 license: MIT
 metadata:
   author: "giulianotesta7"
@@ -20,6 +20,7 @@ Activate for visible features, critical journeys, browser-observable bugs, user-
 - Resolve the exact requested entity or fail with entity, selector, and `page.url()`. Never fall back to the first entity.
 - Give each behavior one canonical journey. Update an existing test rather than creating a duplicate or debug spec.
 - An HTMX assertion must prove `HX-Request: true`, exact endpoint, method, and status; changed target `innerHTML`; zero main-frame navigation; unchanged `h1` chrome; and the URL or `hx-push-url` contract. Assert the visible domain result separately. Never rely on `hx-*` attributes alone, broad statuses, bypasses, optional assertions, or silent catches. Native forms use ordinary navigation assertions.
+- A legitimate `hx-swap="none"` autosave exception may use `assertHtmxNoSwap`: prove `HX-Request: true`, exact endpoint and query, method, status, zero main-frame navigation, and unchanged URL. Do not require target HTML mutation. Assert the persisted effect later.
 - Preserve the distinction between structural baselines, representative functional journeys, Go-owned exhaustive validation and authorization, and unused visual regression. Do not claim full frontend coverage from baselines alone.
 
 ## Decision Gates

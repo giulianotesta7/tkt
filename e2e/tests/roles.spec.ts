@@ -12,6 +12,7 @@
 import { test, expect } from "@playwright/test";
 import { startServer, stopServer, activeServer } from "../server-lifecycle.js";
 import { assertCanonicalScreen, collectObservability } from "./helpers/layout.js";
+import { assertHtmxSwap } from "./helpers/htmx.js";
 import { base, seededCredentials } from "./helpers/auth.js";
 import { createTicketViaUi } from "./helpers/navigation.js";
 import { waitForExactPost } from "./helpers/network.js";
@@ -52,12 +53,20 @@ async function createUserAndSetRole(
     const roleSelect = page.locator('select[name="role"]');
     await expect(roleSelect).toBeVisible();
     await roleSelect.selectOption(opts.role);
-    const saveRespPromise = waitForExactPost(page, href);
-    await page.getByRole("button", { name: /save changes/i }).click();
-    const saveResp = await saveRespPromise;
-    expect(saveResp.status()).toBe(200);
-    await page.goto(baseURL() + "/users");
-    await expect(page.getByText(opts.name)).toBeVisible();
+    const userID = new URL(href, page.url()).pathname.match(/^\/users\/(\d+)\/edit$/)?.[1];
+    if (!userID) throw new Error(`Could not resolve exact user ID from ${href} at ${page.url()}`);
+    await assertHtmxSwap(page, async () => {
+      await page.getByRole("button", { name: /save changes/i }).click();
+    }, {
+      endpoint: `/users/${userID}/edit`,
+      method: "POST",
+      expectedStatus: 200,
+      hxTarget: "#users-root",
+      expectedUrl: /\/users$/,
+    });
+    const savedRow = page.locator(`tr[data-user-name="${opts.name}"]`);
+    await expect(savedRow).toHaveCount(1);
+    await expect(savedRow).toContainText(opts.role === "admin" ? "Admin" : "Agent");
   }
   return opts.email;
 }

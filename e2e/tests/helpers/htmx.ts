@@ -33,6 +33,15 @@ export interface HtmxSwapOptions {
   expectedUrl?: RegExp;
 }
 
+export interface HtmxNoSwapOptions {
+  /** Endpoint pathname and query contract. Use a predicate when query parameters matter. */
+  endpoint: string | RegExp | ((url: string) => boolean);
+  /** Expected HTTP method (GET, POST, etc.). */
+  method: string;
+  /** Expected response status code. */
+  expectedStatus: number;
+}
+
 interface NavigationEvent {
   method: string;
   url: string;
@@ -123,7 +132,7 @@ export async function assertHtmxSwap(
 
     // URL unchanged or matches expectedUrl
     if (opts.expectedUrl) {
-      expect(page.url()).toMatch(opts.expectedUrl);
+      await expect(page).toHaveURL(opts.expectedUrl);
     } else {
       expect(page.url()).toBe(urlBefore);
     }
@@ -143,6 +152,46 @@ export async function assertHtmxSwap(
       ).toBe(chromeBefore);
     }
 
+    return response;
+  } finally {
+    page.removeListener("request", navigationHandler);
+  }
+}
+
+/**
+ * Assert an HTMX request whose response is deliberately not swapped into the DOM.
+ * The consumer must assert the persisted domain result separately.
+ */
+export async function assertHtmxNoSwap(
+  page: Page,
+  trigger: () => Promise<void>,
+  opts: HtmxNoSwapOptions,
+): Promise<Response> {
+  const navigations: NavigationEvent[] = [];
+  const navigationHandler = (request: Request) => {
+    if (request.isNavigationRequest() && request.frame() === page.mainFrame()) {
+      navigations.push({ method: request.method(), url: request.url() });
+    }
+  };
+
+  try {
+    page.on("request", navigationHandler);
+    const endpointMatcher = (resp: Response): boolean => {
+      if (resp.request().headers()["hx-request"] !== "true") return false;
+      const url = resp.url();
+      if (resp.request().method() !== opts.method) return false;
+      if (opts.endpoint instanceof RegExp) return opts.endpoint.test(url);
+      if (typeof opts.endpoint === "function") return opts.endpoint(url);
+      const parsedURL = new URL(url);
+      return parsedURL.pathname === opts.endpoint && parsedURL.search === "";
+    };
+    const responsePromise = page.waitForResponse(endpointMatcher);
+    const urlBefore = page.url();
+    await trigger();
+    const response = await responsePromise;
+    expect(response.status()).toBe(opts.expectedStatus);
+    expect(page.url()).toBe(urlBefore);
+    expect(navigations).toEqual([]);
     return response;
   } finally {
     page.removeListener("request", navigationHandler);

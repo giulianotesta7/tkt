@@ -9,7 +9,7 @@ import { test, expect } from "@playwright/test";
 import { startServer, stopServer } from "../server-lifecycle.js";
 import { loginAsSeeded, base } from "./helpers/auth.js";
 import { assertCanonicalScreen, collectObservability } from "./helpers/layout.js";
-import { assertHtmxSwap } from "./helpers/htmx.js";
+import { assertHtmxNoSwap, assertHtmxSwap } from "./helpers/htmx.js";
 import { createTicketViaUi, openWorkflowBuilder } from "./helpers/navigation.js";
 
 test.describe("Categories", () => {
@@ -137,9 +137,18 @@ test.describe("Categories", () => {
     // Configure the newly added manual_task step — instructions are required for publish
     const instructionsInput = page.getByLabel(/instructions/i);
     await expect(instructionsInput).toBeVisible({ timeout: 10000 });
-    await instructionsInput.fill("Handle the ticket");
-    // Blur may or may not trigger an HTMX save; we just need the value persisted locally
-    await instructionsInput.blur();
+    await expect(instructionsInput).toHaveAttribute("hx-trigger", "input changed delay:600ms");
+    await expect(instructionsInput).toHaveAttribute("hx-swap", "none");
+    await assertHtmxNoSwap(page, async () => {
+      await instructionsInput.fill("Handle the ticket");
+    }, {
+      endpoint: (url) => {
+        const parsedURL = new URL(url);
+        return parsedURL.pathname === `/categories/${categoryId}/workflow` && parsedURL.search === "";
+      },
+      method: "POST",
+      expectedStatus: 200,
+    });
     await expect(page.locator("#workflow-builder")).toBeVisible();
 
     // Remove step unconditionally (prove removal works)
@@ -170,30 +179,49 @@ test.describe("Categories", () => {
 
     // Re-add a step so we have at least one to publish (workflow must be non-empty)
     const countBeforeReAdd = await cards.count();
-    if (countBeforeReAdd === 0) {
-      await expect(addSummary).toBeVisible();
-      await addSummary.click();
-      await expect(addBtn).toBeVisible();
-      await assertHtmxSwap(page, async () => {
-        await addBtn.click();
+    expect(countBeforeReAdd).toBe(0);
+    await expect(addSummary).toBeVisible();
+    await addSummary.click();
+    await expect(addBtn).toBeVisible();
+    await assertHtmxSwap(page, async () => {
+      await addBtn.click();
+    }, {
+      endpoint: (url) => {
+        const parsedURL = new URL(url);
+        return parsedURL.pathname === `/categories/${categoryId}/workflow` && parsedURL.searchParams.get("add_step_type") === "manual_task";
+      },
+      method: "POST",
+      expectedStatus: 200,
+      hxTarget: "#workflow-builder",
+    });
+    await expect(cards).toHaveCount(1);
+    await page.waitForTimeout(100);
+    const instr = page.getByLabel(/instructions/i);
+    await expect(instr).toBeVisible();
+    await expect(instr).toHaveAttribute("hx-trigger", "input changed delay:600ms");
+    await expect(instr).toHaveAttribute("hx-swap", "none");
+    if (await instr.inputValue() === "Handle the ticket") {
+      await assertHtmxNoSwap(page, async () => {
+        await instr.fill("Handle the ticket draft");
       }, {
         endpoint: (url) => {
           const parsedURL = new URL(url);
-          return parsedURL.pathname === `/categories/${categoryId}/workflow` && parsedURL.searchParams.get("add_step_type") === "manual_task";
+          return parsedURL.pathname === `/categories/${categoryId}/workflow` && parsedURL.search === "";
         },
         method: "POST",
         expectedStatus: 200,
-        hxTarget: "#workflow-builder",
       });
-      await expect(cards).toHaveCount(1);
-      {
-        const instr = page.getByLabel(/instructions/i);
-        await expect(instr).toBeVisible();
-        await instr.fill("Handle the ticket");
-        await instr.blur();
-        await expect(page.locator("#workflow-builder")).toBeVisible();
-      }
     }
+    await assertHtmxNoSwap(page, async () => {
+      await instr.fill("Handle the ticket");
+    }, {
+      endpoint: (url) => {
+        const parsedURL = new URL(url);
+        return parsedURL.pathname === `/categories/${categoryId}/workflow` && parsedURL.search === "";
+      },
+      method: "POST",
+      expectedStatus: 200,
+    });
 
     // 4) PUBLISH — must execute publication, not just check button exists
     const publishBtn = page.getByRole("button", { name: /publish/i });
