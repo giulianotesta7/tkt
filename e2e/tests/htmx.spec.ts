@@ -39,7 +39,7 @@ test.describe("HTMX interactions", () => {
     await expect(htmx).toBeVisible();
     await expect(htmx).toHaveAttribute("hx-target", "#users-root");
 
-    const deactivatedTab = page.locator('a[href*="status=deactivated"]').first();
+    const deactivatedTab = page.locator('a[href="/users?status=deactivated"]');
     await expect(deactivatedTab).toBeVisible();
 
     await assertHtmxSwap(page, async () => {
@@ -49,13 +49,15 @@ test.describe("HTMX interactions", () => {
       method: "GET",
       expectedStatus: 200,
       hxTarget: "#users-root",
-      expectedUrl: /\/users/,
+      expectedUrl: /\/users\?status=deactivated$/,
     });
 
     // Header must remain intact (no full reload chrome loss)
     await expect(page.locator("#users-list-title")).toBeVisible();
     // URL may gain ?status=deactivated via hx-push-url, but path stays /users
-    expect(page.url()).toContain("/users");
+    const usersURL = new URL(page.url());
+    expect(usersURL.pathname).toBe("/users");
+    expect(usersURL.searchParams.get("status")).toBe("deactivated");
 
     await assertCanonicalScreen(page, {
       viewport: 1280,
@@ -76,6 +78,7 @@ test.describe("HTMX interactions", () => {
 
     await page.goto(base() + "/categories");
     const wfHref = await resolveWorkflowHref(page);
+    const wfPath = new URL(wfHref, base()).pathname;
     await page.goto(base() + wfHref);
     await expect(page.locator("#workflow-builder")).toBeVisible();
     // Also assert hx-target complementary
@@ -90,7 +93,10 @@ test.describe("HTMX interactions", () => {
     await assertHtmxSwap(page, async () => {
       await btn.click();
     }, {
-      endpoint: "/workflow",
+      endpoint: (url) => {
+        const parsedURL = new URL(url);
+        return parsedURL.pathname === wfPath && parsedURL.searchParams.get("add_step_type") === "manual_task";
+      },
       method: "POST",
       expectedStatus: 200,
       hxTarget: "#workflow-builder",

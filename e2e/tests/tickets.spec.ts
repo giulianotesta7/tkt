@@ -2,15 +2,17 @@
  * Ticket journeys: creation, list, detail, search/filter, public comment, transition.
  *
  * Logout and auth gate are covered in auth.spec.ts (auth domain).
- * HTMX swap mechanism is covered in htmx.spec.ts (users tabs, workflow builder).
- * Search filter, transition, and priority change use assertHtmxSwap for swap verification.
- * Comment POST is a native form submission (no hx-post) — tested via ordinary navigation.
+ * Search filter is the canonical HTMX swap test for #ticket-list (this file).
+ * Public comment is the canonical comment journey (this file).
+ * Transitions use assertHtmxSwap for swap verification.
+ * htmx.spec.ts covers transversal swaps only (users tabs, workflow builder).
  */
 
 import { test, expect } from "@playwright/test";
 import { startServer, stopServer, activeServer } from "../server-lifecycle.js";
 import { assertCanonicalScreen, collectObservability } from "./helpers/layout.js";
 import { createTicketViaUi } from "./helpers/navigation.js";
+import { waitForExactPost } from "./helpers/network.js";
 import { assertHtmxSwap } from "./helpers/htmx.js";
 
 function base(): string {
@@ -80,38 +82,69 @@ test.describe("Ticket Lifecycle", () => {
     await page.getByRole("button", { name: /log in|sign in/i }).click();
     await expect(page).toHaveURL(/\/tickets/);
 
-    // Create a uniquely titled ticket for search
+    // Create a uniquely titled ticket for search, plus a distractor ticket
+    // so the full list (2+ tickets) is visibly different from the filtered result (1).
+    // Without the distractor the filtered HTML is identical to the full list.
     const uniqueTitle = "FilterProbe " + Date.now().toString(36).slice(2, 10);
+    const distractorTitle = "Distractor " + Date.now().toString(36).slice(2, 10);
     await createTicketViaUi(page, { title: uniqueTitle, description: "filter probe", category: "General", priority: "low" });
+    await createTicketViaUi(page, { title: distractorTitle, description: "filter distractor", category: "General", priority: "low" });
 
     await page.goto(base() + "/tickets");
     await expect(page.locator("#ticket-list")).toBeVisible();
     await expect(page.locator("#ticket-list").getByText(uniqueTitle)).toBeVisible();
+    await expect(page.locator("#ticket-list").getByText(distractorTitle)).toBeVisible();
 
-    // Search for the unique title — verify filtered result is visible via HTMX swap
     const searchInput = page.getByPlaceholder(/search by id or title/i);
     await expect(searchInput).toBeVisible();
 
-    // Set up response interceptor FIRST, then trigger
-    const searchResponsePromise = page.waitForResponse(
-      (resp) => resp.url().includes("/tickets") && resp.url().includes("q=") && resp.request().headers()["hx-request"] === "true",
-    );
-    await searchInput.fill(uniqueTitle);
-    await page.getByRole("button", { name: /search/i }).click();
-    const searchResp = await searchResponsePromise;
-    expect(searchResp.status()).toBe(200);
+    // 1. Search for the unique title — filtered result visible.
+    // Fill and submit inside the trigger so the interceptor is armed before
+    // the form's HTMX GET is dispatched.
+    await assertHtmxSwap(page, async () => {
+      await searchInput.fill(uniqueTitle);
+      await page.getByRole("button", { name: /search/i }).click();
+    }, {
+      endpoint: (url) => {
+        const parsedURL = new URL(url);
+        return parsedURL.pathname === "/tickets" && parsedURL.searchParams.get("q") === uniqueTitle;
+      },
+      method: "GET",
+      expectedStatus: 200,
+      hxTarget: "#ticket-list",
+    });
     await expect(page.locator("#ticket-list").getByText(uniqueTitle)).toBeVisible({ timeout: 10_000 });
-    expect(page.url()).toContain("/tickets");
+    expect(new URL(page.url()).pathname).toBe("/tickets");
 
-    // Navigate back to full list, then clear search
-    await page.goto(base() + "/tickets");
-    await expect(page.locator("#ticket-list")).toBeVisible();
-    // Clear the search input and submit to show the full list again
-    await searchInput.clear();
-    await page.getByRole("button", { name: /search/i }).click();
+    // 2. Search for an impossible term — empty state
+    const impossibleTerm = "zzz_no_match_" + Date.now().toString(36).replace(/[0-9]/g, "x");
+    await assertHtmxSwap(page, async () => {
+      await searchInput.fill(impossibleTerm);
+      await page.getByRole("button", { name: /search/i }).click();
+    }, {
+      endpoint: (url) => {
+        const parsedURL = new URL(url);
+        return parsedURL.pathname === "/tickets" && parsedURL.searchParams.get("q") === impossibleTerm;
+      },
+      method: "GET",
+      expectedStatus: 200,
+      hxTarget: "#ticket-list",
+    });
+    await expect(page.locator("#ticket-list").getByText(/no tickets match/i)).toBeVisible();
+    expect(new URL(page.url()).pathname).toBe("/tickets");
+
+    // 3. Clear the search — full list reappears
+    await assertHtmxSwap(page, async () => {
+      await searchInput.clear();
+      await page.getByRole("button", { name: /search/i }).click();
+    }, {
+      endpoint: "/tickets",
+      method: "GET",
+      expectedStatus: 200,
+      hxTarget: "#ticket-list",
+    });
     await expect(page.locator("#ticket-list").getByText(uniqueTitle)).toBeVisible({ timeout: 10_000 });
-    // URL check — search HTMX swap should not cause full navigation
-    expect(page.url()).toContain("/tickets");
+    expect(new URL(page.url()).pathname).toBe("/tickets");
 
     await assertCanonicalScreen(page, {
       viewport: 1280,
@@ -141,13 +174,11 @@ test.describe("Ticket Lifecycle", () => {
     const commentBody = "Public comment " + Date.now().toString(36).slice(2, 6);
     await page.getByLabel(/comment body/i).fill(commentBody);
     // Comment form is a native POST (no hx-post) — submit and wait for navigation
-    const responsePromise = page.waitForResponse(
-      (resp) => resp.url().includes(`/tickets/${id}/comments`) && resp.request().method() === "POST"
-    );
+    const responsePromise = waitForExactPost(page, `/tickets/${id}/comments`);
     await page.getByRole("button", { name: /add comment/i }).click();
     const response = await responsePromise;
     expect(response.status()).toBe(303);
-    await page.waitForURL(/\/tickets\/\d+/);
+    expect(new URL(page.url()).pathname).toBe(`/tickets/${id}`);
     await expect(page.locator("#timeline")).toContainText(commentBody);
     // Reload persistence
     await page.reload();

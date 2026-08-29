@@ -99,7 +99,7 @@ function authenticatedScreens(deps: {
   ];
 }
 
-let fixture: { ticketId: string; workflowHref: string; categoryEditHref: string; userEditHref: string } | undefined;
+let fixture: { ticketId: string; workflowHref: string; categoryEditHref: string; userEditHref: string; seededUserName: string; seededUserEmail: string } | undefined;
 
 test.describe("Structural — seeded canonical screens", () => {
   test.beforeAll(async ({ browser }) => {
@@ -137,9 +137,9 @@ test.describe("Structural — seeded canonical screens", () => {
       await expect(page).toHaveURL(/\/users/);
 
       await page.goto(base() + "/users");
-      const userEditHref = await resolveUserEditHref(page);
+      const userEditHref = await resolveUserEditHref(page, seededUserName);
 
-      fixture = { ticketId, workflowHref, categoryEditHref, userEditHref };
+      fixture = { ticketId, workflowHref, categoryEditHref, userEditHref, seededUserName, seededUserEmail };
     } finally {
       await ctx.close();
     }

@@ -14,6 +14,7 @@ import { startServer, stopServer, activeServer } from "../server-lifecycle.js";
 import { assertCanonicalScreen, collectObservability } from "./helpers/layout.js";
 import { base, seededCredentials } from "./helpers/auth.js";
 import { createTicketViaUi } from "./helpers/navigation.js";
+import { waitForExactPost } from "./helpers/network.js";
 
 function baseURL(): string {
   if (!activeServer) throw new Error("server not started");
@@ -40,7 +41,7 @@ async function createUserAndSetRole(
   await expect(page).toHaveURL(/\/users/);
   await expect(page.getByText(opts.name)).toBeVisible();
   if (opts.role && opts.role !== "user") {
-    const row = page.locator("tr").filter({ hasText: opts.name });
+    const row = page.locator("tr[data-user-name]").filter({ has: page.getByText(opts.name, { exact: true }) });
     await expect(row).toHaveCount(1);
     const editLink = row.locator('a[href*="/users/"][href*="/edit"]').first();
     let href = await editLink.getAttribute("href");
@@ -51,9 +52,7 @@ async function createUserAndSetRole(
     const roleSelect = page.locator('select[name="role"]');
     await expect(roleSelect).toBeVisible();
     await roleSelect.selectOption(opts.role);
-    const saveRespPromise = page.waitForResponse(
-      (r) => r.url().includes(href) && r.request().method() === "POST",
-    );
+    const saveRespPromise = waitForExactPost(page, href);
     await page.getByRole("button", { name: /save changes/i }).click();
     const saveResp = await saveRespPromise;
     expect(saveResp.status()).toBe(200);
@@ -220,10 +219,14 @@ test.describe("Role — minimal matrix admin / agent / user (seeded)", () => {
     await expect(page.getByLabel(/internal comment/i)).toHaveCount(0);
     const comment = "User public " + Date.now().toString(36).slice(2, 6);
     await page.getByLabel(/comment body/i).fill(comment);
+    const commentResponsePromise = waitForExactPost(page, `/tickets/${id}/comments`);
     await Promise.all([
-      page.waitForResponse((r) => r.url().includes(`/tickets/${id}/comments`) && r.request().method() === "POST"),
+      commentResponsePromise,
       page.getByRole("button", { name: /add comment/i }).click(),
     ]);
+    const commentResponse = await commentResponsePromise;
+    expect(commentResponse.status()).toBe(303);
+    expect(new URL(page.url()).pathname).toBe(`/tickets/${id}`);
     await expect(page.locator("#timeline")).toContainText(comment);
     await assertCanonicalScreen(page, {
       viewport: 1280,

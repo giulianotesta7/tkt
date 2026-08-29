@@ -1,15 +1,12 @@
 /**
- * Ticket detail journeys: Properties sidebar, comments (including rejection on closed states),
- * state transitions, and timeline.
+ * Ticket detail journeys: Properties sidebar, closed-state comment rejection, priority change.
  *
- * Note on closed-ticket comment rejection: the browser-visible contract is that the
- * comment form is hidden when the ticket is in a closed state (IsClosed includes
- * resolved/closed/cancelled per template {{if not .Closed}}). Exhaustive HTTP status
- * rejection (403/422) for direct POSTs is covered by Go tests
- * (internal/adapters/http/handlers_comment_test.go) and is not duplicated with
- * page.request in browser E2E except for the one visible rejection below.
- * Keeping the browser-visible signal satisfies the functional requirement without
- * duplicating lower-layer coverage.
+ * The canonical public-comment journey lives in tickets.spec.ts (native POST 303 + timeline + persistence).
+ * Here: structural detail contract (Properties, state, category, description, timeline),
+ * browser-visible comment-form rejection on closed states, and priority change via HTMX swap.
+ *
+ * Exhaustive HTTP rejection (403/422) for direct POSTs is covered by Go tests
+ * (internal/adapters/http/handlers_comment_test.go).
  */
 
 import { test, expect } from "@playwright/test";
@@ -27,7 +24,7 @@ test.describe("Ticket detail", () => {
     await stopServer();
   });
 
-  test("detail shows Properties sidebar and timeline, allows public comment (HTMX swap)", async ({ page }) => {
+  test("detail shows Properties sidebar, timeline, state, description, and category", async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 800 });
     const obs = collectObservability(page);
     await loginAsSeeded(page);
@@ -44,21 +41,9 @@ test.describe("Ticket detail", () => {
     await expect(page.locator("#timeline")).toBeVisible();
     await expect(page.getByText("Description")).toBeVisible();
 
-    const comment = "Hello from play " + Date.now().toString(36).slice(2, 6);
-    await page.getByLabel(/comment body/i).fill(comment);
-    // Comment form is a native POST (no hx-post) — submit and wait for navigation
-    const responsePromise = page.waitForResponse(
-      (resp) => resp.url().includes(`/tickets/${id}/comments`) && resp.request().method() === "POST"
-    );
-    await page.getByRole("button", { name: /add comment/i }).click();
-    const response = await responsePromise;
-    expect(response.status()).toBe(303);
-    await page.waitForURL(/\/tickets\/\d+/);
-    await expect(page.locator("#timeline")).toContainText(comment);
-
     await assertCanonicalScreen(page, {
       viewport: 1280,
-      label: "ticket detail properties+comment",
+      label: "ticket detail properties",
       url: page.url(),
       role: "root",
       consoleErrors: obs.consoleErrors,

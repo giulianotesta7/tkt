@@ -123,7 +123,10 @@ test.describe("Categories", () => {
     await assertHtmxSwap(page, async () => {
       await addBtn.click();
     }, {
-      endpoint: "/workflow",
+      endpoint: (url) => {
+        const parsedURL = new URL(url);
+        return parsedURL.pathname === `/categories/${categoryId}/workflow` && parsedURL.searchParams.get("add_step_type") === "manual_task";
+      },
       method: "POST",
       expectedStatus: 200,
       hxTarget: "#workflow-builder",
@@ -148,10 +151,17 @@ test.describe("Categories", () => {
     const removeBtn = lastCard.getByRole("button", { name: /remove step/i });
     await expect(removeBtn).toBeVisible();
 
+    // Remove-step POST goes to /categories/{id}/workflow?step_index=... —
+    // the action=remove_step lives in the form body, not the query string.
     await assertHtmxSwap(page, async () => {
       await removeBtn.click();
     }, {
-      endpoint: "/workflow",
+      endpoint: (url) => {
+        const parsedURL = new URL(url);
+        return parsedURL.pathname === `/categories/${categoryId}/workflow` &&
+          parsedURL.searchParams.get("step_index") === String(countBeforeRemove - 1) &&
+          !parsedURL.searchParams.has("action");
+      },
       method: "POST",
       expectedStatus: 200,
       hxTarget: "#workflow-builder",
@@ -167,7 +177,10 @@ test.describe("Categories", () => {
       await assertHtmxSwap(page, async () => {
         await addBtn.click();
       }, {
-        endpoint: "/workflow",
+        endpoint: (url) => {
+          const parsedURL = new URL(url);
+          return parsedURL.pathname === `/categories/${categoryId}/workflow` && parsedURL.searchParams.get("add_step_type") === "manual_task";
+        },
         method: "POST",
         expectedStatus: 200,
         hxTarget: "#workflow-builder",

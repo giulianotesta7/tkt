@@ -13,6 +13,8 @@
 import { test, expect } from "@playwright/test";
 import { startServer, stopServer, activeServer } from "../server-lifecycle.js";
 import { assertCanonicalScreen, collectObservability } from "./helpers/layout.js";
+import { resolveUserEditHref } from "./helpers/navigation.js";
+import { waitForExactPost } from "./helpers/network.js";
 
 function base(): string {
   if (!activeServer) throw new Error("server not started");
@@ -51,25 +53,19 @@ test.describe("Users", () => {
     await page.getByLabel(/^name$/i).fill(baseName);
     await page.getByLabel(/^email$/i).fill(email);
     await page.getByLabel(/^password$/i).fill(password);
+    const createResponsePromise = waitForExactPost(page, "/users");
     await Promise.all([
-      page.waitForResponse((r) => r.url().includes("/users") && r.request().method() === "POST"),
+      createResponsePromise,
       page.getByRole("button", { name: /create user/i }).click(),
     ]);
-    await expect(page).toHaveURL(/\/users/);
+    const createResponse = await createResponsePromise;
+    expect(createResponse.status()).toBe(303);
+    expect(new URL(page.url()).pathname).toBe("/users");
     await expect(page.getByText(baseName)).toBeVisible();
     await expect(page.getByText(email)).toBeVisible();
 
     // Resolve edit href for that user (drawer link)
-    const row = page.locator("tr").filter({ hasText: baseName });
-    await expect(row).toHaveCount(1);
-    const editLink = row.locator('a[href*="/users/"][href*="/edit"]').first();
-    let editHref: string | null = await editLink.getAttribute("href");
-    if (!editHref) {
-      const fallback = page.locator('a[href*="/edit"]').first();
-      editHref = await fallback.getAttribute("href");
-    }
-    if (!editHref) throw new Error("could not resolve user edit href for " + baseName);
-    const cleanHref = editHref.split("?")[0];
+    const cleanHref = await resolveUserEditHref(page, baseName);
     await page.goto(base() + cleanHref);
     await expect(page.getByRole("heading", { name: /edit user/i })).toBeVisible();
 
@@ -78,11 +74,14 @@ test.describe("Users", () => {
     const roleSelect = page.locator('select[name="role"]');
     await expect(roleSelect).toBeVisible();
     await roleSelect.selectOption("agent");
+    const saveResponsePromise = waitForExactPost(page, cleanHref);
     await Promise.all([
-      page.waitForResponse((r) => r.url().includes(cleanHref) && r.request().method() === "POST"),
+      saveResponsePromise,
       page.getByRole("button", { name: /save changes/i }).click(),
     ]);
-    await expect(page).toHaveURL(/\/users/, { timeout: 10000 });
+    const saveResponse = await saveResponsePromise;
+    expect(saveResponse.status()).toBe(200);
+    await expect.poll(() => new URL(page.url()).pathname, { timeout: 10000 }).toBe("/users");
     await expect(page.getByText(renamed)).toBeVisible();
 
     // Persistence: reload and verify renamed visible in list

@@ -15,10 +15,10 @@
  * Test it as an ordinary navigation: request, expected navigation, final URL, visible result.
  */
 
-import { expect, type Locator, type Page, type Response } from "@playwright/test";
+import { expect, type Locator, type Page, type Request, type Response } from "@playwright/test";
 
 export interface HtmxSwapOptions {
-  /** Endpoint URL pattern (string, RegExp, or predicate). */
+  /** Endpoint pathname (exact URL path, e.g. "/tickets"). For query-param matching use a predicate. */
   endpoint: string | RegExp | ((url: string) => boolean);
   /** Expected HTTP method (GET, POST, etc.). */
   method: string;
@@ -41,13 +41,13 @@ interface NavigationEvent {
 /**
  * Assert an HTMX partial swap.
  *
- * 1. Sets up interceptor for the expected HTMX request.
- * 2. Sets up a listener for main-frame navigation requests.
+ * 1. Sets up a navigation listener on the main frame.
+ * 2. Sets up a response interceptor for the expected HTMX request.
  * 3. Captures before-state of target and chrome.
  * 4. Executes the trigger action.
  * 5. Waits for the HTMX response and validates it.
- * 6. Asserts zero navigation events.
- * 7. Asserts target region changed, chrome intact, URL correct.
+ * 6. Waits for the target region to actually change via `expect.poll()`.
+ * 7. Asserts zero navigation events, chrome intact, URL correct.
  * 8. Cleans up all listeners in a finally block.
  */
 export async function assertHtmxSwap(
@@ -60,12 +60,7 @@ export async function assertHtmxSwap(
 
   // Navigation events accumulator
   const navigations: NavigationEvent[] = [];
-  const navigationHandler = (request: {
-    isNavigationRequest: () => boolean;
-    frame: () => { equals: (f: unknown) => boolean };
-    method: () => string;
-    url: () => string;
-  }) => {
+  const navigationHandler = (request: Request) => {
     if (request.isNavigationRequest() && request.frame() === page.mainFrame()) {
       navigations.push({ method: request.method(), url: request.url() });
     }
@@ -84,7 +79,15 @@ export async function assertHtmxSwap(
       if (method !== opts.method) return false;
       if (opts.endpoint instanceof RegExp) return opts.endpoint.test(url);
       if (typeof opts.endpoint === "function") return opts.endpoint(url);
-      return url.includes(opts.endpoint);
+      // For string endpoints, compare the exact pathname. Invalid response
+      // URLs are test failures, never a reason to fall back to substring matching.
+      let parsedURL: URL;
+      try {
+        parsedURL = new URL(url);
+      } catch (error) {
+        throw new Error(`Invalid HTMX response URL "${url}"`, { cause: error });
+      }
+      return parsedURL.pathname === opts.endpoint;
     };
 
     responsePromise = page.waitForResponse(endpointMatcher);
@@ -109,11 +112,14 @@ export async function assertHtmxSwap(
       `HTMX ${opts.method} ${opts.endpoint} expected ${opts.expectedStatus} got ${response.status()}`,
     ).toBe(opts.expectedStatus);
 
-    // Assert zero document navigation events
-    expect(
-      navigations,
-      `Expected zero document navigations during HTMX swap for ${opts.hxTarget} — found: ${JSON.stringify(navigations)}`,
-    ).toEqual([]);
+    // Wait for the target region to actually change via polling (swap may still be processing)
+    await expect.poll(
+      async () => targetLocator.innerHTML(),
+      {
+        timeout: 10_000,
+        message: `HTMX target ${opts.hxTarget} did not change after swap`,
+      },
+    ).not.toBe(beforeHTML);
 
     // URL unchanged or matches expectedUrl
     if (opts.expectedUrl) {
@@ -122,13 +128,11 @@ export async function assertHtmxSwap(
       expect(page.url()).toBe(urlBefore);
     }
 
-    // Target region content must have changed
-    await expect(targetLocator).toBeVisible();
-    const afterHTML: string = await targetLocator.innerHTML();
+    // Assert zero document navigation events
     expect(
-      afterHTML,
-      `HTMX target ${opts.hxTarget} innerHTML did not change after swap`,
-    ).not.toBe(beforeHTML);
+      navigations,
+      `Expected zero document navigations during HTMX swap for ${opts.hxTarget} — found: ${JSON.stringify(navigations)}`,
+    ).toEqual([]);
 
     // Chrome (non-target region) unchanged
     if (chromeBefore !== null) {
