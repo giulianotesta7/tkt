@@ -47,6 +47,8 @@ interface NavigationEvent {
   url: string;
 }
 
+const htmxSettleWaitersKey = "__playwrightHtmxSettleWaiters";
+
 /**
  * Assert an HTMX partial swap.
  *
@@ -55,9 +57,10 @@ interface NavigationEvent {
  * 3. Captures before-state of target and chrome.
  * 4. Executes the trigger action.
  * 5. Waits for the HTMX response and validates it.
- * 6. Waits for the target region to actually change via `expect.poll()`.
- * 7. Asserts zero navigation events, chrome intact, URL correct.
- * 8. Cleans up all listeners in a finally block.
+ * 6. Waits for the expected target's `htmx:afterSettle` event.
+ * 7. Waits for the target region to actually change via `expect.poll()`.
+ * 8. Asserts zero navigation events, chrome intact, URL correct.
+ * 9. Cleans up all listeners in a finally block.
  */
 export async function assertHtmxSwap(
   page: Page,
@@ -76,6 +79,7 @@ export async function assertHtmxSwap(
   };
 
   let responsePromise: Promise<Response>;
+  let settleToken: string | undefined;
 
   try {
     page.on("request", navigationHandler);
@@ -101,6 +105,49 @@ export async function assertHtmxSwap(
 
     responsePromise = page.waitForResponse(endpointMatcher);
 
+    // Install the post-settle listener before the trigger so a fast swap cannot
+    // finish before the helper starts waiting for it.
+    settleToken = `${Date.now()}-${Math.random()}`;
+    await page.evaluate(
+      ({ selector, token, waitersKey }) => {
+        type SettleWaiter = { handler: EventListener; settled: boolean };
+        const win = window as Window & { [key: string]: unknown };
+        const waiters =
+          (win[waitersKey] as Map<string, SettleWaiter> | undefined) ??
+          new Map<string, SettleWaiter>();
+        win[waitersKey] = waiters;
+
+        const expectedTarget = document.querySelector(selector);
+        const waiter: SettleWaiter = {
+          settled: false,
+          handler: () => undefined,
+        };
+        waiter.handler = (event: Event) => {
+          const target = (event as CustomEvent<{ target?: EventTarget }>).detail?.target;
+          const currentTarget = document.querySelector(selector);
+          if (target === expectedTarget || target === currentTarget || event.target === currentTarget) {
+            waiter.settled = true;
+            document.body.removeEventListener("htmx:afterSettle", waiter.handler);
+          }
+        };
+        waiters.set(token, waiter);
+        document.body.addEventListener("htmx:afterSettle", waiter.handler);
+      },
+      { selector: opts.hxTarget, token: settleToken, waitersKey: htmxSettleWaitersKey },
+    );
+
+    const settlePromise = page.waitForFunction(
+      ({ token, waitersKey }) => {
+        const win = window as Window & { [key: string]: unknown };
+        const waiters = win[waitersKey] as
+          | Map<string, { settled: boolean }>
+          | undefined;
+        return waiters?.get(token)?.settled === true;
+      },
+      { token: settleToken, waitersKey: htmxSettleWaitersKey },
+      { timeout: 10_000 },
+    );
+
     // Capture before state AFTER the interceptor is set up
     const beforeHTML: string = await targetLocator.innerHTML();
     const urlBefore: string = page.url();
@@ -120,6 +167,8 @@ export async function assertHtmxSwap(
       response.status(),
       `HTMX ${opts.method} ${opts.endpoint} expected ${opts.expectedStatus} got ${response.status()}`,
     ).toBe(opts.expectedStatus);
+
+    await settlePromise;
 
     // Wait for the target region to actually change via polling (swap may still be processing)
     await expect.poll(
@@ -155,6 +204,21 @@ export async function assertHtmxSwap(
     return response;
   } finally {
     page.removeListener("request", navigationHandler);
+    if (settleToken) {
+      await page.evaluate(
+        ({ token, waitersKey }) => {
+          type SettleWaiter = { handler: EventListener; settled: boolean };
+          const win = window as Window & { [key: string]: unknown };
+          const waiters = win[waitersKey] as Map<string, SettleWaiter> | undefined;
+          const waiter = waiters?.get(token);
+          if (waiter) {
+            document.body.removeEventListener("htmx:afterSettle", waiter.handler);
+            waiters.delete(token);
+          }
+        },
+        { token: settleToken, waitersKey: htmxSettleWaitersKey },
+      );
+    }
   }
 }
 

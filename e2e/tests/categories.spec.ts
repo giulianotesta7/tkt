@@ -195,7 +195,6 @@ test.describe("Categories", () => {
       hxTarget: "#workflow-builder",
     });
     await expect(cards).toHaveCount(1);
-    await page.waitForTimeout(100);
     const instr = page.getByLabel(/instructions/i);
     await expect(instr).toBeVisible();
     await expect(instr).toHaveAttribute("hx-trigger", "input changed delay:600ms");
