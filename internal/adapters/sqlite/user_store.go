@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strconv"
 	"time"
 
 	"github.com/giulianotesta7/tkt/internal/application"
@@ -112,6 +113,201 @@ func (us *userStore) UpdateManagedUser(ctx context.Context, u *domain.User, expe
 		}
 	}
 	return tx.Commit()
+}
+
+// downgradeHandoffReason is the audit reason identifying the automatic
+// ticket handoff performed by an agent-to-user role downgrade (issue #47).
+var downgradeHandoffReason = "role downgrade handoff"
+
+// DowngradeToUser applies the agent-to-user downgrade lifecycle (issue #47)
+// as ONE immediate transaction: desk memberships are removed first (which
+// satisfies trg_users_no_desk_member_downgrade and re-scopes the least-loaded
+// pool so the downgraded account is never its own replacement), every open
+// (new/in_progress) assigned ticket is handed off to the deterministic
+// least-loaded eligible member of its resolved desk (or left unassigned), the
+// guarded role update persists, one handoff audit event rides per affected
+// ticket, and the role_changes row records the flip. Any failure rolls the
+// whole lifecycle back. An account with no memberships and no open tickets
+// degenerates to the plain managed update.
+func (us *userStore) DowngradeToUser(ctx context.Context, u *domain.User, expectedRole domain.Role, actorID int64, at time.Time) (*domain.User, error) {
+	tx, err := beginImmediate(ctx, us.db, "downgrade to user")
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.ExecContext(ctx, `DELETE FROM desk_members WHERE user_id = ?`, u.ID); err != nil {
+		return nil, fmt.Errorf("sqlite: downgrade delete memberships: %w", err)
+	}
+
+	actorName, err := downgradeActorNameTx(ctx, tx, actorID)
+	if err != nil {
+		return nil, err
+	}
+
+	type handoffTicket struct {
+		id                int64
+		assigneeID        sql.NullInt64
+		workflowVersionID sql.NullInt64
+	}
+	rows, err := tx.QueryContext(ctx, `SELECT id, user_id, workflow_version_id FROM tickets
+		WHERE user_id = ? AND state IN ('new', 'in_progress') ORDER BY id ASC`, u.ID)
+	if err != nil {
+		return nil, fmt.Errorf("sqlite: downgrade select tickets: %w", err)
+	}
+	var open []handoffTicket
+	for rows.Next() {
+		var ht handoffTicket
+		if err := rows.Scan(&ht.id, &ht.assigneeID, &ht.workflowVersionID); err != nil {
+			rows.Close()
+			return nil, fmt.Errorf("sqlite: downgrade scan ticket: %w", err)
+		}
+		open = append(open, ht)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return nil, fmt.Errorf("sqlite: downgrade tickets rows: %w", err)
+	}
+	rows.Close()
+
+	field := "user"
+	var events []domain.AuditEvent
+	for _, ht := range open {
+		deskID, err := downgradeDeskTx(ctx, tx, ht.id, ht.workflowVersionID)
+		if err != nil {
+			return nil, err
+		}
+		var replacement sql.NullInt64
+		if deskID != nil {
+			id, err := leastLoadedAssigneeTx(ctx, tx, *deskID)
+			if err != nil {
+				return nil, err
+			}
+			if id != 0 {
+				replacement = sql.NullInt64{Int64: id, Valid: true}
+			}
+		}
+		var replacementPtr *int64
+		if replacement.Valid {
+			replacementPtr = &replacement.Int64
+		}
+		if _, err := tx.ExecContext(ctx, `UPDATE tickets SET user_id = ?, updated_at = ? WHERE id = ?`,
+			nullableInt64(replacementPtr), formatTime(at), ht.id); err != nil {
+			return nil, fmt.Errorf("sqlite: downgrade handoff ticket: %w", err)
+		}
+		from := ""
+		if ht.assigneeID.Valid {
+			from = strconv.FormatInt(ht.assigneeID.Int64, 10)
+		}
+		to := ""
+		if replacement.Valid {
+			to = strconv.FormatInt(replacement.Int64, 10)
+		}
+		events = append(events, domain.AuditEvent{
+			TicketID:    ht.id,
+			Actor:       actorName,
+			ActorUserID: &actorID,
+			Action:      domain.ActionUpdate,
+			Field:       &field,
+			FromValue:   &from,
+			ToValue:     &to,
+			Reason:      downgradeReasonPtr(),
+			DeskID:      deskID,
+			CreatedAt:   at,
+		})
+	}
+
+	res, err := tx.ExecContext(ctx, `UPDATE users SET name = ?, email = ?, role = ?, active = ? WHERE id = ? AND role = ?`,
+		u.Name, u.Email, string(u.Role), u.Active, u.ID, string(expectedRole))
+	if err != nil {
+		if isUniqueViolation(err) {
+			return nil, &domain.DuplicateError{Kind: "user", Name: u.Email}
+		}
+		return nil, fmt.Errorf("sqlite: downgrade user: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return nil, fmt.Errorf("sqlite: downgrade user rows: %w", err)
+	}
+	if n == 0 {
+		return nil, &domain.NotFoundError{Kind: "user", ID: u.ID}
+	}
+
+	if len(events) > 0 {
+		if err := appendAuditEventsTx(ctx, tx, events...); err != nil {
+			return nil, err
+		}
+	}
+	if u.Role != expectedRole {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO role_changes (user_id, from_role, to_role, actor_user_id, reason, created_at) VALUES (?, ?, ?, ?, ?, ?)`,
+			u.ID, string(expectedRole), string(u.Role), actorID, "role change", formatTime(at)); err != nil {
+			return nil, fmt.Errorf("sqlite: audit role change: %w", err)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("sqlite: commit downgrade: %w", err)
+	}
+	cp := *u
+	return &cp, nil
+}
+
+// downgradeReasonPtr returns the shared downgrade handoff reason pointer.
+func downgradeReasonPtr() *string { return &downgradeHandoffReason }
+
+// downgradeActorNameTx reads the initiating actor's display name for the
+// handoff audit events (the manual-assignment convention stores the session
+// actor's name alongside the actor user id).
+func downgradeActorNameTx(ctx context.Context, tx *sql.Tx, actorID int64) (string, error) {
+	var name string
+	err := tx.QueryRowContext(ctx, `SELECT name FROM users WHERE id = ?`, actorID).Scan(&name)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("sqlite: downgrade actor name: %w", err)
+	}
+	return name, nil
+}
+
+// downgradeDeskTx resolves the handoff desk context of one ticket, in
+// priority order: the latest audit event carrying a desk_id (assignment
+// context snapshot), else the first assign_to_desk step by step order in the
+// ticket's pinned workflow version, else nil (unresolvable — the ticket
+// becomes unassigned, issue #47 fallback).
+func downgradeDeskTx(ctx context.Context, tx *sql.Tx, ticketID int64, workflowVersionID sql.NullInt64) (*int64, error) {
+	var desk sql.NullInt64
+	err := tx.QueryRowContext(ctx, `SELECT desk_id FROM audit_events WHERE ticket_id = ? AND desk_id IS NOT NULL ORDER BY id DESC LIMIT 1`, ticketID).Scan(&desk)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return nil, fmt.Errorf("sqlite: downgrade desk audit: %w", err)
+	}
+	if desk.Valid {
+		id := desk.Int64
+		return &id, nil
+	}
+	if !workflowVersionID.Valid {
+		return nil, nil
+	}
+	var steps string
+	err = tx.QueryRowContext(ctx, `SELECT steps_json FROM workflow_versions WHERE id = ?`, workflowVersionID.Int64).Scan(&steps)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("sqlite: downgrade desk workflow: %w", err)
+	}
+	err = tx.QueryRowContext(ctx, `SELECT CAST(json_extract(je.value, '$.assign_to_desk.desk_id') AS INTEGER)
+		FROM json_each(?, '$') je
+		WHERE json_extract(je.value, '$.type') = 'assign_to_desk'
+		ORDER BY CAST(je.key AS INTEGER) ASC
+		LIMIT 1`, steps).Scan(&desk)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return nil, fmt.Errorf("sqlite: downgrade desk step: %w", err)
+	}
+	if !desk.Valid {
+		return nil, nil
+	}
+	id := desk.Int64
+	return &id, nil
 }
 
 // UpdatePasswordHash changes only the password hash for one existing user.

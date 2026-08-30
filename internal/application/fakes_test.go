@@ -355,6 +355,14 @@ type fakeUserStore struct {
 	nextID      int64
 	referenced  map[int64]bool
 	roleChanges []fakeRoleChange
+	downgrades  []fakeDowngrade
+}
+
+// fakeDowngrade records one DowngradeToUser call (issue #47 handoff route).
+type fakeDowngrade struct {
+	userID       int64
+	expectedRole domain.Role
+	actorID      int64
 }
 
 type fakeRoleChange struct{ actorID int64 }
@@ -447,6 +455,21 @@ func (f *fakeUserStore) Update(_ context.Context, u *domain.User) error {
 }
 
 func (f *fakeUserStore) UpdateManagedUser(_ context.Context, updated *domain.User, expectedRole domain.Role, actorID int64, _ time.Time) error {
+	return f.applyManagedUpdate(updated, expectedRole, actorID)
+}
+
+// DowngradeToUser records the atomic downgrade+handoff call and applies the
+// same managed-update mutation so service-level state assertions hold.
+func (f *fakeUserStore) DowngradeToUser(_ context.Context, updated *domain.User, expectedRole domain.Role, actorID int64, _ time.Time) (*domain.User, error) {
+	f.downgrades = append(f.downgrades, fakeDowngrade{userID: updated.ID, expectedRole: expectedRole, actorID: actorID})
+	if err := f.applyManagedUpdate(updated, expectedRole, actorID); err != nil {
+		return nil, err
+	}
+	cp := *updated
+	return &cp, nil
+}
+
+func (f *fakeUserStore) applyManagedUpdate(updated *domain.User, expectedRole domain.Role, actorID int64) error {
 	u, ok := f.users[updated.ID]
 	if !ok {
 		return &domain.NotFoundError{Kind: "user", ID: updated.ID}
