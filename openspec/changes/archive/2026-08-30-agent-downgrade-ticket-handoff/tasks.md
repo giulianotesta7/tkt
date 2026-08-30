@@ -31,13 +31,13 @@ Acceptance: four deltas + proposal exist, follow the `sync-frontend-contracts` f
 
 ## T2. Go TDD implementation: application port + service route + sqlite atomic operation
 
-- [ ] RED: add a failing application-layer test proving `UserService.UpdateManagedUser` routes a role change to `user` for an account holding desk memberships through the new atomic `UserStore` operation (fake store records the call and the guarded expected role).
-- [ ] GREEN: extend the `UserStore` port with the atomic downgrade-handoff operation and route from `UserService.UpdateManagedUser` when the target role is `user`; keep all other managed edits on the existing path.
-- [ ] RED: add failing sqlite store tests for the atomic operation: memberships deleted, open (`new`/`in_progress`) tickets ordered by id reassigned or left unassigned, role flipped via the same guarded UPDATE, `role_changes` row inserted, all inside ONE `BEGIN IMMEDIATE` transaction.
-- [ ] GREEN: implement the sqlite atomic operation (membership delete → per-ticket handoff → guarded role UPDATE → `role_changes` insert → commit) reusing the deterministic least-loaded rule (`fewest open tickets globally`, lowest user id tie-break, active `agent`/`admin`/`root` pool, downgraded account excluded).
-- [ ] TRIANGULATE: desk resolution priority per ticket — latest desk-bearing audit event first, else first `assign_to_desk` step (by step order) in the pinned workflow version, else unassigned; closed/resolved/cancelled tickets untouched; failure mid-operation rolls back role, memberships, and tickets together.
-- [ ] TRIANGULATE: handoff audit events per reassigned/unassigned ticket — `ActionUpdate` on field `user` with from/to, initiating admin actor ID, role-downgrade reason, `DeskID` when resolved, NULL step index; `role_changes` preserved.
-- [ ] Implement typed error mapping so the trigger's abort condition surfaces as a meaningful domain error, not a raw driver error.
+- [x] RED: add a failing application-layer test proving `UserService.UpdateManagedUser` routes a role change to `user` for an account holding desk memberships through the new atomic `UserStore` operation (fake store records the call and the guarded expected role).
+- [x] GREEN: extend the `UserStore` port with the atomic downgrade-handoff operation and route from `UserService.UpdateManagedUser` when the target role is `user`; keep all other managed edits on the existing path.
+- [x] RED: add failing sqlite store tests for the atomic operation: memberships deleted, open (`new`/`in_progress`) tickets ordered by id reassigned or left unassigned, role flipped via the same guarded UPDATE, `role_changes` row inserted, all inside ONE `BEGIN IMMEDIATE` transaction.
+- [x] GREEN: implement the sqlite atomic operation (membership delete → per-ticket handoff → guarded role UPDATE → `role_changes` insert → commit) reusing the deterministic least-loaded rule (`fewest open tickets globally`, lowest user id tie-break, active `agent`/`admin`/`root` pool, downgraded account excluded).
+- [x] TRIANGULATE: desk resolution priority per ticket — latest desk-bearing audit event first, else first `assign_to_desk` step (by step order) in the pinned workflow version, else unassigned; closed/resolved/cancelled tickets untouched; failure mid-operation rolls back role, memberships, and tickets together.
+- [x] TRIANGULATE: handoff audit events per reassigned/unassigned ticket — `ActionUpdate` on field `user` with from/to, initiating admin actor ID, role-downgrade reason, `DeskID` when resolved, NULL step index; `role_changes` preserved.
+- [x] Implement typed error mapping so the trigger's abort condition surfaces as a meaningful domain error, not a raw driver error.
 
 Acceptance: application and sqlite tests cover the atomic path, resolution priority, rollback, and audit shape; `go test ./internal/application/... ./internal/adapters/sqlite/...` passes.
 

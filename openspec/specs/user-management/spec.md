@@ -132,6 +132,54 @@ Referenced users MUST NOT be hard-deleted; deactivation is the removal mechanism
 - WHEN any actor, including root, attempts to delete it
 - THEN the request is rejected
 - AND the root account remains
+### Requirement: Agent Downgrade Ticket Handoff
+
+When a managed role change from `/users/{id}/edit` targets role `user` for an account holding desk memberships, the system MUST perform ONE atomic lifecycle operation inside a single `BEGIN IMMEDIATE` transaction: (a) delete the account's desk memberships, (b) for each open ticket (state `new` or `in_progress`) assigned to the account, ordered by ticket id, perform handoff, (c) update the role with the same guarded UPDATE semantics as every other managed role change, (d) insert the `role_changes` row, and (e) commit — all or nothing. Any failure MUST roll back the role, the memberships, and the ticket reassignments together, leaving the account and its tickets exactly as before. Desk resolution per ticket MUST apply in priority order: (i) the `desk_id` of the latest audit event for that ticket that carries one, else (ii) the desk of the first `assign_to_desk` step (by step order) in the ticket's pinned workflow version, else (iii) unresolvable and the ticket MUST be left unassigned. Replacement selection MUST reuse the deterministic least-loaded rule over the resolved desk's membership pool, and the downgraded account MUST never be its own replacement. This handoff applies uniformly to any managed role change to `user` whose account holds desk memberships (`agent` and `admin` alike). A deactivation (`active = false`) without a role change MUST NOT trigger the handoff and MUST continue to preserve historical assignments. The HTTP user-edit flow MUST surface typed, meaningful feedback instead of a generic server error when the downgrade path is exercised.
+(Previously: the trigger `trg_users_no_desk_member_downgrade` aborted every downgrade of a desk member, the HTTP surface returned a generic 500, and removing memberships first would have orphaned open tickets assigned to an account that could no longer process them.)
+
+#### Scenario: Downgrade of a desk member succeeds atomically
+
+- GIVEN an `agent`-role account holding desk memberships and an open ticket assigned to them
+- WHEN an `admin` submits a managed role change to `user` at the user edit flow
+- THEN the response is a success with no generic server error
+- AND the account's role is `user` and no `desk_members` row references the account
+- AND the role change is recorded in `role_changes`
+
+#### Scenario: Open tickets reassigned to the least-loaded eligible member
+
+- GIVEN a downgraded desk member with an open ticket whose desk resolves via audit context or pinned workflow
+- WHEN the atomic handoff runs
+- THEN the ticket is reassigned to the eligible member of the resolved desk with the fewest open tickets
+- AND each reassignment records an audit event attributed to the initiating admin with a role-downgrade reason
+
+#### Scenario: Unresolvable desk or empty eligible pool leaves the ticket unassigned
+
+- GIVEN a downgraded desk member with an open ticket whose desk cannot be resolved, or whose resolved desk has no eligible member
+- WHEN the atomic handoff runs
+- THEN the downgrade still succeeds
+- AND that open ticket becomes unassigned
+
+#### Scenario: Closed, resolved, and cancelled tickets preserve historical assignment
+
+- GIVEN a downgraded desk member assigned to tickets in states other than `new` or `in_progress`
+- WHEN the atomic handoff runs
+- THEN those tickets keep their historical assignment to the downgraded account
+- AND no reassignment audit event is recorded for them
+
+#### Scenario: Any failure rolls back role, memberships, and tickets together
+
+- GIVEN a managed role change to `user` for a desk member whose handoff encounters a failure inside the transaction
+- WHEN the operation aborts
+- THEN the role, the desk memberships, and every ticket assignment remain exactly as before the attempt
+- AND no role_changes row and no handoff audit event is persisted
+
+#### Scenario: Deactivation without role change preserves assignments
+
+- GIVEN a desk member with assigned tickets
+- WHEN an `admin` deactivates the account without changing its role
+- THEN the assignments remain untouched and the account keeps its desk memberships per the existing membership rules
+- AND the downgrade handoff does not run
+
 ### Requirement: Login
 
 The system MUST authenticate a user by email and password, verifying the password against the stored bcrypt hash. Correct credentials from an active user MUST create a fresh server-side session and issue a secure session cookie. Incorrect credentials MUST fail with a generic error that does not reveal whether the email exists.

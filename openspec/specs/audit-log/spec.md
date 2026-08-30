@@ -228,6 +228,30 @@ A submitted checkbox value MUST render inside the inline definition list as `✓
 - THEN the short-text value renders verbatim as plain escaped text
 - AND neither the `✓` nor the `×` glyph replaces it
 
+### Requirement: Downgrade Handoff Audit Events
+
+Every automatic reassignment or unassignment performed by the atomic downgrade handoff MUST record exactly one assignment audit event per affected open ticket, following the existing `Ticket.ApplyUpdate` event convention: action `update` on field `user` with the actual from/to assignee values (to empty when the ticket becomes unassigned). The actor MUST be the initiating admin with the actor user ID set. The reason MUST identify the role downgrade. When a desk was resolved for the ticket, the event MUST carry that `desk_id`; when no desk resolved, `desk_id` MUST be NULL. The step index MUST remain NULL for every handoff event because the handoff occurs outside any pinned workflow run. The role change itself MUST continue to be recorded in `role_changes` with the acting user as today. A failed downgrade MUST persist no handoff audit events.
+
+#### Scenario: Reassignment event fields
+
+- GIVEN a downgrade handoff reassigns an open ticket to an eligible pool member
+- WHEN the event is persisted
+- THEN it records action `update`, field `user`, the downgraded account as from-value, the replacement as to-value, the initiating admin as actor with actor user ID set, a reason identifying the role downgrade, and the resolved desk id
+- AND the event commits inside the same transaction as the reassignment
+
+#### Scenario: Unassignment event fields
+
+- GIVEN a downgrade handoff leaves an open ticket unassigned because no desk resolves or no eligible member exists
+- WHEN the event is persisted
+- THEN it records action `update`, field `user`, the downgraded account as from-value, an empty to-value, the initiating admin as actor with actor user ID set, a reason identifying the role downgrade, and a NULL desk id when no desk resolved
+
+#### Scenario: Step index NULL outside pinned runs
+
+- GIVEN one or more handoff audit events are persisted during a downgrade
+- WHEN the `audit_events` rows are inspected
+- THEN every handoff event's step index is NULL
+- AND no handoff event is treated as a pinned semantic workflow event by the timeline
+
 ### Requirement: Contextual Workflow Claim Assignment Event
 
 A successful pinned `assign_to_desk[claim]` completion MUST append exactly one contextual assignment event in the same atomic operation as the claim cursor movement and any required `new` to `in_progress` transition. Its rendered timeline summary MUST be `Assigned to {person} · {desk}`. A failed or stale claim MUST append no assignment event. This workflow-specific event is reasonless; this requirement MUST NOT alter generic manual reassignment audit reasons, which remain preserved and renderable.
