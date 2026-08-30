@@ -605,3 +605,73 @@ func TestChangePasswordUpdatesOnlyTheHash(t *testing.T) {
 		t.Fatal("blank password must be rejected")
 	}
 }
+
+// TestUpdateManagedUserRoutesUserDowngradeThroughAtomicHandoff (issue #47):
+// when the target role is user, the service must route through the atomic
+// DowngradeToUser store operation instead of the generic managed update, so
+// membership deletion, open-ticket handoff, and the role flip commit together.
+func TestUpdateManagedUserRoutesUserDowngradeThroughAtomicHandoff(t *testing.T) {
+	svc, users, clock := newUserService()
+	target := users.seedRole("Nico", "nico@example.com", domain.RoleAgent, true)
+
+	_, err := svc.UpdateManagedUser(context.Background(), managerActor, target.ID, application.UpdateManagedUserInput{
+		Name: "Nico", Email: "nico@example.com", Role: domain.RoleUser, Active: true,
+	})
+	if err != nil {
+		t.Fatalf("downgrade: %v", err)
+	}
+	if len(users.downgrades) != 1 {
+		t.Fatalf("DowngradeToUser calls = %d, want 1 (route through atomic handoff)", len(users.downgrades))
+	}
+	d := users.downgrades[0]
+	if d.userID != target.ID || d.expectedRole != domain.RoleAgent || d.actorID != managerActor.ID {
+		t.Errorf("downgrade call = %+v, want userID %d expectedRole agent actorID %d", d, target.ID, managerActor.ID)
+	}
+	stored := users.users[target.ID]
+	if stored.Role != domain.RoleUser || !stored.Active {
+		t.Errorf("stored role/active = %s/%v, want user/true", stored.Role, stored.Active)
+	}
+	if len(users.roleChanges) != 1 {
+		t.Errorf("role_changes recorded = %d, want 1", len(users.roleChanges))
+	}
+	_ = clock
+}
+
+// TestUpdateManagedUserKeepsGenericRouteForNonUserRoles proves the agent/admin
+// role paths and plain edits still use the generic managed update.
+func TestUpdateManagedUserKeepsGenericRouteForNonUserRoles(t *testing.T) {
+	svc, users, _ := newUserService()
+	target := users.seedRole("Bea", "bea@example.com", domain.RoleUser, true)
+
+	if _, err := svc.UpdateManagedUser(context.Background(), managerActor, target.ID, application.UpdateManagedUserInput{
+		Name: "Bea", Email: "bea@example.com", Role: domain.RoleAgent, Active: true,
+	}); err != nil {
+		t.Fatalf("upgrade to agent: %v", err)
+	}
+	if len(users.downgrades) != 0 {
+		t.Errorf("DowngradeToUser must not be called on the upgrade path")
+	}
+}
+
+// TestUpdateManagedUserNoOpUserEditKeepsPlainRoute (review finding
+// R1-NoOpUserEditCanUnassignTickets / R3-noop-user-edit-handoff): editing an
+// already-user account (rename, deactivation) must keep the generic managed
+// route — the downgrade handoff must never run without an actual role
+// change, or plain edits would reassign or unassign that account's open
+// tickets.
+func TestUpdateManagedUserNoOpUserEditKeepsPlainRoute(t *testing.T) {
+	svc, users, _ := newUserService()
+	target := users.seedRole("Terry", "terry@example.com", domain.RoleUser, true)
+
+	if _, err := svc.UpdateManagedUser(context.Background(), managerActor, target.ID, application.UpdateManagedUserInput{
+		Name: "Terry Renamed", Email: "terry@example.com", Role: domain.RoleUser, Active: true,
+	}); err != nil {
+		t.Fatalf("no-op user edit: %v", err)
+	}
+	if len(users.downgrades) != 0 {
+		t.Fatalf("DowngradeToUser calls = %d, want 0 (no actual role change)", len(users.downgrades))
+	}
+	if len(users.roleChanges) != 0 {
+		t.Errorf("role_changes = %d, want 0", len(users.roleChanges))
+	}
+}

@@ -2,6 +2,7 @@ package sqlite
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"strings"
@@ -197,7 +198,7 @@ func TestBootstrapRootConcurrentYieldsOneRoot(t *testing.T) {
 	}
 
 	start := make(chan struct{})
-	errs := make([]error, 2)
+	results := make(chan error, 2)
 	var wg sync.WaitGroup
 	for i := 0; i < 2; i++ {
 		wg.Add(1)
@@ -206,11 +207,16 @@ func TestBootstrapRootConcurrentYieldsOneRoot(t *testing.T) {
 			u := &domain.User{Name: fmt.Sprintf("R%d", i), Email: fmt.Sprintf("r%d@example.com", i),
 				PasswordHash: "hash", Active: true, CreatedAt: testClock}
 			<-start
-			errs[i] = s.UserStore().BootstrapRoot(ctx, u)
+			results <- s.UserStore().BootstrapRoot(ctx, u)
 		}(i)
 	}
 	close(start)
 	wg.Wait()
+	close(results)
+	errs := make([]error, 0, 2)
+	for err := range results {
+		errs = append(errs, err)
+	}
 
 	succeeds := 0
 	for i, err := range errs {
@@ -580,5 +586,412 @@ func TestUserStorePropagatesDatabaseErrors(t *testing.T) {
 				t.Fatal("operation on closed database succeeded")
 			}
 		})
+	}
+}
+
+// ---- Issue #47: atomic agent-to-user downgrade with ticket handoff ----
+
+// downgradeAuditRow projects one audit_events row for handoff assertions.
+type downgradeAuditRow struct {
+	actor     string
+	actorID   sql.NullInt64
+	field     sql.NullString
+	fromValue sql.NullString
+	toValue   sql.NullString
+	reason    sql.NullString
+	deskID    sql.NullInt64
+	stepIndex sql.NullInt64
+}
+
+func downgradeAudits(t *testing.T, s *Store, ticketID int64) []downgradeAuditRow {
+	t.Helper()
+	rows, err := s.db.QueryContext(context.Background(), `SELECT actor, actor_user_id, field, from_value, to_value, reason, desk_id, step_index FROM audit_events WHERE ticket_id = ? ORDER BY id ASC`, ticketID)
+	if err != nil {
+		t.Fatalf("query audits: %v", err)
+	}
+	defer rows.Close()
+	var out []downgradeAuditRow
+	for rows.Next() {
+		var r downgradeAuditRow
+		if err := rows.Scan(&r.actor, &r.actorID, &r.field, &r.fromValue, &r.toValue, &r.reason, &r.deskID, &r.stepIndex); err != nil {
+			t.Fatalf("scan audit: %v", err)
+		}
+		out = append(out, r)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("audits rows: %v", err)
+	}
+	return out
+}
+
+func downgradeTicketAssignee(t *testing.T, s *Store, ticketID int64) sql.NullInt64 {
+	t.Helper()
+	var uid sql.NullInt64
+	if err := s.db.QueryRowContext(context.Background(), `SELECT user_id FROM tickets WHERE id = ?`, ticketID).Scan(&uid); err != nil {
+		t.Fatalf("ticket assignee: %v", err)
+	}
+	return uid
+}
+
+func downgradeRoleChanges(t *testing.T, s *Store, userID int64) int {
+	t.Helper()
+	var n int
+	if err := s.db.QueryRowContext(context.Background(), `SELECT COUNT(*) FROM role_changes WHERE user_id = ?`, userID).Scan(&n); err != nil {
+		t.Fatalf("role changes count: %v", err)
+	}
+	return n
+}
+
+func downgradeMembershipCount(t *testing.T, s *Store, userID int64) int {
+	t.Helper()
+	var n int
+	if err := s.db.QueryRowContext(context.Background(), `SELECT COUNT(*) FROM desk_members WHERE user_id = ?`, userID).Scan(&n); err != nil {
+		t.Fatalf("membership count: %v", err)
+	}
+	return n
+}
+
+// seedAssignmentAudit seeds a manual-assignment-shaped audit row carrying
+// the desk snapshot: the context the handoff desk resolution reads first.
+// actorID must be an existing user id (FK).
+func seedAssignmentAudit(t *testing.T, s *Store, ticketID, deskID, actorID int64) {
+	t.Helper()
+	field, from, to := "user", "", fmt.Sprintf("%d", ticketID%1000)
+	if _, err := s.db.ExecContext(context.Background(), `INSERT INTO audit_events (ticket_id, actor, action, field, from_value, to_value, actor_user_id, created_at, desk_id)
+		VALUES (?, 'Admin', 'update', ?, ?, ?, ?, '2026-08-06T10:00:00Z', ?)`, ticketID, field, from, to, actorID, deskID); err != nil {
+		t.Fatalf("seed assignment audit: %v", err)
+	}
+}
+
+// seedPinnedWorkflowVersion inserts a one-step least_loaded workflow version
+// for catID pinned to deskID and returns the version id.
+func seedPinnedWorkflowVersion(t *testing.T, s *Store, catID, deskID int64) int64 {
+	t.Helper()
+	steps := fmt.Sprintf(`[{"type":"assign_to_desk","assign_to_desk":{"desk_id":%d,"strategy":"least_loaded"}}]`, deskID)
+	res, err := s.db.ExecContext(context.Background(), `INSERT INTO workflow_versions (category_id, version_no, steps_json, published_at) VALUES (?, 1, ?, '2026-08-06T10:00:00Z')`, catID, steps)
+	if err != nil {
+		t.Fatalf("seed workflow version: %v", err)
+	}
+	vid, err := res.LastInsertId()
+	if err != nil {
+		t.Fatalf("workflow version id: %v", err)
+	}
+	return vid
+}
+
+// TestUserStoreDowngradeToUserAtomicHandoff proves the full atomic lifecycle:
+// memberships removed, the open ticket handed to the least-loaded eligible
+// member (never the downgraded account itself — proven by a load tie the
+// downgraded account would win on the id tie-break), one handoff audit event
+// with the initiating actor and NULL step index, and the role_changes row.
+func TestUserStoreDowngradeToUserAtomicHandoff(t *testing.T) {
+	s := newTestDB(t)
+	ctx := context.Background()
+	cat := seedCategory(t, s, "Support")
+	desk := seedDesk(t, s, "D1")
+	// Seed the actor first so the downgraded agent gets the LOWER id: with
+	// equal open-ticket load the id tie-break would pick the downgraded
+	// account as its own replacement if the membership pool were not
+	// re-read after deletion.
+	actorID := seedUserRole(t, s, "Root", "root@x", true, domain.RoleAdmin)
+	agentA := seedUserRole(t, s, "Agent A", "a@x", true, domain.RoleAgent)
+	agentB := seedUserRole(t, s, "Agent B", "b@x", true, domain.RoleAgent)
+	addMemberRaw(t, s, desk, agentA)
+	addMemberRaw(t, s, desk, agentB)
+	ticket := seedTicket(t, s, domain.Ticket{Number: 1, Title: "T1", CategoryID: cat, Priority: domain.PriorityMedium, State: domain.StateInProgress, UserID: &agentA, CreatedAt: testClock, UpdatedAt: testClock})
+	seedAssignmentAudit(t, s, ticket.ID, desk, actorID)
+	// Extra open ticket on B makes the load a 1-1 tie.
+	seedLoadTicket(t, s, 2, agentB, cat, domain.StateNew)
+
+	downgraded := &domain.User{ID: agentA, Name: "Agent A", Email: "a@x", Role: domain.RoleUser, Active: true}
+	got, err := s.UserStore().DowngradeToUser(ctx, downgraded, domain.RoleAgent, actorID, testClock)
+	if err != nil {
+		t.Fatalf("downgrade: %v", err)
+	}
+	if got.ID != agentA || got.Role != domain.RoleUser {
+		t.Errorf("returned user = %+v, want id %d role user", got, agentA)
+	}
+
+	// Role flipped, memberships gone.
+	var role string
+	if err := s.db.QueryRowContext(context.Background(), `SELECT role FROM users WHERE id = ?`, agentA).Scan(&role); err != nil || role != string(domain.RoleUser) {
+		t.Errorf("stored role = %q (err %v), want user", role, err)
+	}
+	if n := downgradeMembershipCount(t, s, agentA); n != 0 {
+		t.Errorf("memberships left = %d, want 0", n)
+	}
+	if n := downgradeRoleChanges(t, s, agentA); n != 1 {
+		t.Errorf("role_changes rows = %d, want 1", n)
+	}
+
+	// Ticket handed to B (never to A itself).
+	if got := downgradeTicketAssignee(t, s, ticket.ID); !got.Valid || got.Int64 != agentB {
+		t.Errorf("ticket assignee = %v, want agent B (%d)", got, agentB)
+	}
+
+	// Exactly one handoff audit event with the contract fields.
+	audits := downgradeAudits(t, s, ticket.ID)
+	if len(audits) != 2 { // seeded assignment + handoff
+		t.Fatalf("audit events = %d, want 2", len(audits))
+	}
+	h := audits[1]
+	if h.field.Valid && h.field.String != "user" {
+		t.Errorf("event field = %v, want user", h.field)
+	}
+	if !h.fromValue.Valid || h.fromValue.String != fmt.Sprintf("%d", agentA) {
+		t.Errorf("event from = %v, want %d", h.fromValue, agentA)
+	}
+	if !h.toValue.Valid || h.toValue.String != fmt.Sprintf("%d", agentB) {
+		t.Errorf("event to = %v, want %d", h.toValue, agentB)
+	}
+	if h.actor != "Root" || !h.actorID.Valid || h.actorID.Int64 != actorID {
+		t.Errorf("event actor = %q/%v, want Root/%d", h.actor, h.actorID, actorID)
+	}
+	if !h.reason.Valid || h.reason.String == "" {
+		t.Errorf("event reason missing, got %v", h.reason)
+	}
+	if !h.deskID.Valid || h.deskID.Int64 != desk {
+		t.Errorf("event desk_id = %v, want %d", h.deskID, desk)
+	}
+	if h.stepIndex.Valid {
+		t.Errorf("event step_index = %v, want NULL", h.stepIndex)
+	}
+}
+
+// TestUserStoreDowngradeToUserUnresolvableDeskUnassigns proves the fallback:
+// an open ticket with no audit desk context and no pinned workflow becomes
+// unassigned with a NULL desk_id on its handoff event.
+func TestUserStoreDowngradeToUserUnresolvableDeskUnassigns(t *testing.T) {
+	s := newTestDB(t)
+	ctx := context.Background()
+	cat := seedCategory(t, s, "General")
+	actorID := seedUserRole(t, s, "Root", "root@x", true, domain.RoleAdmin)
+	agentA := seedUserRole(t, s, "Agent A", "a@x", true, domain.RoleAgent)
+	ticket := seedTicket(t, s, domain.Ticket{Number: 1, Title: "T1", CategoryID: cat, Priority: domain.PriorityMedium, State: domain.StateNew, UserID: &agentA, CreatedAt: testClock, UpdatedAt: testClock})
+
+	if _, err := s.UserStore().DowngradeToUser(ctx, &domain.User{ID: agentA, Name: "Agent A", Email: "a@x", Role: domain.RoleUser, Active: true}, domain.RoleAgent, actorID, testClock); err != nil {
+		t.Fatalf("downgrade: %v", err)
+	}
+	if got := downgradeTicketAssignee(t, s, ticket.ID); got.Valid {
+		t.Errorf("ticket assignee = %v, want NULL (unassigned)", got)
+	}
+	audits := downgradeAudits(t, s, ticket.ID)
+	if len(audits) != 1 {
+		t.Fatalf("audit events = %d, want 1", len(audits))
+	}
+	h := audits[0]
+	if !h.toValue.Valid || h.toValue.String != "" {
+		t.Errorf("event to = %v, want empty", h.toValue)
+	}
+	if h.deskID.Valid {
+		t.Errorf("event desk_id = %v, want NULL", h.deskID)
+	}
+	if h.stepIndex.Valid {
+		t.Errorf("event step_index = %v, want NULL", h.stepIndex)
+	}
+}
+
+// TestUserStoreDowngradeToUserEmptyPoolUnassigns proves an empty eligible
+// pool (the downgraded account was the only member) leaves the ticket
+// unassigned while the resolved desk still rides on the event.
+func TestUserStoreDowngradeToUserEmptyPoolUnassigns(t *testing.T) {
+	s := newTestDB(t)
+	ctx := context.Background()
+	cat := seedCategory(t, s, "Support")
+	desk := seedDesk(t, s, "D1")
+	actorID := seedUserRole(t, s, "Root", "root@x", true, domain.RoleAdmin)
+	agentA := seedUserRole(t, s, "Agent A", "a@x", true, domain.RoleAgent)
+	addMemberRaw(t, s, desk, agentA)
+	ticket := seedTicket(t, s, domain.Ticket{Number: 1, Title: "T1", CategoryID: cat, Priority: domain.PriorityMedium, State: domain.StateInProgress, UserID: &agentA, CreatedAt: testClock, UpdatedAt: testClock})
+	seedAssignmentAudit(t, s, ticket.ID, desk, actorID)
+
+	if _, err := s.UserStore().DowngradeToUser(ctx, &domain.User{ID: agentA, Name: "Agent A", Email: "a@x", Role: domain.RoleUser, Active: true}, domain.RoleAgent, actorID, testClock); err != nil {
+		t.Fatalf("downgrade: %v", err)
+	}
+	if got := downgradeTicketAssignee(t, s, ticket.ID); got.Valid {
+		t.Errorf("ticket assignee = %v, want NULL", got)
+	}
+	audits := downgradeAudits(t, s, ticket.ID)
+	if len(audits) != 2 {
+		t.Fatalf("audit events = %d, want 2", len(audits))
+	}
+	if !audits[1].deskID.Valid || audits[1].deskID.Int64 != desk {
+		t.Errorf("event desk_id = %v, want %d (desk resolved, pool empty)", audits[1].deskID, desk)
+	}
+}
+
+// TestUserStoreDowngradeToUserClosedTicketsUntouched proves closed-state
+// tickets keep their historical assignment and get no handoff event.
+func TestUserStoreDowngradeToUserClosedTicketsUntouched(t *testing.T) {
+	s := newTestDB(t)
+	ctx := context.Background()
+	cat := seedCategory(t, s, "Support")
+	desk := seedDesk(t, s, "D1")
+	actorID := seedUserRole(t, s, "Root", "root@x", true, domain.RoleAdmin)
+	agentA := seedUserRole(t, s, "Agent A", "a@x", true, domain.RoleAgent)
+	agentB := seedUserRole(t, s, "Agent B", "b@x", true, domain.RoleAgent)
+	addMemberRaw(t, s, desk, agentA)
+	addMemberRaw(t, s, desk, agentB)
+	var closedIDs []int64
+	for i, st := range []domain.State{domain.StateResolved, domain.StateClosed, domain.StateCancelled} {
+		tk := seedTicket(t, s, domain.Ticket{Number: i + 1, Title: "T", CategoryID: cat, Priority: domain.PriorityMedium, State: st, UserID: &agentA, CreatedAt: testClock, UpdatedAt: testClock})
+		seedAssignmentAudit(t, s, tk.ID, desk, actorID)
+		closedIDs = append(closedIDs, tk.ID)
+	}
+
+	if _, err := s.UserStore().DowngradeToUser(ctx, &domain.User{ID: agentA, Name: "Agent A", Email: "a@x", Role: domain.RoleUser, Active: true}, domain.RoleAgent, actorID, testClock); err != nil {
+		t.Fatalf("downgrade: %v", err)
+	}
+	for _, id := range closedIDs {
+		if got := downgradeTicketAssignee(t, s, id); !got.Valid || got.Int64 != agentA {
+			t.Errorf("closed ticket %d assignee = %v, want agent A (%d) preserved", id, got, agentA)
+		}
+		if audits := downgradeAudits(t, s, id); len(audits) != 1 {
+			t.Errorf("closed ticket %d audits = %d, want 1 (no handoff event)", id, len(audits))
+		}
+	}
+	_ = agentB
+}
+
+// TestUserStoreDowngradeToUserTieBreakLowestID proves the deterministic tie:
+// two eligible candidates with equal open load resolve to the lowest user id.
+func TestUserStoreDowngradeToUserTieBreakLowestID(t *testing.T) {
+	s := newTestDB(t)
+	ctx := context.Background()
+	cat := seedCategory(t, s, "Support")
+	desk := seedDesk(t, s, "D1")
+	actorID := seedUserRole(t, s, "Root", "root@x", true, domain.RoleAdmin)
+	agentA := seedUserRole(t, s, "Agent A", "a@x", true, domain.RoleAgent)
+	agentB := seedUserRole(t, s, "Agent B", "b@x", true, domain.RoleAgent)
+	agentC := seedUserRole(t, s, "Agent C", "c@x", true, domain.RoleAgent)
+	addMemberRaw(t, s, desk, agentA)
+	addMemberRaw(t, s, desk, agentB)
+	addMemberRaw(t, s, desk, agentC)
+	ticket := seedTicket(t, s, domain.Ticket{Number: 1, Title: "T1", CategoryID: cat, Priority: domain.PriorityMedium, State: domain.StateNew, UserID: &agentA, CreatedAt: testClock, UpdatedAt: testClock})
+	seedAssignmentAudit(t, s, ticket.ID, desk, actorID)
+
+	if _, err := s.UserStore().DowngradeToUser(ctx, &domain.User{ID: agentA, Name: "Agent A", Email: "a@x", Role: domain.RoleUser, Active: true}, domain.RoleAgent, actorID, testClock); err != nil {
+		t.Fatalf("downgrade: %v", err)
+	}
+	want := agentB
+	if agentC < agentB {
+		want = agentC
+	}
+	if got := downgradeTicketAssignee(t, s, ticket.ID); !got.Valid || got.Int64 != want {
+		t.Errorf("ticket assignee = %v, want lowest id among B/C (%d)", got, want)
+	}
+}
+
+// TestUserStoreDowngradeToUserExpectedRoleMismatchRollsBack proves all-or-
+// nothing: a guarded-update miss rolls memberships, tickets, audits, and the
+// role_changes row back together.
+func TestUserStoreDowngradeToUserExpectedRoleMismatchRollsBack(t *testing.T) {
+	s := newTestDB(t)
+	ctx := context.Background()
+	cat := seedCategory(t, s, "Support")
+	desk := seedDesk(t, s, "D1")
+	actorID := seedUserRole(t, s, "Root", "root@x", true, domain.RoleAdmin)
+	agentA := seedUserRole(t, s, "Agent A", "a@x", true, domain.RoleAgent)
+	addMemberRaw(t, s, desk, agentA)
+	ticket := seedTicket(t, s, domain.Ticket{Number: 1, Title: "T1", CategoryID: cat, Priority: domain.PriorityMedium, State: domain.StateInProgress, UserID: &agentA, CreatedAt: testClock, UpdatedAt: testClock})
+	seedAssignmentAudit(t, s, ticket.ID, desk, actorID)
+
+	_, err := s.UserStore().DowngradeToUser(ctx, &domain.User{ID: agentA, Name: "Agent A", Email: "a@x", Role: domain.RoleUser, Active: true}, domain.RoleAdmin, actorID, testClock)
+	if err == nil {
+		t.Fatal("expected role mismatch must fail")
+	}
+	var nf *domain.NotFoundError
+	if !errors.As(err, &nf) {
+		t.Fatalf("error = %v, want NotFoundError", err)
+	}
+	var role string
+	if err := s.db.QueryRowContext(context.Background(), `SELECT role FROM users WHERE id = ?`, agentA).Scan(&role); err != nil || role != string(domain.RoleAgent) {
+		t.Errorf("stored role = %q (err %v), want agent (rolled back)", role, err)
+	}
+	if n := downgradeMembershipCount(t, s, agentA); n != 1 {
+		t.Errorf("memberships = %d, want 1 (rolled back)", n)
+	}
+	if got := downgradeTicketAssignee(t, s, ticket.ID); !got.Valid || got.Int64 != agentA {
+		t.Errorf("ticket assignee = %v, want agent A (rolled back)", got)
+	}
+	if audits := downgradeAudits(t, s, ticket.ID); len(audits) != 1 {
+		t.Errorf("audits = %d, want 1 (no handoff event persisted)", len(audits))
+	}
+	if n := downgradeRoleChanges(t, s, agentA); n != 0 {
+		t.Errorf("role_changes rows = %d, want 0", n)
+	}
+}
+
+// TestUserStoreDowngradeToUserWithoutMembershipsPlain proves an account with
+// no desk memberships downgrades as a plain managed update: role flipped,
+// role_changes row, no ticket or audit side effects.
+func TestUserStoreDowngradeToUserWithoutMembershipsPlain(t *testing.T) {
+	s := newTestDB(t)
+	ctx := context.Background()
+	actorID := seedUserRole(t, s, "Root", "root@x", true, domain.RoleAdmin)
+	agentA := seedUserRole(t, s, "Agent A", "a@x", true, domain.RoleAgent)
+
+	if _, err := s.UserStore().DowngradeToUser(ctx, &domain.User{ID: agentA, Name: "Agent A", Email: "a@x", Role: domain.RoleUser, Active: true}, domain.RoleAgent, actorID, testClock); err != nil {
+		t.Fatalf("downgrade: %v", err)
+	}
+	var role string
+	if err := s.db.QueryRowContext(context.Background(), `SELECT role FROM users WHERE id = ?`, agentA).Scan(&role); err != nil || role != string(domain.RoleUser) {
+		t.Errorf("stored role = %q (err %v), want user", role, err)
+	}
+	if n := downgradeRoleChanges(t, s, agentA); n != 1 {
+		t.Errorf("role_changes rows = %d, want 1", n)
+	}
+	var events int
+	if err := s.db.QueryRowContext(context.Background(), `SELECT COUNT(*) FROM audit_events`).Scan(&events); err != nil || events != 0 {
+		t.Errorf("audit events = %d (err %v), want 0", events, err)
+	}
+}
+
+// TestUserStoreDowngradeToUserPinnedWorkflowDeskFallback proves desk
+// resolution priority 2: a pinned ticket with no audit desk context resolves
+// its desk from the first assign_to_desk step of its pinned workflow version.
+func TestUserStoreDowngradeToUserPinnedWorkflowDeskFallback(t *testing.T) {
+	s := newTestDB(t)
+	ctx := context.Background()
+	cat := seedCategory(t, s, "Support")
+	desk := seedDesk(t, s, "D1")
+	actorID := seedUserRole(t, s, "Root", "root@x", true, domain.RoleAdmin)
+	agentA := seedUserRole(t, s, "Agent A", "a@x", true, domain.RoleAgent)
+	agentB := seedUserRole(t, s, "Agent B", "b@x", true, domain.RoleAgent)
+	addMemberRaw(t, s, desk, agentA)
+	addMemberRaw(t, s, desk, agentB)
+	vid := seedPinnedWorkflowVersion(t, s, cat, desk)
+	ticket := seedPinnedTicket(t, s, domain.Ticket{Number: 1, Title: "T1", CategoryID: cat, Priority: domain.PriorityMedium, State: domain.StateNew, UserID: &agentA, CreatedAt: testClock, UpdatedAt: testClock, WorkflowVersionID: &vid})
+
+	if _, err := s.UserStore().DowngradeToUser(ctx, &domain.User{ID: agentA, Name: "Agent A", Email: "a@x", Role: domain.RoleUser, Active: true}, domain.RoleAgent, actorID, testClock); err != nil {
+		t.Fatalf("downgrade: %v", err)
+	}
+	if got := downgradeTicketAssignee(t, s, ticket.ID); !got.Valid || got.Int64 != agentB {
+		t.Errorf("ticket assignee = %v, want agent B (%d) via pinned desk", got, agentB)
+	}
+	audits := downgradeAudits(t, s, ticket.ID)
+	if len(audits) != 1 {
+		t.Fatalf("audit events = %d, want 1", len(audits))
+	}
+	if !audits[0].deskID.Valid || audits[0].deskID.Int64 != desk {
+		t.Errorf("event desk_id = %v, want %d", audits[0].deskID, desk)
+	}
+}
+
+// TestUserStoreDowngradeToUserNoOpRoleChangeSkipsRoleChangesRow proves the
+// role_changes insert follows the generic managed-update convention: only an
+// actual role change appends a row. An edit of an already-user account must
+// not record a spurious user-to-user change.
+func TestUserStoreDowngradeToUserNoOpRoleChangeSkipsRoleChangesRow(t *testing.T) {
+	s := newTestDB(t)
+	ctx := context.Background()
+	actorID := seedUserRole(t, s, "Root", "root@x", true, domain.RoleAdmin)
+	target := seedUserRole(t, s, "Terry", "t@x", true, domain.RoleUser)
+
+	if _, err := s.UserStore().DowngradeToUser(ctx, &domain.User{ID: target, Name: "Terry", Email: "t@x", Role: domain.RoleUser, Active: true}, domain.RoleUser, actorID, testClock); err != nil {
+		t.Fatalf("no-op downgrade: %v", err)
+	}
+	if n := downgradeRoleChanges(t, s, target); n != 0 {
+		t.Errorf("role_changes rows = %d, want 0 (no actual role change)", n)
 	}
 }

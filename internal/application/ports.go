@@ -174,6 +174,13 @@ type UserStore interface {
 	// UpdateManagedUser persists identity, role, and active state together. It
 	// guards the expected current role and appends a role audit only on change.
 	UpdateManagedUser(ctx context.Context, u *domain.User, expectedRole domain.Role, actorID int64, at time.Time) error
+	// DowngradeToUser applies the agent-to-user downgrade lifecycle (issue #47)
+	// atomically: desk memberships are removed, every open (new/in_progress)
+	// ticket assigned to u is handed off per the deterministic least-loaded
+	// rule of the resolved desk (or left unassigned when no eligible member or
+	// desk context exists), the guarded role update persists, and the role
+	// audit is appended — all in ONE transaction, all or nothing.
+	DowngradeToUser(ctx context.Context, u *domain.User, expectedRole domain.Role, actorID int64, at time.Time) (*domain.User, error)
 	// UpdatePasswordHash changes only the stored password hash.
 	UpdatePasswordHash(ctx context.Context, id int64, passwordHash string) error
 	// Delete removes an unreferenced user; ErrReferenced when the user is

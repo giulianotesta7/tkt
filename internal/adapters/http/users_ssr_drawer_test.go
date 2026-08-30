@@ -2,6 +2,7 @@ package httpadapter
 
 import (
 	"context"
+	"database/sql"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -216,5 +217,71 @@ func TestUsersDrawerLifecycleSubmitter(t *testing.T) {
 	stored, err := h.store.UserStore().GetByID(context.Background(), target.ID)
 	if err != nil || stored.Active {
 		t.Fatalf("last active value must deactivate target: %+v/%v", stored, err)
+	}
+}
+
+// TestUsersDrawerDowngradeNoGeneric500 (issue #47): downgrading a desk-member
+// agent via /users/{id}/edit must succeed (200 HX save contract) instead of
+// the legacy generic 500 the trigger used to cause, must remove the desk
+// membership, and must hand the open assigned ticket to the other eligible
+// member. Closed tickets keep their assignment.
+func TestUsersDrawerDowngradeNoGeneric500(t *testing.T) {
+	h := newHarness(t)
+	ctx := context.Background()
+	desk := &domain.Desk{Name: "Support", CreatedAt: time.Now()}
+	if err := h.store.DeskStore().Create(ctx, desk); err != nil {
+		t.Fatal(err)
+	}
+	target := h.createUser(t, "Nico Agent", "nico@example.com", "secret")
+	peer := h.createUser(t, "Bea Peer", "bea@example.com", "secret")
+	if err := h.store.DeskStore().AddMember(ctx, desk.ID, target.ID, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.store.DeskStore().AddMember(ctx, desk.ID, peer.ID, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	var catID int64
+	if err := h.rawDB(t).QueryRowContext(ctx, `SELECT id FROM categories LIMIT 1`).Scan(&catID); err != nil {
+		t.Fatal(err)
+	}
+	res, err := h.rawDB(t).ExecContext(ctx, `INSERT INTO tickets (number, title, description, requester_name, requester_email, requester_user_id, category_id, priority, state, user_id, created_at, updated_at)
+		VALUES (1, 'Orphan risk', '', 'Req', 'r@x', NULL, ?, 'medium', 'new', ?, '2026-08-06T10:00:00Z', '2026-08-06T10:00:00Z')`, catID, target.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ticketID, _ := res.LastInsertId()
+	// Assignment-context audit row so the handoff resolves the desk (priority
+	// 1 desk resolution); actor_user_id must reference a real user (FK).
+	if _, err := h.rawDB(t).ExecContext(ctx, `INSERT INTO audit_events (ticket_id, actor, action, field, from_value, to_value, actor_user_id, created_at, desk_id)
+		VALUES (?, 'Admin', 'update', 'user', '', ?, ?, '2026-08-06T10:00:00Z', ?)`, ticketID, strconv.FormatInt(target.ID, 10), h.admin.ID, desk.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	path := "/users/" + strconv.FormatInt(target.ID, 10) + "/edit"
+	form := url.Values{"name": {"Nico Agent"}, "email": {"nico@example.com"}, "role": {"user"}, "active": {"true"}, "status": {"active"}}
+	saved := h.postForm(t, path, form, true)
+	if saved.Code != http.StatusOK || strings.Count(saved.Body.String(), `id="users-root"`) != 1 {
+		t.Fatalf("downgrade save status/body = %d (want 200 HX save, not 500): %s", saved.Code, saved.Body.String())
+	}
+	for key, want := range map[string]string{"HX-Retarget": "#users-root", "HX-Reswap": "outerHTML", "HX-Trigger-After-Swap": "users:saved"} {
+		if saved.Header().Get(key) != want {
+			t.Errorf("%s = %q, want %q", key, saved.Header().Get(key), want)
+		}
+	}
+	db := h.rawDB(t)
+	var role string
+	if err := db.QueryRowContext(ctx, `SELECT role FROM users WHERE id = ?`, target.ID).Scan(&role); err != nil || role != string(domain.RoleUser) {
+		t.Errorf("role = %q (err %v), want user", role, err)
+	}
+	var memberships int
+	if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM desk_members WHERE user_id = ?`, target.ID).Scan(&memberships); err != nil || memberships != 0 {
+		t.Errorf("memberships = %d (err %v), want 0", memberships, err)
+	}
+	var assignee sql.NullInt64
+	if err := db.QueryRowContext(ctx, `SELECT user_id FROM tickets WHERE id = ?`, ticketID).Scan(&assignee); err != nil {
+		t.Fatal(err)
+	}
+	if !assignee.Valid || assignee.Int64 != peer.ID {
+		t.Errorf("ticket assignee = %v, want peer agent (%d)", assignee, peer.ID)
 	}
 }

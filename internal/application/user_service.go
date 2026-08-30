@@ -141,7 +141,19 @@ func (s *UserService) UpdateManagedUser(ctx context.Context, actor domain.User, 
 	u.Email = strings.TrimSpace(in.Email)
 	u.Role = in.Role
 	u.Active = in.Active
-	if err := s.users.UpdateManagedUser(ctx, u, expectedRole, actor.ID, s.clock.Now()); err != nil {
+	now := s.clock.Now()
+	if in.Role == domain.RoleUser && expectedRole != domain.RoleUser {
+		// Issue #47: an actual agent/admin-to-user role change is the downgrade
+		// lifecycle — memberships, open-ticket handoff, and the role flip commit
+		// together. A submitted user role on an already-user account is a plain
+		// edit and must never run the handoff (it would reassign or unassign
+		// that account's open tickets without any downgrade).
+		if _, err := s.users.DowngradeToUser(ctx, u, expectedRole, actor.ID, now); err != nil {
+			return nil, err
+		}
+		return u, nil
+	}
+	if err := s.users.UpdateManagedUser(ctx, u, expectedRole, actor.ID, now); err != nil {
 		return nil, err
 	}
 	return u, nil
