@@ -175,8 +175,10 @@ func testMigration0009_DevDatabaseUpgradeOnly(t *testing.T) {
 		t.Fatalf("read embedded migrations: %v", err)
 	}
 	for _, e := range entries {
+		// The dev machine predates 0009; later migrations (including any added
+		// after 0009, e.g. 0010) must not leak into the pre-upgrade snapshot.
 		if strings.Compare(e.Name(), "0009_ticket_manual_solutions.sql") >= 0 {
-			continue // the dev machine predates 0009
+			continue
 		}
 		blob, err := fs.ReadFile(migrationsFS, "migrations/"+e.Name())
 		if err != nil {
@@ -220,6 +222,11 @@ func testMigration0009_DevDatabaseUpgradeOnly(t *testing.T) {
 	// 0009.
 	post0009FS := fstest.MapFS{}
 	for _, entry := range entries {
+		// The upgrade target is exactly 0009 — later migrations (0010+) are
+		// outside this test's contract.
+		if strings.Compare(entry.Name(), "0009_ticket_manual_solutions.sql") > 0 {
+			continue
+		}
 		blob, err := fs.ReadFile(migrationsFS, "migrations/"+entry.Name())
 		if err != nil {
 			t.Fatalf("read %s: %v", entry.Name(), err)

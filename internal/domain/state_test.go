@@ -218,7 +218,39 @@ func TestTransitionMatrix(t *testing.T) {
 			} else if event.Note != nil {
 				t.Fatalf("no reason expected for %s -> %s, got %q", tc.from, tc.to, *event.Note)
 			}
+
+			// Closure attribution (issue #55): plain domain Transition events
+			// never carry closure_via — only the application layer stamps it on
+			// the two manual closure paths; workflow closures keep it NULL.
+			if event.ClosureVia != nil {
+				t.Fatalf("plain transition %s -> %s must carry nil ClosureVia, got %q", tc.from, tc.to, *event.ClosureVia)
+			}
 		})
+	}
+}
+
+// TestTransitionAuditClosureViaDefaultsNil pins the audit event shape (issue
+// #55): a plain Transition event, including the closure transition itself,
+// carries ClosureVia == nil. Stamping ClosureVia is exclusively an
+// application-layer concern (requester_confirmation / manual_agent paths).
+func TestTransitionAuditClosureViaDefaultsNil(t *testing.T) {
+	now := time.Date(2026, 8, 20, 12, 0, 0, 0, time.UTC)
+	tt := newTicketInState(domain.StateResolved, now)
+
+	event, err := tt.Transition(domain.StateClosed, "", now)
+	if err != nil {
+		t.Fatalf("resolved -> closed must succeed, got %v", err)
+	}
+	if event.ClosureVia != nil {
+		t.Fatalf("closure transition event must carry nil ClosureVia by default, got %q", *event.ClosureVia)
+	}
+
+	reopen, err := tt.Transition(domain.StateInProgress, "rework needed", now)
+	if err != nil {
+		t.Fatalf("reopen from closed must succeed with a reason, got %v", err)
+	}
+	if reopen.ClosureVia != nil {
+		t.Fatalf("reopen transition event must carry nil ClosureVia, got %q", *reopen.ClosureVia)
 	}
 }
 
