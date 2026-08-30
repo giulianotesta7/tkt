@@ -343,6 +343,49 @@ func TestAuditRoundTripActorUserIDAndReason(t *testing.T) {
 	}
 }
 
+// TestAuditRoundTripClosureVia proves the audit_events.closure_via contract
+// (issue #55 closure attribution): a closure transition event carrying
+// ClosureVia persists and reads back the exact value; an event without it
+// (workflow-terminal closures, pre-0010 shape) persists and reads back NULL.
+func TestAuditRoundTripClosureVia(t *testing.T) {
+	s := newTestDB(t)
+	ticketID := seedTicketForTimeline(t, s, 1)
+	ctx := context.Background()
+
+	via := domain.ClosureViaRequesterConfirmation
+	if err := s.AuditStore().Append(ctx, domain.AuditEvent{
+		TicketID: ticketID, Actor: "Req", Action: domain.ActionTransition,
+		Field: ptr("state"), FromValue: ptr("resolved"), ToValue: ptr("closed"),
+		ClosureVia: &via, CreatedAt: testClock,
+	}); err != nil {
+		t.Fatalf("append with closure_via: %v", err)
+	}
+
+	// Triangulation: an event WITHOUT closure_via must round-trip as NULL,
+	// not as an empty string (workflow closures and pre-0010 rows keep the
+	// attribution only in the workflow actor convention).
+	if err := s.AuditStore().Append(ctx, domain.AuditEvent{
+		TicketID: ticketID, Actor: "workflow", Action: domain.ActionTransition,
+		Field: ptr("state"), FromValue: ptr("resolved"), ToValue: ptr("closed"), CreatedAt: testClock,
+	}); err != nil {
+		t.Fatalf("append without closure_via: %v", err)
+	}
+
+	got, err := s.AuditStore().ListByTicket(ctx, ticketID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("len = %d, want 2", len(got))
+	}
+	if got[0].ClosureVia == nil || *got[0].ClosureVia != domain.ClosureViaRequesterConfirmation {
+		t.Errorf("event[0] ClosureVia = %v, want %q", got[0].ClosureVia, domain.ClosureViaRequesterConfirmation)
+	}
+	if got[1].ClosureVia != nil {
+		t.Errorf("event[1] ClosureVia = %v, want nil (workflow closures keep the actor convention)", *got[1].ClosureVia)
+	}
+}
+
 func TestAuditAppendScopedToTicket(t *testing.T) {
 	s := newTestDB(t)
 	ctx := context.Background()
