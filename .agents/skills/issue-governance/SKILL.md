@@ -18,7 +18,6 @@ Run when a TKT change:
 
 Do NOT run for:
 
-- work already tracked by an issue with a correct label set;
 - read-only Q&A with no repository change.
 
 ## Hard Rules
@@ -36,6 +35,7 @@ Do NOT run for:
 | Status | only when applicable | `status:approved` — the maintainer authorized implementation to start. |
 
 - `area:tooling` covers CI, Playwright, skills, OpenSpec governance, and repository configuration.
+- Cardinality rules apply to the GOVERNING issue. PR labels are optional and do not need to duplicate the issue's labels.
 - If no area fits a proposed issue, the issue is probably mis-scoped: BLOCK and clarify before labeling.
 
 ## Decision Gates

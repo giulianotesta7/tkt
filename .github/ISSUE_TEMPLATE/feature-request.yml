@@ -1,7 +1,7 @@
 name: Feature request
 description: Suggest a new capability or improvement for TKT
 title: "[Feature]: "
-labels: ["enhancement"]
+labels: ["type:feature"]
 assignees: []
 body:
   - type: markdown
