@@ -22,7 +22,8 @@ Roles `admin` and `root` MUST create, rename, and delete desks. Roles `user` and
 
 ### Requirement: Desk Membership
 
-Desk membership MUST be N:N and restricted to roles `agent`, `admin`, and `root`. Role `user` MUST NOT be a member of any desk. Only `admin` and `root` MUST add or remove members. No agent-facing desk management views exist in this iteration.
+Desk membership MUST be N:N and restricted to roles `agent`, `admin`, and `root`. Role `user` MUST NOT be a member of any desk, and this invariant is upheld automatically: when a managed role change targets role `user` for an account holding desk memberships, the atomic downgrade handoff removes those memberships inside the same transaction as the role change. Only `admin` and `root` MUST add or remove members. No agent-facing desk management views exist in this iteration.
+(Previously: the system rejected downgrading a desk member via the trigger `trg_users_no_desk_member_downgrade` abort, surfacing a generic server error.)
 
 #### Scenario: Admin adds an agent member
 
@@ -41,6 +42,20 @@ Desk membership MUST be N:N and restricted to roles `agent`, `admin`, and `root`
 - GIVEN an agent listed as a desk member
 - WHEN an `admin` or `root` removes them
 - THEN the membership is removed without affecting the account
+
+#### Scenario: Downgraded member's memberships removed
+
+- GIVEN an `agent`-role account holding desk memberships
+- WHEN a managed role change targets role `user` for that account
+- THEN the desk memberships are removed atomically as part of the downgrade
+- AND the account keeps its other attributes (identity, email, active state) unchanged
+
+#### Scenario: After downgrade no desk_members row references a role-user account
+
+- GIVEN a completed downgrade of an account that held desk memberships
+- WHEN the `desk_members` table is inspected
+- THEN no row references the now role-`user` account
+- AND the trigger `trg_users_no_desk_member_downgrade` was never hit because the memberships were removed first inside the same transaction
 
 ### Requirement: Person-Only Assignment Invariant
 

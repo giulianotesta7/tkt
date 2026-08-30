@@ -18,3 +18,4 @@ test-results/
 playwright-report/
 e2e/.e2e-state.json
 tkt-server
+cmd.jsonl
