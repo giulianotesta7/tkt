@@ -1,3 +1,77 @@
+```yaml
+schema: gentle-ai.verify-result/v1
+evidence_revision: sha256:a3034db0bed7996ccf4918ee242af99bc5cdd489d1c3590ad196e2bd4cc7cce5
+verdict: pass
+blockers: 0
+critical_findings: 0
+requirements: 5/5
+scenarios: 40/40
+test_command: openspec validate sync-workflow-polish-contracts --type change --strict --no-interactive
+test_exit_code: 0
+test_output_hash: sha256:28bf130f0fc768ef015a01e1d62c879ad0a6965a5532508616ca16799a5bc24e
+build_command: openspec validate --archived --no-interactive
+build_exit_code: 0
+build_output_hash: sha256:ffe263e14d58dc64bd15e0fc547ccba0cafc9307351aef04dcafe3acc15b43e4
+```
+
+# Verify Report: sync-workflow-polish-contracts (revision 2)
+
+## Change summary
+
+Docs/config-only recovery change. Canonical syncs for its four specs (`category-workflows`, `ticket-workflow-execution`, `audit-log`, `ticket-management`) are already applied and committed on main in `bb4e945` (confirmed an ancestor of this worktree's HEAD `cdf5cce8dece03a512afaa9348bb9300046df36d`). The change folder retains proposal, design, tasks (T0–T7 all `[x]`; T8 is the archive lifecycle step), apply-progress, and the four delta specs. This revision replaces the prior prose-only report, which lacked the `gentle-ai.verify-result/v1` envelope required by the native verification gate.
+
+## Docs-only justification
+
+The change contains zero executable content: no runtime, template, CSS, JS, Go test, golden, migration, skill, CI, dependency, or coverage file is touched. Therefore no `go test`, `go build`, or Playwright run was executed — runtime harness evidence is `N/A` by design. Working-tree diff hygiene at this revision: `git diff --check` exit 0 (empty output); `git status --porcelain` shows exactly one entry, `?? openspec/changes/resolved-requester-confirmation/`, a foreign untracked change directory explicitly out of scope for this verification (not touched, not validated as part of this change, not deleted). The verified change folder is fully tracked; the only file modified by this revision is `openspec/changes/sync-workflow-polish-contracts/verify-report.md` (tracked).
+
+## Fresh command results (this revision, exact stdout/stderr hashed)
+
+Byte capture method: `command 2>&1 | sha256sum` — combined stderr into stdout, piped to `sha256sum`; verified reproducible by re-running each command and confirming identical hashes. Exit codes captured via `PIPESTATUS[0]`.
+
+| Command | Exit | Output sha256 |
+|---|---|---|
+| `openspec validate sync-workflow-polish-contracts --type change --strict --no-interactive` | 0 | `28bf130f0fc768ef015a01e1d62c879ad0a6965a5532508616ca16799a5bc24e` |
+| `openspec validate --archived --no-interactive` | 0 | `ffe263e14d58dc64bd15e0fc547ccba0cafc9307351aef04dcafe3acc15b43e4` |
+| `openspec validate --all --strict --no-interactive` | 1 | `c0f0fce9091d479a88acb485e8c49b049953fa8ef5fac774d7afd1782678b61f` |
+| `git diff --check` | 0 | empty output (sha256 of empty input `e3b0c442...b855`) |
+| `git status --porcelain` | 0 | only `?? openspec/changes/resolved-requester-confirmation/` |
+
+Note on the `--all` run: it fails solely on `change/resolved-requester-confirmation` — the out-of-scope foreign untracked change directory named in the delegation context. `change/sync-workflow-polish-contracts` itself validates strict (`✓`) in that same run, and the focused change-scoped strict validation passes with exit 0. No in-scope item failed. The five archived change folders also validate (5 passed / 0 failed).
+
+## Delta counts (requirements / scenarios)
+
+Counted via `^### Requirement:` and `^#### Scenario:` headings across the change's four `specs/*/spec.md` deltas:
+
+| Delta | Requirements | Scenarios |
+|---|---|---|
+| `category-workflows` | 2 | 14 |
+| `ticket-workflow-execution` | 1 | 11 |
+| `audit-log` | 1 | 11 |
+| `ticket-management` | 1 | 4 |
+| **Total** | **5** | **40** |
+
+All 5 requirements and all 40 scenarios are covered by the committed canonical syncs in `bb4e945`.
+
+## Read-only test anchor check
+
+All five test names from tasks.md T6 resolve via grep at their documented files (line numbers in parentheses; the three handler-file anchors shifted uniformly by −19 lines relative to the tasks.md documentation due to main evolution after the anchors were recorded — same file, same `func Test` declarations; the two other anchors are exact):
+
+| Test | Resolved location | Status |
+|---|---|---|
+| `TestCategoryWorkflowBuilder_ThreeDotTriggerPolish` | `internal/adapters/http/handlers_category_workflows_test.go:1628` (documented :1647) | resolved |
+| `TestCategoryWorkflowBuilder_CheckboxRequiredSemantics` | `internal/adapters/http/handlers_category_workflows_test.go:2012` (documented :2031) | resolved |
+| `TestTimelineRendersCheckboxBooleanGlyphs` | `internal/adapters/http/handlers_category_workflows_test.go:2060` (documented :2079) | resolved |
+| `TestWorkflowRunner_FormDecoding` | `internal/application/workflow_runner_test.go:125` (exact) | resolved |
+| `TestDecodeWorkflowResponseFields_StrictPinnedTypes` | `internal/adapters/sqlite/workflow_response_store_test.go:91` (exact) | resolved |
+
+## Verification envelope notes
+
+- `evidence_revision` is the sha256 of the current worktree HEAD commit object bytes (`git cat-file commit HEAD | sha256sum` → `sha256:a3034db0bed7996ccf4918ee242af99bc5cdd489d1c3590ad196e2bd4cc7cce5`), binding this report to HEAD commit `cdf5cce8dece03a512afaa9348bb9300046df36d`. The envelope schema requires a 64-hex sha256 digest; a 40-character git abbreviated hash is structurally rejected by the validator, so the commit is bound via its sha256 object digest.
+- `test_command` is the primary verification command (strict validation of this change). `build_command` records the second evidence command (archived-change validation) required and accepted by the native `gentle-ai sdd-verify-validate` contract; both commands are read-only OpenSpec CLI validations, consistent with the docs-only nature of the change (no Go build/test was run or required).
+- Verdict `pass`: 0 blockers, 0 critical findings, no unchecked implementation tasks (`- [ ]`) in tasks.md or any change artifact.
+
+## Historical prior report (superseded)
+
 # Verify Report: sync-workflow-polish-contracts
 
 Status: **PASS** — ready for canonical sync and archive (archive itself is NOT performed by this phase).
