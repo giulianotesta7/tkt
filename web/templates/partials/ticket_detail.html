@@ -29,9 +29,21 @@
       <div class="card">
         <h2>Description</h2>
         {{if .View.Ticket.Description}}<p>{{.View.Ticket.Description}}</p>{{else}}<p class="empty">No description.</p>{{end}}
-      </div>
-{{if not .Closed}}{{template "comment_form" .}}{{end}}{{template "workflow_pending" .}}
-      <div class="card">
+          </div>
+{{if .CanConfirm}}
+	<section class="card resolution-confirmation" aria-labelledby="resolution-confirmation-title">
+		<p class="resolution-eyebrow">Resolution confirmation</p>
+		<h2 id="resolution-confirmation-title"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="m8.5 12.5 2.5 2.5 4.5-5"/></svg>Is your issue solved?</h2>
+		<p class="resolution-help">Support marked this ticket as resolved. Confirm the result or return it to the team if you still need help.</p>
+		<form class="resolution-actions" method="post" action="/tickets/{{.View.Ticket.ID}}/confirmation"
+		      hx-post="/tickets/{{.View.Ticket.ID}}/confirmation" hx-target="#ticket-detail" hx-swap="outerHTML">
+			<button class="btn primary" type="submit" name="decision" value="confirm">Yes, close ticket</button>
+			<button class="btn ghost" type="submit" name="decision" value="reject">No, I still need help</button>
+		</form>
+	</section>
+{{end}}
+{{if .CanComment}}{{template "comment_form" .}}{{end}}{{template "workflow_pending" .}}
+          <div class="card">
         <h2>Timeline</h2>
 {{template "timeline" .}}
       </div>
