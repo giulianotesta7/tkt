@@ -141,7 +141,7 @@ Forecast basis: 6 capabilities × 55 scenarios across domain, application, sqlit
 - Commit: `test(e2e): requester confirm/reject journeys + blocked-close coverage`
 
 ### 5.3 Final verification gate
-- [ ] 5.3 Final verification gate
+- [x] 5.3 Final verification gate
 - `go test ./...`; `go build ./...`; `go vet ./...`; `go test -cover ./...` (≥ 75% threshold); `openspec validate --all --strict` (17/17); full Playwright suite green; staticcheck + govulncheck if available locally.
 - Acceptance: all green; no commit unless a fix is required (then one fix commit referencing the failing gate).
 
