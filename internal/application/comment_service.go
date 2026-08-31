@@ -43,12 +43,19 @@ func (s *CommentService) Add(ctx context.Context, actor domain.User, ticketID in
 	if err != nil {
 		return nil, err
 	}
-	// A closed ticket (resolved/closed/cancelled) is read-only except for its
-	// state transition: no new comments (closed-ticket read-only spec). The
-	// guard runs at the application boundary BEFORE any comment store call, so
-	// a forged POST cannot append to a closed ticket.
+	// Closed-state guard (comment-timeline delta): closed and cancelled tickets
+	// reject every actor, and a requester-NULL resolved ticket also has no one to
+	// admit — the identity predicate is false without a requester. The one
+	// carve-out: the requester of a RESOLVED ticket keeps an active voice while
+	// awaiting confirmation. The guard runs at the application boundary BEFORE
+	// any comment store call, so a forged POST cannot append to a closed ticket;
+	// the HTTP layer maps the rejection to 403.
 	if domain.IsClosed(t.State) {
-		return nil, domain.NewForbiddenError(domain.ErrMsgCommentOnClosedTicket)
+		if t.State == domain.StateResolved && isTicketRequester(actor, t) {
+			// Carve-out: fall through to the normal visibility/author rules.
+		} else {
+			return nil, domain.NewForbiddenError(domain.ErrMsgCommentOnClosedTicket)
+		}
 	}
 	c := &domain.Comment{
 		TicketID:   ticketID,
