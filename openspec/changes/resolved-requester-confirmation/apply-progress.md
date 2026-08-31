@@ -249,3 +249,15 @@ Minimal fix (2 lines, file `internal/adapters/sqlite/ticket_store.go` — OUTSID
 - **Blocked → resolved**: the reject subtest exposed a REAL production defect — `updateTicketTx` (ticket_store.go) omitted `workflow_version_id` from its SET clause (design D4 cited the SELECT projection `ticketColumns`, not the UPDATE list), so the detachment never persisted in SQLite. Fixed: `updateTicketTx` now writes `workflow_version_id` (nullable bind). The failing scan was a test bug (`scanOneInt` can't read NULL) → added `scanNullInt` helper. Full matrix green.
 - GREEN: route + `confirmation` handler (decision dispatch → ConfirmResolution/RejectResolution; unknown decision → 422 ValidationError; success → afterMutation). Gates: go test ./... green, vet clean, gofmt clean, openspec 17/17.
 - Note: this validates the design's D4 premise was wrong (cited SELECT not UPDATE); the 3.3 sqlite detachment round-trip is now proven by this HTTP test. Re-verify the application-layer stored-row claim was via the fake (full-row copy), now covered by the real store round-trip.
+
+### 4.2 — detailData flags + allowedNext filtering (commit `0942bca`)
+- RED: `handlers_detail_flags_test.go` (TestDetailDataConfirmationFlags) — compile failure: `detailData has no field CanConfirm/CanComment`.
+- GREEN: `CanConfirm`/`CanComment` fields; local `isRequester` mirror; `filteredNext` at the call site (allowedNext stays pure): resolved+requester drops `closed`, keeps reopen; requester-NULL keeps closed+reopen; other states unchanged. One test-expectation fix (CanComment true on open states — production untouched).
+- Gates green; goldens untouched (template still renders off `Closed`; CanComment switch is 4.3).
+
+### 4.3 — Template control + golden regeneration (commit `4016cd9`)
+- RED: confirmation panel not rendered; comment form gating on Closed broke requester-in-resolved.
+- GREEN: `resolution-confirmation` panel (eyebrow + check + bold question + helper + two buttons posting to /tickets/{id}/confirmation) in the conversation column, rendered on `CanConfirm`; comment form gated on `CanComment`; CSS block for the green-tinted panel in styles.html.
+- **Two test-side fixes during GREEN**: (1) `closedDetailData` fixture did not reset `CanComment` -> closed tickets rendered the comment form (fixed: set CanComment=false); (2) trailing-whitespace gate failed on tickets_show because the `{{if .CanConfirm}}` block left indented whitespace when not rendered (fixed: control directives at column 0, per the template's existing pattern).
+- Goldens regenerated (shared stylesheet change ripples to all page goldens — expected: the new CSS block inlines in every render); added 3 new golden cases (requester-resolved requester view, agent view, legacy-resolved agent view). Re-run without -update: stable.
+- Gates: go test ./... green, vet clean, gofmt clean, openspec 17/17.
