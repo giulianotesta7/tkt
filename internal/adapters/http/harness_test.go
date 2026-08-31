@@ -304,6 +304,17 @@ func (h *harness) seedTransition(t *testing.T, id int64, to domain.State, reason
 	}
 }
 
+// makeLegacy strips the requester link so the ticket follows the pre-#55
+// requester-NULL semantics: manual closure and the closed-reopen journeys
+// remain legal on requester-less tickets (the requester-confirmation paths
+// are covered by their own tests).
+func (h *harness) makeLegacy(t *testing.T, ticketID int64) {
+	t.Helper()
+	if _, err := h.rawDB(t).Exec(`UPDATE tickets SET requester_user_id = NULL WHERE id = ?`, ticketID); err != nil {
+		t.Fatalf("strip requester from ticket %d: %v", ticketID, err)
+	}
+}
+
 // rawDB opens a second read handle to the harness's file-backed sqlite db so
 // integration tests can assert raw persistence rows (workflow pin, run rows,
 // audit rows) that no public store port exposes. The sqlite driver is already
@@ -323,6 +334,18 @@ func (h *harness) rawDB(t *testing.T) *sql.DB {
 func scanOneInt(t *testing.T, db *sql.DB, query string, args ...any) int64 {
 	t.Helper()
 	var v int64
+	if err := db.QueryRow(query, args...).Scan(&v); err != nil {
+		t.Fatalf("raw query %q: %v", query, err)
+	}
+	return v
+}
+
+// scanNullInt runs a scalar-SELECT query against the harness db and returns a
+// sql.NullInt64, so a NULL column (e.g. a detached workflow_version_id) is
+// read without an unsupported NULL->int64 conversion error.
+func scanNullInt(t *testing.T, db *sql.DB, query string, args ...any) sql.NullInt64 {
+	t.Helper()
+	var v sql.NullInt64
 	if err := db.QueryRow(query, args...).Scan(&v); err != nil {
 		t.Fatalf("raw query %q: %v", query, err)
 	}

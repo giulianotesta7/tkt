@@ -53,7 +53,7 @@ test.describe("Ticket detail", () => {
     });
   });
 
-  test("comment form hidden on closed states (browser-visible rejection)", async ({ page }) => {
+  test("comment form hidden on closed states; requester-owned close blocked", async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 800 });
     const obs = collectObservability(page);
     await loginAsSeeded(page);
@@ -79,32 +79,29 @@ test.describe("Ticket detail", () => {
     await page.goto(base() + `/tickets/${id}`);
     await expect(page.getByText("Resolved").first()).toBeVisible({ timeout: 10_000 });
     const beforeTimeline = await page.locator("#timeline").textContent();
-    // Comment form must be hidden on resolved (IsClosed includes resolved)
-    await expect(page.getByLabel(/comment body/i)).toHaveCount(0);
-    // Timeline unchanged after reload (no comment could be added via UI)
+    // The ticket requester (the creating admin here) keeps the comment form in
+    // resolved via the requester carve-out (issue #55); non-requesters do not.
+    await expect(page.getByLabel(/comment body/i)).toHaveCount(1);
     await page.reload();
     const afterTimeline = await page.locator("#timeline").textContent();
     expect(afterTimeline).toEqual(beforeTimeline);
 
-    // Now transition resolved → closed
+    // A requester-owned resolved ticket can no longer be closed via the
+    // state transition (issue #55 closure gate): the Move-to control offers
+    // only the reopen (in_progress), never `closed`, and the state stays
+    // resolved until the requester confirms. Direct-POST rejection (403) is
+    // exhaustively covered by Go tests (see spec header note).
     await page.goto(base() + `/tickets/${id}`);
-    const toClosed = page.locator("#ticket-state");
-    await expect(toClosed).toBeVisible();
-    {
-      const resp = await assertHtmxSwap(page, async () => {
-        await toClosed.selectOption("closed");
-      }, {
-        endpoint: `/tickets/${id}/transition`,
-        method: "POST",
-        expectedStatus: 200,
-        hxTarget: "#ticket-detail",
-      });
-      expect(resp.status()).toBe(200);
-    }
-    await expect(page.locator("#ticket-detail")).toBeVisible();
-    await page.goto(base() + `/tickets/${id}`);
-    await expect(page.getByText("Closed").first()).toBeVisible({ timeout: 10_000 });
-    await expect(page.getByLabel(/comment body/i)).toHaveCount(0);
+    const moveSelect = page.locator("#ticket-state");
+    await expect(moveSelect).toBeVisible();
+    const closedOption = await moveSelect.locator('option[value="closed"]').count();
+    expect(closedOption).toBe(0);
+    // The requester keeps the comment form (carve-out); only the transition
+    // to closed is blocked. The comment form stays for the requester.
+    await expect(page.getByLabel(/comment body/i)).toHaveCount(1);
+    // State badge stays resolved (no silent closure).
+    await expect(page.getByText("Resolved").first()).toBeVisible({ timeout: 10_000 });
+
 
     // Cancelled state: create a fresh ticket and cancel from new
     const cancelTitle = "Cancel probe " + Date.now().toString(36).slice(2, 8);

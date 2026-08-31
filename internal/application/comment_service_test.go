@@ -342,6 +342,232 @@ func TestAppendOnlyCommentsNoUpdateOrDelete(t *testing.T) {
 	}
 }
 
+// ---------------------------------------------------------------------------
+// Comment carve-out on resolved (comment-timeline delta): while a ticket is
+// resolved, ONLY its requester may comment on it; requester-NULL resolved
+// tickets accept no comments from anyone; closed/cancelled still reject
+// everyone; new/in_progress rows are unchanged.
+// ---------------------------------------------------------------------------
+
+// TestAddCommentRequesterCarveOutOnResolved pins the resolved-state comment
+// carve-out: the requester keeps an active voice (public only, role rule
+// intact) on their own resolved ticket, while every non-requester actor and
+// every requester-NULL resolved ticket stays denied before any comment write
+// (closed/cancelled regression rows below stay green for everyone).
+func TestAddCommentRequesterCarveOutOnResolved(t *testing.T) {
+	t.Run("requester public comment on own resolved ticket", func(t *testing.T) {
+		clock := fixedClock()
+		tickets := newFakeTicketStore()
+		comments := newFakeCommentStore()
+		requester := domain.User{ID: 1, Name: "Bob", Email: "bob@example.com", Role: domain.RoleUser}
+		cat := newFakeCategoryStore().seed("Bugs")
+		now := clock.Now()
+		ticket := tickets.seed(domain.Ticket{
+			Title: "Resolved ticket", CategoryID: cat.ID, Priority: domain.PriorityLow,
+			State: domain.StateResolved, CreatedAt: now, UpdatedAt: now,
+			RequesterUserID: &requester.ID,
+		})
+		svc := application.NewCommentService(tickets, comments, clock)
+		clock.Advance(timeMinute)
+
+		c, err := svc.Add(context.Background(), requester, ticket.ID, "Still relevant, one question", "public")
+		if err != nil {
+			t.Fatalf("Add: requester public comment on own resolved ticket must be accepted, got %v", err)
+		}
+		if c.Visibility != domain.CommentPublic {
+			t.Fatalf("Add: visibility must be public, got %q", c.Visibility)
+		}
+		stored := comments.comments[ticket.ID]
+		if len(stored) != 1 || stored[0].Author != requester.Name {
+			t.Fatalf("Add: comment must be stored with the requester as author, got %+v", stored)
+		}
+	})
+
+	t.Run("requester internal visibility still rejected", func(t *testing.T) {
+		clock := fixedClock()
+		tickets := newFakeTicketStore()
+		comments := newFakeCommentStore()
+		requester := domain.User{ID: 1, Name: "Bob", Email: "bob@example.com", Role: domain.RoleUser}
+		cat := newFakeCategoryStore().seed("Bugs")
+		now := clock.Now()
+		ticket := tickets.seed(domain.Ticket{
+			Title: "Resolved ticket", CategoryID: cat.ID, Priority: domain.PriorityLow,
+			State: domain.StateResolved, CreatedAt: now, UpdatedAt: now,
+			RequesterUserID: &requester.ID,
+		})
+		svc := application.NewCommentService(tickets, comments, clock)
+
+		_, err := svc.Add(context.Background(), requester, ticket.ID, "Staff secret", "internal")
+		var ferr *domain.ForbiddenError
+		if !errors.As(err, &ferr) || ferr.Message != domain.ErrMsgUserCannotCommentInternal {
+			t.Fatalf("Add(internal): role rule must stay intact with %q, got %v", domain.ErrMsgUserCannotCommentInternal, err)
+		}
+		if len(comments.comments[ticket.ID]) != 0 {
+			t.Fatal("Add(internal): rejected comment must not be stored")
+		}
+	})
+
+	t.Run("non-requester rejected on requester-owned resolved ticket", func(t *testing.T) {
+		// In-scope non-requesters (assigned agent, admin/root) reach the closed-state
+		// guard and get its exact Forbidden message; an unrelated role-user is
+		// denied earlier by the scoped read (NotFound — no existence leak), which
+		// is still a rejection with no write.
+		for _, tc := range []struct {
+			name  string
+			role  domain.Role
+			rawID int64
+		}{
+			{name: "agent", role: domain.RoleAgent, rawID: 9},
+			{name: "admin", role: domain.RoleAdmin, rawID: 10},
+			{name: "root", role: domain.RoleRoot, rawID: 11},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				clock := fixedClock()
+				tickets := newFakeTicketStore()
+				comments := newFakeCommentStore()
+				requester := domain.User{ID: 1, Name: "Bob", Email: "bob@example.com", Role: domain.RoleUser}
+				cat := newFakeCategoryStore().seed("Bugs")
+				now := clock.Now()
+				ticket := tickets.seed(domain.Ticket{
+					Title: "Resolved ticket", CategoryID: cat.ID, Priority: domain.PriorityLow,
+					State: domain.StateResolved, CreatedAt: now, UpdatedAt: now,
+					RequesterUserID: &requester.ID,
+					UserID:          &tc.rawID,
+				})
+				svc := application.NewCommentService(tickets, comments, clock)
+				actor := domain.User{ID: tc.rawID, Name: "Staff", Role: tc.role}
+
+				_, err := svc.Add(context.Background(), actor, ticket.ID, "Not my ticket", "public")
+				var ferr *domain.ForbiddenError
+				if !errors.As(err, &ferr) || ferr.Message != domain.ErrMsgCommentOnClosedTicket {
+					t.Fatalf("Add: non-requester %s must be denied with %q, got %v", tc.role, domain.ErrMsgCommentOnClosedTicket, err)
+				}
+				if len(comments.comments[ticket.ID]) != 0 {
+					t.Fatal("Add: rejected comment must not be stored")
+				}
+				if len(comments.addCalls) != 0 {
+					t.Fatalf("Add: denial must fire before the comment store call, got %+v", comments.addCalls)
+				}
+			})
+		}
+		t.Run("other_user", func(t *testing.T) {
+			clock := fixedClock()
+			tickets := newFakeTicketStore()
+			comments := newFakeCommentStore()
+			requester := domain.User{ID: 1, Name: "Bob", Email: "bob@example.com", Role: domain.RoleUser}
+			cat := newFakeCategoryStore().seed("Bugs")
+			now := clock.Now()
+			ticket := tickets.seed(domain.Ticket{
+				Title: "Resolved ticket", CategoryID: cat.ID, Priority: domain.PriorityLow,
+				State: domain.StateResolved, CreatedAt: now, UpdatedAt: now,
+				RequesterUserID: &requester.ID,
+			})
+			svc := application.NewCommentService(tickets, comments, clock)
+			other := domain.User{ID: 42, Name: "Mallory", Role: domain.RoleUser}
+
+			_, err := svc.Add(context.Background(), other, ticket.ID, "Not my ticket", "public")
+			var nerr *domain.NotFoundError
+			if !errors.As(err, &nerr) {
+				t.Fatalf("Add: unrelated role-user must be denied by the scoped read (NotFound), got %v", err)
+			}
+			if len(comments.comments[ticket.ID]) != 0 {
+				t.Fatal("Add: rejected comment must not be stored")
+			}
+		})
+	})
+
+	t.Run("requester-NULL resolved ticket rejects every actor", func(t *testing.T) {
+		// In-scope actors (assigned agent, admin) reach the closed-state guard and
+		// get its exact Forbidden message — a requester-NULL resolved ticket has no
+		// requester, so the identity predicate can never admit anyone. Out-of-scope
+		// actors are denied earlier by the scoped read (NotFound — no existence
+		// leak): same no-write outcome, earlier wall.
+		for _, tc := range []struct {
+			name  string
+			actor domain.User
+			// assigned seeds the actor as the assignee so the scoped read admits
+			// them and the rejection pins the state guard, not the scope wall.
+			assigned bool
+		}{
+			{name: "assigned_agent", actor: domain.User{ID: 9, Name: "Xylo", Role: domain.RoleAgent}, assigned: true},
+			{name: "admin", actor: domain.User{ID: 10, Name: "Ada", Role: domain.RoleAdmin}},
+			{name: "unassigned_agent", actor: domain.User{ID: 11, Name: "Yuki", Role: domain.RoleAgent}},
+			{name: "user", actor: domain.User{ID: 42, Name: "Mallory", Role: domain.RoleUser}},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				clock := fixedClock()
+				tickets := newFakeTicketStore()
+				comments := newFakeCommentStore()
+				cat := newFakeCategoryStore().seed("Bugs")
+				now := clock.Now()
+				seeded := domain.Ticket{
+					Title: "Resolved legacy ticket", CategoryID: cat.ID, Priority: domain.PriorityLow,
+					State: domain.StateResolved, CreatedAt: now, UpdatedAt: now,
+				}
+				if tc.assigned {
+					seeded.UserID = &tc.actor.ID
+				}
+				ticket := tickets.seed(seeded)
+				svc := application.NewCommentService(tickets, comments, clock)
+
+				if tc.assigned || tc.actor.Role == domain.RoleAdmin {
+					// In scope (assigned agent, or admin/root ScopeAll): the
+					// closed-state guard denies — a requester-NULL resolved ticket
+					// has no requester, so the identity predicate admits nobody.
+					_, err := svc.Add(context.Background(), tc.actor, ticket.ID, "Still relevant", "public")
+					var ferr *domain.ForbiddenError
+					if !errors.As(err, &ferr) || ferr.Message != domain.ErrMsgCommentOnClosedTicket {
+						t.Fatalf("Add: requester-NULL resolved ticket must reject %s with %q, got %v", tc.name, domain.ErrMsgCommentOnClosedTicket, err)
+					}
+					if len(comments.addCalls) != 0 {
+						t.Fatalf("Add: denial must fire before the comment store call, got %+v", comments.addCalls)
+					}
+				} else {
+					// Out of scope (unassigned agent ScopeAssigned, role user
+					// ScopeOwned on a requester-NULL ticket): the scoped read
+					// denies before the state guard — no existence leak.
+					_, err := svc.Add(context.Background(), tc.actor, ticket.ID, "Still relevant", "public")
+					var nerr *domain.NotFoundError
+					if !errors.As(err, &nerr) {
+						t.Fatalf("Add: out-of-scope %s must be denied by the scoped read (NotFound), got %v", tc.name, err)
+					}
+				}
+				if len(comments.comments[ticket.ID]) != 0 {
+					t.Fatal("Add: rejected comment must not be stored")
+				}
+			})
+		}
+	})
+
+	t.Run("closed and cancelled still reject everyone", func(t *testing.T) {
+		for _, state := range []domain.State{domain.StateClosed, domain.StateCancelled} {
+			t.Run(string(state), func(t *testing.T) {
+				clock := fixedClock()
+				tickets := newFakeTicketStore()
+				comments := newFakeCommentStore()
+				requester := domain.User{ID: 1, Name: "Bob", Email: "bob@example.com", Role: domain.RoleUser}
+				cat := newFakeCategoryStore().seed("Bugs")
+				now := clock.Now()
+				ticket := tickets.seed(domain.Ticket{
+					Title: "Terminal ticket", CategoryID: cat.ID, Priority: domain.PriorityLow,
+					State: state, CreatedAt: now, UpdatedAt: now,
+					RequesterUserID: &requester.ID,
+				})
+				svc := application.NewCommentService(tickets, comments, clock)
+
+				_, err := svc.Add(context.Background(), requester, ticket.ID, "Too late", "public")
+				var ferr *domain.ForbiddenError
+				if !errors.As(err, &ferr) || ferr.Message != domain.ErrMsgCommentOnClosedTicket {
+					t.Fatalf("Add: %s ticket must reject everyone with %q, got %v", state, domain.ErrMsgCommentOnClosedTicket, err)
+				}
+				if len(comments.comments[ticket.ID]) != 0 {
+					t.Fatal("Add: rejected comment must not be stored")
+				}
+			})
+		}
+	})
+}
+
 // TestListByTicketCreationOrder covers the chronological timeline (ASC):
 // three comments created at increasing times render in creation order.
 func TestListByTicketCreationOrder(t *testing.T) {
