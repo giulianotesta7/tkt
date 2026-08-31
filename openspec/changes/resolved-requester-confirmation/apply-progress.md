@@ -68,6 +68,7 @@ Strict TDD held even for characterization: test (a) came out genuinely RED, not 
 | 3.2 | compile-fail (`undefined: h.svc.ConfirmResolution`) then seed-helper invariant fix; confirm rows RED before GREEN | confirm matrix PASS; full suite ok | n/a |
 | 3.3 | compile-fail: `h.svc.RejectResolution undefined` (3 call sites) | 3/3 subtests PASS (detach+reopen, manual plain reopen, agent-keeps-pin); full suite all packages ok; vet/gofmt clean | n/a |
 | 3.4 | behavioral RED: requester-public-on-resolved got `comments on closed tickets are not allowed` (only failing row; denial rows pre-green by design — see matrix notes in 3.3/3.4 sections) | carve-out matrix PASS; full suite all packages ok; vet clean; openspec 17/17 | gofmt alignment slip caught by gate, amended same task |
+| 4.2 | RED = build-fail on the new test file (`detailData has no field CanConfirm/CanComment` ×8, then arg-type fixes in the test itself) — missing behavior visible at compile boundary; 3 core scenario bodies were asserting the not-yet-existing flags | 4/4 subtests PASS (requester/agent/requester-NULL/other-states) after fixing one wrong test expectation (CanComment is true on open states by definition); full suite all packages ok; vet/gofmt/openspec clean | one test-expectation fix, no production refactor needed |
 
 ## Gates snapshot (end of slice — updated per task)
 - `go test ./... -count=1`: all packages ok after 2.2; after 3.1 application/domain/sqlite ok but `internal/adapters/http` has 4 pre-existing tests failing on the new gate (see Deviations — outside this slice's edit roots)
@@ -108,6 +109,41 @@ Design D8 already anticipates reworking the resolved→closed journeys (5.1 cove
 
 ## Deviations
 - Task 2.2 GREEN was **not** "expected none": the detachment RED test exposed a real gap (1.2's evidence verified the fact in `validateMutationPlan` but missed that `recheckSnapshot` runs first and errors un-typed on a detached pin). Fixed with the single missing fact check in `workflow_uow.go` exactly as design D4 anticipated ("apply adds one fact check to the recheck"). Documented in 2.2 section above.
+
+## PR 4 / Task 4.2 — `detailData` flags + `allowedNext` call-site filtering (commit `feat(http): requester-conditional confirmation flags and allowedNext`)
+
+Strict TDD held: RED = compile-fail before any production change.
+
+**RED:** new `internal/adapters/http/handlers_detail_flags_test.go` (`TestDetailDataConfirmationFlags`, 4 subtests)
+failed to build — `detailData has no field or method CanConfirm/CanComment` (8 occurrences). The three core
+scenario bodies already asserted the missing flags; the fourth (other-states regression) was written alongside.
+
+**GREEN (production, +47 / −1 lines in `handlers_tickets.go`):**
+- `detailData`: new `CanConfirm` + `CanComment` bool fields with delta-reference doc comments (D7;
+  comment-timeline delta).
+- `isRequester(actor, t)` — presentation mirror of application's unexported `isTicketRequester` (identity
+  check, no role bypass; the application layer stays the enforcement point).
+- `filteredNext(next, t)` — call-site filter next to `allowedNext` (which stays pure): on
+  `resolved` + requester present it drops the `closed` target for EVERY actor (the requester closes via the
+  confirmation control; role user sees no Move-to at all since role `user` has no transition capability and
+  agents keep only the reopen); requester-NULL and all other states pass through unchanged.
+- `detailDataFor` wiring: `CanConfirm = state==resolved && requester`; `CanComment = !closed || (state==resolved
+  && requester)` — matching D7 verbatim, including the requester-NULL exclusion (identity predicate false ⇒
+  no carve-out).
+
+**Test-harness notes:** unit-call pattern via `context.WithValue(ctxKeyUser{}, &actor)` (deskRequest precedent);
+fixture `seedResolvedFor` mirrors the 4.1 `seedResolved` shape (raw SQL requester pin or `makeLegacy`, real
+service transitions). During GREEN one TEST expectation was corrected, not production code: on open states
+`CanComment` must be TRUE (`!closed` for everyone) — the subtest initially asserted false.
+
+**Gates:** focused run 4/4 PASS · `go test ./... -count=1` all packages ok (goldens untouched: template still
+renders off `Closed`; the `CanComment` switch is 4.3's edit surface) · `go vet ./...` clean · `gofmt -l internal/`
+empty · `openspec validate --all --strict` 17/17 · `--archived` 7/7.
+
+**Files:** `internal/adapters/http/handlers_tickets.go`, `internal/adapters/http/handlers_detail_flags_test.go`
+(new), `openspec/changes/resolved-requester-confirmation/tasks.md` (4.2 → [x]), `apply-progress.md` (this section).
+
+**Scope held:** no template edits (4.3), no e2e (5.x), `allowedNext` itself unmodified.
 - Test (b) lives in `workflow_runner_terminal_test.go` (not `workflow_runner_test.go`): its helpers (`stampedSnap`, `wf`, `res`, `cmdFor`) are local to that file.
 - Tasks 1.4/2.1 checkboxes were found unchecked at slice start despite committed evidence (`a7d63ba`, `fe7b1e9`); reconciled to `[x]` per the persisted-task contract.
 - Task 3.1 leaves `internal/adapters/http` tests red on the new gate (see PR 2 / Task 3.1 section above): the 4 failing tests are the known policy fallout; the fix belongs to a slice whose edit roots include `internal/adapters/http/*_test.go`. Acceptance criterion of 3.1 ("go test ./... green; state machine tests from 1.1 untouched and green") is met for domain + application; the residual HTTP red is a fixture-adjustment task, not an implementation gap — flagged for the orchestrator before PR 2 completes.

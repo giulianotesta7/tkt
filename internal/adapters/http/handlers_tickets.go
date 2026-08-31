@@ -468,6 +468,35 @@ func allowedNext(s domain.State) []transitionTarget {
 	}
 }
 
+// isRequester is the presentation mirror of the application's unexported
+// isTicketRequester (identity check, no role bypass): the actor is the
+// persisted ticket's requester. The application layer remains the enforcement
+// point; this only drives detail-page flags and Move-to filtering.
+func isRequester(actor domain.User, t *domain.Ticket) bool {
+	return t.RequesterUserID != nil && *t.RequesterUserID == actor.ID
+}
+
+// filteredNext adapts the pure allowedNext list to the requester-confirmation
+// presentation rules (D7, call-site filter — allowedNext itself stays pure):
+// on a requester-owned resolved ticket the closed target is dropped for every
+// actor (closure is exclusively the requester's confirmation control, and a
+// role user sees no Move-to at all), while a requester-NULL resolved ticket
+// keeps closed + reopen for authorized agents. All other states pass through
+// unchanged. The service remains the enforcement point.
+func filteredNext(next []transitionTarget, t *domain.Ticket) []transitionTarget {
+	if t.State != domain.StateResolved || t.RequesterUserID == nil {
+		return next
+	}
+	filtered := next[:0:0]
+	for _, tgt := range next {
+		if tgt.To == domain.StateClosed {
+			continue
+		}
+		filtered = append(filtered, tgt)
+	}
+	return filtered
+}
+
 // detailData is the ticket detail payload (page + HX fragment share it).
 type detailData struct {
 	pageData
@@ -497,6 +526,18 @@ type detailData struct {
 	// read-only spec). The server-side use cases also reject mutations on
 	// closed tickets regardless of what the UI shows.
 	Closed bool
+	// CanConfirm reports whether the actor is the authenticated requester of
+	// a resolved ticket (presentation mirror of the service's
+	// isTicketRequester gate, requester-confirmation delta D7). It drives the
+	// confirm/reject control, rendered ONLY for that requester; the
+	// server-side ConfirmResolution/RejectResolution use cases enforce the
+	// gate regardless of what the UI shows.
+	CanConfirm bool
+	// CanComment reports whether the comment form renders: open states for
+	// everyone, plus the resolved carve-out for the ticket's requester only
+	// (comment-timeline delta). Presentation only — the comment use case
+	// rejects non-requesters on resolved tickets server-side.
+	CanComment bool
 	// Pending carries the workflow Pending Actions card state for the current
 	// pinned step (design S9): it is populated only for an active run and
 	// never exposes a workflow version, pin, or technical cursor.
@@ -561,15 +602,26 @@ func (h *TicketHandlers) detailDataFor(r *http.Request, id int64) (detailData, i
 		values.UserID = strconv.FormatInt(*view.Ticket.UserID, 10)
 	}
 	closed := domain.IsClosed(view.Ticket.State)
+	// Requester-confirmation presentation flags (D7): identity mirror + the
+	// resolved carve-out on the comment form; the services stay the
+	// enforcement points for both.
+	requester := isRequester(actor, view.Ticket)
+	// Move-to filtering at the call site: on a requester-owned resolved ticket
+	// the closed target is dropped for every actor (requester uses the
+	// confirmation control; agents keep only the reopen). Requester-NULL and
+	// all other states keep the unfiltered allowedNext list.
+	next := filteredNext(allowedNext(view.Ticket.State), view.Ticket)
 	return detailData{
 		pageData:           pageDataFrom(r, "tickets"),
 		View:               view,
-		Next:               allowedNext(view.Ticket.State),
+		Next:               next,
 		Options:            opts,
 		Values:             values,
 		CanCommentInternal: application.NewPolicy().Capabilities(actor.Role).Require(application.CapCommentInternal),
 		CanEdit:            application.NewPolicy().Capabilities(actor.Role).Require(application.CapEditTicket) && !closed,
 		Closed:             closed,
+		CanConfirm:         view.Ticket.State == domain.StateResolved && requester,
+		CanComment:         !closed || (view.Ticket.State == domain.StateResolved && requester),
 		Pending:            h.pendingFor(r, id, actor, view.Ticket),
 		Claim:              h.claimFor(r, id, actor),
 	}, 0, nil
