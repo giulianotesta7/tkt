@@ -243,6 +243,7 @@ func fixtureDetailData() detailData {
 		Options:            opts,
 		CanCommentInternal: true,
 		CanEdit:            true,
+		CanComment:         true, // open ticket: mirrors detailDataFor's !closed
 		Values: ticketFormValues{
 			Title:       t.Title,
 			Description: t.Description,
@@ -272,6 +273,7 @@ func closedDetailData(state domain.State) detailData {
 	d.Next = allowedNext(state)
 	d.Closed = true
 	d.CanEdit = false
+	d.CanComment = false // closed ticket: no comment form (issue #55 requester carve-out handled in detailDataFor, not this read-only fixture)
 	return d
 }
 
@@ -353,6 +355,182 @@ func TestGoldenCommentForm(t *testing.T) {
 
 func TestGoldenTimeline(t *testing.T) {
 	goldenFile(t, "timeline", renderGolden(t, "tickets_show", "timeline", fixtureDetailData(), true))
+}
+
+// ---------------------------------------------------------------------------
+// Task 4.3 goldens: requester resolution confirmation (issue #55). The detail
+// fixture is a requester-NULL in_progress ticket, so the confirmation panel
+// and the resolved comment carve-out stay out of every pre-existing golden.
+// ---------------------------------------------------------------------------
+
+// requesterResolvedDetailData builds a requester-owned resolved detail
+// fixture: the requester (Beto, role user) owns the ticket, the ticket is
+// resolved, and the viewer is a parameter. Mirrors the 4.1/4.2 harness
+// shapes (raw-SQL requester pin, real service transitions).
+func requesterResolvedDetailData(viewer domain.User) detailData {
+	ana := domain.User{ID: 1, Name: "Ana Torres", Email: "ana@example.com", Active: true, CreatedAt: goldenT0}
+	beto := domain.User{ID: 2, Name: "Beto Ruiz", Email: "beto@example.com", Active: true, Role: domain.RoleUser, CreatedAt: goldenT0}
+
+	resolvedAt := goldenT1
+	t := &domain.Ticket{
+		ID: 1, Number: 1, Title: "Login page down",
+		Description:     "The login form 500s on submit",
+		RequesterName:   beto.Name,
+		RequesterEmail:  beto.Email,
+		RequesterUserID: &beto.ID,
+		UserID:          &ana.ID,
+		CategoryID:      1,
+		Priority:        domain.PriorityHigh,
+		State:           domain.StateResolved,
+		ResolvedAt:      &resolvedAt,
+		CreatedAt:       goldenT0,
+		UpdatedAt:       goldenT1,
+	}
+	view := &application.TicketView{
+		Ticket:       t,
+		Category:     &domain.Category{ID: 1, Name: "Bugs", CreatedAt: goldenT0},
+		AssignedUser: &ana,
+		Comments: []domain.Comment{
+			{ID: 1, TicketID: 1, Author: "Ana Torres", Body: "Patched and deployed", CreatedAt: goldenT1},
+		},
+		AuditEvents: []domain.AuditEvent{
+			{TicketID: 1, Actor: beto.Name, Action: domain.ActionCreated, CreatedAt: goldenT0},
+			{TicketID: 1, Actor: "Admin", Action: domain.ActionTransition, Field: strptr("state"), FromValue: strptr("new"), ToValue: strptr("in_progress"), CreatedAt: goldenT1},
+			{TicketID: 1, Actor: "Admin", Action: domain.ActionTransition, Field: strptr("state"), FromValue: strptr("in_progress"), ToValue: strptr("resolved"), CreatedAt: goldenT1},
+		},
+	}
+	view.Timeline = []application.TimelineItem{
+		{IsComment: true, Comment: &view.Comments[0]},
+		{Event: &view.AuditEvents[2], ActionLabel: "Transition", FieldLabel: "State", FromLabel: "In Progress", ToLabel: "Resolved"},
+		{Event: &view.AuditEvents[1], ActionLabel: "Transition", FieldLabel: "State", FromLabel: "New", ToLabel: "In Progress"},
+		{Event: &view.AuditEvents[0], ActionLabel: "Created"},
+	}
+	requester := isRequester(viewer, t)
+	return detailData{
+		pageData: pageData{NavActive: "tickets", CurrentUser: viewer},
+		View:     view,
+		Next:     filteredNext(allowedNext(t.State), t),
+		Options: options{
+			States:          listStates,
+			Priorities:      listPriorities,
+			Categories:      []domain.Category{*view.Category},
+			Users:           []domain.User{ana},
+			AssignableUsers: []domain.User{ana},
+		},
+		CanCommentInternal: viewer.Role != domain.RoleUser,
+		Closed:             true,
+		CanConfirm:         t.State == domain.StateResolved && requester,
+		CanComment:         !domain.IsClosed(t.State) || (t.State == domain.StateResolved && requester),
+	}
+}
+
+// TestGoldenTicketDetailRequesterResolvedRequesterView freezes the requester's
+// view of their own resolved ticket (golden case a): the green confirmation
+// panel renders BEFORE the comment form, the comment form is visible (resolved
+// carve-out), and no Move-to closed exists for anyone (D7 filtering).
+func TestGoldenTicketDetailRequesterResolvedRequesterView(t *testing.T) {
+	viewer := domain.User{ID: 2, Role: domain.RoleUser}
+	d := requesterResolvedDetailData(viewer)
+	body := renderGolden(t, "tickets_show", "ticket_detail", d, true)
+
+	// Confirmation panel content and ordering: it must appear in the
+	// conversation column before the comment form.
+	for _, want := range []string{
+		`class="card resolution-confirmation"`,
+		`Resolution confirmation`,
+		`Is your issue solved?`,
+		`Support marked this ticket as resolved. Confirm the result or return it to the team if you still need help.`,
+		`action="/tickets/1/confirmation"`,
+		`hx-post="/tickets/1/confirmation"`,
+		`name="decision" value="confirm"`,
+		`name="decision" value="reject"`,
+		`Yes, close ticket`,
+		`No, I still need help`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("requester resolved view must contain %q, got: %s", want, body)
+		}
+	}
+	if idx := strings.Index(body, `class="card resolution-confirmation"`); idx >= 0 {
+		if form := strings.Index(body, `action="/tickets/1/comments"`); form >= 0 && form < idx {
+			t.Errorf("confirmation panel must render BEFORE the comment form\n%s", body)
+		}
+	}
+
+	// Comment form present (resolved carve-out for the requester).
+	for _, want := range []string{`action="/tickets/1/comments"`, `Add comment`} {
+		if !strings.Contains(body, want) {
+			t.Errorf("requester comment form must render on own resolved ticket, missing %q, got: %s", want, body)
+		}
+	}
+
+	// No Move-to closed for anyone (D7 call-site filter).
+	if strings.Contains(body, `<option value="closed"`) {
+		t.Errorf("requester-owned resolved must not offer Move to closed\n%s", body)
+	}
+
+	goldenFile(t, "ticket_detail_requester_resolved", body)
+}
+
+// TestGoldenTicketDetailRequesterResolvedAgentView freezes the agent's view of
+// the same requester-owned resolved ticket (golden case b): reopen only, no
+// comment form, and no confirmation panel.
+func TestGoldenTicketDetailRequesterResolvedAgentView(t *testing.T) {
+	agent := domain.User{ID: 1, Role: domain.RoleAgent}
+	d := requesterResolvedDetailData(agent)
+	body := renderGolden(t, "tickets_show", "ticket_detail", d, true)
+
+	for _, absent := range []string{
+		`class="card resolution-confirmation"`,
+		`Is your issue solved?`,
+		`/tickets/1/confirmation`,
+		`action="/tickets/1/comments"`, // no comment form for non-requesters
+		`<option value="closed"`,       // closure gate presentation filter
+	} {
+		if strings.Contains(body, absent) {
+			t.Errorf("agent view of requester-owned resolved must NOT contain %q\n%s", absent, body)
+		}
+	}
+
+	// Reopen stays available to the assigned agent (state-machine delta:
+	// agent reopen keeps the pin).
+	for _, want := range []string{`id="ticket-state"`, `<option value="in_progress"`} {
+		if !strings.Contains(body, want) {
+			t.Errorf("agent view must keep the reopen target %q\n%s", want, body)
+		}
+	}
+
+	goldenFile(t, "ticket_detail_agent_resolved", body)
+}
+
+// TestGoldenTicketDetailLegacyResolvedAgentView freezes the requester-NULL
+// resolved ticket viewed by an agent (golden case c): agent close + reopen
+// via Move-to, no confirmation panel, no comment form.
+func TestGoldenTicketDetailLegacyResolvedAgentView(t *testing.T) {
+	agent := domain.User{ID: 1, Role: domain.RoleAgent}
+	d := requesterResolvedDetailData(agent)
+	d.View.Ticket.RequesterUserID = nil
+	d.Next = allowedNext(d.View.Ticket.State)
+	d.CanConfirm = false
+	d.CanComment = false
+	body := renderGolden(t, "tickets_show", "ticket_detail", d, true)
+
+	for _, absent := range []string{
+		`class="card resolution-confirmation"`,
+		`/tickets/1/confirmation`,
+		`action="/tickets/1/comments"`,
+	} {
+		if strings.Contains(body, absent) {
+			t.Errorf("requester-NULL resolved must NOT contain %q\n%s", absent, body)
+		}
+	}
+	for _, want := range []string{`<option value="closed"`, `<option value="in_progress"`} {
+		if !strings.Contains(body, want) {
+			t.Errorf("requester-NULL resolved agent view must offer %q\n%s", want, body)
+		}
+	}
+
+	goldenFile(t, "ticket_detail_legacy_resolved", body)
 }
 
 func TestTicketDetailPresentationContract(t *testing.T) {

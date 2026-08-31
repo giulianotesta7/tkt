@@ -8,12 +8,7 @@
         <span class="num">TKT-1</span>
       </div>
 
-      <form class="title-inline" method="post" action="/tickets/1/edit"
-            hx-post="/tickets/1/edit" hx-target="#ticket-detail" hx-swap="outerHTML">
-        <input type="text" id="ticket-title" name="title" value="Login page down" required
-               aria-label="Ticket title" class="title-input">
-        <input type="hidden" name="priority" value="high">
-      </form>
+      <h1 class="command-title">Login page down</h1>
 
       <div class="meta-row ticket-metadata">
         <span>Created <time datetime="2026-08-06T10:00:00Z">10:00 · 06-08-2026</time></span>
@@ -29,21 +24,6 @@
           </div>
 
 
-<form class="card" method="post" action="/tickets/1/comments">
-  <h2>Add comment</h2>
-
-  <div class="field">
-    <textarea name="body" placeholder="Write a comment…" aria-label="Comment body"></textarea>
-  </div>
-  <input type="hidden" name="visibility" value="public">
-
-  <div class="field checkbox-field">
-    <label for="comment-internal"><input id="comment-internal" type="checkbox" name="internal" value="1"> Internal comment</label>
-  </div>
-
-  <button class="btn primary" type="submit">Add comment</button>
-</form>
-
           <div class="card">
         <h2>Timeline</h2>
 
@@ -55,15 +35,15 @@
       <span class="author">Ana Torres</span>
       <span class="when"><time datetime="2026-08-06T10:30:00Z">10:30 · 06-08-2026</time></span>
     </div>
-    <div class="body">Checking now</div>
+    <div class="body">Patched and deployed</div>
   </div>
 
 
 
-  <div class="timeline-entry timeline-event st-1">
+  <div class="timeline-entry timeline-event st-resolved">
     <span class="event-icon">›</span>
     <div class="body">
-      <div class="main">Update · Assigned To · Unassigned → Ana Torres</div>
+      <div class="main">Transition · State · In Progress → Resolved</div>
 
       <div class="when"><time datetime="2026-08-06T10:30:00Z">10:30 · 06-08-2026</time> · Admin</div>
     </div>
@@ -87,7 +67,7 @@
     <div class="body">
       <div class="main">Created</div>
 
-      <div class="when"><time datetime="2026-08-06T10:00:00Z">10:00 · 06-08-2026</time> · Admin</div>
+      <div class="when"><time datetime="2026-08-06T10:00:00Z">10:00 · 06-08-2026</time> · Beto Ruiz</div>
     </div>
   </div>
 
@@ -102,23 +82,13 @@
           <div class="prop-heading">Properties</div>
           <div class="prop-row">
             <span class="prop-label">Requester</span>
-            <span class="prop-value">Ana Torres</span>
+            <span class="prop-value">Beto Ruiz</span>
           </div>
           <div class="prop-row">
             <span class="prop-label">Category</span>
             <span id="ticket-category-value" class="prop-value">Bugs</span>
           </div>
-          <div class="prop-row">
-            <span class="prop-label">Priority</span>
-            <form class="prop-control" method="post" action="/tickets/1/edit"
-                  hx-post="/tickets/1/edit" hx-target="#ticket-detail" hx-swap="outerHTML">
-              <select id="ticket-priority" name="priority" class="prop-select"
-                      aria-label="Priority" onchange="this.form.requestSubmit()">
-                <option value="critical" >Critical</option><option value="high" selected>High</option><option value="medium" >Medium</option><option value="low" >Low</option>
-              </select>
-              <input type="hidden" name="title" value="Login page down">
-            </form>
-          </div>
+          
         </div>
         <div class="prop-section">
           <div class="prop-heading">Assignment</div>
@@ -126,13 +96,8 @@
           <div class="prop-row">
             <span class="prop-label">Assignee</span>
 
-            <form class="prop-control" method="post" action="/tickets/1/assign" hx-post="/tickets/1/assign" hx-target="#ticket-detail" hx-swap="outerHTML">
-              <select id="assign-user" name="user_id" class="prop-select" aria-label="Assignee" onchange="this.form.requestSubmit()">
-                <option value="">Unassigned</option>
-                <option value="1" selected>Ana Torres</option>
-              </select>
-            </form>
-
+            <span class="prop-value">Ana Torres</span>
+            
           </div>
 
         </div>
@@ -140,7 +105,7 @@
           <div class="prop-heading">State</div>
           <div class="prop-row">
             <span class="prop-label">Current</span>
-            <span class="prop-value"><span class="badge in_progress">In Progress</span></span>
+            <span class="prop-value"><span class="badge resolved">Resolved</span></span>
           </div>
 
           <div class="prop-row">
@@ -150,7 +115,7 @@
               <select id="ticket-state" name="to" class="prop-select"
                       aria-label="Move to state" onchange="toggleStateReason(this)">
                 <option value="" disabled selected>Select…</option>
-                <option value="resolved">Resolved</option><option value="cancelled">Cancelled</option>
+                <option value="in_progress" data-needs-reason>In Progress (reason required)</option>
               </select>
               <div id="state-reason-field" class="state-reason-field">
                 <label for="state-reason">Reopen reason</label>
@@ -163,6 +128,12 @@
             </form>
           </div>
 
+
+          <dl class="lifecycle-meta">
+            <dt>Resolved</dt><dd><time datetime="2026-08-06T10:30:00Z">10:30 · 06-08-2026</time></dd>
+
+
+          </dl>
 
         </div>
       </div>
