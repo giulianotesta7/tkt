@@ -110,7 +110,7 @@ Forecast basis: 6 capabilities × 55 scenarios across domain, application, sqlit
 - Commit: `feat(http): requester confirmation endpoint`
 
 ### 4.2 `detailData` flags + `allowedNext` filtering (RED → GREEN)
-- [ ] 4.2 `detailData` flags + `allowedNext` filtering (RED → GREEN)
+- [x] 4.2 `detailData` flags + `allowedNext` filtering (RED → GREEN)
 - RED: `handlers_tickets_test.go` — requester-owned `resolved`: `CanConfirm` true only for the requester; `CanComment` requester-only; Move-to drops `closed` for every actor, keeps `in_progress` reopen for authorized agents; requester-NULL `resolved`: agent sees `closed` + reopen; all other states unchanged.
 - GREEN: `handlers_tickets.go` `detailDataFor` adds `CanConfirm`/`CanComment` (presentation mirror of `isTicketRequester`, D7); `allowedNext` filtered at the call site (function itself stays pure).
 - Acceptance: `go test ./...` green; service remains the enforcement point.
