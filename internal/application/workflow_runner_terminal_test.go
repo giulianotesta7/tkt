@@ -473,6 +473,42 @@ func TestWorkflowRunner_AutoAdvance(t *testing.T) {
 	}
 }
 
+// TestWorkflowRunner_ResolveLeavesAwaitingConfirmation pins the workflow-execution
+// delta regression (issue #55): completing a run through the resolve_ticket
+// terminal step on a requester-owned ticket (snap seeds RequesterUserID 1) leaves
+// the ticket resolved — the "awaiting requester confirmation" state — with NO
+// close transition planned. Closure of requester-owned tickets belongs
+// exclusively to the requester's confirmation path (application layer), never to
+// workflow terminals. The existing terminal matrix (close_ticket rows included)
+// stays green.
+func TestWorkflowRunner_ResolveLeavesAwaitingConfirmation(t *testing.T) {
+	r := application.NewWorkflowRunner(fixedClock())
+	now := fixedClock().Now()
+	pl, err := r.PlanComplete(context.Background(), stampedSnap(domain.StateNew, wf(res())), cmdFor(1, nil))
+	if err != nil {
+		t.Fatalf("plan resolve: %v", err)
+	}
+	if pl.NextTicketState != domain.StateResolved || pl.Result.Ticket.State != domain.StateResolved {
+		t.Fatalf("resolve must leave the ticket resolved (awaiting confirmation), got %s/%s", pl.NextTicketState, pl.Result.Ticket.State)
+	}
+	for i, op := range pl.Operations {
+		tr, ok := op.(application.TransitionOperation)
+		if !ok {
+			continue
+		}
+		if tr.Audit.ToValue != nil && *tr.Audit.ToValue == string(domain.StateClosed) {
+			t.Fatalf("operation %d closes the requester-owned ticket, want no close transition: %+v", i, tr.Audit)
+		}
+	}
+	if pl.Result.Ticket.ClosedAt != nil {
+		t.Fatalf("closed_at must stay nil after workflow resolve: %+v", pl.Result.Ticket)
+	}
+	if pl.Result.Ticket.ResolvedAt == nil || !pl.Result.Ticket.ResolvedAt.Equal(now) {
+		t.Fatalf("resolved_at %v, want stamped by the resolve transition", pl.Result.Ticket.ResolvedAt)
+	}
+	completedRun(t, pl, 1, now)
+}
+
 // TestWorkflowRunner_TerminalSnapshotImmutability proves the terminal matrix
 // plans on an in-memory ticket copy: the snapshot ticket (pointer identity and
 // pointee values, state, timestamps) and run (status, cursor) are unchanged.

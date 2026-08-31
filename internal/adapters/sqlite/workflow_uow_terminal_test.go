@@ -225,6 +225,50 @@ func TestWorkflowUoW_FormThenTerminalRollsBackAndRetriesOnce(t *testing.T) {
 	}
 }
 
+// TestWorkflowUoW_DetachedTicketPlanFailsWithVersionConflict pins the D4
+// detachment guard (issue #55): once the ticket's workflow_version_id is NULL
+// (requester rejection detached it), ANY in-flight ApplyWorkflowPlan expecting
+// the old pin must fail with a typed ErrWorkflowPositionConflict "workflow
+// version mismatch" BEFORE any write. This proves the 1.2 evidence: the UoW pin
+// recheck (persisted-pin reload in ApplyWorkflowPlan + validateMutationPlan's
+// nil-pin rejection) already enforces detachment, so no workflow_runner.go
+// change is needed.
+func TestWorkflowUoW_DetachedTicketPlanFailsWithVersionConflict(t *testing.T) {
+	s := newTestDB(t)
+	cat := seedCategory(t, s, "detached")
+	req := seedUser(t, s, "Requester", "requester@example.test", true)
+	def := terminalDefinition(domain.StepResolve)
+	versionID := seedPublished(t, s, cat, def)
+	ticket := terminalTicket(t, s, domain.StateNew, versionID, req)
+	if _, err := s.db.Exec(`UPDATE tickets SET category_id=? WHERE id=?`, cat, ticket.ID); err != nil {
+		t.Fatalf("set category: %v", err)
+	}
+	seedRun(t, s, ticket.ID, 0, "active", testClock)
+
+	runner := application.NewWorkflowRunner(terminalClock{now: testClock})
+	snapshot := application.WorkflowExecutionSnapshot{Ticket: &ticket, Run: &application.WorkflowRun{TicketID: ticket.ID, Status: "active", StartedAt: testClock}, Workflow: def}
+	plan, err := runner.PlanComplete(context.Background(), snapshot, application.CompleteWorkflowCommand{TicketID: ticket.ID, ActorUserID: req, ExpectedPosition: 1})
+	if err != nil {
+		t.Fatalf("plan resolve: %v", err)
+	}
+
+	// Detach the pin via direct SQL — exactly what RejectResolution's full-row
+	// update persists (design D4).
+	if _, err := s.db.Exec(`UPDATE tickets SET workflow_version_id=NULL WHERE id=?`, ticket.ID); err != nil {
+		t.Fatalf("detach pin: %v", err)
+	}
+
+	_, err = newWorkflowUnitOfWork(s.db).ApplyWorkflowPlan(context.Background(), plan)
+	var conflict *domain.WorkflowPositionConflictError
+	if !errors.As(err, &conflict) {
+		t.Fatalf("apply on detached ticket = %v, want typed workflow position conflict", err)
+	}
+	if conflict.Error() != "workflow version mismatch" {
+		t.Fatalf("conflict = %q, want \"workflow version mismatch\" (pin recheck, not definition reload)", conflict.Error())
+	}
+	assertApplyNoWrites(t, s, ticket)
+}
+
 func TestWorkflowRunner_ManualTaskRejectsClosedTickets(t *testing.T) {
 	for _, state := range []domain.State{domain.StateResolved, domain.StateClosed} {
 		t.Run(string(state), func(t *testing.T) {

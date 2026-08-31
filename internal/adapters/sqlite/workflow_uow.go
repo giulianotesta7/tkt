@@ -168,6 +168,16 @@ func (u *workflowUnitOfWork) ApplyWorkflowPlan(ctx context.Context, in applicati
 		ticket.WorkflowVersionID = &pin.Int64
 	}
 
+	// Detachment recheck (issue #55, design D4): the persisted pin must still
+	// equal the plan's expected version. A detached ticket (NULL pin — e.g. the
+	// requester rejected the resolution mid-flight) fails any in-flight plan as
+	// a typed conflict BEFORE the definition reload, which would otherwise
+	// misreport the detached pin as a data error ("pinned workflow version 0
+	// not found") instead of a plan-staleness conflict.
+	if ticket.WorkflowVersionID == nil || *ticket.WorkflowVersionID != in.ExpectedVersionID {
+		return application.WorkflowExecutionResult{}, domain.NewWorkflowPositionConflictError("workflow version mismatch")
+	}
+
 	run, err := scanRunRow(ctx, tx, in.TicketID)
 	if err != nil {
 		return application.WorkflowExecutionResult{}, err
