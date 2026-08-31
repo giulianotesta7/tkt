@@ -38,6 +38,23 @@ Do NOT run for:
 - Cardinality rules apply to the GOVERNING issue. PR labels are optional and do not need to duplicate the issue's labels.
 - If no area fits a proposed issue, the issue is probably mis-scoped: BLOCK and clarify before labeling.
 
+### Issue Title Prefixes
+
+New issue titles should start with one canonical prefix that matches the issue's `type:*` label:
+
+| Title prefix | Label |
+| --- | --- |
+| `[Feature]` | `type:feature` |
+| `[Bug]` | `type:bug` |
+| `[Chore]` | `type:chore` |
+| `[Docs]` | `type:docs` |
+
+Example: `[Feature] Add ticket export to CSV`.
+
+Labels remain authoritative for filtering, automation, and governance. The prefix is a human-readable aid in issue lists and search results, not a replacement for the label. A missing or wrong prefix is not a labeling violation and MUST NOT become a new decision gate; when prefix and label disagree, the label wins.
+
+The feature request template applies the `[Feature] ` prefix automatically. Apply the other prefixes manually when drafting an issue. Do not bulk-edit existing issues to add prefixes; existing titles may keep their current format.
+
 ## Decision Gates
 
 | Condition | Result |
@@ -50,7 +67,7 @@ Do NOT run for:
 
 ## Execution Steps
 
-1. **Check tracking**: search open issues for the requested work. If found, work from that issue; if not, draft one (title, motivation, acceptance criteria).
+1. **Check tracking**: search open issues for the requested work. If found, work from that issue; if not, draft one (title with the canonical prefix, motivation, acceptance criteria).
 2. **Propose labels**: pick exactly one `type:*`, one primary `area:*` (max two), and no `status:*` yet.
 3. **Wait for approval**: do not implement until the maintainer adds `status:approved`.
 4. **Keep labels truthful**: if scope changes mid-work and a different type/area applies, update the issue labels before continuing.
