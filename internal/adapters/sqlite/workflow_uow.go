@@ -1156,6 +1156,12 @@ func validateTransitionOp(conflict func(string) error, t *domain.Ticket, step do
 	if a.Reason != nil || a.Note != nil {
 		return conflict("transition audit must carry no reason or note")
 	}
+	// Workflow-terminal closures keep the workflow actor convention and must
+	// never carry closure attribution (issue #55): closure_via stamping belongs
+	// exclusively to the manual requester-confirmation / agent paths.
+	if a.ClosureVia != nil {
+		return conflict("workflow closure audit attribution mismatch")
+	}
 	to := domain.State(*a.ToValue)
 	ev, err := t.Transition(to, "", a.CreatedAt)
 	if err != nil {

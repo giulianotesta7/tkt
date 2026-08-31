@@ -110,16 +110,73 @@ func TestWorkflowUoW_TerminalPersistedMatrix(t *testing.T) {
 			var actor string
 			var actorID *int64
 			var note *string
+			var closureVia *string
 			if len(tc.wantAudits) > 0 {
-				if err := s.db.QueryRow(`SELECT actor, actor_user_id, note FROM audit_events WHERE ticket_id=? ORDER BY id LIMIT 1`, ticket.ID).Scan(&actor, &actorID, &note); err != nil {
+				if err := s.db.QueryRow(`SELECT actor, actor_user_id, note, closure_via FROM audit_events WHERE ticket_id=? ORDER BY id LIMIT 1`, ticket.ID).Scan(&actor, &actorID, &note, &closureVia); err != nil {
 					t.Fatalf("read terminal audit: %v", err)
 				}
 				if actor != "workflow" || actorID != nil || note != nil {
 					t.Fatalf("terminal audit = actor %q actorID %v note %v", actor, actorID, note)
 				}
+				// Workflow-terminal closures are attributed by the workflow actor
+				// convention ONLY — closure_via stays NULL (issue #55, audit-log
+				// delta: transition audit events keep the existing workflow actor
+				// convention).
+				if closureVia != nil {
+					t.Fatalf("terminal audit closure_via = %q, want NULL (workflow actor convention)", *closureVia)
+				}
 			}
 		})
 	}
+}
+
+// TestWorkflowUoW_RejectsClosureViaStampedTransitionAudit pins the additive
+// attribution guard (issue #55, design D1.3): a plan whose workflow transition
+// audit carries a non-nil ClosureVia is rejected with a typed
+// ErrWorkflowPositionConflict before ANY write — closure_via stamping belongs
+// exclusively to the manual confirmation/agent paths, never to workflow plans.
+func TestWorkflowUoW_RejectsClosureViaStampedTransitionAudit(t *testing.T) {
+	s := newTestDB(t)
+	cat := seedCategory(t, s, "via-stamped")
+	req := seedUser(t, s, "Requester", "requester@example.test", true)
+	def := terminalDefinition(domain.StepClose)
+	versionID := seedPublished(t, s, cat, def)
+	ticket := terminalTicket(t, s, domain.StateResolved, versionID, req)
+	if _, err := s.db.Exec(`UPDATE tickets SET category_id=? WHERE id=?`, cat, ticket.ID); err != nil {
+		t.Fatalf("set category: %v", err)
+	}
+	seedRun(t, s, ticket.ID, 0, "active", testClock)
+
+	runner := application.NewWorkflowRunner(terminalClock{now: testClock})
+	snapshot := application.WorkflowExecutionSnapshot{Ticket: &ticket, Run: &application.WorkflowRun{TicketID: ticket.ID, Status: "active", StartedAt: testClock}, Workflow: def}
+	plan, err := runner.PlanComplete(context.Background(), snapshot, application.CompleteWorkflowCommand{TicketID: ticket.ID, ActorUserID: req, ExpectedPosition: 1})
+	if err != nil {
+		t.Fatalf("plan close: %v", err)
+	}
+
+	// Stamp closure_via onto the workflow's closure transition audit — exactly
+	// the accident the validator must refuse.
+	stamped := false
+	for i, op := range plan.Operations {
+		tr, ok := op.(application.TransitionOperation)
+		if !ok || tr.Audit.ToValue == nil || *tr.Audit.ToValue != string(domain.StateClosed) {
+			continue
+		}
+		via := domain.ClosureViaRequesterConfirmation
+		tr.Audit.ClosureVia = &via
+		plan.Operations[i] = tr
+		stamped = true
+	}
+	if !stamped {
+		t.Fatal("close plan must contain a closure transition operation to stamp")
+	}
+
+	_, err = newWorkflowUnitOfWork(s.db).ApplyWorkflowPlan(context.Background(), plan)
+	var conflict *domain.WorkflowPositionConflictError
+	if !errors.As(err, &conflict) {
+		t.Fatalf("apply with closure_via-stamped workflow audit = %v, want typed workflow position conflict", err)
+	}
+	assertApplyNoWrites(t, s, ticket)
 }
 
 func TestWorkflowUoW_FormThenTerminalRollsBackAndRetriesOnce(t *testing.T) {
