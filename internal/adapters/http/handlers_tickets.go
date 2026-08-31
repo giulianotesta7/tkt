@@ -1,6 +1,7 @@
 package httpadapter
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -64,6 +65,7 @@ func (h *TicketHandlers) Register(mux *http.ServeMux) {
 	mux.HandleFunc("POST /tickets/{id}/edit", h.update)
 	mux.HandleFunc("POST /tickets/{id}/assign", h.assign)
 	mux.HandleFunc("POST /tickets/{id}/transition", h.transition)
+	mux.HandleFunc("POST /tickets/{id}/confirmation", h.confirmation)
 	mux.HandleFunc("POST /tickets/{id}/comments", h.addComment)
 	mux.HandleFunc("POST /tickets/{id}/workflow/steps/{position}/complete", h.completeWorkflow)
 }
@@ -701,6 +703,41 @@ func (h *TicketHandlers) transition(w http.ResponseWriter, r *http.Request) {
 
 	_, err := h.tickets.Transition(r.Context(), actor, id, to, reason)
 	if err != nil {
+		h.renderDetailError(w, r, id, err)
+		return
+	}
+	h.afterMutation(w, r, id, "ticket_detail")
+}
+
+// confirmation applies the requester's resolution decision (issue #55):
+// confirm closes a requester-owned resolved ticket; reject returns it to
+// in_progress and detaches the workflow. Both use cases enforce the
+// requester identity themselves — the handler only dispatches the form
+// decision and routes responses through the shared detail helpers.
+func (h *TicketHandlers) confirmation(w http.ResponseWriter, r *http.Request) {
+	id, ok := ticketID(r)
+	if !ok {
+		http.Error(w, "invalid ticket id", http.StatusBadRequest)
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+	actor := *userFromContext(r.Context())
+
+	var decide func(context.Context, domain.User, int64) (*domain.Ticket, error)
+	switch r.Form.Get("decision") {
+	case "confirm":
+		decide = h.tickets.ConfirmResolution
+	case "reject":
+		decide = h.tickets.RejectResolution
+	default:
+		h.renderDetailError(w, r, id, &domain.ValidationError{Field: "decision", Message: "decision must be confirm or reject"})
+		return
+	}
+
+	if _, err := decide(r.Context(), actor, id); err != nil {
 		h.renderDetailError(w, r, id, err)
 		return
 	}

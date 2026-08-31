@@ -340,6 +340,18 @@ func scanOneInt(t *testing.T, db *sql.DB, query string, args ...any) int64 {
 	return v
 }
 
+// scanNullInt runs a scalar-SELECT query against the harness db and returns a
+// sql.NullInt64, so a NULL column (e.g. a detached workflow_version_id) is
+// read without an unsupported NULL->int64 conversion error.
+func scanNullInt(t *testing.T, db *sql.DB, query string, args ...any) sql.NullInt64 {
+	t.Helper()
+	var v sql.NullInt64
+	if err := db.QueryRow(query, args...).Scan(&v); err != nil {
+		t.Fatalf("raw query %q: %v", query, err)
+	}
+	return v
+}
+
 // scanOneString runs a scalar-SELECT query against the harness db and returns
 // the single string it produced, fataling on no rows or scan error.
 func scanOneString(t *testing.T, db *sql.DB, query string, args ...any) string {
