@@ -80,7 +80,7 @@ Forecast basis: 6 capabilities × 55 scenarios across domain, application, sqlit
 - Commit: `feat(application): block manual closure of requester-owned resolved tickets`
 
 ### 3.2 `ConfirmResolution` (RED → GREEN)
-- [ ] 3.2 `ConfirmResolution` (RED → GREEN)
+- [x] 3.2 `ConfirmResolution` (RED → GREEN)
 - RED: `ticket_confirmation_test.go` — requester (role `user`) confirms own `resolved` → `closed`, `closed_at` stamped, `resolved_at` kept, event `ClosureVia = requester_confirmation`, actor = requester; confirm on `new`/`in_progress`/`closed` → state-machine error, no audit row; confirm by agent/admin/root → Forbidden; by another role-`user` → NotFound; carve-out regression: requester field edits / assignment / other transitions still denied (role-authorization delta).
 - GREEN: `TicketService.ConfirmResolution(ctx, actor, ticketID)` — scoped read → `isTicketRequester` else `ForbiddenError(ErrMsgNotTicketRequester)` → `t.Transition(closed, "", now)` → stamp actor + `ClosureVia` → one `s.tx.Update` (D3/D5).
 - Acceptance: `go test ./...` green; timestamps scenarios (ticket-management delta) covered.

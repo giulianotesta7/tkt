@@ -10,6 +10,10 @@ const (
 	// exclusively the requester's confirmation path (state-machine and
 	// role-authorization deltas: denied for every actor).
 	ErrMsgClosureRequiresConfirmation = "a requester-owned resolved ticket can only be closed by the requester's confirmation"
+	// ErrMsgNotTicketRequester rejects a confirmation or rejection action by
+	// an actor who is not the persisted ticket's requester (role-authorization
+	// delta: confirm/reject are requester-only identity paths, no role bypass).
+	ErrMsgNotTicketRequester = "only the ticket requester can confirm or reject the resolution"
 )
 
 // Capability identifies a single server-side permission (role-authorization

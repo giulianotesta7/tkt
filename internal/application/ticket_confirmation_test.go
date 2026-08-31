@@ -19,6 +19,10 @@ func seedResolvedTicket(t *testing.T, h *ticketHarness, requesterID, assigneeID 
 	ticket := seededTicket(h.tickets, cat.ID, domain.StateResolved)
 	ticket.RequesterUserID = requesterID
 	ticket.UserID = assigneeID
+	// A resolved ticket carries resolved_at (stamped by the transition that
+	// produced the state); the direct store seed must mirror that invariant.
+	resolvedAt := ticket.UpdatedAt
+	ticket.ResolvedAt = &resolvedAt
 	if err := h.tickets.Update(context.Background(), &ticket); err != nil {
 		t.Fatalf("seed resolved ticket: %v", err)
 	}
@@ -102,6 +106,113 @@ func TestManualClosureRequiresConfirmation(t *testing.T) {
 		if events[0].ClosureVia == nil || *events[0].ClosureVia != domain.ClosureViaManualAgent {
 			t.Fatalf("Transition: closure event must record closure_via %q, got %v",
 				domain.ClosureViaManualAgent, events[0].ClosureVia)
+		}
+	})
+}
+
+// TestConfirmResolution pins the requester-confirmation closure path
+// (confirmation-closure delta): only the ticket's requester, only while the
+// ticket is resolved. Confirmation stamps closed_at, keeps resolved_at, and
+// attributes the audit event as requester_confirmation under the requester's
+// identity. Non-requesters get Forbidden (readable roles) or NotFound
+// (out-of-scope role users); non-resolved states fail at the state machine
+// with no write.
+func TestConfirmResolution(t *testing.T) {
+	t.Run("requester confirms own resolved ticket", func(t *testing.T) {
+		h := newTicketHarness()
+		requester := h.users.seedRole("Bob", "bob@example.com", domain.RoleUser, true)
+		ticket := seedResolvedTicket(t, h, &requester.ID, nil)
+		actor := domain.User{ID: requester.ID, Name: requester.Name, Email: requester.Email, Role: domain.RoleUser}
+		h.clock.Advance(timeMinute)
+
+		updated, err := h.svc.ConfirmResolution(context.Background(), actor, ticket.ID)
+		if err != nil {
+			t.Fatalf("ConfirmResolution: requester confirmation must succeed, got %v", err)
+		}
+		if updated.State != domain.StateClosed {
+			t.Fatalf("ConfirmResolution: confirmed ticket must be closed, got %q", updated.State)
+		}
+		if updated.ClosedAt == nil || !updated.ClosedAt.Equal(h.clock.now) {
+			t.Fatalf("ConfirmResolution: confirmation must stamp closed_at, got %v", updated.ClosedAt)
+		}
+		if updated.ResolvedAt == nil {
+			t.Fatal("ConfirmResolution: resolved_at must remain set after confirmation")
+		}
+		events, _ := h.audits.ListByTicket(context.Background(), ticket.ID)
+		if len(events) != 1 {
+			t.Fatalf("ConfirmResolution: confirmation must be audited exactly once, got %d events", len(events))
+		}
+		ev := events[0]
+		if ev.ClosureVia == nil || *ev.ClosureVia != domain.ClosureViaRequesterConfirmation {
+			t.Fatalf("ConfirmResolution: event must record closure_via %q, got %v",
+				domain.ClosureViaRequesterConfirmation, ev.ClosureVia)
+		}
+		if ev.ActorUserID == nil || *ev.ActorUserID != requester.ID {
+			t.Fatalf("ConfirmResolution: event actor must be the requester %d, got %v", requester.ID, ev.ActorUserID)
+		}
+	})
+
+	t.Run("confirm on non-resolved states is a state-machine error with no write", func(t *testing.T) {
+		for _, state := range []domain.State{domain.StateNew, domain.StateInProgress, domain.StateClosed} {
+			t.Run(string(state), func(t *testing.T) {
+				h := newTicketHarness()
+				requester := h.users.seedRole("Bob", "bob@example.com", domain.RoleUser, true)
+				cat := h.categories.seed("Bugs")
+				ticket := seededTicket(h.tickets, cat.ID, state)
+				ticket.RequesterUserID = &requester.ID
+				if state == domain.StateClosed {
+					ticket.ClosedAt = &h.clock.now
+				}
+				if err := h.tickets.Update(context.Background(), &ticket); err != nil {
+					t.Fatalf("seed ticket: %v", err)
+				}
+				actor := domain.User{ID: requester.ID, Name: requester.Name, Email: requester.Email, Role: domain.RoleUser}
+
+				_, err := h.svc.ConfirmResolution(context.Background(), actor, ticket.ID)
+				var verr *domain.InvalidTransitionError
+				if !errors.As(err, &verr) {
+					t.Fatalf("ConfirmResolution on %s: want state-machine rejection, got %v", state, err)
+				}
+				if len(h.audits.events) != 0 {
+					t.Fatalf("ConfirmResolution on %s: rejected confirmation must not be audited", state)
+				}
+			})
+		}
+	})
+
+	t.Run("non-requester staff denied", func(t *testing.T) {
+		for _, role := range []domain.Role{domain.RoleAgent, domain.RoleAdmin, domain.RoleRoot} {
+			t.Run(string(role), func(t *testing.T) {
+				h := newTicketHarness()
+				requester := h.users.seedRole("Bob", "bob@example.com", domain.RoleUser, true)
+				staff := h.users.seedRole("Ana", "ana@example.com", role, true)
+				ticket := seedResolvedTicket(t, h, &requester.ID, &staff.ID)
+				actor := domain.User{ID: staff.ID, Name: staff.Name, Email: staff.Email, Role: role}
+
+				_, err := h.svc.ConfirmResolution(context.Background(), actor, ticket.ID)
+				var ferr *domain.ForbiddenError
+				if !errors.As(err, &ferr) || ferr.Message != application.ErrMsgNotTicketRequester {
+					t.Fatalf("ConfirmResolution: non-requester %s must be denied with %q, got %v",
+						role, application.ErrMsgNotTicketRequester, err)
+				}
+				stored, _ := h.tickets.GetByID(context.Background(), ticket.ID, application.TicketQuery{Scope: application.ScopeAll})
+				if stored.State != domain.StateResolved {
+					t.Fatalf("ConfirmResolution: denied confirmation must keep the ticket resolved, got %q", stored.State)
+				}
+			})
+		}
+	})
+
+	t.Run("another role-user cannot confirm someone else's ticket", func(t *testing.T) {
+		h := newTicketHarness()
+		requester := h.users.seedRole("Bob", "bob@example.com", domain.RoleUser, true)
+		ticket := seedResolvedTicket(t, h, &requester.ID, nil)
+		other := domain.User{ID: 42, Name: "Mallory", Role: domain.RoleUser}
+
+		_, err := h.svc.ConfirmResolution(context.Background(), other, ticket.ID)
+		var nerr *domain.NotFoundError
+		if !errors.As(err, &nerr) {
+			t.Fatalf("ConfirmResolution: out-of-scope role user must get NotFound, got %v", err)
 		}
 	})
 }
