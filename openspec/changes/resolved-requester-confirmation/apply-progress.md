@@ -276,3 +276,8 @@ Minimal fix (2 lines, file `internal/adapters/sqlite/ticket_store.go` — OUTSID
 - New `e2e/tests/ticket-confirmation.spec.ts` with 3 journeys: confirm → closed (panel gone, Closed badge), reject → manual in_progress (detached), blocked close (agent view). Uses `createUserAsAdmin`/`loginAs`/`createTicketViaUi` + helper `requesterOwnedResolvedTicket` (requester creates, admin drives to resolved, login as requester). Asserts the resolution-confirmation panel + HTMX swaps on `/tickets/{id}/confirmation`.
 - Validation: `npx playwright test --list` lists all 3 new journeys (type-check via Playwright parse) — the full suite requires a running browser/server and runs in CI.
 - README coverage rows added (ticket-confirmation journeys + HTMX confirmation provenance).
+
+### 5.2 — New requester journeys (commit `5bc4d9f` + 5.1-5.2 file batch)
+- New `e2e/tests/ticket-confirmation.spec.ts` (3 journeys: confirm → closed with panel gone + Closed badge; reject → in_progress detached; blocked close for non-requester). Uses the same user-creation + ticket-ownership helper as 3.2/3.x (requester creates, staff drives to resolved, login as requester).
+- Validation: `npx playwright test --list` lists all 3 new journeys (parse/type-check via Playwright); the full suite requires a running browser/server in the worktree — CI runs it.
+- README rows added (functional + HTMX confirmation provenance).
