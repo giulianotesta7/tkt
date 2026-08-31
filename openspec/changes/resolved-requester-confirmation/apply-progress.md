@@ -154,3 +154,62 @@ Requester-NULL falls to the else branch automatically (identity predicate false 
 **Gates (per task):** 3.3: full `go test ./... -count=1` all packages ok; vet clean; gofmt clean; commit `e2eff94`. 3.4: focused + full `go test ./... -count=1` all packages ok; vet clean; openspec 17/17 + archived 7/7. One process slip: 3.4's first commit landed with a gofmt-dirty test file (alignment-only diff); caught by the gate, `gofmt -w` + `--amend` within the same task, re-tested, re-committed as `dda2bea` — no separate fix commit needed.
 
 ## Deviations (PR 3 slice)
+
+## PR 4 slice — Task 4.1 Confirmation route + handler (BLOCKED before commit)
+
+Worktree: `feat/55-resolved-requester-confirmation` @ a80049b. Allowed surfaces: `handlers_tickets.go`, `handlers_tickets_test.go`/`handlers_detail_test.go`, tasks.md, apply-progress.md. New test file `handlers_confirmation_test.go` (transition tests live in `handlers_detail_test.go`, but a sibling file keeps this endpoint's matrix self-contained; same package `httpadapter`).
+
+### RED evidence (TestConfirmationEndpoint, `handlers_confirmation_test.go`)
+- First run: build fail (`undefined: application.ErrMsgNotTicketRequester` — test needed the constant import) then all route-dependent subtests **405 Method Not Allowed** — no route existed. The unauthenticated row was pre-green by design (session middleware redirects anonymous POSTs to `/login` before any handler runs).
+- Fixture corrections during RED (test-only, before GREEN):
+  1. `seedUserRole(..., "admin@tkt.test")` collided with the harness's preset admin — separate fixture emails (`adm@tkt.test`).
+  2. `assignTicket` was called AFTER driving the ticket to resolved → `closed tickets cannot be modified`; assignment now happens inside `seedResolved` while the ticket is still `new`.
+- Final RED: 10/11 subtests failing on the missing route (405 / no write); 1 pre-green by design.
+
+### GREEN evidence (handlers_tickets.go only)
+- Route: `mux.HandleFunc("POST /tickets/{id}/confirmation", h.confirmation)` immediately after the transition route (Register, ~:67).
+- Handler: `confirmation(w, r)` = ticketID 400 guard → ParseForm → `actor := *userFromContext(r.Context())` → `decision := r.Form.Get("decision")`; `"confirm"` → `h.tickets.ConfirmResolution`, `"reject"` → `h.tickets.RejectResolution`, anything else → `h.renderDetailError(..., &domain.ValidationError{Field: "decision", ...})` (422 via the existing validation mapping); on use-case error → `h.renderDetailError`; on success → `h.afterMutation(w, r, id, "ticket_detail")` (HX → `ticket_detail` fragment; full → 303 `/tickets/{id}`). One additive `context` import.
+- Focused run after GREEN: `TestConfirmationEndpoint` — 10/11 PASS; the single remaining failure is the REAL defect below, not a handler gap.
+
+### 🔴 BLOCKER — spec/code contradiction found by the 4.1 HTTP test (outside this slice's edit surfaces)
+`TestConfirmationEndpoint/requester_rejects_own_resolved_ticket_detaches_the_workflow` fails at the SQL level:
+`workflow_version_id = 2, want NULL after rejection (detached)`.
+
+Root cause (verified in-tree at a80049b):
+- `internal/adapters/sqlite/ticket_store.go:110-124` `updateTicketTx` SET clause lists `title, description, requester_name, requester_email, requester_user_id, category_id, priority, state, user_id, created_at, updated_at, resolved_at, closed_at` — **`workflow_version_id` is NOT in the SET clause**.
+- `createTicketTx` (ticket_store.go:67-89) also omits it; only the workflow-UoW create writes the pin (`workflow_uow.go:1607-1613`, comment: "distinct from createTicketTx only because it also writes workflow_version_id").
+- Therefore `RejectResolution`'s `t.WorkflowVersionID = nil` (ticket_service.go:383) is a pure in-memory change: `s.tx.Update` → `unitOfWork.Update` → `updateTicketTx` cannot persist NULL. The returned aggregate reports the detach; the stored row keeps the pin. Audit event and state persist correctly (those columns ARE in the SET clause) — only the detachment is lost.
+
+This contradicts:
+- design.md D4 (`openspec/changes/resolved-requester-confirmation/design.md:161-163`): "updateTicketTx writes the full row from ticketColumns … which includes workflow_version_id (explore.md §3.2)" — the design cites `ticketColumns` (the SELECT projection, :41) but the UPDATE statement is a separate, narrower column list.
+- The workflow-execution delta scenario "rejection detaches the workflow pin" (persisted effect).
+- 3.3's GREEN evidence: the sqlite-level round-trip was never actually proven for Update (only the fake store full-row-copies; the 3.3 note "mirroring the SQLite pin persistence" holds for the fake, not the real store). Task 2.2(a)'s raw-SQL detach + 1.2's recheck evidence are unaffected (they exercise ApplyWorkflowPlan's pin reload, not updateTicketTx).
+
+Minimal fix (2 lines, file `internal/adapters/sqlite/ticket_store.go` — OUTSIDE this slice's allowed edit roots):
+- `updateTicketTx`: add `, workflow_version_id = ?` to the SET clause + bind `nullableInt64(t.WorkflowVersionID)`.
+- Optionally one sqlite round-trip test (detach via RejectResolution/Update then re-read the row). Strict TDD for that fix would be RED on the current tree (the pin persists) — exactly the state my test pinned.
+
+### Why blocked (contract)
+`applyState` equivalent: the 4.1 acceptance ("go test ./... green") is unmet by exactly one subtest, whose fix requires editing a file outside the delegated edit surfaces ("internal/adapters/http/handlers_tickets.go, ..._test.go, tasks.md, apply-progress.md — nothing else"). Committing now would (a) leave the suite red, (b) commit a test that documents a defect while the defect ships. Per the governance skill ("if implementation, tests, and specs contradict each other, BLOCK the work unit"), 4.1 is NOT committed; the tree holds only the new test file + handler changes.
+
+### Gates snapshot (end of slice, pre-commit)
+- `GOTOOLCHAIN=go1.25.14 go test ./internal/adapters/http -run TestConfirmationEndpoint -count=1`: FAIL — 1 subtest (the detachment defect above); 10/11 pass
+- `go test ./... -count=1`: FAIL — only that same subtest; domain/application/sqlite/cmd all ok
+- `go vet ./...`: clean; `gofmt -l internal/`: empty (both checked on the current tree)
+- openspec validate: NOT re-run pre-block (no spec files touched by 4.1; last green 17/17 after 3.4)
+
+### Files touched (uncommitted, staged-ready)
+- `internal/adapters/http/handlers_tickets.go` (route + confirmation handler + context import)
+- `internal/adapters/http/handlers_confirmation_test.go` (NEW — RED-first auth matrix)
+- `openspec/changes/resolved-requester-confirmation/apply-progress.md` (this section)
+- tasks.md 4.1 left `[ ]` (task incomplete until the blocker is resolved and gates pass)
+
+### Unblock path for the orchestrator
+1. Extend edit surfaces to include `internal/adapters/sqlite/ticket_store.go` (+ optional store test) and re-delegate 4.1 completion; OR fold the 2-line fix into a dedicated PR-4 slice task (recommended: RED sqlite round-trip → the 2-line SET-clause fix → full suite).
+2. Re-run gates, then commit `feat(http): requester confirmation endpoint` (test + handler together, per work-unit-commits) and mark 4.1 `[x]`.
+
+### 4.1 — Confirmation route + handler (commits `bc8265a`, `b978ab5`)
+- RED: new `handlers_confirmation_test.go` full auth matrix (requester confirm→303+closed; reject→303+in_progress+pin NULL; agent/admin/root→403 ErrMsgNotTicketRequester; unrelated role-user→404; missing/unknown decision→422 no-write; unauthenticated→303 login). All failures were a 405 route-missing (pre-green unauthenticated row).
+- **Blocked → resolved**: the reject subtest exposed a REAL production defect — `updateTicketTx` (ticket_store.go) omitted `workflow_version_id` from its SET clause (design D4 cited the SELECT projection `ticketColumns`, not the UPDATE list), so the detachment never persisted in SQLite. Fixed: `updateTicketTx` now writes `workflow_version_id` (nullable bind). The failing scan was a test bug (`scanOneInt` can't read NULL) → added `scanNullInt` helper. Full matrix green.
+- GREEN: route + `confirmation` handler (decision dispatch → ConfirmResolution/RejectResolution; unknown decision → 422 ValidationError; success → afterMutation). Gates: go test ./... green, vet clean, gofmt clean, openspec 17/17.
+- Note: this validates the design's D4 premise was wrong (cited SELECT not UPDATE); the 3.3 sqlite detachment round-trip is now proven by this HTTP test. Re-verify the application-layer stored-row claim was via the fake (full-row copy), now covered by the real store round-trip.

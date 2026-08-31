@@ -103,7 +103,7 @@ Forecast basis: 6 capabilities × 55 scenarios across domain, application, sqlit
 ## Phase 4 — HTTP, templates, goldens (PR 4) — load `ux-ui` skill
 
 ### 4.1 Confirmation route + handler (RED → GREEN)
-- [ ] 4.1 Confirmation route + handler (RED → GREEN)
+- [x] 4.1 Confirmation route + handler (RED → GREEN)
 - RED: `internal/adapters/http/handlers_tickets_test.go` auth matrix for `POST /tickets/{id}/confirmation` (`decision=confirm|reject`): requester → success (HX fragment per D6 or 303); agent/admin/root → 403 `ErrMsgNotTicketRequester`; unrelated role-`user` → 404; unknown/missing `decision` → 422, no write; unauthenticated → login redirect.
 - GREEN: `handlers_tickets.go` — route beside `:58-69`; `confirmation` handler dispatching to `ConfirmResolution`/`RejectResolution`; response via `h.afterMutation(w, r, id, "ticket_detail")`; errors via `h.renderDetailError`.
 - Acceptance: `go test ./...` green.
