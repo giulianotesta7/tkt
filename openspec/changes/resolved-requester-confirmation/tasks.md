@@ -87,14 +87,14 @@ Forecast basis: 6 capabilities × 55 scenarios across domain, application, sqlit
 - Commit: `feat(application): requester confirmation closes the resolution`
 
 ### 3.3 `RejectResolution` + workflow detachment (RED → GREEN)
-- [ ] 3.3 `RejectResolution` + workflow detachment (RED → GREEN)
+- [x] 3.3 `RejectResolution` + workflow detachment (RED → GREEN)
 - RED: `ticket_confirmation_test.go` — pinned reject → `in_progress`, `WorkflowVersionID == nil`, `resolved_at` cleared, `closed_at` empty, audit actor = requester (never `"workflow"`), no workflow step/cursor/answer mutation (workflow-execution delta); manual-ticket reject → plain `in_progress`; agent reopen `resolved → in_progress` keeps the pin (D6, state-machine delta "agent reopen MUST NOT detach").
 - GREEN: `TicketService.RejectResolution` — same gate as 3.2 → `t.Transition(in_progress, "", now)` → `t.WorkflowVersionID = nil` → stamp event → ONE `s.tx.Update` (ticket row + audit atomically, D4).
 - Acceptance: `go test ./...` green; no workflow_runner/uow changes.
 - Commit: `feat(application): requester rejection detaches the workflow`
 
 ### 3.4 Comment carve-out on `resolved` (RED → GREEN)
-- [ ] 3.4 Comment carve-out on `resolved` (RED → GREEN)
+- [x] 3.4 Comment carve-out on `resolved` (RED → GREEN)
 - RED: `internal/application/comment_service_test.go` — requester public comment on own `resolved` OK; requester `internal` visibility rejected (role rule intact); non-requester (any role) rejected, no write; requester-NULL `resolved` rejected for every actor; `closed`/`cancelled` reject everyone (regression); `new`/`in_progress` rows unchanged (regression).
 - GREEN: `internal/application/comment_service.go` — resolved carve-out guarded at the application boundary before any store call (comment-timeline delta; HTTP maps to 403).
 - Acceptance: `go test ./...` green.
