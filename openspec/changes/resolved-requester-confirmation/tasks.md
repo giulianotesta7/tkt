@@ -132,7 +132,7 @@ Forecast basis: 6 capabilities × 55 scenarios across domain, application, sqlit
 - Commit: `test(e2e): align resolved-to-closed journey with closure attribution`
 
 ### 5.2 New requester journeys + README coverage
-- [ ] 5.2 New requester journeys + README coverage
+- [x] 5.2 New requester journeys + README coverage
 - Journey 1 (confirm): agent resolves → requester sees confirmation control + comment form → confirms → badge `closed`, `Closed` timestamp with `Resolved` remaining, timeline closure attributed to the requester (not `"workflow"`), Move-to close control gone.
 - Journey 2 (reject): `resolve_ticket` run leaves `resolved` → requester rejects → `in_progress`, `resolved_at` cleared from meta, workflow Pending Actions card absent (detached), ticket continues manual (no further workflow step).
 - Journey 3 (blocked close): requester-owned `resolved` viewed by agent → Move-to offers reopen but not `closed`; direct `POST /tickets/{id}/transition {to: closed}` denied, error renders via detail-error path, state stays `resolved`.

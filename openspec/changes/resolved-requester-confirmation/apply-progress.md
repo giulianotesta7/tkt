@@ -261,3 +261,18 @@ Minimal fix (2 lines, file `internal/adapters/sqlite/ticket_store.go` — OUTSID
 - **Two test-side fixes during GREEN**: (1) `closedDetailData` fixture did not reset `CanComment` -> closed tickets rendered the comment form (fixed: set CanComment=false); (2) trailing-whitespace gate failed on tickets_show because the `{{if .CanConfirm}}` block left indented whitespace when not rendered (fixed: control directives at column 0, per the template's existing pattern).
 - Goldens regenerated (shared stylesheet change ripples to all page goldens — expected: the new CSS block inlines in every render); added 3 new golden cases (requester-resolved requester view, agent view, legacy-resolved agent view). Re-run without -update: stable.
 - Gates: go test ./... green, vet clean, gofmt clean, openspec 17/17.
+
+### 5.1 — Rework the existing resolved→closed journey
+- Reworked `e2e/tests/ticket-detail.spec.ts` "comment form hidden on closed states" so the requester-owned resolved ticket can NO LONGER be closed via the state transition (issue #55 gate): the Move-to control offers only the reopen (in_progress), never `closed`, and the state stays `resolved`. Comment-form-hidden on resolved/closed/cancelled assertion preserved. Direct-POST (403) rejection is exhaustively covered by Go tests (spec header note). Cancelled leg unchanged (terminal).
+- Validation: spec parses/type-checks under `npx playwright test --list` (test listed at ticket-detail.spec.ts:56). Browser/node_modules installed in the worktree for list/parse validation. The full Playwright run happens in CI (the shared stylesheet/golden change already covered by unit tests).
+- README coverage row updated (`e2e/README.md:50`).
+
+### 5.1 — Rework the existing resolved→closed journey
+- `ticket-detail.spec.ts` leg resolved→closed reworked: the requester-owned resolved ticket can no longer be closed via Move-to (gate blocks `resolved → closed` with a requester) → the journey now asserts Move-to offers no `closed` (only `in_progress` reopen) and comment form remains hidden; cancelled leg unchanged.
+- Coverage row in `e2e/README.md:50` updated accordingly.
+- `npx playwright test --list` validates the new spec compiles and lists the renamed journey.
+
+### 5.2 — New requester journeys (commit pending 5.2 block)
+- New `e2e/tests/ticket-confirmation.spec.ts` with 3 journeys: confirm → closed (panel gone, Closed badge), reject → manual in_progress (detached), blocked close (agent view). Uses `createUserAsAdmin`/`loginAs`/`createTicketViaUi` + helper `requesterOwnedResolvedTicket` (requester creates, admin drives to resolved, login as requester). Asserts the resolution-confirmation panel + HTMX swaps on `/tickets/{id}/confirmation`.
+- Validation: `npx playwright test --list` lists all 3 new journeys (type-check via Playwright parse) — the full suite requires a running browser/server and runs in CI.
+- README coverage rows added (ticket-confirmation journeys + HTMX confirmation provenance).
