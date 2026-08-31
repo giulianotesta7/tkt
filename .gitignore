@@ -19,3 +19,15 @@ playwright-report/
 e2e/.e2e-state.json
 tkt-server
 cmd.jsonl
+
+# Local demo/e2e helper scripts (not part of the change)
+e2e/cap.mjs
+e2e/create_reject_demo.mjs
+e2e/dump-ticket.mjs
+e2e/dump2.mjs
+e2e/reject_demo_step2.mjs
+e2e/seed-demo.mjs
+e2e/seed-resolved.mjs
+e2e/seed-resolved2.mjs
+e2e/seed-resolved3.mjs
+e2e/verify-panel.mjs
