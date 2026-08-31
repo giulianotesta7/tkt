@@ -107,11 +107,12 @@ func (st *ticketStore) Update(ctx context.Context, t *domain.Ticket) error {
 
 // updateTicketTx writes the ticket row inside the caller's transaction.
 func updateTicketTx(ctx context.Context, tx *sql.Tx, t *domain.Ticket) error {
-	res, err := tx.ExecContext(ctx, `UPDATE tickets SET title = ?, description = ?, requester_name = ?, requester_email = ?, requester_user_id = ?, category_id = ?, priority = ?, state = ?, user_id = ?, created_at = ?, updated_at = ?, resolved_at = ?, closed_at = ?
+	res, err := tx.ExecContext(ctx, `UPDATE tickets SET title = ?, description = ?, requester_name = ?, requester_email = ?, requester_user_id = ?, category_id = ?, priority = ?, state = ?, user_id = ?, workflow_version_id = ?, created_at = ?, updated_at = ?, resolved_at = ?, closed_at = ?
 		WHERE id = ?`,
 		t.Title, t.Description, t.RequesterName, t.RequesterEmail,
 		nullableInt64(t.RequesterUserID), t.CategoryID,
 		string(t.Priority), string(t.State), nullableInt64(t.UserID),
+		nullableInt64(t.WorkflowVersionID),
 		formatTime(t.CreatedAt), formatTime(t.UpdatedAt),
 		formatTimePtr(t.ResolvedAt), formatTimePtr(t.ClosedAt), t.ID)
 	if err != nil {
