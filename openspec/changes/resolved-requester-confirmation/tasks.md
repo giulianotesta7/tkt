@@ -117,7 +117,7 @@ Forecast basis: 6 capabilities × 55 scenarios across domain, application, sqlit
 - Commit: `feat(http): confirmation flags + requester-conditional Move-to`
 
 ### 4.3 Template control + golden regeneration
-- [ ] 4.3 Template control + golden regeneration
+- [x] 4.3 Template control + golden regeneration
 - Edit: `web/templates/partials/ticket_detail.html` — confirmation control in the State section (one form, `decision=confirm|reject`; confirm primary + reject destructive; `hx-post` → `#ticket-detailswap` per D6 convention); comment form gated on `CanComment`; existing `Closed` flag keeps hiding edit/assignment controls (visual preservation rules from `ux-ui`: no markup drift outside the two flags; lifecycle meta `:112-119` structurally unchanged).
 - Regenerate + extend: `go test ./internal/adapters/http/ -run TestGolden -update`; add golden cases — (a) requester-owned `resolved` viewed by requester (confirm/reject + comment form, no Move-to closed), (b) same viewed by agent (reopen only, no comment form, no confirmation control), (c) requester-NULL `resolved` viewed by agent (close + reopen). `state_badge`/`timeline` goldens must not change.
 - Acceptance: goldens deterministic; `go test ./...` green; visual diff limited to the new control + comment gating.
