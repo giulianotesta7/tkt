@@ -79,9 +79,9 @@ test.describe("Ticket detail", () => {
     await page.goto(base() + `/tickets/${id}`);
     await expect(page.getByText("Resolved").first()).toBeVisible({ timeout: 10_000 });
     const beforeTimeline = await page.locator("#timeline").textContent();
-    // Comment form must be hidden on resolved (IsClosed includes resolved)
-    await expect(page.getByLabel(/comment body/i)).toHaveCount(0);
-    // Timeline unchanged after reload (no comment could be added via UI)
+    // The ticket requester (the creating admin here) keeps the comment form in
+    // resolved via the requester carve-out (issue #55); non-requesters do not.
+    await expect(page.getByLabel(/comment body/i)).toHaveCount(1);
     await page.reload();
     const afterTimeline = await page.locator("#timeline").textContent();
     expect(afterTimeline).toEqual(beforeTimeline);
@@ -96,8 +96,9 @@ test.describe("Ticket detail", () => {
     await expect(moveSelect).toBeVisible();
     const closedOption = await moveSelect.locator('option[value="closed"]').count();
     expect(closedOption).toBe(0);
-    // Comment form remains hidden while the ticket is resolved (IsClosed).
-    await expect(page.getByLabel(/comment body/i)).toHaveCount(0);
+    // The requester keeps the comment form (carve-out); only the transition
+    // to closed is blocked. The comment form stays for the requester.
+    await expect(page.getByLabel(/comment body/i)).toHaveCount(1);
     // State badge stays resolved (no silent closure).
     await expect(page.getByText("Resolved").first()).toBeVisible({ timeout: 10_000 });
 
