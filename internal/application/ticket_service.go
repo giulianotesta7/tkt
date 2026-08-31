@@ -283,7 +283,10 @@ func (s *TicketService) Assign(ctx context.Context, actor domain.User, ticketID 
 // back). Authorization is enforced server-side BEFORE the read or any state
 // change: role user never transitions (ticket-state-machine spec), and the
 // scoped read restricts agents to their own assigned tickets — an
-// out-of-scope ticket is ErrNotFound (ticket-access spec).
+// out-of-scope ticket is ErrNotFound (ticket-access spec). Note: the
+// requester's exit from resolved is the separate RejectResolution path —
+// this generic method never detaches the workflow pin (state-machine delta:
+// an agent reopen MUST NOT detach).
 func (s *TicketService) Transition(ctx context.Context, actor domain.User, ticketID int64, to domain.State, reason string) (*domain.Ticket, error) {
 	if !NewPolicy().Capabilities(actor.Role).Require(CapEditTicket) {
 		return nil, domain.NewForbiddenError(domain.ErrMsgUserCannotTransition)
@@ -345,6 +348,44 @@ func (s *TicketService) ConfirmResolution(ctx context.Context, actor domain.User
 	event.ActorUserID = &actor.ID
 	via := domain.ClosureViaRequesterConfirmation
 	event.ClosureVia = &via
+	if err := s.tx.Update(ctx, t, *event); err != nil {
+		return nil, err
+	}
+	return t, nil
+}
+
+// RejectResolution returns a requester-owned resolved ticket to in_progress
+// on the requester's explicit NO (confirmation-closure delta): the same
+// identity gate as ConfirmResolution — scoped read, then isTicketRequester,
+// else Forbidden (readable roles) or NotFound (out-of-scope role users). For
+// a workflow-pinned ticket the rejection DETACHES the workflow link
+// (WorkflowVersionID nil-ed, D4): the ticket continues as a manual ticket and
+// no further workflow step can target it — an in-flight ApplyWorkflowPlan
+// already fails on the persisted-pin recheck with a typed conflict, and the
+// pending-actions presentation reads the nil pin as no workflow. The
+// detachment is a pure field nil-ing persisted by the existing full-row
+// update: ONE s.tx.Update persists the reopened ticket row and the single
+// requester-attributed audit event atomically — rejection is a manual
+// transition, never a workflow operation (no plan, no cursor/step/answer
+// mutation, actor is the requester, not "workflow"). An already-manual ticket
+// is a plain resolved -> in_progress reopen; resolved_at is cleared by the
+// domain transition (ticket-management delta). A non-resolved state is
+// rejected by the state machine with no write.
+func (s *TicketService) RejectResolution(ctx context.Context, actor domain.User, ticketID int64) (*domain.Ticket, error) {
+	t, err := s.tickets.GetByID(ctx, ticketID, scopedQuery(actor, TicketQuery{}))
+	if err != nil {
+		return nil, err
+	}
+	if !isTicketRequester(actor, t) {
+		return nil, domain.NewForbiddenError(ErrMsgNotTicketRequester)
+	}
+	event, err := t.Transition(domain.StateInProgress, "", s.clock.Now())
+	if err != nil {
+		return nil, err
+	}
+	t.WorkflowVersionID = nil
+	event.Actor = actor.Name
+	event.ActorUserID = &actor.ID
 	if err := s.tx.Update(ctx, t, *event); err != nil {
 		return nil, err
 	}

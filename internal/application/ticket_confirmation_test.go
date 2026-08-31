@@ -110,6 +110,114 @@ func TestManualClosureRequiresConfirmation(t *testing.T) {
 	})
 }
 
+// seedPinnedResolvedTicket arranges a resolved ticket pinned to a workflow
+// version (the state a workflow-pinned ticket is left in after its terminal
+// resolve step): the pin is stamped on the seeded ticket and persisted via the
+// direct store update, mirroring what the workflow create path writes.
+func seedPinnedResolvedTicket(t *testing.T, h *ticketHarness, requesterID, assigneeID *int64, versionID int64) domain.Ticket {
+	t.Helper()
+	ticket := seedResolvedTicket(t, h, requesterID, assigneeID)
+	ticket.WorkflowVersionID = &versionID
+	if err := h.tickets.Update(context.Background(), &ticket); err != nil {
+		t.Fatalf("seed pinned resolved ticket: %v", err)
+	}
+	return ticket
+}
+
+// TestRejectResolution pins the requester-rejection path (confirmation-closure
+// and workflow-execution deltas): the requester returns their resolved ticket
+// to in_progress; a workflow-pinned ticket is DETACHED (WorkflowVersionID
+// nil-ed) so it continues as a manual ticket, while an already-manual ticket is
+// a plain reopen. Rejection is a manual transition, not a workflow operation:
+// exactly one requester-attributed audit event, never a "workflow" actor. The
+// agent reopen of a resolved ticket keeps the pin (state-machine delta: agent
+// reopen MUST NOT detach).
+func TestRejectResolution(t *testing.T) {
+	t.Run("pinned reject detaches the workflow and reopens manually", func(t *testing.T) {
+		h := newTicketHarness()
+		requester := h.users.seedRole("Bob", "bob@example.com", domain.RoleUser, true)
+		const versionID int64 = 7
+		ticket := seedPinnedResolvedTicket(t, h, &requester.ID, nil, versionID)
+		actor := domain.User{ID: requester.ID, Name: requester.Name, Email: requester.Email, Role: domain.RoleUser}
+		h.clock.Advance(timeMinute)
+
+		updated, err := h.svc.RejectResolution(context.Background(), actor, ticket.ID)
+		if err != nil {
+			t.Fatalf("RejectResolution: requester rejection must succeed, got %v", err)
+		}
+		if updated.State != domain.StateInProgress {
+			t.Fatalf("RejectResolution: rejected ticket must be in_progress, got %q", updated.State)
+		}
+		if updated.WorkflowVersionID != nil {
+			t.Fatalf("RejectResolution: rejection must detach the workflow pin, got %v", *updated.WorkflowVersionID)
+		}
+		if updated.ResolvedAt != nil {
+			t.Fatalf("RejectResolution: rejection must clear resolved_at, got %v", updated.ResolvedAt)
+		}
+		if updated.ClosedAt != nil {
+			t.Fatalf("RejectResolution: rejection must not stamp closed_at, got %v", updated.ClosedAt)
+		}
+		// The persisted row mirrors the returned aggregate: detached, in_progress.
+		stored, _ := h.tickets.GetByID(context.Background(), ticket.ID, application.TicketQuery{Scope: application.ScopeAll})
+		if stored.State != domain.StateInProgress || stored.WorkflowVersionID != nil {
+			t.Fatalf("RejectResolution: stored row must be a detached in_progress ticket, got state=%q pin=%v", stored.State, stored.WorkflowVersionID)
+		}
+		// Rejection is a manual transition, not a workflow operation: exactly one
+		// requester-attributed transition event — never a "workflow" actor.
+		events, _ := h.audits.ListByTicket(context.Background(), ticket.ID)
+		if len(events) != 1 {
+			t.Fatalf("RejectResolution: exactly one audit event expected, got %d", len(events))
+		}
+		ev := events[0]
+		if ev.ActorUserID == nil || *ev.ActorUserID != requester.ID || ev.Actor == "workflow" {
+			t.Fatalf("RejectResolution: event must be attributed to the requester %q, got actor=%q id=%v", requester.Name, ev.Actor, ev.ActorUserID)
+		}
+		if ev.FromValue == nil || *ev.FromValue != string(domain.StateResolved) || ev.ToValue == nil || *ev.ToValue != string(domain.StateInProgress) {
+			t.Fatalf("RejectResolution: event must record resolved -> in_progress, got %v -> %v", ev.FromValue, ev.ToValue)
+		}
+	})
+
+	t.Run("manual ticket reject is a plain reopen", func(t *testing.T) {
+		h := newTicketHarness()
+		requester := h.users.seedRole("Bob", "bob@example.com", domain.RoleUser, true)
+		ticket := seedResolvedTicket(t, h, &requester.ID, nil) // WorkflowVersionID already nil
+		actor := domain.User{ID: requester.ID, Name: requester.Name, Email: requester.Email, Role: domain.RoleUser}
+		h.clock.Advance(timeMinute)
+
+		updated, err := h.svc.RejectResolution(context.Background(), actor, ticket.ID)
+		if err != nil {
+			t.Fatalf("RejectResolution: manual-ticket rejection must succeed, got %v", err)
+		}
+		if updated.State != domain.StateInProgress || updated.WorkflowVersionID != nil {
+			t.Fatalf("RejectResolution: manual ticket must return to in_progress with no pin, got state=%q pin=%v", updated.State, updated.WorkflowVersionID)
+		}
+		if updated.ResolvedAt != nil {
+			t.Fatalf("RejectResolution: manual reopen must clear resolved_at, got %v", updated.ResolvedAt)
+		}
+	})
+
+	t.Run("agent reopen keeps the workflow pin", func(t *testing.T) {
+		h := newTicketHarness()
+		requester := h.users.seedRole("Bob", "bob@example.com", domain.RoleUser, true)
+		agent := h.users.seedRole("Ana", "ana@example.com", domain.RoleAgent, true)
+		const versionID int64 = 7
+		ticket := seedPinnedResolvedTicket(t, h, &requester.ID, &agent.ID, versionID)
+		actor := domain.User{ID: agent.ID, Name: agent.Name, Email: agent.Email, Role: domain.RoleAgent}
+		h.clock.Advance(timeMinute)
+
+		updated, err := h.svc.Transition(context.Background(), actor, ticket.ID, domain.StateInProgress, "")
+		if err != nil {
+			t.Fatalf("Transition: agent reopen from resolved must succeed without a reason, got %v", err)
+		}
+		if updated.State != domain.StateInProgress {
+			t.Fatalf("Transition: reopened ticket must be in_progress, got %q", updated.State)
+		}
+		if updated.WorkflowVersionID == nil || *updated.WorkflowVersionID != versionID {
+			t.Fatalf("Transition: agent reopen must NOT detach the workflow pin %d, got %v", versionID, updated.WorkflowVersionID)
+		}
+	})
+}
+
 // TestConfirmResolution pins the requester-confirmation closure path
 // (confirmation-closure delta): only the ticket's requester, only while the
 // ticket is resolved. Confirmation stamps closed_at, keeps resolved_at, and
