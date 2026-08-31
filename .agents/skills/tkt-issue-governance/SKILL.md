@@ -1,5 +1,5 @@
 ---
-name: issue-governance
+name: tkt-issue-governance
 description: "Trigger: creating an issue, starting a feature, fixing a bug, labeling, planning work, or any change to the tkt repository. Enforce issue-first workflow with the canonical type/area/status label taxonomy before any implementation."
 license: MIT
 metadata:
