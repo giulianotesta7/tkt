@@ -767,19 +767,31 @@ func TestTransitionReopenClosedRequiresReason(t *testing.T) {
 	}
 }
 
-func TestTransitionReopenResolvedRequiresReason(t *testing.T) {
+func TestTransitionReopenResolvedWithoutReason(t *testing.T) {
 	h := newTicketHarness()
 	cat := h.categories.seed("Bugs")
 	ticket := seededTicket(h.tickets, cat.ID, domain.StateResolved)
 	actor := domain.User{Name: "Ada", Role: domain.RoleAdmin}
+	h.clock.Advance(timeMinute)
 
-	_, err := h.svc.Transition(context.Background(), actor, ticket.ID, domain.StateInProgress, "")
-	var rerr *domain.ReopenReasonRequiredError
-	if !errors.As(err, &rerr) {
-		t.Fatalf("Transition: resolved reopen without reason must be a ReopenReasonRequiredError, got %v", err)
+	// Reopen from resolved is reason-free (requester rejection / agent reopen);
+	// only reopen from closed requires a reason (Reopen with Reason spec).
+	updated, err := h.svc.Transition(context.Background(), actor, ticket.ID, domain.StateInProgress, "")
+	if err != nil {
+		t.Fatalf("Transition: resolved reopen without reason must succeed, got %v", err)
 	}
-	if len(h.audits.events) != 0 {
-		t.Fatal("Transition: rejected reopen must not be audited")
+	if updated.State != domain.StateInProgress {
+		t.Fatalf("Transition: reopened ticket must be in_progress, got %q", updated.State)
+	}
+	if !updated.UpdatedAt.Equal(h.clock.now) {
+		t.Fatalf("Transition: updated_at must be refreshed, got %v want %v", updated.UpdatedAt, h.clock.now)
+	}
+	events, _ := h.audits.ListByTicket(context.Background(), ticket.ID)
+	if len(events) != 1 {
+		t.Fatalf("Transition: resolved reopen must be audited exactly once, got %d events", len(events))
+	}
+	if events[0].Note != nil {
+		t.Fatalf("Transition: resolved reopen must not carry an audit note, got %q", *events[0].Note)
 	}
 }
 

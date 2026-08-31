@@ -168,6 +168,16 @@ func (u *workflowUnitOfWork) ApplyWorkflowPlan(ctx context.Context, in applicati
 		ticket.WorkflowVersionID = &pin.Int64
 	}
 
+	// Detachment recheck (issue #55, design D4): the persisted pin must still
+	// equal the plan's expected version. A detached ticket (NULL pin — e.g. the
+	// requester rejected the resolution mid-flight) fails any in-flight plan as
+	// a typed conflict BEFORE the definition reload, which would otherwise
+	// misreport the detached pin as a data error ("pinned workflow version 0
+	// not found") instead of a plan-staleness conflict.
+	if ticket.WorkflowVersionID == nil || *ticket.WorkflowVersionID != in.ExpectedVersionID {
+		return application.WorkflowExecutionResult{}, domain.NewWorkflowPositionConflictError("workflow version mismatch")
+	}
+
 	run, err := scanRunRow(ctx, tx, in.TicketID)
 	if err != nil {
 		return application.WorkflowExecutionResult{}, err
@@ -1155,6 +1165,12 @@ func validateTransitionOp(conflict func(string) error, t *domain.Ticket, step do
 	// require them: terminal/claim transitions never reopen a closed ticket).
 	if a.Reason != nil || a.Note != nil {
 		return conflict("transition audit must carry no reason or note")
+	}
+	// Workflow-terminal closures keep the workflow actor convention and must
+	// never carry closure attribution (issue #55): closure_via stamping belongs
+	// exclusively to the manual requester-confirmation / agent paths.
+	if a.ClosureVia != nil {
+		return conflict("workflow closure audit attribution mismatch")
 	}
 	to := domain.State(*a.ToValue)
 	ev, err := t.Transition(to, "", a.CreatedAt)

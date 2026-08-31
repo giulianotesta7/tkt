@@ -291,14 +291,16 @@ func nullableInt(p *int) any {
 
 // appendAuditEventsTx inserts the events in occurrence order inside the
 // caller's transaction. Defined here (the unit-of-work's atomicity half)
-// and reused by the audit store (4.3).
+// and reused by the audit store (4.3). closure_via persists NULL when the
+// event carries no closure attribution (every non-closure event, workflow
+// closures, and legacy rows keep it NULL — issue #55).
 func appendAuditEventsTx(ctx context.Context, tx *sql.Tx, events ...domain.AuditEvent) error {
 	for _, e := range events {
-		if _, err := tx.ExecContext(ctx, `INSERT INTO audit_events (ticket_id, actor, action, field, from_value, to_value, note, actor_user_id, reason, desk_id, step_index, created_at)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		if _, err := tx.ExecContext(ctx, `INSERT INTO audit_events (ticket_id, actor, action, field, from_value, to_value, note, actor_user_id, reason, desk_id, step_index, closure_via, created_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			e.TicketID, e.Actor, e.Action, nullableString(e.Field), nullableString(e.FromValue),
 			nullableString(e.ToValue), nullableString(e.Note), nullableInt64(e.ActorUserID),
-			nullableString(e.Reason), nullableInt64(e.DeskID), nullableInt(e.StepIndex), formatTime(e.CreatedAt)); err != nil {
+			nullableString(e.Reason), nullableInt64(e.DeskID), nullableInt(e.StepIndex), nullableString(e.ClosureVia), formatTime(e.CreatedAt)); err != nil {
 			return fmt.Errorf("sqlite: append audit event: %w", err)
 		}
 	}

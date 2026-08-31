@@ -99,7 +99,7 @@ func TestTransitionMatrix(t *testing.T) {
 		{from: domain.StateInProgress, to: domain.StateCancelled, allow: true},
 		// From resolved.
 		{from: domain.StateResolved, to: domain.StateNew},
-		{from: domain.StateResolved, to: domain.StateInProgress, allow: true, clearResolved: true, reason: "reopen to fix"},
+		{from: domain.StateResolved, to: domain.StateInProgress, allow: true, clearResolved: true}, // reopen, reason-free
 		{from: domain.StateResolved, to: domain.StateResolved},
 		{from: domain.StateResolved, to: domain.StateClosed, allow: true, setClosed: true},
 		{from: domain.StateResolved, to: domain.StateCancelled},
@@ -208,15 +208,49 @@ func TestTransitionMatrix(t *testing.T) {
 				t.Fatalf("closed_at must be %v, got %v", wantClosed, tt.ClosedAt)
 			}
 
-			// Reopen reason must land in the audit note; other transitions have none.
-			if tc.to == domain.StateInProgress && domain.IsClosed(tc.from) {
+			// Reopen from closed must land its reason in the audit note;
+			// other transitions (including the reason-free reopen from
+			// resolved) have none.
+			if tc.to == domain.StateInProgress && tc.from == domain.StateClosed {
 				if event.Note == nil || *event.Note != tc.reason {
-					t.Fatalf("reopen from a closed state must record the reason in the audit note, got %v", event.Note)
+					t.Fatalf("reopen from closed must record the reason in the audit note, got %v", event.Note)
 				}
 			} else if event.Note != nil {
 				t.Fatalf("no reason expected for %s -> %s, got %q", tc.from, tc.to, *event.Note)
 			}
+
+			// Closure attribution (issue #55): plain domain Transition events
+			// never carry closure_via — only the application layer stamps it on
+			// the two manual closure paths; workflow closures keep it NULL.
+			if event.ClosureVia != nil {
+				t.Fatalf("plain transition %s -> %s must carry nil ClosureVia, got %q", tc.from, tc.to, *event.ClosureVia)
+			}
 		})
+	}
+}
+
+// TestTransitionAuditClosureViaDefaultsNil pins the audit event shape (issue
+// #55): a plain Transition event, including the closure transition itself,
+// carries ClosureVia == nil. Stamping ClosureVia is exclusively an
+// application-layer concern (requester_confirmation / manual_agent paths).
+func TestTransitionAuditClosureViaDefaultsNil(t *testing.T) {
+	now := time.Date(2026, 8, 20, 12, 0, 0, 0, time.UTC)
+	tt := newTicketInState(domain.StateResolved, now)
+
+	event, err := tt.Transition(domain.StateClosed, "", now)
+	if err != nil {
+		t.Fatalf("resolved -> closed must succeed, got %v", err)
+	}
+	if event.ClosureVia != nil {
+		t.Fatalf("closure transition event must carry nil ClosureVia by default, got %q", *event.ClosureVia)
+	}
+
+	reopen, err := tt.Transition(domain.StateInProgress, "rework needed", now)
+	if err != nil {
+		t.Fatalf("reopen from closed must succeed with a reason, got %v", err)
+	}
+	if reopen.ClosureVia != nil {
+		t.Fatalf("reopen transition event must carry nil ClosureVia, got %q", *reopen.ClosureVia)
 	}
 }
 
@@ -271,6 +305,39 @@ func TestReopenFromClosedWithoutReason(t *testing.T) {
 	}
 	if event != nil {
 		t.Fatalf("rejected reopen must not produce an audit event, got %+v", event)
+	}
+}
+
+// TestReopenFromResolvedWithoutReason proves resolved -> in_progress is
+// reason-free (ticket-state-machine spec: reopen from resolved MUST NOT
+// require a reason), while reopen from closed still requires one.
+func TestReopenFromResolvedWithoutReason(t *testing.T) {
+	now := time.Date(2026, 8, 5, 12, 0, 0, 0, time.UTC)
+	tt := newTicketInState(domain.StateResolved, now)
+
+	event, err := tt.Transition(domain.StateInProgress, "", now)
+
+	if err != nil {
+		t.Fatalf("reopen from resolved without a reason must succeed, got %v", err)
+	}
+	if tt.State != domain.StateInProgress {
+		t.Fatalf("state must be in_progress, got %s", tt.State)
+	}
+	if tt.ResolvedAt != nil || tt.ClosedAt != nil {
+		t.Fatalf("resolved_at must be cleared and closed_at untouched, got resolved_at=%v closed_at=%v", tt.ResolvedAt, tt.ClosedAt)
+	}
+	if !tt.UpdatedAt.Equal(now) {
+		t.Fatalf("updated_at must be refreshed to the transition time, got %v", tt.UpdatedAt)
+	}
+	if event == nil {
+		t.Fatal("allowed transition must return an audit event")
+	}
+	if event.FromValue == nil || *event.FromValue != string(domain.StateResolved) ||
+		event.ToValue == nil || *event.ToValue != string(domain.StateInProgress) {
+		t.Fatalf("audit from/to must be resolved -> in_progress, got %v -> %v", event.FromValue, event.ToValue)
+	}
+	if event.Note != nil {
+		t.Fatalf("reason-free reopen must not record an audit note, got %q", *event.Note)
 	}
 }
 
