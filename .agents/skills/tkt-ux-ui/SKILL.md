@@ -1,5 +1,5 @@
 ---
-name: ux-ui
+name: tkt-ux-ui
 description: "Trigger: modifying templates, CSS, layout, visual components, responsive behavior, accessibility, or visible HTMX interactions. Maintain visual and interaction consistency of the existing product."
 license: MIT
 metadata:

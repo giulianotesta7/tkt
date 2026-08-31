@@ -1,5 +1,5 @@
 ---
-name: openspec-change-governance
+name: tkt-openspec-change-governance
 description: "Trigger: adding or modifying observable behavior, domain rules, authorization, endpoints, forms, flows, persistence, or contracts; or any OpenSpec change proposal/delta/archive. Enforce spec–implementation–test alignment and validate with the official OpenSpec CLI."
 license: MIT
 metadata:
