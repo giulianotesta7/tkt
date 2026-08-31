@@ -245,9 +245,13 @@ func TestTicketTransitionHappyPath(t *testing.T) {
 
 // TestTicketTransitionFullCycle proves the full forward path
 // new → in_progress → resolved → closed, closing stamps closed_at.
+// Uses a legacy (requester-NULL) ticket: manual closure is the
+// requester-NULL exception (issue #55); requester-owned closures go
+// through the confirmation flow covered in its own tests.
 func TestTicketTransitionFullCycle(t *testing.T) {
 	h := newHarness(t)
-	h.seedTicket(t, "Login page down", nil)
+	tkt := h.seedTicket(t, "Login page down", nil)
+	h.makeLegacy(t, tkt.ID)
 
 	for _, to := range []domain.State{domain.StateInProgress, domain.StateResolved, domain.StateClosed} {
 		rec := h.postForm(t, "/tickets/1/transition", url.Values{"to": {string(to)}}, false)
@@ -287,10 +291,12 @@ func TestTicketTransitionInvalid422(t *testing.T) {
 }
 
 // TestTicketTransitionReopenRequiresReason proves closed → in_progress
-// without a reason is rejected 422 (reopen-reason spec).
+// without a reason is rejected 422 (reopen-reason spec) on a legacy
+// (requester-NULL) ticket.
 func TestTicketTransitionReopenRequiresReason(t *testing.T) {
 	h := newHarness(t)
 	tkt := h.seedTicket(t, "Login page down", nil)
+	h.makeLegacy(t, tkt.ID)
 	for _, to := range []domain.State{domain.StateInProgress, domain.StateResolved, domain.StateClosed} {
 		h.seedTransition(t, tkt.ID, to, "")
 	}
@@ -306,10 +312,12 @@ func TestTicketTransitionReopenRequiresReason(t *testing.T) {
 }
 
 // TestTicketTransitionReopenWithReason proves the closed reopen with a
-// reason succeeds and the reason lands in the audit note.
+// reason succeeds and the reason lands in the audit note — legacy
+// (requester-NULL) ticket.
 func TestTicketTransitionReopenWithReason(t *testing.T) {
 	h := newHarness(t)
 	tkt := h.seedTicket(t, "Login page down", nil)
+	h.makeLegacy(t, tkt.ID)
 	for _, to := range []domain.State{domain.StateInProgress, domain.StateResolved, domain.StateClosed} {
 		h.seedTransition(t, tkt.ID, to, "")
 	}
@@ -412,6 +420,10 @@ func TestTicketCommentOnClosedTicketRejected(t *testing.T) {
 		t.Run(string(to), func(t *testing.T) {
 			h := newHarness(t)
 			tkt := h.seedTicket(t, "Login page down", nil)
+			// Legacy (requester-NULL) ticket: the closed-state walk below must
+			// stay legal under the #55 closure gate, which only restricts
+			// requester-owned tickets.
+			h.makeLegacy(t, tkt.ID)
 			// Walk the legal transition path to the closed target: closed must
 			// be reached via in_progress -> resolved -> closed (matrix).
 			path := []domain.State{to}
