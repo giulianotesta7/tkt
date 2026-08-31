@@ -126,7 +126,7 @@ Forecast basis: 6 capabilities × 55 scenarios across domain, application, sqlit
 ## Phase 5 — E2E + docs (PR 5) — load `tkt-e2e` skill
 
 ### 5.1 Rework the existing resolved→closed journey
-- [ ] 5.1 Rework the existing resolved→closed journey
+- [x] 5.1 Rework the existing resolved→closed journey
 - `e2e/tests/ticket-detail.spec.ts:56-97` drives `resolved → closed` via the transition endpoint — now violates the closure gate. Rework the close leg: requester-confirm flow or a requester-NULL ticket (design D8).
 - Acceptance: journey green under `npx playwright test` (versioned suite); no coverage rows lost.
 - Commit: `test(e2e): align resolved-to-closed journey with closure attribution`

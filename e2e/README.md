@@ -47,7 +47,7 @@ All screens below use `e2e/tests/helpers/layout.ts` (`collectObservability` + `a
 | Tickets — public comment | native POST (the comment form has no `hx-post`): 303 response, navigation to detail, comment in timeline, persists after reload | `tests/tickets.spec.ts` |
 | Tickets — transition | HTMX swap: `new → in_progress` with visible state badge, timeline entry, reload persistence | `tests/tickets.spec.ts` |
 | Ticket detail — structural contract | Properties sidebar (Requester, Category, State), timeline, description | `tests/ticket-detail.spec.ts` |
-| Ticket detail — closed states | comment form hidden on resolved, closed, cancelled (browser-visible rejection) | `tests/ticket-detail.spec.ts` |
+| Ticket detail — closed states | comment form hidden on resolved, closed, cancelled; requester-owned close blocked (Move-to offers no `closed`) | `tests/ticket-detail.spec.ts` |
 | Ticket detail — priority change | HTMX swap on `#ticket-detail`: `critical` visible after swap, no navigation | `tests/ticket-detail.spec.ts` |
 | Users — creation+edition | create user, edit name and role via `/users/{id}/edit`, list reflects change, persists after reload | `tests/users.spec.ts` |
 | Users — agent downgrade handoff (issue #47) | downgrade a desk-member agent via `/users/{id}/edit`: 200 HX save (no generic 500), desk membership removed, open ticket reassigned to the remaining eligible member (persisted after reload), handoff audit reason visible in the timeline; unresolvable-desk branch leaves the ticket unassigned | `tests/users.spec.ts` |
