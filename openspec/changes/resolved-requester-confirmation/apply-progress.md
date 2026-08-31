@@ -1,7 +1,8 @@
-# Apply Progress — resolved-requester-confirmation (PR 1 of 5, stacked-to-main)
+# Apply Progress — resolved-requester-confirmation (stacked-to-main)
 
 Worktree: `feat/55-resolved-requester-confirmation` @ /home/gtesta/Projects/tkt-worktrees/issue-55-resolved-closed-split
-PR 1 scope = tasks 1.1–2.2 (Phase 1 + Phase 2). Strict TDD: RED → GREEN per task.
+PR 1 scope = tasks 1.1–2.2 (Phase 1 + Phase 2) — complete. PR 2 slice = task 3.1 (Phase 3 first half); 3.2–3.4 remain.
+Strict TDD: RED → GREEN per task.
 Toolchain: `GOTOOLCHAIN=go1.25.14` (go.mod requires ≥ 1.25.14; local go 1.25.11 otherwise refuses).
 
 ## Per-task progress
@@ -34,7 +35,7 @@ Evidence (workflow_uow.go @ HEAD 24fbb8a):
   BEFORE any write. **D4 branch resolved: no `workflow_runner.go` change needed.**
   Regression proof lands as task 2.2's RED characterization test.
 
-### 2.2 — Detachment conflict + runner "awaiting confirmation" regressions (commit pending)
+### 2.2 — Detachment conflict + runner "awaiting confirmation" regressions (commit `6119ec5`)
 Strict TDD held even for characterization: test (a) came out genuinely RED, not pre-green.
 
 **RED evidence — (a) detachment conflict (`TestWorkflowUoW_DetachedTicketPlanFailsWithVersionConflict`):**
@@ -63,15 +64,47 @@ Strict TDD held even for characterization: test (a) came out genuinely RED, not 
 | 2.1 | via-stamped audit accepted pre-GREEN | validator rejection green; matrices green | n/a |
 | 2.2 (a) | **genuine RED**: `sqlite: pinned workflow version 0 not found` (not typed conflict) — recheck ordering gap; fixed by the single D4 fact check in `ApplyWorkflowPlan` | typed conflict "workflow version mismatch" + `assertApplyNoWrites` | n/a |
 | 2.2 (b) | n/a (characterization: pre-green by design — pins runner's non-closing resolve) | resolve leaves resolved/no close/no closed_at; terminal matrices green | n/a |
+| 3.1 | stage 1 compile-fail (`undefined: application.ErrMsgClosureRequiresConfirmation`) + stage 2 behavioral (agent+admin denied cases `got <nil>`; requester-NULL case missing `manual_agent` stamp) | 3/3 subtests PASS; focused run ok; vet/gofmt/openspec clean | n/a |
 
 ## Gates snapshot (end of slice — updated per task)
+- `go test ./... -count=1`: all packages ok after 2.2; after 3.1 application/domain/sqlite ok but `internal/adapters/http` has 4 pre-existing tests failing on the new gate (see Deviations — outside this slice's edit roots)
 - `go test ./... -count=1 -race`: pending final run
-- `go vet ./...`: clean (after 1.1, re-confirmed after 2.2)
+- `go vet ./...`: clean (after 1.1, re-confirmed after 2.2 and 3.1)
 - `go build ./...`: pending final run
-- `gofmt -l .`: empty after 2.2 (excluding openspec/ markdown)
-- `openspec validate --all --strict`: 17/17 (re-confirmed after 2.2); `--archived` 7/7
+- `gofmt -l .`: empty after 2.2, re-confirmed after 3.1 (excluding openspec/ markdown)
+- `openspec validate --all --strict`: 17/17 (re-confirmed after 2.2 and 3.1); `--archived` 7/7
+
+## PR 2 / Task 3.1 — Manual-closure gate + `ClosureVia` stamping (commit `feat(application): block manual closure of requester-owned resolved tickets`)
+
+Strict TDD held: RED captured at both stages before any gate/stamping code.
+
+**RED stage 1 (compile):** new `internal/application/ticket_confirmation_test.go` (3 subtests,
+`TestManualClosureRequiresConfirmation`) failed to build — `undefined: application.ErrMsgClosureRequiresConfirmation`.
+
+**RED stage 2 (behavioral, after adding only the inert error-message constant to policy.go):**
+- `assigned_agent_denied_on_requester-owned` → `got <nil>` (no gate yet)
+- `admin_denied_on_requester-owned` → `got <nil>`
+- `requester-NULL_closes_manually_via_assigned_agent` → `closure event must record closure_via "manual_agent", got <nil>` (no stamping yet)
+
+**GREEN (implementation, +34 lines):**
+- `internal/application/policy.go`: `ErrMsgClosureRequiresConfirmation` const + `isTicketRequester(actor, t)` identity predicate (D3; `t.RequesterUserID != nil && *t.RequesterUserID == actor.ID`).
+- `internal/application/ticket_service.go` `Transition`: gate `from == resolved && to == closed && RequesterUserID != nil` → `ForbiddenError(ErrMsgClosureRequiresConfirmation)` BEFORE `t.Transition` (no write); after the transition, a `resolved → closed` event is stamped `event.ClosureVia = &domain.ClosureViaManualAgent` before the single `s.tx.Update`.
+- Test helper `seedResolvedTicket` reuses `seededTicket` + direct store Update to pin `RequesterUserID`/`UserID` (harness pattern from `TestAssignReassignRequiresReason`).
+
+**Gates:** focused run `go test ./internal/application -run TestManualClosureRequiresConfirmation -count=1` → ok · `go test ./... -count=1` → application/domain/sqlite all ok; HTTP failures documented below · `go vet ./...` clean · `gofmt -l` clean · `openspec validate --all --strict` → 17/17 · `--archived` → 7/7.
+
+**Deviation — pre-existing HTTP tests now fail on the new gate (expected per D8):** 4 tests in
+`internal/adapters/http/handlers_detail_test.go` drive `resolved → closed` on requester-owned tickets
+(the harness `seedTicket` always creates via the admin session, so every seeded ticket has a requester):
+`TestTicketTransitionFullCycle`, `TestTicketTransitionReopenRequiresReason`, `TestTicketTransitionReopenWithReason`,
+`TestTicketCommentOnClosedTicketRejected/closed`. Fixing them needs the seed/ticket fixture to be requester-NULL —
+an edit to `internal/adapters/http/*_test.go`, which is OUTSIDE this slice's allowed edit roots
+("internal/application/*, tasks.md, apply-progress.md — nothing else"). NOT fixed here by contract; PR 2's second
+half (task 3.2) or the orchestrator must adjust these 4 tests before `go test ./...` is fully green.
+Design D8 already anticipates reworking the resolved→closed journeys (5.1 covers e2e; this is the http test-layer twin).
 
 ## Deviations
 - Task 2.2 GREEN was **not** "expected none": the detachment RED test exposed a real gap (1.2's evidence verified the fact in `validateMutationPlan` but missed that `recheckSnapshot` runs first and errors un-typed on a detached pin). Fixed with the single missing fact check in `workflow_uow.go` exactly as design D4 anticipated ("apply adds one fact check to the recheck"). Documented in 2.2 section above.
 - Test (b) lives in `workflow_runner_terminal_test.go` (not `workflow_runner_test.go`): its helpers (`stampedSnap`, `wf`, `res`, `cmdFor`) are local to that file.
 - Tasks 1.4/2.1 checkboxes were found unchecked at slice start despite committed evidence (`a7d63ba`, `fe7b1e9`); reconciled to `[x]` per the persisted-task contract.
+- Task 3.1 leaves `internal/adapters/http` tests red on the new gate (see PR 2 / Task 3.1 section above): the 4 failing tests are the known policy fallout; the fix belongs to a slice whose edit roots include `internal/adapters/http/*_test.go`. Acceptance criterion of 3.1 ("go test ./... green; state machine tests from 1.1 untouched and green") is met for domain + application; the residual HTTP red is a fixture-adjustment task, not an implementation gap — flagged for the orchestrator before PR 2 completes.

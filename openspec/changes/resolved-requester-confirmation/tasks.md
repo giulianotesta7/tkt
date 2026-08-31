@@ -73,7 +73,7 @@ Forecast basis: 6 capabilities × 55 scenarios across domain, application, sqlit
 ## Phase 3 — Application services + policy (PR 2 = 3.1–3.2, PR 3 = 3.3–3.4)
 
 ### 3.1 Manual-closure gate + `ClosureVia` stamping in `Transition` (RED → GREEN)
-- [ ] 3.1 Manual-closure gate + `ClosureVia` stamping in `Transition` (RED → GREEN)
+- [x] 3.1 Manual-closure gate + `ClosureVia` stamping in `Transition` (RED → GREEN)
 - RED: new `internal/application/ticket_confirmation_test.go` — manual `resolved → closed` on a requester-owned ticket denied for `agent` (assigned), `admin`, `root` → `ForbiddenError(ErrMsgClosureRequiresConfirmation)`, state unchanged; requester-NULL `resolved → closed` by assigned agent/admin succeeds with event `ClosureVia = manual_agent` (D5/D6); role-`user` generic transitions still denied (regression).
 - GREEN: `internal/application/policy.go` — `isTicketRequester(actor, t)` identity predicate (D3, `requireFormActor` precedent); `internal/application/ticket_service.go` `Transition` gains the single gate `from == resolved && to == closed && t.RequesterUserID != nil → Forbidden` and stamps `ClosureViaManualAgent` on requester-NULL manual closures.
 - Acceptance: `go test ./...` green; state machine tests from 1.1 untouched and green.
