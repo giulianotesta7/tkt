@@ -281,3 +281,9 @@ Minimal fix (2 lines, file `internal/adapters/sqlite/ticket_store.go` — OUTSID
 - New `e2e/tests/ticket-confirmation.spec.ts` (3 journeys: confirm → closed with panel gone + Closed badge; reject → in_progress detached; blocked close for non-requester). Uses the same user-creation + ticket-ownership helper as 3.2/3.x (requester creates, staff drives to resolved, login as requester).
 - Validation: `npx playwright test --list` lists all 3 new journeys (parse/type-check via Playwright); the full suite requires a running browser/server in the worktree — CI runs it.
 - README rows added (functional + HTMX confirmation provenance).
+
+### 5.3 — Final verification gate (verify-report.md)
+- Verification performed fresh per the spec deltas; every requirement × scenario has a listed filing above. Report written to `openspec/changes/resolved-requester-confirmation/verify-report.md`.
+- Gates (fresh, captured 2026-08-31 on branch HEAD `5b7b3ee`): `go test ./...` 0 (all packages ok), `go build ./...` 0, `go vet ./...` 0, `gofmt -l internal/ web/` 0, `openspec validate --all --strict` 17/17, `npx playwright test --list` lists the new journeys (3 in ticket-confirmation + reworked closed-states), browser run CI-only.
+- Judgement Day: APPROVED (CRITICAL JD-A-001 fixed + regression round 2 verified).
+- Next: `sdd-sync` + `sdd-archive`.
