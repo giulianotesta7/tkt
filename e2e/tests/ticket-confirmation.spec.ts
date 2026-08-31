@@ -29,6 +29,9 @@ test.describe("Ticket confirmation", () => {
     requesterEmail: string,
     requesterPassword: string,
   ): Promise<string> {
+    // The caller is logged in as admin (to create the user); log out first so
+    // the requester session is clean before they create their own ticket.
+    await logout(page);
     // Requester (role user) creates the ticket → they become the requester.
     await loginAs(page, requesterEmail, requesterPassword);
     const title = "Confirmation probe " + Date.now().toString(36).slice(2, 8);
@@ -178,6 +181,8 @@ test.describe("Ticket confirmation", () => {
     const id = await requesterOwnedResolvedTicket(page, requesterEmail, requesterPassword);
 
     // View as the seeded admin (not the requester): no panel, no comment form, no `closed` in Move-to.
+    await logout(page);
+    await loginAsSeeded(page);
     await page.goto(base() + `/tickets/${id}`);
     await expect(page.locator(".resolution-confirmation")).toHaveCount(0);
     await expect(page.getByLabel(/comment body/i)).toHaveCount(0);
