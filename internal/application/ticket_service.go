@@ -319,6 +319,38 @@ func (s *TicketService) Transition(ctx context.Context, actor domain.User, ticke
 	return t, nil
 }
 
+// ConfirmResolution closes a requester-owned resolved ticket on the
+// requester's explicit OK (confirmation-closure delta): requester says yes,
+// the ticket becomes closed with closed_at stamped and resolved_at kept, and
+// the audit event is attributed as requester_confirmation under the
+// requester's identity. Authorization is the identity predicate (D3), NOT a
+// role capability: agents/admins/root can read the ticket and get Forbidden;
+// an out-of-scope role user gets NotFound from the scoped read (which already
+// denies). A non-resolved state is rejected by the state machine with no
+// write. No capability gate here by design: role user must reach this path —
+// it is the one role-user mutation the carve-out grants.
+func (s *TicketService) ConfirmResolution(ctx context.Context, actor domain.User, ticketID int64) (*domain.Ticket, error) {
+	t, err := s.tickets.GetByID(ctx, ticketID, scopedQuery(actor, TicketQuery{}))
+	if err != nil {
+		return nil, err
+	}
+	if !isTicketRequester(actor, t) {
+		return nil, domain.NewForbiddenError(ErrMsgNotTicketRequester)
+	}
+	event, err := t.Transition(domain.StateClosed, "", s.clock.Now())
+	if err != nil {
+		return nil, err
+	}
+	event.Actor = actor.Name
+	event.ActorUserID = &actor.ID
+	via := domain.ClosureViaRequesterConfirmation
+	event.ClosureVia = &via
+	if err := s.tx.Update(ctx, t, *event); err != nil {
+		return nil, err
+	}
+	return t, nil
+}
+
 // Update applies field edits (title, priority). The description and the
 // category are immutable after creation — they exist on the aggregate but
 // the update surface (TicketUpdate) does not carry them, so they can never

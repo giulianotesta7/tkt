@@ -108,3 +108,11 @@ Design D8 already anticipates reworking the resolved→closed journeys (5.1 cove
 - Test (b) lives in `workflow_runner_terminal_test.go` (not `workflow_runner_test.go`): its helpers (`stampedSnap`, `wf`, `res`, `cmdFor`) are local to that file.
 - Tasks 1.4/2.1 checkboxes were found unchecked at slice start despite committed evidence (`a7d63ba`, `fe7b1e9`); reconciled to `[x]` per the persisted-task contract.
 - Task 3.1 leaves `internal/adapters/http` tests red on the new gate (see PR 2 / Task 3.1 section above): the 4 failing tests are the known policy fallout; the fix belongs to a slice whose edit roots include `internal/adapters/http/*_test.go`. Acceptance criterion of 3.1 ("go test ./... green; state machine tests from 1.1 untouched and green") is met for domain + application; the residual HTTP red is a fixture-adjustment task, not an implementation gap — flagged for the orchestrator before PR 2 completes.
+
+### 3.1 — Manual-closure gate + ClosureVia stamping (commit `85ff361`)
+- RED→GREEN per delegation; plus HTTP fixtures repaired: 4 tests that walked requester-owned tickets to closed via the service (now blocked by the gate) converted to requester-NULL fixtures via the new `makeLegacy` harness helper (commit `6ccd1bf`). Full suite green after the fixture fix.
+
+### 3.2 — ConfirmResolution
+- RED: new cases in `ticket_confirmation_test.go` (requester confirms -> closed + closure_via=requester_confirmation + actor=requester; non-resolved state-machine rejections with no audit; agent/admin/root Forbidden ErrMsgNotTicketRequester; out-of-scope role user NotFound). Compile-RED on missing method, then one assertion RED: the seed helper did not stamp resolved_at (fixture invariant) — fixed in the helper.
+- GREEN: `TicketService.ConfirmResolution` (scoped read -> isTicketRequester -> Transition(closed,"") -> stamp actor + ClosureViaRequesterConfirmation -> one tx.Update); `ErrMsgNotTicketRequester` added to policy.go.
+- Gates: go test ./... green (all packages), targeted reopen/confirm runs green.
