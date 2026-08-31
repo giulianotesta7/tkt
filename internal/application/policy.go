@@ -2,6 +2,16 @@ package application
 
 import "github.com/giulianotesta7/tkt/internal/domain"
 
+// Authorization failure messages for application-layer identity and
+// policy gates (application package scope; domain error shapes carry them).
+const (
+	// ErrMsgClosureRequiresConfirmation rejects a manual resolved -> closed
+	// transition on a ticket that has a requester: the resolution closure is
+	// exclusively the requester's confirmation path (state-machine and
+	// role-authorization deltas: denied for every actor).
+	ErrMsgClosureRequiresConfirmation = "a requester-owned resolved ticket can only be closed by the requester's confirmation"
+)
+
 // Capability identifies a single server-side permission (role-authorization
 // spec: every authorization check is enforced at the application boundary
 // BEFORE any query or view composition; template gating never substitutes
@@ -199,6 +209,15 @@ func (p *Policy) ReadScope(role domain.Role) TicketScope {
 	default:
 		return ScopeNone
 	}
+}
+
+// isTicketRequester reports whether the actor is the persisted ticket's
+// requester (identity check, no role bypass — the requireFormActor precedent
+// at workflow_runner.go). This is deliberately NOT a Capability:
+// capabilities are role-keyed and would wrongly authorize agents/admins,
+// whom the role-authorization delta explicitly denies confirmation.
+func isTicketRequester(actor domain.User, t *domain.Ticket) bool {
+	return t.RequesterUserID != nil && *t.RequesterUserID == actor.ID
 }
 
 // scopedQuery returns q restricted to the actor's ticket access scope

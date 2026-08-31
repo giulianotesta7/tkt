@@ -292,12 +292,27 @@ func (s *TicketService) Transition(ctx context.Context, actor domain.User, ticke
 	if err != nil {
 		return nil, err
 	}
+	// Manual-closure gate (state-machine delta): a manual resolved -> closed
+	// transition on a ticket that HAS a requester is rejected for every actor —
+	// closure of a requester-owned resolution is exclusively the requester's
+	// confirmation path. Requester-NULL tickets keep manual agent closure.
+	from := t.State
+	if from == domain.StateResolved && to == domain.StateClosed && t.RequesterUserID != nil {
+		return nil, domain.NewForbiddenError(ErrMsgClosureRequiresConfirmation)
+	}
 	event, err := t.Transition(to, reason, s.clock.Now())
 	if err != nil {
 		return nil, err
 	}
 	event.Actor = actor.Name
 	event.ActorUserID = &actor.ID
+	// Closure attribution (audit-log delta): a manual agent closure of a
+	// requester-NULL ticket is stamped manual_agent; requester-confirmed and
+	// workflow-terminal closures attribute themselves elsewhere (D1).
+	if to == domain.StateClosed && from == domain.StateResolved {
+		via := domain.ClosureViaManualAgent
+		event.ClosureVia = &via
+	}
 	if err := s.tx.Update(ctx, t, *event); err != nil {
 		return nil, err
 	}
