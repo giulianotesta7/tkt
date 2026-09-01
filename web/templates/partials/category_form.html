@@ -1,10 +1,23 @@
 {{define "category_form"}}
 <form class="card form-card" method="post" action="{{if .CategoryID}}/categories/{{.CategoryID}}/edit{{else}}/categories{{end}}">
-  <h2>{{if .CategoryID}}Rename category{{else}}New category{{end}}</h2>
+  <h2>{{if .CategoryID}}Edit category{{else}}New category{{end}}</h2>
 {{if .Error}}<div class="error-banner" role="alert">{{.Error}}</div>{{end}}
   <div class="field">
     <label for="name">Name</label>
     <input type="text" id="name" name="name" value="{{.Name}}" required autofocus>
+  </div>
+{{if .Areas}}
+  <div class="field">
+    <label for="area_id">Area</label>
+    <select id="area_id" name="area_id" required>
+      <option value="">Select area</option>
+      {{range .Areas}}<option value="{{.ID}}" {{if eq .ID $.AreaID}}selected{{end}}>{{.DepartmentID}} — {{.Name}}</option>{{end}}
+    </select>
+  </div>
+{{end}}
+  <div class="field">
+    <label for="description">Short description</label>
+    <textarea id="description" name="description" required>{{.Description}}</textarea>
   </div>
   <button class="btn primary" type="submit">{{if .CategoryID}}Save changes{{else}}Create category{{end}}</button>
 </form>

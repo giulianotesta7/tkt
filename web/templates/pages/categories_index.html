@@ -1,33 +1,23 @@
 {{define "content"}}
   <div class="command-header">
-    <div>
-      <h1 class="command-title">Categories</h1>
-      <p class="command-sub">{{len .Categories}} ticket categor{{if eq (len .Categories) 1}}y{{else}}ies{{end}}</p>
-    </div>
+    <div><h1 class="command-title">Categories</h1><p class="command-sub">Manage departments, areas, categories, and workflows</p></div>
     <div class="command-actions"><a class="btn primary" href="/categories/new">New category</a></div>
   </div>
 {{if .Error}}<div class="error-banner" role="alert">{{.Error}}</div>{{end}}
-  <div class="category-table-shell">
-    <table class="category-table">
-      <thead><tr><th scope="col">Category</th><th scope="col">Created</th><th scope="col">Status</th><th scope="col">Actions</th></tr></thead>
-      <tbody>
-{{range .Categories}}
-        <tr>
-          <td data-label="Category"><span class="category-name">{{.Name}}</span></td>
-          <td data-label="Created" class="category-created">{{template "timestamp" .CreatedAt}}</td>
-          <td data-label="Status">{{with index $.Badges .ID}}<span class="badge {{if eq . "Draft"}}in_progress{{else}}resolved{{end}}">{{.}}</span>{{else}}<span class="category-status-empty">Not configured</span>{{end}}</td>
-          <td data-label="Actions">
-            <div class="category-actions">
-              <a class="btn ghost small" href="/categories/{{.ID}}/workflow">Configure workflow</a>
-              <a class="btn ghost small" href="/categories/{{.ID}}/edit">Edit</a>
-              <form method="post" action="/categories/{{.ID}}/delete"><button class="btn danger small" type="submit">Delete category</button></form>
-            </div>
-          </td>
-        </tr>
-{{else}}
-        <tr><td class="empty" colspan="4">No categories yet — tickets need at least one.</td></tr>
-{{end}}
-      </tbody>
-    </table>
+{{if .Departments}}
+  <div class="catalog-admin-grid">
+    <section class="card catalog-admin-panel"><h2>Departments</h2>
+      <form method="post" action="/categories/departments" class="inline-form"><input name="name" placeholder="Department name" required><input name="description" placeholder="Description"><button class="btn primary small" type="submit">Add department</button></form>
+      {{range .Departments}}<div class="admin-row"><form method="post" action="/categories/departments/{{.ID}}/edit" class="inline-form"><input name="name" value="{{.Name}}" required><input name="description" value="{{.Description}}"><button class="btn ghost small" type="submit">Save</button></form><form method="post" action="/categories/departments/{{.ID}}/delete"><button class="btn danger small" type="submit">Delete</button></form></div>{{end}}
+    </section>
+    <section class="card catalog-admin-panel"><h2>Areas</h2>
+      <form method="post" action="/categories/areas" class="inline-form"><select name="department_id" required><option value="">Department</option>{{range .Departments}}<option value="{{.ID}}">{{.Name}}</option>{{end}}</select><input name="name" placeholder="Area name" required><input name="description" placeholder="Description"><button class="btn primary small" type="submit">Add area</button></form>
+      {{range .Areas}}<div class="admin-row"><form method="post" action="/categories/areas/{{.ID}}/edit" class="inline-form"><input type="hidden" name="department_id" value="{{.DepartmentID}}"><input name="name" value="{{.Name}}" required><input name="description" value="{{.Description}}"><button class="btn ghost small" type="submit">Save</button></form><form method="post" action="/categories/areas/{{.ID}}/delete"><button class="btn danger small" type="submit">Delete</button></form></div>{{end}}
+    </section>
   </div>
+{{end}}
+  <div class="category-table-shell"><table class="category-table"><thead><tr><th scope="col">Category</th><th scope="col">Description</th><th scope="col">Created</th><th scope="col">Status</th><th scope="col">Actions</th></tr></thead><tbody>
+{{range .Categories}}<tr><td data-label="Category"><span class="category-name">{{.Name}}</span></td><td data-label="Description" class="category-created">{{.Description}}</td><td data-label="Created" class="category-created">{{template "timestamp" .CreatedAt}}</td><td data-label="Status">{{with index $.Badges .ID}}{{if eq . "Draft"}}<span class="badge in_progress">Draft</span>{{else}}<span class="badge resolved">{{.}}</span>{{end}}{{else}}<span class="category-status-empty">Not configured</span>{{end}}</td><td data-label="Actions"><div class="category-actions"><a class="btn ghost small" href="/categories/{{.ID}}/workflow">Configure workflow</a><a class="btn ghost small" href="/categories/{{.ID}}/edit">Edit</a><form method="post" action="/categories/{{.ID}}/delete"><button class="btn danger small" type="submit">Delete category</button></form></div></td></tr>
+{{else}}<tr><td class="empty" colspan="5">No categories yet — add a department, area, and category to get started.</td></tr>{{end}}
+  </tbody></table></div>
 {{end}}
