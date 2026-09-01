@@ -129,6 +129,9 @@ func TestMigration0010_AdditiveOnlyUpgrade(t *testing.T) {
 	// 0010.
 	post0010FS := fstest.MapFS{}
 	for _, entry := range entries {
+		if strings.Compare(entry.Name(), "0011_ticket_catalog_hierarchy.sql") >= 0 {
+			continue // this regression targets the pre-catalog 0010 boundary
+		}
 		blob, err := fs.ReadFile(migrationsFS, "migrations/"+entry.Name())
 		if err != nil {
 			t.Fatalf("read %s: %v", entry.Name(), err)

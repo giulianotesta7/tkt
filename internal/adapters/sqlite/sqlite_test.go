@@ -2,6 +2,7 @@ package sqlite
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"io/fs"
 	"path/filepath"
@@ -47,9 +48,24 @@ func newTestDB(t *testing.T) *Store {
 // seedCategory inserts a category directly (test arrange) and returns its id.
 func seedCategory(t *testing.T, s *Store, name string) int64 {
 	t.Helper()
-	res, err := s.db.ExecContext(context.Background(),
-		`INSERT INTO categories (name, created_at) VALUES (?, ?)`,
-		name, "2026-08-06T10:00:00Z")
+	ctx := context.Background()
+	var hasAreaID bool
+	var areaColumns int
+	if err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM pragma_table_info('categories') WHERE name='area_id'`).Scan(&areaColumns); err != nil {
+		t.Fatalf("inspect category schema: %v", err)
+	}
+	hasAreaID = areaColumns == 1
+	var res sql.Result
+	var err error
+	if hasAreaID {
+		res, err = s.db.ExecContext(ctx,
+			`INSERT INTO categories (name, area_id, created_at) VALUES (?, (SELECT id FROM areas WHERE name='General' ORDER BY id LIMIT 1), ?)`,
+			name, "2026-08-06T10:00:00Z")
+	} else {
+		res, err = s.db.ExecContext(ctx,
+			`INSERT INTO categories (name, created_at) VALUES (?, ?)`,
+			name, "2026-08-06T10:00:00Z")
+	}
 	if err != nil {
 		t.Fatalf("seed category %q: %v", name, err)
 	}
@@ -125,8 +141,8 @@ func TestMigrateCreatesSchema(t *testing.T) {
 	if err := s.db.QueryRow(`SELECT COUNT(*) FROM schema_migrations`).Scan(&applied); err != nil {
 		t.Fatalf("schema_migrations: %v", err)
 	}
-	if applied != 10 {
-		t.Errorf("schema_migrations rows = %d, want 10 (through 0010_audit_closure_via)", applied)
+	if applied != 11 {
+		t.Errorf("schema_migrations rows = %d, want 11 (through 0011_ticket_catalog_hierarchy)", applied)
 	}
 
 	rows, err := s.db.Query(`SELECT version FROM schema_migrations ORDER BY version`)
@@ -142,8 +158,8 @@ func TestMigrateCreatesSchema(t *testing.T) {
 		}
 		versions = append(versions, v)
 	}
-	if len(versions) != 10 || versions[0] != 1 || versions[1] != 2 || versions[2] != 3 || versions[3] != 4 || versions[4] != 5 || versions[5] != 6 || versions[6] != 7 || versions[7] != 8 || versions[8] != 9 || versions[9] != 10 {
-		t.Errorf("versions = %v, want [1 2 3 4 5 6 7 8 9 10]", versions)
+	if len(versions) != 11 || versions[0] != 1 || versions[1] != 2 || versions[2] != 3 || versions[3] != 4 || versions[4] != 5 || versions[5] != 6 || versions[6] != 7 || versions[7] != 8 || versions[8] != 9 || versions[9] != 10 || versions[10] != 11 {
+		t.Errorf("versions = %v, want [1 2 3 4 5 6 7 8 9 10 11]", versions)
 	}
 }
 
@@ -156,8 +172,8 @@ func TestMigrateRerunIsNoOp(t *testing.T) {
 	if err := s.db.QueryRow(`SELECT COUNT(*) FROM schema_migrations`).Scan(&applied); err != nil {
 		t.Fatalf("schema_migrations: %v", err)
 	}
-	if applied != 10 {
-		t.Errorf("rerun recorded %d versions, want 10 (no-op)", applied)
+	if applied != 11 {
+		t.Errorf("rerun recorded %d versions, want 11 (no-op)", applied)
 	}
 }
 

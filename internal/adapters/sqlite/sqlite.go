@@ -79,6 +79,9 @@ func (s *Store) SearchStore() application.SearchStore { return newSearchStore(s.
 // task 5.4 is its first consumer — ticket forms and filters list categories.
 func (s *Store) CategoryStore() application.CategoryStore { return newCategoryStore(s.db) }
 
+// CatalogStore returns the department/area/category hierarchy port.
+func (s *Store) CatalogStore() application.CatalogStore { return newCatalogStore(s.db) }
+
 // DeskStore returns the desk and membership port.
 func (s *Store) DeskStore() application.DeskStore { return newDeskStore(s.db) }
 
