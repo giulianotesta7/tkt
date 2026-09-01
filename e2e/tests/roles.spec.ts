@@ -11,7 +11,10 @@
 
 import { test, expect } from "@playwright/test";
 import { startServer, stopServer, activeServer } from "../server-lifecycle.js";
-import { assertCanonicalScreen, collectObservability } from "./helpers/layout.js";
+import {
+  assertCanonicalScreen,
+  collectObservability,
+} from "./helpers/layout.js";
 import { assertHtmxSwap } from "./helpers/htmx.js";
 import { base, seededCredentials } from "./helpers/auth.js";
 import { createTicketViaUi } from "./helpers/navigation.js";
@@ -22,7 +25,11 @@ function baseURL(): string {
   return activeServer.baseURL;
 }
 
-async function login(page: import("@playwright/test").Page, email: string, password: string) {
+async function login(
+  page: import("@playwright/test").Page,
+  email: string,
+  password: string,
+) {
   await page.goto(baseURL() + "/login");
   await page.getByLabel(/email/i).fill(email);
   await page.getByLabel(/password/i).fill(password);
@@ -32,7 +39,12 @@ async function login(page: import("@playwright/test").Page, email: string, passw
 
 async function createUserAndSetRole(
   page: import("@playwright/test").Page,
-  opts: { name: string; email: string; password: string; role?: "user" | "agent" | "admin" },
+  opts: {
+    name: string;
+    email: string;
+    password: string;
+    role?: "user" | "agent" | "admin";
+  },
 ) {
   await page.goto(baseURL() + "/users/new");
   await page.getByLabel(/^name$/i).fill(opts.name);
@@ -42,31 +54,46 @@ async function createUserAndSetRole(
   await expect(page).toHaveURL(/\/users/);
   await expect(page.getByText(opts.name)).toBeVisible();
   if (opts.role && opts.role !== "user") {
-    const row = page.locator("tr[data-user-name]").filter({ has: page.getByText(opts.name, { exact: true }) });
+    const row = page
+      .locator("tr[data-user-name]")
+      .filter({ has: page.getByText(opts.name, { exact: true }) });
     await expect(row).toHaveCount(1);
     const editLink = row.locator('a[href*="/users/"][href*="/edit"]').first();
     let href = await editLink.getAttribute("href");
     if (!href) throw new Error("edit href missing for " + opts.name);
     href = href.split("?")[0];
     await page.goto(baseURL() + href);
-    await expect(page.getByRole("heading", { name: /edit user/i })).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: /edit user/i }),
+    ).toBeVisible();
     const roleSelect = page.locator('select[name="role"]');
     await expect(roleSelect).toBeVisible();
     await roleSelect.selectOption(opts.role);
-    const userID = new URL(href, page.url()).pathname.match(/^\/users\/(\d+)\/edit$/)?.[1];
-    if (!userID) throw new Error(`Could not resolve exact user ID from ${href} at ${page.url()}`);
-    await assertHtmxSwap(page, async () => {
-      await page.getByRole("button", { name: /save changes/i }).click();
-    }, {
-      endpoint: `/users/${userID}/edit`,
-      method: "POST",
-      expectedStatus: 200,
-      hxTarget: "#users-root",
-      expectedUrl: /\/users$/,
-    });
+    const userID = new URL(href, page.url()).pathname.match(
+      /^\/users\/(\d+)\/edit$/,
+    )?.[1];
+    if (!userID)
+      throw new Error(
+        `Could not resolve exact user ID from ${href} at ${page.url()}`,
+      );
+    await assertHtmxSwap(
+      page,
+      async () => {
+        await page.getByRole("button", { name: /save changes/i }).click();
+      },
+      {
+        endpoint: `/users/${userID}/edit`,
+        method: "POST",
+        expectedStatus: 200,
+        hxTarget: "#users-root",
+        expectedUrl: /\/users$/,
+      },
+    );
     const savedRow = page.locator(`tr[data-user-name="${opts.name}"]`);
     await expect(savedRow).toHaveCount(1);
-    await expect(savedRow).toContainText(opts.role === "admin" ? "Admin" : "Agent");
+    await expect(savedRow).toContainText(
+      opts.role === "admin" ? "Admin" : "Agent",
+    );
   }
   return opts.email;
 }
@@ -83,7 +110,9 @@ test.describe("Role — root via bootstrap (empty base)", () => {
     await page.setViewportSize({ width: 1280, height: 800 });
     const obs = collectObservability(page);
     await page.goto(baseURL() + "/setup");
-    await expect(page.getByRole("heading", { name: /set up tkt/i })).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: /set up tkt/i }),
+    ).toBeVisible();
     const email = "root-bootstrap@example.com";
     await page.getByLabel(/name/i).fill("Root Bootstrap");
     await page.getByLabel(/email/i).fill(email);
@@ -94,7 +123,9 @@ test.describe("Role — root via bootstrap (empty base)", () => {
     for (const path of ["/users", "/desks", "/categories", "/settings"]) {
       await page.goto(baseURL() + path);
       await expect(page).not.toHaveURL(/\/login/);
-      await expect(page.locator("body")).not.toContainText(/forbidden|not allowed/i);
+      await expect(page.locator("body")).not.toContainText(
+        /forbidden|not allowed/i,
+      );
       await expect(page.locator("h1").first()).toBeVisible();
     }
     await assertCanonicalScreen(page, {
@@ -118,7 +149,9 @@ test.describe("Role — minimal matrix admin / agent / user (seeded)", () => {
     await stopServer();
   });
 
-  test("admin / agent / user minimal matrix (browser-visible)", async ({ page }) => {
+  test("admin / agent / user minimal matrix (browser-visible)", async ({
+    page,
+  }) => {
     test.setTimeout(90000);
     await page.setViewportSize({ width: 1280, height: 800 });
     const obs = collectObservability(page);
@@ -149,9 +182,15 @@ test.describe("Role — minimal matrix admin / agent / user (seeded)", () => {
     await page.goto(baseURL() + "/categories/new");
     const catName = "AdminCat " + Date.now().toString(36).slice(2, 8);
     await page.getByLabel(/name/i).fill(catName);
+    await page
+      .getByLabel(/description/i)
+      .fill("Category created by the admin role.");
+    await page.getByLabel(/^area$/i).selectOption({ label: "1 — General" });
     await page.getByRole("button", { name: /create category|save/i }).click();
     await expect(page).toHaveURL(/\/categories/);
-    await expect(page.getByText(catName)).toBeVisible();
+    await expect(
+      page.locator(".category-name").filter({ hasText: catName }),
+    ).toBeVisible();
 
     // Agent: one allowed operative action — create a ticket (no error, even though not in agent's own list)
     await page.getByRole("button", { name: /log out|sign out/i }).click();
@@ -159,10 +198,13 @@ test.describe("Role — minimal matrix admin / agent / user (seeded)", () => {
     await login(page, agentEmail, "Secret123!");
     const agentTicket = "Agent ticket " + Date.now().toString(36).slice(2, 8);
     await page.goto(baseURL() + "/tickets/new");
-    await expect(page.locator("h2")).toContainText(/ticket details/i);
+    await page
+      .locator(".catalog-category")
+      .filter({ hasText: "General" })
+      .first()
+      .click();
     await page.getByLabel(/title/i).fill(agentTicket);
     await page.getByLabel(/description/i).fill("agent probe");
-    await page.getByLabel(/category/i).selectOption({ label: "General" });
     await page.getByLabel(/priority/i).selectOption("low");
     await page.getByRole("button", { name: /create ticket/i }).click();
     await expect(page).toHaveURL(/\/tickets/);
@@ -170,18 +212,27 @@ test.describe("Role — minimal matrix admin / agent / user (seeded)", () => {
     // Agent admin access forbidden — browser navigation shows error
     for (const path of ["/users", "/categories", "/desks", "/settings"]) {
       await page.goto(baseURL() + path);
-      await expect(page.locator("body")).toContainText(/forbidden|not allowed/i, { timeout: 10000 });
+      await expect(page.locator("body")).toContainText(
+        /forbidden|not allowed/i,
+        { timeout: 10000 },
+      );
       expect(page.url()).toContain(path);
     }
     // Clear session before user (403 page has no logout)
     await page.context().clearCookies();
     await page.goto(baseURL() + "/login");
-    await expect(page.getByRole("heading", { name: /sign in to tkt/i })).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: /sign in to tkt/i }),
+    ).toBeVisible();
 
     // User: one allowed action — create a ticket, internal controls hidden, admin forbidden
     await login(page, userEmail, "Secret123!");
     const userTicket = "User ticket " + Date.now().toString(36).slice(2, 8);
-    const userTicketId = await createTicketViaUi(page, { title: userTicket, category: "General", priority: "low" });
+    const userTicketId = await createTicketViaUi(page, {
+      title: userTicket,
+      category: "General",
+      priority: "low",
+    });
     await expect(page.getByText(userTicket)).toBeVisible();
     await page.goto(baseURL() + `/tickets/${userTicketId}`);
     await expect(page.locator("#ticket-detail")).toBeVisible();
@@ -189,7 +240,10 @@ test.describe("Role — minimal matrix admin / agent / user (seeded)", () => {
     await expect(page.getByLabel(/comment body/i)).toBeVisible();
     for (const path of ["/users", "/desks", "/categories", "/settings"]) {
       await page.goto(baseURL() + path);
-      await expect(page.locator("body")).toContainText(/forbidden|not allowed/i, { timeout: 10000 });
+      await expect(page.locator("body")).toContainText(
+        /forbidden|not allowed/i,
+        { timeout: 10000 },
+      );
     }
 
     // Filter expected 403 console errors from intentional forbidden navigations
@@ -206,7 +260,9 @@ test.describe("Role — minimal matrix admin / agent / user (seeded)", () => {
     });
   });
 
-  test("user cannot see internal comment checkbox but can add public comment", async ({ page }) => {
+  test("user cannot see internal comment checkbox but can add public comment", async ({
+    page,
+  }) => {
     await page.setViewportSize({ width: 1280, height: 800 });
     const obs = collectObservability(page);
     // Use the seeded root to create a fresh user for this isolated test
@@ -222,13 +278,20 @@ test.describe("Role — minimal matrix admin / agent / user (seeded)", () => {
     await expect(page).toHaveURL(/\/login/);
     await login(page, uEmail, "Secret123!");
     const title = "User public comment " + Date.now().toString(36).slice(2, 8);
-    const id = await createTicketViaUi(page, { title, category: "General", priority: "low" });
+    const id = await createTicketViaUi(page, {
+      title,
+      category: "General",
+      priority: "low",
+    });
     await page.goto(baseURL() + `/tickets/${id}`);
     await expect(page.locator("#ticket-detail")).toBeVisible();
     await expect(page.getByLabel(/internal comment/i)).toHaveCount(0);
     const comment = "User public " + Date.now().toString(36).slice(2, 6);
     await page.getByLabel(/comment body/i).fill(comment);
-    const commentResponsePromise = waitForExactPost(page, `/tickets/${id}/comments`);
+    const commentResponsePromise = waitForExactPost(
+      page,
+      `/tickets/${id}/comments`,
+    );
     await Promise.all([
       commentResponsePromise,
       page.getByRole("button", { name: /add comment/i }).click(),

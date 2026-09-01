@@ -17,10 +17,18 @@
 
 import { test, expect, type Locator, type Page } from "@playwright/test";
 import { startServer, stopServer } from "../server-lifecycle.js";
-import { assertCanonicalScreen, collectObservability } from "./helpers/layout.js";
+import {
+  assertCanonicalScreen,
+  collectObservability,
+} from "./helpers/layout.js";
 import { assertHtmxSwap } from "./helpers/htmx.js";
 import { base, seededCredentials } from "./helpers/auth.js";
-import { createTicketViaUi, resolveCategoryEditHref, resolveUserEditHref, resolveWorkflowHref } from "./helpers/navigation.js";
+import {
+  createTicketViaUi,
+  resolveCategoryEditHref,
+  resolveUserEditHref,
+  resolveWorkflowHref,
+} from "./helpers/navigation.js";
 
 const viewports = [
   { width: 390, height: 844, label: "390px" },
@@ -85,22 +93,102 @@ function authenticatedScreens(deps: {
   userEditHref: string;
 }): StructuralScreen[] {
   return [
-    { label: `/tickets`, path: "/tickets", heading: (p) => p.locator('h1:has-text("Tickets")'), control: (p) => p.getByRole("link", { name: /new ticket/i }).or(p.locator('input[aria-label="Search tickets"]')) },
-    { label: `/tickets/new`, path: "/tickets/new", heading: (p) => p.locator('h1:has-text("New ticket")'), control: (p) => p.getByRole("button", { name: /create ticket/i }) },
-    { label: `/tickets/{id}`, path: () => Promise.resolve(`/tickets/${deps.ticketId}`), heading: (p) => p.locator("#ticket-detail"), control: (p) => p.locator("#ticket-detail").locator('textarea, [aria-label="Ticket title"], button:has-text("Add comment")').first() },
-    { label: `/users`, path: "/users", heading: (p) => p.locator("#users-list-title"), control: (p) => p.getByRole("link", { name: /new user/i }) },
-    { label: `/users/new`, path: "/users/new", heading: (p) => p.getByRole("heading", { name: "New user", exact: true }), control: (p) => p.getByRole("button", { name: /create user/i }) },
-    { label: `/users/{id}/edit`, path: () => Promise.resolve(deps.userEditHref), heading: (p) => p.locator("h2").filter({ hasText: /edit user|operator details/i }), control: (p) => p.getByRole("button", { name: /save changes/i }) },
-    { label: `/categories`, path: "/categories", heading: (p) => p.locator('h1:has-text("Categories")'), control: (p) => p.getByRole("link", { name: /new category/i }) },
-    { label: `/categories/new`, path: "/categories/new", heading: (p) => p.locator('h1:has-text("New category")'), control: (p) => p.getByRole("button", { name: /create category|save/i }) },
-    { label: `/categories/{id}/edit`, path: () => Promise.resolve(deps.categoryEditHref), heading: (p) => p.locator('h1:has-text("Rename category")'), control: (p) => p.getByRole("button", { name: /save/i }) },
-    { label: `/categories/{id}/workflow`, path: () => Promise.resolve(deps.workflowHref), heading: (p) => p.locator("h1").filter({ hasText: /category workflow/i }), control: (p) => p.locator("#workflow-builder") },
-    { label: `/desks`, path: "/desks", heading: (p) => p.locator('h1:has-text("Desks")'), control: (p) => p.locator("details.desk-create summary") },
-    { label: `/settings`, path: "/settings", heading: (p) => p.locator('h1:has-text("Settings")'), control: (p) => p.locator('input[name="internal_comment_bg"]') },
+    {
+      label: `/tickets`,
+      path: "/tickets",
+      heading: (p) => p.locator('h1:has-text("Tickets")'),
+      control: (p) =>
+        p
+          .getByRole("link", { name: /new ticket/i })
+          .or(p.locator('input[aria-label="Search tickets"]')),
+    },
+    {
+      label: `/tickets/new`,
+      path: "/tickets/new",
+      heading: (p) => p.getByRole("heading", { name: /create a ticket/i }),
+      control: (p) =>
+        p.getByPlaceholder(/search categories, areas, or departments/i),
+    },
+    {
+      label: `/tickets/{id}`,
+      path: () => Promise.resolve(`/tickets/${deps.ticketId}`),
+      heading: (p) => p.locator("#ticket-detail"),
+      control: (p) =>
+        p
+          .locator("#ticket-detail")
+          .locator(
+            'textarea, [aria-label="Ticket title"], button:has-text("Add comment")',
+          )
+          .first(),
+    },
+    {
+      label: `/users`,
+      path: "/users",
+      heading: (p) => p.locator("#users-list-title"),
+      control: (p) => p.getByRole("link", { name: /new user/i }),
+    },
+    {
+      label: `/users/new`,
+      path: "/users/new",
+      heading: (p) => p.getByRole("heading", { name: "New user", exact: true }),
+      control: (p) => p.getByRole("button", { name: /create user/i }),
+    },
+    {
+      label: `/users/{id}/edit`,
+      path: () => Promise.resolve(deps.userEditHref),
+      heading: (p) =>
+        p.locator("h2").filter({ hasText: /edit user|operator details/i }),
+      control: (p) => p.getByRole("button", { name: /save changes/i }),
+    },
+    {
+      label: `/categories`,
+      path: "/categories",
+      heading: (p) => p.locator('h1:has-text("Categories")'),
+      control: (p) => p.getByRole("link", { name: /new category/i }),
+    },
+    {
+      label: `/categories/new`,
+      path: "/categories/new",
+      heading: (p) => p.locator('h1:has-text("New category")'),
+      control: (p) => p.getByRole("button", { name: /create category|save/i }),
+    },
+    {
+      label: `/categories/{id}/edit`,
+      path: () => Promise.resolve(deps.categoryEditHref),
+      heading: (p) => p.locator('h1:has-text("Rename category")'),
+      control: (p) => p.getByRole("button", { name: /save/i }),
+    },
+    {
+      label: `/categories/{id}/workflow`,
+      path: () => Promise.resolve(deps.workflowHref),
+      heading: (p) => p.locator("h1").filter({ hasText: /category workflow/i }),
+      control: (p) => p.locator("#workflow-builder"),
+    },
+    {
+      label: `/desks`,
+      path: "/desks",
+      heading: (p) => p.locator('h1:has-text("Desks")'),
+      control: (p) => p.locator("details.desk-create summary"),
+    },
+    {
+      label: `/settings`,
+      path: "/settings",
+      heading: (p) => p.locator('h1:has-text("Settings")'),
+      control: (p) => p.locator('input[name="internal_comment_bg"]'),
+    },
   ];
 }
 
-let fixture: { ticketId: string; workflowHref: string; categoryEditHref: string; userEditHref: string; seededUserName: string; seededUserEmail: string } | undefined;
+let fixture:
+  | {
+      ticketId: string;
+      workflowHref: string;
+      categoryEditHref: string;
+      userEditHref: string;
+      seededUserName: string;
+      seededUserEmail: string;
+    }
+  | undefined;
 
 test.describe("Structural — seeded canonical screens", () => {
   test.beforeAll(async ({ browser }) => {
@@ -116,7 +204,10 @@ test.describe("Structural — seeded canonical screens", () => {
       await page.getByRole("button", { name: /log in|sign in/i }).click();
       await expect(page).toHaveURL(/\/tickets/);
 
-      const ticketTitle = "Structural ticket " + Date.now() + Math.random().toString(36).slice(2, 6);
+      const ticketTitle =
+        "Structural ticket " +
+        Date.now() +
+        Math.random().toString(36).slice(2, 6);
       const ticketId = await createTicketViaUi(page, {
         title: ticketTitle,
         description: "probe",
@@ -128,26 +219,38 @@ test.describe("Structural — seeded canonical screens", () => {
       const workflowHref = await resolveWorkflowHref(page);
       const categoryEditHref = await resolveCategoryEditHref(page, "General");
 
-      const seededUserName = "StructUser " + Date.now().toString(36).slice(2, 6);
+      const seededUserName =
+        "StructUser " + Date.now().toString(36).slice(2, 6);
       const seededUserEmail = `struct-${Date.now().toString(36).slice(2, 8)}@example.com`;
       await page.goto(base() + "/users/new");
       await page.getByLabel(/^name$/i).fill(seededUserName);
       await page.getByLabel(/^email$/i).fill(seededUserEmail);
       await page.getByLabel(/^password$/i).fill("Secret123!");
-          await assertHtmxSwap(page, async () => {
-            await page.getByRole("button", { name: /create user/i }).click();
-          }, {
-            endpoint: "/users",
-            method: "POST",
-            expectedStatus: 200,
-            hxTarget: "#users-root",
-            expectedUrl: /\/users$/,
-          });
+      await assertHtmxSwap(
+        page,
+        async () => {
+          await page.getByRole("button", { name: /create user/i }).click();
+        },
+        {
+          endpoint: "/users",
+          method: "POST",
+          expectedStatus: 200,
+          hxTarget: "#users-root",
+          expectedUrl: /\/users$/,
+        },
+      );
 
       await page.goto(base() + "/users");
       const userEditHref = await resolveUserEditHref(page, seededUserName);
 
-      fixture = { ticketId, workflowHref, categoryEditHref, userEditHref, seededUserName, seededUserEmail };
+      fixture = {
+        ticketId,
+        workflowHref,
+        categoryEditHref,
+        userEditHref,
+        seededUserName,
+        seededUserEmail,
+      };
     } finally {
       await ctx.close();
     }
@@ -165,9 +268,13 @@ test.describe("Structural — seeded canonical screens", () => {
       // --- Anonymous screens (seeded) ---
       await page.goto(base() + "/login");
       await expect(page).toHaveURL(/\/login/);
-      await expect(page.getByRole("heading", { name: /sign in to tkt/i })).toBeVisible();
+      await expect(
+        page.getByRole("heading", { name: /sign in to tkt/i }),
+      ).toBeVisible();
       await expect(page.getByLabel(/email/i)).toBeVisible();
-      await expect(page.getByRole("button", { name: /sign in/i })).toBeVisible();
+      await expect(
+        page.getByRole("button", { name: /sign in/i }),
+      ).toBeVisible();
       await assertCanonicalScreen(page, {
         viewport: vp.width,
         label: `/login (seeded, anonymous) @ ${vp.label}`,
@@ -182,7 +289,9 @@ test.describe("Structural — seeded canonical screens", () => {
       // /setup when users already exist — anonymous redirects to /login
       await page.goto(base() + "/setup");
       await expect(page).toHaveURL(/\/login/);
-      await expect(page.getByRole("heading", { name: /sign in to tkt/i })).toBeVisible();
+      await expect(
+        page.getByRole("heading", { name: /sign in to tkt/i }),
+      ).toBeVisible();
       await assertCanonicalScreen(page, {
         viewport: vp.width,
         label: `/setup with users (anonymous redirect) @ ${vp.label}`,
@@ -219,7 +328,9 @@ test.describe("Structural — seeded canonical screens", () => {
       // / when authenticated — redirects to /tickets
       await page.goto(base() + "/");
       await expect(page).toHaveURL(/\/tickets/);
-      await expect(page.locator('h1:has-text("Tickets")').first()).toBeVisible();
+      await expect(
+        page.locator('h1:has-text("Tickets")').first(),
+      ).toBeVisible();
       await assertCanonicalScreen(page, {
         viewport: vp.width,
         label: `/ (authenticated redirect) @ ${vp.label}`,
@@ -275,7 +386,9 @@ test.describe("Structural — empty base", () => {
         // /login with empty DB — redirects to /setup
         await page.goto(base() + "/login");
         await expect(page).toHaveURL(/\/setup/);
-        await expect(page.getByRole("heading", { name: /set up tkt/i })).toBeVisible();
+        await expect(
+          page.getByRole("heading", { name: /set up tkt/i }),
+        ).toBeVisible();
         await assertCanonicalScreen(page, {
           viewport: vp.width,
           label: `/login (empty redirect) @ ${vp.label}`,
@@ -290,9 +403,13 @@ test.describe("Structural — empty base", () => {
         // /setup with empty DB — bootstrap form is reachable
         await page.goto(base() + "/setup");
         await expect(page).toHaveURL(/\/setup/);
-        await expect(page.getByRole("heading", { name: /set up tkt/i })).toBeVisible();
+        await expect(
+          page.getByRole("heading", { name: /set up tkt/i }),
+        ).toBeVisible();
         await expect(page.getByLabel(/name/i)).toBeVisible();
-        await expect(page.getByRole("button", { name: /create account/i })).toBeVisible();
+        await expect(
+          page.getByRole("button", { name: /create account/i }),
+        ).toBeVisible();
         await assertCanonicalScreen(page, {
           viewport: vp.width,
           label: `/setup (empty) @ ${vp.label}`,
@@ -326,7 +443,11 @@ test.describe("Structural — empty base", () => {
         await page.getByLabel(/name/i).fill(name);
         await page.getByLabel(/email/i).fill(email);
         await page.getByLabel(/password/i).fill(password);
-        await page.getByRole("button", { name: /create account|set up|sign up|create/i }).click();
+        await page
+          .getByRole("button", {
+            name: /create account|set up|sign up|create/i,
+          })
+          .click();
         await expect(page).toHaveURL(/\/login/);
         await page.getByLabel(/email/i).fill(email);
         await page.getByLabel(/password/i).fill(password);
