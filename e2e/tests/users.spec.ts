@@ -165,6 +165,8 @@ test.describe("Users", () => {
   async function createCategory(page: import("@playwright/test").Page, name: string): Promise<string> {
     await page.goto(base() + "/categories/new");
     await page.getByLabel(/name/i).fill(name);
+    await page.getByLabel(/description/i).fill(`${name} description`);
+    await page.getByLabel(/^area$/i).selectOption({ label: "1 — General" });
     await page.getByRole("button", { name: /create category|save|create/i }).click();
     await expect(page).toHaveURL(/\/categories/);
     const row = page.locator("tr").filter({ hasText: name });
