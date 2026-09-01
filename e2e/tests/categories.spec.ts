@@ -8,9 +8,15 @@
 import { test, expect } from "@playwright/test";
 import { startServer, stopServer } from "../server-lifecycle.js";
 import { loginAsSeeded, base } from "./helpers/auth.js";
-import { assertCanonicalScreen, collectObservability } from "./helpers/layout.js";
+import {
+  assertCanonicalScreen,
+  collectObservability,
+} from "./helpers/layout.js";
 import { assertHtmxNoSwap, assertHtmxSwap } from "./helpers/htmx.js";
-import { createTicketViaUi, openWorkflowBuilder } from "./helpers/navigation.js";
+import {
+  createTicketViaUi,
+  openWorkflowBuilder,
+} from "./helpers/navigation.js";
 
 test.describe("Categories", () => {
   test.beforeAll(async () => {
@@ -20,13 +26,19 @@ test.describe("Categories", () => {
     await stopServer();
   });
 
-  test("categories index shows seeded category with workflow badge", async ({ page }) => {
+  test("categories index shows seeded category with workflow badge", async ({
+    page,
+  }) => {
     await page.setViewportSize({ width: 1280, height: 800 });
     const obs = collectObservability(page);
     await loginAsSeeded(page);
     await page.goto(base() + "/categories");
-    await expect(page.locator("h1").filter({ hasText: "Categories" })).toBeVisible();
-    await expect(page.getByText("General")).toBeVisible();
+    await expect(
+      page.locator("h1").filter({ hasText: "Categories" }),
+    ).toBeVisible();
+    await expect(
+      page.locator(".category-name").filter({ hasText: "General" }),
+    ).toBeVisible();
     await expect(page.locator(".badge").first()).toBeVisible();
     await assertCanonicalScreen(page, {
       viewport: 1280,
@@ -49,9 +61,17 @@ test.describe("Categories", () => {
     await page.goto(base() + "/categories/new");
     await expect(page.locator('h1:has-text("New category")')).toBeVisible();
     await page.getByLabel(/name/i).fill(catName);
-    await page.getByRole("button", { name: /create category|save|create/i }).click();
+    await page
+      .getByLabel(/description/i)
+      .fill("Category created by the E2E journey.");
+    await page.getByLabel(/^area$/i).selectOption({ label: "1 — General" });
+    await page
+      .getByRole("button", { name: /create category|save|create/i })
+      .click();
     await expect(page).toHaveURL(/\/categories/);
-    await expect(page.getByText(catName)).toBeVisible();
+    await expect(
+      page.locator(".category-name").filter({ hasText: catName }),
+    ).toBeVisible();
 
     const row = page.locator("tr").filter({ hasText: catName });
     await expect(row).toHaveCount(1);
@@ -61,7 +81,9 @@ test.describe("Categories", () => {
     await page.getByLabel(/name/i).fill(renamed);
     await page.getByRole("button", { name: /save/i }).click();
     await expect(page).toHaveURL(/\/categories/);
-    await expect(page.getByText(renamed)).toBeVisible();
+    await expect(
+      page.locator(".category-name").filter({ hasText: renamed }),
+    ).toBeVisible();
 
     const delRow = page.locator("tr").filter({ hasText: renamed });
     await expect(delRow).toHaveCount(1);
@@ -80,7 +102,9 @@ test.describe("Categories", () => {
     });
   });
 
-  test("workflow builder integrated journey: create category, add step, publish, reload, create ticket, verify published workflow in ticket", async ({ page }) => {
+  test("workflow builder integrated journey: create category, add step, publish, reload, create ticket, verify published workflow in ticket", async ({
+    page,
+  }) => {
     test.setTimeout(60000);
     await page.setViewportSize({ width: 1280, height: 800 });
     const obs = collectObservability(page);
@@ -90,26 +114,46 @@ test.describe("Categories", () => {
     const catName = "FlowCat " + Date.now().toString(36).slice(2, 8);
     await page.goto(base() + "/categories/new");
     await page.getByLabel(/name/i).fill(catName);
-    await page.getByRole("button", { name: /create category|save|create/i }).click();
+    await page
+      .getByLabel(/description/i)
+      .fill("Category used by the workflow journey.");
+    await page.getByLabel(/^area$/i).selectOption({ label: "1 — General" });
+    await page
+      .getByRole("button", { name: /create category|save|create/i })
+      .click();
     await expect(page).toHaveURL(/\/categories/);
-    await expect(page.getByText(catName)).toBeVisible();
+    await expect(
+      page.locator(".category-name").filter({ hasText: catName }),
+    ).toBeVisible();
 
     // 2) open its workflow
     const catRow = page.locator("tr").filter({ hasText: catName });
     await expect(catRow).toHaveCount(1);
-    const editHref = await catRow.locator('a[href*="/edit"]').getAttribute("href");
+    const editHref = await catRow
+      .locator('a[href*="/edit"]')
+      .getAttribute("href");
     const m = editHref?.match(/\/categories\/(\d+)\/edit/);
     if (!m) throw new Error("cannot extract category id for " + catName);
     const categoryId = m[1];
     const workflowPath = `/categories/${categoryId}/workflow`;
     await page.goto(base() + workflowPath);
-    await expect(page.locator("#workflow-builder")).toBeVisible({ timeout: 10_000 });
-    await expect(page.locator("h2#workflow-builder-title")).toContainText(/workflow steps/i);
+    await expect(page.locator("#workflow-builder")).toBeVisible({
+      timeout: 10_000,
+    });
+    await expect(page.locator("h2#workflow-builder-title")).toContainText(
+      /workflow steps/i,
+    );
     await expect(page.locator(".workflow-step-rail")).toBeVisible();
 
     // Ensure workflow builder form carries HTMX contract (complementary evidence)
-    await expect(page.locator("#workflow-builder form")).toHaveAttribute("hx-post", /\/workflow/);
-    await expect(page.locator("#workflow-builder form")).toHaveAttribute("hx-target", "#workflow-builder");
+    await expect(page.locator("#workflow-builder form")).toHaveAttribute(
+      "hx-post",
+      /\/workflow/,
+    );
+    await expect(page.locator("#workflow-builder form")).toHaveAttribute(
+      "hx-target",
+      "#workflow-builder",
+    );
 
     // 3) add a VALID step — Manual task with instructions is valid by default
     const cards = page.locator(".workflow-step-card");
@@ -117,38 +161,60 @@ test.describe("Categories", () => {
     const addSummary = page.locator(".workflow-add-step summary").first();
     await expect(addSummary).toBeVisible();
     await addSummary.click();
-    const addBtn = page.locator(".workflow-add-options button").filter({ hasText: "Manual task" }).first();
+    const addBtn = page
+      .locator(".workflow-add-options button")
+      .filter({ hasText: "Manual task" })
+      .first();
     await expect(addBtn).toBeVisible();
 
-    await assertHtmxSwap(page, async () => {
-      await addBtn.click();
-    }, {
-      endpoint: (url) => {
-        const parsedURL = new URL(url);
-        return parsedURL.pathname === `/categories/${categoryId}/workflow` && parsedURL.searchParams.get("add_step_type") === "manual_task";
+    await assertHtmxSwap(
+      page,
+      async () => {
+        await addBtn.click();
       },
-      method: "POST",
-      expectedStatus: 200,
-      hxTarget: "#workflow-builder",
-    });
+      {
+        endpoint: (url) => {
+          const parsedURL = new URL(url);
+          return (
+            parsedURL.pathname === `/categories/${categoryId}/workflow` &&
+            parsedURL.searchParams.get("add_step_type") === "manual_task"
+          );
+        },
+        method: "POST",
+        expectedStatus: 200,
+        hxTarget: "#workflow-builder",
+      },
+    );
     await expect(cards).toHaveCount(countBeforeAdd + 1);
-    await expect(page.locator("[data-workflow-live]")).toContainText(/added a step/i);
+    await expect(page.locator("[data-workflow-live]")).toContainText(
+      /added a step/i,
+    );
 
     // Configure the newly added manual_task step — instructions are required for publish
     const instructionsInput = page.getByLabel(/instructions/i);
     await expect(instructionsInput).toBeVisible({ timeout: 10000 });
-    await expect(instructionsInput).toHaveAttribute("hx-trigger", "input changed delay:600ms");
+    await expect(instructionsInput).toHaveAttribute(
+      "hx-trigger",
+      "input changed delay:600ms",
+    );
     await expect(instructionsInput).toHaveAttribute("hx-swap", "none");
-    await assertHtmxNoSwap(page, async () => {
-      await instructionsInput.fill("Handle the ticket");
-    }, {
-      endpoint: (url) => {
-        const parsedURL = new URL(url);
-        return parsedURL.pathname === `/categories/${categoryId}/workflow` && parsedURL.search === "";
+    await assertHtmxNoSwap(
+      page,
+      async () => {
+        await instructionsInput.fill("Handle the ticket");
       },
-      method: "POST",
-      expectedStatus: 200,
-    });
+      {
+        endpoint: (url) => {
+          const parsedURL = new URL(url);
+          return (
+            parsedURL.pathname === `/categories/${categoryId}/workflow` &&
+            parsedURL.search === ""
+          );
+        },
+        method: "POST",
+        expectedStatus: 200,
+      },
+    );
     await expect(page.locator("#workflow-builder")).toBeVisible();
 
     // Remove step unconditionally (prove removal works)
@@ -162,19 +228,26 @@ test.describe("Categories", () => {
 
     // Remove-step POST goes to /categories/{id}/workflow?step_index=... —
     // the action=remove_step lives in the form body, not the query string.
-    await assertHtmxSwap(page, async () => {
-      await removeBtn.click();
-    }, {
-      endpoint: (url) => {
-        const parsedURL = new URL(url);
-        return parsedURL.pathname === `/categories/${categoryId}/workflow` &&
-          parsedURL.searchParams.get("step_index") === String(countBeforeRemove - 1) &&
-          !parsedURL.searchParams.has("action");
+    await assertHtmxSwap(
+      page,
+      async () => {
+        await removeBtn.click();
       },
-      method: "POST",
-      expectedStatus: 200,
-      hxTarget: "#workflow-builder",
-    });
+      {
+        endpoint: (url) => {
+          const parsedURL = new URL(url);
+          return (
+            parsedURL.pathname === `/categories/${categoryId}/workflow` &&
+            parsedURL.searchParams.get("step_index") ===
+              String(countBeforeRemove - 1) &&
+            !parsedURL.searchParams.has("action")
+          );
+        },
+        method: "POST",
+        expectedStatus: 200,
+        hxTarget: "#workflow-builder",
+      },
+    );
     await expect(cards).toHaveCount(countBeforeRemove - 1);
 
     // Re-add a step so we have at least one to publish (workflow must be non-empty)
@@ -183,56 +256,84 @@ test.describe("Categories", () => {
     await expect(addSummary).toBeVisible();
     await addSummary.click();
     await expect(addBtn).toBeVisible();
-    await assertHtmxSwap(page, async () => {
-      await addBtn.click();
-    }, {
-      endpoint: (url) => {
-        const parsedURL = new URL(url);
-        return parsedURL.pathname === `/categories/${categoryId}/workflow` && parsedURL.searchParams.get("add_step_type") === "manual_task";
+    await assertHtmxSwap(
+      page,
+      async () => {
+        await addBtn.click();
       },
-      method: "POST",
-      expectedStatus: 200,
-      hxTarget: "#workflow-builder",
-    });
-    await expect(cards).toHaveCount(1);
-    const instr = page.getByLabel(/instructions/i);
-    await expect(instr).toBeVisible();
-    await expect(instr).toHaveAttribute("hx-trigger", "input changed delay:600ms");
-    await expect(instr).toHaveAttribute("hx-swap", "none");
-    if (await instr.inputValue() === "Handle the ticket") {
-      await assertHtmxNoSwap(page, async () => {
-        await instr.fill("Handle the ticket draft");
-      }, {
+      {
         endpoint: (url) => {
           const parsedURL = new URL(url);
-          return parsedURL.pathname === `/categories/${categoryId}/workflow` && parsedURL.search === "";
+          return (
+            parsedURL.pathname === `/categories/${categoryId}/workflow` &&
+            parsedURL.searchParams.get("add_step_type") === "manual_task"
+          );
         },
         method: "POST",
         expectedStatus: 200,
-      });
-    }
-    await assertHtmxNoSwap(page, async () => {
-      await instr.fill("Handle the ticket");
-    }, {
-      endpoint: (url) => {
-        const parsedURL = new URL(url);
-        return parsedURL.pathname === `/categories/${categoryId}/workflow` && parsedURL.search === "";
+        hxTarget: "#workflow-builder",
       },
-      method: "POST",
-      expectedStatus: 200,
-    });
+    );
+    await expect(cards).toHaveCount(1);
+    const instr = page.getByLabel(/instructions/i);
+    await expect(instr).toBeVisible();
+    await expect(instr).toHaveAttribute(
+      "hx-trigger",
+      "input changed delay:600ms",
+    );
+    await expect(instr).toHaveAttribute("hx-swap", "none");
+    if ((await instr.inputValue()) === "Handle the ticket") {
+      await assertHtmxNoSwap(
+        page,
+        async () => {
+          await instr.fill("Handle the ticket draft");
+        },
+        {
+          endpoint: (url) => {
+            const parsedURL = new URL(url);
+            return (
+              parsedURL.pathname === `/categories/${categoryId}/workflow` &&
+              parsedURL.search === ""
+            );
+          },
+          method: "POST",
+          expectedStatus: 200,
+        },
+      );
+    }
+    await assertHtmxNoSwap(
+      page,
+      async () => {
+        await instr.fill("Handle the ticket");
+      },
+      {
+        endpoint: (url) => {
+          const parsedURL = new URL(url);
+          return (
+            parsedURL.pathname === `/categories/${categoryId}/workflow` &&
+            parsedURL.search === ""
+          );
+        },
+        method: "POST",
+        expectedStatus: 200,
+      },
+    );
 
     // 4) PUBLISH — must execute publication, not just check button exists
     const publishBtn = page.getByRole("button", { name: /publish/i });
     await expect(publishBtn).toBeVisible();
-    const publishResp = await assertHtmxSwap(page, async () => {
-      await publishBtn.click();
-    }, {
-      endpoint: `/categories/${categoryId}/workflow`,
-      method: "POST",
-      expectedStatus: 200,
-      hxTarget: "#workflow-builder",
-    });
+    const publishResp = await assertHtmxSwap(
+      page,
+      async () => {
+        await publishBtn.click();
+      },
+      {
+        endpoint: `/categories/${categoryId}/workflow`,
+        method: "POST",
+        expectedStatus: 200,
+        hxTarget: "#workflow-builder",
+      },
+    );
     expect(publishResp.status()).toBe(200);
     // After publish, no inline errors
     await expect(page.locator(".error-banner, [role='alert']")).toHaveCount(0);
@@ -240,11 +341,17 @@ test.describe("Categories", () => {
     // 5) reload and verify persistence — step count survives reload
     const countAfterPublish = await cards.count();
     await page.reload();
-    await expect(page.locator("#workflow-builder")).toBeVisible({ timeout: 10_000 });
-    await expect(page.locator(".workflow-step-card")).toHaveCount(countAfterPublish);
+    await expect(page.locator("#workflow-builder")).toBeVisible({
+      timeout: 10_000,
+    });
+    await expect(page.locator(".workflow-step-card")).toHaveCount(
+      countAfterPublish,
+    );
     // Badge on /categories should now show Published for this category
     await page.goto(base() + "/categories");
-    await expect(page.locator("tr").filter({ hasText: catName }).locator(".badge")).toContainText(/published/i);
+    await expect(
+      page.locator("tr").filter({ hasText: catName }).locator(".badge"),
+    ).toContainText(/published/i);
 
     // 6) create a ticket using that category
     const ticketTitle = "FlowTicket " + Date.now().toString(36).slice(2, 8);
@@ -260,9 +367,13 @@ test.describe("Categories", () => {
     await expect(page.locator("#ticket-detail")).toBeVisible();
     await expect(page.locator("#ticket-category-value")).toContainText(catName);
     // workflow-pending is present when the ticket has a pending workflow step
-    await expect(page.locator("#workflow-pending")).toBeVisible({ timeout: 10_000 });
+    await expect(page.locator("#workflow-pending")).toBeVisible({
+      timeout: 10_000,
+    });
     // The instruction text from the published Manual task appears
-    await expect(page.locator(".workflow-instruction")).toContainText("Handle the ticket");
+    await expect(page.locator(".workflow-instruction")).toContainText(
+      "Handle the ticket",
+    );
 
     await assertCanonicalScreen(page, {
       viewport: 1280,
