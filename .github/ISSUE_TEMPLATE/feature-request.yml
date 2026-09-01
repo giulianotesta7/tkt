@@ -1,6 +1,6 @@
 name: Feature request
 description: Suggest a new capability or improvement for TKT
-title: "[Feature]: "
+title: "[Feature] "
 labels: ["type:feature"]
 assignees: []
 body:
@@ -21,13 +21,6 @@ body:
       description: Describe the desired observable behavior and the conditions that would make the request complete.
     validations:
       required: true
-  - type: textarea
-    id: alternatives
-    attributes:
-      label: Alternatives considered
-      description: Describe any current workaround or alternative approach you considered.
-    validations:
-      required: false
   - type: textarea
     id: context
     attributes:
