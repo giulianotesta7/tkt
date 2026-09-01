@@ -1,11 +1,67 @@
 {{define "user_drawer"}}
-<div id="users-drawer-host"><div class="users-drawer-backdrop" aria-hidden="true"></div><section class="users-drawer" role="dialog" aria-modal="true" aria-labelledby="user-drawer-title" aria-describedby="user-drawer-summary" tabindex="-1" data-user-id="{{.UserID}}" data-close-url="{{.ListURL}}" data-edit-url="{{.EditURL}}" data-server-error="{{.HasServerError}}">
-<header class="users-drawer-header"><div><p class="users-eyebrow">User details</p><h2 id="user-drawer-title">Edit user</h2></div><button class="users-drawer-close" type="button" aria-label="Close user details">×</button></header>
-<div class="users-drawer-body"><p id="user-drawer-summary" class="users-drawer-summary">Update this user's name, email, role, or sign-in state.</p>{{if .Error}}<div id="user-drawer-error" class="users-error" role="alert">{{.Error}}</div>{{end}}
-<form id="user-drawer-form" method="post" action="{{.EditURL}}" hx-post="{{.EditURL}}" hx-target="#users-drawer-host" hx-swap="outerHTML"><input type="hidden" name="status" value="{{.Status}}">
-<div class="users-field"><label for="user-name">Name</label><input id="user-name" name="name" type="text" value="{{.Values.Name}}" required{{if eq .ErrorField "name"}} aria-invalid="true" aria-describedby="user-drawer-error"{{end}}></div>
-<div class="users-field"><label for="user-email">Email</label><input id="user-email" name="email" type="email" value="{{.Values.Email}}" required{{if eq .ErrorField "email"}} aria-invalid="true" aria-describedby="user-drawer-error"{{end}}></div>
-<div class="users-field"><label for="user-role">Role</label><select id="user-role" name="role"{{if eq .ErrorField "role"}} aria-invalid="true" aria-describedby="user-drawer-error"{{end}}>{{range .RoleOptions}}<option value="{{.Value}}" data-description="{{.Description}}"{{if eq .Value $.Values.Role}} selected{{end}}>{{.Label}}</option>{{end}}</select>{{if .RoleDescription}}<p class="users-help">{{.RoleDescription}}</p>{{end}}</div>
-<input type="hidden" name="active" value="{{if .Values.Active}}true{{else}}false{{end}}">{{if .Values.Active}}<p class="users-lifecycle-copy">This user can sign in.</p><button class="users-danger-action" type="button" data-deactivate>Deactivate user</button>{{else}}<p class="users-lifecycle-copy">This user cannot sign in until reactivated.</p><button class="users-secondary-action" type="submit" name="active" value="true">Reactivate user</button>{{end}}<footer class="users-drawer-footer"><button class="users-cancel" type="button">Cancel</button><button class="users-primary-action" type="submit">Save changes</button></footer></form>
-</div><dialog id="users-dirty-dialog" aria-labelledby="users-dirty-title" aria-describedby="users-dirty-copy"><h2 id="users-dirty-title">Leave without saving?</h2><p id="users-dirty-copy">Your changes will be lost if you leave this drawer.</p><div><button type="button" data-stay>Stay</button><button type="button" data-discard>Discard changes</button></div></dialog>{{if .Values.Active}}<dialog id="users-deactivate-dialog" aria-labelledby="users-deactivate-title" aria-describedby="users-deactivate-copy"><h2 id="users-deactivate-title">Deactivate user?</h2><p id="users-deactivate-copy">This saves the current profile, prevents sign-in, and ends active sessions on their next request.</p><div><button type="button" data-cancel-deactivate>Cancel</button><button type="button" data-confirm-deactivate>Deactivate user</button></div></dialog>{{end}}</section></div>
+<div id="users-drawer-host">
+  <div class="users-drawer-backdrop" aria-hidden="true"></div>
+  <section class="users-drawer" role="dialog" aria-modal="true" aria-labelledby="user-drawer-title" tabindex="-1" data-user-id="{{.UserID}}" data-close-url="{{.ListURL}}" data-edit-url="{{.EditURL}}" data-server-error="{{.HasServerError}}">
+    <header class="users-drawer-header">
+      <div>
+        <p class="users-eyebrow">User details</p>
+        <h2 id="user-drawer-title">{{if .UserID}}Edit user{{else}}New user{{end}}</h2>
+      </div>
+      <button class="users-drawer-close" type="button" aria-label="Close user details">×</button>
+    </header>
+    <div class="users-drawer-body">
+      {{if .Error}}<div id="user-drawer-error" class="users-error" role="alert">{{.Error}}</div>{{end}}
+      <form id="user-drawer-form" method="post" action="{{.ActionURL}}" hx-post="{{.ActionURL}}" hx-target="#users-drawer-host" hx-swap="outerHTML">
+        <input type="hidden" name="status" value="{{.Status}}">
+        <div class="users-field">
+          <label for="user-name">Name</label>
+          <input id="user-name" name="name" type="text" value="{{.Values.Name}}" required aria-invalid="{{.NameInvalid}}" aria-describedby="{{.ErrorID}}">
+        </div>
+        <div class="users-field">
+          <label for="user-email">Email</label>
+          <input id="user-email" name="email" type="email" value="{{.Values.Email}}" required aria-invalid="{{.EmailInvalid}}" aria-describedby="{{.ErrorID}}">
+        </div>
+        {{if .UserID}}
+        <div class="users-field">
+          <label for="user-role">Role</label>
+          <select id="user-role" name="role" aria-invalid="{{.RoleInvalid}}" aria-describedby="{{.ErrorID}}">{{range .RoleOptions}}{{if eq .Value $.Values.Role}}<option value="{{.Value}}" data-description="{{.Description}}" selected>{{.Label}}</option>{{else}}<option value="{{.Value}}" data-description="{{.Description}}">{{.Label}}</option>{{end}}{{end}}</select>
+          {{if .RoleDescription}}<p class="users-help">{{.RoleDescription}}</p>{{end}}
+        </div>
+        <input type="hidden" name="active" value="{{if .Values.Active}}true{{else}}false{{end}}">
+        {{if .Values.Active}}
+        <p class="users-lifecycle-copy">This user can sign in.</p>
+        <button class="users-danger-action" type="button" data-deactivate>Deactivate user</button>
+        {{else}}
+        <p class="users-lifecycle-copy">This user cannot sign in until reactivated.</p>
+        <button class="users-secondary-action" type="submit" name="active" value="true">Reactivate user</button>
+        {{end}}
+        {{else}}
+        <div class="users-field">
+          <label for="user-password">Password</label>
+          <input id="user-password" name="password" type="password" autocomplete="new-password" required aria-invalid="{{.PasswordInvalid}}" aria-describedby="{{.ErrorID}}">
+        </div>
+        <p class="users-help">New accounts are created with the User role. You can change the role after creation.</p>
+        {{end}}
+        <footer class="users-drawer-footer">
+          <button class="users-cancel" type="button">Cancel</button>
+          <button class="users-primary-action" type="submit">{{if .UserID}}Save changes{{else}}Create user{{end}}</button>
+        </footer>
+      </form>
+    </div>
+    <dialog id="users-dirty-dialog" aria-labelledby="users-dirty-title" aria-describedby="users-dirty-copy">
+      <h2 id="users-dirty-title">Leave without saving?</h2>
+      <p id="users-dirty-copy">Your changes will be lost if you leave this drawer.</p>
+      <div><button type="button" data-stay>Stay</button><button type="button" data-discard>Discard changes</button></div>
+    </dialog>
+    {{if .UserID}}
+      {{if .Values.Active}}
+      <dialog id="users-deactivate-dialog" aria-labelledby="users-deactivate-title" aria-describedby="users-deactivate-copy">
+        <h2 id="users-deactivate-title">Deactivate user?</h2>
+        <p id="users-deactivate-copy">This saves the current profile, prevents sign-in, and ends active sessions on their next request.</p>
+        <div><button type="button" data-cancel-deactivate>Cancel</button><button type="button" data-confirm-deactivate>Deactivate user</button></div>
+      </dialog>
+      {{end}}
+    {{end}}
+  </section>
+</div>
 {{end}}

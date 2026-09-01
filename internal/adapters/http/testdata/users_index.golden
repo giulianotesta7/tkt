@@ -487,14 +487,14 @@
         <h1 id="users-list-title">Users</h1>
         <p>0 accounts</p>
       </div>
-      <a class="users-primary-action" href="/users/new">New user</a>
+      <a id="users-new-launcher" class="users-primary-action users-new-launcher" href="/users/new" hx-get="/users/new?status=" hx-target="#users-drawer-host" hx-swap="outerHTML" hx-push-url="/users/new" data-edit-url="/users/new">New user</a>
     </header>
         <div class="users-layout">
           <div class="users-filters">
             <nav class="users-status-tabs" aria-label="User status">
-              <a class="" href="/users" hx-get="/users" hx-target="#users-root" hx-swap="outerHTML" hx-push-url="true">All <span>0</span></a>
-              <a class="" href="/users?status=active" hx-get="/users?status=active" hx-target="#users-root" hx-swap="outerHTML" hx-push-url="true">Active <span>0</span></a>
-              <a class="" href="/users?status=deactivated" hx-get="/users?status=deactivated" hx-target="#users-root" hx-swap="outerHTML" hx-push-url="true">Deactivated <span>0</span></a>
+              <a href="/users" hx-get="/users" hx-target="#users-root" hx-swap="outerHTML" hx-push-url="true">All <span>0</span></a>
+              <a href="/users?status=active" hx-get="/users?status=active" hx-target="#users-root" hx-swap="outerHTML" hx-push-url="true">Active <span>0</span></a>
+              <a href="/users?status=deactivated" hx-get="/users?status=deactivated" hx-target="#users-root" hx-swap="outerHTML" hx-push-url="true">Deactivated <span>0</span></a>
             </nav>
             <div class="users-search" role="search">
               <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4 4"/></svg>
@@ -516,7 +516,7 @@
         <dl>
           <div><dt>Root</dt><dd>Full instance access.</dd></div>
           <div><dt>Admin</dt><dd>Manages users, desks, categories and workflows.</dd></div>
-          <div><dt>Agent</dt><dd>Resolves tickets and belongs to desks.</dd></div>
+          <div><dt>Agent</dt><dd>Handles assigned tickets and moves requests toward resolution.</dd></div>
           <div><dt>User</dt><dd>Creates requests and tracks their progress.</dd></div>
         </dl>
       </aside>
