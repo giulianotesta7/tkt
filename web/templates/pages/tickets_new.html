@@ -1,12 +1,9 @@
 {{define "content"}}
 <div class="command-header">
   <div>
-    <h1 class="command-title">New ticket</h1>
-    <p class="command-sub">Open a ticket in state new</p>
+    {{if .Selected}}<h1 class="command-title">Create a ticket</h1><p class="command-sub">Choose a category to get started.</p>{{else}}<h1 class="command-title">New ticket</h1><p class="command-sub">Open a ticket in state new</p>{{end}}
   </div>
-  <div class="command-actions">
-    <a class="btn ghost" href="/tickets">Back to queue</a>
-  </div>
+  <div class="command-actions"><a class="btn ghost" href="{{if .Selected}}/tickets/new{{else}}/tickets{{end}}">{{if .Selected}}Back to catalog{{else}}Back to queue{{end}}</a></div>
 </div>
 {{template "ticket_form" .}}
 {{end}}

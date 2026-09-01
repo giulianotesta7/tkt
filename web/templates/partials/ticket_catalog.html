@@ -1,0 +1,57 @@
+{{define "ticket_catalog"}}
+<div class="catalog-page">
+  <div class="command-header">
+    <div>
+      <h1 class="command-title">Create a ticket</h1>
+      <p class="command-sub">Choose a category to get started.</p>
+    </div>
+    <div class="command-actions"><a class="btn ghost" href="/tickets">Back to tickets</a></div>
+  </div>
+  <form class="catalog-search" method="get" action="/tickets/new" role="search">
+    <label class="visually-hidden" for="catalog-query">Search categories, areas, or departments</label>
+    <span aria-hidden="true">⌕</span>
+    <input id="catalog-query" type="search" name="q" value="{{.Query}}" placeholder="Search categories, areas, or departments" autocomplete="off">
+    <input type="hidden" name="catalog" value="1">
+    <button class="visually-hidden" type="submit">Search</button>
+  </form>
+  {{if .Query}}
+    <div class="catalog-results" aria-live="polite">
+      <h2>Search results</h2>
+      {{range .Results}}
+      <a class="catalog-result" href="/tickets/new?department_id={{.DepartmentID}}&area_id={{.AreaID}}&category_id={{.ID}}">
+        <span><strong>{{.Name}}</strong><small>{{.DepartmentName}} / {{.AreaName}}</small><em>{{.Description}}</em></span><span aria-hidden="true">›</span>
+      </a>
+      {{else}}<p class="empty">No categories match your search.</p>{{end}}
+    </div>
+  {{end}}
+  <div class="catalog-shell catalog-mobile-{{.MobileStep}}" aria-label="Ticket category catalog">
+    <section class="catalog-column catalog-departments" aria-labelledby="departments-heading">
+      <h2 id="departments-heading">DEPARTMENTS</h2>
+      <div class="catalog-list">
+      {{range .Departments}}
+        <a class="catalog-item {{if eq .ID $.DepartmentID}}selected{{end}}" href="/tickets/new?department_id={{.ID}}" aria-current="{{if eq .ID $.DepartmentID}}true{{end}}"><span>{{.Name}}</span><small>{{.CategoryCount}}</small></a>
+      {{else}}<p class="empty compact">No departments configured yet.</p>{{end}}
+      </div>
+    </section>
+    <section class="catalog-column catalog-areas" aria-labelledby="areas-heading">
+      <h2 id="areas-heading">AREAS</h2>
+      <a class="catalog-back" href="/tickets/new">← Departments</a>
+      <div class="catalog-list">
+      {{range .Areas}}
+        <a class="catalog-item {{if eq .ID $.AreaID}}selected{{end}}" href="/tickets/new?department_id={{.DepartmentID}}&area_id={{.ID}}" aria-current="{{if eq .ID $.AreaID}}true{{end}}"><span>{{.Name}}</span><small>{{.CategoryCount}}</small></a>
+      {{else}}<p class="empty compact">No areas in this department yet.</p>{{end}}
+      </div>
+    </section>
+    <section class="catalog-column catalog-categories" aria-labelledby="categories-heading">
+      <h2 id="categories-heading">CATEGORIES</h2>
+      <a class="catalog-back" href="/tickets/new?department_id={{.DepartmentID}}">← Areas</a>
+      {{if .Breadcrumb}}<p class="catalog-breadcrumb">{{.Breadcrumb}}</p>{{end}}
+      <div class="catalog-category-list">
+      {{range .Categories}}
+        <a class="catalog-category" href="/tickets/new?department_id={{$.DepartmentID}}&area_id={{$.AreaID}}&category_id={{.ID}}"><span><strong>{{.Name}}</strong><small>{{.Description}}</small></span><span aria-hidden="true">›</span></a>
+      {{else}}<p class="empty">No published categories in this area yet.</p>{{end}}
+      </div>
+    </section>
+  </div>
+</div>
+{{end}}
