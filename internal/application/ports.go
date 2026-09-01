@@ -242,6 +242,23 @@ type CategoryStore interface {
 	List(ctx context.Context) ([]domain.Category, error)
 }
 
+// CatalogStore persists the fixed-depth ticket catalog hierarchy. Category
+// workflow ownership remains in WorkflowStore and is never moved to a
+// department or area.
+type CatalogStore interface {
+	ListDepartments(ctx context.Context) ([]domain.CatalogDepartment, error)
+	ListAreas(ctx context.Context, departmentID int64) ([]domain.CatalogArea, error)
+	ListCatalogCategories(ctx context.Context, areaID int64) ([]domain.CatalogCategory, error)
+	SearchCatalog(ctx context.Context, query string) ([]domain.CatalogCategory, error)
+	CreateDepartment(ctx context.Context, d *domain.Department) error
+	UpdateDepartment(ctx context.Context, d *domain.Department) error
+	DeleteDepartment(ctx context.Context, id int64) error
+	CreateArea(ctx context.Context, a *domain.Area) error
+	UpdateArea(ctx context.Context, a *domain.Area) error
+	DeleteArea(ctx context.Context, id int64) error
+	MoveCategory(ctx context.Context, categoryID, areaID int64) error
+}
+
 // DeskStore persists named desks and their N:N memberships. Membership is
 // limited to agent-plus users by both the application and SQLite triggers.
 type DeskStore interface {

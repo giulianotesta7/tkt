@@ -19,6 +19,8 @@ const (
 	ErrMsgUserNameRequired            = "name is required"
 	ErrMsgUserEmailRequired           = "email is required"
 	ErrMsgCategoryNameRequired        = "category name is required"
+	ErrMsgCategoryDescriptionRequired = "category description is required"
+	ErrMsgCategoryAreaRequired        = "category area is required"
 	ErrMsgUserInactive                = "user is inactive"
 	ErrMsgUserRoleCannotAssign        = "user role cannot assign tickets"
 	ErrMsgAssignTargetRole            = "assignment target must be an agent or above"
