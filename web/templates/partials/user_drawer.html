@@ -1,7 +1,7 @@
 {{define "user_drawer"}}
 <div id="users-drawer-host">
   <div class="users-drawer-backdrop" aria-hidden="true"></div>
-  <section class="users-drawer" role="dialog" aria-modal="true" aria-labelledby="user-drawer-title" aria-describedby="user-drawer-summary" tabindex="-1" data-user-id="{{.UserID}}" data-close-url="{{.ListURL}}" data-edit-url="{{.EditURL}}" data-server-error="{{.HasServerError}}">
+  <section class="users-drawer" role="dialog" aria-modal="true" aria-labelledby="user-drawer-title" tabindex="-1" data-user-id="{{.UserID}}" data-close-url="{{.ListURL}}" data-edit-url="{{.EditURL}}" data-server-error="{{.HasServerError}}">
     <header class="users-drawer-header">
       <div>
         <p class="users-eyebrow">User details</p>
@@ -10,7 +10,6 @@
       <button class="users-drawer-close" type="button" aria-label="Close user details">×</button>
     </header>
     <div class="users-drawer-body">
-      <p id="user-drawer-summary" class="users-drawer-summary">{{if .UserID}}Update this user's name, email, role, or sign-in state.{{else}}Create a user account with standard access.{{end}}</p>
       {{if .Error}}<div id="user-drawer-error" class="users-error" role="alert">{{.Error}}</div>{{end}}
       <form id="user-drawer-form" method="post" action="{{.ActionURL}}" hx-post="{{.ActionURL}}" hx-target="#users-drawer-host" hx-swap="outerHTML">
         <input type="hidden" name="status" value="{{.Status}}">

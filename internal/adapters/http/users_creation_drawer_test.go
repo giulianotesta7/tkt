@@ -23,7 +23,6 @@ func TestUsersCreationDrawerGETContracts(t *testing.T) {
 		`role="dialog"`,
 		`<p class="users-eyebrow">User details</p>`,
 		`<h2 id="user-drawer-title">New user</h2>`,
-		`Create a user account with standard access.`,
 		`name="name"`,
 		`name="email"`,
 		`name="password"`,
@@ -34,6 +33,9 @@ func TestUsersCreationDrawerGETContracts(t *testing.T) {
 	)
 	if strings.Contains(normalBody, `name="role"`) || strings.Contains(normalBody, `name="active"`) || strings.Contains(normalBody, "Edit user") {
 		t.Fatalf("creation drawer exposes edit-only controls: %s", normalBody)
+	}
+	if strings.Contains(normalBody, "Create a user account with standard access.") || strings.Contains(normalBody, "Update this user's name, email, role, or sign-in state.") || strings.Contains(normalBody, "user-drawer-summary") {
+		t.Fatalf("drawer includes a redundant summary: %s", normalBody)
 	}
 
 	hx := h.get(t, "/users/new?status=active", true)

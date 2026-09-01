@@ -40,7 +40,7 @@ Roles `admin` and `root` MUST create users (name, email, password), with non-emp
 - THEN the existing Users drawer opens through the HTMX drawer target
 - AND the URL becomes `/users/new`
 - AND the drawer is labelled “User details” and “New user”
-- AND it describes “Create a user account with standard access.”
+- AND it does not render a separate summary paragraph
 
 #### Scenario: Direct creation route remains available
 
