@@ -482,16 +482,22 @@
   <main class="main">
 <div class="command-header">
   <div>
-    <h1 class="command-title">New ticket</h1>
-    <p class="command-sub">Open a ticket in state new</p>
+    <h1 class="command-title">New ticket</h1><p class="command-sub">Open a ticket in state new</p>
   </div>
-  <div class="command-actions">
-    <a class="btn ghost" href="/tickets">Back to queue</a>
-  </div>
+  <div class="command-actions"><a class="btn ghost" href="/tickets">Back to queue</a></div>
 </div>
 
 <form class="card form-card" method="post" action="/tickets">
   <h2>Ticket details</h2>
+
+
+  <div class="field">
+    <label for="category_id">Category</label>
+    <select id="category_id" name="category_id" required>
+      <option value="">Select category</option>
+      <option value="1" selected>Bugs</option><option value="2">Support</option>
+    </select>
+  </div>
 
   <div class="field">
     <label for="title">Title</label>
@@ -501,20 +507,11 @@
     <label for="description">Description</label>
     <textarea id="description" name="description">The login form 500s on submit</textarea>
   </div>
-  <div class="field-row">
-    <div class="field">
-      <label for="category_id">Category</label>
-      <select id="category_id" name="category_id" required>
-        <option value="">Select category</option>
-        <option value="1" selected>Bugs</option><option value="2" >Support</option>
-      </select>
-    </div>
-    <div class="field">
-      <label for="priority">Priority</label>
-      <select id="priority" name="priority">
-        <option value="critical" >Critical</option><option value="high" selected>High</option><option value="medium" >Medium</option><option value="low" >Low</option>
-      </select>
-    </div>
+  <div class="field">
+    <label for="priority">Priority</label>
+    <select id="priority" name="priority">
+      <option value="critical" >Critical</option><option value="high" selected>High</option><option value="medium" >Medium</option><option value="low" >Low</option>
+    </select>
   </div>
   <button class="btn primary" type="submit">Create ticket</button>
 </form>
