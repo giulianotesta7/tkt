@@ -18,7 +18,8 @@
 import { test, expect, type Locator, type Page } from "@playwright/test";
 import { startServer, stopServer } from "../server-lifecycle.js";
 import { assertCanonicalScreen, collectObservability } from "./helpers/layout.js";
-import { base, seededCredentials, loginAsSeeded } from "./helpers/auth.js";
+import { assertHtmxSwap } from "./helpers/htmx.js";
+import { base, seededCredentials } from "./helpers/auth.js";
 import { createTicketViaUi, resolveCategoryEditHref, resolveUserEditHref, resolveWorkflowHref } from "./helpers/navigation.js";
 
 const viewports = [
@@ -88,7 +89,7 @@ function authenticatedScreens(deps: {
     { label: `/tickets/new`, path: "/tickets/new", heading: (p) => p.locator('h1:has-text("New ticket")'), control: (p) => p.getByRole("button", { name: /create ticket/i }) },
     { label: `/tickets/{id}`, path: () => Promise.resolve(`/tickets/${deps.ticketId}`), heading: (p) => p.locator("#ticket-detail"), control: (p) => p.locator("#ticket-detail").locator('textarea, [aria-label="Ticket title"], button:has-text("Add comment")').first() },
     { label: `/users`, path: "/users", heading: (p) => p.locator("#users-list-title"), control: (p) => p.getByRole("link", { name: /new user/i }) },
-    { label: `/users/new`, path: "/users/new", heading: (p) => p.locator('h1:has-text("New user")'), control: (p) => p.getByRole("button", { name: /create user/i }) },
+    { label: `/users/new`, path: "/users/new", heading: (p) => p.getByRole("heading", { name: "New user", exact: true }), control: (p) => p.getByRole("button", { name: /create user/i }) },
     { label: `/users/{id}/edit`, path: () => Promise.resolve(deps.userEditHref), heading: (p) => p.locator("h2").filter({ hasText: /edit user|operator details/i }), control: (p) => p.getByRole("button", { name: /save changes/i }) },
     { label: `/categories`, path: "/categories", heading: (p) => p.locator('h1:has-text("Categories")'), control: (p) => p.getByRole("link", { name: /new category/i }) },
     { label: `/categories/new`, path: "/categories/new", heading: (p) => p.locator('h1:has-text("New category")'), control: (p) => p.getByRole("button", { name: /create category|save/i }) },
@@ -133,8 +134,15 @@ test.describe("Structural — seeded canonical screens", () => {
       await page.getByLabel(/^name$/i).fill(seededUserName);
       await page.getByLabel(/^email$/i).fill(seededUserEmail);
       await page.getByLabel(/^password$/i).fill("Secret123!");
-      await page.getByRole("button", { name: /create user/i }).click();
-      await expect(page).toHaveURL(/\/users/);
+          await assertHtmxSwap(page, async () => {
+            await page.getByRole("button", { name: /create user/i }).click();
+          }, {
+            endpoint: "/users",
+            method: "POST",
+            expectedStatus: 200,
+            hxTarget: "#users-root",
+            expectedUrl: /\/users$/,
+          });
 
       await page.goto(base() + "/users");
       const userEditHref = await resolveUserEditHref(page, seededUserName);
@@ -149,7 +157,7 @@ test.describe("Structural — seeded canonical screens", () => {
   });
 
   for (const vp of viewports) {
-    test(`seeded structural baselines at ${vp.label}`, async ({ page, context }) => {
+    test(`seeded structural baselines at ${vp.label}`, async ({ page }) => {
       await page.setViewportSize({ width: vp.width, height: vp.height });
       const obs = collectObservability(page);
       const deps = fixture!;

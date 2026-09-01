@@ -77,6 +77,11 @@ type userRoleOption struct {
 type userDrawerData struct {
 	Error           string
 	ErrorField      string
+	ErrorID         string
+	NameInvalid     bool
+	EmailInvalid    bool
+	RoleInvalid     bool
+	PasswordInvalid bool
 	UserID          int64
 	Values          userFormValues
 	RoleOptions     []userRoleOption
@@ -84,6 +89,7 @@ type userDrawerData struct {
 	Status          usersStatus
 	ListURL         string
 	EditURL         string
+	ActionURL       string
 	HasServerError  bool
 }
 
@@ -265,14 +271,29 @@ type userFormValues struct {
 }
 
 func (h *UserHandlers) newForm(w http.ResponseWriter, r *http.Request) {
+	setUsersVary(w)
 	if !requireCapability(w, r, application.CapManageUsers) {
 		return
 	}
-	data := userFormData{pageData: pageDataFrom(r, "users"), Values: userFormValues{Active: true}}
-	h.renderer.Render(w, r, "users_new", "user_form", data, http.StatusOK)
+	actor := *userFromContext(r.Context())
+	status := normalizeUsersStatus(r.URL.Query().Get("status"))
+	drawer := newUserDrawerData(actor, nil, status, userFormValues{Active: true}, "", "", false)
+	if r.Header.Get("HX-Request") != "" {
+		h.renderer.Render(w, r, "users_index", "user_drawer", drawer, http.StatusOK)
+		return
+	}
+	data, err := h.usersIndexData(r, actor, status)
+	if err != nil {
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+	data.UsersAssets = true
+	data.Drawer = &drawer
+	h.renderer.Render(w, r, "users_index", "users_screen", data, http.StatusOK)
 }
 
 func (h *UserHandlers) create(w http.ResponseWriter, r *http.Request) {
+	setUsersVary(w)
 	if !requireCapability(w, r, application.CapManageUsers) {
 		return
 	}
@@ -289,20 +310,51 @@ func (h *UserHandlers) create(w http.ResponseWriter, r *http.Request) {
 		h.renderUserFormError(w, r, 0, err)
 		return
 	}
+	if r.Header.Get("HX-Request") != "" {
+		data, err := h.usersIndexData(r, *userFromContext(r.Context()), usersStatusAll)
+		if err != nil {
+			http.Error(w, "Internal server error", http.StatusInternalServerError)
+			return
+		}
+		data.UsersAssets = true
+		w.Header().Set("HX-Retarget", "#users-root")
+		w.Header().Set("HX-Reswap", "outerHTML")
+		w.Header().Set("HX-Trigger-After-Swap", "users:saved")
+		h.renderer.Render(w, r, "users_index", "users_screen", data, http.StatusOK)
+		return
+	}
 	redirect(w, r, "/users")
 }
 
 func newUserDrawerData(actor domain.User, user *domain.User, status usersStatus, values userFormValues, msg, field string, hasError bool) userDrawerData {
+	userID := int64(0)
+	editURL := "/users/new"
+	actionURL := "/users"
+	if user != nil {
+		userID = user.ID
+		editURL = "/users/" + strconv.FormatInt(user.ID, 10) + "/edit"
+		actionURL = editURL
+	}
+	errorID := ""
+	if msg != "" {
+		errorID = "user-drawer-error"
+	}
 	return userDrawerData{
 		Error:           msg,
 		ErrorField:      field,
-		UserID:          user.ID,
+		ErrorID:         errorID,
+		NameInvalid:     field == "name",
+		EmailInvalid:    field == "email",
+		RoleInvalid:     field == "role",
+		PasswordInvalid: field == "password",
+		UserID:          userID,
 		Values:          values,
 		RoleOptions:     usersRoleOptions(actor.Role),
 		RoleDescription: roleDescription(values.Role),
 		Status:          status,
 		ListURL:         usersListURL(status),
-		EditURL:         "/users/" + strconv.FormatInt(user.ID, 10) + "/edit",
+		EditURL:         editURL,
+		ActionURL:       actionURL,
 		HasServerError:  hasError,
 	}
 }
@@ -451,8 +503,39 @@ func (h *UserHandlers) delete(w http.ResponseWriter, r *http.Request) {
 	redirect(w, r, "/users")
 }
 
-// renderUserFormError preserves the create and password form contract.
+func (h *UserHandlers) renderUsersCreationError(w http.ResponseWriter, r *http.Request, err error) {
+	status, msg := mapError(err)
+	if status == http.StatusInternalServerError {
+		http.Error(w, msg, status)
+		return
+	}
+	actor := *userFromContext(r.Context())
+	statusFilter := normalizeUsersStatus(r.Form.Get("status"))
+	values := userFormValues{Name: r.Form.Get("name"), Email: r.Form.Get("email")}
+	drawer := newUserDrawerData(actor, nil, statusFilter, values, msg, userFormErrorField(err), true)
+	if r.Header.Get("HX-Request") != "" {
+		w.Header().Set("HX-Retarget", "#users-drawer-host")
+		w.Header().Set("HX-Reswap", "outerHTML")
+		h.renderer.Render(w, r, "users_index", "user_drawer", drawer, status)
+		return
+	}
+	data, dataErr := h.usersIndexData(r, actor, statusFilter)
+	if dataErr != nil {
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+	data.UsersAssets = true
+	data.Drawer = &drawer
+	h.renderer.Render(w, r, "users_index", "users_screen", data, status)
+}
+
+// renderUserFormError preserves the password form contract and routes create
+// errors through the Users drawer.
 func (h *UserHandlers) renderUserFormError(w http.ResponseWriter, r *http.Request, id int64, err error) {
+	if id == 0 {
+		h.renderUsersCreationError(w, r, err)
+		return
+	}
 	status, msg := mapError(err)
 	if status == http.StatusInternalServerError {
 		http.Error(w, msg, status)
@@ -470,6 +553,18 @@ func (h *UserHandlers) renderUserFormError(w http.ResponseWriter, r *http.Reques
 		},
 	}
 	h.renderer.Render(w, r, "users_new", "user_form", data, status)
+}
+
+func userFormErrorField(err error) string {
+	var validation *domain.ValidationError
+	if errors.As(err, &validation) {
+		return validation.Field
+	}
+	var duplicate *domain.DuplicateError
+	if errors.As(err, &duplicate) && duplicate.Kind == "user" {
+		return "email"
+	}
+	return ""
 }
 
 func (h *UserHandlers) renderUsersDrawerError(w http.ResponseWriter, r *http.Request, id int64, err error) {
@@ -490,15 +585,7 @@ func (h *UserHandlers) renderUsersDrawerError(w http.ResponseWriter, r *http.Req
 	if current, getErr := h.users.GetByID(r.Context(), id); getErr == nil {
 		u = current
 	}
-	field := ""
-	var validation *domain.ValidationError
-	var duplicate *domain.DuplicateError
-	switch {
-	case errors.As(err, &validation):
-		field = validation.Field
-	case errors.As(err, &duplicate) && duplicate.Kind == "user":
-		field = "email"
-	}
+	field := userFormErrorField(err)
 	drawer := newUserDrawerData(actor, u, statusFilter, values, msg, field, true)
 	if r.Header.Get("HX-Request") != "" {
 		w.Header().Set("HX-Retarget", "#users-drawer-host")

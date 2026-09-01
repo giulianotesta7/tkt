@@ -22,13 +22,13 @@ func TestUsersStaticAssetsAreExplicitAndConditionallyLoaded(t *testing.T) {
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("arbitrary static path = %d, want 404", rec.Code)
 	}
-	for _, path := range []string{"/users/new", "/tickets"} {
-		if body := h.get(t, path, false).Body.String(); strings.Contains(body, "/static/users.css") || strings.Contains(body, "/static/users.js") {
-			t.Errorf("%s loads Users assets", path)
+	for _, path := range []string{"/users", "/users/new"} {
+		body := h.get(t, path, false).Body.String()
+		if !strings.Contains(body, "/static/users.css") || !strings.Contains(body, "/static/users.js") {
+			t.Errorf("%s omits Users assets", path)
 		}
 	}
-	body := h.get(t, "/users", false).Body.String()
-	if !strings.Contains(body, "/static/users.css") || !strings.Contains(body, "/static/users.js") {
-		t.Error("Users page omits scoped assets")
+	if body := h.get(t, "/tickets", false).Body.String(); strings.Contains(body, "/static/users.css") || strings.Contains(body, "/static/users.js") {
+		t.Error("non-Users page loads Users assets")
 	}
 }

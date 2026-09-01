@@ -47,20 +47,23 @@ test.describe("Users", () => {
       const email = `probe-${Date.now().toString(36).slice(2, 8)}@example.com`;
       const password = "ProbeSecret123!";
 
-      // Create
-      await page.goto(base() + "/users/new");
-      await expect(page.locator('h1:has-text("New user")')).toBeVisible();
+      // Create in the Users drawer.
+      await page.goto(base() + "/users");
+      await page.getByRole("link", { name: /new user/i }).click();
+      await expect(page.getByRole("heading", { name: "New user", exact: true })).toBeVisible();
       await expect(page.getByRole("button", { name: /create user/i })).toBeVisible();
       await page.getByLabel(/^name$/i).fill(baseName);
       await page.getByLabel(/^email$/i).fill(email);
       await page.getByLabel(/^password$/i).fill(password);
-      const createResponsePromise = waitForExactPost(page, "/users");
-      await Promise.all([
-        createResponsePromise,
-        page.getByRole("button", { name: /create user/i }).click(),
-      ]);
-      const createResponse = await createResponsePromise;
-      expect(createResponse.status()).toBe(303);
+      await assertHtmxSwap(page, async () => {
+        await page.getByRole("button", { name: /create user/i }).click();
+      }, {
+        endpoint: "/users",
+        method: "POST",
+        expectedStatus: 200,
+        hxTarget: "#users-root",
+        expectedUrl: /\/users$/,
+      });
       expect(new URL(page.url()).pathname).toBe("/users");
       await expect(page.getByText(baseName)).toBeVisible();
       await expect(page.getByText(email)).toBeVisible();
@@ -122,16 +125,15 @@ test.describe("Users", () => {
   }
 
   async function createAgent(page: import("@playwright/test").Page, name: string, email: string): Promise<{ id: string; name: string }> {
-    await page.goto(base() + "/users/new");
+    await page.goto(base() + "/users");
+    await page.getByRole("link", { name: /new user/i }).click();
+    await expect(page.getByRole("heading", { name: "New user", exact: true })).toBeVisible();
     await page.getByLabel(/^name$/i).fill(name);
     await page.getByLabel(/^email$/i).fill(email);
     await page.getByLabel(/^password$/i).fill("AgentSecret1!");
-    const resp = await Promise.all([
-      waitForExactPost(page, "/users"),
-      page.getByRole("button", { name: /create user/i }).click(),
-    ]);
-    expect(resp[0].status()).toBe(303);
-    await expect(page).toHaveURL(/\/users/);
+    await assertHtmxSwap(page, async () => {
+      await page.getByRole("button", { name: /create user/i }).click();
+    }, { endpoint: "/users", method: "POST", expectedStatus: 200, hxTarget: "#users-root", expectedUrl: /\/users$/ });
     const editHref = await resolveUserEditHref(page, name);
     const id = new URL(editHref, page.url()).pathname.match(/^\/users\/(\d+)\/edit$/)?.[1];
     if (!id) throw new Error(`cannot resolve id for ${name} from ${editHref} at ${page.url()}`);

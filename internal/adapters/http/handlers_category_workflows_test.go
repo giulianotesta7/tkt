@@ -51,7 +51,8 @@ func TestCategoryWorkflowBuilder_UsesUsersHeaderFoundationAndCategoryIdentity(t 
 		`class="users-root"`,
 		`class="users-header"`,
 		`id="users-list-title"`,
-		`class="users-primary-action"`,
+		`class="users-primary-action`,
+		`id="users-new-launcher"`,
 		`class="users-list"`,
 	} {
 		if !strings.Contains(usersBody, want) {
