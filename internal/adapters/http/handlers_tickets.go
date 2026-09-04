@@ -495,18 +495,18 @@ type detailData struct {
 	// read-only spec). The server-side use cases also reject mutations on
 	// closed tickets regardless of what the UI shows.
 	Closed bool
-	// Pending carries the workflow Pending Actions card state for the current
-	// pinned step (design S9): it is populated only for an active run and
-	// never exposes a workflow version, pin, or technical cursor.
+	// Pending carries the live workflow-step projection for the current pinned
+	// step (design S9): it is populated only for an active run and never exposes
+	// a workflow version, pin, or technical cursor.
 	Pending workflowPending
 	Claim   workflowClaim
 }
 
-// workflowPending is the presentation payload for the Pending Actions card
-// above the timeline. Active is false (no card rendered) for legacy unpinned
-// tickets and completed runs. For an active run it names the current step
-// kind, whether the acting session user may complete it (persisted actor
-// predicate), and — for a manual task — the step's immutable PINNED
+// workflowPending is the presentation payload for the live current-step
+// projection inside the Timeline. Active is false (no projection rendered) for
+// legacy unpinned tickets and completed runs. For an active run it names the
+// current step kind, whether the acting session user may complete it (persisted
+// actor predicate), and — for a manual task — the step's immutable PINNED
 // instruction read from the execution snapshot pendingFor already loads (the
 // same pinned definition the runner plans against, never the live draft).
 // Automatic steps (least_loaded / resolve / close) render no button.
@@ -518,12 +518,14 @@ type workflowClaim struct {
 }
 
 type workflowPending struct {
-	Active      bool
-	Position    int
-	Kind        string // claim | form | manual | auto
-	Instruction string // pinned manual-task instruction (Amendment 2)
-	Fields      []domain.FormField
-	CanAct      bool
+	Active                 bool
+	Position               int
+	Kind                   string // claim | form | manual | auto
+	Instruction            string // pinned manual-task instruction
+	Fields                 []domain.FormField
+	CanAct                 bool
+	ParticipantIsRequester bool
+	ParticipantName        string
 }
 
 // ticketID resolves and validates the {id} path parameter; 0 + false on a
@@ -559,6 +561,14 @@ func (h *TicketHandlers) detailDataFor(r *http.Request, id int64) (detailData, i
 		values.UserID = strconv.FormatInt(*view.Ticket.UserID, 10)
 	}
 	closed := domain.IsClosed(view.Ticket.State)
+	pending := h.pendingFor(r, id, actor, view.Ticket)
+	if pending.Active {
+		if pending.ParticipantIsRequester {
+			pending.ParticipantName = view.Ticket.RequesterName
+		} else if view.AssignedUser != nil {
+			pending.ParticipantName = view.AssignedUser.Name
+		}
+	}
 	return detailData{
 		pageData:           pageDataFrom(r, "tickets"),
 		View:               view,
@@ -568,13 +578,13 @@ func (h *TicketHandlers) detailDataFor(r *http.Request, id int64) (detailData, i
 		CanCommentInternal: application.NewPolicy().Capabilities(actor.Role).Require(application.CapCommentInternal),
 		CanEdit:            application.NewPolicy().Capabilities(actor.Role).Require(application.CapEditTicket) && !closed,
 		Closed:             closed,
-		Pending:            h.pendingFor(r, id, actor, view.Ticket),
+		Pending:            pending,
 		Claim:              h.claimFor(r, id, actor),
 	}, 0, nil
 }
 
-// pendingFor builds the Pending Actions card state for the current pinned
-// step of an active run. It returns Active=false (no card) for legacy
+// pendingFor builds the live current-step projection for the current pinned
+// step of an active run. It returns Active=false (no projection) for legacy
 // unpinned tickets and non-active/completed runs. The persisted actor
 // predicate decides CanAct: manual_task/form[assignee] require the current
 // assignee, form[requester] the ticket requester, and a claim is server-
@@ -619,6 +629,7 @@ func (h *TicketHandlers) pendingFor(r *http.Request, id int64, actor domain.User
 		wp.Kind = "form"
 		wp.Fields = step.Form.Fields
 		if step.Form.Actor == domain.FormActorRequester {
+			wp.ParticipantIsRequester = true
 			wp.CanAct = t.RequesterUserID != nil && *t.RequesterUserID == actor.ID
 		} else {
 			wp.CanAct = t.UserID != nil && *t.UserID == actor.ID
@@ -735,7 +746,7 @@ func (h *TicketHandlers) addComment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if r.Header.Get("HX-Request") != "" {
-		h.renderer.Render(w, r, "tickets_show", "timeline", data, http.StatusOK)
+		h.renderer.Render(w, r, "tickets_show", "timeline_with_pending", data, http.StatusOK)
 		return
 	}
 	redirect(w, r, "/tickets/"+strconv.FormatInt(id, 10))

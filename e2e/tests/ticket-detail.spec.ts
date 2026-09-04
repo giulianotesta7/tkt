@@ -2,8 +2,9 @@
  * Ticket detail journeys: Properties sidebar, closed-state comment rejection, priority change.
  *
  * The canonical public-comment journey lives in tickets.spec.ts (native POST 303 + timeline + persistence).
- * Here: structural detail contract (Properties, state, category, description, timeline),
- * browser-visible comment-form rejection on closed states, and priority change via HTMX swap.
+ * Here: structural detail contract (Properties, state, category, description, timeline,
+ * passive pending status for requester-owned tickets), browser-visible comment-form
+ * rejection on closed states, and priority change via HTMX swap.
  *
  * Exhaustive HTTP rejection (403/422) for direct POSTs is covered by Go tests
  * (internal/adapters/http/handlers_comment_test.go).
@@ -12,7 +13,10 @@
 import { test, expect } from "@playwright/test";
 import { startServer, stopServer } from "../server-lifecycle.js";
 import { loginAsSeeded, base } from "./helpers/auth.js";
-import { assertCanonicalScreen, collectObservability } from "./helpers/layout.js";
+import {
+  assertCanonicalScreen,
+  collectObservability,
+} from "./helpers/layout.js";
 import { assertHtmxSwap } from "./helpers/htmx.js";
 import { createTicketViaUi } from "./helpers/navigation.js";
 
@@ -24,22 +28,63 @@ test.describe("Ticket detail", () => {
     await stopServer();
   });
 
-  test("detail shows Properties sidebar, timeline, state, description, and category", async ({ page }) => {
+  test("detail shows Properties sidebar, timeline, state, description, and category", async ({
+    page,
+  }) => {
     await page.setViewportSize({ width: 1280, height: 800 });
     const obs = collectObservability(page);
     await loginAsSeeded(page);
     const title = "Detail probe " + Date.now().toString(36).slice(2, 8);
-    const id = await createTicketViaUi(page, { title, description: "detail probe", category: "General", priority: "high" });
+    const id = await createTicketViaUi(page, {
+      title,
+      description: "detail probe",
+      category: "General",
+      priority: "high",
+    });
 
     await page.goto(base() + `/tickets/${id}`);
     await expect(page.locator("#ticket-detail")).toBeVisible();
     await expect(page.getByText("Properties").first()).toBeVisible();
     await expect(page.getByText("Requester")).toBeVisible();
     await expect(page.getByText("Category")).toBeVisible();
-    await expect(page.locator("#ticket-category-value")).toContainText("General");
+    await expect(page.locator("#ticket-category-value")).toContainText(
+      "General",
+    );
     await expect(page.getByText("State")).toBeVisible();
     await expect(page.locator("#timeline")).toBeVisible();
     await expect(page.getByText("Description")).toBeVisible();
+
+    // Requester-owned ticket with a pending manual step: passive viewer contract.
+    // Alice created the ticket, so she cannot act on the seeded General workflow step.
+    await expect(page.locator("#workflow-pending")).toBeVisible();
+    await expect(page.locator("#workflow-pending")).toHaveClass(
+      /workflow-pending-info/,
+    );
+    await expect(page.locator("#workflow-pending")).toContainText(
+      "IN PROGRESS",
+    );
+    await expect(page.locator("#workflow-pending")).toContainText(
+      "Updates will appear here when complete.",
+    );
+    await expect(
+      page.locator("#workflow-pending .workflow-instruction"),
+    ).toHaveCount(0);
+    await expect(page.locator("#timeline .timeline-entry").first()).toHaveClass(
+      /workflow-pending-info/,
+    );
+    await expect(page.locator(".current-task-card")).toHaveCount(0);
+    await expect(page.locator('form[action*="/workflow/steps/"]')).toHaveCount(
+      0,
+    );
+
+    // The compact passive projection must not introduce horizontal overflow
+    // on the mobile breakpoint.
+    await page.setViewportSize({ width: 390, height: 844 });
+    const mobileOverflow = await page.evaluate(
+      () => document.documentElement.scrollWidth > window.innerWidth,
+    );
+    expect(mobileOverflow).toBe(false);
+    await page.setViewportSize({ width: 1280, height: 800 });
 
     await assertCanonicalScreen(page, {
       viewport: 1280,
@@ -53,12 +98,19 @@ test.describe("Ticket detail", () => {
     });
   });
 
-  test("comment form hidden on closed states (browser-visible rejection)", async ({ page }) => {
+  test("comment form hidden on closed states (browser-visible rejection)", async ({
+    page,
+  }) => {
     await page.setViewportSize({ width: 1280, height: 800 });
     const obs = collectObservability(page);
     await loginAsSeeded(page);
     const title = "Closed comment probe " + Date.now().toString(36).slice(2, 8);
-    const id = await createTicketViaUi(page, { title, description: "detail probe", category: "General", priority: "high" });
+    const id = await createTicketViaUi(page, {
+      title,
+      description: "detail probe",
+      category: "General",
+      priority: "high",
+    });
 
     // Drive ticket to resolved via transitions new → in_progress → resolved
     for (const target of ["in_progress", "resolved"] as const) {
@@ -66,18 +118,24 @@ test.describe("Ticket detail", () => {
       await expect(page.locator("#ticket-detail")).toBeVisible();
       const moveSelect = page.locator("#ticket-state");
       await expect(moveSelect).toBeVisible();
-      const resp = await assertHtmxSwap(page, async () => {
-        await moveSelect.selectOption(target);
-      }, {
-        endpoint: `/tickets/${id}/transition`,
-        method: "POST",
-        expectedStatus: 200,
-        hxTarget: "#ticket-detail",
-      });
+      const resp = await assertHtmxSwap(
+        page,
+        async () => {
+          await moveSelect.selectOption(target);
+        },
+        {
+          endpoint: `/tickets/${id}/transition`,
+          method: "POST",
+          expectedStatus: 200,
+          hxTarget: "#ticket-detail",
+        },
+      );
       expect(resp.status()).toBe(200);
     }
     await page.goto(base() + `/tickets/${id}`);
-    await expect(page.getByText("Resolved").first()).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByText("Resolved").first()).toBeVisible({
+      timeout: 10_000,
+    });
     const beforeTimeline = await page.locator("#timeline").textContent();
     // Comment form must be hidden on resolved (IsClosed includes resolved)
     await expect(page.getByLabel(/comment body/i)).toHaveCount(0);
@@ -91,41 +149,58 @@ test.describe("Ticket detail", () => {
     const toClosed = page.locator("#ticket-state");
     await expect(toClosed).toBeVisible();
     {
-      const resp = await assertHtmxSwap(page, async () => {
-        await toClosed.selectOption("closed");
-      }, {
-        endpoint: `/tickets/${id}/transition`,
-        method: "POST",
-        expectedStatus: 200,
-        hxTarget: "#ticket-detail",
-      });
+      const resp = await assertHtmxSwap(
+        page,
+        async () => {
+          await toClosed.selectOption("closed");
+        },
+        {
+          endpoint: `/tickets/${id}/transition`,
+          method: "POST",
+          expectedStatus: 200,
+          hxTarget: "#ticket-detail",
+        },
+      );
       expect(resp.status()).toBe(200);
     }
     await expect(page.locator("#ticket-detail")).toBeVisible();
     await page.goto(base() + `/tickets/${id}`);
-    await expect(page.getByText("Closed").first()).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByText("Closed").first()).toBeVisible({
+      timeout: 10_000,
+    });
     await expect(page.getByLabel(/comment body/i)).toHaveCount(0);
 
     // Cancelled state: create a fresh ticket and cancel from new
     const cancelTitle = "Cancel probe " + Date.now().toString(36).slice(2, 8);
-    const cancelId = await createTicketViaUi(page, { title: cancelTitle, description: "detail probe", category: "General", priority: "high" });
+    const cancelId = await createTicketViaUi(page, {
+      title: cancelTitle,
+      description: "detail probe",
+      category: "General",
+      priority: "high",
+    });
     await page.goto(base() + `/tickets/${cancelId}`);
     const toCancel = page.locator("#ticket-state");
     await expect(toCancel).toBeVisible();
     {
-      const resp = await assertHtmxSwap(page, async () => {
-        await toCancel.selectOption("cancelled");
-      }, {
-        endpoint: `/tickets/${cancelId}/transition`,
-        method: "POST",
-        expectedStatus: 200,
-        hxTarget: "#ticket-detail",
-      });
+      const resp = await assertHtmxSwap(
+        page,
+        async () => {
+          await toCancel.selectOption("cancelled");
+        },
+        {
+          endpoint: `/tickets/${cancelId}/transition`,
+          method: "POST",
+          expectedStatus: 200,
+          hxTarget: "#ticket-detail",
+        },
+      );
       expect(resp.status()).toBe(200);
     }
     await expect(page.locator("#ticket-detail")).toBeVisible();
     await page.goto(base() + `/tickets/${cancelId}`);
-    await expect(page.getByText("Cancelled").first()).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByText("Cancelled").first()).toBeVisible({
+      timeout: 10_000,
+    });
     await expect(page.getByLabel(/comment body/i)).toHaveCount(0);
 
     await assertCanonicalScreen(page, {
@@ -140,7 +215,9 @@ test.describe("Ticket detail", () => {
     });
   });
 
-  test("priority change via HTMX swap updates #ticket-detail without full navigation", async ({ page }) => {
+  test("priority change via HTMX swap updates #ticket-detail without full navigation", async ({
+    page,
+  }) => {
     await page.setViewportSize({ width: 1280, height: 800 });
     const obs = collectObservability(page);
     await loginAsSeeded(page);
@@ -159,14 +236,18 @@ test.describe("Ticket detail", () => {
     const prioritySelect = page.locator("#ticket-priority");
     await expect(prioritySelect).toBeVisible();
 
-    await assertHtmxSwap(page, async () => {
-      await prioritySelect.selectOption("critical");
-    }, {
-      endpoint: `/tickets/${id}/edit`,
-      method: "POST",
-      expectedStatus: 200,
-      hxTarget: "#ticket-detail",
-    });
+    await assertHtmxSwap(
+      page,
+      async () => {
+        await prioritySelect.selectOption("critical");
+      },
+      {
+        endpoint: `/tickets/${id}/edit`,
+        method: "POST",
+        expectedStatus: 200,
+        hxTarget: "#ticket-detail",
+      },
+    );
 
     await expect(page.locator("#ticket-detail")).toContainText(/critical/i);
 

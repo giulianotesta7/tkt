@@ -13,19 +13,19 @@ func TestEventSummaryReopen(t *testing.T) {
 		ev   domain.AuditEvent
 		want string
 	}{
-		{"reopen from resolved", domain.AuditEvent{Action: domain.ActionTransition, FromValue: str("resolved"), ToValue: str("in_progress")}, "Ticket Reopened"},
-		{"reopen from closed", domain.AuditEvent{Action: domain.ActionTransition, FromValue: str("closed"), ToValue: str("in_progress")}, "Ticket Reopened"},
-		{"in progress", domain.AuditEvent{Action: domain.ActionTransition, FromValue: str("new"), ToValue: str("in_progress")}, "Ticket in progress"},
-		{"resolve", domain.AuditEvent{Action: domain.ActionTransition, FromValue: str("in_progress"), ToValue: str("resolved")}, "Ticket resolved"},
-		{"close", domain.AuditEvent{Action: domain.ActionTransition, FromValue: str("resolved"), ToValue: str("closed")}, "Ticket closed"},
-		{"cancel", domain.AuditEvent{Action: domain.ActionTransition, FromValue: str("in_progress"), ToValue: str("cancelled")}, "Ticket cancelled"},
-		{"created", domain.AuditEvent{Action: domain.ActionCreated}, "Ticket created"},
-		{"update field", domain.AuditEvent{Action: domain.ActionUpdate, Field: str("title")}, "Changed Title"},
-		{"workflow assignment reads the structured prefix", domain.AuditEvent{Action: domain.ActionWorkflowAssignment}, "Assigned to"},
-		{"workflow manual task", domain.AuditEvent{Action: domain.ActionWorkflowManualTask}, "Completed task"},
-		{"workflow requester form", domain.AuditEvent{Action: domain.ActionWorkflowRequesterForm}, "Submitted request details"},
-		{"workflow assignee form", domain.AuditEvent{Action: domain.ActionWorkflowAssigneeForm}, "Submitted work details"},
-		{"legacy workflow_step reads as Completed step", domain.AuditEvent{Action: domain.ActionWorkflowStep}, "Completed step"},
+		{"reopen from resolved", domain.AuditEvent{Action: domain.ActionTransition, FromValue: str("resolved"), ToValue: str("in_progress")}, "reopened the ticket"},
+		{"reopen from closed", domain.AuditEvent{Action: domain.ActionTransition, FromValue: str("closed"), ToValue: str("in_progress")}, "reopened the ticket"},
+		{"in progress", domain.AuditEvent{Action: domain.ActionTransition, FromValue: str("new"), ToValue: str("in_progress")}, "moved the ticket to in progress"},
+		{"resolve", domain.AuditEvent{Action: domain.ActionTransition, FromValue: str("in_progress"), ToValue: str("resolved")}, "moved the ticket to resolved"},
+		{"close", domain.AuditEvent{Action: domain.ActionTransition, FromValue: str("resolved"), ToValue: str("closed")}, "moved the ticket to closed"},
+		{"cancel", domain.AuditEvent{Action: domain.ActionTransition, FromValue: str("in_progress"), ToValue: str("cancelled")}, "moved the ticket to cancelled"},
+		{"created", domain.AuditEvent{Action: domain.ActionCreated}, "created the ticket"},
+		{"update field", domain.AuditEvent{Action: domain.ActionUpdate, Field: str("title")}, "changed title"},
+		{"workflow assignment reads the sentence prefix", domain.AuditEvent{Action: domain.ActionWorkflowAssignment}, "assigned the ticket to"},
+		{"workflow manual task", domain.AuditEvent{Action: domain.ActionWorkflowManualTask}, "completed the task"},
+		{"workflow requester form", domain.AuditEvent{Action: domain.ActionWorkflowRequesterForm}, "submitted request details"},
+		{"workflow assignee form", domain.AuditEvent{Action: domain.ActionWorkflowAssigneeForm}, "submitted work details"},
+		{"legacy workflow_step reads as completed the step", domain.AuditEvent{Action: domain.ActionWorkflowStep}, "completed the step"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

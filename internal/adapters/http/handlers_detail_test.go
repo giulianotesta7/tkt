@@ -65,9 +65,9 @@ func TestTicketShowRendersDetail(t *testing.T) {
 		t.Errorf("the category must stay visible as read-only metadata, got: %s", body)
 	}
 	// Merged timeline DESC: the transition (newer) renders before created.
-	// Match the event summary lines (not bare words).
-	createdEvent := "Ticket created"
-	transitionEvent := "Ticket in progress"
+	// Match the actor-first event narrative lines (not bare words).
+	createdEvent := "created the ticket"
+	transitionEvent := "moved the ticket to in progress"
 	if !(strings.Index(body, transitionEvent) < strings.Index(body, createdEvent)) {
 		t.Errorf("merged timeline must be newest-first (transition before created), got: %s", body)
 	}
@@ -171,7 +171,7 @@ func TestTicketTimelineDifferentiatesCommentsAndAuditEvents(t *testing.T) {
 	}
 
 	body := h.get(t, "/tickets/1", false).Body.String()
-	for _, want := range []string{`class="timeline-entry timeline-comment"`, `class="timeline-entry timeline-event`, "Ticket in progress", "st-in_progress"} {
+	for _, want := range []string{`class="timeline-entry timeline-comment"`, `class="timeline-entry timeline-event`, "moved the ticket to in progress", "st-in_progress"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("timeline must contain %q, got: %s", want, body)
 		}
@@ -336,9 +336,9 @@ func TestTicketTransitionReopenWithReason(t *testing.T) {
 	if !strings.Contains(page.Body.String(), "Reason: fix deployed") {
 		t.Errorf("timeline must label the reopen reason as %q, got: %s", "Reason: fix deployed", page.Body.String())
 	}
-	// A reopen reads as "Ticket Reopened", not "Ticket in progress".
-	if !strings.Contains(page.Body.String(), "Ticket Reopened") {
-		t.Errorf("timeline must summarize a reopen as %q, got: %s", "Reopen", page.Body.String())
+	// A reopen reads as "reopened the ticket", not "moved the ticket to in progress".
+	if !strings.Contains(page.Body.String(), "reopened the ticket") {
+		t.Errorf("timeline must summarize a reopen as %q, got: %s", "reopened the ticket", page.Body.String())
 	}
 }
 
@@ -622,7 +622,7 @@ func TestTicketEditTimelineResolvesAssignedUserName(t *testing.T) {
 	wantRedirect(t, rec, http.StatusSeeOther, "/tickets/1")
 
 	body := h.get(t, "/tickets/1", false).Body.String()
-	if !strings.Contains(body, "Assigned to Beto") {
+	if !strings.Contains(body, "assigned the ticket to Beto") {
 		t.Errorf("assignment event must resolve user names, got: %s", body)
 	}
 	if strings.Contains(body, "Assigned To · Unassigned → "+strconv.FormatInt(beto.ID, 10)) {
@@ -660,7 +660,7 @@ func TestTicketAssignInitialHappyPath(t *testing.T) {
 		t.Errorf("assignment event ActorUserID = %v, want session admin %d", assignEv.ActorUserID, h.admin.ID)
 	}
 	body := h.get(t, "/tickets/1", false).Body.String()
-	if !strings.Contains(body, "Assigned to Beto") {
+	if !strings.Contains(body, "assigned the ticket to Beto") {
 		t.Errorf("timeline must resolve the assignee name, got: %s", body)
 	}
 }

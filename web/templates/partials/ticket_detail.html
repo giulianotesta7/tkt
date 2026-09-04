@@ -30,10 +30,10 @@
         <h2>Description</h2>
         {{if .View.Ticket.Description}}<p>{{.View.Ticket.Description}}</p>{{else}}<p class="empty">No description.</p>{{end}}
       </div>
-{{if not .Closed}}{{template "comment_form" .}}{{end}}{{template "workflow_pending" .}}
+{{if not .Closed}}{{template "comment_form" .}}{{end}}
       <div class="card">
         <h2>Timeline</h2>
-{{template "timeline" .}}
+{{template "timeline_with_pending" .}}
       </div>
     </div>
     <div class="evidence">

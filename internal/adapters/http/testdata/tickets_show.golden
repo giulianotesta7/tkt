@@ -193,13 +193,14 @@
   .lifecycle-meta dt{color:var(--muted)}
   .lifecycle-meta dd{margin:0;color:var(--ink-soft);text-align:right}
 
-  .timeline-entry{margin-top:10px;border-radius:8px}
+.timeline-entry{margin-top:10px;border-radius:8px;min-width:0}
   .timeline-comment{padding:12px 14px;background:var(--card);border:1px solid var(--line)}
   .timeline-comment.internal{background:var(--internal-comment-bg);border-color:#B7C9F5}
-  .timeline-comment .who{display:flex;gap:8px;align-items:baseline;justify-content:space-between}
-  .timeline-comment .author{font-weight:600;color:var(--ink-soft);font-size:13px}
-  .timeline-comment .when{color:var(--muted);font-size:12px;font-family:var(--mono)}
-  .timeline-comment .body{color:var(--ink-soft);margin-top:6px;white-space:pre-wrap}
+  .timeline-entry-head{display:flex;gap:8px;align-items:baseline;justify-content:space-between}
+  .timeline-actor{font-weight:600;color:var(--ink-soft);font-size:13px}
+  .timeline-comment .narrative{min-width:0;color:var(--ink-soft);font-size:13px;line-height:18px;overflow-wrap:anywhere}
+  .timeline-comment .when{flex:0 0 auto;color:var(--muted);font-size:12px;font-family:var(--mono)}
+  .timeline-comment .body{color:var(--ink-soft);margin-top:6px;white-space:pre-wrap;overflow-wrap:anywhere}
   textarea,input[type=text],input[type=email],input[type=password]{
     width:100%;border:1px solid var(--line);border-radius:8px;background:var(--card);
     color:var(--ink-soft);padding:10px 12px;font:inherit;font-size:13.5px;
@@ -232,11 +233,13 @@
     padding:10px 14px;margin-bottom:14px;font-size:13.5px;
   }
 
-  .activity h2{display:flex;align-items:center;gap:8px}
-  .timeline-event{display:grid;grid-template-columns:16px minmax(0,1fr);align-items:start;gap:6px;padding:6px 2px}
-  .timeline-event .event-icon{color:var(--faint);font-size:14px;line-height:20px;text-align:center;user-select:none}
-  .timeline-event .body{min-width:0}
+.activity h2{display:flex;align-items:center;gap:8px}
+  .timeline-event{display:grid;grid-template-columns:18px minmax(0,1fr);align-items:start;gap:6px;padding:6px 2px}
+  .timeline-event .event-icon{display:flex;flex:0 0 18px;flex-shrink:0;align-items:center;justify-content:center;width:18px;height:20px;color:var(--faint);font-size:18px;line-height:20px;text-align:center;user-select:none}
+  .timeline-event .event-icon::before{content:"›";display:block;line-height:18px;transition:transform .12s ease}
+  .timeline-event .body{min-width:0;flex:1 1 auto}
   .timeline-event .main{padding:0;color:var(--ink-soft);font-size:13px;line-height:18px}
+  .timeline-event .timeline-action{font-weight:500}
   .timeline-event.st-new .main,.timeline-event.st-new .event-icon{color:var(--accent);font-weight:600}
   .timeline-event.st-in_progress .main,.timeline-event.st-in_progress .event-icon{color:var(--amber);font-weight:600}
   .timeline-event.st-resolved .main,.timeline-event.st-resolved .event-icon{color:var(--green);font-weight:600}
@@ -244,6 +247,15 @@
   .timeline-event.st-cancelled .main,.timeline-event.st-cancelled .event-icon{color:var(--red);font-weight:600}
   .timeline-event .detail{color:var(--muted);font-size:12.5px;margin-top:2px}
   .timeline-event .when{color:var(--faint);font-size:11.5px;font-family:var(--mono);margin-top:2px}
+  .timeline-manual{display:block}
+  .timeline-event.timeline-manual .timeline-manual-heading{display:flex;align-items:center;gap:6px}
+  .timeline-event.timeline-manual .timeline-manual-heading .event-icon{display:flex;flex:0 0 18px;flex-shrink:0;align-items:center;justify-content:center;width:18px;height:20px;color:var(--green);user-select:none}
+  .timeline-event.timeline-manual .timeline-manual-heading .event-icon::before{content:none}
+  .timeline-event.timeline-manual .timeline-manual-heading .event-icon svg{display:block;flex-shrink:0;width:16px;height:16px}
+  .workflow-manual-details{display:grid;grid-template-columns:max-content minmax(0,1fr);column-gap:12px;align-items:baseline;margin:8px 0 0;padding:0;font-size:13px;line-height:1.45}
+  .workflow-manual-details dt{grid-column:1;padding:7px 0;color:var(--muted);font-size:11px;font-weight:700;letter-spacing:.06em}
+  .workflow-manual-details dd{grid-column:2;margin:0;padding:7px 0;color:var(--ink-soft);overflow-wrap:anywhere;white-space:pre-wrap}
+  .workflow-manual-details dt:nth-of-type(n+2),.workflow-manual-details dd:nth-of-type(n+2){border-top:1px solid var(--line)}
 
   .transition-form{margin-top:12px}
   .transition-form select{width:100%;height:38px;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--ink-soft);padding:0 10px;font:inherit}
@@ -334,7 +346,7 @@
   .category-table-shell{overflow:hidden;border:1px solid var(--line);border-radius:10px;background:var(--card)}
   .category-table{width:100%;border-collapse:collapse}.category-table th{text-align:left;padding:12px 14px;background:var(--surface);border-bottom:1px solid var(--line);font-size:12px;color:var(--muted);font-weight:600}.category-table td{padding:14px;border-bottom:1px solid var(--line);vertical-align:middle}.category-table tr:last-child td{border-bottom:0}
   .category-name{font-weight:600;color:var(--ink-strong);overflow-wrap:anywhere}.category-created,.category-status-empty{color:var(--muted);font-size:12px}.category-actions,.desk-detail-head,.desk-rename,.desk-add-member>div{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
-  .current-task-card{background:color-mix(in srgb,var(--amber-soft) 30%,var(--card));border-top:2px solid var(--amber)}.current-task-card h2{color:var(--amber)}.current-task-kicker{margin:0 0 5px;color:var(--ink-soft);font-weight:500}.current-task-card .workflow-instruction{margin:0 0 14px;color:var(--ink-soft);white-space:pre-wrap}
+  .workflow-pending{min-width:0;margin-top:10px;padding:12px 14px;border:1px solid color-mix(in srgb,var(--amber) 35%,var(--line));border-radius:8px;overflow-wrap:anywhere}.workflow-pending-action{background:color-mix(in srgb,var(--amber-soft) 18%,var(--card));border-left:3px solid var(--amber)}.workflow-pending-info{background:color-mix(in srgb,var(--amber-soft) 10%,var(--card));border-left:3px solid var(--amber)}.workflow-pending-heading h3{margin:0 0 8px;color:var(--amber);font-size:11px;font-weight:700;letter-spacing:.08em}.workflow-pending .workflow-instruction{margin:0 0 10px;color:var(--ink-soft);white-space:pre-wrap}.workflow-pending-copy{margin:0;color:var(--ink-soft);font-size:13px}.workflow-pending-status{margin:0;color:var(--ink-soft);font-size:13px;line-height:1.4}.workflow-pending-status strong{display:inline-block;padding:3px 8px;border-radius:6px;background:color-mix(in srgb,var(--amber-soft) 70%,var(--card));color:var(--amber);font-size:11px;letter-spacing:.08em;margin-right:6px}.workflow-pending-participant{font-weight:600}.workflow-pending-updates{margin:4px 0 0;color:var(--muted);font-size:12px}.workflow-pending-form .field{margin-bottom:8px}.workflow-pending-form textarea{min-height:0;resize:vertical}.workflow-pending-complete{margin-top:0}
   .desks-layout{display:grid;grid-template-columns:minmax(180px,280px) minmax(0,1fr);gap:16px}.desk-list,.desk-detail{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px;min-width:0}.desk-list h2,.desk-detail h2,.desk-members h3{margin:0;color:var(--ink-strong);font-size:15px}.desk-list{display:flex;flex-direction:column;gap:5px}.desk-list-item{display:flex;flex-direction:column;gap:2px;padding:10px;border-radius:8px;color:var(--ink-soft)}.desk-list-item:hover,.desk-list-item.selected{background:var(--accent-soft);text-decoration:none}.desk-list-item span,.desk-members p{color:var(--muted);font-size:12px}.desk-detail{display:flex;flex-direction:column;gap:16px}.desk-detail-head{justify-content:space-between;border-bottom:1px solid var(--line);padding-bottom:12px}.desk-rename{max-width:440px}.desk-rename input{flex:1 1 180px;min-width:0}.desk-members{border-top:1px solid var(--line);padding-top:14px}.desk-members p{margin:5px 0 12px}.desk-add-member label{display:block;font-size:12px;font-weight:500;margin-bottom:5px}.desk-add-member select{min-width:0;max-width:100%;height:36px;border:1px solid var(--line);border-radius:8px;background:var(--card);padding:0 10px;color:var(--ink-soft);font:inherit}.desk-member-list{list-style:none;margin:14px 0 0;padding:0;border-top:1px solid var(--line)}.desk-member-list li{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--line)}.desk-create{position:relative}.desk-create summary{list-style:none}.desk-create summary::-webkit-details-marker{display:none}.desk-create[open] .form-card{position:absolute;right:0;z-index:1;margin-top:8px}
 
   .swatch-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:10px;margin:6px 0 16px}
@@ -449,6 +461,7 @@
     .workflow-responses dt,.workflow-responses dd{grid-column:1}
     .workflow-responses dt{padding-bottom:2px}
     .workflow-responses dd{padding-top:2px;border-top:none}
+
   }</style>
 <script src="/static/htmx.min.js" defer></script>
 </head>
@@ -524,9 +537,11 @@
 <div id="timeline">
 
 
+
+
   <div class="timeline-entry timeline-comment">
-    <div class="who">
-      <span class="author">Ana Torres</span>
+    <div class="timeline-entry-head">
+      <div class="narrative"><strong class="timeline-actor">Ana Torres</strong> added a public comment</div>
       <span class="when"><time datetime="2026-08-06T10:30:00Z">10:30 · 06-08-2026</time></span>
     </div>
     <div class="body">Checking now</div>
@@ -534,36 +549,43 @@
 
 
 
-  <div class="timeline-entry timeline-event st-1">
-    <span class="event-icon">›</span>
-    <div class="body">
-      <div class="main">Update · Assigned To · Unassigned → Ana Torres</div>
 
-      <div class="when"><time datetime="2026-08-06T10:30:00Z">10:30 · 06-08-2026</time> · Admin</div>
+  <div class="timeline-entry timeline-event">
+    <span class="event-icon" aria-hidden="true"></span>
+    <div class="body">
+      <div class="main"><strong class="timeline-actor">Admin</strong> <span class="timeline-action">assigned the ticket to Ana Torres</span></div>
+
+      <div class="when"><time datetime="2026-08-06T10:30:00Z">10:30 · 06-08-2026</time></div>
     </div>
   </div>
+
+
 
 
 
   <div class="timeline-entry timeline-event st-in_progress">
-    <span class="event-icon">›</span>
+    <span class="event-icon" aria-hidden="true"></span>
     <div class="body">
-      <div class="main">Transition · State · New → In Progress</div>
+      <div class="main"><strong class="timeline-actor">Admin</strong> <span class="timeline-action">moved the ticket to in progress</span></div>
 
-      <div class="when"><time datetime="2026-08-06T10:30:00Z">10:30 · 06-08-2026</time> · Admin</div>
+      <div class="when"><time datetime="2026-08-06T10:30:00Z">10:30 · 06-08-2026</time></div>
     </div>
   </div>
 
 
 
-  <div class="timeline-entry timeline-event">
-    <span class="event-icon">›</span>
-    <div class="body">
-      <div class="main">Created</div>
 
-      <div class="when"><time datetime="2026-08-06T10:00:00Z">10:00 · 06-08-2026</time> · Admin</div>
+
+  <div class="timeline-entry timeline-event st-new">
+    <span class="event-icon" aria-hidden="true"></span>
+    <div class="body">
+      <div class="main"><strong class="timeline-actor">Admin</strong> <span class="timeline-action">created the ticket</span></div>
+
+      <div class="when"><time datetime="2026-08-06T10:00:00Z">10:00 · 06-08-2026</time></div>
     </div>
   </div>
+
+
 
 
 </div>

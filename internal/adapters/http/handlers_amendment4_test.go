@@ -74,11 +74,12 @@ func TestAmendment4_CurrentTaskCardPreservesManualCompletionMarkup(t *testing.T)
 	}
 	body := rec.Body.String()
 	for _, want := range []string{
-		`class="card current-task-card"`,
-		`<h2 id="current-task-title">Current task</h2>`,
-		`background:color-mix(in srgb,var(--amber-soft) 30%,var(--card))`,
+		`class="timeline-entry workflow-pending workflow-pending-action"`,
+		`<h3 id="current-task-title">CURRENT TASK</h3>`,
+		`background:color-mix(in srgb,var(--amber-soft) 18%,var(--card))`,
 		"Check the cable run",
-		`<label for="solution">Solution (optional)</label>`,
+		`<label class="visually-hidden" for="solution">Solution (optional)</label>`,
+		`placeholder="Solution (optional)"`,
 		`action="/tickets/` + strconv.FormatInt(ticket.ID, 10) + `/workflow/steps/1/complete"`,
 	} {
 		if !strings.Contains(body, want) {
@@ -86,14 +87,14 @@ func TestAmendment4_CurrentTaskCardPreservesManualCompletionMarkup(t *testing.T)
 		}
 	}
 	if strings.Contains(body, "<h2>Pending Actions</h2>") {
-		t.Error("current task card must replace the Pending Actions heading")
+		t.Error("current task item must not render a Pending Actions heading")
 	}
 	style := extractStyleBlock(t, body)
-	if !cssRuleDeclares(style, ".current-task-card{", "background:color-mix(in srgb,var(--amber-soft) 30%,var(--card))") {
-		t.Error("current task card must use the exact 30% current-task/card mix")
+	if !cssRuleDeclares(style, ".workflow-pending-action{", "background:color-mix(in srgb,var(--amber-soft) 18%,var(--card))") {
+		t.Error("current task item must use the shared amber-soft visual token")
 	}
-	if !cssRuleDeclares(style, ".current-task-card{", "border-top:2px solid var(--amber)") {
-		t.Error("current task card must use the exact 2px current-task accent top border")
+	if !cssRuleDeclares(style, ".workflow-pending-action{", "border-left:3px solid var(--amber)") {
+		t.Error("current task item must use the amber left accent")
 	}
 }
 

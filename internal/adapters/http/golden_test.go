@@ -225,9 +225,9 @@ func fixtureDetailData() detailData {
 	}
 	view.Timeline = []application.TimelineItem{
 		{IsComment: true, Comment: &view.Comments[0]},
-		{Event: &view.AuditEvents[2], ActionLabel: "Update", FieldLabel: "Assigned To", FromLabel: "Unassigned", ToLabel: "Ana Torres"},
-		{Event: &view.AuditEvents[1], ActionLabel: "Transition", FieldLabel: "State", FromLabel: "New", ToLabel: "In Progress"},
-		{Event: &view.AuditEvents[0], ActionLabel: "Created"},
+		{Event: &view.AuditEvents[2], Summary: "assigned the ticket to Ana Torres", ActorLabel: "Admin", StateClass: ""},
+		{Event: &view.AuditEvents[1], Summary: "moved the ticket to in progress", ActorLabel: "Admin", StateClass: "in_progress"},
+		{Event: &view.AuditEvents[0], Summary: "created the ticket", ActorLabel: "Admin", StateClass: "new"},
 	}
 	opts := options{
 		States:          listStates,
