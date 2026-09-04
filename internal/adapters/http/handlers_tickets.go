@@ -545,14 +545,11 @@ type detailData struct {
 	Claim   workflowClaim
 }
 
-// workflowPending is the presentation payload for the Pending Actions card
-// above the timeline. Active is false (no card rendered) for legacy unpinned
-// tickets and completed runs. For an active run it names the current step
-// kind, whether the acting session user may complete it (persisted actor
-// predicate), and — for a manual task — the step's immutable PINNED
-// instruction read from the execution snapshot pendingFor already loads (the
-// same pinned definition the runner plans against, never the live draft).
-// Automatic steps (least_loaded / resolve / close) render no button.
+// workflowPending is the presentation payload for the live current-step
+// projection inside the Timeline. Active is false (no projection rendered)
+// for legacy unpinned tickets and completed runs. For an active run it names
+// the current step kind, whether the acting session user may complete it,
+// and the participant responsible for the step.
 type workflowClaim struct {
 	Active   bool
 	Position int
@@ -561,12 +558,14 @@ type workflowClaim struct {
 }
 
 type workflowPending struct {
-	Active      bool
-	Position    int
-	Kind        string // claim | form | manual | auto
-	Instruction string // pinned manual-task instruction (Amendment 2)
-	Fields      []domain.FormField
-	CanAct      bool
+	Active                 bool
+	Position               int
+	Kind                   string // claim | form | manual | auto
+	Instruction            string // pinned manual-task instruction
+	Fields                 []domain.FormField
+	CanAct                 bool
+	ParticipantIsRequester bool
+	ParticipantName        string
 }
 
 // ticketID resolves and validates the {id} path parameter; 0 + false on a
@@ -602,6 +601,14 @@ func (h *TicketHandlers) detailDataFor(r *http.Request, id int64) (detailData, i
 		values.UserID = strconv.FormatInt(*view.Ticket.UserID, 10)
 	}
 	closed := domain.IsClosed(view.Ticket.State)
+	pending := h.pendingFor(r, id, actor, view.Ticket)
+	if pending.Active {
+		if pending.ParticipantIsRequester {
+			pending.ParticipantName = view.Ticket.RequesterName
+		} else if view.AssignedUser != nil {
+			pending.ParticipantName = view.AssignedUser.Name
+		}
+	}
 	// Requester-confirmation presentation flags (D7): identity mirror + the
 	// resolved carve-out on the comment form; the services stay the
 	// enforcement points for both.
@@ -622,7 +629,7 @@ func (h *TicketHandlers) detailDataFor(r *http.Request, id int64) (detailData, i
 		Closed:             closed,
 		CanConfirm:         view.Ticket.State == domain.StateResolved && requester,
 		CanComment:         !closed || (view.Ticket.State == domain.StateResolved && requester),
-		Pending:            h.pendingFor(r, id, actor, view.Ticket),
+		Pending:            pending,
 		Claim:              h.claimFor(r, id, actor),
 	}, 0, nil
 }
@@ -673,6 +680,7 @@ func (h *TicketHandlers) pendingFor(r *http.Request, id int64, actor domain.User
 		wp.Kind = "form"
 		wp.Fields = step.Form.Fields
 		if step.Form.Actor == domain.FormActorRequester {
+			wp.ParticipantIsRequester = true
 			wp.CanAct = t.RequesterUserID != nil && *t.RequesterUserID == actor.ID
 		} else {
 			wp.CanAct = t.UserID != nil && *t.UserID == actor.ID

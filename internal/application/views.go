@@ -39,16 +39,19 @@ type TimelineItem struct {
 	FieldLabel  string
 	FromLabel   string
 	ToLabel     string
-	// Summary is a compact natural-language line for the activity timeline
-	// ("Ticket created", "Moved to In Progress", "Changed Title"). It keeps
-	// state changes terse and unobtrusive next to full comments. A workflow
-	// assignment carries only the exact prefix "Assigned to"; the template
-	// composes the structured person/desk strong pair from the fields below.
+	// Summary retains the historical capitalized summary contract for callers
+	// that consume the view model directly. Narrative is the sentence-case
+	// action phrase rendered in the ticket timeline.
 	Summary    string
+	Narrative  string
 	ActorLabel string
+	// StateClass carries a validated lifecycle state class for transition
+	// events. It never exposes arbitrary audit values (such as user IDs) in
+	// markup.
+	StateClass string
 	// IsWorkflowAssignment marks a contextual workflow_assignment event: the
-	// main line is the structured "Assigned to person · desk" pair below, and
-	// no st-class is derived from the raw ToValue user id.
+	// main line keeps the assigned person and desk in the actor-first sentence,
+	// and no st-class is derived from the raw ToValue user id.
 	IsWorkflowAssignment bool
 	// AssignmentPerson/AssignmentDesk are the resolved display labels of the
 	// assignment's ToValue user id and DeskID (missing references degrade to
@@ -199,7 +202,13 @@ func (b *ViewBuilder) enrichTimeline(ctx context.Context, view *TicketView) erro
 		if item.Event.Actor != "workflow" {
 			item.ActorLabel = item.Event.Actor
 		}
-		item.Summary = eventSummary(item.Event)
+		item.Narrative = eventSummary(item.Event)
+		item.Summary = legacyEventSummary(item.Event)
+		if item.Event.Action == domain.ActionTransition && item.Event.ToValue != nil {
+			item.StateClass = *item.Event.ToValue
+		} else if item.Event.Action == domain.ActionCreated {
+			item.StateClass = "new"
+		}
 		switch item.Event.Action {
 		case domain.ActionWorkflowStep, domain.ActionWorkflowManualTask,
 			domain.ActionWorkflowRequesterForm, domain.ActionWorkflowAssigneeForm:
@@ -251,17 +260,23 @@ func (b *ViewBuilder) enrichTimeline(ctx context.Context, view *TicketView) erro
 		if err != nil {
 			return err
 		}
-		item.Summary = eventSummary(item.Event)
+		item.Narrative = eventSummary(item.Event)
+		item.Summary = legacyEventSummary(item.Event)
 		if field == "user" || field == "user_id" {
-			item.Summary = "Changed assignee"
 			if item.ToLabel != "" {
+				item.Narrative = "assigned the ticket to " + item.ToLabel
 				item.Summary = "Assigned to " + item.ToLabel
+			} else {
+				item.Narrative = "changed the ticket assignee"
+				item.Summary = "Changed assignee"
 			}
 		} else if item.Event.Action == domain.ActionUpdate {
 			label := auditFieldLabel(field)
 			if item.ToLabel != "" && item.ToLabel != item.FromLabel {
+				item.Narrative = "changed " + strings.ToLower(label) + " to " + item.ToLabel
 				item.Summary = "Changed " + label + " to " + item.ToLabel
 			} else {
+				item.Narrative = "changed " + strings.ToLower(label)
 				item.Summary = "Changed " + label
 			}
 		}
@@ -294,13 +309,9 @@ func (t *TimelineItem) bindStepContext(stepCtx *WorkflowStepContext) {
 	}
 }
 
-// eventSummary renders a compact natural-language line for a state-change
-// audit event (activity timeline). Transition carries a ToValue target;
-// updates carry a Field; creations have neither. Transitions read as a
-// contextual outcome statement in a uniform "Ticket …" family ("Ticket
-// in progress", "Ticket resolved"); a reopen — from a closed state
-// (resolved/closed) back into in_progress — reads as "Ticket Reopened".
-func eventSummary(e *domain.AuditEvent) string {
+// legacyEventSummary preserves the pre-narrative view-model summary for
+// callers outside the HTML presentation boundary.
+func legacyEventSummary(e *domain.AuditEvent) string {
 	switch e.Action {
 	case domain.ActionTransition:
 		if e.ToValue != nil {
@@ -313,8 +324,6 @@ func eventSummary(e *domain.AuditEvent) string {
 	case domain.ActionCreated:
 		return "Ticket created"
 	case domain.ActionWorkflowAssignment:
-		// Structured prefix only: person and desk render from the resolved
-		// TimelineItem fields as one "Assigned to <person> · <desk>" line.
 		return "Assigned to"
 	case domain.ActionWorkflowStep:
 		return "Completed step"
@@ -329,6 +338,39 @@ func eventSummary(e *domain.AuditEvent) string {
 			return "Changed " + auditFieldLabel(strings.ToLower(strings.TrimSpace(*e.Field)))
 		}
 		return humanizeIdentifier(e.Action)
+	}
+}
+
+// eventSummary returns the sentence-case action phrase shown after an
+// attributed actor. It deliberately never includes the actor itself, so the
+// template can omit automatic workflow actors without leaving a separator.
+func eventSummary(e *domain.AuditEvent) string {
+	switch e.Action {
+	case domain.ActionTransition:
+		if e.ToValue != nil {
+			if *e.ToValue == "in_progress" && e.FromValue != nil && isClosedState(*e.FromValue) {
+				return "reopened the ticket"
+			}
+			return "moved the ticket to " + strings.ReplaceAll(*e.ToValue, "_", " ")
+		}
+		return "changed the ticket state"
+	case domain.ActionCreated:
+		return "created the ticket"
+	case domain.ActionWorkflowAssignment:
+		return "assigned the ticket to"
+	case domain.ActionWorkflowStep:
+		return "completed the step"
+	case domain.ActionWorkflowManualTask:
+		return "completed the task"
+	case domain.ActionWorkflowRequesterForm:
+		return "submitted request details"
+	case domain.ActionWorkflowAssigneeForm:
+		return "submitted work details"
+	default:
+		if e.Field != nil {
+			return "changed " + strings.ToLower(auditFieldLabel(strings.ToLower(strings.TrimSpace(*e.Field))))
+		}
+		return strings.ToLower(humanizeIdentifier(e.Action))
 	}
 }
 

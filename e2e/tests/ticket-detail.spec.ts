@@ -41,6 +41,26 @@ test.describe("Ticket detail", () => {
     await expect(page.locator("#timeline")).toBeVisible();
     await expect(page.getByText("Description")).toBeVisible();
 
+    // Requester-owned ticket with a pending manual step: passive viewer contract.
+    // Alice created the ticket, so she cannot act on the seeded General workflow step.
+    await expect(page.locator("#workflow-pending")).toBeVisible();
+    await expect(page.locator("#workflow-pending")).toHaveClass(/workflow-pending-info/);
+    await expect(page.locator("#workflow-pending")).toContainText("IN PROGRESS");
+    await expect(page.locator("#workflow-pending")).toContainText("Updates will appear here when complete.");
+    await expect(page.locator("#workflow-pending .workflow-instruction")).toHaveCount(0);
+    await expect(page.locator("#timeline .timeline-entry").first()).toHaveClass(/workflow-pending-info/);
+    await expect(page.locator(".current-task-card")).toHaveCount(0);
+    await expect(page.locator('form[action*="/workflow/steps/"]')).toHaveCount(0);
+
+    // The compact passive projection must not introduce horizontal overflow
+    // on the mobile breakpoint.
+    await page.setViewportSize({ width: 390, height: 844 });
+    const mobileOverflow = await page.evaluate(
+      () => document.documentElement.scrollWidth > window.innerWidth,
+    );
+    expect(mobileOverflow).toBe(false);
+    await page.setViewportSize({ width: 1280, height: 800 });
+
     await assertCanonicalScreen(page, {
       viewport: 1280,
       label: "ticket detail properties",
