@@ -1,43 +1,29 @@
 {{define "workflow_pending"}}{{if .Pending.Active}}
-<section class="card current-task-card" id="workflow-pending" aria-labelledby="current-task-title">
-  <h2 id="current-task-title">Current task</h2>
-{{if eq .Pending.Kind "auto"}}
-  <p class="empty">
-    An automatic step runs next; it completes on its own as the request
-    advances.
-  </p>
-{{else}}{{if eq .Pending.Kind "manual"}}
-  <p class="current-task-kicker">Complete this task:</p>
+{{if .Pending.CanAct}}
+<section class="timeline-entry workflow-pending workflow-pending-action" id="workflow-pending" aria-labelledby="current-task-title">
+  <div class="workflow-pending-heading">
+    <h3 id="current-task-title">CURRENT TASK</h3>
+  </div>
+{{if eq .Pending.Kind "manual"}}
   <p class="workflow-instruction">{{.Pending.Instruction}}</p>
-{{end}}{{if not .Pending.CanAct}}
-  <p class="empty">
-    Awaiting another participant to complete the current step.
-  </p>
-  {{else}}
-  <form
-    method="post"
-    action="/tickets/{{.View.Ticket.ID}}/workflow/steps/{{.Pending.Position}}/complete"
-    hx-post="/tickets/{{.View.Ticket.ID}}/workflow/steps/{{.Pending.Position}}/complete"
-    hx-target="#ticket-detail"
-    hx-swap="outerHTML"
+{{else if eq .Pending.Kind "auto"}}
+  <p class="workflow-pending-copy">This step runs automatically.</p>
+{{end}}
+{{if ne .Pending.Kind "auto"}}
+  <form class="workflow-pending-form"
+        method="post"
+        action="/tickets/{{.View.Ticket.ID}}/workflow/steps/{{.Pending.Position}}/complete"
+        hx-post="/tickets/{{.View.Ticket.ID}}/workflow/steps/{{.Pending.Position}}/complete"
+        hx-target="#ticket-detail"
+        hx-swap="outerHTML"
   >
-{{if eq .Pending.Kind "claim"}}
-    <div class="field">
-      <label for="reason">Reason</label>
-      <input
-        type="text"
-        id="reason"
-        name="reason"
-        placeholder="Optional reassignment reason"
-      />
+{{if eq .Pending.Kind "manual"}}
+    <div class="field workflow-pending-field">
+      <label class="visually-hidden" for="solution">Solution (optional)</label>
+      <textarea id="solution" name="solution" placeholder="Solution (optional)" rows="3"></textarea>
     </div>
-{{else if eq .Pending.Kind "manual"}}
-    <div class="field">
-      <label for="solution">Solution (optional)</label>
-      <textarea id="solution" name="solution"></textarea>
-    </div>
-{{else if eq .Pending.Kind "form"}} {{range $i, $f := .Pending.Fields}}
-    <div class="field">
+{{else if eq .Pending.Kind "form"}}{{range $i, $f := .Pending.Fields}}
+    <div class="field workflow-pending-field">
       <label for="answer_{{$i}}">{{$f.Label}}</label>
       {{if eq (printf "%s" $f.Kind) "short_text"}}<input
         type="text"
@@ -61,9 +47,19 @@
         {{end}}</select
       >{{end}}
     </div>
-    {{end}}{{end}}
-    <button class="btn primary" type="submit">Complete</button>
-  </form>
 {{end}}{{end}}
+    <button class="btn primary workflow-pending-complete" type="submit">Complete</button>
+  </form>
+{{end}}
 </section>
+{{else}}
+<section class="timeline-entry workflow-pending workflow-pending-info" id="workflow-pending" aria-label="Current task status">
+  <p class="workflow-pending-status">
+    <strong>IN PROGRESS</strong>
+{{if eq .Pending.Kind "auto"}}    This step is running automatically.
+{{else}}    <span class="workflow-pending-participant">{{if .Pending.ParticipantName}}{{.Pending.ParticipantName}}{{else}}The assigned agent{{end}} is handling this task.</span>
+{{end}}  </p>
+  <p class="workflow-pending-updates">Updates will appear here when complete.</p>
+</section>
+{{end}}
 {{end}}{{end}}
