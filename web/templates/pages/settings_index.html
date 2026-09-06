@@ -12,7 +12,7 @@
   <div class="swatch-grid">
 {{range .Colors}}
     <label class="swatch">
-      <input type="radio" name="internal_comment_bg" value="{{.Value}}"{{if eq $.Current .Value}} checked{{end}}>
+    {{if eq $.Current .Value}}<input type="radio" name="internal_comment_bg" value="{{.Value}}" checked>{{else}}<input type="radio" name="internal_comment_bg" value="{{.Value}}">{{end}}
       <span class="swatch-chip" style="background:{{.Value}}"></span>
       <span class="swatch-label">{{.Label}}</span>
     </label>

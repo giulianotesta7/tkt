@@ -206,12 +206,13 @@ func TestTicketWorkflowRuntime_CompletionManualNoMetadata(t *testing.T) {
 	mustHaveCompletionRoute(t, forged, http.StatusUnprocessableEntity, "manual_task ignores forged metadata")
 }
 
-// TestTicketWorkflowRuntime_PendingActionsAboveTimelineForActiveRun proves an
-// active run renders the current task card above the timeline when the
+// TestTicketWorkflowRuntime_PendingActionsInsideTimelineForActiveRun proves an
+// active run renders the current task as the first timeline item when the
 // persisted actor predicate passes.
-func TestTicketWorkflowRuntime_PendingActionsAboveTimelineForActiveRun(t *testing.T) {
+func TestTicketWorkflowRuntime_PendingActionsInsideTimelineForActiveRun(t *testing.T) {
 	h := newHarness(t)
 	tkt := h.seedTicket(t, "active run", nil)
+	h.assignTicket(t, tkt.ID, h.admin.ID)
 	id := strconv.FormatInt(tkt.ID, 10)
 
 	rec := h.get(t, "/tickets/"+id, false)
@@ -219,18 +220,20 @@ func TestTicketWorkflowRuntime_PendingActionsAboveTimelineForActiveRun(t *testin
 		t.Fatalf("status = %d, want 200", rec.Code)
 	}
 	body := rec.Body.String()
-	pending := strings.Index(body, "<h2 id=\"current-task-title\">Current task</h2>")
-	timeline := strings.Index(body, "<h2>Timeline</h2>")
-	if pending < 0 {
-		t.Errorf("active run must render a Current task card, absent from detail: %.400s", body)
+	timeline := strings.Index(body, `<div id="timeline">`)
+	pending := strings.Index(body, `class="timeline-entry workflow-pending workflow-pending-action"`)
+	if timeline < 0 || pending < 0 {
+		t.Errorf("active run must render its current task inside Timeline: %.400s", body)
+	} else if pending < timeline {
+		t.Errorf("current task must render inside Timeline: %.500s", body)
 	}
-	if timeline < 0 || pending > timeline {
-		t.Errorf("Current task must render above the timeline: %.500s", body)
+	if !strings.Contains(body, `<h3 id="current-task-title">CURRENT TASK</h3>`) {
+		t.Errorf("authorized active run must render CURRENT TASK: %.500s", body)
 	}
-	// Amendment 2 (WB.5): ordered-list numbering is removed from the Pending
-	// Actions card everywhere ticket-facing.
+	// Amendment 2 (WB.5): ordered-list numbering is removed from the pending
+	// timeline item everywhere ticket-facing.
 	if strings.Contains(body, "workflow-pending-list") || strings.Contains(body, `<ol`) {
-		t.Errorf("Pending Actions must NOT use ordered-list numbering: %.500s", body)
+		t.Errorf("pending timeline item must NOT use ordered-list numbering: %.500s", body)
 	}
 }
 
@@ -517,6 +520,30 @@ func TestPendingActions_Presentation(t *testing.T) {
 		}
 		if strings.Contains(body, `/workflow/steps/1/complete`) {
 			t.Errorf("non-assignee must see no completion control: %.600s", body)
+		}
+		if strings.Contains(body, `class="card current-task-card"`) || strings.Contains(body, `<h2 id="current-task-title">Current task</h2>`) {
+			t.Errorf("non-assignee must see no actionable current-task card: %.600s", body)
+		}
+		for _, want := range []string{
+			`class="timeline-entry workflow-pending workflow-pending-info"`,
+			"IN PROGRESS",
+			"Admin is handling this task.",
+			"Updates will appear here when complete.",
+		} {
+			if !strings.Contains(body, want) {
+				t.Errorf("unauthorized view must render %q: %.600s", want, body)
+			}
+		}
+		for _, forbidden := range []string{
+			pinnedInstruction,
+			"Complete this task",
+			"Awaiting another participant to complete the current step.",
+			`name="solution"`,
+			`/workflow/steps/1/complete`,
+		} {
+			if strings.Contains(body, forbidden) {
+				t.Errorf("unauthorized view must not render %q: %.600s", forbidden, body)
+			}
 		}
 	})
 

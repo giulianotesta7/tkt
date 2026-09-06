@@ -72,7 +72,7 @@ func TestTimelineFormEventRendersEscapedInlineDefinitionList(t *testing.T) {
 	response := httptest.NewRecorder()
 	data := struct{ View *application.TicketView }{View: &application.TicketView{Timeline: []application.TimelineItem{{
 		Event:          &domain.AuditEvent{Actor: "Ada", Action: domain.ActionWorkflowRequesterForm, CreatedAt: time.Date(2026, 8, 20, 10, 0, 0, 0, time.UTC)},
-		Summary:        "Submitted request details",
+		Summary:        "submitted request details",
 		ActorLabel:     "Ada",
 		SuppressDetail: true,
 		StepFields:     []application.WorkflowResponseField{{Label: "Server <name>", Value: "<b>api-01</b>"}},
@@ -98,7 +98,7 @@ func TestTimelineFormEventRendersEscapedInlineDefinitionList(t *testing.T) {
 }
 
 // PR10 task 10.2 — a manual completion item renders its contextual pinned
-// instruction escaped within that same event entry.
+// instruction escaped within the same static event entry.
 func TestTimelineManualEventRendersEscapedPinnedInstruction(t *testing.T) {
 	renderer := NewRenderer()
 	req := httptest.NewRequest("GET", "/tickets/1", nil)
@@ -106,7 +106,7 @@ func TestTimelineManualEventRendersEscapedPinnedInstruction(t *testing.T) {
 	response := httptest.NewRecorder()
 	data := struct{ View *application.TicketView }{View: &application.TicketView{Timeline: []application.TimelineItem{{
 		Event:           &domain.AuditEvent{Actor: "Beto", Action: domain.ActionWorkflowManualTask, CreatedAt: time.Date(2026, 8, 20, 10, 0, 0, 0, time.UTC)},
-		Summary:         "Completed task",
+		Summary:         "completed the task",
 		ActorLabel:      "Beto",
 		SuppressDetail:  true,
 		StepInstruction: `<script>alert(1)</script>`,
@@ -114,11 +114,28 @@ func TestTimelineManualEventRendersEscapedPinnedInstruction(t *testing.T) {
 
 	renderer.Render(response, req, "", "timeline", data, 200)
 	body := response.Body.String()
-	if !strings.Contains(body, `&lt;script&gt;alert(1)&lt;/script&gt;`) {
-		t.Fatalf("manual event must render the escaped pinned instruction: %s", body)
+	for _, want := range []string{
+		`<div class="timeline-entry timeline-event timeline-manual">`,
+		`<div class="timeline-manual-heading">`,
+		`<span class="event-icon" aria-hidden="true"><svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor"`,
+		`<path d="m3 8 3 3 7-7"/>`,
+		`<strong class="timeline-actor">Beto</strong> <span class="timeline-action">completed the task</span>`,
+		`<dt>TASK</dt>`,
+		`<dd>&lt;script&gt;alert(1)&lt;/script&gt;</dd>`,
+		`<div class="when"><time`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("static manual event must render escaped task content, missing %q in: %s", want, body)
+		}
 	}
 	if strings.Contains(body, "<script>") {
 		t.Fatalf("instruction rendered as raw HTML inside the event: %s", body)
+	}
+	if strings.Contains(body, `<details class="timeline-entry timeline-event timeline-manual">`) || strings.Contains(body, `<summary class="timeline-event-summary">`) || strings.Contains(body, "timeline-event-summary") {
+		t.Fatalf("manual event must not render disclosure or interaction markup: %s", body)
+	}
+	if strings.Contains(body, `</time> · Beto`) {
+		t.Fatalf("manual event timestamp must not duplicate the actor: %s", body)
 	}
 }
 
@@ -132,7 +149,7 @@ func TestTimelineManualEventRendersEscapedSolutionWhenPresent(t *testing.T) {
 	response := httptest.NewRecorder()
 	data := struct{ View *application.TicketView }{View: &application.TicketView{Timeline: []application.TimelineItem{{
 		Event:           &domain.AuditEvent{Actor: "Beto", Action: domain.ActionWorkflowManualTask, CreatedAt: time.Date(2026, 8, 20, 10, 0, 0, 0, time.UTC)},
-		Summary:         "Completed task",
+		Summary:         "completed the task",
 		ActorLabel:      "Beto",
 		SuppressDetail:  true,
 		StepInstruction: "inspect the server",
@@ -145,24 +162,39 @@ func TestTimelineManualEventRendersEscapedSolutionWhenPresent(t *testing.T) {
 		t.Fatalf("status = %d, body = %s", response.Code, body)
 	}
 	for _, want := range []string{
-		`<p class="workflow-instruction">inspect the server</p>`,
-		`&lt;b&gt;reseat&lt;/b&gt; the cable &amp; reboot`,
+		`<div class="timeline-entry timeline-event timeline-manual">`,
+		`<div class="timeline-manual-heading">`,
+		`<span class="event-icon" aria-hidden="true"><svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor"`,
+		`<path d="m3 8 3 3 7-7"/>`,
+		`<strong class="timeline-actor">Beto</strong> <span class="timeline-action">completed the task</span>`,
+		`<dt>TASK</dt>`,
+		`<dd>inspect the server</dd>`,
+		`<dt>SOLUTION</dt>`,
+		`<dd>&lt;b&gt;reseat&lt;/b&gt; the cable &amp; reboot</dd>`,
+		`<div class="when"><time`,
 	} {
 		if !strings.Contains(body, want) {
-			t.Fatalf("manual event must render instruction followed by the escaped solution, missing %q in: %s", want, body)
+			t.Fatalf("manual event must render static actor-first markup and escaped task/solution details, missing %q in: %s", want, body)
 		}
+	}
+	if strings.Contains(body, `<details class="timeline-entry timeline-event timeline-manual">`) || strings.Contains(body, `<summary class="timeline-event-summary">`) || strings.Contains(body, "timeline-event-summary") {
+		t.Fatalf("manual event must not render disclosure or interaction markup: %s", body)
 	}
 	if strings.Contains(body, "<b>reseat</b>") || strings.Contains(body, "<script") {
 		t.Fatalf("solution must never render as raw HTML inside the event: %s", body)
 	}
-	// Attribution stays with the existing completion event.
-	if !strings.Contains(body, "· Beto") {
+	// Attribution stays first on the completion event, while metadata is only
+	// the timestamp and does not duplicate the actor.
+	if !strings.Contains(body, `<strong class="timeline-actor">Beto</strong>`) {
 		t.Fatalf("solution entry must keep the completing actor attribution: %s", body)
+	}
+	if strings.Contains(body, `</time> · Beto`) {
+		t.Fatalf("solution entry must not duplicate the actor in timestamp metadata: %s", body)
 	}
 }
 
 // WB.6 (Amendment 2) — an empty/legacy completion renders the pinned
-// instruction ALONE with no empty solution block or placeholder.
+// instruction in a static event with no empty solution block or placeholder.
 func TestTimelineManualEventOmitsEmptySolution(t *testing.T) {
 	renderer := NewRenderer()
 	req := httptest.NewRequest("GET", "/tickets/1", nil)
@@ -170,7 +202,7 @@ func TestTimelineManualEventOmitsEmptySolution(t *testing.T) {
 	response := httptest.NewRecorder()
 	data := struct{ View *application.TicketView }{View: &application.TicketView{Timeline: []application.TimelineItem{{
 		Event:           &domain.AuditEvent{Actor: "Beto", Action: domain.ActionWorkflowManualTask, CreatedAt: time.Date(2026, 8, 20, 10, 0, 0, 0, time.UTC)},
-		Summary:         "Completed task",
+		Summary:         "completed the task",
 		ActorLabel:      "Beto",
 		SuppressDetail:  true,
 		StepInstruction: "inspect the server",
@@ -179,10 +211,13 @@ func TestTimelineManualEventOmitsEmptySolution(t *testing.T) {
 
 	renderer.Render(response, req, "", "timeline", data, 200)
 	body := response.Body.String()
-	if !strings.Contains(body, `<p class="workflow-instruction">inspect the server</p>`) {
-		t.Fatalf("instruction must still render for legacy completions: %s", body)
+	if !strings.Contains(body, `<div class="timeline-entry timeline-event timeline-manual">`) || !strings.Contains(body, `<div class="timeline-manual-heading">`) || !strings.Contains(body, `<svg viewBox="0 0 16 16" width="16" height="16"`) || !strings.Contains(body, `<path d="m3 8 3 3 7-7"/>`) || !strings.Contains(body, `<strong class="timeline-actor">Beto</strong> <span class="timeline-action">completed the task</span>`) || !strings.Contains(body, `<dt>TASK</dt>`) || !strings.Contains(body, `<dd>inspect the server</dd>`) {
+		t.Fatalf("static manual event must render actor-first task details: %s", body)
 	}
-	if strings.Contains(body, `class="workflow-solution"`) || strings.Contains(body, "No solution") || strings.Contains(body, "—") && !strings.Contains(body, "workflow-instruction") {
+	if strings.Contains(body, `<details class="timeline-entry timeline-event timeline-manual">`) || strings.Contains(body, `<summary class="timeline-event-summary">`) || strings.Contains(body, "timeline-event-summary") {
+		t.Fatalf("manual event must not render disclosure or interaction markup: %s", body)
+	}
+	if strings.Contains(body, `<dt>SOLUTION</dt>`) || strings.Contains(body, "No solution") {
 		t.Fatalf("empty solution must render no block or placeholder: %s", body)
 	}
 }
@@ -196,7 +231,7 @@ func TestTimelineFormEventNeverRendersSolutionBlock(t *testing.T) {
 	response := httptest.NewRecorder()
 	data := struct{ View *application.TicketView }{View: &application.TicketView{Timeline: []application.TimelineItem{{
 		Event:          &domain.AuditEvent{Actor: "Ada", Action: domain.ActionWorkflowRequesterForm, CreatedAt: time.Date(2026, 8, 20, 10, 0, 0, 0, time.UTC)},
-		Summary:        "Submitted request details",
+		Summary:        "submitted request details",
 		ActorLabel:     "Ada",
 		SuppressDetail: true,
 		StepFields:     []application.WorkflowResponseField{{Label: "Host", Value: "api-01"}},

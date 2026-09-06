@@ -1,34 +1,59 @@
+{{define "timeline_with_pending"}}
+<div id="timeline">
+{{template "workflow_pending" .}}
+{{template "timeline_entries" .}}
+</div>
+{{end}}
+
 {{define "timeline"}}
 <div id="timeline">
+{{template "timeline_entries" .}}
+</div>
+{{end}}
+
+{{define "timeline_entries"}}
 {{range .View.Timeline}}
 {{if .IsComment}}
   <div class="timeline-entry timeline-comment{{if eq .Comment.Visibility "internal"}} internal{{end}}">
-    <div class="who">
-      <span class="author">{{.Comment.Author}}</span>
-      <span class="when">{{if eq .Comment.Visibility "internal"}}Internal · {{end}}{{template "timestamp" .Comment.CreatedAt}}</span>
+    <div class="timeline-entry-head">
+      <div class="narrative"><strong class="timeline-actor">{{.Comment.Author}}</strong> added {{if eq .Comment.Visibility "internal"}}an internal{{else}}a public{{end}} comment</div>
+      <span class="when">{{template "timestamp" .Comment.CreatedAt}}</span>
     </div>
     <div class="body">{{.Comment.Body}}</div>
   </div>
 {{else}}
-  <div class="timeline-entry timeline-event{{if .IsWorkflowAssignment}}{{else if .Event.ToValue}} st-{{.Event.ToValue}}{{else if eq .Summary "Ticket created"}} st-new{{end}}">
-    <span class="event-icon">›</span>
+{{if and (eq .Event.Action "workflow_manual_task") .StepInstruction}}
+  <div class="timeline-entry timeline-event timeline-manual{{if .StateClass}} st-{{.StateClass}}{{end}}">
+    <div class="timeline-manual-heading">
+      <span class="event-icon" aria-hidden="true"><svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m3 8 3 3 7-7"/></svg></span>
+      <div class="main">{{if and .ActorLabel (ne .Event.Actor "workflow")}}<strong class="timeline-actor">{{.ActorLabel}}</strong> {{end}}<span class="timeline-action">{{if .Narrative}}{{.Narrative}}{{else}}{{.Summary}}{{end}}</span></div>
+    </div>
+    <dl class="workflow-manual-details">
+      <dt>TASK</dt>
+      <dd>{{.StepInstruction}}</dd>
+      {{if .StepSolution}}<dt>SOLUTION</dt>
+      <dd>{{.StepSolution}}</dd>{{end}}
+    </dl>
+    <div class="when">{{template "timestamp" .Event.CreatedAt}}</div>
+  </div>
+{{else}}
+  <div class="timeline-entry timeline-event{{if .IsWorkflowAssignment}}{{else if .StateClass}} st-{{.StateClass}}{{end}}">
+    <span class="event-icon" aria-hidden="true"></span>
     <div class="body">
-      <div class="main">{{if .IsWorkflowAssignment}}Assigned to <strong>{{.AssignmentPerson}}</strong> · <strong>{{.AssignmentDesk}}</strong>{{else if .Summary}}{{.Summary}}{{else}}{{.ActionLabel}}{{if .FieldLabel}} · {{.FieldLabel}}{{end}}{{if .Event.FromValue}} · {{.FromLabel}} → {{.ToLabel}}{{end}}{{end}}</div>
-{{if .StepFields}}          <dl class="workflow-responses">
-{{range .StepFields}}            <dt>{{.Label}}</dt>
+      <div class="main">{{if and .ActorLabel (ne .Event.Actor "workflow")}}<strong class="timeline-actor">{{.ActorLabel}}</strong> {{end}}{{if .IsWorkflowAssignment}}<span class="timeline-action">{{if .Narrative}}{{.Narrative}}{{else}}{{.Summary}}{{end}} <strong>{{.AssignmentPerson}}</strong> at <strong>{{.AssignmentDesk}}</strong></span>{{else}}<span class="timeline-action">{{if .Narrative}}{{.Narrative}}{{else}}{{.Summary}}{{end}}</span>{{end}}</div>
+{{if .StepFields}}      <dl class="workflow-responses">
+{{range .StepFields}}        <dt>{{.Label}}</dt>
             <dd>{{if eq .Kind "checkbox"}}{{if eq .Value "true"}}<span class="workflow-bool workflow-bool-true" role="img" aria-label="Yes">✓</span>{{else}}<span class="workflow-bool workflow-bool-false" role="img" aria-label="No">×</span>{{end}}{{else}}{{.Value}}{{end}}</dd>
-{{end}}          </dl>
-{{else if .StepInstruction}}          <p class="workflow-instruction">{{.StepInstruction}}</p>
-    {{if .StepSolution}}<p class="workflow-solution">{{.StepSolution}}</p>{{end}}
+{{end}}      </dl>
 {{end}}{{if not .SuppressDetail}}{{if .Event.Reason}}      <div class="detail">Reason: {{.Event.Reason}}</div>
 {{else if .Event.Note}}      <div class="detail">Reason: {{.Event.Note}}</div>
 {{end}}{{end}}
-      <div class="when">{{template "timestamp" .Event.CreatedAt}}{{if .ActorLabel}} · {{.ActorLabel}}{{else if ne .Event.Actor "workflow"}} · {{.Event.Actor}}{{end}}</div>
+      <div class="when">{{template "timestamp" .Event.CreatedAt}}</div>
     </div>
   </div>
+{{end}}
 {{end}}
 {{else}}
   <p class="empty">No activity yet.</p>
 {{end}}
-</div>
 {{end}}

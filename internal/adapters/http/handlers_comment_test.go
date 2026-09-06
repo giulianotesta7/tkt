@@ -47,6 +47,7 @@ func TestTicketDetailUserNeverSeesInternalBody(t *testing.T) {
 	if _, err := h.comments.Add(t.Context(), *h.admin, tkt.ID, "Public note", "public"); err != nil {
 		t.Fatalf("seed public comment: %v", err)
 	}
+	// pi-lens-ignore: go-hardcoded-secrets
 	const secret = "STAFF-ONLY-SECRET-BODY"
 	if _, err := h.comments.Add(t.Context(), *h.admin, tkt.ID, secret, "internal"); err != nil {
 		t.Fatalf("seed internal comment: %v", err)
@@ -93,6 +94,7 @@ func TestTicketDetailAgentSeesInternalComment(t *testing.T) {
 	}
 	h.assignTicket(t, tkt.ID, agent.ID)
 
+	// pi-lens-ignore: go-hardcoded-secrets
 	const secret = "AGENT-SECRET-BODY"
 	if _, err := h.comments.Add(t.Context(), *h.admin, tkt.ID, secret, "internal"); err != nil {
 		t.Fatalf("seed internal comment: %v", err)
@@ -107,8 +109,8 @@ func TestTicketDetailAgentSeesInternalComment(t *testing.T) {
 	if !strings.Contains(body, secret) {
 		t.Errorf("agent detail must render the internal comment, got: %s", body)
 	}
-	if !strings.Contains(body, "Internal ·") {
-		t.Errorf("agent detail must mark internal comments with the internal marker, got: %s", body)
+	if !strings.Contains(body, "added an internal comment") {
+		t.Errorf("agent detail must use the actor-first internal-comment narrative, got: %s", body)
 	}
 	if !strings.Contains(body, `name="internal" value="1"`) || !strings.Contains(body, "Internal comment") {
 		t.Errorf("agent comment form must offer the internal checkbox, got: %s", body)

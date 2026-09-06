@@ -42,10 +42,10 @@
 		</form>
 	</section>
 {{end}}
-{{if .CanComment}}{{template "comment_form" .}}{{end}}{{template "workflow_pending" .}}
+{{if .CanComment}}{{template "comment_form" .}}{{end}}
           <div class="card">
         <h2>Timeline</h2>
-{{template "timeline" .}}
+{{template "timeline_with_pending" .}}
       </div>
     </div>
     <div class="evidence">

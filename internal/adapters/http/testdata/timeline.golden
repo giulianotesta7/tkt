@@ -2,9 +2,10 @@
 <div id="timeline">
 
 
+
   <div class="timeline-entry timeline-comment">
-    <div class="who">
-      <span class="author">Ana Torres</span>
+    <div class="timeline-entry-head">
+      <div class="narrative"><strong class="timeline-actor">Ana Torres</strong> added a public comment</div>
       <span class="when"><time datetime="2026-08-06T10:30:00Z">10:30 · 06-08-2026</time></span>
     </div>
     <div class="body">Checking now</div>
@@ -12,36 +13,43 @@
 
 
 
-  <div class="timeline-entry timeline-event st-1">
-    <span class="event-icon">›</span>
-    <div class="body">
-      <div class="main">Update · Assigned To · Unassigned → Ana Torres</div>
 
-      <div class="when"><time datetime="2026-08-06T10:30:00Z">10:30 · 06-08-2026</time> · Admin</div>
+  <div class="timeline-entry timeline-event">
+    <span class="event-icon" aria-hidden="true"></span>
+    <div class="body">
+      <div class="main"><strong class="timeline-actor">Admin</strong> <span class="timeline-action">assigned the ticket to Ana Torres</span></div>
+
+      <div class="when"><time datetime="2026-08-06T10:30:00Z">10:30 · 06-08-2026</time></div>
     </div>
   </div>
+
+
 
 
 
   <div class="timeline-entry timeline-event st-in_progress">
-    <span class="event-icon">›</span>
+    <span class="event-icon" aria-hidden="true"></span>
     <div class="body">
-      <div class="main">Transition · State · New → In Progress</div>
+      <div class="main"><strong class="timeline-actor">Admin</strong> <span class="timeline-action">moved the ticket to in progress</span></div>
 
-      <div class="when"><time datetime="2026-08-06T10:30:00Z">10:30 · 06-08-2026</time> · Admin</div>
+      <div class="when"><time datetime="2026-08-06T10:30:00Z">10:30 · 06-08-2026</time></div>
     </div>
   </div>
 
 
 
-  <div class="timeline-entry timeline-event">
-    <span class="event-icon">›</span>
-    <div class="body">
-      <div class="main">Created</div>
 
-      <div class="when"><time datetime="2026-08-06T10:00:00Z">10:00 · 06-08-2026</time> · Admin</div>
+
+  <div class="timeline-entry timeline-event st-new">
+    <span class="event-icon" aria-hidden="true"></span>
+    <div class="body">
+      <div class="main"><strong class="timeline-actor">Admin</strong> <span class="timeline-action">created the ticket</span></div>
+
+      <div class="when"><time datetime="2026-08-06T10:00:00Z">10:00 · 06-08-2026</time></div>
     </div>
   </div>
+
+
 
 
 </div>
