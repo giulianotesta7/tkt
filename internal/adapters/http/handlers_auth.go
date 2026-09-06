@@ -41,6 +41,7 @@ func (h *AuthHandlers) Register(mux *http.ServeMux) {
 type loginData struct {
 	Error             string
 	Email             string
+	CategoryAssets    bool
 	InternalCommentBg string
 }
 
@@ -106,6 +107,7 @@ type setupData struct {
 	Error             string
 	Name              string
 	Email             string
+	CategoryAssets    bool
 	InternalCommentBg string
 }
 

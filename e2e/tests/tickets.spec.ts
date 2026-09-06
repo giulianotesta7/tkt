@@ -39,15 +39,8 @@ test.describe("Ticket Lifecycle", () => {
     await page.getByRole("button", { name: /log in|sign in/i }).click();
     await expect(page).toHaveURL(/\/tickets/);
 
-    await page.goto(base() + "/tickets/new");
-    await expect(page.locator("h2")).toHaveText(/ticket details/i);
-
     const title = "Login issue " + Date.now();
-    await page.getByLabel(/title/i).fill(title);
-    await page.getByLabel(/description/i).fill("Cannot log in");
-    await page.getByLabel(/category/i).selectOption({ label: "General" });
-    await page.getByLabel(/priority/i).selectOption("high");
-    await page.getByRole("button", { name: /create ticket/i }).click();
+    await createTicketViaUi(page, { title, description: "Cannot log in", category: "General", priority: "high" });
     await expect(page.getByText(title)).toBeVisible({ timeout: 5000 });
     await expect(page.getByRole("cell", { name: "High" })).toBeVisible();
     await expect(page.getByText("New").first()).toBeVisible();
@@ -73,7 +66,40 @@ test.describe("Ticket Lifecycle", () => {
     });
   });
 
-  test("search filter shows filtered results and empty state", async ({ page }) => {
+      test("catalog supports hierarchy selection, search, keyboard focus, and mobile drill-down", async ({ page }) => {
+        const obs = collectObservability(page);
+        await page.setViewportSize({ width: 1280, height: 800 });
+        await page.goto(base() + "/login");
+        await page.getByLabel(/email/i).fill("alice@example.com");
+        await page.getByLabel(/password/i).fill("SuperSecret42!");
+        await page.getByRole("button", { name: /log in|sign in/i }).click();
+        await page.goto(base() + "/tickets/new");
+        await expect(page.getByRole("heading", { name: "Create a ticket" })).toBeVisible();
+        await expect(page.getByRole("heading", { name: "DEPARTMENTS" })).toBeVisible();
+        await expect(page.getByRole("heading", { name: "DESKS" })).toBeVisible();
+        await expect(page.getByRole("heading", { name: "CATEGORIES" })).toBeVisible();
+        await expect(page.getByPlaceholder(/search categories, desks, or departments/i)).toBeVisible();
+        await page.getByPlaceholder(/search categories, desks, or departments/i).fill("General");
+        await page.getByPlaceholder(/search categories, desks, or departments/i).press("Enter");
+        await expect(page.locator(".catalog-result")).toContainText("General");
+        await page.locator(".catalog-result").filter({ hasText: "General" }).first().click();
+        await expect(page.locator(".selected-catalog-path")).toContainText(/General/);
+        await page.goto(base() + "/tickets/new");
+        await page.setViewportSize({ width: 390, height: 844 });
+        await page.reload();
+        await expect(page.locator(".catalog-mobile-departments .catalog-departments")).toBeVisible();
+        await page.locator(".catalog-departments .catalog-item").filter({ hasText: "General" }).click();
+        await expect(page.locator(".catalog-mobile-desks .catalog-desks")).toBeVisible();
+        await page.locator(".catalog-desks .catalog-item").filter({ hasText: "General" }).click();
+        await expect(page.locator(".catalog-mobile-categories .catalog-categories")).toBeVisible();
+        await expect(page.locator("body")).toHaveJSProperty("scrollWidth", 390);
+        await page.locator(".catalog-category").filter({ hasText: "General" }).first().focus();
+        await expect(page.locator(".catalog-category").filter({ hasText: "General" }).first()).toBeFocused();
+        await expect(obs.consoleErrors).toEqual([]);
+        await expect(obs.pageErrors).toEqual([]);
+      });
+
+      test("search filter shows filtered results and empty state", async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 800 });
     const obs = collectObservability(page);
     await page.goto(base() + "/login");

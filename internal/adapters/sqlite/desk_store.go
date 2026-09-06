@@ -18,10 +18,13 @@ var _ application.DeskStore = (*deskStore)(nil)
 func newDeskStore(db *sql.DB) *deskStore { return &deskStore{db: db} }
 
 func (s *deskStore) Create(ctx context.Context, g *domain.Desk) error {
-	res, err := s.db.ExecContext(ctx, `INSERT INTO desks (name, created_at) VALUES (?, ?)`, g.Name, formatTime(g.CreatedAt))
+	res, err := s.db.ExecContext(ctx, `INSERT INTO desks (name, description, department_id, created_at) VALUES (?, ?, ?, ?)`, g.Name, g.Description, nullableInt64(g.DepartmentID), formatTime(g.CreatedAt))
 	if err != nil {
 		if isUniqueViolation(err) {
 			return &domain.DuplicateError{Kind: "desk", Name: g.Name}
+		}
+		if isForeignKeyViolation(err) && g.DepartmentID != nil {
+			return &domain.NotFoundError{Kind: "department", ID: *g.DepartmentID}
 		}
 		return fmt.Errorf("sqlite: create desk: %w", err)
 	}
@@ -33,7 +36,7 @@ func (s *deskStore) Create(ctx context.Context, g *domain.Desk) error {
 }
 
 func (s *deskStore) Update(ctx context.Context, g *domain.Desk) error {
-	res, err := s.db.ExecContext(ctx, `UPDATE desks SET name = ? WHERE id = ?`, g.Name, g.ID)
+	res, err := s.db.ExecContext(ctx, `UPDATE desks SET name = ?, description = ?, department_id = ? WHERE id = ?`, g.Name, g.Description, nullableInt64(g.DepartmentID), g.ID)
 	if err != nil {
 		if isUniqueViolation(err) {
 			return &domain.DuplicateError{Kind: "desk", Name: g.Name}
@@ -52,7 +55,7 @@ func (s *deskStore) Delete(ctx context.Context, id int64) error {
 }
 
 func (s *deskStore) GetByID(ctx context.Context, id int64) (*domain.Desk, error) {
-	g, err := scanDesk(s.db.QueryRowContext(ctx, `SELECT id, name, created_at FROM desks WHERE id = ?`, id))
+	g, err := scanDesk(s.db.QueryRowContext(ctx, `SELECT id, name, description, department_id, created_at FROM desks WHERE id = ?`, id))
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, &domain.NotFoundError{Kind: "desk", ID: id}
 	}
@@ -60,7 +63,7 @@ func (s *deskStore) GetByID(ctx context.Context, id int64) (*domain.Desk, error)
 }
 
 func (s *deskStore) List(ctx context.Context) ([]domain.Desk, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT id, name, created_at FROM desks ORDER BY id ASC`)
+	rows, err := s.db.QueryContext(ctx, `SELECT id, name, description, department_id, created_at FROM desks ORDER BY id ASC`)
 	if err != nil {
 		return nil, fmt.Errorf("sqlite: list desks: %w", err)
 	}
@@ -132,8 +135,12 @@ func (s *deskStore) ListMembers(ctx context.Context, deskID int64) ([]domain.Use
 func scanDesk(scan rowScanner) (*domain.Desk, error) {
 	var g domain.Desk
 	var createdAt string
-	if err := scan.Scan(&g.ID, &g.Name, &createdAt); err != nil {
+	var departmentID sql.NullInt64
+	if err := scan.Scan(&g.ID, &g.Name, &g.Description, &departmentID, &createdAt); err != nil {
 		return nil, err
+	}
+	if departmentID.Valid {
+		g.DepartmentID = &departmentID.Int64
 	}
 	var err error
 	g.CreatedAt, err = time.Parse(timeLayout, createdAt)

@@ -1,0 +1,30 @@
+{{define "category_drawer"}}
+<div id="category-drawer-host" style="min-height:1px;">
+  <div class="users-drawer-backdrop category-drawer-backdrop" aria-hidden="true"></div>
+  <section class="users-drawer category-drawer" role="dialog" aria-modal="true" aria-labelledby="category-drawer-title" tabindex="-1" data-kind="{{.Kind}}" data-id="{{.ID}}" data-close-url="{{.CloseURL}}" data-server-error="{{.HasServerError}}">
+    <header class="users-drawer-header"><div><p class="users-eyebrow">Catalog details</p><h2 id="category-drawer-title">{{if .ID}}Edit {{.Kind}}{{else}}New {{.Kind}}{{end}}</h2></div><button class="users-drawer-close category-drawer-close" type="button" aria-label="Close catalog details">×</button></header>
+    <div class="users-drawer-body">
+      {{if .Error}}<div class="users-error" role="alert">{{.Error}}</div>{{end}}
+      <form id="category-drawer-form" method="post" action="{{.ActionURL}}" hx-post="{{.ActionURL}}" hx-target="#category-drawer-host" hx-swap="outerHTML">
+        {{if or (eq .Kind "desk") (eq .Kind "category")}}
+        <div class="users-field"><label for="category-department">Department</label><select id="category-department" name="department_id" required><option value="">Select a department</option>{{range .Departments}}<option value="{{.ID}}" {{if eq .ID $.DepartmentID}}selected{{end}}>{{.Name}}</option>{{end}}</select></div>
+        {{end}}
+        {{if eq .Kind "category"}}
+        <div class="users-field"><label for="category-desk">Desk</label><select id="category-desk" name="desk_id" required><option value="">Select a desk</option>{{range .Desks}}<option value="{{.ID}}" data-department-id="{{.DepartmentID}}" {{if eq .ID $.DeskID}}selected{{end}}>{{.DepartmentName}} / {{.Name}}</option>{{end}}</select></div>
+        {{end}}
+        <div class="users-field"><label for="category-name">Name</label><input id="category-name" name="name" type="text" value="{{.Name}}" required autofocus></div>
+        <div class="users-field"><label for="category-description">Description</label><textarea id="category-description" name="description" rows="4">{{.Description}}</textarea></div>
+        <input type="hidden" name="view" value="structure">
+        {{if eq .Kind "desk"}}{{if .ID}}<input type="hidden" name="desk_id" value="{{.ID}}">{{end}}{{end}}
+        <footer class="users-drawer-footer"><button class="users-cancel category-drawer-cancel" type="button">Cancel</button><button class="users-primary-action" type="submit">{{if .ID}}Save changes{{else}}Create {{.Kind}}{{end}}</button></footer>
+      </form>
+      {{if and (eq .Kind "desk") .ID}}
+      <section class="desk-members" aria-labelledby="desk-members-title"><h3 id="desk-members-title">Members</h3><p>Desk members can receive workflow assignments.</p>
+{{if .Eligible}}<form class="desk-add-member" method="post" action="/desks/{{.ID}}/members" hx-post="/desks/{{.ID}}/members" hx-target="#category-drawer-host" hx-swap="outerHTML"><label for="desk-member">Add member</label><div><select id="desk-member" name="user_id">{{range .Eligible}}<option value="{{.ID}}">{{.Name}}</option>{{end}}</select><input type="hidden" name="view" value="structure"><input type="hidden" name="department_id" value="{{if .DepartmentID}}{{.DepartmentID}}{{else}}unassigned{{end}}">{{range $.Departments}}<input type="hidden" name="department_option_id" value="{{.ID}}"><input type="hidden" name="department_option_name" value="{{.Name}}">{{end}}<input type="hidden" name="desk_id" value="{{.ID}}"><button class="btn ghost small" type="submit">Add member</button></div></form>{{else}}<p class="empty compact">All eligible members are already added.</p>{{end}}
+        <ul class="desk-member-list">{{range .Members}}<li><span>{{.Name}}</span><form method="post" action="/desks/{{$.ID}}/members/{{.ID}}/delete" hx-post="/desks/{{$.ID}}/members/{{.ID}}/delete" hx-target="#category-drawer-host" hx-swap="outerHTML"><input type="hidden" name="view" value="structure"><input type="hidden" name="department_id" value="{{if $.DepartmentID}}{{$.DepartmentID}}{{else}}unassigned{{end}}">{{range $.Departments}}<input type="hidden" name="department_option_id" value="{{.ID}}"><input type="hidden" name="department_option_name" value="{{.Name}}">{{end}}<input type="hidden" name="desk_id" value="{{$.ID}}"><button class="btn ghost small" type="submit">Remove</button></form></li>{{else}}<li class="empty compact">No members yet.</li>{{end}}</ul>
+      </section>
+      {{end}}
+    </div>
+  </section>
+</div>
+{{end}}

@@ -86,16 +86,16 @@ function authenticatedScreens(deps: {
 }): StructuralScreen[] {
   return [
     { label: `/tickets`, path: "/tickets", heading: (p) => p.locator('h1:has-text("Tickets")'), control: (p) => p.getByRole("link", { name: /new ticket/i }).or(p.locator('input[aria-label="Search tickets"]')) },
-    { label: `/tickets/new`, path: "/tickets/new", heading: (p) => p.locator('h1:has-text("New ticket")'), control: (p) => p.getByRole("button", { name: /create ticket/i }) },
+    { label: `/tickets/new`, path: "/tickets/new", heading: (p) => p.getByRole("heading", { name: /create a ticket/i }), control: (p) => p.getByPlaceholder(/search categories, desks, or departments/i) },
     { label: `/tickets/{id}`, path: () => Promise.resolve(`/tickets/${deps.ticketId}`), heading: (p) => p.locator("#ticket-detail"), control: (p) => p.locator("#ticket-detail").locator('textarea, [aria-label="Ticket title"], button:has-text("Add comment")').first() },
     { label: `/users`, path: "/users", heading: (p) => p.locator("#users-list-title"), control: (p) => p.getByRole("link", { name: /new user/i }) },
     { label: `/users/new`, path: "/users/new", heading: (p) => p.getByRole("heading", { name: "New user", exact: true }), control: (p) => p.getByRole("button", { name: /create user/i }) },
     { label: `/users/{id}/edit`, path: () => Promise.resolve(deps.userEditHref), heading: (p) => p.locator("h2").filter({ hasText: /edit user|operator details/i }), control: (p) => p.getByRole("button", { name: /save changes/i }) },
     { label: `/categories`, path: "/categories", heading: (p) => p.locator('h1:has-text("Categories")'), control: (p) => p.getByRole("link", { name: /new category/i }) },
-    { label: `/categories/new`, path: "/categories/new", heading: (p) => p.locator('h1:has-text("New category")'), control: (p) => p.getByRole("button", { name: /create category|save/i }) },
-    { label: `/categories/{id}/edit`, path: () => Promise.resolve(deps.categoryEditHref), heading: (p) => p.locator('h1:has-text("Rename category")'), control: (p) => p.getByRole("button", { name: /save/i }) },
+    { label: `/categories/new`, path: "/categories/new", heading: (p) => p.getByRole("heading", { name: "New category", exact: true }), control: (p) => p.getByRole("button", { name: /create category/i }) },
+    { label: `/categories/{id}/edit`, path: () => Promise.resolve(deps.categoryEditHref), heading: (p) => p.getByRole("heading", { name: /Edit category/i }), control: (p) => p.getByRole("button", { name: /save changes/i }) },
     { label: `/categories/{id}/workflow`, path: () => Promise.resolve(deps.workflowHref), heading: (p) => p.locator("h1").filter({ hasText: /category workflow/i }), control: (p) => p.locator("#workflow-builder") },
-    { label: `/desks`, path: "/desks", heading: (p) => p.locator('h1:has-text("Desks")'), control: (p) => p.locator("details.desk-create summary") },
+    { label: `/categories/desk-compatibility`, path: "/desks", expectedUrl: /\/categories$/, heading: (p) => p.locator('h1:has-text("Categories")'), control: (p) => p.getByRole("link", { name: /new desk/i }) },
     { label: `/settings`, path: "/settings", heading: (p) => p.locator('h1:has-text("Settings")'), control: (p) => p.locator('input[name="internal_comment_bg"]') },
   ];
 }

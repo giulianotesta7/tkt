@@ -16,20 +16,25 @@ export async function createTicketViaUi(
   const priority = o.priority ?? "high";
 
   await page.goto(base() + "/tickets/new");
-  await expect(page.locator("h2")).toContainText(/ticket details/i);
+  await expect(page.getByRole("heading", { name: "Create a ticket" })).toBeVisible();
+
+  // Select the exact catalog category. Search is the deterministic fallback
+  // for categories outside the first department/desk.
+  let categoryLink = page.locator(".catalog-category").filter({ hasText: category }).first();
+  if (await categoryLink.count() === 0) {
+    const search = page.getByPlaceholder(/search categories, desks, or departments/i);
+    await search.fill(category);
+    await search.press("Enter");
+    categoryLink = page.locator(".catalog-result").filter({ hasText: category }).first();
+  }
+  if (await categoryLink.count() !== 1) {
+    throw new Error(`Expected exactly one catalog category "${category}" at ${page.url()}`);
+  }
+  await categoryLink.click();
+  await expect(page.locator(".selected-catalog-path")).toContainText(category);
 
   await page.getByLabel(/title/i).fill(title);
   await page.getByLabel(/description/i).fill(description);
-  await expect(page.getByLabel(/category/i)).toBeVisible();
-
-  // Ensure the desired category option is present before selecting
-  // (handles empty-base published case where category may not yet be available)
-  const categorySelect = page.getByLabel(/category/i);
-  await expect(categorySelect.locator(`option:has-text("${category}")`).first()).toBeAttached({
-    timeout: 10000,
-  });
-  await categorySelect.selectOption({ label: category });
-
   await page.getByLabel(/priority/i).selectOption(priority);
   await page.getByRole("button", { name: /create ticket/i }).click();
 
@@ -51,27 +56,67 @@ export async function createTicketViaUi(
 }
 
 /**
- * Resolve the workflow builder href for the "General" category.
- * Throws if the General row or its workflow link is not found.
+ * Create a category through the catalog drawer and return its stable ID.
+ * The drawer requires an explicit department and desk selection.
  */
-export async function resolveWorkflowHref(page: Page): Promise<string> {
-  const rowSelector = 'tr:has(td:text-is("General"))';
-  const generalRow = page.locator("tr").filter({ has: page.getByRole("cell", { name: "General", exact: true }) });
-  if (await generalRow.count() !== 1) {
-    throw new Error(`Expected exactly one category "General" using ${rowSelector} at ${page.url()}`);
-  }
-
-  const workflowLink = generalRow.locator('a[href*="/workflow"]').first();
-  if (await workflowLink.count() === 0) {
-    throw new Error(`Workflow link not found for category "General" using ${rowSelector} at ${page.url()}`);
-  }
-
-  const href = await workflowLink.getAttribute("href");
-  if (!href) {
-    throw new Error(`Workflow href is empty for category "General" using ${rowSelector} at ${page.url()}`);
-  }
-  return href;
+export async function createCategoryViaUi(page: Page, name: string): Promise<string> {
+  await page.goto(base() + "/categories/new");
+  const drawer = page.getByRole("dialog", { name: /New category/i });
+  await expect(drawer).toBeVisible();
+  const department = drawer.locator("select[name=department_id]");
+  await department.selectOption({ index: 1 });
+  const desk = drawer.locator("select[name=desk_id]");
+  const deskValue = await desk.locator("option:not([value=''])").first().getAttribute("value");
+  if (!deskValue) throw new Error("No desk is available for the selected department");
+  await desk.selectOption(deskValue);
+  await drawer.locator("#category-name").fill(name);
+  await drawer.getByRole("button", { name: /create category/i }).click();
+  await expect(page).toHaveURL(/\/categories/);
+  const row = page.locator(".category-level-categories .category-structure-item").filter({ hasText: name });
+  await expect(row).toHaveCount(1);
+  const editHref = await row.locator('a[href*="/edit"]').first().getAttribute("href");
+  const id = editHref?.match(/\/categories\/(\d+)\/edit/)?.[1];
+  if (!id) throw new Error(`cannot resolve category id for ${name} at ${page.url()}`);
+  return id;
 }
+
+    async function selectFirstStructureDesk(page: Page): Promise<void> {
+      await page.goto(base() + "/categories?view=structure");
+      const department = page.locator(".category-level-departments .category-structure-row").first();
+      if (await department.count() !== 1) {
+        throw new Error(`No department is available for structure selection at ${page.url()}`);
+      }
+      await department.click();
+      const desk = page.locator(".category-level-desks .category-structure-row").first();
+      if (await desk.count() !== 1) {
+        throw new Error(`No desk is available for structure selection at ${page.url()}`);
+      }
+      await desk.click();
+    }
+
+    /**
+     * Resolve the workflow builder href for the "General" category.
+     * Throws if the General row or its workflow link is not found.
+     */
+    export async function resolveWorkflowHref(page: Page): Promise<string> {
+      await selectFirstStructureDesk(page);
+      const rowSelector = '.category-level-categories .category-structure-item:has-text("General")';
+      const generalRow = page.locator(".category-level-categories .category-structure-item").filter({ has: page.getByText("General", { exact: true }) });
+      if (await generalRow.count() !== 1) {
+        throw new Error(`Expected exactly one category "General" using ${rowSelector} at ${page.url()}`);
+      }
+
+      const workflowLink = generalRow.locator('a[href*="/workflow"]').first();
+      if (await workflowLink.count() === 0) {
+        throw new Error(`Workflow link not found for category "General" using ${rowSelector} at ${page.url()}`);
+      }
+
+      const href = await workflowLink.getAttribute("href");
+      if (!href) {
+        throw new Error(`Workflow href is empty for category "General" using ${rowSelector} at ${page.url()}`);
+      }
+      return href;
+    }
 
 /**
  * Open the workflow builder for the General category.
@@ -92,9 +137,10 @@ export async function openWorkflowBuilder(page: Page): Promise<string> {
  */
 export async function resolveCategoryEditHref(page: Page, name: string = "General"): Promise<string> {
   await expect(page.locator('h1:has-text("Categories")')).toBeVisible({ timeout: 10_000 });
+  await selectFirstStructureDesk(page);
 
-  const rowSelector = `tr:has(td:text-is("${name}"))`;
-  const row = page.locator("tr").filter({ has: page.getByRole("cell", { name, exact: true }) });
+  const rowSelector = `.category-level-categories .category-structure-item:has-text("${name}")`;
+  const row = page.locator(".category-level-categories .category-structure-item").filter({ has: page.getByText(name, { exact: true }) });
   if (await row.count() !== 1) {
     throw new Error(`Expected exactly one category "${name}" using ${rowSelector} at ${page.url()}`);
   }

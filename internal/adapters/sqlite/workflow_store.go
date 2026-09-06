@@ -180,13 +180,14 @@ func (w *workflowStore) ListSummaries(ctx context.Context) ([]application.Workfl
 	return out, nil
 }
 func (w *workflowStore) ListAvailableCategories(ctx context.Context) ([]domain.Category, error) {
-	rows, err := w.db.QueryContext(ctx, `SELECT c.id, c.name, c.created_at FROM categories c JOIN category_workflows cw ON cw.category_id=c.id WHERE cw.current_version_id IS NOT NULL ORDER BY c.id ASC`)
+	rows, err := w.db.QueryContext(ctx, `SELECT c.id, c.name, c.description, c.desk_id, c.created_at FROM categories c JOIN category_workflows cw ON cw.category_id=c.id WHERE cw.current_version_id IS NOT NULL ORDER BY c.id ASC`)
 	if err != nil {
 		return nil, fmt.Errorf("sqlite: available: %w", err)
 	}
 	defer rows.Close()
 	var out []domain.Category
 	for rows.Next() {
+		// scanCategoryFrom consumes all five columns selected above.
 		c, err := scanCategoryFrom(rows)
 		if err != nil {
 			return nil, fmt.Errorf("sqlite: scan available: %w", err)
