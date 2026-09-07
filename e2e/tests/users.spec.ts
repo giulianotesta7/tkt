@@ -14,8 +14,7 @@ import { test, expect } from "@playwright/test";
 import { startServer, stopServer, activeServer } from "../server-lifecycle.js";
 import { assertCanonicalScreen, collectObservability } from "./helpers/layout.js";
 import { assertHtmxNoSwap, assertHtmxSwap } from "./helpers/htmx.js";
-import { createTicketViaUi, resolveUserEditHref } from "./helpers/navigation.js";
-import { waitForExactPost } from "./helpers/network.js";
+import { createCategoryViaUi, createTicketViaUi, resolveUserEditHref } from "./helpers/navigation.js";
 
 function base(): string {
   if (!activeServer) throw new Error("server not started");
@@ -112,19 +111,34 @@ test.describe("Users", () => {
   // Issue #47 regression journeys: atomic Agent-to-User downgrade handoff.
 
   async function selectDesk(page: import("@playwright/test").Page, name: string): Promise<string> {
-    const link = page.locator("a[data-desk-id]").filter({ has: page.getByText(name, { exact: true }) });
-    await expect(link).toHaveCount(1);
-    const href = await link.getAttribute("href");
-    if (!href) throw new Error(`Desk link href missing for "${name}" at ${page.url()}`);
-    const deskID = new URL(href, page.url()).searchParams.get("desk_id");
-    if (!deskID || !/^\d+$/.test(deskID)) {
-      throw new Error(`Could not resolve exact desk ID for "${name}" from ${href} at ${page.url()}`);
-    }
-    await link.click();
-    return deskID;
+        await page.goto(base() + "/categories?view=structure");
+        const departments = page.locator(".category-level-departments .category-structure-row");
+        for (let i = 0; i < await departments.count(); i += 1) {
+          await page.goto(base() + "/categories?view=structure");
+          await departments.nth(i).click();
+          const link = page.locator(".category-level-desks .category-structure-row").filter({ has: page.getByText(name, { exact: true }) });
+          if (await link.count() !== 1) continue;
+          const href = await link.getAttribute("href");
+          if (!href) throw new Error(`Desk link href missing for "${name}" at ${page.url()}`);
+          const deskID = new URL(href, page.url()).searchParams.get("desk_id");
+          if (!deskID || !/^\d+$/.test(deskID)) {
+            throw new Error(`Could not resolve exact desk ID for "${name}" from ${href} at ${page.url()}`);
+          }
+          await link.click();
+          return deskID;
+        }
+        throw new Error(`Expected exactly one desk "${name}" in the catalog at ${page.url()}`);
   }
 
-  async function createAgent(page: import("@playwright/test").Page, name: string, email: string): Promise<{ id: string; name: string }> {
+      async function openSelectedDeskDrawer(page: import("@playwright/test").Page, name: string): Promise<void> {
+        const row = page.locator(".category-level-desks .category-structure-item").filter({ hasText: name });
+        await expect(row).toHaveCount(1);
+        await row.getByRole("button", { name: /actions for/i }).click();
+        await row.locator(".category-overflow-menu:not([hidden])").getByRole("menuitem", { name: "Edit desk", exact: true }).click();
+        await expect(page.getByRole("dialog", { name: /Edit desk/i })).toBeVisible();
+      }
+
+      async function createAgent(page: import("@playwright/test").Page, name: string, email: string): Promise<{ id: string; name: string }> {
     await page.goto(base() + "/users");
     await page.getByRole("link", { name: /new user/i }).click();
     await expect(page.getByRole("heading", { name: "New user", exact: true })).toBeVisible();
@@ -146,33 +160,28 @@ test.describe("Users", () => {
   }
 
   async function addDeskMember(page: import("@playwright/test").Page, deskName: string, memberName: string): Promise<void> {
-    await page.goto(base() + "/desks");
+    await page.goto(base() + "/categories?view=structure");
     await selectDesk(page, deskName);
+    await openSelectedDeskDrawer(page, deskName);
     const addSelect = page.locator(".desk-add-member select");
     await expect(addSelect).toBeVisible();
     await expect(page.locator(`.desk-add-member option:has-text("${memberName}")`)).toBeAttached();
     await addSelect.selectOption({ label: memberName });
     const addAction = await page.locator(".desk-add-member").getAttribute("action");
     if (!addAction) throw new Error(`add-member form action missing for desk "${deskName}" at ${page.url()}`);
-    const resp = await Promise.all([
-      waitForExactPost(page, addAction),
-      page.locator(".desk-add-member button").click(),
-    ]);
-    expect(resp[0].status()).toBe(303);
+    const currentURL = page.url();
+    await assertHtmxSwap(page, async () => {
+      await page.locator(".desk-add-member button").click();
+    }, {
+      endpoint: new URL(addAction, currentURL).pathname,
+      method: "POST",
+      expectedStatus: 200,
+      hxTarget: "#category-drawer-host",
+      expectedUrl: currentURL,
+    });
+    await selectDesk(page, deskName);
+    await openSelectedDeskDrawer(page, deskName);
     await expect(page.locator(".desk-member-list").getByText(memberName, { exact: true })).toBeVisible();
-  }
-
-  async function createCategory(page: import("@playwright/test").Page, name: string): Promise<string> {
-    await page.goto(base() + "/categories/new");
-    await page.getByLabel(/name/i).fill(name);
-    await page.getByRole("button", { name: /create category|save|create/i }).click();
-    await expect(page).toHaveURL(/\/categories/);
-    const row = page.locator("tr").filter({ hasText: name });
-    await expect(row).toHaveCount(1);
-    const editHref = await row.locator('a[href*="/edit"]').getAttribute("href");
-    const id = editHref?.match(/\/categories\/(\d+)\/edit/)?.[1];
-    if (!id) throw new Error(`cannot resolve category id for ${name} at ${page.url()}`);
-    return id;
   }
 
   async function configureLeastLoadedWorkflow(page: import("@playwright/test").Page, categoryId: string, deskName: string): Promise<void> {
@@ -238,7 +247,7 @@ test.describe("Users", () => {
     await addDeskMember(page, "General Support", agentB.name);
 
     const catName = "Handoff Cat " + stamp;
-    const categoryId = await createCategory(page, catName);
+    const categoryId = await createCategoryViaUi(page, catName);
     await configureLeastLoadedWorkflow(page, categoryId, "General Support");
     const ticketId = await createTicketViaUi(page, {
       title: "Handoff probe " + stamp,
@@ -280,8 +289,9 @@ test.describe("Users", () => {
     await expect(rowA).toContainText("User");
 
     // Membership removed: the desk member list no longer shows A.
-    await page.goto(base() + "/desks");
+    await page.goto(base() + "/categories?view=structure");
     await selectDesk(page, "General Support");
+    await openSelectedDeskDrawer(page, "General Support");
     await expect(page.locator(".desk-member-list").getByText(agentA.name, { exact: true })).toHaveCount(0);
     await expect(page.locator(".desk-member-list").getByText(agentB.name, { exact: true })).toBeVisible();
 

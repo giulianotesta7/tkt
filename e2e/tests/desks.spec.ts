@@ -1,5 +1,9 @@
 /**
- * Desks journeys: list, create, rename, delete, membership.
+ * Desk compatibility and membership journeys.
+ *
+ * Desk administration is covered by the unified Categories/Structure screen;
+ * this file owns only the legacy redirect and membership routes used by that
+ * screen's drawer.
  */
 
 import { test, expect } from "@playwright/test";
@@ -7,19 +11,25 @@ import { startServer, stopServer } from "../server-lifecycle.js";
 import { loginAsSeeded, base } from "./helpers/auth.js";
 import { assertCanonicalScreen, collectObservability } from "./helpers/layout.js";
 import { assertHtmxSwap } from "./helpers/htmx.js";
-import { waitForExactPost } from "./helpers/network.js";
 
 async function selectDesk(page: import("@playwright/test").Page, name: string): Promise<string> {
-  const link = page.locator("a[data-desk-id]").filter({ has: page.getByText(name, { exact: true }) });
-  await expect(link).toHaveCount(1);
-  const href = await link.getAttribute("href");
-  if (!href) throw new Error(`Desk link href missing for "${name}" at ${page.url()}`);
-  const deskID = new URL(href, page.url()).searchParams.get("desk_id");
-  if (!deskID || !/^\d+$/.test(deskID)) {
-    throw new Error(`Could not resolve exact desk ID for "${name}" from ${href} at ${page.url()}`);
+  await page.goto(base() + "/categories?view=structure");
+  const departments = page.locator(".category-level-departments .category-structure-row");
+  for (let i = 0; i < await departments.count(); i += 1) {
+    await page.goto(base() + "/categories?view=structure");
+    await departments.nth(i).click();
+    const desk = page.locator(".category-level-desks .category-structure-row").filter({ has: page.getByText(name, { exact: true }) });
+    if (await desk.count() !== 1) continue;
+    const href = await desk.getAttribute("href");
+    if (!href) throw new Error(`Desk link href missing for "${name}" at ${page.url()}`);
+    const deskID = new URL(href, page.url()).searchParams.get("desk_id");
+    if (!deskID || !/^\d+$/.test(deskID)) {
+      throw new Error(`Could not resolve exact desk ID for "${name}" from ${href} at ${page.url()}`);
+    }
+    await desk.click();
+    return deskID;
   }
-  await link.click();
-  return deskID;
+  throw new Error(`Expected exactly one desk "${name}" in the catalog at ${page.url()}`);
 }
 
 test.describe("Desks", () => {
@@ -30,185 +40,87 @@ test.describe("Desks", () => {
     await stopServer();
   });
 
-  test("list shows seeded desk, creates, renames, and deletes a desk", async ({ page }) => {
-    await page.setViewportSize({ width: 1280, height: 800 });
-    const obs = collectObservability(page);
+  test("legacy GET redirects to the unified Categories screen", async ({ page }) => {
     await loginAsSeeded(page);
     await page.goto(base() + "/desks");
-    await expect(page.locator("h1").filter({ hasText: "Desks" })).toBeVisible();
-    await expect(page.getByText("General Support").first()).toBeVisible();
-
-    const deskName = "Probe Desk " + Date.now();
-    await page.locator("details.desk-create summary").click();
-    await expect(page.getByLabel(/^desk name$/i)).toBeVisible();
-    await page.getByLabel(/^desk name$/i).fill(deskName);
-    // Create desk — wait for POST to complete
-    const createResponsePromise = waitForExactPost(page, "/desks");
-    await Promise.all([
-      createResponsePromise,
-      page.getByRole("button", { name: /^create desk$/i }).click(),
-    ]);
-    const createResponse = await createResponsePromise;
-    expect(createResponse.status()).toBe(303);
-    await expect(page.getByText(deskName).first()).toBeVisible();
-
-    // Select the new desk
-    await selectDesk(page, deskName);
-    await expect(page.locator(".desk-detail")).toBeVisible();
-    const renameAction = await page.locator(".desk-rename").getAttribute("action");
-    if (!renameAction) throw new Error(`Rename form action missing for desk "${deskName}" at ${page.url()}`);
-
-    // Rename — assert persistence by checking list updates
-    const renamed = deskName + " Renamed";
-    const renameInput = page.locator(".desk-rename input[name='name']");
-    await expect(renameInput).toBeVisible();
-    await renameInput.fill(renamed);
-    const renameResponsePromise = waitForExactPost(page, renameAction);
-    await Promise.all([
-      renameResponsePromise,
-      page.locator(".desk-rename button").click(),
-    ]);
-    const renameResponse = await renameResponsePromise;
-    expect(renameResponse.status()).toBe(303);
-    await expect(page.getByText(renamed).first()).toBeVisible();
-    // Persistence: reload and verify renamed persists
-    await page.reload();
-    await expect(page.getByText(renamed).first()).toBeVisible();
-    // Re-select since reload may clear selection
-    await selectDesk(page, renamed);
-    await expect(page.locator(".desk-detail")).toBeVisible();
-
-    // Delete — must execute and verify persistence
-    const deleteAction = await page.locator('.desk-detail form[action*="/delete"]').getAttribute("action");
-    if (!deleteAction) throw new Error(`Delete form action missing for desk "${renamed}" at ${page.url()}`);
-    page.once("dialog", (d) => d.accept());
-    const deleteResponsePromise = waitForExactPost(page, deleteAction);
-    await Promise.all([
-      deleteResponsePromise,
-      page.getByRole("button", { name: /delete desk/i }).click(),
-    ]);
-    const deleteResponse = await deleteResponsePromise;
-    expect(deleteResponse.status()).toBe(303);
-    expect(new URL(page.url()).pathname).toBe("/desks");
-    await expect(page.getByText(renamed)).toHaveCount(0);
-    // Persistence: reload and still gone
-    await page.reload();
-    await expect(page.getByText(renamed)).toHaveCount(0);
-
-    await assertCanonicalScreen(page, {
-      viewport: 1280,
-      label: "desks create/rename/delete",
-      url: page.url(),
-      role: "root",
-      consoleErrors: obs.consoleErrors,
-      pageErrors: obs.pageErrors,
-      failedRequests: obs.failedRequests,
-      failedResponses: obs.failedResponses,
-    });
+    await expect(page).toHaveURL(/\/categories$/);
+    await expect(page.locator("h1")).toHaveText("Categories");
+    await expect(page.locator(".category-level-departments")).toBeVisible();
+    await expect(page.locator(".category-level-desks")).toBeVisible();
+    await expect(page.locator(".category-level-categories")).toBeVisible();
   });
 
-  test("desk membership add and remove must actually change membership", async ({ page }) => {
+  test("desk membership add and remove uses the unified drawer context", async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 800 });
     const obs = collectObservability(page);
     await loginAsSeeded(page);
 
-    const uname = "Bob Builder " + Date.now().toString(36).slice(2, 6);
-    const uemail = `bob-${Date.now().toString(36).slice(2, 6)}@example.com`;
+    const uname = "Desk Member " + Date.now().toString(36).slice(2, 8);
+    const uemail = `desk-member-${Date.now().toString(36).slice(2, 8)}@example.com`;
     await page.goto(base() + "/users/new");
     await page.getByLabel(/^name$/i).fill(uname);
     await page.getByLabel(/^email$/i).fill(uemail);
     await page.getByLabel(/^password$/i).fill("Secret123!");
     await page.getByRole("button", { name: /create user/i }).click();
     await expect(page).toHaveURL(/\/users/);
-    await expect(page.getByText(uname)).toBeVisible();
-    // Desk members must be agent+ — promote to agent
-    {
-      const row = page.locator("tr[data-user-name]").filter({ has: page.getByText(uname, { exact: true }) });
-      await expect(row).toHaveCount(1);
-      const editLink = row.locator('a[href*="/users/"][href*="/edit"]').first();
-      let href = await editLink.getAttribute("href");
-      if (!href) throw new Error(`edit href missing for user "${uname}" using exact row at ${page.url()}`);
-      href = href.split("?")[0];
-      await page.goto(base() + href);
-      await expect(page.locator('h1:has-text("Edit user"), h2:has-text("Edit user")').first()).toBeVisible();
-      const roleSelect = page.locator('select[name="role"]');
-      await expect(roleSelect).toBeVisible();
-      await roleSelect.selectOption("agent");
-      const userID = new URL(href, page.url()).pathname.match(/^\/users\/(\d+)\/edit$/)?.[1];
-      if (!userID) throw new Error(`Could not resolve exact user ID from ${href} at ${page.url()}`);
-      await assertHtmxSwap(page, async () => {
-        await page.getByRole("button", { name: /save changes/i }).click();
-      }, {
-        endpoint: `/users/${userID}/edit`,
+
+    const userRow = page.locator(`tr[data-user-name="${uname}"]`);
+    await expect(userRow).toHaveCount(1);
+    const editHref = await userRow.locator('a[href*="/users/"][href*="/edit"]').first().getAttribute("href");
+    if (!editHref) throw new Error(`edit href missing for user "${uname}" at ${page.url()}`);
+    await page.goto(base() + editHref.split("?")[0]);
+    await page.locator('select[name="role"]').selectOption("agent");
+    await page.getByRole("button", { name: /save changes/i }).click();
+    await expect(page).toHaveURL(/\/users$/);
+
+    await selectDesk(page, "General Support");
+    const drawerLink = page.locator('.category-level-desks .category-menu-button').first();
+    await drawerLink.click();
+    await page.locator('.category-level-desks .category-overflow-menu:not([hidden])').getByRole("menuitem", { name: "Edit desk", exact: true }).click();
+    const drawer = page.getByRole("dialog", { name: /Edit desk/i });
+    await expect(drawer).toBeVisible();
+    const addSelect = drawer.locator(".desk-add-member select");
+    await expect(addSelect).toBeVisible();
+    await addSelect.selectOption({ label: uname });
+    const addAction = await drawer.locator(".desk-add-member").getAttribute("action");
+    if (!addAction) throw new Error(`add-member form action missing at ${page.url()}`);
+    const addResponse = await assertHtmxSwap(
+      page,
+      () => drawer.locator(".desk-add-member button").click(),
+      {
+        endpoint: new URL(addAction, page.url()).pathname,
         method: "POST",
         expectedStatus: 200,
-        hxTarget: "#users-root",
-        expectedUrl: /\/users$/,
-      });
-      const savedRow = page.locator(`tr[data-user-name="${uname}"]`);
-      await expect(savedRow).toHaveCount(1);
-      await expect(savedRow).toContainText("Agent");
-    }
+        hxTarget: "#category-drawer-host",
+      },
+    );
+    expect(addResponse.headers()["hx-retarget"]).toBe("#category-drawer-host");
+    expect(addResponse.headers()["hx-reswap"]).toBe("outerHTML");
+    await expect(drawer).toBeVisible();
+    await expect(drawer.locator(".desk-member-list li").filter({ hasText: uname })).toHaveCount(1);
 
-    await page.goto(base() + "/desks");
-    await selectDesk(page, "General Support");
-    await expect(page.locator(".desk-detail")).toBeVisible();
-
-    // Membership add — must execute unconditionally (no silent skip)
-    const addSelect = page.locator(".desk-add-member select");
-    await expect(addSelect).toBeVisible();
-    const option = page.locator(`.desk-add-member option:has-text("${uname}")`);
-    await expect(option).toBeAttached();
-    await addSelect.selectOption({ label: uname });
-    await expect(addSelect.locator("option:checked")).toHaveText(uname);
-    const addAction = await page.locator(".desk-add-member").getAttribute("action");
-    if (!addAction) throw new Error(`Add-member form action missing for desk "General Support" at ${page.url()}`);
-    const selectedMemberID = await addSelect.inputValue();
-    const addPath = new URL(addAction, page.url()).pathname;
-    if (!/^\/desks\/\d+\/members$/.test(addPath) || !/^\d+$/.test(selectedMemberID)) {
-      throw new Error(`Could not resolve exact add-member target for user "${uname}" from ${addAction} at ${page.url()}`);
-    }
-    const addResponsePromise = waitForExactPost(page, addAction);
-    await Promise.all([
-      addResponsePromise,
-      page.locator(".desk-add-member button").click(),
-    ]);
-    const addResponse = await addResponsePromise;
-    expect(addResponse.status()).toBe(303);
-    await expect(page.locator(".desk-member-list").getByText(uname)).toBeVisible();
-    // Persistence check: reload still shows member
-    await page.reload();
-    // After reload, selection resets — re-select desk
-    await selectDesk(page, "General Support");
-    await expect(page.locator(".desk-member-list").getByText(uname)).toBeVisible({ timeout: 10_000 });
-
-    // Remove member — must actually disappear
-    const memberRow = page.locator(".desk-member-list li").filter({ has: page.getByText(uname, { exact: true }) });
-    await expect(memberRow).toHaveCount(1);
-    const removeBtn = memberRow.getByRole("button", { name: /remove/i });
-    await expect(removeBtn).toBeVisible();
-    const removeForm = removeBtn.locator("xpath=ancestor::form");
+    const memberRow = drawer.locator(".desk-member-list li").filter({ hasText: uname });
+    const removeForm = memberRow.locator("form");
     const removeAction = await removeForm.getAttribute("action");
-    if (!removeAction) throw new Error(`Remove-member form action missing for user "${uname}" at ${page.url()}`);
-    const removePath = new URL(removeAction, page.url()).pathname;
-    if (!/^\/desks\/\d+\/members\/\d+\/delete$/.test(removePath)) {
-      throw new Error(`Unexpected remove-member target ${removePath} for user "${uname}" at ${page.url()}`);
-    }
-    const removeResponsePromise = waitForExactPost(page, removeAction);
-    await Promise.all([
-      removeResponsePromise,
-      removeBtn.click(),
-    ]);
-    const removeResponse = await removeResponsePromise;
-    expect(removeResponse.status()).toBe(303);
-    await expect(page.locator(".desk-member-list").getByText(uname)).toHaveCount(0);
-    await page.reload();
-    await selectDesk(page, "General Support");
-    await expect(page.locator(".desk-member-list").getByText(uname)).toHaveCount(0);
+    if (!removeAction) throw new Error(`remove-member form action missing at ${page.url()}`);
+    const removeResponse = await assertHtmxSwap(
+      page,
+      () => memberRow.getByRole("button", { name: /remove/i }).click(),
+      {
+        endpoint: new URL(removeAction, page.url()).pathname,
+        method: "POST",
+        expectedStatus: 200,
+        hxTarget: "#category-drawer-host",
+      },
+    );
+    expect(removeResponse.headers()["hx-retarget"]).toBe("#category-drawer-host");
+    expect(removeResponse.headers()["hx-reswap"]).toBe("outerHTML");
+    await expect(drawer).toBeVisible();
+    await expect(drawer.locator(".desk-member-list li").filter({ hasText: uname })).toHaveCount(0);
 
     await assertCanonicalScreen(page, {
       viewport: 1280,
-      label: "desks membership",
+      label: "desk membership compatibility",
       url: page.url(),
       role: "root",
       consoleErrors: obs.consoleErrors,

@@ -14,7 +14,7 @@ import { startServer, stopServer, activeServer } from "../server-lifecycle.js";
 import { assertCanonicalScreen, collectObservability } from "./helpers/layout.js";
 import { assertHtmxSwap } from "./helpers/htmx.js";
 import { base, seededCredentials } from "./helpers/auth.js";
-import { createTicketViaUi } from "./helpers/navigation.js";
+import { createCategoryViaUi, createTicketViaUi } from "./helpers/navigation.js";
 import { waitForExactPost } from "./helpers/network.js";
 
 function baseURL(): string {
@@ -146,12 +146,9 @@ test.describe("Role — minimal matrix admin / agent / user (seeded)", () => {
     await page.getByRole("button", { name: /log out|sign out/i }).click();
     await expect(page).toHaveURL(/\/login/);
     await login(page, adminEmail, "Secret123!");
-    await page.goto(baseURL() + "/categories/new");
     const catName = "AdminCat " + Date.now().toString(36).slice(2, 8);
-    await page.getByLabel(/name/i).fill(catName);
-    await page.getByRole("button", { name: /create category|save/i }).click();
-    await expect(page).toHaveURL(/\/categories/);
-    await expect(page.getByText(catName)).toBeVisible();
+    await createCategoryViaUi(page, catName);
+    await expect(page.locator(".category-level-categories .category-structure-row strong").filter({ hasText: catName })).toBeVisible();
 
     // Agent: one allowed operative action — create a ticket (no error, even though not in agent's own list)
     await page.getByRole("button", { name: /log out|sign out/i }).click();
@@ -159,10 +156,9 @@ test.describe("Role — minimal matrix admin / agent / user (seeded)", () => {
     await login(page, agentEmail, "Secret123!");
     const agentTicket = "Agent ticket " + Date.now().toString(36).slice(2, 8);
     await page.goto(baseURL() + "/tickets/new");
-    await expect(page.locator("h2")).toContainText(/ticket details/i);
+    await page.locator(".catalog-category").filter({ hasText: "General" }).first().click();
     await page.getByLabel(/title/i).fill(agentTicket);
     await page.getByLabel(/description/i).fill("agent probe");
-    await page.getByLabel(/category/i).selectOption({ label: "General" });
     await page.getByLabel(/priority/i).selectOption("low");
     await page.getByRole("button", { name: /create ticket/i }).click();
     await expect(page).toHaveURL(/\/tickets/);

@@ -66,6 +66,12 @@ var templateFuncs = template.FuncMap{
 		}
 		return out
 	},
+	"categoryDepartmentValue": func(id int64) string {
+		if id == -1 {
+			return "unassigned"
+		}
+		return strconv.FormatInt(id, 10)
+	},
 	"hasDesk": func(desks []domain.Desk, id int64) bool {
 		for _, d := range desks {
 			if d.ID == id {

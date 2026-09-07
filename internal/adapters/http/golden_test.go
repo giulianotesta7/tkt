@@ -569,9 +569,6 @@ func TestTicketDetailPresentationContract(t *testing.T) {
 		`Internal comment`,
 		`class="timeline-entry timeline-comment internal"`,
 		`--internal-comment-bg`,
-		`aria-label="Desks"`,
-		`<svg viewBox="0 0 24 24" width="24" height="24"`,
-		`aria-hidden="true"`,
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("ticket detail must contain %q, got: %s", want, body)

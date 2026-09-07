@@ -242,6 +242,34 @@ type CategoryStore interface {
 	List(ctx context.Context) ([]domain.Category, error)
 }
 
+// CatalogStore persists the fixed-depth ticket catalog hierarchy. Category
+// workflow ownership remains in WorkflowStore and is never moved to a
+// Department or Desk.
+type CatalogStore interface {
+	ListDepartments(ctx context.Context) ([]domain.CatalogDepartment, error)
+	ListDesks(ctx context.Context, departmentID int64) ([]domain.CatalogDesk, error)
+	ListCatalogCategories(ctx context.Context, deskID int64) ([]domain.CatalogCategory, error)
+	SearchCatalog(ctx context.Context, query string) ([]domain.CatalogCategory, error)
+	CreateDepartment(ctx context.Context, d *domain.Department) error
+	UpdateDepartment(ctx context.Context, d *domain.Department) error
+	DeleteDepartment(ctx context.Context, id int64) error
+	MoveCategory(ctx context.Context, categoryID, deskID int64) error
+}
+
+// CatalogDeskStore is the optional unified administration port implemented by
+// the production SQLite catalog store. It reuses the existing Desk records and
+// membership rows rather than creating a second persistence model.
+type CatalogDeskStore interface {
+	GetDeskByID(ctx context.Context, id int64) (*domain.Desk, error)
+	CreateDesk(ctx context.Context, d *domain.Desk) error
+	UpdateDesk(ctx context.Context, d *domain.Desk) error
+	DeleteDesk(ctx context.Context, id int64) error
+	ListDeskMembers(ctx context.Context, deskID int64) ([]domain.User, error)
+	ListEligibleDeskMembers(ctx context.Context) ([]domain.User, error)
+	AddDeskMember(ctx context.Context, deskID, userID int64, createdAt time.Time) error
+	RemoveDeskMember(ctx context.Context, deskID, userID int64) error
+}
+
 // DeskStore persists named desks and their N:N memberships. Membership is
 // limited to agent-plus users by both the application and SQLite triggers.
 type DeskStore interface {

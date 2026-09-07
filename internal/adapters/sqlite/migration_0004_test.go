@@ -92,8 +92,8 @@ func TestMigration0004RenamesGroupsToDesksInPlace(t *testing.T) {
 	if err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM desks`).Scan(&count); err != nil {
 		t.Fatalf("count desks after rerun: %v", err)
 	}
-	if count != 2 {
-		t.Errorf("desk count after rerun = %d, want 2", count)
+	if count != 3 {
+		t.Errorf("desk count after rerun = %d, want preserved desks plus General", count)
 	}
 }
 

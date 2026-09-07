@@ -601,8 +601,12 @@ func TestManagementRouteRoleMatrix(t *testing.T) {
 						rec := httptest.NewRecorder()
 						h.mw.Wrap(h.mux).ServeHTTP(rec, req)
 
-						if rec.Code != tt.wantStatus {
-							t.Errorf("GET %s (HX=%t) as %s status = %d, want %d", r.path, hx, tt.role, rec.Code, tt.wantStatus)
+						wantStatus := tt.wantStatus
+						if r.path == "/desks" && wantStatus == http.StatusOK {
+							wantStatus = http.StatusSeeOther
+						}
+						if rec.Code != wantStatus {
+							t.Errorf("GET %s (HX=%t) as %s status = %d, want %d", r.path, hx, tt.role, rec.Code, wantStatus)
 						}
 						if tt.wantStatus == http.StatusForbidden && strings.Contains(rec.Body.String(), "admin@tkt.test") {
 							t.Errorf("GET %s (HX=%t) as %s leaked management data: %s", r.path, hx, tt.role, rec.Body.String())

@@ -15,7 +15,7 @@ func TestDeskStoreCRUDAndMembership(t *testing.T) {
 	ctx := context.Background()
 	store := newDeskStore(s.db)
 
-	desk := &domain.Desk{Name: "Support", CreatedAt: testClock}
+	desk := &domain.Desk{Name: "Support", Description: "Customer support", CreatedAt: testClock}
 	if err := store.Create(ctx, desk); err != nil {
 		t.Fatalf("create desk: %v", err)
 	}
@@ -41,6 +41,7 @@ func TestDeskStoreCRUDAndMembership(t *testing.T) {
 	}
 
 	desk.Name = "Customer Support"
+	desk.Description = "Updated support description"
 	if err := store.Update(ctx, desk); err != nil {
 		t.Fatalf("rename desk: %v", err)
 	}
@@ -48,8 +49,8 @@ func TestDeskStoreCRUDAndMembership(t *testing.T) {
 	if err != nil {
 		t.Fatalf("list desks: %v", err)
 	}
-	if len(desks) != 1 || desks[0].Name != "Customer Support" {
-		t.Fatalf("desks = %+v, want renamed desk", desks)
+	if len(desks) != 2 || desks[0].Name != "General" || desks[1].Name != "Customer Support" || desks[1].Description != "Updated support description" {
+		t.Fatalf("desks = %+v, want General and renamed desk with description", desks)
 	}
 
 	if err := store.RemoveMember(ctx, desk.ID, agentID); err != nil {

@@ -19,28 +19,89 @@ func TestDeskHandlersCreateListAndManageMembership(t *testing.T) {
 	mux := http.NewServeMux()
 	NewDeskHandlers(desks, h.renderer).Register(mux)
 
-	create := deskRequest(http.MethodPost, "/desks", url.Values{"name": {"Support"}}, *h.admin)
-	created := httptest.NewRecorder()
-	mux.ServeHTTP(created, create)
-	wantRedirect(t, created, http.StatusSeeOther, "/desks?desk_id=1")
-
+	createdDesk, err := desks.Create(context.Background(), *h.admin, "Support")
+	if err != nil {
+		t.Fatalf("create desk through service: %v", err)
+	}
 	listed := httptest.NewRecorder()
 	mux.ServeHTTP(listed, deskRequest(http.MethodGet, "/desks", nil, *h.admin))
-	if listed.Code != http.StatusOK || !strings.Contains(listed.Body.String(), "Support") {
-		t.Fatalf("desk index status/body = %d/%s, want Support", listed.Code, listed.Body.String())
+	wantRedirect(t, listed, http.StatusSeeOther, "/categories")
+
+	create := httptest.NewRecorder()
+	mux.ServeHTTP(create, deskRequest(http.MethodPost, "/desks", url.Values{"name": {"Should not bypass Department"}}, *h.admin))
+	if create.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("POST /desks = %d, want method-not-allowed compatibility response", create.Code)
 	}
 
 	agent := seedUserRole(t, h.store, "Agent", "agent@tkt.test", domain.RoleAgent)
-	desk, err := desks.List(context.Background(), *h.admin)
-	if err != nil || len(desk) != 1 {
-		t.Fatalf("list stored desk = %+v, %v", desk, err)
+	deskList, err := desks.List(context.Background(), *h.admin)
+	if err != nil || len(deskList) != 2 {
+		t.Fatalf("list stored desks = %+v, %v", deskList, err)
+	}
+	var desk *domain.Desk
+	for i := range deskList {
+		if deskList[i].ID == createdDesk.ID {
+			desk = &deskList[i]
+			break
+		}
+	}
+	if desk == nil {
+		t.Fatalf("created Support desk missing from %+v", deskList)
 	}
 	member := httptest.NewRecorder()
-	mux.ServeHTTP(member, deskRequest(http.MethodPost, "/desks/"+itoa(desk[0].ID)+"/members", url.Values{"user_id": {itoa(agent.ID)}}, *h.admin))
-	wantRedirect(t, member, http.StatusSeeOther, "/desks?desk_id="+itoa(desk[0].ID))
-	members, err := desks.ListMembers(context.Background(), *h.admin, desk[0].ID)
+	mux.ServeHTTP(member, deskRequest(http.MethodPost, "/desks/"+itoa(desk.ID)+"/members", url.Values{"user_id": {itoa(agent.ID)}}, *h.admin))
+	wantRedirect(t, member, http.StatusSeeOther, "/categories?view=structure")
+	members, err := desks.ListMembers(context.Background(), *h.admin, desk.ID)
 	if err != nil || len(members) != 1 || members[0].ID != agent.ID {
 		t.Fatalf("stored membership = %+v, %v", members, err)
+	}
+}
+
+func TestDeskHandlersHTMXMembershipRendersDrawer(t *testing.T) {
+	h := newHarness(t)
+	desks := application.NewDeskService(h.store.DeskStore(), h.store.UserStore(), h.clock)
+	mux := http.NewServeMux()
+	NewDeskHandlers(desks, h.renderer).Register(mux)
+
+	desk, err := desks.Create(context.Background(), *h.admin, "Support")
+	if err != nil {
+		t.Fatal(err)
+	}
+	agent := seedUserRole(t, h.store, "Agent", "agent@tkt.test", domain.RoleAgent)
+	contextValues := url.Values{"view": {"structure"}, "department_id": {"unassigned"}, "desk_id": {itoa(desk.ID)}}
+
+	add := deskRequest(http.MethodPost, "/desks/"+itoa(desk.ID)+"/members", url.Values{
+		"user_id":       {itoa(agent.ID)},
+		"view":          {"structure"},
+		"department_id": {"unassigned"},
+		"desk_id":       {itoa(desk.ID)},
+	}, *h.admin)
+	add.Header.Set("HX-Request", "true")
+	addRec := httptest.NewRecorder()
+	mux.ServeHTTP(addRec, add)
+	if addRec.Code != http.StatusOK || addRec.Header().Get("HX-Retarget") != "#category-drawer-host" || addRec.Header().Get("HX-Reswap") != "outerHTML" {
+		t.Fatalf("HTMX add response = %d/%q/%q", addRec.Code, addRec.Header().Get("HX-Retarget"), addRec.Header().Get("HX-Reswap"))
+	}
+	if addRec.Header().Get("Location") != "" || !strings.Contains(addRec.Body.String(), agent.Name) {
+		t.Fatalf("HTMX add response did not keep drawer context: location=%q body=%s", addRec.Header().Get("Location"), addRec.Body.String())
+	}
+
+	remove := deskRequest(http.MethodPost, "/desks/"+itoa(desk.ID)+"/members/"+itoa(agent.ID)+"/delete", contextValues, *h.admin)
+	remove.Header.Set("HX-Request", "true")
+	removeRec := httptest.NewRecorder()
+	mux.ServeHTTP(removeRec, remove)
+	if removeRec.Code != http.StatusOK || removeRec.Header().Get("HX-Retarget") != "#category-drawer-host" || removeRec.Header().Get("HX-Reswap") != "outerHTML" {
+		t.Fatalf("HTMX remove response = %d/%q/%q", removeRec.Code, removeRec.Header().Get("HX-Retarget"), removeRec.Header().Get("HX-Reswap"))
+	}
+	memberList := removeRec.Body.String()
+	if start := strings.Index(memberList, `<ul class="desk-member-list">`); start >= 0 {
+		memberList = memberList[start:]
+		if end := strings.Index(memberList, `</ul>`); end >= 0 {
+			memberList = memberList[:end]
+		}
+	}
+	if removeRec.Header().Get("Location") != "" || strings.Contains(memberList, agent.Name) {
+		t.Fatalf("HTMX remove response did not refresh members: location=%q member list=%s", removeRec.Header().Get("Location"), memberList)
 	}
 }
 

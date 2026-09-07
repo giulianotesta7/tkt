@@ -30,6 +30,7 @@ type TicketHandlers struct {
 	workflowRuns application.WorkflowRunStore
 	workflowTx   application.WorkflowUnitOfWork
 	renderer     *Renderer
+	catalog      *application.CatalogService
 }
 
 // NewTicketHandlers wires the ticket routes against the ticket, comment,
@@ -37,8 +38,8 @@ type TicketHandlers struct {
 // (runner, run snapshot, unit of work) drive the honest completion route and
 // the published-only create-option filter (design S9); workflows provides
 // ListAvailableCategories.
-func NewTicketHandlers(tickets *application.TicketService, comments *application.CommentService, search *application.SearchService, categories *application.CategoryService, users *application.UserService, desks application.DeskStore, workflows *application.WorkflowService, runner *application.WorkflowRunner, workflowRuns application.WorkflowRunStore, workflowTx application.WorkflowUnitOfWork, renderer *Renderer) *TicketHandlers {
-	return &TicketHandlers{
+func NewTicketHandlers(tickets *application.TicketService, comments *application.CommentService, search *application.SearchService, categories *application.CategoryService, users *application.UserService, desks application.DeskStore, workflows *application.WorkflowService, runner *application.WorkflowRunner, workflowRuns application.WorkflowRunStore, workflowTx application.WorkflowUnitOfWork, renderer *Renderer, catalogs ...*application.CatalogService) *TicketHandlers {
+	h := &TicketHandlers{
 		tickets:      tickets,
 		comments:     comments,
 		search:       search,
@@ -51,6 +52,10 @@ func NewTicketHandlers(tickets *application.TicketService, comments *application
 		workflowTx:   workflowTx,
 		renderer:     renderer,
 	}
+	if len(catalogs) > 0 {
+		h.catalog = catalogs[0]
+	}
+	return h
 }
 
 // Register mounts the ticket routes (D9 method+path patterns). Task 5.4
@@ -83,6 +88,7 @@ type pageData struct {
 	UsersAssets          bool
 	PageFoundationAssets bool
 	WorkflowAssets       bool
+	CategoryAssets       bool
 	InternalCommentBg    string
 }
 
@@ -309,9 +315,10 @@ func (h *TicketHandlers) list(w http.ResponseWriter, r *http.Request) {
 // the form renders no assignee control for ANY role.
 type ticketFormData struct {
 	pageData
-	Error   string
-	Values  ticketFormValues
-	Options options
+	Error    string
+	Values   ticketFormValues
+	Options  options
+	Selected *domain.CatalogCategory
 }
 
 type ticketFormValues struct {
@@ -323,6 +330,10 @@ type ticketFormValues struct {
 }
 
 func (h *TicketHandlers) newForm(w http.ResponseWriter, r *http.Request) {
+	if h.catalog != nil && r.URL.Query().Get("category_id") == "" {
+		h.renderCatalog(w, r)
+		return
+	}
 	opts, err := h.createOptions(r)
 	if err != nil {
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
@@ -333,7 +344,136 @@ func (h *TicketHandlers) newForm(w http.ResponseWriter, r *http.Request) {
 		Values:   ticketFormValues{Priority: domain.PriorityMedium},
 		Options:  opts,
 	}
+	if h.catalog != nil {
+		data.Values.CategoryID = r.URL.Query().Get("category_id")
+		if id := parseID(data.Values.CategoryID); id != 0 {
+			selected, findErr := h.catalog.FindCategory(r.Context(), id, h.workflows)
+			if findErr != nil {
+				http.Error(w, mapErrorMsg(findErr), statusFor(findErr))
+				return
+			}
+			data.Selected = selected
+		}
+	}
 	h.renderer.Render(w, r, "tickets_new", "ticket_form", data, http.StatusOK)
+}
+
+type catalogPageData struct {
+	pageData
+	Departments  []domain.CatalogDepartment
+	Desks        []domain.CatalogDesk
+	Categories   []domain.CatalogCategory
+	Results      []domain.CatalogCategory
+	Query        string
+	DepartmentID int64
+	DeskID       int64
+	Breadcrumb   string
+	MobileStep   string
+}
+
+func (h *TicketHandlers) renderCatalog(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	departments, err := h.catalog.ListDepartments(ctx)
+	if err != nil {
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+	q := strings.TrimSpace(r.URL.Query().Get("q"))
+	departmentID, _ := strconv.ParseInt(r.URL.Query().Get("department_id"), 10, 64)
+	deskID, _ := strconv.ParseInt(r.URL.Query().Get("desk_id"), 10, 64)
+	if departmentID != 0 {
+		found := false
+		for _, department := range departments {
+			if department.ID == departmentID {
+				found = true
+				break
+			}
+		}
+		if !found {
+			departmentID = 0
+		}
+	}
+	if departmentID == 0 && len(departments) > 0 {
+		departmentID = departments[0].ID
+	}
+	desks, err := h.catalog.ListDesks(ctx, departmentID)
+	if err != nil {
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+	if deskID != 0 {
+		found := false
+		for _, a := range desks {
+			if a.ID == deskID {
+				found = true
+				break
+			}
+		}
+		if !found {
+			deskID = 0
+		}
+	}
+	if deskID == 0 && len(desks) > 0 {
+		deskID = desks[0].ID
+	}
+	categories, err := h.catalog.ListCategories(ctx, deskID)
+	if err != nil {
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+	available, err := h.workflows.ListAvailableCategories(ctx)
+	if err != nil {
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+	allowed := make(map[int64]bool, len(available))
+	for _, c := range available {
+		allowed[c.ID] = true
+	}
+	filterAvailable := func(in []domain.CatalogCategory) []domain.CatalogCategory {
+		out := make([]domain.CatalogCategory, 0, len(in))
+		for _, c := range in {
+			if allowed[c.ID] {
+				out = append(out, c)
+			}
+		}
+		return out
+	}
+	categories = filterAvailable(categories)
+	var results []domain.CatalogCategory
+	if q != "" {
+		results, err = h.catalog.Search(ctx, q)
+		if err != nil {
+			http.Error(w, "Internal server error", http.StatusInternalServerError)
+			return
+		}
+		results = filterAvailable(results)
+	}
+	breadcrumb := ""
+	for _, d := range departments {
+		if d.ID == departmentID {
+			breadcrumb = d.Name
+			break
+		}
+	}
+	for _, a := range desks {
+		if a.ID == deskID {
+			if breadcrumb != "" {
+				breadcrumb += " / "
+			}
+			breadcrumb += a.Name
+			break
+		}
+	}
+	step := "departments"
+	if r.URL.Query().Get("department_id") != "" && departmentID != 0 {
+		step = "desks"
+	}
+	if r.URL.Query().Get("desk_id") != "" && deskID != 0 {
+		step = "categories"
+	}
+	data := catalogPageData{pageData: pageDataFrom(r, "tickets"), Departments: departments, Desks: desks, Categories: categories, Results: results, Query: q, DepartmentID: departmentID, DeskID: deskID, Breadcrumb: breadcrumb, MobileStep: step}
+	h.renderer.Render(w, r, "tickets_catalog", "ticket_catalog", data, http.StatusOK)
 }
 
 // createOptions builds the create-form option lists with categories filtered
@@ -436,6 +576,16 @@ func (h *TicketHandlers) renderCreateError(w http.ResponseWriter, r *http.Reques
 			Priority:    domain.Priority(r.Form.Get("priority")),
 		},
 		Options: opts,
+	}
+	if h.catalog != nil {
+		if id := parseID(data.Values.CategoryID); id != 0 {
+			selected, findErr := h.catalog.FindCategory(r.Context(), id, h.workflows)
+			if findErr != nil {
+				http.Error(w, mapErrorMsg(findErr), statusFor(findErr))
+				return
+			}
+			data.Selected = selected
+		}
 	}
 	_ = field // the inline banner is a single generic error block
 	h.renderer.Render(w, r, "tickets_new", "ticket_form", data, status)

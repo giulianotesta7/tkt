@@ -34,7 +34,7 @@ All screens below use `e2e/tests/helpers/layout.ts` (`collectObservability` + `a
 | New category | `/categories/new` | root | Categories — creation | `tests/categories.spec.ts` | — |
 | Edit category | `/categories/{id}/edit` | root | Categories — rename | `tests/categories.spec.ts` | — |
 | Workflow builder | `/categories/{id}/workflow` | root | Categories+Workflows — integrated journey | `tests/categories.spec.ts` | step validations (`handlers_category_workflows_test.go`) |
-| Desks | `/desks` | root | Desks — CRUD + membership | `tests/desks.spec.ts` | — |
+| Desk compatibility | `/desks` GET redirect | root | Categories/Structure — desk CRUD + membership; legacy redirect | `tests/categories.spec.ts`, `tests/desks.spec.ts` | — |
 | Settings | `/settings` | root | Settings — appearance persist | `tests/settings.spec.ts` | — |
 
 ## Functional journeys
@@ -53,7 +53,7 @@ All screens below use `e2e/tests/helpers/layout.ts` (`collectObservability` + `a
 | Ticket detail — priority change | HTMX swap on `#ticket-detail`: `critical` visible after swap, no navigation | `tests/ticket-detail.spec.ts` |
 | Users — creation+edition | create user, edit name and role via `/users/{id}/edit`, list reflects change, persists after reload | `tests/users.spec.ts` |
 | Users — agent downgrade handoff (issue #47) | downgrade a desk-member agent via `/users/{id}/edit`: 200 HX save (no generic 500), desk membership removed, open ticket reassigned to the remaining eligible member (persisted after reload), handoff audit reason visible in the timeline; unresolvable-desk branch leaves the ticket unassigned | `tests/users.spec.ts` |
-| Desks — create, rename, delete, membership | each operation executed with visible result and reload persistence | `tests/desks.spec.ts` |
+| Categories/Structure — desk administration | desk creation/editing stays in the unified drawer; membership uses the compatibility member routes; `/desks` GET redirects to `/categories` | `tests/categories.spec.ts`, `tests/desks.spec.ts` |
 | Categories/workflows — integrated | create category → open workflow → add Manual task (count+1, live region, `assertHtmxSwap` on `/categories/{id}/workflow`) → autosave Instructions with `assertHtmxNoSwap` → remove (count-1) → re-add → autosave Instructions → publish (POST 200, badge Published) → reload persistence → create ticket with category → `#workflow-pending` + `.workflow-instruction` show `Handle the ticket` on ticket detail | `tests/categories.spec.ts` |
 | Settings — appearance | three radios, `:checked` assertion, Violet persists after reload, back to Blue | `tests/settings.spec.ts` |
 | HTMX — users tabs | swap on `#users-root` via Deactivated tab: `assertHtmxSwap` proves request, status, zero navigation, region change, URL gains `?status=deactivated` per `hx-push-url` | `tests/htmx.spec.ts` |

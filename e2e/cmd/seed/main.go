@@ -73,12 +73,19 @@ func main() {
 	}
 	log.Printf("published workflow for category %d", cat.ID)
 
-	// Create a desk
+	// Create a legacy Desk without a Department. It is the isolated fixture for
+	// the virtual Unassigned administration journey.
 	desk, err := deskSvc.Create(context.Background(), *root, "General Support")
 	if err != nil {
 		log.Fatalf("create desk: %v", err)
 	}
 	log.Printf("desk: %s (id=%d)", desk.Name, desk.ID)
+
+	legacyCategory, err := catSvc.CreateWithDescription(context.Background(), "Legacy Support Category", "Category under the legacy unassigned desk", desk.ID)
+	if err != nil {
+		log.Fatalf("create legacy category: %v", err)
+	}
+	log.Printf("legacy category: %s (id=%d)", legacyCategory.Name, legacyCategory.ID)
 
 	fmt.Println("seed complete")
 }
