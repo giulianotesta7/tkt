@@ -109,3 +109,42 @@ A forward-only unpublished migration MUST reuse the existing Desk table, add opt
 - THEN existing IDs and associations remain unchanged
 - AND existing legacy Desks remain under virtual `Unassigned`
 - AND rerunning migrations makes no additional changes
+
+## MODIFIED Requirements
+
+### Requirement: Responsive Category Management Index
+
+The managed category index MUST be the unified `/categories` administration view for the Department → Desk → Category hierarchy. It MUST have no independent category table, no second Desk frontend, and no tabs. At desktop widths, Departments, Desks, and Categories MUST appear in three compact, aligned columns. Each column header MUST provide its enabled `New department`, `New desk`, or `New category` action. At mobile widths, the view MUST show one hierarchy level at a time, preserve the selected Department and Desk context, and provide Back navigation without document-level horizontal overflow.
+
+Department, Desk, and Category row actions MUST use accessible overflow menus. Their controls and actions MUST have accessible names, remain keyboard-operable, and preserve visible focus. Category deletion MUST remain a native submit to the existing category-delete POST route. The server MUST remain authoritative for authorization and deletion outcomes. A rejected category deletion MUST re-render its inline feedback in the administration surface. At 390px wide, hierarchy content and available actions MUST remain discoverable without horizontal scrolling. Presentation MUST preserve existing tkt palette, typography, spacing, focus treatment, and the simple user/admin philosophy; screenshot references may inform structure only.
+
+#### Scenario: Manage the unified hierarchy
+
+- GIVEN an authorized actor opens `/categories` at a desktop width
+- THEN Departments, Desks, and Categories are shown in three aligned columns
+- AND each column header provides its enabled creation action
+- AND no independent category table, second Desk frontend, or tabs are rendered
+- WHEN the actor selects a Department and then a Desk
+- THEN the Categories column shows the selected Desk's categories
+
+#### Scenario: Direct category delete remains server-authoritative
+
+- GIVEN an admin or root views a deletable category in the unified hierarchy
+- WHEN they open the category overflow menu with a keyboard and activate `Delete category`
+- THEN the existing category-delete POST route handles the request
+- AND existing server-side authorization remains authoritative
+- AND no client-side mutation authority is required
+
+#### Scenario: Rejected direct delete remains inline
+
+- GIVEN an authorized actor submits `Delete category` from a category overflow menu for a category the server rejects for deletion
+- WHEN the existing POST route re-renders the management surface
+- THEN the rejection appears inline in that surface
+- AND the category overflow action remains available according to the existing authorization and state rules
+
+#### Scenario: Narrow category index remains actionable
+
+- GIVEN an admin or root views the unified hierarchy at 390px wide
+- WHEN categories include an action that can delete a category
+- THEN the hierarchy content and available actions remain discoverable without horizontal scrolling
+- AND the overflow control and its actions are keyboard reachable with visible focus
