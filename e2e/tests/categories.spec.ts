@@ -597,6 +597,99 @@ test.describe("Categories", () => {
     });
   });
 
+  test("dirty category drawer backdrop Stay restores the prior form control", async ({ page }) => {
+    await loginAsSeeded(page);
+    const drawerURL = base() + "/categories/new?view=structure&department_id=1&desk_id=1";
+    await page.goto(drawerURL);
+    const drawer = page.getByRole("dialog", { name: /New category/i });
+    const name = drawer.getByLabel("Name", { exact: true });
+    await name.fill("Unsaved category");
+    await page.locator(".category-drawer-backdrop").click({ position: { x: 5, y: 5 } });
+
+    const confirmation = page.getByRole("dialog", {
+name: "Leave without saving?",
+    });
+    await expect(confirmation).toBeVisible();
+    await expect(confirmation.getByRole("heading")).toHaveText("Leave without saving?");
+    await expect(confirmation).toContainText("Your changes will be lost if you leave this drawer.");
+    const discard = confirmation.getByRole("button", {
+      name: "Discard changes",
+      exact: true,
+    });
+    await expect(discard).toHaveCSS("background-color", "rgb(141, 57, 72)");
+    await expect(discard).toHaveCSS("border-color", "rgb(141, 57, 72)");
+    await expect(discard).toHaveCSS("color", "rgb(255, 255, 255)");
+    await confirmation.getByRole("button", { name: "Stay", exact: true }).click();
+    await expect(confirmation).toBeHidden();
+    await expect(name).toBeFocused();
+    await expect(page).toHaveURL(drawerURL);
+  });
+
+  test("dirty category drawer keeps values and URL until discard", async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await loginAsSeeded(page);
+    await page.goto(base() + "/categories?view=structure");
+    await page
+      .getByRole("link", { name: /General General ticket requests/i })
+      .click();
+        await page
+          .locator('a[href="/categories?view=structure&department_id=1&desk_id=1"]')
+          .click();
+
+    const launcher = page.getByRole("link", {
+      name: "New category",
+      exact: true,
+    });
+    await launcher.click();
+    const drawer = page.getByRole("dialog", { name: /New category/i });
+    const name = drawer.getByLabel("Name", { exact: true });
+    const close = drawer.getByRole("button", {
+      name: "Close catalog details",
+      exact: true,
+    });
+    await expect(page).toHaveURL(
+      /\/categories\/new\?view=structure&department_id=1&desk_id=1$/,
+    );
+    let drawerURL = page.url();
+    await name.fill("Unsaved category");
+
+    await close.click();
+    const confirmation = page.getByRole("dialog", {
+      name: "Leave without saving?"
+    });
+    const stay = confirmation.getByRole("button", { name: "Stay", exact: true });
+    await expect(confirmation).toBeVisible();
+    await expect(stay).toBeFocused();
+    await page.keyboard.press("Escape");
+    await expect(confirmation).toBeHidden();
+    await expect(name).toHaveValue("Unsaved category");
+    await expect(page).toHaveURL(drawerURL);
+        await expect(close).toBeFocused();
+
+        await name.fill("");
+        await close.click();
+        await expect(drawer).toHaveCount(0);
+        await expect(page).toHaveURL(
+          /\/categories\?view=structure&department_id=1&desk_id=1$/,
+        );
+        await launcher.click();
+        await expect(drawer).toBeVisible();
+        await expect(page).toHaveURL(
+          /\/categories\/new\?view=structure&department_id=1&desk_id=1$/,
+        );
+        drawerURL = page.url();
+        await name.fill("Unsaved category");
+        await page.goBack();
+    await expect(confirmation).toBeVisible();
+    await expect(page).toHaveURL(drawerURL);
+    await confirmation.getByRole("button", { name: "Discard changes", exact: true }).click();
+    await expect(drawer).toHaveCount(0);
+    await expect(page).toHaveURL(
+      /\/categories\?view=structure&department_id=1&desk_id=1$/,
+    );
+    await expect(launcher).toBeFocused();
+  });
+
   test("workflow builder integrated journey: create category, add step, publish, reload, create ticket, verify published workflow in ticket", async ({
     page,
   }) => {
