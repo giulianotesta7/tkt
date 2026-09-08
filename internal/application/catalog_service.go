@@ -246,9 +246,6 @@ func (s *CatalogService) UpdateCategoryFor(ctx context.Context, actor domain.Use
 	if c.Name == "" {
 		return &domain.ValidationError{Field: "name", Message: domain.ErrMsgCategoryNameRequired}
 	}
-	if c.Description == "" {
-		return &domain.ValidationError{Field: "description", Message: "category description is required"}
-	}
 	return s.categories.Update(ctx, c)
 }
 

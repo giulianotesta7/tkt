@@ -246,6 +246,29 @@ func TestCatalogServiceUpdateCategoryRequiresDeskAndPreservesStoreErrors(t *test
 	}
 }
 
+func TestCatalogServiceUpdateCategoryPersistsBlankDescription(t *testing.T) {
+	categories := newFakeCategoryStore()
+	category := categories.seed("Requests")
+	category.DeskID = 4
+	category.Description = "Existing description"
+	if err := categories.Update(context.Background(), &category); err != nil {
+		t.Fatal(err)
+	}
+	svc := application.NewCatalogService(&catalogServiceStore{}, categories, fixedClock())
+
+	category.Description = "   "
+	if err := svc.UpdateCategoryFor(context.Background(), domain.User{Role: domain.RoleAdmin}, &category); err != nil {
+		t.Fatalf("UpdateCategoryFor: %v", err)
+	}
+	stored, err := categories.GetByID(context.Background(), category.ID)
+	if err != nil {
+		t.Fatalf("GetByID: %v", err)
+	}
+	if stored.Description != "" {
+		t.Fatalf("stored description = %q, want empty", stored.Description)
+	}
+}
+
 func TestCatalogServiceReadOperationsPropagateStoreErrors(t *testing.T) {
 	want := errors.New("catalog unavailable")
 	svc := application.NewCatalogService(&catalogServiceStore{err: want}, newFakeCategoryStore(), fixedClock())
