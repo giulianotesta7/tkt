@@ -38,6 +38,25 @@ func TestCategoryCreateAndList(t *testing.T) {
 	}
 }
 
+func TestCategoryCreateWithBlankDescriptionPersistsBlank(t *testing.T) {
+	svc, categories, _ := newCategoryService()
+
+	created, err := svc.Create(context.Background(), "Support")
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if created.Description != "" {
+		t.Fatalf("created description = %q, want empty", created.Description)
+	}
+	stored, err := categories.GetByID(context.Background(), created.ID)
+	if err != nil {
+		t.Fatalf("GetByID: %v", err)
+	}
+	if stored.Description != "" {
+		t.Fatalf("stored description = %q, want empty", stored.Description)
+	}
+}
+
 func TestCategoryCreateRejectsDuplicateAndEmptyName(t *testing.T) {
 	svc, categories, _ := newCategoryService()
 	categories.seed("Bugs")

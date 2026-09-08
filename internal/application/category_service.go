@@ -22,7 +22,7 @@ func NewCategoryService(categories CategoryStore, clock domain.Clock) *CategoryS
 
 // Create stores a category with a unique non-empty name.
 func (s *CategoryService) Create(ctx context.Context, name string) (*domain.Category, error) {
-	return s.CreateWithDescription(ctx, name, name, 0)
+	return s.CreateWithDescription(ctx, name, "", 0)
 }
 
 func (s *CategoryService) CreateWithDescription(ctx context.Context, name, description string, deskID int64) (*domain.Category, error) {
@@ -31,9 +31,6 @@ func (s *CategoryService) CreateWithDescription(ctx context.Context, name, descr
 		return nil, &domain.ValidationError{Field: "name", Message: domain.ErrMsgCategoryNameRequired}
 	}
 	c := &domain.Category{Name: name, Description: strings.TrimSpace(description), DeskID: deskID, CreatedAt: s.clock.Now()}
-	if c.Description == "" {
-		c.Description = name
-	}
 	if err := s.categories.Create(ctx, c); err != nil {
 		return nil, err
 	}
@@ -42,7 +39,7 @@ func (s *CategoryService) CreateWithDescription(ctx context.Context, name, descr
 
 // CreateFor creates a category only for an administrator or root actor.
 func (s *CategoryService) CreateFor(ctx context.Context, actor domain.User, name string) (*domain.Category, error) {
-	return s.CreateWithDescriptionFor(ctx, actor, name, name, 0)
+	return s.CreateWithDescriptionFor(ctx, actor, name, "", 0)
 }
 
 func (s *CategoryService) CreateWithDescriptionFor(ctx context.Context, actor domain.User, name, description string, deskID int64) (*domain.Category, error) {
