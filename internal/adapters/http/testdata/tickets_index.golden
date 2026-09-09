@@ -55,6 +55,7 @@
 
   .command-header{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:18px}
   .command-title{font-size:20px;font-weight:600;color:var(--ink-strong);margin:0}
+  .ticket-create-page .command-title,.catalog-page .command-title{font-size:30px;line-height:1.1}
   .command-sub{color:var(--muted);font-size:13px}
   .command-actions{display:flex;gap:8px;align-items:center}
   .ticket-search{display:flex;align-items:center;gap:8px}
@@ -534,30 +535,20 @@
       </button>
     </form>
   </aside>
-  <main class="main">
-<div class="command-header">
-  <div>
-    <h1 class="command-title">Tickets</h1>
-  </div>
-  <div class="command-actions">
-
-<form class="ticket-search" method="get" action="/tickets" hx-get="/tickets" hx-target="#ticket-list" hx-swap="outerHTML" hx-indicator="this">
-  <input type="hidden" name="state" value="new">
-  <input type="hidden" name="priority" value="">
-  <input type="hidden" name="category_id" value="">
-  <input type="hidden" name="user_id" value="">
-  <input type="search" name="q" value="" placeholder="Search by ID or title" aria-label="Search tickets">
-  <button class="btn" type="submit">Search</button>
-  <span class="htmx-indicator spinner" aria-hidden="true"></span>
-</form>
-
-    <a class="btn primary" href="/tickets/new">New ticket</a>
-  </div>
+  <main class="main"><section id="tickets-screen" class="page-foundation tickets-screen">
+  <header class="page-header">
+    <div>
+      <h1 class="page-title">Tickets</h1>
+      <p class="page-subtitle">2 tickets</p>
+    </div>
+    <div class="page-actions">
+      <a class="page-action page-action-primary" href="/tickets/new">New ticket</a>
+    </div>
+  </header><form class="filter-bar ticket-toolbar" method="get" action="/tickets" hx-get="/tickets" hx-target="#tickets-screen" hx-swap="outerHTML" hx-push-url="true" hx-indicator="this">
+  <div class="ticket-search">
+  <label class="visually-hidden" for="ticket-search">Search tickets</label>
+  <input id="ticket-search" type="search" name="q" value="" placeholder="Search by ID or title" aria-label="Search tickets">
 </div>
-
-
-<form class="filter-bar" method="get" action="/tickets" hx-get="/tickets" hx-target="#ticket-list" hx-swap="outerHTML" hx-indicator="this"> <span class="htmx-indicator spinner" aria-hidden="true"></span>
-  <input type="hidden" name="q" value="">
   <select name="state" aria-label="State">
     <option value="">All states</option>
     <option value="new" selected>New</option><option value="in_progress" >In Progress</option><option value="resolved" >Resolved</option><option value="closed" >Closed</option><option value="cancelled" >Cancelled</option>
@@ -567,59 +558,40 @@
     <option value="critical" >Critical</option><option value="high" >High</option><option value="medium" >Medium</option><option value="low" >Low</option>
   </select>
   <select name="category_id" aria-label="Category">
-    <option value="">All categories</option>
-    <option value="1" >Bugs</option><option value="2" >Support</option>
+    <option value="">All categories</option><option value="1">Bugs</option><option value="2">Support</option>
   </select>
   <select name="user_id" aria-label="Assigned user">
-    <option value="">Anyone</option>
-    <option value="1" >Ana Torres</option>
+    <option value="">Anyone</option><option value="1">Ana Torres</option>
   </select>
-  <button class="btn" type="submit">Filter</button>
-  <a class="btn ghost small" href="/tickets">Clear</a>
-</form>
-
-
-
-<div id="ticket-list">
+  <button class="btn" type="submit">Apply</button>
+  <a class="btn ghost" href="/tickets" hx-get="/tickets" hx-target="#tickets-screen" hx-swap="outerHTML" hx-push-url="true" aria-label="Clear filters">Clear</a>
+  <span class="htmx-indicator spinner" aria-hidden="true"></span>
+</form><div id="ticket-list">
   <div class="queue-shell">
     <table class="queue">
       <thead>
         <tr><th>ID</th><th>Title</th><th>State</th><th>Priority</th><th>Updated</th></tr>
       </thead>
       <tbody>
-
         <tr>
-          <td class="num"><a href="/tickets/2">TKT-2</a></td>
-          <td class="cell-title"><a href="/tickets/2">Printer jam</a></td>
-          <td><span class="badge in_progress">In Progress</span></td>
-          <td class="priority high">High</td>
-          <td class="cell-muted"><time datetime="2026-08-06T10:30:00Z">10:30 · 06-08-2026</time></td>
+          <td class="num" data-label="ID"><a href="/tickets/2">TKT-2</a></td>
+          <td class="cell-title" data-label="Title"><a href="/tickets/2">Printer jam</a></td>
+          <td data-label="State"><span class="badge in_progress">In Progress</span></td>
+          <td class="priority high" data-label="Priority"><span class="ticket-priority-value">High</span></td>
+          <td class="cell-muted" data-label="Updated"><time datetime="2026-08-06T10:30:00Z">10:30 · 06-08-2026</time></td>
         </tr>
-
         <tr>
-          <td class="num"><a href="/tickets/1">TKT-1</a></td>
-          <td class="cell-title"><a href="/tickets/1">Login page down</a></td>
-          <td><span class="badge new">New</span></td>
-          <td class="priority critical">Critical</td>
-          <td class="cell-muted"><time datetime="2026-08-06T10:00:00Z">10:00 · 06-08-2026</time></td>
+          <td class="num" data-label="ID"><a href="/tickets/1">TKT-1</a></td>
+          <td class="cell-title" data-label="Title"><a href="/tickets/1">Login page down</a></td>
+          <td data-label="State"><span class="badge new">New</span></td>
+          <td class="priority critical" data-label="Priority"><span class="ticket-priority-value">Critical</span></td>
+          <td class="cell-muted" data-label="Updated"><time datetime="2026-08-06T10:00:00Z">10:00 · 06-08-2026</time></td>
         </tr>
-
       </tbody>
     </table>
   </div>
-
-<div class="pagination">
-  <span>Page 1 of 1 · 2 tickets</span>
-  <div class="pages">
-    <span class="page" aria-disabled="true">← Prev</span>
-    <span class="page" aria-disabled="true">Next →</span>
-    <span class="htmx-indicator spinner" aria-hidden="true"></span>
-  </div>
 </div>
-
-</div>
-
-</main>
+</section></main>
 </div>
 </body>
 </html>

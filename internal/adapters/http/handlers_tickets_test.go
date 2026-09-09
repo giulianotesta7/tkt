@@ -206,13 +206,63 @@ func TestTicketsIndexEmpty(t *testing.T) {
 	if !strings.Contains(body, "<!DOCTYPE html>") {
 		t.Error("full page must include the shell")
 	}
-	if !strings.Contains(body, "No tickets match your filters.") {
-		t.Errorf("empty list must show the empty state, got: %s", body)
+	for _, want := range []string{"No tickets yet", "0 tickets"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("unfiltered empty list must show %q, got: %s", want, body)
+		}
+	}
+	if strings.Contains(body, `class="pagination"`) {
+		t.Errorf("unfiltered empty list must hide pagination, got: %s", body)
 	}
 }
 
 // TestTicketsIndexRows proves seeded tickets render with readable numbers
 // (TKT-N) and titles in newest-first order.
+func TestTicketsIndexFilteredEmpty(t *testing.T) {
+	h := newHarness(t)
+	rec := h.get(t, "/tickets?q=absent", false)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+	body := rec.Body.String()
+	for _, want := range []string{"No tickets match your filters", `href="/tickets"`, `aria-label="Clear filters"`} {
+		if !strings.Contains(body, want) {
+			t.Errorf("filtered empty list must contain %q, got: %s", want, body)
+		}
+	}
+	if strings.Contains(body, "No tickets yet") {
+		t.Errorf("filtered empty list must not use the unfiltered copy, got: %s", body)
+	}
+}
+
+func TestTicketsPaginationHiddenForSingleResult(t *testing.T) {
+	h := newHarness(t)
+	h.seedTicket(t, "Only ticket", nil)
+
+	body := h.get(t, "/tickets", false).Body.String()
+	if !strings.Contains(body, "1 ticket") {
+		t.Errorf("single result must use singular scoped total, got: %s", body)
+	}
+	if strings.Contains(body, `class="pagination"`) {
+		t.Errorf("single result must hide pagination, got: %s", body)
+	}
+}
+
+func TestTicketsPaginationHrefPreservesQuery(t *testing.T) {
+	f := filterState{
+		State:      domain.StateInProgress,
+		Priority:   domain.PriorityHigh,
+		CategoryID: "12",
+		UserID:     "34",
+		Q:          "network outage",
+	}
+	want := "/tickets?category_id=12&page=3&priority=high&q=network+outage&state=in_progress&user_id=34"
+	if got := listHref(f, 3); got != want {
+		t.Errorf("listHref = %q, want %q", got, want)
+	}
+}
+
 func TestTicketsIndexRows(t *testing.T) {
 	h := newHarness(t)
 	first := h.seedTicket(t, "First ticket", nil)
@@ -285,7 +335,7 @@ func TestTicketsIndexUsesHumanLabelsAndIDHeading(t *testing.T) {
 	h.seedTransition(t, tkt.ID, domain.StateInProgress, "")
 
 	body := h.get(t, "/tickets", false).Body.String()
-	for _, want := range []string{"<th>ID</th>", ">In Progress</span>", ">Medium</td>"} {
+	for _, want := range []string{"<th>ID</th>", ">In Progress</span>", `<span class="ticket-priority-value">Medium</span>`} {
 		if !strings.Contains(body, want) {
 			t.Errorf("ticket list must contain %q, got: %s", want, body)
 		}
@@ -347,7 +397,7 @@ func TestTicketsIndexRoleSearchControls(t *testing.T) {
 			if got := strings.Count(body, `type="search"`); got != 1 {
 				t.Errorf("visible q controls = %d, want 1, got: %s", got, body)
 			}
-			gotAdvancedFilters := strings.Contains(body, `class="filter-bar"`)
+			gotAdvancedFilters := strings.Contains(body, `name="state"`)
 			if gotAdvancedFilters != tt.wantAdvancedFilters {
 				t.Errorf("advanced filters = %t, want %t, got: %s", gotAdvancedFilters, tt.wantAdvancedFilters, body)
 			}
@@ -385,6 +435,9 @@ func TestTicketsSearchUserRoleDoesNotLeakMatchingTickets(t *testing.T) {
 	}
 	if strings.Contains(body, "Shared printer issue for admin") {
 		t.Errorf("user search must exclude another user's matching ticket, got: %s", body)
+	}
+	if !strings.Contains(body, "1 ticket") || strings.Contains(body, "2 tickets") {
+		t.Errorf("user scoped result count must describe only the visible ticket, got: %s", body)
 	}
 }
 
@@ -656,8 +709,14 @@ func TestTicketCreateMissingTitle422(t *testing.T) {
 	if rec.Code != http.StatusUnprocessableEntity {
 		t.Errorf("status = %d, want 422", rec.Code)
 	}
-	if !strings.Contains(rec.Body.String(), domain.ErrMsgTitleRequired) {
-		t.Errorf("re-render must show %q, got: %s", domain.ErrMsgTitleRequired, rec.Body.String())
+	body := rec.Body.String()
+	if !strings.Contains(body, domain.ErrMsgTitleRequired) {
+		t.Errorf("re-render must show %q, got: %s", domain.ErrMsgTitleRequired, body)
+	}
+	for _, want := range []string{`name="title" value="   "`, `The login form 500s on submit`, `<option value="high" selected>High</option>`} {
+		if !strings.Contains(body, want) {
+			t.Errorf("422 re-render must preserve submitted value %q, got: %s", want, body)
+		}
 	}
 	_, err := h.tickets.GetByID(t.Context(), *h.admin, 1)
 	if !errors.Is(err, domain.ErrNotFound) {

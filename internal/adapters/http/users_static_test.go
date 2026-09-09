@@ -28,7 +28,10 @@ func TestUsersStaticAssetsAreExplicitAndConditionallyLoaded(t *testing.T) {
 			t.Errorf("%s omits Users assets", path)
 		}
 	}
-	if body := h.get(t, "/tickets", false).Body.String(); strings.Contains(body, "/static/users.css") || strings.Contains(body, "/static/users.js") {
-		t.Error("non-Users page loads Users assets")
+	if body := h.get(t, "/tickets", false).Body.String(); !strings.Contains(body, "/static/users.css") || strings.Contains(body, "/static/users.js") {
+		t.Error("tickets must load the shared page-foundation stylesheet without Users JavaScript")
+	}
+	if body := h.get(t, "/login", false).Body.String(); strings.Contains(body, "/static/users.css") || strings.Contains(body, "/static/users.js") {
+		t.Error("unrelated auth page loads Users assets")
 	}
 }

@@ -253,6 +253,7 @@ type listData struct {
 	PrevHref            string
 	NextHref            string
 	ShowAdvancedFilters bool
+	HasActiveQuery      bool
 }
 
 func (h *TicketHandlers) index(w http.ResponseWriter, r *http.Request) {
@@ -275,8 +276,10 @@ func (h *TicketHandlers) listData(r *http.Request, f filterState, page int) (lis
 	if pages < 1 {
 		pages = 1
 	}
+	pageMeta := pageDataFrom(r, "tickets")
+	pageMeta.PageFoundationAssets = true
 	data := listData{
-		pageData:            pageDataFrom(r, "tickets"),
+		pageData:            pageMeta,
 		Filters:             f,
 		Options:             opts,
 		Tickets:             res.Tickets,
@@ -284,6 +287,7 @@ func (h *TicketHandlers) listData(r *http.Request, f filterState, page int) (lis
 		Page:                res.Page,
 		Pages:               pages,
 		ShowAdvancedFilters: userFromContext(r.Context()).Role != domain.RoleUser,
+		HasActiveQuery:      f.State != "" || f.Priority != "" || f.CategoryID != "" || f.UserID != "" || f.Q != "",
 	}
 	if res.Page > 1 {
 		data.PrevHref = listHref(f, res.Page-1)
@@ -306,7 +310,7 @@ func (h *TicketHandlers) list(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
-	h.renderer.Render(w, r, "tickets_index", "ticket_list", data, http.StatusOK)
+	h.renderer.Render(w, r, "tickets_index", "tickets_screen", data, http.StatusOK)
 }
 
 // ticketFormData is the create-ticket form payload (page + HX fragment
@@ -339,8 +343,10 @@ func (h *TicketHandlers) newForm(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
+	page := pageDataFrom(r, "tickets")
+	page.PageFoundationAssets = true
 	data := ticketFormData{
-		pageData: pageDataFrom(r, "tickets"),
+		pageData: page,
 		Values:   ticketFormValues{Priority: domain.PriorityMedium},
 		Options:  opts,
 	}
@@ -566,8 +572,10 @@ func (h *TicketHandlers) renderCreateError(w http.ResponseWriter, r *http.Reques
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
+	page := pageDataFrom(r, "tickets")
+	page.PageFoundationAssets = true
 	data := ticketFormData{
-		pageData: pageDataFrom(r, "tickets"),
+		pageData: page,
 		Error:    msg,
 		Values: ticketFormValues{
 			Title:       r.Form.Get("title"),

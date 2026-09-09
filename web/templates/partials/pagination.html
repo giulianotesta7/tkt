@@ -1,10 +1,8 @@
-{{define "pagination"}}
-<div class="pagination">
+{{define "pagination"}}{{if gt .Pages 1}}<nav class="pagination" aria-label="Ticket pages">
   <span>Page {{.Page}} of {{.Pages}} · {{.Total}} tickets</span>
   <div class="pages">
-    {{if .PrevHref}}<a href="{{.PrevHref}}" hx-get="{{.PrevHref}}" hx-target="#ticket-list" hx-swap="outerHTML" hx-indicator="#ticket-list">← Prev</a>{{else}}<span class="page" aria-disabled="true">← Prev</span>{{end}}
-    {{if .NextHref}}<a href="{{.NextHref}}" hx-get="{{.NextHref}}" hx-target="#ticket-list" hx-swap="outerHTML" hx-indicator="#ticket-list">Next →</a>{{else}}<span class="page" aria-disabled="true">Next →</span>{{end}}
+    {{if .PrevHref}}<a href="{{.PrevHref}}" hx-get="{{.PrevHref}}" hx-target="#tickets-screen" hx-swap="outerHTML" hx-push-url="true" hx-indicator="#tickets-screen" aria-label="Previous page">← Prev</a>{{end}}
+    {{if .NextHref}}<a href="{{.NextHref}}" hx-get="{{.NextHref}}" hx-target="#tickets-screen" hx-swap="outerHTML" hx-push-url="true" hx-indicator="#tickets-screen" aria-label="Next page">Next →</a>{{end}}
     <span class="htmx-indicator spinner" aria-hidden="true"></span>
   </div>
-</div>
-{{end}}
+</nav>{{end}}{{end}}

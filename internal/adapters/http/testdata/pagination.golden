@@ -1,9 +1,8 @@
-
-<div class="pagination">
+<nav class="pagination" aria-label="Ticket pages">
   <span>Page 2 of 3 · 25 tickets</span>
   <div class="pages">
-    <a href="/tickets?page=1" hx-get="/tickets?page=1" hx-target="#ticket-list" hx-swap="outerHTML" hx-indicator="#ticket-list">← Prev</a>
-    <a href="/tickets?page=3" hx-get="/tickets?page=3" hx-target="#ticket-list" hx-swap="outerHTML" hx-indicator="#ticket-list">Next →</a>
+    <a href="/tickets?page=1" hx-get="/tickets?page=1" hx-target="#tickets-screen" hx-swap="outerHTML" hx-push-url="true" hx-indicator="#tickets-screen" aria-label="Previous page">← Prev</a>
+    <a href="/tickets?page=3" hx-get="/tickets?page=3" hx-target="#tickets-screen" hx-swap="outerHTML" hx-push-url="true" hx-indicator="#tickets-screen" aria-label="Next page">Next →</a>
     <span class="htmx-indicator spinner" aria-hidden="true"></span>
   </div>
-</div>
+</nav>
