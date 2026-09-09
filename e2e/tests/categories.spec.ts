@@ -597,7 +597,216 @@ test.describe("Categories", () => {
     });
   });
 
-  test("workflow builder integrated journey: create category, add step, publish, reload, create ticket, verify published workflow in ticket", async ({
+      test("category duplicate marks only name, keeps the draft, and saves after Stay", async ({ page }) => {
+        await page.setViewportSize({ width: 1280, height: 800 });
+        await loginAsSeeded(page);
+        await page.goto(
+          base() + "/categories/new?view=structure&department_id=1&desk_id=1",
+        );
+
+        const drawer = page.getByRole("dialog", { name: /New category/i });
+        const name = drawer.getByLabel("Name", { exact: true });
+        const description = drawer.getByLabel("Description", { exact: true });
+        await name.fill("General");
+        await description.fill("Duplicate category draft");
+
+        await assertHtmxSwap(
+          page,
+          async () => {
+            await drawer.getByRole("button", { name: /create category/i }).click();
+          },
+          {
+            endpoint: "/categories",
+            method: "POST",
+            expectedStatus: 409,
+            hxTarget: "#category-drawer-host",
+          },
+        );
+
+        await expect(name).toHaveAttribute("aria-invalid", "true");
+        await expect(drawer.getByLabel("Department", { exact: true })).not.toHaveAttribute(
+          "aria-invalid",
+          "true",
+        );
+        await expect(drawer.getByLabel("Desk", { exact: true })).not.toHaveAttribute(
+          "aria-invalid",
+          "true",
+        );
+        await expect(description).not.toHaveAttribute("aria-invalid", "true");
+        await expect(name).toHaveValue("General");
+        await expect(description).toHaveValue("Duplicate category draft");
+        await expect(name).toBeFocused();
+
+        await description.fill("Corrected category description");
+        await drawer
+          .getByRole("button", { name: "Close catalog details", exact: true })
+          .click();
+        const confirmation = page.getByRole("dialog", {
+          name: "Leave without saving?",
+        });
+        await expect(confirmation).toBeVisible();
+        await confirmation.getByRole("button", { name: "Stay", exact: true }).click();
+        await expect(description).toHaveValue("Corrected category description");
+        await expect(name).toHaveValue("General");
+
+        const categoryName = "Validated category " + Date.now();
+        await name.fill(categoryName);
+        await assertHtmxSwap(
+          page,
+          async () => {
+            await drawer.getByRole("button", { name: /create category/i }).click();
+          },
+          {
+            endpoint: "/categories",
+            method: "POST",
+            expectedStatus: 200,
+            hxTarget: "#categories-background",
+            expectedUrl:
+              /\/categories\?department_id=1&desk_id=1&view=structure$/,
+          },
+        );
+        await expect(drawer).toHaveCount(0);
+        await expect(
+          page
+            .locator(".category-level-categories .category-structure-item")
+            .filter({ hasText: categoryName }),
+        ).toBeVisible();
+      });
+
+      test("dirty category drawer backdrop Stay restores the prior form control", async ({ page }) => {
+    await loginAsSeeded(page);
+    const drawerURL = base() + "/categories/new?view=structure&department_id=1&desk_id=1";
+    await page.goto(drawerURL);
+    const drawer = page.getByRole("dialog", { name: /New category/i });
+    const name = drawer.getByLabel("Name", { exact: true });
+    await name.fill("Unsaved category");
+    await page.locator(".category-drawer-backdrop").click({ position: { x: 5, y: 5 } });
+
+    const confirmation = page.getByRole("dialog", {
+name: "Leave without saving?",
+    });
+    await expect(confirmation).toBeVisible();
+    await expect(confirmation.getByRole("heading")).toHaveText("Leave without saving?");
+    await expect(confirmation).toContainText("Your changes will be lost if you leave this drawer.");
+    const discard = confirmation.getByRole("button", {
+      name: "Discard changes",
+      exact: true,
+    });
+    await expect(discard).toHaveCSS("background-color", "rgb(141, 57, 72)");
+    await expect(discard).toHaveCSS("border-color", "rgb(141, 57, 72)");
+    await expect(discard).toHaveCSS("color", "rgb(255, 255, 255)");
+    await confirmation.getByRole("button", { name: "Stay", exact: true }).click();
+    await expect(confirmation).toBeHidden();
+    await expect(name).toBeFocused();
+    await expect(page).toHaveURL(drawerURL);
+  });
+
+  test("dirty category drawer keeps values and URL until discard", async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await loginAsSeeded(page);
+    await page.goto(base() + "/categories?view=structure");
+    await page
+      .getByRole("link", { name: /General General ticket requests/i })
+      .click();
+        await page
+          .locator('a[href="/categories?view=structure&department_id=1&desk_id=1"]')
+          .click();
+
+    const launcher = page.getByRole("link", {
+      name: "New category",
+      exact: true,
+    });
+    await launcher.click();
+    const drawer = page.getByRole("dialog", { name: /New category/i });
+    const name = drawer.getByLabel("Name", { exact: true });
+    const close = drawer.getByRole("button", {
+      name: "Close catalog details",
+      exact: true,
+    });
+    await expect(page).toHaveURL(
+      /\/categories\/new\?view=structure&department_id=1&desk_id=1$/,
+    );
+    let drawerURL = page.url();
+    await name.fill("Unsaved category");
+
+    await close.click();
+    const confirmation = page.getByRole("dialog", {
+      name: "Leave without saving?"
+    });
+    const stay = confirmation.getByRole("button", { name: "Stay", exact: true });
+    await expect(confirmation).toBeVisible();
+    await expect(stay).toBeFocused();
+    await page.keyboard.press("Escape");
+    await expect(confirmation).toBeHidden();
+    await expect(name).toHaveValue("Unsaved category");
+    await expect(page).toHaveURL(drawerURL);
+        await expect(close).toBeFocused();
+
+        await name.fill("");
+        await close.click();
+        await expect(drawer).toHaveCount(0);
+        await expect(page).toHaveURL(
+          /\/categories\?view=structure&department_id=1&desk_id=1$/,
+        );
+        await launcher.click();
+        await expect(drawer).toBeVisible();
+        await expect(page).toHaveURL(
+          /\/categories\/new\?view=structure&department_id=1&desk_id=1$/,
+        );
+        drawerURL = page.url();
+        await name.fill("Unsaved category");
+        await page.goBack();
+    await expect(confirmation).toBeVisible();
+    await expect(page).toHaveURL(drawerURL);
+    await confirmation.getByRole("button", { name: "Discard changes", exact: true }).click();
+    await expect(drawer).toHaveCount(0);
+    await expect(page).toHaveURL(
+      /\/categories\?view=structure&department_id=1&desk_id=1$/,
+    );
+    await expect(launcher).toBeFocused();
+  });
+
+  test("dirty department and desk drawers require an explicit discard", async ({ page }) => {
+        await loginAsSeeded(page);
+        await page.goto(base() + "/categories/departments/1/edit?view=structure");
+
+        const department = page.getByRole("dialog", { name: /Edit department/i });
+        const departmentName = department.getByLabel("Name", { exact: true });
+        await departmentName.fill("Unsaved department");
+        await department.getByRole("button", { name: "Close catalog details" }).click();
+
+        const confirmation = page.getByRole("dialog", {
+          name: "Leave without saving?",
+        });
+        await expect(confirmation).toBeVisible();
+        await expect(
+          confirmation.getByRole("button", { name: "Stay", exact: true }),
+        ).toBeFocused();
+        await confirmation.getByRole("button", { name: "Stay", exact: true }).click();
+        await expect(departmentName).toHaveValue("Unsaved department");
+        await expect(page).toHaveURL(/\/categories\/departments\/1\/edit/);
+        await department.getByRole("button", { name: "Close catalog details" }).click();
+        await confirmation
+          .getByRole("button", { name: "Discard changes", exact: true })
+          .click();
+        await expect(department).toHaveCount(0);
+
+        await page.goto(
+          base() + "/categories/desks/1/edit?view=structure&department_id=1&desk_id=1",
+        );
+        const desk = page.getByRole("dialog", { name: /Edit desk/i });
+        const description = desk.getByLabel("Description", { exact: true });
+        await description.fill("Unsaved desk description");
+        await desk.getByRole("button", { name: "Cancel", exact: true }).click();
+        await expect(confirmation).toBeVisible();
+        await confirmation
+          .getByRole("button", { name: "Discard changes", exact: true })
+          .click();
+        await expect(desk).toHaveCount(0);
+        await expect(page).toHaveURL(/\/categories\?(?=.*view=structure)(?=.*department_id=1)(?=.*desk_id=1)/);
+      });
+
+      test("workflow builder integrated journey: create category, add step, publish, reload, create ticket, verify published workflow in ticket", async ({
     page,
   }) => {
     test.setTimeout(60000);

@@ -475,6 +475,175 @@ func TestAmendment4_CategoryDrawerErrorsVaryAndPreserveSubmittedValues(t *testin
 	}
 }
 
+func TestAmendment4_CatalogDrawerTypedErrorsMarkOnlyTheMatchingControl(t *testing.T) {
+	h := newHarness(t)
+	catalog := application.NewCatalogService(h.store.CatalogStore(), h.store.CategoryStore(), h.clock)
+	operations, err := catalog.CreateDepartmentFor(t.Context(), *h.admin, "Operations", "Operations department")
+	if err != nil {
+		t.Fatal(err)
+	}
+	finance, err := catalog.CreateDepartmentFor(t.Context(), *h.admin, "Finance", "Finance department")
+	if err != nil {
+		t.Fatal(err)
+	}
+	support, err := catalog.CreateDeskFor(t.Context(), *h.admin, operations.ID, "Support", "Support desk")
+	if err != nil {
+		t.Fatal(err)
+	}
+	billing, err := catalog.CreateDeskFor(t.Context(), *h.admin, operations.ID, "Billing", "Billing desk")
+	if err != nil {
+		t.Fatal(err)
+	}
+	requests, err := h.categories.CreateWithDescriptionFor(t.Context(), *h.admin, "Requests", "Request category", support.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	incidents, err := h.categories.CreateWithDescriptionFor(t.Context(), *h.admin, "Incidents", "Incident category", support.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	mux := http.NewServeMux()
+	NewCategoryHandlersWithWorkflows(h.categories, h.workflows, h.renderer, catalog).Register(mux)
+	request := func(method, target string, form url.Values, hx bool) *httptest.ResponseRecorder {
+		body := strings.NewReader("")
+		if form != nil {
+			body = strings.NewReader(form.Encode())
+		}
+		req := httptest.NewRequest(method, target, body)
+		req.Header.Set("Cookie", sessionCookie+"="+h.adminSession.ID)
+		if form != nil {
+			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		}
+		if hx {
+			req.Header.Set("HX-Request", "true")
+		}
+		rec := httptest.NewRecorder()
+		h.mw.Wrap(mux).ServeHTTP(rec, req)
+		return rec
+	}
+
+	for _, tc := range []struct {
+		name, target, freshPath, invalid string
+		form                             url.Values
+		status                           int
+		controls                         []string
+	}{
+		{
+			name:      "department create validation",
+			target:    "/categories/departments",
+			freshPath: "/categories/departments/new?view=structure",
+			invalid:   "name",
+			form:      url.Values{"name": {""}, "description": {"Submitted department description"}, "view": {"structure"}},
+			status:    http.StatusUnprocessableEntity,
+			controls:  []string{"name", "description"},
+		},
+		{
+			name:      "department edit duplicate",
+			target:    "/categories/departments/" + strconv.FormatInt(finance.ID, 10) + "/edit",
+			freshPath: "/categories/departments/" + strconv.FormatInt(finance.ID, 10) + "/edit?view=structure",
+			invalid:   "name",
+			form:      url.Values{"name": {operations.Name}, "description": {"Submitted department description"}, "view": {"structure"}},
+			status:    http.StatusConflict,
+			controls:  []string{"name", "description"},
+		},
+		{
+			name:      "desk create validation",
+			target:    "/categories/desks",
+			freshPath: "/categories/desks/new?view=structure",
+			invalid:   "department_id",
+			form:      url.Values{"department_id": {""}, "name": {"Submitted desk"}, "description": {"Submitted desk description"}, "view": {"structure"}},
+			status:    http.StatusUnprocessableEntity,
+			controls:  []string{"department_id", "name", "description"},
+		},
+		{
+			name:      "desk edit duplicate",
+			target:    "/categories/desks/" + strconv.FormatInt(support.ID, 10) + "/edit",
+			freshPath: "/categories/desks/" + strconv.FormatInt(support.ID, 10) + "/edit?view=structure&department_id=" + strconv.FormatInt(operations.ID, 10) + "&desk_id=" + strconv.FormatInt(support.ID, 10),
+			invalid:   "name",
+			form:      url.Values{"department_id": {strconv.FormatInt(operations.ID, 10)}, "desk_id": {strconv.FormatInt(support.ID, 10)}, "name": {billing.Name}, "description": {"Submitted desk description"}, "view": {"structure"}},
+			status:    http.StatusConflict,
+			controls:  []string{"department_id", "name", "description"},
+		},
+		{
+			name:      "category create validation",
+			target:    "/categories",
+			freshPath: "/categories/new?view=structure&department_id=" + strconv.FormatInt(operations.ID, 10),
+			invalid:   "desk_id",
+			form:      url.Values{"department_id": {strconv.FormatInt(operations.ID, 10)}, "desk_id": {""}, "name": {"Submitted category"}, "description": {"Submitted category description"}, "view": {"structure"}},
+			status:    http.StatusUnprocessableEntity,
+			controls:  []string{"department_id", "desk_id", "name", "description"},
+		},
+		{
+			name:      "category edit duplicate",
+			target:    "/categories/" + strconv.FormatInt(incidents.ID, 10) + "/edit",
+			freshPath: "/categories/" + strconv.FormatInt(incidents.ID, 10) + "/edit?view=structure&department_id=" + strconv.FormatInt(operations.ID, 10) + "&desk_id=" + strconv.FormatInt(support.ID, 10),
+			invalid:   "name",
+			form:      url.Values{"department_id": {strconv.FormatInt(operations.ID, 10)}, "desk_id": {strconv.FormatInt(support.ID, 10)}, "name": {requests.Name}, "description": {"Submitted category description"}, "view": {"structure"}},
+			status:    http.StatusConflict,
+			controls:  []string{"department_id", "desk_id", "name", "description"},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			for _, hx := range []bool{true, false} {
+				t.Run(map[bool]string{true: "HTMX", false: "ordinary"}[hx], func(t *testing.T) {
+					rec := request(http.MethodPost, tc.target, tc.form, hx)
+					if rec.Code != tc.status {
+						t.Fatalf("POST %s = %d, want %d: %s", tc.target, rec.Code, tc.status, rec.Body.String())
+					}
+					if got := rec.Header().Get("Vary"); got != "HX-Request" {
+						t.Errorf("Vary = %q, want HX-Request", got)
+					}
+					if hx {
+						for key, want := range map[string]string{"HX-Retarget": "#category-drawer-host", "HX-Reswap": "outerHTML"} {
+							if got := rec.Header().Get(key); got != want {
+								t.Errorf("%s = %q, want %q", key, got, want)
+							}
+						}
+					} else if rec.Header().Get("HX-Retarget") != "" || rec.Header().Get("HX-Reswap") != "" {
+						t.Errorf("ordinary response returned HTMX swap headers: %v", rec.Header())
+					}
+
+					body := rec.Body.String()
+					drawerStart := strings.Index(body, `id="category-drawer-host"`)
+					if drawerStart < 0 {
+						t.Fatalf("response must render the category drawer: %s", body)
+					}
+					drawerBody := body[drawerStart:]
+					for _, control := range tc.controls {
+						tag := controlTag(t, drawerBody, control)
+						if control == tc.invalid {
+							if !strings.Contains(tag, `aria-invalid="true"`) {
+								t.Errorf("%s control must be invalid, got %s", control, tag)
+							}
+						} else if strings.Contains(tag, `aria-invalid="true"`) {
+							t.Errorf("%s control must not be invalid, got %s", control, tag)
+						}
+					}
+					if !strings.Contains(body, "Submitted ") {
+						t.Errorf("drawer must preserve submitted values: %s", body)
+					}
+
+					fresh := request(http.MethodGet, tc.freshPath, nil, hx)
+					if fresh.Code != http.StatusOK {
+						t.Fatalf("fresh drawer = %d, want 200: %s", fresh.Code, fresh.Body.String())
+					}
+					freshBody := fresh.Body.String()
+					freshDrawerStart := strings.Index(freshBody, `id="category-drawer-host"`)
+					if freshDrawerStart < 0 {
+						t.Fatalf("fresh response must render the category drawer: %s", freshBody)
+					}
+					for _, control := range tc.controls {
+						if strings.Contains(controlTag(t, freshBody[freshDrawerStart:], control), `aria-invalid="true"`) {
+							t.Errorf("fresh %s control retained an invalid marker", control)
+						}
+					}
+				})
+			}
+		})
+	}
+}
+
 func TestAmendment4_CategoryMutationRefreshFailureDoesNotInviteRetry(t *testing.T) {
 	h := newHarness(t)
 	catalog := application.NewCatalogService(h.store.CatalogStore(), h.store.CategoryStore(), h.clock)

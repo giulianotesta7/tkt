@@ -1,6 +1,7 @@
 package httpadapter
 
 import (
+	"errors"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -118,6 +119,9 @@ type categoryDrawerData struct {
 	SelectedDeskID       int64
 	Error                string
 	HasServerError       bool
+	InvalidName          bool
+	InvalidDepartmentID  bool
+	InvalidDeskID        bool
 	ReadError            error
 }
 
@@ -419,7 +423,30 @@ func (h *CategoryHandlers) renderCatalogFormError(w http.ResponseWriter, r *http
 	}
 	d.ID, d.Name, d.Description, d.Error = id, r.Form.Get("name"), r.Form.Get("description"), msg
 	d.HasServerError = true
+	d.markInvalidControl(err)
 	h.renderCategoryDrawerStatus(w, r, d, status)
+}
+
+// markInvalidControl projects only structured domain errors to controls the
+// current drawer renders. Error messages remain display text, never input.
+func (d *categoryDrawerData) markInvalidControl(err error) {
+	var validation *domain.ValidationError
+	if errors.As(err, &validation) {
+		switch validation.Field {
+		case "name":
+			d.InvalidName = true
+		case "department_id":
+			d.InvalidDepartmentID = d.Kind == "desk"
+		case "desk_id":
+			d.InvalidDeskID = d.Kind == "category"
+		}
+		return
+	}
+
+	var duplicate *domain.DuplicateError
+	if errors.As(err, &duplicate) && duplicate.Kind == d.Kind {
+		d.InvalidName = true
+	}
 }
 
 // renderCategoryFormError re-renders the category drawer with submitted values.
