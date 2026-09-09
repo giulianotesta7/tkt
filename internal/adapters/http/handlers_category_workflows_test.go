@@ -189,9 +189,30 @@ func TestCategoryWorkflowBuilder_SafeGetAuthorizationAndIndex(t *testing.T) {
 	if !strings.Contains(body, "Configure workflow") {
 		t.Errorf("category index must offer workflow configuration, got: %s", body)
 	}
-	if strings.Contains(body, "Draft") {
-		t.Error("GET-only category must not acquire a Draft badge")
+	if got := categoryStatusBadge(t, body, category.Name); got != "Not configured" {
+		t.Errorf("category %q status = %q, want Not configured", category.Name, got)
 	}
+}
+
+func TestCategoryWorkflowStatusBadge_UsesExactCategoryRow(t *testing.T) {
+	const body = `<div class="category-structure-item category-structure-item-static"><div class="category-structure-row category-structure-row-static"><span><strong>Target category</strong><small></small></span><span class="category-status-inline">Draft</span></div></div><div class="category-structure-item category-structure-item-static"><div class="category-structure-row category-structure-row-static"><span><strong>Other category</strong><small></small></span><span class="category-status-inline">Published</span></div></div>`
+
+	if !strings.Contains(body, `>Published</span>`) {
+		t.Fatal("fixture must let the old broad Published assertion pass")
+	}
+	if got := categoryStatusBadge(t, body, "Target category"); got != "Draft" {
+		t.Errorf("Target category status = %q, want Draft", got)
+	}
+}
+
+func categoryStatusBadge(t *testing.T, body, categoryName string) string {
+	t.Helper()
+	pattern := `<div class="category-structure-item category-structure-item-static"><div class="category-structure-row category-structure-row-static"><span><strong>` + regexp.QuoteMeta(categoryName) + `</strong><small>[^<]*</small></span><span class="category-status-inline">([^<]+)</span></div>`
+	matches := regexp.MustCompile(pattern).FindAllStringSubmatch(body, -1)
+	if len(matches) != 1 {
+		t.Fatalf("category %q must have exactly one status badge row, found %d in: %s", categoryName, len(matches), body)
+	}
+	return matches[0][1]
 }
 
 func TestCategoryWorkflowBuilder_ClosedMutationsPersistCanonicalCompleteDraft(t *testing.T) {
@@ -302,17 +323,14 @@ func TestCategoryWorkflowBuilder_PreviewPublishAndHTMXParity(t *testing.T) {
 		}
 
 		index := h.get(t, "/categories", false)
-		if !strings.Contains(index.Body.String(), `>Published</span>`) {
-			t.Errorf("category index must derive exactly Published when draft equals the published definition, got: %s", index.Body.String())
-		}
-		if strings.Contains(index.Body.String(), "Published v") {
-			t.Errorf("equal published draft must not show a version number, got: %s", index.Body.String())
+		if got := categoryStatusBadge(t, index.Body.String(), category.Name); got != "Published" {
+			t.Errorf("category %q status = %q, want Published", category.Name, got)
 		}
 
 		edited := builderDraft(t, "edited")
 		wantRedirect(t, h.postForm(t, path, builderForm("save", edited), false), http.StatusSeeOther, path)
-		if body := h.get(t, "/categories", false).Body.String(); !strings.Contains(body, "Draft") {
-			t.Errorf("category index must derive Draft when draft differs from published version, got: %s", body)
+		if got := categoryStatusBadge(t, h.get(t, "/categories", false).Body.String(), category.Name); got != "Draft" {
+			t.Errorf("category %q status = %q, want Draft after its draft changes", category.Name, got)
 		}
 	})
 }
