@@ -5,7 +5,8 @@
   let busy = false;
   let locked = false;
   let baseline = null;
-  let baselinePanel = null;
+  let baselineIdentity = "";
+  let pendingDeskValues = null;
   let discard = false;
   let dialogReturnFocus = null;
   let lastDrawerFocus = null;
@@ -24,25 +25,34 @@
   const drawerState = (panel, url = drawerURL || location.pathname + location.search) => ({[KEY]: 1, kind: "drawer", closeURL: panel.dataset.closeUrl || listURL(), drawerURL: url, launcherKey: openerKey || ""});
   const baseState = (url) => ({[KEY]: 1, kind: "base", url});
   const categoryForm = () => document.getElementById("category-drawer-form");
-  const categoryDrawer = () => drawer()?.dataset.kind === "category" ? drawer() : null;
-  const categoryValues = (form) => ({
-    name: form?.elements.name?.value || "",
-    description: form?.elements.description?.value || "",
-    department_id: form?.elements.department_id?.value || "",
-    desk_id: form?.elements.desk_id?.value || "",
-  });
+  const drawerIdentity = (panel) => `${panel?.dataset.kind || ""}:${panel?.dataset.id || ""}`;
+  const drawerValues = (panel = drawer(), form = categoryForm()) => {
+    const values = {
+      name: form?.elements.name?.value || "",
+      description: form?.elements.description?.value || "",
+    };
+    if (panel?.dataset.kind === "category") {
+      values.department_id = form?.elements.department_id?.value || "";
+      values.desk_id = form?.elements.desk_id?.value || "";
+    } else if (panel?.dataset.kind === "desk") {
+      values.department_id = form?.elements.department_id?.value || "";
+    }
+    return values;
+  };
   const dirty = () => {
-    const panel = categoryDrawer();
+    const panel = drawer();
     if (!panel) return false;
     if (panel.dataset.serverError === "true") return true;
-    const values = categoryValues(categoryForm());
+    const values = drawerValues(panel);
     return !!baseline && Object.keys(values).some((key) => values[key] !== baseline[key]);
   };
 
   function captureBaseline(panel) {
-    if (!categoryDrawer() || panel === baselinePanel || panel.dataset.serverError === "true") return;
-    baseline = categoryValues(categoryForm());
-    baselinePanel = panel;
+    if (!panel || panel.dataset.serverError === "true") return;
+    const identity = drawerIdentity(panel);
+    if (baseline && baselineIdentity === identity) return;
+    baseline = drawerValues(panel);
+    baselineIdentity = identity;
   }
 
   function dialogFocusFallback(panel) {
@@ -54,7 +64,7 @@
   }
 
   function showDialog(trigger) {
-    const panel = categoryDrawer();
+    const panel = drawer();
     const dialog = panel?.querySelector("#category-dirty-dialog");
     if (!dialog) return;
     const active = document.activeElement;
@@ -65,7 +75,7 @@
   }
 
   function closeDialog(restoreFocus = false) {
-    const panel = categoryDrawer();
+    const panel = drawer();
     const dialog = panel?.querySelector("#category-dirty-dialog");
     if (dialog?.open) dialog.close();
     else dialog?.removeAttribute("open");
@@ -117,7 +127,8 @@
     busy = false;
     discard = false;
     baseline = null;
-    baselinePanel = null;
+    baselineIdentity = "";
+    pendingDeskValues = null;
     drawerURL = "";
     lastDrawerFocus = null;
     if (panel) panel.removeAttribute("aria-busy");
@@ -210,8 +221,41 @@
     }
   }
 
+  function prepareDeskValues(form) {
+    const panel = drawer();
+    const membershipPath = `/desks/${panel?.dataset.id || ""}/members`;
+    const action = new URL(form.action, location.origin);
+    if (
+      panel?.dataset.kind !== "desk" ||
+      !panel.dataset.id ||
+      !(form.matches(".desk-add-member") || form.closest(".desk-member-list")) ||
+      (action.pathname !== membershipPath && !action.pathname.startsWith(`${membershipPath}/`))
+    ) return;
+    pendingDeskValues = {deskID: panel.dataset.id, values: drawerValues(panel), ready: false};
+  }
+
+  function captureDeskValues(event) {
+    const pending = pendingDeskValues;
+    const xhr = event.detail?.xhr;
+    const target = event.detail?.target;
+    if (!pending) return;
+    pending.ready = xhr?.status === 200 && target?.id === "category-drawer-host";
+    if (pending.ready) pending.values = drawerValues();
+  }
+
+  function restoreDeskValues(panel) {
+    const pending = pendingDeskValues;
+    pendingDeskValues = null;
+    if (!pending?.ready || panel?.dataset.kind !== "desk" || panel.dataset.id !== pending.deskID || panel.dataset.serverError === "true") return;
+    const form = categoryForm();
+    Object.entries(pending.values).forEach(([key, value]) => {
+      if (form?.elements[key]) form.elements[key].value = value;
+    });
+  }
+
   function handleBeforeSwap(event) {
     const xhr = event.detail?.xhr;
+    captureDeskValues(event);
     const expected = [400, 403, 404, 409, 422].includes(xhr?.status) && xhr.getResponseHeader("HX-Retarget") === "#category-drawer-host" && xhr.getResponseHeader("HX-Reswap") === "outerHTML";
     if (expected) {
       event.detail.shouldSwap = true;
@@ -220,7 +264,7 @@
   }
 
   document.addEventListener("focusin", (event) => {
-    const panel = categoryDrawer();
+    const panel = drawer();
     if (panel?.contains(event.target) && !event.target.closest("#category-dirty-dialog")) lastDrawerFocus = event.target;
   }, true);
 
@@ -281,6 +325,10 @@
   }, true);
 
   document.addEventListener("submit", (event) => {
+    if (event.target.matches(".desk-add-member") || event.target.closest(".desk-member-list")) {
+      prepareDeskValues(event.target);
+      return;
+    }
     if (!event.target.matches("#category-drawer-form")) return;
     if (busy) {
       event.preventDefault();
@@ -326,6 +374,7 @@
     if (panel) {
       busy = false;
       panel.removeAttribute("aria-busy");
+      restoreDeskValues(panel);
       filterDeskOptions(panel.querySelector("#category-department")?.value || "");
       openDrawer();
     }

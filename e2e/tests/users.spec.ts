@@ -108,7 +108,39 @@ test.describe("Users", () => {
       failedResponses: obs.failedResponses,
     });
   });
-  // Issue #47 regression journeys: atomic Agent-to-User downgrade handoff.
+  test("dirty user creation stays guarded after an unrelated HTMX settle", async ({ page }) => {
+        await login(page);
+        await page.goto(base() + "/users");
+        await page.getByRole("link", { name: /new user/i }).click();
+
+        const drawer = page.getByRole("dialog", { name: "New user" });
+        const name = drawer.getByLabel(/^name$/i);
+        await expect(name).toBeFocused();
+        await page.waitForTimeout(50);
+        await name.fill("Unsaved user");
+        await page
+          .locator("#users-root")
+          .dispatchEvent("htmx:afterSettle", { bubbles: true });
+        await drawer.getByRole("button", { name: /close/i }).click();
+
+        const confirmation = page.getByRole("dialog", {
+          name: "Leave without saving?",
+        });
+        await expect(confirmation).toBeVisible();
+        await expect(
+          confirmation.getByRole("button", { name: "Stay", exact: true }),
+        ).toBeFocused();
+        await confirmation.getByRole("button", { name: "Stay", exact: true }).click();
+        await expect(name).toHaveValue("Unsaved user");
+        await expect(page).toHaveURL(/\/users\/new$/);
+        await drawer.getByRole("button", { name: /close/i }).click();
+        await confirmation
+          .getByRole("button", { name: "Discard changes", exact: true })
+          .click();
+        await expect(drawer).toHaveCount(0);
+      });
+
+      // Issue #47 regression journeys: atomic Agent-to-User downgrade handoff.
 
   async function selectDesk(page: import("@playwright/test").Page, name: string): Promise<string> {
         await page.goto(base() + "/categories?view=structure");
