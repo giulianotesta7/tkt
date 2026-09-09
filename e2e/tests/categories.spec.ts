@@ -605,9 +605,20 @@ test.describe("Categories", () => {
         );
 
         const drawer = page.getByRole("dialog", { name: /New category/i });
-        const name = drawer.getByLabel("Name", { exact: true });
-        const description = drawer.getByLabel("Description", { exact: true });
-        await name.fill("General");
+            const name = drawer.getByLabel("Name", { exact: true });
+            const description = drawer.getByLabel("Description", { exact: true });
+            await expect(drawer).toHaveAttribute(
+              "aria-describedby",
+              "category-drawer-description",
+            );
+            await expect(drawer.locator("#category-drawer-description")).toHaveText(
+              "Use categories to group requests that follow the same workflow.",
+            );
+            await expect(name).toHaveAttribute("aria-describedby", "category-name-help");
+            await expect(drawer.locator("#category-name-help")).toHaveText(
+              "Category names must be globally unique.",
+            );
+            await name.fill("General");
         await description.fill("Duplicate category draft");
 
         await assertHtmxSwap(
@@ -624,6 +635,7 @@ test.describe("Categories", () => {
         );
 
         await expect(name).toHaveAttribute("aria-invalid", "true");
+        await expect(name).toHaveAttribute("aria-describedby", "category-name-help");
         await expect(drawer.getByLabel("Department", { exact: true })).not.toHaveAttribute(
           "aria-invalid",
           "true",
@@ -770,9 +782,23 @@ name: "Leave without saving?",
         await loginAsSeeded(page);
         await page.goto(base() + "/categories/departments/1/edit?view=structure");
 
-        const department = page.getByRole("dialog", { name: /Edit department/i });
-        const departmentName = department.getByLabel("Name", { exact: true });
-        await departmentName.fill("Unsaved department");
+            const department = page.getByRole("dialog", { name: /Edit department/i });
+            const departmentName = department.getByLabel("Name", { exact: true });
+            await expect(department).toHaveAttribute(
+              "aria-describedby",
+              "department-drawer-description",
+            );
+            await expect(department.locator("#department-drawer-description")).toHaveText(
+              "Use departments to group desks that support the same part of the organization.",
+            );
+            await expect(departmentName).toHaveAttribute(
+              "aria-describedby",
+              "department-name-help",
+            );
+            await expect(department.locator("#department-name-help")).toHaveText(
+              "Department names must be globally unique.",
+            );
+            await departmentName.fill("Unsaved department");
         await department.getByRole("button", { name: "Close catalog details" }).click();
 
         const confirmation = page.getByRole("dialog", {
@@ -794,9 +820,21 @@ name: "Leave without saving?",
         await page.goto(
           base() + "/categories/desks/1/edit?view=structure&department_id=1&desk_id=1",
         );
-        const desk = page.getByRole("dialog", { name: /Edit desk/i });
-        const description = desk.getByLabel("Description", { exact: true });
-        await description.fill("Unsaved desk description");
+            const desk = page.getByRole("dialog", { name: /Edit desk/i });
+            const description = desk.getByLabel("Description", { exact: true });
+            const deskName = desk.getByLabel("Name", { exact: true });
+            await expect(desk).toHaveAttribute(
+              "aria-describedby",
+              "desk-drawer-description",
+            );
+            await expect(desk.locator("#desk-drawer-description")).toHaveText(
+              "Use desks to group categories for the team that handles them.",
+            );
+            await expect(deskName).toHaveAttribute("aria-describedby", "desk-name-help");
+            await expect(desk.locator("#desk-name-help")).toHaveText(
+              "Desk names must be globally unique.",
+            );
+            await description.fill("Unsaved desk description");
         await desk.getByRole("button", { name: "Cancel", exact: true }).click();
         await expect(confirmation).toBeVisible();
         await confirmation

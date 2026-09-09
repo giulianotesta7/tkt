@@ -644,6 +644,68 @@ func TestAmendment4_CatalogDrawerTypedErrorsMarkOnlyTheMatchingControl(t *testin
 	}
 }
 
+func TestIssue129_CatalogDrawerGuidanceMatchesEachEntity(t *testing.T) {
+	h := newHarness(t)
+	catalog := application.NewCatalogService(h.store.CatalogStore(), h.store.CategoryStore(), h.clock)
+	department, err := catalog.CreateDepartmentFor(t.Context(), *h.admin, "Operations", "Operations")
+	if err != nil {
+		t.Fatal(err)
+	}
+	desk, err := catalog.CreateDeskFor(t.Context(), *h.admin, department.ID, "Support")
+	if err != nil {
+		t.Fatal(err)
+	}
+	category, err := h.categories.CreateWithDescriptionFor(t.Context(), *h.admin, "Requests", "", desk.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mux := http.NewServeMux()
+	NewCategoryHandlersWithWorkflows(h.categories, h.workflows, h.renderer, catalog).Register(mux)
+	request := func(path string, hx bool) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		req.Header.Set("Cookie", sessionCookie+"="+h.adminSession.ID)
+		if hx {
+			req.Header.Set("HX-Request", "true")
+		}
+		rec := httptest.NewRecorder()
+		h.mw.Wrap(mux).ServeHTTP(rec, req)
+		return rec
+	}
+
+	for _, tc := range []struct {
+		name, path, kind, description, nameHelp string
+		hx                                      []bool
+	}{
+		{"category create", "/categories/new?view=structure&department_id=" + strconv.FormatInt(department.ID, 10) + "&desk_id=" + strconv.FormatInt(desk.ID, 10), "category", "Use categories to group requests that follow the same workflow.", "Category names must be globally unique.", []bool{false, true}},
+		{"category edit", "/categories/" + strconv.FormatInt(category.ID, 10) + "/edit?view=structure&department_id=" + strconv.FormatInt(department.ID, 10) + "&desk_id=" + strconv.FormatInt(desk.ID, 10), "category", "Use categories to group requests that follow the same workflow.", "Category names must be globally unique.", []bool{false, true}},
+		{"department create", "/categories/departments/new?view=structure", "department", "Use departments to group desks that support the same part of the organization.", "Department names must be globally unique.", []bool{false}},
+		{"department edit", "/categories/departments/" + strconv.FormatInt(department.ID, 10) + "/edit?view=structure&department_id=" + strconv.FormatInt(department.ID, 10), "department", "Use departments to group desks that support the same part of the organization.", "Department names must be globally unique.", []bool{true}},
+		{"desk create", "/categories/desks/new?view=structure&department_id=" + strconv.FormatInt(department.ID, 10), "desk", "Use desks to group categories for the team that handles them.", "Desk names must be globally unique.", []bool{true}},
+		{"desk edit", "/categories/desks/" + strconv.FormatInt(desk.ID, 10) + "/edit?view=structure&department_id=" + strconv.FormatInt(department.ID, 10) + "&desk_id=" + strconv.FormatInt(desk.ID, 10), "desk", "Use desks to group categories for the team that handles them.", "Desk names must be globally unique.", []bool{false}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			for _, hx := range tc.hx {
+				t.Run(map[bool]string{false: "direct", true: "HTMX"}[hx], func(t *testing.T) {
+					rec := request(tc.path, hx)
+					if rec.Code != http.StatusOK {
+						t.Fatalf("GET %s = %d, want 200: %s", tc.path, rec.Code, rec.Body.String())
+					}
+					body := rec.Body.String()
+					descriptionID := tc.kind + "-drawer-description"
+					if !strings.Contains(body, `aria-describedby="`+descriptionID+`"`) || !strings.Contains(body, `id="`+descriptionID+`"`) || !strings.Contains(body, tc.description) {
+						t.Fatalf("%s drawer must describe its purpose: %s", tc.kind, body)
+					}
+					nameHelpID := tc.kind + "-name-help"
+					name := controlTag(t, body, "name")
+					if !strings.Contains(name, `aria-describedby="`+nameHelpID+`"`) || !strings.Contains(body, `id="`+nameHelpID+`"`) || !strings.Contains(body, tc.nameHelp) {
+						t.Fatalf("%s name must retain global uniqueness help: %s", tc.kind, body)
+					}
+				})
+			}
+		})
+	}
+}
+
 func TestAmendment4_CategoryMutationRefreshFailureDoesNotInviteRetry(t *testing.T) {
 	h := newHarness(t)
 	catalog := application.NewCatalogService(h.store.CatalogStore(), h.store.CategoryStore(), h.clock)
