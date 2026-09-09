@@ -534,44 +534,50 @@
       </button>
     </form>
   </aside>
-  <main class="main">
-<div class="command-header">
-  <div>
-    <h1 class="command-title">New ticket</h1><p class="command-sub">Open a ticket in state new</p>
-  </div>
-  <div class="command-actions"><a class="btn ghost" href="/tickets">Back to queue</a></div>
-</div>
+  <main class="main"><div class="page-foundation ticket-create-page">
 
-<form class="card form-card" method="post" action="/tickets">
-  <h2>Ticket details</h2>
-
-
-  <div class="field">
-    <label for="category_id">Category</label>
-    <select id="category_id" name="category_id" required>
-      <option value="">Select category</option>
-      <option value="1" selected>Bugs</option><option value="2" >Support</option>
-    </select>
+<form class="ticket-create-detail" method="post" action="/tickets">
+  <div class="command-header ticket-create-command-header">
+    <div class="detail-head">
+      <h1 class="command-title">Create a ticket</h1>
+      <p class="command-sub">Describe your request.</p>
+      <div class="title-inline ticket-create-title-field">
+        <label class="ticket-create-title-label" for="title">Title</label>
+        <input type="text" id="title" name="title" value="Login page down" required autofocus class="title-input">
+      </div>
+    </div>
   </div>
-
-  <div class="field">
-    <label for="title">Title</label>
-    <input type="text" id="title" name="title" value="Login page down" required autofocus>
+  <input type="hidden" name="category_id" value="1">
+  <div class="cards">
+    <div class="conversation">
+      <section class="card ticket-create-description">
+        <h2><label for="description">Description</label></h2>
+        <textarea id="description" name="description">The login form 500s on submit</textarea>
+        <div class="ticket-create-actions"><button class="btn primary" type="submit">Create ticket</button></div>
+      </section>
+      <section class="card ticket-create-timeline">
+        <h2>Timeline</h2>
+        <p class="empty">No activity yet.</p>
+      </section>
+    </div>
+    <aside class="evidence" aria-label="Ticket creation properties">
+      <div class="prop-list">
+        <div class="prop-section">
+          <div class="prop-heading">Properties</div>
+          <div class="prop-row"><span class="prop-label">Requester</span><span class="prop-value">Ana Torres</span></div>
+          <div class="prop-row"><span class="prop-label">Category</span><span class="prop-value selected-catalog-path"><span>Technology / Service desk / Bugs</span><a href="/tickets/new">Change</a></span></div>
+          <div class="prop-row"><label class="prop-label" for="priority">Priority</label><select id="priority" name="priority" class="prop-select"><option value="critical" >Critical</option><option value="high" selected>High</option><option value="medium" >Medium</option><option value="low" >Low</option></select></div>
+        </div>
+        <div class="prop-section">
+          <div class="prop-heading">Assignment</div>
+          <div class="prop-row"><span class="prop-label">Assignee</span><span class="prop-value">Not assigned yet</span></div>
+        </div>
+      </div>
+    </aside>
   </div>
-  <div class="field">
-    <label for="description">Description</label>
-    <textarea id="description" name="description">The login form 500s on submit</textarea>
-  </div>
-  <div class="field">
-    <label for="priority">Priority</label>
-    <select id="priority" name="priority">
-      <option value="critical" >Critical</option><option value="high" selected>High</option><option value="medium" >Medium</option><option value="low" >Low</option>
-    </select>
-  </div>
-  <button class="btn primary" type="submit">Create ticket</button>
 </form>
 
-</main>
+</div></main>
 </div>
 </body>
 </html>

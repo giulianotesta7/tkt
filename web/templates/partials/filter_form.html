@@ -1,7 +1,6 @@
-{{define "filter_form"}}
-<form class="filter-bar" method="get" action="/tickets" hx-get="/tickets" hx-target="#ticket-list" hx-swap="outerHTML" hx-indicator="this"> <span class="htmx-indicator spinner" aria-hidden="true"></span>
-  <input type="hidden" name="q" value="{{.Filters.Q}}">
-  <select name="state" aria-label="State">
+{{define "filter_form"}}<form class="filter-bar ticket-toolbar" method="get" action="/tickets" hx-get="/tickets" hx-target="#tickets-screen" hx-swap="outerHTML" hx-push-url="true" hx-indicator="this">
+  {{template "ticket_search" .}}
+{{if .ShowAdvancedFilters}}  <select name="state" aria-label="State">
     <option value="">All states</option>
     {{range .Options.States}}<option value="{{.}}" {{if eq . $.Filters.State}}selected{{end}}>{{humanize .}}</option>{{end}}
   </select>
@@ -10,14 +9,12 @@
     {{range .Options.Priorities}}<option value="{{.}}" {{if eq . $.Filters.Priority}}selected{{end}}>{{humanize .}}</option>{{end}}
   </select>
   <select name="category_id" aria-label="Category">
-    <option value="">All categories</option>
-    {{range .Options.Categories}}<option value="{{.ID}}" {{if eq (.ID | printf "%d") $.Filters.CategoryID}}selected{{end}}>{{.Name}}</option>{{end}}
+    <option value="">All categories</option>{{range .Options.Categories}}{{if eq (printf "%d" .ID) $.Filters.CategoryID}}<option value="{{.ID}}" selected>{{.Name}}</option>{{else}}<option value="{{.ID}}">{{.Name}}</option>{{end}}{{end}}
   </select>
   <select name="user_id" aria-label="Assigned user">
-    <option value="">Anyone</option>
-    {{range .Options.Users}}<option value="{{.ID}}" {{if eq (.ID | printf "%d") $.Filters.UserID}}selected{{end}}>{{.Name}}</option>{{end}}
+    <option value="">Anyone</option>{{range .Options.Users}}{{if eq (printf "%d" .ID) $.Filters.UserID}}<option value="{{.ID}}" selected>{{.Name}}</option>{{else}}<option value="{{.ID}}">{{.Name}}</option>{{end}}{{end}}
   </select>
-  <button class="btn" type="submit">Filter</button>
-  <a class="btn ghost small" href="/tickets">Clear</a>
-</form>
-{{end}}
+{{end}}  <button class="btn" type="submit">Apply</button>
+  <a class="btn ghost" href="/tickets" hx-get="/tickets" hx-target="#tickets-screen" hx-swap="outerHTML" hx-push-url="true" aria-label="Clear filters">Clear</a>
+  <span class="htmx-indicator spinner" aria-hidden="true"></span>
+</form>{{end}}
