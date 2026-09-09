@@ -1,36 +1,66 @@
 {{define "ticket_form"}}
-<form class="card form-card" method="post" action="/tickets">
-  <h2>Ticket details</h2>
-{{if .Error}}<div class="error-banner" role="alert">{{.Error}}</div>{{end}}
-{{if .Selected}}
-  <div class="selected-catalog-path">
-    <strong>{{.Selected.DepartmentName}} / {{.Selected.DeskName}} / {{.Selected.Name}}</strong>
-    <a href="/tickets/new">Change category</a>
+{{if .Selected}}<form class="ticket-create-detail" method="post" action="/tickets">
+{{if .Error}}  <div class="error-banner" role="alert">{{.Error}}</div>
+{{end}}  <div class="command-header ticket-create-command-header">
+    <div class="detail-head">
+      <h1 class="command-title">Create a ticket</h1>
+      <p class="command-sub">Describe your request.</p>
+      <div class="title-inline ticket-create-title-field">
+        <label class="ticket-create-title-label" for="title">Title</label>
+        <input type="text" id="title" name="title" value="{{.Values.Title}}" required autofocus class="title-input">
+      </div>
+    </div>
   </div>
   <input type="hidden" name="category_id" value="{{.Selected.ID}}">
-{{else}}
+  <div class="cards">
+    <div class="conversation">
+      <section class="card ticket-create-description">
+        <h2><label for="description">Description</label></h2>
+        <textarea id="description" name="description">{{.Values.Description}}</textarea>
+        <div class="ticket-create-actions"><button class="btn primary" type="submit">Create ticket</button></div>
+      </section>
+      <section class="card ticket-create-timeline">
+        <h2>Timeline</h2>
+        <p class="empty">No activity yet.</p>
+      </section>
+    </div>
+    <aside class="evidence" aria-label="Ticket creation properties">
+      <div class="prop-list">
+        <div class="prop-section">
+          <div class="prop-heading">Properties</div>
+          <div class="prop-row"><span class="prop-label">Requester</span><span class="prop-value">{{.CurrentUser.Name}}</span></div>
+          <div class="prop-row"><span class="prop-label">Category</span><span class="prop-value selected-catalog-path"><span>{{.Selected.DepartmentName}} / {{.Selected.DeskName}} / {{.Selected.Name}}</span><a href="/tickets/new">Change</a></span></div>
+          <div class="prop-row"><label class="prop-label" for="priority">Priority</label><select id="priority" name="priority" class="prop-select">{{range .Options.Priorities}}<option value="{{.}}" {{if eq . $.Values.Priority}}selected{{end}}>{{humanize .}}</option>{{end}}</select></div>
+        </div>
+        <div class="prop-section">
+          <div class="prop-heading">Assignment</div>
+          <div class="prop-row"><span class="prop-label">Assignee</span><span class="prop-value">Not assigned yet</span></div>
+        </div>
+      </div>
+    </aside>
+  </div>
+</form>{{else}}<form class="card form-card ticket-create-form" method="post" action="/tickets">
+{{if .Error}}<div class="error-banner" role="alert">{{.Error}}</div>{{end}}
   <div class="field">
     <label for="category_id">Category</label>
     <select id="category_id" name="category_id" required>
-      <option value="">Select category</option>
-      {{range .Options.Categories}}<option value="{{.ID}}" {{if eq (.ID | printf "%d") $.Values.CategoryID}}selected{{end}}>{{.Name}}</option>{{end}}
+      <option value="">Select category</option>{{range .Options.Categories}}{{if eq (printf "%d" .ID) $.Values.CategoryID}}<option value="{{.ID}}" selected>{{.Name}}</option>{{else}}<option value="{{.ID}}">{{.Name}}</option>{{end}}{{end}}
     </select>
   </div>
-{{end}}
   <div class="field">
-    <label for="title">Title</label>
-    <input type="text" id="title" name="title" value="{{.Values.Title}}" required autofocus>
+    <label for="ticket-create-title">Title</label>
+    <input type="text" id="ticket-create-title" name="title" value="{{.Values.Title}}" required autofocus>
   </div>
   <div class="field">
-    <label for="description">Description</label>
-    <textarea id="description" name="description">{{.Values.Description}}</textarea>
+    <label for="ticket-create-description">Description</label>
+    <textarea id="ticket-create-description" name="description">{{.Values.Description}}</textarea>
   </div>
   <div class="field">
-    <label for="priority">Priority</label>
-    <select id="priority" name="priority">
+    <label for="ticket-create-priority">Priority</label>
+    <select id="ticket-create-priority" name="priority">
       {{range .Options.Priorities}}<option value="{{.}}" {{if eq . $.Values.Priority}}selected{{end}}>{{humanize .}}</option>{{end}}
     </select>
   </div>
   <button class="btn primary" type="submit">Create ticket</button>
-</form>
+</form>{{end}}
 {{end}}

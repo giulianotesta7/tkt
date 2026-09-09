@@ -4,7 +4,10 @@
 
 import { test, expect } from "@playwright/test";
 import { startServer, stopServer, activeServer } from "../server-lifecycle.js";
-import { assertCanonicalScreen, collectObservability } from "./helpers/layout.js";
+import {
+  assertCanonicalScreen,
+  collectObservability,
+} from "./helpers/layout.js";
 
 function base(): string {
   if (!activeServer) throw new Error("server not started");
@@ -19,7 +22,9 @@ test.describe("First-User Setup", () => {
     await stopServer();
   });
 
-  test("fresh instance creates root, logs in, and reaches tickets", async ({ page }) => {
+  test("fresh instance creates root, logs in, and reaches tickets", async ({
+    page,
+  }) => {
     await page.setViewportSize({ width: 1280, height: 800 });
     const obs = collectObservability(page);
     await page.goto(base() + "/login");
@@ -30,13 +35,17 @@ test.describe("First-User Setup", () => {
     await page.getByLabel(/name/i).fill(name);
     await page.getByLabel(/email/i).fill(email);
     await page.getByLabel(/password/i).fill(password);
-    await page.getByRole("button", { name: /create account|set up|sign up|create/i }).click();
+    await page
+      .getByRole("button", { name: /create account|set up|sign up|create/i })
+      .click();
     await expect(page).toHaveURL(/\/login/);
     await page.getByLabel(/email/i).fill(email);
     await page.getByLabel(/password/i).fill(password);
     await page.getByRole("button", { name: /log in|sign in/i }).click();
     await expect(page).toHaveURL(/\/tickets/);
-    await expect(page.getByText("No tickets match your filters.")).toBeVisible();
+    await expect(
+      page.getByText("No tickets yet", { exact: true }),
+    ).toBeVisible();
     await expect(page.getByText("AA")).toBeVisible();
     await assertCanonicalScreen(page, {
       viewport: 1280,
@@ -81,13 +90,17 @@ test.describe("Login and auth gates", () => {
     });
   });
 
-  test("/setup when users already exist redirects canonically", async ({ page }) => {
+  test("/setup when users already exist redirects canonically", async ({
+    page,
+  }) => {
     await page.setViewportSize({ width: 1280, height: 800 });
     const obs = collectObservability(page);
     // Anonymous: /setup → /login (users exist, no session)
     await page.goto(base() + "/setup");
     await expect(page).toHaveURL(/\/login/);
-    await expect(page.getByRole("heading", { name: /sign in to tkt/i })).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: /sign in to tkt/i }),
+    ).toBeVisible();
     await assertCanonicalScreen(page, {
       viewport: 1280,
       label: "/setup anonymous with users → /login",
@@ -121,7 +134,9 @@ test.describe("Login and auth gates", () => {
     });
   });
 
-  test("/ redirects to /tickets when authenticated and to /login when anonymous", async ({ page }) => {
+  test("/ redirects to /tickets when authenticated and to /login when anonymous", async ({
+    page,
+  }) => {
     await page.setViewportSize({ width: 1280, height: 800 });
     // Anonymous: / → /login
     await page.goto(base() + "/");
@@ -159,7 +174,9 @@ test.describe("Login and auth gates", () => {
     });
   });
 
-  test("auth gate: unauthenticated /tickets redirects to /login", async ({ page }) => {
+  test("auth gate: unauthenticated /tickets redirects to /login", async ({
+    page,
+  }) => {
     await page.setViewportSize({ width: 1280, height: 800 });
     await page.goto(base() + "/login");
     await page.getByLabel(/email/i).fill("alice@example.com");

@@ -123,8 +123,14 @@ func fixtureTicketFormData() ticketFormData {
 		Users:           []domain.User{ana},
 		AssignableUsers: []domain.User{ana},
 	}
+	selected := &domain.CatalogCategory{
+		Category:       domain.Category{ID: 1, Name: "Bugs", CreatedAt: goldenT0},
+		DepartmentName: "Technology",
+		DeskName:       "Service desk",
+	}
 	return ticketFormData{
 		pageData: pageData{NavActive: "tickets", CurrentUser: ana},
+		Selected: selected,
 		Values: ticketFormValues{
 			Title:       "Login page down",
 			Description: "The login form 500s on submit",
@@ -163,6 +169,103 @@ func TestGoldenTicketsIndexUser(t *testing.T) {
 
 func TestGoldenTicketsNew(t *testing.T) {
 	goldenFile(t, "tickets_new", renderGolden(t, "tickets_new", "", fixtureTicketFormData(), false))
+}
+
+func TestSelectedTicketFormPresentation(t *testing.T) {
+	body := renderGolden(t, "tickets_new", "", fixtureTicketFormData(), false)
+	for _, want := range []string{
+		`<h1 class="command-title">Create a ticket</h1>`,
+		`Describe your request.`,
+		`class="prop-label">Category</span>`,
+		`Technology / Service desk / Bugs`,
+		`href="/tickets/new">Change</a>`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("selected ticket form must contain %q, got: %s", want, body)
+		}
+	}
+	for _, absent := range []string{"Ticket details", "Back to catalog", "Change category"} {
+		if strings.Contains(body, absent) {
+			t.Errorf("selected ticket form must not contain %q, got: %s", absent, body)
+		}
+	}
+}
+
+func TestSelectedTicketFormDetailLayoutPresentation(t *testing.T) {
+	data := fixtureTicketFormData()
+	data.CurrentUser.Name = "Current actor name"
+	for _, tc := range []struct {
+		name     string
+		fragment string
+		hx       bool
+	}{
+		{name: "page"},
+		{name: "fragment", fragment: "ticket_form", hx: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			body := renderGolden(t, "tickets_new", tc.fragment, data, tc.hx)
+			for _, want := range []string{
+				`class="ticket-create-detail"`,
+				`class="command-header ticket-create-command-header"`,
+				`class="ticket-create-title-label" for="title">Title</label>`,
+				`class="title-input"`,
+				`class="cards"`,
+				`class="conversation"`,
+				`class="card ticket-create-description"`,
+				`for="description">Description</label>`,
+				`class="card ticket-create-timeline"`,
+				`<h2>Timeline</h2>`,
+				`<p class="empty">No activity yet.</p>`,
+				`class="evidence" aria-label="Ticket creation properties"`,
+				`class="prop-heading">Properties</div>`,
+				`class="prop-label">Requester</span>`,
+				`>Current actor name</span>`,
+				`class="prop-label">Category</span>`,
+				`Technology / Service desk / Bugs`,
+				`href="/tickets/new">Change</a>`,
+				`class="prop-label" for="priority">Priority</label>`,
+				`id="priority" name="priority" class="prop-select"`,
+				`<option value="high" selected>High</option>`,
+				`class="prop-heading">Assignment</div>`,
+				`>Not assigned yet</span>`,
+			} {
+				if !strings.Contains(body, want) {
+					t.Errorf("selected ticket creation detail layout must contain %q, got: %s", want, body)
+				}
+			}
+			for _, absent := range []string{
+				`ticket-create-preview`, `ticket-create-layout`,
+				`ticket-create-preview-priority`, `Add comment`, `name="body"`,
+				`name="requester_`, `name="user_id"`, `name="assignee_id"`,
+				`name="to"`, `Move to`, `class="prop-heading">State`,
+			} {
+				if strings.Contains(body, absent) {
+					t.Errorf("selected ticket creation detail layout must not render %q, got: %s", absent, body)
+				}
+			}
+		})
+	}
+
+	invalid := fixtureTicketFormData()
+	invalid.Values.Priority = domain.Priority("urgent")
+	body := renderGolden(t, "tickets_new", "ticket_form", invalid, true)
+	if !strings.Contains(body, `<option value="critical" >Critical</option>`) {
+		t.Errorf("invalid posted priority must retain the native Critical fallback option, got: %s", body)
+	}
+
+	for _, role := range []domain.Role{domain.RoleUser, domain.RoleAgent, domain.RoleAdmin, domain.RoleRoot} {
+		data := fixtureTicketFormData()
+		data.CurrentUser = domain.User{Name: string(role) + " requester", Role: role}
+		body := renderGolden(t, "tickets_new", "ticket_form", data, true)
+		if !strings.Contains(body, data.CurrentUser.Name) {
+			t.Errorf("%s creation rail must show the authenticated requester, got: %s", role, body)
+		}
+		for _, absent := range []string{`name="requester_`, `name="user_id"`, `name="assignee_id"`} {
+			if strings.Contains(body, absent) {
+				t.Errorf("%s creation rail must not render %q, got: %s", role, absent, body)
+			}
+		}
+	}
 }
 
 func TestGoldenTicketList(t *testing.T) {
