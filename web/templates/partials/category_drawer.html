@@ -7,12 +7,12 @@
       {{if .Error}}<div class="users-error" role="alert">{{.Error}}</div>{{end}}
       <form id="category-drawer-form" method="post" action="{{.ActionURL}}" hx-post="{{.ActionURL}}" hx-target="#category-drawer-host" hx-swap="outerHTML">
         {{if or (eq .Kind "desk") (eq .Kind "category")}}
-        <div class="users-field"><label for="category-department">Department</label><select id="category-department" name="department_id" required><option value="">Select a department</option>{{range .Departments}}<option value="{{.ID}}" {{if eq .ID $.DepartmentID}}selected{{end}}>{{.Name}}</option>{{end}}</select></div>
+        <div class="users-field"><label for="category-department">Department</label><select id="category-department" name="department_id" required{{if .InvalidDepartmentID}} aria-invalid="true"{{end}}><option value="">Select a department</option>{{range .Departments}}<option value="{{.ID}}" {{if eq .ID $.DepartmentID}}selected{{end}}>{{.Name}}</option>{{end}}</select></div>
         {{end}}
         {{if eq .Kind "category"}}
-        <div class="users-field"><label for="category-desk">Desk</label><select id="category-desk" name="desk_id" required><option value="">Select a desk</option>{{range .Desks}}<option value="{{.ID}}" data-department-id="{{.DepartmentID}}" {{if eq .ID $.DeskID}}selected{{end}}>{{.DepartmentName}} / {{.Name}}</option>{{end}}</select></div>
+        <div class="users-field"><label for="category-desk">Desk</label><select id="category-desk" name="desk_id" required{{if .InvalidDeskID}} aria-invalid="true"{{end}}><option value="">Select a desk</option>{{range .Desks}}<option value="{{.ID}}" data-department-id="{{.DepartmentID}}" {{if eq .ID $.DeskID}}selected{{end}}>{{.DepartmentName}} / {{.Name}}</option>{{end}}</select></div>
         {{end}}
-        <div class="users-field"><label for="category-name">Name</label><input id="category-name" name="name" type="text" value="{{.Name}}" required autofocus></div>
+        <div class="users-field"><label for="category-name">Name</label><input id="category-name" name="name" type="text" value="{{.Name}}" required autofocus{{if .InvalidName}} aria-invalid="true"{{end}}></div>
         <div class="users-field"><label for="category-description">Description</label><textarea id="category-description" name="description" rows="4">{{.Description}}</textarea></div>
         <input type="hidden" name="view" value="structure">
         {{if eq .Kind "desk"}}{{if .ID}}<input type="hidden" name="desk_id" value="{{.ID}}">{{end}}{{end}}
