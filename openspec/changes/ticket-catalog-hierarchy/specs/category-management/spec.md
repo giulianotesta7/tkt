@@ -73,6 +73,16 @@ Legacy Desks whose persisted `department_id` is NULL MUST remain visible and sel
 - WHEN the administrator reloads the pushed URL
 - THEN the same drawer and entity render without an invalid identifier error
 
+### Requirement: Catalog drawer validation identifies the invalid control
+Catalog drawer validation responses MUST project typed domain errors to the control named by the error, without parsing error message text. A `ValidationError` for `name`, `department_id`, or `desk_id` MUST mark the matching control invalid when that control exists in the current Department, Desk, or Category drawer. A `DuplicateError` for a Department, Desk, or Category MUST mark that drawer's name control invalid. Category `department_id` is presentation-only and MUST NOT mark the Category Department control invalid. Descriptions MUST NOT be marked invalid.
+
+#### Scenario: Retry an invalid drawer submission
+- GIVEN an administrator submits a Department, Desk, or Category drawer with a typed validation or duplicate error
+- WHEN the server re-renders the drawer
+- THEN the response preserves submitted values and marks only the matching current control with `aria-invalid="true"`
+- AND an HTMX response retains its error status and drawer swap headers
+- AND a later fresh drawer response has no stale invalid marker
+
 ### Requirement: Compatibility routes
 `GET /desks` MUST be redirect-only compatibility to `/categories` for authorized actors. It MUST render no Desk index and MUST not be a second administration UI. Only the existing backend Desk member mutation routes required by the unified Desk drawer may remain under `/desks`; no compatibility route may bypass the Department requirement for Desk creation or editing.
 

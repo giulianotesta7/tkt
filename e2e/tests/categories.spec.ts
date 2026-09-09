@@ -597,7 +597,83 @@ test.describe("Categories", () => {
     });
   });
 
-  test("dirty category drawer backdrop Stay restores the prior form control", async ({ page }) => {
+      test("category duplicate marks only name, keeps the draft, and saves after Stay", async ({ page }) => {
+        await page.setViewportSize({ width: 1280, height: 800 });
+        await loginAsSeeded(page);
+        await page.goto(
+          base() + "/categories/new?view=structure&department_id=1&desk_id=1",
+        );
+
+        const drawer = page.getByRole("dialog", { name: /New category/i });
+        const name = drawer.getByLabel("Name", { exact: true });
+        const description = drawer.getByLabel("Description", { exact: true });
+        await name.fill("General");
+        await description.fill("Duplicate category draft");
+
+        await assertHtmxSwap(
+          page,
+          async () => {
+            await drawer.getByRole("button", { name: /create category/i }).click();
+          },
+          {
+            endpoint: "/categories",
+            method: "POST",
+            expectedStatus: 409,
+            hxTarget: "#category-drawer-host",
+          },
+        );
+
+        await expect(name).toHaveAttribute("aria-invalid", "true");
+        await expect(drawer.getByLabel("Department", { exact: true })).not.toHaveAttribute(
+          "aria-invalid",
+          "true",
+        );
+        await expect(drawer.getByLabel("Desk", { exact: true })).not.toHaveAttribute(
+          "aria-invalid",
+          "true",
+        );
+        await expect(description).not.toHaveAttribute("aria-invalid", "true");
+        await expect(name).toHaveValue("General");
+        await expect(description).toHaveValue("Duplicate category draft");
+        await expect(name).toBeFocused();
+
+        await description.fill("Corrected category description");
+        await drawer
+          .getByRole("button", { name: "Close catalog details", exact: true })
+          .click();
+        const confirmation = page.getByRole("dialog", {
+          name: "Leave without saving?",
+        });
+        await expect(confirmation).toBeVisible();
+        await confirmation.getByRole("button", { name: "Stay", exact: true }).click();
+        await expect(description).toHaveValue("Corrected category description");
+        await expect(name).toHaveValue("General");
+
+        const categoryName = "Validated category " + Date.now();
+        await name.fill(categoryName);
+        await assertHtmxSwap(
+          page,
+          async () => {
+            await drawer.getByRole("button", { name: /create category/i }).click();
+          },
+          {
+            endpoint: "/categories",
+            method: "POST",
+            expectedStatus: 200,
+            hxTarget: "#categories-background",
+            expectedUrl:
+              /\/categories\?department_id=1&desk_id=1&view=structure$/,
+          },
+        );
+        await expect(drawer).toHaveCount(0);
+        await expect(
+          page
+            .locator(".category-level-categories .category-structure-item")
+            .filter({ hasText: categoryName }),
+        ).toBeVisible();
+      });
+
+      test("dirty category drawer backdrop Stay restores the prior form control", async ({ page }) => {
     await loginAsSeeded(page);
     const drawerURL = base() + "/categories/new?view=structure&department_id=1&desk_id=1";
     await page.goto(drawerURL);
