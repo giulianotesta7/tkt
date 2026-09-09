@@ -70,6 +70,10 @@
 .users-root .users-danger-action{margin-top:8px;border-color:#d8a8b0;background:#fff;color:#8d3948;padding:10px 12px}
 .users-root .users-secondary-action{margin-top:8px;border-color:#b9c6ff;background:#fff;color:#2f5bff;padding:10px 12px}
 .users-root .users-drawer-footer{display:flex;justify-content:flex-end;gap:10px;margin:30px -32px -24px;padding:16px 32px;border-top:1px solid #e2e7ee;background:#fff}
+.users-root .category-drawer[data-kind=desk] .users-drawer-footer{margin:28px 0 0;padding:0;border-top:0;background:transparent}
+.users-root .category-drawer[data-kind=desk] .desk-members{margin-top:40px}
+.users-root .category-drawer[data-kind=desk] .desk-members h3{margin:0}
+.users-root .category-drawer[data-kind=desk] .desk-members-copy{margin:6px 0 20px;color:#667085;font-size:13px;line-height:1.5}
 .users-root .users-cancel,.users-root dialog button{background:#fff;border-color:#cbd3df;color:#344054;padding:10px 13px}
 .users-root dialog [data-discard],.users-root dialog [data-confirm-deactivate],.users-root dialog [data-category-discard]{border-color:#8d3948;background:#8d3948;color:#fff}
 .users-root dialog{width:min(520px,calc(100vw - 32px));border:0;border-radius:12px;padding:28px;background:#fff;color:#182230;box-shadow:0 18px 50px rgba(18,23,32,.18)}

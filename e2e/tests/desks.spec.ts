@@ -79,25 +79,60 @@ test.describe("Desks", () => {
     await page.locator('.category-level-desks .category-overflow-menu:not([hidden])').getByRole("menuitem", { name: "Edit desk", exact: true }).click();
     const drawer = page.getByRole("dialog", { name: /Edit desk/i });
     await expect(drawer).toBeVisible();
+    const profileActions = drawer.locator("#category-drawer-form .users-drawer-footer");
+    const members = drawer.locator(".desk-members");
+    await expect(profileActions).toHaveCSS("border-top-style", "none");
+    await expect(members).toContainText("Member changes are saved immediately.");
     const addSelect = drawer.locator(".desk-add-member select");
     await expect(addSelect).toBeVisible();
+    const name = drawer.getByLabel("Name", { exact: true });
+    const description = drawer.getByLabel("Description", { exact: true });
+    const pendingName = "Unsaved desk " + Date.now().toString(36).slice(2, 8);
+    const pendingDescription = "Preserve this across member updates.";
+    await name.fill(pendingName);
+    await description.fill(pendingDescription);
     await addSelect.selectOption({ label: uname });
     const addAction = await drawer.locator(".desk-add-member").getAttribute("action");
     if (!addAction) throw new Error(`add-member form action missing at ${page.url()}`);
-    const addResponse = await assertHtmxSwap(
+    const addPath = new URL(addAction, page.url()).pathname;
+    let responseIntercepted!: () => void;
+    let releaseResponse!: () => void;
+    const responseReady = new Promise<void>((resolve) => {
+      responseIntercepted = resolve;
+    });
+    await page.route((url) => url.pathname === addPath, async (route) => {
+      const response = await route.fetch();
+      const responseHeld = new Promise<void>((resolve) => {
+        releaseResponse = resolve;
+      });
+      responseIntercepted();
+      await responseHeld;
+      await route.fulfill({ response });
+    });
+    const addResponsePromise = assertHtmxSwap(
       page,
       () => drawer.locator(".desk-add-member button").click(),
       {
-        endpoint: new URL(addAction, page.url()).pathname,
+        endpoint: addPath,
         method: "POST",
         expectedStatus: 200,
         hxTarget: "#category-drawer-host",
       },
     );
+    await responseReady;
+    const inFlightName = "Latest desk " + Date.now().toString(36).slice(2, 8);
+    const inFlightDescription = "Changed while the member response was pending.";
+    await name.fill(inFlightName);
+    await description.fill(inFlightDescription);
+    releaseResponse();
+    const addResponse = await addResponsePromise;
+    await page.unroute((url) => url.pathname === addPath);
     expect(addResponse.headers()["hx-retarget"]).toBe("#category-drawer-host");
     expect(addResponse.headers()["hx-reswap"]).toBe("outerHTML");
     await expect(drawer).toBeVisible();
     await expect(drawer.locator(".desk-member-list li").filter({ hasText: uname })).toHaveCount(1);
+    await expect(name).toHaveValue(inFlightName);
+    await expect(description).toHaveValue(inFlightDescription);
 
     const memberRow = drawer.locator(".desk-member-list li").filter({ hasText: uname });
     const removeForm = memberRow.locator("form");
@@ -117,6 +152,18 @@ test.describe("Desks", () => {
     expect(removeResponse.headers()["hx-reswap"]).toBe("outerHTML");
     await expect(drawer).toBeVisible();
     await expect(drawer.locator(".desk-member-list li").filter({ hasText: uname })).toHaveCount(0);
+    await expect(name).toHaveValue(inFlightName);
+    await expect(description).toHaveValue(inFlightDescription);
+
+    await drawer.getByRole("button", { name: "Close catalog details" }).click();
+    const confirmation = page.getByRole("dialog", {
+      name: "Leave without saving?",
+    });
+    await expect(confirmation).toBeVisible();
+    await confirmation
+      .getByRole("button", { name: "Discard changes", exact: true })
+      .click();
+    await expect(drawer).toHaveCount(0);
 
     await assertCanonicalScreen(page, {
       viewport: 1280,

@@ -690,7 +690,47 @@ name: "Leave without saving?",
     await expect(launcher).toBeFocused();
   });
 
-  test("workflow builder integrated journey: create category, add step, publish, reload, create ticket, verify published workflow in ticket", async ({
+  test("dirty department and desk drawers require an explicit discard", async ({ page }) => {
+        await loginAsSeeded(page);
+        await page.goto(base() + "/categories/departments/1/edit?view=structure");
+
+        const department = page.getByRole("dialog", { name: /Edit department/i });
+        const departmentName = department.getByLabel("Name", { exact: true });
+        await departmentName.fill("Unsaved department");
+        await department.getByRole("button", { name: "Close catalog details" }).click();
+
+        const confirmation = page.getByRole("dialog", {
+          name: "Leave without saving?",
+        });
+        await expect(confirmation).toBeVisible();
+        await expect(
+          confirmation.getByRole("button", { name: "Stay", exact: true }),
+        ).toBeFocused();
+        await confirmation.getByRole("button", { name: "Stay", exact: true }).click();
+        await expect(departmentName).toHaveValue("Unsaved department");
+        await expect(page).toHaveURL(/\/categories\/departments\/1\/edit/);
+        await department.getByRole("button", { name: "Close catalog details" }).click();
+        await confirmation
+          .getByRole("button", { name: "Discard changes", exact: true })
+          .click();
+        await expect(department).toHaveCount(0);
+
+        await page.goto(
+          base() + "/categories/desks/1/edit?view=structure&department_id=1&desk_id=1",
+        );
+        const desk = page.getByRole("dialog", { name: /Edit desk/i });
+        const description = desk.getByLabel("Description", { exact: true });
+        await description.fill("Unsaved desk description");
+        await desk.getByRole("button", { name: "Cancel", exact: true }).click();
+        await expect(confirmation).toBeVisible();
+        await confirmation
+          .getByRole("button", { name: "Discard changes", exact: true })
+          .click();
+        await expect(desk).toHaveCount(0);
+        await expect(page).toHaveURL(/\/categories\?(?=.*view=structure)(?=.*department_id=1)(?=.*desk_id=1)/);
+      });
+
+      test("workflow builder integrated journey: create category, add step, publish, reload, create ticket, verify published workflow in ticket", async ({
     page,
   }) => {
     test.setTimeout(60000);
