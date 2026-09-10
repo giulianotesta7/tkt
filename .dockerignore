@@ -9,5 +9,4 @@ demo
 Dockerfile
 docker-compose.yml
 .dockerignore
-openspec/
 design/

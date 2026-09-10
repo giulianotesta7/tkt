@@ -34,7 +34,7 @@ Do NOT run for:
 | Area | ONE primary, at most TWO | `area:auth`, `area:tickets`, `area:users`, `area:categories-workflows`, `area:desks`, `area:settings`, `area:tooling`. |
 | Status | only when applicable | `status:approved` — the maintainer authorized implementation to start. |
 
-- `area:tooling` covers CI, Playwright, skills, OpenSpec governance, and repository configuration.
+- `area:tooling` covers CI, Playwright, skills, Engram change governance, and repository configuration.
 - Cardinality rules apply to the GOVERNING issue. PR labels are optional and do not need to duplicate the issue's labels.
 - If no area fits a proposed issue, the issue is probably mis-scoped: BLOCK and clarify before labeling.
 
@@ -53,7 +53,7 @@ Example: `[Feature] Add ticket export to CSV`.
 
 Labels remain authoritative for filtering, automation, and governance. The prefix is a human-readable aid in issue lists and search results, not a replacement for the label. A missing or wrong prefix is not a labeling violation and MUST NOT become a new decision gate; when prefix and label disagree, the label wins.
 
-The feature request template applies the `[Feature] ` prefix automatically. Apply the other prefixes manually when drafting an issue. Do not bulk-edit existing issues to add prefixes; existing titles may keep their current format.
+The feature request template applies the `[Feature]` prefix automatically. Apply the other prefixes manually when drafting an issue. Do not bulk-edit existing issues to add prefixes; existing titles may keep their current format.
 
 ## Decision Gates
 

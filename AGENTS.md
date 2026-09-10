@@ -22,7 +22,13 @@ Repository-specific skills use the `tkt-` prefix (for example, `tkt-e2e`). Share
 | `tkt-issue-governance` | Starting any change, creating or labeling a GitHub issue, or transitioning from planning to implementation. Issue-first: no issue, no work; no `status:approved`, no implementation. Taxonomy and decision gates are authoritative. | `.agents/skills/tkt-issue-governance/SKILL.md` |
 | `tkt-ux-ui` | Modifying templates, CSS, layout, visual components, responsive behavior, or accessibility. Activation, visual-preservation, and decision-boundary rules are authoritative. | `.agents/skills/tkt-ux-ui/SKILL.md` |
 | `tkt-e2e` | Implementing or changing a visible feature, modifying a critical journey, fixing a browser-observable bug, or adding/updating E2E coverage. Activation contract, regression rule, and decision gates are authoritative. | `.agents/skills/tkt-e2e/SKILL.md` |
-| `tkt-openspec-change-governance` | Adding or modifying observable behavior, domain rules, authorization, endpoints, forms, flows, persistence, or contracts; implementing an OpenSpec proposal or delta; preparing close or archive of an OpenSpec change. Activation and exclusion rules are authoritative. | `.agents/skills/tkt-openspec-change-governance/SKILL.md` |
+| `tkt-engram-change-governance` | Adding or modifying observable behavior, domain rules, authorization, endpoints, forms, flows, persistence, or contracts; governed work; durable decisions, bugfixes, discoveries, configuration or preference changes; memory recall; or session closure. Use native project-scoped Engram search, alignment, and durable bookkeeping. | `.agents/skills/tkt-engram-change-governance/SKILL.md` |
+
+### Behavioral change records in Engram
+
+For behavior-changing work, load `tkt-engram-change-governance`. Scope reads and writes to `project: "tkt"`, then locate canonical requirements and active deltas with descriptive context and search. Existing migration memories remain preserved history, not operational prerequisites.
+
+Engram is machine-local unless a maintainer exports and imports a verified project-scoped export. CI cannot inspect it. Agents must report unavailable or conflicting requirements instead of inferring them.
 
 ### Workflow gates (issue-first)
 
