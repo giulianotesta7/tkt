@@ -8,9 +8,9 @@
     </div>
     <div class="command-actions"><a class="btn ghost" href="/tickets">Back to tickets</a></div>
   </div>
-  <form class="catalog-search" method="get" action="/tickets/new" role="search">
+  <form class="catalog-search search-field" method="get" action="/tickets/new" role="search">
     <label class="visually-hidden" for="catalog-query">Search categories, desks, or departments</label>
-    <span aria-hidden="true">⌕</span>
+    {{template "search_icon"}}
     <input id="catalog-query" type="search" name="q" value="{{.Query}}" placeholder="Search categories, desks, or departments" autocomplete="off">
     <input type="hidden" name="catalog" value="1">
     <button class="visually-hidden" type="submit">Search</button>

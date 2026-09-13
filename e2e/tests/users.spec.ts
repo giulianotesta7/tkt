@@ -64,10 +64,92 @@ test.describe("Users", () => {
         expectedUrl: /\/users$/,
       });
       expect(new URL(page.url()).pathname).toBe("/users");
-      await expect(page.getByText(baseName)).toBeVisible();
-      await expect(page.getByText(email)).toBeVisible();
+        await expect(page.getByText(baseName)).toBeVisible();
+        await expect(page.getByText(email)).toBeVisible();
 
-      // Resolve edit href for that user (drawer link)
+            const userSearch = page.getByRole("searchbox", { name: "Search users" });
+            const usersSearchIcon = page.locator(".users-search .search-icon");
+            for (const [name, value] of [
+              ["viewBox", "0 0 24 24"],
+              ["width", "18"],
+              ["height", "18"],
+              ["aria-hidden", "true"],
+              ["focusable", "false"],
+            ]) {
+              await expect(usersSearchIcon).toHaveAttribute(name, value);
+            }
+            await expect(userSearch).toHaveCSS("height", "36px");
+        await expect(userSearch).toHaveCSS("border-radius", "8px");
+        await expect(userSearch).toHaveCSS("font-size", "13px");
+        await userSearch.focus();
+        await expect(userSearch).toHaveCSS(
+          "border-top-color",
+          "rgb(49, 94, 255)",
+        );
+
+        const usersURL = page.url();
+        let searchRequests = 0;
+        const countSearchRequests = (request: import("@playwright/test").Request) => {
+          if (request.url().startsWith(base())) searchRequests += 1;
+        };
+        page.on("request", countSearchRequests);
+        await userSearch.fill(` ${baseName.toUpperCase()} `);
+        await expect(page.locator(`tr[data-user-name="${baseName}"]`)).toBeVisible();
+        await expect(page.locator('tr[data-user-name="Alice Admin"]')).toBeHidden();
+        await userSearch.fill(email.toUpperCase());
+        await expect(page.locator(`tr[data-user-name="${baseName}"]`)).toBeVisible();
+        await userSearch.fill("no matching user");
+        await expect(page.getByText("No users match your search.")).toBeVisible();
+        await userSearch.fill("");
+        page.off("request", countSearchRequests);
+        expect(searchRequests).toBe(0);
+        expect(page.url()).toBe(usersURL);
+
+            await assertHtmxSwap(
+              page,
+              async () => {
+                await page.getByRole("link", { name: /active/i }).click();
+              },
+              {
+                endpoint: "/users",
+                method: "GET",
+                expectedStatus: 200,
+                hxTarget: "#users-root",
+                expectedUrl: /\/users\?status=active$/,
+              },
+            );
+            const activeUsersSearch = page.getByRole("searchbox", {
+              name: "Search users",
+            });
+            await expect(activeUsersSearch).toBeVisible();
+
+            const activeUsersURL = page.url();
+            let postSwapSearchRequests = 0;
+            let postSwapNavigations = 0;
+            const countPostSwapSearchRequests = (
+              request: import("@playwright/test").Request,
+            ) => {
+              if (request.url().startsWith(base())) postSwapSearchRequests += 1;
+            };
+            const countPostSwapNavigations = (
+              frame: import("@playwright/test").Frame,
+            ) => {
+              if (frame === page.mainFrame()) postSwapNavigations += 1;
+            };
+            page.on("request", countPostSwapSearchRequests);
+            page.on("framenavigated", countPostSwapNavigations);
+            await activeUsersSearch.fill("no matching user");
+            await expect(page.locator(`tr[data-user-name="${baseName}"]`)).toBeHidden();
+            await expect(page.locator('tr[data-user-name="Alice Admin"]')).toBeHidden();
+            await expect(page.getByText("No users match your search.")).toBeVisible();
+            page.off("request", countPostSwapSearchRequests);
+            page.off("framenavigated", countPostSwapNavigations);
+            expect(postSwapSearchRequests).toBe(0);
+            expect(postSwapNavigations).toBe(0);
+            expect(page.url()).toBe(activeUsersURL);
+            await activeUsersSearch.fill("");
+
+        // Resolve edit href for that user (drawer link)
       const cleanHref = await resolveUserEditHref(page, baseName);
       await page.goto(base() + cleanHref);
       await expect(page.getByRole("heading", { name: /edit user/i })).toBeVisible();

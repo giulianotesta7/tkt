@@ -1,4 +1,5 @@
-{{define "ticket_search"}}<div class="ticket-search">
+{{define "ticket_search"}}<div class="ticket-search search-field">
   <label class="visually-hidden" for="ticket-search">Search tickets</label>
+  {{template "search_icon"}}
   <input id="ticket-search" type="search" name="q" value="{{.Filters.Q}}" placeholder="Search by ID or title" aria-label="Search tickets">
 </div>{{end}}
