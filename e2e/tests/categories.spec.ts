@@ -1553,4 +1553,166 @@ name: "Leave without saving?",
     });
   });
 
+  test.describe("Workflow exit guards", () => {
+    async function openDirtyBuilder(
+      page: Page,
+      instructions: string,
+    ): Promise<string> {
+      await page.setViewportSize({ width: 1280, height: 800 });
+      await page.goto(base() + "/categories/new");
+      if (page.url().includes("/login")) await loginAsSeeded(page);
+      const categoryId = await createCategoryViaUi(
+        page,
+        "Exit " + Date.now().toString(36),
+      );
+      await page.goto(base() + `/categories/${categoryId}/workflow`);
+      await expect(page.locator("#workflow-builder")).toBeVisible();
+      await page.locator(".workflow-add-step summary").first().click();
+      await page
+        .locator(".workflow-add-options button")
+        .filter({ hasText: /manual task/i })
+        .first()
+        .click();
+      await expect(page.getByLabel(/^instructions/i)).toBeVisible();
+      await page.getByLabel(/^instructions/i).fill(instructions);
+      return categoryId;
+    }
+
+    test("dirty in-app link: Stay keeps edits, Escape stays, Discard leaves without persisting (390px)", async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width: 390, height: 844 });
+      const categoryId = await openDirtyBuilder(page, "EXIT-DIRTY");
+      const dialog = page.locator("#workflow-leave-dialog");
+      const sidebarLink = page.locator('a.rail-link[href="/categories"]');
+      const breadcrumbLink = page.locator(".page-breadcrumb a");
+      const workflowUrl = new RegExp(`/categories/${categoryId}/workflow$`);
+      // Stay: URL and values preserved, focus returns to the trigger.
+      await sidebarLink.click();
+      await expect(dialog).toBeVisible();
+      await expect(page).toHaveURL(workflowUrl);
+      await dialog.getByRole("button", { name: "Stay" }).click();
+      await expect(dialog).not.toBeVisible();
+      await expect(sidebarLink).toBeFocused();
+      await expect(page.getByLabel(/^instructions/i)).toHaveValue("EXIT-DIRTY");
+      await expect(page).toHaveURL(workflowUrl);
+      // Escape means Stay too, and the dialog reuses the product dialog styling.
+      await breadcrumbLink.click();
+      await expect(dialog).toBeVisible();
+      await expect(dialog).toHaveCSS("border-radius", "12px");
+      await expect(
+        dialog.getByRole("button", { name: "Discard changes" }),
+      ).toHaveCSS("background-color", "rgb(141, 57, 72)");
+      await page.keyboard.press("Escape");
+      await expect(dialog).not.toBeVisible();
+      await expect(breadcrumbLink).toBeFocused();
+      await expect(page.getByLabel(/^instructions/i)).toHaveValue("EXIT-DIRTY");
+      // Discard navigates without persisting anything.
+      await breadcrumbLink.click();
+      await expect(dialog).toBeVisible();
+      await dialog.getByRole("button", { name: "Discard changes" }).click();
+      await expect(page).not.toHaveURL(/\/workflow/);
+      await page.goto(base() + `/categories/${categoryId}/workflow`);
+      await expect(page.locator(".workflow-step-card")).toHaveCount(1);
+      await page
+        .locator(".workflow-step-card .workflow-step-card-link")
+        .first()
+        .click();
+      await expect(page.getByLabel(/^instructions/i)).toHaveValue("");
+    });
+
+    test("dirty browser Back: Stay remains on builder, Discard performs exactly one back", async ({
+      page,
+    }) => {
+      const categoryId = await openDirtyBuilder(page, "BACK-DIRTY");
+      const dialog = page.locator("#workflow-leave-dialog");
+      const workflowUrl = new RegExp(`/categories/${categoryId}/workflow$`);
+      await page.goBack();
+      await expect(dialog).toBeVisible();
+      await expect(page).toHaveURL(workflowUrl);
+      await dialog.getByRole("button", { name: "Stay" }).click();
+      await expect(dialog).not.toBeVisible();
+      await expect(page.getByLabel(/^instructions/i)).toHaveValue("BACK-DIRTY");
+      await expect(page).toHaveURL(workflowUrl);
+      await page.goBack();
+      await expect(dialog).toBeVisible();
+      await dialog.getByRole("button", { name: "Discard changes" }).click();
+      // Exactly one back: the immediate previous entry, with no second prompt.
+      await expect(page).toHaveURL(/\/categories(\?.*)?$/);
+      await expect(dialog).not.toBeVisible();
+    });
+
+    test("reload while dirty uses native beforeunload only, never the in-app dialog", async ({
+      page,
+    }) => {
+      await openDirtyBuilder(page, "RELOAD-DIRTY");
+      const dialogTypes: string[] = [];
+      page.on("dialog", (nativeDialog) => {
+        dialogTypes.push(nativeDialog.type());
+        return nativeDialog.accept();
+      });
+      await page.reload();
+      await expect(page.locator("#workflow-builder")).toBeVisible();
+      await expect(page.locator("#workflow-leave-dialog")).not.toBeVisible();
+      expect(dialogTypes).toEqual(["beforeunload"]);
+      // The reloaded page is clean: a second reload must not prompt at all.
+      await page.reload();
+      await expect(page.locator("#workflow-builder")).toBeVisible();
+      expect(dialogTypes).toEqual(["beforeunload"]);
+    });
+
+    test("reverted edits and a successful save clear the exit guard", async ({
+      page,
+    }) => {
+      const categoryId = await openDirtyBuilder(page, "CLEAN-ME");
+      const dialog = page.locator("#workflow-leave-dialog");
+      const sidebarLink = page.locator('a.rail-link[href="/categories"]');
+      // Guard is active while dirty, then a reverted field navigates freely.
+      await sidebarLink.click();
+      await expect(dialog).toBeVisible();
+      await dialog.getByRole("button", { name: "Stay" }).click();
+      await expect(dialog).not.toBeVisible();
+      await page.getByLabel(/^instructions/i).fill("");
+      await sidebarLink.click();
+      await expect(page).toHaveURL(/\/categories(\?.*)?$/);
+      await expect(dialog).not.toBeVisible();
+      // Still dirty before saving, cleared after a successful save.
+      await page.goto(base() + `/categories/${categoryId}/workflow`);
+      await expect(page.locator("#workflow-builder")).toBeVisible();
+      const selectResponse = page.waitForResponse(
+        (r) =>
+          r.request().method() === "POST" &&
+          r.url().includes("/workflow") &&
+          (r.request().postData() ?? "").includes("action=select_step"),
+      );
+      await page
+        .locator(".workflow-step-card .workflow-step-card-link")
+        .first()
+        .click();
+      await expect((await selectResponse).status()).toBe(200);
+      await page.waitForTimeout(200);
+      await expect(page.getByLabel(/^instructions/i)).toBeVisible();
+      await page.getByLabel(/^instructions/i).fill("SAVED-EXIT");
+      await sidebarLink.click();
+      await expect(dialog).toBeVisible();
+      await dialog.getByRole("button", { name: "Stay" }).click();
+      await expect(dialog).not.toBeVisible();
+      const saveResponse = page.waitForResponse(
+        (r) =>
+          r.request().method() === "POST" &&
+          r.url().includes("/workflow") &&
+          (r.request().postData() ?? "").includes("action=save"),
+      );
+      await page
+        .locator('.page-actions button[name="action"][value="save"]')
+        .click();
+      await expect((await saveResponse).status()).toBe(200);
+      await expect(page.locator("[data-workflow-live]")).toContainText(
+        /saved/i,
+      );
+      await sidebarLink.click();
+      await expect(page).toHaveURL(/\/categories(\?.*)?$/);
+      await expect(dialog).not.toBeVisible();
+    });
+  });
 });
