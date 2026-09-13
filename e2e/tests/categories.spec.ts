@@ -114,6 +114,103 @@ test.describe("Categories", () => {
     });
   });
 
+  test("categories search uses native navigation and keeps hierarchy context", async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await loginAsSeeded(page);
+    await page.goto(base() + "/categories?view=structure");
+
+    const search = page.getByRole("searchbox", {
+      name: "Search departments, desks, or categories",
+    });
+    const icon = page.locator(".category-search .search-icon");
+    await expect(icon).toHaveAttribute("viewBox", "0 0 24 24");
+    await expect(icon).toHaveAttribute("width", "18");
+    await expect(icon).toHaveAttribute("height", "18");
+    await expect(icon).toHaveAttribute("aria-hidden", "true");
+    await expect(icon).toHaveAttribute("focusable", "false");
+
+    const nativeGet = async (
+      trigger: () => Promise<void>,
+      expectedURL: string,
+    ) => {
+      const responsePromise = page.waitForResponse(
+        (response) =>
+          response.request().isNavigationRequest() &&
+          response.request().method() === "GET" &&
+          response.url() === expectedURL,
+      );
+      const navigationPromise = page.waitForURL(expectedURL);
+      await trigger();
+      const response = await responsePromise;
+      expect(response.status()).toBe(200);
+      expect(response.request().headers()).not.toHaveProperty("hx-request");
+      await navigationPromise;
+    };
+
+    const structureSearchURL = base() + "/categories?q=General&view=structure";
+    await search.fill("General");
+    await nativeGet(async () => search.press("Enter"), structureSearchURL);
+    await expect(search).toHaveValue("General");
+    await expect(page.locator("#category-search-results")).toBeVisible();
+    for (const kind of ["department", "desk", "category"]) {
+      await expect(
+        page
+          .locator(`[data-search-result-kind="${kind}"]`)
+          .filter({ has: page.getByText("General", { exact: true }) }),
+      ).toHaveCount(1);
+    }
+
+    await page.reload();
+    await expect(search).toHaveValue("General");
+    await page.setViewportSize({ width: 390, height: 844 });
+    const selectedCategoryResult = page
+      .locator(
+        'a.category-search-result[data-search-result-kind="category"][href="/categories?department_id=1&desk_id=1&view=structure"]',
+      )
+      .filter({ has: page.getByText("General", { exact: true }) });
+    await expect(selectedCategoryResult).toHaveCount(1);
+    await selectedCategoryResult.click();
+    await page.waitForURL((url) =>
+      url.pathname === "/categories" &&
+      url.searchParams.get("view") === "structure" &&
+      url.searchParams.get("department_id") === "1" &&
+      url.searchParams.get("desk_id") === "1" &&
+      !url.searchParams.has("q"),
+    );
+    await expect(page.locator(".category-level-categories")).toBeVisible();
+
+    const selectedStructureSearchURL =
+      base() + "/categories?q=General&view=structure&department_id=1&desk_id=1";
+    await search.fill("General");
+    await nativeGet(
+      async () => search.press("Enter"),
+      selectedStructureSearchURL,
+    );
+    const structureClearURL =
+      base() + "/categories?department_id=1&desk_id=1&view=structure";
+    await nativeGet(
+      async () =>
+        page.getByRole("link", { name: "Clear search", exact: true }).click(),
+      structureClearURL,
+    );
+    await expect(search).toHaveValue("");
+
+    const categoriesSearchURL =
+      base() + "/categories?department_id=1&desk_id=1&q=General&view=categories";
+    await page.goto(categoriesSearchURL);
+    await expect(search).toHaveValue("General");
+    const categoriesClearURL =
+      base() + "/categories?department_id=1&desk_id=1&view=categories";
+    await nativeGet(
+      async () =>
+        page.getByRole("link", { name: "Clear search", exact: true }).click(),
+      categoriesClearURL,
+    );
+    await expect(search).toHaveValue("");
+  });
+
   test("Unassigned drawer edits push reloadable legacy context", async ({
     page,
   }) => {

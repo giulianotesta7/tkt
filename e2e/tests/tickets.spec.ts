@@ -319,9 +319,29 @@ test.describe("Ticket Lifecycle", () => {
     await expect(
       page.getByRole("heading", { name: "CATEGORIES" }),
     ).toBeVisible();
-    await expect(
-      page.getByPlaceholder(/search categories, desks, or departments/i),
-    ).toBeVisible();
+    const catalogSearch = page.locator(".catalog-search");
+    const catalogSearchInput = page.getByPlaceholder(
+      /search categories, desks, or departments/i,
+    );
+        await expect(catalogSearchInput).toBeVisible();
+        const catalogSearchIcon = catalogSearch.locator(".search-icon");
+        for (const [name, value] of [
+          ["viewBox", "0 0 24 24"],
+          ["width", "18"],
+          ["height", "18"],
+          ["aria-hidden", "true"],
+          ["focusable", "false"],
+        ]) {
+          await expect(catalogSearchIcon).toHaveAttribute(name, value);
+        }
+        await expect(catalogSearch).toHaveCSS("height", "36px");
+    await expect(catalogSearch).toHaveCSS("border-radius", "8px");
+    await expect(catalogSearchInput).toHaveCSS("font-size", "13px");
+    await catalogSearchInput.focus();
+    await expect(catalogSearch).toHaveCSS(
+      "border-top-color",
+      "rgb(49, 94, 255)",
+    );
     await expect(
       page.getByText("Choose a category to get started.", { exact: true }),
     ).toBeVisible();
@@ -716,8 +736,18 @@ test.describe("Ticket Lifecycle", () => {
       page.locator("#ticket-list").getByText(distractorTitle),
     ).toBeVisible();
 
-    const searchInput = page.getByPlaceholder(/search by id or title/i);
-    await expect(searchInput).toBeVisible();
+        const searchInput = page.getByPlaceholder(/search by id or title/i);
+        await expect(searchInput).toBeVisible();
+        const ticketSearchIcon = page.locator(".ticket-search .search-icon");
+        for (const [name, value] of [
+          ["viewBox", "0 0 24 24"],
+          ["width", "18"],
+          ["height", "18"],
+          ["aria-hidden", "true"],
+          ["focusable", "false"],
+        ]) {
+          await expect(ticketSearchIcon).toHaveAttribute(name, value);
+        }
 
     // 1. Search for the unique title — filtered result visible.
     // Fill and submit inside the trigger so the interceptor is armed before

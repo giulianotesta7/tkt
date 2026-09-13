@@ -391,8 +391,11 @@ func TestTicketsIndexRoleSearchControls(t *testing.T) {
 			}
 
 			body := rec.Body.String()
-			if got := strings.Count(body, `class="ticket-search"`); got != 1 {
+			if got := strings.Count(body, `class="ticket-search search-field"`); got != 1 {
 				t.Errorf("compact search controls = %d, want 1, got: %s", got, body)
+			}
+			if !strings.Contains(body, `<svg class="search-icon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">`) {
+				t.Errorf("compact search must render the shared decorative search icon, got: %s", body)
 			}
 			if got := strings.Count(body, `type="search"`); got != 1 {
 				t.Errorf("visible q controls = %d, want 1, got: %s", got, body)

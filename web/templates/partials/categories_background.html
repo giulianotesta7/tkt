@@ -12,6 +12,21 @@
 <a class="btn primary category-drawer-launcher" href="/categories/new?view=structure{{if .SelectedDepartmentID}}&department_id={{categoryDepartmentValue .SelectedDepartmentID}}{{end}}{{if .SelectedDeskID}}&desk_id={{.SelectedDeskID}}{{end}}" hx-get="/categories/new?view=structure{{if .SelectedDepartmentID}}&department_id={{categoryDepartmentValue .SelectedDepartmentID}}{{end}}{{if .SelectedDeskID}}&desk_id={{.SelectedDeskID}}{{end}}" hx-target="#category-drawer-host" hx-swap="outerHTML" hx-push-url="/categories/new?view=structure{{if .SelectedDepartmentID}}&department_id={{categoryDepartmentValue .SelectedDepartmentID}}{{end}}{{if .SelectedDeskID}}&desk_id={{.SelectedDeskID}}{{end}}">New category</a>
   </nav>
 {{if .Error}}<div class="error-banner" role="alert">{{.Error}}</div>{{end}}
+<form class="category-search search-field" method="get" action="/categories" role="search">
+  <label class="visually-hidden" for="category-search">Search departments, desks, or categories</label>
+  {{template "search_icon"}}
+  <input id="category-search" type="search" name="q" value="{{.SearchQuery}}" placeholder="Search departments, desks, or categories" autocomplete="off">
+  <input type="hidden" name="view" value="{{.View}}">{{if .SelectedDepartmentID}}<input type="hidden" name="department_id" value="{{categoryDepartmentValue .SelectedDepartmentID}}">{{end}}{{if .SelectedDeskID}}<input type="hidden" name="desk_id" value="{{.SelectedDeskID}}">{{end}}
+  <button class="visually-hidden" type="submit">Search</button>{{if .SearchQuery}}<a class="category-search-clear" href="{{.SearchClearURL}}">Clear search</a>{{end}}
+</form>
+{{if .SearchQuery}}
+<section id="category-search-results" class="category-search-results" aria-live="polite">
+  <h2>Search results</h2>
+  {{range .SearchResults}}
+  <a class="category-search-result" data-search-result-kind="{{.Kind}}" href="{{.Location}}"><span><strong>{{.Name}}</strong><small>{{.Type}}{{if .Path}} · {{.Path}}{{end}}</small></span><span aria-hidden="true">›</span></a>
+  {{else}}<p class="category-empty">No departments, desks, or categories match your search.</p>{{end}}
+</section>
+{{end}}
   <div class="category-structure" aria-label="Catalog structure">
     <section class="category-level category-level-departments {{if eq .SelectedDepartmentID 0}}is-current{{end}}" aria-labelledby="departments-title">
       <header><div><p class="category-level-eyebrow">Departments</p><h2 id="departments-title">Departments</h2></div><a class="btn primary category-level-action category-drawer-launcher" data-focus-key="new-department" href="/categories/departments/new?view=structure" hx-get="/categories/departments/new?view=structure" hx-target="#category-drawer-host" hx-swap="outerHTML" hx-push-url="/categories/departments/new?view=structure">New department</a></header>
