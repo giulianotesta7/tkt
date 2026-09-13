@@ -32,7 +32,7 @@ func TestCategoryWorkflowBuilder_UsesUsersHeaderFoundationAndCategoryIdentity(t 
 		`<nav class="page-breadcrumb" aria-label="Breadcrumb"><a href="/categories">Categories</a><span aria-hidden="true"> / </span><span>Hardware</span></nav>`,
 		`class="page-title">Category workflow</h1>`,
 		`class="page-subtitle">Build one ordered path for this category.</p>`,
-		`<span class="page-status" role="status">Saved</span>`,
+		`<button class="page-action" type="submit" form="workflow-form" name="action" value="save">Save</button>`,
 		`class="page-action page-action-primary" type="submit" form="workflow-form" name="action" value="publish">Publish</button>`,
 		`<form method="post" action="/categories/`,
 		`id="workflow-form"`,
@@ -78,14 +78,8 @@ func TestCategoryWorkflowBuilder_UsesUsersHeaderFoundationAndCategoryIdentity(t 
 	} {
 		assertCSSRuleContains(t, css, tc.name, tc.selectors, tc.declarations)
 	}
-	statusRule := cssRuleForSelectors(css, ".page-foundation .page-status")
-	if statusRule == "" {
-		t.Fatal("users.css must define the Saved status text class")
-	}
-	for _, forbidden := range []string{"border", "background", "padding"} {
-		if strings.Contains(statusRule, forbidden) {
-			t.Errorf("Saved status rule must not contain button styling %q: %s", forbidden, statusRule)
-		}
+	if strings.Contains(body, `class="page-status"`) || strings.Contains(body, `>Saved<`) {
+		t.Errorf("workflow header must not show a standing Saved badge, got: %s", body)
 	}
 }
 
@@ -135,7 +129,7 @@ func TestCategoryWorkflowBuilder_MasterDetailSelectionPresentation(t *testing.T)
 	}
 	path := "/categories/" + strconv.FormatInt(category.ID, 10) + "/workflow"
 	steps := []bstep{{typ: "manual_task", manual: "First instructions"}, {typ: "manual_task", manual: "Second instructions"}}
-	wantRedirect(t, h.postForm(t, path, builderFieldForm("save", steps...), false), http.StatusSeeOther, path)
+	wantRedirect(t, h.postForm(t, path, builderFieldForm("save", steps...), false), http.StatusSeeOther, path+"?status=saved")
 	selection := builderFieldForm("select_step", bstep{typ: "manual_task", manual: "Unsaved first"}, bstep{typ: "manual_task", manual: "Unsaved second"})
 	selection.Set("selection_step_index", "1")
 	noJS := h.postForm(t, path+"?action=select_step", selection, false)
@@ -230,7 +224,11 @@ func TestCategoryWorkflowBuilder_ClosedMutationsPersistCanonicalCompleteDraft(t 
 			}
 			path := "/categories/" + strconv.FormatInt(category.ID, 10) + "/workflow"
 			rec := h.postForm(t, path, builderForm(action, draft), false)
-			wantRedirect(t, rec, http.StatusSeeOther, path)
+			wantLocation := path
+			if action == "save" {
+				wantLocation += "?status=saved"
+			}
+			wantRedirect(t, rec, http.StatusSeeOther, wantLocation)
 
 			db := h.rawDB(t)
 			var persisted string
@@ -303,7 +301,7 @@ func TestCategoryWorkflowBuilder_PreviewPublishAndHTMXParity(t *testing.T) {
 		path := "/categories/" + strconv.FormatInt(category.ID, 10) + "/workflow"
 		draft := builderDraft(t, "first", "second")
 		full := h.postForm(t, path, builderForm("publish", draft), false)
-		wantRedirect(t, full, http.StatusSeeOther, path)
+		wantRedirect(t, full, http.StatusSeeOther, path+"?status=published")
 		db := h.rawDB(t)
 		if n := scanOneInt(t, db, "SELECT COUNT(*) FROM workflow_versions WHERE category_id=?", category.ID); n != 1 {
 			t.Fatalf("published version rows = %d, want 1", n)
@@ -328,7 +326,7 @@ func TestCategoryWorkflowBuilder_PreviewPublishAndHTMXParity(t *testing.T) {
 		}
 
 		edited := builderDraft(t, "edited")
-		wantRedirect(t, h.postForm(t, path, builderForm("save", edited), false), http.StatusSeeOther, path)
+		wantRedirect(t, h.postForm(t, path, builderForm("save", edited), false), http.StatusSeeOther, path+"?status=saved")
 		if got := categoryStatusBadge(t, h.get(t, "/categories", false).Body.String(), category.Name); got != "Draft" {
 			t.Errorf("category %q status = %q, want Draft after its draft changes", category.Name, got)
 		}
@@ -475,7 +473,7 @@ func TestCategoryWorkflowBuilder_EditControlsSubmitCompleteOrderedValues(t *test
 		{typ: "assign_to_desk", desk: "7", strategy: "least_loaded"},
 		{typ: "form", actor: "assignee", fields: []bfield{{key: "server", label: "Server", kind: "single_select", options: "eu; us"}}},
 	}
-	wantRedirect(t, h.postForm(t, path, builderFieldForm("save", steps...), false), http.StatusSeeOther, path)
+	wantRedirect(t, h.postForm(t, path, builderFieldForm("save", steps...), false), http.StatusSeeOther, path+"?status=saved")
 
 	def := h.persistedDefinition(t, path)
 	if len(def) != 3 {
@@ -526,7 +524,7 @@ func TestCategoryWorkflowBuilder_RED_FieldKeysAreServerOwned(t *testing.T) {
 			{typ: "form", actor: "requester", fields: []bfield{{key: "a", label: "A", kind: "short_text"}}},
 			{typ: "form", actor: "requester", fields: []bfield{{key: "field_1", label: "B", kind: "short_text"}}},
 		}
-		wantRedirect(t, h.postForm(t, path, builderFieldForm("save", steps...), false), http.StatusSeeOther, path)
+		wantRedirect(t, h.postForm(t, path, builderFieldForm("save", steps...), false), http.StatusSeeOther, path+"?status=saved")
 
 		f := builderFieldForm("add_field", steps...)
 		f.Set("step_index", "0")
@@ -566,9 +564,9 @@ func TestCategoryWorkflowBuilder_RED_FieldKeysAreServerOwned(t *testing.T) {
 			t.Fatalf("create: %v", err)
 		}
 		path := "/categories/" + strconv.FormatInt(category.ID, 10) + "/workflow"
-		wantRedirect(t, h.postForm(t, path, builderFieldForm("save", bstep{typ: "form", actor: "requester", fields: []bfield{{key: "server", label: "Server", kind: "short_text"}}}), false), http.StatusSeeOther, path)
+		wantRedirect(t, h.postForm(t, path, builderFieldForm("save", bstep{typ: "form", actor: "requester", fields: []bfield{{key: "server", label: "Server", kind: "short_text"}}}), false), http.StatusSeeOther, path+"?status=saved")
 		edited := []bstep{{typ: "form", actor: "requester", fields: []bfield{{key: "server", label: "Production server", kind: "short_text"}}}}
-		wantRedirect(t, h.postForm(t, path, builderFieldForm("save", edited...), false), http.StatusSeeOther, path)
+		wantRedirect(t, h.postForm(t, path, builderFieldForm("save", edited...), false), http.StatusSeeOther, path+"?status=saved")
 		fields := h.persistedDefinition(t, path)[0].Form.Fields
 		if len(fields) != 1 || fields[0].Key != "server" || fields[0].Label != "Production server" {
 			t.Errorf("label edit must keep key=server and update label, got %+v", fields)
@@ -582,7 +580,7 @@ func TestCategoryWorkflowBuilder_RED_FieldKeysAreServerOwned(t *testing.T) {
 			t.Fatalf("create: %v", err)
 		}
 		path := "/categories/" + strconv.FormatInt(category.ID, 10) + "/workflow"
-		wantRedirect(t, h.postForm(t, path, builderFieldForm("save", bstep{typ: "form", actor: "requester", fields: []bfield{{key: "server", label: "Server", kind: "short_text"}}}), false), http.StatusSeeOther, path)
+		wantRedirect(t, h.postForm(t, path, builderFieldForm("save", bstep{typ: "form", actor: "requester", fields: []bfield{{key: "server", label: "Server", kind: "short_text"}}}), false), http.StatusSeeOther, path+"?status=saved")
 		body := h.get(t, path, false).Body.String()
 		if !strings.Contains(body, `type="hidden" name="step_0_field_0_key" value="server"`) {
 			t.Errorf("builder must round-trip the stable key through a hidden input, got: %s", body)
@@ -607,7 +605,7 @@ func TestCategoryWorkflowBuilder_RED_FieldKeysAreServerOwned(t *testing.T) {
 		wantRedirect(t, h.postForm(t, path, builderFieldForm("save", bstep{typ: "form", actor: "requester", fields: []bfield{
 			{key: "", label: "Name", kind: "short_text"},
 			{key: "", label: "Email", kind: "short_text"},
-		}}), false), http.StatusSeeOther, path)
+		}}), false), http.StatusSeeOther, path+"?status=saved")
 		fields := h.persistedDefinition(t, path)[0].Form.Fields
 		if len(fields) != 2 || fields[0].Key != "field_1" || fields[1].Key != "field_2" {
 			t.Errorf("empty keys must be filled deterministically, got %+v", fields)
@@ -668,7 +666,7 @@ func TestCategoryWorkflowBuilder_PreservesTypeWithoutVisibleSelector(t *testing.
 		t.Fatalf("create category: %v", err)
 	}
 	path := "/categories/" + strconv.FormatInt(category.ID, 10) + "/workflow"
-	wantRedirect(t, h.postForm(t, path, builderFieldForm("save", buildingSteps()...), false), http.StatusSeeOther, path)
+	wantRedirect(t, h.postForm(t, path, builderFieldForm("save", buildingSteps()...), false), http.StatusSeeOther, path+"?status=saved")
 
 	body := h.get(t, path, false).Body.String()
 	// The type is chosen at Add step and shown in the node and editor heading;
@@ -716,128 +714,111 @@ func TestWorkflowBuilderValidationAndStepViews(t *testing.T) {
 	}
 }
 
-// ==== Autosave UX contract ====
-//
-// RED — Save draft disappears. Free-text controls autosave after 600ms of
-// changed input WITHOUT swapping the builder fragment (focus/caret preserved),
-// discrete controls autosave immediately, structural Field Kind persists and
-// rerenders the builder to reveal/remove Options, step Type stays single-
-// submitted on change_type, and form-level queue synchronization makes the
-// final user action win over an in-flight autosave.
-func TestCategoryWorkflowBuilder_RED_AutosaveMarkupContract(t *testing.T) {
+// ==== Explicit save contract (issue #139 WU1) ====
+// RED — Field autosave is gone: editing controls submit nothing on their own,
+// the header Save submits the complete draft, and only Field Kind re-renders.
+func TestCategoryWorkflowBuilder_RED_ExplicitSaveContract(t *testing.T) {
 	h := newHarness(t)
-	category, err := h.categories.Create(t.Context(), "Autosave")
+	category, err := h.categories.Create(t.Context(), "Explicit save")
 	if err != nil {
 		t.Fatalf("create category: %v", err)
 	}
 	path := "/categories/" + strconv.FormatInt(category.ID, 10) + "/workflow"
 	steps := []bstep{
-		{typ: "manual_task", manual: "a"},
-		{typ: "assign_to_desk", desk: "7", strategy: "least_loaded"},
+		{typ: "manual_task", manual: "a"}, {typ: "assign_to_desk", desk: "1", strategy: "least_loaded"},
 		{typ: "form", actor: "requester", fields: []bfield{{key: "server", label: "Server", kind: "single_select", options: "North; South, Buenos Aires, Argentina"}}},
+		{typ: "close_ticket"},
 	}
-	wantRedirect(t, h.postForm(t, path, builderFieldForm("save", steps...), false), http.StatusSeeOther, path)
-	body := h.get(t, path, false).Body.String()
+	wantRedirect(t, h.postForm(t, path, builderFieldForm("save", steps...), false), http.StatusSeeOther, path+"?status=saved")
 	bodyAt := func(index int) string {
 		return h.get(t, path+"?selected_step_index="+strconv.Itoa(index), false).Body.String()
 	}
-	cid := strconv.FormatInt(category.ID, 10)
-	savePost := `hx-post="/categories/` + cid + `/workflow"`
-	saveVals := `hx-vals='{"action":"save"}'`
-	saveInclude := `hx-include="closest form"`
 
-	t.Run("Save draft button is gone and copy says automatic", func(t *testing.T) {
-		if strings.Contains(body, "Save draft") || strings.Contains(body, `value="save"`) {
-			t.Errorf("visible Save draft button must be removed entirely, got: %s", body)
-		}
-		if !strings.Contains(body, "Select a step to configure it. Drag to reorder.") {
-			t.Errorf("helper copy must explain selection and reorder, got: %s", body)
-		}
-	})
-
-	t.Run("text controls autosave after 600ms without swapping the builder", func(t *testing.T) {
-		for _, tc := range []struct {
-			index int
-			name  string
-		}{{0, "step_0_instructions"}, {2, "step_2_field_0_label"}, {2, "step_2_field_0_options"}} {
-			tag := controlTag(t, bodyAt(tc.index), tc.name)
-			for _, want := range []string{
-				`hx-trigger="input changed delay:600ms"`,
-				savePost,
-				saveInclude,
-				saveVals,
-				`hx-swap="none"`,
-			} {
-				if !strings.Contains(tag, want) {
-					t.Errorf("text control %s must carry %q for no-swap 600ms autosave, got: %s", tc.name, want, tag)
-				}
-			}
-		}
-	})
-
-	t.Run("single select options use a native single-line input and semicolon transport", func(t *testing.T) {
-		tag := controlTag(t, bodyAt(2), "step_2_field_0_options")
-		if !strings.HasPrefix(tag, "<input") || !strings.Contains(tag, `type="text"`) || strings.Contains(tag, "<textarea") {
-			t.Fatalf("single select Options must be a native single-line text input, got: %s", tag)
-		}
+	t.Run("header exposes an explicit Save beside Publish without a standing Saved badge", func(t *testing.T) {
+		body := bodyAt(0)
 		for _, want := range []string{
-			`<label for="step_2_field_0_options">Options</label>`,
-			"Separate options with semicolons. Semicolons cannot be used in option names.",
-			`value="North; South, Buenos Aires, Argentina"`,
+			`<button class="page-action" type="submit" form="workflow-form" name="action" value="save">Save</button>`,
+			`hx-sync="this:queue last"`,
 		} {
-			if !strings.Contains(bodyAt(2), want) {
-				t.Errorf("single select builder must contain %q, got: %s", want, bodyAt(2))
+			if !strings.Contains(body, want) {
+				t.Errorf("builder header/form must contain %q, got: %s", want, body)
 			}
+		}
+		if strings.Contains(body, `class="page-status"`) || strings.Contains(body, `>Saved<`) {
+			t.Errorf("header must not show a standing Saved badge before any action, got: %s", body)
 		}
 	})
 
-	t.Run("discrete controls autosave immediately without swapping the builder", func(t *testing.T) {
-		for _, tc := range []struct {
-			index int
-			name  string
-		}{{1, "step_1_desk"}, {1, "step_1_strategy"}, {2, "step_2_actor"}, {2, "step_2_field_0_required"}} {
-			tag := controlTag(t, bodyAt(tc.index), tc.name)
-			for _, want := range []string{`hx-trigger="change"`, savePost, saveInclude, saveVals, `hx-swap="none"`} {
-				if !strings.Contains(tag, want) {
-					t.Errorf("discrete control %s must carry %q for immediate no-swap autosave, got: %s", tc.name, want, tag)
-				}
+	t.Run("editing controls submit nothing on their own and type stays hidden", func(t *testing.T) {
+		for _, name := range []string{"step_0_instructions", "step_1_desk", "step_1_strategy", "step_2_actor", "step_2_field_0_label", "step_2_field_0_options", "step_2_field_0_required", "step_3_type"} {
+			index, _ := strconv.Atoi(strings.Split(name, "_")[1])
+			tag := controlTag(t, bodyAt(index), name)
+			if strings.Contains(tag, "hx-post") || strings.Contains(tag, "hx-trigger") {
+				t.Errorf("control %s must not autosave, got: %s", name, tag)
 			}
-			if strings.Contains(tag, "delay:600ms") {
-				t.Errorf("discrete control %s must not debounce, got: %s", tc.name, tag)
-			}
+		}
+		if !strings.Contains(bodyAt(3), `type="submit" name="action" value="change_type"`) {
+			t.Errorf("terminal type must keep the no-JS Apply submitter, got: %s", bodyAt(3))
 		}
 	})
 
-	t.Run("structural Field Kind persists immediately and rerenders the builder fragment", func(t *testing.T) {
+	t.Run("field Kind re-renders via a non-persisting select_step request", func(t *testing.T) {
 		tag := controlTag(t, bodyAt(2), "step_2_field_0_kind")
 		for _, want := range []string{
 			`hx-trigger="change"`,
-			savePost,
-			saveInclude,
-			saveVals,
+			`hx-post="/categories/` + strconv.FormatInt(category.ID, 10) + `/workflow"`,
+			`hx-vals='{"action":"select_step","selection_step_index":"2"}'`,
 			`hx-target="#workflow-builder"`,
 			`hx-swap="outerHTML"`,
 		} {
 			if !strings.Contains(tag, want) {
-				t.Errorf("field Kind select must carry %q to persist and reveal/remove Options, got: %s", want, tag)
+				t.Errorf("field Kind select must carry %q to re-render Options without persisting, got: %s", want, tag)
 			}
 		}
-	})
-
-	t.Run("containing form queues requests so the final user action wins", func(t *testing.T) {
-		form := formOpenTag(t, body)
-		if !strings.Contains(form, `hx-sync="this:queue last"`) {
-			t.Errorf("builder form must inherit queue-last synchronization so a stale autosave cannot overwrite a later structural mutation, got: %s", form)
+		if strings.Contains(tag, `"action":"save"`) {
+			t.Errorf("field Kind select must not persist on change, got: %s", tag)
 		}
 	})
 
-	t.Run("selected step type is a hidden inert field, never a change submitter", func(t *testing.T) {
-		hidden := strings.Contains(bodyAt(0), `<input type="hidden" name="step_0_type"`)
-		if !hidden {
-			t.Errorf("selected step must carry its type as a hidden field, got: %s", bodyAt(0))
+	// One invalid publish draft drives both failure modes (HTMX and no-JS).
+	invalid := builderFieldForm("publish",
+		bstep{typ: "manual_task", manual: ""},
+		bstep{typ: "form", actor: "requester", fields: []bfield{{key: "k", label: "Keep me", kind: "short_text"}}},
+	)
+	invalid.Set("selected_step_index", "1")
+
+	t.Run("HTMX save and publish show exact tokens on success only", func(t *testing.T) {
+		rec := h.postForm(t, path, builderFieldForm("save", steps...), true)
+		if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `>Saved</p>`) {
+			t.Fatalf("HTMX save = %d, want 200 with exact Saved live message: %s", rec.Code, rec.Body.String())
 		}
-		if strings.Contains(bodyAt(0), `hx-vals='{"action":"change_type"}'`) || strings.Contains(bodyAt(0), `<select class="step-type"`) {
-			t.Errorf("type must not be editable or double-submitted via an autosave/change control, got: %s", bodyAt(0))
+		pub := h.postForm(t, path, builderFieldForm("publish", steps...), true)
+		if body := pub.Body.String(); pub.Code != http.StatusOK || !strings.Contains(body, `>Published</p>`) || strings.Contains(body, `role="alert"`) {
+			t.Errorf("HTMX publish = %d, want 200 with exact Published and no errors: %s", pub.Code, body)
+		}
+		rec = h.postForm(t, path, invalid, true)
+		body := rec.Body.String()
+		if rec.Code != http.StatusUnprocessableEntity || !strings.Contains(body, `role="alert"`) || strings.Contains(body, `data-workflow-live`) || !strings.Contains(body, `value="Keep me"`) {
+			t.Errorf("failed publish = %d, want 422 with errors, preserved values, no success feedback: %s", rec.Code, body)
+		}
+	})
+
+	t.Run("no-JS save and publish redirect and the GET renders the exact token", func(t *testing.T) {
+		if body := h.get(t, path+"?status=saved", false).Body.String(); !strings.Contains(body, `>Saved</p>`) {
+			t.Errorf("GET after no-JS save must visibly render exact Saved, got: %s", body)
+		}
+		pub := h.postForm(t, path, builderFieldForm("publish", steps...), false)
+		wantRedirect(t, pub, http.StatusSeeOther, path+"?status=published")
+		if body := h.get(t, pub.Header().Get("Location"), false).Body.String(); !strings.Contains(body, `>Published</p>`) {
+			t.Errorf("GET after no-JS publish must visibly render exact Published, got: %s", body)
+		}
+		for _, suffix := range []string{"?status=bogus", ""} {
+			if body := h.get(t, path+suffix, false).Body.String(); strings.Contains(body, `data-workflow-live`) {
+				t.Errorf("GET %q must not render a success status, got: %s", suffix, body)
+			}
+		}
+		if rec := h.postForm(t, path, invalid, false); rec.Code != http.StatusUnprocessableEntity || strings.Contains(rec.Body.String(), `data-workflow-live`) {
+			t.Errorf("failed no-JS publish = %d, want 422 without success feedback: %s", rec.Code, rec.Body.String())
 		}
 	})
 }
@@ -916,7 +897,7 @@ func TestCategoryWorkflowBuilder_ActionsWithIndexes(t *testing.T) {
 			t.Fatalf("create: %v", err)
 		}
 		path := "/categories/" + strconv.FormatInt(category.ID, 10) + "/workflow"
-		wantRedirect(t, h.postForm(t, path, builderFieldForm("save", buildingSteps()...), false), http.StatusSeeOther, path)
+		wantRedirect(t, h.postForm(t, path, builderFieldForm("save", buildingSteps()...), false), http.StatusSeeOther, path+"?status=saved")
 		f := builderFieldForm("move_up", buildingSteps()...)
 		f.Set("step_index", "1")
 		wantRedirect(t, h.postForm(t, path, f, false), http.StatusSeeOther, path)
@@ -934,7 +915,7 @@ func TestCategoryWorkflowBuilder_ActionsWithIndexes(t *testing.T) {
 			t.Fatalf("create: %v", err)
 		}
 		path := "/categories/" + strconv.FormatInt(category.ID, 10) + "/workflow"
-		wantRedirect(t, h.postForm(t, path, builderFieldForm("save", buildingSteps()...), false), http.StatusSeeOther, path)
+		wantRedirect(t, h.postForm(t, path, builderFieldForm("save", buildingSteps()...), false), http.StatusSeeOther, path+"?status=saved")
 		f := builderFieldForm("move_down", buildingSteps()...)
 		f.Set("step_index", "0")
 		wantRedirect(t, h.postForm(t, path, f, false), http.StatusSeeOther, path)
@@ -952,7 +933,7 @@ func TestCategoryWorkflowBuilder_ActionsWithIndexes(t *testing.T) {
 			t.Fatalf("create: %v", err)
 		}
 		path := "/categories/" + strconv.FormatInt(category.ID, 10) + "/workflow"
-		wantRedirect(t, h.postForm(t, path, builderFieldForm("save", buildingSteps()...), false), http.StatusSeeOther, path)
+		wantRedirect(t, h.postForm(t, path, builderFieldForm("save", buildingSteps()...), false), http.StatusSeeOther, path+"?status=saved")
 		f := builderFieldForm("remove_step", buildingSteps()...)
 		f.Set("step_index", "2")
 		wantRedirect(t, h.postForm(t, path, f, false), http.StatusSeeOther, path)
@@ -972,7 +953,7 @@ func TestCategoryWorkflowBuilder_ActionsWithIndexes(t *testing.T) {
 			t.Fatalf("create: %v", err)
 		}
 		path := "/categories/" + strconv.FormatInt(category.ID, 10) + "/workflow"
-		wantRedirect(t, h.postForm(t, path, builderFieldForm("save", buildingSteps()...), false), http.StatusSeeOther, path)
+		wantRedirect(t, h.postForm(t, path, builderFieldForm("save", buildingSteps()...), false), http.StatusSeeOther, path+"?status=saved")
 		f := builderFieldForm("change_type", buildingSteps()...)
 		f.Set("step_index", "0")
 		f.Set("step_0_type", "assign_to_desk")
@@ -997,7 +978,7 @@ func TestCategoryWorkflowBuilder_ActionsWithIndexes(t *testing.T) {
 			t.Fatalf("create: %v", err)
 		}
 		path := "/categories/" + strconv.FormatInt(category.ID, 10) + "/workflow"
-		wantRedirect(t, h.postForm(t, path, builderFieldForm("save", buildingSteps()...), false), http.StatusSeeOther, path)
+		wantRedirect(t, h.postForm(t, path, builderFieldForm("save", buildingSteps()...), false), http.StatusSeeOther, path+"?status=saved")
 		f := builderFieldForm("add_field", buildingSteps()...)
 		f.Set("step_index", "1")
 		wantRedirect(t, h.postForm(t, path, f, false), http.StatusSeeOther, path)
@@ -1015,7 +996,7 @@ func TestCategoryWorkflowBuilder_ActionsWithIndexes(t *testing.T) {
 			t.Fatalf("create: %v", err)
 		}
 		path := "/categories/" + strconv.FormatInt(category.ID, 10) + "/workflow"
-		wantRedirect(t, h.postForm(t, path, builderFieldForm("save", buildingSteps()...), false), http.StatusSeeOther, path)
+		wantRedirect(t, h.postForm(t, path, builderFieldForm("save", buildingSteps()...), false), http.StatusSeeOther, path+"?status=saved")
 		f := builderFieldForm("remove_field", buildingSteps()...)
 		f.Set("step_index", "1")
 		f.Set("field_index", "0")
@@ -1139,7 +1120,7 @@ func TestCategoryWorkflowBuilder_FieldBasedPreviewAndPublish(t *testing.T) {
 			{typ: "manual_task", manual: "do it"},
 			{typ: "assign_to_desk", desk: strconv.FormatInt(desk.ID, 10), strategy: "claim"},
 		}
-		wantRedirect(t, h.postForm(t, path, builderFieldForm("publish", valid...), false), http.StatusSeeOther, path)
+		wantRedirect(t, h.postForm(t, path, builderFieldForm("publish", valid...), false), http.StatusSeeOther, path+"?status=published")
 		db := h.rawDB(t)
 		if n := scanOneInt(t, db, "SELECT COUNT(*) FROM workflow_versions WHERE category_id=?", category.ID); n != 1 {
 			t.Fatalf("published version rows = %d, want 1", n)
@@ -1462,7 +1443,7 @@ func TestCategoryWorkflowBuilder_TypedAddPopoverMarkup(t *testing.T) {
 		t.Fatalf("create: %v", err)
 	}
 	path := "/categories/" + strconv.FormatInt(category.ID, 10) + "/workflow"
-	wantRedirect(t, h.postForm(t, path, builderFieldForm("save", bstep{typ: "manual_task", manual: "seed"}), false), http.StatusSeeOther, path)
+	wantRedirect(t, h.postForm(t, path, builderFieldForm("save", bstep{typ: "manual_task", manual: "seed"}), false), http.StatusSeeOther, path+"?status=saved")
 	body := h.get(t, path, false).Body.String()
 	if !strings.Contains(body, `class="workflow-add-popover"`) || !strings.Contains(body, `<summary class="btn ghost">+ Add step</summary>`) {
 		t.Fatalf("builder must render the anchored + Add step popover, got: %s", body)
@@ -1501,7 +1482,7 @@ func TestCategoryWorkflowBuilder_TypedAddTerminalProtection(t *testing.T) {
 	}
 	path := "/categories/" + strconv.FormatInt(category.ID, 10) + "/workflow"
 	steps := []bstep{{typ: "manual_task", manual: "first"}, {typ: "close_ticket"}}
-	wantRedirect(t, h.postForm(t, path, builderFieldForm("save", steps...), false), http.StatusSeeOther, path)
+	wantRedirect(t, h.postForm(t, path, builderFieldForm("save", steps...), false), http.StatusSeeOther, path+"?status=saved")
 	body := h.get(t, path, false).Body.String()
 	if !strings.Contains(body, `class="workflow-add-popover"`) {
 		t.Errorf("final draft must still offer the Add step popover, got: %s", body)
@@ -1549,7 +1530,7 @@ func TestCategoryWorkflowBuilder_TypedAddTerminalProtection(t *testing.T) {
 				t.Errorf("%s: insert must land directly before the final step, got %+v", tc.name, def)
 			}
 			// Reset to the two-step baseline for the next case.
-			wantRedirect(t, h.postForm(t, path, builderFieldForm("save", steps...), false), http.StatusSeeOther, path)
+			wantRedirect(t, h.postForm(t, path, builderFieldForm("save", steps...), false), http.StatusSeeOther, path+"?status=saved")
 		})
 	}
 }
@@ -1565,7 +1546,7 @@ func TestCategoryWorkflowBuilder_MenuLabelsHorizontal(t *testing.T) {
 	}
 	path := "/categories/" + strconv.FormatInt(category.ID, 10) + "/workflow"
 	steps := []bstep{{typ: "manual_task", manual: "a"}, {typ: "manual_task", manual: "b"}}
-	wantRedirect(t, h.postForm(t, path, builderFieldForm("save", steps...), false), http.StatusSeeOther, path)
+	wantRedirect(t, h.postForm(t, path, builderFieldForm("save", steps...), false), http.StatusSeeOther, path+"?status=saved")
 	body := h.get(t, path, false).Body.String()
 	if !strings.Contains(body, ">Move left</button>") || !strings.Contains(body, ">Move right</button>") {
 		t.Errorf("menu must label horizontal actions Move left/Move right, got: %s", body)
@@ -1607,7 +1588,7 @@ func TestCategoryWorkflowBuilder_PolishFormAndFinalEditors(t *testing.T) {
 		t.Fatalf("create: %v", err)
 	}
 	path := "/categories/" + strconv.FormatInt(category.ID, 10) + "/workflow"
-	wantRedirect(t, h.postForm(t, path, builderFieldForm("save", buildingSteps()...), false), http.StatusSeeOther, path)
+	wantRedirect(t, h.postForm(t, path, builderFieldForm("save", buildingSteps()...), false), http.StatusSeeOther, path+"?status=saved")
 	// Form editor (index 1): Fields header + right-aligned Add field + compact
 	// field row holding Label, Kind, Required, and a field menu with Remove field;
 	// no visible Type selector.
@@ -1655,7 +1636,7 @@ func TestCategoryWorkflowBuilder_ThreeDotTriggerPolish(t *testing.T) {
 		{typ: "manual_task", manual: "a"},
 		{typ: "form", actor: "requester", fields: []bfield{{key: "f0", label: "Text", kind: "short_text"}}},
 	}
-	wantRedirect(t, h.postForm(t, path, builderFieldForm("save", steps...), false), http.StatusSeeOther, path)
+	wantRedirect(t, h.postForm(t, path, builderFieldForm("save", steps...), false), http.StatusSeeOther, path+"?status=saved")
 	body := h.get(t, path+"?selected_step_index=1", false).Body.String()
 	// Both rail steps and the selected form's field share one trigger class;
 	// each carries its contextual accessible name and the centered glyph.
@@ -1701,7 +1682,7 @@ func TestCategoryWorkflowBuilder_ThreeDotTriggerPolish(t *testing.T) {
 		t.Fatalf("create terminal category: %v", err)
 	}
 	tpath := "/categories/" + strconv.FormatInt(terminal.ID, 10) + "/workflow"
-	wantRedirect(t, h.postForm(t, tpath, builderFieldForm("save", []bstep{{typ: "close_ticket"}}...), false), http.StatusSeeOther, tpath)
+	wantRedirect(t, h.postForm(t, tpath, builderFieldForm("save", []bstep{{typ: "close_ticket"}}...), false), http.StatusSeeOther, tpath+"?status=saved")
 	tbody := h.get(t, tpath, false).Body.String()
 	if got := strings.Count(tbody, `class="workflow-step-menu"`); got != 0 {
 		t.Errorf("terminal-only draft must render no step menu, got %d", got)
@@ -1733,7 +1714,7 @@ func TestCategoryWorkflowBuilder_TerminalSelect(t *testing.T) {
 	}
 	path := "/categories/" + strconv.FormatInt(category.ID, 10) + "/workflow"
 	steps := []bstep{{typ: "manual_task", manual: "a"}, {typ: "close_ticket"}}
-	wantRedirect(t, h.postForm(t, path, builderFieldForm("save", steps...), false), http.StatusSeeOther, path)
+	wantRedirect(t, h.postForm(t, path, builderFieldForm("save", steps...), false), http.StatusSeeOther, path+"?status=saved")
 	body := h.get(t, path+"?selected_step_index=1", false).Body.String()
 	for _, want := range []string{`name="step_1_type"`, `value="resolve_ticket"`, `value="close_ticket"`, `>Close ticket</option>`} {
 		if !strings.Contains(body, want) {
@@ -1763,7 +1744,7 @@ func TestCategoryWorkflowBuilder_KeyboardActionFallbacks(t *testing.T) {
 		}
 		path := "/categories/" + strconv.FormatInt(category.ID, 10) + "/workflow"
 		steps := []bstep{{typ: "manual_task", manual: "a"}, {typ: "manual_task", manual: "b"}, {typ: "manual_task", manual: "c"}}
-		wantRedirect(t, h.postForm(t, path, builderFieldForm("save", steps...), false), http.StatusSeeOther, path)
+		wantRedirect(t, h.postForm(t, path, builderFieldForm("save", steps...), false), http.StatusSeeOther, path+"?status=saved")
 		body := h.get(t, path+"?selected_step_index=1", false).Body.String()
 		for _, action := range []string{"move_up", "move_down", "remove_step"} {
 			if !strings.Contains(body, `type="submit" name="action" value="`+action+`"`) || !strings.Contains(body, `formaction="`+path+`?step_index=`) || !strings.Contains(body, `hx-post="`+path+`?step_index=`) {
@@ -1783,7 +1764,7 @@ func TestCategoryWorkflowBuilder_KeyboardActionFallbacks(t *testing.T) {
 		}
 		path := "/categories/" + strconv.FormatInt(category.ID, 10) + "/workflow"
 		steps := []bstep{{typ: "manual_task", manual: "a"}, {typ: "manual_task", manual: "b"}, {typ: "manual_task", manual: "c"}}
-		wantRedirect(t, h.postForm(t, path, builderFieldForm("save", steps...), false), http.StatusSeeOther, path)
+		wantRedirect(t, h.postForm(t, path, builderFieldForm("save", steps...), false), http.StatusSeeOther, path+"?status=saved")
 		f := builderFieldForm("remove_step", steps...)
 		f.Set("step_index", "1")
 		f.Set("selected_step_index", "1")
@@ -1809,7 +1790,7 @@ func TestCategoryWorkflowBuilder_KeyboardActionFallbacks(t *testing.T) {
 			t.Fatalf("create: %v", err)
 		}
 		path := "/categories/" + strconv.FormatInt(category.ID, 10) + "/workflow"
-		wantRedirect(t, h.postForm(t, path, builderFieldForm("save", bstep{typ: "manual_task", manual: "only"}), false), http.StatusSeeOther, path)
+		wantRedirect(t, h.postForm(t, path, builderFieldForm("save", bstep{typ: "manual_task", manual: "only"}), false), http.StatusSeeOther, path+"?status=saved")
 		f := builderFieldForm("remove_step", bstep{typ: "manual_task", manual: "only"})
 		f.Set("step_index", "0")
 		f.Set("selected_step_index", "0")
@@ -1839,7 +1820,7 @@ func TestCategoryWorkflowBuilder_DragReorder(t *testing.T) {
 		}
 		path := "/categories/" + strconv.FormatInt(category.ID, 10) + "/workflow"
 		steps := []bstep{{typ: "manual_task", manual: "first"}, {typ: "manual_task", manual: "second"}, {typ: "manual_task", manual: "third"}}
-		wantRedirect(t, h.postForm(t, path, builderFieldForm("save", steps...), false), http.StatusSeeOther, path)
+		wantRedirect(t, h.postForm(t, path, builderFieldForm("save", steps...), false), http.StatusSeeOther, path+"?status=saved")
 		f := builderFieldForm("reorder", steps...)
 		f.Set("source_index", "0")
 		f.Set("target_index", "2")
@@ -1869,7 +1850,7 @@ func TestCategoryWorkflowBuilder_DragReorder(t *testing.T) {
 		}
 		path := "/categories/" + strconv.FormatInt(category.ID, 10) + "/workflow"
 		steps := []bstep{{typ: "manual_task", manual: "first"}, {typ: "manual_task", manual: "second"}}
-		wantRedirect(t, h.postForm(t, path, builderFieldForm("save", steps...), false), http.StatusSeeOther, path)
+		wantRedirect(t, h.postForm(t, path, builderFieldForm("save", steps...), false), http.StatusSeeOther, path+"?status=saved")
 		f := builderFieldForm("reorder", steps...)
 		f.Set("source_index", "1")
 		f.Set("target_index", "0")
@@ -1899,7 +1880,7 @@ func TestCategoryWorkflowBuilder_DragReorder(t *testing.T) {
 					t.Fatalf("create: %v", err)
 				}
 				path := "/categories/" + strconv.FormatInt(category.ID, 10) + "/workflow"
-				wantRedirect(t, h.postForm(t, path, builderFieldForm("save", steps...), false), http.StatusSeeOther, path)
+				wantRedirect(t, h.postForm(t, path, builderFieldForm("save", steps...), false), http.StatusSeeOther, path+"?status=saved")
 				before := h.persistedDefinition(t, path)
 				f := builderFieldForm("reorder", steps...)
 				f.Set("source_index", tc.source)
@@ -1926,7 +1907,7 @@ func TestCategoryWorkflowBuilder_DragReorder(t *testing.T) {
 		}
 		path := "/categories/" + strconv.FormatInt(category.ID, 10) + "/workflow"
 		steps := []bstep{{typ: "manual_task", manual: "before"}, {typ: "close_ticket"}, {typ: "form", actor: "requester", fields: []bfield{{key: "after", label: "After", kind: "short_text"}}}}
-		wantRedirect(t, h.postForm(t, path, builderFieldForm("save", steps...), false), http.StatusSeeOther, path)
+		wantRedirect(t, h.postForm(t, path, builderFieldForm("save", steps...), false), http.StatusSeeOther, path+"?status=saved")
 		before := h.persistedDefinition(t, path)
 		f := builderFieldForm("reorder", steps...)
 		f.Set("source_index", "2")
@@ -1951,7 +1932,7 @@ func TestCategoryWorkflowBuilder_DragMarkup(t *testing.T) {
 		t.Fatalf("create: %v", err)
 	}
 	path := "/categories/" + strconv.FormatInt(category.ID, 10) + "/workflow"
-	wantRedirect(t, h.postForm(t, path, builderFieldForm("save", buildingSteps()...), false), http.StatusSeeOther, path)
+	wantRedirect(t, h.postForm(t, path, builderFieldForm("save", buildingSteps()...), false), http.StatusSeeOther, path+"?status=saved")
 	body := h.get(t, path, false).Body.String()
 	for _, want := range []string{`class="workflow-drag-handle" draggable="true" aria-label="Drag step 1"`, `class="workflow-drag-handle" draggable="true" aria-label="Drag step 2"`} {
 		if !strings.Contains(body, want) {
@@ -2043,7 +2024,7 @@ func TestCategoryWorkflowBuilder_CheckboxRequiredSemantics(t *testing.T) {
 			{key: "f2", label: "Pick", kind: "single_select", options: "A; B", required: true},
 		}},
 	}
-	wantRedirect(t, h.postForm(t, path, builderFieldForm("save", steps...), false), http.StatusSeeOther, path)
+	wantRedirect(t, h.postForm(t, path, builderFieldForm("save", steps...), false), http.StatusSeeOther, path+"?status=saved")
 	def := h.persistedDefinition(t, path)
 	if !def[1].Form.Fields[0].Required || def[1].Form.Fields[1].Required || !def[1].Form.Fields[2].Required {
 		t.Fatalf("checkbox required must normalize to false while text/select keep required, got %+v", def[1].Form.Fields)
@@ -2066,7 +2047,7 @@ func TestCategoryWorkflowBuilder_CheckboxRequiredSemantics(t *testing.T) {
 	changed := builderFieldForm("save", steps...)
 	changed.Set("step_1_field_0_kind", "checkbox")
 	changed.Set("step_1_field_0_required", "on")
-	wantRedirect(t, h.postForm(t, path, changed, false), http.StatusSeeOther, path)
+	wantRedirect(t, h.postForm(t, path, changed, false), http.StatusSeeOther, path+"?status=saved")
 	after := h.persistedDefinition(t, path)
 	if after[1].Form.Fields[0].Kind != domain.FieldCheckbox || after[1].Form.Fields[0].Required {
 		t.Errorf("text->checkbox must clear required, got %+v", after[1].Form.Fields[0])

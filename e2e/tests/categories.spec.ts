@@ -19,7 +19,7 @@ import {
   assertCanonicalScreen,
   collectObservability,
 } from "./helpers/layout.js";
-import { assertHtmxNoSwap, assertHtmxSwap } from "./helpers/htmx.js";
+import { assertHtmxSwap } from "./helpers/htmx.js";
 import {
   createCategoryViaUi,
   createTicketViaUi,
@@ -1024,32 +1024,40 @@ name: "Leave without saving?",
       /added a step/i,
     );
 
-    // Configure the newly added manual_task step — instructions are required for publish
+    // Editing must not autosave: no workflow POST may fire from input alone
     const instructionsInput = page.getByLabel(/instructions/i);
     await expect(instructionsInput).toBeVisible({ timeout: 10000 });
-    await expect(instructionsInput).toHaveAttribute(
-      "hx-trigger",
-      "input changed delay:600ms",
+    let autosaved = false;
+    const onAutosave = (request: Request) => {
+      autosaved ||=
+        request.method() === "POST" &&
+        new URL(request.url()).pathname ===
+          `/categories/${categoryId}/workflow`;
+    };
+    page.on("request", onAutosave);
+    await instructionsInput.fill("Handle the ticket");
+    await page.waitForTimeout(700);
+    page.off("request", onAutosave);
+    expect(autosaved, "editing must not issue autosave requests").toBe(false);
+
+    // Explicit Save submits the complete draft and confirms persistence
+    const saveButton = page.locator(
+      '.page-actions button[name="action"][value="save"]',
     );
-    await expect(instructionsInput).toHaveAttribute("hx-swap", "none");
-    await assertHtmxNoSwap(
+    await expect(saveButton).toBeVisible();
+    await assertHtmxSwap(
       page,
       async () => {
-        await instructionsInput.fill("Handle the ticket");
+        await saveButton.click();
       },
       {
-        endpoint: (url) => {
-          const parsedURL = new URL(url);
-          return (
-            parsedURL.pathname === `/categories/${categoryId}/workflow` &&
-            parsedURL.search === ""
-          );
-        },
+        endpoint: `/categories/${categoryId}/workflow`,
         method: "POST",
         expectedStatus: 200,
+        hxTarget: "#workflow-builder",
       },
     );
-    await expect(page.locator("#workflow-builder")).toBeVisible();
+    await expect(page.locator("[data-workflow-live]")).toHaveText("Saved");
 
     // Remove step unconditionally (prove removal works)
     const countBeforeRemove = await cards.count();
@@ -1111,47 +1119,7 @@ name: "Leave without saving?",
     await expect(cards).toHaveCount(1);
     const instr = page.getByLabel(/instructions/i);
     await expect(instr).toBeVisible();
-    await expect(instr).toHaveAttribute(
-      "hx-trigger",
-      "input changed delay:600ms",
-    );
-    await expect(instr).toHaveAttribute("hx-swap", "none");
-    if ((await instr.inputValue()) === "Handle the ticket") {
-      await assertHtmxNoSwap(
-        page,
-        async () => {
-          await instr.fill("Handle the ticket draft");
-        },
-        {
-          endpoint: (url) => {
-            const parsedURL = new URL(url);
-            return (
-              parsedURL.pathname === `/categories/${categoryId}/workflow` &&
-              parsedURL.search === ""
-            );
-          },
-          method: "POST",
-          expectedStatus: 200,
-        },
-      );
-    }
-    await assertHtmxNoSwap(
-      page,
-      async () => {
-        await instr.fill("Handle the ticket");
-      },
-      {
-        endpoint: (url) => {
-          const parsedURL = new URL(url);
-          return (
-            parsedURL.pathname === `/categories/${categoryId}/workflow` &&
-            parsedURL.search === ""
-          );
-        },
-        method: "POST",
-        expectedStatus: 200,
-      },
-    );
+    await instr.fill("Handle the ticket");
 
     // 4) PUBLISH — must execute publication, not just check button exists
     const publishBtn = page.getByRole("button", { name: /publish/i });
@@ -1169,6 +1137,7 @@ name: "Leave without saving?",
       },
     );
     expect(publishResp.status()).toBe(200);
+    await expect(page.locator("[data-workflow-live]")).toHaveText("Published");
     // After publish, no inline errors
     await expect(page.locator(".error-banner, [role='alert']")).toHaveCount(0);
 
