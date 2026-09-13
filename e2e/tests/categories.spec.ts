@@ -1348,4 +1348,209 @@ name: "Leave without saving?",
       failedResponses: obs.failedResponses,
     });
   });
+
+  test.describe("Workflow dirty structural guard", () => {
+    function trackPosts(page: Page): string[] {
+      const actions: string[] = [];
+      page.on("request", (request) => {
+        if (request.method() !== "POST" || !/\/categories\/\d+\/workflow/.test(new URL(request.url()).pathname)) return;
+        actions.push(request.postData()?.match(/(?:^|&)action=([^&]*)/)?.[1] ?? "");
+      });
+      return actions;
+    }
+    async function seedWorkflow(page: Page, steps: string[]): Promise<string> {
+      await page.setViewportSize({ width: 1280, height: 800 });
+      await page.goto(base() + "/categories/new");
+      if (page.url().includes("/login")) await loginAsSeeded(page);
+      const categoryId = await createCategoryViaUi(page, "Guard " + Date.now().toString(36) + steps.length);
+      await page.goto(base() + `/categories/${categoryId}/workflow`);
+      await expect(page.locator("#workflow-builder")).toBeVisible();
+      for (const step of steps) {
+        await page.locator(".workflow-add-step summary").first().click();
+        const filter = step === "manual_task" ? /manual task/i : step === "form" ? /^form$/i : step === "close_ticket" ? /close ticket/i : /resolve ticket/i;
+        await page.locator(".workflow-add-options button").filter({ hasText: filter }).first().click();
+        await expect(page.locator(".workflow-add-options")).not.toBeVisible();
+      }
+      return categoryId;
+    }
+    async function selectCard(page: Page, index: number): Promise<void> {
+      const responsePromise = page.waitForResponse((r) => r.request().method() === "POST" && r.url().includes("/workflow") && (r.request().postData() ?? "").includes("action=select_step"));
+      await page.locator(".workflow-step-card .workflow-step-card-link").nth(index).click();
+      await expect((await responsePromise).status()).toBe(200);
+      await page.waitForTimeout(200);
+    }
+    async function openMenu(menu: ReturnType<Page["locator"]>): Promise<void> {
+      if (await menu.isVisible().catch(() => false)) return;
+      await menu.locator("..").locator("summary").click();
+    }
+    const triggers: Record<string, (page: Page, categoryId: string) => Promise<void>> = {
+      add_step: async (page) => {
+        const manualButton = page.locator(".workflow-add-options button").filter({ hasText: /manual task/i }).first();
+        if (!(await manualButton.isVisible().catch(() => false))) await page.locator(".workflow-add-step summary").first().click();
+        await manualButton.click();
+      },
+      remove_step: async (page) => {
+        const card = page.locator(".workflow-step-card").last();
+        await openMenu(card.locator(".workflow-step-menu-actions"));
+        await card.getByRole("button", { name: /remove step/i }).click();
+      },
+      move_up: async (page) => {
+        const card = page.locator(".workflow-step-card").nth(1);
+        await openMenu(card.locator(".workflow-step-menu-actions"));
+        await card.getByRole("button", { name: /move left/i }).click();
+      },
+      move_down: async (page) => {
+        const card = page.locator(".workflow-step-card").first();
+        await openMenu(card.locator(".workflow-step-menu-actions"));
+        await card.getByRole("button", { name: /move right/i }).click();
+      },
+      reorder: async (page) => {
+        // The drag listeners funnel the drop into the hidden reorder submitter.
+        await page.evaluate(() => {
+          const transfer = new DataTransfer();
+          const handle = document.querySelectorAll(".workflow-drag-handle")[0];
+          const target = document.querySelectorAll(".workflow-step-card")[1];
+          const at = { bubbles: true, dataTransfer: transfer, clientX: target.getBoundingClientRect().right - 10 };
+          handle.dispatchEvent(new DragEvent("dragstart", { bubbles: true, dataTransfer: transfer }));
+          target.dispatchEvent(new DragEvent("dragover", at));
+          target.dispatchEvent(new DragEvent("drop", at));
+        });
+      },
+      add_field: async (page) => {
+        await page.getByRole("button", { name: "+ Add field" }).click();
+      },
+      remove_field: async (page) => {
+        await openMenu(page.locator(".workflow-field-menu-actions"));
+        await page.locator(".workflow-field-menu-actions button").click();
+      },
+      change_type: async (page, categoryId) => {
+        // change_type's Apply is no-JS-only; htmx carries the action of the last
+        // clicked submit button, so a clicked change_type submitter (actual
+        // submit grammar, non-rendered control) proves the request-level guard.
+        await page.evaluate((id) => {
+          const form = document.querySelector("#workflow-form");
+          const submitter = document.createElement("button");
+          submitter.type = "submit";
+          submitter.name = "action";
+          submitter.value = "change_type";
+          submitter.hidden = true;
+          submitter.setAttribute("formaction", `/categories/${id}/workflow?step_index=1`);
+          form.append(submitter);
+          submitter.click();
+        }, categoryId);
+      },
+    };
+    const fixtures: Array<{ action: string; steps: string[]; select: number; dirty: (page: Page) => Promise<void> }> = [
+      { action: "add_step", steps: ["manual_task", "form"], select: 0, dirty: async (page) => { await page.getByLabel(/^instructions/i).fill("DIRTY-add_step"); } },
+      { action: "remove_step", steps: ["manual_task", "form"], select: 0, dirty: async (page) => { await page.getByLabel(/^instructions/i).fill("DIRTY-remove_step"); } },
+      { action: "move_up", steps: ["manual_task", "form"], select: 0, dirty: async (page) => { await page.getByLabel(/^instructions/i).fill("DIRTY-move_up"); } },
+      { action: "move_down", steps: ["manual_task", "form"], select: 0, dirty: async (page) => { await page.getByLabel(/^instructions/i).fill("DIRTY-move_down"); } },
+      { action: "reorder", steps: ["manual_task", "form"], select: 0, dirty: async (page) => { await page.getByLabel(/^instructions/i).fill("DIRTY-reorder"); } },
+      { action: "add_field", steps: ["form"], select: 0, dirty: async (page) => { await page.locator(".workflow-field-required input").check(); } },
+      { action: "remove_field", steps: ["form"], select: 0, dirty: async (page) => { await page.getByLabel(/^label$/i).fill("DIRTY-remove_field"); } },
+      { action: "change_type", steps: ["manual_task", "close_ticket"], select: 1, dirty: async (page) => { await page.getByLabel(/^final type$/i).selectOption("resolve_ticket"); } },
+    ];
+
+    test("all 8 structural actions prompt when dirty and Cancel sends no POST", async ({ page }) => {
+      test.setTimeout(240_000);
+      for (const fixture of fixtures) {
+        const categoryId = await seedWorkflow(page, fixture.steps);
+        if (["add_field", "remove_field"].includes(fixture.action)) { await triggers.add_field(page, categoryId); await expect(page.locator(".workflow-field-row")).toHaveCount(1); }
+        await selectCard(page, fixture.select);
+        const posts = trackPosts(page);
+        const dialog = page.locator("#workflow-dirty-dialog");
+        await fixture.dirty(page);
+        await triggers[fixture.action](page, categoryId);
+        await expect(dialog).toBeVisible();
+        for (const choice of ["Save and continue", "Discard and continue", "Cancel"]) {
+          await expect(dialog.getByRole("button", { name: choice })).toBeVisible();
+        }
+        await page.waitForTimeout(300);
+        expect(posts.filter((a) => a === fixture.action)).toEqual([]);
+        await dialog.getByRole("button", { name: "Cancel" }).click();
+        await expect(dialog).not.toBeVisible();
+        await page.waitForTimeout(300);
+        expect(posts.filter((a) => a === fixture.action)).toEqual([]);
+      }
+    });
+
+    test("Save and continue persists first, then the action runs once", async ({ page }) => {
+      const categoryId = await seedWorkflow(page, ["manual_task"]);
+      await selectCard(page, 0);
+      const posts = trackPosts(page);
+      const dialog = page.locator("#workflow-dirty-dialog");
+      await page.getByLabel(/^instructions/i).fill("SAVED-FIRST");
+      await triggers.add_step(page, categoryId);
+      await expect(dialog).toBeVisible();
+      await dialog.getByRole("button", { name: "Save and continue" }).click();
+      await expect.poll(() => posts).toEqual(["save", "add_step"]);
+      await expect(page.locator(".workflow-step-card")).toHaveCount(2);
+      await page.reload();
+      await selectCard(page, 0);
+      await expect(page.getByLabel(/^instructions/i)).toHaveValue("SAVED-FIRST");
+    });
+
+    test("carried dirty survives select_step and Discard+continue restores persisted values", async ({ page }) => {
+      const categoryId = await seedWorkflow(page, ["manual_task", "form"]);
+      await triggers.add_field(page, categoryId);
+      await expect(page.locator(".workflow-field-row")).toHaveCount(1);
+      await selectCard(page, 0);
+      const posts = trackPosts(page);
+      const dialog = page.locator("#workflow-dirty-dialog");
+      await page.getByLabel(/^instructions/i).fill("CARRIED-EDIT");
+      await selectCard(page, 1);
+      await expect(page.getByLabel(/^label$/i)).toHaveValue("");
+      await triggers.reorder(page, categoryId);
+      await expect(dialog).toBeVisible();
+      await dialog.getByRole("button", { name: "Discard and continue" }).click();
+      await expect.poll(() => posts).toEqual(["select_step", "reorder"]);
+      await expect(page.locator(".workflow-step-card").first()).toContainText(/form/i);
+      await page.reload();
+      await expect(page.locator(".workflow-step-card").first()).toContainText(/form/i);
+      await selectCard(page, 1);
+      await expect(page.getByLabel(/^instructions/i)).toHaveValue("");
+    });
+
+    test("Escape restores focus and the dialog is styled at 390px", async ({ page }) => {
+      await page.setViewportSize({ width: 390, height: 844 });
+      await seedWorkflow(page, ["manual_task"]);
+      await selectCard(page, 0);
+      const dialog = page.locator("#workflow-dirty-dialog");
+      await page.getByLabel(/^instructions/i).fill("DIRTY-escape");
+      const addManual = page.locator(".workflow-add-options button").filter({ hasText: /manual task/i }).first();
+      await page.locator(".workflow-add-step summary").first().click();
+      await addManual.click();
+      await expect(dialog).toBeVisible();
+      await expect(dialog).toHaveCSS("border-radius", "12px");
+      await expect(dialog.getByRole("button", { name: "Discard and continue" })).toHaveCSS("background-color", "rgb(141, 57, 72)");
+      await page.keyboard.press("Escape");
+      await expect(dialog).not.toBeVisible();
+      await expect(addManual).toBeFocused();
+    });
+
+    test("a failed save stays dirty and never replays the action", async ({ page }) => {
+      await seedWorkflow(page, ["manual_task"]);
+      await selectCard(page, 0);
+      await page.route("**/workflow", async (route) => {
+        const save = route.request().method() === "POST" && (route.request().postData() ?? "").includes("action=save");
+        return save ? route.abort() : route.continue();
+      });
+      const posts = trackPosts(page);
+      const dialog = page.locator("#workflow-dirty-dialog");
+      await page.getByLabel(/^instructions/i).fill("KEPT-DIRTY");
+      await triggers.add_step(page, "0");
+      await expect(dialog).toBeVisible();
+      await dialog.getByRole("button", { name: "Save and continue" }).click();
+      await expect(dialog).not.toBeVisible();
+      await page.waitForTimeout(300);
+      expect(posts.filter((a) => a === "add_step")).toEqual([]);
+      await expect(page.getByLabel(/^instructions/i)).toHaveValue("KEPT-DIRTY");
+      await triggers.add_step(page, "0");
+      await expect(dialog).toBeVisible();
+      await dialog.getByRole("button", { name: "Cancel" }).click();
+      await page.waitForTimeout(300);
+      expect(posts.filter((a) => a === "add_step")).toEqual([]);
+    });
+  });
+
 });

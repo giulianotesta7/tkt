@@ -11,6 +11,15 @@
       <button class="page-action page-action-primary" type="submit" form="workflow-form" name="action" value="publish">Publish</button>
     </div>
   </header>
-  {{template "workflow_builder" .}}
-</div>
+      {{template "workflow_builder" .}}
+      <dialog id="workflow-dirty-dialog" aria-labelledby="workflow-dirty-dialog-title" aria-describedby="workflow-dirty-dialog-copy">
+        <h2 id="workflow-dirty-dialog-title">Save your workflow changes?</h2>
+        <p id="workflow-dirty-dialog-copy">This structural action needs a decision about your unsaved workflow edits.</p>
+        <div>
+          <button type="button" data-workflow-save-continue>Save and continue</button>
+          <button type="button" data-workflow-discard-continue>Discard and continue</button>
+          <button type="button" data-workflow-cancel>Cancel</button>
+        </div>
+      </dialog>
+    </div>
 {{end}}
