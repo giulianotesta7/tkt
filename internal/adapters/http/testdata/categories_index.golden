@@ -555,6 +555,14 @@
 <a class="btn primary category-drawer-launcher" href="/categories/new?view=structure" hx-get="/categories/new?view=structure" hx-target="#category-drawer-host" hx-swap="outerHTML" hx-push-url="/categories/new?view=structure">New category</a>
   </nav>
 
+<form class="category-search search-field" method="get" action="/categories" role="search">
+  <label class="visually-hidden" for="category-search">Search departments, desks, or categories</label>
+  <svg class="search-icon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4 4"/></svg>
+  <input id="category-search" type="search" name="q" value="" placeholder="Search departments, desks, or categories" autocomplete="off">
+  <input type="hidden" name="view" value="">
+  <button class="visually-hidden" type="submit">Search</button>
+</form>
+
   <div class="category-structure" aria-label="Catalog structure">
     <section class="category-level category-level-departments is-current" aria-labelledby="departments-title">
       <header><div><p class="category-level-eyebrow">Departments</p><h2 id="departments-title">Departments</h2></div><a class="btn primary category-level-action category-drawer-launcher" data-focus-key="new-department" href="/categories/departments/new?view=structure" hx-get="/categories/departments/new?view=structure" hx-target="#category-drawer-host" hx-swap="outerHTML" hx-push-url="/categories/departments/new?view=structure">New department</a></header>

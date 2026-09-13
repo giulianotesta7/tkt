@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"strings"
 
 	"github.com/giulianotesta7/tkt/internal/application"
 	"github.com/giulianotesta7/tkt/internal/domain"
@@ -77,6 +78,9 @@ type categoriesIndexData struct {
 	StructureCategories  []catalogCategoryRow
 	SelectedDepartmentID int64
 	SelectedDeskID       int64
+	SearchQuery          string
+	SearchClearURL       string
+	SearchResults        []categorySearchResult
 	Drawer               *categoryDrawerData
 }
 
@@ -93,6 +97,14 @@ type catalogCategoryRow struct {
 	DepartmentName string
 	DeskName       string
 	HierarchyPath  string
+}
+
+type categorySearchResult struct {
+	Kind     string
+	Type     string
+	Name     string
+	Path     string
+	Location string
 }
 
 type categoryViewState struct {
@@ -478,7 +490,7 @@ func (h *CategoryHandlers) categoryIndexData(r *http.Request, message string) (c
 	if err != nil {
 		return categoriesIndexData{}, err
 	}
-	data := categoriesIndexData{pageData: pageDataFrom(r, "categories"), Error: message, View: state.View}
+	data := categoriesIndexData{pageData: pageDataFrom(r, "categories"), Error: message, View: state.View, SearchQuery: strings.TrimSpace(r.URL.Query().Get("q"))}
 	data.CategoryAssets, data.PageFoundationAssets = true, true
 	data.SelectedDepartmentID, data.SelectedDeskID = state.DepartmentID, state.DeskID
 	data.Badges = make(map[int64]string)
@@ -497,10 +509,17 @@ func (h *CategoryHandlers) categoryIndexData(r *http.Request, message string) (c
 		// column; production composition always supplies the catalog service.
 		data.SelectedDepartmentID = 1
 		data.SelectedDeskID = 1
+		data.SearchClearURL = categorySearchClearPath(categoryViewState{View: data.View})
 		for _, category := range categories {
 			row := catalogCategoryRow{Category: category}
 			data.CategoryRows = append(data.CategoryRows, row)
 			data.StructureCategories = append(data.StructureCategories, row)
+			if categorySearchMatches(category.Name, data.SearchQuery) {
+				data.SearchResults = append(data.SearchResults, categorySearchResult{
+					Kind: "category", Type: "Category", Name: category.Name,
+					Location: categoryStatePath(categoryViewState{View: "structure"}),
+				})
+			}
 		}
 		return data, nil
 	}
@@ -567,6 +586,11 @@ func (h *CategoryHandlers) categoryIndexData(r *http.Request, message string) (c
 			}
 		}
 	}
+	data.SearchClearURL = categorySearchClearPath(categoryViewState{
+		View:         data.View,
+		DepartmentID: data.SelectedDepartmentID,
+		DeskID:       data.SelectedDeskID,
+	})
 	for _, category := range categories {
 		row := catalogCategoryRow{Category: category, DepartmentName: deskDepartmentNames[category.DeskID], DeskName: deskNames[category.DeskID]}
 		if row.DepartmentName != "" {
@@ -596,7 +620,66 @@ func (h *CategoryHandlers) categoryIndexData(r *http.Request, message string) (c
 			data.StructureCategories = append(data.StructureCategories, catalogCategoryRow{Category: category.Category, DepartmentName: category.DepartmentName, DeskName: category.DeskName, HierarchyPath: category.DepartmentName + " / " + category.DeskName})
 		}
 	}
+	data.SearchResults = categorySearchResults(data.SearchQuery, data.Departments, data.Desks, data.CategoryRows)
 	return data, nil
+}
+
+func categorySearchMatches(name, query string) bool {
+	return query != "" && strings.Contains(strings.ToLower(name), strings.ToLower(query))
+}
+
+func categorySearchResults(query string, departments []domain.CatalogDepartment, desks []domain.CatalogDesk, categories []catalogCategoryRow) []categorySearchResult {
+	if query == "" {
+		return nil
+	}
+	results := make([]categorySearchResult, 0)
+	departmentNames := make(map[int64]string, len(departments))
+	for _, department := range departments {
+		departmentNames[department.ID] = department.Name
+		if categorySearchMatches(department.Name, query) {
+			results = append(results, categorySearchResult{
+				Kind: "department", Type: "Department", Name: department.Name,
+				Location: categoryStatePath(categoryViewState{View: "structure", DepartmentID: department.ID}),
+			})
+		}
+	}
+	for _, desk := range desks {
+		departmentID := desk.DepartmentID
+		departmentName := departmentNames[departmentID]
+		if departmentID == 0 {
+			departmentID, departmentName = unassignedDepartmentID, "Unassigned"
+		}
+		if categorySearchMatches(desk.Name, query) {
+			results = append(results, categorySearchResult{
+				Kind: "desk", Type: "Desk", Name: desk.Name, Path: departmentName,
+				Location: categoryStatePath(categoryViewState{View: "structure", DepartmentID: departmentID, DeskID: desk.ID}),
+			})
+		}
+	}
+	for _, category := range categories {
+		if !categorySearchMatches(category.Name, query) {
+			continue
+		}
+		departmentID := int64(0)
+		for _, desk := range desks {
+			if desk.ID == category.DeskID {
+				departmentID = desk.DepartmentID
+				break
+			}
+		}
+		state := categoryViewState{View: "structure"}
+		if category.DeskID != 0 {
+			if departmentID == 0 {
+				departmentID = unassignedDepartmentID
+			}
+			state.DepartmentID, state.DeskID = departmentID, category.DeskID
+		}
+		results = append(results, categorySearchResult{
+			Kind: "category", Type: "Category", Name: category.Name, Path: category.HierarchyPath,
+			Location: categoryStatePath(state),
+		})
+	}
+	return results
 }
 
 func setCategoriesVary(w http.ResponseWriter) {
@@ -660,8 +743,15 @@ func categoryStatePath(state categoryViewState) string {
 	if state.View != "structure" {
 		return "/categories"
 	}
+	return categorySearchClearPath(state)
+}
+
+// categorySearchClearPath keeps the validated browser selection while removing
+// only the search query. Unlike mutation redirects, it retains a categories
+// view selection when the request supplied one.
+func categorySearchClearPath(state categoryViewState) string {
 	values := url.Values{}
-	values.Set("view", "structure")
+	values.Set("view", state.View)
 	if state.DepartmentID != 0 {
 		values.Set("department_id", categoryDepartmentValue(state.DepartmentID))
 	}

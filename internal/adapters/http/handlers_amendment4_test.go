@@ -706,6 +706,194 @@ func TestIssue129_CatalogDrawerGuidanceMatchesEachEntity(t *testing.T) {
 	}
 }
 
+func TestIssue125_CategoriesSearchesGlobalOwnNamesAndNavigatesToHierarchy(t *testing.T) {
+	h := newHarness(t)
+	catalog := application.NewCatalogService(h.store.CatalogStore(), h.store.CategoryStore(), h.clock)
+	operations, err := catalog.CreateDepartmentFor(t.Context(), *h.admin, "Operations", "Operations department")
+	if err != nil {
+		t.Fatal(err)
+	}
+	emptyDepartment, err := catalog.CreateDepartmentFor(t.Context(), *h.admin, "Empty department", "No desks")
+	if err != nil {
+		t.Fatal(err)
+	}
+	support, err := catalog.CreateDeskFor(t.Context(), *h.admin, operations.ID, "Support", "Support desk")
+	if err != nil {
+		t.Fatal(err)
+	}
+	emptyDesk, err := catalog.CreateDeskFor(t.Context(), *h.admin, operations.ID, "Empty desk", "No categories")
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacy, err := h.desks.CreateWithDescription(t.Context(), *h.admin, "Legacy support", "No department")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = h.categories.CreateWithDescriptionFor(t.Context(), *h.admin, "Service requests", "Published category", support.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = h.categories.CreateWithDescriptionFor(t.Context(), *h.admin, "Draft requests", "Unpublished category", support.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	mux := http.NewServeMux()
+	NewCategoryHandlersWithWorkflows(h.categories, h.workflows, h.renderer, catalog).Register(mux)
+	request := func(target, sessionID string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodGet, target, nil)
+		req.Header.Set("Cookie", sessionCookie+"="+sessionID)
+		rec := httptest.NewRecorder()
+		h.mw.Wrap(mux).ServeHTTP(rec, req)
+		return rec
+	}
+	resultSection := func(t *testing.T, body string) string {
+		t.Helper()
+		start := strings.Index(body, `id="category-search-results"`)
+		if start < 0 {
+			t.Fatalf("search results missing: %s", body)
+		}
+		end := strings.Index(body[start:], `</section>`)
+		if end < 0 {
+			t.Fatalf("search results are not a complete section: %s", body[start:])
+		}
+		return body[start : start+end]
+	}
+
+	search := request("/categories?view=structure&q=%20%20sUpPoRt%20%20", h.adminSession.ID)
+	if search.Code != http.StatusOK {
+		t.Fatalf("search = %d, want 200: %s", search.Code, search.Body.String())
+	}
+	body := search.Body.String()
+	if !strings.Contains(body, `id="category-search"`) || !strings.Contains(body, `value="sUpPoRt"`) {
+		t.Fatalf("search input must retain the trimmed query: %s", body)
+	}
+	results := resultSection(t, body)
+	for _, want := range []string{
+		`data-search-result-kind="desk"`,
+		`>Support<`,
+		`href="/categories?department_id=` + strconv.FormatInt(operations.ID, 10) + `&amp;desk_id=` + strconv.FormatInt(support.ID, 10) + `&amp;view=structure"`,
+	} {
+		if !strings.Contains(results, want) {
+			t.Errorf("support search missing %q: %s", want, results)
+		}
+	}
+	if strings.Contains(results, `data-search-result-kind="category"`) || strings.Contains(results, "Service requests") {
+		t.Errorf("desk search must match its own name only: %s", results)
+	}
+
+	categorySearch := request("/categories?q=ReQuEsTs", h.adminSession.ID)
+	categoryResults := resultSection(t, categorySearch.Body.String())
+	for _, want := range []string{
+		`data-search-result-kind="category"`,
+		`>Service requests<`,
+		`>Draft requests<`,
+		`href="/categories?department_id=` + strconv.FormatInt(operations.ID, 10) + `&amp;desk_id=` + strconv.FormatInt(support.ID, 10) + `&amp;view=structure"`,
+	} {
+		if !strings.Contains(categoryResults, want) {
+			t.Errorf("category search missing %q: %s", want, categoryResults)
+		}
+	}
+	if strings.Contains(categoryResults, `data-search-result-kind="desk"`) || strings.Contains(categoryResults, "Support desk") {
+		t.Errorf("category search must match its own name only: %s", categoryResults)
+	}
+
+	departmentSearch := request("/categories?q=operations", h.adminSession.ID)
+	if departmentSearch.Code != http.StatusOK {
+		t.Fatalf("department search = %d, want 200: %s", departmentSearch.Code, departmentSearch.Body.String())
+	}
+	departmentResults := resultSection(t, departmentSearch.Body.String())
+	if !strings.Contains(departmentResults, `data-search-result-kind="department"`) || !strings.Contains(departmentResults, `href="/categories?department_id=`+strconv.FormatInt(operations.ID, 10)+`&amp;view=structure"`) {
+		t.Errorf("department result must navigate to its structure selection: %s", departmentResults)
+	}
+	if strings.Contains(departmentResults, `data-search-result-kind="desk"`) || strings.Contains(departmentResults, `data-search-result-kind="category"`) {
+		t.Errorf("department search must match its own name only: %s", departmentResults)
+	}
+
+	for _, tc := range []struct {
+		name, query, kind, location string
+	}{
+		{"empty department", "empty%20department", "department", "/categories?department_id=" + strconv.FormatInt(emptyDepartment.ID, 10) + "&amp;view=structure"},
+		{"empty desk", "empty%20desk", "desk", "/categories?department_id=" + strconv.FormatInt(operations.ID, 10) + "&amp;desk_id=" + strconv.FormatInt(emptyDesk.ID, 10) + "&amp;view=structure"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			section := resultSection(t, request("/categories?q="+tc.query, h.adminSession.ID).Body.String())
+			if !strings.Contains(section, `data-search-result-kind="`+tc.kind+`"`) || !strings.Contains(section, `href="`+tc.location+`"`) {
+				t.Errorf("empty hierarchy item missing from global search: %s", section)
+			}
+		})
+	}
+
+	legacySearch := request("/categories?q=legacy", h.adminSession.ID)
+	legacyResults := resultSection(t, legacySearch.Body.String())
+	if !strings.Contains(legacyResults, `data-search-result-kind="desk"`) || !strings.Contains(legacyResults, `href="/categories?department_id=unassigned&amp;desk_id=`+strconv.FormatInt(legacy.ID, 10)+`&amp;view=structure"`) {
+		t.Errorf("legacy desk result must retain its unassigned hierarchy path: %s", legacyResults)
+	}
+
+	escaped := request("/categories?q=%20%3Cscript%3E%20", h.adminSession.ID)
+	if escaped.Code != http.StatusOK || !strings.Contains(escaped.Body.String(), `value="&lt;script&gt;"`) || strings.Contains(escaped.Body.String(), `<script>`) {
+		t.Errorf("query must be trimmed and escaped: %d %s", escaped.Code, escaped.Body.String())
+	}
+	blank := request("/categories?view=structure&q=%20%20", h.adminSession.ID)
+	if blank.Code != http.StatusOK || strings.Contains(blank.Body.String(), `id="category-search-results"`) {
+		t.Errorf("blank query must not render results: %d %s", blank.Code, blank.Body.String())
+	}
+	categoriesSelection := request("/categories?view=categories&department_id="+strconv.FormatInt(operations.ID, 10)+"&desk_id="+strconv.FormatInt(support.ID, 10)+"&q=requests", h.adminSession.ID)
+	if categoriesSelection.Code != http.StatusOK {
+		t.Fatalf("categories selection search = %d, want 200: %s", categoriesSelection.Code, categoriesSelection.Body.String())
+	}
+	wantClear := `href="/categories?department_id=` + strconv.FormatInt(operations.ID, 10) + `&amp;desk_id=` + strconv.FormatInt(support.ID, 10) + `&amp;view=categories"`
+	if !strings.Contains(categoriesSelection.Body.String(), wantClear) {
+		t.Errorf("clear must retain the normalized categories selection, missing %q: %s", wantClear, categoriesSelection.Body.String())
+	}
+	for _, tc := range []struct {
+		name, target, wantClear string
+	}{
+		{
+			name:      "nonexistent department",
+			target:    "/categories?view=categories&department_id=999999&desk_id=" + strconv.FormatInt(support.ID, 10) + "&q=requests",
+			wantClear: `href="/categories?view=categories"`,
+		},
+		{
+			name:      "desk outside selected department",
+			target:    "/categories?view=categories&department_id=" + strconv.FormatInt(emptyDepartment.ID, 10) + "&desk_id=" + strconv.FormatInt(support.ID, 10) + "&q=requests",
+			wantClear: `href="/categories?department_id=` + strconv.FormatInt(emptyDepartment.ID, 10) + `&amp;view=categories"`,
+		},
+		{
+			name:      "unassigned sentinel with assigned desk",
+			target:    "/categories?view=categories&department_id=unassigned&desk_id=" + strconv.FormatInt(support.ID, 10) + "&q=requests",
+			wantClear: `href="/categories?department_id=unassigned&amp;view=categories"`,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			rec := request(tc.target, h.adminSession.ID)
+			if rec.Code != http.StatusOK {
+				t.Fatalf("search = %d, want 200: %s", rec.Code, rec.Body.String())
+			}
+			if !strings.Contains(rec.Body.String(), tc.wantClear) {
+				t.Errorf("clear retained unnormalized state, missing %q: %s", tc.wantClear, rec.Body.String())
+			}
+		})
+	}
+	for _, target := range []string{
+		"/categories?view=categories&department_id=not-an-id&q=requests",
+		"/categories?view=categories&department_id=-1&q=requests",
+	} {
+		rec := request(target, h.adminSession.ID)
+		if rec.Code != http.StatusUnprocessableEntity || strings.Contains(rec.Body.String(), "Clear search") {
+			t.Errorf("invalid state must not render a clear link: %d %s", rec.Code, rec.Body.String())
+		}
+	}
+
+	agent := seedUserRole(t, h.store, "Agent", "agent-search@tkt.test", domain.RoleAgent)
+	user := seedUserRole(t, h.store, "User", "user-search@tkt.test", domain.RoleUser)
+	for _, session := range []*domain.Session{seedSession(t, h.store, agent.ID), seedSession(t, h.store, user.ID)} {
+		if rec := request("/categories?q=support", session.ID); rec.Code != http.StatusForbidden {
+			t.Errorf("non-manager search = %d, want 403: %s", rec.Code, rec.Body.String())
+		}
+	}
+}
+
 func TestAmendment4_CategoryMutationRefreshFailureDoesNotInviteRetry(t *testing.T) {
 	h := newHarness(t)
 	catalog := application.NewCatalogService(h.store.CatalogStore(), h.store.CategoryStore(), h.clock)
