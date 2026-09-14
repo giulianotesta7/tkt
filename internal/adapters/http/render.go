@@ -219,6 +219,7 @@ func (r *Renderer) Render(w http.ResponseWriter, rq *http.Request, page, fragmen
 		return
 	}
 
+	clearSaveFeedbackCookie(w, rq)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(status)
 	_, _ = w.Write(buf.Bytes())

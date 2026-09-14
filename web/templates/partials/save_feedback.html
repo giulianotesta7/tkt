@@ -1,0 +1,6 @@
+{{define "save_feedback"}}
+<div id="save-feedback" class="save-feedback" role="status" aria-live="polite" aria-atomic="true"{{if not .SaveFeedback.Message}} hidden{{end}} data-feedback-message="{{.SaveFeedback.Message}}" data-feedback-kind="{{.SaveFeedback.Kind}}">
+  <span class="save-feedback-message">{{.SaveFeedback.Message}}</span>
+  <button class="save-feedback-dismiss" type="button" aria-label="Dismiss confirmation">Dismiss</button>
+</div>
+{{end}}
