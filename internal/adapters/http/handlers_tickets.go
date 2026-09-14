@@ -90,6 +90,7 @@ type pageData struct {
 	WorkflowAssets       bool
 	CategoryAssets       bool
 	InternalCommentBg    string
+	SaveFeedback         saveFeedbackData
 }
 
 // pageDataFrom builds the shell payload from the session user. The
@@ -107,6 +108,7 @@ func pageDataFrom(r *http.Request, nav string) pageData {
 		CanManageCategories: caps.Require(application.CapManageCategories),
 		CanGrantAdmin:       caps.Require(application.CapGrantAdmin),
 		InternalCommentBg:   internalCommentBgFrom(r.Context()),
+		SaveFeedback:        readSaveFeedback(r),
 	}
 }
 

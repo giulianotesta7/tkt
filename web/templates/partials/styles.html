@@ -235,6 +235,30 @@
     padding:10px 14px;margin-bottom:14px;font-size:13.5px;
   }
 
+  .save-feedback{
+    position:fixed;top:16px;right:16px;z-index:40;
+    display:flex;align-items:center;justify-content:space-between;gap:14px;
+    max-width:min(480px,calc(100vw - 32px));min-width:260px;
+    padding:14px 16px;background:var(--green-soft);
+    border:1px solid var(--green);border-radius:8px;
+    color:var(--green);font-size:14px;font-weight:500;
+    box-shadow:0 8px 24px rgba(16,24,40,.16);
+    opacity:0;transform:translate(12px,-12px);pointer-events:none;
+  }
+  .save-feedback.is-visible{opacity:1;transform:translate(0,0);pointer-events:auto;transition:opacity .18s ease,transform .18s ease}
+  .save-feedback.is-leaving{opacity:0;transform:translate(12px,-12px);pointer-events:none;transition:opacity .18s ease,transform .18s ease}
+  .save-feedback[hidden]{display:none}
+  .save-feedback-dismiss{border:0;background:transparent;color:inherit;font:inherit;text-decoration:underline;cursor:pointer}
+  .save-feedback-error{
+    position:static;opacity:1;transform:none;pointer-events:auto;box-shadow:none;
+    max-width:760px;margin:0 0 14px;transition:none;
+    min-width:0;
+  }
+  .users-drawer .save-feedback-error{margin:0;border-radius:0;border-width:0 0 1px;max-width:none}
+  @media (prefers-reduced-motion:reduce){
+    .save-feedback,.save-feedback.is-visible,.save-feedback.is-leaving{transition:none;transform:none}
+  }
+
   .activity h2{display:flex;align-items:center;gap:8px}
   .timeline-event{display:grid;grid-template-columns:18px minmax(0,1fr);align-items:start;gap:6px;padding:6px 2px}
   .timeline-event .event-icon{display:flex;flex:0 0 18px;flex-shrink:0;align-items:center;justify-content:center;width:18px;height:20px;color:var(--faint);font-size:18px;line-height:20px;text-align:center;user-select:none}
