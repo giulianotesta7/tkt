@@ -11,12 +11,14 @@ import (
 	"html/template"
 	"io/fs"
 	"log"
+	"math"
 	"net/http"
 	"path"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/giulianotesta7/tkt/internal/application"
 	"github.com/giulianotesta7/tkt/internal/domain"
 	"github.com/giulianotesta7/tkt/web/templates"
 )
@@ -55,6 +57,104 @@ func humanizeLabel(value any) string {
 		words[i] = strings.ToUpper(word[:1]) + strings.ToLower(word[1:])
 	}
 	return strings.Join(words, " ")
+}
+
+// niceMetricsScale rounds the data maximum up to a friendly y-axis maximum
+// whose tick count stays readable (at most 4 gridlines above the zero
+// baseline). Returns the tick step and the axis maximum.
+func niceMetricsScale(max int) (step int, axisMax int) {
+	candidates := []int{1, 2, 5, 10, 20, 25, 50, 100, 200, 250, 500, 1000, 2000, 2500, 5000, 10000, 20000, 25000, 50000, 100000, 1000000}
+	for _, c := range candidates {
+		if max <= 4*c {
+			return c, ((max + c - 1) / c) * c
+		}
+	}
+	return 1000000, ((max + 999999) / 1000000) * 1000000
+}
+
+// metricsLineChart renders the weekly created/resolved lines: created is a
+// continuous solid stroke with circle markers, resolved a dashed stroke (via
+// its semantic CSS class) with square markers. Value labels are collision
+// aware: when the two series meet near a point, each label moves
+// deterministically to the opposite side of its own point; labels are always
+// clamped inside the viewBox away from the axes and week labels.
+func metricsLineChart(weeks []application.TicketMetricsWeek) template.HTML {
+	const width, height, left, top, bottom = 620, 204, 46, 22, 40
+	max := 1
+	for _, week := range weeks {
+		if week.Created > max {
+			max = week.Created
+		}
+		if week.Resolved > max {
+			max = week.Resolved
+		}
+	}
+	step, axisMax := niceMetricsScale(max)
+	x := func(i int) float64 {
+		if len(weeks) < 2 {
+			return left
+		}
+		return float64(left) + float64(width-left-12)*float64(i)/float64(len(weeks)-1)
+	}
+	y := func(value int) float64 {
+		return float64(top) + float64(height-top-bottom)*(1-float64(value)/float64(axisMax))
+	}
+	points := func(resolved bool) string {
+		var b strings.Builder
+		for i, week := range weeks {
+			value := week.Created
+			if resolved {
+				value = week.Resolved
+			}
+			fmt.Fprintf(&b, "%.1f,%.1f ", x(i), y(value))
+		}
+		return b.String()
+	}
+	// labelY picks the value-label baseline for one series at one point. When
+	// the series sit closer than one label height apart, the labels move to
+	// opposite sides: the lower point keeps its label above, the higher point
+	// takes its label below, and an exact tie keeps created above and resolved
+	// below. The clamp keeps every label inside the plot area clear of the axis
+	// and week labels.
+	clampY := func(v float64) float64 {
+		return math.Min(math.Max(v, 12), float64(height-24))
+	}
+	labelY := func(ownY, otherY float64, belowOnTie bool) float64 {
+		v := ownY - 7
+		if math.Abs(ownY-otherY) < 24 && (ownY > otherY || (belowOnTie && ownY == otherY)) {
+			v = ownY + 16
+		}
+		return clampY(v)
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, `<svg class="ticket-metrics-chart" viewBox="0 0 %d %d" role="img" aria-label="Weekly created tickets as a continuous line with circle markers and resolved tickets as a dashed line with square markers. Y axis from 0 to %d. Y axis title Tickets.">`, width, height, axisMax)
+	midY := float64(top) + float64(height-top-bottom)/2
+	fmt.Fprintf(&b, `<text x="10" y="%.1f" transform="rotate(-90 10 %.1f)" text-anchor="middle" class="metrics-axis-title">Tickets</text>`, midY, midY)
+	fmt.Fprintf(&b, `<line x1="%d" y1="%d" x2="%d" y2="%d" class="metrics-axis"/>`, left, height-bottom, width-12, height-bottom)
+	for tick := step; tick <= axisMax; tick += step {
+		fmt.Fprintf(&b, `<line x1="%d" y1="%.1f" x2="%d" y2="%.1f" class="metrics-gridline"/>`, left, y(tick), width-12, y(tick))
+	}
+	for tick := 0; tick <= axisMax; tick += step {
+		fmt.Fprintf(&b, `<text x="%d" y="%.1f" text-anchor="end" class="metrics-axis-label">%d</text>`, left-6, y(tick)+3.5, tick)
+	}
+	fmt.Fprintf(&b, `<polyline class="metrics-line metrics-created" points="%s"/><polyline class="metrics-line metrics-resolved" points="%s"/>`, points(false), points(true))
+	for i, week := range weeks {
+		fmt.Fprintf(&b, `<circle cx="%.1f" cy="%.1f" r="3.5" class="metrics-marker metrics-marker-created"/>`, x(i), y(week.Created))
+		fmt.Fprintf(&b, `<rect x="%.1f" y="%.1f" width="7" height="7" class="metrics-marker metrics-marker-resolved"/>`, x(i)-3.5, y(week.Resolved)-3.5)
+		label := week.Start.Format("Jan 2")
+		if week.Partial {
+			label += "*"
+		}
+		fmt.Fprintf(&b, `<text x="%.1f" y="%d" class="metrics-chart-label">%s</text>`, x(i), height-8, template.HTMLEscapeString(label))
+		if week.Created > 0 {
+			fmt.Fprintf(&b, `<text x="%.1f" y="%.1f" text-anchor="middle" class="metrics-chart-value metrics-chart-value-created">%d</text>`, x(i), labelY(y(week.Created), y(week.Resolved), false), week.Created)
+		}
+		if week.Resolved > 0 {
+			fmt.Fprintf(&b, `<text x="%.1f" y="%.1f" text-anchor="middle" class="metrics-chart-value metrics-chart-value-resolved">%d</text>`, x(i), labelY(y(week.Resolved), y(week.Created), true), week.Resolved)
+		}
+	}
+	b.WriteString(`</svg>`)
+	return template.HTML(b.String())
 }
 
 // templateFuncs are the presentation helpers shared by every template set.
