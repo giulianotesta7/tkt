@@ -378,21 +378,52 @@ type listData struct {
 	NextHref            string
 	ShowAdvancedFilters bool
 	HasActiveQuery      bool
+	AgentView           bool
+	Assigned            ticketListData
+	Claimable           ticketListData
 }
 
 func (h *TicketHandlers) index(w http.ResponseWriter, r *http.Request) {
 	redirect(w, r, "/tickets")
 }
 
+func simplifiedFilters(f filterState) filterState {
+	f.State = ""
+	f.Priority = ""
+	f.CategoryID = ""
+	f.UserID = ""
+	return f
+}
+
+func pageNumber(r *http.Request, key string) int {
+	page := int(parseID(r.URL.Query().Get(key)))
+	if page < 1 {
+		return 1
+	}
+	return page
+}
+
 // listData builds the full list payload for the given filters and page.
 // The search is scoped to the session actor (ticket-access spec): the
 // list shows only tickets within the actor's scope.
 func (h *TicketHandlers) listData(r *http.Request, f filterState, page int) (listData, error) {
+	actor := *userFromContext(r.Context())
+	if actor.Role == domain.RoleAgent {
+		f = simplifiedFilters(f)
+		pageMeta := pageDataFrom(r, "tickets")
+		pageMeta.PageFoundationAssets = true
+		assigned, claimable, total, err := h.agentQueueSections(r, f, pageNumber(r, "assigned_page"), pageNumber(r, "claimable_page"))
+		if err != nil {
+			return listData{}, err
+		}
+		return listData{pageData: pageMeta, Filters: f, Total: total, HasActiveQuery: f.Q != "", AgentView: true, Assigned: assigned, Claimable: claimable}, nil
+	}
+
 	opts, err := h.collectOptions(r)
 	if err != nil {
 		return listData{}, err
 	}
-	res, err := h.search.Search(r.Context(), *userFromContext(r.Context()), f.query(), page)
+	res, err := h.search.Search(r.Context(), actor, f.query(), page)
 	if err != nil {
 		return listData{}, err
 	}
@@ -424,12 +455,7 @@ func (h *TicketHandlers) listData(r *http.Request, f filterState, page int) (lis
 
 func (h *TicketHandlers) list(w http.ResponseWriter, r *http.Request) {
 	f := parseFilters(r)
-	page := int(parseID(r.URL.Query().Get("page")))
-	if page < 1 {
-		page = 1
-	}
-
-	data, err := h.listData(r, f, page)
+	data, err := h.listData(r, f, pageNumber(r, "page"))
 	if err != nil {
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return

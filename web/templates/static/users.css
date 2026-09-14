@@ -165,3 +165,39 @@
 @media(max-width:640px){
   .ticket-create-detail .selected-catalog-path{max-width:60%}
 }
+
+.tickets-screen #agent-ticket-list{display:flex;flex-direction:column;gap:32px}
+.tickets-screen .agent-queue-list{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;align-items:stretch}
+.tickets-screen .agent-row{display:flex;align-items:stretch;justify-content:space-between;gap:16px;padding:14px 16px;background:var(--card);border:1px solid var(--line);border-radius:10px}
+.tickets-screen .agent-row-main{min-width:0;display:flex;flex-direction:column;gap:4px}
+.tickets-screen .agent-row-title{color:var(--ink-strong);font-size:15px;font-weight:600;overflow-wrap:anywhere;text-decoration:none}
+.tickets-screen .agent-row-title:hover{text-decoration:underline}
+.tickets-screen .agent-row-number{color:#667085;font-size:12.5px}
+.tickets-screen .agent-row-task{margin:0;color:var(--ink-strong);font-size:13px;font-weight:500;overflow-wrap:anywhere}
+.tickets-screen .agent-row-meta{margin:0;color:#667085;font-size:13px}
+.tickets-screen .agent-row-side{flex:0 0 auto;display:flex;flex-direction:column;align-items:flex-end;gap:8px;text-align:right}
+.tickets-screen .agent-row-updated{color:#667085;font-size:12.5px;margin-top:auto}
+.tickets-screen .agent-row-updated time{font:inherit}
+.tickets-screen .agent-row-actions{display:flex;align-items:center;gap:10px;margin-top:auto}
+.tickets-screen .agent-row-open{color:var(--accent);font-size:13px;font-weight:600}
+.tickets-screen .agent-row-open:hover{text-decoration:underline}
+.tickets-screen .agent-empty{display:flex;flex-direction:column;align-items:flex-start;gap:8px;padding:16px;background:var(--surface);border:1px dashed var(--line);border-radius:10px;color:var(--ink-soft);grid-column:1/-1}
+.tickets-screen .agent-empty p{margin:0}
+.tickets-screen .agent-clear-search{color:var(--ink-strong);font-size:13px;font-weight:500}
+.tickets-screen .card-timestamp{position:relative;z-index:5;cursor:help}
+.tickets-screen .card-timestamp::after{content:attr(data-full-date);position:absolute;left:0;bottom:calc(100% + 6px);z-index:30;padding:4px 8px;border-radius:6px;background:var(--ink-strong);color:#F8FAFC;font-size:12px;line-height:1.4;white-space:nowrap;box-shadow:0 8px 24px rgba(16,24,40,.16);opacity:0;visibility:hidden;pointer-events:none;transition:opacity .12s ease}
+.tickets-screen .card-timestamp:hover::after,.tickets-screen .card-timestamp:focus::after,.tickets-screen .card-timestamp:focus-visible::after{opacity:1;visibility:visible}
+.tickets-screen .agent-row-updated .card-timestamp::after{left:auto;right:0;bottom:auto;top:0}
+@media(max-width:900px){
+  .tickets-screen .agent-queue-list{grid-template-columns:repeat(2,minmax(0,1fr))}
+}
+@media(max-width:640px){
+  .tickets-screen .agent-queue-list{grid-template-columns:1fr}
+}
+@media(max-width:390px){
+  .tickets-screen .agent-row{flex-direction:column;gap:10px}
+  .tickets-screen .agent-row-side{flex-direction:row;flex-wrap:wrap;align-items:center;gap:8px;width:100%;text-align:left}
+  .tickets-screen .agent-row-actions{margin-left:auto;margin-top:0}
+  .tickets-screen .agent-row-updated{margin-top:0}
+  .tickets-screen .agent-row-updated .card-timestamp::after{left:0;right:auto;bottom:calc(100% + 6px);top:auto}
+}

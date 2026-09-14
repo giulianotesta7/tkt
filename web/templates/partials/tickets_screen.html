@@ -1,11 +1,11 @@
 {{define "tickets_screen"}}<section id="tickets-screen" class="page-foundation tickets-screen">
   <header class="page-header">
     <div>
-      <h1 class="page-title">Tickets</h1>
-      <p class="page-subtitle">{{.Total}} ticket{{if ne .Total 1}}s{{end}}</p>
+      <h1 class="page-title">{{if .AgentView}}My work{{else}}Tickets{{end}}</h1>{{if not .AgentView}}
+      <p class="page-subtitle">{{.Total}} ticket{{if ne .Total 1}}s{{end}}</p>{{end}}
     </div>
     <div class="page-actions">
-      <a class="page-action page-action-primary" href="/tickets/new">New ticket</a>
+      {{if .AgentView}}{{template "role_ticket_search" .}}{{end}}<a class="page-action page-action-primary" href="/tickets/new">New ticket</a>
     </div>
-  </header>{{template "filter_form" .}}{{template "ticket_list" .}}
+  </header>{{if .AgentView}}{{template "agent_ticket_list" .}}{{else}}{{template "filter_form" .}}{{template "ticket_list" .}}{{end}}
 </section>{{end}}
