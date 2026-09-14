@@ -19,7 +19,7 @@ import {
   assertCanonicalScreen,
   collectObservability,
 } from "./helpers/layout.js";
-import { assertHtmxSwap } from "./helpers/htmx.js";
+import { assertHtmxNoSwap, assertHtmxSwap } from "./helpers/htmx.js";
 import {
   createCategoryViaUi,
   createTicketViaUi,
@@ -1020,9 +1020,9 @@ name: "Leave without saving?",
       },
     );
     await expect(cards).toHaveCount(countBeforeAdd + 1);
-    await expect(page.locator("[data-workflow-live]")).toContainText(
-      /added a step/i,
-    );
+    await expect(
+      page.locator("#save-feedback .save-feedback-message"),
+    ).toHaveText("Saved");
 
     // Editing must not autosave: no workflow POST may fire from input alone
     const instructionsInput = page.getByLabel(/instructions/i);
@@ -1057,7 +1057,9 @@ name: "Leave without saving?",
         hxTarget: "#workflow-builder",
       },
     );
-    await expect(page.locator("[data-workflow-live]")).toHaveText("Saved");
+    await expect(
+      page.locator("#save-feedback .save-feedback-message"),
+    ).toHaveText("Saved");
 
     // Remove step unconditionally (prove removal works)
     const countBeforeRemove = await cards.count();
@@ -1124,7 +1126,10 @@ name: "Leave without saving?",
     // 4) PUBLISH — must execute publication, not just check button exists
     const publishBtn = page.getByRole("button", { name: /publish/i });
     await expect(publishBtn).toBeVisible();
-    const publishResp = await assertHtmxSwap(
+    // Publishing re-renders the same draft, so the builder HTML is
+    // byte-identical; assert the exact POST contract and read the visible
+    // result from the feedback toast instead of a target mutation.
+    const publishResp = await assertHtmxNoSwap(
       page,
       async () => {
         await publishBtn.click();
@@ -1133,11 +1138,12 @@ name: "Leave without saving?",
         endpoint: `/categories/${categoryId}/workflow`,
         method: "POST",
         expectedStatus: 200,
-        hxTarget: "#workflow-builder",
       },
     );
-    expect(publishResp.status()).toBe(200);
-    await expect(page.locator("[data-workflow-live]")).toHaveText("Published");
+    expect(publishResp.headers()["x-save-feedback"]).toContain("Published");
+    await expect(
+      page.locator("#save-feedback .save-feedback-message"),
+    ).toHaveText("Published");
     // After publish, no inline errors
     await expect(page.locator(".error-banner, [role='alert']")).toHaveCount(0);
 
@@ -1707,9 +1713,9 @@ name: "Leave without saving?",
         .locator('.page-actions button[name="action"][value="save"]')
         .click();
       await expect((await saveResponse).status()).toBe(200);
-      await expect(page.locator("[data-workflow-live]")).toContainText(
-        /saved/i,
-      );
+      await expect(
+        page.locator("#save-feedback .save-feedback-message"),
+      ).toHaveText("Saved");
       await sidebarLink.click();
       await expect(page).toHaveURL(/\/categories(\?.*)?$/);
       await expect(dialog).not.toBeVisible();
