@@ -11,7 +11,7 @@ import "embed"
 
 // FS is the embedded template tree: shell roots, full pages (pages/*.html),
 // swap fragments (partials/*.html) and the vendored htmx script
-// (static/htmx.min.js, BSD-2-Clause, htmx.org v2.0.4).
+// (static/htmx.min.js, BSD-2-Clause, htmx.org v2.0.4, and tickets.js).
 //
-//go:embed base.html auth.html pages/*.html partials/*.html static/htmx.min.js static/users.css static/users.js static/workflow.js static/categories.js
+//go:embed base.html auth.html pages/*.html partials/*.html static/htmx.min.js static/users.css static/users.js static/tickets.js static/workflow.js static/categories.js
 var FS embed.FS

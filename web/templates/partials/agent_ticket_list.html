@@ -38,7 +38,10 @@
         <div class="agent-row-side">
           {{template "state_badge" .State}}
           <span class="priority {{.Priority}}"><span class="ticket-priority-value">{{humanize .Priority}}</span></span>
-          <a class="agent-row-open" href="/tickets/{{.ID}}">View ticket</a>
+          <div class="agent-row-actions">
+            <a class="agent-row-open" href="/tickets/{{.ID}}">View ticket</a>
+{{if .Context.Position}}            <form class="agent-claim-form" method="post" action="/tickets/{{.ID}}/workflow/steps/{{.Context.Position}}/complete" hx-post="/tickets/{{.ID}}/workflow/steps/{{.Context.Position}}/complete" hx-target="#agent-ticket-list" hx-swap="outerHTML"><button class="btn primary small" type="submit">Claim ticket</button></form>{{end}}
+          </div>
         </div>
       </li>
 {{else}}      <li class="agent-empty">
