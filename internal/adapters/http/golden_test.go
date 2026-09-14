@@ -164,6 +164,8 @@ func TestGoldenTicketsIndexUser(t *testing.T) {
 	data := fixtureListData()
 	data.CurrentUser.Role = domain.RoleUser
 	data.ShowAdvancedFilters = false
+	data.Filters = filterState{Q: "printer"}
+	data.Tickets[0].Description = "Clear the jammed tray, then reload paper."
 	goldenFile(t, "tickets_index_user", renderGolden(t, "tickets_index", "", data, false))
 }
 

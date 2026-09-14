@@ -146,7 +146,9 @@ test.describe("Role — minimal matrix admin / agent / user (seeded)", () => {
     await page.goto(baseURL() + `/tickets/${assignedID}`);
     const assignee = page.locator('select[name="user_id"]');
     await expect(assignee).toHaveCount(1);
-    await assertHtmxSwap(page, () => assignee.selectOption({ label: "Agent Ava" }), {
+    await assertHtmxSwap(page, async () => {
+      await assignee.selectOption({ label: "Agent Ava" });
+    }, {
       endpoint: `/tickets/${assignedID}/assign`, method: "POST", expectedStatus: 200, hxTarget: "#ticket-detail",
     });
 
@@ -199,6 +201,22 @@ test.describe("Role — minimal matrix admin / agent / user (seeded)", () => {
     const userTicket = "User ticket " + Date.now().toString(36).slice(2, 8);
     const userTicketId = await createTicketViaUi(page, { title: userTicket, category: "General", priority: "low" });
     await expect(page.getByText(userTicket)).toBeVisible();
+    const listScreen = page.locator("#tickets-screen");
+    await expect(listScreen.getByRole("heading", { name: "My tickets" })).toBeVisible();
+    await expect(listScreen.locator(".page-subtitle")).toHaveText("1 ticket");
+    const userCard = listScreen.locator(".user-request-card").filter({ has: page.getByText(userTicket, { exact: true }) });
+    await expect(userCard).toHaveCount(1);
+    await expect(userCard.locator(".badge.new")).toHaveText("Received");
+    await expect(userCard.getByRole("link", { name: "View request" })).toBeVisible();
+    await expect(userCard.locator(".user-request-meta")).toContainText("TKT-");
+    await expect(userCard).not.toContainText(/priority|assignee|requester|state/i);
+    await expect(listScreen.locator("table")).toHaveCount(0);
+    const userGrid = listScreen.locator(".user-ticket-grid");
+    expect(await userGrid.evaluate((el) => getComputedStyle(el).gridTemplateColumns.split(" ").length)).toBe(3);
+    await page.setViewportSize({ width: 390, height: 800 });
+    expect(await userGrid.evaluate((el) => getComputedStyle(el).gridTemplateColumns.split(" ").length)).toBe(1);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
+    await page.setViewportSize({ width: 1280, height: 800 });
     await page.goto(baseURL() + `/tickets/${userTicketId}`);
     await expect(page.locator("#ticket-detail")).toBeVisible();
     await expect(page.getByLabel(/internal comment/i)).toHaveCount(0);

@@ -572,46 +572,38 @@
 <section id="tickets-screen" class="page-foundation tickets-screen">
   <header class="page-header">
     <div>
-      <h1 class="page-title">Tickets</h1>
+      <h1 class="page-title">My tickets</h1>
       <p class="page-subtitle">2 tickets</p>
     </div>
     <div class="page-actions">
-      <a class="page-action page-action-primary" href="/tickets/new">New ticket</a>
-    </div>
-  </header><form class="filter-bar ticket-toolbar" method="get" action="/tickets" hx-get="/tickets" hx-target="#tickets-screen" hx-swap="outerHTML" hx-push-url="true" hx-indicator="this">
-  <div class="ticket-search search-field">
-  <label class="visually-hidden" for="ticket-search">Search tickets</label>
+      <form class="ticket-search search-field" method="get" action="/tickets" hx-get="/tickets" hx-target="#tickets-screen" hx-swap="outerHTML" hx-push-url="true">
+  <label class="visually-hidden" for="role-ticket-search">Search tickets</label>
   <svg class="search-icon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4 4"/></svg>
-  <input id="ticket-search" type="search" name="q" value="" placeholder="Search by ID or title" aria-label="Search tickets">
-</div>
-  <button class="btn" type="submit">Apply</button>
-  <a class="btn ghost" href="/tickets" hx-get="/tickets" hx-target="#tickets-screen" hx-swap="outerHTML" hx-push-url="true" aria-label="Clear filters">Clear</a>
-  <span class="htmx-indicator spinner" aria-hidden="true"></span>
-</form><div id="ticket-list">
-  <div class="queue-shell">
-    <table class="queue">
-      <thead>
-        <tr><th>ID</th><th>Title</th><th>State</th><th>Priority</th><th>Updated</th></tr>
-      </thead>
-      <tbody>
-        <tr>
-          <td class="num" data-label="ID"><a href="/tickets/2">TKT-2</a></td>
-          <td class="cell-title" data-label="Title"><a href="/tickets/2">Printer jam</a></td>
-          <td data-label="State"><span class="badge in_progress">In Progress</span></td>
-          <td class="priority high" data-label="Priority"><span class="ticket-priority-value">High</span></td>
-          <td class="cell-muted" data-label="Updated"><time datetime="2026-08-06T10:30:00Z">10:30 · 06-08-2026</time></td>
-        </tr>
-        <tr>
-          <td class="num" data-label="ID"><a href="/tickets/1">TKT-1</a></td>
-          <td class="cell-title" data-label="Title"><a href="/tickets/1">Login page down</a></td>
-          <td data-label="State"><span class="badge new">New</span></td>
-          <td class="priority critical" data-label="Priority"><span class="ticket-priority-value">Critical</span></td>
-          <td class="cell-muted" data-label="Updated"><time datetime="2026-08-06T10:00:00Z">10:00 · 06-08-2026</time></td>
-        </tr>
-      </tbody>
-    </table>
+  <input id="role-ticket-search" type="search" name="q" value="printer" placeholder="Search by ID or title" aria-label="Search tickets" hx-preserve="true" hx-get="/tickets" hx-trigger="input changed delay:300ms" hx-target="#tickets-screen" hx-swap="outerHTML" hx-push-url="true">
+</form><a class="page-action page-action-primary" href="/tickets/new">New ticket</a>
+    </div>
+  </header><div id="user-ticket-list">
+  <div class="user-ticket-grid">
+  <div class="card user-request-card">
+    <div class="user-request-content">
+      <div class="user-request-head">
+    <a class="user-request-title" href="/tickets/2">Printer jam</a><span class="badge in_progress">In progress</span>
+      </div><p class="user-request-description">Clear the jammed tray, then reload paper.</p>
+      <span class="user-request-meta">TKT-2 · Updated <time class="card-timestamp" tabindex="0" datetime="2026-08-06T10:30:00Z" aria-label="10:30 · 06-08-2026" data-full-date="10:30 · 06-08-2026">10:30 · 06 Aug</time></span>
+    </div>
+    <a class="user-request-open" href="/tickets/2">View request</a>
   </div>
-</div>
+  <div class="card user-request-card">
+    <div class="user-request-content">
+      <div class="user-request-head">
+    <a class="user-request-title" href="/tickets/1">Login page down</a><span class="badge new">Received</span>
+      </div>
+      <span class="user-request-meta">TKT-1 · Updated <time class="card-timestamp" tabindex="0" datetime="2026-08-06T10:00:00Z" aria-label="10:00 · 06-08-2026" data-full-date="10:00 · 06-08-2026">10:00 · 06 Aug</time></span>
+    </div>
+    <a class="user-request-open" href="/tickets/1">View request</a>
+  </div>
+    </div>
+  </div>
 </section></main>
 </div>
 </body>

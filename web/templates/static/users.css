@@ -129,6 +129,25 @@
 .tickets-screen .priority.medium .ticket-priority-value::before{background:var(--ticket-priority-medium-marker)}
 .tickets-screen .priority.high .ticket-priority-value::before{background:var(--red)}
 .tickets-screen .priority.critical .ticket-priority-value::before{background:#7A271A}
+.tickets-screen .user-request-card{display:flex;align-items:flex-start;justify-content:space-between;gap:14px}
+.tickets-screen .user-request-card .user-request-content{min-width:0;display:flex;flex-direction:column;gap:4px}
+.tickets-screen .user-request-card .user-request-head{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.tickets-screen .user-request-card .user-request-title{color:var(--ink-strong);font-weight:500;overflow-wrap:anywhere}
+.tickets-screen .user-request-card .user-request-description{margin:0;color:var(--ink-soft);font-size:13px;overflow-wrap:anywhere}
+.tickets-screen .user-request-card .user-request-meta{color:#667085;font-size:13px}
+    .tickets-screen .user-request-card .user-request-open{flex:0 0 auto;color:var(--accent);font-weight:600}
+    .tickets-screen .user-request-card .user-request-open:hover{text-decoration:underline}
+    .tickets-screen .user-request-card .empty{padding:8px 0}
+    .tickets-screen .user-ticket-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;align-items:stretch}
+    .tickets-screen .user-ticket-grid .user-request-card{margin-bottom:0;align-items:stretch}
+    .tickets-screen .user-ticket-grid .user-request-open{align-self:flex-end}
+    .tickets-screen .user-ticket-grid .user-request-empty{grid-column:1/-1;align-items:center}
+    @media(max-width:900px){
+      .tickets-screen .user-ticket-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+    }
+    @media(max-width:640px){
+      .tickets-screen .user-ticket-grid{grid-template-columns:1fr}
+    }
 .ticket-create-page{max-width:1440px}
 .ticket-create-detail{color:var(--ink)}
 .ticket-create-detail .ticket-create-command-header{margin-bottom:18px}
@@ -143,6 +162,7 @@
 .ticket-create-detail .selected-catalog-path span{overflow-wrap:anywhere}
 .ticket-create-detail .selected-catalog-path a{font-size:13px}
 @media(max-width:640px){
+  .tickets-screen .user-request-card{flex-wrap:wrap}
   .tickets-screen .ticket-toolbar{align-items:stretch}
   .tickets-screen .ticket-search{flex-basis:100%}
   .tickets-screen .ticket-toolbar select{flex:1 1 calc(50% - 4px);min-width:0}

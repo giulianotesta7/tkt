@@ -419,6 +419,9 @@ func (h *TicketHandlers) listData(r *http.Request, f filterState, page int) (lis
 		}
 		return listData{pageData: pageMeta, Filters: f, Total: total, HasActiveQuery: f.Q != "", AgentView: true, Assigned: assigned, Claimable: claimable}, nil
 	}
+	if actor.Role == domain.RoleUser {
+		f = simplifiedFilters(f)
+	}
 
 	opts, err := h.collectOptions(r)
 	if err != nil {
