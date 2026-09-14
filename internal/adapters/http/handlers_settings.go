@@ -113,5 +113,6 @@ func (h *SettingsHandlers) updateAppearance(w http.ResponseWriter, r *http.Reque
 		h.renderer.Render(w, r, "settings_index", "", data, status)
 		return
 	}
+	saveFeedback(w, r, saveFeedbackSaved, saveFeedbackSuccess)
 	redirect(w, r, "/settings")
 }

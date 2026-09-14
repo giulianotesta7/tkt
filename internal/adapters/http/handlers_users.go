@@ -317,12 +317,14 @@ func (h *UserHandlers) create(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		data.UsersAssets = true
+		saveFeedback(w, r, saveFeedbackSaved, saveFeedbackSuccess)
 		w.Header().Set("HX-Retarget", "#users-root")
 		w.Header().Set("HX-Reswap", "outerHTML")
 		w.Header().Set("HX-Trigger-After-Swap", "users:saved")
 		h.renderer.Render(w, r, "users_index", "users_screen", data, http.StatusOK)
 		return
 	}
+	saveFeedback(w, r, saveFeedbackSaved, saveFeedbackSuccess)
 	redirect(w, r, "/users")
 }
 
@@ -453,12 +455,14 @@ func (h *UserHandlers) update(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		data.UsersAssets = true
+		saveFeedback(w, r, saveFeedbackSaved, saveFeedbackSuccess)
 		w.Header().Set("HX-Retarget", "#users-root")
 		w.Header().Set("HX-Reswap", "outerHTML")
 		w.Header().Set("HX-Trigger-After-Swap", "users:saved")
 		h.renderer.Render(w, r, "users_index", "users_screen", data, http.StatusOK)
 		return
 	}
+	saveFeedback(w, r, saveFeedbackSaved, saveFeedbackSuccess)
 	redirect(w, r, usersListURL(status))
 }
 

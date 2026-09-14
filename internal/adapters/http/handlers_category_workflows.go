@@ -77,7 +77,7 @@ func (h *CategoryWorkflowHandlers) get(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	desks := h.deskOptions(r)
-	h.render(w, r, categoryID, draft, desks, nil, statusLive(r), selectedStepIndex(r, len(draft)), http.StatusOK)
+	h.render(w, r, categoryID, draft, desks, nil, "", selectedStepIndex(r, len(draft)), http.StatusOK)
 }
 
 func (h *CategoryWorkflowHandlers) post(w http.ResponseWriter, r *http.Request) {
@@ -118,15 +118,7 @@ func (h *CategoryWorkflowHandlers) post(w http.ResponseWriter, r *http.Request) 
 			http.Error(w, mapErrorMsg(err), statusFor(err))
 			return
 		}
-		if action == "save" {
-			if r.Header.Get("HX-Request") == "" {
-				redirect(w, r, withStatus(workflowLocation(r, selectedStepIndex(r, len(draft))), "saved"))
-				return
-			}
-			h.render(w, r, categoryID, draft, desks, nil, "Saved", selectedStepIndex(r, len(draft)), http.StatusOK)
-			return
-		}
-		h.afterMutation(w, r, categoryID, draft, desks, nil, defaultLive(), -1)
+		h.afterMutation(w, r, categoryID, draft, desks, nil, saveFeedbackSaved, -1)
 	case "add_step":
 		// A terminal step stays final and last: new steps insert immediately before
 		// it (the builder offers the insertion point before the final card), or
@@ -137,7 +129,7 @@ func (h *CategoryWorkflowHandlers) post(w http.ResponseWriter, r *http.Request) 
 			http.Error(w, mapErrorMsg(err), statusFor(err))
 			return
 		}
-		h.afterMutation(w, r, categoryID, result, desks, nil, "Added a step.", focus)
+		h.afterMutation(w, r, categoryID, result, desks, nil, saveFeedbackSaved, focus)
 	case "move_up":
 		result, focus, mv := localMoveUp(draft, r)
 		if mv {
@@ -149,7 +141,7 @@ func (h *CategoryWorkflowHandlers) post(w http.ResponseWriter, r *http.Request) 
 			http.Error(w, mapErrorMsg(err), statusFor(err))
 			return
 		}
-		h.afterMutation(w, r, categoryID, result, desks, nil, focusLive(focus, len(result)), focus)
+		h.afterMutation(w, r, categoryID, result, desks, nil, saveFeedbackSaved, focus)
 	case "move_down":
 		result, focus, mv := localMoveDown(draft, r)
 		if mv {
@@ -161,7 +153,7 @@ func (h *CategoryWorkflowHandlers) post(w http.ResponseWriter, r *http.Request) 
 			http.Error(w, mapErrorMsg(err), statusFor(err))
 			return
 		}
-		h.afterMutation(w, r, categoryID, result, desks, nil, focusLive(focus, len(result)), focus)
+		h.afterMutation(w, r, categoryID, result, desks, nil, saveFeedbackSaved, focus)
 	case "remove_step":
 		result, focus, rm := localRemoveStep(draft, r)
 		if rm {
@@ -173,7 +165,7 @@ func (h *CategoryWorkflowHandlers) post(w http.ResponseWriter, r *http.Request) 
 			http.Error(w, mapErrorMsg(err), statusFor(err))
 			return
 		}
-		h.afterMutation(w, r, categoryID, result, desks, nil, defaultLive(), selectionAfterRemove(focus, len(result)))
+		h.afterMutation(w, r, categoryID, result, desks, nil, saveFeedbackSaved, selectionAfterRemove(focus, len(result)))
 	case "reorder":
 		result, movedTo, err := localReorder(draft, r)
 		if err != nil {
@@ -184,21 +176,21 @@ func (h *CategoryWorkflowHandlers) post(w http.ResponseWriter, r *http.Request) 
 			http.Error(w, mapErrorMsg(err), statusFor(err))
 			return
 		}
-		h.afterMutation(w, r, categoryID, result, desks, nil, focusLive(movedTo, len(result)), movedTo)
+		h.afterMutation(w, r, categoryID, result, desks, nil, saveFeedbackSaved, movedTo)
 	case "add_field":
 		result, idx := localAddField(draft, r)
 		if err := h.workflows.SaveDraft(r.Context(), actor, categoryID, result); err != nil {
 			http.Error(w, mapErrorMsg(err), statusFor(err))
 			return
 		}
-		h.afterMutation(w, r, categoryID, result, desks, nil, "Added a form field.", idx)
+		h.afterMutation(w, r, categoryID, result, desks, nil, saveFeedbackSaved, idx)
 	case "remove_field":
 		result, idx := localRemoveField(draft, r)
 		if err := h.workflows.SaveDraft(r.Context(), actor, categoryID, result); err != nil {
 			http.Error(w, mapErrorMsg(err), statusFor(err))
 			return
 		}
-		h.afterMutation(w, r, categoryID, result, desks, nil, "Removed a form field.", idx)
+		h.afterMutation(w, r, categoryID, result, desks, nil, saveFeedbackSaved, idx)
 	case "preview":
 		preview, previewIssues, err := h.workflows.Preview(r.Context(), actor, categoryID, draft)
 		if err != nil {
@@ -220,27 +212,24 @@ func (h *CategoryWorkflowHandlers) post(w http.ResponseWriter, r *http.Request) 
 			h.render(w, r, categoryID, draft, desks, publishIssues, "", selection, http.StatusUnprocessableEntity)
 			return
 		}
-		if r.Header.Get("HX-Request") == "" {
-			redirect(w, r, withStatus(workflowLocation(r, selection), "published"))
-			return
-		}
-		h.render(w, r, categoryID, draft, desks, nil, "Published", selection, http.StatusOK)
+		h.afterMutation(w, r, categoryID, draft, desks, nil, saveFeedbackPublished, selection)
 	default:
 		h.render(w, r, categoryID, draft, desks, []domain.WorkflowValidationIssue{{Step: 1, Field: "action", Message: "unknown workflow action"}}, "", selection, http.StatusUnprocessableEntity)
 	}
 }
 
-// afterMutation persists a successful mutation: full-page requests redirect so
-// the GET re-reads the persisted draft; HTMX requests swap the rebuilt fragment.
-func (h *CategoryWorkflowHandlers) afterMutation(w http.ResponseWriter, r *http.Request, categoryID int64, draft domain.WorkflowDefinition, desks []domain.Desk, issues []domain.WorkflowValidationIssue, live string, focus int) {
+// afterMutation issues feedback only after persistence succeeds. Full-page
+// requests carry it to the redirect; HTMX receives the server-issued header.
+func (h *CategoryWorkflowHandlers) afterMutation(w http.ResponseWriter, r *http.Request, categoryID int64, draft domain.WorkflowDefinition, desks []domain.Desk, issues []domain.WorkflowValidationIssue, message string, focus int) {
 	if focus < 0 {
 		focus = selectedStepIndex(r, len(draft))
 	}
+	saveFeedback(w, r, message, saveFeedbackSuccess)
 	if r.Header.Get("HX-Request") == "" {
 		redirect(w, r, workflowLocation(r, focus))
 		return
 	}
-	h.render(w, r, categoryID, draft, desks, issues, live, focus, http.StatusOK)
+	h.render(w, r, categoryID, draft, desks, issues, "", focus, http.StatusOK)
 }
 
 func workflowLocation(r *http.Request, selection int) string {
@@ -367,27 +356,6 @@ func workflowStepSummary(step domain.WorkflowStep, desks []domain.Desk) string {
 	default:
 		return "Configure this step"
 	}
-}
-
-// defaultLive returns no standing instruction; mutation feedback is transient.
-func defaultLive() string { return "" }
-
-// workflowStatusLive is the closed redirect-status set mapped to its exact
-// live token; unknown statuses render nothing.
-var workflowStatusLive = map[string]string{"saved": "Saved", "published": "Published"}
-
-func statusLive(r *http.Request) string { return workflowStatusLive[r.URL.Query().Get("status")] }
-
-// withStatus appends a closed success status to a workflow redirect location.
-func withStatus(location, status string) string {
-	sep := "?"
-	if strings.Contains(location, "?") {
-		sep = "&"
-	}
-	return location + sep + "status=" + status
-}
-func focusLive(pos, total int) string {
-	return fmt.Sprintf("Step %d of %d.", pos+1, total)
 }
 
 // insertBeforeTerminal places step directly before the existing terminal (keeping
