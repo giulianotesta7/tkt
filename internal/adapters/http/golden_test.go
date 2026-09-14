@@ -167,6 +167,25 @@ func TestGoldenTicketsIndexUser(t *testing.T) {
 	goldenFile(t, "tickets_index_user", renderGolden(t, "tickets_index", "", data, false))
 }
 
+func TestGoldenTicketsIndexAgent(t *testing.T) {
+	data := fixtureListData()
+	data.CurrentUser.Role = domain.RoleAgent
+	data.AgentView = true
+	data.Filters = filterState{Q: "printer"}
+	data.Tickets[0].RequesterName = "Ana Torres"
+	data.Tickets[1].RequesterName = "Ana Torres"
+	data.Assigned = ticketListData{Tickets: []agentTicketRow{
+		{Ticket: data.Tickets[0], Context: application.AgentTicketRowContext{DeskName: "Service desk"}},
+		{Ticket: data.Tickets[1], Context: application.AgentTicketRowContext{CurrentTask: "Restart the printer spooler"}},
+	}, Total: 2, Page: 1, Pages: 1}
+	data.Claimable = ticketListData{Tickets: []agentTicketRow{{
+		Ticket:  domain.Ticket{ID: 3, Number: 3, Title: "Email bounce", RequesterName: "Ana Torres", State: domain.StateNew, Priority: domain.PriorityMedium, CreatedAt: goldenT1, UpdatedAt: goldenT1},
+		Context: application.AgentTicketRowContext{DeskName: "Service desk"},
+	}}, Total: 1, Page: 1, Pages: 1}
+	data.Total = 3
+	goldenFile(t, "tickets_index_agent", renderGolden(t, "tickets_index", "", data, false))
+}
+
 func TestGoldenTicketsNew(t *testing.T) {
 	goldenFile(t, "tickets_new", renderGolden(t, "tickets_new", "", fixtureTicketFormData(), false))
 }

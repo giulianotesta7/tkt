@@ -1,0 +1,50 @@
+{{define "agent_ticket_list"}}<div id="agent-ticket-list">
+  <section class="agent-queue" aria-labelledby="assigned-tickets-title">
+    <header class="command-header"><h2 id="assigned-tickets-title" class="command-title">Assigned to me · {{.Assigned.Total}}</h2></header>
+    <ul class="agent-queue-list">
+{{range .Assigned.Tickets}}      <li class="agent-row agent-row-assigned">
+        <div class="agent-row-main">
+          <a class="agent-row-title" href="/tickets/{{.ID}}">{{.Title}}</a>
+          <span class="agent-row-number">{{ticketNumber .Number}}</span>
+{{if .Context.CurrentTask}}          <p class="agent-row-task">Current task: {{.Context.CurrentTask}}</p>{{end}}
+{{if .Context.DeskName}}          <p class="agent-row-meta">Desk: {{.Context.DeskName}}</p>
+{{else}}          <p class="agent-row-meta">No desk assigned</p>
+{{end}}          <p class="agent-row-meta">Requester: {{.RequesterName}}</p>
+        </div>
+        <div class="agent-row-side">
+          {{template "state_badge" .State}}
+          <span class="priority {{.Priority}}"><span class="ticket-priority-value">{{humanize .Priority}}</span></span>
+          <span class="agent-row-updated">Updated {{template "card_timestamp" .UpdatedAt}}</span>
+          <a class="agent-row-open" href="/tickets/{{.ID}}">Open ticket</a>
+        </div>
+      </li>
+{{else}}      <li class="agent-empty">
+{{if .Assigned.HasActiveQuery}}        <p>No tickets match your search.</p><a class="agent-clear-search" href="/tickets" hx-get="/tickets" hx-target="#tickets-screen" hx-swap="outerHTML" hx-push-url="true">Clear search</a>
+{{else}}        <p>No tickets assigned to you.</p>
+{{end}}      </li>
+{{end}}    </ul>{{template "pagination" .Assigned}}
+  </section>
+  <section class="agent-queue" aria-labelledby="claimable-tickets-title">
+    <header class="command-header"><h2 id="claimable-tickets-title" class="command-title">Available to claim · {{.Claimable.Total}}</h2></header>
+    <ul class="agent-queue-list">
+{{range .Claimable.Tickets}}      <li class="agent-row agent-row-claimable">
+        <div class="agent-row-main">
+          <a class="agent-row-title" href="/tickets/{{.ID}}">{{.Title}}</a>
+          <span class="agent-row-number">{{ticketNumber .Number}}</span>
+          <p class="agent-row-meta">Requester: {{.RequesterName}}</p>
+{{if .Context.DeskName}}          <p class="agent-row-meta">Desk: {{.Context.DeskName}}</p>{{end}}
+          <span class="agent-row-updated">Created {{template "card_timestamp" .CreatedAt}}</span>
+        </div>
+        <div class="agent-row-side">
+          {{template "state_badge" .State}}
+          <span class="priority {{.Priority}}"><span class="ticket-priority-value">{{humanize .Priority}}</span></span>
+          <a class="agent-row-open" href="/tickets/{{.ID}}">View ticket</a>
+        </div>
+      </li>
+{{else}}      <li class="agent-empty">
+{{if .Claimable.HasActiveQuery}}        <p>No tickets match your search.</p><a class="agent-clear-search" href="/tickets" hx-get="/tickets" hx-target="#tickets-screen" hx-swap="outerHTML" hx-push-url="true">Clear search</a>
+{{else}}        <p>No tickets available in your desks.</p>
+{{end}}      </li>
+{{end}}    </ul>{{template "pagination" .Claimable}}
+  </section>
+</div>{{end}}
