@@ -1714,5 +1714,25 @@ name: "Leave without saving?",
       await expect(page).toHaveURL(/\/categories(\?.*)?$/);
       await expect(dialog).not.toBeVisible();
     });
+
+    test("failed publish keeps invalid edits dirty without false success", async ({ page }) => {
+      const categoryId = await openDirtyBuilder(page, "   ");
+      const publishResponse = page.waitForResponse(
+        (response) =>
+          response.request().method() === "POST" &&
+          response.url().includes(`/categories/${categoryId}/workflow`) &&
+          (response.request().postData() ?? "").includes("action=publish"),
+      );
+      await page.getByRole("button", { name: "Publish" }).click();
+      await expect((await publishResponse).status()).toBe(422);
+      await expect(page.getByRole("alert")).toBeVisible();
+      await expect(page.getByLabel(/^instructions/i)).toHaveValue("   ");
+      await expect(page.locator("[data-workflow-live]")).toHaveCount(0);
+      await page.locator(".page-breadcrumb a").click();
+      await expect(page.locator("#workflow-leave-dialog")).toBeVisible();
+      await expect(page).toHaveURL(
+        new RegExp(`/categories/${categoryId}/workflow$`),
+      );
+    });
   });
 });
