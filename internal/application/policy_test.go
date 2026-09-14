@@ -84,6 +84,28 @@ func TestPolicyCapabilitiesPerRole(t *testing.T) {
 	}
 }
 
+func TestPolicyTicketMetricsCapability(t *testing.T) {
+	p := NewPolicy()
+	if got := string(CapViewTicketMetrics); got != "tickets.metrics.view" {
+		t.Fatalf("CapViewTicketMetrics = %q", got)
+	}
+	for _, tc := range []struct {
+		role domain.Role
+		want bool
+	}{
+		{domain.RoleRoot, true},
+		{domain.RoleAdmin, true},
+		{domain.RoleAgent, false},
+		{domain.RoleUser, false},
+		{domain.Role("unknown"), false},
+		{domain.Role(""), false},
+	} {
+		if got := p.Capabilities(tc.role).Require(CapViewTicketMetrics); got != tc.want {
+			t.Errorf("role %q ticket metrics capability = %t, want %t", tc.role, got, tc.want)
+		}
+	}
+}
+
 func TestPolicyCanManageUser(t *testing.T) {
 	p := NewPolicy()
 	cases := []struct {

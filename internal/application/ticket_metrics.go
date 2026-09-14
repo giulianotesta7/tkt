@@ -46,6 +46,38 @@ func NewTicketMetricsService(store TicketMetricsStore, clock domain.Clock) *Tick
 	return &TicketMetricsService{store: store, clock: clock}
 }
 
+// View authorizes before observing the clock or read port. The filter is
+// normalized and aggregated from one UTC clock snapshot.
+func (s *TicketMetricsService) View(ctx context.Context, actor domain.User, filter TicketMetricsFilter) (TicketMetrics, error) {
+	if !NewPolicy().Capabilities(actor.Role).Require(CapViewTicketMetrics) {
+		return TicketMetrics{}, domain.NewForbiddenError("ticket metrics require admin access")
+	}
+	return s.view(ctx, filter, s.clock.Now().UTC())
+}
+
+// ViewCurrentWeek returns the current UTC Monday-Sunday period using one clock
+// snapshot. Workload defaults to agents through the shared normalization path.
+func (s *TicketMetricsService) ViewCurrentWeek(ctx context.Context, actor domain.User) (TicketMetrics, error) {
+	if !NewPolicy().Capabilities(actor.Role).Require(CapViewTicketMetrics) {
+		return TicketMetrics{}, domain.NewForbiddenError("ticket metrics require admin access")
+	}
+	now := s.clock.Now().UTC()
+	weekStart := monday(now)
+	return s.view(ctx, TicketMetricsFilter{Start: weekStart, End: weekStart.AddDate(0, 0, 6)}, now)
+}
+
+func (s *TicketMetricsService) view(ctx context.Context, filter TicketMetricsFilter, now time.Time) (TicketMetrics, error) {
+	filter, err := normalizeTicketMetricsFilter(filter, now)
+	if err != nil {
+		return TicketMetrics{}, err
+	}
+	records, err := s.store.TicketMetrics(ctx, filter)
+	if err != nil {
+		return TicketMetrics{}, err
+	}
+	return buildTicketMetrics(records, filter, now), nil
+}
+
 type TicketMetrics struct {
 	Filter       TicketMetricsFilter
 	Pending      int

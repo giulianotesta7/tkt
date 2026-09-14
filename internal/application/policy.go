@@ -48,6 +48,8 @@ const (
 	CapManageDesks Capability = "desks.manage"
 	// CapManageCategories allows category management (admin+).
 	CapManageCategories Capability = "categories.manage"
+	// CapViewTicketMetrics permits the administrative queue metrics read.
+	CapViewTicketMetrics Capability = "tickets.metrics.view"
 )
 
 // capabilityMatrix maps each role to its granted capabilities. The empty
@@ -75,6 +77,7 @@ var capabilityMatrix = map[domain.Role][]Capability{
 		CapChangeRole,
 		CapManageDesks,
 		CapManageCategories,
+		CapViewTicketMetrics,
 	},
 	domain.RoleRoot: {
 		CapCreateTicket,
@@ -87,6 +90,7 @@ var capabilityMatrix = map[domain.Role][]Capability{
 		CapGrantAdmin,
 		CapManageDesks,
 		CapManageCategories,
+		CapViewTicketMetrics,
 	},
 }
 
