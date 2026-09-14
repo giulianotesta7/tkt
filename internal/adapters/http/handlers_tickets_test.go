@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/giulianotesta7/tkt/internal/application"
 	"github.com/giulianotesta7/tkt/internal/domain"
@@ -850,5 +851,155 @@ func TestTicketCreateUserRoleRejectsAssignment(t *testing.T) {
 	_, err := h.tickets.GetByID(t.Context(), *h.admin, 1)
 	if !errors.Is(err, domain.ErrNotFound) {
 		t.Fatalf("no ticket may be stored, GetByID err = %v (want ErrNotFound)", err)
+	}
+}
+
+// --- Issue #123: compact operational metrics summary on GET /tickets ---
+// metricsSummaryHTML returns the rendered summary section, or "" when absent.
+func metricsSummaryHTML(t *testing.T, body string) string {
+	t.Helper()
+	start := strings.Index(body, `<section id="ticket-metrics"`)
+	if start < 0 {
+		return ""
+	}
+	end := strings.Index(body[start:], "</section>")
+	if end < 0 {
+		t.Fatalf("summary section never closes: %s", body)
+	}
+	return body[start : start+end+len("</section>")]
+}
+
+// TestTicketsIndexMetricsSummaryRoleVisibility proves the fixed-week summary
+// renders for admin/root only.
+func TestTicketsIndexMetricsSummaryRoleVisibility(t *testing.T) {
+	h := newHarness(t)
+	for _, tt := range []struct {
+		name        string
+		role        domain.Role
+		wantSummary bool
+	}{
+		{"admin", domain.RoleAdmin, true},
+		{"root", domain.RoleRoot, true},
+		{"agent", domain.RoleAgent, false},
+		{"user", domain.RoleUser, false},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			actor := seedUserRole(t, h.store, tt.name, tt.name+"-metrics@example.com", tt.role)
+			rec := doRequest(h.mux, h.mw, http.MethodGet, "/tickets", map[string]string{
+				"Cookie": sessionCookie + "=" + seedSession(t, h.store, actor.ID).ID,
+			})
+			if rec.Code != http.StatusOK {
+				t.Fatalf("status = %d, want 200", rec.Code)
+			}
+			body := rec.Body.String()
+			if got := metricsSummaryHTML(t, body) != ""; got != tt.wantSummary {
+				t.Fatalf("%s: summary present = %t, want %t, got: %s", tt.name, got, tt.wantSummary, body)
+			}
+			if !tt.wantSummary && strings.Contains(body, "Operational summary") {
+				t.Errorf("%s page must not contain aggregate metrics copy, got: %s", tt.name, body)
+			}
+		})
+	}
+}
+
+// TestTicketsIndexMetricsSummaryContract proves the admin summary is the
+// fixed CURRENT UTC Monday-Sunday week, DOM-owned outside #tickets-screen.
+func TestTicketsIndexMetricsSummaryContract(t *testing.T) {
+	h := newHarness(t)
+	rec := h.get(t, "/tickets?state=new&q=printer&hack=1", false)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+	body := rec.Body.String()
+	summary := metricsSummaryHTML(t, body)
+	if summary == "" {
+		t.Fatalf("admin full page must render the summary, got: %s", body)
+	}
+
+	// Fixed current UTC week from the harness clock: state&q&hack are irrelevant.
+	weekStart := time.Date(fixedNow.UTC().Year(), fixedNow.UTC().Month(), fixedNow.UTC().Day(), 0, 0, 0, 0, time.UTC)
+	weekStart = weekStart.AddDate(0, 0, -(int(weekStart.Weekday())+6)%7)
+	if !strings.Contains(summary, `data-week-start="`+weekStart.Format("2006-01-02")+`"`) ||
+		!strings.Contains(summary, `data-week-end="`+weekStart.AddDate(0, 0, 6).Format("2006-01-02")+`"`) {
+		t.Errorf("summary must carry the fixed current UTC week %s, got: %s", weekStart.Format("2006-01-02"), summary)
+	}
+	if got := strings.Count(summary, `class="ticket-metrics-card"`); got != 4 {
+		t.Errorf("summary cards = %d, want 4, got: %s", got, summary)
+	}
+	for _, label := range []string{"Pending tickets", "Unassigned tickets", "Resolved this week", "Mean resolution time"} {
+		if !strings.Contains(summary, label) {
+			t.Errorf("summary must show card label %q, got: %s", label, summary)
+		}
+	}
+	// No controls or extra copy: no date selector, form, Apply, or notes.
+	for _, forbidden := range []string{"<form", `type="date"`, `type="submit"`, "Apply", "Timezone", "excluded", "ticket-metrics-note"} {
+		if strings.Contains(summary, forbidden) {
+			t.Errorf("summary must not contain %q, got: %s", forbidden, summary)
+		}
+	}
+	// Safe return link: recognized values re-encoded, unknown dropped.
+	wantHref := `/tickets/metrics?return=` + url.QueryEscape("/tickets?q=printer&state=new")
+	if !strings.Contains(summary, `href="`+wantHref+`"`) {
+		t.Errorf("View metrics href = want %q, got: %s", wantHref, summary)
+	}
+	// DOM ownership: header, summary, screen as siblings; PR137 search once.
+	headerAt := strings.Index(body, `class="page-foundation tickets-header"`)
+	summaryAt := strings.Index(body, `<section id="ticket-metrics"`)
+	screenAt := strings.Index(body, `<section id="tickets-screen"`)
+	if !(headerAt >= 0 && headerAt < summaryAt && summaryAt < screenAt) {
+		t.Errorf("DOM order must be header < summary < tickets-screen (%d < %d < %d)", headerAt, summaryAt, screenAt)
+	}
+	if got := strings.Count(body, `class="ticket-search search-field"`); got != 1 {
+		t.Errorf("ticket search controls = %d, want 1, got: %s", got, body)
+	}
+}
+
+// TestTicketsIndexMetricsSummaryHXSwapOmitted proves HX list renders never carry the summary.
+func TestTicketsIndexMetricsSummaryHXSwapOmitted(t *testing.T) {
+	h := newHarness(t)
+	rec := h.get(t, "/tickets", true)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+	if body := rec.Body.String(); strings.Contains(body, `<section id="ticket-metrics"`) || strings.Contains(body, "Operational summary") {
+		t.Errorf("HX fragment must not contain the summary, got: %s", body)
+	}
+}
+
+// TestMetricsReturnHrefSafety proves the return URL only carries recognized, safely re-encoded parameters.
+func TestMetricsReturnHrefSafety(t *testing.T) {
+	for _, tt := range []struct{ raw, want string }{
+		{"/tickets", "/tickets"},
+		{"/tickets?state=new&q=printer&hack=<script>", "/tickets?q=printer&state=new"},
+		{"/tickets?priority=high", "/tickets?priority=high"},
+		{"/tickets?state=nope", "/tickets"},
+		{"/tickets?page=3", "/tickets?page=3"},
+		{"/tickets?page=1", "/tickets"},
+		{"/users?state=new", "/tickets"},
+		{"https://evil.example/tickets?state=new", "/tickets"},
+		{"//evil.example/tickets?state=new", "/tickets"},
+		{"/tickets?state=new&%zz", "/tickets?state=new"}, // malformed pair silently dropped
+	} {
+		if got := metricsReturnHref(tt.raw); got != tt.want {
+			t.Errorf("metricsReturnHref(%q) = %q, want %q", tt.raw, got, tt.want)
+		}
+	}
+}
+
+// TestTicketMetricsStaticAsset proves the summary stylesheet is served as CSS.
+func TestTicketMetricsStaticAsset(t *testing.T) {
+	h := newHarness(t)
+	rec := httptest.NewRecorder()
+	h.mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/static/ticket_metrics.css", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+	if got := rec.Header().Get("Content-Type"); got != "text/css; charset=utf-8" {
+		t.Errorf("Content-Type = %q, want text/css; charset=utf-8", got)
+	}
+	for _, want := range []string{".ticket-metrics-summary", ".ticket-metrics-cards", "@media(max-width:640px)"} {
+		if !strings.Contains(rec.Body.String(), want) {
+			t.Errorf("stylesheet must contain %q, got: %s", want, rec.Body.String())
+		}
 	}
 }

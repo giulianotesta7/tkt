@@ -209,7 +209,10 @@ test.describe("Role — minimal matrix admin / agent / user (seeded)", () => {
     const userTicketId = await createTicketViaUi(page, { title: userTicket, category: "General", priority: "low" });
     await expect(page.getByText(userTicket)).toBeVisible();
     const listScreen = page.locator("#tickets-screen");
-    await expect(listScreen.getByRole("heading", { name: "My tickets" })).toBeVisible();
+    // The page title stays outside #tickets-screen: the metrics summary sits
+    // between them and is never part of an HX list swap. Only the swapped region
+    // carries the live count, so the subtitle is what must track the fragment.
+    await expect(page.getByRole("heading", { name: "My tickets" })).toBeVisible();
     await expect(listScreen.locator(".page-subtitle")).toHaveText("1 ticket");
     const userCard = listScreen.locator(".user-request-card").filter({ has: page.getByText(userTicket, { exact: true }) });
     await expect(userCard).toHaveCount(1);
