@@ -222,3 +222,172 @@ func abs(v float64) float64 {
 	}
 	return v
 }
+
+// Age chart: horizontal accent bars in the fixed ranges, x axis starting at
+// zero with integer ticks and gridlines, a visible Pending tickets axis title,
+// left labels and end-of-bar counts.
+func TestMetricsAgeChartLayout(t *testing.T) {
+	svg := string(metricsAgeChart([]application.TicketMetricsBucket{
+		{Label: "0–2 days", Count: 0},
+		{Label: "3–7 days", Count: 2},
+		{Label: "8–14 days", Count: 5},
+		{Label: ">14 days", Count: 1},
+	}))
+	if !strings.Contains(svg, "Pending tickets") {
+		t.Fatalf("age chart must show the Pending tickets axis title: %s", svg)
+	}
+	if !strings.Contains(svg, "aria-label") {
+		t.Fatalf("age chart must stay accessible: %s", svg)
+	}
+	bars := 0
+	for _, tag := range svgTags(t, svg, "rect") {
+		if strings.Contains(tag, "metrics-bar") && !strings.Contains(tag, "metrics-bar-unassigned") {
+			bars++
+		}
+	}
+	if bars != 4 {
+		t.Fatalf("one accent bar per fixed age range, got %d: %s", bars, svg)
+	}
+	// X axis begins at zero with at least the 0 and max integer ticks.
+	zeroTick := false
+	ticks := 0
+	for _, tag := range svgTags(t, svg, "text") {
+		if strings.Contains(tag, "metrics-axis-label") {
+			ticks++
+			if svgTextContent(t, svg, tag) == "0" {
+				zeroTick = true
+			}
+		}
+	}
+	if ticks < 2 || !zeroTick {
+		t.Fatalf("x axis must start at zero with integer ticks: %s", svg)
+	}
+	for _, want := range []string{"0–2 days", "3–7 days", "8–14 days", "&gt;14 days", ">2<", ">5<", ">1<"} {
+		if !strings.Contains(svg, want) {
+			t.Fatalf("age chart must render label/count %q: %s", want, svg)
+		}
+	}
+}
+
+// svgTextContent returns the inner text of the <text> element opened by tag.
+func svgTextContent(t *testing.T, svg, tag string) string {
+	t.Helper()
+	start := strings.Index(svg, tag)
+	if start < 0 {
+		t.Fatalf("tag not in svg: %s", tag)
+	}
+	rest := svg[start+len(tag):]
+	end := strings.Index(rest, "</text>")
+	if end < 0 {
+		t.Fatalf("unclosed text tag: %s", tag)
+	}
+	return rest[:end]
+}
+
+// Workload bars share the age chart's axis contract: an x axis that starts
+// at zero with integer ticks and gridlines, a visible Pending tickets axis
+// title, left labels, end-of-bar counts, and the neutral class on the
+// genuinely unassigned row.
+func TestMetricsWorkloadChartAxisLayout(t *testing.T) {
+	svg := string(metricsWorkloadChart([]application.TicketMetricsWorkload{
+		{Label: "Alice Admin", Count: 2},
+		{Label: "Unassigned", Count: 3, Unassigned: true},
+	}, "Pending workload"))
+	if !strings.Contains(svg, "Pending tickets") {
+		t.Fatalf("workload chart must show the Pending tickets axis title: %s", svg)
+	}
+	if !strings.Contains(svg, "X axis from 0 to") {
+		t.Fatalf("workload chart must describe a zero-based x axis: %s", svg)
+	}
+	zeroTick := false
+	ticks := 0
+	for _, tag := range svgTags(t, svg, "text") {
+		if strings.Contains(tag, "metrics-axis-label") {
+			ticks++
+			if svgTextContent(t, svg, tag) == "0" {
+				zeroTick = true
+			}
+		}
+	}
+	if ticks < 2 || !zeroTick {
+		t.Fatalf("workload x axis must start at zero with integer ticks: %s", svg)
+	}
+	bars := 0
+	unassigned := 0
+	for _, tag := range svgTags(t, svg, "rect") {
+		if !strings.Contains(tag, "metrics-bar") {
+			continue
+		}
+		bars++
+		if strings.Contains(tag, "metrics-bar-unassigned") {
+			unassigned++
+		}
+	}
+	if bars != 2 || unassigned != 1 {
+		t.Fatalf("one accent bar per row with exactly one neutral unassigned bar, got %d bars / %d neutral: %s", bars, unassigned, svg)
+	}
+}
+
+// Histogram: one adjacent rectangular bar per equal-width bin with identical
+// pixel width and zero gap, including zero-height bins; boundary ticks come
+// from LowerDays plus the final UpperDays.
+func TestMetricsHistogramChartBarsAndBoundaries(t *testing.T) {
+	svg := string(metricsHistogramChart([]application.TicketMetricsBucket{
+		{Label: "0–<5 days", Count: 3, LowerDays: 0, UpperDays: 5},
+		{Label: "5–<10 days", Count: 0, LowerDays: 5, UpperDays: 10},
+		{Label: "10–<15 days", Count: 1, LowerDays: 10, UpperDays: 15},
+	}))
+	if !strings.Contains(svg, "Resolution time (days)") {
+		t.Fatalf("histogram must show the Resolution time (days) axis title: %s", svg)
+	}
+	if !strings.Contains(svg, ">Tickets</text>") {
+		t.Fatalf("histogram must show the Tickets y axis title: %s", svg)
+	}
+	var widths []string
+	for _, tag := range svgTags(t, svg, "rect") {
+		if strings.Contains(tag, "metrics-hist-bar") {
+			widths = append(widths, svgTagAttr(t, tag, "width"))
+		}
+	}
+	if len(widths) != 3 {
+		t.Fatalf("one bar per bin including zero-height bins, got %d: %s", len(widths), svg)
+	}
+	for _, w := range widths {
+		if w != widths[0] {
+			t.Fatalf("histogram bars must share one pixel width, got %v: %s", widths, svg)
+		}
+	}
+	for _, boundary := range []string{"0", "5", "10", "15"} {
+		found := false
+		for _, tag := range svgTags(t, svg, "text") {
+			if strings.Contains(tag, "metrics-axis-label") && svgTextContent(t, svg, tag) == boundary {
+				found = true
+			}
+		}
+		if !found {
+			t.Fatalf("boundary tick %q missing: %s", boundary, svg)
+		}
+	}
+}
+
+// No valid samples means no histogram at all; the template shows the empty
+// state instead of an empty axis frame.
+func TestMetricsHistogramChartWithoutBinsIsEmpty(t *testing.T) {
+	if got := string(metricsHistogramChart(nil)); got != "" {
+		t.Fatalf("nil bins must render no histogram svg, got %s", got)
+	}
+}
+
+// Workload labels are user-controlled agent/category names, so any markup in
+// them must be HTML-escaped before the fragment is wrapped in template.HTML.
+func TestMetricsWorkloadChartEscapesUserControlledLabels(t *testing.T) {
+	svg := string(metricsWorkloadChart([]application.TicketMetricsWorkload{
+		{Label: "<script>alert(1)</script>", Count: 1},
+	}, "Pending workload"))
+	if strings.Contains(svg, "<script>") {
+		t.Fatalf("workload label must be HTML-escaped: %s", svg)
+	}
+	if !strings.Contains(svg, "&lt;script&gt;alert(1)&lt;/script&gt;") {
+		t.Fatalf("workload label must survive as escaped text: %s", svg)
+	}
+}

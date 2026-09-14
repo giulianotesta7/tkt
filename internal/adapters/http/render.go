@@ -157,6 +157,167 @@ func metricsLineChart(weeks []application.TicketMetricsWeek) template.HTML {
 	return template.HTML(b.String())
 }
 
+// metricsAgeChart renders the pending-ticket age bars: the four fixed ranges
+// in their established order, the same accent fill for every bar, an x axis
+// that starts at zero with nice integer ticks and gridlines, left labels, and
+// the count at each bar end.
+func metricsAgeChart(buckets []application.TicketMetricsBucket) template.HTML {
+	const width, left, top, rowH = 620, 120, 14, 30
+	const bottom = 54
+	max := 1
+	for _, bucket := range buckets {
+		if bucket.Count > max {
+			max = bucket.Count
+		}
+	}
+	step, axisMax := niceMetricsScale(max)
+	plotW := float64(width - left - 16)
+	plotH := len(buckets) * rowH
+	baseline := float64(top + plotH)
+	barW := func(count int) float64 {
+		return plotW * float64(count) / float64(axisMax)
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, `<svg class="ticket-metrics-chart ticket-metrics-bars" viewBox="0 0 %d %d" role="img" aria-label="Pending tickets by completed elapsed age. X axis from 0 to %d. X axis title Pending tickets.">`, width, top+plotH+bottom, axisMax)
+	for tick := step; tick <= axisMax; tick += step {
+		fmt.Fprintf(&b, `<line x1="%.1f" y1="%d" x2="%.1f" y2="%.1f" class="metrics-gridline"/>`, float64(left)+barW(tick), top, float64(left)+barW(tick), baseline)
+	}
+	fmt.Fprintf(&b, `<line x1="%d" y1="%d" x2="%d" y2="%.1f" class="metrics-axis"/>`, left, top, left, baseline)
+	fmt.Fprintf(&b, `<line x1="%d" y1="%.1f" x2="%d" y2="%.1f" class="metrics-axis"/>`, left, baseline, width-16, baseline)
+	for tick := 0; tick <= axisMax; tick += step {
+		fmt.Fprintf(&b, `<text x="%.1f" y="%.1f" text-anchor="middle" class="metrics-axis-label">%d</text>`, float64(left)+barW(tick), baseline+16, tick)
+	}
+	fmt.Fprintf(&b, `<text x="%.1f" y="%.1f" text-anchor="middle" class="metrics-axis-title">Pending tickets</text>`, float64(left)+plotW/2, baseline+34)
+	for i, bucket := range buckets {
+		y := top + i*rowH + 6
+		fmt.Fprintf(&b, `<text x="2" y="%d" class="metrics-chart-label">%s</text><rect x="%d" y="%d" width="%.1f" height="18" class="metrics-bar"/><text x="%.1f" y="%d" class="metrics-chart-value">%d</text>`,
+			y+14, template.HTMLEscapeString(bucket.Label), left, y, barW(bucket.Count), float64(left)+barW(bucket.Count)+6, y+14, bucket.Count)
+	}
+	b.WriteString(`</svg>`)
+	return template.HTML(b.String())
+}
+
+// metricsHistogramChart renders one adjacent rectangular bar per equal-width
+// resolution bin: identical pixel width, zero gap, zero-height bins included.
+// X ticks sit on the bin boundaries (each LowerDays plus the final UpperDays);
+// the y axis starts at zero with nice integer counts.
+func metricsHistogramChart(buckets []application.TicketMetricsBucket) template.HTML {
+	if len(buckets) == 0 {
+		return ""
+	}
+	const width, height, left, top, bottom = 620, 200, 46, 14, 54
+	max := 1
+	for _, bucket := range buckets {
+		if bucket.Count > max {
+			max = bucket.Count
+		}
+	}
+	step, axisMax := niceMetricsScale(max)
+	plotW := float64(width - left - 14)
+	plotH := float64(height - top - bottom)
+	baseline := top + plotH
+	binW := plotW / float64(len(buckets))
+	x := func(i int) float64 { return float64(left) + binW*float64(i) }
+	y := func(count int) float64 {
+		return float64(top) + float64(plotH)*(1-float64(count)/float64(axisMax))
+	}
+	boundary := func(i int) float64 {
+		if i < len(buckets) {
+			return buckets[i].LowerDays
+		}
+		return buckets[len(buckets)-1].UpperDays
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, `<svg class="ticket-metrics-chart ticket-metrics-histogram" viewBox="0 0 %d %d" role="img" aria-label="Resolved tickets by resolution duration in equal-width day bins. Y axis from 0 to %d. Y axis title Tickets. X axis title Resolution time (days).">`, width, height, axisMax)
+	midY := float64(top) + float64(plotH)/2
+	fmt.Fprintf(&b, `<text x="10" y="%.1f" transform="rotate(-90 10 %.1f)" text-anchor="middle" class="metrics-axis-title">Tickets</text>`, midY, midY)
+	fmt.Fprintf(&b, `<line x1="%d" y1="%.1f" x2="%d" y2="%.1f" class="metrics-axis"/>`, left, baseline, width-14, baseline)
+	for tick := step; tick <= axisMax; tick += step {
+		fmt.Fprintf(&b, `<line x1="%d" y1="%.1f" x2="%d" y2="%.1f" class="metrics-gridline"/>`, left, y(tick), width-14, y(tick))
+	}
+	for tick := 0; tick <= axisMax; tick += step {
+		fmt.Fprintf(&b, `<text x="%d" y="%.1f" text-anchor="end" class="metrics-axis-label">%d</text>`, left-6, y(tick)+3.5, tick)
+	}
+	for i, bucket := range buckets {
+		barH := baseline - y(bucket.Count)
+		fmt.Fprintf(&b, `<rect x="%.1f" y="%.1f" width="%.1f" height="%.1f" class="metrics-hist-bar"/>`, x(i), y(bucket.Count), binW, barH)
+	}
+	for i := 0; i <= len(buckets); i++ {
+		anchor := "middle"
+		px := x(i)
+		if i == 0 {
+			anchor = "start"
+		} else if i == len(buckets) {
+			anchor = "end"
+			px = x(len(buckets))
+		}
+		fmt.Fprintf(&b, `<text x="%.1f" y="%.1f" text-anchor="%s" class="metrics-axis-label">%s</text>`, px, baseline+16, anchor, strconv.FormatFloat(boundary(i), 'f', -1, 64))
+	}
+	fmt.Fprintf(&b, `<text x="%.1f" y="%.1f" text-anchor="middle" class="metrics-axis-title">Resolution time (days)</text>`, float64(left)+plotW/2, baseline+34)
+	b.WriteString(`</svg>`)
+	return template.HTML(b.String())
+}
+
+// metricsBarChartClasses renders one horizontal bar per bucket over the same
+// axis contract as the age chart: an x axis that starts at zero with nice
+// integer ticks and gridlines, a visible Pending tickets axis title, left
+// labels, and the count at each bar end. classes[i] (when non-empty) is
+// appended to the rect class so callers can style single rows (e.g. the
+// neutral unassigned workload bar) without parsing labels.
+func metricsBarChartClasses(buckets []application.TicketMetricsBucket, label string, classes []string) template.HTML {
+	const width, left, top, row, bottom = 620, 176, 6, 28, 54
+	max := 1
+	for _, bucket := range buckets {
+		if bucket.Count > max {
+			max = bucket.Count
+		}
+	}
+	step, axisMax := niceMetricsScale(max)
+	plotW := float64(width - left - 16)
+	plotH := len(buckets) * row
+	baseline := float64(top + plotH)
+	barW := func(count int) float64 {
+		return plotW * float64(count) / float64(axisMax)
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, `<svg class="ticket-metrics-chart ticket-metrics-bars" viewBox="0 0 %d %d" role="img" aria-label="%s. X axis from 0 to %d. X axis title Pending tickets.">`, width, top+plotH+bottom, template.HTMLEscapeString(label), axisMax)
+	for tick := step; tick <= axisMax; tick += step {
+		fmt.Fprintf(&b, `<line x1="%.1f" y1="%d" x2="%.1f" y2="%.1f" class="metrics-gridline"/>`, float64(left)+barW(tick), top, float64(left)+barW(tick), baseline)
+	}
+	fmt.Fprintf(&b, `<line x1="%d" y1="%d" x2="%d" y2="%.1f" class="metrics-axis"/>`, left, top, left, baseline)
+	fmt.Fprintf(&b, `<line x1="%d" y1="%.1f" x2="%d" y2="%.1f" class="metrics-axis"/>`, left, baseline, width-16, baseline)
+	for tick := 0; tick <= axisMax; tick += step {
+		fmt.Fprintf(&b, `<text x="%.1f" y="%.1f" text-anchor="middle" class="metrics-axis-label">%d</text>`, float64(left)+barW(tick), baseline+16, tick)
+	}
+	fmt.Fprintf(&b, `<text x="%.1f" y="%.1f" text-anchor="middle" class="metrics-axis-title">Pending tickets</text>`, float64(left)+plotW/2, baseline+34)
+	for i, bucket := range buckets {
+		y := top + i*row + 6
+		class := "metrics-bar"
+		if i < len(classes) && classes[i] != "" {
+			class += " " + classes[i]
+		}
+		fmt.Fprintf(&b, `<text x="2" y="%d" class="metrics-chart-label">%s</text><rect x="%d" y="%d" width="%.1f" height="18" class="%s"/><text x="%.1f" y="%d" class="metrics-chart-value">%d</text>`,
+			y+14, template.HTMLEscapeString(bucket.Label), left, y, barW(bucket.Count), class, float64(left)+barW(bucket.Count)+6, y+14, bucket.Count)
+	}
+	b.WriteString(`</svg>`)
+	return template.HTML(b.String())
+}
+
+// metricsWorkloadChart renders the pending workload bars. Only the genuine
+// unassigned identity (nil current agent) receives the neutral class; a named
+// agent keeps the accent bar regardless of its display label.
+func metricsWorkloadChart(rows []application.TicketMetricsWorkload, label string) template.HTML {
+	buckets := make([]application.TicketMetricsBucket, len(rows))
+	classes := make([]string, len(rows))
+	for i, row := range rows {
+		buckets[i] = application.TicketMetricsBucket{Label: row.Label, Count: row.Count}
+		if row.Unassigned {
+			classes[i] = "metrics-bar-unassigned"
+		}
+	}
+	return metricsBarChartClasses(buckets, label, classes)
+}
+
 // templateFuncs are the presentation helpers shared by every template set.
 // The render path never calls time.Now() (D7): formatTime formats the
 // already-stamped instants the handlers pass in.
