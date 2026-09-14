@@ -94,3 +94,173 @@ func TestAgentQueueContextBatchesPageIDsAndResolvesFacts(t *testing.T) {
 		t.Fatalf("claim current task = %q, want %q", c.CurrentTask, "Waiting for claim")
 	}
 }
+
+// TestAgentQueueContextAssignedWithoutDeskAuditEmpty proves a manually
+// assigned ticket (person assignment without any desk-bearing audit) has an
+// empty desk name — the read model never infers a desk — while its current
+// task text still resolves from the active run.
+func TestAgentQueueContextAssignedWithoutDeskAuditEmpty(t *testing.T) {
+	s := newTestDB(t)
+	agent := seedUser(t, s, "Ava", "ava@example.com", true)
+	desk := seedDeskWithMemberNamed(t, s, agent, "Desk A")
+	ticket := seedAgentQueueClaimTicket(t, s, 1, "Manually assigned", desk, domain.StrategyClaim, 1, 0, "active", &agent)
+
+	got, err := newTicketStore(s.db).AgentQueueContext(context.Background(), []int64{ticket})
+	if err != nil {
+		t.Fatalf("AgentQueueContext: %v", err)
+	}
+	row := got[ticket]
+	if row.DeskName != "" {
+		t.Fatalf("manually assigned desk = %q, want empty (no desk audit to infer from)", row.DeskName)
+	}
+	if row.CurrentTask != "step 0" {
+		t.Fatalf("current task = %q, want the pinned manual instruction", row.CurrentTask)
+	}
+	if row.Position != nil {
+		t.Fatalf("assigned row must carry no claim position, got %d", *row.Position)
+	}
+}
+
+// TestAgentQueueContextInactiveRunsHaveNoTask proves CurrentTask is empty for
+// a completed run, a missing run, and an out-of-bounds cursor (invalid run
+// position) — never fabricated from history or the definition's first step.
+func TestAgentQueueContextInactiveRunsHaveNoTask(t *testing.T) {
+	s := newTestDB(t)
+	agent := seedUser(t, s, "Ava", "ava@example.com", true)
+	desk := seedDeskWithMemberNamed(t, s, agent, "Desk A")
+
+	completed := seedAgentQueueClaimTicket(t, s, 1, "Completed run", desk, domain.StrategyClaim, 1, 0, "active", nil)
+	// insertRunTx always writes completed_at NULL, so a completed run is seeded
+	// directly with its completion timestamp (CHECK-enforced pair).
+	if _, err := s.db.ExecContext(context.Background(), `UPDATE ticket_workflow_runs SET status = 'completed', completed_at = ? WHERE ticket_id = ?`, formatTime(testClock), completed); err != nil {
+		t.Fatalf("complete run: %v", err)
+	}
+	noRun := seedAgentQueueClaimTicket(t, s, 2, "No run", desk, domain.StrategyClaim, 1, 0, "active", nil)
+	s.db.ExecContext(context.Background(), `DELETE FROM ticket_workflow_runs WHERE ticket_id = ?`, noRun)
+	outOfBounds := seedAgentQueueClaimTicket(t, s, 3, "Cursor past end", desk, domain.StrategyClaim, 0, 5, "active", nil)
+
+	got, err := newTicketStore(s.db).AgentQueueContext(context.Background(), []int64{completed, noRun, outOfBounds})
+	if err != nil {
+		t.Fatalf("AgentQueueContext: %v", err)
+	}
+	for _, tc := range []struct {
+		name   string
+		ticket int64
+	}{
+		{"completed run", completed},
+		{"missing run", noRun},
+		{"out-of-bounds cursor", outOfBounds},
+	} {
+		if got[tc.ticket].CurrentTask != "" {
+			t.Fatalf("%s: current task = %q, want empty", tc.name, got[tc.ticket].CurrentTask)
+		}
+		if got[tc.ticket].Position != nil {
+			t.Fatalf("%s: position = %d, want none", tc.name, *got[tc.ticket].Position)
+		}
+	}
+}
+
+// TestAgentQueueContextClaimPositionOnlyForCurrentUnassignedClaimStep proves
+// the 1-based claim position appears ONLY for the exact active current step
+// being an unassigned assign_to_desk[claim]: a moved cursor, a least_loaded
+// current step, and an assigned ticket at a claim step all stay positionless.
+// An unassigned non-claim ticket never inherits its category desk or desk
+// audit history.
+func TestAgentQueueContextClaimPositionOnlyForCurrentUnassignedClaimStep(t *testing.T) {
+	s := newTestDB(t)
+	agent := seedUser(t, s, "Ava", "ava@example.com", true)
+	desk := seedDeskWithMemberNamed(t, s, agent, "Desk A")
+
+	cat := seedCategory(t, s, "Moved queue")
+	// A cursor that already moved PAST the claim step: claim at step 1,
+	// manual at step 2, run sitting on the manual step.
+	moved := seedAgentQueueRunTicket(t, s, 1, "Moved past claim", cat, domain.WorkflowDefinition{
+		{Type: domain.StepAssignToDesk, AssignToDesk: &domain.AssignToDeskStep{DeskID: desk, Strategy: domain.StrategyClaim}},
+		{Type: domain.StepManualTask, ManualTask: &domain.ManualTaskStep{Instructions: "already moved"}},
+	}, 1, "active", nil)
+	leastLoaded := seedAgentQueueClaimTicket(t, s, 2, "Least loaded", desk, domain.StrategyLeastLoaded, 0, 0, "active", nil)
+	assigned := seedAgentQueueClaimTicket(t, s, 3, "Assigned at claim", desk, domain.StrategyClaim, 0, 0, "active", &agent)
+	historical := seedAgentQueueClaimTicket(t, s, 4, "Historical desk audit", desk, domain.StrategyClaim, 1, 0, "active", nil)
+	seedAgentQueueDeskAudit(t, s, historical, desk)
+
+	got, err := newTicketStore(s.db).AgentQueueContext(context.Background(), []int64{moved, leastLoaded, assigned, historical})
+	if err != nil {
+		t.Fatalf("AgentQueueContext: %v", err)
+	}
+	for _, tc := range []struct {
+		name   string
+		ticket int64
+	}{
+		{"moved cursor", moved},
+		{"least_loaded step", leastLoaded},
+		{"assigned at claim step", assigned},
+	} {
+		if got[tc.ticket].Position != nil {
+			t.Fatalf("%s: position = %d, want none", tc.name, *got[tc.ticket].Position)
+		}
+	}
+	if row := got[historical]; row.DeskName != "" || row.Position != nil {
+		t.Fatalf("unassigned non-claim row = %+v, want no desk/position (no category or history inference)", row)
+	}
+	if row := got[moved]; row.CurrentTask != "already moved" {
+		t.Fatalf("moved cursor current task = %q, want the current step's instruction", row.CurrentTask)
+	}
+}
+
+// TestAgentQueueContextDeletedDesksDegradeToEmpty proves deleted desks yield
+// an empty desk name both for the pinned claim step and for the desk-bearing
+// audit (the ON DELETE SET NULL FK leaves no desk_id to join).
+func TestAgentQueueContextDeletedDesksDegradeToEmpty(t *testing.T) {
+	s := newTestDB(t)
+	agent := seedUser(t, s, "Ava", "ava@example.com", true)
+	desk := seedDeskWithMemberNamed(t, s, agent, "Doomed desk")
+
+	claim := seedAgentQueueClaimTicket(t, s, 1, "Claim on doomed desk", desk, domain.StrategyClaim, 0, 0, "active", nil)
+	assigned := seedAgentQueueClaimTicket(t, s, 2, "Assigned doomed desk", desk, domain.StrategyClaim, 1, 0, "active", &agent)
+	seedAgentQueueDeskAudit(t, s, assigned, desk)
+	if _, err := s.db.ExecContext(context.Background(), `DELETE FROM desks WHERE id = ?`, desk); err != nil {
+		t.Fatalf("delete desk: %v", err)
+	}
+
+	got, err := newTicketStore(s.db).AgentQueueContext(context.Background(), []int64{claim, assigned})
+	if err != nil {
+		t.Fatalf("AgentQueueContext: %v", err)
+	}
+	if row := got[claim]; row.DeskName != "" {
+		t.Fatalf("claim desk after deletion = %q, want empty", row.DeskName)
+	}
+	if row := got[assigned]; row.DeskName != "" {
+		t.Fatalf("assigned desk after deletion = %q, want empty (audit desk_id was set NULL)", row.DeskName)
+	}
+}
+
+// TestAgentQueueContextEmptyInputReturnsEmptyWithoutQuery proves empty input
+// returns an empty map without error. Query absence is by construction (the
+// guard returns before any QueryContext) — this database layer has no
+// query-count instrumentation to observe it at runtime.
+func TestAgentQueueContextEmptyInputReturnsEmptyWithoutQuery(t *testing.T) {
+	s := newTestDB(t)
+	got, err := newTicketStore(s.db).AgentQueueContext(context.Background(), nil)
+	if err != nil || got == nil || len(got) != 0 {
+		t.Fatalf("nil ids must return an empty map without error, got %v, %v", got, err)
+	}
+	got, err = newTicketStore(s.db).AgentQueueContext(context.Background(), []int64{})
+	if err != nil || got == nil || len(got) != 0 {
+		t.Fatalf("empty ids must return an empty map without error, got %v, %v", got, err)
+	}
+}
+
+// TestAgentQueueContextRejectsOversizedBatch proves the batch bound fails
+// closed: more than the bounded 20 ids is a caller bug, never a silently
+// truncated answer.
+func TestAgentQueueContextRejectsOversizedBatch(t *testing.T) {
+	s := newTestDB(t)
+	ids := make([]int64, 21)
+	for i := range ids {
+		ids[i] = int64(i + 1)
+	}
+	got, err := newTicketStore(s.db).AgentQueueContext(context.Background(), ids)
+	if err == nil || got != nil {
+		t.Fatalf("oversized batch must fail closed, got rows=%v err=%v", got, err)
+	}
+}
