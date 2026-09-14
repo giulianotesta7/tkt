@@ -379,6 +379,7 @@ type listData struct {
 	AgentView           bool
 	Assigned            ticketListData
 	Claimable           ticketListData
+	ClaimError          string
 }
 
 func (h *TicketHandlers) index(w http.ResponseWriter, r *http.Request) {
@@ -1276,6 +1277,63 @@ func (h *TicketHandlers) renderEditError(w http.ResponseWriter, r *http.Request,
 	h.renderer.Render(w, r, "tickets_show", "ticket_detail", data, status)
 }
 
+// isAgentQueueClaimRequest identifies an HTMX request from the agent queue.
+func isAgentQueueClaimRequest(r *http.Request, actor domain.User) bool {
+	return actor.Role == domain.RoleAgent &&
+		r.Header.Get("HX-Request") != "" &&
+		r.Header.Get("HX-Target") == agentQueueListTargetID
+}
+
+// agentQueueCurrentContext recovers q and page cursors from HX-Current-URL.
+// Missing or malformed values fall back to the first page. Successful claims
+// reset both cursors, while conflicts retain valid requested cursors.
+func agentQueueCurrentContext(r *http.Request, isConflict bool) (q string, assignedPage, claimablePage int) {
+	raw := r.Header.Get("HX-Current-URL")
+	u, err := url.Parse(raw)
+	if raw == "" || err != nil || u == nil {
+		return "", 1, 1
+	}
+	qp := u.Query()
+	assignedPage, claimablePage = urlPageNumber(qp, "assigned_page"), urlPageNumber(qp, "claimable_page")
+	if !isConflict {
+		assignedPage, claimablePage = 1, 1
+	}
+	return qp.Get("q"), assignedPage, claimablePage
+}
+
+// urlPageNumber returns a positive page number or the first page.
+func urlPageNumber(q url.Values, key string) int {
+	page := int(parseID(q.Get(key)))
+	if page < 1 {
+		return 1
+	}
+	return page
+}
+
+func (h *TicketHandlers) renderAgentQueue(w http.ResponseWriter, r *http.Request, claimError string, status int) {
+	q, assignedPage, claimablePage := agentQueueCurrentContext(r, claimError != "")
+	filters := simplifiedFilters(filterState{Q: q})
+	assigned, claimable, total, err := h.agentQueueSections(r, filters, assignedPage, claimablePage)
+	if err != nil {
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+	if claimError != "" {
+		w.Header().Set("HX-Retarget", agentQueueListTarget)
+		w.Header().Set("HX-Reswap", "outerHTML")
+	}
+	h.renderer.Render(w, r, "tickets_index", "agent_ticket_list", listData{Filters: filters, Total: total, AgentView: true, Assigned: assigned, Claimable: claimable, ClaimError: claimError}, status)
+}
+
+func (h *TicketHandlers) renderAgentQueueClaimError(w http.ResponseWriter, r *http.Request, actor domain.User, err error) bool {
+	status, _ := mapError(err)
+	if status != http.StatusUnprocessableEntity || !isAgentQueueClaimRequest(r, actor) {
+		return false
+	}
+	h.renderAgentQueue(w, r, agentQueueClaimUnavailable, status)
+	return true
+}
+
 // maxSolutionLength is the Amendment 2 transport bound for a trimmed
 // manual-task solution; the SQLite CHECK mirrors it as defense in depth.
 const maxSolutionLength = 2000
@@ -1344,11 +1402,21 @@ func (h *TicketHandlers) completeWorkflow(w http.ResponseWriter, r *http.Request
 	}
 	plan, err := h.runner.PlanComplete(r.Context(), *snap, cmd)
 	if err != nil {
+		if h.renderAgentQueueClaimError(w, r, actor, err) {
+			return
+		}
 		h.renderDetailError(w, r, id, err)
 		return
 	}
 	if _, err := h.workflowTx.ApplyWorkflowPlan(r.Context(), plan); err != nil {
+		if h.renderAgentQueueClaimError(w, r, actor, err) {
+			return
+		}
 		h.renderDetailError(w, r, id, err)
+		return
+	}
+	if isAgentQueueClaimRequest(r, actor) {
+		h.renderAgentQueue(w, r, "", http.StatusOK)
 		return
 	}
 

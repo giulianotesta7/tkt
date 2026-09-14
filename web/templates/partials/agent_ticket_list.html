@@ -1,4 +1,4 @@
-{{define "agent_ticket_list"}}<div id="agent-ticket-list">
+{{define "agent_ticket_list"}}<div id="agent-ticket-list">{{if .ClaimError}}<p class="agent-claim-error" role="alert">{{.ClaimError}}</p>{{end}}
   <section class="agent-queue" aria-labelledby="assigned-tickets-title">
     <header class="command-header"><h2 id="assigned-tickets-title" class="command-title">Assigned to me · {{.Assigned.Total}}</h2></header>
     <ul class="agent-queue-list">
