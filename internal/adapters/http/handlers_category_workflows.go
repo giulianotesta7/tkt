@@ -77,7 +77,7 @@ func (h *CategoryWorkflowHandlers) get(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	desks := h.deskOptions(r)
-	h.render(w, r, categoryID, draft, desks, nil, "", selectedStepIndex(r, len(draft)), http.StatusOK)
+	h.render(w, r, categoryID, draft, desks, nil, statusLive(r), selectedStepIndex(r, len(draft)), http.StatusOK)
 }
 
 func (h *CategoryWorkflowHandlers) post(w http.ResponseWriter, r *http.Request) {
@@ -116,6 +116,14 @@ func (h *CategoryWorkflowHandlers) post(w http.ResponseWriter, r *http.Request) 
 		// initialized, incompatible payloads dropped).
 		if err := h.workflows.SaveDraft(r.Context(), actor, categoryID, draft); err != nil {
 			http.Error(w, mapErrorMsg(err), statusFor(err))
+			return
+		}
+		if action == "save" {
+			if r.Header.Get("HX-Request") == "" {
+				redirect(w, r, withStatus(workflowLocation(r, selectedStepIndex(r, len(draft))), "saved"))
+				return
+			}
+			h.render(w, r, categoryID, draft, desks, nil, "Saved", selectedStepIndex(r, len(draft)), http.StatusOK)
 			return
 		}
 		h.afterMutation(w, r, categoryID, draft, desks, nil, defaultLive(), -1)
@@ -213,10 +221,10 @@ func (h *CategoryWorkflowHandlers) post(w http.ResponseWriter, r *http.Request) 
 			return
 		}
 		if r.Header.Get("HX-Request") == "" {
-			redirect(w, r, workflowLocation(r, selection))
+			redirect(w, r, withStatus(workflowLocation(r, selection), "published"))
 			return
 		}
-		h.render(w, r, categoryID, draft, desks, nil, "", selection, http.StatusOK)
+		h.render(w, r, categoryID, draft, desks, nil, "Published", selection, http.StatusOK)
 	default:
 		h.render(w, r, categoryID, draft, desks, []domain.WorkflowValidationIssue{{Step: 1, Field: "action", Message: "unknown workflow action"}}, "", selection, http.StatusUnprocessableEntity)
 	}
@@ -363,6 +371,21 @@ func workflowStepSummary(step domain.WorkflowStep, desks []domain.Desk) string {
 
 // defaultLive returns no standing instruction; mutation feedback is transient.
 func defaultLive() string { return "" }
+
+// workflowStatusLive is the closed redirect-status set mapped to its exact
+// live token; unknown statuses render nothing.
+var workflowStatusLive = map[string]string{"saved": "Saved", "published": "Published"}
+
+func statusLive(r *http.Request) string { return workflowStatusLive[r.URL.Query().Get("status")] }
+
+// withStatus appends a closed success status to a workflow redirect location.
+func withStatus(location, status string) string {
+	sep := "?"
+	if strings.Contains(location, "?") {
+		sep = "&"
+	}
+	return location + sep + "status=" + status
+}
 func focusLive(pos, total int) string {
 	return fmt.Sprintf("Step %d of %d.", pos+1, total)
 }

@@ -16,7 +16,7 @@ import {
 } from "./helpers/layout.js";
 import { createTicketViaUi } from "./helpers/navigation.js";
 import { waitForExactPost } from "./helpers/network.js";
-import { assertHtmxNoSwap, assertHtmxSwap } from "./helpers/htmx.js";
+import { assertHtmxSwap } from "./helpers/htmx.js";
 
 function base(): string {
   if (!activeServer) throw new Error("server not started");
@@ -170,17 +170,18 @@ async function createPublishedHierarchyFixture(
   );
   const instructions = page.getByLabel(/instructions/i);
   await expect(instructions).toBeVisible();
-  await assertHtmxNoSwap(
-    page,
-    async () => {
-      await instructions.fill("Handle the published hierarchy ticket");
-    },
-    {
-      endpoint: `/categories/${categoryID}/workflow`,
-      method: "POST",
-      expectedStatus: 200,
-    },
-  );
+  // Explicit save: field edits send no workflow POST; the Publish below persists the draft.
+  let draftPost = false;
+  const onDraftPost = (request: import("@playwright/test").Request) => {
+    draftPost ||=
+      request.method() === "POST" &&
+      new URL(request.url()).pathname === `/categories/${categoryID}/workflow`;
+  };
+  page.on("request", onDraftPost);
+  await instructions.fill("Handle the published hierarchy ticket");
+  await page.waitForTimeout(700);
+  page.off("request", onDraftPost);
+  expect(draftPost, "editing must not issue a workflow POST").toBe(false);
   await assertHtmxSwap(
     page,
     async () => {

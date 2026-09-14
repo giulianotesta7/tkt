@@ -13,7 +13,7 @@
 import { test, expect } from "@playwright/test";
 import { startServer, stopServer, activeServer } from "../server-lifecycle.js";
 import { assertCanonicalScreen, collectObservability } from "./helpers/layout.js";
-import { assertHtmxNoSwap, assertHtmxSwap } from "./helpers/htmx.js";
+import { assertHtmxSwap } from "./helpers/htmx.js";
 import { createCategoryViaUi, createTicketViaUi, resolveUserEditHref } from "./helpers/navigation.js";
 
 function base(): string {
@@ -319,22 +319,10 @@ test.describe("Users", () => {
     const deskSelect = page.getByLabel(/^desk$/i);
     await expect(deskSelect).toBeVisible();
     await expect(deskSelect.locator(`option:has-text("${deskName}")`)).toBeAttached();
-    await assertHtmxNoSwap(page, async () => {
-      await deskSelect.selectOption({ label: deskName });
-    }, {
-      endpoint: (url) => new URL(url).pathname === `/categories/${categoryId}/workflow`,
-      method: "POST",
-      expectedStatus: 200,
-    });
+    await deskSelect.selectOption({ label: deskName });
     const strategySelect = page.getByLabel(/^strategy$/i);
     await expect(strategySelect).toBeVisible();
-    await assertHtmxNoSwap(page, async () => {
-      await strategySelect.selectOption("least_loaded");
-    }, {
-      endpoint: (url) => new URL(url).pathname === `/categories/${categoryId}/workflow`,
-      method: "POST",
-      expectedStatus: 200,
-    });
+    await strategySelect.selectOption("least_loaded");
     const publishResp = await assertHtmxSwap(page, async () => {
       await page.getByRole("button", { name: /publish/i }).click();
     }, { endpoint: `/categories/${categoryId}/workflow`, method: "POST", expectedStatus: 200, hxTarget: "#workflow-builder" });
