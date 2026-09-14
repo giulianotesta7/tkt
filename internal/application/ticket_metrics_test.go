@@ -266,3 +266,164 @@ func TestMonday(t *testing.T) {
 		})
 	}
 }
+
+// Weekly volume must use Monday UTC buckets in chronological order, count
+// created tickets inside the half-open [Start, End+1day) window, and mark
+// edge buckets the interval does not fully cover as Partial.
+func TestBuildTicketMetricsWeeklyCreatedResolvedAndPartialBuckets(t *testing.T) {
+	start := time.Date(2026, 3, 2, 0, 0, 0, 0, time.UTC) // Monday
+	end := time.Date(2026, 3, 16, 0, 0, 0, 0, time.UTC)  // Monday
+	now := end.AddDate(0, 0, 1).Add(time.Hour)
+	alice := int64(4)
+	records := []TicketMetricsRecord{
+		{TicketID: 1, CreatedAt: start.Add(12 * time.Hour), ResolvedAt: start.AddDate(0, 0, 1), ResolutionWeek: start.AddDate(0, 0, 1), CurrentState: domain.StateResolved},
+		{TicketID: 2, CreatedAt: start.AddDate(0, 0, 7), CurrentState: domain.StateNew, AgentID: &alice, AgentName: "Alice"},
+		{TicketID: 3, CreatedAt: end.Add(23 * time.Hour), ResolvedAt: end.AddDate(0, 0, 1).Add(time.Hour), ResolutionWeek: end.AddDate(0, 0, 1).Add(time.Hour), CurrentState: domain.StateResolved},
+		{TicketID: 4, CreatedAt: start.Add(-time.Second), CurrentState: domain.StateResolved},
+		{TicketID: 5, CreatedAt: end.AddDate(0, 0, 1), CurrentState: domain.StateNew, AgentID: &alice, AgentName: "Alice"},
+		{TicketID: 6, CreatedAt: end.Add(23*time.Hour + 59*time.Minute), CurrentState: domain.StateNew, AgentID: &alice, AgentName: "Alice"},
+	}
+
+	metrics := buildTicketMetrics(records, TicketMetricsFilter{Start: start, End: end, WorkloadBy: "agent"}, now)
+
+	if metrics.Filter.Start != start || metrics.Filter.End != end || metrics.WorkloadBy != "agent" {
+		t.Fatalf("filter/workload = %+v/%q, want supplied filter/agent", metrics.Filter, metrics.WorkloadBy)
+	}
+	if metrics.Created != 4 || metrics.Resolved != 2 {
+		t.Fatalf("created/resolved = %d/%d, want 4/2 (half-open creation window)", metrics.Created, metrics.Resolved)
+	}
+	if metrics.Pending != 3 {
+		t.Fatalf("pending = %d, want 3", metrics.Pending)
+	}
+	wantStarts := []time.Time{
+		time.Date(2026, 3, 2, 0, 0, 0, 0, time.UTC),
+		time.Date(2026, 3, 9, 0, 0, 0, 0, time.UTC),
+		time.Date(2026, 3, 16, 0, 0, 0, 0, time.UTC),
+	}
+	wantPartial := []bool{false, false, true}
+	wantCreated := []int{1, 1, 2}
+	wantResolved := []int{1, 0, 1}
+	if len(metrics.Weeks) != len(wantStarts) {
+		t.Fatalf("weeks = %d, want %d", len(metrics.Weeks), len(wantStarts))
+	}
+	for i, w := range metrics.Weeks {
+		if !w.Start.Equal(wantStarts[i]) || w.Partial != wantPartial[i] || w.Created != wantCreated[i] || w.Resolved != wantResolved[i] {
+			t.Fatalf("week %d = %+v, want start %s partial %v created %d resolved %d", i, w, wantStarts[i], wantPartial[i], wantCreated[i], wantResolved[i])
+		}
+	}
+	if len(metrics.Workload) != 1 || metrics.Workload[0].Label != "Alice" || metrics.Workload[0].Count != 3 {
+		t.Fatalf("workload = %+v, want one Alice row with three pending tickets", metrics.Workload)
+	}
+	leftPartial := buildTicketMetrics(nil, TicketMetricsFilter{Start: start.AddDate(0, 0, 1), End: end, WorkloadBy: "agent"}, now)
+	if len(leftPartial.Weeks) == 0 || !leftPartial.Weeks[0].Partial {
+		t.Fatalf("left-edge week = %+v, want partial when period starts after Monday", leftPartial.Weeks)
+	}
+}
+
+// Backlog ages use completed elapsed days with exact bucket transitions, and
+// only new/in_progress tickets contribute to pending, ages, and unassigned.
+func TestBuildTicketMetricsPendingAgesCountOnlyPendingStates(t *testing.T) {
+	now := time.Date(2026, 3, 30, 12, 0, 0, 0, time.UTC)
+	age := func(days int, extra time.Duration) time.Time {
+		return now.Add(-time.Duration(days)*24*time.Hour - extra)
+	}
+	alice := int64(4)
+	records := []TicketMetricsRecord{
+		{TicketID: 1, CreatedAt: age(2, 23*time.Hour+59*time.Minute), CurrentState: domain.StateNew},
+		{TicketID: 2, CreatedAt: age(3, 0), CurrentState: domain.StateInProgress, AgentID: &alice},
+		{TicketID: 3, CreatedAt: age(7, 23*time.Hour+59*time.Minute), CurrentState: domain.StateNew},
+		{TicketID: 4, CreatedAt: age(8, 0), CurrentState: domain.StateNew, AgentID: &alice},
+		{TicketID: 5, CreatedAt: age(14, 23*time.Hour+59*time.Minute), CurrentState: domain.StateNew},
+		{TicketID: 6, CreatedAt: age(15, 0), CurrentState: domain.StateNew, AgentID: &alice},
+		{TicketID: 7, CreatedAt: age(1, 0), CurrentState: domain.StateResolved},
+		{TicketID: 8, CreatedAt: age(1, 0), CurrentState: domain.StateClosed},
+	}
+
+	metrics := buildTicketMetrics(records, TicketMetricsFilter{Start: now, End: now, WorkloadBy: "agent"}, now)
+
+	wantAges := []TicketMetricsBucket{
+		{Label: "0–2 days", Count: 1},
+		{Label: "3–7 days", Count: 2},
+		{Label: "8–14 days", Count: 2},
+		{Label: ">14 days", Count: 1},
+	}
+	for i, want := range wantAges {
+		if got := metrics.Ages[i]; got.Label != want.Label || got.Count != want.Count {
+			t.Fatalf("age bucket %d = %+v, want %+v", i, got, want)
+		}
+	}
+	if metrics.Pending != 6 || metrics.Unassigned != 3 {
+		t.Fatalf("pending/unassigned = %d/%d, want 6/3 (only new and in_progress count)", metrics.Pending, metrics.Unassigned)
+	}
+}
+
+// Workload rows keep stable identities behind labels: same-label agents order
+// deterministically by identity, a named agent called Unassigned stays
+// separate from the genuinely nil-agent identity, and only the nil-agent
+// identity carries the Unassigned flag. Desk grouping falls back to the
+// No desk label without ever flagging a row.
+func TestBuildTicketMetricsWorkloadIdentityOrderingAndDisambiguation(t *testing.T) {
+	now := time.Date(2026, 3, 30, 12, 0, 0, 0, time.UTC)
+	agents := []int64{3, 4, 5, 10, 20}
+	agentNamedUnassigned, agentAlice, agentUnknown, agentTen, agentTwenty := agents[0], agents[1], agents[2], agents[3], agents[4]
+	deskGeneral, deskNoName := int64(10), int64(20)
+	records := []TicketMetricsRecord{
+		{TicketID: 1, CreatedAt: now, CurrentState: domain.StateNew},
+		{TicketID: 2, CreatedAt: now, CurrentState: domain.StateNew},
+		{TicketID: 3, CreatedAt: now, CurrentState: domain.StateNew, AgentID: &agentNamedUnassigned, AgentName: "Unassigned"},
+		{TicketID: 4, CreatedAt: now, CurrentState: domain.StateNew, AgentID: &agentAlice, AgentName: "Alice", DeskID: &deskGeneral, DeskName: "General"},
+		{TicketID: 5, CreatedAt: now, CurrentState: domain.StateNew, AgentID: &agentTen, AgentName: "Same name"},
+		{TicketID: 6, CreatedAt: now, CurrentState: domain.StateNew, AgentID: &agentTwenty, AgentName: "Same name"},
+		{TicketID: 7, CreatedAt: now, CurrentState: domain.StateNew, AgentID: &agentTwenty, AgentName: "Same name", DeskID: &deskNoName},
+		{TicketID: 8, CreatedAt: now, CurrentState: domain.StateNew, AgentID: &agentUnknown},
+	}
+	wantAgent := []struct {
+		label      string
+		count      int
+		unassigned bool
+	}{
+		{"Alice", 1, false},
+		{"Same name", 1, false},
+		{"Same name", 2, false},
+		{"Unassigned", 1, false},
+		{"Unassigned (no agent)", 2, true},
+		{"Unknown", 1, false},
+	}
+
+	agentRows := buildTicketMetrics(records, TicketMetricsFilter{Start: now, End: now, WorkloadBy: "agent"}, now).Workload
+	if len(agentRows) != len(wantAgent) {
+		t.Fatalf("agent workload rows = %d, want %d", len(agentRows), len(wantAgent))
+	}
+	for i, want := range wantAgent {
+		if got := agentRows[i]; got.Label != want.label || got.Count != want.count || got.Unassigned != want.unassigned {
+			t.Fatalf("agent workload row %d = %+v, want %q count %d unassigned %v", i, got, want.label, want.count, want.unassigned)
+		}
+	}
+
+	desks := buildTicketMetrics(records, TicketMetricsFilter{Start: now, End: now, WorkloadBy: "desk"}, now)
+	wantDesk := []struct {
+		label string
+		count int
+	}{
+		{"General", 1},
+		{"No desk", 1},
+		{"No desk", 6},
+	}
+	if len(desks.Workload) != len(wantDesk) {
+		t.Fatalf("desk workload rows = %d, want %d", len(desks.Workload), len(wantDesk))
+	}
+	for i, want := range wantDesk {
+		if got := desks.Workload[i]; got.Label != want.label || got.Count != want.count || got.Unassigned {
+			t.Fatalf("desk workload row %d = %+v, want %q count %d unflagged", i, got, want.label, want.count)
+		}
+	}
+
+	for run := 0; run < 50; run++ {
+		again := buildTicketMetrics(records, TicketMetricsFilter{Start: now, End: now, WorkloadBy: "agent"}, now).Workload
+		for i, want := range wantAgent {
+			if again[i].Label != want.label || again[i].Count != want.count {
+				t.Fatalf("run %d workload row %d unstable: %+v", run, i, again[i])
+			}
+		}
+	}
+}
