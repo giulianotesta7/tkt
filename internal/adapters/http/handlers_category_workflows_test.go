@@ -78,9 +78,6 @@ func TestCategoryWorkflowBuilder_UsesUsersHeaderFoundationAndCategoryIdentity(t 
 	} {
 		assertCSSRuleContains(t, css, tc.name, tc.selectors, tc.declarations)
 	}
-	if strings.Contains(body, `class="page-status"`) || strings.Contains(body, `>Saved<`) {
-		t.Errorf("workflow header must not show a standing Saved badge, got: %s", body)
-	}
 }
 
 func assertCSSRuleContains(t *testing.T, css, name string, selectors, declarations []string) {
@@ -224,11 +221,7 @@ func TestCategoryWorkflowBuilder_ClosedMutationsPersistCanonicalCompleteDraft(t 
 			}
 			path := "/categories/" + strconv.FormatInt(category.ID, 10) + "/workflow"
 			rec := h.postForm(t, path, builderForm(action, draft), false)
-			wantLocation := path
-			if action == "save" {
-				wantLocation += "?status=saved"
-			}
-			wantRedirect(t, rec, http.StatusSeeOther, wantLocation)
+			wantRedirect(t, rec, http.StatusSeeOther, path+map[string]string{"save": "?status=saved"}[action])
 
 			db := h.rawDB(t)
 			var persisted string
@@ -714,9 +707,7 @@ func TestWorkflowBuilderValidationAndStepViews(t *testing.T) {
 	}
 }
 
-// ==== Explicit save contract (issue #139 WU1) ====
-// RED — Field autosave is gone: editing controls submit nothing on their own,
-// the header Save submits the complete draft, and only Field Kind re-renders.
+// ==== Explicit save contract (issue #139 WU1) — RED: edits submit nothing on their own; the header Save submits the complete draft ====
 func TestCategoryWorkflowBuilder_RED_ExplicitSaveContract(t *testing.T) {
 	h := newHarness(t)
 	category, err := h.categories.Create(t.Context(), "Explicit save")
@@ -725,102 +716,110 @@ func TestCategoryWorkflowBuilder_RED_ExplicitSaveContract(t *testing.T) {
 	}
 	path := "/categories/" + strconv.FormatInt(category.ID, 10) + "/workflow"
 	steps := []bstep{
-		{typ: "manual_task", manual: "a"}, {typ: "assign_to_desk", desk: "1", strategy: "least_loaded"},
+		{typ: "manual_task", manual: "a"},
+		{typ: "assign_to_desk", desk: "1", strategy: "least_loaded"},
 		{typ: "form", actor: "requester", fields: []bfield{{key: "server", label: "Server", kind: "single_select", options: "North; South, Buenos Aires, Argentina"}}},
 		{typ: "close_ticket"},
 	}
 	wantRedirect(t, h.postForm(t, path, builderFieldForm("save", steps...), false), http.StatusSeeOther, path+"?status=saved")
+	body := h.get(t, path, false).Body.String()
 	bodyAt := func(index int) string {
 		return h.get(t, path+"?selected_step_index="+strconv.Itoa(index), false).Body.String()
 	}
+	cid := strconv.FormatInt(category.ID, 10)
+	savePost := `hx-post="/categories/` + cid + `/workflow"`
 
-	t.Run("header exposes an explicit Save beside Publish without a standing Saved badge", func(t *testing.T) {
-		body := bodyAt(0)
+	if !strings.Contains(body, `<button class="page-action" type="submit" form="workflow-form" name="action" value="save">Save</button>`) ||
+		strings.Contains(body, `class="page-status"`) ||
+		strings.Contains(body, `>Saved<`) {
+		t.Errorf("builder header must expose explicit Save with no standing Saved badge, got: %s", body)
+	}
+	for _, tc := range []struct {
+		index int
+		name  string
+	}{{0, "step_0_instructions"}, {1, "step_1_desk"}, {1, "step_1_strategy"}, {2, "step_2_actor"}, {2, "step_2_field_0_label"}, {2, "step_2_field_0_options"}, {2, "step_2_field_0_required"}, {3, "step_3_type"}} {
+		tag := controlTag(t, bodyAt(tc.index), tc.name)
+		if strings.Contains(tag, "hx-post") || strings.Contains(tag, "hx-trigger") {
+			t.Errorf("control %s must not autosave, got: %s", tc.name, tag)
+		}
+	}
+
+	t.Run("single select options use a native single-line input and semicolon transport", func(t *testing.T) {
+		tag := controlTag(t, bodyAt(2), "step_2_field_0_options")
+		if !strings.HasPrefix(tag, "<input") || !strings.Contains(tag, `type="text"`) || strings.Contains(tag, "<textarea") {
+			t.Fatalf("single select Options must be a native single-line text input, got: %s", tag)
+		}
 		for _, want := range []string{
-			`<button class="page-action" type="submit" form="workflow-form" name="action" value="save">Save</button>`,
-			`hx-sync="this:queue last"`,
+			`<label for="step_2_field_0_options">Options</label>`,
+			"Separate options with semicolons. Semicolons cannot be used in option names.",
+			`value="North; South, Buenos Aires, Argentina"`,
 		} {
-			if !strings.Contains(body, want) {
-				t.Errorf("builder header/form must contain %q, got: %s", want, body)
+			if !strings.Contains(bodyAt(2), want) {
+				t.Errorf("single select builder must contain %q, got: %s", want, bodyAt(2))
 			}
-		}
-		if strings.Contains(body, `class="page-status"`) || strings.Contains(body, `>Saved<`) {
-			t.Errorf("header must not show a standing Saved badge before any action, got: %s", body)
 		}
 	})
 
-	t.Run("editing controls submit nothing on their own and type stays hidden", func(t *testing.T) {
-		for _, name := range []string{"step_0_instructions", "step_1_desk", "step_1_strategy", "step_2_actor", "step_2_field_0_label", "step_2_field_0_options", "step_2_field_0_required", "step_3_type"} {
-			index, _ := strconv.Atoi(strings.Split(name, "_")[1])
-			tag := controlTag(t, bodyAt(index), name)
-			if strings.Contains(tag, "hx-post") || strings.Contains(tag, "hx-trigger") {
-				t.Errorf("control %s must not autosave, got: %s", name, tag)
-			}
+	tag := controlTag(t, bodyAt(2), "step_2_field_0_kind")
+	for _, want := range []string{
+		`hx-trigger="change"`,
+		savePost,
+		`hx-vals='{"action":"select_step","selection_step_index":"2"}'`,
+		`hx-target="#workflow-builder"`,
+		`hx-swap="outerHTML"`,
+	} {
+		if !strings.Contains(tag, want) {
+			t.Errorf("field Kind select must carry %q to re-render Options without persisting, got: %s", want, tag)
 		}
-		if !strings.Contains(bodyAt(3), `type="submit" name="action" value="change_type"`) {
-			t.Errorf("terminal type must keep the no-JS Apply submitter, got: %s", bodyAt(3))
+	}
+	if strings.Contains(tag, `"action":"save"`) {
+		t.Errorf("field Kind select must not persist on change, got: %s", tag)
+	}
+
+	t.Run("containing form queues requests so the final user action wins", func(t *testing.T) {
+		form := formOpenTag(t, body)
+		if !strings.Contains(form, `hx-sync="this:queue last"`) {
+			t.Errorf("builder form must inherit queue-last synchronization so a stale autosave cannot overwrite a later structural mutation, got: %s", form)
 		}
 	})
 
-	t.Run("field Kind re-renders via a non-persisting select_step request", func(t *testing.T) {
-		tag := controlTag(t, bodyAt(2), "step_2_field_0_kind")
-		for _, want := range []string{
-			`hx-trigger="change"`,
-			`hx-post="/categories/` + strconv.FormatInt(category.ID, 10) + `/workflow"`,
-			`hx-vals='{"action":"select_step","selection_step_index":"2"}'`,
-			`hx-target="#workflow-builder"`,
-			`hx-swap="outerHTML"`,
-		} {
-			if !strings.Contains(tag, want) {
-				t.Errorf("field Kind select must carry %q to re-render Options without persisting, got: %s", want, tag)
-			}
+	t.Run("selected step type is a hidden inert field, never a change submitter", func(t *testing.T) {
+		hidden := strings.Contains(bodyAt(0), `<input type="hidden" name="step_0_type"`)
+		if !hidden {
+			t.Errorf("selected step must carry its type as a hidden field, got: %s", bodyAt(0))
 		}
-		if strings.Contains(tag, `"action":"save"`) {
-			t.Errorf("field Kind select must not persist on change, got: %s", tag)
+		if strings.Contains(bodyAt(0), `hx-vals='{"action":"change_type"}'`) || strings.Contains(bodyAt(0), `<select class="step-type"`) {
+			t.Errorf("type must not be editable or double-submitted via an autosave/change control, got: %s", bodyAt(0))
 		}
 	})
 
-	// One invalid publish draft drives both failure modes (HTMX and no-JS).
 	invalid := builderFieldForm("publish",
-		bstep{typ: "manual_task", manual: ""},
-		bstep{typ: "form", actor: "requester", fields: []bfield{{key: "k", label: "Keep me", kind: "short_text"}}},
-	)
+		bstep{typ: "manual_task", manual: ""}, bstep{typ: "form", actor: "requester", fields: []bfield{{key: "k", label: "Keep me", kind: "short_text"}}})
 	invalid.Set("selected_step_index", "1")
-
-	t.Run("HTMX save and publish show exact tokens on success only", func(t *testing.T) {
-		rec := h.postForm(t, path, builderFieldForm("save", steps...), true)
-		if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `>Saved</p>`) {
-			t.Fatalf("HTMX save = %d, want 200 with exact Saved live message: %s", rec.Code, rec.Body.String())
+	if rec := h.postForm(t, path, builderFieldForm("save", steps...), true); rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `>Saved</p>`) {
+		t.Fatalf("HTMX save = %d, want 200 with exact Saved live message: %s", rec.Code, rec.Body.String())
+	}
+	if pub := h.postForm(t, path, builderFieldForm("publish", steps...), true); pub.Code != http.StatusOK || !strings.Contains(pub.Body.String(), `>Published</p>`) || strings.Contains(pub.Body.String(), `role="alert"`) {
+		t.Errorf("HTMX publish = %d, want 200 with exact Published and no errors: %s", pub.Code, pub.Body.String())
+	}
+	if fail := h.postForm(t, path, invalid, true); fail.Code != http.StatusUnprocessableEntity || !strings.Contains(fail.Body.String(), `role="alert"`) || strings.Contains(fail.Body.String(), `data-workflow-live`) || !strings.Contains(fail.Body.String(), `value="Keep me"`) {
+		t.Errorf("failed publish = %d, want 422 with errors, preserved values, no success feedback: %s", fail.Code, fail.Body.String())
+	}
+	if body := h.get(t, path+"?status=saved", false).Body.String(); !strings.Contains(body, `>Saved</p>`) {
+		t.Errorf("GET after no-JS save must visibly render exact Saved, got: %s", body)
+	}
+	wantRedirect(t, h.postForm(t, path, builderFieldForm("publish", steps...), false), http.StatusSeeOther, path+"?status=published")
+	if body := h.get(t, path+"?status=published", false).Body.String(); !strings.Contains(body, `>Published</p>`) {
+		t.Errorf("GET after no-JS publish must visibly render exact Published, got: %s", body)
+	}
+	for _, suffix := range []string{"?status=bogus", ""} {
+		if body := h.get(t, path+suffix, false).Body.String(); strings.Contains(body, `data-workflow-live`) {
+			t.Errorf("GET %q must not render a success status, got: %s", suffix, body)
 		}
-		pub := h.postForm(t, path, builderFieldForm("publish", steps...), true)
-		if body := pub.Body.String(); pub.Code != http.StatusOK || !strings.Contains(body, `>Published</p>`) || strings.Contains(body, `role="alert"`) {
-			t.Errorf("HTMX publish = %d, want 200 with exact Published and no errors: %s", pub.Code, body)
-		}
-		rec = h.postForm(t, path, invalid, true)
-		body := rec.Body.String()
-		if rec.Code != http.StatusUnprocessableEntity || !strings.Contains(body, `role="alert"`) || strings.Contains(body, `data-workflow-live`) || !strings.Contains(body, `value="Keep me"`) {
-			t.Errorf("failed publish = %d, want 422 with errors, preserved values, no success feedback: %s", rec.Code, body)
-		}
-	})
-
-	t.Run("no-JS save and publish redirect and the GET renders the exact token", func(t *testing.T) {
-		if body := h.get(t, path+"?status=saved", false).Body.String(); !strings.Contains(body, `>Saved</p>`) {
-			t.Errorf("GET after no-JS save must visibly render exact Saved, got: %s", body)
-		}
-		pub := h.postForm(t, path, builderFieldForm("publish", steps...), false)
-		wantRedirect(t, pub, http.StatusSeeOther, path+"?status=published")
-		if body := h.get(t, pub.Header().Get("Location"), false).Body.String(); !strings.Contains(body, `>Published</p>`) {
-			t.Errorf("GET after no-JS publish must visibly render exact Published, got: %s", body)
-		}
-		for _, suffix := range []string{"?status=bogus", ""} {
-			if body := h.get(t, path+suffix, false).Body.String(); strings.Contains(body, `data-workflow-live`) {
-				t.Errorf("GET %q must not render a success status, got: %s", suffix, body)
-			}
-		}
-		if rec := h.postForm(t, path, invalid, false); rec.Code != http.StatusUnprocessableEntity || strings.Contains(rec.Body.String(), `data-workflow-live`) {
-			t.Errorf("failed no-JS publish = %d, want 422 without success feedback: %s", rec.Code, rec.Body.String())
-		}
-	})
+	}
+	if rec := h.postForm(t, path, invalid, false); rec.Code != http.StatusUnprocessableEntity || strings.Contains(rec.Body.String(), `data-workflow-live`) {
+		t.Errorf("failed no-JS publish = %d, want 422 without success feedback: %s", rec.Code, rec.Body.String())
+	}
 }
 
 // RED — Single Select transport uses a literal semicolon delimiter only. Empty
