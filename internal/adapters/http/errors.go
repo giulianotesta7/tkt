@@ -7,6 +7,12 @@ import (
 	"github.com/giulianotesta7/tkt/internal/domain"
 )
 
+const (
+	agentQueueListTargetID     = "agent-ticket-list"
+	agentQueueListTarget       = "#agent-ticket-list"
+	agentQueueClaimUnavailable = "This ticket is no longer available to claim."
+)
+
 // mapError translates application/domain errors into the D5 status table.
 // The English messages come from the domain constants (single source); the
 // adapter never rewrites them. InvalidCredentialsError is the single generic
