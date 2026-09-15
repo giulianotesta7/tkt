@@ -2,6 +2,7 @@ package httpadapter
 
 import (
 	"net/http"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -31,10 +32,11 @@ func TestTicketsIndexAgentUsesPersonalAndClaimSections(t *testing.T) {
 		AssignToDesk: &domain.AssignToDeskStep{
 			DeskID: desk.ID, Strategy: domain.StrategyClaim,
 		},
-	}})
-	if _, err := h.tickets.Create(t.Context(), *h.admin, application.CreateTicketInput{
+	}, {Type: domain.StepManualTask, ManualTask: &domain.ManualTaskStep{Instructions: "Continue"}}})
+	claimable, err := h.tickets.Create(t.Context(), *h.admin, application.CreateTicketInput{
 		Title: "Claim me now", CategoryID: cat.ID, Priority: domain.PriorityHigh,
-	}); err != nil {
+	})
+	if err != nil {
 		t.Fatalf("create claimable ticket: %v", err)
 	}
 
@@ -77,5 +79,21 @@ func TestTicketsIndexAgentUsesPersonalAndClaimSections(t *testing.T) {
 		if strings.Contains(body, absent) {
 			t.Errorf("agent view must not render %q, got: %s", absent, body)
 		}
+	}
+
+	claimHeaders := map[string]string{
+		"Cookie": sessionCookie + "=" + sess.ID, "HX-Request": "true", "HX-Target": "agent-ticket-list",
+		"HX-Current-URL": "/tickets?q=Claim&assigned_page=2&claimable_page=2",
+	}
+	claimPath := "/tickets/" + strconv.FormatInt(claimable.ID, 10) + "/workflow/steps/1/complete"
+	rec = doRequest(h.mux, h.mw, http.MethodPost, claimPath, claimHeaders)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "Assigned to me · 1</h2>") ||
+		!strings.Contains(rec.Body.String(), "Available to claim · 0</h2>") || strings.Contains(rec.Body.String(), `id="ticket-detail"`) {
+		t.Fatalf("list claim = %d, body: %s", rec.Code, rec.Body.String())
+	}
+	rec = doRequest(h.mux, h.mw, http.MethodPost, claimPath, claimHeaders)
+	if rec.Code != http.StatusUnprocessableEntity || !strings.Contains(rec.Body.String(), "This ticket is no longer available to claim.") ||
+		rec.Header().Get("HX-Retarget") != "#agent-ticket-list" || rec.Header().Get("HX-Reswap") != "outerHTML" {
+		t.Fatalf("stale list claim = %d, headers: %#v, body: %s", rec.Code, rec.Header(), rec.Body.String())
 	}
 }
