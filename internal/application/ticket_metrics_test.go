@@ -2,6 +2,7 @@ package application
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -17,6 +18,159 @@ func (s *ticketMetricsNoopStore) TicketMetrics(context.Context, TicketMetricsFil
 type ticketMetricsFixedClock struct{ now time.Time }
 
 func (c ticketMetricsFixedClock) Now() time.Time { return c.now }
+
+type ticketMetricsServiceStoreSpy struct {
+	calls   int
+	filter  TicketMetricsFilter
+	records []TicketMetricsRecord
+	err     error
+}
+
+func (s *ticketMetricsServiceStoreSpy) TicketMetrics(_ context.Context, f TicketMetricsFilter) ([]TicketMetricsRecord, error) {
+	s.calls++
+	s.filter = f
+	return s.records, s.err
+}
+
+type ticketMetricsAdvancingClock struct {
+	now   time.Time
+	step  time.Duration
+	reads int
+}
+
+func (c *ticketMetricsAdvancingClock) Now() time.Time {
+	c.reads++
+	now := c.now
+	c.now = c.now.Add(c.step)
+	return now
+}
+
+type ticketMetricsServiceEntry struct {
+	name string
+	call func(*TicketMetricsService, context.Context, domain.User) (TicketMetrics, error)
+}
+
+var ticketMetricsServiceEntries = []ticketMetricsServiceEntry{
+	{"View", func(s *TicketMetricsService, ctx context.Context, actor domain.User) (TicketMetrics, error) {
+		return s.View(ctx, actor, TicketMetricsFilter{})
+	}},
+	{"ViewCurrentWeek", func(s *TicketMetricsService, ctx context.Context, actor domain.User) (TicketMetrics, error) {
+		return s.ViewCurrentWeek(ctx, actor)
+	}},
+}
+
+func TestTicketMetricsServiceEntryPointsAuthorizeBeforeClockAndStore(t *testing.T) {
+	roles := []struct {
+		name  string
+		role  domain.Role
+		allow bool
+	}{
+		{"root", domain.RoleRoot, true}, {"admin", domain.RoleAdmin, true},
+		{"agent", domain.RoleAgent, false}, {"user", domain.RoleUser, false},
+		{"unknown", domain.Role("unknown"), false}, {"empty", domain.Role(""), false},
+	}
+	for _, entry := range ticketMetricsServiceEntries {
+		for _, tc := range roles {
+			t.Run(entry.name+"/"+tc.name, func(t *testing.T) {
+				store := &ticketMetricsServiceStoreSpy{}
+				clock := &ticketMetricsAdvancingClock{now: time.Date(2026, 3, 29, 23, 59, 59, 0, time.UTC)}
+				_, err := entry.call(NewTicketMetricsService(store, clock), context.Background(), domain.User{Role: tc.role})
+				if (err == nil) != tc.allow {
+					t.Fatalf("error = %v, allowed = %t", err, tc.allow)
+				}
+				wantCalls := 0
+				if tc.allow {
+					wantCalls = 1
+				} else {
+					var forbidden *domain.ForbiddenError
+					if !errors.As(err, &forbidden) {
+						t.Fatalf("denied error = %T, want *domain.ForbiddenError", err)
+					}
+				}
+				if clock.reads != wantCalls || store.calls != wantCalls {
+					t.Fatalf("clock/store calls = %d/%d, want %d/%d", clock.reads, store.calls, wantCalls, wantCalls)
+				}
+			})
+		}
+	}
+}
+
+func TestTicketMetricsServiceDeniedEntryPointsAllowNilDependencies(t *testing.T) {
+	for _, entry := range ticketMetricsServiceEntries {
+		t.Run(entry.name, func(t *testing.T) {
+			_, err := entry.call(NewTicketMetricsService(nil, nil), context.Background(), domain.User{Role: domain.RoleUser})
+			var forbidden *domain.ForbiddenError
+			if !errors.As(err, &forbidden) {
+				t.Fatalf("denied nil-dependency error = %T, want *domain.ForbiddenError", err)
+			}
+		})
+	}
+}
+
+func TestTicketMetricsServiceViewUsesOneSnapshotAndPropagatesErrors(t *testing.T) {
+	now := time.Date(2026, 3, 29, 23, 59, 59, 0, time.UTC)
+	store := &ticketMetricsServiceStoreSpy{records: []TicketMetricsRecord{{
+		CreatedAt: time.Date(2026, 3, 27, 0, 0, 0, 0, time.UTC), CurrentState: domain.StateNew,
+	}}}
+	clock := &ticketMetricsAdvancingClock{now: now, step: 2 * time.Second}
+	metrics, err := NewTicketMetricsService(store, clock).View(context.Background(), domain.User{Role: domain.RoleAdmin}, TicketMetricsFilter{})
+	if err != nil {
+		t.Fatalf("View: %v", err)
+	}
+	wantEnd := time.Date(2026, 3, 29, 0, 0, 0, 0, time.UTC)
+	// End is the exclusive storage boundary, so the inclusive last day 2026-03-29
+	// is normalized to the next UTC midnight.
+	wantExclusiveEnd := wantEnd.AddDate(0, 0, 1)
+	if len(metrics.Ages) < 2 || clock.reads != 1 || store.calls != 1 || !store.filter.Start.Equal(wantEnd.AddDate(0, 0, -29)) || !store.filter.End.Equal(wantExclusiveEnd) || !metrics.Filter.End.Equal(wantExclusiveEnd) || metrics.Ages[0].Count != 1 || metrics.Ages[1].Count != 0 {
+		t.Fatalf("clock/store/filter/ages = %d/%d/%s..%s/%+v", clock.reads, store.calls, store.filter.Start, store.filter.End, metrics.Ages)
+	}
+
+	deskID := int64(7)
+	customStore := &ticketMetricsServiceStoreSpy{records: []TicketMetricsRecord{{
+		CreatedAt: now, CurrentState: domain.StateNew, DeskID: &deskID, DeskName: "Support",
+	}}}
+	custom, err := NewTicketMetricsService(customStore, ticketMetricsFixedClock{now: now}).View(context.Background(), domain.User{Role: domain.RoleRoot}, TicketMetricsFilter{
+		Start:      time.Date(2026, 3, 28, 15, 0, 0, 0, time.FixedZone("utc+3", 3*60*60)),
+		End:        time.Date(2026, 3, 30, 1, 0, 0, 0, time.FixedZone("utc+3", 3*60*60)),
+		WorkloadBy: "desk",
+	})
+	if err != nil || customStore.calls != 1 || len(custom.Workload) != 1 || custom.Pending != 1 || custom.Workload[0].Label != "Support" || custom.Workload[0].Count != 1 || custom.Workload[0].Unassigned ||
+		!customStore.filter.Start.Equal(time.Date(2026, 3, 28, 0, 0, 0, 0, time.UTC)) || !customStore.filter.End.Equal(wantExclusiveEnd) || customStore.filter.WorkloadBy != "desk" {
+		t.Fatalf("custom metrics/filter = %+v/%+v, err = %v", custom, customStore.filter, err)
+	}
+
+	storeErr := errors.New("store failed")
+	failedStore := &ticketMetricsServiceStoreSpy{records: []TicketMetricsRecord{{CurrentState: domain.StateNew}}, err: storeErr}
+	got, err := NewTicketMetricsService(failedStore, ticketMetricsFixedClock{now: now}).View(context.Background(), domain.User{Role: domain.RoleRoot}, TicketMetricsFilter{})
+	if err != storeErr || failedStore.calls != 1 || got.Pending != 0 || len(got.Ages) != 0 || len(got.Workload) != 0 {
+		t.Fatalf("store error = %v, calls = %d, metrics = %+v", err, failedStore.calls, got)
+	}
+
+	invalidStore := &ticketMetricsServiceStoreSpy{}
+	invalidClock := &ticketMetricsAdvancingClock{now: now, step: time.Second}
+	_, err = NewTicketMetricsService(invalidStore, invalidClock).View(context.Background(), domain.User{Role: domain.RoleAdmin}, TicketMetricsFilter{WorkloadBy: "invalid"})
+	var validation *domain.ValidationError
+	if !errors.As(err, &validation) || invalidClock.reads != 1 || invalidStore.calls != 0 {
+		t.Fatalf("validation error/calls = %T/%d/%d", err, invalidClock.reads, invalidStore.calls)
+	}
+}
+
+func TestTicketMetricsServiceViewCurrentWeekUsesOneUTCSnapshot(t *testing.T) {
+	localMonday := time.Date(2026, 3, 30, 1, 59, 59, 0, time.FixedZone("utc+2", 2*60*60))
+	clock := &ticketMetricsAdvancingClock{now: localMonday, step: 2 * time.Second}
+	store := &ticketMetricsServiceStoreSpy{records: []TicketMetricsRecord{{
+		CreatedAt: time.Date(2026, 3, 27, 0, 0, 0, 0, time.UTC), CurrentState: domain.StateNew,
+	}}}
+	metrics, err := NewTicketMetricsService(store, clock).ViewCurrentWeek(context.Background(), domain.User{Role: domain.RoleAdmin})
+	if err != nil {
+		t.Fatalf("ViewCurrentWeek: %v", err)
+	}
+	wantStart := time.Date(2026, 3, 23, 0, 0, 0, 0, time.UTC)
+	wantEnd := time.Date(2026, 3, 29, 0, 0, 0, 0, time.UTC)
+	if len(metrics.Ages) == 0 || clock.reads != 1 || store.calls != 1 || !store.filter.Start.Equal(wantStart) || !store.filter.End.Equal(wantEnd.AddDate(0, 0, 1)) || store.filter.WorkloadBy != "agent" || metrics.Ages[0].Count != 1 {
+		t.Fatalf("clock/store/filter/ages = %d/%d/%+v/%+v", clock.reads, store.calls, store.filter, metrics.Ages)
+	}
+}
 
 // NewTicketMetricsService wires the read port and the clock; with no
 // operational methods yet the constructor contract is signature and non-nil
