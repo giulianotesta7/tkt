@@ -1,6 +1,6 @@
 /* Ticket metrics (issue #123): compact operational summary on the tickets
-   list. Only existing design tokens are used; the established 640px
-   breakpoint stacks the layout on mobile. */
+   list plus the dedicated /tickets/metrics page. Only existing design tokens
+   are used; the established 640px breakpoint stacks the layout on mobile. */
 .ticket-metrics{max-width:1440px;margin:0 0 16px}
 /* Page header block extracted from #tickets-screen (issue #123): keeps the
    established page-foundation styling and the previous 20px gap between the
@@ -22,6 +22,7 @@
    show toggle, so no hidden-state display override exists. */
 .ticket-metrics-cards{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}
 .ticket-metrics-card{display:grid;gap:4px;align-content:start;padding:12px;border:1px solid var(--line);border-radius:8px;background:var(--surface)}
+.ticket-metrics-visually-hidden{position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0}
 .ticket-metrics-card-label{color:var(--muted);font-size:12px}
 .ticket-metrics-card-value{color:var(--ink-strong);font-size:26px;font-weight:700;line-height:1.15}
 @media(max-width:640px){
@@ -43,7 +44,7 @@
 .ticket-metrics-note,.ticket-metrics-loading{margin:0;color:var(--muted);font-size:12px}
 .ticket-metrics-card-scope,.ticket-metrics-empty{margin:0;color:var(--muted);font-size:13px}
 .ticket-metrics-chart-totals{margin:0;color:var(--ink-soft);font-size:13px}
-.ticket-metrics-grid{display:grid;grid-template-columns:1fr;gap:12px}
+.ticket-metrics-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
 .ticket-metrics-panel{gap:8px;min-width:0}
 .ticket-metrics-panel h2{margin:0;color:var(--ink-strong);font-size:17px}
 .ticket-metrics-scope-row{display:flex;flex-wrap:wrap;align-items:center;gap:8px} /* under the 17px title; legend shares the row */
@@ -51,6 +52,14 @@
 .ticket-metrics-legend-item{display:inline-flex;align-items:center;gap:6px;color:var(--muted);font-size:12px}
 .ticket-metrics-legend-line{width:18px;border-top:3px solid var(--accent);border-radius:2px}
 .metrics-legend-resolved{border-top-style:dashed;border-top-color:var(--green)}
+/* Workload grouping: a compact segmented radio pair inside the workload card.
+   The radios stay form-associated with the filter toolbar through the form
+   attribute, so no control moves into the toolbar. */
+.ticket-metrics-group{display:inline-flex;padding:0;border:1px solid var(--line);border-radius:7px;background:var(--surface)}
+.ticket-metrics-group label{display:inline-flex;align-items:center;gap:6px;padding:8px 12px;color:var(--muted);font-size:12px;cursor:pointer}
+.ticket-metrics-group label+label{border-left:1px solid var(--line)}
+.ticket-metrics-group input{margin:0;accent-color:var(--accent)}
+.ticket-metrics-stats{margin:0;color:var(--ink-soft);font-size:13px}
 .ticket-metrics-data{margin:0} /* native View data disclosure */
 .ticket-metrics-data summary{color:var(--accent);font-size:13px;font-weight:600;cursor:pointer}
 .ticket-metrics-data summary:hover{text-decoration:underline}
@@ -68,13 +77,22 @@
 .metrics-resolved{stroke:var(--green);stroke-dasharray:7 5}
 .metrics-marker-created{fill:var(--accent)}
 .metrics-marker-resolved{fill:var(--green)}
-.metrics-chart-label{fill:var(--muted);font-family:inherit;font-size:12px;text-anchor:middle}
+.metrics-chart-label{fill:var(--muted);font-family:inherit;font-size:12px}
 .metrics-chart-value{fill:var(--ink);font-family:inherit;font-size:12px;font-weight:600}
 .metrics-axis-label{fill:var(--muted);font-family:inherit;font-size:12px}
 .metrics-axis-title{fill:var(--ink-soft);font-family:inherit;font-size:12px;font-weight:600}
 .metrics-chart-value-created{fill:var(--accent)}
 .metrics-chart-value-resolved{fill:var(--green)}
+/* Center line-chart x labels; bar-row labels start inside the chart. */
+svg.ticket-metrics-chart:not(.ticket-metrics-bars) .metrics-chart-label{text-anchor:middle}
+.ticket-metrics-bars .metrics-chart-label{font-size:13px;text-anchor:start}
+.metrics-bar{fill:var(--accent);opacity:.82}
+.metrics-hist-bar{fill:var(--accent);opacity:.82}
+/* Genuinely unassigned workload identity (nil current agent): neutral bar so
+   it reads as absence of ownership, never as team workload. */
+.ticket-metrics-bars .metrics-bar-unassigned{fill:var(--gray-ink)}
 @media(max-width:640px){
+  .ticket-metrics-grid{grid-template-columns:1fr}
   .ticket-metrics-filters>*{flex:1 1 100%}
   .ticket-metrics-detail-header .btn{margin-left:0}
 }

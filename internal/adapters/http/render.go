@@ -354,10 +354,12 @@ var templateFuncs = template.FuncMap{
 		}
 		return false
 	},
-	// The dedicated metrics page renders only the weekly line chart; the
-	// bar renderers stay unregistered until their cards ship.
-	"metricSelected":   func(id int64, selected *int64) bool { return selected != nil && id == *selected },
-	"metricsLineChart": metricsLineChart,
+	"metricSelected":        func(id int64, selected *int64) bool { return selected != nil && id == *selected },
+	"metricsLineChart":      metricsLineChart,
+	"metricsAgeChart":       metricsAgeChart,
+	"metricsWorkloadChart":  metricsWorkloadChart,
+	"metricsHistogramChart": metricsHistogramChart,
+	"metricsDuration":       metricsDuration,
 	"workflowTypeLabel": func(t domain.StepType) string {
 		switch t {
 		case domain.StepAssignToDesk:
