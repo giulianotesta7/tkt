@@ -59,6 +59,11 @@ func (s *Store) TicketStore() application.TicketStore { return newTicketStore(s.
 // TicketUnitOfWork returns the atomic ticket+audit mutation port (C1).
 func (s *Store) TicketUnitOfWork() application.TicketUnitOfWork { return newUnitOfWork(s.db) }
 
+// TicketMetricsStore returns the isolated administrative metrics read port.
+func (s *Store) TicketMetricsStore() application.TicketMetricsStore {
+	return newTicketMetricsStore(s.db)
+}
+
 // CommentStore returns the comment timeline port (task 4.3).
 func (s *Store) CommentStore() application.CommentStore { return newCommentStore(s.db) }
 
