@@ -44,6 +44,12 @@ func (s *SearchService) Search(ctx context.Context, actor domain.User, q TicketQ
 		page = 1
 	}
 	q = readQuery(actor, q)
+	if actor.Role == domain.RoleUser {
+		// The user list is always limited to active work. Ignore every
+		// caller-supplied state so crafted query strings cannot reveal history.
+		q.State = nil
+		q.States = []domain.State{domain.StateNew, domain.StateInProgress}
+	}
 	q.Text, q.Numbers = BuildTitleQuery(q.Text)
 	hasText := q.Text != "" || len(q.Numbers) > 0
 	p := Page{Offset: (page - 1) * PageSize, Limit: PageSize}

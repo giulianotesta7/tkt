@@ -139,6 +139,52 @@ type SearchStore interface {
 	SearchCount(ctx context.Context, q TicketQuery) (int, error)
 }
 
+// AgentTicketRowContext is the batched per-row read model behind the agent
+// queue (issue #122): one entry per page ticket with the authoritative desk
+// display name, the current workflow task text, and the current claim step's
+// 1-based position. Absent facts stay zero/nil — callers render their own
+// empty states (e.g. "No desk assigned"); the read model never fabricates
+// placeholders.
+type AgentTicketRowContext struct {
+	// DeskName is a surviving desk's current name. For a ticket assigned to a
+	// person it is the desk of the LATEST desk-bearing audit event (no
+	// category-desk or older-history inference beyond it); for a ticket
+	// unassigned at an active claim step it is that claim step's pinned desk.
+	// A missing audit, a deleted desk, or a deleted claim desk yields "".
+	DeskName string
+	// CurrentTask is the resolved current pinned step's task text for an
+	// ACTIVE run (the manual-task instruction verbatim, the form's field
+	// labels, or the step's operational label). A completed or missing run,
+	// a legacy unpinned ticket, or an unresolvable step yields "".
+	CurrentTask string
+	// Position is the 1-based position of the CURRENT pinned step, set ONLY
+	// when that exact active step is an assign_to_desk step with the claim
+	// strategy AND the ticket is currently unassigned (claimable context).
+	// Every other state leaves it nil.
+	Position *int
+}
+
+// MaxAgentQueueContextBatch bounds the agent queue row-context read (issue
+// #122): one page of tickets is answered by ONE bounded batched query, and a
+// caller requesting more than this many ids in a single call is a bug that
+// implementations must refuse (fail closed, never silently truncate).
+const MaxAgentQueueContextBatch = 20
+
+// AgentQueueContextStore is the OPTIONAL batched read-model capability behind
+// the agent queue rows. SearchService discovers it by type assertion on its
+// ticket store port, so existing stores and lightweight fakes never have to
+// implement it; the production SQLite adapter does. A caller that requests
+// agent queue context from a store without the capability gets a clear error
+// — never silently empty rows.
+type AgentQueueContextStore interface {
+	// AgentQueueContext returns one row context per requested ticket ID.
+	// Implementations MUST answer the whole batch with one bounded query (no
+	// per-ticket N+1), MUST NOT exceed MaxAgentQueueContextBatch ids, and
+	// return an empty (non-nil) map for empty input WITHOUT querying.
+	// Unknown ids simply have no entry.
+	AgentQueueContext(ctx context.Context, ticketIDs []int64) (map[int64]AgentTicketRowContext, error)
+}
+
 // CommentStore persists the append-only comment timeline
 // (comment-timeline spec).
 type CommentStore interface {
@@ -549,6 +595,16 @@ type SettingsStore interface {
 	SetInternalCommentBg(ctx context.Context, color string) error
 }
 
+// TicketSection narrows an agent's read scope into a presentation section.
+// The zero value keeps the full actor scope for existing list and detail reads.
+type TicketSection int
+
+const (
+	TicketSectionAll TicketSection = iota
+	TicketSectionPersonal
+	TicketSectionClaimable
+)
+
 // TicketQuery is the filter set shared by list, count, and search queries
 // (ticket-search spec). All active filters compose with AND semantics; an
 // empty filter set returns all tickets within the actor's scope.
@@ -559,7 +615,10 @@ type SettingsStore interface {
 // returns tickets outside the actor's scope. The zero value (ScopeNone)
 // fails closed: an unscoped query returns no rows.
 type TicketQuery struct {
-	State      *domain.State
+	State *domain.State
+	// States is an internal multi-state restriction. It composes with State
+	// when both are set, and lets the user ticket view stay open-only.
+	States     []domain.State
 	Priority   *domain.Priority
 	CategoryID *int64
 	UserID     *int64
@@ -572,6 +631,9 @@ type TicketQuery struct {
 	// SortByPriority orders results by the D11 priority rank
 	// (critical > high > medium > low) before the created/id tiebreak.
 	SortByPriority bool
+	// Section splits an agent's existing read scope into personal assignments
+	// and current desk claims. It never widens the access scope.
+	Section TicketSection
 	// Scope restricts the query to the actor's ticket access scope
 	// (ticket-access spec): ScopeOwned → requester = self, ScopeAssigned →
 	// assignee = self, ScopeAll → full queue. ScopeNone (zero) denies all.

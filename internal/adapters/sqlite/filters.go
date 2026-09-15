@@ -89,6 +89,14 @@ func buildTicketWhere(q application.TicketQuery) (string, []any) {
 		clauses = append(clauses, "t.state = ?")
 		args = append(args, string(*q.State))
 	}
+	if len(q.States) > 0 {
+		states := make([]string, 0, len(q.States))
+		for _, state := range q.States {
+			states = append(states, "?")
+			args = append(args, string(state))
+		}
+		clauses = append(clauses, "t.state IN ("+strings.Join(states, ",")+")")
+	}
 	if q.Priority != nil {
 		clauses = append(clauses, "t.priority = ?")
 		args = append(args, string(*q.Priority))
