@@ -861,6 +861,7 @@ func (h *CategoryHandlers) redirectCategoryMutation(w http.ResponseWriter, r *ht
 		return true
 	}
 	if r.Header.Get("HX-Request") == "" {
+		saveFeedback(w, r, saveFeedbackSaved, saveFeedbackSuccess)
 		redirect(w, r, categoryStatePath(state))
 		return true
 	}
@@ -869,6 +870,7 @@ func (h *CategoryHandlers) redirectCategoryMutation(w http.ResponseWriter, r *ht
 		h.renderCategoryRefreshError(w, r, state)
 		return true
 	}
+	saveFeedback(w, r, saveFeedbackSaved, saveFeedbackSuccess)
 	w.Header().Set("HX-Retarget", "#categories-background")
 	w.Header().Set("HX-Reswap", "outerHTML")
 	w.Header().Set("HX-Push-Url", categoryStatePath(state))
