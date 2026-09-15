@@ -141,6 +141,14 @@ test.describe("Role — minimal matrix admin / agent / user (seeded)", () => {
       password: "Secret123!",
       role: "user",
     });
+    const assignedTitle = "Assigned queue ticket " + Date.now().toString(36).slice(2, 8);
+    const assignedID = await createTicketViaUi(page, { title: assignedTitle, category: "General", priority: "low" });
+    await page.goto(baseURL() + `/tickets/${assignedID}`);
+    const assignee = page.locator('select[name="user_id"]');
+    await expect(assignee).toHaveCount(1);
+    await assertHtmxSwap(page, () => assignee.selectOption({ label: "Agent Ava" }), {
+      endpoint: `/tickets/${assignedID}/assign`, method: "POST", expectedStatus: 200, hxTarget: "#ticket-detail",
+    });
 
     // Admin: one allowed admin action — create a category
     await page.getByRole("button", { name: /log out|sign out/i }).click();
@@ -154,6 +162,18 @@ test.describe("Role — minimal matrix admin / agent / user (seeded)", () => {
     await page.getByRole("button", { name: /log out|sign out/i }).click();
     await expect(page).toHaveURL(/\/login/);
     await login(page, agentEmail, "Secret123!");
+    await expect(page.getByRole("heading", { name: "My work", exact: true })).toBeVisible();
+    const agentQueue = page.locator("#agent-ticket-list");
+    await expect(agentQueue.getByRole("link", { name: assignedTitle, exact: true })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Assigned to me · 1", exact: true })).toBeVisible();
+    await expect(page.getByRole("heading", { name: /Available to claim/ })).toBeVisible();
+    await expect(agentQueue.getByRole("button", { name: "Claim ticket", exact: true })).toHaveCount(0);
+    const agentGrid = agentQueue.locator(".agent-queue-list").first();
+    expect(await agentGrid.evaluate((el) => getComputedStyle(el).gridTemplateColumns.split(" ").length)).toBe(3);
+    await page.setViewportSize({ width: 390, height: 844 });
+    expect(await agentGrid.evaluate((el) => getComputedStyle(el).gridTemplateColumns.split(" ").length)).toBe(1);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
+    await page.setViewportSize({ width: 1280, height: 800 });
     const agentTicket = "Agent ticket " + Date.now().toString(36).slice(2, 8);
     await page.goto(baseURL() + "/tickets/new");
     await page.locator(".catalog-category").filter({ hasText: "General" }).first().click();

@@ -363,8 +363,8 @@ func TestTicketsSearchText(t *testing.T) {
 }
 
 // TestTicketsIndexRoleSearchControls proves the S2 compact search is the
-// single visible text-search control for every role. Staff retain advanced
-// filters while user-role actors receive only the compact control.
+// single visible text-search control for every role. Admin/root retain advanced
+// filters while agent/user role actors receive only the compact control.
 func TestTicketsIndexRoleSearchControls(t *testing.T) {
 	h := newHarness(t)
 
@@ -373,7 +373,7 @@ func TestTicketsIndexRoleSearchControls(t *testing.T) {
 		role                domain.Role
 		wantAdvancedFilters bool
 	}{
-		{name: "agent", role: domain.RoleAgent, wantAdvancedFilters: true},
+		{name: "agent", role: domain.RoleAgent, wantAdvancedFilters: false},
 		{name: "admin", role: domain.RoleAdmin, wantAdvancedFilters: true},
 		{name: "root", role: domain.RoleRoot, wantAdvancedFilters: true},
 		{name: "user", role: domain.RoleUser, wantAdvancedFilters: false},
