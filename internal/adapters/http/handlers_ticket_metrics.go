@@ -54,7 +54,7 @@ func parseTicketMetricsFilter(r *http.Request) (application.TicketMetricsFilter,
 		}
 		dates[i] = t
 	}
-	f := application.TicketMetricsFilter{Start: dates[0], End: dates[1]}
+	f := application.TicketMetricsFilter{Start: dates[0], End: dates[1], WorkloadBy: r.URL.Query().Get("metrics_group")}
 	if id := parseID(r.URL.Query().Get("metrics_desk_id")); id != 0 {
 		f.DeskID = &id
 	}
