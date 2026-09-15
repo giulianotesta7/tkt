@@ -243,6 +243,128 @@ func listHref(f filterState, page int) string {
 	return "/tickets?" + v.Encode()
 }
 
+func agentListHref(f filterState, assignedPage, claimablePage int) string {
+	v := ticketFilterValues(f)
+	if assignedPage > 1 {
+		v.Set("assigned_page", strconv.Itoa(assignedPage))
+	}
+	if claimablePage > 1 {
+		v.Set("claimable_page", strconv.Itoa(claimablePage))
+	}
+	if len(v) == 0 {
+		return "/tickets"
+	}
+	return "/tickets?" + v.Encode()
+}
+
+func ticketFilterValues(f filterState) url.Values {
+	v := url.Values{}
+	if f.State != "" {
+		v.Set("state", string(f.State))
+	}
+	if f.Priority != "" {
+		v.Set("priority", string(f.Priority))
+	}
+	if f.CategoryID != "" {
+		v.Set("category_id", f.CategoryID)
+	}
+	if f.UserID != "" {
+		v.Set("user_id", f.UserID)
+	}
+	if f.Q != "" {
+		v.Set("q", f.Q)
+	}
+	return v
+}
+
+// agentTicketRow wraps one agent-queue ticket with its batched row context
+// (issue #122). The domain.Ticket is EMBEDDED so every current template
+// expression ({{.ID}}, {{.Title}}, …) keeps resolving while unit 3 adds the
+// rich row markup; the Context carries desk/task/position facts.
+type agentTicketRow struct {
+	domain.Ticket
+	Context application.AgentTicketRowContext
+}
+
+// ticketListData is one independently paged ticket section.
+type ticketListData struct {
+	Tickets        []agentTicketRow
+	Total          int
+	Page           int
+	Pages          int
+	PrevHref       string
+	NextHref       string
+	HasActiveQuery bool
+}
+
+func sectionData(res *application.SearchResult, f filterState, hrefForPage func(int) string) ticketListData {
+	pages := (res.Total + application.PageSize - 1) / application.PageSize
+	if pages < 1 {
+		pages = 1
+	}
+	data := ticketListData{
+		Total:          res.Total,
+		Page:           res.Page,
+		Pages:          pages,
+		HasActiveQuery: f.Q != "",
+	}
+	if res.Page > 1 {
+		data.PrevHref = hrefForPage(res.Page - 1)
+	}
+	if res.Page < pages {
+		data.NextHref = hrefForPage(res.Page + 1)
+	}
+	return data
+}
+
+// agentQueueSections builds BOTH agent queue sections through the shared
+// helper used by GET /tickets and list-claim responses: the two independent
+// scoped searches run as today, the union of page ticket IDs (≤ 20 at PageSize
+// 10) is batched through ONE SearchService.AgentQueueContext call, and every
+// ticket is wrapped with its row context. A missing production capability or
+// a store error propagates — rows are never fabricated.
+func (h *TicketHandlers) agentQueueSections(r *http.Request, f filterState, assignedPage, claimablePage int) (assigned, claimable ticketListData, total int, err error) {
+	actor := *userFromContext(r.Context())
+	assignedQuery := f.query()
+	assignedQuery.Section = application.TicketSectionPersonal
+	assignedRes, err := h.search.Search(r.Context(), actor, assignedQuery, assignedPage)
+	if err != nil {
+		return assigned, claimable, 0, err
+	}
+	claimableQuery := f.query()
+	claimableQuery.Section = application.TicketSectionClaimable
+	claimableRes, err := h.search.Search(r.Context(), actor, claimableQuery, claimablePage)
+	if err != nil {
+		return assigned, claimable, 0, err
+	}
+	union := make([]domain.Ticket, 0, len(assignedRes.Tickets)+len(claimableRes.Tickets))
+	union = append(union, assignedRes.Tickets...)
+	union = append(union, claimableRes.Tickets...)
+	contexts, err := h.search.AgentQueueContext(r.Context(), union)
+	if err != nil {
+		return assigned, claimable, 0, err
+	}
+	assigned = sectionData(assignedRes, f, func(page int) string {
+		return agentListHref(f, page, claimablePage)
+	})
+	assigned.Tickets = wrapAgentQueueRows(assignedRes.Tickets, contexts)
+	claimable = sectionData(claimableRes, f, func(page int) string {
+		return agentListHref(f, assignedPage, page)
+	})
+	claimable.Tickets = wrapAgentQueueRows(claimableRes.Tickets, contexts)
+	return assigned, claimable, assignedRes.Total + claimableRes.Total, nil
+}
+
+// wrapAgentQueueRows pairs the section's tickets with their batched contexts
+// (an unknown id degrades to the zero context — never a fabricated row).
+func wrapAgentQueueRows(tickets []domain.Ticket, contexts map[int64]application.AgentTicketRowContext) []agentTicketRow {
+	rows := make([]agentTicketRow, len(tickets))
+	for i, tk := range tickets {
+		rows[i] = agentTicketRow{Ticket: tk, Context: contexts[tk.ID]}
+	}
+	return rows
+}
+
 // listData is the tickets index payload (page + HX fragment share it).
 type listData struct {
 	pageData
