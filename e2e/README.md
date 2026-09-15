@@ -36,6 +36,7 @@ All screens below use `e2e/tests/helpers/layout.ts` (`collectObservability` + `a
 | Workflow builder | `/categories/{id}/workflow` | root | Categories+Workflows — integrated journey | `tests/categories.spec.ts` | step validations (`handlers_category_workflows_test.go`) |
 | Desk compatibility | `/desks` GET redirect | root | Categories/Structure — desk CRUD + membership; legacy redirect | `tests/categories.spec.ts`, `tests/desks.spec.ts` | — |
 | Settings | `/settings` | root | Settings — appearance persist | `tests/settings.spec.ts` | — |
+| Ticket metrics | `/tickets/metrics` | admin, root | Tickets — metrics dashboard and filters | `tests/ticket-metrics.spec.ts` | period/window math and authorization (`handlers_ticket_metrics_test.go`, `render_metrics_test.go`) |
 
 ## Functional journeys
 
@@ -58,6 +59,7 @@ All screens below use `e2e/tests/helpers/layout.ts` (`collectObservability` + `a
 | Categories/workflows — integrated | create category → open workflow → add Manual task (count+1, `#save-feedback` toast `Saved`, `assertHtmxSwap` on `/categories/{id}/workflow`) → edit Instructions with zero autosave POSTs → explicit Save (toast `Saved`) → remove (count-1) → re-add → edit Instructions → publish (POST 200, toast `Published`) → reload persistence → create ticket with category → `#workflow-pending` + `.workflow-instruction` show `Handle the ticket` on ticket detail | `tests/categories.spec.ts` |
 | Categories/workflows — exit guards | while dirty, breadcrumb/rail links and browser Back prompt `Leave without saving?` (Stay preserves values/URL/focus, Escape stays, Discard leaves without persisting); reload while dirty uses native `beforeunload` only; a reverted field or a successful Save clears the guard | `tests/categories.spec.ts` |
 | Settings — appearance | three radios, `:checked` assertion, Violet persists after reload, back to Blue | `tests/settings.spec.ts` |
+| Tickets — operational metrics summary | always-visible compact summary fixed to the current UTC week: it sits outside `#tickets-screen`, so it survives the list search HTMX swap and a reload of the pushed query, and the View metrics link mirrors the current list query (`return` starts with `/tickets` and carries the searched term). The metrics detail page shows four dashboard cards, each with its own View data disclosure table, workload grouping by agent/desk (By desk re-renders through the same filter form), and a 2x2 grid at 1280px stacking at 390px with no horizontal overflow. | `tests/ticket-metrics.spec.ts` |
 | HTMX — users tabs | swap on `#users-root` via Deactivated tab: `assertHtmxSwap` proves request, status, zero navigation, region change, URL gains `?status=deactivated` per `hx-push-url` | `tests/htmx.spec.ts` |
 | HTMX — workflow builder | add-step swap on `#workflow-builder` (mechanism-level; the functional journey lives in `categories.spec.ts`) | `tests/htmx.spec.ts` |
 | Roles — minimal matrix | root via bootstrap (empty), admin creates category, agent creates ticket + admin screens Forbidden (browser-visible), user creates ticket + internal checkbox hidden + admin Forbidden | `tests/roles.spec.ts` |

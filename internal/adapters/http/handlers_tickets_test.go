@@ -1003,3 +1003,25 @@ func TestTicketMetricsStaticAsset(t *testing.T) {
 		}
 	}
 }
+
+// TestTicketMetricsStaticScript proves the summary sync script is served as
+// JavaScript and mirrors the current list query into the View metrics link.
+func TestTicketMetricsStaticScript(t *testing.T) {
+	h := newHarness(t)
+	rec := httptest.NewRecorder()
+	h.mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/static/ticket_metrics.js", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+	if got := rec.Header().Get("Content-Type"); got != "text/javascript; charset=utf-8" {
+		t.Errorf("Content-Type = %q, want text/javascript; charset=utf-8", got)
+	}
+	if got := rec.Header().Get("Cache-Control"); got != "no-cache" {
+		t.Errorf("Cache-Control = %q, want no-cache", got)
+	}
+	for _, want := range []string{"syncViewMetricsLink", "/tickets/metrics?return=", "htmx:afterSwap", "htmx:pushedIntoHistory", "htmx:historyRestore"} {
+		if !strings.Contains(rec.Body.String(), want) {
+			t.Errorf("script must contain %q, got: %s", want, rec.Body.String())
+		}
+	}
+}
