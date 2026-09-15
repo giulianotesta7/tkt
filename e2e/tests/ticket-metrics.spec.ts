@@ -84,6 +84,33 @@ test.describe("Ticket metrics summary", () => {
 
     await expect(summary).toBeVisible();
 
+    // The summary sits outside #tickets-screen, so the swap must have been
+    // followed client-side by a link sync: the "View metrics" href now
+    // mirrors the current list query (return starts with /tickets and
+    // carries the searched term).
+    const metricsHref = await summary
+      .getByRole("link", { name: "View metrics" })
+      .getAttribute("href");
+    expect(metricsHref).toMatch(/^\/tickets\/metrics\?return=%2Ftickets/);
+    const returnQuery = new URL(metricsHref ?? "", base()).searchParams.get(
+      "return",
+    );
+    expect(returnQuery).toBeTruthy();
+    expect(returnQuery?.startsWith("/tickets")).toBe(true);
+    expect(returnQuery).toContain(probe);
+
+    // The summary is server-rendered outside the swapped region, so a reload of
+    // the pushed list URL must still show it and still mirror the query.
+    await page.reload();
+    await expect(summary).toBeVisible();
+    const reloadedReturn = new URL(
+      (await summary
+        .getByRole("link", { name: "View metrics" })
+        .getAttribute("href")) ?? "",
+      base(),
+    ).searchParams.get("return");
+    expect(reloadedReturn).toContain(probe);
+
     expectNoConsoleOrPageErrors(obs.consoleErrors, obs.pageErrors);
   });
 
