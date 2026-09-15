@@ -65,6 +65,7 @@ func NewTicketHandlers(tickets *application.TicketService, comments *application
 func (h *TicketHandlers) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /", h.index)
 	mux.HandleFunc("GET /tickets", h.list)
+	mux.HandleFunc("GET /tickets/metrics", h.metricsView)
 	mux.HandleFunc("GET /tickets/new", h.newForm)
 	mux.HandleFunc("POST /tickets", h.create)
 	mux.HandleFunc("GET /tickets/{id}", h.show)
