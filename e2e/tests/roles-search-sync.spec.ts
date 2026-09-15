@@ -7,7 +7,13 @@
  * 2. Gamma → Delta live searches synchronize URL, input, and results on
  *    Back (→ Gamma) and Forward (→ Delta) with no main-frame navigation.
  */
-import { expect, test, type Page, type Request, type Response } from "@playwright/test";
+import {
+  expect,
+  test,
+  type Page,
+  type Request,
+  type Response,
+} from "@playwright/test";
 import { startServer, stopServer } from "../server-lifecycle.js";
 import { assertHtmxSwap } from "./helpers/htmx.js";
 import {
@@ -16,10 +22,14 @@ import {
   loginAs,
   seededCredentials,
 } from "./helpers/auth.js";
-import { createTicketViaUi, resolveUserEditHref } from "./helpers/navigation.js";
+import {
+  createTicketViaUi,
+  resolveUserEditHref,
+} from "./helpers/navigation.js";
 
 const uniq = Date.now().toString(36).slice(2, 8);
-const search = (page: Page) => page.locator(".page-actions .ticket-search input");
+const search = (page: Page) =>
+  page.locator(".page-actions .ticket-search input");
 const heading = (page: Page) =>
   page.getByRole("heading", { name: "My tickets", exact: true });
 const q = (page: Page) => new URL(page.url()).searchParams.get("q");
@@ -46,7 +56,11 @@ async function prepareUserWithTickets(
   await page.context().clearCookies();
   await loginAs(page, email, "Secret123!");
   for (const title of tickets) {
-    await createTicketViaUi(page, { title, category: "General", priority: "low" });
+    await createTicketViaUi(page, {
+      title,
+      category: "General",
+      priority: "low",
+    });
   }
   await page.goto(base() + "/tickets");
   await expect(heading(page)).toBeVisible();
@@ -74,7 +88,9 @@ test.describe("Role search sync (issue #122, seeded)", () => {
     await stopServer();
   });
 
-  test("focus, value and caret survive debounced and in-flight swaps", async ({ page }) => {
+  test("focus, value and caret survive debounced and in-flight swaps", async ({
+    page,
+  }) => {
     test.setTimeout(120_000);
     const title = `Focus probe ${uniq}`;
     await prepareUserWithTickets(page, "Search User", [title]);
@@ -130,7 +146,9 @@ test.describe("Role search sync (issue #122, seeded)", () => {
       await expect.poll(() => focusedId(page)).toBe("role-ticket-search");
       await expect
         .poll(() =>
-          search(page).evaluate((el) => (el as HTMLInputElement).selectionStart),
+          search(page).evaluate(
+            (el) => (el as HTMLInputElement).selectionStart,
+          ),
         )
         .toBe("Focusbc".length);
       await expect(page.locator("#user-ticket-list")).toContainText(
@@ -145,7 +163,9 @@ test.describe("Role search sync (issue #122, seeded)", () => {
     }
   });
 
-  test("Back and Forward restore the input from the URL q without navigation", async ({ page }) => {
+  test("Back and Forward restore the input from the URL q without navigation", async ({
+    page,
+  }) => {
     const gamma = `Gamma probe ${uniq}`;
     const delta = `Delta probe ${uniq}`;
     await prepareUserWithTickets(page, "History User", [gamma, delta]);

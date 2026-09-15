@@ -100,6 +100,9 @@ func TestSettingsUpdateRejectsInvalidColor(t *testing.T) {
 	if !strings.Contains(rec.Body.String(), `error-banner`) {
 		t.Errorf("invalid color must render the inline error banner, got: %s", rec.Body.String())
 	}
+	if got := rec.Header().Get("X-Save-Feedback"); got != "" {
+		t.Errorf("rejected update must not emit save feedback, got %q", got)
+	}
 
 	got, err := h.store.SettingsStore().GetInternalCommentBg(t.Context())
 	if err != nil {
@@ -131,6 +134,9 @@ func TestSettingsUpdateDeniedForNonAdmin(t *testing.T) {
 
 	if rec.Code != http.StatusForbidden {
 		t.Errorf("non-admin POST /settings/appearance = %d, want 403", rec.Code)
+	}
+	if got := rec.Header().Get("X-Save-Feedback"); got != "" {
+		t.Errorf("denied update must not emit save feedback, got %q", got)
 	}
 	got, err := h.store.SettingsStore().GetInternalCommentBg(t.Context())
 	if err != nil {

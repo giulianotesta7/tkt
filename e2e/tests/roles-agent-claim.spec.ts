@@ -102,7 +102,6 @@ async function prepareFixtures(page: Page): Promise<void> {
   await page.goto(base() + `/categories/${catId}/workflow`);
   const addStep = page.locator(".workflow-add-popover summary");
   const stepCards = page.locator(".workflow-step-card");
-  const liveStatus = page.locator("[data-workflow-live]");
   await addStep.click();
   await page.getByRole("button", { name: "Assign to desk" }).click();
   await expect(stepCards).toHaveCount(1);
@@ -120,9 +119,13 @@ async function prepareFixtures(page: Page): Promise<void> {
     '.page-actions button[name="action"][value="save"]',
   );
   await saveBtn.click();
-  await expect(liveStatus).toHaveText("Saved");
+  await expect(
+    page.locator("#save-feedback .save-feedback-message"),
+  ).toHaveText("Saved");
   await page.getByRole("button", { name: /publish/i }).click();
-  await expect(liveStatus).toHaveText("Published");
+  await expect(
+    page.locator("#save-feedback .save-feedback-message"),
+  ).toHaveText("Published");
   await page.reload();
   await expect(stepCards).toHaveCount(2);
 
