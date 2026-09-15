@@ -59,6 +59,7 @@ func (h *DeskHandlers) addMember(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, message, status)
 		return
 	}
+	saveDrawerFeedback(w, r, saveFeedbackSaved)
 	if h.renderDeskDrawer(w, r, deskID, "", http.StatusOK) {
 		return
 	}
@@ -91,6 +92,7 @@ func (h *DeskHandlers) removeMember(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, message, status)
 		return
 	}
+	saveDrawerFeedback(w, r, saveFeedbackSaved)
 	if h.renderDeskDrawer(w, r, deskID, "", http.StatusOK) {
 		return
 	}

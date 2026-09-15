@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>tkt — Ticket Desk</title>
 {{template "styles" .}}
-{{if .UsersAssets}}<link rel="stylesheet" href="/static/users.css"><script src="/static/users.js" defer></script>{{else if or .PageFoundationAssets .CategoryAssets}}<link rel="stylesheet" href="/static/users.css">{{end}}{{if .CategoryAssets}}<script src="/static/categories.js" defer></script>{{end}}{{if .WorkflowAssets}}<script src="/static/workflow.js" defer></script>{{end}}{{if and (eq .NavActive "tickets") (or (eq .CurrentUser.Role "agent") (eq .CurrentUser.Role "user"))}}<script src="/static/tickets.js" defer></script>{{end}}<script src="/static/htmx.min.js" defer></script>
+{{if .UsersAssets}}<link rel="stylesheet" href="/static/users.css"><script src="/static/users.js" defer></script>{{else if or .PageFoundationAssets .CategoryAssets}}<link rel="stylesheet" href="/static/users.css">{{end}}{{if .CategoryAssets}}<script src="/static/categories.js" defer></script>{{end}}{{if .WorkflowAssets}}<script src="/static/workflow.js" defer></script>{{end}}{{if and (eq .NavActive "tickets") (or (eq .CurrentUser.Role "agent") (eq .CurrentUser.Role "user"))}}<script src="/static/tickets.js" defer></script>{{end}}<script src="/static/save-feedback.js" defer></script><script src="/static/htmx.min.js" defer></script>
 </head>
 <body{{if or .UsersAssets .PageFoundationAssets}} class="users-page-body"{{end}}>
 <div class="layout">
@@ -34,7 +34,7 @@
       </button>
     </form>
   </aside>
-  <main class="main">{{template "content" .}}</main>
+  <main class="main">{{template "save_feedback" .}}{{template "content" .}}</main>
 </div>
 </body>
 </html>

@@ -87,6 +87,26 @@
   });
       document.addEventListener("dragend", clearDrag);
 
+      // The 422 builder response replaces the editor after the user submits from
+      // the page header. Observe that replacement and return focus to its first
+      // editable control so the invalid value can be corrected immediately.
+      const focusValidationControl = () => {
+        const builder = document.querySelector("#workflow-builder");
+        if (!builder?.querySelector(".error-banner[role='alert']")) return;
+        builder.querySelector(".workflow-editor-panel textarea, .workflow-editor-panel input:not([type='hidden']), .workflow-editor-panel select")?.focus({ preventScroll: true });
+      };
+      const validationFocusObserver = new MutationObserver(mutations => {
+        const replacedBuilder = mutations.some(({ addedNodes }) =>
+          [...addedNodes].some(node =>
+            node instanceof Element &&
+            node.matches("#workflow-builder") &&
+            node.querySelector(".error-banner[role='alert']"),
+          ),
+        );
+        if (replacedBuilder) requestAnimationFrame(focusValidationControl);
+      });
+      validationFocusObserver.observe(document.body, { childList: true, subtree: true });
+
       // Dropdowns (node menus, the typed-add popover, field menus) are anchored to
       // the viewport with position:fixed so no ancestor scroll container can clip
       // them; they flip above the trigger when they would exceed the bottom edge.
@@ -141,20 +161,6 @@
         const summary = details.querySelector("summary");
         if (summary) summary.focus();
       });
-
-      // Transient mutation feedback (e.g. "Added a step.") fades out on its own so
-      // it reserves no permanent space in the panel.
-      let liveTimer = null;
-      const fadeLive = () => {
-        const node = document.querySelector("[data-workflow-live]");
-        if (!node) return;
-        if (liveTimer) clearTimeout(liveTimer);
-        node.style.opacity = "1";
-        liveTimer = setTimeout(() => { node.style.opacity = "0"; }, 2600);
-      };
-      document.addEventListener("htmx:afterSwap", () => fadeLive());
-      document.addEventListener("htmx:afterRequest", () => fadeLive());
-      if (document.querySelector("[data-workflow-live]")) fadeLive();
     })();
   // ==== Dirty-state guard for structural actions (issue #139 WU2) ====
   // Nothing persists until explicit Save/Publish or a clean structural action;
