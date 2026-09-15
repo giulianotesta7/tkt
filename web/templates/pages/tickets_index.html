@@ -1,1 +1,1 @@
-{{define "content"}}{{template "tickets_screen" .}}{{end}}
+{{define "content"}}{{template "tickets_header" .}}{{if .Metrics}}{{template "ticket_metrics" .Metrics}}{{end}}{{template "tickets_screen" .}}{{end}}

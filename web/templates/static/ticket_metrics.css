@@ -1,0 +1,32 @@
+/* Ticket metrics (issue #123): compact operational summary on the tickets
+   list. Only existing design tokens are used; the established 640px
+   breakpoint stacks the layout on mobile. */
+.ticket-metrics{max-width:1440px;margin:0 0 16px}
+/* Page header block extracted from #tickets-screen (issue #123): keeps the
+   established page-foundation styling and the previous 20px gap between the
+   header and the summary/filter content. */
+.tickets-header{max-width:1440px}
+.tickets-header .page-header{margin-bottom:20px}
+.ticket-metrics-summary{display:grid;gap:12px;padding:14px;border:1px solid var(--line);border-radius:10px;background:var(--card)}
+.ticket-metrics-summary-header{display:flex;flex-wrap:wrap;align-items:center;gap:10px}
+.ticket-metrics-summary-header h2{margin:0;color:var(--ink-strong);font-size:14px}
+/* Title and range read as one left-side group; the group's auto margin keeps
+   View metrics as the separate right-side action. */
+.ticket-metrics-summary-title{display:flex;flex-wrap:wrap;align-items:baseline;gap:10px;margin-right:auto;min-width:0}
+/* The summary period is the fixed current UTC week: a textual range, never a
+   form. */
+.ticket-metrics-summary-range{color:var(--muted);font-size:12px}
+.ticket-metrics-link{color:var(--accent);font-size:13px;font-weight:600}
+.ticket-metrics-link:hover{text-decoration:underline}
+/* Compact operational summary cards. Always visible: there is no hide or
+   show toggle, so no hidden-state display override exists. */
+.ticket-metrics-cards{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}
+.ticket-metrics-card{display:grid;gap:4px;align-content:start;padding:12px;border:1px solid var(--line);border-radius:8px;background:var(--surface)}
+.ticket-metrics-card-label{color:var(--muted);font-size:12px}
+.ticket-metrics-card-value{color:var(--ink-strong);font-size:26px;font-weight:700;line-height:1.15}
+@media(max-width:640px){
+  .ticket-metrics-summary-header{align-items:stretch;flex-direction:column}
+  .ticket-metrics-summary-title{margin-right:0}
+  .ticket-metrics-cards{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .ticket-metrics-card-value{font-size:22px}
+}

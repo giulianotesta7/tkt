@@ -270,7 +270,7 @@ test.describe("Ticket Lifecycle", () => {
       await page.setViewportSize({ width, height });
       await page.goto(base() + "/tickets");
       const ticketsTitle = page
-        .locator("#tickets-screen")
+        .locator(".tickets-header")
         .getByRole("heading", { name: "Tickets", exact: true });
       await expect(ticketsTitle).toBeVisible();
       ticketTitleSizes.set(

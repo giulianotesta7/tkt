@@ -569,7 +569,7 @@
   <span class="save-feedback-message"></span>
   <button class="save-feedback-dismiss" type="button" aria-label="Dismiss confirmation">Dismiss</button>
 </div>
-<section id="tickets-screen" class="page-foundation tickets-screen">
+<div class="page-foundation tickets-header">
   <header class="page-header">
     <div>
       <h1 class="page-title">My work</h1>
@@ -581,7 +581,8 @@
   <input id="role-ticket-search" type="search" name="q" value="printer" placeholder="Search by ID or title" aria-label="Search tickets" hx-preserve="true" hx-get="/tickets" hx-trigger="input changed delay:300ms" hx-target="#tickets-screen" hx-swap="outerHTML" hx-push-url="true">
 </form><a class="page-action page-action-primary" href="/tickets/new">New ticket</a>
     </div>
-  </header><div id="agent-ticket-list">
+  </header>
+</div><section id="tickets-screen" class="page-foundation tickets-screen"><div id="agent-ticket-list">
   <section class="agent-queue" aria-labelledby="assigned-tickets-title">
     <header class="command-header"><h2 id="assigned-tickets-title" class="command-title">Assigned to me · 2</h2></header>
     <ul class="agent-queue-list">
@@ -639,8 +640,7 @@
       </li>
     </ul>
   </section>
-</div>
-</section></main>
+</div></section></main>
 </div>
 </body>
 </html>

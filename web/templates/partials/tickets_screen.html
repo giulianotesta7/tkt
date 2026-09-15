@@ -1,11 +1,11 @@
-{{define "tickets_screen"}}<section id="tickets-screen" class="page-foundation tickets-screen">
+{{define "tickets_header"}}<div class="page-foundation tickets-header">
   <header class="page-header">
     <div>
-      <h1 class="page-title">{{if .AgentView}}My work{{else if eq .CurrentUser.Role "user"}}My tickets{{else}}Tickets{{end}}</h1>{{if not .AgentView}}
-      <p class="page-subtitle">{{.Total}} ticket{{if ne .Total 1}}s{{end}}</p>{{end}}
+      <h1 class="page-title">{{if .AgentView}}My work{{else if eq .CurrentUser.Role "user"}}My tickets{{else}}Tickets{{end}}</h1>
     </div>
     <div class="page-actions">
       {{if or .AgentView (eq .CurrentUser.Role "user")}}{{template "role_ticket_search" .}}{{end}}<a class="page-action page-action-primary" href="/tickets/new">New ticket</a>
     </div>
-  </header>{{if .AgentView}}{{template "agent_ticket_list" .}}{{else if eq .CurrentUser.Role "user"}}{{template "user_ticket_list" .}}{{else}}{{template "filter_form" .}}{{template "ticket_list" .}}{{end}}
-</section>{{end}}
+  </header>
+</div>{{end}}
+{{define "tickets_screen"}}<section id="tickets-screen" class="page-foundation tickets-screen">{{if not .AgentView}}<p class="page-subtitle">{{.Total}} ticket{{if ne .Total 1}}s{{end}}</p>{{end}}{{if .AgentView}}{{template "agent_ticket_list" .}}{{else if eq .CurrentUser.Role "user"}}{{template "user_ticket_list" .}}{{else}}{{template "filter_form" .}}{{template "ticket_list" .}}{{end}}</section>{{end}}

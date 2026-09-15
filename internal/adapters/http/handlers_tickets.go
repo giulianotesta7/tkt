@@ -31,6 +31,7 @@ type TicketHandlers struct {
 	workflowTx   application.WorkflowUnitOfWork
 	renderer     *Renderer
 	catalog      *application.CatalogService
+	metrics      *application.TicketMetricsService
 }
 
 // NewTicketHandlers wires the ticket routes against the ticket, comment,
@@ -89,6 +90,7 @@ type pageData struct {
 	PageFoundationAssets bool
 	WorkflowAssets       bool
 	CategoryAssets       bool
+	MetricsAssets        bool
 	InternalCommentBg    string
 	SaveFeedback         saveFeedbackData
 }
@@ -382,6 +384,7 @@ type listData struct {
 	Assigned            ticketListData
 	Claimable           ticketListData
 	ClaimError          string
+	Metrics             *ticketMetricsData
 }
 
 func (h *TicketHandlers) index(w http.ResponseWriter, r *http.Request) {
@@ -437,6 +440,7 @@ func (h *TicketHandlers) listData(r *http.Request, f filterState, page int) (lis
 	}
 	pageMeta := pageDataFrom(r, "tickets")
 	pageMeta.PageFoundationAssets = true
+	pageMeta.MetricsAssets = true
 	data := listData{
 		pageData:            pageMeta,
 		Filters:             f,
@@ -463,6 +467,18 @@ func (h *TicketHandlers) list(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
+	}
+	// The compact summary renders only on the authorized full list page. Its
+	// period is the service's fixed CURRENT UTC week (issue #123): no list
+	// query value influences it, and HX list/filter swaps never carry or
+	// reload it (the summary lives outside #tickets-screen).
+	if r.Header.Get("HX-Request") == "" && h.metrics != nil && application.NewPolicy().Capabilities(userFromContext(r.Context()).Role).Require(application.CapViewTicketMetrics) {
+		metricData, metricErr := h.metricsSummaryData(r)
+		if metricErr != nil {
+			http.Error(w, "Internal server error", http.StatusInternalServerError)
+			return
+		}
+		data.Metrics = &metricData
 	}
 	h.renderer.Render(w, r, "tickets_index", "tickets_screen", data, http.StatusOK)
 }

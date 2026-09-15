@@ -569,11 +569,10 @@
   <span class="save-feedback-message"></span>
   <button class="save-feedback-dismiss" type="button" aria-label="Dismiss confirmation">Dismiss</button>
 </div>
-<section id="tickets-screen" class="page-foundation tickets-screen">
+<div class="page-foundation tickets-header">
   <header class="page-header">
     <div>
       <h1 class="page-title">My tickets</h1>
-      <p class="page-subtitle">2 tickets</p>
     </div>
     <div class="page-actions">
       <form class="ticket-search search-field" method="get" action="/tickets" hx-get="/tickets" hx-target="#tickets-screen" hx-swap="outerHTML" hx-push-url="true">
@@ -582,7 +581,8 @@
   <input id="role-ticket-search" type="search" name="q" value="printer" placeholder="Search by ID or title" aria-label="Search tickets" hx-preserve="true" hx-get="/tickets" hx-trigger="input changed delay:300ms" hx-target="#tickets-screen" hx-swap="outerHTML" hx-push-url="true">
 </form><a class="page-action page-action-primary" href="/tickets/new">New ticket</a>
     </div>
-  </header><div id="user-ticket-list">
+  </header>
+</div><section id="tickets-screen" class="page-foundation tickets-screen"><p class="page-subtitle">2 tickets</p><div id="user-ticket-list">
   <div class="user-ticket-grid">
   <div class="card user-request-card">
     <div class="user-request-content">
@@ -603,8 +603,7 @@
     <a class="user-request-open" href="/tickets/1">View request</a>
   </div>
     </div>
-  </div>
-</section></main>
+  </div></section></main>
 </div>
 </body>
 </html>
