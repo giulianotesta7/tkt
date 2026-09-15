@@ -19,6 +19,7 @@ type ticketStore struct {
 }
 
 var _ application.TicketStore = (*ticketStore)(nil)
+var _ application.AgentQueueContextStore = (*ticketStore)(nil)
 
 func newTicketStore(db *sql.DB) *ticketStore { return &ticketStore{db: db} }
 
@@ -172,6 +173,15 @@ func (st *ticketStore) List(ctx context.Context, q application.TicketQuery, p ap
 		return nil, fmt.Errorf("sqlite: list tickets: %w", err)
 	}
 	return out, nil
+}
+
+// AgentQueueContext serves application.AgentQueueContextStore on the ticket
+// store port (issue #122): SearchService discovers the capability by type
+// assertion, so no wiring changes are needed and stores without the method
+// keep working. The single bounded batched query lives in
+// agent_ticket_context_store.go.
+func (st *ticketStore) AgentQueueContext(ctx context.Context, ticketIDs []int64) (map[int64]application.AgentTicketRowContext, error) {
+	return agentQueueContext(ctx, st.db, ticketIDs)
 }
 
 // Count returns the number of tickets matching q (no pagination).
