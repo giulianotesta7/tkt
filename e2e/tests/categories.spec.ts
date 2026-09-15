@@ -12,6 +12,7 @@ import {
   type Page,
   type Request,
   type Response,
+  type Route,
 } from "@playwright/test";
 import { startServer, stopServer } from "../server-lifecycle.js";
 import { loginAsSeeded, base } from "./helpers/auth.js";
@@ -19,7 +20,8 @@ import {
   assertCanonicalScreen,
   collectObservability,
 } from "./helpers/layout.js";
-import { assertHtmxSwap } from "./helpers/htmx.js";
+import { assertHtmxNoSwap, assertHtmxSwap } from "./helpers/htmx.js";
+import { isHtmxPost } from "./helpers/save-feedback.js";
 import {
   createCategoryViaUi,
   createTicketViaUi,
@@ -941,9 +943,342 @@ name: "Leave without saving?",
         await expect(page).toHaveURL(/\/categories\?(?=.*view=structure)(?=.*department_id=1)(?=.*desk_id=1)/);
       });
 
-      test("workflow builder integrated journey: create category, add step, publish, reload, create ticket, verify published workflow in ticket", async ({
-    page,
-  }) => {
+      test("history restoration does not revive a stale category save confirmation", async ({ page }) => {
+        test.setTimeout(30_000);
+        await page.setViewportSize({ width: 1280, height: 800 });
+        await loginAsSeeded(page);
+        const listPath = "/categories?view=structure&department_id=1&desk_id=1";
+        await page.goto(base() + listPath);
+
+        const launcher = page.getByRole("link", {
+          name: "New category",
+          exact: true,
+        });
+        await launcher.click();
+        const drawer = page.getByRole("dialog", { name: /New category/i });
+        await expect(drawer).toBeVisible();
+        const categoryName = "History confirmation " + Date.now().toString(36).slice(2, 8);
+        await drawer.getByLabel("Name", { exact: true }).fill(categoryName);
+        await assertHtmxSwap(
+          page,
+          () => drawer.getByRole("button", { name: /create category/i }).click(),
+          {
+            endpoint: "/categories",
+            method: "POST",
+            expectedStatus: 200,
+            hxTarget: "#categories-background",
+            expectedUrl: /\/categories\?department_id=1&desk_id=1&view=structure$/,
+          },
+        );
+        const feedback = page.locator("#save-feedback");
+        await expect(feedback).toBeVisible();
+
+        await assertDrawerHtmxSwap(
+          page,
+          () => launcher.click(),
+          {
+            endpoint: (url) => new URL(url).pathname === "/categories/new",
+            expectedUrl: /\/categories\/new\?view=structure&department_id=1&desk_id=1$/,
+          },
+        );
+        await expect(drawer).toBeVisible();
+        await page.waitForTimeout(5_100);
+
+        await page.goBack();
+        await expect.poll(() => new URL(page.url()).pathname).toBe("/categories");
+        expect([...new URL(page.url()).searchParams.entries()].sort()).toEqual(
+          [...new URL(base() + listPath).searchParams.entries()].sort(),
+        );
+        await expect(page.locator("h1").filter({ hasText: "Categories" })).toBeVisible();
+        await expect(page.getByRole("dialog", { name: /New category/i })).toHaveCount(0);
+        await expect(
+          page
+            .locator(".category-level-categories .category-structure-item")
+            .filter({ hasText: categoryName }),
+        ).toBeVisible();
+        await expect(feedback).toBeHidden();
+      });
+
+      test("an aborted read-only workflow step selection cannot suppress a concurrent save failure", async ({ page }) => {
+        await page.setViewportSize({ width: 1280, height: 800 });
+        await loginAsSeeded(page);
+
+        const categoryID = await createCategoryViaUi(page, "Selection feedback " + Date.now().toString(36).slice(2, 8));
+        const workflowPath = `/categories/${categoryID}/workflow`;
+        await page.goto(base() + workflowPath);
+
+        for (let step = 0; step < 2; step += 1) {
+          await page.locator(".workflow-add-popover summary").last().click();
+          const response = await assertHtmxSwap(
+            page,
+            () => page.getByRole("button", { name: "Manual task", exact: true }).last().click(),
+            {
+              endpoint: (url) => {
+                const requestURL = new URL(url);
+                return requestURL.pathname === workflowPath && requestURL.searchParams.get("add_step_type") === "manual_task";
+              },
+              method: "POST",
+              expectedStatus: 200,
+              hxTarget: "#workflow-builder",
+            },
+          );
+          expect(new URLSearchParams(response.request().postData() ?? "").get("action")).toBe("add_step");
+        }
+
+        const feedback = page.locator("#save-feedback");
+        await expect(feedback).toContainText("Saved");
+        await feedback.getByRole("button", { name: "Dismiss confirmation" }).click();
+        await expect(feedback).toBeHidden();
+
+            const instructions = page.getByLabel("Instructions", { exact: true });
+            await expect(instructions).toBeVisible();
+            // The editor normally queues same-form requests. Remove that one
+            // transport guard here to exercise the feedback listener's own
+            // per-request ordering with a concurrent read-only POST.
+            await page.locator("#workflow-form").evaluate((form) => form.removeAttribute("hx-sync"));
+            let releaseSaveAbort: () => void = () => undefined;
+            let markSaveRequestSeen!: () => void;
+            const saveRequestSeen = new Promise<void>((resolve) => {
+              markSaveRequestSeen = resolve;
+            });
+            let saveAborted = false;
+            let selectionAborted = false;
+            const abortConcurrentRequests = async (route: Route) => {
+              const request = route.request();
+              if (isHtmxPost(request, { path: workflowPath, action: "save", target: "#workflow-builder" })) {
+                markSaveRequestSeen();
+                await new Promise<void>((resolve) => {
+                  releaseSaveAbort = resolve;
+                });
+                await route.abort("failed");
+                saveAborted = true;
+                return;
+              }
+              if (isHtmxPost(request, { path: workflowPath, action: "select_step", target: "#workflow-builder" })) {
+                await route.abort("failed");
+                selectionAborted = true;
+                return;
+              }
+              await route.continue();
+            };
+            await page.route((url) => url.pathname === workflowPath, abortConcurrentRequests);
+            try {
+              const attemptedValue = "This save fails after a read-only selection";
+              const saveRequest = page.waitForRequest((request) =>
+                isHtmxPost(request, { path: workflowPath, action: "save", target: "#workflow-builder" }),
+              );
+              await instructions.fill(attemptedValue);
+              await page
+                .locator('.page-actions button[name="action"][value="save"]')
+                .click();
+              await saveRequest;
+              await saveRequestSeen;
+
+              const selectionRequest = page.waitForRequest((request) =>
+                isHtmxPost(request, { path: workflowPath, action: "select_step", target: "#workflow-builder" }),
+              );
+              await page.locator(".workflow-step-card-link").nth(0).click();
+              const request = await selectionRequest;
+              expect(request.headers()["hx-request"]).toBe("true");
+              expect(request.headers()["hx-target"]).toBe("workflow-builder");
+              expect(new URLSearchParams(request.postData() ?? "").get("action")).toBe("select_step");
+              await expect.poll(() => selectionAborted).toBe(true);
+
+              releaseSaveAbort();
+              await expect.poll(() => saveAborted).toBe(true);
+              await expect(feedback.locator(".save-feedback-message")).toHaveText("Unable to save changes. Please try again.");
+              await expect(feedback).toHaveAttribute("role", "alert");
+              await expect(instructions).toHaveValue(attemptedValue);
+            } finally {
+              releaseSaveAbort();
+              await page.unroute((url) => url.pathname === workflowPath, abortConcurrentRequests);
+            }
+      });
+
+      test("workflow feedback retires success for validation and a read-only selection cannot suppress a transport failure", async ({ page }) => {
+        test.setTimeout(60_000);
+        await page.setViewportSize({ width: 1280, height: 800 });
+        await loginAsSeeded(page);
+
+        const categoryName = "Feedback flow " + Date.now().toString(36).slice(2, 8);
+        await createCategoryViaUi(page, categoryName);
+        const category = page
+          .locator(".category-level-categories .category-structure-item")
+          .filter({ hasText: categoryName });
+        const editHref = await category.locator('a[href*="/edit"]').getAttribute("href");
+        const categoryID = editHref?.match(/\/categories\/(\d+)\/edit/)?.[1];
+        if (!categoryID) throw new Error(`Could not resolve workflow category at ${page.url()}`);
+        const workflowPath = `/categories/${categoryID}/workflow`;
+        await page.goto(base() + workflowPath);
+
+        await page.locator(".workflow-add-step summary").first().click();
+        const addResponse = await assertHtmxSwap(
+          page,
+          () => page.getByRole("button", { name: "Manual task", exact: true }).first().click(),
+          {
+            endpoint: (url) => {
+              const requestURL = new URL(url);
+              return requestURL.pathname === workflowPath && requestURL.searchParams.get("add_step_type") === "manual_task";
+            },
+            method: "POST",
+            expectedStatus: 200,
+            hxTarget: "#workflow-builder",
+          },
+        );
+        expect(addResponse.headers()["x-save-feedback"]).toContain('"message":"Saved"');
+        const instructions = page.getByLabel("Instructions", { exact: true });
+        await expect(instructions).toBeVisible();
+
+        await expect(page.locator("#save-feedback .save-feedback-message")).toHaveText("Saved");
+        await expect(instructions).toHaveValue("");
+        const invalidPublish = await assertHtmxSwap(
+          page,
+          () => page.getByRole("button", { name: "Publish", exact: true }).click(),
+          { endpoint: workflowPath, method: "POST", expectedStatus: 422, hxTarget: "#workflow-builder" },
+        );
+        expect(invalidPublish.headers()["x-save-feedback"]).toBeUndefined();
+        const validationAlert = page.locator(".error-banner[role='alert']");
+        await expect(validationAlert).toBeVisible();
+        await expect(validationAlert).toHaveClass(/error-banner/);
+        await expect(instructions).toHaveValue("");
+        await expect(instructions).toBeFocused();
+        await expect(page.locator("#save-feedback")).toBeHidden();
+        await page.waitForTimeout(5_100);
+        await expect(validationAlert).toBeVisible();
+        await expect(validationAlert).toHaveAttribute("role", "alert");
+        await expect(page.locator("#save-feedback")).toBeHidden();
+
+            const recoveredInstructions = "Recover this workflow";
+            const recoveryRequest = page.waitForRequest((request) => {
+              if (request.method() !== "POST" || request.headers()["hx-request"] !== "true") return false;
+              const requestURL = new URL(request.url());
+              if (requestURL.pathname !== workflowPath || requestURL.search !== "") return false;
+              const form = new URLSearchParams(request.postData() ?? "");
+              return form.get("action") === "save" && form.get("step_0_instructions") === recoveredInstructions;
+            });
+            await assertHtmxSwap(
+              page,
+              async () => {
+                await instructions.fill(recoveredInstructions);
+                await page
+                  .locator('.page-actions button[name="action"][value="save"]')
+                  .click();
+              },
+              { endpoint: workflowPath, method: "POST", expectedStatus: 200, hxTarget: "#workflow-builder" },
+            );
+            await recoveryRequest;
+            await expect(page.locator("#save-feedback .save-feedback-message")).toHaveText("Saved");
+            await page.reload();
+        await expect(instructions).toHaveValue(recoveredInstructions);
+        await expect(page.locator(".error-banner[role='alert']")).toHaveCount(0);
+
+            const abortMatcher = (url: URL) => url.pathname === workflowPath;
+            let aborted = false;
+            const abortRequest = async (route: Route) => {
+              if (route.request().method() === "POST") {
+                await route.abort("failed");
+                aborted = true;
+                return;
+              }
+              await route.continue();
+            };
+                await page.route(abortMatcher, abortRequest);
+                try {
+                  await instructions.fill("This value stays in the editor");
+                  await page
+                    .locator('.page-actions button[name="action"][value="save"]')
+                    .click();
+                  await expect.poll(() => aborted).toBe(true);
+              const feedback = page.locator("#save-feedback");
+              await expect(feedback.locator(".save-feedback-message")).toHaveText("Unable to save changes. Please try again.");
+              await expect(feedback).toHaveAttribute("role", "alert");
+              await expect(feedback).toHaveAttribute("aria-live", "assertive");
+                  await expect(instructions).toHaveValue("This value stays in the editor");
+                  await page.waitForTimeout(5_100);
+                  await expect(feedback).toBeVisible();
+                } finally {
+                  await page.unroute(abortMatcher, abortRequest);
+                }
+          });
+
+          test("workflow save and publish update the same coalesced toast and restart its timer", async ({ page }) => {
+            test.setTimeout(30_000);
+            await page.setViewportSize({ width: 1280, height: 800 });
+            await loginAsSeeded(page);
+
+            const categoryName = "Coalesced toast " + Date.now().toString(36).slice(2, 8);
+            await createCategoryViaUi(page, categoryName);
+            const category = page
+              .locator(".category-level-categories .category-structure-item")
+              .filter({ hasText: categoryName });
+            const editHref = await category.locator('a[href*="/edit"]').getAttribute("href");
+            const categoryID = editHref?.match(/\/categories\/(\d+)\/edit/)?.[1];
+            if (!categoryID) throw new Error(`Could not resolve workflow category at ${page.url()}`);
+            const workflowPath = `/categories/${categoryID}/workflow`;
+            await page.goto(base() + workflowPath);
+
+            await page.locator(".workflow-add-step summary").first().click();
+            const addResponse = await assertHtmxSwap(
+              page,
+              () => page.getByRole("button", { name: "Manual task", exact: true }).first().click(),
+              {
+                endpoint: (url) => {
+                  const requestURL = new URL(url);
+                  return requestURL.pathname === workflowPath && requestURL.searchParams.get("add_step_type") === "manual_task";
+                },
+                method: "POST",
+                expectedStatus: 200,
+                hxTarget: "#workflow-builder",
+              },
+            );
+            expect(addResponse.headers()["x-save-feedback"]).toContain('"message":"Saved"');
+            const toast = page.locator("#save-feedback");
+            await expect(toast).toBeVisible();
+            await expect(toast.locator(".save-feedback-message")).toHaveText("Saved");
+
+                // An explicit Save arrives before the first toast expires: the same
+                // element must update in place (no exit/re-enter, no second region)
+                // and restart the timer.
+                const instructions = page.getByLabel("Instructions", { exact: true });
+                await expect(instructions).toBeVisible();
+                await page.waitForTimeout(3_000);
+                await assertHtmxSwap(
+                  page,
+                  async () => {
+                    await instructions.fill("Coalesced save");
+                    await page
+                      .locator('.page-actions button[name="action"][value="save"]')
+                      .click();
+                  },
+                  { endpoint: workflowPath, method: "POST", expectedStatus: 200, hxTarget: "#workflow-builder" },
+                );
+            await expect(toast.locator(".save-feedback-message")).toHaveText("Saved");
+            await expect(toast).toHaveClass(/(?:^|\s)is-visible(?:\s|$)/);
+            await expect(toast).toBeVisible();
+            await expect(page.locator("#save-feedback")).toHaveCount(1);
+
+            // Past the original 5s window the restarted timer must still hold the toast open.
+            await page.waitForTimeout(2_500);
+            await expect(toast).toBeVisible();
+
+            // Publishing re-renders the same draft, so the builder HTML is
+            // byte-identical; the server contract is the exact POST plus the
+            // Published feedback header, and the visible result is the toast.
+            const publishResponse = await assertHtmxNoSwap(
+              page,
+              () => page.getByRole("button", { name: "Publish", exact: true }).click(),
+              { endpoint: workflowPath, method: "POST", expectedStatus: 200 },
+            );
+            expect(publishResponse.headers()["x-save-feedback"]).toContain("Published");
+            await expect(toast.locator(".save-feedback-message")).toHaveText("Published");
+            await expect(page.locator("#save-feedback")).toHaveCount(1);
+            await page.waitForTimeout(5_100);
+            await expect(toast).toBeHidden();
+          });
+
+          test("workflow builder integrated journey: create category, add step, publish, reload, create ticket, verify published workflow in ticket", async ({
+        page,
+      }) => {
     test.setTimeout(60000);
     await page.setViewportSize({ width: 1280, height: 800 });
     const obs = collectObservability(page);
@@ -1020,9 +1355,9 @@ name: "Leave without saving?",
       },
     );
     await expect(cards).toHaveCount(countBeforeAdd + 1);
-    await expect(page.locator("[data-workflow-live]")).toContainText(
-      /added a step/i,
-    );
+    await expect(
+      page.locator("#save-feedback .save-feedback-message"),
+    ).toHaveText("Saved");
 
     // Editing must not autosave: no workflow POST may fire from input alone
     const instructionsInput = page.getByLabel(/instructions/i);
@@ -1057,7 +1392,9 @@ name: "Leave without saving?",
         hxTarget: "#workflow-builder",
       },
     );
-    await expect(page.locator("[data-workflow-live]")).toHaveText("Saved");
+    await expect(
+      page.locator("#save-feedback .save-feedback-message"),
+    ).toHaveText("Saved");
 
     // Remove step unconditionally (prove removal works)
     const countBeforeRemove = await cards.count();
@@ -1124,7 +1461,10 @@ name: "Leave without saving?",
     // 4) PUBLISH — must execute publication, not just check button exists
     const publishBtn = page.getByRole("button", { name: /publish/i });
     await expect(publishBtn).toBeVisible();
-    const publishResp = await assertHtmxSwap(
+    // Publishing re-renders the same draft, so the builder HTML is
+    // byte-identical; assert the exact POST contract and read the visible
+    // result from the feedback toast instead of a target mutation.
+    const publishResp = await assertHtmxNoSwap(
       page,
       async () => {
         await publishBtn.click();
@@ -1133,11 +1473,12 @@ name: "Leave without saving?",
         endpoint: `/categories/${categoryId}/workflow`,
         method: "POST",
         expectedStatus: 200,
-        hxTarget: "#workflow-builder",
       },
     );
-    expect(publishResp.status()).toBe(200);
-    await expect(page.locator("[data-workflow-live]")).toHaveText("Published");
+    expect(publishResp.headers()["x-save-feedback"]).toContain("Published");
+    await expect(
+      page.locator("#save-feedback .save-feedback-message"),
+    ).toHaveText("Published");
     // After publish, no inline errors
     await expect(page.locator(".error-banner, [role='alert']")).toHaveCount(0);
 
@@ -1707,9 +2048,9 @@ name: "Leave without saving?",
         .locator('.page-actions button[name="action"][value="save"]')
         .click();
       await expect((await saveResponse).status()).toBe(200);
-      await expect(page.locator("[data-workflow-live]")).toContainText(
-        /saved/i,
-      );
+      await expect(
+        page.locator("#save-feedback .save-feedback-message"),
+      ).toHaveText("Saved");
       await sidebarLink.click();
       await expect(page).toHaveURL(/\/categories(\?.*)?$/);
       await expect(dialog).not.toBeVisible();

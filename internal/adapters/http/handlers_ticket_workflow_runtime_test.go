@@ -206,6 +206,30 @@ func TestTicketWorkflowRuntime_CompletionManualNoMetadata(t *testing.T) {
 	mustHaveCompletionRoute(t, forged, http.StatusUnprocessableEntity, "manual_task ignores forged metadata")
 }
 
+func TestCompleteWorkflow_NativeFeedbackStaysInTheCompletionResponse(t *testing.T) {
+	h := newHarness(t)
+	ticket := h.seedTicket(t, "native completion feedback", nil)
+	h.assignTicket(t, ticket.ID, h.admin.ID)
+	path := "/tickets/" + strconv.FormatInt(ticket.ID, 10) + "/workflow/steps/1/complete"
+
+	completion := h.postForm(t, path, url.Values{}, false)
+	mustHaveCompletionRoute(t, completion, http.StatusOK, "native completion")
+	if !strings.Contains(completion.Body.String(), `data-feedback-message="Saved"`) {
+		t.Errorf("native completion response must render its confirmation, got: %.500s", completion.Body.String())
+	}
+	if got := completion.Header().Get("Set-Cookie"); strings.Contains(got, saveFeedbackCookie+"=") {
+		t.Errorf("native completion must not issue a feedback cookie, got %q", got)
+	}
+
+	unrelated := h.get(t, "/tickets", false)
+	if unrelated.Code != http.StatusOK {
+		t.Fatalf("unrelated GET status = %d, want 200", unrelated.Code)
+	}
+	if strings.Contains(unrelated.Body.String(), `data-feedback-message="Saved"`) {
+		t.Errorf("unrelated GET must not inherit completion feedback, got: %.500s", unrelated.Body.String())
+	}
+}
+
 // TestTicketWorkflowRuntime_PendingActionsInsideTimelineForActiveRun proves an
 // active run renders the current task as the first timeline item when the
 // persisted actor predicate passes.

@@ -90,6 +90,7 @@ type pageData struct {
 	WorkflowAssets       bool
 	CategoryAssets       bool
 	InternalCommentBg    string
+	SaveFeedback         saveFeedbackData
 }
 
 // pageDataFrom builds the shell payload from the session user. The
@@ -107,6 +108,7 @@ func pageDataFrom(r *http.Request, nav string) pageData {
 		CanManageCategories: caps.Require(application.CapManageCategories),
 		CanGrantAdmin:       caps.Require(application.CapGrantAdmin),
 		InternalCommentBg:   internalCommentBgFrom(r.Context()),
+		SaveFeedback:        readSaveFeedback(r),
 	}
 }
 
@@ -700,14 +702,17 @@ func (h *TicketHandlers) create(w http.ResponseWriter, r *http.Request) {
 			// The ticket is already committed: never report failure and
 			// never invite a duplicate-creating retry. Send the client to
 			// the list via the HX redirect instead of a misleading 500.
+			setSaveFeedbackCookie(w, saveFeedbackData{Message: saveFeedbackSaved, Kind: saveFeedbackSuccess})
 			w.Header().Set("HX-Redirect", "/tickets")
 			w.WriteHeader(http.StatusOK)
 			return
 		}
+		saveFeedback(w, r, saveFeedbackSaved, saveFeedbackSuccess)
 		h.renderer.Render(w, r, "tickets_index", "ticket_list", data, http.StatusOK)
 		return
 	}
 
+	saveFeedback(w, r, saveFeedbackSaved, saveFeedbackSuccess)
 	// The detail route lands in the next slice commit; a committed ticket
 	// must never leave the user on an unregistered 404 path.
 	redirect(w, r, "/tickets")
@@ -1139,9 +1144,11 @@ func (h *TicketHandlers) addComment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if r.Header.Get("HX-Request") != "" {
+		saveFeedback(w, r, saveFeedbackSaved, saveFeedbackSuccess)
 		h.renderer.Render(w, r, "tickets_show", "timeline", data, http.StatusOK)
 		return
 	}
+	saveFeedback(w, r, saveFeedbackSaved, saveFeedbackSuccess)
 	redirect(w, r, "/tickets/"+strconv.FormatInt(id, 10))
 }
 
@@ -1216,9 +1223,11 @@ func (h *TicketHandlers) afterMutation(w http.ResponseWriter, r *http.Request, i
 		return
 	}
 	if r.Header.Get("HX-Request") != "" {
+		saveFeedback(w, r, saveFeedbackSaved, saveFeedbackSuccess)
 		h.renderer.Render(w, r, "tickets_show", fragment, data, http.StatusOK)
 		return
 	}
+	saveFeedback(w, r, saveFeedbackSaved, saveFeedbackSuccess)
 	redirect(w, r, "/tickets/"+strconv.FormatInt(id, 10))
 }
 
@@ -1427,6 +1436,13 @@ func (h *TicketHandlers) completeWorkflow(w http.ResponseWriter, r *http.Request
 	if err != nil {
 		http.Error(w, mapErrorMsg(err), status)
 		return
+	}
+	if r.Header.Get("HX-Request") != "" {
+		saveFeedback(w, r, saveFeedbackSaved, saveFeedbackSuccess)
+	} else {
+		// Completion is a native 200, not a redirect. Put the confirmed outcome in
+		// this response rather than issuing a flash that a later unrelated GET reads.
+		data.SaveFeedback = saveFeedbackData{Message: saveFeedbackSaved, Kind: saveFeedbackSuccess}
 	}
 	h.renderer.Render(w, r, "tickets_show", "ticket_detail", data, http.StatusOK)
 }
