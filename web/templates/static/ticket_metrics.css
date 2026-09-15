@@ -30,3 +30,51 @@
   .ticket-metrics-cards{grid-template-columns:repeat(2,minmax(0,1fr))}
   .ticket-metrics-card-value{font-size:22px}
 }
+/* Detail page (issue #123) + weekly line card, on existing design tokens. */
+.ticket-metrics-detail{display:grid;gap:14px;max-width:1440px;margin:0 0 16px;padding:16px;border:1px solid var(--line);border-radius:10px;background:var(--card)}
+.ticket-metrics-detail-header{display:flex;flex-wrap:wrap;align-items:center;gap:10px}
+.ticket-metrics-detail-header h1{margin:0;color:var(--ink-strong);font-size:22px}
+.ticket-metrics-subtitle{margin:2px 0 0;color:var(--muted);font-size:12px}
+.ticket-metrics-detail-header .btn{margin-left:auto}
+.ticket-metrics-filters{display:flex;flex-wrap:wrap;gap:10px;align-items:end}
+.ticket-metrics-filters>label{display:grid;gap:4px;color:var(--muted);font-size:12px}
+.ticket-metrics-filters input[type="date"],.ticket-metrics-filters select{height:34px;border:1px solid var(--line);border-radius:7px;background:var(--surface);color:var(--ink);font:inherit;padding:0 8px}
+.ticket-metrics-error{border-left:3px solid var(--red);background:var(--red-soft);color:var(--red);padding:12px 14px}
+.ticket-metrics-note,.ticket-metrics-loading{margin:0;color:var(--muted);font-size:12px}
+.ticket-metrics-card-scope,.ticket-metrics-empty{margin:0;color:var(--muted);font-size:13px}
+.ticket-metrics-chart-totals{margin:0;color:var(--ink-soft);font-size:13px}
+.ticket-metrics-grid{display:grid;grid-template-columns:1fr;gap:12px}
+.ticket-metrics-panel{gap:8px;min-width:0}
+.ticket-metrics-panel h2{margin:0;color:var(--ink-strong);font-size:17px}
+.ticket-metrics-scope-row{display:flex;flex-wrap:wrap;align-items:center;gap:8px} /* under the 17px title; legend shares the row */
+.ticket-metrics-legend{display:inline-flex;flex-wrap:wrap;gap:14px;margin-left:auto}
+.ticket-metrics-legend-item{display:inline-flex;align-items:center;gap:6px;color:var(--muted);font-size:12px}
+.ticket-metrics-legend-line{width:18px;border-top:3px solid var(--accent);border-radius:2px}
+.metrics-legend-resolved{border-top-style:dashed;border-top-color:var(--green)}
+.ticket-metrics-data{margin:0} /* native View data disclosure */
+.ticket-metrics-data summary{color:var(--accent);font-size:13px;font-weight:600;cursor:pointer}
+.ticket-metrics-data summary:hover{text-decoration:underline}
+.ticket-metrics-table-wrap{max-width:100%;margin-top:8px;overflow-x:auto}
+.ticket-metrics-data table{width:100%;border-collapse:collapse;font-size:12px}
+.ticket-metrics-data caption{text-align:left;color:var(--muted);font-size:12px;padding:0 0 6px}
+.ticket-metrics-data th,.ticket-metrics-data td{border:1px solid var(--line);padding:6px 10px;text-align:left;color:var(--ink-soft)}
+.ticket-metrics-data th{background:var(--surface);color:var(--ink-strong);font-weight:600}
+/* Line chart: TKT font family; dashed resolved stroke is semantic, never inline. */
+.ticket-metrics-chart{display:block;width:100%;min-width:0;height:auto;margin:0 0 8px;background:var(--surface);overflow:visible}
+.metrics-axis{stroke:var(--line-strong);stroke-width:1}
+.metrics-gridline{stroke:var(--line);stroke-width:1}
+.metrics-line{fill:none;stroke-width:3}
+.metrics-created{stroke:var(--accent)}
+.metrics-resolved{stroke:var(--green);stroke-dasharray:7 5}
+.metrics-marker-created{fill:var(--accent)}
+.metrics-marker-resolved{fill:var(--green)}
+.metrics-chart-label{fill:var(--muted);font-family:inherit;font-size:12px;text-anchor:middle}
+.metrics-chart-value{fill:var(--ink);font-family:inherit;font-size:12px;font-weight:600}
+.metrics-axis-label{fill:var(--muted);font-family:inherit;font-size:12px}
+.metrics-axis-title{fill:var(--ink-soft);font-family:inherit;font-size:12px;font-weight:600}
+.metrics-chart-value-created{fill:var(--accent)}
+.metrics-chart-value-resolved{fill:var(--green)}
+@media(max-width:640px){
+  .ticket-metrics-filters>*{flex:1 1 100%}
+  .ticket-metrics-detail-header .btn{margin-left:0}
+}
