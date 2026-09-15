@@ -28,8 +28,9 @@ func TestTicketsStaticAssetAndAgentGating(t *testing.T) {
 		{name: "agent tickets", path: "/tickets", sessionID: agentSession.ID, want: true},
 		{name: "root tickets", path: "/tickets", sessionID: rootSession.ID},
 		{name: "admin tickets", path: "/tickets", sessionID: h.adminSession.ID},
-		{name: "user tickets", path: "/tickets", sessionID: userSession.ID},
+		{name: "user tickets", path: "/tickets", sessionID: userSession.ID, want: true},
 		{name: "agent non-ticket", path: "/settings", sessionID: agentSession.ID},
+		{name: "user non-ticket", path: "/settings", sessionID: userSession.ID},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			rec := doRequest(h.mux, h.mw, http.MethodGet, tc.path, map[string]string{"Cookie": sessionCookie + "=" + tc.sessionID})
@@ -46,7 +47,7 @@ func TestTicketsStaticAssetAndAgentGating(t *testing.T) {
 	}
 	js := rec.Body.String()
 	for _, marker := range []string{
-		`document.addEventListener("htmx:beforeSwap"`,
+		`document.body.addEventListener("htmx:beforeSwap"`,
 		"xhr.status !== 422",
 		`getResponseHeader("HX-Retarget") !== "#agent-ticket-list"`,
 		`getResponseHeader("HX-Reswap") !== "outerHTML"`,
@@ -58,8 +59,14 @@ func TestTicketsStaticAssetAndAgentGating(t *testing.T) {
 			t.Errorf("tickets.js omits claim guard %q", marker)
 		}
 	}
-	if strings.Contains(js, "history.") || strings.Contains(js, "popstate") {
-		t.Error("tickets.js must not add search-history behavior")
+	for _, marker := range []string{
+		`document.body.addEventListener("htmx:historyRestore"`,
+		`getElementById("role-ticket-search")`,
+		`searchParams.get("q")`,
+	} {
+		if !strings.Contains(js, marker) {
+			t.Errorf("tickets.js omits history-sync behavior %q", marker)
+		}
 	}
 
 	position := 1

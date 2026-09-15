@@ -543,7 +543,7 @@
       .ticket-search input[type=search]{padding:0 12px 0 38px}
       .catalog-search input{padding:0 0 0 26px}
       </style>
-<script src="/static/save-feedback.js" defer></script><script src="/static/htmx.min.js" defer></script>
+<script src="/static/tickets.js" defer></script><script src="/static/save-feedback.js" defer></script><script src="/static/htmx.min.js" defer></script>
 </head>
 <body>
 <div class="layout">
