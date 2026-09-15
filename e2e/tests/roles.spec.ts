@@ -13,7 +13,7 @@ import { test, expect } from "@playwright/test";
 import { startServer, stopServer, activeServer } from "../server-lifecycle.js";
 import { assertCanonicalScreen, collectObservability } from "./helpers/layout.js";
 import { assertHtmxSwap } from "./helpers/htmx.js";
-import { base, seededCredentials } from "./helpers/auth.js";
+import { seededCredentials } from "./helpers/auth.js";
 import { createCategoryViaUi, createTicketViaUi } from "./helpers/navigation.js";
 import { waitForExactPost } from "./helpers/network.js";
 
@@ -172,6 +172,13 @@ test.describe("Role — minimal matrix admin / agent / user (seeded)", () => {
     await expect(agentQueue.getByRole("button", { name: "Claim ticket", exact: true })).toHaveCount(0);
     const agentGrid = agentQueue.locator(".agent-queue-list").first();
     expect(await agentGrid.evaluate((el) => getComputedStyle(el).gridTemplateColumns.split(" ").length)).toBe(3);
+    const assignedCard = agentQueue.locator(".agent-row-assigned").first();
+    await expect(assignedCard.locator(".agent-row-open")).toHaveCSS("color", "rgb(49, 94, 255)");
+    await expect(assignedCard.locator(".agent-row-meta").first()).toHaveCSS("color", "rgb(102, 112, 133)");
+    await expect(assignedCard.locator("time.card-timestamp")).toHaveAttribute("tabindex", "0");
+    await expect(assignedCard.locator("time.card-timestamp")).toHaveAttribute("data-full-date", /\d{2}:\d{2} · \d{2}-\d{2}-\d{4}/);
+    await page.setViewportSize({ width: 800, height: 900 });
+    expect(await agentGrid.evaluate((el) => getComputedStyle(el).gridTemplateColumns.split(" ").length)).toBe(2);
     await page.setViewportSize({ width: 390, height: 844 });
     expect(await agentGrid.evaluate((el) => getComputedStyle(el).gridTemplateColumns.split(" ").length)).toBe(1);
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
@@ -213,6 +220,12 @@ test.describe("Role — minimal matrix admin / agent / user (seeded)", () => {
     await expect(listScreen.locator("table")).toHaveCount(0);
     const userGrid = listScreen.locator(".user-ticket-grid");
     expect(await userGrid.evaluate((el) => getComputedStyle(el).gridTemplateColumns.split(" ").length)).toBe(3);
+    await expect(userCard.getByRole("link", { name: "View request" })).toHaveCSS("color", "rgb(49, 94, 255)");
+    await expect(userCard.locator(".user-request-meta")).toHaveCSS("color", "rgb(102, 112, 133)");
+    await expect(userCard.locator("time.card-timestamp")).toHaveAttribute("tabindex", "0");
+    await expect(userCard.locator("time.card-timestamp")).toHaveAttribute("data-full-date", /\d{2}:\d{2} · \d{2}-\d{2}-\d{4}/);
+    await page.setViewportSize({ width: 800, height: 900 });
+    expect(await userGrid.evaluate((el) => getComputedStyle(el).gridTemplateColumns.split(" ").length)).toBe(2);
     await page.setViewportSize({ width: 390, height: 800 });
     expect(await userGrid.evaluate((el) => getComputedStyle(el).gridTemplateColumns.split(" ").length)).toBe(1);
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
