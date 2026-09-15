@@ -2,6 +2,7 @@ package application
 
 import (
 	"context"
+	"fmt"
 	"regexp"
 	"strconv"
 	"strings"
@@ -73,6 +74,26 @@ func (s *SearchService) Search(ctx context.Context, actor domain.User, q TicketQ
 		return nil, err
 	}
 	return result, nil
+}
+
+// AgentQueueContext batches the agent queue row context for one page of
+// tickets (issue #122) through the OPTIONAL AgentQueueContextStore capability,
+// discovered by type assertion on the ticket store port: existing stores and
+// fakes stay untouched, while a store without the capability is a wiring error
+// that fails with a clear message instead of fabricated empty rows.
+func (s *SearchService) AgentQueueContext(ctx context.Context, tickets []domain.Ticket) (map[int64]AgentTicketRowContext, error) {
+	if len(tickets) == 0 {
+		return map[int64]AgentTicketRowContext{}, nil
+	}
+	store, ok := s.tickets.(AgentQueueContextStore)
+	if !ok {
+		return nil, fmt.Errorf("application: agent queue context requires a ticket store implementing AgentQueueContextStore")
+	}
+	ids := make([]int64, 0, len(tickets))
+	for _, t := range tickets {
+		ids = append(ids, t.ID)
+	}
+	return store.AgentQueueContext(ctx, ids)
 }
 
 // numberTokenRe finds every integer substring in the raw search text. The

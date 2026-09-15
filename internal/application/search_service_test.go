@@ -2,6 +2,8 @@ package application_test
 
 import (
 	"context"
+	"errors"
+	"strings"
 	"testing"
 
 	"github.com/giulianotesta7/tkt/internal/application"
@@ -308,5 +310,96 @@ func TestSearchPageZeroDefaultsToOne(t *testing.T) {
 	}
 	if len(result.Tickets) != 10 {
 		t.Fatalf("Search: page 0 must behave as page 1 (10 tickets), got %d", len(result.Tickets))
+	}
+}
+
+// --- Agent queue row context (issue #122): optional capability delegation ---
+
+// agentContextStore is the fake that ADDS the optional AgentQueueContextStore
+// capability on top of the existing ticket-store fake. The plain
+// fakeTicketStore stays unchanged and keeps working without the capability;
+// the missing-capability test below proves that path.
+type agentContextStore struct {
+	*fakeTicketStore
+	calls  int
+	gotIDs []int64
+	rows   map[int64]application.AgentTicketRowContext
+	err    error
+}
+
+func (f *agentContextStore) AgentQueueContext(_ context.Context, ids []int64) (map[int64]application.AgentTicketRowContext, error) {
+	f.calls++
+	f.gotIDs = ids
+	if f.err != nil {
+		return nil, f.err
+	}
+	return f.rows, nil
+}
+
+// TestSearchServiceAgentQueueContextDelegatesBatch proves the service batches
+// ONE page of tickets into ONE optional-capability call and returns its rows
+// unchanged.
+func TestSearchServiceAgentQueueContextDelegatesBatch(t *testing.T) {
+	tickets := newFakeTicketStore()
+	fake := &agentContextStore{fakeTicketStore: tickets, rows: map[int64]application.AgentTicketRowContext{
+		7: {DeskName: "Desk A", CurrentTask: "Do the thing", Position: ptr(2)},
+	}}
+	svc := application.NewSearchService(fake, &fakeSearchStore{tickets: tickets})
+
+	got, err := svc.AgentQueueContext(context.Background(), []domain.Ticket{{ID: 7}, {ID: 8}})
+	if err != nil {
+		t.Fatalf("AgentQueueContext: %v", err)
+	}
+	if fake.calls != 1 || len(fake.gotIDs) != 2 || fake.gotIDs[0] != 7 || fake.gotIDs[1] != 8 {
+		t.Fatalf("capability called %d times with ids %v, want one batch [7 8]", fake.calls, fake.gotIDs)
+	}
+	if len(got) != 1 || got[7].DeskName != "Desk A" || got[7].CurrentTask != "Do the thing" || got[7].Position == nil || *got[7].Position != 2 {
+		t.Fatalf("rows = %+v, want the fake's row context for ticket 7", got)
+	}
+}
+
+// TestSearchServiceAgentQueueContextMissingCapabilityErrors proves a store
+// without the optional capability yields a CLEAR error, never silently
+// fabricated empty rows.
+func TestSearchServiceAgentQueueContextMissingCapabilityErrors(t *testing.T) {
+	tickets := newFakeTicketStore()
+	svc := application.NewSearchService(tickets, &fakeSearchStore{tickets: tickets})
+
+	got, err := svc.AgentQueueContext(context.Background(), []domain.Ticket{{ID: 7}})
+	if err == nil || got != nil {
+		t.Fatalf("missing capability must return a clear error, got rows=%v err=%v", got, err)
+	}
+	if !strings.Contains(err.Error(), "AgentQueueContextStore") {
+		t.Fatalf("error must name the missing capability, got %q", err)
+	}
+}
+
+// TestSearchServiceAgentQueueContextPropagatesStoreError proves store errors
+// surface unchanged (no swallowing, no empty-map degradation).
+func TestSearchServiceAgentQueueContextPropagatesStoreError(t *testing.T) {
+	tickets := newFakeTicketStore()
+	boom := errors.New("store boom")
+	fake := &agentContextStore{fakeTicketStore: tickets, err: boom}
+	svc := application.NewSearchService(fake, &fakeSearchStore{tickets: tickets})
+
+	got, err := svc.AgentQueueContext(context.Background(), []domain.Ticket{{ID: 7}})
+	if !errors.Is(err, boom) || got != nil {
+		t.Fatalf("want propagated store error, got rows=%v err=%v", got, err)
+	}
+}
+
+// TestSearchServiceAgentQueueContextEmptyTicketsSkipsStore proves empty input
+// returns an empty map WITHOUT reaching the store.
+func TestSearchServiceAgentQueueContextEmptyTicketsSkipsStore(t *testing.T) {
+	tickets := newFakeTicketStore()
+	fake := &agentContextStore{fakeTicketStore: tickets}
+	svc := application.NewSearchService(fake, &fakeSearchStore{tickets: tickets})
+
+	got, err := svc.AgentQueueContext(context.Background(), nil)
+	if err != nil || got == nil || len(got) != 0 {
+		t.Fatalf("empty input must return an empty map without error, got %v, %v", got, err)
+	}
+	if fake.calls != 0 {
+		t.Fatalf("empty input must not reach the store, got %d calls", fake.calls)
 	}
 }
