@@ -167,6 +167,7 @@ func buildTicketMetrics(records []TicketMetricsRecord, f TicketMetricsFilter, no
 		{Label: "0–2 days"}, {Label: "3–7 days"}, {Label: "8–14 days"}, {Label: ">14 days"},
 	}
 	work := map[string]TicketMetricsWorkload{}
+	var durations []time.Duration
 	for _, r := range records {
 		if r.CurrentState == domain.StateNew || r.CurrentState == domain.StateInProgress {
 			m.Pending++
@@ -200,6 +201,11 @@ func buildTicketMetrics(records []TicketMetricsRecord, f TicketMetricsFilter, no
 		if w := weeks[monday(r.ResolutionWeek)]; w != nil {
 			w.Resolved++
 		}
+		if r.CreatedAt.IsZero() || r.ResolvedAt.Before(r.CreatedAt) {
+			m.Excluded++
+			continue
+		}
+		durations = append(durations, r.ResolvedAt.Sub(r.CreatedAt))
 	}
 	for _, r := range records {
 		if r.CreatedAt.IsZero() || r.CreatedAt.Before(f.Start) || !r.CreatedAt.Before(endExclusive) {
@@ -238,5 +244,75 @@ func buildTicketMetrics(records []TicketMetricsRecord, f TicketMetricsFilter, no
 		m.Workload = append(m.Workload, work[key])
 	}
 	m.Ages = ages
+	m.Histogram = resolutionHistogram(durations)
+	m.Samples = len(durations)
+	if len(durations) == 0 {
+		return m
+	}
+	sort.Slice(durations, func(i, j int) bool { return durations[i] < durations[j] })
+	m.MeanDuration = averageDuration(durations)
+	middle := len(durations) / 2
+	m.Median = durations[middle]
+	if len(durations)%2 == 0 {
+		m.Median = durations[middle-1] + (durations[middle]-durations[middle-1])/2
+	}
+	m.P90 = durations[len(durations)-len(durations)/10-1]
 	return m
+}
+
+const maxHistogramBins = 7
+
+func averageDuration(durations []time.Duration) time.Duration {
+	n := time.Duration(len(durations))
+	var quotient, remainder time.Duration
+	for _, d := range durations {
+		quotient += d / n
+		mod := d % n
+		if remainder >= n-mod {
+			quotient++
+			remainder -= n - mod
+			continue
+		}
+		remainder += mod
+	}
+	return quotient
+}
+
+func resolutionHistogram(durations []time.Duration) []TicketMetricsBucket {
+	if len(durations) == 0 {
+		return nil
+	}
+	max := durations[0]
+	for _, d := range durations {
+		if d > max {
+			max = d
+		}
+	}
+	widthDays, width := resolutionHistogramWidth(max)
+	bins := make([]TicketMetricsBucket, int(max/width)+1)
+	for i := range bins {
+		lower := float64(int64(i) * widthDays)
+		bins[i] = TicketMetricsBucket{
+			Label:     strconv.FormatFloat(lower, 'f', -1, 64) + "–<" + strconv.FormatFloat(lower+float64(widthDays), 'f', -1, 64) + " days",
+			LowerDays: lower,
+			UpperDays: lower + float64(widthDays),
+		}
+	}
+	for _, d := range durations {
+		bins[int(d/width)].Count++
+	}
+	return bins
+}
+
+func resolutionHistogramWidth(max time.Duration) (int64, time.Duration) {
+	day := 24 * time.Hour
+	for scale := int64(1); ; scale *= 10 {
+		for _, mult := range []int64{1, 2, 5} {
+			days := mult * scale
+			width := time.Duration(days) * day
+			if int(max/width)+1 <= maxHistogramBins {
+				return days, width
+			}
+		}
+	}
 }

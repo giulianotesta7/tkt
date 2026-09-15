@@ -427,3 +427,133 @@ func TestBuildTicketMetricsWorkloadIdentityOrderingAndDisambiguation(t *testing.
 		}
 	}
 }
+
+func TestBuildTicketMetricsDurationStatistics(t *testing.T) {
+	base := time.Date(2026, 3, 30, 12, 0, 0, 0, time.UTC)
+	records := []TicketMetricsRecord{
+		{CreatedAt: base, ResolvedAt: base.Add(66 * time.Hour), CurrentState: domain.StateClosed},
+		{CreatedAt: base, ResolvedAt: base.Add(time.Hour), CurrentState: domain.StateClosed},
+		{CreatedAt: base, ResolvedAt: base.Add(99 * time.Hour), CurrentState: domain.StateClosed},
+		{CreatedAt: base, ResolvedAt: base.Add(30 * time.Hour), CurrentState: domain.StateClosed},
+		{ResolvedAt: base, CurrentState: domain.StateClosed},
+		{CreatedAt: base, ResolvedAt: base.Add(-time.Hour), CurrentState: domain.StateClosed},
+	}
+
+	metrics := buildTicketMetrics(records, TicketMetricsFilter{Start: base, End: base.AddDate(0, 0, 5), WorkloadBy: "agent"}, base)
+	if metrics.Resolved != 6 || metrics.Excluded != 2 || metrics.Samples != 4 {
+		t.Fatalf("resolved/excluded/samples = %d/%d/%d, want 6/2/4", metrics.Resolved, metrics.Excluded, metrics.Samples)
+	}
+	if metrics.MeanDuration != 49*time.Hour || metrics.Median != 48*time.Hour || metrics.P90 != 99*time.Hour {
+		t.Fatalf("mean/median/p90 = %v/%v/%v, want 49h/48h/99h", metrics.MeanDuration, metrics.Median, metrics.P90)
+	}
+}
+
+func TestBuildTicketMetricsOddDurationStatistics(t *testing.T) {
+	base := time.Date(2026, 3, 30, 12, 0, 0, 0, time.UTC)
+	days := []int{11, 1, 10, 2, 9, 3, 8, 4, 7, 5, 6}
+	records := make([]TicketMetricsRecord, len(days))
+	for i, d := range days {
+		records[i] = TicketMetricsRecord{CreatedAt: base, ResolvedAt: base.Add(time.Duration(d) * 24 * time.Hour), CurrentState: domain.StateClosed}
+	}
+
+	metrics := buildTicketMetrics(records, TicketMetricsFilter{Start: base, End: base.AddDate(0, 0, 11), WorkloadBy: "agent"}, base)
+	if metrics.MeanDuration != 6*24*time.Hour || metrics.Median != 6*24*time.Hour || metrics.P90 != 10*24*time.Hour {
+		t.Fatalf("mean/median/p90 = %v/%v/%v, want 6d/6d/10d", metrics.MeanDuration, metrics.Median, metrics.P90)
+	}
+}
+
+func TestBuildTicketMetricsDurationStatisticsAvoidOverflow(t *testing.T) {
+	base := time.Date(2026, 3, 30, 12, 0, 0, 0, time.UTC)
+	const count = 10_000
+	records := make([]TicketMetricsRecord, count)
+	for i := range records {
+		records[i] = TicketMetricsRecord{CreatedAt: base, ResolvedAt: base.Add(11 * 24 * time.Hour), CurrentState: domain.StateClosed}
+	}
+	metrics := buildTicketMetrics(records, TicketMetricsFilter{Start: base, End: base.AddDate(0, 0, 11), WorkloadBy: "agent"}, base)
+	if metrics.MeanDuration != 11*24*time.Hour {
+		t.Fatalf("large-sample mean = %v, want 11d", metrics.MeanDuration)
+	}
+
+	max := time.Duration(1<<63 - 1)
+	lower, upper := max-3*time.Hour, max-time.Hour
+	extreme := buildTicketMetrics([]TicketMetricsRecord{
+		{CreatedAt: base, ResolvedAt: base.Add(upper), CurrentState: domain.StateClosed},
+		{CreatedAt: base, ResolvedAt: base.Add(lower), CurrentState: domain.StateClosed},
+	}, TicketMetricsFilter{Start: base, End: base, WorkloadBy: "agent"}, base)
+	want := max - 2*time.Hour
+	if extreme.MeanDuration != want || extreme.Median != want || extreme.P90 != upper {
+		t.Fatalf("extreme mean/median/p90 = %v/%v/%v, want %v/%v/%v", extreme.MeanDuration, extreme.Median, extreme.P90, want, want, upper)
+	}
+}
+
+func TestResolutionHistogramUsesIndividualDurationsAndBoundaries(t *testing.T) {
+	durations := []time.Duration{0, 23 * time.Hour, 5 * 24 * time.Hour, 10 * 24 * time.Hour, 30 * 24 * time.Hour}
+	bins := resolutionHistogram(durations)
+	if len(bins) != 7 {
+		t.Fatalf("bins = %d, want 7", len(bins))
+	}
+	for i, want := range []int{2, 1, 1, 0, 0, 0, 1} {
+		if bins[i].Count != want {
+			t.Fatalf("bin %d = %+v, want count %d", i, bins[i], want)
+		}
+		if bins[i].UpperDays-bins[i].LowerDays != 5 || (i > 0 && bins[i].LowerDays != bins[i-1].UpperDays) {
+			t.Fatalf("bin %d is not a contiguous five-day interval: %+v", i, bins[i])
+		}
+	}
+	if bins[0].Label != "0–<5 days" || bins[6].Label != "30–<35 days" {
+		t.Fatalf("edge labels = %q / %q", bins[0].Label, bins[6].Label)
+	}
+}
+
+func TestResolutionHistogramSelectsWholeDayWidths(t *testing.T) {
+	maximum := time.Duration(1<<63 - 1)
+	tests := []struct {
+		name       string
+		durations  []time.Duration
+		wantWidth  float64
+		wantFirst  string
+		wantSecond string
+		wantLast   string
+		wantCounts []int
+	}{
+		{"two days", []time.Duration{0, 2 * 24 * time.Hour, 12 * 24 * time.Hour}, 2, "0–<2 days", "2–<4 days", "12–<14 days", []int{1, 1, 0, 0, 0, 0, 1}},
+		{"ten days", []time.Duration{5 * 24 * time.Hour, 10 * 24 * time.Hour, 60 * 24 * time.Hour}, 10, "0–<10 days", "10–<20 days", "60–<70 days", []int{1, 1, 0, 0, 0, 0, 1}},
+		{"subday", []time.Duration{time.Hour, 23 * time.Hour}, 1, "0–<1 days", "", "0–<1 days", []int{2}},
+		{"maximum", []time.Duration{0, maximum}, 20000, "0–<20000 days", "20000–<40000 days", "100000–<120000 days", []int{1, 0, 0, 0, 0, 1}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			bins := resolutionHistogram(tt.durations)
+			if len(bins) != len(tt.wantCounts) {
+				t.Fatalf("bins = %d, want %d", len(bins), len(tt.wantCounts))
+			}
+			if bins[0].Label != tt.wantFirst || bins[len(bins)-1].Label != tt.wantLast || (tt.wantSecond != "" && bins[1].Label != tt.wantSecond) {
+				t.Fatalf("labels = %+v, want first/second/last %q/%q/%q", bins, tt.wantFirst, tt.wantSecond, tt.wantLast)
+			}
+			for i, bin := range bins {
+				if bin.Count != tt.wantCounts[i] {
+					t.Fatalf("bin %d count = %d, want %d", i, bin.Count, tt.wantCounts[i])
+				}
+				if bin.LowerDays != float64(i)*tt.wantWidth || bin.UpperDays != float64(i+1)*tt.wantWidth {
+					t.Fatalf("bin %d bounds = %v–%v, want %v–%v", i, bin.LowerDays, bin.UpperDays, float64(i)*tt.wantWidth, float64(i+1)*tt.wantWidth)
+				}
+			}
+		})
+	}
+}
+
+func TestBuildTicketMetricsDurationStatisticsWithoutAndWithOneSample(t *testing.T) {
+	base := time.Date(2026, 3, 30, 12, 0, 0, 0, time.UTC)
+	filter := TicketMetricsFilter{Start: base, End: base, WorkloadBy: "agent"}
+	empty := buildTicketMetrics([]TicketMetricsRecord{{ResolvedAt: base, CurrentState: domain.StateClosed}}, filter, base)
+	if empty.Resolved != 1 || empty.Excluded != 1 || empty.Samples != 0 || len(empty.Histogram) != 0 || empty.MeanDuration != 0 || empty.Median != 0 || empty.P90 != 0 {
+		t.Fatalf("empty duration statistics = %+v", empty)
+	}
+	one := buildTicketMetrics([]TicketMetricsRecord{{CreatedAt: base, ResolvedAt: base.Add(25 * time.Hour), CurrentState: domain.StateClosed}}, filter, base)
+	if one.Samples != 1 || one.MeanDuration != 25*time.Hour || one.Median != 25*time.Hour || one.P90 != 25*time.Hour {
+		t.Fatalf("one-sample statistics = %+v", one)
+	}
+	if len(one.Histogram) != 2 || one.Histogram[1].Count != 1 {
+		t.Fatalf("one-sample histogram = %+v", one.Histogram)
+	}
+}
