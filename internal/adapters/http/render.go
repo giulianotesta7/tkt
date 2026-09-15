@@ -23,11 +23,23 @@ import (
 
 const displayTimeLayout = "15:04 · 02-01-2006"
 
+// cardTimeLayout is the compact card-only form (issue #122): exact UTC
+// "21:42 · 13 Sep". The global displayTimeLayout stays the accessible full
+// date (year included) exposed through the card timestamp's tooltip.
+const cardTimeLayout = "15:04 · 02 Jan"
+
 func formatDisplayTime(t time.Time) string {
 	if t.IsZero() {
 		return ""
 	}
 	return t.UTC().Format(displayTimeLayout)
+}
+
+func formatCardTime(t time.Time) string {
+	if t.IsZero() {
+		return ""
+	}
+	return t.UTC().Format(cardTimeLayout)
 }
 
 func formatDatetime(t time.Time) string {
@@ -50,6 +62,7 @@ func humanizeLabel(value any) string {
 // already-stamped instants the handlers pass in.
 var templateFuncs = template.FuncMap{
 	"formatTime":     formatDisplayTime,
+	"formatCardTime": formatCardTime,
 	"formatDatetime": formatDatetime,
 	"humanize":       humanizeLabel,
 	"ticketNumber": func(n int) string {

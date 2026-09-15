@@ -86,6 +86,40 @@ func TestHumanizeLabel(t *testing.T) {
 	}
 }
 
+// Card timestamp formatting (issue #122): cards show a compact exact UTC
+// label ("21:42 · 13 Sep") distinct from the global formatTime contract,
+// which remains the accessible full date.
+func TestFormatCardTime(t *testing.T) {
+	utc := time.Date(2025, 9, 13, 21, 42, 7, 0, time.UTC)
+	if got := formatCardTime(utc); got != "21:42 · 13 Sep" {
+		t.Errorf("formatCardTime(utc) = %q, want %q", got, "21:42 · 13 Sep")
+	}
+	// Non-UTC instants convert to UTC before formatting (D7 display contract).
+	offset := time.FixedZone("test", -4*60*60)
+	if got := formatCardTime(time.Date(2025, 9, 13, 17, 42, 0, 0, offset)); got != "21:42 · 13 Sep" {
+		t.Errorf("formatCardTime(offset) = %q, want %q", got, "21:42 · 13 Sep")
+	}
+	if got := formatCardTime(time.Time{}); got != "" {
+		t.Errorf("formatCardTime(zero) = %q, want empty", got)
+	}
+}
+
+// TestCardTimestampContractsPreserved proves the card timestamp reuses the
+// existing full-date contracts: an RFC3339 datetime attribute and a full
+// accessible date that includes the year.
+func TestCardTimestampContractsPreserved(t *testing.T) {
+	utc := time.Date(2025, 9, 13, 21, 42, 0, 0, time.UTC)
+	if got := formatDatetime(utc); got != "2025-09-13T21:42:00Z" {
+		t.Errorf("formatDatetime(utc) = %q, want RFC3339 %q", got, "2025-09-13T21:42:00Z")
+	}
+	if got := formatDatetime(time.Time{}); got != "" {
+		t.Errorf("formatDatetime(zero) = %q, want empty", got)
+	}
+	if got := formatDisplayTime(utc); got != "21:42 · 13-09-2025" {
+		t.Errorf("formatDisplayTime(utc) = %q, want full date %q (must include the year)", got, "21:42 · 13-09-2025")
+	}
+}
+
 // TestRenderFragmentOnHX proves D6's fragment path: with HX-Request present
 // ONLY the named fragment executes — no <html>, no shell, no page content.
 func TestRenderFragmentOnHX(t *testing.T) {
