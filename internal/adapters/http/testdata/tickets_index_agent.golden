@@ -543,7 +543,7 @@
       .ticket-search input[type=search]{padding:0 12px 0 38px}
       .catalog-search input{padding:0 0 0 26px}
       </style>
-<script src="/static/save-feedback.js" defer></script><script src="/static/htmx.min.js" defer></script>
+<script src="/static/tickets.js" defer></script><script src="/static/save-feedback.js" defer></script><script src="/static/htmx.min.js" defer></script>
 </head>
 <body>
 <div class="layout">
@@ -631,7 +631,10 @@
         <div class="agent-row-side">
           <span class="badge new">New</span>
           <span class="priority medium"><span class="ticket-priority-value">Medium</span></span>
-          <a class="agent-row-open" href="/tickets/3">View ticket</a>
+          <div class="agent-row-actions">
+            <a class="agent-row-open" href="/tickets/3">View ticket</a>
+
+          </div>
         </div>
       </li>
     </ul>

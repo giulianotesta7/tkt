@@ -73,12 +73,31 @@ func TestTicketsIndexAgentUsesPersonalAndClaimSections(t *testing.T) {
 	for _, absent := range []string{
 		`class="page-subtitle"`, "<table", "<thead",
 		`name="state"`, `name="priority"`, `name="category_id"`, `name="user_id"`,
-		"Claim ticket", `class="agent-claim-form"`, `hx-target="#agent-ticket-list"`,
-		`hx-post="/tickets/`, `action="/tickets/`,
 	} {
 		if strings.Contains(body, absent) {
 			t.Errorf("agent view must not render %q, got: %s", absent, body)
 		}
+	}
+
+	// Slice 10 visible claim control: the claimable row renders the claim
+	// form on the existing workflow completion route; the assigned row has
+	// none, and View stays before Claim in DOM/tab order.
+	completion := "/tickets/" + strconv.FormatInt(claimable.ID, 10) + "/workflow/steps/1/complete"
+	wantForm := `<form class="agent-claim-form" method="post" action="` + completion + `" hx-post="` + completion + `" hx-target="#agent-ticket-list" hx-swap="outerHTML">`
+	if !strings.Contains(body, wantForm) || !strings.Contains(body, ">Claim ticket</button>") {
+		t.Errorf("claimable row must render the claim control with endpoint %s, got: %s", completion, body)
+	}
+	if n := strings.Count(body, `class="agent-claim-form"`); n != 1 {
+		t.Errorf("exactly one claim form expected (assigned rows carry none), got %d", n)
+	}
+	assignedSection := body[strings.Index(body, `id="assigned-tickets-title"`):strings.Index(body, `id="claimable-tickets-title"`)]
+	if strings.Contains(assignedSection, `class="agent-claim-form"`) || strings.Contains(assignedSection, "Claim ticket") {
+		t.Error("assigned row must not render a claim control")
+	}
+	viewIndex := strings.Index(body, `">View ticket</a>`)
+	claimIndex := strings.Index(body, ">Claim ticket</button>")
+	if viewIndex < 0 || claimIndex < 0 || viewIndex > claimIndex {
+		t.Error("View ticket must precede Claim ticket in DOM/tab order")
 	}
 
 	claimHeaders := map[string]string{
