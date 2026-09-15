@@ -57,7 +57,7 @@ func TestTicketMetricsDTOShapes(t *testing.T) {
 }
 
 // Empty dates default to the last 30 UTC calendar days derived from the one
-// supplied now: End is today's UTC date and Start is 29 days earlier.
+// supplied now: End is the exclusive next UTC midnight, Start 29 days earlier.
 func TestNormalizeTicketMetricsFilterDefaultsToLast30UTCDays(t *testing.T) {
 	tests := []struct {
 		name      string
@@ -69,13 +69,13 @@ func TestNormalizeTicketMetricsFilterDefaultsToLast30UTCDays(t *testing.T) {
 			name:      "late UTC evening",
 			now:       time.Date(2026, 3, 29, 23, 59, 59, 0, time.UTC),
 			wantStart: time.Date(2026, 2, 28, 0, 0, 0, 0, time.UTC),
-			wantEnd:   time.Date(2026, 3, 29, 0, 0, 0, 0, time.UTC),
+			wantEnd:   time.Date(2026, 3, 30, 0, 0, 0, 0, time.UTC),
 		},
 		{
 			name:      "non-UTC instant rolls back to the UTC calendar day",
 			now:       time.Date(2026, 3, 31, 1, 30, 0, 0, time.FixedZone("utc+2", 2*60*60)),
 			wantStart: time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC),
-			wantEnd:   time.Date(2026, 3, 30, 0, 0, 0, 0, time.UTC),
+			wantEnd:   time.Date(2026, 3, 31, 0, 0, 0, 0, time.UTC),
 		},
 	}
 	for _, tt := range tests {
@@ -92,7 +92,7 @@ func TestNormalizeTicketMetricsFilterDefaultsToLast30UTCDays(t *testing.T) {
 }
 
 // Explicit dates are normalized to UTC calendar days: midnight UTC, whatever
-// offset or wall time the caller supplied.
+// offset or wall time the caller supplied; End is the exclusive next midnight.
 func TestNormalizeTicketMetricsFilterNormalizesExplicitDatesToUTCCalendarDays(t *testing.T) {
 	start := time.Date(2026, 3, 10, 15, 0, 0, 0, time.FixedZone("utc-5", -5*60*60))
 	end := time.Date(2026, 3, 20, 2, 0, 0, 0, time.FixedZone("utc+3", 3*60*60))
@@ -103,7 +103,7 @@ func TestNormalizeTicketMetricsFilterNormalizesExplicitDatesToUTCCalendarDays(t 
 		t.Fatalf("normalizeTicketMetricsFilter: %v", err)
 	}
 	wantStart := time.Date(2026, 3, 10, 0, 0, 0, 0, time.UTC)
-	wantEnd := time.Date(2026, 3, 19, 0, 0, 0, 0, time.UTC)
+	wantEnd := time.Date(2026, 3, 20, 0, 0, 0, 0, time.UTC)
 	if !f.Start.Equal(wantStart) || !f.End.Equal(wantEnd) {
 		t.Fatalf("normalized period = %s .. %s, want %s .. %s", f.Start, f.End, wantStart, wantEnd)
 	}

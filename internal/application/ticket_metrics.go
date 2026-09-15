@@ -91,7 +91,7 @@ type TicketMetricsWorkload struct {
 // normalizeTicketMetricsFilter turns a filter into the canonical UTC period the
 // read port receives: empty dates default to the last 30 UTC calendar days
 // derived from the caller's single now snapshot, explicit dates collapse to
-// UTC midnight of their calendar day, and the workload grouping key is
+// UTC midnight of their calendar day (End is the exclusive next midnight), and
 // validated before any read happens.
 func normalizeTicketMetricsFilter(f TicketMetricsFilter, now time.Time) (TicketMetricsFilter, error) {
 	today := time.Date(now.UTC().Year(), now.UTC().Month(), now.UTC().Day(), 0, 0, 0, 0, time.UTC)
@@ -102,7 +102,7 @@ func normalizeTicketMetricsFilter(f TicketMetricsFilter, now time.Time) (TicketM
 		return TicketMetricsFilter{}, &domain.ValidationError{Field: "metrics_date", Message: "choose both metrics dates"}
 	}
 	f.Start = dateUTC(f.Start)
-	f.End = dateUTC(f.End)
+	f.End = dateUTC(f.End).AddDate(0, 0, 1)
 	if f.End.Before(f.Start) {
 		return TicketMetricsFilter{}, &domain.ValidationError{Field: "metrics_date", Message: "metrics end date must not be before the start date"}
 	}
