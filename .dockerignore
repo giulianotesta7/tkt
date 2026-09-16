@@ -10,3 +10,9 @@ Dockerfile
 docker-compose.yml
 .dockerignore
 design/
+# The image compiles Go only: workflows, agent skills, e2e suites and
+# documentation never enter the build context. (issue #197)
+e2e/
+.github/
+.agents/
+*.md
