@@ -24,7 +24,11 @@ type ticketMetricsData struct {
 	Users          []domain.User
 	ReturnHref     string
 	MeanResolution string
-	Error          string
+	// MeanResolutionIsDuration is false when there is no computable mean, so the value
+	// slot carries prose. The copy and its rendering rung come from this one condition
+	// and cannot drift apart.
+	MeanResolutionIsDuration bool
+	Error                    string
 }
 
 // ticketMetricsDetailData is the dedicated /tickets/metrics page payload (issue #123).
@@ -138,13 +142,16 @@ func (h *TicketHandlers) metricsSummaryData(r *http.Request) (ticketMetricsData,
 		return ticketMetricsData{}, err
 	}
 	mean := "No verifiable durations"
+	meanIsDuration := false
 	if metrics.Samples > 0 {
 		mean = metricsDuration(metrics.MeanDuration)
+		meanIsDuration = true
 	}
 	return ticketMetricsData{
-		Metrics:        metrics,
-		ReturnHref:     metricsReturnHref(r.URL.RequestURI()),
-		MeanResolution: mean,
+		Metrics:                  metrics,
+		ReturnHref:               metricsReturnHref(r.URL.RequestURI()),
+		MeanResolution:           mean,
+		MeanResolutionIsDuration: meanIsDuration,
 	}, nil
 }
 

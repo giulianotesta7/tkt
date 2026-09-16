@@ -198,8 +198,13 @@ test.describe("Structural — seeded canonical screens", () => {
       await page.getByRole("button", { name: /log in|sign in/i }).click();
       await expect(page).toHaveURL(/\/tickets/);
 
+      // Long on purpose: the title field is only exercised when its value exceeds the
+      // column, and a short fixture is what let the truncated title (#199) pass every
+      // baseline. Real ticket titles run to ~70 characters.
       const ticketTitle =
-        "Structural ticket " + Date.now() + Math.random().toString(36).slice(2, 6);
+        "Structural ticket with a title long enough that the field must fit all of it " +
+        Date.now() +
+        Math.random().toString(36).slice(2, 6);
       const ticketId = await createTicketViaUi(page, {
         title: ticketTitle,
         description: "probe",
