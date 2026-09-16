@@ -314,11 +314,11 @@ test.describe("Ticket Lifecycle", () => {
     await page.setViewportSize({ width: 1280, height: 800 });
     await expect(catalogTitle).toBeVisible();
     await expect(
-      page.getByRole("heading", { name: "DEPARTMENTS" }),
+      page.getByRole("heading", { name: "Departments" }),
     ).toBeVisible();
-    await expect(page.getByRole("heading", { name: "DESKS" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Desks" })).toBeVisible();
     await expect(
-      page.getByRole("heading", { name: "CATEGORIES" }),
+      page.getByRole("heading", { name: "Categories" }),
     ).toBeVisible();
     const catalogSearch = page.locator(".catalog-search");
     const catalogSearchInput = page.getByPlaceholder(

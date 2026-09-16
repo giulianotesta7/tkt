@@ -803,8 +803,8 @@ name: "Leave without saving?",
       name: "Discard changes",
       exact: true,
     });
-    await expect(discard).toHaveCSS("background-color", "rgb(141, 57, 72)");
-    await expect(discard).toHaveCSS("border-color", "rgb(141, 57, 72)");
+    await expect(discard).toHaveCSS("background-color", "rgb(180, 35, 24)");
+    await expect(discard).toHaveCSS("border-color", "rgb(180, 35, 24)");
     await expect(discard).toHaveCSS("color", "rgb(255, 255, 255)");
     await confirmation.getByRole("button", { name: "Stay", exact: true }).click();
     await expect(confirmation).toBeHidden();
@@ -1529,7 +1529,7 @@ name: "Leave without saving?",
       /workflow-pending-info/,
     );
     await expect(page.locator("#workflow-pending")).toContainText(
-      "IN PROGRESS",
+      "In progress",
     );
     await expect(page.locator("#workflow-pending")).toContainText(
       "The assigned agent is handling this task.",
@@ -1589,7 +1589,7 @@ name: "Leave without saving?",
     );
     const pending = page.locator("#workflow-pending");
     await expect(pending).toHaveClass(/workflow-pending-action/);
-    await expect(pending.locator("h3")).toHaveText("CURRENT TASK");
+    await expect(pending.locator("h3")).toHaveText("Current task");
     await expect(pending.locator(".workflow-instruction")).toContainText(
       "Handle the ticket",
     );
@@ -1629,7 +1629,7 @@ name: "Leave without saving?",
         completedManual.locator(".timeline-manual-heading .main"),
       ).toHaveText("Alice Admin completed the task");
       await expect(
-        completedManual.getByText("TASK", { exact: true }),
+        completedManual.getByText("Task", { exact: true }),
       ).toHaveCount(1);
       await expect(completedManual.locator("dd").first()).toHaveText(
         "Handle the ticket",
@@ -1637,7 +1637,7 @@ name: "Leave without saving?",
       await expect(completedManual.locator("dl")).toBeVisible();
       await expect(completedManual.locator(".when")).toBeVisible();
       await expect(
-        completedManual.getByText("SOLUTION", { exact: true }),
+        completedManual.getByText("Solution", { exact: true }),
       ).toHaveCount(0);
       await expect(
         completedManual.locator(
@@ -1863,7 +1863,7 @@ name: "Leave without saving?",
       await addManual.click();
       await expect(dialog).toBeVisible();
       await expect(dialog).toHaveCSS("border-radius", "12px");
-      await expect(dialog.getByRole("button", { name: "Discard and continue" })).toHaveCSS("background-color", "rgb(141, 57, 72)");
+      await expect(dialog.getByRole("button", { name: "Discard and continue" })).toHaveCSS("background-color", "rgb(180, 35, 24)");
       await page.keyboard.press("Escape");
       await expect(dialog).not.toBeVisible();
       await expect(addManual).toBeFocused();
@@ -1943,7 +1943,7 @@ name: "Leave without saving?",
       await expect(dialog).toHaveCSS("border-radius", "12px");
       await expect(
         dialog.getByRole("button", { name: "Discard changes" }),
-      ).toHaveCSS("background-color", "rgb(141, 57, 72)");
+      ).toHaveCSS("background-color", "rgb(180, 35, 24)");
       await page.keyboard.press("Escape");
       await expect(dialog).not.toBeVisible();
       await expect(breadcrumbLink).toBeFocused();

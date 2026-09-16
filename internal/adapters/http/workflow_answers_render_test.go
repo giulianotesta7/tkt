@@ -120,7 +120,7 @@ func TestTimelineManualEventRendersEscapedPinnedInstruction(t *testing.T) {
 		`<span class="event-icon" aria-hidden="true"><svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor"`,
 		`<path d="m3 8 3 3 7-7"/>`,
 		`<strong class="timeline-actor">Beto</strong> <span class="timeline-action">completed the task</span>`,
-		`<dt>TASK</dt>`,
+		`<dt>Task</dt>`,
 		`<dd>&lt;script&gt;alert(1)&lt;/script&gt;</dd>`,
 		`<div class="when"><time`,
 	} {
@@ -167,9 +167,9 @@ func TestTimelineManualEventRendersEscapedSolutionWhenPresent(t *testing.T) {
 		`<span class="event-icon" aria-hidden="true"><svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor"`,
 		`<path d="m3 8 3 3 7-7"/>`,
 		`<strong class="timeline-actor">Beto</strong> <span class="timeline-action">completed the task</span>`,
-		`<dt>TASK</dt>`,
+		`<dt>Task</dt>`,
 		`<dd>inspect the server</dd>`,
-		`<dt>SOLUTION</dt>`,
+		`<dt>Solution</dt>`,
 		`<dd>&lt;b&gt;reseat&lt;/b&gt; the cable &amp; reboot</dd>`,
 		`<div class="when"><time`,
 	} {
@@ -211,13 +211,13 @@ func TestTimelineManualEventOmitsEmptySolution(t *testing.T) {
 
 	renderer.Render(response, req, "", "timeline", data, 200)
 	body := response.Body.String()
-	if !strings.Contains(body, `<div class="timeline-entry timeline-event timeline-manual">`) || !strings.Contains(body, `<div class="timeline-manual-heading">`) || !strings.Contains(body, `<svg viewBox="0 0 16 16" width="16" height="16"`) || !strings.Contains(body, `<path d="m3 8 3 3 7-7"/>`) || !strings.Contains(body, `<strong class="timeline-actor">Beto</strong> <span class="timeline-action">completed the task</span>`) || !strings.Contains(body, `<dt>TASK</dt>`) || !strings.Contains(body, `<dd>inspect the server</dd>`) {
+	if !strings.Contains(body, `<div class="timeline-entry timeline-event timeline-manual">`) || !strings.Contains(body, `<div class="timeline-manual-heading">`) || !strings.Contains(body, `<svg viewBox="0 0 16 16" width="16" height="16"`) || !strings.Contains(body, `<path d="m3 8 3 3 7-7"/>`) || !strings.Contains(body, `<strong class="timeline-actor">Beto</strong> <span class="timeline-action">completed the task</span>`) || !strings.Contains(body, `<dt>Task</dt>`) || !strings.Contains(body, `<dd>inspect the server</dd>`) {
 		t.Fatalf("static manual event must render actor-first task details: %s", body)
 	}
 	if strings.Contains(body, `<details class="timeline-entry timeline-event timeline-manual">`) || strings.Contains(body, `<summary class="timeline-event-summary">`) || strings.Contains(body, "timeline-event-summary") {
 		t.Fatalf("manual event must not render disclosure or interaction markup: %s", body)
 	}
-	if strings.Contains(body, `<dt>SOLUTION</dt>`) || strings.Contains(body, "No solution") {
+	if strings.Contains(body, `<dt>Solution</dt>`) || strings.Contains(body, "No solution") {
 		t.Fatalf("empty solution must render no block or placeholder: %s", body)
 	}
 }

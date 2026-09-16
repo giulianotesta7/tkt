@@ -174,7 +174,7 @@ test.describe("Role — minimal matrix admin / agent / user (seeded)", () => {
     expect(await agentGrid.evaluate((el) => getComputedStyle(el).gridTemplateColumns.split(" ").length)).toBe(3);
     const assignedCard = agentQueue.locator(".agent-row-assigned").first();
     await expect(assignedCard.locator(".agent-row-open")).toHaveCSS("color", "rgb(49, 94, 255)");
-    await expect(assignedCard.locator(".agent-row-meta").first()).toHaveCSS("color", "rgb(102, 112, 133)");
+    await expect(assignedCard.locator(".agent-row-meta").first()).toHaveCSS("color", "rgba(0, 0, 0, 0.62)");
     await expect(assignedCard.locator("time.card-timestamp")).toHaveAttribute("tabindex", "0");
     await expect(assignedCard.locator("time.card-timestamp")).toHaveAttribute("data-full-date", /\d{2}:\d{2} · \d{2}-\d{2}-\d{4}/);
     await page.setViewportSize({ width: 800, height: 900 });
@@ -224,7 +224,7 @@ test.describe("Role — minimal matrix admin / agent / user (seeded)", () => {
     const userGrid = listScreen.locator(".user-ticket-grid");
     expect(await userGrid.evaluate((el) => getComputedStyle(el).gridTemplateColumns.split(" ").length)).toBe(3);
     await expect(userCard.getByRole("link", { name: "View request" })).toHaveCSS("color", "rgb(49, 94, 255)");
-    await expect(userCard.locator(".user-request-meta")).toHaveCSS("color", "rgb(102, 112, 133)");
+    await expect(userCard.locator(".user-request-meta")).toHaveCSS("color", "rgba(0, 0, 0, 0.62)");
     await expect(userCard.locator("time.card-timestamp")).toHaveAttribute("tabindex", "0");
     await expect(userCard.locator("time.card-timestamp")).toHaveAttribute("data-full-date", /\d{2}:\d{2} · \d{2}-\d{2}-\d{4}/);
     await page.setViewportSize({ width: 800, height: 900 });

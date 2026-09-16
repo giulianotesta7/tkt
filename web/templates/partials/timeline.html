@@ -29,9 +29,9 @@
       <div class="main">{{if and .ActorLabel (ne .Event.Actor "workflow")}}<strong class="timeline-actor">{{.ActorLabel}}</strong> {{end}}<span class="timeline-action">{{if .Narrative}}{{.Narrative}}{{else}}{{.Summary}}{{end}}</span></div>
     </div>
     <dl class="workflow-manual-details">
-      <dt>TASK</dt>
+      <dt>Task</dt>
       <dd>{{.StepInstruction}}</dd>
-      {{if .StepSolution}}<dt>SOLUTION</dt>
+      {{if .StepSolution}}<dt>Solution</dt>
       <dd>{{.StepSolution}}</dd>{{end}}
     </dl>
     <div class="when">{{template "timestamp" .Event.CreatedAt}}</div>

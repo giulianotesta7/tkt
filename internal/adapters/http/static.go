@@ -12,6 +12,7 @@ import (
 // Each route names one file so arbitrary template content is never exposed.
 func RegisterStatic(mux *http.ServeMux) {
 	registerEmbeddedStatic(mux, "/static/htmx.min.js", "static/htmx.min.js", "text/javascript; charset=utf-8", "public, max-age=86400")
+	registerEmbeddedStatic(mux, "/static/InterVariable.woff2", "static/InterVariable.woff2", "font/woff2", "public, max-age=86400")
 	registerEmbeddedStatic(mux, "/static/users.css", "static/users.css", "text/css; charset=utf-8", "no-cache")
 	registerEmbeddedStatic(mux, "/static/users.js", "static/users.js", "text/javascript; charset=utf-8", "no-cache")
 	registerEmbeddedStatic(mux, "/static/tickets.js", "static/tickets.js", "text/javascript; charset=utf-8", "no-cache")

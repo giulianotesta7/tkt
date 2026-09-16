@@ -218,9 +218,9 @@ func TestWorkflowStepTimelineManualSolutionRendersInsideEvent(t *testing.T) {
 		`<span class="event-icon" aria-hidden="true"><svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor"`,
 		`<path d="m3 8 3 3 7-7"/>`,
 		`<strong class="timeline-actor">Admin</strong> <span class="timeline-action">completed the task</span>`,
-		`<dt>TASK</dt>`,
+		`<dt>Task</dt>`,
 		`<dd>inspect the server</dd>`,
-		`<dt>SOLUTION</dt>`,
+		`<dt>Solution</dt>`,
 		`<dd>&lt;b&gt;reseat&lt;/b&gt; the cable &amp; reboot</dd>`,
 		`<div class="when"><time`,
 	} {
@@ -234,7 +234,7 @@ func TestWorkflowStepTimelineManualSolutionRendersInsideEvent(t *testing.T) {
 	if strings.Contains(body, "<b>reseat</b>") {
 		t.Errorf("solution rendered as raw HTML: %s", body)
 	}
-	if !strings.Contains(body, `<dt>TASK</dt>`) || !strings.Contains(body, `<dd>inspect the server</dd>`) {
+	if !strings.Contains(body, `<dt>Task</dt>`) || !strings.Contains(body, `<dd>inspect the server</dd>`) {
 		t.Errorf("the event keeps its pinned task details: %s", body)
 	}
 	if !strings.Contains(body, `<strong class="timeline-actor">Admin</strong> <span class="timeline-action">completed the task</span>`) {
@@ -243,14 +243,14 @@ func TestWorkflowStepTimelineManualSolutionRendersInsideEvent(t *testing.T) {
 	if strings.Contains(body, `class="when"><time`) && strings.Contains(body, `</time> · Admin`) {
 		t.Errorf("completion timestamp must not duplicate the actor: %s", body)
 	}
-	if idx := strings.Index(body, "SOLUTION"); idx >= 0 {
+	if idx := strings.Index(body, "Solution"); idx >= 0 {
 		entry := body[max(0, idx-700) : idx+200]
 		if !strings.Contains(entry, `class="when"`) {
 			t.Errorf("solution must stay inside the timestamped completion event: %s", entry)
 		}
 	}
 	// Newest-first: the older comment sits BELOW the newer completion event.
-	eventIdx := strings.Index(body, "SOLUTION")
+	eventIdx := strings.Index(body, "Solution")
 	commentIdx := strings.Index(body, "older comment first")
 	if eventIdx < 0 || commentIdx < 0 || commentIdx < eventIdx {
 		t.Errorf("newest-first ordering broken (event at %d, older comment at %d)", eventIdx, commentIdx)
@@ -280,7 +280,7 @@ func TestWorkflowStepTimelineManualSolutionRendersInsideEvent(t *testing.T) {
 		t.Fatalf("seed tied comment: %v", err)
 	}
 	ubody := h.get(t, "/tickets/"+uid, false).Body.String()
-	if !strings.Contains(ubody, `<div class="timeline-entry timeline-event timeline-manual">`) || !strings.Contains(ubody, `<div class="timeline-manual-heading">`) || !strings.Contains(ubody, `<svg viewBox="0 0 16 16" width="16" height="16"`) || !strings.Contains(ubody, `<path d="m3 8 3 3 7-7"/>`) || !strings.Contains(ubody, `<strong class="timeline-actor">Admin</strong> <span class="timeline-action">completed the task</span>`) || !strings.Contains(ubody, `<dt>TASK</dt>`) || !strings.Contains(ubody, `<dd>inspect the server</dd>`) {
+	if !strings.Contains(ubody, `<div class="timeline-entry timeline-event timeline-manual">`) || !strings.Contains(ubody, `<div class="timeline-manual-heading">`) || !strings.Contains(ubody, `<svg viewBox="0 0 16 16" width="16" height="16"`) || !strings.Contains(ubody, `<path d="m3 8 3 3 7-7"/>`) || !strings.Contains(ubody, `<strong class="timeline-actor">Admin</strong> <span class="timeline-action">completed the task</span>`) || !strings.Contains(ubody, `<dt>Task</dt>`) || !strings.Contains(ubody, `<dd>inspect the server</dd>`) {
 		t.Errorf("static manual event must render actor-first task details: %s", ubody)
 	}
 	if strings.Contains(ubody, `<details class="timeline-entry timeline-event timeline-manual">`) || strings.Contains(ubody, `<summary class="timeline-event-summary">`) || strings.Contains(ubody, "timeline-event-summary") {
@@ -291,7 +291,7 @@ func TestWorkflowStepTimelineManualSolutionRendersInsideEvent(t *testing.T) {
 	if tieComment < 0 || tieEvent < 0 || tieEvent < tieComment {
 		t.Errorf("same-second tie must render the comment before the event (comment at %d, event at %d)", tieComment, tieEvent)
 	}
-	if strings.Contains(ubody, "<dt>SOLUTION</dt>") || strings.Contains(stripTags(ubody), "No solution") {
+	if strings.Contains(ubody, "<dt>Solution</dt>") || strings.Contains(stripTags(ubody), "No solution") {
 		t.Errorf("empty completion must render no solution block or placeholder: %s", ubody)
 	}
 }

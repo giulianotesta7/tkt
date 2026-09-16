@@ -286,7 +286,7 @@ func TestAmendment4_CurrentTaskCardPreservesManualCompletionMarkup(t *testing.T)
 	body := rec.Body.String()
 	for _, want := range []string{
 		`class="timeline-entry workflow-pending workflow-pending-action"`,
-		`<h3 id="current-task-title">CURRENT TASK</h3>`,
+		`<h3 id="current-task-title">Current task</h3>`,
 		`background:color-mix(in srgb,var(--amber-soft) 18%,var(--card))`,
 		"Check the cable run",
 		`<label class="visually-hidden" for="solution">Solution (optional)</label>`,
