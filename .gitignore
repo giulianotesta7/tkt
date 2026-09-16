@@ -6,7 +6,6 @@
 
 # Local design artifacts
 design/
-odd/
 
 # Local AI runtime state
 .atl/
