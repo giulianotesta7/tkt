@@ -335,10 +335,10 @@ func parseDockerfile(body []byte) (ImageContract, error) {
 		missing = append(missing, "runtime ENTRYPOINT in JSON exec form (shell form found)")
 	}
 	if len(missing) > 0 {
-		return c, fmt.Errorf("Dockerfile: could not extract %s: the contract is unreadable, never skippable", strings.Join(missing, ", "))
+		return c, fmt.Errorf("could not extract %s from the Dockerfile: the contract is unreadable, never skippable", strings.Join(missing, ", "))
 	}
 	if c.EntrypointBin != c.HealthcheckBin {
-		return c, fmt.Errorf("Dockerfile: runtime ENTRYPOINT runs %q but the HEALTHCHECK runs %q: compose cannot override either, so both must invoke the same binary", c.EntrypointBin, c.HealthcheckBin)
+		return c, fmt.Errorf("the Dockerfile runtime ENTRYPOINT runs %q but the HEALTHCHECK runs %q: compose cannot override either, so both must invoke the same binary", c.EntrypointBin, c.HealthcheckBin)
 	}
 	return c, nil
 }
