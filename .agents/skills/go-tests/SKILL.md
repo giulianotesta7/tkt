@@ -49,7 +49,7 @@ Five layers, each with a different reality. Identify the layer before touching i
 10. **Go tests never open a listening socket.** Use `httptest.NewRequest` and `NewRecorder` against the wrapped mux. Process-level behavior belongs to `cmd/server` through the built binary.
 11. **Raw-SQL assertions in the HTTP layer are allowed only for facts no store port exposes**, and go through `rawDB` plus the `scanOne*` helpers. If a store port already answers the question, use the port.
 12. **A schema-changing change ships a `migration_00NN_test.go`** asserting column shape, foreign keys and cascades, check bounds, version bookkeeping, and the pre-migration upgrade path. The series is numbered; keep the next number.
-13. **Closing evidence is the CI-equivalent set**, run before claiming completion: `gofmt -l .` empty, `go mod tidy` producing no diff against `go.mod` and `go.sum`, `go vet ./...`, `go build ./...`, `go test ./... -race -count=1`.
+13. **Closing evidence is the CI-equivalent gate set defined by `.github/workflows/quality.yml`.** Run those exact commands. The workflow file is authoritative; this rule does not restate its flags.
 14. **Coverage is one global `go tool cover -func` total at or above 75.0**, produced by `go test ./... -covermode=atomic -coverprofile=coverage.out`. There is no per-package minimum and no exclusion list. The coverage workflow does not pass `-race`, so a green coverage run is not race evidence; only the race run is.
 
 ## Decision Gates
