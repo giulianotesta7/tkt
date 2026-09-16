@@ -23,6 +23,7 @@ Project skills live in `.agents/skills/` and are named for the suite or layer th
 | `ux-ui` | `.agents/skills/ux-ui/SKILL.md` |
 | `e2e-playwright` | `.agents/skills/e2e-playwright/SKILL.md` |
 | `go-tests` | `.agents/skills/go-tests/SKILL.md` |
+| `container-governance` | `.agents/skills/container-governance/SKILL.md` |
 | `engram-governance` | `.agents/skills/engram-governance/SKILL.md` |
 
 Load the skill file. Its Activation Contract is authoritative for when the skill applies.

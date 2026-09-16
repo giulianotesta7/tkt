@@ -1,19 +1,18 @@
+name: tkt
+
 services:
-  tkt:
+  app:
+    # The image name doubles as the local build target: a plain `up` builds it
+    # when missing and `pull` fetches the published one under the same tag.
+    image: ghcr.io/giulianotesta7/tkt:${TKT_TAG:-latest}
     build: .
+    # The image owns the environment defaults and the healthcheck; compose
+    # deliberately does not restate them. This file holds only what compose
+    # owns: the port mapping, the named volume, and the restart policy.
     ports:
       - "8080:8080"
-    environment:
-      TKT_DB_PATH: /data/tkt.db
-      TKT_LISTEN: :8080
     volumes:
       - tkt-data:/data
-    healthcheck:
-      test: ["CMD", "/server", "-healthcheck"]
-      interval: 10s
-      timeout: 3s
-      retries: 3
-      start_period: 5s
     restart: unless-stopped
 
 volumes:
