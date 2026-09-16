@@ -1,5 +1,5 @@
 ---
-name: tkt-engram-change-governance
+name: engram-governance
 description: "Trigger: TKT behavior changes, domain rules, authorization, contracts, decisions, bugfixes, discoveries, memory recall, or session closure. Govern TKT records with native Engram search and durable bookkeeping."
 license: MIT
 metadata:
@@ -45,5 +45,5 @@ Return applicability, records consulted, changed files, exact validation evidenc
 ## References
 
 - `AGENTS.md`: skill registration and repository workflow.
-- `.agents/skills/tkt-issue-governance/SKILL.md`: issue approval rules.
-- `.agents/skills/tkt-e2e/SKILL.md`: browser regression requirements.
+- `.agents/skills/issue-governance/SKILL.md`: issue approval rules.
+- `.agents/skills/e2e-playwright/SKILL.md`: browser regression requirements.
