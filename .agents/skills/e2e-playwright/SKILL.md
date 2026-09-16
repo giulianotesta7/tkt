@@ -1,5 +1,5 @@
 ---
-name: tkt-e2e
+name: e2e-playwright
 description: "Trigger: visible features, critical journeys, browser-observable bugs, or E2E coverage. Maintain versioned Playwright regression tests."
 license: MIT
 metadata:
@@ -51,4 +51,4 @@ Report exact files changed, focused and full-suite commands with results, runtim
 - `../../../e2e/tests/helpers/htmx.ts`
 - `../../../e2e/tests/helpers/network.ts`
 - `../../../e2e/tests/helpers/navigation.ts`
-- `../tkt-engram-change-governance/SKILL.md` — behavioral artifact governance.
+- `../engram-governance/SKILL.md` — behavioral artifact governance.

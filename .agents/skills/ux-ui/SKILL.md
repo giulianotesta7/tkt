@@ -1,5 +1,5 @@
 ---
-name: tkt-ux-ui
+name: ux-ui
 description: "Trigger: modifying templates, CSS, layout, visual components, responsive behavior, accessibility, or visible HTMX interactions. Maintain visual and interaction consistency of the existing product."
 license: MIT
 metadata:
@@ -70,10 +70,10 @@ npm run explore -- screenshot
 npm run explore -- close-all
 ```
 
-However, creating and maintaining versioned regression E2E tests belongs to the `tkt-e2e` skill, not this one.
+However, creating and maintaining versioned regression E2E tests belongs to the `e2e-playwright` skill, not this one.
 
 ## References
 
 - `../../../web/templates/` — all HTML templates and static assets.
 - `../../../web/templates/static/users.css` — primary stylesheet.
-- `../tkt-engram-change-governance/SKILL.md` — behavioral artifact governance.
+- `../engram-governance/SKILL.md` — behavioral artifact governance.
