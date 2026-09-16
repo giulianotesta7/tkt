@@ -82,10 +82,7 @@ export function collectObservability(page: Page): {
   return { consoleErrors, pageErrors, failedRequests, failedResponses };
 }
 
-export function expectNoConsoleOrPageErrors(
-  consoleErrors: string[],
-  pageErrors: string[],
-): void {
+export function expectNoConsoleOrPageErrors(consoleErrors: string[], pageErrors: string[]): void {
   expect(consoleErrors, `console errors: ${consoleErrors.join("; ")}`).toEqual([]);
   expect(pageErrors, `page errors: ${pageErrors.join("; ")}`).toEqual([]);
 }
@@ -110,10 +107,7 @@ export async function assertCanonicalScreen(
     opts.consoleErrors,
     `${prefix} — console errors: ${opts.consoleErrors.join("; ")}`,
   ).toEqual([]);
-  expect(
-    opts.pageErrors,
-    `${prefix} — page errors: ${opts.pageErrors.join("; ")}`,
-  ).toEqual([]);
+  expect(opts.pageErrors, `${prefix} — page errors: ${opts.pageErrors.join("; ")}`).toEqual([]);
   expect(
     opts.failedRequests,
     `${prefix} — failed own-requests: ${opts.failedRequests.join("; ")}`,

@@ -10,9 +10,12 @@
     "server:start:seeded": "node scripts/start-seeded.mjs",
     "server:stop": "node scripts/stop.mjs",
     "install-browser": "playwright install chromium",
-    "install-browser-deps": "playwright install-deps chromium"
+    "install-browser-deps": "playwright install-deps chromium",
+    "format": "biome format --write . ../web/templates/static",
+    "format:check": "biome format . ../web/templates/static"
   },
   "devDependencies": {
+    "@biomejs/biome": "2.5.14",
     "@playwright/test": "1.62.1",
     "playwright": "1.62.1"
   }

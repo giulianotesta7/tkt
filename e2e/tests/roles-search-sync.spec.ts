@@ -7,41 +7,20 @@
  * 2. Gamma → Delta live searches synchronize URL, input, and results on
  *    Back (→ Gamma) and Forward (→ Delta) with no main-frame navigation.
  */
-import {
-  expect,
-  test,
-  type Page,
-  type Request,
-  type Response,
-} from "@playwright/test";
+import { expect, test, type Page, type Request, type Response } from "@playwright/test";
 import { startServer, stopServer } from "../server-lifecycle.js";
 import { assertHtmxSwap } from "./helpers/htmx.js";
-import {
-  base,
-  createUserAsAdmin,
-  loginAs,
-  seededCredentials,
-} from "./helpers/auth.js";
-import {
-  createTicketViaUi,
-  resolveUserEditHref,
-} from "./helpers/navigation.js";
+import { base, createUserAsAdmin, loginAs, seededCredentials } from "./helpers/auth.js";
+import { createTicketViaUi, resolveUserEditHref } from "./helpers/navigation.js";
 
 const uniq = Date.now().toString(36).slice(2, 8);
-const search = (page: Page) =>
-  page.locator(".page-actions .ticket-search input");
-const heading = (page: Page) =>
-  page.getByRole("heading", { name: "My tickets", exact: true });
+const search = (page: Page) => page.locator(".page-actions .ticket-search input");
+const heading = (page: Page) => page.getByRole("heading", { name: "My tickets", exact: true });
 const q = (page: Page) => new URL(page.url()).searchParams.get("q");
-const focusedId = (page: Page) =>
-  page.evaluate(() => document.activeElement?.id ?? "");
+const focusedId = (page: Page) => page.evaluate(() => document.activeElement?.id ?? "");
 
 /** Create a user-role account as admin, then log in as it and create tickets. */
-async function prepareUserWithTickets(
-  page: Page,
-  name: string,
-  tickets: string[],
-): Promise<void> {
+async function prepareUserWithTickets(page: Page, name: string, tickets: string[]): Promise<void> {
   const email = `${name.toLowerCase().replace(/\s+/g, "-")}-${uniq}@example.com`;
   await loginAs(page, seededCredentials.email, seededCredentials.password);
   await createUserAsAdmin(page, { name, email, password: "Secret123!" });
@@ -88,9 +67,7 @@ test.describe("Role search sync (issue #122, seeded)", () => {
     await stopServer();
   });
 
-  test("focus, value and caret survive debounced and in-flight swaps", async ({
-    page,
-  }) => {
+  test("focus, value and caret survive debounced and in-flight swaps", async ({ page }) => {
     test.setTimeout(120_000);
     const title = `Focus probe ${uniq}`;
     await prepareUserWithTickets(page, "Search User", [title]);
@@ -145,11 +122,7 @@ test.describe("Role search sync (issue #122, seeded)", () => {
       await expect.poll(() => q(page)).toBe("Focusbc");
       await expect.poll(() => focusedId(page)).toBe("role-ticket-search");
       await expect
-        .poll(() =>
-          search(page).evaluate(
-            (el) => (el as HTMLInputElement).selectionStart,
-          ),
-        )
+        .poll(() => search(page).evaluate((el) => (el as HTMLInputElement).selectionStart))
         .toBe("Focusbc".length);
       await expect(page.locator("#user-ticket-list")).toContainText(
         "No requests match your search",
@@ -163,9 +136,7 @@ test.describe("Role search sync (issue #122, seeded)", () => {
     }
   });
 
-  test("Back and Forward restore the input from the URL q without navigation", async ({
-    page,
-  }) => {
+  test("Back and Forward restore the input from the URL q without navigation", async ({ page }) => {
     const gamma = `Gamma probe ${uniq}`;
     const delta = `Delta probe ${uniq}`;
     await prepareUserWithTickets(page, "History User", [gamma, delta]);
@@ -175,8 +146,7 @@ test.describe("Role search sync (issue #122, seeded)", () => {
       const swap = (term: string) =>
         assertHtmxSwap(page, () => search(page).fill(term), {
           endpoint: (url) =>
-            new URL(url).pathname === "/tickets" &&
-            new URL(url).searchParams.get("q") === term,
+            new URL(url).pathname === "/tickets" && new URL(url).searchParams.get("q") === term,
           method: "GET",
           expectedStatus: 200,
           hxTarget: "#tickets-screen",

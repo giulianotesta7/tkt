@@ -14,16 +14,18 @@
     region.setAttribute("role", "status");
     region.setAttribute("aria-live", "polite");
     region.setAttribute("aria-atomic", "true");
-    region.innerHTML = '<span class="save-feedback-message"></span><button class="save-feedback-dismiss" type="button" aria-label="Dismiss confirmation">Dismiss</button>';
+    region.innerHTML =
+      '<span class="save-feedback-message"></span><button class="save-feedback-dismiss" type="button" aria-label="Dismiss confirmation">Dismiss</button>';
     return region;
   };
 
-  const currentDrawer = () => document.querySelector(".users-drawer:not([inert]), .category-drawer:not([inert])");
+  const currentDrawer = () =>
+    document.querySelector(".users-drawer:not([inert]), .category-drawer:not([inert])");
 
   // Success lives on the fixed toast layer appended to <body>; failures are
   // anchored inside the active local context (drawer header or page header).
   // Moving the single #save-feedback element keeps its ID unique.
-  const regionFor = target => {
+  const regionFor = (target) => {
     const region = document.getElementById("save-feedback") || makeRegion();
     const drawer = target === "drawer" ? currentDrawer() : null;
     if (drawer) {
@@ -47,7 +49,7 @@
     exitTimer = undefined;
   };
 
-  const dismiss = region => {
+  const dismiss = (region) => {
     if (!region) return;
     region.classList.remove("is-visible", "is-leaving");
     region.hidden = true;
@@ -87,9 +89,12 @@
     }, exitMs);
   };
 
-  const hasUsefulFailure = () => Array.from(document.querySelectorAll("[role='alert'], .error-banner, .warning-banner")).some(node => !node.hidden && (node !== activeRegion || node.dataset.feedbackKind !== "success"));
+  const hasUsefulFailure = () =>
+    Array.from(document.querySelectorAll("[role='alert'], .error-banner, .warning-banner")).some(
+      (node) => !node.hidden && (node !== activeRegion || node.dataset.feedbackKind !== "success"),
+    );
 
-  const show = data => {
+  const show = (data) => {
     if (!data || data.kind !== "success" || !data.message) return;
     if (hasUsefulFailure()) {
       if (activeRegion?.dataset.feedbackKind === "success") retire();
@@ -103,7 +108,8 @@
     if (!message) return;
     // A second success while the toast is open coalesces: same element, same
     // entry animation, message updated in place, timer restarted.
-    const coalesce = region === activeRegion && region.dataset.feedbackKind === "success" && !region.hidden;
+    const coalesce =
+      region === activeRegion && region.dataset.feedbackKind === "success" && !region.hidden;
     document.body.append(region);
     if (!coalesce) {
       region.className = "save-feedback";
@@ -121,7 +127,7 @@
     timer = setTimeout(retireAnimated, duration);
   };
 
-  const showFailure = target => {
+  const showFailure = (target) => {
     retire();
     if (hasUsefulFailure()) return;
     const region = regionFor(target);
@@ -137,19 +143,23 @@
     activeRegion = region;
   };
 
-  const mutationSource = event => {
+  const mutationSource = (event) => {
     const element = event.detail?.elt;
-    return element instanceof Element && (element.matches("[hx-post], form[method='post']") || element.closest("[hx-post], form[method='post']"));
+    return (
+      element instanceof Element &&
+      (element.matches("[hx-post], form[method='post']") ||
+        element.closest("[hx-post], form[method='post']"))
+    );
   };
-  const actionFor = event => {
+  const actionFor = (event) => {
     const action = event.detail?.requestConfig?.parameters?.action;
     return typeof action === "string" ? action : "";
   };
-  const sourceFor = event => {
+  const sourceFor = (event) => {
     const element = event.detail?.elt;
     return element instanceof Element ? element : null;
   };
-  const requestRegion = event => {
+  const requestRegion = (event) => {
     const target = event.detail?.target;
     if (target instanceof Element && target.id) return `#${target.id}`;
     const source = sourceFor(event);
@@ -157,13 +167,13 @@
     if (configuredTarget) return configuredTarget;
     return source?.closest(".users-drawer, .category-drawer") ? "drawer" : "page";
   };
-  const feedbackTarget = event =>
+  const feedbackTarget = (event) =>
     sourceFor(event)?.closest(".users-drawer, .category-drawer") ? "drawer" : undefined;
-  const isSave = event => {
+  const isSave = (event) => {
     const action = actionFor(event);
     return action !== "select_step" && action !== "preview";
   };
-  const beforeRequest = event => {
+  const beforeRequest = (event) => {
     if (!mutationSource(event)) return;
     const xhr = event.detail?.xhr;
     if (!xhr) return;
@@ -176,14 +186,14 @@
     }
     requests.set(xhr, request);
   };
-  const beforeSwap = event => {
+  const beforeSwap = (event) => {
     const request = requests.get(event.detail?.xhr);
     if (!request?.saves) return;
     if (request.generation !== generations.get(request.region)) event.preventDefault();
   };
-  const isCurrent = request =>
+  const isCurrent = (request) =>
     request?.saves && request.generation === generations.get(request.region);
-  const mutationFailure = event => {
+  const mutationFailure = (event) => {
     const request = requests.get(event.detail?.xhr);
     if (!isCurrent(request)) return;
     retire();
@@ -192,13 +202,14 @@
     }, 0);
   };
 
-  document.addEventListener("click", event => {
-    const button = event.target instanceof Element ? event.target.closest(".save-feedback-dismiss") : null;
+  document.addEventListener("click", (event) => {
+    const button =
+      event.target instanceof Element ? event.target.closest(".save-feedback-dismiss") : null;
     if (button) retireAnimated();
   });
   document.addEventListener("htmx:beforeRequest", beforeRequest);
   document.addEventListener("htmx:beforeSwap", beforeSwap);
-  document.addEventListener("htmx:afterOnLoad", event => {
+  document.addEventListener("htmx:afterOnLoad", (event) => {
     const request = requests.get(event.detail.xhr);
     if (!isCurrent(request)) return;
     const raw = event.detail.xhr.getResponseHeader("X-Save-Feedback");
@@ -230,7 +241,7 @@
     // htmx:historyRestore dismisses it so back/forward never replays it.
     if (region.dataset.feedbackMessage) {
       region.hidden = true;
-      show({message: region.dataset.feedbackMessage, kind: region.dataset.feedbackKind});
+      show({ message: region.dataset.feedbackMessage, kind: region.dataset.feedbackKind });
     }
   };
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", initialize);

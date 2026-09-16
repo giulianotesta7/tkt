@@ -16,16 +16,20 @@ import { isHtmxPost } from "./helpers/save-feedback.js";
 async function selectDesk(page: import("@playwright/test").Page, name: string): Promise<string> {
   await page.goto(base() + "/categories?view=structure");
   const departments = page.locator(".category-level-departments .category-structure-row");
-  for (let i = 0; i < await departments.count(); i += 1) {
+  for (let i = 0; i < (await departments.count()); i += 1) {
     await page.goto(base() + "/categories?view=structure");
     await departments.nth(i).click();
-    const desk = page.locator(".category-level-desks .category-structure-row").filter({ has: page.getByText(name, { exact: true }) });
-    if (await desk.count() !== 1) continue;
+    const desk = page
+      .locator(".category-level-desks .category-structure-row")
+      .filter({ has: page.getByText(name, { exact: true }) });
+    if ((await desk.count()) !== 1) continue;
     const href = await desk.getAttribute("href");
     if (!href) throw new Error(`Desk link href missing for "${name}" at ${page.url()}`);
     const deskID = new URL(href, page.url()).searchParams.get("desk_id");
     if (!deskID || !/^\d+$/.test(deskID)) {
-      throw new Error(`Could not resolve exact desk ID for "${name}" from ${href} at ${page.url()}`);
+      throw new Error(
+        `Could not resolve exact desk ID for "${name}" from ${href} at ${page.url()}`,
+      );
     }
     await desk.click();
     return deskID;
@@ -67,7 +71,10 @@ test.describe("Desks", () => {
 
     const userRow = page.locator(`tr[data-user-name="${uname}"]`);
     await expect(userRow).toHaveCount(1);
-    const editHref = await userRow.locator('a[href*="/users/"][href*="/edit"]').first().getAttribute("href");
+    const editHref = await userRow
+      .locator('a[href*="/users/"][href*="/edit"]')
+      .first()
+      .getAttribute("href");
     if (!editHref) throw new Error(`edit href missing for user "${uname}" at ${page.url()}`);
     await page.goto(base() + editHref.split("?")[0]);
     await page.locator('select[name="role"]').selectOption("agent");
@@ -75,9 +82,12 @@ test.describe("Desks", () => {
     await expect(page).toHaveURL(/\/users$/);
 
     await selectDesk(page, "General Support");
-    const drawerLink = page.locator('.category-level-desks .category-menu-button').first();
+    const drawerLink = page.locator(".category-level-desks .category-menu-button").first();
     await drawerLink.click();
-    await page.locator('.category-level-desks .category-overflow-menu:not([hidden])').getByRole("menuitem", { name: "Edit desk", exact: true }).click();
+    await page
+      .locator(".category-level-desks .category-overflow-menu:not([hidden])")
+      .getByRole("menuitem", { name: "Edit desk", exact: true })
+      .click();
     const drawer = page.getByRole("dialog", { name: /Edit desk/i });
     await expect(drawer).toBeVisible();
     const profileActions = drawer.locator("#category-drawer-form .users-drawer-footer");
@@ -101,15 +111,18 @@ test.describe("Desks", () => {
     const responseReady = new Promise<void>((resolve) => {
       responseIntercepted = resolve;
     });
-    await page.route((url) => url.pathname === addPath, async (route) => {
-      const response = await route.fetch();
-      const responseHeld = new Promise<void>((resolve) => {
-        releaseResponse = resolve;
-      });
-      responseIntercepted();
-      await responseHeld;
-      await route.fulfill({ response });
-    });
+    await page.route(
+      (url) => url.pathname === addPath,
+      async (route) => {
+        const response = await route.fetch();
+        const responseHeld = new Promise<void>((resolve) => {
+          releaseResponse = resolve;
+        });
+        responseIntercepted();
+        await responseHeld;
+        await route.fulfill({ response });
+      },
+    );
     const addResponsePromise = assertHtmxSwap(
       page,
       () => drawer.locator(".desk-add-member button").click(),
@@ -128,28 +141,30 @@ test.describe("Desks", () => {
     releaseResponse();
     const addResponse = await addResponsePromise;
     await page.unroute((url) => url.pathname === addPath);
-        expect(addResponse.headers()["hx-retarget"]).toBe("#category-drawer-host");
-        expect(addResponse.headers()["hx-reswap"]).toBe("outerHTML");
-        expect(addResponse.headers()["x-save-feedback"]).toContain('"message":"Saved"');
-        await expect(drawer).toBeVisible();
-        const addToast = page.locator("#save-feedback");
-        await expect(addToast).toBeVisible();
-        await expect(addToast.locator(".save-feedback-message")).toHaveText("Saved");
-        await expect(addToast).toHaveClass(/(?:^|\s)is-visible(?:\s|$)/);
-        const toastLayering = await addToast.evaluate((element) => ({
-          toastZ: parseInt(getComputedStyle(element).zIndex, 10),
-          toastTop: parseFloat(getComputedStyle(element).top),
-          toastRectRight: element.getBoundingClientRect().right,
-          viewportWidth: window.innerWidth,
-        }));
-        const drawerZ = await drawer.evaluate((element) => parseInt(getComputedStyle(element).zIndex, 10));
-        expect(toastLayering.toastZ).toBeGreaterThan(drawerZ);
-        expect(toastLayering.toastTop).toBeGreaterThanOrEqual(0);
-        expect(toastLayering.toastRectRight).toBeLessThanOrEqual(toastLayering.viewportWidth);
-        // The drawer stays usable while the toast is up.
-        await expect(name).toBeEditable();
-        await expect(drawer.getByRole("button", { name: "Close catalog details" })).toBeEnabled();
-        await expect(page.locator("#save-feedback")).toHaveCount(1);
+    expect(addResponse.headers()["hx-retarget"]).toBe("#category-drawer-host");
+    expect(addResponse.headers()["hx-reswap"]).toBe("outerHTML");
+    expect(addResponse.headers()["x-save-feedback"]).toContain('"message":"Saved"');
+    await expect(drawer).toBeVisible();
+    const addToast = page.locator("#save-feedback");
+    await expect(addToast).toBeVisible();
+    await expect(addToast.locator(".save-feedback-message")).toHaveText("Saved");
+    await expect(addToast).toHaveClass(/(?:^|\s)is-visible(?:\s|$)/);
+    const toastLayering = await addToast.evaluate((element) => ({
+      toastZ: parseInt(getComputedStyle(element).zIndex, 10),
+      toastTop: parseFloat(getComputedStyle(element).top),
+      toastRectRight: element.getBoundingClientRect().right,
+      viewportWidth: window.innerWidth,
+    }));
+    const drawerZ = await drawer.evaluate((element) =>
+      parseInt(getComputedStyle(element).zIndex, 10),
+    );
+    expect(toastLayering.toastZ).toBeGreaterThan(drawerZ);
+    expect(toastLayering.toastTop).toBeGreaterThanOrEqual(0);
+    expect(toastLayering.toastRectRight).toBeLessThanOrEqual(toastLayering.viewportWidth);
+    // The drawer stays usable while the toast is up.
+    await expect(name).toBeEditable();
+    await expect(drawer.getByRole("button", { name: "Close catalog details" })).toBeEnabled();
+    await expect(page.locator("#save-feedback")).toHaveCount(1);
     await expect(drawer.locator(".desk-member-list li").filter({ hasText: uname })).toHaveCount(1);
     await expect(name).toHaveValue(inFlightName);
     await expect(description).toHaveValue(inFlightDescription);
@@ -187,9 +202,7 @@ test.describe("Desks", () => {
       name: "Leave without saving?",
     });
     await expect(confirmation).toBeVisible();
-    await confirmation
-      .getByRole("button", { name: "Discard changes", exact: true })
-      .click();
+    await confirmation.getByRole("button", { name: "Discard changes", exact: true }).click();
     await expect(drawer).toHaveCount(0);
 
     await assertCanonicalScreen(page, {
@@ -204,7 +217,9 @@ test.describe("Desks", () => {
     });
   });
 
-  test("aborted desk membership changes show one persistent drawer-local error", async ({ page }) => {
+  test("aborted desk membership changes show one persistent drawer-local error", async ({
+    page,
+  }) => {
     test.setTimeout(60_000);
     await loginAsSeeded(page);
     let deskID = "";
@@ -221,7 +236,10 @@ test.describe("Desks", () => {
       await page.getByRole("button", { name: /create user/i }).click();
       await expect(page).toHaveURL(/\/users/);
       const row = page.locator(`tr[data-user-name="${name}"]`);
-      const editHref = await row.locator('a[href*="/users/"][href*="/edit"]').first().getAttribute("href");
+      const editHref = await row
+        .locator('a[href*="/users/"][href*="/edit"]')
+        .first()
+        .getAttribute("href");
       if (!editHref) throw new Error(`edit href missing for ${name} at ${page.url()}`);
       await page.goto(base() + editHref.split("?")[0]);
       await page.locator('select[name="role"]').selectOption("agent");
@@ -231,9 +249,13 @@ test.describe("Desks", () => {
       if (!deskID) {
         deskID = await selectDesk(page, "General Support");
         deskDepartmentID = new URL(page.url()).searchParams.get("department_id") ?? "";
-        if (!deskDepartmentID) throw new Error(`General Support department missing at ${page.url()}`);
+        if (!deskDepartmentID)
+          throw new Error(`General Support department missing at ${page.url()}`);
       }
-      await page.goto(base() + `/categories/desks/${deskID}/edit?view=structure&department_id=${deskDepartmentID}&desk_id=${deskID}`);
+      await page.goto(
+        base() +
+          `/categories/desks/${deskID}/edit?view=structure&department_id=${deskDepartmentID}&desk_id=${deskID}`,
+      );
       const drawer = page.getByRole("dialog", { name: /Edit desk/i });
       await expect(drawer).toBeVisible();
       const addMember = drawer.locator(".desk-add-member");
@@ -246,9 +268,16 @@ test.describe("Desks", () => {
           await addMember.locator("select").selectOption({ label: name });
           await addMember.getByRole("button").click();
         },
-        { endpoint: addPath, method: "POST", expectedStatus: 200, hxTarget: "#category-drawer-host" },
+        {
+          endpoint: addPath,
+          method: "POST",
+          expectedStatus: 200,
+          hxTarget: "#category-drawer-host",
+        },
       );
-      expect(new URLSearchParams(addResponse.request().postData() ?? "").get("user_id")).not.toBe("");
+      expect(new URLSearchParams(addResponse.request().postData() ?? "").get("user_id")).not.toBe(
+        "",
+      );
       const addToast = page.locator("#save-feedback");
       await expect(addToast).toBeVisible();
       await expect(addToast.locator(".save-feedback-message")).toHaveText("Saved");
@@ -279,16 +308,22 @@ test.describe("Desks", () => {
         expect(request.headers()["hx-target"]).toBe("category-drawer-host");
         await expect.poll(() => removalAborted).toBe(true);
         const feedback = drawer.locator("#save-feedback");
-        await expect(feedback.locator(".save-feedback-message")).toHaveText("Unable to save changes. Please try again.");
+        await expect(feedback.locator(".save-feedback-message")).toHaveText(
+          "Unable to save changes. Please try again.",
+        );
         await expect(feedback).toBeVisible();
         await expect(feedback).toHaveAttribute("role", "alert");
         await expect(feedback).toHaveAttribute("aria-live", "assertive");
         await expect(feedback).toHaveClass(/error-banner/);
         await expect(feedback).not.toHaveClass(/(?:^|\s)save-feedback(?:\s|$)/);
         // The failure stays local to the active drawer, not on the fixed toast layer.
-        expect(await feedback.evaluate((element) => element.closest(".users-drawer"))).not.toBeNull();
+        expect(
+          await feedback.evaluate((element) => element.closest(".users-drawer")),
+        ).not.toBeNull();
         await expect(page.locator("#save-feedback")).toHaveCount(1);
-        expect(await feedback.evaluate((element) => element.closest("[inert]") === null)).toBe(true);
+        expect(await feedback.evaluate((element) => element.closest("[inert]") === null)).toBe(
+          true,
+        );
         await expect(drawer.getByRole("button", { name: "Close catalog details" })).toBeEnabled();
         await expect(drawer.getByLabel("Name", { exact: true })).toBeVisible();
         await expect(member.getByRole("button", { name: /remove/i })).toBeEnabled();

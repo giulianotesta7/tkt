@@ -20,7 +20,12 @@ import { startServer, stopServer } from "../server-lifecycle.js";
 import { assertCanonicalScreen, collectObservability } from "./helpers/layout.js";
 import { assertHtmxSwap } from "./helpers/htmx.js";
 import { base, seededCredentials } from "./helpers/auth.js";
-import { createTicketViaUi, resolveCategoryEditHref, resolveUserEditHref, resolveWorkflowHref } from "./helpers/navigation.js";
+import {
+  createTicketViaUi,
+  resolveCategoryEditHref,
+  resolveUserEditHref,
+  resolveWorkflowHref,
+} from "./helpers/navigation.js";
 
 const viewports = [
   { width: 390, height: 844, label: "390px" },
@@ -85,22 +90,99 @@ function authenticatedScreens(deps: {
   userEditHref: string;
 }): StructuralScreen[] {
   return [
-    { label: `/tickets`, path: "/tickets", heading: (p) => p.locator('h1:has-text("Tickets")'), control: (p) => p.getByRole("link", { name: /new ticket/i }).or(p.locator('input[aria-label="Search tickets"]')) },
-    { label: `/tickets/new`, path: "/tickets/new", heading: (p) => p.getByRole("heading", { name: /create a ticket/i }), control: (p) => p.getByPlaceholder(/search categories, desks, or departments/i) },
-    { label: `/tickets/{id}`, path: () => Promise.resolve(`/tickets/${deps.ticketId}`), heading: (p) => p.locator("#ticket-detail"), control: (p) => p.locator("#ticket-detail").locator('textarea, [aria-label="Ticket title"], button:has-text("Add comment")').first() },
-    { label: `/users`, path: "/users", heading: (p) => p.locator("#users-list-title"), control: (p) => p.getByRole("link", { name: /new user/i }) },
-    { label: `/users/new`, path: "/users/new", heading: (p) => p.getByRole("heading", { name: "New user", exact: true }), control: (p) => p.getByRole("button", { name: /create user/i }) },
-    { label: `/users/{id}/edit`, path: () => Promise.resolve(deps.userEditHref), heading: (p) => p.locator("h2").filter({ hasText: /edit user|operator details/i }), control: (p) => p.getByRole("button", { name: /save changes/i }) },
-    { label: `/categories`, path: "/categories", heading: (p) => p.locator('h1:has-text("Categories")'), control: (p) => p.getByRole("link", { name: /new category/i }) },
-    { label: `/categories/new`, path: "/categories/new", heading: (p) => p.getByRole("heading", { name: "New category", exact: true }), control: (p) => p.getByRole("button", { name: /create category/i }) },
-    { label: `/categories/{id}/edit`, path: () => Promise.resolve(deps.categoryEditHref), heading: (p) => p.getByRole("heading", { name: /Edit category/i }), control: (p) => p.getByRole("button", { name: /save changes/i }) },
-    { label: `/categories/{id}/workflow`, path: () => Promise.resolve(deps.workflowHref), heading: (p) => p.locator("h1").filter({ hasText: /category workflow/i }), control: (p) => p.locator("#workflow-builder") },
-    { label: `/categories/desk-compatibility`, path: "/desks", expectedUrl: /\/categories$/, heading: (p) => p.locator('h1:has-text("Categories")'), control: (p) => p.getByRole("link", { name: /new desk/i }) },
-    { label: `/settings`, path: "/settings", heading: (p) => p.locator('h1:has-text("Settings")'), control: (p) => p.locator('input[name="internal_comment_bg"]') },
+    {
+      label: `/tickets`,
+      path: "/tickets",
+      heading: (p) => p.locator('h1:has-text("Tickets")'),
+      control: (p) =>
+        p
+          .getByRole("link", { name: /new ticket/i })
+          .or(p.locator('input[aria-label="Search tickets"]')),
+    },
+    {
+      label: `/tickets/new`,
+      path: "/tickets/new",
+      heading: (p) => p.getByRole("heading", { name: /create a ticket/i }),
+      control: (p) => p.getByPlaceholder(/search categories, desks, or departments/i),
+    },
+    {
+      label: `/tickets/{id}`,
+      path: () => Promise.resolve(`/tickets/${deps.ticketId}`),
+      heading: (p) => p.locator("#ticket-detail"),
+      control: (p) =>
+        p
+          .locator("#ticket-detail")
+          .locator('textarea, [aria-label="Ticket title"], button:has-text("Add comment")')
+          .first(),
+    },
+    {
+      label: `/users`,
+      path: "/users",
+      heading: (p) => p.locator("#users-list-title"),
+      control: (p) => p.getByRole("link", { name: /new user/i }),
+    },
+    {
+      label: `/users/new`,
+      path: "/users/new",
+      heading: (p) => p.getByRole("heading", { name: "New user", exact: true }),
+      control: (p) => p.getByRole("button", { name: /create user/i }),
+    },
+    {
+      label: `/users/{id}/edit`,
+      path: () => Promise.resolve(deps.userEditHref),
+      heading: (p) => p.locator("h2").filter({ hasText: /edit user|operator details/i }),
+      control: (p) => p.getByRole("button", { name: /save changes/i }),
+    },
+    {
+      label: `/categories`,
+      path: "/categories",
+      heading: (p) => p.locator('h1:has-text("Categories")'),
+      control: (p) => p.getByRole("link", { name: /new category/i }),
+    },
+    {
+      label: `/categories/new`,
+      path: "/categories/new",
+      heading: (p) => p.getByRole("heading", { name: "New category", exact: true }),
+      control: (p) => p.getByRole("button", { name: /create category/i }),
+    },
+    {
+      label: `/categories/{id}/edit`,
+      path: () => Promise.resolve(deps.categoryEditHref),
+      heading: (p) => p.getByRole("heading", { name: /Edit category/i }),
+      control: (p) => p.getByRole("button", { name: /save changes/i }),
+    },
+    {
+      label: `/categories/{id}/workflow`,
+      path: () => Promise.resolve(deps.workflowHref),
+      heading: (p) => p.locator("h1").filter({ hasText: /category workflow/i }),
+      control: (p) => p.locator("#workflow-builder"),
+    },
+    {
+      label: `/categories/desk-compatibility`,
+      path: "/desks",
+      expectedUrl: /\/categories$/,
+      heading: (p) => p.locator('h1:has-text("Categories")'),
+      control: (p) => p.getByRole("link", { name: /new desk/i }),
+    },
+    {
+      label: `/settings`,
+      path: "/settings",
+      heading: (p) => p.locator('h1:has-text("Settings")'),
+      control: (p) => p.locator('input[name="internal_comment_bg"]'),
+    },
   ];
 }
 
-let fixture: { ticketId: string; workflowHref: string; categoryEditHref: string; userEditHref: string; seededUserName: string; seededUserEmail: string } | undefined;
+let fixture:
+  | {
+      ticketId: string;
+      workflowHref: string;
+      categoryEditHref: string;
+      userEditHref: string;
+      seededUserName: string;
+      seededUserEmail: string;
+    }
+  | undefined;
 
 test.describe("Structural — seeded canonical screens", () => {
   test.beforeAll(async ({ browser }) => {
@@ -116,7 +198,8 @@ test.describe("Structural — seeded canonical screens", () => {
       await page.getByRole("button", { name: /log in|sign in/i }).click();
       await expect(page).toHaveURL(/\/tickets/);
 
-      const ticketTitle = "Structural ticket " + Date.now() + Math.random().toString(36).slice(2, 6);
+      const ticketTitle =
+        "Structural ticket " + Date.now() + Math.random().toString(36).slice(2, 6);
       const ticketId = await createTicketViaUi(page, {
         title: ticketTitle,
         description: "probe",
@@ -134,20 +217,31 @@ test.describe("Structural — seeded canonical screens", () => {
       await page.getByLabel(/^name$/i).fill(seededUserName);
       await page.getByLabel(/^email$/i).fill(seededUserEmail);
       await page.getByLabel(/^password$/i).fill("Secret123!");
-          await assertHtmxSwap(page, async () => {
-            await page.getByRole("button", { name: /create user/i }).click();
-          }, {
-            endpoint: "/users",
-            method: "POST",
-            expectedStatus: 200,
-            hxTarget: "#users-root",
-            expectedUrl: /\/users$/,
-          });
+      await assertHtmxSwap(
+        page,
+        async () => {
+          await page.getByRole("button", { name: /create user/i }).click();
+        },
+        {
+          endpoint: "/users",
+          method: "POST",
+          expectedStatus: 200,
+          hxTarget: "#users-root",
+          expectedUrl: /\/users$/,
+        },
+      );
 
       await page.goto(base() + "/users");
       const userEditHref = await resolveUserEditHref(page, seededUserName);
 
-      fixture = { ticketId, workflowHref, categoryEditHref, userEditHref, seededUserName, seededUserEmail };
+      fixture = {
+        ticketId,
+        workflowHref,
+        categoryEditHref,
+        userEditHref,
+        seededUserName,
+        seededUserEmail,
+      };
     } finally {
       await ctx.close();
     }

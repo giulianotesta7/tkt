@@ -14,7 +14,11 @@ import { test, expect } from "@playwright/test";
 import { startServer, stopServer, activeServer } from "../server-lifecycle.js";
 import { assertCanonicalScreen, collectObservability } from "./helpers/layout.js";
 import { assertHtmxSwap } from "./helpers/htmx.js";
-import { createCategoryViaUi, createTicketViaUi, resolveUserEditHref } from "./helpers/navigation.js";
+import {
+  createCategoryViaUi,
+  createTicketViaUi,
+  resolveUserEditHref,
+} from "./helpers/navigation.js";
 
 function base(): string {
   if (!activeServer) throw new Error("server not started");
@@ -37,139 +41,141 @@ test.describe("Users", () => {
     await stopServer();
   });
 
-      test("creation+edition journey via UI with persistence", async ({ page }) => {
-      await page.setViewportSize({ width: 1280, height: 800 });
-      const obs = collectObservability(page);
-      await login(page);
+  test("creation+edition journey via UI with persistence", async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    const obs = collectObservability(page);
+    await login(page);
 
-      const baseName = "Probe User " + Date.now().toString(36).slice(2, 6);
-      const email = `probe-${Date.now().toString(36).slice(2, 8)}@example.com`;
-      const password = "ProbeSecret123!";
+    const baseName = "Probe User " + Date.now().toString(36).slice(2, 6);
+    const email = `probe-${Date.now().toString(36).slice(2, 8)}@example.com`;
+    const password = "ProbeSecret123!";
 
-      // Create in the Users drawer.
-      await page.goto(base() + "/users");
-      await page.getByRole("link", { name: /new user/i }).click();
-      await expect(page.getByRole("heading", { name: "New user", exact: true })).toBeVisible();
-      await expect(page.getByRole("button", { name: /create user/i })).toBeVisible();
-      await page.getByLabel(/^name$/i).fill(baseName);
-      await page.getByLabel(/^email$/i).fill(email);
-      await page.getByLabel(/^password$/i).fill(password);
-      await assertHtmxSwap(page, async () => {
+    // Create in the Users drawer.
+    await page.goto(base() + "/users");
+    await page.getByRole("link", { name: /new user/i }).click();
+    await expect(page.getByRole("heading", { name: "New user", exact: true })).toBeVisible();
+    await expect(page.getByRole("button", { name: /create user/i })).toBeVisible();
+    await page.getByLabel(/^name$/i).fill(baseName);
+    await page.getByLabel(/^email$/i).fill(email);
+    await page.getByLabel(/^password$/i).fill(password);
+    await assertHtmxSwap(
+      page,
+      async () => {
         await page.getByRole("button", { name: /create user/i }).click();
-      }, {
+      },
+      {
         endpoint: "/users",
         method: "POST",
         expectedStatus: 200,
         hxTarget: "#users-root",
         expectedUrl: /\/users$/,
-      });
-      expect(new URL(page.url()).pathname).toBe("/users");
-        await expect(page.getByText(baseName)).toBeVisible();
-        await expect(page.getByText(email)).toBeVisible();
+      },
+    );
+    expect(new URL(page.url()).pathname).toBe("/users");
+    await expect(page.getByText(baseName)).toBeVisible();
+    await expect(page.getByText(email)).toBeVisible();
 
-            const userSearch = page.getByRole("searchbox", { name: "Search users" });
-            const usersSearchIcon = page.locator(".users-search .search-icon");
-            for (const [name, value] of [
-              ["viewBox", "0 0 24 24"],
-              ["width", "18"],
-              ["height", "18"],
-              ["aria-hidden", "true"],
-              ["focusable", "false"],
-            ]) {
-              await expect(usersSearchIcon).toHaveAttribute(name, value);
-            }
-            await expect(userSearch).toHaveCSS("height", "36px");
-        await expect(userSearch).toHaveCSS("border-radius", "8px");
-        await expect(userSearch).toHaveCSS("font-size", "13px");
-        await userSearch.focus();
-        await expect(userSearch).toHaveCSS(
-          "border-top-color",
-          "rgb(49, 94, 255)",
-        );
+    const userSearch = page.getByRole("searchbox", { name: "Search users" });
+    const usersSearchIcon = page.locator(".users-search .search-icon");
+    for (const [name, value] of [
+      ["viewBox", "0 0 24 24"],
+      ["width", "18"],
+      ["height", "18"],
+      ["aria-hidden", "true"],
+      ["focusable", "false"],
+    ]) {
+      await expect(usersSearchIcon).toHaveAttribute(name, value);
+    }
+    await expect(userSearch).toHaveCSS("height", "36px");
+    await expect(userSearch).toHaveCSS("border-radius", "8px");
+    await expect(userSearch).toHaveCSS("font-size", "13px");
+    await userSearch.focus();
+    await expect(userSearch).toHaveCSS("border-top-color", "rgb(49, 94, 255)");
 
-        const usersURL = page.url();
-        let searchRequests = 0;
-        const countSearchRequests = (request: import("@playwright/test").Request) => {
-          if (request.url().startsWith(base())) searchRequests += 1;
-        };
-        page.on("request", countSearchRequests);
-        await userSearch.fill(` ${baseName.toUpperCase()} `);
-        await expect(page.locator(`tr[data-user-name="${baseName}"]`)).toBeVisible();
-        await expect(page.locator('tr[data-user-name="Alice Admin"]')).toBeHidden();
-        await userSearch.fill(email.toUpperCase());
-        await expect(page.locator(`tr[data-user-name="${baseName}"]`)).toBeVisible();
-        await userSearch.fill("no matching user");
-        await expect(page.getByText("No users match your search.")).toBeVisible();
-        await userSearch.fill("");
-        page.off("request", countSearchRequests);
-        expect(searchRequests).toBe(0);
-        expect(page.url()).toBe(usersURL);
+    const usersURL = page.url();
+    let searchRequests = 0;
+    const countSearchRequests = (request: import("@playwright/test").Request) => {
+      if (request.url().startsWith(base())) searchRequests += 1;
+    };
+    page.on("request", countSearchRequests);
+    await userSearch.fill(` ${baseName.toUpperCase()} `);
+    await expect(page.locator(`tr[data-user-name="${baseName}"]`)).toBeVisible();
+    await expect(page.locator('tr[data-user-name="Alice Admin"]')).toBeHidden();
+    await userSearch.fill(email.toUpperCase());
+    await expect(page.locator(`tr[data-user-name="${baseName}"]`)).toBeVisible();
+    await userSearch.fill("no matching user");
+    await expect(page.getByText("No users match your search.")).toBeVisible();
+    await userSearch.fill("");
+    page.off("request", countSearchRequests);
+    expect(searchRequests).toBe(0);
+    expect(page.url()).toBe(usersURL);
 
-            await assertHtmxSwap(
-              page,
-              async () => {
-                await page.getByRole("link", { name: /active/i }).click();
-              },
-              {
-                endpoint: "/users",
-                method: "GET",
-                expectedStatus: 200,
-                hxTarget: "#users-root",
-                expectedUrl: /\/users\?status=active$/,
-              },
-            );
-            const activeUsersSearch = page.getByRole("searchbox", {
-              name: "Search users",
-            });
-            await expect(activeUsersSearch).toBeVisible();
+    await assertHtmxSwap(
+      page,
+      async () => {
+        await page.getByRole("link", { name: /active/i }).click();
+      },
+      {
+        endpoint: "/users",
+        method: "GET",
+        expectedStatus: 200,
+        hxTarget: "#users-root",
+        expectedUrl: /\/users\?status=active$/,
+      },
+    );
+    const activeUsersSearch = page.getByRole("searchbox", {
+      name: "Search users",
+    });
+    await expect(activeUsersSearch).toBeVisible();
 
-            const activeUsersURL = page.url();
-            let postSwapSearchRequests = 0;
-            let postSwapNavigations = 0;
-            const countPostSwapSearchRequests = (
-              request: import("@playwright/test").Request,
-            ) => {
-              if (request.url().startsWith(base())) postSwapSearchRequests += 1;
-            };
-            const countPostSwapNavigations = (
-              frame: import("@playwright/test").Frame,
-            ) => {
-              if (frame === page.mainFrame()) postSwapNavigations += 1;
-            };
-            page.on("request", countPostSwapSearchRequests);
-            page.on("framenavigated", countPostSwapNavigations);
-            await activeUsersSearch.fill("no matching user");
-            await expect(page.locator(`tr[data-user-name="${baseName}"]`)).toBeHidden();
-            await expect(page.locator('tr[data-user-name="Alice Admin"]')).toBeHidden();
-            await expect(page.getByText("No users match your search.")).toBeVisible();
-            page.off("request", countPostSwapSearchRequests);
-            page.off("framenavigated", countPostSwapNavigations);
-            expect(postSwapSearchRequests).toBe(0);
-            expect(postSwapNavigations).toBe(0);
-            expect(page.url()).toBe(activeUsersURL);
-            await activeUsersSearch.fill("");
+    const activeUsersURL = page.url();
+    let postSwapSearchRequests = 0;
+    let postSwapNavigations = 0;
+    const countPostSwapSearchRequests = (request: import("@playwright/test").Request) => {
+      if (request.url().startsWith(base())) postSwapSearchRequests += 1;
+    };
+    const countPostSwapNavigations = (frame: import("@playwright/test").Frame) => {
+      if (frame === page.mainFrame()) postSwapNavigations += 1;
+    };
+    page.on("request", countPostSwapSearchRequests);
+    page.on("framenavigated", countPostSwapNavigations);
+    await activeUsersSearch.fill("no matching user");
+    await expect(page.locator(`tr[data-user-name="${baseName}"]`)).toBeHidden();
+    await expect(page.locator('tr[data-user-name="Alice Admin"]')).toBeHidden();
+    await expect(page.getByText("No users match your search.")).toBeVisible();
+    page.off("request", countPostSwapSearchRequests);
+    page.off("framenavigated", countPostSwapNavigations);
+    expect(postSwapSearchRequests).toBe(0);
+    expect(postSwapNavigations).toBe(0);
+    expect(page.url()).toBe(activeUsersURL);
+    await activeUsersSearch.fill("");
 
-        // Resolve edit href for that user (drawer link)
-      const cleanHref = await resolveUserEditHref(page, baseName);
-      await page.goto(base() + cleanHref);
-      await expect(page.getByRole("heading", { name: /edit user/i })).toBeVisible();
+    // Resolve edit href for that user (drawer link)
+    const cleanHref = await resolveUserEditHref(page, baseName);
+    await page.goto(base() + cleanHref);
+    await expect(page.getByRole("heading", { name: /edit user/i })).toBeVisible();
 
-      const renamed = baseName + " Renamed";
-      await page.getByLabel(/^name$/i).fill(renamed);
-      const roleSelect = page.locator('select[name="role"]');
-      await expect(roleSelect).toBeVisible();
-      await roleSelect.selectOption("agent");
-      const userID = new URL(cleanHref, page.url()).pathname.match(/^\/users\/(\d+)\/edit$/)?.[1];
-      if (!userID) throw new Error(`Could not resolve exact user ID from ${cleanHref} at ${page.url()}`);
-      await assertHtmxSwap(page, async () => {
+    const renamed = baseName + " Renamed";
+    await page.getByLabel(/^name$/i).fill(renamed);
+    const roleSelect = page.locator('select[name="role"]');
+    await expect(roleSelect).toBeVisible();
+    await roleSelect.selectOption("agent");
+    const userID = new URL(cleanHref, page.url()).pathname.match(/^\/users\/(\d+)\/edit$/)?.[1];
+    if (!userID)
+      throw new Error(`Could not resolve exact user ID from ${cleanHref} at ${page.url()}`);
+    await assertHtmxSwap(
+      page,
+      async () => {
         await page.getByRole("button", { name: /save changes/i }).click();
-      }, {
+      },
+      {
         endpoint: `/users/${userID}/edit`,
         method: "POST",
         expectedStatus: 200,
         hxTarget: "#users-root",
         expectedUrl: /\/users$/,
-      });
+      },
+    );
     const savedRow = page.locator(`tr[data-user-name="${renamed}"]`);
     await expect(savedRow).toHaveCount(1);
     await expect(savedRow).toContainText("Agent");
@@ -191,89 +197,123 @@ test.describe("Users", () => {
     });
   });
   test("dirty user creation stays guarded after an unrelated HTMX settle", async ({ page }) => {
-        await login(page);
-        await page.goto(base() + "/users");
-        await page.getByRole("link", { name: /new user/i }).click();
+    await login(page);
+    await page.goto(base() + "/users");
+    await page.getByRole("link", { name: /new user/i }).click();
 
-        const drawer = page.getByRole("dialog", { name: "New user" });
-        const name = drawer.getByLabel(/^name$/i);
-        await expect(name).toBeFocused();
-        await page.waitForTimeout(50);
-        await name.fill("Unsaved user");
-        await page
-          .locator("#users-root")
-          .dispatchEvent("htmx:afterSettle", { bubbles: true });
-        await drawer.getByRole("button", { name: /close/i }).click();
+    const drawer = page.getByRole("dialog", { name: "New user" });
+    const name = drawer.getByLabel(/^name$/i);
+    await expect(name).toBeFocused();
+    await page.waitForTimeout(50);
+    await name.fill("Unsaved user");
+    await page.locator("#users-root").dispatchEvent("htmx:afterSettle", { bubbles: true });
+    await drawer.getByRole("button", { name: /close/i }).click();
 
-        const confirmation = page.getByRole("dialog", {
-          name: "Leave without saving?",
-        });
-        await expect(confirmation).toBeVisible();
-        await expect(
-          confirmation.getByRole("button", { name: "Stay", exact: true }),
-        ).toBeFocused();
-        await confirmation.getByRole("button", { name: "Stay", exact: true }).click();
-        await expect(name).toHaveValue("Unsaved user");
-        await expect(page).toHaveURL(/\/users\/new$/);
-        await drawer.getByRole("button", { name: /close/i }).click();
-        await confirmation
-          .getByRole("button", { name: "Discard changes", exact: true })
-          .click();
-        await expect(drawer).toHaveCount(0);
-      });
+    const confirmation = page.getByRole("dialog", {
+      name: "Leave without saving?",
+    });
+    await expect(confirmation).toBeVisible();
+    await expect(confirmation.getByRole("button", { name: "Stay", exact: true })).toBeFocused();
+    await confirmation.getByRole("button", { name: "Stay", exact: true }).click();
+    await expect(name).toHaveValue("Unsaved user");
+    await expect(page).toHaveURL(/\/users\/new$/);
+    await drawer.getByRole("button", { name: /close/i }).click();
+    await confirmation.getByRole("button", { name: "Discard changes", exact: true }).click();
+    await expect(drawer).toHaveCount(0);
+  });
 
-      // Issue #47 regression journeys: atomic Agent-to-User downgrade handoff.
+  // Issue #47 regression journeys: atomic Agent-to-User downgrade handoff.
 
   async function selectDesk(page: import("@playwright/test").Page, name: string): Promise<string> {
-        await page.goto(base() + "/categories?view=structure");
-        const departments = page.locator(".category-level-departments .category-structure-row");
-        for (let i = 0; i < await departments.count(); i += 1) {
-          await page.goto(base() + "/categories?view=structure");
-          await departments.nth(i).click();
-          const link = page.locator(".category-level-desks .category-structure-row").filter({ has: page.getByText(name, { exact: true }) });
-          if (await link.count() !== 1) continue;
-          const href = await link.getAttribute("href");
-          if (!href) throw new Error(`Desk link href missing for "${name}" at ${page.url()}`);
-          const deskID = new URL(href, page.url()).searchParams.get("desk_id");
-          if (!deskID || !/^\d+$/.test(deskID)) {
-            throw new Error(`Could not resolve exact desk ID for "${name}" from ${href} at ${page.url()}`);
-          }
-          await link.click();
-          return deskID;
-        }
-        throw new Error(`Expected exactly one desk "${name}" in the catalog at ${page.url()}`);
+    await page.goto(base() + "/categories?view=structure");
+    const departments = page.locator(".category-level-departments .category-structure-row");
+    for (let i = 0; i < (await departments.count()); i += 1) {
+      await page.goto(base() + "/categories?view=structure");
+      await departments.nth(i).click();
+      const link = page
+        .locator(".category-level-desks .category-structure-row")
+        .filter({ has: page.getByText(name, { exact: true }) });
+      if ((await link.count()) !== 1) continue;
+      const href = await link.getAttribute("href");
+      if (!href) throw new Error(`Desk link href missing for "${name}" at ${page.url()}`);
+      const deskID = new URL(href, page.url()).searchParams.get("desk_id");
+      if (!deskID || !/^\d+$/.test(deskID)) {
+        throw new Error(
+          `Could not resolve exact desk ID for "${name}" from ${href} at ${page.url()}`,
+        );
+      }
+      await link.click();
+      return deskID;
+    }
+    throw new Error(`Expected exactly one desk "${name}" in the catalog at ${page.url()}`);
   }
 
-      async function openSelectedDeskDrawer(page: import("@playwright/test").Page, name: string): Promise<void> {
-        const row = page.locator(".category-level-desks .category-structure-item").filter({ hasText: name });
-        await expect(row).toHaveCount(1);
-        await row.getByRole("button", { name: /actions for/i }).click();
-        await row.locator(".category-overflow-menu:not([hidden])").getByRole("menuitem", { name: "Edit desk", exact: true }).click();
-        await expect(page.getByRole("dialog", { name: /Edit desk/i })).toBeVisible();
-      }
+  async function openSelectedDeskDrawer(
+    page: import("@playwright/test").Page,
+    name: string,
+  ): Promise<void> {
+    const row = page
+      .locator(".category-level-desks .category-structure-item")
+      .filter({ hasText: name });
+    await expect(row).toHaveCount(1);
+    await row.getByRole("button", { name: /actions for/i }).click();
+    await row
+      .locator(".category-overflow-menu:not([hidden])")
+      .getByRole("menuitem", { name: "Edit desk", exact: true })
+      .click();
+    await expect(page.getByRole("dialog", { name: /Edit desk/i })).toBeVisible();
+  }
 
-      async function createAgent(page: import("@playwright/test").Page, name: string, email: string): Promise<{ id: string; name: string }> {
+  async function createAgent(
+    page: import("@playwright/test").Page,
+    name: string,
+    email: string,
+  ): Promise<{ id: string; name: string }> {
     await page.goto(base() + "/users");
     await page.getByRole("link", { name: /new user/i }).click();
     await expect(page.getByRole("heading", { name: "New user", exact: true })).toBeVisible();
     await page.getByLabel(/^name$/i).fill(name);
     await page.getByLabel(/^email$/i).fill(email);
     await page.getByLabel(/^password$/i).fill("AgentSecret1!");
-    await assertHtmxSwap(page, async () => {
-      await page.getByRole("button", { name: /create user/i }).click();
-    }, { endpoint: "/users", method: "POST", expectedStatus: 200, hxTarget: "#users-root", expectedUrl: /\/users$/ });
+    await assertHtmxSwap(
+      page,
+      async () => {
+        await page.getByRole("button", { name: /create user/i }).click();
+      },
+      {
+        endpoint: "/users",
+        method: "POST",
+        expectedStatus: 200,
+        hxTarget: "#users-root",
+        expectedUrl: /\/users$/,
+      },
+    );
     const editHref = await resolveUserEditHref(page, name);
     const id = new URL(editHref, page.url()).pathname.match(/^\/users\/(\d+)\/edit$/)?.[1];
     if (!id) throw new Error(`cannot resolve id for ${name} from ${editHref} at ${page.url()}`);
     await page.goto(base() + editHref);
     await page.locator('select[name="role"]').selectOption("agent");
-    await assertHtmxSwap(page, async () => {
-      await page.getByRole("button", { name: /save changes/i }).click();
-    }, { endpoint: `/users/${id}/edit`, method: "POST", expectedStatus: 200, hxTarget: "#users-root", expectedUrl: /\/users$/ });
+    await assertHtmxSwap(
+      page,
+      async () => {
+        await page.getByRole("button", { name: /save changes/i }).click();
+      },
+      {
+        endpoint: `/users/${id}/edit`,
+        method: "POST",
+        expectedStatus: 200,
+        hxTarget: "#users-root",
+        expectedUrl: /\/users$/,
+      },
+    );
     return { id, name };
   }
 
-  async function addDeskMember(page: import("@playwright/test").Page, deskName: string, memberName: string): Promise<void> {
+  async function addDeskMember(
+    page: import("@playwright/test").Page,
+    deskName: string,
+    memberName: string,
+  ): Promise<void> {
     await page.goto(base() + "/categories?view=structure");
     await selectDesk(page, deskName);
     await openSelectedDeskDrawer(page, deskName);
@@ -282,39 +322,59 @@ test.describe("Users", () => {
     await expect(page.locator(`.desk-add-member option:has-text("${memberName}")`)).toBeAttached();
     await addSelect.selectOption({ label: memberName });
     const addAction = await page.locator(".desk-add-member").getAttribute("action");
-    if (!addAction) throw new Error(`add-member form action missing for desk "${deskName}" at ${page.url()}`);
+    if (!addAction)
+      throw new Error(`add-member form action missing for desk "${deskName}" at ${page.url()}`);
     const currentURL = page.url();
-    await assertHtmxSwap(page, async () => {
-      await page.locator(".desk-add-member button").click();
-    }, {
-      endpoint: new URL(addAction, currentURL).pathname,
-      method: "POST",
-      expectedStatus: 200,
-      hxTarget: "#category-drawer-host",
-      expectedUrl: currentURL,
-    });
+    await assertHtmxSwap(
+      page,
+      async () => {
+        await page.locator(".desk-add-member button").click();
+      },
+      {
+        endpoint: new URL(addAction, currentURL).pathname,
+        method: "POST",
+        expectedStatus: 200,
+        hxTarget: "#category-drawer-host",
+        expectedUrl: currentURL,
+      },
+    );
     await selectDesk(page, deskName);
     await openSelectedDeskDrawer(page, deskName);
-    await expect(page.locator(".desk-member-list").getByText(memberName, { exact: true })).toBeVisible();
+    await expect(
+      page.locator(".desk-member-list").getByText(memberName, { exact: true }),
+    ).toBeVisible();
   }
 
-  async function configureLeastLoadedWorkflow(page: import("@playwright/test").Page, categoryId: string, deskName: string): Promise<void> {
+  async function configureLeastLoadedWorkflow(
+    page: import("@playwright/test").Page,
+    categoryId: string,
+    deskName: string,
+  ): Promise<void> {
     await page.goto(base() + `/categories/${categoryId}/workflow`);
     await expect(page.locator("#workflow-builder")).toBeVisible({ timeout: 10_000 });
     const cards = page.locator(".workflow-step-card");
     const before = await cards.count();
     const addSummary = page.locator(".workflow-add-step summary").first();
     await addSummary.click();
-    const addBtn = page.locator(".workflow-add-options button").filter({ hasText: "Assign to desk" }).first();
+    const addBtn = page
+      .locator(".workflow-add-options button")
+      .filter({ hasText: "Assign to desk" })
+      .first();
     await expect(addBtn).toBeVisible();
-    await assertHtmxSwap(page, async () => {
-      await addBtn.click();
-    }, {
-      endpoint: (url) => new URL(url).pathname === `/categories/${categoryId}/workflow` && new URL(url).searchParams.get("add_step_type") === "assign_to_desk",
-      method: "POST",
-      expectedStatus: 200,
-      hxTarget: "#workflow-builder",
-    });
+    await assertHtmxSwap(
+      page,
+      async () => {
+        await addBtn.click();
+      },
+      {
+        endpoint: (url) =>
+          new URL(url).pathname === `/categories/${categoryId}/workflow` &&
+          new URL(url).searchParams.get("add_step_type") === "assign_to_desk",
+        method: "POST",
+        expectedStatus: 200,
+        hxTarget: "#workflow-builder",
+      },
+    );
     await expect(cards).toHaveCount(before + 1);
     const deskSelect = page.getByLabel(/^desk$/i);
     await expect(deskSelect).toBeVisible();
@@ -323,9 +383,18 @@ test.describe("Users", () => {
     const strategySelect = page.getByLabel(/^strategy$/i);
     await expect(strategySelect).toBeVisible();
     await strategySelect.selectOption("least_loaded");
-    const publishResp = await assertHtmxSwap(page, async () => {
-      await page.getByRole("button", { name: /publish/i }).click();
-    }, { endpoint: `/categories/${categoryId}/workflow`, method: "POST", expectedStatus: 200, hxTarget: "#workflow-builder" });
+    const publishResp = await assertHtmxSwap(
+      page,
+      async () => {
+        await page.getByRole("button", { name: /publish/i }).click();
+      },
+      {
+        endpoint: `/categories/${categoryId}/workflow`,
+        method: "POST",
+        expectedStatus: 200,
+        hxTarget: "#workflow-builder",
+      },
+    );
     expect(publishResp.status()).toBe(200);
     await expect(page.locator(".error-banner, [role='alert']")).toHaveCount(0);
   }
@@ -336,7 +405,9 @@ test.describe("Users", () => {
     return (await checked.textContent())?.trim() ?? "";
   }
 
-  test("downgrade desk member reassigns open ticket and records handoff audit", async ({ page }) => {
+  test("downgrade desk member reassigns open ticket and records handoff audit", async ({
+    page,
+  }) => {
     test.setTimeout(120000);
     await page.setViewportSize({ width: 1280, height: 800 });
     const obs = collectObservability(page);
@@ -376,15 +447,19 @@ test.describe("Users", () => {
     const userID = new URL(editHrefA, page.url()).pathname.match(/^\/users\/(\d+)\/edit$/)?.[1];
     if (!userID) throw new Error(`cannot resolve user id from ${editHrefA} at ${page.url()}`);
     await page.locator('select[name="role"]').selectOption("user");
-    const saved = await assertHtmxSwap(page, async () => {
-      await page.getByRole("button", { name: /save changes/i }).click();
-    }, {
-      endpoint: `/users/${userID}/edit`,
-      method: "POST",
-      expectedStatus: 200,
-      hxTarget: "#users-root",
-      expectedUrl: /\/users$/,
-    });
+    const saved = await assertHtmxSwap(
+      page,
+      async () => {
+        await page.getByRole("button", { name: /save changes/i }).click();
+      },
+      {
+        endpoint: `/users/${userID}/edit`,
+        method: "POST",
+        expectedStatus: 200,
+        hxTarget: "#users-root",
+        expectedUrl: /\/users$/,
+      },
+    );
     expect(saved.status()).toBe(200);
     const rowA = page.locator(`tr[data-user-name="${agentA.name}"]`);
     await expect(rowA).toHaveCount(1);
@@ -394,8 +469,12 @@ test.describe("Users", () => {
     await page.goto(base() + "/categories?view=structure");
     await selectDesk(page, "General Support");
     await openSelectedDeskDrawer(page, "General Support");
-    await expect(page.locator(".desk-member-list").getByText(agentA.name, { exact: true })).toHaveCount(0);
-    await expect(page.locator(".desk-member-list").getByText(agentB.name, { exact: true })).toBeVisible();
+    await expect(
+      page.locator(".desk-member-list").getByText(agentA.name, { exact: true }),
+    ).toHaveCount(0);
+    await expect(
+      page.locator(".desk-member-list").getByText(agentB.name, { exact: true }),
+    ).toBeVisible();
 
     // The open ticket moved to agent B and persisted across reload.
     await page.goto(base() + `/tickets/${ticketId}`);
@@ -418,7 +497,9 @@ test.describe("Users", () => {
     });
   });
 
-  test("downgrade with unresolvable desk context leaves ticket unassigned and succeeds", async ({ page }) => {
+  test("downgrade with unresolvable desk context leaves ticket unassigned and succeeds", async ({
+    page,
+  }) => {
     test.setTimeout(120000);
     await page.setViewportSize({ width: 1280, height: 800 });
     await login(page);
@@ -445,15 +526,19 @@ test.describe("Users", () => {
     const userID = new URL(editHrefC, page.url()).pathname.match(/^\/users\/(\d+)\/edit$/)?.[1];
     if (!userID) throw new Error(`cannot resolve user id from ${editHrefC} at ${page.url()}`);
     await page.locator('select[name="role"]').selectOption("user");
-    const saved = await assertHtmxSwap(page, async () => {
-      await page.getByRole("button", { name: /save changes/i }).click();
-    }, {
-      endpoint: `/users/${userID}/edit`,
-      method: "POST",
-      expectedStatus: 200,
-      hxTarget: "#users-root",
-      expectedUrl: /\/users$/,
-    });
+    const saved = await assertHtmxSwap(
+      page,
+      async () => {
+        await page.getByRole("button", { name: /save changes/i }).click();
+      },
+      {
+        endpoint: `/users/${userID}/edit`,
+        method: "POST",
+        expectedStatus: 200,
+        hxTarget: "#users-root",
+        expectedUrl: /\/users$/,
+      },
+    );
     expect(saved.status()).toBe(200);
 
     await page.goto(base() + `/tickets/${ticketId}`);

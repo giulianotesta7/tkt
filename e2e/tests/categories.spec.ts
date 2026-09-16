@@ -6,26 +6,13 @@
  * requester-owned tickets are passive and never render the active current-task card.
  */
 
-import {
-  test,
-  expect,
-  type Page,
-  type Request,
-  type Response,
-  type Route,
-} from "@playwright/test";
+import { test, expect, type Page, type Request, type Response, type Route } from "@playwright/test";
 import { startServer, stopServer } from "../server-lifecycle.js";
 import { loginAsSeeded, base } from "./helpers/auth.js";
-import {
-  assertCanonicalScreen,
-  collectObservability,
-} from "./helpers/layout.js";
+import { assertCanonicalScreen, collectObservability } from "./helpers/layout.js";
 import { assertHtmxNoSwap, assertHtmxSwap } from "./helpers/htmx.js";
 import { isHtmxPost } from "./helpers/save-feedback.js";
-import {
-  createCategoryViaUi,
-  createTicketViaUi,
-} from "./helpers/navigation.js";
+import { createCategoryViaUi, createTicketViaUi } from "./helpers/navigation.js";
 
 async function assertDrawerHtmxSwap(
   page: Page,
@@ -74,35 +61,26 @@ test.describe("Categories", () => {
     await stopServer();
   });
 
-  test("categories index shows seeded category with workflow badge", async ({
-    page,
-  }) => {
+  test("categories index shows seeded category with workflow badge", async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 800 });
     const obs = collectObservability(page);
     await loginAsSeeded(page);
     await page.goto(base() + "/categories");
-    await expect(
-      page.locator("h1").filter({ hasText: "Categories" }),
-    ).toBeVisible();
+    await expect(page.locator("h1").filter({ hasText: "Categories" })).toBeVisible();
     await expect(page.locator(".category-level-departments")).toBeVisible();
     await expect(page.locator(".category-level-desks")).toBeVisible();
-    const seededDesk = page
-      .locator(".category-level-desks .category-structure-row")
-      .filter({
-        has: page.getByText("General Support", { exact: true }),
-      });
+    const seededDesk = page.locator(".category-level-desks .category-structure-row").filter({
+      has: page.getByText("General Support", { exact: true }),
+    });
     await expect(seededDesk).toHaveCount(1);
     await expect(seededDesk).not.toContainText("Department:");
     await expect(seededDesk).not.toContainText(/\d+\s+categor(?:y|ies)/i);
     await expect(seededDesk.locator(".category-count")).toHaveCount(0);
-    await expect(seededDesk).toHaveAttribute(
-      "href",
-      /department_id=unassigned&desk_id=\d+/,
-    );
+    await expect(seededDesk).toHaveAttribute("href", /department_id=unassigned&desk_id=\d+/);
     await expect(page.locator(".category-level-categories")).toBeVisible();
-    await expect(
-      page.locator(".category-level-categories .category-empty"),
-    ).toContainText("Select a desk");
+    await expect(page.locator(".category-level-categories .category-empty")).toContainText(
+      "Select a desk",
+    );
     await expect(page.getByRole("heading", { name: "Areas" })).toHaveCount(0);
     await assertCanonicalScreen(page, {
       viewport: 1280,
@@ -116,9 +94,7 @@ test.describe("Categories", () => {
     });
   });
 
-  test("categories search uses native navigation and keeps hierarchy context", async ({
-    page,
-  }) => {
+  test("categories search uses native navigation and keeps hierarchy context", async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 800 });
     await loginAsSeeded(page);
     await page.goto(base() + "/categories?view=structure");
@@ -133,10 +109,7 @@ test.describe("Categories", () => {
     await expect(icon).toHaveAttribute("aria-hidden", "true");
     await expect(icon).toHaveAttribute("focusable", "false");
 
-    const nativeGet = async (
-      trigger: () => Promise<void>,
-      expectedURL: string,
-    ) => {
+    const nativeGet = async (trigger: () => Promise<void>, expectedURL: string) => {
       const responsePromise = page.waitForResponse(
         (response) =>
           response.request().isNavigationRequest() &&
@@ -174,27 +147,23 @@ test.describe("Categories", () => {
       .filter({ has: page.getByText("General", { exact: true }) });
     await expect(selectedCategoryResult).toHaveCount(1);
     await selectedCategoryResult.click();
-    await page.waitForURL((url) =>
-      url.pathname === "/categories" &&
-      url.searchParams.get("view") === "structure" &&
-      url.searchParams.get("department_id") === "1" &&
-      url.searchParams.get("desk_id") === "1" &&
-      !url.searchParams.has("q"),
+    await page.waitForURL(
+      (url) =>
+        url.pathname === "/categories" &&
+        url.searchParams.get("view") === "structure" &&
+        url.searchParams.get("department_id") === "1" &&
+        url.searchParams.get("desk_id") === "1" &&
+        !url.searchParams.has("q"),
     );
     await expect(page.locator(".category-level-categories")).toBeVisible();
 
     const selectedStructureSearchURL =
       base() + "/categories?q=General&view=structure&department_id=1&desk_id=1";
     await search.fill("General");
+    await nativeGet(async () => search.press("Enter"), selectedStructureSearchURL);
+    const structureClearURL = base() + "/categories?department_id=1&desk_id=1&view=structure";
     await nativeGet(
-      async () => search.press("Enter"),
-      selectedStructureSearchURL,
-    );
-    const structureClearURL =
-      base() + "/categories?department_id=1&desk_id=1&view=structure";
-    await nativeGet(
-      async () =>
-        page.getByRole("link", { name: "Clear search", exact: true }).click(),
+      async () => page.getByRole("link", { name: "Clear search", exact: true }).click(),
       structureClearURL,
     );
     await expect(search).toHaveValue("");
@@ -203,32 +172,25 @@ test.describe("Categories", () => {
       base() + "/categories?department_id=1&desk_id=1&q=General&view=categories";
     await page.goto(categoriesSearchURL);
     await expect(search).toHaveValue("General");
-    const categoriesClearURL =
-      base() + "/categories?department_id=1&desk_id=1&view=categories";
+    const categoriesClearURL = base() + "/categories?department_id=1&desk_id=1&view=categories";
     await nativeGet(
-      async () =>
-        page.getByRole("link", { name: "Clear search", exact: true }).click(),
+      async () => page.getByRole("link", { name: "Clear search", exact: true }).click(),
       categoriesClearURL,
     );
     await expect(search).toHaveValue("");
   });
 
-  test("Unassigned drawer edits push reloadable legacy context", async ({
-    page,
-  }) => {
+  test("Unassigned drawer edits push reloadable legacy context", async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 800 });
     await loginAsSeeded(page);
 
-    const unassignedContext =
-      "/categories?view=structure&department_id=unassigned";
+    const unassignedContext = "/categories?view=structure&department_id=unassigned";
     await page.goto(base() + unassignedContext);
 
     const legacyDeskName = "General Support";
-    const legacyDesk = page
-      .locator(".category-level-desks .category-structure-item")
-      .filter({
-        has: page.getByText(legacyDeskName, { exact: true }),
-      });
+    const legacyDesk = page.locator(".category-level-desks .category-structure-item").filter({
+      has: page.getByText(legacyDeskName, { exact: true }),
+    });
     await expect(legacyDesk).toHaveCount(1);
     const legacyDeskHref = await legacyDesk
       .locator("a.category-structure-row")
@@ -246,9 +208,7 @@ test.describe("Categories", () => {
         exact: true,
       })
       .click();
-    const legacyDeskMenu = legacyDesk.locator(
-      ".category-overflow-menu:not([hidden])",
-    );
+    const legacyDeskMenu = legacyDesk.locator(".category-overflow-menu:not([hidden])");
     const legacyDeskEdit = legacyDeskMenu.getByRole("menuitem", {
       name: "Edit desk",
       exact: true,
@@ -275,15 +235,11 @@ test.describe("Categories", () => {
       },
     );
     const legacyDeskDrawer = page.getByRole("dialog", { name: /Edit desk/i });
-    await expect(legacyDeskDrawer.locator("#category-name")).toHaveValue(
-      legacyDeskName,
-    );
+    await expect(legacyDeskDrawer.locator("#category-name")).toHaveValue(legacyDeskName);
     await page.reload();
     await expect(page).toHaveURL(legacyDeskURL);
     await expect(
-      page
-        .getByRole("dialog", { name: /Edit desk/i })
-        .locator("#category-name"),
+      page.getByRole("dialog", { name: /Edit desk/i }).locator("#category-name"),
     ).toHaveValue(legacyDeskName);
     await expect(page.locator("body")).not.toContainText("invalid identifier");
 
@@ -298,9 +254,7 @@ test.describe("Categories", () => {
     const legacyCategoryEditHref = await legacyCategory
       .locator('a[href*="/edit"]')
       .getAttribute("href");
-    const legacyCategoryID = legacyCategoryEditHref?.match(
-      /\/categories\/(\d+)\/edit/,
-    )?.[1];
+    const legacyCategoryID = legacyCategoryEditHref?.match(/\/categories\/(\d+)\/edit/)?.[1];
     if (!legacyCategoryID) {
       throw new Error(
         `Could not resolve ${legacyCategoryName} from ${legacyCategoryEditHref ?? "missing href"} at ${page.url()}`,
@@ -313,9 +267,7 @@ test.describe("Categories", () => {
         exact: true,
       })
       .click();
-    const legacyCategoryMenu = legacyCategory.locator(
-      ".category-overflow-menu:not([hidden])",
-    );
+    const legacyCategoryMenu = legacyCategory.locator(".category-overflow-menu:not([hidden])");
     const legacyCategoryEdit = legacyCategoryMenu.getByRole("menuitem", {
       name: "Edit category",
       exact: true,
@@ -344,15 +296,11 @@ test.describe("Categories", () => {
     const legacyCategoryDrawer = page.getByRole("dialog", {
       name: /Edit category/i,
     });
-    await expect(legacyCategoryDrawer.locator("#category-name")).toHaveValue(
-      legacyCategoryName,
-    );
+    await expect(legacyCategoryDrawer.locator("#category-name")).toHaveValue(legacyCategoryName);
     await page.reload();
     await expect(page).toHaveURL(legacyCategoryURL);
     await expect(
-      page
-        .getByRole("dialog", { name: /Edit category/i })
-        .locator("#category-name"),
+      page.getByRole("dialog", { name: /Edit category/i }).locator("#category-name"),
     ).toHaveValue(legacyCategoryName);
     await expect(page.locator("body")).not.toContainText("invalid identifier");
   });
@@ -368,15 +316,9 @@ test.describe("Categories", () => {
     await expect(page.locator(".category-level-departments")).toBeVisible();
     await expect(page.locator(".category-level-desks")).toBeVisible();
     await expect(page.locator(".category-level-categories")).toBeVisible();
-    await expect(
-      page.getByRole("link", { name: "New category", exact: true }),
-    ).toBeVisible();
-    await expect(
-      page.getByRole("link", { name: "New department", exact: true }),
-    ).toBeVisible();
-    await expect(
-      page.getByRole("link", { name: "New desk", exact: true }),
-    ).toBeVisible();
+    await expect(page.getByRole("link", { name: "New category", exact: true })).toBeVisible();
+    await expect(page.getByRole("link", { name: "New department", exact: true })).toBeVisible();
+    await expect(page.getByRole("link", { name: "New desk", exact: true })).toBeVisible();
 
     const assignedDepartment = page
       .locator(".category-level-departments .category-structure-row")
@@ -384,10 +326,8 @@ test.describe("Categories", () => {
         has: page.getByText("General", { exact: true }),
       });
     await expect(assignedDepartment).toHaveCount(1);
-    const assignedDepartmentHref =
-      await assignedDepartment.getAttribute("href");
-    const assignedDepartmentID =
-      assignedDepartmentHref?.match(/department_id=(\d+)/)?.[1];
+    const assignedDepartmentHref = await assignedDepartment.getAttribute("href");
+    const assignedDepartmentID = assignedDepartmentHref?.match(/department_id=(\d+)/)?.[1];
     if (!assignedDepartmentID) {
       throw new Error(
         `Could not resolve the General department from ${assignedDepartmentHref ?? "missing href"} at ${page.url()}`,
@@ -397,15 +337,11 @@ test.describe("Categories", () => {
     await expect(page).toHaveURL(
       new RegExp(`view=structure&department_id=${assignedDepartmentID}$`),
     );
-    await expect(
-      page.getByRole("link", { name: "New desk", exact: true }),
-    ).toBeVisible();
+    await expect(page.getByRole("link", { name: "New desk", exact: true })).toBeVisible();
 
-    const assignedDesk = page
-      .locator(".category-level-desks .category-structure-item")
-      .filter({
-        has: page.getByText("General", { exact: true }),
-      });
+    const assignedDesk = page.locator(".category-level-desks .category-structure-item").filter({
+      has: page.getByText("General", { exact: true }),
+    });
     await expect(assignedDesk).toHaveCount(1);
     const assignedDeskHref = await assignedDesk
       .locator("a.category-structure-row")
@@ -418,13 +354,9 @@ test.describe("Categories", () => {
     }
     await assignedDesk.locator("a.category-structure-row").click();
     await expect(page).toHaveURL(
-      new RegExp(
-        `view=structure&department_id=${assignedDepartmentID}&desk_id=${assignedDeskID}$`,
-      ),
+      new RegExp(`view=structure&department_id=${assignedDepartmentID}&desk_id=${assignedDeskID}$`),
     );
-    await expect(
-      page.getByRole("link", { name: "New category", exact: true }),
-    ).toBeVisible();
+    await expect(page.getByRole("link", { name: "New category", exact: true })).toBeVisible();
     await expect(page.locator(".category-mobile-back").first()).toBeHidden();
 
     const deskMenu = assignedDesk.getByRole("button", {
@@ -445,11 +377,9 @@ test.describe("Categories", () => {
         endpoint: (url) => {
           const requestURL = new URL(url);
           return (
-            requestURL.pathname ===
-              `/categories/desks/${assignedDeskID}/edit` &&
+            requestURL.pathname === `/categories/desks/${assignedDeskID}/edit` &&
             requestURL.searchParams.get("view") === "structure" &&
-            requestURL.searchParams.get("department_id") ===
-              assignedDepartmentID &&
+            requestURL.searchParams.get("department_id") === assignedDepartmentID &&
             requestURL.searchParams.get("desk_id") === assignedDeskID
           );
         },
@@ -464,13 +394,9 @@ test.describe("Categories", () => {
     await drawer.locator("#category-name").fill(renamed);
     await drawer.getByRole("button", { name: /save changes/i }).click();
 
-    await expect(page).toHaveURL(
-      /\/categories\?department_id=\d+&desk_id=\d+&view=structure/,
-    );
+    await expect(page).toHaveURL(/\/categories\?department_id=\d+&desk_id=\d+&view=structure/);
     await expect(
-      page
-        .locator(".category-level-desks .category-structure-row")
-        .filter({ hasText: renamed }),
+      page.locator(".category-level-desks .category-structure-row").filter({ hasText: renamed }),
     ).toBeVisible();
     await expect(page.locator(`[data-focus-key="${focusKey}"]`)).toBeFocused();
     await expect(page.locator(".category-drawer")).toHaveCount(0);
@@ -495,24 +421,14 @@ test.describe("Categories", () => {
     await expect(page.locator(".category-level-departments")).toBeVisible();
     await expect(page.locator(".category-level-desks")).toBeHidden();
     await expect(page.locator(".category-level-categories")).toBeHidden();
-    await page
-      .locator(".category-level-departments .category-structure-row")
-      .first()
-      .click();
+    await page.locator(".category-level-departments .category-structure-row").first().click();
     await expect(page.locator(".category-level-departments")).toBeHidden();
     await expect(page.locator(".category-level-desks")).toBeVisible();
-    await expect(
-      page.getByRole("link", { name: "← Departments", exact: true }),
-    ).toBeVisible();
-    await page
-      .locator(".category-level-desks .category-structure-row")
-      .first()
-      .click();
+    await expect(page.getByRole("link", { name: "← Departments", exact: true })).toBeVisible();
+    await page.locator(".category-level-desks .category-structure-row").first().click();
     await expect(page.locator(".category-level-desks")).toBeHidden();
     await expect(page.locator(".category-level-categories")).toBeVisible();
-    await expect(
-      page.getByRole("link", { name: "← Desks", exact: true }),
-    ).toBeVisible();
+    await expect(page.getByRole("link", { name: "← Desks", exact: true })).toBeVisible();
   });
 
   test("lowest desk overflow menu keeps Edit desk reachable inside the catalog card", async ({
@@ -522,11 +438,9 @@ test.describe("Categories", () => {
     await loginAsSeeded(page);
     await page.goto(base() + "/categories?view=structure");
 
-    const department = page
-      .locator(".category-level-departments .category-structure-row")
-      .filter({
-        has: page.getByText("General", { exact: true }),
-      });
+    const department = page.locator(".category-level-departments .category-structure-row").filter({
+      has: page.getByText("General", { exact: true }),
+    });
     await expect(department).toHaveCount(1);
     const departmentHref = await department.getAttribute("href");
     const departmentID = departmentHref?.match(/department_id=(\d+)/)?.[1];
@@ -546,15 +460,11 @@ test.describe("Categories", () => {
         .click();
       const drawer = page.getByRole("dialog", { name: /New desk/i });
       await expect(drawer).toBeVisible();
-      await drawer
-        .locator("select[name=department_id]")
-        .selectOption(departmentID);
+      await drawer.locator("select[name=department_id]").selectOption(departmentID);
       await drawer.locator("#category-name").fill(name);
       await drawer.getByRole("button", { name: /create desk/i }).click();
       await expect(
-        page
-          .locator(".category-level-desks .category-structure-item")
-          .filter({ hasText: name }),
+        page.locator(".category-level-desks .category-structure-item").filter({ hasText: name }),
       ).toHaveCount(1);
     }
 
@@ -565,15 +475,11 @@ test.describe("Categories", () => {
       .click();
     const drawer = page.getByRole("dialog", { name: /New desk/i });
     await expect(drawer).toBeVisible();
-    await drawer
-      .locator("select[name=department_id]")
-      .selectOption(departmentID);
+    await drawer.locator("select[name=department_id]").selectOption(departmentID);
     await drawer.locator("#category-name").fill(targetName);
     await drawer.getByRole("button", { name: /create desk/i }).click();
 
-    const deskItems = page.locator(
-      ".category-level-desks .category-structure-item",
-    );
+    const deskItems = page.locator(".category-level-desks .category-structure-item");
     await expect(deskItems.last()).toContainText(targetName);
     const targetRow = deskItems.filter({ hasText: targetName });
     await expect(targetRow).toHaveCount(1);
@@ -588,27 +494,20 @@ test.describe("Categories", () => {
     const edit = menu.getByRole("menuitem", { name: "Edit desk", exact: true });
     await expect(edit).toBeVisible();
     const editBox = await edit.boundingBox();
-    if (!editBox)
-      throw new Error(
-        `Edit desk menuitem has no bounding box at ${page.url()}`,
-      );
+    if (!editBox) throw new Error(`Edit desk menuitem has no bounding box at ${page.url()}`);
     expect(editBox.y).toBeGreaterThanOrEqual(0);
     expect(editBox.y + editBox.height).toBeLessThanOrEqual(800);
     const hitTarget = await page.evaluate(
       ({ x, y }) => {
         const element = document.elementFromPoint(x, y);
-        return (
-          element?.closest('[role="menuitem"]')?.textContent?.trim() ?? null
-        );
+        return element?.closest('[role="menuitem"]')?.textContent?.trim() ?? null;
       },
       { x: editBox.x + editBox.width / 2, y: editBox.y + editBox.height / 2 },
     );
     expect(hitTarget).toBe("Edit desk");
   });
 
-  test("categories show a neutral status for categories without workflows", async ({
-    page,
-  }) => {
+  test("categories show a neutral status for categories without workflows", async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 800 });
     await loginAsSeeded(page);
     const name = "Unconfigured " + Date.now();
@@ -616,9 +515,7 @@ test.describe("Categories", () => {
     const row = page
       .locator(".category-level-categories .category-structure-item")
       .filter({ hasText: name });
-    await expect(
-      row.getByText("Not configured", { exact: true }),
-    ).toBeVisible();
+    await expect(row.getByText("Not configured", { exact: true })).toBeVisible();
     await expect(row.locator(".category-status-inline")).toBeVisible();
   });
 
@@ -640,9 +537,7 @@ test.describe("Categories", () => {
       .filter({ hasText: catName });
     await expect(row).toHaveCount(1);
     await row.getByRole("button", { name: /actions for/i }).click();
-    await row
-      .getByRole("menuitem", { name: "Edit category", exact: true })
-      .click();
+    await row.getByRole("menuitem", { name: "Edit category", exact: true }).click();
     const drawer = page.getByRole("dialog", { name: /Edit category/i });
     await expect(drawer).toBeVisible();
     const description = drawer.getByLabel("Description", { exact: true });
@@ -663,9 +558,7 @@ test.describe("Categories", () => {
       .locator(".category-level-categories .category-structure-item")
       .filter({ hasText: renamed });
     await editedRow.getByRole("button", { name: /actions for/i }).click();
-    await editedRow
-      .getByRole("menuitem", { name: "Edit category", exact: true })
-      .click();
+    await editedRow.getByRole("menuitem", { name: "Edit category", exact: true }).click();
     const clearedDrawer = page.getByRole("dialog", { name: /Edit category/i });
     await clearedDrawer.getByLabel("Description", { exact: true }).fill("");
     await clearedDrawer.getByRole("button", { name: /save changes/i }).click();
@@ -696,95 +589,89 @@ test.describe("Categories", () => {
     });
   });
 
-      test("category duplicate marks only name, keeps the draft, and saves after Stay", async ({ page }) => {
-        await page.setViewportSize({ width: 1280, height: 800 });
-        await loginAsSeeded(page);
-        await page.goto(
-          base() + "/categories/new?view=structure&department_id=1&desk_id=1",
-        );
+  test("category duplicate marks only name, keeps the draft, and saves after Stay", async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await loginAsSeeded(page);
+    await page.goto(base() + "/categories/new?view=structure&department_id=1&desk_id=1");
 
-        const drawer = page.getByRole("dialog", { name: /New category/i });
-            const name = drawer.getByLabel("Name", { exact: true });
-            const description = drawer.getByLabel("Description", { exact: true });
-            await expect(drawer).toHaveAttribute(
-              "aria-describedby",
-              "category-drawer-description",
-            );
-            await expect(drawer.locator("#category-drawer-description")).toHaveText(
-              "Use categories to group requests that follow the same workflow.",
-            );
-            await expect(name).toHaveAttribute("aria-describedby", "category-name-help");
-            await expect(drawer.locator("#category-name-help")).toHaveText(
-              "Category names must be globally unique.",
-            );
-            await name.fill("General");
-        await description.fill("Duplicate category draft");
+    const drawer = page.getByRole("dialog", { name: /New category/i });
+    const name = drawer.getByLabel("Name", { exact: true });
+    const description = drawer.getByLabel("Description", { exact: true });
+    await expect(drawer).toHaveAttribute("aria-describedby", "category-drawer-description");
+    await expect(drawer.locator("#category-drawer-description")).toHaveText(
+      "Use categories to group requests that follow the same workflow.",
+    );
+    await expect(name).toHaveAttribute("aria-describedby", "category-name-help");
+    await expect(drawer.locator("#category-name-help")).toHaveText(
+      "Category names must be globally unique.",
+    );
+    await name.fill("General");
+    await description.fill("Duplicate category draft");
 
-        await assertHtmxSwap(
-          page,
-          async () => {
-            await drawer.getByRole("button", { name: /create category/i }).click();
-          },
-          {
-            endpoint: "/categories",
-            method: "POST",
-            expectedStatus: 409,
-            hxTarget: "#category-drawer-host",
-          },
-        );
+    await assertHtmxSwap(
+      page,
+      async () => {
+        await drawer.getByRole("button", { name: /create category/i }).click();
+      },
+      {
+        endpoint: "/categories",
+        method: "POST",
+        expectedStatus: 409,
+        hxTarget: "#category-drawer-host",
+      },
+    );
 
-        await expect(name).toHaveAttribute("aria-invalid", "true");
-        await expect(name).toHaveAttribute("aria-describedby", "category-name-help");
-        await expect(drawer.getByLabel("Department", { exact: true })).not.toHaveAttribute(
-          "aria-invalid",
-          "true",
-        );
-        await expect(drawer.getByLabel("Desk", { exact: true })).not.toHaveAttribute(
-          "aria-invalid",
-          "true",
-        );
-        await expect(description).not.toHaveAttribute("aria-invalid", "true");
-        await expect(name).toHaveValue("General");
-        await expect(description).toHaveValue("Duplicate category draft");
-        await expect(name).toBeFocused();
+    await expect(name).toHaveAttribute("aria-invalid", "true");
+    await expect(name).toHaveAttribute("aria-describedby", "category-name-help");
+    await expect(drawer.getByLabel("Department", { exact: true })).not.toHaveAttribute(
+      "aria-invalid",
+      "true",
+    );
+    await expect(drawer.getByLabel("Desk", { exact: true })).not.toHaveAttribute(
+      "aria-invalid",
+      "true",
+    );
+    await expect(description).not.toHaveAttribute("aria-invalid", "true");
+    await expect(name).toHaveValue("General");
+    await expect(description).toHaveValue("Duplicate category draft");
+    await expect(name).toBeFocused();
 
-        await description.fill("Corrected category description");
-        await drawer
-          .getByRole("button", { name: "Close catalog details", exact: true })
-          .click();
-        const confirmation = page.getByRole("dialog", {
-          name: "Leave without saving?",
-        });
-        await expect(confirmation).toBeVisible();
-        await confirmation.getByRole("button", { name: "Stay", exact: true }).click();
-        await expect(description).toHaveValue("Corrected category description");
-        await expect(name).toHaveValue("General");
+    await description.fill("Corrected category description");
+    await drawer.getByRole("button", { name: "Close catalog details", exact: true }).click();
+    const confirmation = page.getByRole("dialog", {
+      name: "Leave without saving?",
+    });
+    await expect(confirmation).toBeVisible();
+    await confirmation.getByRole("button", { name: "Stay", exact: true }).click();
+    await expect(description).toHaveValue("Corrected category description");
+    await expect(name).toHaveValue("General");
 
-        const categoryName = "Validated category " + Date.now();
-        await name.fill(categoryName);
-        await assertHtmxSwap(
-          page,
-          async () => {
-            await drawer.getByRole("button", { name: /create category/i }).click();
-          },
-          {
-            endpoint: "/categories",
-            method: "POST",
-            expectedStatus: 200,
-            hxTarget: "#categories-background",
-            expectedUrl:
-              /\/categories\?department_id=1&desk_id=1&view=structure$/,
-          },
-        );
-        await expect(drawer).toHaveCount(0);
-        await expect(
-          page
-            .locator(".category-level-categories .category-structure-item")
-            .filter({ hasText: categoryName }),
-        ).toBeVisible();
-      });
+    const categoryName = "Validated category " + Date.now();
+    await name.fill(categoryName);
+    await assertHtmxSwap(
+      page,
+      async () => {
+        await drawer.getByRole("button", { name: /create category/i }).click();
+      },
+      {
+        endpoint: "/categories",
+        method: "POST",
+        expectedStatus: 200,
+        hxTarget: "#categories-background",
+        expectedUrl: /\/categories\?department_id=1&desk_id=1&view=structure$/,
+      },
+    );
+    await expect(drawer).toHaveCount(0);
+    await expect(
+      page
+        .locator(".category-level-categories .category-structure-item")
+        .filter({ hasText: categoryName }),
+    ).toBeVisible();
+  });
 
-      test("dirty category drawer backdrop Stay restores the prior form control", async ({ page }) => {
+  test("dirty category drawer backdrop Stay restores the prior form control", async ({ page }) => {
     await loginAsSeeded(page);
     const drawerURL = base() + "/categories/new?view=structure&department_id=1&desk_id=1";
     await page.goto(drawerURL);
@@ -794,7 +681,7 @@ test.describe("Categories", () => {
     await page.locator(".category-drawer-backdrop").click({ position: { x: 5, y: 5 } });
 
     const confirmation = page.getByRole("dialog", {
-name: "Leave without saving?",
+      name: "Leave without saving?",
     });
     await expect(confirmation).toBeVisible();
     await expect(confirmation.getByRole("heading")).toHaveText("Leave without saving?");
@@ -816,12 +703,8 @@ name: "Leave without saving?",
     await page.setViewportSize({ width: 1280, height: 800 });
     await loginAsSeeded(page);
     await page.goto(base() + "/categories?view=structure");
-    await page
-      .getByRole("link", { name: /General General ticket requests/i })
-      .click();
-        await page
-          .locator('a[href="/categories?view=structure&department_id=1&desk_id=1"]')
-          .click();
+    await page.getByRole("link", { name: /General General ticket requests/i }).click();
+    await page.locator('a[href="/categories?view=structure&department_id=1&desk_id=1"]').click();
 
     const launcher = page.getByRole("link", {
       name: "New category",
@@ -834,15 +717,13 @@ name: "Leave without saving?",
       name: "Close catalog details",
       exact: true,
     });
-    await expect(page).toHaveURL(
-      /\/categories\/new\?view=structure&department_id=1&desk_id=1$/,
-    );
+    await expect(page).toHaveURL(/\/categories\/new\?view=structure&department_id=1&desk_id=1$/);
     let drawerURL = page.url();
     await name.fill("Unsaved category");
 
     await close.click();
     const confirmation = page.getByRole("dialog", {
-      name: "Leave without saving?"
+      name: "Leave without saving?",
     });
     const stay = confirmation.getByRole("button", { name: "Stay", exact: true });
     await expect(confirmation).toBeVisible();
@@ -851,434 +732,454 @@ name: "Leave without saving?",
     await expect(confirmation).toBeHidden();
     await expect(name).toHaveValue("Unsaved category");
     await expect(page).toHaveURL(drawerURL);
-        await expect(close).toBeFocused();
+    await expect(close).toBeFocused();
 
-        await name.fill("");
-        await close.click();
-        await expect(drawer).toHaveCount(0);
-        await expect(page).toHaveURL(
-          /\/categories\?view=structure&department_id=1&desk_id=1$/,
-        );
-        await launcher.click();
-        await expect(drawer).toBeVisible();
-        await expect(page).toHaveURL(
-          /\/categories\/new\?view=structure&department_id=1&desk_id=1$/,
-        );
-        drawerURL = page.url();
-        await name.fill("Unsaved category");
-        await page.goBack();
+    await name.fill("");
+    await close.click();
+    await expect(drawer).toHaveCount(0);
+    await expect(page).toHaveURL(/\/categories\?view=structure&department_id=1&desk_id=1$/);
+    await launcher.click();
+    await expect(drawer).toBeVisible();
+    await expect(page).toHaveURL(/\/categories\/new\?view=structure&department_id=1&desk_id=1$/);
+    drawerURL = page.url();
+    await name.fill("Unsaved category");
+    await page.goBack();
     await expect(confirmation).toBeVisible();
     await expect(page).toHaveURL(drawerURL);
     await confirmation.getByRole("button", { name: "Discard changes", exact: true }).click();
     await expect(drawer).toHaveCount(0);
-    await expect(page).toHaveURL(
-      /\/categories\?view=structure&department_id=1&desk_id=1$/,
-    );
+    await expect(page).toHaveURL(/\/categories\?view=structure&department_id=1&desk_id=1$/);
     await expect(launcher).toBeFocused();
   });
 
   test("dirty department and desk drawers require an explicit discard", async ({ page }) => {
-        await loginAsSeeded(page);
-        await page.goto(base() + "/categories/departments/1/edit?view=structure");
+    await loginAsSeeded(page);
+    await page.goto(base() + "/categories/departments/1/edit?view=structure");
 
-            const department = page.getByRole("dialog", { name: /Edit department/i });
-            const departmentName = department.getByLabel("Name", { exact: true });
-            await expect(department).toHaveAttribute(
-              "aria-describedby",
-              "department-drawer-description",
-            );
-            await expect(department.locator("#department-drawer-description")).toHaveText(
-              "Use departments to group desks that support the same part of the organization.",
-            );
-            await expect(departmentName).toHaveAttribute(
-              "aria-describedby",
-              "department-name-help",
-            );
-            await expect(department.locator("#department-name-help")).toHaveText(
-              "Department names must be globally unique.",
-            );
-            await departmentName.fill("Unsaved department");
-        await department.getByRole("button", { name: "Close catalog details" }).click();
+    const department = page.getByRole("dialog", { name: /Edit department/i });
+    const departmentName = department.getByLabel("Name", { exact: true });
+    await expect(department).toHaveAttribute("aria-describedby", "department-drawer-description");
+    await expect(department.locator("#department-drawer-description")).toHaveText(
+      "Use departments to group desks that support the same part of the organization.",
+    );
+    await expect(departmentName).toHaveAttribute("aria-describedby", "department-name-help");
+    await expect(department.locator("#department-name-help")).toHaveText(
+      "Department names must be globally unique.",
+    );
+    await departmentName.fill("Unsaved department");
+    await department.getByRole("button", { name: "Close catalog details" }).click();
 
-        const confirmation = page.getByRole("dialog", {
-          name: "Leave without saving?",
-        });
-        await expect(confirmation).toBeVisible();
-        await expect(
-          confirmation.getByRole("button", { name: "Stay", exact: true }),
-        ).toBeFocused();
-        await confirmation.getByRole("button", { name: "Stay", exact: true }).click();
-        await expect(departmentName).toHaveValue("Unsaved department");
-        await expect(page).toHaveURL(/\/categories\/departments\/1\/edit/);
-        await department.getByRole("button", { name: "Close catalog details" }).click();
-        await confirmation
-          .getByRole("button", { name: "Discard changes", exact: true })
-          .click();
-        await expect(department).toHaveCount(0);
+    const confirmation = page.getByRole("dialog", {
+      name: "Leave without saving?",
+    });
+    await expect(confirmation).toBeVisible();
+    await expect(confirmation.getByRole("button", { name: "Stay", exact: true })).toBeFocused();
+    await confirmation.getByRole("button", { name: "Stay", exact: true }).click();
+    await expect(departmentName).toHaveValue("Unsaved department");
+    await expect(page).toHaveURL(/\/categories\/departments\/1\/edit/);
+    await department.getByRole("button", { name: "Close catalog details" }).click();
+    await confirmation.getByRole("button", { name: "Discard changes", exact: true }).click();
+    await expect(department).toHaveCount(0);
 
-        await page.goto(
-          base() + "/categories/desks/1/edit?view=structure&department_id=1&desk_id=1",
-        );
-            const desk = page.getByRole("dialog", { name: /Edit desk/i });
-            const description = desk.getByLabel("Description", { exact: true });
-            const deskName = desk.getByLabel("Name", { exact: true });
-            await expect(desk).toHaveAttribute(
-              "aria-describedby",
-              "desk-drawer-description",
-            );
-            await expect(desk.locator("#desk-drawer-description")).toHaveText(
-              "Use desks to group categories for the team that handles them.",
-            );
-            await expect(deskName).toHaveAttribute("aria-describedby", "desk-name-help");
-            await expect(desk.locator("#desk-name-help")).toHaveText(
-              "Desk names must be globally unique.",
-            );
-            await description.fill("Unsaved desk description");
-        await desk.getByRole("button", { name: "Cancel", exact: true }).click();
-        await expect(confirmation).toBeVisible();
-        await confirmation
-          .getByRole("button", { name: "Discard changes", exact: true })
-          .click();
-        await expect(desk).toHaveCount(0);
-        await expect(page).toHaveURL(/\/categories\?(?=.*view=structure)(?=.*department_id=1)(?=.*desk_id=1)/);
-      });
+    await page.goto(base() + "/categories/desks/1/edit?view=structure&department_id=1&desk_id=1");
+    const desk = page.getByRole("dialog", { name: /Edit desk/i });
+    const description = desk.getByLabel("Description", { exact: true });
+    const deskName = desk.getByLabel("Name", { exact: true });
+    await expect(desk).toHaveAttribute("aria-describedby", "desk-drawer-description");
+    await expect(desk.locator("#desk-drawer-description")).toHaveText(
+      "Use desks to group categories for the team that handles them.",
+    );
+    await expect(deskName).toHaveAttribute("aria-describedby", "desk-name-help");
+    await expect(desk.locator("#desk-name-help")).toHaveText("Desk names must be globally unique.");
+    await description.fill("Unsaved desk description");
+    await desk.getByRole("button", { name: "Cancel", exact: true }).click();
+    await expect(confirmation).toBeVisible();
+    await confirmation.getByRole("button", { name: "Discard changes", exact: true }).click();
+    await expect(desk).toHaveCount(0);
+    await expect(page).toHaveURL(
+      /\/categories\?(?=.*view=structure)(?=.*department_id=1)(?=.*desk_id=1)/,
+    );
+  });
 
-      test("history restoration does not revive a stale category save confirmation", async ({ page }) => {
-        test.setTimeout(30_000);
-        await page.setViewportSize({ width: 1280, height: 800 });
-        await loginAsSeeded(page);
-        const listPath = "/categories?view=structure&department_id=1&desk_id=1";
-        await page.goto(base() + listPath);
+  test("history restoration does not revive a stale category save confirmation", async ({
+    page,
+  }) => {
+    test.setTimeout(30_000);
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await loginAsSeeded(page);
+    const listPath = "/categories?view=structure&department_id=1&desk_id=1";
+    await page.goto(base() + listPath);
 
-        const launcher = page.getByRole("link", {
-          name: "New category",
-          exact: true,
-        });
-        await launcher.click();
-        const drawer = page.getByRole("dialog", { name: /New category/i });
-        await expect(drawer).toBeVisible();
-        const categoryName = "History confirmation " + Date.now().toString(36).slice(2, 8);
-        await drawer.getByLabel("Name", { exact: true }).fill(categoryName);
-        await assertHtmxSwap(
-          page,
-          () => drawer.getByRole("button", { name: /create category/i }).click(),
-          {
-            endpoint: "/categories",
-            method: "POST",
-            expectedStatus: 200,
-            hxTarget: "#categories-background",
-            expectedUrl: /\/categories\?department_id=1&desk_id=1&view=structure$/,
-          },
-        );
-        const feedback = page.locator("#save-feedback");
-        await expect(feedback).toBeVisible();
+    const launcher = page.getByRole("link", {
+      name: "New category",
+      exact: true,
+    });
+    await launcher.click();
+    const drawer = page.getByRole("dialog", { name: /New category/i });
+    await expect(drawer).toBeVisible();
+    const categoryName = "History confirmation " + Date.now().toString(36).slice(2, 8);
+    await drawer.getByLabel("Name", { exact: true }).fill(categoryName);
+    await assertHtmxSwap(
+      page,
+      () => drawer.getByRole("button", { name: /create category/i }).click(),
+      {
+        endpoint: "/categories",
+        method: "POST",
+        expectedStatus: 200,
+        hxTarget: "#categories-background",
+        expectedUrl: /\/categories\?department_id=1&desk_id=1&view=structure$/,
+      },
+    );
+    const feedback = page.locator("#save-feedback");
+    await expect(feedback).toBeVisible();
 
-        await assertDrawerHtmxSwap(
-          page,
-          () => launcher.click(),
-          {
-            endpoint: (url) => new URL(url).pathname === "/categories/new",
-            expectedUrl: /\/categories\/new\?view=structure&department_id=1&desk_id=1$/,
-          },
-        );
-        await expect(drawer).toBeVisible();
-        await page.waitForTimeout(5_100);
+    await assertDrawerHtmxSwap(page, () => launcher.click(), {
+      endpoint: (url) => new URL(url).pathname === "/categories/new",
+      expectedUrl: /\/categories\/new\?view=structure&department_id=1&desk_id=1$/,
+    });
+    await expect(drawer).toBeVisible();
+    await page.waitForTimeout(5_100);
 
-        await page.goBack();
-        await expect.poll(() => new URL(page.url()).pathname).toBe("/categories");
-        expect([...new URL(page.url()).searchParams.entries()].sort()).toEqual(
-          [...new URL(base() + listPath).searchParams.entries()].sort(),
-        );
-        await expect(page.locator("h1").filter({ hasText: "Categories" })).toBeVisible();
-        await expect(page.getByRole("dialog", { name: /New category/i })).toHaveCount(0);
-        await expect(
-          page
-            .locator(".category-level-categories .category-structure-item")
-            .filter({ hasText: categoryName }),
-        ).toBeVisible();
-        await expect(feedback).toBeHidden();
-      });
+    await page.goBack();
+    await expect.poll(() => new URL(page.url()).pathname).toBe("/categories");
+    expect([...new URL(page.url()).searchParams.entries()].sort()).toEqual(
+      [...new URL(base() + listPath).searchParams.entries()].sort(),
+    );
+    await expect(page.locator("h1").filter({ hasText: "Categories" })).toBeVisible();
+    await expect(page.getByRole("dialog", { name: /New category/i })).toHaveCount(0);
+    await expect(
+      page
+        .locator(".category-level-categories .category-structure-item")
+        .filter({ hasText: categoryName }),
+    ).toBeVisible();
+    await expect(feedback).toBeHidden();
+  });
 
-      test("an aborted read-only workflow step selection cannot suppress a concurrent save failure", async ({ page }) => {
-        await page.setViewportSize({ width: 1280, height: 800 });
-        await loginAsSeeded(page);
+  test("an aborted read-only workflow step selection cannot suppress a concurrent save failure", async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await loginAsSeeded(page);
 
-        const categoryID = await createCategoryViaUi(page, "Selection feedback " + Date.now().toString(36).slice(2, 8));
-        const workflowPath = `/categories/${categoryID}/workflow`;
-        await page.goto(base() + workflowPath);
+    const categoryID = await createCategoryViaUi(
+      page,
+      "Selection feedback " + Date.now().toString(36).slice(2, 8),
+    );
+    const workflowPath = `/categories/${categoryID}/workflow`;
+    await page.goto(base() + workflowPath);
 
-        for (let step = 0; step < 2; step += 1) {
-          await page.locator(".workflow-add-popover summary").last().click();
-          const response = await assertHtmxSwap(
-            page,
-            () => page.getByRole("button", { name: "Manual task", exact: true }).last().click(),
-            {
-              endpoint: (url) => {
-                const requestURL = new URL(url);
-                return requestURL.pathname === workflowPath && requestURL.searchParams.get("add_step_type") === "manual_task";
-              },
-              method: "POST",
-              expectedStatus: 200,
-              hxTarget: "#workflow-builder",
-            },
-          );
-          expect(new URLSearchParams(response.request().postData() ?? "").get("action")).toBe("add_step");
-        }
-
-        const feedback = page.locator("#save-feedback");
-        await expect(feedback).toContainText("Saved");
-        await feedback.getByRole("button", { name: "Dismiss confirmation" }).click();
-        await expect(feedback).toBeHidden();
-
-            const instructions = page.getByLabel("Instructions", { exact: true });
-            await expect(instructions).toBeVisible();
-            // The editor normally queues same-form requests. Remove that one
-            // transport guard here to exercise the feedback listener's own
-            // per-request ordering with a concurrent read-only POST.
-            await page.locator("#workflow-form").evaluate((form) => form.removeAttribute("hx-sync"));
-            let releaseSaveAbort: () => void = () => undefined;
-            let markSaveRequestSeen!: () => void;
-            const saveRequestSeen = new Promise<void>((resolve) => {
-              markSaveRequestSeen = resolve;
-            });
-            let saveAborted = false;
-            let selectionAborted = false;
-            const abortConcurrentRequests = async (route: Route) => {
-              const request = route.request();
-              if (isHtmxPost(request, { path: workflowPath, action: "save", target: "#workflow-builder" })) {
-                markSaveRequestSeen();
-                await new Promise<void>((resolve) => {
-                  releaseSaveAbort = resolve;
-                });
-                await route.abort("failed");
-                saveAborted = true;
-                return;
-              }
-              if (isHtmxPost(request, { path: workflowPath, action: "select_step", target: "#workflow-builder" })) {
-                await route.abort("failed");
-                selectionAborted = true;
-                return;
-              }
-              await route.continue();
-            };
-            await page.route((url) => url.pathname === workflowPath, abortConcurrentRequests);
-            try {
-              const attemptedValue = "This save fails after a read-only selection";
-              const saveRequest = page.waitForRequest((request) =>
-                isHtmxPost(request, { path: workflowPath, action: "save", target: "#workflow-builder" }),
-              );
-              await instructions.fill(attemptedValue);
-              await page
-                .locator('.page-actions button[name="action"][value="save"]')
-                .click();
-              await saveRequest;
-              await saveRequestSeen;
-
-              const selectionRequest = page.waitForRequest((request) =>
-                isHtmxPost(request, { path: workflowPath, action: "select_step", target: "#workflow-builder" }),
-              );
-              await page.locator(".workflow-step-card-link").nth(0).click();
-              const request = await selectionRequest;
-              expect(request.headers()["hx-request"]).toBe("true");
-              expect(request.headers()["hx-target"]).toBe("workflow-builder");
-              expect(new URLSearchParams(request.postData() ?? "").get("action")).toBe("select_step");
-              await expect.poll(() => selectionAborted).toBe(true);
-
-              releaseSaveAbort();
-              await expect.poll(() => saveAborted).toBe(true);
-              await expect(feedback.locator(".save-feedback-message")).toHaveText("Unable to save changes. Please try again.");
-              await expect(feedback).toHaveAttribute("role", "alert");
-              await expect(instructions).toHaveValue(attemptedValue);
-            } finally {
-              releaseSaveAbort();
-              await page.unroute((url) => url.pathname === workflowPath, abortConcurrentRequests);
-            }
-      });
-
-      test("workflow feedback retires success for validation and a read-only selection cannot suppress a transport failure", async ({ page }) => {
-        test.setTimeout(60_000);
-        await page.setViewportSize({ width: 1280, height: 800 });
-        await loginAsSeeded(page);
-
-        const categoryName = "Feedback flow " + Date.now().toString(36).slice(2, 8);
-        await createCategoryViaUi(page, categoryName);
-        const category = page
-          .locator(".category-level-categories .category-structure-item")
-          .filter({ hasText: categoryName });
-        const editHref = await category.locator('a[href*="/edit"]').getAttribute("href");
-        const categoryID = editHref?.match(/\/categories\/(\d+)\/edit/)?.[1];
-        if (!categoryID) throw new Error(`Could not resolve workflow category at ${page.url()}`);
-        const workflowPath = `/categories/${categoryID}/workflow`;
-        await page.goto(base() + workflowPath);
-
-        await page.locator(".workflow-add-step summary").first().click();
-        const addResponse = await assertHtmxSwap(
-          page,
-          () => page.getByRole("button", { name: "Manual task", exact: true }).first().click(),
-          {
-            endpoint: (url) => {
-              const requestURL = new URL(url);
-              return requestURL.pathname === workflowPath && requestURL.searchParams.get("add_step_type") === "manual_task";
-            },
-            method: "POST",
-            expectedStatus: 200,
-            hxTarget: "#workflow-builder",
-          },
-        );
-        expect(addResponse.headers()["x-save-feedback"]).toContain('"message":"Saved"');
-        const instructions = page.getByLabel("Instructions", { exact: true });
-        await expect(instructions).toBeVisible();
-
-        await expect(page.locator("#save-feedback .save-feedback-message")).toHaveText("Saved");
-        await expect(instructions).toHaveValue("");
-        const invalidPublish = await assertHtmxSwap(
-          page,
-          () => page.getByRole("button", { name: "Publish", exact: true }).click(),
-          { endpoint: workflowPath, method: "POST", expectedStatus: 422, hxTarget: "#workflow-builder" },
-        );
-        expect(invalidPublish.headers()["x-save-feedback"]).toBeUndefined();
-        const validationAlert = page.locator(".error-banner[role='alert']");
-        await expect(validationAlert).toBeVisible();
-        await expect(validationAlert).toHaveClass(/error-banner/);
-        await expect(instructions).toHaveValue("");
-        await expect(instructions).toBeFocused();
-        await expect(page.locator("#save-feedback")).toBeHidden();
-        await page.waitForTimeout(5_100);
-        await expect(validationAlert).toBeVisible();
-        await expect(validationAlert).toHaveAttribute("role", "alert");
-        await expect(page.locator("#save-feedback")).toBeHidden();
-
-            const recoveredInstructions = "Recover this workflow";
-            const recoveryRequest = page.waitForRequest((request) => {
-              if (request.method() !== "POST" || request.headers()["hx-request"] !== "true") return false;
-              const requestURL = new URL(request.url());
-              if (requestURL.pathname !== workflowPath || requestURL.search !== "") return false;
-              const form = new URLSearchParams(request.postData() ?? "");
-              return form.get("action") === "save" && form.get("step_0_instructions") === recoveredInstructions;
-            });
-            await assertHtmxSwap(
-              page,
-              async () => {
-                await instructions.fill(recoveredInstructions);
-                await page
-                  .locator('.page-actions button[name="action"][value="save"]')
-                  .click();
-              },
-              { endpoint: workflowPath, method: "POST", expectedStatus: 200, hxTarget: "#workflow-builder" },
-            );
-            await recoveryRequest;
-            await expect(page.locator("#save-feedback .save-feedback-message")).toHaveText("Saved");
-            await page.reload();
-        await expect(instructions).toHaveValue(recoveredInstructions);
-        await expect(page.locator(".error-banner[role='alert']")).toHaveCount(0);
-
-            const abortMatcher = (url: URL) => url.pathname === workflowPath;
-            let aborted = false;
-            const abortRequest = async (route: Route) => {
-              if (route.request().method() === "POST") {
-                await route.abort("failed");
-                aborted = true;
-                return;
-              }
-              await route.continue();
-            };
-                await page.route(abortMatcher, abortRequest);
-                try {
-                  await instructions.fill("This value stays in the editor");
-                  await page
-                    .locator('.page-actions button[name="action"][value="save"]')
-                    .click();
-                  await expect.poll(() => aborted).toBe(true);
-              const feedback = page.locator("#save-feedback");
-              await expect(feedback.locator(".save-feedback-message")).toHaveText("Unable to save changes. Please try again.");
-              await expect(feedback).toHaveAttribute("role", "alert");
-              await expect(feedback).toHaveAttribute("aria-live", "assertive");
-                  await expect(instructions).toHaveValue("This value stays in the editor");
-                  await page.waitForTimeout(5_100);
-                  await expect(feedback).toBeVisible();
-                } finally {
-                  await page.unroute(abortMatcher, abortRequest);
-                }
-          });
-
-          test("workflow save and publish update the same coalesced toast and restart its timer", async ({ page }) => {
-            test.setTimeout(30_000);
-            await page.setViewportSize({ width: 1280, height: 800 });
-            await loginAsSeeded(page);
-
-            const categoryName = "Coalesced toast " + Date.now().toString(36).slice(2, 8);
-            await createCategoryViaUi(page, categoryName);
-            const category = page
-              .locator(".category-level-categories .category-structure-item")
-              .filter({ hasText: categoryName });
-            const editHref = await category.locator('a[href*="/edit"]').getAttribute("href");
-            const categoryID = editHref?.match(/\/categories\/(\d+)\/edit/)?.[1];
-            if (!categoryID) throw new Error(`Could not resolve workflow category at ${page.url()}`);
-            const workflowPath = `/categories/${categoryID}/workflow`;
-            await page.goto(base() + workflowPath);
-
-            await page.locator(".workflow-add-step summary").first().click();
-            const addResponse = await assertHtmxSwap(
-              page,
-              () => page.getByRole("button", { name: "Manual task", exact: true }).first().click(),
-              {
-                endpoint: (url) => {
-                  const requestURL = new URL(url);
-                  return requestURL.pathname === workflowPath && requestURL.searchParams.get("add_step_type") === "manual_task";
-                },
-                method: "POST",
-                expectedStatus: 200,
-                hxTarget: "#workflow-builder",
-              },
-            );
-            expect(addResponse.headers()["x-save-feedback"]).toContain('"message":"Saved"');
-            const toast = page.locator("#save-feedback");
-            await expect(toast).toBeVisible();
-            await expect(toast.locator(".save-feedback-message")).toHaveText("Saved");
-
-                // An explicit Save arrives before the first toast expires: the same
-                // element must update in place (no exit/re-enter, no second region)
-                // and restart the timer.
-                const instructions = page.getByLabel("Instructions", { exact: true });
-                await expect(instructions).toBeVisible();
-                await page.waitForTimeout(3_000);
-                await assertHtmxSwap(
-                  page,
-                  async () => {
-                    await instructions.fill("Coalesced save");
-                    await page
-                      .locator('.page-actions button[name="action"][value="save"]')
-                      .click();
-                  },
-                  { endpoint: workflowPath, method: "POST", expectedStatus: 200, hxTarget: "#workflow-builder" },
-                );
-            await expect(toast.locator(".save-feedback-message")).toHaveText("Saved");
-            await expect(toast).toHaveClass(/(?:^|\s)is-visible(?:\s|$)/);
-            await expect(toast).toBeVisible();
-            await expect(page.locator("#save-feedback")).toHaveCount(1);
-
-            // Past the original 5s window the restarted timer must still hold the toast open.
-            await page.waitForTimeout(2_500);
-            await expect(toast).toBeVisible();
-
-            // Publishing re-renders the same draft, so the builder HTML is
-            // byte-identical; the server contract is the exact POST plus the
-            // Published feedback header, and the visible result is the toast.
-            const publishResponse = await assertHtmxNoSwap(
-              page,
-              () => page.getByRole("button", { name: "Publish", exact: true }).click(),
-              { endpoint: workflowPath, method: "POST", expectedStatus: 200 },
-            );
-            expect(publishResponse.headers()["x-save-feedback"]).toContain("Published");
-            await expect(toast.locator(".save-feedback-message")).toHaveText("Published");
-            await expect(page.locator("#save-feedback")).toHaveCount(1);
-            await page.waitForTimeout(5_100);
-            await expect(toast).toBeHidden();
-          });
-
-          test("workflow builder integrated journey: create category, add step, publish, reload, create ticket, verify published workflow in ticket", async ({
+    for (let step = 0; step < 2; step += 1) {
+      await page.locator(".workflow-add-popover summary").last().click();
+      const response = await assertHtmxSwap(
         page,
-      }) => {
+        () => page.getByRole("button", { name: "Manual task", exact: true }).last().click(),
+        {
+          endpoint: (url) => {
+            const requestURL = new URL(url);
+            return (
+              requestURL.pathname === workflowPath &&
+              requestURL.searchParams.get("add_step_type") === "manual_task"
+            );
+          },
+          method: "POST",
+          expectedStatus: 200,
+          hxTarget: "#workflow-builder",
+        },
+      );
+      expect(new URLSearchParams(response.request().postData() ?? "").get("action")).toBe(
+        "add_step",
+      );
+    }
+
+    const feedback = page.locator("#save-feedback");
+    await expect(feedback).toContainText("Saved");
+    await feedback.getByRole("button", { name: "Dismiss confirmation" }).click();
+    await expect(feedback).toBeHidden();
+
+    const instructions = page.getByLabel("Instructions", { exact: true });
+    await expect(instructions).toBeVisible();
+    // The editor normally queues same-form requests. Remove that one
+    // transport guard here to exercise the feedback listener's own
+    // per-request ordering with a concurrent read-only POST.
+    await page.locator("#workflow-form").evaluate((form) => form.removeAttribute("hx-sync"));
+    let releaseSaveAbort: () => void = () => undefined;
+    let markSaveRequestSeen!: () => void;
+    const saveRequestSeen = new Promise<void>((resolve) => {
+      markSaveRequestSeen = resolve;
+    });
+    let saveAborted = false;
+    let selectionAborted = false;
+    const abortConcurrentRequests = async (route: Route) => {
+      const request = route.request();
+      if (
+        isHtmxPost(request, { path: workflowPath, action: "save", target: "#workflow-builder" })
+      ) {
+        markSaveRequestSeen();
+        await new Promise<void>((resolve) => {
+          releaseSaveAbort = resolve;
+        });
+        await route.abort("failed");
+        saveAborted = true;
+        return;
+      }
+      if (
+        isHtmxPost(request, {
+          path: workflowPath,
+          action: "select_step",
+          target: "#workflow-builder",
+        })
+      ) {
+        await route.abort("failed");
+        selectionAborted = true;
+        return;
+      }
+      await route.continue();
+    };
+    await page.route((url) => url.pathname === workflowPath, abortConcurrentRequests);
+    try {
+      const attemptedValue = "This save fails after a read-only selection";
+      const saveRequest = page.waitForRequest((request) =>
+        isHtmxPost(request, { path: workflowPath, action: "save", target: "#workflow-builder" }),
+      );
+      await instructions.fill(attemptedValue);
+      await page.locator('.page-actions button[name="action"][value="save"]').click();
+      await saveRequest;
+      await saveRequestSeen;
+
+      const selectionRequest = page.waitForRequest((request) =>
+        isHtmxPost(request, {
+          path: workflowPath,
+          action: "select_step",
+          target: "#workflow-builder",
+        }),
+      );
+      await page.locator(".workflow-step-card-link").nth(0).click();
+      const request = await selectionRequest;
+      expect(request.headers()["hx-request"]).toBe("true");
+      expect(request.headers()["hx-target"]).toBe("workflow-builder");
+      expect(new URLSearchParams(request.postData() ?? "").get("action")).toBe("select_step");
+      await expect.poll(() => selectionAborted).toBe(true);
+
+      releaseSaveAbort();
+      await expect.poll(() => saveAborted).toBe(true);
+      await expect(feedback.locator(".save-feedback-message")).toHaveText(
+        "Unable to save changes. Please try again.",
+      );
+      await expect(feedback).toHaveAttribute("role", "alert");
+      await expect(instructions).toHaveValue(attemptedValue);
+    } finally {
+      releaseSaveAbort();
+      await page.unroute((url) => url.pathname === workflowPath, abortConcurrentRequests);
+    }
+  });
+
+  test("workflow feedback retires success for validation and a read-only selection cannot suppress a transport failure", async ({
+    page,
+  }) => {
+    test.setTimeout(60_000);
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await loginAsSeeded(page);
+
+    const categoryName = "Feedback flow " + Date.now().toString(36).slice(2, 8);
+    await createCategoryViaUi(page, categoryName);
+    const category = page
+      .locator(".category-level-categories .category-structure-item")
+      .filter({ hasText: categoryName });
+    const editHref = await category.locator('a[href*="/edit"]').getAttribute("href");
+    const categoryID = editHref?.match(/\/categories\/(\d+)\/edit/)?.[1];
+    if (!categoryID) throw new Error(`Could not resolve workflow category at ${page.url()}`);
+    const workflowPath = `/categories/${categoryID}/workflow`;
+    await page.goto(base() + workflowPath);
+
+    await page.locator(".workflow-add-step summary").first().click();
+    const addResponse = await assertHtmxSwap(
+      page,
+      () => page.getByRole("button", { name: "Manual task", exact: true }).first().click(),
+      {
+        endpoint: (url) => {
+          const requestURL = new URL(url);
+          return (
+            requestURL.pathname === workflowPath &&
+            requestURL.searchParams.get("add_step_type") === "manual_task"
+          );
+        },
+        method: "POST",
+        expectedStatus: 200,
+        hxTarget: "#workflow-builder",
+      },
+    );
+    expect(addResponse.headers()["x-save-feedback"]).toContain('"message":"Saved"');
+    const instructions = page.getByLabel("Instructions", { exact: true });
+    await expect(instructions).toBeVisible();
+
+    await expect(page.locator("#save-feedback .save-feedback-message")).toHaveText("Saved");
+    await expect(instructions).toHaveValue("");
+    const invalidPublish = await assertHtmxSwap(
+      page,
+      () => page.getByRole("button", { name: "Publish", exact: true }).click(),
+      {
+        endpoint: workflowPath,
+        method: "POST",
+        expectedStatus: 422,
+        hxTarget: "#workflow-builder",
+      },
+    );
+    expect(invalidPublish.headers()["x-save-feedback"]).toBeUndefined();
+    const validationAlert = page.locator(".error-banner[role='alert']");
+    await expect(validationAlert).toBeVisible();
+    await expect(validationAlert).toHaveClass(/error-banner/);
+    await expect(instructions).toHaveValue("");
+    await expect(instructions).toBeFocused();
+    await expect(page.locator("#save-feedback")).toBeHidden();
+    await page.waitForTimeout(5_100);
+    await expect(validationAlert).toBeVisible();
+    await expect(validationAlert).toHaveAttribute("role", "alert");
+    await expect(page.locator("#save-feedback")).toBeHidden();
+
+    const recoveredInstructions = "Recover this workflow";
+    const recoveryRequest = page.waitForRequest((request) => {
+      if (request.method() !== "POST" || request.headers()["hx-request"] !== "true") return false;
+      const requestURL = new URL(request.url());
+      if (requestURL.pathname !== workflowPath || requestURL.search !== "") return false;
+      const form = new URLSearchParams(request.postData() ?? "");
+      return (
+        form.get("action") === "save" && form.get("step_0_instructions") === recoveredInstructions
+      );
+    });
+    await assertHtmxSwap(
+      page,
+      async () => {
+        await instructions.fill(recoveredInstructions);
+        await page.locator('.page-actions button[name="action"][value="save"]').click();
+      },
+      {
+        endpoint: workflowPath,
+        method: "POST",
+        expectedStatus: 200,
+        hxTarget: "#workflow-builder",
+      },
+    );
+    await recoveryRequest;
+    await expect(page.locator("#save-feedback .save-feedback-message")).toHaveText("Saved");
+    await page.reload();
+    await expect(instructions).toHaveValue(recoveredInstructions);
+    await expect(page.locator(".error-banner[role='alert']")).toHaveCount(0);
+
+    const abortMatcher = (url: URL) => url.pathname === workflowPath;
+    let aborted = false;
+    const abortRequest = async (route: Route) => {
+      if (route.request().method() === "POST") {
+        await route.abort("failed");
+        aborted = true;
+        return;
+      }
+      await route.continue();
+    };
+    await page.route(abortMatcher, abortRequest);
+    try {
+      await instructions.fill("This value stays in the editor");
+      await page.locator('.page-actions button[name="action"][value="save"]').click();
+      await expect.poll(() => aborted).toBe(true);
+      const feedback = page.locator("#save-feedback");
+      await expect(feedback.locator(".save-feedback-message")).toHaveText(
+        "Unable to save changes. Please try again.",
+      );
+      await expect(feedback).toHaveAttribute("role", "alert");
+      await expect(feedback).toHaveAttribute("aria-live", "assertive");
+      await expect(instructions).toHaveValue("This value stays in the editor");
+      await page.waitForTimeout(5_100);
+      await expect(feedback).toBeVisible();
+    } finally {
+      await page.unroute(abortMatcher, abortRequest);
+    }
+  });
+
+  test("workflow save and publish update the same coalesced toast and restart its timer", async ({
+    page,
+  }) => {
+    test.setTimeout(30_000);
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await loginAsSeeded(page);
+
+    const categoryName = "Coalesced toast " + Date.now().toString(36).slice(2, 8);
+    await createCategoryViaUi(page, categoryName);
+    const category = page
+      .locator(".category-level-categories .category-structure-item")
+      .filter({ hasText: categoryName });
+    const editHref = await category.locator('a[href*="/edit"]').getAttribute("href");
+    const categoryID = editHref?.match(/\/categories\/(\d+)\/edit/)?.[1];
+    if (!categoryID) throw new Error(`Could not resolve workflow category at ${page.url()}`);
+    const workflowPath = `/categories/${categoryID}/workflow`;
+    await page.goto(base() + workflowPath);
+
+    await page.locator(".workflow-add-step summary").first().click();
+    const addResponse = await assertHtmxSwap(
+      page,
+      () => page.getByRole("button", { name: "Manual task", exact: true }).first().click(),
+      {
+        endpoint: (url) => {
+          const requestURL = new URL(url);
+          return (
+            requestURL.pathname === workflowPath &&
+            requestURL.searchParams.get("add_step_type") === "manual_task"
+          );
+        },
+        method: "POST",
+        expectedStatus: 200,
+        hxTarget: "#workflow-builder",
+      },
+    );
+    expect(addResponse.headers()["x-save-feedback"]).toContain('"message":"Saved"');
+    const toast = page.locator("#save-feedback");
+    await expect(toast).toBeVisible();
+    await expect(toast.locator(".save-feedback-message")).toHaveText("Saved");
+
+    // An explicit Save arrives before the first toast expires: the same
+    // element must update in place (no exit/re-enter, no second region)
+    // and restart the timer.
+    const instructions = page.getByLabel("Instructions", { exact: true });
+    await expect(instructions).toBeVisible();
+    await page.waitForTimeout(3_000);
+    await assertHtmxSwap(
+      page,
+      async () => {
+        await instructions.fill("Coalesced save");
+        await page.locator('.page-actions button[name="action"][value="save"]').click();
+      },
+      {
+        endpoint: workflowPath,
+        method: "POST",
+        expectedStatus: 200,
+        hxTarget: "#workflow-builder",
+      },
+    );
+    await expect(toast.locator(".save-feedback-message")).toHaveText("Saved");
+    await expect(toast).toHaveClass(/(?:^|\s)is-visible(?:\s|$)/);
+    await expect(toast).toBeVisible();
+    await expect(page.locator("#save-feedback")).toHaveCount(1);
+
+    // Past the original 5s window the restarted timer must still hold the toast open.
+    await page.waitForTimeout(2_500);
+    await expect(toast).toBeVisible();
+
+    // Publishing re-renders the same draft, so the builder HTML is
+    // byte-identical; the server contract is the exact POST plus the
+    // Published feedback header, and the visible result is the toast.
+    const publishResponse = await assertHtmxNoSwap(
+      page,
+      () => page.getByRole("button", { name: "Publish", exact: true }).click(),
+      { endpoint: workflowPath, method: "POST", expectedStatus: 200 },
+    );
+    expect(publishResponse.headers()["x-save-feedback"]).toContain("Published");
+    await expect(toast.locator(".save-feedback-message")).toHaveText("Published");
+    await expect(page.locator("#save-feedback")).toHaveCount(1);
+    await page.waitForTimeout(5_100);
+    await expect(toast).toBeHidden();
+  });
+
+  test("workflow builder integrated journey: create category, add step, publish, reload, create ticket, verify published workflow in ticket", async ({
+    page,
+  }) => {
     test.setTimeout(60000);
     await page.setViewportSize({ width: 1280, height: 800 });
     const obs = collectObservability(page);
@@ -1298,9 +1199,7 @@ name: "Leave without saving?",
       .locator(".category-level-categories .category-structure-item")
       .filter({ hasText: catName });
     await expect(catRow).toHaveCount(1);
-    const editHref = await catRow
-      .locator('a[href*="/edit"]')
-      .getAttribute("href");
+    const editHref = await catRow.locator('a[href*="/edit"]').getAttribute("href");
     const m = editHref?.match(/\/categories\/(\d+)\/edit/);
     if (!m) throw new Error("cannot extract category id for " + catName);
     const categoryId = m[1];
@@ -1309,16 +1208,11 @@ name: "Leave without saving?",
     await expect(page.locator("#workflow-builder")).toBeVisible({
       timeout: 10_000,
     });
-    await expect(page.locator("h2#workflow-builder-title")).toContainText(
-      /workflow steps/i,
-    );
+    await expect(page.locator("h2#workflow-builder-title")).toContainText(/workflow steps/i);
     await expect(page.locator(".workflow-step-rail")).toBeVisible();
 
     // Ensure workflow builder form carries HTMX contract (complementary evidence)
-    await expect(page.locator("#workflow-builder form")).toHaveAttribute(
-      "hx-post",
-      /\/workflow/,
-    );
+    await expect(page.locator("#workflow-builder form")).toHaveAttribute("hx-post", /\/workflow/);
     await expect(page.locator("#workflow-builder form")).toHaveAttribute(
       "hx-target",
       "#workflow-builder",
@@ -1355,9 +1249,7 @@ name: "Leave without saving?",
       },
     );
     await expect(cards).toHaveCount(countBeforeAdd + 1);
-    await expect(
-      page.locator("#save-feedback .save-feedback-message"),
-    ).toHaveText("Saved");
+    await expect(page.locator("#save-feedback .save-feedback-message")).toHaveText("Saved");
 
     // Editing must not autosave: no workflow POST may fire from input alone
     const instructionsInput = page.getByLabel(/instructions/i);
@@ -1366,8 +1258,7 @@ name: "Leave without saving?",
     const onAutosave = (request: Request) => {
       autosaved ||=
         request.method() === "POST" &&
-        new URL(request.url()).pathname ===
-          `/categories/${categoryId}/workflow`;
+        new URL(request.url()).pathname === `/categories/${categoryId}/workflow`;
     };
     page.on("request", onAutosave);
     await instructionsInput.fill("Handle the ticket");
@@ -1376,9 +1267,7 @@ name: "Leave without saving?",
     expect(autosaved, "editing must not issue autosave requests").toBe(false);
 
     // Explicit Save submits the complete draft and confirms persistence
-    const saveButton = page.locator(
-      '.page-actions button[name="action"][value="save"]',
-    );
+    const saveButton = page.locator('.page-actions button[name="action"][value="save"]');
     await expect(saveButton).toBeVisible();
     await assertHtmxSwap(
       page,
@@ -1392,9 +1281,7 @@ name: "Leave without saving?",
         hxTarget: "#workflow-builder",
       },
     );
-    await expect(
-      page.locator("#save-feedback .save-feedback-message"),
-    ).toHaveText("Saved");
+    await expect(page.locator("#save-feedback .save-feedback-message")).toHaveText("Saved");
 
     // Remove step unconditionally (prove removal works)
     const countBeforeRemove = await cards.count();
@@ -1417,8 +1304,7 @@ name: "Leave without saving?",
           const parsedURL = new URL(url);
           return (
             parsedURL.pathname === `/categories/${categoryId}/workflow` &&
-            parsedURL.searchParams.get("step_index") ===
-              String(countBeforeRemove - 1) &&
+            parsedURL.searchParams.get("step_index") === String(countBeforeRemove - 1) &&
             !parsedURL.searchParams.has("action")
           );
         },
@@ -1476,9 +1362,7 @@ name: "Leave without saving?",
       },
     );
     expect(publishResp.headers()["x-save-feedback"]).toContain("Published");
-    await expect(
-      page.locator("#save-feedback .save-feedback-message"),
-    ).toHaveText("Published");
+    await expect(page.locator("#save-feedback .save-feedback-message")).toHaveText("Published");
     // After publish, no inline errors
     await expect(page.locator(".error-banner, [role='alert']")).toHaveCount(0);
 
@@ -1488,19 +1372,11 @@ name: "Leave without saving?",
     await expect(page.locator("#workflow-builder")).toBeVisible({
       timeout: 10_000,
     });
-    await expect(page.locator(".workflow-step-card")).toHaveCount(
-      countAfterPublish,
-    );
+    await expect(page.locator(".workflow-step-card")).toHaveCount(countAfterPublish);
     // Badge on /categories should now show Published for this category
     await page.goto(base() + "/categories?view=structure");
-    await page
-      .locator(".category-level-departments .category-structure-row")
-      .first()
-      .click();
-    await page
-      .locator(".category-level-desks .category-structure-row")
-      .first()
-      .click();
+    await page.locator(".category-level-departments .category-structure-row").first().click();
+    await page.locator(".category-level-desks .category-structure-row").first().click();
     await expect(
       page
         .locator(".category-level-categories .category-structure-item")
@@ -1525,21 +1401,15 @@ name: "Leave without saving?",
     await expect(page.locator("#workflow-pending")).toBeVisible({
       timeout: 10_000,
     });
-    await expect(page.locator("#workflow-pending")).toHaveClass(
-      /workflow-pending-info/,
-    );
-    await expect(page.locator("#workflow-pending")).toContainText(
-      "IN PROGRESS",
-    );
+    await expect(page.locator("#workflow-pending")).toHaveClass(/workflow-pending-info/);
+    await expect(page.locator("#workflow-pending")).toContainText("IN PROGRESS");
     await expect(page.locator("#workflow-pending")).toContainText(
       "The assigned agent is handling this task.",
     );
     await expect(page.locator("#workflow-pending")).toContainText(
       "Updates will appear here when complete.",
     );
-    await expect(
-      page.locator("#workflow-pending .workflow-instruction"),
-    ).toHaveCount(0);
+    await expect(page.locator("#workflow-pending .workflow-instruction")).toHaveCount(0);
     await expect(page.locator("#timeline .timeline-entry").first()).toHaveClass(
       /workflow-pending-info/,
     );
@@ -1557,9 +1427,7 @@ name: "Leave without saving?",
 
     await page.setViewportSize({ width: 390, height: 844 });
     await page.reload();
-    await expect(page.locator("#workflow-pending")).toHaveClass(
-      /workflow-pending-info/,
-    );
+    await expect(page.locator("#workflow-pending")).toHaveClass(/workflow-pending-info/);
     await assertCanonicalScreen(page, {
       viewport: 390,
       label: "workflow passive timeline item mobile",
@@ -1590,13 +1458,9 @@ name: "Leave without saving?",
     const pending = page.locator("#workflow-pending");
     await expect(pending).toHaveClass(/workflow-pending-action/);
     await expect(pending.locator("h3")).toHaveText("CURRENT TASK");
-    await expect(pending.locator(".workflow-instruction")).toContainText(
-      "Handle the ticket",
-    );
+    await expect(pending.locator(".workflow-instruction")).toContainText("Handle the ticket");
     await expect(pending.getByLabel("Solution (optional)")).toBeVisible();
-    await expect(
-      pending.getByRole("button", { name: "Complete" }),
-    ).toBeVisible();
+    await expect(pending.getByRole("button", { name: "Complete" })).toBeVisible();
     await expect(page.locator("#timeline .timeline-entry").first()).toHaveClass(
       /workflow-pending-action/,
     );
@@ -1615,45 +1479,32 @@ name: "Leave without saving?",
     );
     await expect(page.locator("#workflow-pending")).toHaveCount(0);
     const assertCompletedManualStatic = async () => {
-      const completedManual = page
-        .locator("#timeline .timeline-entry.timeline-manual")
-        .first();
+      const completedManual = page.locator("#timeline .timeline-entry.timeline-manual").first();
       await expect(completedManual).toHaveCount(1);
       await expect(completedManual).toBeVisible();
-      const checkIcon = completedManual.locator(
-        ".timeline-manual-heading .event-icon",
-      );
+      const checkIcon = completedManual.locator(".timeline-manual-heading .event-icon");
       await expect(checkIcon.locator("svg")).toBeVisible();
       await expect(checkIcon).toHaveCSS("color", "rgb(24, 115, 77)");
-      await expect(
-        completedManual.locator(".timeline-manual-heading .main"),
-      ).toHaveText("Alice Admin completed the task");
-      await expect(
-        completedManual.getByText("TASK", { exact: true }),
-      ).toHaveCount(1);
-      await expect(completedManual.locator("dd").first()).toHaveText(
-        "Handle the ticket",
+      await expect(completedManual.locator(".timeline-manual-heading .main")).toHaveText(
+        "Alice Admin completed the task",
       );
+      await expect(completedManual.getByText("TASK", { exact: true })).toHaveCount(1);
+      await expect(completedManual.locator("dd").first()).toHaveText("Handle the ticket");
       await expect(completedManual.locator("dl")).toBeVisible();
       await expect(completedManual.locator(".when")).toBeVisible();
-      await expect(
-        completedManual.getByText("SOLUTION", { exact: true }),
-      ).toHaveCount(0);
+      await expect(completedManual.getByText("SOLUTION", { exact: true })).toHaveCount(0);
       await expect(
         completedManual.locator(
           "details, summary, button, .timeline-event-summary, [open], [aria-expanded], [aria-controls], [tabindex]",
         ),
       ).toHaveCount(0);
-      await expect(completedManual.locator(".event-icon")).not.toContainText(
-        "›",
-      );
-      await expect(completedManual.locator(".when")).not.toContainText(
-        "Alice Admin",
-      );
+      await expect(completedManual.locator(".event-icon")).not.toContainText("›");
+      await expect(completedManual.locator(".when")).not.toContainText("Alice Admin");
       await expect(completedManual).not.toHaveCSS("cursor", "pointer");
-      await expect(
-        completedManual.locator(".timeline-manual-heading"),
-      ).not.toHaveCSS("cursor", "pointer");
+      await expect(completedManual.locator(".timeline-manual-heading")).not.toHaveCSS(
+        "cursor",
+        "pointer",
+      );
       const iconBefore = await completedManual
         .locator(".event-icon")
         .evaluate((element) => getComputedStyle(element, "::before").content);
@@ -1694,7 +1545,11 @@ name: "Leave without saving?",
     function trackPosts(page: Page): string[] {
       const actions: string[] = [];
       page.on("request", (request) => {
-        if (request.method() !== "POST" || !/\/categories\/\d+\/workflow/.test(new URL(request.url()).pathname)) return;
+        if (
+          request.method() !== "POST" ||
+          !/\/categories\/\d+\/workflow/.test(new URL(request.url()).pathname)
+        )
+          return;
         actions.push(request.postData()?.match(/(?:^|&)action=([^&]*)/)?.[1] ?? "");
       });
       return actions;
@@ -1703,19 +1558,38 @@ name: "Leave without saving?",
       await page.setViewportSize({ width: 1280, height: 800 });
       await page.goto(base() + "/categories/new");
       if (page.url().includes("/login")) await loginAsSeeded(page);
-      const categoryId = await createCategoryViaUi(page, "Guard " + Date.now().toString(36) + steps.length);
+      const categoryId = await createCategoryViaUi(
+        page,
+        "Guard " + Date.now().toString(36) + steps.length,
+      );
       await page.goto(base() + `/categories/${categoryId}/workflow`);
       await expect(page.locator("#workflow-builder")).toBeVisible();
       for (const step of steps) {
         await page.locator(".workflow-add-step summary").first().click();
-        const filter = step === "manual_task" ? /manual task/i : step === "form" ? /^form$/i : step === "close_ticket" ? /close ticket/i : /resolve ticket/i;
-        await page.locator(".workflow-add-options button").filter({ hasText: filter }).first().click();
+        const filter =
+          step === "manual_task"
+            ? /manual task/i
+            : step === "form"
+              ? /^form$/i
+              : step === "close_ticket"
+                ? /close ticket/i
+                : /resolve ticket/i;
+        await page
+          .locator(".workflow-add-options button")
+          .filter({ hasText: filter })
+          .first()
+          .click();
         await expect(page.locator(".workflow-add-options")).not.toBeVisible();
       }
       return categoryId;
     }
     async function selectCard(page: Page, index: number): Promise<void> {
-      const responsePromise = page.waitForResponse((r) => r.request().method() === "POST" && r.url().includes("/workflow") && (r.request().postData() ?? "").includes("action=select_step"));
+      const responsePromise = page.waitForResponse(
+        (r) =>
+          r.request().method() === "POST" &&
+          r.url().includes("/workflow") &&
+          (r.request().postData() ?? "").includes("action=select_step"),
+      );
       await page.locator(".workflow-step-card .workflow-step-card-link").nth(index).click();
       await expect((await responsePromise).status()).toBe(200);
       await page.waitForTimeout(200);
@@ -1726,8 +1600,12 @@ name: "Leave without saving?",
     }
     const triggers: Record<string, (page: Page, categoryId: string) => Promise<void>> = {
       add_step: async (page) => {
-        const manualButton = page.locator(".workflow-add-options button").filter({ hasText: /manual task/i }).first();
-        if (!(await manualButton.isVisible().catch(() => false))) await page.locator(".workflow-add-step summary").first().click();
+        const manualButton = page
+          .locator(".workflow-add-options button")
+          .filter({ hasText: /manual task/i })
+          .first();
+        if (!(await manualButton.isVisible().catch(() => false)))
+          await page.locator(".workflow-add-step summary").first().click();
         await manualButton.click();
       },
       remove_step: async (page) => {
@@ -1751,8 +1629,14 @@ name: "Leave without saving?",
           const transfer = new DataTransfer();
           const handle = document.querySelectorAll(".workflow-drag-handle")[0];
           const target = document.querySelectorAll(".workflow-step-card")[1];
-          const at = { bubbles: true, dataTransfer: transfer, clientX: target.getBoundingClientRect().right - 10 };
-          handle.dispatchEvent(new DragEvent("dragstart", { bubbles: true, dataTransfer: transfer }));
+          const at = {
+            bubbles: true,
+            dataTransfer: transfer,
+            clientX: target.getBoundingClientRect().right - 10,
+          };
+          handle.dispatchEvent(
+            new DragEvent("dragstart", { bubbles: true, dataTransfer: transfer }),
+          );
           target.dispatchEvent(new DragEvent("dragover", at));
           target.dispatchEvent(new DragEvent("drop", at));
         });
@@ -1781,22 +1665,88 @@ name: "Leave without saving?",
         }, categoryId);
       },
     };
-    const fixtures: Array<{ action: string; steps: string[]; select: number; dirty: (page: Page) => Promise<void> }> = [
-      { action: "add_step", steps: ["manual_task", "form"], select: 0, dirty: async (page) => { await page.getByLabel(/^instructions/i).fill("DIRTY-add_step"); } },
-      { action: "remove_step", steps: ["manual_task", "form"], select: 0, dirty: async (page) => { await page.getByLabel(/^instructions/i).fill("DIRTY-remove_step"); } },
-      { action: "move_up", steps: ["manual_task", "form"], select: 0, dirty: async (page) => { await page.getByLabel(/^instructions/i).fill("DIRTY-move_up"); } },
-      { action: "move_down", steps: ["manual_task", "form"], select: 0, dirty: async (page) => { await page.getByLabel(/^instructions/i).fill("DIRTY-move_down"); } },
-      { action: "reorder", steps: ["manual_task", "form"], select: 0, dirty: async (page) => { await page.getByLabel(/^instructions/i).fill("DIRTY-reorder"); } },
-      { action: "add_field", steps: ["form"], select: 0, dirty: async (page) => { await page.locator(".workflow-field-required input").check(); } },
-      { action: "remove_field", steps: ["form"], select: 0, dirty: async (page) => { await page.getByLabel(/^label$/i).fill("DIRTY-remove_field"); } },
-      { action: "change_type", steps: ["manual_task", "close_ticket"], select: 1, dirty: async (page) => { await page.getByLabel(/^final type$/i).selectOption("resolve_ticket"); } },
+    const fixtures: Array<{
+      action: string;
+      steps: string[];
+      select: number;
+      dirty: (page: Page) => Promise<void>;
+    }> = [
+      {
+        action: "add_step",
+        steps: ["manual_task", "form"],
+        select: 0,
+        dirty: async (page) => {
+          await page.getByLabel(/^instructions/i).fill("DIRTY-add_step");
+        },
+      },
+      {
+        action: "remove_step",
+        steps: ["manual_task", "form"],
+        select: 0,
+        dirty: async (page) => {
+          await page.getByLabel(/^instructions/i).fill("DIRTY-remove_step");
+        },
+      },
+      {
+        action: "move_up",
+        steps: ["manual_task", "form"],
+        select: 0,
+        dirty: async (page) => {
+          await page.getByLabel(/^instructions/i).fill("DIRTY-move_up");
+        },
+      },
+      {
+        action: "move_down",
+        steps: ["manual_task", "form"],
+        select: 0,
+        dirty: async (page) => {
+          await page.getByLabel(/^instructions/i).fill("DIRTY-move_down");
+        },
+      },
+      {
+        action: "reorder",
+        steps: ["manual_task", "form"],
+        select: 0,
+        dirty: async (page) => {
+          await page.getByLabel(/^instructions/i).fill("DIRTY-reorder");
+        },
+      },
+      {
+        action: "add_field",
+        steps: ["form"],
+        select: 0,
+        dirty: async (page) => {
+          await page.locator(".workflow-field-required input").check();
+        },
+      },
+      {
+        action: "remove_field",
+        steps: ["form"],
+        select: 0,
+        dirty: async (page) => {
+          await page.getByLabel(/^label$/i).fill("DIRTY-remove_field");
+        },
+      },
+      {
+        action: "change_type",
+        steps: ["manual_task", "close_ticket"],
+        select: 1,
+        dirty: async (page) => {
+          await page.getByLabel(/^final type$/i).selectOption("resolve_ticket");
+        },
+      },
     ];
 
-    test("all 8 structural actions prompt when dirty and Cancel sends no POST", async ({ page }) => {
+    test("all 8 structural actions prompt when dirty and Cancel sends no POST", async ({
+      page,
+    }) => {
       test.setTimeout(240_000);
       for (const fixture of fixtures) {
         const categoryId = await seedWorkflow(page, fixture.steps);
-        if (["add_field", "remove_field"].includes(fixture.action)) { await triggers.add_field(page, categoryId); await expect(page.locator(".workflow-field-row")).toHaveCount(1); }
+        if (["add_field", "remove_field"].includes(fixture.action)) {
+          await triggers.add_field(page, categoryId);
+          await expect(page.locator(".workflow-field-row")).toHaveCount(1);
+        }
         await selectCard(page, fixture.select);
         const posts = trackPosts(page);
         const dialog = page.locator("#workflow-dirty-dialog");
@@ -1831,7 +1781,9 @@ name: "Leave without saving?",
       await expect(page.getByLabel(/^instructions/i)).toHaveValue("SAVED-FIRST");
     });
 
-    test("carried dirty survives select_step and Discard+continue restores persisted values", async ({ page }) => {
+    test("carried dirty survives select_step and Discard+continue restores persisted values", async ({
+      page,
+    }) => {
       const categoryId = await seedWorkflow(page, ["manual_task", "form"]);
       await triggers.add_field(page, categoryId);
       await expect(page.locator(".workflow-field-row")).toHaveCount(1);
@@ -1858,12 +1810,18 @@ name: "Leave without saving?",
       await selectCard(page, 0);
       const dialog = page.locator("#workflow-dirty-dialog");
       await page.getByLabel(/^instructions/i).fill("DIRTY-escape");
-      const addManual = page.locator(".workflow-add-options button").filter({ hasText: /manual task/i }).first();
+      const addManual = page
+        .locator(".workflow-add-options button")
+        .filter({ hasText: /manual task/i })
+        .first();
       await page.locator(".workflow-add-step summary").first().click();
       await addManual.click();
       await expect(dialog).toBeVisible();
       await expect(dialog).toHaveCSS("border-radius", "12px");
-      await expect(dialog.getByRole("button", { name: "Discard and continue" })).toHaveCSS("background-color", "rgb(141, 57, 72)");
+      await expect(dialog.getByRole("button", { name: "Discard and continue" })).toHaveCSS(
+        "background-color",
+        "rgb(141, 57, 72)",
+      );
       await page.keyboard.press("Escape");
       await expect(dialog).not.toBeVisible();
       await expect(addManual).toBeFocused();
@@ -1873,7 +1831,9 @@ name: "Leave without saving?",
       await seedWorkflow(page, ["manual_task"]);
       await selectCard(page, 0);
       await page.route("**/workflow", async (route) => {
-        const save = route.request().method() === "POST" && (route.request().postData() ?? "").includes("action=save");
+        const save =
+          route.request().method() === "POST" &&
+          (route.request().postData() ?? "").includes("action=save");
         return save ? route.abort() : route.continue();
       });
       const posts = trackPosts(page);
@@ -1895,17 +1855,11 @@ name: "Leave without saving?",
   });
 
   test.describe("Workflow exit guards", () => {
-    async function openDirtyBuilder(
-      page: Page,
-      instructions: string,
-    ): Promise<string> {
+    async function openDirtyBuilder(page: Page, instructions: string): Promise<string> {
       await page.setViewportSize({ width: 1280, height: 800 });
       await page.goto(base() + "/categories/new");
       if (page.url().includes("/login")) await loginAsSeeded(page);
-      const categoryId = await createCategoryViaUi(
-        page,
-        "Exit " + Date.now().toString(36),
-      );
+      const categoryId = await createCategoryViaUi(page, "Exit " + Date.now().toString(36));
       await page.goto(base() + `/categories/${categoryId}/workflow`);
       await expect(page.locator("#workflow-builder")).toBeVisible();
       await page.locator(".workflow-add-step summary").first().click();
@@ -1941,9 +1895,10 @@ name: "Leave without saving?",
       await breadcrumbLink.click();
       await expect(dialog).toBeVisible();
       await expect(dialog).toHaveCSS("border-radius", "12px");
-      await expect(
-        dialog.getByRole("button", { name: "Discard changes" }),
-      ).toHaveCSS("background-color", "rgb(141, 57, 72)");
+      await expect(dialog.getByRole("button", { name: "Discard changes" })).toHaveCSS(
+        "background-color",
+        "rgb(141, 57, 72)",
+      );
       await page.keyboard.press("Escape");
       await expect(dialog).not.toBeVisible();
       await expect(breadcrumbLink).toBeFocused();
@@ -1955,10 +1910,7 @@ name: "Leave without saving?",
       await expect(page).not.toHaveURL(/\/workflow/);
       await page.goto(base() + `/categories/${categoryId}/workflow`);
       await expect(page.locator(".workflow-step-card")).toHaveCount(1);
-      await page
-        .locator(".workflow-step-card .workflow-step-card-link")
-        .first()
-        .click();
+      await page.locator(".workflow-step-card .workflow-step-card-link").first().click();
       await expect(page.getByLabel(/^instructions/i)).toHaveValue("");
     });
 
@@ -2002,9 +1954,7 @@ name: "Leave without saving?",
       expect(dialogTypes).toEqual(["beforeunload"]);
     });
 
-    test("reverted edits and a successful save clear the exit guard", async ({
-      page,
-    }) => {
+    test("reverted edits and a successful save clear the exit guard", async ({ page }) => {
       const categoryId = await openDirtyBuilder(page, "CLEAN-ME");
       const dialog = page.locator("#workflow-leave-dialog");
       const sidebarLink = page.locator('a.rail-link[href="/categories"]');
@@ -2026,10 +1976,7 @@ name: "Leave without saving?",
           r.url().includes("/workflow") &&
           (r.request().postData() ?? "").includes("action=select_step"),
       );
-      await page
-        .locator(".workflow-step-card .workflow-step-card-link")
-        .first()
-        .click();
+      await page.locator(".workflow-step-card .workflow-step-card-link").first().click();
       await expect((await selectResponse).status()).toBe(200);
       await page.waitForTimeout(200);
       await expect(page.getByLabel(/^instructions/i)).toBeVisible();
@@ -2044,13 +1991,9 @@ name: "Leave without saving?",
           r.url().includes("/workflow") &&
           (r.request().postData() ?? "").includes("action=save"),
       );
-      await page
-        .locator('.page-actions button[name="action"][value="save"]')
-        .click();
+      await page.locator('.page-actions button[name="action"][value="save"]').click();
       await expect((await saveResponse).status()).toBe(200);
-      await expect(
-        page.locator("#save-feedback .save-feedback-message"),
-      ).toHaveText("Saved");
+      await expect(page.locator("#save-feedback .save-feedback-message")).toHaveText("Saved");
       await sidebarLink.click();
       await expect(page).toHaveURL(/\/categories(\?.*)?$/);
       await expect(dialog).not.toBeVisible();
@@ -2071,9 +2014,7 @@ name: "Leave without saving?",
       await expect(page.locator("[data-workflow-live]")).toHaveCount(0);
       await page.locator(".page-breadcrumb a").click();
       await expect(page.locator("#workflow-leave-dialog")).toBeVisible();
-      await expect(page).toHaveURL(
-        new RegExp(`/categories/${categoryId}/workflow$`),
-      );
+      await expect(page).toHaveURL(new RegExp(`/categories/${categoryId}/workflow$`));
     });
   });
 });
