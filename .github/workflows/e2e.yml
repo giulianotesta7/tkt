@@ -37,6 +37,13 @@ jobs:
         working-directory: e2e
         run: npm ci
 
+      # Runs before the browser install on purpose: formatting is the cheapest check here,
+      # so an unformatted file should fail the job before the expensive steps run. This
+      # mirrors quality.yml, which fails on `gofmt -l .` for the Go side.
+      - name: Check formatting
+        working-directory: e2e
+        run: npm run format:check
+
       - name: Install Chromium with system dependencies
         working-directory: e2e
         run: npm exec -- playwright install --with-deps chromium
