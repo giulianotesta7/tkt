@@ -1,0 +1,10 @@
+# Formatting-only commits.
+#
+# These rewrote most of the TypeScript and JavaScript surface without changing behavior,
+# so `git blame` and GitHub blame would otherwise attribute nearly every line to the
+# formatting chore instead of to the people who wrote the code.
+#
+# To honour this locally:
+#   git config blame.ignoreRevsFile .git-blame-ignore-revs
+
+2ac7cdbcb979086a3638183a3c9232bc8929c84e
