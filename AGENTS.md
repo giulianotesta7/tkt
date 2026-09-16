@@ -6,20 +6,24 @@ Load relevant skills BEFORE writing code. Skills encode project rules that are c
 
 ### How to use
 
-1. Before starting a change, scan the trigger column below and load every skill whose trigger matches the planned work.
+1. Before starting a change, read the local skills below and load every skill whose Activation Contract matches the planned work.
 2. Follow the loaded skill's activation contract: some skills activate for any change, others only for template, E2E, or spec-impacting work.
 3. When two skills apply, honor both. If their rules ever conflict, stop and surface the conflict instead of picking one silently.
 4. Keep skills current: when a new rule becomes authoritative, update the skill file and this index in the same change.
 
 ### Local skills
 
-| Skill | Load when | Path |
-| --- | --- | --- |
-| `issue-governance` | Starting any change, creating or labeling a GitHub issue, or transitioning from planning to implementation. Issue-first: no issue, no work; no `status:approved`, no implementation. Taxonomy and decision gates are authoritative. | `.agents/skills/issue-governance/SKILL.md` |
-| `ux-ui` | Modifying templates, CSS, layout, visual components, responsive behavior, or accessibility. Activation, visual-preservation, and decision-boundary rules are authoritative. | `.agents/skills/ux-ui/SKILL.md` |
-| `e2e-playwright` | Implementing or changing a visible feature, modifying a critical journey, fixing a browser-observable bug, or adding/updating E2E coverage. Activation contract, regression rule, and decision gates are authoritative. | `.agents/skills/e2e-playwright/SKILL.md` |
-| `go-tests` | Go tests, authorization, domain rules, migrations, golden fixtures, or Go CI evidence. | `.agents/skills/go-tests/SKILL.md` |
-| `engram-governance` | Adding or modifying observable behavior, domain rules, authorization, endpoints, forms, flows, persistence, or contracts; governed work; durable decisions, bugfixes, discoveries, configuration or preference changes; memory recall; or session closure. Use native project-scoped Engram search, alignment, and durable bookkeeping. | `.agents/skills/engram-governance/SKILL.md` |
+Project skills live in `.agents/skills/` and are named for the suite or layer they govern, not for this repository. Name a skill for what it proves (`go-tests`, `e2e-playwright`), not for the stack alone.
+
+| Skill | Path |
+| --- | --- |
+| `issue-governance` | `.agents/skills/issue-governance/SKILL.md` |
+| `ux-ui` | `.agents/skills/ux-ui/SKILL.md` |
+| `e2e-playwright` | `.agents/skills/e2e-playwright/SKILL.md` |
+| `go-tests` | `.agents/skills/go-tests/SKILL.md` |
+| `engram-governance` | `.agents/skills/engram-governance/SKILL.md` |
+
+Load the skill file. Its Activation Contract is authoritative for when the skill applies.
 
 ### Behavioral change records in Engram
 
