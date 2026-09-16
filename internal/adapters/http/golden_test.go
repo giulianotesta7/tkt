@@ -19,6 +19,39 @@ import (
 // -update to regenerate, then rerun WITHOUT -update to prove stability.
 var update = flag.Bool("update", false, "update golden files")
 
+// The shell inlines the shared stylesheet into every full page.
+const (
+	stylesheetOpen  = "<style>"
+	stylesheetClose = "</style>"
+)
+
+// splitStylesheet separates a rendered full page from the inline stylesheet it
+// embeds.
+//
+// Freezing that block inside each page snapshot stored the same ~44KB twelve
+// times: 528,912 of 617,412 golden bytes (86%) were one block duplicated, and a
+// 392-line CSS change rewrote all twelve snapshots — 2,412 lines, 83% of the
+// diff — as twelve near-identical diffs. The stylesheet is frozen once, in
+// stylesheet.golden, and the page snapshot guards the markup.
+//
+// A full page that renders no stylesheet fails here rather than silently
+// comparing a page without it, so dropping {{template "styles" .}} from the
+// shell is caught.
+func splitStylesheet(t *testing.T, name, got string) (page, stylesheet string) {
+	t.Helper()
+	start := strings.Index(got, stylesheetOpen)
+	if start < 0 {
+		t.Fatalf("golden %s: a full page must render the shared stylesheet block", name)
+	}
+	rest := got[start:]
+	end := strings.Index(rest, stylesheetClose)
+	if end < 0 {
+		t.Fatalf("golden %s: the stylesheet block is not terminated", name)
+	}
+	end += len(stylesheetClose)
+	return got[:start] + got[start+end:], got[start : start+end]
+}
+
 // goldenFile compares got against testdata/<name>.golden; -update writes it.
 func goldenFile(t *testing.T, name, got string) {
 	t.Helper()
@@ -36,6 +69,27 @@ func goldenFile(t *testing.T, name, got string) {
 	if string(want) != got {
 		t.Errorf("golden mismatch %s\n--- want ---\n%s\n--- got ---\n%s", name, want, got)
 	}
+}
+
+// goldenFullPage freezes a full page as two parts: the markup in <name>.golden,
+// and the stylesheet it embeds, asserted present here and compared once in
+// stylesheet.golden by TestGoldenStylesheet.
+func goldenFullPage(t *testing.T, name, got string) {
+	t.Helper()
+	page, stylesheet := splitStylesheet(t, name, got)
+	if stylesheet == "" {
+		t.Fatalf("golden %s: the stylesheet block is empty", name)
+	}
+	goldenFile(t, name, page)
+}
+
+// TestGoldenStylesheet freezes the one shared inline stylesheet. Every full page
+// embeds it, so a change to it changes the whole interface and deserves a single
+// reviewable diff rather than twelve.
+func TestGoldenStylesheet(t *testing.T) {
+	_, stylesheet := splitStylesheet(t, "stylesheet",
+		renderGolden(t, "tickets_index", "", fixtureListData(), false))
+	goldenFile(t, "stylesheet", stylesheet)
 }
 
 // TestGoldenFullPage freezes the full-page render path (shell + content)
@@ -66,11 +120,11 @@ func TestGoldenFragment(t *testing.T) {
 // Auth goldens intentionally have no snapshots in this RED slice. The future
 // presentation implementation must provide and approve them without -update.
 func TestGoldenAuthSetup(t *testing.T) {
-	goldenFile(t, "auth_setup", renderGolden(t, "setup", "", setupData{}, false))
+	goldenFullPage(t, "auth_setup", renderGolden(t, "setup", "", setupData{}, false))
 }
 
 func TestGoldenAuthLogin(t *testing.T) {
-	goldenFile(t, "auth_login", renderGolden(t, "login", "", loginData{}, false))
+	goldenFullPage(t, "auth_login", renderGolden(t, "login", "", loginData{}, false))
 }
 
 // ---------------------------------------------------------------------------
@@ -157,7 +211,7 @@ func renderGolden(t *testing.T, page, fragment string, data any, hx bool) string
 }
 
 func TestGoldenTicketsIndex(t *testing.T) {
-	goldenFile(t, "tickets_index", renderGolden(t, "tickets_index", "", fixtureListData(), false))
+	goldenFullPage(t, "tickets_index", renderGolden(t, "tickets_index", "", fixtureListData(), false))
 }
 
 func TestGoldenTicketsIndexUser(t *testing.T) {
@@ -166,7 +220,7 @@ func TestGoldenTicketsIndexUser(t *testing.T) {
 	data.ShowAdvancedFilters = false
 	data.Filters = filterState{Q: "printer"}
 	data.Tickets[0].Description = "Clear the jammed tray, then reload paper."
-	goldenFile(t, "tickets_index_user", renderGolden(t, "tickets_index", "", data, false))
+	goldenFullPage(t, "tickets_index_user", renderGolden(t, "tickets_index", "", data, false))
 }
 
 func TestGoldenTicketsIndexAgent(t *testing.T) {
@@ -185,11 +239,11 @@ func TestGoldenTicketsIndexAgent(t *testing.T) {
 		Context: application.AgentTicketRowContext{DeskName: "Service desk"},
 	}}, Total: 1, Page: 1, Pages: 1}
 	data.Total = 3
-	goldenFile(t, "tickets_index_agent", renderGolden(t, "tickets_index", "", data, false))
+	goldenFullPage(t, "tickets_index_agent", renderGolden(t, "tickets_index", "", data, false))
 }
 
 func TestGoldenTicketsNew(t *testing.T) {
-	goldenFile(t, "tickets_new", renderGolden(t, "tickets_new", "", fixtureTicketFormData(), false))
+	goldenFullPage(t, "tickets_new", renderGolden(t, "tickets_new", "", fixtureTicketFormData(), false))
 }
 
 func TestSelectedTicketFormPresentation(t *testing.T) {
@@ -466,7 +520,7 @@ func TestClosedTicketDetailReadOnly(t *testing.T) {
 }
 
 func TestGoldenTicketsShow(t *testing.T) {
-	goldenFile(t, "tickets_show", renderGolden(t, "tickets_show", "", fixtureDetailData(), false))
+	goldenFullPage(t, "tickets_show", renderGolden(t, "tickets_show", "", fixtureDetailData(), false))
 }
 
 func TestGoldenTicketDetail(t *testing.T) {
@@ -772,11 +826,11 @@ func fixtureCategoryFormData() categoryFormData {
 }
 
 func TestGoldenUsersIndex(t *testing.T) {
-	goldenFile(t, "users_index", renderGolden(t, "users_index", "", fixtureUsersIndexData(), false))
+	goldenFullPage(t, "users_index", renderGolden(t, "users_index", "", fixtureUsersIndexData(), false))
 }
 
 func TestGoldenUsersNew(t *testing.T) {
-	goldenFile(t, "users_new", renderGolden(t, "users_new", "", fixtureUserFormData(), false))
+	goldenFullPage(t, "users_new", renderGolden(t, "users_new", "", fixtureUserFormData(), false))
 }
 
 func TestGoldenUserForm(t *testing.T) {
@@ -784,11 +838,11 @@ func TestGoldenUserForm(t *testing.T) {
 }
 
 func TestGoldenCategoriesIndex(t *testing.T) {
-	goldenFile(t, "categories_index", renderGolden(t, "categories_index", "", fixtureCategoriesIndexData(), false))
+	goldenFullPage(t, "categories_index", renderGolden(t, "categories_index", "", fixtureCategoriesIndexData(), false))
 }
 
 func TestGoldenCategoriesNew(t *testing.T) {
-	goldenFile(t, "categories_new", renderGolden(t, "categories_new", "", fixtureCategoryFormData(), false))
+	goldenFullPage(t, "categories_new", renderGolden(t, "categories_new", "", fixtureCategoryFormData(), false))
 }
 
 func TestGoldenCategoryForm(t *testing.T) {
@@ -805,5 +859,5 @@ func fixtureSettingsIndexData() settingsIndexData {
 }
 
 func TestGoldenSettingsIndex(t *testing.T) {
-	goldenFile(t, "settings_index", renderGolden(t, "settings_index", "", fixtureSettingsIndexData(), false))
+	goldenFullPage(t, "settings_index", renderGolden(t, "settings_index", "", fixtureSettingsIndexData(), false))
 }
