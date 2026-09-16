@@ -32,11 +32,22 @@ func mustReadAll(t *testing.T, root string) (ImageContract, ComposeContract, Wor
 	return img, comp, wf
 }
 
+func mustReadRelease(t *testing.T, root string) ReleaseContract {
+	t.Helper()
+	rel, err := ReadReleaseWorkflow(root)
+	if err != nil {
+		t.Fatalf("read .github/workflows/release-container.yml: %v", err)
+	}
+	return rel
+}
+
 // TestContractsParse is the non-vacuity gate: every extractor must actually
 // find the values it claims to extract. If a reader returns empty fields, the
 // invariants below would pass while checking nothing.
 func TestContractsParse(t *testing.T) {
-	img, comp, wf := mustReadAll(t, repoRoot(t))
+	root := repoRoot(t)
+	img, comp, wf := mustReadAll(t, root)
+	rel := mustReadRelease(t, root)
 
 	if img.DBPath != "/data/tkt.db" {
 		t.Errorf("Dockerfile TKT_DB_PATH = %q, want /data/tkt.db", img.DBPath)
@@ -85,6 +96,15 @@ func TestContractsParse(t *testing.T) {
 	}
 	if len(wf.ExecInvocations) == 0 {
 		t.Errorf("workflow exec invocations are empty: the docker exec extractor found nothing")
+	}
+	if !rel.ImageRefDerived {
+		t.Errorf("release workflow image reference is not derived from ${GITHUB_REPOSITORY,,}: the extractor found nothing")
+	}
+	if !rel.HasVersionArg || !rel.HasRevisionArg {
+		t.Errorf("release workflow build args = VERSION:%v REVISION:%v: the build-arg extractor found nothing", rel.HasVersionArg, rel.HasRevisionArg)
+	}
+	if rel.Smoke.VolumeTarget == "" || rel.Smoke.PublishPort == "" || len(rel.Smoke.ExecInvocations) == 0 {
+		t.Errorf("release smoke contract = %+v: the flag extractor found nothing", rel.Smoke)
 	}
 }
 
@@ -238,6 +258,102 @@ func TestWorkflowSmokeContract(t *testing.T) {
 	}
 	if _, err := SelectExecHealthcheck(img, wf); err != nil {
 		t.Errorf("I7: %v", err)
+	}
+}
+
+// TestReleaseImageRepository is invariant I8: the release workflow's image
+// repository is the lowercased GHCR path derived from the go.mod module path.
+// The required ${GITHUB_REPOSITORY,,} derivation satisfies the rule by
+// construction; every literal ghcr.io/<repository> spelling found in the file
+// must equal the derived path, so a hardcoded ghcr.io/<other>/<other> (or an
+// uppercase spelling) fails.
+func TestReleaseImageRepository(t *testing.T) {
+	root := repoRoot(t)
+	rel := mustReadRelease(t, root)
+
+	module, err := ModulePath(root)
+	if err != nil {
+		t.Fatalf("module path: %v", err)
+	}
+	repo, found := strings.CutPrefix(module, "github.com/")
+	if !found {
+		t.Fatalf("I8: module path %q is not github.com/OWNER/REPO: the GHCR derivation cannot proceed", module)
+	}
+	want := strings.ToLower(repo)
+	if !rel.ImageRefDerived {
+		t.Errorf("I8: release workflow does not derive the image reference as ghcr.io/${GITHUB_REPOSITORY,,}; the repository must never be hardcoded")
+	}
+	for _, got := range rel.LiteralImageRepos {
+		if got != want {
+			t.Errorf("I8: .github/workflows/release-container.yml hardcodes image repository %q, want %q (derived from go.mod %q)", got, want, module)
+		}
+	}
+}
+
+// TestReleaseBuildArgs is invariant I9: the release build must pass
+// --build-arg VERSION= and --build-arg REVISION=, because the OCI labels are
+// inert without them and every release would otherwise publish dev defaults.
+func TestReleaseBuildArgs(t *testing.T) {
+	rel := mustReadRelease(t, repoRoot(t))
+
+	if !rel.HasVersionArg || !rel.HasRevisionArg {
+		t.Errorf("I9: release workflow build args = VERSION:%v REVISION:%v; the OCI labels are inert without --build-arg VERSION= and --build-arg REVISION=", rel.HasVersionArg, rel.HasRevisionArg)
+	}
+}
+
+// TestReleaseSmokeContract is invariant I10: the release smoke test agrees
+// with the image contract exactly as the CI smoke test must. --env flags are
+// optional there by design (the release run proves the image's own defaults),
+// but any that are present must match the image defaults; the volume target
+// and the published container port are required and must match, and the
+// binary healthcheck must be exercised.
+func TestReleaseSmokeContract(t *testing.T) {
+	img, _, _ := mustReadAll(t, repoRoot(t))
+	rel := mustReadRelease(t, repoRoot(t))
+
+	if rel.Smoke.DBPath != "" && rel.Smoke.DBPath != img.DBPath {
+		t.Errorf("I10: the release smoke test passes TKT_DB_PATH=%q but the Dockerfile declares %q", rel.Smoke.DBPath, img.DBPath)
+	}
+	if rel.Smoke.Listen != "" && rel.Smoke.Listen != img.Listen {
+		t.Errorf("I10: the release smoke test passes TKT_LISTEN=%q but the Dockerfile declares %q", rel.Smoke.Listen, img.Listen)
+	}
+	if rel.Smoke.VolumeTarget != img.DataDir {
+		t.Errorf("I10: the release smoke test mounts its volume at %q but the Dockerfile prepared %q", rel.Smoke.VolumeTarget, img.DataDir)
+	}
+	_, listenPort, found := strings.Cut(img.Listen, ":")
+	if !found || listenPort == "" {
+		t.Fatalf("I10: Dockerfile TKT_LISTEN %q has no readable port", img.Listen)
+	}
+	if rel.Smoke.PublishPort != listenPort {
+		t.Errorf("I10: the release smoke test publishes container port %q but the image listens on %q (TKT_LISTEN %q)", rel.Smoke.PublishPort, listenPort, img.Listen)
+	}
+	if _, err := SelectExecHealthcheck(img, rel.Smoke); err != nil {
+		t.Errorf("I10: %v", err)
+	}
+}
+
+// TestParseReleaseWorkflowRejectsMissing triangulates the release extractor's
+// non-vacuity: a workflow the extractors cannot read must fail, never produce
+// a contract that quietly checks nothing.
+func TestParseReleaseWorkflowRejectsMissing(t *testing.T) {
+	head := "jobs:\n  publish:\n    run: |\n"
+	derived := `          IMAGE="ghcr.io/${GITHUB_REPOSITORY,,}"` + "\n"
+	args := "          docker build --build-arg VERSION=\"$VERSION\" --build-arg REVISION=\"$GITHUB_SHA\" --tag \"$IMAGE:$VERSION\"\n"
+	run := "          docker run --volume \"$V:/data\" --publish 127.0.0.1:80:8080 img\n          docker exec \"$C\" /server -healthcheck\n"
+
+	noDerived := head + args + run
+	if _, err := parseReleaseWorkflow([]byte(noDerived)); err == nil || !strings.Contains(err.Error(), "ghcr.io/${GITHUB_REPOSITORY,,}") {
+		t.Errorf("expected a missing derived-image-reference error, got %v", err)
+	}
+
+	noArgs := head + derived + run
+	if _, err := parseReleaseWorkflow([]byte(noArgs)); err == nil || !strings.Contains(err.Error(), "--build-arg") {
+		t.Errorf("expected a missing build-arg error, got %v", err)
+	}
+
+	noSmoke := head + derived + args
+	if _, err := parseReleaseWorkflow([]byte(noSmoke)); err == nil || !strings.Contains(err.Error(), "--volume") {
+		t.Errorf("expected a missing smoke-flag error, got %v", err)
 	}
 }
 
