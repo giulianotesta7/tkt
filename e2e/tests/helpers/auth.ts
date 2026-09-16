@@ -43,15 +43,19 @@ export async function createUserAsAdmin(
   await page.getByLabel(/^name$/i).fill(opts.name);
   await page.getByLabel(/^email$/i).fill(opts.email);
   await page.getByLabel(/^password$/i).fill(opts.password);
-  await assertHtmxSwap(page, async () => {
-    await page.getByRole("button", { name: /create user/i }).click();
-  }, {
-    endpoint: "/users",
-    method: "POST",
-    expectedStatus: 200,
-    hxTarget: "#users-root",
-    expectedUrl: /\/users$/,
-  });
+  await assertHtmxSwap(
+    page,
+    async () => {
+      await page.getByRole("button", { name: /create user/i }).click();
+    },
+    {
+      endpoint: "/users",
+      method: "POST",
+      expectedStatus: 200,
+      hxTarget: "#users-root",
+      expectedUrl: /\/users$/,
+    },
+  );
   return opts.email;
 }
 

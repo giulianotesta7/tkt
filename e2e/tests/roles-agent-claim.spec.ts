@@ -8,17 +8,8 @@
 import { test, expect, type Page } from "@playwright/test";
 import { startServer, stopServer } from "../server-lifecycle.js";
 import { assertHtmxSwap } from "./helpers/htmx.js";
-import {
-  base,
-  createUserAsAdmin,
-  loginAs,
-  logout,
-  seededCredentials,
-} from "./helpers/auth.js";
-import {
-  createTicketViaUi,
-  resolveUserEditHref,
-} from "./helpers/navigation.js";
+import { base, createUserAsAdmin, loginAs, logout, seededCredentials } from "./helpers/auth.js";
+import { createTicketViaUi, resolveUserEditHref } from "./helpers/navigation.js";
 
 const uniq = Date.now().toString(36).slice(2, 8);
 const agent = {
@@ -33,8 +24,7 @@ const ticketTitle = `Claimable ticket ${uniq}`;
 const claimableRow = (page: Page, title: string) =>
   page.locator(".agent-row-claimable").filter({ hasText: title });
 
-const queueHeading = (page: Page, name: string) =>
-  page.getByRole("heading", { name, exact: true });
+const queueHeading = (page: Page, name: string) => page.getByRole("heading", { name, exact: true });
 
 async function prepareFixtures(page: Page): Promise<void> {
   await loginAs(page, seededCredentials.email, seededCredentials.password);
@@ -56,9 +46,7 @@ async function prepareFixtures(page: Page): Promise<void> {
   const deptId = deptHref?.match(/department_id=(\d+)/)?.[1];
   if (!deptId) throw new Error(`no department at ${page.url()}`);
 
-  await page.goto(
-    base() + "/categories/desks/new?view=structure&department_id=" + deptId,
-  );
+  await page.goto(base() + "/categories/desks/new?view=structure&department_id=" + deptId);
   const deskDrawer = page.getByRole("dialog", { name: /New desk/i });
   await expect(deskDrawer).toBeVisible();
   await deskDrawer.locator('select[name="department_id"]').selectOption(deptId);
@@ -68,23 +56,16 @@ async function prepareFixtures(page: Page): Promise<void> {
     .locator(".category-level-desks .category-structure-item")
     .filter({ hasText: deskName });
   await expect(deskRow).toHaveCount(1);
-  const deskHref = await deskRow
-    .locator('a[href*="desk_id="]')
-    .first()
-    .getAttribute("href");
+  const deskHref = await deskRow.locator('a[href*="desk_id="]').first().getAttribute("href");
   const deskId = deskHref?.match(/desk_id=(\d+)/)?.[1];
   if (!deskId) throw new Error(`no desk ${deskName} at ${page.url()}`);
 
   await page.goto(base() + `/categories/desks/${deskId}/edit?view=structure`);
   const editDrawer = page.getByRole("dialog", { name: /Edit desk/i });
   await expect(editDrawer).toBeVisible();
-  await editDrawer
-    .locator("select#desk-member")
-    .selectOption({ label: agent.name });
+  await editDrawer.locator("select#desk-member").selectOption({ label: agent.name });
   await editDrawer.getByRole("button", { name: "Add member" }).click();
-  await expect(
-    editDrawer.getByRole("listitem").filter({ hasText: agent.name }),
-  ).toHaveCount(1);
+  await expect(editDrawer.getByRole("listitem").filter({ hasText: agent.name })).toHaveCount(1);
 
   const ctx = `view=structure&department_id=${deptId}&desk_id=${deskId}`;
   await page.goto(base() + `/categories/new?${ctx}`);
@@ -110,22 +91,14 @@ async function prepareFixtures(page: Page): Promise<void> {
   await expect(stepCards).toHaveCount(2);
   await stepCards.first().locator(".workflow-step-card-link").click();
   await page.locator('select[name="step_0_desk"]').selectOption(deskId);
-  await expect(page.locator('select[name="step_0_strategy"]')).toHaveValue(
-    "claim",
-  );
+  await expect(page.locator('select[name="step_0_strategy"]')).toHaveValue("claim");
   await stepCards.last().locator(".workflow-step-card-link").click();
   await page.getByLabel(/instructions/i).fill("Continue");
-  const saveBtn = page.locator(
-    '.page-actions button[name="action"][value="save"]',
-  );
+  const saveBtn = page.locator('.page-actions button[name="action"][value="save"]');
   await saveBtn.click();
-  await expect(
-    page.locator("#save-feedback .save-feedback-message"),
-  ).toHaveText("Saved");
+  await expect(page.locator("#save-feedback .save-feedback-message")).toHaveText("Saved");
   await page.getByRole("button", { name: /publish/i }).click();
-  await expect(
-    page.locator("#save-feedback .save-feedback-message"),
-  ).toHaveText("Published");
+  await expect(page.locator("#save-feedback .save-feedback-message")).toHaveText("Published");
   await page.reload();
   await expect(stepCards).toHaveCount(2);
 
@@ -150,14 +123,10 @@ test.describe("Agent claim — winner and stale journey", () => {
 
     const rowA = claimableRow(page, ticketTitle);
     await expect(rowA).toHaveCount(1);
-    const viewHref = await rowA
-      .locator("a.agent-row-open")
-      .getAttribute("href");
+    const viewHref = await rowA.locator("a.agent-row-open").getAttribute("href");
     const ticketId = viewHref?.match(/^\/tickets\/(\d+)$/)?.[1];
     if (!ticketId) throw new Error(`no ticket at ${page.url()}`);
-    const claimPost = await rowA
-      .locator("form.agent-claim-form")
-      .getAttribute("hx-post");
+    const claimPost = await rowA.locator("form.agent-claim-form").getAttribute("hx-post");
     const claimPath = `/tickets/${ticketId}/workflow/steps/1/complete`;
     if (claimPost !== claimPath) {
       throw new Error(`bad claim endpoint ${claimPost} at ${page.url()}`);
@@ -184,14 +153,11 @@ test.describe("Agent claim — winner and stale journey", () => {
       expectedStatus: 200,
       hxTarget: "#agent-ticket-list",
     };
-    const claimBtn = (row: typeof rowA) =>
-      row.getByRole("button", { name: "Claim ticket" });
+    const claimBtn = (row: typeof rowA) => row.getByRole("button", { name: "Claim ticket" });
     await assertHtmxSwap(page, () => claimBtn(rowA).click(), claimOpts);
     await expect(queueHeading(page, "Assigned to me · 1")).toBeVisible();
     await expect(queueHeading(page, "Available to claim · 0")).toBeVisible();
-    const winnerRow = page
-      .locator(".agent-row-assigned")
-      .filter({ hasText: ticketTitle });
+    const winnerRow = page.locator(".agent-row-assigned").filter({ hasText: ticketTitle });
     await expect(winnerRow.locator(".badge.in_progress")).toBeVisible();
     await expect(page.locator(".agent-claim-error")).toHaveCount(0);
     await expect(page).toHaveURL(/\/tickets$/);
@@ -205,9 +171,7 @@ test.describe("Agent claim — winner and stale journey", () => {
     await expect(pageB.locator(".agent-claim-error")).toHaveText(
       "This ticket is no longer available to claim.",
     );
-    await expect(pageB.locator("body")).not.toContainText(
-      "workflow position conflict",
-    );
+    await expect(pageB.locator("body")).not.toContainText("workflow position conflict");
     await expect(queueHeading(pageB, "Available to claim · 0")).toBeVisible();
 
     await page.reload();

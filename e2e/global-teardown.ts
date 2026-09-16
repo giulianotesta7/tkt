@@ -14,12 +14,16 @@ export async function teardown(): Promise<void> {
   // Clean up binary
   try {
     rmSync(BIN, { force: true });
-  } catch { /* ignore */ }
+  } catch {
+    /* ignore */
+  }
 
   // Clean up any orphaned Playwright CLI artifacts
   try {
     rmSync(join(E2E_DIR, ".playwright-cli"), { recursive: true, force: true });
-  } catch { /* ignore */ }
+  } catch {
+    /* ignore */
+  }
 }
 
 export default teardown;

@@ -23,8 +23,7 @@
  * section check). History sync stays unchanged.
  */
 (() => {
-  const CLAIM_LIST_SECTION =
-    'section[aria-labelledby="claimable-tickets-title"]';
+  const CLAIM_LIST_SECTION = 'section[aria-labelledby="claimable-tickets-title"]';
 
   function syncSearchFromLocation() {
     const input = document.getElementById("role-ticket-search");
@@ -60,7 +59,8 @@
       xhr.status !== 422 ||
       xhr.getResponseHeader("HX-Retarget") !== "#agent-ticket-list" ||
       xhr.getResponseHeader("HX-Reswap") !== "outerHTML"
-    ) return;
+    )
+      return;
     const elt = detail.requestConfig?.elt;
     if (!elt?.closest?.(CLAIM_LIST_SECTION)) return;
     detail.shouldSwap = true;

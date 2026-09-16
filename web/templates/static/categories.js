@@ -15,15 +15,26 @@
   const root = () => document.querySelector(".categories-root");
   const background = () => document.getElementById("categories-background");
   const drawer = () => document.querySelector(".category-drawer");
-  const focusables = (el) => [...el.querySelectorAll("a[href],button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex='-1'])")].filter((item) => item.offsetParent !== null);
+  const focusables = (el) =>
+    [
+      ...el.querySelectorAll(
+        "a[href],button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex='-1'])",
+      ),
+    ].filter((item) => item.offsetParent !== null);
   const same = (a, b) => a && b && a[KEY] === b[KEY];
   const listURL = () => {
     const path = location.pathname;
     if (path === "/categories") return path + location.search;
     return "/categories";
   };
-  const drawerState = (panel, url = drawerURL || location.pathname + location.search) => ({[KEY]: 1, kind: "drawer", closeURL: panel.dataset.closeUrl || listURL(), drawerURL: url, launcherKey: openerKey || ""});
-  const baseState = (url) => ({[KEY]: 1, kind: "base", url});
+  const drawerState = (panel, url = drawerURL || location.pathname + location.search) => ({
+    [KEY]: 1,
+    kind: "drawer",
+    closeURL: panel.dataset.closeUrl || listURL(),
+    drawerURL: url,
+    launcherKey: openerKey || "",
+  });
+  const baseState = (url) => ({ [KEY]: 1, kind: "base", url });
   const categoryForm = () => document.getElementById("category-drawer-form");
   const drawerIdentity = (panel) => `${panel?.dataset.kind || ""}:${panel?.dataset.id || ""}`;
   const drawerValues = (panel = drawer(), form = categoryForm()) => {
@@ -56,11 +67,17 @@
   }
 
   function dialogFocusFallback(panel) {
-    return panel.querySelector("input:not([disabled]),select:not([disabled]),textarea:not([disabled]),button:not([disabled])") || panel;
+    return (
+      panel.querySelector(
+        "input:not([disabled]),select:not([disabled]),textarea:not([disabled]),button:not([disabled])",
+      ) || panel
+    );
   }
 
   function validDialogReturnFocus(panel, target) {
-    return !!panel && target?.isConnected && panel.contains(target) && focusables(panel).includes(target);
+    return (
+      !!panel && target?.isConnected && panel.contains(target) && focusables(panel).includes(target)
+    );
   }
 
   function showDialog(trigger) {
@@ -68,7 +85,13 @@
     const dialog = panel?.querySelector("#category-dirty-dialog");
     if (!dialog) return;
     const active = document.activeElement;
-    dialogReturnFocus = validDialogReturnFocus(panel, lastDrawerFocus) ? lastDrawerFocus : validDialogReturnFocus(panel, active) ? active : validDialogReturnFocus(panel, trigger) ? trigger : dialogFocusFallback(panel);
+    dialogReturnFocus = validDialogReturnFocus(panel, lastDrawerFocus)
+      ? lastDrawerFocus
+      : validDialogReturnFocus(panel, active)
+        ? active
+        : validDialogReturnFocus(panel, trigger)
+          ? trigger
+          : dialogFocusFallback(panel);
     if (dialog.showModal) dialog.showModal();
     else dialog.setAttribute("open", "");
     dialog.querySelector("[data-category-stay]")?.focus();
@@ -106,7 +129,11 @@
   }
 
   function restoreFocus() {
-    const target = opener?.isConnected ? opener : openerKey ? document.querySelector(`[data-focus-key="${CSS.escape(openerKey)}"]`) : null;
+    const target = opener?.isConnected
+      ? opener
+      : openerKey
+        ? document.querySelector(`[data-focus-key="${CSS.escape(openerKey)}"]`)
+        : null;
     if (!target) return;
     target.focus();
     if (document.activeElement === target) {
@@ -133,8 +160,12 @@
     lastDrawerFocus = null;
     if (panel) panel.removeAttribute("aria-busy");
     const restoreCloseFocus = () => {
-      const target = focusKey ? document.querySelector(`[data-focus-key="${CSS.escape(focusKey)}"]`) : opener;
-      const fallback = root()?.querySelector(".category-level-categories .category-drawer-launcher") || root()?.querySelector(".category-drawer-launcher");
+      const target = focusKey
+        ? document.querySelector(`[data-focus-key="${CSS.escape(focusKey)}"]`)
+        : opener;
+      const fallback =
+        root()?.querySelector(".category-level-categories .category-drawer-launcher") ||
+        root()?.querySelector(".category-drawer-launcher");
       if (target) target.focus();
       else if (fallback) fallback.focus();
       else restoreFocus();
@@ -152,7 +183,7 @@
     const close = panel.dataset.closeUrl || listURL();
     const state = history.state;
     drawerURL = url;
-    if (!same(state, {[KEY]: 1})) {
+    if (!same(state, { [KEY]: 1 })) {
       if (opener || (state && location.pathname.includes("/edit"))) {
         history.replaceState(drawerState(panel, url), "", url);
       } else {
@@ -172,7 +203,7 @@
   }
 
   function closeDrawer() {
-    if (same(history.state, {[KEY]: 1}) && history.state.kind === "drawer") {
+    if (same(history.state, { [KEY]: 1 }) && history.state.kind === "drawer") {
       history.back();
       return;
     }
@@ -215,7 +246,7 @@
       finishClose();
       return;
     }
-    if (same(event.state, {[KEY]: 1}) && event.state.kind === "base") {
+    if (same(event.state, { [KEY]: 1 }) && event.state.kind === "base") {
       event.stopImmediatePropagation();
       finishClose();
     }
@@ -230,8 +261,9 @@
       !panel.dataset.id ||
       !(form.matches(".desk-add-member") || form.closest(".desk-member-list")) ||
       (action.pathname !== membershipPath && !action.pathname.startsWith(`${membershipPath}/`))
-    ) return;
-    pendingDeskValues = {deskID: panel.dataset.id, values: drawerValues(panel), ready: false};
+    )
+      return;
+    pendingDeskValues = { deskID: panel.dataset.id, values: drawerValues(panel), ready: false };
   }
 
   function captureDeskValues(event) {
@@ -246,7 +278,13 @@
   function restoreDeskValues(panel) {
     const pending = pendingDeskValues;
     pendingDeskValues = null;
-    if (!pending?.ready || panel?.dataset.kind !== "desk" || panel.dataset.id !== pending.deskID || panel.dataset.serverError === "true") return;
+    if (
+      !pending?.ready ||
+      panel?.dataset.kind !== "desk" ||
+      panel.dataset.id !== pending.deskID ||
+      panel.dataset.serverError === "true"
+    )
+      return;
     const form = categoryForm();
     Object.entries(pending.values).forEach(([key, value]) => {
       if (form?.elements[key]) form.elements[key].value = value;
@@ -256,60 +294,78 @@
   function handleBeforeSwap(event) {
     const xhr = event.detail?.xhr;
     captureDeskValues(event);
-    const expected = [400, 403, 404, 409, 422].includes(xhr?.status) && xhr.getResponseHeader("HX-Retarget") === "#category-drawer-host" && xhr.getResponseHeader("HX-Reswap") === "outerHTML";
+    const expected =
+      [400, 403, 404, 409, 422].includes(xhr?.status) &&
+      xhr.getResponseHeader("HX-Retarget") === "#category-drawer-host" &&
+      xhr.getResponseHeader("HX-Reswap") === "outerHTML";
     if (expected) {
       event.detail.shouldSwap = true;
       event.detail.isError = false;
     }
   }
 
-  document.addEventListener("focusin", (event) => {
-    const panel = drawer();
-    if (panel?.contains(event.target) && !event.target.closest("#category-dirty-dialog")) lastDrawerFocus = event.target;
-  }, true);
+  document.addEventListener(
+    "focusin",
+    (event) => {
+      const panel = drawer();
+      if (panel?.contains(event.target) && !event.target.closest("#category-dirty-dialog"))
+        lastDrawerFocus = event.target;
+    },
+    true,
+  );
 
-  document.addEventListener("click", (event) => {
-    const launch = event.target.closest(".category-drawer-launcher");
-    if (launch) {
-      opener = launch.dataset.focusKey ? launch : launch.closest(".category-overflow")?.querySelector("[data-category-menu]") || launch;
-      openerKey = opener.dataset.focusKey || null;
-    }
-    const stay = event.target.closest("[data-category-stay]");
-    const discardButton = event.target.closest("[data-category-discard]");
-    if (stay) {
-      event.preventDefault();
-      closeDialog(true);
-      return;
-    }
-    if (discardButton) {
-      event.preventDefault();
-      discardClose();
-      return;
-    }
-    const close = event.target.closest(".category-drawer-close,.category-drawer-cancel,.category-drawer-backdrop");
-    if (close) {
-      event.preventDefault();
-      requestClose(close);
-      return;
-    }
-    const menuButton = event.target.closest("[data-category-menu]");
-    if (menuButton) {
-      const menu = document.getElementById(menuButton.getAttribute("aria-controls"));
-      if (menu) {
-        menu.hidden = !menu.hidden;
-        menuButton.setAttribute("aria-expanded", String(!menu.hidden));
-        if (!menu.hidden) {
-          const buttonBox = menuButton.getBoundingClientRect();
-          menu.classList.toggle("up", buttonBox.bottom + menu.offsetHeight > window.innerHeight);
-        }
+  document.addEventListener(
+    "click",
+    (event) => {
+      const launch = event.target.closest(".category-drawer-launcher");
+      if (launch) {
+        opener = launch.dataset.focusKey
+          ? launch
+          : launch.closest(".category-overflow")?.querySelector("[data-category-menu]") || launch;
+        openerKey = opener.dataset.focusKey || null;
       }
-    } else if (!event.target.closest(".category-overflow")) {
-      document.querySelectorAll(".category-overflow-menu:not([hidden])").forEach((menu) => {
-        menu.hidden = true;
-        document.querySelector(`[aria-controls="${CSS.escape(menu.id)}"]`)?.setAttribute("aria-expanded", "false");
-      });
-    }
-  }, true);
+      const stay = event.target.closest("[data-category-stay]");
+      const discardButton = event.target.closest("[data-category-discard]");
+      if (stay) {
+        event.preventDefault();
+        closeDialog(true);
+        return;
+      }
+      if (discardButton) {
+        event.preventDefault();
+        discardClose();
+        return;
+      }
+      const close = event.target.closest(
+        ".category-drawer-close,.category-drawer-cancel,.category-drawer-backdrop",
+      );
+      if (close) {
+        event.preventDefault();
+        requestClose(close);
+        return;
+      }
+      const menuButton = event.target.closest("[data-category-menu]");
+      if (menuButton) {
+        const menu = document.getElementById(menuButton.getAttribute("aria-controls"));
+        if (menu) {
+          menu.hidden = !menu.hidden;
+          menuButton.setAttribute("aria-expanded", String(!menu.hidden));
+          if (!menu.hidden) {
+            const buttonBox = menuButton.getBoundingClientRect();
+            menu.classList.toggle("up", buttonBox.bottom + menu.offsetHeight > window.innerHeight);
+          }
+        }
+      } else if (!event.target.closest(".category-overflow")) {
+        document.querySelectorAll(".category-overflow-menu:not([hidden])").forEach((menu) => {
+          menu.hidden = true;
+          document
+            .querySelector(`[aria-controls="${CSS.escape(menu.id)}"]`)
+            ?.setAttribute("aria-expanded", "false");
+        });
+      }
+    },
+    true,
+  );
 
   function filterDeskOptions(department) {
     const desk = document.getElementById("category-desk");
@@ -320,47 +376,73 @@
     if (desk.selectedOptions[0]?.hidden) desk.value = "";
   }
 
-  document.addEventListener("change", (event) => {
-    if (event.target.id === "category-department") filterDeskOptions(event.target.value);
-  }, true);
+  document.addEventListener(
+    "change",
+    (event) => {
+      if (event.target.id === "category-department") filterDeskOptions(event.target.value);
+    },
+    true,
+  );
 
-  document.addEventListener("submit", (event) => {
-    if (event.target.matches(".desk-add-member") || event.target.closest(".desk-member-list")) {
-      prepareDeskValues(event.target);
-      return;
-    }
-    if (!event.target.matches("#category-drawer-form")) return;
-    if (busy) {
+  document.addEventListener(
+    "submit",
+    (event) => {
+      if (event.target.matches(".desk-add-member") || event.target.closest(".desk-member-list")) {
+        prepareDeskValues(event.target);
+        return;
+      }
+      if (!event.target.matches("#category-drawer-form")) return;
+      if (busy) {
+        event.preventDefault();
+        return;
+      }
+      busy = true;
+      drawer()?.setAttribute("aria-busy", "true");
+    },
+    true,
+  );
+
+  document.addEventListener(
+    "keydown",
+    (event) => {
+      const panel = drawer();
+      if (!panel) return;
+      const dialog = panel.querySelector("dialog[open]");
+      if (event.key === "Escape") {
+        event.preventDefault();
+        if (dialog?.id === "category-dirty-dialog") closeDialog(true);
+        else requestClose(document.activeElement);
+        return;
+      }
+      if (event.key !== "Tab") return;
+      const scope = dialog || panel;
+      const items = focusables(scope);
+      if (!items.length) {
+        event.preventDefault();
+        scope.focus();
+        return;
+      }
+      if (event.shiftKey && document.activeElement === items[0]) {
+        event.preventDefault();
+        items.at(-1).focus();
+      }
+      if (!event.shiftKey && document.activeElement === items.at(-1)) {
+        event.preventDefault();
+        items[0].focus();
+      }
+    },
+    true,
+  );
+
+  document.addEventListener(
+    "cancel",
+    (event) => {
+      if (!event.target.matches("#category-dirty-dialog")) return;
       event.preventDefault();
-      return;
-    }
-    busy = true;
-    drawer()?.setAttribute("aria-busy", "true");
-  }, true);
-
-  document.addEventListener("keydown", (event) => {
-    const panel = drawer();
-    if (!panel) return;
-    const dialog = panel.querySelector("dialog[open]");
-    if (event.key === "Escape") {
-      event.preventDefault();
-      if (dialog?.id === "category-dirty-dialog") closeDialog(true);
-      else requestClose(document.activeElement);
-      return;
-    }
-    if (event.key !== "Tab") return;
-    const scope = dialog || panel;
-    const items = focusables(scope);
-    if (!items.length) { event.preventDefault(); scope.focus(); return; }
-    if (event.shiftKey && document.activeElement === items[0]) { event.preventDefault(); items.at(-1).focus(); }
-    if (!event.shiftKey && document.activeElement === items.at(-1)) { event.preventDefault(); items[0].focus(); }
-  }, true);
-
-  document.addEventListener("cancel", (event) => {
-    if (!event.target.matches("#category-dirty-dialog")) return;
-    event.preventDefault();
-    closeDialog(true);
-  }, true);
+      closeDialog(true);
+    },
+    true,
+  );
 
   document.body.addEventListener("categories:saved", () => {
     const url = listURL();
