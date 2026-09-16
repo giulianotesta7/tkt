@@ -203,7 +203,7 @@ test.describe("Role — minimal matrix admin / agent / user (seeded)", () => {
     await expect(assignedCard.locator(".agent-row-open")).toHaveCSS("color", "rgb(49, 94, 255)");
     await expect(assignedCard.locator(".agent-row-meta").first()).toHaveCSS(
       "color",
-      "rgb(102, 112, 133)",
+      "rgba(0, 0, 0, 0.62)",
     );
     await expect(assignedCard.locator("time.card-timestamp")).toHaveAttribute("tabindex", "0");
     await expect(assignedCard.locator("time.card-timestamp")).toHaveAttribute(
@@ -276,7 +276,7 @@ test.describe("Role — minimal matrix admin / agent / user (seeded)", () => {
       "color",
       "rgb(49, 94, 255)",
     );
-    await expect(userCard.locator(".user-request-meta")).toHaveCSS("color", "rgb(102, 112, 133)");
+    await expect(userCard.locator(".user-request-meta")).toHaveCSS("color", "rgba(0, 0, 0, 0.62)");
     await expect(userCard.locator("time.card-timestamp")).toHaveAttribute("tabindex", "0");
     await expect(userCard.locator("time.card-timestamp")).toHaveAttribute(
       "data-full-date",

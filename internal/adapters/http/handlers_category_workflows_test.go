@@ -71,10 +71,10 @@ func TestCategoryWorkflowBuilder_UsesUsersHeaderFoundationAndCategoryIdentity(t 
 		declarations []string
 	}{
 		{"header geometry", []string{".users-root .users-header", ".page-foundation .page-header"}, []string{"display:flex", "align-items:flex-start", "justify-content:space-between", "gap:24px"}},
-		{"title geometry", []string{".users-root h1", ".page-foundation .page-title"}, []string{"font-size:30px", "line-height:1.1"}},
-		{"subtitle styling", []string{".users-root .users-header p", ".page-foundation .page-subtitle"}, []string{"margin:8px 0 0", "color:#667085"}},
-		{"primary action geometry", []string{".users-root .users-primary-action", ".page-foundation .page-action-primary"}, []string{"display:inline-flex", "align-items:center", "justify-content:center", "padding:11px 16px"}},
-		{"panel surface", []string{".users-root .users-list", ".page-foundation .page-panel"}, []string{"border:1px solid #e2e7ee", "border-radius:10px", "background:#fff"}},
+		{"title geometry", []string{".users-root h1", ".page-foundation .page-title"}, []string{"font-size:24px", "line-height:1.15"}},
+		{"subtitle styling", []string{".users-root .users-header p", ".page-foundation .page-subtitle"}, []string{"margin:8px 0 0", "color:var(--muted)"}},
+		{"primary action geometry", []string{".users-root .users-primary-action", ".page-foundation .page-action-primary"}, []string{"display:inline-flex", "align-items:center", "justify-content:center", "padding:0 14px"}},
+		{"panel surface", []string{".users-root .users-list", ".page-foundation .page-panel"}, []string{"border:1px solid var(--line)", "border-radius:12px", "background:var(--surface)"}},
 	} {
 		assertCSSRuleContains(t, css, tc.name, tc.selectors, tc.declarations)
 	}

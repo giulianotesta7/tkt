@@ -27,7 +27,7 @@
   {{end}}
   <div class="catalog-shell catalog-mobile-{{.MobileStep}}" aria-label="Ticket category catalog">
     <section class="catalog-column catalog-departments" aria-labelledby="departments-heading">
-      <h2 id="departments-heading">DEPARTMENTS</h2>
+      <h2 id="departments-heading">Departments</h2>
       <div class="catalog-list">
       {{range .Departments}}
         <a class="catalog-item {{if eq .ID $.DepartmentID}}selected{{end}}" href="/tickets/new?department_id={{.ID}}" aria-current="{{if eq .ID $.DepartmentID}}true{{end}}"><span>{{.Name}}</span><small>{{.CategoryCount}}</small></a>
@@ -35,7 +35,7 @@
       </div>
     </section>
     <section class="catalog-column catalog-desks" aria-labelledby="desks-heading">
-      <h2 id="desks-heading">DESKS</h2>
+      <h2 id="desks-heading">Desks</h2>
       <a class="catalog-back" href="/tickets/new">← Departments</a>
       <div class="catalog-list">
       {{range .Desks}}
@@ -44,7 +44,7 @@
       </div>
     </section>
     <section class="catalog-column catalog-categories" aria-labelledby="categories-heading">
-      <h2 id="categories-heading">CATEGORIES</h2>
+      <h2 id="categories-heading">Categories</h2>
       <a class="catalog-back" href="/tickets/new?department_id={{.DepartmentID}}">← Desks</a>
       {{if .Breadcrumb}}<p class="catalog-breadcrumb">{{.Breadcrumb}}</p>{{end}}
       <div class="catalog-category-list">

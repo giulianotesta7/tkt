@@ -2,7 +2,7 @@
 {{if .Pending.CanAct}}
 <section class="timeline-entry workflow-pending workflow-pending-action" id="workflow-pending" aria-labelledby="current-task-title">
   <div class="workflow-pending-heading">
-    <h3 id="current-task-title">CURRENT TASK</h3>
+    <h3 id="current-task-title">Current task</h3>
   </div>
 {{if eq .Pending.Kind "manual"}}
   <p class="workflow-instruction">{{.Pending.Instruction}}</p>
@@ -55,7 +55,7 @@
 {{else}}
 <section class="timeline-entry workflow-pending workflow-pending-info" id="workflow-pending" aria-label="Current task status">
   <p class="workflow-pending-status">
-    <strong>IN PROGRESS</strong>
+    <strong>In progress</strong>
 {{if eq .Pending.Kind "auto"}}    This step is running automatically.
 {{else}}    <span class="workflow-pending-participant">{{if .Pending.ParticipantName}}{{.Pending.ParticipantName}}{{else}}The assigned agent{{end}} is handling this task.</span>
 {{end}}  </p>

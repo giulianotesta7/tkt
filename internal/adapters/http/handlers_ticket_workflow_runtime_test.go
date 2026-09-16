@@ -251,8 +251,8 @@ func TestTicketWorkflowRuntime_PendingActionsInsideTimelineForActiveRun(t *testi
 	} else if pending < timeline {
 		t.Errorf("current task must render inside Timeline: %.500s", body)
 	}
-	if !strings.Contains(body, `<h3 id="current-task-title">CURRENT TASK</h3>`) {
-		t.Errorf("authorized active run must render CURRENT TASK: %.500s", body)
+	if !strings.Contains(body, `<h3 id="current-task-title">Current task</h3>`) {
+		t.Errorf("authorized active run must render Current task: %.500s", body)
 	}
 	// Amendment 2 (WB.5): ordered-list numbering is removed from the pending
 	// timeline item everywhere ticket-facing.
@@ -550,7 +550,7 @@ func TestPendingActions_Presentation(t *testing.T) {
 		}
 		for _, want := range []string{
 			`class="timeline-entry workflow-pending workflow-pending-info"`,
-			"IN PROGRESS",
+			"In progress",
 			"Admin is handling this task.",
 			"Updates will appear here when complete.",
 		} {

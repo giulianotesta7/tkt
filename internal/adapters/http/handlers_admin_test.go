@@ -1,6 +1,7 @@
 package httpadapter
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"net/http"
@@ -397,6 +398,30 @@ func TestStaticServesVendoredHtmx(t *testing.T) {
 	body := rec.Body.String()
 	if !strings.Contains(body, "htmx") || len(body) < 10000 {
 		t.Errorf("body must be the vendored htmx script, got %d bytes", len(body))
+	}
+}
+
+// TestStaticServesVendoredInterfaceFont proves GET /static/InterVariable.woff2
+// returns the embedded WOFF2 payload (magic number "wOF2") with a cache header,
+// so the interface typeface is served locally rather than fetched from a CDN.
+func TestStaticServesVendoredInterfaceFont(t *testing.T) {
+	h := newHarness(t)
+	rec := h.get(t, "/static/InterVariable.woff2", false)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+	if ct := rec.Header().Get("Content-Type"); ct != "font/woff2" {
+		t.Errorf("Content-Type = %q, want font/woff2", ct)
+	}
+	if cc := rec.Header().Get("Cache-Control"); cc != "public, max-age=86400" {
+		t.Errorf("Cache-Control = %q, want public, max-age=86400", cc)
+	}
+	body := rec.Body.Bytes()
+	if len(body) < 100000 {
+		t.Errorf("body must be the vendored font, got %d bytes", len(body))
+	}
+	if !bytes.HasPrefix(body, []byte("wOF2")) {
+		t.Errorf("body must start with the WOFF2 magic number, got %q", body[:min(len(body), 4)])
 	}
 }
 

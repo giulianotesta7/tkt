@@ -690,8 +690,8 @@ test.describe("Categories", () => {
       name: "Discard changes",
       exact: true,
     });
-    await expect(discard).toHaveCSS("background-color", "rgb(141, 57, 72)");
-    await expect(discard).toHaveCSS("border-color", "rgb(141, 57, 72)");
+    await expect(discard).toHaveCSS("background-color", "rgb(180, 35, 24)");
+    await expect(discard).toHaveCSS("border-color", "rgb(180, 35, 24)");
     await expect(discard).toHaveCSS("color", "rgb(255, 255, 255)");
     await confirmation.getByRole("button", { name: "Stay", exact: true }).click();
     await expect(confirmation).toBeHidden();
@@ -1402,7 +1402,7 @@ test.describe("Categories", () => {
       timeout: 10_000,
     });
     await expect(page.locator("#workflow-pending")).toHaveClass(/workflow-pending-info/);
-    await expect(page.locator("#workflow-pending")).toContainText("IN PROGRESS");
+    await expect(page.locator("#workflow-pending")).toContainText("In progress");
     await expect(page.locator("#workflow-pending")).toContainText(
       "The assigned agent is handling this task.",
     );
@@ -1457,7 +1457,7 @@ test.describe("Categories", () => {
     );
     const pending = page.locator("#workflow-pending");
     await expect(pending).toHaveClass(/workflow-pending-action/);
-    await expect(pending.locator("h3")).toHaveText("CURRENT TASK");
+    await expect(pending.locator("h3")).toHaveText("Current task");
     await expect(pending.locator(".workflow-instruction")).toContainText("Handle the ticket");
     await expect(pending.getByLabel("Solution (optional)")).toBeVisible();
     await expect(pending.getByRole("button", { name: "Complete" })).toBeVisible();
@@ -1488,11 +1488,11 @@ test.describe("Categories", () => {
       await expect(completedManual.locator(".timeline-manual-heading .main")).toHaveText(
         "Alice Admin completed the task",
       );
-      await expect(completedManual.getByText("TASK", { exact: true })).toHaveCount(1);
+      await expect(completedManual.getByText("Task", { exact: true })).toHaveCount(1);
       await expect(completedManual.locator("dd").first()).toHaveText("Handle the ticket");
       await expect(completedManual.locator("dl")).toBeVisible();
       await expect(completedManual.locator(".when")).toBeVisible();
-      await expect(completedManual.getByText("SOLUTION", { exact: true })).toHaveCount(0);
+      await expect(completedManual.getByText("Solution", { exact: true })).toHaveCount(0);
       await expect(
         completedManual.locator(
           "details, summary, button, .timeline-event-summary, [open], [aria-expanded], [aria-controls], [tabindex]",
@@ -1820,7 +1820,7 @@ test.describe("Categories", () => {
       await expect(dialog).toHaveCSS("border-radius", "12px");
       await expect(dialog.getByRole("button", { name: "Discard and continue" })).toHaveCSS(
         "background-color",
-        "rgb(141, 57, 72)",
+        "rgb(180, 35, 24)",
       );
       await page.keyboard.press("Escape");
       await expect(dialog).not.toBeVisible();
@@ -1897,7 +1897,7 @@ test.describe("Categories", () => {
       await expect(dialog).toHaveCSS("border-radius", "12px");
       await expect(dialog.getByRole("button", { name: "Discard changes" })).toHaveCSS(
         "background-color",
-        "rgb(141, 57, 72)",
+        "rgb(180, 35, 24)",
       );
       await page.keyboard.press("Escape");
       await expect(dialog).not.toBeVisible();

@@ -53,7 +53,7 @@ test.describe("Ticket detail", () => {
     // Alice created the ticket, so she cannot act on the seeded General workflow step.
     await expect(page.locator("#workflow-pending")).toBeVisible();
     await expect(page.locator("#workflow-pending")).toHaveClass(/workflow-pending-info/);
-    await expect(page.locator("#workflow-pending")).toContainText("IN PROGRESS");
+    await expect(page.locator("#workflow-pending")).toContainText("In progress");
     await expect(page.locator("#workflow-pending")).toContainText(
       "Updates will appear here when complete.",
     );
