@@ -148,7 +148,9 @@ export async function assertNothingClipped(page: Page): Promise<void> {
 
       // +1 absorbs sub-pixel rounding on fractional layout.
       if (clipsX && el.scrollWidth > el.clientWidth + 1) {
-        offenders.push(`${where} clips horizontally: shows ${el.clientWidth}px of ${el.scrollWidth}px`);
+        offenders.push(
+          `${where} clips horizontally: shows ${el.clientWidth}px of ${el.scrollWidth}px`,
+        );
       }
       if (clipsY && el.scrollHeight > el.clientHeight + 1) {
         offenders.push(
