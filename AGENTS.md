@@ -8,8 +8,9 @@ Load relevant skills BEFORE writing code. Skills encode project rules that are c
 
 1. Before starting a change, read the local skills below and load every skill whose Activation Contract matches the planned work.
 2. Follow the loaded skill's activation contract: some skills activate for any change, others only for template, E2E, or spec-impacting work.
-3. When two skills apply, honor both. If their rules ever conflict, stop and surface the conflict instead of picking one silently.
-4. Keep skills current: when a new rule becomes authoritative, update the skill file and this index in the same change.
+3. Skills under `.agents/skills/` are authoritative for this repository. When one of them conflicts with a user-scope or package-installed skill, the project skill wins: apply it and do not reconcile the two.
+4. When two project skills conflict and you cannot honor both, stop and surface the conflict instead of picking one silently.
+5. Keep skills current: when a new rule becomes authoritative, update the skill file and this index in the same change.
 
 ### Local skills
 
@@ -18,6 +19,7 @@ Project skills live in `.agents/skills/` and are named for the suite or layer th
 | Skill | Path |
 | --- | --- |
 | `issue-governance` | `.agents/skills/issue-governance/SKILL.md` |
+| `pr-governance` | `.agents/skills/pr-governance/SKILL.md` |
 | `ux-ui` | `.agents/skills/ux-ui/SKILL.md` |
 | `e2e-playwright` | `.agents/skills/e2e-playwright/SKILL.md` |
 | `go-tests` | `.agents/skills/go-tests/SKILL.md` |
