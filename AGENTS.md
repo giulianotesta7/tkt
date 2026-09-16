@@ -20,6 +20,7 @@ Project skills live in `.agents/skills/` and are named for the suite or layer th
 | --- | --- |
 | `issue-governance` | `.agents/skills/issue-governance/SKILL.md` |
 | `pr-governance` | `.agents/skills/pr-governance/SKILL.md` |
+| `worktree-isolation` | `.agents/skills/worktree-isolation/SKILL.md` |
 | `ux-ui` | `.agents/skills/ux-ui/SKILL.md` |
 | `e2e-playwright` | `.agents/skills/e2e-playwright/SKILL.md` |
 | `go-tests` | `.agents/skills/go-tests/SKILL.md` |
