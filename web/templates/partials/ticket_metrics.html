@@ -7,7 +7,7 @@
   <div class="ticket-metrics-card"><span class="ticket-metrics-card-label">Pending tickets</span><span class="ticket-metrics-card-value">{{.Metrics.Pending}}</span></div>
   <div class="ticket-metrics-card"><span class="ticket-metrics-card-label">Unassigned tickets</span><span class="ticket-metrics-card-value">{{.Metrics.Unassigned}}</span></div>
   <div class="ticket-metrics-card"><span class="ticket-metrics-card-label">Resolved this week</span><span class="ticket-metrics-card-value">{{.Metrics.Resolved}}</span></div>
-  <div class="ticket-metrics-card"><span class="ticket-metrics-card-label">Mean resolution time</span><span class="ticket-metrics-card-value">{{.MeanResolution}}</span></div>
+  <div class="ticket-metrics-card"><span class="ticket-metrics-card-label">Mean resolution time</span><span class="ticket-metrics-card-value{{if not .MeanResolutionIsDuration}} ticket-metrics-card-value-prose{{end}}">{{.MeanResolution}}</span></div>
 </div>{{end}}
 {{define "ticket_metrics_detail_content"}}<div id="ticket-metrics-detail-content" class="ticket-metrics-detail">
   <header class="ticket-metrics-detail-header"><div><h1>Ticket metrics</h1><p class="ticket-metrics-subtitle">Operational workload and resolution</p></div><a class="btn ghost" href="{{.BackHref}}">Back to tickets</a></header>

@@ -158,6 +158,10 @@
 .ticket-create-detail{color:var(--ink)}
 .ticket-create-detail .ticket-create-command-header{margin-bottom:18px}
 .ticket-create-detail .command-sub{margin:4px 0 0}
+/* Scoped deliberately to the create page: this field's 540-560px measure at desktop is a
+   contract the E2E suite asserts (tickets.spec.ts, creation geometry), and it is readable
+   at that width. The detail page's inline title is a different element (.title-inline,
+   styled in styles.html) and is fixed in .detail-head, which did not grow as a flex item. */
 .ticket-create-detail .ticket-create-title-field{width:560px;max-width:100%;margin-top:12px}
 .ticket-create-detail .ticket-create-title-field .title-input{width:100%;border:1px solid var(--line-strong);background:var(--card)}
 .ticket-create-detail .ticket-create-title-field .title-input:focus{border-color:var(--accent);background:var(--surface);box-shadow:0 0 0 2px var(--accent-soft)}
