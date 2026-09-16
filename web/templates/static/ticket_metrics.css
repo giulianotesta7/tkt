@@ -31,6 +31,11 @@
   .ticket-metrics-cards{grid-template-columns:repeat(2,minmax(0,1fr))}
   .ticket-metrics-card-value{font-size:22px}
 }
+/* A mean that cannot be computed is an absence, not a datum. Rendering it at the value rung
+   made the absence the loudest element on the row while its three siblings showed a single
+   digit. It drops to the text rung and a softer ink instead. Declared after the media query
+   above on purpose: same specificity, so source order is what keeps it winning at 640px too. */
+.ticket-metrics-card-value-prose{color:var(--ink-soft);font-size:14px;font-weight:500;line-height:1.45}
 /* Detail page (issue #123) + weekly line card, on existing design tokens. */
 .ticket-metrics-detail{display:grid;gap:14px;max-width:1440px;margin:0 0 16px;padding:16px;border:1px solid var(--line);border-radius:12px;background:var(--card)}
 .ticket-metrics-detail-header{display:flex;flex-wrap:wrap;align-items:center;gap:10px}
