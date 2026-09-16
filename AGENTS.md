@@ -33,7 +33,7 @@ Engram is machine-local unless a maintainer exports and imports a verified proje
 
 ### Workflow gates (issue-first)
 
-1. Every change (feature, bug, docs, chore) needs a GitHub issue BEFORE implementation starts. No issue, no work.
-2. Implementation MUST NOT begin until the issue carries `status:approved` (all types, not just features).
-3. Labels come only from the canonical taxonomy in `issue-governance`; never invent new ones. If a needed label is missing, block and ask the maintainer.
+1. Every change (feature, bug, docs, chore) needs a GitHub issue BEFORE implementation starts. No issue, no work. This is the only blocking gate.
+2. Creating the issue authorizes it. There is no approval round trip: this repository has a single maintainer, so `status:approved` never gates and never blocks implementation.
+3. Labels come only from the canonical taxonomy in `issue-governance`; never invent new ones. Apply them best-effort with the closest fit and note the choice; a missing or ambiguous label never blocks or delays work.
 4. When work is delivered, PRs link back to the governing issue.
