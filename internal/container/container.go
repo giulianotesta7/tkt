@@ -1,12 +1,20 @@
-// Package container keeps the Dockerfile, docker-compose.yml and the container
-// CI workflow a deliberate, machine-checked pair.
+// Package container keeps the Dockerfile, docker-compose.yml, the container
+// CI workflow and the release publish workflow a deliberate, machine-checked
+// set.
 //
 // The container contract used to live in three places that each restated part
 // of it: the image, compose, and the CI smoke test. Duplicated values drifted
 // (issue #197): compose restated the environment defaults and the healthcheck
 // the image already declares, and nothing failed when the two sides disagreed.
 // The image now owns the runtime contract and this package is the check that
-// makes `go test ./...` fail when another file disagrees with it.
+// makes `go test ./...` fail when another file disagrees with it. Issue #208
+// added the release workflow as a fourth consumer: it publishes the image to
+// GHCR on a vX.Y.Z tag push, so the machine check proves exactly three things
+// about it — the image repository is derived from the repository path and
+// lowercased, the OCI label build args are passed, and its smoke test agrees
+// with the image contract. The publish order, the push target, the trigger,
+// the permissions and the third-party actions are stated blind spots (see the
+// list below and the container-governance skill).
 //
 // The extraction is deliberately narrow, in the style of internal/references:
 // tight regexes and line scans, no YAML library, no `docker compose config`
@@ -47,7 +55,22 @@
 //   - the CI workflow scan looks only at the --env, --volume/-v and
 //     --publish/-p flags; among the docker exec invocations it collects, only
 //     those running the image's healthcheck binary are selected and the rest
-//     are ignored by name (see SelectExecHealthcheck).
+//     are ignored by name (see SelectExecHealthcheck);
+//   - the release workflow is parsed by the same flag scanner as the CI smoke
+//     test, with one difference: its --env flags are OPTIONAL, because the
+//     release smoke test must prove the image's own defaults, so running with
+//     no --env flags is the expected shape; --env flags that ARE present must
+//     still agree with the image defaults, checked like container.yml;
+//   - the release image repository is read through its derivation expression
+//     `ghcr.io/${GITHUB_REPOSITORY,,}` (required) plus every literal
+//     ghcr.io/<repository> spelling; comparing a literal against the
+//     go.mod-derived path needs the module path, so that comparison lives in
+//     the test, exactly like the compose image rule. The literal scan does
+//     not distinguish comments from shell, and the scanner cannot follow
+//     shell variables, so which reference the push commands name is a stated
+//     blind spot;
+//   - the release build-arg scan (--build-arg VERSION=, --build-arg
+//     REVISION=) sees the whole file, not only the docker build invocation.
 package container
 
 import (
@@ -116,19 +139,42 @@ type ComposeContract struct {
 	HealthcheckTest string // raw test value of the healthcheck block
 }
 
-// WorkflowContract is the container contract as exercised by the CI smoke
-// test in .github/workflows/container.yml.
+// WorkflowContract is the container contract as exercised by a workflow smoke
+// test. It is shared by the CI smoke test in .github/workflows/container.yml
+// and by the release workflow's smoke test (the Smoke field of
+// ReleaseContract); Source records which file the flags were read from, so
+// failure messages name the right file.
 type WorkflowContract struct {
-	DBPath          string      // --env TKT_DB_PATH
-	Listen          string      // --env TKT_LISTEN
+	Source          string      // the workflow file the flags were parsed from
+	DBPath          string      // --env TKT_DB_PATH ("" when the workflow passes none)
+	Listen          string      // --env TKT_LISTEN ("" when the workflow passes none)
 	VolumeTarget    string      // target side of every --volume/-v flag
 	PublishPort     string      // container side of every --publish/-p mapping
 	ExecInvocations [][2]string // every docker exec invocation as {binary, argument}
 }
 
+// ReleaseContract is the publishing contract declared by the release workflow
+// (.github/workflows/release-container.yml), the consumer that pushes the
+// image to GHCR on a vX.Y.Z tag. The image-repository comparison against the
+// go.mod module path lives in the test, which owns the module derivation,
+// exactly like the compose image rule.
+type ReleaseContract struct {
+	ImageRefDerived   bool             // the image reference is computed as ghcr.io/${GITHUB_REPOSITORY,,}
+	LiteralImageRepos []string         // every literal ghcr.io/<repository> spelling found
+	HasVersionArg     bool             // --build-arg VERSION=
+	HasRevisionArg    bool             // --build-arg REVISION=
+	Smoke             WorkflowContract // the smoke-test flags (--env optional by design)
+}
+
 // Non-root UID the distroless image and the prepared data directory must use.
 // Exported so failure messages and tests can name the expected value.
 const NonRootUID = "65532"
+
+// The two workflow files this package reads.
+const (
+	workflowPathContainer = ".github/workflows/container.yml"
+	workflowPathRelease   = ".github/workflows/release-container.yml"
+)
 
 var (
 	reEnvDBPath      = regexp.MustCompile(`^ENV\s+TKT_DB_PATH=(\S+)\s*$`)
@@ -161,6 +207,19 @@ var (
 	// terminate the last token with a semicolon. Selection of the healthcheck
 	// among them is SelectExecHealthcheck's job, not the regex's.
 	reWorkflowExec = regexp.MustCompile(`docker exec\s+("[^"]*"|\S+)\s+([^\s;]+)\s+([^\s;]+)`)
+
+	// Release workflow: the image reference must be DERIVED from the repository
+	// (lowercased), never hardcoded. The derived-expression regex requires the
+	// exact lowercasing form; the literal scan collects every hardcoded
+	// ghcr.io/<repository> spelling for the test to compare against the
+	// go.mod-derived path. The literal class stops at $, so the ${...}
+	// expression form never matches it; the scanner cannot follow shell
+	// variables, so which reference the push commands name is a stated blind
+	// spot (see the package comment).
+	reReleaseDerivedImage     = regexp.MustCompile(`ghcr\.io/\$\{GITHUB_REPOSITORY,,\}`)
+	reReleaseLiteralImage     = regexp.MustCompile(`ghcr\.io/([A-Za-z0-9][A-Za-z0-9._/-]*)`)
+	reReleaseBuildArgVersion  = regexp.MustCompile(`--build-arg\s+VERSION=`)
+	reReleaseBuildArgRevision = regexp.MustCompile(`--build-arg\s+REVISION=`)
 )
 
 // composeServiceKeysAllowed is the explicit allowlist of compose service keys.
@@ -201,11 +260,20 @@ func ReadCompose(root string) (ComposeContract, error) {
 
 // ReadWorkflow reads and parses the container CI workflow.
 func ReadWorkflow(root string) (WorkflowContract, error) {
-	body, err := os.ReadFile(filepath.Join(root, ".github", "workflows", "container.yml"))
+	body, err := os.ReadFile(filepath.Join(root, workflowPathContainer))
 	if err != nil {
-		return WorkflowContract{}, fmt.Errorf("read .github/workflows/container.yml: %w", err)
+		return WorkflowContract{}, fmt.Errorf("read %s: %w", workflowPathContainer, err)
 	}
 	return parseWorkflow(body)
+}
+
+// ReadReleaseWorkflow reads and parses the release publish workflow.
+func ReadReleaseWorkflow(root string) (ReleaseContract, error) {
+	body, err := os.ReadFile(filepath.Join(root, workflowPathRelease))
+	if err != nil {
+		return ReleaseContract{}, fmt.Errorf("read %s: %w", workflowPathRelease, err)
+	}
+	return parseReleaseWorkflow(body)
 }
 
 // parseDockerfile extracts the image contract. The runtime stage is everything
@@ -525,60 +593,74 @@ func parseCompose(body []byte) (ComposeContract, error) {
 	return c, nil
 }
 
-// parseWorkflow extracts every --env, --volume/-v and --publish/-p flag of the
-// CI smoke test, plus every docker exec invocation. Multiple occurrences
-// (first start, restart, busybox probes) must all agree; one disagreeing flag
-// fails, because the workflow is a consumer of the contract and half-agreeing
-// is still drifting. Which exec invocation is the healthcheck is decided by
-// SelectExecHealthcheck against the image contract, not here.
+// parseWorkflow extracts the CI smoke test's flags from container.yml, where
+// the --env flags are required (the smoke test restates the image defaults
+// explicitly).
 func parseWorkflow(body []byte) (WorkflowContract, error) {
+	return parseWorkflowFlags(workflowPathContainer, body, true)
+}
+
+// parseWorkflowFlags extracts every --env, --volume/-v and --publish/-p flag of
+// a workflow smoke test, plus every docker exec invocation. It is one
+// implementation shared by container.yml and release-container.yml; requireEnv
+// selects whether the --env flags are required (container.yml restates them
+// explicitly) or optional (the release smoke test must prove the image's own
+// defaults, so running with no --env flags is its expected shape — the test
+// checks that any --env flags the release workflow does pass agree with the
+// image). Multiple occurrences (first start, restart, busybox probes) must all
+// agree; one disagreeing flag fails, because the workflow is a consumer of the
+// contract and half-agreeing is still drifting. Which exec invocation is the
+// healthcheck is decided by SelectExecHealthcheck against the image contract,
+// not here.
+func parseWorkflowFlags(path string, body []byte, requireEnv bool) (WorkflowContract, error) {
 	var c WorkflowContract
+	c.Source = path
 	text := string(body)
 
 	envs := reWorkflowEnv.FindAllStringSubmatch(text, -1)
 	vols := reWorkflowVolume.FindAllStringSubmatch(text, -1)
 	pubs := reWorkflowPublish.FindAllStringSubmatch(text, -1)
 	execs := reWorkflowExec.FindAllStringSubmatch(text, -1)
-	if len(envs) == 0 {
-		return c, errors.New(".github/workflows/container.yml: no --env TKT_* flags found: the smoke test is unreadable, never skippable")
+	if len(envs) == 0 && requireEnv {
+		return c, fmt.Errorf("%s: no --env TKT_* flags found: the smoke test is unreadable, never skippable", path)
 	}
 	if len(vols) == 0 {
-		return c, errors.New(".github/workflows/container.yml: no --volume or -v flags found: the smoke test is unreadable, never skippable")
+		return c, fmt.Errorf("%s: no --volume or -v flags found: the smoke test is unreadable, never skippable", path)
 	}
 	if len(pubs) == 0 {
-		return c, errors.New(".github/workflows/container.yml: no --publish or -p flags found: the smoke test is unreadable, never skippable")
+		return c, fmt.Errorf("%s: no --publish or -p flags found: the smoke test is unreadable, never skippable", path)
 	}
 	if len(execs) == 0 {
-		return c, errors.New(".github/workflows/container.yml: no docker exec invocation found: the smoke test is unreadable, never skippable")
+		return c, fmt.Errorf("%s: no docker exec invocation found: the smoke test is unreadable, never skippable", path)
 	}
 
 	for _, m := range envs {
 		switch m[1] {
 		case "TKT_DB_PATH":
 			if c.DBPath != "" && c.DBPath != m[2] {
-				return c, fmt.Errorf(".github/workflows/container.yml: TKT_DB_PATH passed twice with different values (%s, %s)", c.DBPath, m[2])
+				return c, fmt.Errorf("%s: TKT_DB_PATH passed twice with different values (%s, %s)", path, c.DBPath, m[2])
 			}
 			c.DBPath = m[2]
 		case "TKT_LISTEN":
 			if c.Listen != "" && c.Listen != m[2] {
-				return c, fmt.Errorf(".github/workflows/container.yml: TKT_LISTEN passed twice with different values (%s, %s)", c.Listen, m[2])
+				return c, fmt.Errorf("%s: TKT_LISTEN passed twice with different values (%s, %s)", path, c.Listen, m[2])
 			}
 			c.Listen = m[2]
 		}
 	}
 	for _, m := range vols {
 		if c.VolumeTarget != "" && c.VolumeTarget != m[2] {
-			return c, fmt.Errorf(".github/workflows/container.yml: volumes mounted at two targets (%s, %s)", c.VolumeTarget, m[2])
+			return c, fmt.Errorf("%s: volumes mounted at two targets (%s, %s)", path, c.VolumeTarget, m[2])
 		}
 		c.VolumeTarget = m[2]
 	}
 	for _, m := range pubs {
 		port, err := publishContainerPort(m[1])
 		if err != nil {
-			return c, fmt.Errorf(".github/workflows/container.yml: publish mapping %q is unreadable: %v", m[1], err)
+			return c, fmt.Errorf("%s: publish mapping %q is unreadable: %v", path, m[1], err)
 		}
 		if c.PublishPort != "" && c.PublishPort != port {
-			return c, fmt.Errorf(".github/workflows/container.yml: two container ports published (%s, %s)", c.PublishPort, port)
+			return c, fmt.Errorf("%s: two container ports published (%s, %s)", path, c.PublishPort, port)
 		}
 		c.PublishPort = port
 	}
@@ -586,13 +668,21 @@ func parseWorkflow(body []byte) (WorkflowContract, error) {
 		c.ExecInvocations = append(c.ExecInvocations, [2]string{m[2], m[3]})
 	}
 
-	// Non-vacuity, same rule as the other readers.
+	// Non-vacuity, same rule as the other readers. The --env values are only
+	// required when the caller demands them: the release smoke test legitimately
+	// passes none.
 	var missing []string
+	if requireEnv {
+		if c.DBPath == "" {
+			missing = append(missing, "--env TKT_DB_PATH")
+		}
+		if c.Listen == "" {
+			missing = append(missing, "--env TKT_LISTEN")
+		}
+	}
 	for _, field := range []struct {
 		name, value string
 	}{
-		{"--env TKT_DB_PATH", c.DBPath},
-		{"--env TKT_LISTEN", c.Listen},
 		{"--volume/-v target", c.VolumeTarget},
 		{"--publish/-p container port", c.PublishPort},
 	} {
@@ -601,8 +691,44 @@ func parseWorkflow(body []byte) (WorkflowContract, error) {
 		}
 	}
 	if len(missing) > 0 {
-		return c, fmt.Errorf(".github/workflows/container.yml: could not extract %s: the contract is unreadable, never skippable", strings.Join(missing, ", "))
+		return c, fmt.Errorf("%s: could not extract %s: the contract is unreadable, never skippable", path, strings.Join(missing, ", "))
 	}
+	return c, nil
+}
+
+// parseReleaseWorkflow extracts the publishing contract of the release
+// workflow: the derived image reference, the OCI label build args, and the
+// smoke-test flags through the shared flag scanner (env optional). The
+// image-repository comparison against the go.mod module path lives in the
+// test, which owns the module derivation, like the compose image rule.
+func parseReleaseWorkflow(body []byte) (ReleaseContract, error) {
+	var c ReleaseContract
+	text := string(body)
+
+	if !reReleaseDerivedImage.MatchString(text) {
+		return c, fmt.Errorf("%s: no ghcr.io/${GITHUB_REPOSITORY,,} image reference found: the image repository must be derived from the repository (lowercased), never hardcoded", workflowPathRelease)
+	}
+	c.ImageRefDerived = true
+	for _, m := range reReleaseLiteralImage.FindAllStringSubmatch(text, -1) {
+		c.LiteralImageRepos = append(c.LiteralImageRepos, m[1])
+	}
+	c.HasVersionArg = reReleaseBuildArgVersion.MatchString(text)
+	c.HasRevisionArg = reReleaseBuildArgRevision.MatchString(text)
+	if !c.HasVersionArg || !c.HasRevisionArg {
+		var missing []string
+		if !c.HasVersionArg {
+			missing = append(missing, "--build-arg VERSION=")
+		}
+		if !c.HasRevisionArg {
+			missing = append(missing, "--build-arg REVISION=")
+		}
+		return c, fmt.Errorf("%s: docker build is missing %s: the OCI org.opencontainers.image.version and .revision labels are inert without them", workflowPathRelease, strings.Join(missing, " and "))
+	}
+	smoke, err := parseWorkflowFlags(workflowPathRelease, body, false)
+	if err != nil {
+		return c, err
+	}
+	c.Smoke = smoke
 	return c, nil
 }
 
@@ -610,8 +736,14 @@ func parseWorkflow(body []byte) (WorkflowContract, error) {
 // image's healthcheck binary. Other docker exec invocations (diagnostics,
 // probes) are ignored by name. It fails when no invocation runs the image's
 // healthcheck binary, or when the matched invocation's argument disagrees with
-// the image HEALTHCHECK.
+// the image HEALTHCHECK. Failure messages name the file the flags came from
+// (WorkflowContract.Source; contracts built by hand default to container.yml,
+// the file the selection rule was written for).
 func SelectExecHealthcheck(img ImageContract, wf WorkflowContract) ([2]string, error) {
+	file := wf.Source
+	if file == "" {
+		file = workflowPathContainer
+	}
 	matched := 0
 	var selected [2]string
 	for _, e := range wf.ExecInvocations {
@@ -621,11 +753,11 @@ func SelectExecHealthcheck(img ImageContract, wf WorkflowContract) ([2]string, e
 		matched++
 		selected = e
 		if e[1] != img.HealthcheckArg {
-			return selected, fmt.Errorf(".github/workflows/container.yml: exec healthcheck runs %s %s but the image HEALTHCHECK runs %s %s", e[0], e[1], img.HealthcheckBin, img.HealthcheckArg)
+			return selected, fmt.Errorf("%s: exec healthcheck runs %s %s but the image HEALTHCHECK runs %s %s", file, e[0], e[1], img.HealthcheckBin, img.HealthcheckArg)
 		}
 	}
 	if matched == 0 {
-		return selected, fmt.Errorf(".github/workflows/container.yml: no docker exec invocation runs the image healthcheck binary %s", img.HealthcheckBin)
+		return selected, fmt.Errorf("%s: no docker exec invocation runs the image healthcheck binary %s", file, img.HealthcheckBin)
 	}
 	return selected, nil
 }
