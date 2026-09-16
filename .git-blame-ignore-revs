@@ -1,0 +1,10 @@
+# Formatting-only commits.
+#
+# Biome reflowed the TypeScript surface, which rewrites every line it touches. Listing
+# the commit here keeps `git blame` and GitHub blame pointing at the real authors
+# instead of at this chore.
+#
+# To honour this locally:
+#   git config blame.ignoreRevsFile .git-blame-ignore-revs
+
+6b431d8ab78f536cffe7c30fa5113ce598d1a876
