@@ -14,6 +14,9 @@ odd/
 .playwright-mcp/
 .codegraph/
 
+# Local ODD task artifacts
+odd/
+
 # Playwright E2E artifacts
 test-results/
 playwright-report/
