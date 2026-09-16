@@ -47,3 +47,4 @@ Return applicability, records consulted, changed files, exact validation evidenc
 - `AGENTS.md`: skill registration and repository workflow.
 - `.agents/skills/issue-governance/SKILL.md`: issue approval rules.
 - `.agents/skills/e2e-playwright/SKILL.md`: browser regression requirements.
+- `.agents/skills/go-tests/SKILL.md`: Go test layer and its closing gates.

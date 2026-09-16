@@ -18,6 +18,7 @@ Load relevant skills BEFORE writing code. Skills encode project rules that are c
 | `issue-governance` | Starting any change, creating or labeling a GitHub issue, or transitioning from planning to implementation. Issue-first: no issue, no work; no `status:approved`, no implementation. Taxonomy and decision gates are authoritative. | `.agents/skills/issue-governance/SKILL.md` |
 | `ux-ui` | Modifying templates, CSS, layout, visual components, responsive behavior, or accessibility. Activation, visual-preservation, and decision-boundary rules are authoritative. | `.agents/skills/ux-ui/SKILL.md` |
 | `e2e-playwright` | Implementing or changing a visible feature, modifying a critical journey, fixing a browser-observable bug, or adding/updating E2E coverage. Activation contract, regression rule, and decision gates are authoritative. | `.agents/skills/e2e-playwright/SKILL.md` |
+| `go-tests` | Go tests, authorization, domain rules, migrations, golden fixtures, or Go CI evidence. | `.agents/skills/go-tests/SKILL.md` |
 | `engram-governance` | Adding or modifying observable behavior, domain rules, authorization, endpoints, forms, flows, persistence, or contracts; governed work; durable decisions, bugfixes, discoveries, configuration or preference changes; memory recall; or session closure. Use native project-scoped Engram search, alignment, and durable bookkeeping. | `.agents/skills/engram-governance/SKILL.md` |
 
 ### Behavioral change records in Engram
