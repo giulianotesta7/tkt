@@ -42,7 +42,9 @@ async function createUserAndSetRole(
   await expect(page).toHaveURL(/\/users/);
   await expect(page.getByText(opts.name)).toBeVisible();
   if (opts.role && opts.role !== "user") {
-    const row = page.locator("tr[data-user-name]").filter({ has: page.getByText(opts.name, { exact: true }) });
+    const row = page
+      .locator("tr[data-user-name]")
+      .filter({ has: page.getByText(opts.name, { exact: true }) });
     await expect(row).toHaveCount(1);
     const editLink = row.locator('a[href*="/users/"][href*="/edit"]').first();
     let href = await editLink.getAttribute("href");
@@ -55,15 +57,19 @@ async function createUserAndSetRole(
     await roleSelect.selectOption(opts.role);
     const userID = new URL(href, page.url()).pathname.match(/^\/users\/(\d+)\/edit$/)?.[1];
     if (!userID) throw new Error(`Could not resolve exact user ID from ${href} at ${page.url()}`);
-    await assertHtmxSwap(page, async () => {
-      await page.getByRole("button", { name: /save changes/i }).click();
-    }, {
-      endpoint: `/users/${userID}/edit`,
-      method: "POST",
-      expectedStatus: 200,
-      hxTarget: "#users-root",
-      expectedUrl: /\/users$/,
-    });
+    await assertHtmxSwap(
+      page,
+      async () => {
+        await page.getByRole("button", { name: /save changes/i }).click();
+      },
+      {
+        endpoint: `/users/${userID}/edit`,
+        method: "POST",
+        expectedStatus: 200,
+        hxTarget: "#users-root",
+        expectedUrl: /\/users$/,
+      },
+    );
     const savedRow = page.locator(`tr[data-user-name="${opts.name}"]`);
     await expect(savedRow).toHaveCount(1);
     await expect(savedRow).toContainText(opts.role === "admin" ? "Admin" : "Agent");
@@ -142,15 +148,26 @@ test.describe("Role — minimal matrix admin / agent / user (seeded)", () => {
       role: "user",
     });
     const assignedTitle = "Assigned queue ticket " + Date.now().toString(36).slice(2, 8);
-    const assignedID = await createTicketViaUi(page, { title: assignedTitle, category: "General", priority: "low" });
+    const assignedID = await createTicketViaUi(page, {
+      title: assignedTitle,
+      category: "General",
+      priority: "low",
+    });
     await page.goto(baseURL() + `/tickets/${assignedID}`);
     const assignee = page.locator('select[name="user_id"]');
     await expect(assignee).toHaveCount(1);
-    await assertHtmxSwap(page, async () => {
-      await assignee.selectOption({ label: "Agent Ava" });
-    }, {
-      endpoint: `/tickets/${assignedID}/assign`, method: "POST", expectedStatus: 200, hxTarget: "#ticket-detail",
-    });
+    await assertHtmxSwap(
+      page,
+      async () => {
+        await assignee.selectOption({ label: "Agent Ava" });
+      },
+      {
+        endpoint: `/tickets/${assignedID}/assign`,
+        method: "POST",
+        expectedStatus: 200,
+        hxTarget: "#ticket-detail",
+      },
+    );
 
     // Admin: one allowed admin action — create a category
     await page.getByRole("button", { name: /log out|sign out/i }).click();
@@ -158,7 +175,11 @@ test.describe("Role — minimal matrix admin / agent / user (seeded)", () => {
     await login(page, adminEmail, "Secret123!");
     const catName = "AdminCat " + Date.now().toString(36).slice(2, 8);
     await createCategoryViaUi(page, catName);
-    await expect(page.locator(".category-level-categories .category-structure-row strong").filter({ hasText: catName })).toBeVisible();
+    await expect(
+      page
+        .locator(".category-level-categories .category-structure-row strong")
+        .filter({ hasText: catName }),
+    ).toBeVisible();
 
     // Agent: one allowed operative action — create a ticket (no error, even though not in agent's own list)
     await page.getByRole("button", { name: /log out|sign out/i }).click();
@@ -167,21 +188,39 @@ test.describe("Role — minimal matrix admin / agent / user (seeded)", () => {
     await expect(page.getByRole("heading", { name: "My work", exact: true })).toBeVisible();
     const agentQueue = page.locator("#agent-ticket-list");
     await expect(agentQueue.getByRole("link", { name: assignedTitle, exact: true })).toBeVisible();
-    await expect(page.getByRole("heading", { name: "Assigned to me · 1", exact: true })).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: "Assigned to me · 1", exact: true }),
+    ).toBeVisible();
     await expect(page.getByRole("heading", { name: /Available to claim/ })).toBeVisible();
-    await expect(agentQueue.getByRole("button", { name: "Claim ticket", exact: true })).toHaveCount(0);
+    await expect(agentQueue.getByRole("button", { name: "Claim ticket", exact: true })).toHaveCount(
+      0,
+    );
     const agentGrid = agentQueue.locator(".agent-queue-list").first();
-    expect(await agentGrid.evaluate((el) => getComputedStyle(el).gridTemplateColumns.split(" ").length)).toBe(3);
+    expect(
+      await agentGrid.evaluate((el) => getComputedStyle(el).gridTemplateColumns.split(" ").length),
+    ).toBe(3);
     const assignedCard = agentQueue.locator(".agent-row-assigned").first();
     await expect(assignedCard.locator(".agent-row-open")).toHaveCSS("color", "rgb(49, 94, 255)");
-    await expect(assignedCard.locator(".agent-row-meta").first()).toHaveCSS("color", "rgb(102, 112, 133)");
+    await expect(assignedCard.locator(".agent-row-meta").first()).toHaveCSS(
+      "color",
+      "rgb(102, 112, 133)",
+    );
     await expect(assignedCard.locator("time.card-timestamp")).toHaveAttribute("tabindex", "0");
-    await expect(assignedCard.locator("time.card-timestamp")).toHaveAttribute("data-full-date", /\d{2}:\d{2} · \d{2}-\d{2}-\d{4}/);
+    await expect(assignedCard.locator("time.card-timestamp")).toHaveAttribute(
+      "data-full-date",
+      /\d{2}:\d{2} · \d{2}-\d{2}-\d{4}/,
+    );
     await page.setViewportSize({ width: 800, height: 900 });
-    expect(await agentGrid.evaluate((el) => getComputedStyle(el).gridTemplateColumns.split(" ").length)).toBe(2);
+    expect(
+      await agentGrid.evaluate((el) => getComputedStyle(el).gridTemplateColumns.split(" ").length),
+    ).toBe(2);
     await page.setViewportSize({ width: 390, height: 844 });
-    expect(await agentGrid.evaluate((el) => getComputedStyle(el).gridTemplateColumns.split(" ").length)).toBe(1);
-    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
+    expect(
+      await agentGrid.evaluate((el) => getComputedStyle(el).gridTemplateColumns.split(" ").length),
+    ).toBe(1);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(
+      390,
+    );
     await page.setViewportSize({ width: 1280, height: 800 });
     const agentTicket = "Agent ticket " + Date.now().toString(36).slice(2, 8);
     await page.goto(baseURL() + "/tickets/new");
@@ -195,7 +234,9 @@ test.describe("Role — minimal matrix admin / agent / user (seeded)", () => {
     // Agent admin access forbidden — browser navigation shows error
     for (const path of ["/users", "/categories", "/desks", "/settings"]) {
       await page.goto(baseURL() + path);
-      await expect(page.locator("body")).toContainText(/forbidden|not allowed/i, { timeout: 10000 });
+      await expect(page.locator("body")).toContainText(/forbidden|not allowed/i, {
+        timeout: 10000,
+      });
       expect(page.url()).toContain(path);
     }
     // Clear session before user (403 page has no logout)
@@ -206,7 +247,11 @@ test.describe("Role — minimal matrix admin / agent / user (seeded)", () => {
     // User: one allowed action — create a ticket, internal controls hidden, admin forbidden
     await login(page, userEmail, "Secret123!");
     const userTicket = "User ticket " + Date.now().toString(36).slice(2, 8);
-    const userTicketId = await createTicketViaUi(page, { title: userTicket, category: "General", priority: "low" });
+    const userTicketId = await createTicketViaUi(page, {
+      title: userTicket,
+      category: "General",
+      priority: "low",
+    });
     await expect(page.getByText(userTicket)).toBeVisible();
     const listScreen = page.locator("#tickets-screen");
     // The page title stays outside #tickets-screen: the metrics summary sits
@@ -214,7 +259,9 @@ test.describe("Role — minimal matrix admin / agent / user (seeded)", () => {
     // carries the live count, so the subtitle is what must track the fragment.
     await expect(page.getByRole("heading", { name: "My tickets" })).toBeVisible();
     await expect(listScreen.locator(".page-subtitle")).toHaveText("1 ticket");
-    const userCard = listScreen.locator(".user-request-card").filter({ has: page.getByText(userTicket, { exact: true }) });
+    const userCard = listScreen
+      .locator(".user-request-card")
+      .filter({ has: page.getByText(userTicket, { exact: true }) });
     await expect(userCard).toHaveCount(1);
     await expect(userCard.locator(".badge.new")).toHaveText("Received");
     await expect(userCard.getByRole("link", { name: "View request" })).toBeVisible();
@@ -222,16 +269,30 @@ test.describe("Role — minimal matrix admin / agent / user (seeded)", () => {
     await expect(userCard).not.toContainText(/priority|assignee|requester|state/i);
     await expect(listScreen.locator("table")).toHaveCount(0);
     const userGrid = listScreen.locator(".user-ticket-grid");
-    expect(await userGrid.evaluate((el) => getComputedStyle(el).gridTemplateColumns.split(" ").length)).toBe(3);
-    await expect(userCard.getByRole("link", { name: "View request" })).toHaveCSS("color", "rgb(49, 94, 255)");
+    expect(
+      await userGrid.evaluate((el) => getComputedStyle(el).gridTemplateColumns.split(" ").length),
+    ).toBe(3);
+    await expect(userCard.getByRole("link", { name: "View request" })).toHaveCSS(
+      "color",
+      "rgb(49, 94, 255)",
+    );
     await expect(userCard.locator(".user-request-meta")).toHaveCSS("color", "rgb(102, 112, 133)");
     await expect(userCard.locator("time.card-timestamp")).toHaveAttribute("tabindex", "0");
-    await expect(userCard.locator("time.card-timestamp")).toHaveAttribute("data-full-date", /\d{2}:\d{2} · \d{2}-\d{2}-\d{4}/);
+    await expect(userCard.locator("time.card-timestamp")).toHaveAttribute(
+      "data-full-date",
+      /\d{2}:\d{2} · \d{2}-\d{2}-\d{4}/,
+    );
     await page.setViewportSize({ width: 800, height: 900 });
-    expect(await userGrid.evaluate((el) => getComputedStyle(el).gridTemplateColumns.split(" ").length)).toBe(2);
+    expect(
+      await userGrid.evaluate((el) => getComputedStyle(el).gridTemplateColumns.split(" ").length),
+    ).toBe(2);
     await page.setViewportSize({ width: 390, height: 800 });
-    expect(await userGrid.evaluate((el) => getComputedStyle(el).gridTemplateColumns.split(" ").length)).toBe(1);
-    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
+    expect(
+      await userGrid.evaluate((el) => getComputedStyle(el).gridTemplateColumns.split(" ").length),
+    ).toBe(1);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(
+      390,
+    );
     await page.setViewportSize({ width: 1280, height: 800 });
     await page.goto(baseURL() + `/tickets/${userTicketId}`);
     await expect(page.locator("#ticket-detail")).toBeVisible();
@@ -239,7 +300,9 @@ test.describe("Role — minimal matrix admin / agent / user (seeded)", () => {
     await expect(page.getByLabel(/comment body/i)).toBeVisible();
     for (const path of ["/users", "/desks", "/categories", "/settings"]) {
       await page.goto(baseURL() + path);
-      await expect(page.locator("body")).toContainText(/forbidden|not allowed/i, { timeout: 10000 });
+      await expect(page.locator("body")).toContainText(/forbidden|not allowed/i, {
+        timeout: 10000,
+      });
     }
 
     // Filter expected 403 console errors from intentional forbidden navigations

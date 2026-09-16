@@ -125,7 +125,11 @@ export async function assertHtmxSwap(
         waiter.handler = (event: Event) => {
           const target = (event as CustomEvent<{ target?: EventTarget }>).detail?.target;
           const currentTarget = document.querySelector(selector);
-          if (target === expectedTarget || target === currentTarget || event.target === currentTarget) {
+          if (
+            target === expectedTarget ||
+            target === currentTarget ||
+            event.target === currentTarget
+          ) {
             waiter.settled = true;
             document.body.removeEventListener("htmx:afterSettle", waiter.handler);
           }
@@ -139,9 +143,7 @@ export async function assertHtmxSwap(
     const settlePromise = page.waitForFunction(
       ({ token, waitersKey }) => {
         const win = window as Window & { [key: string]: unknown };
-        const waiters = win[waitersKey] as
-          | Map<string, { settled: boolean }>
-          | undefined;
+        const waiters = win[waitersKey] as Map<string, { settled: boolean }> | undefined;
         return waiters?.get(token)?.settled === true;
       },
       { token: settleToken, waitersKey: htmxSettleWaitersKey },
@@ -171,13 +173,12 @@ export async function assertHtmxSwap(
     await settlePromise;
 
     // Wait for the target region to actually change via polling (swap may still be processing)
-    await expect.poll(
-      async () => targetLocator.innerHTML(),
-      {
+    await expect
+      .poll(async () => targetLocator.innerHTML(), {
         timeout: 10_000,
         message: `HTMX target ${opts.hxTarget} did not change after swap`,
-      },
-    ).not.toBe(beforeHTML);
+      })
+      .not.toBe(beforeHTML);
 
     // URL unchanged or matches expectedUrl
     if (opts.expectedUrl) {

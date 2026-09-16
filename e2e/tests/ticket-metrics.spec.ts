@@ -50,16 +50,10 @@ test.describe("Ticket metrics summary", () => {
 
     const summary = page.locator("#ticket-metrics");
     await expect(summary).toBeVisible();
-    await expect(
-      summary.getByRole("heading", { name: "Operational summary" }),
-    ).toBeVisible();
+    await expect(summary.getByRole("heading", { name: "Operational summary" })).toBeVisible();
     await expect(summary.locator(".ticket-metrics-card")).toHaveCount(4);
-    await expect(
-      summary.getByRole("link", { name: "View metrics" }),
-    ).toBeVisible();
-    await expect(page.locator("#tickets-screen #ticket-metrics")).toHaveCount(
-      0,
-    );
+    await expect(summary.getByRole("link", { name: "View metrics" })).toBeVisible();
+    await expect(page.locator("#tickets-screen #ticket-metrics")).toHaveCount(0);
 
     const probe = "zz-no-such-ticket-metrics";
     await assertHtmxSwap(
@@ -70,17 +64,16 @@ test.describe("Ticket metrics summary", () => {
       },
       {
         endpoint: (url) =>
-          new URL(url).pathname === "/tickets" &&
-          new URL(url).searchParams.get("q") === probe,
+          new URL(url).pathname === "/tickets" && new URL(url).searchParams.get("q") === probe,
         method: "GET",
         expectedStatus: 200,
         hxTarget: "#tickets-screen",
         expectedUrl: /\/tickets\?q=/,
       },
     );
-    await expect(
-      page.locator("#ticket-list").getByText(/no tickets match/i),
-    ).toBeVisible({ timeout: 10_000 });
+    await expect(page.locator("#ticket-list").getByText(/no tickets match/i)).toBeVisible({
+      timeout: 10_000,
+    });
 
     await expect(summary).toBeVisible();
 
@@ -92,9 +85,7 @@ test.describe("Ticket metrics summary", () => {
       .getByRole("link", { name: "View metrics" })
       .getAttribute("href");
     expect(metricsHref).toMatch(/^\/tickets\/metrics\?return=%2Ftickets/);
-    const returnQuery = new URL(metricsHref ?? "", base()).searchParams.get(
-      "return",
-    );
+    const returnQuery = new URL(metricsHref ?? "", base()).searchParams.get("return");
     expect(returnQuery).toBeTruthy();
     expect(returnQuery?.startsWith("/tickets")).toBe(true);
     expect(returnQuery).toContain(probe);
@@ -104,9 +95,7 @@ test.describe("Ticket metrics summary", () => {
     await page.reload();
     await expect(summary).toBeVisible();
     const reloadedReturn = new URL(
-      (await summary
-        .getByRole("link", { name: "View metrics" })
-        .getAttribute("href")) ?? "",
+      (await summary.getByRole("link", { name: "View metrics" }).getAttribute("href")) ?? "",
       base(),
     ).searchParams.get("return");
     expect(reloadedReturn).toContain(probe);
@@ -123,22 +112,14 @@ test.describe("Ticket metrics summary", () => {
     await createTicketViaUi(page, { title: "metrics probe ticket" });
     await page.getByRole("link", { name: "View metrics" }).click();
     await expect(page).toHaveURL(/\/tickets\/metrics\?return=/);
-    await expect(
-      page.getByRole("heading", { name: "Ticket metrics", level: 1 }),
-    ).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Ticket metrics", level: 1 })).toBeVisible();
     const detail = page.locator("#ticket-metrics-detail-content");
+    await expect(detail.getByRole("heading", { name: "Created vs resolved" })).toBeVisible();
     await expect(
-      detail.getByRole("heading", { name: "Created vs resolved" }),
+      metricsPanel(page, "Created vs resolved").locator("svg.ticket-metrics-chart"),
     ).toBeVisible();
     await expect(
-      metricsPanel(page, "Created vs resolved").locator(
-        "svg.ticket-metrics-chart",
-      ),
-    ).toBeVisible();
-    await expect(
-      metricsPanel(page, "Created vs resolved").locator(
-        ".ticket-metrics-legend",
-      ),
+      metricsPanel(page, "Created vs resolved").locator(".ticket-metrics-legend"),
     ).toBeVisible();
     await expect(detail.locator(".ticket-metrics-chart-totals")).toContainText(
       /Created \d+ · Resolved \d+/,
@@ -187,18 +168,14 @@ test.describe("Ticket metrics summary", () => {
     await fromInput.fill("2026-01-05");
     await toInput.fill("");
     await applyFilters(true);
-    await expect(page.locator(".ticket-metrics-error")).toContainText(
-      "choose both metrics dates",
-    );
+    await expect(page.locator(".ticket-metrics-error")).toContainText("choose both metrics dates");
     await expect(page.locator("#tickets-screen")).toHaveCount(0);
     await fromInput.fill(fromDefault);
     await toInput.fill(toDefault);
     await applyFilters();
     await expect(page.locator(".ticket-metrics-error")).toHaveCount(0);
     await expect(
-      metricsPanel(page, "Created vs resolved").locator(
-        "svg.ticket-metrics-chart",
-      ),
+      metricsPanel(page, "Created vs resolved").locator("svg.ticket-metrics-chart"),
     ).toBeVisible();
     // The dashboard completes with exactly four visible panels; each opens
     // its native View data disclosure into a captioned table.
@@ -238,21 +215,17 @@ test.describe("Ticket metrics summary", () => {
     );
     expect(page.url()).toBe(detailURL);
     const workload = metricsPanel(page, "Pending workload");
-    await expect(
-      workload.locator('input[name="metrics_group"][value="desk"]'),
-    ).toBeChecked();
+    await expect(workload.locator('input[name="metrics_group"][value="desk"]')).toBeChecked();
     await workload.locator(".ticket-metrics-data summary").click();
-    await expect(
-      workload.locator(".ticket-metrics-data caption"),
-    ).toContainText("Pending workload by current desk");
+    await expect(workload.locator(".ticket-metrics-data caption")).toContainText(
+      "Pending workload by current desk",
+    );
     // Two-column desktop grid down to a one-column mobile stack, never
     // overflowing horizontally.
     const gridColumns = () =>
       page
         .locator(".ticket-metrics-grid")
-        .evaluate(
-          (el) => getComputedStyle(el).gridTemplateColumns.split(" ").length,
-        );
+        .evaluate((el) => getComputedStyle(el).gridTemplateColumns.split(" ").length);
     await expect(gridColumns()).resolves.toBe(2);
     await assertNoHorizontalOverflow(page, 1280);
     await page.setViewportSize({ width: 390, height: 844 });

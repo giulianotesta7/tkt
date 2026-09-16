@@ -10,7 +10,11 @@
     if (window.location.pathname !== "/tickets") return;
     const link = document.querySelector("a.ticket-metrics-link");
     if (!link) return;
-    link.setAttribute("href", "/tickets/metrics?return=" + encodeURIComponent(window.location.pathname + window.location.search));
+    link.setAttribute(
+      "href",
+      "/tickets/metrics?return=" +
+        encodeURIComponent(window.location.pathname + window.location.search),
+    );
   }
   document.addEventListener("htmx:afterSwap", syncViewMetricsLink);
   document.addEventListener("htmx:pushedIntoHistory", syncViewMetricsLink);

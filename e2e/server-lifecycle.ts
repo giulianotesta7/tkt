@@ -39,7 +39,12 @@ export async function startServer(options: { seed?: boolean } = {}): Promise<Ser
   }
 
   const handle = await coreStart({ seed: options.seed ?? false, mode: "test" });
-  activeServer = { baseURL: handle.baseURL, dbDir: handle.dbDir, port: handle.port, pid: handle.pid };
+  activeServer = {
+    baseURL: handle.baseURL,
+    dbDir: handle.dbDir,
+    port: handle.port,
+    pid: handle.pid,
+  };
   return activeServer;
 }
 

@@ -42,15 +42,19 @@ test.describe("HTMX interactions", () => {
     const deactivatedTab = page.locator('a[href="/users?status=deactivated"]');
     await expect(deactivatedTab).toBeVisible();
 
-    await assertHtmxSwap(page, async () => {
-      await deactivatedTab.click();
-    }, {
-      endpoint: "/users",
-      method: "GET",
-      expectedStatus: 200,
-      hxTarget: "#users-root",
-      expectedUrl: /\/users\?status=deactivated$/,
-    });
+    await assertHtmxSwap(
+      page,
+      async () => {
+        await deactivatedTab.click();
+      },
+      {
+        endpoint: "/users",
+        method: "GET",
+        expectedStatus: 200,
+        hxTarget: "#users-root",
+        expectedUrl: /\/users\?status=deactivated$/,
+      },
+    );
 
     // Header must remain intact (no full reload chrome loss)
     await expect(page.locator("#users-list-title")).toBeVisible();
@@ -71,7 +75,9 @@ test.describe("HTMX interactions", () => {
     });
   });
 
-  test("workflow builder HTMX partial swap does not reload surrounding header", async ({ page }) => {
+  test("workflow builder HTMX partial swap does not reload surrounding header", async ({
+    page,
+  }) => {
     await page.setViewportSize({ width: 1280, height: 800 });
     const obs = collectObservability(page);
     await loginAsSeeded(page);
@@ -82,25 +88,38 @@ test.describe("HTMX interactions", () => {
     await page.goto(base() + wfHref);
     await expect(page.locator("#workflow-builder")).toBeVisible();
     // Also assert hx-target complementary
-    await expect(page.locator("#workflow-builder form")).toHaveAttribute("hx-target", "#workflow-builder");
+    await expect(page.locator("#workflow-builder form")).toHaveAttribute(
+      "hx-target",
+      "#workflow-builder",
+    );
 
     const addSummary = page.locator(".workflow-add-step summary").first();
     await expect(addSummary).toBeVisible();
     await addSummary.click();
-    const btn = page.locator(".workflow-add-options button").filter({ hasText: "Manual task" }).first();
+    const btn = page
+      .locator(".workflow-add-options button")
+      .filter({ hasText: "Manual task" })
+      .first();
     await expect(btn).toBeVisible();
 
-    await assertHtmxSwap(page, async () => {
-      await btn.click();
-    }, {
-      endpoint: (url) => {
-        const parsedURL = new URL(url);
-        return parsedURL.pathname === wfPath && parsedURL.searchParams.get("add_step_type") === "manual_task";
+    await assertHtmxSwap(
+      page,
+      async () => {
+        await btn.click();
       },
-      method: "POST",
-      expectedStatus: 200,
-      hxTarget: "#workflow-builder",
-    });
+      {
+        endpoint: (url) => {
+          const parsedURL = new URL(url);
+          return (
+            parsedURL.pathname === wfPath &&
+            parsedURL.searchParams.get("add_step_type") === "manual_task"
+          );
+        },
+        method: "POST",
+        expectedStatus: 200,
+        hxTarget: "#workflow-builder",
+      },
+    );
 
     await assertCanonicalScreen(page, {
       viewport: 1280,
