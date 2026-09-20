@@ -52,8 +52,8 @@ func (st *ticketStore) Create(ctx context.Context, t *domain.Ticket) error {
 		if err != nil {
 			return fmt.Errorf("sqlite: begin create: %w", err)
 		}
+		defer tx.Rollback()
 		if err := createTicketTx(ctx, tx, t); err != nil {
-			tx.Rollback()
 			return err
 		}
 		if err := tx.Commit(); err != nil {
@@ -96,8 +96,8 @@ func (st *ticketStore) Update(ctx context.Context, t *domain.Ticket) error {
 	if err != nil {
 		return fmt.Errorf("sqlite: begin update: %w", err)
 	}
+	defer tx.Rollback()
 	if err := updateTicketTx(ctx, tx, t); err != nil {
-		tx.Rollback()
 		return err
 	}
 	if err := tx.Commit(); err != nil {
@@ -254,13 +254,12 @@ func (u *unitOfWork) Create(ctx context.Context, t *domain.Ticket, event domain.
 		if err != nil {
 			return fmt.Errorf("sqlite: begin create unit: %w", err)
 		}
+		defer tx.Rollback()
 		if err := createTicketTx(ctx, tx, t); err != nil {
-			tx.Rollback()
 			return err
 		}
 		event.TicketID = t.ID
 		if err := appendAuditEventsTx(ctx, tx, event); err != nil {
-			tx.Rollback()
 			return err
 		}
 		if err := tx.Commit(); err != nil {
@@ -278,12 +277,11 @@ func (u *unitOfWork) Update(ctx context.Context, t *domain.Ticket, events ...dom
 	if err != nil {
 		return fmt.Errorf("sqlite: begin update unit: %w", err)
 	}
+	defer tx.Rollback()
 	if err := updateTicketTx(ctx, tx, t); err != nil {
-		tx.Rollback()
 		return err
 	}
 	if err := appendAuditEventsTx(ctx, tx, events...); err != nil {
-		tx.Rollback()
 		return err
 	}
 	if err := tx.Commit(); err != nil {

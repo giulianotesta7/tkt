@@ -100,6 +100,35 @@ func TestOpenAppliesSingleDSN(t *testing.T) {
 	if bt != 5000 {
 		t.Errorf("busy_timeout = %d, want 5000", bt)
 	}
+
+	// synchronous=FULL is 2 (OFF=0, NORMAL=1, FULL=2, EXTRA=3). Assert the
+	// value the connection actually reports, not the DSN string: the pragma
+	// moved from NORMAL to FULL so that a committed ticket survives a power
+	// failure, and this assertion is what stops it drifting back silently.
+	var syncMode int
+	if err := s.db.QueryRow(`PRAGMA synchronous`).Scan(&syncMode); err != nil {
+		t.Fatalf("read synchronous: %v", err)
+	}
+	if syncMode != 2 {
+		t.Errorf("synchronous = %d, want 2 (FULL, durable)", syncMode)
+	}
+}
+
+// TestOpenBoundsConnectionPool asserts the production open path sets a
+// bounded pool, so a future edit cannot silently fall back to the unlimited
+// database/sql default. The bound must exceed one: WAL allows concurrent
+// readers and a pool of 1 would serialize them behind the writer.
+func TestOpenBoundsConnectionPool(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "app.db")
+	s, err := Open(path)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	t.Cleanup(func() { s.db.Close() })
+
+	if got := s.db.Stats().MaxOpenConnections; got != defaultMaxOpenConns {
+		t.Errorf("MaxOpenConnections = %d, want %d (bounded production pool)", got, defaultMaxOpenConns)
+	}
 }
 
 func TestOpenFailsOnUnopenablePath(t *testing.T) {

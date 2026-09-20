@@ -1,8 +1,9 @@
 // Package sqlite implements the application store ports over the modernc
 // SQLite driver (D1): pure Go, CGO_ENABLED=0, FTS5 available. The single
-// Open DSN carries the FK, WAL, busy-timeout, and immediate-txlock pragmas
-// (design "SQLite Schema"), so every connection — including migrations and
-// the unit-of-work — inherits the same safety properties.
+// Open DSN carries the FK, WAL, synchronous, busy-timeout, and
+// immediate-txlock pragmas (design "SQLite Schema"), so every connection —
+// including migrations and the unit-of-work — inherits the same safety
+// properties.
 package sqlite
 
 import (
@@ -20,10 +21,36 @@ import (
 )
 
 // pragmaDSN is the single DSN pragma fragment (D1, D8): foreign_keys ON,
-// WAL journaling, 5s busy timeout, and _txlock=immediate, which makes every
-// write transaction BEGIN IMMEDIATE — writers serialize, so the MAX+1
-// ticket numbering is race-free by construction.
-const pragmaDSN = "?_pragma=foreign_keys(1)&_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)&_txlock=immediate"
+// WAL journaling, synchronous FULL, 5s busy timeout, and _txlock=immediate,
+// which makes every write transaction BEGIN IMMEDIATE — writers serialize, so
+// the MAX+1 ticket numbering is race-free by construction.
+//
+// synchronous=FULL is deliberate: it fsyncs the WAL on every commit, so a
+// committed ticket or audit event survives a power failure or hard reset.
+// NORMAL is the usual WAL companion and is faster, but SQLite documents that
+// with it "transactions are no longer durable and might rollback following a
+// power failure or hard reset" (sqlite.org/wal.html, Performance
+// Considerations), and the exposure is every commit since the last checkpoint.
+// That checkpoint is size-triggered rather than time-triggered, so on a
+// low-write deployment the window spans weeks instead of seconds. Measured on
+// this repository's hardware, FULL costs ~2.1ms per commit against ~0.09ms for
+// NORMAL: invisible on a single form post, and ~11% on the largest test
+// package. Durability was worth more than that latency.
+const pragmaDSN = "?_pragma=foreign_keys(1)&_pragma=journal_mode(WAL)&_pragma=synchronous(FULL)&_pragma=busy_timeout(5000)&_txlock=immediate"
+
+// defaultMaxOpenConns bounds the production pool that openDSN configures.
+// WAL allows concurrent readers and _txlock=immediate already serializes
+// writers, so the ceiling exists to cap file descriptors and SQLite page
+// cache, not to serialize work. It is deliberately greater than one: a pool
+// of 1 would queue every read behind the single writer and regress read
+// throughput. Tests that need another budget (the shared-cache memory DSN
+// needs exactly 1) override it after opening.
+const defaultMaxOpenConns = 4
+
+// defaultMaxIdleConns keeps a full budget of warm connections so a burst of
+// requests reuses pooled connections instead of paying a new-connection cost
+// per request.
+const defaultMaxIdleConns = defaultMaxOpenConns
 
 // Store owns the single *sql.DB and hands out the adapter-side store ports
 // (hexagonal-lite: one adapter, one database, one wiring point).
@@ -33,7 +60,8 @@ type Store struct {
 
 // Open connects to the SQLite database at path with the single DSN
 // (design "SQLite Schema"): file:<path>?_pragma=foreign_keys(1)&
-// _pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)&_txlock=immediate.
+// _pragma=journal_mode(WAL)&_pragma=synchronous(FULL)&
+// _pragma=busy_timeout(5000)&_txlock=immediate.
 func Open(path string) (*Store, error) {
 	return openDSN("file:" + path + pragmaDSN)
 }
@@ -45,6 +73,8 @@ func openDSN(dsn string) (*Store, error) {
 	if err != nil {
 		return nil, fmt.Errorf("sqlite: open: %w", err)
 	}
+	db.SetMaxOpenConns(defaultMaxOpenConns)
+	db.SetMaxIdleConns(defaultMaxIdleConns)
 	s := &Store{db: db}
 	if err := db.Ping(); err != nil {
 		db.Close()
