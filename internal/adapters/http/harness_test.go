@@ -18,8 +18,13 @@ import (
 // openTestStore opens a real modernc SQLite database in a temp dir, applies
 // ALL migrations, and registers cleanup. File-backed (not shared-cache
 // memory) because the http package cannot reach the sqlite package-private
-// test helpers; the real driver + real pragmas (FK on, immediate tx) are the
-// same code path production runs.
+// test helpers; the real driver and the real pragmas (FK on, WAL, immediate
+// tx) are the same code path production runs — with one deliberate exception:
+// the harness opens at synchronous=NORMAL via sqlite.OpenForTests instead of
+// production's FULL. That divergence is safe because these databases are
+// disposable and a test does not prove power-loss durability, so a durable
+// fsync per commit buys nothing here. See sqlite.OpenForTests for the full
+// rationale; the shared pragmas are single-sourced there, not duplicated.
 func openTestStore(t *testing.T) *sqlite.Store {
 	t.Helper()
 	return openTestStoreAt(t, t.TempDir()+"/app.db")
@@ -32,7 +37,12 @@ func openTestStore(t *testing.T) *sqlite.Store {
 // rollback left zero run/audit rows).
 func openTestStoreAt(t *testing.T, dbPath string) *sqlite.Store {
 	t.Helper()
-	s, err := sqlite.Open(dbPath)
+	// Deliberate divergence from production: synchronous=NORMAL instead of
+	// FULL. These databases are disposable and the tests do not prove
+	// power-loss durability, so the durable fsync on every commit is pure
+	// cost. Every other pragma stays identical through the shared fragment in
+	// sqlite.OpenForTests; see that function for the full reason.
+	s, err := sqlite.OpenForTests(dbPath)
 	if err != nil {
 		t.Fatalf("open test store: %v", err)
 	}

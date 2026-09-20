@@ -1,9 +1,11 @@
 // Package sqlite implements the application store ports over the modernc
-// SQLite driver (D1): pure Go, CGO_ENABLED=0, FTS5 available. The single
-// Open DSN carries the FK, WAL, synchronous, busy-timeout, and
-// immediate-txlock pragmas (design "SQLite Schema"), so every connection —
+// SQLite driver (D1): pure Go, CGO_ENABLED=0, FTS5 available. Production opens
+// through Open, whose DSN carries the FK, WAL, synchronous=FULL, busy-timeout,
+// and immediate-txlock pragmas (design "SQLite Schema"), so every connection —
 // including migrations and the unit-of-work — inherits the same safety
-// properties.
+// properties. The test-only OpenForTests entry point composes the same pragma
+// fragment with synchronous=NORMAL; see its documentation for why that one
+// divergence is safe.
 package sqlite
 
 import (
@@ -20,7 +22,30 @@ import (
 	"github.com/giulianotesta7/tkt/internal/application"
 )
 
-// pragmaDSN is the single DSN pragma fragment (D1, D8): foreign_keys ON,
+// pragmaDSNHead and pragmaDSNTail bracket the one token that may differ
+// between the production DSN and the fast test DSN. Both variants below are
+// assembled as pragmaDSNHead + <synchronous token> + pragmaDSNTail, so the two
+// are structurally incapable of drifting apart in foreign_keys, journal_mode,
+// busy_timeout or _txlock.
+//
+// This is not the package's only DSN. testDSN in sqlite_test.go builds a
+// shared-cache in-memory DSN whose pragma set genuinely differs — no
+// journal_mode, because an in-memory database has no WAL — so it deliberately
+// does not share this fragment.
+const (
+	pragmaDSNHead = "?_pragma=foreign_keys(1)&_pragma=journal_mode(WAL)&_pragma=synchronous("
+	pragmaDSNTail = ")&_pragma=busy_timeout(5000)&_txlock=immediate"
+)
+
+// synchronousFull and synchronousNormal are the only two tokens substituted
+// into the DSN. FULL fsyncs the WAL on every commit and is what production
+// uses; NORMAL is the fast, non-durable variant reserved for tests.
+const (
+	synchronousFull   = "FULL"
+	synchronousNormal = "NORMAL"
+)
+
+// pragmaDSN is the production DSN pragma fragment (D1, D8): foreign_keys ON,
 // WAL journaling, synchronous FULL, 5s busy timeout, and _txlock=immediate,
 // which makes every write transaction BEGIN IMMEDIATE — writers serialize, so
 // the MAX+1 ticket numbering is race-free by construction.
@@ -36,7 +61,13 @@ import (
 // this repository's hardware, FULL costs ~2.1ms per commit against ~0.09ms for
 // NORMAL: invisible on a single form post, and ~11% on the largest test
 // package. Durability was worth more than that latency.
-const pragmaDSN = "?_pragma=foreign_keys(1)&_pragma=journal_mode(WAL)&_pragma=synchronous(FULL)&_pragma=busy_timeout(5000)&_txlock=immediate"
+const pragmaDSN = pragmaDSNHead + synchronousFull + pragmaDSNTail
+
+// pragmaTestDSN is the test-only variant: byte-identical to pragmaDSN except
+// for the synchronous token, which is NORMAL instead of FULL. It is composed
+// from the same head and tail constants as pragmaDSN, so the two DSNs cannot
+// diverge in foreign_keys, journal_mode, busy_timeout, or _txlock.
+const pragmaTestDSN = pragmaDSNHead + synchronousNormal + pragmaDSNTail
 
 // defaultMaxOpenConns bounds the production pool that openDSN configures.
 // WAL allows concurrent readers and _txlock=immediate already serializes
@@ -58,12 +89,35 @@ type Store struct {
 	db *sql.DB
 }
 
-// Open connects to the SQLite database at path with the single DSN
+// Open connects to the SQLite database at path with the production DSN
 // (design "SQLite Schema"): file:<path>?_pragma=foreign_keys(1)&
 // _pragma=journal_mode(WAL)&_pragma=synchronous(FULL)&
 // _pragma=busy_timeout(5000)&_txlock=immediate.
 func Open(path string) (*Store, error) {
 	return openDSN("file:" + path + pragmaDSN)
+}
+
+// OpenForTests opens a database whose DSN is identical to the one Open builds
+// except for the synchronous pragma, which is NORMAL instead of FULL. It
+// exists so the test harnesses stop paying a durable fsync on every commit for
+// a property they never assert.
+//
+// What differs from production: exactly one token — synchronous goes from
+// FULL to NORMAL. Every other pragma (foreign_keys ON, WAL journaling, 5s
+// busy_timeout, _txlock=immediate) comes from the same shared fragment Open
+// uses, so the test path cannot drift from production there.
+//
+// Why that is safe for tests: their databases are created per test under
+// t.TempDir() and discarded, so a rollback following power loss or a hard
+// reset is not a test failure, and power-loss durability is not what these
+// tests prove. NORMAL still commits atomically and cleanly; it only drops the
+// guarantee that survives the machine losing power mid-write.
+//
+// Accepted cost: the function is exported because the http harness lives in a
+// different package, so it is compiled into the production binary even though
+// only tests call it.
+func OpenForTests(path string) (*Store, error) {
+	return openDSN("file:" + path + pragmaTestDSN)
 }
 
 // openDSN opens a store from a full DSN. The tests use it for shared-cache

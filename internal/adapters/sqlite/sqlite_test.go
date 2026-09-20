@@ -114,6 +114,61 @@ func TestOpenAppliesSingleDSN(t *testing.T) {
 	}
 }
 
+// TestOpenForTestsDivergesOnlyInSynchronous pins the deliberate divergence
+// between the production open path and the test-only fast path. Production
+// must stay FULL (2) and durable; the test variant must be NORMAL (1). Every
+// other pragma must be identical, proving the two DSNs are composed from one
+// shared fragment and cannot drift apart on anything but the synchronous
+// token.
+func TestOpenForTestsDivergesOnlyInSynchronous(t *testing.T) {
+	prod, err := Open(filepath.Join(t.TempDir(), "prod.db"))
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	t.Cleanup(func() { prod.db.Close() })
+
+	fast, err := OpenForTests(filepath.Join(t.TempDir(), "fast.db"))
+	if err != nil {
+		t.Fatalf("OpenForTests: %v", err)
+	}
+	t.Cleanup(func() { fast.db.Close() })
+
+	readInt := func(s *Store, pragma string) int {
+		t.Helper()
+		var v int
+		if err := s.db.QueryRow("PRAGMA " + pragma).Scan(&v); err != nil {
+			t.Fatalf("read %s: %v", pragma, err)
+		}
+		return v
+	}
+
+	// Shared pragmas must match across the two paths: the whole point of the
+	// shared DSN fragment is that only synchronous can differ.
+	for _, p := range []string{"foreign_keys", "busy_timeout"} {
+		if got, want := readInt(fast, p), readInt(prod, p); got != want {
+			t.Errorf("%s differs: test=%d production=%d; the shared fragment must not drift", p, got, want)
+		}
+	}
+
+	var prodJM, fastJM string
+	if err := prod.db.QueryRow(`PRAGMA journal_mode`).Scan(&prodJM); err != nil {
+		t.Fatalf("read production journal_mode: %v", err)
+	}
+	if err := fast.db.QueryRow(`PRAGMA journal_mode`).Scan(&fastJM); err != nil {
+		t.Fatalf("read test journal_mode: %v", err)
+	}
+	if prodJM != fastJM {
+		t.Errorf("journal_mode differs: test=%q production=%q", fastJM, prodJM)
+	}
+
+	if got := readInt(prod, "synchronous"); got != 2 {
+		t.Errorf("production synchronous = %d, want 2 (FULL, durable)", got)
+	}
+	if got := readInt(fast, "synchronous"); got != 1 {
+		t.Errorf("test synchronous = %d, want 1 (NORMAL, fast)", got)
+	}
+}
+
 // TestOpenBoundsConnectionPool asserts the production open path sets a
 // bounded pool, so a future edit cannot silently fall back to the unlimited
 // database/sql default. The bound must exceed one: WAL allows concurrent
