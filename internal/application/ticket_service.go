@@ -31,6 +31,11 @@ type TicketService struct {
 	versions   WorkflowVersionStore
 	runner     *WorkflowRunner
 	workflowTx WorkflowUnitOfWork
+	// SLA resolution (issue #211): resolves the commitment frozen onto NEW
+	// tickets at creation. Wired only by NewTicketServiceWithWorkflowCreate —
+	// nil keeps the legacy behaviour for callers that do not supply it (no
+	// resolution, no commitment).
+	sla *SLAService
 }
 
 // NewTicketService wires the ticket use cases against the given ports: the
@@ -40,7 +45,7 @@ type TicketService struct {
 // create path; wire the workflow create path with
 // NewTicketServiceWithWorkflowCreate.
 func NewTicketService(tickets TicketStore, users UserStore, categories CategoryStore, tx TicketUnitOfWork, builder *ViewBuilder, clock domain.Clock) *TicketService {
-	return newTicketService(tickets, users, categories, tx, builder, clock, nil, nil, nil)
+	return newTicketService(tickets, users, categories, tx, builder, clock, nil, nil, nil, nil)
 }
 
 // NewTicketServiceWithWorkflowCreate wires the atomic create+pin+run path
@@ -48,14 +53,18 @@ func NewTicketService(tickets TicketStore, users UserStore, categories CategoryS
 // that exact version id on the ticket, plans the initial automatic advancement
 // with the WorkflowRunner, and submits ONE CreateTicketWithRun plan to the
 // WorkflowUnitOfWork. A category without a published version is unavailable for
-// new tickets (exact 422 category ValidationError, no writes). SQLite
+// new tickets (exact 422 category ValidationError, no writes). The trailing
+// sla resolves the SLA commitment frozen onto new tickets at creation (issue
+// #211): one service because SLAService already carries the store, the
+// settings port and the clock; nil skips resolution entirely so tickets carry
+// no commitment. SQLite
 // implementations of WorkflowVersionStore/WorkflowUnitOfWork arrive with PR5
 // Batch B; the application contract is served by fakes in Batch A.
-func NewTicketServiceWithWorkflowCreate(tickets TicketStore, users UserStore, categories CategoryStore, tx TicketUnitOfWork, builder *ViewBuilder, clock domain.Clock, versions WorkflowVersionStore, runner *WorkflowRunner, workflowTx WorkflowUnitOfWork) *TicketService {
-	return newTicketService(tickets, users, categories, tx, builder, clock, versions, runner, workflowTx)
+func NewTicketServiceWithWorkflowCreate(tickets TicketStore, users UserStore, categories CategoryStore, tx TicketUnitOfWork, builder *ViewBuilder, clock domain.Clock, versions WorkflowVersionStore, runner *WorkflowRunner, workflowTx WorkflowUnitOfWork, sla *SLAService) *TicketService {
+	return newTicketService(tickets, users, categories, tx, builder, clock, versions, runner, workflowTx, sla)
 }
 
-func newTicketService(tickets TicketStore, users UserStore, categories CategoryStore, tx TicketUnitOfWork, builder *ViewBuilder, clock domain.Clock, versions WorkflowVersionStore, runner *WorkflowRunner, workflowTx WorkflowUnitOfWork) *TicketService {
+func newTicketService(tickets TicketStore, users UserStore, categories CategoryStore, tx TicketUnitOfWork, builder *ViewBuilder, clock domain.Clock, versions WorkflowVersionStore, runner *WorkflowRunner, workflowTx WorkflowUnitOfWork, sla *SLAService) *TicketService {
 	return &TicketService{
 		tickets:    tickets,
 		users:      users,
@@ -66,6 +75,7 @@ func newTicketService(tickets TicketStore, users UserStore, categories CategoryS
 		versions:   versions,
 		runner:     runner,
 		workflowTx: workflowTx,
+		sla:        sla,
 	}
 }
 
@@ -100,16 +110,31 @@ func (s *TicketService) Create(ctx context.Context, actor domain.User, in Create
 	}
 
 	now := s.clock.Now()
+	// SLA resolution (issue #211): resolve the commitment to freeze ONCE,
+	// after category validation and from the SAME now stamped on the ticket,
+	// before either create path. A resolution error fails the whole create
+	// with nothing written: a ticket silently lacking its commitment is a
+	// data loss the SLA reports would then hide. A nil s.sla skips
+	// resolution (legacy callers keep the no-commitment behaviour).
+	var sla *domain.TicketSLA
+	if s.sla != nil {
+		resolved, err := s.sla.ResolveForCreate(ctx, in.CategoryID, in.Priority, now)
+		if err != nil {
+			return nil, err
+		}
+		sla = resolved
+	}
 	// Workflow create path (design S5): a category must have a published workflow
 	// version to accept new tickets; the create pins that version and applies the
 	// planned initial automatic advancement in one unit-of-work call. Without
 	// published workflows the exact 422 category message is returned and nothing
 	// is written.
 	if s.workflowTx != nil {
-		return s.createWithWorkflow(ctx, actor, in, now)
+		return s.createWithWorkflow(ctx, actor, in, now, sla)
 	}
 
 	t, event := newCreateTicket(actor, in, now)
+	t.SLA = sla
 	if err := s.tx.Create(ctx, t, event); err != nil {
 		return nil, err
 	}
@@ -120,12 +145,15 @@ func (s *TicketService) Create(ctx context.Context, actor domain.User, in Create
 // the immutable current version once, require it (exact 422 category
 // ValidationError when the category has no published workflow), pin the exact
 // version id on the ticket, plan the initial automatic advancement, and submit
-// ONE fixed CreateTicketWithRun plan to the WorkflowUnitOfWork. The service
+// ONE fixed CreateTicketWithRun plan to the WorkflowUnitOfWork. sla is the
+// commitment resolved ONCE by Create from the ticket's own creation instant;
+// it is set on the ticket before the unit-of-work call so the adapter freezes
+// it in the same transaction. The service
 // never retries, never falls back to the legacy create, and never writes
 // itself — persistence atomicity is entirely the WorkflowUnitOfWork's
 // responsibility (design S5 all-or-nothing: ticket + pin + created audit +
 // active run + planned automatic operations).
-func (s *TicketService) createWithWorkflow(ctx context.Context, actor domain.User, in CreateTicketInput, now time.Time) (*domain.Ticket, error) {
+func (s *TicketService) createWithWorkflow(ctx context.Context, actor domain.User, in CreateTicketInput, now time.Time, sla *domain.TicketSLA) (*domain.Ticket, error) {
 	pv, err := s.versions.GetCurrentVersion(ctx, in.CategoryID)
 	if err != nil {
 		return nil, err
@@ -135,6 +163,7 @@ func (s *TicketService) createWithWorkflow(ctx context.Context, actor domain.Use
 	}
 
 	t, event := newCreateTicket(actor, in, now)
+	t.SLA = sla
 	// Deep-snapshot the untrusted published definition EXACTLY ONCE at the
 	// application trust boundary (createWithWorkflow): pv.Workflow is
 	// store/caller-owned memory the adapter may cache or alias, and a concurrent

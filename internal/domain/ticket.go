@@ -31,6 +31,17 @@ type Ticket struct {
 	UpdatedAt         time.Time
 	ResolvedAt        *time.Time
 	ClosedAt          *time.Time
+	// SLA is the SLA commitment FROZEN onto the ticket at creation (issue
+	// #211, the WorkflowVersionID precedent): it is carried ONLY through the
+	// creation path and written ONCE, in the ticket's own transaction; the
+	// update paths never write it — the same mould as resolved_at/closed_at.
+	//
+	// It is deliberately NOT hydrated by the read paths: a Ticket read back
+	// from the store has SLA == nil even when the ticket HAS a frozen
+	// commitment. A nil SLA on a read-back ticket therefore means "not
+	// hydrated", NOT "no SLA". The sanctioned way to read the frozen
+	// commitment is SLAStore.TicketSLA (via SLAService.ForTicket).
+	SLA *TicketSLA
 }
 
 // Transition validates a move against the 5x5 matrix and, when legal, applies

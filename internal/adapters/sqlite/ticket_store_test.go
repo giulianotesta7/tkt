@@ -1137,3 +1137,146 @@ func TestTicketListSortByPriority(t *testing.T) {
 		}
 	}
 }
+
+// --- SLA freeze at creation (issue #211) ---
+
+// ticketSLACount counts the frozen-commitment rows for one ticket.
+func ticketSLACount(t *testing.T, s *Store, ticketID int64) int {
+	t.Helper()
+	var n int
+	if err := s.db.QueryRow(`SELECT COUNT(*) FROM ticket_sla WHERE ticket_id = ?`, ticketID).Scan(&n); err != nil {
+		t.Fatalf("count ticket_sla: %v", err)
+	}
+	return n
+}
+
+// ticketSLARow reads the one frozen-commitment row for a ticket with exactly
+// one row expected; the caller has already proven the count.
+func ticketSLARow(t *testing.T, s *Store, ticketID int64) (int, int, time.Time, time.Time) {
+	t.Helper()
+	var (
+		frs, rs             int
+		started, policySnap string
+	)
+	err := s.db.QueryRow(`SELECT first_response_seconds, resolve_seconds, started_at, policy_snapshot_at
+		FROM ticket_sla WHERE ticket_id = ?`, ticketID).Scan(&frs, &rs, &started, &policySnap)
+	if err != nil {
+		t.Fatalf("read ticket_sla: %v", err)
+	}
+	var startedAt, snapshotAt time.Time
+	if startedAt, err = time.Parse(timeLayout, started); err != nil {
+		t.Fatalf("parse started_at %q: %v", started, err)
+	}
+	if snapshotAt, err = time.Parse(timeLayout, policySnap); err != nil {
+		t.Fatalf("parse policy_snapshot_at %q: %v", policySnap, err)
+	}
+	return frs, rs, startedAt, snapshotAt
+}
+
+// TestTicketCreateFreezesSLARow proves a created ticket with a commitment has
+// exactly ONE ticket_sla row with the exact frozen values, written by the
+// create path itself, and a ticket created without one has no row.
+func TestTicketCreateFreezesSLARow(t *testing.T) {
+	s := newTestDB(t)
+	cat := seedCategory(t, s, "Bugs")
+	ctx := context.Background()
+
+	withSLA := &domain.Ticket{
+		Title: "with sla", CategoryID: cat, Priority: domain.PriorityHigh,
+		State: domain.StateNew, CreatedAt: testClock, UpdatedAt: testClock,
+		SLA: &domain.TicketSLA{
+			FirstResponseSeconds: 1800,
+			ResolveSeconds:       14400,
+			StartedAt:            testClock,
+			PolicySnapshotAt:     testClock,
+		},
+	}
+	if err := s.TicketStore().Create(ctx, withSLA); err != nil {
+		t.Fatalf("create with sla: %v", err)
+	}
+	if n := ticketSLACount(t, s, withSLA.ID); n != 1 {
+		t.Fatalf("ticket_sla rows = %d, want exactly 1", n)
+	}
+	frs, rs, startedAt, snapshotAt := ticketSLARow(t, s, withSLA.ID)
+	if frs != 1800 || rs != 14400 {
+		t.Errorf("frozen targets = (%d, %d), want (1800, 14400)", frs, rs)
+	}
+	if !startedAt.Equal(testClock) || !snapshotAt.Equal(testClock) {
+		t.Errorf("frozen instants = (%v, %v), want (%v, %v)", startedAt, snapshotAt, testClock, testClock)
+	}
+
+	withoutSLA := &domain.Ticket{
+		Title: "without sla", CategoryID: cat, Priority: domain.PriorityLow,
+		State: domain.StateNew, CreatedAt: testClock, UpdatedAt: testClock,
+	}
+	if err := s.TicketStore().Create(ctx, withoutSLA); err != nil {
+		t.Fatalf("create without sla: %v", err)
+	}
+	if n := ticketSLACount(t, s, withoutSLA.ID); n != 0 {
+		t.Errorf("ticket_sla rows = %d, want 0 (nil SLA must freeze nothing)", n)
+	}
+}
+
+// TestTicketUpdateNeverTouchesTicketSLA proves the update path never creates,
+// changes, or removes a ticket_sla row: the commitment is creation-only (the
+// same mould as resolved_at/closed_at).
+func TestTicketUpdateNeverTouchesTicketSLA(t *testing.T) {
+	s := newTestDB(t)
+	cat := seedCategory(t, s, "Bugs")
+	ctx := context.Background()
+
+	tk := &domain.Ticket{
+		Title: "frozen", CategoryID: cat, Priority: domain.PriorityHigh,
+		State: domain.StateNew, CreatedAt: testClock, UpdatedAt: testClock,
+		SLA: &domain.TicketSLA{
+			FirstResponseSeconds: 1800,
+			ResolveSeconds:       14400,
+			StartedAt:            testClock,
+			PolicySnapshotAt:     testClock,
+		},
+	}
+	if err := s.TicketStore().Create(ctx, tk); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	before := ticketSLACount(t, s, tk.ID)
+	if before != 1 {
+		t.Fatalf("ticket_sla rows after create = %d, want 1", before)
+	}
+	wantFRS, wantRS, wantStarted, wantSnapshot := ticketSLARow(t, s, tk.ID)
+
+	// Field edit, transition, and reassignment — none may touch the row.
+	tk.Title = "renamed"
+	tk.Priority = domain.PriorityLow
+	agent := seedUser(t, s, "Agent", "a@x", true)
+	tk.UserID = &agent
+	later := testClock.Add(time.Hour)
+	tk.UpdatedAt = later
+	tk.State = domain.StateInProgress
+	if err := s.TicketStore().Update(ctx, tk); err != nil {
+		t.Fatalf("update: %v", err)
+	}
+	if n := ticketSLACount(t, s, tk.ID); n != 1 {
+		t.Fatalf("ticket_sla rows after update = %d, want still 1", n)
+	}
+	frs, rs, startedAt, snapshotAt := ticketSLARow(t, s, tk.ID)
+	if frs != wantFRS || rs != wantRS || !startedAt.Equal(wantStarted) || !snapshotAt.Equal(wantSnapshot) {
+		t.Errorf("frozen row changed by update: got (%d, %d, %v, %v), want (%d, %d, %v, %v)",
+			frs, rs, startedAt, snapshotAt, wantFRS, wantRS, wantStarted, wantSnapshot)
+	}
+
+	// A ticket WITHOUT a commitment must not grow one through updates either.
+	bare := &domain.Ticket{
+		Title: "bare", CategoryID: cat, Priority: domain.PriorityMedium,
+		State: domain.StateNew, CreatedAt: testClock, UpdatedAt: testClock,
+	}
+	if err := s.TicketStore().Create(ctx, bare); err != nil {
+		t.Fatalf("create bare: %v", err)
+	}
+	bare.Title = "renamed too"
+	if err := s.TicketStore().Update(ctx, bare); err != nil {
+		t.Fatalf("update bare: %v", err)
+	}
+	if n := ticketSLACount(t, s, bare.ID); n != 0 {
+		t.Errorf("ticket_sla rows = %d, want 0: an update must never create a commitment", n)
+	}
+}

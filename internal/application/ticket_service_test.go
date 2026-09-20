@@ -1190,20 +1190,30 @@ var errWorkflowUoWFailed = errors.New("workflow create unit of work failed")
 // published versions, the REAL WorkflowRunner planning initial automatic
 // advancement, and a fake WorkflowUnitOfWork recording the exact plan.
 type workflowCreateHarness struct {
-	svc        *application.TicketService
-	tickets    *fakeTicketStore
-	users      *fakeUserStore
-	categories *fakeCategoryStore
-	comments   *fakeCommentStore
-	audits     *fakeAuditStore
-	tx         *fakeUnitOfWork
-	clock      *fakeClock
-	versions   *fakeWorkflowVersionStore
-	runner     *application.WorkflowRunner
-	wfTx       *fakeWorkflowUnitOfWork
+	svc         *application.TicketService
+	tickets     *fakeTicketStore
+	users       *fakeUserStore
+	categories  *fakeCategoryStore
+	comments    *fakeCommentStore
+	audits      *fakeAuditStore
+	tx          *fakeUnitOfWork
+	clock       *fakeClock
+	versions    *fakeWorkflowVersionStore
+	runner      *application.WorkflowRunner
+	wfTx        *fakeWorkflowUnitOfWork
+	slaStore    *fakeSLAStore
+	slaSettings *fakeSLASettingsStore
+	sla         *application.SLAService
 }
 
 func newWorkflowCreateHarness() *workflowCreateHarness {
+	return newWorkflowCreateHarnessWithSLA(nil, nil)
+}
+
+// newWorkflowCreateHarnessWithSLA wires the same workflow create path plus
+// an SLAService over the given fakes (issue #211): nil fakes keep the
+// historical no-resolution behaviour for the pre-SLA tests.
+func newWorkflowCreateHarnessWithSLA(slaStore *fakeSLAStore, slaSettings *fakeSLASettingsStore) *workflowCreateHarness {
 	clock := fixedClock()
 	users := newFakeUserStore()
 	categories := newFakeCategoryStore()
@@ -1215,11 +1225,17 @@ func newWorkflowCreateHarness() *workflowCreateHarness {
 	runner := application.NewWorkflowRunner(clock)
 	wfTx := newFakeWorkflowUnitOfWork(tickets, audits)
 	builder := application.NewViewBuilder(tickets, users, categories, comments, audits, newFakeDeskStore())
-	svc := application.NewTicketServiceWithWorkflowCreate(tickets, users, categories, tx, builder, clock, versions, runner, wfTx)
+	svc := application.NewTicketServiceWithWorkflowCreate(tickets, users, categories, tx, builder, clock, versions, runner, wfTx, nil)
+	var sla *application.SLAService
+	if slaStore != nil && slaSettings != nil {
+		sla = application.NewSLAService(slaStore, slaSettings, clock)
+		svc = application.NewTicketServiceWithWorkflowCreate(tickets, users, categories, tx, builder, clock, versions, runner, wfTx, sla)
+	}
 	return &workflowCreateHarness{
 		svc: svc, tickets: tickets, users: users, categories: categories,
 		comments: comments, audits: audits, tx: tx, clock: clock,
 		versions: versions, runner: runner, wfTx: wfTx,
+		slaStore: slaStore, slaSettings: slaSettings, sla: sla,
 	}
 }
 
@@ -1506,5 +1522,144 @@ func TestTicketService_CreateWithWorkflow_LegacyNullPinTicketsUnchanged(t *testi
 	}
 	if trans.State != domain.StateInProgress {
 		t.Fatalf("Transition: state = %q, want in_progress", trans.State)
+	}
+}
+
+// --- SLA freeze at creation (issue #211) ---
+//
+// The commitment is resolved ONCE per create, from the SAME instant stamped
+// on the ticket, and carried on the ticket into whichever unit-of-work call
+// builds it; the adapters freeze it in the ticket's own transaction.
+
+// slaCreatePolicy returns the (category, high) policy row the create tests
+// freeze: 1800s to first response, 14400s to resolution.
+func slaCreatePolicy(catID int64) map[int64][]domain.SLAPolicy {
+	return map[int64][]domain.SLAPolicy{catID: {
+		{Priority: domain.PriorityHigh, FirstResponseSeconds: 1800, ResolveSeconds: 14400},
+	}}
+}
+
+// TestTicketService_CreateWithWorkflow_FreezesSLACommitment proves a create
+// with SLA enabled and a policy present freezes the commitment onto the
+// created ticket: the submitted plan and the persisted ticket both carry it,
+// with StartedAt equal to the ticket's own CreatedAt (one shared instant,
+// never an independent clock read).
+func TestTicketService_CreateWithWorkflow_FreezesSLACommitment(t *testing.T) {
+	h := newWorkflowCreateHarnessWithSLA(nil, nil) // fakes injected below, after the category id exists
+	cat := h.categories.seed("Bugs")
+	h.slaStore = &fakeSLAStore{policies: slaCreatePolicy(cat.ID)}
+	h.slaSettings = &fakeSLASettingsStore{slaEnabled: true}
+	h.sla = application.NewSLAService(h.slaStore, h.slaSettings, h.clock)
+	h.svc = application.NewTicketServiceWithWorkflowCreate(h.tickets, h.users, h.categories, h.tx, application.NewViewBuilder(h.tickets, h.users, h.categories, h.comments, h.audits, newFakeDeskStore()), h.clock, h.versions, h.runner, h.wfTx, h.sla)
+	def := domain.WorkflowDefinition{{Type: domain.StepManualTask, ManualTask: &domain.ManualTaskStep{Instructions: "do"}}}
+	h.versions.publish(cat.ID, def)
+	actor := domain.User{ID: 7, Name: "Ada", Email: "ada@example.com", Role: domain.RoleUser}
+
+	ticket, err := h.svc.Create(context.Background(), actor, validCreateInput(cat.ID))
+	if err != nil {
+		t.Fatalf("Create: unexpected error: %v", err)
+	}
+	if !ticket.CreatedAt.Equal(h.clock.now) {
+		t.Fatalf("Create: ticket CreatedAt = %v, want the injected clock %v", ticket.CreatedAt, h.clock.now)
+	}
+	if ticket.SLA == nil {
+		t.Fatal("Create: returned ticket must carry the frozen commitment")
+	}
+	if ticket.SLA.FirstResponseSeconds != 1800 || ticket.SLA.ResolveSeconds != 14400 {
+		t.Errorf("targets = (%d, %d), want the policy row (1800, 14400)", ticket.SLA.FirstResponseSeconds, ticket.SLA.ResolveSeconds)
+	}
+	if !ticket.SLA.StartedAt.Equal(ticket.CreatedAt) {
+		t.Errorf("SLA.StartedAt = %v, want the ticket's CreatedAt %v", ticket.SLA.StartedAt, ticket.CreatedAt)
+	}
+	if !ticket.SLA.PolicySnapshotAt.Equal(h.clock.now) {
+		t.Errorf("SLA.PolicySnapshotAt = %v, want the creation instant %v", ticket.SLA.PolicySnapshotAt, h.clock.now)
+	}
+
+	// The EXACT plan submitted to the unit of work carries the commitment too,
+	// so the adapter can freeze it in the ticket's own transaction.
+	if len(h.wfTx.calls) != 1 {
+		t.Fatalf("Create: expected one CreateTicketWithRun plan, got %d", len(h.wfTx.calls))
+	}
+	plan := h.wfTx.calls[0]
+	if plan.Ticket.SLA == nil || plan.Ticket.SLA.FirstResponseSeconds != 1800 || !plan.Ticket.SLA.StartedAt.Equal(h.clock.now) {
+		t.Errorf("plan ticket SLA = %+v, want the frozen commitment anchored at %v", plan.Ticket.SLA, h.clock.now)
+	}
+
+	// And the ticket persisted through the unit-of-work fake carries it.
+	stored, err := h.tickets.GetByID(context.Background(), ticket.ID, application.TicketQuery{Scope: application.ScopeAll})
+	if err != nil {
+		t.Fatalf("GetByID: unexpected error: %v", err)
+	}
+	if stored.SLA == nil || stored.SLA.ResolveSeconds != 14400 {
+		t.Errorf("persisted ticket SLA = %+v, want the frozen commitment", stored.SLA)
+	}
+}
+
+// TestTicketService_CreateWithWorkflow_SLADisabledFreezesNothing proves a
+// create with SLA disabled (the migration-0013 seeded state) freezes no
+// commitment: every existing test's historical behaviour, by construction.
+func TestTicketService_CreateWithWorkflow_SLADisabledFreezesNothing(t *testing.T) {
+	h := newWorkflowCreateHarnessWithSLA(
+		&fakeSLAStore{policies: slaCreatePolicy(0)}, // policy rows exist but SLA is off
+		&fakeSLASettingsStore{slaEnabled: false},
+	)
+	cat := h.categories.seed("Bugs")
+	def := domain.WorkflowDefinition{{Type: domain.StepManualTask, ManualTask: &domain.ManualTaskStep{Instructions: "do"}}}
+	h.versions.publish(cat.ID, def)
+	actor := domain.User{ID: 7, Name: "Ada", Email: "ada@example.com", Role: domain.RoleUser}
+
+	ticket, err := h.svc.Create(context.Background(), actor, validCreateInput(cat.ID))
+	if err != nil {
+		t.Fatalf("Create: unexpected error: %v", err)
+	}
+	if ticket.SLA != nil {
+		t.Errorf("ticket SLA = %+v, want nil (SLA disabled)", ticket.SLA)
+	}
+	if len(h.wfTx.calls) != 1 || h.wfTx.calls[0].Ticket.SLA != nil {
+		t.Fatalf("plan ticket SLA must be nil when SLA is disabled, got %+v", h.wfTx.calls[0].Ticket.SLA)
+	}
+}
+
+// TestTicketService_CreateWithWorkflow_SLAResolveErrorFailsCreate proves a
+// resolution error fails the WHOLE create with nothing written: absence is a
+// state, inability to read is not — a ticket silently lacking its commitment
+// would be data loss the SLA reports would then hide.
+func TestTicketService_CreateWithWorkflow_SLAResolveErrorFailsCreate(t *testing.T) {
+	resolveErr := errors.New("sla read failure")
+	h := newWorkflowCreateHarnessWithSLA(
+		&fakeSLAStore{listByCategoryErr: resolveErr},
+		&fakeSLASettingsStore{slaEnabled: true},
+	)
+	cat := h.categories.seed("Bugs")
+	def := domain.WorkflowDefinition{{Type: domain.StepManualTask, ManualTask: &domain.ManualTaskStep{Instructions: "do"}}}
+	h.versions.publish(cat.ID, def)
+	actor := domain.User{ID: 7, Name: "Ada", Email: "ada@example.com", Role: domain.RoleUser}
+
+	_, err := h.svc.Create(context.Background(), actor, validCreateInput(cat.ID))
+	if !errors.Is(err, resolveErr) {
+		t.Fatalf("Create error = %v, want %v propagated", err, resolveErr)
+	}
+	if len(h.wfTx.calls) != 0 {
+		t.Errorf("failed resolution must not submit a CreateTicketWithRun plan, got %d", len(h.wfTx.calls))
+	}
+	if len(h.tickets.tickets) != 0 || len(h.audits.events) != 0 {
+		t.Error("failed resolution must write no ticket and no audit")
+	}
+}
+
+// TestTicketServiceLegacyCreateCarriesNoSLA proves the six-argument
+// constructor still compiles, still creates tickets, and carries no
+// commitment: nil SLA service skips resolution entirely.
+func TestTicketServiceLegacyCreateCarriesNoSLA(t *testing.T) {
+	h := newTicketHarness()
+	cat := h.categories.seed("Bugs")
+	actor := domain.User{ID: 7, Name: "Ada", Email: "ada@example.com", Role: domain.RoleAdmin}
+
+	ticket, err := h.svc.Create(context.Background(), actor, validCreateInput(cat.ID))
+	if err != nil {
+		t.Fatalf("Create: unexpected error: %v", err)
+	}
+	if ticket.SLA != nil {
+		t.Errorf("legacy create ticket SLA = %+v, want nil (no SLA service wired)", ticket.SLA)
 	}
 }

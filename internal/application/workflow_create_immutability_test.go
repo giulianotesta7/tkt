@@ -185,7 +185,7 @@ func TestTicketService_CreateWithWorkflow_CapturesUntrustedSourceOnce(t *testing
 	runner := application.NewWorkflowRunner(clock)
 	wfTx := newFakeWorkflowUnitOfWork(tickets, audits)
 	builder := application.NewViewBuilder(tickets, users, categories, comments, audits, newFakeDeskStore())
-	svc := application.NewTicketServiceWithWorkflowCreate(tickets, users, categories, tx, builder, clock, versions, runner, wfTx)
+	svc := application.NewTicketServiceWithWorkflowCreate(tickets, users, categories, tx, builder, clock, versions, runner, wfTx, nil)
 
 	cat := categories.seed("Bugs")
 	want := workflowCreateMutationFixture()
