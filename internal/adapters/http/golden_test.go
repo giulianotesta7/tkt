@@ -383,6 +383,29 @@ func TestGoldenStateBadge(t *testing.T) {
 
 func strptr(s string) *string { return &s }
 
+// fixtureSLAPanel builds the deterministic frozen projection the detail
+// goldens render (issue #211): the first response was MET at goldenT1 and the
+// resolution is still pending, AT RISK at the literal projection instant
+// 2026-08-07T06:00Z, so the panel exercises an achieved milestone (no
+// remaining label), a pending one ("in 4h 0m"), and the dash for a nil
+// achieved instant. Literal instants only — the render path never calls
+// time.Now() (D7).
+func fixtureSLAPanel() *slaPanelView {
+	frozen := &domain.TicketSLA{
+		FirstResponseSeconds: 14400,
+		ResolveSeconds:       86400,
+		WarnFirstResponseAt:  goldenT0.Add(3*time.Hour + 12*time.Minute),
+		DueFirstResponseAt:   goldenT0.Add(4 * time.Hour),
+		WarnResolveAt:        goldenT0.Add(19*time.Hour + 12*time.Minute),
+		DueResolveAt:         goldenT0.Add(24 * time.Hour),
+		StartedAt:            goldenT0,
+		PolicySnapshotAt:     goldenT0,
+	}
+	achieved := goldenT1
+	now := goldenT0.Add(20 * time.Hour)
+	return slaPanelFor(domain.ProjectSLA(frozen, domain.SLAMilestones{FirstResponseAt: &achieved}, now))
+}
+
 func fixtureDetailData() detailData {
 	ana := domain.User{ID: 1, Name: "Ana Torres", Email: "ana@example.com", Active: true, CreatedAt: goldenT0}
 	t := &domain.Ticket{
@@ -437,6 +460,7 @@ func fixtureDetailData() detailData {
 			UserID:      "1",
 			Priority:    t.Priority,
 		},
+		SLA: fixtureSLAPanel(),
 	}
 }
 

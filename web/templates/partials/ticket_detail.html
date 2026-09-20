@@ -130,7 +130,31 @@
           </dl>
 {{end}}
         </div>
-      </div>
+{{if .SLA}}{{/* Staff-only SLA panel: the if/end hug their content so a nil .SLA leaves the requester golden byte-identical. */}}        <div class="prop-section">
+          <div class="prop-heading">SLA {{template "state_badge" .SLA.Overall}}</div>
+{{range .SLA.Milestones}}
+          <div class="prop-heading">{{.Label}} {{template "state_badge" .State}}</div>
+          <div class="prop-row">
+            <span class="prop-label">Target</span>
+            <span class="prop-value">{{.Target}}</span>
+          </div>
+          <div class="prop-row">
+            <span class="prop-label">Due</span>
+            <span class="prop-value">{{template "timestamp" .DueAt}}</span>
+          </div>
+          <div class="prop-row">
+            <span class="prop-label">Achieved</span>
+            <span class="prop-value">{{if .AchievedAt}}{{template "timestamp" .AchievedAt}}{{else}}—{{end}}</span>
+          </div>
+{{if .Remaining}}
+          <div class="prop-row">
+            <span class="prop-label">Remaining</span>
+            <span class="prop-value">{{.Remaining}}</span>
+          </div>
+{{end}}
+{{end}}
+        </div>
+{{end}}      </div>
     </div>
   </div>
 </div>

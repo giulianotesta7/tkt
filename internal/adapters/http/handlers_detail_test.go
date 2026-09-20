@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/giulianotesta7/tkt/internal/application"
 	"github.com/giulianotesta7/tkt/internal/domain"
@@ -822,5 +823,177 @@ func TestTicketTransitionUserDenied(t *testing.T) {
 	}
 	if view.Ticket.State != domain.StateNew {
 		t.Errorf("denied transition must leave state %q, got %q", domain.StateNew, view.Ticket.State)
+	}
+}
+
+// TestTicketDetailSLAPanelStaffOnly (issue #211, PR 4) proves the milestone
+// panel renders on a STAFF detail page and is ABSENT from a requester's page
+// even when that requester's own ticket carries a frozen commitment. The
+// commitment is created through the real service (SLA enabled via the settings
+// route), so the projection comes from a real freeze, not a hand-built store.
+func TestTicketDetailSLAPanelStaffOnly(t *testing.T) {
+	h := newHarness(t)
+
+	// Enable SLA through the real settings route so the create path freezes a
+	// commitment against the category matrix the migration materialized.
+	form := slaPanelForm("80")
+	form.Set("sla_enabled", "1")
+	if rec := h.postForm(t, "/settings/sla", form, false); rec.Code != http.StatusSeeOther {
+		t.Fatalf("enable SLA: status = %d, want %d", rec.Code, http.StatusSeeOther)
+	}
+
+	staffTicket := h.seedTicket(t, "Freeze me", nil)
+	frozen, err := h.store.SLAStore().TicketSLA(t.Context(), staffTicket.ID)
+	if err != nil {
+		t.Fatalf("read frozen commitment: %v", err)
+	}
+	if frozen == nil {
+		t.Fatalf("enabled SLA must freeze a commitment on the staff ticket")
+	}
+
+	body := h.get(t, "/tickets/"+strconv.FormatInt(staffTicket.ID, 10), false).Body.String()
+
+	// The overall state badge heads the section, both milestone blocks render
+	// with their label and state badge, the target is pre-formatted, and the
+	// due instant is the FROZEN one through the timestamp partial.
+	for _, want := range []string{
+		`<div class="prop-heading">SLA <span class="badge on_track">On Track</span></div>`,
+		`<div class="prop-heading">Response <span class="badge on_track">On Track</span></div>`,
+		`<div class="prop-heading">Resolve <span class="badge on_track">On Track</span></div>`,
+		`<span class="prop-label">Target</span>`,
+		`<span class="prop-value">4h 0m</span>`,
+		`<span class="prop-value">24h 0m</span>`,
+		`datetime="` + formatDatetime(frozen.DueFirstResponseAt) + `"`,
+		`datetime="` + formatDatetime(frozen.DueResolveAt) + `"`,
+		`<span class="prop-value">—</span>`, // both milestones pending: no achieved instant
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("staff detail must contain %q, got: %s", want, body)
+		}
+	}
+
+	// A requester-owned ticket, created through the real service, also freezes
+	// a commitment (SLA is on) — yet the requester page must not render the
+	// panel, and the handler must not even read the projection for a `user`.
+	requester := seedUserRole(t, h.store, "Rosa", "rosa-detail@example.com", domain.RoleUser)
+	requesterSession := seedSession(t, h.store, requester.ID)
+	requesterTicket, err := h.tickets.Create(t.Context(), *requester, application.CreateTicketInput{
+		Title: "Requester request", CategoryID: h.bugCategory.ID, Priority: domain.PriorityMedium,
+	})
+	if err != nil {
+		t.Fatalf("create requester ticket: %v", err)
+	}
+	requesterFrozen, err := h.store.SLAStore().TicketSLA(t.Context(), requesterTicket.ID)
+	if err != nil {
+		t.Fatalf("read requester frozen commitment: %v", err)
+	}
+	if requesterFrozen == nil {
+		t.Fatalf("the requester ticket must carry a frozen commitment so its page is not vacuously SLA-free")
+	}
+
+	requesterRec := doRequest(h.mux, h.mw, http.MethodGet, "/tickets/"+strconv.FormatInt(requesterTicket.ID, 10), map[string]string{
+		"Cookie": sessionCookie + "=" + requesterSession.ID,
+	})
+	if requesterRec.Code != http.StatusOK {
+		t.Fatalf("requester detail status = %d, want 200", requesterRec.Code)
+	}
+	requesterBody := requesterRec.Body.String()
+	if !strings.Contains(requesterBody, "Requester request") {
+		t.Fatalf("requester detail must render its own ticket, got: %s", requesterBody)
+	}
+	for _, absent := range []string{
+		`<div class="prop-heading">SLA `,
+		`<div class="prop-heading">Response `,
+		`<div class="prop-heading">Resolve `,
+		`<span class="prop-label">Target</span>`,
+		`<span class="prop-label">Remaining</span>`,
+		`class="badge on_track"`,
+	} {
+		if strings.Contains(requesterBody, absent) {
+			t.Errorf("LEAK: requester detail must not render SLA markup %q, got: %s", absent, requesterBody)
+		}
+	}
+}
+
+// TestTicketDetailSLAPanelAbsentWithoutFrozenSLA (issue #211, PR 4) proves a
+// ticket with no frozen commitment renders no panel: the harness leaves SLA
+// disabled (its default), so the created ticket freezes nothing and the detail
+// page stays SLA-free.
+func TestTicketDetailSLAPanelAbsentWithoutFrozenSLA(t *testing.T) {
+	h := newHarness(t)
+	tkt := h.seedTicket(t, "No commitment", nil)
+
+	frozen, err := h.store.SLAStore().TicketSLA(t.Context(), tkt.ID)
+	if err != nil {
+		t.Fatalf("read frozen commitment: %v", err)
+	}
+	if frozen != nil {
+		t.Fatalf("SLA disabled must freeze no commitment, got: %+v", frozen)
+	}
+
+	body := h.get(t, "/tickets/"+strconv.FormatInt(tkt.ID, 10), false).Body.String()
+	if !strings.Contains(body, "No commitment") {
+		t.Fatalf("detail must render the ticket, got: %s", body)
+	}
+	for _, absent := range []string{
+		`<div class="prop-heading">SLA `,
+		`<span class="prop-label">Target</span>`,
+		`<span class="prop-label">Remaining</span>`,
+	} {
+		if strings.Contains(body, absent) {
+			t.Errorf("no frozen SLA must render no panel, found %q in: %s", absent, body)
+		}
+	}
+}
+
+// TestSLAPanelAbsentWithoutFrozenCommitment pins the panel gate directly: a
+// projection with no frozen commitment (legacy ticket, or SLA disabled at
+// creation) yields no panel, so the section cannot render an empty shell.
+func TestSLAPanelAbsentWithoutFrozenCommitment(t *testing.T) {
+	if p := slaPanelFor(domain.SLAProjection{Overall: domain.SLANone}); p != nil {
+		t.Errorf("no frozen commitment must yield no panel, got: %+v", p)
+	}
+}
+
+// TestSLADurationLabel pins the pre-formatted duration copy the detail panel
+// prints (issue #211): the largest non-zero unit carries the next smaller one,
+// seconds survive only when they do not divide evenly into minutes, and a
+// negative value is prefixed with a sign. The template FuncMap has no
+// formatter, so this helper is the single source of the copy.
+func TestSLADurationLabel(t *testing.T) {
+	for _, tc := range []struct {
+		seconds int
+		want    string
+	}{
+		{14400, "4h 0m"},
+		{9000, "2h 30m"},
+		{1800, "30m"},
+		{45, "45s"},
+		{5430, "1h 30m 30s"},
+		{0, "0s"},
+		{-1800, "-30m"},
+	} {
+		if got := slaDurationLabel(tc.seconds); got != tc.want {
+			t.Errorf("slaDurationLabel(%d) = %q, want %q", tc.seconds, got, tc.want)
+		}
+	}
+}
+
+// TestSLAMilestoneRemainingLabel pins the remaining copy: "in 2h 30m" while
+// pending, "30m overdue" once the remainder is negative, and EMPTY once the
+// milestone is achieved (the panel drops the row).
+func TestSLAMilestoneRemainingLabel(t *testing.T) {
+	pending := domain.SLAMilestoneStatus{TargetSeconds: 9000, Remaining: 2*time.Hour + 30*time.Minute}
+	if got := slaMilestoneViewFor("Response", pending).Remaining; got != "in 2h 30m" {
+		t.Errorf("pending remaining = %q, want %q", got, "in 2h 30m")
+	}
+	overdue := domain.SLAMilestoneStatus{TargetSeconds: 9000, Remaining: -30 * time.Minute}
+	if got := slaMilestoneViewFor("Response", overdue).Remaining; got != "30m overdue" {
+		t.Errorf("overdue remaining = %q, want %q", got, "30m overdue")
+	}
+	achievedAt := goldenT1
+	achieved := domain.SLAMilestoneStatus{TargetSeconds: 9000, AchievedAt: &achievedAt}
+	if got := slaMilestoneViewFor("Response", achieved).Remaining; got != "" {
+		t.Errorf("achieved remaining = %q, want empty", got)
 	}
 }

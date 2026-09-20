@@ -343,6 +343,95 @@ func slaRowFor(p domain.SLAProjection) *slaRow {
 	return row
 }
 
+// slaMilestoneView is one pre-formatted milestone block of the ticket detail
+// SLA panel (issue #211). The template only prints fields: Target is the
+// frozen target in compact h/m/s units, DueAt and AchievedAt stay time.Time
+// so the `timestamp` partial renders a truthful <time datetime>, State drives
+// the existing state_badge component, and Remaining is EMPTY once the
+// milestone is achieved (a met milestone has no outstanding time).
+type slaMilestoneView struct {
+	Label      string
+	State      domain.SLAState
+	Target     string
+	DueAt      time.Time
+	AchievedAt *time.Time
+	Remaining  string
+}
+
+// slaPanelView is the ticket detail SLA section (issue #211). It exists only
+// when the ticket carries a frozen commitment; a nil panel renders nothing,
+// so a requester or a legacy ticket sees no SLA section at all.
+type slaPanelView struct {
+	Overall    domain.SLAState
+	Milestones []slaMilestoneView
+}
+
+// slaPanelFor builds the pre-formatted panel from one projection. A nil
+// Frozen (no commitment, or the pre-0016 zero-due legacy shape) yields nil —
+// absence is a state, never a "no SLA" panel.
+func slaPanelFor(p domain.SLAProjection) *slaPanelView {
+	if p.Frozen == nil {
+		return nil
+	}
+	return &slaPanelView{
+		Overall: p.Overall,
+		Milestones: []slaMilestoneView{
+			slaMilestoneViewFor(slaResponseLabel, p.FirstResponse),
+			slaMilestoneViewFor(slaResolveLabel, p.Resolve),
+		},
+	}
+}
+
+// slaMilestoneViewFor pre-formats one milestone. Remaining is populated only
+// while the milestone is pending: a negative remainder reads "30m overdue",
+// a non-negative one "in 2h 30m", and an achieved milestone carries no
+// remaining label at all (the template drops the row).
+func slaMilestoneViewFor(label string, m domain.SLAMilestoneStatus) slaMilestoneView {
+	v := slaMilestoneView{
+		Label:      label,
+		State:      m.State,
+		Target:     slaDurationLabel(m.TargetSeconds),
+		DueAt:      m.DueAt,
+		AchievedAt: m.AchievedAt,
+	}
+	if m.AchievedAt == nil {
+		seconds := int(m.Remaining / time.Second)
+		if seconds < 0 {
+			v.Remaining = slaDurationLabel(-seconds) + " overdue"
+		} else {
+			v.Remaining = "in " + slaDurationLabel(seconds)
+		}
+	}
+	return v
+}
+
+// slaDurationLabel formats a duration in whole seconds as compact h/m/s units
+// ("4h 0m", "30m", "45s") for the ticket detail SLA panel. The render path
+// must never format a duration itself (no duration or target helper is in the
+// template FuncMap), so the handler pre-formats every label here. The largest
+// non-zero unit always carries the next smaller one, so an exact four-hour
+// target reads "4h 0m" instead of a bare "4h"; a trailing zero unit is
+// dropped, and seconds survive only when the value does not divide evenly
+// into minutes — nothing is rounded away.
+func slaDurationLabel(total int) string {
+	if total < 0 {
+		return "-" + slaDurationLabel(-total)
+	}
+	hours, minutes, seconds := total/3600, total%3600/60, total%60
+	switch {
+	case hours > 0 && seconds > 0:
+		return fmt.Sprintf("%dh %dm %ds", hours, minutes, seconds)
+	case hours > 0:
+		return fmt.Sprintf("%dh %dm", hours, minutes)
+	case minutes > 0 && seconds > 0:
+		return fmt.Sprintf("%dm %ds", minutes, seconds)
+	case minutes > 0:
+		return fmt.Sprintf("%dm", minutes)
+	default:
+		return fmt.Sprintf("%ds", seconds)
+	}
+}
+
 // ticketRow wraps one staff-list ticket with its batched row context. The
 // domain.Ticket is EMBEDDED so every template expression ({{.ID}},
 // {{.Title}}, …) keeps resolving. Context carries the agent queue facts
@@ -976,6 +1065,11 @@ type detailData struct {
 	// never exposes a workflow version, pin, or technical cursor.
 	Pending workflowPending
 	Claim   workflowClaim
+	// SLA is the pre-formatted milestones panel (issue #211), present ONLY for
+	// a non-`user` actor on a ticket with a frozen commitment. A nil panel
+	// hides the section entirely: a requester never receives the projection,
+	// and a ticket with no frozen SLA has none to show.
+	SLA *slaPanelView
 }
 
 // workflowPending is the presentation payload for the live current-step
@@ -1051,6 +1145,21 @@ func (h *TicketHandlers) detailDataFor(r *http.Request, id int64) (detailData, i
 	// confirmation control; agents keep only the reopen). Requester-NULL and
 	// all other states keep the unfiltered allowedNext list.
 	next := filteredNext(allowedNext(view.Ticket.State), view.Ticket)
+	// SLA milestones panel (issue #211): STAFF ONLY. A `user` actor must not
+	// trigger the read at all, so the guard short-circuits BEFORE
+	// h.sla.ForTicket — a requester's detail page never touches the SLA store
+	// and the projection is never computed for them. An unset service (WithSLA
+	// never called) leaves the panel nil, exactly like the lists. A service
+	// error propagates through the same status mapping as every other detail
+	// read; nothing is fabricated.
+	var slaPanel *slaPanelView
+	if h.sla != nil && actor.Role != domain.RoleUser {
+		projection, slaErr := h.sla.ForTicket(r.Context(), id)
+		if slaErr != nil {
+			return detailData{}, statusFor(slaErr), slaErr
+		}
+		slaPanel = slaPanelFor(projection)
+	}
 	return detailData{
 		pageData:           pageDataFrom(r, "tickets"),
 		View:               view,
@@ -1064,6 +1173,7 @@ func (h *TicketHandlers) detailDataFor(r *http.Request, id int64) (detailData, i
 		CanComment:         !closed || (view.Ticket.State == domain.StateResolved && requester),
 		Pending:            pending,
 		Claim:              h.claimFor(r, id, actor),
+		SLA:                slaPanel,
 	}, 0, nil
 }
 
