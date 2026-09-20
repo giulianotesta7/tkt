@@ -27,9 +27,18 @@ func (v CommentVisibility) Valid() bool {
 // session (D14); the domain never fills it. Visibility is the comment's
 // audience (comment-visibility spec): public or internal.
 type Comment struct {
-	ID         int64
-	TicketID   int64
-	Author     string
+	ID       int64
+	TicketID int64
+	Author   string
+	// AuthorUserID is the acting session user's id (design: "Events store
+	// session actor ID/snapshot"). NULL for legacy/backfill comments whose
+	// actor id is not provable.
+	AuthorUserID *int64
+	// AuthorRole is the author's role SNAPSHOT taken when the comment is
+	// written — never a live join against users.role, so a later role
+	// change must not rewrite what a historical comment was. The empty
+	// value means "unknown / legacy".
+	AuthorRole Role
 	Body       string
 	Visibility CommentVisibility
 	CreatedAt  time.Time
