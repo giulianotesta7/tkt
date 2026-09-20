@@ -764,6 +764,16 @@ type TicketQuery struct {
 	// SortByPriority orders results by the D11 priority rank
 	// (critical > high > medium > low) before the created/id tiebreak.
 	SortByPriority bool
+	// SortByUrgency orders results by the SLA deadline that is actually
+	// OUTSTANDING (issue #211, PR 4): the due instant of the FIRST milestone
+	// the ticket has not achieved — the response deadline while no public
+	// staff response exists, then the resolution deadline until the ticket is
+	// resolved. A ticket with nothing outstanding (no frozen SLA, or both
+	// milestones achieved) sorts LAST, and the D11 priority rank followed by
+	// the D2 created/id tiebreak keeps page boundaries stable. It takes
+	// precedence over SortByPriority when both are set, because the priority
+	// rank is already its tiebreak.
+	SortByUrgency bool
 	// Section splits an agent's existing read scope into personal assignments
 	// and current desk claims. It never widens the access scope.
 	Section TicketSection
