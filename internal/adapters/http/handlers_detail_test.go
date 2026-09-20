@@ -853,12 +853,12 @@ func TestTicketDetailSLAPanelStaffOnly(t *testing.T) {
 
 	body := h.get(t, "/tickets/"+strconv.FormatInt(staffTicket.ID, 10), false).Body.String()
 
-	// The section heading names the SLA and stays silent while the overall
-	// state is on_track; each milestone renders one row with its label, its
-	// state badge and the time left; the frozen due instant survives as the
-	// <time datetime> the countdown reads.
+	// The section heading names the SLA and carries no state of its own; each
+	// milestone renders one row with its label, its state dot and the time
+	// left; the frozen due instant survives as the <time datetime> the
+	// countdown reads.
 	for _, want := range []string{
-		`<div class="prop-heading">SLA </div>`,
+		`<div class="prop-heading">SLA</div>`,
 		`<span class="prop-label">Response</span>`,
 		`<span class="prop-label">Resolve</span>`,
 		`datetime="` + formatDatetime(frozen.DueFirstResponseAt) + `"`,
@@ -878,7 +878,7 @@ func TestTicketDetailSLAPanelStaffOnly(t *testing.T) {
 	// The panel states each milestone's STATE and the time left, and nothing
 	// else: the target, due and achieved rows were removed by decision (the
 	// due instant survives as the <time datetime> the countdown reads).
-	for _, absent := range []string{`>Target<`, `>Achieved<`, `>Remaining<`, `class="badge on_track"`} {
+	for _, absent := range []string{`>Target<`, `>Achieved<`, `>Remaining<`, `class="sla-dot on_track"`} {
 		if strings.Contains(body, absent) {
 			t.Errorf("the SLA panel must not render the %q row any more, got: %s", absent, body)
 		}
@@ -919,7 +919,7 @@ func TestTicketDetailSLAPanelStaffOnly(t *testing.T) {
 		`<div class="prop-heading">Resolve `,
 		`<span class="prop-label">Target</span>`,
 		`<span class="prop-label">Remaining</span>`,
-		`class="badge at_risk"`,
+		`class="sla-dot at_risk"`,
 		`data-server-now`,
 		`data-sla-countdown`,
 		`/static/sla_countdown.js`,
@@ -1047,7 +1047,7 @@ func TestTicketDetailSLACountdownHooks(t *testing.T) {
 	if strings.Contains(body, `<time datetime="2026-08-06T14:00:00Z"`) {
 		t.Errorf("an achieved milestone renders no time row any more, got: %s", body)
 	}
-	for _, want := range []string{`<span class="prop-label">Response</span>`, `<span class="badge met">Met</span>`} {
+	for _, want := range []string{`<span class="prop-label">Response</span>`, `<span class="sla-dot met" aria-hidden="true"></span><span class="visually-hidden">Met</span>`} {
 		if !strings.Contains(body, want) {
 			t.Errorf("the achieved milestone must still render %q, got: %s", want, body)
 		}

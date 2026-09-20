@@ -1190,7 +1190,7 @@ func TestTicketMetricsStaticScript(t *testing.T) {
 func TestTicketListSLACellMarkup(t *testing.T) {
 	body := renderGolden(t, "tickets_index", "ticket_list", fixtureListData(), true)
 
-	atRisk := `<td data-label="SLA"><span class="badge at_risk">At Risk</span> <span class="cell-muted">Response <time datetime="2026-08-06T11:30:00Z">11:30 · 06-08-2026</time></span></td>`
+	atRisk := `<td data-label="SLA"><span class="sla-dot at_risk" aria-hidden="true"></span><span class="visually-hidden">At Risk</span> <span class="cell-muted">Response <time datetime="2026-08-06T11:30:00Z">11:30 · 06-08-2026</time></span></td>`
 	if !strings.Contains(body, atRisk) {
 		t.Errorf("at_risk row must render the badge and pending deadline %q, got: %s", atRisk, body)
 	}
@@ -1244,7 +1244,7 @@ func TestTicketsIndexSLAIsStaffOnly(t *testing.T) {
 	if !strings.Contains(adminBody, "<th>SLA</th>") {
 		t.Errorf("admin list must render the SLA column header, got: %s", adminBody)
 	}
-	if strings.Contains(adminBody, `class="badge on_track"`) {
+	if strings.Contains(adminBody, `class="sla-dot on_track"`) {
 		t.Errorf("on_track must stay silent in the admin list, got: %s", adminBody)
 	}
 	if !strings.Contains(adminBody, "Response <time ") {
@@ -1258,7 +1258,7 @@ func TestTicketsIndexSLAIsStaffOnly(t *testing.T) {
 		t.Fatalf("agent tickets status = %d, want 200", agentRec.Code)
 	}
 	agentBody := agentRec.Body.String()
-	if strings.Contains(agentBody, `class="badge on_track"`) {
+	if strings.Contains(agentBody, `class="sla-dot on_track"`) {
 		t.Errorf("on_track must stay silent in the agent list, got: %s", agentBody)
 	}
 	if !strings.Contains(agentBody, "Response <time ") {
@@ -1277,9 +1277,9 @@ func TestTicketsIndexSLAIsStaffOnly(t *testing.T) {
 	}
 	for _, absent := range []string{
 		"<th>SLA</th>",
-		`class="badge at_risk"`,
-		`class="badge breached"`,
-		`class="badge met"`,
+		`class="sla-dot at_risk"`,
+		`class="sla-dot breached"`,
+		`class="sla-dot met"`,
 	} {
 		if strings.Contains(requesterBody, absent) {
 			t.Errorf("LEAK: requester list must not render SLA markup %q, got: %s", absent, requesterBody)

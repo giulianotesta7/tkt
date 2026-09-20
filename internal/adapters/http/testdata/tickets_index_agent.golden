@@ -57,7 +57,7 @@
           <p class="agent-row-meta">Requester: Ana Torres</p>
         </div>
         <div class="agent-row-side">
-          <span class="badge in_progress">In Progress</span><span class="badge at_risk">At Risk</span> <span class="agent-row-meta">Response <time class="card-timestamp" tabindex="0" datetime="2026-08-06T11:30:00Z" aria-label="11:30 · 06-08-2026" data-full-date="11:30 · 06-08-2026">11:30 · 06 Aug</time></span>
+          <span class="badge in_progress">In Progress</span><span class="sla-dot at_risk" aria-hidden="true"></span><span class="visually-hidden">At Risk</span> <span class="agent-row-meta">Response <time class="card-timestamp" tabindex="0" datetime="2026-08-06T11:30:00Z" aria-label="11:30 · 06-08-2026" data-full-date="11:30 · 06-08-2026">11:30 · 06 Aug</time></span>
           <span class="priority high"><span class="ticket-priority-value">High</span></span>
           <span class="agent-row-updated">Updated <time class="card-timestamp" tabindex="0" datetime="2026-08-06T10:30:00Z" aria-label="10:30 · 06-08-2026" data-full-date="10:30 · 06-08-2026">10:30 · 06 Aug</time></span>
           <a class="agent-row-open" href="/tickets/2">Open ticket</a>

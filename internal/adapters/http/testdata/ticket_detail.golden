@@ -175,16 +175,16 @@
 
         </div>
         <div class="prop-section" data-server-now="2026-08-07T06:00:00Z">
-          <div class="prop-heading">SLA <span class="badge at_risk">At Risk</span> </div>
+          <div class="prop-heading">SLA</div>
 
           <div class="prop-row">
             <span class="prop-label">Response</span>
-            <span class="prop-value"><span class="badge met">Met</span> </span>
+            <span class="prop-value"><span class="sla-dot met" aria-hidden="true"></span><span class="visually-hidden">Met</span> </span>
           </div>
 
           <div class="prop-row">
             <span class="prop-label">Resolve</span>
-            <span class="prop-value"><span class="badge at_risk">At Risk</span> <time datetime="2026-08-07T10:00:00Z" data-sla-countdown><span class="sla-countdown-ticker" aria-hidden="true">in 4h 0m</span><span class="sla-countdown-coarse visually-hidden">10:00 · 07-08-2026</span></time></span>
+            <span class="prop-value"><span class="sla-dot at_risk" aria-hidden="true"></span><span class="visually-hidden">At Risk</span> <time datetime="2026-08-07T10:00:00Z" data-sla-countdown><span class="sla-countdown-ticker" aria-hidden="true">in 4h 0m</span><span class="sla-countdown-coarse visually-hidden">10:00 · 07-08-2026</span></time></span>
           </div>
 
         </div>

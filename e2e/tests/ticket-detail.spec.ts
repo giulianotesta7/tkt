@@ -505,16 +505,16 @@ test.describe("Ticket detail SLA panel (seeded)", () => {
     const headings = slaSection.locator(".prop-heading");
     await expect(headings).toHaveCount(1);
     await expect(headings.nth(0)).toContainText("SLA");
-    await expect(headings.nth(0).locator(".badge")).toHaveCount(0);
+    await expect(headings.nth(0).locator(".badge, .sla-dot")).toHaveCount(0);
 
     const milestoneRows = slaSection.locator(".prop-row");
     await expect(milestoneRows).toHaveCount(2);
     await expect(milestoneRows.nth(0).locator(".prop-label")).toHaveText("Response");
-    await expect(milestoneRows.nth(0).locator(".badge")).toHaveCount(0);
+    await expect(milestoneRows.nth(0).locator(".badge, .sla-dot")).toHaveCount(0);
     await expect(milestoneRows.nth(1).locator(".prop-label")).toHaveText("Resolve");
-    await expect(milestoneRows.nth(1).locator(".badge")).toHaveCount(0);
+    await expect(milestoneRows.nth(1).locator(".badge, .sla-dot")).toHaveCount(0);
     // on_track is the quiet default: no green pill anywhere in the section.
-    await expect(slaSection.locator(".badge")).toHaveCount(0);
+    await expect(slaSection.locator(".badge, .sla-dot")).toHaveCount(0);
 
     // Both milestones are pending, so both carry the live countdown and each
     // keeps its absolute due instant in the <time datetime>.
@@ -687,7 +687,8 @@ test.describe("Ticket detail SLA live countdown (seeded)", () => {
     // carries the countdown.
     const rows = slaSection.locator(".prop-row");
     await expect(rows.nth(0).locator(".prop-label")).toHaveText("Response");
-    await expect(rows.nth(0).locator(".badge")).toHaveText("Met");
+    await expect(rows.nth(0).locator(".sla-dot")).toHaveClass(/met/);
+    await expect(rows.nth(0)).toContainText("Met");
     await expect(rows.nth(0).locator("[data-sla-countdown]")).toHaveCount(0);
     await expect(rows.nth(0).locator("time")).toHaveCount(0);
     await expect(rows.nth(1).locator(".prop-label")).toHaveText("Resolve");
