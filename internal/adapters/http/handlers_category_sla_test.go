@@ -377,28 +377,28 @@ func TestCategorySLANormalSaveDoesNotReset(t *testing.T) {
 }
 
 // TestSLATwoLevelsCopy proves both SLA screens state the two-level model:
-// the instance matrix is the template for new categories, while a category's
+// the instance matrix is the default for new categories, while a category's
 // own matrix is the operative promise and the frozen tickets keep it.
 func TestSLATwoLevelsCopy(t *testing.T) {
 	h := newHarness(t)
 
 	categoryBody := h.get(t, "/categories/"+strconv.FormatInt(h.bugCategory.ID, 10)+"/sla", false).Body.String()
-	if !strings.Contains(categoryBody, "tickets already created keep the commitments they were created with") {
-		t.Errorf("category SLA page must state that created tickets keep their commitments, got: %s", categoryBody)
+	if !strings.Contains(categoryBody, "This category's commitments.") {
+		t.Errorf("category SLA page must state whose commitments the matrix holds, got: %s", categoryBody)
 	}
-	if !strings.Contains(categoryBody, "They started as the instance defaults") {
-		t.Errorf("category SLA page must state the commitments started as the instance defaults, got: %s", categoryBody)
+	if !strings.Contains(categoryBody, "Tickets already created keep theirs.") {
+		t.Errorf("category SLA page must state that created tickets keep their commitments, got: %s", categoryBody)
 	}
 	if strings.Contains(categoryBody, "Response and resolution commitments for this category.</p>") {
 		t.Errorf("category SLA page must not keep the old provenance-free copy, got: %s", categoryBody)
 	}
 
 	settingsBody := h.get(t, "/settings", false).Body.String()
-	if !strings.Contains(settingsBody, "editing these values does not change categories that already exist") {
+	if !strings.Contains(settingsBody, "Editing them does not change existing categories.") {
 		t.Errorf("settings page must state that edits do not change existing categories, got: %s", settingsBody)
 	}
-	if !strings.Contains(settingsBody, "This matrix is the template for new categories") {
-		t.Errorf("settings page must state that the matrix is the template, got: %s", settingsBody)
+	if !strings.Contains(settingsBody, "Defaults for new categories.") {
+		t.Errorf("settings page must state that the matrix defaults new categories, got: %s", settingsBody)
 	}
 	if strings.Contains(settingsBody, "Response and resolution commitments carried by new tickets.</p>") {
 		t.Errorf("settings page must not keep the old false copy, got: %s", settingsBody)

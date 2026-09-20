@@ -72,15 +72,15 @@
 </form>
 <form class="card form-card" method="post" action="/settings/sla">
   <h2>Service level agreements</h2>
-  <p class="help">This matrix is the template for new categories. A ticket carries the commitments of its own category, and editing these values does not change categories that already exist.</p>
+  <p class="help">Defaults for new categories. Editing them does not change existing categories.</p>
   <div class="field checkbox-field">
     <label><input type="checkbox" name="sla_enabled" value="1"> Enable SLA targets</label>
-    <p class="help">Off by default. While enabled, new tickets carry their category's commitments; turning it off stops new tickets from carrying a commitment, and commitments already frozen keep rendering.</p>
+    <p class="help">Off by default. Existing commitments keep rendering.</p>
   </div>
   <div class="field">
     <label for="sla_warning_percent">Warning threshold</label>
     <input type="number" id="sla_warning_percent" name="sla_warning_percent" class="sla-warning-input" min="1" max="99" value="80">
-    <p class="help">A milestone turns at risk once this share of its target has elapsed.</p>
+    <p class="help">At risk once this share of the target has elapsed.</p>
   </div>
 <div class="sla-grid">
   <div class="sla-grid-row sla-grid-head" aria-hidden="true">
@@ -150,7 +150,7 @@
 </form>
 <form class="card form-card" method="post" action="/settings/calendar">
   <h2>Working calendar</h2>
-  <p class="help">When the SLA clock runs. Commitments already frozen keep the calendar they were created with.</p>
+  <p class="help">When the SLA clock runs. Frozen commitments keep their calendar.</p>
   <fieldset class="checkbox-field calendar-days">
     <legend>Working days</legend>
     <div class="calendar-day-list">
@@ -185,7 +185,7 @@
   <div class="field">
     <label for="sla_calendar_timezone">Timezone</label>
     <input type="text" id="sla_calendar_timezone" name="sla_calendar_timezone" value="UTC" spellcheck="false" autocapitalize="off">
-    <p class="help">IANA name, for example America/Argentina/Buenos_Aires. Defaults to UTC.</p>
+    <p class="help">IANA name, e.g. America/Argentina/Buenos_Aires. Defaults to UTC.</p>
   </div>
   <button class="btn primary" type="submit">Save working calendar</button>
 </form>

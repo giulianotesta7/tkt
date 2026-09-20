@@ -40,7 +40,7 @@
     <div>
       <nav class="page-breadcrumb" aria-label="Breadcrumb"><a href="/categories">Categories</a><span aria-hidden="true"> / </span><span>Bugs</span></nav>
       <h1 class="page-title">Category SLA</h1>
-      <p class="page-subtitle">These are this category's response and resolution commitments. They started as the instance defaults, and tickets already created keep the commitments they were created with.</p>
+      <p class="page-subtitle">This category's commitments. Tickets already created keep theirs.</p>
     </div>
     <div class="page-actions">
       <button class="page-action" type="submit" form="sla-form" name="action" value="reset">Reset to the instance defaults</button>

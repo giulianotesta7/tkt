@@ -448,16 +448,16 @@
   .sla-warning-input:hover{border-color:var(--line-strong)}
   .sla-warning-input:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 2px var(--accent-soft)}
   .sla-grid{max-width:640px;margin:14px 0 16px;border-top:1px solid var(--line)}
-  .sla-grid-row{display:grid;grid-template-columns:96px 1fr 1fr;gap:12px;align-items:center;padding:10px 0;border-bottom:1px solid var(--line)}
+  .sla-grid-row{display:grid;grid-template-columns:80px 1fr 1fr;gap:12px;align-items:center;padding:14px 0;border-bottom:1px solid var(--line)}
   .sla-grid-priority{font-size:13px;font-weight:500;color:var(--ink-soft)}
   .sla-diverges{display:block;color:var(--muted);font-size:12px;font-weight:400}
   .sla-grid-head .sla-grid-milestone{font-size:12px;font-weight:600;color:var(--muted)}
-  .sla-target{display:flex;gap:6px;align-items:center;min-width:0}
+  .sla-target{display:flex;gap:8px;align-items:center;min-width:0}
   .sla-unit{display:flex;align-items:center;gap:4px;flex:1 1 0;min-width:0}
   .sla-unit-mark{flex:0 0 auto;color:var(--muted);font-size:12px}
   .sla-unit input{
     width:100%;min-width:0;height:32px;border:1px solid var(--line);border-radius:8px;background:var(--card);
-    color:var(--ink-soft);padding:0 8px;font:inherit;font-size:13px;
+    color:var(--ink-soft);padding:0 6px;font:inherit;font-size:13px;
   }
   .sla-unit input:hover{border-color:var(--line-strong)}
   .sla-unit input:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 2px var(--accent-soft)}
