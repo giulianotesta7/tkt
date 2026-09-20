@@ -296,5 +296,41 @@ func TestProjectSLAMilestoneStatuses(t *testing.T) {
 	}
 }
 
+// TestProjectSLALegacyWarnInstantAtDueNeverAtRisk pins the documented
+// legacy-row behaviour: a frozen row whose warning instant is AT or PAST
+// its due instant (only possible before the freeze started validating the
+// warning percent) has an EMPTY warning window by construction. The
+// milestone reads on_track until DueAt and breached from DueAt on, and
+// at_risk is unreachable — the due comparison always wins. New rows can
+// no longer take this shape; this test fixes the projection's behaviour
+// for the rows already frozen.
+func TestProjectSLALegacyWarnInstantAtDueNeverAtRisk(t *testing.T) {
+	const due = 1800
+	frozen := slaProjectionFrozen()
+	frozen.WarnFirstResponseAt = slaProjectionAt(due) // legacy row: warn instant equals due
+
+	tests := []struct {
+		name      string
+		now       time.Time
+		wantState SLAState
+	}{
+		{name: "before due", now: slaProjectionAt(due - 1), wantState: SLAOnTrack},
+		{name: "exactly at due", now: slaProjectionAt(due), wantState: SLABreached},
+		{name: "after due", now: slaProjectionAt(due + 1), wantState: SLABreached},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := ProjectSLA(frozen, SLAMilestones{}, tt.now)
+			if got.FirstResponse.State != tt.wantState {
+				t.Errorf("FirstResponse.State = %q, want %q", got.FirstResponse.State, tt.wantState)
+			}
+			if got.FirstResponse.State == SLAAtRisk || got.Overall == SLAAtRisk {
+				t.Errorf("at_risk is unreachable for a warn instant at due: FirstResponse = %q, Overall = %q",
+					got.FirstResponse.State, got.Overall)
+			}
+		})
+	}
+}
+
 // ptrTime returns a pointer to v (test helper for milestone instants).
 func ptrTime(v time.Time) *time.Time { return &v }
