@@ -1,0 +1,19 @@
+-- 0012_audit_metrics_index.sql — index the resolved-transition predicate the
+-- admin metrics read filters on (issue #222). audit_events is the largest
+-- append-only table. Without this index the planner cannot search the metrics
+-- CTE: idx_audit_ticket is (ticket_id, created_at), so ticket_id leads and the
+-- range sits on created_at, leaving action/field/to_value to be filtered after
+-- every index entry is read.
+--
+-- Measured on a database with all migrations through 0011 applied, the real
+-- statement resolves to:
+--   SCAN a USING INDEX idx_audit_ticket
+--   USE TEMP B-TREE FOR LAST 2 TERMS OF ORDER BY
+-- With this index the same statement resolves to:
+--   SEARCH a USING INDEX idx_audit_resolution
+--     (action=? AND field=? AND to_value=? AND created_at>? AND created_at<?)
+--
+-- The three equality predicates lead and the created_at range sits last, which
+-- turns the full walk into a bounded search. Additive DDL only: no backfill,
+-- no table rewrite, and the outer query is unchanged.
+CREATE INDEX idx_audit_resolution ON audit_events(action, field, to_value, created_at);
