@@ -31,8 +31,8 @@ func (as *auditStore) Append(ctx context.Context, events ...domain.AuditEvent) e
 	if err != nil {
 		return fmt.Errorf("sqlite: begin append: %w", err)
 	}
+	defer tx.Rollback()
 	if err := appendAuditEventsTx(ctx, tx, events...); err != nil {
-		tx.Rollback()
 		return err
 	}
 	if err := tx.Commit(); err != nil {

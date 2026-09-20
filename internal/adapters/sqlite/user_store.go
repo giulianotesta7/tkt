@@ -335,13 +335,12 @@ func (us *userStore) Delete(ctx context.Context, id int64) error {
 	if err != nil {
 		return fmt.Errorf("sqlite: begin delete user: %w", err)
 	}
+	defer tx.Rollback()
 	if _, err := tx.ExecContext(ctx, `DELETE FROM sessions WHERE user_id = ?`, id); err != nil {
-		tx.Rollback()
 		return fmt.Errorf("sqlite: delete user sessions: %w", err)
 	}
 	res, err := tx.ExecContext(ctx, `DELETE FROM users WHERE id = ?`, id)
 	if err != nil {
-		tx.Rollback()
 		if isForeignKeyViolation(err) {
 			return &domain.ReferencedError{Kind: "user", ID: id}
 		}
@@ -349,11 +348,9 @@ func (us *userStore) Delete(ctx context.Context, id int64) error {
 	}
 	n, err := res.RowsAffected()
 	if err != nil {
-		tx.Rollback()
 		return fmt.Errorf("sqlite: delete user rows: %w", err)
 	}
 	if n == 0 {
-		tx.Rollback()
 		return &domain.NotFoundError{Kind: "user", ID: id}
 	}
 	if err := tx.Commit(); err != nil {
