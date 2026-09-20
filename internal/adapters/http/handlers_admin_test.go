@@ -259,8 +259,24 @@ func TestUserDeleteReferenced409(t *testing.T) {
 	if rec.Code != http.StatusConflict {
 		t.Errorf("status = %d, want 409", rec.Code)
 	}
-	if !strings.Contains(rec.Body.String(), "referenced and cannot be deleted") {
-		t.Errorf("re-render must show the referenced message, got: %s", rec.Body.String())
+	// The refused delete re-renders the real index: the seeded admin and Beto
+	// are both active, so the counts, the rows and the selected "All" tab must
+	// survive the error re-render alongside the inline message.
+	body := rec.Body.String()
+	for _, want := range []string{
+		"2 accounts",
+		`data-users-status="all"`,
+		`class="is-selected" href="/users"`,
+		`data-user-email="beto@example.com"`,
+		`data-user-email="admin@tkt.test"`,
+		"referenced and cannot be deleted",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("re-render must carry %q, got: %s", want, body)
+		}
+	}
+	if strings.Contains(body, "No users have been created.") {
+		t.Errorf("re-render must not show the empty state, got: %s", body)
 	}
 	if _, err := h.store.UserStore().GetByID(context.Background(), beto.ID); err != nil {
 		t.Errorf("referenced user must survive, err = %v", err)

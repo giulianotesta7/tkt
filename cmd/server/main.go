@@ -135,11 +135,15 @@ func main() {
 		w.Write([]byte("ok"))
 	})
 
-	handler := httpadapter.NewSessionMiddleware(store.SessionStore(), store.UserStore(), store.SettingsStore()).Wrap(mux)
+	// Issue #213: one body cap for every route. The limit middleware sits
+	// inside the session middleware so the existing Origin/auth short-circuits
+	// (403/303) still answer before any body byte is buffered; every request
+	// that reaches the mux is bounded, /healthz and /static included.
+	sessionHandler := httpadapter.NewSessionMiddleware(store.SessionStore(), store.UserStore(), store.SettingsStore()).Wrap(httpadapter.NewBodyLimitMiddleware().Wrap(mux))
 
 	srv := &http.Server{
 		Addr:              listen,
-		Handler:           handler,
+		Handler:           sessionHandler,
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       15 * time.Second,
 		WriteTimeout:      30 * time.Second,
