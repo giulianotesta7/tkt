@@ -68,21 +68,8 @@ func migrate(ctx context.Context, db *sql.DB, fsys fs.FS) error {
 			return fmt.Errorf("sqlite: read %s: %w", name, err)
 		}
 
-		tx, err := beginImmediate(ctx, db, name)
-		if err != nil {
+		if err := applyMigration(ctx, db, name, version, script); err != nil {
 			return err
-		}
-		if _, err := tx.ExecContext(ctx, string(script)); err != nil {
-			tx.Rollback()
-			return fmt.Errorf("sqlite: apply %s: %w", name, err)
-		}
-		if _, err := tx.ExecContext(ctx, `INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)`,
-			version, time.Now().UTC().Format(time.RFC3339)); err != nil {
-			tx.Rollback()
-			return fmt.Errorf("sqlite: record version %d: %w", version, err)
-		}
-		if err := tx.Commit(); err != nil {
-			return fmt.Errorf("sqlite: commit %s: %w", name, err)
 		}
 	}
 
@@ -92,6 +79,29 @@ func migrate(ctx context.Context, db *sql.DB, fsys fs.FS) error {
 	// backfillRolesAndRequesters).
 	if err := backfillRolesAndRequesters(ctx, db); err != nil {
 		return err
+	}
+	return nil
+}
+
+// applyMigration applies one migration script and records its version in
+// schema_migrations inside a single immediate transaction. The deferred
+// Rollback guarantees the transaction cannot survive a panic or an early
+// return; after a successful Commit it is a no-op (sql.ErrTxDone).
+func applyMigration(ctx context.Context, db *sql.DB, name string, version int, script []byte) error {
+	tx, err := beginImmediate(ctx, db, name)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx, string(script)); err != nil {
+		return fmt.Errorf("sqlite: apply %s: %w", name, err)
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)`,
+		version, time.Now().UTC().Format(time.RFC3339)); err != nil {
+		return fmt.Errorf("sqlite: record version %d: %w", version, err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("sqlite: commit %s: %w", name, err)
 	}
 	return nil
 }
@@ -151,12 +161,11 @@ func backfillRolesAndRequesters(ctx context.Context, db *sql.DB) error {
 	if err != nil {
 		return err
 	}
+	defer tx.Rollback()
 	if err := backfillRoot(ctx, tx); err != nil {
-		tx.Rollback()
 		return err
 	}
 	if err := backfillRequesters(ctx, tx); err != nil {
-		tx.Rollback()
 		return err
 	}
 	if err := tx.Commit(); err != nil {
