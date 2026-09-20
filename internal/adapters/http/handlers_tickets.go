@@ -172,6 +172,16 @@ func (h *TicketHandlers) collectOptions(r *http.Request) (options, error) {
 	}, nil
 }
 
+// The three list orderings the `sort` query parameter accepts (issue #211,
+// PR 4). sortNewest is the default order; parseFilters normalizes an absent,
+// empty, or unknown value to it so the template always has a concrete value
+// to mark `selected`.
+const (
+	sortNewest   = "newest"
+	sortPriority = "priority"
+	sortUrgency  = "urgency"
+)
+
 // filterState is the parsed list filter set (ticket-search spec). Zero
 // values mean "no filter"; unknown values are ignored (threat matrix).
 type filterState struct {
@@ -180,12 +190,15 @@ type filterState struct {
 	CategoryID string
 	UserID     string
 	Q          string
+	// Sort is the chosen list ordering (sortNewest, sortPriority, or
+	// sortUrgency). It is always concrete after parseFilters.
+	Sort string
 }
 
 // parseFilters reads the query string, ignoring unknown or malformed values.
 func parseFilters(r *http.Request) filterState {
 	q := r.URL.Query()
-	f := filterState{Q: q.Get("q")}
+	f := filterState{Q: q.Get("q"), Sort: sortNewest}
 	if s := domain.State(q.Get("state")); validState(s) {
 		f.State = s
 	}
@@ -197,6 +210,15 @@ func parseFilters(r *http.Request) filterState {
 	}
 	if id := q.Get("user_id"); id != "" && parseID(id) != 0 {
 		f.UserID = id
+	}
+	// Sort is a presentation choice, not a restriction: an UNKNOWN, empty,
+	// or absent value silently selects the default newest-first order
+	// instead of erroring. A bad sort must never render a 422 or an error
+	// page (threat matrix: unknown values are ignored), so this switch has
+	// no rejecting branch and no error return.
+	switch s := q.Get("sort"); s {
+	case sortPriority, sortUrgency:
+		f.Sort = s
 	}
 	return f
 }
@@ -237,6 +259,12 @@ func (f filterState) query() application.TicketQuery {
 	if id := parseID(f.UserID); id != 0 {
 		q.UserID = &id
 	}
+	switch f.Sort {
+	case sortPriority:
+		q.SortByPriority = true
+	case sortUrgency:
+		q.SortByUrgency = true
+	}
 	return q
 }
 
@@ -257,6 +285,9 @@ func listHref(f filterState, page int) string {
 	}
 	if f.Q != "" {
 		v.Set("q", f.Q)
+	}
+	if f.Sort == sortPriority || f.Sort == sortUrgency {
+		v.Set("sort", f.Sort)
 	}
 	if page > 1 {
 		v.Set("page", strconv.Itoa(page))
@@ -297,6 +328,9 @@ func ticketFilterValues(f filterState) url.Values {
 	}
 	if f.Q != "" {
 		v.Set("q", f.Q)
+	}
+	if f.Sort == sortPriority || f.Sort == sortUrgency {
+		v.Set("sort", f.Sort)
 	}
 	return v
 }

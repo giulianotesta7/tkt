@@ -145,7 +145,7 @@ var (
 // categories, and one user.
 func fixtureListData() listData {
 	ana := domain.User{ID: 1, Name: "Ana Torres", Email: "ana@example.com", Active: true, CreatedAt: goldenT0}
-	f := filterState{State: domain.StateNew}
+	f := filterState{State: domain.StateNew, Sort: sortNewest}
 	opts := options{
 		States:          listStates,
 		Priorities:      listPriorities,

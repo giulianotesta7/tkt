@@ -264,6 +264,158 @@ func TestTicketsPaginationHrefPreservesQuery(t *testing.T) {
 	}
 }
 
+// TestParseFiltersSort (issue #211, PR 4, T5) proves each accepted sort value
+// sets exactly its query flag and that an unknown, empty, or absent value
+// silently selects the default newest-first order: a sort is not a filter, so
+// it never produces a 422 or an error page (threat matrix).
+func TestParseFiltersSort(t *testing.T) {
+	for _, tc := range []struct {
+		name         string
+		query        string
+		wantSort     string
+		wantPriority bool
+		wantUrgency  bool
+	}{
+		{name: "newest", query: "?sort=newest", wantSort: sortNewest},
+		{name: "priority", query: "?sort=priority", wantSort: sortPriority, wantPriority: true},
+		{name: "urgency", query: "?sort=urgency", wantSort: sortUrgency, wantUrgency: true},
+		{name: "unknown", query: "?sort=bogus", wantSort: sortNewest},
+		{name: "empty", query: "?sort=", wantSort: sortNewest},
+		{name: "absent", query: "", wantSort: sortNewest},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := parseFilters(httptest.NewRequest(http.MethodGet, "/tickets"+tc.query, nil))
+			if f.Sort != tc.wantSort {
+				t.Errorf("Sort = %q, want %q", f.Sort, tc.wantSort)
+			}
+			q := f.query()
+			if q.SortByPriority != tc.wantPriority || q.SortByUrgency != tc.wantUrgency {
+				t.Errorf("query flags = (priority %t, urgency %t), want (priority %t, urgency %t)",
+					q.SortByPriority, q.SortByUrgency, tc.wantPriority, tc.wantUrgency)
+			}
+		})
+	}
+}
+
+// TestTicketHrefsPreserveSort (issue #211, PR 4, T5) proves both href
+// builders keep an explicit non-default ordering so paging and the agent
+// queue preserve the chosen order, while the default newest-first order is
+// never written into a URL — no explicit choice keeps generated URLs
+// byte-identical to before.
+func TestTicketHrefsPreserveSort(t *testing.T) {
+	f := filterState{Sort: sortUrgency}
+	if got, want := listHref(f, 2), "/tickets?page=2&sort=urgency"; got != want {
+		t.Errorf("listHref = %q, want %q", got, want)
+	}
+	if got, want := agentListHref(f, 2, 1), "/tickets?assigned_page=2&sort=urgency"; got != want {
+		t.Errorf("agentListHref = %q, want %q", got, want)
+	}
+	if got := ticketFilterValues(f).Get("sort"); got != sortUrgency {
+		t.Errorf("ticketFilterValues sort = %q, want %q", got, sortUrgency)
+	}
+
+	for _, tc := range []struct {
+		name string
+		sort string
+	}{
+		{name: "empty default", sort: ""},
+		{name: "explicit newest", sort: sortNewest},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := filterState{Sort: tc.sort}
+			if got := listHref(f, 1); got != "/tickets" {
+				t.Errorf("listHref = %q, want /tickets (default must not write sort)", got)
+			}
+			if got := ticketFilterValues(f).Get("sort"); got != "" {
+				t.Errorf("ticketFilterValues sort = %q, want empty", got)
+			}
+		})
+	}
+}
+
+// TestTicketsIndexSortRoundTrip (issue #211, PR 4, T5) proves the visible
+// order control round-trips: ?sort=urgency selects the Urgency option and
+// survives into the pagination hrefs, an unknown value is silently ignored
+// (never echoed as a selected option), and no explicit sort keeps the default
+// newest-first selection with clean hrefs.
+func TestTicketsIndexSortRoundTrip(t *testing.T) {
+	h := newHarness(t)
+	for i := 0; i < 11; i++ {
+		h.seedTicket(t, "Paged ticket "+string(rune('A'+i)), nil)
+	}
+
+	urgency := h.get(t, "/tickets?sort=urgency", false).Body.String()
+	if !strings.Contains(urgency, `<option value="urgency" selected>Urgency</option>`) {
+		t.Errorf("sort=urgency must mark the Urgency option selected, got: %s", urgency)
+	}
+	if !strings.Contains(urgency, `page=2&amp;sort=urgency`) {
+		t.Errorf("pagination hrefs must carry sort=urgency, got: %s", urgency)
+	}
+
+	unknown := h.get(t, "/tickets?sort=bogus", false).Body.String()
+	for _, absent := range []string{`value="bogus"`, `sort=bogus`} {
+		if strings.Contains(unknown, absent) {
+			t.Errorf("unknown sort must be ignored, not echoed as %q, got: %s", absent, unknown)
+		}
+	}
+	if !strings.Contains(unknown, `<option value="newest" selected>Newest first</option>`) {
+		t.Errorf("unknown sort must select the default newest-first option, got: %s", unknown)
+	}
+
+	plain := h.get(t, "/tickets", false).Body.String()
+	if !strings.Contains(plain, `<option value="newest" selected>Newest first</option>`) {
+		t.Errorf("default sort must mark Newest first selected, got: %s", plain)
+	}
+	if strings.Contains(plain, "sort=urgency") || strings.Contains(plain, "sort=priority") {
+		t.Errorf("no explicit sort must not write a sort into any URL, got: %s", plain)
+	}
+}
+
+// TestTicketsIndexSortByUrgency (issue #211, PR 4, T5) proves the parsed sort
+// reaches the query layer. SLA is enabled through the real settings route so
+// each create freezes a real commitment (a fresh commitment is on_track with
+// a pending milestone). The high-priority ticket with a PENDING response is
+// due before the critical ticket whose response was MET (it then waits on its
+// resolve deadline), so the urgency order is the reverse of both the
+// newest-first order and the priority order.
+func TestTicketsIndexSortByUrgency(t *testing.T) {
+	h := newHarness(t)
+	form := slaPanelForm("80")
+	form.Set("sla_enabled", "1")
+	if rec := h.postForm(t, "/settings/sla", form, false); rec.Code != http.StatusSeeOther {
+		t.Fatalf("enable SLA: status = %d, want %d", rec.Code, http.StatusSeeOther)
+	}
+
+	urgent := h.seedTicket(t, "Urgent pending response", func(in *application.CreateTicketInput) {
+		in.Priority = domain.PriorityHigh
+	})
+	relaxed := h.seedTicket(t, "Relaxed met response", func(in *application.CreateTicketInput) {
+		in.Priority = domain.PriorityCritical
+	})
+	if _, err := h.comments.Add(t.Context(), *h.admin, relaxed.ID, "On it", "public"); err != nil {
+		t.Fatalf("freeze a met first response: %v", err)
+	}
+
+	ordered := func(body string, first, second *domain.Ticket) bool {
+		i, j := strings.Index(body, first.Title), strings.Index(body, second.Title)
+		if i < 0 || j < 0 {
+			t.Fatalf("list must render %q and %q, got: %s", first.Title, second.Title, body)
+		}
+		return i < j
+	}
+
+	urgency := h.get(t, "/tickets?sort=urgency", false).Body.String()
+	if got := strings.Count(urgency, `class="badge on_track"`); got < 2 {
+		t.Fatalf("both tickets must carry a frozen on_track commitment, got %d badges: %s", got, urgency)
+	}
+	if !ordered(urgency, urgent, relaxed) {
+		t.Errorf("?sort=urgency must return the urgent-first order, got: %s", urgency)
+	}
+	if body := h.get(t, "/tickets", false).Body.String(); !ordered(body, relaxed, urgent) {
+		t.Errorf("no sort must keep the newest-first order, got: %s", body)
+	}
+}
+
 func TestTicketsIndexRows(t *testing.T) {
 	h := newHarness(t)
 	first := h.seedTicket(t, "First ticket", nil)
