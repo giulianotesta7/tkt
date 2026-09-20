@@ -849,15 +849,63 @@ func TestGoldenCategoryForm(t *testing.T) {
 	goldenFile(t, "category_form", renderGolden(t, "categories_new", "category_form", fixtureCategoryFormData(), true))
 }
 
+// fixtureSettingsIndexData models an admin shell on the settings page, so it
+// carries both management grants: the page is only reachable through
+// CapManageSettings, and the shell still renders the Users rail link through
+// CapManageUsers. The SLA panel carries the seeded configuration (migration
+// 0013): off, 80 percent, and the seeded default matrix. The calendar panel
+// carries the seeded working calendar (migration 0016): Monday-Friday,
+// 09:00-18:00, UTC.
 func fixtureSettingsIndexData() settingsIndexData {
 	ana := domain.User{ID: 1, Name: "Ana Torres", Email: "ana@example.com", Active: true, CreatedAt: goldenT0}
+	calendar := domain.DefaultSLACalendar()
 	return settingsIndexData{
-		pageData: pageData{NavActive: "settings", CurrentUser: ana, CanManageUsers: true, CanManageSettings: true},
-		Current:  "#E8EEFF",
-		Colors:   appearanceOptions(),
+		pageData:          pageData{NavActive: "settings", CurrentUser: ana, CanManageUsers: true, CanManageSettings: true},
+		Current:           "#E8EEFF",
+		Colors:            appearanceOptions(),
+		SLAGrid:           slaGridData{Rows: slaPolicyRows(seededSLADefaults())},
+		SLAWarningPercent: 80,
+
+		CalendarDays:     calendarDayOptions(calendar.WorkingDays),
+		CalendarStart:    formatClockMinute(calendar.StartMinute),
+		CalendarEnd:      formatClockMinute(calendar.EndMinute),
+		CalendarTimezone: calendar.Location.String(),
+	}
+}
+
+// seededSLADefaults is the migration 0013 default matrix, frozen as literals
+// so the golden never depends on a store read.
+func seededSLADefaults() []domain.SLAPolicy {
+	return []domain.SLAPolicy{
+		{Priority: domain.PriorityCritical, FirstResponseSeconds: 1800, ResolveSeconds: 14400},
+		{Priority: domain.PriorityHigh, FirstResponseSeconds: 3600, ResolveSeconds: 28800},
+		{Priority: domain.PriorityMedium, FirstResponseSeconds: 14400, ResolveSeconds: 86400},
+		{Priority: domain.PriorityLow, FirstResponseSeconds: 28800, ResolveSeconds: 259200},
 	}
 }
 
 func TestGoldenSettingsIndex(t *testing.T) {
 	goldenFullPage(t, "settings_index", renderGolden(t, "settings_index", "", fixtureSettingsIndexData(), false))
+}
+
+// fixtureCategorySLAData models an admin shell on the category SLA screen
+// with a frozen matrix (custom targets, not the seeded defaults) so the
+// golden pins the h/m/s decomposition.
+func fixtureCategorySLAData() categorySLAData {
+	ana := domain.User{ID: 1, Name: "Ana Torres", Email: "ana@example.com", Active: true, CreatedAt: goldenT0}
+	return categorySLAData{
+		pageData:     pageData{NavActive: "categories", CurrentUser: ana, CanManageCategories: true},
+		CategoryID:   1,
+		CategoryName: "Bugs",
+		Grid: slaGridData{Rows: slaPolicyRows([]domain.SLAPolicy{
+			{Priority: domain.PriorityCritical, FirstResponseSeconds: 1800, ResolveSeconds: 14400},
+			{Priority: domain.PriorityHigh, FirstResponseSeconds: 5400, ResolveSeconds: 28800},
+			{Priority: domain.PriorityMedium, FirstResponseSeconds: 9000, ResolveSeconds: 57600},
+			{Priority: domain.PriorityLow, FirstResponseSeconds: 16200, ResolveSeconds: 172800},
+		})},
+	}
+}
+
+func TestGoldenCategorySLA(t *testing.T) {
+	goldenFullPage(t, "category_sla", renderGolden(t, "category_sla", "", fixtureCategorySLAData(), false))
 }
