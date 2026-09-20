@@ -1140,7 +1140,9 @@ test.describe("Ticket list SLA visibility (seeded)", () => {
     const committedRow = rowFor(committedTitle);
     await expect(committedRow).toHaveCount(1);
     const committedCell = committedRow.locator('td[data-label="SLA"]');
-    await expect(committedCell.locator(".badge")).toHaveText("On Track");
+    // on_track is the quiet default: the cell shows the pending deadline and no
+    // badge at all.
+    await expect(committedCell.locator(".badge")).toHaveCount(0);
     await expect(committedCell).toContainText("Response");
     const due = committedCell.locator("time");
     await expect(due).toHaveCount(1);

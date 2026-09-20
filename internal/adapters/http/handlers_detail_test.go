@@ -853,11 +853,12 @@ func TestTicketDetailSLAPanelStaffOnly(t *testing.T) {
 
 	body := h.get(t, "/tickets/"+strconv.FormatInt(staffTicket.ID, 10), false).Body.String()
 
-	// The overall state badge heads the section, and each milestone renders one
-	// row with its label, its state badge and the time left; the frozen due
-	// instant survives as the <time datetime> the countdown reads.
+	// The section heading names the SLA and stays silent while the overall
+	// state is on_track; each milestone renders one row with its label, its
+	// state badge and the time left; the frozen due instant survives as the
+	// <time datetime> the countdown reads.
 	for _, want := range []string{
-		`<div class="prop-heading">SLA <span class="badge on_track">On Track</span></div>`,
+		`<div class="prop-heading">SLA </div>`,
 		`<span class="prop-label">Response</span>`,
 		`<span class="prop-label">Resolve</span>`,
 		`datetime="` + formatDatetime(frozen.DueFirstResponseAt) + `"`,
@@ -877,7 +878,7 @@ func TestTicketDetailSLAPanelStaffOnly(t *testing.T) {
 	// The panel states each milestone's STATE and the time left, and nothing
 	// else: the target, due and achieved rows were removed by decision (the
 	// due instant survives as the <time datetime> the countdown reads).
-	for _, absent := range []string{`>Target<`, `>Achieved<`, `>Remaining<`} {
+	for _, absent := range []string{`>Target<`, `>Achieved<`, `>Remaining<`, `class="badge on_track"`} {
 		if strings.Contains(body, absent) {
 			t.Errorf("the SLA panel must not render the %q row any more, got: %s", absent, body)
 		}
@@ -918,7 +919,7 @@ func TestTicketDetailSLAPanelStaffOnly(t *testing.T) {
 		`<div class="prop-heading">Resolve `,
 		`<span class="prop-label">Target</span>`,
 		`<span class="prop-label">Remaining</span>`,
-		`class="badge on_track"`,
+		`class="badge at_risk"`,
 		`data-server-now`,
 		`data-sla-countdown`,
 		`/static/sla_countdown.js`,
@@ -1027,9 +1028,10 @@ func TestTicketDetailSLACountdownHooks(t *testing.T) {
 		// The pending (Resolve) milestone's due instant carries the hook.
 		`<time datetime="2026-08-07T10:00:00Z" data-sla-countdown>`,
 		// The ticker carries the server's remaining time as its INITIAL value,
-		// so a browser with no JavaScript still reads the truth; the coarse
-		// span is the accessible one and is visually hidden.
-		`<span class="sla-countdown-ticker">in `,
+		// so a browser with no JavaScript still reads the truth. It ticks every
+		// second, so assistive tech ignores it; the coarse span is the
+		// accessible one and is visually hidden.
+		`<span class="sla-countdown-ticker" aria-hidden="true">in `,
 		`<span class="sla-countdown-coarse visually-hidden">10:00 · 07-08-2026</span>`,
 	} {
 		if !strings.Contains(body, want) {

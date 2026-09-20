@@ -1,1 +1,5 @@
 {{define "state_badge"}}<span class="badge {{.}}">{{humanize .}}</span>{{end}}
+{{/* SLA badge: on_track is the quiet default, so it stays silent instead of
+     repeating a green pill on every row. Only states worth acting on speak,
+     and the badge owns the separator so a silent state leaves no stray space. */}}
+{{define "sla_state_badge"}}{{if ne . "on_track"}}{{template "state_badge" .}} {{end}}{{end}}

@@ -449,7 +449,9 @@ test.describe("Role — requester SLA blindness (seeded)", () => {
     await expect(
       page.locator("#ticket-detail .prop-heading").filter({ hasText: /^SLA/ }),
     ).toHaveCount(1);
-    await expect(page.locator("#ticket-detail .badge.on_track")).toHaveCount(3);
+    // on_track renders no badge by decision, so the countdown hooks are what
+    // prove the staff page really shows the section the requester cannot see.
+    await expect(page.locator("#ticket-detail [data-sla-countdown]")).toHaveCount(2);
 
     await assertCanonicalScreen(page, {
       viewport: 1280,

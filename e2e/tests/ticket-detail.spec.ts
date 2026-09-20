@@ -498,21 +498,23 @@ test.describe("Ticket detail SLA panel (seeded)", () => {
       .filter({ has: page.locator(".prop-heading", { hasText: /^SLA/ }) });
     await expect(slaSection).toHaveCount(1);
 
-    // Overall state heads the section, then ONE row per milestone: its label,
-    // its state badge and the time left. The target, due and achieved rows are
-    // gone by decision; the frozen due instant survives as the <time datetime>
-    // the countdown reads.
+    // The heading names the section and stays silent while the overall state is
+    // on_track, then ONE row per milestone: its label and the time left. The
+    // target, due and achieved rows are gone by decision; the frozen due
+    // instant survives as the <time datetime> the countdown reads.
     const headings = slaSection.locator(".prop-heading");
     await expect(headings).toHaveCount(1);
     await expect(headings.nth(0)).toContainText("SLA");
-    await expect(headings.nth(0).locator(".badge")).toHaveText("On Track");
+    await expect(headings.nth(0).locator(".badge")).toHaveCount(0);
 
     const milestoneRows = slaSection.locator(".prop-row");
     await expect(milestoneRows).toHaveCount(2);
     await expect(milestoneRows.nth(0).locator(".prop-label")).toHaveText("Response");
-    await expect(milestoneRows.nth(0).locator(".badge")).toHaveText("On Track");
+    await expect(milestoneRows.nth(0).locator(".badge")).toHaveCount(0);
     await expect(milestoneRows.nth(1).locator(".prop-label")).toHaveText("Resolve");
-    await expect(milestoneRows.nth(1).locator(".badge")).toHaveText("On Track");
+    await expect(milestoneRows.nth(1).locator(".badge")).toHaveCount(0);
+    // on_track is the quiet default: no green pill anywhere in the section.
+    await expect(slaSection.locator(".badge")).toHaveCount(0);
 
     // Both milestones are pending, so both carry the live countdown and each
     // keeps its absolute due instant in the <time datetime>.

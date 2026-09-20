@@ -405,8 +405,12 @@ func TestTicketsIndexSortByUrgency(t *testing.T) {
 	}
 
 	urgency := h.get(t, "/tickets?sort=urgency", false).Body.String()
-	if got := strings.Count(urgency, `class="badge on_track"`); got < 2 {
-		t.Fatalf("both tickets must carry a frozen on_track commitment, got %d badges: %s", got, urgency)
+	// Both tickets must carry a frozen commitment for the ordering to be about
+	// the SLA at all. on_track renders no badge by design, so a non-empty SLA
+	// cell — its label and pending deadline, never the empty no-commitment cell
+	// — is the marker that proves the commitment reached each row.
+	if got := strings.Count(urgency, `<td data-label="SLA"><span class="cell-muted">`); got < 2 {
+		t.Fatalf("both tickets must carry a frozen commitment, got %d non-empty SLA cells: %s", got, urgency)
 	}
 	if !ordered(urgency, urgent, relaxed) {
 		t.Errorf("?sort=urgency must return the urgent-first order, got: %s", urgency)
@@ -1178,18 +1182,19 @@ func TestTicketMetricsStaticScript(t *testing.T) {
 	}
 }
 
-// TestTicketListSLACellMarkup (issue #211, PR 4) pins the two SLA cell
-// shapes in the plain staff table: an at_risk row renders the badge plus the
-// pending response deadline, and a row whose ticket has no frozen commitment
-// renders an EMPTY cell — never a "no SLA" badge.
+// TestTicketListSLACellMarkup (issue #211, PR 4) pins the SLA cell shapes in
+// the plain staff table: an at_risk row renders the badge plus the pending
+// response deadline, and a row whose ticket has no frozen commitment renders
+// an EMPTY cell — never a "no SLA" badge. The on_track silence needs a real
+// commitment, so TestTicketsIndexSLAIsStaffOnly proves it, not this fixture.
 func TestTicketListSLACellMarkup(t *testing.T) {
 	body := renderGolden(t, "tickets_index", "ticket_list", fixtureListData(), true)
 
-	atRisk := `<td class="cell-sla" data-label="SLA"><span class="badge at_risk">At Risk</span> <span class="cell-muted">Response <time datetime="2026-08-06T11:30:00Z">11:30 · 06-08-2026</time></span></td>`
+	atRisk := `<td data-label="SLA"><span class="badge at_risk">At Risk</span> <span class="cell-muted">Response <time datetime="2026-08-06T11:30:00Z">11:30 · 06-08-2026</time></span></td>`
 	if !strings.Contains(body, atRisk) {
 		t.Errorf("at_risk row must render the badge and pending deadline %q, got: %s", atRisk, body)
 	}
-	if !strings.Contains(body, `<td class="cell-sla" data-label="SLA"></td>`) {
+	if !strings.Contains(body, `<td data-label="SLA"></td>`) {
 		t.Errorf("a ticket with no frozen SLA must render an empty SLA cell, got: %s", body)
 	}
 	for _, absent := range []string{`>No SLA<`, `badge none`} {
@@ -1205,7 +1210,7 @@ func TestTicketListSLACellMarkup(t *testing.T) {
 // list, which must stay SLA-blind. The harness enables SLA and creates a
 // frozen commitment through the real service, so the projection comes from a
 // real commitment, not a hand-built store.
-func TestTicketsIndexSLABadgeIsStaffOnly(t *testing.T) {
+func TestTicketsIndexSLAIsStaffOnly(t *testing.T) {
 	h := newHarness(t)
 
 	// Enable SLA through the real settings route so the create path freezes
@@ -1232,15 +1237,15 @@ func TestTicketsIndexSLABadgeIsStaffOnly(t *testing.T) {
 		t.Fatalf("create requester ticket: %v", err)
 	}
 
-	// A fresh commitment is on_track with a pending response deadline.
-	const badge = `<span class="badge on_track">On Track</span>`
+	// A fresh commitment is on_track, and on_track renders NO badge: the
+	// pending response deadline is what proves the SLA reached the row.
 
 	adminBody := h.get(t, "/tickets", false).Body.String()
 	if !strings.Contains(adminBody, "<th>SLA</th>") {
 		t.Errorf("admin list must render the SLA column header, got: %s", adminBody)
 	}
-	if !strings.Contains(adminBody, badge) {
-		t.Errorf("admin list must render the on_track SLA badge, got: %s", adminBody)
+	if strings.Contains(adminBody, `class="badge on_track"`) {
+		t.Errorf("on_track must stay silent in the admin list, got: %s", adminBody)
 	}
 	if !strings.Contains(adminBody, "Response <time ") {
 		t.Errorf("admin list must render the pending response deadline, got: %s", adminBody)
@@ -1253,8 +1258,8 @@ func TestTicketsIndexSLABadgeIsStaffOnly(t *testing.T) {
 		t.Fatalf("agent tickets status = %d, want 200", agentRec.Code)
 	}
 	agentBody := agentRec.Body.String()
-	if !strings.Contains(agentBody, badge) {
-		t.Errorf("agent list must render the on_track SLA badge, got: %s", agentBody)
+	if strings.Contains(agentBody, `class="badge on_track"`) {
+		t.Errorf("on_track must stay silent in the agent list, got: %s", agentBody)
 	}
 	if !strings.Contains(agentBody, "Response <time ") {
 		t.Errorf("agent list must render the pending response deadline, got: %s", agentBody)
@@ -1272,7 +1277,6 @@ func TestTicketsIndexSLABadgeIsStaffOnly(t *testing.T) {
 	}
 	for _, absent := range []string{
 		"<th>SLA</th>",
-		`class="badge on_track"`,
 		`class="badge at_risk"`,
 		`class="badge breached"`,
 		`class="badge met"`,
