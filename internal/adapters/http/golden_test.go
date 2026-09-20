@@ -922,19 +922,20 @@ func TestGoldenSettingsIndex(t *testing.T) {
 
 // fixtureCategorySLAData models an admin shell on the category SLA screen
 // with a frozen matrix (custom targets, not the seeded defaults) so the
-// golden pins the h/m/s decomposition.
+// golden pins the h/m/s decomposition and the divergence marker: critical
+// matches the seeded default, the other three diverge from it.
 func fixtureCategorySLAData() categorySLAData {
 	ana := domain.User{ID: 1, Name: "Ana Torres", Email: "ana@example.com", Active: true, CreatedAt: goldenT0}
 	return categorySLAData{
 		pageData:     pageData{NavActive: "categories", CurrentUser: ana, CanManageCategories: true},
 		CategoryID:   1,
 		CategoryName: "Bugs",
-		Grid: slaGridData{Rows: slaPolicyRows([]domain.SLAPolicy{
+		Grid: slaGridData{Rows: slaPolicyRowsDiverging([]domain.SLAPolicy{
 			{Priority: domain.PriorityCritical, FirstResponseSeconds: 1800, ResolveSeconds: 14400},
 			{Priority: domain.PriorityHigh, FirstResponseSeconds: 5400, ResolveSeconds: 28800},
 			{Priority: domain.PriorityMedium, FirstResponseSeconds: 9000, ResolveSeconds: 57600},
 			{Priority: domain.PriorityLow, FirstResponseSeconds: 16200, ResolveSeconds: 172800},
-		})},
+		}, seededSLADefaults())},
 	}
 }
 

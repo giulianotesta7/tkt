@@ -22,7 +22,7 @@
 </form>
 <form class="card form-card" method="post" action="/settings/sla">
   <h2>Service level agreements</h2>
-  <p class="help">Response and resolution commitments carried by new tickets.</p>
+  <p class="help">This matrix is the template for new categories. A ticket carries the commitments of its own category, and editing these values does not change categories that already exist.</p>
   <div class="field checkbox-field">
     <label>{{if .SLAEnabled}}<input type="checkbox" name="sla_enabled" value="1" checked> Enable SLA targets{{else}}<input type="checkbox" name="sla_enabled" value="1"> Enable SLA targets{{end}}</label>
     <p class="help">Off by default. While enabled, new tickets carry their category's commitments; turning it off stops new tickets from carrying a commitment, and commitments already frozen keep rendering.</p>

@@ -4,10 +4,11 @@
     <div>
       <nav class="page-breadcrumb" aria-label="Breadcrumb"><a href="/categories">Categories</a><span aria-hidden="true"> / </span><span>{{.CategoryName}}</span></nav>
       <h1 class="page-title">Category SLA</h1>
-      <p class="page-subtitle">Response and resolution commitments for this category.</p>
+      <p class="page-subtitle">These are this category's response and resolution commitments. They started as the instance defaults, and tickets already created keep the commitments they were created with.</p>
     </div>
     <div class="page-actions">
-      <button class="page-action page-action-primary" type="submit" form="sla-form">Save SLA targets</button>
+      <button class="page-action" type="submit" form="sla-form" name="action" value="reset">Reset to the instance defaults</button>
+      <button class="page-action page-action-primary" type="submit" form="sla-form" name="action" value="save">Save SLA targets</button>
     </div>
   </header>
 {{if .Error}}<div class="error-banner" role="alert">{{.Error}}</div>{{end}}
