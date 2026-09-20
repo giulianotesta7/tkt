@@ -44,8 +44,9 @@ func internalCommentBgFrom(ctx context.Context) string {
 // SessionMiddleware enforces the session, bootstrap, and CSRF gates (D14,
 // D16, D17). It wraps the whole mux:
 //
-//   - POST requests with a cross-site Origin header are rejected 403 before
-//     any handler runs (D17 — login/logout CSRF included).
+//   - Requests with an unsafe method (anything outside the safe allow-list
+//     GET, HEAD, OPTIONS, TRACE) and a cross-site Origin header are rejected
+//     403 before any handler runs (D17 — login/logout CSRF included).
 //   - /healthz is always allowed (D12).
 //   - /login*: an authenticated visitor is sent to /tickets; otherwise the
 //     handler runs.
@@ -190,14 +191,17 @@ func (m *SessionMiddleware) resolveSession(r *http.Request) (*domain.Session, er
 	return s, nil
 }
 
-// originAllowed implements the D17 Origin gate: unsafe methods (POST) with a
-// present Origin header must carry the request's own authority. Browsers
-// send Origin on every POST; SameSite=Strict already blocks the cookie from
-// cross-site sends, this is the belt-and-suspenders for forged forms. A
+// originAllowed implements the D17 Origin gate: every unsafe method (anything
+// outside the safe allow-list GET, HEAD, OPTIONS, TRACE) with a present
+// Origin header must carry the request's own authority. Browsers send Origin
+// on every state-changing request; SameSite=Strict already blocks the cookie
+// from cross-site sends, this is the belt-and-suspenders for forged forms. A
 // malformed Origin is rejected; absent Origin (curl, non-browser clients) is
-// allowed.
+// allowed: rejecting it would break scripts without adding protection,
+// because it is a browser that attaches the victim's cookie.
 func originAllowed(r *http.Request) bool {
-	if r.Method != http.MethodPost {
+	switch r.Method {
+	case http.MethodGet, http.MethodHead, http.MethodOptions, http.MethodTrace:
 		return true
 	}
 	origin := r.Header.Get("Origin")

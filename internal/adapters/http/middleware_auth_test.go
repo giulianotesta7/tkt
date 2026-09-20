@@ -265,18 +265,64 @@ func TestMiddlewareSameOriginPOSTAllowed(t *testing.T) {
 	})
 }
 
-// TestMiddlewareGetWithOriginIgnored proves the Origin gate only applies to
-// unsafe methods.
-func TestMiddlewareGetWithOriginIgnored(t *testing.T) {
+// TestMiddlewareCrossSiteOriginUnsafeMethodsRejected proves the D17 gate
+// covers every unsafe method, not only POST (#215): PUT, PATCH, and DELETE
+// carrying a cross-site Origin are refused 403 before any handler runs,
+// while an absent Origin still passes for non-browser clients.
+func TestMiddlewareCrossSiteOriginUnsafeMethodsRejected(t *testing.T) {
+	s := openTestStore(t)
+	user := seedUser(t, s, "Ana", "ana@example.com")
+	session := seedSession(t, s, user.ID)
+	mw := NewSessionMiddleware(s.SessionStore(), s.UserStore(), s.SettingsStore())
+	mux := http.NewServeMux()
+	mux.HandleFunc("PUT /tickets/{id}", func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("updated")) })
+	mux.HandleFunc("PATCH /tickets/{id}", func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("patched")) })
+	mux.HandleFunc("DELETE /tickets/{id}", func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("deleted")) })
+
+	for _, method := range []string{http.MethodPut, http.MethodPatch, http.MethodDelete} {
+		t.Run(method+" cross-site refused", func(t *testing.T) {
+			rec := doRequest(mux, mw, method, "/tickets/1", map[string]string{
+				"Origin": "https://evil.example",
+				"Cookie": "tkt_session=" + session.ID,
+			})
+			if rec.Code != http.StatusForbidden {
+				t.Errorf("cross-site %s status = %d, want 403", method, rec.Code)
+			}
+		})
+		t.Run(method+" missing origin proceeds", func(t *testing.T) {
+			rec := doRequest(mux, mw, method, "/tickets/1", map[string]string{"Cookie": "tkt_session=" + session.ID})
+			if rec.Code != http.StatusOK {
+				t.Errorf("%s without Origin status = %d, want 200 (non-browser clients must pass)", method, rec.Code)
+			}
+		})
+	}
+	t.Run("malformed origin", func(t *testing.T) {
+		rec := doRequest(mux, mw, http.MethodDelete, "/tickets/1", map[string]string{"Origin": ":::not-a-url:::"})
+		if rec.Code != http.StatusForbidden {
+			t.Errorf("malformed Origin status = %d, want 403", rec.Code)
+		}
+	})
+}
+
+// TestMiddlewareSafeMethodsWithOriginIgnored proves the Origin gate only
+// applies to unsafe methods: the safe allow-list (GET, HEAD, OPTIONS, TRACE)
+// passes through even with a cross-site Origin header.
+func TestMiddlewareSafeMethodsWithOriginIgnored(t *testing.T) {
 	s := openTestStore(t)
 	seedUser(t, s, "Ana", "ana@example.com")
 	mw := NewSessionMiddleware(s.SessionStore(), s.UserStore(), s.SettingsStore())
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /login", func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("login-form")) })
+	mux.HandleFunc("OPTIONS /login", func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("options")) })
+	mux.HandleFunc("TRACE /login", func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("trace")) })
 
-	rec := doRequest(mux, mw, http.MethodGet, "/login", map[string]string{"Origin": "https://evil.example"})
-	if rec.Code != http.StatusOK {
-		t.Errorf("GET with cross-site Origin must be ignored, got %d", rec.Code)
+	for _, method := range []string{http.MethodGet, http.MethodHead, http.MethodOptions, http.MethodTrace} {
+		t.Run(method, func(t *testing.T) {
+			rec := doRequest(mux, mw, method, "/login", map[string]string{"Origin": "https://evil.example"})
+			if rec.Code != http.StatusOK {
+				t.Errorf("%s with cross-site Origin must be ignored, got %d", method, rec.Code)
+			}
+		})
 	}
 }
 
