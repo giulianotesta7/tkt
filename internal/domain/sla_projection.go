@@ -59,6 +59,13 @@ type SLAProjection struct {
 	FirstResponse SLAMilestoneStatus
 	Resolve       SLAMilestoneStatus
 	Overall       SLAState
+	// ProjectedAt is the instant the projection was taken (ProjectSLA's own
+	// now parameter). It exists to ANCHOR a client-side countdown: an HTTP
+	// layer stamps it onto the page so the browser can derive its clock
+	// offset WITHOUT the render path reading a second clock (the render path
+	// never calls time.Now(), D7). It is never used to judge a milestone —
+	// the states above already did that against this same instant.
+	ProjectedAt time.Time
 }
 
 // ProjectSLA derives the SLA compliance projection for one ticket from the
@@ -79,7 +86,7 @@ type SLAProjection struct {
 // "no frozen SLA", never a date in year zero treated as breached.
 func ProjectSLA(frozen *TicketSLA, m SLAMilestones, now time.Time) SLAProjection {
 	if frozen == nil || (frozen.DueFirstResponseAt.IsZero() && frozen.DueResolveAt.IsZero()) {
-		return SLAProjection{Overall: SLANone}
+		return SLAProjection{Overall: SLANone, ProjectedAt: now}
 	}
 	firstResponse := projectSLAMilestone(frozen.StartedAt, frozen.WarnFirstResponseAt,
 		frozen.DueFirstResponseAt, frozen.FirstResponseSeconds, m.FirstResponseAt, now)
@@ -90,6 +97,7 @@ func ProjectSLA(frozen *TicketSLA, m SLAMilestones, now time.Time) SLAProjection
 		FirstResponse: firstResponse,
 		Resolve:       resolve,
 		Overall:       worstSLAState(firstResponse.State, resolve.State),
+		ProjectedAt:   now,
 	}
 }
 

@@ -866,6 +866,12 @@ func TestTicketDetailSLAPanelStaffOnly(t *testing.T) {
 		`datetime="` + formatDatetime(frozen.DueFirstResponseAt) + `"`,
 		`datetime="` + formatDatetime(frozen.DueResolveAt) + `"`,
 		`<span class="prop-value">—</span>`, // both milestones pending: no achieved instant
+		// PR 6: the panel anchors the client clock and both PENDING due rows
+		// carry the countdown hook; the page loads the countdown script.
+		`data-server-now="`,
+		`<time datetime="` + formatDatetime(frozen.DueFirstResponseAt) + `" data-sla-countdown>`,
+		`<time datetime="` + formatDatetime(frozen.DueResolveAt) + `" data-sla-countdown>`,
+		`<script src="/static/sla_countdown.js" defer></script>`,
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("staff detail must contain %q, got: %s", want, body)
@@ -908,6 +914,9 @@ func TestTicketDetailSLAPanelStaffOnly(t *testing.T) {
 		`<span class="prop-label">Target</span>`,
 		`<span class="prop-label">Remaining</span>`,
 		`class="badge on_track"`,
+		`data-server-now`,
+		`data-sla-countdown`,
+		`/static/sla_countdown.js`,
 	} {
 		if strings.Contains(requesterBody, absent) {
 			t.Errorf("LEAK: requester detail must not render SLA markup %q, got: %s", absent, requesterBody)
@@ -995,5 +1004,58 @@ func TestSLAMilestoneRemainingLabel(t *testing.T) {
 	achieved := domain.SLAMilestoneStatus{TargetSeconds: 9000, AchievedAt: &achievedAt}
 	if got := slaMilestoneViewFor("Response", achieved).Remaining; got != "" {
 		t.Errorf("achieved remaining = %q, want empty", got)
+	}
+}
+
+// TestTicketDetailSLACountdownHooks (issue #211, PR 6) pins the render-side
+// contract of the live countdown on the detail fragment: the panel carries
+// the projection instant the client derives its clock offset from, the PENDING
+// milestone's due <time> carries the countdown hook, and the ACHIEVED
+// milestone keeps the plain timestamp and never ticks. The fixture instants
+// are literals, so nothing here depends on a wall clock.
+func TestTicketDetailSLACountdownHooks(t *testing.T) {
+	body := renderGolden(t, "tickets_show", "ticket_detail", fixtureDetailData(), true)
+
+	for _, want := range []string{
+		// The skew anchor: the literal ProjectedAt the panel was projected at.
+		`<div class="prop-section" data-server-now="2026-08-07T06:00:00Z">`,
+		// The pending (Resolve) milestone's due instant carries the hook.
+		`<time datetime="2026-08-07T10:00:00Z" data-sla-countdown>`,
+		`<span class="sla-countdown-ticker"></span>`,
+		`<span class="sla-countdown-coarse">10:00 · 07-08-2026</span>`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("pending milestone countdown must render %q, got: %s", want, body)
+		}
+	}
+
+	// The first response was MET: its due instant is the plain timestamp partial
+	// and must never carry the tick hook.
+	if strings.Contains(body, `<time datetime="2026-08-06T14:00:00Z" data-sla-countdown`) {
+		t.Errorf("achieved milestone must not carry the countdown hook, got: %s", body)
+	}
+	if !strings.Contains(body, `<time datetime="2026-08-06T14:00:00Z">`) {
+		t.Errorf("achieved milestone must keep the plain timestamp instant, got: %s", body)
+	}
+}
+
+// TestTicketDetailSLACountdownAssetGating pins that the countdown script is
+// loaded ONLY on a detail page that actually renders a countdown, and that a
+// page without a frozen commitment never requests it. The two renders differ
+// only in the panel, so the gate is the only cause.
+func TestTicketDetailSLACountdownAssetGating(t *testing.T) {
+	const asset = `<script src="/static/sla_countdown.js" defer></script>`
+
+	withPanel := renderGolden(t, "tickets_show", "", fixtureDetailData(), false)
+	if !strings.Contains(withPanel, asset) {
+		t.Errorf("a detail page with an SLA panel must load the countdown script, got: %s", withPanel)
+	}
+
+	withoutPanel := fixtureDetailData()
+	withoutPanel.SLA = nil
+	withoutPanel.SLACountdownAssets = false
+	body := renderGolden(t, "tickets_show", "", withoutPanel, false)
+	if strings.Contains(body, "/static/sla_countdown.js") {
+		t.Errorf("a detail page with no SLA panel must not load the countdown script, got: %s", body)
 	}
 }

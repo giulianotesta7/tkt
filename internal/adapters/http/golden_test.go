@@ -446,7 +446,7 @@ func fixtureDetailData() detailData {
 		AssignableUsers: []domain.User{ana},
 	}
 	return detailData{
-		pageData:           pageData{NavActive: "tickets", CurrentUser: ana},
+		pageData:           pageData{NavActive: "tickets", CurrentUser: ana, SLACountdownAssets: true},
 		View:               view,
 		Next:               allowedNext(t.State),
 		Options:            opts,

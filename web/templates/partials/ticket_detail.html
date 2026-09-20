@@ -130,7 +130,7 @@
           </dl>
 {{end}}
         </div>
-{{if .SLA}}{{/* Staff-only SLA panel: the if/end hug their content so a nil .SLA leaves the requester golden byte-identical. */}}        <div class="prop-section">
+{{if .SLA}}{{/* Staff-only SLA panel: the if/end hug their content so a nil .SLA leaves the requester golden byte-identical. */}}        <div class="prop-section" data-server-now="{{formatDatetime .SLA.ProjectedAt}}">
           <div class="prop-heading">SLA {{template "state_badge" .SLA.Overall}}</div>
 {{range .SLA.Milestones}}
           <div class="prop-heading">{{.Label}} {{template "state_badge" .State}}</div>
@@ -140,7 +140,7 @@
           </div>
           <div class="prop-row">
             <span class="prop-label">Due</span>
-            <span class="prop-value">{{template "timestamp" .DueAt}}</span>
+            <span class="prop-value">{{if .Countdown}}<time datetime="{{formatDatetime .DueAt}}" data-sla-countdown><span class="sla-countdown-ticker"></span><span class="sla-countdown-coarse">{{formatTime .DueAt}}</span></time>{{else}}{{template "timestamp" .DueAt}}{{end}}</span>
           </div>
           <div class="prop-row">
             <span class="prop-label">Achieved</span>

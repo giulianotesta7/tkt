@@ -332,5 +332,25 @@ func TestProjectSLALegacyWarnInstantAtDueNeverAtRisk(t *testing.T) {
 	}
 }
 
+// TestProjectSLAProjectedAt pins the skew anchor (issue #211, PR 6): the
+// projection reports the VERY instant it was given, so an HTTP layer can
+// stamp that instant onto the page without a second clock read. The anchor is
+// carried by every projection shape, including the no-commitment one, and it
+// never changes a state: it is a presentation anchor, not a judgement.
+func TestProjectSLAProjectedAt(t *testing.T) {
+	now := slaProjectionAt(637) // an arbitrary literal instant, not a wall clock
+
+	if got := ProjectSLA(slaProjectionFrozen(), SLAMilestones{}, now).ProjectedAt; !got.Equal(now) {
+		t.Errorf("projected commitment: ProjectedAt = %v, want %v", got, now)
+	}
+	if got := ProjectSLA(nil, SLAMilestones{}, now).ProjectedAt; !got.Equal(now) {
+		t.Errorf("no commitment: ProjectedAt = %v, want %v", got, now)
+	}
+	pre0016 := &TicketSLA{FirstResponseSeconds: 1800, ResolveSeconds: 14400, StartedAt: slaProjectionStart}
+	if got := ProjectSLA(pre0016, SLAMilestones{}, now).ProjectedAt; !got.Equal(now) {
+		t.Errorf("pre-0016 commitment: ProjectedAt = %v, want %v", got, now)
+	}
+}
+
 // ptrTime returns a pointer to v (test helper for milestone instants).
 func ptrTime(v time.Time) *time.Time { return &v }
