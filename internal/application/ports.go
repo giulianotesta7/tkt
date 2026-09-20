@@ -586,7 +586,7 @@ type WorkflowVersionStore interface {
 
 // SLAStore persists the per-category SLA configuration, the observed SLA
 // milestone instants, and the SLA commitments frozen onto tickets (issue
-// #211). The global defaults (sla_defaults, seeded by migration 0013)
+// #211). The global defaults (sla_defaults, seeded by migration 0014)
 // seed a category's materialized 4-priority x 2-milestone matrix
 // (sla_policies) at category creation time — there is no NULL-fallback
 // chain at read time. A ticket's targets are FROZEN at creation (the
@@ -709,7 +709,7 @@ type SettingsStore interface {
 	SetSLAWarningPercent(ctx context.Context, percent int) error
 	// GetSLACalendar returns the instance working calendar (issue #211),
 	// assembled from the four sla_calendar_* settings keys of migration
-	// 0016: the working weekdays, the daily window in minutes past local
+	// 0017: the working weekdays, the daily window in minutes past local
 	// midnight, and the IANA zone the window is interpreted in.
 	//
 	// Each key falls back to its documented default when its row is absent

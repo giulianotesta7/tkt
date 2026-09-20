@@ -75,7 +75,7 @@ type SLAProjection struct {
 // SLANone, and both milestone statuses are left zero-valued — such a
 // ticket renders as "no SLA", never as retroactively breached. The same
 // holds for a commitment whose due instants are the zero time: that is the
-// pre-0016 row shape (migration 0016 stores ” there), and a legacy row is
+// pre-0017 row shape (migration 0017 stores ” there), and a legacy row is
 // "no frozen SLA", never a date in year zero treated as breached.
 func ProjectSLA(frozen *TicketSLA, m SLAMilestones, now time.Time) SLAProjection {
 	if frozen == nil || (frozen.DueFirstResponseAt.IsZero() && frozen.DueResolveAt.IsZero()) {
@@ -98,7 +98,7 @@ func ProjectSLA(frozen *TicketSLA, m SLAMilestones, now time.Time) SLAProjection
 // before DueAt and breached otherwise. A PENDING milestone is breached
 // once now reaches DueAt, at_risk once now reaches WarnAt, and on_track
 // before that. A milestone whose DueAt is the zero time is the
-// pre-0016 single-milestone shape: it projects as SLANone rather than
+// pre-0017 single-milestone shape: it projects as SLANone rather than
 // comparing against a date in year zero.
 func projectSLAMilestone(startedAt, warnAt, dueAt time.Time, targetSeconds int, achievedAt *time.Time, now time.Time) SLAMilestoneStatus {
 	st := SLAMilestoneStatus{

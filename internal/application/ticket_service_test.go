@@ -1596,7 +1596,7 @@ func TestTicketService_CreateWithWorkflow_FreezesSLACommitment(t *testing.T) {
 }
 
 // TestTicketService_CreateWithWorkflow_SLADisabledFreezesNothing proves a
-// create with SLA disabled (the migration-0013 seeded state) freezes no
+// create with SLA disabled (the migration-0014 seeded state) freezes no
 // commitment: every existing test's historical behaviour, by construction.
 func TestTicketService_CreateWithWorkflow_SLADisabledFreezesNothing(t *testing.T) {
 	h := newWorkflowCreateHarnessWithSLA(

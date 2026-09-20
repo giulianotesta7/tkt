@@ -26,7 +26,7 @@ func newCommentStore(db *sql.DB) *commentStore { return &commentStore{db: db} }
 // visibility is persisted; an empty visibility falls back to 'public' — the
 // migration 0003 DEFAULT that backfills legacy rows, mirrored here so
 // legacy callers that omit visibility keep producing public comments (5.4).
-// The authorship columns (migration 0012) persist as given; an empty
+// The authorship columns (migration 0013) persist as given; an empty
 // AuthorRole — the "unknown / legacy" domain value — is stored as SQL NULL
 // because the column CHECK only admits the four roles.
 func (cs *commentStore) Add(ctx context.Context, c *domain.Comment) error {

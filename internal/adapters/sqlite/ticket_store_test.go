@@ -1198,7 +1198,7 @@ func TestTicketListSortByUrgency(t *testing.T) {
 	// work is never urgent.
 	t6 := mk(6, domain.PriorityMedium, domain.StateResolved)
 	freezeSLA(t, s, t6.ID, at(30), at(4*60))
-	// t7: a pre-0016 legacy row (migration 0016 DEFAULT ''): the instant
+	// t7: a pre-0017 legacy row (migration 0017 DEFAULT ''): the instant
 	// columns hold empty strings, not NULL. It is OPEN, CRITICAL, and the
 	// newest of the set, so if '' were read as a real instant it would jump
 	// ahead of every urgent ticket; treated as absent it joins the

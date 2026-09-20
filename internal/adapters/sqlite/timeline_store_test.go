@@ -242,7 +242,7 @@ func TestCommentStoreLegacyRowBackfillsPublic(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// Comment authorship persistence (issue #211, migration 0012): the
+// Comment authorship persistence (issue #211, migration 0013): the
 // authoring session user's id and a role snapshot survive a full
 // Add → ListByTicket round trip through the real store, and comments
 // written without them (legacy shape) read back as NULL / "unknown".
@@ -259,7 +259,7 @@ func TestCommentStoreAuthorshipRoundTrip(t *testing.T) {
 	ctx := context.Background()
 
 	// The author_user_id column is a real FK: the author must be a stored
-	// user (migration 0012), so seed one through the port and use its id.
+	// user (migration 0013), so seed one through the port and use its id.
 	author := &domain.User{Name: "Ana", Email: "ana-0012@example.com", Active: true, CreatedAt: testClock}
 	if err := s.UserStore().Create(ctx, author); err != nil {
 		t.Fatalf("seed author: %v", err)
@@ -272,7 +272,7 @@ func TestCommentStoreAuthorshipRoundTrip(t *testing.T) {
 	if err := s.CommentStore().Add(ctx, stamped); err != nil {
 		t.Fatalf("add stamped comment: %v", err)
 	}
-	// Triangulation: a comment WITHOUT authorship (the pre-0012 shape)
+	// Triangulation: a comment WITHOUT authorship (the pre-0013 shape)
 	// must round-trip as nil / empty, not as zero values.
 	legacy := &domain.Comment{TicketID: ticketID, Author: "Ada",
 		Body: "legacy note", Visibility: domain.CommentPublic, CreatedAt: testClock}

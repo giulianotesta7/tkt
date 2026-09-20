@@ -150,7 +150,7 @@ func TestBuildTicketAttainmentRateIsZeroWithoutDecisions(t *testing.T) {
 
 // The cohort is tickets CREATED in [Start, End) that carry a frozen
 // commitment. A record in the read set but created outside the period is
-// excluded; a commitless ticket (or a pre-0016 zero-instant row) is counted
+// excluded; a commitless ticket (or a pre-0017 zero-instant row) is counted
 // separately and never enters a group.
 func TestBuildTicketAttainmentCohortAndNoCommitment(t *testing.T) {
 	base := time.Date(2026, 3, 10, 9, 0, 0, 0, time.UTC)
@@ -171,7 +171,7 @@ func TestBuildTicketAttainmentCohortAndNoCommitment(t *testing.T) {
 
 	a := buildTicketMetrics(records, filter, base.Add(time.Hour)).Attainment
 	if a.NoCommitment != 2 {
-		t.Fatalf("NoCommitment = %d, want 2 (nil commitment and pre-0016 zero-instants)", a.NoCommitment)
+		t.Fatalf("NoCommitment = %d, want 2 (nil commitment and pre-0017 zero-instants)", a.NoCommitment)
 	}
 	if len(a.Groups) != 1 || a.Groups[0].Tickets != 1 {
 		t.Fatalf("groups = %+v, want one total group with the single in-period commitment", a.Groups)

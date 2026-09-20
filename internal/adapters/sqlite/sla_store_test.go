@@ -98,7 +98,7 @@ func TestSLACategoryUpsertUpdatesExistingRow(t *testing.T) {
 	if err != nil {
 		t.Fatalf("list: %v", err)
 	}
-	// Migration 0015 materializes the default matrix at category creation,
+	// Migration 0016 materializes the default matrix at category creation,
 	// so the category holds exactly one row per priority; the upsert must
 	// have REPLACED the high row's targets, not duplicated it.
 	if len(got) != 4 {
@@ -161,7 +161,7 @@ func TestSLATicketSLARoundTrip(t *testing.T) {
 	if !got.PolicySnapshotAt.Equal(want.PolicySnapshotAt) {
 		t.Errorf("policy_snapshot_at = %v, want %v", got.PolicySnapshotAt, want.PolicySnapshotAt)
 	}
-	// The four frozen instants (migration 0016) round-trip exactly.
+	// The four frozen instants (migration 0017) round-trip exactly.
 	if !got.WarnFirstResponseAt.Equal(want.WarnFirstResponseAt) {
 		t.Errorf("warn_first_response_at = %v, want %v", got.WarnFirstResponseAt, want.WarnFirstResponseAt)
 	}
@@ -182,7 +182,7 @@ func TestSLATicketSLARoundTrip(t *testing.T) {
 
 // TestSLATicketSLAZeroInstantsStoreLegacyMarker proves a commitment with
 // zero instants (a caller that never resolved them against a calendar)
-// stores the ” pre-0016 marker rather than a date in year zero, and reads
+// stores the ” pre-0017 marker rather than a date in year zero, and reads
 // back as the zero time — "no frozen SLA" for the projection.
 func TestSLATicketSLAZeroInstantsStoreLegacyMarker(t *testing.T) {
 	s := newTestDB(t)
@@ -544,7 +544,7 @@ func TestSLAUpsertDefaultsAtomicRollback(t *testing.T) {
 func TestSLAUpsertCategoryTargetsAtomicRollback(t *testing.T) {
 	s := newTestDB(t)
 	ctx := context.Background()
-	catID := seedCategory(t, s, "Bugs") // migration 0015 materializes the full matrix
+	catID := seedCategory(t, s, "Bugs") // migration 0016 materializes the full matrix
 
 	before, err := s.SLAStore().ListByCategory(ctx, catID)
 	if err != nil {
@@ -723,7 +723,7 @@ func TestSLATicketSLAsChunking(t *testing.T) {
 }
 
 // TestSLATicketSLAsLegacyZeroInstantsMatchSingleRead proves a legacy
-// zero-instant row (the pre-0016 ” marker) reads back through the batch
+// zero-instant row (the pre-0017 ” marker) reads back through the batch
 // path exactly as through the single path: zero instants, never a date in
 // year zero.
 func TestSLATicketSLAsLegacyZeroInstantsMatchSingleRead(t *testing.T) {

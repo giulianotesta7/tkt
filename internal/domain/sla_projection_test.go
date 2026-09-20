@@ -73,7 +73,7 @@ func TestProjectSLA(t *testing.T) {
 			wantFirstState: SLANone,
 		},
 		{
-			name:             "pre-0016 row (zero due instants) is no frozen SLA",
+			name:             "pre-0017 row (zero due instants) is no frozen SLA",
 			frozen:           &TicketSLA{FirstResponseSeconds: 1800, ResolveSeconds: 14400, StartedAt: slaProjectionStart},
 			milestones:       SLAMilestones{},
 			now:              slaProjectionAt(999999),
@@ -175,7 +175,7 @@ func TestProjectSLA(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			got := ProjectSLA(tt.frozen, tt.milestones, tt.now)
 			if tt.frozen == nil || got.Frozen == nil {
-				// A nil commitment and the pre-0016 zero-instant row are both
+				// A nil commitment and the pre-0017 zero-instant row are both
 				// "no frozen SLA": no Frozen surfaced, both milestone statuses
 				// left zero-valued.
 				if tt.frozen != nil && got.Frozen == nil && tt.wantOverall != SLANone {

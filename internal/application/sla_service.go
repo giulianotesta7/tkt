@@ -199,7 +199,7 @@ func (s *SLAService) freezeTicketSLA(ctx context.Context, p domain.SLAPolicy, no
 
 // MinSLATargetSeconds is the floor for both milestone targets, mirroring
 // the CHECK(... >= 60) constraint on sla_defaults and sla_policies
-// (migration 0013): a sub-minute commitment is not a configuration.
+// (migration 0014): a sub-minute commitment is not a configuration.
 const MinSLATargetSeconds = 60
 
 // canonicalSLAPriorities is the exact priority set a default or category
