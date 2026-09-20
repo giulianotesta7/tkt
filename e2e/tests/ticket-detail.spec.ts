@@ -9,13 +9,21 @@
  * (internal/adapters/http/handlers_comment_test.go).
  */
 
-import { test, expect, type Route } from "@playwright/test";
+import { test, expect, type Page, type Route } from "@playwright/test";
 import { startServer, stopServer } from "../server-lifecycle.js";
 import { loginAsSeeded, base, setSLAEnabled } from "./helpers/auth.js";
 import { assertCanonicalScreen, collectObservability } from "./helpers/layout.js";
 import { assertHtmxSwap } from "./helpers/htmx.js";
 import { isHtmxPost } from "./helpers/save-feedback.js";
 import { createTicketViaUi } from "./helpers/navigation.js";
+import { waitForExactPost } from "./helpers/network.js";
+
+/** The staff-only SLA panel of the ticket detail page. */
+function slaPanel(page: Page) {
+  return page
+    .locator("#ticket-detail .prop-section")
+    .filter({ has: page.locator(".prop-heading", { hasText: /^SLA/ }) });
+}
 
 test.describe("Ticket detail", () => {
   test.beforeAll(async () => {
@@ -528,6 +536,188 @@ test.describe("Ticket detail SLA panel (seeded)", () => {
     await assertCanonicalScreen(page, {
       viewport: 1280,
       label: "ticket detail SLA panel",
+      url: page.url(),
+      role: "root",
+      consoleErrors: obs.consoleErrors,
+      pageErrors: obs.pageErrors,
+      failedRequests: obs.failedRequests,
+      failedResponses: obs.failedResponses,
+    });
+  });
+});
+
+/**
+ * Ticket detail SLA live countdown (issue #211, PR 6).
+ *
+ * The countdown is browser-owned: the server renders the ABSOLUTE due instant
+ * in the <time datetime> and anchors the browser clock with data-server-now,
+ * and the deferred /static/sla_countdown.js recomputes the remaining time from
+ * that instant on every tick. Playwright's clock API installs a deterministic
+ * client clock BEFORE navigation, so this journey can freeze and then
+ * fast-forward the browser's "now" and prove the ticker moves while the
+ * absolute instant in the markup survives.
+ *
+ * SLA is instance-wide: every journey enables it, creates its own committed
+ * fixture, and restores it (disable) in afterEach, exactly like the panel
+ * describe above.
+ */
+test.describe("Ticket detail SLA live countdown (seeded)", () => {
+  test.beforeAll(async () => {
+    await startServer({ seed: true });
+  });
+  test.afterAll(async () => {
+    await stopServer();
+  });
+  test.afterEach(async ({ page }) => {
+    await page.context().clearCookies();
+    await loginAsSeeded(page);
+    await setSLAEnabled(page, false);
+  });
+
+  test("the ticker moves with the frozen clock while the absolute due instant survives", async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    const obs = collectObservability(page);
+    await loginAsSeeded(page);
+    await setSLAEnabled(page, true);
+    const id = await createTicketViaUi(page, {
+      title: "SLA countdown " + Date.now().toString(36).slice(2, 8),
+      description: "sla countdown probe",
+      category: "General",
+      priority: "high",
+    });
+
+    // Install a deterministic client clock BEFORE navigating: the detail
+    // page's deferred countdown script reads Date.now() during load and derives
+    // its server/client offset from data-server-now. The high-priority target
+    // (1 working hour) leaves the response due far ahead of the frozen instant.
+    await page.clock.install({ time: new Date() });
+    await page.goto(base() + `/tickets/${id}`);
+    await expect(page.locator("#ticket-detail")).toBeVisible();
+
+    const slaSection = slaPanel(page);
+    await expect(slaSection).toHaveCount(1);
+    const countdowns = slaSection.locator("[data-sla-countdown]");
+    await expect(countdowns).toHaveCount(2);
+
+    const response = countdowns.first();
+    const resolve = countdowns.nth(1);
+    const ticker = response.locator(".sla-countdown-ticker");
+    const coarse = response.locator(".sla-countdown-coarse");
+
+    // The script has run: the fast per-second value is aria-hidden, and the
+    // accessible coarse span carries non-empty text for a screen reader.
+    await expect(ticker).toHaveAttribute("aria-hidden", "true");
+    await expect(ticker).not.toBeEmpty();
+    await expect(coarse).not.toBeEmpty();
+
+    // Freeze the browser clock at the current page instant. From here only the
+    // fast-forward below can move the reading, so a changed text proves ticking
+    // rather than a naturally elapsed wall clock.
+    const heldAt = await page.evaluate(() => Date.now());
+    await page.clock.pauseAt(heldAt + 5_000);
+
+    const before = await ticker.textContent();
+    const absoluteBefore = await response.getAttribute("datetime");
+    expect(absoluteBefore).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/);
+
+    await page.clock.fastForward(5_000);
+    await expect(ticker).not.toHaveText(before ?? "");
+
+    // The absolute truth must survive: the tick recomputed the text but never
+    // rewrote the <time datetime> the server rendered.
+    expect(await response.getAttribute("datetime")).toBe(absoluteBefore);
+
+    // Fast-forward PAST the response due instant: the reading becomes the
+    // stable "overdue" text, never negative time. The pending Resolve
+    // milestone, seven working hours further out, is still counting down.
+    const dueAt = Date.parse(absoluteBefore ?? "");
+    const serverNow = Date.parse((await slaSection.getAttribute("data-server-now")) ?? "");
+    await page.clock.fastForward(dueAt - serverNow + 60_000);
+    await expect(ticker).toHaveText("overdue");
+    expect(await ticker.textContent()).not.toContain("-");
+    await expect(resolve.locator(".sla-countdown-ticker")).not.toHaveText("overdue");
+    await expect(response).toHaveAttribute("datetime", absoluteBefore ?? "");
+
+    // Hand the context back a running clock before afterEach restores the
+    // instance-wide SLA switch.
+    await page.clock.resume();
+
+    await assertCanonicalScreen(page, {
+      viewport: 1280,
+      label: "ticket detail SLA live countdown",
+      url: page.url(),
+      role: "root",
+      consoleErrors: obs.consoleErrors,
+      pageErrors: obs.pageErrors,
+      failedRequests: obs.failedRequests,
+      failedResponses: obs.failedResponses,
+    });
+  });
+
+  test("an achieved milestone drops the countdown and the list never loads the script", async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    const obs = collectObservability(page);
+    await loginAsSeeded(page);
+    await setSLAEnabled(page, true);
+    const id = await createTicketViaUi(page, {
+      title: "SLA achieved " + Date.now().toString(36).slice(2, 8),
+      description: "sla achieved probe",
+      category: "General",
+      priority: "high",
+    });
+
+    // A public staff comment is the FIRST-RESPONSE observation, so the Response
+    // milestone becomes achieved on the detail page.
+    await page.goto(base() + `/tickets/${id}`);
+    await expect(page.locator("#ticket-detail")).toBeVisible();
+    await page.getByLabel(/comment body/i).fill("first staff response");
+    const commentPost = waitForExactPost(page, `/tickets/${id}/comments`);
+    await page.getByRole("button", { name: /add comment/i }).click();
+    expect((await commentPost).status()).toBe(303);
+
+    await page.goto(base() + `/tickets/${id}`);
+    await expect(page.locator("#ticket-detail")).toBeVisible();
+    const slaSection = slaPanel(page);
+    await expect(slaSection).toHaveCount(1);
+
+    // Response is achieved: it carries the plain timestamp partial with no
+    // countdown hook; only the pending Resolve milestone still ticks.
+    const responseHeading = slaSection.locator(".prop-heading").filter({ hasText: /^Response/ });
+    await expect(responseHeading.locator(".badge")).toHaveText("Met");
+    await expect(slaSection.locator("[data-sla-countdown]")).toHaveCount(1);
+
+    const dueRows = slaSection
+      .locator(".prop-row")
+      .filter({ has: page.getByText("Due", { exact: true }) });
+    await expect(dueRows).toHaveCount(2);
+    await expect(dueRows.first().locator("[data-sla-countdown]")).toHaveCount(0);
+    await expect(dueRows.first().locator("time")).toHaveAttribute(
+      "datetime",
+      /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/,
+    );
+    await expect(dueRows.nth(1).locator("[data-sla-countdown]")).toHaveCount(1);
+
+    // The list page never loads /static/sla_countdown.js: no script tag and no
+    // request for it. The listener is attached after the detail render, so it
+    // only observes the list navigation.
+    const countdownRequests: string[] = [];
+    page.on("request", (request) => {
+      if (new URL(request.url()).pathname === "/static/sla_countdown.js") {
+        countdownRequests.push(request.url());
+      }
+    });
+    await page.goto(base() + "/tickets");
+    await expect(page.locator("#ticket-list")).toBeVisible();
+    await expect(page.locator('script[src="/static/sla_countdown.js"]')).toHaveCount(0);
+    expect(countdownRequests).toEqual([]);
+
+    await assertCanonicalScreen(page, {
+      viewport: 1280,
+      label: "tickets list without the countdown script",
       url: page.url(),
       role: "root",
       consoleErrors: obs.consoleErrors,
