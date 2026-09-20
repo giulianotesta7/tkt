@@ -618,12 +618,14 @@ func lastActiveValue(values []string) bool {
 // renderUsersIndexError re-renders the users list with an inline error
 // (rejected delete; HX → content fragment, full → page).
 func (h *UserHandlers) renderUsersIndexError(w http.ResponseWriter, r *http.Request, msg string, status int) {
-	users, err := h.users.List(r.Context(), *userFromContext(r.Context()))
+	actor := *userFromContext(r.Context())
+	data, err := h.usersIndexData(r, actor, usersStatusAll)
 	if err != nil {
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
-	data := usersIndexData{pageData: pageDataFrom(r, "users"), Error: msg, Users: users}
+	data.UsersAssets = true
+	data.Error = msg
 	h.renderer.Render(w, r, "users_index", "", data, status)
 }
 
