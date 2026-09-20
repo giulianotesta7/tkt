@@ -1185,11 +1185,11 @@ func TestTicketMetricsStaticScript(t *testing.T) {
 func TestTicketListSLACellMarkup(t *testing.T) {
 	body := renderGolden(t, "tickets_index", "ticket_list", fixtureListData(), true)
 
-	atRisk := `<td data-label="SLA"><span class="badge at_risk">At Risk</span> <span class="cell-muted">Response <time datetime="2026-08-06T11:30:00Z">11:30 · 06-08-2026</time></span></td>`
+	atRisk := `<td class="cell-sla" data-label="SLA"><span class="badge at_risk">At Risk</span> <span class="cell-muted">Response <time datetime="2026-08-06T11:30:00Z">11:30 · 06-08-2026</time></span></td>`
 	if !strings.Contains(body, atRisk) {
 		t.Errorf("at_risk row must render the badge and pending deadline %q, got: %s", atRisk, body)
 	}
-	if !strings.Contains(body, `<td data-label="SLA"></td>`) {
+	if !strings.Contains(body, `<td class="cell-sla" data-label="SLA"></td>`) {
 		t.Errorf("a ticket with no frozen SLA must render an empty SLA cell, got: %s", body)
 	}
 	for _, absent := range []string{`>No SLA<`, `badge none`} {

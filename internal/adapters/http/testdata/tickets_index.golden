@@ -80,7 +80,7 @@
           <td class="cell-title" data-label="Title"><a href="/tickets/2">Printer jam</a></td>
           <td data-label="State"><span class="badge in_progress">In Progress</span></td>
           <td class="priority high" data-label="Priority"><span class="ticket-priority-value">High</span></td>
-          <td data-label="SLA"><span class="badge at_risk">At Risk</span> <span class="cell-muted">Response <time datetime="2026-08-06T11:30:00Z">11:30 · 06-08-2026</time></span></td>
+          <td class="cell-sla" data-label="SLA"><span class="badge at_risk">At Risk</span> <span class="cell-muted">Response <time datetime="2026-08-06T11:30:00Z">11:30 · 06-08-2026</time></span></td>
           <td class="cell-muted" data-label="Updated"><time datetime="2026-08-06T10:30:00Z">10:30 · 06-08-2026</time></td>
         </tr>
         <tr>
@@ -88,7 +88,7 @@
           <td class="cell-title" data-label="Title"><a href="/tickets/1">Login page down</a></td>
           <td data-label="State"><span class="badge new">New</span></td>
           <td class="priority critical" data-label="Priority"><span class="ticket-priority-value">Critical</span></td>
-          <td data-label="SLA"></td>
+          <td class="cell-sla" data-label="SLA"></td>
           <td class="cell-muted" data-label="Updated"><time datetime="2026-08-06T10:00:00Z">10:00 · 06-08-2026</time></td>
         </tr>
       </tbody>

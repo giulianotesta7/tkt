@@ -56,9 +56,14 @@
 
   // preciseText is the per-second reading; a passed instant reads a stable
   // "overdue" rather than negative time.
+  // preciseText is the fast reading. It keeps the SAME shape as the server's
+  // initial value ("in 59m 37s" / "30m overdue") so the number does not jump
+  // format when the script takes over.
   const preciseText = (remainingMs) => {
-    if (remainingMs <= 0) return OVERDUE;
-    return duration(Math.floor(remainingMs / 1000));
+    if (remainingMs <= 0) {
+      return `${duration(Math.floor(Math.abs(remainingMs) / 1000))} ${OVERDUE}`;
+    }
+    return `in ${duration(Math.floor(remainingMs / 1000))}`;
   };
 
   // coarseText is the slower, accessible reading. It rounds to whole minutes

@@ -389,12 +389,13 @@ func slaRowFor(p domain.SLAProjection) *slaRow {
 // the existing state_badge component, and Remaining is EMPTY once the
 // milestone is achieved (a met milestone has no outstanding time).
 type slaMilestoneView struct {
-	Label      string
-	State      domain.SLAState
-	Target     string
-	DueAt      time.Time
-	AchievedAt *time.Time
-	Remaining  string
+	Label string
+	State domain.SLAState
+	DueAt time.Time
+	// Remaining is the pre-formatted time left on a PENDING milestone: the
+	// ticker's initial value, so a browser with no JavaScript still reads the
+	// truth instead of an empty cell.
+	Remaining string
 	// Countdown marks a PENDING milestone whose due instant the client turns
 	// into a live countdown (issue #211, PR 6). An achieved milestone never
 	// ticks, and a zero due instant (a legacy row with no frozen target) is
@@ -438,12 +439,10 @@ func slaPanelFor(p domain.SLAProjection) *slaPanelView {
 // remaining label at all (the template drops the row).
 func slaMilestoneViewFor(label string, m domain.SLAMilestoneStatus) slaMilestoneView {
 	v := slaMilestoneView{
-		Label:      label,
-		State:      m.State,
-		Target:     slaDurationLabel(m.TargetSeconds),
-		DueAt:      m.DueAt,
-		AchievedAt: m.AchievedAt,
-		Countdown:  m.AchievedAt == nil && !m.DueAt.IsZero(),
+		Label:     label,
+		State:     m.State,
+		DueAt:     m.DueAt,
+		Countdown: m.AchievedAt == nil && !m.DueAt.IsZero(),
 	}
 	if m.AchievedAt == nil {
 		seconds := int(m.Remaining / time.Second)
