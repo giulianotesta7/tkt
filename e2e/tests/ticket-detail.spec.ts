@@ -11,7 +11,7 @@
 
 import { test, expect, type Route } from "@playwright/test";
 import { startServer, stopServer } from "../server-lifecycle.js";
-import { loginAsSeeded, base } from "./helpers/auth.js";
+import { loginAsSeeded, base, setSLAEnabled } from "./helpers/auth.js";
 import { assertCanonicalScreen, collectObservability } from "./helpers/layout.js";
 import { assertHtmxSwap } from "./helpers/htmx.js";
 import { isHtmxPost } from "./helpers/save-feedback.js";
@@ -447,5 +447,93 @@ test.describe("Ticket detail", () => {
 
     await page.reload();
     await expect(page.locator("#ticket-priority")).toHaveValue("critical");
+  });
+});
+
+/**
+ * Ticket detail SLA panel (issue #211, PR 4).
+ *
+ * The panel exists only for a non-`user` actor on a ticket with a frozen
+ * commitment. SLA is instance-wide, so the journey enables it, creates the
+ * committed ticket, and disables it again in afterEach.
+ */
+test.describe("Ticket detail SLA panel (seeded)", () => {
+  test.beforeAll(async () => {
+    await startServer({ seed: true });
+  });
+  test.afterAll(async () => {
+    await stopServer();
+  });
+  test.afterEach(async ({ page }) => {
+    await page.context().clearCookies();
+    await loginAsSeeded(page);
+    await setSLAEnabled(page, false);
+  });
+
+  test("shows the overall state and both milestone blocks with target and due", async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    const obs = collectObservability(page);
+    await loginAsSeeded(page);
+    await setSLAEnabled(page, true);
+    const id = await createTicketViaUi(page, {
+      title: "SLA detail " + Date.now().toString(36).slice(2, 8),
+      description: "sla detail probe",
+      category: "General",
+      priority: "high",
+    });
+
+    await page.goto(base() + `/tickets/${id}`);
+    await expect(page.locator("#ticket-detail")).toBeVisible();
+
+    const slaSection = page
+      .locator("#ticket-detail .prop-section")
+      .filter({ has: page.locator(".prop-heading", { hasText: /^SLA/ }) });
+    await expect(slaSection).toHaveCount(1);
+
+    // Overall state plus one block per milestone (Response then Resolve).
+    const headings = slaSection.locator(".prop-heading");
+    await expect(headings).toHaveCount(3);
+    await expect(headings.nth(0)).toContainText("SLA");
+    await expect(headings.nth(0).locator(".badge")).toHaveText("On Track");
+    await expect(headings.nth(1)).toContainText("Response");
+    await expect(headings.nth(1).locator(".badge")).toHaveText("On Track");
+    await expect(headings.nth(2)).toContainText("Resolve");
+    await expect(headings.nth(2).locator(".badge")).toHaveText("On Track");
+
+    // Each milestone carries its frozen target (high: 1h response, 8h resolve).
+    const targetRows = slaSection
+      .locator(".prop-row")
+      .filter({ has: page.getByText("Target", { exact: true }) });
+    await expect(targetRows).toHaveCount(2);
+    expect(new Set(await targetRows.locator(".prop-value").allTextContents())).toEqual(
+      new Set(["1h 0m", "8h 0m"]),
+    );
+
+    // Each milestone carries its due instant as a truthful <time datetime>.
+    const dueRows = slaSection
+      .locator(".prop-row")
+      .filter({ has: page.getByText("Due", { exact: true }) });
+    await expect(dueRows).toHaveCount(2);
+    const dueTimes = dueRows.locator(".prop-value time");
+    await expect(dueTimes).toHaveCount(2);
+    for (let index = 0; index < 2; index += 1) {
+      await expect(dueTimes.nth(index)).toHaveAttribute(
+        "datetime",
+        /\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z/,
+      );
+    }
+
+    await assertCanonicalScreen(page, {
+      viewport: 1280,
+      label: "ticket detail SLA panel",
+      url: page.url(),
+      role: "root",
+      consoleErrors: obs.consoleErrors,
+      pageErrors: obs.pageErrors,
+      failedRequests: obs.failedRequests,
+      failedResponses: obs.failedResponses,
+    });
   });
 });

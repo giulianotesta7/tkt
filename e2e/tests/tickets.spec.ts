@@ -14,6 +14,7 @@ import { assertCanonicalScreen, collectObservability } from "./helpers/layout.js
 import { createTicketViaUi } from "./helpers/navigation.js";
 import { waitForExactPost } from "./helpers/network.js";
 import { assertHtmxSwap } from "./helpers/htmx.js";
+import { loginAsSeeded, setSLAEnabled } from "./helpers/auth.js";
 
 function base(): string {
   if (!activeServer) throw new Error("server not started");
@@ -932,9 +933,14 @@ test.describe("Ticket Lifecycle", () => {
     const rows = page.locator("#ticket-list tbody tr");
     await expect(rows).toHaveCount(10);
     await expect(page.getByText(longTitle, { exact: true })).toBeVisible();
+    // The staff queue carried five metadata cells per row before the SLA
+    // column (issue #211) added a sixth. Assert the WHOLE current geometry:
+    // every label below has one cell per row, and the total is rows x labels,
+    // so a future column is a visible change here rather than a silent gap.
+    const metadataLabels = ["ID", "Title", "State", "Priority", "SLA", "Updated"];
     const metadataCells = rows.locator("td[data-label]");
-    await expect(metadataCells).toHaveCount(50);
-    for (const label of ["ID", "Title", "State", "Priority", "Updated"]) {
+    await expect(metadataCells).toHaveCount(10 * metadataLabels.length);
+    for (const label of metadataLabels) {
       const cells = rows.locator(`td[data-label="${label}"]`);
       await expect(cells).toHaveCount(10);
       for (let index = 0; index < 10; index += 1) {
@@ -1054,6 +1060,209 @@ test.describe("Ticket Lifecycle", () => {
     await assertCanonicalScreen(page, {
       viewport: 1280,
       label: "tickets transition new→in_progress",
+      url: page.url(),
+      role: "root",
+      consoleErrors: obs.consoleErrors,
+      pageErrors: obs.pageErrors,
+      failedRequests: obs.failedRequests,
+      failedResponses: obs.failedResponses,
+    });
+  });
+});
+
+/**
+ * Ticket list SLA visibility (issue #211, PR 4).
+ *
+ * SLA is instance-wide: a commitment is frozen ONLY when a ticket is created
+ * while the switch is ON. Every journey here enables the switch, creates its
+ * own committed fixtures, and disables it again in afterEach (setSLAEnabled)
+ * so no later journey inherits it. A ticket created while the switch is OFF
+ * carries no commitment — that is the real "empty cell" absence case (this
+ * suite's seeder creates no tickets, so the absence ticket is created through
+ * the real UI before enabling, not fabricated).
+ */
+test.describe("Ticket list SLA visibility (seeded)", () => {
+  test.beforeAll(async () => {
+    await startServer({ seed: true });
+  });
+  test.afterAll(async () => {
+    await stopServer();
+  });
+  test.afterEach(async ({ page }) => {
+    // Restore the instance-wide switch whatever this test left behind, so the
+    // next journey (here or in another describe on the same database) sees the
+    // state it expects. Do not rely on declaration order for correctness.
+    await page.context().clearCookies();
+    await loginAsSeeded(page);
+    await setSLAEnabled(page, false);
+  });
+
+  test("staff list shows the SLA badge and an empty cell for an uncommitted ticket", async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    const obs = collectObservability(page);
+    await loginAsSeeded(page);
+
+    const suffix = Date.now().toString(36).slice(2, 8);
+    const uncommittedTitle = `SLA uncommitted ${suffix}`;
+    const committedTitle = `SLA committed ${suffix}`;
+
+    // Absence case: created while SLA is still OFF, so no commitment is
+    // frozen. This is the same shape a pre-enable seeded row would have.
+    await createTicketViaUi(page, {
+      title: uncommittedTitle,
+      description: "created before SLA was enabled",
+      category: "General",
+      priority: "high",
+    });
+
+    await setSLAEnabled(page, true);
+
+    // Committed case: created while SLA is ON, so the category's frozen
+    // policy rides along.
+    await createTicketViaUi(page, {
+      title: committedTitle,
+      description: "created while SLA was enabled",
+      category: "General",
+      priority: "high",
+    });
+
+    await page.goto(base() + "/tickets");
+    await expect(page.locator("#ticket-list")).toBeVisible();
+    await expect(page.getByRole("columnheader", { name: "SLA", exact: true })).toBeVisible();
+
+    const rowFor = (title: string) =>
+      page
+        .locator("#ticket-list tbody tr")
+        .filter({ has: page.getByRole("link", { name: title, exact: true }) });
+
+    const committedRow = rowFor(committedTitle);
+    await expect(committedRow).toHaveCount(1);
+    const committedCell = committedRow.locator('td[data-label="SLA"]');
+    await expect(committedCell.locator(".badge")).toHaveText("On Track");
+    await expect(committedCell).toContainText("Response");
+    const due = committedCell.locator("time");
+    await expect(due).toHaveCount(1);
+    await expect(due).toHaveAttribute("datetime", /\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z/);
+
+    const uncommittedRow = rowFor(uncommittedTitle);
+    await expect(uncommittedRow).toHaveCount(1);
+    const uncommittedCell = uncommittedRow.locator('td[data-label="SLA"]');
+    await expect(uncommittedCell).toHaveText("");
+    await expect(uncommittedCell.locator(".badge, time")).toHaveCount(0);
+
+    await assertCanonicalScreen(page, {
+      viewport: 1280,
+      label: "tickets list SLA badge and empty cell",
+      url: page.url(),
+      role: "root",
+      consoleErrors: obs.consoleErrors,
+      pageErrors: obs.pageErrors,
+      failedRequests: obs.failedRequests,
+      failedResponses: obs.failedResponses,
+    });
+  });
+
+  test("Order by applies urgency and priority and keeps the choice across a reload", async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    const obs = collectObservability(page);
+    await loginAsSeeded(page);
+    await setSLAEnabled(page, true);
+
+    const suffix = Date.now().toString(36).slice(2, 8);
+    // The older ticket is HIGH (1h response target) and the newer is LOW (8h),
+    // so urgency (earliest outstanding deadline first) is the REVERSE of the
+    // default newest-first order. Priority (high > low) is likewise reversed.
+    const urgentTitle = `SLA urgent ${suffix}`;
+    const calmTitle = `SLA calm ${suffix}`;
+    await createTicketViaUi(page, {
+      title: urgentTitle,
+      description: "older, high priority",
+      category: "General",
+      priority: "high",
+    });
+    await createTicketViaUi(page, {
+      title: calmTitle,
+      description: "newer, low priority",
+      category: "General",
+      priority: "low",
+    });
+
+    const expectOrder = async (firstTitle: string, secondTitle: string) => {
+      const titles = await page.locator("#ticket-list td.cell-title a").allTextContents();
+      const first = titles.indexOf(firstTitle);
+      const second = titles.indexOf(secondTitle);
+      expect(first, `"${firstTitle}" missing from [${titles.join(", ")}]`).toBeGreaterThanOrEqual(
+        0,
+      );
+      expect(second, `"${secondTitle}" missing from [${titles.join(", ")}]`).toBeGreaterThanOrEqual(
+        0,
+      );
+      expect(first).toBeLessThan(second);
+    };
+
+    await page.goto(base() + "/tickets");
+    await expect(page.getByLabel("Order by")).toHaveValue("newest");
+    await expectOrder(calmTitle, urgentTitle);
+
+    await assertHtmxSwap(
+      page,
+      async () => {
+        await page.getByLabel("Order by").selectOption("urgency");
+        await page.getByRole("button", { name: "Apply", exact: true }).click();
+      },
+      {
+        endpoint: (url) => {
+          const parsedURL = new URL(url);
+          return (
+            parsedURL.pathname === "/tickets" && parsedURL.searchParams.get("sort") === "urgency"
+          );
+        },
+        method: "GET",
+        expectedStatus: 200,
+        hxTarget: "#tickets-screen",
+        expectedUrl: /\/tickets\?.*sort=urgency/,
+      },
+    );
+    await expect(page.getByLabel("Order by")).toHaveValue("urgency");
+    await expectOrder(urgentTitle, calmTitle);
+
+    // The pushed URL keeps the choice across a reload.
+    await page.reload();
+    await expect(page.getByLabel("Order by")).toHaveValue("urgency");
+    await expectOrder(urgentTitle, calmTitle);
+
+    await assertHtmxSwap(
+      page,
+      async () => {
+        await page.getByLabel("Order by").selectOption("priority");
+        await page.getByRole("button", { name: "Apply", exact: true }).click();
+      },
+      {
+        endpoint: (url) => {
+          const parsedURL = new URL(url);
+          return (
+            parsedURL.pathname === "/tickets" && parsedURL.searchParams.get("sort") === "priority"
+          );
+        },
+        method: "GET",
+        expectedStatus: 200,
+        hxTarget: "#tickets-screen",
+        expectedUrl: /\/tickets\?.*sort=priority/,
+      },
+    );
+    await expect(page.getByLabel("Order by")).toHaveValue("priority");
+    await expectOrder(urgentTitle, calmTitle);
+    await page.reload();
+    await expect(page.getByLabel("Order by")).toHaveValue("priority");
+    await expectOrder(urgentTitle, calmTitle);
+
+    await assertCanonicalScreen(page, {
+      viewport: 1280,
+      label: "tickets order by urgency and priority",
       url: page.url(),
       role: "root",
       consoleErrors: obs.consoleErrors,

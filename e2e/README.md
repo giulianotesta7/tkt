@@ -27,9 +27,9 @@ All screens below use `e2e/tests/helpers/layout.ts` (`collectObservability` + `a
 | Login | `/login` | anonymous; empty redirects to `/setup` | Auth — seeded login | `tests/auth.spec.ts` | credential validation (`handlers_auth_test.go`) |
 | Setup | `/setup` | anonymous (empty form, seeded redirects to `/login` or `/tickets`) | Auth — bootstrap and gates | `tests/auth.spec.ts` | `handlers_auth_test.go`, `middleware_auth_test.go` |
 | Root | `/` | redirects per session state | Auth — `/` redirect | `tests/auth.spec.ts` | `handlers_tickets_test.go` |
-| Tickets | `/tickets` | root | Tickets — list, search filter | `tests/tickets.spec.ts` | filter combos (`handlers_tickets_test.go`) |
+| Tickets | `/tickets` | root | Tickets — list, search filter, SLA badge/ordering | `tests/tickets.spec.ts` | filter combos (`handlers_tickets_test.go`) |
 | New ticket | `/tickets/new` | root | Tickets — creation | `tests/tickets.spec.ts` | validation (`handlers_tickets_test.go`) |
-| Ticket detail | `/tickets/{id}` | root | Tickets — detail contract | `tests/ticket-detail.spec.ts` | closed-state POST rejection (`handlers_comment_test.go`) |
+| Ticket detail | `/tickets/{id}` | root | Tickets — detail contract, SLA panel | `tests/ticket-detail.spec.ts` | closed-state POST rejection (`handlers_comment_test.go`) |
 | Users | `/users` | root | Users — list | `tests/structural.spec.ts` | `handlers_users_view_test.go` |
 | New user | `/users/new` | root | Users — creation+edition | `tests/users.spec.ts` | — |
 | Edit user | `/users/{id}/edit` | root | Users — edition | `tests/users.spec.ts` | password change, deactivation, deletion (`user_reactivate_test.go`, `handlers_users*.go`) |
@@ -51,7 +51,9 @@ All screens below use `e2e/tests/helpers/layout.ts` (`collectObservability` + `a
 | Tickets — search filter and pagination | HTMX swap on `#tickets-screen`: Apply sends the visible query controls together, Enter submits the same toolbar, an impossible term shows `No tickets match your filters`, and Clear restores the full list. A multi-page query preserves its controls through Next, reload, and 390px metadata rows. Each swap proves GET `/tickets`, 200, `HX-Request: true`, zero main-frame navigation, target mutation, and the pushed query URL. | `tests/tickets.spec.ts` |
 | Tickets — public comment | native POST (the comment form has no `hx-post`): 303 response, navigation to detail, comment in timeline, persists after reload | `tests/tickets.spec.ts` |
 | Tickets — transition | HTMX swap: `new → in_progress` with visible state badge, timeline entry, reload persistence | `tests/tickets.spec.ts` |
+| Tickets — SLA visibility and ordering | after enabling SLA and creating a ticket, `/tickets` shows the SLA badge plus the pending milestone's due instant, while a ticket created before enabling keeps an empty SLA cell; the Order by control applies urgency and priority (each the reverse of the default newest-first) and the pushed query keeps the choice across a reload | `tests/tickets.spec.ts` |
 | Ticket detail — structural contract | Properties sidebar (Requester, Category, State), timeline, description | `tests/ticket-detail.spec.ts` |
+| Ticket detail — SLA panel | a committed ticket shows an SLA section with the overall state plus one block per milestone (Response, Resolve), each carrying its frozen target and its due instant | `tests/ticket-detail.spec.ts` |
 | Ticket detail — closed states | comment form hidden on resolved, closed, cancelled; requester-owned close blocked (Move-to offers no `closed`) | `tests/ticket-detail.spec.ts` |
 | Tickets — requester confirmation | `resolved` awaiting confirmation: requester confirms (ticket closes, closure-attributed to requester, panel gone), requester rejects (ticket reopens as detached manual `in_progress`), requester-owned resolved viewed by an agent (no panel, Move-to offers reopen but not `closed`) | `tests/ticket-confirmation.spec.ts` |
 | HTMX — requester confirmation | provenance journeys (confirm → `closed`, reject → `in_progress`, agent blocked close) each proven by `assertHtmxSwap`: POST `/tickets/{id}/confirmation` (`decision=confirm|reject`), expected 200,`HX-Request` true, `#ticket-detail` fragment, zero navigation | `tests/ticket-confirmation.spec.ts` |
@@ -69,6 +71,7 @@ All screens below use `e2e/tests/helpers/layout.ts` (`collectObservability` + `a
 | HTMX — users tabs | swap on `#users-root` via Deactivated tab: `assertHtmxSwap` proves request, status, zero navigation, region change, URL gains `?status=deactivated` per `hx-push-url` | `tests/htmx.spec.ts` |
 | HTMX — workflow builder | add-step swap on `#workflow-builder` (mechanism-level; the functional journey lives in `categories.spec.ts`) | `tests/htmx.spec.ts` |
 | Roles — minimal matrix | root via bootstrap (empty), admin creates category, agent creates ticket + admin screens Forbidden (browser-visible), user creates ticket + internal checkbox hidden + admin Forbidden | `tests/roles.spec.ts` |
+| Roles — requester SLA blindness | a `user`-role requester's list and detail page carry no SLA badge, column header or section while still rendering their own content, and the same ticket shows the SLA panel to staff | `tests/roles.spec.ts` |
 
 The role matrix exercises real actors (root, admin, agent, user) without a Cartesian product. Exhaustive authorization stays in Go (`handlers_admin_test.go`, `authorization.go`).
 
