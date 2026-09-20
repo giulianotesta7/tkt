@@ -84,6 +84,7 @@ type pageData struct {
 	NavActive            string
 	CurrentUser          domain.User
 	CanManageUsers       bool
+	CanManageSettings    bool
 	CanManageDesks       bool
 	CanManageCategories  bool
 	CanGrantAdmin        bool
@@ -107,6 +108,7 @@ func pageDataFrom(r *http.Request, nav string) pageData {
 		NavActive:           nav,
 		CurrentUser:         *u,
 		CanManageUsers:      caps.Require(application.CapManageUsers),
+		CanManageSettings:   caps.Require(application.CapManageSettings),
 		CanManageDesks:      caps.Require(application.CapManageDesks),
 		CanManageCategories: caps.Require(application.CapManageCategories),
 		CanGrantAdmin:       caps.Require(application.CapGrantAdmin),

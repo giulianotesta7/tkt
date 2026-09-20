@@ -50,6 +50,12 @@ const (
 	CapManageCategories Capability = "categories.manage"
 	// CapViewTicketMetrics permits the administrative queue metrics read.
 	CapViewTicketMetrics Capability = "tickets.metrics.view"
+	// CapManageSettings allows instance-wide configuration (the Settings screen).
+	// It is deliberately NOT CapManageUsers: the two were the same thing only
+	// while a single appearance setting existed, and reusing the user-management
+	// capability would make every future settings route inherit a grant whose
+	// meaning is about managing people, not about configuring the instance.
+	CapManageSettings Capability = "settings.manage"
 )
 
 // capabilityMatrix maps each role to its granted capabilities. The empty
@@ -78,6 +84,7 @@ var capabilityMatrix = map[domain.Role][]Capability{
 		CapManageDesks,
 		CapManageCategories,
 		CapViewTicketMetrics,
+		CapManageSettings,
 	},
 	domain.RoleRoot: {
 		CapCreateTicket,
@@ -91,6 +98,7 @@ var capabilityMatrix = map[domain.Role][]Capability{
 		CapManageDesks,
 		CapManageCategories,
 		CapViewTicketMetrics,
+		CapManageSettings,
 	},
 }
 

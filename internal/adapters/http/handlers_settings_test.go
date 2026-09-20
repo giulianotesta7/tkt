@@ -150,15 +150,35 @@ func TestSettingsUpdateDeniedForNonAdmin(t *testing.T) {
 // TestSettingsRailLinkAdminOnly proves the sidebar link renders only for
 // admin/root shells (the capability flag drives it, matching the server
 // gate).
-func TestSettingsRailLinkAdminOnly(t *testing.T) {
-	admin := fixtureUsersIndexData()
-	admin.CanManageUsers = true
-	if body := renderGolden(t, "users_index", "", admin, false); !strings.Contains(body, `href="/settings"`) {
-		t.Error("admin shell must show the settings rail link")
-	}
-
-	user := fixtureUsersIndexData()
-	if body := renderGolden(t, "users_index", "", user, false); strings.Contains(body, `href="/settings"`) {
-		t.Error("non-admin shell must not show the settings rail link")
+// TestSettingsRailLinkCapabilityIsolation proves each rail link follows its
+// OWN capability in both directions (issue #211): the Users link rides
+// CanManageUsers and the Settings link rides CanManageSettings, so widening
+// one never silently widens the other. The rail anchors carry unique titles:
+// href="/settings" and href="/users" also appear in the page body.
+func TestSettingsRailLinkCapabilityIsolation(t *testing.T) {
+	for _, tc := range []struct {
+		name             string
+		manageUsers      bool
+		manageSettings   bool
+		wantUsersLink    bool
+		wantSettingsLink bool
+	}{
+		{name: "both", manageUsers: true, manageSettings: true, wantUsersLink: true, wantSettingsLink: true},
+		{name: "settings only", manageUsers: false, manageSettings: true, wantUsersLink: false, wantSettingsLink: true},
+		{name: "users only", manageUsers: true, manageSettings: false, wantUsersLink: true, wantSettingsLink: false},
+		{name: "neither", manageUsers: false, manageSettings: false, wantUsersLink: false, wantSettingsLink: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			data := fixtureUsersIndexData()
+			data.CanManageUsers = tc.manageUsers
+			data.CanManageSettings = tc.manageSettings
+			body := renderGolden(t, "users_index", "", data, false)
+			if got := strings.Contains(body, `title="Users"`); got != tc.wantUsersLink {
+				t.Errorf("users rail link present = %v, want %v", got, tc.wantUsersLink)
+			}
+			if got := strings.Contains(body, `title="Settings"`); got != tc.wantSettingsLink {
+				t.Errorf("settings rail link present = %v, want %v", got, tc.wantSettingsLink)
+			}
+		})
 	}
 }
