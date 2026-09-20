@@ -17,13 +17,12 @@ var _ application.TicketMetricsStore = (*ticketMetricsStore)(nil)
 
 func newTicketMetricsStore(db *sql.DB) *ticketMetricsStore { return &ticketMetricsStore{db: db} }
 
-// TicketMetrics selects a ticket once. The window function chooses the final
-// audited transition to resolved in the requested interval using timestamp/id;
-// current ticket, category and assignee joins deliberately provide current
-// attribution. Pending records are included regardless of the selected period.
-func (s *ticketMetricsStore) TicketMetrics(ctx context.Context, f application.TicketMetricsFilter) ([]application.TicketMetricsRecord, error) {
-	// f.End is already the exclusive UTC boundary produced by the metrics filter
-	// normalizer, so the window is used as-is.
+// ticketMetricsQuery builds the statement and its argument list for the
+// administrative metrics read. It is package-level so the numbered migration
+// test can EXPLAIN the exact statement the store runs instead of a replica
+// that could drift; extraction must not change the SQL, the argument order,
+// the results, or any error behavior.
+func ticketMetricsQuery(f application.TicketMetricsFilter) (string, []any) {
 	where := []string{"(resolved.ticket_id IS NOT NULL OR t.state IN ('new', 'in_progress') OR (t.created_at >= ? AND t.created_at < ?))"}
 	args := []any{formatTime(f.Start), formatTime(f.End), formatTime(f.Start), formatTime(f.End)}
 	if f.DeskID != nil {
@@ -34,7 +33,7 @@ func (s *ticketMetricsStore) TicketMetrics(ctx context.Context, f application.Ti
 		where = append(where, "t.user_id = ?")
 		args = append(args, *f.AgentID)
 	}
-	rows, err := s.db.QueryContext(ctx, `
+	statement := `
 		WITH resolved AS (
 			SELECT a.ticket_id, a.created_at, a.id,
 			ROW_NUMBER() OVER (PARTITION BY a.ticket_id ORDER BY a.created_at DESC, a.id DESC) AS rn
@@ -49,8 +48,20 @@ func (s *ticketMetricsStore) TicketMetrics(ctx context.Context, f application.Ti
 		LEFT JOIN desks d ON d.id = c.desk_id
 		LEFT JOIN users u ON u.id = t.user_id
 		LEFT JOIN resolved ON resolved.ticket_id = t.id AND resolved.rn = 1
-		WHERE `+strings.Join(where, " AND ")+`
-		ORDER BY t.id`, args...)
+		WHERE ` + strings.Join(where, " AND ") + `
+		ORDER BY t.id`
+	return statement, args
+}
+
+// TicketMetrics selects a ticket once. The window function chooses the final
+// audited transition to resolved in the requested interval using timestamp/id;
+// current ticket, category and assignee joins deliberately provide current
+// attribution. Pending records are included regardless of the selected period.
+func (s *ticketMetricsStore) TicketMetrics(ctx context.Context, f application.TicketMetricsFilter) ([]application.TicketMetricsRecord, error) {
+	// f.End is already the exclusive UTC boundary produced by the metrics filter
+	// normalizer, so the window is used as-is.
+	statement, args := ticketMetricsQuery(f)
+	rows, err := s.db.QueryContext(ctx, statement, args...)
 	if err != nil {
 		return nil, fmt.Errorf("sqlite: ticket metrics: %w", err)
 	}
