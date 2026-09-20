@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/giulianotesta7/tkt/internal/application"
 	"github.com/giulianotesta7/tkt/internal/domain"
@@ -32,6 +33,12 @@ type TicketHandlers struct {
 	renderer     *Renderer
 	catalog      *application.CatalogService
 	metrics      *application.TicketMetricsService
+	// sla is the OPTIONAL SLA projection read used by the two STAFF ticket
+	// lists (issue #211). An UNSET service means "no SLA is rendered in any
+	// list": every row's SLA row stays nil and the lists render exactly as
+	// before. It is never dereferenced without a nil check, so unset can
+	// never panic; WithSLA is what makes the badge appear.
+	sla *application.SLAService
 }
 
 // NewTicketHandlers wires the ticket routes against the ticket, comment,
@@ -56,6 +63,18 @@ func NewTicketHandlers(tickets *application.TicketService, comments *application
 	if len(catalogs) > 0 {
 		h.catalog = catalogs[0]
 	}
+	return h
+}
+
+// WithSLA wires the optional SLA projection read into the ticket handlers
+// (issue #211). It follows the same fluent shape WithMetrics already uses, so
+// the constructor keeps the exact signature the five positional call sites
+// depend on (two of them unrelated tests); the SLA service arrives through an
+// explicit setter instead of a trailing constructor parameter. A nil or unset
+// service leaves every staff list's SLA row nil: no badge, no deadline, no
+// panic.
+func (h *TicketHandlers) WithSLA(sla *application.SLAService) *TicketHandlers {
+	h.sla = sla
 	return h
 }
 
@@ -282,18 +301,63 @@ func ticketFilterValues(f filterState) url.Values {
 	return v
 }
 
-// agentTicketRow wraps one agent-queue ticket with its batched row context
-// (issue #122). The domain.Ticket is EMBEDDED so every current template
-// expression ({{.ID}}, {{.Title}}, …) keeps resolving while unit 3 adds the
-// rich row markup; the Context carries desk/task/position facts.
-type agentTicketRow struct {
+// slaRow is the optional per-row SLA summary carried by BOTH staff ticket
+// lists (issue #211). State is the projection's WORST milestone state; DueAt
+// and Label carry the FIRST NOT-ACHIEVED milestone's due instant and its
+// label (Response / Resolve) while one is pending. A nil row means the ticket
+// has no frozen commitment and its SLA cell renders EMPTY — never a "no SLA"
+// badge.
+type slaRow struct {
+	State domain.SLAState
+	DueAt time.Time
+	Label string
+}
+
+// slaResponseLabel and slaResolveLabel name the two milestones in the row
+// deadline copy.
+const (
+	slaResponseLabel = "Response"
+	slaResolveLabel  = "Resolve"
+)
+
+// slaRowFor derives the optional row summary from one projection. A nil
+// projection (unknown id) or a ticket with no frozen commitment yields nil.
+// Otherwise it carries the overall state and, while a milestone is pending,
+// that milestone's due instant: the FIRST NOT-ACHIEVED one — the response
+// while no public staff response exists, else the resolve — the same rule the
+// urgency ordering keys on. A milestone whose due is the zero time is the
+// legacy single-milestone shape and is treated as nothing to show.
+func slaRowFor(p domain.SLAProjection) *slaRow {
+	if p.Frozen == nil {
+		return nil
+	}
+	row := &slaRow{State: p.Overall}
+	switch {
+	case p.FirstResponse.AchievedAt == nil && !p.FirstResponse.DueAt.IsZero():
+		row.DueAt = p.FirstResponse.DueAt
+		row.Label = slaResponseLabel
+	case p.Resolve.AchievedAt == nil && !p.Resolve.DueAt.IsZero():
+		row.DueAt = p.Resolve.DueAt
+		row.Label = slaResolveLabel
+	}
+	return row
+}
+
+// ticketRow wraps one staff-list ticket with its batched row context. The
+// domain.Ticket is EMBEDDED so every template expression ({{.ID}},
+// {{.Title}}, …) keeps resolving. Context carries the agent queue facts
+// (desk/task/position) and SLA carries the optional summary; the plain staff
+// table passes nil Context and the SLA projection map, so both staff lists
+// carry the SAME row shape.
+type ticketRow struct {
 	domain.Ticket
 	Context application.AgentTicketRowContext
+	SLA     *slaRow
 }
 
 // ticketListData is one independently paged ticket section.
 type ticketListData struct {
-	Tickets        []agentTicketRow
+	Tickets        []ticketRow
 	Total          int
 	Page           int
 	Pages          int
@@ -325,9 +389,11 @@ func sectionData(res *application.SearchResult, f filterState, hrefForPage func(
 // agentQueueSections builds BOTH agent queue sections through the shared
 // helper used by GET /tickets and list-claim responses: the two independent
 // scoped searches run as today, the union of page ticket IDs (≤ 20 at PageSize
-// 10) is batched through ONE SearchService.AgentQueueContext call, and every
-// ticket is wrapped with its row context. A missing production capability or
-// a store error propagates — rows are never fabricated.
+// 10) is batched through ONE SearchService.AgentQueueContext call AND ONE
+// SLAService.ForTickets call (one clock snapshot for the whole page), and
+// every ticket is wrapped with its row context and optional SLA row. A missing
+// production capability or a store error propagates — rows are never
+// fabricated.
 func (h *TicketHandlers) agentQueueSections(r *http.Request, f filterState, assignedPage, claimablePage int) (assigned, claimable ticketListData, total int, err error) {
 	actor := *userFromContext(r.Context())
 	assignedQuery := f.query()
@@ -349,25 +415,46 @@ func (h *TicketHandlers) agentQueueSections(r *http.Request, f filterState, assi
 	if err != nil {
 		return assigned, claimable, 0, err
 	}
+	// ONE SLA batch over the union of BOTH sections' page ids, instead of a
+	// per-section or per-ticket read. An unset service leaves slas nil, so
+	// every row's SLA row stays nil and no badge renders.
+	var slas map[int64]domain.SLAProjection
+	if h.sla != nil {
+		slas, err = h.sla.ForTickets(r.Context(), ticketIDs(union))
+		if err != nil {
+			return assigned, claimable, 0, err
+		}
+	}
 	assigned = sectionData(assignedRes, f, func(page int) string {
 		return agentListHref(f, page, claimablePage)
 	})
-	assigned.Tickets = wrapAgentQueueRows(assignedRes.Tickets, contexts)
+	assigned.Tickets = wrapTicketRows(assignedRes.Tickets, contexts, slas)
 	claimable = sectionData(claimableRes, f, func(page int) string {
 		return agentListHref(f, assignedPage, page)
 	})
-	claimable.Tickets = wrapAgentQueueRows(claimableRes.Tickets, contexts)
+	claimable.Tickets = wrapTicketRows(claimableRes.Tickets, contexts, slas)
 	return assigned, claimable, assignedRes.Total + claimableRes.Total, nil
 }
 
-// wrapAgentQueueRows pairs the section's tickets with their batched contexts
-// (an unknown id degrades to the zero context — never a fabricated row).
-func wrapAgentQueueRows(tickets []domain.Ticket, contexts map[int64]application.AgentTicketRowContext) []agentTicketRow {
-	rows := make([]agentTicketRow, len(tickets))
+// wrapTicketRows pairs one section's tickets with their batched contexts and
+// optional SLA rows. The plain staff table reuses it with nil contexts, so
+// both staff lists carry the SAME row shape. An unknown id degrades to the
+// zero context and a nil SLA row — never a fabricated row.
+func wrapTicketRows(tickets []domain.Ticket, contexts map[int64]application.AgentTicketRowContext, slas map[int64]domain.SLAProjection) []ticketRow {
+	rows := make([]ticketRow, len(tickets))
 	for i, tk := range tickets {
-		rows[i] = agentTicketRow{Ticket: tk, Context: contexts[tk.ID]}
+		rows[i] = ticketRow{Ticket: tk, Context: contexts[tk.ID], SLA: slaRowFor(slas[tk.ID])}
 	}
 	return rows
+}
+
+// ticketIDs extracts one page's ids for the batched SLA read.
+func ticketIDs(tickets []domain.Ticket) []int64 {
+	ids := make([]int64, len(tickets))
+	for i, tk := range tickets {
+		ids[i] = tk.ID
+	}
+	return ids
 }
 
 // listData is the tickets index payload (page + HX fragment share it).
@@ -375,7 +462,7 @@ type listData struct {
 	pageData
 	Filters             filterState
 	Options             options
-	Tickets             []domain.Ticket
+	Tickets             []ticketRow
 	Total               int
 	Page                int
 	Pages               int
@@ -437,6 +524,18 @@ func (h *TicketHandlers) listData(r *http.Request, f filterState, page int) (lis
 	if err != nil {
 		return listData{}, err
 	}
+	// SLA is STAFF-ONLY. The requester list renders user_ticket_list.html,
+	// which must stay SLA-blind, so a user actor deliberately never triggers
+	// this read and every row's SLA row stays nil. For admin/root ONE
+	// ForTickets call covers the page with one clock snapshot; a store error
+	// propagates and no row is fabricated.
+	var slas map[int64]domain.SLAProjection
+	if actor.Role != domain.RoleUser && h.sla != nil {
+		slas, err = h.sla.ForTickets(r.Context(), ticketIDs(res.Tickets))
+		if err != nil {
+			return listData{}, err
+		}
+	}
 	pages := (res.Total + application.PageSize - 1) / application.PageSize
 	if pages < 1 {
 		pages = 1
@@ -448,7 +547,7 @@ func (h *TicketHandlers) listData(r *http.Request, f filterState, page int) (lis
 		pageData:            pageMeta,
 		Filters:             f,
 		Options:             opts,
-		Tickets:             res.Tickets,
+		Tickets:             wrapTicketRows(res.Tickets, nil, slas),
 		Total:               res.Total,
 		Page:                res.Page,
 		Pages:               pages,

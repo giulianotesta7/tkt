@@ -1025,3 +1025,108 @@ func TestTicketMetricsStaticScript(t *testing.T) {
 		}
 	}
 }
+
+// TestTicketListSLACellMarkup (issue #211, PR 4) pins the two SLA cell
+// shapes in the plain staff table: an at_risk row renders the badge plus the
+// pending response deadline, and a row whose ticket has no frozen commitment
+// renders an EMPTY cell — never a "no SLA" badge.
+func TestTicketListSLACellMarkup(t *testing.T) {
+	body := renderGolden(t, "tickets_index", "ticket_list", fixtureListData(), true)
+
+	atRisk := `<td data-label="SLA"><span class="badge at_risk">At Risk</span> <span class="cell-muted">Response <time datetime="2026-08-06T11:30:00Z">11:30 · 06-08-2026</time></span></td>`
+	if !strings.Contains(body, atRisk) {
+		t.Errorf("at_risk row must render the badge and pending deadline %q, got: %s", atRisk, body)
+	}
+	if !strings.Contains(body, `<td data-label="SLA"></td>`) {
+		t.Errorf("a ticket with no frozen SLA must render an empty SLA cell, got: %s", body)
+	}
+	for _, absent := range []string{`>No SLA<`, `badge none`} {
+		if strings.Contains(body, absent) {
+			t.Errorf("no-SLA row must not render %q, got: %s", absent, body)
+		}
+	}
+}
+
+// TestTicketsIndexSLABadgeIsStaffOnly (issue #211, PR 4) proves the SLA badge
+// and the outstanding deadline render in the two STAFF ticket lists (the
+// admin table and the assigned agent queue) and are ABSENT from the requester
+// list, which must stay SLA-blind. The harness enables SLA and creates a
+// frozen commitment through the real service, so the projection comes from a
+// real commitment, not a hand-built store.
+func TestTicketsIndexSLABadgeIsStaffOnly(t *testing.T) {
+	h := newHarness(t)
+
+	// Enable SLA through the real settings route so the create path freezes
+	// the commitment against the category matrix the migration materialized.
+	form := slaPanelForm("80")
+	form.Set("sla_enabled", "1")
+	if rec := h.postForm(t, "/settings/sla", form, false); rec.Code != http.StatusSeeOther {
+		t.Fatalf("enable SLA: status = %d, want %d", rec.Code, http.StatusSeeOther)
+	}
+
+	// A staff ticket that the admin table and the assigned agent queue render.
+	staffTicket := h.seedTicket(t, "Freeze me", nil)
+	agent := seedUserRole(t, h.store, "Ava", "ava-sla@example.com", domain.RoleAgent)
+	agentSession := seedSession(t, h.store, agent.ID)
+	h.assignTicket(t, staffTicket.ID, agent.ID)
+
+	// A requester-owned ticket so the requester list is non-empty.
+	requester := seedUserRole(t, h.store, "Rosa", "rosa-sla@example.com", domain.RoleUser)
+	requesterSession := seedSession(t, h.store, requester.ID)
+	requesterTicket, err := h.tickets.Create(t.Context(), *requester, application.CreateTicketInput{
+		Title: "Requester request", CategoryID: h.bugCategory.ID, Priority: domain.PriorityMedium,
+	})
+	if err != nil {
+		t.Fatalf("create requester ticket: %v", err)
+	}
+
+	// A fresh commitment is on_track with a pending response deadline.
+	const badge = `<span class="badge on_track">On Track</span>`
+
+	adminBody := h.get(t, "/tickets", false).Body.String()
+	if !strings.Contains(adminBody, "<th>SLA</th>") {
+		t.Errorf("admin list must render the SLA column header, got: %s", adminBody)
+	}
+	if !strings.Contains(adminBody, badge) {
+		t.Errorf("admin list must render the on_track SLA badge, got: %s", adminBody)
+	}
+	if !strings.Contains(adminBody, "Response <time ") {
+		t.Errorf("admin list must render the pending response deadline, got: %s", adminBody)
+	}
+
+	agentRec := doRequest(h.mux, h.mw, http.MethodGet, "/tickets", map[string]string{
+		"Cookie": sessionCookie + "=" + agentSession.ID,
+	})
+	if agentRec.Code != http.StatusOK {
+		t.Fatalf("agent tickets status = %d, want 200", agentRec.Code)
+	}
+	agentBody := agentRec.Body.String()
+	if !strings.Contains(agentBody, badge) {
+		t.Errorf("agent list must render the on_track SLA badge, got: %s", agentBody)
+	}
+	if !strings.Contains(agentBody, "Response <time ") {
+		t.Errorf("agent list must render the pending response deadline, got: %s", agentBody)
+	}
+
+	requesterRec := doRequest(h.mux, h.mw, http.MethodGet, "/tickets", map[string]string{
+		"Cookie": sessionCookie + "=" + requesterSession.ID,
+	})
+	if requesterRec.Code != http.StatusOK {
+		t.Fatalf("requester tickets status = %d, want 200", requesterRec.Code)
+	}
+	requesterBody := requesterRec.Body.String()
+	if !strings.Contains(requesterBody, requesterTicket.Title) {
+		t.Fatalf("requester list must render its own ticket, got: %s", requesterBody)
+	}
+	for _, absent := range []string{
+		"<th>SLA</th>",
+		`class="badge on_track"`,
+		`class="badge at_risk"`,
+		`class="badge breached"`,
+		`class="badge met"`,
+	} {
+		if strings.Contains(requesterBody, absent) {
+			t.Errorf("LEAK: requester list must not render SLA markup %q, got: %s", absent, requesterBody)
+		}
+	}
+}

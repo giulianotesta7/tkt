@@ -73,9 +73,10 @@ func TestTicketsStaticAssetAndAgentGating(t *testing.T) {
 	data := fixtureListData()
 	data.CurrentUser.Role = domain.RoleAgent
 	data.AgentView = true
-	data.Claimable = ticketListData{Tickets: []agentTicketRow{{
-		Ticket:  data.Tickets[0],
+	data.Claimable = ticketListData{Tickets: []ticketRow{{
+		Ticket:  data.Tickets[0].Ticket,
 		Context: application.AgentTicketRowContext{Position: &position},
+		SLA:     data.Tickets[0].SLA,
 	}}}
 	body := renderGolden(t, "tickets_index", "", data, false)
 	claimForm := `action="/tickets/2/workflow/steps/1/complete" hx-post="/tickets/2/workflow/steps/1/complete" hx-target="#agent-ticket-list" hx-swap="outerHTML"`

@@ -135,6 +135,10 @@ func TestGoldenAuthLogin(t *testing.T) {
 var (
 	goldenT0 = time.Date(2026, 8, 6, 10, 0, 0, 0, time.UTC)
 	goldenT1 = time.Date(2026, 8, 6, 10, 30, 0, 0, time.UTC)
+	// goldenSLAAt is a frozen SLA instant (D7: the render path never calls
+	// time.Now()); it is the pending first-response due for the fixture rows
+	// that carry a frozen commitment.
+	goldenSLAAt = time.Date(2026, 8, 6, 11, 30, 0, 0, time.UTC)
 )
 
 // fixtureListData builds a frozen list payload with two tickets, two
@@ -149,9 +153,12 @@ func fixtureListData() listData {
 		Users:           []domain.User{ana},
 		AssignableUsers: []domain.User{ana},
 	}
-	tickets := []domain.Ticket{
-		{ID: 2, Number: 2, Title: "Printer jam", State: domain.StateInProgress, Priority: domain.PriorityHigh, CreatedAt: goldenT1, UpdatedAt: goldenT1},
-		{ID: 1, Number: 1, Title: "Login page down", State: domain.StateNew, Priority: domain.PriorityCritical, CreatedAt: goldenT0, UpdatedAt: goldenT0},
+	tickets := []ticketRow{
+		{
+			Ticket: domain.Ticket{ID: 2, Number: 2, Title: "Printer jam", State: domain.StateInProgress, Priority: domain.PriorityHigh, CreatedAt: goldenT1, UpdatedAt: goldenT1},
+			SLA:    &slaRow{State: domain.SLAAtRisk, DueAt: goldenSLAAt, Label: slaResponseLabel},
+		},
+		{Ticket: domain.Ticket{ID: 1, Number: 1, Title: "Login page down", State: domain.StateNew, Priority: domain.PriorityCritical, CreatedAt: goldenT0, UpdatedAt: goldenT0}},
 	}
 	return listData{
 		pageData:            pageData{NavActive: "tickets", CurrentUser: ana},
@@ -230,13 +237,14 @@ func TestGoldenTicketsIndexAgent(t *testing.T) {
 	data.Filters = filterState{Q: "printer"}
 	data.Tickets[0].RequesterName = "Ana Torres"
 	data.Tickets[1].RequesterName = "Ana Torres"
-	data.Assigned = ticketListData{Tickets: []agentTicketRow{
-		{Ticket: data.Tickets[0], Context: application.AgentTicketRowContext{DeskName: "Service desk"}},
-		{Ticket: data.Tickets[1], Context: application.AgentTicketRowContext{CurrentTask: "Restart the printer spooler"}},
+	data.Assigned = ticketListData{Tickets: []ticketRow{
+		{Ticket: data.Tickets[0].Ticket, Context: application.AgentTicketRowContext{DeskName: "Service desk"}, SLA: data.Tickets[0].SLA},
+		{Ticket: data.Tickets[1].Ticket, Context: application.AgentTicketRowContext{CurrentTask: "Restart the printer spooler"}, SLA: data.Tickets[1].SLA},
 	}, Total: 2, Page: 1, Pages: 1}
-	data.Claimable = ticketListData{Tickets: []agentTicketRow{{
+	data.Claimable = ticketListData{Tickets: []ticketRow{{
 		Ticket:  domain.Ticket{ID: 3, Number: 3, Title: "Email bounce", RequesterName: "Ana Torres", State: domain.StateNew, Priority: domain.PriorityMedium, CreatedAt: goldenT1, UpdatedAt: goldenT1},
 		Context: application.AgentTicketRowContext{DeskName: "Service desk"},
+		SLA:     &slaRow{State: domain.SLAOnTrack, DueAt: goldenSLAAt, Label: slaResponseLabel},
 	}}, Total: 1, Page: 1, Pages: 1}
 	data.Total = 3
 	goldenFullPage(t, "tickets_index_agent", renderGolden(t, "tickets_index", "", data, false))
