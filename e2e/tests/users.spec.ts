@@ -435,7 +435,22 @@ test.describe("Users", () => {
     await expect(page.locator("#ticket-detail")).toBeVisible();
     const before = await assigneeLabel(page);
     if (before !== agentA.name) {
-      await page.locator('select[name="user_id"]').selectOption({ label: agentA.name });
+      await assertHtmxSwap(
+        page,
+        async () => {
+          await page.locator('select[name="user_id"]').selectOption({ label: agentA.name });
+          await page
+            .locator("form:has(#assign-user)")
+            .getByRole("button", { name: "Apply" })
+            .click();
+        },
+        {
+          endpoint: `/tickets/${ticketId}/assign`,
+          method: "POST",
+          expectedStatus: 200,
+          hxTarget: "#ticket-detail",
+        },
+      );
       await expect(page.locator('select[name="user_id"] option:checked')).toHaveText(agentA.name);
     }
 
@@ -516,7 +531,19 @@ test.describe("Users", () => {
       priority: "low",
     });
     await page.goto(base() + `/tickets/${ticketId}`);
-    await page.locator('select[name="user_id"]').selectOption({ label: agentC.name });
+    await assertHtmxSwap(
+      page,
+      async () => {
+        await page.locator('select[name="user_id"]').selectOption({ label: agentC.name });
+        await page.locator("form:has(#assign-user)").getByRole("button", { name: "Apply" }).click();
+      },
+      {
+        endpoint: `/tickets/${ticketId}/assign`,
+        method: "POST",
+        expectedStatus: 200,
+        hxTarget: "#ticket-detail",
+      },
+    );
     await expect(page.locator('select[name="user_id"] option:checked')).toHaveText(agentC.name);
 
     // Downgrade C: succeeds (no 500) and the open ticket becomes unassigned.

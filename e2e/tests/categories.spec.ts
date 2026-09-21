@@ -1447,6 +1447,7 @@ test.describe("Categories", () => {
       page,
       async () => {
         await assignee.selectOption({ label: "Alice Admin" });
+        await page.locator("form:has(#assign-user)").getByRole("button", { name: "Apply" }).click();
       },
       {
         endpoint: `/tickets/${ticketId}/assign`,

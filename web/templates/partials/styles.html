@@ -190,7 +190,7 @@
   .prop-row{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:32px;padding:3px 0}
   .prop-label{font-size:12px;color:var(--ink-soft);font-weight:500}
   .prop-value{font-size:13px;color:var(--ink);font-weight:500;display:flex;align-items:center}
-  .prop-control{margin:0}
+  .prop-control{margin:0;display:flex;align-items:center;gap:6px}
   .prop-select{
     width:auto;min-width:120px;max-width:180px;height:30px;
     border:1px solid var(--line);border-radius:8px;background:var(--card);
@@ -202,13 +202,12 @@
   .state-reason-field{display:none;flex-direction:column;gap:5px;width:220px}
   .state-reason-field.visible{display:flex}
   .state-reason-field label{font-size:12px;font-weight:600;color:var(--muted);letter-spacing:0;}
-  .state-reason-row{display:flex;gap:8px;width:100%}
   .state-reason{
-    flex:1 1 auto;min-width:0;height:30px;border:1px solid var(--line);border-radius:8px;
+    width:100%;height:30px;border:1px solid var(--line);border-radius:8px;
     background:var(--card);color:var(--ink);padding:0 8px;font:inherit;font-size:13px;
   }
   .state-reason:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 2px var(--accent-soft)}
-  .state-apply{flex:0 0 auto;height:30px;padding:0 12px;font-size:12px}
+  .state-apply{flex:0 0 auto}
   .prop-select:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 2px var(--accent-soft)}
   .lifecycle-meta{display:grid;grid-template-columns:auto 1fr;gap:6px 12px;margin:10px 0 0;padding-top:10px;border-top:1px solid var(--line);font-size:12px}
   .lifecycle-meta dt{color:var(--muted)}

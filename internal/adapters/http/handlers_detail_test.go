@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"regexp"
 	"strconv"
 	"strings"
 	"testing"
@@ -766,6 +767,203 @@ func TestTicketEditEmptyTitleStillRejected(t *testing.T) {
 	view, err := h.tickets.GetByID(t.Context(), *h.admin, 1)
 	if err != nil || view.Ticket.Title != "Login page down" || view.Ticket.Priority != domain.PriorityMedium {
 		t.Errorf("rejected blank title must change nothing (title=%q priority=%q err=%v)", view.Ticket.Title, view.Ticket.Priority, err)
+	}
+}
+
+// --- #232: rendered detail controls require an explicit Apply -------------
+
+// renderedFormBlock returns the first <form>...</form> block in body whose
+// opening tag contains marker. It walks back from marker to the nearest
+// "<form" so the returned block is the whole form, and fails when the marker
+// is absent or its form is unterminated.
+func renderedFormBlock(t *testing.T, body, marker string) string {
+	t.Helper()
+	at := strings.Index(body, marker)
+	if at < 0 {
+		t.Fatalf("rendered fragment must contain %q, got: %s", marker, body)
+	}
+	open := strings.LastIndex(body[:at], "<form")
+	if open < 0 {
+		t.Fatalf("%q is not inside a <form> block, got: %s", marker, body)
+	}
+	rest := body[open:]
+	end := strings.Index(rest, "</form>")
+	if end < 0 {
+		t.Fatalf("form containing %q has no closing tag, got: %s", marker, body)
+	}
+	return rest[:end+len("</form>")]
+}
+
+var (
+	htmlNameAttrRE  = regexp.MustCompile(`name="([^"]+)"`)
+	htmlValueAttrRE = regexp.MustCompile(`value="([^"]*)"`)
+)
+
+// formFieldNames returns the name attributes of every control in a rendered
+// form block, in document order, so a test can build its POST body from the
+// shipped markup instead of guessing the fields — a re-added hidden sibling
+// shows up here.
+func formFieldNames(form string) []string {
+	matches := htmlNameAttrRE.FindAllStringSubmatch(form, -1)
+	names := make([]string, 0, len(matches))
+	for _, m := range matches {
+		names = append(names, m[1])
+	}
+	return names
+}
+
+// renderedFormValues builds the POST body a browser would send for the
+// rendered form block: every named control becomes a key, a select
+// contributes its selected (or first) option value, and other inputs
+// contribute their value attribute.
+func renderedFormValues(t *testing.T, form string) url.Values {
+	t.Helper()
+	values := url.Values{}
+	for _, name := range formFieldNames(form) {
+		values.Set(name, renderedControlValue(form, name))
+	}
+	return values
+}
+
+func renderedControlValue(form, name string) string {
+	at := strings.Index(form, `name="`+name+`"`)
+	if at < 0 {
+		return ""
+	}
+	tagStart := strings.LastIndex(form[:at], "<")
+	if tagStart < 0 {
+		return ""
+	}
+	tag := form[tagStart:]
+	if strings.HasPrefix(tag, "<select") {
+		body := tag
+		if end := strings.Index(body, "</select>"); end >= 0 {
+			body = body[:end]
+		}
+		for _, chunk := range strings.Split(body, "<option") {
+			if !strings.Contains(chunk, "selected") {
+				continue
+			}
+			if m := htmlValueAttrRE.FindStringSubmatch(chunk); m != nil {
+				return m[1]
+			}
+		}
+		if first := strings.Index(body, "<option"); first >= 0 {
+			if m := htmlValueAttrRE.FindStringSubmatch(body[first:]); m != nil {
+				return m[1]
+			}
+		}
+		return ""
+	}
+	if m := htmlValueAttrRE.FindStringSubmatch(tag); m != nil {
+		return m[1]
+	}
+	return ""
+}
+
+// TestTicketDetailEditControlsRequireExplicitSubmit proves the rendered detail
+// fragment no longer mutates on `change`: neither `requestSubmit` nor `onchange`
+// survives, each mutating form carries ONLY its own field, and the priority,
+// assignment and transition forms each expose an explicit submit button.
+func TestTicketDetailEditControlsRequireExplicitSubmit(t *testing.T) {
+	h := newHarness(t)
+	h.seedTicket(t, "Login page down", nil)
+	body := h.get(t, "/tickets/1", true).Body.String()
+
+	for _, banned := range []string{"requestSubmit", "onchange"} {
+		if strings.Contains(body, banned) {
+			t.Errorf("detail fragment must not contain %q, got: %s", banned, body)
+		}
+	}
+
+	titleForm := renderedFormBlock(t, body, `id="ticket-title"`)
+	if strings.Contains(titleForm, `name="priority"`) {
+		t.Errorf("title form must not carry a priority field, got: %s", titleForm)
+	}
+	priorityForm := renderedFormBlock(t, body, `id="ticket-priority"`)
+	if strings.Contains(priorityForm, `name="title"`) {
+		t.Errorf("priority form must not carry a hidden title field, got: %s", priorityForm)
+	}
+
+	for _, tc := range []struct{ name, marker string }{
+		{"priority edit", `id="ticket-priority"`},
+		{"assignment", `id="assign-user"`},
+		{"state transition", `id="ticket-state"`},
+	} {
+		block := renderedFormBlock(t, body, tc.marker)
+		if !strings.Contains(block, "<button") || !strings.Contains(block, `type="submit"`) {
+			t.Errorf("%s form must contain an explicit submit button, got: %s", tc.name, block)
+		}
+	}
+}
+
+// TestTicketDetailPriorityFormPostsOnlyItsOwnFields derives its POST body from
+// the RENDERED priority form and submits it: the stored title and its audit
+// trail stay untouched, proving applying the priority can never ship a sibling
+// field again.
+func TestTicketDetailPriorityFormPostsOnlyItsOwnFields(t *testing.T) {
+	h := newHarness(t)
+	h.seedTicket(t, "Login page down", nil)
+	body := h.get(t, "/tickets/1", true).Body.String()
+	block := renderedFormBlock(t, body, `id="ticket-priority"`)
+
+	if names := formFieldNames(block); len(names) != 1 || names[0] != "priority" {
+		t.Fatalf("priority form must expose exactly the priority field, got %v (markup: %s)", names, block)
+	}
+
+	form := renderedFormValues(t, block)
+	form.Set("priority", "critical")
+	rec := h.postForm(t, "/tickets/1/edit", form, true)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("priority-only edit status = %d, want 200: %s", rec.Code, rec.Body.String())
+	}
+
+	view, err := h.tickets.GetByID(t.Context(), *h.admin, 1)
+	if err != nil {
+		t.Fatalf("view: %v", err)
+	}
+	if view.Ticket.Title != "Login page down" {
+		t.Errorf("priority-only edit changed the title to %q", view.Ticket.Title)
+	}
+	if view.Ticket.Priority != domain.PriorityCritical {
+		t.Errorf("priority = %q, want critical", view.Ticket.Priority)
+	}
+	for _, ev := range view.AuditEvents {
+		if ev.Field != nil && *ev.Field == "title" {
+			t.Errorf("priority-only edit must not append a title audit event, got: %+v", ev)
+		}
+	}
+}
+
+// TestTicketDetailStateApplyIsAFormChild proves the transition Apply button is
+// a direct child of the state form — the form's last child — and not nested
+// inside the hidden reopen-reason field.
+func TestTicketDetailStateApplyIsAFormChild(t *testing.T) {
+	h := newHarness(t)
+	h.seedTicket(t, "Login page down", nil)
+	body := h.get(t, "/tickets/1", true).Body.String()
+	block := renderedFormBlock(t, body, `id="ticket-state"`)
+
+	fieldStart := strings.Index(block, `<div id="state-reason-field"`)
+	if fieldStart < 0 {
+		t.Fatalf("state form must keep the reason field, got: %s", block)
+	}
+	fieldCloseRel := strings.Index(block[fieldStart:], "</div>")
+	if fieldCloseRel < 0 {
+		t.Fatalf("state reason field must close, got: %s", block)
+	}
+	fieldClose := fieldStart + fieldCloseRel
+	apply := strings.Index(block, `id="state-apply"`)
+	if apply < 0 {
+		t.Fatalf("state form must render the Apply button, got: %s", block)
+	}
+	if apply < fieldClose {
+		t.Fatalf("state Apply button must be a direct child of the form, not nested inside #state-reason-field, got: %s", block)
+	}
+	tail := block[fieldClose+len("</div>") : strings.Index(block, "</form>")]
+	tail = strings.TrimSpace(tail)
+	if !strings.HasPrefix(tail, "<button") || !strings.HasSuffix(tail, "Apply</button>") {
+		t.Fatalf("state Apply button must be the form's last child, got: %s", block)
 	}
 }
 

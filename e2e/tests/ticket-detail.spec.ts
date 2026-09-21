@@ -115,6 +115,7 @@ test.describe("Ticket detail", () => {
         page,
         async () => {
           await moveSelect.selectOption(target);
+          await page.locator("#state-apply").click();
         },
         {
           endpoint: `/tickets/${id}/transition`,
@@ -167,6 +168,7 @@ test.describe("Ticket detail", () => {
         page,
         async () => {
           await toCancel.selectOption("cancelled");
+          await page.locator("#state-apply").click();
         },
         {
           endpoint: `/tickets/${cancelId}/transition`,
@@ -219,6 +221,10 @@ test.describe("Ticket detail", () => {
       page,
       async () => {
         await prioritySelect.selectOption("critical");
+        await page
+          .locator("form:has(#ticket-priority)")
+          .getByRole("button", { name: "Apply" })
+          .click();
       },
       {
         endpoint: `/tickets/${id}/edit`,
@@ -241,6 +247,73 @@ test.describe("Ticket detail", () => {
       failedRequests: obs.failedRequests,
       failedResponses: obs.failedResponses,
     });
+  });
+
+  test("assignment mutates only after Apply, never on change alone", async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await loginAsSeeded(page);
+    const id = await createTicketViaUi(page, {
+      title: "Apply guard " + Date.now().toString(36).slice(2, 8),
+      description: "assign-select change must not mutate",
+      category: "General",
+      priority: "high",
+    });
+    await page.goto(base() + `/tickets/${id}`);
+    const assignee = page.locator("#assign-user");
+    await expect(assignee).toBeVisible();
+
+    const assignPath = `/tickets/${id}/assign`;
+    const assignRequests: string[] = [];
+    page.on("request", (request) => {
+      if (request.method() === "POST" && new URL(request.url()).pathname === assignPath) {
+        assignRequests.push(request.url());
+      }
+    });
+
+    // Deterministic: a bubbling `change` event alone must never mutate. The
+    // removed inline onchange used to requestSubmit() from exactly this event.
+    await page.evaluate(() => {
+      const select = document.querySelector("#assign-user");
+      if (!select) throw new Error("Missing #assign-user");
+      select.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    await page.waitForTimeout(300);
+    expect(assignRequests, "change alone must not POST /assign").toEqual([]);
+
+    // Browser-real: on a closed native select Chromium moves the selection on
+    // ArrowDown and fires change — the exact reassignment footgun. The value
+    // moves; the POST must not.
+    const beforeArrow = await assignee.inputValue();
+    await assignee.focus();
+    await page.keyboard.press("ArrowDown");
+    await page.waitForTimeout(300);
+    const afterArrow = await assignee.inputValue();
+    expect(
+      afterArrow,
+      "ArrowDown must move the closed-select selection for this regression to be meaningful",
+    ).not.toBe(beforeArrow);
+    expect(assignRequests, "ArrowDown must not POST /assign").toEqual([]);
+
+    // Apply is the deliberate act: the same control now mutates.
+    const attemptedAssignee = await assignee
+      .locator("option:not([value=''])")
+      .first()
+      .getAttribute("value");
+    if (!attemptedAssignee) throw new Error(`No assignable user at ${page.url()}`);
+    await assignee.selectOption(attemptedAssignee);
+    await assertHtmxSwap(
+      page,
+      async () => {
+        await page.locator("form:has(#assign-user)").getByRole("button", { name: "Apply" }).click();
+      },
+      {
+        endpoint: assignPath,
+        method: "POST",
+        expectedStatus: 200,
+        hxTarget: "#ticket-detail",
+      },
+    );
+    await expect(assignee).toHaveValue(attemptedAssignee);
   });
 
   test("persistent failure survives an unrelated drawer success beyond five seconds", async ({
@@ -388,6 +461,10 @@ test.describe("Ticket detail", () => {
           new URLSearchParams(request.postData() ?? "").get("priority") === "critical",
       );
       await priority.selectOption("critical");
+      await page
+        .locator("form:has(#ticket-priority)")
+        .getByRole("button", { name: "Apply" })
+        .click();
       const priorityRequest = await priorityRequestPromise;
       expect(priorityRequest.headers()["hx-request"]).toBe("true");
       expect(priorityRequest.headers()["hx-target"]).toBe("ticket-detail");
@@ -420,6 +497,7 @@ test.describe("Ticket detail", () => {
             new URLSearchParams(request.postData() ?? "").get("user_id") === attemptedAssignee,
         );
         await assignee.selectOption(attemptedAssignee);
+        await page.locator("form:has(#assign-user)").getByRole("button", { name: "Apply" }).click();
         const assignmentRequest = await assignmentRequestPromise;
         expect(assignmentRequest.headers()["hx-request"]).toBe("true");
         expect(assignmentRequest.headers()["hx-target"]).toBe("ticket-detail");

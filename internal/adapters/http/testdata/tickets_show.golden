@@ -46,7 +46,6 @@
             hx-post="/tickets/1/edit" hx-target="#ticket-detail" hx-swap="outerHTML">
         <input type="text" id="ticket-title" name="title" value="Login page down" required
                aria-label="Ticket title" class="title-input">
-        <input type="hidden" name="priority" value="high">
       </form>
 
       <div class="meta-row ticket-metadata">
@@ -156,10 +155,10 @@
             <form class="prop-control" method="post" action="/tickets/1/edit"
                   hx-post="/tickets/1/edit" hx-target="#ticket-detail" hx-swap="outerHTML">
               <select id="ticket-priority" name="priority" class="prop-select"
-                      aria-label="Priority" onchange="this.form.requestSubmit()">
+                      aria-label="Priority">
                 <option value="critical" >Critical</option><option value="high" selected>High</option><option value="medium" >Medium</option><option value="low" >Low</option>
               </select>
-              <input type="hidden" name="title" value="Login page down">
+              <button class="btn small" type="submit">Apply</button>
             </form>
           </div>
         </div>
@@ -170,10 +169,11 @@
             <span class="prop-label">Assignee</span>
 
             <form class="prop-control" method="post" action="/tickets/1/assign" hx-post="/tickets/1/assign" hx-target="#ticket-detail" hx-swap="outerHTML">
-              <select id="assign-user" name="user_id" class="prop-select" aria-label="Assignee" onchange="this.form.requestSubmit()">
+              <select id="assign-user" name="user_id" class="prop-select" aria-label="Assignee">
                 <option value="">Unassigned</option>
                 <option value="1" selected>Ana Torres</option>
               </select>
+              <button class="btn small" type="submit">Apply</button>
             </form>
 
           </div>
@@ -191,18 +191,16 @@
             <form class="prop-control transition-control" method="post" action="/tickets/1/transition"
                   hx-post="/tickets/1/transition" hx-target="#ticket-detail" hx-swap="outerHTML">
               <select id="ticket-state" name="to" class="prop-select"
-                      aria-label="Move to state" onchange="toggleStateReason(this)">
+                      aria-label="Move to state" required>
                 <option value="" disabled selected>Select…</option>
                 <option value="resolved">Resolved</option><option value="cancelled">Cancelled</option>
               </select>
               <div id="state-reason-field" class="state-reason-field">
                 <label for="state-reason">Reopen reason</label>
-                <div class="state-reason-row">
-                  <input type="text" id="state-reason" name="reason" class="state-reason"
-                         placeholder="Required" required>
-                  <button type="submit" id="state-apply" class="btn primary small state-apply">Apply</button>
-                </div>
+                <input type="text" id="state-reason" name="reason" class="state-reason"
+                       placeholder="Required" required>
               </div>
+              <button type="submit" id="state-apply" class="btn small state-apply">Apply</button>
             </form>
           </div>
 
@@ -232,7 +230,8 @@
 
 
 
-function syncStateReason(select, autoSubmit) {
+
+function syncReopenReason(select) {
   const field = document.getElementById('state-reason-field');
   const reason = document.getElementById('state-reason');
   if (!field || !reason) return;
@@ -242,18 +241,15 @@ function syncStateReason(select, autoSubmit) {
   reason.required = !!needs;
   if (needs) {
     reason.focus();
-  } else if (autoSubmit && opt && opt.value) {
-    select.form.requestSubmit();
   }
 }
-function toggleStateReason(select) { syncStateReason(select, true); }
 
 
 
 
 (function () {
   const select = document.getElementById('ticket-state');
-  if (select) syncStateReason(select, false);
+  if (select) syncReopenReason(select);
 })();
 </script>
 

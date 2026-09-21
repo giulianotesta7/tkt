@@ -52,6 +52,7 @@ test.describe("Ticket confirmation", () => {
         page,
         async () => {
           await stateSelect.selectOption(target);
+          await page.locator("#state-apply").click();
         },
         {
           endpoint: `/tickets/${id}/transition`,

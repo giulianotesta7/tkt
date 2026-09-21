@@ -160,6 +160,7 @@ test.describe("Role — minimal matrix admin / agent / user (seeded)", () => {
       page,
       async () => {
         await assignee.selectOption({ label: "Agent Ava" });
+        await page.locator("form:has(#assign-user)").getByRole("button", { name: "Apply" }).click();
       },
       {
         endpoint: `/tickets/${assignedID}/assign`,
