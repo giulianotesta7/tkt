@@ -1097,7 +1097,7 @@ test.describe("Ticket list SLA visibility (seeded)", () => {
     await setSLAEnabled(page, false);
   });
 
-  test("staff list shows the SLA badge and an empty cell for an uncommitted ticket", async ({
+  test("staff list keeps an on_track commitment silent and an uncommitted ticket empty", async ({
     page,
   }) => {
     await page.setViewportSize({ width: 1280, height: 800 });
@@ -1143,10 +1143,11 @@ test.describe("Ticket list SLA visibility (seeded)", () => {
     // on_track is the quiet default: the cell shows the pending deadline, with
     // no pill and no state dot at all.
     await expect(committedCell.locator(".badge, .sla-dot")).toHaveCount(0);
-    await expect(committedCell).toContainText("Response");
-    const due = committedCell.locator("time");
-    await expect(due).toHaveCount(1);
-    await expect(due).toHaveAttribute("datetime", /\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z/);
+    // An on_track commitment renders NOTHING at all: silence is the quiet
+    // default, so the cell carries no milestone name and no deadline. The
+    // milestone and its instant live in the ticket's own panel.
+    await expect(committedCell).not.toContainText("First response");
+    await expect(committedCell.locator("time")).toHaveCount(0);
 
     const uncommittedRow = rowFor(uncommittedTitle);
     await expect(uncommittedRow).toHaveCount(1);

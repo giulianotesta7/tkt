@@ -509,7 +509,7 @@ test.describe("Ticket detail SLA panel (seeded)", () => {
 
     const milestoneRows = slaSection.locator(".prop-row");
     await expect(milestoneRows).toHaveCount(2);
-    await expect(milestoneRows.nth(0).locator(".prop-label")).toHaveText("Response");
+    await expect(milestoneRows.nth(0).locator(".prop-label")).toHaveText("First response");
     await expect(milestoneRows.nth(0).locator(".badge, .sla-dot")).toHaveCount(0);
     await expect(milestoneRows.nth(1).locator(".prop-label")).toHaveText("Resolve");
     await expect(milestoneRows.nth(1).locator(".badge, .sla-dot")).toHaveCount(0);
@@ -686,7 +686,7 @@ test.describe("Ticket detail SLA live countdown (seeded)", () => {
     // NO time at all — nothing ticks there. Only the pending Resolve milestone
     // carries the countdown.
     const rows = slaSection.locator(".prop-row");
-    await expect(rows.nth(0).locator(".prop-label")).toHaveText("Response");
+    await expect(rows.nth(0).locator(".prop-label")).toHaveText("First response");
     await expect(rows.nth(0).locator(".sla-dot")).toHaveClass(/met/);
     await expect(rows.nth(0)).toContainText("Met");
     await expect(rows.nth(0).locator("[data-sla-countdown]")).toHaveCount(0);

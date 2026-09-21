@@ -178,13 +178,13 @@
           <div class="prop-heading">SLA</div>
 
           <div class="prop-row">
-            <span class="prop-label">Response</span>
+            <span class="prop-label">First response</span>
             <span class="prop-value sla-value"><span class="sla-state"><span class="sla-dot met" aria-hidden="true"></span><span class="sla-state-word">Met</span></span> </span>
           </div>
 
           <div class="prop-row">
             <span class="prop-label">Resolve</span>
-            <span class="prop-value sla-value"><span class="sla-state"><span class="sla-dot at_risk" aria-hidden="true"></span><span class="sla-state-word">At Risk</span></span> <time datetime="2026-08-07T10:00:00Z" data-sla-countdown><span class="sla-countdown-ticker" aria-hidden="true">in 4h 0m</span><span class="sla-countdown-coarse visually-hidden">10:00 · 07-08-2026</span></time></span>
+            <span class="prop-value sla-value"><span class="sla-state"><span class="sla-dot at_risk" aria-hidden="true"></span><span class="sla-state-word">At Risk</span></span> <time datetime="2026-08-07T10:00:00Z" data-sla-countdown><span class="sla-countdown-ticker" aria-hidden="true">4h 0m</span><span class="sla-countdown-coarse visually-hidden">10:00 · 07-08-2026</span></time></span>
           </div>
 
         </div>

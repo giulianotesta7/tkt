@@ -10,7 +10,7 @@
           <td class="cell-title" data-label="Title"><a href="/tickets/{{.ID}}">{{.Title}}</a></td>
           <td data-label="State">{{template "state_badge" .State}}</td>
           <td class="priority {{.Priority}}" data-label="Priority"><span class="ticket-priority-value">{{humanize .Priority}}</span></td>
-          <td data-label="SLA">{{if .SLA}}{{template "sla_state_dot" .SLA.State}}{{if .SLA.Label}}<span class="cell-muted">{{.SLA.Label}} {{template "card_timestamp" .SLA.DueAt}}</span>{{end}}{{end}}</td>
+          <td data-label="SLA">{{if .SLA}}{{template "sla_state_dot" .SLA.State}}{{end}}</td>
           <td class="cell-muted" data-label="Updated">{{template "timestamp" .UpdatedAt}}</td>
         </tr>
 {{else}}        <tr><td colspan="6"><div class="empty">{{if .HasActiveQuery}}No tickets match your filters{{else}}No tickets yet{{end}}</div></td></tr>

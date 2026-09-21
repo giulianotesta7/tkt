@@ -859,7 +859,7 @@ func TestTicketDetailSLAPanelStaffOnly(t *testing.T) {
 	// countdown reads.
 	for _, want := range []string{
 		`<div class="prop-heading">SLA</div>`,
-		`<span class="prop-label">Response</span>`,
+		`<span class="prop-label">First response</span>`,
 		`<span class="prop-label">Resolve</span>`,
 		`datetime="` + formatDatetime(frozen.DueFirstResponseAt) + `"`,
 		`datetime="` + formatDatetime(frozen.DueResolveAt) + `"`,
@@ -994,13 +994,13 @@ func TestSLADurationLabel(t *testing.T) {
 	}
 }
 
-// TestSLAMilestoneRemainingLabel pins the remaining copy: "in 2h 30m" while
+// TestSLAMilestoneRemainingLabel pins the remaining copy: "2h 30m" while
 // pending, "30m overdue" once the remainder is negative, and EMPTY once the
 // milestone is achieved (the panel drops the row).
 func TestSLAMilestoneRemainingLabel(t *testing.T) {
 	pending := domain.SLAMilestoneStatus{TargetSeconds: 9000, Remaining: 2*time.Hour + 30*time.Minute}
-	if got := slaMilestoneViewFor("Response", pending).Remaining; got != "in 2h 30m" {
-		t.Errorf("pending remaining = %q, want %q", got, "in 2h 30m")
+	if got := slaMilestoneViewFor("Response", pending).Remaining; got != "2h 30m" {
+		t.Errorf("pending remaining = %q, want %q", got, "2h 30m")
 	}
 	overdue := domain.SLAMilestoneStatus{TargetSeconds: 9000, Remaining: -30 * time.Minute}
 	if got := slaMilestoneViewFor("Response", overdue).Remaining; got != "30m overdue" {
@@ -1031,7 +1031,7 @@ func TestTicketDetailSLACountdownHooks(t *testing.T) {
 		// so a browser with no JavaScript still reads the truth. It ticks every
 		// second, so assistive tech ignores it; the coarse span is the
 		// accessible one and is visually hidden.
-		`<span class="sla-countdown-ticker" aria-hidden="true">in `,
+		`<span class="sla-countdown-ticker" aria-hidden="true">`,
 		`<span class="sla-countdown-coarse visually-hidden">10:00 · 07-08-2026</span>`,
 	} {
 		if !strings.Contains(body, want) {
@@ -1047,7 +1047,7 @@ func TestTicketDetailSLACountdownHooks(t *testing.T) {
 	if strings.Contains(body, `<time datetime="2026-08-06T14:00:00Z"`) {
 		t.Errorf("an achieved milestone renders no time row any more, got: %s", body)
 	}
-	for _, want := range []string{`<span class="prop-label">Response</span>`, `<span class="sla-state"><span class="sla-dot met" aria-hidden="true"></span><span class="sla-state-word">Met</span></span>`} {
+	for _, want := range []string{`<span class="prop-label">First response</span>`, `<span class="sla-state"><span class="sla-dot met" aria-hidden="true"></span><span class="sla-state-word">Met</span></span>`} {
 		if !strings.Contains(body, want) {
 			t.Errorf("the achieved milestone must still render %q, got: %s", want, body)
 		}

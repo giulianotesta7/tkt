@@ -341,53 +341,33 @@ func ticketFilterValues(f filterState) url.Values {
 }
 
 // slaRow is the optional per-row SLA summary carried by BOTH staff ticket
-// lists (issue #211). DueAt and Label carry the FIRST NOT-ACHIEVED milestone's
-// due instant and its label (Response / Resolve) while one is pending, and
-// State is THAT milestone's state: one cell, one subject, so the dot can never
-// contradict the deadline next to it. A response achieved late still leaves
-// the projection breached, but the cell has moved on to the resolve and its
-// dot describes the promise still open — the breach stays visible in the
-// detail panel and in the urgency ordering, which keys on the worst state.
-// With both milestones achieved the cell prints no deadline and the dot
-// carries the worst achieved state instead, which is all that is left to say.
-// A nil row means the ticket has no frozen commitment and its SLA cell renders
-// EMPTY — never a "no SLA" badge.
+// lists (issue #211). It carries ONE thing: the projection's WORST milestone
+// state — whether the ticket is still standing. The milestone, its due instant
+// and the time left belong to the ticket's own panel, where there is room to
+// name them properly; the list is a triage surface and answers a single
+// question. A nil row means the ticket has no frozen commitment and its SLA
+// cell renders EMPTY — never a "no SLA" badge.
 type slaRow struct {
 	State domain.SLAState
-	DueAt time.Time
-	Label string
 }
 
 // slaResponseLabel and slaResolveLabel name the two milestones in the row
 // deadline copy.
 const (
-	slaResponseLabel = "Response"
+	slaResponseLabel = "First response"
 	slaResolveLabel  = "Resolve"
 )
 
 // slaRowFor derives the optional row summary from one projection. A nil
-// projection (unknown id) or a ticket with no frozen commitment yields nil.
-// Otherwise it carries the FIRST NOT-ACHIEVED milestone's due instant and that
-// milestone's state — the response while no public staff response exists, else
-// the resolve — which is the same rule the urgency ordering keys on. A
-// milestone whose due is the zero time is the legacy single-milestone shape
-// and is treated as nothing to show.
+// projection (unknown id) or a ticket with no frozen commitment yields nil;
+// otherwise the row carries the worst of the two milestone states, which is
+// the only thing the list says. The urgency ordering keys on the same worst
+// state, in SQL, so the list's order and its signal can never disagree.
 func slaRowFor(p domain.SLAProjection) *slaRow {
 	if p.Frozen == nil {
 		return nil
 	}
-	row := &slaRow{State: p.Overall}
-	switch {
-	case p.FirstResponse.AchievedAt == nil && !p.FirstResponse.DueAt.IsZero():
-		row.DueAt = p.FirstResponse.DueAt
-		row.Label = slaResponseLabel
-		row.State = p.FirstResponse.State
-	case p.Resolve.AchievedAt == nil && !p.Resolve.DueAt.IsZero():
-		row.DueAt = p.Resolve.DueAt
-		row.Label = slaResolveLabel
-		row.State = p.Resolve.State
-	}
-	return row
+	return &slaRow{State: p.Overall}
 }
 
 // slaMilestoneView is one pre-formatted milestone block of the ticket detail
@@ -457,7 +437,7 @@ func slaMilestoneViewFor(label string, m domain.SLAMilestoneStatus) slaMilestone
 		if seconds < 0 {
 			v.Remaining = slaDurationLabel(-seconds) + " overdue"
 		} else {
-			v.Remaining = "in " + slaDurationLabel(seconds)
+			v.Remaining = slaDurationLabel(seconds)
 		}
 	}
 	return v

@@ -406,11 +406,14 @@ func TestTicketsIndexSortByUrgency(t *testing.T) {
 
 	urgency := h.get(t, "/tickets?sort=urgency", false).Body.String()
 	// Both tickets must carry a frozen commitment for the ordering to be about
-	// the SLA at all. on_track renders no badge by design, so a non-empty SLA
-	// cell — its label and pending deadline, never the empty no-commitment cell
-	// — is the marker that proves the commitment reached each row.
-	if got := strings.Count(urgency, `<td data-label="SLA"><span class="cell-muted">`); got < 2 {
-		t.Fatalf("both tickets must carry a frozen commitment, got %d non-empty SLA cells: %s", got, urgency)
+	// the SLA at all. An on_track ticket renders NO signal — the quiet default
+	// is silence — so the commitment is proven against the store, where it is a
+	// fact rather than a rendering choice.
+	for _, tk := range []*domain.Ticket{urgent, relaxed} {
+		frozen, err := h.store.SLAStore().TicketSLA(t.Context(), tk.ID)
+		if err != nil || frozen == nil {
+			t.Fatalf("ticket %d must carry a frozen commitment, got %v (err %v)", tk.ID, frozen, err)
+		}
 	}
 	if !ordered(urgency, urgent, relaxed) {
 		t.Errorf("?sort=urgency must return the urgent-first order, got: %s", urgency)
@@ -1190,7 +1193,7 @@ func TestTicketMetricsStaticScript(t *testing.T) {
 func TestTicketListSLACellMarkup(t *testing.T) {
 	body := renderGolden(t, "tickets_index", "ticket_list", fixtureListData(), true)
 
-	atRisk := `<td data-label="SLA"><span class="sla-state"><span class="sla-dot at_risk" aria-hidden="true"></span><span class="sla-state-word">At Risk</span></span> <span class="cell-muted">Response <time class="card-timestamp" tabindex="0" datetime="2026-08-06T11:30:00Z" aria-label="11:30 · 06-08-2026" data-full-date="11:30 · 06-08-2026">11:30 · 06 Aug</time></span></td>`
+	atRisk := `<td data-label="SLA"><span class="sla-state"><span class="sla-dot at_risk" aria-hidden="true"></span><span class="sla-state-word">At Risk</span></span> </td>`
 	if !strings.Contains(body, atRisk) {
 		t.Errorf("at_risk row must render the badge and pending deadline %q, got: %s", atRisk, body)
 	}
@@ -1247,8 +1250,10 @@ func TestTicketsIndexSLAIsStaffOnly(t *testing.T) {
 	if strings.Contains(adminBody, `class="sla-dot on_track"`) {
 		t.Errorf("on_track must stay silent in the admin list, got: %s", adminBody)
 	}
-	if !strings.Contains(adminBody, "Response <time ") {
-		t.Errorf("admin list must render the pending response deadline, got: %s", adminBody)
+	// Silence is the quiet default for an on_track commitment, so the proof
+	// that the SLA reaches the staff row is the frozen commitment itself.
+	if frozen, err := h.store.SLAStore().TicketSLA(t.Context(), staffTicket.ID); err != nil || frozen == nil {
+		t.Fatalf("the staff ticket must carry a frozen commitment, got %v (err %v)", frozen, err)
 	}
 
 	agentRec := doRequest(h.mux, h.mw, http.MethodGet, "/tickets", map[string]string{
@@ -1260,9 +1265,6 @@ func TestTicketsIndexSLAIsStaffOnly(t *testing.T) {
 	agentBody := agentRec.Body.String()
 	if strings.Contains(agentBody, `class="sla-dot on_track"`) {
 		t.Errorf("on_track must stay silent in the agent list, got: %s", agentBody)
-	}
-	if !strings.Contains(agentBody, "Response <time ") {
-		t.Errorf("agent list must render the pending response deadline, got: %s", agentBody)
 	}
 
 	requesterRec := doRequest(h.mux, h.mw, http.MethodGet, "/tickets", map[string]string{
@@ -1277,6 +1279,7 @@ func TestTicketsIndexSLAIsStaffOnly(t *testing.T) {
 	}
 	for _, absent := range []string{
 		"<th>SLA</th>",
+		`class="sla-state"`,
 		`class="sla-dot at_risk"`,
 		`class="sla-dot breached"`,
 		`class="sla-dot met"`,
@@ -1287,51 +1290,29 @@ func TestTicketsIndexSLAIsStaffOnly(t *testing.T) {
 	}
 }
 
-// TestSLARowDotFollowsThePrintedDeadline (issue #211) pins the decision that a
-// row's state describes the milestone the row prints. A first response
-// achieved LATE leaves the projection breached, but the cell has moved on to
-// the resolve deadline: its dot must describe that open promise, never the one
-// that is already gone. The overall breach survives where it belongs — the
-// detail panel and the urgency ordering, which keys on the worst state.
-func TestSLARowDotFollowsThePrintedDeadline(t *testing.T) {
+// TestSLARowCarriesTheWorstMilestoneState (issue #211) pins the decision that
+// the list answers ONE question — is this ticket still standing — with the
+// worst of the two milestone states. The milestone, its due instant and the
+// time left live in the ticket's own panel, where there is room to name them,
+// so the row carries no deadline and nothing in it can contradict the state.
+func TestSLARowCarriesTheWorstMilestoneState(t *testing.T) {
+	late := time.Date(2026, 8, 6, 12, 0, 0, 0, time.UTC)
 	due := time.Date(2026, 8, 6, 10, 0, 0, 0, time.UTC)
-	late := due.Add(2 * time.Hour)
-	resolveDue := due.Add(4 * time.Hour)
 
 	p := domain.SLAProjection{
 		Frozen:        &domain.TicketSLA{},
 		FirstResponse: domain.SLAMilestoneStatus{DueAt: due, AchievedAt: &late, State: domain.SLABreached},
-		Resolve:       domain.SLAMilestoneStatus{DueAt: resolveDue, State: domain.SLAOnTrack},
+		Resolve:       domain.SLAMilestoneStatus{DueAt: due.Add(4 * time.Hour), State: domain.SLAOnTrack},
 		Overall:       domain.SLABreached,
 	}
-
 	row := slaRowFor(p)
 	if row == nil {
 		t.Fatalf("a frozen commitment must yield a row")
 	}
-	if row.Label != slaResolveLabel || !row.DueAt.Equal(resolveDue) {
-		t.Errorf("the row must print the first not-achieved milestone, got label %q due %v", row.Label, row.DueAt)
-	}
-	if row.State != domain.SLAOnTrack {
-		t.Errorf("the dot must describe the printed deadline (on_track), got %q — the overall breach belongs to the panel and to the urgency ordering", row.State)
-	}
-
-	// With both milestones achieved there is no deadline left to describe, so
-	// the dot carries the worst achieved state: nothing can contradict it.
-	achieved := domain.SLAProjection{
-		Frozen:        &domain.TicketSLA{},
-		FirstResponse: domain.SLAMilestoneStatus{DueAt: due, AchievedAt: &late, State: domain.SLABreached},
-		Resolve:       domain.SLAMilestoneStatus{DueAt: resolveDue, AchievedAt: &resolveDue, State: domain.SLAMet},
-		Overall:       domain.SLABreached,
-	}
-	row = slaRowFor(achieved)
-	if row == nil {
-		t.Fatalf("a frozen commitment must yield a row")
-	}
-	if row.Label != "" || !row.DueAt.IsZero() {
-		t.Errorf("an all-achieved ticket must print no deadline, got label %q due %v", row.Label, row.DueAt)
-	}
 	if row.State != domain.SLABreached {
-		t.Errorf("with no deadline the dot carries the worst achieved state, got %q", row.State)
+		t.Errorf("the row must carry the worst milestone state (breached), got %q", row.State)
+	}
+	if slaRowFor(domain.SLAProjection{}) != nil {
+		t.Errorf("a ticket with no frozen commitment must yield no row")
 	}
 }

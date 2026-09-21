@@ -156,7 +156,7 @@ func fixtureListData() listData {
 	tickets := []ticketRow{
 		{
 			Ticket: domain.Ticket{ID: 2, Number: 2, Title: "Printer jam", State: domain.StateInProgress, Priority: domain.PriorityHigh, CreatedAt: goldenT1, UpdatedAt: goldenT1},
-			SLA:    &slaRow{State: domain.SLAAtRisk, DueAt: goldenSLAAt, Label: slaResponseLabel},
+			SLA:    &slaRow{State: domain.SLAAtRisk},
 		},
 		{Ticket: domain.Ticket{ID: 1, Number: 1, Title: "Login page down", State: domain.StateNew, Priority: domain.PriorityCritical, CreatedAt: goldenT0, UpdatedAt: goldenT0}},
 	}
@@ -244,7 +244,7 @@ func TestGoldenTicketsIndexAgent(t *testing.T) {
 	data.Claimable = ticketListData{Tickets: []ticketRow{{
 		Ticket:  domain.Ticket{ID: 3, Number: 3, Title: "Email bounce", RequesterName: "Ana Torres", State: domain.StateNew, Priority: domain.PriorityMedium, CreatedAt: goldenT1, UpdatedAt: goldenT1},
 		Context: application.AgentTicketRowContext{DeskName: "Service desk"},
-		SLA:     &slaRow{State: domain.SLAOnTrack, DueAt: goldenSLAAt, Label: slaResponseLabel},
+		SLA:     &slaRow{State: domain.SLAOnTrack},
 	}}, Total: 1, Page: 1, Pages: 1}
 	data.Total = 3
 	goldenFullPage(t, "tickets_index_agent", renderGolden(t, "tickets_index", "", data, false))
