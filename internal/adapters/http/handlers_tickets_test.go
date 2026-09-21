@@ -1286,3 +1286,52 @@ func TestTicketsIndexSLAIsStaffOnly(t *testing.T) {
 		}
 	}
 }
+
+// TestSLARowDotFollowsThePrintedDeadline (issue #211) pins the decision that a
+// row's state describes the milestone the row prints. A first response
+// achieved LATE leaves the projection breached, but the cell has moved on to
+// the resolve deadline: its dot must describe that open promise, never the one
+// that is already gone. The overall breach survives where it belongs — the
+// detail panel and the urgency ordering, which keys on the worst state.
+func TestSLARowDotFollowsThePrintedDeadline(t *testing.T) {
+	due := time.Date(2026, 8, 6, 10, 0, 0, 0, time.UTC)
+	late := due.Add(2 * time.Hour)
+	resolveDue := due.Add(4 * time.Hour)
+
+	p := domain.SLAProjection{
+		Frozen:        &domain.TicketSLA{},
+		FirstResponse: domain.SLAMilestoneStatus{DueAt: due, AchievedAt: &late, State: domain.SLABreached},
+		Resolve:       domain.SLAMilestoneStatus{DueAt: resolveDue, State: domain.SLAOnTrack},
+		Overall:       domain.SLABreached,
+	}
+
+	row := slaRowFor(p)
+	if row == nil {
+		t.Fatalf("a frozen commitment must yield a row")
+	}
+	if row.Label != slaResolveLabel || !row.DueAt.Equal(resolveDue) {
+		t.Errorf("the row must print the first not-achieved milestone, got label %q due %v", row.Label, row.DueAt)
+	}
+	if row.State != domain.SLAOnTrack {
+		t.Errorf("the dot must describe the printed deadline (on_track), got %q — the overall breach belongs to the panel and to the urgency ordering", row.State)
+	}
+
+	// With both milestones achieved there is no deadline left to describe, so
+	// the dot carries the worst achieved state: nothing can contradict it.
+	achieved := domain.SLAProjection{
+		Frozen:        &domain.TicketSLA{},
+		FirstResponse: domain.SLAMilestoneStatus{DueAt: due, AchievedAt: &late, State: domain.SLABreached},
+		Resolve:       domain.SLAMilestoneStatus{DueAt: resolveDue, AchievedAt: &resolveDue, State: domain.SLAMet},
+		Overall:       domain.SLABreached,
+	}
+	row = slaRowFor(achieved)
+	if row == nil {
+		t.Fatalf("a frozen commitment must yield a row")
+	}
+	if row.Label != "" || !row.DueAt.IsZero() {
+		t.Errorf("an all-achieved ticket must print no deadline, got label %q due %v", row.Label, row.DueAt)
+	}
+	if row.State != domain.SLABreached {
+		t.Errorf("with no deadline the dot carries the worst achieved state, got %q", row.State)
+	}
+}
