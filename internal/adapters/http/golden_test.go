@@ -852,7 +852,7 @@ func TestGoldenCategoryForm(t *testing.T) {
 func fixtureSettingsIndexData() settingsIndexData {
 	ana := domain.User{ID: 1, Name: "Ana Torres", Email: "ana@example.com", Active: true, CreatedAt: goldenT0}
 	return settingsIndexData{
-		pageData: pageData{NavActive: "settings", CurrentUser: ana, CanManageUsers: true},
+		pageData: pageData{NavActive: "settings", CurrentUser: ana, CanManageUsers: true, CanManageSettings: true},
 		Current:  "#E8EEFF",
 		Colors:   appearanceOptions(),
 	}

@@ -29,7 +29,7 @@ func TestPolicyCapabilitiesPerRole(t *testing.T) {
 			denied: []Capability{
 				CapEditTicket, CapAssignTicket, CapCommentInternal,
 				CapManageUsers, CapChangeRole, CapGrantAdmin,
-				CapManageDesks, CapManageCategories,
+				CapManageDesks, CapManageCategories, CapManageSettings,
 			},
 		},
 		{
@@ -41,7 +41,7 @@ func TestPolicyCapabilitiesPerRole(t *testing.T) {
 			},
 			denied: []Capability{
 				CapManageUsers, CapChangeRole, CapGrantAdmin,
-				CapManageDesks, CapManageCategories,
+				CapManageDesks, CapManageCategories, CapManageSettings,
 			},
 		},
 		{
@@ -51,6 +51,7 @@ func TestPolicyCapabilitiesPerRole(t *testing.T) {
 				CapCreateTicket, CapEditTicket, CapAssignTicket,
 				CapCommentPublic, CapCommentInternal, CapManageUsers,
 				CapChangeRole, CapManageDesks, CapManageCategories,
+				CapManageSettings,
 			},
 			denied: []Capability{CapGrantAdmin},
 		},
@@ -61,7 +62,7 @@ func TestPolicyCapabilitiesPerRole(t *testing.T) {
 				CapCreateTicket, CapEditTicket, CapAssignTicket,
 				CapCommentPublic, CapCommentInternal, CapManageUsers,
 				CapChangeRole, CapGrantAdmin, CapManageDesks,
-				CapManageCategories,
+				CapManageCategories, CapManageSettings,
 			},
 			denied: nil,
 		},
@@ -102,6 +103,33 @@ func TestPolicyTicketMetricsCapability(t *testing.T) {
 	} {
 		if got := p.Capabilities(tc.role).Require(CapViewTicketMetrics); got != tc.want {
 			t.Errorf("role %q ticket metrics capability = %t, want %t", tc.role, got, tc.want)
+		}
+	}
+}
+
+// TestPolicyManageSettingsCapability pins the settings capability as its own
+// grant, separate from CapManageUsers: settings and user management were the
+// same thing only while the single appearance setting existed, and reusing the
+// user-management capability would silently widen every future settings route
+// to whatever CapManageUsers means later.
+func TestPolicyManageSettingsCapability(t *testing.T) {
+	p := NewPolicy()
+	if got := string(CapManageSettings); got != "settings.manage" {
+		t.Fatalf("CapManageSettings = %q, want settings.manage", got)
+	}
+	for _, tc := range []struct {
+		role domain.Role
+		want bool
+	}{
+		{domain.RoleRoot, true},
+		{domain.RoleAdmin, true},
+		{domain.RoleAgent, false},
+		{domain.RoleUser, false},
+		{domain.Role("unknown"), false},
+		{domain.Role(""), false},
+	} {
+		if got := p.Capabilities(tc.role).Require(CapManageSettings); got != tc.want {
+			t.Errorf("role %q settings capability = %t, want %t", tc.role, got, tc.want)
 		}
 	}
 }
@@ -157,7 +185,7 @@ func TestPolicyUnknownRoleFailsClosed(t *testing.T) {
 	for _, c := range []Capability{
 		CapCreateTicket, CapEditTicket, CapAssignTicket, CapCommentPublic,
 		CapCommentInternal, CapManageUsers, CapChangeRole, CapGrantAdmin,
-		CapManageDesks, CapManageCategories,
+		CapManageDesks, CapManageCategories, CapManageSettings,
 	} {
 		if caps.Require(c) {
 			t.Errorf("unknown role must not grant %q", c)
