@@ -917,6 +917,10 @@ type fakeSLAStore struct {
 	// per-ticket N+1) and ZERO calls for empty input.
 	ticketSLAsCalls    int
 	milestonesForCalls int
+	// insertTicketSLACalls counts freeze writes. The freeze-validation tests
+	// assert it stays at zero when an out-of-range warning percent aborts the
+	// freeze, so no commitment is persisted.
+	insertTicketSLACalls int
 }
 
 func (f *fakeSLAStore) ListDefaults(_ context.Context) ([]domain.SLAPolicy, error) {
@@ -971,6 +975,7 @@ func (f *fakeSLAStore) TicketSLA(_ context.Context, ticketID int64) (*domain.Tic
 }
 
 func (f *fakeSLAStore) InsertTicketSLA(_ context.Context, ticketID int64, sla domain.TicketSLA) error {
+	f.insertTicketSLACalls++
 	if f.frozen == nil {
 		f.frozen = map[int64]*domain.TicketSLA{}
 	}
@@ -1022,12 +1027,13 @@ func (f *fakeSLAStore) MilestonesFor(_ context.Context, ticketIDs []int64) (map[
 // calendar, and the SLA write seams are configurable — the appearance key
 // is irrelevant to the SLA paths under test. A warningPercent of 0 means
 // "unset" and answers the documented default (a real instance stores the
-// seeded 80; the 0 sentinel is unreachable in practice because the
-// projection now consumes frozen instants, not the percent). A calendar
-// with no working days means "unset" and answers the documented default,
-// exactly like the real store's absent-or-unparseable fallback.
+// seeded 80); set slaWarningPercentSet to store an explicit 0 — the
+// out-of-range row the freeze validation must refuse. A calendar with no
+// working days means "unset" and answers the documented default, exactly
+// like the real store's absent-or-unparseable fallback.
 type fakeSLASettingsStore struct {
-	slaWarningPercent int
+	slaWarningPercent    int
+	slaWarningPercentSet bool
 	// slaEnabled mirrors the sla_enabled setting (issue #211). The zero
 	// value is disabled — exactly what migration 0013 seeds, so existing
 	// tests keep their historical no-SLA behaviour by construction.
@@ -1072,7 +1078,7 @@ func (f *fakeSLASettingsStore) GetSLAEnabled(_ context.Context) (bool, error) {
 }
 
 func (f *fakeSLASettingsStore) GetSLAWarningPercent(_ context.Context) (int, error) {
-	if f.slaWarningPercent == 0 {
+	if f.slaWarningPercent == 0 && !f.slaWarningPercentSet {
 		return application.DefaultSLAWarningPercent, nil
 	}
 	return f.slaWarningPercent, nil

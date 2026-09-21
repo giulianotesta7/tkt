@@ -123,6 +123,15 @@ func projectSLAMilestone(startedAt, warnAt, dueAt time.Time, targetSeconds int, 
 	}
 	st.Elapsed = now.Sub(startedAt)
 	st.Remaining = dueAt.Sub(now)
+	// Legacy row note (issue #211): a commitment frozen BEFORE the freeze
+	// began validating the warning percent can carry warnAt at or past
+	// dueAt. Such a row has an EMPTY warning window by construction — WarnAt
+	// is never reached while the milestone is still pending, so it reads
+	// on_track until DueAt and breached from DueAt on, and at_risk is
+	// unreachable (the due comparison below always wins first). The freeze
+	// now refuses to create new rows of that shape; this projection keeps
+	// the rows already frozen honest instead of resurrecting a warning or
+	// masking the breach.
 	switch {
 	case !now.Before(dueAt):
 		st.State = SLABreached

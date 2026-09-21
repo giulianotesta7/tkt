@@ -1138,6 +1138,145 @@ func TestTicketListSortByPriority(t *testing.T) {
 	}
 }
 
+// freezeSLA inserts a frozen commitment for one ticket through the SLA store
+// port — the same creation-time writer the application uses.
+func freezeSLA(t *testing.T, s *Store, ticketID int64, respDue, resDue time.Time) {
+	t.Helper()
+	sla := domain.TicketSLA{
+		FirstResponseSeconds: int(respDue.Sub(testClock).Seconds()),
+		ResolveSeconds:       int(resDue.Sub(testClock).Seconds()),
+		DueFirstResponseAt:   respDue,
+		DueResolveAt:         resDue,
+		StartedAt:            testClock,
+		PolicySnapshotAt:     testClock,
+	}
+	if err := s.SLAStore().InsertTicketSLA(context.Background(), ticketID, sla); err != nil {
+		t.Fatalf("freeze sla for ticket %d: %v", ticketID, err)
+	}
+}
+
+// Task T1 (issue #211, PR 4): urgency sort — the order key is the due
+// instant of the FIRST NOT-ACHIEVED milestone. A ticket whose response was
+// achieved late therefore sorts by its resolution deadline, never by the
+// earlier frozen response instant; nothing outstanding (no frozen SLA, both
+// milestones achieved, or a non-open state) sorts last, ranked by the D11
+// priority then the D2 created/id tiebreak.
+func TestTicketListSortByUrgency(t *testing.T) {
+	s := newTestDB(t)
+	cat := seedCategory(t, s, "Bugs")
+	ctx := context.Background()
+
+	// Six tickets, created_at increasing so the default order is the
+	// reverse of insertion.
+	at := func(m int) time.Time { return testClock.Add(time.Duration(m) * time.Minute) }
+	mk := func(number int, priority domain.Priority, state domain.State) domain.Ticket {
+		return seedTicket(t, s, domain.Ticket{Number: number, Title: fmt.Sprintf("t%d", number),
+			CategoryID: cat, Priority: priority, State: state,
+			CreatedAt: at(number), UpdatedAt: at(number)})
+	}
+
+	// t1: nothing achieved -> governs by the RESPONSE deadline.
+	t1 := mk(1, domain.PriorityMedium, domain.StateNew)
+	freezeSLA(t, s, t1.ID, at(30), at(4*60))
+	// t2: response achieved on time -> governs by the RESOLUTION deadline.
+	t2 := mk(2, domain.PriorityMedium, domain.StateInProgress)
+	seedStaffComment(t, s, t2.ID, "public", "agent", "on time", at(5))
+	freezeSLA(t, s, t2.ID, at(30), at(60))
+	// t3: response achieved LATE, same frozen response due as t2 -> must sort
+	// AFTER t2 even though its response instant is the earliest on the row.
+	t3 := mk(3, domain.PriorityMedium, domain.StateInProgress)
+	seedStaffComment(t, s, t3.ID, "public", "agent", "late", at(90))
+	freezeSLA(t, s, t3.ID, at(30), at(120))
+	// t4: both milestones achieved -> nothing outstanding.
+	t4 := mk(4, domain.PriorityLow, domain.StateInProgress)
+	seedStaffComment(t, s, t4.ID, "public", "agent", "done", at(5))
+	seedResolvedTransition(t, s, t4.ID, at(45))
+	freezeSLA(t, s, t4.ID, at(30), at(60))
+	// t5: no frozen SLA at all -> nothing outstanding.
+	t5 := mk(5, domain.PriorityCritical, domain.StateNew)
+	// t6: non-open state with an already-past frozen response due -> closed
+	// work is never urgent.
+	t6 := mk(6, domain.PriorityMedium, domain.StateResolved)
+	freezeSLA(t, s, t6.ID, at(30), at(4*60))
+	// t7: a pre-0016 legacy row (migration 0016 DEFAULT ''): the instant
+	// columns hold empty strings, not NULL. It is OPEN, CRITICAL, and the
+	// newest of the set, so if '' were read as a real instant it would jump
+	// ahead of every urgent ticket; treated as absent it joins the
+	// nothing-outstanding group and is ranked there by priority/created.
+	// InsertTicketSLA stores a zero instant as '' (formatSLAInstant), so the
+	// store port expresses this legacy row shape directly.
+	t7 := mk(7, domain.PriorityCritical, domain.StateNew)
+	if err := s.SLAStore().InsertTicketSLA(ctx, t7.ID, domain.TicketSLA{
+		FirstResponseSeconds: 1800,
+		ResolveSeconds:       14400,
+		StartedAt:            testClock,
+		PolicySnapshotAt:     testClock,
+		// DueFirstResponseAt and DueResolveAt stay zero -> stored as ''.
+	}); err != nil {
+		t.Fatalf("freeze legacy sla for ticket %d: %v", t7.ID, err)
+	}
+	// Pin the row SHAPE: the instants must be empty strings, not NULL.
+	var storedResp, storedRes string
+	if err := s.db.QueryRow(`SELECT due_first_response_at, due_resolve_at FROM ticket_sla WHERE ticket_id = ?`, t7.ID).
+		Scan(&storedResp, &storedRes); err != nil {
+		t.Fatalf("read legacy sla row: %v", err)
+	}
+	if storedResp != "" || storedRes != "" {
+		t.Fatalf("legacy instants = %q/%q, want empty strings", storedResp, storedRes)
+	}
+
+	want := []int64{t1.ID, t2.ID, t3.ID, t7.ID, t5.ID, t6.ID, t4.ID}
+
+	got, err := s.TicketStore().List(ctx, application.TicketQuery{Scope: application.ScopeAll, SortByUrgency: true},
+		application.Page{Offset: 0, Limit: 10})
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(got) != len(want) {
+		t.Fatalf("len = %d, want %d", len(got), len(want))
+	}
+	for i, id := range want {
+		if got[i].ID != id {
+			t.Errorf("list sorted[%d] = %d, want %d (want order %v)", i, got[i].ID, id, want)
+		}
+	}
+
+	// Search honors the same urgency ordering (shared ORDER BY path).
+	got, err = s.SearchStore().Search(ctx, application.TicketQuery{Scope: application.ScopeAll, SortByUrgency: true},
+		application.Page{Offset: 0, Limit: 10})
+	if err != nil {
+		t.Fatalf("search: %v", err)
+	}
+	if len(got) != len(want) {
+		t.Fatalf("search len = %d, want %d", len(got), len(want))
+	}
+	for i, id := range want {
+		if got[i].ID != id {
+			t.Errorf("search sorted[%d] = %d, want %d", i, got[i].ID, id)
+		}
+	}
+
+	// The other orderings are unchanged: default is newest-first, and the
+	// priority sort still ranks the critical tickets first. t7 is the newest
+	// and a critical, so it now leads both — the D2/D11 tiebreak at work.
+	got, err = s.TicketStore().List(ctx, application.TicketQuery{Scope: application.ScopeAll},
+		application.Page{Offset: 0, Limit: 10})
+	if err != nil {
+		t.Fatalf("default list: %v", err)
+	}
+	if len(got) == 0 || got[0].ID != t7.ID {
+		t.Errorf("default first = %v, want %d (newest)", got, t7.ID)
+	}
+	got, err = s.TicketStore().List(ctx, application.TicketQuery{Scope: application.ScopeAll, SortByPriority: true},
+		application.Page{Offset: 0, Limit: 10})
+	if err != nil {
+		t.Fatalf("priority list: %v", err)
+	}
+	if len(got) < 2 || got[0].ID != t7.ID || got[1].ID != t5.ID {
+		t.Errorf("priority head = %v, want criticals [%d %d] (created DESC)", got, t7.ID, t5.ID)
+	}
+}
+
 // --- SLA freeze at creation (issue #211) ---
 
 // ticketSLACount counts the frozen-commitment rows for one ticket.

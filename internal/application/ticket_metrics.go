@@ -16,6 +16,9 @@ type TicketMetricsFilter struct {
 	DeskID     *int64
 	AgentID    *int64
 	WorkloadBy string // agent (default) or desk
+	// GroupBy selects the SLA attainment dimension. Like the ticket list's
+	// sort parameter it fails soft: empty or any unknown value means total.
+	GroupBy string // total (default), priority, or category
 }
 
 // TicketMetricsRecord is the single-row projection returned by the metrics read
@@ -30,6 +33,15 @@ type TicketMetricsRecord struct {
 	AgentID        *int64
 	AgentName      string
 	ResolutionWeek time.Time
+	// Priority and CategoryName are the attainment grouping identities.
+	Priority     domain.Priority
+	CategoryName string
+	// SLA is the commitment FROZEN onto the ticket at creation, nil when the
+	// ticket has no frozen row (legacy tickets, or tickets created while SLA
+	// was disabled). Milestones are the observed FIRST public staff response
+	// and FIRST resolution, each nil when it has not happened.
+	SLA        *domain.TicketSLA
+	Milestones domain.SLAMilestones
 }
 
 // TicketMetricsStore performs one consistent, non-paginated metrics read.
@@ -94,6 +106,58 @@ type TicketMetrics struct {
 	Histogram    []TicketMetricsBucket
 	Median       time.Duration
 	P90          time.Duration
+	Attainment   TicketMetricsAttainment
+}
+
+// Ticket metrics attainment grouping values.
+const (
+	TicketMetricsGroupTotal    = "total"
+	TicketMetricsGroupPriority = "priority"
+	TicketMetricsGroupCategory = "category"
+)
+
+// TicketMetricsAttainment is the SLA attainment report for the PERIOD COHORT:
+// tickets CREATED in [Filter.Start, Filter.End) that carry a frozen
+// commitment. Tickets created in the period without a commitment are excluded
+// from every rate and counted once in NoCommitment. GroupBy names the
+// dimension actually used (after fail-soft normalization); Groups is in the
+// deterministic order documented on buildTicketAttainment.
+type TicketMetricsAttainment struct {
+	GroupBy      string
+	NoCommitment int
+	Groups       []TicketMetricsAttainmentGroup
+}
+
+// TicketMetricsAttainmentGroup is one attainment group. Label is printable as
+// is. Tickets is the cohort size in the group (only tickets with a commitment),
+// so a priority group with zero tickets is still present with a stable shape.
+type TicketMetricsAttainmentGroup struct {
+	Label         string
+	Tickets       int
+	FirstResponse TicketMetricsMilestoneAttainment
+	Resolve       TicketMetricsMilestoneAttainment
+}
+
+// TicketMetricsMilestoneAttainment is one milestone's counts for one group.
+// Met means achieved at or before the frozen due instant; Breached means
+// achieved late or still unachieved at or past due; Open means still
+// unachieved before due. The same states the ticket badge projects, so the
+// report and the badge can never disagree. Rate is Met/(Met+Breached) and is 0
+// when nothing is decided: Open never enters the denominator.
+type TicketMetricsMilestoneAttainment struct {
+	Met      int
+	Breached int
+	Open     int
+	Rate     float64
+}
+
+// attainmentPriorities is the canonical priority order the priority grouping
+// always emits, even for empty groups, so the report table shape is stable.
+var attainmentPriorities = []domain.Priority{
+	domain.PriorityCritical,
+	domain.PriorityHigh,
+	domain.PriorityMedium,
+	domain.PriorityLow,
 }
 
 type TicketMetricsWeek struct {
@@ -146,7 +210,21 @@ func normalizeTicketMetricsFilter(f TicketMetricsFilter, now time.Time) (TicketM
 	if f.WorkloadBy != "agent" && f.WorkloadBy != "desk" {
 		return TicketMetricsFilter{}, &domain.ValidationError{Field: "metrics_group", Message: "metrics workload group must be agent or desk"}
 	}
+	// The attainment grouping is deliberately fail-soft (unlike WorkloadBy):
+	// empty or unknown means total, never a validation error.
+	f.GroupBy = normalizeTicketMetricsGroupBy(f.GroupBy)
 	return f, nil
+}
+
+// normalizeTicketMetricsGroupBy resolves the attainment grouping dimension,
+// selecting total for the empty string or any unknown value.
+func normalizeTicketMetricsGroupBy(value string) string {
+	switch value {
+	case TicketMetricsGroupPriority, TicketMetricsGroupCategory:
+		return value
+	default:
+		return TicketMetricsGroupTotal
+	}
 }
 
 func workloadIdentity(r TicketMetricsRecord, group string) (string, string) {
@@ -276,6 +354,7 @@ func buildTicketMetrics(records []TicketMetricsRecord, f TicketMetricsFilter, no
 		m.Workload = append(m.Workload, work[key])
 	}
 	m.Ages = ages
+	m.Attainment = buildTicketAttainment(records, f, now)
 	m.Histogram = resolutionHistogram(durations)
 	m.Samples = len(durations)
 	if len(durations) == 0 {
@@ -290,6 +369,122 @@ func buildTicketMetrics(records []TicketMetricsRecord, f TicketMetricsFilter, no
 	}
 	m.P90 = durations[len(durations)-len(durations)/10-1]
 	return m
+}
+
+// buildTicketAttainment aggregates the SLA attainment of the period cohort:
+// tickets CREATED in [f.Start, f.End) with a frozen commitment. It reuses
+// domain.ProjectSLA for the per-milestone verdict, so the report and the ticket
+// badge share one definition. Milestones are NOT period-limited: a first
+// response or resolution outside the window still counts for a cohort ticket.
+//
+// Group order is deterministic: total emits exactly one group; priority emits
+// the four canonical priorities in rank order, empty ones included, so the
+// table shape is stable; category emits only the categories present, ordered by
+// name. Rate counts Met/(Met+Breached), and Open never enters the denominator.
+func buildTicketAttainment(records []TicketMetricsRecord, f TicketMetricsFilter, now time.Time) TicketMetricsAttainment {
+	groupBy := normalizeTicketMetricsGroupBy(f.GroupBy)
+	a := TicketMetricsAttainment{GroupBy: groupBy}
+	groups := map[string]*TicketMetricsAttainmentGroup{}
+	var order []string
+	for _, r := range records {
+		if r.CreatedAt.IsZero() || r.CreatedAt.Before(f.Start) || !r.CreatedAt.Before(f.End) {
+			continue
+		}
+		projection := domain.ProjectSLA(r.SLA, r.Milestones, now)
+		if projection.Overall == domain.SLANone {
+			a.NoCommitment++
+			continue
+		}
+		key, label := attainmentGroupIdentity(r, groupBy)
+		g := groups[key]
+		if g == nil {
+			g = &TicketMetricsAttainmentGroup{Label: label}
+			groups[key] = g
+			order = append(order, key)
+		}
+		g.Tickets++
+		accumulateMilestone(&g.FirstResponse, projection.FirstResponse.State)
+		accumulateMilestone(&g.Resolve, projection.Resolve.State)
+	}
+
+	switch groupBy {
+	case TicketMetricsGroupPriority:
+		a.Groups = make([]TicketMetricsAttainmentGroup, 0, len(attainmentPriorities))
+		for _, p := range attainmentPriorities {
+			if g := groups["priority:"+string(p)]; g != nil {
+				a.Groups = append(a.Groups, *g)
+			} else {
+				a.Groups = append(a.Groups, TicketMetricsAttainmentGroup{Label: attainmentPriorityLabel(p)})
+			}
+		}
+	case TicketMetricsGroupCategory:
+		sort.Slice(order, func(i, j int) bool { return groups[order[i]].Label < groups[order[j]].Label })
+		for _, key := range order {
+			a.Groups = append(a.Groups, *groups[key])
+		}
+	default:
+		if g := groups["total"]; g != nil {
+			a.Groups = []TicketMetricsAttainmentGroup{*g}
+		} else {
+			a.Groups = []TicketMetricsAttainmentGroup{{Label: "Total"}}
+		}
+	}
+	for i := range a.Groups {
+		finalizeMilestone(&a.Groups[i].FirstResponse)
+		finalizeMilestone(&a.Groups[i].Resolve)
+	}
+	return a
+}
+
+// attainmentGroupIdentity maps one cohort record to its stable group key and
+// printable label.
+func attainmentGroupIdentity(r TicketMetricsRecord, groupBy string) (string, string) {
+	switch groupBy {
+	case TicketMetricsGroupPriority:
+		return "priority:" + string(r.Priority), attainmentPriorityLabel(r.Priority)
+	case TicketMetricsGroupCategory:
+		return "category:" + r.CategoryName, r.CategoryName
+	default:
+		return "total", "Total"
+	}
+}
+
+// attainmentPriorityLabel renders a priority as a printable label matching the
+// UI's humanized form.
+func attainmentPriorityLabel(p domain.Priority) string {
+	switch p {
+	case domain.PriorityCritical:
+		return "Critical"
+	case domain.PriorityHigh:
+		return "High"
+	case domain.PriorityMedium:
+		return "Medium"
+	case domain.PriorityLow:
+		return "Low"
+	}
+	return string(p)
+}
+
+// accumulateMilestone folds one ProjectSLA milestone state into its counter:
+// met and breached are decisions, at_risk and on_track are still open, and
+// none (a zero-instant milestone on an otherwise frozen row) is not counted.
+func accumulateMilestone(m *TicketMetricsMilestoneAttainment, state domain.SLAState) {
+	switch state {
+	case domain.SLAMet:
+		m.Met++
+	case domain.SLABreached:
+		m.Breached++
+	case domain.SLAAtRisk, domain.SLAOnTrack:
+		m.Open++
+	}
+}
+
+// finalizeMilestone derives the rate from the decided counts only; a zero
+// denominator yields a zero rate.
+func finalizeMilestone(m *TicketMetricsMilestoneAttainment) {
+	if decided := m.Met + m.Breached; decided > 0 {
+		m.Rate = float64(m.Met) / float64(decided)
+	}
 }
 
 const maxHistogramBins = 7

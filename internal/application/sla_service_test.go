@@ -286,6 +286,78 @@ func TestSLAServiceResolveInvalidCalendarFailsClosed(t *testing.T) {
 	}
 }
 
+// TestSLAServiceResolveRefusesOutOfRangeWarningPercent proves the freeze
+// validates the warning percent in the SAME fail-closed style as the
+// calendar. A percent outside 1..99 freezes a degenerate commitment: 0 or
+// negative puts WarnAt at StartedAt (the window is already over at
+// creation, so every ticket is born at_risk), and 100 or above puts WarnAt
+// at or past DueAt (so at_risk is unreachable and the warning state
+// silently disappears). The freeze must refuse instead of persisting it,
+// and NOTHING may be frozen. A valid percent still freezes all four
+// instants with each warning point strictly before its due point.
+func TestSLAServiceResolveRefusesOutOfRangeWarningPercent(t *testing.T) {
+	clock := fixedClock()
+	catID := int64(3)
+
+	for _, tc := range []struct {
+		name    string
+		percent int
+	}{
+		{name: "zero", percent: 0},
+		{name: "hundred", percent: 100},
+		{name: "negative", percent: -1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			sla := &fakeSLAStore{policies: slaServicePolicies(catID)}
+			settings := &fakeSLASettingsStore{
+				slaEnabled:           true,
+				slaWarningPercent:    tc.percent,
+				slaWarningPercentSet: true,
+			}
+			svc := application.NewSLAService(sla, settings, clock)
+
+			got, err := svc.ResolveForCreate(context.Background(), catID, domain.PriorityHigh, clock.now)
+			if err == nil {
+				t.Fatalf("ResolveForCreate with percent %d = %+v, want an error", tc.percent, got)
+			}
+			if got != nil {
+				t.Errorf("ResolveForCreate = %+v, want nil alongside the error", got)
+			}
+			if sla.insertTicketSLACalls != 0 {
+				t.Errorf("InsertTicketSLA called %d times, want 0 (nothing may be frozen)", sla.insertTicketSLACalls)
+			}
+		})
+	}
+
+	// A valid percent still freezes all four instants, each warning point
+	// strictly before its due point, and both clock facts equal to now.
+	now := clock.now
+	sla := &fakeSLAStore{policies: slaServicePolicies(catID)}
+	svc := application.NewSLAService(sla, &fakeSLASettingsStore{slaEnabled: true, slaWarningPercent: 80}, clock)
+	got, err := svc.ResolveForCreate(context.Background(), catID, domain.PriorityHigh, now)
+	if err != nil {
+		t.Fatalf("ResolveForCreate (valid 80%%): %v", err)
+	}
+	if got == nil {
+		t.Fatal("ResolveForCreate (valid 80%%) = nil, want the commitment")
+	}
+	if got.WarnFirstResponseAt.IsZero() || got.DueFirstResponseAt.IsZero() || got.WarnResolveAt.IsZero() || got.DueResolveAt.IsZero() {
+		t.Errorf("frozen instants not all populated: %+v", got)
+	}
+	if !got.WarnFirstResponseAt.Before(got.DueFirstResponseAt) {
+		t.Errorf("WarnFirstResponseAt = %v, want strictly before DueFirstResponseAt = %v",
+			got.WarnFirstResponseAt, got.DueFirstResponseAt)
+	}
+	if !got.WarnResolveAt.Before(got.DueResolveAt) {
+		t.Errorf("WarnResolveAt = %v, want strictly before DueResolveAt = %v",
+			got.WarnResolveAt, got.DueResolveAt)
+	}
+	if !got.StartedAt.Equal(now) || !got.PolicySnapshotAt.Equal(now) {
+		t.Errorf("StartedAt/PolicySnapshotAt = (%v, %v), want now %v",
+			got.StartedAt, got.PolicySnapshotAt, now)
+	}
+}
+
 // TestSLAServiceResolveComputesFrozenInstants proves the four instants
 // come from the CURRENT calendar and the freeze-time warning percent:
 // with the default Mon-Fri 09:00-18:00 UTC calendar, a Thursday 10:00

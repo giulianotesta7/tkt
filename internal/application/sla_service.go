@@ -153,10 +153,12 @@ func (s *SLAService) ResolveForCreate(ctx context.Context, categoryID int64, pri
 // the creation instant — the truthful record; the effective start of the
 // SLA clock is captured by the instants themselves.
 //
-// The calendar is re-validated here and an invalid one is an error rather
-// than a degenerate freeze: AddWorkingSeconds answers `now` unchanged for
-// an invalid calendar, so freezing would store due instants equal to the
-// creation instant and mark every new ticket breached at creation.
+// The calendar and the warning percent are re-validated here and each is
+// an error rather than a degenerate freeze: AddWorkingSeconds answers `now`
+// unchanged for an invalid calendar, so freezing would store due instants
+// equal to the creation instant and mark every new ticket breached at
+// creation; and a percent outside 1..99 freezes an empty or unreachable
+// warning window (see below).
 func (s *SLAService) freezeTicketSLA(ctx context.Context, p domain.SLAPolicy, now time.Time) (*domain.TicketSLA, error) {
 	calendar, err := s.settings.GetSLACalendar(ctx)
 	if err != nil {
@@ -168,6 +170,20 @@ func (s *SLAService) freezeTicketSLA(ctx context.Context, p domain.SLAPolicy, no
 	}
 	if !calendar.Valid() {
 		return nil, fmt.Errorf("sla: refusing to freeze targets against an invalid working calendar")
+	}
+	// The warning percent is validated in the SAME fail-closed style as the
+	// calendar. SetWarningPercent and SetGlobalConfiguration already enforce
+	// 1..99, but the freeze cannot rely on that: a row written before that
+	// guard, or by any other settings port, can still reach here. An
+	// out-of-range percent freezes a degenerate commitment — 0 or negative
+	// puts WarnAt at StartedAt (the warning window is over at the instant of
+	// creation, so every ticket is born at_risk), and 100 or above puts
+	// WarnAt at or past DueAt (at_risk becomes unreachable: the projection
+	// switches to breached first, so the warning state silently disappears).
+	// Refuse instead of persisting it, exactly as an invalid calendar is
+	// refused: only 0 < warnAt < dueAt is a real warning window.
+	if percent < 1 || percent > 99 {
+		return nil, fmt.Errorf("sla: refusing to freeze targets against an out-of-range warning percent %d", percent)
 	}
 	return &domain.TicketSLA{
 		FirstResponseSeconds: p.FirstResponseSeconds,
