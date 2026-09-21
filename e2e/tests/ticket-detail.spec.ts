@@ -380,6 +380,21 @@ test.describe("Ticket detail", () => {
     const assignee = page.locator("#assign-user");
     await expect(assignee).toBeVisible();
 
+    // A neutral control must draw its own edge: the shared button paints a white
+    // surface, so a missing hairline leaves it indistinguishable from the label
+    // beside it. Read the computed value — no screenshot reveals a 1px border.
+    for (const row of ["#ticket-priority", "#assign-user", "#ticket-state"]) {
+      const apply = page.locator(`form:has(${row})`).getByRole("button", { name: "Apply" });
+      await expect(apply).toBeVisible();
+      const edge = await apply.evaluate((el) => {
+        const style = getComputedStyle(el);
+        return { width: style.borderTopWidth, color: style.borderTopColor };
+      });
+      expect(edge.width, `${row} Apply must draw a hairline`).toBe("1px");
+      expect(edge.color, `${row} Apply hairline must not be transparent`).not.toBe("transparent");
+      expect(edge.color).not.toBe("rgba(0, 0, 0, 0)");
+    }
+
     const assignPath = `/tickets/${id}/assign`;
     const editPath = `/tickets/${id}/edit`;
     const transitionPath = `/tickets/${id}/transition`;

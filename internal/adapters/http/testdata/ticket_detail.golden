@@ -162,12 +162,12 @@
                 <option value="" disabled selected>Select…</option>
                 <option value="resolved">Resolved</option><option value="cancelled">Cancelled</option>
               </select>
+              <button type="submit" id="state-apply" class="btn small state-apply">Apply</button>
               <div id="state-reason-field" class="state-reason-field">
                 <label for="state-reason">Reopen reason</label>
                 <input type="text" id="state-reason" name="reason" class="state-reason"
                        placeholder="Required" required>
               </div>
-              <button type="submit" id="state-apply" class="btn small state-apply">Apply</button>
             </form>
           </div>
 

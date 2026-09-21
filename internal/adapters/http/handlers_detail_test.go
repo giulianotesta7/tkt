@@ -985,34 +985,33 @@ func TestTicketDetailPriorityFormPostsOnlyItsOwnFields(t *testing.T) {
 }
 
 // TestTicketDetailStateApplyIsAFormChild proves the transition Apply button is
-// a direct child of the state form — the form's last child — and not nested
-// inside the hidden reopen-reason field.
+// a direct child of the state form, sits on the same row as the Move-to select,
+// and is not nested inside the hidden reopen-reason field. The reason field
+// follows the button in document order so it wraps onto its own line below the
+// row, keeping visual order and tab order identical.
 func TestTicketDetailStateApplyIsAFormChild(t *testing.T) {
 	h := newHarness(t)
 	h.seedTicket(t, "Login page down", nil)
 	body := h.get(t, "/tickets/1", true).Body.String()
 	block := renderedFormBlock(t, body, `id="ticket-state"`)
 
+	selectClose := strings.Index(block, "</select>")
+	if selectClose < 0 {
+		t.Fatalf("state form must render the Move-to select, got: %s", block)
+	}
 	fieldStart := strings.Index(block, `<div id="state-reason-field"`)
 	if fieldStart < 0 {
 		t.Fatalf("state form must keep the reason field, got: %s", block)
 	}
-	fieldCloseRel := strings.Index(block[fieldStart:], "</div>")
-	if fieldCloseRel < 0 {
-		t.Fatalf("state reason field must close, got: %s", block)
-	}
-	fieldClose := fieldStart + fieldCloseRel
 	apply := strings.Index(block, `id="state-apply"`)
 	if apply < 0 {
 		t.Fatalf("state form must render the Apply button, got: %s", block)
 	}
-	if apply < fieldClose {
-		t.Fatalf("state Apply button must be a direct child of the form, not nested inside #state-reason-field, got: %s", block)
+	if apply < selectClose {
+		t.Fatalf("state Apply must follow the select so both sit on one row, got: %s", block)
 	}
-	tail := block[fieldClose+len("</div>") : strings.Index(block, "</form>")]
-	tail = strings.TrimSpace(tail)
-	if !strings.HasPrefix(tail, "<button") || !strings.HasSuffix(tail, "Apply</button>") {
-		t.Fatalf("state Apply button must be the form's last child, got: %s", block)
+	if apply > fieldStart {
+		t.Fatalf("state Apply must precede the reason field rather than sit below it, got: %s", block)
 	}
 }
 
