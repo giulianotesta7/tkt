@@ -135,10 +135,6 @@ func TestGoldenAuthLogin(t *testing.T) {
 var (
 	goldenT0 = time.Date(2026, 8, 6, 10, 0, 0, 0, time.UTC)
 	goldenT1 = time.Date(2026, 8, 6, 10, 30, 0, 0, time.UTC)
-	// goldenSLAAt is a frozen SLA instant (D7: the render path never calls
-	// time.Now()); it is the pending first-response due for the fixture rows
-	// that carry a frozen commitment.
-	goldenSLAAt = time.Date(2026, 8, 6, 11, 30, 0, 0, time.UTC)
 )
 
 // fixtureListData builds a frozen list payload with two tickets, two
