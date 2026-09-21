@@ -872,3 +872,279 @@ func (f *fakeWorkflowUnitOfWork) ApplyWorkflowPlan(ctx context.Context, in appli
 	}
 	return application.WorkflowExecutionResult{Ticket: t, Run: &application.WorkflowRun{TicketID: t.ID, CurrentStepIndex: in.NextCursor, Status: in.NextRunStatus}}, nil
 }
+
+// fakeSLAStore is the in-memory SLA port fake (issue #211). It serves the
+// frozen commitment and the observed milestones keyed by ticket id.
+// Simplification documented per the fakes contract: storage failure is
+// injectable ONLY through listByCategoryErr (the ResolveForCreate
+// error-propagation seam), upsertDefaultsErr and upsertCategoryTargetsErr
+// (the configuration-write error-propagation seams); every other method
+// always succeeds because the remaining service contracts under test here
+// are composition, not storage failure (the real store's absence-as-state
+// semantics are covered at the sqlite layer). The batch upserts apply
+// trivially atomically — the fake has no partial-write mode: real
+// transactional atomicity is proven against SQLite in sla_store_test.go.
+// The batch reads (TicketSLAs/MilestonesFor) mirror the real absence
+// contract: a ticket with no row is absent from the map, and empty input
+// answers an empty map WITHOUT recording a call. ticketSLAsCalls and
+// milestonesForCalls are countable so a service test can prove the batch
+// path performs exactly ONE read per method for any number of tickets.
+type fakeSLAStore struct {
+	frozen     map[int64]*domain.TicketSLA
+	milestones map[int64]domain.SLAMilestones
+	// policies mirrors sla_policies per category for ResolveForCreate; nil
+	// means the category has no materialized matrix (absence as a state).
+	policies map[int64][]domain.SLAPolicy
+	// listByCategoryErr, when non-nil, makes ListByCategory fail with this
+	// exact error: ResolveForCreate must propagate it so the create fails
+	// rather than silently proceeding without a commitment.
+	listByCategoryErr error
+	// defaults mirrors sla_defaults for the SetDefaultTargets tests.
+	defaults []domain.SLAPolicy
+	// upsertDefaultsErr / upsertCategoryTargetsErr, when non-nil, make the
+	// matching batch upsert fail with this exact error BEFORE any state
+	// changes: SetDefaultTargets / SetCategoryTargets must propagate it
+	// untouched.
+	upsertDefaultsErr        error
+	upsertCategoryTargetsErr error
+	// call recorders for the write seams: the authorization tests assert
+	// these stay at zero for a denied actor (a denied use case must touch
+	// no store).
+	upsertDefaultsCalls        int
+	upsertCategoryTargetsCalls int
+	// call recorders for the batch read seams: the ForTickets tests assert
+	// exactly ONE call of each for a whole batch of tickets (never the
+	// per-ticket N+1) and ZERO calls for empty input.
+	ticketSLAsCalls    int
+	milestonesForCalls int
+	// insertTicketSLACalls counts freeze writes. The freeze-validation tests
+	// assert it stays at zero when an out-of-range warning percent aborts the
+	// freeze, so no commitment is persisted.
+	insertTicketSLACalls int
+}
+
+func (f *fakeSLAStore) ListDefaults(_ context.Context) ([]domain.SLAPolicy, error) {
+	return nil, errors.New("fakeSLAStore: ListDefaults not needed by the SLA service tests")
+}
+
+func (f *fakeSLAStore) ListByCategory(_ context.Context, categoryID int64) ([]domain.SLAPolicy, error) {
+	if f.listByCategoryErr != nil {
+		return nil, f.listByCategoryErr
+	}
+	return f.policies[categoryID], nil
+}
+
+func (f *fakeSLAStore) UpsertDefault(_ context.Context, policy domain.SLAPolicy) error {
+	return errors.New("fakeSLAStore: UpsertDefault not needed by the SLA service tests")
+}
+
+// UpsertDefaults records the batch and replaces the whole in-memory
+// default matrix. The single-row UpsertDefault stays unimplemented: only
+// the transactional batch is on the service's write path.
+func (f *fakeSLAStore) UpsertDefaults(_ context.Context, policies []domain.SLAPolicy) error {
+	f.upsertDefaultsCalls++
+	if f.upsertDefaultsErr != nil {
+		return f.upsertDefaultsErr
+	}
+	f.defaults = append([]domain.SLAPolicy(nil), policies...)
+	return nil
+}
+
+func (f *fakeSLAStore) UpsertCategoryTarget(_ context.Context, _ int64, _ domain.SLAPolicy) error {
+	return errors.New("fakeSLAStore: UpsertCategoryTarget not needed by the SLA service tests")
+}
+
+// UpsertCategoryTargets records the batch and replaces the category's
+// whole in-memory matrix. The single-row UpsertCategoryTarget stays
+// unimplemented: only the transactional batch is on the service's write
+// path.
+func (f *fakeSLAStore) UpsertCategoryTargets(_ context.Context, categoryID int64, policies []domain.SLAPolicy) error {
+	f.upsertCategoryTargetsCalls++
+	if f.upsertCategoryTargetsErr != nil {
+		return f.upsertCategoryTargetsErr
+	}
+	if f.policies == nil {
+		f.policies = map[int64][]domain.SLAPolicy{}
+	}
+	f.policies[categoryID] = append([]domain.SLAPolicy(nil), policies...)
+	return nil
+}
+
+func (f *fakeSLAStore) TicketSLA(_ context.Context, ticketID int64) (*domain.TicketSLA, error) {
+	return f.frozen[ticketID], nil
+}
+
+func (f *fakeSLAStore) InsertTicketSLA(_ context.Context, ticketID int64, sla domain.TicketSLA) error {
+	f.insertTicketSLACalls++
+	if f.frozen == nil {
+		f.frozen = map[int64]*domain.TicketSLA{}
+	}
+	f.frozen[ticketID] = &sla
+	return nil
+}
+
+func (f *fakeSLAStore) Milestones(_ context.Context, ticketID int64) (domain.SLAMilestones, error) {
+	return f.milestones[ticketID], nil
+}
+
+// TicketSLAs mirrors the real batch contract: a ticket with no frozen row
+// is ABSENT from the map (absence is the "no SLA" state), and empty input
+// answers an empty map without recording a call.
+func (f *fakeSLAStore) TicketSLAs(_ context.Context, ticketIDs []int64) (map[int64]*domain.TicketSLA, error) {
+	out := make(map[int64]*domain.TicketSLA, len(ticketIDs))
+	if len(ticketIDs) == 0 {
+		return out, nil
+	}
+	f.ticketSLAsCalls++
+	for _, id := range ticketIDs {
+		if sla, ok := f.frozen[id]; ok {
+			out[id] = sla
+		}
+	}
+	return out, nil
+}
+
+// MilestonesFor mirrors the real batch contract: a ticket with NEITHER
+// observation is ABSENT from the map, and empty input answers an empty
+// map without recording a call.
+func (f *fakeSLAStore) MilestonesFor(_ context.Context, ticketIDs []int64) (map[int64]domain.SLAMilestones, error) {
+	out := make(map[int64]domain.SLAMilestones, len(ticketIDs))
+	if len(ticketIDs) == 0 {
+		return out, nil
+	}
+	f.milestonesForCalls++
+	for _, id := range ticketIDs {
+		if m, ok := f.milestones[id]; ok {
+			out[id] = m
+		}
+	}
+	return out, nil
+}
+
+// fakeSLASettingsStore is the minimal settings double for the SLA service
+// tests. Simplification documented per the fakes contract: only the
+// enablement key, its failure seam, the warning percent, the working
+// calendar, and the SLA write seams are configurable — the appearance key
+// is irrelevant to the SLA paths under test. A warningPercent of 0 means
+// "unset" and answers the documented default (a real instance stores the
+// seeded 80); set slaWarningPercentSet to store an explicit 0 — the
+// out-of-range row the freeze validation must refuse. A calendar with no
+// working days means "unset" and answers the documented default, exactly
+// like the real store's absent-or-unparseable fallback.
+type fakeSLASettingsStore struct {
+	slaWarningPercent    int
+	slaWarningPercentSet bool
+	// slaEnabled mirrors the sla_enabled setting (issue #211). The zero
+	// value is disabled — exactly what migration 0014 seeds, so existing
+	// tests keep their historical no-SLA behaviour by construction.
+	slaEnabled bool
+	// slaEnabledErr, when non-nil, makes GetSLAEnabled fail with this exact
+	// error: ResolveForCreate must propagate it so the create fails rather
+	// than silently proceeding without a commitment.
+	slaEnabledErr error
+	// Write seams for the configuration use cases. Each set*Err, when
+	// non-nil, makes the matching writer fail with this exact error BEFORE
+	// any state changes; each call recorder lets the authorization tests
+	// prove a denied actor touched NO store method.
+	setSLAEnabledStateErr     error
+	setSLAWarningPercentErr   error
+	setSLAConfigurationErr    error
+	enabledAt                 time.Time
+	defaults                  []domain.SLAPolicy
+	setSLAEnabledStateCalls   int
+	setSLAWarningPercentCalls int
+	setSLAConfigurationCalls  int
+	// calendar mirrors the sla_calendar_* settings (issue #211); the zero
+	// value (no working days) answers the documented default.
+	calendar            domain.SLACalendar
+	calendarErr         error
+	setSLACalendarErr   error
+	setSLACalendarCalls int
+}
+
+func (f *fakeSLASettingsStore) GetInternalCommentBg(_ context.Context) (string, error) {
+	return application.DefaultInternalCommentBg, nil
+}
+
+func (f *fakeSLASettingsStore) SetInternalCommentBg(_ context.Context, _ string) error {
+	return errors.New("fakeSLASettingsStore: SetInternalCommentBg not needed by the SLA service tests")
+}
+
+func (f *fakeSLASettingsStore) GetSLAEnabled(_ context.Context) (bool, error) {
+	if f.slaEnabledErr != nil {
+		return false, f.slaEnabledErr
+	}
+	return f.slaEnabled, nil
+}
+
+func (f *fakeSLASettingsStore) GetSLAWarningPercent(_ context.Context) (int, error) {
+	if f.slaWarningPercent == 0 && !f.slaWarningPercentSet {
+		return application.DefaultSLAWarningPercent, nil
+	}
+	return f.slaWarningPercent, nil
+}
+
+func (f *fakeSLASettingsStore) GetSLAEnabledAt(_ context.Context) (time.Time, error) {
+	return f.enabledAt, nil
+}
+
+// SetSLAEnabledState mirrors the store contract: the flag and the instant
+// are one write, and the instant records the FIRST enable (an existing
+// value survives a second enable and a disable).
+func (f *fakeSLASettingsStore) SetSLAEnabledState(_ context.Context, enabled bool, at time.Time) error {
+	f.setSLAEnabledStateCalls++
+	if f.setSLAEnabledStateErr != nil {
+		return f.setSLAEnabledStateErr
+	}
+	f.slaEnabled = enabled
+	if enabled && f.enabledAt.IsZero() {
+		f.enabledAt = at
+	}
+	return nil
+}
+
+// SetSLAConfiguration mirrors the store contract: the whole panel is one
+// write, so a failure leaves none of it applied.
+func (f *fakeSLASettingsStore) SetSLAConfiguration(_ context.Context, enabled bool, at time.Time, warningPercent int, defaults []domain.SLAPolicy) error {
+	f.setSLAConfigurationCalls++
+	if f.setSLAConfigurationErr != nil {
+		return f.setSLAConfigurationErr
+	}
+	f.slaEnabled = enabled
+	f.slaWarningPercent = warningPercent
+	if enabled && f.enabledAt.IsZero() {
+		f.enabledAt = at
+	}
+	f.defaults = defaults
+	return nil
+}
+
+func (f *fakeSLASettingsStore) SetSLAWarningPercent(_ context.Context, percent int) error {
+	f.setSLAWarningPercentCalls++
+	if f.setSLAWarningPercentErr != nil {
+		return f.setSLAWarningPercentErr
+	}
+	f.slaWarningPercent = percent
+	return nil
+}
+
+func (f *fakeSLASettingsStore) GetSLACalendar(_ context.Context) (domain.SLACalendar, error) {
+	if f.calendarErr != nil {
+		return domain.SLACalendar{}, f.calendarErr
+	}
+	if len(f.calendar.WorkingDays) == 0 {
+		return domain.DefaultSLACalendar(), nil
+	}
+	return f.calendar, nil
+}
+
+// SetSLACalendar mirrors the store contract: the whole calendar is one
+// write, so a failure leaves the previous calendar standing.
+func (f *fakeSLASettingsStore) SetSLACalendar(_ context.Context, calendar domain.SLACalendar) error {
+	f.setSLACalendarCalls++
+	if f.setSLACalendarErr != nil {
+		return f.setSLACalendarErr
+	}
+	f.calendar = calendar
+	return nil
+}

@@ -284,3 +284,72 @@ func insertMetricAudit(t *testing.T, s *Store, ticketID int64, action, field, va
 type metricStoreClock struct{ now time.Time }
 
 func (c metricStoreClock) Now() time.Time { return c.now }
+
+// The metrics read carries everything the attainment aggregation needs in the
+// same single read: priority and category identity, the frozen commitment, and
+// the two measured milestones. Milestones OUTSIDE the selected period still
+// arrive (issue #211 decision 4), and a ticket with neither a frozen row nor
+// a milestone must scan through the NULL path without error.
+func TestTicketMetricsStoreCarriesSLACommitmentMilestonesAndIdentity(t *testing.T) {
+	s := newTestDB(t)
+	ctx := context.Background()
+	periodStart := time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC)
+	periodEnd := time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC)
+	created := time.Date(2026, 3, 10, 9, 0, 0, 0, time.UTC)
+
+	category := seedCategory(t, s, "Attainment")
+	committed := seedTicket(t, s, domain.Ticket{Number: 1, Title: "committed", CategoryID: category,
+		Priority: domain.PriorityHigh, State: domain.StateResolved, CreatedAt: created, UpdatedAt: created})
+	legacy := seedTicket(t, s, domain.Ticket{Number: 2, Title: "legacy", CategoryID: category,
+		Priority: domain.PriorityLow, State: domain.StateNew, CreatedAt: created, UpdatedAt: created})
+
+	frozen := domain.TicketSLA{
+		FirstResponseSeconds: 14400,
+		ResolveSeconds:       86400,
+		StartedAt:            created,
+		PolicySnapshotAt:     created,
+		WarnFirstResponseAt:  created.Add(2 * time.Hour),
+		DueFirstResponseAt:   created.Add(4 * time.Hour),
+		WarnResolveAt:        created.Add(12 * time.Hour),
+		DueResolveAt:         created.Add(24 * time.Hour),
+	}
+	if err := s.SLAStore().InsertTicketSLA(ctx, committed.ID, frozen); err != nil {
+		t.Fatal(err)
+	}
+	firstResponse := time.Date(2026, 4, 5, 10, 0, 0, 0, time.UTC)
+	firstResolved := time.Date(2026, 4, 6, 10, 0, 0, 0, time.UTC)
+	seedStaffComment(t, s, committed.ID, "public", "agent", "reply", firstResponse)
+	seedStaffComment(t, s, committed.ID, "internal", "agent", "hidden earlier", firstResponse.Add(-time.Hour))
+	seedResolvedTransition(t, s, committed.ID, firstResolved)
+
+	rows, err := s.TicketMetricsStore().TicketMetrics(ctx, application.TicketMetricsFilter{Start: periodStart, End: periodEnd})
+	if err != nil {
+		t.Fatal(err)
+	}
+	byID := map[int64]application.TicketMetricsRecord{}
+	for _, r := range rows {
+		byID[r.TicketID] = r
+	}
+
+	got := byID[committed.ID]
+	if got.Priority != domain.PriorityHigh || got.CategoryName != "Attainment" {
+		t.Fatalf("identity = %q/%q, want high/Attainment", got.Priority, got.CategoryName)
+	}
+	if got.SLA == nil || !got.SLA.DueFirstResponseAt.Equal(frozen.DueFirstResponseAt) || !got.SLA.DueResolveAt.Equal(frozen.DueResolveAt) {
+		t.Fatalf("frozen SLA = %+v, want the frozen due instants", got.SLA)
+	}
+	if got.Milestones.FirstResponseAt == nil || !got.Milestones.FirstResponseAt.Equal(firstResponse) {
+		t.Fatalf("FirstResponseAt = %v, want the out-of-period public staff comment at %s", got.Milestones.FirstResponseAt, firstResponse)
+	}
+	if got.Milestones.FirstResolvedAt == nil || !got.Milestones.FirstResolvedAt.Equal(firstResolved) {
+		t.Fatalf("FirstResolvedAt = %v, want the out-of-period resolution at %s", got.Milestones.FirstResolvedAt, firstResolved)
+	}
+
+	without := byID[legacy.ID]
+	if without.SLA != nil || without.Milestones.FirstResponseAt != nil || without.Milestones.FirstResolvedAt != nil {
+		t.Fatalf("no-commitment NULL path = %+v, want nil SLA and nil milestones", without)
+	}
+	if without.Priority != domain.PriorityLow || without.CategoryName != "Attainment" {
+		t.Fatalf("legacy identity = %q/%q, want low/Attainment", without.Priority, without.CategoryName)
+	}
+}

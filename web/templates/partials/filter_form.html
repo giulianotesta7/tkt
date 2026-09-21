@@ -14,7 +14,12 @@
   <select name="user_id" aria-label="Assigned user">
     <option value="">Anyone</option>{{range .Options.Users}}{{if eq (printf "%d" .ID) $.Filters.UserID}}<option value="{{.ID}}" selected>{{.Name}}</option>{{else}}<option value="{{.ID}}">{{.Name}}</option>{{end}}{{end}}
   </select>
-{{end}}  <button class="btn" type="submit">Apply</button>
+{{end}}  <select name="sort" aria-label="Order by">
+    <option value="newest" {{if eq $.Filters.Sort "newest"}}selected{{end}}>Newest first</option>
+    <option value="priority" {{if eq $.Filters.Sort "priority"}}selected{{end}}>Priority</option>
+    <option value="urgency" {{if eq $.Filters.Sort "urgency"}}selected{{end}}>Urgency</option>
+  </select>
+  <button class="btn" type="submit">Apply</button>
   <a class="btn ghost" href="/tickets" hx-get="/tickets" hx-target="#tickets-screen" hx-swap="outerHTML" hx-push-url="true" aria-label="Clear filters">Clear</a>
   <span class="htmx-indicator spinner" aria-hidden="true"></span>
 </form>{{end}}

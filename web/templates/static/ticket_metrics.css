@@ -101,3 +101,14 @@ svg.ticket-metrics-chart:not(.ticket-metrics-bars) .metrics-chart-label{text-anc
   .ticket-metrics-filters>*{flex:1 1 100%}
   .ticket-metrics-detail-header .btn{margin-left:0}
 }
+/* SLA attainment (issue #211, PR 5): the cohort is the tickets created in the
+   selected period that carry a frozen commitment. The milestone summary pairs
+   on desktop and stacks at the shared 640px breakpoint; the wide per-group
+   table scrolls inside the existing table wrapper. */
+.ticket-metrics-attainment{display:grid;gap:10px}
+.ticket-metrics-attainment-summary{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+.ticket-metrics-attainment-milestone{display:grid;gap:4px;padding:10px;border:1px solid var(--line);border-radius:8px;background:var(--surface)}
+.ticket-metrics-attainment-milestone h3{margin:0;color:var(--ink-strong);font-size:14px;font-weight:600}
+.ticket-metrics-attainment-counts{margin:0;color:var(--ink-soft);font-size:13px}
+.ticket-metrics-attainment-rate{margin:0;color:var(--ink-strong);font-size:14px;font-weight:600}
+@media(max-width:640px){.ticket-metrics-attainment-summary{grid-template-columns:1fr}}

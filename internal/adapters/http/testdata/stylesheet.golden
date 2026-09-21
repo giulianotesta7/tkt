@@ -102,6 +102,16 @@
   .queue .num{color:var(--accent);font-family:var(--mono);font-size:12px;white-space:nowrap}
   .queue .cell-title{color:var(--ink-strong);font-weight:500}
   .queue .cell-muted{color:var(--muted);font-size:13px}
+  .sla-state{display:inline-flex;align-items:center;gap:6px;vertical-align:-1px}
+  .sla-state-word{color:var(--muted)}
+  .sla-dot{display:inline-block;width:7px;height:7px;border-radius:50%}
+  .sla-value{min-width:20ch}
+  .sla-countdown-ticker{font-variant-numeric:tabular-nums}
+  .sla-countdown-coarse{user-select:none}
+  .sla-dot.on_track{background:var(--green)}
+  .sla-dot.at_risk{background:var(--amber)}
+  .sla-dot.breached{background:var(--red)}
+  .sla-dot.met{background:var(--green)}
 
   .badge{
     display:inline-flex;align-items:center;height:24px;padding:0 10px;
@@ -112,6 +122,9 @@
   .badge.resolved{background:var(--green-soft);color:var(--green)}
   .badge.closed{background:var(--gray-soft);color:var(--gray-ink)}
   .badge.cancelled{background:var(--red-soft);color:var(--red)}
+  .badge.at_risk{background:var(--amber-soft);color:var(--amber)}
+  .badge.breached{background:var(--red-soft);color:var(--red)}
+  .badge.met{background:var(--green-soft);color:var(--green)}
   .priority{font-size:12px;font-weight:500;color:var(--ink-soft)}
 
   .filter-bar{
@@ -216,13 +229,13 @@
   .timeline-comment .narrative{min-width:0;color:var(--ink-soft);font-size:13px;line-height:18px;overflow-wrap:anywhere}
   .timeline-comment .when{flex:0 0 auto;color:var(--muted);font-size:12px;font-family:var(--mono)}
   .timeline-comment .body{color:var(--ink-soft);margin-top:6px;white-space:pre-wrap;overflow-wrap:anywhere}
-  textarea,input[type=text],input[type=email],input[type=password]{
+  textarea,input[type=text],input[type=email],input[type=password],input[type=time]{
     width:100%;border:1px solid var(--line);border-radius:8px;background:var(--card);
     color:var(--ink-soft);padding:10px 12px;font:inherit;font-size:13.5px;
   }
   textarea{min-height:84px;resize:vertical}
   .field{margin-bottom:14px}
-  .field label{display:block;font-size:12px;color:var(--ink-soft);margin-bottom:5px;font-weight:500}
+  .field label{display:block;font-size:12px;color:var(--ink-soft);margin-bottom:8px;font-weight:500}
   .field .field-value{margin:0;padding:9px 0;color:var(--ink);font:inherit}
   .checkbox-field label{display:flex;align-items:center;gap:8px;margin:0}
   .checkbox-field input[type=checkbox]{
@@ -238,7 +251,10 @@
     background-repeat:no-repeat;background-position:center;background-size:12px 12px;
   }
   .checkbox-field input[type=checkbox]:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
-  .help{margin:5px 0 0;color:var(--muted);font-size:12px}
+  .calendar-days{border:0;padding:0;margin:0 0 14px}
+  .calendar-days legend{padding:0;font-size:12px;color:var(--ink-soft);margin-bottom:5px;font-weight:500}
+  .calendar-day-list{display:flex;flex-wrap:wrap;gap:8px 16px}
+  .help{margin:8px 0 0;color:var(--muted);font-size:12px}
   .field select{width:100%;height:40px;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--ink-soft);padding:0 10px;font:inherit}
   .field-row{display:grid;grid-template-columns:1fr 1fr;gap:12px}
   .form-card{max-width:640px}
@@ -434,6 +450,26 @@
   .swatch input{position:absolute;opacity:0;pointer-events:none}
   .swatch-chip{width:100%;height:34px;border-radius:8px;border:1px solid var(--line-strong)}
   .swatch-label{font-size:12px;font-weight:500;color:var(--ink-soft)}
+  .sla-warning-input{
+    width:90px;height:36px;border:1px solid var(--line);border-radius:8px;background:var(--card);
+    color:var(--ink-soft);padding:0 10px;font:inherit;font-size:13px;
+  }
+  .sla-warning-input:hover{border-color:var(--line-strong)}
+  .sla-warning-input:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 2px var(--accent-soft)}
+  .sla-grid{max-width:640px;margin:14px 0 16px;border-top:1px solid var(--line)}
+  .sla-grid-row{display:grid;grid-template-columns:80px 1fr 1fr;gap:12px;align-items:center;padding:14px 0;border-bottom:1px solid var(--line)}
+  .sla-grid-priority{font-size:13px;font-weight:500;color:var(--ink-soft)}
+  .sla-diverges{display:block;color:var(--muted);font-size:12px;font-weight:400}
+  .sla-grid-head .sla-grid-milestone{font-size:12px;font-weight:600;color:var(--muted)}
+  .sla-target{display:flex;gap:8px;align-items:center;min-width:0}
+  .sla-unit{display:flex;align-items:center;gap:4px;flex:1 1 0;min-width:0}
+  .sla-unit-mark{flex:0 0 auto;color:var(--muted);font-size:12px}
+  .sla-unit input{
+    width:100%;min-width:0;height:32px;border:1px solid var(--line);border-radius:8px;background:var(--card);
+    color:var(--ink-soft);padding:0 6px;font:inherit;font-size:13px;
+  }
+  .sla-unit input:hover{border-color:var(--line-strong)}
+  .sla-unit input:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 2px var(--accent-soft)}
 
   @media (max-width:900px){
     .cards{grid-template-columns:1fr}
@@ -449,6 +485,8 @@
     .auth-entry__form-panel{padding:28px 20px 36px;align-items:flex-start}
     .auth-entry__form-panel form{max-width:440px;padding:24px}
     .auth-entry__form-panel h2{font-size:25px}
+    .sla-unit input{appearance:textfield}
+    .sla-unit input::-webkit-inner-spin-button,.sla-unit input::-webkit-outer-spin-button{appearance:none;display:none}
   }
   @media (max-width:640px){
     .layout{grid-template-columns:1fr}
@@ -509,6 +547,8 @@
     .desks-layout{grid-template-columns:1fr}.desk-list{order:0}.desk-detail{order:1}.desk-create[open] .form-card{position:static;margin-top:10px}.desk-add-member>div{align-items:stretch}.desk-add-member select{flex:1}
     .rail{flex-wrap:wrap}
     .rail-nav{flex-wrap:wrap;min-width:0}
+    .sla-grid-row{grid-template-columns:1fr 1fr;gap:8px;padding:12px 0}
+    .sla-grid-priority{grid-column:1 / -1}
   }
 
   .workflow-responses{

@@ -2,7 +2,7 @@
   <div class="queue-shell">
     <table class="queue">
       <thead>
-        <tr><th>ID</th><th>Title</th><th>State</th><th>Priority</th><th>Updated</th></tr>
+        <tr><th>ID</th><th>Title</th><th>State</th><th>Priority</th><th>SLA</th><th>Updated</th></tr>
       </thead>
       <tbody>
 {{range .Tickets}}        <tr>
@@ -10,9 +10,10 @@
           <td class="cell-title" data-label="Title"><a href="/tickets/{{.ID}}">{{.Title}}</a></td>
           <td data-label="State">{{template "state_badge" .State}}</td>
           <td class="priority {{.Priority}}" data-label="Priority"><span class="ticket-priority-value">{{humanize .Priority}}</span></td>
+          <td data-label="SLA">{{if .SLA}}{{template "sla_state_dot" .SLA.State}}{{end}}</td>
           <td class="cell-muted" data-label="Updated">{{template "timestamp" .UpdatedAt}}</td>
         </tr>
-{{else}}        <tr><td colspan="5"><div class="empty">{{if .HasActiveQuery}}No tickets match your filters{{else}}No tickets yet{{end}}</div></td></tr>
+{{else}}        <tr><td colspan="6"><div class="empty">{{if .HasActiveQuery}}No tickets match your filters{{else}}No tickets yet{{end}}</div></td></tr>
 {{end}}      </tbody>
     </table>
   </div>{{template "pagination" .}}

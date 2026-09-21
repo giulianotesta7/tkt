@@ -87,6 +87,7 @@ function authenticatedScreens(deps: {
   ticketId: string;
   workflowHref: string;
   categoryEditHref: string;
+  categorySLAHref: string;
   userEditHref: string;
 }): StructuralScreen[] {
   return [
@@ -158,6 +159,12 @@ function authenticatedScreens(deps: {
       control: (p) => p.locator("#workflow-builder"),
     },
     {
+      label: `/categories/{id}/sla`,
+      path: () => Promise.resolve(deps.categorySLAHref),
+      heading: (p) => p.locator("h1").filter({ hasText: "Category SLA" }),
+      control: (p) => p.locator(".sla-grid"),
+    },
+    {
       label: `/categories/desk-compatibility`,
       path: "/desks",
       expectedUrl: /\/categories$/,
@@ -178,6 +185,7 @@ let fixture:
       ticketId: string;
       workflowHref: string;
       categoryEditHref: string;
+      categorySLAHref: string;
       userEditHref: string;
       seededUserName: string;
       seededUserEmail: string;
@@ -215,6 +223,7 @@ test.describe("Structural — seeded canonical screens", () => {
       await page.goto(base() + "/categories");
       const workflowHref = await resolveWorkflowHref(page);
       const categoryEditHref = await resolveCategoryEditHref(page, "General");
+      const categorySLAHref = categoryEditHref.split("?")[0].replace(/\/edit$/, "/sla");
 
       const seededUserName = "StructUser " + Date.now().toString(36).slice(2, 6);
       const seededUserEmail = `struct-${Date.now().toString(36).slice(2, 8)}@example.com`;
@@ -243,6 +252,7 @@ test.describe("Structural — seeded canonical screens", () => {
         ticketId,
         workflowHref,
         categoryEditHref,
+        categorySLAHref,
         userEditHref,
         seededUserName,
         seededUserEmail,

@@ -144,13 +144,14 @@ func seedRun(t *testing.T, s *Store, ticketID int64, cursor int, status string, 
 
 func assertTotalRollback(t *testing.T, s *Store) {
 	t.Helper()
-	var tickets, runs, audits, answers int
+	var tickets, runs, audits, answers, slas int
 	_ = s.db.QueryRow(`SELECT COUNT(*) FROM tickets`).Scan(&tickets)
 	_ = s.db.QueryRow(`SELECT COUNT(*) FROM ticket_workflow_runs`).Scan(&runs)
 	_ = s.db.QueryRow(`SELECT COUNT(*) FROM audit_events`).Scan(&audits)
 	_ = s.db.QueryRow(`SELECT COUNT(*) FROM ticket_form_answers`).Scan(&answers)
-	if tickets != 0 || runs != 0 || audits != 0 || answers != 0 {
-		t.Fatalf("rollback failed: tickets=%d runs=%d audits=%d answers=%d, want all 0", tickets, runs, audits, answers)
+	_ = s.db.QueryRow(`SELECT COUNT(*) FROM ticket_sla`).Scan(&slas)
+	if tickets != 0 || runs != 0 || audits != 0 || answers != 0 || slas != 0 {
+		t.Fatalf("rollback failed: tickets=%d runs=%d audits=%d answers=%d slas=%d, want all 0", tickets, runs, audits, answers, slas)
 	}
 }
 
@@ -3076,4 +3077,110 @@ func TestWorkflowUoW_Create_CreatedAuditPersistedExactAfterStamping(t *testing.T
 	if got[0].ticketID != tk.ID || got[0].ticketID == 0 {
 		t.Fatalf("created audit ticket_id = %d, assigned %d, want stamped non-zero", got[0].ticketID, tk.ID)
 	}
+}
+
+// --- SLA freeze at creation (issue #211) ---
+
+// TestWorkflowUoW_Create_FreezesSLARow proves the workflow create path freezes
+// the commitment in the SAME transaction: after a successful CreateTicketWithRun
+// exactly one ticket_sla row exists with the exact frozen values, and a create
+// whose ticket carries no commitment leaves no row.
+func TestWorkflowUoW_Create_FreezesSLARow(t *testing.T) {
+	s := newTestDB(t)
+	cat := seedCategory(t, s, "C1")
+	req := seedUser(t, s, "Req", "r@x", true)
+	def := domain.WorkflowDefinition{{Type: domain.StepManualTask, ManualTask: &domain.ManualTaskStep{Instructions: "do"}}}
+	vid := seedPublished(t, s, cat, def)
+	ctx := context.Background()
+
+	in := buildCreateInput(cat, vid, req, def, nil, 0, "active", domain.StateNew, nil)
+	in.Ticket.SLA = &domain.TicketSLA{
+		FirstResponseSeconds: 1800,
+		ResolveSeconds:       14400,
+		StartedAt:            testClock,
+		PolicySnapshotAt:     testClock,
+	}
+	tk, err := newWorkflowUnitOfWork(s.db).CreateTicketWithRun(ctx, in)
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	var n int
+	if err := s.db.QueryRow(`SELECT COUNT(*) FROM ticket_sla WHERE ticket_id = ?`, tk.ID).Scan(&n); err != nil {
+		t.Fatalf("count ticket_sla: %v", err)
+	}
+	if n != 1 {
+		t.Fatalf("ticket_sla rows = %d, want exactly 1 after a successful create", n)
+	}
+	var frs, rs int
+	var started, policySnap string
+	if err := s.db.QueryRow(`SELECT first_response_seconds, resolve_seconds, started_at, policy_snapshot_at
+		FROM ticket_sla WHERE ticket_id = ?`, tk.ID).Scan(&frs, &rs, &started, &policySnap); err != nil {
+		t.Fatalf("read ticket_sla: %v", err)
+	}
+	if frs != 1800 || rs != 14400 {
+		t.Errorf("frozen targets = (%d, %d), want (1800, 14400)", frs, rs)
+	}
+	startedAt, err := time.Parse(timeLayout, started)
+	if err != nil {
+		t.Fatalf("parse started_at %q: %v", started, err)
+	}
+	snapshotAt, err := time.Parse(timeLayout, policySnap)
+	if err != nil {
+		t.Fatalf("parse policy_snapshot_at %q: %v", policySnap, err)
+	}
+	if !startedAt.Equal(testClock) || !snapshotAt.Equal(testClock) {
+		t.Errorf("frozen instants = (%v, %v), want (%v, %v)", startedAt, snapshotAt, testClock, testClock)
+	}
+
+	// A create without a commitment leaves no row (SLA disabled / no policy).
+	bare := buildCreateInput(cat, vid, req, def, nil, 0, "active", domain.StateNew, nil)
+	if _, err := newWorkflowUnitOfWork(s.db).CreateTicketWithRun(ctx, bare); err != nil {
+		t.Fatalf("create without sla: %v", err)
+	}
+	var total int
+	if err := s.db.QueryRow(`SELECT COUNT(*) FROM ticket_sla WHERE ticket_id = ?`, bare.Ticket.ID).Scan(&total); err != nil {
+		t.Fatalf("count bare ticket_sla: %v", err)
+	}
+	if total != 0 {
+		t.Errorf("bare ticket_sla rows = %d, want 0 (nil SLA must freeze nothing)", total)
+	}
+}
+
+// TestWorkflowUoW_Create_SLABlankOnRollback proves a create that fails for any
+// reason leaves no ticket_sla row behind: the commitment is written inside the
+// create's own transaction, so the rollback removes it with everything else.
+// (assertTotalRollback now counts ticket_sla for every rollback test; this case
+// carries a commitment explicitly.)
+func TestWorkflowUoW_Create_SLABlankOnRollback(t *testing.T) {
+	s := newTestDB(t)
+	cat := seedCategory(t, s, "C1")
+	req := seedUser(t, s, "Req", "r@x", true)
+	def := domain.WorkflowDefinition{{Type: domain.StepManualTask, ManualTask: &domain.ManualTaskStep{Instructions: "do"}}}
+	vid := seedPublished(t, s, cat, def)
+
+	in := buildCreateInput(cat, vid, req, def, nil, 0, "active", domain.StateNew, nil)
+	in.Ticket.SLA = &domain.TicketSLA{
+		FirstResponseSeconds: 1800,
+		ResolveSeconds:       14400,
+		StartedAt:            testClock,
+		PolicySnapshotAt:     testClock,
+	}
+	// Stale plan: republish so the expected version no longer holds, and the
+	// create fails AFTER nothing is written.
+	canon, _ := def.MarshalCanonical()
+	if _, err := s.db.ExecContext(context.Background(),
+		`INSERT INTO workflow_versions (category_id, version_no, steps_json, published_at) VALUES (?, 2, ?, ?)`,
+		cat, string(canon), "2026-08-06T10:00:00Z"); err != nil {
+		t.Fatalf("insert v2: %v", err)
+	}
+	var v2 int64
+	_ = s.db.QueryRow(`SELECT id FROM workflow_versions WHERE category_id=? AND version_no=2`, cat).Scan(&v2)
+	if _, err := s.db.ExecContext(context.Background(), `UPDATE category_workflows SET current_version_id=? WHERE category_id=?`, v2, cat); err != nil {
+		t.Fatalf("switch current: %v", err)
+	}
+
+	if _, err := newWorkflowUnitOfWork(s.db).CreateTicketWithRun(context.Background(), in); !errors.Is(err, domain.ErrWorkflowPositionConflict) {
+		t.Fatalf("stale create must be ErrWorkflowPositionConflict, got %v", err)
+	}
+	assertTotalRollback(t, s)
 }

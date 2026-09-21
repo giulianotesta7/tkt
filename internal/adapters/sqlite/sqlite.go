@@ -202,6 +202,11 @@ func (s *Store) WorkflowUnitOfWork() application.WorkflowUnitOfWork {
 // SettingsStore returns the instance appearance settings port.
 func (s *Store) SettingsStore() application.SettingsStore { return newSettingsStore(s.db) }
 
+// SLAStore returns the SLA port (issue #211): global defaults,
+// materialized category matrices, observed milestone instants, and the
+// commitments frozen onto tickets.
+func (s *Store) SLAStore() application.SLAStore { return newSLAStore(s.db) }
+
 // Ping verifies the database connection is alive (SELECT 1). The
 // composition root's -healthcheck flag uses it.
 func (s *Store) Ping(ctx context.Context) error {

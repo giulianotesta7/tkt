@@ -241,6 +241,63 @@ func TestCommentStoreLegacyRowBackfillsPublic(t *testing.T) {
 	}
 }
 
+// ---------------------------------------------------------------------------
+// Comment authorship persistence (issue #211, migration 0013): the
+// authoring session user's id and a role snapshot survive a full
+// Add → ListByTicket round trip through the real store, and comments
+// written without them (legacy shape) read back as NULL / "unknown".
+// ---------------------------------------------------------------------------
+
+// TestCommentStoreAuthorshipRoundTrip proves Add persists the authorship
+// columns and ListByTicket reads them back: a comment written with an
+// author user id and role reads back with both, and a comment written with
+// neither reads back with AuthorUserID == nil and AuthorRole == "" —
+// never a guessed author for historical rows.
+func TestCommentStoreAuthorshipRoundTrip(t *testing.T) {
+	s := newTestDB(t)
+	ticketID := seedTicketForTimeline(t, s, 1)
+	ctx := context.Background()
+
+	// The author_user_id column is a real FK: the author must be a stored
+	// user (migration 0013), so seed one through the port and use its id.
+	author := &domain.User{Name: "Ana", Email: "ana-0012@example.com", Active: true, CreatedAt: testClock}
+	if err := s.UserStore().Create(ctx, author); err != nil {
+		t.Fatalf("seed author: %v", err)
+	}
+	authorID := author.ID
+
+	stamped := &domain.Comment{TicketID: ticketID, Author: author.Name,
+		AuthorUserID: &authorID, AuthorRole: domain.RoleAgent,
+		Body: "agent first response", Visibility: domain.CommentPublic, CreatedAt: testClock}
+	if err := s.CommentStore().Add(ctx, stamped); err != nil {
+		t.Fatalf("add stamped comment: %v", err)
+	}
+	// Triangulation: a comment WITHOUT authorship (the pre-0013 shape)
+	// must round-trip as nil / empty, not as zero values.
+	legacy := &domain.Comment{TicketID: ticketID, Author: "Ada",
+		Body: "legacy note", Visibility: domain.CommentPublic, CreatedAt: testClock}
+	if err := s.CommentStore().Add(ctx, legacy); err != nil {
+		t.Fatalf("add unstamped comment: %v", err)
+	}
+
+	got, err := s.CommentStore().ListByTicket(ctx, ticketID, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("len = %d, want 2", len(got))
+	}
+	if got[0].AuthorUserID == nil || *got[0].AuthorUserID != authorID {
+		t.Errorf("stamped AuthorUserID = %v, want %d", got[0].AuthorUserID, authorID)
+	}
+	if got[0].AuthorRole != domain.RoleAgent {
+		t.Errorf("stamped AuthorRole = %q, want %q", got[0].AuthorRole, domain.RoleAgent)
+	}
+	if got[1].AuthorUserID != nil || got[1].AuthorRole != "" {
+		t.Errorf("unstamped comment must round-trip nil/empty, got AuthorUserID=%v AuthorRole=%q", got[1].AuthorUserID, got[1].AuthorRole)
+	}
+}
+
 func TestAuditAppendPersistsMultiEventBatch(t *testing.T) {
 	s := newTestDB(t)
 	ticketID := seedTicketForTimeline(t, s, 1)

@@ -391,3 +391,26 @@ func TestMetricsWorkloadChartEscapesUserControlledLabels(t *testing.T) {
 		t.Fatalf("workload label must survive as escaped text: %s", svg)
 	}
 }
+
+// attainmentViewFor sums the group counts into the cohort totals and formats
+// each rate as a whole percent derived from the decided (met+breached)
+// denominator, so open tickets never enter it and the label can never drift
+// from the counts. A zero denominator reads 0%, never a division artifact.
+func TestAttainmentViewForFormatsRateFromDecided(t *testing.T) {
+	v := attainmentViewFor(application.TicketMetricsAttainment{
+		GroupBy: application.TicketMetricsGroupPriority,
+		Groups: []application.TicketMetricsAttainmentGroup{
+			{Label: "High", Tickets: 3, FirstResponse: application.TicketMetricsMilestoneAttainment{Met: 1, Breached: 1, Open: 1}},
+			{Label: "Low", Tickets: 1, FirstResponse: application.TicketMetricsMilestoneAttainment{Open: 1}},
+		},
+	})
+	if v.Cohort != 4 {
+		t.Fatalf("cohort = %d, want 4", v.Cohort)
+	}
+	if got := v.FirstResponse; got.Met != 1 || got.Breached != 1 || got.Open != 2 || got.Decided != 2 || got.Rate != "50%" {
+		t.Fatalf("cohort first response = %+v, want 1 met / 1 breached / 2 open / 2 decided / 50%%", got)
+	}
+	if got := v.Groups[1].FirstResponse; got.Rate != "0%" || got.Decided != 0 {
+		t.Fatalf("undecided group rate = %+v, want 0%% with 0 decided", got)
+	}
+}

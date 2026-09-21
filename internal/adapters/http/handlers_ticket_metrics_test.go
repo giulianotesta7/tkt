@@ -100,16 +100,16 @@ func TestTicketMetricsHTTPDetailPage(t *testing.T) {
 	}
 	// The dashboard completes with exactly four panels in order and one native
 	// View data disclosure each; no card id may repeat.
-	for i, title := range []string{"Created vs resolved", "Age of pending tickets", "Pending workload", "Resolution time distribution"} {
+	for i, title := range []string{"Created vs resolved", "Age of pending tickets", "Pending workload", "Resolution time distribution", "SLA attainment"} {
 		if !strings.Contains(cardBody, ">"+title+"</h2>") {
 			t.Fatalf("panel %d must render h2 %q", i, title)
 		}
-		if after := cardBody[strings.Index(cardBody, ">"+title+"</h2>"):]; strings.Count(after, "</section>") < 4-i-0 {
+		if after := cardBody[strings.Index(cardBody, ">"+title+"</h2>"):]; strings.Count(after, "</section>") < 5-i-0 {
 			t.Fatalf("panel %d (%s) must close before later panels", i, title)
 		}
 	}
-	if got := strings.Count(cardBody, `<section class="ticket-metrics-card ticket-metrics-panel"`); got != 4 {
-		t.Fatalf("exactly four dashboard panels, got %d", got)
+	if got := strings.Count(cardBody, `<section class="ticket-metrics-card ticket-metrics-panel"`); got != 5 {
+		t.Fatalf("exactly five dashboard panels, got %d", got)
 	}
 	if got := strings.Count(cardBody, "View data"); got != 4 {
 		t.Fatalf("exactly four View data disclosures, got %d", got)
@@ -220,8 +220,8 @@ func TestTicketMetricsHTTPPendingChartsAndWorkloadGrouping(t *testing.T) {
 		sel  string
 		want int
 	}{
-		{`name="metrics_group"`, 2}, {`form="ticket-metrics-filters"`, 2},
-		{`hx-include="#ticket-metrics-filters"`, 2}, {`id="ticket-metrics-filters"`, 1},
+		{`name="metrics_group"`, 2}, {`name="metrics_attainment_group"`, 3}, {`form="ticket-metrics-filters"`, 5},
+		{`hx-include="#ticket-metrics-filters"`, 5}, {`id="ticket-metrics-filters"`, 1},
 	} {
 		if got := strings.Count(body, want.sel); got != want.want {
 			t.Fatalf("expected %d occurrences of %q, got %d: %s", want.want, want.sel, got, body)
@@ -278,5 +278,138 @@ func TestTicketMetricsTemplateNotEnoughHistoryState(t *testing.T) {
 	}
 	if got := strings.Count(body, "View data"); got != 4 {
 		t.Fatalf("View data tables stay reachable in every state, got %d: %s", got, body)
+	}
+}
+
+// enableMetricsSLA turns SLA on through the real settings route so the create
+// path freezes a commitment, using the shared settings form fixture.
+func enableMetricsSLA(t *testing.T, h *harness) {
+	t.Helper()
+	form := slaPanelForm("80")
+	form.Set("sla_enabled", "1")
+	if rec := h.postForm(t, "/settings/sla", form, false); rec.Code != http.StatusSeeOther {
+		t.Fatalf("enable SLA: status = %d, want %d", rec.Code, http.StatusSeeOther)
+	}
+}
+
+// A ticket created in the period with a frozen commitment makes the SLA
+// attainment panel render both milestone blocks with real counts and a visible
+// denominator. A freshly created ticket has both milestones OPEN, so the rate
+// reads 0% with zero decided — the exact case the denominator exists to keep
+// from being misread as total failure.
+func TestTicketMetricsHTTPAttainmentPanelCounts(t *testing.T) {
+	h := newHarness(t)
+	enableMetricsSLA(t, h)
+	h.seedTicket(t, "committed", nil)
+	section := sectionBody(t, h.get(t, "/tickets/metrics", true).Body.String(), "SLA attainment")
+	for _, want := range []string{
+		"Tickets created in the selected period that carry a frozen commitment",
+		`name="metrics_attainment_group"`,
+		"<h3>First response</h3>",
+		"<h3>Resolution</h3>",
+		"Met 0 · Breached 0 · Open 1",
+		"Rate 0% (0 decided)",
+		"SLA attainment by Total",
+	} {
+		if !strings.Contains(section, want) {
+			t.Fatalf("attainment panel must contain %q: %s", want, section)
+		}
+	}
+	if strings.Contains(section, "No tickets created in the selected period carry a frozen commitment.") {
+		t.Fatalf("a committed cohort must not render the empty state: %s", section)
+	}
+	if strings.Contains(section, "without a frozen commitment are excluded") {
+		t.Fatalf("no commitless created tickets here, so no exclusion note: %s", section)
+	}
+	if strings.Count(section, "checked") != 1 || !strings.Contains(section, `value="total"`) {
+		t.Fatalf("default grouping must select total: %s", section)
+	}
+}
+
+// With SLA disabled the created ticket freezes nothing, so the period has no
+// commitment at all: the panel shows its empty state and the exclusion note,
+// and renders NO milestone count or rate — the check is not vacuous because
+// both the message and the absence of the count blocks are asserted.
+func TestTicketMetricsHTTPAttainmentEmptyState(t *testing.T) {
+	h := newHarness(t)
+	h.seedTicket(t, "no commitment", nil)
+	section := sectionBody(t, h.get(t, "/tickets/metrics", true).Body.String(), "SLA attainment")
+	if !strings.Contains(section, "No tickets created in the selected period carry a frozen commitment.") {
+		t.Fatalf("empty period must render the attainment empty state: %s", section)
+	}
+	if !strings.Contains(section, "without a frozen commitment are excluded from these rates (1)") {
+		t.Fatalf("empty state must explain the excluded commitless tickets: %s", section)
+	}
+	for _, absent := range []string{"ticket-metrics-attainment-milestone", "Rate ", "ticket-metrics-attainment-row"} {
+		if strings.Contains(section, absent) {
+			t.Fatalf("empty period must not render %q: %s", absent, section)
+		}
+	}
+}
+
+// The attainment grouping fails soft like the list sort: an empty or unknown
+// value selects total, never an error, and the dashboard still renders.
+func TestTicketMetricsHTTPAttainmentGroupingFailsSoft(t *testing.T) {
+	h := newHarness(t)
+	for _, query := range []string{"", "?metrics_attainment_group=", "?metrics_attainment_group=bogus"} {
+		rec := h.get(t, "/tickets/metrics"+query, true)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("query %q status = %d, want 200", query, rec.Code)
+		}
+		body := rec.Body.String()
+		if strings.Contains(body, `role="alert"`) || !strings.Contains(body, "ticket-metrics-grid") {
+			t.Fatalf("query %q must render the dashboard without an alert: %s", query, body)
+		}
+		section := sectionBody(t, body, "SLA attainment")
+		if strings.Count(section, "checked") != 1 || !strings.Contains(section, `value="total"`) {
+			t.Fatalf("query %q must select the total grouping: %s", query, section)
+		}
+	}
+}
+
+// Switching the grouping changes the table rows: total is one row, priority is
+// always the four canonical groups (empty ones included), category only the
+// categories present, ordered by name. Two committed tickets in two categories
+// give the category view two rows.
+func TestTicketMetricsHTTPAttainmentGroupingRows(t *testing.T) {
+	h := newHarness(t)
+	enableMetricsSLA(t, h)
+	h.seedTicket(t, "bugs committed", nil)
+	ops, err := h.categories.Create(t.Context(), "Operations")
+	if err != nil {
+		t.Fatalf("create category: %v", err)
+	}
+	h.publishWorkflow(t, ops.ID, simpleManualDef())
+	h.seedTicket(t, "ops committed", func(in *application.CreateTicketInput) {
+		in.CategoryID = ops.ID
+		in.Priority = domain.PriorityHigh
+	})
+
+	total := sectionBody(t, h.get(t, "/tickets/metrics", true).Body.String(), "SLA attainment")
+	if got := strings.Count(total, "ticket-metrics-attainment-row"); got != 1 {
+		t.Fatalf("total grouping must render one row, got %d: %s", got, total)
+	}
+
+	priority := sectionBody(t, h.get(t, "/tickets/metrics?metrics_attainment_group=priority", true).Body.String(), "SLA attainment")
+	if got := strings.Count(priority, "ticket-metrics-attainment-row"); got != 4 {
+		t.Fatalf("priority grouping must render four canonical rows, got %d: %s", got, priority)
+	}
+	for _, label := range []string{">Critical<", ">High<", ">Medium<", ">Low<"} {
+		if !strings.Contains(priority, label) {
+			t.Fatalf("priority grouping must render %q: %s", label, priority)
+		}
+	}
+	if strings.Count(priority, "checked") != 1 || !strings.Contains(priority, `value="priority"`) {
+		t.Fatalf("priority grouping must be selected: %s", priority)
+	}
+
+	category := sectionBody(t, h.get(t, "/tickets/metrics?metrics_attainment_group=category", true).Body.String(), "SLA attainment")
+	if got := strings.Count(category, "ticket-metrics-attainment-row"); got != 2 {
+		t.Fatalf("category grouping must render the two present categories, got %d: %s", got, category)
+	}
+	for _, label := range []string{">Bugs<", ">Operations<"} {
+		if !strings.Contains(category, label) {
+			t.Fatalf("category grouping must render %q: %s", label, category)
+		}
 	}
 }

@@ -40,7 +40,7 @@
 <div class="command-header">
   <div>
     <h1 class="command-title">Settings</h1>
-    <p class="command-sub">Instance appearance</p>
+    <p class="command-sub">Instance configuration</p>
   </div>
 </div>
 
@@ -69,6 +69,125 @@
 
   </div>
   <button class="btn primary" type="submit">Save appearance</button>
+</form>
+<form class="card form-card" method="post" action="/settings/sla">
+  <h2>Service level agreements</h2>
+  <p class="help">Defaults for new categories. Editing them does not change existing categories.</p>
+  <div class="field checkbox-field">
+    <label><input type="checkbox" name="sla_enabled" value="1"> Enable SLA targets</label>
+    <p class="help">Off by default. Existing commitments keep rendering.</p>
+  </div>
+  <div class="field">
+    <label for="sla_warning_percent">Warning threshold</label>
+    <input type="number" id="sla_warning_percent" name="sla_warning_percent" class="sla-warning-input" min="1" max="99" value="80">
+    <p class="help">At risk once this share of the target has elapsed.</p>
+  </div>
+<div class="sla-grid">
+  <div class="sla-grid-row sla-grid-head" aria-hidden="true">
+    <span class="sla-grid-priority"></span>
+    <span class="sla-grid-milestone">First response</span>
+    <span class="sla-grid-milestone">Resolve</span>
+  </div>
+
+  <div class="sla-grid-row">
+    <span class="sla-grid-priority">Critical</span>
+    <div class="sla-target">
+      <span class="sla-unit"><span class="sla-unit-mark" aria-hidden="true">h</span><input type="number" inputmode="numeric" min="0" name="first_response_h_critical" value="0" aria-label="Critical first response, hours"></span>
+      <span class="sla-unit"><span class="sla-unit-mark" aria-hidden="true">m</span><input type="number" inputmode="numeric" min="0" max="59" name="first_response_m_critical" value="30" aria-label="Critical first response, minutes"></span>
+      <span class="sla-unit"><span class="sla-unit-mark" aria-hidden="true">s</span><input type="number" inputmode="numeric" min="0" max="59" name="first_response_s_critical" value="0" aria-label="Critical first response, seconds"></span>
+    </div>
+    <div class="sla-target">
+      <span class="sla-unit"><span class="sla-unit-mark" aria-hidden="true">h</span><input type="number" inputmode="numeric" min="0" name="resolve_h_critical" value="4" aria-label="Critical resolve, hours"></span>
+      <span class="sla-unit"><span class="sla-unit-mark" aria-hidden="true">m</span><input type="number" inputmode="numeric" min="0" max="59" name="resolve_m_critical" value="0" aria-label="Critical resolve, minutes"></span>
+      <span class="sla-unit"><span class="sla-unit-mark" aria-hidden="true">s</span><input type="number" inputmode="numeric" min="0" max="59" name="resolve_s_critical" value="0" aria-label="Critical resolve, seconds"></span>
+    </div>
+  </div>
+
+  <div class="sla-grid-row">
+    <span class="sla-grid-priority">High</span>
+    <div class="sla-target">
+      <span class="sla-unit"><span class="sla-unit-mark" aria-hidden="true">h</span><input type="number" inputmode="numeric" min="0" name="first_response_h_high" value="1" aria-label="High first response, hours"></span>
+      <span class="sla-unit"><span class="sla-unit-mark" aria-hidden="true">m</span><input type="number" inputmode="numeric" min="0" max="59" name="first_response_m_high" value="0" aria-label="High first response, minutes"></span>
+      <span class="sla-unit"><span class="sla-unit-mark" aria-hidden="true">s</span><input type="number" inputmode="numeric" min="0" max="59" name="first_response_s_high" value="0" aria-label="High first response, seconds"></span>
+    </div>
+    <div class="sla-target">
+      <span class="sla-unit"><span class="sla-unit-mark" aria-hidden="true">h</span><input type="number" inputmode="numeric" min="0" name="resolve_h_high" value="8" aria-label="High resolve, hours"></span>
+      <span class="sla-unit"><span class="sla-unit-mark" aria-hidden="true">m</span><input type="number" inputmode="numeric" min="0" max="59" name="resolve_m_high" value="0" aria-label="High resolve, minutes"></span>
+      <span class="sla-unit"><span class="sla-unit-mark" aria-hidden="true">s</span><input type="number" inputmode="numeric" min="0" max="59" name="resolve_s_high" value="0" aria-label="High resolve, seconds"></span>
+    </div>
+  </div>
+
+  <div class="sla-grid-row">
+    <span class="sla-grid-priority">Medium</span>
+    <div class="sla-target">
+      <span class="sla-unit"><span class="sla-unit-mark" aria-hidden="true">h</span><input type="number" inputmode="numeric" min="0" name="first_response_h_medium" value="4" aria-label="Medium first response, hours"></span>
+      <span class="sla-unit"><span class="sla-unit-mark" aria-hidden="true">m</span><input type="number" inputmode="numeric" min="0" max="59" name="first_response_m_medium" value="0" aria-label="Medium first response, minutes"></span>
+      <span class="sla-unit"><span class="sla-unit-mark" aria-hidden="true">s</span><input type="number" inputmode="numeric" min="0" max="59" name="first_response_s_medium" value="0" aria-label="Medium first response, seconds"></span>
+    </div>
+    <div class="sla-target">
+      <span class="sla-unit"><span class="sla-unit-mark" aria-hidden="true">h</span><input type="number" inputmode="numeric" min="0" name="resolve_h_medium" value="24" aria-label="Medium resolve, hours"></span>
+      <span class="sla-unit"><span class="sla-unit-mark" aria-hidden="true">m</span><input type="number" inputmode="numeric" min="0" max="59" name="resolve_m_medium" value="0" aria-label="Medium resolve, minutes"></span>
+      <span class="sla-unit"><span class="sla-unit-mark" aria-hidden="true">s</span><input type="number" inputmode="numeric" min="0" max="59" name="resolve_s_medium" value="0" aria-label="Medium resolve, seconds"></span>
+    </div>
+  </div>
+
+  <div class="sla-grid-row">
+    <span class="sla-grid-priority">Low</span>
+    <div class="sla-target">
+      <span class="sla-unit"><span class="sla-unit-mark" aria-hidden="true">h</span><input type="number" inputmode="numeric" min="0" name="first_response_h_low" value="8" aria-label="Low first response, hours"></span>
+      <span class="sla-unit"><span class="sla-unit-mark" aria-hidden="true">m</span><input type="number" inputmode="numeric" min="0" max="59" name="first_response_m_low" value="0" aria-label="Low first response, minutes"></span>
+      <span class="sla-unit"><span class="sla-unit-mark" aria-hidden="true">s</span><input type="number" inputmode="numeric" min="0" max="59" name="first_response_s_low" value="0" aria-label="Low first response, seconds"></span>
+    </div>
+    <div class="sla-target">
+      <span class="sla-unit"><span class="sla-unit-mark" aria-hidden="true">h</span><input type="number" inputmode="numeric" min="0" name="resolve_h_low" value="72" aria-label="Low resolve, hours"></span>
+      <span class="sla-unit"><span class="sla-unit-mark" aria-hidden="true">m</span><input type="number" inputmode="numeric" min="0" max="59" name="resolve_m_low" value="0" aria-label="Low resolve, minutes"></span>
+      <span class="sla-unit"><span class="sla-unit-mark" aria-hidden="true">s</span><input type="number" inputmode="numeric" min="0" max="59" name="resolve_s_low" value="0" aria-label="Low resolve, seconds"></span>
+    </div>
+  </div>
+
+</div>
+  <button class="btn primary" type="submit">Save SLA settings</button>
+</form>
+<form class="card form-card" method="post" action="/settings/calendar">
+  <h2>Working calendar</h2>
+  <p class="help">When the SLA clock runs. Frozen commitments keep their calendar.</p>
+  <fieldset class="checkbox-field calendar-days">
+    <legend>Working days</legend>
+    <div class="calendar-day-list">
+
+      <label class="calendar-day"><input type="checkbox" name="sla_calendar_days" value="1" checked> Monday</label>
+
+      <label class="calendar-day"><input type="checkbox" name="sla_calendar_days" value="2" checked> Tuesday</label>
+
+      <label class="calendar-day"><input type="checkbox" name="sla_calendar_days" value="3" checked> Wednesday</label>
+
+      <label class="calendar-day"><input type="checkbox" name="sla_calendar_days" value="4" checked> Thursday</label>
+
+      <label class="calendar-day"><input type="checkbox" name="sla_calendar_days" value="5" checked> Friday</label>
+
+      <label class="calendar-day"><input type="checkbox" name="sla_calendar_days" value="6"> Saturday</label>
+
+      <label class="calendar-day"><input type="checkbox" name="sla_calendar_days" value="7"> Sunday</label>
+
+    </div>
+    <p class="help">At least one day.</p>
+  </fieldset>
+  <div class="field-row">
+    <div class="field">
+      <label for="sla_calendar_start">Start</label>
+      <input type="time" id="sla_calendar_start" name="sla_calendar_start" value="09:00" step="60">
+    </div>
+    <div class="field">
+      <label for="sla_calendar_end">End</label>
+      <input type="time" id="sla_calendar_end" name="sla_calendar_end" value="18:00" step="60">
+    </div>
+  </div>
+  <div class="field">
+    <label for="sla_calendar_timezone">Timezone</label>
+    <input type="text" id="sla_calendar_timezone" name="sla_calendar_timezone" value="UTC" spellcheck="false" autocapitalize="off">
+    <p class="help">IANA name, e.g. America/Argentina/Buenos_Aires. Defaults to UTC.</p>
+  </div>
+  <button class="btn primary" type="submit">Save working calendar</button>
 </form>
 </main>
 </div>

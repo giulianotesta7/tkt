@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/giulianotesta7/tkt/internal/application"
 	"github.com/giulianotesta7/tkt/internal/domain"
@@ -32,6 +33,12 @@ type TicketHandlers struct {
 	renderer     *Renderer
 	catalog      *application.CatalogService
 	metrics      *application.TicketMetricsService
+	// sla is the OPTIONAL SLA projection read used by the two STAFF ticket
+	// lists (issue #211). An UNSET service means "no SLA is rendered in any
+	// list": every row's SLA row stays nil and the lists render exactly as
+	// before. It is never dereferenced without a nil check, so unset can
+	// never panic; WithSLA is what makes the badge appear.
+	sla *application.SLAService
 }
 
 // NewTicketHandlers wires the ticket routes against the ticket, comment,
@@ -56,6 +63,18 @@ func NewTicketHandlers(tickets *application.TicketService, comments *application
 	if len(catalogs) > 0 {
 		h.catalog = catalogs[0]
 	}
+	return h
+}
+
+// WithSLA wires the optional SLA projection read into the ticket handlers
+// (issue #211). It follows the same fluent shape WithMetrics already uses, so
+// the constructor keeps the exact signature the five positional call sites
+// depend on (two of them unrelated tests); the SLA service arrives through an
+// explicit setter instead of a trailing constructor parameter. A nil or unset
+// service leaves every staff list's SLA row nil: no badge, no deadline, no
+// panic.
+func (h *TicketHandlers) WithSLA(sla *application.SLAService) *TicketHandlers {
+	h.sla = sla
 	return h
 }
 
@@ -93,8 +112,13 @@ type pageData struct {
 	WorkflowAssets       bool
 	CategoryAssets       bool
 	MetricsAssets        bool
-	InternalCommentBg    string
-	SaveFeedback         saveFeedbackData
+	// SLACountdownAssets loads the live SLA countdown script (issue #211,
+	// PR 6). It is set only where the ticket detail page is built and only
+	// when that ticket carries a frozen commitment, because the panel is the
+	// only place that renders a countdown element.
+	SLACountdownAssets bool
+	InternalCommentBg  string
+	SaveFeedback       saveFeedbackData
 }
 
 // pageDataFrom builds the shell payload from the session user. The
@@ -153,6 +177,16 @@ func (h *TicketHandlers) collectOptions(r *http.Request) (options, error) {
 	}, nil
 }
 
+// The three list orderings the `sort` query parameter accepts (issue #211,
+// PR 4). sortNewest is the default order; parseFilters normalizes an absent,
+// empty, or unknown value to it so the template always has a concrete value
+// to mark `selected`.
+const (
+	sortNewest   = "newest"
+	sortPriority = "priority"
+	sortUrgency  = "urgency"
+)
+
 // filterState is the parsed list filter set (ticket-search spec). Zero
 // values mean "no filter"; unknown values are ignored (threat matrix).
 type filterState struct {
@@ -161,12 +195,15 @@ type filterState struct {
 	CategoryID string
 	UserID     string
 	Q          string
+	// Sort is the chosen list ordering (sortNewest, sortPriority, or
+	// sortUrgency). It is always concrete after parseFilters.
+	Sort string
 }
 
 // parseFilters reads the query string, ignoring unknown or malformed values.
 func parseFilters(r *http.Request) filterState {
 	q := r.URL.Query()
-	f := filterState{Q: q.Get("q")}
+	f := filterState{Q: q.Get("q"), Sort: sortNewest}
 	if s := domain.State(q.Get("state")); validState(s) {
 		f.State = s
 	}
@@ -178,6 +215,15 @@ func parseFilters(r *http.Request) filterState {
 	}
 	if id := q.Get("user_id"); id != "" && parseID(id) != 0 {
 		f.UserID = id
+	}
+	// Sort is a presentation choice, not a restriction: an UNKNOWN, empty,
+	// or absent value silently selects the default newest-first order
+	// instead of erroring. A bad sort must never render a 422 or an error
+	// page (threat matrix: unknown values are ignored), so this switch has
+	// no rejecting branch and no error return.
+	switch s := q.Get("sort"); s {
+	case sortPriority, sortUrgency:
+		f.Sort = s
 	}
 	return f
 }
@@ -218,6 +264,12 @@ func (f filterState) query() application.TicketQuery {
 	if id := parseID(f.UserID); id != 0 {
 		q.UserID = &id
 	}
+	switch f.Sort {
+	case sortPriority:
+		q.SortByPriority = true
+	case sortUrgency:
+		q.SortByUrgency = true
+	}
 	return q
 }
 
@@ -238,6 +290,9 @@ func listHref(f filterState, page int) string {
 	}
 	if f.Q != "" {
 		v.Set("q", f.Q)
+	}
+	if f.Sort == sortPriority || f.Sort == sortUrgency {
+		v.Set("sort", f.Sort)
 	}
 	if page > 1 {
 		v.Set("page", strconv.Itoa(page))
@@ -279,21 +334,157 @@ func ticketFilterValues(f filterState) url.Values {
 	if f.Q != "" {
 		v.Set("q", f.Q)
 	}
+	if f.Sort == sortPriority || f.Sort == sortUrgency {
+		v.Set("sort", f.Sort)
+	}
 	return v
 }
 
-// agentTicketRow wraps one agent-queue ticket with its batched row context
-// (issue #122). The domain.Ticket is EMBEDDED so every current template
-// expression ({{.ID}}, {{.Title}}, …) keeps resolving while unit 3 adds the
-// rich row markup; the Context carries desk/task/position facts.
-type agentTicketRow struct {
+// slaRow is the optional per-row SLA summary carried by BOTH staff ticket
+// lists (issue #211). It carries ONE thing: the projection's WORST milestone
+// state — whether the ticket is still standing. The milestone, its due instant
+// and the time left belong to the ticket's own panel, where there is room to
+// name them properly; the list is a triage surface and answers a single
+// question. A nil row means the ticket has no frozen commitment and its SLA
+// cell renders EMPTY — never a "no SLA" badge.
+type slaRow struct {
+	State domain.SLAState
+}
+
+// slaResponseLabel and slaResolveLabel name the two milestones in the row
+// deadline copy.
+const (
+	slaResponseLabel = "First response"
+	slaResolveLabel  = "Resolve"
+)
+
+// slaRowFor derives the optional row summary from one projection. A nil
+// projection (unknown id) or a ticket with no frozen commitment yields nil;
+// otherwise the row carries the worst of the two milestone states, which is
+// the only thing the list says. The urgency ordering keys on the same worst
+// state, in SQL, so the list's order and its signal can never disagree.
+func slaRowFor(p domain.SLAProjection) *slaRow {
+	if p.Frozen == nil {
+		return nil
+	}
+	return &slaRow{State: p.Overall}
+}
+
+// slaMilestoneView is one pre-formatted milestone block of the ticket detail
+// SLA panel (issue #211). The template only prints fields: Target is the
+// frozen target in compact h/m/s units, DueAt and AchievedAt stay time.Time
+// so the `timestamp` partial renders a truthful <time datetime>, State drives
+// the existing state_badge component, and Remaining is EMPTY once the
+// milestone is achieved (a met milestone has no outstanding time).
+type slaMilestoneView struct {
+	Label string
+	State domain.SLAState
+	DueAt time.Time
+	// Remaining is the pre-formatted time left on a PENDING milestone: the
+	// ticker's initial value, so a browser with no JavaScript still reads the
+	// truth instead of an empty cell.
+	Remaining string
+	// Countdown marks a PENDING milestone whose due instant the client turns
+	// into a live countdown (issue #211, PR 6). An achieved milestone never
+	// ticks, and a zero due instant (a legacy row with no frozen target) is
+	// not a countdown target either.
+	Countdown bool
+}
+
+// slaPanelView is the ticket detail SLA section (issue #211). It exists only
+// when the ticket carries a frozen commitment; a nil panel renders nothing,
+// so a requester or a legacy ticket sees no SLA section at all.
+type slaPanelView struct {
+	Overall    domain.SLAState
+	Milestones []slaMilestoneView
+	// ProjectedAt is the instant the projection was taken, stamped onto the
+	// panel as data-server-now so the client countdown can derive its clock
+	// offset (issue #211, PR 6). A presentation anchor only: it never
+	// changes a state.
+	ProjectedAt time.Time
+}
+
+// slaPanelFor builds the pre-formatted panel from one projection. A nil
+// Frozen (no commitment, or the pre-0016 zero-due legacy shape) yields nil —
+// absence is a state, never a "no SLA" panel.
+func slaPanelFor(p domain.SLAProjection) *slaPanelView {
+	if p.Frozen == nil {
+		return nil
+	}
+	return &slaPanelView{
+		Overall:     p.Overall,
+		ProjectedAt: p.ProjectedAt,
+		Milestones: []slaMilestoneView{
+			slaMilestoneViewFor(slaResponseLabel, p.FirstResponse),
+			slaMilestoneViewFor(slaResolveLabel, p.Resolve),
+		},
+	}
+}
+
+// slaMilestoneViewFor pre-formats one milestone. Remaining is populated only
+// while the milestone is pending: a negative remainder reads "30m overdue",
+// a non-negative one "in 2h 30m", and an achieved milestone carries no
+// remaining label at all (the template drops the row).
+func slaMilestoneViewFor(label string, m domain.SLAMilestoneStatus) slaMilestoneView {
+	v := slaMilestoneView{
+		Label:     label,
+		State:     m.State,
+		DueAt:     m.DueAt,
+		Countdown: m.AchievedAt == nil && !m.DueAt.IsZero(),
+	}
+	if m.AchievedAt == nil {
+		seconds := int(m.Remaining / time.Second)
+		if seconds < 0 {
+			v.Remaining = slaDurationLabel(-seconds) + " overdue"
+		} else {
+			v.Remaining = slaDurationLabel(seconds)
+		}
+	}
+	return v
+}
+
+// slaDurationLabel formats a duration in whole seconds as compact h/m/s units
+// ("4h 0m", "30m", "45s") for the ticket detail SLA panel. The render path
+// must never format a duration itself (no duration or target helper is in the
+// template FuncMap), so the handler pre-formats every label here. The largest
+// non-zero unit always carries the next smaller one, so an exact four-hour
+// target reads "4h 0m" instead of a bare "4h"; a trailing zero unit is
+// dropped, and seconds survive only when the value does not divide evenly
+// into minutes — nothing is rounded away.
+func slaDurationLabel(total int) string {
+	if total < 0 {
+		return "-" + slaDurationLabel(-total)
+	}
+	hours, minutes, seconds := total/3600, total%3600/60, total%60
+	switch {
+	case hours > 0 && seconds > 0:
+		return fmt.Sprintf("%dh %dm %ds", hours, minutes, seconds)
+	case hours > 0:
+		return fmt.Sprintf("%dh %dm", hours, minutes)
+	case minutes > 0 && seconds > 0:
+		return fmt.Sprintf("%dm %ds", minutes, seconds)
+	case minutes > 0:
+		return fmt.Sprintf("%dm", minutes)
+	default:
+		return fmt.Sprintf("%ds", seconds)
+	}
+}
+
+// ticketRow wraps one staff-list ticket with its batched row context. The
+// domain.Ticket is EMBEDDED so every template expression ({{.ID}},
+// {{.Title}}, …) keeps resolving. Context carries the agent queue facts
+// (desk/task/position) and SLA carries the optional summary; the plain staff
+// table passes nil Context and the SLA projection map, so both staff lists
+// carry the SAME row shape.
+type ticketRow struct {
 	domain.Ticket
 	Context application.AgentTicketRowContext
+	SLA     *slaRow
 }
 
 // ticketListData is one independently paged ticket section.
 type ticketListData struct {
-	Tickets        []agentTicketRow
+	Tickets        []ticketRow
 	Total          int
 	Page           int
 	Pages          int
@@ -325,9 +516,11 @@ func sectionData(res *application.SearchResult, f filterState, hrefForPage func(
 // agentQueueSections builds BOTH agent queue sections through the shared
 // helper used by GET /tickets and list-claim responses: the two independent
 // scoped searches run as today, the union of page ticket IDs (≤ 20 at PageSize
-// 10) is batched through ONE SearchService.AgentQueueContext call, and every
-// ticket is wrapped with its row context. A missing production capability or
-// a store error propagates — rows are never fabricated.
+// 10) is batched through ONE SearchService.AgentQueueContext call AND ONE
+// SLAService.ForTickets call (one clock snapshot for the whole page), and
+// every ticket is wrapped with its row context and optional SLA row. A missing
+// production capability or a store error propagates — rows are never
+// fabricated.
 func (h *TicketHandlers) agentQueueSections(r *http.Request, f filterState, assignedPage, claimablePage int) (assigned, claimable ticketListData, total int, err error) {
 	actor := *userFromContext(r.Context())
 	assignedQuery := f.query()
@@ -349,25 +542,46 @@ func (h *TicketHandlers) agentQueueSections(r *http.Request, f filterState, assi
 	if err != nil {
 		return assigned, claimable, 0, err
 	}
+	// ONE SLA batch over the union of BOTH sections' page ids, instead of a
+	// per-section or per-ticket read. An unset service leaves slas nil, so
+	// every row's SLA row stays nil and no badge renders.
+	var slas map[int64]domain.SLAProjection
+	if h.sla != nil {
+		slas, err = h.sla.ForTickets(r.Context(), ticketIDs(union))
+		if err != nil {
+			return assigned, claimable, 0, err
+		}
+	}
 	assigned = sectionData(assignedRes, f, func(page int) string {
 		return agentListHref(f, page, claimablePage)
 	})
-	assigned.Tickets = wrapAgentQueueRows(assignedRes.Tickets, contexts)
+	assigned.Tickets = wrapTicketRows(assignedRes.Tickets, contexts, slas)
 	claimable = sectionData(claimableRes, f, func(page int) string {
 		return agentListHref(f, assignedPage, page)
 	})
-	claimable.Tickets = wrapAgentQueueRows(claimableRes.Tickets, contexts)
+	claimable.Tickets = wrapTicketRows(claimableRes.Tickets, contexts, slas)
 	return assigned, claimable, assignedRes.Total + claimableRes.Total, nil
 }
 
-// wrapAgentQueueRows pairs the section's tickets with their batched contexts
-// (an unknown id degrades to the zero context — never a fabricated row).
-func wrapAgentQueueRows(tickets []domain.Ticket, contexts map[int64]application.AgentTicketRowContext) []agentTicketRow {
-	rows := make([]agentTicketRow, len(tickets))
+// wrapTicketRows pairs one section's tickets with their batched contexts and
+// optional SLA rows. The plain staff table reuses it with nil contexts, so
+// both staff lists carry the SAME row shape. An unknown id degrades to the
+// zero context and a nil SLA row — never a fabricated row.
+func wrapTicketRows(tickets []domain.Ticket, contexts map[int64]application.AgentTicketRowContext, slas map[int64]domain.SLAProjection) []ticketRow {
+	rows := make([]ticketRow, len(tickets))
 	for i, tk := range tickets {
-		rows[i] = agentTicketRow{Ticket: tk, Context: contexts[tk.ID]}
+		rows[i] = ticketRow{Ticket: tk, Context: contexts[tk.ID], SLA: slaRowFor(slas[tk.ID])}
 	}
 	return rows
+}
+
+// ticketIDs extracts one page's ids for the batched SLA read.
+func ticketIDs(tickets []domain.Ticket) []int64 {
+	ids := make([]int64, len(tickets))
+	for i, tk := range tickets {
+		ids[i] = tk.ID
+	}
+	return ids
 }
 
 // listData is the tickets index payload (page + HX fragment share it).
@@ -375,7 +589,7 @@ type listData struct {
 	pageData
 	Filters             filterState
 	Options             options
-	Tickets             []domain.Ticket
+	Tickets             []ticketRow
 	Total               int
 	Page                int
 	Pages               int
@@ -437,6 +651,18 @@ func (h *TicketHandlers) listData(r *http.Request, f filterState, page int) (lis
 	if err != nil {
 		return listData{}, err
 	}
+	// SLA is STAFF-ONLY. The requester list renders user_ticket_list.html,
+	// which must stay SLA-blind, so a user actor deliberately never triggers
+	// this read and every row's SLA row stays nil. For admin/root ONE
+	// ForTickets call covers the page with one clock snapshot; a store error
+	// propagates and no row is fabricated.
+	var slas map[int64]domain.SLAProjection
+	if actor.Role != domain.RoleUser && h.sla != nil {
+		slas, err = h.sla.ForTickets(r.Context(), ticketIDs(res.Tickets))
+		if err != nil {
+			return listData{}, err
+		}
+	}
 	pages := (res.Total + application.PageSize - 1) / application.PageSize
 	if pages < 1 {
 		pages = 1
@@ -448,7 +674,7 @@ func (h *TicketHandlers) listData(r *http.Request, f filterState, page int) (lis
 		pageData:            pageMeta,
 		Filters:             f,
 		Options:             opts,
-		Tickets:             res.Tickets,
+		Tickets:             wrapTicketRows(res.Tickets, nil, slas),
 		Total:               res.Total,
 		Page:                res.Page,
 		Pages:               pages,
@@ -877,6 +1103,11 @@ type detailData struct {
 	// never exposes a workflow version, pin, or technical cursor.
 	Pending workflowPending
 	Claim   workflowClaim
+	// SLA is the pre-formatted milestones panel (issue #211), present ONLY for
+	// a non-`user` actor on a ticket with a frozen commitment. A nil panel
+	// hides the section entirely: a requester never receives the projection,
+	// and a ticket with no frozen SLA has none to show.
+	SLA *slaPanelView
 }
 
 // workflowPending is the presentation payload for the live current-step
@@ -952,8 +1183,28 @@ func (h *TicketHandlers) detailDataFor(r *http.Request, id int64) (detailData, i
 	// confirmation control; agents keep only the reopen). Requester-NULL and
 	// all other states keep the unfiltered allowedNext list.
 	next := filteredNext(allowedNext(view.Ticket.State), view.Ticket)
+	// SLA milestones panel (issue #211): STAFF ONLY. A `user` actor must not
+	// trigger the read at all, so the guard short-circuits BEFORE
+	// h.sla.ForTicket — a requester's detail page never touches the SLA store
+	// and the projection is never computed for them. An unset service (WithSLA
+	// never called) leaves the panel nil, exactly like the lists. A service
+	// error propagates through the same status mapping as every other detail
+	// read; nothing is fabricated.
+	var slaPanel *slaPanelView
+	if h.sla != nil && actor.Role != domain.RoleUser {
+		projection, slaErr := h.sla.ForTicket(r.Context(), id)
+		if slaErr != nil {
+			return detailData{}, statusFor(slaErr), slaErr
+		}
+		slaPanel = slaPanelFor(projection)
+	}
+	page := pageDataFrom(r, "tickets")
+	// The countdown script belongs to the detail page and only when there is a
+	// panel to tick: a ticket with no frozen commitment (or a requester, whose
+	// panel stays nil) must not pay for a script it never uses.
+	page.SLACountdownAssets = slaPanel != nil
 	return detailData{
-		pageData:           pageDataFrom(r, "tickets"),
+		pageData:           page,
 		View:               view,
 		Next:               next,
 		Options:            opts,
@@ -965,6 +1216,7 @@ func (h *TicketHandlers) detailDataFor(r *http.Request, id int64) (detailData, i
 		CanComment:         !closed || (view.Ticket.State == domain.StateResolved && requester),
 		Pending:            pending,
 		Claim:              h.claimFor(r, id, actor),
+		SLA:                slaPanel,
 	}, 0, nil
 }
 

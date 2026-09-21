@@ -12,7 +12,7 @@
 {{end}}          <p class="agent-row-meta">Requester: {{.RequesterName}}</p>
         </div>
         <div class="agent-row-side">
-          {{template "state_badge" .State}}
+          {{template "state_badge" .State}}{{if .SLA}}{{template "sla_state_dot" .SLA.State}}{{end}}
           <span class="priority {{.Priority}}"><span class="ticket-priority-value">{{humanize .Priority}}</span></span>
           <span class="agent-row-updated">Updated {{template "card_timestamp" .UpdatedAt}}</span>
           <a class="agent-row-open" href="/tickets/{{.ID}}">Open ticket</a>
@@ -36,7 +36,7 @@
           <span class="agent-row-updated">Created {{template "card_timestamp" .CreatedAt}}</span>
         </div>
         <div class="agent-row-side">
-          {{template "state_badge" .State}}
+          {{template "state_badge" .State}}{{if .SLA}}{{template "sla_state_dot" .SLA.State}}{{end}}
           <span class="priority {{.Priority}}"><span class="ticket-priority-value">{{humanize .Priority}}</span></span>
           <div class="agent-row-actions">
             <a class="agent-row-open" href="/tickets/{{.ID}}">View ticket</a>

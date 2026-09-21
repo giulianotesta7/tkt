@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/giulianotesta7/tkt/internal/application"
 	"github.com/giulianotesta7/tkt/internal/domain"
@@ -822,5 +823,254 @@ func TestTicketTransitionUserDenied(t *testing.T) {
 	}
 	if view.Ticket.State != domain.StateNew {
 		t.Errorf("denied transition must leave state %q, got %q", domain.StateNew, view.Ticket.State)
+	}
+}
+
+// TestTicketDetailSLAPanelStaffOnly (issue #211, PR 4) proves the milestone
+// panel renders on a STAFF detail page and is ABSENT from a requester's page
+// even when that requester's own ticket carries a frozen commitment. The
+// commitment is created through the real service (SLA enabled via the settings
+// route), so the projection comes from a real freeze, not a hand-built store.
+func TestTicketDetailSLAPanelStaffOnly(t *testing.T) {
+	h := newHarness(t)
+
+	// Enable SLA through the real settings route so the create path freezes a
+	// commitment against the category matrix the migration materialized.
+	form := slaPanelForm("80")
+	form.Set("sla_enabled", "1")
+	if rec := h.postForm(t, "/settings/sla", form, false); rec.Code != http.StatusSeeOther {
+		t.Fatalf("enable SLA: status = %d, want %d", rec.Code, http.StatusSeeOther)
+	}
+
+	staffTicket := h.seedTicket(t, "Freeze me", nil)
+	frozen, err := h.store.SLAStore().TicketSLA(t.Context(), staffTicket.ID)
+	if err != nil {
+		t.Fatalf("read frozen commitment: %v", err)
+	}
+	if frozen == nil {
+		t.Fatalf("enabled SLA must freeze a commitment on the staff ticket")
+	}
+
+	body := h.get(t, "/tickets/"+strconv.FormatInt(staffTicket.ID, 10), false).Body.String()
+
+	// The section heading names the SLA and carries no state of its own; each
+	// milestone renders one row with its label, its state dot and the time
+	// left; the frozen due instant survives as the <time datetime> the
+	// countdown reads.
+	for _, want := range []string{
+		`<div class="prop-heading">SLA</div>`,
+		`<span class="prop-label">First response</span>`,
+		`<span class="prop-label">Resolve</span>`,
+		`datetime="` + formatDatetime(frozen.DueFirstResponseAt) + `"`,
+		`datetime="` + formatDatetime(frozen.DueResolveAt) + `"`,
+		// PR 6: the panel anchors the client clock and both PENDING due rows
+		// carry the countdown hook; the page loads the countdown script.
+		`data-server-now="`,
+		`<time datetime="` + formatDatetime(frozen.DueFirstResponseAt) + `" data-sla-countdown>`,
+		`<time datetime="` + formatDatetime(frozen.DueResolveAt) + `" data-sla-countdown>`,
+		`<script src="/static/sla_countdown.js" defer></script>`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("staff detail must contain %q, got: %s", want, body)
+		}
+	}
+
+	// The panel states each milestone's STATE and the time left, and nothing
+	// else: the target, due and achieved rows were removed by decision (the
+	// due instant survives as the <time datetime> the countdown reads).
+	for _, absent := range []string{`>Target<`, `>Achieved<`, `>Remaining<`} {
+		if strings.Contains(body, absent) {
+			t.Errorf("the SLA panel must not render the %q row any more, got: %s", absent, body)
+		}
+	}
+
+	// A requester-owned ticket, created through the real service, also freezes
+	// a commitment (SLA is on) — yet the requester page must not render the
+	// panel, and the handler must not even read the projection for a `user`.
+	requester := seedUserRole(t, h.store, "Rosa", "rosa-detail@example.com", domain.RoleUser)
+	requesterSession := seedSession(t, h.store, requester.ID)
+	requesterTicket, err := h.tickets.Create(t.Context(), *requester, application.CreateTicketInput{
+		Title: "Requester request", CategoryID: h.bugCategory.ID, Priority: domain.PriorityMedium,
+	})
+	if err != nil {
+		t.Fatalf("create requester ticket: %v", err)
+	}
+	requesterFrozen, err := h.store.SLAStore().TicketSLA(t.Context(), requesterTicket.ID)
+	if err != nil {
+		t.Fatalf("read requester frozen commitment: %v", err)
+	}
+	if requesterFrozen == nil {
+		t.Fatalf("the requester ticket must carry a frozen commitment so its page is not vacuously SLA-free")
+	}
+
+	requesterRec := doRequest(h.mux, h.mw, http.MethodGet, "/tickets/"+strconv.FormatInt(requesterTicket.ID, 10), map[string]string{
+		"Cookie": sessionCookie + "=" + requesterSession.ID,
+	})
+	if requesterRec.Code != http.StatusOK {
+		t.Fatalf("requester detail status = %d, want 200", requesterRec.Code)
+	}
+	requesterBody := requesterRec.Body.String()
+	if !strings.Contains(requesterBody, "Requester request") {
+		t.Fatalf("requester detail must render its own ticket, got: %s", requesterBody)
+	}
+	for _, absent := range []string{
+		`<div class="prop-heading">SLA `,
+		`<div class="prop-heading">Response `,
+		`<div class="prop-heading">Resolve `,
+		`<span class="prop-label">Target</span>`,
+		`<span class="prop-label">Remaining</span>`,
+		`class="sla-dot at_risk"`,
+		`data-server-now`,
+		`data-sla-countdown`,
+		`/static/sla_countdown.js`,
+	} {
+		if strings.Contains(requesterBody, absent) {
+			t.Errorf("LEAK: requester detail must not render SLA markup %q, got: %s", absent, requesterBody)
+		}
+	}
+}
+
+// TestTicketDetailSLAPanelAbsentWithoutFrozenSLA (issue #211, PR 4) proves a
+// ticket with no frozen commitment renders no panel: the harness leaves SLA
+// disabled (its default), so the created ticket freezes nothing and the detail
+// page stays SLA-free.
+func TestTicketDetailSLAPanelAbsentWithoutFrozenSLA(t *testing.T) {
+	h := newHarness(t)
+	tkt := h.seedTicket(t, "No commitment", nil)
+
+	frozen, err := h.store.SLAStore().TicketSLA(t.Context(), tkt.ID)
+	if err != nil {
+		t.Fatalf("read frozen commitment: %v", err)
+	}
+	if frozen != nil {
+		t.Fatalf("SLA disabled must freeze no commitment, got: %+v", frozen)
+	}
+
+	body := h.get(t, "/tickets/"+strconv.FormatInt(tkt.ID, 10), false).Body.String()
+	if !strings.Contains(body, "No commitment") {
+		t.Fatalf("detail must render the ticket, got: %s", body)
+	}
+	for _, absent := range []string{
+		`<div class="prop-heading">SLA `,
+		`<span class="prop-label">Target</span>`,
+		`<span class="prop-label">Remaining</span>`,
+	} {
+		if strings.Contains(body, absent) {
+			t.Errorf("no frozen SLA must render no panel, found %q in: %s", absent, body)
+		}
+	}
+}
+
+// TestSLAPanelAbsentWithoutFrozenCommitment pins the panel gate directly: a
+// projection with no frozen commitment (legacy ticket, or SLA disabled at
+// creation) yields no panel, so the section cannot render an empty shell.
+func TestSLAPanelAbsentWithoutFrozenCommitment(t *testing.T) {
+	if p := slaPanelFor(domain.SLAProjection{Overall: domain.SLANone}); p != nil {
+		t.Errorf("no frozen commitment must yield no panel, got: %+v", p)
+	}
+}
+
+// TestSLADurationLabel pins the pre-formatted duration copy the detail panel
+// prints (issue #211): the largest non-zero unit carries the next smaller one,
+// seconds survive only when they do not divide evenly into minutes, and a
+// negative value is prefixed with a sign. The template FuncMap has no
+// formatter, so this helper is the single source of the copy.
+func TestSLADurationLabel(t *testing.T) {
+	for _, tc := range []struct {
+		seconds int
+		want    string
+	}{
+		{14400, "4h 0m"},
+		{9000, "2h 30m"},
+		{1800, "30m"},
+		{45, "45s"},
+		{5430, "1h 30m 30s"},
+		{0, "0s"},
+		{-1800, "-30m"},
+	} {
+		if got := slaDurationLabel(tc.seconds); got != tc.want {
+			t.Errorf("slaDurationLabel(%d) = %q, want %q", tc.seconds, got, tc.want)
+		}
+	}
+}
+
+// TestSLAMilestoneRemainingLabel pins the remaining copy: "2h 30m" while
+// pending, "30m overdue" once the remainder is negative, and EMPTY once the
+// milestone is achieved (the panel drops the row).
+func TestSLAMilestoneRemainingLabel(t *testing.T) {
+	pending := domain.SLAMilestoneStatus{TargetSeconds: 9000, Remaining: 2*time.Hour + 30*time.Minute}
+	if got := slaMilestoneViewFor("Response", pending).Remaining; got != "2h 30m" {
+		t.Errorf("pending remaining = %q, want %q", got, "2h 30m")
+	}
+	overdue := domain.SLAMilestoneStatus{TargetSeconds: 9000, Remaining: -30 * time.Minute}
+	if got := slaMilestoneViewFor("Response", overdue).Remaining; got != "30m overdue" {
+		t.Errorf("overdue remaining = %q, want %q", got, "30m overdue")
+	}
+	achievedAt := goldenT1
+	achieved := domain.SLAMilestoneStatus{TargetSeconds: 9000, AchievedAt: &achievedAt}
+	if got := slaMilestoneViewFor("Response", achieved).Remaining; got != "" {
+		t.Errorf("achieved remaining = %q, want empty", got)
+	}
+}
+
+// TestTicketDetailSLACountdownHooks (issue #211, PR 6) pins the render-side
+// contract of the live countdown on the detail fragment: the panel carries
+// the projection instant the client derives its clock offset from, the PENDING
+// milestone's due <time> carries the countdown hook, and the ACHIEVED
+// milestone keeps the plain timestamp and never ticks. The fixture instants
+// are literals, so nothing here depends on a wall clock.
+func TestTicketDetailSLACountdownHooks(t *testing.T) {
+	body := renderGolden(t, "tickets_show", "ticket_detail", fixtureDetailData(), true)
+
+	for _, want := range []string{
+		// The skew anchor: the literal ProjectedAt the panel was projected at.
+		`<div class="prop-section" data-server-now="2026-08-07T06:00:00Z">`,
+		// The pending (Resolve) milestone's due instant carries the hook.
+		`<time datetime="2026-08-07T10:00:00Z" data-sla-countdown>`,
+		// The ticker carries the server's remaining time as its INITIAL value,
+		// so a browser with no JavaScript still reads the truth. It ticks every
+		// second, so assistive tech ignores it; the coarse span is the
+		// accessible one and is visually hidden.
+		`<span class="sla-countdown-ticker" aria-hidden="true">`,
+		`<span class="sla-countdown-coarse visually-hidden">10:00 · 07-08-2026</span>`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("pending milestone countdown must render %q, got: %s", want, body)
+		}
+	}
+
+	// The first response was MET: the panel shows its label and its state badge
+	// and no time row at all, and it must never carry the tick hook.
+	if strings.Contains(body, `<time datetime="2026-08-06T14:00:00Z" data-sla-countdown`) {
+		t.Errorf("achieved milestone must not carry the countdown hook, got: %s", body)
+	}
+	if strings.Contains(body, `<time datetime="2026-08-06T14:00:00Z"`) {
+		t.Errorf("an achieved milestone renders no time row any more, got: %s", body)
+	}
+	for _, want := range []string{`<span class="prop-label">First response</span>`, `<span class="sla-state"><span class="sla-dot met" aria-hidden="true"></span><span class="sla-state-word">Met</span></span>`} {
+		if !strings.Contains(body, want) {
+			t.Errorf("the achieved milestone must still render %q, got: %s", want, body)
+		}
+	}
+}
+
+// TestTicketDetailSLACountdownAssetGating pins that the countdown script is
+// loaded ONLY on a detail page that actually renders a countdown, and that a
+// page without a frozen commitment never requests it. The two renders differ
+// only in the panel, so the gate is the only cause.
+func TestTicketDetailSLACountdownAssetGating(t *testing.T) {
+	const asset = `<script src="/static/sla_countdown.js" defer></script>`
+
+	withPanel := renderGolden(t, "tickets_show", "", fixtureDetailData(), false)
+	if !strings.Contains(withPanel, asset) {
+		t.Errorf("a detail page with an SLA panel must load the countdown script, got: %s", withPanel)
+	}
+
+	withoutPanel := fixtureDetailData()
+	withoutPanel.SLA = nil
+	withoutPanel.SLACountdownAssets = false
+	body := renderGolden(t, "tickets_show", "", withoutPanel, false)
+	if strings.Contains(body, "/static/sla_countdown.js") {
+		t.Errorf("a detail page with no SLA panel must not load the countdown script, got: %s", body)
 	}
 }

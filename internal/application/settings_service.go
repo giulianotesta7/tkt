@@ -11,6 +11,11 @@ import (
 // absent.
 const DefaultInternalCommentBg = "#E8EEFF"
 
+// DefaultSLAWarningPercent is the seeded SLA warning threshold percentage
+// (migration 0014) and the fallback the store reads when the row is
+// absent or unparseable (issue #211).
+const DefaultSLAWarningPercent = 80
+
 // AllowedInternalCommentBg returns the instance colors an admin may
 // choose for the internal-comment background (azul/violeta/amarillo).
 // Green is intentionally reserved for a future "commented as solution"
@@ -30,12 +35,12 @@ func isAllowedInternalCommentBg(color string) bool {
 	return false
 }
 
-// SettingsService implements the instance appearance use cases
+// SettingsService implements the instance configuration use cases
 // (appearance-settings spec): read the current internal-comment background
-// and update it. Updates are admin/root-only (CapManageUsers — the same
-// capability that gates managed-user screens) and validated against the
-// allowed color set BEFORE the store is reached, so a rejected value
-// changes nothing.
+// and update it. Updates are admin/root-only via CapManageSettings — the
+// instance-configuration capability, deliberately separate from
+// CapManageUsers — and validated against the allowed color set BEFORE the
+// store is reached, so a rejected value changes nothing.
 type SettingsService struct {
 	settings SettingsStore
 }
@@ -52,11 +57,11 @@ func (s *SettingsService) GetAppearance(ctx context.Context) (string, error) {
 }
 
 // SetInternalCommentBg updates the internal-comment background color.
-// The actor must hold CapManageUsers (admin/root); color must be one of
+// The actor must hold CapManageSettings (admin/root); color must be one of
 // AllowedInternalCommentBg — anything else is a ValidationError and the
 // store is never touched (fail closed on invalid input).
 func (s *SettingsService) SetInternalCommentBg(ctx context.Context, actor domain.User, color string) error {
-	if !NewPolicy().Capabilities(actor.Role).Require(CapManageUsers) {
+	if !NewPolicy().Capabilities(actor.Role).Require(CapManageSettings) {
 		return domain.NewForbiddenError("appearance settings are not permitted")
 	}
 	if !isAllowedInternalCommentBg(color) {

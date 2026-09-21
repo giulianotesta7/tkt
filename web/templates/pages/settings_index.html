@@ -2,7 +2,7 @@
 <div class="command-header">
   <div>
     <h1 class="command-title">Settings</h1>
-    <p class="command-sub">Instance appearance</p>
+    <p class="command-sub">Instance configuration</p>
   </div>
 </div>
 {{if .Error}}<div class="error-banner" role="alert">{{.Error}}</div>{{end}}
@@ -19,5 +19,49 @@
 {{end}}
   </div>
   <button class="btn primary" type="submit">Save appearance</button>
+</form>
+<form class="card form-card" method="post" action="/settings/sla">
+  <h2>Service level agreements</h2>
+  <p class="help">Defaults for new categories. Editing them does not change existing categories.</p>
+  <div class="field checkbox-field">
+    <label>{{if .SLAEnabled}}<input type="checkbox" name="sla_enabled" value="1" checked> Enable SLA targets{{else}}<input type="checkbox" name="sla_enabled" value="1"> Enable SLA targets{{end}}</label>
+    <p class="help">Off by default. Existing commitments keep rendering.</p>
+  </div>
+  <div class="field">
+    <label for="sla_warning_percent">Warning threshold</label>
+    <input type="number" id="sla_warning_percent" name="sla_warning_percent" class="sla-warning-input" min="1" max="99" value="{{.SLAWarningPercent}}">
+    <p class="help">At risk once this share of the target has elapsed.</p>
+  </div>
+{{template "sla_target_grid" .SLAGrid}}
+  <button class="btn primary" type="submit">Save SLA settings</button>
+</form>
+<form class="card form-card" method="post" action="/settings/calendar">
+  <h2>Working calendar</h2>
+  <p class="help">When the SLA clock runs. Frozen commitments keep their calendar.</p>
+  <fieldset class="checkbox-field calendar-days">
+    <legend>Working days</legend>
+    <div class="calendar-day-list">
+{{range .CalendarDays}}
+      <label class="calendar-day">{{if .Checked}}<input type="checkbox" name="sla_calendar_days" value="{{.Value}}" checked>{{else}}<input type="checkbox" name="sla_calendar_days" value="{{.Value}}">{{end}} {{.Label}}</label>
+{{end}}
+    </div>
+    <p class="help">At least one day.</p>
+  </fieldset>
+  <div class="field-row">
+    <div class="field">
+      <label for="sla_calendar_start">Start</label>
+      <input type="time" id="sla_calendar_start" name="sla_calendar_start" value="{{.CalendarStart}}" step="60">
+    </div>
+    <div class="field">
+      <label for="sla_calendar_end">End</label>
+      <input type="time" id="sla_calendar_end" name="sla_calendar_end" value="{{.CalendarEnd}}" step="60">
+    </div>
+  </div>
+  <div class="field">
+    <label for="sla_calendar_timezone">Timezone</label>
+    <input type="text" id="sla_calendar_timezone" name="sla_calendar_timezone" value="{{.CalendarTimezone}}" spellcheck="false" autocapitalize="off">
+    <p class="help">IANA name, e.g. America/Argentina/Buenos_Aires. Defaults to UTC.</p>
+  </div>
+  <button class="btn primary" type="submit">Save working calendar</button>
 </form>
 {{end}}

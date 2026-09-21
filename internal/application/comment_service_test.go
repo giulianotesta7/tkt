@@ -19,7 +19,7 @@ func TestAddCommentStoresWithSessionAuthor(t *testing.T) {
 		State: domain.StateNew, CreatedAt: clock.now, UpdatedAt: clock.now,
 	})
 	svc := application.NewCommentService(tickets, comments, clock)
-	actor := domain.User{Name: "Ada", Email: "ada@example.com", Role: domain.RoleAdmin}
+	actor := domain.User{ID: 7, Name: "Ada", Email: "ada@example.com", Role: domain.RoleAdmin}
 	clock.Advance(timeMinute)
 
 	c, err := svc.Add(context.Background(), actor, ticket.ID, "The redirect is broken", "public")
@@ -31,6 +31,15 @@ func TestAddCommentStoresWithSessionAuthor(t *testing.T) {
 	}
 	if c.Author != actor.Name {
 		t.Fatalf("Add: author must come from the session, got %q", c.Author)
+	}
+	// Authorship stamp (issue #211): the comment carries the acting
+	// session user's id and a role SNAPSHOT from the actor, alongside the
+	// display name — the SLA's "first response" must prove agent+ authorship.
+	if c.AuthorUserID == nil || *c.AuthorUserID != actor.ID {
+		t.Fatalf("Add: AuthorUserID must come from the session actor id %d, got %v", actor.ID, c.AuthorUserID)
+	}
+	if c.AuthorRole != actor.Role {
+		t.Fatalf("Add: AuthorRole must be the actor's role snapshot %q, got %q", actor.Role, c.AuthorRole)
 	}
 	if !c.CreatedAt.Equal(clock.now) {
 		t.Fatalf("Add: timestamp must come from the injected clock, got %v", c.CreatedAt)
@@ -186,6 +195,15 @@ func TestAddCommentUserPublicOnly(t *testing.T) {
 	}
 	if c.Visibility != domain.CommentPublic {
 		t.Fatalf("Add(public): visibility must be public, got %q", c.Visibility)
+	}
+	// Authorship stamp (issue #211): a user-role actor's comment carries
+	// the actor id and the 'user' role snapshot — authorship is stamped for
+	// every role, not only agent+.
+	if c.AuthorUserID == nil || *c.AuthorUserID != user.ID {
+		t.Fatalf("Add(public): AuthorUserID must be the user-role actor id %d, got %v", user.ID, c.AuthorUserID)
+	}
+	if c.AuthorRole != domain.RoleUser {
+		t.Fatalf("Add(public): AuthorRole must be the 'user' snapshot, got %q", c.AuthorRole)
 	}
 	stored := comments.comments[ticket.ID]
 	if len(stored) != 1 || stored[0].Visibility != domain.CommentPublic || stored[0].Body != "Visible note" {

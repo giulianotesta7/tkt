@@ -141,7 +141,7 @@ var (
 // categories, and one user.
 func fixtureListData() listData {
 	ana := domain.User{ID: 1, Name: "Ana Torres", Email: "ana@example.com", Active: true, CreatedAt: goldenT0}
-	f := filterState{State: domain.StateNew}
+	f := filterState{State: domain.StateNew, Sort: sortNewest}
 	opts := options{
 		States:          listStates,
 		Priorities:      listPriorities,
@@ -149,9 +149,12 @@ func fixtureListData() listData {
 		Users:           []domain.User{ana},
 		AssignableUsers: []domain.User{ana},
 	}
-	tickets := []domain.Ticket{
-		{ID: 2, Number: 2, Title: "Printer jam", State: domain.StateInProgress, Priority: domain.PriorityHigh, CreatedAt: goldenT1, UpdatedAt: goldenT1},
-		{ID: 1, Number: 1, Title: "Login page down", State: domain.StateNew, Priority: domain.PriorityCritical, CreatedAt: goldenT0, UpdatedAt: goldenT0},
+	tickets := []ticketRow{
+		{
+			Ticket: domain.Ticket{ID: 2, Number: 2, Title: "Printer jam", State: domain.StateInProgress, Priority: domain.PriorityHigh, CreatedAt: goldenT1, UpdatedAt: goldenT1},
+			SLA:    &slaRow{State: domain.SLAAtRisk},
+		},
+		{Ticket: domain.Ticket{ID: 1, Number: 1, Title: "Login page down", State: domain.StateNew, Priority: domain.PriorityCritical, CreatedAt: goldenT0, UpdatedAt: goldenT0}},
 	}
 	return listData{
 		pageData:            pageData{NavActive: "tickets", CurrentUser: ana},
@@ -230,13 +233,14 @@ func TestGoldenTicketsIndexAgent(t *testing.T) {
 	data.Filters = filterState{Q: "printer"}
 	data.Tickets[0].RequesterName = "Ana Torres"
 	data.Tickets[1].RequesterName = "Ana Torres"
-	data.Assigned = ticketListData{Tickets: []agentTicketRow{
-		{Ticket: data.Tickets[0], Context: application.AgentTicketRowContext{DeskName: "Service desk"}},
-		{Ticket: data.Tickets[1], Context: application.AgentTicketRowContext{CurrentTask: "Restart the printer spooler"}},
+	data.Assigned = ticketListData{Tickets: []ticketRow{
+		{Ticket: data.Tickets[0].Ticket, Context: application.AgentTicketRowContext{DeskName: "Service desk"}, SLA: data.Tickets[0].SLA},
+		{Ticket: data.Tickets[1].Ticket, Context: application.AgentTicketRowContext{CurrentTask: "Restart the printer spooler"}, SLA: data.Tickets[1].SLA},
 	}, Total: 2, Page: 1, Pages: 1}
-	data.Claimable = ticketListData{Tickets: []agentTicketRow{{
+	data.Claimable = ticketListData{Tickets: []ticketRow{{
 		Ticket:  domain.Ticket{ID: 3, Number: 3, Title: "Email bounce", RequesterName: "Ana Torres", State: domain.StateNew, Priority: domain.PriorityMedium, CreatedAt: goldenT1, UpdatedAt: goldenT1},
 		Context: application.AgentTicketRowContext{DeskName: "Service desk"},
+		SLA:     &slaRow{State: domain.SLAOnTrack},
 	}}, Total: 1, Page: 1, Pages: 1}
 	data.Total = 3
 	goldenFullPage(t, "tickets_index_agent", renderGolden(t, "tickets_index", "", data, false))
@@ -375,6 +379,29 @@ func TestGoldenStateBadge(t *testing.T) {
 
 func strptr(s string) *string { return &s }
 
+// fixtureSLAPanel builds the deterministic frozen projection the detail
+// goldens render (issue #211): the first response was MET at goldenT1 and the
+// resolution is still pending, AT RISK at the literal projection instant
+// 2026-08-07T06:00Z, so the panel exercises an achieved milestone (no
+// remaining label), a pending one ("in 4h 0m"), and the dash for a nil
+// achieved instant. Literal instants only — the render path never calls
+// time.Now() (D7).
+func fixtureSLAPanel() *slaPanelView {
+	frozen := &domain.TicketSLA{
+		FirstResponseSeconds: 14400,
+		ResolveSeconds:       86400,
+		WarnFirstResponseAt:  goldenT0.Add(3*time.Hour + 12*time.Minute),
+		DueFirstResponseAt:   goldenT0.Add(4 * time.Hour),
+		WarnResolveAt:        goldenT0.Add(19*time.Hour + 12*time.Minute),
+		DueResolveAt:         goldenT0.Add(24 * time.Hour),
+		StartedAt:            goldenT0,
+		PolicySnapshotAt:     goldenT0,
+	}
+	achieved := goldenT1
+	now := goldenT0.Add(20 * time.Hour)
+	return slaPanelFor(domain.ProjectSLA(frozen, domain.SLAMilestones{FirstResponseAt: &achieved}, now))
+}
+
 func fixtureDetailData() detailData {
 	ana := domain.User{ID: 1, Name: "Ana Torres", Email: "ana@example.com", Active: true, CreatedAt: goldenT0}
 	t := &domain.Ticket{
@@ -415,7 +442,7 @@ func fixtureDetailData() detailData {
 		AssignableUsers: []domain.User{ana},
 	}
 	return detailData{
-		pageData:           pageData{NavActive: "tickets", CurrentUser: ana},
+		pageData:           pageData{NavActive: "tickets", CurrentUser: ana, SLACountdownAssets: true},
 		View:               view,
 		Next:               allowedNext(t.State),
 		Options:            opts,
@@ -429,6 +456,7 @@ func fixtureDetailData() detailData {
 			UserID:      "1",
 			Priority:    t.Priority,
 		},
+		SLA: fixtureSLAPanel(),
 	}
 }
 
@@ -849,15 +877,64 @@ func TestGoldenCategoryForm(t *testing.T) {
 	goldenFile(t, "category_form", renderGolden(t, "categories_new", "category_form", fixtureCategoryFormData(), true))
 }
 
+// fixtureSettingsIndexData models an admin shell on the settings page, so it
+// carries both management grants: the page is only reachable through
+// CapManageSettings, and the shell still renders the Users rail link through
+// CapManageUsers. The SLA panel carries the seeded configuration (migration
+// 0013): off, 80 percent, and the seeded default matrix. The calendar panel
+// carries the seeded working calendar (migration 0016): Monday-Friday,
+// 09:00-18:00, UTC.
 func fixtureSettingsIndexData() settingsIndexData {
 	ana := domain.User{ID: 1, Name: "Ana Torres", Email: "ana@example.com", Active: true, CreatedAt: goldenT0}
+	calendar := domain.DefaultSLACalendar()
 	return settingsIndexData{
-		pageData: pageData{NavActive: "settings", CurrentUser: ana, CanManageUsers: true, CanManageSettings: true},
-		Current:  "#E8EEFF",
-		Colors:   appearanceOptions(),
+		pageData:          pageData{NavActive: "settings", CurrentUser: ana, CanManageUsers: true, CanManageSettings: true},
+		Current:           "#E8EEFF",
+		Colors:            appearanceOptions(),
+		SLAGrid:           slaGridData{Rows: slaPolicyRows(seededSLADefaults())},
+		SLAWarningPercent: 80,
+
+		CalendarDays:     calendarDayOptions(calendar.WorkingDays),
+		CalendarStart:    formatClockMinute(calendar.StartMinute),
+		CalendarEnd:      formatClockMinute(calendar.EndMinute),
+		CalendarTimezone: calendar.Location.String(),
+	}
+}
+
+// seededSLADefaults is the migration 0013 default matrix, frozen as literals
+// so the golden never depends on a store read.
+func seededSLADefaults() []domain.SLAPolicy {
+	return []domain.SLAPolicy{
+		{Priority: domain.PriorityCritical, FirstResponseSeconds: 1800, ResolveSeconds: 14400},
+		{Priority: domain.PriorityHigh, FirstResponseSeconds: 3600, ResolveSeconds: 28800},
+		{Priority: domain.PriorityMedium, FirstResponseSeconds: 14400, ResolveSeconds: 86400},
+		{Priority: domain.PriorityLow, FirstResponseSeconds: 28800, ResolveSeconds: 259200},
 	}
 }
 
 func TestGoldenSettingsIndex(t *testing.T) {
 	goldenFullPage(t, "settings_index", renderGolden(t, "settings_index", "", fixtureSettingsIndexData(), false))
+}
+
+// fixtureCategorySLAData models an admin shell on the category SLA screen
+// with a frozen matrix (custom targets, not the seeded defaults) so the
+// golden pins the h/m/s decomposition and the divergence marker: critical
+// matches the seeded default, the other three diverge from it.
+func fixtureCategorySLAData() categorySLAData {
+	ana := domain.User{ID: 1, Name: "Ana Torres", Email: "ana@example.com", Active: true, CreatedAt: goldenT0}
+	return categorySLAData{
+		pageData:     pageData{NavActive: "categories", CurrentUser: ana, CanManageCategories: true},
+		CategoryID:   1,
+		CategoryName: "Bugs",
+		Grid: slaGridData{Rows: slaPolicyRowsDiverging([]domain.SLAPolicy{
+			{Priority: domain.PriorityCritical, FirstResponseSeconds: 1800, ResolveSeconds: 14400},
+			{Priority: domain.PriorityHigh, FirstResponseSeconds: 5400, ResolveSeconds: 28800},
+			{Priority: domain.PriorityMedium, FirstResponseSeconds: 9000, ResolveSeconds: 57600},
+			{Priority: domain.PriorityLow, FirstResponseSeconds: 16200, ResolveSeconds: 172800},
+		}, seededSLADefaults())},
+	}
+}
+
+func TestGoldenCategorySLA(t *testing.T) {
+	goldenFullPage(t, "category_sla", renderGolden(t, "category_sla", "", fixtureCategorySLAData(), false))
 }

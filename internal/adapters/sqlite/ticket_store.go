@@ -86,6 +86,12 @@ func createTicketTx(ctx context.Context, tx *sql.Tx, t *domain.Ticket) error {
 	}
 	t.ID = id
 	t.Number = number
+	// Freeze the creation-time SLA commitment (issue #211) in the SAME
+	// transaction: written once or not at all. A nil SLA (SLA disabled or
+	// no policy row) is a no-op inside the helper.
+	if err := insertTicketSLATx(ctx, tx, t.ID, t.SLA); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -107,6 +113,9 @@ func (st *ticketStore) Update(ctx context.Context, t *domain.Ticket) error {
 }
 
 // updateTicketTx writes the ticket row inside the caller's transaction.
+// It NEVER writes ticket_sla: the SLA commitment is creation-only (issue
+// #211, the same mould as resolved_at/closed_at — written once by the
+// create path, never touched by any update).
 func updateTicketTx(ctx context.Context, tx *sql.Tx, t *domain.Ticket) error {
 	res, err := tx.ExecContext(ctx, `UPDATE tickets SET title = ?, description = ?, requester_name = ?, requester_email = ?, requester_user_id = ?, category_id = ?, priority = ?, state = ?, user_id = ?, workflow_version_id = ?, created_at = ?, updated_at = ?, resolved_at = ?, closed_at = ?
 		WHERE id = ?`,
@@ -156,7 +165,7 @@ func (st *ticketStore) GetByID(ctx context.Context, id int64, q application.Tick
 func (st *ticketStore) List(ctx context.Context, q application.TicketQuery, p application.Page) ([]domain.Ticket, error) {
 	where, args := buildTicketWhere(q)
 	args = append(args, p.Limit, p.Offset)
-	rows, err := st.db.QueryContext(ctx, `SELECT `+ticketColumns+` FROM tickets t `+where+` `+orderBy(q)+` LIMIT ? OFFSET ?`, args...)
+	rows, err := st.db.QueryContext(ctx, `SELECT `+ticketColumns+` FROM `+listFrom(q)+` `+where+` `+orderBy(q)+` LIMIT ? OFFSET ?`, args...)
 	if err != nil {
 		return nil, fmt.Errorf("sqlite: list tickets: %w", err)
 	}

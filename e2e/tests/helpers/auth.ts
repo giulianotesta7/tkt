@@ -66,3 +66,35 @@ export async function loginAs(page: Page, email: string, password: string): Prom
   await page.getByRole("button", { name: /log in|sign in/i }).click();
   await expect(page).toHaveURL(/\/tickets/);
 }
+
+/**
+ * Toggle the instance-wide SLA switch as the logged-in administrator and
+ * prove the persisted value survives a reload.
+ *
+ * SLA is instance-wide and shared with the tickets created afterwards: an
+ * SLA visibility journey MUST restore the previous state (disable it) when
+ * it finishes, or a later journey in the same database inherits a frozen
+ * commitment it never arranged. The remaining SLA panel fields are left at
+ * their current values, so the POST re-submits the stored matrix unchanged;
+ * check()/uncheck() are idempotent, so the helper does not depend on the
+ * state it starts from.
+ */
+export async function setSLAEnabled(page: Page, enabled: boolean): Promise<void> {
+  await page.goto(base() + "/settings");
+  const toggle = page.getByRole("checkbox", { name: /enable sla targets/i });
+  await expect(toggle).toBeVisible();
+  if (enabled) {
+    await toggle.check();
+  } else {
+    await toggle.uncheck();
+  }
+  await page.getByRole("button", { name: "Save SLA settings" }).click();
+  await expect(page).toHaveURL(/\/settings$/);
+  await expect(page.locator("#save-feedback")).toContainText("Saved");
+  await page.reload();
+  if (enabled) {
+    await expect(toggle).toBeChecked();
+  } else {
+    await expect(toggle).not.toBeChecked();
+  }
+}

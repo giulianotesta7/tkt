@@ -584,6 +584,86 @@ type WorkflowVersionStore interface {
 	GetCurrentVersion(ctx context.Context, categoryID int64) (*PublishedWorkflow, error)
 }
 
+// SLAStore persists the per-category SLA configuration, the observed SLA
+// milestone instants, and the SLA commitments frozen onto tickets (issue
+// #211). The global defaults (sla_defaults, seeded by migration 0014)
+// seed a category's materialized 4-priority x 2-milestone matrix
+// (sla_policies) at category creation time — there is no NULL-fallback
+// chain at read time. A ticket's targets are FROZEN at creation (the
+// WorkflowVersionID precedent): a later policy edit never rewrites a
+// committed ticket's targets.
+//
+// Absence is a state, not a failure: a legitimately absent row — a
+// category with no matrix yet, a ticket created before SLA activation —
+// reads back as nil/empty with a NIL error. An error return always means a
+// real storage failure, never an absent row.
+type SLAStore interface {
+	// ListDefaults returns the global default targets (sla_defaults),
+	// ordered by the canonical priority order: critical, high, medium, low.
+	ListDefaults(ctx context.Context) ([]domain.SLAPolicy, error)
+	// ListByCategory returns one category's materialized matrix (all its
+	// sla_policies rows), in the same canonical priority order. A category
+	// without rows returns an empty result and a nil error.
+	ListByCategory(ctx context.Context, categoryID int64) ([]domain.SLAPolicy, error)
+	// UpsertDefault writes one sla_defaults row (priority, both targets).
+	// When the priority already exists, its targets are replaced — never
+	// duplicated. It mirrors the single-row UpsertCategoryTarget.
+	UpsertDefault(ctx context.Context, policy domain.SLAPolicy) error
+	// UpsertDefaults writes ALL the given sla_defaults rows in ONE
+	// transaction — ALL OR NOTHING: any single failing write rolls back
+	// every row, leaving the table exactly as it was. A partial default
+	// matrix is never persisted; the administrative default-matrix edit
+	// (SetDefaultTargets) depends on this atomicity.
+	UpsertDefaults(ctx context.Context, policies []domain.SLAPolicy) error
+	// UpsertCategoryTarget writes one matrix row (category, priority, both
+	// targets). When the (category, priority) pair already exists, its
+	// targets are replaced — never duplicated.
+	UpsertCategoryTarget(ctx context.Context, categoryID int64, policy domain.SLAPolicy) error
+	// UpsertCategoryTargets writes ALL the given rows of ONE category's
+	// matrix in ONE transaction — ALL OR NOTHING: any single failing write
+	// rolls back every row, leaving the category's matrix exactly as it
+	// was. A category left with a partial matrix would silently change the
+	// commitments frozen onto future tickets; the administrative matrix edit
+	// (SetCategoryTargets) depends on this atomicity.
+	UpsertCategoryTargets(ctx context.Context, categoryID int64, policies []domain.SLAPolicy) error
+	// TicketSLA returns the commitment frozen onto a ticket, or (nil, nil)
+	// when the ticket has NO ticket_sla row — the legitimate state for
+	// legacy tickets and for tickets created while SLA was disabled. Such a
+	// ticket has no SLA commitment at all: it renders as "no SLA", never as
+	// retroactively breached.
+	TicketSLA(ctx context.Context, ticketID int64) (*domain.TicketSLA, error)
+	// InsertTicketSLA freezes a commitment onto one ticket. This is a
+	// creation-time write (the row is never updated afterwards); inserting
+	// a second row for the same ticket is a storage failure.
+	InsertTicketSLA(ctx context.Context, ticketID int64, sla domain.TicketSLA) error
+	// Milestones returns the observed SLA milestone instants for one
+	// ticket: the FIRST public staff response and the FIRST resolution,
+	// each nil when it has not happened. Both are deliberately FIRSTS —
+	// the SLA measures the commitment made at ticket creation, so a later
+	// response or a reopen-and-reresolve never replaces the observed
+	// first. This differs from the administrative metrics read, which
+	// takes the LAST resolution of the requested interval.
+	Milestones(ctx context.Context, ticketID int64) (domain.SLAMilestones, error)
+	// TicketSLAs returns the commitments frozen onto MANY tickets, keyed
+	// by ticket id — the list-rendering read path (issue #211), so a page
+	// of SLA badges costs one bounded read instead of the per-ticket
+	// TicketSLA N+1. A ticket with NO row is ABSENT from the map: absence
+	// is the "no SLA" state, never a zero-value commitment. An empty
+	// ticketIDs answers an empty map WITHOUT touching the database (an
+	// IN () list is a SQL syntax error) and without an error. Rows are
+	// answered in no particular order — the map is keyed by id.
+	TicketSLAs(ctx context.Context, ticketIDs []int64) (map[int64]*domain.TicketSLA, error)
+	// MilestonesFor returns the observed SLA milestone instants for MANY
+	// tickets, keyed by ticket id, using the same FIRST-response and
+	// FIRST-resolution semantics as Milestones. A ticket with NEITHER
+	// observation is ABSENT from the map; a ticket with only one
+	// observation is PRESENT with the other field nil. An empty
+	// ticketIDs answers an empty map WITHOUT touching the database (an
+	// IN () list is a SQL syntax error) and without an error. Rows are
+	// answered in no particular order — the map is keyed by id.
+	MilestonesFor(ctx context.Context, ticketIDs []int64) (map[int64]domain.SLAMilestones, error)
+}
+
 // SettingsStore persists single-row instance settings (appearance-settings
 // spec). The internal-comment background row is seeded by migration 0005;
 // a missing row reads back the application default.
@@ -593,6 +673,59 @@ type SettingsStore interface {
 	GetInternalCommentBg(ctx context.Context) (string, error)
 	// SetInternalCommentBg persists the internal-comment background color.
 	SetInternalCommentBg(ctx context.Context, color string) error
+	// GetSLAEnabled reports whether the per-category SLA is enabled
+	// (issue #211). The row stores '0'/'1' text; an absent or unparseable
+	// value falls back to disabled (fail-safe: enabling is an explicit
+	// admin action, never a defaulted-on state).
+	GetSLAEnabled(ctx context.Context) (bool, error)
+	// GetSLAWarningPercent returns the SLA warning threshold percentage, or
+	// DefaultSLAWarningPercent when the row is absent or unparseable.
+	GetSLAWarningPercent(ctx context.Context) (int, error)
+	// GetSLAEnabledAt returns the activation instant recorded when the SLA
+	// settings were first configured. Informational display only — targets
+	// are frozen onto tickets at creation, so this instant is never
+	// load-bearing. An absent or unparseable row returns the zero time.
+	GetSLAEnabledAt(ctx context.Context) (time.Time, error)
+	// SetSLAEnabledState persists the sla_enabled setting ('0'/'1' text, the
+	// same form GetSLAEnabled parses) and, when enabling, the activation
+	// instant — both in ONE transaction, so an enabled flag is never
+	// persisted without the instant that explains it.
+	//
+	// The instant records when the feature was FIRST switched on: an
+	// existing value is left alone, so enabling twice does not move it, and
+	// disabling never erases it.
+	SetSLAEnabledState(ctx context.Context, enabled bool, at time.Time) error
+	// SetSLAConfiguration writes the WHOLE instance SLA panel — the enable
+	// flag and its first-enable activation instant, the warning percent, and
+	// all four default targets — in ONE transaction.
+	//
+	// The panel is one configuration, so the store applies it as one. Writing
+	// its pieces separately would leave a rejected edit half-applied, the same
+	// defect class as a partially applied matrix, and no caller-side
+	// compensation can make sequential writes atomic: a failure between a
+	// write and its undo leaves the inconsistency behind.
+	SetSLAConfiguration(ctx context.Context, enabled bool, at time.Time, warningPercent int, defaults []domain.SLAPolicy) error
+	// SetSLAWarningPercent persists the sla_warning_percent setting.
+	SetSLAWarningPercent(ctx context.Context, percent int) error
+	// GetSLACalendar returns the instance working calendar (issue #211),
+	// assembled from the four sla_calendar_* settings keys of migration
+	// 0017: the working weekdays, the daily window in minutes past local
+	// midnight, and the IANA zone the window is interpreted in.
+	//
+	// Each key falls back to its documented default when its row is absent
+	// or unparseable — days "1,2,3,4,5" (Monday-Friday), start 540 (09:00),
+	// end 1080 (18:00) — and an unknown timezone name falls back to UTC
+	// rather than failing the read. A calendar read therefore always
+	// answers a usable calendar — the ASSEMBLED value is validated, not
+	// just each key — and only a real storage failure is an error.
+	GetSLACalendar(ctx context.Context) (domain.SLACalendar, error)
+	// SetSLACalendar writes the WHOLE working calendar — the four
+	// sla_calendar_* keys — in ONE transaction, ALL OR NOTHING: a partially
+	// applied calendar would change when every future ticket is due, so a
+	// failing write must roll every key back and leave the previous
+	// calendar standing. The service use case (SetSLACalendar) validates
+	// the calendar before this store call.
+	SetSLACalendar(ctx context.Context, calendar domain.SLACalendar) error
 }
 
 // TicketSection narrows an agent's read scope into a presentation section.
@@ -631,6 +764,16 @@ type TicketQuery struct {
 	// SortByPriority orders results by the D11 priority rank
 	// (critical > high > medium > low) before the created/id tiebreak.
 	SortByPriority bool
+	// SortByUrgency orders results by the SLA deadline that is actually
+	// OUTSTANDING (issue #211, PR 4): the due instant of the FIRST milestone
+	// the ticket has not achieved — the response deadline while no public
+	// staff response exists, then the resolution deadline until the ticket is
+	// resolved. A ticket with nothing outstanding (no frozen SLA, or both
+	// milestones achieved) sorts LAST, and the D11 priority rank followed by
+	// the D2 created/id tiebreak keeps page boundaries stable. It takes
+	// precedence over SortByPriority when both are set, because the priority
+	// rank is already its tiebreak.
+	SortByUrgency bool
 	// Section splits an agent's existing read scope into personal assignments
 	// and current desk claims. It never widens the access scope.
 	Section TicketSection

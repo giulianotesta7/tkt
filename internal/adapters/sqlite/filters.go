@@ -6,16 +6,20 @@ import (
 	"github.com/giulianotesta7/tkt/internal/application"
 )
 
-// orderByCreatedDesc is the deterministic list ordering (D2): newest first
-// by creation, stable id DESC tiebreaker so page boundaries never overlap.
+// createdTiebreak is the shared D2 created/id tiebreak: newest first by
+// creation with a stable id DESC so page boundaries never overlap.
 // created_at is ISO-8601 UTC TEXT (D7), which sorts lexicographically in
-// chronological order.
-const orderByCreatedDesc = "ORDER BY t.created_at DESC, t.id DESC"
+// chronological order. Every ordering composes this one fragment so the
+// tiebreak cannot drift between paths.
+const createdTiebreak = "t.created_at DESC, t.id DESC"
+
+// orderByCreatedDesc is the deterministic list ordering (D2).
+const orderByCreatedDesc = "ORDER BY " + createdTiebreak
 
 // orderByPriorityDesc is the D11 priority ordering: critical(4) > high(3) >
 // medium(2) > low(1) via the shared CASE fragment, with the created/id
 // tiebreak kept so priority-sorted pages stay stable and non-overlapping.
-const orderByPriorityDesc = "ORDER BY " + priorityOrderCASE + " DESC, t.created_at DESC, t.id DESC"
+const orderByPriorityDesc = "ORDER BY " + priorityOrderCASE + " DESC, " + createdTiebreak
 
 // priorityOrderCASE ranks priorities for SQL ordering (D11): critical=4,
 // high=3, medium=2, low=1. It is the single shared SQL fragment constant in
@@ -25,13 +29,59 @@ const orderByPriorityDesc = "ORDER BY " + priorityOrderCASE + " DESC, t.created_
 // priority-sort path uses once a sort key exists.
 const priorityOrderCASE = "CASE t.priority WHEN 'critical' THEN 4 WHEN 'high' THEN 3 WHEN 'medium' THEN 2 WHEN 'low' THEN 1 ELSE 0 END"
 
-// orderBy returns the ORDER BY clause for q: the D11 priority ordering when
-// SortByPriority is set, otherwise the deterministic D2 newest-first order.
+// slaResponseAchieved is the first-response milestone achievement predicate
+// (issue #211): a public staff comment exists. It wraps the milestone
+// semantics shared with the SLA store (slaFirstResponseWhere) in the EXISTS
+// shape an ORDER BY expression needs — never a second copy of the rule.
+const slaResponseAchieved = "EXISTS (SELECT 1 FROM comments WHERE ticket_id = t.id AND " + slaFirstResponseWhere + ")"
+
+// slaResolutionAchieved is the first-resolution milestone achievement
+// predicate (issue #211): a resolved-state audit transition exists. It wraps
+// slaFirstResolvedWhere, the single shared definition of the rule.
+const slaResolutionAchieved = "EXISTS (SELECT 1 FROM audit_events WHERE ticket_id = t.id AND " + slaFirstResolvedWhere + ")"
+
+// slaOutstandingDeadlineCASE is the urgency order key (issue #211, PR 4):
+// the due instant of the FIRST NOT-ACHIEVED milestone. A ticket that is not
+// open has nothing outstanding, so closed work stays last even with an
+// already-past due; the migration's DEFAULT is the empty string, which
+// counts as absent via NULLIF,
+// and NULL (no frozen row, or both milestones achieved) also sorts last.
+// Ordering the instants ASC surfaces the ticket that must be worked next.
+const slaOutstandingDeadlineCASE = "CASE" +
+	" WHEN t.state NOT IN ('new','in_progress') THEN NULL" +
+	" WHEN NOT " + slaResponseAchieved + " THEN NULLIF(s.due_first_response_at,'')" +
+	" WHEN NOT " + slaResolutionAchieved + " THEN NULLIF(s.due_resolve_at,'')" +
+	" ELSE NULL END"
+
+// orderByUrgency is the SLA urgency ordering (issue #211, PR 4): the
+// outstanding deadline ASC with nothing-outstanding tickets last, then the
+// D11 priority rank DESC and the D2 created/id tiebreak. The priority rank
+// is already urgency's tiebreak, so SortByUrgency wins when both flags are
+// set.
+const orderByUrgency = "ORDER BY " + slaOutstandingDeadlineCASE + " IS NULL, " + slaOutstandingDeadlineCASE + " ASC, " + priorityOrderCASE + " DESC, " + createdTiebreak
+
+// orderBy returns the ORDER BY clause for q: the SLA urgency ordering when
+// SortByUrgency is set (its documented precedence), else the D11 priority
+// ordering when SortByPriority is set, else the deterministic D2
+// newest-first order.
 func orderBy(q application.TicketQuery) string {
+	if q.SortByUrgency {
+		return orderByUrgency
+	}
 	if q.SortByPriority {
 		return orderByPriorityDesc
 	}
 	return orderByCreatedDesc
+}
+
+// listFrom returns the FROM clause for q. The ticket_sla join is injected
+// ONLY for the urgency ordering — every other path keeps the bare tickets
+// table and is byte-identical to before.
+func listFrom(q application.TicketQuery) string {
+	if q.SortByUrgency {
+		return "tickets t LEFT JOIN ticket_sla s ON s.ticket_id = t.id"
+	}
+	return "tickets t"
 }
 
 // claimableClause is the existing READ-only claim exception: an active run's

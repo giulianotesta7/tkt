@@ -19,5 +19,5 @@ import "embed"
 // hosting keeps the font working on installations with no outbound network and
 // gives every operator the same rendering instead of the system fallback.
 //
-//go:embed base.html auth.html pages/*.html partials/*.html static/htmx.min.js static/InterVariable.woff2 static/users.css static/users.js static/tickets.js static/workflow.js static/categories.js static/save-feedback.js static/ticket_metrics.css static/ticket_metrics.js
+//go:embed base.html auth.html pages/*.html partials/*.html static/htmx.min.js static/InterVariable.woff2 static/users.css static/users.js static/tickets.js static/workflow.js static/categories.js static/save-feedback.js static/ticket_metrics.css static/ticket_metrics.js static/sla_countdown.js
 var FS embed.FS

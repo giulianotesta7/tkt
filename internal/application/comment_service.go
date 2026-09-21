@@ -25,8 +25,10 @@ func NewCommentService(tickets TicketStore, comments CommentStore, clock domain.
 // Add validates the body and visibility, checks the ticket exists within the
 // actor's ticket access scope (ticket-access spec: comments live on tickets
 // the actor can see), and stores the comment with the session user as author
-// (D14). Visibility follows the comment-visibility spec: role user may only
-// add public comments — an internal comment is denied (ForbiddenError)
+// (D14). The comment also carries the actor's user id and role snapshot, so
+// agent+ authorship stays provable for the first-response SLA milestone
+// (issue #211). Visibility follows the comment-visibility spec: role user may
+// only add public comments — an internal comment is denied (ForbiddenError)
 // BEFORE any store call; roles agent+ may add public or internal comments.
 func (s *CommentService) Add(ctx context.Context, actor domain.User, ticketID int64, body, visibility string) (*domain.Comment, error) {
 	if strings.TrimSpace(body) == "" {
@@ -58,11 +60,13 @@ func (s *CommentService) Add(ctx context.Context, actor domain.User, ticketID in
 		}
 	}
 	c := &domain.Comment{
-		TicketID:   ticketID,
-		Author:     actor.Name,
-		Body:       strings.TrimSpace(body),
-		Visibility: vis,
-		CreatedAt:  s.clock.Now(),
+		TicketID:     ticketID,
+		Author:       actor.Name,
+		AuthorUserID: &actor.ID,
+		AuthorRole:   actor.Role,
+		Body:         strings.TrimSpace(body),
+		Visibility:   vis,
+		CreatedAt:    s.clock.Now(),
 	}
 	if err := s.comments.Add(ctx, c); err != nil {
 		return nil, err

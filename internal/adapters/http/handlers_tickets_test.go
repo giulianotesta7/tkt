@@ -264,6 +264,165 @@ func TestTicketsPaginationHrefPreservesQuery(t *testing.T) {
 	}
 }
 
+// TestParseFiltersSort (issue #211, PR 4, T5) proves each accepted sort value
+// sets exactly its query flag and that an unknown, empty, or absent value
+// silently selects the default newest-first order: a sort is not a filter, so
+// it never produces a 422 or an error page (threat matrix).
+func TestParseFiltersSort(t *testing.T) {
+	for _, tc := range []struct {
+		name         string
+		query        string
+		wantSort     string
+		wantPriority bool
+		wantUrgency  bool
+	}{
+		{name: "newest", query: "?sort=newest", wantSort: sortNewest},
+		{name: "priority", query: "?sort=priority", wantSort: sortPriority, wantPriority: true},
+		{name: "urgency", query: "?sort=urgency", wantSort: sortUrgency, wantUrgency: true},
+		{name: "unknown", query: "?sort=bogus", wantSort: sortNewest},
+		{name: "empty", query: "?sort=", wantSort: sortNewest},
+		{name: "absent", query: "", wantSort: sortNewest},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := parseFilters(httptest.NewRequest(http.MethodGet, "/tickets"+tc.query, nil))
+			if f.Sort != tc.wantSort {
+				t.Errorf("Sort = %q, want %q", f.Sort, tc.wantSort)
+			}
+			q := f.query()
+			if q.SortByPriority != tc.wantPriority || q.SortByUrgency != tc.wantUrgency {
+				t.Errorf("query flags = (priority %t, urgency %t), want (priority %t, urgency %t)",
+					q.SortByPriority, q.SortByUrgency, tc.wantPriority, tc.wantUrgency)
+			}
+		})
+	}
+}
+
+// TestTicketHrefsPreserveSort (issue #211, PR 4, T5) proves both href
+// builders keep an explicit non-default ordering so paging and the agent
+// queue preserve the chosen order, while the default newest-first order is
+// never written into a URL — no explicit choice keeps generated URLs
+// byte-identical to before.
+func TestTicketHrefsPreserveSort(t *testing.T) {
+	f := filterState{Sort: sortUrgency}
+	if got, want := listHref(f, 2), "/tickets?page=2&sort=urgency"; got != want {
+		t.Errorf("listHref = %q, want %q", got, want)
+	}
+	if got, want := agentListHref(f, 2, 1), "/tickets?assigned_page=2&sort=urgency"; got != want {
+		t.Errorf("agentListHref = %q, want %q", got, want)
+	}
+	if got := ticketFilterValues(f).Get("sort"); got != sortUrgency {
+		t.Errorf("ticketFilterValues sort = %q, want %q", got, sortUrgency)
+	}
+
+	for _, tc := range []struct {
+		name string
+		sort string
+	}{
+		{name: "empty default", sort: ""},
+		{name: "explicit newest", sort: sortNewest},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := filterState{Sort: tc.sort}
+			if got := listHref(f, 1); got != "/tickets" {
+				t.Errorf("listHref = %q, want /tickets (default must not write sort)", got)
+			}
+			if got := ticketFilterValues(f).Get("sort"); got != "" {
+				t.Errorf("ticketFilterValues sort = %q, want empty", got)
+			}
+		})
+	}
+}
+
+// TestTicketsIndexSortRoundTrip (issue #211, PR 4, T5) proves the visible
+// order control round-trips: ?sort=urgency selects the Urgency option and
+// survives into the pagination hrefs, an unknown value is silently ignored
+// (never echoed as a selected option), and no explicit sort keeps the default
+// newest-first selection with clean hrefs.
+func TestTicketsIndexSortRoundTrip(t *testing.T) {
+	h := newHarness(t)
+	for i := 0; i < 11; i++ {
+		h.seedTicket(t, "Paged ticket "+string(rune('A'+i)), nil)
+	}
+
+	urgency := h.get(t, "/tickets?sort=urgency", false).Body.String()
+	if !strings.Contains(urgency, `<option value="urgency" selected>Urgency</option>`) {
+		t.Errorf("sort=urgency must mark the Urgency option selected, got: %s", urgency)
+	}
+	if !strings.Contains(urgency, `page=2&amp;sort=urgency`) {
+		t.Errorf("pagination hrefs must carry sort=urgency, got: %s", urgency)
+	}
+
+	unknown := h.get(t, "/tickets?sort=bogus", false).Body.String()
+	for _, absent := range []string{`value="bogus"`, `sort=bogus`} {
+		if strings.Contains(unknown, absent) {
+			t.Errorf("unknown sort must be ignored, not echoed as %q, got: %s", absent, unknown)
+		}
+	}
+	if !strings.Contains(unknown, `<option value="newest" selected>Newest first</option>`) {
+		t.Errorf("unknown sort must select the default newest-first option, got: %s", unknown)
+	}
+
+	plain := h.get(t, "/tickets", false).Body.String()
+	if !strings.Contains(plain, `<option value="newest" selected>Newest first</option>`) {
+		t.Errorf("default sort must mark Newest first selected, got: %s", plain)
+	}
+	if strings.Contains(plain, "sort=urgency") || strings.Contains(plain, "sort=priority") {
+		t.Errorf("no explicit sort must not write a sort into any URL, got: %s", plain)
+	}
+}
+
+// TestTicketsIndexSortByUrgency (issue #211, PR 4, T5) proves the parsed sort
+// reaches the query layer. SLA is enabled through the real settings route so
+// each create freezes a real commitment (a fresh commitment is on_track with
+// a pending milestone). The high-priority ticket with a PENDING response is
+// due before the critical ticket whose response was MET (it then waits on its
+// resolve deadline), so the urgency order is the reverse of both the
+// newest-first order and the priority order.
+func TestTicketsIndexSortByUrgency(t *testing.T) {
+	h := newHarness(t)
+	form := slaPanelForm("80")
+	form.Set("sla_enabled", "1")
+	if rec := h.postForm(t, "/settings/sla", form, false); rec.Code != http.StatusSeeOther {
+		t.Fatalf("enable SLA: status = %d, want %d", rec.Code, http.StatusSeeOther)
+	}
+
+	urgent := h.seedTicket(t, "Urgent pending response", func(in *application.CreateTicketInput) {
+		in.Priority = domain.PriorityHigh
+	})
+	relaxed := h.seedTicket(t, "Relaxed met response", func(in *application.CreateTicketInput) {
+		in.Priority = domain.PriorityCritical
+	})
+	if _, err := h.comments.Add(t.Context(), *h.admin, relaxed.ID, "On it", "public"); err != nil {
+		t.Fatalf("freeze a met first response: %v", err)
+	}
+
+	ordered := func(body string, first, second *domain.Ticket) bool {
+		i, j := strings.Index(body, first.Title), strings.Index(body, second.Title)
+		if i < 0 || j < 0 {
+			t.Fatalf("list must render %q and %q, got: %s", first.Title, second.Title, body)
+		}
+		return i < j
+	}
+
+	urgency := h.get(t, "/tickets?sort=urgency", false).Body.String()
+	// Both tickets must carry a frozen commitment for the ordering to be about
+	// the SLA at all. An on_track ticket renders NO signal — the quiet default
+	// is silence — so the commitment is proven against the store, where it is a
+	// fact rather than a rendering choice.
+	for _, tk := range []*domain.Ticket{urgent, relaxed} {
+		frozen, err := h.store.SLAStore().TicketSLA(t.Context(), tk.ID)
+		if err != nil || frozen == nil {
+			t.Fatalf("ticket %d must carry a frozen commitment, got %v (err %v)", tk.ID, frozen, err)
+		}
+	}
+	if !ordered(urgency, urgent, relaxed) {
+		t.Errorf("?sort=urgency must return the urgent-first order, got: %s", urgency)
+	}
+	if body := h.get(t, "/tickets", false).Body.String(); !ordered(body, relaxed, urgent) {
+		t.Errorf("no sort must keep the newest-first order, got: %s", body)
+	}
+}
+
 func TestTicketsIndexRows(t *testing.T) {
 	h := newHarness(t)
 	first := h.seedTicket(t, "First ticket", nil)
@@ -1023,5 +1182,137 @@ func TestTicketMetricsStaticScript(t *testing.T) {
 		if !strings.Contains(rec.Body.String(), want) {
 			t.Errorf("script must contain %q, got: %s", want, rec.Body.String())
 		}
+	}
+}
+
+// TestTicketListSLACellMarkup (issue #211, PR 4) pins the SLA cell shapes in
+// the plain staff table: an at_risk row renders the badge plus the pending
+// response deadline, and a row whose ticket has no frozen commitment renders
+// an EMPTY cell — never a "no SLA" badge. The on_track silence needs a real
+// commitment, so TestTicketsIndexSLAIsStaffOnly proves it, not this fixture.
+func TestTicketListSLACellMarkup(t *testing.T) {
+	body := renderGolden(t, "tickets_index", "ticket_list", fixtureListData(), true)
+
+	atRisk := `<td data-label="SLA"><span class="sla-state"><span class="sla-dot at_risk" aria-hidden="true"></span><span class="sla-state-word">At Risk</span></span> </td>`
+	if !strings.Contains(body, atRisk) {
+		t.Errorf("at_risk row must render the badge and pending deadline %q, got: %s", atRisk, body)
+	}
+	if !strings.Contains(body, `<td data-label="SLA"></td>`) {
+		t.Errorf("a ticket with no frozen SLA must render an empty SLA cell, got: %s", body)
+	}
+	for _, absent := range []string{`>No SLA<`, `badge none`} {
+		if strings.Contains(body, absent) {
+			t.Errorf("no-SLA row must not render %q, got: %s", absent, body)
+		}
+	}
+}
+
+// TestTicketsIndexSLABadgeIsStaffOnly (issue #211, PR 4) proves the SLA badge
+// and the outstanding deadline render in the two STAFF ticket lists (the
+// admin table and the assigned agent queue) and are ABSENT from the requester
+// list, which must stay SLA-blind. The harness enables SLA and creates a
+// frozen commitment through the real service, so the projection comes from a
+// real commitment, not a hand-built store.
+func TestTicketsIndexSLAIsStaffOnly(t *testing.T) {
+	h := newHarness(t)
+
+	// Enable SLA through the real settings route so the create path freezes
+	// the commitment against the category matrix the migration materialized.
+	form := slaPanelForm("80")
+	form.Set("sla_enabled", "1")
+	if rec := h.postForm(t, "/settings/sla", form, false); rec.Code != http.StatusSeeOther {
+		t.Fatalf("enable SLA: status = %d, want %d", rec.Code, http.StatusSeeOther)
+	}
+
+	// A staff ticket that the admin table and the assigned agent queue render.
+	staffTicket := h.seedTicket(t, "Freeze me", nil)
+	agent := seedUserRole(t, h.store, "Ava", "ava-sla@example.com", domain.RoleAgent)
+	agentSession := seedSession(t, h.store, agent.ID)
+	h.assignTicket(t, staffTicket.ID, agent.ID)
+
+	// A requester-owned ticket so the requester list is non-empty.
+	requester := seedUserRole(t, h.store, "Rosa", "rosa-sla@example.com", domain.RoleUser)
+	requesterSession := seedSession(t, h.store, requester.ID)
+	requesterTicket, err := h.tickets.Create(t.Context(), *requester, application.CreateTicketInput{
+		Title: "Requester request", CategoryID: h.bugCategory.ID, Priority: domain.PriorityMedium,
+	})
+	if err != nil {
+		t.Fatalf("create requester ticket: %v", err)
+	}
+
+	// A fresh commitment is on_track, and on_track renders NO badge: the
+	// pending response deadline is what proves the SLA reached the row.
+
+	adminBody := h.get(t, "/tickets", false).Body.String()
+	if !strings.Contains(adminBody, "<th>SLA</th>") {
+		t.Errorf("admin list must render the SLA column header, got: %s", adminBody)
+	}
+	if !strings.Contains(adminBody, `class="sla-dot on_track"`) {
+		t.Errorf("the admin list must name the on_track state, got: %s", adminBody)
+	}
+	// Silence is the quiet default for an on_track commitment, so the proof
+	// that the SLA reaches the staff row is the frozen commitment itself.
+	if frozen, err := h.store.SLAStore().TicketSLA(t.Context(), staffTicket.ID); err != nil || frozen == nil {
+		t.Fatalf("the staff ticket must carry a frozen commitment, got %v (err %v)", frozen, err)
+	}
+
+	agentRec := doRequest(h.mux, h.mw, http.MethodGet, "/tickets", map[string]string{
+		"Cookie": sessionCookie + "=" + agentSession.ID,
+	})
+	if agentRec.Code != http.StatusOK {
+		t.Fatalf("agent tickets status = %d, want 200", agentRec.Code)
+	}
+	agentBody := agentRec.Body.String()
+	if !strings.Contains(agentBody, `class="sla-dot on_track"`) {
+		t.Errorf("the agent list must name the on_track state, got: %s", agentBody)
+	}
+
+	requesterRec := doRequest(h.mux, h.mw, http.MethodGet, "/tickets", map[string]string{
+		"Cookie": sessionCookie + "=" + requesterSession.ID,
+	})
+	if requesterRec.Code != http.StatusOK {
+		t.Fatalf("requester tickets status = %d, want 200", requesterRec.Code)
+	}
+	requesterBody := requesterRec.Body.String()
+	if !strings.Contains(requesterBody, requesterTicket.Title) {
+		t.Fatalf("requester list must render its own ticket, got: %s", requesterBody)
+	}
+	for _, absent := range []string{
+		"<th>SLA</th>",
+		`class="sla-state"`,
+		`class="sla-dot at_risk"`,
+		`class="sla-dot breached"`,
+		`class="sla-dot met"`,
+	} {
+		if strings.Contains(requesterBody, absent) {
+			t.Errorf("LEAK: requester list must not render SLA markup %q, got: %s", absent, requesterBody)
+		}
+	}
+}
+
+// TestSLARowCarriesTheWorstMilestoneState (issue #211) pins the decision that
+// the list answers ONE question — is this ticket still standing — with the
+// worst of the two milestone states. The milestone, its due instant and the
+// time left live in the ticket's own panel, where there is room to name them,
+// so the row carries no deadline and nothing in it can contradict the state.
+func TestSLARowCarriesTheWorstMilestoneState(t *testing.T) {
+	late := time.Date(2026, 8, 6, 12, 0, 0, 0, time.UTC)
+	due := time.Date(2026, 8, 6, 10, 0, 0, 0, time.UTC)
+
+	p := domain.SLAProjection{
+		Frozen:        &domain.TicketSLA{},
+		FirstResponse: domain.SLAMilestoneStatus{DueAt: due, AchievedAt: &late, State: domain.SLABreached},
+		Resolve:       domain.SLAMilestoneStatus{DueAt: due.Add(4 * time.Hour), State: domain.SLAOnTrack},
+		Overall:       domain.SLABreached,
+	}
+	row := slaRowFor(p)
+	if row == nil {
+		t.Fatalf("a frozen commitment must yield a row")
+	}
+	if row.State != domain.SLABreached {
+		t.Errorf("the row must carry the worst milestone state (breached), got %q", row.State)
+	}
+	if slaRowFor(domain.SLAProjection{}) != nil {
+		t.Errorf("a ticket with no frozen commitment must yield no row")
 	}
 }
