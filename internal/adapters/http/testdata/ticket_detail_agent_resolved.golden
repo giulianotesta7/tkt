@@ -146,6 +146,11 @@
       </div>
     </div>
   </div>
+  <dialog id="ticket-title-dialog" aria-labelledby="ticket-title-dialog-title" aria-describedby="ticket-title-dialog-copy">
+    <h2 id="ticket-title-dialog-title">Save the title first?</h2>
+    <p id="ticket-title-dialog-copy">The ticket title has unsaved changes.</p>
+    <div><button type="button" class="btn" data-title-discard>Discard and continue</button><button type="button" class="btn" data-title-save-continue>Save and continue</button></div>
+  </dialog>
 </div>
 <script>
 
@@ -170,8 +175,120 @@ function syncReopenReason(select) {
 
 
 
+
+
+
+
+
+
+
+function initTitleEditor() {
+  const input = document.getElementById('ticket-title');
+  const titleForm = input ? input.form : null;
+  const detail = document.getElementById('ticket-detail');
+  const dialog = document.getElementById('ticket-title-dialog');
+  if (!input || !titleForm || !detail || !dialog) return;
+  const saveButton = titleForm.querySelector('.title-save');
+  const discardButton = dialog.querySelector('[data-title-discard]');
+  const saveContinueButton = dialog.querySelector('[data-title-save-continue]');
+  const initial = input.value;
+  let pendingForm = null;
+  let pendingSelectId = null;
+  let returnFocus = null;
+  const dirty = () => input.value !== initial;
+  const syncSave = () => {
+    if (saveButton) saveButton.hidden = !dirty();
+  };
+  const showDialog = () => {
+    const active = document.activeElement;
+    returnFocus = active && detail.contains(active) && active !== detail ? active : input;
+    if (dialog.showModal) dialog.showModal();
+    else dialog.setAttribute('open', '');
+    if (discardButton) discardButton.focus();
+  };
+  const closeDialog = (restoreFocus) => {
+    if (dialog.open) dialog.close();
+    else dialog.removeAttribute('open');
+    const target = returnFocus;
+    returnFocus = null;
+    if (restoreFocus && target && target.isConnected) target.focus();
+  };
+  input.addEventListener('input', syncSave);
+  syncSave();
+  detail.addEventListener(
+    'click',
+    (event) => {
+      const target = event.target;
+      if (!dirty() || !(target instanceof Element) || target.closest('.title-edit')) return;
+      const button = target.closest('button[type=submit]');
+      const owner = button ? button.form : null;
+      const field = owner ? owner.querySelector('#ticket-priority, #assign-user, #ticket-state') : null;
+      if (!owner || !field) return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      pendingForm = owner;
+      pendingSelectId = field.id;
+      showDialog();
+    },
+    true,
+  );
+  dialog.addEventListener('cancel', () => {
+    pendingForm = null;
+    pendingSelectId = null;
+    closeDialog(true);
+  });
+  if (discardButton) {
+    discardButton.addEventListener('click', () => {
+      input.value = initial;
+      syncSave();
+      const form = pendingForm;
+      pendingForm = null;
+      pendingSelectId = null;
+      closeDialog(false);
+      if (form) form.requestSubmit();
+    });
+  }
+  if (saveContinueButton) {
+    saveContinueButton.addEventListener('click', () => {
+      const form = pendingForm;
+      const selectId = pendingSelectId;
+      pendingForm = null;
+      pendingSelectId = null;
+      const entries = [];
+      if (form) {
+        for (const control of form.elements) {
+          if (control.name) entries.push([control.name, control.value]);
+        }
+      }
+      closeDialog(false);
+      if (!selectId) return;
+      const submitPending = (event) => {
+        titleForm.removeEventListener('htmx:afterRequest', submitPending);
+        if (!event.detail || event.detail.successful !== true) return;
+        const select = document.getElementById(selectId);
+        const pending = select ? select.form : null;
+        if (!pending) return;
+        for (const [name, value] of entries) {
+          const control = pending.elements.namedItem(name);
+          if (control && 'value' in control) control.value = value;
+        }
+        if (window.htmx && typeof window.htmx.process === 'function') {
+          window.htmx.process(pending);
+        }
+        pending.requestSubmit();
+      };
+      titleForm.addEventListener('htmx:afterRequest', submitPending);
+      titleForm.requestSubmit();
+    });
+  }
+}
+
+
+
+
 (function () {
   const select = document.getElementById('ticket-state');
   if (select) syncReopenReason(select);
+  initTitleEditor();
 })();
 </script>
