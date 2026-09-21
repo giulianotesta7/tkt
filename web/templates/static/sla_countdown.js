@@ -32,6 +32,7 @@
   const COARSE_SELECTOR = ".sla-countdown-coarse";
   const TICK_MS = 1000;
   const COARSE_MS = 60000;
+  const REMAINING = "remaining";
   const OVERDUE = "overdue";
 
   // parseInstant returns epoch milliseconds, or null for a missing or
@@ -56,8 +57,14 @@
 
   // preciseText is the per-second reading; a passed instant reads a stable
   // "overdue" rather than negative time.
+  // preciseText is the fast reading. It keeps the SAME shape as the server's
+  // initial value ("59m 37s" / "30m overdue") so the number does not jump
+  // format when the script takes over. No "in" prefix: the panel's label says
+  // which milestone it is and the number says how long is left.
   const preciseText = (remainingMs) => {
-    if (remainingMs <= 0) return OVERDUE;
+    if (remainingMs <= 0) {
+      return `${duration(Math.floor(Math.abs(remainingMs) / 1000))} ${OVERDUE}`;
+    }
     return duration(Math.floor(remainingMs / 1000));
   };
 
@@ -71,7 +78,7 @@
     if (hours > 0) label = `${hours}h ${minutes}m`;
     else if (minutes > 0) label = `${minutes}m`;
     else label = "<1m";
-    return remainingMs <= 0 ? `${label} ${OVERDUE}` : `in ${label}`;
+    return remainingMs <= 0 ? `${label} ${OVERDUE}` : `${label} ${REMAINING}`;
   };
 
   // The offset is derived once per panel, not per tick: recomputing it every

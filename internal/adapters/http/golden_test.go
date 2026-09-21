@@ -135,10 +135,6 @@ func TestGoldenAuthLogin(t *testing.T) {
 var (
 	goldenT0 = time.Date(2026, 8, 6, 10, 0, 0, 0, time.UTC)
 	goldenT1 = time.Date(2026, 8, 6, 10, 30, 0, 0, time.UTC)
-	// goldenSLAAt is a frozen SLA instant (D7: the render path never calls
-	// time.Now()); it is the pending first-response due for the fixture rows
-	// that carry a frozen commitment.
-	goldenSLAAt = time.Date(2026, 8, 6, 11, 30, 0, 0, time.UTC)
 )
 
 // fixtureListData builds a frozen list payload with two tickets, two
@@ -156,7 +152,7 @@ func fixtureListData() listData {
 	tickets := []ticketRow{
 		{
 			Ticket: domain.Ticket{ID: 2, Number: 2, Title: "Printer jam", State: domain.StateInProgress, Priority: domain.PriorityHigh, CreatedAt: goldenT1, UpdatedAt: goldenT1},
-			SLA:    &slaRow{State: domain.SLAAtRisk, DueAt: goldenSLAAt, Label: slaResponseLabel},
+			SLA:    &slaRow{State: domain.SLAAtRisk},
 		},
 		{Ticket: domain.Ticket{ID: 1, Number: 1, Title: "Login page down", State: domain.StateNew, Priority: domain.PriorityCritical, CreatedAt: goldenT0, UpdatedAt: goldenT0}},
 	}
@@ -244,7 +240,7 @@ func TestGoldenTicketsIndexAgent(t *testing.T) {
 	data.Claimable = ticketListData{Tickets: []ticketRow{{
 		Ticket:  domain.Ticket{ID: 3, Number: 3, Title: "Email bounce", RequesterName: "Ana Torres", State: domain.StateNew, Priority: domain.PriorityMedium, CreatedAt: goldenT1, UpdatedAt: goldenT1},
 		Context: application.AgentTicketRowContext{DeskName: "Service desk"},
-		SLA:     &slaRow{State: domain.SLAOnTrack, DueAt: goldenSLAAt, Label: slaResponseLabel},
+		SLA:     &slaRow{State: domain.SLAOnTrack},
 	}}, Total: 1, Page: 1, Pages: 1}
 	data.Total = 3
 	goldenFullPage(t, "tickets_index_agent", renderGolden(t, "tickets_index", "", data, false))
@@ -922,19 +918,20 @@ func TestGoldenSettingsIndex(t *testing.T) {
 
 // fixtureCategorySLAData models an admin shell on the category SLA screen
 // with a frozen matrix (custom targets, not the seeded defaults) so the
-// golden pins the h/m/s decomposition.
+// golden pins the h/m/s decomposition and the divergence marker: critical
+// matches the seeded default, the other three diverge from it.
 func fixtureCategorySLAData() categorySLAData {
 	ana := domain.User{ID: 1, Name: "Ana Torres", Email: "ana@example.com", Active: true, CreatedAt: goldenT0}
 	return categorySLAData{
 		pageData:     pageData{NavActive: "categories", CurrentUser: ana, CanManageCategories: true},
 		CategoryID:   1,
 		CategoryName: "Bugs",
-		Grid: slaGridData{Rows: slaPolicyRows([]domain.SLAPolicy{
+		Grid: slaGridData{Rows: slaPolicyRowsDiverging([]domain.SLAPolicy{
 			{Priority: domain.PriorityCritical, FirstResponseSeconds: 1800, ResolveSeconds: 14400},
 			{Priority: domain.PriorityHigh, FirstResponseSeconds: 5400, ResolveSeconds: 28800},
 			{Priority: domain.PriorityMedium, FirstResponseSeconds: 9000, ResolveSeconds: 57600},
 			{Priority: domain.PriorityLow, FirstResponseSeconds: 16200, ResolveSeconds: 172800},
-		})},
+		}, seededSLADefaults())},
 	}
 }
 

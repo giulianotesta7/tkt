@@ -317,8 +317,8 @@ test.describe("SLA attainment panel (seeded)", () => {
       const met = Number(countsMatch![1]);
       const breached = Number(countsMatch![2]);
       const open = Number(countsMatch![3]);
-      // The freshly created high-priority ticket is still On Track, so both
-      // of its milestones are open: the numbers are tied to real cohort data.
+      // The freshly created high-priority ticket is still within its SLA, so
+      // both of its milestones are open: the numbers are tied to real cohort data.
       expect(open, `milestone ${index} has no open cohort`).toBeGreaterThanOrEqual(1);
 
       const rateText = (await rates.nth(index).textContent()) ?? "";

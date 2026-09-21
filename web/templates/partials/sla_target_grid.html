@@ -6,7 +6,7 @@
   </div>
 {{range .Rows}}
   <div class="sla-grid-row">
-    <span class="sla-grid-priority">{{.Label}}</span>
+    <span class="sla-grid-priority">{{.Label}}{{if .Diverges}}<span class="sla-diverges">Differs from the instance default</span>{{end}}</span>
     <div class="sla-target">
       <span class="sla-unit"><span class="sla-unit-mark" aria-hidden="true">h</span><input type="number" inputmode="numeric" min="0" name="first_response_h_{{.Priority}}" value="{{.FirstResponse.Hours}}" aria-label="{{.Label}} first response, hours"></span>
       <span class="sla-unit"><span class="sla-unit-mark" aria-hidden="true">m</span><input type="number" inputmode="numeric" min="0" max="59" name="first_response_m_{{.Priority}}" value="{{.FirstResponse.Minutes}}" aria-label="{{.Label}} first response, minutes"></span>

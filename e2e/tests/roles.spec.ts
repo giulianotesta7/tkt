@@ -421,7 +421,7 @@ test.describe("Role — requester SLA blindness (seeded)", () => {
     await expect(page.getByRole("columnheader", { name: "SLA", exact: true })).toHaveCount(0);
     await expect(listScreen).not.toContainText("SLA");
     await expect(
-      listScreen.locator(".badge.on_track, .badge.at_risk, .badge.breached, .badge.met"),
+      listScreen.locator(".sla-dot.on_track, .sla-dot.at_risk, .sla-dot.breached, .sla-dot.met"),
     ).toHaveCount(0);
 
     // Requester detail: its own content renders, the SLA section does not.
@@ -437,7 +437,7 @@ test.describe("Role — requester SLA blindness (seeded)", () => {
     ).toHaveCount(0);
     await expect(
       page.locator(
-        "#ticket-detail .badge.on_track, #ticket-detail .badge.at_risk, #ticket-detail .badge.breached, #ticket-detail .badge.met",
+        "#ticket-detail .sla-dot.on_track, #ticket-detail .sla-dot.at_risk, #ticket-detail .sla-dot.breached, #ticket-detail .sla-dot.met",
       ),
     ).toHaveCount(0);
 
@@ -449,7 +449,9 @@ test.describe("Role — requester SLA blindness (seeded)", () => {
     await expect(
       page.locator("#ticket-detail .prop-heading").filter({ hasText: /^SLA/ }),
     ).toHaveCount(1);
-    await expect(page.locator("#ticket-detail .badge.on_track")).toHaveCount(3);
+    // on_track renders no badge by decision, so the countdown hooks are what
+    // prove the staff page really shows the section the requester cannot see.
+    await expect(page.locator("#ticket-detail [data-sla-countdown]")).toHaveCount(2);
 
     await assertCanonicalScreen(page, {
       viewport: 1280,

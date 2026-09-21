@@ -126,7 +126,7 @@
 .tickets-screen .queue th:nth-child(1),.tickets-screen .queue td:nth-child(1){width:88px}
 .tickets-screen .queue th:nth-child(3),.tickets-screen .queue td:nth-child(3){width:130px}
 .tickets-screen .queue th:nth-child(4),.tickets-screen .queue td:nth-child(4){width:86px}
-.tickets-screen .queue th:nth-child(5),.tickets-screen .queue td:nth-child(5){width:150px}
+.tickets-screen .queue th:nth-child(5),.tickets-screen .queue td:nth-child(5){width:224px}
 .tickets-screen .cell-title{overflow-wrap:anywhere}
 .tickets-screen .cell-title a{color:var(--ink-strong)}
 .tickets-screen .ticket-priority-value{display:inline-flex;align-items:center;gap:6px;white-space:nowrap;color:var(--ink-strong)}

@@ -45,11 +45,15 @@ type slaTargetUnits struct {
 }
 
 // slaPriorityRow is one priority's row of the shared SLA target grid.
+// Diverges marks a row whose targets differ from the instance default for
+// that priority; the Settings panel renders the defaults themselves and
+// therefore never sets it.
 type slaPriorityRow struct {
 	Priority      domain.Priority
 	Label         string
 	FirstResponse slaTargetUnits
 	Resolve       slaTargetUnits
+	Diverges      bool
 }
 
 // slaGridData is the payload of the shared sla_target_grid partial.
@@ -72,10 +76,7 @@ var slaGridPriorities = []domain.Priority{
 // matrix the application service would reject as incomplete still renders
 // every field the administrator needs to fill in.
 func slaPolicyRows(policies []domain.SLAPolicy) []slaPriorityRow {
-	byPriority := make(map[domain.Priority]domain.SLAPolicy, len(policies))
-	for _, p := range policies {
-		byPriority[p.Priority] = p
-	}
+	byPriority := slaPolicyByPriority(policies)
 	rows := make([]slaPriorityRow, 0, len(slaGridPriorities))
 	for _, priority := range slaGridPriorities {
 		p := byPriority[priority]
@@ -87,6 +88,36 @@ func slaPolicyRows(policies []domain.SLAPolicy) []slaPriorityRow {
 		})
 	}
 	return rows
+}
+
+// slaPolicyRowsDiverging builds the shared grid's rows for a category's
+// matrix and marks each row that differs from the instance default for that
+// priority. A priority the instance defaults do not define is skipped, so an
+// unknown default never invents a divergence; a category row missing for a
+// defined default compares as the zero-filled row the grid renders.
+func slaPolicyRowsDiverging(policies, defaults []domain.SLAPolicy) []slaPriorityRow {
+	rows := slaPolicyRows(policies)
+	current := slaPolicyByPriority(policies)
+	instanceDefault := slaPolicyByPriority(defaults)
+	for i := range rows {
+		d, ok := instanceDefault[rows[i].Priority]
+		if !ok {
+			continue
+		}
+		p := current[rows[i].Priority]
+		rows[i].Diverges = p.FirstResponseSeconds != d.FirstResponseSeconds || p.ResolveSeconds != d.ResolveSeconds
+	}
+	return rows
+}
+
+// slaPolicyByPriority indexes a matrix by priority. A missing priority keeps
+// the zero value, which the grid renders as a zero-filled row.
+func slaPolicyByPriority(policies []domain.SLAPolicy) map[domain.Priority]domain.SLAPolicy {
+	byPriority := make(map[domain.Priority]domain.SLAPolicy, len(policies))
+	for _, p := range policies {
+		byPriority[p.Priority] = p
+	}
+	return byPriority
 }
 
 // slaUnits decomposes a target in seconds into h/m/s. The three units keep
@@ -162,7 +193,7 @@ func (h *CategorySLAHandlers) get(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, mapErrorMsg(err), statusFor(err))
 		return
 	}
-	h.render(w, r, category, slaPolicyRows(policies), "", http.StatusOK)
+	h.render(w, r, category, policies, "", http.StatusOK)
 }
 
 func (h *CategorySLAHandlers) post(w http.ResponseWriter, r *http.Request) {
@@ -187,31 +218,56 @@ func (h *CategorySLAHandlers) post(w http.ResponseWriter, r *http.Request) {
 	// path: a rejected save echoes the SUBMITTED values, not the stored
 	// ones, so one bad number does not cost the administrator 24 fields.
 	policies := parseSLATargets(r)
+	// A reset is an explicit submitted action. Only that action replaces the
+	// matrix with the instance defaults, and it goes through the SAME
+	// SetCategoryTargets validation path as a normal save.
+	if r.PostFormValue("action") == categorySLAResetAction {
+		defaults, err := h.slaStore.ListDefaults(r.Context())
+		if err != nil {
+			http.Error(w, mapErrorMsg(err), statusFor(err))
+			return
+		}
+		policies = defaults
+	}
 	if err := h.sla.SetCategoryTargets(r.Context(), *userFromContext(r.Context()), categoryID, policies); err != nil {
 		status, msg := mapError(err)
 		if status == http.StatusInternalServerError {
 			http.Error(w, msg, status)
 			return
 		}
-		h.render(w, r, category, slaPolicyRows(policies), msg, status)
+		h.render(w, r, category, policies, msg, status)
 		return
 	}
 	saveFeedback(w, r, saveFeedbackSaved, saveFeedbackSuccess)
 	redirect(w, r, categorySLAPath(categoryID))
 }
 
-// render draws the category SLA screen with the given rows and error.
-func (h *CategorySLAHandlers) render(w http.ResponseWriter, r *http.Request, category *domain.Category, rows []slaPriorityRow, errorMessage string, status int) {
+// render draws the category SLA screen with the given policies and error.
+// The divergence marker is computed here by comparing the category's matrix
+// against the instance defaults, so a row edited away from the default says
+// so. The Settings panel renders the defaults themselves and never marks a
+// row.
+func (h *CategorySLAHandlers) render(w http.ResponseWriter, r *http.Request, category *domain.Category, policies []domain.SLAPolicy, errorMessage string, status int) {
+	defaults, err := h.slaStore.ListDefaults(r.Context())
+	if err != nil {
+		http.Error(w, mapErrorMsg(err), statusFor(err))
+		return
+	}
 	data := categorySLAData{
 		pageData:     pageDataFrom(r, "categories"),
 		CategoryID:   category.ID,
 		CategoryName: category.Name,
 		Error:        errorMessage,
-		Grid:         slaGridData{Rows: rows},
+		Grid:         slaGridData{Rows: slaPolicyRowsDiverging(policies, defaults)},
 	}
 	data.PageFoundationAssets = true
 	h.renderer.Render(w, r, "category_sla", "", data, status)
 }
+
+// categorySLAResetAction is the explicit action a submit carries to reset a
+// category's matrix to the instance defaults. The normal save action shares
+// the action field, so only this exact value resets.
+const categorySLAResetAction = "reset"
 
 // categorySLAPath is the canonical location of the category SLA screen.
 func categorySLAPath(categoryID int64) string {

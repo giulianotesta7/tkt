@@ -131,27 +131,12 @@
 {{end}}
         </div>
 {{if .SLA}}{{/* Staff-only SLA panel: the if/end hug their content so a nil .SLA leaves the requester golden byte-identical. */}}        <div class="prop-section" data-server-now="{{formatDatetime .SLA.ProjectedAt}}">
-          <div class="prop-heading">SLA {{template "state_badge" .SLA.Overall}}</div>
+          <div class="prop-heading">SLA</div>
 {{range .SLA.Milestones}}
-          <div class="prop-heading">{{.Label}} {{template "state_badge" .State}}</div>
           <div class="prop-row">
-            <span class="prop-label">Target</span>
-            <span class="prop-value">{{.Target}}</span>
+            <span class="prop-label">{{.Label}}</span>
+            <span class="prop-value sla-value">{{template "sla_state_dot" .State}}{{if .Countdown}}<time datetime="{{formatDatetime .DueAt}}" data-sla-countdown><span class="sla-countdown-ticker" aria-hidden="true">{{.Remaining}}</span><span class="sla-countdown-coarse visually-hidden">{{formatTime .DueAt}}</span></time>{{end}}</span>
           </div>
-          <div class="prop-row">
-            <span class="prop-label">Due</span>
-            <span class="prop-value">{{if .Countdown}}<time datetime="{{formatDatetime .DueAt}}" data-sla-countdown><span class="sla-countdown-ticker"></span><span class="sla-countdown-coarse">{{formatTime .DueAt}}</span></time>{{else}}{{template "timestamp" .DueAt}}{{end}}</span>
-          </div>
-          <div class="prop-row">
-            <span class="prop-label">Achieved</span>
-            <span class="prop-value">{{if .AchievedAt}}{{template "timestamp" .AchievedAt}}{{else}}—{{end}}</span>
-          </div>
-{{if .Remaining}}
-          <div class="prop-row">
-            <span class="prop-label">Remaining</span>
-            <span class="prop-value">{{.Remaining}}</span>
-          </div>
-{{end}}
 {{end}}
         </div>
 {{end}}      </div>

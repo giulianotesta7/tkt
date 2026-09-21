@@ -341,45 +341,33 @@ func ticketFilterValues(f filterState) url.Values {
 }
 
 // slaRow is the optional per-row SLA summary carried by BOTH staff ticket
-// lists (issue #211). State is the projection's WORST milestone state; DueAt
-// and Label carry the FIRST NOT-ACHIEVED milestone's due instant and its
-// label (Response / Resolve) while one is pending. A nil row means the ticket
-// has no frozen commitment and its SLA cell renders EMPTY — never a "no SLA"
-// badge.
+// lists (issue #211). It carries ONE thing: the projection's WORST milestone
+// state — whether the ticket is still standing. The milestone, its due instant
+// and the time left belong to the ticket's own panel, where there is room to
+// name them properly; the list is a triage surface and answers a single
+// question. A nil row means the ticket has no frozen commitment and its SLA
+// cell renders EMPTY — never a "no SLA" badge.
 type slaRow struct {
 	State domain.SLAState
-	DueAt time.Time
-	Label string
 }
 
 // slaResponseLabel and slaResolveLabel name the two milestones in the row
 // deadline copy.
 const (
-	slaResponseLabel = "Response"
+	slaResponseLabel = "First response"
 	slaResolveLabel  = "Resolve"
 )
 
 // slaRowFor derives the optional row summary from one projection. A nil
-// projection (unknown id) or a ticket with no frozen commitment yields nil.
-// Otherwise it carries the overall state and, while a milestone is pending,
-// that milestone's due instant: the FIRST NOT-ACHIEVED one — the response
-// while no public staff response exists, else the resolve — the same rule the
-// urgency ordering keys on. A milestone whose due is the zero time is the
-// legacy single-milestone shape and is treated as nothing to show.
+// projection (unknown id) or a ticket with no frozen commitment yields nil;
+// otherwise the row carries the worst of the two milestone states, which is
+// the only thing the list says. The urgency ordering keys on the same worst
+// state, in SQL, so the list's order and its signal can never disagree.
 func slaRowFor(p domain.SLAProjection) *slaRow {
 	if p.Frozen == nil {
 		return nil
 	}
-	row := &slaRow{State: p.Overall}
-	switch {
-	case p.FirstResponse.AchievedAt == nil && !p.FirstResponse.DueAt.IsZero():
-		row.DueAt = p.FirstResponse.DueAt
-		row.Label = slaResponseLabel
-	case p.Resolve.AchievedAt == nil && !p.Resolve.DueAt.IsZero():
-		row.DueAt = p.Resolve.DueAt
-		row.Label = slaResolveLabel
-	}
-	return row
+	return &slaRow{State: p.Overall}
 }
 
 // slaMilestoneView is one pre-formatted milestone block of the ticket detail
@@ -389,12 +377,13 @@ func slaRowFor(p domain.SLAProjection) *slaRow {
 // the existing state_badge component, and Remaining is EMPTY once the
 // milestone is achieved (a met milestone has no outstanding time).
 type slaMilestoneView struct {
-	Label      string
-	State      domain.SLAState
-	Target     string
-	DueAt      time.Time
-	AchievedAt *time.Time
-	Remaining  string
+	Label string
+	State domain.SLAState
+	DueAt time.Time
+	// Remaining is the pre-formatted time left on a PENDING milestone: the
+	// ticker's initial value, so a browser with no JavaScript still reads the
+	// truth instead of an empty cell.
+	Remaining string
 	// Countdown marks a PENDING milestone whose due instant the client turns
 	// into a live countdown (issue #211, PR 6). An achieved milestone never
 	// ticks, and a zero due instant (a legacy row with no frozen target) is
@@ -438,19 +427,17 @@ func slaPanelFor(p domain.SLAProjection) *slaPanelView {
 // remaining label at all (the template drops the row).
 func slaMilestoneViewFor(label string, m domain.SLAMilestoneStatus) slaMilestoneView {
 	v := slaMilestoneView{
-		Label:      label,
-		State:      m.State,
-		Target:     slaDurationLabel(m.TargetSeconds),
-		DueAt:      m.DueAt,
-		AchievedAt: m.AchievedAt,
-		Countdown:  m.AchievedAt == nil && !m.DueAt.IsZero(),
+		Label:     label,
+		State:     m.State,
+		DueAt:     m.DueAt,
+		Countdown: m.AchievedAt == nil && !m.DueAt.IsZero(),
 	}
 	if m.AchievedAt == nil {
 		seconds := int(m.Remaining / time.Second)
 		if seconds < 0 {
 			v.Remaining = slaDurationLabel(-seconds) + " overdue"
 		} else {
-			v.Remaining = "in " + slaDurationLabel(seconds)
+			v.Remaining = slaDurationLabel(seconds)
 		}
 	}
 	return v

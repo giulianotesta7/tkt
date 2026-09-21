@@ -478,9 +478,7 @@ test.describe("Ticket detail SLA panel (seeded)", () => {
     await setSLAEnabled(page, false);
   });
 
-  test("shows the overall state and both milestone blocks with target and due", async ({
-    page,
-  }) => {
+  test("shows the overall state and one row per milestone with the time left", async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 800 });
     const obs = collectObservability(page);
     await loginAsSeeded(page);
@@ -500,31 +498,30 @@ test.describe("Ticket detail SLA panel (seeded)", () => {
       .filter({ has: page.locator(".prop-heading", { hasText: /^SLA/ }) });
     await expect(slaSection).toHaveCount(1);
 
-    // Overall state plus one block per milestone (Response then Resolve).
+    // The heading names the section and stays silent while the overall state is
+    // on_track, then ONE row per milestone: its label and the time left. The
+    // target, due and achieved rows are gone by decision; the frozen due
+    // instant survives as the <time datetime> the countdown reads.
     const headings = slaSection.locator(".prop-heading");
-    await expect(headings).toHaveCount(3);
+    await expect(headings).toHaveCount(1);
     await expect(headings.nth(0)).toContainText("SLA");
-    await expect(headings.nth(0).locator(".badge")).toHaveText("On Track");
-    await expect(headings.nth(1)).toContainText("Response");
-    await expect(headings.nth(1).locator(".badge")).toHaveText("On Track");
-    await expect(headings.nth(2)).toContainText("Resolve");
-    await expect(headings.nth(2).locator(".badge")).toHaveText("On Track");
+    await expect(headings.nth(0).locator(".badge, .sla-dot")).toHaveCount(0);
 
-    // Each milestone carries its frozen target (high: 1h response, 8h resolve).
-    const targetRows = slaSection
-      .locator(".prop-row")
-      .filter({ has: page.getByText("Target", { exact: true }) });
-    await expect(targetRows).toHaveCount(2);
-    expect(new Set(await targetRows.locator(".prop-value").allTextContents())).toEqual(
-      new Set(["1h 0m", "8h 0m"]),
-    );
+    const milestoneRows = slaSection.locator(".prop-row");
+    await expect(milestoneRows).toHaveCount(2);
+    await expect(milestoneRows.nth(0).locator(".prop-label")).toHaveText("First response");
+    await expect(milestoneRows.nth(0).locator(".badge, .sla-dot")).toHaveCount(1);
+    await expect(milestoneRows.nth(1).locator(".prop-label")).toHaveText("Resolve");
+    await expect(milestoneRows.nth(1).locator(".badge, .sla-dot")).toHaveCount(1);
+    // on_track is the quiet default: no green pill anywhere in the section.
+    await expect(slaSection.locator(".badge, .sla-dot")).toHaveCount(2);
+    // Every state speaks, on_track included: an empty cell would mean the
+    // ticket has no commitment at all, and the two must not look the same.
+    await expect(slaSection).toContainText("On Track");
 
-    // Each milestone carries its due instant as a truthful <time datetime>.
-    const dueRows = slaSection
-      .locator(".prop-row")
-      .filter({ has: page.getByText("Due", { exact: true }) });
-    await expect(dueRows).toHaveCount(2);
-    const dueTimes = dueRows.locator(".prop-value time");
+    // Both milestones are pending, so both carry the live countdown and each
+    // keeps its absolute due instant in the <time datetime>.
+    const dueTimes = slaSection.locator("[data-sla-countdown]");
     await expect(dueTimes).toHaveCount(2);
     for (let index = 0; index < 2; index += 1) {
       await expect(dueTimes.nth(index)).toHaveAttribute(
@@ -532,6 +529,10 @@ test.describe("Ticket detail SLA panel (seeded)", () => {
         /\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z/,
       );
     }
+
+    // The panel states the state and the time left, and nothing else.
+    await expect(slaSection.getByText("Target", { exact: true })).toHaveCount(0);
+    await expect(slaSection.getByText("Achieved", { exact: true })).toHaveCount(0);
 
     await assertCanonicalScreen(page, {
       viewport: 1280,
@@ -635,9 +636,9 @@ test.describe("Ticket detail SLA live countdown (seeded)", () => {
     const dueAt = Date.parse(absoluteBefore ?? "");
     const serverNow = Date.parse((await slaSection.getAttribute("data-server-now")) ?? "");
     await page.clock.fastForward(dueAt - serverNow + 60_000);
-    await expect(ticker).toHaveText("overdue");
+    await expect(ticker).toContainText("overdue");
     expect(await ticker.textContent()).not.toContain("-");
-    await expect(resolve.locator(".sla-countdown-ticker")).not.toHaveText("overdue");
+    await expect(resolve.locator(".sla-countdown-ticker")).not.toContainText("overdue");
     await expect(response).toHaveAttribute("datetime", absoluteBefore ?? "");
 
     // Hand the context back a running clock before afterEach restores the
@@ -684,22 +685,18 @@ test.describe("Ticket detail SLA live countdown (seeded)", () => {
     const slaSection = slaPanel(page);
     await expect(slaSection).toHaveCount(1);
 
-    // Response is achieved: it carries the plain timestamp partial with no
-    // countdown hook; only the pending Resolve milestone still ticks.
-    const responseHeading = slaSection.locator(".prop-heading").filter({ hasText: /^Response/ });
-    await expect(responseHeading.locator(".badge")).toHaveText("Met");
+    // Response is achieved: its row carries the label and the state badge and
+    // NO time at all — nothing ticks there. Only the pending Resolve milestone
+    // carries the countdown.
+    const rows = slaSection.locator(".prop-row");
+    await expect(rows.nth(0).locator(".prop-label")).toHaveText("First response");
+    await expect(rows.nth(0).locator(".sla-dot")).toHaveClass(/met/);
+    await expect(rows.nth(0)).toContainText("Met");
+    await expect(rows.nth(0).locator("[data-sla-countdown]")).toHaveCount(0);
+    await expect(rows.nth(0).locator("time")).toHaveCount(0);
+    await expect(rows.nth(1).locator(".prop-label")).toHaveText("Resolve");
+    await expect(rows.nth(1).locator("[data-sla-countdown]")).toHaveCount(1);
     await expect(slaSection.locator("[data-sla-countdown]")).toHaveCount(1);
-
-    const dueRows = slaSection
-      .locator(".prop-row")
-      .filter({ has: page.getByText("Due", { exact: true }) });
-    await expect(dueRows).toHaveCount(2);
-    await expect(dueRows.first().locator("[data-sla-countdown]")).toHaveCount(0);
-    await expect(dueRows.first().locator("time")).toHaveAttribute(
-      "datetime",
-      /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/,
-    );
-    await expect(dueRows.nth(1).locator("[data-sla-countdown]")).toHaveCount(1);
 
     // The list page never loads /static/sla_countdown.js: no script tag and no
     // request for it. The listener is attached after the detail render, so it

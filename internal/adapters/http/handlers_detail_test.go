@@ -853,19 +853,16 @@ func TestTicketDetailSLAPanelStaffOnly(t *testing.T) {
 
 	body := h.get(t, "/tickets/"+strconv.FormatInt(staffTicket.ID, 10), false).Body.String()
 
-	// The overall state badge heads the section, both milestone blocks render
-	// with their label and state badge, the target is pre-formatted, and the
-	// due instant is the FROZEN one through the timestamp partial.
+	// The section heading names the SLA and carries no state of its own; each
+	// milestone renders one row with its label, its state dot and the time
+	// left; the frozen due instant survives as the <time datetime> the
+	// countdown reads.
 	for _, want := range []string{
-		`<div class="prop-heading">SLA <span class="badge on_track">On Track</span></div>`,
-		`<div class="prop-heading">Response <span class="badge on_track">On Track</span></div>`,
-		`<div class="prop-heading">Resolve <span class="badge on_track">On Track</span></div>`,
-		`<span class="prop-label">Target</span>`,
-		`<span class="prop-value">4h 0m</span>`,
-		`<span class="prop-value">24h 0m</span>`,
+		`<div class="prop-heading">SLA</div>`,
+		`<span class="prop-label">First response</span>`,
+		`<span class="prop-label">Resolve</span>`,
 		`datetime="` + formatDatetime(frozen.DueFirstResponseAt) + `"`,
 		`datetime="` + formatDatetime(frozen.DueResolveAt) + `"`,
-		`<span class="prop-value">—</span>`, // both milestones pending: no achieved instant
 		// PR 6: the panel anchors the client clock and both PENDING due rows
 		// carry the countdown hook; the page loads the countdown script.
 		`data-server-now="`,
@@ -875,6 +872,15 @@ func TestTicketDetailSLAPanelStaffOnly(t *testing.T) {
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("staff detail must contain %q, got: %s", want, body)
+		}
+	}
+
+	// The panel states each milestone's STATE and the time left, and nothing
+	// else: the target, due and achieved rows were removed by decision (the
+	// due instant survives as the <time datetime> the countdown reads).
+	for _, absent := range []string{`>Target<`, `>Achieved<`, `>Remaining<`} {
+		if strings.Contains(body, absent) {
+			t.Errorf("the SLA panel must not render the %q row any more, got: %s", absent, body)
 		}
 	}
 
@@ -913,7 +919,7 @@ func TestTicketDetailSLAPanelStaffOnly(t *testing.T) {
 		`<div class="prop-heading">Resolve `,
 		`<span class="prop-label">Target</span>`,
 		`<span class="prop-label">Remaining</span>`,
-		`class="badge on_track"`,
+		`class="sla-dot at_risk"`,
 		`data-server-now`,
 		`data-sla-countdown`,
 		`/static/sla_countdown.js`,
@@ -988,13 +994,13 @@ func TestSLADurationLabel(t *testing.T) {
 	}
 }
 
-// TestSLAMilestoneRemainingLabel pins the remaining copy: "in 2h 30m" while
+// TestSLAMilestoneRemainingLabel pins the remaining copy: "2h 30m" while
 // pending, "30m overdue" once the remainder is negative, and EMPTY once the
 // milestone is achieved (the panel drops the row).
 func TestSLAMilestoneRemainingLabel(t *testing.T) {
 	pending := domain.SLAMilestoneStatus{TargetSeconds: 9000, Remaining: 2*time.Hour + 30*time.Minute}
-	if got := slaMilestoneViewFor("Response", pending).Remaining; got != "in 2h 30m" {
-		t.Errorf("pending remaining = %q, want %q", got, "in 2h 30m")
+	if got := slaMilestoneViewFor("Response", pending).Remaining; got != "2h 30m" {
+		t.Errorf("pending remaining = %q, want %q", got, "2h 30m")
 	}
 	overdue := domain.SLAMilestoneStatus{TargetSeconds: 9000, Remaining: -30 * time.Minute}
 	if got := slaMilestoneViewFor("Response", overdue).Remaining; got != "30m overdue" {
@@ -1021,21 +1027,30 @@ func TestTicketDetailSLACountdownHooks(t *testing.T) {
 		`<div class="prop-section" data-server-now="2026-08-07T06:00:00Z">`,
 		// The pending (Resolve) milestone's due instant carries the hook.
 		`<time datetime="2026-08-07T10:00:00Z" data-sla-countdown>`,
-		`<span class="sla-countdown-ticker"></span>`,
-		`<span class="sla-countdown-coarse">10:00 · 07-08-2026</span>`,
+		// The ticker carries the server's remaining time as its INITIAL value,
+		// so a browser with no JavaScript still reads the truth. It ticks every
+		// second, so assistive tech ignores it; the coarse span is the
+		// accessible one and is visually hidden.
+		`<span class="sla-countdown-ticker" aria-hidden="true">`,
+		`<span class="sla-countdown-coarse visually-hidden">10:00 · 07-08-2026</span>`,
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("pending milestone countdown must render %q, got: %s", want, body)
 		}
 	}
 
-	// The first response was MET: its due instant is the plain timestamp partial
-	// and must never carry the tick hook.
+	// The first response was MET: the panel shows its label and its state badge
+	// and no time row at all, and it must never carry the tick hook.
 	if strings.Contains(body, `<time datetime="2026-08-06T14:00:00Z" data-sla-countdown`) {
 		t.Errorf("achieved milestone must not carry the countdown hook, got: %s", body)
 	}
-	if !strings.Contains(body, `<time datetime="2026-08-06T14:00:00Z">`) {
-		t.Errorf("achieved milestone must keep the plain timestamp instant, got: %s", body)
+	if strings.Contains(body, `<time datetime="2026-08-06T14:00:00Z"`) {
+		t.Errorf("an achieved milestone renders no time row any more, got: %s", body)
+	}
+	for _, want := range []string{`<span class="prop-label">First response</span>`, `<span class="sla-state"><span class="sla-dot met" aria-hidden="true"></span><span class="sla-state-word">Met</span></span>`} {
+		if !strings.Contains(body, want) {
+			t.Errorf("the achieved milestone must still render %q, got: %s", want, body)
+		}
 	}
 }
 
