@@ -1626,6 +1626,13 @@ func createTicketWithRunTx(ctx context.Context, tx *sql.Tx, t *domain.Ticket, ve
 	}
 	t.ID = id
 	t.Number = number
+	// Freeze the creation-time SLA commitment (issue #211) in the SAME
+	// transaction: written once or not at all — a failed create rolls the
+	// SLA row back with everything else. A nil SLA (SLA disabled or no
+	// policy row) is a no-op inside the helper.
+	if err := insertTicketSLATx(ctx, tx, t.ID, t.SLA); err != nil {
+		return err
+	}
 	return nil
 }
 
