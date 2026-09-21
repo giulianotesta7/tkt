@@ -1047,7 +1047,7 @@ func TestTicketDetailSLACountdownHooks(t *testing.T) {
 	if strings.Contains(body, `<time datetime="2026-08-06T14:00:00Z"`) {
 		t.Errorf("an achieved milestone renders no time row any more, got: %s", body)
 	}
-	for _, want := range []string{`<span class="prop-label">Response</span>`, `<span class="sla-dot met" aria-hidden="true"></span><span class="visually-hidden">Met</span>`} {
+	for _, want := range []string{`<span class="prop-label">Response</span>`, `<span class="sla-state"><span class="sla-dot met" aria-hidden="true"></span><span class="sla-state-word">Met</span></span>`} {
 		if !strings.Contains(body, want) {
 			t.Errorf("the achieved milestone must still render %q, got: %s", want, body)
 		}

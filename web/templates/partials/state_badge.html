@@ -1,7 +1,8 @@
 {{define "state_badge"}}<span class="badge {{.}}">{{humanize .}}</span>{{end}}
-{{/* SLA state: never a pill. A 7px circle carries the state colour, the
-     same shape and size the priority marker already uses for "state in a
-     data column", and on_track stays completely silent. The colour alone
-     would say nothing to a screen reader, so the state is spelled out for
-     assistive tech while the glyph itself is hidden from it. */}}
-{{define "sla_state_dot"}}{{if ne . "on_track"}}<span class="sla-dot {{.}}" aria-hidden="true"></span><span class="visually-hidden">{{humanize .}}</span> {{end}}{{end}}
+{{/* SLA state: never a pill. A 7px circle carries the state colour — the
+     same shape, size and tokens the priority marker uses for "state in a data
+     column" — and a muted word carries the state itself, so the cell is never
+     a bare dot and the colour is never the only carrier. on_track stays
+     completely silent. The glyph is hidden from assistive tech because the
+     word beside it already says the same thing. */}}
+{{define "sla_state_dot"}}{{if ne . "on_track"}}<span class="sla-state"><span class="sla-dot {{.}}" aria-hidden="true"></span><span class="sla-state-word">{{humanize .}}</span></span> {{end}}{{end}}

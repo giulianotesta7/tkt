@@ -80,7 +80,7 @@
           <td class="cell-title" data-label="Title"><a href="/tickets/2">Printer jam</a></td>
           <td data-label="State"><span class="badge in_progress">In Progress</span></td>
           <td class="priority high" data-label="Priority"><span class="ticket-priority-value">High</span></td>
-          <td data-label="SLA"><span class="sla-dot at_risk" aria-hidden="true"></span><span class="visually-hidden">At Risk</span> <span class="cell-muted">Response <time datetime="2026-08-06T11:30:00Z">11:30 · 06-08-2026</time></span></td>
+          <td data-label="SLA"><span class="sla-state"><span class="sla-dot at_risk" aria-hidden="true"></span><span class="sla-state-word">At Risk</span></span> <span class="cell-muted">Response <time class="card-timestamp" tabindex="0" datetime="2026-08-06T11:30:00Z" aria-label="11:30 · 06-08-2026" data-full-date="11:30 · 06-08-2026">11:30 · 06 Aug</time></span></td>
           <td class="cell-muted" data-label="Updated"><time datetime="2026-08-06T10:30:00Z">10:30 · 06-08-2026</time></td>
         </tr>
         <tr>
