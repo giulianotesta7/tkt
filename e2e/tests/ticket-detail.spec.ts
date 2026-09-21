@@ -510,11 +510,14 @@ test.describe("Ticket detail SLA panel (seeded)", () => {
     const milestoneRows = slaSection.locator(".prop-row");
     await expect(milestoneRows).toHaveCount(2);
     await expect(milestoneRows.nth(0).locator(".prop-label")).toHaveText("First response");
-    await expect(milestoneRows.nth(0).locator(".badge, .sla-dot")).toHaveCount(0);
+    await expect(milestoneRows.nth(0).locator(".badge, .sla-dot")).toHaveCount(1);
     await expect(milestoneRows.nth(1).locator(".prop-label")).toHaveText("Resolve");
-    await expect(milestoneRows.nth(1).locator(".badge, .sla-dot")).toHaveCount(0);
+    await expect(milestoneRows.nth(1).locator(".badge, .sla-dot")).toHaveCount(1);
     // on_track is the quiet default: no green pill anywhere in the section.
-    await expect(slaSection.locator(".badge, .sla-dot")).toHaveCount(0);
+    await expect(slaSection.locator(".badge, .sla-dot")).toHaveCount(2);
+    // Every state speaks, on_track included: an empty cell would mean the
+    // ticket has no commitment at all, and the two must not look the same.
+    await expect(slaSection).toContainText("On Track");
 
     // Both milestones are pending, so both carry the live countdown and each
     // keeps its absolute due instant in the <time datetime>.

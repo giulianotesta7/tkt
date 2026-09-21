@@ -92,7 +92,7 @@
           <span class="agent-row-updated">Created <time class="card-timestamp" tabindex="0" datetime="2026-08-06T10:30:00Z" aria-label="10:30 · 06-08-2026" data-full-date="10:30 · 06-08-2026">10:30 · 06 Aug</time></span>
         </div>
         <div class="agent-row-side">
-          <span class="badge new">New</span>
+          <span class="badge new">New</span><span class="sla-state"><span class="sla-dot on_track" aria-hidden="true"></span><span class="sla-state-word">On Track</span></span> 
           <span class="priority medium"><span class="ticket-priority-value">Medium</span></span>
           <div class="agent-row-actions">
             <a class="agent-row-open" href="/tickets/3">View ticket</a>

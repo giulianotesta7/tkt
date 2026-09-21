@@ -1247,8 +1247,8 @@ func TestTicketsIndexSLAIsStaffOnly(t *testing.T) {
 	if !strings.Contains(adminBody, "<th>SLA</th>") {
 		t.Errorf("admin list must render the SLA column header, got: %s", adminBody)
 	}
-	if strings.Contains(adminBody, `class="sla-dot on_track"`) {
-		t.Errorf("on_track must stay silent in the admin list, got: %s", adminBody)
+	if !strings.Contains(adminBody, `class="sla-dot on_track"`) {
+		t.Errorf("the admin list must name the on_track state, got: %s", adminBody)
 	}
 	// Silence is the quiet default for an on_track commitment, so the proof
 	// that the SLA reaches the staff row is the frozen commitment itself.
@@ -1263,8 +1263,8 @@ func TestTicketsIndexSLAIsStaffOnly(t *testing.T) {
 		t.Fatalf("agent tickets status = %d, want 200", agentRec.Code)
 	}
 	agentBody := agentRec.Body.String()
-	if strings.Contains(agentBody, `class="sla-dot on_track"`) {
-		t.Errorf("on_track must stay silent in the agent list, got: %s", agentBody)
+	if !strings.Contains(agentBody, `class="sla-dot on_track"`) {
+		t.Errorf("the agent list must name the on_track state, got: %s", agentBody)
 	}
 
 	requesterRec := doRequest(h.mux, h.mw, http.MethodGet, "/tickets", map[string]string{

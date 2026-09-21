@@ -108,6 +108,7 @@
   .sla-value{min-width:20ch}
   .sla-countdown-ticker{font-variant-numeric:tabular-nums}
   .sla-countdown-coarse{user-select:none}
+  .sla-dot.on_track{background:var(--green)}
   .sla-dot.at_risk{background:var(--amber)}
   .sla-dot.breached{background:var(--red)}
   .sla-dot.met{background:var(--green)}

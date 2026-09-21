@@ -878,7 +878,7 @@ func TestTicketDetailSLAPanelStaffOnly(t *testing.T) {
 	// The panel states each milestone's STATE and the time left, and nothing
 	// else: the target, due and achieved rows were removed by decision (the
 	// due instant survives as the <time datetime> the countdown reads).
-	for _, absent := range []string{`>Target<`, `>Achieved<`, `>Remaining<`, `class="sla-dot on_track"`} {
+	for _, absent := range []string{`>Target<`, `>Achieved<`, `>Remaining<`} {
 		if strings.Contains(body, absent) {
 			t.Errorf("the SLA panel must not render the %q row any more, got: %s", absent, body)
 		}
