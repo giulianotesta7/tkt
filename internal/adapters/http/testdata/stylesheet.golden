@@ -103,6 +103,8 @@
   .queue .cell-title{color:var(--ink-strong);font-weight:500}
   .queue .cell-muted{color:var(--muted);font-size:13px}
   .sla-dot{display:inline-block;width:7px;height:7px;border-radius:50%;vertical-align:1px}
+  .sla-value{min-width:20ch}
+  .sla-countdown-ticker{font-variant-numeric:tabular-nums}
   .sla-dot.at_risk{background:var(--amber)}
   .sla-dot.breached{background:var(--red)}
   .sla-dot.met{background:var(--green)}

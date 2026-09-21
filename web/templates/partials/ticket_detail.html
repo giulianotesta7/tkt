@@ -135,7 +135,7 @@
 {{range .SLA.Milestones}}
           <div class="prop-row">
             <span class="prop-label">{{.Label}}</span>
-            <span class="prop-value">{{template "sla_state_dot" .State}}{{if .Countdown}}<time datetime="{{formatDatetime .DueAt}}" data-sla-countdown><span class="sla-countdown-ticker" aria-hidden="true">{{.Remaining}}</span><span class="sla-countdown-coarse visually-hidden">{{formatTime .DueAt}}</span></time>{{end}}</span>
+            <span class="prop-value sla-value">{{template "sla_state_dot" .State}}{{if .Countdown}}<time datetime="{{formatDatetime .DueAt}}" data-sla-countdown><span class="sla-countdown-ticker" aria-hidden="true">{{.Remaining}}</span><span class="sla-countdown-coarse visually-hidden">{{formatTime .DueAt}}</span></time>{{end}}</span>
           </div>
 {{end}}
         </div>
