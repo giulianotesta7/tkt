@@ -58,7 +58,7 @@ func TestSettingsStoreAbsentRowFallsBackToDefault(t *testing.T) {
 	}
 }
 
-// SLA settings keys (migration 0013, issue #211): the seeded values read
+// SLA settings keys (migration 0014, issue #211): the seeded values read
 // back, an absent row falls back to the documented default, and
 // sla_enabled parses the stored '0'/'1' text fail-safe.
 func TestSettingsStoreSLAKeysSeededByMigration(t *testing.T) {
@@ -350,7 +350,7 @@ func TestSettingsStoreSetSLAWarningPercentRoundTrip(t *testing.T) {
 	}
 }
 
-// --- SLA working calendar (migration 0016, issue #211) ---
+// --- SLA working calendar (migration 0017, issue #211) ---
 
 // TestSettingsStoreSLACalendarDefaults proves a fresh database — none of
 // the four sla_calendar_* keys written yet — answers the documented

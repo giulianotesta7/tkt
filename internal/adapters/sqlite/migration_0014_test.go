@@ -121,7 +121,7 @@ func TestMigration0014CategoryCascade(t *testing.T) {
 	}
 
 	// Behavioural proof: a deleted category takes its policy rows with
-	// it. The rows come from the migration-0015 trigger (which
+	// it. The rows come from the migration-0016 trigger (which
 	// materializes the default matrix at category creation), so this
 	// proves the cascade over trigger-created rows — stronger than rows
 	// the test inserted itself. Assert the category actually holds 4

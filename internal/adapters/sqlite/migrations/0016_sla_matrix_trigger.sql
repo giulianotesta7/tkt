@@ -1,5 +1,5 @@
 -- 0016_sla_matrix_trigger.sql — category SLA matrix materialization (issue
--- #211). sla_policies (migration 0013) was intentionally left EMPTY: a
+-- #211). sla_policies (migration 0014) was intentionally left EMPTY: a
 -- category's 4-priority x 2-milestone matrix is a DERIVED invariant of the
 -- category, and SQLite cannot express it declaratively (no FK or CHECK can
 -- copy rows), so this migration materializes it two ways.

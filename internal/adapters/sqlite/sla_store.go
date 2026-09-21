@@ -14,8 +14,8 @@ import (
 
 // slaStore implements application.SLAStore over the sla_defaults,
 // sla_policies, ticket_sla, comments, and audit_events tables (issue
-// #211). The global defaults are seeded by migration 0013; a category's
-// matrix is materialized by the migration-0015 trigger at category
+// #211). The global defaults are seeded by migration 0014; a category's
+// matrix is materialized by the migration-0016 trigger at category
 // creation time, and a ticket's targets are frozen at creation and never
 // updated afterwards.
 type slaStore struct {
@@ -261,7 +261,7 @@ func parseTicketSLA(sla *domain.TicketSLA, startedAt, policySnapshotAt, warnFR, 
 	if sla.PolicySnapshotAt, err = time.Parse(timeLayout, policySnapshotAt); err != nil {
 		return fmt.Errorf("parse ticket sla policy_snapshot_at %q: %w", policySnapshotAt, err)
 	}
-	// The four frozen instants (migration 0016): '' is the pre-0016 legacy
+	// The four frozen instants (migration 0017): '' is the pre-0017 legacy
 	// marker and reads back as the zero time — "no frozen SLA" for the
 	// projection, never a date in year zero.
 	if sla.WarnFirstResponseAt, err = parseSLAInstant(warnFR); err != nil {
@@ -390,8 +390,8 @@ func insertTicketSLATx(ctx context.Context, tx *sql.Tx, ticketID int64, sla *dom
 }
 
 // formatSLAInstant stores one frozen warning/due instant, or ” when it
-// is the zero time. ” is the migration-0016 legacy marker: every row the
-// application writes carries real instants, so only pre-0016 rows (and
+// is the zero time. ” is the migration-0017 legacy marker: every row the
+// application writes carries real instants, so only pre-0017 rows (and
 // zero-instant commitments) store it, and the store reads it back as the
 // zero time — "no frozen SLA" for the projection, never a date in year
 // zero.
@@ -402,7 +402,7 @@ func formatSLAInstant(t time.Time) any {
 	return formatTime(t)
 }
 
-// parseSLAInstant parses one stored frozen instant; ” — the pre-0016
+// parseSLAInstant parses one stored frozen instant; ” — the pre-0017
 // legacy marker — reads back as the zero time.
 func parseSLAInstant(value string) (time.Time, error) {
 	if value == "" {

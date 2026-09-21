@@ -112,8 +112,13 @@ type pageData struct {
 	WorkflowAssets       bool
 	CategoryAssets       bool
 	MetricsAssets        bool
-	InternalCommentBg    string
-	SaveFeedback         saveFeedbackData
+	// SLACountdownAssets loads the live SLA countdown script (issue #211,
+	// PR 6). It is set only where the ticket detail page is built and only
+	// when that ticket carries a frozen commitment, because the panel is the
+	// only place that renders a countdown element.
+	SLACountdownAssets bool
+	InternalCommentBg  string
+	SaveFeedback       saveFeedbackData
 }
 
 // pageDataFrom builds the shell payload from the session user. The
@@ -390,6 +395,11 @@ type slaMilestoneView struct {
 	DueAt      time.Time
 	AchievedAt *time.Time
 	Remaining  string
+	// Countdown marks a PENDING milestone whose due instant the client turns
+	// into a live countdown (issue #211, PR 6). An achieved milestone never
+	// ticks, and a zero due instant (a legacy row with no frozen target) is
+	// not a countdown target either.
+	Countdown bool
 }
 
 // slaPanelView is the ticket detail SLA section (issue #211). It exists only
@@ -398,6 +408,11 @@ type slaMilestoneView struct {
 type slaPanelView struct {
 	Overall    domain.SLAState
 	Milestones []slaMilestoneView
+	// ProjectedAt is the instant the projection was taken, stamped onto the
+	// panel as data-server-now so the client countdown can derive its clock
+	// offset (issue #211, PR 6). A presentation anchor only: it never
+	// changes a state.
+	ProjectedAt time.Time
 }
 
 // slaPanelFor builds the pre-formatted panel from one projection. A nil
@@ -408,7 +423,8 @@ func slaPanelFor(p domain.SLAProjection) *slaPanelView {
 		return nil
 	}
 	return &slaPanelView{
-		Overall: p.Overall,
+		Overall:     p.Overall,
+		ProjectedAt: p.ProjectedAt,
 		Milestones: []slaMilestoneView{
 			slaMilestoneViewFor(slaResponseLabel, p.FirstResponse),
 			slaMilestoneViewFor(slaResolveLabel, p.Resolve),
@@ -427,6 +443,7 @@ func slaMilestoneViewFor(label string, m domain.SLAMilestoneStatus) slaMilestone
 		Target:     slaDurationLabel(m.TargetSeconds),
 		DueAt:      m.DueAt,
 		AchievedAt: m.AchievedAt,
+		Countdown:  m.AchievedAt == nil && !m.DueAt.IsZero(),
 	}
 	if m.AchievedAt == nil {
 		seconds := int(m.Remaining / time.Second)
@@ -1194,8 +1211,13 @@ func (h *TicketHandlers) detailDataFor(r *http.Request, id int64) (detailData, i
 		}
 		slaPanel = slaPanelFor(projection)
 	}
+	page := pageDataFrom(r, "tickets")
+	// The countdown script belongs to the detail page and only when there is a
+	// panel to tick: a ticket with no frozen commitment (or a requester, whose
+	// panel stays nil) must not pay for a script it never uses.
+	page.SLACountdownAssets = slaPanel != nil
 	return detailData{
-		pageData:           pageDataFrom(r, "tickets"),
+		pageData:           page,
 		View:               view,
 		Next:               next,
 		Options:            opts,

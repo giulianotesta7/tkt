@@ -12,7 +12,7 @@ import (
 const DefaultInternalCommentBg = "#E8EEFF"
 
 // DefaultSLAWarningPercent is the seeded SLA warning threshold percentage
-// (migration 0013) and the fallback the store reads when the row is
+// (migration 0014) and the fallback the store reads when the row is
 // absent or unparseable (issue #211).
 const DefaultSLAWarningPercent = 80
 

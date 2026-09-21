@@ -1035,7 +1035,7 @@ type fakeSLASettingsStore struct {
 	slaWarningPercent    int
 	slaWarningPercentSet bool
 	// slaEnabled mirrors the sla_enabled setting (issue #211). The zero
-	// value is disabled — exactly what migration 0013 seeds, so existing
+	// value is disabled — exactly what migration 0014 seeds, so existing
 	// tests keep their historical no-SLA behaviour by construction.
 	slaEnabled bool
 	// slaEnabledErr, when non-nil, makes GetSLAEnabled fail with this exact

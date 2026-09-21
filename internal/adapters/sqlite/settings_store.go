@@ -34,14 +34,14 @@ func newSettingsStore(db *sql.DB) *settingsStore { return &settingsStore{db: db}
 // internal-comment background color.
 const settingsKeyInternalCommentBg = "internal_comment_bg"
 
-// SLA settings row keys (migration 0013, issue #211).
+// SLA settings row keys (migration 0014, issue #211).
 const (
 	settingsKeySLAEnabled        = "sla_enabled"
 	settingsKeySLAWarningPercent = "sla_warning_percent"
 	settingsKeySLAEnabledAt      = "sla_enabled_at"
 )
 
-// SLA working-calendar row keys (migration 0016, issue #211) and their
+// SLA working-calendar row keys (migration 0017, issue #211) and their
 // documented defaults: Monday-Friday, 09:00-18:00, UTC — the same values
 // domain.DefaultSLACalendar answers, in their stored text form.
 const (
@@ -233,7 +233,7 @@ func (ss *settingsStore) GetSLAEnabledAt(ctx context.Context) (time.Time, error)
 }
 
 // GetSLACalendar assembles the instance working calendar from the four
-// sla_calendar_* keys (migration 0016). Each key falls back to its
+// sla_calendar_* keys (migration 0017). Each key falls back to its
 // documented default when its row is absent or unparseable, and an
 // unknown timezone name falls back to UTC — the read never fails for
 // configuration reasons, so the calendar a ticket freeze consumes is

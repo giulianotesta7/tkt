@@ -87,3 +87,31 @@ func TestTicketsStaticAssetAndAgentGating(t *testing.T) {
 		t.Error("View ticket must precede Claim ticket in DOM order")
 	}
 }
+
+// TestSLACountdownStaticAsset (issue #211, PR 6) proves the countdown script
+// is actually embedded AND served: both registration points must agree or the
+// detail page requests a file the server never mounts. The marker checks pin
+// the behaviors the Go tests cannot see (single interval, skew anchor,
+// accessible ticker, visibility handling).
+func TestSLACountdownStaticAsset(t *testing.T) {
+	h := newHarness(t)
+
+	rec := h.get(t, "/static/sla_countdown.js", false)
+	if rec.Code != http.StatusOK || rec.Header().Get("Content-Type") != "text/javascript; charset=utf-8" || rec.Header().Get("Cache-Control") != "no-cache" {
+		t.Fatalf("sla_countdown.js response = %d/%q/%q", rec.Code, rec.Header().Get("Content-Type"), rec.Header().Get("Cache-Control"))
+	}
+	js := rec.Body.String()
+	for _, marker := range []string{
+		`const COUNTDOWN_SELECTOR = "[data-sla-countdown]"`,
+		`const SERVER_NOW_SELECTOR = "[data-server-now]"`,
+		`window.setInterval(tick, TICK_MS)`,
+		`visibilitychange`,
+		`aria-hidden`,
+		`Number.isNaN`,
+		`document.hidden`,
+	} {
+		if !strings.Contains(js, marker) {
+			t.Errorf("sla_countdown.js omits %q", marker)
+		}
+	}
+}

@@ -29,7 +29,7 @@ type SLAPolicy struct {
 // warning point is frozen too, a later sla_warning_percent edit applies
 // to tickets created from then on — the same freeze rule the targets
 // already follow. All four instants are UTC; the zero time marks the
-// pre-0016 rows (see the migration) and reads as "no frozen SLA".
+// pre-0017 rows (see the migration) and reads as "no frozen SLA".
 type TicketSLA struct {
 	FirstResponseSeconds int
 	ResolveSeconds       int

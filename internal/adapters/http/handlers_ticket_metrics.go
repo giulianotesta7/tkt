@@ -24,6 +24,11 @@ type ticketMetricsData struct {
 	Users          []domain.User
 	ReturnHref     string
 	MeanResolution string
+	// Attainment is the pre-formatted SLA attainment report (issue #211, PR 5).
+	// The render path has no percent formatter, so the 0..1 rate is formatted
+	// here for one consistent presentation, the same way the detail SLA panel
+	// pre-formats its durations.
+	Attainment ticketMetricsAttainmentView
 	// MeanResolutionIsDuration is false when there is no computable mean, so the value
 	// slot carries prose. The copy and its rendering rung come from this one condition
 	// and cannot drift apart.
@@ -58,7 +63,15 @@ func parseTicketMetricsFilter(r *http.Request) (application.TicketMetricsFilter,
 		}
 		dates[i] = t
 	}
-	f := application.TicketMetricsFilter{Start: dates[0], End: dates[1], WorkloadBy: r.URL.Query().Get("metrics_group")}
+	f := application.TicketMetricsFilter{
+		Start:      dates[0],
+		End:        dates[1],
+		WorkloadBy: r.URL.Query().Get("metrics_group"),
+		// The attainment grouping is its own parameter so the two selectors
+		// never collide; like the list's sort it fails soft (an empty or
+		// unknown value selects total) because the service normalizes it.
+		GroupBy: r.URL.Query().Get("metrics_attainment_group"),
+	}
 	if id := parseID(r.URL.Query().Get("metrics_desk_id")); id != 0 {
 		f.DeskID = &id
 	}
@@ -129,7 +142,87 @@ func (h *TicketHandlers) metricsData(r *http.Request) (ticketMetricsData, error)
 	if err != nil {
 		return ticketMetricsData{}, err
 	}
-	return ticketMetricsData{Metrics: metrics, Desks: desks, Users: users, ReturnHref: metricsReturnHref(r.URL.RequestURI())}, nil
+	return ticketMetricsData{Metrics: metrics, Attainment: attainmentViewFor(metrics.Attainment), Desks: desks, Users: users, ReturnHref: metricsReturnHref(r.URL.RequestURI())}, nil
+}
+
+// ticketMetricsAttainmentView is the pre-formatted SLA attainment panel
+// (issue #211, PR 5). Cohort is the number of tickets CREATED in the period
+// that carry a frozen commitment, NoCommitment counts the period's created
+// tickets excluded from every rate, and the milestone views carry the whole
+// cohort's Met/Breached/Open totals. The template only prints fields.
+type ticketMetricsAttainmentView struct {
+	GroupBy       string
+	Cohort        int
+	NoCommitment  int
+	FirstResponse ticketMetricsAttainmentMilestoneView
+	Resolve       ticketMetricsAttainmentMilestoneView
+	Groups        []ticketMetricsAttainmentGroupView
+}
+
+// ticketMetricsAttainmentGroupView is one row of the attainment table.
+type ticketMetricsAttainmentGroupView struct {
+	Label         string
+	Tickets       int
+	FirstResponse ticketMetricsAttainmentMilestoneView
+	Resolve       ticketMetricsAttainmentMilestoneView
+}
+
+// ticketMetricsAttainmentMilestoneView carries one milestone's counts.
+// Decided is the Met+Breached denominator, rendered next to the rate so a 0%
+// with nothing decided cannot be misread as total failure; Open never enters
+// the denominator.
+type ticketMetricsAttainmentMilestoneView struct {
+	Met      int
+	Breached int
+	Open     int
+	Decided  int
+	Rate     string
+}
+
+// attainmentViewFor projects the frozen attainment report into its
+// presentation form, summing the per-group milestone counts into the cohort
+// totals and formatting each rate as a whole percent.
+func attainmentViewFor(a application.TicketMetricsAttainment) ticketMetricsAttainmentView {
+	v := ticketMetricsAttainmentView{GroupBy: a.GroupBy, NoCommitment: a.NoCommitment}
+	for _, g := range a.Groups {
+		v.Cohort += g.Tickets
+		v.FirstResponse = accumulateAttainmentMilestone(v.FirstResponse, g.FirstResponse)
+		v.Resolve = accumulateAttainmentMilestone(v.Resolve, g.Resolve)
+		v.Groups = append(v.Groups, ticketMetricsAttainmentGroupView{
+			Label:         g.Label,
+			Tickets:       g.Tickets,
+			FirstResponse: attainmentMilestoneViewFor(g.FirstResponse),
+			Resolve:       attainmentMilestoneViewFor(g.Resolve),
+		})
+	}
+	v.FirstResponse = finalizeAttainmentMilestone(v.FirstResponse)
+	v.Resolve = finalizeAttainmentMilestone(v.Resolve)
+	return v
+}
+
+// attainmentMilestoneViewFor converts one group milestone to its presentation
+// form; finalizeAttainmentMilestone derives the rate string.
+func attainmentMilestoneViewFor(m application.TicketMetricsMilestoneAttainment) ticketMetricsAttainmentMilestoneView {
+	return finalizeAttainmentMilestone(ticketMetricsAttainmentMilestoneView{Met: m.Met, Breached: m.Breached, Open: m.Open})
+}
+
+func accumulateAttainmentMilestone(dst ticketMetricsAttainmentMilestoneView, m application.TicketMetricsMilestoneAttainment) ticketMetricsAttainmentMilestoneView {
+	dst.Met += m.Met
+	dst.Breached += m.Breached
+	dst.Open += m.Open
+	return dst
+}
+
+// finalizeAttainmentMilestone derives Decided and the whole-percent Rate from
+// the counts, so the label and the denominator can never drift apart.
+func finalizeAttainmentMilestone(m ticketMetricsAttainmentMilestoneView) ticketMetricsAttainmentMilestoneView {
+	m.Decided = m.Met + m.Breached
+	rate := 0.0
+	if m.Decided > 0 {
+		rate = float64(m.Met) / float64(m.Decided)
+	}
+	m.Rate = strconv.FormatFloat(rate*100, 'f', 0, 64) + "%"
+	return m
 }
 
 // metricsSummaryData loads the fixed current-UTC-week list summary.
