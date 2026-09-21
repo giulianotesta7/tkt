@@ -21,19 +21,28 @@ var _ application.CommentStore = (*commentStore)(nil)
 
 func newCommentStore(db *sql.DB) *commentStore { return &commentStore{db: db} }
 
-// Add stores c, assigning c.ID. A comment referencing an unknown ticket or
-// with an empty body fails the FK / CHECK constraint. The visibility is
-// persisted; an empty visibility falls back to 'public' — the migration
-// 0003 DEFAULT that backfills legacy rows, mirrored here so legacy callers
-// that omit visibility keep producing public comments (5.4).
+// Add stores c, assigning c.ID. A comment referencing an unknown ticket
+// or user, or with an empty body, fails the FK / CHECK constraint. The
+// visibility is persisted; an empty visibility falls back to 'public' — the
+// migration 0003 DEFAULT that backfills legacy rows, mirrored here so
+// legacy callers that omit visibility keep producing public comments (5.4).
+// The authorship columns (migration 0012) persist as given; an empty
+// AuthorRole — the "unknown / legacy" domain value — is stored as SQL NULL
+// because the column CHECK only admits the four roles.
 func (cs *commentStore) Add(ctx context.Context, c *domain.Comment) error {
 	vis := c.Visibility
 	if vis == "" {
 		vis = domain.CommentPublic
 	}
-	res, err := cs.db.ExecContext(ctx, `INSERT INTO comments (ticket_id, author, body, visibility, created_at)
-		VALUES (?, ?, ?, ?, ?)`,
-		c.TicketID, c.Author, c.Body, string(vis), formatTime(c.CreatedAt))
+	var authorRole *string
+	if c.AuthorRole != "" {
+		role := string(c.AuthorRole)
+		authorRole = &role
+	}
+	res, err := cs.db.ExecContext(ctx, `INSERT INTO comments (ticket_id, author, body, visibility, created_at, author_user_id, author_role)
+		VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		c.TicketID, c.Author, c.Body, string(vis), formatTime(c.CreatedAt),
+		nullableInt64(c.AuthorUserID), nullableString(authorRole))
 	if err != nil {
 		return fmt.Errorf("sqlite: add comment: %w", err)
 	}
@@ -56,7 +65,7 @@ func (cs *commentStore) ListByTicket(ctx context.Context, ticketID int64, includ
 		where += " AND visibility = 'public'"
 	}
 	rows, err := cs.db.QueryContext(ctx,
-		`SELECT id, ticket_id, author, body, visibility, created_at FROM comments
+		`SELECT id, ticket_id, author, body, visibility, created_at, author_user_id, author_role FROM comments
 		 WHERE `+where+` ORDER BY created_at ASC, id ASC`, ticketID)
 	if err != nil {
 		return nil, fmt.Errorf("sqlite: list comments: %w", err)
@@ -67,8 +76,17 @@ func (cs *commentStore) ListByTicket(ctx context.Context, ticketID int64, includ
 	for rows.Next() {
 		var c domain.Comment
 		var vis, createdAt string
-		if err := rows.Scan(&c.ID, &c.TicketID, &c.Author, &c.Body, &vis, &createdAt); err != nil {
+		var authorUserID sql.NullInt64
+		var authorRole sql.NullString
+		if err := rows.Scan(&c.ID, &c.TicketID, &c.Author, &c.Body, &vis, &createdAt, &authorUserID, &authorRole); err != nil {
 			return nil, fmt.Errorf("sqlite: scan comment: %w", err)
+		}
+		if authorUserID.Valid {
+			v := authorUserID.Int64
+			c.AuthorUserID = &v
+		}
+		if authorRole.Valid {
+			c.AuthorRole = domain.Role(authorRole.String)
 		}
 		c.Visibility = domain.CommentVisibility(vis)
 		if c.CreatedAt, err = time.Parse(timeLayout, createdAt); err != nil {
