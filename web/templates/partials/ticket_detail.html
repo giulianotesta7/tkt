@@ -249,6 +249,18 @@ function initTitleEditor() {
       const selectId = pendingSelectId;
       pendingForm = null;
       pendingSelectId = null;
+// Validate BEFORE arming the replay listener and submitting. requestSubmit()
+// runs constraint validation, so an invalid title (e.g. cleared while dirty)
+// would block the submit, no request would be issued, htmx:afterRequest would
+// never fire, and the one-shot listener would stay armed to replay the pending
+// form on a LATER successful title save. Close the dialog back to the title
+// input and surface the invalid state instead, so the operator decides again.
+      if (!titleForm.checkValidity()) {
+        closeDialog(false);
+        input.focus();
+        titleForm.reportValidity();
+        return;
+      }
       const entries = [];
       if (form) {
         for (const control of form.elements) {
@@ -278,12 +290,20 @@ function initTitleEditor() {
   }
 }
 // The ticket_detail partial is re-rendered via hx-swap outerHTML; HTMX
-// re-executes this inline script on every swap. The IIFE reveals the reason
+// re-executes this inline script on every swap. The select resolves against
+// the freshly rendered element, so the change listener is attached to the new
+// select on each swap and cannot accumulate. The IIFE also reveals the reason
 // group when a reason-requiring option was pre-selected (e.g. an error
 // re-render preserved the choice) and wires the title guard.
 (function () {
   const select = document.getElementById('ticket-state');
-  if (select) syncReopenReason(select);
+  if (select) {
+// Follow the operator's choice again: reveal the reason field for a
+// reason-requiring target and hide it otherwise. This listener only toggles
+// the field and never submits — Apply stays the deliberate act.
+    select.addEventListener('change', () => syncReopenReason(select));
+    syncReopenReason(select);
+  }
   initTitleEditor();
 })();
 </script>

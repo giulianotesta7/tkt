@@ -862,22 +862,29 @@ func renderedControlValue(form, name string) string {
 }
 
 // TestTicketDetailEditControlsRequireExplicitSubmit proves the rendered detail
-// fragment no longer mutates on `change`: no `onchange` survives, each mutating
-// form carries ONLY its own field, and the priority, assignment and transition
-// forms each expose an explicit submit button.
+// fragment no longer mutates on `change`: no `onchange`, `hx-trigger`, or
+// external `form=` association survives, each mutating form carries ONLY its
+// own field, and the priority, assignment and transition forms each expose an
+// explicit submit button.
 //
 // The `requestSubmit` ban this test used to carry held while no script needed
 // to submit a form programmatically. The title guard introduced the one
 // legitimate use: a discard or a consented save submits the pending form from
 // a dialog button, which is an explicit act, never a change-driven autosave.
-// The `onchange` ban is the part that still proves the change-alone contract,
-// so it stays.
+//
+// The `onchange` ban proves the change-alone contract at the attribute level,
+// and the `hx-trigger` ban closes the equivalent vacuity gap: an htmx
+// `hx-trigger="change"` autosave carries no `onchange` attribute and would
+// otherwise pass every rendered-markup assertion. The `form=` ban closes a
+// second gap: a hidden sibling associated with a form from OUTSIDE the block
+// renderedFormBlock scans would be submitted by a browser but excluded from
+// the derived POST body, so the two would silently disagree.
 func TestTicketDetailEditControlsRequireExplicitSubmit(t *testing.T) {
 	h := newHarness(t)
 	h.seedTicket(t, "Login page down", nil)
 	body := h.get(t, "/tickets/1", true).Body.String()
 
-	for _, banned := range []string{"onchange"} {
+	for _, banned := range []string{"onchange", "hx-trigger", `form="`} {
 		if strings.Contains(body, banned) {
 			t.Errorf("detail fragment must not contain %q, got: %s", banned, body)
 		}

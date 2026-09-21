@@ -9,7 +9,7 @@
  * (internal/adapters/http/handlers_comment_test.go).
  */
 
-import { test, expect, type Page, type Route } from "@playwright/test";
+import { test, expect, type Page, type Request, type Route } from "@playwright/test";
 import { startServer, stopServer } from "../server-lifecycle.js";
 import { loginAsSeeded, base, setSLAEnabled } from "./helpers/auth.js";
 import { assertCanonicalScreen, collectObservability } from "./helpers/layout.js";
@@ -196,6 +196,124 @@ test.describe("Ticket detail", () => {
     });
   });
 
+  test("a closed ticket reopens from Move to once the reason is revealed and applied", async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await loginAsSeeded(page);
+    const title = "Reopen probe " + Date.now().toString(36).slice(2, 8);
+    const id = await createTicketViaUi(page, {
+      title,
+      description: "closed reopen reason journey",
+      category: "General",
+      priority: "high",
+    });
+
+    // Drive the ticket to resolved, then the requester (the creating admin)
+    // confirms, which is the only UI path to `closed`.
+    for (const target of ["in_progress", "resolved"] as const) {
+      await page.goto(base() + `/tickets/${id}`);
+      const moveSelect = page.locator("#ticket-state");
+      await expect(moveSelect).toBeVisible();
+      const resp = await assertHtmxSwap(
+        page,
+        async () => {
+          await moveSelect.selectOption(target);
+          await page.locator("#state-apply").click();
+        },
+        {
+          endpoint: `/tickets/${id}/transition`,
+          method: "POST",
+          expectedStatus: 200,
+          hxTarget: "#ticket-detail",
+        },
+      );
+      expect(resp.status()).toBe(200);
+    }
+    await page.goto(base() + `/tickets/${id}`);
+    const confirmBtn = page.getByRole("button", { name: /Yes, close ticket/i });
+    await expect(confirmBtn).toBeVisible();
+    await assertHtmxSwap(
+      page,
+      async () => {
+        await confirmBtn.click();
+      },
+      {
+        endpoint: `/tickets/${id}/confirmation`,
+        method: "POST",
+        expectedStatus: 200,
+        hxTarget: "#ticket-detail",
+      },
+    );
+    await expect(page.getByText("Closed").first()).toBeVisible({ timeout: 10_000 });
+
+    // On a closed ticket the only Move-to target is the reason-requiring
+    // reopen (`in_progress`). Selecting it must reveal the reason field; the
+    // Apply button stays the only thing that submits.
+    const moveSelect = page.locator("#ticket-state");
+    await expect(moveSelect).toBeVisible();
+    const reasonField = page.locator("#state-reason-field");
+    await expect(reasonField).toBeHidden();
+    await moveSelect.selectOption("in_progress");
+    await expect(reasonField).toBeVisible();
+    const reason = page.locator("#state-reason");
+    await expect(reason).toBeFocused();
+    await expect(reason).toHaveAttribute("required", "");
+
+    // A non-reason target hides the field again: reverting to the placeholder
+    // (the closed ticket's only other choice) toggles it back off.
+    await page.evaluate(() => {
+      const select = document.querySelector("#ticket-state");
+      if (!(select instanceof HTMLSelectElement)) throw new Error("Missing #ticket-state");
+      select.selectedIndex = 0;
+      select.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    await expect(reasonField).toBeHidden();
+    await moveSelect.selectOption("in_progress");
+    await expect(reasonField).toBeVisible();
+
+    // The reopen swap changes the header by design: a closed ticket renders an
+    // h1, an editable in_progress ticket renders the title form. That is the
+    // one swap where assertHtmxSwap's "unchanged h1 chrome" clause cannot
+    // hold, so prove the same HTMX contract inline and assert the header change
+    // as the visible domain result.
+    const navigations: string[] = [];
+    const navigationHandler = (request: Request) => {
+      if (request.isNavigationRequest() && request.frame() === page.mainFrame()) {
+        navigations.push(request.url());
+      }
+    };
+    const reopenReason = `Customer replied ${Date.now().toString(36).slice(2, 6)}`;
+    page.on("request", navigationHandler);
+    try {
+      const urlBefore = page.url();
+      const detailBefore = await page.locator("#ticket-detail").innerHTML();
+      const transitionResponse = page.waitForResponse(
+        (response) =>
+          response.request().method() === "POST" &&
+          response.request().headers()["hx-request"] === "true" &&
+          new URL(response.url()).pathname === `/tickets/${id}/transition`,
+      );
+      await reason.fill(reopenReason);
+      await page.locator("#state-apply").click();
+      const response = await transitionResponse;
+      expect(response.status()).toBe(200);
+      await expect.poll(() => page.locator("#ticket-detail").innerHTML()).not.toBe(detailBefore);
+      expect(page.url()).toBe(urlBefore);
+      expect(navigations, "the reopen swap must not navigate the main frame").toEqual([]);
+      await expect(page.getByText("In Progress").first()).toBeVisible({ timeout: 10_000 });
+      await expect(page.locator("#ticket-title")).toBeVisible();
+      await expect(page.locator("#timeline")).toContainText(reopenReason);
+    } finally {
+      page.removeListener("request", navigationHandler);
+    }
+
+    // The reopen and its reason survive a reload.
+    await page.reload();
+    await expect(page.getByText("In Progress").first()).toBeVisible({ timeout: 10_000 });
+    await expect(page.locator("#timeline")).toContainText(reopenReason);
+  });
+
   test("priority change via HTMX swap updates #ticket-detail without full navigation", async ({
     page,
   }) => {
@@ -249,12 +367,12 @@ test.describe("Ticket detail", () => {
     });
   });
 
-  test("assignment mutates only after Apply, never on change alone", async ({ page }) => {
+  test("detail selects mutate only after Apply, never on change alone", async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 800 });
     await loginAsSeeded(page);
     const id = await createTicketViaUi(page, {
       title: "Apply guard " + Date.now().toString(36).slice(2, 8),
-      description: "assign-select change must not mutate",
+      description: "select change must not mutate",
       category: "General",
       priority: "high",
     });
@@ -263,11 +381,17 @@ test.describe("Ticket detail", () => {
     await expect(assignee).toBeVisible();
 
     const assignPath = `/tickets/${id}/assign`;
+    const editPath = `/tickets/${id}/edit`;
+    const transitionPath = `/tickets/${id}/transition`;
     const assignRequests: string[] = [];
+    const editRequests: string[] = [];
+    const transitionRequests: string[] = [];
     page.on("request", (request) => {
-      if (request.method() === "POST" && new URL(request.url()).pathname === assignPath) {
-        assignRequests.push(request.url());
-      }
+      if (request.method() !== "POST") return;
+      const path = new URL(request.url()).pathname;
+      if (path === assignPath) assignRequests.push(request.url());
+      if (path === editPath) editRequests.push(request.url());
+      if (path === transitionPath) transitionRequests.push(request.url());
     });
 
     // Deterministic: a bubbling `change` event alone must never mutate. The
@@ -279,6 +403,23 @@ test.describe("Ticket detail", () => {
     });
     await page.waitForTimeout(300);
     expect(assignRequests, "change alone must not POST /assign").toEqual([]);
+
+    // The same contract holds for the priority and state controls: a bubbling
+    // change must not POST /edit or /transition. Reintroducing an
+    // hx-trigger="change" autosave would fail exactly here.
+    await page.evaluate(() => {
+      const select = document.querySelector("#ticket-priority");
+      if (!select) throw new Error("Missing #ticket-priority");
+      select.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    await page.evaluate(() => {
+      const select = document.querySelector("#ticket-state");
+      if (!select) throw new Error("Missing #ticket-state");
+      select.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    await page.waitForTimeout(300);
+    expect(editRequests, "change alone must not POST /edit").toEqual([]);
+    expect(transitionRequests, "change alone must not POST /transition").toEqual([]);
 
     // Browser-real: on a closed native select Chromium moves the selection on
     // ArrowDown and fires change — the exact reassignment footgun. The value

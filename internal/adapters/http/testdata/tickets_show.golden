@@ -332,6 +332,18 @@ function initTitleEditor() {
       const selectId = pendingSelectId;
       pendingForm = null;
       pendingSelectId = null;
+
+
+
+
+
+
+      if (!titleForm.checkValidity()) {
+        closeDialog(false);
+        input.focus();
+        titleForm.reportValidity();
+        return;
+      }
       const entries = [];
       if (form) {
         for (const control of form.elements) {
@@ -364,9 +376,17 @@ function initTitleEditor() {
 
 
 
+
+
 (function () {
   const select = document.getElementById('ticket-state');
-  if (select) syncReopenReason(select);
+  if (select) {
+
+
+
+    select.addEventListener('change', () => syncReopenReason(select));
+    syncReopenReason(select);
+  }
   initTitleEditor();
 })();
 </script>
