@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>tkt — Ticket Desk</title>
+
+<script src="/static/save-feedback.js" defer></script><script src="/static/htmx.min.js" defer></script>
+</head>
+<body>
+<div class="layout">
+  <aside class="rail">
+    <a class="rail-brand" href="/tickets" title="tkt">tkt</a>
+    <nav class="rail-nav">
+      <a class="rail-link" href="/tickets" title="Tickets" aria-label="Tickets">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v1a2 2 0 0 0 0 4v1a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-1a2 2 0 0 0 0-4V9z"/><path d="M13 7v10"/></svg>
+      </a>
+
+<a class="rail-link active" href="/categories" title="Categories" aria-label="Categories">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h6l2 2.5H20a1 1 0 0 1 1 1V19a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1z"/></svg>
+      </a>
+
+
+    </nav>
+    <div class="rail-operator" title="Ana Torres">AT</div>
+    <form class="rail-logout" method="post" action="/logout">
+      <button class="rail-link" type="submit" title="Log out" aria-label="Log out">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 4H6a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h3"/><path d="M15 8l4 4-4 4"/><path d="M19 12H9"/></svg>
+      </button>
+    </form>
+  </aside>
+  <main class="main">
+<div id="save-feedback" class="save-feedback" role="status" aria-live="polite" aria-atomic="true" hidden data-feedback-message="" data-feedback-kind="">
+  <span class="save-feedback-message"></span>
+  <button class="save-feedback-dismiss" type="button" aria-label="Dismiss confirmation">Dismiss</button>
+</div>
+
+<div class="page-foundation category-sla-page">
+  <header class="page-header">
+    <div>
+      <nav class="page-breadcrumb" aria-label="Breadcrumb"><a href="/categories">Categories</a><span aria-hidden="true"> / </span><span>Bugs</span></nav>
+      <h1 class="page-title">Category SLA</h1>
+      <p class="page-subtitle">Response and resolution commitments for this category.</p>
+    </div>
+    <div class="page-actions">
+      <button class="page-action page-action-primary" type="submit" form="sla-form">Save SLA targets</button>
+    </div>
+  </header>
+
+  <form id="sla-form" class="card form-card" method="post" action="/categories/1/sla">
+<div class="sla-grid">
+  <div class="sla-grid-row sla-grid-head" aria-hidden="true">
+    <span class="sla-grid-priority"></span>
+    <span class="sla-grid-milestone">First response</span>
+    <span class="sla-grid-milestone">Resolve</span>
+  </div>
+
+  <div class="sla-grid-row">
+    <span class="sla-grid-priority">Critical</span>
+    <div class="sla-target">
+      <span class="sla-unit"><span class="sla-unit-mark" aria-hidden="true">h</span><input type="number" inputmode="numeric" min="0" name="first_response_h_critical" value="0" aria-label="Critical first response, hours"></span>
+      <span class="sla-unit"><span class="sla-unit-mark" aria-hidden="true">m</span><input type="number" inputmode="numeric" min="0" max="59" name="first_response_m_critical" value="30" aria-label="Critical first response, minutes"></span>
+      <span class="sla-unit"><span class="sla-unit-mark" aria-hidden="true">s</span><input type="number" inputmode="numeric" min="0" max="59" name="first_response_s_critical" value="0" aria-label="Critical first response, seconds"></span>
+    </div>
+    <div class="sla-target">
+      <span class="sla-unit"><span class="sla-unit-mark" aria-hidden="true">h</span><input type="number" inputmode="numeric" min="0" name="resolve_h_critical" value="4" aria-label="Critical resolve, hours"></span>
+      <span class="sla-unit"><span class="sla-unit-mark" aria-hidden="true">m</span><input type="number" inputmode="numeric" min="0" max="59" name="resolve_m_critical" value="0" aria-label="Critical resolve, minutes"></span>
+      <span class="sla-unit"><span class="sla-unit-mark" aria-hidden="true">s</span><input type="number" inputmode="numeric" min="0" max="59" name="resolve_s_critical" value="0" aria-label="Critical resolve, seconds"></span>
+    </div>
+  </div>
+
+  <div class="sla-grid-row">
+    <span class="sla-grid-priority">High</span>
+    <div class="sla-target">
+      <span class="sla-unit"><span class="sla-unit-mark" aria-hidden="true">h</span><input type="number" inputmode="numeric" min="0" name="first_response_h_high" value="1" aria-label="High first response, hours"></span>
+      <span class="sla-unit"><span class="sla-unit-mark" aria-hidden="true">m</span><input type="number" inputmode="numeric" min="0" max="59" name="first_response_m_high" value="30" aria-label="High first response, minutes"></span>
+      <span class="sla-unit"><span class="sla-unit-mark" aria-hidden="true">s</span><input type="number" inputmode="numeric" min="0" max="59" name="first_response_s_high" value="0" aria-label="High first response, seconds"></span>
+    </div>
+    <div class="sla-target">
+      <span class="sla-unit"><span class="sla-unit-mark" aria-hidden="true">h</span><input type="number" inputmode="numeric" min="0" name="resolve_h_high" value="8" aria-label="High resolve, hours"></span>
+      <span class="sla-unit"><span class="sla-unit-mark" aria-hidden="true">m</span><input type="number" inputmode="numeric" min="0" max="59" name="resolve_m_high" value="0" aria-label="High resolve, minutes"></span>
+      <span class="sla-unit"><span class="sla-unit-mark" aria-hidden="true">s</span><input type="number" inputmode="numeric" min="0" max="59" name="resolve_s_high" value="0" aria-label="High resolve, seconds"></span>
+    </div>
+  </div>
+
+  <div class="sla-grid-row">
+    <span class="sla-grid-priority">Medium</span>
+    <div class="sla-target">
+      <span class="sla-unit"><span class="sla-unit-mark" aria-hidden="true">h</span><input type="number" inputmode="numeric" min="0" name="first_response_h_medium" value="2" aria-label="Medium first response, hours"></span>
+      <span class="sla-unit"><span class="sla-unit-mark" aria-hidden="true">m</span><input type="number" inputmode="numeric" min="0" max="59" name="first_response_m_medium" value="30" aria-label="Medium first response, minutes"></span>
+      <span class="sla-unit"><span class="sla-unit-mark" aria-hidden="true">s</span><input type="number" inputmode="numeric" min="0" max="59" name="first_response_s_medium" value="0" aria-label="Medium first response, seconds"></span>
+    </div>
+    <div class="sla-target">
+      <span class="sla-unit"><span class="sla-unit-mark" aria-hidden="true">h</span><input type="number" inputmode="numeric" min="0" name="resolve_h_medium" value="16" aria-label="Medium resolve, hours"></span>
+      <span class="sla-unit"><span class="sla-unit-mark" aria-hidden="true">m</span><input type="number" inputmode="numeric" min="0" max="59" name="resolve_m_medium" value="0" aria-label="Medium resolve, minutes"></span>
+      <span class="sla-unit"><span class="sla-unit-mark" aria-hidden="true">s</span><input type="number" inputmode="numeric" min="0" max="59" name="resolve_s_medium" value="0" aria-label="Medium resolve, seconds"></span>
+    </div>
+  </div>
+
+  <div class="sla-grid-row">
+    <span class="sla-grid-priority">Low</span>
+    <div class="sla-target">
+      <span class="sla-unit"><span class="sla-unit-mark" aria-hidden="true">h</span><input type="number" inputmode="numeric" min="0" name="first_response_h_low" value="4" aria-label="Low first response, hours"></span>
+      <span class="sla-unit"><span class="sla-unit-mark" aria-hidden="true">m</span><input type="number" inputmode="numeric" min="0" max="59" name="first_response_m_low" value="30" aria-label="Low first response, minutes"></span>
+      <span class="sla-unit"><span class="sla-unit-mark" aria-hidden="true">s</span><input type="number" inputmode="numeric" min="0" max="59" name="first_response_s_low" value="0" aria-label="Low first response, seconds"></span>
+    </div>
+    <div class="sla-target">
+      <span class="sla-unit"><span class="sla-unit-mark" aria-hidden="true">h</span><input type="number" inputmode="numeric" min="0" name="resolve_h_low" value="48" aria-label="Low resolve, hours"></span>
+      <span class="sla-unit"><span class="sla-unit-mark" aria-hidden="true">m</span><input type="number" inputmode="numeric" min="0" max="59" name="resolve_m_low" value="0" aria-label="Low resolve, minutes"></span>
+      <span class="sla-unit"><span class="sla-unit-mark" aria-hidden="true">s</span><input type="number" inputmode="numeric" min="0" max="59" name="resolve_s_low" value="0" aria-label="Low resolve, seconds"></span>
+    </div>
+  </div>
+
+</div>
+  </form>
+</div>
+</main>
+</div>
+</body>
+</html>

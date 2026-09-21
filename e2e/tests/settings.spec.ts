@@ -1,5 +1,5 @@
 /**
- * Settings (appearance) journeys.
+ * Settings journeys: appearance panel and the SLA configuration panel.
  */
 
 import { test, expect } from "@playwright/test";
@@ -7,7 +7,7 @@ import { startServer, stopServer } from "../server-lifecycle.js";
 import { loginAsSeeded, base } from "./helpers/auth.js";
 import { assertCanonicalScreen, collectObservability } from "./helpers/layout.js";
 
-test.describe("Settings appearance", () => {
+test.describe("Settings", () => {
   test.beforeAll(async () => {
     await startServer({ seed: true });
   });
@@ -21,7 +21,7 @@ test.describe("Settings appearance", () => {
     await loginAsSeeded(page);
     await page.goto(base() + "/settings");
     await expect(page.locator("h1").filter({ hasText: "Settings" })).toBeVisible();
-    await expect(page.getByText(/instance appearance/i)).toBeVisible();
+    await expect(page.getByText(/instance configuration/i)).toBeVisible();
     await expect(page.locator("h2").filter({ hasText: "Appearance" })).toBeVisible();
 
     const radios = page.locator('input[name="internal_comment_bg"]');
@@ -170,5 +170,180 @@ test.describe("Settings appearance", () => {
 
     await toast.getByRole("button", { name: "Dismiss confirmation" }).click();
     await expect(toast).toBeHidden();
+  });
+
+  test("renders the SLA panel with the seeded values and persists edits after a reload", async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    const obs = collectObservability(page);
+    await loginAsSeeded(page);
+    await page.goto(base() + "/settings");
+    await expect(page.locator("h1").filter({ hasText: "Settings" })).toBeVisible();
+    await expect(page.getByText(/instance configuration/i)).toBeVisible();
+    await expect(page.locator("h2").filter({ hasText: "Service level agreements" })).toBeVisible();
+
+    // Seeded configuration (migration 0013): the feature is OFF and the 4x2
+    // matrix carries the default seconds decomposed into h/m/s units.
+    await expect(page.locator('input[name="sla_enabled"]')).not.toBeChecked();
+    await expect(page.getByLabel("Warning threshold")).toHaveValue("80");
+    // [hours, minutes, seconds] per milestone: critical first response is
+    // 1800s = 0h 30m 0s, every other seeded target is a whole number of hours.
+    const seededMatrix = [
+      { priority: "Critical", firstResponse: ["0", "30", "0"], resolve: ["4", "0", "0"] },
+      { priority: "High", firstResponse: ["1", "0", "0"], resolve: ["8", "0", "0"] },
+      { priority: "Medium", firstResponse: ["4", "0", "0"], resolve: ["24", "0", "0"] },
+      { priority: "Low", firstResponse: ["8", "0", "0"], resolve: ["72", "0", "0"] },
+    ];
+    const units = ["hours", "minutes", "seconds"] as const;
+    for (const row of seededMatrix) {
+      for (const [unitIndex, unit] of units.entries()) {
+        await expect(page.getByLabel(`${row.priority} first response, ${unit}`)).toHaveValue(
+          row.firstResponse[unitIndex],
+        );
+        await expect(page.getByLabel(`${row.priority} resolve, ${unit}`)).toHaveValue(
+          row.resolve[unitIndex],
+        );
+      }
+    }
+
+    // Edit the warning percent and one target, save, and verify persistence.
+    await page.getByLabel("Warning threshold").fill("55");
+    await page.getByLabel("Critical first response, minutes").fill("45");
+    await page.getByLabel("Critical first response, seconds").fill("10");
+    await page.getByRole("button", { name: "Save SLA settings" }).click();
+    await expect(page).toHaveURL(/\/settings$/);
+    await expect(page.locator("#save-feedback")).toContainText("Saved");
+
+    await page.reload();
+    await expect(page.getByLabel("Warning threshold")).toHaveValue("55");
+    await expect(page.getByLabel("Critical first response, minutes")).toHaveValue("45");
+    await expect(page.getByLabel("Critical first response, seconds")).toHaveValue("10");
+    await expect(page.getByLabel("Critical first response, hours")).toHaveValue("0");
+    await expect(page.getByLabel("High first response, hours")).toHaveValue("1");
+    await expect(page.locator('input[name="sla_enabled"]')).not.toBeChecked();
+
+    await assertCanonicalScreen(page, {
+      viewport: 1280,
+      label: "settings SLA panel persist",
+      url: page.url(),
+      role: "root",
+      consoleErrors: obs.consoleErrors,
+      pageErrors: obs.pageErrors,
+      failedRequests: obs.failedRequests,
+      failedResponses: obs.failedResponses,
+    });
+  });
+
+  test("working calendar: a valid save persists across a reload and a rejected save stores nothing", async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    const obs = collectObservability(page);
+    await loginAsSeeded(page);
+    await page.goto(base() + "/settings");
+    await expect(page.locator("h2").filter({ hasText: "Working calendar" })).toBeVisible();
+    // Seven ISO working-day checkboxes, always all offered.
+    await expect(page.locator('input[name="sla_calendar_days"]')).toHaveCount(7);
+
+    // Change the week, the window, and the zone, then save. setChecked is
+    // idempotent, so the journey does not depend on the stored calendar it
+    // starts from.
+    await page.locator('input[name="sla_calendar_days"][value="5"]').setChecked(false);
+    await page.locator('input[name="sla_calendar_days"][value="6"]').setChecked(true);
+    await page.getByLabel("Start").fill("08:30");
+    await page.getByLabel("End").fill("17:45");
+    await page.getByLabel("Timezone").fill("America/Argentina/Buenos_Aires");
+    await page.getByRole("button", { name: "Save working calendar" }).click();
+    await expect(page).toHaveURL(/\/settings$/);
+    await expect(page.locator("#save-feedback")).toContainText("Saved");
+
+    // Persistence survives a reload.
+    await page.reload();
+    await expect(page.locator('input[name="sla_calendar_days"][value="5"]')).not.toBeChecked();
+    await expect(page.locator('input[name="sla_calendar_days"][value="6"]')).toBeChecked();
+    await expect(page.getByLabel("Start")).toHaveValue("08:30");
+    await expect(page.getByLabel("End")).toHaveValue("17:45");
+    await expect(page.getByLabel("Timezone")).toHaveValue("America/Argentina/Buenos_Aires");
+
+    // Structural screen assertion here, before the deliberate 422 below:
+    // the rejected save legitimately logs a failed resource, which the
+    // canonical observability check does not allow.
+    await assertCanonicalScreen(page, {
+      viewport: 1280,
+      label: "settings working calendar persist",
+      url: page.url(),
+      role: "root",
+      consoleErrors: obs.consoleErrors,
+      pageErrors: obs.pageErrors,
+      failedRequests: obs.failedRequests,
+      failedResponses: obs.failedResponses,
+    });
+
+    // Rejected save: a start after its end re-renders at the POST URL with
+    // the error banner and must not touch the stored calendar.
+    await page.getByLabel("Start").fill("18:00");
+    await page.getByLabel("End").fill("09:00");
+    await page.getByRole("button", { name: "Save working calendar" }).click();
+    const banner = page.locator(".error-banner");
+    await expect(banner).toBeVisible();
+    await expect(banner).toHaveAttribute("role", "alert");
+    await expect(page).toHaveURL(/\/settings\/calendar$/);
+
+    // A fresh GET (not a reload: reloading a POST response re-submits the
+    // form) shows the stored calendar untouched by the rejected post.
+    await page.goto(base() + "/settings");
+    await expect(page.locator('input[name="sla_calendar_days"][value="5"]')).not.toBeChecked();
+    await expect(page.locator('input[name="sla_calendar_days"][value="6"]')).toBeChecked();
+    await expect(page.getByLabel("Start")).toHaveValue("08:30");
+    await expect(page.getByLabel("End")).toHaveValue("17:45");
+    await expect(page.getByLabel("Timezone")).toHaveValue("America/Argentina/Buenos_Aires");
+  });
+
+  test("a rejected SLA save renders the error banner, echoes the submitted values, and stores nothing", async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await loginAsSeeded(page);
+
+    // Fixture: a known valid configuration saved through the real UI, so the
+    // rejection leg can prove the stored values survive untouched.
+    await page.goto(base() + "/settings");
+    await page.getByLabel("Warning threshold").fill("55");
+    await page.getByLabel("Critical first response, minutes").fill("45");
+    await page.getByLabel("Critical first response, seconds").fill("10");
+    await page.getByRole("button", { name: "Save SLA settings" }).click();
+    await expect(page).toHaveURL(/\/settings$/);
+    await expect(page.locator("#save-feedback")).toContainText("Saved");
+
+    // A 30-second first response passes the grid's HTML constraints (min=0 on
+    // the seconds input) and must be rejected server-side: every target needs
+    // at least 60 seconds.
+    await page.goto(base() + "/settings");
+    await page.getByLabel("Warning threshold").fill("66");
+    await page.getByLabel("Critical first response, minutes").fill("0");
+    await page.getByLabel("Critical first response, seconds").fill("30");
+    await page.getByLabel("High resolve, hours").fill("9");
+    await page.getByRole("button", { name: "Save SLA settings" }).click();
+
+    const banner = page.locator(".error-banner");
+    await expect(banner).toBeVisible();
+    await expect(banner).toHaveAttribute("role", "alert");
+    // Native form: the rejection re-renders at the POST URL, no redirect.
+    await expect(page).toHaveURL(/\/settings\/sla$/);
+
+    // The re-render echoes the SUBMITTED values, not the stored ones.
+    await expect(page.getByLabel("Warning threshold")).toHaveValue("66");
+    await expect(page.getByLabel("Critical first response, minutes")).toHaveValue("0");
+    await expect(page.getByLabel("Critical first response, seconds")).toHaveValue("30");
+    await expect(page.getByLabel("High resolve, hours")).toHaveValue("9");
+
+    // A fresh GET (not a reload: reloading a POST response re-submits the
+    // form) shows the stored configuration untouched by the rejected post.
+    await page.goto(base() + "/settings");
+    await expect(page.getByLabel("Warning threshold")).toHaveValue("55");
+    await expect(page.getByLabel("Critical first response, minutes")).toHaveValue("45");
+    await expect(page.getByLabel("Critical first response, seconds")).toHaveValue("10");
+    await expect(page.getByLabel("High resolve, hours")).toHaveValue("8");
   });
 });

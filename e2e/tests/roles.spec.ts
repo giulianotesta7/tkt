@@ -13,7 +13,7 @@ import { test, expect } from "@playwright/test";
 import { startServer, stopServer, activeServer } from "../server-lifecycle.js";
 import { assertCanonicalScreen, collectObservability } from "./helpers/layout.js";
 import { assertHtmxSwap } from "./helpers/htmx.js";
-import { seededCredentials } from "./helpers/auth.js";
+import { seededCredentials, setSLAEnabled } from "./helpers/auth.js";
 import { createCategoryViaUi, createTicketViaUi } from "./helpers/navigation.js";
 import { waitForExactPost } from "./helpers/network.js";
 
@@ -355,6 +355,107 @@ test.describe("Role — minimal matrix admin / agent / user (seeded)", () => {
       label: "roles user public comment",
       url: page.url(),
       role: "user",
+      consoleErrors: obs.consoleErrors,
+      pageErrors: obs.pageErrors,
+      failedRequests: obs.failedRequests,
+      failedResponses: obs.failedResponses,
+    });
+  });
+});
+
+/**
+ * Requester SLA blindness (issue #211, PR 4).
+ *
+ * A `user`-role requester must not see SLA anywhere, even on a ticket whose
+ * commitment was frozen while SLA was enabled. The journey enables SLA, has
+ * the requester create a committed ticket, proves both requester screens are
+ * SLA-blind while still rendering their own content, and then proves the SAME
+ * ticket DOES show the SLA section to staff — so the absence is role-based,
+ * not an empty fixture.
+ */
+test.describe("Role — requester SLA blindness (seeded)", () => {
+  test.beforeAll(async () => {
+    await startServer({ seed: true });
+  });
+  test.afterAll(async () => {
+    await stopServer();
+  });
+  test.afterEach(async ({ page }) => {
+    await page.context().clearCookies();
+    await login(page, seededCredentials.email, seededCredentials.password);
+    await setSLAEnabled(page, false);
+  });
+
+  test("a user-role requester sees no SLA in the list or on the detail page", async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    const obs = collectObservability(page);
+    await login(page, seededCredentials.email, seededCredentials.password);
+    await setSLAEnabled(page, true);
+    const userEmail = await createUserAndSetRole(page, {
+      name: "Uma Requester",
+      email: `requester-${Date.now().toString(36).slice(2, 8)}@example.com`,
+      password: "Secret123!",
+      role: "user",
+    });
+
+    await page.context().clearCookies();
+    await login(page, userEmail, "Secret123!");
+    // The fixture name and title deliberately avoid the literal "SLA" so the
+    // absence assertions below cannot be satisfied by the fixture's own text.
+    const title = "Requester probe " + Date.now().toString(36).slice(2, 8);
+    const ticketID = await createTicketViaUi(page, {
+      title,
+      category: "General",
+      priority: "high",
+    });
+
+    // Requester list: the user card grid, no SLA column and no SLA badge.
+    await expect(page.getByRole("heading", { name: "My tickets", exact: true })).toBeVisible();
+    const listScreen = page.locator("#tickets-screen");
+    const card = listScreen
+      .locator(".user-request-card")
+      .filter({ has: page.getByText(title, { exact: true }) });
+    await expect(card).toHaveCount(1);
+    await expect(card.locator(".badge.new")).toHaveText("Received");
+    await expect(listScreen.locator("table")).toHaveCount(0);
+    await expect(page.getByRole("columnheader", { name: "SLA", exact: true })).toHaveCount(0);
+    await expect(listScreen).not.toContainText("SLA");
+    await expect(
+      listScreen.locator(".badge.on_track, .badge.at_risk, .badge.breached, .badge.met"),
+    ).toHaveCount(0);
+
+    // Requester detail: its own content renders, the SLA section does not.
+    await page.goto(baseURL() + `/tickets/${ticketID}`);
+    await expect(page.locator("#ticket-detail")).toBeVisible();
+    await expect(page.getByText("Properties").first()).toBeVisible();
+    await expect(page.getByText("Requester", { exact: true })).toBeVisible();
+    await expect(page.locator("#ticket-category-value")).toContainText("General");
+    await expect(page.locator("#timeline")).toBeVisible();
+    await expect(page.locator("#ticket-detail")).not.toContainText("SLA");
+    await expect(
+      page.locator("#ticket-detail .prop-heading").filter({ hasText: /^SLA/ }),
+    ).toHaveCount(0);
+    await expect(
+      page.locator(
+        "#ticket-detail .badge.on_track, #ticket-detail .badge.at_risk, #ticket-detail .badge.breached, #ticket-detail .badge.met",
+      ),
+    ).toHaveCount(0);
+
+    // Non-vacuity control: the SAME ticket carries the frozen commitment and
+    // the staff detail page shows it.
+    await page.context().clearCookies();
+    await login(page, seededCredentials.email, seededCredentials.password);
+    await page.goto(baseURL() + `/tickets/${ticketID}`);
+    await expect(
+      page.locator("#ticket-detail .prop-heading").filter({ hasText: /^SLA/ }),
+    ).toHaveCount(1);
+    await expect(page.locator("#ticket-detail .badge.on_track")).toHaveCount(3);
+
+    await assertCanonicalScreen(page, {
+      viewport: 1280,
+      label: "requester SLA blindness control view",
+      url: page.url(),
+      role: "root",
       consoleErrors: obs.consoleErrors,
       pageErrors: obs.pageErrors,
       failedRequests: obs.failedRequests,

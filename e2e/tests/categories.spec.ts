@@ -2017,4 +2017,117 @@ test.describe("Categories", () => {
       await expect(page).toHaveURL(new RegExp(`/categories/${categoryId}/workflow$`));
     });
   });
+
+  test("category SLA screen shows the materialized matrix and persists an edited target", async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    const obs = collectObservability(page);
+    await loginAsSeeded(page);
+    await page.goto(base() + "/categories");
+
+    // Resolve the exact category under test through the native hierarchy
+    // search. Earlier journeys in this file rename the seeded desk, so the
+    // drill-down cannot rely on desk names; the category result selects the
+    // hierarchy without depending on them.
+    const categoryName = "General";
+    const search = page.getByRole("searchbox", {
+      name: "Search departments, desks, or categories",
+    });
+    await search.fill(categoryName);
+    await search.press("Enter");
+    const resultSelector = '.category-search-result[data-search-result-kind="category"]';
+    const categoryResult = page
+      .locator(resultSelector)
+      .filter({ has: page.getByText(categoryName, { exact: true }) });
+    if ((await categoryResult.count()) !== 1) {
+      throw new Error(
+        `Expected exactly one category result "${categoryName}" using ${resultSelector} at ${page.url()}, found ${await categoryResult.count()}`,
+      );
+    }
+    await categoryResult.click();
+    await expect(page).toHaveURL(/department_id=\d+&desk_id=\d+/);
+
+    const rowSelector = ".category-level-categories .category-structure-item";
+    const categoryRow = page
+      .locator(rowSelector)
+      .filter({ has: page.getByText(categoryName, { exact: true }) });
+    if ((await categoryRow.count()) !== 1) {
+      throw new Error(
+        `Expected exactly one category "${categoryName}" using ${rowSelector} at ${page.url()}, found ${await categoryRow.count()}`,
+      );
+    }
+
+    const editHref = await categoryRow.locator('a[href*="/edit"]').getAttribute("href");
+    const categoryId = editHref?.match(/\/categories\/(\d+)\/edit/)?.[1];
+    if (!categoryId) {
+      throw new Error(
+        `Could not resolve category id for "${categoryName}" from ${editHref ?? "missing href"} at ${page.url()}`,
+      );
+    }
+
+    // The overflow menu's Configure SLA item must point at THIS category.
+    const slaPath = `/categories/${categoryId}/sla`;
+    await categoryRow
+      .getByRole("button", { name: `Actions for ${categoryName}`, exact: true })
+      .click();
+    const menu = categoryRow.locator(".category-overflow-menu:not([hidden])");
+    const configureSla = menu.getByRole("menuitem", { name: "Configure SLA", exact: true });
+    await expect(configureSla).toHaveAttribute("href", slaPath);
+    await configureSla.click();
+
+    await expect(page).toHaveURL(new RegExp(`${slaPath}$`));
+    await expect(page.locator("h1")).toHaveText("Category SLA");
+    await expect(page.locator(".page-breadcrumb")).toContainText(categoryName);
+
+    // The category's materialized 4x2 matrix: seeded at creation from the
+    // global defaults (migration 0013), decomposed into h/m/s units.
+    const gridRows = page.locator(".sla-grid-row:not(.sla-grid-head)");
+    await expect(gridRows).toHaveCount(4);
+    const seededMatrix = [
+      { priority: "Critical", firstResponse: ["0", "30", "0"], resolve: ["4", "0", "0"] },
+      { priority: "High", firstResponse: ["1", "0", "0"], resolve: ["8", "0", "0"] },
+      { priority: "Medium", firstResponse: ["4", "0", "0"], resolve: ["24", "0", "0"] },
+      { priority: "Low", firstResponse: ["8", "0", "0"], resolve: ["72", "0", "0"] },
+    ];
+    for (const [index, row] of seededMatrix.entries()) {
+      await expect(gridRows.nth(index).locator(".sla-grid-priority")).toHaveText(row.priority);
+      const units = ["hours", "minutes", "seconds"] as const;
+      for (const [unitIndex, unit] of units.entries()) {
+        await expect(page.getByLabel(`${row.priority} first response, ${unit}`)).toHaveValue(
+          row.firstResponse[unitIndex],
+        );
+        await expect(page.getByLabel(`${row.priority} resolve, ${unit}`)).toHaveValue(
+          row.resolve[unitIndex],
+        );
+      }
+    }
+
+    // Edit one target through the real form and verify persistence.
+    await page.getByLabel("Medium resolve, hours").fill("1");
+    await page.getByLabel("Medium resolve, minutes").fill("2");
+    await page.getByLabel("Medium resolve, seconds").fill("3");
+    await page.getByRole("button", { name: "Save SLA targets" }).click();
+    await expect(page).toHaveURL(new RegExp(`${slaPath}$`));
+    await expect(page.locator("#save-feedback")).toContainText("Saved");
+
+    await page.reload();
+    await expect(page.getByLabel("Medium resolve, hours")).toHaveValue("1");
+    await expect(page.getByLabel("Medium resolve, minutes")).toHaveValue("2");
+    await expect(page.getByLabel("Medium resolve, seconds")).toHaveValue("3");
+    await expect(page.getByLabel("Medium first response, hours")).toHaveValue("4");
+    await expect(page.getByLabel("Critical first response, minutes")).toHaveValue("30");
+    await expect(page.getByLabel("Low resolve, hours")).toHaveValue("72");
+
+    await assertCanonicalScreen(page, {
+      viewport: 1280,
+      label: "category SLA persist",
+      url: page.url(),
+      role: "root",
+      consoleErrors: obs.consoleErrors,
+      pageErrors: obs.pageErrors,
+      failedRequests: obs.failedRequests,
+      failedResponses: obs.failedResponses,
+    });
+  });
 });

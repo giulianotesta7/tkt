@@ -1,0 +1,22 @@
+{{define "sla_target_grid"}}<div class="sla-grid">
+  <div class="sla-grid-row sla-grid-head" aria-hidden="true">
+    <span class="sla-grid-priority"></span>
+    <span class="sla-grid-milestone">First response</span>
+    <span class="sla-grid-milestone">Resolve</span>
+  </div>
+{{range .Rows}}
+  <div class="sla-grid-row">
+    <span class="sla-grid-priority">{{.Label}}</span>
+    <div class="sla-target">
+      <span class="sla-unit"><span class="sla-unit-mark" aria-hidden="true">h</span><input type="number" inputmode="numeric" min="0" name="first_response_h_{{.Priority}}" value="{{.FirstResponse.Hours}}" aria-label="{{.Label}} first response, hours"></span>
+      <span class="sla-unit"><span class="sla-unit-mark" aria-hidden="true">m</span><input type="number" inputmode="numeric" min="0" max="59" name="first_response_m_{{.Priority}}" value="{{.FirstResponse.Minutes}}" aria-label="{{.Label}} first response, minutes"></span>
+      <span class="sla-unit"><span class="sla-unit-mark" aria-hidden="true">s</span><input type="number" inputmode="numeric" min="0" max="59" name="first_response_s_{{.Priority}}" value="{{.FirstResponse.Seconds}}" aria-label="{{.Label}} first response, seconds"></span>
+    </div>
+    <div class="sla-target">
+      <span class="sla-unit"><span class="sla-unit-mark" aria-hidden="true">h</span><input type="number" inputmode="numeric" min="0" name="resolve_h_{{.Priority}}" value="{{.Resolve.Hours}}" aria-label="{{.Label}} resolve, hours"></span>
+      <span class="sla-unit"><span class="sla-unit-mark" aria-hidden="true">m</span><input type="number" inputmode="numeric" min="0" max="59" name="resolve_m_{{.Priority}}" value="{{.Resolve.Minutes}}" aria-label="{{.Label}} resolve, minutes"></span>
+      <span class="sla-unit"><span class="sla-unit-mark" aria-hidden="true">s</span><input type="number" inputmode="numeric" min="0" max="59" name="resolve_s_{{.Priority}}" value="{{.Resolve.Seconds}}" aria-label="{{.Label}} resolve, seconds"></span>
+    </div>
+  </div>
+{{end}}
+</div>{{end}}

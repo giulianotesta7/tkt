@@ -18,6 +18,11 @@
   <select name="user_id" aria-label="Assigned user">
     <option value="">Anyone</option><option value="1">Ana Torres</option>
   </select>
+  <select name="sort" aria-label="Order by">
+    <option value="newest" selected>Newest first</option>
+    <option value="priority" >Priority</option>
+    <option value="urgency" >Urgency</option>
+  </select>
   <button class="btn" type="submit">Apply</button>
   <a class="btn ghost" href="/tickets" hx-get="/tickets" hx-target="#tickets-screen" hx-swap="outerHTML" hx-push-url="true" aria-label="Clear filters">Clear</a>
   <span class="htmx-indicator spinner" aria-hidden="true"></span>

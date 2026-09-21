@@ -1,0 +1,18 @@
+{{define "content"}}
+<div class="page-foundation category-sla-page">
+  <header class="page-header">
+    <div>
+      <nav class="page-breadcrumb" aria-label="Breadcrumb"><a href="/categories">Categories</a><span aria-hidden="true"> / </span><span>{{.CategoryName}}</span></nav>
+      <h1 class="page-title">Category SLA</h1>
+      <p class="page-subtitle">Response and resolution commitments for this category.</p>
+    </div>
+    <div class="page-actions">
+      <button class="page-action page-action-primary" type="submit" form="sla-form">Save SLA targets</button>
+    </div>
+  </header>
+{{if .Error}}<div class="error-banner" role="alert">{{.Error}}</div>{{end}}
+  <form id="sla-form" class="card form-card" method="post" action="/categories/{{.CategoryID}}/sla">
+{{template "sla_target_grid" .Grid}}
+  </form>
+</div>
+{{end}}
