@@ -1521,14 +1521,24 @@ func (h *TicketHandlers) update(w http.ResponseWriter, r *http.Request) {
 	actor := *userFromContext(r.Context())
 
 	u := domain.TicketUpdate{}
-	title := r.Form.Get("title")
-	p := domain.Priority(r.Form.Get("priority"))
-	u.Title = &title
 	// The description and the category are immutable after creation: the
 	// edit form carries no fields for them, and forged ones are deliberately
 	// never read — mirroring how forged assignment fields are ignored on
-	// this route.
-	u.Priority = &p
+	// this route. Title and priority are applied ONLY when this request
+	// actually carries them, so each detail control can post its own field
+	// without a sibling edit riding along.
+	if r.Form.Has("title") {
+		title := r.Form.Get("title")
+		u.Title = &title
+	}
+	if r.Form.Has("priority") {
+		p := domain.Priority(r.Form.Get("priority"))
+		u.Priority = &p
+	}
+	if u.Title == nil && u.Priority == nil {
+		h.renderEditError(w, r, id, &domain.ValidationError{Field: "update", Message: "provide a title or a priority"})
+		return
+	}
 
 	_, err := h.tickets.Update(r.Context(), actor, id, u)
 	if err != nil {
@@ -1551,11 +1561,18 @@ func (h *TicketHandlers) renderEditError(w http.ResponseWriter, r *http.Request,
 		return
 	}
 	data.Error = msg
-	data.Values = ticketFormValues{
-		Title:      r.Form.Get("title"),
-		CategoryID: r.Form.Get("category_id"),
-		UserID:     r.Form.Get("user_id"),
-		Priority:   domain.Priority(r.Form.Get("priority")),
+	// detailDataFor seeded Values from the persisted ticket, so a field the
+	// request did not carry keeps its stored value. Override only what this
+	// form actually carries; the category is immutable and has no detail
+	// control, so it is never read here.
+	if r.Form.Has("title") {
+		data.Values.Title = r.Form.Get("title")
+	}
+	if r.Form.Has("priority") {
+		data.Values.Priority = domain.Priority(r.Form.Get("priority"))
+	}
+	if r.Form.Has("user_id") {
+		data.Values.UserID = r.Form.Get("user_id")
 	}
 	h.renderer.Render(w, r, "tickets_show", "ticket_detail", data, status)
 }

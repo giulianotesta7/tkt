@@ -619,6 +619,156 @@ func TestTicketEditHXFragment(t *testing.T) {
 	}
 }
 
+// TestTicketEditAppliesOnlyCarriedFields proves POST /tickets/{id}/edit
+// applies ONLY the fields the request carries: a priority-only request leaves
+// the title (and its audit trail) untouched, and a title-only request leaves
+// the priority untouched (#232).
+func TestTicketEditAppliesOnlyCarriedFields(t *testing.T) {
+	cases := []struct {
+		name         string
+		form         url.Values
+		wantTitle    string
+		wantPriority domain.Priority
+		wantField    string
+		dropField    string
+	}{
+		{
+			name:         "priority only",
+			form:         url.Values{"priority": {"high"}},
+			wantTitle:    "Login page down",
+			wantPriority: domain.PriorityHigh,
+			wantField:    "priority",
+			dropField:    "title",
+		},
+		{
+			name:         "title only",
+			form:         url.Values{"title": {"Login page restored"}},
+			wantTitle:    "Login page restored",
+			wantPriority: domain.PriorityMedium,
+			wantField:    "title",
+			dropField:    "priority",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			h := newHarness(t)
+			h.seedTicket(t, "Login page down", nil)
+
+			rec := h.postForm(t, "/tickets/1/edit", tc.form, true)
+			if rec.Code != http.StatusOK {
+				t.Fatalf("status = %d, want 200", rec.Code)
+			}
+			if strings.Contains(rec.Body.String(), "<!DOCTYPE html>") {
+				t.Errorf("HX edit must return the fragment, got: %s", rec.Body.String())
+			}
+
+			view, err := h.tickets.GetByID(t.Context(), *h.admin, 1)
+			if err != nil {
+				t.Fatalf("view: %v", err)
+			}
+			if view.Ticket.Title != tc.wantTitle {
+				t.Errorf("title = %q, want %q", view.Ticket.Title, tc.wantTitle)
+			}
+			if view.Ticket.Priority != tc.wantPriority {
+				t.Errorf("priority = %q, want %q", view.Ticket.Priority, tc.wantPriority)
+			}
+			changed := map[string]int{}
+			for _, ev := range view.AuditEvents {
+				if ev.Field != nil {
+					changed[*ev.Field]++
+				}
+			}
+			if changed[tc.wantField] != 1 {
+				t.Errorf("audit must record exactly one %s change, got %v", tc.wantField, changed)
+			}
+			if changed[tc.dropField] != 0 {
+				t.Errorf("audit must record no %s change (field not carried), got %v", tc.dropField, changed)
+			}
+		})
+	}
+}
+
+// TestTicketEditRejectsRequestCarryingNeitherField proves an edit request that
+// carries no editable field is rejected through the inline error path as a
+// mapped ValidationError (422) instead of being reported as a successful
+// no-op, and writes nothing.
+func TestTicketEditRejectsRequestCarryingNeitherField(t *testing.T) {
+	h := newHarness(t)
+	h.seedTicket(t, "Login page down", nil)
+
+	rec := h.postForm(t, "/tickets/1/edit", url.Values{"description": {"forged"}, "category_id": {"1"}}, true)
+
+	if rec.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("status = %d, want 422", rec.Code)
+	}
+	body := rec.Body.String()
+	if !strings.Contains(body, "provide a title or a priority") {
+		t.Errorf("re-render must show the mapped validation message, got: %s", body)
+	}
+	if strings.Contains(body, "<!DOCTYPE html>") {
+		t.Errorf("rejection must render the fragment, not a full page, got: %s", body)
+	}
+	view, err := h.tickets.GetByID(t.Context(), *h.admin, 1)
+	if err != nil {
+		t.Fatalf("view: %v", err)
+	}
+	if view.Ticket.Title != "Login page down" || view.Ticket.Priority != domain.PriorityMedium {
+		t.Errorf("rejected edit must change nothing (title=%q priority=%q)", view.Ticket.Title, view.Ticket.Priority)
+	}
+	if len(view.AuditEvents) != 1 { // the creation event only
+		t.Errorf("rejected edit must append no audit event, got %d events", len(view.AuditEvents))
+	}
+}
+
+// TestTicketEditErrorRerenderPreservesUncarriedValues proves change 2: an
+// error re-render for a priority-only request keeps the persisted title in the
+// #ticket-title input and keeps the assigned user selected, instead of
+// blanking the input and resetting the selector to "Unassigned".
+func TestTicketEditErrorRerenderPreservesUncarriedValues(t *testing.T) {
+	h := newHarness(t)
+	beto := h.createUser(t, "Beto", "beto@example.com", "secret")
+	h.seedTicket(t, "Login page down", nil)
+	h.assignTicket(t, 1, beto.ID)
+
+	rec := h.postForm(t, "/tickets/1/edit", url.Values{"priority": {"urgent"}}, true)
+
+	if rec.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("status = %d, want 422", rec.Code)
+	}
+	body := rec.Body.String()
+	if !strings.Contains(body, domain.ErrMsgInvalidPriority) {
+		t.Errorf("re-render must show %q, got: %s", domain.ErrMsgInvalidPriority, body)
+	}
+	if !strings.Contains(body, `id="ticket-title" name="title" value="Login page down"`) {
+		t.Errorf("error re-render must keep the persisted title, got: %s", body)
+	}
+	selected := `<option value="` + strconv.FormatInt(beto.ID, 10) + `" selected>`
+	if !strings.Contains(body, selected) {
+		t.Errorf("error re-render must keep the assigned user selected, want %q, got: %s", selected, body)
+	}
+}
+
+// TestTicketEditEmptyTitleStillRejected proves change 1 did not soften the
+// existing rule: a request that DOES carry an empty title is still rejected as
+// a title validation error.
+func TestTicketEditEmptyTitleStillRejected(t *testing.T) {
+	h := newHarness(t)
+	h.seedTicket(t, "Login page down", nil)
+
+	rec := h.postForm(t, "/tickets/1/edit", url.Values{"title": {""}, "priority": {"high"}}, true)
+
+	if rec.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("status = %d, want 422", rec.Code)
+	}
+	if !strings.Contains(rec.Body.String(), domain.ErrMsgTitleRequired) {
+		t.Errorf("re-render must show %q, got: %s", domain.ErrMsgTitleRequired, rec.Body.String())
+	}
+	view, err := h.tickets.GetByID(t.Context(), *h.admin, 1)
+	if err != nil || view.Ticket.Title != "Login page down" || view.Ticket.Priority != domain.PriorityMedium {
+		t.Errorf("rejected blank title must change nothing (title=%q priority=%q err=%v)", view.Ticket.Title, view.Ticket.Priority, err)
+	}
+}
+
 // TestTicketEditTimelineResolvesAssignedUserName proves the assignment
 // event resolves the assigned user's name on the timeline — the assignment
 // now flows through POST /tickets/{id}/assign (S4: the single assignment
