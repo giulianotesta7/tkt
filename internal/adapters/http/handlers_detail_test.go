@@ -862,15 +862,29 @@ func renderedControlValue(form, name string) string {
 }
 
 // TestTicketDetailEditControlsRequireExplicitSubmit proves the rendered detail
-// fragment no longer mutates on `change`: neither `requestSubmit` nor `onchange`
-// survives, each mutating form carries ONLY its own field, and the priority,
-// assignment and transition forms each expose an explicit submit button.
+// fragment no longer mutates on `change`: no `onchange`, `hx-trigger`, or
+// external `form=` association survives, each mutating form carries ONLY its
+// own field, and the priority, assignment and transition forms each expose an
+// explicit submit button.
+//
+// The `requestSubmit` ban this test used to carry held while no script needed
+// to submit a form programmatically. The title guard introduced the one
+// legitimate use: a discard or a consented save submits the pending form from
+// a dialog button, which is an explicit act, never a change-driven autosave.
+//
+// The `onchange` ban proves the change-alone contract at the attribute level,
+// and the `hx-trigger` ban closes the equivalent vacuity gap: an htmx
+// `hx-trigger="change"` autosave carries no `onchange` attribute and would
+// otherwise pass every rendered-markup assertion. The `form=` ban closes a
+// second gap: a hidden sibling associated with a form from OUTSIDE the block
+// renderedFormBlock scans would be submitted by a browser but excluded from
+// the derived POST body, so the two would silently disagree.
 func TestTicketDetailEditControlsRequireExplicitSubmit(t *testing.T) {
 	h := newHarness(t)
 	h.seedTicket(t, "Login page down", nil)
 	body := h.get(t, "/tickets/1", true).Body.String()
 
-	for _, banned := range []string{"requestSubmit", "onchange"} {
+	for _, banned := range []string{"onchange", "hx-trigger", `form="`} {
 		if strings.Contains(body, banned) {
 			t.Errorf("detail fragment must not contain %q, got: %s", banned, body)
 		}
@@ -893,6 +907,41 @@ func TestTicketDetailEditControlsRequireExplicitSubmit(t *testing.T) {
 		block := renderedFormBlock(t, body, tc.marker)
 		if !strings.Contains(block, "<button") || !strings.Contains(block, `type="submit"`) {
 			t.Errorf("%s form must contain an explicit submit button, got: %s", tc.name, block)
+		}
+	}
+}
+
+// --- #232: the inline title guard against a sibling Apply ------------------
+
+// TestTicketDetailTitleFormAndGuard proves the rendered detail ships the
+// explicit title Save button (hidden until the title is dirty) and the title
+// guard dialog, and that the title form still exposes exactly its own field so
+// a sibling Apply cannot ship the title by accident (#232).
+func TestTicketDetailTitleFormAndGuard(t *testing.T) {
+	h := newHarness(t)
+	h.seedTicket(t, "Login page down", nil)
+	body := h.get(t, "/tickets/1", true).Body.String()
+
+	titleForm := renderedFormBlock(t, body, `id="ticket-title"`)
+	if names := formFieldNames(titleForm); len(names) != 1 || names[0] != "title" {
+		t.Fatalf("title form must expose exactly the title field, got %v (markup: %s)", names, titleForm)
+	}
+	if !strings.Contains(titleForm, `class="btn small title-save" type="submit" hidden>Save</button>`) {
+		t.Errorf("title form must render the hidden Save button, got: %s", titleForm)
+	}
+
+	dialogAt := strings.Index(body, `id="ticket-title-dialog"`)
+	if dialogAt < 0 {
+		t.Fatalf("detail fragment must render #ticket-title-dialog, got: %s", body)
+	}
+	dialogEnd := strings.Index(body[dialogAt:], "</dialog>")
+	if dialogEnd < 0 {
+		t.Fatalf("title guard dialog must be terminated, got: %s", body[dialogAt:])
+	}
+	dialog := body[dialogAt : dialogAt+dialogEnd]
+	for _, hook := range []string{"data-title-discard", "data-title-save-continue"} {
+		if !strings.Contains(dialog, hook) {
+			t.Errorf("title guard dialog must carry %q, got: %s", hook, dialog)
 		}
 	}
 }

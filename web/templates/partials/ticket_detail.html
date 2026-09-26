@@ -9,10 +9,11 @@
         <span class="num">{{ticketNumber .View.Ticket.Number}}</span>
       </div>
 {{if and .CanEdit (not .Closed)}}
-      <form class="title-inline" method="post" action="/tickets/{{.View.Ticket.ID}}/edit"
+      <form class="title-inline title-edit" method="post" action="/tickets/{{.View.Ticket.ID}}/edit"
             hx-post="/tickets/{{.View.Ticket.ID}}/edit" hx-target="#ticket-detail" hx-swap="outerHTML">
         <input type="text" id="ticket-title" name="title" value="{{.Values.Title}}" required
                aria-label="Ticket title" class="title-input">
+        <button class="btn small title-save" type="submit" hidden>Save</button>
       </form>
 {{else}}
       <h1 class="command-title">{{.View.Ticket.Title}}</h1>
@@ -140,6 +141,11 @@
 {{end}}      </div>
     </div>
   </div>
+  <dialog id="ticket-title-dialog" aria-labelledby="ticket-title-dialog-title" aria-describedby="ticket-title-dialog-copy">
+    <h2 id="ticket-title-dialog-title">Save the title first?</h2>
+    <p id="ticket-title-dialog-copy">The ticket title has unsaved changes.</p>
+    <div><button type="button" class="btn" data-title-discard>Discard and continue</button><button type="button" class="btn" data-title-save-continue>Save and continue</button></div>
+  </dialog>
 </div>
 <script>
 // syncReopenReason reveals the reopen-reason group (label + required input)
@@ -160,13 +166,145 @@ function syncReopenReason(select) {
     reason.focus();
   }
 }
+// initTitleEditor guards the inline title against a sibling Apply: any Apply
+// swaps the whole #ticket-detail fragment, so a half-typed title would be
+// silently destroyed. While the title is dirty, a click on one of the three
+// Apply buttons is intercepted and the user chooses whether to save or
+// discard it first. "Save and continue" is two explicit requests on two
+// explicit endpoints: the title form posts only its own field, and only once
+// that save succeeds does the remembered sibling row post its own field on
+// its own endpoint. The title form never carries a sibling field. The sibling
+// submit is issued from htmx:afterRequest on the title form, re-resolves the
+// row from the swapped fragment, and runs htmx.process first so the fresh
+// form's submit goes through htmx rather than a native navigation.
+function initTitleEditor() {
+  const input = document.getElementById('ticket-title');
+  const titleForm = input ? input.form : null;
+  const detail = document.getElementById('ticket-detail');
+  const dialog = document.getElementById('ticket-title-dialog');
+  if (!input || !titleForm || !detail || !dialog) return;
+  const saveButton = titleForm.querySelector('.title-save');
+  const discardButton = dialog.querySelector('[data-title-discard]');
+  const saveContinueButton = dialog.querySelector('[data-title-save-continue]');
+  const initial = input.value;
+  let pendingForm = null;
+  let pendingSelectId = null;
+  let returnFocus = null;
+  const dirty = () => input.value !== initial;
+  const syncSave = () => {
+    if (saveButton) saveButton.hidden = !dirty();
+  };
+  const showDialog = () => {
+    const active = document.activeElement;
+    returnFocus = active && detail.contains(active) && active !== detail ? active : input;
+    if (dialog.showModal) dialog.showModal();
+    else dialog.setAttribute('open', '');
+    if (discardButton) discardButton.focus();
+  };
+  const closeDialog = (restoreFocus) => {
+    if (dialog.open) dialog.close();
+    else dialog.removeAttribute('open');
+    const target = returnFocus;
+    returnFocus = null;
+    if (restoreFocus && target && target.isConnected) target.focus();
+  };
+  input.addEventListener('input', syncSave);
+  syncSave();
+  detail.addEventListener(
+    'click',
+    (event) => {
+      const target = event.target;
+      if (!dirty() || !(target instanceof Element) || target.closest('.title-edit')) return;
+      const button = target.closest('button[type=submit]');
+      const owner = button ? button.form : null;
+      const field = owner ? owner.querySelector('#ticket-priority, #assign-user, #ticket-state') : null;
+      if (!owner || !field) return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      pendingForm = owner;
+      pendingSelectId = field.id;
+      showDialog();
+    },
+    true,
+  );
+  dialog.addEventListener('cancel', () => {
+    pendingForm = null;
+    pendingSelectId = null;
+    closeDialog(true);
+  });
+  if (discardButton) {
+    discardButton.addEventListener('click', () => {
+      input.value = initial;
+      syncSave();
+      const form = pendingForm;
+      pendingForm = null;
+      pendingSelectId = null;
+      closeDialog(false);
+      if (form) form.requestSubmit();
+    });
+  }
+  if (saveContinueButton) {
+    saveContinueButton.addEventListener('click', () => {
+      const form = pendingForm;
+      const selectId = pendingSelectId;
+      pendingForm = null;
+      pendingSelectId = null;
+// Validate BEFORE arming the replay listener and submitting. requestSubmit()
+// runs constraint validation, so an invalid title (e.g. cleared while dirty)
+// would block the submit, no request would be issued, htmx:afterRequest would
+// never fire, and the one-shot listener would stay armed to replay the pending
+// form on a LATER successful title save. Close the dialog back to the title
+// input and surface the invalid state instead, so the operator decides again.
+      if (!titleForm.checkValidity()) {
+        closeDialog(false);
+        input.focus();
+        titleForm.reportValidity();
+        return;
+      }
+      const entries = [];
+      if (form) {
+        for (const control of form.elements) {
+          if (control.name) entries.push([control.name, control.value]);
+        }
+      }
+      closeDialog(false);
+      if (!selectId) return;
+      const submitPending = (event) => {
+        titleForm.removeEventListener('htmx:afterRequest', submitPending);
+        if (!event.detail || event.detail.successful !== true) return;
+        const select = document.getElementById(selectId);
+        const pending = select ? select.form : null;
+        if (!pending) return;
+        for (const [name, value] of entries) {
+          const control = pending.elements.namedItem(name);
+          if (control && 'value' in control) control.value = value;
+        }
+        if (window.htmx && typeof window.htmx.process === 'function') {
+          window.htmx.process(pending);
+        }
+        pending.requestSubmit();
+      };
+      titleForm.addEventListener('htmx:afterRequest', submitPending);
+      titleForm.requestSubmit();
+    });
+  }
+}
 // The ticket_detail partial is re-rendered via hx-swap outerHTML; HTMX
-// re-executes this inline script on every swap. The IIFE reveals the reason
+// re-executes this inline script on every swap. The select resolves against
+// the freshly rendered element, so the change listener is attached to the new
+// select on each swap and cannot accumulate. The IIFE also reveals the reason
 // group when a reason-requiring option was pre-selected (e.g. an error
-// re-render preserved the choice).
+// re-render preserved the choice) and wires the title guard.
 (function () {
   const select = document.getElementById('ticket-state');
-  if (select) syncReopenReason(select);
+  if (select) {
+// Follow the operator's choice again: reveal the reason field for a
+// reason-requiring target and hide it otherwise. This listener only toggles
+// the field and never submits — Apply stays the deliberate act.
+    select.addEventListener('change', () => syncReopenReason(select));
+    syncReopenReason(select);
+  }
+  initTitleEditor();
 })();
 </script>
 {{end}}

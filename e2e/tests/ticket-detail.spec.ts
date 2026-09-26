@@ -9,7 +9,7 @@
  * (internal/adapters/http/handlers_comment_test.go).
  */
 
-import { test, expect, type Page, type Route } from "@playwright/test";
+import { test, expect, type Page, type Request, type Route } from "@playwright/test";
 import { startServer, stopServer } from "../server-lifecycle.js";
 import { loginAsSeeded, base, setSLAEnabled } from "./helpers/auth.js";
 import { assertCanonicalScreen, collectObservability } from "./helpers/layout.js";
@@ -196,6 +196,124 @@ test.describe("Ticket detail", () => {
     });
   });
 
+  test("a closed ticket reopens from Move to once the reason is revealed and applied", async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await loginAsSeeded(page);
+    const title = "Reopen probe " + Date.now().toString(36).slice(2, 8);
+    const id = await createTicketViaUi(page, {
+      title,
+      description: "closed reopen reason journey",
+      category: "General",
+      priority: "high",
+    });
+
+    // Drive the ticket to resolved, then the requester (the creating admin)
+    // confirms, which is the only UI path to `closed`.
+    for (const target of ["in_progress", "resolved"] as const) {
+      await page.goto(base() + `/tickets/${id}`);
+      const moveSelect = page.locator("#ticket-state");
+      await expect(moveSelect).toBeVisible();
+      const resp = await assertHtmxSwap(
+        page,
+        async () => {
+          await moveSelect.selectOption(target);
+          await page.locator("#state-apply").click();
+        },
+        {
+          endpoint: `/tickets/${id}/transition`,
+          method: "POST",
+          expectedStatus: 200,
+          hxTarget: "#ticket-detail",
+        },
+      );
+      expect(resp.status()).toBe(200);
+    }
+    await page.goto(base() + `/tickets/${id}`);
+    const confirmBtn = page.getByRole("button", { name: /Yes, close ticket/i });
+    await expect(confirmBtn).toBeVisible();
+    await assertHtmxSwap(
+      page,
+      async () => {
+        await confirmBtn.click();
+      },
+      {
+        endpoint: `/tickets/${id}/confirmation`,
+        method: "POST",
+        expectedStatus: 200,
+        hxTarget: "#ticket-detail",
+      },
+    );
+    await expect(page.getByText("Closed").first()).toBeVisible({ timeout: 10_000 });
+
+    // On a closed ticket the only Move-to target is the reason-requiring
+    // reopen (`in_progress`). Selecting it must reveal the reason field; the
+    // Apply button stays the only thing that submits.
+    const moveSelect = page.locator("#ticket-state");
+    await expect(moveSelect).toBeVisible();
+    const reasonField = page.locator("#state-reason-field");
+    await expect(reasonField).toBeHidden();
+    await moveSelect.selectOption("in_progress");
+    await expect(reasonField).toBeVisible();
+    const reason = page.locator("#state-reason");
+    await expect(reason).toBeFocused();
+    await expect(reason).toHaveAttribute("required", "");
+
+    // A non-reason target hides the field again: reverting to the placeholder
+    // (the closed ticket's only other choice) toggles it back off.
+    await page.evaluate(() => {
+      const select = document.querySelector("#ticket-state");
+      if (!(select instanceof HTMLSelectElement)) throw new Error("Missing #ticket-state");
+      select.selectedIndex = 0;
+      select.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    await expect(reasonField).toBeHidden();
+    await moveSelect.selectOption("in_progress");
+    await expect(reasonField).toBeVisible();
+
+    // The reopen swap changes the header by design: a closed ticket renders an
+    // h1, an editable in_progress ticket renders the title form. That is the
+    // one swap where assertHtmxSwap's "unchanged h1 chrome" clause cannot
+    // hold, so prove the same HTMX contract inline and assert the header change
+    // as the visible domain result.
+    const navigations: string[] = [];
+    const navigationHandler = (request: Request) => {
+      if (request.isNavigationRequest() && request.frame() === page.mainFrame()) {
+        navigations.push(request.url());
+      }
+    };
+    const reopenReason = `Customer replied ${Date.now().toString(36).slice(2, 6)}`;
+    page.on("request", navigationHandler);
+    try {
+      const urlBefore = page.url();
+      const detailBefore = await page.locator("#ticket-detail").innerHTML();
+      const transitionResponse = page.waitForResponse(
+        (response) =>
+          response.request().method() === "POST" &&
+          response.request().headers()["hx-request"] === "true" &&
+          new URL(response.url()).pathname === `/tickets/${id}/transition`,
+      );
+      await reason.fill(reopenReason);
+      await page.locator("#state-apply").click();
+      const response = await transitionResponse;
+      expect(response.status()).toBe(200);
+      await expect.poll(() => page.locator("#ticket-detail").innerHTML()).not.toBe(detailBefore);
+      expect(page.url()).toBe(urlBefore);
+      expect(navigations, "the reopen swap must not navigate the main frame").toEqual([]);
+      await expect(page.getByText("In Progress").first()).toBeVisible({ timeout: 10_000 });
+      await expect(page.locator("#ticket-title")).toBeVisible();
+      await expect(page.locator("#timeline")).toContainText(reopenReason);
+    } finally {
+      page.removeListener("request", navigationHandler);
+    }
+
+    // The reopen and its reason survive a reload.
+    await page.reload();
+    await expect(page.getByText("In Progress").first()).toBeVisible({ timeout: 10_000 });
+    await expect(page.locator("#timeline")).toContainText(reopenReason);
+  });
+
   test("priority change via HTMX swap updates #ticket-detail without full navigation", async ({
     page,
   }) => {
@@ -249,12 +367,12 @@ test.describe("Ticket detail", () => {
     });
   });
 
-  test("assignment mutates only after Apply, never on change alone", async ({ page }) => {
+  test("detail selects mutate only after Apply, never on change alone", async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 800 });
     await loginAsSeeded(page);
     const id = await createTicketViaUi(page, {
       title: "Apply guard " + Date.now().toString(36).slice(2, 8),
-      description: "assign-select change must not mutate",
+      description: "select change must not mutate",
       category: "General",
       priority: "high",
     });
@@ -263,11 +381,17 @@ test.describe("Ticket detail", () => {
     await expect(assignee).toBeVisible();
 
     const assignPath = `/tickets/${id}/assign`;
+    const editPath = `/tickets/${id}/edit`;
+    const transitionPath = `/tickets/${id}/transition`;
     const assignRequests: string[] = [];
+    const editRequests: string[] = [];
+    const transitionRequests: string[] = [];
     page.on("request", (request) => {
-      if (request.method() === "POST" && new URL(request.url()).pathname === assignPath) {
-        assignRequests.push(request.url());
-      }
+      if (request.method() !== "POST") return;
+      const path = new URL(request.url()).pathname;
+      if (path === assignPath) assignRequests.push(request.url());
+      if (path === editPath) editRequests.push(request.url());
+      if (path === transitionPath) transitionRequests.push(request.url());
     });
 
     // Deterministic: a bubbling `change` event alone must never mutate. The
@@ -279,6 +403,23 @@ test.describe("Ticket detail", () => {
     });
     await page.waitForTimeout(300);
     expect(assignRequests, "change alone must not POST /assign").toEqual([]);
+
+    // The same contract holds for the priority and state controls: a bubbling
+    // change must not POST /edit or /transition. Reintroducing an
+    // hx-trigger="change" autosave would fail exactly here.
+    await page.evaluate(() => {
+      const select = document.querySelector("#ticket-priority");
+      if (!select) throw new Error("Missing #ticket-priority");
+      select.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    await page.evaluate(() => {
+      const select = document.querySelector("#ticket-state");
+      if (!select) throw new Error("Missing #ticket-state");
+      select.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    await page.waitForTimeout(300);
+    expect(editRequests, "change alone must not POST /edit").toEqual([]);
+    expect(transitionRequests, "change alone must not POST /transition").toEqual([]);
 
     // Browser-real: on a closed native select Chromium moves the selection on
     // ArrowDown and fires change — the exact reassignment footgun. The value
@@ -314,6 +455,356 @@ test.describe("Ticket detail", () => {
       },
     );
     await expect(assignee).toHaveValue(attemptedAssignee);
+  });
+
+  test("a dirty title guards a sibling Apply and Save and continue ships both fields", async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    const obs = collectObservability(page);
+    await loginAsSeeded(page);
+    const originalTitle = "Title guard " + Date.now().toString(36).slice(2, 8);
+    const id = await createTicketViaUi(page, {
+      title: originalTitle,
+      description: "dirty title priority guard",
+      category: "General",
+      priority: "high",
+    });
+    await page.goto(base() + `/tickets/${id}`);
+
+    const titleInput = page.locator("#ticket-title");
+    await expect(titleInput).toHaveValue(originalTitle);
+    const saveButton = page.locator("form:has(#ticket-title) .title-save");
+    await expect(saveButton).toBeHidden();
+
+    // The Save button mirrors dirtiness exactly: typed value shows it, the
+    // original value hides it again.
+    const editedTitle = `${originalTitle} edited`;
+    await titleInput.fill(editedTitle);
+    await expect(saveButton).toBeVisible();
+    await titleInput.fill(originalTitle);
+    await expect(saveButton).toBeHidden();
+    await titleInput.fill(editedTitle);
+    await expect(saveButton).toBeVisible();
+
+    const editPath = `/tickets/${id}/edit`;
+    const posts: {
+      path: string;
+      body: URLSearchParams;
+      htmx: string | undefined;
+      target: string | undefined;
+    }[] = [];
+    const editResponses: number[] = [];
+    const navigations: { method: string; url: string }[] = [];
+    const detailUrl = page.url();
+    page.on("request", (request) => {
+      if (request.isNavigationRequest() && request.frame() === page.mainFrame()) {
+        navigations.push({ method: request.method(), url: request.url() });
+      }
+      if (request.method() !== "POST") return;
+      posts.push({
+        path: new URL(request.url()).pathname,
+        body: new URLSearchParams(request.postData() ?? ""),
+        htmx: request.headers()["hx-request"],
+        target: request.headers()["hx-target"],
+      });
+    });
+    page.on("response", (response) => {
+      if (response.request().method() === "POST" && new URL(response.url()).pathname === editPath) {
+        editResponses.push(response.status());
+      }
+    });
+
+    // A sibling Apply must not silently destroy the typed title: the click is
+    // intercepted and no request is issued until the user answers.
+    await page.locator("#ticket-priority").selectOption("critical");
+    await page.locator("form:has(#ticket-priority)").getByRole("button", { name: "Apply" }).click();
+    const dialog = page.locator("#ticket-title-dialog");
+    await expect(dialog).toBeVisible();
+    await page.waitForTimeout(300);
+    expect(posts, "opening the title guard must not POST").toEqual([]);
+
+    // Consent: two explicit HTMX requests on the same /edit endpoint. The
+    // title posts only its own field first, then the remembered priority row
+    // posts only its own field. Neither request carries the other form's
+    // field, and both swaps stay on the main frame.
+    const detailBefore = await page.locator("#ticket-detail").innerHTML();
+    await dialog.getByRole("button", { name: "Save and continue" }).click();
+
+    await expect
+      .poll(() => posts.length, {
+        message: "Save and continue must issue the title POST then the priority POST",
+      })
+      .toBe(2);
+    await expect.poll(() => editResponses.length).toBe(2);
+    expect(editResponses).toEqual([200, 200]);
+    const [titlePost, priorityPost] = posts;
+    expect(titlePost.path).toBe(editPath);
+    expect(titlePost.htmx).toBe("true");
+    expect(titlePost.target).toBe("ticket-detail");
+    expect(titlePost.body.get("title")).toBe(editedTitle);
+    expect(titlePost.body.has("priority")).toBe(false);
+    expect(priorityPost.path).toBe(editPath);
+    expect(priorityPost.htmx).toBe("true");
+    expect(priorityPost.target).toBe("ticket-detail");
+    expect(priorityPost.body.get("priority")).toBe("critical");
+    expect(priorityPost.body.has("title")).toBe(false);
+
+    // Both swaps mutated the target region in place.
+    await expect.poll(() => page.locator("#ticket-detail").innerHTML()).not.toBe(detailBefore);
+    expect(navigations, "the two swaps must not navigate the main frame").toEqual([]);
+    expect(page.url()).toBe(detailUrl);
+
+    await expect(dialog).toBeHidden();
+    await expect(page.locator("#ticket-title")).toHaveValue(editedTitle);
+    await expect(page.locator("#ticket-priority")).toHaveValue("critical");
+
+    await page.reload();
+    await expect(page.locator("#ticket-title")).toHaveValue(editedTitle);
+    await expect(page.locator("#ticket-priority")).toHaveValue("critical");
+
+    await assertCanonicalScreen(page, {
+      viewport: 1280,
+      label: "ticket detail dirty title guard",
+      url: page.url(),
+      role: "root",
+      consoleErrors: obs.consoleErrors,
+      pageErrors: obs.pageErrors,
+      failedRequests: obs.failedRequests,
+      failedResponses: obs.failedResponses,
+    });
+  });
+
+  test("Save and continue ships the dirty title and the pending assignment on their own endpoints", async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await loginAsSeeded(page);
+    const originalTitle = "Assign guard " + Date.now().toString(36).slice(2, 8);
+    const id = await createTicketViaUi(page, {
+      title: originalTitle,
+      description: "dirty title assignment guard",
+      category: "General",
+      priority: "high",
+    });
+    await page.goto(base() + `/tickets/${id}`);
+
+    const titleInput = page.locator("#ticket-title");
+    await expect(titleInput).toHaveValue(originalTitle);
+    const editedTitle = `${originalTitle} edited`;
+    await titleInput.fill(editedTitle);
+
+    const assignee = page.locator("#assign-user");
+    await expect(assignee).toBeVisible();
+    const currentAssignee = await assignee.inputValue();
+    const assignable = await assignee
+      .locator("option:not([value=''])")
+      .evaluateAll((options) =>
+        options.map((option) => (option as HTMLOptionElement).value).filter((value) => value),
+      );
+    const attemptedAssignee = assignable.find((value) => value !== currentAssignee);
+    if (!attemptedAssignee) {
+      throw new Error(`No alternative assignable user at ${page.url()}`);
+    }
+    await assignee.selectOption(attemptedAssignee);
+
+    const editPath = `/tickets/${id}/edit`;
+    const assignPath = `/tickets/${id}/assign`;
+    const posts: {
+      path: string;
+      body: URLSearchParams;
+      htmx: string | undefined;
+      target: string | undefined;
+    }[] = [];
+    page.on("request", (request) => {
+      if (request.method() !== "POST") return;
+      posts.push({
+        path: new URL(request.url()).pathname,
+        body: new URLSearchParams(request.postData() ?? ""),
+        htmx: request.headers()["hx-request"],
+        target: request.headers()["hx-target"],
+      });
+    });
+
+    // A sibling Apply with a dirty title is intercepted: nothing is posted
+    // until the operator answers the guard.
+    await page.locator("form:has(#assign-user)").getByRole("button", { name: "Apply" }).click();
+    const dialog = page.locator("#ticket-title-dialog");
+    await expect(dialog).toBeVisible();
+    await page.waitForTimeout(300);
+    expect(posts, "opening the title guard must not POST").toEqual([]);
+
+    // Save and continue must ship the title on its own endpoint, then the
+    // remembered assignment on ITS endpoint. Before the fix the /edit copy
+    // loop dropped the assignment while still rendering "Saved".
+    const titleResponse = page.waitForResponse(
+      (response) =>
+        response.request().method() === "POST" && new URL(response.url()).pathname === editPath,
+    );
+    await dialog.getByRole("button", { name: "Save and continue" }).click();
+    expect((await titleResponse).status()).toBe(200);
+
+    await expect(dialog).toBeHidden();
+    await expect(page.locator("#ticket-title")).toHaveValue(editedTitle);
+    await expect(page.locator("#assign-user")).toHaveValue(attemptedAssignee);
+
+    await expect
+      .poll(() => posts.map((post) => post.path), {
+        message: "Save and continue must issue the title POST then the assignment POST",
+      })
+      .toEqual([editPath, assignPath]);
+    const [titlePost, assignPost] = posts;
+    expect(titlePost.htmx).toBe("true");
+    expect(titlePost.target).toBe("ticket-detail");
+    expect(titlePost.body.get("title")).toBe(editedTitle);
+    expect(titlePost.body.has("user_id")).toBe(false);
+    expect(assignPost.htmx).toBe("true");
+    expect(assignPost.target).toBe("ticket-detail");
+    expect(assignPost.body.get("user_id")).toBe(attemptedAssignee);
+    expect(assignPost.body.has("title")).toBe(false);
+
+    await page.reload();
+    await expect(page.locator("#ticket-title")).toHaveValue(editedTitle);
+    await expect(page.locator("#assign-user")).toHaveValue(attemptedAssignee);
+  });
+
+  test("Save and continue ships the dirty title and the pending transition on their own endpoints", async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await loginAsSeeded(page);
+    const originalTitle = "State guard " + Date.now().toString(36).slice(2, 8);
+    const id = await createTicketViaUi(page, {
+      title: originalTitle,
+      description: "dirty title transition guard",
+      category: "General",
+      priority: "high",
+    });
+    await page.goto(base() + `/tickets/${id}`);
+
+    const titleInput = page.locator("#ticket-title");
+    await expect(titleInput).toHaveValue(originalTitle);
+    const editedTitle = `${originalTitle} edited`;
+    await titleInput.fill(editedTitle);
+
+    const moveSelect = page.locator("#ticket-state");
+    await expect(moveSelect).toBeVisible();
+    await moveSelect.selectOption("in_progress");
+
+    const editPath = `/tickets/${id}/edit`;
+    const transitionPath = `/tickets/${id}/transition`;
+    const posts: {
+      path: string;
+      body: URLSearchParams;
+      htmx: string | undefined;
+      target: string | undefined;
+    }[] = [];
+    page.on("request", (request) => {
+      if (request.method() !== "POST") return;
+      posts.push({
+        path: new URL(request.url()).pathname,
+        body: new URLSearchParams(request.postData() ?? ""),
+        htmx: request.headers()["hx-request"],
+        target: request.headers()["hx-target"],
+      });
+    });
+
+    await page.locator("#state-apply").click();
+    const dialog = page.locator("#ticket-title-dialog");
+    await expect(dialog).toBeVisible();
+    await page.waitForTimeout(300);
+    expect(posts, "opening the title guard must not POST").toEqual([]);
+
+    const titleResponse = page.waitForResponse(
+      (response) =>
+        response.request().method() === "POST" && new URL(response.url()).pathname === editPath,
+    );
+    await dialog.getByRole("button", { name: "Save and continue" }).click();
+    expect((await titleResponse).status()).toBe(200);
+
+    await expect(dialog).toBeHidden();
+    await expect(page.locator("#ticket-title")).toHaveValue(editedTitle);
+    await expect(page.locator("#ticket-detail .badge.in_progress")).toBeVisible();
+
+    await expect
+      .poll(() => posts.map((post) => post.path), {
+        message: "Save and continue must issue the title POST then the transition POST",
+      })
+      .toEqual([editPath, transitionPath]);
+    const [titlePost, transitionPost] = posts;
+    expect(titlePost.htmx).toBe("true");
+    expect(titlePost.target).toBe("ticket-detail");
+    expect(titlePost.body.get("title")).toBe(editedTitle);
+    expect(transitionPost.htmx).toBe("true");
+    expect(transitionPost.target).toBe("ticket-detail");
+    expect(transitionPost.body.get("to")).toBe("in_progress");
+    expect(transitionPost.body.has("title")).toBe(false);
+
+    await page.reload();
+    await expect(page.locator("#ticket-title")).toHaveValue(editedTitle);
+    await expect(page.locator("#ticket-detail .badge.in_progress")).toBeVisible();
+  });
+
+  test("Discard and continue lets the assignee Apply proceed and keeps the title", async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    const obs = collectObservability(page);
+    await loginAsSeeded(page);
+    const originalTitle = "Discard guard " + Date.now().toString(36).slice(2, 8);
+    const id = await createTicketViaUi(page, {
+      title: originalTitle,
+      description: "dirty title assign discard guard",
+      category: "General",
+      priority: "high",
+    });
+    await page.goto(base() + `/tickets/${id}`);
+
+    const titleInput = page.locator("#ticket-title");
+    await titleInput.fill(`${originalTitle} unsaved`);
+
+    const assignee = page.locator("#assign-user");
+    const attemptedAssignee = await assignee
+      .locator("option:not([value=''])")
+      .first()
+      .getAttribute("value");
+    if (!attemptedAssignee) throw new Error(`No assignable user at ${page.url()}`);
+    await assignee.selectOption(attemptedAssignee);
+
+    await page.locator("form:has(#assign-user)").getByRole("button", { name: "Apply" }).click();
+    const dialog = page.locator("#ticket-title-dialog");
+    await expect(dialog).toBeVisible();
+
+    // Discard restores the persisted title, then submits the pending assign
+    // form exactly as the explicit Apply would have.
+    await assertHtmxSwap(
+      page,
+      async () => {
+        await dialog.getByRole("button", { name: "Discard and continue" }).click();
+      },
+      {
+        endpoint: `/tickets/${id}/assign`,
+        method: "POST",
+        expectedStatus: 200,
+        hxTarget: "#ticket-detail",
+      },
+    );
+
+    await expect(page.locator("#assign-user")).toHaveValue(attemptedAssignee);
+    await page.reload();
+    await expect(page.locator("#assign-user")).toHaveValue(attemptedAssignee);
+    await expect(page.locator("#ticket-title")).toHaveValue(originalTitle);
+
+    await assertCanonicalScreen(page, {
+      viewport: 1280,
+      label: "ticket detail dirty title discard",
+      url: page.url(),
+      role: "root",
+      consoleErrors: obs.consoleErrors,
+      pageErrors: obs.pageErrors,
+      failedRequests: obs.failedRequests,
+      failedResponses: obs.failedResponses,
+    });
   });
 
   test("persistent failure survives an unrelated drawer success beyond five seconds", async ({
