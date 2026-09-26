@@ -1039,6 +1039,7 @@ test.describe("Ticket Lifecycle", () => {
       page,
       async () => {
         await moveSelect.selectOption("in_progress");
+        await page.locator("#state-apply").click();
       },
       {
         endpoint: `/tickets/${id}/transition`,
