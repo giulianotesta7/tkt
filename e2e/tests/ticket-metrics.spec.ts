@@ -11,6 +11,7 @@ import { startServer, stopServer, activeServer } from "../server-lifecycle.js";
 import {
   assertNoHorizontalOverflow,
   collectObservability,
+  expectHairlineBorder,
   expectNoConsoleOrPageErrors,
 } from "./helpers/layout.js";
 import { assertHtmxSwap } from "./helpers/htmx.js";
@@ -133,6 +134,12 @@ test.describe("Ticket metrics summary", () => {
     await expect(page.getByRole("heading", { name: "Ticket metrics", level: 1 })).toBeVisible();
     const detail = page.locator("#ticket-metrics-detail-content");
     await expect(detail.getByRole("heading", { name: "Created vs resolved" })).toBeVisible();
+    // The metrics filter Apply is a bare neutral control: pin its hairline
+    // before the first filter swap.
+    await expectHairlineBorder(
+      detail.getByRole("button", { name: "Apply", exact: true }),
+      "metrics filter Apply",
+    );
     await expect(
       metricsPanel(page, "Created vs resolved").locator("svg.ticket-metrics-chart"),
     ).toBeVisible();

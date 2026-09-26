@@ -12,7 +12,11 @@
 import { test, expect, type Page, type Request, type Route } from "@playwright/test";
 import { startServer, stopServer } from "../server-lifecycle.js";
 import { loginAsSeeded, base, setSLAEnabled } from "./helpers/auth.js";
-import { assertCanonicalScreen, collectObservability } from "./helpers/layout.js";
+import {
+  assertCanonicalScreen,
+  collectObservability,
+  expectHairlineBorder,
+} from "./helpers/layout.js";
 import { assertHtmxSwap } from "./helpers/htmx.js";
 import { isHtmxPost } from "./helpers/save-feedback.js";
 import { createTicketViaUi } from "./helpers/navigation.js";
@@ -380,6 +384,17 @@ test.describe("Ticket detail", () => {
     const assignee = page.locator("#assign-user");
     await expect(assignee).toBeVisible();
 
+    // A neutral control must draw its own edge: the shared button paints a white
+    // surface, so a missing hairline leaves it indistinguishable from the label
+    // beside it. Read the computed value — no screenshot reveals a 1px border —
+    // and pin it against the --line token and the button's own background: a
+    // white hairline on the white card is what a transparency check misses.
+    for (const row of ["#ticket-priority", "#assign-user", "#ticket-state"]) {
+      const apply = page.locator(`form:has(${row})`).getByRole("button", { name: "Apply" });
+      await expect(apply).toBeVisible();
+      await expectHairlineBorder(apply, `${row} Apply`);
+    }
+
     const assignPath = `/tickets/${id}/assign`;
     const editPath = `/tickets/${id}/edit`;
     const transitionPath = `/tickets/${id}/transition`;
@@ -486,6 +501,7 @@ test.describe("Ticket detail", () => {
     await expect(saveButton).toBeHidden();
     await titleInput.fill(editedTitle);
     await expect(saveButton).toBeVisible();
+    await expectHairlineBorder(saveButton, "detail title Save");
 
     const editPath = `/tickets/${id}/edit`;
     const posts: {
@@ -521,6 +537,14 @@ test.describe("Ticket detail", () => {
     await page.locator("form:has(#ticket-priority)").getByRole("button", { name: "Apply" }).click();
     const dialog = page.locator("#ticket-title-dialog");
     await expect(dialog).toBeVisible();
+    await expectHairlineBorder(
+      dialog.getByRole("button", { name: "Save and continue" }),
+      "title guard dialog Save and continue",
+    );
+    // Discard is the danger twin: a FILLED control (styles.html:195 — border and
+    // background both var(--red)), whose contrast comes from its fill, so the
+    // hairline-vs-own-background contract does not apply; and its border-color is
+    // ID-pinned, so the .btn base mutation cannot reach it either.
     await page.waitForTimeout(300);
     expect(posts, "opening the title guard must not POST").toEqual([]);
 

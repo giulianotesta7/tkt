@@ -1,4 +1,4 @@
-import { expect, type Page } from "@playwright/test";
+import { expect, type Locator, type Page } from "@playwright/test";
 
 /**
  * Structural baseline helper — shared across every canonical screen.
@@ -205,6 +205,72 @@ export async function expectDesignSystem(page: Page): Promise<void> {
     seen.loadedFamilies,
     "the vendored typeface must actually load; declaring a family is not loading one",
   ).toContain("Inter");
+}
+
+/**
+ * A bare neutral control must draw an edge the eye can actually see. The shared `.btn` paints
+ * `background:var(--card)`, and `--card`/`--surface`/`--bg` are all `#FFFFFF`, so the defect this
+ * helper exists for — `.btn` drawing `border:1px solid var(--card)` — is a WHITE hairline on the
+ * WHITE surface: still `1px`, still not `transparent`, and completely invisible. A check that
+ * only rejects `transparent` (and only reads the top side) passes straight through it, so this
+ * pins the contract three ways:
+ *
+ *  - the `--line` token is normalised through a throwaway probe element before comparing: the
+ *    authored token serialises as `rgb(0 0 0 / 10%)` while a computed `borderTopColor` never
+ *    does, so raw token text must never be compared against a computed value;
+ *  - all FOUR sides must equal that normalised colour at exactly `1px`, not just the top;
+ *  - each side must DIFFER from the element's own computed `backgroundColor` — the assertion
+ *    that actually catches white-on-white, whichever token produced it.
+ *
+ * Do NOT call this on `.btn.primary`: by design its border and background are BOTH
+ * `var(--accent)`, so the differs-from-background rule would fail a correct element.
+ *
+ * The assertions are soft so one journey run inventories every broken call site instead of
+ * stopping at the first button; the test still fails either way. The label names the control in
+ * every message.
+ */
+export async function expectHairlineBorder(locator: Locator, label: string): Promise<void> {
+  const edge = await locator.evaluate((el) => {
+    const token = getComputedStyle(document.documentElement).getPropertyValue("--line").trim();
+    // Resolve the token through a real border: reading it back from a computed style is the
+    // only form that is safe to compare against another computed colour.
+    const probe = document.createElement("span");
+    probe.style.borderTop = `1px solid ${token}`;
+    document.body.append(probe);
+    const line = getComputedStyle(probe).borderTopColor;
+    probe.remove();
+
+    const style = getComputedStyle(el);
+    return {
+      line,
+      background: style.backgroundColor,
+      colors: {
+        top: style.borderTopColor,
+        right: style.borderRightColor,
+        bottom: style.borderBottomColor,
+        left: style.borderLeftColor,
+      },
+      widths: {
+        top: style.borderTopWidth,
+        right: style.borderRightWidth,
+        bottom: style.borderBottomWidth,
+        left: style.borderLeftWidth,
+      },
+    };
+  });
+
+  for (const side of ["top", "right", "bottom", "left"] as const) {
+    expect.soft(edge.widths[side], `${label}: the ${side} edge must be a 1px hairline`).toBe("1px");
+    expect
+      .soft(edge.colors[side], `${label}: the ${side} edge must be the --line hairline`)
+      .toBe(edge.line);
+    expect
+      .soft(
+        edge.colors[side],
+        `${label}: the ${side} edge must differ from the element's own background; a matching edge is invisible`,
+      )
+      .not.toBe(edge.background);
+  }
 }
 
 export async function assertCanonicalScreen(

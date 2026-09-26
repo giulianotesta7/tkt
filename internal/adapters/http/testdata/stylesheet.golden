@@ -78,11 +78,11 @@
 
   .btn{
     display:inline-flex;align-items:center;gap:8px;height:36px;padding:0 14px;
-    border-radius:8px;border:1px solid transparent;cursor:pointer;
+    border-radius:8px;border:1px solid var(--line);cursor:pointer;
     font-size:13px;font-weight:500;color:var(--ink-soft);background:var(--card);
   }
   .btn:hover{text-decoration:none;filter:brightness(0.97)}
-  .btn.primary{background:var(--accent);color:var(--surface)}
+  .btn.primary{border-color:var(--accent);background:var(--accent);color:var(--surface)}
   .btn.primary:hover{filter:brightness(1.08)}
   .btn.ghost{background:var(--surface);border-color:var(--line)}
   .btn.danger{color:var(--red);background:var(--card)}
@@ -208,8 +208,8 @@
     transition:border-color .12s ease,box-shadow .12s ease;
   }
   .prop-select:hover{border-color:var(--line-strong)}
-  .transition-control{display:flex;flex-direction:column;align-items:flex-end;gap:8px}
-  .state-reason-field{display:none;flex-direction:column;gap:5px;width:220px}
+  .transition-control{display:flex;flex-direction:row;flex-wrap:wrap;align-items:center;justify-content:flex-end;gap:6px}
+  .state-reason-field{display:none;flex-direction:column;gap:5px;flex:1 1 100%}
   .state-reason-field.visible{display:flex}
   .state-reason-field label{font-size:12px;font-weight:600;color:var(--muted);letter-spacing:0;}
   .state-reason{

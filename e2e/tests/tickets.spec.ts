@@ -10,7 +10,11 @@
 
 import { test, expect } from "@playwright/test";
 import { startServer, stopServer, activeServer } from "../server-lifecycle.js";
-import { assertCanonicalScreen, collectObservability } from "./helpers/layout.js";
+import {
+  assertCanonicalScreen,
+  collectObservability,
+  expectHairlineBorder,
+} from "./helpers/layout.js";
 import { createTicketViaUi } from "./helpers/navigation.js";
 import { waitForExactPost } from "./helpers/network.js";
 import { assertHtmxSwap } from "./helpers/htmx.js";
@@ -645,6 +649,13 @@ test.describe("Ticket Lifecycle", () => {
     ]) {
       await expect(ticketSearchIcon).toHaveAttribute(name, value);
     }
+
+    // The list filter Apply is a bare neutral control: pin its hairline against
+    // the --line token and its own background before the journey arms the form.
+    await expectHairlineBorder(
+      page.getByRole("button", { name: "Apply", exact: true }),
+      "ticket list filter Apply",
+    );
 
     // 1. Search for the unique title — filtered result visible.
     // Fill and submit inside the trigger so the interceptor is armed before

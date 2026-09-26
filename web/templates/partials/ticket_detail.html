@@ -111,12 +111,12 @@
                 <option value="" disabled selected>Select…</option>
                 {{range .Next}}<option value="{{.To}}"{{if eq (printf "%s" .To) $.SelectedTo}} selected{{end}}{{if .NeedsReason}} data-needs-reason{{end}}>{{humanize .To}}{{if .NeedsReason}} (reason required){{end}}</option>{{end}}
               </select>
+              <button type="submit" id="state-apply" class="btn small state-apply">Apply</button>
               <div id="state-reason-field" class="state-reason-field">
                 <label for="state-reason">Reopen reason</label>
                 <input type="text" id="state-reason" name="reason" class="state-reason"
                        placeholder="Required" required>
               </div>
-              <button type="submit" id="state-apply" class="btn small state-apply">Apply</button>
             </form>
           </div>
 {{end}}
