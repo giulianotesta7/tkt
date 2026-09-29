@@ -35,6 +35,11 @@ const (
 	ErrMsgCategoryWorkflowUnavailable = "category is not available for new tickets — publish its workflow first"
 	ErrMsgCreateUnassignedOnly        = "tickets are created unassigned — assignment happens later through the category flow"
 	ErrMsgSolutionTooLong             = "solution must be 2,000 characters or fewer"
+	// ErrMsgCategoryNotRunnable is read by the REQUESTER on the ticket form and by
+	// an agent on a stalled step, so it names no mechanism and points at the only
+	// person who can act. One wording covers both: the cause is the same category
+	// fact — nobody available to take its tickets.
+	ErrMsgCategoryNotRunnable = "no one can take tickets in this category right now — an administrator needs to review it"
 )
 
 // Sentinel errors naming the store contract failures (ports.go uses them as
@@ -47,6 +52,11 @@ var (
 	ErrBootstrapUnavailable     = errors.New("bootstrap unavailable")
 	ErrRootProtected            = errors.New("root protected")
 	ErrWorkflowPositionConflict = errors.New("workflow position conflict")
+	// ErrWorkflowUnrunnable names the store-contract failure where a workflow
+	// cannot advance because nothing can act on its current step. It lives here,
+	// with the other contract sentinels (ErrNotFound, ErrDuplicate, ErrReferenced),
+	// so the adapter can return it and the HTTP layer can map it.
+	ErrWorkflowUnrunnable = errors.New("workflow unrunnable")
 )
 
 // ValidationError reports a field-level validation failure (422).
@@ -228,4 +238,27 @@ func NewWorkflowPositionConflictError(msg string) *WorkflowPositionConflictError
 		msg = "workflow position conflict"
 	}
 	return &WorkflowPositionConflictError{Message: msg}
+}
+
+// WorkflowUnrunnableError reports that a workflow cannot advance because nothing
+// can act on its current step: the desk it routes to has no eligible member, or
+// a human step was reached with nobody assigned.
+//
+// It exists so this state stops arriving at the HTTP layer as an unwrapped
+// sentinel and falling through mapError's default arm to a bare 500. The admin
+// who published it never sees a 500; the requester who pays should not either.
+// The default message is requester-facing, so it names no mechanism.
+type WorkflowUnrunnableError struct {
+	Message string
+}
+
+func (e *WorkflowUnrunnableError) Error() string { return e.Message }
+
+func (e *WorkflowUnrunnableError) Is(target error) bool { return target == ErrWorkflowUnrunnable }
+
+func NewWorkflowUnrunnableError(msg string) *WorkflowUnrunnableError {
+	if msg == "" {
+		msg = ErrMsgCategoryNotRunnable
+	}
+	return &WorkflowUnrunnableError{Message: msg}
 }

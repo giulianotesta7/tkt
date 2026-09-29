@@ -87,15 +87,51 @@ func TestTicketCreatePublishedPinsVersionPersistsAtomically(t *testing.T) {
 	}
 }
 
-// TestTicketCreateLeastLoadedFailureRollsBack proves the UoW refuses an
-// unresolved least_loaded automatic step at creation and that the WHOLE create
-// (ticket, audit, run) rolls back with zero partial rows.
+// TestTicketCreateLeastLoadedPublishRefused proves the GATE. A workflow whose
+// assignment step routes to a desk nobody belongs to is refused at publish:
+// every ticket filed against that category would fail on creation.
+func TestTicketCreateLeastLoadedPublishRefused(t *testing.T) {
+	h := newHarness(t)
+	desk, err := h.desks.Create(t.Context(), *h.admin, "Support")
+	if err != nil {
+		t.Fatalf("create desk: %v", err)
+	}
+	cat, err := h.categories.Create(t.Context(), "Ops")
+	if err != nil {
+		t.Fatalf("create category: %v", err)
+	}
+	def := domain.WorkflowDefinition{{
+		Type:         domain.StepAssignToDesk,
+		AssignToDesk: &domain.AssignToDeskStep{DeskID: desk.ID, Strategy: domain.StrategyLeastLoaded},
+	}}
+	b, err := def.MarshalCanonical()
+	if err != nil {
+		t.Fatalf("canonical: %v", err)
+	}
+	vid, iss, err := h.store.WorkflowStore().Publish(t.Context(), cat.ID, b, nil)
+	if err != nil {
+		t.Fatalf("publish: %v", err)
+	}
+	if vid != 0 || len(iss) == 0 {
+		t.Fatalf("an unrunnable workflow must be refused at publish, got vid=%d issues=%v", vid, iss)
+	}
+	if n := scanOneInt(t, h.rawDB(t), "SELECT COUNT(*) FROM workflow_versions WHERE category_id=?", cat.ID); n != 0 {
+		t.Errorf("a refused publish must write no version, got %d", n)
+	}
+}
+
+// TestTicketCreateLeastLoadedFailureRollsBack proves the RUNTIME guard still
+// holds, because the gate cannot cover everything: a workflow that was healthy
+// when it was published becomes unrunnable the moment the desk loses its last
+// member. That create must roll back with no partial rows, and it must surface
+// the TYPED error — this test used to assert a bare 500, which is the defect.
 func TestTicketCreateLeastLoadedFailureRollsBack(t *testing.T) {
 	h := newHarness(t)
 	desk, err := h.desks.Create(t.Context(), *h.admin, "Support")
 	if err != nil {
 		t.Fatalf("create desk: %v", err)
 	}
+	h.staff(t, desk.ID) // healthy at publish time
 	ops, err := h.categories.Create(t.Context(), "Ops")
 	if err != nil {
 		t.Fatalf("create category: %v", err)
@@ -104,12 +140,18 @@ func TestTicketCreateLeastLoadedFailureRollsBack(t *testing.T) {
 		Type:         domain.StepAssignToDesk,
 		AssignToDesk: &domain.AssignToDeskStep{DeskID: desk.ID, Strategy: domain.StrategyLeastLoaded},
 	}})
+	if err := h.desks.RemoveMember(t.Context(), *h.admin, desk.ID, h.admin.ID); err != nil {
+		t.Fatalf("remove the last desk member: %v", err)
+	}
 
 	form := ticketForm(func(f url.Values) { f.Set("category_id", strconv.FormatInt(ops.ID, 10)) })
 	rec := h.postForm(t, "/tickets", form, false)
 
-	if rec.Code != http.StatusInternalServerError {
-		t.Fatalf("status = %d, want %d for unresolved least_loaded", rec.Code, http.StatusInternalServerError)
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("status = %d, want %d — a typed error, never a bare 500", rec.Code, http.StatusConflict)
+	}
+	if !strings.Contains(rec.Body.String(), domain.ErrMsgCategoryNotRunnable) {
+		t.Errorf("the requester must be told why, got %q", rec.Body.String())
 	}
 	db := h.rawDB(t)
 	if n := scanOneInt(t, db, "SELECT COUNT(*) FROM tickets"); n != 0 {

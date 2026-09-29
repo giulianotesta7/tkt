@@ -209,8 +209,8 @@ func TestWorkflowUoW_LeastLoaded_EmptyDeskRollsBack(t *testing.T) {
 	now := testClock
 	in := buildCreateInput(cat, vid, req, def, leastLoadedCreateOps(1, now), 1, "completed", domain.StateInProgress, &now)
 	_, err = newWorkflowUnitOfWork(s.db).CreateTicketWithRun(context.Background(), in)
-	if !errors.Is(err, ErrLeastLoadedUnresolved) {
-		t.Fatalf("empty desk must fail with ErrLeastLoadedUnresolved, got %v", err)
+	if !errors.Is(err, domain.ErrWorkflowUnrunnable) {
+		t.Fatalf("empty desk must fail with ErrWorkflowUnrunnable, got %v", err)
 	}
 	assertTotalRollback(t, s)
 }
@@ -239,8 +239,8 @@ func TestWorkflowUoW_LeastLoaded_EmptyDeskApplyRollsBackAndRetry(t *testing.T) {
 	plan := buildApplyPlan(tk, vid, def, 0, "", ops, 1, "active", domain.StateInProgress, nil, nil)
 
 	_, err := newWorkflowUnitOfWork(s.db).ApplyWorkflowPlan(context.Background(), plan)
-	if !errors.Is(err, ErrLeastLoadedUnresolved) {
-		t.Fatalf("empty desk apply must fail with ErrLeastLoadedUnresolved, got %v", err)
+	if !errors.Is(err, domain.ErrWorkflowUnrunnable) {
+		t.Fatalf("empty desk apply must fail with ErrWorkflowUnrunnable, got %v", err)
 	}
 	assertApplyNoWrites(t, s, tk)
 

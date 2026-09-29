@@ -786,6 +786,10 @@ func TestCategoryWorkflowBuilder_RED_ExplicitSaveContract(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create category: %v", err)
 	}
+	// The workflow below routes to desk 1 (the migration-seeded General desk).
+	// A desk with no eligible member cannot host an assignment step, so it must
+	// be staffed before the publish this test drives through the handler.
+	h.staff(t, 1)
 	path := "/categories/" + strconv.FormatInt(category.ID, 10) + "/workflow"
 	steps := []bstep{
 		{typ: "manual_task", manual: "a"},
@@ -1194,6 +1198,7 @@ func TestCategoryWorkflowBuilder_FieldBasedPreviewAndPublish(t *testing.T) {
 		if err != nil {
 			t.Fatalf("create desk: %v", err)
 		}
+		h.staff(t, desk.ID)
 		valid := []bstep{
 			{typ: "manual_task", manual: "do it"},
 			{typ: "assign_to_desk", desk: strconv.FormatInt(desk.ID, 10), strategy: "claim"},
