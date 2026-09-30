@@ -605,6 +605,62 @@ test.describe("Ticket Lifecycle", () => {
     await expect(obs.pageErrors).toEqual([]);
   });
 
+  test("an unrunnable published category stays visible, is not a link, and says why", async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    const obs = collectObservability(page);
+    await page.goto(base() + "/login");
+    await page.getByLabel(/email/i).fill("alice@example.com");
+    await page.getByLabel(/password/i).fill("SuperSecret42!");
+    await page.getByRole("button", { name: /log in|sign in/i }).click();
+    await expect(page).toHaveURL(/\/tickets/);
+
+    // "Unstaffed Desk" is seeded staffed, published, then unstaffed: the only
+    // way to reach a published category that cannot move a ticket.
+    await page.goto(base() + "/tickets/new");
+    const unstaffedDesk = page
+      .locator(".catalog-desks .catalog-item")
+      .filter({ has: page.getByText("Unstaffed Desk", { exact: true }) });
+    await expect(unstaffedDesk).toHaveCount(1);
+    await unstaffedDesk.click();
+
+    // The category IS published, so it must not be hidden behind the empty state:
+    // that copy would claim nothing is published while a published category is
+    // right there on screen.
+    await expect(page.getByText("No published categories in this desk yet.")).toHaveCount(0);
+
+    const unavailable = page.locator(".catalog-category.unavailable");
+    await expect(unavailable).toHaveCount(1);
+    await expect(unavailable).toContainText("Unrunnable Requests");
+    await expect(unavailable).toContainText("Can't run · Unstaffed Desk has no active members");
+
+    // Nothing in the column is a link into a form whose submit the create guard
+    // will refuse, so the picker cannot walk the requester into a dead end.
+    await expect(page.locator("a.catalog-category")).toHaveCount(0);
+    await expect(unavailable.locator("a")).toHaveCount(0);
+    await expect(unavailable).toHaveCSS("cursor", "not-allowed");
+
+    // The reason is the whole point of the row, so it must be painted with the
+    // same muted token the description uses — never quieter, and never a token
+    // invented for this one surface. The Go tests cannot see real CSS.
+    const reasonColor = await unavailable
+      .locator(".catalog-category-reason")
+      .evaluate((element) => getComputedStyle(element).color);
+    const descriptionColor = await unavailable
+      .locator("small")
+      .evaluate((element) => getComputedStyle(element).color);
+    expect(reasonColor).toBe(descriptionColor);
+
+    // The row still holds its place at the narrow width instead of overflowing.
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.reload();
+    await expect(page.locator("body")).toHaveJSProperty("scrollWidth", 390);
+    await expect(page.locator(".catalog-category.unavailable")).toHaveCount(1);
+
+    await expect(obs.pageErrors).toEqual([]);
+  });
+
   test("search filter shows filtered results and empty state", async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 800 });
     const obs = collectObservability(page);

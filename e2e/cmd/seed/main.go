@@ -87,6 +87,50 @@ func main() {
 	}
 	log.Printf("legacy category: %s (id=%d)", legacyCategory.Name, legacyCategory.ID)
 
+	// A PUBLISHED category that cannot move a ticket (issue #239). The publish
+	// gate refuses an assignment step on a desk with no eligible member, so the
+	// desk is staffed first, the workflow published, and the member removed: the
+	// only honest way to reach the state, and the one the requester's picker has
+	// to state instead of handing over a dead end.
+	//
+	// The desk lives in a real department on purpose: a desk with no department
+	// sits under the virtual Unassigned group, which the picker only reaches when
+	// no department exists at all, so the fixture would be unreachable there.
+	catalogSvc := application.NewCatalogService(store.CatalogStore(), store.CategoryStore(), clock)
+	departments, err := catalogSvc.ListDepartments(context.Background())
+	if err != nil {
+		log.Fatalf("list departments: %v", err)
+	}
+	if len(departments) == 0 {
+		log.Fatalf("no department to host the unrunnable fixture")
+	}
+	unstaffedDesk, err := catalogSvc.CreateDeskFor(context.Background(), *root, departments[0].ID, "Unstaffed Desk")
+	if err != nil {
+		log.Fatalf("create unstaffed desk: %v", err)
+	}
+	if err := deskSvc.AddMember(context.Background(), *root, unstaffedDesk.ID, root.ID); err != nil {
+		log.Fatalf("staff unstaffed desk: %v", err)
+	}
+	unrunnableCategory, err := catSvc.CreateWithDescription(context.Background(), "Unrunnable Requests", "Published while staffed, then unstaffed", unstaffedDesk.ID)
+	if err != nil {
+		log.Fatalf("create unrunnable category: %v", err)
+	}
+	assignDraft := domain.WorkflowDefinition{{
+		Type:         domain.StepAssignToDesk,
+		AssignToDesk: &domain.AssignToDeskStep{DeskID: unstaffedDesk.ID, Strategy: domain.StrategyLeastLoaded},
+	}}
+	assignIssues, err := workflowSvc.Publish(context.Background(), *root, unrunnableCategory.ID, assignDraft)
+	if err != nil {
+		log.Fatalf("publish unrunnable workflow: %v", err)
+	}
+	if len(assignIssues) > 0 {
+		log.Fatalf("publish unrunnable issues: %v", assignIssues)
+	}
+	if err := deskSvc.RemoveMember(context.Background(), *root, unstaffedDesk.ID, root.ID); err != nil {
+		log.Fatalf("unstaff desk: %v", err)
+	}
+	log.Printf("unrunnable category: %s (id=%d, desk=%d)", unrunnableCategory.Name, unrunnableCategory.ID, unstaffedDesk.ID)
+
 	fmt.Println("seed complete")
 }
 
