@@ -74,8 +74,9 @@ test.describe("Categories", () => {
     });
     await expect(seededDesk).toHaveCount(1);
     await expect(seededDesk).not.toContainText("Department:");
-    await expect(seededDesk).not.toContainText(/\d+\s+categor(?:y|ies)/i);
-    await expect(seededDesk.locator(".category-count")).toHaveCount(0);
+    // The desk row carries its own count now (issue #238, 3/4): nothing else told
+    // you which desk holds the work. This used to assert the opposite.
+    await expect(seededDesk.locator(".category-count")).toContainText(/\d+\s+categor(?:y|ies)/i);
     await expect(seededDesk).toHaveAttribute("href", /department_id=unassigned&desk_id=\d+/);
     await expect(page.locator(".category-level-categories")).toBeVisible();
     await expect(page.locator(".category-level-categories .category-empty")).toContainText(
@@ -246,7 +247,7 @@ test.describe("Categories", () => {
     await page.goto(base() + `${unassignedContext}&desk_id=${legacyDeskID}`);
     const legacyCategoryName = "Legacy Support Category";
     const legacyCategory = page
-      .locator(".category-level-categories .category-structure-item")
+      .locator(".category-level-categories .category-table tbody tr")
       .filter({
         has: page.getByText(legacyCategoryName, { exact: true }),
       });
@@ -513,7 +514,7 @@ test.describe("Categories", () => {
     const name = "Unconfigured " + Date.now();
     await createCategoryViaUi(page, name);
     const row = page
-      .locator(".category-level-categories .category-structure-item")
+      .locator(".category-level-categories .category-table tbody tr")
       .filter({ hasText: name });
     await expect(row.getByText("Not configured", { exact: true })).toBeVisible();
     await expect(row.locator(".category-status-inline")).toBeVisible();
@@ -528,12 +529,12 @@ test.describe("Categories", () => {
     await createCategoryViaUi(page, catName);
     await expect(
       page
-        .locator(".category-level-categories .category-structure-item")
+        .locator(".category-level-categories .category-table tbody tr")
         .filter({ hasText: catName }),
     ).toBeVisible();
 
     const row = page
-      .locator(".category-level-categories .category-structure-item")
+      .locator(".category-level-categories .category-table tbody tr")
       .filter({ hasText: catName });
     await expect(row).toHaveCount(1);
     await row.getByRole("button", { name: /actions for/i }).click();
@@ -550,12 +551,12 @@ test.describe("Categories", () => {
     await expect(page).toHaveURL(/\/categories/);
     await expect(
       page
-        .locator(".category-level-categories .category-structure-item")
+        .locator(".category-level-categories .category-table tbody tr")
         .filter({ hasText: renamed }),
     ).toBeVisible();
 
     const editedRow = page
-      .locator(".category-level-categories .category-structure-item")
+      .locator(".category-level-categories .category-table tbody tr")
       .filter({ hasText: renamed });
     await editedRow.getByRole("button", { name: /actions for/i }).click();
     await editedRow.getByRole("menuitem", { name: "Edit category", exact: true }).click();
@@ -565,12 +566,12 @@ test.describe("Categories", () => {
     await expect(page).toHaveURL(/\/categories/);
     await expect(
       page
-        .locator(".category-level-categories .category-structure-item")
+        .locator(".category-level-categories .category-table tbody tr")
         .filter({ hasText: renamed }),
     ).toBeVisible();
 
     const delRow = page
-      .locator(".category-level-categories .category-structure-item")
+      .locator(".category-level-categories .category-table tbody tr")
       .filter({ hasText: renamed });
     await expect(delRow).toHaveCount(1);
     await delRow.getByRole("button", { name: /actions for/i }).click();
@@ -666,7 +667,7 @@ test.describe("Categories", () => {
     await expect(drawer).toHaveCount(0);
     await expect(
       page
-        .locator(".category-level-categories .category-structure-item")
+        .locator(".category-level-categories .category-table tbody tr")
         .filter({ hasText: categoryName }),
     ).toBeVisible();
   });
@@ -849,7 +850,7 @@ test.describe("Categories", () => {
     await expect(page.getByRole("dialog", { name: /New category/i })).toHaveCount(0);
     await expect(
       page
-        .locator(".category-level-categories .category-structure-item")
+        .locator(".category-level-categories .category-table tbody tr")
         .filter({ hasText: categoryName }),
     ).toBeVisible();
     await expect(feedback).toBeHidden();
@@ -983,7 +984,7 @@ test.describe("Categories", () => {
     const categoryName = "Feedback flow " + Date.now().toString(36).slice(2, 8);
     await createCategoryViaUi(page, categoryName);
     const category = page
-      .locator(".category-level-categories .category-structure-item")
+      .locator(".category-level-categories .category-table tbody tr")
       .filter({ hasText: categoryName });
     const editHref = await category.locator('a[href*="/edit"]').getAttribute("href");
     const categoryID = editHref?.match(/\/categories\/(\d+)\/edit/)?.[1];
@@ -1104,7 +1105,7 @@ test.describe("Categories", () => {
     const categoryName = "Coalesced toast " + Date.now().toString(36).slice(2, 8);
     await createCategoryViaUi(page, categoryName);
     const category = page
-      .locator(".category-level-categories .category-structure-item")
+      .locator(".category-level-categories .category-table tbody tr")
       .filter({ hasText: categoryName });
     const editHref = await category.locator('a[href*="/edit"]').getAttribute("href");
     const categoryID = editHref?.match(/\/categories\/(\d+)\/edit/)?.[1];
@@ -1190,13 +1191,13 @@ test.describe("Categories", () => {
     await createCategoryViaUi(page, catName);
     await expect(
       page
-        .locator(".category-level-categories .category-structure-item")
+        .locator(".category-level-categories .category-table tbody tr")
         .filter({ hasText: catName }),
     ).toBeVisible();
 
     // 2) open its workflow
     const catRow = page
-      .locator(".category-level-categories .category-structure-item")
+      .locator(".category-level-categories .category-table tbody tr")
       .filter({ hasText: catName });
     await expect(catRow).toHaveCount(1);
     const editHref = await catRow.locator('a[href*="/edit"]').getAttribute("href");
@@ -1379,7 +1380,7 @@ test.describe("Categories", () => {
     await page.locator(".category-level-desks .category-structure-row").first().click();
     await expect(
       page
-        .locator(".category-level-categories .category-structure-item")
+        .locator(".category-level-categories .category-table tbody tr")
         .filter({ hasText: catName })
         .locator(".category-status-inline"),
     ).toContainText(/published/i);
@@ -2049,7 +2050,7 @@ test.describe("Categories", () => {
     await categoryResult.click();
     await expect(page).toHaveURL(/department_id=\d+&desk_id=\d+/);
 
-    const rowSelector = ".category-level-categories .category-structure-item";
+    const rowSelector = ".category-level-categories .category-table tbody tr";
     const categoryRow = page
       .locator(rowSelector)
       .filter({ has: page.getByText(categoryName, { exact: true }) });

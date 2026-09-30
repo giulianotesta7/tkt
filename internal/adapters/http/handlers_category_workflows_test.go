@@ -240,6 +240,10 @@ func TestStructureLayout_CSSPinned(t *testing.T) {
 		".category-structure-row-static:hover{background:transparent}",
 		// The level action keeps its label on one line when the columns narrow.
 		".category-level-action{white-space:nowrap;flex-shrink:0}",
+		// The dense level is a table: alignment is the whole point, and the numeric
+		// column is right-aligned with tabular figures so the counts line up.
+		".category-table{width:100%;border-collapse:collapse;table-layout:fixed}",
+		".category-table-num{width:9%;text-align:right;font-variant-numeric:tabular-nums",
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("the categories screen's inline styles must contain %q", want)
@@ -248,9 +252,9 @@ func TestStructureLayout_CSSPinned(t *testing.T) {
 }
 
 func TestCategoryWorkflowStatusBadge_UsesExactCategoryRow(t *testing.T) {
-	// The fixture mirrors the rendered row: the name is a link to the category's
-	// process, and the status sits inside the text block under the description.
-	const body = `<div class="category-structure-item category-structure-item-static"><div class="category-structure-row category-structure-row-static"><span><a class="category-name" href="/categories/1/workflow"><strong>Target category</strong></a><small></small><span class="category-status-inline">Draft · not published</span></span></div></div><div class="category-structure-item category-structure-item-static"><div class="category-structure-row category-structure-row-static"><span><a class="category-name" href="/categories/2/workflow"><strong>Other category</strong></a><small></small><span class="category-status-inline">Published v1</span></span></div></div>`
+	// The fixture mirrors the rendered table row: the name is a link in the first
+	// cell and the status is its own cell.
+	const body = `<td class="category-table-name"><a class="category-name" href="/categories/1/workflow"><strong>Target category</strong></a><small></small></td><td class="category-table-flow"><span class="category-status-inline">Draft · not published</span></td><td class="category-table-name"><a class="category-name" href="/categories/2/workflow"><strong>Other category</strong></a><small></small></td><td class="category-table-flow"><span class="category-status-inline">Published v1</span></td>`
 
 	// The point of the test is that a broad substring must not be able to satisfy
 	// it: "Published" occurs elsewhere in the body, and the extraction must still
@@ -265,10 +269,11 @@ func TestCategoryWorkflowStatusBadge_UsesExactCategoryRow(t *testing.T) {
 
 func categoryStatusBadge(t *testing.T, body, categoryName string) string {
 	t.Helper()
-	// The status now lives INSIDE the row's text block, under the description, and the
-	// category name is the link that opens its process. The extraction still binds to the
-	// exact row for this category name, never to the first row on the page.
-	pattern := `<div class="category-structure-item category-structure-item-static"><div class="category-structure-row category-structure-row-static"><span><a class="category-name" href="/categories/\d+/workflow"><strong>` + regexp.QuoteMeta(categoryName) + `</strong></a><small>[^<]*</small><span class="category-status-inline">([^<]+)</span></span></div>`
+	// The dense level is a table now: the name is a link in the first cell and the
+	// status is its own cell, which is what makes the states scannable. The
+	// extraction still binds to THIS category's row, never to the first one on the
+	// page, and the whitespace between the cells is not assumed.
+	pattern := `<td class="category-table-name"><a class="category-name" href="/categories/\d+/workflow"><strong>` + regexp.QuoteMeta(categoryName) + `</strong></a><small>[^<]*</small></td>\s*<td class="category-table-flow"><span class="category-status-inline">([^<]+)</span></td>`
 	matches := regexp.MustCompile(pattern).FindAllStringSubmatch(body, -1)
 	if len(matches) != 1 {
 		t.Fatalf("category %q must have exactly one status badge row, found %d in: %s", categoryName, len(matches), body)

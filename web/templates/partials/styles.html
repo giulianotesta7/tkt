@@ -631,6 +631,22 @@
       .category-level>header{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;padding:18px 16px 14px;border-bottom:1px solid var(--line)}
       .category-level h2{margin:0;color:var(--ink-strong);font-size:16px}
       .category-level-eyebrow{margin:0 0 4px;color:var(--muted);font-size:12px;letter-spacing:0;}
+      /* The dense level as a table. Alignment is the whole point: the workflow
+         states line up in one column, so they can be scanned instead of hunted
+         across ragged rows, and the open-ticket count becomes visible. Measured
+         before this change, the longest status left its category name 80px. */
+      .category-level-list-table{display:block;padding:0 8px 6px}
+      .category-table{width:100%;border-collapse:collapse;table-layout:fixed}
+      .category-table th{padding:6px 10px 8px;text-align:left;font-size:12px;font-weight:600;color:var(--muted);border-bottom:1px solid var(--line)}
+      .category-table td{padding:11px 10px;border-bottom:1px solid var(--line);vertical-align:top;font-size:13px}
+      .category-table tbody tr:last-child td{border-bottom:0}
+      .category-table-name{width:44%}
+      .category-table-flow{width:33%}
+      .category-table-num{width:9%;text-align:right;font-variant-numeric:tabular-nums;color:var(--ink-soft)}
+      .category-table-act{width:14%;text-align:right}
+      .category-table td>.category-name strong{display:block;font-weight:500;color:var(--ink-strong)}
+      .category-table td>small{display:block;margin-top:2px;color:var(--muted);font-size:12px}
+      .category-table .category-status-inline{display:block;text-align:left}
       .category-level-context{display:none;color:var(--muted);font-size:12px}
       .category-level-context a{color:var(--accent-ink);text-decoration:none}
       .category-level-list{display:grid;gap:2px;padding:10px 8px}
