@@ -139,6 +139,12 @@ type categoryDrawerData struct {
 	ReadError            error
 }
 
+// cannotRunLabel is the ONE place the "cannot run" fact is put into words. The
+// admin's categories screen and the requester's ticket picker both need it, and
+// two compositions of the same fact would drift into two vocabularies for one
+// state — the thing WorkflowSummary exists to prevent.
+func cannotRunLabel(reason string) string { return "Can't run · " + reason }
+
 // categoryBadge is the one line a category row shows for its workflow state.
 //
 // It is composed here, from facts, rather than in the store, so the wording is a
@@ -155,7 +161,7 @@ func categoryBadge(s application.WorkflowSummary) string {
 	case s.CannotRun != "":
 		// Published, and unable to move a ticket. Without this the category looked
 		// exactly like a healthy one while every ticket filed against it failed.
-		return "Can't run · " + s.CannotRun
+		return cannotRunLabel(s.CannotRun)
 	case s.PendingSteps == 1:
 		return fmt.Sprintf("Published v%d · 1 unpublished change", s.Version)
 	case s.PendingSteps > 1:
