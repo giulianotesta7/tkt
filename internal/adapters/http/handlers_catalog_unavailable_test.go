@@ -130,6 +130,57 @@ func TestCatalogUnavailableCategoryStaysVisibleAndExplainsItself(t *testing.T) {
 	}
 }
 
+// TestCatalogPickerIsReachableByAPlainRequester pins the capability boundary
+// this change first broke.
+//
+// The picker is a REQUESTER page: it must not read the admin-gated
+// ListSummaries. When it did, every plain requester got a 500 and the whole
+// create journey disappeared for them — invisible to a test that only ever
+// asked as an admin. The E2E suite caught it; this test holds the line in the
+// Go layer, where the failure costs seconds instead of minutes.
+func TestCatalogPickerIsReachableByAPlainRequester(t *testing.T) {
+	h := newHarness(t)
+	catalog := application.NewCatalogService(h.store.CatalogStore(), h.store.CategoryStore(), h.clock)
+	mux := http.NewServeMux()
+	NewTicketHandlers(h.tickets, h.comments, h.search, h.categories, h.users, h.store.DeskStore(), h.workflows, application.NewWorkflowRunner(h.clock), h.store.WorkflowRunStore(), h.store.WorkflowUnitOfWork(), h.renderer, catalog).Register(mux)
+
+	department, err := catalog.CreateDepartmentFor(t.Context(), *h.admin, "Operations", "Operations department")
+	if err != nil {
+		t.Fatalf("create department: %v", err)
+	}
+	desk, err := catalog.CreateDeskFor(t.Context(), *h.admin, department.ID, "Support")
+	if err != nil {
+		t.Fatalf("create desk: %v", err)
+	}
+	category, err := h.categories.CreateWithDescriptionFor(t.Context(), *h.admin, "Onboarding", "New hire setup", desk.ID)
+	if err != nil {
+		t.Fatalf("create category: %v", err)
+	}
+	h.publishWorkflow(t, category.ID, assignToDeskDef(desk.ID))
+
+	// A plain requester, not the operator the rest of this file uses.
+	requester := h.createUser(t, "Rita Requester", "rita@example.com", "SuperSecret42!")
+	requester.Role = domain.RoleUser
+	if err := h.store.UserStore().Update(t.Context(), requester); err != nil {
+		t.Fatalf("demote fixture requester: %v", err)
+	}
+	cookie := h.loginCookie(t, "rita@example.com", "SuperSecret42!")
+	if cookie == "" {
+		t.Fatal("requester login returned no session cookie")
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/tickets/new", nil)
+	req.Header.Set("Cookie", sessionCookie+"="+cookie)
+	rec := httptest.NewRecorder()
+	h.mw.Wrap(mux).ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("requester picker = %d, want 200: %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(html.UnescapeString(rec.Body.String()), "Choose a category to get started.") {
+		t.Error("requester picker did not render the catalog")
+	}
+}
+
 // TestCatalogUnpublishedCategoryStaysAbsent pins the rule that predates #239:
 // with no published version the category is not offered at all. That is a normal
 // setup state rather than an anomaly, so it does not get the unavailable row —

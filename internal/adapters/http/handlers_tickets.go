@@ -845,8 +845,10 @@ func (h *TicketHandlers) renderCatalog(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// The picker composes the same WorkflowSummary the categories screen does,
-	// instead of a second viability path: one truth, every surface.
-	summaries, err := h.workflows.ListSummaries(ctx, *userFromContext(ctx))
+	// instead of a second viability path: one truth, every surface. It reads the
+	// requester-safe entry point, because this page is open to a plain requester
+	// and the admin-gated ListSummaries would refuse them the whole screen.
+	summaries, err := h.workflows.ListRequesterSummaries(ctx)
 	if err != nil {
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
