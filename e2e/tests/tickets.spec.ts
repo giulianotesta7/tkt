@@ -119,7 +119,7 @@ async function createPublishedHierarchyFixture(
   await categoryDrawer.getByRole("button", { name: /create category/i }).click();
 
   const categoryRow = page
-    .locator(".category-level-categories .category-structure-item")
+    .locator(".category-level-categories .category-table tbody tr")
     .filter({ has: page.getByText(fixture.category, { exact: true }) });
   await expect(categoryRow).toHaveCount(1);
   const categoryHref = await categoryRow.locator('a[href*="/edit"]').getAttribute("href");

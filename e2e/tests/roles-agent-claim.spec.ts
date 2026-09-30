@@ -73,7 +73,7 @@ async function prepareFixtures(page: Page): Promise<void> {
   await page.locator("#category-name").fill(categoryName);
   await page.getByRole("button", { name: /create category/i }).click();
   const catRow = page
-    .locator(".category-level-categories .category-structure-item")
+    .locator(".category-level-categories .category-table tbody tr")
     .filter({ hasText: categoryName });
   await expect(catRow).toHaveCount(1);
   const catHref = await catRow.locator('a[href*="/edit"]').getAttribute("href");

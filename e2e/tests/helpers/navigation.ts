@@ -73,7 +73,7 @@ export async function createCategoryViaUi(page: Page, name: string): Promise<str
   await drawer.getByRole("button", { name: /create category/i }).click();
   await expect(page).toHaveURL(/\/categories/);
   const row = page
-    .locator(".category-level-categories .category-structure-item")
+    .locator(".category-level-categories .category-table tbody tr")
     .filter({ hasText: name });
   await expect(row).toHaveCount(1);
   const editHref = await row.locator('a[href*="/edit"]').first().getAttribute("href");
@@ -102,9 +102,9 @@ async function selectFirstStructureDesk(page: Page): Promise<void> {
  */
 export async function resolveWorkflowHref(page: Page): Promise<string> {
   await selectFirstStructureDesk(page);
-  const rowSelector = '.category-level-categories .category-structure-item:has-text("General")';
+  const rowSelector = '.category-level-categories .category-table tbody tr:has-text("General")';
   const generalRow = page
-    .locator(".category-level-categories .category-structure-item")
+    .locator(".category-level-categories .category-table tbody tr")
     .filter({ has: page.getByText("General", { exact: true }) });
   if ((await generalRow.count()) !== 1) {
     throw new Error(
@@ -152,9 +152,9 @@ export async function resolveCategoryEditHref(
   await expect(page.locator('h1:has-text("Categories")')).toBeVisible({ timeout: 10_000 });
   await selectFirstStructureDesk(page);
 
-  const rowSelector = `.category-level-categories .category-structure-item:has-text("${name}")`;
+  const rowSelector = `.category-level-categories .category-table tbody tr:has-text("${name}")`;
   const row = page
-    .locator(".category-level-categories .category-structure-item")
+    .locator(".category-level-categories .category-table tbody tr")
     .filter({ has: page.getByText(name, { exact: true }) });
   if ((await row.count()) !== 1) {
     throw new Error(

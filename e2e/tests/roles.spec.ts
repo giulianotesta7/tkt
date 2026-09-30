@@ -178,7 +178,7 @@ test.describe("Role — minimal matrix admin / agent / user (seeded)", () => {
     await createCategoryViaUi(page, catName);
     await expect(
       page
-        .locator(".category-level-categories .category-structure-row strong")
+        .locator(".category-level-categories .category-table tbody tr strong")
         .filter({ hasText: catName }),
     ).toBeVisible();
 
