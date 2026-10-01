@@ -3,6 +3,7 @@ package httpadapter
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -391,13 +392,41 @@ func scanOneNullableInt(t *testing.T, db *sql.DB, query string, args ...any) (in
 	return v.Int64, true
 }
 
+// staff makes a desk able to host an assignment step by giving it an eligible
+// member. It is idempotent, so a test may call it both before and after
+// publishing, and the second call is not a failure.
+//
+// It exists because a desk with no eligible member cannot host an assignment
+// step: the publish gate refuses one, since a ticket routed there can never
+// move. Several fixtures used to staff their desk AFTER publishing, which left
+// the workflow unrunnable at the moment it became live.
+func (h *harness) staff(t *testing.T, deskID int64) {
+	t.Helper()
+	err := h.desks.AddMember(t.Context(), *h.admin, deskID, h.admin.ID)
+	if err == nil {
+		return
+	}
+	var dup *domain.DuplicateError
+	if !errors.As(err, &dup) {
+		t.Fatalf("staff desk %d: %v", deskID, err)
+	}
+}
+
 // publishWorkflow publishes a simple valid workflow for a category so that the
 // category becomes available for new tickets (design S5 availability = a
 // published version exists). Tests that merely arrange a working create use
 // this; tests that exercise workflow-create semantics use explicit fixtures.
 // It returns the published immutable version id.
+//
+// Every desk the definition routes to is staffed FIRST, so a fixture cannot
+// publish a workflow its own tickets could never move through.
 func (h *harness) publishWorkflow(t *testing.T, catID int64, def domain.WorkflowDefinition) int64 {
 	t.Helper()
+	for _, st := range def {
+		if st.Type == domain.StepAssignToDesk && st.AssignToDesk != nil {
+			h.staff(t, st.AssignToDesk.DeskID)
+		}
+	}
 	b, err := def.MarshalCanonical()
 	if err != nil {
 		t.Fatalf("canonical workflow: %v", err)

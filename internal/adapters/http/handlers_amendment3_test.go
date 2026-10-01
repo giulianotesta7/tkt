@@ -39,9 +39,7 @@ func TestAmendment3_PinnedClaimUsesEligibleSidebarControl(t *testing.T) {
 		t.Fatal(err)
 	}
 	ticket := seedClaimCategory(t, h, desk.ID, domain.StrategyClaim)
-	if err := h.desks.AddMember(t.Context(), *h.admin, desk.ID, h.admin.ID); err != nil {
-		t.Fatal(err)
-	}
+	h.staff(t, desk.ID)
 
 	body := h.get(t, "/tickets/"+strconv.FormatInt(ticket.ID, 10), false).Body.String()
 	for _, want := range []string{"Desk", "Network", "Assignee", "Assign to me", "/workflow/steps/1/complete"} {

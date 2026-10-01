@@ -79,7 +79,9 @@ func TestWorkflowStore_DraftLifecycle(t *testing.T) {
 func TestWorkflowStore_Publish(t *testing.T) {
 	s := newTestDB(t)
 	c := seedCategory(t, s, "cat-pub")
-	desk := seedDesk(t, s, "DeskPub")
+	// A desk with an eligible member: an assignment step routing to an empty desk
+	// is refused at publish, because a ticket routed there can never move.
+	desk := seedDeskWithMemberNamed(t, s, seedUserRaw(t, s, "Pub Agent", "pub@tkt.test", "agent"), "DeskPub")
 	ws := s.WorkflowStore()
 	_, iss, _ := ws.Publish(context.Background(), c, []byte(`[]`), nil)
 	if len(iss) == 0 {
@@ -150,7 +152,7 @@ func TestWorkflowStore_Summaries(t *testing.T) {
 	cNone := seedCategory(t, s, "none")
 	cDraft := seedCategory(t, s, "draft")
 	cPub := seedCategory(t, s, "pub")
-	desk := seedDesk(t, s, "DeskS")
+	desk := seedDeskWithMemberNamed(t, s, seedUserRaw(t, s, "Sum Agent", "sum@tkt.test", "agent"), "DeskS")
 	ws := s.WorkflowStore()
 	ws.UpsertDraft(context.Background(), cDraft, mustCanon(t, domain.WorkflowDefinition{{Type: domain.StepManualTask, ManualTask: &domain.ManualTaskStep{Instructions: "a"}}}))
 	ws.Publish(context.Background(), cPub, mustCanon(t, domain.WorkflowDefinition{{Type: domain.StepAssignToDesk, AssignToDesk: &domain.AssignToDeskStep{DeskID: desk, Strategy: domain.StrategyClaim}}}), nil)

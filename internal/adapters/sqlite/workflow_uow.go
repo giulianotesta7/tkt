@@ -29,11 +29,18 @@ var _ application.WorkflowUnitOfWork = (*workflowUnitOfWork)(nil)
 
 func newWorkflowUnitOfWork(db *sql.DB) *workflowUnitOfWork { return &workflowUnitOfWork{db: db} }
 
-// ErrLeastLoadedUnresolved is returned when a least_loaded step cannot resolve
-// an assignee inside the transaction (design S6): the desk's candidate pool is
-// empty (no active agent|admin|root member) or selection fails. The entire
-// submit — assignment, state, audits, cursor — rolls back with no partial rows.
-var ErrLeastLoadedUnresolved = errors.New("least_loaded assignment is unresolved")
+// A least_loaded step that cannot resolve an assignee inside the transaction
+// (design S6) — the desk's candidate pool is empty (no active agent|admin|root
+// member), or selection fails — returns domain.WorkflowUnrunnableError, and the
+// entire submit rolls back with no partial rows.
+//
+// The contract sentinel is deliberately NOT declared here any more. It lives in
+// the domain beside ErrNotFound, ErrDuplicate and ErrReferenced, because those
+// are the contract failures the HTTP layer is expected to map. While this one
+// existed only in this package it reached mapError as an unknown error, fell
+// through to the default arm, and answered a bare 500 "Internal server error":
+// the admin who published a workflow that cannot run saw nothing, and the
+// requester who could not file a ticket saw nothing useful.
 
 // CreateTicketWithRun persists the ticket (pinned to the exact expected current
 // version), the created audit, the fresh active run, and the runner-planned
@@ -921,7 +928,7 @@ func validateEmptyOpsCreate(conflict func(string) error, t domain.Ticket, def do
 		return validateCreateResultFacts(conflict, t, in)
 	}
 	if step.Type == domain.StepAssignToDesk && step.AssignToDesk != nil && step.AssignToDesk.Strategy != domain.StrategyClaim {
-		return ErrLeastLoadedUnresolved
+		return domain.NewWorkflowUnrunnableError("")
 	}
 	// Human-pending (claim/form/manual) create-time wait. The run starts awaiting
 	// the FIRST human step and must stay there untouched: the initial waiting
@@ -1048,8 +1055,8 @@ func planHasLeastLoaded(ops []application.WorkflowOperation) bool {
 // leastLoadedAssigneeTx INSIDE the caller's immediate transaction and applies the
 // selected person + state to the ticket copy, then returns the number of
 // operations consumed by THIS group only (the enclosing loop continues with any
-// contiguous automatic groups). An empty desk pool returns ErrLeastLoadedUnresolved
-// so the whole submit rolls back (design S6). expectedTicketID is the ticket id the
+// contiguous automatic groups). An empty desk pool returns
+// domain.WorkflowUnrunnableError so the whole submit rolls back (design S6). expectedTicketID is the ticket id the
 // transition audit must carry (0 = create placeholder). Pure validation — EXECUTION
 // happens in applyWorkflowOperations and never dispatches by step.Type.
 func corroborateLeastLoadedGroup(ctx context.Context, tx *sql.Tx, conflict func(string) error, t *domain.Ticket, step domain.WorkflowStep, expectedTicketID int64, expectedIdx int, ops []application.WorkflowOperation) (int, error) {
@@ -1081,7 +1088,7 @@ func corroborateLeastLoadedGroup(ctx context.Context, tx *sql.Tx, conflict func(
 		return 0, err
 	}
 	if selected == 0 {
-		return 0, ErrLeastLoadedUnresolved
+		return 0, domain.NewWorkflowUnrunnableError("")
 	}
 	// The selection is a persistence-derived fact; apply it to the copy so the
 	// enclosing result-fact validation sees the resulting state (not the exact
@@ -1835,7 +1842,7 @@ func applyWorkflowOperations(ctx context.Context, tx *sql.Tx, t *domain.Ticket, 
 				return err
 			}
 			if selected == 0 {
-				return ErrLeastLoadedUnresolved
+				return domain.NewWorkflowUnrunnableError("")
 			}
 			// The deterministic selection resolves INSIDE the SAME immediate transaction
 			// (design S6): the selected person's contextual workflow_assignment row +

@@ -32,6 +32,7 @@ func mapError(err error) (int, string) {
 		rootProtected    *domain.RootProtectedError
 		forbidden        *domain.ForbiddenError
 		workflowConflict *domain.WorkflowPositionConflictError
+		unrunnable       *domain.WorkflowUnrunnableError
 		badCredentials   *application.InvalidCredentialsError
 	)
 	switch {
@@ -59,6 +60,11 @@ func mapError(err error) (int, string) {
 		return 403, forbidden.Error()
 	case errors.As(err, &workflowConflict):
 		return 422, workflowConflict.Error()
+	case errors.As(err, &unrunnable):
+		// 409, not 500: the request is well formed and the current state of the
+		// category cannot route it. Before the typed error existed this arrived as
+		// an unwrapped sentinel and fell through to the default arm.
+		return 409, unrunnable.Error()
 	case errors.As(err, &badCredentials):
 		return 401, application.ErrMsgInvalidCredentials
 	default:

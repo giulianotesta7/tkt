@@ -145,9 +145,7 @@ func TestTicketWorkflowRuntime_CompletionClaimHasNoCallerFields(t *testing.T) {
 
 	// The actor (harness admin) must be a positioned claimant: add them as a
 	// member of the claim desk so the persisted actor predicate passes.
-	if err := h.desks.AddMember(t.Context(), *h.admin, desk.ID, h.admin.ID); err != nil {
-		t.Fatalf("add admin as desk member: %v", err)
-	}
+	h.staff(t, desk.ID)
 	rec := h.postForm(t, "/tickets/"+id+"/workflow/steps/1/complete", url.Values{}, false)
 	mustHaveCompletionRoute(t, rec, http.StatusOK, "claim posts no caller fields")
 }
@@ -382,9 +380,7 @@ func TestCompleteWorkflow_SolutionBound(t *testing.T) {
 			AssignToDesk: &domain.AssignToDeskStep{DeskID: desk.ID, Strategy: domain.StrategyClaim},
 		}})
 		tkt := h.seedTicket(t, "claim with solution", func(in *application.CreateTicketInput) { in.CategoryID = cat.ID })
-		if err := h.desks.AddMember(t.Context(), *h.admin, desk.ID, h.admin.ID); err != nil {
-			t.Fatalf("add admin as desk member: %v", err)
-		}
+		h.staff(t, desk.ID)
 
 		rec := h.postForm(t, "/tickets/"+strconv.FormatInt(tkt.ID, 10)+"/workflow/steps/1/complete",
 			url.Values{"reason": {"i take it"}, "solution": {"rack"}}, false)

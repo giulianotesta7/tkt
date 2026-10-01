@@ -50,9 +50,7 @@ func TestTicketWorkflowTimelineClaimRendersExactAssignmentLine(t *testing.T) {
 		t.Fatalf("create desk: %v", err)
 	}
 	tkt := seedClaimCategory(t, h, desk.ID, domain.StrategyClaim)
-	if err := h.desks.AddMember(t.Context(), *h.admin, desk.ID, h.admin.ID); err != nil {
-		t.Fatalf("add admin as desk member: %v", err)
-	}
+	h.staff(t, desk.ID)
 
 	rec := h.postForm(t, "/tickets/"+strconv.FormatInt(tkt.ID, 10)+"/workflow/steps/1/complete", url.Values{}, false)
 	if rec.Code != http.StatusOK {
@@ -102,9 +100,7 @@ func TestTicketWorkflowTimelineClaimReassignmentIsReasonless(t *testing.T) {
 	if rec := h.postForm(t, "/tickets/"+id+"/assign", url.Values{"user_id": {strconv.FormatInt(beto.ID, 10)}}, false); rec.Code != http.StatusSeeOther {
 		t.Fatalf("initial assign status = %d, want 303", rec.Code)
 	}
-	if err := h.desks.AddMember(t.Context(), *h.admin, desk.ID, h.admin.ID); err != nil {
-		t.Fatalf("add admin as desk member: %v", err)
-	}
+	h.staff(t, desk.ID)
 	rec := h.postForm(t, "/tickets/"+id+"/workflow/steps/1/complete", url.Values{}, false)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("A→B claim status = %d, want 200: %s", rec.Code, rec.Body.String())
@@ -130,9 +126,7 @@ func TestTicketWorkflowTimelineLeastLoadedAutomaticAssignmentOmitsActor(t *testi
 	}
 	// least_loaded resolves automatically at CREATE time, so the desk must
 	// have a member before the ticket is seeded; no human completion happens.
-	if err := h.desks.AddMember(t.Context(), *h.admin, desk.ID, h.admin.ID); err != nil {
-		t.Fatalf("add admin as desk member: %v", err)
-	}
+	h.staff(t, desk.ID)
 	tkt := seedClaimCategory(t, h, desk.ID, domain.StrategyLeastLoaded)
 
 	body := h.get(t, "/tickets/"+strconv.FormatInt(tkt.ID, 10), false).Body.String()

@@ -98,19 +98,21 @@ func (w *workflowStore) Publish(ctx context.Context, categoryID int64, draft []b
 	if len(iss) > 0 {
 		return 0, iss, nil
 	}
-	for i, st := range def {
-		if st.Type == domain.StepAssignToDesk && st.AssignToDesk != nil {
-			var one int
-			if err := w.db.QueryRowContext(ctx, `SELECT 1 FROM desks WHERE id=?`, st.AssignToDesk.DeskID).Scan(&one); err != nil {
-				if err == sql.ErrNoRows {
-					iss = append(iss, domain.WorkflowValidationIssue{Step: i + 1, Field: "desk_id", Message: fmt.Sprintf("Step %d: choose a desk", i+1)})
-				} else {
-					return 0, nil, fmt.Errorf("sqlite: check desk: %w", err)
-				}
-			}
-		}
+	// The membership rules need desk facts, and this lookup is their only reader:
+	// domain.AssessRunnable owns both rules, so the gate has no second copy.
+	facts, err := w.deskFacts(ctx, def)
+	if err != nil {
+		return 0, nil, err
 	}
-	if len(iss) > 0 {
+	// Only BLOCKERS refuse the publish. A warning describes a workflow that cannot
+	// route on its own, and that is a legitimate manual process in this app:
+	// creation is unassigned-only by requirement, so a human step with no
+	// assignment step before it is how the executor's own fixtures are built.
+	// Refusing those would forbid a working operating model.
+	if iss = def.AssessRunnable(func(deskID int64) (string, int, bool) {
+		f, ok := facts[deskID]
+		return f.name, f.members, ok
+	}).Blockers; len(iss) > 0 {
 		return 0, iss, nil
 	}
 	tx, err := beginImmediate(ctx, w.db, "publish")
@@ -145,6 +147,53 @@ func (w *workflowStore) Publish(ctx context.Context, categoryID int64, draft []b
 	}
 	return vid, nil, nil
 }
+
+// deskFact is one desk's name and the number of members who could actually act on
+// a ticket: active users holding agent, admin or root.
+type deskFact struct {
+	name    string
+	members int
+}
+
+// deskFacts resolves every desk a definition assigns to, once per desk.
+//
+// The eligibility predicate is deliberately the same one the executor's
+// least_loaded selection uses (leastLoadedAssigneeTx: active, agent or above),
+// so the publish gate and the assignment can never disagree about who is
+// available. An absent desk is simply left out of the map, which is what makes
+// the rule report "choose a desk".
+func (w *workflowStore) deskFacts(ctx context.Context, def domain.WorkflowDefinition) (map[int64]deskFact, error) {
+	facts := map[int64]deskFact{}
+	for _, st := range def {
+		if st.Type != domain.StepAssignToDesk || st.AssignToDesk == nil {
+			continue
+		}
+		id := st.AssignToDesk.DeskID
+		if _, seen := facts[id]; seen {
+			continue
+		}
+		var f deskFact
+		err := w.db.QueryRowContext(ctx, `
+			SELECT d.name,
+			       (SELECT COUNT(*)
+			          FROM desk_members dm
+			          JOIN users u ON u.id = dm.user_id
+			         WHERE dm.desk_id = d.id
+			           AND u.active = 1
+			           AND u.role IN ('agent', 'admin', 'root'))
+			  FROM desks d
+			 WHERE d.id = ?`, id).Scan(&f.name, &f.members)
+		if errors.Is(err, sql.ErrNoRows) {
+			continue
+		}
+		if err != nil {
+			return nil, fmt.Errorf("sqlite: read desk facts: %w", err)
+		}
+		facts[id] = f
+	}
+	return facts, nil
+}
+
 func (w *workflowStore) ListSummaries(ctx context.Context) ([]application.WorkflowSummary, error) {
 	rows, err := w.db.QueryContext(ctx, `SELECT c.id, c.name, cw.draft_json, cw.current_version_id, wv.version_no, wv.steps_json FROM categories c LEFT JOIN category_workflows cw ON cw.category_id=c.id LEFT JOIN workflow_versions wv ON wv.id=cw.current_version_id ORDER BY c.id ASC`)
 	if err != nil {

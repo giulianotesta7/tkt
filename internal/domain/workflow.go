@@ -148,6 +148,99 @@ func (d WorkflowDefinition) Validate() []WorkflowValidationIssue {
 	}
 	return issues
 }
+
+// DeskLookup resolves a desk to its name and to the number of members who could
+// actually act on a ticket: active users holding agent, admin or root. That is
+// the same eligibility the executor's least_loaded selection uses, so the gate
+// and the assignment can never disagree about who is available. found=false
+// means no such desk.
+type DeskLookup func(deskID int64) (name string, members int, found bool)
+
+// RunnableAssessment separates the two ways a well-shaped definition can still
+// fail to move tickets, because they have different severities and blocking the
+// wrong one forbids a legitimate process.
+//
+//   - Blockers: the definition can NEVER move a ticket. Publishing it produces a
+//     category whose tickets fail on creation (a least_loaded step on an empty
+//     desk rolls the whole create back) or can never be claimed by anyone. No
+//     amount of operating can rescue it. Publish refuses these.
+//   - Warnings: the definition cannot route ON ITS OWN, but a person can unblock
+//     it. A human step reached before any assignment step means every ticket of
+//     this category waits for someone to put a name on it. That is a real
+//     operating model in this app — creation is unassigned-only by requirement,
+//     and the executor's own runtime tests seed exactly this shape by assigning
+//     the ticket through the audited Assign path. So it is reported, not refused.
+//
+// The distinction is not cosmetic: it is the difference between a workflow that
+// is broken and a workflow that is manual.
+type RunnableAssessment struct {
+	Blockers []WorkflowValidationIssue
+	Warnings []WorkflowValidationIssue
+}
+
+// Runnable reports whether nothing prevents the definition from working at all.
+func (a RunnableAssessment) Runnable() bool { return len(a.Blockers) == 0 }
+
+// AssessRunnable is the ONLY source of these rules. The publish gate refuses the
+// blockers, and the category badge reports them; the builder can show both.
+//
+// It answers a question Validate does not. Validate checks shape — is the step
+// well formed, is the terminal last, are the field keys unique — and a definition
+// can pass every one of those and still be unable to move a single ticket.
+//
+// The issues carry the one-based step position so a surface can anchor each
+// message to the step that caused it.
+func (d WorkflowDefinition) AssessRunnable(desks DeskLookup) RunnableAssessment {
+	var a RunnableAssessment
+	block := func(step int, field, msg string) {
+		a.Blockers = append(a.Blockers, WorkflowValidationIssue{Step: step, Field: field, Message: msg})
+	}
+	warn := func(step int, field, msg string) {
+		a.Warnings = append(a.Warnings, WorkflowValidationIssue{Step: step, Field: field, Message: msg})
+	}
+
+	// assigned reports whether the definition CONTAINS an assignment step before
+	// this point. It is about intent to assign, not about the desk being healthy:
+	// an assignment step pointing at an empty desk is a blocker on its own, and
+	// reporting the human step after it as a second, derivative problem would be
+	// one cause wearing two messages.
+	assigned := false
+	for i, s := range d {
+		n := i + 1
+		switch s.Type {
+		case StepAssignToDesk:
+			assigned = true
+			if s.AssignToDesk == nil {
+				continue // a shape problem, reported by Validate
+			}
+			name, members, found := desks(s.AssignToDesk.DeskID)
+			if !found {
+				block(n, "desk_id", fmt.Sprintf("Step %d: choose a desk", n))
+				continue
+			}
+			if members == 0 {
+				block(n, "desk_id", fmt.Sprintf(
+					"Step %d: nobody can take it — %s has no active members. Add someone to %s, or choose another desk.",
+					n, name, name))
+			}
+		case StepManualTask:
+			if !assigned {
+				warn(n, "type", fmt.Sprintf(
+					"Step %d: every ticket waits here until someone assigns it — no earlier step puts a person on it.", n))
+			}
+		case StepForm:
+			if s.Form != nil && s.Form.Actor == FormActorAssignee && !assigned {
+				warn(n, "actor", fmt.Sprintf(
+					"Step %d: every ticket waits here until someone assigns it — no earlier step puts a person on it.", n))
+			}
+		case StepResolve, StepClose:
+			// A terminal ends the run, so nothing after it is ever reached.
+			return a
+		}
+	}
+	return a
+}
+
 func validateAssign(n int, ad *AssignToDeskStep, add func(int, string, string)) {
 	if ad.DeskID <= 0 {
 		add(n, "desk_id", fmt.Sprintf("Step %d: choose a desk", n))
