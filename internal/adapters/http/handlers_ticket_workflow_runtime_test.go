@@ -41,10 +41,11 @@ func mustHaveCompletionRoute(t *testing.T, rec *httptest.ResponseRecorder, want 
 }
 
 // TestTicketWorkflowRuntime_CreateOptionsPublishedOnly proves GET /tickets/new
-// filters category options through WorkflowStore.ListAvailableCategories: an
+// filters category options through the ONE requester-safe rule
+// (offerRunnableCategories over WorkflowService.ListRequesterSummaries): an
 // existing category without a published workflow is absent for the acting role
-// while a published category remains listable. RED: today collectOptions lists
-// every category, so the unpublished option leaks.
+// while a published category remains listable. RED: collectOptions lists every
+// category, so the unpublished option leaks.
 func TestTicketWorkflowRuntime_CreateOptionsPublishedOnly(t *testing.T) {
 	h := newHarness(t)
 	noWf, err := h.categories.Create(t.Context(), "UnpublishedCat")

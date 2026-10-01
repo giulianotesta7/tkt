@@ -176,7 +176,6 @@ func fixtureTicketFormData() ticketFormData {
 	opts := options{
 		States:          listStates,
 		Priorities:      listPriorities,
-		Categories:      []domain.Category{{ID: 1, Name: "Bugs", CreatedAt: goldenT0}, {ID: 2, Name: "Support", CreatedAt: goldenT0}},
 		Users:           []domain.User{ana},
 		AssignableUsers: []domain.User{ana},
 	}
