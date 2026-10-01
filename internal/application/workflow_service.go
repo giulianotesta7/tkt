@@ -117,6 +117,21 @@ func (s *WorkflowService) ListSummaries(ctx context.Context, actor domain.User) 
 	return s.store.ListSummaries(ctx)
 }
 
+// ListRequesterSummaries is ListSummaries for the REQUESTER-facing surfaces —
+// the ticket picker and, later, the create form's category select. Those pages
+// must not demand an operator capability, and they must not answer "can this
+// category be used?" from a different rule either: the admin's categories
+// screen and the requester's picker read the same computation, so they cannot
+// disagree about a category's state.
+//
+// It is deliberately not a rename of ListAvailableCategories, which answers a
+// narrower question ("is anything published?") for the form's select. That
+// narrower rule still lets a published-but-unrunnable category be chosen there,
+// which the create guard refuses with 409 — see issue #239.
+func (s *WorkflowService) ListRequesterSummaries(ctx context.Context) ([]WorkflowSummary, error) {
+	return s.store.ListSummaries(ctx)
+}
+
 func (s *WorkflowService) ListAvailableCategories(ctx context.Context) ([]domain.Category, error) {
 	return s.store.ListAvailableCategories(ctx)
 }

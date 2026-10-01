@@ -763,12 +763,30 @@ func (h *TicketHandlers) newForm(w http.ResponseWriter, r *http.Request) {
 	h.renderer.Render(w, r, "tickets_new", "ticket_form", data, http.StatusOK)
 }
 
+// catalogCategoryEntry is one row of the requester's category picker.
+//
+// A category that is published but cannot move a ticket stays VISIBLE and
+// explains itself instead of quietly disappearing. Hiding it would leave the
+// column mute, and the picker's empty state ("No published categories in this
+// desk yet.") is server-rendered only when nothing is published at all — so
+// reusing it for a hidden unrunnable category would be a lie: the category IS
+// published, it just cannot run. An unavailable row is deliberately not a link,
+// so the picker never walks the requester into a form whose submit the create
+// guard will refuse.
+type catalogCategoryEntry struct {
+	domain.CatalogCategory
+	// Unavailable marks a published category that cannot move a ticket.
+	Unavailable bool
+	// Reason is why it cannot, in the requester's words. Empty when it can.
+	Reason string
+}
+
 type catalogPageData struct {
 	pageData
 	Departments  []domain.CatalogDepartment
 	Desks        []domain.CatalogDesk
-	Categories   []domain.CatalogCategory
-	Results      []domain.CatalogCategory
+	Categories   []catalogCategoryEntry
+	Results      []catalogCategoryEntry
 	Query        string
 	DepartmentID int64
 	DeskID       int64
@@ -821,38 +839,48 @@ func (h *TicketHandlers) renderCatalog(w http.ResponseWriter, r *http.Request) {
 	if deskID == 0 && len(desks) > 0 {
 		deskID = desks[0].ID
 	}
-	categories, err := h.catalog.ListCategories(ctx, deskID)
+	catalogCategories, err := h.catalog.ListCategories(ctx, deskID)
 	if err != nil {
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
-	available, err := h.workflows.ListAvailableCategories(ctx)
+	// The picker composes the same WorkflowSummary the categories screen does,
+	// instead of a second viability path: one truth, every surface. It reads the
+	// requester-safe entry point, because this page is open to a plain requester
+	// and the admin-gated ListSummaries would refuse them the whole screen.
+	summaries, err := h.workflows.ListRequesterSummaries(ctx)
 	if err != nil {
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
-	allowed := make(map[int64]bool, len(available))
-	for _, c := range available {
-		allowed[c.ID] = true
+	summary := make(map[int64]application.WorkflowSummary, len(summaries))
+	for _, s := range summaries {
+		summary[s.CategoryID] = s
 	}
-	filterAvailable := func(in []domain.CatalogCategory) []domain.CatalogCategory {
-		out := make([]domain.CatalogCategory, 0, len(in))
+	// offer keeps exactly the categories the requester can act on. No published
+	// version leaves the category out, unchanged: that is a normal setup state,
+	// not an anomaly. Published but unable to run keeps it in, marked, so the
+	// picker can say so instead of walking into the create guard's refusal.
+	offer := func(in []domain.CatalogCategory) []catalogCategoryEntry {
+		out := make([]catalogCategoryEntry, 0, len(in))
 		for _, c := range in {
-			if allowed[c.ID] {
-				out = append(out, c)
+			s, ok := summary[c.ID]
+			if !ok || s.Version == 0 {
+				continue
 			}
+			out = append(out, catalogCategoryEntry{CatalogCategory: c, Unavailable: s.CannotRun != "", Reason: cannotRunLabel(s.CannotRun)})
 		}
 		return out
 	}
-	categories = filterAvailable(categories)
-	var results []domain.CatalogCategory
+	categories := offer(catalogCategories)
+	var results []catalogCategoryEntry
 	if q != "" {
-		results, err = h.catalog.Search(ctx, q)
+		found, err := h.catalog.Search(ctx, q)
 		if err != nil {
 			http.Error(w, "Internal server error", http.StatusInternalServerError)
 			return
 		}
-		results = filterAvailable(results)
+		results = offer(found)
 	}
 	breadcrumb := ""
 	for _, d := range departments {

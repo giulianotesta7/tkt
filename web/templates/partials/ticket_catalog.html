@@ -1,5 +1,9 @@
 {{define "ticket_catalog"}}
-<style>.catalog-page .catalog-breadcrumb,.catalog-page .catalog-result small{color:var(--ink-strong)}</style>
+<style>.catalog-page .catalog-breadcrumb,.catalog-page .catalog-result small{color:var(--ink-strong)}
+.catalog-page .catalog-category.unavailable,.catalog-page .catalog-result.unavailable{color:var(--muted);cursor:not-allowed}
+.catalog-page .catalog-category.unavailable:hover,.catalog-page .catalog-result.unavailable:hover{background:transparent;text-decoration:none}
+.catalog-page .catalog-category.unavailable strong,.catalog-page .catalog-result.unavailable strong{color:var(--muted);font-weight:500}
+.catalog-page .catalog-category-reason{display:block;margin-top:4px;color:var(--muted);font-size:12px}</style>
 <div class="catalog-page">
   <div class="command-header">
     <div>
@@ -19,9 +23,15 @@
     <div class="catalog-results" aria-live="polite">
       <h2>Search results</h2>
       {{range .Results}}
+      {{if .Unavailable}}
+      <div class="catalog-result unavailable">
+        <span><strong>{{.Name}}</strong><small>{{.DepartmentName}} / {{.DeskName}}</small><em>{{.Description}}</em><span class="catalog-category-reason">{{.Reason}}</span></span>
+      </div>
+      {{else}}
       <a class="catalog-result" href="/tickets/new?department_id={{.DepartmentID}}&desk_id={{.DeskID}}&category_id={{.ID}}">
         <span><strong>{{.Name}}</strong><small>{{.DepartmentName}} / {{.DeskName}}</small><em>{{.Description}}</em></span><span aria-hidden="true">›</span>
       </a>
+      {{end}}
       {{else}}<p class="empty">No categories match your search.</p>{{end}}
     </div>
   {{end}}
@@ -49,7 +59,11 @@
       {{if .Breadcrumb}}<p class="catalog-breadcrumb">{{.Breadcrumb}}</p>{{end}}
       <div class="catalog-category-list">
       {{range .Categories}}
+        {{if .Unavailable}}
+        <div class="catalog-category unavailable"><span><strong>{{.Name}}</strong><small>{{.Description}}</small><span class="catalog-category-reason">{{.Reason}}</span></span></div>
+        {{else}}
         <a class="catalog-category" href="/tickets/new?department_id={{$.DepartmentID}}&desk_id={{$.DeskID}}&category_id={{.ID}}"><span><strong>{{.Name}}</strong><small>{{.Description}}</small></span><span aria-hidden="true">›</span></a>
+        {{end}}
       {{else}}<p class="empty">No published categories in this desk yet.</p>{{end}}
       </div>
     </section>
