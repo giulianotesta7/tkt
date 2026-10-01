@@ -70,6 +70,10 @@ type WorkflowValidationIssue struct {
 	Step    int
 	Field   string
 	Message string
+	// Reason is the same finding WITHOUT the step prefix, for a surface that names
+	// the step itself: a badge, a table row, a summary line. Message is what the
+	// builder shows beside a step; Reason is what a one-line label can carry.
+	Reason string
 }
 
 func (d WorkflowDefinition) Validate() []WorkflowValidationIssue {
@@ -192,11 +196,13 @@ func (a RunnableAssessment) Runnable() bool { return len(a.Blockers) == 0 }
 // message to the step that caused it.
 func (d WorkflowDefinition) AssessRunnable(desks DeskLookup) RunnableAssessment {
 	var a RunnableAssessment
-	block := func(step int, field, msg string) {
-		a.Blockers = append(a.Blockers, WorkflowValidationIssue{Step: step, Field: field, Message: msg})
+	block := func(step int, field, msg, reason string) {
+		a.Blockers = append(a.Blockers, WorkflowValidationIssue{
+			Step: step, Field: field, Message: msg, Reason: reason})
 	}
-	warn := func(step int, field, msg string) {
-		a.Warnings = append(a.Warnings, WorkflowValidationIssue{Step: step, Field: field, Message: msg})
+	warn := func(step int, field, msg, reason string) {
+		a.Warnings = append(a.Warnings, WorkflowValidationIssue{
+			Step: step, Field: field, Message: msg, Reason: reason})
 	}
 
 	// assigned reports whether the definition CONTAINS an assignment step before
@@ -215,23 +221,31 @@ func (d WorkflowDefinition) AssessRunnable(desks DeskLookup) RunnableAssessment 
 			}
 			name, members, found := desks(s.AssignToDesk.DeskID)
 			if !found {
-				block(n, "desk_id", fmt.Sprintf("Step %d: choose a desk", n))
+				block(n, "desk_id",
+					fmt.Sprintf("Step %d: choose a desk", n),
+					"choose a desk")
 				continue
 			}
 			if members == 0 {
-				block(n, "desk_id", fmt.Sprintf(
-					"Step %d: nobody can take it — %s has no active members. Add someone to %s, or choose another desk.",
-					n, name, name))
+				block(n, "desk_id",
+					fmt.Sprintf(
+						"Step %d: nobody can take it — %s has no active members. Add someone to %s, or choose another desk.",
+						n, name, name),
+					fmt.Sprintf("%s has no active members", name))
 			}
 		case StepManualTask:
 			if !assigned {
-				warn(n, "type", fmt.Sprintf(
-					"Step %d: every ticket waits here until someone assigns it — no earlier step puts a person on it.", n))
+				warn(n, "type",
+					fmt.Sprintf(
+						"Step %d: every ticket waits here until someone assigns it — no earlier step puts a person on it.", n),
+					"needs someone assigned first")
 			}
 		case StepForm:
 			if s.Form != nil && s.Form.Actor == FormActorAssignee && !assigned {
-				warn(n, "actor", fmt.Sprintf(
-					"Step %d: every ticket waits here until someone assigns it — no earlier step puts a person on it.", n))
+				warn(n, "actor",
+					fmt.Sprintf(
+						"Step %d: every ticket waits here until someone assigns it — no earlier step puts a person on it.", n),
+					"needs someone assigned first")
 			}
 		case StepResolve, StepClose:
 			// A terminal ends the run, so nothing after it is ever reached.
@@ -239,6 +253,43 @@ func (d WorkflowDefinition) AssessRunnable(desks DeskLookup) RunnableAssessment 
 		}
 	}
 	return a
+}
+
+// CountChanges reports how many STEPS differ between two definitions, comparing
+// canonical bytes by position and counting a size difference by its magnitude.
+//
+// The unit is deliberately one step rather than one leaf field: it is what a
+// summary line can state honestly ("1 unpublished change") instead of pretending
+// a byte diff is a meaningful business quantity. Two definitions that differ only
+// in whitespace canonicalize the same way and count as no change at all.
+func CountChanges(a, b WorkflowDefinition) int {
+	ca, errA := a.MarshalCanonical()
+	cb, errB := b.MarshalCanonical()
+	if errA != nil || errB != nil {
+		// Unmarshalable definitions cannot be compared. Report a difference so a
+		// caller never reads "no changes" out of two unknown documents.
+		return 1
+	}
+	var da, db []json.RawMessage
+	if len(ca) > 0 {
+		_ = json.Unmarshal(ca, &da)
+	}
+	if len(cb) > 0 {
+		_ = json.Unmarshal(cb, &db)
+	}
+	n := 0
+	if len(da) > len(db) {
+		n += len(da) - len(db)
+	}
+	if len(db) > len(da) {
+		n += len(db) - len(da)
+	}
+	for i := 0; i < len(da) && i < len(db); i++ {
+		if !bytes.Equal(da[i], db[i]) {
+			n++
+		}
+	}
+	return n
 }
 
 func validateAssign(n int, ad *AssignToDeskStep, add func(int, string, string)) {

@@ -542,11 +542,28 @@ type InitialAutomaticPlan struct {
 	NextTicketState domain.State
 }
 
-// WorkflowSummary is the derived badge for the category list (none | Draft | Published).
+// WorkflowSummary is the derived state of one category's workflow, as FACTS
+// rather than as a label, so every surface composes the same truth.
+//
+// It replaces a three-valued Badge string ("none | Draft | Published") that
+// collapsed two genuinely different states into one word: a category published
+// with edits not yet live, and a category never published at all, both read as
+// "Draft". It also could not say that a published category is unable to move a
+// ticket, so a broken category looked exactly like a healthy one.
 type WorkflowSummary struct {
 	CategoryID   int64
 	CategoryName string
-	Badge        string
+	// Version is the live published version number, or 0 when nothing is published.
+	Version int
+	// HasDraft reports whether an unpublished definition exists at all, which is
+	// what separates "draft, never published" from "not configured".
+	HasDraft bool
+	// PendingSteps counts the steps that differ between the draft and the live
+	// version. Non-zero means the live version is not what the draft says.
+	PendingSteps int
+	// CannotRun is the reason the LIVE version cannot move a ticket, or empty when
+	// it can.
+	CannotRun string
 }
 
 // WorkflowStore persists the category workflow draft and published versions (category-workflows spec).

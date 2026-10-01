@@ -2,6 +2,7 @@ package httpadapter
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -135,6 +136,32 @@ type categoryDrawerData struct {
 	InvalidDepartmentID  bool
 	InvalidDeskID        bool
 	ReadError            error
+}
+
+// categoryBadge is the one line a category row shows for its workflow state.
+//
+// It is composed here, from facts, rather than in the store, so the wording is a
+// presentation concern; and it is the only composition, so no surface invents a
+// competing vocabulary. Before this, the store returned one of three words and
+// "published with edits not yet live" rendered as the same "Draft" as "never
+// published" — two different governance states behind one word.
+func categoryBadge(s application.WorkflowSummary) string {
+	switch {
+	case s.Version == 0 && !s.HasDraft:
+		return "Not configured"
+	case s.Version == 0:
+		return "Draft · not published"
+	case s.CannotRun != "":
+		// Published, and unable to move a ticket. Without this the category looked
+		// exactly like a healthy one while every ticket filed against it failed.
+		return "Can't run · " + s.CannotRun
+	case s.PendingSteps == 1:
+		return fmt.Sprintf("Published v%d · 1 unpublished change", s.Version)
+	case s.PendingSteps > 1:
+		return fmt.Sprintf("Published v%d · %d unpublished changes", s.Version, s.PendingSteps)
+	default:
+		return fmt.Sprintf("Published v%d", s.Version)
+	}
 }
 
 func (h *CategoryHandlers) index(w http.ResponseWriter, r *http.Request) {
@@ -500,7 +527,7 @@ func (h *CategoryHandlers) categoryIndexData(r *http.Request, message string) (c
 			return categoriesIndexData{}, summaryErr
 		}
 		for _, summary := range summaries {
-			data.Badges[summary.CategoryID] = summary.Badge
+			data.Badges[summary.CategoryID] = categoryBadge(summary)
 		}
 	}
 	if h.catalog == nil {

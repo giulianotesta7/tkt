@@ -2,10 +2,10 @@ package sqlite
 
 import (
 	"context"
-	"strings"
 	"sync"
 	"testing"
 
+	"github.com/giulianotesta7/tkt/internal/application"
 	"github.com/giulianotesta7/tkt/internal/domain"
 )
 
@@ -157,26 +157,32 @@ func TestWorkflowStore_Summaries(t *testing.T) {
 	ws.UpsertDraft(context.Background(), cDraft, mustCanon(t, domain.WorkflowDefinition{{Type: domain.StepManualTask, ManualTask: &domain.ManualTaskStep{Instructions: "a"}}}))
 	ws.Publish(context.Background(), cPub, mustCanon(t, domain.WorkflowDefinition{{Type: domain.StepAssignToDesk, AssignToDesk: &domain.AssignToDeskStep{DeskID: desk, Strategy: domain.StrategyClaim}}}), nil)
 	sums, _ := ws.ListSummaries(context.Background())
-	m := map[int64]string{}
+	m := map[int64]application.WorkflowSummary{}
 	for _, v := range sums {
-		m[v.CategoryID] = v.Badge
+		m[v.CategoryID] = v
 	}
-	if m[cNone] != "none" || m[cDraft] != "Draft" || m[cPub] != "Published" {
-		t.Fatalf("badges %v", m)
+	// Facts, not three words. "Never published" and "published with edits not yet
+	// live" used to be the SAME value here, which is exactly what the index
+	// rendered as one word.
+	if got := m[cNone]; got.Version != 0 || got.HasDraft || got.PendingSteps != 0 {
+		t.Fatalf("not configured: %+v", got)
 	}
-	if strings.Contains(m[cPub], "v") {
-		t.Fatalf("equal published draft must show exactly Published without vN, got %q", m[cPub])
+	if got := m[cDraft]; got.Version != 0 || !got.HasDraft {
+		t.Fatalf("draft never published: %+v", got)
+	}
+	if got := m[cPub]; got.Version != 1 || !got.HasDraft || got.PendingSteps != 0 {
+		t.Fatalf("a published category whose draft matches its live version has no pending work: %+v", got)
 	}
 	divergent := mustCanon(t, domain.WorkflowDefinition{{Type: domain.StepManualTask, ManualTask: &domain.ManualTaskStep{Instructions: "diff"}}})
 	ws.UpsertDraft(context.Background(), cPub, divergent)
 	sums, _ = ws.ListSummaries(context.Background())
 	for _, v := range sums {
-		if v.CategoryID == cPub && v.Badge != "Draft" {
-			t.Fatalf("diff %q", v.Badge)
+		if v.CategoryID == cPub && v.PendingSteps != 1 {
+			t.Fatalf("one differing step must report exactly 1 pending change: %+v", v)
 		}
 	}
 	// Draft edits never touch immutable versions: rows and numbers stay fixed,
-	// and reconverging the draft restores exactly "Published".
+	// and reconverging the draft restores a state with no pending work.
 	good := mustCanon(t, domain.WorkflowDefinition{{Type: domain.StepAssignToDesk, AssignToDesk: &domain.AssignToDeskStep{DeskID: desk, Strategy: domain.StrategyClaim}}})
 	var vid int64
 	var vno int
@@ -186,8 +192,8 @@ func TestWorkflowStore_Summaries(t *testing.T) {
 	ws.UpsertDraft(context.Background(), cPub, good)
 	sums, _ = ws.ListSummaries(context.Background())
 	for _, v := range sums {
-		if v.CategoryID == cPub && v.Badge != "Published" {
-			t.Fatalf("reconverged draft badge = %q, want exactly Published", v.Badge)
+		if v.CategoryID == cPub && v.PendingSteps != 0 {
+			t.Fatalf("reconverged draft must report no pending work: %+v", v)
 		}
 	}
 	var n int
@@ -199,6 +205,21 @@ func TestWorkflowStore_Summaries(t *testing.T) {
 	if err := s.db.QueryRow(`SELECT wv.id, wv.version_no FROM workflow_versions wv JOIN category_workflows cw ON cw.current_version_id=wv.id WHERE cw.category_id=?`, cPub).Scan(&curID, &curNo); err != nil || curID != vid || curNo != 1 {
 		t.Fatalf("current version pointer must stay immutable, got (%v, %d, %d)", curID, curNo, err)
 	}
+	// The state the publish gate exists to prevent, and the one the index could
+	// not show. Publish can no longer create it — an assignment step on an empty
+	// desk is refused — but operation still can: the desk loses its last member
+	// after a healthy publish. A published category that cannot take tickets MUST
+	// NOT read as a healthy one, or the admin has no way to discover it.
+	if _, err := s.db.Exec(`DELETE FROM desk_members WHERE desk_id=?`, desk); err != nil {
+		t.Fatalf("empty the desk: %v", err)
+	}
+	sums, _ = ws.ListSummaries(context.Background())
+	for _, v := range sums {
+		if v.CategoryID == cPub && v.CannotRun == "" {
+			t.Fatalf("a published category whose desk has no member must say why it cannot run: %+v", v)
+		}
+	}
+
 	avail, _ := ws.ListAvailableCategories(context.Background())
 	ids := map[int64]bool{}
 	for _, c := range avail {

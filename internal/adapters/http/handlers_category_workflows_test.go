@@ -185,6 +185,36 @@ func TestCategoryWorkflowBuilder_SafeGetAuthorizationAndIndex(t *testing.T) {
 	}
 }
 
+// TestCategoryBadge_States pins the whole point of the honest badge: the states
+// a category row must distinguish, two of which the old three-valued badge
+// collapsed into the same word.
+func TestCategoryBadge_States(t *testing.T) {
+	cs := []struct {
+		name string
+		in   application.WorkflowSummary
+		want string
+	}{
+		{"not configured", application.WorkflowSummary{}, "Not configured"},
+		{"draft never published", application.WorkflowSummary{HasDraft: true}, "Draft · not published"},
+		{"published, first version", application.WorkflowSummary{Version: 1, HasDraft: true}, "Published v1"},
+		{"published with one unpublished change", application.WorkflowSummary{Version: 2, HasDraft: true, PendingSteps: 1}, "Published v2 · 1 unpublished change"},
+		{"published with several", application.WorkflowSummary{Version: 3, HasDraft: true, PendingSteps: 4}, "Published v3 · 4 unpublished changes"},
+		{
+			"cannot run outranks pending work", application.WorkflowSummary{
+				Version: 1, HasDraft: true, PendingSteps: 2, CannotRun: "Infra has no active members",
+			},
+			"Can't run · Infra has no active members",
+		},
+	}
+	for _, c := range cs {
+		t.Run(c.name, func(t *testing.T) {
+			if got := categoryBadge(c.in); got != c.want {
+				t.Fatalf("got %q, want %q", got, c.want)
+			}
+		})
+	}
+}
+
 func TestCategoryWorkflowStatusBadge_UsesExactCategoryRow(t *testing.T) {
 	const body = `<div class="category-structure-item category-structure-item-static"><div class="category-structure-row category-structure-row-static"><span><strong>Target category</strong><small></small></span><span class="category-status-inline">Draft</span></div></div><div class="category-structure-item category-structure-item-static"><div class="category-structure-row category-structure-row-static"><span><strong>Other category</strong><small></small></span><span class="category-status-inline">Published</span></div></div>`
 
@@ -386,14 +416,18 @@ func TestCategoryWorkflowBuilder_PreviewPublishAndHTMXParity(t *testing.T) {
 		}
 
 		index := h.get(t, "/categories", false)
-		if got := categoryStatusBadge(t, index.Body.String(), category.Name); got != "Published" {
-			t.Errorf("category %q status = %q, want Published", category.Name, got)
+		// The badge now names the version. A bare "Published" could not tell a
+		// category on its eleventh version from one on its first.
+		if got := categoryStatusBadge(t, index.Body.String(), category.Name); got != "Published v1" {
+			t.Errorf("category %q status = %q, want Published v1", category.Name, got)
 		}
 
 		edited := builderDraft(t, "edited")
 		wantRedirect(t, h.postForm(t, path, builderForm("save", edited), false), http.StatusSeeOther, path)
-		if got := categoryStatusBadge(t, h.get(t, "/categories", false).Body.String(), category.Name); got != "Draft" {
-			t.Errorf("category %q status = %q, want Draft after its draft changes", category.Name, got)
+		// Both steps moved, so both canonical bytes differ by position; the badge
+		// counts differing STEPS, which is what a one-line label can state.
+		if got := categoryStatusBadge(t, h.get(t, "/categories", false).Body.String(), category.Name); got != "Published v1 · 2 unpublished changes" {
+			t.Errorf("category %q status = %q, want the version plus 2 unpublished changes", category.Name, got)
 		}
 	})
 }

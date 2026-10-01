@@ -155,76 +155,127 @@ type deskFact struct {
 	members int
 }
 
-// deskFacts resolves every desk a definition assigns to, once per desk.
+// deskFacts resolves the desks a definition assigns to, once per desk.
 //
-// The eligibility predicate is deliberately the same one the executor's
-// least_loaded selection uses (leastLoadedAssigneeTx: active, agent or above),
-// so the publish gate and the assignment can never disagree about who is
-// available. An absent desk is simply left out of the map, which is what makes
-// the rule report "choose a desk".
+// It delegates to allDeskFacts because the eligibility predicate has to be
+// written once: it must match the executor's least_loaded selection
+// (leastLoadedAssigneeTx: active, agent or above), or the publish gate and the
+// assignment could disagree about who is available.
 func (w *workflowStore) deskFacts(ctx context.Context, def domain.WorkflowDefinition) (map[int64]deskFact, error) {
+	all, err := w.allDeskFacts(ctx)
+	if err != nil {
+		return nil, err
+	}
 	facts := map[int64]deskFact{}
 	for _, st := range def {
 		if st.Type != domain.StepAssignToDesk || st.AssignToDesk == nil {
 			continue
 		}
-		id := st.AssignToDesk.DeskID
-		if _, seen := facts[id]; seen {
-			continue
+		if f, ok := all[st.AssignToDesk.DeskID]; ok {
+			facts[st.AssignToDesk.DeskID] = f
 		}
+	}
+	return facts, nil
+}
+
+// allDeskFacts resolves every desk's name and the number of members who could
+// actually act on a ticket. An absent desk is simply not in the map, which is
+// what makes the rule report "choose a desk".
+func (w *workflowStore) allDeskFacts(ctx context.Context) (map[int64]deskFact, error) {
+	rows, err := w.db.QueryContext(ctx, `
+		SELECT d.id, d.name,
+		       (SELECT COUNT(*)
+		          FROM desk_members dm
+		          JOIN users u ON u.id = dm.user_id
+		         WHERE dm.desk_id = d.id
+		           AND u.active = 1
+		           AND u.role IN ('agent', 'admin', 'root'))
+		  FROM desks d`)
+	if err != nil {
+		return nil, fmt.Errorf("sqlite: read desk facts: %w", err)
+	}
+	defer rows.Close()
+	facts := map[int64]deskFact{}
+	for rows.Next() {
+		var id int64
 		var f deskFact
-		err := w.db.QueryRowContext(ctx, `
-			SELECT d.name,
-			       (SELECT COUNT(*)
-			          FROM desk_members dm
-			          JOIN users u ON u.id = dm.user_id
-			         WHERE dm.desk_id = d.id
-			           AND u.active = 1
-			           AND u.role IN ('agent', 'admin', 'root'))
-			  FROM desks d
-			 WHERE d.id = ?`, id).Scan(&f.name, &f.members)
-		if errors.Is(err, sql.ErrNoRows) {
-			continue
-		}
-		if err != nil {
-			return nil, fmt.Errorf("sqlite: read desk facts: %w", err)
+		if err := rows.Scan(&id, &f.name, &f.members); err != nil {
+			return nil, fmt.Errorf("sqlite: scan desk facts: %w", err)
 		}
 		facts[id] = f
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("sqlite: desk facts rows: %w", err)
 	}
 	return facts, nil
 }
 
 func (w *workflowStore) ListSummaries(ctx context.Context) ([]application.WorkflowSummary, error) {
+	// Two passes on purpose. This store's pool can hold a single connection (the
+	// test DSN does), so issuing a second query while these rows are still open
+	// would block on itself. Collect the raw columns, close the rows, then resolve
+	// desk facts once for the whole list.
+	type rawSummary struct {
+		id      int64
+		name    string
+		draft   sql.NullString
+		current sql.NullInt64
+		version sql.NullInt64
+		steps   sql.NullString
+	}
 	rows, err := w.db.QueryContext(ctx, `SELECT c.id, c.name, cw.draft_json, cw.current_version_id, wv.version_no, wv.steps_json FROM categories c LEFT JOIN category_workflows cw ON cw.category_id=c.id LEFT JOIN workflow_versions wv ON wv.id=cw.current_version_id ORDER BY c.id ASC`)
 	if err != nil {
 		return nil, fmt.Errorf("sqlite: list summaries: %w", err)
 	}
-	defer rows.Close()
-	var out []application.WorkflowSummary
+	var raw []rawSummary
 	for rows.Next() {
-		var cid int64
-		var cname string
-		var draft sql.NullString
-		var cur sql.NullInt64
-		var vno sql.NullInt64
-		var steps sql.NullString
-		if err := rows.Scan(&cid, &cname, &draft, &cur, &vno, &steps); err != nil {
+		var r rawSummary
+		if err := rows.Scan(&r.id, &r.name, &r.draft, &r.current, &r.version, &r.steps); err != nil {
+			rows.Close()
 			return nil, fmt.Errorf("sqlite: scan summary: %w", err)
 		}
-		badge := "none"
-		if draft.Valid {
-			if !cur.Valid {
-				badge = "Draft"
-			} else if vno.Valid && steps.Valid && draft.String == steps.String {
-				badge = "Published"
-			} else {
-				badge = "Draft"
-			}
-		}
-		out = append(out, application.WorkflowSummary{CategoryID: cid, CategoryName: cname, Badge: badge})
+		raw = append(raw, r)
 	}
 	if err := rows.Err(); err != nil {
+		rows.Close()
 		return nil, fmt.Errorf("sqlite: summaries rows: %w", err)
+	}
+	rows.Close()
+
+	facts, err := w.allDeskFacts(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	out := make([]application.WorkflowSummary, 0, len(raw))
+	for _, r := range raw {
+		s := application.WorkflowSummary{CategoryID: r.id, CategoryName: r.name, HasDraft: r.draft.Valid}
+		if r.current.Valid && r.version.Valid && r.steps.Valid {
+			s.Version = int(r.version.Int64)
+			def, perr := domain.ParseWorkflowDefinition([]byte(r.steps.String))
+			switch {
+			case perr != nil:
+				// A published definition that cannot be read is a broken category,
+				// not a silent one: say so rather than reporting nothing.
+				s.CannotRun = "its published definition cannot be read"
+			default:
+				if a := def.AssessRunnable(func(deskID int64) (string, int, bool) {
+					f, ok := facts[deskID]
+					return f.name, f.members, ok
+				}); len(a.Blockers) > 0 {
+					s.CannotRun = a.Blockers[0].Reason
+				}
+			}
+			// The draft is compared against the LIVE version, so a draft that
+			// canonicalizes to the same bytes reports no pending work at all.
+			if r.draft.Valid && r.draft.String != r.steps.String {
+				s.PendingSteps = 1
+				if dd, derr := domain.ParseWorkflowDefinition([]byte(r.draft.String)); derr == nil && perr == nil {
+					s.PendingSteps = domain.CountChanges(dd, def)
+				}
+			}
+		}
+		out = append(out, s)
 	}
 	return out, nil
 }
