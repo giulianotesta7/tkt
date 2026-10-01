@@ -119,3 +119,115 @@ func TestCatalogStoreRejectsDuplicateAndBrokenReferences(t *testing.T) {
 		t.Fatalf("referenced department error = %v", err)
 	}
 }
+
+// TestCatalogStoreOfferedCategoryCount is the #248 boundary: CategoryCount is the
+// TOTAL the admin structure lists (published and draft alike), while
+// OfferedCategoryCount is the number of the desk's or department's categories
+// that carry a published version — exactly the set the requester picker lists.
+// A desk could read "3" over two rows because the shared count included a
+// category the picker never offers.
+func TestCatalogStoreOfferedCategoryCount(t *testing.T) {
+	store := newTestDB(t)
+	ctx := context.Background()
+	catalog := store.CatalogStore()
+	department := &domain.Department{Name: "Operations", Description: "Operations", CreatedAt: testClock}
+	if err := catalog.CreateDepartment(ctx, department); err != nil {
+		t.Fatal(err)
+	}
+	desk := &domain.Desk{Name: "Support", CreatedAt: testClock, DepartmentID: &department.ID}
+	if err := store.DeskStore().Create(ctx, desk); err != nil {
+		t.Fatal(err)
+	}
+	// The desk is staffed first so the assignment workflow passes the publish
+	// gate; staffing is then removed to reach the published-but-unrunnable
+	// state, which the picker still lists with its reason.
+	agent := seedUserRaw(t, store, "Support Agent", "support-agent@tkt.test", "agent")
+	if _, err := store.db.ExecContext(ctx, `INSERT INTO desk_members(desk_id, user_id, created_at) VALUES(?, ?, ?)`, desk.ID, agent, formatTime(testClock)); err != nil {
+		t.Fatalf("staff desk: %v", err)
+	}
+	published := &domain.Category{Name: "Requests", Description: "Requests", DeskID: desk.ID, CreatedAt: testClock}
+	if err := store.CategoryStore().Create(ctx, published); err != nil {
+		t.Fatal(err)
+	}
+	deskCounts := func() (total, offered int) {
+		t.Helper()
+		desks, err := catalog.ListDesks(ctx, department.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(desks) != 1 {
+			t.Fatalf("desks = %+v", desks)
+		}
+		return desks[0].CategoryCount, desks[0].OfferedCategoryCount
+	}
+	departmentCounts := func() (total, offered int) {
+		t.Helper()
+		departments, err := catalog.ListDepartments(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, d := range departments {
+			if d.ID == department.ID {
+				return d.CategoryCount, d.OfferedCategoryCount
+			}
+		}
+		t.Fatalf("department %d missing from %+v", department.ID, departments)
+		return 0, 0
+	}
+
+	// One unpublished category: the admin total sees it, the picker offers none.
+	if total, offered := deskCounts(); total != 1 || offered != 0 {
+		t.Fatalf("unpublished desk counts = total %d/offered %d, want 1/0", total, offered)
+	}
+	if total, offered := departmentCounts(); total != 1 || offered != 0 {
+		t.Fatalf("unpublished department counts = total %d/offered %d, want 1/0", total, offered)
+	}
+
+	// Publishing the category offers exactly one, and the total is unchanged.
+	canon := mustCanon(t, domain.WorkflowDefinition{{
+		Type:         domain.StepAssignToDesk,
+		AssignToDesk: &domain.AssignToDeskStep{DeskID: desk.ID, Strategy: domain.StrategyClaim},
+	}})
+	if _, issues, err := store.WorkflowStore().Publish(ctx, published.ID, canon, nil); err != nil || len(issues) != 0 {
+		t.Fatalf("publish = %v, issues %v", err, issues)
+	}
+	if total, offered := deskCounts(); total != 1 || offered != 1 {
+		t.Fatalf("published desk counts = total %d/offered %d, want 1/1", total, offered)
+	}
+	if total, offered := departmentCounts(); total != 1 || offered != 1 {
+		t.Fatalf("published department counts = total %d/offered %d, want 1/1", total, offered)
+	}
+
+	// Removing the desk's members makes the published category unrunnable while
+	// it stays published. The picker still lists it (marked with its reason), so
+	// the offered count must not drop it.
+	if _, err := store.db.ExecContext(ctx, `DELETE FROM desk_members WHERE desk_id=?`, desk.ID); err != nil {
+		t.Fatalf("empty the desk: %v", err)
+	}
+	if total, offered := deskCounts(); total != 1 || offered != 1 {
+		t.Fatalf("unrunnable desk counts = total %d/offered %d, want 1/1", total, offered)
+	}
+	if total, offered := departmentCounts(); total != 1 || offered != 1 {
+		t.Fatalf("unrunnable department counts = total %d/offered %d, want 1/1", total, offered)
+	}
+
+	// A draft-only category has a category_workflows row but no current version:
+	// it must move the total without moving the offered count. This is the row
+	// the LEFT JOIN could wrongly admit if the predicate checked for the row
+	// instead of the pointer.
+	draftOnly := &domain.Category{Name: "Drafts", Description: "Drafts", DeskID: desk.ID, CreatedAt: testClock}
+	if err := store.CategoryStore().Create(ctx, draftOnly); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.WorkflowStore().UpsertDraft(ctx, draftOnly.ID, mustCanon(t, domain.WorkflowDefinition{{
+		Type: domain.StepManualTask, ManualTask: &domain.ManualTaskStep{Instructions: "draft only"},
+	}})); err != nil {
+		t.Fatalf("upsert draft: %v", err)
+	}
+	if total, offered := deskCounts(); total != 2 || offered != 1 {
+		t.Fatalf("draft-only desk counts = total %d/offered %d, want 2/1", total, offered)
+	}
+	if total, offered := departmentCounts(); total != 2 || offered != 1 {
+		t.Fatalf("draft-only department counts = total %d/offered %d, want 2/1", total, offered)
+	}
+}
