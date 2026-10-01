@@ -19,10 +19,12 @@ func newCatalogStore(db *sql.DB) *catalogStore { return &catalogStore{db: db} }
 
 func (cs *catalogStore) ListDepartments(ctx context.Context) ([]domain.CatalogDepartment, error) {
 	rows, err := cs.db.QueryContext(ctx, `SELECT d.id, d.name, d.description, d.created_at,
-		COUNT(DISTINCT ds.id), COUNT(DISTINCT c.id)
+		COUNT(DISTINCT ds.id), COUNT(DISTINCT c.id),
+		COUNT(DISTINCT CASE WHEN cw.current_version_id IS NOT NULL THEN c.id END)
 		FROM departments d
 		LEFT JOIN desks ds ON ds.department_id=d.id
 		LEFT JOIN categories c ON c.desk_id=ds.id
+		LEFT JOIN category_workflows cw ON cw.category_id=c.id
 		GROUP BY d.id ORDER BY d.id`)
 	if err != nil {
 		return nil, fmt.Errorf("sqlite: list departments: %w", err)
@@ -32,7 +34,7 @@ func (cs *catalogStore) ListDepartments(ctx context.Context) ([]domain.CatalogDe
 	for rows.Next() {
 		var d domain.CatalogDepartment
 		var created string
-		if err := rows.Scan(&d.ID, &d.Name, &d.Description, &created, &d.DeskCount, &d.CategoryCount); err != nil {
+		if err := rows.Scan(&d.ID, &d.Name, &d.Description, &created, &d.DeskCount, &d.CategoryCount, &d.OfferedCategoryCount); err != nil {
 			return nil, err
 		}
 		var parseErr error
@@ -53,9 +55,11 @@ func (cs *catalogStore) ListDesks(ctx context.Context, departmentID int64) ([]do
 		args = nil
 	}
 	rows, err := cs.db.QueryContext(ctx, `SELECT ds.id, ds.name, ds.description, ds.department_id, ds.created_at,
-		COUNT(c.id), COALESCE(d.name, 'Unassigned')
+		COUNT(c.id), COALESCE(d.name, 'Unassigned'),
+		COUNT(CASE WHEN cw.current_version_id IS NOT NULL THEN c.id END)
 		FROM desks ds LEFT JOIN departments d ON d.id=ds.department_id
 		LEFT JOIN categories c ON c.desk_id=ds.id
+		LEFT JOIN category_workflows cw ON cw.category_id=c.id
 		WHERE `+where+` GROUP BY ds.id ORDER BY ds.id`, args...)
 	if err != nil {
 		return nil, fmt.Errorf("sqlite: list desks: %w", err)
@@ -70,7 +74,7 @@ func scanCatalogDesks(rows *sql.Rows) ([]domain.CatalogDesk, error) {
 		var d domain.CatalogDesk
 		var departmentID sql.NullInt64
 		var created string
-		if err := rows.Scan(&d.ID, &d.Name, &d.Description, &departmentID, &created, &d.CategoryCount, &d.DepartmentName); err != nil {
+		if err := rows.Scan(&d.ID, &d.Name, &d.Description, &departmentID, &created, &d.CategoryCount, &d.DepartmentName, &d.OfferedCategoryCount); err != nil {
 			return nil, err
 		}
 		if departmentID.Valid {

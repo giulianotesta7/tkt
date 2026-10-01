@@ -23,6 +23,10 @@ type CatalogDepartment struct {
 	Department
 	DeskCount     int
 	CategoryCount int
+	// OfferedCategoryCount is the number of the department's categories that
+	// have a published version: the requester picker offers only those, while
+	// CategoryCount stays the total the admin structure lists.
+	OfferedCategoryCount int
 }
 
 // CatalogDesk is a Desk with its category count and resolved Department name.
@@ -31,4 +35,8 @@ type CatalogDesk struct {
 	DepartmentID   int64
 	CategoryCount  int
 	DepartmentName string
+	// OfferedCategoryCount is the number of the desk's categories that have a
+	// published version: the requester picker offers only those, while
+	// CategoryCount stays the total the admin structure lists.
+	OfferedCategoryCount int
 }

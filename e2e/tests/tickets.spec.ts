@@ -1344,3 +1344,103 @@ test.describe("Ticket list SLA visibility (seeded)", () => {
     });
   });
 });
+
+// Issue #248: the picker's department and desk numbers must count exactly the
+// categories that picker offers. The admin structure keeps the total (it lists
+// drafts too), so the two surfaces are deliberately allowed to disagree for
+// the same desk: 2 on the structure, 1 on the picker. This invariant is what a
+// future re-point at the total field would break.
+test.describe("Ticket picker counts (seeded)", () => {
+  test.beforeAll(async () => {
+    await startServer({ seed: true });
+  });
+  test.afterAll(async () => {
+    await stopServer();
+  });
+
+  test("the picker count agrees with the categories the picker offers", async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    const obs = collectObservability(page);
+    await page.goto(base() + "/login");
+    await page.getByLabel(/email/i).fill("alice@example.com");
+    await page.getByLabel(/password/i).fill("SuperSecret42!");
+    await page.getByRole("button", { name: /log in|sign in/i }).click();
+    await expect(page).toHaveURL(/\/tickets/);
+    // Let the login navigation settle before the fixture navigates away; a
+    // still-pending navigation otherwise stalls the next click's actionability.
+    await expect(
+      page.locator(".tickets-header").getByRole("heading", { name: "Tickets", exact: true }),
+    ).toBeVisible();
+
+    // The shared fixture helper drives the mobile catalog-creation nav, so it
+    // runs at the narrow viewport; the picker assertions below use the desktop
+    // three-column layout.
+    await page.setViewportSize({ width: 390, height: 844 });
+    const fixture = await createPublishedHierarchyFixture(page);
+
+    // Add a second, UNPUBLISHED category to the same desk. The admin structure
+    // lists it, so its desk total must rise to 2; the picker offers only the
+    // published one, so its desk count must stay 1.
+    await page.goto(base() + "/categories?view=structure");
+    const structureDepartment = page
+      .locator(".category-level-departments .category-structure-row")
+      .filter({ has: page.getByText(fixture.department, { exact: true }) });
+    await expect(structureDepartment).toHaveCount(1);
+    await structureDepartment.click();
+    const structureDesk = page
+      .locator(".category-level-desks .category-structure-item")
+      .filter({ has: page.getByText(fixture.desk, { exact: true }) });
+    await expect(structureDesk).toHaveCount(1);
+    await expect(structureDesk.locator(".category-count")).toHaveText("1 category");
+    const structureDeskHref = await structureDesk
+      .locator("a.category-structure-row")
+      .getAttribute("href");
+    const deskID = structureDeskHref?.match(/desk_id=(\d+)/)?.[1];
+    expect(
+      deskID,
+      `cannot resolve fixture desk ${fixture.desk} from ${structureDeskHref ?? "missing href"} at ${page.url()}`,
+    ).toBeTruthy();
+    await structureDesk.locator("a.category-structure-row").click();
+
+    await page
+      .getByLabel("Catalog creation")
+      .getByRole("link", { name: "New category", exact: true })
+      .click();
+    const categoryDrawer = page.getByRole("dialog", { name: /New category/i });
+    await expect(categoryDrawer).toBeVisible();
+    await categoryDrawer.locator("select[name=desk_id]").selectOption(deskID!);
+    await categoryDrawer.locator("#category-name").fill(`${fixture.category} Draft`);
+    await categoryDrawer.getByRole("button", { name: /create category/i }).click();
+
+    // The admin structure renders drafts, so its total now counts the new one.
+    await expect(
+      page
+        .locator(".category-level-desks .category-structure-item")
+        .filter({ has: page.getByText(fixture.desk, { exact: true }) })
+        .locator(".category-count"),
+    ).toHaveText("2 categories");
+
+    // On the picker the number must equal the category rows that picker lists.
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.goto(base() + "/tickets/new");
+    const pickerDepartment = page
+      .locator(".catalog-departments .catalog-item")
+      .filter({ has: page.getByText(fixture.department, { exact: true }) });
+    await expect(pickerDepartment).toHaveCount(1);
+    await pickerDepartment.click();
+    const pickerDesk = page
+      .locator(".catalog-desks .catalog-item")
+      .filter({ has: page.getByText(fixture.desk, { exact: true }) });
+    await expect(pickerDesk).toHaveCount(1);
+    await pickerDesk.click();
+
+    const listedCategories = page.locator(".catalog-categories .catalog-category");
+    await expect(listedCategories).toHaveCount(1);
+    await expect(listedCategories).toContainText(fixture.category);
+    const listedCount = await listedCategories.count();
+    const badge = (await pickerDesk.locator("small").textContent())?.trim() ?? "";
+    expect(Number.parseInt(badge, 10)).toBe(listedCount);
+
+    await expect(obs.pageErrors).toEqual([]);
+  });
+});

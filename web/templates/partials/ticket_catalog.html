@@ -40,7 +40,7 @@
       <h2 id="departments-heading">Departments</h2>
       <div class="catalog-list">
       {{range .Departments}}
-        <a class="catalog-item {{if eq .ID $.DepartmentID}}selected{{end}}" href="/tickets/new?department_id={{.ID}}" aria-current="{{if eq .ID $.DepartmentID}}true{{end}}"><span>{{.Name}}</span><small>{{.CategoryCount}}</small></a>
+        <a class="catalog-item {{if eq .ID $.DepartmentID}}selected{{end}}" href="/tickets/new?department_id={{.ID}}" aria-current="{{if eq .ID $.DepartmentID}}true{{end}}"><span>{{.Name}}</span><small>{{.OfferedCategoryCount}}</small></a>
       {{else}}<p class="empty compact">No departments configured yet.</p>{{end}}
       </div>
     </section>
@@ -49,7 +49,7 @@
       <a class="catalog-back" href="/tickets/new">← Departments</a>
       <div class="catalog-list">
       {{range .Desks}}
-        <a class="catalog-item {{if eq .ID $.DeskID}}selected{{end}}" href="/tickets/new?department_id={{.DepartmentID}}&desk_id={{.ID}}" aria-current="{{if eq .ID $.DeskID}}true{{end}}"><span>{{.Name}}</span><small>{{.CategoryCount}}</small></a>
+        <a class="catalog-item {{if eq .ID $.DeskID}}selected{{end}}" href="/tickets/new?department_id={{.DepartmentID}}&desk_id={{.ID}}" aria-current="{{if eq .ID $.DeskID}}true{{end}}"><span>{{.Name}}</span><small>{{.OfferedCategoryCount}}</small></a>
       {{else}}<p class="empty compact">No desks in this department yet.</p>{{end}}
       </div>
     </section>
