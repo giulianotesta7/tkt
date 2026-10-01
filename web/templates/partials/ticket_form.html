@@ -44,7 +44,7 @@
   <div class="field">
     <label for="category_id">Category</label>
     <select id="category_id" name="category_id" required>
-      <option value="">Select category</option>{{range .Options.Categories}}{{if eq (printf "%d" .ID) $.Values.CategoryID}}<option value="{{.ID}}" selected>{{.Name}}</option>{{else}}<option value="{{.ID}}">{{.Name}}</option>{{end}}{{end}}
+      <option value="">Select category</option>{{range .CategoryOffers}}{{if .Unavailable}}<option value="{{.ID}}" disabled>{{.Name}} — {{.Reason}}</option>{{else}}{{if eq (printf "%d" .ID) $.Values.CategoryID}}<option value="{{.ID}}" selected>{{.Name}}</option>{{else}}<option value="{{.ID}}">{{.Name}}</option>{{end}}{{end}}{{end}}
     </select>
   </div>
   <div class="field">

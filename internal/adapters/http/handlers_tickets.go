@@ -43,9 +43,9 @@ type TicketHandlers struct {
 
 // NewTicketHandlers wires the ticket routes against the ticket, comment,
 // search, category, and user use cases plus the renderer. The workflow ports
-// (runner, run snapshot, unit of work) drive the honest completion route and
-// the published-only create-option filter (design S9); workflows provides
-// ListAvailableCategories.
+// (runner, run snapshot, unit of work) drive the honest completion route; the
+// workflows service supplies ListRequesterSummaries, the one viability rule
+// the category picker and the create form's fallback select both read.
 func NewTicketHandlers(tickets *application.TicketService, comments *application.CommentService, search *application.SearchService, categories *application.CategoryService, users *application.UserService, desks application.DeskStore, workflows *application.WorkflowService, runner *application.WorkflowRunner, workflowRuns application.WorkflowRunStore, workflowTx application.WorkflowUnitOfWork, renderer *Renderer, catalogs ...*application.CatalogService) *TicketHandlers {
 	h := &TicketHandlers{
 		tickets:      tickets,
@@ -718,10 +718,15 @@ func (h *TicketHandlers) list(w http.ResponseWriter, r *http.Request) {
 // the form renders no assignee control for ANY role.
 type ticketFormData struct {
 	pageData
-	Error    string
-	Values   ticketFormValues
-	Options  options
-	Selected *domain.CatalogCategory
+	Error   string
+	Values  ticketFormValues
+	Options options
+	// CategoryOffers is the create form's OWN category list; the create template
+	// reads this and never Options.Categories. It carries the same viability
+	// facts the picker shows (Unavailable + Reason) so the fallback select can
+	// render an unrunnable category as a disabled option instead of offering it.
+	CategoryOffers []catalogCategoryEntry
+	Selected       *domain.CatalogCategory
 }
 
 type ticketFormValues struct {
@@ -737,7 +742,7 @@ func (h *TicketHandlers) newForm(w http.ResponseWriter, r *http.Request) {
 		h.renderCatalog(w, r)
 		return
 	}
-	opts, err := h.createOptions(r)
+	opts, offers, err := h.createOptions(r)
 	if err != nil {
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
@@ -745,9 +750,10 @@ func (h *TicketHandlers) newForm(w http.ResponseWriter, r *http.Request) {
 	page := pageDataFrom(r, "tickets")
 	page.PageFoundationAssets = true
 	data := ticketFormData{
-		pageData: page,
-		Values:   ticketFormValues{Priority: domain.PriorityMedium},
-		Options:  opts,
+		pageData:       page,
+		Values:         ticketFormValues{Priority: domain.PriorityMedium},
+		Options:        opts,
+		CategoryOffers: offers,
 	}
 	if h.catalog != nil {
 		data.Values.CategoryID = r.URL.Query().Get("category_id")
@@ -779,6 +785,39 @@ type catalogCategoryEntry struct {
 	Unavailable bool
 	// Reason is why it cannot, in the requester's words. Empty when it can.
 	Reason string
+}
+
+// requesterSummaryIndex indexes the requester-safe workflow summaries by
+// category id, so a surface can look up a category's state without a second
+// read or a second rule.
+func requesterSummaryIndex(summaries []application.WorkflowSummary) map[int64]application.WorkflowSummary {
+	index := make(map[int64]application.WorkflowSummary, len(summaries))
+	for _, s := range summaries {
+		index[s.CategoryID] = s
+	}
+	return index
+}
+
+// offerRunnableCategories is the ONE predicate that decides which categories a
+// requester-facing surface offers and how each one is labelled. The category
+// picker and the create form's fallback select both call it, so the two
+// surfaces can never disagree about whether a category is choosable.
+//
+// It keeps exactly the categories the requester can act on. No published
+// version leaves the category out, unchanged: that is a normal setup state,
+// not an anomaly. Published but unable to run keeps it in, marked, so the
+// surface can say so instead of walking the requester into the create guard's
+// refusal.
+func offerRunnableCategories(in []domain.CatalogCategory, summary map[int64]application.WorkflowSummary) []catalogCategoryEntry {
+	out := make([]catalogCategoryEntry, 0, len(in))
+	for _, c := range in {
+		s, ok := summary[c.ID]
+		if !ok || s.Version == 0 {
+			continue
+		}
+		out = append(out, catalogCategoryEntry{CatalogCategory: c, Unavailable: s.CannotRun != "", Reason: cannotRunLabel(s.CannotRun)})
+	}
+	return out
 }
 
 type catalogPageData struct {
@@ -853,26 +892,8 @@ func (h *TicketHandlers) renderCatalog(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
-	summary := make(map[int64]application.WorkflowSummary, len(summaries))
-	for _, s := range summaries {
-		summary[s.CategoryID] = s
-	}
-	// offer keeps exactly the categories the requester can act on. No published
-	// version leaves the category out, unchanged: that is a normal setup state,
-	// not an anomaly. Published but unable to run keeps it in, marked, so the
-	// picker can say so instead of walking into the create guard's refusal.
-	offer := func(in []domain.CatalogCategory) []catalogCategoryEntry {
-		out := make([]catalogCategoryEntry, 0, len(in))
-		for _, c := range in {
-			s, ok := summary[c.ID]
-			if !ok || s.Version == 0 {
-				continue
-			}
-			out = append(out, catalogCategoryEntry{CatalogCategory: c, Unavailable: s.CannotRun != "", Reason: cannotRunLabel(s.CannotRun)})
-		}
-		return out
-	}
-	categories := offer(catalogCategories)
+	summary := requesterSummaryIndex(summaries)
+	categories := offerRunnableCategories(catalogCategories, summary)
 	var results []catalogCategoryEntry
 	if q != "" {
 		found, err := h.catalog.Search(ctx, q)
@@ -880,7 +901,7 @@ func (h *TicketHandlers) renderCatalog(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "Internal server error", http.StatusInternalServerError)
 			return
 		}
-		results = offer(found)
+		results = offerRunnableCategories(found, summary)
 	}
 	breadcrumb := ""
 	for _, d := range departments {
@@ -909,23 +930,39 @@ func (h *TicketHandlers) renderCatalog(w http.ResponseWriter, r *http.Request) {
 	h.renderer.Render(w, r, "tickets_catalog", "ticket_catalog", data, http.StatusOK)
 }
 
-// createOptions builds the create-form option lists with categories filtered
-// through WorkflowStore.ListAvailableCategories (design S9 published-only).
+// createOptions builds the create-form option lists. The category list comes
+// from the SAME requester-safe predicate the picker uses
+// (offerRunnableCategories over ListRequesterSummaries), never a second rule:
+// the picker and this select must agree about which categories are choosable.
 // Unpublished/draft-only categories are absent for every role; legacy and
 // historical tickets remain filterable on the list screen because listData
-// keeps using collectOptions (all categories). The POST path repeats the
-// availability check and still answers the exact 422 category message.
-func (h *TicketHandlers) createOptions(r *http.Request) (options, error) {
+// keeps using collectOptions (all categories). The create template reads the
+// returned offers, not opts.Categories: collectOptions still fills that field
+// for the shared list-filter template, and no create-page surface renders it.
+// The POST path repeats the availability check and still answers the exact 422
+// category message.
+func (h *TicketHandlers) createOptions(r *http.Request) (options, []catalogCategoryEntry, error) {
 	opts, err := h.collectOptions(r)
 	if err != nil {
-		return options{}, err
+		return options{}, nil, err
 	}
-	available, err := h.workflows.ListAvailableCategories(r.Context())
+	summaries, err := h.workflows.ListRequesterSummaries(r.Context())
 	if err != nil {
-		return options{}, err
+		return options{}, nil, err
 	}
-	opts.Categories = available
-	return opts, nil
+	offers := offerRunnableCategories(asCatalogCategories(opts.Categories), requesterSummaryIndex(summaries))
+	return opts, offers, nil
+}
+
+// asCatalogCategories lifts the plain category rows the option lists carry into
+// the richer catalog shape offerRunnableCategories consumes, with the catalog
+// fields left empty because this surface only needs id, name, and description.
+func asCatalogCategories(in []domain.Category) []domain.CatalogCategory {
+	out := make([]domain.CatalogCategory, 0, len(in))
+	for _, c := range in {
+		out = append(out, domain.CatalogCategory{Category: c})
+	}
+	return out
 }
 
 // create parses the create form, calls the use case, and answers per D6:
@@ -997,7 +1034,7 @@ func (h *TicketHandlers) create(w http.ResponseWriter, r *http.Request) {
 // renderCreateError re-renders the create form with an inline error and the
 // mapped status (HX → ticket_form fragment; full → tickets_new page).
 func (h *TicketHandlers) renderCreateError(w http.ResponseWriter, r *http.Request, field, msg string, status int) {
-	opts, err := h.createOptions(r)
+	opts, offers, err := h.createOptions(r)
 	if err != nil {
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
@@ -1013,7 +1050,8 @@ func (h *TicketHandlers) renderCreateError(w http.ResponseWriter, r *http.Reques
 			CategoryID:  r.Form.Get("category_id"),
 			Priority:    domain.Priority(r.Form.Get("priority")),
 		},
-		Options: opts,
+		Options:        opts,
+		CategoryOffers: offers,
 	}
 	if h.catalog != nil {
 		if id := parseID(data.Values.CategoryID); id != 0 {
