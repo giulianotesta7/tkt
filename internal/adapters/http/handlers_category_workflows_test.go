@@ -244,6 +244,13 @@ func TestStructureLayout_CSSPinned(t *testing.T) {
 		// column is right-aligned with tabular figures so the counts line up.
 		".category-table{width:100%;border-collapse:collapse;table-layout:fixed}",
 		".category-table-num{width:9%;text-align:right;font-variant-numeric:tabular-nums",
+		// The categories page reuses the `users-root` shell class, so
+		// users.css's generic first-column rule (`.users-root td:first-child{
+		// width:46%}`) landed on this table. At mobile the shared 88px label
+		// column then left the category name ~21px wide, wrapping it per
+		// character. This override is scoped to the categories table and the
+		// mobile media query, so the desktop first column keeps its 46%.
+		".categories-root .category-table td:first-child{width:100%}",
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("the categories screen's inline styles must contain %q", want)
@@ -254,7 +261,7 @@ func TestStructureLayout_CSSPinned(t *testing.T) {
 func TestCategoryWorkflowStatusBadge_UsesExactCategoryRow(t *testing.T) {
 	// The fixture mirrors the rendered table row: the name is a link in the first
 	// cell and the status is its own cell.
-	const body = `<td class="category-table-name"><a class="category-name" href="/categories/1/workflow"><strong>Target category</strong></a><small></small></td><td class="category-table-flow"><span class="category-status-inline">Draft · not published</span></td><td class="category-table-name"><a class="category-name" href="/categories/2/workflow"><strong>Other category</strong></a><small></small></td><td class="category-table-flow"><span class="category-status-inline">Published v1</span></td>`
+	const body = `<td class="category-table-name" data-label="Category"><a class="category-name" href="/categories/1/workflow"><strong>Target category</strong></a><small></small></td><td class="category-table-flow" data-label="Workflow"><span class="category-status-inline">Draft · not published</span></td><td class="category-table-name" data-label="Category"><a class="category-name" href="/categories/2/workflow"><strong>Other category</strong></a><small></small></td><td class="category-table-flow" data-label="Workflow"><span class="category-status-inline">Published v1</span></td>`
 
 	// The point of the test is that a broad substring must not be able to satisfy
 	// it: "Published" occurs elsewhere in the body, and the extraction must still
@@ -273,7 +280,7 @@ func categoryStatusBadge(t *testing.T, body, categoryName string) string {
 	// status is its own cell, which is what makes the states scannable. The
 	// extraction still binds to THIS category's row, never to the first one on the
 	// page, and the whitespace between the cells is not assumed.
-	pattern := `<td class="category-table-name"><a class="category-name" href="/categories/\d+/workflow"><strong>` + regexp.QuoteMeta(categoryName) + `</strong></a><small>[^<]*</small></td>\s*<td class="category-table-flow"><span class="category-status-inline">([^<]+)</span></td>`
+	pattern := `<td class="category-table-name"[^>]*><a class="category-name" href="/categories/\d+/workflow"><strong>` + regexp.QuoteMeta(categoryName) + `</strong></a><small>[^<]*</small></td>\s*<td class="category-table-flow"[^>]*><span class="category-status-inline">([^<]+)</span></td>`
 	matches := regexp.MustCompile(pattern).FindAllStringSubmatch(body, -1)
 	if len(matches) != 1 {
 		t.Fatalf("category %q must have exactly one status badge row, found %d in: %s", categoryName, len(matches), body)

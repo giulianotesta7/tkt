@@ -6,10 +6,22 @@
  * requester-owned tickets are passive and never render the active current-task card.
  */
 
-import { test, expect, type Page, type Request, type Response, type Route } from "@playwright/test";
+import {
+  test,
+  expect,
+  type Locator,
+  type Page,
+  type Request,
+  type Response,
+  type Route,
+} from "@playwright/test";
 import { startServer, stopServer } from "../server-lifecycle.js";
 import { loginAsSeeded, base } from "./helpers/auth.js";
-import { assertCanonicalScreen, collectObservability } from "./helpers/layout.js";
+import {
+  assertNoHorizontalOverflow,
+  assertCanonicalScreen,
+  collectObservability,
+} from "./helpers/layout.js";
 import { assertHtmxNoSwap, assertHtmxSwap } from "./helpers/htmx.js";
 import { isHtmxPost } from "./helpers/save-feedback.js";
 import { createCategoryViaUi, createTicketViaUi } from "./helpers/navigation.js";
@@ -417,19 +429,190 @@ test.describe("Categories", () => {
     page,
   }) => {
     await loginAsSeeded(page);
-    await page.setViewportSize({ width: 390, height: 800 });
-    await page.goto(base() + "/categories?view=structure");
-    await expect(page.locator(".category-level-departments")).toBeVisible();
-    await expect(page.locator(".category-level-desks")).toBeHidden();
-    await expect(page.locator(".category-level-categories")).toBeHidden();
-    await page.locator(".category-level-departments .category-structure-row").first().click();
-    await expect(page.locator(".category-level-departments")).toBeHidden();
-    await expect(page.locator(".category-level-desks")).toBeVisible();
-    await expect(page.getByRole("link", { name: "← Departments", exact: true })).toBeVisible();
-    await page.locator(".category-level-desks .category-structure-row").first().click();
-    await expect(page.locator(".category-level-desks")).toBeHidden();
-    await expect(page.locator(".category-level-categories")).toBeVisible();
-    await expect(page.getByRole("link", { name: "← Desks", exact: true })).toBeVisible();
+
+    // Issue #271 acceptance also covers LONG names. The shared seed only holds
+    // the short "General" and must stay read-only, so create the long case
+    // through the UI and delete it before the test ends. The suffix keeps the
+    // name unique across runs.
+    const longName =
+      "Infrastructure Reliability Escalation Coordination " + Date.now().toString(36);
+
+    const table = page.locator(".category-level-categories .category-table");
+    const rowByName = (name: string) =>
+      table
+        .locator("tbody tr")
+        .filter({ has: page.locator("a.category-name strong", { hasText: name }) });
+    const shortRow = rowByName("General");
+    const longRow = rowByName(longName);
+
+    // The create redirect lands on the structure view of the desk that now
+    // holds the category, so cleanup can always return to the row it must drop.
+    let createdViewURL: string | undefined;
+
+    try {
+      await createCategoryViaUi(page, longName);
+      createdViewURL = page.url();
+
+      await page.setViewportSize({ width: 390, height: 800 });
+      await page.goto(base() + "/categories?view=structure");
+      await expect(page.locator(".category-level-departments")).toBeVisible();
+      await expect(page.locator(".category-level-desks")).toBeHidden();
+      await expect(page.locator(".category-level-categories")).toBeHidden();
+      await page.locator(".category-level-departments .category-structure-row").first().click();
+      await expect(page.locator(".category-level-departments")).toBeHidden();
+      await expect(page.locator(".category-level-desks")).toBeVisible();
+      await expect(page.getByRole("link", { name: "← Departments", exact: true })).toBeVisible();
+      await page.locator(".category-level-desks .category-structure-row").first().click();
+      await expect(page.locator(".category-level-desks")).toBeHidden();
+      await expect(page.locator(".category-level-categories")).toBeVisible();
+      await expect(page.getByRole("link", { name: "← Desks", exact: true })).toBeVisible();
+      await expect(shortRow).toHaveCount(1);
+      await expect(longRow).toHaveCount(1);
+
+      // Read the name as the layout produces it: the anchor's own width is the
+      // column it was given, and the strong's line boxes show whether the text is
+      // readable or wrapped one character per line.
+      const readName = async (row: Locator) => {
+        const name = row.locator("a.category-name");
+        const box = await name.boundingBox();
+        expect(box, "the category name must be laid out").not.toBeNull();
+        const lines = await name.locator("strong").evaluate((el) => {
+          const range = document.createRange();
+          range.selectNodeContents(el);
+          return range.getClientRects().length;
+        });
+        return { width: box?.width ?? 0, lines };
+      };
+
+      // Issue #271: the mobile label grid reserved an 88px column and the
+      // users.css first-column width (46%) leaked onto this table, leaving the
+      // category name ~21px wide and wrapping "General" one character per line.
+      // The actions control and the two counters must stay present and legible,
+      // not collapsed to zero width.
+      const assertRowLegible = async (row: Locator, viewport: number) => {
+        const actions = row.getByRole("button", { name: /^Actions for / });
+        await expect(actions).toBeVisible();
+        const actionsBox = await actions.boundingBox();
+        expect(actionsBox, `at ${viewport}px the actions control must be laid out`).not.toBeNull();
+        expect(
+          actionsBox?.width,
+          `at ${viewport}px the actions control must not collapse to a sliver`,
+        ).toBeGreaterThan(24);
+        expect(
+          actionsBox?.height,
+          `at ${viewport}px the actions control must not collapse to a sliver`,
+        ).toBeGreaterThan(24);
+
+        for (const [selector, label] of [
+          [".category-table-flow .category-status-inline", "workflow status"],
+          [".category-table-num", "open-ticket count"],
+        ] as const) {
+          const cell = row.locator(selector);
+          await expect(cell, `at ${viewport}px the ${label} must be present`).toBeVisible();
+          const text = (await cell.textContent())?.trim() ?? "";
+          expect(text, `at ${viewport}px the ${label} must render text`).not.toBe("");
+          const rendered = await cell.evaluate((el) => {
+            const range = document.createRange();
+            range.selectNodeContents(el);
+            const rects = Array.from(range.getClientRects()).filter((rect) => rect.width > 0);
+            return {
+              width: rects.reduce((max, rect) => Math.max(max, rect.width), 0),
+              lines: rects.length,
+            };
+          });
+          expect(
+            rendered.width,
+            `at ${viewport}px the ${label} must not collapse to zero width`,
+          ).toBeGreaterThan(0);
+          expect(
+            rendered.lines,
+            `at ${viewport}px the ${label} must not wrap one character per line`,
+          ).toBeLessThanOrEqual(3);
+        }
+      };
+
+      const assertMobileTable = async (viewport: number, minimumNameLines: number) => {
+        const short = await readName(shortRow);
+        expect(
+          short.width,
+          `at ${viewport}px the short name column must be wide enough to read "General"`,
+        ).toBeGreaterThan(100);
+        expect(
+          short.lines,
+          `at ${viewport}px the short category name must render on a single line`,
+        ).toBe(1);
+
+        const long = await readName(longRow);
+        expect(
+          long.width,
+          `at ${viewport}px the long name column must be wide enough to read the name`,
+        ).toBeGreaterThan(100);
+        // Issue #271 requires the space to be distributed legibly AND to allow
+        // reasonable wrapping, so the long case must prove it actually wraps at
+        // the width that cannot hold the name on one line. At the wider 640px
+        // boundary the same name legitimately fits on one line, so its floor is
+        // one line; the upper bound below still catches the compressed-column
+        // regression (which would give roughly longName.length line boxes).
+        expect(
+          long.lines,
+          `at ${viewport}px the long category name must wrap onto at least ${minimumNameLines} line(s)`,
+        ).toBeGreaterThanOrEqual(minimumNameLines);
+        expect(
+          long.lines,
+          `at ${viewport}px the long category name must wrap in a reasonable number of lines`,
+        ).toBeLessThanOrEqual(Math.ceil(longName.length / 8));
+
+        await assertRowLegible(shortRow, viewport);
+        await assertRowLegible(longRow, viewport);
+        await assertNoHorizontalOverflow(page, viewport);
+      };
+
+      await assertMobileTable(390, 2);
+
+      // The label grid only exists at the mobile breakpoint (max-width:640px); the
+      // boundary case must stay readable too.
+      const structureURL = page.url();
+      await page.setViewportSize({ width: 640, height: 800 });
+      await page.goto(structureURL);
+      await expect(page.locator(".category-level-categories")).toBeVisible();
+      await assertMobileTable(640, 1);
+
+      // The label grid is scoped to the mobile media query, so above the
+      // breakpoint the same table must fall back to its ordinary tabular layout.
+      // Nothing else pins that boundary, and a leaked mobile grid would still
+      // answer every text-and-role query the desktop journeys use.
+      await page.setViewportSize({ width: 1280, height: 800 });
+      await page.goto(structureURL);
+      await expect(page.locator(".category-level-categories")).toBeVisible();
+      await expect(longRow).toHaveCount(1);
+      const tableDisplay = await table.evaluate((el) => getComputedStyle(el).display);
+      expect(tableDisplay, "above 640px the category table must keep its tabular layout").toBe(
+        "table",
+      );
+      const firstCellDisplay = await longRow
+        .locator("td")
+        .first()
+        .evaluate((el) => getComputedStyle(el).display);
+      expect(
+        firstCellDisplay,
+        "above 640px the mobile label grid must not apply to the category cell",
+      ).toBe("table-cell");
+      await assertNoHorizontalOverflow(page, 1280);
+    } finally {
+      // Drop the fixture this test created even when an assertion failed first:
+      // the describe shares one seeded server, so a leftover row would disturb
+      // the later tests. Returning to the create redirect's view keeps the
+      // delete reachable from another page or viewport, and a row that is
+      // already absent is not an error.
+      if (createdViewURL) {
+        await page.goto(createdViewURL);
+      }
+      if ((await rowByName(longName).count()) > 0) {
+        await longRow.getByRole("button", { name: /^Actions for / }).click();
+        await longRow.getByRole("menuitem", { name: "Delete category", exact: true }).click();
+        await expect(rowByName(longName)).toHaveCount(0);
+      }
+    }
   });
 
   test("lowest desk overflow menu keeps Edit desk reachable inside the catalog card", async ({
