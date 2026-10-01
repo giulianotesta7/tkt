@@ -229,6 +229,42 @@ func TestWorkflowStore_Summaries(t *testing.T) {
 		t.Fatalf("available %v", ids)
 	}
 }
+
+// TestWorkflowStore_SummariesCountsOpenTickets pins what "Open" means: not closed
+// and not cancelled. Resolved COUNTS, because an unconfirmed resolution is still
+// work somebody owes. Nothing else in the app reported this number, so the row
+// could say a category was broken without saying whether anything was waiting.
+func TestWorkflowStore_SummariesCountsOpenTickets(t *testing.T) {
+	s := newTestDB(t)
+	c := seedCategory(t, s, "opens")
+	other := seedCategory(t, s, "quiet")
+	ws := s.WorkflowStore()
+	insert := `INSERT INTO tickets (number,title,description,requester_name,requester_email,category_id,priority,state,created_at,updated_at,workflow_version_id)
+	                     VALUES (?, 't', '', 'r', 'e', ?, 'medium', ?, '2026-08-06T10:00:00Z', '2026-08-06T10:00:00Z', NULL)`
+	for i, st := range []string{"new", "in_progress", "resolved", "closed", "cancelled"} {
+		if _, err := s.db.Exec(insert, i+1, c, st); err != nil {
+			t.Fatalf("insert %s: %v", st, err)
+		}
+	}
+	sums, err := ws.ListSummaries(context.Background())
+	if err != nil {
+		t.Fatalf("summaries: %v", err)
+	}
+	seen := map[int64]int{}
+	for _, v := range sums {
+		seen[v.CategoryID] = v.OpenTickets
+	}
+	if seen[c] != 3 {
+		t.Fatalf("open tickets = %d, want 3 (new, in_progress, resolved)", seen[c])
+	}
+	if _, ok := seen[other]; !ok {
+		t.Fatal("a category with no tickets must still appear, reporting 0")
+	}
+	if seen[other] != 0 {
+		t.Fatalf("a category with no tickets must report 0, got %d", seen[other])
+	}
+}
+
 func TestWorkflowStore_CascadeNullPin(t *testing.T) {
 	s := newTestDB(t)
 	c := seedCategory(t, s, "cascade")

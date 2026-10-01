@@ -564,6 +564,11 @@ type WorkflowSummary struct {
 	// CannotRun is the reason the LIVE version cannot move a ticket, or empty when
 	// it can.
 	CannotRun string
+	// OpenTickets counts the tickets in this category that are neither closed nor
+	// cancelled. It is the number that says where the work actually is, which no
+	// surface showed before: the row could tell you a category was broken but not
+	// whether anything was waiting in it.
+	OpenTickets int
 }
 
 // WorkflowStore persists the category workflow draft and published versions (category-workflows spec).

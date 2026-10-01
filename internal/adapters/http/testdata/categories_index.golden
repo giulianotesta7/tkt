@@ -71,8 +71,18 @@
     <section class="category-level category-level-categories " aria-labelledby="structure-categories-title">
       <header><div><p class="category-level-eyebrow">Categories</p><h2 id="structure-categories-title">Categories</h2></div><a class="btn primary category-level-action category-drawer-launcher" data-focus-key="new-category" href="/categories/new?view=structure" hx-get="/categories/new?view=structure" hx-target="#category-drawer-host" hx-swap="outerHTML" hx-push-url="/categories/new?view=structure">New category</a></header>
       <div class="category-level-context"><span>Select a desk</span></div>
-      <div class="category-level-list">
-        <p class="category-empty">Select a desk to browse categories.</p>
+      <div class="category-level-list category-level-list-table">
+        <table class="category-table">
+          <thead><tr>
+            <th class="category-table-name" scope="col">Category</th>
+            <th class="category-table-flow" scope="col">Workflow</th>
+            <th class="category-table-num" scope="col">Open</th>
+            <th class="category-table-act" scope="col"><span class="visually-hidden">Actions</span></th>
+          </tr></thead>
+          <tbody>
+            <tr><td colspan="4"><p class="category-empty">Select a desk to browse categories.</p></td></tr>
+          </tbody>
+        </table>
       </div>
     </section>
   </div>

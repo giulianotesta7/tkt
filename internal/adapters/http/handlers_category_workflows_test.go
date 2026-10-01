@@ -215,20 +215,65 @@ func TestCategoryBadge_States(t *testing.T) {
 	}
 }
 
-func TestCategoryWorkflowStatusBadge_UsesExactCategoryRow(t *testing.T) {
-	const body = `<div class="category-structure-item category-structure-item-static"><div class="category-structure-row category-structure-row-static"><span><strong>Target category</strong><small></small></span><span class="category-status-inline">Draft</span></div></div><div class="category-structure-item category-structure-item-static"><div class="category-structure-row category-structure-row-static"><span><strong>Other category</strong><small></small></span><span class="category-status-inline">Published</span></div></div>`
-
-	if !strings.Contains(body, `>Published</span>`) {
-		t.Fatal("fixture must let the old broad Published assertion pass")
+// TestStructureLayout_CSSPinned pins the declarations the categories screen's OWN
+// inline style block must carry.
+//
+// That block is gated on {{if .CategoryAssets}}, so the shared stylesheet golden
+// never renders it: golden_test.go splits a TICKETS index page and freezes only
+// the first inline style block, while the categories rules live in a second one.
+// A change to this CSS therefore turns nothing red on its own. Pinning the literal
+// declarations here is this repository's convention for the second stylesheet, and
+// it is the only automated guard these rules have.
+func TestStructureLayout_CSSPinned(t *testing.T) {
+	h := newHarness(t)
+	body := h.get(t, "/categories", false).Body.String()
+	for _, want := range []string{
+		// The dense column stops competing with two sparse ones for equal width.
+		// Measured before: 383px each, and the longest status left its category
+		// name 80px while the status took 224px.
+		"grid-template-columns:minmax(0,.72fr) minmax(0,.82fr) minmax(0,1.55fr)",
+		// One column per row, so the tail stacks under the text instead of fighting
+		// it. Measured before: a 256px desk row gave the desk name 83px.
+		".category-structure-row{display:grid;grid-template-columns:minmax(0,1fr)",
+		".category-structure-row .category-count,.category-structure-row .category-status-inline{display:block;margin-top:4px}",
+		// An inert row must not hover like a link.
+		".category-structure-row-static:hover{background:transparent}",
+		// The level action keeps its label on one line when the columns narrow.
+		".category-level-action{white-space:nowrap;flex-shrink:0}",
+		// The dense level is a table: alignment is the whole point, and the numeric
+		// column is right-aligned with tabular figures so the counts line up.
+		".category-table{width:100%;border-collapse:collapse;table-layout:fixed}",
+		".category-table-num{width:9%;text-align:right;font-variant-numeric:tabular-nums",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("the categories screen's inline styles must contain %q", want)
+		}
 	}
-	if got := categoryStatusBadge(t, body, "Target category"); got != "Draft" {
-		t.Errorf("Target category status = %q, want Draft", got)
+}
+
+func TestCategoryWorkflowStatusBadge_UsesExactCategoryRow(t *testing.T) {
+	// The fixture mirrors the rendered table row: the name is a link in the first
+	// cell and the status is its own cell.
+	const body = `<td class="category-table-name"><a class="category-name" href="/categories/1/workflow"><strong>Target category</strong></a><small></small></td><td class="category-table-flow"><span class="category-status-inline">Draft · not published</span></td><td class="category-table-name"><a class="category-name" href="/categories/2/workflow"><strong>Other category</strong></a><small></small></td><td class="category-table-flow"><span class="category-status-inline">Published v1</span></td>`
+
+	// The point of the test is that a broad substring must not be able to satisfy
+	// it: "Published" occurs elsewhere in the body, and the extraction must still
+	// return THIS category's own status.
+	if !strings.Contains(body, "Published") {
+		t.Fatal("fixture must contain a Published substring a broad assertion could be fooled by")
+	}
+	if got := categoryStatusBadge(t, body, "Target category"); got != "Draft · not published" {
+		t.Errorf("Target category status = %q, want Draft · not published", got)
 	}
 }
 
 func categoryStatusBadge(t *testing.T, body, categoryName string) string {
 	t.Helper()
-	pattern := `<div class="category-structure-item category-structure-item-static"><div class="category-structure-row category-structure-row-static"><span><strong>` + regexp.QuoteMeta(categoryName) + `</strong><small>[^<]*</small></span><span class="category-status-inline">([^<]+)</span></div>`
+	// The dense level is a table now: the name is a link in the first cell and the
+	// status is its own cell, which is what makes the states scannable. The
+	// extraction still binds to THIS category's row, never to the first one on the
+	// page, and the whitespace between the cells is not assumed.
+	pattern := `<td class="category-table-name"><a class="category-name" href="/categories/\d+/workflow"><strong>` + regexp.QuoteMeta(categoryName) + `</strong></a><small>[^<]*</small></td>\s*<td class="category-table-flow"><span class="category-status-inline">([^<]+)</span></td>`
 	matches := regexp.MustCompile(pattern).FindAllStringSubmatch(body, -1)
 	if len(matches) != 1 {
 		t.Fatalf("category %q must have exactly one status badge row, found %d in: %s", categoryName, len(matches), body)

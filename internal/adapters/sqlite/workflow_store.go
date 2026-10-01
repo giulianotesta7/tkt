@@ -242,6 +242,33 @@ func (w *workflowStore) ListSummaries(ctx context.Context) ([]application.Workfl
 	}
 	rows.Close()
 
+	// A second query, deliberately after the cursor above is closed: this store's
+	// pool can hold a single connection and a nested query would block on itself.
+	// "Open" means not closed and not cancelled — resolved counts, because an
+	// unconfirmed resolution is still work somebody owes.
+	openByCategory := map[int64]int{}
+	countRows, err := w.db.QueryContext(ctx, `
+		SELECT category_id, COUNT(*) FROM tickets
+		 WHERE state IN ('new', 'in_progress', 'resolved')
+		 GROUP BY category_id`)
+	if err != nil {
+		return nil, fmt.Errorf("sqlite: count open tickets: %w", err)
+	}
+	for countRows.Next() {
+		var cid int64
+		var n int
+		if err := countRows.Scan(&cid, &n); err != nil {
+			countRows.Close()
+			return nil, fmt.Errorf("sqlite: scan open tickets: %w", err)
+		}
+		openByCategory[cid] = n
+	}
+	if err := countRows.Err(); err != nil {
+		countRows.Close()
+		return nil, fmt.Errorf("sqlite: open ticket rows: %w", err)
+	}
+	countRows.Close()
+
 	facts, err := w.allDeskFacts(ctx)
 	if err != nil {
 		return nil, err
@@ -249,7 +276,7 @@ func (w *workflowStore) ListSummaries(ctx context.Context) ([]application.Workfl
 
 	out := make([]application.WorkflowSummary, 0, len(raw))
 	for _, r := range raw {
-		s := application.WorkflowSummary{CategoryID: r.id, CategoryName: r.name, HasDraft: r.draft.Valid}
+		s := application.WorkflowSummary{CategoryID: r.id, CategoryName: r.name, HasDraft: r.draft.Valid, OpenTickets: openByCategory[r.id]}
 		if r.current.Valid && r.version.Valid && r.steps.Valid {
 			s.Version = int(r.version.Int64)
 			def, perr := domain.ParseWorkflowDefinition([]byte(r.steps.String))

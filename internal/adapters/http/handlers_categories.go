@@ -72,6 +72,7 @@ type categoriesIndexData struct {
 	Categories           []domain.Category
 	CategoryRows         []catalogCategoryRow
 	Badges               map[int64]string
+	OpenTickets          map[int64]int
 	Departments          []domain.CatalogDepartment
 	Desks                []domain.CatalogDesk
 	StructureDepartments []catalogDepartmentView
@@ -521,6 +522,9 @@ func (h *CategoryHandlers) categoryIndexData(r *http.Request, message string) (c
 	data.CategoryAssets, data.PageFoundationAssets = true, true
 	data.SelectedDepartmentID, data.SelectedDeskID = state.DepartmentID, state.DeskID
 	data.Badges = make(map[int64]string)
+	// Both maps come from the SAME summary list, so a row's state and its open
+	// count can never disagree about which category they describe.
+	data.OpenTickets = make(map[int64]int)
 	if h.workflows != nil {
 		summaries, summaryErr := h.workflows.ListSummaries(r.Context(), *userFromContext(r.Context()))
 		if summaryErr != nil {
@@ -528,6 +532,7 @@ func (h *CategoryHandlers) categoryIndexData(r *http.Request, message string) (c
 		}
 		for _, summary := range summaries {
 			data.Badges[summary.CategoryID] = categoryBadge(summary)
+			data.OpenTickets[summary.CategoryID] = summary.OpenTickets
 		}
 	}
 	if h.catalog == nil {
