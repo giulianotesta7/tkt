@@ -1345,6 +1345,66 @@ test.describe("Ticket list SLA visibility (seeded)", () => {
   });
 });
 
+/**
+ * Create-form fallback category select (issue #247).
+ *
+ * The normal create form shows the chosen category read-only, so the picker
+ * already handles an unrunnable category (#239). The fallback branch — reached
+ * by GET /tickets/new?category_id=0, where parseID("0") == 0 leaves no category
+ * selected — built its own <select> from the narrower published-only rule, so it
+ * offered "Unrunnable Requests" as a choosable option even though every submit
+ * against it is refused.
+ *
+ * This journey proves the fallback select reads the SAME viability facts as the
+ * picker: the published-but-unrunnable category is present, disabled, and
+ * carries its reason; a healthy category stays selectable; and a never-published
+ * category stays absent.
+ */
+test.describe("Create fallback category select (seeded)", () => {
+  test.beforeAll(async () => {
+    await startServer({ seed: true });
+  });
+  test.afterAll(async () => {
+    await stopServer();
+  });
+
+  test("an unrunnable published category is a disabled option that says why", async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    const obs = collectObservability(page);
+    await page.goto(base() + "/login");
+    await page.getByLabel(/email/i).fill("alice@example.com");
+    await page.getByLabel(/password/i).fill("SuperSecret42!");
+    await page.getByRole("button", { name: /log in|sign in/i }).click();
+    await expect(page).toHaveURL(/\/tickets/);
+
+    // The fallback branch: no category is selected, so the form renders its own
+    // select instead of the picker. This is a real GET path the page exposes.
+    await page.goto(base() + "/tickets/new?category_id=0");
+    const select = page.locator("#category_id");
+    await expect(select).toBeVisible();
+
+    // "Unrunnable Requests" is published while staffed, then unstaffed: the only
+    // way to reach a published category that cannot move a ticket. It must stay
+    // visible, disabled, and explain itself rather than be offered.
+    const unrunnable = select.locator("option").filter({ hasText: "Unrunnable Requests" });
+    await expect(unrunnable).toHaveCount(1);
+    await expect(unrunnable).toBeDisabled();
+    await expect(unrunnable).toContainText("Can't run · Unstaffed Desk has no active members");
+
+    // A published-and-runnable category stays a normal, selectable option.
+    const runnable = select.locator("option").filter({ hasText: /^General$/ });
+    await expect(runnable).toHaveCount(1);
+    await expect(runnable).toBeEnabled();
+
+    // Never published: absent, exactly as before.
+    await expect(
+      select.locator("option").filter({ hasText: "Legacy Support Category" }),
+    ).toHaveCount(0);
+
+    await expect(obs.pageErrors).toEqual([]);
+  });
+});
+
 // Issue #248: the picker's department and desk numbers must count exactly the
 // categories that picker offers. The admin structure keeps the total (it lists
 // drafts too), so the two surfaces are deliberately allowed to disagree for
