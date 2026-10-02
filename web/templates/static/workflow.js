@@ -164,13 +164,33 @@
     body.style.left = Math.max(8, rect.right - width) + "px";
     body.style.bottom = "auto";
   };
+  // The three sibling dropdowns (step menu, typed-add popover, field menu)
+  // share one dismissal contract: Escape or a click outside it closes the open
+  // one. `closeDropdown` is that single close routine, reused by both paths so
+  // they cannot drift apart.
+  const DROPDOWN_SELECTOR = ".workflow-step-menu, .workflow-add-popover, .workflow-field-menu";
+  const closeDropdown = (details, { restoreFocus }) => {
+    if (!details.open) return;
+    details.open = false;
+    // Escape restores focus to the trigger; an outside click must not, or it
+    // would steal focus from the element the user just clicked.
+    if (restoreFocus) details.querySelector("summary")?.focus();
+  };
   document.addEventListener("click", (event) => {
-    const summary = event.target instanceof Element ? event.target.closest("summary") : null;
-    const details = summary?.closest(
-      ".workflow-step-menu, .workflow-add-popover, .workflow-field-menu",
-    );
-    if (!details) return;
-    requestAnimationFrame(() => positionDropdown(details));
+    const target = event.target instanceof Element ? event.target : null;
+    const summary = target?.closest("summary") ?? null;
+    const details = summary?.closest(DROPDOWN_SELECTOR);
+    // Hazard 3: the summary click still owns the fixed viewport positioning
+    // exactly as before; the dismissal below never touches it.
+    if (details) requestAnimationFrame(() => positionDropdown(details));
+    // Hazard 1: a click inside an open dropdown (choosing an option) is
+    // contained by it, so it stays open and its own behaviour runs.
+    // Hazard 2: a click on a summary is contained by its own dropdown, so it
+    // is skipped and the native toggle owns opening/closing it. Any other open
+    // dropdown the click landed outside of is dismissed.
+    for (const open of document.querySelectorAll(`${DROPDOWN_SELECTOR}[open]`)) {
+      if (!target || !open.contains(target)) closeDropdown(open, { restoreFocus: false });
+    }
   });
   document.addEventListener("toggle", (event) => {
     const details = event.target instanceof HTMLDetailsElement ? event.target : null;
@@ -179,18 +199,14 @@
 
   // The summary already provides focus and Enter/Space activation, but
   // browsers do not close an open <details> on Escape. Close the open
-  // step/field menu and return focus to its trigger, mirroring native
+  // step/add/field dropdown and return focus to its trigger, mirroring native
   // menu behavior without touching the fixed viewport positioning.
   document.addEventListener("keydown", (event) => {
     if (event.key !== "Escape") return;
     const details =
-      event.target instanceof Element
-        ? event.target.closest(".workflow-step-menu, .workflow-field-menu")
-        : null;
+      event.target instanceof Element ? event.target.closest(DROPDOWN_SELECTOR) : null;
     if (!details || !details.open) return;
-    details.open = false;
-    const summary = details.querySelector("summary");
-    if (summary) summary.focus();
+    closeDropdown(details, { restoreFocus: true });
   });
 })();
 // ==== Dirty-state guard for structural actions (issue #139 WU2) ====

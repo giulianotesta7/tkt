@@ -1958,13 +1958,24 @@ func TestCategoryWorkflowBuilder_ThreeDotTriggerPolish(t *testing.T) {
 	if got := strings.Count(tbody, `class="workflow-trigger"`); got != 0 {
 		t.Errorf("terminal-only draft must render no trigger, got %d", got)
 	}
-	// The asset keeps the viewport-fixed positioning and adds the narrow
-	// Escape contract: closing the open menu and refocusing its trigger.
+	// This asset has no browser test for its keyboard contract, so this pin is
+	// its only automated guard. It must describe the contract that now exists:
+	// the three dropdowns (step menu, add popover, field menu) share one
+	// selector and one close routine, and Escape closes the open dropdown and
+	// refocuses its trigger. A literal pin that forbids the correct
+	// implementation is a lock, not a guard, so it is repointed at the shared
+	// contract instead of the old two-menu matcher.
 	asset := h.get(t, "/static/workflow.js", false)
 	if asset.Code != http.StatusOK {
 		t.Fatalf("workflow asset status = %d, want 200", asset.Code)
 	}
-	for _, want := range []string{`event.key !== "Escape"`, `closest(".workflow-step-menu, .workflow-field-menu")`, `details.open = false`, `summary.focus()`} {
+	for _, want := range []string{
+		`event.key !== "Escape"`,
+		`const DROPDOWN_SELECTOR = ".workflow-step-menu, .workflow-add-popover, .workflow-field-menu"`,
+		`const closeDropdown = (details, { restoreFocus }) =>`,
+		`details.open = false`,
+		`details.querySelector("summary")?.focus()`,
+	} {
 		if !strings.Contains(asset.Body.String(), want) {
 			t.Errorf("workflow asset must contain %q", want)
 		}
