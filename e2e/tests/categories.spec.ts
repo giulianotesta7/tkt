@@ -1587,9 +1587,7 @@ test.describe("Categories", () => {
     });
     await expect(page.locator("#workflow-pending")).toHaveClass(/workflow-pending-info/);
     await expect(page.locator("#workflow-pending")).toContainText("In progress");
-    await expect(page.locator("#workflow-pending")).toContainText(
-      "The assigned agent is handling this task.",
-    );
+    await expect(page.locator("#workflow-pending")).toContainText("Nobody is assigned yet.");
     await expect(page.locator("#workflow-pending")).toContainText(
       "Updates will appear here when complete.",
     );
