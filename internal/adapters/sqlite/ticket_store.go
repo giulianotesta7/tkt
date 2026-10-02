@@ -281,6 +281,8 @@ func (u *unitOfWork) Create(ctx context.Context, t *domain.Ticket, event domain.
 // Update persists t and its event batch (a transition or field-edit batch)
 // as ONE atomic unit; a failed append restores the pre-mutation ticket.
 // events may be empty: a plain ticket write is still atomic by construction.
+// A ticket that reaches a terminal state (domain.IsClosed) also closes its
+// still-active workflow run in the SAME transaction (issue #256).
 func (u *unitOfWork) Update(ctx context.Context, t *domain.Ticket, events ...domain.AuditEvent) error {
 	tx, err := u.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -290,11 +292,37 @@ func (u *unitOfWork) Update(ctx context.Context, t *domain.Ticket, events ...dom
 	if err := updateTicketTx(ctx, tx, t); err != nil {
 		return err
 	}
+	// A ticket that leaves the workflow for a terminal state must not keep an
+	// active run: the frozen cursor would survive and its pinned claim step
+	// would keep the ticket claimable. Closing the run in THIS transaction
+	// keeps the ticket state and the run state consistent (issue #256, option
+	// A — the existing schema already models it, no migration).
+	if domain.IsClosed(t.State) {
+		if err := closeActiveRunTx(ctx, tx, t.ID, t.UpdatedAt); err != nil {
+			return err
+		}
+	}
 	if err := appendAuditEventsTx(ctx, tx, events...); err != nil {
 		return err
 	}
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("sqlite: commit update unit: %w", err)
+	}
+	return nil
+}
+
+// closeActiveRunTx closes a ticket's active workflow run, reusing the existing
+// completed/completed_at schema (issue #256, option A). The ticket
+// unit-of-work owns it because the closure MUST share the ticket write's
+// transaction. The WHERE status='active' predicate makes the write idempotent
+// and lets it never fight the workflow path that already closes the run when
+// the last step completes: an already-completed run has no active row to
+// update.
+func closeActiveRunTx(ctx context.Context, tx *sql.Tx, ticketID int64, completedAt time.Time) error {
+	if _, err := tx.ExecContext(ctx, `UPDATE ticket_workflow_runs
+		SET status = 'completed', completed_at = ?
+		WHERE ticket_id = ? AND status = 'active'`, formatTime(completedAt), ticketID); err != nil {
+		return fmt.Errorf("sqlite: close active run: %w", err)
 	}
 	return nil
 }

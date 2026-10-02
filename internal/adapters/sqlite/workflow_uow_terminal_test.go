@@ -130,6 +130,54 @@ func TestWorkflowUoW_TerminalPersistedMatrix(t *testing.T) {
 	}
 }
 
+// TestWorkflowUoW_CompletedRunNotReclosedByLegacyTerminalUpdate proves the
+// issue #256 closure guard does not fight the workflow completion path: once
+// ApplyWorkflowPlan has closed the run at the workflow's timestamp, a later
+// legacy terminal ticket write must leave completed_at unchanged (the
+// WHERE status='active' guard makes the closure idempotent).
+func TestWorkflowUoW_CompletedRunNotReclosedByLegacyTerminalUpdate(t *testing.T) {
+	s := newTestDB(t)
+	cat := seedCategory(t, s, "terminal-no-reclose")
+	req := seedUser(t, s, "Requester", "requester@example.test", true)
+	def := terminalDefinition(domain.StepResolve)
+	versionID := seedPublished(t, s, cat, def)
+	ticket := terminalTicket(t, s, domain.StateNew, versionID, req)
+	if _, err := s.db.Exec(`UPDATE tickets SET category_id=? WHERE id=?`, cat, ticket.ID); err != nil {
+		t.Fatalf("set category: %v", err)
+	}
+	seedRun(t, s, ticket.ID, 0, "active", testClock)
+
+	runner := application.NewWorkflowRunner(terminalClock{now: testClock})
+	plan, err := runner.PlanComplete(context.Background(), application.WorkflowExecutionSnapshot{Ticket: &ticket, Run: &application.WorkflowRun{TicketID: ticket.ID, Status: "active", StartedAt: testClock}, Workflow: def}, application.CompleteWorkflowCommand{TicketID: ticket.ID, ActorUserID: req, ExpectedPosition: 1})
+	if err != nil {
+		t.Fatalf("plan resolve: %v", err)
+	}
+	result, err := newWorkflowUnitOfWork(s.db).ApplyWorkflowPlan(context.Background(), plan)
+	if err != nil {
+		t.Fatalf("apply resolve: %v", err)
+	}
+	if result.Run == nil || result.Run.Status != "completed" || result.Run.CompletedAt == nil || !result.Run.CompletedAt.Equal(testClock) {
+		t.Fatalf("workflow resolve must close the run at %s, got %+v", testClock, result.Run)
+	}
+
+	// A later legacy terminal write (resolved -> closed) must not re-date the
+	// already-completed run.
+	legacy := *result.Ticket
+	legacy.State = domain.StateClosed
+	legacy.UpdatedAt = testClock.Add(time.Hour)
+	closedAt := legacy.UpdatedAt
+	legacy.ClosedAt = &closedAt
+	if err := s.TicketUnitOfWork().Update(context.Background(), &legacy, domain.AuditEvent{
+		TicketID: legacy.ID, Actor: "workflow", Action: domain.ActionTransition,
+		Field: ptr("state"), FromValue: ptr("resolved"), ToValue: ptr("closed"), CreatedAt: legacy.UpdatedAt}); err != nil {
+		t.Fatalf("legacy terminal update: %v", err)
+	}
+	_, status, comp := runRow(t, s, ticket.ID)
+	if status != "completed" || comp == nil || *comp != formatTime(testClock) {
+		t.Fatalf("run completed_at = %v (status %s), want unchanged %s", comp, status, formatTime(testClock))
+	}
+}
+
 // TestWorkflowUoW_RejectsClosureViaStampedTransitionAudit pins the additive
 // attribution guard (issue #55, design D1.3): a plan whose workflow transition
 // audit carries a non-nil ClosureVia is rejected with a typed
