@@ -143,28 +143,15 @@ test.describe("Desks", () => {
     await page.unroute((url) => url.pathname === addPath);
     expect(addResponse.headers()["hx-retarget"]).toBe("#category-drawer-host");
     expect(addResponse.headers()["hx-reswap"]).toBe("outerHTML");
-    expect(addResponse.headers()["x-save-feedback"]).toContain('"message":"Saved"');
+    // Issue #234: the drawer re-renders its member list in place, so the
+    // refreshed list is the confirmation and no success toast fires.
+    expect(addResponse.headers()["x-save-feedback"]).toBeUndefined();
     await expect(drawer).toBeVisible();
-    const addToast = page.locator("#save-feedback");
-    await expect(addToast).toBeVisible();
-    await expect(addToast.locator(".save-feedback-message")).toHaveText("Saved");
-    await expect(addToast).toHaveClass(/(?:^|\s)is-visible(?:\s|$)/);
-    const toastLayering = await addToast.evaluate((element) => ({
-      toastZ: parseInt(getComputedStyle(element).zIndex, 10),
-      toastTop: parseFloat(getComputedStyle(element).top),
-      toastRectRight: element.getBoundingClientRect().right,
-      viewportWidth: window.innerWidth,
-    }));
-    const drawerZ = await drawer.evaluate((element) =>
-      parseInt(getComputedStyle(element).zIndex, 10),
-    );
-    expect(toastLayering.toastZ).toBeGreaterThan(drawerZ);
-    expect(toastLayering.toastTop).toBeGreaterThanOrEqual(0);
-    expect(toastLayering.toastRectRight).toBeLessThanOrEqual(toastLayering.viewportWidth);
-    // The drawer stays usable while the toast is up.
+    await expect(page.locator("#save-feedback")).toBeHidden();
+    await expect(page.locator("#save-feedback .save-feedback-message")).toHaveText("");
+    // The drawer stays usable and keeps the in-flight edits.
     await expect(name).toBeEditable();
     await expect(drawer.getByRole("button", { name: "Close catalog details" })).toBeEnabled();
-    await expect(page.locator("#save-feedback")).toHaveCount(1);
     await expect(drawer.locator(".desk-member-list li").filter({ hasText: uname })).toHaveCount(1);
     await expect(name).toHaveValue(inFlightName);
     await expect(description).toHaveValue(inFlightDescription);
@@ -185,14 +172,12 @@ test.describe("Desks", () => {
     );
     expect(removeResponse.headers()["hx-retarget"]).toBe("#category-drawer-host");
     expect(removeResponse.headers()["hx-reswap"]).toBe("outerHTML");
-    expect(removeResponse.headers()["x-save-feedback"]).toContain('"message":"Saved"');
+    // Issue #234: the removed member disappears from the re-rendered list in
+    // place; no success toast fires.
+    expect(removeResponse.headers()["x-save-feedback"]).toBeUndefined();
     await expect(drawer).toBeVisible();
-    const removeToast = page.locator("#save-feedback");
-    await expect(removeToast).toBeVisible();
-    await expect(removeToast.locator(".save-feedback-message")).toHaveText("Saved");
-    await expect(page.locator("#save-feedback")).toHaveCount(1);
-    await page.waitForTimeout(5_100);
-    await expect(removeToast).toBeHidden();
+    await expect(page.locator("#save-feedback")).toBeHidden();
+    await expect(page.locator("#save-feedback .save-feedback-message")).toHaveText("");
     await expect(drawer.locator(".desk-member-list li").filter({ hasText: uname })).toHaveCount(0);
     await expect(name).toHaveValue(inFlightName);
     await expect(description).toHaveValue(inFlightDescription);
@@ -278,9 +263,11 @@ test.describe("Desks", () => {
       expect(new URLSearchParams(addResponse.request().postData() ?? "").get("user_id")).not.toBe(
         "",
       );
-      const addToast = page.locator("#save-feedback");
-      await expect(addToast).toBeVisible();
-      await expect(addToast.locator(".save-feedback-message")).toHaveText("Saved");
+      // Issue #234: the added member is visible in the re-rendered drawer
+      // list and no success toast fires for the in-place write.
+      await expect(page.locator("#save-feedback")).toBeHidden();
+      await expect(page.locator("#save-feedback .save-feedback-message")).toHaveText("");
+      await expect(drawer.locator(".desk-member-list li").filter({ hasText: name })).toHaveCount(1);
 
       const member = drawer.locator(".desk-member-list li").filter({ hasText: name });
       const removeForm = member.locator("form");
