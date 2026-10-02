@@ -203,6 +203,69 @@ func TestAmendment4_LegacyDeskIsVisibleUnderVirtualUnassignedAndCanBeRepaired(t 
 	}
 }
 
+// The virtual Unassigned group is a presentation-only row with ID -1. Neither
+// Edit (/categories/departments/-1/edit) nor Delete
+// (/categories/departments/-1/delete) can succeed: every department mutation
+// route resolves its path id through parseID, which rejects anything below 1,
+// and the edit drawer additionally fails categoryStateFromValues with a 422
+// before it renders. The structure page must not offer an action it cannot
+// support, while real Departments keep both controls.
+func TestAmendment4_VirtualUnassignedGroupOmitsUnsupportedDepartmentActions(t *testing.T) {
+	h := newHarness(t)
+	if _, err := h.desks.CreateWithDescription(t.Context(), *h.admin, "Legacy menu desk", "Legacy menu description"); err != nil {
+		t.Fatalf("create legacy desk: %v", err)
+	}
+	catalog := application.NewCatalogService(h.store.CatalogStore(), h.store.CategoryStore(), h.clock)
+	department, err := catalog.CreateDepartmentFor(t.Context(), *h.admin, "Operations", "Operations")
+	if err != nil {
+		t.Fatalf("create department: %v", err)
+	}
+	mux := http.NewServeMux()
+	NewCategoryHandlersWithWorkflows(h.categories, h.workflows, h.renderer, catalog).Register(mux)
+	get := func(target string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodGet, target, nil)
+		req.Header.Set("Cookie", sessionCookie+"="+h.adminSession.ID)
+		rec := httptest.NewRecorder()
+		h.mw.Wrap(mux).ServeHTTP(rec, req)
+		return rec
+	}
+
+	body := get("/categories?view=structure&department_id=unassigned").Body.String()
+	if !strings.Contains(body, "Unassigned") {
+		t.Fatalf("structure page is missing the virtual Unassigned group")
+	}
+	for _, forbidden := range []string{
+		"/categories/departments/-1/edit",
+		`action="/categories/departments/-1/delete"`,
+		"Actions for Unassigned",
+	} {
+		if strings.Contains(body, forbidden) {
+			t.Errorf("virtual Unassigned group still offers unsupported action %q", forbidden)
+		}
+	}
+
+	// Evidence that Delete is the same class of impossible action as Edit: the
+	// delete route rejects the virtual id before touching any store.
+	deleteReq := httptest.NewRequest(http.MethodPost, "/categories/departments/-1/delete", strings.NewReader("view=structure&department_id=-1"))
+	deleteReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	deleteReq.Header.Set("Cookie", sessionCookie+"="+h.adminSession.ID)
+	deleteRec := httptest.NewRecorder()
+	h.mw.Wrap(mux).ServeHTTP(deleteRec, deleteReq)
+	if deleteRec.Code != http.StatusBadRequest {
+		t.Errorf("virtual department delete = %d, want 400: %s", deleteRec.Code, deleteRec.Body.String())
+	}
+
+	real := get("/categories?view=structure&department_id=" + strconv.FormatInt(department.ID, 10)).Body.String()
+	for _, want := range []string{
+		"/categories/departments/" + strconv.FormatInt(department.ID, 10) + "/edit",
+		`action="/categories/departments/` + strconv.FormatInt(department.ID, 10) + `/delete"`,
+	} {
+		if !strings.Contains(real, want) {
+			t.Errorf("real department is missing supported action %q", want)
+		}
+	}
+}
+
 func TestAmendment4_DirectDeleteControlsRemainNativeAndServerAuthoritative(t *testing.T) {
 	h := newHarness(t)
 	catalog := application.NewCatalogService(h.store.CatalogStore(), h.store.CategoryStore(), h.clock)
