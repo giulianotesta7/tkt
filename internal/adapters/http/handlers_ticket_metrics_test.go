@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"net/http"
 	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -44,17 +45,72 @@ func TestMetricsReturnHrefConstrainsToListOrigin(t *testing.T) {
 // admin/root-only authorization matrix.
 func TestTicketMetricsHTTPDetailPage(t *testing.T) {
 	h := newHarness(t)
-	for _, tc := range [][3]string{
-		{"malformed", "metrics_start=bad&metrics_end=2026-03-01", "YYYY-MM-DD"},
-		{"only start", "metrics_start=2026-03-01", "choose both metrics dates"},
-		{"only end", "metrics_end=2026-03-01", "choose both metrics dates"},
-		{"inverted", "metrics_start=2026-03-05&metrics_end=2026-03-01", "metrics end date must not be before the start date"},
-		{"bad group", "metrics_start=2026-03-01&metrics_end=2026-03-02&metrics_group=desks", "metrics workload group must be agent or desk"},
+	// One desk and one agent so the validation re-render can prove the selected
+	// filter values survive, not just the two date inputs (issue #270).
+	desk, err := h.desks.Create(t.Context(), *h.admin, "Support")
+	if err != nil {
+		t.Fatalf("create desk: %v", err)
+	}
+	agent := h.createUser(t, "Metrics Agent", "metrics-agent@tkt.test", "password123")
+	deskOption := `<option value="` + strconv.FormatInt(desk.ID, 10) + `" selected>Support</option>`
+	agentOption := `<option value="` + strconv.FormatInt(agent.ID, 10) + `" selected>Metrics Agent</option>`
+	// Every validation error re-renders the SAME form the operator was editing
+	// (issue #270): the parseable controls keep their submitted value instead of
+	// collapsing to empty, and only a genuinely unparseable date degrades.
+	for _, tc := range []struct {
+		name     string
+		query    string
+		message  string
+		retained []string
+	}{
+		{
+			name: "malformed", query: "metrics_start=bad&metrics_end=2026-03-01", message: "YYYY-MM-DD",
+			// The unparseable start has nothing to preserve; the end stays.
+			retained: []string{`name="metrics_start" value=""`, `name="metrics_end" value="2026-03-01"`},
+		},
+		{
+			name: "only start", query: "metrics_start=2026-03-01", message: "choose both metrics dates",
+			retained: []string{`name="metrics_start" value="2026-03-01"`, `name="metrics_end" value=""`},
+		},
+		{
+			name: "only end", query: "metrics_end=2026-03-01", message: "choose both metrics dates",
+			retained: []string{`name="metrics_start" value=""`, `name="metrics_end" value="2026-03-01"`},
+		},
+		{
+			name: "inverted",
+			query: "metrics_start=2026-03-05&metrics_end=2026-03-01" +
+				"&metrics_desk_id=" + strconv.FormatInt(desk.ID, 10) +
+				"&metrics_agent_id=" + strconv.FormatInt(agent.ID, 10),
+			message: "metrics end date must not be before the start date",
+			// Both dates parse, so both survive, and the desk/agent selection is
+			// preserved instead of resetting to "All".
+			retained: []string{`name="metrics_start" value="2026-03-05"`, `name="metrics_end" value="2026-03-01"`, deskOption, agentOption},
+		},
+		{
+			name: "bad group", query: "metrics_start=2026-03-01&metrics_end=2026-03-02&metrics_group=desks", message: "metrics workload group must be agent or desk",
+			retained: []string{`name="metrics_start" value="2026-03-01"`, `name="metrics_end" value="2026-03-02"`},
+		},
 	} {
-		rec := h.get(t, "/tickets/metrics?"+tc[1], true)
-		if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `role="alert"`) || !strings.Contains(rec.Body.String(), tc[2]) || strings.Contains(rec.Body.String(), "ticket-metrics-grid") {
-			t.Fatalf("%s: HX validation must show %q with 200 and no stale results, got %d: %s", tc[0], tc[2], rec.Code, rec.Body.String())
+		rec := h.get(t, "/tickets/metrics?"+tc.query, true)
+		body := rec.Body.String()
+		if rec.Code != http.StatusOK || !strings.Contains(body, `role="alert"`) || !strings.Contains(body, tc.message) || strings.Contains(body, "ticket-metrics-grid") {
+			t.Fatalf("%s: HX validation must show %q with 200 and no stale results, got %d: %s", tc.name, tc.message, rec.Code, body)
 		}
+		for _, want := range tc.retained {
+			if !strings.Contains(body, want) {
+				t.Fatalf("%s: validation re-render must retain %q, got: %s", tc.name, want, body)
+			}
+		}
+	}
+	// Clear is a bare /tickets/metrics link, so following it resets the range to
+	// the service default instead of re-submitting the rejected filter.
+	invertedBody := h.get(t, "/tickets/metrics?metrics_start=2026-03-05&metrics_end=2026-03-01", true).Body.String()
+	if !strings.Contains(invertedBody, `href="/tickets/metrics?return=%2Ftickets">Clear</a>`) {
+		t.Fatalf("Clear must point at a bare /tickets/metrics: %s", invertedBody)
+	}
+	cleared := h.get(t, "/tickets/metrics", true)
+	if cleared.Code != http.StatusOK || strings.Contains(cleared.Body.String(), `role="alert"`) || !strings.Contains(cleared.Body.String(), "ticket-metrics-grid") {
+		t.Fatalf("Clear target must reload the default period without an alert: %d %s", cleared.Code, cleared.Body.String())
 	}
 	// Non-HX validation keeps the mapped 422 status in the full page shell.
 	if shell := h.get(t, "/tickets/metrics?metrics_start=2026-03-01", false); shell.Code != http.StatusUnprocessableEntity || !strings.Contains(shell.Body.String(), `role="alert"`) || !strings.Contains(shell.Body.String(), "choose both metrics dates") {

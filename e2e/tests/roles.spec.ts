@@ -299,6 +299,15 @@ test.describe("Role — minimal matrix admin / agent / user (seeded)", () => {
     await expect(page.locator("#ticket-detail")).toBeVisible();
     await expect(page.getByLabel(/internal comment/i)).toHaveCount(0);
     await expect(page.getByLabel(/comment body/i)).toBeVisible();
+    // #263: a requester is not offered mutation controls the server will
+    // reject. No priority form, no assign form, no transition form; the
+    // read-only property values stay visible instead.
+    const requesterDetail = page.locator("#ticket-detail");
+    for (const selector of ["#ticket-priority", "#assign-user", "#ticket-state"]) {
+      await expect(requesterDetail.locator(selector)).toHaveCount(0);
+    }
+    await expect(requesterDetail.locator("#ticket-priority-value")).toHaveText("Low");
+    await expect(requesterDetail.locator("#assign-user-value")).toHaveText("Unassigned");
     for (const path of ["/users", "/desks", "/categories", "/settings"]) {
       await page.goto(baseURL() + path);
       await expect(page.locator("body")).toContainText(/forbidden|not allowed/i, {
@@ -361,6 +370,56 @@ test.describe("Role — minimal matrix admin / agent / user (seeded)", () => {
       failedRequests: obs.failedRequests,
       failedResponses: obs.failedResponses,
     });
+  });
+
+  test("requester forbidden mutation maps to the permission message, not the retry copy", async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    // Admin creates a fresh requester, who then creates their own ticket.
+    await login(page, seededCredentials.email, seededCredentials.password);
+    const uEmail = `forbidden-${Date.now().toString(36).slice(2, 8)}@example.com`;
+    await createUserAndSetRole(page, {
+      name: "Forbidden Fiona",
+      email: uEmail,
+      password: "Secret123!",
+      role: "user",
+    });
+    await page.getByRole("button", { name: /log out|sign out/i }).click();
+    await expect(page).toHaveURL(/\/login/);
+    await login(page, uEmail, "Secret123!");
+    const title = "Forbidden probe " + Date.now().toString(36).slice(2, 8);
+    const id = await createTicketViaUi(page, { title, category: "General", priority: "low" });
+    await page.goto(baseURL() + `/tickets/${id}`);
+    await expect(page.locator("#ticket-detail")).toBeVisible();
+
+    // #263 deliberately removed the requester's transition affordance, so the
+    // endpoint is only reachable through an injected probe. This is honest:
+    // the layer under test is save-feedback.js's 403 branch, not a user
+    // journey, and the 403 it triggers is real, through the real htmx pipeline.
+    await page.evaluate((ticketID) => {
+      const probe = document.createElement("button");
+      probe.type = "button";
+      probe.id = "forbidden-transition-probe";
+      probe.textContent = "probe";
+      probe.setAttribute("hx-post", `/tickets/${ticketID}/transition`);
+      probe.setAttribute("hx-target", "#ticket-detail");
+      probe.setAttribute("hx-swap", "outerHTML");
+      probe.setAttribute("hx-vals", JSON.stringify({ to: "in_progress" }));
+      document.body.appendChild(probe);
+      (window as unknown as { htmx: { process: (el: Element) => void } }).htmx.process(probe);
+    }, id);
+    await page.locator("#forbidden-transition-probe").click();
+
+    // The 403 maps to the permission copy, announced as an assertive alert.
+    // The generic retry copy must not appear at all.
+    const feedback = page.locator("#save-feedback");
+    await expect(feedback.locator(".save-feedback-message")).toHaveText(
+      "You do not have permission to make that change.",
+    );
+    await expect(feedback).toHaveAttribute("role", "alert");
+    await expect(feedback).toHaveAttribute("aria-live", "assertive");
+    await expect(feedback).not.toContainText("Unable to save changes. Please try again.");
   });
 });
 
