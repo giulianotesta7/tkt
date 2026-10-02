@@ -958,6 +958,194 @@ test.describe("Categories", () => {
     await expect(launcher).toBeFocused();
   });
 
+  test("clean category drawer close restores the launcher for Cancel, Escape and backdrop", async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await loginAsSeeded(page);
+    const name = "Focus restore " + Date.now().toString(36).slice(2, 8);
+    await createCategoryViaUi(page, name);
+    const structureURL = page.url();
+
+    for (const mechanism of ["Cancel", "Escape", "backdrop"] as const) {
+      await page.goto(structureURL);
+      const row = page
+        .locator(".category-level-categories .category-table tbody tr")
+        .filter({ hasText: name });
+      await expect(row).toHaveCount(1);
+      const menu = row.getByRole("button", { name: `Actions for ${name}`, exact: true });
+      const focusKey = await menu.getAttribute("data-focus-key");
+      expect(focusKey).toBeTruthy();
+      await menu.click();
+      await row
+        .locator(".category-overflow-menu:not([hidden])")
+        .getByRole("menuitem", { name: "Edit category", exact: true })
+        .click();
+      const drawer = page.getByRole("dialog", { name: /Edit category/i });
+      await expect(drawer).toBeVisible();
+
+      if (mechanism === "Cancel") {
+        await drawer.getByRole("button", { name: "Cancel", exact: true }).click();
+      } else if (mechanism === "Escape") {
+        await page.keyboard.press("Escape");
+      } else {
+        await page.locator(".category-drawer-backdrop").click({ position: { x: 5, y: 5 } });
+      }
+      await expect(drawer).toHaveCount(0);
+      await expect(page.locator(`[data-focus-key="${focusKey}"]`)).toBeFocused();
+    }
+  });
+
+  test("clean close restores focus for every drawer launcher", async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await loginAsSeeded(page);
+
+    const openers = [
+      {
+        label: "New department",
+        url: "/categories?view=structure",
+        open: async () => {
+          const launcher = page
+            .locator(".category-level-departments .category-drawer-launcher")
+            .first();
+          const focusKey = await launcher.getAttribute("data-focus-key");
+          await launcher.click();
+          return { dialog: page.getByRole("dialog", { name: /New department/i }), focusKey };
+        },
+      },
+      {
+        label: "Edit department",
+        url: "/categories?view=structure",
+        open: async () => {
+          const menu = page.locator(".category-level-departments .category-menu-button").first();
+          const focusKey = await menu.getAttribute("data-focus-key");
+          await menu.click();
+          await page
+            .locator(".category-level-departments .category-overflow-menu:not([hidden])")
+            .getByRole("menuitem", { name: "Edit department", exact: true })
+            .click();
+          return { dialog: page.getByRole("dialog", { name: /Edit department/i }), focusKey };
+        },
+      },
+      {
+        label: "New desk",
+        url: "/categories?view=structure&department_id=1",
+        open: async () => {
+          const launcher = page.locator(".category-level-desks .category-drawer-launcher").first();
+          const focusKey = await launcher.getAttribute("data-focus-key");
+          await launcher.click();
+          return { dialog: page.getByRole("dialog", { name: /New desk/i }), focusKey };
+        },
+      },
+      {
+        label: "Edit desk",
+        url: "/categories?view=structure&department_id=1",
+        open: async () => {
+          const menu = page.locator(".category-level-desks .category-menu-button").first();
+          const focusKey = await menu.getAttribute("data-focus-key");
+          await menu.click();
+          await page
+            .locator(".category-level-desks .category-overflow-menu:not([hidden])")
+            .getByRole("menuitem", { name: "Edit desk", exact: true })
+            .click();
+          return { dialog: page.getByRole("dialog", { name: /Edit desk/i }), focusKey };
+        },
+      },
+      {
+        label: "New category",
+        url: "/categories?view=structure&department_id=1&desk_id=1",
+        open: async () => {
+          const launcher = page
+            .locator(".category-level-categories .category-drawer-launcher")
+            .first();
+          const focusKey = await launcher.getAttribute("data-focus-key");
+          await launcher.click();
+          return { dialog: page.getByRole("dialog", { name: /New category/i }), focusKey };
+        },
+      },
+    ];
+
+    for (const opener of openers) {
+      await page.goto(base() + opener.url);
+      const { dialog, focusKey } = await opener.open();
+      await expect(dialog).toBeVisible();
+      await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
+      await expect(dialog).toHaveCount(0);
+      await expect(page.locator(`[data-focus-key="${focusKey}"]`)).toBeFocused();
+    }
+  });
+
+  test("a vanished launcher falls back to a named control, never body", async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await loginAsSeeded(page);
+    const name = "Vanished trigger " + Date.now().toString(36).slice(2, 8);
+    await createCategoryViaUi(page, name);
+    const row = page
+      .locator(".category-level-categories .category-table tbody tr")
+      .filter({ hasText: name });
+    await expect(row).toHaveCount(1);
+    const menu = row.getByRole("button", { name: `Actions for ${name}`, exact: true });
+    const focusKey = await menu.getAttribute("data-focus-key");
+    expect(focusKey).toBeTruthy();
+    await menu.click();
+    await row
+      .locator(".category-overflow-menu:not([hidden])")
+      .getByRole("menuitem", { name: "Edit category", exact: true })
+      .click();
+    const drawer = page.getByRole("dialog", { name: /Edit category/i });
+    await expect(drawer).toBeVisible();
+
+    // Simulate the background update that removes the trigger while the drawer is open.
+    await page.evaluate((key) => {
+      document.querySelector(`[data-focus-key="${key}"]`)?.remove();
+    }, focusKey);
+
+    await drawer.getByRole("button", { name: "Cancel", exact: true }).click();
+    await expect(drawer).toHaveCount(0);
+    await expect(page.locator('[data-focus-key="new-category"]')).toBeFocused();
+    await expect(page.locator("body")).not.toBeFocused();
+  });
+
+  test("a vanished launcher with no level control falls back to the named region", async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await loginAsSeeded(page);
+    const name = "Vanished region " + Date.now().toString(36).slice(2, 8);
+    await createCategoryViaUi(page, name);
+    const row = page
+      .locator(".category-level-categories .category-table tbody tr")
+      .filter({ hasText: name });
+    await expect(row).toHaveCount(1);
+    const menu = row.getByRole("button", { name: `Actions for ${name}`, exact: true });
+    const focusKey = await menu.getAttribute("data-focus-key");
+    expect(focusKey).toBeTruthy();
+    await menu.click();
+    await row
+      .locator(".category-overflow-menu:not([hidden])")
+      .getByRole("menuitem", { name: "Edit category", exact: true })
+      .click();
+    const drawer = page.getByRole("dialog", { name: /Edit category/i });
+    await expect(drawer).toBeVisible();
+
+    // Simulate a background update that removes BOTH the trigger and the level's
+    // own "New category" launcher. With tier one gone, only the level's named
+    // section can receive focus -- never <body>.
+    await page.evaluate((key) => {
+      document.querySelector(`[data-focus-key="${key}"]`)?.remove();
+      document
+        .querySelector(".category-level-categories .category-level-action.category-drawer-launcher")
+        ?.remove();
+    }, focusKey);
+
+    await drawer.getByRole("button", { name: "Cancel", exact: true }).click();
+    await expect(drawer).toHaveCount(0);
+    await expect(
+      page.locator('.category-level-categories[aria-labelledby="structure-categories-title"]'),
+    ).toBeFocused();
+    await expect(page.locator("body")).not.toBeFocused();
+  });
+
   test("dirty department and desk drawers require an explicit discard", async ({ page }) => {
     await loginAsSeeded(page);
     await page.goto(base() + "/categories/departments/1/edit?view=structure");
