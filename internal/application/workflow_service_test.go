@@ -128,32 +128,6 @@ func TestWorkflowService_Mutating_Denied(t *testing.T) {
 	}
 }
 
-func TestWorkflowService_Preview_NoWrite(t *testing.T) {
-	ws := newFakeWorkflowStore()
-	svc := application.NewWorkflowService(ws)
-	admin := domain.User{ID: 1, Role: domain.RoleAdmin, Active: true}
-	agent := domain.User{ID: 2, Role: domain.RoleAgent, Active: true}
-	draft := domain.WorkflowDefinition{{Type: domain.StepManualTask, ManualTask: &domain.ManualTaskStep{Instructions: "Do"}}}
-	if _, _, err := svc.Preview(context.Background(), agent, 1, draft); err == nil {
-		t.Fatal("agent preview denied")
-	}
-	def, iss, err := svc.Preview(context.Background(), admin, 1, draft)
-	if err != nil || len(iss) != 0 || len(def) != 1 {
-		t.Fatalf("preview valid failed %v %v %v", err, iss, def)
-	}
-	if len(ws.upsertCalls) != 0 || len(ws.publishCalls) != 0 {
-		t.Fatal("Preview must not write")
-	}
-	empty := domain.WorkflowDefinition{}
-	_, iss2, _ := svc.Preview(context.Background(), admin, 1, empty)
-	if len(iss2) == 0 {
-		t.Fatal("empty preview want issues")
-	}
-	if len(ws.upsertCalls) != 0 {
-		t.Fatal("must not write on invalid preview")
-	}
-}
-
 func TestWorkflowService_Publish(t *testing.T) {
 	ws := newFakeWorkflowStore()
 	svc := application.NewWorkflowService(ws)

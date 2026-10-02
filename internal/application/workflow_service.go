@@ -73,21 +73,6 @@ func (s *WorkflowService) RemoveStep(ctx context.Context, actor domain.User, cat
 	return s.SaveDraft(ctx, actor, categoryID, nd)
 }
 
-func (s *WorkflowService) Preview(ctx context.Context, actor domain.User, _ int64, draft domain.WorkflowDefinition) (domain.WorkflowDefinition, []domain.WorkflowValidationIssue, error) {
-	if err := s.requireManage(actor); err != nil {
-		return nil, nil, err
-	}
-	b, err := canonicalBytes(draft)
-	if err != nil {
-		return nil, []domain.WorkflowValidationIssue{{Step: 1, Field: "steps", Message: err.Error()}}, nil
-	}
-	def, err := domain.ParseWorkflowDefinition(b)
-	if err != nil {
-		return nil, []domain.WorkflowValidationIssue{{Step: 1, Field: "steps", Message: err.Error()}}, nil
-	}
-	return def, def.Validate(), nil
-}
-
 func (s *WorkflowService) Publish(ctx context.Context, actor domain.User, categoryID int64, draft domain.WorkflowDefinition) ([]domain.WorkflowValidationIssue, error) {
 	if err := s.requireManage(actor); err != nil {
 		return nil, err
