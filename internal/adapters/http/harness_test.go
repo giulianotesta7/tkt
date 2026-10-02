@@ -137,6 +137,7 @@ type harness struct {
 	settings     *application.SettingsService
 	workflows    *application.WorkflowService
 	sla          *application.SLAService
+	preferences  *application.PreferencesService
 	renderer     *Renderer
 	mux          *http.ServeMux
 	mw           *SessionMiddleware
@@ -171,6 +172,7 @@ func newHarnessWithAdmin(t *testing.T, seedAdmin bool) *harness {
 	commentSvc := application.NewCommentService(s.TicketStore(), s.CommentStore(), clock)
 	searchSvc := application.NewSearchService(s.TicketStore(), s.SearchStore())
 	settingsSvc := application.NewSettingsService(s.SettingsStore())
+	preferencesSvc := application.NewPreferencesService(s.PreferencesStore())
 	workflowSvc := application.NewWorkflowService(s.WorkflowStore())
 	metricsSvc := application.NewTicketMetricsService(s.TicketMetricsStore(), clock)
 	renderer := NewRenderer()
@@ -178,21 +180,23 @@ func newHarnessWithAdmin(t *testing.T, seedAdmin bool) *harness {
 	mux := http.NewServeMux()
 	RegisterStatic(mux)
 	NewAuthHandlers(authSvc, usersSvc, renderer).Register(mux)
-	NewTicketHandlers(ticketSvc, commentSvc, searchSvc, catSvc, usersSvc, s.DeskStore(), workflowSvc, application.NewWorkflowRunner(clock), s.WorkflowRunStore(), s.WorkflowUnitOfWork(), renderer).WithMetrics(metricsSvc).WithSLA(slaSvc).Register(mux)
+	NewTicketHandlers(ticketSvc, commentSvc, searchSvc, catSvc, usersSvc, s.DeskStore(), workflowSvc, application.NewWorkflowRunner(clock), s.WorkflowRunStore(), s.WorkflowUnitOfWork(), renderer).WithMetrics(metricsSvc).WithSLA(slaSvc).WithPreferences(preferencesSvc).Register(mux)
 	NewUserHandlers(usersSvc, renderer).Register(mux)
 	NewCategoryHandlersWithWorkflows(catSvc, workflowSvc, renderer).Register(mux)
 	NewCategoryWorkflowHandlers(catSvc, workflowSvc, deskSvc, renderer).Register(mux)
 	NewDeskHandlers(deskSvc, renderer).Register(mux)
 	NewSettingsHandlers(settingsSvc, slaSvc, s.SLAStore(), s.SettingsStore(), renderer).Register(mux)
 	NewCategorySLAHandlers(catSvc, slaSvc, s.SLAStore(), renderer).Register(mux)
+	NewPreferencesHandlers(preferencesSvc, renderer).Register(mux)
 	mw := NewSessionMiddleware(s.SessionStore(), s.UserStore(), s.SettingsStore())
 
 	h := &harness{
 		store: s, dbPath: dbPath, clock: clock,
 		tickets: ticketSvc, comments: commentSvc, users: usersSvc, auth: authSvc,
 		categories: catSvc, desks: deskSvc, search: searchSvc, settings: settingsSvc, workflows: workflowSvc, sla: slaSvc,
-		renderer: renderer,
-		mux:      mux, mw: mw,
+		preferences: preferencesSvc,
+		renderer:    renderer,
+		mux:         mux, mw: mw,
 	}
 	if !seedAdmin {
 		return h
