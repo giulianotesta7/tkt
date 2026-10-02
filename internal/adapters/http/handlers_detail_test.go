@@ -1282,6 +1282,70 @@ func TestTicketDetailRequesterHidesUnusableMutationControls(t *testing.T) {
 	}
 }
 
+// TestClosedTicketDetailKeepsReopenForCapableActor (issue #263) proves the
+// capable-actor half of the closed-ticket contract through the REAL handler:
+// a CLOSED ticket still offers an agent/admin the reopen control, because
+// CanTransition (CapEditTicket) is deliberately NOT gated on the closed state.
+// A naive CanEdit gate — which folds `!closed` into the capability — would
+// have removed the only remaining mutation on a closed ticket and destroyed
+// the agent reopen. TestClosedTicketDetailReadOnly only proves the read-only
+// half, and it builds detailData by hand; this test drives detailDataFor and
+// the HTTP handler, so the seam between the flag and the rendering is real.
+//
+// The same page is then requested as the requester who owns the ticket: a
+// `user` actor holds no CapEditTicket, so the Move-to control must be absent.
+func TestClosedTicketDetailKeepsReopenForCapableActor(t *testing.T) {
+	h := newHarness(t)
+	requester := seedUserRole(t, h.store, "Rae", "rae@example.com", domain.RoleUser)
+	sess := seedSession(t, h.store, requester.ID)
+
+	// The requester creates their own ticket through the real HTTP create path,
+	// so the closure below can take the requester-confirmation route.
+	rec := h.postFormAs(t, "/tickets", url.Values{
+		"title":       {"Close then reopen"},
+		"category_id": {strconv.FormatInt(h.bugCategory.ID, 10)},
+		"priority":    {"medium"},
+	}, sess.ID)
+	if rec.Code != http.StatusSeeOther {
+		t.Fatalf("create status = %d, want 303", rec.Code)
+	}
+
+	// Admin drives new → in_progress → resolved through the real service; the
+	// requester then confirms, the audited path to closed (a requester-owned
+	// resolved ticket cannot be closed manually by any actor).
+	if _, err := h.tickets.Transition(t.Context(), *h.admin, 1, domain.StateInProgress, ""); err != nil {
+		t.Fatalf("transition to in_progress: %v", err)
+	}
+	if _, err := h.tickets.Transition(t.Context(), *h.admin, 1, domain.StateResolved, ""); err != nil {
+		t.Fatalf("transition to resolved: %v", err)
+	}
+	if _, err := h.tickets.ConfirmResolution(t.Context(), *requester, 1); err != nil {
+		t.Fatalf("requester confirm: %v", err)
+	}
+	view, err := h.tickets.GetByID(t.Context(), *h.admin, 1)
+	if err != nil {
+		t.Fatalf("view after confirm: %v", err)
+	}
+	if view.Ticket.State != domain.StateClosed {
+		t.Fatalf("state = %q, want closed", view.Ticket.State)
+	}
+
+	// Capable actor (admin) GET: the reopen control is present and offers
+	// in_progress. This is the behaviour a naive CanEdit gate destroys.
+	capable := h.get(t, "/tickets/1", true).Body.String()
+	for _, want := range []string{`id="ticket-state"`, "Move to", `<option value="in_progress"`} {
+		if !strings.Contains(capable, want) {
+			t.Errorf("closed ticket must keep the reopen control %q for a capable actor, got: %s", want, capable)
+		}
+	}
+
+	// Requester GET: the same closed ticket offers no Move-to control.
+	requesterBody := getDetailAs(t, h, "/tickets/1", sess.ID, true).Body.String()
+	if strings.Contains(requesterBody, `id="ticket-state"`) {
+		t.Errorf("a requester must not be offered the closed-ticket reopen control, got: %s", requesterBody)
+	}
+}
+
 // TestTicketDetailSLAPanelStaffOnly (issue #211, PR 4) proves the milestone
 // panel renders on a STAFF detail page and is ABSENT from a requester's page
 // even when that requester's own ticket carries a frozen commitment. The
