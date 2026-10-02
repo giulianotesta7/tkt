@@ -23,11 +23,17 @@ test.describe("Ticket confirmation", () => {
 
   // ---------- Helpers ----------
 
-  /** Create a requester-owned ticket driven to `resolved`, then return it to the requester. */
+  /**
+   * Create a requester-owned ticket driven to `resolved`, then return it to the
+   * requester. With a `solution`, the admin also assigns the ticket to
+   * themselves and completes the pinned manual step WITH that solution, so the
+   * ticket carries a historical completion before it is resolved.
+   */
   async function requesterOwnedResolvedTicket(
     page: import("@playwright/test").Page,
     requesterEmail: string,
     requesterPassword: string,
+    solution: string | null = null,
   ): Promise<string> {
     // The caller is logged in as admin (to create the user); log out first so
     // the requester session is clean before they create their own ticket.
@@ -44,6 +50,43 @@ test.describe("Ticket confirmation", () => {
     // Admin drives new → in_progress → resolved (the requester can't transition).
     await logout(page);
     await loginAsSeeded(page);
+    if (solution !== null) {
+      // A manual-task step requires the current assignee, so claim the ticket
+      // first, then complete the pinned step with the visible solution.
+      await page.goto(base() + `/tickets/${id}`);
+      await assertHtmxSwap(
+        page,
+        async () => {
+          await page.locator("#assign-user").selectOption({ label: "Alice Admin" });
+          await page
+            .locator("form:has(#assign-user)")
+            .getByRole("button", { name: "Apply" })
+            .click();
+        },
+        {
+          endpoint: `/tickets/${id}/assign`,
+          method: "POST",
+          expectedStatus: 200,
+          hxTarget: "#ticket-detail",
+        },
+      );
+      const pending = page.locator("#workflow-pending");
+      await expect(pending.getByLabel("Solution (optional)")).toBeVisible();
+      await assertHtmxSwap(
+        page,
+        async () => {
+          await pending.getByLabel("Solution (optional)").fill(solution);
+          await pending.getByRole("button", { name: "Complete" }).click();
+        },
+        {
+          endpoint: `/tickets/${id}/workflow/steps/1/complete`,
+          method: "POST",
+          expectedStatus: 200,
+          hxTarget: "#ticket-detail",
+        },
+      );
+      await expect(page.locator("#workflow-pending")).toHaveCount(0);
+    }
     for (const target of ["in_progress", "resolved"] as const) {
       await page.goto(base() + `/tickets/${id}`);
       const stateSelect = page.locator("#ticket-state");
@@ -140,7 +183,13 @@ test.describe("Ticket confirmation", () => {
       password: requesterPassword,
     });
 
-    const id = await requesterOwnedResolvedTicket(page, requesterEmail, requesterPassword);
+    const solution = "Replaced the failed disk and restarted the worker";
+    const id = await requesterOwnedResolvedTicket(
+      page,
+      requesterEmail,
+      requesterPassword,
+      solution,
+    );
 
     await page.goto(base() + `/tickets/${id}`);
     await expect(page.locator(".resolution-confirmation")).toBeVisible();
@@ -166,8 +215,27 @@ test.describe("Ticket confirmation", () => {
     await expect(page.locator(".resolution-confirmation")).toHaveCount(0);
     await expect(page.locator("#workflow-pending")).toHaveCount(0);
 
+    // Issue #264: the detached reopen must keep the historical completion's
+    // solution and its responsible person, and the retained assignee, for the
+    // requester — before and after a reload.
+    const assertReopenedHistory = async () => {
+      const completedTask = page.locator("#timeline .timeline-entry.timeline-manual", {
+        hasText: solution,
+      });
+      await expect(completedTask).toHaveCount(1);
+      await expect(completedTask.locator(".timeline-manual-heading .main")).toHaveText(
+        "Alice Admin completed the task",
+      );
+      await expect(completedTask.getByText("Solution", { exact: true })).toHaveCount(1);
+      await expect(completedTask.locator("dd").first()).toHaveText(solution);
+      await expect(page.locator("#assign-user-value")).toHaveText("Alice Admin");
+      await expect(page.locator("#workflow-pending")).toHaveCount(0);
+    };
+    await assertReopenedHistory();
+
     await page.reload();
     await expect(page.getByText("In Progress").first()).toBeVisible();
+    await assertReopenedHistory();
   });
 
   test("requester-owned resolved ticket viewed by an agent hides the panel and blocks manual close", async ({

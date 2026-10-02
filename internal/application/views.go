@@ -226,6 +226,24 @@ func (b *ViewBuilder) enrichTimeline(ctx context.Context, view *TicketView) erro
 					return err
 				}
 				item.bindStepContext(stepCtx)
+				// Issue #264: a requester rejection detaches the pin by design
+				// (D4), so the pinned read above cannot resolve the completion
+				// even though its solution row survives. On the pin-independent
+				// path, re-read ONLY the stored solution and bind it to this
+				// manual completion event: the historical solution stays
+				// reachable, while the pinned instruction — genuinely gone with
+				// the detached definition — is honestly omitted rather than
+				// reconstructed from an unpinned guess.
+				if stepCtx == nil && view.Ticket.WorkflowVersionID == nil &&
+					item.Event.Action == domain.ActionWorkflowManualTask {
+					if reader, ok := b.responses.(manualSolutionReader); ok {
+						solution, err := reader.ManualSolution(ctx, view.Ticket.ID, *item.Event.StepIndex)
+						if err != nil {
+							return err
+						}
+						item.bindStepContext(&WorkflowStepContext{Kind: "manual", Solution: solution})
+					}
+				}
 			}
 		}
 		if item.Event.Action == domain.ActionWorkflowAssignment {
@@ -282,6 +300,17 @@ func (b *ViewBuilder) enrichTimeline(ctx context.Context, view *TicketView) erro
 		}
 	}
 	return nil
+}
+
+// manualSolutionReader is the OPTIONAL, pin-independent half of the response
+// store: it resolves one manual completion's stored solution by the ticket and
+// the event's exact persisted step index, without ever consulting the pinned
+// definition. The timeline uses it ONLY for a detached ticket, so the
+// WorkflowStepContextStore contract keeps its documented (nil, nil) degradation
+// for a missing pin. A store that cannot answer simply omits the capability and
+// the timeline renders the safe summary alone, exactly as before.
+type manualSolutionReader interface {
+	ManualSolution(ctx context.Context, ticketID int64, stepIndex int) (string, error)
 }
 
 // bindStepContext attaches a resolved pinned-step projection when it is

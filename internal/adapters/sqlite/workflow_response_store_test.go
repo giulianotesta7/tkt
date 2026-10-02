@@ -272,3 +272,48 @@ func TestWorkflowStepContext_ManualSolutionJoinsExactPersistedIndex(t *testing.T
 		t.Fatalf("legacy context = %+v, want instruction alone with empty Solution (no placeholder)", legacyCtx)
 	}
 }
+
+// Issue #264 — ManualSolution is the pin-INDEPENDENT half of the response
+// store: it resolves one manual completion's stored solution from
+// ticket_manual_solutions by (ticket_id, step_index) ALONE, so a ticket whose
+// workflow pin was detached by a requester rejection keeps its historical
+// solution readable while its pinned instruction is genuinely unrecoverable.
+// A missing row is an empty value, never an error; the pinned step-context
+// read keeps its documented (nil, nil) degradation for the same detached
+// ticket.
+func TestWorkflowResponseStore_ManualSolutionWithoutPin(t *testing.T) {
+	s := newTestDB(t)
+	ctx := context.Background()
+	category := seedCategory(t, s, "Detached solutions")
+	requester := seedUserRole(t, s, "Requester", "detached-read@x", true, domain.RoleUser)
+	ticket := seedTicket(t, s, domain.Ticket{Number: 1, Title: "Detached", RequesterName: "Requester", RequesterEmail: "detached-read@x", RequesterUserID: &requester, CategoryID: category, Priority: domain.PriorityMedium, State: domain.StateInProgress, CreatedAt: testClock, UpdatedAt: testClock})
+	// The solution row is FK-bound to the ticket's run row; the ticket itself
+	// carries NO workflow_version_id — the detached shape this test is about.
+	seedRun(t, s, ticket.ID, 0, "active", testClock)
+	if _, err := s.db.Exec(`INSERT INTO ticket_manual_solutions (ticket_id, step_index, solution, created_by_user_id, created_at) VALUES (?, 0, ?, ?, ?)`,
+		ticket.ID, "restarted the worker", requester, formatTime(testClock)); err != nil {
+		t.Fatalf("seed detached solution: %v", err)
+	}
+
+	store := newWorkflowResponseStore(s.db)
+
+	solution, err := store.ManualSolution(ctx, ticket.ID, 0)
+	if err != nil {
+		t.Fatalf("ManualSolution without a pin: %v", err)
+	}
+	if solution != "restarted the worker" {
+		t.Fatalf("ManualSolution = %q, want the stored value joined by exact index", solution)
+	}
+
+	// A missing row degrades to an EMPTY value — never an error or a
+	// fabricated placeholder.
+	if solution, err := store.ManualSolution(ctx, ticket.ID, 7); err != nil || solution != "" {
+		t.Fatalf("missing solution row = (%q, %v), want empty, nil", solution, err)
+	}
+
+	// The pinned read must NOT change: a detached ticket still degrades to
+	// (nil, nil), so the pending plan and the workflow card stay absent.
+	if stepCtx, err := store.WorkflowStepContext(ctx, ticket.ID, 0); err != nil || stepCtx != nil {
+		t.Fatalf("detached WorkflowStepContext = (%v, %v), want (nil, nil) degradation", stepCtx, err)
+	}
+}
