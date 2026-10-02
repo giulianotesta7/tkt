@@ -2421,3 +2421,112 @@ func (h *harness) getWithSaveFeedback(t *testing.T, path string, prior *httptest
 	h.mw.Wrap(h.mux).ServeHTTP(rec, req)
 	return rec.Body.String()
 }
+
+// ==== Reuse a workflow by cloning it into another category (issue #257) ====
+//
+// The route copies the SOURCE category's PUBLISHED workflow into the TARGET
+// category's DRAFT, authorized by the existing category-management capability
+// (CapWorkflowAuthor belongs to issue #255 and is deliberately not invented
+// here). When the target already has a draft the clone is REFUSED with a
+// comprehensible message and the target's bytes are left EXACTLY as they were
+// — no merge, no overwrite — and cloning never publishes.
+func TestCategoryWorkflowClone_RouteAuthorizationRefusalAndRoundTrip(t *testing.T) {
+	h := newHarness(t)
+	source, err := h.categories.Create(t.Context(), "Clone source")
+	if err != nil {
+		t.Fatalf("create source: %v", err)
+	}
+	sourceDef := domain.WorkflowDefinition{
+		{Type: domain.StepManualTask, ManualTask: &domain.ManualTaskStep{Instructions: "Reuse me"}},
+		{Type: domain.StepResolve},
+	}
+	h.publishWorkflow(t, source.ID, sourceDef)
+	target, err := h.categories.Create(t.Context(), "Clone target")
+	if err != nil {
+		t.Fatalf("create target: %v", err)
+	}
+	path := "/categories/" + strconv.FormatInt(target.ID, 10) + "/workflow/clone"
+	targetPath := "/categories/" + strconv.FormatInt(target.ID, 10) + "/workflow"
+	form := url.Values{"source_category_id": {strconv.FormatInt(source.ID, 10)}}
+
+	// Authorization: an agent may not clone.
+	agent := h.createUser(t, "Clone Agent", "clone-agent@tkt.test", "secret")
+	agentSession := seedSession(t, h.store, agent.ID)
+	denied := h.postFormAs(t, path, form, agentSession.ID)
+	if denied.Code != http.StatusForbidden {
+		t.Fatalf("agent clone = %d, want 403: %s", denied.Code, denied.Body.String())
+	}
+	if n := scanOneInt(t, h.rawDB(t), "SELECT COUNT(*) FROM category_workflows WHERE category_id=?", target.ID); n != 0 {
+		t.Fatalf("denied clone created %d workflow rows", n)
+	}
+
+	// Success: the source's PUBLISHED definition becomes the target's DRAFT.
+	ok := h.postForm(t, path, form, false)
+	wantRedirect(t, ok, http.StatusSeeOther, targetPath)
+	targetDraft := h.persistedDefinition(t, targetPath)
+	if len(targetDraft) != len(sourceDef) || targetDraft[0].ManualTask.Instructions != "Reuse me" || targetDraft[1].Type != domain.StepResolve {
+		t.Fatalf("cloned target draft = %+v, want %+v", targetDraft, sourceDef)
+	}
+	// Cloning is not publishing: the target keeps no current version.
+	if current, present := scanOneNullableInt(t, h.rawDB(t), "SELECT current_version_id FROM category_workflows WHERE category_id=?", target.ID); present && current != 0 {
+		t.Fatalf("clone must not publish, target current_version_id=%d", current)
+	}
+	// The source's published version is untouched by a clone.
+	if sourceCurrent, present := scanOneNullableInt(t, h.rawDB(t), "SELECT current_version_id FROM category_workflows WHERE category_id=?", source.ID); !present || sourceCurrent == 0 {
+		t.Fatalf("clone disturbed the source's published version: %d present=%v", sourceCurrent, present)
+	}
+
+	// Refusal: the target now has a draft; a second clone is refused with a
+	// message and leaves the target's bytes byte-identical.
+	before := scanOneString(t, h.rawDB(t), "SELECT draft_json FROM category_workflows WHERE category_id=?", target.ID)
+	refused := h.postForm(t, path, form, false)
+	if refused.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("second clone = %d, want 422: %s", refused.Code, refused.Body.String())
+	}
+	if !strings.Contains(refused.Body.String(), "already has a draft") {
+		t.Fatalf("refusal must state the existing draft, got: %s", refused.Body.String())
+	}
+	after := scanOneString(t, h.rawDB(t), "SELECT draft_json FROM category_workflows WHERE category_id=?", target.ID)
+	if after != before {
+		t.Fatalf("refused clone changed the target draft:\n got  %s\n want %s", after, before)
+	}
+}
+
+// The builder page offers the clone control with the published categories as
+// sources, and never offers the page's own category as a clone source.
+func TestCategoryWorkflowClone_ControlRendersPublishedSources(t *testing.T) {
+	h := newHarness(t)
+	source, err := h.categories.Create(t.Context(), "Reusable source")
+	if err != nil {
+		t.Fatalf("create source: %v", err)
+	}
+	h.publishWorkflow(t, source.ID, simpleManualDef())
+	draftOnly, err := h.categories.Create(t.Context(), "Draft only source")
+	if err != nil {
+		t.Fatalf("create draft-only: %v", err)
+	}
+	if err := h.workflows.SaveDraft(t.Context(), *h.admin, draftOnly.ID, simpleManualDef()); err != nil {
+		t.Fatalf("save draft-only: %v", err)
+	}
+	target, err := h.categories.Create(t.Context(), "Clone target")
+	if err != nil {
+		t.Fatalf("create target: %v", err)
+	}
+
+	body := h.get(t, "/categories/"+strconv.FormatInt(target.ID, 10)+"/workflow", false).Body.String()
+	for _, want := range []string{
+		`action="/categories/` + strconv.FormatInt(target.ID, 10) + `/workflow/clone"`,
+		`name="source_category_id"`,
+		`<option value="` + strconv.FormatInt(source.ID, 10) + `">Reusable source</option>`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("clone control must contain %q, got: %s", want, body)
+		}
+	}
+	if strings.Contains(body, `>Draft only source</option>`) {
+		t.Error("a category without a published workflow must not be offered as a clone source")
+	}
+	if strings.Contains(body, `>`+target.Name+`</option>`) {
+		t.Error("the page's own category must not be offered as a clone source")
+	}
+}

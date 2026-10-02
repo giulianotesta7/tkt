@@ -1,7 +1,9 @@
 package application_test
 
 import (
+	"bytes"
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/giulianotesta7/tkt/internal/application"
@@ -207,5 +209,117 @@ func TestWorkflowService_ListSummaries_RequiresCapability(t *testing.T) {
 	}
 	if _, err := svc.ListSummaries(context.Background(), domain.User{ID: 1, Role: domain.RoleAdmin}); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// cloneStore composes the two ports the Clone use case reads on one value,
+// exactly as the production sqlite workflowStore does: the draft/publish port
+// (WorkflowStore) plus the published-version resolver (WorkflowVersionStore).
+// Clone discovers the resolver by type assertion, so a fake that implements
+// only WorkflowStore cannot clone.
+type cloneStore struct {
+	*fakeWorkflowStore
+	versions *fakeWorkflowVersionStore
+}
+
+func newCloneStore() *cloneStore {
+	return &cloneStore{fakeWorkflowStore: newFakeWorkflowStore(), versions: newFakeWorkflowVersionStore()}
+}
+
+func (c *cloneStore) GetCurrentVersion(ctx context.Context, categoryID int64) (*application.PublishedWorkflow, error) {
+	return c.versions.GetCurrentVersion(ctx, categoryID)
+}
+
+// Clone writes the SOURCE's current published definition into the TARGET's
+// draft. It is authoring, not publishing: the target keeps no current version
+// until an operator publishes it deliberately.
+func TestWorkflowService_Clone_WritesTargetDraftWithoutPublishing(t *testing.T) {
+	store := newCloneStore()
+	svc := application.NewWorkflowService(store)
+	admin := domain.User{ID: 1, Role: domain.RoleAdmin, Active: true}
+	source := domain.WorkflowDefinition{
+		{Type: domain.StepManualTask, ManualTask: &domain.ManualTaskStep{Instructions: "Clone me"}},
+		{Type: domain.StepResolve},
+	}
+	store.versions.publish(7, source)
+
+	if err := svc.Clone(context.Background(), admin, 7, 9); err != nil {
+		t.Fatalf("clone: %v", err)
+	}
+	if len(store.upsertCalls) != 1 || store.upsertCalls[0].cat != 9 {
+		t.Fatalf("clone must write exactly the target draft, got %+v", store.upsertCalls)
+	}
+	got, err := domain.ParseWorkflowDefinition(store.upsertCalls[0].draft)
+	if err != nil || len(got) != 2 || got[0].ManualTask.Instructions != "Clone me" || got[1].Type != domain.StepResolve {
+		t.Fatalf("cloned draft wrong: %v err %v", got, err)
+	}
+	if len(store.publishCalls) != 0 {
+		t.Fatal("clone must never publish")
+	}
+}
+
+// The maintainer's decision: an existing target draft is protected. A refused
+// clone returns a comprehensible error and leaves the target's bytes EXACTLY
+// as they were — it never merges and never overwrites.
+func TestWorkflowService_Clone_RefusesExistingTargetDraftUntouched(t *testing.T) {
+	store := newCloneStore()
+	svc := application.NewWorkflowService(store)
+	admin := domain.User{ID: 1, Role: domain.RoleAdmin, Active: true}
+	store.versions.publish(7, domain.WorkflowDefinition{{Type: domain.StepManualTask, ManualTask: &domain.ManualTaskStep{Instructions: "Source"}}})
+	existing := domain.WorkflowDefinition{{Type: domain.StepManualTask, ManualTask: &domain.ManualTaskStep{Instructions: "Someone else's work"}}}
+	before, err := existing.MarshalCanonical()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.SaveDraft(context.Background(), admin, 9, existing); err != nil {
+		t.Fatal(err)
+	}
+	store.upsertCalls = nil // ignore the arrangement write
+
+	err = svc.Clone(context.Background(), admin, 7, 9)
+	if err == nil {
+		t.Fatal("clone into a category that already has a draft must be refused")
+	}
+	if !strings.Contains(err.Error(), "already has a draft") {
+		t.Fatalf("refusal must explain the existing draft, got %q", err.Error())
+	}
+	if len(store.upsertCalls) != 0 {
+		t.Fatalf("refused clone must write nothing, got %+v", store.upsertCalls)
+	}
+	after, err := store.GetDraft(context.Background(), 9)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(after, before) {
+		t.Fatalf("target draft changed on a refused clone:\n got  %s\n want %s", after, before)
+	}
+	if len(store.publishCalls) != 0 {
+		t.Fatal("refused clone must not publish")
+	}
+}
+
+func TestWorkflowService_Clone_SourceWithoutPublishedVersion(t *testing.T) {
+	store := newCloneStore()
+	svc := application.NewWorkflowService(store)
+	admin := domain.User{ID: 1, Role: domain.RoleAdmin, Active: true}
+	if err := svc.Clone(context.Background(), admin, 7, 9); err == nil {
+		t.Fatal("a source with no published workflow must be refused")
+	}
+	if len(store.upsertCalls) != 0 {
+		t.Fatal("must not write when the source has nothing published")
+	}
+}
+
+func TestWorkflowService_Clone_RequiresCapability(t *testing.T) {
+	store := newCloneStore()
+	svc := application.NewWorkflowService(store)
+	store.versions.publish(7, domain.WorkflowDefinition{{Type: domain.StepManualTask, ManualTask: &domain.ManualTaskStep{Instructions: "Source"}}})
+	for _, role := range []domain.Role{domain.RoleUser, domain.RoleAgent} {
+		if err := svc.Clone(context.Background(), domain.User{ID: 2, Role: role, Active: true}, 7, 9); err == nil {
+			t.Fatalf("%s clone must be denied", role)
+		}
+	}
+	if len(store.upsertCalls) != 0 {
+		t.Fatal("denied clone must not write")
 	}
 }
