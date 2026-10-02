@@ -474,10 +474,16 @@ func TestTicketCommentHXFragment(t *testing.T) {
 
 // TestTicketCommentsNewestFirst proves the rendered timeline shows
 // comments newest first (comment-timeline spec: reverse-chronological).
+//
+// The ordering is proved over the timeline region alone, never over the whole
+// document: every ticket page emits the shared inline stylesheet in <head>, so
+// an unscoped strings.Index can be broken by a token outside the timeline
+// (a CSS selector such as :first-child) while the rendering stays correct. The
+// seeded bodies are therefore distinctive tokens, not bare ordinal words.
 func TestTicketCommentsNewestFirst(t *testing.T) {
 	h := newHarness(t)
 	h.seedTicket(t, "Login page down", nil)
-	for _, body := range []string{"first", "second", "third"} {
+	for _, body := range []string{"timeline-comment-first", "timeline-comment-second", "timeline-comment-third"} {
 		if _, err := h.comments.Add(t.Context(), *h.admin, 1, body, "public"); err != nil {
 			t.Fatalf("seed comment %q: %v", body, err)
 		}
@@ -485,8 +491,28 @@ func TestTicketCommentsNewestFirst(t *testing.T) {
 
 	rec := h.get(t, "/tickets/1", false)
 	body := rec.Body.String()
-	if !(strings.Index(body, "third") < strings.Index(body, "second") && strings.Index(body, "second") < strings.Index(body, "first")) {
-		t.Errorf("comments must render newest first, got: %s", body)
+
+	start := strings.Index(body, `<div id="timeline">`)
+	if start < 0 {
+		t.Fatalf("ticket detail must render the Timeline, got: %s", body)
+	}
+	timeline := body[start:]
+	if end := strings.Index(timeline, `<div class="evidence">`); end >= 0 {
+		timeline = timeline[:end]
+	}
+
+	// Adjacent pairs, so the failure names the pair that inverted.
+	for _, pair := range []struct{ older, newer string }{
+		{"timeline-comment-first", "timeline-comment-second"},
+		{"timeline-comment-second", "timeline-comment-third"},
+	} {
+		olderAt, newerAt := strings.Index(timeline, pair.older), strings.Index(timeline, pair.newer)
+		if olderAt < 0 || newerAt < 0 {
+			t.Fatalf("timeline must carry %q and %q, got: %s", pair.older, pair.newer, timeline)
+		}
+		if newerAt > olderAt {
+			t.Errorf("%q must render before %q (newest first), got: %s", pair.newer, pair.older, timeline)
+		}
 	}
 }
 
