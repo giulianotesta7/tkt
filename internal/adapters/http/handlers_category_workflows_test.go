@@ -879,12 +879,113 @@ func TestWorkflowBuilderValidationAndStepViews(t *testing.T) {
 		})
 	}
 	views := workflowStepViews(domain.WorkflowDefinition{{Type: domain.StepManualTask, ManualTask: &domain.ManualTaskStep{Instructions: strings.Repeat("界", 45)}}, {Type: domain.StepResolve}}, 0, nil)
-	if views[0].Final || !views[1].Final || !views[1].Last || views[0].Summary != strings.Repeat("界", 41)+"..." {
-		t.Fatalf("terminal badge or Unicode summary is wrong: %+v", views)
+	// Issue #249: the summary is not truncated; the whole instruction reaches
+	// the node so the CSS never has to hide it.
+	if views[0].Final || !views[1].Final || !views[1].Last || views[0].Summary != strings.Repeat("界", 45) {
+		t.Fatalf("terminal badge or full Unicode summary is wrong: %+v", views)
 	}
 	assign := workflowStepViews(domain.WorkflowDefinition{{Type: domain.StepAssignToDesk, AssignToDesk: &domain.AssignToDeskStep{DeskID: 7}}}, 0, []domain.Desk{{ID: 7, Name: "Billing"}})
 	if assign[0].Summary != "Billing" {
 		t.Errorf("assign summary must show the desk name, got %q", assign[0].Summary)
+	}
+}
+
+// NodeVocabulary is issue #249's browser-visible contract: every builder node
+// names who acts and the state outcome it produces, and the node shows the
+// summary in full instead of letting the CSS ellipsis hide it.
+func TestCategoryWorkflowBuilder_NodeVocabulary(t *testing.T) {
+	h := newHarness(t)
+	category, err := h.categories.Create(t.Context(), "Node vocabulary")
+	if err != nil {
+		t.Fatalf("create category: %v", err)
+	}
+	// The assign step routes to desk 1 (the migration-seeded General desk); a
+	// desk with no eligible member cannot host an assignment step.
+	h.staff(t, 1)
+	path := "/categories/" + strconv.FormatInt(category.ID, 10) + "/workflow"
+	const instruction = "Provision the account and confirm the welcome email"
+	steps := []bstep{
+		{typ: "form", actor: "requester", fields: []bfield{{key: "server", label: "Server", kind: "short_text"}}},
+		{typ: "manual_task", manual: instruction},
+		{typ: "assign_to_desk", desk: "1", strategy: "claim"},
+		{typ: "resolve_ticket"},
+	}
+	wantRedirect(t, h.postForm(t, path, builderFieldForm("save", steps...), false), http.StatusSeeOther, path)
+
+	body := h.get(t, path, false).Body.String()
+	for _, want := range []string{
+		// The whole manual-task instruction survives: no rune cap, no ellipsis.
+		`<span class="workflow-step-summary">` + instruction + `</span>`,
+		// Every node carries its actor.
+		`<span class="workflow-step-actor">Requester</span>`,
+		`<span class="workflow-step-actor">Assignee</span>`,
+		`<span class="workflow-step-actor">Members of General</span>`,
+		`<span class="workflow-step-actor">Automatic</span>`,
+		// Routing and the terminal carry their state outcome.
+		`<span class="workflow-step-outcome">→ In progress</span>`,
+		`<span class="workflow-step-outcome">→ Resolved</span>`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("builder node vocabulary missing %q", want)
+		}
+	}
+	// A node must not hide the summary this issue is about.
+	if truncated := instruction[:41] + "..."; strings.Contains(body, truncated) {
+		t.Errorf("builder must not truncate the summary; found %q", truncated)
+	}
+}
+
+// NodeSummaryIsNotClipped proves the CSS side of #249: the summary wraps
+// instead of drawing an ellipsis, so a node cannot hide the words that name
+// who acts and what the ticket becomes.
+func TestCategoryWorkflowBuilder_NodeSummaryIsNotClipped(t *testing.T) {
+	body := renderGolden(t, "category_workflow", "", mobileBuilderPageData(), false)
+	style := extractStyleBlock(t, body)
+	rule := cssRuleForSelectors(style, ".workflow-step-summary")
+	if rule == "" {
+		t.Fatal(".workflow-step-summary must be styled")
+	}
+	for _, gone := range []string{"text-overflow:ellipsis", "white-space:nowrap", "overflow:hidden"} {
+		if strings.Contains(rule, gone) {
+			t.Errorf(".workflow-step-summary must not clip its text, found %q in: %s", gone, rule)
+		}
+	}
+	if !strings.Contains(rule, "overflow-wrap:anywhere") {
+		t.Errorf(".workflow-step-summary must wrap long words instead of clipping, got: %s", rule)
+	}
+	// The card no longer pins the summary to a rigid width.
+	card := cssRuleForSelectors(style, ".workflow-step-card")
+	if strings.Contains(card, "flex:0 0 198px") {
+		t.Errorf(".workflow-step-card must not keep the fixed width that forced truncation, got: %s", card)
+	}
+}
+
+// TestWorkflowStepViewsNodeVocabulary triangulates issue #249 across the
+// closed step set from domain/workflow.go: each kind names its actor, and only
+// routing and the terminals change the ticket state.
+func TestWorkflowStepViewsNodeVocabulary(t *testing.T) {
+	desks := []domain.Desk{{ID: 7, Name: "Billing"}}
+	for _, tc := range []struct {
+		name        string
+		step        domain.WorkflowStep
+		wantActor   string
+		wantOutcome string
+	}{
+		{"form for the requester", domain.WorkflowStep{Type: domain.StepForm, Form: &domain.FormStep{Actor: domain.FormActorRequester, Fields: []domain.FormField{{Key: "k", Label: "L", Kind: domain.FieldShortText}}}}, "Requester", ""},
+		{"form for the assignee", domain.WorkflowStep{Type: domain.StepForm, Form: &domain.FormStep{Actor: domain.FormActorAssignee, Fields: []domain.FormField{{Key: "k", Label: "L", Kind: domain.FieldShortText}}}}, "Assignee", ""},
+		{"claim routes to the desk members", domain.WorkflowStep{Type: domain.StepAssignToDesk, AssignToDesk: &domain.AssignToDeskStep{DeskID: 7, Strategy: domain.StrategyClaim}}, "Members of Billing", "In progress"},
+		{"least loaded routes automatically", domain.WorkflowStep{Type: domain.StepAssignToDesk, AssignToDesk: &domain.AssignToDeskStep{DeskID: 7, Strategy: domain.StrategyLeastLoaded}}, "Automatic", "In progress"},
+		{"manual task is assignee work", domain.WorkflowStep{Type: domain.StepManualTask, ManualTask: &domain.ManualTaskStep{Instructions: "Do it"}}, "Assignee", ""},
+		{"resolve is automatic", domain.WorkflowStep{Type: domain.StepResolve}, "Automatic", "Resolved"},
+		{"close resolves then closes", domain.WorkflowStep{Type: domain.StepClose}, "Automatic", "Resolved, then closed"},
+		{"an unknown kind claims no actor", domain.WorkflowStep{Type: domain.StepType("unknown")}, "", ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			views := workflowStepViews(domain.WorkflowDefinition{tc.step}, 0, desks)
+			if views[0].Actor != tc.wantActor || views[0].Outcome != tc.wantOutcome {
+				t.Fatalf("actor/outcome = %q/%q, want %q/%q", views[0].Actor, views[0].Outcome, tc.wantActor, tc.wantOutcome)
+			}
+		})
 	}
 }
 

@@ -38,6 +38,11 @@ type workflowStepView struct {
 	Index    int
 	Position int
 	Summary  string
+	// Actor names who performs the step and Outcome names the state the
+	// ticket reaches, so a node reads as a builder node rather than a label
+	// plus a truncated string (issue #249). Both come from the step itself.
+	Actor    string
+	Outcome  string
 	Snapshot string
 	Step     domain.WorkflowStep
 	Selected bool
@@ -379,7 +384,11 @@ func workflowStepViews(draft domain.WorkflowDefinition, selected int, desks []do
 		raw, _ := json.Marshal(step)
 		canRight := i+1 < len(draft) && !isTerminalStep(draft[i+1].Type)
 		views = append(views, workflowStepView{
-			Index: i, Position: i + 1, Summary: workflowStepSummary(step, desks), Snapshot: string(raw), Step: step,
+			Index: i, Position: i + 1,
+			Summary:  workflowStepSummary(step, desks),
+			Actor:    workflowStepActor(step, desks),
+			Outcome:  workflowStepOutcome(step),
+			Snapshot: string(raw), Step: step,
 			Selected: i == selected,
 			Final:    isTerminalStep(step.Type) && i == len(draft)-1,
 			Last:     i == len(draft)-1,
@@ -398,12 +407,7 @@ func workflowStepSummary(step domain.WorkflowStep, desks []domain.Desk) string {
 	switch step.Type {
 	case domain.StepAssignToDesk:
 		if step.AssignToDesk != nil && step.AssignToDesk.DeskID > 0 {
-			for _, d := range desks {
-				if d.ID == step.AssignToDesk.DeskID {
-					return d.Name
-				}
-			}
-			return fmt.Sprintf("Desk %d", step.AssignToDesk.DeskID)
+			return deskName(step.AssignToDesk.DeskID, desks)
 		}
 		return "Choose a desk"
 	case domain.StepForm:
@@ -414,22 +418,74 @@ func workflowStepSummary(step domain.WorkflowStep, desks []domain.Desk) string {
 		if len(step.Form.Fields) == 1 {
 			suffix = ""
 		}
-		return fmt.Sprintf("%d field%s · %s", len(step.Form.Fields), suffix, step.Form.Actor)
+		// The actor is a separate node fact now, so the summary carries only
+		// what the step collects instead of repeating the actor.
+		return fmt.Sprintf("%d field%s", len(step.Form.Fields), suffix)
 	case domain.StepManualTask:
 		if step.ManualTask == nil || strings.TrimSpace(step.ManualTask.Instructions) == "" {
 			return "Add instructions"
 		}
-		text := strings.Join(strings.Fields(step.ManualTask.Instructions), " ")
-		runes := []rune(text)
-		if len(runes) > 44 {
-			return string(runes[:41]) + "..."
-		}
-		return text
+		// Issue #249: the whole instruction reaches the node; the layout wraps
+		// it rather than the model cutting it.
+		return strings.Join(strings.Fields(step.ManualTask.Instructions), " ")
 	case domain.StepResolve, domain.StepClose:
 		return "Runs automatically"
 	default:
 		return "Configure this step"
 	}
+}
+
+// workflowStepActor names who performs a step, distinct from the automatic
+// terminal and least-loaded routing where no person acts.
+func workflowStepActor(step domain.WorkflowStep, desks []domain.Desk) string {
+	switch step.Type {
+	case domain.StepAssignToDesk:
+		if step.AssignToDesk != nil && step.AssignToDesk.Strategy == domain.StrategyLeastLoaded {
+			return "Automatic"
+		}
+		if step.AssignToDesk != nil && step.AssignToDesk.DeskID > 0 {
+			return "Members of " + deskName(step.AssignToDesk.DeskID, desks)
+		}
+		return "Members of the desk"
+	case domain.StepForm:
+		if step.Form != nil && step.Form.Actor == domain.FormActorAssignee {
+			return "Assignee"
+		}
+		return "Requester"
+	case domain.StepManualTask:
+		return "Assignee"
+	case domain.StepResolve, domain.StepClose:
+		return "Automatic"
+	default:
+		return ""
+	}
+}
+
+// workflowStepOutcome names the state the ticket reaches. Asking and working
+// leave the state alone, so they have no outcome; routing moves the ticket into
+// progress and the terminals resolve (and close) it.
+func workflowStepOutcome(step domain.WorkflowStep) string {
+	switch step.Type {
+	case domain.StepAssignToDesk:
+		return "In progress"
+	case domain.StepResolve:
+		return "Resolved"
+	case domain.StepClose:
+		return "Resolved, then closed"
+	default:
+		return ""
+	}
+}
+
+// deskName resolves a referenced desk to its display name, falling back to the
+// raw id when the desk is not in the option set.
+func deskName(id int64, desks []domain.Desk) string {
+	for _, d := range desks {
+		if d.ID == id {
+			return d.Name
+		}
+	}
+	return fmt.Sprintf("Desk %d", id)
 }
 
 // insertBeforeTerminal places step directly before the existing terminal (keeping
