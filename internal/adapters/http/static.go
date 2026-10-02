@@ -16,6 +16,7 @@ func RegisterStatic(mux *http.ServeMux) {
 	registerEmbeddedStatic(mux, "/static/users.css", "static/users.css", "text/css; charset=utf-8", "no-cache")
 	registerEmbeddedStatic(mux, "/static/users.js", "static/users.js", "text/javascript; charset=utf-8", "no-cache")
 	registerEmbeddedStatic(mux, "/static/tickets.js", "static/tickets.js", "text/javascript; charset=utf-8", "no-cache")
+	registerEmbeddedStatic(mux, "/static/ticket_form.js", "static/ticket_form.js", "text/javascript; charset=utf-8", "no-cache")
 	registerEmbeddedStatic(mux, "/static/workflow.js", "static/workflow.js", "text/javascript; charset=utf-8", "no-cache")
 	registerEmbeddedStatic(mux, "/static/categories.js", "static/categories.js", "text/javascript; charset=utf-8", "no-cache")
 	registerEmbeddedStatic(mux, "/static/save-feedback.js", "static/save-feedback.js", "text/javascript; charset=utf-8", "no-cache")
