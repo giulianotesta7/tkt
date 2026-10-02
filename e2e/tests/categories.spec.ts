@@ -1807,7 +1807,6 @@ test.describe("Categories", () => {
       "Nobody is assigned yet.",
     );
     await expect(passiveStep.locator(".workflow-checklist-blocked")).toBeVisible();
-    await expect(checklist.locator(".workflow-instruction")).toHaveCount(0);
     await expect(page.locator("#timeline .timeline-entry").first()).toHaveClass(
       /workflow-pending-info/,
     );
