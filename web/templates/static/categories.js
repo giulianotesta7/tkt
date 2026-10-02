@@ -142,6 +142,32 @@
     }
   }
 
+  // Accessible fallback for a launcher that vanished during an update. Prefer the
+  // drawer's own level control ("New department" / "New desk" / "New category"),
+  // which is a real focusable control with a visible accessible name. If even that
+  // is gone, focus the level's labelled region (headings "Departments" / "Desks" /
+  // "Categories") as a programmatic target. Focus never falls silently to <body>.
+  function closeFallbackFocus(panel) {
+    const level = {
+      department: ".category-level-departments",
+      desk: ".category-level-desks",
+      category: ".category-level-categories",
+    }[panel?.dataset.kind];
+    const scope = (level && root()?.querySelector(level)) || root();
+    const launcher = scope?.querySelector(".category-level-action.category-drawer-launcher");
+    if (launcher) return launcher;
+    // The level section IS the labelled region (e.g.
+    // <section class="category-level-categories" aria-labelledby="...">), so a
+    // descendant-only query would never find it. Match the scope itself first,
+    // then fall back to a descendant for the generic root scope.
+    const region = scope?.matches("section[aria-labelledby]")
+      ? scope
+      : scope?.querySelector("section[aria-labelledby]");
+    if (!region) return null;
+    if (!region.hasAttribute("tabindex")) region.setAttribute("tabindex", "-1");
+    return region;
+  }
+
   function finishClose() {
     const panel = drawer();
     const host = document.getElementById("category-drawer-host");
@@ -160,12 +186,11 @@
     lastDrawerFocus = null;
     if (panel) panel.removeAttribute("aria-busy");
     const restoreCloseFocus = () => {
-      const target = focusKey
+      const candidate = focusKey
         ? document.querySelector(`[data-focus-key="${CSS.escape(focusKey)}"]`)
         : opener;
-      const fallback =
-        root()?.querySelector(".category-level-categories .category-drawer-launcher") ||
-        root()?.querySelector(".category-drawer-launcher");
+      const target = candidate?.isConnected ? candidate : null;
+      const fallback = closeFallbackFocus(panel);
       if (target) target.focus();
       else if (fallback) fallback.focus();
       else restoreFocus();
@@ -241,15 +266,13 @@
       showDialog(document.activeElement);
       return;
     }
-    if (discard) {
-      event.stopImmediatePropagation();
-      finishClose();
-      return;
-    }
-    if (same(event.state, { [KEY]: 1 }) && event.state.kind === "base") {
-      event.stopImmediatePropagation();
-      finishClose();
-    }
+    // A clean close and an explicit discard are the same exit: the drawer is
+    // leaving, so finishClose owns the teardown and the focus restore. The clean
+    // branch used to require a tagged "base" history entry; a launcher-initiated
+    // open pops the untagged page entry instead, so the guard missed and HTMX's
+    // history restore removed the drawer without restoring focus.
+    event.stopImmediatePropagation();
+    finishClose();
   }
 
   function prepareDeskValues(form) {
