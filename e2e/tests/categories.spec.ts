@@ -1934,6 +1934,87 @@ test.describe("Categories", () => {
     });
   });
 
+  test.describe("Add step popover dismissal", () => {
+    async function openBuilder(page: Page): Promise<void> {
+      await page.setViewportSize({ width: 1280, height: 800 });
+      await loginAsSeeded(page);
+      const categoryName = "Popover " + Date.now().toString(36).slice(2, 8);
+      await createCategoryViaUi(page, categoryName);
+      const category = page
+        .locator(".category-level-categories .category-table tbody tr")
+        .filter({ hasText: categoryName });
+      const editHref = await category.locator('a[href*="/edit"]').getAttribute("href");
+      const categoryID = editHref?.match(/\/categories\/(\d+)\/edit/)?.[1];
+      if (!categoryID) throw new Error(`Could not resolve workflow category at ${page.url()}`);
+      await page.goto(base() + `/categories/${categoryID}/workflow`);
+      await expect(page.locator("#workflow-builder")).toBeVisible({ timeout: 10_000 });
+    }
+
+    test("Escape closes the Add step popover and returns focus to its trigger", async ({
+      page,
+    }) => {
+      await openBuilder(page);
+      const addSummary = page.locator(".workflow-add-popover summary");
+      const addOptions = page.locator(".workflow-add-options");
+
+      await addSummary.click();
+      await expect(addOptions).toBeVisible();
+      await page.keyboard.press("Escape");
+      await expect(addOptions).not.toBeVisible();
+      await expect(addSummary).toBeFocused();
+    });
+
+    test("an outside click closes the Add step popover, option selection still adds a step, and reopening does not stack menus", async ({
+      page,
+    }) => {
+      await openBuilder(page);
+      const workflowPath = new URL(page.url()).pathname;
+      const addSummary = page.locator(".workflow-add-popover summary");
+      const addOptions = page.locator(".workflow-add-options");
+
+      // Choosing an option still works: the popover adds a step and swaps the
+      // builder, so the popover is replaced in its closed state.
+      await addSummary.click();
+      await expect(addOptions).toBeVisible();
+      await assertHtmxSwap(
+        page,
+        () => addOptions.getByRole("button", { name: "Manual task", exact: true }).click(),
+        {
+          endpoint: (url) => {
+            const requestURL = new URL(url);
+            return (
+              requestURL.pathname === workflowPath &&
+              requestURL.searchParams.get("add_step_type") === "manual_task"
+            );
+          },
+          method: "POST",
+          expectedStatus: 200,
+          hxTarget: "#workflow-builder",
+        },
+      );
+      await expect(page.locator(".workflow-step-card")).toHaveCount(1);
+      await expect(addOptions).not.toBeVisible();
+
+      // A click outside the open popover closes it.
+      await addSummary.click();
+      await expect(addOptions).toBeVisible();
+      await page.locator("#workflow-builder-title").click();
+      await expect(addOptions).not.toBeVisible();
+
+      // Reopening while another menu is open dismisses that menu instead of
+      // stacking two dropdowns, and the reopened popover is repositioned.
+      const stepMenu = page.locator(".workflow-step-menu").first();
+      const stepMenuBody = stepMenu.locator(".workflow-step-menu-actions");
+      await stepMenu.locator("summary").click();
+      await expect(stepMenuBody).toBeVisible();
+      await addSummary.click();
+      await expect(addOptions).toBeVisible();
+      await expect(addOptions).toHaveCSS("position", "fixed");
+      await expect(stepMenuBody).not.toBeVisible();
+      await expect(page.locator("#workflow-builder details[open]")).toHaveCount(1);
+    });
+  });
+
   test.describe("Workflow dirty structural guard", () => {
     function trackPosts(page: Page): string[] {
       const actions: string[] = [];
