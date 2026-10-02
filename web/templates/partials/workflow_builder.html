@@ -1,11 +1,12 @@
 {{define "workflow_builder"}}
 <section id="workflow-builder" class="workflow-builder page-panel" aria-labelledby="workflow-builder-title" hx-on::before-swap="if(event.detail.xhr.status === 422){event.detail.shouldSwap = true; event.detail.isError = false}">
-  <form method="post" action="/categories/{{.CategoryID}}/workflow" id="workflow-form" hx-post="/categories/{{.CategoryID}}/workflow" hx-target="#workflow-builder" hx-swap="outerHTML" hx-sync="this:queue last">
+  <form method="post" action="/categories/{{.CategoryID}}/workflow" id="workflow-form" hx-post="/categories/{{.CategoryID}}/workflow" hx-target="#workflow-builder" hx-swap="outerHTML" hx-sync="this:queue last" hx-indicator="#workflow-form" hx-on::before-request="this.setAttribute('aria-busy','true')" hx-on::after-request="this.removeAttribute('aria-busy')">
     {{if ge .SelectedStepIndex 0}}<input type="hidden" name="selected_step_index" value="{{.SelectedStepIndex}}">{{end}}
     <input type="hidden" name="source_index" value=""><input type="hidden" name="target_index" value=""><button class="visually-hidden" type="submit" name="action" value="reorder" data-workflow-reorder aria-hidden="true" tabindex="-1" formaction="/categories/{{.CategoryID}}/workflow" hx-post="/categories/{{.CategoryID}}/workflow" hx-target="#workflow-builder" hx-swap="outerHTML" hx-include="closest form">Reorder</button>
     {{range .Steps}}{{if not .Selected}}<input type="hidden" name="step_{{.Index}}_snapshot" value="{{.Snapshot}}">{{end}}{{end}}
     <div class="workflow-builder-head">
       <div><h2 id="workflow-builder-title">Workflow steps</h2><p>Select a step to configure it. Drag to reorder.</p></div>
+      <span class="htmx-indicator spinner" aria-hidden="true"></span>
       {{if .Live}}<p class="workflow-live" role="status" aria-live="polite" data-workflow-live>{{.Live}}</p>{{end}}
     </div>
     {{range .Issues}}<div class="error-banner" role="alert">{{.Message}}</div>{{end}}
@@ -14,7 +15,7 @@
         {{range .Steps}}
         {{if .Final}}<li class="workflow-add-step">{{template "workflow_add" $}}</li>{{end}}
         <li class="workflow-step-card{{if .Selected}} selected{{end}}">
-          {{if not .Final}}<span class="workflow-drag-handle" draggable="true" aria-label="Drag step {{.Position}}"><span aria-hidden="true">⋮⋮</span></span>{{end}}
+          {{if not .Final}}<span class="workflow-drag-handle" draggable="true" aria-hidden="true">⋮⋮</span>{{end}}
           <button class="workflow-step-card-link" type="submit" name="selection_step_index" value="{{.Index}}" formaction="/categories/{{$.CategoryID}}/workflow?action=select_step" hx-post="/categories/{{$.CategoryID}}/workflow" hx-include="closest form" hx-vals='{"action":"select_step","selection_step_index":"{{.Index}}"}' hx-target="#workflow-builder" hx-swap="outerHTML show:none" hx-push-url="false"{{if .Selected}} aria-current="step"{{end}}><span class="workflow-step-position">{{.Position}}</span><strong>{{workflowTypeLabel .Step.Type}}</strong><span class="workflow-step-summary">{{.Summary}}</span>{{if .Final}}<span class="workflow-final-badge">Final</span>{{end}}</button>
           {{if not .Final}}<details class="workflow-step-menu"><summary class="workflow-trigger" aria-label="Step actions">⋯</summary><div class="workflow-step-menu-actions">
             {{if .CanMoveLeft}}<button class="btn ghost small" type="submit" name="action" value="move_up" formaction="/categories/{{$.CategoryID}}/workflow?step_index={{.Index}}&amp;selected_step_index={{$.SelectedStepIndex}}" hx-post="/categories/{{$.CategoryID}}/workflow?step_index={{.Index}}&amp;selected_step_index={{$.SelectedStepIndex}}">Move left</button>{{end}}
