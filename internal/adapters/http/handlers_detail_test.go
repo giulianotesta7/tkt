@@ -1222,6 +1222,66 @@ func TestTicketTransitionUserDenied(t *testing.T) {
 	}
 }
 
+// getDetailAs runs an authenticated GET as an explicit session actor through
+// the middleware-wrapped mux (the detail-page counterpart of postFormAs).
+func getDetailAs(t *testing.T, h *harness, path, sessionID string, hx bool) *httptest.ResponseRecorder {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodGet, path, nil)
+	req.Header.Set("Cookie", sessionCookie+"="+sessionID)
+	if hx {
+		req.Header.Set("HX-Request", "true")
+	}
+	rec := httptest.NewRecorder()
+	h.mw.Wrap(h.mux).ServeHTTP(rec, req)
+	return rec
+}
+
+// TestTicketDetailRequesterHidesUnusableMutationControls (issue #263) proves a
+// user-role actor viewing their OWN open ticket is never shown a mutation
+// control the server will reject: no priority form, no assign form, and no
+// transition form. The read-only property values stay visible, and the
+// requester's legitimate resolution path (the confirmation panel) is owned by a
+// separate section. The server authority is unchanged and remains the
+// enforcement point; this test only proves the presentation does not offer an
+// action that can only 403.
+//
+// The capable actor is asserted in the same test so the fix cannot regress the
+// agent/admin surface: an admin still gets all three controls on the ticket.
+func TestTicketDetailRequesterHidesUnusableMutationControls(t *testing.T) {
+	h := newHarness(t)
+	user := seedUserRole(t, h.store, "Ula", "ula@example.com", domain.RoleUser)
+	sess := seedSession(t, h.store, user.ID)
+
+	rec := h.postFormAs(t, "/tickets", url.Values{
+		"title":       {"My ticket"},
+		"category_id": {strconv.FormatInt(h.bugCategory.ID, 10)},
+		"priority":    {"high"},
+	}, sess.ID)
+	if rec.Code != http.StatusSeeOther {
+		t.Fatalf("create status = %d, want 303", rec.Code)
+	}
+
+	body := getDetailAs(t, h, "/tickets/1", sess.ID, true).Body.String()
+	for _, absent := range []string{`id="ticket-priority"`, `id="assign-user"`, `id="ticket-state"`} {
+		if strings.Contains(body, absent) {
+			t.Errorf("a requester's own ticket must not render the unusable control %q, got: %s", absent, body)
+		}
+	}
+	for _, want := range []string{`id="ticket-priority-value"`, `id="assign-user-value"`, `>High<`} {
+		if !strings.Contains(body, want) {
+			t.Errorf("requester detail must keep the read-only value %q, got: %s", want, body)
+		}
+	}
+
+	// The capable actor keeps all three controls on the same ticket.
+	capable := h.get(t, "/tickets/1", true).Body.String()
+	for _, want := range []string{`id="ticket-priority"`, `id="assign-user"`, `id="ticket-state"`} {
+		if !strings.Contains(capable, want) {
+			t.Errorf("a capable actor must keep the control %q, got: %s", want, capable)
+		}
+	}
+}
+
 // TestTicketDetailSLAPanelStaffOnly (issue #211, PR 4) proves the milestone
 // panel renders on a STAFF detail page and is ABSENT from a requester's page
 // even when that requester's own ticket carries a frozen commitment. The

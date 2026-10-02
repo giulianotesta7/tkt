@@ -95,10 +95,14 @@ test.describe("Ticket confirmation", () => {
     const rejectBtn = page.getByRole("button", { name: /No, I still need help/i });
     await expect(confirmBtn).toBeVisible();
     await expect(rejectBtn).toBeVisible();
-    // Move-to hides `closed` for requester-owned resolved tickets.
-    const moveSelect = page.locator("#ticket-state");
-    await expect(moveSelect).toBeVisible();
-    await expect(moveSelect.locator('option[value="closed"]')).toHaveCount(0);
+    // A requester holds no ticket-edit capability — policy.go's RoleUser grants
+    // only CapCreateTicket and CapCommentPublic — so no Move-to control can ever
+    // work for them: it must be absent, not merely missing the `closed` option
+    // (#263). This assertion used to pin the select as visible with `closed`
+    // filtered out, which was a broken affordance that always returned 403. The
+    // resolution panel above is the requester's real path.
+    await expect(page.locator("#ticket-state")).toHaveCount(0);
+    await expect(page.getByText("Move to", { exact: true })).toHaveCount(0);
 
     const resp = await assertHtmxSwap(
       page,

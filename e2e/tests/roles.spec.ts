@@ -299,6 +299,15 @@ test.describe("Role — minimal matrix admin / agent / user (seeded)", () => {
     await expect(page.locator("#ticket-detail")).toBeVisible();
     await expect(page.getByLabel(/internal comment/i)).toHaveCount(0);
     await expect(page.getByLabel(/comment body/i)).toBeVisible();
+    // #263: a requester is not offered mutation controls the server will
+    // reject. No priority form, no assign form, no transition form; the
+    // read-only property values stay visible instead.
+    const requesterDetail = page.locator("#ticket-detail");
+    for (const selector of ["#ticket-priority", "#assign-user", "#ticket-state"]) {
+      await expect(requesterDetail.locator(selector)).toHaveCount(0);
+    }
+    await expect(requesterDetail.locator("#ticket-priority-value")).toHaveText("Low");
+    await expect(requesterDetail.locator("#assign-user-value")).toHaveText("Unassigned");
     for (const path of ["/users", "/desks", "/categories", "/settings"]) {
       await page.goto(baseURL() + path);
       await expect(page.locator("body")).toContainText(/forbidden|not allowed/i, {

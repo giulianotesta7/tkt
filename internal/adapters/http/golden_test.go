@@ -447,6 +447,8 @@ func fixtureDetailData() detailData {
 		Options:            opts,
 		CanCommentInternal: true,
 		CanEdit:            true,
+		CanAssign:          true,
+		CanTransition:      true,
 		CanComment:         true, // open ticket: mirrors detailDataFor's !closed
 		Values: ticketFormValues{
 			Title:       t.Title,
@@ -478,6 +480,11 @@ func closedDetailData(state domain.State) detailData {
 	d.Next = allowedNext(state)
 	d.Closed = true
 	d.CanEdit = false
+	d.CanAssign = false
+	// A closed ticket's only remaining mutation is the reopen transition, and
+	// the capability (CapEditTicket) is not gated on the closed state, so a
+	// capable actor keeps the Move-to control here.
+	d.CanTransition = true
 	d.CanComment = false // closed ticket: no comment form (issue #55 requester carve-out handled in detailDataFor, not this read-only fixture)
 	return d
 }
@@ -624,8 +631,14 @@ func requesterResolvedDetailData(viewer domain.User) detailData {
 		},
 		CanCommentInternal: viewer.Role != domain.RoleUser,
 		Closed:             true,
-		CanConfirm:         t.State == domain.StateResolved && requester,
-		CanComment:         !domain.IsClosed(t.State) || (t.State == domain.StateResolved && requester),
+		// Mirrors detailDataFor: assign needs CapAssignTicket on an open
+		// ticket, so a resolved (closed) ticket is read-only for every viewer.
+		CanAssign: false,
+		// Mirrors detailDataFor: the transition capability is not gated on the
+		// closed state, so only a capable viewer keeps the reopen control.
+		CanTransition: viewer.Role.AtLeast(domain.RoleAgent),
+		CanConfirm:    t.State == domain.StateResolved && requester,
+		CanComment:    !domain.IsClosed(t.State) || (t.State == domain.StateResolved && requester),
 	}
 }
 
