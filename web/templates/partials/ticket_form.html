@@ -1,4 +1,4 @@
-{{define "ticket_form"}}
+{{define "ticket_form"}}{{if .PageFoundationAssets}}<script src="/static/ticket_form.js" defer></script>{{end}}
 {{if .Selected}}<form class="ticket-create-detail" method="post" action="/tickets">
 {{if .Error}}  <div class="error-banner" role="alert">{{.Error}}</div>
 {{end}}  <div class="command-header ticket-create-command-header">
