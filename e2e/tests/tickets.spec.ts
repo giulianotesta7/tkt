@@ -189,6 +189,30 @@ async function createPublishedHierarchyFixture(
   return fixture;
 }
 
+// Choose one catalog category by its exact name. The picker's first view only
+// lists the first department/desk, so a category outside it is reached through
+// the picker's own search instead of guessing a URL.
+async function selectCatalogCategory(
+  page: import("@playwright/test").Page,
+  name: string,
+): Promise<void> {
+  await expect(page.locator(".catalog-page")).toBeVisible();
+  let link = page.locator(".catalog-category").filter({
+    has: page.getByText(name, { exact: true }),
+  });
+  if ((await link.count()) === 0) {
+    const search = page.getByPlaceholder(/search categories, desks, or departments/i);
+    await search.fill(name);
+    await search.press("Enter");
+    link = page.locator(".catalog-result").filter({
+      has: page.getByText(name, { exact: true }),
+    });
+  }
+  await expect(link).toHaveCount(1);
+  await link.click();
+  await expect(page.locator(".selected-catalog-path")).toContainText(name);
+}
+
 test.describe("Ticket Lifecycle", () => {
   test.beforeAll(async () => {
     await startServer({ seed: true });
@@ -603,6 +627,60 @@ test.describe("Ticket Lifecycle", () => {
       "Failed to load resource: the server responded with a status of 422 (Unprocessable Entity)",
     ]);
     await expect(obs.pageErrors).toEqual([]);
+  });
+
+  test("changing the category preserves the ticket-creation draft", async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await loginAsSeeded(page);
+
+    // A second runnable category gives the draft a different scope it must not
+    // leak into. The seeded "General" category is the scope it belongs to.
+    // The catalog fixture is created through the mobile action rail.
+    await page.setViewportSize({ width: 390, height: 844 });
+    const other = await createPublishedHierarchyFixture(page);
+    await page.setViewportSize({ width: 1280, height: 800 });
+    const draftTitle = "Draft survives the picker " + Date.now();
+
+    await page.goto(base() + "/tickets/new");
+    await selectCatalogCategory(page, "General");
+    await page.getByLabel("Title").fill(draftTitle);
+    await page.getByLabel("Description").fill("Draft description");
+    await page.getByLabel("Priority").selectOption("high");
+
+    // Change the category through the picker and re-select the SAME one.
+    await page.getByRole("link", { name: "Change", exact: true }).click();
+    await selectCatalogCategory(page, "General");
+    await expect(page.getByLabel("Title")).toHaveValue(draftTitle);
+    await expect(page.getByLabel("Description")).toHaveValue("Draft description");
+    await expect(page.getByLabel("Priority")).toHaveValue("high");
+
+    // Back/Forward must not lose it either.
+    await page.goBack();
+    await expect(page.locator(".catalog-page")).toBeVisible();
+    await page.goForward();
+    await expect(page.getByLabel("Title")).toHaveValue(draftTitle);
+    await expect(page.getByLabel("Description")).toHaveValue("Draft description");
+    await expect(page.getByLabel("Priority")).toHaveValue("high");
+
+    // A different category must not inherit the draft.
+    await page.getByRole("link", { name: "Change", exact: true }).click();
+    await selectCatalogCategory(page, other.category);
+    await expect(page.getByLabel("Title")).toHaveValue("");
+    await expect(page.getByLabel("Description")).toHaveValue("");
+
+    // Back on the original category the draft is still there; creating the
+    // ticket then clears it so the next creation does not inherit the text.
+    await page.getByRole("link", { name: "Change", exact: true }).click();
+    await selectCatalogCategory(page, "General");
+    await expect(page.getByLabel("Title")).toHaveValue(draftTitle);
+    await page.getByRole("button", { name: "Create ticket", exact: true }).click();
+    await expect(page).toHaveURL(/\/tickets$/);
+
+    await page.goto(base() + "/tickets/new");
+    await selectCatalogCategory(page, "General");
+    await expect(page.getByLabel("Title")).toHaveValue("");
+    await expect(page.getByLabel("Description")).toHaveValue("");
+    await expect(page.getByLabel("Priority")).toHaveValue("medium");
   });
 
   test("an unrunnable published category stays visible, is not a link, and says why", async ({

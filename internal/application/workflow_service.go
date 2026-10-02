@@ -2,6 +2,7 @@ package application
 
 import (
 	"context"
+	"errors"
 
 	"github.com/giulianotesta7/tkt/internal/domain"
 )
@@ -119,4 +120,52 @@ func (s *WorkflowService) ListRequesterSummaries(ctx context.Context) ([]Workflo
 
 func (s *WorkflowService) ListAvailableCategories(ctx context.Context) ([]domain.Category, error) {
 	return s.store.ListAvailableCategories(ctx)
+}
+
+// Clone reuses a workflow: it copies the SOURCE category's CURRENT PUBLISHED
+// version into the TARGET category's draft, so an admin does not rebuild the
+// same sequence by hand (issue #257).
+//
+// It is authoring, not publishing: the target keeps no current version and
+// cannot move a ticket until an operator publishes the cloned draft
+// deliberately, exactly like any other builder change.
+//
+// An existing target draft is PROTECTED. When the target already has draft
+// bytes the clone is refused with a comprehensible ValidationError and writes
+// NOTHING — it never merges and never overwrites work someone else may own.
+// The check runs before any write, so a refused clone cannot partially apply.
+//
+// The published-version read is composed from the existing WorkflowVersionStore
+// method (GetCurrentVersion) rather than a new port: the production sqlite
+// workflowStore implements both ports on one value, and the optional-capability
+// type assertion is this codebase's established discovery pattern (see
+// AgentQueueContextStore). A store that cannot resolve published versions fails
+// closed instead of guessing.
+func (s *WorkflowService) Clone(ctx context.Context, actor domain.User, sourceCategoryID, targetCategoryID int64) error {
+	if err := s.requireManage(actor); err != nil {
+		return err
+	}
+	versions, ok := s.store.(WorkflowVersionStore)
+	if !ok {
+		return errors.New("workflow store cannot resolve a published version")
+	}
+	published, err := versions.GetCurrentVersion(ctx, sourceCategoryID)
+	if err != nil {
+		return err
+	}
+	if published == nil {
+		return &domain.ValidationError{Field: "source_category_id", Message: "the source category has no published workflow to clone"}
+	}
+	existing, err := s.store.GetDraft(ctx, targetCategoryID)
+	if err != nil {
+		return err
+	}
+	if len(existing) > 0 {
+		return &domain.ValidationError{Field: "target_category_id", Message: "the target category already has a draft; cloning would overwrite it"}
+	}
+	b, err := canonicalBytes(published.Workflow)
+	if err != nil {
+		return err
+	}
+	return s.store.UpsertDraft(ctx, targetCategoryID, b)
 }

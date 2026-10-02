@@ -11,7 +11,19 @@
       <button class="page-action page-action-primary" type="submit" form="workflow-form" name="action" value="publish">Publish</button>
     </div>
   </header>
-      {{template "workflow_builder" .}}
+{{if .CloneError}}  <div class="error-banner" role="alert">{{.CloneError}}</div>
+{{end}}{{if .CloneSources}}  <form class="card form-card" method="post" action="/categories/{{.CategoryID}}/workflow/clone">
+    <h2>Reuse a workflow</h2>
+    <div class="field">
+      <label for="clone-source">Clone a published workflow from</label>
+      <select id="clone-source" name="source_category_id" required>
+        <option value="">Choose a category</option>
+{{range .CloneSources}}        <option value="{{.ID}}">{{.Name}}</option>
+{{end}}      </select>
+    </div>
+    <button class="btn" type="submit">Clone into this category</button>
+  </form>
+{{end}}      {{template "workflow_builder" .}}
       <dialog id="workflow-dirty-dialog" aria-labelledby="workflow-dirty-dialog-title" aria-describedby="workflow-dirty-dialog-copy">
         <h2 id="workflow-dirty-dialog-title">Save your workflow changes?</h2>
         <p id="workflow-dirty-dialog-copy">This structural action needs a decision about your unsaved workflow edits.</p>

@@ -857,12 +857,113 @@ func TestWorkflowBuilderValidationAndStepViews(t *testing.T) {
 		})
 	}
 	views := workflowStepViews(domain.WorkflowDefinition{{Type: domain.StepManualTask, ManualTask: &domain.ManualTaskStep{Instructions: strings.Repeat("界", 45)}}, {Type: domain.StepResolve}}, 0, nil)
-	if views[0].Final || !views[1].Final || !views[1].Last || views[0].Summary != strings.Repeat("界", 41)+"..." {
-		t.Fatalf("terminal badge or Unicode summary is wrong: %+v", views)
+	// Issue #249: the summary is not truncated; the whole instruction reaches
+	// the node so the CSS never has to hide it.
+	if views[0].Final || !views[1].Final || !views[1].Last || views[0].Summary != strings.Repeat("界", 45) {
+		t.Fatalf("terminal badge or full Unicode summary is wrong: %+v", views)
 	}
 	assign := workflowStepViews(domain.WorkflowDefinition{{Type: domain.StepAssignToDesk, AssignToDesk: &domain.AssignToDeskStep{DeskID: 7}}}, 0, []domain.Desk{{ID: 7, Name: "Billing"}})
 	if assign[0].Summary != "Billing" {
 		t.Errorf("assign summary must show the desk name, got %q", assign[0].Summary)
+	}
+}
+
+// NodeVocabulary is issue #249's browser-visible contract: every builder node
+// names who acts and the state outcome it produces, and the node shows the
+// summary in full instead of letting the CSS ellipsis hide it.
+func TestCategoryWorkflowBuilder_NodeVocabulary(t *testing.T) {
+	h := newHarness(t)
+	category, err := h.categories.Create(t.Context(), "Node vocabulary")
+	if err != nil {
+		t.Fatalf("create category: %v", err)
+	}
+	// The assign step routes to desk 1 (the migration-seeded General desk); a
+	// desk with no eligible member cannot host an assignment step.
+	h.staff(t, 1)
+	path := "/categories/" + strconv.FormatInt(category.ID, 10) + "/workflow"
+	const instruction = "Provision the account and confirm the welcome email"
+	steps := []bstep{
+		{typ: "form", actor: "requester", fields: []bfield{{key: "server", label: "Server", kind: "short_text"}}},
+		{typ: "manual_task", manual: instruction},
+		{typ: "assign_to_desk", desk: "1", strategy: "claim"},
+		{typ: "resolve_ticket"},
+	}
+	wantRedirect(t, h.postForm(t, path, builderFieldForm("save", steps...), false), http.StatusSeeOther, path)
+
+	body := h.get(t, path, false).Body.String()
+	for _, want := range []string{
+		// The whole manual-task instruction survives: no rune cap, no ellipsis.
+		`<span class="workflow-step-summary">` + instruction + `</span>`,
+		// Every node carries its actor.
+		`<span class="workflow-step-actor">Requester</span>`,
+		`<span class="workflow-step-actor">Assignee</span>`,
+		`<span class="workflow-step-actor">Members of General</span>`,
+		`<span class="workflow-step-actor">Automatic</span>`,
+		// Routing and the terminal carry their state outcome.
+		`<span class="workflow-step-outcome">→ In progress</span>`,
+		`<span class="workflow-step-outcome">→ Resolved</span>`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("builder node vocabulary missing %q", want)
+		}
+	}
+	// A node must not hide the summary this issue is about.
+	if truncated := instruction[:41] + "..."; strings.Contains(body, truncated) {
+		t.Errorf("builder must not truncate the summary; found %q", truncated)
+	}
+}
+
+// NodeSummaryIsNotClipped proves the CSS side of #249: the summary wraps
+// instead of drawing an ellipsis, so a node cannot hide the words that name
+// who acts and what the ticket becomes.
+func TestCategoryWorkflowBuilder_NodeSummaryIsNotClipped(t *testing.T) {
+	body := renderGolden(t, "category_workflow", "", mobileBuilderPageData(), false)
+	style := extractStyleBlock(t, body)
+	rule := cssRuleForSelectors(style, ".workflow-step-summary")
+	if rule == "" {
+		t.Fatal(".workflow-step-summary must be styled")
+	}
+	for _, gone := range []string{"text-overflow:ellipsis", "white-space:nowrap", "overflow:hidden"} {
+		if strings.Contains(rule, gone) {
+			t.Errorf(".workflow-step-summary must not clip its text, found %q in: %s", gone, rule)
+		}
+	}
+	if !strings.Contains(rule, "overflow-wrap:anywhere") {
+		t.Errorf(".workflow-step-summary must wrap long words instead of clipping, got: %s", rule)
+	}
+	// The card no longer pins the summary to a rigid width.
+	card := cssRuleForSelectors(style, ".workflow-step-card")
+	if strings.Contains(card, "flex:0 0 198px") {
+		t.Errorf(".workflow-step-card must not keep the fixed width that forced truncation, got: %s", card)
+	}
+}
+
+// TestWorkflowStepViewsNodeVocabulary triangulates issue #249 across the
+// closed step set from domain/workflow.go: each kind names its actor, and only
+// routing and the terminals change the ticket state.
+func TestWorkflowStepViewsNodeVocabulary(t *testing.T) {
+	desks := []domain.Desk{{ID: 7, Name: "Billing"}}
+	for _, tc := range []struct {
+		name        string
+		step        domain.WorkflowStep
+		wantActor   string
+		wantOutcome string
+	}{
+		{"form for the requester", domain.WorkflowStep{Type: domain.StepForm, Form: &domain.FormStep{Actor: domain.FormActorRequester, Fields: []domain.FormField{{Key: "k", Label: "L", Kind: domain.FieldShortText}}}}, "Requester", ""},
+		{"form for the assignee", domain.WorkflowStep{Type: domain.StepForm, Form: &domain.FormStep{Actor: domain.FormActorAssignee, Fields: []domain.FormField{{Key: "k", Label: "L", Kind: domain.FieldShortText}}}}, "Assignee", ""},
+		{"claim routes to the desk members", domain.WorkflowStep{Type: domain.StepAssignToDesk, AssignToDesk: &domain.AssignToDeskStep{DeskID: 7, Strategy: domain.StrategyClaim}}, "Members of Billing", "In progress"},
+		{"least loaded routes automatically", domain.WorkflowStep{Type: domain.StepAssignToDesk, AssignToDesk: &domain.AssignToDeskStep{DeskID: 7, Strategy: domain.StrategyLeastLoaded}}, "Automatic", "In progress"},
+		{"manual task is assignee work", domain.WorkflowStep{Type: domain.StepManualTask, ManualTask: &domain.ManualTaskStep{Instructions: "Do it"}}, "Assignee", ""},
+		{"resolve is automatic", domain.WorkflowStep{Type: domain.StepResolve}, "Automatic", "Resolved"},
+		{"close resolves then closes", domain.WorkflowStep{Type: domain.StepClose}, "Automatic", "Resolved, then closed"},
+		{"an unknown kind claims no actor", domain.WorkflowStep{Type: domain.StepType("unknown")}, "", ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			views := workflowStepViews(domain.WorkflowDefinition{tc.step}, 0, desks)
+			if views[0].Actor != tc.wantActor || views[0].Outcome != tc.wantOutcome {
+				t.Fatalf("actor/outcome = %q/%q, want %q/%q", views[0].Actor, views[0].Outcome, tc.wantActor, tc.wantOutcome)
+			}
+		})
 	}
 }
 
@@ -2375,4 +2476,113 @@ func (h *harness) getWithSaveFeedback(t *testing.T, path string, prior *httptest
 	rec := httptest.NewRecorder()
 	h.mw.Wrap(h.mux).ServeHTTP(rec, req)
 	return rec.Body.String()
+}
+
+// ==== Reuse a workflow by cloning it into another category (issue #257) ====
+//
+// The route copies the SOURCE category's PUBLISHED workflow into the TARGET
+// category's DRAFT, authorized by the existing category-management capability
+// (CapWorkflowAuthor belongs to issue #255 and is deliberately not invented
+// here). When the target already has a draft the clone is REFUSED with a
+// comprehensible message and the target's bytes are left EXACTLY as they were
+// — no merge, no overwrite — and cloning never publishes.
+func TestCategoryWorkflowClone_RouteAuthorizationRefusalAndRoundTrip(t *testing.T) {
+	h := newHarness(t)
+	source, err := h.categories.Create(t.Context(), "Clone source")
+	if err != nil {
+		t.Fatalf("create source: %v", err)
+	}
+	sourceDef := domain.WorkflowDefinition{
+		{Type: domain.StepManualTask, ManualTask: &domain.ManualTaskStep{Instructions: "Reuse me"}},
+		{Type: domain.StepResolve},
+	}
+	h.publishWorkflow(t, source.ID, sourceDef)
+	target, err := h.categories.Create(t.Context(), "Clone target")
+	if err != nil {
+		t.Fatalf("create target: %v", err)
+	}
+	path := "/categories/" + strconv.FormatInt(target.ID, 10) + "/workflow/clone"
+	targetPath := "/categories/" + strconv.FormatInt(target.ID, 10) + "/workflow"
+	form := url.Values{"source_category_id": {strconv.FormatInt(source.ID, 10)}}
+
+	// Authorization: an agent may not clone.
+	agent := h.createUser(t, "Clone Agent", "clone-agent@tkt.test", "secret")
+	agentSession := seedSession(t, h.store, agent.ID)
+	denied := h.postFormAs(t, path, form, agentSession.ID)
+	if denied.Code != http.StatusForbidden {
+		t.Fatalf("agent clone = %d, want 403: %s", denied.Code, denied.Body.String())
+	}
+	if n := scanOneInt(t, h.rawDB(t), "SELECT COUNT(*) FROM category_workflows WHERE category_id=?", target.ID); n != 0 {
+		t.Fatalf("denied clone created %d workflow rows", n)
+	}
+
+	// Success: the source's PUBLISHED definition becomes the target's DRAFT.
+	ok := h.postForm(t, path, form, false)
+	wantRedirect(t, ok, http.StatusSeeOther, targetPath)
+	targetDraft := h.persistedDefinition(t, targetPath)
+	if len(targetDraft) != len(sourceDef) || targetDraft[0].ManualTask.Instructions != "Reuse me" || targetDraft[1].Type != domain.StepResolve {
+		t.Fatalf("cloned target draft = %+v, want %+v", targetDraft, sourceDef)
+	}
+	// Cloning is not publishing: the target keeps no current version.
+	if current, present := scanOneNullableInt(t, h.rawDB(t), "SELECT current_version_id FROM category_workflows WHERE category_id=?", target.ID); present && current != 0 {
+		t.Fatalf("clone must not publish, target current_version_id=%d", current)
+	}
+	// The source's published version is untouched by a clone.
+	if sourceCurrent, present := scanOneNullableInt(t, h.rawDB(t), "SELECT current_version_id FROM category_workflows WHERE category_id=?", source.ID); !present || sourceCurrent == 0 {
+		t.Fatalf("clone disturbed the source's published version: %d present=%v", sourceCurrent, present)
+	}
+
+	// Refusal: the target now has a draft; a second clone is refused with a
+	// message and leaves the target's bytes byte-identical.
+	before := scanOneString(t, h.rawDB(t), "SELECT draft_json FROM category_workflows WHERE category_id=?", target.ID)
+	refused := h.postForm(t, path, form, false)
+	if refused.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("second clone = %d, want 422: %s", refused.Code, refused.Body.String())
+	}
+	if !strings.Contains(refused.Body.String(), "already has a draft") {
+		t.Fatalf("refusal must state the existing draft, got: %s", refused.Body.String())
+	}
+	after := scanOneString(t, h.rawDB(t), "SELECT draft_json FROM category_workflows WHERE category_id=?", target.ID)
+	if after != before {
+		t.Fatalf("refused clone changed the target draft:\n got  %s\n want %s", after, before)
+	}
+}
+
+// The builder page offers the clone control with the published categories as
+// sources, and never offers the page's own category as a clone source.
+func TestCategoryWorkflowClone_ControlRendersPublishedSources(t *testing.T) {
+	h := newHarness(t)
+	source, err := h.categories.Create(t.Context(), "Reusable source")
+	if err != nil {
+		t.Fatalf("create source: %v", err)
+	}
+	h.publishWorkflow(t, source.ID, simpleManualDef())
+	draftOnly, err := h.categories.Create(t.Context(), "Draft only source")
+	if err != nil {
+		t.Fatalf("create draft-only: %v", err)
+	}
+	if err := h.workflows.SaveDraft(t.Context(), *h.admin, draftOnly.ID, simpleManualDef()); err != nil {
+		t.Fatalf("save draft-only: %v", err)
+	}
+	target, err := h.categories.Create(t.Context(), "Clone target")
+	if err != nil {
+		t.Fatalf("create target: %v", err)
+	}
+
+	body := h.get(t, "/categories/"+strconv.FormatInt(target.ID, 10)+"/workflow", false).Body.String()
+	for _, want := range []string{
+		`action="/categories/` + strconv.FormatInt(target.ID, 10) + `/workflow/clone"`,
+		`name="source_category_id"`,
+		`<option value="` + strconv.FormatInt(source.ID, 10) + `">Reusable source</option>`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("clone control must contain %q, got: %s", want, body)
+		}
+	}
+	if strings.Contains(body, `>Draft only source</option>`) {
+		t.Error("a category without a published workflow must not be offered as a clone source")
+	}
+	if strings.Contains(body, `>`+target.Name+`</option>`) {
+		t.Error("the page's own category must not be offered as a clone source")
+	}
 }

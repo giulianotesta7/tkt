@@ -205,27 +205,68 @@ func TestTicketWorkflowRuntime_CompletionManualNoMetadata(t *testing.T) {
 	mustHaveCompletionRoute(t, forged, http.StatusUnprocessableEntity, "manual_task ignores forged metadata")
 }
 
-func TestCompleteWorkflow_NativeFeedbackStaysInTheCompletionResponse(t *testing.T) {
-	h := newHarness(t)
-	ticket := h.seedTicket(t, "native completion feedback", nil)
-	h.assignTicket(t, ticket.ID, h.admin.ID)
-	path := "/tickets/" + strconv.FormatInt(ticket.ID, 10) + "/workflow/steps/1/complete"
+// TestCompleteWorkflow_CarriesNoSaveFeedback pins issue #234's placement rule
+// for the ticket-detail completion path (the manual/form completion and the
+// sidebar claim): the response re-renders #ticket-detail in place, so the
+// re-rendered fragment is the confirmation and the response must carry neither
+// the HTMX save-feedback header nor the native in-response toast. Each case
+// also asserts the completed step in place, so the test fails if the
+// completion is dropped rather than only if the toast disappears.
+func TestCompleteWorkflow_CarriesNoSaveFeedback(t *testing.T) {
+	seedCompletable := func(t *testing.T, h *harness) string {
+		t.Helper()
+		ticket := h.seedTicket(t, "completion feedback", nil)
+		h.assignTicket(t, ticket.ID, h.admin.ID)
+		return "/tickets/" + strconv.FormatInt(ticket.ID, 10) + "/workflow/steps/1/complete"
+	}
 
-	completion := h.postForm(t, path, url.Values{}, false)
-	mustHaveCompletionRoute(t, completion, http.StatusOK, "native completion")
-	if !strings.Contains(completion.Body.String(), `data-feedback-message="Saved"`) {
-		t.Errorf("native completion response must render its confirmation, got: %.500s", completion.Body.String())
-	}
-	if got := completion.Header().Get("Set-Cookie"); strings.Contains(got, saveFeedbackCookie+"=") {
-		t.Errorf("native completion must not issue a feedback cookie, got %q", got)
-	}
+	t.Run("HTMX 200 renders the completed detail without the feedback header", func(t *testing.T) {
+		h := newHarness(t)
+		path := seedCompletable(t, h)
 
-	unrelated := h.get(t, "/tickets", false)
-	if unrelated.Code != http.StatusOK {
-		t.Fatalf("unrelated GET status = %d, want 200", unrelated.Code)
+		completion := h.postForm(t, path, url.Values{}, true)
+		mustHaveCompletionRoute(t, completion, http.StatusOK, "HTMX completion")
+		if got := completion.Header().Get("X-Save-Feedback"); got != "" {
+			t.Errorf("completion must not carry the save-feedback header, got %q", got)
+		}
+		assertCompletedInPlace(t, completion.Body.String())
+	})
+
+	t.Run("native 200 renders the completed detail without a toast", func(t *testing.T) {
+		h := newHarness(t)
+		path := seedCompletable(t, h)
+
+		completion := h.postForm(t, path, url.Values{}, false)
+		mustHaveCompletionRoute(t, completion, http.StatusOK, "native completion")
+		if strings.Contains(completion.Body.String(), `data-feedback-message="Saved"`) {
+			t.Errorf("native completion must not render a save-feedback toast, got: %.500s", completion.Body.String())
+		}
+		if got := completion.Header().Get("Set-Cookie"); strings.Contains(got, saveFeedbackCookie+"=") {
+			t.Errorf("native completion must not issue a feedback cookie, got %q", got)
+		}
+		assertCompletedInPlace(t, completion.Body.String())
+
+		// The native 200 must not leave a flash a later unrelated GET inherits.
+		unrelated := h.get(t, "/tickets", false)
+		if unrelated.Code != http.StatusOK {
+			t.Fatalf("unrelated GET status = %d, want 200", unrelated.Code)
+		}
+		if strings.Contains(unrelated.Body.String(), `data-feedback-message="Saved"`) {
+			t.Errorf("unrelated GET must not inherit completion feedback, got: %.500s", unrelated.Body.String())
+		}
+	})
+}
+
+// assertCompletedInPlace proves the completed step is visible in the
+// re-rendered detail: the pending checklist is gone and the timeline carries
+// the completion entry.
+func assertCompletedInPlace(t *testing.T, body string) {
+	t.Helper()
+	if strings.Contains(body, `id="workflow-pending"`) {
+		t.Errorf("completed response must drop the pending checklist in place, got: %.500s", body)
 	}
-	if strings.Contains(unrelated.Body.String(), `data-feedback-message="Saved"`) {
-		t.Errorf("unrelated GET must not inherit completion feedback, got: %.500s", unrelated.Body.String())
+	if !strings.Contains(body, "completed the task") {
+		t.Errorf("completed response must show the completion entry in place, got: %.500s", body)
 	}
 }
 

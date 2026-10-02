@@ -31,12 +31,18 @@ func NewCategoryWorkflowHandlers(categories *application.CategoryService, workfl
 func (h *CategoryWorkflowHandlers) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /categories/{id}/workflow", h.get)
 	mux.HandleFunc("POST /categories/{id}/workflow", h.post)
+	mux.HandleFunc("POST /categories/{id}/workflow/clone", h.clone)
 }
 
 type workflowStepView struct {
 	Index    int
 	Position int
 	Summary  string
+	// Actor names who performs the step and Outcome names the state the
+	// ticket reaches, so a node reads as a builder node rather than a label
+	// plus a truncated string (issue #249). Both come from the step itself.
+	Actor    string
+	Outcome  string
 	Snapshot string
 	Step     domain.WorkflowStep
 	Selected bool
@@ -60,6 +66,12 @@ type workflowBuilderData struct {
 	Live                 string
 	FocusStep            int
 	HasFinal             bool
+	// CloneSources are the OTHER categories with a published workflow the
+	// builder may clone from (issue #257). The page's own category is excluded.
+	CloneSources []domain.Category
+	// CloneError carries a refused clone's comprehensible message back to the
+	// page; it is display text only and never input.
+	CloneError string
 }
 
 func (h *CategoryWorkflowHandlers) get(w http.ResponseWriter, r *http.Request) {
@@ -78,6 +90,47 @@ func (h *CategoryWorkflowHandlers) get(w http.ResponseWriter, r *http.Request) {
 	}
 	desks := h.deskOptions(r)
 	h.render(w, r, categoryID, draft, desks, nil, "", selectedStepIndex(r, len(draft)), http.StatusOK)
+}
+
+// clone copies a source category's published workflow into this category's
+// draft (issue #257). Authorization reuses the existing category-management
+// capability: the separate CapWorkflowAuthor capability is issue #255's lane
+// and has not landed, so it is deliberately not invented here.
+func (h *CategoryWorkflowHandlers) clone(w http.ResponseWriter, r *http.Request) {
+	if !requireCapability(w, r, application.CapManageCategories) {
+		return
+	}
+	targetID, ok := categoryID(r)
+	if !ok {
+		http.Error(w, "invalid category id", http.StatusBadRequest)
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+	sourceID, err := strconv.ParseInt(r.Form.Get("source_category_id"), 10, 64)
+	if err != nil || sourceID <= 0 {
+		h.renderCloneRefused(w, r, targetID, "choose a source category to clone from", http.StatusUnprocessableEntity)
+		return
+	}
+	if err := h.workflows.Clone(r.Context(), *userFromContext(r.Context()), sourceID, targetID); err != nil {
+		h.renderCloneRefused(w, r, targetID, mapErrorMsg(err), statusFor(err))
+		return
+	}
+	saveFeedback(w, r, saveFeedbackSaved, saveFeedbackSuccess)
+	redirect(w, r, "/categories/"+strconv.FormatInt(targetID, 10)+"/workflow")
+}
+
+// renderCloneRefused re-renders the target's builder with the refusal message
+// next to the clone control, leaving the target's own draft exactly as it was.
+func (h *CategoryWorkflowHandlers) renderCloneRefused(w http.ResponseWriter, r *http.Request, targetID int64, message string, status int) {
+	draft, err := h.workflows.GetForBuilder(r.Context(), *userFromContext(r.Context()), targetID)
+	if err != nil {
+		http.Error(w, mapErrorMsg(err), statusFor(err))
+		return
+	}
+	h.renderBuilder(w, r, targetID, draft, h.deskOptions(r), nil, "", selectedStepIndex(r, len(draft)), message, status)
 }
 
 func (h *CategoryWorkflowHandlers) post(w http.ResponseWriter, r *http.Request) {
@@ -260,6 +313,12 @@ func (h *CategoryWorkflowHandlers) deskOptions(r *http.Request) []domain.Desk {
 }
 
 func (h *CategoryWorkflowHandlers) render(w http.ResponseWriter, r *http.Request, categoryID int64, draft domain.WorkflowDefinition, desks []domain.Desk, issues []domain.WorkflowValidationIssue, live string, focus int, status int) {
+	h.renderBuilder(w, r, categoryID, draft, desks, issues, live, focus, "", status)
+}
+
+// renderBuilder is render with the optional clone-refusal message (issue #257);
+// every existing call site keeps the plain render entry point.
+func (h *CategoryWorkflowHandlers) renderBuilder(w http.ResponseWriter, r *http.Request, categoryID int64, draft domain.WorkflowDefinition, desks []domain.Desk, issues []domain.WorkflowValidationIssue, live string, focus int, cloneError string, status int) {
 	category, err := h.categories.GetByID(r.Context(), categoryID)
 	if err != nil {
 		http.Error(w, mapErrorMsg(err), statusFor(err))
@@ -281,11 +340,31 @@ func (h *CategoryWorkflowHandlers) render(w http.ResponseWriter, r *http.Request
 		Desks:        desks,
 		Issues:       issues,
 		Live:         live, FocusStep: focus,
-		HasFinal: hasTerminalStep(draft),
+		HasFinal:     hasTerminalStep(draft),
+		CloneSources: h.cloneSources(r, categoryID),
+		CloneError:   cloneError,
 	}
 	data.PageFoundationAssets = true
 	data.WorkflowAssets = true
 	h.renderer.Render(w, r, "category_workflow", "workflow_builder", data, status)
+}
+
+// cloneSources lists the other categories with a published workflow, ordered by
+// the store's canonical order. A read failure yields no options rather than an
+// error: the clone control is an optional authoring aid, and a page that cannot
+// list sources must still render the builder.
+func (h *CategoryWorkflowHandlers) cloneSources(r *http.Request, targetID int64) []domain.Category {
+	categories, err := h.workflows.ListAvailableCategories(r.Context())
+	if err != nil {
+		return nil
+	}
+	out := make([]domain.Category, 0, len(categories))
+	for _, c := range categories {
+		if c.ID != targetID {
+			out = append(out, c)
+		}
+	}
+	return out
 }
 
 func workflowStepViews(draft domain.WorkflowDefinition, selected int, desks []domain.Desk) []workflowStepView {
@@ -294,7 +373,11 @@ func workflowStepViews(draft domain.WorkflowDefinition, selected int, desks []do
 		raw, _ := json.Marshal(step)
 		canRight := i+1 < len(draft) && !isTerminalStep(draft[i+1].Type)
 		views = append(views, workflowStepView{
-			Index: i, Position: i + 1, Summary: workflowStepSummary(step, desks), Snapshot: string(raw), Step: step,
+			Index: i, Position: i + 1,
+			Summary:  workflowStepSummary(step, desks),
+			Actor:    workflowStepActor(step, desks),
+			Outcome:  workflowStepOutcome(step),
+			Snapshot: string(raw), Step: step,
 			Selected: i == selected,
 			Final:    isTerminalStep(step.Type) && i == len(draft)-1,
 			Last:     i == len(draft)-1,
@@ -313,12 +396,7 @@ func workflowStepSummary(step domain.WorkflowStep, desks []domain.Desk) string {
 	switch step.Type {
 	case domain.StepAssignToDesk:
 		if step.AssignToDesk != nil && step.AssignToDesk.DeskID > 0 {
-			for _, d := range desks {
-				if d.ID == step.AssignToDesk.DeskID {
-					return d.Name
-				}
-			}
-			return fmt.Sprintf("Desk %d", step.AssignToDesk.DeskID)
+			return deskName(step.AssignToDesk.DeskID, desks)
 		}
 		return "Choose a desk"
 	case domain.StepForm:
@@ -329,22 +407,74 @@ func workflowStepSummary(step domain.WorkflowStep, desks []domain.Desk) string {
 		if len(step.Form.Fields) == 1 {
 			suffix = ""
 		}
-		return fmt.Sprintf("%d field%s · %s", len(step.Form.Fields), suffix, step.Form.Actor)
+		// The actor is a separate node fact now, so the summary carries only
+		// what the step collects instead of repeating the actor.
+		return fmt.Sprintf("%d field%s", len(step.Form.Fields), suffix)
 	case domain.StepManualTask:
 		if step.ManualTask == nil || strings.TrimSpace(step.ManualTask.Instructions) == "" {
 			return "Add instructions"
 		}
-		text := strings.Join(strings.Fields(step.ManualTask.Instructions), " ")
-		runes := []rune(text)
-		if len(runes) > 44 {
-			return string(runes[:41]) + "..."
-		}
-		return text
+		// Issue #249: the whole instruction reaches the node; the layout wraps
+		// it rather than the model cutting it.
+		return strings.Join(strings.Fields(step.ManualTask.Instructions), " ")
 	case domain.StepResolve, domain.StepClose:
 		return "Runs automatically"
 	default:
 		return "Configure this step"
 	}
+}
+
+// workflowStepActor names who performs a step, distinct from the automatic
+// terminal and least-loaded routing where no person acts.
+func workflowStepActor(step domain.WorkflowStep, desks []domain.Desk) string {
+	switch step.Type {
+	case domain.StepAssignToDesk:
+		if step.AssignToDesk != nil && step.AssignToDesk.Strategy == domain.StrategyLeastLoaded {
+			return "Automatic"
+		}
+		if step.AssignToDesk != nil && step.AssignToDesk.DeskID > 0 {
+			return "Members of " + deskName(step.AssignToDesk.DeskID, desks)
+		}
+		return "Members of the desk"
+	case domain.StepForm:
+		if step.Form != nil && step.Form.Actor == domain.FormActorAssignee {
+			return "Assignee"
+		}
+		return "Requester"
+	case domain.StepManualTask:
+		return "Assignee"
+	case domain.StepResolve, domain.StepClose:
+		return "Automatic"
+	default:
+		return ""
+	}
+}
+
+// workflowStepOutcome names the state the ticket reaches. Asking and working
+// leave the state alone, so they have no outcome; routing moves the ticket into
+// progress and the terminals resolve (and close) it.
+func workflowStepOutcome(step domain.WorkflowStep) string {
+	switch step.Type {
+	case domain.StepAssignToDesk:
+		return "In progress"
+	case domain.StepResolve:
+		return "Resolved"
+	case domain.StepClose:
+		return "Resolved, then closed"
+	default:
+		return ""
+	}
+}
+
+// deskName resolves a referenced desk to its display name, falling back to the
+// raw id when the desk is not in the option set.
+func deskName(id int64, desks []domain.Desk) string {
+	for _, d := range desks {
+		if d.ID == id {
+			return d.Name
+		}
+	}
+	return fmt.Sprintf("Desk %d", id)
 }
 
 // insertBeforeTerminal places step directly before the existing terminal (keeping
