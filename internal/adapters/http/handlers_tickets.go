@@ -1176,10 +1176,10 @@ type detailData struct {
 	// (comment-timeline delta). Presentation only — the comment use case
 	// rejects non-requesters on resolved tickets server-side.
 	CanComment bool
-	// Pending carries the workflow Pending Actions card state for the current
-	// pinned step (design S9): it is populated only for an active run and
-	// never exposes a workflow version, pin, or technical cursor.
-	Pending workflowPending
+	// Pending carries the run's step checklist (issue #245): it is populated
+	// only for an active run and never exposes a workflow version, pin, or
+	// technical cursor.
+	Pending workflowChecklist
 	Claim   workflowClaim
 	// SLA is the pre-formatted milestones panel (issue #211), present ONLY for
 	// a non-`user` actor on a ticket with a frozen commitment. A nil panel
@@ -1188,11 +1188,7 @@ type detailData struct {
 	SLA *slaPanelView
 }
 
-// workflowPending is the presentation payload for the live current-step
-// projection inside the Timeline. Active is false (no projection rendered)
-// for legacy unpinned tickets and completed runs. For an active run it names
-// the current step kind, whether the acting session user may complete it,
-// and the participant responsible for the step.
+// workflowClaim is the sidebar claim projection for the current pinned step.
 type workflowClaim struct {
 	Active   bool
 	Position int
@@ -1200,15 +1196,38 @@ type workflowClaim struct {
 	CanAct   bool
 }
 
-type workflowPending struct {
-	Active                 bool
-	Position               int
-	Kind                   string // claim | form | manual | auto
-	Instruction            string // pinned manual-task instruction
-	Fields                 []domain.FormField
-	CanAct                 bool
-	ParticipantIsRequester bool
-	ParticipantName        string
+// workflowChecklist is the presentation payload for a run's progress inside the
+// Timeline (issue #245): the honest "N of M done" count, a thin neutral progress
+// bar, and one row per pinned step. Active is false (no checklist rendered) for
+// legacy unpinned tickets and completed or absent runs. It exposes no workflow
+// version, pin, or technical cursor.
+type workflowChecklist struct {
+	Active  bool
+	Done    int
+	Total   int
+	Percent int
+	CanAct  bool
+	Rows    []workflowChecklistRow
+}
+
+// workflowChecklistRow is one step row. State is done | current | next and
+// Glyph is its marker. A done row carries the completion Actor (empty for the
+// automatic sentinel, which never renders) and At. A current row carries its
+// control facts (Kind, Fields, CanAct) plus an optional Blocked hint. A next
+// row carries only its honest Meta label.
+type workflowChecklistRow struct {
+	Position  int
+	Name      string
+	State     string
+	Glyph     string
+	Actor     string
+	At        time.Time
+	Completed bool
+	Meta      string
+	Kind      string
+	Fields    []domain.FormField
+	CanAct    bool
+	Blocked   string
 }
 
 // ticketID resolves and validates the {id} path parameter; 0 + false on a
@@ -1244,14 +1263,7 @@ func (h *TicketHandlers) detailDataFor(r *http.Request, id int64) (detailData, i
 		values.UserID = strconv.FormatInt(*view.Ticket.UserID, 10)
 	}
 	closed := domain.IsClosed(view.Ticket.State)
-	pending := h.pendingFor(r, id, actor, view.Ticket)
-	if pending.Active {
-		if pending.ParticipantIsRequester {
-			pending.ParticipantName = view.Ticket.RequesterName
-		} else if view.AssignedUser != nil {
-			pending.ParticipantName = view.AssignedUser.Name
-		}
-	}
+	pending := h.checklistFor(r, id, actor, view.Ticket, view.AuditEvents, view.AssignedUser)
 	// Requester-confirmation presentation flags (D7): identity mirror + the
 	// resolved carve-out on the comment form; the services stay the
 	// enforcement points for both.
@@ -1300,63 +1312,211 @@ func (h *TicketHandlers) detailDataFor(r *http.Request, id int64) (detailData, i
 	}, 0, nil
 }
 
-// pendingFor builds the Pending Actions card state for the current pinned
-// step of an active run. It returns Active=false (no card) for legacy
-// unpinned tickets and non-active/completed runs. The persisted actor
-// predicate decides CanAct: manual_task/form[assignee] require the current
-// assignee, form[requester] the ticket requester, and a claim is server-
-// enforced on submit (membership is rechecked by the unit of work).
+// checklistFor builds the run's step checklist for an active run (issue #245):
+// one row per pinned step, reader-facing names, the completed rows attributed
+// from the append-only audit trail by the sealed step index, the current row
+// with its control, and the pending rows labelled honestly. It returns
+// Active=false (no checklist) for legacy unpinned tickets and
+// non-active/completed runs, so the Timeline omits it exactly as before. The
+// persisted actor predicate decides CanAct: manual_task/form[assignee] require
+// the current assignee, form[requester] the ticket requester, and a claim is
+// server-enforced on submit (membership is rechecked by the unit of work).
 // Automatic steps (least_loaded and the resolve/close terminal steps) render
-// as pending but with no button — they advance synchronously with the plan.
-func (h *TicketHandlers) pendingFor(r *http.Request, id int64, actor domain.User, t *domain.Ticket) workflowPending {
+// with no control — they advance synchronously with the plan.
+func (h *TicketHandlers) checklistFor(r *http.Request, id int64, actor domain.User, t *domain.Ticket, events []domain.AuditEvent, assignee *domain.User) workflowChecklist {
 	snap, err := h.workflowRuns.GetWorkflowExecution(r.Context(), id)
 	if err != nil || snap == nil || snap.Run == nil || snap.Run.Status != "active" {
-		return workflowPending{}
+		return workflowChecklist{}
 	}
 	cur := snap.Run.CurrentStepIndex
 	if cur < 0 || cur >= len(snap.Workflow) {
-		return workflowPending{}
+		return workflowChecklist{}
 	}
-	step := snap.Workflow[cur]
-	wp := workflowPending{Active: true, Position: cur + 1}
+	completions := completionAuditsByStep(events)
+	deskNames := map[int64]string{}
+	rows := make([]workflowChecklistRow, 0, len(snap.Workflow))
+	for i, step := range snap.Workflow {
+		row := workflowChecklistRow{Position: i + 1}
+		desk := ""
+		if step.Type == domain.StepAssignToDesk {
+			desk = h.deskLabel(r, step, deskNames)
+		}
+		row.Name = checklistStepName(step, desk)
+		switch {
+		case i < cur:
+			row.State, row.Glyph = "done", "✓"
+			if ev, ok := completions[i]; ok {
+				row.Completed = true
+				row.At = ev.CreatedAt
+				// The automatic actor sentinel is never rendered as a person: the
+				// row says plainly that the step completed on its own.
+				if ev.Actor == "" || ev.Actor == "workflow" {
+					row.Actor = "Completed automatically"
+				} else {
+					row.Actor = ev.Actor
+				}
+			}
+		case i == cur:
+			row.State, row.Glyph = "current", "●"
+			h.fillChecklistCurrent(&row, step, desk, actor, t, assignee)
+		default:
+			row.State, row.Glyph = "next", "○"
+			row.Meta = checklistPendingMeta(step)
+		}
+		rows = append(rows, row)
+	}
+	total := len(snap.Workflow)
+	percent := 0
+	if total > 0 {
+		percent = (100*cur + total/2) / total
+	}
+	return workflowChecklist{
+		Active:  true,
+		Done:    cur,
+		Total:   total,
+		Percent: percent,
+		CanAct:  rows[cur].CanAct,
+		Rows:    rows,
+	}
+}
+
+// completionAuditsByStep indexes the FIRST audit event that seals each step
+// index. The trail is already in occurrence order (ASC, id tiebreak), so the
+// first event of a step is its completion: a claim's contextual assignment
+// precedes its same-completion in-progress transition, and a human completion
+// precedes any following automatic walk.
+func completionAuditsByStep(events []domain.AuditEvent) map[int]domain.AuditEvent {
+	out := map[int]domain.AuditEvent{}
+	for _, ev := range events {
+		if ev.StepIndex == nil {
+			continue
+		}
+		if _, seen := out[*ev.StepIndex]; seen {
+			continue
+		}
+		out[*ev.StepIndex] = ev
+	}
+	return out
+}
+
+// checklistStepName is the task in the reader's words, reusing the builder's
+// vocabulary (issue #245). desk is the resolved desk label for routing steps.
+func checklistStepName(step domain.WorkflowStep, desk string) string {
 	switch step.Type {
-	case domain.StepAssignToDesk:
-		if step.AssignToDesk == nil {
-			return workflowPending{}
-		}
-		if step.AssignToDesk.Strategy != domain.StrategyClaim {
-			wp.Kind = "auto"
-			return wp
-		}
-		// Claim controls live in the Assignment sidebar, never Pending Actions.
-		return workflowPending{}
-	case domain.StepManualTask:
-		wp.Kind = "manual"
-		if step.ManualTask == nil {
-			return workflowPending{}
-		}
-		// Amendment 2 (WB.5): the pinned instruction leads the card. It comes
-		// verbatim from the execution snapshot's immutable pinned step.
-		wp.Instruction = step.ManualTask.Instructions
-		wp.CanAct = t.UserID != nil && *t.UserID == actor.ID
 	case domain.StepForm:
-		if step.Form == nil {
-			return workflowPending{}
+		if step.Form != nil && step.Form.Actor == domain.FormActorRequester {
+			return "The requester answers the form"
 		}
-		wp.Kind = "form"
-		wp.Fields = step.Form.Fields
-		if step.Form.Actor == domain.FormActorRequester {
-			wp.ParticipantIsRequester = true
-			wp.CanAct = t.RequesterUserID != nil && *t.RequesterUserID == actor.ID
-		} else {
-			wp.CanAct = t.UserID != nil && *t.UserID == actor.ID
+		return "The agent answers the form"
+	case domain.StepAssignToDesk:
+		if step.AssignToDesk != nil && step.AssignToDesk.Strategy == domain.StrategyClaim {
+			return "A member of " + desk + " takes it"
 		}
-	case domain.StepResolve, domain.StepClose:
-		wp.Kind = "auto"
+		return "The least busy member of " + desk + " is assigned"
+	case domain.StepManualTask:
+		if step.ManualTask != nil && step.ManualTask.Instructions != "" {
+			return step.ManualTask.Instructions
+		}
+		return "Agent work"
+	case domain.StepResolve:
+		return "The ticket is marked resolved"
+	case domain.StepClose:
+		return "The ticket is closed"
 	default:
-		return workflowPending{}
+		return "A step"
 	}
-	return wp
+}
+
+// checklistPendingMeta labels a step still waiting behind the current one: an
+// automatic step runs on its own, every other step waits for the step before it.
+func checklistPendingMeta(step domain.WorkflowStep) string {
+	if step.Type == domain.StepResolve || step.Type == domain.StepClose {
+		return "Runs on its own"
+	}
+	if step.Type == domain.StepAssignToDesk && step.AssignToDesk != nil && step.AssignToDesk.Strategy == domain.StrategyLeastLoaded {
+		return "Runs on its own"
+	}
+	return "Waiting on the step before it"
+}
+
+// fillChecklistCurrent fills the current row's control facts. A claim's control
+// stays in the Assignment sidebar, and an automatic step has no control at all;
+// both render as the row's honest status line instead.
+func (h *TicketHandlers) fillChecklistCurrent(row *workflowChecklistRow, step domain.WorkflowStep, desk string, actor domain.User, t *domain.Ticket, assignee *domain.User) {
+	switch step.Type {
+	case domain.StepManualTask:
+		row.Kind = "manual"
+		if t.UserID != nil && *t.UserID == actor.ID {
+			row.CanAct = true
+		}
+		if t.UserID == nil {
+			row.Meta = "Nobody is assigned yet."
+			row.Blocked = "No one can complete this step until an agent is assigned to this ticket."
+			return
+		}
+		if assignee != nil {
+			row.Meta = "Assigned to " + assignee.Name
+		} else {
+			row.Meta = "Assigned"
+		}
+		if *t.UserID == actor.ID {
+			row.Meta += " · you"
+		}
+	case domain.StepForm:
+		row.Kind = "form"
+		if step.Form != nil {
+			row.Fields = step.Form.Fields
+			if step.Form.Actor == domain.FormActorRequester {
+				row.CanAct = t.RequesterUserID != nil && *t.RequesterUserID == actor.ID
+			} else {
+				row.CanAct = t.UserID != nil && *t.UserID == actor.ID
+			}
+		}
+		if row.CanAct {
+			row.Meta = "Waiting on you"
+			return
+		}
+		if step.Form != nil && step.Form.Actor == domain.FormActorRequester {
+			if t.RequesterName != "" {
+				row.Meta = "Waiting on " + t.RequesterName
+			} else {
+				row.Meta = "Waiting on the requester"
+			}
+		} else if assignee != nil {
+			row.Meta = "Waiting on " + assignee.Name
+		} else {
+			row.Meta = "Waiting on the assignee"
+		}
+	case domain.StepAssignToDesk:
+		if step.AssignToDesk != nil && step.AssignToDesk.Strategy == domain.StrategyClaim {
+			row.Meta = desk + " has been asked to take it"
+			return
+		}
+		row.Meta = "Runs on its own"
+	default:
+		row.Meta = "Runs on its own"
+	}
+}
+
+// deskLabel resolves a routing step's desk name with a per-render cache; a
+// missing or unreadable desk degrades to "the desk" instead of failing the
+// ticket detail read.
+func (h *TicketHandlers) deskLabel(r *http.Request, step domain.WorkflowStep, cache map[int64]string) string {
+	if step.AssignToDesk == nil {
+		return "the desk"
+	}
+	id := step.AssignToDesk.DeskID
+	if name, ok := cache[id]; ok {
+		return name
+	}
+	name := "the desk"
+	if h.desks != nil {
+		if desk, err := h.desks.GetByID(r.Context(), id); err == nil && desk != nil {
+			name = desk.Name
+		}
+	}
+	cache[id] = name
+	return name
 }
 
 // claimFor derives the sidebar projection from the current pinned step. It is
