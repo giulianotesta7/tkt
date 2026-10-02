@@ -226,7 +226,17 @@ const STRUCTURAL_ACTIONS = new Set([
   "remove_field",
 ]);
 const PERSISTING_ACTIONS = new Set([...STRUCTURAL_ACTIONS, "save", "publish"]);
-const UNTRACKED_FIELDS = new Set(["selected_step_index", "source_index", "target_index"]);
+const UNTRACKED_FIELDS = new Set([
+  "selected_step_index",
+  "draft_revision",
+  "source_index",
+  "target_index",
+]);
+// The subset of untracked fields a structural replay restores from the captured
+// request, because the save re-render clears or resets them. draft_revision is
+// deliberately excluded: the re-render carries the ADVANCED revision, and
+// restoring the captured one would look like a stale tab and be refused.
+const REPLAY_PARAM_FIELDS = new Set(["selected_step_index", "source_index", "target_index"]);
 let baseline = new Map();
 let cleanClone = null;
 let carriedDirty = false;
@@ -283,7 +293,7 @@ function replayStructural(action, path, params) {
   if (!form || !window.htmx) return;
   const values = window.htmx.values(form);
   values.action = action;
-  for (const name of UNTRACKED_FIELDS) if (params?.[name]) values[name] = params[name];
+  for (const name of REPLAY_PARAM_FIELDS) if (params?.[name]) values[name] = params[name];
   window.htmx.ajax("POST", path, {
     values: values,
     target: "#workflow-builder",

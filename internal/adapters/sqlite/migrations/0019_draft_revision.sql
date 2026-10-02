@@ -1,0 +1,25 @@
+-- 0019_draft_revision.sql — optimistic lock on a category's draft (issue #254).
+--
+-- category_workflows gains draft_revision: the number of accepted draft
+-- writes. The builder renders it as a hidden input and a write is accepted
+-- only when the number the browser carried still matches the stored one, so
+-- a second tab editing the same category is REFUSED instead of silently
+-- overwriting the first tab's work. The check is a single conditional
+-- UPDATE ... WHERE draft_revision = ? inside the store's immediate
+-- transaction, the same compare-and-swap shape Publish already uses for the
+-- workflow position.
+--
+-- A monotonic INTEGER and neither a timestamp nor a content hash: an integer
+-- needs no clock (the store stays deterministic and testable), it cannot
+-- collide across two writers that touched different steps, and it compares
+-- in the WHERE clause without a second read. The DEFAULT 0 is the state of
+-- every pre-0019 row and of a category that was never edited: the first
+-- guarded write expects 0 and moves the row to 1, so an existing draft is
+-- guarded from its very next edit. NOT NULL plus CHECK >= 0 are the storage
+-- invariant; a NULL would make "unknown revision" indistinguishable from
+-- "revision zero", which is exactly the case the guard must tell apart.
+--
+-- SQLite cannot ADD a NOT NULL column without a DEFAULT, so DEFAULT 0 is a
+-- migration-mechanics constraint as much as a meaningful value.
+
+ALTER TABLE category_workflows ADD COLUMN draft_revision INTEGER NOT NULL DEFAULT 0 CHECK(draft_revision >= 0);

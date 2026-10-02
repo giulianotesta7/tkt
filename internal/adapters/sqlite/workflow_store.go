@@ -15,6 +15,7 @@ type workflowStore struct{ db *sql.DB }
 
 var _ application.WorkflowStore = (*workflowStore)(nil)
 var _ application.WorkflowVersionStore = (*workflowStore)(nil)
+var _ application.WorkflowDraftRevisionStore = (*workflowStore)(nil)
 
 func newWorkflowStore(db *sql.DB) *workflowStore { return &workflowStore{db: db} }
 
@@ -84,25 +85,117 @@ func (w *workflowStore) UpsertDraft(ctx context.Context, categoryID int64, draft
 	}
 	return nil
 }
+
+// GetDraftWithRevision reads the draft bytes and their revision in ONE
+// statement (issue #254). A missing row is (nil, 0, nil): revision 0 is the
+// state a never-edited category presents to the builder, not a failure. The
+// pair must come from one read, so a builder can never render revision N+1
+// next to revision N's bytes.
+func (w *workflowStore) GetDraftWithRevision(ctx context.Context, categoryID int64) ([]byte, int64, error) {
+	var (
+		d   sql.NullString
+		rev int64
+	)
+	err := w.db.QueryRowContext(ctx, `SELECT draft_json, draft_revision FROM category_workflows WHERE category_id=?`, categoryID).Scan(&d, &rev)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, 0, nil
+	}
+	if err != nil {
+		return nil, 0, fmt.Errorf("sqlite: get draft revision: %w", err)
+	}
+	if !d.Valid {
+		return nil, rev, nil
+	}
+	return []byte(d.String), rev, nil
+}
+
+// SaveDraftIfRevision is the guarded draft write (issue #254). It is a
+// compare-and-swap: the UPDATE carries `draft_revision = expected` in its
+// WHERE clause, so a writer whose expected revision is stale updates zero
+// rows and is refused with ErrDraftRevisionConflict, leaving the newer
+// writer's bytes exactly as they were. The row is created first (revision 0)
+// so the first guarded write of a fresh category expects 0 and lands as
+// revision 1. Everything runs in the store's immediate transaction, so the
+// check and the write cannot interleave with another writer.
+func (w *workflowStore) SaveDraftIfRevision(ctx context.Context, categoryID int64, expectedRevision int64, draft []byte) (int64, error) {
+	tx, err := beginImmediate(ctx, w.db, "save draft at revision")
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx, `INSERT INTO category_workflows(category_id, draft_json) VALUES (?, '[]') ON CONFLICT(category_id) DO NOTHING`, categoryID); err != nil {
+		return 0, fmt.Errorf("sqlite: save draft ensure: %w", err)
+	}
+	// The compare-and-swap: the UPDATE only matches while the stored revision is
+	// still the expected one, so a stale writer updates nothing at all.
+	res, err := tx.ExecContext(ctx, `UPDATE category_workflows SET draft_json=?, draft_revision=draft_revision+1 WHERE category_id=? AND draft_revision=?`, string(draft), categoryID, expectedRevision)
+	if err != nil {
+		return 0, fmt.Errorf("sqlite: save draft update: %w", err)
+	}
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return 0, fmt.Errorf("sqlite: save draft rows: %w", err)
+	}
+	if affected == 0 {
+		// Either the row's revision moved past the writer's, or the writer
+		// expected a revision on a category that has none yet. Both mean the
+		// writer's copy is not the current one, and nothing was written.
+		return 0, application.ErrDraftRevisionConflict
+	}
+	var revision int64
+	if err := tx.QueryRowContext(ctx, `SELECT draft_revision FROM category_workflows WHERE category_id=?`, categoryID).Scan(&revision); err != nil {
+		return 0, fmt.Errorf("sqlite: save draft revision: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, fmt.Errorf("sqlite: save draft commit: %w", err)
+	}
+	return revision, nil
+}
+
+// Publish keeps its historical signature for the callers that arrange a
+// published version directly (the HTTP harness and adapter fixtures). It
+// mirrors PublishAtRevision against the CURRENT revision: the draft write still
+// advances draft_revision in the same transaction, so a later save at the
+// previous revision cannot overwrite the published draft. Production authoring
+// goes through PublishAtRevision, which refuses a stale expectation.
 func (w *workflowStore) Publish(ctx context.Context, categoryID int64, draft []byte, by *int64) (int64, []domain.WorkflowValidationIssue, error) {
+	vid, _, iss, err := w.publish(ctx, categoryID, draft, by, nil)
+	return vid, iss, err
+}
+
+// PublishAtRevision is the guarded publish (issue #254): the same validation,
+// version allocation and current-pointer switch as Publish, plus a
+// compare-and-swap on draft_revision inside the SAME immediate transaction. A
+// revision another writer already advanced writes NOTHING and is refused with
+// ErrDraftRevisionConflict, leaving that writer's draft bytes and current
+// version untouched. It reports the version id and the advanced draft revision.
+func (w *workflowStore) PublishAtRevision(ctx context.Context, categoryID int64, draft []byte, expectedRevision int64, by *int64) (int64, int64, []domain.WorkflowValidationIssue, error) {
+	return w.publish(ctx, categoryID, draft, by, &expectedRevision)
+}
+
+// publish is the single publish transaction. A nil expectedRevision adopts the
+// revision the row currently has (the fixture path) instead of refusing a
+// mismatch; either way the revision advances by one, so the published draft can
+// never be overwritten by a later save carrying the previous revision.
+func (w *workflowStore) publish(ctx context.Context, categoryID int64, draft []byte, by *int64, expectedRevision *int64) (int64, int64, []domain.WorkflowValidationIssue, error) {
 	var iss []domain.WorkflowValidationIssue
 	if len(draft) == 0 {
 		iss = append(iss, domain.WorkflowValidationIssue{Step: 1, Field: "steps", Message: "workflow must have at least one step"})
-		return 0, iss, nil
+		return 0, 0, iss, nil
 	}
 	def, err := domain.ParseWorkflowDefinition(draft)
 	if err != nil {
-		return 0, []domain.WorkflowValidationIssue{{Step: 1, Field: "steps", Message: err.Error()}}, nil
+		return 0, 0, []domain.WorkflowValidationIssue{{Step: 1, Field: "steps", Message: err.Error()}}, nil
 	}
 	iss = def.Validate()
 	if len(iss) > 0 {
-		return 0, iss, nil
+		return 0, 0, iss, nil
 	}
 	// The membership rules need desk facts, and this lookup is their only reader:
 	// domain.AssessRunnable owns both rules, so the gate has no second copy.
 	facts, err := w.deskFacts(ctx, def)
 	if err != nil {
-		return 0, nil, err
+		return 0, 0, nil, err
 	}
 	// Only BLOCKERS refuse the publish. A warning describes a workflow that cannot
 	// route on its own, and that is a legitimate manual process in this app:
@@ -113,39 +206,58 @@ func (w *workflowStore) Publish(ctx context.Context, categoryID int64, draft []b
 		f, ok := facts[deskID]
 		return f.name, f.members, ok
 	}).Blockers; len(iss) > 0 {
-		return 0, iss, nil
+		return 0, 0, iss, nil
 	}
 	tx, err := beginImmediate(ctx, w.db, "publish")
 	if err != nil {
-		return 0, nil, err
+		return 0, 0, nil, err
 	}
 	defer tx.Rollback()
 	if _, err := tx.ExecContext(ctx, `INSERT INTO category_workflows(category_id, draft_json) VALUES (?, '[]') ON CONFLICT(category_id) DO NOTHING`, categoryID); err != nil {
-		return 0, nil, fmt.Errorf("sqlite: publish ensure: %w", err)
+		return 0, 0, nil, fmt.Errorf("sqlite: publish ensure: %w", err)
 	}
-	if _, err := tx.ExecContext(ctx, `UPDATE category_workflows SET draft_json=? WHERE category_id=?`, string(draft), categoryID); err != nil {
-		return 0, nil, fmt.Errorf("sqlite: publish draft: %w", err)
+	expected := expectedRevision
+	if expected == nil {
+		var current int64
+		if err := tx.QueryRowContext(ctx, `SELECT draft_revision FROM category_workflows WHERE category_id=?`, categoryID).Scan(&current); err != nil {
+			return 0, 0, nil, fmt.Errorf("sqlite: publish current revision: %w", err)
+		}
+		expected = &current
 	}
+	// The compare-and-swap: the write lands only while the stored revision is
+	// still the expected one, and it advances the revision as it writes.
+	res, err := tx.ExecContext(ctx, `UPDATE category_workflows SET draft_json=?, draft_revision=draft_revision+1 WHERE category_id=? AND draft_revision=?`, string(draft), categoryID, *expected)
+	if err != nil {
+		return 0, 0, nil, fmt.Errorf("sqlite: publish draft: %w", err)
+	}
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return 0, 0, nil, fmt.Errorf("sqlite: publish draft rows: %w", err)
+	}
+	if affected == 0 {
+		return 0, 0, nil, application.ErrDraftRevisionConflict
+	}
+	revision := *expected + 1
 	var next int
 	if err := tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(version_no),0)+1 FROM workflow_versions WHERE category_id=?`, categoryID).Scan(&next); err != nil {
-		return 0, nil, fmt.Errorf("sqlite: next version: %w", err)
+		return 0, 0, nil, fmt.Errorf("sqlite: next version: %w", err)
 	}
 	now := formatTime(time.Now().UTC())
-	res, err := tx.ExecContext(ctx, `INSERT INTO workflow_versions(category_id, version_no, steps_json, published_by_user_id, published_at) VALUES (?,?,?,?,?)`, categoryID, next, string(draft), nullableInt64(by), now)
+	res, err = tx.ExecContext(ctx, `INSERT INTO workflow_versions(category_id, version_no, steps_json, published_by_user_id, published_at) VALUES (?,?,?,?,?)`, categoryID, next, string(draft), nullableInt64(by), now)
 	if err != nil {
-		return 0, nil, fmt.Errorf("sqlite: insert version: %w", err)
+		return 0, 0, nil, fmt.Errorf("sqlite: insert version: %w", err)
 	}
 	vid, err := res.LastInsertId()
 	if err != nil {
-		return 0, nil, fmt.Errorf("sqlite: version id: %w", err)
+		return 0, 0, nil, fmt.Errorf("sqlite: version id: %w", err)
 	}
 	if _, err := tx.ExecContext(ctx, `UPDATE category_workflows SET current_version_id=? WHERE category_id=?`, vid, categoryID); err != nil {
-		return 0, nil, fmt.Errorf("sqlite: switch current: %w", err)
+		return 0, 0, nil, fmt.Errorf("sqlite: switch current: %w", err)
 	}
 	if err := tx.Commit(); err != nil {
-		return 0, nil, fmt.Errorf("sqlite: publish commit: %w", err)
+		return 0, 0, nil, fmt.Errorf("sqlite: publish commit: %w", err)
 	}
-	return vid, nil, nil
+	return vid, revision, nil, nil
 }
 
 // deskFact is one desk's name and the number of members who could actually act on

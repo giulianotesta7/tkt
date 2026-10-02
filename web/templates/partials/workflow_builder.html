@@ -1,7 +1,8 @@
 {{define "workflow_builder"}}
-<section id="workflow-builder" class="workflow-builder page-panel" aria-labelledby="workflow-builder-title" hx-on::before-swap="if(event.detail.xhr.status === 422){event.detail.shouldSwap = true; event.detail.isError = false}">
+<section id="workflow-builder" class="workflow-builder page-panel" aria-labelledby="workflow-builder-title" hx-on::before-swap="if(event.detail.xhr.status === 422 || event.detail.xhr.status === 409){event.detail.shouldSwap = true; event.detail.isError = false}">
   <form method="post" action="/categories/{{.CategoryID}}/workflow" id="workflow-form" hx-post="/categories/{{.CategoryID}}/workflow" hx-target="#workflow-builder" hx-swap="outerHTML" hx-sync="this:queue last" hx-indicator="#workflow-form" hx-on::before-request="this.setAttribute('aria-busy','true')" hx-on::after-request="this.removeAttribute('aria-busy')">
     {{if ge .SelectedStepIndex 0}}<input type="hidden" name="selected_step_index" value="{{.SelectedStepIndex}}">{{end}}
+    <input type="hidden" name="draft_revision" value="{{.DraftRevision}}">
     <input type="hidden" name="source_index" value=""><input type="hidden" name="target_index" value=""><button class="visually-hidden" type="submit" name="action" value="reorder" data-workflow-reorder aria-hidden="true" tabindex="-1" formaction="/categories/{{.CategoryID}}/workflow" hx-post="/categories/{{.CategoryID}}/workflow" hx-target="#workflow-builder" hx-swap="outerHTML" hx-include="closest form">Reorder</button>
     {{range .Steps}}{{if not .Selected}}<input type="hidden" name="step_{{.Index}}_snapshot" value="{{.Snapshot}}">{{end}}{{end}}
     <div class="workflow-builder-head">
