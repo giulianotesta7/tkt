@@ -2,8 +2,8 @@
  * Categories + Workflow Builder journeys.
  *
  * The published workflow version CAN be observed on the ticket detail page via the
- * passive pending status line (#workflow-pending-status + .pending-status-detail) —
- * requester-owned tickets are passive and never render the active current-task card.
+ * step checklist (#workflow-pending) — requester-owned tickets read the same
+ * checklist, with the current step's control withheld when the viewer cannot act.
  */
 
 import {
@@ -1787,21 +1787,27 @@ test.describe("Categories", () => {
       priority: "high",
     });
 
-    // 7) verify the published workflow appears as a passive timeline item
+    // 7) verify the published workflow appears as a passive checklist
     // because the newly created ticket has no assigned agent yet.
     await page.goto(base() + `/tickets/${ticketId}`);
     await expect(page.locator("#ticket-detail")).toBeVisible();
     await expect(page.locator("#ticket-category-value")).toContainText(catName);
-    await expect(page.locator("#workflow-pending")).toBeVisible({
+    const checklist = page.locator("#workflow-pending");
+    await expect(checklist).toBeVisible({
       timeout: 10_000,
     });
-    await expect(page.locator("#workflow-pending")).toHaveClass(/workflow-pending-info/);
-    await expect(page.locator("#workflow-pending")).toContainText("In progress");
-    await expect(page.locator("#workflow-pending")).toContainText("Nobody is assigned yet.");
-    await expect(page.locator("#workflow-pending")).toContainText(
-      "Updates will appear here when complete.",
+    await expect(checklist).toHaveClass(/workflow-pending-info/);
+    await expect(checklist.locator("h3")).toHaveText("Steps");
+    await expect(checklist.locator(".workflow-checklist-count")).toHaveText("0 of 1 done");
+    await expect(checklist.locator('[role="progressbar"]')).toHaveAttribute("aria-valuenow", "0");
+    await expect(checklist.locator('[role="progressbar"]')).toHaveAttribute("aria-valuemax", "1");
+    const passiveStep = checklist.locator(".workflow-checklist-step.is-current");
+    await expect(passiveStep.locator(".workflow-checklist-name")).toHaveText("Handle the ticket");
+    await expect(passiveStep.locator(".workflow-checklist-meta")).toHaveText(
+      "Nobody is assigned yet.",
     );
-    await expect(page.locator("#workflow-pending .workflow-instruction")).toHaveCount(0);
+    await expect(passiveStep.locator(".workflow-checklist-blocked")).toBeVisible();
+    await expect(checklist.locator(".workflow-instruction")).toHaveCount(0);
     await expect(page.locator("#timeline .timeline-entry").first()).toHaveClass(
       /workflow-pending-info/,
     );
@@ -1850,8 +1856,13 @@ test.describe("Categories", () => {
     );
     const pending = page.locator("#workflow-pending");
     await expect(pending).toHaveClass(/workflow-pending-action/);
-    await expect(pending.locator("h3")).toHaveText("Current task");
-    await expect(pending.locator(".workflow-instruction")).toContainText("Handle the ticket");
+    await expect(pending.locator("h3")).toHaveText("Steps");
+    await expect(pending.locator(".workflow-checklist-count")).toHaveText("0 of 1 done");
+    const assignedStep = pending.locator(".workflow-checklist-step.is-current");
+    await expect(assignedStep.locator(".workflow-checklist-name")).toHaveText("Handle the ticket");
+    await expect(assignedStep.locator(".workflow-checklist-meta")).toHaveText(
+      "Assigned to Alice Admin · you",
+    );
     await expect(pending.getByLabel("Solution (optional)")).toBeVisible();
     await expect(pending.getByRole("button", { name: "Complete" })).toBeVisible();
     await expect(page.locator("#timeline .timeline-entry").first()).toHaveClass(

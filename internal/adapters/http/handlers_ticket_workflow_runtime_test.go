@@ -229,10 +229,12 @@ func TestCompleteWorkflow_NativeFeedbackStaysInTheCompletionResponse(t *testing.
 	}
 }
 
-// TestTicketWorkflowRuntime_PendingActionsInsideTimelineForActiveRun proves an
-// active run renders the current task as the first timeline item when the
-// persisted actor predicate passes.
-func TestTicketWorkflowRuntime_PendingActionsInsideTimelineForActiveRun(t *testing.T) {
+// TestTicketWorkflowRuntime_ChecklistInsideTimelineForActiveRun proves an
+// active run renders the step checklist as the first timeline item when the
+// persisted actor predicate passes: the reader-facing step name, the honest
+// "N of M done" count, the thin progress bar, and the current step's control.
+// The single "Current task" card is gone.
+func TestTicketWorkflowRuntime_ChecklistInsideTimelineForActiveRun(t *testing.T) {
 	h := newHarness(t)
 	tkt := h.seedTicket(t, "active run", nil)
 	h.assignTicket(t, tkt.ID, h.admin.ID)
@@ -244,19 +246,143 @@ func TestTicketWorkflowRuntime_PendingActionsInsideTimelineForActiveRun(t *testi
 	}
 	body := rec.Body.String()
 	timeline := strings.Index(body, `<div id="timeline">`)
-	pending := strings.Index(body, `class="timeline-entry workflow-pending workflow-pending-action"`)
-	if timeline < 0 || pending < 0 {
-		t.Errorf("active run must render its current task inside Timeline: %.400s", body)
-	} else if pending < timeline {
-		t.Errorf("current task must render inside Timeline: %.500s", body)
+	checklist := strings.Index(body, `id="workflow-pending"`)
+	if timeline < 0 || checklist < 0 {
+		t.Fatalf("active run must render its step checklist inside Timeline: %.400s", body)
 	}
-	if !strings.Contains(body, `<h3 id="current-task-title">Current task</h3>`) {
-		t.Errorf("authorized active run must render Current task: %.500s", body)
+	if checklist < timeline {
+		t.Errorf("step checklist must render inside Timeline: %.500s", body)
 	}
-	// Amendment 2 (WB.5): ordered-list numbering is removed from the pending
-	// timeline item everywhere ticket-facing.
+	for _, want := range []string{
+		`class="timeline-entry workflow-pending workflow-pending-action"`,
+		`<h3 id="workflow-steps-title">Steps</h3>`,
+		`<span class="workflow-checklist-count">0 of 1 done</span>`,
+		`role="progressbar" aria-valuemin="0" aria-valuemax="1" aria-valuenow="0"`,
+		`style="width:0%"`,
+		`class="workflow-checklist-step is-current"`,
+		`class="workflow-checklist-name">handle</span>`,
+		`Assigned to Admin · you`,
+		`action="/tickets/` + id + `/workflow/steps/1/complete"`,
+		`Solution (optional)`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("checklist missing %q: %.700s", want, body)
+		}
+	}
+	if strings.Contains(body, "Current task") {
+		t.Errorf("the single Current task card must be replaced by the checklist: %.500s", body)
+	}
+	// Amendment 2 (WB.5): ordered-list numbering stays out of the ticket
+	// surface; the checklist is an unnumbered list.
 	if strings.Contains(body, "workflow-pending-list") || strings.Contains(body, `<ol`) {
 		t.Errorf("pending timeline item must NOT use ordered-list numbering: %.500s", body)
+	}
+}
+
+// TestTicketWorkflowRuntime_ChecklistDoneCurrentAndPendingRows triangulates the
+// checklist over a multi-step run: a done row attributes the human completion
+// (name and timestamp) from the sealed step index, the current row carries its
+// control, and the pending rows use the two honest labels. It also locks the
+// no-leakage contract on the new surface.
+func TestTicketWorkflowRuntime_ChecklistDoneCurrentAndPendingRows(t *testing.T) {
+	h := newHarness(t)
+	cat, err := h.categories.Create(t.Context(), "ChecklistProgress")
+	if err != nil {
+		t.Fatalf("create category: %v", err)
+	}
+	h.publishWorkflow(t, cat.ID, domain.WorkflowDefinition{
+		{Type: domain.StepManualTask, ManualTask: &domain.ManualTaskStep{Instructions: "Do the work"}},
+		{Type: domain.StepManualTask, ManualTask: &domain.ManualTaskStep{Instructions: "Call the requester"}},
+		{Type: domain.StepManualTask, ManualTask: &domain.ManualTaskStep{Instructions: "File the report"}},
+		{Type: domain.StepResolve},
+	})
+	tkt := h.seedTicket(t, "checklist progress", func(in *application.CreateTicketInput) { in.CategoryID = cat.ID })
+	h.assignTicket(t, tkt.ID, h.admin.ID)
+	id := strconv.FormatInt(tkt.ID, 10)
+
+	body := h.get(t, "/tickets/"+id, false).Body.String()
+	for _, want := range []string{
+		`<span class="workflow-checklist-count">0 of 4 done</span>`,
+		`aria-valuenow="0"`,
+		`<span class="workflow-checklist-name">Do the work</span>`,
+		`<span class="workflow-checklist-name">Call the requester</span>`,
+		`<span class="workflow-checklist-name">File the report</span>`,
+		`<span class="workflow-checklist-name">The ticket is marked resolved</span>`,
+		`>Waiting on the step before it</span>`,
+		`>Runs on its own</span>`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("fresh checklist missing %q: %.800s", want, body)
+		}
+	}
+
+	rec := h.postForm(t, "/tickets/"+id+"/workflow/steps/1/complete", url.Values{}, false)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("complete step 1 = %d, want 200: %s", rec.Code, rec.Body.String())
+	}
+	body = rec.Body.String()
+	for _, want := range []string{
+		`<span class="workflow-checklist-count">1 of 4 done</span>`,
+		`aria-valuenow="1"`,
+		`style="width:25%"`,
+		`class="workflow-checklist-step is-done"`,
+		`<span class="workflow-checklist-glyph" aria-hidden="true">✓</span>`,
+		`class="workflow-checklist-meta">Admin · <time`,
+		`class="workflow-checklist-step is-current"`,
+		`<span class="workflow-checklist-name">Call the requester</span>`,
+		`Assigned to Admin · you`,
+		`action="/tickets/` + id + `/workflow/steps/2/complete"`,
+		`class="workflow-checklist-step is-next"`,
+		`>Waiting on the step before it</span>`,
+		`>Runs on its own</span>`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("post-completion checklist missing %q: %.900s", want, body)
+		}
+	}
+	for _, leak := range []string{"Workflow v", "workflow_version", "version browser", "current_step"} {
+		if strings.Contains(body, leak) {
+			t.Errorf("checklist must not expose internal workflow %q: %.500s", leak, body)
+		}
+	}
+	if text := stripTags(body); strings.Contains(text, "workflow") {
+		t.Errorf("checklist copy must not contain workflow terminology: %s", text)
+	}
+}
+
+// TestTicketWorkflowRuntime_ChecklistAutomaticCompletionOmitsActor triangulates
+// the automatic sentinel: a system-completed step renders "Completed
+// automatically" and its timestamp, never the internal actor word.
+func TestTicketWorkflowRuntime_ChecklistAutomaticCompletionOmitsActor(t *testing.T) {
+	h := newHarness(t)
+	desk, err := h.desks.Create(t.Context(), *h.admin, "Network")
+	if err != nil {
+		t.Fatalf("create desk: %v", err)
+	}
+	h.staff(t, desk.ID)
+	cat, err := h.categories.Create(t.Context(), "ChecklistAutomatic")
+	if err != nil {
+		t.Fatalf("create category: %v", err)
+	}
+	h.publishWorkflow(t, cat.ID, domain.WorkflowDefinition{
+		{Type: domain.StepAssignToDesk, AssignToDesk: &domain.AssignToDeskStep{DeskID: desk.ID, Strategy: domain.StrategyLeastLoaded}},
+		{Type: domain.StepManualTask, ManualTask: &domain.ManualTaskStep{Instructions: "Handle the ticket"}},
+	})
+	tkt := h.seedTicket(t, "checklist automatic", func(in *application.CreateTicketInput) { in.CategoryID = cat.ID })
+
+	body := h.get(t, "/tickets/"+strconv.FormatInt(tkt.ID, 10), false).Body.String()
+	for _, want := range []string{
+		`<span class="workflow-checklist-count">1 of 2 done</span>`,
+		`<span class="workflow-checklist-name">The least busy member of Network is assigned</span>`,
+		`class="workflow-checklist-meta">Completed automatically · <time`,
+		`<span class="workflow-checklist-name">Handle the ticket</span>`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("automatic checklist missing %q: %.800s", want, body)
+		}
+	}
+	if text := stripTags(body); strings.Contains(text, "workflow") {
+		t.Errorf("automatic checklist copy must not contain workflow terminology: %s", text)
 	}
 }
 
@@ -427,12 +553,12 @@ func pendingManualFixture(t *testing.T, h *harness, instruction string) (*domain
 	return tkt, requester
 }
 
-// TestPendingActions_Presentation locks the Amendment 2 pending contract: the
-// card leads with the step's PINNED instruction verbatim and escaped, uses no
-// ordered-list numbering, never renders the generic `Mark the current task as
-// complete.` copy, offers the optional solution textarea on manual tasks, and
-// keeps GET rendering strictly read-only.
-func TestPendingActions_Presentation(t *testing.T) {
+// TestWorkflowChecklist_Presentation locks the checklist contract (issue #245):
+// each current row leads with the step's PINNED instruction verbatim and
+// escaped, uses no ordered-list numbering, never renders the generic `Mark the
+// current task as complete.` copy, offers the optional solution textarea on
+// manual tasks, and keeps GET rendering strictly read-only.
+func TestWorkflowChecklist_Presentation(t *testing.T) {
 	const pinnedInstruction = `Rack & stack <b>carefully</b> — check cables`
 	const genericCopy = "Mark the current task as complete."
 
@@ -447,9 +573,10 @@ func TestPendingActions_Presentation(t *testing.T) {
 		}
 		body := rec.Body.String()
 
-		// The instruction leads VERBATIM and ESCAPED — markup stays literal.
-		if !strings.Contains(body, "Rack &amp; stack &lt;b&gt;carefully&lt;/b&gt; — check cables") {
-			t.Errorf("pending card must lead with the escaped pinned instruction: %.600s", body)
+		// The instruction leads VERBATIM and ESCAPED — markup stays literal — as
+		// the current row's reader-facing name.
+		if !strings.Contains(body, `<span class="workflow-checklist-name">Rack &amp; stack &lt;b&gt;carefully&lt;/b&gt; — check cables</span>`) {
+			t.Errorf("current row must lead with the escaped pinned instruction: %.600s", body)
 		}
 		if strings.Contains(body, "<b>carefully</b>") {
 			t.Errorf("pinned instruction must not render as raw HTML: %.600s", body)
@@ -517,10 +644,13 @@ func TestPendingActions_Presentation(t *testing.T) {
 			t.Fatalf("status = %d, want 200", rec.Code)
 		}
 		if !strings.Contains(body, "Nobody is assigned yet.") {
-			t.Errorf("unassigned pending card must render the honest copy: %.600s", body)
+			t.Errorf("unassigned checklist must render the honest copy: %.600s", body)
+		}
+		if !strings.Contains(body, "No one can complete this step until an agent is assigned to this ticket.") {
+			t.Errorf("unassigned checklist must state the blocking condition: %.600s", body)
 		}
 		if strings.Contains(body, "The assigned agent") {
-			t.Errorf("unassigned pending card must not claim an assigned agent: %.600s", body)
+			t.Errorf("unassigned checklist must not claim an assigned agent: %.600s", body)
 		}
 	})
 
@@ -580,28 +710,30 @@ func TestPendingActions_Presentation(t *testing.T) {
 		if strings.Contains(body, `/workflow/steps/1/complete`) {
 			t.Errorf("non-assignee must see no completion control: %.600s", body)
 		}
-		if strings.Contains(body, `class="card current-task-card"`) || strings.Contains(body, `<h2 id="current-task-title">Current task</h2>`) {
-			t.Errorf("non-assignee must see no actionable current-task card: %.600s", body)
+		// The task itself is the reader-facing row name and stays visible to
+		// every reader; only the actionable control is withheld.
+		if !strings.Contains(body, "Rack &amp; stack &lt;b&gt;carefully&lt;/b&gt; — check cables") {
+			t.Errorf("non-assignee must still read the step name: %.600s", body)
 		}
 		for _, want := range []string{
 			`class="timeline-entry workflow-pending workflow-pending-info"`,
-			"In progress",
-			"Admin is handling this task.",
-			"Updates will appear here when complete.",
+			`<span class="workflow-checklist-count">0 of 1 done</span>`,
+			"Assigned to Admin",
 		} {
 			if !strings.Contains(body, want) {
-				t.Errorf("unauthorized view must render %q: %.600s", want, body)
+				t.Errorf("non-assignee checklist must render %q: %.600s", want, body)
 			}
 		}
 		for _, forbidden := range []string{
-			pinnedInstruction,
+			"Current task",
+			"Updates will appear here when complete.",
 			"Complete this task",
 			"Awaiting another participant to complete the current step.",
 			`name="solution"`,
 			`/workflow/steps/1/complete`,
 		} {
 			if strings.Contains(body, forbidden) {
-				t.Errorf("unauthorized view must not render %q: %.600s", forbidden, body)
+				t.Errorf("non-assignee view must not render %q: %.600s", forbidden, body)
 			}
 		}
 	})

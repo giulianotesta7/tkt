@@ -61,15 +61,19 @@ test.describe("Ticket detail", () => {
     await expect(page.locator("#timeline")).toBeVisible();
     await expect(page.getByText("Description")).toBeVisible();
 
-    // Requester-owned ticket with a pending manual step: passive viewer contract.
-    // Alice created the ticket, so she cannot act on the seeded General workflow step.
-    await expect(page.locator("#workflow-pending")).toBeVisible();
-    await expect(page.locator("#workflow-pending")).toHaveClass(/workflow-pending-info/);
-    await expect(page.locator("#workflow-pending")).toContainText("In progress");
-    await expect(page.locator("#workflow-pending")).toContainText(
-      "Updates will appear here when complete.",
+    // Requester-owned, unassigned ticket with a pending manual step: the
+    // requester reads the step checklist, but the current step offers no
+    // control and states honestly that nobody owns it yet.
+    const passiveChecklist = page.locator("#workflow-pending");
+    await expect(passiveChecklist).toBeVisible();
+    await expect(passiveChecklist).toHaveClass(/workflow-pending-info/);
+    await expect(passiveChecklist.locator("h3")).toHaveText("Steps");
+    await expect(passiveChecklist.locator(".workflow-checklist-count")).toHaveText("0 of 1 done");
+    const passiveStep = passiveChecklist.locator(".workflow-checklist-step.is-current");
+    await expect(passiveStep.locator(".workflow-checklist-name")).toHaveText("Handle the ticket");
+    await expect(passiveStep.locator(".workflow-checklist-meta")).toHaveText(
+      "Nobody is assigned yet.",
     );
-    await expect(page.locator("#workflow-pending .workflow-instruction")).toHaveCount(0);
     await expect(page.locator("#timeline .timeline-entry").first()).toHaveClass(
       /workflow-pending-info/,
     );
