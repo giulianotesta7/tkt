@@ -4,7 +4,7 @@
 
 import { test, expect } from "@playwright/test";
 import { startServer, stopServer } from "../server-lifecycle.js";
-import { loginAsSeeded, base } from "./helpers/auth.js";
+import { loginAsSeeded, createUserAsAdmin, loginAs, logout, base } from "./helpers/auth.js";
 import { assertCanonicalScreen, collectObservability } from "./helpers/layout.js";
 
 test.describe("Settings", () => {
@@ -345,5 +345,94 @@ test.describe("Settings", () => {
     await expect(page.getByLabel("Critical first response, minutes")).toHaveValue("45");
     await expect(page.getByLabel("Critical first response, seconds")).toHaveValue("10");
     await expect(page.getByLabel("High resolve, hours")).toHaveValue("8");
+  });
+});
+
+test.describe("Preferences", () => {
+  test.beforeAll(async () => {
+    await startServer({ seed: true });
+  });
+  test.afterAll(async () => {
+    await stopServer();
+  });
+
+  test("a stored default queue order applies to the queue and an explicit sort wins", async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    const obs = collectObservability(page);
+    await loginAsSeeded(page);
+
+    // Reach the page the way a user does: through the rail link, not by URL.
+    const preferencesLink = page.locator('a.rail-link[href="/preferences"]');
+    await expect(preferencesLink).toBeVisible();
+    await expect(preferencesLink).toHaveAttribute("aria-label", "Preferences");
+    await preferencesLink.click();
+    await expect(page).toHaveURL(/\/preferences$/);
+    await expect(page.locator("h1").filter({ hasText: "Preferences" })).toBeVisible();
+    await expect(page.getByText(/personal settings/i)).toBeVisible();
+    const order = page.getByLabel("Default queue order");
+    await expect(order).toBeVisible();
+    await expect(order).toHaveValue("newest");
+
+    await order.selectOption("priority");
+    await page.getByRole("button", { name: /save preferences/i }).click();
+    await expect(page).toHaveURL(/\/preferences$/);
+    await expect(page.locator("#save-feedback")).toContainText("Saved");
+
+    // The stored default survives a reload.
+    await page.reload();
+    await expect(page.getByLabel("Default queue order")).toHaveValue("priority");
+
+    // The stored default applies when the URL carries no sort.
+    await page.goto(base() + "/tickets");
+    await expect(page.getByLabel("Order by")).toHaveValue("priority");
+
+    await assertCanonicalScreen(page, {
+      viewport: 1280,
+      label: "preferences queue default",
+      url: page.url(),
+      role: "root",
+      consoleErrors: obs.consoleErrors,
+      pageErrors: obs.pageErrors,
+      failedRequests: obs.failedRequests,
+      failedResponses: obs.failedResponses,
+    });
+
+    // An explicit URL parameter still wins.
+    await page.goto(base() + "/tickets?sort=newest");
+    await expect(page.getByLabel("Order by")).toHaveValue("newest");
+
+    // Restore the default for any journey that follows.
+    await page.goto(base() + "/preferences");
+    await page.getByLabel("Default queue order").selectOption("newest");
+    await page.getByRole("button", { name: /save preferences/i }).click();
+    await expect(page).toHaveURL(/\/preferences$/);
+  });
+
+  test("a requester can open the preferences page and an anonymous visitor cannot", async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await loginAsSeeded(page);
+    const email = await createUserAsAdmin(page, {
+      name: "Preferences Requester",
+      email: "preferences-requester@example.com",
+      password: "SuperSecret42!",
+    });
+    await logout(page);
+
+    // Anonymous: the session gate bounces to /login.
+    await page.goto(base() + "/preferences");
+    await expect(page).toHaveURL(/\/login/);
+
+    await loginAs(page, email, "SuperSecret42!");
+    // The requester role sees the rail link too (the page is not
+    // capability-gated) and reaches the page by clicking it.
+    await expect(page.locator('a.rail-link[href="/preferences"]')).toBeVisible();
+    await page.locator('a.rail-link[href="/preferences"]').click();
+    await expect(page).toHaveURL(/\/preferences$/);
+    await expect(page.locator("h1").filter({ hasText: "Preferences" })).toBeVisible();
+    await expect(page.getByLabel("Default queue order")).toBeVisible();
   });
 });

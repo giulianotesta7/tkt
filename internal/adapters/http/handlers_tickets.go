@@ -39,6 +39,11 @@ type TicketHandlers struct {
 	// before. It is never dereferenced without a nil check, so unset can
 	// never panic; WithSLA is what makes the badge appear.
 	sla *application.SLAService
+	// preferences is the OPTIONAL per-user preference read (issue #210). An
+	// UNSET service means "no stored default is ever applied": the list keeps
+	// its historical newest-first order. It is only read for the staff queue
+	// surfaces and only when the request carries no explicit `sort`.
+	preferences *application.PreferencesService
 }
 
 // NewTicketHandlers wires the ticket routes against the ticket, comment,
@@ -75,6 +80,17 @@ func NewTicketHandlers(tickets *application.TicketService, comments *application
 // panic.
 func (h *TicketHandlers) WithSLA(sla *application.SLAService) *TicketHandlers {
 	h.sla = sla
+	return h
+}
+
+// WithPreferences wires the optional per-user preferences read into the
+// ticket handlers (issue #210). It follows the same fluent shape as WithSLA
+// and WithMetrics, so the constructor keeps the positional signature its
+// existing call sites depend on. A nil or unset service leaves every list's
+// order exactly as parsed — newest first unless the URL says otherwise — so
+// existing tests and any future caller that does not opt in are unaffected.
+func (h *TicketHandlers) WithPreferences(preferences *application.PreferencesService) *TicketHandlers {
+	h.preferences = preferences
 	return h
 }
 
@@ -198,12 +214,17 @@ type filterState struct {
 	// Sort is the chosen list ordering (sortNewest, sortPriority, or
 	// sortUrgency). It is always concrete after parseFilters.
 	Sort string
+	// SortExplicit records whether the request carried a `sort` query key at
+	// all. An explicit `sort` (including `sort=newest`) must beat the actor's
+	// stored default, so the handler needs to tell "the URL chose newest"
+	// apart from "the URL said nothing".
+	SortExplicit bool
 }
 
 // parseFilters reads the query string, ignoring unknown or malformed values.
 func parseFilters(r *http.Request) filterState {
 	q := r.URL.Query()
-	f := filterState{Q: q.Get("q"), Sort: sortNewest}
+	f := filterState{Q: q.Get("q"), Sort: sortNewest, SortExplicit: q.Has("sort")}
 	if s := domain.State(q.Get("state")); validState(s) {
 		f.State = s
 	}
@@ -629,6 +650,18 @@ func pageNumber(r *http.Request, key string) int {
 // list shows only tickets within the actor's scope.
 func (h *TicketHandlers) listData(r *http.Request, f filterState, page int) (listData, error) {
 	actor := *userFromContext(r.Context())
+	// Apply the actor's stored default queue order only when the request
+	// carries no explicit `sort` (an explicit parameter always wins) and only
+	// on the staff queue surfaces: the requester's list is deliberately fixed
+	// to its active-work view, so the preference never applies to it. A store
+	// failure propagates like every other list read.
+	if actor.Role != domain.RoleUser && h.preferences != nil && !f.SortExplicit {
+		order, err := h.preferences.GetDefaultQueueOrder(r.Context(), actor)
+		if err != nil {
+			return listData{}, err
+		}
+		f.Sort = order
+	}
 	if actor.Role == domain.RoleAgent {
 		f = simplifiedFilters(f)
 		pageMeta := pageDataFrom(r, "tickets")
@@ -1729,7 +1762,12 @@ func (h *TicketHandlers) renderDetailError(w http.ResponseWriter, r *http.Reques
 }
 
 // afterMutation answers a successful ticket mutation: HX → re-rendered
-// fragment; full → 303 back to the detail page.
+// fragment; full → 303 back to the detail page. It issues NO save feedback:
+// every caller (title/priority edit, assign, transition, resolution
+// confirmation) swaps #ticket-detail in place, so the value the actor just
+// wrote is already on screen and a toast would only compete with it
+// (issue #234). The ticket-create and comment paths are separate call sites
+// and keep the shared feedback channel.
 func (h *TicketHandlers) afterMutation(w http.ResponseWriter, r *http.Request, id int64, fragment string) {
 	data, status, err := h.detailDataFor(r, id)
 	if err != nil {
@@ -1737,11 +1775,9 @@ func (h *TicketHandlers) afterMutation(w http.ResponseWriter, r *http.Request, i
 		return
 	}
 	if r.Header.Get("HX-Request") != "" {
-		saveFeedback(w, r, saveFeedbackSaved, saveFeedbackSuccess)
 		h.renderer.Render(w, r, "tickets_show", fragment, data, http.StatusOK)
 		return
 	}
-	saveFeedback(w, r, saveFeedbackSaved, saveFeedbackSuccess)
 	redirect(w, r, "/tickets/"+strconv.FormatInt(id, 10))
 }
 
@@ -1963,17 +1999,13 @@ func (h *TicketHandlers) completeWorkflow(w http.ResponseWriter, r *http.Request
 	// Completion success answers 200 in both modes (the PR9 runtime contract
 	// pins 200 rather than the mutation routes' 303; HTMX swaps the
 	// #ticket-detail outerHTML fragment, full renders the tickets_show page).
+	// Issue #234: the completion (including the sidebar claim) swaps
+	// #ticket-detail in place, so the re-rendered fragment is the
+	// confirmation — no success toast and no native in-response flash.
 	data, status, err := h.detailDataFor(r, id)
 	if err != nil {
 		http.Error(w, mapErrorMsg(err), status)
 		return
-	}
-	if r.Header.Get("HX-Request") != "" {
-		saveFeedback(w, r, saveFeedbackSaved, saveFeedbackSuccess)
-	} else {
-		// Completion is a native 200, not a redirect. Put the confirmed outcome in
-		// this response rather than issuing a flash that a later unrelated GET reads.
-		data.SaveFeedback = saveFeedbackData{Message: saveFeedbackSaved, Kind: saveFeedbackSuccess}
 	}
 	h.renderer.Render(w, r, "tickets_show", "ticket_detail", data, http.StatusOK)
 }

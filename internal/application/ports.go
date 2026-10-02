@@ -750,6 +750,20 @@ type SettingsStore interface {
 	SetSLACalendar(ctx context.Context, calendar domain.SLACalendar) error
 }
 
+// PreferencesStore persists per-user preferences (issue #210) in the
+// user_preferences table, keyed by (user_id, key). The first preference is
+// the default queue order; the table is generic so later preferences reuse
+// it. The store persists whatever it is given — the closed set is enforced
+// by the application service before a write, and the read path normalizes an
+// unknown stored value to the default.
+type PreferencesStore interface {
+	// GetQueueOrder returns the user's stored default queue order, or ""
+	// when the user has no stored preference.
+	GetQueueOrder(ctx context.Context, userID int64) (string, error)
+	// SetQueueOrder upserts the user's stored default queue order.
+	SetQueueOrder(ctx context.Context, userID int64, order string) error
+}
+
 // TicketSection narrows an agent's read scope into a presentation section.
 // The zero value keeps the full actor scope for existing list and detail reads.
 type TicketSection int

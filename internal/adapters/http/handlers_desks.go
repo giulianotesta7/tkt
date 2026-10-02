@@ -59,7 +59,8 @@ func (h *DeskHandlers) addMember(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, message, status)
 		return
 	}
-	saveDrawerFeedback(w, r, saveFeedbackSaved)
+	// Issue #234: the drawer stays open and re-renders its member list in
+	// place, so the refreshed list is the confirmation — no toast.
 	if h.renderDeskDrawer(w, r, deskID, "", http.StatusOK) {
 		return
 	}
@@ -92,7 +93,8 @@ func (h *DeskHandlers) removeMember(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, message, status)
 		return
 	}
-	saveDrawerFeedback(w, r, saveFeedbackSaved)
+	// Issue #234: see addMember — the re-rendered member list is the
+	// confirmation for the in-place drawer, so no toast.
 	if h.renderDeskDrawer(w, r, deskID, "", http.StatusOK) {
 		return
 	}

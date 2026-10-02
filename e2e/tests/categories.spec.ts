@@ -2082,6 +2082,73 @@ test.describe("Categories", () => {
     }
   });
 
+  // Issue #249: every builder node names who acts and the state outcome it
+  // produces, and the summary is rendered in full instead of clipped behind
+  // the CSS ellipsis.
+  test("workflow builder nodes name their actor and outcome without truncating", async ({
+    page,
+  }) => {
+    test.setTimeout(60000);
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await loginAsSeeded(page);
+    const categoryId = await createCategoryViaUi(
+      page,
+      "Nodes " + Date.now().toString(36).slice(2, 8),
+    );
+    await page.goto(base() + `/categories/${categoryId}/workflow`);
+    await expect(page.locator("#workflow-builder")).toBeVisible();
+
+    const addSummary = page.locator(".workflow-add-step summary").first();
+    const option = (label: RegExp) =>
+      page.locator(".workflow-add-options button").filter({ hasText: label }).first();
+    // Longer than the 41-rune cap the server used to cut the summary at.
+    const instruction =
+      "Provision the account, confirm the welcome email, and schedule the follow-up call";
+
+    // Save a manual task whose summary exceeds the old cap.
+    await addSummary.click();
+    await option(/^manual task/i).click();
+    const instructions = page.getByLabel(/instructions/i);
+    await expect(instructions).toBeVisible();
+    await instructions.fill(instruction);
+    await page.locator('.page-actions button[name="action"][value="save"]').click();
+    await expect(page.locator("#save-feedback .save-feedback-message")).toHaveText("Saved");
+
+    // Add the automatic terminal so a state outcome exists in the rail.
+    await addSummary.click();
+    await option(/^resolve ticket/i).click();
+    const terminalCard = page.locator(".workflow-step-card").last();
+    await expect(terminalCard.locator(".workflow-step-actor")).toHaveText("Automatic");
+    await expect(terminalCard.locator(".workflow-step-outcome")).toHaveText("→ Resolved");
+
+    // Reload so the assertions read the persisted draft, not a transient swap.
+    await page.reload();
+    await expect(page.locator("#workflow-builder")).toBeVisible();
+
+    const manualCard = page.locator(".workflow-step-card").first();
+    await expect(manualCard.locator(".workflow-step-actor")).toHaveText("Assignee");
+    await expect(manualCard.locator(".workflow-step-summary")).toHaveText(instruction);
+    await expect(terminalCard.locator(".workflow-step-actor")).toHaveText("Automatic");
+    await expect(terminalCard.locator(".workflow-step-outcome")).toHaveText("→ Resolved");
+
+    // Measured, not looked at: the summary must not draw an ellipsis, must not
+    // forbid wrapping, and its box must show everything it holds.
+    const summary = manualCard.locator(".workflow-step-summary");
+    const box = await summary.evaluate((el) => {
+      const style = getComputedStyle(el);
+      return {
+        textOverflow: style.textOverflow,
+        whiteSpace: style.whiteSpace,
+        scrollWidth: el.scrollWidth,
+        clientWidth: el.clientWidth,
+      };
+    });
+    expect(box.textOverflow).not.toBe("ellipsis");
+    expect(box.whiteSpace).not.toBe("nowrap");
+    expect(box.scrollWidth).toBeLessThanOrEqual(box.clientWidth + 1);
+    await assertNoHorizontalOverflow(page, 1280);
+  });
+
   test.describe("Workflow dirty structural guard", () => {
     function trackPosts(page: Page): string[] {
       const actions: string[] = [];
@@ -2670,5 +2737,44 @@ test.describe("Categories", () => {
       failedRequests: obs.failedRequests,
       failedResponses: obs.failedResponses,
     });
+  });
+
+  test("clone a published workflow into a category's draft and refuse to overwrite it", async ({
+    page,
+  }) => {
+    test.setTimeout(60_000);
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await loginAsSeeded(page);
+
+    const targetName = "CloneTarget " + Date.now().toString(36).slice(2, 8);
+    const targetId = await createCategoryViaUi(page, targetName);
+    const targetPath = `/categories/${targetId}/workflow`;
+    await page.goto(base() + targetPath);
+
+    // The target's builder offers the seeded published category as a clone source.
+    const cloneForm = page.locator('form[action$="/workflow/clone"]');
+    await expect(cloneForm).toBeVisible();
+    const sourceSelect = cloneForm.getByLabel("Clone a published workflow from");
+    await expect(sourceSelect.locator("option", { hasText: "General" })).toHaveCount(1);
+
+    // Cloning is a native form submit: it redirects to the target's builder.
+    await sourceSelect.selectOption({ label: "General" });
+    await cloneForm.getByRole("button", { name: "Clone into this category" }).click();
+    await expect(page).toHaveURL(new RegExp(`${targetPath}$`));
+    await expect(page.locator("#save-feedback .save-feedback-message")).toHaveText("Saved");
+
+    // The cloned published step is now the target's DRAFT.
+    const clonedCards = page.locator(".workflow-step-card");
+    await expect(clonedCards).toHaveCount(1);
+    await expect(clonedCards.first()).toContainText("Handle the ticket");
+
+    // A second clone must be REFUSED and must not overwrite the target's draft.
+    await page.reload();
+    await cloneForm
+      .getByLabel("Clone a published workflow from")
+      .selectOption({ label: "General" });
+    await cloneForm.getByRole("button", { name: "Clone into this category" }).click();
+    await expect(page.locator(".error-banner[role='alert']")).toContainText("already has a draft");
+    await expect(page.locator(".workflow-step-card").first()).toContainText("Handle the ticket");
   });
 });

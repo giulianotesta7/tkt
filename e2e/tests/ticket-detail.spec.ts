@@ -343,7 +343,7 @@ test.describe("Ticket detail", () => {
     const prioritySelect = page.locator("#ticket-priority");
     await expect(prioritySelect).toBeVisible();
 
-    await assertHtmxSwap(
+    const prioritySwap = await assertHtmxSwap(
       page,
       async () => {
         await prioritySelect.selectOption("critical");
@@ -360,8 +360,13 @@ test.describe("Ticket detail", () => {
       },
     );
 
+    // Issue #234: the edit swaps #ticket-detail in place, so the re-rendered
+    // fragment IS the confirmation. Assert that fragment, and assert no
+    // success toast fired (no feedback header; the toast stays hidden/empty).
     await expect(page.locator("#ticket-detail")).toContainText(/critical/i);
-    await expect(page.locator("#save-feedback")).toContainText("Saved");
+    expect(prioritySwap.headers()["x-save-feedback"]).toBeUndefined();
+    await expect(page.locator("#save-feedback")).toBeHidden();
+    await expect(page.locator("#save-feedback .save-feedback-message")).toHaveText("");
 
     await assertCanonicalScreen(page, {
       viewport: 1280,
@@ -937,7 +942,11 @@ test.describe("Ticket detail", () => {
       }
       const response = await route.fetch();
       expect(response.status()).toBe(200);
-      expect(response.headers()["x-save-feedback"]).toContain('"message":"Saved"');
+      // Issue #234: the held edit response is the re-rendered #ticket-detail
+      // fragment (the in-place confirmation) and carries no save-feedback
+      // header, so nothing can show a success toast for this save.
+      expect(response.headers()["x-save-feedback"]).toBeUndefined();
+      expect(await response.text()).toContain("selected>Critical</option>");
       markPriorityResponseHeld();
       await new Promise<void>((resolve) => {
         releasePriorityResponse = resolve;
