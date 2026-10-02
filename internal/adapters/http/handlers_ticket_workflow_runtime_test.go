@@ -486,6 +486,44 @@ func TestPendingActions_Presentation(t *testing.T) {
 		}
 	})
 
+	t.Run("no assignee renders the honest copy", func(t *testing.T) {
+		h := newHarness(t)
+		cat, err := h.categories.Create(t.Context(), "PendingUnassigned")
+		if err != nil {
+			t.Fatalf("create category: %v", err)
+		}
+		h.publishWorkflow(t, cat.ID, domain.WorkflowDefinition{{
+			Type:       domain.StepManualTask,
+			ManualTask: &domain.ManualTaskStep{Instructions: "Rack & stack"},
+		}})
+		requester := seedUserRole(t, h.store, "Pending Nora", "pending-nora@tkt.test", domain.RoleUser)
+		tkt, err := h.tickets.Create(t.Context(), *requester, application.CreateTicketInput{
+			Title: "pending unassigned presentation", Description: "d", CategoryID: cat.ID, Priority: domain.PriorityMedium,
+		})
+		if err != nil {
+			t.Fatalf("seed pending unassigned ticket: %v", err)
+		}
+		// Creation is unassigned-only and this workflow's first step is a
+		// manual_task, so no step ever assigns anyone. The card must not
+		// claim an agent is handling a step nobody owns.
+		sess := seedSession(t, h.store, requester.ID)
+		req := httptest.NewRequest(http.MethodGet, "/tickets/"+strconv.FormatInt(tkt.ID, 10), nil)
+		req.Header.Set("Cookie", sessionCookie+"="+sess.ID)
+		rec := httptest.NewRecorder()
+		h.mw.Wrap(h.mux).ServeHTTP(rec, req)
+		body := rec.Body.String()
+
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status = %d, want 200", rec.Code)
+		}
+		if !strings.Contains(body, "Nobody is assigned yet.") {
+			t.Errorf("unassigned pending card must render the honest copy: %.600s", body)
+		}
+		if strings.Contains(body, "The assigned agent") {
+			t.Errorf("unassigned pending card must not claim an assigned agent: %.600s", body)
+		}
+	})
+
 	t.Run("instruction comes from the pinned snapshot not the live draft", func(t *testing.T) {
 		h := newHarness(t)
 		tkt, _ := pendingManualFixture(t, h, pinnedInstruction)

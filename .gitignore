@@ -4,6 +4,11 @@
 *.db-shm
 .env
 
+# Go coverage artifacts written by the local gate set
+# (see .github/workflows/coverage.yml)
+coverage.out
+coverage.html
+
 # Local design artifacts
 design/
 
