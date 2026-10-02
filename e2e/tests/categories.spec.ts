@@ -1945,6 +1945,63 @@ test.describe("Categories", () => {
     });
   });
 
+  // #251: once the workflow has an ending, the add-step menu used to silently
+  // drop the Resolve ticket and Close ticket kinds. They must stay visible,
+  // disabled, and carrying the reason, so an admin can learn the rule.
+  test("add-step menu keeps the terminal kinds visible, disabled, and explained once the workflow has an ending", async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await loginAsSeeded(page);
+    const categoryId = await createCategoryViaUi(
+      page,
+      "Ending " + Date.now().toString(36).slice(2, 8),
+    );
+    await page.goto(base() + `/categories/${categoryId}/workflow`);
+    await expect(page.locator("#workflow-builder")).toBeVisible();
+
+    const addOptions = page.locator(".workflow-add-options");
+    const option = (label: RegExp) =>
+      addOptions.locator("button").filter({ hasText: label }).first();
+    const openAddMenu = async () => {
+      await page.locator(".workflow-add-step summary").first().click();
+      await expect(addOptions).toBeVisible();
+    };
+
+    // No ending yet: all five kinds are offered and enabled.
+    await openAddMenu();
+    await expect(addOptions.locator("button")).toHaveCount(5);
+    await expect(option(/^resolve ticket/i)).toBeEnabled();
+    await expect(option(/^close ticket/i)).toBeEnabled();
+
+    // Add a Close ticket ending through the real menu.
+    await option(/^close ticket/i).click();
+    await expect(addOptions).not.toBeVisible();
+    await expect(page.locator(".workflow-final-badge")).toHaveCount(1);
+
+    // The ending does not remove the terminal kinds: they stay visible, disabled,
+    // and each states why it cannot be added.
+    await openAddMenu();
+    await expect(addOptions.locator("button")).toHaveCount(5);
+    for (const label of [/^resolve ticket/i, /^close ticket/i]) {
+      const terminal = option(label);
+      await expect(terminal).toBeVisible();
+      await expect(terminal).toBeDisabled();
+      await expect(terminal).toContainText("Can't add · this workflow already has an ending");
+      // Measured, not looked at: the option uses the repository's disabled
+      // convention (.btn[disabled] values), not the browser default.
+      await expect(terminal).toHaveCSS("opacity", "0.5");
+      await expect(terminal).toHaveCSS("cursor", "not-allowed");
+    }
+    // Only the terminal kinds are blocked; the other three stay usable and
+    // keep their enabled appearance (the disabled rule is scoped to
+    // button[disabled]).
+    for (const label of [/^manual task/i, /^assign to desk/i, /^form$/i]) {
+      await expect(option(label)).toBeEnabled();
+      await expect(option(label)).toHaveCSS("opacity", "1");
+    }
+  });
+
   test.describe("Workflow dirty structural guard", () => {
     function trackPosts(page: Page): string[] {
       const actions: string[] = [];
