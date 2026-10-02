@@ -47,8 +47,18 @@ func TestAmendment3_PinnedClaimUsesEligibleSidebarControl(t *testing.T) {
 			t.Errorf("eligible claim sidebar missing %q", want)
 		}
 	}
-	if strings.Contains(body, "Current task") || strings.Contains(body, `id="workflow-pending"`) {
-		t.Errorf("claim must not render a current-task form: %.500s", body)
+	if strings.Contains(body, "Current task") || strings.Contains(body, `id="current-task-title"`) {
+		t.Errorf("claim must not render the old current-task card: %.500s", body)
+	}
+	for _, want := range []string{
+		`id="workflow-pending"`,
+		`class="timeline-entry workflow-pending workflow-pending-info"`,
+		"A member of Network takes it",
+		"Network has been asked to take it",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("claim step checklist missing %q: %.600s", want, body)
+		}
 	}
 
 	nonmember := h.createUser(t, "Nonmember", "nonmember-amendment3@tkt.test", "secret")

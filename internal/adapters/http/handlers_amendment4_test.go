@@ -338,7 +338,7 @@ func TestAmendment4_DirectDeleteControlsRemainNativeAndServerAuthoritative(t *te
 	}
 }
 
-func TestAmendment4_CurrentTaskCardPreservesManualCompletionMarkup(t *testing.T) {
+func TestAmendment4_CurrentStepChecklistPreservesManualCompletionMarkup(t *testing.T) {
 	h := newHarness(t)
 	ticket, _ := pendingManualFixture(t, h, "Check the cable run")
 
@@ -349,30 +349,38 @@ func TestAmendment4_CurrentTaskCardPreservesManualCompletionMarkup(t *testing.T)
 	body := rec.Body.String()
 	for _, want := range []string{
 		`class="timeline-entry workflow-pending workflow-pending-action"`,
-		`<h3 id="current-task-title">Current task</h3>`,
-		`background:color-mix(in srgb,var(--amber-soft) 18%,var(--card))`,
-		"Check the cable run",
+		`<h3 id="workflow-steps-title">Steps</h3>`,
+		`<span class="workflow-checklist-count">0 of 1 done</span>`,
+		`role="progressbar" aria-valuemin="0" aria-valuemax="1" aria-valuenow="0"`,
+		`class="workflow-checklist-step is-current"`,
+		`<span class="workflow-checklist-name">Check the cable run</span>`,
 		`<label class="visually-hidden" for="solution">Solution (optional)</label>`,
 		`placeholder="Solution (optional)"`,
 		`action="/tickets/` + strconv.FormatInt(ticket.ID, 10) + `/workflow/steps/1/complete"`,
 	} {
 		if !strings.Contains(body, want) {
-			t.Errorf("current task card missing %q", want)
+			t.Errorf("current step checklist missing %q", want)
 		}
 	}
 	if strings.Contains(body, "<h2>Pending Actions</h2>") {
-		t.Error("current task item must not render a Pending Actions heading")
+		t.Error("the step checklist must not render a Pending Actions heading")
+	}
+	if strings.Contains(body, "Current task") {
+		t.Error("the single Current task card must be replaced by the checklist")
 	}
 	style := extractStyleBlock(t, body)
-	if !cssRuleDeclares(style, ".workflow-pending-action{", "background:color-mix(in srgb,var(--amber-soft) 18%,var(--card))") {
-		t.Error("current task item must use the shared amber-soft visual token")
+	if !cssRuleDeclares(style, ".workflow-checklist-progress{", "height:3px") {
+		t.Error("the progress bar must stay the thin 3px track")
 	}
-	if !cssRuleDeclares(style, ".workflow-pending-action{", "border-left:3px solid var(--amber)") {
-		t.Error("current task item must use the amber left accent")
+	if !cssRuleDeclares(style, ".workflow-checklist-progress{", "background:var(--hover)") {
+		t.Error("the progress track must use the neutral hover token, not an accent state fill")
+	}
+	if !cssRuleDeclares(style, ".workflow-checklist-progress > span{", "background:var(--ink-soft)") {
+		t.Error("the progress fill must use the neutral ink-soft token")
 	}
 }
 
-func TestAmendment4_CurrentTaskFormRetainsRequiredNativeControls(t *testing.T) {
+func TestAmendment4_CurrentStepFormRetainsRequiredNativeControls(t *testing.T) {
 	h := newHarness(t)
 	category, err := h.categories.Create(t.Context(), "Current task form")
 	if err != nil {

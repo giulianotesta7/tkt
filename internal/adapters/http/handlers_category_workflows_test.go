@@ -1386,6 +1386,24 @@ func builderSectionOpenTag(body string) string {
 	return regexp.MustCompile(`<section id="workflow-builder"[^>]*>`).FindString(body)
 }
 
+// addOptionButton returns the markup of the one + Add step option that submits
+// add_step_type=<stepType>, so a failing assertion shows the option's own tag
+// instead of the whole builder body.
+func addOptionButton(t *testing.T, body, stepType string) string {
+	t.Helper()
+	marker := "?add_step_type=" + stepType + `"`
+	i := strings.Index(body, marker)
+	if i < 0 {
+		return "(marker not found)"
+	}
+	start := strings.LastIndex(body[:i], "<button")
+	end := strings.Index(body[i:], "</button>")
+	if start < 0 || end < 0 {
+		return body[i:]
+	}
+	return body[start : i+end+len("</button>")]
+}
+
 // TestCategoryWorkflowBuilder_MobileStyles_WrapNarrow is the rendered-style
 // regression for the Playwright-proven 390px overflow (document width 418px:
 // .workflow-step-head .row-actions ended at x=418 without wrapping and the
@@ -1443,6 +1461,26 @@ func TestCategoryWorkflowBuilder_MobileStyles_WrapNarrow(t *testing.T) {
 	// 640px — no redesign).
 	if !cssRuleDeclares(style, ".workflow-editor-head{", "display:flex") {
 		t.Error("desktop editor flex layout must remain defined")
+	}
+}
+
+// TestCategoryWorkflowBuilder_AddOptionDisabledConvention pins issue #251's
+// disabled-state styling. The add-step option buttons carry no .btn class, so
+// the repository's one disabled convention (.btn[disabled]{opacity:.5;
+// cursor:not-allowed}) never reached them and they fell back to the browser's
+// own greyed look. CSS has no other automated guard here, so the rule is
+// pinned literally; the enabled rule must stay byte-for-byte untouched so the
+// enabled options do not change.
+func TestCategoryWorkflowBuilder_AddOptionDisabledConvention(t *testing.T) {
+	body := renderGolden(t, "category_workflow", "", mobileBuilderPageData(), false)
+	style := extractStyleBlock(t, body)
+	const disabledRule = `.workflow-add-options button[disabled]{opacity:.5;cursor:not-allowed}`
+	if !strings.Contains(style, disabledRule) {
+		t.Errorf("add-step options must reuse the repository's disabled convention, missing %q", disabledRule)
+	}
+	const enabledRule = `.workflow-add-options button{justify-content:flex-start;width:100%}`
+	if !strings.Contains(style, enabledRule) {
+		t.Errorf("the enabled add-step option rule must stay unchanged, missing %q", enabledRule)
 	}
 }
 
@@ -1660,12 +1698,25 @@ func TestCategoryWorkflowBuilder_TypedAddPopoverMarkup(t *testing.T) {
 	if !strings.Contains(body, `type="submit" name="action" value="add_step" formaction="`+path+`?add_step_type=`) || !strings.Contains(body, `hx-include="closest form"`) || !strings.Contains(body, `hx-swap="outerHTML show:none"`) || !strings.Contains(body, `hx-push-url="false"`) {
 		t.Errorf("popover choices must work as no-JS submits and HTMX outerHTML swaps without history push, got: %s", body)
 	}
+	// No terminal yet: the two terminal kinds stay enabled, carrying no disabled
+	// attribute and no "can't add" reason. This is the working case #251 must
+	// not break.
+	for _, typ := range []string{"resolve_ticket", "close_ticket"} {
+		btn := addOptionButton(t, body, typ)
+		if strings.Contains(btn, "disabled") {
+			t.Errorf("no-terminal draft must leave %s enabled, got: %s", typ, btn)
+		}
+		if strings.Contains(btn, "Can't add") {
+			t.Errorf("no-terminal draft must not state an add refusal for %s, got: %s", typ, btn)
+		}
+	}
 }
 
 // TypedAddTerminalProtection freezes scenario protection: a draft that already
-// contains a terminal step offers no terminal choice and no insertion position
-// after the final step, and crafted add requests leave the draft unchanged; the
-// terminal keeps its Final badge and removal guard.
+// contains a terminal step keeps the two terminal kinds visible but disabled,
+// each carrying the reason, and offers no insertion position after the final
+// step, and crafted add requests leave the draft unchanged; the terminal keeps
+// its Final badge and removal guard.
 func TestCategoryWorkflowBuilder_TypedAddTerminalProtection(t *testing.T) {
 	h := newHarness(t)
 	category, err := h.categories.Create(t.Context(), "Terminal guard")
@@ -1679,9 +1730,34 @@ func TestCategoryWorkflowBuilder_TypedAddTerminalProtection(t *testing.T) {
 	if !strings.Contains(body, `class="workflow-add-popover"`) {
 		t.Errorf("final draft must still offer the Add step popover, got: %s", body)
 	}
-	for _, disallowed := range []string{"add_step_type=resolve_ticket", "add_step_type=close_ticket"} {
-		if strings.Contains(body, disallowed) {
-			t.Errorf("final draft must not offer terminal add choices, found %q", disallowed)
+	// #251: the terminal kinds must stay visible and disabled with the reason,
+	// instead of silently vanishing from the menu. Reuse the picker's
+	// disabled-with-reason shape (cannotRunLabel): a disabled control whose own
+	// copy states why it cannot be used.
+	for _, tc := range []struct {
+		typ   string
+		label string
+	}{
+		{"resolve_ticket", "Resolve ticket"},
+		{"close_ticket", "Close ticket"},
+	} {
+		btn := addOptionButton(t, body, tc.typ)
+		if btn == "(marker not found)" {
+			t.Errorf("final draft must keep the %s option visible, body=%s", tc.label, body)
+			continue
+		}
+		if !strings.Contains(btn, " disabled") {
+			t.Errorf("final draft must disable the %s option, got: %s", tc.label, btn)
+		}
+		if !strings.Contains(btn, "Can't add · this workflow already has an ending") {
+			t.Errorf("final draft must state why %s cannot be added, got: %s", tc.label, btn)
+		}
+	}
+	// Only the terminal kinds are blocked: the three non-terminal kinds stay
+	// enabled and usable.
+	for _, typ := range []string{"manual_task", "assign_to_desk", "form"} {
+		if btn := addOptionButton(t, body, typ); strings.Contains(btn, "disabled") {
+			t.Errorf("final draft must leave %s enabled, got: %s", typ, btn)
 		}
 	}
 	for _, want := range []string{`workflow-final-badge">Final</span>`} {

@@ -2,8 +2,8 @@
  * Categories + Workflow Builder journeys.
  *
  * The published workflow version CAN be observed on the ticket detail page via the
- * passive pending status line (#workflow-pending-status + .pending-status-detail) —
- * requester-owned tickets are passive and never render the active current-task card.
+ * step checklist (#workflow-pending) — requester-owned tickets read the same
+ * checklist, with the current step's control withheld when the viewer cannot act.
  */
 
 import {
@@ -1787,21 +1787,27 @@ test.describe("Categories", () => {
       priority: "high",
     });
 
-    // 7) verify the published workflow appears as a passive timeline item
+    // 7) verify the published workflow appears as a passive checklist
     // because the newly created ticket has no assigned agent yet.
     await page.goto(base() + `/tickets/${ticketId}`);
     await expect(page.locator("#ticket-detail")).toBeVisible();
     await expect(page.locator("#ticket-category-value")).toContainText(catName);
-    await expect(page.locator("#workflow-pending")).toBeVisible({
+    const checklist = page.locator("#workflow-pending");
+    await expect(checklist).toBeVisible({
       timeout: 10_000,
     });
-    await expect(page.locator("#workflow-pending")).toHaveClass(/workflow-pending-info/);
-    await expect(page.locator("#workflow-pending")).toContainText("In progress");
-    await expect(page.locator("#workflow-pending")).toContainText("Nobody is assigned yet.");
-    await expect(page.locator("#workflow-pending")).toContainText(
-      "Updates will appear here when complete.",
+    await expect(checklist).toHaveClass(/workflow-pending-info/);
+    await expect(checklist.locator("h3")).toHaveText("Steps");
+    await expect(checklist.locator(".workflow-checklist-count")).toHaveText("0 of 1 done");
+    await expect(checklist.locator('[role="progressbar"]')).toHaveAttribute("aria-valuenow", "0");
+    await expect(checklist.locator('[role="progressbar"]')).toHaveAttribute("aria-valuemax", "1");
+    const passiveStep = checklist.locator(".workflow-checklist-step.is-current");
+    await expect(passiveStep.locator(".workflow-checklist-name")).toHaveText("Handle the ticket");
+    await expect(passiveStep.locator(".workflow-checklist-meta")).toHaveText(
+      "Nobody is assigned yet.",
     );
-    await expect(page.locator("#workflow-pending .workflow-instruction")).toHaveCount(0);
+    await expect(passiveStep.locator(".workflow-checklist-blocked")).toBeVisible();
+    await expect(checklist.locator(".workflow-instruction")).toHaveCount(0);
     await expect(page.locator("#timeline .timeline-entry").first()).toHaveClass(
       /workflow-pending-info/,
     );
@@ -1850,8 +1856,13 @@ test.describe("Categories", () => {
     );
     const pending = page.locator("#workflow-pending");
     await expect(pending).toHaveClass(/workflow-pending-action/);
-    await expect(pending.locator("h3")).toHaveText("Current task");
-    await expect(pending.locator(".workflow-instruction")).toContainText("Handle the ticket");
+    await expect(pending.locator("h3")).toHaveText("Steps");
+    await expect(pending.locator(".workflow-checklist-count")).toHaveText("0 of 1 done");
+    const assignedStep = pending.locator(".workflow-checklist-step.is-current");
+    await expect(assignedStep.locator(".workflow-checklist-name")).toHaveText("Handle the ticket");
+    await expect(assignedStep.locator(".workflow-checklist-meta")).toHaveText(
+      "Assigned to Alice Admin · you",
+    );
     await expect(pending.getByLabel("Solution (optional)")).toBeVisible();
     await expect(pending.getByRole("button", { name: "Complete" })).toBeVisible();
     await expect(page.locator("#timeline .timeline-entry").first()).toHaveClass(
@@ -2013,6 +2024,63 @@ test.describe("Categories", () => {
       await expect(stepMenuBody).not.toBeVisible();
       await expect(page.locator("#workflow-builder details[open]")).toHaveCount(1);
     });
+  });
+
+  // #251: once the workflow has an ending, the add-step menu used to silently
+  // drop the Resolve ticket and Close ticket kinds. They must stay visible,
+  // disabled, and carrying the reason, so an admin can learn the rule.
+  test("add-step menu keeps the terminal kinds visible, disabled, and explained once the workflow has an ending", async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await loginAsSeeded(page);
+    const categoryId = await createCategoryViaUi(
+      page,
+      "Ending " + Date.now().toString(36).slice(2, 8),
+    );
+    await page.goto(base() + `/categories/${categoryId}/workflow`);
+    await expect(page.locator("#workflow-builder")).toBeVisible();
+
+    const addOptions = page.locator(".workflow-add-options");
+    const option = (label: RegExp) =>
+      addOptions.locator("button").filter({ hasText: label }).first();
+    const openAddMenu = async () => {
+      await page.locator(".workflow-add-step summary").first().click();
+      await expect(addOptions).toBeVisible();
+    };
+
+    // No ending yet: all five kinds are offered and enabled.
+    await openAddMenu();
+    await expect(addOptions.locator("button")).toHaveCount(5);
+    await expect(option(/^resolve ticket/i)).toBeEnabled();
+    await expect(option(/^close ticket/i)).toBeEnabled();
+
+    // Add a Close ticket ending through the real menu.
+    await option(/^close ticket/i).click();
+    await expect(addOptions).not.toBeVisible();
+    await expect(page.locator(".workflow-final-badge")).toHaveCount(1);
+
+    // The ending does not remove the terminal kinds: they stay visible, disabled,
+    // and each states why it cannot be added.
+    await openAddMenu();
+    await expect(addOptions.locator("button")).toHaveCount(5);
+    for (const label of [/^resolve ticket/i, /^close ticket/i]) {
+      const terminal = option(label);
+      await expect(terminal).toBeVisible();
+      await expect(terminal).toBeDisabled();
+      await expect(terminal).toContainText("Can't add · this workflow already has an ending");
+      // Measured, not looked at: the option uses the repository's disabled
+      // convention (.btn[disabled] values), not the browser default.
+      await expect(terminal).toHaveCSS("opacity", "0.5");
+      await expect(terminal).toHaveCSS("cursor", "not-allowed");
+    }
+    // Only the terminal kinds are blocked; the other three stay usable and
+    // keep their enabled appearance (the disabled rule is scoped to
+    // button[disabled]).
+    for (const label of [/^manual task/i, /^assign to desk/i, /^form$/i]) {
+      await expect(option(label)).toBeEnabled();
+      await expect(option(label)).toHaveCSS("opacity", "1");
+    }
   });
 
   test.describe("Workflow dirty structural guard", () => {
