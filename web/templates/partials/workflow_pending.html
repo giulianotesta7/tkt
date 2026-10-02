@@ -57,7 +57,7 @@
   <p class="workflow-pending-status">
     <strong>In progress</strong>
 {{if eq .Pending.Kind "auto"}}    This step is running automatically.
-{{else}}    <span class="workflow-pending-participant">{{if .Pending.ParticipantName}}{{.Pending.ParticipantName}}{{else}}The assigned agent{{end}} is handling this task.</span>
+{{else}}    <span class="workflow-pending-participant">{{if .Pending.ParticipantName}}{{.Pending.ParticipantName}} is handling this task.{{else}}Nobody is assigned yet.{{end}}</span>
 {{end}}  </p>
   <p class="workflow-pending-updates">Updates will appear here when complete.</p>
 </section>
