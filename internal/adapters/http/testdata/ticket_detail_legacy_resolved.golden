@@ -105,8 +105,7 @@
           <div class="prop-row">
             <span class="prop-label">Assignee</span>
 
-            <span class="prop-value">Ana Torres</span>
-            
+            <span id="assign-user-value" class="prop-value">Ana Torres</span>
           </div>
 
         </div>
