@@ -12,6 +12,7 @@ import "embed"
 // FS is the embedded template tree: shell roots, full pages (pages/*.html),
 // swap fragments (partials/*.html) and the vendored htmx script
 // (static/htmx.min.js, BSD-2-Clause, htmx.org v2.0.4, and tickets.js).
+// static/ticket_form.js is the create-form draft (issue #262).
 //
 // The interface typeface is vendored rather than fetched: Inter Variable
 // (static/InterVariable.woff2, SIL Open Font License 1.1, rsms/inter v4.1,
@@ -19,5 +20,5 @@ import "embed"
 // hosting keeps the font working on installations with no outbound network and
 // gives every operator the same rendering instead of the system fallback.
 //
-//go:embed base.html auth.html pages/*.html partials/*.html static/htmx.min.js static/InterVariable.woff2 static/users.css static/users.js static/tickets.js static/workflow.js static/categories.js static/save-feedback.js static/ticket_metrics.css static/ticket_metrics.js static/sla_countdown.js
+//go:embed base.html auth.html pages/*.html partials/*.html static/htmx.min.js static/InterVariable.woff2 static/users.css static/users.js static/tickets.js static/ticket_form.js static/workflow.js static/categories.js static/save-feedback.js static/ticket_metrics.css static/ticket_metrics.js static/sla_countdown.js
 var FS embed.FS

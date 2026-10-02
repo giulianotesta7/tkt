@@ -176,7 +176,7 @@
     sourceFor(event)?.closest(".users-drawer, .category-drawer") ? "drawer" : undefined;
   const isSave = (event) => {
     const action = actionFor(event);
-    return action !== "select_step" && action !== "preview";
+    return action !== "select_step";
   };
   const beforeRequest = (event) => {
     if (!mutationSource(event)) return;

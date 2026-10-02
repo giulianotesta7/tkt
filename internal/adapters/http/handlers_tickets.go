@@ -1762,7 +1762,12 @@ func (h *TicketHandlers) renderDetailError(w http.ResponseWriter, r *http.Reques
 }
 
 // afterMutation answers a successful ticket mutation: HX → re-rendered
-// fragment; full → 303 back to the detail page.
+// fragment; full → 303 back to the detail page. It issues NO save feedback:
+// every caller (title/priority edit, assign, transition, resolution
+// confirmation) swaps #ticket-detail in place, so the value the actor just
+// wrote is already on screen and a toast would only compete with it
+// (issue #234). The ticket-create and comment paths are separate call sites
+// and keep the shared feedback channel.
 func (h *TicketHandlers) afterMutation(w http.ResponseWriter, r *http.Request, id int64, fragment string) {
 	data, status, err := h.detailDataFor(r, id)
 	if err != nil {
@@ -1770,11 +1775,9 @@ func (h *TicketHandlers) afterMutation(w http.ResponseWriter, r *http.Request, i
 		return
 	}
 	if r.Header.Get("HX-Request") != "" {
-		saveFeedback(w, r, saveFeedbackSaved, saveFeedbackSuccess)
 		h.renderer.Render(w, r, "tickets_show", fragment, data, http.StatusOK)
 		return
 	}
-	saveFeedback(w, r, saveFeedbackSaved, saveFeedbackSuccess)
 	redirect(w, r, "/tickets/"+strconv.FormatInt(id, 10))
 }
 
@@ -1996,17 +1999,13 @@ func (h *TicketHandlers) completeWorkflow(w http.ResponseWriter, r *http.Request
 	// Completion success answers 200 in both modes (the PR9 runtime contract
 	// pins 200 rather than the mutation routes' 303; HTMX swaps the
 	// #ticket-detail outerHTML fragment, full renders the tickets_show page).
+	// Issue #234: the completion (including the sidebar claim) swaps
+	// #ticket-detail in place, so the re-rendered fragment is the
+	// confirmation — no success toast and no native in-response flash.
 	data, status, err := h.detailDataFor(r, id)
 	if err != nil {
 		http.Error(w, mapErrorMsg(err), status)
 		return
-	}
-	if r.Header.Get("HX-Request") != "" {
-		saveFeedback(w, r, saveFeedbackSaved, saveFeedbackSuccess)
-	} else {
-		// Completion is a native 200, not a redirect. Put the confirmed outcome in
-		// this response rather than issuing a flash that a later unrelated GET reads.
-		data.SaveFeedback = saveFeedbackData{Message: saveFeedbackSaved, Kind: saveFeedbackSuccess}
 	}
 	h.renderer.Render(w, r, "tickets_show", "ticket_detail", data, http.StatusOK)
 }
