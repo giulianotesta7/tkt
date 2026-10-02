@@ -6,6 +6,11 @@
   let activeRegion;
   const generations = new Map();
   const requests = new WeakMap();
+  // A 403 is an impossible action, not a transient failure: the generic
+  // "try again" copy would invite a retry that can only fail. Every other
+  // failure (transport, validation, 5xx) keeps the retry-flavoured copy.
+  const GENERIC_FAILURE_MESSAGE = "Unable to save changes. Please try again.";
+  const FORBIDDEN_MESSAGE = "You do not have permission to make that change.";
 
   const makeRegion = () => {
     const region = document.createElement("div");
@@ -127,15 +132,15 @@
     timer = setTimeout(retireAnimated, duration);
   };
 
-  const showFailure = (target) => {
+  const showFailure = (target, message) => {
     retire();
     if (hasUsefulFailure()) return;
     const region = regionFor(target);
-    const message = region.querySelector(".save-feedback-message");
-    if (!message) return;
+    const messageNode = region.querySelector(".save-feedback-message");
+    if (!messageNode) return;
     region.className = "error-banner save-feedback-error";
-    message.textContent = "Unable to save changes. Please try again.";
-    region.dataset.feedbackMessage = message.textContent;
+    messageNode.textContent = message;
+    region.dataset.feedbackMessage = message;
     region.dataset.feedbackKind = "error";
     region.setAttribute("role", "alert");
     region.setAttribute("aria-live", "assertive");
@@ -193,12 +198,17 @@
   };
   const isCurrent = (request) =>
     request?.saves && request.generation === generations.get(request.region);
+  const failureMessage = (event) =>
+    event.type === "htmx:responseError" && event.detail?.xhr?.status === 403
+      ? FORBIDDEN_MESSAGE
+      : GENERIC_FAILURE_MESSAGE;
   const mutationFailure = (event) => {
     const request = requests.get(event.detail?.xhr);
     if (!isCurrent(request)) return;
     retire();
+    const message = failureMessage(event);
     setTimeout(() => {
-      if (isCurrent(request)) showFailure(request.target);
+      if (isCurrent(request)) showFailure(request.target, message);
     }, 0);
   };
 

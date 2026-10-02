@@ -1145,6 +1145,18 @@ type detailData struct {
 	// properties (CapEditTicket) on an open ticket. Presentation only; the
 	// server-side use case enforces the actor/ticket authorization.
 	CanEdit bool
+	// CanAssign reports whether the actor may (re)assign this ticket
+	// (CapAssignTicket) on an open ticket. Presentation only; the assign use
+	// case enforces the actor/ticket authorization.
+	CanAssign bool
+	// CanTransition reports whether the actor may transition this ticket's
+	// state at all (CapEditTicket, which covers editing AND transitioning).
+	// Unlike CanEdit it is deliberately NOT gated on the closed state: on a
+	// closed ticket the only remaining mutation is the reopen transition,
+	// which stays available to every actor holding the capability
+	// (closed-ticket read-only spec). Presentation only; the transition use
+	// case enforces the actor/ticket authorization.
+	CanTransition bool
 	// Closed reports whether the ticket is in a closed (read-only) state —
 	// resolved, closed, or cancelled. A closed ticket hides the inline edit,
 	// the properties/assignment controls, and the comment form; only the
@@ -1277,6 +1289,8 @@ func (h *TicketHandlers) detailDataFor(r *http.Request, id int64) (detailData, i
 		Values:             values,
 		CanCommentInternal: application.NewPolicy().Capabilities(actor.Role).Require(application.CapCommentInternal),
 		CanEdit:            application.NewPolicy().Capabilities(actor.Role).Require(application.CapEditTicket) && !closed,
+		CanAssign:          application.NewPolicy().Capabilities(actor.Role).Require(application.CapAssignTicket) && !closed,
+		CanTransition:      application.NewPolicy().Capabilities(actor.Role).Require(application.CapEditTicket),
 		Closed:             closed,
 		CanConfirm:         view.Ticket.State == domain.StateResolved && requester,
 		CanComment:         !closed || (view.Ticket.State == domain.StateResolved && requester),

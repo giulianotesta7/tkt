@@ -195,6 +195,10 @@ test.describe("Ticket metrics summary", () => {
     await applyFilters(true);
     await expect(page.locator(".ticket-metrics-error")).toContainText("choose both metrics dates");
     await expect(page.locator("#tickets-screen")).toHaveCount(0);
+    // Issue #270: the error re-render keeps the range the operator submitted
+    // (the parseable start) instead of resetting the form to empty.
+    await expect(fromInput).toHaveValue("2026-01-05");
+    await expect(toInput).toHaveValue("");
     await fromInput.fill(fromDefault);
     await toInput.fill(toDefault);
     await applyFilters();

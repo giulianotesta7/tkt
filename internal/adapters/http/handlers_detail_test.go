@@ -474,10 +474,16 @@ func TestTicketCommentHXFragment(t *testing.T) {
 
 // TestTicketCommentsNewestFirst proves the rendered timeline shows
 // comments newest first (comment-timeline spec: reverse-chronological).
+//
+// The ordering is proved over the timeline region alone, never over the whole
+// document: every ticket page emits the shared inline stylesheet in <head>, so
+// an unscoped strings.Index can be broken by a token outside the timeline
+// (a CSS selector such as :first-child) while the rendering stays correct. The
+// seeded bodies are therefore distinctive tokens, not bare ordinal words.
 func TestTicketCommentsNewestFirst(t *testing.T) {
 	h := newHarness(t)
 	h.seedTicket(t, "Login page down", nil)
-	for _, body := range []string{"first", "second", "third"} {
+	for _, body := range []string{"timeline-comment-first", "timeline-comment-second", "timeline-comment-third"} {
 		if _, err := h.comments.Add(t.Context(), *h.admin, 1, body, "public"); err != nil {
 			t.Fatalf("seed comment %q: %v", body, err)
 		}
@@ -485,8 +491,28 @@ func TestTicketCommentsNewestFirst(t *testing.T) {
 
 	rec := h.get(t, "/tickets/1", false)
 	body := rec.Body.String()
-	if !(strings.Index(body, "third") < strings.Index(body, "second") && strings.Index(body, "second") < strings.Index(body, "first")) {
-		t.Errorf("comments must render newest first, got: %s", body)
+
+	start := strings.Index(body, `<div id="timeline">`)
+	if start < 0 {
+		t.Fatalf("ticket detail must render the Timeline, got: %s", body)
+	}
+	timeline := body[start:]
+	if end := strings.Index(timeline, `<div class="evidence">`); end >= 0 {
+		timeline = timeline[:end]
+	}
+
+	// Adjacent pairs, so the failure names the pair that inverted.
+	for _, pair := range []struct{ older, newer string }{
+		{"timeline-comment-first", "timeline-comment-second"},
+		{"timeline-comment-second", "timeline-comment-third"},
+	} {
+		olderAt, newerAt := strings.Index(timeline, pair.older), strings.Index(timeline, pair.newer)
+		if olderAt < 0 || newerAt < 0 {
+			t.Fatalf("timeline must carry %q and %q, got: %s", pair.older, pair.newer, timeline)
+		}
+		if newerAt > olderAt {
+			t.Errorf("%q must render before %q (newest first), got: %s", pair.newer, pair.older, timeline)
+		}
 	}
 }
 
@@ -1219,6 +1245,130 @@ func TestTicketTransitionUserDenied(t *testing.T) {
 	}
 	if view.Ticket.State != domain.StateNew {
 		t.Errorf("denied transition must leave state %q, got %q", domain.StateNew, view.Ticket.State)
+	}
+}
+
+// getDetailAs runs an authenticated GET as an explicit session actor through
+// the middleware-wrapped mux (the detail-page counterpart of postFormAs).
+func getDetailAs(t *testing.T, h *harness, path, sessionID string, hx bool) *httptest.ResponseRecorder {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodGet, path, nil)
+	req.Header.Set("Cookie", sessionCookie+"="+sessionID)
+	if hx {
+		req.Header.Set("HX-Request", "true")
+	}
+	rec := httptest.NewRecorder()
+	h.mw.Wrap(h.mux).ServeHTTP(rec, req)
+	return rec
+}
+
+// TestTicketDetailRequesterHidesUnusableMutationControls (issue #263) proves a
+// user-role actor viewing their OWN open ticket is never shown a mutation
+// control the server will reject: no priority form, no assign form, and no
+// transition form. The read-only property values stay visible, and the
+// requester's legitimate resolution path (the confirmation panel) is owned by a
+// separate section. The server authority is unchanged and remains the
+// enforcement point; this test only proves the presentation does not offer an
+// action that can only 403.
+//
+// The capable actor is asserted in the same test so the fix cannot regress the
+// agent/admin surface: an admin still gets all three controls on the ticket.
+func TestTicketDetailRequesterHidesUnusableMutationControls(t *testing.T) {
+	h := newHarness(t)
+	user := seedUserRole(t, h.store, "Ula", "ula@example.com", domain.RoleUser)
+	sess := seedSession(t, h.store, user.ID)
+
+	rec := h.postFormAs(t, "/tickets", url.Values{
+		"title":       {"My ticket"},
+		"category_id": {strconv.FormatInt(h.bugCategory.ID, 10)},
+		"priority":    {"high"},
+	}, sess.ID)
+	if rec.Code != http.StatusSeeOther {
+		t.Fatalf("create status = %d, want 303", rec.Code)
+	}
+
+	body := getDetailAs(t, h, "/tickets/1", sess.ID, true).Body.String()
+	for _, absent := range []string{`id="ticket-priority"`, `id="assign-user"`, `id="ticket-state"`} {
+		if strings.Contains(body, absent) {
+			t.Errorf("a requester's own ticket must not render the unusable control %q, got: %s", absent, body)
+		}
+	}
+	for _, want := range []string{`id="ticket-priority-value"`, `id="assign-user-value"`, `>High<`} {
+		if !strings.Contains(body, want) {
+			t.Errorf("requester detail must keep the read-only value %q, got: %s", want, body)
+		}
+	}
+
+	// The capable actor keeps all three controls on the same ticket.
+	capable := h.get(t, "/tickets/1", true).Body.String()
+	for _, want := range []string{`id="ticket-priority"`, `id="assign-user"`, `id="ticket-state"`} {
+		if !strings.Contains(capable, want) {
+			t.Errorf("a capable actor must keep the control %q, got: %s", want, capable)
+		}
+	}
+}
+
+// TestClosedTicketDetailKeepsReopenForCapableActor (issue #263) proves the
+// capable-actor half of the closed-ticket contract through the REAL handler:
+// a CLOSED ticket still offers an agent/admin the reopen control, because
+// CanTransition (CapEditTicket) is deliberately NOT gated on the closed state.
+// A naive CanEdit gate — which folds `!closed` into the capability — would
+// have removed the only remaining mutation on a closed ticket and destroyed
+// the agent reopen. TestClosedTicketDetailReadOnly only proves the read-only
+// half, and it builds detailData by hand; this test drives detailDataFor and
+// the HTTP handler, so the seam between the flag and the rendering is real.
+//
+// The same page is then requested as the requester who owns the ticket: a
+// `user` actor holds no CapEditTicket, so the Move-to control must be absent.
+func TestClosedTicketDetailKeepsReopenForCapableActor(t *testing.T) {
+	h := newHarness(t)
+	requester := seedUserRole(t, h.store, "Rae", "rae@example.com", domain.RoleUser)
+	sess := seedSession(t, h.store, requester.ID)
+
+	// The requester creates their own ticket through the real HTTP create path,
+	// so the closure below can take the requester-confirmation route.
+	rec := h.postFormAs(t, "/tickets", url.Values{
+		"title":       {"Close then reopen"},
+		"category_id": {strconv.FormatInt(h.bugCategory.ID, 10)},
+		"priority":    {"medium"},
+	}, sess.ID)
+	if rec.Code != http.StatusSeeOther {
+		t.Fatalf("create status = %d, want 303", rec.Code)
+	}
+
+	// Admin drives new → in_progress → resolved through the real service; the
+	// requester then confirms, the audited path to closed (a requester-owned
+	// resolved ticket cannot be closed manually by any actor).
+	if _, err := h.tickets.Transition(t.Context(), *h.admin, 1, domain.StateInProgress, ""); err != nil {
+		t.Fatalf("transition to in_progress: %v", err)
+	}
+	if _, err := h.tickets.Transition(t.Context(), *h.admin, 1, domain.StateResolved, ""); err != nil {
+		t.Fatalf("transition to resolved: %v", err)
+	}
+	if _, err := h.tickets.ConfirmResolution(t.Context(), *requester, 1); err != nil {
+		t.Fatalf("requester confirm: %v", err)
+	}
+	view, err := h.tickets.GetByID(t.Context(), *h.admin, 1)
+	if err != nil {
+		t.Fatalf("view after confirm: %v", err)
+	}
+	if view.Ticket.State != domain.StateClosed {
+		t.Fatalf("state = %q, want closed", view.Ticket.State)
+	}
+
+	// Capable actor (admin) GET: the reopen control is present and offers
+	// in_progress. This is the behaviour a naive CanEdit gate destroys.
+	capable := h.get(t, "/tickets/1", true).Body.String()
+	for _, want := range []string{`id="ticket-state"`, "Move to", `<option value="in_progress"`} {
+		if !strings.Contains(capable, want) {
+			t.Errorf("closed ticket must keep the reopen control %q for a capable actor, got: %s", want, capable)
+		}
+	}
+
+	// Requester GET: the same closed ticket offers no Move-to control.
+	requesterBody := getDetailAs(t, h, "/tickets/1", sess.ID, true).Body.String()
+	if strings.Contains(requesterBody, `id="ticket-state"`) {
+		t.Errorf("a requester must not be offered the closed-ticket reopen control, got: %s", requesterBody)
 	}
 }
 
