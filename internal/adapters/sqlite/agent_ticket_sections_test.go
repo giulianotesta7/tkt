@@ -49,6 +49,13 @@ func TestTicketListAgentSectionsUseCurrentClaimDeskAndExcludeOverlap(t *testing.
 	seed(3, "Claim on desk B", catB, versionB, nil)
 	seed(4, "Other desk claim", catOther, versionOther, nil)
 	seed(5, "Claim assigned to other", catA, versionA, &other)
+	// A CANCELLED ticket that still carries an ACTIVE run is the issue #256
+	// falsification fixture: the run row is deliberately left active so only the
+	// terminal-state guard in the claimable predicate can exclude it.
+	cancelled := seed(7, "Cancelled with active run", catA, versionA, nil)
+	if _, err := s.db.Exec(`UPDATE tickets SET state='cancelled' WHERE id=?`, cancelled.ID); err != nil {
+		t.Fatalf("cancel claimable ticket: %v", err)
+	}
 	moved := seedPinnedTicket(t, s, domain.Ticket{
 		Number: 6, Title: "Moved past claim", CategoryID: catMoved, WorkflowVersionID: &versionMoved,
 		Priority: domain.PriorityMedium, State: domain.StateNew, CreatedAt: testClock, UpdatedAt: testClock,
@@ -76,7 +83,7 @@ func TestTicketListAgentSectionsUseCurrentClaimDeskAndExcludeOverlap(t *testing.
 		t.Fatalf("claimable section count = %d, want 2 current unassigned member-desk claims: %+v", len(got), got)
 	}
 	for _, ticket := range got {
-		for _, excluded := range []string{"Assigned", "Other desk claim", "Claim assigned to other", "Moved past claim"} {
+		for _, excluded := range []string{"Assigned", "Other desk claim", "Claim assigned to other", "Moved past claim", "Cancelled with active run"} {
 			if ticket.Title == excluded {
 				t.Fatalf("claimable section must exclude %q, got %+v", excluded, got)
 			}
