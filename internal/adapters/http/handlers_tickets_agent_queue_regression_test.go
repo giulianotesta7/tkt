@@ -141,3 +141,76 @@ func TestTicketsIndexAgentSectionPaginationPreservesBothPages(t *testing.T) {
 	assertPages(request("q=paging&assigned_page=1&claimable_page=2"), 1, 2)
 	assertPages(request("q=paging&assigned_page=1&claimable_page=1"), 1, 1)
 }
+
+// TestTicketsIndexAgentQueueExcludesCancelledTicketFromClaimable pins issue
+// #256 at the HTTP layer: cancelling a ticket mid-workflow closes its run and
+// the agent claimable queue must never offer the terminal ticket again.
+func TestTicketsIndexAgentQueueExcludesCancelledTicketFromClaimable(t *testing.T) {
+	h := newHarness(t)
+	agent := seedUserRole(t, h.store, "Ava", "ava-cancelled@example.com", domain.RoleAgent)
+	sess := seedSession(t, h.store, agent.ID)
+	desk, err := h.desks.Create(t.Context(), *h.admin, "Cancellation desk")
+	if err != nil {
+		t.Fatalf("create desk: %v", err)
+	}
+	if err := h.desks.AddMember(t.Context(), *h.admin, desk.ID, agent.ID); err != nil {
+		t.Fatalf("add desk member: %v", err)
+	}
+	category, err := h.categories.Create(t.Context(), "Cancellation")
+	if err != nil {
+		t.Fatalf("create category: %v", err)
+	}
+	h.publishWorkflow(t, category.ID, domain.WorkflowDefinition{{
+		Type: domain.StepAssignToDesk,
+		AssignToDesk: &domain.AssignToDeskStep{
+			DeskID: desk.ID, Strategy: domain.StrategyClaim,
+		},
+	}})
+	ticket, err := h.tickets.Create(t.Context(), *h.admin, application.CreateTicketInput{
+		Title: "Cancelled claim target", CategoryID: category.ID, Priority: domain.PriorityMedium,
+	})
+	if err != nil {
+		t.Fatalf("create claimable ticket: %v", err)
+	}
+
+	request := func() string {
+		t.Helper()
+		rec := doRequest(h.mux, h.mw, http.MethodGet, "/tickets", map[string]string{
+			"Cookie": sessionCookie + "=" + sess.ID,
+		})
+		if rec.Code != http.StatusOK {
+			t.Fatalf("GET /tickets status = %d, want 200", rec.Code)
+		}
+		return rec.Body.String()
+	}
+
+	// Baseline: the active-workflow ticket is offered to the desk member, and
+	// its run is active.
+	if body := request(); !strings.Contains(body, "Cancelled claim target") || !strings.Contains(body, "Available to claim · 1</h2>") {
+		t.Fatalf("claimable ticket must be offered before cancellation, got %s", body)
+	}
+	db := h.rawDB(t)
+	if status := scanOneString(t, db, `SELECT status FROM ticket_workflow_runs WHERE ticket_id=?`, ticket.ID); status != "active" {
+		t.Fatalf("pre-cancel run status = %q, want active", status)
+	}
+
+	if _, err := h.tickets.Transition(t.Context(), *h.admin, ticket.ID, domain.StateCancelled, ""); err != nil {
+		t.Fatalf("cancel ticket: %v", err)
+	}
+
+	// Cancelling is a terminal transition: the run is closed with the same
+	// completed/completed_at schema, and the claimable predicate must never
+	// offer the ticket again (issue #256).
+	status := scanOneString(t, db, `SELECT status FROM ticket_workflow_runs WHERE ticket_id=?`, ticket.ID)
+	completed := scanOneString(t, db, `SELECT COALESCE(completed_at, '') FROM ticket_workflow_runs WHERE ticket_id=?`, ticket.ID)
+	if status != "completed" || completed == "" {
+		t.Fatalf("cancelled run = (status %q, completed_at %q), want completed with a timestamp", status, completed)
+	}
+	body := request()
+	if strings.Contains(body, "Cancelled claim target") {
+		t.Fatalf("cancelled ticket must not be offered as claimable, got %s", body)
+	}
+	if !strings.Contains(body, "Available to claim · 0</h2>") {
+		t.Fatalf("claimable section must be empty after cancellation, got %s", body)
+	}
+}

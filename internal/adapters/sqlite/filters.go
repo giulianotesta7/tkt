@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"github.com/giulianotesta7/tkt/internal/application"
+	"github.com/giulianotesta7/tkt/internal/domain"
 )
 
 // createdTiebreak is the shared D2 created/id tiebreak: newest first by
@@ -84,13 +85,34 @@ func listFrom(q application.TicketQuery) string {
 	return "tickets t"
 }
 
+// claimableStateGuard is the SQL rendering of domain.ClosedStates(): a ticket
+// that has left the workflow for a terminal state is never claimable, even if
+// a stale active run survived the terminal transition (issue #256). Deriving
+// the state list from the domain keeps this predicate and domain.IsClosed from
+// drifting. It lives in the claimable predicate itself because claimability is
+// only meaningful for a non-terminal ticket — this protects BOTH the explicit
+// claimable section and the claimable arm of ScopeAssignedOrClaimable (whose
+// assigned arm intentionally keeps showing a terminal ticket assigned to the
+// actor).
+var claimableStateGuard = func() string {
+	states := domain.ClosedStates()
+	placeholders := make([]string, 0, len(states))
+	for _, s := range states {
+		placeholders = append(placeholders, "'"+string(s)+"'")
+	}
+	return "t.state NOT IN (" + strings.Join(placeholders, ",") + ")"
+}()
+
 // claimableClause is the existing READ-only claim exception: an active run's
 // current pinned step is assign_to_desk[claim] on a desk containing actorID.
+// A terminal ticket state is never claimable (claimableStateGuard, issue
+// #256).
 func claimableClause(actorID int64) (string, []any) {
 	return `EXISTS (
 		SELECT 1 FROM ticket_workflow_runs r
 		JOIN workflow_versions wv ON wv.id = t.workflow_version_id
 		WHERE r.ticket_id = t.id AND r.status = 'active'
+		  AND ` + claimableStateGuard + `
 		  AND wv.category_id = t.category_id
 		  AND json_extract(wv.steps_json, '$[' || r.current_step_index || '].type') = 'assign_to_desk'
 		  AND json_extract(wv.steps_json, '$[' || r.current_step_index || '].assign_to_desk.strategy') = 'claim'

@@ -1014,6 +1014,88 @@ func TestUnitOfWorkUpdateNotFound(t *testing.T) {
 	}
 }
 
+// TestUnitOfWorkTerminalStateClosesActiveRun pins issue #256 option A: a
+// ticket that reaches a terminal state (domain.IsClosed) outside the workflow
+// closes its still-active run in the SAME unit-of-work transaction, reusing
+// the existing completed/completed_at schema. The persisted run row is
+// asserted after a successful terminal transition.
+func TestUnitOfWorkTerminalStateClosesActiveRun(t *testing.T) {
+	for _, state := range []domain.State{domain.StateResolved, domain.StateClosed, domain.StateCancelled} {
+		t.Run(string(state), func(t *testing.T) {
+			s := newTestDB(t)
+			cat := seedCategory(t, s, "Bugs")
+			ctx := context.Background()
+			tk := seedTicket(t, s, domain.Ticket{Number: 1, Title: "mid-workflow", CategoryID: cat, Priority: domain.PriorityMedium, State: domain.StateNew, CreatedAt: testClock, UpdatedAt: testClock})
+			seedRun(t, s, tk.ID, 0, "active", testClock)
+
+			terminalAt := testClock.Add(time.Hour)
+			tk.State = state
+			tk.UpdatedAt = terminalAt
+			if err := s.TicketUnitOfWork().Update(ctx, &tk, domain.AuditEvent{
+				TicketID: tk.ID, Actor: "Ana", Action: domain.ActionTransition,
+				Field: ptr("state"), FromValue: ptr("new"), ToValue: ptr(string(state)), CreatedAt: terminalAt}); err != nil {
+				t.Fatalf("uow terminal update: %v", err)
+			}
+
+			cur, status, comp := runRow(t, s, tk.ID)
+			if cur != 0 || status != "completed" || comp == nil || *comp != formatTime(terminalAt) {
+				t.Fatalf("run = (cursor %d, status %s, completed_at %v), want (0, completed, %s)", cur, status, comp, formatTime(terminalAt))
+			}
+		})
+	}
+}
+
+// TestUnitOfWorkOpenStateKeepsRunActive proves the closure is scoped to
+// terminal states: an ordinary open-state ticket write never touches its run.
+func TestUnitOfWorkOpenStateKeepsRunActive(t *testing.T) {
+	s := newTestDB(t)
+	cat := seedCategory(t, s, "Bugs")
+	ctx := context.Background()
+	tk := seedTicket(t, s, domain.Ticket{Number: 1, Title: "open", CategoryID: cat, Priority: domain.PriorityMedium, State: domain.StateNew, CreatedAt: testClock, UpdatedAt: testClock})
+	seedRun(t, s, tk.ID, 0, "active", testClock)
+
+	tk.State = domain.StateInProgress
+	tk.UpdatedAt = testClock.Add(time.Hour)
+	if err := s.TicketUnitOfWork().Update(ctx, &tk); err != nil {
+		t.Fatalf("uow open update: %v", err)
+	}
+	cur, status, comp := runRow(t, s, tk.ID)
+	if cur != 0 || status != "active" || comp != nil {
+		t.Fatalf("open-state update touched the run: (%d, %s, %v)", cur, status, comp)
+	}
+}
+
+// TestUnitOfWorkTerminalClosureRollsBackWithAuditFailure proves the run
+// closure shares the ticket write's transaction: when the audit append aborts,
+// the whole unit rolls back, so the run must stay active (a separate write
+// would have closed it).
+func TestUnitOfWorkTerminalClosureRollsBackWithAuditFailure(t *testing.T) {
+	s := newTestDB(t)
+	cat := seedCategory(t, s, "Bugs")
+	ctx := context.Background()
+	tk := seedTicket(t, s, domain.Ticket{Number: 1, Title: "doomed", CategoryID: cat, Priority: domain.PriorityMedium, State: domain.StateNew, CreatedAt: testClock, UpdatedAt: testClock})
+	seedRun(t, s, tk.ID, 0, "active", testClock)
+	injectAuditFailure(t, s)
+
+	tk.State = domain.StateCancelled
+	tk.UpdatedAt = testClock.Add(time.Hour)
+	err := s.TicketUnitOfWork().Update(ctx, &tk, domain.AuditEvent{TicketID: tk.ID, Actor: "Ana", Action: domain.ActionTransition, CreatedAt: tk.UpdatedAt})
+	if err == nil {
+		t.Fatal("uow terminal update succeeded, want audit append failure")
+	}
+	cur, status, comp := runRow(t, s, tk.ID)
+	if cur != 0 || status != "active" || comp != nil {
+		t.Fatalf("run changed despite rolled-back ticket write: (%d, %s, %v)", cur, status, comp)
+	}
+	got, err := s.TicketStore().GetByID(ctx, tk.ID, application.TicketQuery{Scope: application.ScopeAll})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.State != domain.StateNew {
+		t.Fatalf("ticket state = %s, want new (rolled back)", got.State)
+	}
+}
+
 // --- UNIQUE retry backstop (D8 belt-and-suspenders) ---
 
 // uniqueNumberViolation produces a REAL modernc *sqlite.Error by colliding
