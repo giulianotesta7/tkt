@@ -1,6 +1,7 @@
 package httpadapter
 
 import (
+	"errors"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -43,7 +44,15 @@ type ticketMetricsDetailData struct {
 	BackHref string
 }
 
-// parseTicketMetricsFilter reads the independent metric filter set (issue #123); list query parameters are never read.
+// parseTicketMetricsFilter reads the independent metric filter set (issue #123);
+// list query parameters are never read.
+//
+// It NEVER returns a zero filter on failure: every value that parsed — the
+// parseable date, the desk/agent selection, the group selectors — is returned
+// alongside the error, so a failed parse cannot silently erase what the
+// operator typed (issue #270). The returned filter is for RE-RENDERING THE FORM
+// ONLY: it can carry a date whose sibling failed to parse, so it must never
+// reach the metrics query. The caller queries solely when the error is nil.
 func parseTicketMetricsFilter(r *http.Request) (application.TicketMetricsFilter, error) {
 	parseDate := func(v string) (time.Time, error) {
 		if v == "" {
@@ -55,17 +64,7 @@ func parseTicketMetricsFilter(r *http.Request) (application.TicketMetricsFilter,
 		}
 		return t, nil
 	}
-	var dates [2]time.Time
-	for i, key := range [2]string{"metrics_start", "metrics_end"} {
-		t, err := parseDate(r.URL.Query().Get(key))
-		if err != nil {
-			return application.TicketMetricsFilter{}, err
-		}
-		dates[i] = t
-	}
 	f := application.TicketMetricsFilter{
-		Start:      dates[0],
-		End:        dates[1],
 		WorkloadBy: r.URL.Query().Get("metrics_group"),
 		// The attainment grouping is its own parameter so the two selectors
 		// never collide; like the list's sort it fails soft (an empty or
@@ -78,7 +77,24 @@ func parseTicketMetricsFilter(r *http.Request) (application.TicketMetricsFilter,
 	if id := parseID(r.URL.Query().Get("metrics_agent_id")); id != 0 {
 		f.AgentID = &id
 	}
-	return f, nil
+	var firstErr error
+	for i, key := range [2]string{"metrics_start", "metrics_end"} {
+		t, err := parseDate(r.URL.Query().Get(key))
+		if err != nil {
+			// Keep scanning: the other date may still parse and must be kept
+			// for the re-render. The first error is the one reported.
+			if firstErr == nil {
+				firstErr = err
+			}
+			continue
+		}
+		if i == 0 {
+			f.Start = t
+		} else {
+			f.End = t
+		}
+	}
+	return f, firstErr
 }
 
 // metricsReturnHref builds the safe relative /tickets return URL for the
@@ -119,30 +135,53 @@ func metricsReturnHref(raw string) string {
 	return "/tickets?" + v.Encode()
 }
 
-// metricsData loads the dedicated detail view plus the metric-filter option lists;
-// empty dates default to the last 30 UTC days via the service's shared normalization.
+// metricsData loads the dedicated detail view plus the metric-filter option
+// lists; empty dates default to the last 30 UTC days via the service's shared
+// normalization.
+//
+// The option lists load BEFORE the filter parse and are returned on every
+// failure path, so a validation error re-renders the same form the operator was
+// editing (issue #270). The filter returned with an error exists only for that
+// re-render: it never reaches h.metrics.View, which is called solely when the
+// parse succeeded, because a partial filter would silently widen the query.
 func (h *TicketHandlers) metricsData(r *http.Request) (ticketMetricsData, error) {
 	if h.metrics == nil {
 		return ticketMetricsData{}, domain.NewForbiddenError("ticket metrics unavailable")
 	}
 	actor := *userFromContext(r.Context())
-	filter, err := parseTicketMetricsFilter(r)
-	if err != nil {
-		return ticketMetricsData{}, err
-	}
-	metrics, err := h.metrics.View(r.Context(), actor, filter)
-	if err != nil {
-		return ticketMetricsData{}, err
-	}
-	desks, err := h.desks.List(r.Context())
-	if err != nil {
-		return ticketMetricsData{}, err
+	// Defensive, and inert today: h.desks is the raw DeskStore, whose List
+	// performs no authorization, so it cannot return a FORBIDDEN and this
+	// tolerance never fires. It is kept so that a future authorized desk list
+	// cannot surface a desk-management message on a metrics request, where the
+	// metrics authorization is the one that decides. Any other failure is a real
+	// error and fails the request.
+	desks, derr := h.desks.List(r.Context())
+	if derr != nil {
+		var forbidden *domain.ForbiddenError
+		if !errors.As(derr, &forbidden) {
+			return ticketMetricsData{}, derr
+		}
 	}
 	users, err := h.users.ListAssignable(r.Context(), actor)
 	if err != nil {
 		return ticketMetricsData{}, err
 	}
-	return ticketMetricsData{Metrics: metrics, Attainment: attainmentViewFor(metrics.Attainment), Desks: desks, Users: users, ReturnHref: metricsReturnHref(r.URL.RequestURI())}, nil
+	data := ticketMetricsData{Desks: desks, Users: users, ReturnHref: metricsReturnHref(r.URL.RequestURI())}
+	filter, err := parseTicketMetricsFilter(r)
+	if err != nil {
+		data.Metrics.Filter = filter
+		return data, err
+	}
+	metrics, err := h.metrics.View(r.Context(), actor, filter)
+	if err != nil {
+		// The service rejected a fully parsed filter (an inverted range, an
+		// unknown group); keep the parsed values so the re-render shows them.
+		data.Metrics.Filter = filter
+		return data, err
+	}
+	data.Metrics = metrics
+	data.Attainment = attainmentViewFor(metrics.Attainment)
+	return data, nil
 }
 
 // ticketMetricsAttainmentView is the pre-formatted SLA attainment panel
@@ -250,22 +289,9 @@ func (h *TicketHandlers) metricsSummaryData(r *http.Request) (ticketMetricsData,
 
 // renderMetricsDetail answers the dedicated /tickets/metrics page (normal request)
 // or its #ticket-metrics-detail-content fragment (HX-Request); the Back href is
-// always the sanitized return value. Option lists reload best-effort only for
-// validation renders (HX-visible 200 or full 422): 403/other failures never
-// pay for option lists.
+// always the sanitized return value. The option lists and any retained filter
+// values are assembled by metricsData, so this only composes and renders.
 func (h *TicketHandlers) renderMetricsDetail(w http.ResponseWriter, r *http.Request, data ticketMetricsData, status int) {
-	if data.Error != "" && (status == http.StatusOK || status == http.StatusUnprocessableEntity) {
-		if data.Desks == nil {
-			if desks, err := h.desks.List(r.Context()); err == nil {
-				data.Desks = desks
-			}
-		}
-		if data.Users == nil {
-			if users, err := h.users.ListAssignable(r.Context(), *userFromContext(r.Context())); err == nil {
-				data.Users = users
-			}
-		}
-	}
 	page := pageDataFrom(r, "tickets")
 	page.PageFoundationAssets = true
 	page.MetricsAssets = true
@@ -284,7 +310,8 @@ func (h *TicketHandlers) metricsView(w http.ResponseWriter, r *http.Request) {
 		if hx && status == http.StatusUnprocessableEntity {
 			status = http.StatusOK
 		}
-		h.renderMetricsDetail(w, r, ticketMetricsData{Error: message}, status)
+		data.Error = message
+		h.renderMetricsDetail(w, r, data, status)
 		return
 	}
 	h.renderMetricsDetail(w, r, data, http.StatusOK)

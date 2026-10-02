@@ -200,6 +200,28 @@ test.describe("Categories", () => {
     const unassignedContext = "/categories?view=structure&department_id=unassigned";
     await page.goto(base() + unassignedContext);
 
+    // The virtual Unassigned group has no stored Department row, so neither
+    // Edit nor Delete can succeed against id -1. The structure page must not
+    // offer the impossible action, while real departments keep their menu.
+    const unassignedDepartment = page
+      .locator(".category-level-departments .category-structure-item")
+      .filter({
+        has: page.getByText("Unassigned", { exact: true }),
+      });
+    await expect(unassignedDepartment).toHaveCount(1);
+    await expect(unassignedDepartment.locator("button[data-category-menu]")).toHaveCount(0);
+    await expect(
+      unassignedDepartment.locator('a[href*="/categories/departments/-1/edit"]'),
+    ).toHaveCount(0);
+    await expect(page.locator('form[action="/categories/departments/-1/delete"]')).toHaveCount(0);
+    const realDepartment = page
+      .locator(".category-level-departments .category-structure-item")
+      .filter({
+        has: page.getByText("General", { exact: true }),
+      });
+    await expect(realDepartment).toHaveCount(1);
+    await expect(realDepartment.locator("button[data-category-menu]")).toHaveCount(1);
+
     const legacyDeskName = "General Support";
     const legacyDesk = page.locator(".category-level-desks .category-structure-item").filter({
       has: page.getByText(legacyDeskName, { exact: true }),
@@ -1775,9 +1797,7 @@ test.describe("Categories", () => {
     });
     await expect(page.locator("#workflow-pending")).toHaveClass(/workflow-pending-info/);
     await expect(page.locator("#workflow-pending")).toContainText("In progress");
-    await expect(page.locator("#workflow-pending")).toContainText(
-      "The assigned agent is handling this task.",
-    );
+    await expect(page.locator("#workflow-pending")).toContainText("Nobody is assigned yet.");
     await expect(page.locator("#workflow-pending")).toContainText(
       "Updates will appear here when complete.",
     );

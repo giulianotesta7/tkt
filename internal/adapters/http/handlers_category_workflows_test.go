@@ -37,6 +37,12 @@ func TestCategoryWorkflowBuilder_UsesUsersHeaderFoundationAndCategoryIdentity(t 
 		`<form method="post" action="/categories/`,
 		`id="workflow-form"`,
 		`/static/users.css`,
+		// The elevation ladder is defined once in the inline token block; the
+		// external users.css resolves the same custom properties on this page.
+		`--elevation-raised:`,
+		`--elevation-drawer:`,
+		`--elevation-modal:`,
+		`--scrim:`,
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("workflow header must contain %q, got: %s", want, body)
@@ -77,6 +83,23 @@ func TestCategoryWorkflowBuilder_UsesUsersHeaderFoundationAndCategoryIdentity(t 
 		{"panel surface", []string{".users-root .users-list", ".page-foundation .page-panel"}, []string{"border:1px solid var(--line)", "border-radius:12px", "background:var(--surface)"}},
 	} {
 		assertCSSRuleContains(t, css, tc.name, tc.selectors, tc.declarations)
+	}
+	// The elevation ladder is shared: users.css spends the same custom properties
+	// the inline token block defines, and no hardcoded alpha-black shadow remains
+	// in this file (the definitions live once in the inline block).
+	for _, want := range []string{
+		"background:var(--surface);box-shadow:var(--elevation-drawer)",
+		"color:var(--ink);box-shadow:var(--elevation-modal)",
+		"background:var(--scrim)",
+	} {
+		if !strings.Contains(css, want) {
+			t.Errorf("users.css must spend the shared elevation tokens, missing %q", want)
+		}
+	}
+	for _, gone := range []string{"rgb(0 0 0 / 9%)", "rgb(0 0 0 / 12%)", "rgb(0 0 0 / 13%)", "rgb(0 0 0 / 20%)"} {
+		if strings.Contains(css, gone) {
+			t.Errorf("users.css must not hardcode %q; the elevation tokens own it", gone)
+		}
 	}
 }
 
@@ -2091,9 +2114,12 @@ func TestCategoryWorkflowBuilder_DragReorder(t *testing.T) {
 }
 
 // DragMarkup freezes the horizontal drag UI: every non-terminal card exposes
-// a draggable grip labeled with its position, the final terminal card exposes
-// no grip, and the builder carries exactly one permanent source_index/
-// target_index pair plus the reorder submitter, wired only into this page.
+// a draggable grip hidden from the accessibility tree, the final terminal card
+// exposes no grip, and the builder carries exactly one permanent source_index/
+// target_index pair plus the reorder submitter, wired only into this page. The
+// grip is pointer-only; the labeled Move left/Move right step-menu actions are
+// the accessible reorder path, so the grip must not advertise itself with an
+// aria-label that promises a keyboard affordance it cannot provide.
 func TestCategoryWorkflowBuilder_DragMarkup(t *testing.T) {
 	h := newHarness(t)
 	category, err := h.categories.Create(t.Context(), "Drag markup")
@@ -2103,13 +2129,15 @@ func TestCategoryWorkflowBuilder_DragMarkup(t *testing.T) {
 	path := "/categories/" + strconv.FormatInt(category.ID, 10) + "/workflow"
 	wantRedirect(t, h.postForm(t, path, builderFieldForm("save", buildingSteps()...), false), http.StatusSeeOther, path)
 	body := h.get(t, path, false).Body.String()
-	for _, want := range []string{`class="workflow-drag-handle" draggable="true" aria-label="Drag step 1"`, `class="workflow-drag-handle" draggable="true" aria-label="Drag step 2"`} {
-		if !strings.Contains(body, want) {
-			t.Errorf("non-terminal cards must expose draggable grips, missing %q: %s", want, body)
-		}
+	const gripMarkup = `class="workflow-drag-handle" draggable="true" aria-hidden="true"`
+	if got := strings.Count(body, gripMarkup); got != 2 {
+		t.Errorf("each non-terminal card must expose one hidden draggable grip, got %d: %s", got, body)
 	}
-	if strings.Contains(body, `aria-label="Drag step 3"`) {
-		t.Errorf("terminal card must not expose a drag grip, got: %s", body)
+	if strings.Contains(body, `aria-label="Drag step`) {
+		t.Errorf("the drag grip must not promise a keyboard affordance; reorder lives in the step menu, got: %s", body)
+	}
+	if strings.Contains(body, `class="workflow-drag-handle" draggable="true" aria-hidden="true" aria-label`) {
+		t.Errorf("the drag grip must not carry an aria-label, got: %s", body)
 	}
 	for _, field := range []string{`name="source_index"`, `name="target_index"`} {
 		if got := strings.Count(body, field); got != 1 {
@@ -2148,6 +2176,35 @@ func TestCategoryWorkflowBuilder_DragMarkup(t *testing.T) {
 	}
 }
 
+// BusySignalling freezes the builder's loading contract: the form is its own
+// htmx indicator so the in-form spinner shows for every builder request, and
+// the form carries aria-busy for the duration of each request. htmx's indicator
+// class is not exposed to assistive tech, so aria-busy is toggled inline on the
+// form itself and never left set after the request settles.
+func TestCategoryWorkflowBuilder_BusySignalling(t *testing.T) {
+	h := newHarness(t)
+	category, err := h.categories.Create(t.Context(), "Busy signalling")
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	path := "/categories/" + strconv.FormatInt(category.ID, 10) + "/workflow"
+	wantRedirect(t, h.postForm(t, path, builderFieldForm("save", buildingSteps()...), false), http.StatusSeeOther, path)
+	body := h.get(t, path, false).Body.String()
+	for _, want := range []string{
+		`hx-indicator="#workflow-form"`,
+		`hx-on::before-request="this.setAttribute('aria-busy','true')"`,
+		`hx-on::after-request="this.removeAttribute('aria-busy')"`,
+		`class="htmx-indicator spinner" aria-hidden="true"`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("builder form must expose %q, got: %s", want, body)
+		}
+	}
+	if strings.Contains(body, `aria-busy="true"`) {
+		t.Errorf("a settled server render must not carry a stale aria-busy: %s", body)
+	}
+}
+
 // DragResponsiveCSS freezes the 390px drag polish: the rail keeps its internal
 // horizontal overflow so cards and the insertion indicator never spill onto
 // the document, the indicator is inert and hidden by default, and the grip
@@ -2171,6 +2228,15 @@ func TestCategoryWorkflowBuilder_DragResponsiveCSS(t *testing.T) {
 		} else if !cssRuleDeclares(style, tc.sel, tc.decl) {
 			t.Errorf("%s must stay declared: %s on %s", tc.name, tc.decl, tc.sel)
 		}
+	}
+	// The grip inherits the document's vendored Inter family instead of a bare
+	// generic sans-serif, which bypassed the embedded face entirely.
+	gripRule := cssRuleForSelectors(style, ".workflow-drag-handle")
+	if !strings.Contains(gripRule, "font-family:inherit") {
+		t.Errorf("grip must inherit the vendored family, got: %s", gripRule)
+	}
+	if strings.Contains(gripRule, "sans-serif") {
+		t.Errorf("grip must not declare a non-vendored generic family, got: %s", gripRule)
 	}
 }
 
