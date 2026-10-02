@@ -49,9 +49,6 @@ func TestCategoryWorkflowBuilder_UsesUsersHeaderFoundationAndCategoryIdentity(t 
 		}
 	}
 
-	if strings.Contains(body, `value="preview"`) || strings.Contains(body, `aria-label="Workflow preview"`) {
-		t.Error("workflow screen must not expose preview UI")
-	}
 	usersBody := h.get(t, "/users", false).Body.String()
 	for _, want := range []string{
 		`class="users-root"`,
@@ -384,7 +381,7 @@ func TestCategoryWorkflowBuilder_FeedbackOnlyForPersistedMutations(t *testing.T)
 		})
 	}
 
-	for _, action := range []string{"select_step", "preview"} {
+	for _, action := range []string{"select_step"} {
 		t.Run(action+" is read-only", func(t *testing.T) {
 			h := newHarness(t)
 			category, err := h.categories.Create(t.Context(), "Read only "+action)
@@ -412,26 +409,7 @@ func TestCategoryWorkflowBuilder_FeedbackOnlyForPersistedMutations(t *testing.T)
 	}
 }
 
-func TestCategoryWorkflowBuilder_PreviewPublishAndHTMXParity(t *testing.T) {
-	t.Run("preview is read-only", func(t *testing.T) {
-		h := newHarness(t)
-		category, err := h.categories.Create(t.Context(), "Preview")
-		if err != nil {
-			t.Fatalf("create category: %v", err)
-		}
-		path := "/categories/" + strconv.FormatInt(category.ID, 10) + "/workflow"
-		rec := h.postForm(t, path, builderForm("preview", builderDraft(t, "first", "second")), false)
-		if rec.Code != http.StatusOK {
-			t.Fatalf("preview status = %d, want 200", rec.Code)
-		}
-		if !strings.Contains(rec.Body.String(), "first") || !strings.Contains(rec.Body.String(), "second") {
-			t.Errorf("preview must render the ordered submitted draft, got: %s", rec.Body.String())
-		}
-		if n := scanOneInt(t, h.rawDB(t), "SELECT COUNT(*) FROM category_workflows WHERE category_id=?", category.ID); n != 0 {
-			t.Errorf("preview workflow rows = %d, want 0", n)
-		}
-	})
-
+func TestCategoryWorkflowBuilder_PublishAndHTMXParity(t *testing.T) {
 	t.Run("invalid publish is a shared 422 with no writes", func(t *testing.T) {
 		h := newHarness(t)
 		category, err := h.categories.Create(t.Context(), "Invalid")
@@ -1247,32 +1225,9 @@ func TestCategoryWorkflowBuilder_ReorderFocusAndHTMXIndexes(t *testing.T) {
 	}
 }
 
-// Field-based preview stays read-only; invalid/valid publish match the draft-JSON
-// contract but driven through the real visible controls.
-func TestCategoryWorkflowBuilder_FieldBasedPreviewAndPublish(t *testing.T) {
-	t.Run("preview is read-only from fields", func(t *testing.T) {
-		h := newHarness(t)
-		category, err := h.categories.Create(t.Context(), "FieldPreview")
-		if err != nil {
-			t.Fatalf("create: %v", err)
-		}
-		path := "/categories/" + strconv.FormatInt(category.ID, 10) + "/workflow"
-		steps := []bstep{
-			{typ: "manual_task", manual: "first"},
-			{typ: "manual_task", manual: "second"},
-		}
-		rec := h.postForm(t, path, builderFieldForm("preview", steps...), false)
-		if rec.Code != http.StatusOK {
-			t.Fatalf("preview status = %d, want 200", rec.Code)
-		}
-		if !strings.Contains(rec.Body.String(), "first") || !strings.Contains(rec.Body.String(), "second") {
-			t.Errorf("preview must render the ordered submitted draft, got: %s", rec.Body.String())
-		}
-		if n := scanOneInt(t, h.rawDB(t), "SELECT COUNT(*) FROM category_workflows WHERE category_id=?", category.ID); n != 0 {
-			t.Errorf("preview workflow rows = %d, want 0", n)
-		}
-	})
-
+// Invalid and valid publish match the draft-JSON contract but are driven
+// through the real visible controls.
+func TestCategoryWorkflowBuilder_FieldBasedPublish(t *testing.T) {
 	t.Run("invalid publish shows alerts and writes nothing", func(t *testing.T) {
 		h := newHarness(t)
 		category, err := h.categories.Create(t.Context(), "FieldInvalid")

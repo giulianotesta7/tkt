@@ -191,17 +191,6 @@ func (h *CategoryWorkflowHandlers) post(w http.ResponseWriter, r *http.Request) 
 			return
 		}
 		h.afterMutation(w, r, categoryID, result, desks, nil, saveFeedbackSaved, idx)
-	case "preview":
-		preview, previewIssues, err := h.workflows.Preview(r.Context(), actor, categoryID, draft)
-		if err != nil {
-			http.Error(w, mapErrorMsg(err), statusFor(err))
-			return
-		}
-		status := http.StatusOK
-		if len(previewIssues) > 0 {
-			status = http.StatusUnprocessableEntity
-		}
-		h.render(w, r, categoryID, preview, desks, previewIssues, "", selectedStepIndex(r, len(preview)), status)
 	case "publish":
 		publishIssues, err := h.workflows.Publish(r.Context(), actor, categoryID, draft)
 		if err != nil {

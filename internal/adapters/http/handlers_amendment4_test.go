@@ -460,7 +460,7 @@ func TestAmendment4_FullPageHasNoTrailingWhitespace(t *testing.T) {
 	}
 }
 
-func TestAmendment4_BuilderRendersMasterDetailWithoutPreviewUI(t *testing.T) {
+func TestAmendment4_BuilderRendersMasterDetail(t *testing.T) {
 	h := newHarness(t)
 	category, err := h.categories.Create(t.Context(), "Linear workflow")
 	if err != nil {
@@ -471,9 +471,9 @@ func TestAmendment4_BuilderRendersMasterDetailWithoutPreviewUI(t *testing.T) {
 		{Type: domain.StepManualTask, ManualTask: &domain.ManualTaskStep{Instructions: "Inspect intake"}},
 		{Type: domain.StepManualTask, ManualTask: &domain.ManualTaskStep{Instructions: "Resolve request"}},
 	}
-	rec := h.postForm(t, path, builderFieldForm("preview", defToSteps(draft)...), false)
+	rec := h.postForm(t, path, builderFieldForm("select_step", defToSteps(draft)...), false)
 	if rec.Code != http.StatusOK {
-		t.Fatalf("backend preview action = %d, want 200", rec.Code)
+		t.Fatalf("backend select_step action = %d, want 200", rec.Code)
 	}
 	body := rec.Body.String()
 	for _, want := range []string{`class="workflow-step-rail"`, `class="workflow-step-card"`, `class="workflow-editor-panel"`, "Inspect intake", "Resolve request", "Drag to reorder."} {
