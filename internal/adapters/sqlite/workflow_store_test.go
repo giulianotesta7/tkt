@@ -2,6 +2,7 @@ package sqlite
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"testing"
 
@@ -301,5 +302,152 @@ func TestWorkflowStore_CascadeNullPin(t *testing.T) {
 	s.db.QueryRow(`SELECT COUNT(*) FROM category_workflows WHERE category_id=?`, c2).Scan(&n)
 	if n != 0 {
 		t.Fatalf("cw2 %d", n)
+	}
+}
+
+// TestWorkflowStore_SaveDraftIfRevisionRefusesStaleWriter is the issue #254
+// falsification test at the store boundary: two writers carry the SAME
+// expected revision (the stale tab and the tab that saved first). The first
+// write must win, the second must be refused with ErrDraftRevisionConflict,
+// and the winner's bytes must be the stored draft. Sequential on purpose: no
+// sleeps, no polling, no t.Parallel.
+func TestWorkflowStore_SaveDraftIfRevisionRefusesStaleWriter(t *testing.T) {
+	s := newTestDB(t)
+	cat := seedCategory(t, s, "cat-rev")
+	ws := newWorkflowStore(s.db)
+	ctx := context.Background()
+
+	winner := mustCanon(t, domain.WorkflowDefinition{{Type: domain.StepManualTask, ManualTask: &domain.ManualTaskStep{Instructions: "winner"}}})
+	stale := mustCanon(t, domain.WorkflowDefinition{{Type: domain.StepManualTask, ManualTask: &domain.ManualTaskStep{Instructions: "stale tab"}}})
+
+	next, err := ws.SaveDraftIfRevision(ctx, cat, 0, winner)
+	if err != nil {
+		t.Fatalf("first writer: %v", err)
+	}
+	if next != 1 {
+		t.Fatalf("first guarded write revision = %d, want 1", next)
+	}
+
+	// The stale tab carries the SAME expected revision 0.
+	if _, err := ws.SaveDraftIfRevision(ctx, cat, 0, stale); !errors.Is(err, application.ErrDraftRevisionConflict) {
+		t.Fatalf("stale write err = %v, want ErrDraftRevisionConflict", err)
+	}
+
+	got, revision, err := ws.GetDraftWithRevision(ctx, cat)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != string(winner) {
+		t.Fatalf("stored draft = %s, want the winner's %s", got, winner)
+	}
+	if revision != 1 {
+		t.Fatalf("stored revision = %d, want 1 (a refused write must not advance it)", revision)
+	}
+}
+
+// The positive path: the correct revision succeeds and advances the revision,
+// and the second write is accepted where the stale one was not.
+func TestWorkflowStore_SaveDraftIfRevisionAdvancesOnCorrectRevision(t *testing.T) {
+	s := newTestDB(t)
+	cat := seedCategory(t, s, "cat-rev-advance")
+	ws := newWorkflowStore(s.db)
+	ctx := context.Background()
+
+	first := mustCanon(t, domain.WorkflowDefinition{{Type: domain.StepManualTask, ManualTask: &domain.ManualTaskStep{Instructions: "one"}}})
+	second := mustCanon(t, domain.WorkflowDefinition{{Type: domain.StepManualTask, ManualTask: &domain.ManualTaskStep{Instructions: "two"}}})
+
+	if next, err := ws.SaveDraftIfRevision(ctx, cat, 0, first); err != nil || next != 1 {
+		t.Fatalf("first write next=%d err=%v, want 1 and nil", next, err)
+	}
+	if next, err := ws.SaveDraftIfRevision(ctx, cat, 1, second); err != nil || next != 2 {
+		t.Fatalf("second write next=%d err=%v, want 2 and nil", next, err)
+	}
+	got, revision, err := ws.GetDraftWithRevision(ctx, cat)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if revision != 2 || string(got) != string(second) {
+		t.Fatalf("after two guarded writes: revision=%d draft=%s, want 2 and %s", revision, got, second)
+	}
+}
+
+// A category that was never edited has no row and no revision: both reads
+// answer (nil, 0, nil) without creating a row.
+func TestWorkflowStore_GetDraftWithRevisionAbsentIsZero(t *testing.T) {
+	s := newTestDB(t)
+	cat := seedCategory(t, s, "cat-rev-absent")
+	ws := newWorkflowStore(s.db)
+
+	got, revision, err := ws.GetDraftWithRevision(context.Background(), cat)
+	if err != nil || got != nil || revision != 0 {
+		t.Fatalf("absent draft = (%q, %d, %v), want (nil, 0, nil)", got, revision, err)
+	}
+	var n int
+	s.db.QueryRow(`SELECT COUNT(*) FROM category_workflows WHERE category_id=?`, cat).Scan(&n)
+	if n != 0 {
+		t.Fatalf("reading an absent revision created a row (%d)", n)
+	}
+}
+
+// TestWorkflowStore_PublishAtRevisionRefusesStaleWriter is the publish-side
+// falsification test at the store boundary: publishing superseded bytes with an
+// out-of-date revision must write NOTHING — no draft overwrite and no version —
+// and report ErrDraftRevisionConflict.
+func TestWorkflowStore_PublishAtRevisionRefusesStaleWriter(t *testing.T) {
+	s := newTestDB(t)
+	cat := seedCategory(t, s, "cat-pub-rev")
+	ws := newWorkflowStore(s.db)
+	ctx := context.Background()
+
+	newer := mustCanon(t, domain.WorkflowDefinition{{Type: domain.StepManualTask, ManualTask: &domain.ManualTaskStep{Instructions: "newer"}}})
+	stale := mustCanon(t, domain.WorkflowDefinition{{Type: domain.StepManualTask, ManualTask: &domain.ManualTaskStep{Instructions: "stale"}}})
+
+	// A newer draft is already at revision 1.
+	if rev, err := ws.SaveDraftIfRevision(ctx, cat, 0, newer); err != nil || rev != 1 {
+		t.Fatalf("advance revision: rev=%d err=%v, want 1 and nil", rev, err)
+	}
+
+	// The stale tab still publishes at revision 0.
+	if _, _, _, err := ws.PublishAtRevision(ctx, cat, stale, 0, nil); !errors.Is(err, application.ErrDraftRevisionConflict) {
+		t.Fatalf("stale publish err = %v, want ErrDraftRevisionConflict", err)
+	}
+	got, revision, err := ws.GetDraftWithRevision(ctx, cat)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != string(newer) || revision != 1 {
+		t.Fatalf("after refused publish: revision=%d draft=%s, want 1 and the newer bytes", revision, got)
+	}
+	var versions int
+	if err := s.db.QueryRow(`SELECT COUNT(*) FROM workflow_versions WHERE category_id=?`, cat).Scan(&versions); err != nil {
+		t.Fatal(err)
+	}
+	if versions != 0 {
+		t.Fatalf("a refused publish created %d versions, want 0", versions)
+	}
+}
+
+// The positive path: a publish at the correct revision creates the version,
+// advances the revision, and leaves a later save at the pre-publish revision
+// refused.
+func TestWorkflowStore_PublishAtRevisionAdvancesAndBlocksOldRevision(t *testing.T) {
+	s := newTestDB(t)
+	cat := seedCategory(t, s, "cat-pub-advance")
+	ws := newWorkflowStore(s.db)
+	ctx := context.Background()
+	draft := mustCanon(t, domain.WorkflowDefinition{{Type: domain.StepManualTask, ManualTask: &domain.ManualTaskStep{Instructions: "one"}}})
+
+	vid, revision, iss, err := ws.PublishAtRevision(ctx, cat, draft, 0, nil)
+	if err != nil || len(iss) != 0 || vid == 0 || revision != 1 {
+		t.Fatalf("publish: vid=%d revision=%d iss=%v err=%v, want a version, 1, none, nil", vid, revision, iss, err)
+	}
+	if got, stored, err := ws.GetDraftWithRevision(ctx, cat); err != nil || string(got) != string(draft) || stored != 1 {
+		t.Fatalf("after publish: revision=%d draft=%s err=%v, want 1 and the published bytes", stored, got, err)
+	}
+	if _, err := ws.SaveDraftIfRevision(ctx, cat, 0, draft); !errors.Is(err, application.ErrDraftRevisionConflict) {
+		t.Fatalf("save at the pre-publish revision err = %v, want ErrDraftRevisionConflict", err)
+	}
+	if next, err := ws.SaveDraftIfRevision(ctx, cat, revision, draft); err != nil || next != 2 {
+		t.Fatalf("save at the published revision: next=%d err=%v, want 2 and nil", next, err)
 	}
 }

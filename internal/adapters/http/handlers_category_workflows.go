@@ -2,6 +2,7 @@ package httpadapter
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"regexp"
@@ -66,6 +67,10 @@ type workflowBuilderData struct {
 	Live                 string
 	FocusStep            int
 	HasFinal             bool
+	// DraftRevision is the optimistic-lock expectation the builder carries back
+	// on submit (issue #254). The field is always rendered: a submission without
+	// it is refused rather than applied unguarded.
+	DraftRevision int64
 	// CloneSources are the OTHER categories with a published workflow the
 	// builder may clone from (issue #257). The page's own category is excluded.
 	CloneSources []domain.Category
@@ -83,13 +88,13 @@ func (h *CategoryWorkflowHandlers) get(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid category id", http.StatusBadRequest)
 		return
 	}
-	draft, err := h.workflows.GetForBuilder(r.Context(), *userFromContext(r.Context()), categoryID)
+	draft, revision, err := h.workflows.GetForBuilder(r.Context(), *userFromContext(r.Context()), categoryID)
 	if err != nil {
 		http.Error(w, mapErrorMsg(err), statusFor(err))
 		return
 	}
 	desks := h.deskOptions(r)
-	h.render(w, r, categoryID, draft, desks, nil, "", selectedStepIndex(r, len(draft)), http.StatusOK)
+	h.render(w, r, categoryID, draft, revision, desks, nil, "", selectedStepIndex(r, len(draft)), http.StatusOK)
 }
 
 // clone copies a source category's published workflow into this category's
@@ -125,12 +130,12 @@ func (h *CategoryWorkflowHandlers) clone(w http.ResponseWriter, r *http.Request)
 // renderCloneRefused re-renders the target's builder with the refusal message
 // next to the clone control, leaving the target's own draft exactly as it was.
 func (h *CategoryWorkflowHandlers) renderCloneRefused(w http.ResponseWriter, r *http.Request, targetID int64, message string, status int) {
-	draft, err := h.workflows.GetForBuilder(r.Context(), *userFromContext(r.Context()), targetID)
+	draft, revision, err := h.workflows.GetForBuilder(r.Context(), *userFromContext(r.Context()), targetID)
 	if err != nil {
 		http.Error(w, mapErrorMsg(err), statusFor(err))
 		return
 	}
-	h.renderBuilder(w, r, targetID, draft, h.deskOptions(r), nil, "", selectedStepIndex(r, len(draft)), message, status)
+	h.renderBuilder(w, r, targetID, draft, revision, h.deskOptions(r), nil, "", selectedStepIndex(r, len(draft)), message, status)
 }
 
 func (h *CategoryWorkflowHandlers) post(w http.ResponseWriter, r *http.Request) {
@@ -148,121 +153,189 @@ func (h *CategoryWorkflowHandlers) post(w http.ResponseWriter, r *http.Request) 
 	}
 	draft, issues := parseBuilderDraft(r)
 	selection := selectedStepIndex(r, len(draft))
+	action := r.Form.Get("action")
+	revision, revisionErr := submittedRevision(r)
+	if revisionErr != nil {
+		// A missing or unusable expectation is not "any revision": a mutation
+		// must never be applied without one, so it fails closed with ZERO writes
+		// on the same refusal path as a stale revision. select_step persists
+		// nothing, so it renders the submitted draft against the CURRENT stored
+		// revision — the only defensible base for a page whose submission named
+		// none — and its next save is still compared-and-swapped. The real
+		// builder always renders the field; only a crafted or legacy request
+		// reaches this branch.
+		if action != "select_step" {
+			h.renderDraftConflict(w, r, categoryID, selection)
+			return
+		}
+		_, current, err := h.workflows.GetForBuilder(r.Context(), *userFromContext(r.Context()), categoryID)
+		if err != nil {
+			http.Error(w, mapErrorMsg(err), statusFor(err))
+			return
+		}
+		revision = current
+	}
 	if len(issues) > 0 {
-		h.render(w, r, categoryID, draft, h.deskOptions(r), issues, "", selection, http.StatusUnprocessableEntity)
+		h.render(w, r, categoryID, draft, revision, h.deskOptions(r), issues, "", selection, http.StatusUnprocessableEntity)
 		return
 	}
 
 	actor := *userFromContext(r.Context())
 	desks := h.deskOptions(r)
-	action := r.Form.Get("action")
 	switch action {
 	case "select_step":
 		target, err := strconv.Atoi(r.Form.Get("selection_step_index"))
 		if err != nil || target < 0 || target >= len(draft) {
 			target = selection
 		}
-		h.render(w, r, categoryID, draft, desks, nil, "", target, http.StatusOK)
+		h.render(w, r, categoryID, draft, revision, desks, nil, "", target, http.StatusOK)
 	case "save", "change_type":
 		// save persists the reconstructed draft as-is; change_type is already
 		// reflected in the reconstructed step payloads (selected closed payload
 		// initialized, incompatible payloads dropped).
-		if err := h.workflows.SaveDraft(r.Context(), actor, categoryID, draft); err != nil {
-			http.Error(w, mapErrorMsg(err), statusFor(err))
+		if !h.persistBuilderDraft(w, r, categoryID, actor, draft, &revision, selection) {
 			return
 		}
-		h.afterMutation(w, r, categoryID, draft, desks, nil, saveFeedbackSaved, -1)
+		h.afterMutation(w, r, categoryID, draft, revision, desks, nil, saveFeedbackSaved, -1)
 	case "add_step":
 		// A terminal step stays final and last: new steps insert immediately before
 		// it (the builder offers the insertion point before the final card), or
 		// append when no terminal exists.
 		step := typedAddStep(draft, r.Form.Get("add_step_type"))
 		result, focus := insertBeforeTerminal(draft, step)
-		if err := h.workflows.SaveDraft(r.Context(), actor, categoryID, result); err != nil {
-			http.Error(w, mapErrorMsg(err), statusFor(err))
+		if !h.persistBuilderDraft(w, r, categoryID, actor, result, &revision, selection) {
 			return
 		}
-		h.afterMutation(w, r, categoryID, result, desks, nil, saveFeedbackSaved, focus)
+		h.afterMutation(w, r, categoryID, result, revision, desks, nil, saveFeedbackSaved, focus)
 	case "move_up":
-		result, focus, mv := localMoveUp(draft, r)
-		if mv {
-			if err := h.workflows.MoveUp(r.Context(), actor, categoryID, draft, focus+1); err != nil {
-				http.Error(w, mapErrorMsg(err), statusFor(err))
-				return
-			}
-		} else if err := h.workflows.SaveDraft(r.Context(), actor, categoryID, draft); err != nil {
-			http.Error(w, mapErrorMsg(err), statusFor(err))
+		result, focus, _ := localMoveUp(draft, r)
+		if !h.persistBuilderDraft(w, r, categoryID, actor, result, &revision, selection) {
 			return
 		}
-		h.afterMutation(w, r, categoryID, result, desks, nil, saveFeedbackSaved, focus)
+		h.afterMutation(w, r, categoryID, result, revision, desks, nil, saveFeedbackSaved, focus)
 	case "move_down":
-		result, focus, mv := localMoveDown(draft, r)
-		if mv {
-			if err := h.workflows.SaveDraft(r.Context(), actor, categoryID, result); err != nil {
-				http.Error(w, mapErrorMsg(err), statusFor(err))
-				return
-			}
-		} else if err := h.workflows.SaveDraft(r.Context(), actor, categoryID, draft); err != nil {
-			http.Error(w, mapErrorMsg(err), statusFor(err))
+		result, focus, _ := localMoveDown(draft, r)
+		if !h.persistBuilderDraft(w, r, categoryID, actor, result, &revision, selection) {
 			return
 		}
-		h.afterMutation(w, r, categoryID, result, desks, nil, saveFeedbackSaved, focus)
+		h.afterMutation(w, r, categoryID, result, revision, desks, nil, saveFeedbackSaved, focus)
 	case "remove_step":
-		result, focus, rm := localRemoveStep(draft, r)
-		if rm {
-			if err := h.workflows.RemoveStep(r.Context(), actor, categoryID, draft, focus); err != nil {
-				http.Error(w, mapErrorMsg(err), statusFor(err))
-				return
-			}
-		} else if err := h.workflows.SaveDraft(r.Context(), actor, categoryID, draft); err != nil {
-			http.Error(w, mapErrorMsg(err), statusFor(err))
+		result, focus, _ := localRemoveStep(draft, r)
+		if !h.persistBuilderDraft(w, r, categoryID, actor, result, &revision, selection) {
 			return
 		}
-		h.afterMutation(w, r, categoryID, result, desks, nil, saveFeedbackSaved, selectionAfterRemove(focus, len(result)))
+		h.afterMutation(w, r, categoryID, result, revision, desks, nil, saveFeedbackSaved, selectionAfterRemove(focus, len(result)))
 	case "reorder":
 		result, movedTo, err := localReorder(draft, r)
 		if err != nil {
-			h.render(w, r, categoryID, draft, desks, []domain.WorkflowValidationIssue{{Step: 1, Field: "steps", Message: err.Error()}}, "", selection, http.StatusUnprocessableEntity)
+			h.render(w, r, categoryID, draft, revision, desks, []domain.WorkflowValidationIssue{{Step: 1, Field: "steps", Message: err.Error()}}, "", selection, http.StatusUnprocessableEntity)
 			return
 		}
-		if err := h.workflows.SaveDraft(r.Context(), actor, categoryID, result); err != nil {
-			http.Error(w, mapErrorMsg(err), statusFor(err))
+		if !h.persistBuilderDraft(w, r, categoryID, actor, result, &revision, selection) {
 			return
 		}
-		h.afterMutation(w, r, categoryID, result, desks, nil, saveFeedbackSaved, movedTo)
+		h.afterMutation(w, r, categoryID, result, revision, desks, nil, saveFeedbackSaved, movedTo)
 	case "add_field":
 		result, idx := localAddField(draft, r)
-		if err := h.workflows.SaveDraft(r.Context(), actor, categoryID, result); err != nil {
-			http.Error(w, mapErrorMsg(err), statusFor(err))
+		if !h.persistBuilderDraft(w, r, categoryID, actor, result, &revision, selection) {
 			return
 		}
-		h.afterMutation(w, r, categoryID, result, desks, nil, saveFeedbackSaved, idx)
+		h.afterMutation(w, r, categoryID, result, revision, desks, nil, saveFeedbackSaved, idx)
 	case "remove_field":
 		result, idx := localRemoveField(draft, r)
-		if err := h.workflows.SaveDraft(r.Context(), actor, categoryID, result); err != nil {
-			http.Error(w, mapErrorMsg(err), statusFor(err))
+		if !h.persistBuilderDraft(w, r, categoryID, actor, result, &revision, selection) {
 			return
 		}
-		h.afterMutation(w, r, categoryID, result, desks, nil, saveFeedbackSaved, idx)
+		h.afterMutation(w, r, categoryID, result, revision, desks, nil, saveFeedbackSaved, idx)
 	case "publish":
-		publishIssues, err := h.workflows.Publish(r.Context(), actor, categoryID, draft)
+		// Publish is guarded too (issue #254): the submitted revision must still
+		// be the stored one. A stale publish is refused on the same 409 path and
+		// creates no version, and a success advances the revision so a later save
+		// at the pre-publish revision cannot overwrite the published draft.
+		newRevision, publishIssues, err := h.workflows.PublishAtRevision(r.Context(), actor, categoryID, draft, revision)
+		if errors.Is(err, application.ErrDraftRevisionConflict) {
+			h.renderDraftConflict(w, r, categoryID, selection)
+			return
+		}
 		if err != nil {
 			http.Error(w, mapErrorMsg(err), statusFor(err))
 			return
 		}
 		if len(publishIssues) > 0 {
-			h.render(w, r, categoryID, draft, desks, publishIssues, "", selection, http.StatusUnprocessableEntity)
+			h.render(w, r, categoryID, draft, revision, desks, publishIssues, "", selection, http.StatusUnprocessableEntity)
 			return
 		}
-		h.afterMutation(w, r, categoryID, draft, desks, nil, saveFeedbackPublished, selection)
+		revision = newRevision
+		h.afterMutation(w, r, categoryID, draft, revision, desks, nil, saveFeedbackPublished, selection)
 	default:
-		h.render(w, r, categoryID, draft, desks, []domain.WorkflowValidationIssue{{Step: 1, Field: "action", Message: "unknown workflow action"}}, "", selection, http.StatusUnprocessableEntity)
+		h.render(w, r, categoryID, draft, revision, desks, []domain.WorkflowValidationIssue{{Step: 1, Field: "action", Message: "unknown workflow action"}}, "", selection, http.StatusUnprocessableEntity)
 	}
+}
+
+// draftConflictMessage is the user-facing refusal (issue #254). It says what
+// happened (someone else changed the workflow), that the submitted change was
+// NOT saved, and what the page now shows (the latest draft), so the operator
+// can reapply their edit instead of wondering where it went.
+const draftConflictMessage = "Another session changed this workflow while you were editing. Your change was not saved; the latest draft is shown below."
+
+// submittedRevision reads the revision a browser carried in the form. The
+// field is REQUIRED: absent and malformed both mean the request cannot be
+// applied safely, so both are reported as errors and the caller fails closed
+// with zero writes. Neither is ever silently treated as stale, fresh, or
+// "match whatever is stored" — that last reading is exactly the bypass this
+// tightening closes.
+func submittedRevision(r *http.Request) (int64, error) {
+	values, ok := r.Form["draft_revision"]
+	if !ok {
+		return 0, fmt.Errorf("draft_revision is required")
+	}
+	if len(values) != 1 || !strictBuilderIndex.MatchString(values[0]) {
+		return 0, fmt.Errorf("draft_revision must be one non-negative numeric revision")
+	}
+	value, err := strconv.ParseInt(values[0], 10, 64)
+	if err != nil {
+		return 0, fmt.Errorf("draft_revision is out of range")
+	}
+	return value, nil
+}
+
+// persistBuilderDraft writes one reconstructed draft through the GUARDED path
+// and reports the new revision in *revision. A stale revision renders the
+// refusal (409) and writes nothing. There is no unguarded branch: a missing
+// expectation is refused before this is reached, so every builder mutation is
+// compare-and-swapped. It reports whether the caller should continue and render
+// the success.
+func (h *CategoryWorkflowHandlers) persistBuilderDraft(w http.ResponseWriter, r *http.Request, categoryID int64, actor domain.User, draft domain.WorkflowDefinition, revision *int64, selection int) bool {
+	next, err := h.workflows.SaveDraftAtRevision(r.Context(), actor, categoryID, draft, *revision)
+	if errors.Is(err, application.ErrDraftRevisionConflict) {
+		h.renderDraftConflict(w, r, categoryID, selection)
+		return false
+	}
+	if err != nil {
+		http.Error(w, mapErrorMsg(err), statusFor(err))
+		return false
+	}
+	*revision = next
+	return true
+}
+
+// renderDraftConflict re-renders the builder from the CURRENT stored draft and
+// its revision, with the message that says the submitted copy was not saved. It
+// writes nothing: the newer writer's bytes stay exactly as they are.
+func (h *CategoryWorkflowHandlers) renderDraftConflict(w http.ResponseWriter, r *http.Request, categoryID int64, selection int) {
+	fresh, revision, err := h.workflows.GetForBuilder(r.Context(), *userFromContext(r.Context()), categoryID)
+	if err != nil {
+		http.Error(w, mapErrorMsg(err), statusFor(err))
+		return
+	}
+	h.render(w, r, categoryID, fresh, revision, h.deskOptions(r),
+		[]domain.WorkflowValidationIssue{{Step: 1, Field: "draft", Message: draftConflictMessage}},
+		"", selection, http.StatusConflict)
 }
 
 // afterMutation issues feedback only after persistence succeeds. Full-page
 // requests carry it to the redirect; HTMX receives the server-issued header.
-func (h *CategoryWorkflowHandlers) afterMutation(w http.ResponseWriter, r *http.Request, categoryID int64, draft domain.WorkflowDefinition, desks []domain.Desk, issues []domain.WorkflowValidationIssue, message string, focus int) {
+func (h *CategoryWorkflowHandlers) afterMutation(w http.ResponseWriter, r *http.Request, categoryID int64, draft domain.WorkflowDefinition, revision int64, desks []domain.Desk, issues []domain.WorkflowValidationIssue, message string, focus int) {
 	if focus < 0 {
 		focus = selectedStepIndex(r, len(draft))
 	}
@@ -271,7 +344,7 @@ func (h *CategoryWorkflowHandlers) afterMutation(w http.ResponseWriter, r *http.
 		redirect(w, r, workflowLocation(r, focus))
 		return
 	}
-	h.render(w, r, categoryID, draft, desks, issues, "", focus, http.StatusOK)
+	h.render(w, r, categoryID, draft, revision, desks, issues, "", focus, http.StatusOK)
 }
 
 func workflowLocation(r *http.Request, selection int) string {
@@ -312,13 +385,13 @@ func (h *CategoryWorkflowHandlers) deskOptions(r *http.Request) []domain.Desk {
 	return desks
 }
 
-func (h *CategoryWorkflowHandlers) render(w http.ResponseWriter, r *http.Request, categoryID int64, draft domain.WorkflowDefinition, desks []domain.Desk, issues []domain.WorkflowValidationIssue, live string, focus int, status int) {
-	h.renderBuilder(w, r, categoryID, draft, desks, issues, live, focus, "", status)
+func (h *CategoryWorkflowHandlers) render(w http.ResponseWriter, r *http.Request, categoryID int64, draft domain.WorkflowDefinition, revision int64, desks []domain.Desk, issues []domain.WorkflowValidationIssue, live string, focus int, status int) {
+	h.renderBuilder(w, r, categoryID, draft, revision, desks, issues, live, focus, "", status)
 }
 
 // renderBuilder is render with the optional clone-refusal message (issue #257);
 // every existing call site keeps the plain render entry point.
-func (h *CategoryWorkflowHandlers) renderBuilder(w http.ResponseWriter, r *http.Request, categoryID int64, draft domain.WorkflowDefinition, desks []domain.Desk, issues []domain.WorkflowValidationIssue, live string, focus int, cloneError string, status int) {
+func (h *CategoryWorkflowHandlers) renderBuilder(w http.ResponseWriter, r *http.Request, categoryID int64, draft domain.WorkflowDefinition, revision int64, desks []domain.Desk, issues []domain.WorkflowValidationIssue, live string, focus int, cloneError string, status int) {
 	category, err := h.categories.GetByID(r.Context(), categoryID)
 	if err != nil {
 		http.Error(w, mapErrorMsg(err), statusFor(err))
@@ -343,6 +416,8 @@ func (h *CategoryWorkflowHandlers) renderBuilder(w http.ResponseWriter, r *http.
 		HasFinal:     hasTerminalStep(draft),
 		CloneSources: h.cloneSources(r, categoryID),
 		CloneError:   cloneError,
+
+		DraftRevision: revision,
 	}
 	data.PageFoundationAssets = true
 	data.WorkflowAssets = true

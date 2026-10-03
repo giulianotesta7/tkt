@@ -577,7 +577,19 @@ type WorkflowSummary struct {
 type WorkflowStore interface {
 	GetDraft(ctx context.Context, categoryID int64) ([]byte, error)
 	UpsertDraft(ctx context.Context, categoryID int64, draft []byte) error
+	// Publish keeps its historical signature for the callers that arrange a
+	// published version directly (the HTTP harness and adapter fixtures). It
+	// publishes against the CURRENT revision and still advances it in the same
+	// transaction, so a later save at the previous revision is refused; the
+	// guarded production path is PublishAtRevision.
 	Publish(ctx context.Context, categoryID int64, draft []byte, publishedByUserID *int64) (int64, []domain.WorkflowValidationIssue, error)
+	// PublishAtRevision is the guarded publish (issue #254). expectedRevision is
+	// compared-and-swapped in the SAME immediate transaction that allocates the
+	// version and switches current_version_id, so a stale tab that publishes
+	// superseded bytes writes NOTHING and is refused with
+	// ErrDraftRevisionConflict. On success the stored draft_revision advances by
+	// exactly one and is returned, so the next save must carry the new value.
+	PublishAtRevision(ctx context.Context, categoryID int64, draft []byte, expectedRevision int64, publishedByUserID *int64) (versionID int64, draftRevision int64, issues []domain.WorkflowValidationIssue, err error)
 	ListSummaries(ctx context.Context) ([]WorkflowSummary, error)
 	ListAvailableCategories(ctx context.Context) ([]domain.Category, error)
 }
