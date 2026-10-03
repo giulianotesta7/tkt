@@ -3,6 +3,7 @@ package application_test
 import (
 	"bytes"
 	"context"
+	"errors"
 	"strings"
 	"testing"
 
@@ -25,13 +26,16 @@ func TestWorkflowService_GetForBuilder_RequiresCapability(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			actor := domain.User{ID: 10, Role: tc.role, Active: true}
-			def, err := svc.GetForBuilder(context.Background(), actor, 1)
+			def, revision, err := svc.GetForBuilder(context.Background(), actor, 1)
 			if tc.ok {
 				if err != nil {
 					t.Fatalf("allowed %s err %v", tc.role, err)
 				}
 				if len(def) != 0 {
 					t.Fatalf("want empty got %d", len(def))
+				}
+				if revision != 0 {
+					t.Fatalf("a store without the revision capability must read revision 0, got %d", revision)
 				}
 				if len(ws.upsertCalls) != 0 {
 					t.Fatal("GetForBuilder must not write")
@@ -57,12 +61,15 @@ func TestWorkflowService_GetForBuilder_EmptyWhenAbsent(t *testing.T) {
 	ws := newFakeWorkflowStore()
 	svc := application.NewWorkflowService(ws)
 	admin := domain.User{ID: 1, Role: domain.RoleAdmin, Active: true}
-	def, err := svc.GetForBuilder(context.Background(), admin, 99)
+	def, revision, err := svc.GetForBuilder(context.Background(), admin, 99)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(def) != 0 {
 		t.Fatalf("want empty got %v", def)
+	}
+	if revision != 0 {
+		t.Fatalf("absent draft revision = %d, want 0", revision)
 	}
 	if len(ws.upsertCalls) != 0 {
 		t.Fatal("must not upsert")
@@ -295,5 +302,138 @@ func TestWorkflowService_Clone_RequiresCapability(t *testing.T) {
 	}
 	if len(store.upsertCalls) != 0 {
 		t.Fatal("denied clone must not write")
+	}
+}
+
+// bareWorkflowStore implements ONLY the base WorkflowStore port. Embedding the
+// INTERFACE (not the concrete fake) is what hides the fake's extra
+// optimistic-lock methods, which is exactly the shape SaveDraftAtRevision must
+// fail closed on.
+type bareWorkflowStore struct{ application.WorkflowStore }
+
+// TestWorkflowService_SaveDraftAtRevision_RefusesStaleTab is the issue #254
+// falsification test at the application layer: two writers carry the SAME
+// expected revision (the stale tab and the tab that saved first). The stale
+// write must be refused with ErrDraftRevisionConflict and the winner's bytes
+// must survive. Deterministic and sequential on purpose: no sleeps, no
+// polling, no t.Parallel — the two sequential service calls ARE the stale tab.
+func TestWorkflowService_SaveDraftAtRevision_RefusesStaleTab(t *testing.T) {
+	store := newFakeWorkflowStore()
+	svc := application.NewWorkflowService(store)
+	admin := domain.User{ID: 1, Role: domain.RoleAdmin, Active: true}
+	ctx := context.Background()
+
+	winner := domain.WorkflowDefinition{{Type: domain.StepManualTask, ManualTask: &domain.ManualTaskStep{Instructions: "winner"}}}
+	stale := domain.WorkflowDefinition{{Type: domain.StepManualTask, ManualTask: &domain.ManualTaskStep{Instructions: "stale tab"}}}
+
+	_, revision, err := svc.GetForBuilder(ctx, admin, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if revision != 0 {
+		t.Fatalf("fresh category revision = %d, want 0", revision)
+	}
+
+	if next, err := svc.SaveDraftAtRevision(ctx, admin, 1, winner, revision); err != nil || next != 1 {
+		t.Fatalf("first writer: next=%d err=%v, want 1 and nil", next, err)
+	}
+	// The stale tab still carries revision 0.
+	if _, err := svc.SaveDraftAtRevision(ctx, admin, 1, stale, 0); !errors.Is(err, application.ErrDraftRevisionConflict) {
+		t.Fatalf("stale write err = %v, want ErrDraftRevisionConflict", err)
+	}
+	got, revisionAfter, err := svc.GetForBuilder(ctx, admin, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].ManualTask == nil || got[0].ManualTask.Instructions != "winner" {
+		t.Fatalf("stored draft = %+v, want the winner's bytes", got)
+	}
+	if revisionAfter != 1 {
+		t.Fatalf("stored revision = %d, want 1 (the refused write must not advance it)", revisionAfter)
+	}
+}
+
+// The positive path: the correct revision succeeds and advances the revision.
+func TestWorkflowService_SaveDraftAtRevision_AdvancesOnCorrectRevision(t *testing.T) {
+	store := newFakeWorkflowStore()
+	svc := application.NewWorkflowService(store)
+	admin := domain.User{ID: 1, Role: domain.RoleAdmin, Active: true}
+	ctx := context.Background()
+	first := domain.WorkflowDefinition{{Type: domain.StepManualTask, ManualTask: &domain.ManualTaskStep{Instructions: "one"}}}
+	second := domain.WorkflowDefinition{{Type: domain.StepManualTask, ManualTask: &domain.ManualTaskStep{Instructions: "two"}}}
+
+	if next, err := svc.SaveDraftAtRevision(ctx, admin, 1, first, 0); err != nil || next != 1 {
+		t.Fatalf("first write next=%d err=%v, want 1 and nil", next, err)
+	}
+	if next, err := svc.SaveDraftAtRevision(ctx, admin, 1, second, 1); err != nil || next != 2 {
+		t.Fatalf("second write next=%d err=%v, want 2 and nil", next, err)
+	}
+	got, revision, err := svc.GetForBuilder(ctx, admin, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if revision != 2 || len(got) != 1 || got[0].ManualTask == nil || got[0].ManualTask.Instructions != "two" {
+		t.Fatalf("after two guarded writes: revision=%d draft=%+v, want 2 and 'two'", revision, got)
+	}
+}
+
+// A store without the revision capability must fail closed: a guarded write is
+// refused with an error and nothing is written.
+func TestWorkflowService_SaveDraftAtRevision_StoreWithoutCapabilityFailsClosed(t *testing.T) {
+	base := newFakeWorkflowStore()
+	store := &bareWorkflowStore{WorkflowStore: base}
+	svc := application.NewWorkflowService(store)
+	admin := domain.User{ID: 1, Role: domain.RoleAdmin, Active: true}
+	draft := domain.WorkflowDefinition{{Type: domain.StepManualTask, ManualTask: &domain.ManualTaskStep{Instructions: "x"}}}
+	if _, err := svc.SaveDraftAtRevision(context.Background(), admin, 1, draft, 0); err == nil {
+		t.Fatal("a store without the revision capability must refuse a guarded write")
+	}
+	if len(base.upsertCalls) != 0 {
+		t.Fatal("a refused guarded write must write nothing")
+	}
+}
+
+// TestWorkflowService_Publish_RefusesStaleRevision is the publish-side
+// falsification test at the application layer: a publish carrying a revision
+// another writer already advanced is refused and writes nothing.
+func TestWorkflowService_Publish_RefusesStaleRevision(t *testing.T) {
+	store := newFakeWorkflowStore()
+	svc := application.NewWorkflowService(store)
+	admin := domain.User{ID: 1, Role: domain.RoleAdmin, Active: true}
+	ctx := context.Background()
+	draft := domain.WorkflowDefinition{{Type: domain.StepManualTask, ManualTask: &domain.ManualTaskStep{Instructions: "Do"}}}
+
+	// A writer advances the draft to revision 1 before the stale publish.
+	if next, err := svc.SaveDraftAtRevision(ctx, admin, 1, draft, 0); err != nil || next != 1 {
+		t.Fatalf("advance revision: next=%d err=%v, want 1 and nil", next, err)
+	}
+
+	// The stale tab still carries revision 0.
+	if _, _, err := svc.PublishAtRevision(ctx, admin, 1, draft, 0); !errors.Is(err, application.ErrDraftRevisionConflict) {
+		t.Fatalf("stale publish err = %v, want ErrDraftRevisionConflict", err)
+	}
+	if len(store.publishCalls) != 0 {
+		t.Fatalf("a refused publish must write nothing, got %d publish calls", len(store.publishCalls))
+	}
+}
+
+// The positive path: publishing at the correct revision succeeds, advances the
+// revision, and leaves a later save at the pre-publish revision refused.
+func TestWorkflowService_Publish_AdvancesAndBlocksOldRevision(t *testing.T) {
+	store := newFakeWorkflowStore()
+	svc := application.NewWorkflowService(store)
+	admin := domain.User{ID: 1, Role: domain.RoleAdmin, Active: true}
+	ctx := context.Background()
+	draft := domain.WorkflowDefinition{{Type: domain.StepManualTask, ManualTask: &domain.ManualTaskStep{Instructions: "Do"}}}
+
+	revision, iss, err := svc.PublishAtRevision(ctx, admin, 1, draft, 0)
+	if err != nil || len(iss) != 0 || revision != 1 {
+		t.Fatalf("publish: revision=%d iss=%v err=%v, want 1, none, nil", revision, iss, err)
+	}
+	if _, err := svc.SaveDraftAtRevision(ctx, admin, 1, draft, 0); !errors.Is(err, application.ErrDraftRevisionConflict) {
+		t.Fatalf("save at the pre-publish revision err = %v, want ErrDraftRevisionConflict", err)
+	}
+	if next, err := svc.SaveDraftAtRevision(ctx, admin, 1, draft, revision); err != nil || next != 2 {
+		t.Fatalf("save at the published revision: next=%d err=%v, want 2 and nil", next, err)
 	}
 }

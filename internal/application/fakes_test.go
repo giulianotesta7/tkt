@@ -693,10 +693,13 @@ type fakeWorkflowStore struct {
 		by    *int64
 	}
 	drafts    map[int64][]byte
+	revisions map[int64]int64
 	published *domain.WorkflowDefinition
 }
 
-func newFakeWorkflowStore() *fakeWorkflowStore { return &fakeWorkflowStore{drafts: map[int64][]byte{}} }
+func newFakeWorkflowStore() *fakeWorkflowStore {
+	return &fakeWorkflowStore{drafts: map[int64][]byte{}, revisions: map[int64]int64{}}
+}
 func (f *fakeWorkflowStore) GetDraft(_ context.Context, categoryID int64) ([]byte, error) {
 	f.getCalls = append(f.getCalls, categoryID)
 	if d, ok := f.drafts[categoryID]; ok {
@@ -716,13 +719,46 @@ func (f *fakeWorkflowStore) UpsertDraft(_ context.Context, categoryID int64, dra
 	f.drafts[categoryID] = cp
 	return nil
 }
-func (f *fakeWorkflowStore) Publish(_ context.Context, categoryID int64, draft []byte, by *int64) (int64, []domain.WorkflowValidationIssue, error) {
+
+// GetDraftWithRevision and SaveDraftIfRevision give the base fake the
+// optimistic-lock capability (issue #254), one revision per category, exactly
+// like the SQLite adapter: SaveDraftIfRevision is a compare-and-swap, and a
+// stale expectation is refused with application.ErrDraftRevisionConflict.
+func (f *fakeWorkflowStore) GetDraftWithRevision(ctx context.Context, categoryID int64) ([]byte, int64, error) {
+	draft, err := f.GetDraft(ctx, categoryID)
+	return draft, f.revisions[categoryID], err
+}
+func (f *fakeWorkflowStore) SaveDraftIfRevision(ctx context.Context, categoryID int64, expectedRevision int64, draft []byte) (int64, error) {
+	if f.revisions[categoryID] != expectedRevision {
+		return f.revisions[categoryID], application.ErrDraftRevisionConflict
+	}
+	if err := f.UpsertDraft(ctx, categoryID, draft); err != nil {
+		return 0, err
+	}
+	f.revisions[categoryID]++
+	return f.revisions[categoryID], nil
+}
+
+// Publish mirrors the store's historical method: it publishes against the
+// CURRENT revision (the fixture path) and still advances it.
+func (f *fakeWorkflowStore) Publish(ctx context.Context, categoryID int64, draft []byte, by *int64) (int64, []domain.WorkflowValidationIssue, error) {
+	vid, _, iss, err := f.PublishAtRevision(ctx, categoryID, draft, f.revisions[categoryID], by)
+	return vid, iss, err
+}
+
+// PublishAtRevision is the guarded publish (issue #254): a stale expectation
+// writes nothing and is refused with ErrDraftRevisionConflict; a success
+// advances the revision by one so a later save at the old revision is refused.
+func (f *fakeWorkflowStore) PublishAtRevision(_ context.Context, categoryID int64, draft []byte, expectedRevision int64, by *int64) (int64, int64, []domain.WorkflowValidationIssue, error) {
+	if f.revisions[categoryID] != expectedRevision {
+		return 0, 0, nil, application.ErrDraftRevisionConflict
+	}
 	def, err := domain.ParseWorkflowDefinition(draft)
 	if err != nil {
-		return 0, []domain.WorkflowValidationIssue{{Step: 1, Field: "steps", Message: err.Error()}}, nil
+		return 0, 0, []domain.WorkflowValidationIssue{{Step: 1, Field: "steps", Message: err.Error()}}, nil
 	}
 	if iss := def.Validate(); len(iss) > 0 {
-		return 0, iss, nil
+		return 0, 0, iss, nil
 	}
 	cp := make([]byte, len(draft))
 	copy(cp, draft)
@@ -732,9 +768,10 @@ func (f *fakeWorkflowStore) Publish(_ context.Context, categoryID int64, draft [
 		by    *int64
 	}{cat: categoryID, draft: cp, by: by})
 	f.drafts[categoryID] = cp
+	f.revisions[categoryID] = expectedRevision + 1
 	c := def
 	f.published = &c
-	return int64(len(f.publishCalls)), nil, nil
+	return int64(len(f.publishCalls)), f.revisions[categoryID], nil, nil
 }
 func (f *fakeWorkflowStore) ListSummaries(_ context.Context) ([]application.WorkflowSummary, error) {
 	return []application.WorkflowSummary{}, nil
