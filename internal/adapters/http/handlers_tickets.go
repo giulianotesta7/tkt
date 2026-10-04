@@ -1219,6 +1219,22 @@ type detailData struct {
 	// hides the section entirely: a requester never receives the projection,
 	// and a ticket with no frozen SLA has none to show.
 	SLA *slaPanelView
+	// BackHref is the validated "← Queue" target (issue #265): the same-origin
+	// list URL the browser came from, reduced to whitelisted list parameters,
+	// or /tickets when the navigation carried no usable list origin.
+	BackHref string
+}
+
+// QueueHref is the detail's "← Queue" target: the validated list return href
+// when the navigation carried one, else the plain queue. The fallback lives
+// here so a detailData built without a BackHref (the golden fixtures, an
+// out-of-band render) still renders the historical /tickets instead of an
+// empty href.
+func (d detailData) QueueHref() string {
+	if d.BackHref == "" {
+		return "/tickets"
+	}
+	return d.BackHref
 }
 
 // workflowClaim is the sidebar claim projection for the current pinned step.
@@ -1342,6 +1358,9 @@ func (h *TicketHandlers) detailDataFor(r *http.Request, id int64) (detailData, i
 		Pending:            pending,
 		Claim:              h.claimFor(r, id, actor),
 		SLA:                slaPanel,
+		// The browser's Referer is the only source for the list origin; it is
+		// validated and rebuilt here, never echoed (issue #265).
+		BackHref: listReturnHref(r.Referer(), r.Host),
 	}, 0, nil
 }
 

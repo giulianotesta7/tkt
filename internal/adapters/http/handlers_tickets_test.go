@@ -2,9 +2,11 @@ package httpadapter
 
 import (
 	"errors"
+	"html"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"regexp"
 	"strconv"
 	"strings"
 	"testing"
@@ -1286,6 +1288,67 @@ func TestTicketsIndexSLAIsStaffOnly(t *testing.T) {
 	} {
 		if strings.Contains(requesterBody, absent) {
 			t.Errorf("LEAK: requester list must not render SLA markup %q, got: %s", absent, requesterBody)
+		}
+	}
+}
+
+// TestTicketDetailQueueLinkCarriesValidatedListContext proves the detail's
+// "← Queue" link returns to the source list with search, filters and order
+// preserved (issue #265), and that the client-supplied Referer can never
+// produce an off-site href: a cross-origin host, a foreign path, or an absent
+// header all fall back to the plain queue.
+func TestTicketDetailQueueLinkCarriesValidatedListContext(t *testing.T) {
+	h := newHarness(t)
+	tkt := h.seedTicket(t, "return context", nil)
+	target := "/tickets/" + strconv.FormatInt(tkt.ID, 10)
+
+	detailWithReferer := func(referer string) string {
+		hdr := map[string]string{"Cookie": sessionCookie + "=" + h.adminSession.ID}
+		if referer != "" {
+			hdr["Referer"] = referer
+		}
+		rec := doRequest(h.mux, h.mw, http.MethodGet, target, hdr)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("detail status = %d, want 200 (referer %q)", rec.Code, referer)
+		}
+		return rec.Body.String()
+	}
+
+	// The browser's same-origin Referer carries the whole filtered list URL;
+	// every whitelisted parameter survives and unknown ones do not. The href is
+	// read back through html.UnescapeString because html/template encodes the
+	// query separators and the `+` in the attribute.
+	queueHref := func(body string) string {
+		m := regexp.MustCompile(`<a href="([^"]*)">← Queue</a>`).FindStringSubmatch(body)
+		if m == nil {
+			t.Fatalf("detail must render the Queue link, got: %.500s", body)
+		}
+		return html.UnescapeString(m[1])
+	}
+	body := detailWithReferer("http://example.com/tickets?q=Prueba+UX&state=new&priority=low&category_id=2&user_id=3&sort=priority&page=2&evil=1")
+	if got, want := queueHref(body), "/tickets?category_id=2&page=2&priority=low&q=Prueba+UX&sort=priority&state=new&user_id=3"; got != want {
+		t.Errorf("Queue link = %q, want %q", got, want)
+	}
+	if strings.Contains(body, "evil=1") {
+		t.Error("unknown parameter must not survive into the Queue link")
+	}
+
+	// A cross-origin Referer, a scheme-relative host, a foreign path, and an
+	// absent Referer all fall back to the plain queue; none can smuggle a host
+	// or scheme into the href.
+	for _, tc := range []struct{ name, referer string }{
+		{"cross-origin", "https://evil.example/tickets?q=x"},
+		{"scheme-relative", "//evil.example/tickets?q=x"},
+		{"foreign path", "http://example.com/users?q=x"},
+		{"subpath", "http://example.com/tickets/12?q=x"},
+		{"no referer", ""},
+	} {
+		body := detailWithReferer(tc.referer)
+		if got := queueHref(body); got != "/tickets" {
+			t.Errorf("%s: Queue link = %q, want /tickets", tc.name, got)
+		}
+		if strings.Contains(body, "evil.example") {
+			t.Errorf("%s: hostile host leaked into the Queue link", tc.name)
 		}
 	}
 }

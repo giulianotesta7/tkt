@@ -913,6 +913,134 @@ test.describe("Ticket Lifecycle", () => {
     });
   });
 
+  test("a filtered queue returns with its search, filters and order from the ticket detail", async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    const obs = collectObservability(page);
+    await loginAsSeeded(page);
+
+    // One uniquely titled probe, assigned to the seeded operator so the queue
+    // can also filter by assigned user with a visible result.
+    const title = `ReturnProbe ${Date.now().toString(36).slice(2, 10)}`;
+    await createTicketViaUi(page, {
+      title,
+      description: "filtered queue return probe",
+      category: "General",
+      priority: "low",
+    });
+    await page.locator("#ticket-list").getByRole("link", { name: title, exact: true }).click();
+    await expect(page.locator("#ticket-detail")).toBeVisible();
+    const assignForm = page.locator('form[action$="/assign"]');
+    await assertHtmxSwap(
+      page,
+      async () => {
+        await assignForm.locator("select[name=user_id]").selectOption("1");
+        await assignForm.getByRole("button", { name: "Apply", exact: true }).click();
+      },
+      {
+        endpoint: /\/tickets\/\d+\/assign$/,
+        method: "POST",
+        expectedStatus: 200,
+        hxTarget: "#ticket-detail",
+      },
+    );
+    await expect(page.locator('form[action$="/assign"] select[name=user_id]')).toHaveValue("1");
+
+    // Build the filtered queue through the real toolbar: search + state +
+    // priority + category + assigned user + order.
+    await page.goto(base() + "/tickets");
+    await expect(page.locator("#tickets-screen")).toBeVisible();
+    const categoryID = await page
+      .locator('.filter-bar select[name="category_id"] option')
+      .filter({ hasText: /^General$/ })
+      .getAttribute("value");
+    if (!categoryID) {
+      throw new Error(`cannot resolve the General category id at ${page.url()}`);
+    }
+    await assertHtmxSwap(
+      page,
+      async () => {
+        await page.getByLabel("Search tickets").fill(title);
+        await page.getByLabel("State").selectOption("new");
+        await page.getByLabel("Priority").selectOption("low");
+        await page.getByLabel("Category").selectOption(categoryID);
+        await page.getByLabel("Assigned user").selectOption("1");
+        await page.getByLabel("Order by").selectOption("priority");
+        await page.getByRole("button", { name: "Apply", exact: true }).click();
+      },
+      {
+        endpoint: (url) => {
+          const u = new URL(url);
+          return (
+            u.pathname === "/tickets" &&
+            u.searchParams.get("q") === title &&
+            u.searchParams.get("state") === "new" &&
+            u.searchParams.get("priority") === "low" &&
+            u.searchParams.get("category_id") === categoryID &&
+            u.searchParams.get("user_id") === "1" &&
+            u.searchParams.get("sort") === "priority"
+          );
+        },
+        method: "GET",
+        expectedStatus: 200,
+        hxTarget: "#tickets-screen",
+        expectedUrl: /\/tickets\?.*sort=priority/,
+      },
+    );
+    await expect(page.locator("#ticket-list").getByText(title)).toBeVisible();
+
+    // Open the ticket by an ordinary navigation; the browser sends the filtered
+    // list URL as the Referer, and the detail's Queue link mirrors it.
+    await page.locator("#ticket-list").getByRole("link", { name: title, exact: true }).click();
+    await expect(page.locator("#ticket-detail")).toBeVisible();
+    const queueHref = await page.getByRole("link", { name: "Queue" }).getAttribute("href");
+    const queueURL = new URL(queueHref ?? "", base());
+    expect(queueURL.pathname).toBe("/tickets");
+    for (const [key, value] of [
+      ["q", title],
+      ["state", "new"],
+      ["priority", "low"],
+      ["category_id", categoryID],
+      ["user_id", "1"],
+      ["sort", "priority"],
+    ]) {
+      expect(queueURL.searchParams.get(key), `Queue href parameter ${key}`).toBe(value);
+    }
+
+    // Return via Queue: the list comes back filtered, ordered, and populated.
+    await page.getByRole("link", { name: "Queue" }).click();
+    await expect(page).toHaveURL(/\/tickets\?.*sort=priority/);
+    const returnedURL = new URL(page.url());
+    expect(returnedURL.searchParams.get("q")).toBe(title);
+    expect(returnedURL.searchParams.get("state")).toBe("new");
+    expect(returnedURL.searchParams.get("priority")).toBe("low");
+    expect(returnedURL.searchParams.get("category_id")).toBe(categoryID);
+    expect(returnedURL.searchParams.get("user_id")).toBe("1");
+    expect(returnedURL.searchParams.get("sort")).toBe("priority");
+    await expect(page.getByLabel("Search tickets")).toHaveValue(title);
+    await expect(page.getByLabel("Order by")).toHaveValue("priority");
+    await expect(page.locator("#ticket-list").getByText(title)).toBeVisible();
+
+    // Browser Back/Forward round-trips the detail and the filtered queue.
+    await page.goBack();
+    await expect(page.locator("#ticket-detail")).toBeVisible();
+    await page.goForward();
+    await expect(page.locator("#ticket-list").getByText(title)).toBeVisible();
+    expect(new URL(page.url()).searchParams.get("sort")).toBe("priority");
+
+    await assertCanonicalScreen(page, {
+      viewport: 1280,
+      label: "tickets filtered queue return",
+      url: page.url(),
+      role: "root",
+      consoleErrors: obs.consoleErrors,
+      pageErrors: obs.pageErrors,
+      failedRequests: obs.failedRequests,
+      failedResponses: obs.failedResponses,
+    });
+  });
+
   test("pagination preserves its query across HTMX, reload, and mobile rows", async ({ page }) => {
     test.setTimeout(90_000);
     const obs = collectObservability(page);

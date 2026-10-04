@@ -5,7 +5,7 @@
   <div class="command-header">
     <div class="detail-head">
       <div class="meta-row">
-        <a href="/tickets">← Queue</a>
+        <a href="{{.QueueHref}}">← Queue</a>
         <span class="num">{{ticketNumber .View.Ticket.Number}}</span>
       </div>
 {{if and .CanEdit (not .Closed)}}
