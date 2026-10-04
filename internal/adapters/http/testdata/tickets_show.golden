@@ -70,7 +70,7 @@
   <h2>Add comment</h2>
 
   <div class="field">
-    <textarea name="body" placeholder="Write a comment…" aria-label="Comment body"></textarea>
+    <textarea name="body" id="comment-body" hx-preserve="true" placeholder="Write a comment…" aria-label="Comment body"></textarea>
   </div>
   <input type="hidden" name="visibility" value="public">
 
