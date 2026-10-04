@@ -8,7 +8,7 @@
   <input type="hidden" name="visibility" value="public">
 {{if .CanCommentInternal}}
   <div class="field checkbox-field">
-    <label for="comment-internal"><input id="comment-internal" type="checkbox" name="internal" value="1"> Internal comment</label>
+    <label for="comment-internal"><input id="comment-internal" type="checkbox" name="internal" value="1" hx-preserve="true"> Internal comment</label>{{/* #308: the visibility control is preserved under the same id handle as the draft, so a swap keeps text and intent together. Guarded by CanCommentInternal: the preserve handle only exists when the server renders the control. */}}
   </div>
 {{end}}
   <button class="btn primary" type="submit">Add comment</button>
