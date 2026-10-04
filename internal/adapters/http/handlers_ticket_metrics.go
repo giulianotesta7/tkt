@@ -97,16 +97,30 @@ func parseTicketMetricsFilter(r *http.Request) (application.TicketMetricsFilter,
 	return f, firstErr
 }
 
-// metricsReturnHref builds the safe relative /tickets return URL for the
-// summary's "View metrics" link (issue #123): only a /tickets origin
-// survives, unknown or malformed query values are ignored, and the
+// listReturnHref builds the safe relative /tickets return URL from a candidate
+// value (issue #123 metrics return, issue #265 list context): only a /tickets
+// origin survives, unknown or malformed query values are ignored, and the
 // recognized list parameters are re-encoded by url.Values; else "/tickets".
-func metricsReturnHref(raw string) string {
-	u, err := url.Parse(raw)
-	if err != nil || u.Path != "/tickets" || u.Host != "" || u.User != nil {
+//
+// requestHost, when non-empty, additionally requires an ABSOLUTE candidate to
+// name that exact host, so the detail page can accept the browser's Referer
+// without trusting it (issue #265). A relative candidate is host-agnostic
+// because the result is rebuilt here as a rooted path.
+//
+// Nothing from the candidate is ever echoed verbatim: the result is always
+// "/tickets" plus url.Values-encoded whitelisted pairs, so a hostile value
+// cannot produce an off-site or scheme-bearing href.
+func listReturnHref(raw, requestHost string) string {
+	if raw == "" || strings.ContainsRune(raw, 0) {
 		return "/tickets"
 	}
-	if strings.ContainsRune(raw, 0) {
+	u, err := url.Parse(raw)
+	if err != nil || u.Path != "/tickets" || u.User != nil {
+		return "/tickets"
+	}
+	// An absolute (or scheme-relative) candidate must name the request host;
+	// a cross-origin Referer can never steer the return off-site.
+	if u.Host != "" && u.Host != requestHost {
 		return "/tickets"
 	}
 	q := u.Query()
@@ -126,6 +140,12 @@ func metricsReturnHref(raw string) string {
 	if text := q.Get("q"); text != "" {
 		v.Set("q", text)
 	}
+	// The chosen order is a recognized list parameter (issue #265): the
+	// default newest-first order is implicit, so only the two explicit
+	// orders are carried.
+	if s := q.Get("sort"); s == sortPriority || s == sortUrgency {
+		v.Set("sort", s)
+	}
 	if page := parseID(q.Get("page")); page > 1 {
 		v.Set("page", strconv.FormatInt(page, 10))
 	}
@@ -133,6 +153,13 @@ func metricsReturnHref(raw string) string {
 		return "/tickets"
 	}
 	return "/tickets?" + v.Encode()
+}
+
+// metricsReturnHref is listReturnHref for the metrics surface's path-only
+// candidates (r.URL.RequestURI() and the `return` query value); it never
+// accepts an absolute URL, so a cross-origin value can never be echoed.
+func metricsReturnHref(raw string) string {
+	return listReturnHref(raw, "")
 }
 
 // metricsData loads the dedicated detail view plus the metric-filter option

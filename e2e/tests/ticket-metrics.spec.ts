@@ -265,6 +265,60 @@ test.describe("Ticket metrics summary", () => {
     await expect(page.locator("#tickets-screen")).toBeVisible();
     expectNoConsoleOrPageErrors(obs.consoleErrors, obs.pageErrors);
   });
+
+  test("the metrics return preserves the list order", async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    const obs = collectObservability(page);
+    await loginAsSeeded(page);
+
+    // Choose an explicit order on the list. The summary's View metrics link
+    // mirrors the pushed URL client-side, so its return value carries the sort.
+    await page.goto(base() + "/tickets");
+    await expect(page.locator("#tickets-screen")).toBeVisible();
+    await assertHtmxSwap(
+      page,
+      async () => {
+        await page.getByLabel("Order by").selectOption("priority");
+        await page.getByRole("button", { name: "Apply", exact: true }).click();
+      },
+      {
+        endpoint: (url) => {
+          const u = new URL(url);
+          return u.pathname === "/tickets" && u.searchParams.get("sort") === "priority";
+        },
+        method: "GET",
+        expectedStatus: 200,
+        hxTarget: "#tickets-screen",
+        expectedUrl: /\/tickets\?.*sort=priority/,
+      },
+    );
+    await expect(page.getByLabel("Order by")).toHaveValue("priority");
+    await expect(page.getByRole("link", { name: "View metrics" })).toHaveAttribute(
+      "href",
+      /sort%3Dpriority/,
+    );
+
+    await page.getByRole("link", { name: "View metrics" }).click();
+    await expect(page).toHaveURL(/\/tickets\/metrics\?return=/);
+    await expect(page.getByRole("link", { name: "Back to tickets" })).toHaveAttribute(
+      "href",
+      "/tickets?sort=priority",
+    );
+
+    // Back to tickets restores the ordered list, not the newest-first default.
+    await page.getByRole("link", { name: "Back to tickets" }).click();
+    await expect(page).toHaveURL(/\/tickets\?.*sort=priority/);
+    await expect(page.getByLabel("Order by")).toHaveValue("priority");
+
+    // Browser Back/Forward round-trips the metrics page and the ordered list.
+    await page.goBack();
+    await expect(page).toHaveURL(/\/tickets\/metrics/);
+    await page.goForward();
+    await expect(page.getByLabel("Order by")).toHaveValue("priority");
+    expect(new URL(page.url()).searchParams.get("sort")).toBe("priority");
+
+    expectNoConsoleOrPageErrors(obs.consoleErrors, obs.pageErrors);
+  });
 });
 
 /**
