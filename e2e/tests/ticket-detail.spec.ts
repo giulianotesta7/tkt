@@ -11,7 +11,14 @@
 
 import { test, expect, type Page, type Request, type Route } from "@playwright/test";
 import { startServer, stopServer } from "../server-lifecycle.js";
-import { loginAsSeeded, base, setSLAEnabled } from "./helpers/auth.js";
+import {
+  loginAsSeeded,
+  base,
+  createUserAsAdmin,
+  loginAs,
+  logout,
+  setSLAEnabled,
+} from "./helpers/auth.js";
 import {
   assertCanonicalScreen,
   collectObservability,
@@ -455,6 +462,258 @@ test.describe("Ticket detail", () => {
     }
 
     await expect(page.getByLabel(/comment body/i)).toHaveValue(draft);
+  });
+
+  test("an internal draft keeps its visibility across a priority apply", async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await loginAsSeeded(page);
+    const id = await createTicketViaUi(page, {
+      title: "Internal draft priority " + Date.now().toString(36).slice(2, 8),
+      description: "internal draft survives a priority apply",
+      category: "General",
+      priority: "high",
+    });
+    await page.goto(base() + `/tickets/${id}`);
+
+    const comment = page.getByLabel(/comment body/i);
+    const internal = page.getByLabel(/internal comment/i);
+    await expect(comment).toBeVisible();
+    // The form defaults to public and re-renders unchecked; the author opts in.
+    await expect(internal).not.toBeChecked();
+    const draft = "internal draft " + Date.now().toString(36);
+    await internal.check();
+    await comment.fill(draft);
+
+    await assertHtmxSwap(
+      page,
+      async () => {
+        await page.locator("#ticket-priority").selectOption("critical");
+        await page
+          .locator("form:has(#ticket-priority)")
+          .getByRole("button", { name: "Apply" })
+          .click();
+      },
+      {
+        endpoint: `/tickets/${id}/edit`,
+        method: "POST",
+        expectedStatus: 200,
+        hxTarget: "#ticket-detail",
+      },
+    );
+
+    await expect(page.locator("#ticket-detail")).toContainText(/critical/i);
+    // #261 preserved the typed text; #308 preserves the selected visibility too.
+    await expect(page.getByLabel(/comment body/i)).toHaveValue(draft);
+    await expect(page.getByLabel(/internal comment/i)).toBeChecked();
+    // Applying a property is not posting the comment: nothing was stored.
+    await expect(page.locator("#timeline")).not.toContainText(draft);
+  });
+
+  test("an internal draft keeps its visibility across an assignee apply", async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await loginAsSeeded(page);
+    const id = await createTicketViaUi(page, {
+      title: "Internal draft assignee " + Date.now().toString(36).slice(2, 8),
+      description: "internal draft survives an assignee apply",
+      category: "General",
+      priority: "high",
+    });
+    await page.goto(base() + `/tickets/${id}`);
+
+    const assignee = page.locator("#assign-user");
+    await expect(assignee).toBeVisible();
+    const comment = page.getByLabel(/comment body/i);
+    const internal = page.getByLabel(/internal comment/i);
+    const draft = "internal draft " + Date.now().toString(36);
+    await internal.check();
+    await comment.fill(draft);
+
+    const target = await assignee.locator("option:not([value=''])").first().getAttribute("value");
+    if (!target) throw new Error(`No assignable user at ${page.url()}`);
+
+    await assertHtmxSwap(
+      page,
+      async () => {
+        await assignee.selectOption(target);
+        await page.locator("form:has(#assign-user)").getByRole("button", { name: "Apply" }).click();
+      },
+      {
+        endpoint: `/tickets/${id}/assign`,
+        method: "POST",
+        expectedStatus: 200,
+        hxTarget: "#ticket-detail",
+      },
+    );
+
+    // Re-resolve after the swap: the fragment was replaced in place.
+    await expect(page.locator("#assign-user")).toHaveValue(target);
+    await expect(page.getByLabel(/comment body/i)).toHaveValue(draft);
+    await expect(page.getByLabel(/internal comment/i)).toBeChecked();
+    await expect(page.locator("#timeline")).not.toContainText(draft);
+  });
+
+  test("a failed apply preserves the internal draft and its visibility", async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await loginAsSeeded(page);
+    const id = await createTicketViaUi(page, {
+      title: "Internal draft failure " + Date.now().toString(36).slice(2, 8),
+      description: "internal draft survives a failed apply",
+      category: "General",
+      priority: "high",
+    });
+    await page.goto(base() + `/tickets/${id}`);
+
+    const comment = page.getByLabel(/comment body/i);
+    const internal = page.getByLabel(/internal comment/i);
+    const draft = "internal draft " + Date.now().toString(36);
+    await internal.check();
+    await comment.fill(draft);
+
+    // A non-2xx reply must not cost the operator their draft or its visibility.
+    await page.route(`**/tickets/${id}/edit`, (route) =>
+      route.fulfill({ status: 500, contentType: "text/plain", body: "boom" }),
+    );
+    try {
+      await page.locator("#ticket-priority").selectOption("critical");
+      await Promise.all([
+        page.waitForResponse(
+          (response) =>
+            response.request().method() === "POST" &&
+            new URL(response.url()).pathname === `/tickets/${id}/edit`,
+        ),
+        page.locator("form:has(#ticket-priority)").getByRole("button", { name: "Apply" }).click(),
+      ]);
+    } finally {
+      await page.unroute(`**/tickets/${id}/edit`);
+    }
+
+    await expect(page.getByLabel(/comment body/i)).toHaveValue(draft);
+    await expect(page.getByLabel(/internal comment/i)).toBeChecked();
+  });
+
+  test("a public draft stays public after an unrelated apply", async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await loginAsSeeded(page);
+    const id = await createTicketViaUi(page, {
+      title: "Public draft probe " + Date.now().toString(36).slice(2, 8),
+      description: "public draft survives a priority apply",
+      category: "General",
+      priority: "high",
+    });
+    await page.goto(base() + `/tickets/${id}`);
+
+    const comment = page.getByLabel(/comment body/i);
+    const internal = page.getByLabel(/internal comment/i);
+    await expect(internal).not.toBeChecked();
+    const draft = "public draft " + Date.now().toString(36);
+    await comment.fill(draft);
+
+    await assertHtmxSwap(
+      page,
+      async () => {
+        await page.locator("#ticket-priority").selectOption("critical");
+        await page
+          .locator("form:has(#ticket-priority)")
+          .getByRole("button", { name: "Apply" })
+          .click();
+      },
+      {
+        endpoint: `/tickets/${id}/edit`,
+        method: "POST",
+        expectedStatus: 200,
+        hxTarget: "#ticket-detail",
+      },
+    );
+
+    // The author never changed visibility: the draft stays public.
+    await expect(page.getByLabel(/comment body/i)).toHaveValue(draft);
+    await expect(page.getByLabel(/internal comment/i)).not.toBeChecked();
+
+    const submitted = waitForExactPost(page, `/tickets/${id}/comments`);
+    await Promise.all([
+      submitted,
+      page
+        .locator("form:has(#comment-body)")
+        .getByRole("button", { name: /add comment/i })
+        .click(),
+    ]);
+    expect((await submitted).status()).toBe(303);
+    await expect(page.locator("#timeline")).toContainText("added a public comment");
+    await expect(page.locator("#timeline .timeline-comment.internal")).toHaveCount(0);
+    await expect(page.locator("#timeline .timeline-comment")).toContainText(draft);
+  });
+
+  test("a retained internal draft is stored internal and stays hidden from the requester", async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await loginAsSeeded(page);
+    const requesterEmail = `internal-visibility-${Date.now().toString(36).slice(2, 8)}@tkt.test`;
+    const requesterPassword = "Secret123!";
+    await createUserAsAdmin(page, {
+      name: "Rosa Requester",
+      email: requesterEmail,
+      password: requesterPassword,
+    });
+    await logout(page);
+    await loginAs(page, requesterEmail, requesterPassword);
+    const id = await createTicketViaUi(page, {
+      title: "Internal visibility " + Date.now().toString(36).slice(2, 8),
+      description: "internal draft visibility",
+      category: "General",
+      priority: "high",
+    });
+    await logout(page);
+    await loginAsSeeded(page);
+    await page.goto(base() + `/tickets/${id}`);
+
+    const comment = page.getByLabel(/comment body/i);
+    const internal = page.getByLabel(/internal comment/i);
+    await expect(internal).toBeVisible();
+    const draft = "internal note " + Date.now().toString(36);
+    await internal.check();
+    await comment.fill(draft);
+
+    // Retain the draft through a real property apply, then publish it.
+    await assertHtmxSwap(
+      page,
+      async () => {
+        await page.locator("#ticket-priority").selectOption("critical");
+        await page
+          .locator("form:has(#ticket-priority)")
+          .getByRole("button", { name: "Apply" })
+          .click();
+      },
+      {
+        endpoint: `/tickets/${id}/edit`,
+        method: "POST",
+        expectedStatus: 200,
+        hxTarget: "#ticket-detail",
+      },
+    );
+    await expect(page.getByLabel(/internal comment/i)).toBeChecked();
+    await expect(page.getByLabel(/comment body/i)).toHaveValue(draft);
+
+    const submitted = waitForExactPost(page, `/tickets/${id}/comments`);
+    await Promise.all([
+      submitted,
+      page
+        .locator("form:has(#comment-body)")
+        .getByRole("button", { name: /add comment/i })
+        .click(),
+    ]);
+    expect((await submitted).status()).toBe(303);
+    await expect(page.locator("#timeline .timeline-comment.internal")).toContainText(draft);
+    await expect(page.locator("#timeline")).toContainText("added an internal comment");
+
+    // The requester must never receive the internal body or its marker.
+    await logout(page);
+    await loginAs(page, requesterEmail, requesterPassword);
+    await page.goto(base() + `/tickets/${id}`);
+    await expect(page.locator("#ticket-detail")).toBeVisible();
+    await expect(page.locator("#timeline")).not.toContainText(draft);
+    await expect(page.locator("#timeline")).not.toContainText("added an internal comment");
+    await expect(page.locator("#timeline .timeline-comment.internal")).toHaveCount(0);
   });
 
   test("detail selects mutate only after Apply, never on change alone", async ({ page }) => {

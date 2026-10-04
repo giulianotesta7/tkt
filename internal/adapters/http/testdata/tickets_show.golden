@@ -75,7 +75,7 @@
   <input type="hidden" name="visibility" value="public">
 
   <div class="field checkbox-field">
-    <label for="comment-internal"><input id="comment-internal" type="checkbox" name="internal" value="1"> Internal comment</label>
+    <label for="comment-internal"><input id="comment-internal" type="checkbox" name="internal" value="1" hx-preserve="true"> Internal comment</label>
   </div>
 
   <button class="btn primary" type="submit">Add comment</button>
