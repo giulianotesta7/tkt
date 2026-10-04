@@ -468,6 +468,121 @@ test.describe("Categories", () => {
     ).toHaveCount(0);
   });
 
+  test("a drawer launcher that receives a 4xx shows non-retry feedback and opens no panel", async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await loginAsSeeded(page);
+    await page.goto(base() + "/categories?view=structure");
+    await expect(page.locator(".category-level-departments")).toBeVisible();
+
+    // #267 removed the virtual Unassigned group's impossible Edit action from the
+    // page, but the route still rejects it. This probe reproduces the launcher
+    // markup the page used to render so the failure surface is exercised against
+    // the real 422, through the real htmx pipeline.
+    const failedURL = "/categories/departments/-1/edit?view=structure&department_id=-1";
+    await page.evaluate((href) => {
+      const probe = document.createElement("a");
+      probe.id = "drawer-load-4xx-probe";
+      probe.className = "category-drawer-launcher";
+      probe.href = href;
+      probe.setAttribute("hx-get", href);
+      probe.setAttribute("hx-target", "#category-drawer-host");
+      probe.setAttribute("hx-swap", "outerHTML");
+      probe.setAttribute("hx-push-url", href);
+      probe.textContent = "Edit department";
+      document.querySelector(".category-level-departments")?.prepend(probe);
+      (window as unknown as { htmx: { process: (el: Element) => void } }).htmx.process(probe);
+    }, failedURL);
+
+    const drawerHost = page.locator("#category-drawer-host");
+    await expect(drawerHost).toHaveCount(1);
+    const navigations: string[] = [];
+    const navigationHandler = (request: Request) => {
+      if (request.isNavigationRequest() && request.frame() === page.mainFrame()) {
+        navigations.push(request.url());
+      }
+    };
+    page.on("request", navigationHandler);
+    try {
+      const responsePromise = page.waitForResponse(
+        (response) =>
+          response.request().headers()["hx-request"] === "true" &&
+          response.request().method() === "GET" &&
+          new URL(response.url()).pathname === "/categories/departments/-1/edit",
+      );
+      const urlBefore = page.url();
+      await page.locator("#drawer-load-4xx-probe").click();
+      const response = await responsePromise;
+      // Server-side rejection is unchanged: this fix is client-side only. The
+      // plain 4xx carries no HX-Retarget, which is exactly the case htmx leaves
+      // unswapped and silent.
+      expect(response.status()).toBe(422);
+      expect(response.headers()["hx-retarget"]).toBeUndefined();
+      await expect(drawerHost.locator(".category-drawer")).toHaveCount(0);
+      const feedback = page.locator("#save-feedback");
+      await expect(feedback).toBeVisible();
+      await expect(feedback).toHaveAttribute("role", "alert");
+      await expect(feedback).toHaveAttribute("aria-live", "assertive");
+      await expect(feedback.locator(".save-feedback-message")).toHaveText(
+        "This panel can't be opened. It may no longer be available.",
+      );
+      await expect(feedback).not.toContainText("Please try again.");
+      expect(page.url()).toBe(urlBefore);
+      expect(navigations).toEqual([]);
+    } finally {
+      page.removeListener("request", navigationHandler);
+    }
+  });
+
+  test("a drawer launcher that fails in transport shows the retry copy, distinct from the 4xx copy", async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await loginAsSeeded(page);
+    await page.goto(base() + "/categories?view=structure");
+    await expect(page.locator(".category-level-departments")).toBeVisible();
+
+    const launcher = page.locator(".category-level-departments .category-drawer-launcher").first();
+    const launcherPath = new URL((await launcher.getAttribute("hx-get")) ?? "", base()).pathname;
+    const launcherMatcher = (url: URL) => url.pathname === launcherPath;
+    let aborted = false;
+    const abortLauncher = async (route: Route) => {
+      const request = route.request();
+      if (
+        request.method() === "GET" &&
+        request.headers()["hx-request"] === "true" &&
+        new URL(request.url()).pathname === launcherPath
+      ) {
+        aborted = true;
+        await route.abort("failed");
+        return;
+      }
+      await route.continue();
+    };
+    await page.route(launcherMatcher, abortLauncher);
+    try {
+      const requestPromise = page.waitForRequest(
+        (request) =>
+          request.method() === "GET" &&
+          request.headers()["hx-request"] === "true" &&
+          new URL(request.url()).pathname === launcherPath,
+      );
+      await launcher.click();
+      await requestPromise;
+      await expect.poll(() => aborted).toBe(true);
+      const feedback = page.locator("#save-feedback");
+      await expect(feedback).toBeVisible();
+      await expect(feedback.locator(".save-feedback-message")).toHaveText(
+        "Unable to open this panel. Please try again.",
+      );
+      await expect(feedback).not.toContainText("This panel can't be opened.");
+      await expect(page.locator("#category-drawer-host .category-drawer")).toHaveCount(0);
+    } finally {
+      await page.unroute(launcherMatcher, abortLauncher);
+    }
+  });
+
   test("Structure separates contextual actions and preserves selection after an HTMX desk rename", async ({
     page,
   }) => {

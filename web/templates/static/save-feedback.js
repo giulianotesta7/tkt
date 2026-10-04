@@ -11,6 +11,11 @@
   // failure (transport, validation, 5xx) keeps the retry-flavoured copy.
   const GENERIC_FAILURE_MESSAGE = "Unable to save changes. Please try again.";
   const FORBIDDEN_MESSAGE = "You do not have permission to make that change.";
+  // A drawer panel load is a read, not a mutation. Its 4xx copy must not invite
+  // a retry the server will keep rejecting, and it stays distinct from the
+  // retry-flavoured copy used for a transient transport failure.
+  const PANEL_LOAD_FAILURE_MESSAGE = "This panel can't be opened. It may no longer be available.";
+  const PANEL_LOAD_RETRY_MESSAGE = "Unable to open this panel. Please try again.";
 
   const makeRegion = () => {
     const region = document.createElement("div");
@@ -156,6 +161,17 @@
         element.closest("[hx-post], form[method='post']"))
     );
   };
+  // A drawer launcher is an htmx GET whose response replaces a drawer host. It
+  // is a read, so it never enters the save/generation tracking below; only its
+  // failure copy is owned here.
+  const panelLoadSource = (event) => {
+    const element = event.detail?.elt;
+    if (!(element instanceof Element)) return false;
+    const source = element.closest("[hx-get]");
+    if (!source) return false;
+    const target = source.closest("[hx-target]")?.getAttribute("hx-target");
+    return typeof target === "string" && target.includes("drawer-host");
+  };
   const actionFor = (event) => {
     const action = event.detail?.requestConfig?.parameters?.action;
     return typeof action === "string" ? action : "";
@@ -179,9 +195,13 @@
     return action !== "select_step";
   };
   const beforeRequest = (event) => {
-    if (!mutationSource(event)) return;
     const xhr = event.detail?.xhr;
     if (!xhr) return;
+    if (panelLoadSource(event)) {
+      requests.set(xhr, { panelLoad: true, target: feedbackTarget(event) });
+      return;
+    }
+    if (!mutationSource(event)) return;
     const region = requestRegion(event);
     const saves = isSave(event);
     const request = { saves, region, target: feedbackTarget(event) };
@@ -211,6 +231,21 @@
       if (isCurrent(request)) showFailure(request.target, message);
     }, 0);
   };
+  // A panel load has no stale-response race to guard, so it reports immediately.
+  // A 4xx is an impossible action; only a transport or 5xx failure is retryable.
+  const panelLoadFailure = (event) => {
+    const request = requests.get(event.detail?.xhr);
+    if (!request?.panelLoad) return;
+    const status = event.detail?.xhr?.status;
+    const message =
+      event.type === "htmx:responseError" && status === 403
+        ? FORBIDDEN_MESSAGE
+        : event.type === "htmx:responseError" && status >= 400 && status < 500
+          ? PANEL_LOAD_FAILURE_MESSAGE
+          : PANEL_LOAD_RETRY_MESSAGE;
+    retire();
+    showFailure(request.target, message);
+  };
 
   document.addEventListener("click", (event) => {
     const button =
@@ -235,6 +270,8 @@
   });
   document.addEventListener("htmx:responseError", mutationFailure);
   document.addEventListener("htmx:sendError", mutationFailure);
+  document.addEventListener("htmx:responseError", panelLoadFailure);
+  document.addEventListener("htmx:sendError", panelLoadFailure);
   // HTMX 2.0.4 restores the history element before it synchronously bubbles this event.
   document.addEventListener("htmx:historyRestore", () => {
     if (timer) clearTimeout(timer);
