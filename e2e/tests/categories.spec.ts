@@ -340,6 +340,134 @@ test.describe("Categories", () => {
     await expect(page.locator("body")).not.toContainText("invalid identifier");
   });
 
+  // Issue #266: a legacy category lives on a Desk whose department_id is NULL,
+  // so it is reachable only through the virtual Unassigned group. Editing it
+  // must expose that Desk and that virtual Department, and a plain rename must
+  // keep the stored location instead of silently relocating the category to the
+  // first real Desk.
+  test("legacy category edit keeps its Unassigned desk on save", async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await loginAsSeeded(page);
+
+    const legacyDeskName = "General Support";
+    await page.goto(base() + "/categories?view=structure&department_id=unassigned");
+    const legacyDesk = page.locator(".category-level-desks .category-structure-item").filter({
+      has: page.getByText(legacyDeskName, { exact: true }),
+    });
+    await expect(legacyDesk).toHaveCount(1);
+    const legacyDeskHref = await legacyDesk
+      .locator("a.category-structure-row")
+      .getAttribute("href");
+    const legacyDeskID = legacyDeskHref?.match(/desk_id=(\d+)/)?.[1];
+    if (!legacyDeskID) {
+      throw new Error(
+        `Could not resolve ${legacyDeskName} from ${legacyDeskHref ?? "missing href"} at ${page.url()}`,
+      );
+    }
+
+    await page.goto(
+      base() + `/categories?view=structure&department_id=unassigned&desk_id=${legacyDeskID}`,
+    );
+    const legacyCategoryName = "Legacy Support Category";
+    const legacyCategory = page
+      .locator(".category-level-categories .category-table tbody tr")
+      .filter({ has: page.getByText(legacyCategoryName, { exact: true }) });
+    await expect(legacyCategory).toHaveCount(1);
+    const legacyCategoryEditHref = await legacyCategory
+      .locator('a[href*="/edit"]')
+      .getAttribute("href");
+    const legacyCategoryID = legacyCategoryEditHref?.match(/\/categories\/(\d+)\/edit/)?.[1];
+    if (!legacyCategoryID) {
+      throw new Error(
+        `Could not resolve ${legacyCategoryName} from ${legacyCategoryEditHref ?? "missing href"} at ${page.url()}`,
+      );
+    }
+
+    await legacyCategory
+      .getByRole("button", { name: `Actions for ${legacyCategoryName}`, exact: true })
+      .click();
+    await legacyCategory
+      .locator(".category-overflow-menu:not([hidden])")
+      .getByRole("menuitem", { name: "Edit category", exact: true })
+      .click();
+
+    const drawer = page.getByRole("dialog", { name: /Edit category/i });
+    await expect(drawer).toBeVisible();
+    // The real location is exposed and preselected, not an empty required pair.
+    await expect(drawer.locator("#category-department")).toHaveValue("unassigned");
+    await expect(drawer.locator("#category-desk")).toHaveValue(legacyDeskID);
+
+    const renamed = `${legacyCategoryName} ${Date.now()}`;
+    await drawer.locator("#category-name").fill(renamed);
+    await assertHtmxSwap(
+      page,
+      async () => {
+        await drawer.getByRole("button", { name: /save changes/i }).click();
+      },
+      {
+        endpoint: (url) => new URL(url).pathname === `/categories/${legacyCategoryID}/edit`,
+        method: "POST",
+        expectedStatus: 200,
+        hxTarget: "#categories-background",
+        expectedUrl: new RegExp(
+          `/categories\\?department_id=unassigned&desk_id=${legacyDeskID}&view=structure$`,
+        ),
+      },
+    );
+    await expect(
+      page
+        .locator(".category-level-categories .category-table tbody tr")
+        .filter({ hasText: renamed }),
+    ).toBeVisible();
+
+    // Reloading the drawer reads the persisted location: still the legacy desk.
+    await page.goto(
+      base() +
+        `/categories/${legacyCategoryID}/edit?view=structure&department_id=unassigned&desk_id=${legacyDeskID}`,
+    );
+    const reloaded = page.getByRole("dialog", { name: /Edit category/i });
+    await expect(reloaded.locator("#category-name")).toHaveValue(renamed);
+    await expect(reloaded.locator("#category-department")).toHaveValue("unassigned");
+    await expect(reloaded.locator("#category-desk")).toHaveValue(legacyDeskID);
+
+    // The real General desk did not gain the category.
+    await page.goto(base() + "/categories?view=structure");
+    const generalDepartment = page
+      .locator(".category-level-departments .category-structure-row")
+      .filter({ has: page.getByText("General", { exact: true }) });
+    await expect(generalDepartment).toHaveCount(1);
+    const generalDepartmentHref = await generalDepartment.getAttribute("href");
+    const generalDepartmentID = generalDepartmentHref?.match(/department_id=(\d+)/)?.[1];
+    if (!generalDepartmentID) {
+      throw new Error(
+        `Could not resolve the General department from ${generalDepartmentHref ?? "missing href"} at ${page.url()}`,
+      );
+    }
+    await generalDepartment.click();
+    const generalDesk = page
+      .locator(".category-level-desks .category-structure-item")
+      .filter({ has: page.getByText("General", { exact: true }) });
+    await expect(generalDesk).toHaveCount(1);
+    const generalDeskHref = await generalDesk
+      .locator("a.category-structure-row")
+      .getAttribute("href");
+    const generalDeskID = generalDeskHref?.match(/desk_id=(\d+)/)?.[1];
+    if (!generalDeskID) {
+      throw new Error(
+        `Could not resolve the General desk from ${generalDeskHref ?? "missing href"} at ${page.url()}`,
+      );
+    }
+    await page.goto(
+      base() +
+        `/categories?view=structure&department_id=${generalDepartmentID}&desk_id=${generalDeskID}`,
+    );
+    await expect(
+      page
+        .locator(".category-level-categories .category-table tbody tr")
+        .filter({ hasText: renamed }),
+    ).toHaveCount(0);
+  });
+
   test("Structure separates contextual actions and preserves selection after an HTMX desk rename", async ({
     page,
   }) => {
