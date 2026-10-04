@@ -32,6 +32,13 @@ func TestMetricsReturnHrefConstrainsToListOrigin(t *testing.T) {
 		{"recognized kept", "/tickets?state=new&priority=high&category_id=2&user_id=3&q=vpn&page=4", "/tickets?category_id=2&page=4&priority=high&q=vpn&state=new&user_id=3"},
 		{"unknown dropped", "/tickets?q=x&evil=1&metrics_start=2026-01-01", "/tickets?q=x"},
 		{"invalid dropped", "/tickets?state=garbage&category_id=abc&page=0&q=x", "/tickets?q=x"},
+		// issue #265: the list's chosen order is a recognized list parameter
+		// and must survive the metrics return round trip.
+		{"sort priority kept", "/tickets?state=new&sort=priority", "/tickets?sort=priority&state=new"},
+		{"sort urgency kept", "/tickets?sort=urgency", "/tickets?sort=urgency"},
+		{"sort newest dropped", "/tickets?sort=newest", "/tickets"},
+		{"sort garbage dropped", "/tickets?sort=garbage", "/tickets"},
+		{"sort markup dropped", "/tickets?sort=<script>", "/tickets"},
 	} {
 		if got := metricsReturnHref(tc[1]); got != tc[2] {
 			t.Fatalf("%s: metricsReturnHref(%q) = %q, want %q", tc[0], tc[1], got, tc[2])
