@@ -236,6 +236,15 @@ func (s *WorkflowService) ListAvailableCategories(ctx context.Context) ([]domain
 	return s.store.ListAvailableCategories(ctx)
 }
 
+// errCloneTargetHasDraft is the #257 refusal: cloning never merges and never
+// overwrites an existing target draft. The SAME error is returned whether the
+// draft was already present at the emptiness check or a concurrent writer
+// landed it between the check and the guarded write, so both callers see one
+// status/message path.
+func errCloneTargetHasDraft() error {
+	return &domain.ValidationError{Field: "target_category_id", Message: "the target category already has a draft; cloning would overwrite it"}
+}
+
 // Clone reuses a workflow: it copies the SOURCE category's CURRENT PUBLISHED
 // version into the TARGET category's draft, so an admin does not rebuild the
 // same sequence by hand (issue #257).
@@ -247,7 +256,15 @@ func (s *WorkflowService) ListAvailableCategories(ctx context.Context) ([]domain
 // An existing target draft is PROTECTED. When the target already has draft
 // bytes the clone is refused with a comprehensible ValidationError and writes
 // NOTHING — it never merges and never overwrites work someone else may own.
-// The check runs before any write, so a refused clone cannot partially apply.
+//
+// The protection is atomic (issue #299): the emptiness check and the write are
+// not two independent steps. The target's bytes and revision are read in ONE
+// statement, and the write goes through the SAME revision compare-and-swap the
+// builder uses, so two concurrent clones cannot both observe an empty target.
+// A clone that loses the race rechecks the revision inside the store's
+// transaction, writes NOTHING, and is refused on the same #257 path; the
+// winner's bytes survive byte-for-byte. A store without the revision
+// capability fails closed rather than risk an unguarded overwrite.
 //
 // The published-version read is composed from the existing WorkflowVersionStore
 // method (GetCurrentVersion) rather than a new port: the production sqlite
@@ -270,16 +287,30 @@ func (s *WorkflowService) Clone(ctx context.Context, actor domain.User, sourceCa
 	if published == nil {
 		return &domain.ValidationError{Field: "source_category_id", Message: "the source category has no published workflow to clone"}
 	}
-	existing, err := s.store.GetDraft(ctx, targetCategoryID)
+	// The emptiness check and the guarded write must share ONE compare-and-swap.
+	// Reading bytes and revision together means a concurrent clone that writes
+	// between this read and SaveDraftIfRevision advances the revision, so the
+	// loser's in-statement comparison updates zero rows and writes NOTHING.
+	existing, revision, err := s.readDraft(ctx, targetCategoryID)
 	if err != nil {
 		return err
 	}
 	if len(existing) > 0 {
-		return &domain.ValidationError{Field: "target_category_id", Message: "the target category already has a draft; cloning would overwrite it"}
+		return errCloneTargetHasDraft()
 	}
 	b, err := canonicalBytes(published.Workflow)
 	if err != nil {
 		return err
 	}
-	return s.store.UpsertDraft(ctx, targetCategoryID, b)
+	revisions, ok := s.store.(WorkflowDraftRevisionStore)
+	if !ok {
+		return errors.New("workflow store cannot guard draft revisions")
+	}
+	if _, err := revisions.SaveDraftIfRevision(ctx, targetCategoryID, revision, b); err != nil {
+		if errors.Is(err, ErrDraftRevisionConflict) {
+			return errCloneTargetHasDraft()
+		}
+		return err
+	}
+	return nil
 }
