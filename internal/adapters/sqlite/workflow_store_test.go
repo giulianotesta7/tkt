@@ -3,6 +3,7 @@ package sqlite
 import (
 	"context"
 	"errors"
+	"strings"
 	"sync"
 	"testing"
 
@@ -424,6 +425,65 @@ func TestWorkflowStore_PublishAtRevisionRefusesStaleWriter(t *testing.T) {
 	}
 	if versions != 0 {
 		t.Fatalf("a refused publish created %d versions, want 0", versions)
+	}
+}
+
+// TestWorkflowStore_CloneConcurrentWritesHaveOneWinner drives two consumers of
+// the clone use case at the same empty target. Whatever the interleaving, the
+// target draft is written ONCE: either the two guarded writes race and the
+// compare-and-swap refuses the loser, or the second clone sees the first's
+// bytes at its emptiness check and is refused there. The winner's bytes are the
+// source's, and the target's revision advances exactly once. No sleeps, no
+// polling, no t.Parallel.
+func TestWorkflowStore_CloneConcurrentWritesHaveOneWinner(t *testing.T) {
+	s := newTestDB(t)
+	source := seedCategory(t, s, "clone-source")
+	target := seedCategory(t, s, "clone-target")
+	ws := s.WorkflowStore()
+	ctx := context.Background()
+	def := mustCanon(t, domain.WorkflowDefinition{{Type: domain.StepManualTask, ManualTask: &domain.ManualTaskStep{Instructions: "concurrent clone"}}})
+	if _, iss, err := ws.Publish(ctx, source, def, nil); err != nil || len(iss) != 0 {
+		t.Fatalf("publish source: iss=%v err=%v", iss, err)
+	}
+	svc := application.NewWorkflowService(ws)
+	admin := domain.User{ID: 1, Role: domain.RoleAdmin, Active: true}
+
+	const clones = 2
+	errs := make([]error, clones)
+	var wg sync.WaitGroup
+	wg.Add(clones)
+	for i := 0; i < clones; i++ {
+		go func(i int) { defer wg.Done(); errs[i] = svc.Clone(ctx, admin, source, target) }(i)
+	}
+	wg.Wait()
+
+	succeeded, refused := 0, 0
+	for _, err := range errs {
+		switch {
+		case err == nil:
+			succeeded++
+		case strings.Contains(err.Error(), "already has a draft"):
+			refused++
+		default:
+			t.Fatalf("unexpected clone error: %v", err)
+		}
+	}
+	if succeeded != 1 || refused != 1 {
+		t.Fatalf("concurrent clones: %d succeeded, %d refused; want exactly one of each (%v)", succeeded, refused, errs)
+	}
+	got, revision, err := ws.(application.WorkflowDraftRevisionStore).GetDraftWithRevision(ctx, target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != string(def) {
+		t.Fatalf("stored draft = %s, want the winner's bytes %s", got, def)
+	}
+	if revision != 1 {
+		t.Fatalf("target revision = %d, want exactly 1 accepted write", revision)
+	}
+	var versions int
+	if err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM workflow_versions WHERE category_id=?`, target).Scan(&versions); err != nil || versions != 0 {
+		t.Fatalf("clone must not publish; target versions = %d (%v)", versions, err)
 	}
 }
 

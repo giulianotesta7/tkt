@@ -211,6 +211,32 @@ func (c *cloneStore) GetCurrentVersion(ctx context.Context, categoryID int64) (*
 	return c.versions.GetCurrentVersion(ctx, categoryID)
 }
 
+// interceptingCloneStore models the interleaving the clone guard must survive:
+// another writer commits a target draft AFTER Clone's emptiness check returns
+// but BEFORE its write lands. Both reads lie and report the target empty, while
+// the store already holds someone else's bytes at revision 1. An unguarded
+// check-then-write (the #257 defect) clobbers those bytes and reports success;
+// a clone that routes its write through the revision compare-and-swap is
+// refused with ZERO writes and the other writer's bytes survive byte-for-byte.
+type interceptingCloneStore struct {
+	*cloneStore
+	lieCategoryID int64
+}
+
+func (c *interceptingCloneStore) GetDraft(ctx context.Context, categoryID int64) ([]byte, error) {
+	if categoryID == c.lieCategoryID {
+		return nil, nil
+	}
+	return c.cloneStore.GetDraft(ctx, categoryID)
+}
+
+func (c *interceptingCloneStore) GetDraftWithRevision(ctx context.Context, categoryID int64) ([]byte, int64, error) {
+	if categoryID == c.lieCategoryID {
+		return nil, 0, nil
+	}
+	return c.cloneStore.GetDraftWithRevision(ctx, categoryID)
+}
+
 // Clone writes the SOURCE's current published definition into the TARGET's
 // draft. It is authoring, not publishing: the target keeps no current version
 // until an operator publishes it deliberately.
@@ -275,6 +301,86 @@ func TestWorkflowService_Clone_RefusesExistingTargetDraftUntouched(t *testing.T)
 		t.Fatalf("target draft changed on a refused clone:\n got  %s\n want %s", after, before)
 	}
 	if len(store.publishCalls) != 0 {
+		t.Fatal("refused clone must not publish")
+	}
+}
+
+// A clone into a genuinely empty target writes the source's published bytes and
+// advances the target draft revision by exactly one. The revision is the state
+// the subsequent builder page renders, so the cloned draft is guarded from its
+// very next edit like any other draft.
+func TestWorkflowService_Clone_EmptyTargetAdvancesRevision(t *testing.T) {
+	store := newCloneStore()
+	svc := application.NewWorkflowService(store)
+	admin := domain.User{ID: 1, Role: domain.RoleAdmin, Active: true}
+	source := domain.WorkflowDefinition{
+		{Type: domain.StepManualTask, ManualTask: &domain.ManualTaskStep{Instructions: "Clone me"}},
+		{Type: domain.StepResolve},
+	}
+	store.versions.publish(7, source)
+
+	if err := svc.Clone(context.Background(), admin, 7, 9); err != nil {
+		t.Fatalf("clone into an empty target: %v", err)
+	}
+	if got := store.revisions[9]; got != 1 {
+		t.Fatalf("clone must advance the target draft revision to 1, got %d", got)
+	}
+	want, err := source.MarshalCanonical()
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := store.GetDraft(context.Background(), 9)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(got, want) {
+		t.Fatalf("cloned bytes = %s, want %s", got, want)
+	}
+	if len(store.publishCalls) != 0 {
+		t.Fatal("clone must never publish")
+	}
+}
+
+// Falsification for the atomic clone: the target draft is created BETWEEN the
+// emptiness check and the write, so a check-then-write implementation observes
+// an empty target and then overwrites the winner's bytes. The guarded write
+// must instead be refused with the #257 message and leave the winner's bytes
+// byte-for-byte intact. This fails if the clone guard is a no-op.
+func TestWorkflowService_Clone_RefusesDraftLandedBetweenCheckAndWrite(t *testing.T) {
+	base := newCloneStore()
+	store := &interceptingCloneStore{cloneStore: base, lieCategoryID: 9}
+	svc := application.NewWorkflowService(store)
+	admin := domain.User{ID: 1, Role: domain.RoleAdmin, Active: true}
+	ctx := context.Background()
+	store.versions.publish(7, domain.WorkflowDefinition{{Type: domain.StepManualTask, ManualTask: &domain.ManualTaskStep{Instructions: "Source"}}})
+
+	// The concurrent winner lands at revision 1 after Clone's read would have
+	// reported the target empty.
+	other := domain.WorkflowDefinition{{Type: domain.StepManualTask, ManualTask: &domain.ManualTaskStep{Instructions: "Someone else's work"}}}
+	otherBytes, err := other.MarshalCanonical()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := base.SaveDraftIfRevision(ctx, 9, 0, otherBytes); err != nil {
+		t.Fatalf("arrange concurrent winner: %v", err)
+	}
+	base.upsertCalls = nil // ignore the arrangement write
+
+	err = svc.Clone(ctx, admin, 7, 9)
+	if err == nil {
+		t.Fatal("a draft landed between the check and the write must make the clone refuse")
+	}
+	if !strings.Contains(err.Error(), "already has a draft") {
+		t.Fatalf("refusal must use the #257 message, got %q", err.Error())
+	}
+	after, err := base.GetDraft(ctx, 9)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(after, otherBytes) {
+		t.Fatalf("the winner's bytes were clobbered:\n got  %s\n want %s", after, otherBytes)
+	}
+	if len(base.publishCalls) != 0 {
 		t.Fatal("refused clone must not publish")
 	}
 }
