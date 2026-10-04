@@ -2777,4 +2777,154 @@ test.describe("Categories", () => {
     await expect(page.locator(".error-banner[role='alert']")).toContainText("already has a draft");
     await expect(page.locator(".workflow-step-card").first()).toContainText("Handle the ticket");
   });
+
+  // Issue #268: the overflow menus carry role="menu", so they must behave like
+  // one: a single open menu, dismissal after choosing, and keyboard traversal.
+  // The regression these journeys pin was measured at 678cf3b, where an action
+  // left its menu open behind the drawer, opening a second trigger stacked two
+  // menus, Escape only worked with a drawer present, and Arrow Down from the
+  // trigger did nothing.
+  test.describe("overflow menu consistency", () => {
+    const structureURL = "/categories?view=structure&department_id=1&desk_id=1";
+
+    const menuTargets = (page: Page) => ({
+      department: page.locator(".category-level-departments .category-menu-button").first(),
+      desk: page.locator(".category-level-desks .category-menu-button").first(),
+      category: page.locator(".category-level-categories .category-menu-button").first(),
+    });
+
+    const menuOf = async (page: Page, trigger: Locator) => {
+      const id = await trigger.getAttribute("aria-controls");
+      if (!id) throw new Error(`overflow trigger has no aria-controls at ${page.url()}`);
+      return page.locator(`#${id}`);
+    };
+
+    test("a menu opens alone, an action closes it, and the drawer lifecycle clears it", async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width: 1280, height: 800 });
+      await loginAsSeeded(page);
+      await page.goto(base() + structureURL);
+
+      const targets = menuTargets(page);
+      const departmentMenu = await menuOf(page, targets.department);
+      const deskMenu = await menuOf(page, targets.desk);
+      const categoryMenu = await menuOf(page, targets.category);
+
+      // Opening one menu dismisses the previously open one: never two at once.
+      await targets.department.click();
+      await expect(departmentMenu).toBeVisible();
+      await expect(targets.department).toHaveAttribute("aria-expanded", "true");
+      await targets.desk.click();
+      await expect(deskMenu).toBeVisible();
+      await expect(departmentMenu).toBeHidden();
+      await expect(targets.department).toHaveAttribute("aria-expanded", "false");
+      await targets.category.click();
+      await expect(categoryMenu).toBeVisible();
+      await expect(deskMenu).toBeHidden();
+      await expect(targets.desk).toHaveAttribute("aria-expanded", "false");
+
+      // Click-outside still closes the single open menu.
+      await page.locator("h1").first().click();
+      await expect(categoryMenu).toBeHidden();
+      await expect(targets.category).toHaveAttribute("aria-expanded", "false");
+
+      // Choosing an action closes its own menu on all three entities, and the
+      // drawer close path leaves no menu behind.
+      for (const entity of [
+        { trigger: targets.department, item: "Edit department", dialog: /Edit department/i },
+        { trigger: targets.desk, item: "Edit desk", dialog: /Edit desk/i },
+        { trigger: targets.category, item: "Edit category", dialog: /Edit category/i },
+      ]) {
+        const menu = await menuOf(page, entity.trigger);
+        await entity.trigger.click();
+        await expect(menu).toBeVisible();
+        await menu.getByRole("menuitem", { name: entity.item, exact: true }).click();
+        const drawer = page.getByRole("dialog", { name: entity.dialog });
+        await expect(drawer).toBeVisible();
+        await expect(menu).toBeHidden();
+        await expect(entity.trigger).toHaveAttribute("aria-expanded", "false");
+        await drawer.getByRole("button", { name: "Cancel", exact: true }).click();
+        await expect(drawer).toHaveCount(0);
+        await expect(page.locator(".category-overflow-menu:not([hidden])")).toHaveCount(0);
+        await expect(entity.trigger).toBeFocused();
+      }
+    });
+
+    test("keyboard navigation matches role=menu on every entity across repeated cycles", async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width: 1280, height: 800 });
+      await loginAsSeeded(page);
+      await page.goto(base() + structureURL);
+
+      const targets = menuTargets(page);
+      for (const trigger of Object.values(targets)) {
+        const menu = await menuOf(page, trigger);
+        const items = menu.getByRole("menuitem");
+        for (let cycle = 0; cycle < 2; cycle += 1) {
+          await trigger.focus();
+          await expect(trigger).toBeFocused();
+          await page.keyboard.press("ArrowDown");
+          await expect(menu).toBeVisible();
+          await expect(trigger).toHaveAttribute("aria-expanded", "true");
+          await expect(items.first()).toBeFocused();
+
+          await page.keyboard.press("ArrowDown");
+          await expect(items.nth(1)).toBeFocused();
+          await page.keyboard.press("ArrowUp");
+          await expect(items.first()).toBeFocused();
+          await page.keyboard.press("End");
+          await expect(items.last()).toBeFocused();
+          await page.keyboard.press("Home");
+          await expect(items.first()).toBeFocused();
+
+          await page.keyboard.press("Escape");
+          await expect(menu).toBeHidden();
+          await expect(trigger).toBeFocused();
+          await expect(trigger).toHaveAttribute("aria-expanded", "false");
+        }
+      }
+    });
+
+    test("Enter and Space activate the focused menu option and close the menu", async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width: 1280, height: 800 });
+      await loginAsSeeded(page);
+      await page.goto(base() + structureURL);
+
+      const { category } = menuTargets(page);
+      const menu = await menuOf(page, category);
+      const drawer = page.getByRole("dialog", { name: /Edit category/i });
+      const openFirst = async () => {
+        await category.focus();
+        await page.keyboard.press("ArrowDown");
+        await expect(menu).toBeVisible();
+        await expect(menu.getByRole("menuitem").first()).toBeFocused();
+      };
+      // The drawer close path restores focus via requestAnimationFrame and again
+      // on a 100ms backstop; let both settle before driving the trigger again.
+      const closeDrawer = async () => {
+        await drawer.getByRole("button", { name: "Cancel", exact: true }).click();
+        await expect(drawer).toHaveCount(0);
+        await page.waitForTimeout(150);
+      };
+
+      // Space activates a role=menuitem link, then the menu and the action's
+      // own drawer lifecycle leave nothing open.
+      await openFirst();
+      await page.keyboard.press(" ");
+      await expect(drawer).toBeVisible();
+      await expect(menu).toBeHidden();
+      await closeDrawer();
+
+      // Enter keeps the native anchor activation the role promises.
+      await openFirst();
+      await page.keyboard.press("Enter");
+      await expect(drawer).toBeVisible();
+      await expect(menu).toBeHidden();
+      await closeDrawer();
+    });
+  });
 });

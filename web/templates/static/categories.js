@@ -22,6 +22,101 @@
       ),
     ].filter((item) => item.offsetParent !== null);
   const same = (a, b) => a && b && a[KEY] === b[KEY];
+
+  // The overflow menus carry role="menu" semantics, so their state has to be
+  // managed as one menu at a time: a single trigger owns aria-expanded, opening
+  // one dismisses the rest, and the keyboard walks the items in the same order a
+  // native menu does. The panel lifecycle also clears them, so a menu can never
+  // survive behind the drawer.
+  const menuItems = (menu) => [...menu.querySelectorAll("[role='menuitem']")];
+  const menuButtonFor = (menu) =>
+    menu?.id ? document.querySelector(`[aria-controls="${CSS.escape(menu.id)}"]`) : null;
+  const menuFor = (button) => document.getElementById(button?.getAttribute("aria-controls"));
+
+  function closeMenu(menu, restoreFocus = false) {
+    if (!menu || menu.hidden) return;
+    menu.hidden = true;
+    const button = menuButtonFor(menu);
+    if (button) button.setAttribute("aria-expanded", "false");
+    if (restoreFocus && button) button.focus();
+  }
+
+  function closeMenus(except = null) {
+    document.querySelectorAll(".category-overflow-menu:not([hidden])").forEach((menu) => {
+      if (menu !== except) closeMenu(menu);
+    });
+  }
+
+  function openMenu(button, menu) {
+    if (!button || !menu) return false;
+    closeMenus(menu);
+    menu.hidden = false;
+    button.setAttribute("aria-expanded", "true");
+    const buttonBox = button.getBoundingClientRect();
+    menu.classList.toggle("up", buttonBox.bottom + menu.offsetHeight > window.innerHeight);
+    return true;
+  }
+
+  function moveMenuFocus(menu, delta) {
+    const items = menuItems(menu);
+    if (!items.length) return;
+    const current = items.indexOf(document.activeElement);
+    if (current === -1) {
+      (delta < 0 ? items.at(-1) : items[0]).focus();
+      return;
+    }
+    items[(current + delta + items.length) % items.length].focus();
+  }
+
+  function handleMenuKeydown(event) {
+    const menu = event.target.closest?.(".category-overflow-menu:not([hidden])");
+    if (menu) {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        closeMenu(menu, true);
+        return;
+      }
+      if (["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) {
+        event.preventDefault();
+        if (event.key === "ArrowDown") moveMenuFocus(menu, 1);
+        else if (event.key === "ArrowUp") moveMenuFocus(menu, -1);
+        else if (event.key === "Home") menuItems(menu)[0]?.focus();
+        else menuItems(menu).at(-1)?.focus();
+        return;
+      }
+      // Enter already activates an anchor; Space does not, so a role=menuitem
+      // link needs the explicit activation the role promises.
+      if (event.key === " " && event.target.matches("a[role='menuitem']")) {
+        event.preventDefault();
+        event.target.click();
+      }
+      return;
+    }
+    const trigger = event.target.closest?.("[data-category-menu]");
+    if (trigger) {
+      const controlled = menuFor(trigger);
+      if (!controlled) return;
+      if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+        event.preventDefault();
+        if (openMenu(trigger, controlled)) {
+          moveMenuFocus(controlled, event.key === "ArrowDown" ? 1 : -1);
+        }
+        return;
+      }
+      if (event.key === "Escape" && !controlled.hidden) {
+        event.preventDefault();
+        closeMenu(controlled, true);
+      }
+      return;
+    }
+    if (event.key === "Escape") {
+      const open = document.querySelector(".category-overflow-menu:not([hidden])");
+      if (open) {
+        event.preventDefault();
+        closeMenu(open, true);
+      }
+    }
+  }
   const listURL = () => {
     const path = location.pathname;
     if (path === "/categories") return path + location.search;
@@ -177,6 +272,7 @@
       host.style.minHeight = "";
     }
     lockBackground(false);
+    closeMenus();
     busy = false;
     discard = false;
     baseline = null;
@@ -369,22 +465,13 @@
       }
       const menuButton = event.target.closest("[data-category-menu]");
       if (menuButton) {
-        const menu = document.getElementById(menuButton.getAttribute("aria-controls"));
-        if (menu) {
-          menu.hidden = !menu.hidden;
-          menuButton.setAttribute("aria-expanded", String(!menu.hidden));
-          if (!menu.hidden) {
-            const buttonBox = menuButton.getBoundingClientRect();
-            menu.classList.toggle("up", buttonBox.bottom + menu.offsetHeight > window.innerHeight);
-          }
-        }
+        const menu = menuFor(menuButton);
+        if (menu && menu.hidden) openMenu(menuButton, menu);
+        else closeMenu(menu);
+      } else if (event.target.closest(".category-overflow-menu")) {
+        closeMenu(event.target.closest(".category-overflow-menu"));
       } else if (!event.target.closest(".category-overflow")) {
-        document.querySelectorAll(".category-overflow-menu:not([hidden])").forEach((menu) => {
-          menu.hidden = true;
-          document
-            .querySelector(`[aria-controls="${CSS.escape(menu.id)}"]`)
-            ?.setAttribute("aria-expanded", "false");
-        });
+        closeMenus();
       }
     },
     true,
@@ -429,7 +516,10 @@
     "keydown",
     (event) => {
       const panel = drawer();
-      if (!panel) return;
+      if (!panel) {
+        handleMenuKeydown(event);
+        return;
+      }
       const dialog = panel.querySelector("dialog[open]");
       if (event.key === "Escape") {
         event.preventDefault();
