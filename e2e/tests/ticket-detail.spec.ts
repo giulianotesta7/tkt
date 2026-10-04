@@ -380,6 +380,83 @@ test.describe("Ticket detail", () => {
     });
   });
 
+  test("typed comment survives a property apply that swaps #ticket-detail", async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await loginAsSeeded(page);
+    const id = await createTicketViaUi(page, {
+      title: "Comment draft probe " + Date.now().toString(36).slice(2, 8),
+      description: "unsent comment survives a swap",
+      category: "General",
+      priority: "high",
+    });
+    await page.goto(base() + `/tickets/${id}`);
+
+    const comment = page.getByLabel(/comment body/i);
+    await expect(comment).toBeVisible();
+    const draft = "unsent draft " + Date.now().toString(36);
+    await comment.fill(draft);
+
+    // Applying a property replaces the whole #ticket-detail fragment in place,
+    // so the typed comment must be carried across that outerHTML swap.
+    await assertHtmxSwap(
+      page,
+      async () => {
+        await page.locator("#ticket-priority").selectOption("critical");
+        await page
+          .locator("form:has(#ticket-priority)")
+          .getByRole("button", { name: "Apply" })
+          .click();
+      },
+      {
+        endpoint: `/tickets/${id}/edit`,
+        method: "POST",
+        expectedStatus: 200,
+        hxTarget: "#ticket-detail",
+      },
+    );
+
+    await expect(page.locator("#ticket-detail")).toContainText(/critical/i);
+    await expect(page.getByLabel(/comment body/i)).toHaveValue(draft);
+  });
+
+  test("typed comment survives an apply that fails with a non-2xx response", async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await loginAsSeeded(page);
+    const id = await createTicketViaUi(page, {
+      title: "Comment draft failure probe " + Date.now().toString(36).slice(2, 8),
+      description: "unsent comment survives a failed apply",
+      category: "General",
+      priority: "high",
+    });
+    await page.goto(base() + `/tickets/${id}`);
+
+    const comment = page.getByLabel(/comment body/i);
+    await expect(comment).toBeVisible();
+    const draft = "unsent draft " + Date.now().toString(36);
+    await comment.fill(draft);
+
+    // A non-2xx reply must not cost the operator their draft. htmx does not
+    // swap on an error status, so the fragment (and the typed text) stays put.
+    await page.route(`**/tickets/${id}/edit`, (route) =>
+      route.fulfill({ status: 500, contentType: "text/plain", body: "boom" }),
+    );
+    try {
+      await page.locator("#ticket-priority").selectOption("critical");
+      await Promise.all([
+        page.waitForResponse(
+          (response) =>
+            response.request().method() === "POST" &&
+            new URL(response.url()).pathname === `/tickets/${id}/edit`,
+        ),
+        page.locator("form:has(#ticket-priority)").getByRole("button", { name: "Apply" }).click(),
+      ]);
+    } finally {
+      await page.unroute(`**/tickets/${id}/edit`);
+    }
+
+    await expect(page.getByLabel(/comment body/i)).toHaveValue(draft);
+  });
+
   test("detail selects mutate only after Apply, never on change alone", async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 800 });
     await loginAsSeeded(page);
