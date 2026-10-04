@@ -144,3 +144,35 @@ func TestTimelineCompletionEventsSuppressDetailButAssignmentReasonShows(t *testi
 		t.Fatalf("assignment reason must render exactly once, got: %s", body)
 	}
 }
+
+// Issue #264 — a reopened (detached) ticket keeps its historical manual
+// solution but its pinned instruction is gone with the definition. The
+// completion event must still render as a manual event with its escaped
+// Solution block and its responsible person, and must NOT fabricate a Task
+// row it cannot honestly recover.
+func TestTimelineDetachedManualEventRendersSolutionWithoutInstruction(t *testing.T) {
+	body := renderTimelineFragment(t, []application.TimelineItem{{
+		Event:          &domain.AuditEvent{Actor: "Admin", Action: domain.ActionWorkflowManualTask, CreatedAt: assignmentRenderT0},
+		Summary:        "completed the task",
+		ActorLabel:     "Admin",
+		SuppressDetail: true,
+		StepSolution:   `<b>reseat</b> the cable`,
+	}})
+	for _, want := range []string{
+		`<div class="timeline-entry timeline-event timeline-manual">`,
+		`<div class="timeline-manual-heading">`,
+		`<strong class="timeline-actor">Admin</strong> <span class="timeline-action">completed the task</span>`,
+		`<dt>Solution</dt>`,
+		`<dd>&lt;b&gt;reseat&lt;/b&gt; the cable</dd>`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("detached manual event must render %q, got: %s", want, body)
+		}
+	}
+	if strings.Contains(body, `<dt>Task</dt>`) {
+		t.Fatalf("a detached completion has no recoverable instruction and must not fabricate one: %s", body)
+	}
+	if strings.Contains(body, `<b>reseat</b>`) {
+		t.Fatalf("solution must render escaped, never as raw HTML: %s", body)
+	}
+}

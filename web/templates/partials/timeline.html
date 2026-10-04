@@ -22,16 +22,16 @@
     <div class="body">{{.Comment.Body}}</div>
   </div>
 {{else}}
-{{if and (eq .Event.Action "workflow_manual_task") .StepInstruction}}
+{{if and (eq .Event.Action "workflow_manual_task") (or .StepInstruction .StepSolution)}}
   <div class="timeline-entry timeline-event timeline-manual{{if .StateClass}} st-{{.StateClass}}{{end}}">
     <div class="timeline-manual-heading">
       <span class="event-icon" aria-hidden="true"><svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m3 8 3 3 7-7"/></svg></span>
       <div class="main">{{if and .ActorLabel (ne .Event.Actor "workflow")}}<strong class="timeline-actor">{{.ActorLabel}}</strong> {{end}}<span class="timeline-action">{{if .Narrative}}{{.Narrative}}{{else}}{{.Summary}}{{end}}</span></div>
     </div>
     <dl class="workflow-manual-details">
-      <dt>Task</dt>
+      {{if .StepInstruction}}<dt>Task</dt>
       <dd>{{.StepInstruction}}</dd>
-      {{if .StepSolution}}<dt>Solution</dt>
+      {{end}}{{if .StepSolution}}<dt>Solution</dt>
       <dd>{{.StepSolution}}</dd>{{end}}
     </dl>
     <div class="when">{{template "timestamp" .Event.CreatedAt}}</div>

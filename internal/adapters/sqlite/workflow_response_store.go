@@ -140,17 +140,34 @@ func (s *workflowResponseStore) WorkflowStepContext(ctx context.Context, ticketI
 		// persisted step index against this immutable pinned definition. A
 		// missing row (no solution submitted, or a legacy pre-0009 completion)
 		// yields an empty value — never a fabricated placeholder.
-		var solution string
-		err := s.db.QueryRowContext(ctx, `SELECT solution FROM ticket_manual_solutions WHERE ticket_id=? AND step_index=?`, ticketID, stepIndex).Scan(&solution)
-		if errors.Is(err, sql.ErrNoRows) {
-			solution = "" // no stored solution: instruction alone
-		} else if err != nil {
-			return nil, fmt.Errorf("sqlite: read workflow step context solution: %w", err)
+		solution, err := s.ManualSolution(ctx, ticketID, stepIndex)
+		if err != nil {
+			return nil, err
 		}
 		return &application.WorkflowStepContext{Kind: "manual", Instruction: step.ManualTask.Instructions, Solution: solution}, nil
 	default:
 		return nil, nil // assignment/lifecycle steps carry no presentation context
 	}
+}
+
+// ManualSolution returns the stored solution of one manual-task completion,
+// keyed ONLY by the ticket and the completion event's exact persisted step
+// index. It deliberately does NOT consult the pinned definition: a ticket whose
+// workflow pin was detached by a requester rejection (D4) keeps its historical
+// solution readable, while that step's pinned instruction becomes genuinely
+// unrecoverable. A missing row (no solution submitted, or a legacy pre-0009
+// completion) is an EMPTY value — never a fabricated placeholder. Callers that
+// need the pinned instruction as well keep using WorkflowStepContext.
+func (s *workflowResponseStore) ManualSolution(ctx context.Context, ticketID int64, stepIndex int) (string, error) {
+	var solution string
+	err := s.db.QueryRowContext(ctx, `SELECT solution FROM ticket_manual_solutions WHERE ticket_id=? AND step_index=?`, ticketID, stepIndex).Scan(&solution)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil // no stored solution: nothing to render
+	}
+	if err != nil {
+		return "", fmt.Errorf("sqlite: read workflow step context solution: %w", err)
+	}
+	return solution, nil
 }
 
 func decodeWorkflowResponseFields(definition []domain.FormField, raw []byte) ([]application.WorkflowResponseField, error) {

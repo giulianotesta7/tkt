@@ -391,3 +391,96 @@ func TestViews_ManualSolutionEnrichesTimelineItem(t *testing.T) {
 		}
 	})
 }
+
+// detachedManualStore is the shared step-context fake PLUS the optional,
+// pin-independent ManualSolution capability (issue #264): the timeline asks for
+// it ONLY when the ticket's workflow pin is nil.
+type detachedManualStore struct {
+	*fakeWorkflowStepStore
+	solutions map[int]string
+}
+
+func (f *detachedManualStore) ManualSolution(_ context.Context, _ int64, stepIndex int) (string, error) {
+	return f.solutions[stepIndex], nil
+}
+
+// TestViews_DetachedManualSolutionUsesPinIndependentPath (issue #264): a ticket
+// whose workflow pin was detached by a requester rejection keeps its historical
+// manual solution through the OPTIONAL pin-independent read, while the pinned
+// instruction stays honestly absent (the detached definition is gone, not
+// guessed). A pinned ticket and a form event never take that path.
+func TestViews_DetachedManualSolutionUsesPinIndependentPath(t *testing.T) {
+	type fixture struct {
+		ticket  domain.Ticket
+		builder *application.ViewBuilder
+		audits  *fakeAuditStore
+	}
+	build := func(pinned bool) fixture {
+		tickets := newFakeTicketStore()
+		users := newFakeUserStore()
+		categories := newFakeCategoryStore()
+		comments := newFakeCommentStore()
+		audits := newFakeAuditStore()
+		requester := users.seed("Requester", "requester@example.com", true)
+		category := categories.seed("Network")
+		tk := domain.Ticket{Title: "Detached", CategoryID: category.ID, RequesterUserID: ptr(requester.ID), Priority: domain.PriorityMedium, State: domain.StateInProgress, CreatedAt: fixedClock().now, UpdatedAt: fixedClock().now}
+		if pinned {
+			version := int64(7)
+			tk.WorkflowVersionID = &version
+		}
+		ticket := tickets.seed(tk)
+		// The step-context fake resolves nothing for index 0 (the detached
+		// shape), so only the pin-independent capability can supply it.
+		responses := &detachedManualStore{fakeWorkflowStepStore: newFakeWorkflowStepStore(), solutions: map[int]string{0: "restarted the worker"}}
+		return fixture{
+			ticket:  ticket,
+			builder: application.NewViewBuilder(tickets, users, categories, comments, audits, newFakeDeskStore(), responses),
+			audits:  audits,
+		}
+	}
+	item := func(t *testing.T, f fixture, ev domain.AuditEvent) application.TimelineItem {
+		t.Helper()
+		ev.TicketID = f.ticket.ID
+		if ev.CreatedAt.IsZero() {
+			ev.CreatedAt = fixedClock().now
+		}
+		if err := f.audits.Append(context.Background(), ev); err != nil {
+			t.Fatalf("append audit: %v", err)
+		}
+		view, err := f.builder.TicketView(context.Background(), f.ticket.ID, application.TicketQuery{Scope: application.ScopeAll}, true)
+		if err != nil {
+			t.Fatalf("TicketView: %v", err)
+		}
+		if len(view.Timeline) != 1 {
+			t.Fatalf("Timeline = %d items, want 1", len(view.Timeline))
+		}
+		return view.Timeline[0]
+	}
+
+	t.Run("detached ticket keeps the historical solution without an instruction", func(t *testing.T) {
+		got := item(t, build(false), domain.AuditEvent{Actor: "Ada", Action: domain.ActionWorkflowManualTask, StepIndex: ptr(0)})
+		if got.StepSolution != "restarted the worker" {
+			t.Fatalf("StepSolution = %q, want the stored solution from the pin-independent path", got.StepSolution)
+		}
+		if got.StepInstruction != "" {
+			t.Fatalf("StepInstruction = %q, want empty (the detached definition is gone, not guessed)", got.StepInstruction)
+		}
+		if got.ActorLabel != "Ada" {
+			t.Fatalf("ActorLabel = %q, want the responsible person from the audit event", got.ActorLabel)
+		}
+	})
+
+	t.Run("a pinned ticket keeps the pinned step context authority", func(t *testing.T) {
+		got := item(t, build(true), domain.AuditEvent{Actor: "Ada", Action: domain.ActionWorkflowManualTask, StepIndex: ptr(0)})
+		if got.StepSolution != "" || got.StepInstruction != "" {
+			t.Fatalf("pinned item solution/instruction = %q/%q, want both empty (the pin-independent path must not run)", got.StepSolution, got.StepInstruction)
+		}
+	})
+
+	t.Run("a detached form event never takes the manual path", func(t *testing.T) {
+		got := item(t, build(false), domain.AuditEvent{Actor: "Ada", Action: domain.ActionWorkflowRequesterForm, StepIndex: ptr(0)})
+		if got.StepSolution != "" || got.StepFields != nil {
+			t.Fatalf("form item solution/fields = %q/%v, want both empty", got.StepSolution, got.StepFields)
+		}
+	})
+}

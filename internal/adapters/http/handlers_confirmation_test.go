@@ -3,6 +3,7 @@ package httpadapter
 import (
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -164,4 +165,86 @@ func TestConfirmationEndpoint(t *testing.T) {
 
 		wantRedirect(t, rec, http.StatusSeeOther, "/login")
 	})
+}
+
+// Issue #264: a requester rejection detaches the workflow pin by design, but
+// it must not lose the ticket's history. The persisted `tickets.user_id` is
+// untouched, the `ticket_manual_solutions` row survives, and BOTH the
+// completed-task event (historical solution + responsible person) and the
+// Assignee row must still render them — for staff and for the requester —
+// on a fresh request. The reopened ticket stays a manual ticket: no pin, no
+// pending plan.
+func TestRejectResolutionKeepsHistoricalSolutionAndAssignee(t *testing.T) {
+	const solution = "restarted the billing worker"
+	h := newHarness(t)
+	requester := seedUserRole(t, h.store, "Rita", "rita@tkt.test", domain.RoleUser)
+	tkt, err := h.tickets.Create(t.Context(), *requester, application.CreateTicketInput{
+		Title: "billing broken", Description: "d", CategoryID: h.bugCategory.ID, Priority: domain.PriorityMedium,
+	})
+	if err != nil {
+		t.Fatalf("create requester ticket: %v", err)
+	}
+	h.assignTicket(t, tkt.ID, h.admin.ID)
+	id := strconv.FormatInt(tkt.ID, 10)
+	if rec := h.postForm(t, "/tickets/"+id+"/workflow/steps/1/complete", url.Values{"solution": {solution}}, false); rec.Code != http.StatusOK {
+		t.Fatalf("complete manual step = %d, want 200: %s", rec.Code, rec.Body.String())
+	}
+	h.seedTransition(t, tkt.ID, domain.StateInProgress, "")
+	h.seedTransition(t, tkt.ID, domain.StateResolved, "")
+
+	sess := seedSession(t, h.store, requester.ID)
+	if rec := h.postFormAs(t, "/tickets/"+id+"/confirmation", url.Values{"decision": {"reject"}}, sess.ID); rec.Code != http.StatusSeeOther {
+		t.Fatalf("reject = %d, want 303: %s", rec.Code, rec.Body.String())
+	}
+
+	// The detach is deliberate and unchanged: nil pin, no pending plan.
+	db := h.rawDB(t)
+	if pin := scanNullInt(t, db, `SELECT workflow_version_id FROM tickets WHERE id = ?`, tkt.ID); pin.Valid {
+		t.Fatalf("workflow_version_id = %d, want NULL after rejection (detached)", pin.Int64)
+	}
+	if got := scanNullInt(t, db, `SELECT user_id FROM tickets WHERE id = ?`, tkt.ID); !got.Valid || got.Int64 != h.admin.ID {
+		t.Fatalf("persisted user_id = %v, want the retained assignee %d", got, h.admin.ID)
+	}
+	if stored := scanOneString(t, db, `SELECT solution FROM ticket_manual_solutions WHERE ticket_id = ? AND step_index = 0`, tkt.ID); stored != solution {
+		t.Fatalf("persisted solution = %q, want %q", stored, solution)
+	}
+
+	// The completed-task event must keep rendering the historical solution AND
+	// the person who completed it, in both sessions.
+	for _, tc := range []struct {
+		name    string
+		body    string
+		wantRow string
+	}{
+		{
+			name: "staff detail",
+			body: h.get(t, "/tickets/"+id, false).Body.String(),
+			// A staff actor keeps the assign control; the retained assignee is
+			// the selected option, never the Unassigned placeholder.
+			wantRow: `<option value="1" selected>Admin</option>`,
+		},
+		{
+			name:    "requester detail",
+			body:    doRequest(h.mux, h.mw, http.MethodGet, "/tickets/"+id, map[string]string{"Cookie": sessionCookie + "=" + sess.ID}).Body.String(),
+			wantRow: `<span id="assign-user-value" class="prop-value">Admin</span>`,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			for _, want := range []string{
+				`<div class="timeline-entry timeline-event timeline-manual">`,
+				`<div class="timeline-manual-heading">`,
+				`<strong class="timeline-actor">Admin</strong> <span class="timeline-action">completed the task</span>`,
+				`<dt>Solution</dt>`,
+				`<dd>` + solution + `</dd>`,
+				tc.wantRow,
+			} {
+				if !strings.Contains(tc.body, want) {
+					t.Errorf("reopened detail must keep %q, got: %s", want, tc.body)
+				}
+			}
+			if strings.Contains(tc.body, `class="workflow-pending`) {
+				t.Errorf("a detached ticket must render no pending plan: %s", tc.body)
+			}
+		})
+	}
 }
