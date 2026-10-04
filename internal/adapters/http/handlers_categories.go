@@ -281,7 +281,14 @@ func (h *CategoryHandlers) editForm(w http.ResponseWriter, r *http.Request) {
 	d.ID, d.Name, d.Description, d.DeskID = id, c.Name, c.Description, c.DeskID
 	for _, desk := range d.Desks {
 		if desk.ID == c.DeskID {
-			d.DepartmentID = desk.DepartmentID
+			// A legacy desk's stored parent is NULL (DepartmentID 0); the
+			// drawer presents it as the virtual Unassigned group so the real
+			// location stays preselected instead of silently relocating.
+			if desk.DepartmentID == 0 {
+				d.DepartmentID = unassignedDepartmentID
+			} else {
+				d.DepartmentID = desk.DepartmentID
+			}
 			break
 		}
 	}
@@ -847,6 +854,26 @@ func (h *CategoryHandlers) newDrawerData(r *http.Request, kind string) *category
 				return d
 			}
 			d.Desks = append(d.Desks, desks...)
+		}
+		// A category's location is its Desk, and a legacy Desk keeps a NULL
+		// parent reachable only through the virtual Unassigned group. The
+		// category drawer must offer those Desks and that virtual Department,
+		// or editing a legacy category cannot resubmit the location it already
+		// has. The virtual group is presentation-only: no Department row is
+		// created, and its value is the same "unassigned" sentinel the
+		// structure URLs already use.
+		if kind == "category" {
+			legacyDesks, listErr := h.catalog.ListDesks(r.Context(), 0)
+			if listErr != nil {
+				d.ReadError = listErr
+				return d
+			}
+			if len(legacyDesks) > 0 {
+				d.Desks = append(d.Desks, legacyDesks...)
+				d.Departments = append(d.Departments, domain.CatalogDepartment{
+					Department: domain.Department{ID: unassignedDepartmentID, Name: "Unassigned", Description: "Desks without a department"},
+				})
+			}
 		}
 	}
 	d.DepartmentID = state.DepartmentID
