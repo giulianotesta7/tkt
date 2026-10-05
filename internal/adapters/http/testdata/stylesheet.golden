@@ -220,6 +220,14 @@
   .state-reason:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 2px var(--accent-soft)}
   .state-apply{flex:0 0 auto}
   .prop-select:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 2px var(--accent-soft)}
+  .assign-picker{display:flex;flex-direction:column;align-items:stretch;gap:6px;min-width:0}
+  .assign-picker .prop-control{align-self:flex-end}
+  .prop-filter{
+    min-width:0;height:30px;border:1px solid var(--line);border-radius:8px;background:var(--card);
+    color:var(--ink-soft);padding:0 8px;font:inherit;font-size:13px;
+  }
+  .prop-filter:hover{border-color:var(--line-strong)}
+  .prop-filter:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 2px var(--accent-soft)}
   .lifecycle-meta{display:grid;grid-template-columns:auto 1fr;gap:6px 12px;margin:10px 0 0;padding-top:10px;border-top:1px solid var(--line);font-size:12px}
   .lifecycle-meta dt{color:var(--muted)}
   .lifecycle-meta dd{margin:0;color:var(--ink-soft);text-align:right}
