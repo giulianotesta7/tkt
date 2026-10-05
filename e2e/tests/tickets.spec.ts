@@ -662,11 +662,13 @@ test.describe("Ticket Lifecycle", () => {
     await expect(page.getByLabel("Description")).toHaveValue("Draft description");
     await expect(page.getByLabel("Priority")).toHaveValue("high");
 
-    // A different category must not inherit the draft.
+    // A different category inherits the compatible values (issue #302): the
+    // handoff opened from this form, so the target pulls the draft forward.
     await page.getByRole("link", { name: "Change", exact: true }).click();
     await selectCatalogCategory(page, other.category);
-    await expect(page.getByLabel("Title")).toHaveValue("");
-    await expect(page.getByLabel("Description")).toHaveValue("");
+    await expect(page.getByLabel("Title")).toHaveValue(draftTitle);
+    await expect(page.getByLabel("Description")).toHaveValue("Draft description");
+    await expect(page.getByLabel("Priority")).toHaveValue("high");
 
     // Back on the original category the draft is still there; creating the
     // ticket then clears it so the next creation does not inherit the text.
@@ -681,6 +683,190 @@ test.describe("Ticket Lifecycle", () => {
     await expect(page.getByLabel("Title")).toHaveValue("");
     await expect(page.getByLabel("Description")).toHaveValue("");
     await expect(page.getByLabel("Priority")).toHaveValue("medium");
+  });
+
+  test("a draft value the target category cannot take is confirmed before it is dropped", async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await loginAsSeeded(page);
+    await page.setViewportSize({ width: 390, height: 844 });
+    const other = await createPublishedHierarchyFixture(page);
+    await page.setViewportSize({ width: 1280, height: 800 });
+
+    const draftTitle = "Incompatible priority draft " + Date.now();
+    await page.goto(base() + "/tickets/new");
+    await selectCatalogCategory(page, "General");
+    const generalKey = `tktTicketDraft:${await page.locator('input[name="category_id"]').inputValue()}`;
+    await page.getByLabel("Title").fill(draftTitle);
+    await page.getByLabel("Description").fill("Kept description");
+    await page.getByLabel("Priority").selectOption("high");
+    // Defocus before tampering: blurring a dirty field fires `change`, which
+    // would re-save the live form values over the payload under test.
+    await page.evaluate(() => {
+      const active = document.activeElement;
+      if (active instanceof HTMLElement) active.blur();
+    });
+
+    // The stored priority is untrusted input. A value the server did not render
+    // as an option for the target is the incompatible case the guard owns.
+    await page.evaluate((key) => {
+      const payload = JSON.parse(sessionStorage.getItem(key) as string);
+      payload.priority = "extreme";
+      sessionStorage.setItem(key, JSON.stringify(payload));
+    }, generalKey);
+    const tampered = await page.evaluate(
+      (key) => JSON.parse(sessionStorage.getItem(key) as string).priority,
+      generalKey,
+    );
+    expect(tampered).toBe("extreme");
+
+    // Switching prompts and explains the priority that would be dropped.
+    const prompts: string[] = [];
+    page.once("dialog", (dialog) => {
+      prompts.push(dialog.message());
+      void dialog.dismiss();
+    });
+    await page.getByRole("link", { name: "Change", exact: true }).click();
+    await selectCatalogCategory(page, other.category);
+    expect(prompts).toHaveLength(1);
+    expect(prompts[0]).toContain("extreme");
+    // Cancelling preserves the draft and leaves the target untouched.
+    await expect(page.getByLabel("Title")).toHaveValue("");
+    await expect(page.getByLabel("Description")).toHaveValue("");
+    await expect(page.getByLabel("Priority")).toHaveValue("medium");
+
+    // The source category still holds the text.
+    await page.goto(base() + "/tickets/new");
+    await selectCatalogCategory(page, "General");
+    await expect(page.getByLabel("Title")).toHaveValue(draftTitle);
+    await expect(page.getByLabel("Description")).toHaveValue("Kept description");
+
+    // Confirming carries the compatible values and drops only the priority.
+    page.once("dialog", (dialog) => void dialog.accept());
+    await page.getByRole("link", { name: "Change", exact: true }).click();
+    await selectCatalogCategory(page, other.category);
+    await expect(page.getByLabel("Title")).toHaveValue(draftTitle);
+    await expect(page.getByLabel("Description")).toHaveValue("Kept description");
+    await expect(page.getByLabel("Priority")).toHaveValue("medium");
+  });
+
+  test("the target category's own draft wins a switch and says so", async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await loginAsSeeded(page);
+    await page.setViewportSize({ width: 390, height: 844 });
+    const other = await createPublishedHierarchyFixture(page);
+    await page.setViewportSize({ width: 1280, height: 800 });
+
+    const existing = "Target draft " + Date.now();
+    const incoming = "Incoming draft " + Date.now();
+
+    // The target gets its own draft first.
+    await page.goto(base() + "/tickets/new");
+    await selectCatalogCategory(page, other.category);
+    await page.getByLabel("Title").fill(existing);
+    await page.getByLabel("Description").fill("Target description");
+    await page.getByLabel("Priority").selectOption("low");
+
+    // A different draft is typed in General, then switched to the target.
+    await page.goto(base() + "/tickets/new");
+    await selectCatalogCategory(page, "General");
+    await page.getByLabel("Title").fill(incoming);
+    await page.getByLabel("Description").fill("Incoming description");
+    await page.getByLabel("Priority").selectOption("high");
+    await page.getByRole("link", { name: "Change", exact: true }).click();
+    await selectCatalogCategory(page, other.category);
+
+    // The target's own draft stays; the notice says the source is still saved.
+    await expect(page.getByLabel("Title")).toHaveValue(existing);
+    await expect(page.getByLabel("Description")).toHaveValue("Target description");
+    await expect(page.getByLabel("Priority")).toHaveValue("low");
+    await expect(page.locator("#ticket-draft-notice")).toContainText("General");
+    await expect(page.locator("#ticket-draft-notice")).toContainText("still saved");
+
+    // The source draft was not consumed by the collision.
+    await page.goto(base() + "/tickets/new");
+    await selectCatalogCategory(page, "General");
+    await expect(page.getByLabel("Title")).toHaveValue(incoming);
+    await expect(page.getByLabel("Description")).toHaveValue("Incoming description");
+  });
+
+  test("a tampered cross-category draft is refused by the storage guards", async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await loginAsSeeded(page);
+    await page.setViewportSize({ width: 390, height: 844 });
+    const other = await createPublishedHierarchyFixture(page);
+    await page.setViewportSize({ width: 1280, height: 800 });
+
+    const draftTitle = "Guard draft " + Date.now();
+    await page.goto(base() + "/tickets/new");
+    await selectCatalogCategory(page, "General");
+    const generalKey = `tktTicketDraft:${await page.locator('input[name="category_id"]').inputValue()}`;
+    await page.getByLabel("Title").fill(draftTitle);
+    await page.evaluate(() => {
+      const active = document.activeElement;
+      if (active instanceof HTMLElement) active.blur();
+    });
+
+    // A payload whose version is not the one this script wrote is ignored.
+    await page.evaluate((key) => {
+      const payload = JSON.parse(sessionStorage.getItem(key) as string);
+      payload.v = 999;
+      sessionStorage.setItem(key, JSON.stringify(payload));
+    }, generalKey);
+    await page.getByRole("link", { name: "Change", exact: true }).click();
+    await selectCatalogCategory(page, other.category);
+    await expect(page.getByLabel("Title")).toHaveValue("");
+
+    // A payload whose scope names another category is ignored on the switch.
+    await page.goto(base() + "/tickets/new");
+    await selectCatalogCategory(page, "General");
+    await page.getByLabel("Title").fill(draftTitle);
+    await page.evaluate(() => {
+      const active = document.activeElement;
+      if (active instanceof HTMLElement) active.blur();
+    });
+    await page.evaluate((key) => {
+      const payload = JSON.parse(sessionStorage.getItem(key) as string);
+      payload.scope = "99999";
+      sessionStorage.setItem(key, JSON.stringify(payload));
+    }, generalKey);
+    await page.getByRole("link", { name: "Change", exact: true }).click();
+    await selectCatalogCategory(page, other.category);
+    await expect(page.getByLabel("Title")).toHaveValue("");
+
+    // Over-long text is capped, never handed to the server raw.
+    await page.goto(base() + "/tickets/new");
+    await selectCatalogCategory(page, "General");
+    await page.getByLabel("Title").fill(draftTitle);
+    await page.evaluate(() => {
+      const active = document.activeElement;
+      if (active instanceof HTMLElement) active.blur();
+    });
+    await page.evaluate((key) => {
+      const payload = JSON.parse(sessionStorage.getItem(key) as string);
+      payload.title = "x".repeat(600);
+      sessionStorage.setItem(key, JSON.stringify(payload));
+    }, generalKey);
+    await page.getByRole("link", { name: "Change", exact: true }).click();
+    await selectCatalogCategory(page, other.category);
+    const carried = await page.getByLabel("Title").inputValue();
+    expect(carried).toBe("x".repeat(512));
+
+    // The handoff payload is untrusted too: a source that is not a category id
+    // is refused even when a matching draft exists.
+    await page.evaluate(
+      (key) => sessionStorage.removeItem(key),
+      `tktTicketDraft:${other.categoryID}`,
+    );
+    await page.evaluate(() => {
+      sessionStorage.setItem(
+        "tktTicketDraftHandoff",
+        JSON.stringify({ v: 1, from: "not-a-number", name: "General" }),
+      );
+    });
+    await page.goto(base() + `/tickets/new?category_id=${other.categoryID}`);
+    await expect(page.getByLabel("Title")).toHaveValue("");
   });
 
   test("an unrunnable published category stays visible, is not a link, and says why", async ({
