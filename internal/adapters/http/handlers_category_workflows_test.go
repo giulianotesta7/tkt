@@ -858,7 +858,7 @@ func defToSteps(def domain.WorkflowDefinition) []bstep {
 }
 
 // TypeSelectOwnsChangeTriggeredSubmission is the regression for the manual UX
-// defect: re-typing a step (e.g. Manual task -> Form) must fire a change-triggered
+// defect: re-typing a step (e.g. manual_task -> form) must fire a change-triggered
 // HTMX POST carrying action=change_type and the containing form, so the new
 // type-specific fields appear without a separate Apply button click. Apply is
 // rendered only inside noscript as the full-page fallback.
@@ -1793,11 +1793,11 @@ func TestCategoryWorkflowBuilder_TypedAddPopoverMarkup(t *testing.T) {
 		typ   string
 		label string
 	}{
-		{"manual_task", "Manual task"},
-		{"assign_to_desk", "Assign to desk"},
-		{"form", "Form"},
-		{"resolve_ticket", "Resolve ticket"},
-		{"close_ticket", "Close ticket"},
+		{"manual_task", "Give the agent a task"},
+		{"assign_to_desk", "Send to a desk"},
+		{"form", "Ask for information"},
+		{"resolve_ticket", "Mark the ticket resolved"},
+		{"close_ticket", "Close the ticket"},
 	} {
 		if !strings.Contains(body, "?add_step_type="+tc.typ+"\"") || !strings.Contains(body, ">"+tc.label+"</button>") {
 			t.Errorf("popover must offer %q carrying add_step_type=%s, got: %s", tc.label, tc.typ, body)
@@ -1816,6 +1816,32 @@ func TestCategoryWorkflowBuilder_TypedAddPopoverMarkup(t *testing.T) {
 		}
 		if strings.Contains(btn, "Can't add") {
 			t.Errorf("no-terminal draft must not state an add refusal for %s, got: %s", typ, btn)
+		}
+	}
+}
+
+// WorkflowKindVocabulary freezes the builder's plain-language kind copy:
+// every kind the picker offers has one label and one explanation, and the
+// terminal kinds carry their own sentence instead of sharing a fallback.
+// The label is used by the picker, the step card, and the editor heading; the
+// explanation only by the editor panel.
+func TestWorkflowKindVocabulary(t *testing.T) {
+	for _, tc := range []struct {
+		typ         domain.StepType
+		label       string
+		explanation string
+	}{
+		{domain.StepAssignToDesk, "Send to a desk", "Send the ticket to a desk."},
+		{domain.StepForm, "Ask for information", "Ask the requester or the agent for information."},
+		{domain.StepManualTask, "Give the agent a task", "The agent follows your instructions to complete the work."},
+		{domain.StepResolve, "Mark the ticket resolved", "Mark the ticket resolved automatically."},
+		{domain.StepClose, "Close the ticket", "Close the ticket automatically."},
+	} {
+		if got := workflowTypeLabel(tc.typ); got != tc.label {
+			t.Errorf("workflowTypeLabel(%s) = %q, want %q", tc.typ, got, tc.label)
+		}
+		if got := workflowTypeHelp(tc.typ); got != tc.explanation {
+			t.Errorf("workflowTypeHelp(%s) = %q, want %q", tc.typ, got, tc.explanation)
 		}
 	}
 }
@@ -1846,8 +1872,8 @@ func TestCategoryWorkflowBuilder_TypedAddTerminalProtection(t *testing.T) {
 		typ   string
 		label string
 	}{
-		{"resolve_ticket", "Resolve ticket"},
-		{"close_ticket", "Close ticket"},
+		{"resolve_ticket", "Mark the ticket resolved"},
+		{"close_ticket", "Close the ticket"},
 	} {
 		btn := addOptionButton(t, body, tc.typ)
 		if btn == "(marker not found)" {
@@ -1983,7 +2009,7 @@ func TestCategoryWorkflowBuilder_PolishFormAndFinalEditors(t *testing.T) {
 			editor = editor[:j]
 		}
 	}
-	for _, want := range []string{"Step 3 · Close ticket", "Runs automatically and must remain final."} {
+	for _, want := range []string{"Step 3 · Close the ticket", "Runs automatically and must remain final."} {
 		if !strings.Contains(editor, want) {
 			t.Errorf("final editor missing %q", want)
 		}
@@ -2103,7 +2129,7 @@ func TestCategoryWorkflowBuilder_TerminalSelect(t *testing.T) {
 	steps := []bstep{{typ: "manual_task", manual: "a"}, {typ: "close_ticket"}}
 	wantRedirect(t, h.postBuilder(t, path, builderFieldForm("save", steps...), false), http.StatusSeeOther, path)
 	body := h.get(t, path+"?selected_step_index=1", false).Body.String()
-	for _, want := range []string{`name="step_1_type"`, `value="resolve_ticket"`, `value="close_ticket"`, `>Close ticket</option>`} {
+	for _, want := range []string{`name="step_1_type"`, `value="resolve_ticket"`, `value="close_ticket"`, `>Close the ticket</option>`} {
 		if !strings.Contains(body, want) {
 			t.Errorf("terminal select missing %q, got: %s", want, body)
 		}
