@@ -318,6 +318,60 @@ func metricsWorkloadChart(rows []application.TicketMetricsWorkload, label string
 	return metricsBarChartClasses(buckets, label, classes)
 }
 
+// workflowTypeLabel names a workflow step kind the way a non-technical admin
+// reads it. It is the single source for the builder's kind picker, the step
+// card title, and the editor heading. It names a choice; checklistStepName in
+// handlers_tickets.go names the outcome the same step produces.
+func workflowTypeLabel(t domain.StepType) string {
+	switch t {
+	case domain.StepAssignToDesk:
+		return "Send to a desk"
+	case domain.StepForm:
+		return "Ask for information"
+	case domain.StepManualTask:
+		return "Give the agent a task"
+	case domain.StepResolve:
+		return "Mark the ticket resolved"
+	case domain.StepClose:
+		return "Close the ticket"
+	default:
+		return "Workflow step"
+	}
+}
+
+// workflowTypeHelp is the one-line plain-language description under the
+// selected kind. It covers every kind the picker offers.
+func workflowTypeHelp(t domain.StepType) string {
+	switch t {
+	case domain.StepAssignToDesk:
+		return "Send the ticket to a desk."
+	case domain.StepForm:
+		return "Ask the requester or the agent for information."
+	case domain.StepManualTask:
+		return "The agent follows your instructions to complete the work."
+	case domain.StepResolve:
+		return "Mark the ticket resolved automatically."
+	case domain.StepClose:
+		return "Close the ticket automatically."
+	default:
+		return "Configure this workflow step."
+	}
+}
+
+// asStepType accepts a domain.StepType (a step's own field) or a string
+// literal, so a template can name a kind directly in the picker without a
+// second copy of its label.
+func asStepType(v any) domain.StepType {
+	switch t := v.(type) {
+	case domain.StepType:
+		return t
+	case string:
+		return domain.StepType(t)
+	default:
+		return ""
+	}
+}
+
 // templateFuncs are the presentation helpers shared by every template set.
 // The render path never calls time.Now() (D7): formatTime formats the
 // already-stamped instants the handlers pass in.
@@ -360,22 +414,8 @@ var templateFuncs = template.FuncMap{
 	"metricsWorkloadChart":  metricsWorkloadChart,
 	"metricsHistogramChart": metricsHistogramChart,
 	"metricsDuration":       metricsDuration,
-	"workflowTypeLabel": func(t domain.StepType) string {
-		switch t {
-		case domain.StepAssignToDesk:
-			return "Assign to desk"
-		case domain.StepForm:
-			return "Form"
-		case domain.StepManualTask:
-			return "Manual task"
-		case domain.StepResolve:
-			return "Resolve ticket"
-		case domain.StepClose:
-			return "Close ticket"
-		default:
-			return "Workflow step"
-		}
-	},
+	"workflowTypeLabel":     func(v any) string { return workflowTypeLabel(asStepType(v)) },
+	"workflowTypeHelp":      func(v any) string { return workflowTypeHelp(asStepType(v)) },
 }
 
 // shellFor maps a page to its shell root. Application pages use the rail

@@ -1509,7 +1509,8 @@ test.describe("Categories", () => {
       await page.locator(".workflow-add-popover summary").last().click();
       const response = await assertHtmxSwap(
         page,
-        () => page.getByRole("button", { name: "Manual task", exact: true }).last().click(),
+        () =>
+          page.getByRole("button", { name: "Give the agent a task", exact: true }).last().click(),
         {
           endpoint: (url) => {
             const requestURL = new URL(url);
@@ -1631,7 +1632,8 @@ test.describe("Categories", () => {
     await page.locator(".workflow-add-step summary").first().click();
     const addResponse = await assertHtmxSwap(
       page,
-      () => page.getByRole("button", { name: "Manual task", exact: true }).first().click(),
+      () =>
+        page.getByRole("button", { name: "Give the agent a task", exact: true }).first().click(),
       {
         endpoint: (url) => {
           const requestURL = new URL(url);
@@ -1752,7 +1754,8 @@ test.describe("Categories", () => {
     await page.locator(".workflow-add-step summary").first().click();
     const addResponse = await assertHtmxSwap(
       page,
-      () => page.getByRole("button", { name: "Manual task", exact: true }).first().click(),
+      () =>
+        page.getByRole("button", { name: "Give the agent a task", exact: true }).first().click(),
       {
         endpoint: (url) => {
           const requestURL = new URL(url);
@@ -1855,7 +1858,7 @@ test.describe("Categories", () => {
       "#workflow-builder",
     );
 
-    // 3) add a VALID step — Manual task with instructions is valid by default
+    // 3) add a VALID step — a Give the agent a task step is valid by default
     const cards = page.locator(".workflow-step-card");
     const countBeforeAdd = await cards.count();
     const addSummary = page.locator(".workflow-add-step summary").first();
@@ -1863,7 +1866,7 @@ test.describe("Categories", () => {
     await addSummary.click();
     const addBtn = page
       .locator(".workflow-add-options button")
-      .filter({ hasText: "Manual task" })
+      .filter({ hasText: "Give the agent a task" })
       .first();
     await expect(addBtn).toBeVisible();
 
@@ -2231,7 +2234,8 @@ test.describe("Categories", () => {
       await expect(addOptions).toBeVisible();
       await assertHtmxSwap(
         page,
-        () => addOptions.getByRole("button", { name: "Manual task", exact: true }).click(),
+        () =>
+          addOptions.getByRole("button", { name: "Give the agent a task", exact: true }).click(),
         {
           endpoint: (url) => {
             const requestURL = new URL(url);
@@ -2269,7 +2273,7 @@ test.describe("Categories", () => {
   });
 
   // #251: once the workflow has an ending, the add-step menu used to silently
-  // drop the Resolve ticket and Close ticket kinds. They must stay visible,
+  // drop the Mark the ticket resolved and Close the ticket kinds. They must stay visible,
   // disabled, and carrying the reason, so an admin can learn the rule.
   test("add-step menu keeps the terminal kinds visible, disabled, and explained once the workflow has an ending", async ({
     page,
@@ -2294,11 +2298,11 @@ test.describe("Categories", () => {
     // No ending yet: all five kinds are offered and enabled.
     await openAddMenu();
     await expect(addOptions.locator("button")).toHaveCount(5);
-    await expect(option(/^resolve ticket/i)).toBeEnabled();
-    await expect(option(/^close ticket/i)).toBeEnabled();
+    await expect(option(/^mark the ticket resolved/i)).toBeEnabled();
+    await expect(option(/^close the ticket/i)).toBeEnabled();
 
-    // Add a Close ticket ending through the real menu.
-    await option(/^close ticket/i).click();
+    // Add a Close the ticket ending through the real menu.
+    await option(/^close the ticket/i).click();
     await expect(addOptions).not.toBeVisible();
     await expect(page.locator(".workflow-final-badge")).toHaveCount(1);
 
@@ -2306,7 +2310,7 @@ test.describe("Categories", () => {
     // and each states why it cannot be added.
     await openAddMenu();
     await expect(addOptions.locator("button")).toHaveCount(5);
-    for (const label of [/^resolve ticket/i, /^close ticket/i]) {
+    for (const label of [/^mark the ticket resolved/i, /^close the ticket/i]) {
       const terminal = option(label);
       await expect(terminal).toBeVisible();
       await expect(terminal).toBeDisabled();
@@ -2319,7 +2323,7 @@ test.describe("Categories", () => {
     // Only the terminal kinds are blocked; the other three stay usable and
     // keep their enabled appearance (the disabled rule is scoped to
     // button[disabled]).
-    for (const label of [/^manual task/i, /^assign to desk/i, /^form$/i]) {
+    for (const label of [/^give the agent a task/i, /^send to a desk/i, /^ask for information$/i]) {
       await expect(option(label)).toBeEnabled();
       await expect(option(label)).toHaveCSS("opacity", "1");
     }
@@ -2348,9 +2352,9 @@ test.describe("Categories", () => {
     const instruction =
       "Provision the account, confirm the welcome email, and schedule the follow-up call";
 
-    // Save a manual task whose summary exceeds the old cap.
+    // Save a Give the agent a task step whose summary exceeds the old cap.
     await addSummary.click();
-    await option(/^manual task/i).click();
+    await option(/^give the agent a task/i).click();
     const instructions = page.getByLabel(/instructions/i);
     await expect(instructions).toBeVisible();
     await instructions.fill(instruction);
@@ -2359,7 +2363,7 @@ test.describe("Categories", () => {
 
     // Add the automatic terminal so a state outcome exists in the rail.
     await addSummary.click();
-    await option(/^resolve ticket/i).click();
+    await option(/^mark the ticket resolved/i).click();
     const terminalCard = page.locator(".workflow-step-card").last();
     await expect(terminalCard.locator(".workflow-step-actor")).toHaveText("Automatic");
     await expect(terminalCard.locator(".workflow-step-outcome")).toHaveText("→ Resolved");
@@ -2419,12 +2423,12 @@ test.describe("Categories", () => {
         await page.locator(".workflow-add-step summary").first().click();
         const filter =
           step === "manual_task"
-            ? /manual task/i
+            ? /give the agent a task/i
             : step === "form"
-              ? /^form$/i
+              ? /^ask for information$/i
               : step === "close_ticket"
-                ? /close ticket/i
-                : /resolve ticket/i;
+                ? /close the ticket/i
+                : /mark the ticket resolved/i;
         await page
           .locator(".workflow-add-options button")
           .filter({ hasText: filter })
@@ -2453,7 +2457,7 @@ test.describe("Categories", () => {
       add_step: async (page) => {
         const manualButton = page
           .locator(".workflow-add-options button")
-          .filter({ hasText: /manual task/i })
+          .filter({ hasText: /give the agent a task/i })
           .first();
         if (!(await manualButton.isVisible().catch(() => false)))
           await page.locator(".workflow-add-step summary").first().click();
@@ -2648,9 +2652,13 @@ test.describe("Categories", () => {
       await expect(dialog).toBeVisible();
       await dialog.getByRole("button", { name: "Discard and continue" }).click();
       await expect.poll(() => posts).toEqual(["select_step", "reorder"]);
-      await expect(page.locator(".workflow-step-card").first()).toContainText(/form/i);
+      await expect(page.locator(".workflow-step-card").first()).toContainText(
+        /ask for information/i,
+      );
       await page.reload();
-      await expect(page.locator(".workflow-step-card").first()).toContainText(/form/i);
+      await expect(page.locator(".workflow-step-card").first()).toContainText(
+        /ask for information/i,
+      );
       await selectCard(page, 1);
       await expect(page.getByLabel(/^instructions/i)).toHaveValue("");
     });
@@ -2663,7 +2671,7 @@ test.describe("Categories", () => {
       await page.getByLabel(/^instructions/i).fill("DIRTY-escape");
       const addManual = page
         .locator(".workflow-add-options button")
-        .filter({ hasText: /manual task/i })
+        .filter({ hasText: /give the agent a task/i })
         .first();
       await page.locator(".workflow-add-step summary").first().click();
       await addManual.click();
@@ -2716,7 +2724,7 @@ test.describe("Categories", () => {
       await page.locator(".workflow-add-step summary").first().click();
       await page
         .locator(".workflow-add-options button")
-        .filter({ hasText: /manual task/i })
+        .filter({ hasText: /give the agent a task/i })
         .first()
         .click();
       await expect(page.getByLabel(/^instructions/i)).toBeVisible();

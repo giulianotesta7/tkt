@@ -84,10 +84,10 @@ async function prepareFixtures(page: Page): Promise<void> {
   const addStep = page.locator(".workflow-add-popover summary");
   const stepCards = page.locator(".workflow-step-card");
   await addStep.click();
-  await page.getByRole("button", { name: "Assign to desk" }).click();
+  await page.getByRole("button", { name: "Send to a desk" }).click();
   await expect(stepCards).toHaveCount(1);
   await addStep.click();
-  await page.getByRole("button", { name: "Manual task" }).click();
+  await page.getByRole("button", { name: "Give the agent a task" }).click();
   await expect(stepCards).toHaveCount(2);
   await stepCards.first().locator(".workflow-step-card-link").click();
   await page.locator('select[name="step_0_desk"]').selectOption(deskId);

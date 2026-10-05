@@ -98,7 +98,7 @@ test.describe("HTMX interactions", () => {
     await addSummary.click();
     const btn = page
       .locator(".workflow-add-options button")
-      .filter({ hasText: "Manual task" })
+      .filter({ hasText: "Give the agent a task" })
       .first();
     await expect(btn).toBeVisible();
 

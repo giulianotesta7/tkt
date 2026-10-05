@@ -137,7 +137,7 @@ async function createPublishedHierarchyFixture(
   await addStep.click();
   const manualTask = page
     .locator(".workflow-add-options button")
-    .filter({ hasText: "Manual task" })
+    .filter({ hasText: "Give the agent a task" })
     .first();
   await expect(manualTask).toBeVisible();
   await assertHtmxSwap(

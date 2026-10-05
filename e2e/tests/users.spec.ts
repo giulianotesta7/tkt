@@ -358,7 +358,7 @@ test.describe("Users", () => {
     await addSummary.click();
     const addBtn = page
       .locator(".workflow-add-options button")
-      .filter({ hasText: "Assign to desk" })
+      .filter({ hasText: "Send to a desk" })
       .first();
     await expect(addBtn).toBeVisible();
     await assertHtmxSwap(
