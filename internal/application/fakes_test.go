@@ -695,10 +695,16 @@ type fakeWorkflowStore struct {
 	drafts    map[int64][]byte
 	revisions map[int64]int64
 	published *domain.WorkflowDefinition
+	// attribution is the issue #253 read model the fake records alongside each
+	// accepted draft write, exactly like the SQLite adapter: a refused write
+	// leaves it untouched. Names are intentionally not resolved here (the fake
+	// has no user table), so the application tests assert the recorded id and
+	// instant; the store test proves name resolution.
+	attribution map[int64]application.WorkflowAttribution
 }
 
 func newFakeWorkflowStore() *fakeWorkflowStore {
-	return &fakeWorkflowStore{drafts: map[int64][]byte{}, revisions: map[int64]int64{}}
+	return &fakeWorkflowStore{drafts: map[int64][]byte{}, revisions: map[int64]int64{}, attribution: map[int64]application.WorkflowAttribution{}}
 }
 func (f *fakeWorkflowStore) GetDraft(_ context.Context, categoryID int64) ([]byte, error) {
 	f.getCalls = append(f.getCalls, categoryID)
@@ -728,7 +734,7 @@ func (f *fakeWorkflowStore) GetDraftWithRevision(ctx context.Context, categoryID
 	draft, err := f.GetDraft(ctx, categoryID)
 	return draft, f.revisions[categoryID], err
 }
-func (f *fakeWorkflowStore) SaveDraftIfRevision(ctx context.Context, categoryID int64, expectedRevision int64, draft []byte) (int64, error) {
+func (f *fakeWorkflowStore) SaveDraftIfRevision(ctx context.Context, categoryID int64, expectedRevision int64, actorID int64, draft []byte) (int64, error) {
 	if f.revisions[categoryID] != expectedRevision {
 		return f.revisions[categoryID], application.ErrDraftRevisionConflict
 	}
@@ -736,7 +742,33 @@ func (f *fakeWorkflowStore) SaveDraftIfRevision(ctx context.Context, categoryID 
 		return 0, err
 	}
 	f.revisions[categoryID]++
+	// Attribution rides the accepted write, like the store's same-statement
+	// UPDATE. fixedStamp is a frozen instant so the read model is deterministic.
+	f.attribution[categoryID] = application.WorkflowAttribution{
+		DraftUpdatedByUserID: actorID,
+		DraftUpdatedAt:       fixedStamp,
+		Version:              f.attribution[categoryID].Version,
+		PublishedByUserID:    f.attribution[categoryID].PublishedByUserID,
+		PublishedAt:          f.attribution[categoryID].PublishedAt,
+	}
 	return f.revisions[categoryID], nil
+}
+
+// fixedStamp is the frozen instant the fake store records on a draft write, so
+// application-layer assertions never depend on the wall clock.
+var fixedStamp = time.Date(2026, 8, 6, 10, 0, 0, 0, time.UTC)
+
+// GetAttribution and ListAttribution give the base fake the read capability
+// (issue #253). A category with no recorded facts answers the zero value.
+func (f *fakeWorkflowStore) GetAttribution(_ context.Context, categoryID int64) (application.WorkflowAttribution, error) {
+	return f.attribution[categoryID], nil
+}
+func (f *fakeWorkflowStore) ListAttribution(_ context.Context) (map[int64]application.WorkflowAttribution, error) {
+	out := map[int64]application.WorkflowAttribution{}
+	for id, a := range f.attribution {
+		out[id] = a
+	}
+	return out, nil
 }
 
 // Publish mirrors the store's historical method: it publishes against the
@@ -769,6 +801,13 @@ func (f *fakeWorkflowStore) PublishAtRevision(_ context.Context, categoryID int6
 	}{cat: categoryID, draft: cp, by: by})
 	f.drafts[categoryID] = cp
 	f.revisions[categoryID] = expectedRevision + 1
+	f.attribution[categoryID] = application.WorkflowAttribution{
+		DraftUpdatedByUserID: attributionID(by),
+		DraftUpdatedAt:       fixedStamp,
+		Version:              int(f.revisions[categoryID]),
+		PublishedByUserID:    attributionID(by),
+		PublishedAt:          fixedStamp,
+	}
 	c := def
 	f.published = &c
 	return int64(len(f.publishCalls)), f.revisions[categoryID], nil, nil
@@ -776,8 +815,18 @@ func (f *fakeWorkflowStore) PublishAtRevision(_ context.Context, categoryID int6
 func (f *fakeWorkflowStore) ListSummaries(_ context.Context) ([]application.WorkflowSummary, error) {
 	return []application.WorkflowSummary{}, nil
 }
+
 func (f *fakeWorkflowStore) ListAvailableCategories(_ context.Context) ([]domain.Category, error) {
 	return []domain.Category{}, nil
+}
+
+// attributionID dereferences an optional actor id for the fake's attribution
+// read model.
+func attributionID(by *int64) int64 {
+	if by == nil {
+		return 0
+	}
+	return *by
 }
 
 // --- PR5 S5 fakes: workflow create+pin+run orchestration ---

@@ -171,6 +171,24 @@ func categoryBadge(s application.WorkflowSummary) string {
 	}
 }
 
+// categoryStatusLine is categoryBadge plus the attribution suffix the row can
+// now show (issue #253): the operator who published the live version, or — when
+// nothing is published yet — the operator who last changed the draft. It is the
+// same one-line slot and the same one composition, so no surface invents a
+// second vocabulary for who/when. A category whose rows predate migration 0020
+// (or whose publisher is unknown) keeps the bare badge.
+func categoryStatusLine(s application.WorkflowSummary, a application.WorkflowAttribution) string {
+	line := categoryBadge(s)
+	switch {
+	case s.Version > 0 && a.PublishedByName != "":
+		return line + " · by " + a.PublishedByName
+	case a.DraftUpdatedByName != "":
+		return line + " · edited by " + a.DraftUpdatedByName
+	default:
+		return line
+	}
+}
+
 func (h *CategoryHandlers) index(w http.ResponseWriter, r *http.Request) {
 	setCategoriesVary(w)
 	if !requireCapability(w, r, application.CapManageCategories) {
@@ -538,13 +556,20 @@ func (h *CategoryHandlers) categoryIndexData(r *http.Request, message string) (c
 	// Both maps come from the SAME summary list, so a row's state and its open
 	// count can never disagree about which category they describe.
 	data.OpenTickets = make(map[int64]int)
+	// Attribution is its own read (issue #253), keyed by category id in one
+	// query; a store that cannot answer leaves the map empty and every row keeps
+	// the bare badge.
 	if h.workflows != nil {
 		summaries, summaryErr := h.workflows.ListSummaries(r.Context(), *userFromContext(r.Context()))
 		if summaryErr != nil {
 			return categoriesIndexData{}, summaryErr
 		}
+		attributions, attributionErr := h.workflows.ListAttribution(r.Context(), *userFromContext(r.Context()))
+		if attributionErr != nil {
+			return categoriesIndexData{}, attributionErr
+		}
 		for _, summary := range summaries {
-			data.Badges[summary.CategoryID] = categoryBadge(summary)
+			data.Badges[summary.CategoryID] = categoryStatusLine(summary, attributions[summary.CategoryID])
 			data.OpenTickets[summary.CategoryID] = summary.OpenTickets
 		}
 	}

@@ -3,6 +3,7 @@ package application
 import (
 	"context"
 	"errors"
+	"time"
 
 	"github.com/giulianotesta7/tkt/internal/domain"
 )
@@ -29,8 +30,49 @@ type WorkflowDraftRevisionStore interface {
 	GetDraftWithRevision(ctx context.Context, categoryID int64) ([]byte, int64, error)
 	// SaveDraftIfRevision writes draft atomically IF AND ONLY IF the stored
 	// revision equals expectedRevision, and reports the new revision. A
-	// mismatch writes NOTHING and returns ErrDraftRevisionConflict.
-	SaveDraftIfRevision(ctx context.Context, categoryID int64, expectedRevision int64, draft []byte) (int64, error)
+	// mismatch writes NOTHING and returns ErrDraftRevisionConflict. actorID is
+	// the operator recorded by the SAME statement (issue #253); a refused write
+	// records no attribution because it writes no row.
+	SaveDraftIfRevision(ctx context.Context, categoryID int64, expectedRevision int64, actorID int64, draft []byte) (int64, error)
+}
+
+// WorkflowAttribution is the who/when a category's workflow row already keeps
+// (issue #253). It is a READ-model: the draft's last attributed editor and
+// instant, plus the LIVE version's number, publisher and instant. These three
+// version columns have existed since migration 0006 and no surface read them
+// before this change. A pre-0020 draft row, or a version published without an
+// actor, answers the zero value rather than a guessed name — the same
+// "no fabricated provenance" rule migration 0010 set for closures.
+type WorkflowAttribution struct {
+	// DraftUpdatedByUserID is the recorded editor of the draft, 0 when none.
+	DraftUpdatedByUserID int64
+	// DraftUpdatedByName is that operator's current display name, empty when
+	// unknown (no attributed write, or a deleted user).
+	DraftUpdatedByName string
+	// DraftUpdatedAt is the instant of the attributed draft write, zero when none.
+	DraftUpdatedAt time.Time
+	// Version is the live published version number, 0 when nothing is published.
+	Version int
+	// PublishedByUserID is the recorded publisher of the live version, 0 when none.
+	PublishedByUserID int64
+	// PublishedByName is that operator's current display name, empty when unknown.
+	PublishedByName string
+	// PublishedAt is the instant the live version was published, zero when none.
+	PublishedAt time.Time
+}
+
+// WorkflowAttributionStore is the read capability behind the surfaced facts
+// (issue #253). It is discovered by type assertion like every other optional
+// workflow capability, so a store that cannot answer it simply surfaces no
+// facts instead of failing the page: these are display-only facts, unlike the
+// guarded write, which fails closed.
+type WorkflowAttributionStore interface {
+	// GetAttribution reads one category's facts. A category with no workflow row
+	// answers the zero value and a nil error.
+	GetAttribution(ctx context.Context, categoryID int64) (WorkflowAttribution, error)
+	// ListAttribution reads every configured category's facts in one query, keyed
+	// by category id, so a list surface is never a read per row.
+	ListAttribution(ctx context.Context) (map[int64]WorkflowAttribution, error)
 }
 
 type WorkflowService struct{ store WorkflowStore }
@@ -108,7 +150,37 @@ func (s *WorkflowService) SaveDraftAtRevision(ctx context.Context, actor domain.
 	if !ok {
 		return 0, errors.New("workflow store cannot guard draft revisions")
 	}
-	return revisions.SaveDraftIfRevision(ctx, categoryID, expectedRevision, b)
+	return revisions.SaveDraftIfRevision(ctx, categoryID, expectedRevision, actor.ID, b)
+}
+
+// GetAttribution returns the who/when facts for one category (issue #253): the
+// operator recorded on the last attributed draft mutation and the stored facts
+// of the live published version. A store without the read capability surfaces
+// nothing rather than failing the builder, because these facts are display-only
+// and their absence is a legitimate state (a pre-0020 row).
+func (s *WorkflowService) GetAttribution(ctx context.Context, actor domain.User, categoryID int64) (WorkflowAttribution, error) {
+	if err := s.requireManage(actor); err != nil {
+		return WorkflowAttribution{}, err
+	}
+	attributions, ok := s.store.(WorkflowAttributionStore)
+	if !ok {
+		return WorkflowAttribution{}, nil
+	}
+	return attributions.GetAttribution(ctx, categoryID)
+}
+
+// ListAttribution is GetAttribution for every configured category at once, so
+// the categories screen renders attribution without a read per row. Ordering and
+// the absent-category rule live in the store.
+func (s *WorkflowService) ListAttribution(ctx context.Context, actor domain.User) (map[int64]WorkflowAttribution, error) {
+	if err := s.requireManage(actor); err != nil {
+		return nil, err
+	}
+	attributions, ok := s.store.(WorkflowAttributionStore)
+	if !ok {
+		return map[int64]WorkflowAttribution{}, nil
+	}
+	return attributions.ListAttribution(ctx)
 }
 
 // SaveDraft is the UNGUARDED draft write. It is no longer an authoring path:
@@ -306,7 +378,7 @@ func (s *WorkflowService) Clone(ctx context.Context, actor domain.User, sourceCa
 	if !ok {
 		return errors.New("workflow store cannot guard draft revisions")
 	}
-	if _, err := revisions.SaveDraftIfRevision(ctx, targetCategoryID, revision, b); err != nil {
+	if _, err := revisions.SaveDraftIfRevision(ctx, targetCategoryID, revision, actor.ID, b); err != nil {
 		if errors.Is(err, ErrDraftRevisionConflict) {
 			return errCloneTargetHasDraft()
 		}
