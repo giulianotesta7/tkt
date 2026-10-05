@@ -71,6 +71,15 @@ type workflowBuilderData struct {
 	// on submit (issue #254). The field is always rendered: a submission without
 	// it is refused rather than applied unguarded.
 	DraftRevision int64
+	// LiveVersion and the two names/instants are the stored facts surfaced
+	// instead of staying invisible (issue #253): which version is live, who
+	// published it and when, and who last changed the draft and when. They are
+	// display-only; an absent fact renders nothing rather than failing the page.
+	LiveVersion        int
+	PublishedByName    string
+	PublishedAt        string
+	DraftUpdatedByName string
+	DraftUpdatedAt     string
 	// CloneSources are the OTHER categories with a published workflow the
 	// builder may clone from (issue #257). The page's own category is excluded.
 	CloneSources []domain.Category
@@ -402,6 +411,10 @@ func (h *CategoryWorkflowHandlers) renderBuilder(w http.ResponseWriter, r *http.
 		selection = selectedStepIndex(r, len(draft))
 	}
 	steps := workflowStepViews(draft, selection, desks)
+	// The stored attribution is a display-only read: a store without the
+	// capability, or a category with no recorded facts, renders nothing rather
+	// than failing a builder that is otherwise fine.
+	attribution, _ := h.workflows.GetAttribution(r.Context(), *userFromContext(r.Context()), categoryID)
 	data := workflowBuilderData{
 		pageData:          pageDataFrom(r, "categories"),
 		CategoryID:        categoryID,
@@ -417,7 +430,12 @@ func (h *CategoryWorkflowHandlers) renderBuilder(w http.ResponseWriter, r *http.
 		CloneSources: h.cloneSources(r, categoryID),
 		CloneError:   cloneError,
 
-		DraftRevision: revision,
+		DraftRevision:      revision,
+		LiveVersion:        attribution.Version,
+		PublishedByName:    attribution.PublishedByName,
+		PublishedAt:        formatDisplayTime(attribution.PublishedAt),
+		DraftUpdatedByName: attribution.DraftUpdatedByName,
+		DraftUpdatedAt:     formatDisplayTime(attribution.DraftUpdatedAt),
 	}
 	data.PageFoundationAssets = true
 	data.WorkflowAssets = true

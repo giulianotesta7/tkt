@@ -315,13 +315,14 @@ func TestWorkflowStore_CascadeNullPin(t *testing.T) {
 func TestWorkflowStore_SaveDraftIfRevisionRefusesStaleWriter(t *testing.T) {
 	s := newTestDB(t)
 	cat := seedCategory(t, s, "cat-rev")
+	actor := seedUser(t, s, "Editor", "editor@example.com", true)
 	ws := newWorkflowStore(s.db)
 	ctx := context.Background()
 
 	winner := mustCanon(t, domain.WorkflowDefinition{{Type: domain.StepManualTask, ManualTask: &domain.ManualTaskStep{Instructions: "winner"}}})
 	stale := mustCanon(t, domain.WorkflowDefinition{{Type: domain.StepManualTask, ManualTask: &domain.ManualTaskStep{Instructions: "stale tab"}}})
 
-	next, err := ws.SaveDraftIfRevision(ctx, cat, 0, winner)
+	next, err := ws.SaveDraftIfRevision(ctx, cat, 0, actor, winner)
 	if err != nil {
 		t.Fatalf("first writer: %v", err)
 	}
@@ -330,7 +331,7 @@ func TestWorkflowStore_SaveDraftIfRevisionRefusesStaleWriter(t *testing.T) {
 	}
 
 	// The stale tab carries the SAME expected revision 0.
-	if _, err := ws.SaveDraftIfRevision(ctx, cat, 0, stale); !errors.Is(err, application.ErrDraftRevisionConflict) {
+	if _, err := ws.SaveDraftIfRevision(ctx, cat, 0, actor, stale); !errors.Is(err, application.ErrDraftRevisionConflict) {
 		t.Fatalf("stale write err = %v, want ErrDraftRevisionConflict", err)
 	}
 
@@ -351,16 +352,17 @@ func TestWorkflowStore_SaveDraftIfRevisionRefusesStaleWriter(t *testing.T) {
 func TestWorkflowStore_SaveDraftIfRevisionAdvancesOnCorrectRevision(t *testing.T) {
 	s := newTestDB(t)
 	cat := seedCategory(t, s, "cat-rev-advance")
+	actor := seedUser(t, s, "Editor", "editor@example.com", true)
 	ws := newWorkflowStore(s.db)
 	ctx := context.Background()
 
 	first := mustCanon(t, domain.WorkflowDefinition{{Type: domain.StepManualTask, ManualTask: &domain.ManualTaskStep{Instructions: "one"}}})
 	second := mustCanon(t, domain.WorkflowDefinition{{Type: domain.StepManualTask, ManualTask: &domain.ManualTaskStep{Instructions: "two"}}})
 
-	if next, err := ws.SaveDraftIfRevision(ctx, cat, 0, first); err != nil || next != 1 {
+	if next, err := ws.SaveDraftIfRevision(ctx, cat, 0, actor, first); err != nil || next != 1 {
 		t.Fatalf("first write next=%d err=%v, want 1 and nil", next, err)
 	}
-	if next, err := ws.SaveDraftIfRevision(ctx, cat, 1, second); err != nil || next != 2 {
+	if next, err := ws.SaveDraftIfRevision(ctx, cat, 1, actor, second); err != nil || next != 2 {
 		t.Fatalf("second write next=%d err=%v, want 2 and nil", next, err)
 	}
 	got, revision, err := ws.GetDraftWithRevision(ctx, cat)
@@ -404,7 +406,8 @@ func TestWorkflowStore_PublishAtRevisionRefusesStaleWriter(t *testing.T) {
 	stale := mustCanon(t, domain.WorkflowDefinition{{Type: domain.StepManualTask, ManualTask: &domain.ManualTaskStep{Instructions: "stale"}}})
 
 	// A newer draft is already at revision 1.
-	if rev, err := ws.SaveDraftIfRevision(ctx, cat, 0, newer); err != nil || rev != 1 {
+	actor := seedUser(t, s, "Editor", "editor@example.com", true)
+	if rev, err := ws.SaveDraftIfRevision(ctx, cat, 0, actor, newer); err != nil || rev != 1 {
 		t.Fatalf("advance revision: rev=%d err=%v, want 1 and nil", rev, err)
 	}
 
@@ -446,7 +449,8 @@ func TestWorkflowStore_CloneConcurrentWritesHaveOneWinner(t *testing.T) {
 		t.Fatalf("publish source: iss=%v err=%v", iss, err)
 	}
 	svc := application.NewWorkflowService(ws)
-	admin := domain.User{ID: 1, Role: domain.RoleAdmin, Active: true}
+	adminID := seedUserRole(t, s, "Cloner", "cloner@example.com", true, domain.RoleAdmin)
+	admin := domain.User{ID: adminID, Role: domain.RoleAdmin, Active: true}
 
 	const clones = 2
 	errs := make([]error, clones)
@@ -496,6 +500,7 @@ func TestWorkflowStore_PublishAtRevisionAdvancesAndBlocksOldRevision(t *testing.
 	ws := newWorkflowStore(s.db)
 	ctx := context.Background()
 	draft := mustCanon(t, domain.WorkflowDefinition{{Type: domain.StepManualTask, ManualTask: &domain.ManualTaskStep{Instructions: "one"}}})
+	actor := seedUser(t, s, "Editor", "editor@example.com", true)
 
 	vid, revision, iss, err := ws.PublishAtRevision(ctx, cat, draft, 0, nil)
 	if err != nil || len(iss) != 0 || vid == 0 || revision != 1 {
@@ -504,10 +509,142 @@ func TestWorkflowStore_PublishAtRevisionAdvancesAndBlocksOldRevision(t *testing.
 	if got, stored, err := ws.GetDraftWithRevision(ctx, cat); err != nil || string(got) != string(draft) || stored != 1 {
 		t.Fatalf("after publish: revision=%d draft=%s err=%v, want 1 and the published bytes", stored, got, err)
 	}
-	if _, err := ws.SaveDraftIfRevision(ctx, cat, 0, draft); !errors.Is(err, application.ErrDraftRevisionConflict) {
+	if _, err := ws.SaveDraftIfRevision(ctx, cat, 0, actor, draft); !errors.Is(err, application.ErrDraftRevisionConflict) {
 		t.Fatalf("save at the pre-publish revision err = %v, want ErrDraftRevisionConflict", err)
 	}
-	if next, err := ws.SaveDraftIfRevision(ctx, cat, revision, draft); err != nil || next != 2 {
+	if next, err := ws.SaveDraftIfRevision(ctx, cat, revision, actor, draft); err != nil || next != 2 {
 		t.Fatalf("save at the published revision: next=%d err=%v, want 2 and nil", next, err)
+	}
+}
+
+// TestWorkflowStore_SaveDraftIfRevisionRecordsAttribution is the issue #253
+// falsification at the store boundary: an accepted draft write records the
+// acting operator and the instant in the SAME statement, and a REFUSED stale
+// write records nothing at all. If attribution were a separate write, a refused
+// edit could still overwrite the previous author.
+func TestWorkflowStore_SaveDraftIfRevisionRecordsAttribution(t *testing.T) {
+	s := newTestDB(t)
+	cat := seedCategory(t, s, "cat-attribution")
+	editor := seedUser(t, s, "Editor", "editor@example.com", true)
+	other := seedUser(t, s, "Other", "other@example.com", true)
+	ws := newWorkflowStore(s.db)
+	ctx := context.Background()
+
+	first := mustCanon(t, domain.WorkflowDefinition{{Type: domain.StepManualTask, ManualTask: &domain.ManualTaskStep{Instructions: "first"}}})
+	if _, err := ws.SaveDraftIfRevision(ctx, cat, 0, editor, first); err != nil {
+		t.Fatalf("first attributed write: %v", err)
+	}
+
+	got, err := ws.GetAttribution(ctx, cat)
+	if err != nil {
+		t.Fatalf("get attribution: %v", err)
+	}
+	if got.DraftUpdatedByUserID != editor || got.DraftUpdatedByName != "Editor" {
+		t.Errorf("draft editor = (%d, %q), want (%d, %q)", got.DraftUpdatedByUserID, got.DraftUpdatedByName, editor, "Editor")
+	}
+	if got.DraftUpdatedAt.IsZero() {
+		t.Error("draft updated at is zero, want the instant of the accepted write")
+	}
+
+	// A stale tab carrying the SAME revision 0 is refused: the editor and the
+	// instant must still describe the accepted write, not the refused one.
+	stale := mustCanon(t, domain.WorkflowDefinition{{Type: domain.StepManualTask, ManualTask: &domain.ManualTaskStep{Instructions: "stale"}}})
+	if _, err := ws.SaveDraftIfRevision(ctx, cat, 0, other, stale); !errors.Is(err, application.ErrDraftRevisionConflict) {
+		t.Fatalf("stale write err = %v, want ErrDraftRevisionConflict", err)
+	}
+	after, err := ws.GetAttribution(ctx, cat)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after.DraftUpdatedByUserID != editor || !after.DraftUpdatedAt.Equal(got.DraftUpdatedAt) {
+		t.Errorf("a refused write changed attribution: got (%d, %s), want (%d, %s)", after.DraftUpdatedByUserID, after.DraftUpdatedAt, editor, got.DraftUpdatedAt)
+	}
+}
+
+// TestWorkflowStore_PublishRecordsAttributionAndVersionFacts proves a publish
+// is attributed like any other draft mutation and that the LIVE version's
+// stored facts (version_no, published_by_user_id, published_at) read back with
+// the publisher's name resolved.
+func TestWorkflowStore_PublishRecordsAttributionAndVersionFacts(t *testing.T) {
+	s := newTestDB(t)
+	cat := seedCategory(t, s, "cat-publish-attribution")
+	publisher := seedUser(t, s, "Publisher", "publisher@example.com", true)
+	ws := newWorkflowStore(s.db)
+	ctx := context.Background()
+	draft := mustCanon(t, domain.WorkflowDefinition{{Type: domain.StepManualTask, ManualTask: &domain.ManualTaskStep{Instructions: "published"}}})
+
+	if _, _, _, err := ws.PublishAtRevision(ctx, cat, draft, 0, &publisher); err != nil {
+		t.Fatalf("publish: %v", err)
+	}
+
+	got, err := ws.GetAttribution(ctx, cat)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Version != 1 {
+		t.Errorf("live version = %d, want 1", got.Version)
+	}
+	if got.PublishedByUserID != publisher || got.PublishedByName != "Publisher" {
+		t.Errorf("publisher = (%d, %q), want (%d, %q)", got.PublishedByUserID, got.PublishedByName, publisher, "Publisher")
+	}
+	if got.PublishedAt.IsZero() {
+		t.Error("published at is zero, want the publish instant")
+	}
+	if got.DraftUpdatedByUserID != publisher || got.DraftUpdatedAt.IsZero() {
+		t.Errorf("publish must attribute the draft it rewrote, got (%d, %s)", got.DraftUpdatedByUserID, got.DraftUpdatedAt)
+	}
+}
+
+// A category that was never configured has nothing recorded: the read answers
+// the zero value with a nil error and creates no row.
+func TestWorkflowStore_GetAttributionAbsentIsZero(t *testing.T) {
+	s := newTestDB(t)
+	cat := seedCategory(t, s, "cat-no-attribution")
+	ws := newWorkflowStore(s.db)
+
+	got, err := ws.GetAttribution(context.Background(), cat)
+	if err != nil {
+		t.Fatalf("get attribution: %v", err)
+	}
+	if got != (application.WorkflowAttribution{}) {
+		t.Fatalf("absent attribution = %+v, want the zero value", got)
+	}
+	var n int
+	if err := s.db.QueryRow(`SELECT COUNT(*) FROM category_workflows WHERE category_id=?`, cat).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	if n != 0 {
+		t.Fatalf("reading attribution created a workflow row (%d)", n)
+	}
+}
+
+// ListAttribution reads every configured category in one pass, keyed by id.
+func TestWorkflowStore_ListAttribution(t *testing.T) {
+	s := newTestDB(t)
+	a := seedCategory(t, s, "attr-a")
+	b := seedCategory(t, s, "attr-b")
+	_ = seedCategory(t, s, "attr-untouched")
+	editor := seedUser(t, s, "Editor", "editor@example.com", true)
+	ws := newWorkflowStore(s.db)
+	ctx := context.Background()
+	draft := mustCanon(t, domain.WorkflowDefinition{{Type: domain.StepManualTask, ManualTask: &domain.ManualTaskStep{Instructions: "x"}}})
+	if _, err := ws.SaveDraftIfRevision(ctx, a, 0, editor, draft); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ws.SaveDraftIfRevision(ctx, b, 0, editor, draft); err != nil {
+		t.Fatal(err)
+	}
+
+	all, err := ws.ListAttribution(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(all) != 2 {
+		t.Fatalf("attribution entries = %d, want 2 (configured categories only)", len(all))
+	}
+	for _, id := range []int64{a, b} {
+		if got := all[id].DraftUpdatedByUserID; got != editor {
+			t.Errorf("category %d editor = %d, want %d", id, got, editor)
+		}
 	}
 }

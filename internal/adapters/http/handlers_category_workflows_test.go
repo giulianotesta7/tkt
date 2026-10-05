@@ -471,16 +471,16 @@ func TestCategoryWorkflowBuilder_PublishAndHTMXParity(t *testing.T) {
 		index := h.get(t, "/categories", false)
 		// The badge now names the version. A bare "Published" could not tell a
 		// category on its eleventh version from one on its first.
-		if got := categoryStatusBadge(t, index.Body.String(), category.Name); got != "Published v1" {
-			t.Errorf("category %q status = %q, want Published v1", category.Name, got)
+		if got := categoryStatusBadge(t, index.Body.String(), category.Name); got != "Published v1 · by Admin" {
+			t.Errorf("category %q status = %q, want Published v1 · by Admin", category.Name, got)
 		}
 
 		edited := builderDraft(t, "edited")
 		wantRedirect(t, h.postBuilder(t, path, builderForm("save", edited), false), http.StatusSeeOther, path)
 		// Both steps moved, so both canonical bytes differ by position; the badge
 		// counts differing STEPS, which is what a one-line label can state.
-		if got := categoryStatusBadge(t, h.get(t, "/categories", false).Body.String(), category.Name); got != "Published v1 · 2 unpublished changes" {
-			t.Errorf("category %q status = %q, want the version plus 2 unpublished changes", category.Name, got)
+		if got := categoryStatusBadge(t, h.get(t, "/categories", false).Body.String(), category.Name); got != "Published v1 · 2 unpublished changes · by Admin" {
+			t.Errorf("category %q status = %q, want the version plus 2 unpublished changes and the publisher", category.Name, got)
 		}
 	})
 }
@@ -2856,5 +2856,53 @@ func TestCategoryWorkflowBuilder_PublishAdvancesRevision(t *testing.T) {
 	}
 	if got := scanOneString(t, h.rawDB(t), "SELECT draft_json FROM category_workflows WHERE category_id=?", category.ID); got != publishedBytes {
 		t.Fatalf("post-publish stale save changed the published draft:\n got  %s\n want %s", got, publishedBytes)
+	}
+}
+
+// TestCategoryWorkflowBuilder_SurfacesStoredVersionFacts is the issue #253
+// end-to-end surfacing contract: the builder names who last changed the draft
+// and, once published, which version is live, who published it and when. The
+// version columns have existed since migration 0006; before this change no
+// template or handler read them. The facts render separately from the transient
+// success live region, so a conflict or validation page can still name the
+// author without faking a success status.
+func TestCategoryWorkflowBuilder_SurfacesStoredVersionFacts(t *testing.T) {
+	h := newHarness(t)
+	category, err := h.categories.Create(t.Context(), "Attributed")
+	if err != nil {
+		t.Fatalf("create category: %v", err)
+	}
+	path := "/categories/" + strconv.FormatInt(category.ID, 10) + "/workflow"
+
+	fresh := h.get(t, path, false)
+	if fresh.Code != http.StatusOK {
+		t.Fatalf("GET status = %d, want 200", fresh.Code)
+	}
+	for _, absent := range []string{"data-workflow-version", "data-workflow-draft-author"} {
+		if strings.Contains(fresh.Body.String(), absent) {
+			t.Errorf("a fresh builder must render no stored facts, found %q: %s", absent, fresh.Body.String())
+		}
+	}
+
+	draft := builderDraft(t, "first", "second")
+	wantRedirect(t, h.postBuilder(t, path, builderForm("save", draft), false), http.StatusSeeOther, path)
+	saved := h.get(t, path, false).Body.String()
+	if !strings.Contains(saved, "data-workflow-draft-author") || !strings.Contains(saved, "Draft last edited by Admin") {
+		t.Errorf("saved builder must name the draft editor, got: %s", saved)
+	}
+	// A draft-only category has no live version to name yet.
+	if strings.Contains(saved, "data-workflow-version") {
+		t.Errorf("a draft-only builder must not render live version facts, got: %s", saved)
+	}
+
+	wantRedirect(t, h.postBuilder(t, path, builderForm("publish", draft), false), http.StatusSeeOther, path)
+	published := h.get(t, path, false).Body.String()
+	if !strings.Contains(published, "data-workflow-version") || !strings.Contains(published, "Published v1 · by Admin") {
+		t.Errorf("published builder must surface the live version and its publisher, got: %s", published)
+	}
+
+	index := h.get(t, "/categories", false)
+	if got := categoryStatusBadge(t, index.Body.String(), category.Name); got != "Published v1 · by Admin" {
+		t.Errorf("category row = %q, want the live version attributed to its publisher", got)
 	}
 }

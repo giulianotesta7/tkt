@@ -16,6 +16,7 @@ type workflowStore struct{ db *sql.DB }
 var _ application.WorkflowStore = (*workflowStore)(nil)
 var _ application.WorkflowVersionStore = (*workflowStore)(nil)
 var _ application.WorkflowDraftRevisionStore = (*workflowStore)(nil)
+var _ application.WorkflowAttributionStore = (*workflowStore)(nil)
 
 func newWorkflowStore(db *sql.DB) *workflowStore { return &workflowStore{db: db} }
 
@@ -109,15 +110,19 @@ func (w *workflowStore) GetDraftWithRevision(ctx context.Context, categoryID int
 	return []byte(d.String), rev, nil
 }
 
-// SaveDraftIfRevision is the guarded draft write (issue #254). It is a
-// compare-and-swap: the UPDATE carries `draft_revision = expected` in its
-// WHERE clause, so a writer whose expected revision is stale updates zero
-// rows and is refused with ErrDraftRevisionConflict, leaving the newer
-// writer's bytes exactly as they were. The row is created first (revision 0)
-// so the first guarded write of a fresh category expects 0 and lands as
-// revision 1. Everything runs in the store's immediate transaction, so the
-// check and the write cannot interleave with another writer.
-func (w *workflowStore) SaveDraftIfRevision(ctx context.Context, categoryID int64, expectedRevision int64, draft []byte) (int64, error) {
+// SaveDraftIfRevision is the guarded, attributed draft write (issues #254 and
+// #253). It is a compare-and-swap: the UPDATE carries `draft_revision =
+// expected` in its WHERE clause, so a writer whose expected revision is stale
+// updates zero rows and is refused with ErrDraftRevisionConflict, leaving the
+// newer writer's bytes exactly as they were. The row is created first
+// (revision 0) so the first guarded write of a fresh category expects 0 and
+// lands as revision 1. Everything runs in the store's immediate transaction,
+// so the check and the write cannot interleave with another writer.
+//
+// The actor and instant ride IN the same UPDATE as the bytes: attribution can
+// never describe a different write than the one that landed, and a refused
+// stale edit records no attribution at all.
+func (w *workflowStore) SaveDraftIfRevision(ctx context.Context, categoryID int64, expectedRevision int64, actorID int64, draft []byte) (int64, error) {
 	tx, err := beginImmediate(ctx, w.db, "save draft at revision")
 	if err != nil {
 		return 0, err
@@ -127,8 +132,10 @@ func (w *workflowStore) SaveDraftIfRevision(ctx context.Context, categoryID int6
 		return 0, fmt.Errorf("sqlite: save draft ensure: %w", err)
 	}
 	// The compare-and-swap: the UPDATE only matches while the stored revision is
-	// still the expected one, so a stale writer updates nothing at all.
-	res, err := tx.ExecContext(ctx, `UPDATE category_workflows SET draft_json=?, draft_revision=draft_revision+1 WHERE category_id=? AND draft_revision=?`, string(draft), categoryID, expectedRevision)
+	// still the expected one, so a stale writer updates nothing at all. The
+	// attribution columns are part of the SAME accepted statement.
+	now := formatTime(time.Now().UTC())
+	res, err := tx.ExecContext(ctx, `UPDATE category_workflows SET draft_json=?, draft_revision=draft_revision+1, draft_updated_by_user_id=?, draft_updated_at=? WHERE category_id=? AND draft_revision=?`, string(draft), actorID, now, categoryID, expectedRevision)
 	if err != nil {
 		return 0, fmt.Errorf("sqlite: save draft update: %w", err)
 	}
@@ -150,6 +157,107 @@ func (w *workflowStore) SaveDraftIfRevision(ctx context.Context, categoryID int6
 		return 0, fmt.Errorf("sqlite: save draft commit: %w", err)
 	}
 	return revision, nil
+}
+
+// attributionSelect is the one query behind both attribution reads (issue
+// #253): the draft's last attributed editor and instant, plus the LIVE
+// version's number, publisher and instant. The joins are LEFT on purpose — a
+// category with no workflow row, no draft, or no published version must still
+// answer (never an absent row faked into a failure), and a NULL
+// draft_updated_by_user_id or published_by_user_id is the truthful "unknown".
+// The current-version join repeats the category_id predicate so a version row
+// can never be attached to a different category's workflow row.
+const attributionSelect = `SELECT cw.category_id,
+		cw.draft_updated_by_user_id, du.name, cw.draft_updated_at,
+		wv.version_no, wv.published_by_user_id, pu.name, wv.published_at
+	  FROM category_workflows cw
+	  LEFT JOIN workflow_versions wv ON wv.id = cw.current_version_id AND wv.category_id = cw.category_id
+	  LEFT JOIN users du ON du.id = cw.draft_updated_by_user_id
+	  LEFT JOIN users pu ON pu.id = wv.published_by_user_id`
+
+// scanAttribution reads one attributionSelect row into its category id and
+// application facts.
+func scanAttribution(scan func(dest ...any) error) (int64, application.WorkflowAttribution, error) {
+	var (
+		a       application.WorkflowAttribution
+		catID   int64
+		draftBy sql.NullInt64
+		draftNm sql.NullString
+		draftAt sql.NullString
+		version sql.NullInt64
+		pubBy   sql.NullInt64
+		pubNm   sql.NullString
+		pubAt   sql.NullString
+	)
+	if err := scan(&catID, &draftBy, &draftNm, &draftAt, &version, &pubBy, &pubNm, &pubAt); err != nil {
+		return 0, application.WorkflowAttribution{}, err
+	}
+	a.DraftUpdatedByUserID = draftBy.Int64
+	a.DraftUpdatedByName = draftNm.String
+	a.PublishedByUserID = pubBy.Int64
+	a.PublishedByName = pubNm.String
+	if version.Valid {
+		a.Version = int(version.Int64)
+	}
+	var err error
+	if a.DraftUpdatedAt, err = parseStoredTime(draftAt); err != nil {
+		return 0, application.WorkflowAttribution{}, fmt.Errorf("sqlite: draft updated at: %w", err)
+	}
+	if a.PublishedAt, err = parseStoredTime(pubAt); err != nil {
+		return 0, application.WorkflowAttribution{}, fmt.Errorf("sqlite: published at: %w", err)
+	}
+	return catID, a, nil
+}
+
+// parseStoredTime reads the persisted RFC3339 UTC TEXT form back into a time.
+// An absent value is the zero time, never an error; a value that cannot be
+// parsed is a real storage fault and is reported rather than silently dropped.
+func parseStoredTime(raw sql.NullString) (time.Time, error) {
+	if !raw.Valid || raw.String == "" {
+		return time.Time{}, nil
+	}
+	t, err := time.Parse(timeLayout, raw.String)
+	if err != nil {
+		return time.Time{}, err
+	}
+	return t.UTC(), nil
+}
+
+// GetAttribution reads one category's draft attribution and live version facts
+// (issue #253). A category with no workflow row answers the zero value with a
+// nil error: "nothing recorded yet" is a state, not a failure.
+func (w *workflowStore) GetAttribution(ctx context.Context, categoryID int64) (application.WorkflowAttribution, error) {
+	_, a, err := scanAttribution(w.db.QueryRowContext(ctx, attributionSelect+` WHERE cw.category_id = ?`, categoryID).Scan)
+	if errors.Is(err, sql.ErrNoRows) {
+		return application.WorkflowAttribution{}, nil
+	}
+	if err != nil {
+		return application.WorkflowAttribution{}, fmt.Errorf("sqlite: get attribution: %w", err)
+	}
+	return a, nil
+}
+
+// ListAttribution reads every configured category's attribution in ONE query,
+// keyed by category id, so the categories screen does not issue a read per row.
+// Categories with no workflow row are simply absent from the map.
+func (w *workflowStore) ListAttribution(ctx context.Context) (map[int64]application.WorkflowAttribution, error) {
+	rows, err := w.db.QueryContext(ctx, attributionSelect+` ORDER BY cw.category_id ASC`)
+	if err != nil {
+		return nil, fmt.Errorf("sqlite: list attribution: %w", err)
+	}
+	defer rows.Close()
+	out := map[int64]application.WorkflowAttribution{}
+	for rows.Next() {
+		catID, a, err := scanAttribution(rows.Scan)
+		if err != nil {
+			return nil, fmt.Errorf("sqlite: scan attribution: %w", err)
+		}
+		out[catID] = a
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("sqlite: attribution rows: %w", err)
+	}
+	return out, nil
 }
 
 // Publish keeps its historical signature for the callers that arrange a
@@ -225,8 +333,11 @@ func (w *workflowStore) publish(ctx context.Context, categoryID int64, draft []b
 		expected = &current
 	}
 	// The compare-and-swap: the write lands only while the stored revision is
-	// still the expected one, and it advances the revision as it writes.
-	res, err := tx.ExecContext(ctx, `UPDATE category_workflows SET draft_json=?, draft_revision=draft_revision+1 WHERE category_id=? AND draft_revision=?`, string(draft), categoryID, *expected)
+	// still the expected one, and it advances the revision as it writes. A
+	// publish IS a draft mutation — it rewrites draft_json with the published
+	// bytes — so it records the same attribution in the same statement.
+	now := formatTime(time.Now().UTC())
+	res, err := tx.ExecContext(ctx, `UPDATE category_workflows SET draft_json=?, draft_revision=draft_revision+1, draft_updated_by_user_id=?, draft_updated_at=? WHERE category_id=? AND draft_revision=?`, string(draft), nullableInt64(by), now, categoryID, *expected)
 	if err != nil {
 		return 0, 0, nil, fmt.Errorf("sqlite: publish draft: %w", err)
 	}
@@ -242,7 +353,6 @@ func (w *workflowStore) publish(ctx context.Context, categoryID int64, draft []b
 	if err := tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(version_no),0)+1 FROM workflow_versions WHERE category_id=?`, categoryID).Scan(&next); err != nil {
 		return 0, 0, nil, fmt.Errorf("sqlite: next version: %w", err)
 	}
-	now := formatTime(time.Now().UTC())
 	res, err = tx.ExecContext(ctx, `INSERT INTO workflow_versions(category_id, version_no, steps_json, published_by_user_id, published_at) VALUES (?,?,?,?,?)`, categoryID, next, string(draft), nullableInt64(by), now)
 	if err != nil {
 		return 0, 0, nil, fmt.Errorf("sqlite: insert version: %w", err)

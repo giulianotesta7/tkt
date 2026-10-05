@@ -6,7 +6,14 @@
     <input type="hidden" name="source_index" value=""><input type="hidden" name="target_index" value=""><button class="visually-hidden" type="submit" name="action" value="reorder" data-workflow-reorder aria-hidden="true" tabindex="-1" formaction="/categories/{{.CategoryID}}/workflow" hx-post="/categories/{{.CategoryID}}/workflow" hx-target="#workflow-builder" hx-swap="outerHTML" hx-include="closest form">Reorder</button>
     {{range .Steps}}{{if not .Selected}}<input type="hidden" name="step_{{.Index}}_snapshot" value="{{.Snapshot}}">{{end}}{{end}}
     <div class="workflow-builder-head">
-      <div><h2 id="workflow-builder-title">Workflow steps</h2><p>Select a step to configure it. Drag to reorder.</p></div>
+      <div><h2 id="workflow-builder-title">Workflow steps</h2><p>Select a step to configure it. Drag to reorder.</p>
+        {{/* The stored version facts and the draft's author were kept but shown
+        nowhere before issue #253. They sit under the subtitle as facts,
+        separately from the transient success live region, so a validation or
+        conflict render can still say who owns the current draft without faking
+        a success status. */}}
+        {{if .LiveVersion}}<p class="workflow-version-facts" data-workflow-version>Published v{{.LiveVersion}}{{if .PublishedByName}} · by {{.PublishedByName}}{{end}}{{if .PublishedAt}} · {{.PublishedAt}}{{end}}</p>{{end}}
+        {{if .DraftUpdatedByName}}<p class="workflow-draft-author" data-workflow-draft-author>Draft last edited by {{.DraftUpdatedByName}}{{if .DraftUpdatedAt}} · {{.DraftUpdatedAt}}{{end}}</p>{{end}}</div>
       <span class="htmx-indicator spinner" aria-hidden="true"></span>
       {{if .Live}}<p class="workflow-live" role="status" aria-live="polite" data-workflow-live>{{.Live}}</p>{{end}}
     </div>

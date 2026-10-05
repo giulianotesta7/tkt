@@ -361,7 +361,7 @@ func TestWorkflowService_Clone_RefusesDraftLandedBetweenCheckAndWrite(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := base.SaveDraftIfRevision(ctx, 9, 0, otherBytes); err != nil {
+	if _, err := base.SaveDraftIfRevision(ctx, 9, 0, admin.ID, otherBytes); err != nil {
 		t.Fatalf("arrange concurrent winner: %v", err)
 	}
 	base.upsertCalls = nil // ignore the arrangement write
@@ -541,5 +541,69 @@ func TestWorkflowService_Publish_AdvancesAndBlocksOldRevision(t *testing.T) {
 	}
 	if next, err := svc.SaveDraftAtRevision(ctx, admin, 1, draft, revision); err != nil || next != 2 {
 		t.Fatalf("save at the published revision: next=%d err=%v, want 2 and nil", next, err)
+	}
+}
+
+// TestWorkflowService_SaveDraftAtRevision_RecordsActor is the issue #253
+// application-layer falsification: the guarded write hands the acting operator
+// to the store, and the read model answers that operator. A service that
+// dropped the actor would leave the draft unattributed.
+func TestWorkflowService_SaveDraftAtRevision_RecordsActor(t *testing.T) {
+	store := newFakeWorkflowStore()
+	svc := application.NewWorkflowService(store)
+	editor := domain.User{ID: 7, Role: domain.RoleAdmin, Active: true}
+	ctx := context.Background()
+	draft := domain.WorkflowDefinition{{Type: domain.StepManualTask, ManualTask: &domain.ManualTaskStep{Instructions: "attributed"}}}
+
+	if _, err := svc.SaveDraftAtRevision(ctx, editor, 1, draft, 0); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	got, err := svc.GetAttribution(ctx, editor, 1)
+	if err != nil {
+		t.Fatalf("get attribution: %v", err)
+	}
+	if got.DraftUpdatedByUserID != editor.ID {
+		t.Errorf("draft editor = %d, want %d (the acting operator)", got.DraftUpdatedByUserID, editor.ID)
+	}
+	if got.DraftUpdatedAt.IsZero() {
+		t.Error("draft updated at is zero, want the store-recorded instant")
+	}
+}
+
+// Attribution is category-management data: a non-operator cannot read it.
+func TestWorkflowService_GetAttribution_RequiresCapability(t *testing.T) {
+	store := newFakeWorkflowStore()
+	svc := application.NewWorkflowService(store)
+	for _, role := range []domain.Role{domain.RoleUser, domain.RoleAgent} {
+		if _, err := svc.GetAttribution(context.Background(), domain.User{ID: 2, Role: role, Active: true}, 1); err == nil {
+			t.Fatalf("%s must be denied attribution", role)
+		}
+		if _, err := svc.ListAttribution(context.Background(), domain.User{ID: 2, Role: role, Active: true}); err == nil {
+			t.Fatalf("%s must be denied the attribution list", role)
+		}
+	}
+}
+
+// A store that cannot answer the read surfaces no facts instead of failing the
+// page: these are display-only facts, unlike the guarded write.
+func TestWorkflowService_GetAttribution_StoreWithoutCapabilityIsEmpty(t *testing.T) {
+	base := newFakeWorkflowStore()
+	store := &bareWorkflowStore{WorkflowStore: base}
+	svc := application.NewWorkflowService(store)
+	admin := domain.User{ID: 1, Role: domain.RoleAdmin, Active: true}
+
+	got, err := svc.GetAttribution(context.Background(), admin, 1)
+	if err != nil {
+		t.Fatalf("get attribution: %v", err)
+	}
+	if got != (application.WorkflowAttribution{}) {
+		t.Fatalf("store without capability = %+v, want the zero value", got)
+	}
+	all, err := svc.ListAttribution(context.Background(), admin)
+	if err != nil {
+		t.Fatalf("list attribution: %v", err)
+	}
+	if len(all) != 0 {
+		t.Fatalf("store without capability listed %d entries, want none", len(all))
 	}
 }
