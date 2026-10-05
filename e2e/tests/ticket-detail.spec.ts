@@ -26,7 +26,7 @@ import {
 } from "./helpers/layout.js";
 import { assertHtmxSwap } from "./helpers/htmx.js";
 import { isHtmxPost } from "./helpers/save-feedback.js";
-import { createTicketViaUi } from "./helpers/navigation.js";
+import { createTicketViaUi, resolveUserEditHref } from "./helpers/navigation.js";
 import { waitForExactPost } from "./helpers/network.js";
 
 /** The staff-only SLA panel of the ticket detail page. */
@@ -34,6 +34,31 @@ function slaPanel(page: Page) {
   return page
     .locator("#ticket-detail .prop-section")
     .filter({ has: page.locator(".prop-heading", { hasText: /^SLA/ }) });
+}
+
+/**
+ * Create a user through the managed-users screen and promote them to agent, so
+ * they join the instance-wide assignee candidates. Returns the edit href so a
+ * journey can deactivate the same operator later.
+ */
+async function createAssignableAgent(
+  page: Page,
+  name: string,
+): Promise<{ name: string; editHref: string }> {
+  const slug = name.replace(/\s+/g, "-").toLowerCase();
+  const unique = Math.random().toString(36).slice(2, 8);
+  await createUserAsAdmin(page, {
+    name,
+    email: `${slug}-${unique}@tkt.test`,
+    password: "Secret123!",
+  });
+  await page.goto(base() + "/users");
+  const editHref = await resolveUserEditHref(page, name);
+  await page.goto(base() + editHref);
+  await page.locator('select[name="role"]').selectOption("agent");
+  await page.getByRole("button", { name: /save changes/i }).click();
+  await expect(page).toHaveURL(/\/users$/);
+  return { name, editHref };
 }
 
 test.describe("Ticket detail", () => {
@@ -1397,6 +1422,156 @@ test.describe("Ticket detail", () => {
 
     await page.reload();
     await expect(page.locator("#ticket-priority")).toHaveValue("critical");
+  });
+
+  test("the assignee filter narrows candidates and never submits the ticket form", async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await loginAsSeeded(page);
+    const suffix = Date.now().toString(36).slice(2, 8);
+    const alphaName = `Filter Alpha ${suffix}`;
+    const bravoName = `Filter Bravo ${suffix}`;
+    await createAssignableAgent(page, alphaName);
+    await createAssignableAgent(page, bravoName);
+
+    const id = await createTicketViaUi(page, {
+      title: `Assignee filter ${suffix}`,
+      description: "the assignee filter narrows candidates",
+      category: "General",
+      priority: "high",
+    });
+    await page.goto(base() + `/tickets/${id}`);
+
+    const filter = page.locator("#assign-user-filter");
+    const assignee = page.locator("#assign-user");
+    await expect(filter).toBeVisible();
+    await expect(assignee).toBeVisible();
+
+    // The filter must not become a mutation path: Enter inside it cannot submit
+    // the assign form, because the input lives outside that form.
+    const assignPosts: string[] = [];
+    page.on("request", (request) => {
+      if (
+        request.method() === "POST" &&
+        new URL(request.url()).pathname === `/tickets/${id}/assign`
+      ) {
+        assignPosts.push(request.url());
+      }
+    });
+
+    const alphaOption = assignee.locator("option", { hasText: alphaName });
+    const bravoOption = assignee.locator("option", { hasText: bravoName });
+    const alphaValue = await alphaOption.getAttribute("value");
+    const bravoValue = await bravoOption.getAttribute("value");
+    if (!alphaValue || !bravoValue) {
+      throw new Error(`both filtered agents must be assignable at ${page.url()}`);
+    }
+    const total = await assignee.locator("option").count();
+    expect(total).toBeGreaterThanOrEqual(4); // Unassigned + Alice + the two agents
+
+    // Typing narrows the visible options to the match plus the current
+    // selection; a non-matching candidate disappears.
+    await filter.fill("bravo");
+    await expect(alphaOption).toHaveCount(0);
+    await expect(bravoOption).toHaveCount(1);
+    await expect(assignee).toHaveValue(""); // Unassigned stays selected, so it survives
+    await expect(assignee.locator("option")).toHaveCount(2);
+
+    await filter.press("Enter");
+    await page.waitForTimeout(300);
+    expect(assignPosts, "Enter in the filter must not POST /assign").toEqual([]);
+    await expect(page.locator("#ticket-detail")).toBeVisible();
+
+    // Clearing the filter restores the exact candidate set.
+    await filter.fill("");
+    await expect(assignee.locator("option")).toHaveCount(total);
+
+    // The current selection survives a query it does not match.
+    await assignee.selectOption(alphaValue);
+    await filter.fill("bravo");
+    await expect(alphaOption).toHaveCount(1);
+    await expect(assignee).toHaveValue(alphaValue);
+    await expect(bravoOption).toHaveCount(1);
+    await expect(assignee.locator("option")).toHaveCount(2);
+
+    // Picking a narrowed candidate still mutates only on the explicit Apply.
+    await assignee.selectOption(bravoValue);
+    await assertHtmxSwap(
+      page,
+      async () => {
+        await page.locator("form:has(#assign-user)").getByRole("button", { name: "Apply" }).click();
+      },
+      {
+        endpoint: `/tickets/${id}/assign`,
+        method: "POST",
+        expectedStatus: 200,
+        hxTarget: "#ticket-detail",
+      },
+    );
+    await expect(page.locator("#assign-user")).toHaveValue(bravoValue);
+  });
+
+  test("the assignee filter never hides the inactive current assignee", async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await loginAsSeeded(page);
+    const suffix = Date.now().toString(36).slice(2, 8);
+    const agentName = `Inactive Filter ${suffix}`;
+    const { editHref } = await createAssignableAgent(page, agentName);
+
+    const id = await createTicketViaUi(page, {
+      title: `Inactive assignee filter ${suffix}`,
+      description: "the filter keeps the inactive current assignee",
+      category: "General",
+      priority: "high",
+    });
+    await page.goto(base() + `/tickets/${id}`);
+
+    const assignee = page.locator("#assign-user");
+    const agentValue = await assignee
+      .locator("option", { hasText: agentName })
+      .getAttribute("value");
+    if (!agentValue) throw new Error(`the agent must be assignable at ${page.url()}`);
+    await assignee.selectOption(agentValue);
+    await assertHtmxSwap(
+      page,
+      async () => {
+        await page.locator("form:has(#assign-user)").getByRole("button", { name: "Apply" }).click();
+      },
+      {
+        endpoint: `/tickets/${id}/assign`,
+        method: "POST",
+        expectedStatus: 200,
+        hxTarget: "#ticket-detail",
+      },
+    );
+
+    // Deactivate the assigned operator: the detail page now appends the
+    // inactive current assignee as an extra option.
+    await page.goto(base() + editHref);
+    await page.locator("#user-drawer-form [data-deactivate]").click();
+    const deactivateDialog = page.locator("#users-deactivate-dialog");
+    await expect(deactivateDialog).toBeVisible();
+    const deactivatePath = new URL(editHref, page.url()).pathname;
+    const deactivateResponse = page.waitForResponse(
+      (response) =>
+        response.request().method() === "POST" &&
+        new URL(response.url()).pathname === deactivatePath,
+    );
+    await deactivateDialog.locator("[data-confirm-deactivate]").click();
+    expect((await deactivateResponse).status()).toBe(200);
+
+    await page.goto(base() + `/tickets/${id}`);
+    const inactiveOption = page.locator("#assign-user option", {
+      hasText: `${agentName} (inactive)`,
+    });
+    await expect(inactiveOption).toHaveCount(1);
+    await expect(page.locator("#assign-user")).toHaveValue(agentValue);
+
+    // A non-matching query must not hide it.
+    await page.locator("#assign-user-filter").fill("no-such-assignee");
+    await expect(inactiveOption).toHaveCount(1);
+    await expect(page.locator("#assign-user")).toHaveValue(agentValue);
   });
 });
 

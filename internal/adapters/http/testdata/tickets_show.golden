@@ -172,13 +172,16 @@
           <div class="prop-row">
             <span class="prop-label">Assignee</span>
 
-            <form class="prop-control" method="post" action="/tickets/1/assign" hx-post="/tickets/1/assign" hx-target="#ticket-detail" hx-swap="outerHTML">
-              <select id="assign-user" name="user_id" class="prop-select" aria-label="Assignee">
-                <option value="">Unassigned</option>
-                <option value="1" selected>Ana Torres</option>
-              </select>
-              <button class="btn small" type="submit">Apply</button>
-            </form>
+            <div class="assign-picker">
+              <input type="search" id="assign-user-filter" class="prop-filter" placeholder="Filter assignees" aria-label="Filter assignees" autocomplete="off">
+              <form class="prop-control" method="post" action="/tickets/1/assign" hx-post="/tickets/1/assign" hx-target="#ticket-detail" hx-swap="outerHTML">
+                <select id="assign-user" name="user_id" class="prop-select" aria-label="Assignee">
+                  <option value="">Unassigned</option>
+                  <option value="1" selected>Ana Torres</option>
+                </select>
+                <button class="btn small" type="submit">Apply</button>
+              </form>
+            </div>
 
           </div>
 
@@ -391,6 +394,34 @@ function initTitleEditor() {
     syncReopenReason(select);
   }
   initTitleEditor();
+})();
+</script>
+<script>
+
+
+
+
+
+
+
+
+
+
+(function () {
+  const filter = document.getElementById('assign-user-filter');
+  const assignee = document.getElementById('assign-user');
+  if (!filter || !assignee) return;
+  const options = Array.from(assignee.options);
+  filter.addEventListener('input', () => {
+    const query = filter.value.trim().toLowerCase();
+    const kept = query
+      ? options.filter(
+          (option) =>
+            option.value === assignee.value || option.text.toLowerCase().includes(query),
+        )
+      : options;
+    assignee.replaceChildren(...kept);
+  });
 })();
 </script>
 

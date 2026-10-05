@@ -83,13 +83,16 @@
           <div class="prop-row">
             <span class="prop-label">Assignee</span>
 {{if .CanAssign}}
-            <form class="prop-control" method="post" action="/tickets/{{.View.Ticket.ID}}/assign" hx-post="/tickets/{{.View.Ticket.ID}}/assign" hx-target="#ticket-detail" hx-swap="outerHTML">
-              <select id="assign-user" name="user_id" class="prop-select" aria-label="Assignee">
-                <option value="">Unassigned</option>
-                {{range .Options.AssignableUsers}}<option value="{{.ID}}" {{if eq (.ID | printf "%d") $.Values.UserID}}selected{{end}}>{{.Name}}{{if not .Active}} (inactive){{end}}</option>{{end}}
-              </select>
-              <button class="btn small" type="submit">Apply</button>
-            </form>
+            <div class="assign-picker">
+              <input type="search" id="assign-user-filter" class="prop-filter" placeholder="Filter assignees" aria-label="Filter assignees" autocomplete="off">
+              <form class="prop-control" method="post" action="/tickets/{{.View.Ticket.ID}}/assign" hx-post="/tickets/{{.View.Ticket.ID}}/assign" hx-target="#ticket-detail" hx-swap="outerHTML">
+                <select id="assign-user" name="user_id" class="prop-select" aria-label="Assignee">
+                  <option value="">Unassigned</option>
+                  {{range .Options.AssignableUsers}}<option value="{{.ID}}" {{if eq (.ID | printf "%d") $.Values.UserID}}selected{{end}}>{{.Name}}{{if not .Active}} (inactive){{end}}</option>{{end}}
+                </select>
+                <button class="btn small" type="submit">Apply</button>
+              </form>
+            </div>
 {{else}}
             <span id="assign-user-value" class="prop-value">{{if .View.AssignedUser}}{{.View.AssignedUser.Name}}{{else}}Unassigned{{end}}</span>{{end}}
           </div>
@@ -307,4 +310,32 @@ function initTitleEditor() {
   initTitleEditor();
 })();
 </script>
-{{end}}
+{{if .CanAssign}}<script>
+// Narrows the assignee select to the options whose name matches the typed
+// text. The filter input sits OUTSIDE the assign form on purpose: inside it,
+// Enter would submit the form and reassign the ticket to whatever option is
+// selected — the exact defect class #232 closed. Filtering only detaches
+// non-matching <option> nodes; the currently selected option is never
+// detached, so the submitted value is always a real candidate and the extra
+// option appended for an inactive current assignee survives. The original
+// nodes are kept in order, so clearing the filter restores the exact candidate
+// set. HTMX re-runs this script on every swap, so it always reads the freshly
+// rendered nodes.
+(function () {
+  const filter = document.getElementById('assign-user-filter');
+  const assignee = document.getElementById('assign-user');
+  if (!filter || !assignee) return;
+  const options = Array.from(assignee.options);
+  filter.addEventListener('input', () => {
+    const query = filter.value.trim().toLowerCase();
+    const kept = query
+      ? options.filter(
+          (option) =>
+            option.value === assignee.value || option.text.toLowerCase().includes(query),
+        )
+      : options;
+    assignee.replaceChildren(...kept);
+  });
+})();
+</script>
+{{end}}{{end}}
