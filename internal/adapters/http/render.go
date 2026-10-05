@@ -358,6 +358,17 @@ func workflowTypeHelp(t domain.StepType) string {
 	}
 }
 
+// workflowFieldRequiredLabel is the builder's copy for a form field's required
+// control. Every kind except a checkbox says "Required" ("you must answer"); a
+// checkbox says "Must be ticked" because the box has exactly one answer — yes —
+// and "Required" would read as "you must answer" (#317).
+func workflowFieldRequiredLabel(kind domain.FieldKind) string {
+	if kind == domain.FieldCheckbox {
+		return "Must be ticked"
+	}
+	return "Required"
+}
+
 // asStepType accepts a domain.StepType (a step's own field) or a string
 // literal, so a template can name a kind directly in the picker without a
 // second copy of its label.
@@ -416,6 +427,9 @@ var templateFuncs = template.FuncMap{
 	"metricsDuration":       metricsDuration,
 	"workflowTypeLabel":     func(v any) string { return workflowTypeLabel(asStepType(v)) },
 	"workflowTypeHelp":      func(v any) string { return workflowTypeHelp(asStepType(v)) },
+	"workflowFieldRequiredLabel": func(v any) string {
+		return workflowFieldRequiredLabel(domain.FieldKind(fmt.Sprint(v)))
+	},
 }
 
 // shellFor maps a page to its shell root. Application pages use the rail

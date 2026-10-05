@@ -913,11 +913,6 @@ func draftFromFields(r *http.Request) (domain.WorkflowDefinition, []domain.Workf
 					Required: r.Form.Has(base + "_required"),
 					Options:  splitOptions(r.Form.Get(base + "_options")),
 				})
-				if fs.Fields[len(fs.Fields)-1].Kind == domain.FieldCheckbox {
-					// Checkbox is boolean: it never supports a Required constraint;
-					// a legacy persisted required=true is normalized to non-required.
-					fs.Fields[len(fs.Fields)-1].Required = false
-				}
 			}
 			s.Form = fs
 		case domain.StepResolve, domain.StepClose:

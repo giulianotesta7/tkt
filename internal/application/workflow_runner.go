@@ -417,9 +417,13 @@ func decodePositionalAnswers(fields []domain.FormField, raw RawPositionalValues)
 					return nil, &domain.ValidationError{Field: f.Key, Message: fmt.Sprintf("Step %d: invalid checkbox value", i+1)}
 				}
 			}
-			// Checkbox fields never carry a Required constraint (a required checkbox
-			// would force the answer to always be true); legacy persisted required
-			// values are treated as non-required.
+			// Required on a checkbox means "must be ticked" (#317): the box has
+			// exactly one answer, so an unticked, absent or empty box is not it.
+			// This mirrors the unit-of-work recheck, which is now the second layer
+			// rather than the only one.
+			if f.Required && !b {
+				return nil, &domain.ValidationError{Field: f.Key, Message: fmt.Sprintf("Step %d: %s must be ticked", i+1, f.Key)}
+			}
 			out[i] = b
 		case domain.FieldShortText, domain.FieldLongText:
 			s := ""
