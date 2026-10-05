@@ -1379,3 +1379,63 @@ func TestSLARowCarriesTheWorstMilestoneState(t *testing.T) {
 		t.Errorf("a ticket with no frozen commitment must yield no row")
 	}
 }
+
+// TestWorkflowChecklist_AttributionUsesTheCompletingActionAndEarliestTie pins
+// the checklist attribution contract (issue #290): a done row is attributed by
+// the event that actually COMPLETES that step type, not by the first event that
+// merely bears its index, and only when several completing events tie does the
+// earliest win. The fixture drives one step index (0, an assign_to_desk
+// least_loaded step) to carry three events: an even-earlier wrong-action
+// workflow_requester_form, an earlier retry workflow_assignment, and the
+// automatic least_loaded assignment written at create. Pre-change attribution
+// took the first row by occurrence order and so rendered the wrong-action event
+// ("Ghost"); the completing-action rule must instead pick the earliest
+// workflow_assignment ("Retry") over the later automatic one.
+func TestWorkflowChecklist_AttributionUsesTheCompletingActionAndEarliestTie(t *testing.T) {
+	h := newHarness(t)
+	desk, err := h.desks.Create(t.Context(), *h.admin, "Network")
+	if err != nil {
+		t.Fatalf("create desk: %v", err)
+	}
+	h.staff(t, desk.ID)
+	cat, err := h.categories.Create(t.Context(), "ChecklistAttribution")
+	if err != nil {
+		t.Fatalf("create category: %v", err)
+	}
+	h.publishWorkflow(t, cat.ID, domain.WorkflowDefinition{
+		{Type: domain.StepAssignToDesk, AssignToDesk: &domain.AssignToDeskStep{DeskID: desk.ID, Strategy: domain.StrategyLeastLoaded}},
+		{Type: domain.StepManualTask, ManualTask: &domain.ManualTaskStep{Instructions: "Handle the ticket"}},
+	})
+	tkt := h.seedTicket(t, "checklist attribution", func(in *application.CreateTicketInput) { in.CategoryID = cat.ID })
+
+	// The create path already completed step index 0 automatically (the
+	// least_loaded assignment) and moved the cursor to step 1, so its row is now
+	// done. Inject two extra events on that SAME index, both earlier than the
+	// automatic completion: a wrong-action form completion, then a retry
+	// workflow_assignment.
+	db := h.rawDB(t)
+	if _, err := db.ExecContext(t.Context(),
+		`INSERT INTO audit_events (ticket_id, actor, action, step_index, created_at) VALUES (?, 'Ghost', ?, 0, ?)`,
+		tkt.ID, domain.ActionWorkflowRequesterForm, fixedNow.Add(-2*time.Hour).UTC().Format(time.RFC3339)); err != nil {
+		t.Fatalf("insert wrong-action audit: %v", err)
+	}
+	if _, err := db.ExecContext(t.Context(),
+		`INSERT INTO audit_events (ticket_id, actor, action, step_index, created_at) VALUES (?, 'Retry', ?, 0, ?)`,
+		tkt.ID, domain.ActionWorkflowAssignment, fixedNow.Add(-time.Hour).UTC().Format(time.RFC3339)); err != nil {
+		t.Fatalf("insert retry assignment audit: %v", err)
+	}
+
+	body := h.get(t, "/tickets/"+strconv.FormatInt(tkt.ID, 10), false).Body.String()
+	if !strings.Contains(body, `class="workflow-checklist-count">1 of 2 done</span>`) {
+		t.Errorf("the active run must still render exactly one row per step: %.900s", body)
+	}
+	if !strings.Contains(body, `class="workflow-checklist-meta">Retry · `) {
+		t.Errorf("done row must attribute the earliest COMPLETING workflow_assignment: %.900s", body)
+	}
+	if strings.Contains(body, `class="workflow-checklist-meta">Ghost · `) {
+		t.Errorf("a wrong-action event must never complete the step: %.900s", body)
+	}
+	if strings.Contains(body, `class="workflow-checklist-meta">Completed automatically · `) {
+		t.Errorf("the earlier retry must win over the later automatic completion: %.900s", body)
+	}
+}

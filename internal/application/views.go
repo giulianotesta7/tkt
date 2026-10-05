@@ -338,6 +338,44 @@ func (t *TimelineItem) bindStepContext(stepCtx *WorkflowStepContext) {
 	}
 }
 
+// StepCompletionAction returns the semantic workflow audit action that
+// completes the given pinned step — the single step-type → action
+// correspondence the view layer shares instead of restating it. It mirrors the
+// recognition the workflow runner writes and the unit of work enforces:
+// workflow_manual_task for a manual task (workflow_runner.go stepAudit),
+// workflow_requester_form / workflow_assignee_form for the matching form actor
+// (workflow_runner.go:135-139; workflow_uow.go validateWorkflowStepOp), and
+// workflow_assignment for an assign_to_desk step of either strategy — a claim
+// (workflow_runner.go newClaimOperation) or the automatic least_loaded row
+// (workflow_uow.go:1865). The action alone does not attribute a step: callers
+// must match the step's expected action against the event, so a contextual
+// workflow_assignment completes ONLY an assign_to_desk step.
+//
+// resolve_ticket and close_ticket return "" deliberately. Their completion is
+// an automatic lifecycle transition (workflow_runner.go applyTerminal) whose
+// audit row carries NO step_index, so no event can be correlated to them by the
+// sealed index; an active run never renders them as done anyway, because a
+// terminal step always ends the run. A step whose completing action cannot be
+// determined returns "" and is never attributed from a guessed event.
+func StepCompletionAction(step domain.WorkflowStep) string {
+	switch step.Type {
+	case domain.StepForm:
+		if step.Form == nil {
+			return ""
+		}
+		if step.Form.Actor == domain.FormActorRequester {
+			return domain.ActionWorkflowRequesterForm
+		}
+		return domain.ActionWorkflowAssigneeForm
+	case domain.StepManualTask:
+		return domain.ActionWorkflowManualTask
+	case domain.StepAssignToDesk:
+		return domain.ActionWorkflowAssignment
+	default:
+		return ""
+	}
+}
+
 // legacyEventSummary preserves the pre-narrative view-model summary for
 // callers outside the HTML presentation boundary.
 func legacyEventSummary(e *domain.AuditEvent) string {

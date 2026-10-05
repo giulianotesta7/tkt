@@ -1384,7 +1384,7 @@ func (h *TicketHandlers) checklistFor(r *http.Request, id int64, actor domain.Us
 	if cur < 0 || cur >= len(snap.Workflow) {
 		return workflowChecklist{}
 	}
-	completions := completionAuditsByStep(events)
+	completions := completionAuditsByStep(snap.Workflow, events)
 	deskNames := map[int64]string{}
 	rows := make([]workflowChecklistRow, 0, len(snap.Workflow))
 	for i, step := range snap.Workflow {
@@ -1432,21 +1432,38 @@ func (h *TicketHandlers) checklistFor(r *http.Request, id int64, actor domain.Us
 	}
 }
 
-// completionAuditsByStep indexes the FIRST audit event that seals each step
-// index. The trail is already in occurrence order (ASC, id tiebreak), so the
-// first event of a step is its completion: a claim's contextual assignment
-// precedes its same-completion in-progress transition, and a human completion
-// precedes any following automatic walk.
-func completionAuditsByStep(events []domain.AuditEvent) map[int]domain.AuditEvent {
+// completionAuditsByStep indexes the audit event that COMPLETES each step,
+// correlated strictly by the sealed step index AND the step's own completing
+// action (application.StepCompletionAction). Occurrence order is not the
+// correlation key (domain/audit.go): a contextual workflow_assignment completes
+// only an assign_to_desk step, a requester/assignee form action only its
+// matching form step, and a manual-task action only a manual step. An event
+// that merely bears the index with the wrong action for that step type is never
+// the completion.
+//
+// Tie rule: when one step index carries more than one completing event (a
+// resumed or retried run, or a future non-linear execution model), the EARLIEST
+// completion wins. The trail is already ordered created_at ASC, id ASC
+// (audit_store.go ListByTicket), so the first matching event is the earliest;
+// the explicit CreatedAt guard keeps that true even if a caller ever hands the
+// events unordered, and a same-timestamp tie keeps the first seen.
+func completionAuditsByStep(steps []domain.WorkflowStep, events []domain.AuditEvent) map[int]domain.AuditEvent {
 	out := map[int]domain.AuditEvent{}
 	for _, ev := range events {
 		if ev.StepIndex == nil {
 			continue
 		}
-		if _, seen := out[*ev.StepIndex]; seen {
+		idx := *ev.StepIndex
+		if idx < 0 || idx >= len(steps) {
 			continue
 		}
-		out[*ev.StepIndex] = ev
+		if application.StepCompletionAction(steps[idx]) != ev.Action {
+			continue
+		}
+		if prev, seen := out[idx]; seen && !ev.CreatedAt.Before(prev.CreatedAt) {
+			continue
+		}
+		out[idx] = ev
 	}
 	return out
 }

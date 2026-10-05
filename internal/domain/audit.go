@@ -72,7 +72,11 @@ type AuditEvent struct {
 	// workflow_manual_task, contextual workflow_assignment); NULL for state
 	// transitions, non-flow audits, and all pre-0008 rows. It is the ONLY
 	// correlation key between an audit row and its pinned step context —
-	// never timestamps or occurrence order.
+	// never timestamps or occurrence order. A reader must still match the
+	// event's action to the step type that expects it (a contextual
+	// workflow_assignment completes only an assign_to_desk step); if one index
+	// ever carries more than one completing event, the earliest wins, a
+	// deliberate tie-break and not an occurrence-order key.
 	StepIndex *int
 	CreatedAt time.Time
 }
