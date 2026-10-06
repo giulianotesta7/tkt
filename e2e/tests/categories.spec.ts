@@ -2441,6 +2441,62 @@ test.describe("Categories", () => {
     await expect(page.locator('input[name="step_0_field_0_required"]')).toBeChecked();
   });
 
+  test("single-select options are edited one per line and keep semicolons", async ({ page }) => {
+    test.setTimeout(60000);
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await loginAsSeeded(page);
+    const categoryId = await createCategoryViaUi(
+      page,
+      "Single select " + Date.now().toString(36).slice(2, 8),
+    );
+    const stepPath = `/categories/${categoryId}/workflow?selected_step_index=0`;
+    await page.goto(base() + `/categories/${categoryId}/workflow`);
+    await expect(page.locator("#workflow-builder")).toBeVisible();
+
+    // Add an Ask-for-information step and give it one field.
+    await page.locator(".workflow-add-step summary").first().click();
+    await page
+      .locator(".workflow-add-options button")
+      .filter({ hasText: /^ask for information$/i })
+      .first()
+      .click();
+    await page.getByRole("button", { name: "+ Add field" }).click();
+    await expect(page.locator(".workflow-field-row")).toHaveCount(1);
+
+    // The field-kind control's own live re-render is a pre-existing interaction
+    // outside this change, so this journey sets the kind and saves; the options
+    // editor appears from the persisted draft on the next load.
+    await page.evaluate(() => {
+      const select = document.querySelector('select[name="step_0_field_0_kind"]');
+      if (!(select instanceof HTMLSelectElement)) throw new Error("Missing kind select");
+      select.value = "single_select";
+    });
+    await page.locator('.page-actions button[name="action"][value="save"]').click();
+    await expect(page.locator("#save-feedback .save-feedback-message")).toHaveText("Saved");
+
+    // The single-select editor is a one-per-line textarea with the new help copy.
+    await page.goto(base() + stepPath);
+    await expect(page.locator("#workflow-builder")).toBeVisible();
+    const options = page.locator('textarea[name="step_0_field_0_options"]');
+    await expect(options).toBeVisible();
+    await expect(page.locator(".workflow-field-options .help")).toHaveText("One option per line.");
+    // A semicolon is now an ordinary option character, not a separator.
+    await options.fill("North; South\nBuenos Aires, Argentina");
+    await expect(options).toHaveValue("North; South\nBuenos Aires, Argentina");
+    await page.locator('.page-actions button[name="action"][value="save"]').click();
+    await expect(page.locator("#save-feedback .save-feedback-message")).toHaveText("Saved");
+
+    // Reload: the stored option keeps its semicolon, one per line, and the
+    // forbidden-delimiter copy is gone.
+    await page.goto(base() + stepPath);
+    await expect(page.locator("#workflow-builder")).toBeVisible();
+    const reloaded = page.locator('textarea[name="step_0_field_0_options"]');
+    await expect(reloaded).toBeVisible();
+    await expect(reloaded).toHaveValue("North; South\nBuenos Aires, Argentina");
+    await expect(page.locator(".workflow-field-options .help")).toHaveText("One option per line.");
+    await expect(page.locator("#workflow-builder")).not.toContainText("Semicolons cannot be used");
+  });
+
   test.describe("Workflow dirty structural guard", () => {
     function trackPosts(page: Page): string[] {
       const actions: string[] = [];

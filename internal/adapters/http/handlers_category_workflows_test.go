@@ -674,7 +674,7 @@ func TestCategoryWorkflowBuilder_EditControlsSubmitCompleteOrderedValues(t *test
 	steps := []bstep{
 		{typ: "manual_task", manual: "first"},
 		{typ: "assign_to_desk", desk: "7", strategy: "least_loaded"},
-		{typ: "form", actor: "assignee", fields: []bfield{{key: "server", label: "Server", kind: "single_select", options: "eu; us"}}},
+		{typ: "form", actor: "assignee", fields: []bfield{{key: "server", label: "Server", kind: "single_select", options: "eu\nus"}}},
 	}
 	wantRedirect(t, h.postBuilder(t, path, builderFieldForm("save", steps...), false), http.StatusSeeOther, path)
 
@@ -849,7 +849,7 @@ func defToSteps(def domain.WorkflowDefinition) []bstep {
 		case domain.StepForm:
 			bs := bstep{typ: "form", actor: string(s.Form.Actor)}
 			for _, f := range s.Form.Fields {
-				bs.fields = append(bs.fields, bfield{key: f.Key, label: f.Label, kind: string(f.Kind), options: strings.Join(f.Options, "; "), required: f.Required})
+				bs.fields = append(bs.fields, bfield{key: f.Key, label: f.Label, kind: string(f.Kind), options: strings.Join(f.Options, "\n"), required: f.Required})
 			}
 			out = append(out, bs)
 		}
@@ -1033,7 +1033,7 @@ func TestCategoryWorkflowBuilder_RED_ExplicitSaveContract(t *testing.T) {
 	steps := []bstep{
 		{typ: "manual_task", manual: "a"},
 		{typ: "assign_to_desk", desk: "1", strategy: "least_loaded"},
-		{typ: "form", actor: "requester", fields: []bfield{{key: "server", label: "Server", kind: "single_select", options: "North; South, Buenos Aires, Argentina"}}},
+		{typ: "form", actor: "requester", fields: []bfield{{key: "server", label: "Server", kind: "single_select", options: "North\nSouth, Buenos Aires, Argentina"}}},
 		{typ: "close_ticket"},
 	}
 	wantRedirect(t, h.postBuilder(t, path, builderFieldForm("save", steps...), false), http.StatusSeeOther, path)
@@ -1059,19 +1059,22 @@ func TestCategoryWorkflowBuilder_RED_ExplicitSaveContract(t *testing.T) {
 		}
 	}
 
-	t.Run("single select options use a native single-line input and semicolon transport", func(t *testing.T) {
+	t.Run("single select options use a one-per-line textarea editor", func(t *testing.T) {
 		tag := controlTag(t, bodyAt(2), "step_2_field_0_options")
-		if !strings.HasPrefix(tag, "<input") || !strings.Contains(tag, `type="text"`) || strings.Contains(tag, "<textarea") {
-			t.Fatalf("single select Options must be a native single-line text input, got: %s", tag)
+		if !strings.HasPrefix(tag, "<textarea") {
+			t.Fatalf("single select Options must be a native textarea, got: %s", tag)
 		}
 		for _, want := range []string{
 			`<label for="step_2_field_0_options">Options</label>`,
-			"Separate options with semicolons. Semicolons cannot be used in option names.",
-			`value="North; South, Buenos Aires, Argentina"`,
+			"One option per line.",
+			"North\nSouth, Buenos Aires, Argentina",
 		} {
 			if !strings.Contains(bodyAt(2), want) {
 				t.Errorf("single select builder must contain %q, got: %s", want, bodyAt(2))
 			}
+		}
+		if strings.Contains(bodyAt(2), "Semicolons cannot be used in option names.") {
+			t.Errorf("single select builder must no longer forbid semicolons, got: %s", bodyAt(2))
 		}
 	})
 
@@ -1144,28 +1147,62 @@ func TestCategoryWorkflowBuilder_RED_ExplicitSaveContract(t *testing.T) {
 	}
 }
 
-// RED — Single Select transport uses a literal semicolon delimiter only. Empty
-// segments are ignored, surrounding Unicode whitespace is trimmed, order and
-// duplicates are preserved, and commas remain ordinary label characters.
-func TestCategoryWorkflowBuilder_RED_SplitOptionsSemicolonGrammar(t *testing.T) {
+// RED — Single Select options are one per line. Each line is one option; blank
+// lines are not options (a trailing newline adds none), surrounding Unicode
+// whitespace is trimmed, order and duplicates are preserved, and a semicolon is
+// now an ordinary label character rather than a separator.
+func TestCategoryWorkflowBuilder_RED_ParseOptionLinesGrammar(t *testing.T) {
 	tests := []struct {
 		name  string
 		input string
 		want  []string
 	}{
-		{name: "normal split", input: "North; South; Buenos Aires, Argentina", want: []string{"North", "South", "Buenos Aires, Argentina"}},
-		{name: "unicode whitespace", input: "\u00a0North\u2003;\u3000South\u00a0", want: []string{"North", "South"}},
-		{name: "empty segments", input: ";North;; ;South;", want: []string{"North", "South"}},
-		{name: "duplicate preservation", input: "North;North;South", want: []string{"North", "North", "South"}},
+		{name: "one option per line", input: "North\nSouth\nBuenos Aires, Argentina", want: []string{"North", "South", "Buenos Aires, Argentina"}},
+		{name: "unicode whitespace", input: "\u00a0North\u2003\n\u3000South\u00a0", want: []string{"North", "South"}},
+		{name: "blank lines are not options", input: "\nNorth\n\n  \nSouth\n", want: []string{"North", "South"}},
+		{name: "trailing newline adds no option", input: "North\n", want: []string{"North"}},
+		{name: "windows line endings", input: "North\r\nSouth\r\n", want: []string{"North", "South"}},
+		{name: "duplicate preservation", input: "North\nNorth\nSouth", want: []string{"North", "North", "South"}},
 		{name: "empty input", input: "", want: nil},
-		{name: "comma preservation", input: "Buenos Aires, Argentina;New York, NY", want: []string{"Buenos Aires, Argentina", "New York, NY"}},
+		{name: "semicolon is an ordinary character", input: "North; South\nBuenos Aires, Argentina", want: []string{"North; South", "Buenos Aires, Argentina"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := splitOptions(tt.input); !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("splitOptions(%q) = %#v, want %#v", tt.input, got, tt.want)
+			if got := parseOptionLines(tt.input); !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("parseOptionLines(%q) = %#v, want %#v", tt.input, got, tt.want)
 			}
 		})
+	}
+}
+
+// A stored single_select option may contain a semicolon: it is no longer a
+// separator. This drives the real save -> persist -> render -> re-save path so
+// the option survives unchanged and the editor shows one option per line.
+func TestCategoryWorkflowBuilder_OptionSemicolonRoundTrip(t *testing.T) {
+	h := newHarness(t)
+	category, err := h.categories.Create(t.Context(), "Semicolon option")
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	path := "/categories/" + strconv.FormatInt(category.ID, 10) + "/workflow"
+	steps := []bstep{{typ: "form", actor: "requester", fields: []bfield{
+		{key: "pick", label: "Pick", kind: "single_select", options: "North; South\nBuenos Aires, Argentina"},
+	}}}
+	wantRedirect(t, h.postBuilder(t, path, builderFieldForm("save", steps...), false), http.StatusSeeOther, path)
+
+	want := []string{"North; South", "Buenos Aires, Argentina"}
+	if got := h.persistedDefinition(t, path)[0].Form.Fields[0].Options; !reflect.DeepEqual(got, want) {
+		t.Fatalf("stored options = %#v, want %#v", got, want)
+	}
+	body := h.get(t, path+"?selected_step_index=0", false).Body.String()
+	if !strings.Contains(body, "North; South\nBuenos Aires, Argentina</textarea>") {
+		t.Errorf("editor must render one option per line with the semicolon preserved, got: %s", body)
+	}
+
+	// Re-saving exactly what the editor renders keeps the same two options.
+	wantRedirect(t, h.postBuilder(t, path, builderFieldForm("save", steps...), false), http.StatusSeeOther, path)
+	if again := h.persistedDefinition(t, path)[0].Form.Fields[0].Options; !reflect.DeepEqual(again, want) {
+		t.Errorf("re-saved options = %#v, want %#v", again, want)
 	}
 }
 
@@ -2494,7 +2531,7 @@ func TestCategoryWorkflowBuilder_CheckboxRequiredSemantics(t *testing.T) {
 		{typ: "form", actor: "requester", fields: []bfield{
 			{key: "f0", label: "Text", kind: "short_text", required: true},
 			{key: "f1", label: "Flag", kind: "checkbox", required: true},
-			{key: "f2", label: "Pick", kind: "single_select", options: "A; B", required: true},
+			{key: "f2", label: "Pick", kind: "single_select", options: "A\nB", required: true},
 			{key: "f3", label: "Optional flag", kind: "checkbox", required: false},
 		}},
 	}

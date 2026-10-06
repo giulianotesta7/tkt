@@ -911,7 +911,7 @@ func draftFromFields(r *http.Request) (domain.WorkflowDefinition, []domain.Workf
 					Label:    r.Form.Get(base + "_label"),
 					Kind:     domain.FieldKind(r.Form.Get(base + "_kind")),
 					Required: r.Form.Has(base + "_required"),
-					Options:  splitOptions(r.Form.Get(base + "_options")),
+					Options:  parseOptionLines(r.Form.Get(base + "_options")),
 				})
 			}
 			s.Form = fs
@@ -923,15 +923,15 @@ func draftFromFields(r *http.Request) (domain.WorkflowDefinition, []domain.Workf
 	return d, nil
 }
 
-// splitOptions parses the semicolon-separated single_select options input.
-func splitOptions(v string) []string {
-	if v == "" {
-		return nil
-	}
+// parseOptionLines parses the one-option-per-line single_select options input.
+// Each non-blank line, with surrounding whitespace trimmed, is one option in
+// submission order; blank lines are skipped, so a trailing newline never adds
+// an option, and a semicolon is an ordinary character rather than a separator.
+func parseOptionLines(v string) []string {
 	var out []string
-	for _, o := range strings.Split(v, ";") {
-		if o = strings.TrimSpace(o); o != "" {
-			out = append(out, o)
+	for _, line := range strings.Split(v, "\n") {
+		if line = strings.TrimSpace(line); line != "" {
+			out = append(out, line)
 		}
 	}
 	return out
