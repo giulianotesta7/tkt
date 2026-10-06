@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>tkt — Ticket Desk</title>
+
+<link rel="stylesheet" href="/static/users.css"><script src="/static/workflow.js" defer></script><script src="/static/save-feedback.js" defer></script><script src="/static/htmx.min.js" defer></script>
+</head>
+<body class="users-page-body">
+<div class="layout">
+  <aside class="rail">
+    <a class="rail-brand" href="/tickets" title="tkt">tkt</a>
+    <nav class="rail-nav">
+      <a class="rail-link" href="/tickets" title="Tickets" aria-label="Tickets">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v1a2 2 0 0 0 0 4v1a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-1a2 2 0 0 0 0-4V9z"/><path d="M13 7v10"/></svg>
+      </a>
+<a class="rail-link" href="/users" title="Users" aria-label="Users">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0"/><circle cx="17.5" cy="9" r="2.5"/><path d="M16 14.6a6 6 0 0 1 5.5 5.4"/></svg>
+      </a>
+
+<a class="rail-link active" href="/categories" title="Categories" aria-label="Categories">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h6l2 2.5H20a1 1 0 0 1 1 1V19a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1z"/></svg>
+      </a>
+
+
+      <a class="rail-link" href="/preferences" title="Preferences" aria-label="Preferences">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="8" x2="21" y2="8"/><circle cx="9" cy="8" r="2.2"/><line x1="3" y1="16" x2="21" y2="16"/><circle cx="15" cy="16" r="2.2"/></svg>
+      </a>
+    </nav>
+    <div class="rail-operator" title="Ana Torres">AT</div>
+    <form class="rail-logout" method="post" action="/logout">
+      <button class="rail-link" type="submit" title="Log out" aria-label="Log out">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 4H6a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h3"/><path d="M15 8l4 4-4 4"/><path d="M19 12H9"/></svg>
+      </button>
+    </form>
+  </aside>
+  <main class="main">
+<div id="save-feedback" class="save-feedback" role="status" aria-live="polite" aria-atomic="true" hidden data-feedback-message="" data-feedback-kind="">
+  <span class="save-feedback-message"></span>
+  <button class="save-feedback-dismiss" type="button" aria-label="Dismiss confirmation">Dismiss</button>
+</div>
+
+<div class="page-foundation category-workflow-page" hx-on::before-request="if(event.target.matches('.workflow-step-card-link')){var rail=this.querySelector('.workflow-step-rail');if(rail)this.dataset.workflowRailScrollLeft=rail.scrollLeft;this.dataset.workflowBuilderFocus='card'};if(event.target.matches('.workflow-step-menu-actions button'))this.dataset.workflowBuilderFocus='menu';if(event.target.matches('.workflow-add-options button')){this.dataset.workflowBuilderFocus='add'}" hx-on::after-swap="if(event.target.id==='workflow-builder'){var focusMode=this.dataset.workflowBuilderFocus,rail=this.querySelector('.workflow-step-rail');delete this.dataset.workflowBuilderFocus;if(focusMode==='card'&&rail){rail.scrollLeft=Number(this.dataset.workflowRailScrollLeft||0);delete this.dataset.workflowRailScrollLeft};if(focusMode==='add'&&rail)rail.scrollLeft=rail.scrollWidth;if(focusMode){var control=this.querySelector('.workflow-step-card.selected .workflow-step-card-link')||this.querySelector('.workflow-add-step summary,.workflow-add-step button');if(control)control.focus({preventScroll:true})}}">
+  <header class="page-header">
+    <div>
+      <nav class="page-breadcrumb" aria-label="Breadcrumb"><a href="/categories">Categories</a><span aria-hidden="true"> / </span><span></span></nav>
+      <h1 class="page-title">Category workflow</h1>
+      <p class="page-subtitle">Build one ordered path for this category.</p>
+    </div>
+    <div class="page-actions">
+      <button class="page-action" type="submit" form="workflow-form" name="action" value="save">Save</button>
+      <button class="page-action page-action-primary" type="submit" form="workflow-form" name="action" value="publish">Publish</button>
+    </div>
+  </header>
+      
+<section id="workflow-builder" class="workflow-builder page-panel" aria-labelledby="workflow-builder-title" hx-on::before-swap="if(event.detail.xhr.status === 422 || event.detail.xhr.status === 409){event.detail.shouldSwap = true; event.detail.isError = false}">
+  <form method="post" action="/categories/1/workflow" id="workflow-form" hx-post="/categories/1/workflow" hx-target="#workflow-builder" hx-swap="outerHTML" hx-sync="this:queue last" hx-indicator="#workflow-form" hx-on::before-request="this.setAttribute('aria-busy','true')" hx-on::after-request="this.removeAttribute('aria-busy')">
+    <input type="hidden" name="selected_step_index" value="0">
+    <input type="hidden" name="draft_revision" value="0">
+    <input type="hidden" name="source_index" value=""><input type="hidden" name="target_index" value=""><button class="visually-hidden" type="submit" name="action" value="reorder" data-workflow-reorder aria-hidden="true" tabindex="-1" formaction="/categories/1/workflow" hx-post="/categories/1/workflow" hx-target="#workflow-builder" hx-swap="outerHTML" hx-include="closest form">Reorder</button>
+    
+    <div class="workflow-builder-head">
+      <div><h2 id="workflow-builder-title">Workflow steps</h2><p>Select a step to configure it. Drag to reorder.</p>
+        
+        
+        </div>
+      <span class="htmx-indicator spinner" aria-hidden="true"></span>
+      <p class="workflow-live" role="status" aria-live="polite" data-workflow-live>Use Up and Down to change a step position.</p>
+    </div>
+    
+    <div class="workflow-rail-wrap">
+      <ol class="workflow-step-rail" aria-label="Workflow steps">
+        <li class="empty compact">No steps yet. Add a step to begin configuration.</li>
+        <li class="workflow-add-step">
+<details class="workflow-add-popover"><summary class="btn ghost">+ Add step</summary><div class="workflow-add-options">
+  <button type="submit" name="action" value="add_step" formaction="/categories/1/workflow?add_step_type=manual_task" hx-post="/categories/1/workflow?add_step_type=manual_task" hx-include="closest form" hx-target="#workflow-builder" hx-swap="outerHTML show:none" hx-push-url="false">Give the agent a task</button>
+  <button type="submit" name="action" value="add_step" formaction="/categories/1/workflow?add_step_type=assign_to_desk" hx-post="/categories/1/workflow?add_step_type=assign_to_desk" hx-include="closest form" hx-target="#workflow-builder" hx-swap="outerHTML show:none" hx-push-url="false">Send to a desk</button>
+  <button type="submit" name="action" value="add_step" formaction="/categories/1/workflow?add_step_type=form" hx-post="/categories/1/workflow?add_step_type=form" hx-include="closest form" hx-target="#workflow-builder" hx-swap="outerHTML show:none" hx-push-url="false">Ask for information</button>
+  <button type="submit" name="action" value="add_step" formaction="/categories/1/workflow?add_step_type=resolve_ticket" hx-post="/categories/1/workflow?add_step_type=resolve_ticket" hx-include="closest form" hx-target="#workflow-builder" hx-swap="outerHTML show:none" hx-push-url="false">Mark the ticket resolved</button>
+  <button type="submit" name="action" value="add_step" formaction="/categories/1/workflow?add_step_type=close_ticket" hx-post="/categories/1/workflow?add_step_type=close_ticket" hx-include="closest form" hx-target="#workflow-builder" hx-swap="outerHTML show:none" hx-push-url="false">Close the ticket</button>
+</div></details>
+</li>
+      </ol>
+    </div>
+    
+  </form>
+    <dialog id="workflow-remove-step-dialog" data-workflow-remove-dialog aria-labelledby="workflow-remove-step-title" aria-describedby="workflow-remove-step-copy">
+      <h2 id="workflow-remove-step-title">Remove this step?</h2>
+      <p id="workflow-remove-step-copy">The step and its fields will be removed from the workflow.</p>
+      <div>
+        <button type="button" data-workflow-remove-cancel>Cancel</button>
+        <button type="button" data-workflow-remove-confirm>Remove step</button>
+      </div>
+    </dialog>
+    <dialog id="workflow-remove-field-dialog" data-workflow-remove-dialog aria-labelledby="workflow-remove-field-title" aria-describedby="workflow-remove-field-copy">
+      <h2 id="workflow-remove-field-title">Remove this field?</h2>
+      <p id="workflow-remove-field-copy">The field will be removed from this step.</p>
+      <div>
+        <button type="button" data-workflow-remove-cancel>Cancel</button>
+        <button type="button" data-workflow-remove-confirm>Remove field</button>
+      </div>
+    </dialog>
+</section>
+
+      <dialog id="workflow-dirty-dialog" aria-labelledby="workflow-dirty-dialog-title" aria-describedby="workflow-dirty-dialog-copy">
+        <h2 id="workflow-dirty-dialog-title">Save your workflow changes?</h2>
+        <p id="workflow-dirty-dialog-copy">This structural action needs a decision about your unsaved workflow edits.</p>
+        <div>
+          <button type="button" data-workflow-save-continue>Save and continue</button>
+          <button type="button" data-workflow-discard-continue>Discard and continue</button>
+          <button type="button" data-workflow-cancel>Cancel</button>
+        </div>
+      </dialog>
+      <dialog id="workflow-leave-dialog" aria-labelledby="workflow-leave-dialog-title" aria-describedby="workflow-leave-dialog-copy">
+        <h2 id="workflow-leave-dialog-title">Leave without saving?</h2>
+        <p id="workflow-leave-dialog-copy">Your workflow edits have not been saved yet.</p>
+        <div>
+          <button type="button" data-workflow-leave-stay>Stay</button>
+          <button type="button" data-workflow-leave-discard>Discard changes</button>
+        </div>
+      </dialog>
+    </div>
+</main>
+</div>
+</body>
+</html>

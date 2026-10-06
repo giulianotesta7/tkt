@@ -25,31 +25,48 @@ const (
 	stylesheetClose = "</style>"
 )
 
-// splitStylesheet separates a rendered full page from the inline stylesheet it
-// embeds.
+// splitStylesheet separates a rendered full page from the inline stylesheets it
+// embeds, in document order.
 //
-// Freezing that block inside each page snapshot stored the same ~44KB twelve
-// times: 528,912 of 617,412 golden bytes (86%) were one block duplicated, and a
-// 392-line CSS change rewrote all twelve snapshots — 2,412 lines, 83% of the
-// diff — as twelve near-identical diffs. The stylesheet is frozen once, in
-// stylesheet.golden, and the page snapshot guards the markup.
+// Freezing those blocks inside each page snapshot stored the shared ~44KB first
+// block twelve times: 528,912 of 617,412 golden bytes (86%) were one block
+// duplicated, and a 392-line CSS change rewrote all twelve snapshots — 2,412
+// lines, 83% of the diff — as twelve near-identical diffs. The shell emits more
+// than one inline block (styles.html closes the shared block and opens a
+// categories block gated on {{if .CategoryAssets}}), so this collects EVERY
+// block concatenated in document order. The stylesheet is still frozen exactly
+// once, in stylesheet.golden, and the page snapshot guards the markup: no block
+// is duplicated into a page snapshot.
 //
-// A full page that renders no stylesheet fails here rather than silently
-// comparing a page without it, so dropping {{template "styles" .}} from the
+// A full page that renders no stylesheet block fails here rather than silently
+// comparing a page without one, so dropping {{template "styles" .}} from the
 // shell is caught.
 func splitStylesheet(t *testing.T, name, got string) (page, stylesheet string) {
 	t.Helper()
-	start := strings.Index(got, stylesheetOpen)
-	if start < 0 {
+	var markup strings.Builder
+	rest := got
+	blocks := 0
+	for {
+		start := strings.Index(rest, stylesheetOpen)
+		if start < 0 {
+			markup.WriteString(rest)
+			break
+		}
+		markup.WriteString(rest[:start])
+		block := rest[start:]
+		end := strings.Index(block, stylesheetClose)
+		if end < 0 {
+			t.Fatalf("golden %s: a stylesheet block is not terminated", name)
+		}
+		end += len(stylesheetClose)
+		stylesheet += block[:end]
+		blocks++
+		rest = block[end:]
+	}
+	if blocks == 0 {
 		t.Fatalf("golden %s: a full page must render the shared stylesheet block", name)
 	}
-	rest := got[start:]
-	end := strings.Index(rest, stylesheetClose)
-	if end < 0 {
-		t.Fatalf("golden %s: the stylesheet block is not terminated", name)
-	}
-	end += len(stylesheetClose)
-	return got[:start] + got[start+end:], got[start : start+end]
+	return markup.String(), stylesheet
 }
 
 // goldenFile compares got against testdata/<name>.golden; -update writes it.
@@ -83,12 +100,14 @@ func goldenFullPage(t *testing.T, name, got string) {
 	goldenFile(t, name, page)
 }
 
-// TestGoldenStylesheet freezes the one shared inline stylesheet. Every full page
-// embeds it, so a change to it changes the whole interface and deserves a single
-// reviewable diff rather than twelve.
+// TestGoldenStylesheet freezes every inline stylesheet block the shell emits, in
+// document order. The categories page renders the shared block plus the
+// categories block gated on {{if .CategoryAssets}}, so this golden guards both;
+// every full page embeds the shared block, so a change to it changes the whole
+// interface and deserves a single reviewable diff rather than twelve.
 func TestGoldenStylesheet(t *testing.T) {
 	_, stylesheet := splitStylesheet(t, "stylesheet",
-		renderGolden(t, "tickets_index", "", fixtureListData(), false))
+		renderGolden(t, "categories_index", "", fixtureCategoriesIndexData(), false))
 	goldenFile(t, "stylesheet", stylesheet)
 }
 
@@ -847,22 +866,77 @@ func fixtureUserFormData() userFormData {
 
 func fixtureCategoriesIndexData() categoriesIndexData {
 	ana := domain.User{ID: 1, Name: "Ana Torres", Email: "ana@example.com", Active: true, CreatedAt: goldenT0}
-	return categoriesIndexData{
-		pageData: pageData{NavActive: "categories", CurrentUser: ana},
-		Categories: []domain.Category{
-			{ID: 1, Name: "Bugs", CreatedAt: goldenT0},
-			{ID: 2, Name: "Support", CreatedAt: goldenT1},
-		},
+	// Seed the dense Structure level (issue #238), not just the flat category
+	// list: without departments, desks, and structure category rows the golden
+	// cannot see the level the recent work changed.
+	technology := domain.CatalogDepartment{
+		Department:    domain.Department{ID: 1, Name: "Technology", Description: "Engineering and platform", CreatedAt: goldenT0},
+		DeskCount:     2,
+		CategoryCount: 2,
 	}
+	support := domain.CatalogDepartment{
+		Department:    domain.Department{ID: 2, Name: "Support", Description: "Customer support", CreatedAt: goldenT0},
+		DeskCount:     1,
+		CategoryCount: 0,
+	}
+	serviceDesk := domain.CatalogDesk{
+		Desk:          domain.Desk{ID: 1, Name: "Service desk", Description: "First-line triage", CreatedAt: goldenT0},
+		DepartmentID:  1,
+		CategoryCount: 2,
+	}
+	platform := domain.CatalogDesk{
+		Desk:         domain.Desk{ID: 2, Name: "Platform", Description: "Infrastructure", CreatedAt: goldenT0},
+		DepartmentID: 1,
+	}
+	helpdesk := domain.CatalogDesk{
+		Desk:         domain.Desk{ID: 3, Name: "Helpdesk", Description: "Walk-up support", CreatedAt: goldenT0},
+		DepartmentID: 2,
+	}
+	bugs := catalogCategoryRow{
+		Category:       domain.Category{ID: 1, Name: "Bugs", Description: "Defects and regressions", DeskID: 1, CreatedAt: goldenT0},
+		DepartmentName: "Technology",
+		DeskName:       "Service desk",
+		HierarchyPath:  "Technology / Service desk",
+	}
+	supportCat := catalogCategoryRow{
+		Category:       domain.Category{ID: 2, Name: "Support", Description: "Customer questions", DeskID: 1, CreatedAt: goldenT1},
+		DepartmentName: "Technology",
+		DeskName:       "Service desk",
+		HierarchyPath:  "Technology / Service desk",
+	}
+	// SelectedDepartmentID/SelectedDeskID mirror the real structure route with a
+	// desk chosen, so the dense category table renders its rows instead of the
+	// "select a desk" prompt.
+	data := categoriesIndexData{
+		pageData:             pageData{NavActive: "categories", CurrentUser: ana},
+		Categories:           []domain.Category{bugs.Category, supportCat.Category},
+		Departments:          []domain.CatalogDepartment{technology, support},
+		Desks:                []domain.CatalogDesk{serviceDesk, platform, helpdesk},
+		StructureDepartments: []catalogDepartmentView{{CatalogDepartment: technology}, {CatalogDepartment: support}},
+		StructureDesks:       []catalogDeskView{{CatalogDesk: serviceDesk}, {CatalogDesk: platform}},
+		StructureCategories:  []catalogCategoryRow{bugs, supportCat},
+		SelectedDepartmentID: 1,
+		SelectedDeskID:       1,
+		Badges:               map[int64]string{1: "Published v1", 2: "Draft · not published"},
+		OpenTickets:          map[int64]int{1: 3, 2: 1},
+	}
+	// The real categories index sets both flags (handlers_categories.go), which
+	// is what makes the {{if .CategoryAssets}} block part of the frozen page.
+	data.CategoryAssets, data.PageFoundationAssets = true, true
+	return data
 }
 
 func fixtureCategoryFormData() categoryFormData {
 	ana := domain.User{ID: 1, Name: "Ana Torres", Email: "ana@example.com", Active: true, CreatedAt: goldenT0}
-	return categoryFormData{
+	// The real category form is the drawer rendered on the categories index,
+	// which sets both flags; the standalone categories_new page mirrors it.
+	data := categoryFormData{
 		pageData:   pageData{NavActive: "categories", CurrentUser: ana},
 		CategoryID: 1,
 		Name:       "Bugs",
 	}
+	data.CategoryAssets, data.PageFoundationAssets = true, true
+	return data
 }
 
 func TestGoldenUsersIndex(t *testing.T) {
@@ -934,7 +1008,7 @@ func TestGoldenSettingsIndex(t *testing.T) {
 // matches the seeded default, the other three diverge from it.
 func fixtureCategorySLAData() categorySLAData {
 	ana := domain.User{ID: 1, Name: "Ana Torres", Email: "ana@example.com", Active: true, CreatedAt: goldenT0}
-	return categorySLAData{
+	data := categorySLAData{
 		pageData:     pageData{NavActive: "categories", CurrentUser: ana, CanManageCategories: true},
 		CategoryID:   1,
 		CategoryName: "Bugs",
@@ -945,8 +1019,22 @@ func fixtureCategorySLAData() categorySLAData {
 			{Priority: domain.PriorityLow, FirstResponseSeconds: 16200, ResolveSeconds: 172800},
 		}, seededSLADefaults())},
 	}
+	// The real category SLA render sets only PageFoundationAssets
+	// (handlers_category_sla.go), unlike the categories index: the SLA page
+	// borrows no {{if .CategoryAssets}} rule, so it must not claim that block.
+	data.PageFoundationAssets = true
+	return data
 }
 
 func TestGoldenCategorySLA(t *testing.T) {
 	goldenFullPage(t, "category_sla", renderGolden(t, "category_sla", "", fixtureCategorySLAData(), false))
+}
+
+// TestGoldenCategoryWorkflow freezes the builder page, which until this
+// snapshot was pinned only by E2E plus CSS/string assertions. It follows the
+// page-golden convention in this file: a deterministic fixture render through
+// renderGolden, no database needed, and goldenFullPage strips the embedded
+// stylesheets so the snapshot guards markup alone.
+func TestGoldenCategoryWorkflow(t *testing.T) {
+	goldenFullPage(t, "category_workflow", renderGolden(t, "category_workflow", "", mobileBuilderPageData(), false))
 }

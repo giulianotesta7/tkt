@@ -660,10 +660,10 @@
       .category-level>header{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;padding:18px 16px 14px;border-bottom:1px solid var(--line)}
       .category-level h2{margin:0;color:var(--ink-strong);font-size:16px}
       .category-level-eyebrow{margin:0 0 4px;color:var(--muted);font-size:12px;letter-spacing:0;}
-      /* The dense level as a table. Alignment is the whole point: the workflow
+{{/* The dense level as a table. Alignment is the whole point: the workflow
          states line up in one column, so they can be scanned instead of hunted
          across ragged rows, and the open-ticket count becomes visible. Measured
-         before this change, the longest status left its category name 80px. */
+         before this change, the longest status left its category name 80px. */}}
       .category-level-list-table{display:block;padding:0 8px 6px}
       .category-table{width:100%;border-collapse:collapse;table-layout:fixed}
       .category-table th{padding:6px 10px 8px;text-align:left;font-size:12px;font-weight:600;color:var(--muted);border-bottom:1px solid var(--line)}
@@ -684,23 +684,23 @@
       .category-structure-row:hover,.category-structure-row.is-selected{background:var(--accent-soft)}
       .category-structure-row.is-selected{border-left-color:var(--accent)}
       .category-structure-row>span:first-child{min-width:0}.category-structure-row strong,.category-structure-row small{display:block;overflow-wrap:anywhere}.category-structure-row small{margin-top:0;color:var(--muted);font-size:12px}.category-count,.category-status-inline{min-width:0;color:var(--muted);font-size:12px;text-align:left;overflow-wrap:anywhere}
-/* An inert row must not hover like a link. The category row used to take the same
+{{/* An inert row must not hover like a link. The category row used to take the same
    accent hover as the two navigator rows, so a row that goes nowhere looked
-   clickable. */
+   clickable. */}}
 .category-structure-row-static:hover{background:transparent}
-/* The category's name opens its process. Same treatment as a linked ticket title
+{{/* The category's name opens its process. Same treatment as a linked ticket title
    in this app: ink-strong, underline only on hover, never accent, so the name
-   stays the row's anchor instead of shouting like an action. */
+   stays the row's anchor instead of shouting like an action. */}}
 .category-name{color:var(--ink-strong);text-decoration:none}
 .category-name:hover{text-decoration:underline}
-/* The level action keeps its label on one line when the columns narrow; the title
+{{/* The level action keeps its label on one line when the columns narrow; the title
    beside it gives the room instead. Measured before: "New department" wrapped onto
-   two lines in a narrower column, which made the option read worse than it is. */
+   two lines in a narrower column, which made the option read worse than it is. */}}
 .category-level-action{white-space:nowrap;flex-shrink:0}
-.category-level header>div:first-child{min-width:0}.category-structure-menu{margin:0;justify-self:end}/* The row is one column, and the tail is a block INSIDE the text block. Measured
+.category-level header>div:first-child{min-width:0}.category-structure-menu{margin:0;justify-self:end}{{/* The row is one column, and the tail is a block INSIDE the text block. Measured
    before: with the tail in its own column, a 256px desk row gave the desk name
    83px and the count 142px, and the longest status in the categories column left
-   its name 80px. Both are now full width. */
+   its name 80px. Both are now full width. */}}
 .category-structure-row-static{grid-template-columns:minmax(0,1fr)}
 .category-structure-row .category-count,.category-structure-row .category-status-inline{display:block;margin-top:4px}.category-mobile-back{display:none}.badge.not_configured{background:var(--gray-soft);color:var(--muted)}.category-empty{padding:24px 10px;color:var(--muted);font-size:13px;text-align:center}.category-drawer{z-index:30}.category-drawer-backdrop{z-index:29}
       @media(max-width:640px){
