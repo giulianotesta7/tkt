@@ -29,7 +29,7 @@
             {{if .CanMoveLeft}}<button class="btn ghost small" type="submit" name="action" value="move_up" formaction="/categories/{{$.CategoryID}}/workflow?step_index={{.Index}}&amp;selected_step_index={{$.SelectedStepIndex}}" hx-post="/categories/{{$.CategoryID}}/workflow?step_index={{.Index}}&amp;selected_step_index={{$.SelectedStepIndex}}">Move left</button>{{end}}
             {{if .CanMoveRight}}<button class="btn ghost small" type="submit" name="action" value="move_down" formaction="/categories/{{$.CategoryID}}/workflow?step_index={{.Index}}&amp;selected_step_index={{$.SelectedStepIndex}}" hx-post="/categories/{{$.CategoryID}}/workflow?step_index={{.Index}}&amp;selected_step_index={{$.SelectedStepIndex}}">Move right</button>{{end}}
             <span class="workflow-menu-sep" aria-hidden="true"></span>
-            <button class="btn danger small" type="submit" name="action" value="remove_step" formaction="/categories/{{$.CategoryID}}/workflow?step_index={{.Index}}&amp;selected_step_index={{$.SelectedStepIndex}}" hx-post="/categories/{{$.CategoryID}}/workflow?step_index={{.Index}}&amp;selected_step_index={{$.SelectedStepIndex}}">Remove step</button>
+            <button class="btn danger small" type="submit" name="action" value="remove_step" data-workflow-confirm="step" formaction="/categories/{{$.CategoryID}}/workflow?step_index={{.Index}}&amp;selected_step_index={{$.SelectedStepIndex}}" hx-post="/categories/{{$.CategoryID}}/workflow?step_index={{.Index}}&amp;selected_step_index={{$.SelectedStepIndex}}">Remove step</button>
           </div></details>{{end}}
         </li>
         {{else}}<li class="empty compact">No steps yet. Add a step to begin configuration.</li>{{end}}
@@ -69,7 +69,7 @@
             {{if eq $f.Kind "single_select"}}<div class="field workflow-field-options"><label for="step_{{$stepIdx}}_field_{{$fi}}_options">Options</label><textarea id="step_{{$stepIdx}}_field_{{$fi}}_options" name="step_{{$stepIdx}}_field_{{$fi}}_options">{{range $oi, $opt := $f.Options}}{{if $oi}}
 {{end}}{{$opt}}{{end}}</textarea><p class="help">One option per line.</p></div>{{end}}
             <div class="field checkbox-field workflow-field-required"><label><input type="checkbox" name="step_{{$stepIdx}}_field_{{$fi}}_required" value="on" {{if $f.Required}}checked{{end}}> {{workflowFieldRequiredLabel $f.Kind}}</label></div>
-            <div class="workflow-field-actions"><details class="workflow-field-menu"><summary class="workflow-trigger" aria-label="Field actions">⋯</summary><div class="workflow-field-menu-actions"><button class="btn danger small" type="submit" name="action" value="remove_field" formaction="/categories/{{$.CategoryID}}/workflow?step_index={{$stepIdx}}&amp;field_index={{$fi}}" hx-post="/categories/{{$.CategoryID}}/workflow?step_index={{$stepIdx}}&amp;field_index={{$fi}}">Remove field</button></div></details></div>
+            <div class="workflow-field-actions"><details class="workflow-field-menu"><summary class="workflow-trigger" aria-label="Field actions">⋯</summary><div class="workflow-field-menu-actions"><button class="btn danger small" type="submit" name="action" value="remove_field" data-workflow-confirm="field" formaction="/categories/{{$.CategoryID}}/workflow?step_index={{$stepIdx}}&amp;field_index={{$fi}}" hx-post="/categories/{{$.CategoryID}}/workflow?step_index={{$stepIdx}}&amp;field_index={{$fi}}">Remove field</button></div></details></div>
           </div>
           {{end}}
           </div>
@@ -79,6 +79,22 @@
     </section>
     {{end}}
   </form>
+    <dialog id="workflow-remove-step-dialog" data-workflow-remove-dialog aria-labelledby="workflow-remove-step-title" aria-describedby="workflow-remove-step-copy">
+      <h2 id="workflow-remove-step-title">Remove this step?</h2>
+      <p id="workflow-remove-step-copy">The step and its fields will be removed from the workflow.</p>
+      <div>
+        <button type="button" data-workflow-remove-cancel>Cancel</button>
+        <button type="button" data-workflow-remove-confirm>Remove step</button>
+      </div>
+    </dialog>
+    <dialog id="workflow-remove-field-dialog" data-workflow-remove-dialog aria-labelledby="workflow-remove-field-title" aria-describedby="workflow-remove-field-copy">
+      <h2 id="workflow-remove-field-title">Remove this field?</h2>
+      <p id="workflow-remove-field-copy">The field will be removed from this step.</p>
+      <div>
+        <button type="button" data-workflow-remove-cancel>Cancel</button>
+        <button type="button" data-workflow-remove-confirm>Remove field</button>
+      </div>
+    </dialog>
 </section>
 {{end}}
 

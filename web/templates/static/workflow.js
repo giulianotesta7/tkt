@@ -183,6 +183,10 @@
     // Hazard 3: the summary click still owns the fixed viewport positioning
     // exactly as before; the dismissal below never touches it.
     if (details) requestAnimationFrame(() => positionDropdown(details));
+    // A confirmation dialog owns the interaction while it is open: a click
+    // inside it must not dismiss the menu that launched it, so Cancel can
+    // return focus to the trigger it came from.
+    if (target?.closest("[data-workflow-remove-dialog]")) return;
     // Hazard 1: a click inside an open dropdown (choosing an option) is
     // contained by it, so it stays open and its own behaviour runs.
     // Hazard 2: a click on a summary is contained by its own dropdown, so it
@@ -404,6 +408,75 @@ document.addEventListener("close", (event) => {
   dialogReturnFocus = null;
   if (target?.isConnected) target.focus();
 });
+
+// ==== Destructive confirmation (issue #252 slice 3) ====
+// Remove step and Remove field persist the moment they are clicked, so both
+// now ask first through the same native <dialog> the drawer uses. htmx fires
+// htmx:confirm before it builds the request; preventing it here stops the
+// action entirely, and the confirmed path reissues the exact same request
+// (issueRequest(true)) so the dirty guard, the handler and the endpoints keep
+// the semantics they had. Cancel and Escape close with no request at all, so
+// nothing can be mistaken for a persisting action.
+let removeChoice = null;
+let removeReturnFocus = null;
+let removeIssueRequest = null;
+const stepConfirmDialog = () => document.getElementById("workflow-remove-step-dialog");
+const fieldConfirmDialog = () => document.getElementById("workflow-remove-field-dialog");
+const removeConfirmDialog = (kind) =>
+  kind === "field" ? fieldConfirmDialog() : stepConfirmDialog();
+// The dialog's cancel and close events do not bubble, so both are captured at
+// the document: this one routine restores the trigger and, only on an explicit
+// confirm, resumes the request htmx was about to send.
+const resolveRemoveDialog = (choice) => {
+  const issueRequest = removeIssueRequest;
+  const target = removeReturnFocus;
+  removeIssueRequest = null;
+  removeReturnFocus = null;
+  removeChoice = null;
+  // Restore the trigger before resuming, so the dirty guard captures exactly
+  // the focus it would have captured without this dialog.
+  if (target instanceof Element && target.isConnected) target.focus();
+  if (choice === "confirm" && issueRequest) issueRequest(true);
+};
+document.addEventListener("htmx:confirm", (event) => {
+  const kind = event.detail?.elt?.dataset?.workflowConfirm;
+  if (!kind) return;
+  event.preventDefault();
+  removeIssueRequest = event.detail.issueRequest;
+  removeReturnFocus =
+    event.detail.elt instanceof Element ? event.detail.elt : document.activeElement;
+  removeChoice = null;
+  const dialog = removeConfirmDialog(kind);
+  if (!dialog) return;
+  dialog.showModal();
+  dialog.querySelector("[data-workflow-remove-cancel]")?.focus();
+});
+document.addEventListener("click", (event) => {
+  const target = event.target instanceof Element ? event.target : null;
+  const cancel = target?.closest("[data-workflow-remove-cancel]");
+  const confirm = target?.closest("[data-workflow-remove-confirm]");
+  if (!cancel && !confirm) return;
+  event.preventDefault();
+  removeChoice = cancel ? "cancel" : "confirm";
+  (cancel ?? confirm).closest("dialog")?.close();
+  resolveRemoveDialog(removeChoice);
+});
+document.addEventListener(
+  "cancel",
+  (event) => {
+    if (event.target === stepConfirmDialog() || event.target === fieldConfirmDialog())
+      resolveRemoveDialog("cancel");
+  },
+  true,
+);
+document.addEventListener(
+  "close",
+  (event) => {
+    if (event.target !== stepConfirmDialog() && event.target !== fieldConfirmDialog()) return;
+    resolveRemoveDialog(removeChoice ?? "cancel");
+  },
+  true,
+);
 
 // ==== Exit guards for unsaved workflow edits (issue #139 WU3) ====
 // One owner per exit path: plain same-tab link clicks and browser Back use

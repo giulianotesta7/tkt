@@ -1923,7 +1923,7 @@ test.describe("Categories", () => {
     );
     await expect(page.locator("#save-feedback .save-feedback-message")).toHaveText("Saved");
 
-    // Remove step unconditionally (prove removal works)
+    // Remove step asks through the confirmation dialog before it posts.
     const countBeforeRemove = await cards.count();
     const lastCard = cards.last();
     const menuSummary = lastCard.locator(".workflow-trigger").first();
@@ -1931,13 +1931,17 @@ test.describe("Categories", () => {
     await menuSummary.click();
     const removeBtn = lastCard.getByRole("button", { name: /remove step/i });
     await expect(removeBtn).toBeVisible();
+    await removeBtn.click();
+    const removeStepDialog = page.locator("#workflow-remove-step-dialog");
+    await expect(removeStepDialog).toBeVisible();
+    await expect(cards).toHaveCount(countBeforeRemove);
 
     // Remove-step POST goes to /categories/{id}/workflow?step_index=... —
     // the action=remove_step lives in the form body, not the query string.
     await assertHtmxSwap(
       page,
       async () => {
-        await removeBtn.click();
+        await removeStepDialog.getByRole("button", { name: "Remove step" }).click();
       },
       {
         endpoint: (url) => {
@@ -2568,6 +2572,10 @@ test.describe("Categories", () => {
         const card = page.locator(".workflow-step-card").last();
         await openMenu(card.locator(".workflow-step-menu-actions"));
         await card.getByRole("button", { name: /remove step/i }).click();
+        await page
+          .locator("#workflow-remove-step-dialog")
+          .getByRole("button", { name: "Remove step" })
+          .click();
       },
       move_up: async (page) => {
         const card = page.locator(".workflow-step-card").nth(1);
@@ -2603,6 +2611,10 @@ test.describe("Categories", () => {
       remove_field: async (page) => {
         await openMenu(page.locator(".workflow-field-menu-actions"));
         await page.locator(".workflow-field-menu-actions button").click();
+        await page
+          .locator("#workflow-remove-field-dialog")
+          .getByRole("button", { name: "Remove field" })
+          .click();
       },
       change_type: async (page, categoryId) => {
         // change_type's Apply is no-JS-only; htmx carries the action of the last
@@ -2692,6 +2704,125 @@ test.describe("Categories", () => {
         },
       },
     ];
+
+    test("Remove step and Remove field ask through a dialog first: Cancel and Escape persist nothing, confirm posts once", async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width: 1280, height: 800 });
+      const categoryId = await seedWorkflow(page, ["form"]);
+      await triggers.add_field(page, categoryId);
+      await expect(page.locator(".workflow-field-row")).toHaveCount(1);
+      const posts = trackPosts(page);
+      const stepDialog = page.locator("#workflow-remove-step-dialog");
+      const fieldDialog = page.locator("#workflow-remove-field-dialog");
+      const cards = page.locator(".workflow-step-card");
+
+      // Remove field: the menu click opens the field dialog and removes nothing.
+      const removeField = page.locator(".workflow-field-menu-actions button").first();
+      await openMenu(page.locator(".workflow-field-menu-actions"));
+      await removeField.click();
+      await expect(fieldDialog).toBeVisible();
+      await expect(stepDialog).not.toBeVisible();
+      await expect(fieldDialog.getByRole("heading", { name: "Remove this field?" })).toBeVisible();
+      await expect(fieldDialog).toContainText(/removed from this step/i);
+      await expect(fieldDialog.getByRole("button", { name: "Remove field" })).toHaveCSS(
+        "background-color",
+        "rgb(180, 35, 24)",
+      );
+      await page.waitForTimeout(300);
+      expect(posts.filter((a) => a === "remove_field")).toEqual([]);
+      await expect(page.locator(".workflow-field-row")).toHaveCount(1);
+
+      // Cancel restores focus to the trigger and persists nothing.
+      await fieldDialog.getByRole("button", { name: "Cancel" }).click();
+      await expect(fieldDialog).not.toBeVisible();
+      await expect(removeField).toBeFocused();
+      await page.waitForTimeout(300);
+      expect(posts.filter((a) => a === "remove_field")).toEqual([]);
+      await expect(page.locator(".workflow-field-row")).toHaveCount(1);
+
+      // Escape behaves like Cancel, with focus restored to the trigger.
+      await removeField.click();
+      await expect(fieldDialog).toBeVisible();
+      await page.keyboard.press("Escape");
+      await expect(fieldDialog).not.toBeVisible();
+      await expect(removeField).toBeFocused();
+      await page.waitForTimeout(300);
+      expect(posts.filter((a) => a === "remove_field")).toEqual([]);
+      await expect(page.locator(".workflow-field-row")).toHaveCount(1);
+
+      // Confirm posts the same remove_field request exactly once.
+      await removeField.click();
+      await expect(fieldDialog).toBeVisible();
+      await assertHtmxSwap(
+        page,
+        async () => {
+          await fieldDialog.getByRole("button", { name: "Remove field" }).click();
+        },
+        {
+          endpoint: (url) => {
+            const parsedURL = new URL(url);
+            return (
+              parsedURL.pathname === `/categories/${categoryId}/workflow` &&
+              parsedURL.searchParams.get("field_index") === "0" &&
+              !parsedURL.searchParams.has("action")
+            );
+          },
+          method: "POST",
+          expectedStatus: 200,
+          hxTarget: "#workflow-builder",
+        },
+      );
+      await expect(fieldDialog).not.toBeVisible();
+      await expect(page.locator(".workflow-field-row")).toHaveCount(0);
+      expect(posts.filter((a) => a === "remove_field")).toEqual(["remove_field"]);
+
+      // Remove step: a distinct question about the step and its fields, and it
+      // too persists nothing until confirmed.
+      await selectCard(page, 0);
+      const stepCount = await cards.count();
+      const removeStep = cards.last().getByRole("button", { name: /remove step/i });
+      await openMenu(cards.last().locator(".workflow-step-menu-actions"));
+      await removeStep.click();
+      await expect(stepDialog).toBeVisible();
+      await expect(fieldDialog).not.toBeVisible();
+      await expect(stepDialog.getByRole("heading", { name: "Remove this step?" })).toBeVisible();
+      await expect(stepDialog).toContainText(/fields/i);
+      await page.waitForTimeout(300);
+      expect(posts.filter((a) => a === "remove_step")).toEqual([]);
+      await expect(cards).toHaveCount(stepCount);
+      await stepDialog.getByRole("button", { name: "Cancel" }).click();
+      await expect(stepDialog).not.toBeVisible();
+      await expect(removeStep).toBeFocused();
+      await page.waitForTimeout(300);
+      expect(posts.filter((a) => a === "remove_step")).toEqual([]);
+      await expect(cards).toHaveCount(stepCount);
+
+      // Confirm posts the same remove_step request exactly once.
+      await removeStep.click();
+      await expect(stepDialog).toBeVisible();
+      await assertHtmxSwap(
+        page,
+        async () => {
+          await stepDialog.getByRole("button", { name: "Remove step" }).click();
+        },
+        {
+          endpoint: (url) => {
+            const parsedURL = new URL(url);
+            return (
+              parsedURL.pathname === `/categories/${categoryId}/workflow` &&
+              parsedURL.searchParams.get("step_index") === String(stepCount - 1) &&
+              !parsedURL.searchParams.has("action")
+            );
+          },
+          method: "POST",
+          expectedStatus: 200,
+          hxTarget: "#workflow-builder",
+        },
+      );
+      await expect(cards).toHaveCount(stepCount - 1);
+      expect(posts.filter((a) => a === "remove_step")).toEqual(["remove_step"]);
+    });
 
     test("all 8 structural actions prompt when dirty and Cancel sends no POST", async ({
       page,
