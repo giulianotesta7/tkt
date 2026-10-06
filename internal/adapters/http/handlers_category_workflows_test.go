@@ -2025,6 +2025,46 @@ func TestCategoryWorkflowBuilder_MenuLabelsHorizontal(t *testing.T) {
 	}
 }
 
+// DestructiveConfirmation freezes the slice-3 contract for issue #252: Remove
+// step and Remove field ask through a native <dialog> before the action is
+// posted, while the server-side submit grammar stays unchanged (one
+// remove_step per editable card, one remove_field per field row). Each dialog
+// names what it removes and the consequence, so a non-technical admin can tell
+// the step (with its fields) from the field.
+func TestCategoryWorkflowBuilder_DestructiveConfirmation(t *testing.T) {
+	h := newHarness(t)
+	category, err := h.categories.Create(t.Context(), "Destructive confirmation")
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	path := "/categories/" + strconv.FormatInt(category.ID, 10) + "/workflow"
+	wantRedirect(t, h.postBuilder(t, path, builderFieldForm("save", buildingSteps()...), false), http.StatusSeeOther, path)
+	body := h.get(t, path+"?selected_step_index=1", false).Body.String()
+	for _, want := range []string{
+		`<dialog id="workflow-remove-step-dialog" data-workflow-remove-dialog aria-labelledby="workflow-remove-step-title" aria-describedby="workflow-remove-step-copy">`,
+		`id="workflow-remove-step-title">Remove this step?</h2>`,
+		`id="workflow-remove-step-copy">The step and its fields will be removed from the workflow.</p>`,
+		`<dialog id="workflow-remove-field-dialog" data-workflow-remove-dialog aria-labelledby="workflow-remove-field-title" aria-describedby="workflow-remove-field-copy">`,
+		`id="workflow-remove-field-title">Remove this field?</h2>`,
+		`id="workflow-remove-field-copy">The field will be removed from this step.</p>`,
+		`data-workflow-confirm="step"`,
+		`data-workflow-confirm="field"`,
+		`data-workflow-remove-cancel>Cancel</button>`,
+		`data-workflow-remove-confirm>Remove step</button>`,
+		`data-workflow-remove-confirm>Remove field</button>`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("destructive confirmation markup missing %q", want)
+		}
+	}
+	if got := strings.Count(body, `name="action" value="remove_step"`); got != 2 {
+		t.Errorf("remove_step submitters = %d, want 2 (one per editable card)", got)
+	}
+	if got := strings.Count(body, `name="action" value="remove_field"`); got != 1 {
+		t.Errorf("remove_field submitters = %d, want 1 (one per field row)", got)
+	}
+}
+
 // KeyboardActionFallbacks freezes the no-drag fallback contract: menu actions
 // are real native submit buttons (Enter/Space run the same reorder/remove
 // request) for no-JS and HTMX, the page restores visible focus to the selected
