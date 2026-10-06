@@ -1846,6 +1846,20 @@ func TestWorkflowKindVocabulary(t *testing.T) {
 	}
 }
 
+// workflowFieldRequiredLabel freezes #317's required-control copy: a checkbox
+// says "Must be ticked" because its only answer is yes, while every other kind
+// keeps the bare "Required".
+func TestWorkflowFieldRequiredLabel(t *testing.T) {
+	if got := workflowFieldRequiredLabel(domain.FieldCheckbox); got != "Must be ticked" {
+		t.Errorf("checkbox required label = %q, want %q", got, "Must be ticked")
+	}
+	for _, kind := range []domain.FieldKind{domain.FieldShortText, domain.FieldLongText, domain.FieldSingleSelect} {
+		if got := workflowFieldRequiredLabel(kind); got != "Required" {
+			t.Errorf("required label for %s = %q, want %q", kind, got, "Required")
+		}
+	}
+}
+
 // TypedAddTerminalProtection freezes scenario protection: a draft that already
 // contains a terminal step keeps the two terminal kinds visible but disabled,
 // each carrying the reason, and offers no insertion position after the final
@@ -2461,10 +2475,13 @@ func TestCategoryWorkflowBuilder_DragResponsiveCSS(t *testing.T) {
 	}
 }
 
-// Checkbox semantics: a Checkbox field is boolean — Required stays available for
-// text/select fields, is hidden for checkbox fields, and any legacy persisted
-// required=true on a checkbox is normalized to non-required. The field row keeps
-// the actions cell (with the field menu) in a fixed upper-right slot.
+// Checkbox semantics (#317): a Checkbox field CAN be Required, and Required on
+// a checkbox means "must be ticked" — the only answer it can carry. The Required
+// control is rendered for a checkbox field too, labelled with that meaning,
+// while every other kind keeps the bare "Required". Saving a checked control
+// persists Required = true; an unchecked one persists Required = false. The
+// field row keeps the actions cell (with the field menu) in a fixed upper-right
+// slot.
 func TestCategoryWorkflowBuilder_CheckboxRequiredSemantics(t *testing.T) {
 	h := newHarness(t)
 	category, err := h.categories.Create(t.Context(), "Checkbox semantics")
@@ -2478,35 +2495,95 @@ func TestCategoryWorkflowBuilder_CheckboxRequiredSemantics(t *testing.T) {
 			{key: "f0", label: "Text", kind: "short_text", required: true},
 			{key: "f1", label: "Flag", kind: "checkbox", required: true},
 			{key: "f2", label: "Pick", kind: "single_select", options: "A; B", required: true},
+			{key: "f3", label: "Optional flag", kind: "checkbox", required: false},
 		}},
 	}
 	wantRedirect(t, h.postBuilder(t, path, builderFieldForm("save", steps...), false), http.StatusSeeOther, path)
 	def := h.persistedDefinition(t, path)
-	if !def[1].Form.Fields[0].Required || def[1].Form.Fields[1].Required || !def[1].Form.Fields[2].Required {
-		t.Fatalf("checkbox required must normalize to false while text/select keep required, got %+v", def[1].Form.Fields)
+	if !def[1].Form.Fields[0].Required || !def[1].Form.Fields[1].Required || !def[1].Form.Fields[2].Required || def[1].Form.Fields[3].Required {
+		t.Fatalf("a checked checkbox must persist required while an unchecked one stays optional, got %+v", def[1].Form.Fields)
 	}
 
 	body := h.get(t, path+"?selected_step_index=1", false).Body.String()
-	for _, want := range []string{`name="step_1_field_0_required"`, `name="step_1_field_2_required"`, `class="workflow-field-actions"`, `aria-label="Field actions"`} {
+	for _, want := range []string{`name="step_1_field_0_required"`, `name="step_1_field_1_required"`, `name="step_1_field_2_required"`, `name="step_1_field_3_required"`, `class="workflow-field-actions"`, `aria-label="Field actions"`, "Must be ticked"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("checkbox semantics editor missing %q", want)
 		}
 	}
-	if strings.Contains(body, `name="step_1_field_1_required"`) {
-		t.Errorf("checkbox field must not expose a Required control, got: %s", body)
+	if got := controlTag(t, body, "step_1_field_1_required"); !strings.Contains(got, "checked") {
+		t.Errorf("a required checkbox must render its Required control checked, got %q", got)
+	}
+	if got := controlTag(t, body, "step_1_field_3_required"); strings.Contains(got, "checked") {
+		t.Errorf("an optional checkbox must render its Required control unchecked, got %q", got)
 	}
 	if !strings.Contains(body, `class="field workflow-field-options"`) {
 		t.Errorf("single-select field must keep its full-width Options row, got: %s", body)
 	}
 
-	// Changing a required text field to Checkbox clears Required on the round trip.
+	// Changing a required text field to Checkbox keeps Required on the round trip.
 	changed := builderFieldForm("save", steps...)
 	changed.Set("step_1_field_0_kind", "checkbox")
 	changed.Set("step_1_field_0_required", "on")
 	wantRedirect(t, h.postBuilder(t, path, changed, false), http.StatusSeeOther, path)
 	after := h.persistedDefinition(t, path)
-	if after[1].Form.Fields[0].Kind != domain.FieldCheckbox || after[1].Form.Fields[0].Required {
-		t.Errorf("text->checkbox must clear required, got %+v", after[1].Form.Fields[0])
+	if after[1].Form.Fields[0].Kind != domain.FieldCheckbox || !after[1].Form.Fields[0].Required {
+		t.Errorf("text->checkbox must keep required, got %+v", after[1].Form.Fields[0])
+	}
+}
+
+// TestWorkflowCompletion_RequiredCheckboxMatrix is #317's behaviour-delta
+// audit, frozen as a regression. It drives a published workflow whose current
+// step is a form with a checkbox field through the REAL completion route
+// (POST /tickets/{id}/workflow/steps/{position}/complete), so the runner,
+// handler and SQLite unit of work all answer exactly as production does. The
+// four cells are: required ticked, required unticked/absent, optional ticked,
+// optional unticked/absent. A required checkbox must be ticked (the runner
+// rejects it with the per-step message), while an optional one accepts both.
+func TestWorkflowCompletion_RequiredCheckboxMatrix(t *testing.T) {
+	h := newHarness(t)
+	errBanner := regexp.MustCompile(`class="error-banner"[^>]*>([^<]*)</div>`)
+	for _, tc := range []struct {
+		name       string
+		required   bool
+		ticked     bool
+		wantStatus int
+		wantMsg    string
+	}{
+		{"required ticked", true, true, http.StatusOK, ""},
+		{"required unticked", true, false, http.StatusUnprocessableEntity, "Step 1: agree must be ticked"},
+		{"optional ticked", false, true, http.StatusOK, ""},
+		{"optional unticked", false, false, http.StatusOK, ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cat, err := h.categories.Create(t.Context(), "Checkbox matrix "+tc.name)
+			if err != nil {
+				t.Fatalf("create category: %v", err)
+			}
+			h.publishWorkflow(t, cat.ID, domain.WorkflowDefinition{{
+				Type: domain.StepForm,
+				Form: &domain.FormStep{Actor: domain.FormActorRequester, Fields: []domain.FormField{
+					{Key: "agree", Label: "Agree", Kind: domain.FieldCheckbox, Required: tc.required},
+				}},
+			}})
+			ticket := h.seedTicket(t, "checkbox matrix "+tc.name, func(in *application.CreateTicketInput) { in.CategoryID = cat.ID })
+			form := url.Values{}
+			if tc.ticked {
+				form.Set("answer_0", "on")
+			}
+			rec := h.postForm(t, "/tickets/"+strconv.FormatInt(ticket.ID, 10)+"/workflow/steps/1/complete", form, false)
+			body := rec.Body.String()
+			msg := ""
+			if m := errBanner.FindStringSubmatch(body); m != nil {
+				msg = m[1]
+			}
+			t.Logf("[audit] required=%v ticked=%v status=%d err=%q", tc.required, tc.ticked, rec.Code, msg)
+			if rec.Code != tc.wantStatus {
+				t.Errorf("status = %d, want %d (body %.300s)", rec.Code, tc.wantStatus, body)
+			}
+			if tc.wantMsg != "" && !strings.Contains(body, tc.wantMsg) {
+				t.Errorf("body missing %q, got %.300s", tc.wantMsg, body)
+			}
+		})
 	}
 }
 

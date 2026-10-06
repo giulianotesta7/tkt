@@ -2396,6 +2396,51 @@ test.describe("Categories", () => {
     await assertNoHorizontalOverflow(page, 1280);
   });
 
+  test("a checkbox field renders a Must-be-ticked required control and persists it", async ({
+    page,
+  }) => {
+    test.setTimeout(60000);
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await loginAsSeeded(page);
+    const categoryId = await createCategoryViaUi(
+      page,
+      "Checkbox field " + Date.now().toString(36).slice(2, 8),
+    );
+    await page.goto(base() + `/categories/${categoryId}/workflow`);
+    await expect(page.locator("#workflow-builder")).toBeVisible();
+
+    // Add an Ask-for-information step and give it one field.
+    await page.locator(".workflow-add-step summary").first().click();
+    await page
+      .locator(".workflow-add-options button")
+      .filter({ hasText: /^ask for information$/i })
+      .first()
+      .click();
+    await page.getByRole("button", { name: "+ Add field" }).click();
+    await expect(page.locator(".workflow-field-row")).toHaveCount(1);
+
+    // Author the field as a checkbox carrying the acknowledgment constraint.
+    // The field-kind control's own live re-render is a pre-existing interaction
+    // outside #317's surfaces, so this journey sets the kind and saves; the
+    // visible copy is asserted from the persisted draft after the reload.
+    await page.evaluate(() => {
+      const select = document.querySelector('select[name="step_0_field_0_kind"]');
+      if (!(select instanceof HTMLSelectElement)) throw new Error("Missing kind select");
+      select.value = "checkbox";
+    });
+    await page.locator('input[name="step_0_field_0_required"]').check();
+    await page.locator('.page-actions button[name="action"][value="save"]').click();
+    await expect(page.locator("#save-feedback .save-feedback-message")).toHaveText("Saved");
+
+    // Reload and re-select the step: the persisted draft renders "Must be
+    // ticked" (not the bare "Required") and keeps the control ticked.
+    await page.reload();
+    await expect(page.locator("#workflow-builder")).toBeVisible();
+    await page.locator(".workflow-step-card .workflow-step-card-link").first().click();
+    await expect(page.getByLabel("Must be ticked")).toBeVisible();
+    await expect(page.locator('input[name="step_0_field_0_required"]')).toBeChecked();
+  });
+
   test.describe("Workflow dirty structural guard", () => {
     function trackPosts(page: Page): string[] {
       const actions: string[] = [];
