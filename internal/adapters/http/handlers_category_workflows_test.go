@@ -1631,16 +1631,20 @@ func TestCategoryWorkflowBuilder_AddOptionDisabledConvention(t *testing.T) {
 
 // mobileBuilderPageData builds a full builder-page fixture exercising the
 // manual-task and assign-to-desk step controls so the rendered page carries
-// the shared stylesheet and the complete builder markup.
+// the shared stylesheet and the complete builder markup. The asset flags match
+// the real builder render (handlers_category_workflows.go:440), so the golden
+// snapshot of this page mirrors what an admin sees.
 func mobileBuilderPageData() workflowBuilderData {
 	ana := domain.User{ID: 1, Name: "Ana Torres", Email: "ana@example.com", Active: true, Role: domain.RoleAdmin, CreatedAt: goldenT0}
 	return workflowBuilderData{
 		pageData: pageData{
-			NavActive:           "categories",
-			CurrentUser:         ana,
-			CanManageUsers:      true,
-			CanManageCategories: true,
-			CanManageDesks:      true,
+			NavActive:            "categories",
+			CurrentUser:          ana,
+			CanManageUsers:       true,
+			CanManageCategories:  true,
+			CanManageDesks:       true,
+			PageFoundationAssets: true,
+			WorkflowAssets:       true,
 		},
 		CategoryID: 1,
 		Draft: domain.WorkflowDefinition{

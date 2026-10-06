@@ -5,9 +5,9 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>tkt — Ticket Desk</title>
 
-<script src="/static/save-feedback.js" defer></script><script src="/static/htmx.min.js" defer></script>
+<link rel="stylesheet" href="/static/users.css"><script src="/static/categories.js" defer></script><script src="/static/save-feedback.js" defer></script><script src="/static/htmx.min.js" defer></script>
 </head>
-<body>
+<body class="users-page-body">
 <div class="layout">
   <aside class="rail">
     <a class="rail-brand" href="/tickets" title="tkt">tkt</a>
@@ -45,35 +45,43 @@
   </header>
   <nav class="category-mobile-actions" aria-label="Catalog creation">
 <a class="btn primary category-drawer-launcher" href="/categories/departments/new?view=structure" hx-get="/categories/departments/new?view=structure" hx-target="#category-drawer-host" hx-swap="outerHTML" hx-push-url="/categories/departments/new?view=structure">New department</a>
-<a class="btn primary category-drawer-launcher" href="/categories/desks/new?view=structure" hx-get="/categories/desks/new?view=structure" hx-target="#category-drawer-host" hx-swap="outerHTML" hx-push-url="/categories/desks/new?view=structure">New desk</a>
-<a class="btn primary category-drawer-launcher" href="/categories/new?view=structure" hx-get="/categories/new?view=structure" hx-target="#category-drawer-host" hx-swap="outerHTML" hx-push-url="/categories/new?view=structure">New category</a>
+<a class="btn primary category-drawer-launcher" href="/categories/desks/new?view=structure&department_id=1" hx-get="/categories/desks/new?view=structure&department_id=1" hx-target="#category-drawer-host" hx-swap="outerHTML" hx-push-url="/categories/desks/new?view=structure&department_id=1">New desk</a>
+<a class="btn primary category-drawer-launcher" href="/categories/new?view=structure&department_id=1&desk_id=1" hx-get="/categories/new?view=structure&department_id=1&desk_id=1" hx-target="#category-drawer-host" hx-swap="outerHTML" hx-push-url="/categories/new?view=structure&department_id=1&desk_id=1">New category</a>
   </nav>
 
 <form class="category-search search-field" method="get" action="/categories" role="search">
   <label class="visually-hidden" for="category-search">Search departments, desks, or categories</label>
   <svg class="search-icon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4 4"/></svg>
   <input id="category-search" type="search" name="q" value="" placeholder="Search departments, desks, or categories" autocomplete="off">
-  <input type="hidden" name="view" value="">
+  <input type="hidden" name="view" value=""><input type="hidden" name="department_id" value="1"><input type="hidden" name="desk_id" value="1">
   <button class="visually-hidden" type="submit">Search</button>
 </form>
 
   <div class="category-structure" aria-label="Catalog structure">
-    <section class="category-level category-level-departments is-current" aria-labelledby="departments-title">
+    <section class="category-level category-level-departments " aria-labelledby="departments-title">
       <header><div><p class="category-level-eyebrow">Departments</p><h2 id="departments-title">Departments</h2></div><a class="btn primary category-level-action category-drawer-launcher" data-focus-key="new-department" href="/categories/departments/new?view=structure" hx-get="/categories/departments/new?view=structure" hx-target="#category-drawer-host" hx-swap="outerHTML" hx-push-url="/categories/departments/new?view=structure">New department</a></header>
       <div class="category-level-list">
-        <p class="category-empty">No departments yet.</p>
+
+        <div class="category-structure-item"><a class="category-structure-row is-selected" href="/categories?view=structure&department_id=1" aria-current="true"><span><strong>Technology</strong><small>Engineering and platform</small><span class="category-count">2 desks</span></span></a><div class="category-overflow category-structure-menu"><button class="category-menu-button" type="button" data-category-menu data-focus-key="department-actions-Technology" aria-controls="department-menu-1" aria-expanded="false" aria-label="Actions for Technology">⋯</button><div id="department-menu-1" class="category-overflow-menu" role="menu" hidden><a class="category-drawer-launcher" role="menuitem" href="/categories/departments/1/edit?view=structure&department_id=1" hx-get="/categories/departments/1/edit?view=structure&department_id=1" hx-target="#category-drawer-host" hx-swap="outerHTML" hx-push-url="/categories/departments/1/edit?view=structure&department_id=1">Edit department</a><form method="post" action="/categories/departments/1/delete" role="none"><input type="hidden" name="view" value="structure"><input type="hidden" name="department_id" value="1"><button class="category-menu-danger" role="menuitem" type="submit">Delete department</button></form></div></div></div>
+
+        <div class="category-structure-item"><a class="category-structure-row " href="/categories?view=structure&department_id=2" aria-current=""><span><strong>Support</strong><small>Customer support</small><span class="category-count">1 desk</span></span></a><div class="category-overflow category-structure-menu"><button class="category-menu-button" type="button" data-category-menu data-focus-key="department-actions-Support" aria-controls="department-menu-2" aria-expanded="false" aria-label="Actions for Support">⋯</button><div id="department-menu-2" class="category-overflow-menu" role="menu" hidden><a class="category-drawer-launcher" role="menuitem" href="/categories/departments/2/edit?view=structure&department_id=2" hx-get="/categories/departments/2/edit?view=structure&department_id=2" hx-target="#category-drawer-host" hx-swap="outerHTML" hx-push-url="/categories/departments/2/edit?view=structure&department_id=2">Edit department</a><form method="post" action="/categories/departments/2/delete" role="none"><input type="hidden" name="view" value="structure"><input type="hidden" name="department_id" value="2"><button class="category-menu-danger" role="menuitem" type="submit">Delete department</button></form></div></div></div>
+
       </div>
     </section>
     <section class="category-level category-level-desks " aria-labelledby="desks-title">
-      <header><div><p class="category-level-eyebrow">Desks</p><h2 id="desks-title">Desks</h2></div><a class="btn primary category-level-action category-drawer-launcher" data-focus-key="new-desk" href="/categories/desks/new?view=structure" hx-get="/categories/desks/new?view=structure" hx-target="#category-drawer-host" hx-swap="outerHTML" hx-push-url="/categories/desks/new?view=structure">New desk</a></header>
-      <div class="category-level-context"><span>Select a department</span></div>
+      <header><div><p class="category-level-eyebrow">Desks</p><h2 id="desks-title">Desks</h2></div><a class="btn primary category-level-action category-drawer-launcher" data-focus-key="new-desk" href="/categories/desks/new?view=structure&department_id=1" hx-get="/categories/desks/new?view=structure&department_id=1" hx-target="#category-drawer-host" hx-swap="outerHTML" hx-push-url="/categories/desks/new?view=structure&department_id=1">New desk</a></header>
+      <div class="category-level-context"><a class="category-mobile-back" href="/categories?view=structure">← Departments</a></div>
       <div class="category-level-list">
-        <p class="category-empty">Select a department to browse desks.</p>
+
+        <div class="category-structure-item"><a class="category-structure-row is-selected" href="/categories?view=structure&department_id=1&desk_id=1" aria-current="true"><span><strong>Service desk</strong><small>First-line triage</small><span class="category-count">2 categories</span></span></a><div class="category-overflow category-structure-menu"><button class="category-menu-button" type="button" data-category-menu data-focus-key="desk-actions-1" aria-controls="desk-menu-1" aria-expanded="false" aria-label="Actions for Service desk">⋯</button><div id="desk-menu-1" class="category-overflow-menu" role="menu" hidden><a class="category-drawer-launcher" role="menuitem" href="/categories/desks/1/edit?view=structure&department_id=1&desk_id=1" hx-get="/categories/desks/1/edit?view=structure&department_id=1&desk_id=1" hx-target="#category-drawer-host" hx-swap="outerHTML" hx-push-url="/categories/desks/1/edit?view=structure&department_id=1&desk_id=1">Edit desk</a><form method="post" action="/categories/desks/1/delete" role="none"><input type="hidden" name="view" value="structure"><input type="hidden" name="department_id" value="1"><input type="hidden" name="desk_id" value="1"><button class="category-menu-danger" role="menuitem" type="submit">Delete desk</button></form></div></div></div>
+
+        <div class="category-structure-item"><a class="category-structure-row " href="/categories?view=structure&department_id=1&desk_id=2" aria-current=""><span><strong>Platform</strong><small>Infrastructure</small><span class="category-count">0 categories</span></span></a><div class="category-overflow category-structure-menu"><button class="category-menu-button" type="button" data-category-menu data-focus-key="desk-actions-2" aria-controls="desk-menu-2" aria-expanded="false" aria-label="Actions for Platform">⋯</button><div id="desk-menu-2" class="category-overflow-menu" role="menu" hidden><a class="category-drawer-launcher" role="menuitem" href="/categories/desks/2/edit?view=structure&department_id=1&desk_id=2" hx-get="/categories/desks/2/edit?view=structure&department_id=1&desk_id=2" hx-target="#category-drawer-host" hx-swap="outerHTML" hx-push-url="/categories/desks/2/edit?view=structure&department_id=1&desk_id=2">Edit desk</a><form method="post" action="/categories/desks/2/delete" role="none"><input type="hidden" name="view" value="structure"><input type="hidden" name="department_id" value="1"><input type="hidden" name="desk_id" value="2"><button class="category-menu-danger" role="menuitem" type="submit">Delete desk</button></form></div></div></div>
+
       </div>
     </section>
-    <section class="category-level category-level-categories " aria-labelledby="structure-categories-title">
-      <header><div><p class="category-level-eyebrow">Categories</p><h2 id="structure-categories-title">Categories</h2></div><a class="btn primary category-level-action category-drawer-launcher" data-focus-key="new-category" href="/categories/new?view=structure" hx-get="/categories/new?view=structure" hx-target="#category-drawer-host" hx-swap="outerHTML" hx-push-url="/categories/new?view=structure">New category</a></header>
-      <div class="category-level-context"><span>Select a desk</span></div>
+    <section class="category-level category-level-categories is-current" aria-labelledby="structure-categories-title">
+      <header><div><p class="category-level-eyebrow">Categories</p><h2 id="structure-categories-title">Categories</h2></div><a class="btn primary category-level-action category-drawer-launcher" data-focus-key="new-category" href="/categories/new?view=structure&department_id=1&desk_id=1" hx-get="/categories/new?view=structure&department_id=1&desk_id=1" hx-target="#category-drawer-host" hx-swap="outerHTML" hx-push-url="/categories/new?view=structure&department_id=1&desk_id=1">New category</a></header>
+      <div class="category-level-context"><a class="category-mobile-back" href="/categories?view=structure&department_id=1">← Desks</a></div>
       <div class="category-level-list category-level-list-table">
         <table class="category-table">
           <thead><tr>
@@ -83,7 +91,21 @@
             <th class="category-table-act" scope="col"><span class="visually-hidden">Actions</span></th>
           </tr></thead>
           <tbody>
-            <tr><td colspan="4"><p class="category-empty">Select a desk to browse categories.</p></td></tr>
+
+            <tr>
+              <td class="category-table-name" data-label="Category"><a class="category-name" href="/categories/1/workflow"><strong>Bugs</strong></a><small>Defects and regressions</small></td>
+              <td class="category-table-flow" data-label="Workflow"><span class="category-status-inline">Published v1</span></td>
+              <td class="category-table-num" data-label="Open">3</td>
+              <td class="category-table-act" data-label="Actions"><div class="category-overflow category-structure-menu"><button class="category-menu-button" type="button" data-category-menu data-focus-key="category-actions-Bugs" aria-controls="structure-category-menu-1" aria-expanded="false" aria-label="Actions for Bugs">⋯</button><div id="structure-category-menu-1" class="category-overflow-menu" role="menu" hidden><a class="category-drawer-launcher" role="menuitem" href="/categories/1/edit?view=structure&department_id=1&desk_id=1" hx-get="/categories/1/edit?view=structure&department_id=1&desk_id=1" hx-target="#category-drawer-host" hx-swap="outerHTML" hx-push-url="/categories/1/edit?view=structure&department_id=1&desk_id=1">Edit category</a><a role="menuitem" href="/categories/1/workflow">Configure workflow</a><a role="menuitem" href="/categories/1/sla">Configure SLA</a><form method="post" action="/categories/1/delete" role="none"><input type="hidden" name="view" value="structure"><input type="hidden" name="department_id" value="1"><input type="hidden" name="desk_id" value="1"><button class="category-menu-danger" role="menuitem" type="submit">Delete category</button></form></div></div></td>
+            </tr>
+
+            <tr>
+              <td class="category-table-name" data-label="Category"><a class="category-name" href="/categories/2/workflow"><strong>Support</strong></a><small>Customer questions</small></td>
+              <td class="category-table-flow" data-label="Workflow"><span class="category-status-inline">Draft · not published</span></td>
+              <td class="category-table-num" data-label="Open">1</td>
+              <td class="category-table-act" data-label="Actions"><div class="category-overflow category-structure-menu"><button class="category-menu-button" type="button" data-category-menu data-focus-key="category-actions-Support" aria-controls="structure-category-menu-2" aria-expanded="false" aria-label="Actions for Support">⋯</button><div id="structure-category-menu-2" class="category-overflow-menu" role="menu" hidden><a class="category-drawer-launcher" role="menuitem" href="/categories/2/edit?view=structure&department_id=1&desk_id=1" hx-get="/categories/2/edit?view=structure&department_id=1&desk_id=1" hx-target="#category-drawer-host" hx-swap="outerHTML" hx-push-url="/categories/2/edit?view=structure&department_id=1&desk_id=1">Edit category</a><a role="menuitem" href="/categories/2/workflow">Configure workflow</a><a role="menuitem" href="/categories/2/sla">Configure SLA</a><form method="post" action="/categories/2/delete" role="none"><input type="hidden" name="view" value="structure"><input type="hidden" name="department_id" value="1"><input type="hidden" name="desk_id" value="1"><button class="category-menu-danger" role="menuitem" type="submit">Delete category</button></form></div></div></td>
+            </tr>
+
           </tbody>
         </table>
       </div>
