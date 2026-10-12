@@ -710,24 +710,177 @@ test.describe("Categories", () => {
     const shortRow = rowByName("General");
     const longRow = rowByName(longName);
 
-    // The create redirect lands on the structure view of the desk that now
-    // holds the category, so cleanup can always return to the row it must drop.
-    let createdViewURL: string | undefined;
+    // Resolve the seeded category's exact hierarchy; do not select the first desk.
+    await page.goto(base() + "/categories?q=General");
+    const seedSelector = '[data-search-result-kind="category"]';
+    const seedResult = page.locator(seedSelector).filter({
+      has: page.getByText("General", { exact: true }),
+    });
+    await expect(
+      seedResult,
+      `General must match ${seedSelector} exactly at ${page.url()}`,
+    ).toHaveCount(1);
+    const seedHref = await seedResult.getAttribute("href");
+    if (!seedHref) throw new Error(`General has no hierarchy href at ${page.url()}`);
+    const seedURL = new URL(seedHref, base());
+    const departmentID = seedURL.searchParams.get("department_id");
+    const populatedDeskID = seedURL.searchParams.get("desk_id");
+    if (!departmentID || !populatedDeskID) {
+      throw new Error(`General has incomplete hierarchy context in ${seedHref} at ${page.url()}`);
+    }
+    const departmentPath = `/categories?view=structure&department_id=${departmentID}`;
+    const populatedPath = `${departmentPath}&desk_id=${populatedDeskID}`;
+    const departmentRow = page.locator(
+      `.category-level-departments .category-structure-row[href="${departmentPath}"]`,
+    );
+    const populatedDeskRow = page.locator(
+      `.category-level-desks .category-structure-row[href="${populatedPath}"]`,
+    );
+    const emptyName = `Empty hierarchy desk ${Date.now().toString(36)}`;
+    const emptySelector = ".category-level-desks .category-structure-row";
+    const emptyDeskRow = page.locator(emptySelector).filter({
+      has: page.getByText(emptyName, { exact: true }),
+    });
+    const categories = page.locator(".category-level-categories");
+    const nativeGet = async (trigger: () => Promise<unknown>, path: string) => {
+      const expectedURL = base() + path;
+      const responsePromise = page.waitForResponse(
+        (response) =>
+          response.request().isNavigationRequest() &&
+          response.request().frame() === page.mainFrame() &&
+          response.request().method() === "GET" &&
+          response.url() === expectedURL,
+      );
+      await trigger();
+      const response = await responsePromise;
+      expect(response.status()).toBe(200);
+      expect(response.request().headers()).not.toHaveProperty("hx-request");
+      await expect(page).toHaveURL(expectedURL);
+      await expect(page.locator("h1")).toHaveText("Categories");
+    };
 
+    let createdViewURL: string | undefined;
+    let emptyCreated = false;
     try {
-      await createCategoryViaUi(page, longName);
+      // Arrange only this test's category and empty desk through their public drawers.
+      await page.goto(
+        base() +
+          `/categories/new?view=structure&department_id=${departmentID}&desk_id=${populatedDeskID}`,
+      );
+      const categoryDrawer = page.getByRole("dialog", { name: /New category/i });
+      await expect(categoryDrawer).toBeVisible();
+      await categoryDrawer.locator("select[name=department_id]").selectOption(departmentID);
+      await categoryDrawer.locator("select[name=desk_id]").selectOption(populatedDeskID);
+      await categoryDrawer.locator("#category-name").fill(longName);
+      await categoryDrawer.getByRole("button", { name: "Create category", exact: true }).click();
+      await expect(categoryDrawer).toBeHidden();
       createdViewURL = page.url();
+      await expect(longRow).toHaveCount(1);
+
+      await page.goto(
+        base() + `/categories/desks/new?view=structure&department_id=${departmentID}`,
+      );
+      const deskDrawer = page.getByRole("dialog", { name: /New desk/i });
+      await expect(deskDrawer).toBeVisible();
+      await deskDrawer.locator("select[name=department_id]").selectOption(departmentID);
+      await deskDrawer.locator("#category-name").fill(emptyName);
+      await deskDrawer.getByRole("button", { name: "Create desk", exact: true }).click();
+      await expect(deskDrawer).toBeHidden();
+      emptyCreated = true;
+      await expect(
+        emptyDeskRow,
+        `${emptyName} must match ${emptySelector} exactly at ${page.url()}`,
+      ).toHaveCount(1);
+      const emptyPath = await emptyDeskRow.getAttribute("href");
+      if (!emptyPath) throw new Error(`${emptyName} has no href at ${emptySelector} ${page.url()}`);
+
+      // Issue #326: native hierarchy transitions must distinguish no selection
+      // from a selected empty desk, without leaving stale guidance or results.
+      for (const viewport of [1280, 390]) {
+        await page.setViewportSize({ width: viewport, height: 800 });
+        await nativeGet(
+          () => page.goto(base() + "/categories?view=structure"),
+          "/categories?view=structure",
+        );
+        await expect(
+          departmentRow,
+          `General department href ${departmentPath} at ${page.url()}`,
+        ).toHaveCount(1);
+        await nativeGet(() => departmentRow.click(), departmentPath);
+        const assertNoSelection = async () => {
+          await expect(page.locator(".category-level-desks .is-selected")).toHaveCount(0);
+          await expect(categories.locator(".category-empty")).toHaveText(
+            "Select a desk to browse categories.",
+          );
+          await expect(categories.locator("a.category-name")).toHaveCount(0);
+          if (viewport === 390) {
+            await expect(page.locator(".category-level-desks")).toBeVisible();
+            await expect(categories).toBeHidden();
+          } else {
+            await expect(categories.locator(".category-empty")).toBeVisible();
+          }
+        };
+        const assertEmptySelection = async () => {
+          await expect(emptyDeskRow).toHaveClass(/\bis-selected\b/);
+          await expect(emptyDeskRow).toHaveAttribute("aria-current", "true");
+          await expect(page.locator(".category-level-desks .is-selected")).toHaveCount(1);
+          await expect(categories).toBeVisible();
+          await expect(categories.locator(".category-empty")).toBeVisible();
+          expect
+            .soft(
+              await categories.locator(".category-empty").innerText(),
+              `selected empty desk at ${viewport}px`,
+            )
+            .toBe("No categories in this desk yet.");
+          await expect(categories.locator("a.category-name")).toHaveCount(0);
+          await expect(categories.getByText("Select a desk", { exact: true })).toHaveCount(0);
+          await assertNoHorizontalOverflow(page, viewport);
+        };
+        const backToDesks = async () => {
+          if (viewport === 390) {
+            const back = categories.getByRole("link", { name: "← Desks", exact: true });
+            await expect(back).toBeVisible();
+            await expect(back).toHaveAttribute("href", departmentPath);
+            await nativeGet(() => back.click(), departmentPath);
+          } else {
+            await nativeGet(() => departmentRow.click(), departmentPath);
+          }
+          await assertNoSelection();
+        };
+        await assertNoSelection();
+        await nativeGet(() => emptyDeskRow.click(), emptyPath);
+        await assertEmptySelection();
+        await backToDesks();
+        await expect(
+          populatedDeskRow,
+          `General desk href ${populatedPath} at ${page.url()}`,
+        ).toHaveCount(1);
+        await nativeGet(() => populatedDeskRow.click(), populatedPath);
+        await expect(populatedDeskRow).toHaveClass(/\bis-selected\b/);
+        await expect(populatedDeskRow).toHaveAttribute("aria-current", "true");
+        await expect(page.locator(".category-level-desks .is-selected")).toHaveCount(1);
+        await expect(categories).toBeVisible();
+        await expect(shortRow).toHaveCount(1);
+        await expect(longRow).toHaveCount(1);
+        await expect(categories.locator(".category-empty")).toHaveCount(0);
+        await expect(categories.getByText("Select a desk", { exact: true })).toHaveCount(0);
+        await assertNoHorizontalOverflow(page, viewport);
+        await backToDesks();
+        await nativeGet(() => emptyDeskRow.click(), emptyPath);
+        await assertEmptySelection();
+        await backToDesks();
+      }
 
       await page.setViewportSize({ width: 390, height: 800 });
       await page.goto(base() + "/categories?view=structure");
       await expect(page.locator(".category-level-departments")).toBeVisible();
       await expect(page.locator(".category-level-desks")).toBeHidden();
       await expect(page.locator(".category-level-categories")).toBeHidden();
-      await page.locator(".category-level-departments .category-structure-row").first().click();
+      await nativeGet(() => departmentRow.click(), departmentPath);
       await expect(page.locator(".category-level-departments")).toBeHidden();
       await expect(page.locator(".category-level-desks")).toBeVisible();
       await expect(page.getByRole("link", { name: "← Departments", exact: true })).toBeVisible();
-      await page.locator(".category-level-desks .category-structure-row").first().click();
+      await nativeGet(() => populatedDeskRow.click(), populatedPath);
       await expect(page.locator(".category-level-desks")).toBeHidden();
       await expect(page.locator(".category-level-categories")).toBeVisible();
       await expect(page.getByRole("link", { name: "← Desks", exact: true })).toBeVisible();
@@ -876,6 +1029,17 @@ test.describe("Categories", () => {
         await longRow.getByRole("button", { name: /^Actions for / }).click();
         await longRow.getByRole("menuitem", { name: "Delete category", exact: true }).click();
         await expect(rowByName(longName)).toHaveCount(0);
+      }
+      if (emptyCreated) {
+        await page.setViewportSize({ width: 1280, height: 800 });
+        await page.goto(base() + departmentPath);
+        const item = page.locator(".category-level-desks .category-structure-item").filter({
+          has: page.getByText(emptyName, { exact: true }),
+        });
+        await expect(item, `${emptyName} cleanup at ${page.url()}`).toHaveCount(1);
+        await item.getByRole("button", { name: `Actions for ${emptyName}`, exact: true }).click();
+        await item.getByRole("menuitem", { name: "Delete desk", exact: true }).click();
+        await expect(item).toHaveCount(0);
       }
     }
   });
