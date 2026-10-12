@@ -2,6 +2,7 @@ package httpadapter
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -1237,6 +1238,16 @@ func (d detailData) QueueHref() string {
 	return d.BackHref
 }
 
+const ticketQueueReturnHeader = "X-TKT-Queue-Return"
+
+// QueueHeaders carries the validated origin through every whole-detail swap.
+// JSON encoding and the template's attribute escaping are separate layers;
+// neither arbitrary query text nor a raw request header becomes trusted HTML.
+func (d detailData) QueueHeaders() (string, error) {
+	headers, err := json.Marshal(map[string]string{ticketQueueReturnHeader: d.QueueHref()})
+	return string(headers), err
+}
+
 // workflowClaim is the sidebar claim projection for the current pinned step.
 type workflowClaim struct {
 	Active   bool
@@ -1342,6 +1353,16 @@ func (h *TicketHandlers) detailDataFor(r *http.Request, id int64) (detailData, i
 	// panel to tick: a ticket with no frozen commitment (or a requester, whose
 	// panel stays nil) must not pay for a script it never uses.
 	page.SLACountdownAssets = slaPanel != nil
+	queueOrigin := r.Referer()
+	// HTMX mutations refer to the detail URL, not the original queue. The
+	// inherited header survives whole-detail swaps, including error renders.
+	// It is still client input: validate it through the same whitelist as the
+	// initial Referer, and rebuild the URL rather than echoing the candidate.
+	if r.Header.Get("HX-Request") != "" {
+		if explicit := r.Header.Get(ticketQueueReturnHeader); explicit != "" {
+			queueOrigin = explicit
+		}
+	}
 	return detailData{
 		pageData:           page,
 		View:               view,
@@ -1358,9 +1379,7 @@ func (h *TicketHandlers) detailDataFor(r *http.Request, id int64) (detailData, i
 		Pending:            pending,
 		Claim:              h.claimFor(r, id, actor),
 		SLA:                slaPanel,
-		// The browser's Referer is the only source for the list origin; it is
-		// validated and rebuilt here, never echoed (issue #265).
-		BackHref: listReturnHref(r.Referer(), r.Host),
+		BackHref:           listReturnHref(queueOrigin, r.Host),
 	}, 0, nil
 }
 
