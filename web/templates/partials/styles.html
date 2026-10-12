@@ -657,7 +657,7 @@
       .category-structure{display:grid;grid-template-columns:minmax(0,.72fr) minmax(0,.82fr) minmax(0,1.55fr);min-height:480px;border:1px solid var(--line);border-radius:12px;background:var(--card);overflow:visible}
       .category-level{min-width:0;border-right:1px solid var(--line)}
       .category-level:last-child{border-right:0}
-      .category-level>header{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;padding:18px 16px 14px;border-bottom:1px solid var(--line)}
+      .category-level>header{display:flex;flex-wrap:wrap;align-items:flex-start;justify-content:space-between;gap:10px;padding:18px 16px 14px;border-bottom:1px solid var(--line)}
       .category-level h2{margin:0;color:var(--ink-strong);font-size:16px}
       .category-level-eyebrow{margin:0 0 4px;color:var(--muted);font-size:12px;letter-spacing:0;}
 {{/* The dense level as a table. Alignment is the whole point: the workflow
@@ -693,9 +693,8 @@
    stays the row's anchor instead of shouting like an action. */}}
 .category-name{color:var(--ink-strong);text-decoration:none}
 .category-name:hover{text-decoration:underline}
-{{/* The level action keeps its label on one line when the columns narrow; the title
-   beside it gives the room instead. Measured before: "New department" wrapped onto
-   two lines in a narrower column, which made the option read worse than it is. */}}
+{{/* Keep action labels intact. A narrow header wraps the whole action below
+   its title instead of shrinking the title into the action's space. */}}
 .category-level-action{white-space:nowrap;flex-shrink:0}
 .category-level header>div:first-child{min-width:0}.category-structure-menu{margin:0;justify-self:end}{{/* The row is one column, and the tail is a block INSIDE the text block. Measured
    before: with the tail in its own column, a 256px desk row gave the desk name

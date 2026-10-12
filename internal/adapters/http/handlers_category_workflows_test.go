@@ -238,12 +238,9 @@ func TestCategoryBadge_States(t *testing.T) {
 // TestStructureLayout_CSSPinned pins the declarations the categories screen's OWN
 // inline style block must carry.
 //
-// That block is gated on {{if .CategoryAssets}}, so the shared stylesheet golden
-// never renders it: golden_test.go splits a TICKETS index page and freezes only
-// the first inline style block, while the categories rules live in a second one.
-// A change to this CSS therefore turns nothing red on its own. Pinning the literal
-// declarations here is this repository's convention for the second stylesheet, and
-// it is the only automated guard these rules have.
+// TestGoldenStylesheet freezes both the shared and category-specific blocks.
+// These explicit pins also document the critical layout contracts independently
+// of the byte-level snapshot.
 func TestStructureLayout_CSSPinned(t *testing.T) {
 	h := newHarness(t)
 	body := h.get(t, "/categories", false).Body.String()
@@ -258,6 +255,8 @@ func TestStructureLayout_CSSPinned(t *testing.T) {
 		".category-structure-row .category-count,.category-structure-row .category-status-inline{display:block;margin-top:4px}",
 		// An inert row must not hover like a link.
 		".category-structure-row-static:hover{background:transparent}",
+		// Narrow headers wrap their items instead of squeezing titles into actions.
+		".category-level>header{display:flex;flex-wrap:wrap;",
 		// The level action keeps its label on one line when the columns narrow.
 		".category-level-action{white-space:nowrap;flex-shrink:0}",
 		// The dense level is a table: alignment is the whole point, and the numeric

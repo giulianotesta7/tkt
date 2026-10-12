@@ -657,7 +657,7 @@
       .category-structure{display:grid;grid-template-columns:minmax(0,.72fr) minmax(0,.82fr) minmax(0,1.55fr);min-height:480px;border:1px solid var(--line);border-radius:12px;background:var(--card);overflow:visible}
       .category-level{min-width:0;border-right:1px solid var(--line)}
       .category-level:last-child{border-right:0}
-      .category-level>header{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;padding:18px 16px 14px;border-bottom:1px solid var(--line)}
+      .category-level>header{display:flex;flex-wrap:wrap;align-items:flex-start;justify-content:space-between;gap:10px;padding:18px 16px 14px;border-bottom:1px solid var(--line)}
       .category-level h2{margin:0;color:var(--ink-strong);font-size:16px}
       .category-level-eyebrow{margin:0 0 4px;color:var(--muted);font-size:12px;letter-spacing:0;}
 
