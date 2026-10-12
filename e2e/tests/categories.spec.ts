@@ -1733,89 +1733,179 @@ test.describe("Categories", () => {
     }
   });
 
-  test("workflow save and publish update the same coalesced toast and restart its timer", async ({
-    page,
-  }) => {
-    test.setTimeout(30_000);
-    await page.setViewportSize({ width: 1280, height: 800 });
-    await loginAsSeeded(page);
+  for (const width of [1280, 390]) {
+    test(`workflow save and publish keep the coalesced toast clear of actions at ${width}px`, async ({
+      browser,
+    }) => {
+      test.setTimeout(45_000);
+      const context = await browser.newContext({
+        viewport: { width, height: 844 },
+        hasTouch: width === 390,
+        isMobile: width === 390,
+      });
+      const page = await context.newPage();
+      const obs = collectObservability(page);
+      try {
+        await loginAsSeeded(page);
+        const categoryName = `Coalesced toast ${width} ${Date.now().toString(36)}`;
+        const categoryID = await createCategoryViaUi(page, categoryName);
+        const workflowPath = `/categories/${categoryID}/workflow`;
+        await page.goto(base() + workflowPath);
+        await page.locator(".workflow-add-step summary").first().click();
+        const addResponse = await assertHtmxSwap(
+          page,
+          () =>
+            page
+              .getByRole("button", { name: "Give the agent a task", exact: true })
+              .first()
+              .click(),
+          {
+            endpoint: (url) => {
+              const parsed = new URL(url);
+              return (
+                parsed.pathname === workflowPath &&
+                parsed.searchParams.get("add_step_type") === "manual_task"
+              );
+            },
+            method: "POST",
+            expectedStatus: 200,
+            hxTarget: "#workflow-builder",
+          },
+        );
+        expect(addResponse.headers()["x-save-feedback"]).toContain('"message":"Saved"');
+        const toast = page.locator("#save-feedback");
+        await expect(toast).toBeVisible();
+        await expect(toast.locator(".save-feedback-message")).toHaveText("Saved");
+        await expect(toast).toHaveAttribute("role", "status");
+        await expect(toast).toHaveAttribute("aria-live", "polite");
+        await expect(toast).toHaveAttribute("aria-atomic", "true");
+        await toast.evaluate(async (element) => {
+          await Promise.all(element.getAnimations().map((animation) => animation.finished));
+        });
+        const publish = page.locator('.page-actions button[value="publish"]');
+        const measurePublish = () =>
+          publish.evaluate((button) => {
+            const bounds = button.getBoundingClientRect();
+            const feedback = document.querySelector("#save-feedback");
+            if (!feedback) throw new Error("Saved feedback is missing");
+            const toastBounds = feedback.getBoundingClientRect();
+            const x = bounds.x + bounds.width / 2;
+            const y = bounds.y + bounds.height / 2;
+            const hit = document.elementFromPoint(x, y);
+            return {
+              x,
+              y,
+              overlaps:
+                bounds.left < toastBounds.right &&
+                bounds.right > toastBounds.left &&
+                bounds.top < toastBounds.bottom &&
+                bounds.bottom > toastBounds.top,
+              targetsPublish: hit === button || button.contains(hit),
+              savedVisible: feedback.classList.contains("is-visible"),
+            };
+          });
+        const initialGeometry = await measurePublish();
+        expect(initialGeometry.savedVisible).toBe(true);
+        expect(initialGeometry.overlaps, "Saved must not cover any part of Publish").toBe(false);
+        expect(initialGeometry.targetsPublish).toBe(true);
 
-    const categoryName = "Coalesced toast " + Date.now().toString(36).slice(2, 8);
-    await createCategoryViaUi(page, categoryName);
-    const category = page
-      .locator(".category-level-categories .category-table tbody tr")
-      .filter({ hasText: categoryName });
-    const editHref = await category.locator('a[href*="/edit"]').getAttribute("href");
-    const categoryID = editHref?.match(/\/categories\/(\d+)\/edit/)?.[1];
-    if (!categoryID) throw new Error(`Could not resolve workflow category at ${page.url()}`);
-    const workflowPath = `/categories/${categoryID}/workflow`;
-    await page.goto(base() + workflowPath);
+        // Dismiss retires feedback only: no mutation, swap or publication.
+        const mutations: Request[] = [];
+        const onMutation = (request: Request) => {
+          if (request.method() === "POST" && new URL(request.url()).pathname === workflowPath) {
+            mutations.push(request);
+          }
+        };
+        page.on("request", onMutation);
+        const builderBefore = await page.locator("#workflow-builder").innerHTML();
+        const revisionBefore = await page.locator('input[name="draft_revision"]').inputValue();
+        const urlBefore = page.url();
+        const headingBefore = await page.locator("h1").textContent();
+        await expect(page.locator("[data-workflow-version]")).toHaveCount(0);
+        await toast.getByRole("button", { name: "Dismiss confirmation" }).click();
+        await expect(toast).toBeHidden();
+        expect(mutations).toEqual([]);
+        expect(await page.locator("#workflow-builder").innerHTML()).toBe(builderBefore);
+        expect(page.url()).toBe(urlBefore);
+        expect(await page.locator("h1").textContent()).toBe(headingBefore);
+        await page.reload();
+        await expect(page.locator("[data-workflow-version]")).toHaveCount(0);
+        await expect(page.locator('input[name="draft_revision"]')).toHaveValue(revisionBefore);
+        expect(mutations).toEqual([]);
+        page.off("request", onMutation);
 
-    await page.locator(".workflow-add-step summary").first().click();
-    const addResponse = await assertHtmxSwap(
-      page,
-      () =>
-        page.getByRole("button", { name: "Give the agent a task", exact: true }).first().click(),
-      {
-        endpoint: (url) => {
-          const requestURL = new URL(url);
-          return (
-            requestURL.pathname === workflowPath &&
-            requestURL.searchParams.get("add_step_type") === "manual_task"
+        const instructions = page.getByLabel("Instructions", { exact: true });
+        const save = async (value: string) =>
+          assertHtmxSwap(
+            page,
+            async () => {
+              await instructions.fill(value);
+              await page.locator('.page-actions button[value="save"]').click();
+            },
+            {
+              endpoint: workflowPath,
+              method: "POST",
+              expectedStatus: 200,
+              hxTarget: "#workflow-builder",
+            },
           );
-        },
-        method: "POST",
-        expectedStatus: 200,
-        hxTarget: "#workflow-builder",
-      },
-    );
-    expect(addResponse.headers()["x-save-feedback"]).toContain('"message":"Saved"');
-    const toast = page.locator("#save-feedback");
-    await expect(toast).toBeVisible();
-    await expect(toast.locator(".save-feedback-message")).toHaveText("Saved");
-
-    // An explicit Save arrives before the first toast expires: the same
-    // element must update in place (no exit/re-enter, no second region)
-    // and restart the timer.
-    const instructions = page.getByLabel("Instructions", { exact: true });
-    await expect(instructions).toBeVisible();
-    await page.waitForTimeout(3_000);
-    await assertHtmxSwap(
-      page,
-      async () => {
-        await instructions.fill("Coalesced save");
-        await page.locator('.page-actions button[name="action"][value="save"]').click();
-      },
-      {
-        endpoint: workflowPath,
-        method: "POST",
-        expectedStatus: 200,
-        hxTarget: "#workflow-builder",
-      },
-    );
-    await expect(toast.locator(".save-feedback-message")).toHaveText("Saved");
-    await expect(toast).toHaveClass(/(?:^|\s)is-visible(?:\s|$)/);
-    await expect(toast).toBeVisible();
-    await expect(page.locator("#save-feedback")).toHaveCount(1);
-
-    // Past the original 5s window the restarted timer must still hold the toast open.
-    await page.waitForTimeout(2_500);
-    await expect(toast).toBeVisible();
-
-    // Publishing re-renders the same draft, so the builder HTML is
-    // byte-identical; the server contract is the exact POST plus the
-    // Published feedback header, and the visible result is the toast.
-    const publishResponse = await assertHtmxNoSwap(
-      page,
-      () => page.getByRole("button", { name: "Publish", exact: true }).click(),
-      { endpoint: workflowPath, method: "POST", expectedStatus: 200 },
-    );
-    expect(publishResponse.headers()["x-save-feedback"]).toContain("Published");
-    await expect(toast.locator(".save-feedback-message")).toHaveText("Published");
-    await expect(page.locator("#save-feedback")).toHaveCount(1);
-    await page.waitForTimeout(5_100);
-    await expect(toast).toBeHidden();
-  });
+        await save("Coalesced save first");
+        await expect(toast.locator(".save-feedback-message")).toHaveText("Saved");
+        await page.waitForTimeout(3_000);
+        await save("Coalesced save second");
+        await expect(toast.locator(".save-feedback-message")).toHaveText("Saved");
+        await expect(toast).toHaveClass(/(?:^| )is-visible(?: |$)/);
+        await expect(toast).toBeVisible();
+        await expect(page.locator("#save-feedback")).toHaveCount(1);
+        // The second Save restarts the existing five-second timer.
+        await page.waitForTimeout(2_500);
+        await expect(toast).toBeVisible();
+        await toast.evaluate(async (element) => {
+          await Promise.all(element.getAnimations().map((animation) => animation.finished));
+        });
+        const geometry = await measurePublish();
+        expect(geometry.savedVisible).toBe(true);
+        expect(geometry.overlaps, "Saved must not cover Publish after editing and saving").toBe(
+          false,
+        );
+        expect(geometry.targetsPublish).toBe(true);
+        const publishResponse = await assertHtmxSwap(
+          page,
+          async () => {
+            await expect(toast.locator(".save-feedback-message")).toHaveText("Saved");
+            // Real coordinates never auto-wait for the toast to disappear.
+            if (width === 390) await page.touchscreen.tap(geometry.x, geometry.y);
+            else await page.mouse.click(geometry.x, geometry.y);
+          },
+          {
+            endpoint: workflowPath,
+            method: "POST",
+            expectedStatus: 200,
+            hxTarget: "#workflow-builder",
+          },
+        );
+        expect(new URLSearchParams(publishResponse.request().postData() ?? "").get("action")).toBe(
+          "publish",
+        );
+        expect(publishResponse.headers()["x-save-feedback"]).toContain("Published");
+        await expect(page.locator("[data-workflow-version]")).toContainText("Published v1");
+        await expect(toast.locator(".save-feedback-message")).toHaveText("Published");
+        await expect(page.locator("#save-feedback")).toHaveCount(1);
+        await page.waitForTimeout(5_100);
+        await expect(toast).toBeHidden();
+        await page.reload();
+        await expect(page.locator("[data-workflow-version]")).toContainText("Published v1");
+        await expect(instructions).toHaveValue("Coalesced save second");
+        await assertNoHorizontalOverflow(page, width);
+        expect(obs.consoleErrors).toEqual([]);
+        expect(obs.pageErrors).toEqual([]);
+        expect(obs.failedRequests).toEqual([]);
+        expect(obs.failedResponses).toEqual([]);
+      } finally {
+        await context.close();
+      }
+    });
+  }
 
   test("workflow builder integrated journey: create category, add step, publish, reload, create ticket, verify published workflow in ticket", async ({
     page,
