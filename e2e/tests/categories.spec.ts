@@ -589,8 +589,123 @@ test.describe("Categories", () => {
     await page.setViewportSize({ width: 1280, height: 800 });
     const obs = collectObservability(page);
     await loginAsSeeded(page);
-    await page.goto(base() + "/categories?view=structure");
 
+    // Issue #327: measure rendered text, not the title box that flex can shrink.
+    for (const viewport of [1040, 1081, 1120, 390, 1280]) {
+      await page.setViewportSize({ width: viewport, height: 800 });
+      await page.goto(base() + "/categories?view=structure");
+      await page.evaluate(() => document.fonts.ready);
+      const geometry = await page.locator(".category-level>header").evaluateAll((headers) => {
+        const rect = (r: DOMRect) => ({
+          left: r.left,
+          right: r.right,
+          top: r.top,
+          bottom: r.bottom,
+        });
+        return headers
+          .filter((header) => header.getClientRects().length > 0)
+          .map((header) => {
+            const heading = header.querySelector("h2");
+            const action = header.querySelector(".category-level-action");
+            const panel = header.parentElement;
+            if (!heading || !action || !panel) throw new Error("Incomplete category header");
+            const style = getComputedStyle(header);
+            const bounds = header.getBoundingClientRect();
+            const textRects = (element: Element) => {
+              const range = document.createRange();
+              range.selectNodeContents(element);
+              return Array.from(range.getClientRects())
+                .filter((r) => r.width > 0 && r.height > 0)
+                .map(rect);
+            };
+            return {
+              viewport: window.innerWidth,
+              name: heading.textContent,
+              panel: rect(panel.getBoundingClientRect()),
+              header: rect(bounds),
+              content: {
+                left: bounds.left + Number.parseFloat(style.paddingLeft),
+                right: bounds.right - Number.parseFloat(style.paddingRight),
+                top: bounds.top + Number.parseFloat(style.paddingTop),
+                bottom:
+                  bounds.bottom -
+                  Number.parseFloat(style.paddingBottom) -
+                  Number.parseFloat(style.borderBottomWidth),
+              },
+              heading: rect(heading.getBoundingClientRect()),
+              headingText: textRects(heading),
+              action: rect(action.getBoundingClientRect()),
+              actionText: textRects(action),
+            };
+          });
+      });
+      expect(geometry.map((g) => g.name)).toEqual(
+        viewport === 390 ? ["Departments"] : ["Departments", "Desks", "Categories"],
+      );
+      const contains = (
+        outer: { left: number; right: number; top: number; bottom: number },
+        inner: typeof outer,
+      ) =>
+        inner.left >= outer.left - 1 &&
+        inner.right <= outer.right + 1 &&
+        inner.top >= outer.top - 1 &&
+        inner.bottom <= outer.bottom + 1;
+      for (const g of geometry) {
+        const evidence = `${g.name} at actual ${g.viewport}px: ${JSON.stringify(g)}`;
+        expect(g.viewport).toBe(viewport);
+        expect(contains(g.panel, g.header), evidence).toBe(true);
+        expect(contains(g.content, g.action), evidence).toBe(true);
+        expect(g.headingText.length, evidence).toBeGreaterThan(0);
+        expect(g.actionText.length, evidence).toBeGreaterThan(0);
+        for (const text of g.headingText) {
+          expect.soft(contains(g.content, text), evidence).toBe(true);
+          expect.soft(contains(g.heading, text), evidence).toBe(true);
+          const separated =
+            text.right <= g.action.left - 9 ||
+            g.action.right <= text.left - 9 ||
+            text.bottom <= g.action.top - 9 ||
+            g.action.bottom <= text.top - 9;
+          expect.soft(separated, evidence).toBe(true);
+        }
+        for (const text of g.actionText) expect(contains(g.action, text), evidence).toBe(true);
+      }
+      await assertNoHorizontalOverflow(page, viewport);
+      for (const [level, name] of [
+        ["departments", "New department"],
+        ["desks", "New desk"],
+        ["categories", "New category"],
+      ] as const) {
+        const action = page
+          .locator(`.category-level-${level}>header`)
+          .getByRole("link", { name, exact: true });
+        if (viewport !== 390 || level === "departments") {
+          await expect(action).toBeVisible();
+          await expect(action).toBeEnabled();
+        } else {
+          await expect(page.locator(`.category-level-${level}`)).toBeHidden();
+        }
+      }
+      await assertDrawerHtmxSwap(
+        page,
+        async () => {
+          await page
+            .locator(".category-level-departments>header")
+            .getByRole("link", { name: "New department", exact: true })
+            .click();
+        },
+        {
+          endpoint: (url) => url === base() + "/categories/departments/new?view=structure",
+          expectedUrl: /\/categories\/departments\/new\?view=structure$/,
+        },
+      );
+      const creationDrawer = page.getByRole("dialog", { name: /New department/i });
+      await expect(creationDrawer).toBeVisible();
+      await creationDrawer
+        .getByRole("button", { name: "Close catalog details", exact: true })
+        .click();
+      await expect(creationDrawer).toBeHidden();
+      await expect(page).toHaveURL(base() + "/categories?view=structure");
+    }
     await expect(page.locator(".category-level-departments")).toBeVisible();
     await expect(page.locator(".category-level-desks")).toBeVisible();
     await expect(page.locator(".category-level-categories")).toBeVisible();
