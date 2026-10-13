@@ -2,6 +2,8 @@ package container
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -48,6 +50,29 @@ func TestContractsParse(t *testing.T) {
 	root := repoRoot(t)
 	img, comp, wf := mustReadAll(t, root)
 	rel := mustReadRelease(t, root)
+
+	// The security gate and the shipped binary must use the corrected Go patch.
+	t.Run("corrected build toolchain", func(t *testing.T) {
+		for _, pin := range []struct{ file, directive string }{
+			{"go.mod", "go 1.26.9"},
+			{"Dockerfile", "FROM golang:1.26.9 AS build"},
+		} {
+			data, err := os.ReadFile(filepath.Join(root, pin.file))
+			if err != nil {
+				t.Fatalf("read %s: %v", pin.file, err)
+			}
+			found := false
+			for _, line := range strings.Split(string(data), "\n") {
+				if strings.Join(strings.Fields(line), " ") == pin.directive {
+					found = true
+					break
+				}
+			}
+			if !found {
+				t.Errorf("%s is missing corrected toolchain pin %q", pin.file, pin.directive)
+			}
+		}
+	})
 
 	if img.DBPath != "/data/tkt.db" {
 		t.Errorf("Dockerfile TKT_DB_PATH = %q, want /data/tkt.db", img.DBPath)
