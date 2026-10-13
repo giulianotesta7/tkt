@@ -1,6 +1,7 @@
 package httpadapter
 
 import (
+	"encoding/json"
 	"errors"
 	"html"
 	"net/http"
@@ -1294,9 +1295,9 @@ func TestTicketsIndexSLAIsStaffOnly(t *testing.T) {
 
 // TestTicketDetailQueueLinkCarriesValidatedListContext proves the detail's
 // "← Queue" link returns to the source list with search, filters and order
-// preserved (issue #265), and that the client-supplied Referer can never
-// produce an off-site href: a cross-origin host, a foreign path, or an absent
-// header all fall back to the plain queue.
+// preserved on initial navigation (issue #265) and whole-detail HTMX swaps
+// (issue #324). Both the Referer and explicit mutation context are untrusted:
+// only the existing list path, host and query whitelist may reach the link.
 func TestTicketDetailQueueLinkCarriesValidatedListContext(t *testing.T) {
 	h := newHarness(t)
 	tkt := h.seedTicket(t, "return context", nil)
@@ -1318,7 +1319,8 @@ func TestTicketDetailQueueLinkCarriesValidatedListContext(t *testing.T) {
 	// every whitelisted parameter survives and unknown ones do not. The href is
 	// read back through html.UnescapeString because html/template encodes the
 	// query separators and the `+` in the attribute.
-	queueHref := func(body string) string {
+	queueHref := func(t *testing.T, body string) string {
+		t.Helper()
 		m := regexp.MustCompile(`<a href="([^"]*)">← Queue</a>`).FindStringSubmatch(body)
 		if m == nil {
 			t.Fatalf("detail must render the Queue link, got: %.500s", body)
@@ -1326,7 +1328,7 @@ func TestTicketDetailQueueLinkCarriesValidatedListContext(t *testing.T) {
 		return html.UnescapeString(m[1])
 	}
 	body := detailWithReferer("http://example.com/tickets?q=Prueba+UX&state=new&priority=low&category_id=2&user_id=3&sort=priority&page=2&evil=1")
-	if got, want := queueHref(body), "/tickets?category_id=2&page=2&priority=low&q=Prueba+UX&sort=priority&state=new&user_id=3"; got != want {
+	if got, want := queueHref(t, body), "/tickets?category_id=2&page=2&priority=low&q=Prueba+UX&sort=priority&state=new&user_id=3"; got != want {
 		t.Errorf("Queue link = %q, want %q", got, want)
 	}
 	if strings.Contains(body, "evil=1") {
@@ -1341,15 +1343,137 @@ func TestTicketDetailQueueLinkCarriesValidatedListContext(t *testing.T) {
 		{"scheme-relative", "//evil.example/tickets?q=x"},
 		{"foreign path", "http://example.com/users?q=x"},
 		{"subpath", "http://example.com/tickets/12?q=x"},
+		{"ordinary queue", "http://example.com/tickets"},
 		{"no referer", ""},
 	} {
 		body := detailWithReferer(tc.referer)
-		if got := queueHref(body); got != "/tickets" {
+		if got := queueHref(t, body); got != "/tickets" {
 			t.Errorf("%s: Queue link = %q, want /tickets", tc.name, got)
 		}
 		if strings.Contains(body, "evil.example") {
 			t.Errorf("%s: hostile host leaked into the Queue link", tc.name)
 		}
+	}
+
+	// One inherited header on the detail root carries the validated origin to
+	// every whole-detail action. Read it from each response so repeated requests
+	// exercise the re-rendered context, not a test-only copy of the initial URL.
+	const contextHeader = "X-TKT-Queue-Return"
+	mutationContext := func(t *testing.T, body string) string {
+		t.Helper()
+		root := regexp.MustCompile(`<div\b[^>]*\bid="ticket-detail"[^>]*>`).FindString(body)
+		attr := regexp.MustCompile(`hx-headers="([^"]*)"`).FindStringSubmatch(root)
+		if attr == nil {
+			t.Errorf("detail root must carry inherited queue context, got %q", root)
+			return ""
+		}
+		var headers map[string]string
+		if err := json.Unmarshal([]byte(html.UnescapeString(attr[1])), &headers); err != nil {
+			t.Fatalf("detail hx-headers must be valid JSON: %v", err)
+		}
+		got := headers[contextHeader]
+		if want := queueHref(t, body); got != want {
+			t.Errorf("inherited queue context = %q, want Queue href %q", got, want)
+		}
+		return got
+	}
+	postDetail := func(t *testing.T, path string, form url.Values, context string, wantStatus int) string {
+		t.Helper()
+		req := httptest.NewRequest(http.MethodPost, target+path, strings.NewReader(form.Encode()))
+		req.Header.Set("Cookie", sessionCookie+"="+h.adminSession.ID)
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		req.Header.Set("HX-Request", "true")
+		// After opening a ticket, the browser refers to the DETAIL, not the queue.
+		req.Header.Set("Referer", "http://example.com"+target)
+		if context != "" {
+			req.Header.Set(contextHeader, context)
+		}
+		rec := httptest.NewRecorder()
+		h.mw.Wrap(h.mux).ServeHTTP(rec, req)
+		if rec.Code != wantStatus {
+			t.Fatalf("POST %s status = %d, want %d (body %.500s)", path, rec.Code, wantStatus, rec.Body.String())
+		}
+		return rec.Body.String()
+	}
+
+	for _, action := range []string{"priority", "assignee"} {
+		t.Run(action+"-swap", func(t *testing.T) {
+			const want = "/tickets?q=return+context&sort=priority&state=new"
+			initial := detailWithReferer("http://example.com" + want)
+			if got := queueHref(t, initial); got != want {
+				t.Fatalf("initial Queue href = %q, want %q", got, want)
+			}
+			var swapped string
+			if action == "priority" {
+				swapped = postDetail(t, "/edit", url.Values{"priority": {"critical"}}, want, http.StatusOK)
+			} else {
+				swapped = postDetail(t, "/assign", url.Values{"user_id": {strconv.FormatInt(h.admin.ID, 10)}}, want, http.StatusOK)
+			}
+			if got := queueHref(t, swapped); got != want {
+				t.Errorf("Queue href after %s swap = %q, want %q", action, got, want)
+			}
+			mutationContext(t, swapped)
+			view, err := h.tickets.GetByID(t.Context(), *h.admin, tkt.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if action == "priority" && view.Ticket.Priority != domain.PriorityCritical {
+				t.Errorf("priority mutation did not persist: %s", view.Ticket.Priority)
+			}
+			if action == "assignee" && (view.Ticket.UserID == nil || *view.Ticket.UserID != h.admin.ID) {
+				t.Error("assignment mutation did not persist")
+			}
+		})
+	}
+
+	t.Run("repeated-whole-detail-swaps", func(t *testing.T) {
+		const want = "/tickets?q=return+context&sort=priority"
+		context := mutationContext(t, detailWithReferer("http://example.com"+want))
+		for _, step := range []struct {
+			path   string
+			form   url.Values
+			status int
+		}{
+			{"/edit", url.Values{"priority": {"low"}}, http.StatusOK},
+			{"/assign", url.Values{"user_id": {""}}, http.StatusOK},
+			{"/edit", url.Values{"title": {"return context renamed"}}, http.StatusOK},
+			{"/edit", url.Values{"priority": {"not-a-priority"}}, http.StatusUnprocessableEntity},
+			{"/transition", url.Values{"to": {"in_progress"}}, http.StatusOK},
+		} {
+			swapped := postDetail(t, step.path, step.form, context, step.status)
+			if got := queueHref(t, swapped); got != want {
+				t.Errorf("Queue href after %s (%d) = %q, want %q", step.path, step.status, got, want)
+			}
+			context = mutationContext(t, swapped)
+		}
+	})
+
+	for _, tc := range []struct{ name, context, want string }{
+		{"ordinary-queue", "/tickets", "/tickets"},
+		{"absent-context", "", "/tickets"},
+		{"cross-origin-context", "https://evil.example/tickets?q=x", "/tickets"},
+		{"scheme-relative-context", "//evil.example/tickets?q=x", "/tickets"},
+		{"foreign-path-context", "/users?q=x", "/tickets"},
+		{"detail-path-context", target + "?q=x", "/tickets"},
+		{"malformed-context", "%", "/tickets"},
+		{"userinfo-context", "http://attacker@example.com/tickets?q=x", "/tickets"},
+		{"same-origin-context", "http://example.com/tickets?q=return+context&evil=1", "/tickets?q=return+context"},
+		{"whitelisted-context", "/tickets?q=Prueba+UX&state=new&priority=low&category_id=2&user_id=3&sort=priority&page=2&evil=1", "/tickets?category_id=2&page=2&priority=low&q=Prueba+UX&sort=priority&state=new&user_id=3"},
+		{"invalid-filter-context", "/tickets?q=safe&state=bogus&priority=bogus&category_id=-1&user_id=bogus&sort=bogus&page=1&evil=1", "/tickets?q=safe"},
+		{"quoted-search-context", "/tickets?q=%22%3E%3Cscript%3Ealert%281%29%3C%2Fscript%3E", "/tickets?q=%22%3E%3Cscript%3Ealert%281%29%3C%2Fscript%3E"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			swapped := postDetail(t, "/edit", url.Values{"priority": {"high"}}, tc.context, http.StatusOK)
+			if got := queueHref(t, swapped); got != tc.want {
+				t.Errorf("Queue href = %q, want %q", got, tc.want)
+			}
+			mutationContext(t, swapped)
+			for _, forbidden := range []string{"evil.example", "evil=1", "<script>alert(1)</script>"} {
+				if strings.Contains(swapped, forbidden) {
+					t.Errorf("unvalidated context leaked into markup: %q", forbidden)
+				}
+			}
+		})
 	}
 }
 
