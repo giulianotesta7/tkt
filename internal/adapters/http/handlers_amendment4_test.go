@@ -87,7 +87,79 @@ func TestAmendment4_StructureDeskSelectionAndMutationPreserveContext(t *testing.
 		t.Fatalf("create category: %v", err)
 	}
 
-	structurePath := "/categories?view=structure&department_id=" + strconv.FormatInt(department.ID, 10) + "&desk_id=" + strconv.FormatInt(desk.ID, 10)
+	emptyDesk, err := catalog.CreateDeskFor(t.Context(), *h.admin, department.ID, "Empty desk")
+	if err != nil {
+		t.Fatalf("create empty desk: %v", err)
+	}
+	departmentPath := "/categories?view=structure&department_id=" + strconv.FormatInt(department.ID, 10)
+	section := func(t *testing.T, body, level string) string {
+		t.Helper()
+		_, content, ok := strings.Cut(body, `<section class="category-level category-level-`+level+` `)
+		if !ok {
+			t.Fatalf("missing %s section", level)
+		}
+		content, _, ok = strings.Cut(content, "</section>")
+		if !ok {
+			t.Fatalf("unterminated %s section", level)
+		}
+		return content
+	}
+	// Exercise both full-page and fragment rendering in the same transition order.
+	for _, hx := range []bool{false, true} {
+		for _, state := range []struct {
+			name     string
+			deskID   int64
+			deskName string
+			message  string
+		}{
+			{"no selection", 0, "", "Select a desk to browse categories."},
+			{"selected empty", emptyDesk.ID, emptyDesk.Name, "No categories in this desk yet."},
+			{"selected populated", desk.ID, desk.Name, ""},
+			{"back to empty", emptyDesk.ID, emptyDesk.Name, "No categories in this desk yet."},
+			{"back to no selection", 0, "", "Select a desk to browse categories."},
+		} {
+			t.Run("hx="+strconv.FormatBool(hx)+"/"+state.name, func(t *testing.T) {
+				path := departmentPath
+				if state.deskID != 0 {
+					path += "&desk_id=" + strconv.FormatInt(state.deskID, 10)
+				}
+				response := catalogRequest(http.MethodGet, path, nil, hx)
+				if response.Code != http.StatusOK {
+					t.Fatalf("GET %s = %d, want 200: %s", path, response.Code, response.Body.String())
+				}
+				body := response.Body.String()
+				categories := section(t, body, "categories")
+				desks := section(t, body, "desks")
+				if state.message != "" {
+					if !strings.Contains(categories, `<p class="category-empty">`+state.message+`</p>`) {
+						t.Errorf("categories must show %q", state.message)
+					}
+					if strings.Contains(categories, `class="category-name"`) || strings.Contains(categories, category.Name) {
+						t.Error("instruction or empty state retained category results")
+					}
+				} else if !strings.Contains(categories, category.Name) || !strings.Contains(categories, `class="category-name"`) || strings.Contains(categories, `class="category-empty"`) {
+					t.Error("populated desk must show category results without an empty state")
+				}
+				if state.deskID != 0 {
+					_, selectedRow, ok := strings.Cut(desks, `class="category-structure-row is-selected"`)
+					if !ok || strings.Count(desks, `class="category-structure-row is-selected"`) != 1 {
+						t.Fatal("selected desk must retain exactly one selected row")
+					}
+					selectedRow, _, ok = strings.Cut(selectedRow, "</a>")
+					if !ok || !strings.Contains(selectedRow, state.deskName) || !strings.Contains(selectedRow, `aria-current="true"`) || !strings.Contains(selectedRow, "desk_id="+strconv.FormatInt(state.deskID, 10)) {
+						t.Error("selected row must retain its desk, link and accessible selection")
+					}
+					if strings.Contains(categories, "Select a desk") {
+						t.Error("selected desk must not ask the actor to select a desk")
+					}
+				} else if strings.Contains(desks, "is-selected") || strings.Contains(categories, "No categories in this desk yet.") {
+					t.Error("no selection must not retain desk selection or selected-empty copy")
+				}
+			})
+		}
+	}
+
+	structurePath := departmentPath + "&desk_id=" + strconv.FormatInt(desk.ID, 10)
 	selected := catalogRequest(http.MethodGet, structurePath, nil, true)
 	if selected.Code != http.StatusOK {
 		t.Fatalf("selected structure = %d, want 200: %s", selected.Code, selected.Body.String())

@@ -1,5 +1,5 @@
 {{define "ticket_detail"}}
-<div id="ticket-detail">
+<div id="ticket-detail" hx-headers="{{.QueueHeaders}}">
 {{if .Error}}  <div class="error-banner" role="alert">{{.Error}}</div>
 {{end}}
   <div class="command-header">
