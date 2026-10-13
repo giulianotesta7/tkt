@@ -1102,6 +1102,7 @@ test.describe("Ticket Lifecycle", () => {
   test("a filtered queue returns with its search, filters and order from the ticket detail", async ({
     page,
   }) => {
+    test.setTimeout(90_000);
     await page.setViewportSize({ width: 1280, height: 800 });
     const obs = collectObservability(page);
     await loginAsSeeded(page);
@@ -1109,29 +1110,46 @@ test.describe("Ticket Lifecycle", () => {
     // One uniquely titled probe, assigned to the seeded operator so the queue
     // can also filter by assigned user with a visible result.
     const title = `ReturnProbe ${Date.now().toString(36).slice(2, 10)}`;
-    await createTicketViaUi(page, {
+    const ticketID = await createTicketViaUi(page, {
       title,
       description: "filtered queue return probe",
       category: "General",
       priority: "low",
     });
-    await page.locator("#ticket-list").getByRole("link", { name: title, exact: true }).click();
-    await expect(page.locator("#ticket-detail")).toBeVisible();
-    const assignForm = page.locator('form[action$="/assign"]');
-    await assertHtmxSwap(
-      page,
-      async () => {
-        await assignForm.locator("select[name=user_id]").selectOption("1");
-        await assignForm.getByRole("button", { name: "Apply", exact: true }).click();
-      },
-      {
-        endpoint: /\/tickets\/\d+\/assign$/,
-        method: "POST",
-        expectedStatus: 200,
-        hxTarget: "#ticket-detail",
-      },
-    );
-    await expect(page.locator('form[action$="/assign"] select[name=user_id]')).toHaveValue("1");
+    const ticketPath = `/tickets/${ticketID}`;
+    const openProbe = async () => {
+      await page.locator("#ticket-list").getByRole("link", { name: title, exact: true }).click();
+      await expect(page).toHaveURL(base() + ticketPath);
+      await expect(page.locator("#ticket-detail")).toBeVisible();
+    };
+    const applyProperty = async (property: "priority" | "assignee", value: string) => {
+      const selectID = property === "priority" ? "ticket-priority" : "assign-user";
+      const endpoint = ticketPath + (property === "priority" ? "/edit" : "/assign");
+      const select = page.locator(`#${selectID}`);
+      const form = page.locator(`form:has(#${selectID})`);
+      const queueHref = await page.getByRole("link", { name: "Queue" }).getAttribute("href");
+      if (!queueHref) throw new Error(`Missing Queue href at ${page.url()}`);
+      // Editable detail has no h1: preserve its visible title and rail chrome.
+      await expect(page.locator("h1")).toHaveCount(0);
+      const chrome = await page.locator(".rail").innerHTML();
+      const response = await assertHtmxSwap(
+        page,
+        async () => {
+          await select.selectOption(value);
+          await form.getByRole("button", { name: "Apply", exact: true }).click();
+        },
+        { endpoint, method: "POST", expectedStatus: 200, hxTarget: "#ticket-detail" },
+      );
+      expect(response.request().headers()["x-tkt-queue-return"]).toBe(queueHref);
+      await expect(select).toHaveValue(value);
+      await expect(page.getByLabel("Ticket title")).toBeVisible();
+      await expect(page.getByLabel("Ticket title")).toHaveValue(title);
+      await expect(page.getByRole("link", { name: "Queue" })).toHaveAttribute("href", queueHref);
+      await expect(page.locator("h1")).toHaveCount(0);
+      expect(await page.locator(".rail").innerHTML()).toBe(chrome);
+    };
+    await openProbe();
+    await applyProperty("assignee", "1");
 
     // Build the filtered queue through the real toolbar: search + state +
     // priority + category + assigned user + order.
@@ -1214,6 +1232,68 @@ test.describe("Ticket Lifecycle", () => {
     await page.goForward();
     await expect(page.locator("#ticket-list").getByText(title)).toBeVisible();
     expect(new URL(page.url()).searchParams.get("sort")).toBe("priority");
+
+    const returnToExcludedProbe = async (sourceQueue: URL) => {
+      await page.getByRole("link", { name: "Queue" }).click();
+      await expect(page).toHaveURL(sourceQueue.href);
+      await expect(page.getByLabel("Search tickets")).toHaveValue(title);
+      await expect(page.getByLabel("Order by")).toHaveValue("priority");
+      await expect(page.getByLabel("Priority")).toHaveValue(
+        sourceQueue.searchParams.get("priority") ?? "",
+      );
+      await expect(page.getByLabel("Assigned user")).toHaveValue("1");
+      // The changed priority/assignee legitimately excludes the probe.
+      await expect(page.locator("#ticket-list").getByText(/no tickets match/i)).toBeVisible();
+      await expect(
+        page.locator("#ticket-list").getByRole("link", { name: title, exact: true }),
+      ).toHaveCount(0);
+    };
+
+    await test.step("priority updates preserve the filtered queue across repeated detail swaps", async () => {
+      await openProbe();
+      await applyProperty("priority", "critical");
+      await expect(page.locator("#ticket-priority option:checked")).toHaveText("Critical");
+      await applyProperty("priority", "high");
+      await returnToExcludedProbe(returnedURL);
+      await page.goto(base() + ticketPath);
+      await expect(page.getByLabel("Priority")).toHaveValue("high");
+      await expect(page.locator("#ticket-priority option:checked")).toHaveText("High");
+    });
+
+    await test.step("assignee updates preserve the filtered queue across repeated detail swaps", async () => {
+      // Keep the original search/order, but drop the now-stale priority filter.
+      const assignmentQueue = new URL(returnedURL.href);
+      assignmentQueue.searchParams.delete("priority");
+      await page.goto(assignmentQueue.href);
+      await openProbe();
+      await applyProperty("assignee", "");
+      await expect(page.locator("#assign-user option:checked")).toHaveText("Unassigned");
+      await applyProperty("assignee", "1");
+      await expect(page.locator("#assign-user option:checked")).toHaveText("Alice Admin");
+      await applyProperty("assignee", "");
+      await returnToExcludedProbe(assignmentQueue);
+      await page.goto(base() + ticketPath);
+      await expect(page.getByLabel("Assignee", { exact: true })).toHaveValue("");
+      await expect(page.locator("#assign-user option:checked")).toHaveText("Unassigned");
+    });
+
+    await test.step("ordinary queue gains no search after priority and assignment swaps", async () => {
+      await page.goto(base() + "/tickets");
+      await expect(page.getByLabel("Search tickets")).toHaveValue("");
+      await openProbe();
+      await applyProperty("priority", "critical");
+      await applyProperty("assignee", "1");
+      await expect(page.getByRole("link", { name: "Queue" })).toHaveAttribute("href", "/tickets");
+      await page.getByRole("link", { name: "Queue" }).click();
+      await expect(page).toHaveURL(base() + "/tickets");
+      await expect(page.getByLabel("Search tickets")).toHaveValue("");
+      await openProbe();
+      await expect(page.getByLabel("Priority")).toHaveValue("critical");
+      await expect(page.getByLabel("Assignee", { exact: true })).toHaveValue("1");
+      await expect(page.locator("#assign-user option:checked")).toHaveText("Alice Admin");
+      await page.getByRole("link", { name: "Queue" }).click();
+      await expect(page).toHaveURL(base() + "/tickets");
+    });
 
     await assertCanonicalScreen(page, {
       viewport: 1280,

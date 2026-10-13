@@ -36,7 +36,7 @@
 </div>
 
 
-<div id="ticket-detail">
+<div id="ticket-detail" hx-headers="{&#34;X-TKT-Queue-Return&#34;:&#34;/tickets&#34;}">
 
   <div class="command-header">
     <div class="detail-head">
