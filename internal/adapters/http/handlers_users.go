@@ -126,31 +126,37 @@ func usersListURL(status usersStatus) string {
 	return "/users?status=" + string(status)
 }
 
+// userRoleLabel answers the CATALOGUE KEY of a role's label, not its English
+// text (issue #335): the presentation layer decides the language, so a Go
+// view-model field that carries copy carries a key the template renders
+// through t.
 func userRoleLabel(role domain.Role) string {
 	switch role {
 	case domain.RoleUser:
-		return "User"
+		return "label.role.user"
 	case domain.RoleAgent:
-		return "Agent"
+		return "label.role.agent"
 	case domain.RoleAdmin:
-		return "Admin"
+		return "label.role.admin"
 	case domain.RoleRoot:
-		return "Root"
+		return "label.role.root"
 	default:
-		return "Unknown"
+		return "users.role.unknown"
 	}
 }
 
+// roleDescription answers the CATALOGUE KEY of a role's one-line description
+// (issue #335), for the same reason userRoleLabel answers a key.
 func roleDescription(role domain.Role) string {
 	switch role {
 	case domain.RoleUser:
-		return "Standard user access."
+		return "users.role_description.user"
 	case domain.RoleAgent:
-		return "Includes User access and agent permissions."
+		return "users.role_description.agent"
 	case domain.RoleAdmin:
-		return "Includes Agent access and user management. Only Root can grant this role."
+		return "users.role_description.admin"
 	case domain.RoleRoot:
-		return "Highest access, including Admin capabilities. Protected from user-management changes."
+		return "users.role_description.root"
 	default:
 		return ""
 	}
@@ -199,9 +205,9 @@ func buildUsersIndexData(actor domain.User, users []domain.User, status usersSta
 		if status != usersStatusAll {
 			editHref += "?status=" + string(status)
 		}
-		statusLabel := "Deactivated"
+		statusLabel := "users.status.deactivated"
 		if user.Active {
-			statusLabel = "Active"
+			statusLabel = "users.status.active"
 		}
 		row := userRowView{
 			ID: user.ID, Initials: usersInitials(user.Name), Name: user.Name, Email: user.Email,
@@ -216,11 +222,11 @@ func buildUsersIndexData(actor domain.User, users []domain.User, status usersSta
 	if len(data.Rows) == 0 {
 		switch status {
 		case usersStatusActive:
-			data.EmptyMessage = "No active users."
+			data.EmptyMessage = "users.empty.active"
 		case usersStatusDeactivated:
-			data.EmptyMessage = "No deactivated users."
+			data.EmptyMessage = "users.empty.deactivated"
 		default:
-			data.EmptyMessage = "No users have been created."
+			data.EmptyMessage = "users.empty.none"
 		}
 	}
 	return data

@@ -4,61 +4,61 @@
   <section class="users-drawer" role="dialog" aria-modal="true" aria-labelledby="user-drawer-title" tabindex="-1" data-user-id="{{.UserID}}" data-close-url="{{.ListURL}}" data-edit-url="{{.EditURL}}" data-server-error="{{.HasServerError}}">
     <header class="users-drawer-header">
       <div>
-        <p class="users-eyebrow">User details</p>
-        <h2 id="user-drawer-title">{{if .UserID}}Edit user{{else}}New user{{end}}</h2>
+        <p class="users-eyebrow">{{t "users.drawer.eyebrow"}}</p>
+        <h2 id="user-drawer-title">{{if .UserID}}{{t "users.edit_title"}}{{else}}{{t "users.new_title"}}{{end}}</h2>
       </div>
-      <button class="users-drawer-close" type="button" aria-label="Close user details">×</button>
+      <button class="users-drawer-close" type="button" aria-label="{{t "users.drawer.close"}}">×</button>
     </header>
     <div class="users-drawer-body">
       {{if .Error}}<div id="user-drawer-error" class="users-error" role="alert">{{.Error}}</div>{{end}}
       <form id="user-drawer-form" method="post" action="{{.ActionURL}}" hx-post="{{.ActionURL}}" hx-target="#users-drawer-host" hx-swap="outerHTML">
         <input type="hidden" name="status" value="{{.Status}}">
         <div class="users-field">
-          <label for="user-name">Name</label>
+          <label for="user-name">{{t "users.field.name"}}</label>
           <input id="user-name" name="name" type="text" value="{{.Values.Name}}" required aria-invalid="{{.NameInvalid}}" aria-describedby="{{.ErrorID}}">
         </div>
         <div class="users-field">
-          <label for="user-email">Email</label>
+          <label for="user-email">{{t "users.field.email"}}</label>
           <input id="user-email" name="email" type="email" value="{{.Values.Email}}" required aria-invalid="{{.EmailInvalid}}" aria-describedby="{{.ErrorID}}">
         </div>
         {{if .UserID}}
         <div class="users-field">
-          <label for="user-role">Role</label>
-          <select id="user-role" name="role" aria-invalid="{{.RoleInvalid}}" aria-describedby="{{.ErrorID}}">{{range .RoleOptions}}{{if eq .Value $.Values.Role}}<option value="{{.Value}}" data-description="{{.Description}}" selected>{{.Label}}</option>{{else}}<option value="{{.Value}}" data-description="{{.Description}}">{{.Label}}</option>{{end}}{{end}}</select>
-          {{if .RoleDescription}}<p class="users-help">{{.RoleDescription}}</p>{{end}}
+          <label for="user-role">{{t "users.field.role"}}</label>
+          <select id="user-role" name="role" aria-invalid="{{.RoleInvalid}}" aria-describedby="{{.ErrorID}}">{{range .RoleOptions}}{{if eq .Value $.Values.Role}}<option value="{{.Value}}" data-description="{{t .Description}}" selected>{{t .Label}}</option>{{else}}<option value="{{.Value}}" data-description="{{t .Description}}">{{t .Label}}</option>{{end}}{{end}}</select>
+          {{if .RoleDescription}}<p class="users-help">{{t .RoleDescription}}</p>{{end}}
         </div>
         <input type="hidden" name="active" value="{{if .Values.Active}}true{{else}}false{{end}}">
         {{if .Values.Active}}
-        <p class="users-lifecycle-copy">This user can sign in.</p>
-        <button class="users-danger-action" type="button" data-deactivate>Deactivate user</button>
+        <p class="users-lifecycle-copy">{{t "users.lifecycle.active"}}</p>
+        <button class="users-danger-action" type="button" data-deactivate>{{t "users.deactivate"}}</button>
         {{else}}
-        <p class="users-lifecycle-copy">This user cannot sign in until reactivated.</p>
-        <button class="users-secondary-action" type="submit" name="active" value="true">Reactivate user</button>
+        <p class="users-lifecycle-copy">{{t "users.lifecycle.inactive"}}</p>
+        <button class="users-secondary-action" type="submit" name="active" value="true">{{t "users.reactivate"}}</button>
         {{end}}
         {{else}}
         <div class="users-field">
-          <label for="user-password">Password</label>
+          <label for="user-password">{{t "users.field.password"}}</label>
           <input id="user-password" name="password" type="password" autocomplete="new-password" required aria-invalid="{{.PasswordInvalid}}" aria-describedby="{{.ErrorID}}">
         </div>
-        <p class="users-help">New accounts are created with the User role. You can change the role after creation.</p>
+        <p class="users-help">{{t "users.create_help"}}</p>
         {{end}}
         <footer class="users-drawer-footer">
-          <button class="users-cancel" type="button">Cancel</button>
-          <button class="users-primary-action" type="submit">{{if .UserID}}Save changes{{else}}Create user{{end}}</button>
+          <button class="users-cancel" type="button">{{t "common.cancel"}}</button>
+          <button class="users-primary-action" type="submit">{{if .UserID}}{{t "users.save_changes"}}{{else}}{{t "users.create"}}{{end}}</button>
         </footer>
       </form>
     </div>
     <dialog id="users-dirty-dialog" aria-labelledby="users-dirty-title" aria-describedby="users-dirty-copy">
-      <h2 id="users-dirty-title">Leave without saving?</h2>
-      <p id="users-dirty-copy">Your changes will be lost if you leave this drawer.</p>
-      <div><button type="button" data-stay>Stay</button><button type="button" data-discard>Discard changes</button></div>
+      <h2 id="users-dirty-title">{{t "common.leave_unsaved"}}</h2>
+      <p id="users-dirty-copy">{{t "users.drawer.unsaved_body"}}</p>
+      <div><button type="button" data-stay>{{t "common.stay"}}</button><button type="button" data-discard>{{t "common.discard_changes"}}</button></div>
     </dialog>
     {{if .UserID}}
       {{if .Values.Active}}
       <dialog id="users-deactivate-dialog" aria-labelledby="users-deactivate-title" aria-describedby="users-deactivate-copy">
-        <h2 id="users-deactivate-title">Deactivate user?</h2>
-        <p id="users-deactivate-copy">This saves the current profile, prevents sign-in, and ends active sessions on their next request.</p>
-        <div><button type="button" data-cancel-deactivate>Cancel</button><button type="button" data-confirm-deactivate>Deactivate user</button></div>
+        <h2 id="users-deactivate-title">{{t "users.deactivate_confirm.title"}}</h2>
+        <p id="users-deactivate-copy">{{t "users.deactivate_confirm.body"}}</p>
+        <div><button type="button" data-cancel-deactivate>{{t "common.cancel"}}</button><button type="button" data-confirm-deactivate>{{t "users.deactivate"}}</button></div>
       </dialog>
       {{end}}
     {{end}}
