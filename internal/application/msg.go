@@ -6,7 +6,7 @@ package application
 // presentation layer resolves it through the active instance catalogue
 // (issue #335, S8). The zero value renders nothing.
 //
-// A message reference is built with Msg(key, args...), arg values with Text
+// A message reference is built with MsgRef(key, args...), arg values with Text
 // (admin-authored or resolved data, never translated) and arg placeholders with
 // Copy (a catalogue key the presentation layer resolves, such as the
 // Unassigned / Unknown user degrade labels).
@@ -21,6 +21,10 @@ type Msg struct {
 type Arg struct {
 	Key   string
 	Value string
+	// Msg is a NESTED message: a sentence used as one value of another
+	// sentence, e.g. a workflow badge inside an attributed status line
+	// ("Published v2 · by Ana"). The presentation layer resolves it first.
+	Msg *Msg
 }
 
 // Msg builds a message reference. The key must exist in every shipped
@@ -35,3 +39,7 @@ func Text(value string) Arg { return Arg{Value: value} }
 // Copy wraps a catalogue key the presentation layer resolves, so a message can
 // interpolate a translated placeholder.
 func Copy(key string) Arg { return Arg{Key: key} }
+
+// Nested wraps a message as one value of another message, so a composed
+// sentence can embed a translated sentence without either one owning copy.
+func Nested(message Msg) Arg { return Arg{Msg: &message} }

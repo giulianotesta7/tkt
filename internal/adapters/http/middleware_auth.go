@@ -83,13 +83,15 @@ type languageReadLog struct {
 
 func (l *languageReadLog) failed(err error) {
 	l.mu.Lock()
-	defer l.mu.Unlock()
 	l.count++
-	if l.failing && l.count%interfaceLanguageEveryNthFailure != 0 {
-		return
-	}
+	// Decide under the lock, log outside it: a slow log write must not hold
+	// every concurrent request behind the mutex.
+	report := !l.failing || l.count%interfaceLanguageEveryNthFailure == 0
 	l.failing = true
-	log.Printf("httpadapter: resolve interface language: %v (falling back to %q)", err, i18n.Default)
+	l.mu.Unlock()
+	if report {
+		log.Printf("httpadapter: resolve interface language: %v (falling back to %q)", err, i18n.Default)
+	}
 }
 
 func (l *languageReadLog) recovered() {

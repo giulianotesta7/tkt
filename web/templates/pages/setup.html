@@ -8,12 +8,12 @@
     <input type="text" id="name" name="name" value="{{.Name}}" placeholder="{{t "auth.name_placeholder"}}" autocomplete="name" required autofocus>
   </div>
   <div class="field">
-    <label for="email">Email</label>
-    <input type="email" id="email" name="email" value="{{.Email}}" placeholder="you@example.com" autocomplete="email" required>
+    <label for="email">{{t "common.email"}}</label>
+    <input type="email" id="email" name="email" value="{{.Email}}" placeholder="{{t "auth.email_placeholder"}}" autocomplete="email" required>
   </div>
   <div class="field">
-    <label for="password">Password</label>
-    <input type="password" id="password" name="password" placeholder="••••••••" autocomplete="new-password" required>
+    <label for="password">{{t "common.password"}}</label>
+    <input type="password" id="password" name="password" placeholder="{{t "auth.password_placeholder"}}" autocomplete="new-password" required>
   </div>
   <button class="btn primary" type="submit">{{t "auth.setup.submit"}}</button>
   <p class="footnote">{{t "auth.setup.password_note"}}</p>

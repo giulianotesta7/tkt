@@ -90,7 +90,7 @@ func TestSpanishTicketDetail(t *testing.T) {
 // TestSpanishTicketForm renders the ticket creation form in Spanish.
 func TestSpanishTicketForm(t *testing.T) {
 	body := renderLocalized(t, "es", "tickets_new", "ticket_form", fixtureTicketFormData())
-	for _, want := range []string{"Crear un ticket", "Describí tu solicitud.", "Título", "Descripción", "Crear ticket"} {
+	for _, want := range []string{"Crear un ticket", "Describe tu solicitud.", "Título", "Descripción", "Crear ticket"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("Spanish ticket form must render %q, got: %.800s", want, body)
 		}
@@ -109,7 +109,7 @@ func TestSpanishAuthShell(t *testing.T) {
 	r.Render(rec, req, "login", "", loginData{}, http.StatusOK)
 
 	body := rec.Body.String()
-	for _, want := range []string{`<html lang="es">`, "Te damos la bienvenida a tkt", "Iniciá sesión en tkt", "Correo electrónico", "Contraseña", "Iniciar sesión"} {
+	for _, want := range []string{`<html lang="es">`, "Te damos la bienvenida a tkt", "Inicia sesión en tkt", "Correo electrónico", "Contraseña", "Iniciar sesión"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("Spanish login page must render %q, got: %.600s", want, body)
 		}
@@ -141,7 +141,7 @@ func TestLocalizedScriptCarriesTheInstanceLanguage(t *testing.T) {
 		t.Errorf("English script prologue must carry the English message")
 	}
 	spanish := serve("es")
-	if !strings.Contains(spanish, "No se pudieron guardar los cambios. Intentá de nuevo.") {
+	if !strings.Contains(spanish, "No se pudieron guardar los cambios. Intenta de nuevo.") {
 		t.Errorf("Spanish script prologue must carry the Spanish message")
 	}
 	if strings.Contains(spanish, "Unable to save changes") {

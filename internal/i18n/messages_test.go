@@ -167,12 +167,24 @@ func TestTranslatorAnswersShippedCopy(t *testing.T) {
 
 // templateKeyRef matches a catalogue key referenced from a template:
 // {{t "area.component.element"}}.
-var templateKeyRef = regexp.MustCompile(`\btf?\s+"([a-z][a-z0-9_]*(?:\.[a-z0-9_]+)+)"`)
+var templateKeyRef = regexp.MustCompile(`\b(?:t|tf|th)\s+"([a-z][a-z0-9_]*(?:\.[a-z0-9_]+)+)"`)
 
 // scriptKeyRef matches a catalogue key referenced from a browser script:
 // window.tktI18n.t("js.area.key") (the server ships the messages as the
 // script prologue, so a script references a key instead of holding copy).
 var scriptKeyRef = regexp.MustCompile(`\bt\(\s*"([a-z][a-z0-9_]*(?:\.[a-z0-9_]+)+)"`)
+
+// templateKeyPrefixRef matches a key BUILT at render time from a literal
+// prefix, e.g. {{t (print "categories.kind." .Kind)}}: the prefix names the
+// namespace and every catalogue key under it counts as referenced.
+var templateKeyPrefixRef = regexp.MustCompile(`\bprint\s+"([a-z][a-z0-9_.]*\.)"`)
+
+// goKeyLiteralRef matches a catalogue key held as a plain Go string literal,
+// which is how the presentation layer hands a key to a template field
+// (a label, an empty-state message, a badge). Any dotted lowercase literal is
+// collected; only keys that exist are consulted, so an unrelated literal such
+// as a file name cannot mask a missing reference.
+var goKeyLiteralRef = regexp.MustCompile(`"([a-z][a-z0-9_]*(?:\.[a-z0-9_]+)+)"`)
 
 // goKeyRef matches a catalogue key referenced from Go: i18n.T(locale, "key"),
 // i18n.T("key") is not a form the package offers (a locale is always
@@ -193,6 +205,7 @@ var goKeyRef = regexp.MustCompile(`\bT\(\s*(?:[A-Za-z0-9_.]+\s*,\s*)?"([a-z][a-z
 func TestEveryCataloguedKeyIsReferencedAndEveryReferenceIsCatalogued(t *testing.T) {
 	root := filepath.Join("..", "..")
 	referenced := map[string][]string{}
+	literals := map[string][]string{}
 
 	collect := func(path, line string, re *regexp.Regexp) {
 		for _, match := range re.FindAllStringSubmatch(line, -1) {
@@ -214,9 +227,19 @@ func TestEveryCataloguedKeyIsReferencedAndEveryReferenceIsCatalogued(t *testing.
 		}
 		switch filepath.Ext(path) {
 		case ".html":
-			return scanFile(path, templateKeyRef, collect)
+			if err := scanFile(path, templateKeyRef, collect); err != nil {
+				return err
+			}
+			return scanFile(path, templateKeyPrefixRef, collect)
 		case ".go":
-			return scanFile(path, goKeyRef, collect)
+			if err := scanFile(path, goKeyRef, collect); err != nil {
+				return err
+			}
+			return scanFile(path, goKeyLiteralRef, func(path, line string, re *regexp.Regexp) {
+				for _, match := range re.FindAllStringSubmatch(line, -1) {
+					literals[match[1]] = append(literals[match[1]], path)
+				}
+			})
 		case ".js":
 			return scanFile(path, scriptKeyRef, collect)
 		}
@@ -224,6 +247,29 @@ func TestEveryCataloguedKeyIsReferencedAndEveryReferenceIsCatalogued(t *testing.
 	})
 	if err != nil {
 		t.Fatalf("walk %s: %v", root, err)
+	}
+
+	// A Go string literal counts as a reference only when a catalogue actually
+	// carries it (see goKeyLiteralRef), so it can never invent a missing key.
+	for key, places := range literals {
+		referenced[key] = append(referenced[key], places...)
+	}
+
+	// Expand every literal prefix into the catalogue keys it can produce.
+	prefixes := map[string][]string{}
+	for key, places := range referenced {
+		if strings.HasSuffix(key, ".") {
+			prefixes[key] = places
+		}
+	}
+	for prefix, places := range prefixes {
+		for _, locale := range Supported() {
+			for key := range catalogues[locale] {
+				if strings.HasPrefix(key, prefix) {
+					referenced[key] = append(referenced[key], places...)
+				}
+			}
+		}
 	}
 
 	for _, locale := range Supported() {
@@ -240,8 +286,14 @@ func TestEveryCataloguedKeyIsReferencedAndEveryReferenceIsCatalogued(t *testing.
 		}
 	}
 	for key, places := range referenced {
+		if strings.HasSuffix(key, ".") {
+			continue // a namespace prefix, already expanded above
+		}
 		for _, locale := range Supported() {
 			if _, ok := catalogues[locale][key]; !ok {
+				if _, viaLiteral := literals[key]; viaLiteral {
+					continue
+				}
 				t.Errorf("key %q referenced from %v is missing from locale %q", key, places, locale)
 			}
 		}
@@ -256,4 +308,32 @@ func scanFile(path string, re *regexp.Regexp, collect func(path, line string, re
 	}
 	collect(path, string(content), re)
 	return nil
+}
+
+// TestSpanishCatalogueUsesNeutralTuteo enforces the recorded tone (L6, "tuteo
+// neutro"): the Spanish interface addresses the reader as tú — never voseo, and
+// never usted. The markers are the voseo forms this catalogue could plausibly
+// carry; each is matched as a whole word, because "los suyos" is not a "sos".
+func TestSpanishCatalogueUsesNeutralTuteo(t *testing.T) {
+	markers := []string{
+		"vos", "tenés", "necesitás", "podés", "querés", "sabés", "sos", "hacé", "poné",
+		"iniciá", "creá", "configurá", "describí", "seleccioná", "escribí", "intentá",
+		"asignármelo", "confirmá", "devolvelo", "elegí", "guardá", "cancelá", "agregá",
+		"eliminá", "buscá", "usá", "administrá", "actualizá", "reactivá", "desactivá",
+		"restablecé", "salís", "andá", "vení", "mirá", "probá", "ustedes", "usted",
+	}
+	words := make([]*regexp.Regexp, 0, len(markers))
+	for _, marker := range markers {
+		words = append(words, regexp.MustCompile(`(?i)\b`+regexp.QuoteMeta(marker)+`\b`))
+	}
+	for key, message := range catalogues[Spanish] {
+		for i, word := range words {
+			if word.MatchString(message) {
+				t.Errorf("es %q uses the voseo/usted marker %q: %q", key, markers[i], message)
+			}
+		}
+		if strings.Contains(message, "vos@") {
+			t.Errorf("es %q ships a voseo placeholder: %q", key, message)
+		}
+	}
 }
