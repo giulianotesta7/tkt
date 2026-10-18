@@ -1,11 +1,15 @@
 package httpadapter
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/giulianotesta7/tkt/internal/application"
+	"github.com/giulianotesta7/tkt/internal/domain"
 	"github.com/giulianotesta7/tkt/web/templates"
 )
 
@@ -225,6 +229,214 @@ func TestSpanishSettingsScreen(t *testing.T) {
 	}
 	if strings.Contains(body, ">Appearance<") || strings.Contains(body, ">Monday<") {
 		t.Errorf("Spanish settings page must not render English labels")
+	}
+}
+
+// TestSpanishValidationErrors proves mapErrorFor resolves the mapped copy in the
+// request's interface language: one validation error per family (ticket, user,
+// category, workflow, SLA) reads Spanish on a Spanish request, and the dynamic
+// transition error interpolates its translated states. The English contract of
+// mapError is untouched.
+func TestSpanishValidationErrors(t *testing.T) {
+	request := func(locale string) *http.Request {
+		req := httptest.NewRequest(http.MethodGet, "/", nil)
+		return req.WithContext(context.WithValue(req.Context(), ctxKeyInterfaceLanguage{}, locale))
+	}
+	es := request("es")
+	cases := []struct {
+		name string
+		err  error
+		want string
+	}{
+		{"ticket", &domain.ValidationError{Field: "title", Message: domain.ErrMsgTitleRequired}, "el título es obligatorio"},
+		{"user", &domain.ValidationError{Field: "email", Message: domain.ErrMsgUserEmailRequired}, "el correo electrónico es obligatorio"},
+		{"category", &domain.ValidationError{Field: "name", Message: domain.ErrMsgCategoryNameRequired}, "el nombre de la categoría es obligatorio"},
+		{"workflow", &domain.ValidationError{Field: "steps", Message: "workflow must have at least one step"}, "el flujo debe tener al menos un paso"},
+		{"SLA", &domain.ValidationError{Field: "warning", Message: "the SLA warning percent must be between 1 and 99"}, "el porcentaje de aviso del SLA debe estar entre 1 y 99"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			status, msg := mapErrorFor(es, tc.err)
+			if status != http.StatusUnprocessableEntity {
+				t.Errorf("mapErrorFor status = %d, want %d", status, http.StatusUnprocessableEntity)
+			}
+			if msg != tc.want {
+				t.Errorf("mapErrorFor(%s) = %q, want %q", tc.name, msg, tc.want)
+			}
+		})
+	}
+
+	transition := domain.NewInvalidTransitionError(domain.StateNew, domain.StateClosed)
+	if _, msg := mapErrorFor(es, transition); msg != "no se permite la transición de nuevo a cerrado" {
+		t.Errorf("Spanish transition error = %q", msg)
+	}
+
+	// English is unchanged: the same call through an English request answers the
+	// historical messages byte for byte.
+	en := request("en")
+	if _, msg := mapErrorFor(en, transition); msg != "transition not allowed from new to closed" {
+		t.Errorf("English transition error = %q, want the historical message", msg)
+	}
+	if _, msg := mapErrorFor(en, &domain.ValidationError{Field: "title", Message: domain.ErrMsgTitleRequired}); msg != domain.ErrMsgTitleRequired {
+		t.Errorf("English validation error = %q, want %q", msg, domain.ErrMsgTitleRequired)
+	}
+}
+
+// TestSpanishMetrics renders the compact summary and the metrics detail page in
+// Spanish: every panel heading, filter label, scope line, legend and attainment
+// header comes from the catalogue, including the enum-driven group names.
+func TestSpanishMetrics(t *testing.T) {
+	summary := renderLocalized(t, "es", "ticket_metrics_detail", "ticket_metrics_summary_content", ticketMetricsSummaryData())
+	for _, want := range []string{"Resumen operativo", "Tickets pendientes", "Tickets sin asignar", "Resueltos esta semana", "Tiempo medio de resolución", "Ver métricas"} {
+		if !strings.Contains(summary, want) {
+			t.Errorf("Spanish metrics summary must render %q, got: %.800s", want, summary)
+		}
+	}
+	if strings.Contains(summary, "Operational summary") {
+		t.Error("Spanish metrics summary must not render the English heading")
+	}
+
+	detail := renderLocalized(t, "es", "ticket_metrics_detail", "ticket_metrics_detail_content", ticketMetricsRenderData())
+	for _, want := range []string{
+		"Métricas de tickets",
+		"Carga operativa y resolución",
+		"Volver a los tickets",
+		"Cargando métricas",
+		"Todas las mesas",
+		"Todos los agentes",
+		"Creados frente a resueltos",
+		"Ver datos",
+		"Antigüedad de los tickets pendientes",
+		"Carga pendiente",
+		"Por agente",
+		"Por mesa",
+		"Carga pendiente por agente actual",
+		"Distribución del tiempo de resolución",
+		"Cumplimiento del SLA",
+		"Cumplimiento del SLA por Prioridad",
+		"Primera respuesta",
+		"Resolución",
+	} {
+		if !strings.Contains(detail, want) {
+			t.Errorf("Spanish metrics detail must render %q, got: %.1400s", want, detail)
+		}
+	}
+	for _, unwanted := range []string{"Ticket metrics", "Created vs resolved", "SLA attainment"} {
+		if strings.Contains(detail, unwanted) {
+			t.Errorf("Spanish metrics detail must not render the English %q", unwanted)
+		}
+	}
+}
+
+// ticketMetricsSummaryData is a small summary fixture with all four cards set.
+func ticketMetricsSummaryData() ticketMetricsData {
+	return ticketMetricsData{
+		Metrics:                  application.TicketMetrics{Pending: 4, Unassigned: 1, Resolved: 3},
+		MeanResolution:           "2 h",
+		MeanResolutionIsDuration: true,
+		ReturnHref:               "/tickets",
+	}
+}
+
+// ticketMetricsRenderData is a detail fixture that exercises every panel and the
+// enum-driven group names (workload by agent, attainment by priority).
+func ticketMetricsRenderData() ticketMetricsDetailData {
+	milestone := ticketMetricsAttainmentMilestoneView{Met: 1, Breached: 0, Open: 1, Decided: 1, Rate: "100%"}
+	return ticketMetricsDetailData{
+		pageData: pageData{NavActive: "tickets"},
+		ticketMetricsData: ticketMetricsData{
+			Metrics: application.TicketMetrics{
+				Pending:    4,
+				Unassigned: 1,
+				Created:    5,
+				Resolved:   3,
+				Samples:    3,
+				WorkloadBy: "agent",
+				Weeks:      []application.TicketMetricsWeek{{Start: time.Date(2026, 3, 2, 0, 0, 0, 0, time.UTC), Created: 5, Resolved: 3}},
+				Ages:       []application.TicketMetricsBucket{{Label: "0-1 days", Count: 2}},
+				Workload:   []application.TicketMetricsWorkload{{Label: "Ana", Count: 2}},
+				Histogram:  []application.TicketMetricsBucket{{Label: "0-1 days", Count: 3}},
+			},
+			MeanResolution:           "2 h",
+			MeanResolutionIsDuration: true,
+			Attainment: ticketMetricsAttainmentView{
+				GroupBy:       "priority",
+				Cohort:        2,
+				FirstResponse: milestone,
+				Resolve:       ticketMetricsAttainmentMilestoneView{Open: 2, Rate: "0%"},
+				Groups: []ticketMetricsAttainmentGroupView{
+					{Label: "Alta", Tickets: 1, FirstResponse: milestone, Resolve: ticketMetricsAttainmentMilestoneView{Open: 1, Rate: "0%"}},
+				},
+			},
+		},
+		BackHref: "/tickets",
+	}
+}
+
+// TestSpanishTimelineNarrative renders the ticket timeline in Spanish: the
+// comment verbs and the audit-event narrative sentences (assignment, state
+// move, creation) all come from the catalogue as application.Msg references.
+func TestSpanishTimelineNarrative(t *testing.T) {
+	data := fixtureDetailData()
+	// The golden fixture pins the view model directly, so bind the catalogue
+	// references enrichTimeline attaches in production (the application-layer
+	// test TestEventSummaryMsg pins the construction itself).
+	data.View.Timeline[1].NarrativeMsg = application.MsgRef("tickets.timeline.narrative.assigned_to", application.Text("Ana Torres"))
+	data.View.Timeline[2].NarrativeMsg = application.MsgRef("tickets.timeline.narrative.moved_to", application.Copy("tickets.timeline.state.in_progress"))
+	data.View.Timeline[3].NarrativeMsg = application.MsgRef("tickets.timeline.narrative.created")
+	body := renderLocalized(t, "es", "tickets_show", "timeline", data)
+	for _, want := range []string{
+		"agregó un comentario público",
+		"asignó el ticket a Ana Torres",
+		"movió el ticket a en curso",
+		"creó el ticket",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("Spanish timeline must render %q, got: %.1000s", want, body)
+		}
+	}
+	for _, unwanted := range []string{"added a public comment", "moved the ticket to in progress", "created the ticket"} {
+		if strings.Contains(body, unwanted) {
+			t.Errorf("Spanish timeline must not render the English %q", unwanted)
+		}
+	}
+}
+
+// TestSpanishWorkflowBuilder renders the workflow builder page in Spanish: the
+// page chrome, the step-kind labels resolved from the catalogue, the editor and
+// dialog copy all follow the instance language. The disabled add options carry
+// the catalogue refusal too.
+func TestSpanishWorkflowBuilder(t *testing.T) {
+	data := mobileBuilderPageData()
+	data.Draft = append(data.Draft, domain.WorkflowDefinition{{Type: domain.StepResolve}}...)
+	data.Steps = []workflowStepView{
+		{Index: 0, Position: 1, Step: domain.WorkflowStep{Type: domain.StepResolve}, Final: true, CanMoveLeft: true},
+	}
+	data.HasFinal = true
+	body := renderLocalized(t, "es", "category_workflow", "", data)
+	for _, want := range []string{
+		"Flujo de la categoría",
+		"Construye un recorrido ordenado para esta categoría.",
+		"Pasos del flujo",
+		"Selecciona un paso para configurarlo. Arrastra para reordenar.",
+		"Dar una tarea al agente",
+		"Enviar a una mesa",
+		"Pedir información",
+		">+ Agregar paso</summary>",
+		"No se puede agregar · este flujo ya tiene un cierre",
+		"¿Quitar este paso?",
+		"El paso y sus campos se quitarán del flujo.",
+		"¿Guardar los cambios del flujo?",
+		"¿Salir sin guardar?",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("Spanish workflow builder must render %q, got: %.1600s", want, body)
+		}
+	}
+	for _, unwanted := range []string{">Category workflow<", ">Workflow steps<", ">Give the agent a task<"} {
+		if strings.Contains(body, unwanted) {
+			t.Errorf("Spanish workflow builder must not render the English %q", unwanted)
+		}
 	}
 }
 
