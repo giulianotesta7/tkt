@@ -1,25 +1,25 @@
 {{define "filter_form"}}<form class="filter-bar ticket-toolbar" method="get" action="/tickets" hx-get="/tickets" hx-target="#tickets-screen" hx-swap="outerHTML" hx-push-url="true" hx-indicator="this">
   {{template "ticket_search" .}}
-{{if .ShowAdvancedFilters}}  <select name="state" aria-label="State">
-    <option value="">All states</option>
-    {{range .Options.States}}<option value="{{.}}" {{if eq . $.Filters.State}}selected{{end}}>{{humanize .}}</option>{{end}}
+{{if .ShowAdvancedFilters}}  <select name="state" aria-label="{{t "tickets.filter.state"}}">
+    <option value="">{{t "tickets.filter.all_states"}}</option>
+    {{range .Options.States}}<option value="{{.}}" {{if eq . $.Filters.State}}selected{{end}}>{{stateLabel .}}</option>{{end}}
   </select>
-  <select name="priority" aria-label="Priority">
-    <option value="">All priorities</option>
-    {{range .Options.Priorities}}<option value="{{.}}" {{if eq . $.Filters.Priority}}selected{{end}}>{{humanize .}}</option>{{end}}
+  <select name="priority" aria-label="{{t "tickets.filter.priority"}}">
+    <option value="">{{t "tickets.filter.all_priorities"}}</option>
+    {{range .Options.Priorities}}<option value="{{.}}" {{if eq . $.Filters.Priority}}selected{{end}}>{{priorityLabel .}}</option>{{end}}
   </select>
-  <select name="category_id" aria-label="Category">
-    <option value="">All categories</option>{{range .Options.Categories}}{{if eq (printf "%d" .ID) $.Filters.CategoryID}}<option value="{{.ID}}" selected>{{.Name}}</option>{{else}}<option value="{{.ID}}">{{.Name}}</option>{{end}}{{end}}
+  <select name="category_id" aria-label="{{t "tickets.filter.category"}}">
+    <option value="">{{t "tickets.filter.all_categories"}}</option>{{range .Options.Categories}}{{if eq (printf "%d" .ID) $.Filters.CategoryID}}<option value="{{.ID}}" selected>{{.Name}}</option>{{else}}<option value="{{.ID}}">{{.Name}}</option>{{end}}{{end}}
   </select>
-  <select name="user_id" aria-label="Assigned user">
-    <option value="">Anyone</option>{{range .Options.Users}}{{if eq (printf "%d" .ID) $.Filters.UserID}}<option value="{{.ID}}" selected>{{.Name}}</option>{{else}}<option value="{{.ID}}">{{.Name}}</option>{{end}}{{end}}
+  <select name="user_id" aria-label="{{t "tickets.filter.assigned_user"}}">
+    <option value="">{{t "tickets.filter.anyone"}}</option>{{range .Options.Users}}{{if eq (printf "%d" .ID) $.Filters.UserID}}<option value="{{.ID}}" selected>{{.Name}}</option>{{else}}<option value="{{.ID}}">{{.Name}}</option>{{end}}{{end}}
   </select>
-{{end}}  <select name="sort" aria-label="Order by">
-    <option value="newest" {{if eq $.Filters.Sort "newest"}}selected{{end}}>Newest first</option>
-    <option value="priority" {{if eq $.Filters.Sort "priority"}}selected{{end}}>Priority</option>
-    <option value="urgency" {{if eq $.Filters.Sort "urgency"}}selected{{end}}>Urgency</option>
+{{end}}  <select name="sort" aria-label="{{t "tickets.filter.order_by"}}">
+    <option value="newest" {{if eq $.Filters.Sort "newest"}}selected{{end}}>{{t "tickets.filter.newest_first"}}</option>
+    <option value="priority" {{if eq $.Filters.Sort "priority"}}selected{{end}}>{{t "tickets.filter.priority"}}</option>
+    <option value="urgency" {{if eq $.Filters.Sort "urgency"}}selected{{end}}>{{t "tickets.filter.urgency"}}</option>
   </select>
-  <button class="btn" type="submit">Apply</button>
-  <a class="btn ghost" href="/tickets" hx-get="/tickets" hx-target="#tickets-screen" hx-swap="outerHTML" hx-push-url="true" aria-label="Clear filters">Clear</a>
+  <button class="btn" type="submit">{{t "common.apply"}}</button>
+  <a class="btn ghost" href="/tickets" hx-get="/tickets" hx-target="#tickets-screen" hx-swap="outerHTML" hx-push-url="true" aria-label="{{t "tickets.filter.clear"}}">{{t "common.clear"}}</a>
   <span class="htmx-indicator spinner" aria-hidden="true"></span>
 </form>{{end}}

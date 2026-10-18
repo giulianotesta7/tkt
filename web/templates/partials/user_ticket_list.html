@@ -8,11 +8,11 @@
     {{- template "state_badge" (requesterStateBadge .State)}}
       </div>
       {{- if .Description}}<p class="user-request-description">{{.Description}}</p>{{end}}
-      <span class="user-request-meta">{{ticketNumber .Number}} · Updated {{template "card_timestamp" .UpdatedAt}}</span>
+      <span class="user-request-meta">{{ticketNumber .Number}} · {{t "tickets.list.updated"}} {{template "card_timestamp" .UpdatedAt}}</span>
     </div>
-    <a class="user-request-open" href="/tickets/{{.ID}}">View request</a>
+    <a class="user-request-open" href="/tickets/{{.ID}}">{{t "tickets.list.view_request"}}</a>
   </div>
       {{- end}}
-      {{- if not .Tickets}}<div class="card user-request-card user-request-empty"><div class="empty">{{if .HasActiveQuery}}No requests match your search{{else}}No requests yet{{end}}</div></div>{{end}}
+      {{- if not .Tickets}}<div class="card user-request-card user-request-empty"><div class="empty">{{if .HasActiveQuery}}{{t "tickets.list.user_no_match"}}{{else}}{{t "tickets.list.user_empty"}}{{end}}</div></div>{{end}}
     </div>{{template "pagination" .}}
   </div>{{end}}
