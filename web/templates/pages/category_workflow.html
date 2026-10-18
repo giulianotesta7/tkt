@@ -2,43 +2,43 @@
 <div class="page-foundation category-workflow-page" hx-on::before-request="if(event.target.matches('.workflow-step-card-link')){var rail=this.querySelector('.workflow-step-rail');if(rail)this.dataset.workflowRailScrollLeft=rail.scrollLeft;this.dataset.workflowBuilderFocus='card'};if(event.target.matches('.workflow-step-menu-actions button'))this.dataset.workflowBuilderFocus='menu';if(event.target.matches('.workflow-add-options button')){this.dataset.workflowBuilderFocus='add'}" hx-on::after-swap="if(event.target.id==='workflow-builder'){var focusMode=this.dataset.workflowBuilderFocus,rail=this.querySelector('.workflow-step-rail');delete this.dataset.workflowBuilderFocus;if(focusMode==='card'&&rail){rail.scrollLeft=Number(this.dataset.workflowRailScrollLeft||0);delete this.dataset.workflowRailScrollLeft};if(focusMode==='add'&&rail)rail.scrollLeft=rail.scrollWidth;if(focusMode){var control=this.querySelector('.workflow-step-card.selected .workflow-step-card-link')||this.querySelector('.workflow-add-step summary,.workflow-add-step button');if(control)control.focus({preventScroll:true})}}">
   <header class="page-header">
     <div>
-      <nav class="page-breadcrumb" aria-label="Breadcrumb"><a href="/categories">Categories</a><span aria-hidden="true"> / </span><span>{{.CategoryName}}</span></nav>
-      <h1 class="page-title">Category workflow</h1>
-      <p class="page-subtitle">Build one ordered path for this category.</p>
+      <nav class="page-breadcrumb" aria-label="{{t "workflow.page.breadcrumb_label"}}"><a href="/categories">{{t "categories.categories"}}</a><span aria-hidden="true"> / </span><span>{{.CategoryName}}</span></nav>
+      <h1 class="page-title">{{t "workflow.page.title"}}</h1>
+      <p class="page-subtitle">{{t "workflow.page.subtitle"}}</p>
     </div>
     <div class="page-actions">
-      <button class="page-action" type="submit" form="workflow-form" name="action" value="save">Save</button>
-      <button class="page-action page-action-primary" type="submit" form="workflow-form" name="action" value="publish">Publish</button>
+      <button class="page-action" type="submit" form="workflow-form" name="action" value="save">{{t "workflow.page.save"}}</button>
+      <button class="page-action page-action-primary" type="submit" form="workflow-form" name="action" value="publish">{{t "workflow.page.publish"}}</button>
     </div>
   </header>
 {{if .CloneError}}  <div class="error-banner" role="alert">{{.CloneError}}</div>
 {{end}}{{if .CloneSources}}  <form class="card form-card" method="post" action="/categories/{{.CategoryID}}/workflow/clone">
-    <h2>Reuse a workflow</h2>
+    <h2>{{t "workflow.page.clone.heading"}}</h2>
     <div class="field">
-      <label for="clone-source">Clone a published workflow from</label>
+      <label for="clone-source">{{t "workflow.page.clone.label"}}</label>
       <select id="clone-source" name="source_category_id" required>
-        <option value="">Choose a category</option>
+        <option value="">{{t "workflow.page.clone.choose"}}</option>
 {{range .CloneSources}}        <option value="{{.ID}}">{{.Name}}</option>
 {{end}}      </select>
     </div>
-    <button class="btn" type="submit">Clone into this category</button>
+    <button class="btn" type="submit">{{t "workflow.page.clone.submit"}}</button>
   </form>
 {{end}}      {{template "workflow_builder" .}}
       <dialog id="workflow-dirty-dialog" aria-labelledby="workflow-dirty-dialog-title" aria-describedby="workflow-dirty-dialog-copy">
-        <h2 id="workflow-dirty-dialog-title">Save your workflow changes?</h2>
-        <p id="workflow-dirty-dialog-copy">This structural action needs a decision about your unsaved workflow edits.</p>
+        <h2 id="workflow-dirty-dialog-title">{{t "workflow.page.dirty.title"}}</h2>
+        <p id="workflow-dirty-dialog-copy">{{t "workflow.page.dirty.body"}}</p>
         <div>
-          <button type="button" data-workflow-save-continue>Save and continue</button>
-          <button type="button" data-workflow-discard-continue>Discard and continue</button>
-          <button type="button" data-workflow-cancel>Cancel</button>
+          <button type="button" data-workflow-save-continue>{{t "common.save_continue"}}</button>
+          <button type="button" data-workflow-discard-continue>{{t "common.discard_continue"}}</button>
+          <button type="button" data-workflow-cancel>{{t "common.cancel"}}</button>
         </div>
       </dialog>
       <dialog id="workflow-leave-dialog" aria-labelledby="workflow-leave-dialog-title" aria-describedby="workflow-leave-dialog-copy">
-        <h2 id="workflow-leave-dialog-title">Leave without saving?</h2>
-        <p id="workflow-leave-dialog-copy">Your workflow edits have not been saved yet.</p>
+        <h2 id="workflow-leave-dialog-title">{{t "workflow.page.leave.title"}}</h2>
+        <p id="workflow-leave-dialog-copy">{{t "workflow.page.leave.body"}}</p>
         <div>
-          <button type="button" data-workflow-leave-stay>Stay</button>
-          <button type="button" data-workflow-leave-discard>Discard changes</button>
+          <button type="button" data-workflow-leave-stay>{{t "common.stay"}}</button>
+          <button type="button" data-workflow-leave-discard>{{t "common.discard_changes"}}</button>
         </div>
       </dialog>
     </div>

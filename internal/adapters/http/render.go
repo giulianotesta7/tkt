@@ -402,55 +402,73 @@ func metricsWorkloadChart(rows []application.TicketMetricsWorkload, label string
 	return metricsBarChartClasses(buckets, label, classes)
 }
 
-// workflowTypeLabel names a workflow step kind the way a non-technical admin
-// reads it. It is the single source for the builder's kind picker, the step
-// card title, and the editor heading. It names a choice; checklistStepName in
-// handlers_tickets.go names the outcome the same step produces.
+// workflowTypeKey names the catalogue key of a workflow step kind's label. It is
+// the single source for the builder's kind picker, the step card title, and the
+// editor heading: the template resolves it through the active instance language.
+// It names a choice; checklistStepName in handlers_tickets.go names the outcome
+// the same step produces.
+func workflowTypeKey(t domain.StepType) string {
+	switch t {
+	case domain.StepAssignToDesk:
+		return "workflow.type.assign_to_desk"
+	case domain.StepForm:
+		return "workflow.type.form"
+	case domain.StepManualTask:
+		return "workflow.type.manual_task"
+	case domain.StepResolve:
+		return "workflow.type.resolve_ticket"
+	case domain.StepClose:
+		return "workflow.type.close_ticket"
+	default:
+		return "workflow.type.unknown"
+	}
+}
+
+// workflowTypeHelpKey names the catalogue key of the one-line plain-language
+// description under the selected kind. It covers every kind the picker offers.
+func workflowTypeHelpKey(t domain.StepType) string {
+	switch t {
+	case domain.StepAssignToDesk:
+		return "workflow.type_help.assign_to_desk"
+	case domain.StepForm:
+		return "workflow.type_help.form"
+	case domain.StepManualTask:
+		return "workflow.type_help.manual_task"
+	case domain.StepResolve:
+		return "workflow.type_help.resolve_ticket"
+	case domain.StepClose:
+		return "workflow.type_help.close_ticket"
+	default:
+		return "workflow.type_help.unknown"
+	}
+}
+
+// workflowTypeLabel and workflowTypeHelp answer the English copy for a kind.
+// They remain the single-source English accessors for Go callers and tests;
+// the template funcs resolve the same keys through the active locale.
 func workflowTypeLabel(t domain.StepType) string {
-	switch t {
-	case domain.StepAssignToDesk:
-		return "Send to a desk"
-	case domain.StepForm:
-		return "Ask for information"
-	case domain.StepManualTask:
-		return "Give the agent a task"
-	case domain.StepResolve:
-		return "Mark the ticket resolved"
-	case domain.StepClose:
-		return "Close the ticket"
-	default:
-		return "Workflow step"
-	}
+	return i18n.T(i18n.English, workflowTypeKey(t))
 }
 
-// workflowTypeHelp is the one-line plain-language description under the
-// selected kind. It covers every kind the picker offers.
 func workflowTypeHelp(t domain.StepType) string {
-	switch t {
-	case domain.StepAssignToDesk:
-		return "Send the ticket to a desk."
-	case domain.StepForm:
-		return "Ask the requester or the agent for information."
-	case domain.StepManualTask:
-		return "The agent follows your instructions to complete the work."
-	case domain.StepResolve:
-		return "Mark the ticket resolved automatically."
-	case domain.StepClose:
-		return "Close the ticket automatically."
-	default:
-		return "Configure this workflow step."
-	}
+	return i18n.T(i18n.English, workflowTypeHelpKey(t))
 }
 
-// workflowFieldRequiredLabel is the builder's copy for a form field's required
-// control. Every kind except a checkbox says "Required" ("you must answer"); a
-// checkbox says "Must be ticked" because the box has exactly one answer — yes —
-// and "Required" would read as "you must answer" (#317).
-func workflowFieldRequiredLabel(kind domain.FieldKind) string {
+// workflowFieldRequiredKey names the catalogue key of the builder's copy for a
+// form field's required control. Every kind except a checkbox says "Required"
+// ("you must answer"); a checkbox says "Must be ticked" because the box has
+// exactly one answer — yes — and "Required" would read as "you must answer"
+// (#317).
+func workflowFieldRequiredKey(kind domain.FieldKind) string {
 	if kind == domain.FieldCheckbox {
-		return "Must be ticked"
+		return "workflow.field.must_be_ticked"
 	}
-	return "Required"
+	return "workflow.field.required"
+}
+
+// workflowFieldRequiredLabel answers the English copy for a required control.
+func workflowFieldRequiredLabel(kind domain.FieldKind) string {
+	return i18n.T(i18n.English, workflowFieldRequiredKey(kind))
 }
 
 // asStepType accepts a domain.StepType (a step's own field) or a string
@@ -509,11 +527,6 @@ var templateFuncs = template.FuncMap{
 	"metricsWorkloadChart":  metricsWorkloadChart,
 	"metricsHistogramChart": metricsHistogramChart,
 	"metricsDuration":       metricsDuration,
-	"workflowTypeLabel":     func(v any) string { return workflowTypeLabel(asStepType(v)) },
-	"workflowTypeHelp":      func(v any) string { return workflowTypeHelp(asStepType(v)) },
-	"workflowFieldRequiredLabel": func(v any) string {
-		return workflowFieldRequiredLabel(domain.FieldKind(fmt.Sprint(v)))
-	},
 }
 
 // shellFor maps a page to its shell root. Application pages use the rail
@@ -656,6 +669,14 @@ func templateFuncsFor(locale string) template.FuncMap {
 	funcs["priorityLabel"] = func(value any) string { return labeledValue(translator, "priority", value) }
 	funcs["roleLabel"] = func(value any) string { return labeledValue(translator, "role", value) }
 	funcs["slaLabel"] = func(value any) string { return labeledValue(translator, "sla", value) }
+	// The workflow builder's kind labels resolve through the active catalogue,
+	// so the picker, the step card, and the editor heading all follow the
+	// instance language.
+	funcs["workflowTypeLabel"] = func(v any) string { return translator.T(workflowTypeKey(asStepType(v))) }
+	funcs["workflowTypeHelp"] = func(v any) string { return translator.T(workflowTypeHelpKey(asStepType(v))) }
+	funcs["workflowFieldRequiredLabel"] = func(v any) string {
+		return translator.T(workflowFieldRequiredKey(domain.FieldKind(fmt.Sprint(v))))
+	}
 	funcs["stateBadge"] = func(value any) stateBadge { return resolveStateBadge(translator, value) }
 	funcs["audienceStateBadge"] = func(value any, requester bool) stateBadge {
 		return newStateBadge(translator, value, requester)
