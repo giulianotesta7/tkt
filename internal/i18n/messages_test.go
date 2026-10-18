@@ -1,10 +1,12 @@
 package i18n
 
 import (
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 	"testing"
 )
@@ -191,6 +193,41 @@ var goKeyLiteralRef = regexp.MustCompile(`"([a-z][a-z0-9_]*(?:\.[a-z0-9_]+)+)"`)
 // explicit), and a Translator method call T("key") is matched too.
 var goKeyRef = regexp.MustCompile(`\bT\(\s*(?:[A-Za-z0-9_.]+\s*,\s*)?"([a-z][a-z0-9_]*(?:\.[a-z0-9_]+)+)"`)
 
+// nonKeyGoLiterals are key-shaped production Go string literals that are
+// deliberately not catalogue keys: capability identifiers and shell file
+// names. A literal listed here is allowed to be absent from every catalogue;
+// any other key-shaped production literal must resolve, so deleting a key a Go
+// field hands to a template (users.empty.none) fails coverage.
+var nonKeyGoLiterals = map[string]bool{
+	"tickets.create":       true,
+	"tickets.assign":       true,
+	"tickets.edit":         true,
+	"tickets.metrics.view": true,
+	"categories.manage":    true,
+	"desks.manage":         true,
+	"settings.manage":      true,
+	"comments.public":      true,
+	"comments.internal":    true,
+	"users.manage":         true,
+	"users.change_role":    true,
+	"users.grant_admin":    true,
+	"auth.html":            true,
+	"base.html":            true,
+	"go.mod":               true,
+}
+
+// prefixKeySuffixes pins the concrete suffixes each enum-driven template
+// prefix reference can produce. A prefix with one surviving arm (e.g.
+// categories.kind.department) would otherwise hide a deleted arm, so every
+// arm listed here must resolve even when the prefix still matches a sibling.
+var prefixKeySuffixes = map[string][]string{
+	"categories.kind.":             {"category", "department", "desk"},
+	"categories.drawer.help.":      {"category", "department", "desk"},
+	"categories.drawer.name_help.": {"category", "department", "desk"},
+	"ticket_metrics.group.":        {"agent", "desk"},
+	"ticket_metrics.group_by.":     {"priority", "category", "total"},
+}
+
 // TestEveryCataloguedKeyIsReferencedAndEveryReferenceIsCatalogued is the
 // coverage half of S10: the parity test only proves the catalogues agree with
 // each other, so a key that no template and no Go call names would still ship
@@ -204,6 +241,58 @@ var goKeyRef = regexp.MustCompile(`\bT\(\s*(?:[A-Za-z0-9_.]+\s*,\s*)?"([a-z][a-z
 // its copy now comes from the server prologue.
 func TestEveryCataloguedKeyIsReferencedAndEveryReferenceIsCatalogued(t *testing.T) {
 	root := filepath.Join("..", "..")
+	for _, problem := range referenceCoverage(root, catalogues) {
+		t.Error(problem)
+	}
+}
+
+// TestReferenceCoverageFailsOnDeletedKey proves the two reference kinds the
+// scan must not miss: an enum arm named through a Go literal and a template
+// prefix (categories.kind.category), and a key handed to a template field as a
+// Go string literal (users.empty.none). Each is deleted from BOTH catalogues in
+// a copy, and the scan must report the missing key.
+func TestReferenceCoverageFailsOnDeletedKey(t *testing.T) {
+	root := filepath.Join("..", "..")
+	for _, key := range []string{"categories.kind.category", "users.empty.none"} {
+		reduced := copyCatalogues(catalogues)
+		for locale := range reduced {
+			delete(reduced[locale], key)
+		}
+		problems := referenceCoverage(root, reduced)
+		found := false
+		for _, problem := range problems {
+			if strings.Contains(problem, key) {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("deleting %q from every catalogue must fail coverage, got %v", key, problems)
+		}
+	}
+}
+
+func copyCatalogues(in map[string]catalogue) map[string]catalogue {
+	out := make(map[string]catalogue, len(in))
+	for locale, messages := range in {
+		copied := make(catalogue, len(messages))
+		for key, message := range messages {
+			copied[key] = message
+		}
+		out[locale] = copied
+	}
+	return out
+}
+
+// referenceCoverage returns every coverage problem for cats, so the caller can
+// run it against the real catalogues and against a deliberately broken copy.
+func referenceCoverage(root string, cats map[string]catalogue) []string {
+	locales := make([]string, 0, len(cats))
+	for locale := range cats {
+		locales = append(locales, locale)
+	}
+	sort.Strings(locales)
+
 	referenced := map[string][]string{}
 	literals := map[string][]string{}
 
@@ -235,6 +324,13 @@ func TestEveryCataloguedKeyIsReferencedAndEveryReferenceIsCatalogued(t *testing.
 			if err := scanFile(path, goKeyRef, collect); err != nil {
 				return err
 			}
+			// Test fixtures hold expected messages and fake identifiers, not
+			// shipped copy: their literals would invent missing keys
+			// (`evil.example`), so the literal-integrity scan reads production
+			// sources only.
+			if strings.HasSuffix(path, "_test.go") {
+				return nil
+			}
 			return scanFile(path, goKeyLiteralRef, func(path, line string, re *regexp.Regexp) {
 				for _, match := range re.FindAllStringSubmatch(line, -1) {
 					literals[match[1]] = append(literals[match[1]], path)
@@ -246,13 +342,16 @@ func TestEveryCataloguedKeyIsReferencedAndEveryReferenceIsCatalogued(t *testing.
 		return nil
 	})
 	if err != nil {
-		t.Fatalf("walk %s: %v", root, err)
+		return []string{fmt.Sprintf("walk %s: %v", root, err)}
 	}
 
-	// A Go string literal counts as a reference only when a catalogue actually
-	// carries it (see goKeyLiteralRef), so it can never invent a missing key.
+	// A Go string literal is a key reference only when a catalogue carries it, so
+	// it can never invent a missing key in the "catalogued" direction; the
+	// literal-integrity check below reports the missing case (deletion).
 	for key, places := range literals {
-		referenced[key] = append(referenced[key], places...)
+		if _, ok := cats[Default][key]; ok {
+			referenced[key] = append(referenced[key], places...)
+		}
 	}
 
 	// Expand every literal prefix into the catalogue keys it can produce.
@@ -263,8 +362,8 @@ func TestEveryCataloguedKeyIsReferencedAndEveryReferenceIsCatalogued(t *testing.
 		}
 	}
 	for prefix, places := range prefixes {
-		for _, locale := range Supported() {
-			for key := range catalogues[locale] {
+		for _, locale := range locales {
+			for key := range cats[locale] {
 				if strings.HasPrefix(key, prefix) {
 					referenced[key] = append(referenced[key], places...)
 				}
@@ -272,8 +371,9 @@ func TestEveryCataloguedKeyIsReferencedAndEveryReferenceIsCatalogued(t *testing.
 		}
 	}
 
-	for _, locale := range Supported() {
-		for key := range catalogues[locale] {
+	var problems []string
+	for _, locale := range locales {
+		for key := range cats[locale] {
 			// The label.* namespace is resolved at render time by the label
 			// helpers (label.<kind>.<value>), so no surface names those keys
 			// textually; the parity test still covers them.
@@ -281,23 +381,55 @@ func TestEveryCataloguedKeyIsReferencedAndEveryReferenceIsCatalogued(t *testing.
 				continue
 			}
 			if len(referenced[key]) == 0 {
-				t.Errorf("locale %q carries key %q that no template and no Go call references", locale, key)
+				problems = append(problems, fmt.Sprintf("locale %q carries key %q that no template and no Go call references", locale, key))
 			}
 		}
 	}
 	for key, places := range referenced {
 		if strings.HasSuffix(key, ".") {
-			continue // a namespace prefix, already expanded above
+			continue // a namespace prefix, expanded above
 		}
-		for _, locale := range Supported() {
-			if _, ok := catalogues[locale][key]; !ok {
-				if _, viaLiteral := literals[key]; viaLiteral {
+		for _, locale := range locales {
+			if _, ok := cats[locale][key]; !ok {
+				if nonKeyGoLiterals[key] {
 					continue
 				}
-				t.Errorf("key %q referenced from %v is missing from locale %q", key, places, locale)
+				problems = append(problems, fmt.Sprintf("key %q referenced from %v is missing from locale %q", key, places, locale))
 			}
 		}
 	}
+	// A referenced prefix must resolve at least one key, and every enum arm it
+	// can produce (a surviving sibling must not hide a deleted arm).
+	for prefix, places := range prefixes {
+		resolved := false
+		for _, locale := range locales {
+			for key := range cats[locale] {
+				if strings.HasPrefix(key, prefix) {
+					resolved = true
+				}
+			}
+		}
+		if !resolved {
+			problems = append(problems, fmt.Sprintf("prefix %q referenced from %v resolves no catalogue key", prefix, places))
+		}
+		for _, suffix := range prefixKeySuffixes[prefix] {
+			if _, ok := cats[Default][prefix+suffix]; !ok {
+				problems = append(problems, fmt.Sprintf("prefix %q must resolve %q", prefix, prefix+suffix))
+			}
+		}
+	}
+	// Every key-shaped production Go literal must be a catalogue key or a known
+	// non-key literal, so deleting a key a Go field hands to a template fails.
+	for literal, places := range literals {
+		if _, ok := cats[Default][literal]; ok {
+			continue
+		}
+		if nonKeyGoLiterals[literal] {
+			continue
+		}
+		problems = append(problems, fmt.Sprintf("Go literal %q from %v looks like a catalogue key but no catalogue carries it", literal, places))
+	}
+	return problems
 }
 
 // scanFile runs re over every line of path, handing each match to collect.
@@ -312,20 +444,25 @@ func scanFile(path string, re *regexp.Regexp, collect func(path, line string, re
 
 // TestSpanishCatalogueUsesNeutralTuteo enforces the recorded tone (L6, "tuteo
 // neutro"): the Spanish interface addresses the reader as tú — never voseo, and
-// never usted. The markers are the voseo forms this catalogue could plausibly
-// carry; each is matched as a whole word, because "los suyos" is not a "sos".
+// never usted. It has two halves. The marker list catches the voseo forms a
+// word list can name, matched as whole words ("los suyos" is not a "sos"). The
+// structural half catches the list's blind spot: `abrí` shipped past it once,
+// so every word ending in an accented á/é/í must now be a known neutral form.
 func TestSpanishCatalogueUsesNeutralTuteo(t *testing.T) {
 	markers := []string{
-		"vos", "tenés", "necesitás", "podés", "querés", "sabés", "sos", "hacé", "poné",
+		"vos", "vosotros", "tenés", "necesitás", "podés", "querés", "sabés", "sos", "hacé", "poné",
 		"iniciá", "creá", "configurá", "describí", "seleccioná", "escribí", "intentá",
 		"asignármelo", "confirmá", "devolvelo", "elegí", "guardá", "cancelá", "agregá",
 		"eliminá", "buscá", "usá", "administrá", "actualizá", "reactivá", "desactivá",
-		"restablecé", "salís", "andá", "vení", "mirá", "probá", "ustedes", "usted",
+		"restablecé", "salís", "salí", "andá", "vení", "mirá", "probá", "abrí", "abrís",
+		"cerrá", "volvé", "completá", "revisá", "subí", "decí", "pedí", "seguí",
+		"ustedes", "usted",
 	}
 	words := make([]*regexp.Regexp, 0, len(markers))
 	for _, marker := range markers {
 		words = append(words, regexp.MustCompile(`(?i)\b`+regexp.QuoteMeta(marker)+`\b`))
 	}
+	wordRe := regexp.MustCompile(`[\p{L}]+`)
 	for key, message := range catalogues[Spanish] {
 		for i, word := range words {
 			if word.MatchString(message) {
@@ -335,5 +472,31 @@ func TestSpanishCatalogueUsesNeutralTuteo(t *testing.T) {
 		if strings.Contains(message, "vos@") {
 			t.Errorf("es %q ships a voseo placeholder: %q", key, message)
 		}
+		for _, word := range wordRe.FindAllString(message, -1) {
+			lower := strings.ToLower(word)
+			runes := []rune(lower)
+			if len(runes) == 0 {
+				continue
+			}
+			switch runes[len(runes)-1] {
+			case 'á', 'é', 'í':
+			default:
+				continue
+			}
+			if !voseoAccentedNeutral[lower] {
+				t.Errorf("es %q ends the word %q in an accented vowel that is not a known neutral form: %q", key, word, message)
+			}
+		}
 	}
+}
+
+// voseoAccentedNeutral lists the accented word-ends that are NOT voseo: neutral
+// pronouns and adverbs, first- and third-person forms, and futures the
+// catalogue legitimately uses. Every other word ending in á/é/í fails, so a new
+// voseo imperative cannot slip through the marker list.
+var voseoAccentedNeutral = map[string]bool{
+	"así": true, "aquí": true, "allí": true, "ahí": true, "sí": true, "mí": true,
+	"qué": true, "esté": true, "más": true, "está": true, "será": true,
+	"podrá": true, "tendrá": true, "habrá": true, "hará": true, "estará": true,
+	"quitará": true, "envié": true, "recibí": true, "también": true,
 }
