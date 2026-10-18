@@ -700,13 +700,28 @@ type SLAStore interface {
 
 // SettingsStore persists single-row instance settings (appearance-settings
 // spec). The internal-comment background row is seeded by migration 0005;
-// a missing row reads back the application default.
+// a missing row reads back the application default. The interface-language
+// row (issue #335) is never seeded: no migration is needed, because an
+// absent row reads back the same default a shipped instance renders.
 type SettingsStore interface {
 	// GetInternalCommentBg returns the configured internal-comment
 	// background color, or DefaultInternalCommentBg when the row is absent.
 	GetInternalCommentBg(ctx context.Context) (string, error)
 	// SetInternalCommentBg persists the internal-comment background color.
 	SetInternalCommentBg(ctx context.Context, color string) error
+	// GetInterfaceLanguage returns the instance's interface language
+	// (issue #335), or DefaultInterfaceLanguage when the row is absent or
+	// holds a value no shipped catalogue answers. The read never fails for
+	// configuration reasons: it always answers a language the binary ships,
+	// so a hand-edited database degrades to English instead of dropping
+	// every page.
+	GetInterfaceLanguage(ctx context.Context) (string, error)
+	// SetInterfaceLanguage persists the instance interface language. The
+	// application service validates the value against
+	// AllowedInterfaceLanguages before this call; the store refuses an
+	// unsupported code rather than persisting a language the binary cannot
+	// render, because this is the layer the next read will answer from.
+	SetInterfaceLanguage(ctx context.Context, language string) error
 	// GetSLAEnabled reports whether the per-category SLA is enabled
 	// (issue #211). The row stores '0'/'1' text; an absent or unparseable
 	// value falls back to disabled (fail-safe: enabling is an explicit

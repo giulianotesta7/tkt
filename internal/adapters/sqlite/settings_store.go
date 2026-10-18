@@ -34,6 +34,12 @@ func newSettingsStore(db *sql.DB) *settingsStore { return &settingsStore{db: db}
 // internal-comment background color.
 const settingsKeyInternalCommentBg = "internal_comment_bg"
 
+// settingsKeyInterfaceLanguage is the settings row key for the instance
+// interface language (issue #335). No migration seeds it: an absent row reads
+// back DefaultInterfaceLanguage, so the default is true without a stored row
+// and the key/value table needs no new column or migration.
+const settingsKeyInterfaceLanguage = "interface_language"
+
 // SLA settings row keys (migration 0014, issue #211).
 const (
 	settingsKeySLAEnabled        = "sla_enabled"
@@ -82,6 +88,52 @@ func (ss *settingsStore) SetInternalCommentBg(ctx context.Context, color string)
 		return fmt.Errorf("sqlite: set %s: %w", settingsKeyInternalCommentBg, err)
 	}
 	return nil
+}
+
+// GetInterfaceLanguage returns the instance interface language (issue #335).
+// An absent, empty, or unknown value answers DefaultInterfaceLanguage, so the
+// read never fails for configuration reasons and always answers a language
+// the binary ships — the same degradation the internal-comment background read
+// uses for a hand-edited database.
+func (ss *settingsStore) GetInterfaceLanguage(ctx context.Context) (string, error) {
+	value, err := ss.settingValue(ctx, settingsKeyInterfaceLanguage)
+	if err != nil {
+		return "", err
+	}
+	if !isShippedInterfaceLanguage(value) {
+		return application.DefaultInterfaceLanguage, nil
+	}
+	return value, nil
+}
+
+// SetInterfaceLanguage upserts the interface-language row. A code no shipped
+// catalogue answers is refused rather than persisted: this is the layer the
+// NEXT read will answer from, so accepting it would leave the instance
+// declaring a language it cannot render while both the write and the read
+// reported success.
+func (ss *settingsStore) SetInterfaceLanguage(ctx context.Context, language string) error {
+	if !isShippedInterfaceLanguage(language) {
+		return fmt.Errorf("sqlite: set %s: unsupported language %q", settingsKeyInterfaceLanguage, language)
+	}
+	_, err := ss.db.ExecContext(ctx, `
+		INSERT INTO settings (key, value) VALUES (?, ?)
+		ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+		settingsKeyInterfaceLanguage, language)
+	if err != nil {
+		return fmt.Errorf("sqlite: set %s: %w", settingsKeyInterfaceLanguage, err)
+	}
+	return nil
+}
+
+// isShippedInterfaceLanguage reports whether code is one of the interface
+// languages an administrator may select (application.AllowedInterfaceLanguages).
+func isShippedInterfaceLanguage(code string) bool {
+	for _, allowed := range application.AllowedInterfaceLanguages() {
+		if code == allowed {
+			return true
+		}
+	}
+	return false
 }
 
 // GetSLAEnabled reports whether the per-category SLA is enabled. The row
