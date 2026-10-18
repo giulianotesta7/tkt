@@ -41,10 +41,14 @@ type TimelineItem struct {
 	ToLabel     string
 	// Summary retains the historical capitalized summary contract for callers
 	// that consume the view model directly. Narrative is the sentence-case
-	// action phrase rendered in the ticket timeline.
-	Summary    string
-	Narrative  string
-	ActorLabel string
+	// action phrase rendered in the ticket timeline; NarrativeMsg carries the
+	// SAME phrase as a catalogue reference (issue #335, S8), so the rendered
+	// timeline follows the instance language. Narrative stays the English
+	// fallback for a caller that renders the view model directly.
+	Summary      string
+	Narrative    string
+	NarrativeMsg Msg
+	ActorLabel   string
 	// StateClass carries a validated lifecycle state class for transition
 	// events. It never exposes arbitrary audit values (such as user IDs) in
 	// markup.
@@ -203,6 +207,7 @@ func (b *ViewBuilder) enrichTimeline(ctx context.Context, view *TicketView) erro
 			item.ActorLabel = item.Event.Actor
 		}
 		item.Narrative = eventSummary(item.Event)
+		item.NarrativeMsg = eventSummaryMsg(item.Event)
 		item.Summary = legacyEventSummary(item.Event)
 		if item.Event.Action == domain.ActionTransition && item.Event.ToValue != nil {
 			item.StateClass = *item.Event.ToValue
@@ -279,22 +284,28 @@ func (b *ViewBuilder) enrichTimeline(ctx context.Context, view *TicketView) erro
 			return err
 		}
 		item.Narrative = eventSummary(item.Event)
+		item.NarrativeMsg = eventSummaryMsg(item.Event)
 		item.Summary = legacyEventSummary(item.Event)
 		if field == "user" || field == "user_id" {
 			if item.ToLabel != "" {
 				item.Narrative = "assigned the ticket to " + item.ToLabel
+				item.NarrativeMsg = MsgRef("tickets.timeline.narrative.assigned_to", Text(item.ToLabel))
 				item.Summary = "Assigned to " + item.ToLabel
 			} else {
 				item.Narrative = "changed the ticket assignee"
+				item.NarrativeMsg = MsgRef("tickets.timeline.narrative.changed_assignee")
 				item.Summary = "Changed assignee"
 			}
 		} else if item.Event.Action == domain.ActionUpdate {
 			label := auditFieldLabel(field)
 			if item.ToLabel != "" && item.ToLabel != item.FromLabel {
 				item.Narrative = "changed " + strings.ToLower(label) + " to " + item.ToLabel
+				item.NarrativeMsg = MsgRef("tickets.timeline.narrative.changed_to",
+					Text(strings.ToLower(label)), Text(item.ToLabel))
 				item.Summary = "Changed " + label + " to " + item.ToLabel
 			} else {
 				item.Narrative = "changed " + strings.ToLower(label)
+				item.NarrativeMsg = MsgRef("tickets.timeline.narrative.changed", Text(strings.ToLower(label)))
 				item.Summary = "Changed " + label
 			}
 		}
@@ -439,6 +450,72 @@ func eventSummary(e *domain.AuditEvent) string {
 		}
 		return strings.ToLower(humanizeIdentifier(e.Action))
 	}
+}
+
+// eventSummaryMsg is the catalogue form of eventSummary: the same sentence-case
+// action phrase, expressed as a message reference so the ticket timeline can be
+// rendered in the active instance language (issue #335, S8). It deliberately
+// never includes the actor itself, mirroring eventSummary.
+func eventSummaryMsg(e *domain.AuditEvent) Msg {
+	switch e.Action {
+	case domain.ActionTransition:
+		if e.ToValue != nil {
+			if *e.ToValue == "in_progress" && e.FromValue != nil && isClosedState(*e.FromValue) {
+				return MsgRef("tickets.timeline.narrative.reopened")
+			}
+			return MsgRef("tickets.timeline.narrative.moved_to", timelineStateArg(*e.ToValue))
+		}
+		return MsgRef("tickets.timeline.narrative.changed_state")
+	case domain.ActionCreated:
+		return MsgRef("tickets.timeline.narrative.created")
+	case domain.ActionWorkflowAssignment:
+		return MsgRef("tickets.timeline.narrative.assigned")
+	case domain.ActionWorkflowStep:
+		return MsgRef("tickets.timeline.narrative.completed_step")
+	case domain.ActionWorkflowManualTask:
+		return MsgRef("tickets.timeline.narrative.completed_task")
+	case domain.ActionWorkflowRequesterForm:
+		return MsgRef("tickets.timeline.narrative.submitted_request")
+	case domain.ActionWorkflowAssigneeForm:
+		return MsgRef("tickets.timeline.narrative.submitted_work")
+	default:
+		if e.Field != nil {
+			return MsgRef("tickets.timeline.narrative.changed", Text(strings.ToLower(auditFieldLabel(strings.ToLower(strings.TrimSpace(*e.Field))))))
+		}
+		return MsgRef("tickets.timeline.narrative.changed", Text(strings.ToLower(humanizeIdentifier(e.Action))))
+	}
+}
+
+// timelineStateKey names the catalogue key of a lifecycle state inside a
+// narrative sentence. The English copy there is lowercase ("moved the ticket
+// to in progress"), unlike the standalone badge label, so it is a distinct key
+// rather than a reuse of label.state.*. An unknown state has no key and its raw
+// value is interpolated instead.
+func timelineStateKey(state string) string {
+	switch state {
+	case string(domain.StateNew):
+		return "tickets.timeline.state.new"
+	case string(domain.StateInProgress):
+		return "tickets.timeline.state.in_progress"
+	case string(domain.StateResolved):
+		return "tickets.timeline.state.resolved"
+	case string(domain.StateClosed):
+		return "tickets.timeline.state.closed"
+	case string(domain.StateCancelled):
+		return "tickets.timeline.state.cancelled"
+	default:
+		return ""
+	}
+}
+
+// timelineStateArg resolves a transition target into a translated placeholder
+// when the state is known, and into its raw value otherwise, so an unrecognized
+// state never renders a raw catalogue key.
+func timelineStateArg(state string) Arg {
+	if key := timelineStateKey(state); key != "" {
+		return Copy(key)
+	}
+	return Text(state)
 }
 
 func isClosedState(s string) bool {
