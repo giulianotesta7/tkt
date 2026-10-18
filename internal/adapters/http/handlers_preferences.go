@@ -86,7 +86,7 @@ func (h *PreferencesHandlers) update(w http.ResponseWriter, r *http.Request) {
 	}
 	err := h.preferences.SetDefaultQueueOrder(r.Context(), *userFromContext(r.Context()), r.Form.Get("queue_order"))
 	if err != nil {
-		status, msg := mapError(err)
+		status, msg := mapErrorFor(r, err)
 		if status == http.StatusInternalServerError {
 			http.Error(w, msg, status)
 			return

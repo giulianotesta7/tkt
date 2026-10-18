@@ -205,7 +205,7 @@ func (h *SettingsHandlers) updateAppearance(w http.ResponseWriter, r *http.Reque
 	}
 	err := h.settings.SetInternalCommentBg(r.Context(), *userFromContext(r.Context()), r.Form.Get("internal_comment_bg"))
 	if err != nil {
-		status, msg := mapError(err)
+		status, msg := mapErrorFor(r, err)
 		if status == http.StatusInternalServerError {
 			http.Error(w, msg, status)
 			return
@@ -264,7 +264,7 @@ func (h *SettingsHandlers) updateSLA(w http.ResponseWriter, r *http.Request) {
 	// is nothing to compensate for here.
 	err := h.sla.SetGlobalConfiguration(r.Context(), actor, enabled, percent, policies)
 	if err != nil {
-		status, msg := mapError(err)
+		status, msg := mapErrorFor(r, err)
 		if status == http.StatusInternalServerError {
 			http.Error(w, msg, status)
 			return
@@ -341,7 +341,7 @@ func (h *SettingsHandlers) updateCalendar(w http.ResponseWriter, r *http.Request
 		err = h.sla.SetSLACalendar(r.Context(), actor, calendar)
 	}
 	if err != nil {
-		status, msg := mapError(err)
+		status, msg := mapErrorFor(r, err)
 		if status == http.StatusInternalServerError {
 			http.Error(w, msg, status)
 			return

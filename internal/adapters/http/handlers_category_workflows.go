@@ -12,6 +12,7 @@ import (
 
 	"github.com/giulianotesta7/tkt/internal/application"
 	"github.com/giulianotesta7/tkt/internal/domain"
+	"github.com/giulianotesta7/tkt/internal/i18n"
 )
 
 // CategoryWorkflowHandlers owns the closed builder HTTP surface. It mutates the
@@ -99,7 +100,7 @@ func (h *CategoryWorkflowHandlers) get(w http.ResponseWriter, r *http.Request) {
 	}
 	draft, revision, err := h.workflows.GetForBuilder(r.Context(), *userFromContext(r.Context()), categoryID)
 	if err != nil {
-		http.Error(w, mapErrorMsg(err), statusFor(err))
+		http.Error(w, mapErrorMsg(r, err), statusFor(err))
 		return
 	}
 	desks := h.deskOptions(r)
@@ -125,11 +126,11 @@ func (h *CategoryWorkflowHandlers) clone(w http.ResponseWriter, r *http.Request)
 	}
 	sourceID, err := strconv.ParseInt(r.Form.Get("source_category_id"), 10, 64)
 	if err != nil || sourceID <= 0 {
-		h.renderCloneRefused(w, r, targetID, "choose a source category to clone from", http.StatusUnprocessableEntity)
+		h.renderCloneRefused(w, r, targetID, i18n.T(requestLocale(r), "error.clone_source_required"), http.StatusUnprocessableEntity)
 		return
 	}
 	if err := h.workflows.Clone(r.Context(), *userFromContext(r.Context()), sourceID, targetID); err != nil {
-		h.renderCloneRefused(w, r, targetID, mapErrorMsg(err), statusFor(err))
+		h.renderCloneRefused(w, r, targetID, mapErrorMsg(r, err), statusFor(err))
 		return
 	}
 	saveFeedback(w, r, saveFeedbackSaved, saveFeedbackSuccess)
@@ -141,7 +142,7 @@ func (h *CategoryWorkflowHandlers) clone(w http.ResponseWriter, r *http.Request)
 func (h *CategoryWorkflowHandlers) renderCloneRefused(w http.ResponseWriter, r *http.Request, targetID int64, message string, status int) {
 	draft, revision, err := h.workflows.GetForBuilder(r.Context(), *userFromContext(r.Context()), targetID)
 	if err != nil {
-		http.Error(w, mapErrorMsg(err), statusFor(err))
+		http.Error(w, mapErrorMsg(r, err), statusFor(err))
 		return
 	}
 	h.renderBuilder(w, r, targetID, draft, revision, h.deskOptions(r), nil, "", selectedStepIndex(r, len(draft)), message, status)
@@ -179,7 +180,7 @@ func (h *CategoryWorkflowHandlers) post(w http.ResponseWriter, r *http.Request) 
 		}
 		_, current, err := h.workflows.GetForBuilder(r.Context(), *userFromContext(r.Context()), categoryID)
 		if err != nil {
-			http.Error(w, mapErrorMsg(err), statusFor(err))
+			http.Error(w, mapErrorMsg(r, err), statusFor(err))
 			return
 		}
 		revision = current
@@ -267,7 +268,7 @@ func (h *CategoryWorkflowHandlers) post(w http.ResponseWriter, r *http.Request) 
 			return
 		}
 		if err != nil {
-			http.Error(w, mapErrorMsg(err), statusFor(err))
+			http.Error(w, mapErrorMsg(r, err), statusFor(err))
 			return
 		}
 		if len(publishIssues) > 0 {
@@ -277,7 +278,7 @@ func (h *CategoryWorkflowHandlers) post(w http.ResponseWriter, r *http.Request) 
 		revision = newRevision
 		h.afterMutation(w, r, categoryID, draft, revision, desks, nil, saveFeedbackPublished, selection)
 	default:
-		h.render(w, r, categoryID, draft, revision, desks, []domain.WorkflowValidationIssue{{Step: 1, Field: "action", Message: "unknown workflow action"}}, "", selection, http.StatusUnprocessableEntity)
+		h.render(w, r, categoryID, draft, revision, desks, []domain.WorkflowValidationIssue{{Step: 1, Field: "action", Message: i18n.T(requestLocale(r), "error.unknown_workflow_action")}}, "", selection, http.StatusUnprocessableEntity)
 	}
 }
 
@@ -321,7 +322,7 @@ func (h *CategoryWorkflowHandlers) persistBuilderDraft(w http.ResponseWriter, r 
 		return false
 	}
 	if err != nil {
-		http.Error(w, mapErrorMsg(err), statusFor(err))
+		http.Error(w, mapErrorMsg(r, err), statusFor(err))
 		return false
 	}
 	*revision = next
@@ -334,7 +335,7 @@ func (h *CategoryWorkflowHandlers) persistBuilderDraft(w http.ResponseWriter, r 
 func (h *CategoryWorkflowHandlers) renderDraftConflict(w http.ResponseWriter, r *http.Request, categoryID int64, selection int) {
 	fresh, revision, err := h.workflows.GetForBuilder(r.Context(), *userFromContext(r.Context()), categoryID)
 	if err != nil {
-		http.Error(w, mapErrorMsg(err), statusFor(err))
+		http.Error(w, mapErrorMsg(r, err), statusFor(err))
 		return
 	}
 	h.render(w, r, categoryID, fresh, revision, h.deskOptions(r),
@@ -403,7 +404,7 @@ func (h *CategoryWorkflowHandlers) render(w http.ResponseWriter, r *http.Request
 func (h *CategoryWorkflowHandlers) renderBuilder(w http.ResponseWriter, r *http.Request, categoryID int64, draft domain.WorkflowDefinition, revision int64, desks []domain.Desk, issues []domain.WorkflowValidationIssue, live string, focus int, cloneError string, status int) {
 	category, err := h.categories.GetByID(r.Context(), categoryID)
 	if err != nil {
-		http.Error(w, mapErrorMsg(err), statusFor(err))
+		http.Error(w, mapErrorMsg(r, err), statusFor(err))
 		return
 	}
 	selection := focus

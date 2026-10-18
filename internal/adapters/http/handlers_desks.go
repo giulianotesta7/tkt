@@ -52,7 +52,7 @@ func (h *DeskHandlers) addMember(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := h.desks.AddMember(r.Context(), *userFromContext(r.Context()), deskID, userID); err != nil {
-		status, message := mapError(err)
+		status, message := mapErrorFor(r, err)
 		if h.renderDeskDrawer(w, r, deskID, message, status) {
 			return
 		}
@@ -86,7 +86,7 @@ func (h *DeskHandlers) removeMember(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := h.desks.RemoveMember(r.Context(), *userFromContext(r.Context()), deskID, userID); err != nil {
-		status, message := mapError(err)
+		status, message := mapErrorFor(r, err)
 		if h.renderDeskDrawer(w, r, deskID, message, status) {
 			return
 		}

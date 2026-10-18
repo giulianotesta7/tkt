@@ -66,7 +66,7 @@ func (h *AuthHandlers) login(w http.ResponseWriter, r *http.Request) {
 
 	session, err := h.auth.Login(r.Context(), email, password)
 	if err != nil {
-		status, msg := mapError(err)
+		status, msg := mapErrorFor(r, err)
 		if status == http.StatusInternalServerError {
 			http.Error(w, msg, status)
 			return
@@ -144,7 +144,7 @@ func (h *AuthHandlers) setup(w http.ResponseWriter, r *http.Request) {
 			redirect(w, r, "/login")
 			return
 		}
-		status, msg := mapError(err)
+		status, msg := mapErrorFor(r, err)
 		if status == http.StatusInternalServerError {
 			http.Error(w, msg, status)
 			return

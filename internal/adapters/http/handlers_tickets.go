@@ -13,6 +13,7 @@ import (
 
 	"github.com/giulianotesta7/tkt/internal/application"
 	"github.com/giulianotesta7/tkt/internal/domain"
+	"github.com/giulianotesta7/tkt/internal/i18n"
 )
 
 // TicketHandlers implement the ticket list, create, detail, edit, transition
@@ -794,7 +795,7 @@ func (h *TicketHandlers) newForm(w http.ResponseWriter, r *http.Request) {
 		if id := parseID(data.Values.CategoryID); id != 0 {
 			selected, findErr := h.catalog.FindCategory(r.Context(), id, h.workflows)
 			if findErr != nil {
-				http.Error(w, mapErrorMsg(findErr), statusFor(findErr))
+				http.Error(w, mapErrorMsg(r, findErr), statusFor(findErr))
 				return
 			}
 			data.Selected = selected
@@ -1021,14 +1022,14 @@ func (h *TicketHandlers) create(w http.ResponseWriter, r *http.Request) {
 	// the typed assignee validation error BEFORE any binding/validation and
 	// with ZERO writes (no ticket, pin, run, or audit results).
 	if r.Form.Has("user_id") || r.Form.Has("assignee_id") {
-		h.renderCreateError(w, r, "assignee", domain.ErrMsgCreateUnassignedOnly, http.StatusUnprocessableEntity)
+		h.renderCreateError(w, r, "assignee", i18n.T(requestLocale(r), "error.create_unassigned_only"), http.StatusUnprocessableEntity)
 		return
 	}
 	actor := *userFromContext(r.Context())
 
 	categoryID := parseID(r.Form.Get("category_id"))
 	if categoryID == 0 {
-		h.renderCreateError(w, r, "category", "category is required", http.StatusUnprocessableEntity)
+		h.renderCreateError(w, r, "category", i18n.T(requestLocale(r), "error.category_required"), http.StatusUnprocessableEntity)
 		return
 	}
 
@@ -1041,7 +1042,7 @@ func (h *TicketHandlers) create(w http.ResponseWriter, r *http.Request) {
 
 	_, err := h.tickets.Create(r.Context(), actor, in)
 	if err != nil {
-		status, msg := mapError(err)
+		status, msg := mapErrorFor(r, err)
 		if status == http.StatusInternalServerError {
 			http.Error(w, msg, status)
 			return
@@ -1098,7 +1099,7 @@ func (h *TicketHandlers) renderCreateError(w http.ResponseWriter, r *http.Reques
 		if id := parseID(data.Values.CategoryID); id != 0 {
 			selected, findErr := h.catalog.FindCategory(r.Context(), id, h.workflows)
 			if findErr != nil {
-				http.Error(w, mapErrorMsg(findErr), statusFor(findErr))
+				http.Error(w, mapErrorMsg(r, findErr), statusFor(findErr))
 				return
 			}
 			data.Selected = selected
@@ -1676,7 +1677,7 @@ func (h *TicketHandlers) show(w http.ResponseWriter, r *http.Request) {
 	}
 	data, status, err := h.detailDataFor(r, id)
 	if err != nil {
-		http.Error(w, mapErrorMsg(err), status)
+		http.Error(w, mapErrorMsg(r, err), status)
 		return
 	}
 	h.renderer.Render(w, r, "tickets_show", "ticket_detail", data, http.StatusOK)
@@ -1763,7 +1764,7 @@ func (h *TicketHandlers) addComment(w http.ResponseWriter, r *http.Request) {
 	// HX: swap the merged timeline fragment; full: back to the detail page.
 	data, status, err := h.detailDataFor(r, id)
 	if err != nil {
-		http.Error(w, mapErrorMsg(err), status)
+		http.Error(w, mapErrorMsg(r, err), status)
 		return
 	}
 	if r.Header.Get("HX-Request") != "" {
@@ -1820,14 +1821,14 @@ func (h *TicketHandlers) assign(w http.ResponseWriter, r *http.Request) {
 // renderDetailError re-renders the detail view with an inline error and the
 // mapped status (HX → ticket_detail fragment; full → tickets_show page).
 func (h *TicketHandlers) renderDetailError(w http.ResponseWriter, r *http.Request, id int64, err error) {
-	status, msg := mapError(err)
+	status, msg := mapErrorFor(r, err)
 	if status == http.StatusInternalServerError {
 		http.Error(w, msg, status)
 		return
 	}
 	data, _, dataErr := h.detailDataFor(r, id)
 	if dataErr != nil {
-		http.Error(w, mapErrorMsg(dataErr), statusFor(dataErr))
+		http.Error(w, mapErrorMsg(r, dataErr), statusFor(dataErr))
 		return
 	}
 	data.Error = msg
@@ -1847,7 +1848,7 @@ func (h *TicketHandlers) renderDetailError(w http.ResponseWriter, r *http.Reques
 func (h *TicketHandlers) afterMutation(w http.ResponseWriter, r *http.Request, id int64, fragment string) {
 	data, status, err := h.detailDataFor(r, id)
 	if err != nil {
-		http.Error(w, mapErrorMsg(err), status)
+		http.Error(w, mapErrorMsg(r, err), status)
 		return
 	}
 	if r.Header.Get("HX-Request") != "" {
@@ -1902,14 +1903,14 @@ func (h *TicketHandlers) update(w http.ResponseWriter, r *http.Request) {
 
 // renderEditError re-renders the inline detail editor with submitted values.
 func (h *TicketHandlers) renderEditError(w http.ResponseWriter, r *http.Request, id int64, err error) {
-	status, msg := mapError(err)
+	status, msg := mapErrorFor(r, err)
 	if status == http.StatusInternalServerError {
 		http.Error(w, msg, status)
 		return
 	}
 	data, _, dataErr := h.detailDataFor(r, id)
 	if dataErr != nil {
-		http.Error(w, mapErrorMsg(dataErr), statusFor(dataErr))
+		http.Error(w, mapErrorMsg(r, dataErr), statusFor(dataErr))
 		return
 	}
 	data.Error = msg
@@ -2020,12 +2021,12 @@ func (h *TicketHandlers) completeWorkflow(w http.ResponseWriter, r *http.Request
 	// Authorize the ticket read through the scoped view (404 for out-of-scope)
 	// before loading the execution snapshot.
 	if _, err := h.tickets.GetByID(r.Context(), actor, id); err != nil {
-		http.Error(w, mapErrorMsg(err), statusFor(err))
+		http.Error(w, mapErrorMsg(r, err), statusFor(err))
 		return
 	}
 	snap, err := h.workflowRuns.GetWorkflowExecution(r.Context(), id)
 	if err != nil {
-		http.Error(w, mapErrorMsg(err), statusFor(err))
+		http.Error(w, mapErrorMsg(r, err), statusFor(err))
 		return
 	}
 	if snap == nil {
@@ -2080,7 +2081,7 @@ func (h *TicketHandlers) completeWorkflow(w http.ResponseWriter, r *http.Request
 	// confirmation — no success toast and no native in-response flash.
 	data, status, err := h.detailDataFor(r, id)
 	if err != nil {
-		http.Error(w, mapErrorMsg(err), status)
+		http.Error(w, mapErrorMsg(r, err), status)
 		return
 	}
 	h.renderer.Render(w, r, "tickets_show", "ticket_detail", data, http.StatusOK)
@@ -2166,9 +2167,11 @@ func parsePositionalAnswers(form url.Values, fieldCount int) (application.RawPos
 	return raw, nil
 }
 
-// mapErrorMsg returns the mapped message; statusFor the mapped status.
-func mapErrorMsg(err error) string {
-	_, msg := mapError(err)
+// mapErrorMsg returns the mapped message in the request's interface language;
+// statusFor the mapped status. mapError keeps its English contract for the
+// status table and internal callers.
+func mapErrorMsg(r *http.Request, err error) string {
+	_, msg := mapErrorFor(r, err)
 	return msg
 }
 

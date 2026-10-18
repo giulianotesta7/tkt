@@ -333,7 +333,7 @@ func (h *TicketHandlers) metricsView(w http.ResponseWriter, r *http.Request) {
 	hx := r.Header.Get("HX-Request") != ""
 	data, err := h.metricsData(r)
 	if err != nil {
-		status, message := mapError(err)
+		status, message := mapErrorFor(r, err)
 		if hx && status == http.StatusUnprocessableEntity {
 			status = http.StatusOK
 		}

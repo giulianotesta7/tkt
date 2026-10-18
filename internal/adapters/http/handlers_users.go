@@ -380,7 +380,7 @@ func (h *UserHandlers) editForm(w http.ResponseWriter, r *http.Request) {
 	actor := *userFromContext(r.Context())
 	u, err := h.users.GetByID(r.Context(), id)
 	if err != nil {
-		http.Error(w, mapErrorMsg(err), statusFor(err))
+		http.Error(w, mapErrorMsg(r, err), statusFor(err))
 		return
 	}
 	policy := application.NewPolicy()
@@ -389,7 +389,7 @@ func (h *UserHandlers) editForm(w http.ResponseWriter, r *http.Request) {
 		targetRole = domain.RoleUser
 	}
 	if targetRole == domain.RoleRoot {
-		http.Error(w, mapErrorMsg(domain.NewRootProtectedError()), http.StatusForbidden)
+		http.Error(w, mapErrorMsg(r, domain.NewRootProtectedError()), http.StatusForbidden)
 		return
 	}
 	if !policy.CanManageUser(actor.Role, targetRole) {
@@ -502,7 +502,7 @@ func (h *UserHandlers) delete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := h.users.Delete(r.Context(), *userFromContext(r.Context()), id); err != nil {
-		status, msg := mapError(err)
+		status, msg := mapErrorFor(r, err)
 		if status == http.StatusInternalServerError {
 			http.Error(w, msg, status)
 			return
@@ -514,7 +514,7 @@ func (h *UserHandlers) delete(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *UserHandlers) renderUsersCreationError(w http.ResponseWriter, r *http.Request, err error) {
-	status, msg := mapError(err)
+	status, msg := mapErrorFor(r, err)
 	if status == http.StatusInternalServerError {
 		http.Error(w, msg, status)
 		return
@@ -546,7 +546,7 @@ func (h *UserHandlers) renderUserFormError(w http.ResponseWriter, r *http.Reques
 		h.renderUsersCreationError(w, r, err)
 		return
 	}
-	status, msg := mapError(err)
+	status, msg := mapErrorFor(r, err)
 	if status == http.StatusInternalServerError {
 		http.Error(w, msg, status)
 		return
@@ -578,7 +578,7 @@ func userFormErrorField(err error) string {
 }
 
 func (h *UserHandlers) renderUsersDrawerError(w http.ResponseWriter, r *http.Request, id int64, err error) {
-	status, msg := mapError(err)
+	status, msg := mapErrorFor(r, err)
 	if status == http.StatusInternalServerError {
 		http.Error(w, msg, status)
 		return

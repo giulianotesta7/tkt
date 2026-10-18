@@ -214,7 +214,7 @@ func (h *CategoryHandlers) newForm(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if _, err := categoryStateFromRequest(r); err != nil {
-		http.Error(w, mapErrorMsg(err), statusFor(err))
+		http.Error(w, mapErrorMsg(r, err), statusFor(err))
 		return
 	}
 	d := h.newDrawerData(r, "category")
@@ -227,7 +227,7 @@ func (h *CategoryHandlers) newDepartmentForm(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	if _, err := categoryStateFromRequest(r); err != nil {
-		http.Error(w, mapErrorMsg(err), statusFor(err))
+		http.Error(w, mapErrorMsg(r, err), statusFor(err))
 		return
 	}
 	h.renderCategoryDrawer(w, r, h.newDrawerData(r, "department"))
@@ -239,7 +239,7 @@ func (h *CategoryHandlers) newDeskForm(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if _, err := categoryStateFromRequest(r); err != nil {
-		http.Error(w, mapErrorMsg(err), statusFor(err))
+		http.Error(w, mapErrorMsg(r, err), statusFor(err))
 		return
 	}
 	d := h.newDrawerData(r, "desk")
@@ -281,7 +281,7 @@ func (h *CategoryHandlers) editForm(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if _, err := categoryStateFromRequest(r); err != nil {
-		http.Error(w, mapErrorMsg(err), statusFor(err))
+		http.Error(w, mapErrorMsg(r, err), statusFor(err))
 		return
 	}
 	id, ok := categoryID(r)
@@ -291,7 +291,7 @@ func (h *CategoryHandlers) editForm(w http.ResponseWriter, r *http.Request) {
 	}
 	c, err := h.categories.GetByID(r.Context(), id)
 	if err != nil {
-		http.Error(w, mapErrorMsg(err), statusFor(err))
+		http.Error(w, mapErrorMsg(r, err), statusFor(err))
 		return
 	}
 	d := h.newDrawerData(r, "category")
@@ -318,7 +318,7 @@ func (h *CategoryHandlers) editDepartmentForm(w http.ResponseWriter, r *http.Req
 		return
 	}
 	if _, err := categoryStateFromRequest(r); err != nil {
-		http.Error(w, mapErrorMsg(err), statusFor(err))
+		http.Error(w, mapErrorMsg(r, err), statusFor(err))
 		return
 	}
 	id, ok := categoryID(r)
@@ -328,7 +328,7 @@ func (h *CategoryHandlers) editDepartmentForm(w http.ResponseWriter, r *http.Req
 	}
 	departments, err := h.catalog.ListDepartments(r.Context())
 	if err != nil {
-		http.Error(w, mapErrorMsg(err), statusFor(err))
+		http.Error(w, mapErrorMsg(r, err), statusFor(err))
 		return
 	}
 	for _, department := range departments {
@@ -348,7 +348,7 @@ func (h *CategoryHandlers) editDeskForm(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	if _, err := categoryStateFromRequest(r); err != nil {
-		http.Error(w, mapErrorMsg(err), statusFor(err))
+		http.Error(w, mapErrorMsg(r, err), statusFor(err))
 		return
 	}
 	id, ok := categoryID(r)
@@ -358,7 +358,7 @@ func (h *CategoryHandlers) editDeskForm(w http.ResponseWriter, r *http.Request) 
 	}
 	departments, err := h.catalog.ListDepartments(r.Context())
 	if err != nil {
-		http.Error(w, mapErrorMsg(err), statusFor(err))
+		http.Error(w, mapErrorMsg(r, err), statusFor(err))
 		return
 	}
 	departmentIDs := make([]int64, 0, len(departments)+1)
@@ -372,7 +372,7 @@ func (h *CategoryHandlers) editDeskForm(w http.ResponseWriter, r *http.Request) 
 	for _, departmentID := range departmentIDs {
 		desks, listErr := h.catalog.ListDesks(r.Context(), departmentID)
 		if listErr != nil {
-			http.Error(w, mapErrorMsg(listErr), statusFor(listErr))
+			http.Error(w, mapErrorMsg(r, listErr), statusFor(listErr))
 			return
 		}
 		for _, desk := range desks {
@@ -467,7 +467,7 @@ func (h *CategoryHandlers) delete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := h.categories.DeleteFor(r.Context(), *userFromContext(r.Context()), id); err != nil {
-		status, msg := mapError(err)
+		status, msg := mapErrorFor(r, err)
 		if status == http.StatusInternalServerError {
 			http.Error(w, msg, status)
 			return
@@ -480,7 +480,7 @@ func (h *CategoryHandlers) delete(w http.ResponseWriter, r *http.Request) {
 
 // renderCatalogFormError re-renders a catalog drawer with submitted values.
 func (h *CategoryHandlers) renderCatalogFormError(w http.ResponseWriter, r *http.Request, kind string, id int64, err error) {
-	status, msg := mapError(err)
+	status, msg := mapErrorFor(r, err)
 	if status == http.StatusInternalServerError {
 		http.Error(w, msg, status)
 		return
@@ -533,7 +533,7 @@ func (h *CategoryHandlers) renderCategoriesIndexError(w http.ResponseWriter, r *
 func (h *CategoryHandlers) renderIndex(w http.ResponseWriter, r *http.Request, message string, status int) {
 	data, err := h.categoryIndexData(r, message)
 	if err != nil {
-		http.Error(w, mapErrorMsg(err), statusFor(err))
+		http.Error(w, mapErrorMsg(r, err), statusFor(err))
 		return
 	}
 	h.renderer.Render(w, r, "categories_index", "", data, status)
@@ -922,7 +922,7 @@ func (h *CategoryHandlers) renderCategoryDrawerStatus(w http.ResponseWriter, r *
 		}
 	}
 	if data.ReadError != nil {
-		http.Error(w, mapErrorMsg(data.ReadError), statusFor(data.ReadError))
+		http.Error(w, mapErrorMsg(r, data.ReadError), statusFor(data.ReadError))
 		return
 	}
 	if r.Header.Get("HX-Request") != "" {
@@ -933,7 +933,7 @@ func (h *CategoryHandlers) renderCategoryDrawerStatus(w http.ResponseWriter, r *
 	}
 	index, err := h.categoryIndexData(r, "")
 	if err != nil {
-		http.Error(w, mapErrorMsg(err), statusFor(err))
+		http.Error(w, mapErrorMsg(r, err), statusFor(err))
 		return
 	}
 	index.Drawer = data
@@ -946,7 +946,7 @@ func (h *CategoryHandlers) redirectCategoryMutation(w http.ResponseWriter, r *ht
 	}
 	state, err := categoryStateFromValues(r.Form)
 	if err != nil {
-		http.Error(w, mapErrorMsg(err), statusFor(err))
+		http.Error(w, mapErrorMsg(r, err), statusFor(err))
 		return true
 	}
 	if r.Header.Get("HX-Request") == "" {
@@ -1041,7 +1041,7 @@ func (h *CategoryHandlers) deleteDepartment(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	if err := h.catalog.DeleteDepartmentFor(r.Context(), *userFromContext(r.Context()), id); err != nil {
-		h.renderCategoriesIndexError(w, r, mapErrorMsg(err), statusFor(err))
+		h.renderCategoriesIndexError(w, r, mapErrorMsg(r, err), statusFor(err))
 		return
 	}
 	h.redirectCategoryMutation(w, r)
@@ -1106,7 +1106,7 @@ func (h *CategoryHandlers) deleteDesk(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := h.catalog.DeleteDeskFor(r.Context(), *userFromContext(r.Context()), id); err != nil {
-		h.renderCategoriesIndexError(w, r, mapErrorMsg(err), statusFor(err))
+		h.renderCategoriesIndexError(w, r, mapErrorMsg(r, err), statusFor(err))
 		return
 	}
 	h.redirectCategoryMutation(w, r)
