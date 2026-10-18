@@ -167,12 +167,17 @@ func TestTranslatorAnswersShippedCopy(t *testing.T) {
 
 // templateKeyRef matches a catalogue key referenced from a template:
 // {{t "area.component.element"}}.
-var templateKeyRef = regexp.MustCompile(`\bt\s+"([a-z][a-z0-9]*(?:\.[a-z0-9]+)+)"`)
+var templateKeyRef = regexp.MustCompile(`\btf?\s+"([a-z][a-z0-9_]*(?:\.[a-z0-9_]+)+)"`)
+
+// scriptKeyRef matches a catalogue key referenced from a browser script:
+// window.tktI18n.t("js.area.key") (the server ships the messages as the
+// script prologue, so a script references a key instead of holding copy).
+var scriptKeyRef = regexp.MustCompile(`\bt\(\s*"([a-z][a-z0-9_]*(?:\.[a-z0-9_]+)+)"`)
 
 // goKeyRef matches a catalogue key referenced from Go: i18n.T(locale, "key"),
 // i18n.T("key") is not a form the package offers (a locale is always
 // explicit), and a Translator method call T("key") is matched too.
-var goKeyRef = regexp.MustCompile(`\bT\(\s*(?:[A-Za-z0-9_.]+\s*,\s*)?"([a-z][a-z0-9]*(?:\.[a-z0-9]+)+)"`)
+var goKeyRef = regexp.MustCompile(`\bT\(\s*(?:[A-Za-z0-9_.]+\s*,\s*)?"([a-z][a-z0-9_]*(?:\.[a-z0-9_]+)+)"`)
 
 // TestEveryCataloguedKeyIsReferencedAndEveryReferenceIsCatalogued is the
 // coverage half of S10: the parity test only proves the catalogues agree with
@@ -181,9 +186,10 @@ var goKeyRef = regexp.MustCompile(`\bT\(\s*(?:[A-Za-z0-9_.]+\s*,\s*)?"([a-z][a-z
 // would render the fallback label in production. Both directions fail here.
 //
 // The scan is deliberately literal: templates must call t with a quoted key,
-// and Go code must name a key through T(...). JavaScript copy is NOT scanned —
-// it is not catalogue-backed yet (a later slice passes the strings in from the
-// server).
+// Go code must name a key through T(...), and a browser script reads its copy
+// through window.tktI18n.t("js...") — the only namespaces a surface may use.
+// A browser script holding an English literal is caught by review, not here:
+// its copy now comes from the server prologue.
 func TestEveryCataloguedKeyIsReferencedAndEveryReferenceIsCatalogued(t *testing.T) {
 	root := filepath.Join("..", "..")
 	referenced := map[string][]string{}
@@ -211,6 +217,8 @@ func TestEveryCataloguedKeyIsReferencedAndEveryReferenceIsCatalogued(t *testing.
 			return scanFile(path, templateKeyRef, collect)
 		case ".go":
 			return scanFile(path, goKeyRef, collect)
+		case ".js":
+			return scanFile(path, scriptKeyRef, collect)
 		}
 		return nil
 	})
@@ -220,6 +228,12 @@ func TestEveryCataloguedKeyIsReferencedAndEveryReferenceIsCatalogued(t *testing.
 
 	for _, locale := range Supported() {
 		for key := range catalogues[locale] {
+			// The label.* namespace is resolved at render time by the label
+			// helpers (label.<kind>.<value>), so no surface names those keys
+			// textually; the parity test still covers them.
+			if strings.HasPrefix(key, "label.") {
+				continue
+			}
 			if len(referenced[key]) == 0 {
 				t.Errorf("locale %q carries key %q that no template and no Go call references", locale, key)
 			}

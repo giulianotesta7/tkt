@@ -1231,12 +1231,6 @@ type detailData struct {
 	BackHref string
 }
 
-// StateBadge resolves the State row's badge for this detail's audience through
-// the single label source (issue #334).
-func (d detailData) StateBadge() stateBadge {
-	return newStateBadge(d.View.Ticket.State, d.RequesterView)
-}
-
 // QueueHref is the detail's "← Queue" target: the validated list return href
 // when the navigation carried one, else the plain queue. The fallback lives
 // here so a detailData built without a BackHref (the golden fixtures, an

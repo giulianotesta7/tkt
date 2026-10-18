@@ -16,7 +16,7 @@ func TestUsersStaticAssetsAreExplicitAndConditionallyLoaded(t *testing.T) {
 		}
 	}
 	mux := http.NewServeMux()
-	RegisterStatic(mux)
+	RegisterStatic(mux, nil)
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/static/users.html", nil))
 	if rec.Code != http.StatusNotFound {

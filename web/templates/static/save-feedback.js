@@ -9,13 +9,13 @@
   // A 403 is an impossible action, not a transient failure: the generic
   // "try again" copy would invite a retry that can only fail. Every other
   // failure (transport, validation, 5xx) keeps the retry-flavoured copy.
-  const GENERIC_FAILURE_MESSAGE = "Unable to save changes. Please try again.";
-  const FORBIDDEN_MESSAGE = "You do not have permission to make that change.";
+  const GENERIC_FAILURE_MESSAGE = window.tktI18n.t("js.save.generic_failure");
+  const FORBIDDEN_MESSAGE = window.tktI18n.t("js.save.forbidden");
   // A drawer panel load is a read, not a mutation. Its 4xx copy must not invite
   // a retry the server will keep rejecting, and it stays distinct from the
   // retry-flavoured copy used for a transient transport failure.
-  const PANEL_LOAD_FAILURE_MESSAGE = "This panel can't be opened. It may no longer be available.";
-  const PANEL_LOAD_RETRY_MESSAGE = "Unable to open this panel. Please try again.";
+  const PANEL_LOAD_FAILURE_MESSAGE = window.tktI18n.t("js.panel.unavailable");
+  const PANEL_LOAD_RETRY_MESSAGE = window.tktI18n.t("js.panel.retry");
 
   const makeRegion = () => {
     const region = document.createElement("div");
@@ -24,8 +24,7 @@
     region.setAttribute("role", "status");
     region.setAttribute("aria-live", "polite");
     region.setAttribute("aria-atomic", "true");
-    region.innerHTML =
-      '<span class="save-feedback-message"></span><button class="save-feedback-dismiss" type="button" aria-label="Dismiss confirmation">Dismiss</button>';
+    region.innerHTML = `<span class="save-feedback-message"></span><button class="save-feedback-dismiss" type="button" aria-label="${window.tktI18n.t("feedback.dismiss_label")}">${window.tktI18n.t("feedback.dismiss")}</button>`;
     return region;
   };
 

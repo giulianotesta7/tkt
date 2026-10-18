@@ -1,10 +1,10 @@
 {{define "workflow_pending"}}{{if .Pending.Active}}
 <section class="timeline-entry workflow-pending {{if .Pending.CanAct}}workflow-pending-action{{else}}workflow-pending-info{{end}}" id="workflow-pending" aria-labelledby="workflow-steps-title">
   <div class="workflow-checklist-head">
-    <h3 id="workflow-steps-title">Steps</h3>
-    <span class="workflow-checklist-count">{{.Pending.Done}} of {{.Pending.Total}} done</span>
+    <h3 id="workflow-steps-title">{{t "tickets.pending.steps"}}</h3>
+    <span class="workflow-checklist-count">{{tf "tickets.pending.done_of" .Pending.Done .Pending.Total}}</span>
   </div>
-  <div class="workflow-checklist-progress" role="progressbar" aria-valuemin="0" aria-valuemax="{{.Pending.Total}}" aria-valuenow="{{.Pending.Done}}" aria-label="Steps done">
+  <div class="workflow-checklist-progress" role="progressbar" aria-valuemin="0" aria-valuemax="{{.Pending.Total}}" aria-valuenow="{{.Pending.Done}}" aria-label="{{t "tickets.pending.steps_done"}}">
     <span style="width:{{.Pending.Percent}}%"></span>
   </div>
   <ul class="workflow-checklist-steps">
@@ -23,8 +23,8 @@
               hx-swap="outerHTML"
         >
 {{if eq .Kind "manual"}}          <div class="field workflow-pending-field">
-            <label class="visually-hidden" for="solution">Solution (optional)</label>
-            <textarea id="solution" name="solution" placeholder="Solution (optional)" rows="3"></textarea>
+            <label class="visually-hidden" for="solution">{{t "tickets.pending.solution_optional"}}</label>
+            <textarea id="solution" name="solution" placeholder="{{t "tickets.pending.solution_optional"}}" rows="3"></textarea>
           </div>
 {{else if eq .Kind "form"}}{{range $i, $f := .Fields}}          <div class="field workflow-pending-field">
             <label for="answer_{{$i}}">{{$f.Label}}</label>
@@ -50,7 +50,7 @@
               {{end}}</select
             >{{end}}
           </div>
-{{end}}{{end}}          <button class="btn primary workflow-pending-complete" type="submit">Complete</button>
+{{end}}{{end}}          <button class="btn primary workflow-pending-complete" type="submit">{{t "tickets.pending.complete"}}</button>
         </form>
 {{end}}{{end}}{{if eq .State "next"}}        <span class="workflow-checklist-meta">{{.Meta}}</span>
 {{end}}      </div>

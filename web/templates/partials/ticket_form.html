@@ -3,10 +3,10 @@
 {{if .Error}}  <div class="error-banner" role="alert">{{.Error}}</div>
 {{end}}  <div class="command-header ticket-create-command-header">
     <div class="detail-head">
-      <h1 class="command-title">Create a ticket</h1>
-      <p class="command-sub">Describe your request.</p>
+      <h1 class="command-title">{{t "tickets.form.title"}}</h1>
+      <p class="command-sub">{{t "tickets.form.subtitle"}}</p>
       <div class="title-inline ticket-create-title-field">
-        <label class="ticket-create-title-label" for="title">Title</label>
+        <label class="ticket-create-title-label" for="title">{{t "tickets.form.title_label"}}</label>
         <input type="text" id="title" name="title" value="{{.Values.Title}}" required autofocus class="title-input">
       </div>
     </div>
@@ -15,26 +15,26 @@
   <div class="cards">
     <div class="conversation">
       <section class="card ticket-create-description">
-        <h2><label for="description">Description</label></h2>
+        <h2><label for="description">{{t "tickets.form.description"}}</label></h2>
         <textarea id="description" name="description">{{.Values.Description}}</textarea>
-        <div class="ticket-create-actions"><button class="btn primary" type="submit">Create ticket</button></div>
+        <div class="ticket-create-actions"><button class="btn primary" type="submit">{{t "tickets.form.submit"}}</button></div>
       </section>
       <section class="card ticket-create-timeline">
-        <h2>Timeline</h2>
-        <p class="empty">No activity yet.</p>
+        <h2>{{t "tickets.form.timeline"}}</h2>
+        <p class="empty">{{t "tickets.form.no_activity"}}</p>
       </section>
     </div>
-    <aside class="evidence" aria-label="Ticket creation properties">
+    <aside class="evidence" aria-label="{{t "tickets.form.properties_label"}}">
       <div class="prop-list">
         <div class="prop-section">
-          <div class="prop-heading">Properties</div>
-          <div class="prop-row"><span class="prop-label">Requester</span><span class="prop-value">{{.CurrentUser.Name}}</span></div>
-          <div class="prop-row"><span class="prop-label">Category</span><span class="prop-value selected-catalog-path"><span>{{.Selected.DepartmentName}} / {{.Selected.DeskName}} / {{.Selected.Name}}</span><a href="/tickets/new">Change</a></span></div>
-          <div class="prop-row"><label class="prop-label" for="priority">Priority</label><select id="priority" name="priority" class="prop-select">{{range .Options.Priorities}}<option value="{{.}}" {{if eq . $.Values.Priority}}selected{{end}}>{{humanize .}}</option>{{end}}</select></div>
+          <div class="prop-heading">{{t "tickets.form.properties"}}</div>
+          <div class="prop-row"><span class="prop-label">{{t "tickets.form.requester"}}</span><span class="prop-value">{{.CurrentUser.Name}}</span></div>
+          <div class="prop-row"><span class="prop-label">{{t "tickets.form.category"}}</span><span class="prop-value selected-catalog-path"><span>{{.Selected.DepartmentName}} / {{.Selected.DeskName}} / {{.Selected.Name}}</span><a href="/tickets/new">{{t "tickets.form.change"}}</a></span></div>
+          <div class="prop-row"><label class="prop-label" for="priority">{{t "tickets.form.priority"}}</label><select id="priority" name="priority" class="prop-select">{{range .Options.Priorities}}<option value="{{.}}" {{if eq . $.Values.Priority}}selected{{end}}>{{priorityLabel .}}</option>{{end}}</select></div>
         </div>
         <div class="prop-section">
-          <div class="prop-heading">Assignment</div>
-          <div class="prop-row"><span class="prop-label">Assignee</span><span class="prop-value">Not assigned yet</span></div>
+          <div class="prop-heading">{{t "tickets.form.assignment"}}</div>
+          <div class="prop-row"><span class="prop-label">{{t "tickets.form.assignee"}}</span><span class="prop-value">{{t "tickets.form.not_assigned"}}</span></div>
         </div>
       </div>
     </aside>
@@ -42,25 +42,25 @@
 </form>{{else}}<form class="card form-card ticket-create-form" method="post" action="/tickets">
 {{if .Error}}<div class="error-banner" role="alert">{{.Error}}</div>{{end}}
   <div class="field">
-    <label for="category_id">Category</label>
+    <label for="category_id">{{t "tickets.form.category"}}</label>
     <select id="category_id" name="category_id" required>
-      <option value="">Select category</option>{{range .CategoryOffers}}{{if .Unavailable}}<option value="{{.ID}}" disabled>{{.Name}} — {{.Reason}}</option>{{else}}{{if eq (printf "%d" .ID) $.Values.CategoryID}}<option value="{{.ID}}" selected>{{.Name}}</option>{{else}}<option value="{{.ID}}">{{.Name}}</option>{{end}}{{end}}{{end}}
+      <option value="">{{t "tickets.form.select_category"}}</option>{{range .CategoryOffers}}{{if .Unavailable}}<option value="{{.ID}}" disabled>{{.Name}} — {{.Reason}}</option>{{else}}{{if eq (printf "%d" .ID) $.Values.CategoryID}}<option value="{{.ID}}" selected>{{.Name}}</option>{{else}}<option value="{{.ID}}">{{.Name}}</option>{{end}}{{end}}{{end}}
     </select>
   </div>
   <div class="field">
-    <label for="ticket-create-title">Title</label>
+    <label for="ticket-create-title">{{t "tickets.form.title_label"}}</label>
     <input type="text" id="ticket-create-title" name="title" value="{{.Values.Title}}" required autofocus>
   </div>
   <div class="field">
-    <label for="ticket-create-description">Description</label>
+    <label for="ticket-create-description">{{t "tickets.form.description"}}</label>
     <textarea id="ticket-create-description" name="description">{{.Values.Description}}</textarea>
   </div>
   <div class="field">
-    <label for="ticket-create-priority">Priority</label>
+    <label for="ticket-create-priority">{{t "tickets.form.priority"}}</label>
     <select id="ticket-create-priority" name="priority">
-      {{range .Options.Priorities}}<option value="{{.}}" {{if eq . $.Values.Priority}}selected{{end}}>{{humanize .}}</option>{{end}}
+      {{range .Options.Priorities}}<option value="{{.}}" {{if eq . $.Values.Priority}}selected{{end}}>{{priorityLabel .}}</option>{{end}}
     </select>
   </div>
-  <button class="btn primary" type="submit">Create ticket</button>
+  <button class="btn primary" type="submit">{{t "tickets.form.submit"}}</button>
 </form>{{end}}
 {{end}}

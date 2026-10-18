@@ -65,19 +65,54 @@ func humanizeLabel(value any) string {
 // visible label, one label per audience (issue #334). The requester audience
 // owns its vocabulary — "Received" for a newly created ticket and the
 // sentence-case "In progress" its card list already used — while staff keep
-// the shared humanized label ("New", "In Progress"). Every state surface
-// renders through here so a list and a detail never name one state twice for
-// the same audience.
-func ticketStateLabel(value any, requester bool) string {
+// the shared label ("New", "In Progress"). Every state surface renders through
+// here so a list and a detail never name one state twice for the same audience.
+// Both vocabularies live in the message catalogue; an unrecognized state still
+// degrades to the humanized identifier.
+func ticketStateLabel(tr i18n.Translator, value any, requester bool) string {
+	state := strings.ToLower(strings.TrimSpace(fmt.Sprint(value)))
 	if requester {
-		switch domain.State(fmt.Sprint(value)) {
-		case domain.StateNew:
-			return "Received"
-		case domain.StateInProgress:
-			return "In progress"
+		if message, ok := tr.Lookup("label.state.requester." + state); ok {
+			return message
+		}
+	}
+	if message, ok := tr.Lookup("label.state." + state); ok {
+		return message
+	}
+	return humanizeLabel(value)
+}
+
+// labeledValue resolves one domain identifier through its catalogue namespace
+// (label.<kind>.<value>), falling back to the humanized identifier. The
+// fallback is what keeps a genuinely free identifier — a value no catalogue
+// names — readable instead of blank.
+func labeledValue(tr i18n.Translator, kind string, value any) string {
+	id := strings.ToLower(strings.TrimSpace(fmt.Sprint(value)))
+	if id != "" {
+		if message, ok := tr.Lookup("label." + kind + "." + id); ok {
+			return message
 		}
 	}
 	return humanizeLabel(value)
+}
+
+// resolveMsg renders one application message reference through the active
+// catalogue: its key names the sentence and each argument is either a resolved
+// value (never translated) or a nested catalogue key (a translated
+// placeholder), so a composed sentence carries no English of its own.
+func resolveMsg(tr i18n.Translator, m application.Msg) string {
+	if m.Key == "" {
+		return ""
+	}
+	args := make([]any, len(m.Args))
+	for i, arg := range m.Args {
+		if arg.Key != "" {
+			args[i] = tr.T(arg.Key)
+			continue
+		}
+		args[i] = arg.Value
+	}
+	return tr.Tf(m.Key, args...)
 }
 
 // stateBadge is the state_badge partial's payload: the badge class (the raw
@@ -89,20 +124,20 @@ type stateBadge struct {
 
 // newStateBadge resolves one state for one audience through the single label
 // source.
-func newStateBadge(value any, requester bool) stateBadge {
+func newStateBadge(tr i18n.Translator, value any, requester bool) stateBadge {
 	state := fmt.Sprint(value)
-	return stateBadge{State: state, Label: ticketStateLabel(state, requester)}
+	return stateBadge{State: state, Label: ticketStateLabel(tr, state, requester)}
 }
 
 // resolveStateBadge is the partial's entry point. The staff list call sites
 // pass a raw state and get the staff label; an already-resolved payload (the
 // requester list and detail) passes through unchanged, so every badge keeps
 // one rendering path.
-func resolveStateBadge(value any) stateBadge {
+func resolveStateBadge(tr i18n.Translator, value any) stateBadge {
 	if badge, ok := value.(stateBadge); ok {
 		return badge
 	}
-	return newStateBadge(value, false)
+	return newStateBadge(tr, value, false)
 }
 
 // niceMetricsScale rounds the data maximum up to a friendly y-axis maximum
@@ -437,10 +472,6 @@ var templateFuncs = template.FuncMap{
 	"formatCardTime": formatCardTime,
 	"formatDatetime": formatDatetime,
 	"humanize":       humanizeLabel,
-	"stateBadge":     resolveStateBadge,
-	"requesterStateBadge": func(value any) stateBadge {
-		return newStateBadge(value, true)
-	},
 	"ticketNumber": func(n int) string {
 		return "TKT-" + strconv.Itoa(n)
 	},
@@ -530,6 +561,9 @@ type Renderer struct {
 	// any locale a tree was not parsed for.
 	fallback *templateTree
 	language InterfaceLanguageSource
+	// languageFailures deduplicates the renderer's own language read failure
+	// (R4-002) when no request middleware stamped one.
+	languageFailures languageReadLog
 	// fragments is the DEFAULT locale's shared fragment set, for a caller
 	// that renders one fragment outside a request (the metrics
 	// not-enough-history fixture). Render itself always resolves the active
@@ -595,12 +629,31 @@ func newRendererWithLanguage(fsys fs.FS, src InterfaceLanguageSource) (*Renderer
 // answers the code the shell declares in its lang attribute.
 func templateFuncsFor(locale string) template.FuncMap {
 	translator := i18n.New(locale)
-	funcs := make(template.FuncMap, len(templateFuncs)+2)
+	funcs := make(template.FuncMap, len(templateFuncs)+16)
 	for name, fn := range templateFuncs {
 		funcs[name] = fn
 	}
 	funcs["t"] = translator.T
 	funcs["locale"] = func() string { return translator.Locale() }
+	// tf interpolates the catalogue sentence with the values the surface passes
+	// in, so no Go or template call site owns a fragment of copy.
+	funcs["tf"] = translator.Tf
+	// msg renders one application message reference (key + args) in the active
+	// catalogue: the timeline narrative is decided in Go and translated here.
+	funcs["msg"] = func(m application.Msg) string { return resolveMsg(translator, m) }
+	// The label helpers resolve a domain identifier through the catalogue and
+	// keep humanize only for an identifier no catalogue names.
+	funcs["stateLabel"] = func(value any) string { return labeledValue(translator, "state", value) }
+	funcs["priorityLabel"] = func(value any) string { return labeledValue(translator, "priority", value) }
+	funcs["roleLabel"] = func(value any) string { return labeledValue(translator, "role", value) }
+	funcs["slaLabel"] = func(value any) string { return labeledValue(translator, "sla", value) }
+	funcs["stateBadge"] = func(value any) stateBadge { return resolveStateBadge(translator, value) }
+	funcs["audienceStateBadge"] = func(value any, requester bool) stateBadge {
+		return newStateBadge(translator, value, requester)
+	}
+	funcs["requesterStateBadge"] = func(value any) stateBadge {
+		return newStateBadge(translator, value, true)
+	}
 	return funcs
 }
 
@@ -651,19 +704,13 @@ func parseTemplateTree(fsys fs.FS, locale string) (*templateTree, error) {
 	return &templateTree{pages: pages, fragments: fragments}, nil
 }
 
-// activeLocale resolves the instance's interface language for one request. A
-// language read failure must not cost the page: the default locale answers it
-// and the failure is recorded, the same degradation a hand-edited value gets.
+// activeLocale resolves the instance's interface language for one request. The
+// request middleware stamps the language once per request (issue #335), so this
+// is usually a context read; a renderer used without that middleware falls back
+// to its own bounded settings read. Either way a failure must not cost the
+// page: the default locale answers it.
 func (r *Renderer) activeLocale(ctx context.Context) string {
-	if r.language == nil {
-		return i18n.Default
-	}
-	code, err := r.language.GetInterfaceLanguage(ctx)
-	if err != nil {
-		log.Printf("httpadapter: resolve interface language: %v", err)
-		return i18n.Default
-	}
-	return i18n.Normalize(code)
+	return requestInterfaceLanguage(ctx, r.language, &r.languageFailures)
 }
 
 // treeFor returns the parsed tree for locale, falling back to the default tree

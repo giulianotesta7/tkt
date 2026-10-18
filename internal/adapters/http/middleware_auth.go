@@ -3,12 +3,16 @@ package httpadapter
 import (
 	"context"
 	"errors"
+	"log"
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/giulianotesta7/tkt/internal/application"
 	"github.com/giulianotesta7/tkt/internal/domain"
+	"github.com/giulianotesta7/tkt/internal/i18n"
 )
 
 // sessionCookie is the session cookie name (design "HTTP Layer"):
@@ -41,6 +45,89 @@ func internalCommentBgFrom(ctx context.Context) string {
 	return s
 }
 
+// ctxKeyInterfaceLanguage carries the instance interface language read once per
+// request (issue #335, S8/S15). Stamping it here is what lets the renderer, the
+// timeline narrative, and every error message resolve the SAME language without
+// a second settings read per concern. It is stamped before the login/setup
+// branches because the auth shells are catalogue-rendered too.
+type ctxKeyInterfaceLanguage struct{}
+
+// interfaceLanguageFrom returns the interface language stamped by the
+// middleware and whether one was stamped at all.
+func interfaceLanguageFrom(ctx context.Context) (string, bool) {
+	language, ok := ctx.Value(ctxKeyInterfaceLanguage{}).(string)
+	return language, ok
+}
+
+const (
+	// interfaceLanguageReadTimeout bounds ONE settings read (R4-001): the
+	// instance language is a single indexed row, so a read that has not
+	// answered within this window is a failing store, and the request must
+	// proceed in the default language rather than hold the page open.
+	interfaceLanguageReadTimeout = 2 * time.Second
+	// interfaceLanguageEveryNthFailure re-arms the deduplicated failure log
+	// (R4-002): a persistent outage records its first line, then one line per
+	// this many failures, so an operator still sees that it is ongoing without
+	// a line per request.
+	interfaceLanguageEveryNthFailure = 100
+)
+
+// languageReadLog deduplicates the interface-language read failure (R4-002):
+// the first failure logs, the next success re-arms the counter, and a long
+// outage logs once every interfaceLanguageEveryNthFailure attempts.
+type languageReadLog struct {
+	mu      sync.Mutex
+	failing bool
+	count   int
+}
+
+func (l *languageReadLog) failed(err error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.count++
+	if l.failing && l.count%interfaceLanguageEveryNthFailure != 0 {
+		return
+	}
+	l.failing = true
+	log.Printf("httpadapter: resolve interface language: %v (falling back to %q)", err, i18n.Default)
+}
+
+func (l *languageReadLog) recovered() {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.failing = false
+	l.count = 0
+}
+
+// readInterfaceLanguage resolves the instance interface language through one
+// bounded settings read, degrading to the default language on any failure. It
+// is the single read path shared by the request middleware and a renderer built
+// without one, so both bound the read and both log a failure the same way.
+func readInterfaceLanguage(ctx context.Context, src InterfaceLanguageSource, failures *languageReadLog) string {
+	if src == nil {
+		return i18n.Default
+	}
+	readCtx, cancel := context.WithTimeout(ctx, interfaceLanguageReadTimeout)
+	defer cancel()
+	language, err := src.GetInterfaceLanguage(readCtx)
+	if err != nil {
+		failures.failed(err)
+		return i18n.Default
+	}
+	failures.recovered()
+	return i18n.Normalize(language)
+}
+
+// requestInterfaceLanguage resolves the language of ONE request: the value the
+// middleware stamped, or a bounded settings read when no middleware ran (the
+// renderer and the static handlers used in isolation).
+func requestInterfaceLanguage(ctx context.Context, src InterfaceLanguageSource, failures *languageReadLog) string {
+	if language, ok := interfaceLanguageFrom(ctx); ok {
+		return i18n.Normalize(language)
+	}
+	return readInterfaceLanguage(ctx, src, failures)
+}
+
 // SessionMiddleware enforces the session, bootstrap, and CSRF gates (D14,
 // D16, D17). It wraps the whole mux:
 //
@@ -61,6 +148,9 @@ type SessionMiddleware struct {
 	sessions application.SessionStore
 	users    application.UserStore
 	settings application.SettingsStore
+	// languageFailures deduplicates the interface-language read failure
+	// (R4-002) across requests.
+	languageFailures languageReadLog
 }
 
 // NewSessionMiddleware wires the middleware against the session, user, and
@@ -82,6 +172,16 @@ func (m *SessionMiddleware) Wrap(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 			return
 		}
+
+		// Issue #335: the instance interface language is read ONCE here and
+		// stamped on the request, so the renderer, the timeline narrative, the
+		// error mapper, and the catalogue-backed scripts all resolve one value
+		// without extra settings reads. It is stamped before the static and
+		// auth branches because the scripts and the auth shells are
+		// catalogue-rendered too.
+		r = r.WithContext(context.WithValue(r.Context(), ctxKeyInterfaceLanguage{},
+			readInterfaceLanguage(r.Context(), m.settings, &m.languageFailures)))
+
 		// Vendored static assets are public: the shell references them on
 		// every page and htmx must load before the session check matters.
 		if strings.HasPrefix(path, "/static/") {
