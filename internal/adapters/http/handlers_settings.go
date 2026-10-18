@@ -106,10 +106,10 @@ func calendarDayOptionsFromValues(values []string) []calendarDayOption {
 // delegating the checked mark to the caller's membership test.
 func calendarDayOptionsMarked(picked func(isoDay int) bool) []calendarDayOption {
 	options := make([]calendarDayOption, 0, len(calendarWeekDays))
-	for isoDay, d := range calendarWeekDays {
+	for isoDay := range calendarWeekDays {
 		options = append(options, calendarDayOption{
 			Value:   isoDay + 1,
-			Label:   d.String(),
+			Label:   "label.weekday." + strconv.Itoa(isoDay+1),
 			Checked: picked(isoDay + 1),
 		})
 	}
@@ -126,10 +126,12 @@ type appearanceOption struct {
 // colors in the canonical order (green is reserved for a future comment
 // type and is not offered).
 func appearanceOptions() []appearanceOption {
+	// Catalogue keys, not English labels (issue #335): the template renders
+	// them through t, so the language stays a presentation decision.
 	labels := map[string]string{
-		application.DefaultInternalCommentBg: "Blue",
-		"#EFE9FB":                            "Violet",
-		"#FFF6DC":                            "Yellow",
+		application.DefaultInternalCommentBg: "settings.appearance.color_blue",
+		"#EFE9FB":                            "settings.appearance.color_violet",
+		"#FFF6DC":                            "settings.appearance.color_yellow",
 	}
 	colors := application.AllowedInternalCommentBg()
 	out := make([]appearanceOption, 0, len(colors))

@@ -50,10 +50,11 @@ type queueOrderOption struct {
 // queueOrderOptions lists the selectable orders in the closed set's order,
 // reusing the exact labels the queue's own order control already shows.
 func queueOrderOptions() []queueOrderOption {
+	// Catalogue keys, not English labels (issue #335).
 	labels := map[string]string{
-		application.QueueOrderNewest:   "Newest first",
-		application.QueueOrderPriority: "Priority",
-		application.QueueOrderUrgency:  "Urgency",
+		application.QueueOrderNewest:   "preferences.order.newest",
+		application.QueueOrderPriority: "preferences.order.priority",
+		application.QueueOrderUrgency:  "preferences.order.urgency",
 	}
 	orders := application.AllowedQueueOrders()
 	out := make([]queueOrderOption, 0, len(orders))

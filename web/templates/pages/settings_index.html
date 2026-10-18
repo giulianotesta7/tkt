@@ -1,67 +1,67 @@
 {{define "content"}}
 <div class="command-header">
   <div>
-    <h1 class="command-title">Settings</h1>
-    <p class="command-sub">Instance configuration</p>
+    <h1 class="command-title">{{t "settings.title"}}</h1>
+    <p class="command-sub">{{t "settings.subtitle"}}</p>
   </div>
 </div>
 {{if .Error}}<div class="error-banner" role="alert">{{.Error}}</div>{{end}}
 <form class="card form-card" method="post" action="/settings/appearance">
-  <h2>Appearance</h2>
-  <p class="help">Background color for internal comments on ticket timelines.</p>
+  <h2>{{t "settings.appearance.title"}}</h2>
+  <p class="help">{{t "settings.appearance.help"}}</p>
   <div class="swatch-grid">
 {{range .Colors}}
     <label class="swatch">
     {{if eq $.Current .Value}}<input type="radio" name="internal_comment_bg" value="{{.Value}}" checked>{{else}}<input type="radio" name="internal_comment_bg" value="{{.Value}}">{{end}}
       <span class="swatch-chip" style="background:{{.Value}}"></span>
-      <span class="swatch-label">{{.Label}}</span>
+      <span class="swatch-label">{{t .Label}}</span>
     </label>
 {{end}}
   </div>
-  <button class="btn primary" type="submit">Save appearance</button>
+  <button class="btn primary" type="submit">{{t "settings.appearance.save"}}</button>
 </form>
 <form class="card form-card" method="post" action="/settings/sla">
-  <h2>Service level agreements</h2>
-  <p class="help">Defaults for new categories. Editing them does not change existing categories.</p>
+  <h2>{{t "settings.sla.title"}}</h2>
+  <p class="help">{{t "settings.sla.help"}}</p>
   <div class="field checkbox-field">
-    <label>{{if .SLAEnabled}}<input type="checkbox" name="sla_enabled" value="1" checked> Enable SLA targets{{else}}<input type="checkbox" name="sla_enabled" value="1"> Enable SLA targets{{end}}</label>
-    <p class="help">Off by default. Existing commitments keep rendering.</p>
+    <label>{{if .SLAEnabled}}<input type="checkbox" name="sla_enabled" value="1" checked> {{t "settings.sla.enable"}}{{else}}<input type="checkbox" name="sla_enabled" value="1"> {{t "settings.sla.enable"}}{{end}}</label>
+    <p class="help">{{t "settings.sla.enable_help"}}</p>
   </div>
   <div class="field">
-    <label for="sla_warning_percent">Warning threshold</label>
+    <label for="sla_warning_percent">{{t "settings.sla.warning"}}</label>
     <input type="number" id="sla_warning_percent" name="sla_warning_percent" class="sla-warning-input" min="1" max="99" value="{{.SLAWarningPercent}}">
-    <p class="help">At risk once this share of the target has elapsed.</p>
+    <p class="help">{{t "settings.sla.warning_help"}}</p>
   </div>
 {{template "sla_target_grid" .SLAGrid}}
-  <button class="btn primary" type="submit">Save SLA settings</button>
+  <button class="btn primary" type="submit">{{t "settings.sla.save"}}</button>
 </form>
 <form class="card form-card" method="post" action="/settings/calendar">
-  <h2>Working calendar</h2>
-  <p class="help">When the SLA clock runs. Frozen commitments keep their calendar.</p>
+  <h2>{{t "settings.calendar.title"}}</h2>
+  <p class="help">{{t "settings.calendar.help"}}</p>
   <fieldset class="checkbox-field calendar-days">
-    <legend>Working days</legend>
+    <legend>{{t "settings.calendar.days"}}</legend>
     <div class="calendar-day-list">
 {{range .CalendarDays}}
-      <label class="calendar-day">{{if .Checked}}<input type="checkbox" name="sla_calendar_days" value="{{.Value}}" checked>{{else}}<input type="checkbox" name="sla_calendar_days" value="{{.Value}}">{{end}} {{.Label}}</label>
+      <label class="calendar-day">{{if .Checked}}<input type="checkbox" name="sla_calendar_days" value="{{.Value}}" checked>{{else}}<input type="checkbox" name="sla_calendar_days" value="{{.Value}}">{{end}} {{t .Label}}</label>
 {{end}}
     </div>
-    <p class="help">At least one day.</p>
+    <p class="help">{{t "settings.calendar.days_help"}}</p>
   </fieldset>
   <div class="field-row">
     <div class="field">
-      <label for="sla_calendar_start">Start</label>
+      <label for="sla_calendar_start">{{t "settings.calendar.start"}}</label>
       <input type="time" id="sla_calendar_start" name="sla_calendar_start" value="{{.CalendarStart}}" step="60">
     </div>
     <div class="field">
-      <label for="sla_calendar_end">End</label>
+      <label for="sla_calendar_end">{{t "settings.calendar.end"}}</label>
       <input type="time" id="sla_calendar_end" name="sla_calendar_end" value="{{.CalendarEnd}}" step="60">
     </div>
   </div>
   <div class="field">
-    <label for="sla_calendar_timezone">Timezone</label>
+    <label for="sla_calendar_timezone">{{t "settings.calendar.timezone"}}</label>
     <input type="text" id="sla_calendar_timezone" name="sla_calendar_timezone" value="{{.CalendarTimezone}}" spellcheck="false" autocapitalize="off">
-    <p class="help">IANA name, e.g. America/Argentina/Buenos_Aires. Defaults to UTC.</p>
+    <p class="help">{{t "settings.calendar.timezone_help"}}</p>
   </div>
-  <button class="btn primary" type="submit">Save working calendar</button>
+  <button class="btn primary" type="submit">{{t "settings.calendar.save"}}</button>
 </form>
 {{end}}
