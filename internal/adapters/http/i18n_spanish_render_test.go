@@ -225,12 +225,12 @@ func TestSpanishSettingsScreen(t *testing.T) {
 		t.Fatalf("render settings in es: %d %s", rec.Code, rec.Body.String())
 	}
 	body := rec.Body.String()
-	for _, want := range []string{"Configuración", "Apariencia", "Acuerdos de nivel de servicio", "Calendario laboral", "Días laborables", "Zona horaria", "Azul", "Lunes"} {
+	for _, want := range []string{"Configuración", "Apariencia", "Acuerdos de nivel de servicio", "Calendario laboral", "Días laborables", "Zona horaria", "Azul", "Lunes", "Idioma de la interfaz", "Guardar idioma"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("Spanish settings page must render %q, got: %.800s", want, body)
 		}
 	}
-	if strings.Contains(body, ">Appearance<") || strings.Contains(body, ">Monday<") {
+	if strings.Contains(body, ">Appearance<") || strings.Contains(body, ">Monday<") || strings.Contains(body, ">Interface language<") {
 		t.Errorf("Spanish settings page must not render English labels")
 	}
 }
@@ -893,5 +893,118 @@ func TestSpanishMetricsLineChartChrome(t *testing.T) {
 	enHist := string(metricsHistogramChart(i18n.New("en"), buckets))
 	if !strings.Contains(enHist, "Resolved tickets by resolution duration in equal-width day bins.") {
 		t.Errorf("English histogram chrome changed: %.1200s", enHist)
+	}
+}
+
+// --- Locale-aware dates (issue #335, S12) ---
+//
+// Every date surface keeps the shape it renders today and only its month name
+// and ordering follow the instance language, so English output stays
+// byte-identical (S13) and a Spanish instance reads Spanish months.
+
+// TestSpanishCardTimestampKeepsItsShape renders the compact card timestamp
+// ("14:03 · 18 Oct") in Spanish: the clock and the day keep their positions and
+// the month name is the Spanish abbreviation.
+func TestSpanishCardTimestampKeepsItsShape(t *testing.T) {
+	at := time.Date(2026, 10, 18, 14, 3, 0, 0, time.UTC)
+
+	es := renderLocalized(t, "es", "tickets_index", "card_timestamp", at)
+	if !strings.Contains(es, "14:03 · 18 oct") {
+		t.Errorf("Spanish card timestamp must read %q, got: %s", "14:03 · 18 oct", es)
+	}
+	// The full date stays the accessible tooltip, unchanged: it carries no month
+	// name, so its shape is the same in both locales.
+	if !strings.Contains(es, `aria-label="14:03 · 18-10-2026"`) {
+		t.Errorf("Spanish card timestamp must keep the numeric full date, got: %s", es)
+	}
+
+	en := renderLocalized(t, "en", "tickets_index", "card_timestamp", at)
+	if !strings.Contains(en, "14:03 · 18 Oct") {
+		t.Errorf("English card timestamp must stay %q, got: %s", "14:03 · 18 Oct", en)
+	}
+}
+
+// TestSpanishTimestampKeepsItsNumericShape proves a surface whose shape carries
+// no month name renders identically in both locales: the ticket list, the
+// timeline and the detail header show "14:03 · 18-10-2026" either way.
+func TestSpanishTimestampKeepsItsNumericShape(t *testing.T) {
+	at := time.Date(2026, 10, 18, 14, 3, 0, 0, time.UTC)
+
+	es := renderLocalized(t, "es", "tickets_index", "timestamp", at)
+	en := renderLocalized(t, "en", "tickets_index", "timestamp", at)
+	if !strings.Contains(es, "14:03 · 18-10-2026") {
+		t.Errorf("Spanish timestamp must keep the numeric shape, got: %s", es)
+	}
+	if es != en {
+		t.Errorf("a monthless timestamp must render identically in both locales:\n es: %s\n en: %s", es, en)
+	}
+}
+
+// TestSpanishMetricsRangeUsesLocaleOrdering renders the metrics period range:
+// English keeps "Oct 12 – Oct 18, 2026" and Spanish reorders day and month
+// ("12 oct – 18 oct 2026"), which is the natural Spanish reading of the same
+// range.
+func TestSpanishMetricsRangeUsesLocaleOrdering(t *testing.T) {
+	rangeData := func() ticketMetricsData {
+		data := ticketMetricsSummaryData()
+		data.Metrics.Filter = application.TicketMetricsFilter{
+			Start: time.Date(2026, 10, 12, 0, 0, 0, 0, time.UTC),
+			End:   time.Date(2026, 10, 19, 0, 0, 0, 0, time.UTC),
+		}
+		return data
+	}
+
+	es := renderLocalized(t, "es", "ticket_metrics_detail", "ticket_metrics_summary_content", rangeData())
+	if !strings.Contains(es, "12 oct – 18 oct 2026") {
+		t.Errorf("Spanish metrics range must read %q, got: %.800s", "12 oct – 18 oct 2026", es)
+	}
+
+	en := renderLocalized(t, "en", "ticket_metrics_detail", "ticket_metrics_summary_content", rangeData())
+	if !strings.Contains(en, "Oct 12 – Oct 18, 2026") {
+		t.Errorf("English metrics range must stay %q, got: %.800s", "Oct 12 – Oct 18, 2026", en)
+	}
+
+	// A zero filter — the shape a rejected metrics submission re-renders with —
+	// keeps rendering exactly what it rendered before the catalogue owned the
+	// month names, four-digit year included (S13).
+	zero := ticketMetricsSummaryData()
+	zeroEN := renderLocalized(t, "en", "ticket_metrics_detail", "ticket_metrics_summary_content", zero)
+	if !strings.Contains(zeroEN, "Jan 1 – Dec 31, 0000") {
+		t.Errorf("English zero range must stay %q, got: %.800s", "Jan 1 – Dec 31, 0000", zeroEN)
+	}
+}
+
+// TestSpanishMetricsLineChartWeekLabels renders the weekly axis labels of the
+// created-vs-resolved chart: "Sep 14" in English, "14 sep" in Spanish.
+func TestSpanishMetricsLineChartWeekLabels(t *testing.T) {
+	weeks := []application.TicketMetricsWeek{{Start: time.Date(2026, 9, 14, 0, 0, 0, 0, time.UTC), Created: 2, Resolved: 1}}
+
+	es := string(metricsLineChart(i18n.New("es"), weeks))
+	if !strings.Contains(es, ">14 sep<") {
+		t.Errorf("Spanish chart label must read %q, got: %.1200s", "14 sep", es)
+	}
+	en := string(metricsLineChart(i18n.New("en"), weeks))
+	if !strings.Contains(en, ">Sep 14<") {
+		t.Errorf("English chart label must stay %q, got: %.1200s", "Sep 14", en)
+	}
+}
+
+// TestEveryMonthLabelResolvesInBothLocales walks all twelve months through the
+// rendered card timestamp, so a month the catalogue forgot degrades to a number
+// and fails here instead of shipping ("15 10" instead of "15 oct").
+func TestEveryMonthLabelResolvesInBothLocales(t *testing.T) {
+	esMonths := []string{"ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"}
+	enMonths := []string{"Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"}
+	for i := range esMonths {
+		at := time.Date(2026, time.Month(i+1), 15, 9, 30, 0, 0, time.UTC)
+
+		es := renderLocalized(t, "es", "tickets_index", "card_timestamp", at)
+		if want := "09:30 · 15 " + esMonths[i]; !strings.Contains(es, want) {
+			t.Errorf("month %d in Spanish must render %q, got: %s", i+1, want, es)
+		}
+		en := renderLocalized(t, "en", "tickets_index", "card_timestamp", at)
+		if want := "09:30 · 15 " + enMonths[i]; !strings.Contains(en, want) {
+			t.Errorf("month %d in English must render %q, got: %s", i+1, want, en)
+		}
 	}
 }

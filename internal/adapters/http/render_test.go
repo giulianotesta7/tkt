@@ -92,21 +92,23 @@ func TestHumanizeLabel(t *testing.T) {
 	}
 }
 
-// Card timestamp formatting (issue #122): cards show a compact exact UTC
-// label ("21:42 · 13 Sep") distinct from the global formatTime contract,
-// which remains the accessible full date.
+// TestFormatCardTime pins the English card timestamp (issue #122): cards show
+// a compact exact UTC label ("21:42 · 13 Sep") distinct from the global
+// formatTime contract, which remains the accessible full date. The localized
+// formatter keeps exactly those bytes for the default locale (S13).
 func TestFormatCardTime(t *testing.T) {
+	en := i18n.New(i18n.Default)
 	utc := time.Date(2025, 9, 13, 21, 42, 7, 0, time.UTC)
-	if got := formatCardTime(utc); got != "21:42 · 13 Sep" {
-		t.Errorf("formatCardTime(utc) = %q, want %q", got, "21:42 · 13 Sep")
+	if got := formatClockMonthDay(en, utc); got != "21:42 · 13 Sep" {
+		t.Errorf("formatClockMonthDay(en, utc) = %q, want %q", got, "21:42 · 13 Sep")
 	}
 	// Non-UTC instants convert to UTC before formatting (D7 display contract).
 	offset := time.FixedZone("test", -4*60*60)
-	if got := formatCardTime(time.Date(2025, 9, 13, 17, 42, 0, 0, offset)); got != "21:42 · 13 Sep" {
-		t.Errorf("formatCardTime(offset) = %q, want %q", got, "21:42 · 13 Sep")
+	if got := formatClockMonthDay(en, time.Date(2025, 9, 13, 17, 42, 0, 0, offset)); got != "21:42 · 13 Sep" {
+		t.Errorf("formatClockMonthDay(en, offset) = %q, want %q", got, "21:42 · 13 Sep")
 	}
-	if got := formatCardTime(time.Time{}); got != "" {
-		t.Errorf("formatCardTime(zero) = %q, want empty", got)
+	if got := formatClockMonthDay(en, time.Time{}); got != "" {
+		t.Errorf("formatClockMonthDay(en, zero) = %q, want empty", got)
 	}
 }
 

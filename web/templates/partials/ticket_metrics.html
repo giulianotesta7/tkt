@@ -1,6 +1,6 @@
 {{define "ticket_metrics"}}<section id="ticket-metrics" class="ticket-metrics ticket-metrics-summary" aria-label="{{t "ticket_metrics.summary.aria"}}">{{template "ticket_metrics_summary_content" .}}</section>{{end}}
 {{define "ticket_metrics_summary_content"}}<header class="ticket-metrics-summary-header">
-  <div class="ticket-metrics-summary-title"><h2>{{t "ticket_metrics.summary.title"}}</h2><span class="ticket-metrics-summary-range" data-week-start="{{.Metrics.Filter.Start.Format "2006-01-02"}}" data-week-end="{{(.Metrics.Filter.End.AddDate 0 0 -1).Format "2006-01-02"}}">{{.Metrics.Filter.Start.Format "Jan 2"}} – {{(.Metrics.Filter.End.AddDate 0 0 -1).Format "Jan 2, 2006"}}</span></div>
+  <div class="ticket-metrics-summary-title"><h2>{{t "ticket_metrics.summary.title"}}</h2><span class="ticket-metrics-summary-range" data-week-start="{{.Metrics.Filter.Start.Format "2006-01-02"}}" data-week-end="{{(.Metrics.Filter.End.AddDate 0 0 -1).Format "2006-01-02"}}">{{formatMonthDay .Metrics.Filter.Start}} – {{formatMonthDayYear (.Metrics.Filter.End.AddDate 0 0 -1)}}</span></div>
   <a class="ticket-metrics-link" href="/tickets/metrics?return={{urlquery .ReturnHref}}">{{t "ticket_metrics.summary.view"}}</a>
 </header>
 <div id="ticket-metrics-cards" class="ticket-metrics-cards">

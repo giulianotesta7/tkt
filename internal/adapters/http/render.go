@@ -27,11 +27,6 @@ import (
 
 const displayTimeLayout = "15:04 · 02-01-2006"
 
-// cardTimeLayout is the compact card-only form (issue #122): exact UTC
-// "21:42 · 13 Sep". The global displayTimeLayout stays the accessible full
-// date (year included) exposed through the card timestamp's tooltip.
-const cardTimeLayout = "15:04 · 02 Jan"
-
 func formatDisplayTime(t time.Time) string {
 	if t.IsZero() {
 		return ""
@@ -39,11 +34,41 @@ func formatDisplayTime(t time.Time) string {
 	return t.UTC().Format(displayTimeLayout)
 }
 
-func formatCardTime(t time.Time) string {
+// monthLabel resolves a month's short name through the catalogue's
+// label.month family, so the English abbreviations stay byte-identical (S13)
+// and a Spanish instance reads the Spanish ones ("Oct" / "oct").
+func monthLabel(tr i18n.Translator, month time.Month) string {
+	return labeledValue(tr, "month", int(month))
+}
+
+// formatClockMonthDay renders the compact card timestamp shape
+// ("15:04 · 02 Jan") with the locale's month name: "14:03 · 18 oct" in Spanish.
+// The clock and the day keep their positions, so the surface keeps its shape
+// (S12). A zero instant renders empty exactly as formatDisplayTime does.
+func formatClockMonthDay(tr i18n.Translator, t time.Time) string {
 	if t.IsZero() {
 		return ""
 	}
-	return t.UTC().Format(cardTimeLayout)
+	utc := t.UTC()
+	return utc.Format("15:04 · 02") + " " + monthLabel(tr, utc.Month())
+}
+
+// formatMonthDay renders the short day-and-month shape in the locale's own
+// order: "Oct 12" in English, "12 oct" in Spanish. The order is the
+// catalogue's date.month_day sentence, never a Go switch, so the shape stays
+// the surface's and English bytes never move.
+func formatMonthDay(tr i18n.Translator, t time.Time) string {
+	utc := t.UTC()
+	return tr.Tf("date.month_day", monthLabel(tr, utc.Month()), utc.Day())
+}
+
+// formatMonthDayYear renders the year-bearing form of the same shape:
+// "Oct 18, 2026" in English, "18 oct 2026" in Spanish. The year goes in as the
+// layout's own four-digit form, because the shape this replaced rendered a zero
+// instant's year as "0000" and the English bytes must not move (S13).
+func formatMonthDayYear(tr i18n.Translator, t time.Time) string {
+	utc := t.UTC()
+	return tr.Tf("date.month_day_year", monthLabel(tr, utc.Month()), utc.Day(), utc.Format("2006"))
 }
 
 func formatDatetime(t time.Time) string {
@@ -274,7 +299,7 @@ func metricsLineChart(tr i18n.Translator, weeks []application.TicketMetricsWeek)
 	for i, week := range weeks {
 		fmt.Fprintf(&b, `<circle cx="%.1f" cy="%.1f" r="3.5" class="metrics-marker metrics-marker-created"/>`, x(i), y(week.Created))
 		fmt.Fprintf(&b, `<rect x="%.1f" y="%.1f" width="7" height="7" class="metrics-marker metrics-marker-resolved"/>`, x(i)-3.5, y(week.Resolved)-3.5)
-		label := week.Start.Format("Jan 2")
+		label := formatMonthDay(tr, week.Start)
 		if week.Partial {
 			label += "*"
 		}
@@ -575,7 +600,11 @@ func asStepType(v any) domain.StepType {
 // already-stamped instants the handlers pass in.
 var templateFuncs = template.FuncMap{
 	"formatTime":     formatDisplayTime,
-	"formatCardTime": formatCardTime,
+	"formatCardTime": func(t time.Time) string { return formatClockMonthDay(i18n.New(i18n.Default), t) },
+	"formatMonthDay": func(t time.Time) string { return formatMonthDay(i18n.New(i18n.Default), t) },
+	"formatMonthDayYear": func(t time.Time) string {
+		return formatMonthDayYear(i18n.New(i18n.Default), t)
+	},
 	"formatDatetime": formatDatetime,
 	"humanize":       humanizeLabel,
 	"ticketNumber": func(n int) string {
@@ -749,6 +778,14 @@ func templateFuncsFor(locale string) template.FuncMap {
 		funcs[name] = fn
 	}
 	funcs["t"] = translator.T
+	// The date helpers keep each surface's shape and localize only the month
+	// name and the day/month order: a Spanish instance reads "15:04 · 18 oct"
+	// where English reads "15:04 · 18 Oct" (S12), and the English bytes are
+	// unchanged (S13). formatTime stays the monthless numeric form both
+	// locales share.
+	funcs["formatCardTime"] = func(t time.Time) string { return formatClockMonthDay(translator, t) }
+	funcs["formatMonthDay"] = func(t time.Time) string { return formatMonthDay(translator, t) }
+	funcs["formatMonthDayYear"] = func(t time.Time) string { return formatMonthDayYear(translator, t) }
 	// th renders a CATALOGUE message as trusted HTML. It exists for the few
 	// shipped strings html/template would escape differently from the literal
 	// they replaced (an apostrophe renders as &#39;), which would change English

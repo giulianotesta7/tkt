@@ -132,6 +132,8 @@
   "common.search": "Buscar",
   "common.stay": "Quedarme",
   "common.yes": "Sí",
+  "date.month_day": "%[2]d %[1]s",
+  "date.month_day_year": "%[2]d %[1]s %[3]s",
   "error.admin_requires_root": "las cuentas de administrador requieren root",
   "error.answers.ambiguous_position": "valores ambiguos para la posición %d",
   "error.answers.duplicate_position": "posición %d duplicada",
