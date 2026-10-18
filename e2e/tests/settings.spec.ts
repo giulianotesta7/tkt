@@ -6,6 +6,7 @@ import { test, expect } from "@playwright/test";
 import { startServer, stopServer } from "../server-lifecycle.js";
 import { loginAsSeeded, createUserAsAdmin, loginAs, logout, base } from "./helpers/auth.js";
 import { assertCanonicalScreen, collectObservability } from "./helpers/layout.js";
+import { createTicketViaUi } from "./helpers/navigation.js";
 
 test.describe("Settings", () => {
   test.beforeAll(async () => {
@@ -345,6 +346,99 @@ test.describe("Settings", () => {
     await expect(page.getByLabel("Critical first response, minutes")).toHaveValue("45");
     await expect(page.getByLabel("Critical first response, seconds")).toHaveValue("10");
     await expect(page.getByLabel("High resolve, hours")).toHaveValue("8");
+  });
+
+  test("switching the interface language re-renders every screen and switching back restores English", async ({
+    page,
+  }) => {
+    test.setTimeout(60_000);
+    await page.setViewportSize({ width: 1280, height: 800 });
+    const obs = collectObservability(page);
+    await loginAsSeeded(page);
+
+    // Fixture: a ticket created while the instance is still English, so the
+    // Spanish screens read data this journey arranged through the UI.
+    const title = `Printer offline ${Date.now().toString(36)}`;
+    const ticketId = await createTicketViaUi(page, { title });
+
+    // The period range is the list surface that carries a month name, so it
+    // anchors the before/after comparison of the rendered dates.
+    const weekRange = page.locator(".ticket-metrics-summary-range");
+    await expect(weekRange).toHaveText(/[A-Z][a-z]{2} \d{1,2} – [A-Z][a-z]{2} \d{1,2}, \d{4}/);
+
+    // Switch the instance-wide language from Settings.
+    await page.goto(base() + "/settings");
+    await expect(page.locator("h1").filter({ hasText: "Settings" })).toBeVisible();
+    const language = page.getByLabel("Language");
+    await expect(language).toHaveValue("en");
+    await language.selectOption("es");
+    await page.getByRole("button", { name: "Save language" }).click();
+    await expect(page).toHaveURL(/\/settings$/);
+
+    // The save lands on a NEW request, so the whole shell follows the saved
+    // language — including the save toast the previous request issued.
+    await expect(page.locator("html")).toHaveAttribute("lang", "es");
+    await expect(page.locator("h1").filter({ hasText: "Configuración" })).toBeVisible();
+    await expect(page.locator("h2").filter({ hasText: "Idioma de la interfaz" })).toBeVisible();
+    await expect(page.getByLabel("Idioma")).toHaveValue("es");
+    await expect(page.locator("#save-feedback")).toContainText("Guardado");
+
+    // Persisted (S9): the instance stays Spanish across a reload and across
+    // users, because the setting is instance-wide and not per session.
+    await page.reload();
+    await expect(page.locator("html")).toHaveAttribute("lang", "es");
+    await expect(page.getByLabel("Idioma")).toHaveValue("es");
+
+    await assertCanonicalScreen(page, {
+      viewport: 1280,
+      label: "settings in Spanish",
+      url: page.url(),
+      role: "root",
+      consoleErrors: obs.consoleErrors,
+      pageErrors: obs.pageErrors,
+      failedRequests: obs.failedRequests,
+      failedResponses: obs.failedResponses,
+    });
+
+    // The tickets list: Spanish chrome, and the period range reads Spanish
+    // months in the day-month order Spanish uses.
+    await page.goto(base() + "/tickets");
+    await expect(page.locator("html")).toHaveAttribute("lang", "es");
+    await expect(page.locator("th").filter({ hasText: "Título" })).toBeVisible();
+    await expect(page.getByRole("link", { name: title, exact: true })).toBeVisible();
+    await expect(page.locator(".ticket-metrics-summary-range")).toHaveText(
+      /\d{1,2} (ene|feb|mar|abr|may|jun|jul|ago|sep|oct|nov|dic) – \d{1,2} (ene|feb|mar|abr|may|jun|jul|ago|sep|oct|nov|dic) \d{4}/,
+    );
+
+    // The ticket detail: the state badge and the properties speak Spanish, and
+    // the date keeps the numeric shape this surface has always had — that
+    // shape carries no month name, so the language must not move it.
+    await page.goto(base() + `/tickets/${ticketId}`);
+    await expect(page.locator("html")).toHaveAttribute("lang", "es");
+    await expect(page.locator(".prop-heading").filter({ hasText: "Propiedades" })).toBeVisible();
+    await expect(page.locator("#ticket-detail .prop-value .badge.new")).toHaveText("Nuevo");
+    await expect(page.locator("time[datetime]").first()).toHaveText(
+      /^\d{2}:\d{2} · \d{2}-\d{2}-\d{4}$/,
+    );
+
+    // Switch back to English and prove the previous language is restored.
+    await page.goto(base() + "/settings");
+    await page.getByLabel("Idioma").selectOption("en");
+    await page.getByRole("button", { name: "Guardar idioma" }).click();
+    await expect(page).toHaveURL(/\/settings$/);
+    await expect(page.locator("html")).toHaveAttribute("lang", "en");
+    await expect(page.locator("h1").filter({ hasText: "Settings" })).toBeVisible();
+    await expect(page.getByLabel("Language")).toHaveValue("en");
+    await expect(page.locator("#save-feedback")).toContainText("Saved");
+
+    await page.goto(base() + "/tickets");
+    await expect(page.locator("html")).toHaveAttribute("lang", "en");
+    await expect(page.locator("th").filter({ hasText: "Title" })).toBeVisible();
+    await expect(weekRange).toHaveText(/[A-Z][a-z]{2} \d{1,2} – [A-Z][a-z]{2} \d{1,2}, \d{4}/);
+
+    await page.goto(base() + `/tickets/${ticketId}`);
+    await expect(page.locator("html")).toHaveAttribute("lang", "en");
+    await expect(page.locator("#ticket-detail .prop-value .badge.new")).toHaveText("New");
   });
 });
 
