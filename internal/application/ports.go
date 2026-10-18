@@ -561,9 +561,11 @@ type WorkflowSummary struct {
 	// PendingSteps counts the steps that differ between the draft and the live
 	// version. Non-zero means the live version is not what the draft says.
 	PendingSteps int
-	// CannotRun is the reason the LIVE version cannot move a ticket, or empty when
-	// it can.
-	CannotRun string
+	// CannotRun is the reason the LIVE version cannot move a ticket, or the zero
+	// message when it can. It is a catalogue reference (nested under the
+	// categories.badge.cannot_run sentence), so the badge follows the instance
+	// language while the domain keeps the English wording.
+	CannotRun Msg
 	// OpenTickets counts the tickets in this category that are neither closed nor
 	// cancelled. It is the number that says where the work actually is, which no
 	// surface showed before: the row could tell you a category was broken but not

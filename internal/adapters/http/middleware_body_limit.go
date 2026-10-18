@@ -59,7 +59,7 @@ func (m *BodyLimitMiddleware) Wrap(next http.Handler) http.Handler {
 		}
 
 		if r.ContentLength > maxRequestBodyBytes {
-			http.Error(w, "Request entity too large", http.StatusRequestEntityTooLarge)
+			httpError(w, r, "error.request_too_large", http.StatusRequestEntityTooLarge)
 			return
 		}
 
@@ -68,12 +68,12 @@ func (m *BodyLimitMiddleware) Wrap(next http.Handler) http.Handler {
 		if err != nil {
 			var maxErr *http.MaxBytesError
 			if errors.As(err, &maxErr) {
-				http.Error(w, "Request entity too large", http.StatusRequestEntityTooLarge)
+				httpError(w, r, "error.request_too_large", http.StatusRequestEntityTooLarge)
 				return
 			}
 			// Any other read failure is a malformed request, not a server
 			// fault: reject it rather than forwarding a partial body.
-			http.Error(w, "Bad request", http.StatusBadRequest)
+			httpError(w, r, "error.bad_request", http.StatusBadRequest)
 			return
 		}
 

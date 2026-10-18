@@ -41,7 +41,7 @@ func (h *DeskHandlers) addMember(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := r.ParseForm(); err != nil {
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		httpError(w, r, "error.internal_server", http.StatusInternalServerError)
 		return
 	}
 	userID := parseID(r.Form.Get("user_id"))
@@ -75,7 +75,7 @@ func (h *DeskHandlers) removeMember(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := r.ParseForm(); err != nil {
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		httpError(w, r, "error.internal_server", http.StatusInternalServerError)
 		return
 	}
 	userID := parseID(r.PathValue("userID"))

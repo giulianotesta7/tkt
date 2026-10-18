@@ -206,7 +206,7 @@ func (h *CategorySLAHandlers) post(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := r.ParseForm(); err != nil {
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		httpError(w, r, "error.internal_server", http.StatusInternalServerError)
 		return
 	}
 	category, err := h.categories.GetByID(r.Context(), categoryID)

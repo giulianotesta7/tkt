@@ -168,8 +168,8 @@ func TestTranslatorAnswersShippedCopy(t *testing.T) {
 // --- Reference coverage (S10) ---
 
 // templateKeyRef matches a catalogue key referenced from a template:
-// {{t "area.component.element"}}.
-var templateKeyRef = regexp.MustCompile(`\b(?:t|tf|th)\s+"([a-z][a-z0-9_]*(?:\.[a-z0-9_]+)+)"`)
+// {{t "area.component.element"}} (also tf/th, and tp for a plural form).
+var templateKeyRef = regexp.MustCompile(`\b(?:t|tf|th|tp)\s+"([a-z][a-z0-9_]*(?:\.[a-z0-9_]+)+)"`)
 
 // scriptKeyRef matches a catalogue key referenced from a browser script:
 // window.tktI18n.t("js.area.key") (the server ships the messages as the
@@ -188,10 +188,16 @@ var templateKeyPrefixRef = regexp.MustCompile(`\bprint\s+"([a-z][a-z0-9_.]*\.)"`
 // as a file name cannot mask a missing reference.
 var goKeyLiteralRef = regexp.MustCompile(`"([a-z][a-z0-9_]*(?:\.[a-z0-9_]+)+)"`)
 
+// templatePluralRef matches a plural lookup: {{tp "area.component.element" n}}.
+// The base key is a normal reference; its `_one`/`_other` forms are referenced
+// by the same call, so coverage expands them below.
+var templatePluralRef = regexp.MustCompile(`\btp\s+"([a-z][a-z0-9_]*(?:\.[a-z0-9_]+)+)"`)
+
 // goKeyRef matches a catalogue key referenced from Go: i18n.T(locale, "key"),
 // i18n.T("key") is not a form the package offers (a locale is always
-// explicit), and a Translator method call T("key") is matched too.
-var goKeyRef = regexp.MustCompile(`\bT\(\s*(?:[A-Za-z0-9_.]+\s*,\s*)?"([a-z][a-z0-9_]*(?:\.[a-z0-9_]+)+)"`)
+// explicit), and a Translator method call T("key") is matched too. Tp is the
+// plural form.
+var goKeyRef = regexp.MustCompile(`\b(?:T|Tp)\(\s*(?:[A-Za-z0-9_.]+\s*,\s*)?"([a-z][a-z0-9_]*(?:\.[a-z0-9_]+)+)"`)
 
 // nonKeyGoLiterals are key-shaped production Go string literals that are
 // deliberately not catalogue keys: capability identifiers and shell file
@@ -318,10 +324,16 @@ func referenceCoverage(root string, cats map[string]catalogue) []string {
 
 	referenced := map[string][]string{}
 	literals := map[string][]string{}
+	plurals := map[string][]string{}
 
 	collect := func(path, line string, re *regexp.Regexp) {
 		for _, match := range re.FindAllStringSubmatch(line, -1) {
 			referenced[match[1]] = append(referenced[match[1]], path)
+		}
+	}
+	collectPlural := func(path, line string, re *regexp.Regexp) {
+		for _, match := range re.FindAllStringSubmatch(line, -1) {
+			plurals[match[1]] = append(plurals[match[1]], path)
 		}
 	}
 
@@ -340,6 +352,9 @@ func referenceCoverage(root string, cats map[string]catalogue) []string {
 		switch filepath.Ext(path) {
 		case ".html":
 			if err := scanFile(path, templateKeyRef, collect); err != nil {
+				return err
+			}
+			if err := scanFile(path, templatePluralRef, collectPlural); err != nil {
 				return err
 			}
 			return scanFile(path, templateKeyPrefixRef, collect)
@@ -390,6 +405,16 @@ func referenceCoverage(root string, cats map[string]catalogue) []string {
 				if strings.HasPrefix(key, prefix) {
 					referenced[key] = append(referenced[key], places...)
 				}
+			}
+		}
+	}
+
+	// A plural call (tp) references the base sentence AND its one/other forms,
+	// so a suffixed form a catalogue ships is not dead copy.
+	for base, places := range plurals {
+		for _, suffix := range []string{"_one", "_other"} {
+			if _, ok := cats[Default][base+suffix]; ok {
+				referenced[base+suffix] = append(referenced[base+suffix], places...)
 			}
 		}
 	}
@@ -480,6 +505,9 @@ func TestSpanishCatalogueUsesNeutralTuteo(t *testing.T) {
 		"restablecé", "salís", "salí", "andá", "vení", "mirá", "probá", "abrí", "abrís",
 		"cerrá", "volvé", "completá", "revisá", "subí", "decí", "pedí", "seguí",
 		"fijate", "hacelo", "callate", "decime", "ponete", "escribime", "dame",
+		// Present-tense voseo ending in -s: the structural accented-vowel half
+		// never reaches these, so the marker list is their only guard.
+		"hablás", "comés", "vivís", "escribís", "venís", "decís", "hacés", "andás",
 		"ustedes", "usted",
 	}
 	words := make([]*regexp.Regexp, 0, len(markers))
@@ -525,4 +553,39 @@ var voseoAccentedNeutral = map[string]bool{
 	"qué": true, "esté": true, "está": true, "será": true,
 	"podrá": true, "tendrá": true, "habrá": true, "hará": true, "estará": true,
 	"quitará": true, "envié": true,
+}
+
+// TestTranslatorPluralForms pins the minimal one/other mechanism: Spanish reads
+// its singular form where it differs, while English keeps today's exact output
+// including the historical "1 accounts" (S13).
+func TestTranslatorPluralForms(t *testing.T) {
+	en := New(English)
+	es := New(Spanish)
+	cases := []struct {
+		name string
+		got  string
+		want string
+	}{
+		{"en accounts one", en.Tp("users.count", 1), "1 accounts"},
+		{"en accounts many", en.Tp("users.count", 3), "3 accounts"},
+		{"es accounts one", es.Tp("users.count", 1), "1 cuenta"},
+		{"es accounts many", es.Tp("users.count", 3), "3 cuentas"},
+		{"es accounts zero", es.Tp("users.count", 0), "0 cuentas"},
+		{"en workload one", en.Tp("ticket_metrics.workload.scope", 1), "Current assignment · 1 pending tickets"},
+		{"es workload one", es.Tp("ticket_metrics.workload.scope", 1), "Asignación actual · 1 ticket pendiente"},
+		{"es workload many", es.Tp("ticket_metrics.workload.scope", 4), "Asignación actual · 4 tickets pendientes"},
+		{"en done one", en.Tp("tickets.pending.done_of", 1, 1), "1 of 1 done"},
+		{"es done one", es.Tp("tickets.pending.done_of", 1, 1), "1 de 1 completado"},
+		{"es done zero", es.Tp("tickets.pending.done_of", 0, 1), "0 de 1 completados"},
+	}
+	for _, tc := range cases {
+		if tc.got != tc.want {
+			t.Errorf("%s = %q, want %q", tc.name, tc.got, tc.want)
+		}
+	}
+	// A key with no plural form falls back to the base sentence with the count
+	// interpolated.
+	if got := es.Tp("ticket_metrics.excluded", 3); got != "3 excluidos" {
+		t.Errorf("Tp on a key without a plural form = %q, want the base sentence", got)
+	}
 }

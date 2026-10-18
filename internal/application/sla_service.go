@@ -230,6 +230,8 @@ func validateSLAMatrix(policies []domain.SLAPolicy) error {
 			return &domain.ValidationError{
 				Field:   string(want),
 				Message: fmt.Sprintf("missing SLA policy for priority %q", want),
+				Key:     "error.sla_missing_policy",
+				Args:    []any{want},
 			}
 		case 1:
 			delete(counts, want)
@@ -237,6 +239,8 @@ func validateSLAMatrix(policies []domain.SLAPolicy) error {
 			return &domain.ValidationError{
 				Field:   string(want),
 				Message: fmt.Sprintf("duplicate SLA policy for priority %q", want),
+				Key:     "error.sla_duplicate_policy",
+				Args:    []any{want},
 			}
 		}
 	}
@@ -244,6 +248,8 @@ func validateSLAMatrix(policies []domain.SLAPolicy) error {
 		return &domain.ValidationError{
 			Field:   string(p),
 			Message: fmt.Sprintf("unknown SLA priority %q", p),
+			Key:     "error.sla_unknown_priority",
+			Args:    []any{p},
 		}
 	}
 	for _, p := range policies {
@@ -251,12 +257,16 @@ func validateSLAMatrix(policies []domain.SLAPolicy) error {
 			return &domain.ValidationError{
 				Field:   string(p.Priority),
 				Message: fmt.Sprintf("first response target for priority %q is below %d seconds", p.Priority, MinSLATargetSeconds),
+				Key:     "error.sla_first_response_min",
+				Args:    []any{p.Priority, MinSLATargetSeconds},
 			}
 		}
 		if p.ResolveSeconds < MinSLATargetSeconds {
 			return &domain.ValidationError{
 				Field:   string(p.Priority),
 				Message: fmt.Sprintf("resolve target for priority %q is below %d seconds", p.Priority, MinSLATargetSeconds),
+				Key:     "error.sla_resolve_min",
+				Args:    []any{p.Priority, MinSLATargetSeconds},
 			}
 		}
 	}

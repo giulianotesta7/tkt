@@ -55,7 +55,7 @@ func TestNiceMetricsScale(t *testing.T) {
 // two series use different marker shapes (circle vs square) with semantic
 // classes.
 func TestMetricsLineChartSeriesAndMarkers(t *testing.T) {
-	svg := string(metricsLineChart(lineChartWeeks()))
+	svg := string(metricsLineChart(i18n.New(i18n.Default), lineChartWeeks()))
 	if !strings.Contains(svg, `<polyline class="metrics-line metrics-created"`) {
 		t.Fatalf("created series must be a continuous polyline: %s", svg)
 	}
@@ -92,7 +92,7 @@ func TestMetricsLineChartSeriesAndMarkers(t *testing.T) {
 
 // Partial weeks carry a trailing asterisk on the week label; complete weeks do not.
 func TestMetricsLineChartPartialWeekMarker(t *testing.T) {
-	svg := string(metricsLineChart(lineChartWeeks()))
+	svg := string(metricsLineChart(i18n.New(i18n.Default), lineChartWeeks()))
 	if !strings.Contains(svg, `class="metrics-chart-label">Mar 2</text>`) {
 		t.Fatalf("complete week label must not be starred: %s", svg)
 	}
@@ -119,7 +119,7 @@ func TestMetricsLineChartValueLabelCollisionOffsets(t *testing.T) {
 			weeks := []application.TicketMetricsWeek{
 				{Start: time.Date(2026, 3, 2, 0, 0, 0, 0, time.UTC), Created: tc.created, Resolved: tc.resolved},
 			}
-			svg := string(metricsLineChart(weeks))
+			svg := string(metricsLineChart(i18n.New(i18n.Default), weeks))
 			m := regexp.MustCompile(`viewBox="0 0 \d+ (\d+)"`).FindStringSubmatch(svg)
 			if m == nil {
 				t.Fatalf("no viewBox: %s", svg)
@@ -173,7 +173,7 @@ func TestMetricsLineChartValueLabelCollisionOffsets(t *testing.T) {
 // Zero points may omit their value label; the totals line and View data table
 // stay visible in the template.
 func TestMetricsLineChartOmitsZeroValueLabels(t *testing.T) {
-	svg := string(metricsLineChart([]application.TicketMetricsWeek{
+	svg := string(metricsLineChart(i18n.New(i18n.Default), []application.TicketMetricsWeek{
 		{Start: time.Date(2026, 3, 2, 0, 0, 0, 0, time.UTC)},
 	}))
 	if strings.Contains(svg, "metrics-chart-value") {
@@ -333,7 +333,7 @@ func TestMetricsWorkloadChartAxisLayout(t *testing.T) {
 // pixel width and zero gap, including zero-height bins; boundary ticks come
 // from LowerDays plus the final UpperDays.
 func TestMetricsHistogramChartBarsAndBoundaries(t *testing.T) {
-	svg := string(metricsHistogramChart([]application.TicketMetricsBucket{
+	svg := string(metricsHistogramChart(i18n.New(i18n.Default), []application.TicketMetricsBucket{
 		{Label: "0–<5 days", Count: 3, LowerDays: 0, UpperDays: 5},
 		{Label: "5–<10 days", Count: 0, LowerDays: 5, UpperDays: 10},
 		{Label: "10–<15 days", Count: 1, LowerDays: 10, UpperDays: 15},
@@ -374,7 +374,7 @@ func TestMetricsHistogramChartBarsAndBoundaries(t *testing.T) {
 // No valid samples means no histogram at all; the template shows the empty
 // state instead of an empty axis frame.
 func TestMetricsHistogramChartWithoutBinsIsEmpty(t *testing.T) {
-	if got := string(metricsHistogramChart(nil)); got != "" {
+	if got := string(metricsHistogramChart(i18n.New(i18n.Default), nil)); got != "" {
 		t.Fatalf("nil bins must render no histogram svg, got %s", got)
 	}
 }

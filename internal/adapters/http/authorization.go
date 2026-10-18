@@ -12,7 +12,7 @@ import (
 func requireCapability(w http.ResponseWriter, r *http.Request, cap application.Capability) bool {
 	actor := userFromContext(r.Context())
 	if actor == nil || !application.NewPolicy().Capabilities(actor.Role).Require(cap) {
-		http.Error(w, "Forbidden", http.StatusForbidden)
+		httpError(w, r, "error.forbidden", http.StatusForbidden)
 		return false
 	}
 	return true

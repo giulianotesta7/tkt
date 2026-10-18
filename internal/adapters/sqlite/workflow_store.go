@@ -506,13 +506,18 @@ func (w *workflowStore) ListSummaries(ctx context.Context) ([]application.Workfl
 			case perr != nil:
 				// A published definition that cannot be read is a broken category,
 				// not a silent one: say so rather than reporting nothing.
-				s.CannotRun = "its published definition cannot be read"
+				s.CannotRun = application.MsgRef("error.workflow_unreadable")
 			default:
 				if a := def.AssessRunnable(func(deskID int64) (string, int, bool) {
 					f, ok := facts[deskID]
 					return f.name, f.members, ok
 				}); len(a.Blockers) > 0 {
-					s.CannotRun = a.Blockers[0].Reason
+					b := a.Blockers[0]
+					if b.ReasonKey != "" {
+						s.CannotRun = application.MsgValues(b.ReasonKey, b.ReasonArgs...)
+					} else {
+						s.CannotRun = application.Data(b.Reason)
+					}
 				}
 			}
 			// The draft is compared against the LIVE version, so a draft that

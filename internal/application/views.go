@@ -62,6 +62,12 @@ type TimelineItem struct {
 	// "Unknown user"/"Unknown desk").
 	AssignmentPerson string
 	AssignmentDesk   string
+	// AssignmentPersonMsg/AssignmentDeskMsg carry the same labels as catalogue
+	// references when the label is chrome (the Unknown user / Unknown desk
+	// degrade) and as data when it is a resolved name, so a Spanish timeline
+	// follows the instance language without translating a person or a desk.
+	AssignmentPersonMsg Msg
+	AssignmentDeskMsg   Msg
 	// SuppressDetail hides the Reason/Note detail line for legacy and semantic
 	// workflow-completion events (workflow_step, manual task, both forms):
 	// their answers stay behind the protected answers projection. Transitions,
@@ -266,6 +272,8 @@ func (b *ViewBuilder) enrichTimeline(ctx context.Context, view *TicketView) erro
 			}
 			item.AssignmentPerson = person
 			item.AssignmentDesk = desk
+			item.AssignmentPersonMsg = labelMsg(person)
+			item.AssignmentDeskMsg = labelMsg(desk)
 			continue
 		}
 		if item.Event.Field == nil {
@@ -486,6 +494,43 @@ func eventSummaryMsg(e *domain.AuditEvent) Msg {
 	}
 }
 
+// labelMsg maps a resolved reference label to a catalogue message: the degrade
+// labels (Unknown user / Unknown category / Unknown desk / Unassigned) are
+// chrome and follow the instance language, while a resolved name is data and
+// renders verbatim. It is the single mapping, so no surface invents a second
+// vocabulary for a missing reference (issue #335, S8).
+func labelMsg(resolved string) Msg {
+	if key := degradeKey(resolved); key != "" {
+		return MsgRef(key)
+	}
+	return Data(resolved)
+}
+
+// labelArg is labelMsg for a value interpolated into a composed sentence.
+func labelArg(resolved string) Arg {
+	if key := degradeKey(resolved); key != "" {
+		return Copy(key)
+	}
+	return Text(resolved)
+}
+
+// degradeKey names the catalogue entry for one resolved-reference gap, or ""
+// for a resolved value.
+func degradeKey(resolved string) string {
+	switch resolved {
+	case "Unknown user":
+		return "tickets.degrade.unknown_user"
+	case "Unknown category":
+		return "tickets.degrade.unknown_category"
+	case "Unknown desk":
+		return "tickets.degrade.unknown_desk"
+	case "Unassigned":
+		return "tickets.degrade.unassigned"
+	default:
+		return ""
+	}
+}
+
 // timelineFieldKey names the catalogue key of a changed audit field inside a
 // narrative sentence ("changed priority to Low", "cambió la prioridad a
 // Baja"). The English copy is the lowercase word the sentence always used, so
@@ -540,7 +585,8 @@ func timelineValueKey(field, value string) string {
 
 // timelineValueArg resolves a changed value through the catalogue when it is a
 // known priority or state, and keeps the caller's resolved label verbatim
-// otherwise.
+// otherwise. A resolved-reference gap (Unknown user, Unassigned) is chrome and
+// resolves through the catalogue too.
 func timelineValueArg(field string, value *string, resolved string) Arg {
 	if value == nil {
 		return Text("")
@@ -548,7 +594,7 @@ func timelineValueArg(field string, value *string, resolved string) Arg {
 	if key := timelineValueKey(field, strings.ToLower(strings.TrimSpace(*value))); key != "" {
 		return Copy(key)
 	}
-	return Text(resolved)
+	return labelArg(resolved)
 }
 
 // timelineStateKey names the catalogue key of a lifecycle state inside a

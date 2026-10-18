@@ -39,12 +39,15 @@ func (h *CategoryWorkflowHandlers) Register(mux *http.ServeMux) {
 type workflowStepView struct {
 	Index    int
 	Position int
-	Summary  string
+	Summary  application.Msg
 	// Actor names who performs the step and Outcome names the state the
 	// ticket reaches, so a node reads as a builder node rather than a label
-	// plus a truncated string (issue #249). Both come from the step itself.
-	Actor    string
-	Outcome  string
+	// plus a truncated string (issue #249). Both come from the step itself and
+	// are catalogue references, so a Spanish builder card is fully Spanish
+	// (issue #335, S8); admin-authored values (a desk name, an instruction) are
+	// carried as data inside the message.
+	Actor    application.Msg
+	Outcome  application.Msg
 	Snapshot string
 	Step     domain.WorkflowStep
 	Selected bool
@@ -121,7 +124,7 @@ func (h *CategoryWorkflowHandlers) clone(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	if err := r.ParseForm(); err != nil {
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		httpError(w, r, "error.internal_server", http.StatusInternalServerError)
 		return
 	}
 	sourceID, err := strconv.ParseInt(r.Form.Get("source_category_id"), 10, 64)
@@ -158,7 +161,7 @@ func (h *CategoryWorkflowHandlers) post(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	if err := r.ParseForm(); err != nil {
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		httpError(w, r, "error.internal_server", http.StatusInternalServerError)
 		return
 	}
 	draft, issues := parseBuilderDraft(r)
@@ -491,77 +494,78 @@ func workflowStepViews(draft domain.WorkflowDefinition, selected int, desks []do
 func isTerminalStep(typ domain.StepType) bool {
 	return typ == domain.StepResolve || typ == domain.StepClose
 }
-func workflowStepSummary(step domain.WorkflowStep, desks []domain.Desk) string {
+func workflowStepSummary(step domain.WorkflowStep, desks []domain.Desk) application.Msg {
 	switch step.Type {
 	case domain.StepAssignToDesk:
 		if step.AssignToDesk != nil && step.AssignToDesk.DeskID > 0 {
-			return deskName(step.AssignToDesk.DeskID, desks)
+			return application.Data(deskName(step.AssignToDesk.DeskID, desks))
 		}
-		return "Choose a desk"
+		return application.MsgRef("workflow.step.choose_desk")
 	case domain.StepForm:
 		if step.Form == nil || len(step.Form.Fields) == 0 {
-			return "No fields yet"
-		}
-		suffix := "s"
-		if len(step.Form.Fields) == 1 {
-			suffix = ""
+			return application.MsgRef("workflow.step.no_fields")
 		}
 		// The actor is a separate node fact now, so the summary carries only
 		// what the step collects instead of repeating the actor.
-		return fmt.Sprintf("%d field%s", len(step.Form.Fields), suffix)
+		key := "workflow.step.field_count_other"
+		if len(step.Form.Fields) == 1 {
+			key = "workflow.step.field_count_one"
+		}
+		return application.MsgRef(key, application.Text(strconv.Itoa(len(step.Form.Fields))))
 	case domain.StepManualTask:
 		if step.ManualTask == nil || strings.TrimSpace(step.ManualTask.Instructions) == "" {
-			return "Add instructions"
+			return application.MsgRef("workflow.step.add_instructions")
 		}
 		// Issue #249: the whole instruction reaches the node; the layout wraps
-		// it rather than the model cutting it.
-		return strings.Join(strings.Fields(step.ManualTask.Instructions), " ")
+		// it rather than the model cutting it. Admin-authored: data, never copy.
+		return application.Data(strings.Join(strings.Fields(step.ManualTask.Instructions), " "))
 	case domain.StepResolve, domain.StepClose:
-		return "Runs automatically"
+		return application.MsgRef("workflow.step.runs_automatically")
 	default:
-		return "Configure this step"
+		return application.MsgRef("workflow.step.configure")
 	}
 }
 
 // workflowStepActor names who performs a step, distinct from the automatic
-// terminal and least-loaded routing where no person acts.
-func workflowStepActor(step domain.WorkflowStep, desks []domain.Desk) string {
+// terminal and least-loaded routing where no person acts. It returns the zero
+// message for a kind with no actor.
+func workflowStepActor(step domain.WorkflowStep, desks []domain.Desk) application.Msg {
 	switch step.Type {
 	case domain.StepAssignToDesk:
 		if step.AssignToDesk != nil && step.AssignToDesk.Strategy == domain.StrategyLeastLoaded {
-			return "Automatic"
+			return application.MsgRef("workflow.step.actor.automatic")
 		}
 		if step.AssignToDesk != nil && step.AssignToDesk.DeskID > 0 {
-			return "Members of " + deskName(step.AssignToDesk.DeskID, desks)
+			return application.MsgRef("workflow.step.actor.members_of", application.Text(deskName(step.AssignToDesk.DeskID, desks)))
 		}
-		return "Members of the desk"
+		return application.MsgRef("workflow.step.actor.members_of_desk")
 	case domain.StepForm:
 		if step.Form != nil && step.Form.Actor == domain.FormActorAssignee {
-			return "Assignee"
+			return application.MsgRef("workflow.step.actor.assignee")
 		}
-		return "Requester"
+		return application.MsgRef("workflow.step.actor.requester")
 	case domain.StepManualTask:
-		return "Assignee"
+		return application.MsgRef("workflow.step.actor.assignee")
 	case domain.StepResolve, domain.StepClose:
-		return "Automatic"
+		return application.MsgRef("workflow.step.actor.automatic")
 	default:
-		return ""
+		return application.Msg{}
 	}
 }
 
 // workflowStepOutcome names the state the ticket reaches. Asking and working
 // leave the state alone, so they have no outcome; routing moves the ticket into
 // progress and the terminals resolve (and close) it.
-func workflowStepOutcome(step domain.WorkflowStep) string {
+func workflowStepOutcome(step domain.WorkflowStep) application.Msg {
 	switch step.Type {
 	case domain.StepAssignToDesk:
-		return "In progress"
+		return application.MsgRef("workflow.step.outcome.in_progress")
 	case domain.StepResolve:
-		return "Resolved"
+		return application.MsgRef("workflow.step.outcome.resolved")
 	case domain.StepClose:
-		return "Resolved, then closed"
+		return application.MsgRef("workflow.step.outcome.resolved_closed")
 	default:
-		return ""
+		return application.Msg{}
 	}
 }
 

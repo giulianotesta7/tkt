@@ -1,5 +1,7 @@
 package application
 
+import "fmt"
+
 // Msg is one catalogue-backed user-facing message: a stable key plus the values
 // its sentence interpolates. It carries NO locale and no English copy — the
 // application layer decides WHICH sentence a fact produces, and the
@@ -13,6 +15,11 @@ package application
 type Msg struct {
 	Key  string
 	Args []Arg
+	// Raw is data rendered verbatim, never through a catalogue lookup: an
+	// admin-authored desk name or step instruction that a composed message
+	// carries as one field. A non-empty Key wins over Raw. The zero value
+	// renders nothing.
+	Raw string
 }
 
 // Arg is one interpolation value of a Msg. A non-empty Key wins: it names a
@@ -31,6 +38,27 @@ type Arg struct {
 // catalogue: i18n's reference-coverage test scans the Go sources for Msg keys
 // and fails when one is missing.
 func MsgRef(key string, args ...Arg) Msg { return Msg{Key: key, Args: args} }
+
+// MsgValues builds a message reference from raw data values: each value is
+// interpolated verbatim, never resolved through a catalogue. It is the form a
+// store uses when a domain finding carries a key plus plain strings (a desk
+// name).
+func MsgValues(key string, values ...any) Msg {
+	args := make([]Arg, len(values))
+	for i, value := range values {
+		args[i] = Text(fmt.Sprint(value))
+	}
+	return Msg{Key: key, Args: args}
+}
+
+// Data is a message that is not catalogue copy: it renders its value verbatim,
+// with no lookup and no fallback. A view field that is sometimes copy and
+// sometimes admin-authored content (a step summary, a desk name) uses it for
+// the content half, so the template has ONE rendering path.
+func Data(value string) Msg { return Msg{Raw: value} }
+
+// Empty reports whether the message renders nothing.
+func (m Msg) Empty() bool { return m.Key == "" && m.Raw == "" }
 
 // Text wraps a resolved value (a user or category name, a state code) that is
 // never translated.

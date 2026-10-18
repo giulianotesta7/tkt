@@ -155,11 +155,12 @@ func categoryBadge(s application.WorkflowSummary) application.Msg {
 		return application.MsgRef("categories.badge.not_configured")
 	case s.Version == 0:
 		return application.MsgRef("categories.badge.draft_only")
-	case s.CannotRun != "":
+	case !s.CannotRun.Empty():
 		// Published, and unable to move a ticket. Without this the category looked
 		// exactly like a healthy one while every ticket filed against it failed.
-		// The reason is analysis output, carried as a value.
-		return application.MsgRef("categories.badge.cannot_run", application.Text(s.CannotRun))
+		// The reason is a catalogue reference (or data), composed as a nested
+		// sentence so it follows the instance language.
+		return application.MsgRef("categories.badge.cannot_run", application.Nested(s.CannotRun))
 	case s.PendingSteps == 1:
 		return application.MsgRef("categories.badge.published_one_change", application.Text(strconv.Itoa(s.Version)))
 	case s.PendingSteps > 1:
@@ -254,7 +255,7 @@ func (h *CategoryHandlers) create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := r.ParseForm(); err != nil {
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		httpError(w, r, "error.internal_server", http.StatusInternalServerError)
 		return
 	}
 	var err error
@@ -425,7 +426,7 @@ func (h *CategoryHandlers) update(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := r.ParseForm(); err != nil {
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		httpError(w, r, "error.internal_server", http.StatusInternalServerError)
 		return
 	}
 	var err error
@@ -463,7 +464,7 @@ func (h *CategoryHandlers) delete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := r.ParseForm(); err != nil {
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		httpError(w, r, "error.internal_server", http.StatusInternalServerError)
 		return
 	}
 	if err := h.categories.DeleteFor(r.Context(), *userFromContext(r.Context()), id); err != nil {
@@ -997,7 +998,7 @@ func (h *CategoryHandlers) createDepartment(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	if err := r.ParseForm(); err != nil {
-		http.Error(w, "Internal server error", 500)
+		httpError(w, r, "error.internal_server", http.StatusInternalServerError)
 		return
 	}
 	if _, err := h.catalog.CreateDepartmentFor(r.Context(), *userFromContext(r.Context()), r.Form.Get("name"), r.Form.Get("description")); err != nil {
@@ -1017,7 +1018,7 @@ func (h *CategoryHandlers) updateDepartment(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	if err := r.ParseForm(); err != nil {
-		http.Error(w, "Internal server error", 500)
+		httpError(w, r, "error.internal_server", http.StatusInternalServerError)
 		return
 	}
 	if _, err := h.catalog.UpdateDepartmentFor(r.Context(), *userFromContext(r.Context()), id, r.Form.Get("name"), r.Form.Get("description")); err != nil {
@@ -1037,7 +1038,7 @@ func (h *CategoryHandlers) deleteDepartment(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	if err := r.ParseForm(); err != nil {
-		http.Error(w, "Internal server error", 500)
+		httpError(w, r, "error.internal_server", http.StatusInternalServerError)
 		return
 	}
 	if err := h.catalog.DeleteDepartmentFor(r.Context(), *userFromContext(r.Context()), id); err != nil {
@@ -1052,7 +1053,7 @@ func (h *CategoryHandlers) createDesk(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := r.ParseForm(); err != nil {
-		http.Error(w, "Internal server error", 500)
+		httpError(w, r, "error.internal_server", http.StatusInternalServerError)
 		return
 	}
 	departmentID, parseErr := requiredCategoryID(r.Form.Get("department_id"), "department_id")
@@ -1077,7 +1078,7 @@ func (h *CategoryHandlers) updateDesk(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := r.ParseForm(); err != nil {
-		http.Error(w, "Internal server error", 500)
+		httpError(w, r, "error.internal_server", http.StatusInternalServerError)
 		return
 	}
 	departmentID, parseErr := requiredCategoryID(r.Form.Get("department_id"), "department_id")
@@ -1102,7 +1103,7 @@ func (h *CategoryHandlers) deleteDesk(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := r.ParseForm(); err != nil {
-		http.Error(w, "Internal server error", 500)
+		httpError(w, r, "error.internal_server", http.StatusInternalServerError)
 		return
 	}
 	if err := h.catalog.DeleteDeskFor(r.Context(), *userFromContext(r.Context()), id); err != nil {

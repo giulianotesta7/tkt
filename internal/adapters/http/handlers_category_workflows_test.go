@@ -222,7 +222,7 @@ func TestCategoryBadge_States(t *testing.T) {
 		{"published with several", application.WorkflowSummary{Version: 3, HasDraft: true, PendingSteps: 4}, "Published v3 · 4 unpublished changes"},
 		{
 			"cannot run outranks pending work", application.WorkflowSummary{
-				Version: 1, HasDraft: true, PendingSteps: 2, CannotRun: "Infra has no active members",
+				Version: 1, HasDraft: true, PendingSteps: 2, CannotRun: application.MsgRef("error.workflow_reason.no_members", application.Text("Infra")),
 			},
 			"Can't run · Infra has no active members",
 		},
@@ -908,14 +908,15 @@ func TestWorkflowBuilderValidationAndStepViews(t *testing.T) {
 		})
 	}
 	views := workflowStepViews(domain.WorkflowDefinition{{Type: domain.StepManualTask, ManualTask: &domain.ManualTaskStep{Instructions: strings.Repeat("界", 45)}}, {Type: domain.StepResolve}}, 0, nil)
+	en := i18n.New(i18n.English)
 	// Issue #249: the summary is not truncated; the whole instruction reaches
 	// the node so the CSS never has to hide it.
-	if views[0].Final || !views[1].Final || !views[1].Last || views[0].Summary != strings.Repeat("界", 45) {
+	if views[0].Final || !views[1].Final || !views[1].Last || resolveMsg(en, views[0].Summary) != strings.Repeat("界", 45) {
 		t.Fatalf("terminal badge or full Unicode summary is wrong: %+v", views)
 	}
 	assign := workflowStepViews(domain.WorkflowDefinition{{Type: domain.StepAssignToDesk, AssignToDesk: &domain.AssignToDeskStep{DeskID: 7}}}, 0, []domain.Desk{{ID: 7, Name: "Billing"}})
-	if assign[0].Summary != "Billing" {
-		t.Errorf("assign summary must show the desk name, got %q", assign[0].Summary)
+	if got := resolveMsg(en, assign[0].Summary); got != "Billing" {
+		t.Errorf("assign summary must show the desk name, got %q", got)
 	}
 }
 
@@ -1011,8 +1012,10 @@ func TestWorkflowStepViewsNodeVocabulary(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			views := workflowStepViews(domain.WorkflowDefinition{tc.step}, 0, desks)
-			if views[0].Actor != tc.wantActor || views[0].Outcome != tc.wantOutcome {
-				t.Fatalf("actor/outcome = %q/%q, want %q/%q", views[0].Actor, views[0].Outcome, tc.wantActor, tc.wantOutcome)
+			tr := i18n.New(i18n.English)
+			gotActor, gotOutcome := resolveMsg(tr, views[0].Actor), resolveMsg(tr, views[0].Outcome)
+			if gotActor != tc.wantActor || gotOutcome != tc.wantOutcome {
+				t.Fatalf("actor/outcome = %q/%q, want %q/%q", gotActor, gotOutcome, tc.wantActor, tc.wantOutcome)
 			}
 		})
 	}

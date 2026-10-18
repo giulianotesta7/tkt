@@ -3,6 +3,7 @@ package httpadapter
 import (
 	"errors"
 	"net/http"
+	"strings"
 
 	"github.com/giulianotesta7/tkt/internal/application"
 	"github.com/giulianotesta7/tkt/internal/domain"
@@ -182,7 +183,55 @@ func mapErrorFor(r *http.Request, err error) (int, string) {
 	if key, ok := errorKey[english]; ok {
 		return status, i18n.T(requestLocale(r), key)
 	}
+	// A validation failure that carries structured data interpolates its own
+	// sentence (a step position, a priority enum, a field key) instead of a
+	// fixed table entry.
+	var validation *domain.ValidationError
+	if errors.As(err, &validation) && validation.Key != "" {
+		return status, validationErrorMessage(i18n.New(requestLocale(r)), validation)
+	}
+	// The three store-contract failures interpolate the entity kind, which the
+	// catalogue labels as chrome (label.entity.*). An entity the catalogue does
+	// not name stays verbatim, and the default locale keeps the domain bytes.
+	var notFound *domain.NotFoundError
+	if errors.As(err, &notFound) {
+		return status, localizedEntityError(requestLocale(r), english, "error.not_found", notFound.Kind, "")
+	}
+	var duplicate *domain.DuplicateError
+	if errors.As(err, &duplicate) {
+		return status, localizedEntityError(requestLocale(r), english, "error.duplicate", duplicate.Kind, duplicate.Name)
+	}
+	var referenced *domain.ReferencedError
+	if errors.As(err, &referenced) {
+		return status, localizedEntityError(requestLocale(r), english, "error.referenced", referenced.Kind, "")
+	}
+	// The generic 500 body is the same for every unrecognized internal error:
+	// follow the instance language so a Spanish instance never answers an
+	// English sentence. The default locale keeps the historical bytes.
+	if status == http.StatusInternalServerError {
+		return status, i18n.T(requestLocale(r), "error.internal_server")
+	}
 	return status, english
+}
+
+// localizedEntityError renders one NotFound/Duplicate/Referenced message in the
+// active locale: the entity kind is chrome with a catalogue label
+// (label.entity.*), so it follows the instance language, and a kind no
+// catalogue names renders verbatim. The default locale keeps the domain's
+// English bytes byte for byte (S13).
+func localizedEntityError(locale, english, key, kind, name string) string {
+	if locale == i18n.Default {
+		return english
+	}
+	tr := i18n.New(locale)
+	kindLabel := kind
+	if label, ok := tr.Lookup("label.entity." + strings.ReplaceAll(kind, " ", "_")); ok {
+		kindLabel = label
+	}
+	if name == "" {
+		return tr.Tf(key, kindLabel)
+	}
+	return tr.Tf(key, kindLabel, name)
 }
 
 // transitionStateLabel resolves one endpoint of a rejected transition through

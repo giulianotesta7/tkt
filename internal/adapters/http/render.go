@@ -102,7 +102,9 @@ func labeledValue(tr i18n.Translator, kind string, value any) string {
 // placeholder), so a composed sentence carries no English of its own.
 func resolveMsg(tr i18n.Translator, m application.Msg) string {
 	if m.Key == "" {
-		return ""
+		// Data, not copy: an admin-authored value carried as one field of a
+		// composed message renders verbatim.
+		return m.Raw
 	}
 	args := make([]any, len(m.Args))
 	for i, arg := range m.Args {
@@ -118,15 +120,50 @@ func resolveMsg(tr i18n.Translator, m application.Msg) string {
 	return tr.Tf(m.Key, args...)
 }
 
+// resolveIssueArg resolves one interpolation value of a domain message. A
+// lifecycle state or a priority is chrome the catalogue labels (label.state.*,
+// label.priority.*), so it follows the instance language; every other value is
+// data (a step position, a field key, an operator name) and renders verbatim.
+func resolveIssueArg(tr i18n.Translator, arg any) any {
+	switch v := arg.(type) {
+	case domain.Priority:
+		return labeledValue(tr, "priority", v)
+	case domain.State:
+		return labeledValue(tr, "state", v)
+	default:
+		return arg
+	}
+}
+
+// localizedMessage renders a domain message for the active locale. The English
+// string is the domain's single source of the wording and is returned byte for
+// byte on the default locale (S13: an English instance is unchanged); another
+// locale rebuilds the sentence from key and args. A message with no key (an
+// internal detail) always renders its own text.
+func localizedMessage(tr i18n.Translator, key, english string, args ...any) string {
+	if key == "" || tr.Locale() == i18n.Default {
+		return english
+	}
+	resolved := make([]any, len(args))
+	for i, arg := range args {
+		resolved[i] = resolveIssueArg(tr, arg)
+	}
+	return tr.Tf(key, resolved...)
+}
+
 // workflowIssueMessage renders one workflow validation finding through the
 // active catalogue. The domain carries the English message as its single source
 // of the wording plus a Key/Args pair naming the same finding as structured
 // data; an issue with no key (an internal parse detail) keeps its own text.
 func workflowIssueMessage(tr i18n.Translator, issue domain.WorkflowValidationIssue) string {
-	if issue.Key == "" {
-		return issue.Message
-	}
-	return tr.Tf(issue.Key, issue.Args...)
+	return localizedMessage(tr, issue.Key, issue.Message, issue.Args...)
+}
+
+// validationErrorMessage renders one field-level validation failure for the
+// active locale, using the keyed form when the domain carries one. The English
+// contract stays the domain Message.
+func validationErrorMessage(tr i18n.Translator, e *domain.ValidationError) string {
+	return localizedMessage(tr, e.Key, e.Message, e.Args...)
 }
 
 // stateBadge is the state_badge partial's payload: the badge class (the raw
@@ -173,7 +210,7 @@ func niceMetricsScale(max int) (step int, axisMax int) {
 // aware: when the two series meet near a point, each label moves
 // deterministically to the opposite side of its own point; labels are always
 // clamped inside the viewBox away from the axes and week labels.
-func metricsLineChart(weeks []application.TicketMetricsWeek) template.HTML {
+func metricsLineChart(tr i18n.Translator, weeks []application.TicketMetricsWeek) template.HTML {
 	const width, height, left, top, bottom = 620, 204, 46, 22, 40
 	max := 1
 	for _, week := range weeks {
@@ -222,9 +259,10 @@ func metricsLineChart(weeks []application.TicketMetricsWeek) template.HTML {
 		return clampY(v)
 	}
 	var b strings.Builder
-	fmt.Fprintf(&b, `<svg class="ticket-metrics-chart" viewBox="0 0 %d %d" role="img" aria-label="Weekly created tickets as a continuous line with circle markers and resolved tickets as a dashed line with square markers. Y axis from 0 to %d. Y axis title Tickets.">`, width, height, axisMax)
+	axisTitle := tr.T("ticket_metrics.line.y_axis_title")
+	fmt.Fprintf(&b, `<svg class="ticket-metrics-chart" viewBox="0 0 %d %d" role="img" aria-label="%s">`, width, height, tr.Tf("ticket_metrics.line.chart_aria", axisMax, axisTitle))
 	midY := float64(top) + float64(height-top-bottom)/2
-	fmt.Fprintf(&b, `<text x="10" y="%.1f" transform="rotate(-90 10 %.1f)" text-anchor="middle" class="metrics-axis-title">Tickets</text>`, midY, midY)
+	fmt.Fprintf(&b, `<text x="10" y="%.1f" transform="rotate(-90 10 %.1f)" text-anchor="middle" class="metrics-axis-title">%s</text>`, midY, midY, template.HTMLEscapeString(axisTitle))
 	fmt.Fprintf(&b, `<line x1="%d" y1="%d" x2="%d" y2="%d" class="metrics-axis"/>`, left, height-bottom, width-12, height-bottom)
 	for tick := step; tick <= axisMax; tick += step {
 		fmt.Fprintf(&b, `<line x1="%d" y1="%.1f" x2="%d" y2="%.1f" class="metrics-gridline"/>`, left, y(tick), width-12, y(tick))
@@ -293,22 +331,43 @@ func metricsAgeChart(tr i18n.Translator, buckets []application.TicketMetricsBuck
 	return template.HTML(b.String())
 }
 
-// bucketLabel resolves one metrics bucket for display: a bucket that names a
-// catalogue entry (the four fixed age ranges) follows the instance language,
-// and every other bucket (a numeric histogram bin, an admin-authored workload
-// name) renders its own label verbatim.
-func bucketLabel(tr i18n.Translator, bucket application.TicketMetricsBucket) string {
-	if bucket.LabelKey != "" {
-		return tr.T(bucket.LabelKey)
+// bucketLabel resolves one metrics label for display: a bucket or workload row
+// that names a catalogue entry (the four fixed age ranges, the numeric
+// histogram bins, the genuinely unassigned row) follows the instance language,
+// and every other label (an admin-authored workload name) renders verbatim. It
+// accepts both metrics row types so one template helper covers every table.
+func bucketLabel(tr i18n.Translator, value any) string {
+	switch v := value.(type) {
+	case application.TicketMetricsBucket:
+		if v.LabelKey != "" {
+			return tr.Tf(v.LabelKey, v.LabelArgs...)
+		}
+		return v.Label
+	case application.TicketMetricsWorkload:
+		if v.LabelKey != "" {
+			return tr.Tf(v.LabelKey, v.LabelArgs...)
+		}
+		return v.Label
+	case application.TicketMetricsAttainmentGroup:
+		if v.LabelKey != "" {
+			return tr.T(v.LabelKey)
+		}
+		return v.Label
+	case ticketMetricsAttainmentGroupView:
+		if v.LabelKey != "" {
+			return tr.T(v.LabelKey)
+		}
+		return v.Label
+	default:
+		return fmt.Sprint(value)
 	}
-	return bucket.Label
 }
 
 // metricsHistogramChart renders one adjacent rectangular bar per equal-width
 // resolution bin: identical pixel width, zero gap, zero-height bins included.
 // X ticks sit on the bin boundaries (each LowerDays plus the final UpperDays);
 // the y axis starts at zero with nice integer counts.
-func metricsHistogramChart(buckets []application.TicketMetricsBucket) template.HTML {
+func metricsHistogramChart(tr i18n.Translator, buckets []application.TicketMetricsBucket) template.HTML {
 	if len(buckets) == 0 {
 		return ""
 	}
@@ -335,9 +394,11 @@ func metricsHistogramChart(buckets []application.TicketMetricsBucket) template.H
 		return buckets[len(buckets)-1].UpperDays
 	}
 	var b strings.Builder
-	fmt.Fprintf(&b, `<svg class="ticket-metrics-chart ticket-metrics-histogram" viewBox="0 0 %d %d" role="img" aria-label="Resolved tickets by resolution duration in equal-width day bins. Y axis from 0 to %d. Y axis title Tickets. X axis title Resolution time (days).">`, width, height, axisMax)
+	yTitle := tr.T("ticket_metrics.line.y_axis_title")
+	xTitle := tr.T("ticket_metrics.histogram.x_axis_title")
+	fmt.Fprintf(&b, `<svg class="ticket-metrics-chart ticket-metrics-histogram" viewBox="0 0 %d %d" role="img" aria-label="%s">`, width, height, tr.Tf("ticket_metrics.histogram.chart_aria", axisMax, yTitle, xTitle))
 	midY := float64(top) + float64(plotH)/2
-	fmt.Fprintf(&b, `<text x="10" y="%.1f" transform="rotate(-90 10 %.1f)" text-anchor="middle" class="metrics-axis-title">Tickets</text>`, midY, midY)
+	fmt.Fprintf(&b, `<text x="10" y="%.1f" transform="rotate(-90 10 %.1f)" text-anchor="middle" class="metrics-axis-title">%s</text>`, midY, midY, template.HTMLEscapeString(yTitle))
 	fmt.Fprintf(&b, `<line x1="%d" y1="%.1f" x2="%d" y2="%.1f" class="metrics-axis"/>`, left, baseline, width-14, baseline)
 	for tick := step; tick <= axisMax; tick += step {
 		fmt.Fprintf(&b, `<line x1="%d" y1="%.1f" x2="%d" y2="%.1f" class="metrics-gridline"/>`, left, y(tick), width-14, y(tick))
@@ -360,7 +421,7 @@ func metricsHistogramChart(buckets []application.TicketMetricsBucket) template.H
 		}
 		fmt.Fprintf(&b, `<text x="%.1f" y="%.1f" text-anchor="%s" class="metrics-axis-label">%s</text>`, px, baseline+16, anchor, strconv.FormatFloat(boundary(i), 'f', -1, 64))
 	}
-	fmt.Fprintf(&b, `<text x="%.1f" y="%.1f" text-anchor="middle" class="metrics-axis-title">Resolution time (days)</text>`, float64(left)+plotW/2, baseline+34)
+	fmt.Fprintf(&b, `<text x="%.1f" y="%.1f" text-anchor="middle" class="metrics-axis-title">%s</text>`, float64(left)+plotW/2, baseline+34, template.HTMLEscapeString(xTitle))
 	b.WriteString(`</svg>`)
 	return template.HTML(b.String())
 }
@@ -418,7 +479,7 @@ func metricsWorkloadChart(tr i18n.Translator, rows []application.TicketMetricsWo
 	buckets := make([]application.TicketMetricsBucket, len(rows))
 	classes := make([]string, len(rows))
 	for i, row := range rows {
-		buckets[i] = application.TicketMetricsBucket{Label: row.Label, Count: row.Count}
+		buckets[i] = application.TicketMetricsBucket{Label: row.Label, LabelKey: row.LabelKey, LabelArgs: row.LabelArgs, Count: row.Count}
 		if row.Unassigned {
 			classes[i] = "metrics-bar-unassigned"
 		}
@@ -545,8 +606,10 @@ var templateFuncs = template.FuncMap{
 		}
 		return false
 	},
-	"metricSelected":   func(id int64, selected *int64) bool { return selected != nil && id == *selected },
-	"metricsLineChart": metricsLineChart,
+	"metricSelected": func(id int64, selected *int64) bool { return selected != nil && id == *selected },
+	"metricsLineChart": func(weeks []application.TicketMetricsWeek) template.HTML {
+		return metricsLineChart(i18n.New(i18n.Default), weeks)
+	},
 	// The chart helpers take a Translator, which templateFuncsFor binds to the
 	// active locale; the default here keeps a caller without one rendering the
 	// English copy.
@@ -556,11 +619,13 @@ var templateFuncs = template.FuncMap{
 	"metricsWorkloadChart": func(rows []application.TicketMetricsWorkload, label string) template.HTML {
 		return metricsWorkloadChart(i18n.New(i18n.Default), rows, label)
 	},
-	"bucketLabel": func(bucket application.TicketMetricsBucket) string {
-		return bucketLabel(i18n.New(i18n.Default), bucket)
+	"bucketLabel": func(value any) string {
+		return bucketLabel(i18n.New(i18n.Default), value)
 	},
-	"metricsHistogramChart": metricsHistogramChart,
-	"metricsDuration":       metricsDuration,
+	"metricsHistogramChart": func(buckets []application.TicketMetricsBucket) template.HTML {
+		return metricsHistogramChart(i18n.New(i18n.Default), buckets)
+	},
+	"metricsDuration": metricsDuration,
 }
 
 // shellFor maps a page to its shell root. Application pages use the rail
@@ -694,6 +759,9 @@ func templateFuncsFor(locale string) template.FuncMap {
 	// tf interpolates the catalogue sentence with the values the surface passes
 	// in, so no Go or template call site owns a fragment of copy.
 	funcs["tf"] = translator.Tf
+	// tp selects the one/other plural form of the catalogue sentence, so
+	// Spanish reads "1 cuenta" without changing English bytes (S13).
+	funcs["tp"] = translator.Tp
 	// msg renders one application message reference (key + args) in the active
 	// catalogue: the timeline narrative is decided in Go and translated here.
 	funcs["msg"] = func(m application.Msg) string { return resolveMsg(translator, m) }
@@ -722,8 +790,17 @@ func templateFuncsFor(locale string) template.FuncMap {
 	funcs["metricsWorkloadChart"] = func(rows []application.TicketMetricsWorkload, label string) template.HTML {
 		return metricsWorkloadChart(translator, rows, label)
 	}
-	funcs["bucketLabel"] = func(bucket application.TicketMetricsBucket) string {
-		return bucketLabel(translator, bucket)
+	// The created-vs-resolved line chart and the resolution histogram carry
+	// chrome too (an accessible label and visible axis titles): both resolve
+	// through the active catalogue.
+	funcs["metricsLineChart"] = func(weeks []application.TicketMetricsWeek) template.HTML {
+		return metricsLineChart(translator, weeks)
+	}
+	funcs["metricsHistogramChart"] = func(buckets []application.TicketMetricsBucket) template.HTML {
+		return metricsHistogramChart(translator, buckets)
+	}
+	funcs["bucketLabel"] = func(value any) string {
+		return bucketLabel(translator, value)
 	}
 	// issueMessage renders one workflow validation finding: the domain carries
 	// the English message plus a catalogue key and its interpolation values, so
@@ -822,7 +899,7 @@ func (r *Renderer) Render(w http.ResponseWriter, rq *http.Request, page, fragmen
 			// Natural fragment: the page's own content block (login/setup forms).
 			ps, ok := tree.pages[page]
 			if !ok {
-				http.Error(w, "Internal server error", http.StatusInternalServerError)
+				httpError(w, rq, "error.internal_server", http.StatusInternalServerError)
 				return
 			}
 			err = ps.tmpl.ExecuteTemplate(&buf, "content", data)
@@ -830,14 +907,14 @@ func (r *Renderer) Render(w http.ResponseWriter, rq *http.Request, page, fragmen
 	} else {
 		ps, ok := tree.pages[page]
 		if !ok {
-			http.Error(w, "Internal server error", http.StatusInternalServerError)
+			httpError(w, rq, "error.internal_server", http.StatusInternalServerError)
 			return
 		}
 		err = ps.tmpl.ExecuteTemplate(&buf, ps.shell, data)
 	}
 	if err != nil {
 		log.Printf("httpadapter: render %s/%s: %v", page, fragment, err)
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		httpError(w, rq, "error.internal_server", http.StatusInternalServerError)
 		return
 	}
 

@@ -129,10 +129,12 @@ type TicketMetricsAttainment struct {
 }
 
 // TicketMetricsAttainmentGroup is one attainment group. Label is printable as
-// is. Tickets is the cohort size in the group (only tickets with a commitment),
-// so a priority group with zero tickets is still present with a stable shape.
+// is. LabelKey, when set, names the catalogue entry for a chrome label (a
+// priority or the total row) so the table follows the instance language while
+// Label keeps the English bytes; a category name carries no key and is data.
 type TicketMetricsAttainmentGroup struct {
 	Label         string
+	LabelKey      string
 	Tickets       int
 	FirstResponse TicketMetricsMilestoneAttainment
 	Resolve       TicketMetricsMilestoneAttainment
@@ -174,9 +176,11 @@ type TicketMetricsBucket struct {
 	// LabelKey names the catalogue entry for a bucket whose label is chrome (the
 	// four fixed age ranges), so the presentation resolves it in the active
 	// instance language while Label keeps the English bytes for a caller that
-	// reads the DTO directly. A bucket with no key (the numeric histogram bins,
-	// an admin-authored workload name) renders Label verbatim.
-	LabelKey string
+	// reads the DTO directly. A bucket with no key (an admin-authored workload
+	// name) renders Label verbatim. LabelArgs interpolate the sentence when the
+	// label carries numbers (the resolution histogram's day bounds).
+	LabelKey  string
+	LabelArgs []any
 	// LowerDays and UpperDays are the numeric half-open bounds in days for
 	// the equal-width resolution histogram. Age buckets are nonuniform and
 	// keep them at zero rather than reparsing Label.
@@ -186,6 +190,11 @@ type TicketMetricsBucket struct {
 type TicketMetricsWorkload struct {
 	Label string
 	Count int
+	// LabelKey names the catalogue entry for a workload label that is chrome
+	// (the genuinely unassigned row); Label keeps the English bytes. A named
+	// agent has no key and renders Label as data.
+	LabelKey  string
+	LabelArgs []any
 	// Unassigned marks the genuinely unassigned identity (nil current
 	// agent during agent grouping) so presentation can style it neutrally
 	// without inferring from the label string.
@@ -343,6 +352,7 @@ func buildTicketMetrics(records []TicketMetricsRecord, f TicketMetricsFilter, no
 		for key, row := range work {
 			if key != "agent:unassigned" && row.Label == "Unassigned" {
 				unassigned.Label = "Unassigned (no agent)"
+				unassigned.LabelKey = "tickets.degrade.unassigned_no_agent"
 				work["agent:unassigned"] = unassigned
 				break
 			}
@@ -404,10 +414,10 @@ func buildTicketAttainment(records []TicketMetricsRecord, f TicketMetricsFilter,
 			a.NoCommitment++
 			continue
 		}
-		key, label := attainmentGroupIdentity(r, groupBy)
+		key, label, labelKey := attainmentGroupIdentity(r, groupBy)
 		g := groups[key]
 		if g == nil {
-			g = &TicketMetricsAttainmentGroup{Label: label}
+			g = &TicketMetricsAttainmentGroup{Label: label, LabelKey: labelKey}
 			groups[key] = g
 			order = append(order, key)
 		}
@@ -423,7 +433,7 @@ func buildTicketAttainment(records []TicketMetricsRecord, f TicketMetricsFilter,
 			if g := groups["priority:"+string(p)]; g != nil {
 				a.Groups = append(a.Groups, *g)
 			} else {
-				a.Groups = append(a.Groups, TicketMetricsAttainmentGroup{Label: attainmentPriorityLabel(p)})
+				a.Groups = append(a.Groups, TicketMetricsAttainmentGroup{Label: attainmentPriorityLabel(p), LabelKey: "label.priority." + string(p)})
 			}
 		}
 	case TicketMetricsGroupCategory:
@@ -435,7 +445,7 @@ func buildTicketAttainment(records []TicketMetricsRecord, f TicketMetricsFilter,
 		if g := groups["total"]; g != nil {
 			a.Groups = []TicketMetricsAttainmentGroup{*g}
 		} else {
-			a.Groups = []TicketMetricsAttainmentGroup{{Label: "Total"}}
+			a.Groups = []TicketMetricsAttainmentGroup{{Label: "Total", LabelKey: "ticket_metrics.attainment.total"}}
 		}
 	}
 	for i := range a.Groups {
@@ -445,16 +455,17 @@ func buildTicketAttainment(records []TicketMetricsRecord, f TicketMetricsFilter,
 	return a
 }
 
-// attainmentGroupIdentity maps one cohort record to its stable group key and
-// printable label.
-func attainmentGroupIdentity(r TicketMetricsRecord, groupBy string) (string, string) {
+// attainmentGroupIdentity maps one cohort record to its stable group key, its
+// printable English label, and the catalogue key for that label when it is
+// chrome (a priority); a category name returns no key.
+func attainmentGroupIdentity(r TicketMetricsRecord, groupBy string) (string, string, string) {
 	switch groupBy {
 	case TicketMetricsGroupPriority:
-		return "priority:" + string(r.Priority), attainmentPriorityLabel(r.Priority)
+		return "priority:" + string(r.Priority), attainmentPriorityLabel(r.Priority), "label.priority." + string(r.Priority)
 	case TicketMetricsGroupCategory:
-		return "category:" + r.CategoryName, r.CategoryName
+		return "category:" + r.CategoryName, r.CategoryName, ""
 	default:
-		return "total", "Total"
+		return "total", "Total", "ticket_metrics.attainment.total"
 	}
 }
 
@@ -530,6 +541,8 @@ func resolutionHistogram(durations []time.Duration) []TicketMetricsBucket {
 		lower := float64(int64(i) * widthDays)
 		bins[i] = TicketMetricsBucket{
 			Label:     strconv.FormatFloat(lower, 'f', -1, 64) + "–<" + strconv.FormatFloat(lower+float64(widthDays), 'f', -1, 64) + " days",
+			LabelKey:  "ticket_metrics.resolution.bin",
+			LabelArgs: []any{strconv.FormatFloat(lower, 'f', -1, 64), strconv.FormatFloat(lower+float64(widthDays), 'f', -1, 64)},
 			LowerDays: lower,
 			UpperDays: lower + float64(widthDays),
 		}

@@ -729,7 +729,7 @@ func (h *TicketHandlers) list(w http.ResponseWriter, r *http.Request) {
 	f := parseFilters(r)
 	data, err := h.listData(r, f, pageNumber(r, "page"))
 	if err != nil {
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		httpError(w, r, "error.internal_server", http.StatusInternalServerError)
 		return
 	}
 	// The compact summary renders only on the authorized full list page. Its
@@ -739,7 +739,7 @@ func (h *TicketHandlers) list(w http.ResponseWriter, r *http.Request) {
 	if r.Header.Get("HX-Request") == "" && h.metrics != nil && application.NewPolicy().Capabilities(userFromContext(r.Context()).Role).Require(application.CapViewTicketMetrics) {
 		metricData, metricErr := h.metricsSummaryData(r)
 		if metricErr != nil {
-			http.Error(w, "Internal server error", http.StatusInternalServerError)
+			httpError(w, r, "error.internal_server", http.StatusInternalServerError)
 			return
 		}
 		data.Metrics = &metricData
@@ -779,7 +779,7 @@ func (h *TicketHandlers) newForm(w http.ResponseWriter, r *http.Request) {
 	}
 	opts, offers, err := h.createOptions(r)
 	if err != nil {
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		httpError(w, r, "error.internal_server", http.StatusInternalServerError)
 		return
 	}
 	page := pageDataFrom(r, "tickets")
@@ -854,10 +854,10 @@ func offerRunnableCategories(in []domain.CatalogCategory, summary map[int64]appl
 			continue
 		}
 		reason := application.Msg{}
-		if s.CannotRun != "" {
-			reason = application.MsgRef("categories.badge.cannot_run", application.Text(s.CannotRun))
+		if !s.CannotRun.Empty() {
+			reason = application.MsgRef("categories.badge.cannot_run", application.Nested(s.CannotRun))
 		}
-		out = append(out, catalogCategoryEntry{CatalogCategory: c, Unavailable: s.CannotRun != "", Reason: reason})
+		out = append(out, catalogCategoryEntry{CatalogCategory: c, Unavailable: !s.CannotRun.Empty(), Reason: reason})
 	}
 	return out
 }
@@ -879,7 +879,7 @@ func (h *TicketHandlers) renderCatalog(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	departments, err := h.catalog.ListDepartments(ctx)
 	if err != nil {
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		httpError(w, r, "error.internal_server", http.StatusInternalServerError)
 		return
 	}
 	q := strings.TrimSpace(r.URL.Query().Get("q"))
@@ -902,7 +902,7 @@ func (h *TicketHandlers) renderCatalog(w http.ResponseWriter, r *http.Request) {
 	}
 	desks, err := h.catalog.ListDesks(ctx, departmentID)
 	if err != nil {
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		httpError(w, r, "error.internal_server", http.StatusInternalServerError)
 		return
 	}
 	if deskID != 0 {
@@ -922,7 +922,7 @@ func (h *TicketHandlers) renderCatalog(w http.ResponseWriter, r *http.Request) {
 	}
 	catalogCategories, err := h.catalog.ListCategories(ctx, deskID)
 	if err != nil {
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		httpError(w, r, "error.internal_server", http.StatusInternalServerError)
 		return
 	}
 	// The picker composes the same WorkflowSummary the categories screen does,
@@ -931,7 +931,7 @@ func (h *TicketHandlers) renderCatalog(w http.ResponseWriter, r *http.Request) {
 	// and the admin-gated ListSummaries would refuse them the whole screen.
 	summaries, err := h.workflows.ListRequesterSummaries(ctx)
 	if err != nil {
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		httpError(w, r, "error.internal_server", http.StatusInternalServerError)
 		return
 	}
 	summary := requesterSummaryIndex(summaries)
@@ -940,7 +940,7 @@ func (h *TicketHandlers) renderCatalog(w http.ResponseWriter, r *http.Request) {
 	if q != "" {
 		found, err := h.catalog.Search(ctx, q)
 		if err != nil {
-			http.Error(w, "Internal server error", http.StatusInternalServerError)
+			httpError(w, r, "error.internal_server", http.StatusInternalServerError)
 			return
 		}
 		results = offerRunnableCategories(found, summary)
@@ -1013,7 +1013,7 @@ func asCatalogCategories(in []domain.Category) []domain.CatalogCategory {
 // (422/409/...) and message.
 func (h *TicketHandlers) create(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		httpError(w, r, "error.internal_server", http.StatusInternalServerError)
 		return
 	}
 	// Amendment 2: creation binds NO assignee for ANY role. The mere PRESENCE
@@ -1078,7 +1078,7 @@ func (h *TicketHandlers) create(w http.ResponseWriter, r *http.Request) {
 func (h *TicketHandlers) renderCreateError(w http.ResponseWriter, r *http.Request, field, msg string, status int) {
 	opts, offers, err := h.createOptions(r)
 	if err != nil {
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		httpError(w, r, "error.internal_server", http.StatusInternalServerError)
 		return
 	}
 	page := pageDataFrom(r, "tickets")
@@ -1616,14 +1616,15 @@ func (h *TicketHandlers) fillChecklistCurrent(tr i18n.Translator, row *workflowC
 // missing or unreadable desk degrades to "the desk" instead of failing the
 // ticket detail read.
 func (h *TicketHandlers) deskLabel(r *http.Request, step domain.WorkflowStep, cache map[int64]string) string {
+	fallback := i18n.New(requestLocale(r)).T("tickets.checklist.desk_fallback")
 	if step.AssignToDesk == nil {
-		return "the desk"
+		return fallback
 	}
 	id := step.AssignToDesk.DeskID
 	if name, ok := cache[id]; ok {
 		return name
 	}
-	name := "the desk"
+	name := fallback
 	if h.desks != nil {
 		if desk, err := h.desks.GetByID(r.Context(), id); err == nil && desk != nil {
 			name = desk.Name
@@ -1649,7 +1650,7 @@ func (h *TicketHandlers) claimFor(r *http.Request, id int64, actor domain.User) 
 	if step.Type != domain.StepAssignToDesk || step.AssignToDesk == nil || step.AssignToDesk.Strategy != domain.StrategyClaim {
 		return workflowClaim{}
 	}
-	claim := workflowClaim{Active: true, Position: cur + 1, DeskName: "Unknown desk"}
+	claim := workflowClaim{Active: true, Position: cur + 1, DeskName: i18n.T(requestLocale(r), "tickets.degrade.unknown_desk")}
 	if h.desks == nil {
 		return claim
 	}
@@ -1694,7 +1695,7 @@ func (h *TicketHandlers) transition(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := r.ParseForm(); err != nil {
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		httpError(w, r, "error.internal_server", http.StatusInternalServerError)
 		return
 	}
 	actor := *userFromContext(r.Context())
@@ -1721,7 +1722,7 @@ func (h *TicketHandlers) confirmation(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := r.ParseForm(); err != nil {
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		httpError(w, r, "error.internal_server", http.StatusInternalServerError)
 		return
 	}
 	actor := *userFromContext(r.Context())
@@ -1751,7 +1752,7 @@ func (h *TicketHandlers) addComment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := r.ParseForm(); err != nil {
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		httpError(w, r, "error.internal_server", http.StatusInternalServerError)
 		return
 	}
 	actor := *userFromContext(r.Context())
@@ -1793,7 +1794,7 @@ func (h *TicketHandlers) assign(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := r.ParseForm(); err != nil {
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		httpError(w, r, "error.internal_server", http.StatusInternalServerError)
 		return
 	}
 	// Desks are membership-only in this iteration. Reject a forged desk
@@ -1872,7 +1873,7 @@ func (h *TicketHandlers) update(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := r.ParseForm(); err != nil {
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		httpError(w, r, "error.internal_server", http.StatusInternalServerError)
 		return
 	}
 	actor := *userFromContext(r.Context())
@@ -1972,7 +1973,7 @@ func (h *TicketHandlers) renderAgentQueue(w http.ResponseWriter, r *http.Request
 	filters := simplifiedFilters(filterState{Q: q})
 	assigned, claimable, total, err := h.agentQueueSections(r, filters, assignedPage, claimablePage)
 	if err != nil {
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		httpError(w, r, "error.internal_server", http.StatusInternalServerError)
 		return
 	}
 	if claimError != "" {
@@ -2017,7 +2018,7 @@ func (h *TicketHandlers) completeWorkflow(w http.ResponseWriter, r *http.Request
 		return
 	}
 	if err := r.ParseForm(); err != nil {
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		httpError(w, r, "error.internal_server", http.StatusInternalServerError)
 		return
 	}
 	actor := *userFromContext(r.Context())
@@ -2150,10 +2151,10 @@ func parsePositionalAnswers(form url.Values, fieldCount int) (application.RawPos
 		}
 		n, err := strconv.Atoi(strings.TrimPrefix(k, "answer_"))
 		if err != nil || n < 0 {
-			return nil, &domain.ValidationError{Field: "answers", Message: fmt.Sprintf("invalid answer position %q", k)}
+			return nil, &domain.ValidationError{Field: "answers", Message: fmt.Sprintf("invalid answer position %q", k), Key: "error.answers.invalid_position", Args: []any{k}}
 		}
 		if n >= fieldCount {
-			return nil, &domain.ValidationError{Field: "answers", Message: fmt.Sprintf("unknown position %d", n)}
+			return nil, &domain.ValidationError{Field: "answers", Message: fmt.Sprintf("unknown position %d", n), Key: "error.answers.unknown_position", Args: []any{n}}
 		}
 		raw = append(raw, application.RawPositionalValue{Position: n, Values: vals})
 	}
@@ -2161,11 +2162,11 @@ func parsePositionalAnswers(form url.Values, fieldCount int) (application.RawPos
 	seen := make(map[int]struct{}, len(raw))
 	for _, value := range raw {
 		if _, ok := seen[value.Position]; ok {
-			return nil, &domain.ValidationError{Field: "answers", Message: fmt.Sprintf("duplicate position %d", value.Position)}
+			return nil, &domain.ValidationError{Field: "answers", Message: fmt.Sprintf("duplicate position %d", value.Position), Key: "error.answers.duplicate_position", Args: []any{value.Position}}
 		}
 		seen[value.Position] = struct{}{}
 		if len(value.Values) > 1 {
-			return nil, &domain.ValidationError{Field: "answers", Message: fmt.Sprintf("ambiguous values for position %d", value.Position)}
+			return nil, &domain.ValidationError{Field: "answers", Message: fmt.Sprintf("ambiguous values for position %d", value.Position), Key: "error.answers.ambiguous_position", Args: []any{value.Position}}
 		}
 	}
 	return raw, nil

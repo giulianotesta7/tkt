@@ -165,7 +165,7 @@ func NewSessionMiddleware(sessions application.SessionStore, users application.U
 func (m *SessionMiddleware) Wrap(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !originAllowed(r) {
-			http.Error(w, "Forbidden", http.StatusForbidden)
+			httpError(w, r, "error.forbidden", http.StatusForbidden)
 			return
 		}
 
@@ -195,7 +195,7 @@ func (m *SessionMiddleware) Wrap(next http.Handler) http.Handler {
 		if err != nil {
 			// Operational failure (store unavailable): a recoverable 500,
 			// never a misleading login redirect.
-			http.Error(w, "Internal server error", http.StatusInternalServerError)
+			httpError(w, r, "error.internal_server", http.StatusInternalServerError)
 			return
 		}
 
@@ -211,7 +211,7 @@ func (m *SessionMiddleware) Wrap(next http.Handler) http.Handler {
 		if path == "/setup" || strings.HasPrefix(path, "/setup/") {
 			count, err := m.users.Count(r.Context())
 			if err != nil {
-				http.Error(w, "Internal server error", http.StatusInternalServerError)
+				httpError(w, r, "error.internal_server", http.StatusInternalServerError)
 				return
 			}
 			if count > 0 {
@@ -229,7 +229,7 @@ func (m *SessionMiddleware) Wrap(next http.Handler) http.Handler {
 		if session == nil {
 			count, err := m.users.Count(r.Context())
 			if err != nil {
-				http.Error(w, "Internal server error", http.StatusInternalServerError)
+				httpError(w, r, "error.internal_server", http.StatusInternalServerError)
 				return
 			}
 			if count == 0 {
@@ -244,7 +244,7 @@ func (m *SessionMiddleware) Wrap(next http.Handler) http.Handler {
 		if err != nil {
 			if !errors.Is(err, domain.ErrNotFound) {
 				// Operational failure: a recoverable 500, not a login redirect.
-				http.Error(w, "Internal server error", http.StatusInternalServerError)
+				httpError(w, r, "error.internal_server", http.StatusInternalServerError)
 				return
 			}
 			// The user row vanished (deleted out from under the session):
@@ -265,7 +265,7 @@ func (m *SessionMiddleware) Wrap(next http.Handler) http.Handler {
 		if err != nil {
 			// Operational failure (settings store unavailable): a
 			// recoverable 500, consistent with the session/user reads.
-			http.Error(w, "Internal server error", http.StatusInternalServerError)
+			httpError(w, r, "error.internal_server", http.StatusInternalServerError)
 			return
 		}
 		ctx := context.WithValue(r.Context(), ctxKeyUser{}, user)
