@@ -1220,10 +1220,21 @@ type detailData struct {
 	// hides the section entirely: a requester never receives the projection,
 	// and a ticket with no frozen SLA has none to show.
 	SLA *slaPanelView
+	// RequesterView marks the detail as rendered for the requester audience
+	// (role `user`, issue #334): the state badge and the back link use the
+	// requester's own vocabulary instead of the support team's. Presentation
+	// only; the use cases enforce every reachable behavior.
+	RequesterView bool
 	// BackHref is the validated "← Queue" target (issue #265): the same-origin
 	// list URL the browser came from, reduced to whitelisted list parameters,
 	// or /tickets when the navigation carried no usable list origin.
 	BackHref string
+}
+
+// StateBadge resolves the State row's badge for this detail's audience through
+// the single label source (issue #334).
+func (d detailData) StateBadge() stateBadge {
+	return newStateBadge(d.View.Ticket.State, d.RequesterView)
 }
 
 // QueueHref is the detail's "← Queue" target: the validated list return href
@@ -1379,6 +1390,7 @@ func (h *TicketHandlers) detailDataFor(r *http.Request, id int64) (detailData, i
 		Pending:            pending,
 		Claim:              h.claimFor(r, id, actor),
 		SLA:                slaPanel,
+		RequesterView:      actor.Role == domain.RoleUser,
 		BackHref:           listReturnHref(queueOrigin, r.Host),
 	}, 0, nil
 }
@@ -1538,6 +1550,14 @@ func (h *TicketHandlers) fillChecklistCurrent(row *workflowChecklistRow, step do
 			row.CanAct = true
 		}
 		if t.UserID == nil {
+			// A support-internal blocker is not the requester's truth (issue
+			// #334 S1): their own state is that the request was received and is
+			// queued. Leaving Blocked empty also keeps the amber nobody-copy
+			// class off the requester's Steps area. Staff keep today's copy.
+			if actor.Role == domain.RoleUser {
+				row.Meta = "Your request has been received and is queued for support."
+				return
+			}
 			row.Meta = "Nobody is assigned yet."
 			row.Blocked = "No one can complete this step until an agent is assigned to this ticket."
 			return

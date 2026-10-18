@@ -59,6 +59,50 @@ func humanizeLabel(value any) string {
 	return strings.Join(words, " ")
 }
 
+// ticketStateLabel is the single presentation source for a ticket state's
+// visible label, one label per audience (issue #334). The requester audience
+// owns its vocabulary — "Received" for a newly created ticket and the
+// sentence-case "In progress" its card list already used — while staff keep
+// the shared humanized label ("New", "In Progress"). Every state surface
+// renders through here so a list and a detail never name one state twice for
+// the same audience.
+func ticketStateLabel(value any, requester bool) string {
+	if requester {
+		switch domain.State(fmt.Sprint(value)) {
+		case domain.StateNew:
+			return "Received"
+		case domain.StateInProgress:
+			return "In progress"
+		}
+	}
+	return humanizeLabel(value)
+}
+
+// stateBadge is the state_badge partial's payload: the badge class (the raw
+// state) and the audience-resolved visible label.
+type stateBadge struct {
+	State string
+	Label string
+}
+
+// newStateBadge resolves one state for one audience through the single label
+// source.
+func newStateBadge(value any, requester bool) stateBadge {
+	state := fmt.Sprint(value)
+	return stateBadge{State: state, Label: ticketStateLabel(state, requester)}
+}
+
+// resolveStateBadge is the partial's entry point. The staff list call sites
+// pass a raw state and get the staff label; an already-resolved payload (the
+// requester list and detail) passes through unchanged, so every badge keeps
+// one rendering path.
+func resolveStateBadge(value any) stateBadge {
+	if badge, ok := value.(stateBadge); ok {
+		return badge
+	}
+	return newStateBadge(value, false)
+}
+
 // niceMetricsScale rounds the data maximum up to a friendly y-axis maximum
 // whose tick count stays readable (at most 4 gridlines above the zero
 // baseline). Returns the tick step and the axis maximum.
@@ -391,6 +435,10 @@ var templateFuncs = template.FuncMap{
 	"formatCardTime": formatCardTime,
 	"formatDatetime": formatDatetime,
 	"humanize":       humanizeLabel,
+	"stateBadge":     resolveStateBadge,
+	"requesterStateBadge": func(value any) stateBadge {
+		return newStateBadge(value, true)
+	},
 	"ticketNumber": func(n int) string {
 		return "TKT-" + strconv.Itoa(n)
 	},

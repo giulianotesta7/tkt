@@ -501,6 +501,20 @@ test.describe("Role — requester SLA blindness (seeded)", () => {
       ),
     ).toHaveCount(0);
 
+    // Requester vocabulary (issue #334): the detail carries the same state
+    // label as the list, names the requester's own list in the back link, and
+    // shows no support-internal blocker in the Steps area.
+    await expect(page.locator("#ticket-detail .prop-value .badge.new")).toHaveText("Received");
+    await expect(page.locator("#ticket-detail .detail-head .meta-row > a").first()).toHaveText(
+      "← My tickets",
+    );
+    await expect(page.locator("#ticket-detail")).not.toContainText("Nobody is assigned yet.");
+    await expect(
+      page.locator(
+        "#ticket-detail .workflow-checklist-meta-nobody, #ticket-detail .workflow-checklist-blocked",
+      ),
+    ).toHaveCount(0);
+
     // Non-vacuity control: the SAME ticket carries the frozen commitment and
     // the staff detail page shows it.
     await page.context().clearCookies();

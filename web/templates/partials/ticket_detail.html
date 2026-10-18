@@ -5,7 +5,7 @@
   <div class="command-header">
     <div class="detail-head">
       <div class="meta-row">
-        <a href="{{.QueueHref}}">← Queue</a>
+        <a href="{{.QueueHref}}">{{if .RequesterView}}← My tickets{{else}}← Queue{{end}}</a>
         <span class="num">{{ticketNumber .View.Ticket.Number}}</span>
       </div>
 {{if and .CanEdit (not .Closed)}}
@@ -102,7 +102,7 @@
           <div class="prop-heading">State</div>
           <div class="prop-row">
             <span class="prop-label">Current</span>
-            <span class="prop-value">{{template "state_badge" .View.Ticket.State}}</span>
+            <span class="prop-value">{{template "state_badge" .StateBadge}}</span>
           </div>
 {{if and .Next .CanTransition}}
           <div class="prop-row">

@@ -1,4 +1,4 @@
-{{define "state_badge"}}<span class="badge {{.}}">{{humanize .}}</span>{{end}}
+{{define "state_badge"}}{{with stateBadge .}}<span class="badge {{.State}}">{{.Label}}</span>{{end}}{{end}}
 {{/* SLA state: never a pill. A 7px circle carries the state colour — the
      same shape, size and tokens the priority marker uses for "state in a data
      column" — and a muted word carries the state itself, so the cell is never
