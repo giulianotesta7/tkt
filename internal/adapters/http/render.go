@@ -106,11 +106,14 @@ func resolveMsg(tr i18n.Translator, m application.Msg) string {
 	}
 	args := make([]any, len(m.Args))
 	for i, arg := range m.Args {
-		if arg.Key != "" {
+		switch {
+		case arg.Msg != nil:
+			args[i] = resolveMsg(tr, *arg.Msg)
+		case arg.Key != "":
 			args[i] = tr.T(arg.Key)
-			continue
+		default:
+			args[i] = arg.Value
 		}
-		args[i] = arg.Value
 	}
 	return tr.Tf(m.Key, args...)
 }
@@ -634,6 +637,12 @@ func templateFuncsFor(locale string) template.FuncMap {
 		funcs[name] = fn
 	}
 	funcs["t"] = translator.T
+	// th renders a CATALOGUE message as trusted HTML. It exists for the few
+	// shipped strings html/template would escape differently from the literal
+	// they replaced (an apostrophe renders as &#39;), which would change English
+	// bytes on a surface whose golden is frozen (S13). It may ONLY be used with
+	// a catalogue key — never with data.
+	funcs["th"] = func(key string) template.HTML { return template.HTML(translator.T(key)) }
 	funcs["locale"] = func() string { return translator.Locale() }
 	// tf interpolates the catalogue sentence with the values the surface passes
 	// in, so no Go or template call site owns a fragment of copy.

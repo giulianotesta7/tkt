@@ -2,7 +2,6 @@ package httpadapter
 
 import (
 	"errors"
-	"fmt"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -71,7 +70,7 @@ type categoriesIndexData struct {
 	View                 string
 	Categories           []domain.Category
 	CategoryRows         []catalogCategoryRow
-	Badges               map[int64]string
+	Badges               map[int64]application.Msg
 	OpenTickets          map[int64]int
 	Departments          []domain.CatalogDepartment
 	Desks                []domain.CatalogDesk
@@ -143,8 +142,6 @@ type categoryDrawerData struct {
 // admin's categories screen and the requester's ticket picker both need it, and
 // two compositions of the same fact would drift into two vocabularies for one
 // state — the thing WorkflowSummary exists to prevent.
-func cannotRunLabel(reason string) string { return "Can't run · " + reason }
-
 // categoryBadge is the one line a category row shows for its workflow state.
 //
 // It is composed here, from facts, rather than in the store, so the wording is a
@@ -152,22 +149,24 @@ func cannotRunLabel(reason string) string { return "Can't run · " + reason }
 // competing vocabulary. Before this, the store returned one of three words and
 // "published with edits not yet live" rendered as the same "Draft" as "never
 // published" — two different governance states behind one word.
-func categoryBadge(s application.WorkflowSummary) string {
+func categoryBadge(s application.WorkflowSummary) application.Msg {
 	switch {
 	case s.Version == 0 && !s.HasDraft:
-		return "Not configured"
+		return application.MsgRef("categories.badge.not_configured")
 	case s.Version == 0:
-		return "Draft · not published"
+		return application.MsgRef("categories.badge.draft_only")
 	case s.CannotRun != "":
 		// Published, and unable to move a ticket. Without this the category looked
 		// exactly like a healthy one while every ticket filed against it failed.
-		return cannotRunLabel(s.CannotRun)
+		// The reason is analysis output, carried as a value.
+		return application.MsgRef("categories.badge.cannot_run", application.Text(s.CannotRun))
 	case s.PendingSteps == 1:
-		return fmt.Sprintf("Published v%d · 1 unpublished change", s.Version)
+		return application.MsgRef("categories.badge.published_one_change", application.Text(strconv.Itoa(s.Version)))
 	case s.PendingSteps > 1:
-		return fmt.Sprintf("Published v%d · %d unpublished changes", s.Version, s.PendingSteps)
+		return application.MsgRef("categories.badge.published_many_changes",
+			application.Text(strconv.Itoa(s.Version)), application.Text(strconv.Itoa(s.PendingSteps)))
 	default:
-		return fmt.Sprintf("Published v%d", s.Version)
+		return application.MsgRef("categories.badge.published", application.Text(strconv.Itoa(s.Version)))
 	}
 }
 
@@ -177,13 +176,13 @@ func categoryBadge(s application.WorkflowSummary) string {
 // same one-line slot and the same one composition, so no surface invents a
 // second vocabulary for who/when. A category whose rows predate migration 0020
 // (or whose publisher is unknown) keeps the bare badge.
-func categoryStatusLine(s application.WorkflowSummary, a application.WorkflowAttribution) string {
+func categoryStatusLine(s application.WorkflowSummary, a application.WorkflowAttribution) application.Msg {
 	line := categoryBadge(s)
 	switch {
 	case s.Version > 0 && a.PublishedByName != "":
-		return line + " · by " + a.PublishedByName
+		return application.MsgRef("categories.badge.by", application.Nested(line), application.Text(a.PublishedByName))
 	case a.DraftUpdatedByName != "":
-		return line + " · edited by " + a.DraftUpdatedByName
+		return application.MsgRef("categories.badge.edited_by", application.Nested(line), application.Text(a.DraftUpdatedByName))
 	default:
 		return line
 	}
@@ -552,7 +551,7 @@ func (h *CategoryHandlers) categoryIndexData(r *http.Request, message string) (c
 	data := categoriesIndexData{pageData: pageDataFrom(r, "categories"), Error: message, View: state.View, SearchQuery: strings.TrimSpace(r.URL.Query().Get("q"))}
 	data.CategoryAssets, data.PageFoundationAssets = true, true
 	data.SelectedDepartmentID, data.SelectedDeskID = state.DepartmentID, state.DeskID
-	data.Badges = make(map[int64]string)
+	data.Badges = make(map[int64]application.Msg)
 	// Both maps come from the SAME summary list, so a row's state and its open
 	// count can never disagree about which category they describe.
 	data.OpenTickets = make(map[int64]int)
@@ -586,7 +585,7 @@ func (h *CategoryHandlers) categoryIndexData(r *http.Request, message string) (c
 			data.StructureCategories = append(data.StructureCategories, row)
 			if categorySearchMatches(category.Name, data.SearchQuery) {
 				data.SearchResults = append(data.SearchResults, categorySearchResult{
-					Kind: "category", Type: "Category", Name: category.Name,
+					Kind: "category", Type: "categories.kind.category", Name: category.Name,
 					Location: categoryStatePath(categoryViewState{View: "structure"}),
 				})
 			}
@@ -708,7 +707,7 @@ func categorySearchResults(query string, departments []domain.CatalogDepartment,
 		departmentNames[department.ID] = department.Name
 		if categorySearchMatches(department.Name, query) {
 			results = append(results, categorySearchResult{
-				Kind: "department", Type: "Department", Name: department.Name,
+				Kind: "department", Type: "categories.kind.department", Name: department.Name,
 				Location: categoryStatePath(categoryViewState{View: "structure", DepartmentID: department.ID}),
 			})
 		}
@@ -721,7 +720,7 @@ func categorySearchResults(query string, departments []domain.CatalogDepartment,
 		}
 		if categorySearchMatches(desk.Name, query) {
 			results = append(results, categorySearchResult{
-				Kind: "desk", Type: "Desk", Name: desk.Name, Path: departmentName,
+				Kind: "desk", Type: "categories.kind.desk", Name: desk.Name, Path: departmentName,
 				Location: categoryStatePath(categoryViewState{View: "structure", DepartmentID: departmentID, DeskID: desk.ID}),
 			})
 		}
@@ -745,7 +744,7 @@ func categorySearchResults(query string, departments []domain.CatalogDepartment,
 			state.DepartmentID, state.DeskID = departmentID, category.DeskID
 		}
 		results = append(results, categorySearchResult{
-			Kind: "category", Type: "Category", Name: category.Name, Path: category.HierarchyPath,
+			Kind: "category", Type: "categories.kind.category", Name: category.Name, Path: category.HierarchyPath,
 			Location: categoryStatePath(state),
 		})
 	}

@@ -13,6 +13,7 @@ import (
 
 	"github.com/giulianotesta7/tkt/internal/application"
 	"github.com/giulianotesta7/tkt/internal/domain"
+	"github.com/giulianotesta7/tkt/internal/i18n"
 )
 
 func TestCategoryWorkflowBuilder_UsesUsersHeaderFoundationAndCategoryIdentity(t *testing.T) {
@@ -228,7 +229,7 @@ func TestCategoryBadge_States(t *testing.T) {
 	}
 	for _, c := range cs {
 		t.Run(c.name, func(t *testing.T) {
-			if got := categoryBadge(c.in); got != c.want {
+			if got := resolveMsg(i18n.New(i18n.English), categoryBadge(c.in)); got != c.want {
 				t.Fatalf("got %q, want %q", got, c.want)
 			}
 		})

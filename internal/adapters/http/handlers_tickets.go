@@ -818,7 +818,10 @@ type catalogCategoryEntry struct {
 	// Unavailable marks a published category that cannot move a ticket.
 	Unavailable bool
 	// Reason is why it cannot, in the requester's words. Empty when it can.
-	Reason string
+	// It is a catalogue message (issue #335): the presentation layer decides
+	// the language, so the entry carries a key plus the analysis reason as a
+	// value instead of composed English.
+	Reason application.Msg
 }
 
 // requesterSummaryIndex indexes the requester-safe workflow summaries by
@@ -849,7 +852,11 @@ func offerRunnableCategories(in []domain.CatalogCategory, summary map[int64]appl
 		if !ok || s.Version == 0 {
 			continue
 		}
-		out = append(out, catalogCategoryEntry{CatalogCategory: c, Unavailable: s.CannotRun != "", Reason: cannotRunLabel(s.CannotRun)})
+		reason := application.Msg{}
+		if s.CannotRun != "" {
+			reason = application.MsgRef("categories.badge.cannot_run", application.Text(s.CannotRun))
+		}
+		out = append(out, catalogCategoryEntry{CatalogCategory: c, Unavailable: s.CannotRun != "", Reason: reason})
 	}
 	return out
 }

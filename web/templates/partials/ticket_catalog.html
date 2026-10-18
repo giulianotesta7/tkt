@@ -7,64 +7,64 @@
 <div class="catalog-page">
   <div class="command-header">
     <div>
-      <h1 class="command-title">Create a ticket</h1>
-      <p class="command-sub">Choose a category to get started.</p>
+      <h1 class="command-title">{{t "tickets.catalog.title"}}</h1>
+      <p class="command-sub">{{t "tickets.catalog.subtitle"}}</p>
     </div>
-    <div class="command-actions"><a class="btn ghost" href="/tickets">Back to tickets</a></div>
+    <div class="command-actions"><a class="btn ghost" href="/tickets">{{t "tickets.catalog.back"}}</a></div>
   </div>
   <form class="catalog-search search-field" method="get" action="/tickets/new" role="search">
-    <label class="visually-hidden" for="catalog-query">Search categories, desks, or departments</label>
+    <label class="visually-hidden" for="catalog-query">{{t "tickets.catalog.search_label"}}</label>
     {{template "search_icon"}}
-    <input id="catalog-query" type="search" name="q" value="{{.Query}}" placeholder="Search categories, desks, or departments" autocomplete="off">
+    <input id="catalog-query" type="search" name="q" value="{{.Query}}" placeholder="{{t "tickets.catalog.search_label"}}" autocomplete="off">
     <input type="hidden" name="catalog" value="1">
-    <button class="visually-hidden" type="submit">Search</button>
+    <button class="visually-hidden" type="submit">{{t "common.search"}}</button>
   </form>
   {{if .Query}}
     <div class="catalog-results" aria-live="polite">
-      <h2>Search results</h2>
+      <h2>{{t "tickets.catalog.search_results"}}</h2>
       {{range .Results}}
       {{if .Unavailable}}
       <div class="catalog-result unavailable">
-        <span><strong>{{.Name}}</strong><small>{{.DepartmentName}} / {{.DeskName}}</small><em>{{.Description}}</em><span class="catalog-category-reason">{{.Reason}}</span></span>
+        <span><strong>{{.Name}}</strong><small>{{.DepartmentName}} / {{.DeskName}}</small><em>{{.Description}}</em><span class="catalog-category-reason">{{msg .Reason}}</span></span>
       </div>
       {{else}}
       <a class="catalog-result" href="/tickets/new?department_id={{.DepartmentID}}&desk_id={{.DeskID}}&category_id={{.ID}}">
         <span><strong>{{.Name}}</strong><small>{{.DepartmentName}} / {{.DeskName}}</small><em>{{.Description}}</em></span><span aria-hidden="true">›</span>
       </a>
       {{end}}
-      {{else}}<p class="empty">No categories match your search.</p>{{end}}
+      {{else}}<p class="empty">{{t "tickets.catalog.no_match"}}</p>{{end}}
     </div>
   {{end}}
-  <div class="catalog-shell catalog-mobile-{{.MobileStep}}" aria-label="Ticket category catalog">
+  <div class="catalog-shell catalog-mobile-{{.MobileStep}}" aria-label="{{t "tickets.catalog.container_label"}}">
     <section class="catalog-column catalog-departments" aria-labelledby="departments-heading">
-      <h2 id="departments-heading">Departments</h2>
+      <h2 id="departments-heading">{{t "tickets.catalog.departments"}}</h2>
       <div class="catalog-list">
       {{range .Departments}}
         <a class="catalog-item {{if eq .ID $.DepartmentID}}selected{{end}}" href="/tickets/new?department_id={{.ID}}" aria-current="{{if eq .ID $.DepartmentID}}true{{end}}"><span>{{.Name}}</span><small>{{.OfferedCategoryCount}}</small></a>
-      {{else}}<p class="empty compact">No departments configured yet.</p>{{end}}
+      {{else}}<p class="empty compact">{{t "tickets.catalog.no_departments"}}</p>{{end}}
       </div>
     </section>
     <section class="catalog-column catalog-desks" aria-labelledby="desks-heading">
-      <h2 id="desks-heading">Desks</h2>
-      <a class="catalog-back" href="/tickets/new">← Departments</a>
+      <h2 id="desks-heading">{{t "tickets.catalog.desks"}}</h2>
+      <a class="catalog-back" href="/tickets/new">{{t "tickets.catalog.back_departments"}}</a>
       <div class="catalog-list">
       {{range .Desks}}
         <a class="catalog-item {{if eq .ID $.DeskID}}selected{{end}}" href="/tickets/new?department_id={{.DepartmentID}}&desk_id={{.ID}}" aria-current="{{if eq .ID $.DeskID}}true{{end}}"><span>{{.Name}}</span><small>{{.OfferedCategoryCount}}</small></a>
-      {{else}}<p class="empty compact">No desks in this department yet.</p>{{end}}
+      {{else}}<p class="empty compact">{{t "tickets.catalog.no_desks"}}</p>{{end}}
       </div>
     </section>
     <section class="catalog-column catalog-categories" aria-labelledby="categories-heading">
-      <h2 id="categories-heading">Categories</h2>
-      <a class="catalog-back" href="/tickets/new?department_id={{.DepartmentID}}">← Desks</a>
+      <h2 id="categories-heading">{{t "tickets.catalog.categories"}}</h2>
+      <a class="catalog-back" href="/tickets/new?department_id={{.DepartmentID}}">{{t "tickets.catalog.back_desks"}}</a>
       {{if .Breadcrumb}}<p class="catalog-breadcrumb">{{.Breadcrumb}}</p>{{end}}
       <div class="catalog-category-list">
       {{range .Categories}}
         {{if .Unavailable}}
-        <div class="catalog-category unavailable"><span><strong>{{.Name}}</strong><small>{{.Description}}</small><span class="catalog-category-reason">{{.Reason}}</span></span></div>
+        <div class="catalog-category unavailable"><span><strong>{{.Name}}</strong><small>{{.Description}}</small><span class="catalog-category-reason">{{msg .Reason}}</span></span></div>
         {{else}}
         <a class="catalog-category" href="/tickets/new?department_id={{$.DepartmentID}}&desk_id={{$.DeskID}}&category_id={{.ID}}"><span><strong>{{.Name}}</strong><small>{{.Description}}</small></span><span aria-hidden="true">›</span></a>
         {{end}}
-      {{else}}<p class="empty">No published categories in this desk yet.</p>{{end}}
+      {{else}}<p class="empty">{{t "tickets.catalog.no_categories"}}</p>{{end}}
       </div>
     </section>
   </div>
