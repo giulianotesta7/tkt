@@ -1,6 +1,9 @@
 package httpadapter
 
 import (
+	"context"
+	"errors"
+	"io/fs"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -8,7 +11,10 @@ import (
 	"testing/fstest"
 	"time"
 
+	"github.com/giulianotesta7/tkt/internal/application"
 	"github.com/giulianotesta7/tkt/internal/domain"
+	"github.com/giulianotesta7/tkt/internal/i18n"
+	"github.com/giulianotesta7/tkt/web/templates"
 )
 
 // fixtureFS is the render-contract fixture template set: a shell root, one
@@ -205,5 +211,214 @@ func TestRenderUnknownPage(t *testing.T) {
 	}
 	if !strings.Contains(rec.Body.String(), "Internal server error") {
 		t.Errorf("body must be the generic 500 text, got: %s", rec.Body.String())
+	}
+}
+
+// --- Interface language (issue #335, S7/S15) ---
+
+// stubInterfaceLanguage answers a fixed interface language, or a fixed read
+// failure, standing in for the instance settings store the composition root
+// injects.
+type stubInterfaceLanguage struct {
+	language string
+	err      error
+}
+
+func (s stubInterfaceLanguage) GetInterfaceLanguage(context.Context) (string, error) {
+	return s.language, s.err
+}
+
+// localizedShellFS copies the REAL shell roots (base.html, auth.html) and the
+// partials they include from the embedded template tree, plus the login page
+// and a trivial fixture page on the rail shell. A locale test therefore asserts
+// the production copy of the shells without parsing the whole application tree.
+func localizedShellFS(t *testing.T) fstest.MapFS {
+	t.Helper()
+	fsys := fstest.MapFS{
+		"pages/shell.html":       &fstest.MapFile{Data: []byte(`{{define "content"}}<h1>{{t "base.nav.tickets"}}</h1>{{end}}`)},
+		"pages/missing_key.html": &fstest.MapFile{Data: []byte(`{{define "content"}}<p>{{t "base.nav.this_key_does_not_exist"}}</p>{{end}}`)},
+	}
+	for _, name := range []string{
+		"base.html",
+		"auth.html",
+		"pages/login.html",
+		"partials/styles.html",
+		"partials/save_feedback.html",
+	} {
+		data, err := fs.ReadFile(templates.FS, name)
+		if err != nil {
+			t.Fatalf("read embedded template %s: %v", name, err)
+		}
+		fsys[name] = &fstest.MapFile{Data: data}
+	}
+	return fsys
+}
+
+// TestRenderDeclaresAndRendersTheInstanceLanguage proves S15 and the shell half
+// of S8/S13: <html lang> follows the instance setting, and the shell copy comes
+// from the catalogue of that language — including the read-failure and
+// unknown-value degradations, which must render the default language rather
+// than a broken page.
+func TestRenderDeclaresAndRendersTheInstanceLanguage(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		source     stubInterfaceLanguage
+		wantLang   string
+		wantCopy   string
+		absentCopy string
+	}{
+		{name: "english", source: stubInterfaceLanguage{language: "en"}, wantLang: "en", wantCopy: "Welcome to tkt", absentCopy: "Te damos la bienvenida a tkt"},
+		{name: "spanish", source: stubInterfaceLanguage{language: "es"}, wantLang: "es", wantCopy: "Te damos la bienvenida a tkt", absentCopy: "Welcome to tkt"},
+		{name: "unknown value degrades to the default", source: stubInterfaceLanguage{language: "fr"}, wantLang: "en", wantCopy: "Welcome to tkt", absentCopy: "Te damos la bienvenida a tkt"},
+		{name: "empty value degrades to the default", source: stubInterfaceLanguage{language: ""}, wantLang: "en", wantCopy: "Welcome to tkt", absentCopy: "Te damos la bienvenida a tkt"},
+		{name: "read failure degrades to the default", source: stubInterfaceLanguage{err: errors.New("settings unavailable")}, wantLang: "en", wantCopy: "Welcome to tkt", absentCopy: "Te damos la bienvenida a tkt"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			r, err := newRendererWithLanguage(localizedShellFS(t), tc.source)
+			if err != nil {
+				t.Fatalf("newRendererWithLanguage: %v", err)
+			}
+			rec := httptest.NewRecorder()
+			req := httptest.NewRequest(http.MethodGet, "/login", nil)
+
+			r.Render(rec, req, "login", "", loginData{}, http.StatusOK)
+
+			if rec.Code != http.StatusOK {
+				t.Fatalf("status = %d, want 200: %s", rec.Code, rec.Body.String())
+			}
+			body := rec.Body.String()
+			if !strings.Contains(body, `<html lang="`+tc.wantLang+`">`) {
+				t.Errorf("auth shell must declare lang=%q, got: %s", tc.wantLang, firstLine(body))
+			}
+			if !strings.Contains(body, tc.wantCopy) {
+				t.Errorf("auth shell must render %q, got: %s", tc.wantCopy, body)
+			}
+			if strings.Contains(body, tc.absentCopy) {
+				t.Errorf("auth shell must not render %q, got: %s", tc.absentCopy, body)
+			}
+		})
+	}
+}
+
+// TestRenderRailShellFollowsTheInstanceLanguage proves the base.html half of
+// the same contract: the rail nav, its accessible labels, and the log-out
+// control follow the active catalogue, and a key rendered inside a page body
+// resolves through the same per-request language.
+func TestRenderRailShellFollowsTheInstanceLanguage(t *testing.T) {
+	for _, tc := range []struct {
+		name         string
+		language     string
+		wantLang     string
+		wantNav      string
+		absentNav    string
+		wantLogout   string
+		absentLogout string
+	}{
+		{name: "english", language: "en", wantLang: "en", wantNav: "Tickets", absentNav: "Solicitudes", wantLogout: "Log out", absentLogout: "Cerrar sesión"},
+		{name: "spanish", language: "es", wantLang: "es", wantNav: "Solicitudes", absentNav: `title="Tickets"`, wantLogout: "Cerrar sesión", absentLogout: `title="Log out"`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			r, err := newRendererWithLanguage(localizedShellFS(t), stubInterfaceLanguage{language: tc.language})
+			if err != nil {
+				t.Fatalf("newRendererWithLanguage: %v", err)
+			}
+			rec := httptest.NewRecorder()
+			req := httptest.NewRequest(http.MethodGet, "/shell", nil)
+
+			r.Render(rec, req, "shell", "", pageData{NavActive: "tickets"}, http.StatusOK)
+
+			if rec.Code != http.StatusOK {
+				t.Fatalf("status = %d, want 200: %s", rec.Code, rec.Body.String())
+			}
+			body := rec.Body.String()
+			if !strings.Contains(body, `<html lang="`+tc.wantLang+`">`) {
+				t.Errorf("rail shell must declare lang=%q, got: %s", tc.wantLang, firstLine(body))
+			}
+			for _, want := range []string{`title="` + tc.wantNav + `"`, `aria-label="` + tc.wantNav + `"`, `<h1>` + tc.wantNav + `</h1>`, tc.wantLogout} {
+				if !strings.Contains(body, want) {
+					t.Errorf("rail shell must render %q, got: %s", want, body)
+				}
+			}
+			if strings.Contains(body, tc.absentNav) {
+				t.Errorf("rail shell must not render %q, got: %s", tc.absentNav, body)
+			}
+			if strings.Contains(body, tc.absentLogout) {
+				t.Errorf("rail shell must not render %q, got: %s", tc.absentLogout, body)
+			}
+		})
+	}
+}
+
+// TestRenderMissingKeyNeverRendersRaw proves S10 through the real render path: a
+// key absent from every catalogue degrades to a readable label, never to the key
+// itself.
+func TestRenderMissingKeyNeverRendersRaw(t *testing.T) {
+	r, err := newRendererWithLanguage(localizedShellFS(t), stubInterfaceLanguage{language: "es"})
+	if err != nil {
+		t.Fatalf("newRendererWithLanguage: %v", err)
+	}
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/missing_key", nil)
+
+	r.Render(rec, req, "missing_key", "", pageData{}, http.StatusOK)
+
+	body := rec.Body.String()
+	if strings.Contains(body, "base.nav.this_key_does_not_exist") {
+		t.Errorf("a missing key rendered raw: %s", body)
+	}
+	if !strings.Contains(body, "This key does not exist") {
+		t.Errorf("a missing key must degrade to a readable label, got: %s", body)
+	}
+}
+
+// TestShippedLocalesMatchTheSettingsVocabulary proves the catalogue set and the
+// setting's accepted values cannot drift: a language the setting accepts with no
+// catalogue would render English while claiming to be Spanish, and a catalogue
+// the setting refuses would be unreachable.
+func TestShippedLocalesMatchTheSettingsVocabulary(t *testing.T) {
+	got := i18n.Supported()
+	want := application.AllowedInterfaceLanguages()
+	if len(got) != len(want) {
+		t.Fatalf("i18n.Supported() = %v, want the settings vocabulary %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("i18n.Supported()[%d] = %q, want %q", i, got[i], want[i])
+		}
+	}
+	if i18n.Default != application.DefaultInterfaceLanguage {
+		t.Errorf("i18n default = %q, want %q", i18n.Default, application.DefaultInterfaceLanguage)
+	}
+}
+
+// firstLine trims a document to its head line so a failure message stays
+// readable.
+func firstLine(body string) string {
+	if i := strings.IndexByte(body, '\n'); i >= 0 {
+		return body[:i]
+	}
+	return body
+}
+
+// TestRenderWithoutLanguageSourceAnswersTheDefaultLocale preserves the
+// fixture/harness contract: a renderer built with NewRendererWith has no
+// instance settings behind it, so it answers the default locale — the same
+// English markup every existing fixture and golden assertion expects.
+func TestRenderWithoutLanguageSourceAnswersTheDefaultLocale(t *testing.T) {
+	r, err := NewRendererWith(localizedShellFS(t))
+	if err != nil {
+		t.Fatalf("NewRendererWith: %v", err)
+	}
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/shell", nil)
+
+	r.Render(rec, req, "shell", "", pageData{NavActive: "tickets"}, http.StatusOK)
+
+	body := rec.Body.String()
+	if !strings.Contains(body, `<html lang="en">`) {
+		t.Errorf("a renderer without a language source must declare the default locale, got: %s", firstLine(body))
+	}
+	if !strings.Contains(body, `title="Tickets"`) {
+		t.Errorf("a renderer without a language source must render English copy, got: %s", body)
 	}
 }

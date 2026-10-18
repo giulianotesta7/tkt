@@ -119,7 +119,10 @@ func main() {
 	workflowSvc := application.NewWorkflowService(store.WorkflowStore())
 	metricsSvc := application.NewTicketMetricsService(store.TicketMetricsStore(), clock)
 
-	renderer := httpadapter.NewRenderer()
+	// Issue #335: the interface language is an instance-wide setting, so the
+	// renderer resolves it per request and selects the parsed template tree
+	// (and the lang it declares) from it.
+	renderer := httpadapter.NewRendererWithLanguage(store.SettingsStore())
 
 	mux := http.NewServeMux()
 	httpadapter.RegisterStatic(mux)
