@@ -301,11 +301,11 @@ func (b *ViewBuilder) enrichTimeline(ctx context.Context, view *TicketView) erro
 			if item.ToLabel != "" && item.ToLabel != item.FromLabel {
 				item.Narrative = "changed " + strings.ToLower(label) + " to " + item.ToLabel
 				item.NarrativeMsg = MsgRef("tickets.timeline.narrative.changed_to",
-					Text(strings.ToLower(label)), Text(item.ToLabel))
+					timelineFieldArg(field), timelineValueArg(field, item.Event.ToValue, item.ToLabel))
 				item.Summary = "Changed " + label + " to " + item.ToLabel
 			} else {
 				item.Narrative = "changed " + strings.ToLower(label)
-				item.NarrativeMsg = MsgRef("tickets.timeline.narrative.changed", Text(strings.ToLower(label)))
+				item.NarrativeMsg = MsgRef("tickets.timeline.narrative.changed", timelineFieldArg(field))
 				item.Summary = "Changed " + label
 			}
 		}
@@ -480,10 +480,75 @@ func eventSummaryMsg(e *domain.AuditEvent) Msg {
 		return MsgRef("tickets.timeline.narrative.submitted_work")
 	default:
 		if e.Field != nil {
-			return MsgRef("tickets.timeline.narrative.changed", Text(strings.ToLower(auditFieldLabel(strings.ToLower(strings.TrimSpace(*e.Field))))))
+			return MsgRef("tickets.timeline.narrative.changed", timelineFieldArg(strings.ToLower(strings.TrimSpace(*e.Field))))
 		}
 		return MsgRef("tickets.timeline.narrative.changed", Text(strings.ToLower(humanizeIdentifier(e.Action))))
 	}
+}
+
+// timelineFieldKey names the catalogue key of a changed audit field inside a
+// narrative sentence ("changed priority to Low", "cambió la prioridad a
+// Baja"). The English copy is the lowercase word the sentence always used, so
+// a default instance renders exactly today's bytes. An unrecognized field has
+// no key: it interpolates its own lowercased label as data.
+func timelineFieldKey(field string) string {
+	switch field {
+	case "title":
+		return "tickets.timeline.field.title"
+	case "priority":
+		return "tickets.timeline.field.priority"
+	case "category", "category_id":
+		return "tickets.timeline.field.category"
+	case "state":
+		return "tickets.timeline.field.state"
+	default:
+		return ""
+	}
+}
+
+// timelineFieldArg resolves a changed field into a translated placeholder when
+// the catalogue names it, and into the lowercase label the narrative always
+// used otherwise ("assigned to" for the user field), so every English sentence
+// keeps its historical bytes.
+func timelineFieldArg(field string) Arg {
+	if key := timelineFieldKey(field); key != "" {
+		return Copy(key)
+	}
+	return Text(strings.ToLower(auditFieldLabel(field)))
+}
+
+// timelineValueKey names the catalogue key of a changed field's VALUE when that
+// value is chrome rather than data: a priority and a lifecycle state are
+// labelled by the catalogue (label.priority.low, label.state.in_progress). A
+// title, a category name, a person's name, and every other free value return
+// "" and render verbatim (S11).
+func timelineValueKey(field, value string) string {
+	switch field {
+	case "priority":
+		switch value {
+		case "low", "medium", "high", "critical":
+			return "label.priority." + value
+		}
+	case "state":
+		switch value {
+		case "new", "in_progress", "resolved", "closed", "cancelled":
+			return "label.state." + value
+		}
+	}
+	return ""
+}
+
+// timelineValueArg resolves a changed value through the catalogue when it is a
+// known priority or state, and keeps the caller's resolved label verbatim
+// otherwise.
+func timelineValueArg(field string, value *string, resolved string) Arg {
+	if value == nil {
+		return Text("")
+	}
+	if key := timelineValueKey(field, strings.ToLower(strings.TrimSpace(*value))); key != "" {
+		return Copy(key)
+	}
+	return Text(resolved)
 }
 
 // timelineStateKey names the catalogue key of a lifecycle state inside a

@@ -171,6 +171,12 @@ type TicketMetricsWeek struct {
 type TicketMetricsBucket struct {
 	Label string
 	Count int
+	// LabelKey names the catalogue entry for a bucket whose label is chrome (the
+	// four fixed age ranges), so the presentation resolves it in the active
+	// instance language while Label keeps the English bytes for a caller that
+	// reads the DTO directly. A bucket with no key (the numeric histogram bins,
+	// an admin-authored workload name) renders Label verbatim.
+	LabelKey string
 	// LowerDays and UpperDays are the numeric half-open bounds in days for
 	// the equal-width resolution histogram. Age buckets are nonuniform and
 	// keep them at zero rather than reparsing Label.
@@ -274,7 +280,10 @@ func buildTicketMetrics(records []TicketMetricsRecord, f TicketMetricsFilter, no
 		}
 	}
 	ages := []TicketMetricsBucket{
-		{Label: "0–2 days"}, {Label: "3–7 days"}, {Label: "8–14 days"}, {Label: ">14 days"},
+		{Label: "0–2 days", LabelKey: "ticket_metrics.age.bucket.0_2"},
+		{Label: "3–7 days", LabelKey: "ticket_metrics.age.bucket.3_7"},
+		{Label: "8–14 days", LabelKey: "ticket_metrics.age.bucket.8_14"},
+		{Label: ">14 days", LabelKey: "ticket_metrics.age.bucket.14_plus"},
 	}
 	work := map[string]TicketMetricsWorkload{}
 	var durations []time.Duration

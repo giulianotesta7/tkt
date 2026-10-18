@@ -143,6 +143,96 @@ func TestTicketViewEnrichesAuditTimelineLabels(t *testing.T) {
 	}
 }
 
+// TestTicketViewBuildsTheChangedFieldNarrativeFromTheCatalogue pins the one
+// timeline sentence that interpolates a FIELD NAME and its VALUE: both are
+// catalogue messages, so a Spanish instance reads "cambió la prioridad a Baja"
+// instead of an English fragment. A title or a category name is data and stays
+// verbatim, and the English narrative keeps today's bytes (S8, S11, S13).
+func TestTicketViewBuildsTheChangedFieldNarrativeFromTheCatalogue(t *testing.T) {
+	clock := fixedClock()
+	tickets := newFakeTicketStore()
+	users := newFakeUserStore()
+	categories := newFakeCategoryStore()
+	comments := newFakeCommentStore()
+	audits := newFakeAuditStore()
+	bugs := categories.seed("Bugs")
+	support := categories.seed("Support")
+	ticket := tickets.seed(domain.Ticket{
+		Title: "Seeded", CategoryID: bugs.ID, Priority: domain.PriorityHigh,
+		State: domain.StateNew, CreatedAt: clock.now, UpdatedAt: clock.now,
+	})
+	events := []domain.AuditEvent{
+		{TicketID: ticket.ID, Actor: "Ada", Action: domain.ActionUpdate, Field: ptr("priority"), FromValue: ptr("high"), ToValue: ptr("low"), CreatedAt: clock.now},
+		{TicketID: ticket.ID, Actor: "Ada", Action: domain.ActionUpdate, Field: ptr("title"), FromValue: ptr("Old title"), ToValue: ptr("New title"), CreatedAt: clock.now},
+		{TicketID: ticket.ID, Actor: "Ada", Action: domain.ActionUpdate, Field: ptr("category"), FromValue: ptr(strconv.FormatInt(bugs.ID, 10)), ToValue: ptr(strconv.FormatInt(support.ID, 10)), CreatedAt: clock.now},
+	}
+	for _, event := range events {
+		audits.Append(context.Background(), event)
+		clock.Advance(timeMinute)
+	}
+
+	builder := application.NewViewBuilder(tickets, users, categories, comments, audits, newFakeDeskStore())
+	view, err := builder.TicketView(context.Background(), ticket.ID, application.TicketQuery{Scope: application.ScopeAll}, true)
+	if err != nil {
+		t.Fatalf("TicketView: unexpected error: %v", err)
+	}
+	if len(view.Timeline) != len(events) {
+		t.Fatalf("timeline entries = %d, want %d", len(view.Timeline), len(events))
+	}
+	byField := map[string]application.TimelineItem{}
+	for _, item := range view.Timeline {
+		byField[item.FieldLabel] = item
+	}
+
+	priority, ok := byField["Priority"]
+	if !ok {
+		t.Fatalf("no priority item in the timeline: %+v", view.Timeline)
+	}
+	if priority.Narrative != "changed priority to Low" {
+		t.Errorf("English priority narrative = %q, want today's bytes", priority.Narrative)
+	}
+	if priority.NarrativeMsg.Key != "tickets.timeline.narrative.changed_to" {
+		t.Errorf("priority narrative key = %q, want changed_to", priority.NarrativeMsg.Key)
+	}
+	if len(priority.NarrativeMsg.Args) != 2 {
+		t.Fatalf("priority narrative args = %+v, want two", priority.NarrativeMsg.Args)
+	}
+	if got := priority.NarrativeMsg.Args[0].Key; got != "tickets.timeline.field.priority" {
+		t.Errorf("priority field arg key = %q, want the field catalogue key", got)
+	}
+	if got := priority.NarrativeMsg.Args[1].Key; got != "label.priority.low" {
+		t.Errorf("priority value arg key = %q, want the priority label key", got)
+	}
+
+	title, ok := byField["Title"]
+	if !ok {
+		t.Fatalf("no title item in the timeline: %+v", view.Timeline)
+	}
+	if len(title.NarrativeMsg.Args) != 2 {
+		t.Fatalf("title narrative args = %+v, want two", title.NarrativeMsg.Args)
+	}
+	if got := title.NarrativeMsg.Args[0].Key; got != "tickets.timeline.field.title" {
+		t.Errorf("title field arg key = %q, want the field catalogue key", got)
+	}
+	if arg := title.NarrativeMsg.Args[1]; arg.Key != "" || arg.Value != "New title" {
+		t.Errorf("title value arg = %+v, want the admin-authored value verbatim", arg)
+	}
+
+	category, ok := byField["Category"]
+	if !ok {
+		t.Fatalf("no category item in the timeline: %+v", view.Timeline)
+	}
+	if got := category.NarrativeMsg.Args[0].Key; got != "tickets.timeline.field.category" {
+		t.Errorf("category field arg key = %q, want the field catalogue key", got)
+	}
+	if len(category.NarrativeMsg.Args) != 2 {
+		t.Fatalf("category narrative args = %+v, want two", category.NarrativeMsg.Args)
+	}
+	if arg := category.NarrativeMsg.Args[1]; arg.Key != "" || arg.Value != "Support" {
+		t.Errorf("category value arg = %+v, want the category name verbatim", arg)
+	}
+}
+
 // seededCommentTimeline arranges a ticket with comments and audit events at
 // increasing times through the fakes (D13: the view resolves refs).
 func seededCommentTimeline(t *testing.T) (*application.ViewBuilder, *fakeTicketStore, *fakeUserStore, domain.Ticket, domain.User, domain.Category) {

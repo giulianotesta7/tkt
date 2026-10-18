@@ -84,6 +84,13 @@ func requestLocale(r *http.Request) string {
 	return i18n.Default
 }
 
+// httpError writes a plain-text error response whose copy follows the request's
+// interface language, so a malformed route identifier on a Spanish instance is
+// not an English sentence. Callers name a catalogue key, never a literal.
+func httpError(w http.ResponseWriter, r *http.Request, key string, status int) {
+	http.Error(w, i18n.T(requestLocale(r), key), status)
+}
+
 // errorKey maps a domain or application error's English message to the
 // catalogue key of its user-facing copy. The English strings stay the single
 // source of the wording (domain constants and application literals); this table
@@ -159,16 +166,32 @@ var errorKey = map[string]string{
 func mapErrorFor(r *http.Request, err error) (int, string) {
 	status, english := mapError(err)
 	// A transition error interpolates its two states, so it is not a fixed
-	// table entry: its message is rebuilt from the narrative state labels.
+	// table entry. English keeps the domain's own bytes (S13: the raw state
+	// identifiers, never a translated label); another locale rebuilds the
+	// sentence from the narrative state labels.
 	var invalidTrans *domain.InvalidTransitionError
 	if errors.As(err, &invalidTrans) {
 		locale := requestLocale(r)
+		if locale == i18n.Default {
+			return status, invalidTrans.Error()
+		}
 		return status, i18n.New(locale).Tf("error.transition_not_allowed",
-			i18n.T(locale, "tickets.timeline.state."+string(invalidTrans.From)),
-			i18n.T(locale, "tickets.timeline.state."+string(invalidTrans.To)))
+			transitionStateLabel(locale, invalidTrans.From),
+			transitionStateLabel(locale, invalidTrans.To))
 	}
 	if key, ok := errorKey[english]; ok {
 		return status, i18n.T(requestLocale(r), key)
 	}
 	return status, english
+}
+
+// transitionStateLabel resolves one endpoint of a rejected transition through
+// the narrative state labels. A state no catalogue names is a value the user
+// typed, not chrome: it renders exactly as the domain carries it, so it is
+// never re-cased into a label.
+func transitionStateLabel(locale string, state domain.State) string {
+	if label, ok := i18n.New(locale).Lookup("tickets.timeline.state." + string(state)); ok {
+		return label
+	}
+	return string(state)
 }

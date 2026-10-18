@@ -74,6 +74,14 @@ type WorkflowValidationIssue struct {
 	// the step itself: a badge, a table row, a summary line. Message is what the
 	// builder shows beside a step; Reason is what a one-line label can carry.
 	Reason string
+	// Key and Args name the same finding as structured data: Key is a catalogue
+	// entry every shipped locale carries and Args are the values its sentence
+	// interpolates (a step position, a field key, a desk name). The English
+	// Message stays the domain's single source of the wording, and the
+	// presentation layer resolves the key through the active instance language;
+	// an issue built without a key renders its Message verbatim (issue #335, S8).
+	Key  string
+	Args []any
 }
 
 func (d WorkflowDefinition) Validate() []WorkflowValidationIssue {
@@ -81,8 +89,14 @@ func (d WorkflowDefinition) Validate() []WorkflowValidationIssue {
 	add := func(s int, f, m string) {
 		issues = append(issues, WorkflowValidationIssue{Step: s, Field: f, Message: m})
 	}
+	// addKeyed records a fixed finding that has a catalogue key: the English
+	// message stays the domain's wording and the key lets a localized surface
+	// render the same finding.
+	addKeyed := func(s int, f, key, m string) {
+		issues = append(issues, WorkflowValidationIssue{Step: s, Field: f, Message: m, Key: key})
+	}
 	if len(d) == 0 {
-		add(1, "steps", "workflow must have at least one step")
+		addKeyed(1, "steps", "error.workflow_min_steps", "workflow must have at least one step")
 		return issues
 	}
 	tc, tp := 0, -1
@@ -93,7 +107,7 @@ func (d WorkflowDefinition) Validate() []WorkflowValidationIssue {
 		}
 	}
 	if tc > 1 {
-		add(tp+1, "type", "workflow must have at most one terminal step")
+		addKeyed(tp+1, "type", "error.workflow_max_terminal", "workflow must have at most one terminal step")
 	}
 	hr, hc := false, false
 	for _, s := range d {
@@ -105,10 +119,10 @@ func (d WorkflowDefinition) Validate() []WorkflowValidationIssue {
 		}
 	}
 	if hr && hc {
-		add(tp+1, "type", "resolve_ticket and close_ticket are mutually exclusive")
+		addKeyed(tp+1, "type", "error.workflow_terminal_exclusive", "resolve_ticket and close_ticket are mutually exclusive")
 	}
 	if tc == 1 && tp != len(d)-1 {
-		add(tp+1, "type", "terminal step must be the final step")
+		addKeyed(tp+1, "type", "error.workflow_terminal_last", "terminal step must be the final step")
 	}
 	seen := map[string]int{}
 	for i, s := range d {

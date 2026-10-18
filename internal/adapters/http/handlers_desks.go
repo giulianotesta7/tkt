@@ -6,6 +6,7 @@ import (
 
 	"github.com/giulianotesta7/tkt/internal/application"
 	"github.com/giulianotesta7/tkt/internal/domain"
+	"github.com/giulianotesta7/tkt/internal/i18n"
 )
 
 // DeskHandlers keeps only the compatibility entry point and membership routes
@@ -36,7 +37,7 @@ func (h *DeskHandlers) index(w http.ResponseWriter, r *http.Request) {
 func (h *DeskHandlers) addMember(w http.ResponseWriter, r *http.Request) {
 	deskID, ok := deskID(r)
 	if !ok {
-		http.Error(w, "invalid desk id", http.StatusBadRequest)
+		httpError(w, r, "error.invalid_desk_id", http.StatusBadRequest)
 		return
 	}
 	if err := r.ParseForm(); err != nil {
@@ -45,10 +46,10 @@ func (h *DeskHandlers) addMember(w http.ResponseWriter, r *http.Request) {
 	}
 	userID := parseID(r.Form.Get("user_id"))
 	if userID == 0 {
-		if h.renderDeskDrawer(w, r, deskID, "invalid user id", http.StatusBadRequest) {
+		if h.renderDeskDrawer(w, r, deskID, i18n.T(requestLocale(r), "error.invalid_user_id"), http.StatusBadRequest) {
 			return
 		}
-		http.Error(w, "invalid user id", http.StatusBadRequest)
+		httpError(w, r, "error.invalid_user_id", http.StatusBadRequest)
 		return
 	}
 	if err := h.desks.AddMember(r.Context(), *userFromContext(r.Context()), deskID, userID); err != nil {
@@ -70,7 +71,7 @@ func (h *DeskHandlers) addMember(w http.ResponseWriter, r *http.Request) {
 func (h *DeskHandlers) removeMember(w http.ResponseWriter, r *http.Request) {
 	deskID, ok := deskID(r)
 	if !ok {
-		http.Error(w, "invalid desk id", http.StatusBadRequest)
+		httpError(w, r, "error.invalid_desk_id", http.StatusBadRequest)
 		return
 	}
 	if err := r.ParseForm(); err != nil {
@@ -79,10 +80,10 @@ func (h *DeskHandlers) removeMember(w http.ResponseWriter, r *http.Request) {
 	}
 	userID := parseID(r.PathValue("userID"))
 	if userID == 0 {
-		if h.renderDeskDrawer(w, r, deskID, "invalid user id", http.StatusBadRequest) {
+		if h.renderDeskDrawer(w, r, deskID, i18n.T(requestLocale(r), "error.invalid_user_id"), http.StatusBadRequest) {
 			return
 		}
-		http.Error(w, "invalid user id", http.StatusBadRequest)
+		httpError(w, r, "error.invalid_user_id", http.StatusBadRequest)
 		return
 	}
 	if err := h.desks.RemoveMember(r.Context(), *userFromContext(r.Context()), deskID, userID); err != nil {

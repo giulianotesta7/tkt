@@ -4,12 +4,14 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/giulianotesta7/tkt/internal/application"
 	"github.com/giulianotesta7/tkt/internal/domain"
+	"github.com/giulianotesta7/tkt/internal/i18n"
 	"github.com/giulianotesta7/tkt/web/templates"
 )
 
@@ -384,18 +386,29 @@ func TestSpanishTimelineNarrative(t *testing.T) {
 	data.View.Timeline[1].NarrativeMsg = application.MsgRef("tickets.timeline.narrative.assigned_to", application.Text("Ana Torres"))
 	data.View.Timeline[2].NarrativeMsg = application.MsgRef("tickets.timeline.narrative.moved_to", application.Copy("tickets.timeline.state.in_progress"))
 	data.View.Timeline[3].NarrativeMsg = application.MsgRef("tickets.timeline.narrative.created")
+	// A changed field interpolates the FIELD NAME and its VALUE as catalogue
+	// messages too (TestTicketViewBuildsTheChangedFieldNarrativeFromTheCatalogue
+	// pins the construction), so neither an English field word nor an English
+	// priority label leaks into a Spanish sentence.
+	data.View.Timeline = append(data.View.Timeline, application.TimelineItem{
+		Event:      &data.View.AuditEvents[0],
+		ActorLabel: "Admin",
+		NarrativeMsg: application.MsgRef("tickets.timeline.narrative.changed_to",
+			application.Copy("tickets.timeline.field.priority"), application.Copy("label.priority.low")),
+	})
 	body := renderLocalized(t, "es", "tickets_show", "timeline", data)
 	for _, want := range []string{
 		"agregó un comentario público",
 		"asignó el ticket a Ana Torres",
 		"movió el ticket a en curso",
 		"creó el ticket",
+		"cambió la prioridad a Baja",
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("Spanish timeline must render %q, got: %.1000s", want, body)
 		}
 	}
-	for _, unwanted := range []string{"added a public comment", "moved the ticket to in progress", "created the ticket"} {
+	for _, unwanted := range []string{"added a public comment", "moved the ticket to in progress", "created the ticket", "changed priority", " to Low"} {
 		if strings.Contains(body, unwanted) {
 			t.Errorf("Spanish timeline must not render the English %q", unwanted)
 		}
@@ -436,6 +449,144 @@ func TestSpanishWorkflowBuilder(t *testing.T) {
 	for _, unwanted := range []string{">Category workflow<", ">Workflow steps<", ">Give the agent a task<"} {
 		if strings.Contains(body, unwanted) {
 			t.Errorf("Spanish workflow builder must not render the English %q", unwanted)
+		}
+	}
+}
+
+// TestSpanishWorkflowBuilderIssues renders the builder's validation banners in
+// Spanish: a domain validation issue is addressed by a catalogue key (the
+// domain keeps the English Message and exposes the finding as structured data),
+// the draft-conflict refusal follows the instance language, and an issue that
+// carries no key still renders its own text verbatim.
+func TestSpanishWorkflowBuilderIssues(t *testing.T) {
+	data := mobileBuilderPageData()
+	data.Issues = []domain.WorkflowValidationIssue{
+		{Step: 1, Field: "steps", Message: "workflow must have at least one step", Key: "error.workflow_min_steps"},
+		{Step: 1, Field: "draft", Message: draftConflictMessage, Key: "error.workflow_draft_conflict"},
+		{Step: 1, Field: "raw", Message: "raw internal detail"},
+	}
+	body := renderLocalized(t, "es", "category_workflow", "workflow_builder", data)
+	for _, want := range []string{
+		"el flujo debe tener al menos un paso",
+		"Otra sesión cambió este flujo mientras lo editabas. Tu cambio no se guardó; abajo se muestra el borrador más reciente.",
+		"raw internal detail",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("Spanish workflow builder must render %q, got: %.1600s", want, body)
+		}
+	}
+	for _, unwanted := range []string{
+		"workflow must have at least one step",
+		draftConflictMessage,
+	} {
+		if strings.Contains(body, unwanted) {
+			t.Errorf("Spanish workflow builder must not render the English %q", unwanted)
+		}
+	}
+}
+
+// TestSpanishMetricsCharts renders the age and workload charts in Spanish: the
+// chart's accessible label, its visible axis title, and the four fixed age
+// bucket labels all come from the catalogue, so no English word survives on a
+// Spanish metrics page (S8).
+func TestSpanishMetricsCharts(t *testing.T) {
+	ages := []application.TicketMetricsBucket{
+		{Label: "0–2 days", LabelKey: "ticket_metrics.age.bucket.0_2", Count: 2},
+		{Label: "3–7 days", LabelKey: "ticket_metrics.age.bucket.3_7", Count: 1},
+		{Label: "8–14 days", LabelKey: "ticket_metrics.age.bucket.8_14", Count: 0},
+		{Label: ">14 days", LabelKey: "ticket_metrics.age.bucket.14_plus", Count: 1},
+	}
+	ageSVG := string(metricsAgeChart(i18n.New("es"), ages))
+	for _, want := range []string{
+		"0–2 días", "3–7 días", "8–14 días", "&gt;14 días",
+		"Tickets pendientes",
+		"Tickets pendientes por antigüedad transcurrida completada.",
+	} {
+		if !strings.Contains(ageSVG, want) {
+			t.Errorf("Spanish age chart must render %q: %.1200s", want, ageSVG)
+		}
+	}
+	for _, unwanted := range []string{"0–2 days", "3–7 days", ">14 days", ">Pending tickets<", "by completed elapsed age"} {
+		if strings.Contains(ageSVG, unwanted) {
+			t.Errorf("Spanish age chart must not render the English %q: %.1200s", unwanted, ageSVG)
+		}
+	}
+
+	workloadSVG := string(metricsWorkloadChart(i18n.New("es"), []application.TicketMetricsWorkload{{Label: "Ana", Count: 2, Unassigned: false}}, "Carga pendiente"))
+	for _, want := range []string{"Carga pendiente. Eje X de 0 a 2. Título del eje X: Tickets pendientes.", ">Tickets pendientes<"} {
+		if !strings.Contains(workloadSVG, want) {
+			t.Errorf("Spanish workload chart must render %q: %.1200s", want, workloadSVG)
+		}
+	}
+}
+
+// TestSpanishWorkflowChecklist drives the real ticket-detail handler on a
+// Spanish instance: the Steps checklist is composed in Go, so this proves the
+// step names, the current row's control facts, the pending status lines and the
+// automatic-completion attribution all follow the catalogue instead of leaking
+// the English literals (S8).
+func TestSpanishWorkflowChecklist(t *testing.T) {
+	h := newHarness(t)
+	if err := h.settings.SetInterfaceLanguage(t.Context(), *h.admin, application.InterfaceLanguageSpanish); err != nil {
+		t.Fatalf("set interface language: %v", err)
+	}
+	cat, err := h.categories.Create(t.Context(), "Lista")
+	if err != nil {
+		t.Fatalf("create category: %v", err)
+	}
+	h.publishWorkflow(t, cat.ID, domain.WorkflowDefinition{
+		{Type: domain.StepManualTask, ManualTask: &domain.ManualTaskStep{Instructions: "Hacer el trabajo"}},
+		{Type: domain.StepManualTask, ManualTask: &domain.ManualTaskStep{Instructions: "Llamar a quien reportó"}},
+		{Type: domain.StepResolve},
+	})
+	tkt := h.seedTicket(t, "lista en español", func(in *application.CreateTicketInput) { in.CategoryID = cat.ID })
+	h.assignTicket(t, tkt.ID, h.admin.ID)
+
+	body := h.get(t, "/tickets/"+strconv.FormatInt(tkt.ID, 10), false).Body.String()
+	for _, want := range []string{
+		"Asignado a Admin · tú",
+		"Esperando el paso anterior",
+		"Se ejecuta por sí solo",
+		"El ticket se marca como resuelto",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("Spanish checklist must render %q, got: %.1600s", want, body)
+		}
+	}
+	for _, unwanted := range []string{
+		"Assigned to Admin",
+		"Waiting on the step before it",
+		"Runs on its own",
+		"The ticket is marked resolved",
+	} {
+		if strings.Contains(body, unwanted) {
+			t.Errorf("Spanish checklist must not render the English %q", unwanted)
+		}
+	}
+}
+
+// TestSpanishBadIdentifierErrors proves the plain-text 400 responses for a
+// malformed route identifier follow the instance language too, so a Spanish
+// instance never answers an English sentence (S8).
+func TestSpanishBadIdentifierErrors(t *testing.T) {
+	h := newHarness(t)
+	if err := h.settings.SetInterfaceLanguage(t.Context(), *h.admin, application.InterfaceLanguageSpanish); err != nil {
+		t.Fatalf("set interface language: %v", err)
+	}
+	for _, tc := range []struct {
+		path string
+		want string
+	}{
+		{"/tickets/not-a-number", "id de ticket inválido"},
+		{"/users/not-a-number/edit", "id de usuario inválido"},
+		{"/categories/not-a-number/edit", "id de categoría inválido"},
+	} {
+		rec := h.get(t, tc.path, false)
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("GET %s = %d, want 400: %s", tc.path, rec.Code, rec.Body.String())
+		}
+		if body := rec.Body.String(); !strings.Contains(body, tc.want) {
+			t.Errorf("GET %s must render %q, got %q", tc.path, tc.want, strings.TrimSpace(body))
 		}
 	}
 }

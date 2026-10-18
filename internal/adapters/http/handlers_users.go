@@ -374,7 +374,7 @@ func (h *UserHandlers) editForm(w http.ResponseWriter, r *http.Request) {
 	}
 	id, ok := userID(r)
 	if !ok {
-		http.Error(w, "invalid user id", http.StatusBadRequest)
+		httpError(w, r, "error.invalid_user_id", http.StatusBadRequest)
 		return
 	}
 	actor := *userFromContext(r.Context())
@@ -393,7 +393,7 @@ func (h *UserHandlers) editForm(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !policy.CanManageUser(actor.Role, targetRole) {
-		http.Error(w, "admin accounts require root", http.StatusForbidden)
+		httpError(w, r, "error.admin_requires_root", http.StatusForbidden)
 		return
 	}
 	status := normalizeUsersStatus(r.URL.Query().Get("status"))
@@ -420,7 +420,7 @@ func (h *UserHandlers) update(w http.ResponseWriter, r *http.Request) {
 	}
 	id, ok := userID(r)
 	if !ok {
-		http.Error(w, "invalid user id", http.StatusBadRequest)
+		httpError(w, r, "error.invalid_user_id", http.StatusBadRequest)
 		return
 	}
 	if err := r.ParseForm(); err != nil {
@@ -478,7 +478,7 @@ func (h *UserHandlers) changePassword(w http.ResponseWriter, r *http.Request) {
 	}
 	id, ok := userID(r)
 	if !ok {
-		http.Error(w, "invalid user id", http.StatusBadRequest)
+		httpError(w, r, "error.invalid_user_id", http.StatusBadRequest)
 		return
 	}
 	if err := r.ParseForm(); err != nil {
@@ -498,7 +498,7 @@ func (h *UserHandlers) delete(w http.ResponseWriter, r *http.Request) {
 	}
 	id, ok := userID(r)
 	if !ok {
-		http.Error(w, "invalid user id", http.StatusBadRequest)
+		httpError(w, r, "error.invalid_user_id", http.StatusBadRequest)
 		return
 	}
 	if err := h.users.Delete(r.Context(), *userFromContext(r.Context()), id); err != nil {

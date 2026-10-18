@@ -1,8 +1,12 @@
 package httpadapter
 
 import (
+	"context"
 	"errors"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/giulianotesta7/tkt/internal/application"
@@ -46,5 +50,38 @@ func TestMapError(t *testing.T) {
 				t.Errorf("mapError(%v) message = %q, want %q", tt.err, msg, tt.wantMsg)
 			}
 		})
+	}
+}
+
+// TestInvalidTransitionErrorKeepsTheDomainEnglishCopy pins S13 on the one
+// status-table arm that interpolates values: the English message must stay the
+// domain's own bytes (raw state identifiers), so a translated state label can
+// never leak into an English instance. A target no catalogue names is a value
+// the user typed, not chrome, so both locales render it exactly as given.
+func TestInvalidTransitionErrorKeepsTheDomainEnglishCopy(t *testing.T) {
+	request := func(locale string) *http.Request {
+		r := httptest.NewRequest(http.MethodPost, "/tickets/1/transition", nil)
+		return r.WithContext(context.WithValue(r.Context(), ctxKeyInterfaceLanguage{}, locale))
+	}
+
+	status, msg := mapErrorFor(request("en"), domain.NewInvalidTransitionError(domain.StateCancelled, domain.StateInProgress))
+	if status != http.StatusUnprocessableEntity {
+		t.Fatalf("status = %d, want 422", status)
+	}
+	if want := "transition not allowed from cancelled to in_progress"; msg != want {
+		t.Errorf("message = %q, want %q", msg, want)
+	}
+
+	for _, locale := range []string{"en", "es"} {
+		status, msg := mapErrorFor(request(locale), domain.NewInvalidTransitionError(domain.StateCancelled, domain.State("bogus")))
+		if status != http.StatusUnprocessableEntity {
+			t.Fatalf("%s status = %d, want 422", locale, status)
+		}
+		if !strings.Contains(msg, "bogus") {
+			t.Errorf("%s message = %q, want the raw identifier %q", locale, msg, "bogus")
+		}
+		if strings.Contains(msg, "Bogus") {
+			t.Errorf("%s message = %q, must not re-case an unknown target", locale, msg)
+		}
 	}
 }

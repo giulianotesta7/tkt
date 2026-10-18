@@ -241,7 +241,7 @@ func publishDraft(draft domain.WorkflowDefinition) ([]byte, []domain.WorkflowVal
 		return nil, iss
 	}
 	if len(def) == 0 {
-		return nil, []domain.WorkflowValidationIssue{{Step: 1, Field: "steps", Message: "workflow must have at least one step"}}
+		return nil, []domain.WorkflowValidationIssue{{Step: 1, Field: "steps", Message: "workflow must have at least one step", Key: "error.workflow_min_steps"}}
 	}
 	return b, nil
 }

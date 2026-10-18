@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/giulianotesta7/tkt/internal/application"
+	"github.com/giulianotesta7/tkt/internal/i18n"
 )
 
 // svgTags returns every opening tag of the given kind inside an SVG fragment.
@@ -227,7 +228,7 @@ func abs(v float64) float64 {
 // zero with integer ticks and gridlines, a visible Pending tickets axis title,
 // left labels and end-of-bar counts.
 func TestMetricsAgeChartLayout(t *testing.T) {
-	svg := string(metricsAgeChart([]application.TicketMetricsBucket{
+	svg := string(metricsAgeChart(i18n.New("en"), []application.TicketMetricsBucket{
 		{Label: "0–2 days", Count: 0},
 		{Label: "3–7 days", Count: 2},
 		{Label: "8–14 days", Count: 5},
@@ -289,7 +290,7 @@ func svgTextContent(t *testing.T, svg, tag string) string {
 // title, left labels, end-of-bar counts, and the neutral class on the
 // genuinely unassigned row.
 func TestMetricsWorkloadChartAxisLayout(t *testing.T) {
-	svg := string(metricsWorkloadChart([]application.TicketMetricsWorkload{
+	svg := string(metricsWorkloadChart(i18n.New("en"), []application.TicketMetricsWorkload{
 		{Label: "Alice Admin", Count: 2},
 		{Label: "Unassigned", Count: 3, Unassigned: true},
 	}, "Pending workload"))
@@ -381,7 +382,7 @@ func TestMetricsHistogramChartWithoutBinsIsEmpty(t *testing.T) {
 // Workload labels are user-controlled agent/category names, so any markup in
 // them must be HTML-escaped before the fragment is wrapped in template.HTML.
 func TestMetricsWorkloadChartEscapesUserControlledLabels(t *testing.T) {
-	svg := string(metricsWorkloadChart([]application.TicketMetricsWorkload{
+	svg := string(metricsWorkloadChart(i18n.New("en"), []application.TicketMetricsWorkload{
 		{Label: "<script>alert(1)</script>", Count: 1},
 	}, "Pending workload"))
 	if strings.Contains(svg, "<script>") {

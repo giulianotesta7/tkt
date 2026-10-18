@@ -180,7 +180,7 @@ func (h *CategorySLAHandlers) get(w http.ResponseWriter, r *http.Request) {
 	}
 	categoryID, ok := categoryID(r)
 	if !ok {
-		http.Error(w, "invalid category id", http.StatusBadRequest)
+		httpError(w, r, "error.invalid_category_id", http.StatusBadRequest)
 		return
 	}
 	category, err := h.categories.GetByID(r.Context(), categoryID)
@@ -202,7 +202,7 @@ func (h *CategorySLAHandlers) post(w http.ResponseWriter, r *http.Request) {
 	}
 	categoryID, ok := categoryID(r)
 	if !ok {
-		http.Error(w, "invalid category id", http.StatusBadRequest)
+		httpError(w, r, "error.invalid_category_id", http.StatusBadRequest)
 		return
 	}
 	if err := r.ParseForm(); err != nil {

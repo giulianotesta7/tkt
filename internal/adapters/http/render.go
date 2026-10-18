@@ -118,6 +118,17 @@ func resolveMsg(tr i18n.Translator, m application.Msg) string {
 	return tr.Tf(m.Key, args...)
 }
 
+// workflowIssueMessage renders one workflow validation finding through the
+// active catalogue. The domain carries the English message as its single source
+// of the wording plus a Key/Args pair naming the same finding as structured
+// data; an issue with no key (an internal parse detail) keeps its own text.
+func workflowIssueMessage(tr i18n.Translator, issue domain.WorkflowValidationIssue) string {
+	if issue.Key == "" {
+		return issue.Message
+	}
+	return tr.Tf(issue.Key, issue.Args...)
+}
+
 // stateBadge is the state_badge partial's payload: the badge class (the raw
 // state) and the audience-resolved visible label.
 type stateBadge struct {
@@ -245,7 +256,7 @@ func metricsLineChart(weeks []application.TicketMetricsWeek) template.HTML {
 // in their established order, the same accent fill for every bar, an x axis
 // that starts at zero with nice integer ticks and gridlines, left labels, and
 // the count at each bar end.
-func metricsAgeChart(buckets []application.TicketMetricsBucket) template.HTML {
+func metricsAgeChart(tr i18n.Translator, buckets []application.TicketMetricsBucket) template.HTML {
 	const width, left, top, rowH = 620, 120, 14, 30
 	const bottom = 54
 	max := 1
@@ -261,8 +272,9 @@ func metricsAgeChart(buckets []application.TicketMetricsBucket) template.HTML {
 	barW := func(count int) float64 {
 		return plotW * float64(count) / float64(axisMax)
 	}
+	axisTitle := tr.T("ticket_metrics.workload.axis_title")
 	var b strings.Builder
-	fmt.Fprintf(&b, `<svg class="ticket-metrics-chart ticket-metrics-bars" viewBox="0 0 %d %d" role="img" aria-label="Pending tickets by completed elapsed age. X axis from 0 to %d. X axis title Pending tickets.">`, width, top+plotH+bottom, axisMax)
+	fmt.Fprintf(&b, `<svg class="ticket-metrics-chart ticket-metrics-bars" viewBox="0 0 %d %d" role="img" aria-label="%s">`, width, top+plotH+bottom, tr.Tf("ticket_metrics.age.chart_aria", axisMax, axisTitle))
 	for tick := step; tick <= axisMax; tick += step {
 		fmt.Fprintf(&b, `<line x1="%.1f" y1="%d" x2="%.1f" y2="%.1f" class="metrics-gridline"/>`, float64(left)+barW(tick), top, float64(left)+barW(tick), baseline)
 	}
@@ -271,14 +283,25 @@ func metricsAgeChart(buckets []application.TicketMetricsBucket) template.HTML {
 	for tick := 0; tick <= axisMax; tick += step {
 		fmt.Fprintf(&b, `<text x="%.1f" y="%.1f" text-anchor="middle" class="metrics-axis-label">%d</text>`, float64(left)+barW(tick), baseline+16, tick)
 	}
-	fmt.Fprintf(&b, `<text x="%.1f" y="%.1f" text-anchor="middle" class="metrics-axis-title">Pending tickets</text>`, float64(left)+plotW/2, baseline+34)
+	fmt.Fprintf(&b, `<text x="%.1f" y="%.1f" text-anchor="middle" class="metrics-axis-title">%s</text>`, float64(left)+plotW/2, baseline+34, template.HTMLEscapeString(axisTitle))
 	for i, bucket := range buckets {
 		y := top + i*rowH + 6
 		fmt.Fprintf(&b, `<text x="2" y="%d" class="metrics-chart-label">%s</text><rect x="%d" y="%d" width="%.1f" height="18" class="metrics-bar"/><text x="%.1f" y="%d" class="metrics-chart-value">%d</text>`,
-			y+14, template.HTMLEscapeString(bucket.Label), left, y, barW(bucket.Count), float64(left)+barW(bucket.Count)+6, y+14, bucket.Count)
+			y+14, template.HTMLEscapeString(bucketLabel(tr, bucket)), left, y, barW(bucket.Count), float64(left)+barW(bucket.Count)+6, y+14, bucket.Count)
 	}
 	b.WriteString(`</svg>`)
 	return template.HTML(b.String())
+}
+
+// bucketLabel resolves one metrics bucket for display: a bucket that names a
+// catalogue entry (the four fixed age ranges) follows the instance language,
+// and every other bucket (a numeric histogram bin, an admin-authored workload
+// name) renders its own label verbatim.
+func bucketLabel(tr i18n.Translator, bucket application.TicketMetricsBucket) string {
+	if bucket.LabelKey != "" {
+		return tr.T(bucket.LabelKey)
+	}
+	return bucket.Label
 }
 
 // metricsHistogramChart renders one adjacent rectangular bar per equal-width
@@ -348,7 +371,7 @@ func metricsHistogramChart(buckets []application.TicketMetricsBucket) template.H
 // labels, and the count at each bar end. classes[i] (when non-empty) is
 // appended to the rect class so callers can style single rows (e.g. the
 // neutral unassigned workload bar) without parsing labels.
-func metricsBarChartClasses(buckets []application.TicketMetricsBucket, label string, classes []string) template.HTML {
+func metricsBarChartClasses(tr i18n.Translator, buckets []application.TicketMetricsBucket, label string, classes []string) template.HTML {
 	const width, left, top, row, bottom = 620, 176, 6, 28, 54
 	max := 1
 	for _, bucket := range buckets {
@@ -363,8 +386,9 @@ func metricsBarChartClasses(buckets []application.TicketMetricsBucket, label str
 	barW := func(count int) float64 {
 		return plotW * float64(count) / float64(axisMax)
 	}
+	axisTitle := tr.T("ticket_metrics.workload.axis_title")
 	var b strings.Builder
-	fmt.Fprintf(&b, `<svg class="ticket-metrics-chart ticket-metrics-bars" viewBox="0 0 %d %d" role="img" aria-label="%s. X axis from 0 to %d. X axis title Pending tickets.">`, width, top+plotH+bottom, template.HTMLEscapeString(label), axisMax)
+	fmt.Fprintf(&b, `<svg class="ticket-metrics-chart ticket-metrics-bars" viewBox="0 0 %d %d" role="img" aria-label="%s">`, width, top+plotH+bottom, tr.Tf("ticket_metrics.workload.chart_aria", template.HTMLEscapeString(label), axisMax, axisTitle))
 	for tick := step; tick <= axisMax; tick += step {
 		fmt.Fprintf(&b, `<line x1="%.1f" y1="%d" x2="%.1f" y2="%.1f" class="metrics-gridline"/>`, float64(left)+barW(tick), top, float64(left)+barW(tick), baseline)
 	}
@@ -373,7 +397,7 @@ func metricsBarChartClasses(buckets []application.TicketMetricsBucket, label str
 	for tick := 0; tick <= axisMax; tick += step {
 		fmt.Fprintf(&b, `<text x="%.1f" y="%.1f" text-anchor="middle" class="metrics-axis-label">%d</text>`, float64(left)+barW(tick), baseline+16, tick)
 	}
-	fmt.Fprintf(&b, `<text x="%.1f" y="%.1f" text-anchor="middle" class="metrics-axis-title">Pending tickets</text>`, float64(left)+plotW/2, baseline+34)
+	fmt.Fprintf(&b, `<text x="%.1f" y="%.1f" text-anchor="middle" class="metrics-axis-title">%s</text>`, float64(left)+plotW/2, baseline+34, template.HTMLEscapeString(axisTitle))
 	for i, bucket := range buckets {
 		y := top + i*row + 6
 		class := "metrics-bar"
@@ -381,7 +405,7 @@ func metricsBarChartClasses(buckets []application.TicketMetricsBucket, label str
 			class += " " + classes[i]
 		}
 		fmt.Fprintf(&b, `<text x="2" y="%d" class="metrics-chart-label">%s</text><rect x="%d" y="%d" width="%.1f" height="18" class="%s"/><text x="%.1f" y="%d" class="metrics-chart-value">%d</text>`,
-			y+14, template.HTMLEscapeString(bucket.Label), left, y, barW(bucket.Count), class, float64(left)+barW(bucket.Count)+6, y+14, bucket.Count)
+			y+14, template.HTMLEscapeString(bucketLabel(tr, bucket)), left, y, barW(bucket.Count), class, float64(left)+barW(bucket.Count)+6, y+14, bucket.Count)
 	}
 	b.WriteString(`</svg>`)
 	return template.HTML(b.String())
@@ -390,7 +414,7 @@ func metricsBarChartClasses(buckets []application.TicketMetricsBucket, label str
 // metricsWorkloadChart renders the pending workload bars. Only the genuine
 // unassigned identity (nil current agent) receives the neutral class; a named
 // agent keeps the accent bar regardless of its display label.
-func metricsWorkloadChart(rows []application.TicketMetricsWorkload, label string) template.HTML {
+func metricsWorkloadChart(tr i18n.Translator, rows []application.TicketMetricsWorkload, label string) template.HTML {
 	buckets := make([]application.TicketMetricsBucket, len(rows))
 	classes := make([]string, len(rows))
 	for i, row := range rows {
@@ -399,7 +423,7 @@ func metricsWorkloadChart(rows []application.TicketMetricsWorkload, label string
 			classes[i] = "metrics-bar-unassigned"
 		}
 	}
-	return metricsBarChartClasses(buckets, label, classes)
+	return metricsBarChartClasses(tr, buckets, label, classes)
 }
 
 // workflowTypeKey names the catalogue key of a workflow step kind's label. It is
@@ -521,10 +545,20 @@ var templateFuncs = template.FuncMap{
 		}
 		return false
 	},
-	"metricSelected":        func(id int64, selected *int64) bool { return selected != nil && id == *selected },
-	"metricsLineChart":      metricsLineChart,
-	"metricsAgeChart":       metricsAgeChart,
-	"metricsWorkloadChart":  metricsWorkloadChart,
+	"metricSelected":   func(id int64, selected *int64) bool { return selected != nil && id == *selected },
+	"metricsLineChart": metricsLineChart,
+	// The chart helpers take a Translator, which templateFuncsFor binds to the
+	// active locale; the default here keeps a caller without one rendering the
+	// English copy.
+	"metricsAgeChart": func(buckets []application.TicketMetricsBucket) template.HTML {
+		return metricsAgeChart(i18n.New(i18n.Default), buckets)
+	},
+	"metricsWorkloadChart": func(rows []application.TicketMetricsWorkload, label string) template.HTML {
+		return metricsWorkloadChart(i18n.New(i18n.Default), rows, label)
+	},
+	"bucketLabel": func(bucket application.TicketMetricsBucket) string {
+		return bucketLabel(i18n.New(i18n.Default), bucket)
+	},
 	"metricsHistogramChart": metricsHistogramChart,
 	"metricsDuration":       metricsDuration,
 }
@@ -678,6 +712,26 @@ func templateFuncsFor(locale string) template.FuncMap {
 		return translator.T(workflowFieldRequiredKey(domain.FieldKind(fmt.Sprint(v))))
 	}
 	funcs["stateBadge"] = func(value any) stateBadge { return resolveStateBadge(translator, value) }
+	// The two metrics charts carry chrome (an accessible label, a visible axis
+	// title) and one label family (the four fixed age ranges): both resolve
+	// through the active catalogue, so a Spanish metrics page has no English
+	// word left in the SVG.
+	funcs["metricsAgeChart"] = func(buckets []application.TicketMetricsBucket) template.HTML {
+		return metricsAgeChart(translator, buckets)
+	}
+	funcs["metricsWorkloadChart"] = func(rows []application.TicketMetricsWorkload, label string) template.HTML {
+		return metricsWorkloadChart(translator, rows, label)
+	}
+	funcs["bucketLabel"] = func(bucket application.TicketMetricsBucket) string {
+		return bucketLabel(translator, bucket)
+	}
+	// issueMessage renders one workflow validation finding: the domain carries
+	// the English message plus a catalogue key and its interpolation values, so
+	// the builder speaks the instance language while the domain owns no locale
+	// logic. An issue with no key renders its own text verbatim.
+	funcs["issueMessage"] = func(issue domain.WorkflowValidationIssue) string {
+		return workflowIssueMessage(translator, issue)
+	}
 	funcs["audienceStateBadge"] = func(value any, requester bool) stateBadge {
 		return newStateBadge(translator, value, requester)
 	}

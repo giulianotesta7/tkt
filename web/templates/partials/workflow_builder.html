@@ -17,7 +17,7 @@
       <span class="htmx-indicator spinner" aria-hidden="true"></span>
       {{if .Live}}<p class="workflow-live" role="status" aria-live="polite" data-workflow-live>{{.Live}}</p>{{end}}
     </div>
-    {{range .Issues}}<div class="error-banner" role="alert">{{.Message}}</div>{{end}}
+    {{range .Issues}}<div class="error-banner" role="alert">{{issueMessage .}}</div>{{end}}
     <div class="workflow-rail-wrap">
       <ol class="workflow-step-rail" aria-label="{{t "workflow.builder.title"}}">
         {{range .Steps}}

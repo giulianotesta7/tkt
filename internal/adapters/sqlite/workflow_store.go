@@ -288,7 +288,7 @@ func (w *workflowStore) PublishAtRevision(ctx context.Context, categoryID int64,
 func (w *workflowStore) publish(ctx context.Context, categoryID int64, draft []byte, by *int64, expectedRevision *int64) (int64, int64, []domain.WorkflowValidationIssue, error) {
 	var iss []domain.WorkflowValidationIssue
 	if len(draft) == 0 {
-		iss = append(iss, domain.WorkflowValidationIssue{Step: 1, Field: "steps", Message: "workflow must have at least one step"})
+		iss = append(iss, domain.WorkflowValidationIssue{Step: 1, Field: "steps", Message: "workflow must have at least one step", Key: "error.workflow_min_steps"})
 		return 0, 0, iss, nil
 	}
 	def, err := domain.ParseWorkflowDefinition(draft)

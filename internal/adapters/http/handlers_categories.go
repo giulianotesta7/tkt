@@ -286,7 +286,7 @@ func (h *CategoryHandlers) editForm(w http.ResponseWriter, r *http.Request) {
 	}
 	id, ok := categoryID(r)
 	if !ok {
-		http.Error(w, "invalid category id", http.StatusBadRequest)
+		httpError(w, r, "error.invalid_category_id", http.StatusBadRequest)
 		return
 	}
 	c, err := h.categories.GetByID(r.Context(), id)
@@ -323,7 +323,7 @@ func (h *CategoryHandlers) editDepartmentForm(w http.ResponseWriter, r *http.Req
 	}
 	id, ok := categoryID(r)
 	if !ok {
-		http.Error(w, "invalid department id", http.StatusBadRequest)
+		httpError(w, r, "error.invalid_department_id", http.StatusBadRequest)
 		return
 	}
 	departments, err := h.catalog.ListDepartments(r.Context())
@@ -339,7 +339,7 @@ func (h *CategoryHandlers) editDepartmentForm(w http.ResponseWriter, r *http.Req
 			return
 		}
 	}
-	http.Error(w, "department not found", http.StatusNotFound)
+	httpError(w, r, "error.department_not_found", http.StatusNotFound)
 }
 
 func (h *CategoryHandlers) editDeskForm(w http.ResponseWriter, r *http.Request) {
@@ -353,7 +353,7 @@ func (h *CategoryHandlers) editDeskForm(w http.ResponseWriter, r *http.Request) 
 	}
 	id, ok := categoryID(r)
 	if !ok {
-		http.Error(w, "invalid desk id", http.StatusBadRequest)
+		httpError(w, r, "error.invalid_desk_id", http.StatusBadRequest)
 		return
 	}
 	departments, err := h.catalog.ListDepartments(r.Context())
@@ -412,7 +412,7 @@ func (h *CategoryHandlers) editDeskForm(w http.ResponseWriter, r *http.Request) 
 			}
 		}
 	}
-	http.Error(w, "desk not found", http.StatusNotFound)
+	httpError(w, r, "error.desk_not_found", http.StatusNotFound)
 }
 
 func (h *CategoryHandlers) update(w http.ResponseWriter, r *http.Request) {
@@ -421,7 +421,7 @@ func (h *CategoryHandlers) update(w http.ResponseWriter, r *http.Request) {
 	}
 	id, ok := categoryID(r)
 	if !ok {
-		http.Error(w, "invalid category id", http.StatusBadRequest)
+		httpError(w, r, "error.invalid_category_id", http.StatusBadRequest)
 		return
 	}
 	if err := r.ParseForm(); err != nil {
@@ -459,7 +459,7 @@ func (h *CategoryHandlers) delete(w http.ResponseWriter, r *http.Request) {
 	}
 	id, ok := categoryID(r)
 	if !ok {
-		http.Error(w, "invalid category id", http.StatusBadRequest)
+		httpError(w, r, "error.invalid_category_id", http.StatusBadRequest)
 		return
 	}
 	if err := r.ParseForm(); err != nil {
@@ -1013,7 +1013,7 @@ func (h *CategoryHandlers) updateDepartment(w http.ResponseWriter, r *http.Reque
 	}
 	id, ok := categoryID(r)
 	if !ok {
-		http.Error(w, "invalid department id", 400)
+		httpError(w, r, "error.invalid_department_id", http.StatusBadRequest)
 		return
 	}
 	if err := r.ParseForm(); err != nil {
@@ -1033,7 +1033,7 @@ func (h *CategoryHandlers) deleteDepartment(w http.ResponseWriter, r *http.Reque
 	}
 	id, ok := categoryID(r)
 	if !ok {
-		http.Error(w, "invalid department id", 400)
+		httpError(w, r, "error.invalid_department_id", http.StatusBadRequest)
 		return
 	}
 	if err := r.ParseForm(); err != nil {
@@ -1073,7 +1073,7 @@ func (h *CategoryHandlers) updateDesk(w http.ResponseWriter, r *http.Request) {
 	}
 	id, ok := categoryID(r)
 	if !ok {
-		http.Error(w, "invalid desk id", 400)
+		httpError(w, r, "error.invalid_desk_id", http.StatusBadRequest)
 		return
 	}
 	if err := r.ParseForm(); err != nil {
@@ -1098,7 +1098,7 @@ func (h *CategoryHandlers) deleteDesk(w http.ResponseWriter, r *http.Request) {
 	}
 	id, ok := categoryID(r)
 	if !ok {
-		http.Error(w, "invalid desk id", 400)
+		httpError(w, r, "error.invalid_desk_id", http.StatusBadRequest)
 		return
 	}
 	if err := r.ParseForm(); err != nil {

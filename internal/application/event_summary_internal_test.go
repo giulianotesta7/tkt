@@ -23,7 +23,7 @@ func TestEventSummaryMsg(t *testing.T) {
 		{"known state move", domain.AuditEvent{Action: domain.ActionTransition, FromValue: str("new"), ToValue: str("in_progress")}, "tickets.timeline.narrative.moved_to", "tickets.timeline.state.in_progress", ""},
 		{"unknown state falls back to text", domain.AuditEvent{Action: domain.ActionTransition, FromValue: str("new"), ToValue: str("weird")}, "tickets.timeline.narrative.moved_to", "", "weird"},
 		{"created", domain.AuditEvent{Action: domain.ActionCreated}, "tickets.timeline.narrative.created", "", ""},
-		{"field update", domain.AuditEvent{Action: domain.ActionUpdate, Field: str("title")}, "tickets.timeline.narrative.changed", "", "title"},
+		{"field update", domain.AuditEvent{Action: domain.ActionUpdate, Field: str("title")}, "tickets.timeline.narrative.changed", "tickets.timeline.field.title", ""},
 		{"workflow assignment", domain.AuditEvent{Action: domain.ActionWorkflowAssignment}, "tickets.timeline.narrative.assigned", "", ""},
 		{"manual task", domain.AuditEvent{Action: domain.ActionWorkflowManualTask}, "tickets.timeline.narrative.completed_task", "", ""},
 	}

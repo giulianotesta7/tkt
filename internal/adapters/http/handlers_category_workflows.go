@@ -95,7 +95,7 @@ func (h *CategoryWorkflowHandlers) get(w http.ResponseWriter, r *http.Request) {
 	}
 	categoryID, ok := categoryID(r)
 	if !ok {
-		http.Error(w, "invalid category id", http.StatusBadRequest)
+		httpError(w, r, "error.invalid_category_id", http.StatusBadRequest)
 		return
 	}
 	draft, revision, err := h.workflows.GetForBuilder(r.Context(), *userFromContext(r.Context()), categoryID)
@@ -117,7 +117,7 @@ func (h *CategoryWorkflowHandlers) clone(w http.ResponseWriter, r *http.Request)
 	}
 	targetID, ok := categoryID(r)
 	if !ok {
-		http.Error(w, "invalid category id", http.StatusBadRequest)
+		httpError(w, r, "error.invalid_category_id", http.StatusBadRequest)
 		return
 	}
 	if err := r.ParseForm(); err != nil {
@@ -154,7 +154,7 @@ func (h *CategoryWorkflowHandlers) post(w http.ResponseWriter, r *http.Request) 
 	}
 	categoryID, ok := categoryID(r)
 	if !ok {
-		http.Error(w, "invalid category id", http.StatusBadRequest)
+		httpError(w, r, "error.invalid_category_id", http.StatusBadRequest)
 		return
 	}
 	if err := r.ParseForm(); err != nil {
@@ -278,7 +278,7 @@ func (h *CategoryWorkflowHandlers) post(w http.ResponseWriter, r *http.Request) 
 		revision = newRevision
 		h.afterMutation(w, r, categoryID, draft, revision, desks, nil, saveFeedbackPublished, selection)
 	default:
-		h.render(w, r, categoryID, draft, revision, desks, []domain.WorkflowValidationIssue{{Step: 1, Field: "action", Message: i18n.T(requestLocale(r), "error.unknown_workflow_action")}}, "", selection, http.StatusUnprocessableEntity)
+		h.render(w, r, categoryID, draft, revision, desks, []domain.WorkflowValidationIssue{{Step: 1, Field: "action", Message: i18n.T(i18n.English, "error.unknown_workflow_action"), Key: "error.unknown_workflow_action"}}, "", selection, http.StatusUnprocessableEntity)
 	}
 }
 
@@ -287,6 +287,11 @@ func (h *CategoryWorkflowHandlers) post(w http.ResponseWriter, r *http.Request) 
 // NOT saved, and what the page now shows (the latest draft), so the operator
 // can reapply their edit instead of wondering where it went.
 const draftConflictMessage = "Another session changed this workflow while you were editing. Your change was not saved; the latest draft is shown below."
+
+// draftConflictKey is the catalogue entry for draftConflictMessage: the English
+// constant is the source of the wording the builder renders for a stale
+// revision, and the key makes it follow the instance language.
+const draftConflictKey = "error.workflow_draft_conflict"
 
 // submittedRevision reads the revision a browser carried in the form. The
 // field is REQUIRED: absent and malformed both mean the request cannot be
@@ -339,7 +344,7 @@ func (h *CategoryWorkflowHandlers) renderDraftConflict(w http.ResponseWriter, r 
 		return
 	}
 	h.render(w, r, categoryID, fresh, revision, h.deskOptions(r),
-		[]domain.WorkflowValidationIssue{{Step: 1, Field: "draft", Message: draftConflictMessage}},
+		[]domain.WorkflowValidationIssue{{Step: 1, Field: "draft", Message: draftConflictMessage, Key: draftConflictKey}},
 		"", selection, http.StatusConflict)
 }
 
