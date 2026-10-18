@@ -195,6 +195,8 @@
   "error.workflow_terminal_last": "terminal step must be the final step",
   "feedback.dismiss": "Dismiss",
   "feedback.dismiss_label": "Dismiss confirmation",
+  "js.feedback.dismiss": "Dismiss",
+  "js.feedback.dismiss_label": "Dismiss confirmation",
   "js.panel.retry": "Unable to open this panel. Please try again.",
   "js.panel.unavailable": "This panel can't be opened. It may no longer be available.",
   "js.save.forbidden": "You do not have permission to make that change.",

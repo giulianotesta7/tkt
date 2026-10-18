@@ -272,6 +272,29 @@ func TestReferenceCoverageFailsOnDeletedKey(t *testing.T) {
 	}
 }
 
+// TestScriptsReadOnlyKeysTheirPrologueCarries proves the half of S10 the
+// coverage scan cannot see: a browser script is served only the `js.`-prefixed
+// entries of the active catalogue, so a script that reads any other key silently
+// renders the fallback label. Every key a script reads must be one the prologue
+// the server ships with it actually carries.
+func TestScriptsReadOnlyKeysTheirPrologueCarries(t *testing.T) {
+	scripts, err := filepath.Glob(filepath.Join("..", "..", "web", "templates", "static", "*.js"))
+	if err != nil {
+		t.Fatalf("glob scripts: %v", err)
+	}
+	for _, path := range scripts {
+		body, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("read %s: %v", path, err)
+		}
+		for _, match := range scriptKeyRef.FindAllStringSubmatch(string(body), -1) {
+			if !strings.HasPrefix(match[1], ScriptPrefix) {
+				t.Errorf("%s reads %q, which the %q prologue never carries", filepath.Base(path), match[1], ScriptPrefix)
+			}
+		}
+	}
+}
+
 func copyCatalogues(in map[string]catalogue) map[string]catalogue {
 	out := make(map[string]catalogue, len(in))
 	for locale, messages := range in {
@@ -456,6 +479,7 @@ func TestSpanishCatalogueUsesNeutralTuteo(t *testing.T) {
 		"eliminá", "buscá", "usá", "administrá", "actualizá", "reactivá", "desactivá",
 		"restablecé", "salís", "salí", "andá", "vení", "mirá", "probá", "abrí", "abrís",
 		"cerrá", "volvé", "completá", "revisá", "subí", "decí", "pedí", "seguí",
+		"fijate", "hacelo", "callate", "decime", "ponete", "escribime", "dame",
 		"ustedes", "usted",
 	}
 	words := make([]*regexp.Regexp, 0, len(markers))
@@ -493,10 +517,12 @@ func TestSpanishCatalogueUsesNeutralTuteo(t *testing.T) {
 // voseoAccentedNeutral lists the accented word-ends that are NOT voseo: neutral
 // pronouns and adverbs, first- and third-person forms, and futures the
 // catalogue legitimately uses. Every other word ending in á/é/í fails, so a new
-// voseo imperative cannot slip through the marker list.
+// voseo imperative cannot slip through the marker list. Only forms an accented
+// word-end check can actually reach belong here: a word ending in s or n can
+// never match, so an entry for one would be dead weight.
 var voseoAccentedNeutral = map[string]bool{
 	"así": true, "aquí": true, "allí": true, "ahí": true, "sí": true, "mí": true,
-	"qué": true, "esté": true, "más": true, "está": true, "será": true,
+	"qué": true, "esté": true, "está": true, "será": true,
 	"podrá": true, "tendrá": true, "habrá": true, "hará": true, "estará": true,
-	"quitará": true, "envié": true, "recibí": true, "también": true,
+	"quitará": true, "envié": true,
 }

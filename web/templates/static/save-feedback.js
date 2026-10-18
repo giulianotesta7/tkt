@@ -24,7 +24,7 @@
     region.setAttribute("role", "status");
     region.setAttribute("aria-live", "polite");
     region.setAttribute("aria-atomic", "true");
-    region.innerHTML = `<span class="save-feedback-message"></span><button class="save-feedback-dismiss" type="button" aria-label="${window.tktI18n.t("feedback.dismiss_label")}">${window.tktI18n.t("feedback.dismiss")}</button>`;
+    region.innerHTML = `<span class="save-feedback-message"></span><button class="save-feedback-dismiss" type="button" aria-label="${window.tktI18n.t("js.feedback.dismiss_label")}">${window.tktI18n.t("js.feedback.dismiss")}</button>`;
     return region;
   };
 

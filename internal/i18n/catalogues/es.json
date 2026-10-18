@@ -195,6 +195,8 @@
   "error.workflow_terminal_last": "el paso final debe ser el último paso",
   "feedback.dismiss": "Cerrar",
   "feedback.dismiss_label": "Cerrar la confirmación",
+  "js.feedback.dismiss": "Cerrar",
+  "js.feedback.dismiss_label": "Cerrar la confirmación",
   "js.panel.retry": "No se pudo abrir este panel. Intenta de nuevo.",
   "js.panel.unavailable": "No se puede abrir este panel. Es posible que ya no esté disponible.",
   "js.save.forbidden": "No tienes permiso para hacer ese cambio.",
