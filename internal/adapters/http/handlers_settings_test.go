@@ -746,3 +746,195 @@ func TestSettingsRejectionsPopulateSiblingPanels(t *testing.T) {
 		}
 	})
 }
+
+// --- Interface language panel (issue #335, S8/S9/S14) ---
+//
+// The Settings screen offers the instance-wide interface language next to the
+// other instance settings: root/admin only, one option per shipped language,
+// persisted through the settings store, and the page re-renders in the language
+// just saved. A rejected code changes nothing and its message reads in the
+// language the instance is currently rendering.
+
+// TestSettingsIndexShowsInterfaceLanguagePanel proves the panel exists with
+// the stored language marked and help copy that states the two rules an
+// administrator needs: the choice is instance-wide, and the names they author
+// are never translated (S14).
+func TestSettingsIndexShowsInterfaceLanguagePanel(t *testing.T) {
+	h := newHarness(t)
+
+	rec := h.get(t, "/settings", false)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200: %s", rec.Code, rec.Body.String())
+	}
+	body := rec.Body.String()
+	for _, want := range []string{
+		`action="/settings/language"`,
+		`<h2>Interface language</h2>`,
+		`<select id="interface_language" name="interface_language">`,
+		`<option value="en" selected>English</option>`,
+		`<option value="es">Español</option>`,
+		`Save language`,
+		// Help copy: instance-wide, and admin-authored names stay as written.
+		`every person on this instance`,
+		`never translated`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("settings page must contain %q, got: %s", want, body)
+		}
+	}
+	if got := strings.Count(body, `value="es" selected`); got != 0 {
+		t.Errorf("Spanish must not be marked before it is chosen, got %d marked options", got)
+	}
+}
+
+// TestSettingsUpdateLanguagePersistsAndRendersTheNewLanguage proves both halves
+// of the save: the code reaches the store exactly as submitted (S9), and the
+// page the administrator lands on renders in that language (S8) — a new request,
+// so the whole shell follows the instance setting, not just the panel.
+func TestSettingsUpdateLanguagePersistsAndRendersTheNewLanguage(t *testing.T) {
+	h := newHarness(t)
+
+	rec := h.postForm(t, "/settings/language", url.Values{"interface_language": {"es"}}, false)
+	wantRedirect(t, rec, http.StatusSeeOther, "/settings")
+
+	// The save toast the redirect carries must already read the language just
+	// saved: the page that renders it is Spanish, and S8 allows no leftover
+	// string in the previous language.
+	feedback := h.getWithSaveFeedback(t, "/settings", rec)
+	if !strings.Contains(feedback, `data-feedback-message="Guardado"`) {
+		t.Errorf("the save toast must read the saved language, got: %.400s", feedback)
+	}
+	if strings.Contains(feedback, `data-feedback-message="Saved"`) {
+		t.Errorf("the save toast must not read the previous language, got: %.400s", feedback)
+	}
+
+	got, err := h.store.SettingsStore().GetInterfaceLanguage(t.Context())
+	if err != nil {
+		t.Fatalf("read stored language: %v", err)
+	}
+	if got != application.InterfaceLanguageSpanish {
+		t.Fatalf("stored language = %q, want %q", got, application.InterfaceLanguageSpanish)
+	}
+
+	rec = h.get(t, "/settings", false)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200: %s", rec.Code, rec.Body.String())
+	}
+	body := rec.Body.String()
+	for _, want := range []string{
+		`<html lang="es">`,
+		`<h1 class="command-title">Configuración</h1>`,
+		`<h2>Idioma de la interfaz</h2>`,
+		`<option value="es" selected>Español</option>`,
+		`Guardar idioma`,
+		`<h2>Apariencia</h2>`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("settings page in Spanish must contain %q, got: %s", want, body)
+		}
+	}
+	for _, unwanted := range []string{`<h2>Interface language</h2>`, `<h2>Appearance</h2>`, `>Save language<`} {
+		if strings.Contains(body, unwanted) {
+			t.Errorf("settings page in Spanish must not render the English %q", unwanted)
+		}
+	}
+}
+
+// TestSettingsUpdateLanguageRejectsUnshippedCode proves a refused code is a 422
+// that writes nothing, emits no save feedback, and reports the rejection in the
+// language the instance is currently rendering — English here.
+func TestSettingsUpdateLanguageRejectsUnshippedCode(t *testing.T) {
+	h := newHarness(t)
+
+	rec := h.postForm(t, "/settings/language", url.Values{"interface_language": {"fr"}}, false)
+	if rec.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("status = %d, want 422: %s", rec.Code, rec.Body.String())
+	}
+	if got := rec.Header().Get("X-Save-Feedback"); got != "" {
+		t.Errorf("rejected update must not emit save feedback, got %q", got)
+	}
+	body := rec.Body.String()
+	if !strings.Contains(body, `class="error-banner"`) {
+		t.Errorf("rejected language must render the inline error banner, got: %s", body)
+	}
+	if !strings.Contains(body, "invalid interface language") {
+		t.Errorf("rejection must read the current (English) language, got: %s", body)
+	}
+	if !strings.Contains(body, `value="en" selected`) {
+		t.Errorf("the stored language must stay marked after a rejection, got: %s", body)
+	}
+
+	got, err := h.store.SettingsStore().GetInterfaceLanguage(t.Context())
+	if err != nil {
+		t.Fatalf("read stored language: %v", err)
+	}
+	if got != application.DefaultInterfaceLanguage {
+		t.Errorf("stored language = %q after rejected update, want %q", got, application.DefaultInterfaceLanguage)
+	}
+}
+
+// TestSettingsUpdateLanguageRejectionSpeaksTheCurrentLanguage proves the
+// validation error follows the instance language too (S8): on a Spanish
+// instance the refusal reads Spanish, and the stored value is untouched.
+func TestSettingsUpdateLanguageRejectionSpeaksTheCurrentLanguage(t *testing.T) {
+	h := newHarness(t)
+	if err := h.store.SettingsStore().SetInterfaceLanguage(t.Context(), application.InterfaceLanguageSpanish); err != nil {
+		t.Fatalf("seed Spanish instance: %v", err)
+	}
+
+	rec := h.postForm(t, "/settings/language", url.Values{"interface_language": {"en-US"}}, false)
+	if rec.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("status = %d, want 422: %s", rec.Code, rec.Body.String())
+	}
+	body := rec.Body.String()
+	if !strings.Contains(body, `<html lang="es">`) {
+		t.Errorf("the rejection must re-render in the instance language, got: %s", body)
+	}
+	if !strings.Contains(body, "idioma de la interfaz no válido") {
+		t.Errorf("the rejection must read Spanish on a Spanish instance, got: %s", body)
+	}
+	if strings.Contains(body, "invalid interface language") {
+		t.Errorf("the rejection must not render the English message, got: %s", body)
+	}
+
+	got, err := h.store.SettingsStore().GetInterfaceLanguage(t.Context())
+	if err != nil {
+		t.Fatalf("read stored language: %v", err)
+	}
+	if got != application.InterfaceLanguageSpanish {
+		t.Errorf("stored language = %q after rejected update, want %q", got, application.InterfaceLanguageSpanish)
+	}
+}
+
+// TestSettingsUpdateLanguageDeniedForNonAdmin proves the new POST is gated on
+// CapManageSettings like every other settings route: a user and an agent are
+// refused server-side, emit no save feedback, and change nothing.
+func TestSettingsUpdateLanguageDeniedForNonAdmin(t *testing.T) {
+	for _, role := range []domain.Role{domain.RoleUser, domain.RoleAgent} {
+		t.Run(string(role), func(t *testing.T) {
+			h := newHarness(t)
+			actor := seedUserRole(t, h.store, string(role), string(role)+"-language@tkt.test", role)
+			session := seedSession(t, h.store, actor.ID)
+
+			req := httptest.NewRequest(http.MethodPost, "/settings/language", strings.NewReader(url.Values{"interface_language": {"es"}}.Encode()))
+			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+			req.Header.Set("Cookie", sessionCookie+"="+session.ID)
+			rec := httptest.NewRecorder()
+			h.mw.Wrap(h.mux).ServeHTTP(rec, req)
+
+			if rec.Code != http.StatusForbidden {
+				t.Errorf("POST /settings/language as %s = %d, want 403", role, rec.Code)
+			}
+			if got := rec.Header().Get("X-Save-Feedback"); got != "" {
+				t.Errorf("denied update must not emit save feedback, got %q", got)
+			}
+			got, err := h.store.SettingsStore().GetInterfaceLanguage(t.Context())
+			if err != nil {
+				t.Fatalf("read stored language: %v", err)
+			}
+			if got != application.DefaultInterfaceLanguage {
+				t.Errorf("stored language = %q after denied update, want %q", got, application.DefaultInterfaceLanguage)
+			}
+		})
+	}
+}

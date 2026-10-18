@@ -975,7 +975,9 @@ func TestGoldenCategoryForm(t *testing.T) {
 // CapManageUsers. The SLA panel carries the seeded configuration (migration
 // 0013): off, 80 percent, and the seeded default matrix. The calendar panel
 // carries the seeded working calendar (migration 0016): Monday-Friday,
-// 09:00-18:00, UTC.
+// 09:00-18:00, UTC. The interface-language panel carries the default English
+// selection and the two shipped languages as keys, exactly as the handler
+// supplies them.
 func fixtureSettingsIndexData() settingsIndexData {
 	ana := domain.User{ID: 1, Name: "Ana Torres", Email: "ana@example.com", Active: true, CreatedAt: goldenT0}
 	calendar := domain.DefaultSLACalendar()
@@ -983,6 +985,8 @@ func fixtureSettingsIndexData() settingsIndexData {
 		pageData:          pageData{NavActive: "settings", CurrentUser: ana, CanManageUsers: true, CanManageSettings: true},
 		Current:           "#E8EEFF",
 		Colors:            appearanceOptions(),
+		CurrentLanguage:   application.DefaultInterfaceLanguage,
+		Languages:         interfaceLanguageOptions(),
 		SLAGrid:           slaGridData{Rows: slaPolicyRows(seededSLADefaults())},
 		SLAWarningPercent: 80,
 

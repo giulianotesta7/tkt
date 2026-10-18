@@ -6,6 +6,17 @@
   </div>
 </div>
 {{if .Error}}<div class="error-banner" role="alert">{{.Error}}</div>{{end}}
+<form class="card form-card" method="post" action="/settings/language">
+  <h2>{{t "settings.language.title"}}</h2>
+  <p class="help">{{t "settings.language.help"}}</p>
+  <div class="field">
+    <label for="interface_language">{{t "settings.language.label"}}</label>
+    <select id="interface_language" name="interface_language">
+{{range .Languages}}      <option value="{{.Value}}"{{if eq $.CurrentLanguage .Value}} selected{{end}}>{{t .Label}}</option>
+{{end}}    </select>
+  </div>
+  <button class="btn primary" type="submit">{{t "settings.language.save"}}</button>
+</form>
 <form class="card form-card" method="post" action="/settings/appearance">
   <h2>{{t "settings.appearance.title"}}</h2>
   <p class="help">{{t "settings.appearance.help"}}</p>

@@ -47,6 +47,18 @@
   </div>
 </div>
 
+<form class="card form-card" method="post" action="/settings/language">
+  <h2>Interface language</h2>
+  <p class="help">Changes the language of every screen for every person on this instance. Names and descriptions you write are never translated.</p>
+  <div class="field">
+    <label for="interface_language">Language</label>
+    <select id="interface_language" name="interface_language">
+      <option value="en" selected>English</option>
+      <option value="es">Español</option>
+    </select>
+  </div>
+  <button class="btn primary" type="submit">Save language</button>
+</form>
 <form class="card form-card" method="post" action="/settings/appearance">
   <h2>Appearance</h2>
   <p class="help">Background color for internal comments on ticket timelines.</p>
