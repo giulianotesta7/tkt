@@ -156,3 +156,101 @@ func TestLocalizedScriptCarriesTheInstanceLanguage(t *testing.T) {
 		}
 	}
 }
+
+// TestSpanishUsersScreen renders the staff user list in Spanish: the columns,
+// the status filter, and the role/status labels that come from Go as keys.
+func TestSpanishUsersScreen(t *testing.T) {
+	body := renderLocalized(t, "es", "users_index", "users_screen", fixtureUsersIndexData())
+	for _, want := range []string{"Usuarios", "Nuevo usuario", "Activos", "Desactivados", "Rol", "Estado", "Acciones"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("Spanish user list must render %q, got: %.800s", want, body)
+		}
+	}
+	for _, unwanted := range []string{">Role<", ">Status<", ">Deactivated<"} {
+		if strings.Contains(body, unwanted) {
+			t.Errorf("Spanish user list must not render the English %q", unwanted)
+		}
+	}
+}
+
+// TestSpanishUserForm renders the user drawer in Spanish.
+func TestSpanishUserForm(t *testing.T) {
+	body := renderLocalized(t, "es", "users_new", "user_form", fixtureUserFormData())
+	for _, want := range []string{"Nombre", "Correo electrónico", "Rol"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("Spanish user form must render %q, got: %.600s", want, body)
+		}
+	}
+}
+
+// TestSpanishCategoriesScreen renders the catalog hierarchy in Spanish,
+// including a composed workflow badge (the Msg path: key + nested sentence).
+func TestSpanishCategoriesScreen(t *testing.T) {
+	body := renderLocalized(t, "es", "categories_index", "categories_background", fixtureCategoriesIndexData())
+	for _, want := range []string{"Categorías", "Nuevo departamento", "Nueva mesa", "Nueva categoría", "Estructura del catálogo", "Abiertos"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("Spanish catalog must render %q, got: %.800s", want, body)
+		}
+	}
+	// The fixture's badges compose through the catalogue: "Published v1" and
+	// "Draft · not published" both speak Spanish on a Spanish instance.
+	for _, want := range []string{"Publicado v1", "Borrador · sin publicar"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("Spanish catalog badge must render %q, got: %.1200s", want, body)
+		}
+	}
+	if strings.Contains(body, "Published v1") || strings.Contains(body, "Not configured") {
+		t.Errorf("Spanish catalog must not render an English badge")
+	}
+}
+
+// TestSpanishSettingsScreen renders the instance settings page in Spanish,
+// including the color and weekday labels Go supplies as catalogue keys.
+func TestSpanishSettingsScreen(t *testing.T) {
+	r, err := newRendererWithLanguage(templates.FS, stubInterfaceLanguage{language: "es"})
+	if err != nil {
+		t.Fatalf("newRendererWithLanguage: %v", err)
+	}
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/settings", nil)
+	r.Render(rec, req, "settings_index", "", fixtureSettingsIndexData(), http.StatusOK)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("render settings in es: %d %s", rec.Code, rec.Body.String())
+	}
+	body := rec.Body.String()
+	for _, want := range []string{"Configuración", "Apariencia", "Acuerdos de nivel de servicio", "Calendario laboral", "Días laborables", "Zona horaria", "Azul", "Lunes"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("Spanish settings page must render %q, got: %.800s", want, body)
+		}
+	}
+	if strings.Contains(body, ">Appearance<") || strings.Contains(body, ">Monday<") {
+		t.Errorf("Spanish settings page must not render English labels")
+	}
+}
+
+// TestSpanishSetupShell renders the first-account screen in Spanish: the shell
+// copy and the form labels/placeholders both come from the catalogue, so no
+// English literal survives on the setup path.
+func TestSpanishSetupShell(t *testing.T) {
+	r, err := newRendererWithLanguage(templates.FS, stubInterfaceLanguage{language: "es"})
+	if err != nil {
+		t.Fatalf("newRendererWithLanguage: %v", err)
+	}
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/setup", nil)
+	r.Render(rec, req, "setup", "", setupData{}, http.StatusOK)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("render setup in es: %d %s", rec.Code, rec.Body.String())
+	}
+	body := rec.Body.String()
+	for _, want := range []string{"Correo electrónico", "Contraseña", "Configura tkt", "tu@ejemplo.com"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("Spanish setup page must render %q, got: %.600s", want, body)
+		}
+	}
+	for _, unwanted := range []string{">Email<", ">Password<", "you@example.com"} {
+		if strings.Contains(body, unwanted) {
+			t.Errorf("Spanish setup page must not render the English %q", unwanted)
+		}
+	}
+}
