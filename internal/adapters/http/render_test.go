@@ -317,7 +317,7 @@ func TestRenderRailShellFollowsTheInstanceLanguage(t *testing.T) {
 		absentLogout string
 	}{
 		{name: "english", language: "en", wantLang: "en", wantNav: "Tickets", absentNav: "Solicitudes", wantLogout: "Log out", absentLogout: "Cerrar sesión"},
-		{name: "spanish", language: "es", wantLang: "es", wantNav: "Solicitudes", absentNav: `title="Tickets"`, wantLogout: "Cerrar sesión", absentLogout: `title="Log out"`},
+		{name: "spanish", language: "es", wantLang: "es", wantNav: "Tickets", absentNav: "Solicitudes", wantLogout: "Cerrar sesión", absentLogout: `title="Log out"`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			r, err := newRendererWithLanguage(localizedShellFS(t), stubInterfaceLanguage{language: tc.language})

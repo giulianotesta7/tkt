@@ -98,7 +98,7 @@ func TestSpanishTicketDetail(t *testing.T) {
 // TestSpanishTicketForm renders the ticket creation form in Spanish.
 func TestSpanishTicketForm(t *testing.T) {
 	body := renderLocalized(t, "es", "tickets_new", "ticket_form", fixtureTicketFormData())
-	for _, want := range []string{"Crear un ticket", "Describe tu solicitud.", "Título", "Descripción", "Crear ticket"} {
+	for _, want := range []string{"Crear un ticket", "Describe tu ticket.", "Título", "Descripción", "Crear ticket"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("Spanish ticket form must render %q, got: %.800s", want, body)
 		}
@@ -226,7 +226,7 @@ func TestSpanishSettingsScreen(t *testing.T) {
 		t.Fatalf("render settings in es: %d %s", rec.Code, rec.Body.String())
 	}
 	body := rec.Body.String()
-	for _, want := range []string{"Configuración", "Apariencia", "Acuerdos de nivel de servicio", "Calendario laboral", "Días laborables", "Zona horaria", "Azul", "Lunes", "Idioma de la interfaz", "Guardar idioma"} {
+	for _, want := range []string{"Configuración", "Apariencia", "Acuerdos de nivel de servicio (SLA)", "Calendario laboral", "Días laborables", "Zona horaria", "Azul", "Lunes", "Idioma de la interfaz", "Guardar idioma"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("Spanish settings page must render %q, got: %.800s", want, body)
 		}

@@ -367,7 +367,7 @@
   "settings.sla.enable_help": "Off by default. Existing commitments keep rendering.",
   "settings.sla.help": "Defaults for new categories. Editing them does not change existing categories.",
   "settings.sla.save": "Save SLA settings",
-  "settings.sla.title": "Service level agreements",
+  "settings.sla.title": "Service level agreements (SLA)",
   "settings.sla.warning": "Warning threshold",
   "settings.sla.warning_help": "At risk once this share of the target has elapsed.",
   "settings.subtitle": "Instance configuration",
