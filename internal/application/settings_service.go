@@ -111,7 +111,7 @@ func (s *SettingsService) SetInterfaceLanguage(ctx context.Context, actor domain
 		return domain.NewForbiddenError("interface language settings are not permitted")
 	}
 	if !isAllowedInterfaceLanguage(language) {
-		return &domain.ValidationError{Field: "interface_language", Message: "invalid interface language"}
+		return &domain.ValidationError{Field: "interface_language", Message: "invalid interface language", Key: "error.invalid_interface_language"}
 	}
 	return s.settings.SetInterfaceLanguage(ctx, language)
 }
@@ -125,7 +125,7 @@ func (s *SettingsService) SetInternalCommentBg(ctx context.Context, actor domain
 		return domain.NewForbiddenError("appearance settings are not permitted")
 	}
 	if !isAllowedInternalCommentBg(color) {
-		return &domain.ValidationError{Field: "internal_comment_bg", Message: "invalid internal comment background color"}
+		return &domain.ValidationError{Field: "internal_comment_bg", Message: "invalid internal comment background color", Key: "error.invalid_internal_comment_bg"}
 	}
 	return s.settings.SetInternalCommentBg(ctx, color)
 }

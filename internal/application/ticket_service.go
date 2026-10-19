@@ -100,7 +100,7 @@ type CreateTicketInput struct {
 // append fails.
 func (s *TicketService) Create(ctx context.Context, actor domain.User, in CreateTicketInput) (*domain.Ticket, error) {
 	if strings.TrimSpace(in.Title) == "" {
-		return nil, &domain.ValidationError{Field: "title", Message: domain.ErrMsgTitleRequired}
+		return nil, &domain.ValidationError{Field: "title", Message: domain.ErrMsgTitleRequired, Key: "error.title_required"}
 	}
 	if !domain.IsValidPriority(in.Priority) {
 		return nil, &domain.InvalidPriorityError{Field: "priority", Message: domain.ErrMsgInvalidPriority}
@@ -159,7 +159,7 @@ func (s *TicketService) createWithWorkflow(ctx context.Context, actor domain.Use
 		return nil, err
 	}
 	if pv == nil {
-		return nil, &domain.ValidationError{Field: "category", Message: domain.ErrMsgCategoryWorkflowUnavailable}
+		return nil, &domain.ValidationError{Field: "category", Message: domain.ErrMsgCategoryWorkflowUnavailable, Key: "error.category_workflow_unavailable"}
 	}
 
 	t, event := newCreateTicket(actor, in, now)
@@ -239,7 +239,7 @@ func newCreateTicket(actor domain.User, in CreateTicketInput, now time.Time) (*d
 // existence leak). Ticket + audit event persist in ONE unit-of-work call.
 func (s *TicketService) Assign(ctx context.Context, actor domain.User, ticketID int64, assigneeID *int64, reason string) (*domain.Ticket, error) {
 	if !NewPolicy().Capabilities(actor.Role).Require(CapAssignTicket) {
-		return nil, &domain.ValidationError{Field: "user", Message: domain.ErrMsgUserRoleCannotAssign}
+		return nil, &domain.ValidationError{Field: "user", Message: domain.ErrMsgUserRoleCannotAssign, Key: "error.user_role_cannot_assign"}
 	}
 	t, err := s.tickets.GetByID(ctx, ticketID, assignQuery(actor))
 	if err != nil {
@@ -263,7 +263,7 @@ func (s *TicketService) Assign(ctx context.Context, actor domain.User, ticketID 
 			return nil, domain.NewInactiveUserError("user")
 		}
 		if !user.Role.AtLeast(domain.RoleAgent) {
-			return nil, &domain.ValidationError{Field: "user", Message: domain.ErrMsgAssignTargetRole}
+			return nil, &domain.ValidationError{Field: "user", Message: domain.ErrMsgAssignTargetRole, Key: "error.assign_target_role"}
 		}
 	}
 	// Same assignee (or both unassigned): no-op — no event, no refresh.
@@ -437,7 +437,7 @@ func (s *TicketService) Update(ctx context.Context, actor domain.User, ticketID 
 		return nil, domain.NewForbiddenError(domain.ErrMsgUserCannotEdit)
 	}
 	if u.UserID != nil || u.ClearUserID {
-		return nil, &domain.ValidationError{Field: "user", Message: domain.ErrMsgAssignmentViaAssign}
+		return nil, &domain.ValidationError{Field: "user", Message: domain.ErrMsgAssignmentViaAssign, Key: "error.assignment_via_assign"}
 	}
 	t, err := s.tickets.GetByID(ctx, ticketID, scopedQuery(actor, TicketQuery{}))
 	if err != nil {

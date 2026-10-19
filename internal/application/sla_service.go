@@ -302,6 +302,7 @@ func (s *SLAService) SetWarningPercent(ctx context.Context, actor domain.User, p
 		return &domain.ValidationError{
 			Field:   "sla_warning_percent",
 			Message: "the SLA warning percent must be between 1 and 99",
+			Key:     "error.sla_warning_range",
 		}
 	}
 	return s.settings.SetSLAWarningPercent(ctx, percent)
@@ -338,6 +339,7 @@ func (s *SLAService) SetGlobalConfiguration(ctx context.Context, actor domain.Us
 		return &domain.ValidationError{
 			Field:   "sla_warning_percent",
 			Message: "the SLA warning percent must be between 1 and 99",
+			Key:     "error.sla_warning_range",
 		}
 	}
 	if err := validateSLAMatrix(defaults); err != nil {
@@ -409,12 +411,14 @@ func validateSLACalendar(calendar domain.SLACalendar) error {
 		return &domain.ValidationError{
 			Field:   "sla_calendar",
 			Message: "the working calendar needs at least one working day, a start minute strictly before its end minute, and a timezone",
+			Key:     "error.sla_calendar_shape",
 		}
 	}
 	if calendar.StartMinute < 0 || calendar.StartMinute > 1439 || calendar.EndMinute < 0 || calendar.EndMinute > 1439 {
 		return &domain.ValidationError{
 			Field:   "sla_calendar",
 			Message: "the working calendar minutes must be within 0 and 1439",
+			Key:     "error.sla_calendar_minutes",
 		}
 	}
 	// The store persists the zone by NAME, so a name that does not read back
@@ -424,6 +428,7 @@ func validateSLACalendar(calendar domain.SLACalendar) error {
 		return &domain.ValidationError{
 			Field:   "sla_calendar",
 			Message: "the working calendar timezone must be a portable IANA zone name",
+			Key:     "error.sla_calendar_timezone",
 		}
 	}
 	return nil

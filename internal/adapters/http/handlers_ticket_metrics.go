@@ -10,6 +10,7 @@ import (
 
 	"github.com/giulianotesta7/tkt/internal/application"
 	"github.com/giulianotesta7/tkt/internal/domain"
+	"github.com/giulianotesta7/tkt/internal/i18n"
 )
 
 // WithMetrics wires the optional ticket-metrics read service into the ticket handlers (issue #123); a nil service keeps every metrics surface hidden.
@@ -60,7 +61,7 @@ func parseTicketMetricsFilter(r *http.Request) (application.TicketMetricsFilter,
 		}
 		t, err := time.Parse("2006-01-02", v)
 		if err != nil {
-			return time.Time{}, &domain.ValidationError{Field: "metrics_date", Message: "metrics dates must use YYYY-MM-DD"}
+			return time.Time{}, &domain.ValidationError{Field: "metrics_date", Message: "metrics dates must use YYYY-MM-DD", Key: "error.metrics_date_format"}
 		}
 		return t, nil
 	}
@@ -302,7 +303,7 @@ func (h *TicketHandlers) metricsSummaryData(r *http.Request) (ticketMetricsData,
 	if err != nil {
 		return ticketMetricsData{}, err
 	}
-	mean := "No verifiable durations"
+	mean := i18n.T(requestLocale(r), "ticket_metrics.summary.mean_resolution_none")
 	meanIsDuration := false
 	if metrics.Samples > 0 {
 		mean = metricsDuration(metrics.MeanDuration)

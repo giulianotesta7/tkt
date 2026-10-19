@@ -12,6 +12,7 @@ import (
 
 	"github.com/giulianotesta7/tkt/internal/application"
 	"github.com/giulianotesta7/tkt/internal/domain"
+	"github.com/giulianotesta7/tkt/internal/i18n"
 )
 
 // TestTicketShowRendersDetail proves GET /tickets/{id} renders the detail
@@ -1511,7 +1512,7 @@ func TestTicketDetailSLAPanelAbsentWithoutFrozenSLA(t *testing.T) {
 // projection with no frozen commitment (legacy ticket, or SLA disabled at
 // creation) yields no panel, so the section cannot render an empty shell.
 func TestSLAPanelAbsentWithoutFrozenCommitment(t *testing.T) {
-	if p := slaPanelFor(domain.SLAProjection{Overall: domain.SLANone}); p != nil {
+	if p := slaPanelFor(i18n.English, domain.SLAProjection{Overall: domain.SLANone}); p != nil {
 		t.Errorf("no frozen commitment must yield no panel, got: %+v", p)
 	}
 }
@@ -1545,16 +1546,16 @@ func TestSLADurationLabel(t *testing.T) {
 // milestone is achieved (the panel drops the row).
 func TestSLAMilestoneRemainingLabel(t *testing.T) {
 	pending := domain.SLAMilestoneStatus{TargetSeconds: 9000, Remaining: 2*time.Hour + 30*time.Minute}
-	if got := slaMilestoneViewFor("Response", pending).Remaining; got != "2h 30m" {
+	if got := slaMilestoneViewFor(i18n.English, "Response", pending).Remaining; got != "2h 30m" {
 		t.Errorf("pending remaining = %q, want %q", got, "2h 30m")
 	}
 	overdue := domain.SLAMilestoneStatus{TargetSeconds: 9000, Remaining: -30 * time.Minute}
-	if got := slaMilestoneViewFor("Response", overdue).Remaining; got != "30m overdue" {
+	if got := slaMilestoneViewFor(i18n.English, "Response", overdue).Remaining; got != "30m overdue" {
 		t.Errorf("overdue remaining = %q, want %q", got, "30m overdue")
 	}
 	achievedAt := goldenT1
 	achieved := domain.SLAMilestoneStatus{TargetSeconds: 9000, AchievedAt: &achievedAt}
-	if got := slaMilestoneViewFor("Response", achieved).Remaining; got != "" {
+	if got := slaMilestoneViewFor(i18n.English, "Response", achieved).Remaining; got != "" {
 		t.Errorf("achieved remaining = %q, want empty", got)
 	}
 }

@@ -35,10 +35,10 @@ func (s *UserService) prepareUser(in CreateUserInput, role domain.Role) (*domain
 	name := strings.TrimSpace(in.Name)
 	email := strings.TrimSpace(in.Email)
 	if name == "" {
-		return nil, &domain.ValidationError{Field: "name", Message: domain.ErrMsgUserNameRequired}
+		return nil, &domain.ValidationError{Field: "name", Message: domain.ErrMsgUserNameRequired, Key: "error.name_required"}
 	}
 	if email == "" {
-		return nil, &domain.ValidationError{Field: "email", Message: domain.ErrMsgUserEmailRequired}
+		return nil, &domain.ValidationError{Field: "email", Message: domain.ErrMsgUserEmailRequired, Key: "error.email_required"}
 	}
 	hash, err := HashPassword(in.Password)
 	if err != nil {
@@ -107,13 +107,13 @@ func (s *UserService) UpdateManagedUser(ctx context.Context, actor domain.User, 
 		return nil, domain.NewForbiddenError("user management is not permitted")
 	}
 	if strings.TrimSpace(in.Name) == "" {
-		return nil, &domain.ValidationError{Field: "name", Message: domain.ErrMsgUserNameRequired}
+		return nil, &domain.ValidationError{Field: "name", Message: domain.ErrMsgUserNameRequired, Key: "error.name_required"}
 	}
 	if strings.TrimSpace(in.Email) == "" {
-		return nil, &domain.ValidationError{Field: "email", Message: domain.ErrMsgUserEmailRequired}
+		return nil, &domain.ValidationError{Field: "email", Message: domain.ErrMsgUserEmailRequired, Key: "error.email_required"}
 	}
 	if !in.Role.Valid() {
-		return nil, &domain.ValidationError{Field: "role", Message: "invalid role"}
+		return nil, &domain.ValidationError{Field: "role", Message: "invalid role", Key: "error.invalid_role"}
 	}
 	if in.Role == domain.RoleRoot {
 		return nil, domain.NewRootProtectedError()
@@ -167,7 +167,7 @@ func (s *UserService) ChangePassword(ctx context.Context, actor domain.User, id 
 		return domain.NewForbiddenError("user management is not permitted")
 	}
 	if strings.TrimSpace(password) == "" {
-		return &domain.ValidationError{Field: "password", Message: domain.ErrMsgPasswordRequired}
+		return &domain.ValidationError{Field: "password", Message: domain.ErrMsgPasswordRequired, Key: "error.password_required"}
 	}
 	u, err := s.users.GetByID(ctx, id)
 	if err != nil {

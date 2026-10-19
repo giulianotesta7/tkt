@@ -12,6 +12,7 @@ import (
 
 	"github.com/giulianotesta7/tkt/internal/application"
 	"github.com/giulianotesta7/tkt/internal/domain"
+	"github.com/giulianotesta7/tkt/internal/i18n"
 )
 
 // Golden-file harness (D7): frozen fixtures render deterministically (fixed
@@ -417,7 +418,7 @@ func fixtureSLAPanel() *slaPanelView {
 	}
 	achieved := goldenT1
 	now := goldenT0.Add(20 * time.Hour)
-	return slaPanelFor(domain.ProjectSLA(frozen, domain.SLAMilestones{FirstResponseAt: &achieved}, now))
+	return slaPanelFor(i18n.English, domain.ProjectSLA(frozen, domain.SLAMilestones{FirstResponseAt: &achieved}, now))
 }
 
 func fixtureDetailData() detailData {

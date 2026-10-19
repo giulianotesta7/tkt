@@ -314,7 +314,7 @@ func (s *WorkflowService) ListAvailableCategories(ctx context.Context) ([]domain
 // landed it between the check and the guarded write, so both callers see one
 // status/message path.
 func errCloneTargetHasDraft() error {
-	return &domain.ValidationError{Field: "target_category_id", Message: "the target category already has a draft; cloning would overwrite it"}
+	return &domain.ValidationError{Field: "target_category_id", Message: "the target category already has a draft; cloning would overwrite it", Key: "error.clone_target_has_draft"}
 }
 
 // Clone reuses a workflow: it copies the SOURCE category's CURRENT PUBLISHED
@@ -357,7 +357,7 @@ func (s *WorkflowService) Clone(ctx context.Context, actor domain.User, sourceCa
 		return err
 	}
 	if published == nil {
-		return &domain.ValidationError{Field: "source_category_id", Message: "the source category has no published workflow to clone"}
+		return &domain.ValidationError{Field: "source_category_id", Message: "the source category has no published workflow to clone", Key: "error.clone_source_unpublished"}
 	}
 	// The emptiness check and the guarded write must share ONE compare-and-swap.
 	// Reading bytes and revision together means a concurrent clone that writes

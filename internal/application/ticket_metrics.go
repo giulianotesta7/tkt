@@ -212,18 +212,18 @@ func normalizeTicketMetricsFilter(f TicketMetricsFilter, now time.Time) (TicketM
 		f.End = today
 		f.Start = today.AddDate(0, 0, -29)
 	} else if f.Start.IsZero() || f.End.IsZero() {
-		return TicketMetricsFilter{}, &domain.ValidationError{Field: "metrics_date", Message: "choose both metrics dates"}
+		return TicketMetricsFilter{}, &domain.ValidationError{Field: "metrics_date", Message: "choose both metrics dates", Key: "error.choose_both_metrics_dates"}
 	}
 	f.Start = dateUTC(f.Start)
 	f.End = dateUTC(f.End).AddDate(0, 0, 1)
 	if f.End.Before(f.Start) {
-		return TicketMetricsFilter{}, &domain.ValidationError{Field: "metrics_date", Message: "metrics end date must not be before the start date"}
+		return TicketMetricsFilter{}, &domain.ValidationError{Field: "metrics_date", Message: "metrics end date must not be before the start date", Key: "error.metrics_end_before_start"}
 	}
 	if f.WorkloadBy == "" {
 		f.WorkloadBy = "agent"
 	}
 	if f.WorkloadBy != "agent" && f.WorkloadBy != "desk" {
-		return TicketMetricsFilter{}, &domain.ValidationError{Field: "metrics_group", Message: "metrics workload group must be agent or desk"}
+		return TicketMetricsFilter{}, &domain.ValidationError{Field: "metrics_group", Message: "metrics workload group must be agent or desk", Key: "error.metrics_group_invalid"}
 	}
 	// The attainment grouping is deliberately fail-soft (unlike WorkloadBy):
 	// empty or unknown means total, never a validation error.
@@ -307,6 +307,12 @@ func buildTicketMetrics(records []TicketMetricsRecord, f TicketMetricsFilter, no
 			if row.Label == "" {
 				row.Label = label
 				row.Unassigned = key == "agent:unassigned"
+				switch key {
+				case "desk:unassigned":
+					row.LabelKey = "tickets.degrade.no_desk"
+				case "agent:unassigned":
+					row.LabelKey = "tickets.degrade.unassigned"
+				}
 			}
 			row.Count++
 			work[key] = row

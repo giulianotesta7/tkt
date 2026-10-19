@@ -433,7 +433,7 @@ func (h *UserHandlers) update(w http.ResponseWriter, r *http.Request) {
 	role, err := domain.ParseRole(r.Form.Get("role"))
 	if err != nil {
 		if r.Form.Get("role") != "" {
-			h.renderUsersDrawerError(w, r, id, &domain.ValidationError{Field: "role", Message: "invalid role"})
+			h.renderUsersDrawerError(w, r, id, &domain.ValidationError{Field: "role", Message: "invalid role", Key: "error.invalid_role"})
 			return
 		}
 		u, getErr := h.users.GetByID(r.Context(), id)

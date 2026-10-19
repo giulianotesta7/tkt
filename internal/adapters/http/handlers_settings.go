@@ -518,6 +518,7 @@ func parseCalendarForm(r *http.Request) (domain.SLACalendar, error) {
 		return domain.SLACalendar{}, &domain.ValidationError{
 			Field:   "sla_calendar",
 			Message: "the working calendar needs a start and end time in HH:MM form",
+			Key:     "error.calendar_time_form",
 		}
 	}
 	rawZone := strings.TrimSpace(r.Form.Get("sla_calendar_timezone"))
@@ -529,6 +530,8 @@ func parseCalendarForm(r *http.Request) (domain.SLACalendar, error) {
 		return domain.SLACalendar{}, &domain.ValidationError{
 			Field:   "sla_calendar",
 			Message: fmt.Sprintf("unknown timezone name %q", rawZone),
+			Key:     "error.unknown_timezone",
+			Args:    []any{rawZone},
 		}
 	}
 	return domain.SLACalendar{WorkingDays: days, StartMinute: start, EndMinute: end, Location: loc}, nil

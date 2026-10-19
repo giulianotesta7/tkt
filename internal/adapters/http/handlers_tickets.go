@@ -374,11 +374,12 @@ type slaRow struct {
 	State domain.SLAState
 }
 
-// slaResponseLabel and slaResolveLabel name the two milestones in the row
-// deadline copy.
+// slaResponseLabelKey and slaResolveLabelKey name the two milestones in the row
+// deadline copy. They are catalogue keys: the visible label follows the instance
+// language (S18), and the English catalogue keeps today's bytes.
 const (
-	slaResponseLabel = "First response"
-	slaResolveLabel  = "Resolve"
+	slaResponseLabelKey = "sla.detail.first_response"
+	slaResolveLabelKey  = "sla.detail.resolve"
 )
 
 // slaRowFor derives the optional row summary from one projection. A nil
@@ -430,7 +431,7 @@ type slaPanelView struct {
 // slaPanelFor builds the pre-formatted panel from one projection. A nil
 // Frozen (no commitment, or the pre-0016 zero-due legacy shape) yields nil —
 // absence is a state, never a "no SLA" panel.
-func slaPanelFor(p domain.SLAProjection) *slaPanelView {
+func slaPanelFor(locale string, p domain.SLAProjection) *slaPanelView {
 	if p.Frozen == nil {
 		return nil
 	}
@@ -438,8 +439,8 @@ func slaPanelFor(p domain.SLAProjection) *slaPanelView {
 		Overall:     p.Overall,
 		ProjectedAt: p.ProjectedAt,
 		Milestones: []slaMilestoneView{
-			slaMilestoneViewFor(slaResponseLabel, p.FirstResponse),
-			slaMilestoneViewFor(slaResolveLabel, p.Resolve),
+			slaMilestoneViewFor(locale, i18n.T(locale, slaResponseLabelKey), p.FirstResponse),
+			slaMilestoneViewFor(locale, i18n.T(locale, slaResolveLabelKey), p.Resolve),
 		},
 	}
 }
@@ -448,7 +449,7 @@ func slaPanelFor(p domain.SLAProjection) *slaPanelView {
 // while the milestone is pending: a negative remainder reads "30m overdue",
 // a non-negative one "in 2h 30m", and an achieved milestone carries no
 // remaining label at all (the template drops the row).
-func slaMilestoneViewFor(label string, m domain.SLAMilestoneStatus) slaMilestoneView {
+func slaMilestoneViewFor(locale, label string, m domain.SLAMilestoneStatus) slaMilestoneView {
 	v := slaMilestoneView{
 		Label:     label,
 		State:     m.State,
@@ -458,7 +459,7 @@ func slaMilestoneViewFor(label string, m domain.SLAMilestoneStatus) slaMilestone
 	if m.AchievedAt == nil {
 		seconds := int(m.Remaining / time.Second)
 		if seconds < 0 {
-			v.Remaining = slaDurationLabel(-seconds) + " overdue"
+			v.Remaining = slaDurationLabel(-seconds) + " " + i18n.T(locale, "sla.detail.overdue")
 		} else {
 			v.Remaining = slaDurationLabel(seconds)
 		}
@@ -1359,7 +1360,7 @@ func (h *TicketHandlers) detailDataFor(r *http.Request, id int64) (detailData, i
 		if slaErr != nil {
 			return detailData{}, statusFor(slaErr), slaErr
 		}
-		slaPanel = slaPanelFor(projection)
+		slaPanel = slaPanelFor(requestLocale(r), projection)
 	}
 	page := pageDataFrom(r, "tickets")
 	// The countdown script belongs to the detail page and only when there is a
@@ -1734,7 +1735,7 @@ func (h *TicketHandlers) confirmation(w http.ResponseWriter, r *http.Request) {
 	case "reject":
 		decide = h.tickets.RejectResolution
 	default:
-		h.renderDetailError(w, r, id, &domain.ValidationError{Field: "decision", Message: "decision must be confirm or reject"})
+		h.renderDetailError(w, r, id, &domain.ValidationError{Field: "decision", Message: "decision must be confirm or reject", Key: "error.invalid_decision"})
 		return
 	}
 
@@ -1800,7 +1801,7 @@ func (h *TicketHandlers) assign(w http.ResponseWriter, r *http.Request) {
 	// Desks are membership-only in this iteration. Reject a forged desk
 	// target instead of treating its missing user_id as an unassignment.
 	if r.Form.Get("desk_id") != "" {
-		h.renderDetailError(w, r, id, &domain.ValidationError{Field: "desk", Message: "desks cannot be ticket assignees"})
+		h.renderDetailError(w, r, id, &domain.ValidationError{Field: "desk", Message: "desks cannot be ticket assignees", Key: "error.desk_not_assignee"})
 		return
 	}
 	actor := *userFromContext(r.Context())
@@ -1809,7 +1810,7 @@ func (h *TicketHandlers) assign(w http.ResponseWriter, r *http.Request) {
 	if raw := r.Form.Get("user_id"); raw != "" {
 		uid := parseID(raw)
 		if uid == 0 {
-			h.renderDetailError(w, r, id, &domain.ValidationError{Field: "user", Message: "invalid user"})
+			h.renderDetailError(w, r, id, &domain.ValidationError{Field: "user", Message: "invalid user", Key: "error.invalid_user"})
 			return
 		}
 		assigneeID = &uid
@@ -1894,7 +1895,7 @@ func (h *TicketHandlers) update(w http.ResponseWriter, r *http.Request) {
 		u.Priority = &p
 	}
 	if u.Title == nil && u.Priority == nil {
-		h.renderEditError(w, r, id, &domain.ValidationError{Field: "update", Message: "provide a title or a priority"})
+		h.renderEditError(w, r, id, &domain.ValidationError{Field: "update", Message: "provide a title or a priority", Key: "error.provide_title_or_priority"})
 		return
 	}
 
@@ -1988,7 +1989,7 @@ func (h *TicketHandlers) renderAgentQueueClaimError(w http.ResponseWriter, r *ht
 	if status != http.StatusUnprocessableEntity || !isAgentQueueClaimRequest(r, actor) {
 		return false
 	}
-	h.renderAgentQueue(w, r, agentQueueClaimUnavailable, status)
+	h.renderAgentQueue(w, r, i18n.T(requestLocale(r), "tickets.agent.claim_unavailable"), status)
 	return true
 }
 
@@ -2045,7 +2046,7 @@ func (h *TicketHandlers) completeWorkflow(w http.ResponseWriter, r *http.Request
 	// 422 ValidationError{Field: "solution"} with zero writes.
 	solution := strings.TrimSpace(r.Form.Get("solution"))
 	if len(solution) > maxSolutionLength {
-		h.renderDetailError(w, r, id, &domain.ValidationError{Field: "solution", Message: domain.ErrMsgSolutionTooLong})
+		h.renderDetailError(w, r, id, &domain.ValidationError{Field: "solution", Message: domain.ErrMsgSolutionTooLong, Key: "error.solution_too_long"})
 		return
 	}
 
@@ -2105,7 +2106,7 @@ func (h *TicketHandlers) workflowFormAnswers(snap *application.WorkflowExecution
 	switch step.Type {
 	case domain.StepManualTask:
 		if hasWorkflowMeta(form) {
-			return nil, &domain.ValidationError{Field: "answers", Message: "manual_task ignores metadata"}
+			return nil, &domain.ValidationError{Field: "answers", Message: "manual_task ignores metadata", Key: "error.workflow_manual_metadata"}
 		}
 		return nil, nil
 	case domain.StepAssignToDesk:
@@ -2113,17 +2114,17 @@ func (h *TicketHandlers) workflowFormAnswers(snap *application.WorkflowExecution
 			return nil, &domain.ValidationError{Field: "type", Message: "assign_to_desk requires config"}
 		}
 		if step.AssignToDesk.Strategy != domain.StrategyClaim {
-			return nil, &domain.ValidationError{Field: "state", Message: "automatic step"}
+			return nil, &domain.ValidationError{Field: "state", Message: "automatic step", Key: "error.workflow_automatic_step"}
 		}
 		if hasWorkflowMeta(form) || form.Has("reason") || form.Has("solution") {
-			return nil, &domain.ValidationError{Field: "claim", Message: "claim posts no form values"}
+			return nil, &domain.ValidationError{Field: "claim", Message: "claim posts no form values", Key: "error.workflow_claim_form"}
 		}
 		return nil, nil
 	case domain.StepForm:
 		return parsePositionalAnswers(form, len(step.Form.Fields))
 	default:
 		// Terminal and unknown steps never accept a human completion form.
-		return nil, &domain.ValidationError{Field: "state", Message: "workflow step cannot complete in current ticket state"}
+		return nil, &domain.ValidationError{Field: "state", Message: "workflow step cannot complete in current ticket state", Key: "error.workflow_step_state"}
 	}
 }
 

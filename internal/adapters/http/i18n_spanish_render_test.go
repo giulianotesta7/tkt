@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strconv"
 	"strings"
 	"testing"
@@ -594,6 +595,150 @@ func TestSpanishBadIdentifierErrors(t *testing.T) {
 		if body := rec.Body.String(); !strings.Contains(body, tc.want) {
 			t.Errorf("GET %s must render %q, got %q", tc.path, tc.want, strings.TrimSpace(body))
 		}
+	}
+}
+
+// TestSpanishKeylessErrorsAndLiteralsFollowTheInstanceLanguage covers the S18
+// defect class end to end. Two messages reached a page outside the catalogue: the
+// clone refusal the application raises when the target already has a draft, and
+// the metrics "No verifiable durations" literal. Both read Spanish on a Spanish
+// instance, and English keeps its historical bytes (S13).
+func TestSpanishKeylessErrorsAndLiteralsFollowTheInstanceLanguage(t *testing.T) {
+	for _, tc := range []struct {
+		name         string
+		language     string
+		draftRefusal string
+		meanNone     string
+	}{
+		{
+			name:         "english",
+			language:     application.InterfaceLanguageEnglish,
+			draftRefusal: "the target category already has a draft; cloning would overwrite it",
+			meanNone:     "No verifiable durations",
+		},
+		{
+			name:         "spanish",
+			language:     application.InterfaceLanguageSpanish,
+			draftRefusal: "la categoría de destino ya tiene un borrador; clonar lo sobrescribiría",
+			meanNone:     "Todavía no hay resoluciones para medir",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h := newHarness(t)
+			if err := h.settings.SetInterfaceLanguage(t.Context(), *h.admin, tc.language); err != nil {
+				t.Fatalf("set interface language: %v", err)
+			}
+			source, err := h.categories.Create(t.Context(), "Clone source")
+			if err != nil {
+				t.Fatalf("create source: %v", err)
+			}
+			h.publishWorkflow(t, source.ID, domain.WorkflowDefinition{{Type: domain.StepResolve}})
+			target, err := h.categories.Create(t.Context(), "Clone target")
+			if err != nil {
+				t.Fatalf("create target: %v", err)
+			}
+			path := "/categories/" + strconv.FormatInt(target.ID, 10) + "/workflow/clone"
+			form := url.Values{"source_category_id": {strconv.FormatInt(source.ID, 10)}}
+			if first := h.postBuilder(t, path, form, false); first.Code != http.StatusSeeOther {
+				t.Fatalf("first clone = %d, want 303: %s", first.Code, first.Body.String())
+			}
+			refused := h.postBuilder(t, path, form, false)
+			if refused.Code != http.StatusUnprocessableEntity {
+				t.Fatalf("clone refusal = %d, want 422: %s", refused.Code, refused.Body.String())
+			}
+			if body := refused.Body.String(); !strings.Contains(body, tc.draftRefusal) {
+				t.Errorf("clone refusal must render %q, got: %.800s", tc.draftRefusal, body)
+			}
+			if tc.language == application.InterfaceLanguageSpanish && strings.Contains(refused.Body.String(), "already has a draft") {
+				t.Errorf("Spanish clone refusal must not render the English sentence: %.800s", refused.Body.String())
+			}
+
+			summary := h.get(t, "/tickets", false)
+			if summary.Code != http.StatusOK || !strings.Contains(summary.Body.String(), tc.meanNone) {
+				t.Errorf("mean-resolution empty state must render %q, got %d: %.1200s", tc.meanNone, summary.Code, summary.Body.String())
+			}
+			if tc.language == application.InterfaceLanguageSpanish && strings.Contains(summary.Body.String(), "No verifiable durations") {
+				t.Errorf("Spanish metrics summary must not render the English literal: %.1200s", summary.Body.String())
+			}
+		})
+	}
+}
+
+// TestSpanishSLADetailAndDegradeLabels proves the handler/application literals
+// the S18 sweep catalogued follow the instance language: the ticket-detail SLA
+// milestone labels and overdue word, and the metrics workload "No desk" degrade
+// label. English stays byte-identical through the same catalogue entries.
+func TestSpanishSLADetailAndDegradeLabels(t *testing.T) {
+	frozen := &domain.TicketSLA{
+		FirstResponseSeconds: 14400,
+		ResolveSeconds:       86400,
+		WarnFirstResponseAt:  goldenT0.Add(3*time.Hour + 12*time.Minute),
+		DueFirstResponseAt:   goldenT0.Add(4 * time.Hour),
+		WarnResolveAt:        goldenT0.Add(19*time.Hour + 12*time.Minute),
+		DueResolveAt:         goldenT0.Add(24 * time.Hour),
+		StartedAt:            goldenT0,
+		PolicySnapshotAt:     goldenT0,
+	}
+	now := goldenT0.Add(48 * time.Hour)
+	panel := slaPanelFor(i18n.Spanish, domain.ProjectSLA(frozen, domain.SLAMilestones{}, now))
+	if panel == nil || len(panel.Milestones) != 2 {
+		t.Fatalf("Spanish SLA panel = %+v, want two milestones", panel)
+	}
+	if got := panel.Milestones[0].Label; got != "Primera respuesta" {
+		t.Errorf("Spanish first-response label = %q, want %q", got, "Primera respuesta")
+	}
+	if got := panel.Milestones[1].Label; got != "Resolución" {
+		t.Errorf("Spanish resolve label = %q, want %q", got, "Resolución")
+	}
+	if got := panel.Milestones[0].Remaining; !strings.Contains(got, "vencido") {
+		t.Errorf("Spanish overdue remaining = %q, want the vencido word", got)
+	}
+	if got := bucketLabel(i18n.New(i18n.Spanish), application.TicketMetricsWorkload{Label: "No desk", LabelKey: "tickets.degrade.no_desk"}); got != "Sin mesa" {
+		t.Errorf("Spanish workload no-desk label = %q, want %q", got, "Sin mesa")
+	}
+	for key, want := range map[string]string{
+		"tickets.agent.claim_unavailable":   "Este ticket ya no está disponible para tomarlo.",
+		"categories.refresh_error":          "Se guardaron los cambios, pero no se pudo actualizar la lista de categorías. Recarga la página para ver los cambios guardados.",
+		"categories.unassigned.name":        "Sin asignar",
+		"categories.unassigned.description": "Mesas sin departamento",
+	} {
+		if got := i18n.T(i18n.Spanish, key); got != want {
+			t.Errorf("es %q = %q, want %q", key, got, want)
+		}
+	}
+}
+
+// TestSpanishCatalogStructureSyntheticGroup renders the virtual Unassigned
+// department a legacy desk is exposed through in Spanish: the synthetic group
+// name and description are chrome, so they follow the instance language even
+// though the desks themselves are admin-authored content (S11).
+func TestSpanishCatalogStructureSyntheticGroup(t *testing.T) {
+	h := newHarness(t)
+	if err := h.settings.SetInterfaceLanguage(t.Context(), *h.admin, application.InterfaceLanguageSpanish); err != nil {
+		t.Fatalf("set interface language: %v", err)
+	}
+	legacy, err := h.desks.CreateWithDescription(t.Context(), *h.admin, "Legacy desk", "Legacy description")
+	if err != nil {
+		t.Fatalf("create legacy desk: %v", err)
+	}
+	catalog := application.NewCatalogService(h.store.CatalogStore(), h.store.CategoryStore(), h.clock)
+	mux := http.NewServeMux()
+	NewCategoryHandlersWithWorkflows(h.categories, h.workflows, h.renderer, catalog).Register(mux)
+	req := httptest.NewRequest(http.MethodGet, "/categories?view=structure&department_id=unassigned&desk_id="+strconv.FormatInt(legacy.ID, 10), nil)
+	req.Header.Set("Cookie", sessionCookie+"="+h.adminSession.ID)
+	rec := httptest.NewRecorder()
+	h.mw.Wrap(mux).ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("spanish legacy structure = %d, want 200: %s", rec.Code, rec.Body.String())
+	}
+	body := rec.Body.String()
+	for _, want := range []string{"Sin asignar", "Mesas sin departamento", "Legacy desk"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("Spanish catalog structure must render %q, got: %.800s", want, body)
+		}
+	}
+	if strings.Contains(body, ">Unassigned<") || strings.Contains(body, "Desks without a department") {
+		t.Errorf("Spanish catalog structure must not render the English synthetic group: %.800s", body)
 	}
 }
 
