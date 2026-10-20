@@ -199,7 +199,10 @@ func TestApplyWorkflowPlanInsertsTheComputedNotifications(t *testing.T) {
 
 // TestApplyWorkflowPlanFillsTheLeastLoadedRecipient proves the ONE recipient the
 // application cannot know is filled from the transaction's own selection: the
-// automatic least_loaded step notifies the member the desk routing chose.
+// automatic least_loaded step notifies the member the desk routing chose — here
+// a member who is NOT the acting agent, so the row is written and carries that
+// agent as its actor (the human whose completion ran the routing, and the actor
+// of the completion's own audit event).
 func TestApplyWorkflowPlanFillsTheLeastLoadedRecipient(t *testing.T) {
 	s := newTestDB(t)
 	ctx := context.Background()
@@ -246,8 +249,8 @@ func TestApplyWorkflowPlanFillsTheLeastLoadedRecipient(t *testing.T) {
 	if len(rows) != 1 || rows[0].Kind != domain.NotificationAssigned {
 		t.Fatalf("selected member notifications = %+v, want one assigned row", rows)
 	}
-	if rows[0].ActorUserID != nil {
-		t.Errorf("actor = %v, want nil (automatic routing)", *rows[0].ActorUserID)
+	if rows[0].ActorUserID == nil || *rows[0].ActorUserID != agent {
+		t.Errorf("actor = %v, want the completing agent %d whose action ran the routing", rows[0].ActorUserID, agent)
 	}
 	if rows[0].TicketID != ticket.ID {
 		t.Errorf("ticket = %d, want %d", rows[0].TicketID, ticket.ID)

@@ -217,10 +217,16 @@ func (r *WorkflowRunner) PlanComplete(_ context.Context, snap WorkflowExecutionS
 	// A least_loaded step selects its assignee INSIDE the transaction, so the
 	// only fact the application cannot supply is the recipient: each such
 	// operation carries the "assigned" notification template and the unit of work
-	// fills it with the member it selected (S10 automatic routing, S11).
+	// fills it with the member it selected (S10 automatic routing, S11). The
+	// template DOES carry the human actor, because the transaction is the first
+	// place the selection is known: a selection that lands back on the acting
+	// agent (a single-member desk, or the actor being the least loaded member) is
+	// their own action and must be dropped (S10 "never the person who performed
+	// the action"). The actor is also the actor of this plan's completion audit,
+	// so the row keeps the actors-are-audit-actors invariant.
 	for i, op := range plan.Operations {
 		if ll, ok := op.(LeastLoadedAssignmentOperation); ok {
-			ll.NotifyAssignee = &AssigneeNotification{TicketID: plan.TicketID, CreatedAt: now}
+			ll.NotifyAssignee = &AssigneeNotification{TicketID: plan.TicketID, ActorUserID: &actor, CreatedAt: now}
 			plan.Operations[i] = ll
 		}
 	}

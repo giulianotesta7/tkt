@@ -477,16 +477,24 @@ type LeastLoadedAssignmentOperation struct {
 	// application cannot compute — the least_loaded selection ranges over the
 	// desk inside the transaction (design S6) — so the unit of work fills it
 	// from the user it selected. The application still decides the event, its
-	// instant, and its actor (nil: automatic routing).
+	// instant, and its actor: the actor is the human whose completion ran this
+	// routing step, because the selection can land BACK on that person and the
+	// implementation must then notify nobody (S10 "never the person who
+	// performed the action").
 	NotifyAssignee *AssigneeNotification
 }
 
 // AssigneeNotification is a notification whose recipient is the assignee a
 // least_loaded step selects inside the unit of work. It carries every fact the
 // stored row needs except the recipient, which the adapter supplies from its
-// own selection.
+// own selection — and the actor, which lets the adapter drop the row when the
+// selection is the actor himself.
 type AssigneeNotification struct {
-	TicketID    int64
+	TicketID int64
+	// ActorUserID is the human whose action ran this routing step (the
+	// completion command's actor), never the automatic step itself: the same
+	// plan stamps that id on its completion audit, so the row keeps the
+	// actors-are-also-audit-actors invariant.
 	ActorUserID *int64
 	CreatedAt   time.Time
 }

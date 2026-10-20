@@ -1881,9 +1881,20 @@ func applyWorkflowOperations(ctx context.Context, tx *sql.Tx, t *domain.Ticket, 
 			// member this step selects; the recipient is the selection made right
 			// above, so the row joins the same transaction (S10 automatic
 			// least_loaded routing, S11).
+			//
+			// S10 "never the person who performed the action": the selection can
+			// land back on the agent whose completion triggered the routing (a
+			// single-member desk, or that agent being the least loaded member).
+			// This is the first point where the recipient is known, so the actor
+			// filter belongs here: such a row would tell the agent about their own
+			// action. A same-person selection still writes its audit row (the
+			// timeline keeps it); only the notification is dropped.
 			if v.NotifyAssignee != nil {
-				if err := appendNotificationsTx(ctx, tx, []domain.Notification{v.NotifyAssignee.For(selected)}); err != nil {
-					return err
+				row := v.NotifyAssignee.For(selected)
+				if row.ActorUserID == nil || *row.ActorUserID != selected {
+					if err := appendNotificationsTx(ctx, tx, []domain.Notification{row}); err != nil {
+						return err
+					}
 				}
 			}
 		default:

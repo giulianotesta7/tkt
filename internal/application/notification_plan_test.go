@@ -98,7 +98,10 @@ func TestPlanCompleteResolveAsksTheRequesterToConfirm(t *testing.T) {
 // TestPlanCompleteLeastLoadedCarriesTheAssigneeTemplate: the application cannot
 // name the member a least_loaded step selects (the selection happens inside the
 // transaction), so the operation carries the notification TEMPLATE and the unit
-// of work fills the recipient it selected.
+// of work fills the recipient it selected. The template DOES carry the human
+// actor whose completion ran this routing step: the selection can land back on
+// that person, and the unit of work can only drop the row once it knows the
+// recipient (S10 "never the person who performed the action").
 func TestPlanCompleteLeastLoadedCarriesTheAssigneeTemplate(t *testing.T) {
 	const requester, agent = 7, 9
 	r := application.NewWorkflowRunner(fixedClock())
@@ -123,12 +126,21 @@ func TestPlanCompleteLeastLoadedCarriesTheAssigneeTemplate(t *testing.T) {
 		if ll.NotifyAssignee.TicketID != 1 {
 			t.Errorf("template ticket = %d, want 1", ll.NotifyAssignee.TicketID)
 		}
-		if ll.NotifyAssignee.ActorUserID != nil {
-			t.Errorf("template actor = %v, want nil (automatic routing)", *ll.NotifyAssignee.ActorUserID)
+		if ll.NotifyAssignee.ActorUserID == nil || *ll.NotifyAssignee.ActorUserID != agent {
+			t.Errorf("template actor = %v, want the completing agent %d", ll.NotifyAssignee.ActorUserID, agent)
 		}
 		row := ll.NotifyAssignee.For(42)
 		if row.UserID != 42 || row.Kind != domain.NotificationAssigned {
 			t.Errorf("filled row = %+v, want an assigned row for the selected member", row)
+		}
+		if row.ActorUserID == nil || *row.ActorUserID != agent {
+			t.Errorf("filled row actor = %v, want the completing agent %d", row.ActorUserID, agent)
+		}
+		// A row completed for the ACTOR is the one the unit of work drops: the
+		// template hands it every fact that decision needs (the recipient) and
+		// the fact it filters on (the actor).
+		if actorRow := ll.NotifyAssignee.For(agent); actorRow.ActorUserID == nil || *actorRow.ActorUserID != actorRow.UserID {
+			t.Errorf("actor-addressed row = %+v, want it to carry its own recipient as actor", actorRow)
 		}
 	}
 	if templates != 1 {
