@@ -187,6 +187,12 @@ func (r *WorkflowRunner) PlanComplete(_ context.Context, snap WorkflowExecutionS
 	}
 	notifications := stateChangeNotifications(&ticket, snap.Ticket.State, ticket.State, &actor, now, snap.Requester, assigneeFacts)
 
+	// S10 last row: a form step this plan leaves pending is somebody's turn — the
+	// requester for a requester form, the assignee for an assignee form. Kept in
+	// its own file (notification_form.go) because the row is still unconfirmed.
+	notifications = append(notifications,
+		formWaitingNotifications(&ticket, snap.Workflow, nextCursor, &actor, now, snap.Requester, assigneeFacts)...)
+
 	plan := WorkflowMutationPlan{
 		TicketID:           ticket.ID,
 		ExpectedVersionID:  pinnedVersionID(snap.Ticket),
