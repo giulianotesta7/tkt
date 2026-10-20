@@ -537,8 +537,12 @@ func TestTicketStorePropagatesDatabaseErrors(t *testing.T) {
 			_, err := s.TicketStore().CountsByPriority(context.Background(), application.TicketQuery{Scope: application.ScopeAll})
 			return err
 		}},
-		{name: "unit create", call: func() error { return s.TicketUnitOfWork().Create(context.Background(), ticket, domain.AuditEvent{}) }},
-		{name: "unit update", call: func() error { return s.TicketUnitOfWork().Update(context.Background(), ticket) }},
+		{name: "unit create", call: func() error {
+			return s.TicketUnitOfWork().Create(context.Background(), application.TicketMutation{Ticket: ticket})
+		}},
+		{name: "unit update", call: func() error {
+			return s.TicketUnitOfWork().Update(context.Background(), application.TicketMutation{Ticket: ticket})
+		}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -829,7 +833,7 @@ func TestUnitOfWorkCreatePersistsTicketAndEvent(t *testing.T) {
 	event := domain.AuditEvent{Actor: "Ana", Action: domain.ActionCreated, CreatedAt: testClock}
 
 	uow := s.TicketUnitOfWork()
-	if err := uow.Create(ctx, tk, event); err != nil {
+	if err := uow.Create(ctx, application.TicketMutation{Ticket: tk, Events: []domain.AuditEvent{event}}); err != nil {
 		t.Fatalf("uow create: %v", err)
 	}
 	if tk.ID == 0 || tk.Number == 0 {
@@ -886,7 +890,7 @@ func TestUnitOfWorkCreateRollsBackOnAuditFailure(t *testing.T) {
 
 	tk := &domain.Ticket{Title: "doomed", CategoryID: cat, Priority: domain.PriorityMedium,
 		State: domain.StateNew, CreatedAt: testClock, UpdatedAt: testClock}
-	err := s.TicketUnitOfWork().Create(ctx, tk, domain.AuditEvent{Actor: "Ana", Action: domain.ActionCreated, CreatedAt: testClock})
+	err := s.TicketUnitOfWork().Create(ctx, application.TicketMutation{Ticket: tk, Events: []domain.AuditEvent{{Actor: "Ana", Action: domain.ActionCreated, CreatedAt: testClock}}})
 	if err == nil {
 		t.Fatal("uow create succeeded, want audit append failure")
 	}
@@ -929,7 +933,7 @@ func TestUnitOfWorkUpdatePersistsEventBatchInOrder(t *testing.T) {
 		{TicketID: tk.ID, Actor: "Bob", Action: domain.ActionUpdate,
 			Field: ptr("priority"), FromValue: ptr("medium"), ToValue: ptr("high"), CreatedAt: testClock.Add(3 * time.Hour)},
 	}
-	if err := s.TicketUnitOfWork().Update(ctx, tk, events...); err != nil {
+	if err := s.TicketUnitOfWork().Update(ctx, application.TicketMutation{Ticket: tk, Events: events}); err != nil {
 		t.Fatalf("uow update: %v", err)
 	}
 
@@ -982,9 +986,9 @@ func TestUnitOfWorkUpdateRollsBackOnAuditFailure(t *testing.T) {
 
 	tk.Title = "after"
 	tk.State = domain.StateResolved
-	err := s.TicketUnitOfWork().Update(ctx, tk, domain.AuditEvent{
+	err := s.TicketUnitOfWork().Update(ctx, application.TicketMutation{Ticket: tk, Events: []domain.AuditEvent{{
 		TicketID: tk.ID, Actor: "Ana", Action: domain.ActionTransition,
-		Field: ptr("state"), FromValue: ptr("new"), ToValue: ptr("resolved"), CreatedAt: testClock.Add(time.Hour)})
+		Field: ptr("state"), FromValue: ptr("new"), ToValue: ptr("resolved"), CreatedAt: testClock.Add(time.Hour)}}})
 	if err == nil {
 		t.Fatal("uow update succeeded, want audit append failure")
 	}
@@ -1008,7 +1012,7 @@ func TestUnitOfWorkUpdateRollsBackOnAuditFailure(t *testing.T) {
 
 func TestUnitOfWorkUpdateNotFound(t *testing.T) {
 	s := newTestDB(t)
-	err := s.TicketUnitOfWork().Update(context.Background(), &domain.Ticket{ID: 42})
+	err := s.TicketUnitOfWork().Update(context.Background(), application.TicketMutation{Ticket: &domain.Ticket{ID: 42}})
 	if !errors.Is(err, domain.ErrNotFound) {
 		t.Errorf("err = %v, want ErrNotFound", err)
 	}
@@ -1031,9 +1035,9 @@ func TestUnitOfWorkTerminalStateClosesActiveRun(t *testing.T) {
 			terminalAt := testClock.Add(time.Hour)
 			tk.State = state
 			tk.UpdatedAt = terminalAt
-			if err := s.TicketUnitOfWork().Update(ctx, &tk, domain.AuditEvent{
+			if err := s.TicketUnitOfWork().Update(ctx, application.TicketMutation{Ticket: &tk, Events: []domain.AuditEvent{{
 				TicketID: tk.ID, Actor: "Ana", Action: domain.ActionTransition,
-				Field: ptr("state"), FromValue: ptr("new"), ToValue: ptr(string(state)), CreatedAt: terminalAt}); err != nil {
+				Field: ptr("state"), FromValue: ptr("new"), ToValue: ptr(string(state)), CreatedAt: terminalAt}}}); err != nil {
 				t.Fatalf("uow terminal update: %v", err)
 			}
 
@@ -1056,7 +1060,7 @@ func TestUnitOfWorkOpenStateKeepsRunActive(t *testing.T) {
 
 	tk.State = domain.StateInProgress
 	tk.UpdatedAt = testClock.Add(time.Hour)
-	if err := s.TicketUnitOfWork().Update(ctx, &tk); err != nil {
+	if err := s.TicketUnitOfWork().Update(ctx, application.TicketMutation{Ticket: &tk}); err != nil {
 		t.Fatalf("uow open update: %v", err)
 	}
 	cur, status, comp := runRow(t, s, tk.ID)
@@ -1079,7 +1083,7 @@ func TestUnitOfWorkTerminalClosureRollsBackWithAuditFailure(t *testing.T) {
 
 	tk.State = domain.StateCancelled
 	tk.UpdatedAt = testClock.Add(time.Hour)
-	err := s.TicketUnitOfWork().Update(ctx, &tk, domain.AuditEvent{TicketID: tk.ID, Actor: "Ana", Action: domain.ActionTransition, CreatedAt: tk.UpdatedAt})
+	err := s.TicketUnitOfWork().Update(ctx, application.TicketMutation{Ticket: &tk, Events: []domain.AuditEvent{{TicketID: tk.ID, Actor: "Ana", Action: domain.ActionTransition, CreatedAt: tk.UpdatedAt}}})
 	if err == nil {
 		t.Fatal("uow terminal update succeeded, want audit append failure")
 	}

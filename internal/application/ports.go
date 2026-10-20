@@ -45,22 +45,53 @@ type TicketStore interface {
 	CountsByPriority(ctx context.Context, q TicketQuery) (map[domain.Priority]int, error)
 }
 
-// TicketUnitOfWork persists a ticket mutation and its audit events as ONE
-// atomic unit (audit-log no-silent-mutations contract, C1). The application
-// issues a single call per mutation — implementations MUST apply the ticket
-// write and the event appends in one transaction and MUST roll the ticket
-// write back when any append fails, so a failed audit can never leave a
-// committed ticket mutation behind. Slice 4 implements this port over a real
-// SQLite transaction; the in-memory fakes simulate the rollback.
+// TicketUnitOfWork persists a ticket mutation as ONE atomic unit (audit-log
+// no-silent-mutations contract, C1; notification atomicity S11). The
+// application issues a single call per mutation — implementations MUST apply
+// the ticket write, the audit appends, and the notification appends in one
+// transaction and MUST roll the ticket write back when any append fails, so a
+// failed audit or notification can never leave a committed ticket mutation
+// behind, and a notification can never exist without the change it describes.
+// The SQLite adapter uses a real immediate transaction; the in-memory fakes
+// simulate the same rollback.
 type TicketUnitOfWork interface {
-	// Create persists t (assigning t.ID and t.Number, MAX+1, atomic, D8)
-	// and appends the created audit event atomically. The implementation
-	// stamps event.TicketID from the assigned t.ID before persisting.
-	Create(ctx context.Context, t *domain.Ticket, event domain.AuditEvent) error
-	// Update persists t and appends the event batch (a transition or
-	// field-edit batch) atomically. events may be empty: a plain ticket
-	// write is still atomic by construction.
-	Update(ctx context.Context, t *domain.Ticket, events ...domain.AuditEvent) error
+	// Create persists m.Ticket (assigning ID and Number, MAX+1, atomic, D8)
+	// and appends the audit events and notifications atomically. The
+	// implementation stamps every event's TicketID from the assigned ID before
+	// persisting.
+	Create(ctx context.Context, m TicketMutation) error
+	// Update persists m.Ticket and appends the event and notification batches
+	// atomically. Either batch may be empty: a plain ticket write is still
+	// atomic by construction.
+	Update(ctx context.Context, m TicketMutation) error
+}
+
+// TicketMutation is ONE atomic ticket write and everything that must commit
+// with it: the ticket row, the audit events that describe the change, and the
+// notifications addressed to the recipients the APPLICATION computed for it
+// (S10/S11). Splitting these into separate calls would allow a notification
+// without its change, or a change nobody was told about.
+type TicketMutation struct {
+	Ticket *domain.Ticket
+	// Events are appended in occurrence order (created, transition, field
+	// edits) — the same batch the audit trail already received.
+	Events []domain.AuditEvent
+	// Notifications are stamped by the application layer from policy and
+	// roles: who must learn about this change. Empty means nobody is told (the
+	// actor did it alone, or the change notifies no one by design).
+	Notifications []domain.Notification
+}
+
+// NotificationRecipient is the policy input for ONE candidate notification
+// recipient: the identity, the role that derives their ticket read scope, and
+// whether the account is active. S10 forbids notifying someone who cannot open
+// the ticket, so a recipient is only ever addressed when these facts prove
+// access — an inactive account or a role without scope is dropped instead of
+// being told about a ticket it cannot open.
+type NotificationRecipient struct {
+	UserID int64
+	Role   domain.Role
+	Active bool
 }
 
 // WorkflowUnitOfWork persists application-planned workflow mutations as ONE
@@ -375,6 +406,14 @@ type WorkflowExecutionSnapshot struct {
 	Ticket   *domain.Ticket
 	Run      *WorkflowRun
 	Workflow domain.WorkflowDefinition
+	// Requester and Assignee are the notification policy facts about the two
+	// candidate recipients of a workflow-driven ticket change (S10): identity,
+	// role, and active state. The READ model answers them because they are
+	// persisted facts about the people the ticket names; the APPLICATION decides
+	// from them who is actually notified. nil means "no such person" or "not
+	// provable", and an unprovable recipient is never notified.
+	Requester *NotificationRecipient
+	Assignee  *NotificationRecipient
 }
 type RawPositionalValue struct {
 	Position int
@@ -433,6 +472,36 @@ type ClaimAssignmentOperation struct {
 type LeastLoadedAssignmentOperation struct {
 	StepIndex int
 	DeskID    int64
+	// NotifyAssignee, when set, is the S10 "assigned" notification for the
+	// assignee THIS operation selects. The recipient is the one fact the
+	// application cannot compute — the least_loaded selection ranges over the
+	// desk inside the transaction (design S6) — so the unit of work fills it
+	// from the user it selected. The application still decides the event, its
+	// instant, and its actor (nil: automatic routing).
+	NotifyAssignee *AssigneeNotification
+}
+
+// AssigneeNotification is a notification whose recipient is the assignee a
+// least_loaded step selects inside the unit of work. It carries every fact the
+// stored row needs except the recipient, which the adapter supplies from its
+// own selection.
+type AssigneeNotification struct {
+	TicketID    int64
+	ActorUserID *int64
+	CreatedAt   time.Time
+}
+
+// For completes the template into the stored row for the selected assignee.
+// The kind is always "assigned": that is the S10 event an automatic routing
+// step produces.
+func (a AssigneeNotification) For(assigneeUserID int64) domain.Notification {
+	return domain.Notification{
+		UserID:      assigneeUserID,
+		TicketID:    a.TicketID,
+		Kind:        domain.NotificationAssigned,
+		ActorUserID: a.ActorUserID,
+		CreatedAt:   a.CreatedAt,
+	}
 }
 
 // TransitionOperation carries the exact domain.Ticket.Transition audit.
@@ -494,6 +563,11 @@ type WorkflowMutationPlan struct {
 	NextTicketState    domain.State
 	NextAssigneeUserID *int64
 	Result             WorkflowExecutionResult
+	// Notifications are the S10 rows the application computed for this plan:
+	// who must learn about the state change it produces. They are applied
+	// inside the SAME transaction as the operations, the ticket write, and the
+	// cursor CAS, so a plan that fails leaves no notification behind (S11).
+	Notifications []domain.Notification
 }
 type WorkflowExecutionResult struct {
 	Ticket *domain.Ticket

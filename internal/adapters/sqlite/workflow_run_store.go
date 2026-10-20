@@ -55,5 +55,41 @@ func (s *workflowRunStore) GetWorkflowExecution(ctx context.Context, ticketID in
 	if err != nil {
 		return nil, fmt.Errorf("sqlite: parse pinned workflow: %w", err)
 	}
-	return &application.WorkflowExecutionSnapshot{Ticket: t, Run: run, Workflow: def}, nil
+	snap := &application.WorkflowExecutionSnapshot{Ticket: t, Run: run, Workflow: def}
+	// Notification policy facts for the two candidate recipients of a
+	// workflow-driven change (S10): the application decides who is notified, and
+	// it can only prove "can open the ticket" with the role and active state.
+	// A user row that no longer exists stays nil — never notified.
+	if snap.Requester, err = notificationRecipientByID(s.db, ctx, t.RequesterUserID); err != nil {
+		return nil, err
+	}
+	if snap.Assignee, err = notificationRecipientByID(s.db, ctx, t.UserID); err != nil {
+		return nil, err
+	}
+	return snap, nil
+}
+
+// notificationRecipientByID reads one user's role and active state as the
+// notification policy input. A nil id or a missing row answers nil (no
+// candidate); any other failure propagates so the caller never decides on
+// unproven facts.
+func notificationRecipientByID(db *sql.DB, ctx context.Context, userID *int64) (*application.NotificationRecipient, error) {
+	if userID == nil {
+		return nil, nil
+	}
+	var (
+		r      application.NotificationRecipient
+		role   string
+		active int
+	)
+	err := db.QueryRowContext(ctx, `SELECT id, role, active FROM users WHERE id = ?`, *userID).Scan(&r.UserID, &role, &active)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("sqlite: read notification recipient %d: %w", *userID, err)
+	}
+	r.Role = domain.Role(role)
+	r.Active = active == 1
+	return &r, nil
 }

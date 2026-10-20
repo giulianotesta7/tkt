@@ -173,6 +173,20 @@ func (r *WorkflowRunner) PlanComplete(_ context.Context, snap WorkflowExecutionS
 	if nextCursor >= len(snap.Workflow) {
 		status = "completed"
 	}
+	// S10: the notifications for the change this plan produces, computed HERE
+	// (the application layer) from the snapshot's policy facts. The requester is
+	// stable across a plan, so its facts always apply. The assignee facts only
+	// apply when the plan leaves the assignee unchanged: when a claim or a
+	// least_loaded step routes the ticket to someone new, that person's "assigned"
+	// row is the notification they get (claims are the claimant's own action, and
+	// a least_loaded selection is a persistence fact the operation carries as a
+	// template), so the state-change row is not addressed to them.
+	assigneeFacts := snap.Assignee
+	if assigneeFacts != nil && (ticket.UserID == nil || *ticket.UserID != assigneeFacts.UserID) {
+		assigneeFacts = nil
+	}
+	notifications := stateChangeNotifications(&ticket, snap.Ticket.State, ticket.State, &actor, now, snap.Requester, assigneeFacts)
+
 	plan := WorkflowMutationPlan{
 		TicketID:           ticket.ID,
 		ExpectedVersionID:  pinnedVersionID(snap.Ticket),
@@ -192,6 +206,17 @@ func (r *WorkflowRunner) PlanComplete(_ context.Context, snap WorkflowExecutionS
 		Result: WorkflowExecutionResult{Ticket: &ticket, Run: &WorkflowRun{
 			TicketID: ticket.ID, CurrentStepIndex: nextCursor, Status: status, StartedAt: snap.Run.StartedAt,
 		}},
+		Notifications: notifications,
+	}
+	// A least_loaded step selects its assignee INSIDE the transaction, so the
+	// only fact the application cannot supply is the recipient: each such
+	// operation carries the "assigned" notification template and the unit of work
+	// fills it with the member it selected (S10 automatic routing, S11).
+	for i, op := range plan.Operations {
+		if ll, ok := op.(LeastLoadedAssignmentOperation); ok {
+			ll.NotifyAssignee = &AssigneeNotification{TicketID: plan.TicketID, CreatedAt: now}
+			plan.Operations[i] = ll
+		}
 	}
 	if status == "completed" {
 		ct := now

@@ -294,14 +294,19 @@ func (f *fakeAuditStore) ListByTicket(_ context.Context, ticketID int64) ([]doma
 var errAuditAppendFailed = errors.New("audit append failed")
 
 // fakeUnitOfWork implements TicketUnitOfWork with a transactional
-// simulation (C1): the ticket write and the audit appends either both
-// persist or both roll back. failAuditAppend makes the audit part of the
-// NEXT mutation fail, letting tests prove the rollback half of the
-// atomicity contract (no-silent-mutations spec).
+// simulation (C1/S11): the ticket write, the audit appends, and the
+// notification appends either all persist or all roll back. failAuditAppend
+// makes the audit part of the NEXT mutation fail, letting tests prove the
+// rollback half of the atomicity contract (no-silent-mutations spec);
+// failNotifications does the same for the notification half.
 type fakeUnitOfWork struct {
 	tickets         *fakeTicketStore
 	audits          *fakeAuditStore
 	failAuditAppend bool
+	// notifications records every notification the APPLICATION stamped into a
+	// mutation, in commit order — the only place the recipient policy is
+	// observable at this layer.
+	notifications []domain.Notification
 	// createCalls counts Create invocations: it proves the workflow create path
 	// never falls back to the legacy TicketUnitOfWork create (PR5 S5).
 	createCalls int
@@ -313,36 +318,40 @@ func newFakeUnitOfWork(tickets *fakeTicketStore, audits *fakeAuditStore) *fakeUn
 
 // Create persists the ticket (store-assigned ID and number, D8) and its
 // created event as one unit: a failing audit append rolls the ticket back.
-func (f *fakeUnitOfWork) Create(ctx context.Context, t *domain.Ticket, event domain.AuditEvent) error {
+func (f *fakeUnitOfWork) Create(ctx context.Context, m application.TicketMutation) error {
 	f.createCalls++
-	if err := f.tickets.Create(ctx, t); err != nil {
+	if err := f.tickets.Create(ctx, m.Ticket); err != nil {
 		return err
 	}
 	if f.failAuditAppend {
-		delete(f.tickets.tickets, t.ID)
+		delete(f.tickets.tickets, m.Ticket.ID)
 		return errAuditAppendFailed
 	}
-	event.TicketID = t.ID
-	return f.audits.Append(ctx, event)
+	for i := range m.Events {
+		m.Events[i].TicketID = m.Ticket.ID
+	}
+	f.notifications = append(f.notifications, m.Notifications...)
+	return f.audits.Append(ctx, m.Events...)
 }
 
 // Update persists the ticket and its event batch as one unit: a failing
 // audit append restores the pre-mutation ticket copy. events may be empty
 // (a plain ticket write is still atomic by construction).
-func (f *fakeUnitOfWork) Update(ctx context.Context, t *domain.Ticket, events ...domain.AuditEvent) error {
-	prev, ok := f.tickets.tickets[t.ID]
+func (f *fakeUnitOfWork) Update(ctx context.Context, m application.TicketMutation) error {
+	prev, ok := f.tickets.tickets[m.Ticket.ID]
 	if !ok {
-		return &domain.NotFoundError{Kind: "ticket", ID: t.ID}
+		return &domain.NotFoundError{Kind: "ticket", ID: m.Ticket.ID}
 	}
-	if err := f.tickets.Update(ctx, t); err != nil {
+	if err := f.tickets.Update(ctx, m.Ticket); err != nil {
 		return err
 	}
 	if f.failAuditAppend {
-		f.tickets.tickets[t.ID] = prev
+		f.tickets.tickets[m.Ticket.ID] = prev
 		return errAuditAppendFailed
 	}
-	if len(events) > 0 {
-		return f.audits.Append(ctx, events...)
+	f.notifications = append(f.notifications, m.Notifications...)
+	if len(m.Events) > 0 {
+		return f.audits.Append(ctx, m.Events...)
 	}
 	return nil
 }

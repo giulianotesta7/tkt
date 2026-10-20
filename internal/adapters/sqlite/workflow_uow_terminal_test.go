@@ -167,9 +167,9 @@ func TestWorkflowUoW_CompletedRunNotReclosedByLegacyTerminalUpdate(t *testing.T)
 	legacy.UpdatedAt = testClock.Add(time.Hour)
 	closedAt := legacy.UpdatedAt
 	legacy.ClosedAt = &closedAt
-	if err := s.TicketUnitOfWork().Update(context.Background(), &legacy, domain.AuditEvent{
+	if err := s.TicketUnitOfWork().Update(context.Background(), application.TicketMutation{Ticket: &legacy, Events: []domain.AuditEvent{{
 		TicketID: legacy.ID, Actor: "workflow", Action: domain.ActionTransition,
-		Field: ptr("state"), FromValue: ptr("resolved"), ToValue: ptr("closed"), CreatedAt: legacy.UpdatedAt}); err != nil {
+		Field: ptr("state"), FromValue: ptr("resolved"), ToValue: ptr("closed"), CreatedAt: legacy.UpdatedAt}}}); err != nil {
 		t.Fatalf("legacy terminal update: %v", err)
 	}
 	_, status, comp := runRow(t, s, ticket.ID)
