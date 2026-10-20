@@ -13,10 +13,10 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  quality:
-    name: Go quality
+  lint:
+    name: Go lint
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 10
 
     steps:
       - uses: actions/checkout@v4
@@ -46,6 +46,57 @@ jobs:
       - name: Build
         run: go build ./...
 
-      - name: Test (race)
-        run: go test ./... -race -count=1 -timeout 20m
+  # The race tests dominate the run time, almost all of it in two packages, so
+  # they run as parallel shards. "rest" is computed from `go list` so a new
+  # package always lands in a shard.
+  race:
+    name: Go race (${{ matrix.shard }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [http, sqlite, rest]
 
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Select packages
+        id: packages
+        run: |
+          module=$(go list -m)
+          heavy="$module/internal/adapters/http $module/internal/adapters/sqlite"
+          all=$(go list ./...)
+          for pkg in $heavy; do
+            echo "$all" | grep -qx "$pkg" || { echo "shard package $pkg no longer exists"; exit 1; }
+          done
+          case "${{ matrix.shard }}" in
+            http) list="$module/internal/adapters/http" ;;
+            sqlite) list="$module/internal/adapters/sqlite" ;;
+            rest) list=$(echo "$all" | grep -vx -e "$module/internal/adapters/http" -e "$module/internal/adapters/sqlite" | tr '\n' ' ') ;;
+          esac
+          echo "Testing: $list"
+          echo "list=$list" >> "$GITHUB_OUTPUT"
+
+      - name: Test (race)
+        run: go test ${{ steps.packages.outputs.list }} -race -count=1 -timeout 20m
+
+  # Branch protection requires a check named "Go quality"; this job carries
+  # that name and is red whenever the lint job or any race shard did not pass.
+  quality:
+    name: Go quality
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    needs: [lint, race]
+    if: always()
+
+    steps:
+      - name: Require every Go job to pass
+        run: |
+          echo "lint=${{ needs.lint.result }} race=${{ needs.race.result }}"
+          [ "${{ needs.lint.result }}" = "success" ] && [ "${{ needs.race.result }}" = "success" ]
