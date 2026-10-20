@@ -2,6 +2,7 @@ package httpadapter
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -213,6 +214,298 @@ func TestMiddlewareHealthzExempt(t *testing.T) {
 	}
 }
 
+// wantHXRedirect asserts the HTMX refusal contract (issue #347): HX-Redirect
+// names the page htmx must navigate to, the answer is an empty 204 — never a
+// 3xx, which htmx follows and swaps — nothing else rides along that could be
+// injected into the requesting target, and the answer is never stored: a 204 is
+// heuristically cacheable, so without no-store a shared cache could replay a
+// refusal to an authenticated user and log them out of a working session.
+func wantHXRedirect(t *testing.T, rec *httptest.ResponseRecorder, wantTarget string) {
+	t.Helper()
+	if rec.Code != http.StatusNoContent {
+		t.Errorf("status = %d, want %d (htmx must never follow a 3xx here)", rec.Code, http.StatusNoContent)
+	}
+	if got := rec.Header().Get("HX-Redirect"); got != wantTarget {
+		t.Errorf("HX-Redirect = %q, want %q", got, wantTarget)
+	}
+	if got := rec.Header().Get("Location"); got != "" {
+		t.Errorf("Location = %q, want none: a 3xx lets htmx swap the login document", got)
+	}
+	if got := rec.Header().Get("Cache-Control"); got != "no-store" {
+		t.Errorf("Cache-Control = %q, want %q: a cacheable refusal could be replayed to an authenticated user", got, "no-store")
+	}
+	if body := rec.Body.String(); body != "" {
+		t.Errorf("body = %q, want empty: nothing may be swappable", body)
+	}
+}
+
+// TestMiddlewareHTMXUnauthenticatedRequestsGetHXRedirect proves issue #347: the
+// session gate must not answer an HTMX request with a redirect. htmx's XHR
+// follows a 3xx transparently and swaps the login document into the requesting
+// target (a drawer, a list region, the ticket list), so the refusal has to be
+// HX-Redirect — which htmx turns into a full navigation — with no swappable
+// body. Every unauthenticated shape of the cookie is covered, on a safe GET and
+// on an unsafe POST, for a plain, boosted, and history-restore request (htmx
+// marks both of the latter with HX-Request as well).
+func TestMiddlewareHTMXUnauthenticatedRequestsGetHXRedirect(t *testing.T) {
+	s := openTestStore(t)
+	user := seedUser(t, s, "Ana", "ana@example.com")
+	expired := &domain.Session{ID: "expired-token", UserID: user.ID, ExpiresAt: time.Now().Add(-time.Hour)}
+	if err := s.SessionStore().Create(context.Background(), expired); err != nil {
+		t.Fatalf("seed expired session: %v", err)
+	}
+	mw := NewSessionMiddleware(s.SessionStore(), s.UserStore(), s.SettingsStore())
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /tickets", func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("protected")) })
+	mux.HandleFunc("POST /tickets", func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("created")) })
+
+	for _, tt := range []struct {
+		name   string
+		cookie string
+	}{
+		{"no cookie", ""},
+		{"unknown token", "tkt_session=never-issued"},
+		{"expired session", "tkt_session=expired-token"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			for _, hx := range []struct {
+				name string
+				hdr  map[string]string
+			}{
+				{"plain", map[string]string{"HX-Request": "true"}},
+				// A boosted link replaces the whole page, so a refusal there
+				// needs the same full navigation.
+				{"boosted", map[string]string{"HX-Request": "true", "HX-Boosted": "true"}},
+				// History restore: htmx sets HX-Request too, so one
+				// detection covers it and the refusal never embeds login
+				// markup in the restored fragment.
+				{"history restore", map[string]string{"HX-Request": "true", "HX-History-Restore-Request": "true"}},
+			} {
+				t.Run(hx.name+" GET", func(t *testing.T) {
+					hdr := map[string]string{"Cookie": tt.cookie}
+					for k, v := range hx.hdr {
+						hdr[k] = v
+					}
+					rec := doRequest(mux, mw, http.MethodGet, "/tickets", hdr)
+					wantHXRedirect(t, rec, "/login")
+				})
+			}
+
+			// An unsafe HTMX request (a form post) is refused the same way; no
+			// Origin header, so the D17 gate lets it through to the session
+			// gate under test.
+			t.Run("POST", func(t *testing.T) {
+				rec := doRequest(mux, mw, http.MethodPost, "/tickets", map[string]string{
+					"Cookie":     tt.cookie,
+					"HX-Request": "true",
+				})
+				wantHXRedirect(t, rec, "/login")
+			})
+		})
+	}
+}
+
+// TestMiddlewareHTMXEmptyUsersRedirectsToSetup proves the bootstrap gate keeps
+// its /setup target for HTMX requests: a fresh instance with no users sends an
+// HTMX interaction to /setup with a full navigation, never 303.
+func TestMiddlewareHTMXEmptyUsersRedirectsToSetup(t *testing.T) {
+	s := openTestStore(t)
+	mw := NewSessionMiddleware(s.SessionStore(), s.UserStore(), s.SettingsStore())
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /tickets", func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("protected")) })
+	mux.HandleFunc("GET /users", func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("users")) })
+
+	for _, target := range []string{"/tickets", "/users"} {
+		t.Run(target, func(t *testing.T) {
+			rec := doRequest(mux, mw, http.MethodGet, target, map[string]string{"HX-Request": "true"})
+			wantHXRedirect(t, rec, "/setup")
+		})
+	}
+}
+
+// TestMiddlewareHTMXSetupUnavailableRedirectsToLogin proves the two refusals on
+// /setup once users exist keep their targets for HTMX requests: an anonymous
+// HTMX request goes to /login, while an authenticated one keeps today's
+// 303 to /tickets (authenticated redirects are out of #347's scope).
+func TestMiddlewareHTMXSetupUnavailableRedirectsToLogin(t *testing.T) {
+	s := openTestStore(t)
+	user := seedUser(t, s, "Ana", "ana@example.com")
+	session := seedSession(t, s, user.ID)
+	mw := NewSessionMiddleware(s.SessionStore(), s.UserStore(), s.SettingsStore())
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /setup", func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("setup-form")) })
+
+	t.Run("anonymous htmx to login", func(t *testing.T) {
+		rec := doRequest(mux, mw, http.MethodGet, "/setup", map[string]string{"HX-Request": "true"})
+		wantHXRedirect(t, rec, "/login")
+	})
+	t.Run("authed htmx keeps the tickets redirect", func(t *testing.T) {
+		rec := doRequest(mux, mw, http.MethodGet, "/setup", map[string]string{
+			"HX-Request": "true",
+			"Cookie":     "tkt_session=" + session.ID,
+		})
+		wantRedirect(t, rec, http.StatusSeeOther, "/tickets")
+	})
+}
+
+// TestMiddlewareHTMXKilledSessionRedirectsToLogin proves the two branches that
+// destroy a session on sight — a vanished user row and a deactivated user
+// (D14) — refuse an HTMX request the same way, and still delete the row.
+func TestMiddlewareHTMXKilledSessionRedirectsToLogin(t *testing.T) {
+	t.Run("deactivated user", func(t *testing.T) {
+		s := openTestStore(t)
+		user := seedUser(t, s, "Ana", "ana@example.com")
+		session := seedSession(t, s, user.ID)
+		user.Active = false
+		if err := s.UserStore().Update(context.Background(), user); err != nil {
+			t.Fatalf("deactivate user: %v", err)
+		}
+		mw := NewSessionMiddleware(s.SessionStore(), s.UserStore(), s.SettingsStore())
+		mux := http.NewServeMux()
+		mux.HandleFunc("GET /tickets", func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("protected")) })
+
+		rec := doRequest(mux, mw, http.MethodGet, "/tickets", map[string]string{
+			"HX-Request": "true",
+			"Cookie":     "tkt_session=" + session.ID,
+		})
+		wantHXRedirect(t, rec, "/login")
+		if _, err := s.SessionStore().GetByID(context.Background(), session.ID); !errors.Is(err, domain.ErrNotFound) {
+			t.Errorf("session must be deleted after deactivation, GetByID err = %v (want ErrNotFound)", err)
+		}
+	})
+
+	t.Run("vanished user row", func(t *testing.T) {
+		dbPath := t.TempDir() + "/app.db"
+		s := openTestStoreAt(t, dbPath)
+		user := seedUser(t, s, "Ana", "ana@example.com")
+		session := seedSession(t, s, user.ID)
+		// Remove the user row and leave the session behind: the state the gate
+		// must treat as logged out. A second handle enforces no foreign keys,
+		// which is the only way that state can exist — the store's Delete drops
+		// the sessions in the same transaction, so production reaches this
+		// branch through a delete racing an in-flight request.
+		db, err := sql.Open("sqlite", "file:"+dbPath)
+		if err != nil {
+			t.Fatalf("open raw db: %v", err)
+		}
+		t.Cleanup(func() { _ = db.Close() })
+		if _, err := db.Exec(`DELETE FROM users WHERE id = ?`, user.ID); err != nil {
+			t.Fatalf("delete user row: %v", err)
+		}
+		mw := NewSessionMiddleware(s.SessionStore(), s.UserStore(), s.SettingsStore())
+		mux := http.NewServeMux()
+		mux.HandleFunc("GET /tickets", func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("protected")) })
+
+		rec := doRequest(mux, mw, http.MethodGet, "/tickets", map[string]string{
+			"HX-Request": "true",
+			"Cookie":     "tkt_session=" + session.ID,
+		})
+		wantHXRedirect(t, rec, "/login")
+		if _, err := s.SessionStore().GetByID(context.Background(), session.ID); !errors.Is(err, domain.ErrNotFound) {
+			t.Errorf("session must be deleted for a vanished user, GetByID err = %v (want ErrNotFound)", err)
+		}
+	})
+}
+
+// TestRefusedHTMXRequestNeverReachesHandler proves the refusal is a gate
+// decision and not a handler answer: a request the gate refuses must never run
+// the protected handler, so nothing is read and — on the unsafe method a form
+// sends — no write is committed behind the navigation the user only sees
+// afterwards.
+func TestRefusedHTMXRequestNeverReachesHandler(t *testing.T) {
+	s := openTestStore(t)
+	seedUser(t, s, "Ana", "ana@example.com")
+	mw := NewSessionMiddleware(s.SessionStore(), s.UserStore(), s.SettingsStore())
+	mux := http.NewServeMux()
+	calls := 0
+	mux.HandleFunc("GET /tickets", func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		w.Write([]byte("protected"))
+	})
+	mux.HandleFunc("POST /tickets", func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		w.Write([]byte("created"))
+	})
+
+	for _, method := range []string{http.MethodGet, http.MethodPost} {
+		t.Run(method, func(t *testing.T) {
+			rec := doRequest(mux, mw, method, "/tickets", map[string]string{"HX-Request": "true"})
+			wantHXRedirect(t, rec, "/login")
+		})
+	}
+	if calls != 0 {
+		t.Errorf("handler ran %d time(s) for a refused HTMX request, want 0", calls)
+	}
+}
+
+// TestHTMXRefusalTargetIsNotUserControlled proves the refusal target is a
+// constant the gate chooses: nothing the client sends — a query parameter, a
+// request header borrowing the response header's name, HX-Current-URL, the
+// request Host, or a forwarded host — can turn HX-Redirect into an open
+// redirect on a different origin.
+func TestHTMXRefusalTargetIsNotUserControlled(t *testing.T) {
+	s := openTestStore(t)
+	seedUser(t, s, "Ana", "ana@example.com")
+	mw := NewSessionMiddleware(s.SessionStore(), s.UserStore(), s.SettingsStore())
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /tickets", func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("protected")) })
+
+	// The absolute request URL also carries the hostile Host, which is the
+	// authority a proxy-forwarded request would arrive with.
+	rec := doRequest(mux, mw, http.MethodGet, "https://evil.example/tickets?next=//evil.example", map[string]string{
+		"HX-Request":       "true",
+		"HX-Redirect":      "/pwn",
+		"HX-Current-URL":   "https://evil.example/x",
+		"X-Forwarded-Host": "evil.example",
+	})
+	wantHXRedirect(t, rec, "/login")
+}
+
+// TestMiddlewareNonHTMXRefusalKeepsSeeOther is the preserve half of issue #347:
+// an ordinary navigation or form post the gate refuses keeps the exact 303 See
+// Other it has always answered — same status, same Location, and the same small
+// body http.Redirect writes for a GET before the browser follows.
+func TestMiddlewareNonHTMXRefusalKeepsSeeOther(t *testing.T) {
+	s := openTestStore(t)
+	seedUser(t, s, "Ana", "ana@example.com")
+	mw := NewSessionMiddleware(s.SessionStore(), s.UserStore(), s.SettingsStore())
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /tickets", func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("protected")) })
+	mux.HandleFunc("POST /tickets", func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("created")) })
+
+	t.Run("GET navigation", func(t *testing.T) {
+		rec := doRequest(mux, mw, http.MethodGet, "/tickets", nil)
+		wantRedirect(t, rec, http.StatusSeeOther, "/login")
+		if got := rec.Header().Get("HX-Redirect"); got != "" {
+			t.Errorf("HX-Redirect = %q, want none for an ordinary navigation", got)
+		}
+		// The HTMX-only no-store never reaches the ordinary 303: its headers
+		// stay exactly what http.Redirect writes.
+		if got := rec.Header().Get("Cache-Control"); got != "" {
+			t.Errorf("Cache-Control = %q, want none on the ordinary 303", got)
+		}
+		if got, want := rec.Body.String(), "<a href=\"/login\">See Other</a>.\n\n"; got != want {
+			t.Errorf("body = %q, want %q", got, want)
+		}
+		if got, want := rec.Header().Get("Content-Type"), "text/html; charset=utf-8"; got != want {
+			t.Errorf("Content-Type = %q, want %q", got, want)
+		}
+	})
+	t.Run("POST form post", func(t *testing.T) {
+		rec := doRequest(mux, mw, http.MethodPost, "/tickets", nil)
+		wantRedirect(t, rec, http.StatusSeeOther, "/login")
+		if got := rec.Header().Get("HX-Redirect"); got != "" {
+			t.Errorf("HX-Redirect = %q, want none for an ordinary form post", got)
+		}
+		if got := rec.Header().Get("Cache-Control"); got != "" {
+			t.Errorf("Cache-Control = %q, want none on the ordinary 303", got)
+		}
+		if body := rec.Body.String(); body != "" {
+			t.Errorf("body = %q, want empty for a POST redirect", body)
+		}
+	})
+}
+
 // TestMiddlewareCrossSiteOriginPOSTRejected proves D17: a POST carrying a
 // cross-site Origin header is rejected with 403 before any handler runs —
 // even on exempt routes (login CSRF).
@@ -236,6 +529,21 @@ func TestMiddlewareCrossSiteOriginPOSTRejected(t *testing.T) {
 		rec := doRequest(mux, mw, http.MethodPost, "/tickets", map[string]string{"Origin": ":::not-a-url:::"})
 		if rec.Code != http.StatusForbidden {
 			t.Errorf("malformed Origin status = %d, want 403", rec.Code)
+		}
+	})
+	// Issue #347 preserve: an HTMX request carrying a cross-site Origin is
+	// still refused 403 by the D17 gate, which answers before the session gate
+	// and therefore before any HX-Redirect answer exists.
+	t.Run("cross-site POST with HX-Request", func(t *testing.T) {
+		rec := doRequest(mux, mw, http.MethodPost, "/tickets", map[string]string{
+			"Origin":     "https://evil.example",
+			"HX-Request": "true",
+		})
+		if rec.Code != http.StatusForbidden {
+			t.Errorf("cross-site HTMX POST status = %d, want 403", rec.Code)
+		}
+		if got := rec.Header().Get("HX-Redirect"); got != "" {
+			t.Errorf("cross-site HTMX POST HX-Redirect = %q, want none (the Origin gate answers first)", got)
 		}
 	})
 }

@@ -3,6 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="htmx-config" content='{"refreshOnHistoryMiss":true}'>
 <title>TKT-1 · Login page down · tkt</title>
 
 <script src="/static/sla_countdown.js" defer></script><script src="/static/save-feedback.js" defer></script><script src="/static/htmx.min.js" defer></script>
