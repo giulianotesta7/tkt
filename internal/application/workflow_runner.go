@@ -175,25 +175,13 @@ func (r *WorkflowRunner) PlanComplete(_ context.Context, snap WorkflowExecutionS
 	}
 	// S10: the notifications for the change this plan produces, computed HERE
 	// (the application layer) from the snapshot's policy facts. The requester is
-	// stable across a plan, so its facts always apply. The assignee facts only
-	// apply when the plan leaves the assignee unchanged: when a claim or a
-	// least_loaded step routes the ticket to someone new, that person's "assigned"
-	// row is the notification they get (claims are the claimant's own action, and
-	// a least_loaded selection is a persistence fact the operation carries as a
-	// template), so the state-change row is not addressed to them.
+	// stable across a plan, so its facts always apply. The assignee facts apply
+	// when the plan leaves the assignee unchanged: a claim moves the ticket to the
+	// claimant, who is the actor and therefore never notified. A least_loaded
+	// selection is a persistence fact, so the assignee rows it affects are made
+	// conditional below instead of being decided on a plan-time guess.
 	assigneeFacts := snap.Assignee
 	if assigneeFacts != nil && (ticket.UserID == nil || *ticket.UserID != assigneeFacts.UserID) {
-		assigneeFacts = nil
-	}
-	// A least_loaded step picks its assignee INSIDE the transaction, so after
-	// that step this plan cannot know who the assignee is: the snapshot names the
-	// person the routing is about to replace. Keeping those facts would address
-	// "the assignee" rows to the PREVIOUS holder — a person who may not be able to
-	// open the ticket once the routing commits (S10 rule 2) — so they are withheld
-	// here. The member the routing does select gets its "assigned" row from the
-	// operation template, which is the only recipient the transaction itself can
-	// name.
-	if hasLeastLoadedAssignment(ops) {
 		assigneeFacts = nil
 	}
 	notifications := stateChangeNotifications(&ticket, snap.Ticket.State, ticket.State, &actor, now, snap.Requester, assigneeFacts)
@@ -203,6 +191,33 @@ func (r *WorkflowRunner) PlanComplete(_ context.Context, snap WorkflowExecutionS
 	// its own file (notification_form.go) because the row is still unconfirmed.
 	notifications = append(notifications,
 		formWaitingNotifications(&ticket, snap.Workflow, nextCursor, &actor, now, snap.Requester, assigneeFacts)...)
+
+	// A least_loaded step picks its assignee INSIDE the transaction, so this plan
+	// cannot know whether the ticket keeps its holder or moves: the snapshot's
+	// assignee is a guess about the selection. The rows that describe that person
+	// therefore travel as a CONDITIONAL block, resolved against the selection the
+	// transaction actually made (S10):
+	//   - the routing re-selects the holder → the holder keeps every row it is
+	//     owed (state change, a form waiting on it) and gets no redundant
+	//     "assigned" row;
+	//   - the routing moves the ticket → the outgoing holder gets nothing (it may
+	//     no longer be able to open the ticket) and the new holder's "assigned"
+	//     row comes from the operation template.
+	var conditional []ConditionalAssigneeNotification
+	if assigneeFacts != nil && hasLeastLoadedAssignment(ops) {
+		var kept, holder []domain.Notification
+		for _, n := range notifications {
+			if n.UserID == assigneeFacts.UserID {
+				holder = append(holder, n)
+				continue
+			}
+			kept = append(kept, n)
+		}
+		notifications = kept
+		if len(holder) > 0 {
+			conditional = append(conditional, ConditionalAssigneeNotification{AssigneeUserID: assigneeFacts.UserID, Rows: holder})
+		}
+	}
 
 	plan := WorkflowMutationPlan{
 		TicketID:           ticket.ID,
@@ -223,7 +238,8 @@ func (r *WorkflowRunner) PlanComplete(_ context.Context, snap WorkflowExecutionS
 		Result: WorkflowExecutionResult{Ticket: &ticket, Run: &WorkflowRun{
 			TicketID: ticket.ID, CurrentStepIndex: nextCursor, Status: status, StartedAt: snap.Run.StartedAt,
 		}},
-		Notifications: notifications,
+		Notifications:            notifications,
+		ConditionalNotifications: conditional,
 	}
 	// A least_loaded step selects its assignee INSIDE the transaction, so the
 	// only fact the application cannot supply is the recipient: each such

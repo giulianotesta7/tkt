@@ -152,18 +152,18 @@ func TestPlanCompleteLeastLoadedCarriesTheAssigneeTemplate(t *testing.T) {
 	}
 }
 
-// TestPlanCompleteLeastLoadedWithholdsTheStaleAssignee: a plan that routes the
-// ticket with least_loaded cannot name the post-plan assignee — the selection
-// only exists inside the transaction — so no "assignee" row may be addressed to
-// the person the routing is about to replace. That person may not be able to open
-// the ticket once the routing commits (S10 rule 2), and the member it does select
-// gets its own "assigned" row from the operation template.
-func TestPlanCompleteLeastLoadedWithholdsTheStaleAssignee(t *testing.T) {
+// TestPlanCompleteLeastLoadedDefersTheAssigneeRows: a plan that routes the
+// ticket with least_loaded cannot know whether the ticket keeps its holder or
+// moves — the selection only exists inside the transaction — so the rows that
+// describe the snapshot's assignee travel as a CONDITIONAL block keyed to that
+// person. The unit of work releases them on a re-selection and drops them on a
+// reroute; the state-change row is not addressed to the requester here because
+// the requester is the actor who answered the form.
+func TestPlanCompleteLeastLoadedDefersTheAssigneeRows(t *testing.T) {
 	const requester, agent = 7, 9
 	r := application.NewWorkflowRunner(fixedClock())
 	// The REQUESTER answers the first form; the run then routes the ticket with
-	// least_loaded, which also moves it out of "new". The snapshot's assignee is
-	// the person the routing replaces, and is not the actor.
+	// least_loaded, which also moves it out of "new".
 	def := wf(fm(domain.FormActorRequester, domain.FormField{Key: "host", Label: "Host", Kind: domain.FieldShortText}),
 		least(1))
 	snapshot := notifySnap(t, domain.StateNew, 0, def, requester, agent)
@@ -178,11 +178,21 @@ func TestPlanCompleteLeastLoadedWithholdsTheStaleAssignee(t *testing.T) {
 	if plan.NextTicketState != domain.StateInProgress {
 		t.Fatalf("next state = %s, want in_progress (the fixture must change state)", plan.NextTicketState)
 	}
-	if got := kindsFor(plan, requester); len(got) != 0 {
-		t.Fatalf("requester kinds = %v, want none (the requester is the actor)", got)
+	if len(plan.Notifications) != 0 {
+		t.Fatalf("plan notifications = %+v, want none (the requester acted)", plan.Notifications)
 	}
-	if got := kindsFor(plan, agent); len(got) != 0 {
-		t.Fatalf("outgoing assignee kinds = %v, want none (the routing replaces them)", got)
+	if len(plan.ConditionalNotifications) != 1 {
+		t.Fatalf("conditional blocks = %+v, want one for the pre-plan assignee", plan.ConditionalNotifications)
+	}
+	c := plan.ConditionalNotifications[0]
+	if c.AssigneeUserID != agent {
+		t.Fatalf("conditional recipient = %d, want the pre-plan assignee %d", c.AssigneeUserID, agent)
+	}
+	if len(c.Rows) != 1 || c.Rows[0].Kind != domain.NotificationStateChanged {
+		t.Fatalf("conditional rows = %+v, want [state_changed]", c.Rows)
+	}
+	if c.Rows[0].UserID != agent || c.Rows[0].TicketID != 1 {
+		t.Errorf("row = %+v, want the assignee's row on the ticket", c.Rows[0])
 	}
 	// The selected member still gets the assigned row the operation carries.
 	var templates int

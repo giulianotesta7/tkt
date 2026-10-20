@@ -20,16 +20,16 @@ import (
 // just answered it notifies nobody.
 //
 // KNOWN GAP (issue #344 slice B3 report): an assignee form left pending by a
-// plan that ROUTES the ticket tells nobody, because the recipient is a fact of
-// the transaction and not of the plan. The runner withholds the snapshot's
-// assignee facts as soon as the plan carries a claim or a least_loaded step (the
-// person they name is the one the routing replaces), so `assignee` is nil here
-// and the row is not emitted. For a CLAIM that is also correct — the claimant is
-// the actor. For a LEAST_LOADED selection it is a gap: the member the routing
-// picks learns about the assignment (their "assigned" row) but not that an
-// assignee form is now waiting on them. Closing it means carrying a form_waiting
-// TEMPLATE on the operation, filled with the in-transaction selection like
-// NotifyAssignee — deliberately NOT done here, because this row is still
+// plan whose least_loaded step MOVES the ticket tells nobody, because the new
+// assignee is a fact of the transaction and not of the plan. The row this
+// function builds for the pre-plan assignee now travels as a conditional row that
+// the unit of work releases only when the routing re-selects that person — so a
+// RE-SELECTION does notify the holder (correct), a CLAIM notifies nobody (the
+// claimant is the actor), and a REROUTE leaves the newly selected assignee
+// uninformed: they learn about the assignment (their "assigned" row) but not that
+// an assignee form is waiting on them. Closing that last case means carrying a
+// form_waiting TEMPLATE on the operation, filled with the in-transaction selection
+// like NotifyAssignee — deliberately NOT done here, because this row is still
 // unconfirmed by the maintainer (e6-batch-2 L5) and the fix would extend an
 // unconfirmed feature. Documented rather than guessed.
 func formWaitingNotifications(t *domain.Ticket, def domain.WorkflowDefinition, nextCursor int, actorUserID *int64, at time.Time, requester, assignee *NotificationRecipient) []domain.Notification {

@@ -545,6 +545,33 @@ func (a AssigneeNotification) For(assigneeUserID int64) domain.Notification {
 	}
 }
 
+// ConditionalAssigneeNotification carries the rows the PRE-PLAN assignee of a
+// ticket is owed, with the condition that makes them truthful: they are written
+// only when the assignee the transaction ends up with is the person they name.
+// A least_loaded step chooses its assignee INSIDE the transaction, so at plan
+// time nobody can know whether the ticket keeps its holder (a re-selection) or
+// moves (a reroute).
+//
+// The two outcomes S10 requires:
+//   - re-selection: the holder keeps every row it is owed (state_changed, a form
+//     waiting on the assignee, …) and gets NO "assigned" row — nothing was
+//     assigned to them, and a redundant row is noise in a bell that counts;
+//   - reroute: the outgoing holder gets NOTHING (it may no longer be able to
+//     open the ticket), and the new holder gets its "assigned" row from the
+//     operation's NotifyAssignee template.
+//
+// The adapter re-reads its own selection and filters on it, so the recipient
+// decision never depends on a plan-time guess.
+type ConditionalAssigneeNotification struct {
+	// AssigneeUserID is the pre-plan assignee: the recipient every row in Rows
+	// is addressed to, and the value the transaction's final assignee must equal
+	// for the rows to be written.
+	AssigneeUserID int64
+	// Rows are already complete notifications (kind, actor, instant, ticket);
+	// the application computed them exactly as it does for every other batch.
+	Rows []domain.Notification
+}
+
 // TransitionOperation carries the exact domain.Ticket.Transition audit.
 type TransitionOperation struct {
 	StepIndex int
@@ -609,6 +636,14 @@ type WorkflowMutationPlan struct {
 	// inside the SAME transaction as the operations, the ticket write, and the
 	// cursor CAS, so a plan that fails leaves no notification behind (S11).
 	Notifications []domain.Notification
+	// ConditionalNotifications carry the rows addressed to the ticket's
+	// PRE-PLAN assignee, which are only truthful if the routing step this plan
+	// runs leaves that person in place. They are resolved against the selection
+	// the transaction actually made, because a least_loaded assignee is a
+	// persistence fact (design S6): re-selection keeps the holder's rows,
+	// rerouting drops them (the outgoing holder may no longer be able to open
+	// the ticket — S10 rule 2). See ConditionalAssigneeNotification.
+	ConditionalNotifications []ConditionalAssigneeNotification
 }
 type WorkflowExecutionResult struct {
 	Ticket *domain.Ticket
