@@ -1,3 +1,4 @@
+{{define "title"}}{{tf "base.title.screen" (t "base.nav.categories")}}{{end}}
 {{define "content"}}
 <div class="users-root categories-root">{{template "categories_background" .}}<div id="category-drawer-host">{{if .Drawer}}{{template "category_drawer" .Drawer}}{{end}}</div>
 </div>

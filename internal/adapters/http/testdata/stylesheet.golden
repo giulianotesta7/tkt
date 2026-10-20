@@ -38,6 +38,8 @@
   :focus-visible{outline:3px solid var(--accent);outline-offset:2px}
 
   .layout{display:grid;grid-template-columns:72px 1fr;min-height:100vh}
+  .skip-link{position:absolute;left:8px;top:-48px;z-index:40;padding:10px 14px;border-radius:8px;background:var(--surface);color:var(--accent-ink);border:1px solid var(--line-strong);box-shadow:var(--elevation-raised);font-size:13px;font-weight:500}
+  .skip-link:focus{top:8px;text-decoration:none}
   .rail{
     background:var(--rail); color:var(--rail-ink);
     display:flex;flex-direction:column;align-items:center;
@@ -185,7 +187,7 @@
   .title-inline input[type=text]:hover{background:var(--surface)}
   .title-inline input[type=text]:focus{outline:none;border-bottom-color:var(--accent);background:var(--surface)}
   .title-edit{display:flex;align-items:center;gap:8px}
-  .title-edit input[type=text]{width:auto;flex:1 1 auto;min-width:0}
+  .title-edit .title-input{width:auto;flex:1 1 auto;min-width:0;text-overflow:ellipsis}
   .title-save{flex:0 0 auto}
   .title-save[hidden]{display:none}
   #ticket-detail dialog{width:min(520px,calc(100vw - 32px));border:0;border-radius:12px;padding:28px;background:var(--surface);color:var(--ink);box-shadow:var(--elevation-modal)}
@@ -195,6 +197,7 @@
   #ticket-detail dialog div{display:flex;justify-content:flex-end;gap:10px}
   #ticket-detail dialog [data-title-discard]{border-color:var(--red);background:var(--red);color:var(--surface)}
   .category-workflow-page dialog [data-workflow-remove-confirm]{border-color:var(--red);background:var(--red);color:var(--surface)}
+  .ticket-description{white-space:pre-line;overflow-wrap:anywhere}
   .prop-list{display:flex;flex-direction:column;gap:0}
   .prop-section{padding:12px 14px}
   .prop-section + .prop-section{border-top:1px solid var(--line)}

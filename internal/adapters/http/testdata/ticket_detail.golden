@@ -8,10 +8,11 @@
         <span class="num">TKT-1</span>
       </div>
 
+      <h1 class="command-title"><span class="visually-hidden">Login page down</span></h1>
       <form class="title-inline title-edit" method="post" action="/tickets/1/edit"
             hx-post="/tickets/1/edit" hx-target="#ticket-detail" hx-swap="outerHTML">
         <input type="text" id="ticket-title" name="title" value="Login page down" required
-               aria-label="Ticket title" class="title-input">
+               title="Login page down" aria-label="Ticket title" class="title-input">
         <button class="btn small title-save" type="submit" hidden>Save</button>
       </form>
 
@@ -25,7 +26,7 @@
     <div class="conversation">
       <div class="card">
         <h2>Description</h2>
-        <p>The login form 500s on submit</p>
+        <p class="ticket-description">The login form 500s on submit</p>
           </div>
 
 

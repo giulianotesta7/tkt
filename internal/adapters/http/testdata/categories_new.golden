@@ -3,11 +3,12 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>tkt — Ticket Desk</title>
+<title>Rename category · tkt</title>
 
 <link rel="stylesheet" href="/static/users.css"><script src="/static/categories.js" defer></script><script src="/static/save-feedback.js" defer></script><script src="/static/htmx.min.js" defer></script>
 </head>
 <body class="users-page-body">
+<a class="skip-link" href="#main-content">Skip to main content</a>
 <div class="layout">
   <aside class="rail">
     <a class="rail-brand" href="/tickets" title="tkt">tkt</a>
@@ -29,7 +30,7 @@
       </button>
     </form>
   </aside>
-  <main class="main">
+  <main class="main" id="main-content">
 <div id="save-feedback" class="save-feedback" role="status" aria-live="polite" aria-atomic="true" hidden data-feedback-message="" data-feedback-kind="">
   <span class="save-feedback-message"></span>
   <button class="save-feedback-dismiss" type="button" aria-label="Dismiss confirmation">Dismiss</button>
