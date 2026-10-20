@@ -152,6 +152,50 @@ func TestPlanCompleteLeastLoadedCarriesTheAssigneeTemplate(t *testing.T) {
 	}
 }
 
+// TestPlanCompleteLeastLoadedWithholdsTheStaleAssignee: a plan that routes the
+// ticket with least_loaded cannot name the post-plan assignee — the selection
+// only exists inside the transaction — so no "assignee" row may be addressed to
+// the person the routing is about to replace. That person may not be able to open
+// the ticket once the routing commits (S10 rule 2), and the member it does select
+// gets its own "assigned" row from the operation template.
+func TestPlanCompleteLeastLoadedWithholdsTheStaleAssignee(t *testing.T) {
+	const requester, agent = 7, 9
+	r := application.NewWorkflowRunner(fixedClock())
+	// The REQUESTER answers the first form; the run then routes the ticket with
+	// least_loaded, which also moves it out of "new". The snapshot's assignee is
+	// the person the routing replaces, and is not the actor.
+	def := wf(fm(domain.FormActorRequester, domain.FormField{Key: "host", Label: "Host", Kind: domain.FieldShortText}),
+		least(1))
+	snapshot := notifySnap(t, domain.StateNew, 0, def, requester, agent)
+
+	plan, err := r.PlanComplete(context.Background(), snapshot, application.CompleteWorkflowCommand{
+		TicketID: 1, ActorUserID: requester, ActorName: "Rita", ExpectedPosition: 1,
+		RawAnswers: application.RawPositionalValues{{Position: 0, Values: []string{"api-01"}}},
+	})
+	if err != nil {
+		t.Fatalf("PlanComplete: %v", err)
+	}
+	if plan.NextTicketState != domain.StateInProgress {
+		t.Fatalf("next state = %s, want in_progress (the fixture must change state)", plan.NextTicketState)
+	}
+	if got := kindsFor(plan, requester); len(got) != 0 {
+		t.Fatalf("requester kinds = %v, want none (the requester is the actor)", got)
+	}
+	if got := kindsFor(plan, agent); len(got) != 0 {
+		t.Fatalf("outgoing assignee kinds = %v, want none (the routing replaces them)", got)
+	}
+	// The selected member still gets the assigned row the operation carries.
+	var templates int
+	for _, op := range plan.Operations {
+		if ll, ok := op.(application.LeastLoadedAssignmentOperation); ok && ll.NotifyAssignee != nil {
+			templates++
+		}
+	}
+	if templates != 1 {
+		t.Fatalf("%d least_loaded templates, want 1", templates)
+	}
+}
+
 // TestPlanCompleteWithoutRecipientFactsNotifiesNobody pins the fail-closed
 // default: a snapshot that cannot prove who may open the ticket produces no
 // notification at all, and the plan still applies.

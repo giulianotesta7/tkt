@@ -185,6 +185,17 @@ func (r *WorkflowRunner) PlanComplete(_ context.Context, snap WorkflowExecutionS
 	if assigneeFacts != nil && (ticket.UserID == nil || *ticket.UserID != assigneeFacts.UserID) {
 		assigneeFacts = nil
 	}
+	// A least_loaded step picks its assignee INSIDE the transaction, so after
+	// that step this plan cannot know who the assignee is: the snapshot names the
+	// person the routing is about to replace. Keeping those facts would address
+	// "the assignee" rows to the PREVIOUS holder — a person who may not be able to
+	// open the ticket once the routing commits (S10 rule 2) — so they are withheld
+	// here. The member the routing does select gets its "assigned" row from the
+	// operation template, which is the only recipient the transaction itself can
+	// name.
+	if hasLeastLoadedAssignment(ops) {
+		assigneeFacts = nil
+	}
 	notifications := stateChangeNotifications(&ticket, snap.Ticket.State, ticket.State, &actor, now, snap.Requester, assigneeFacts)
 
 	// S10 last row: a form step this plan leaves pending is somebody's turn — the
@@ -235,6 +246,18 @@ func (r *WorkflowRunner) PlanComplete(_ context.Context, snap WorkflowExecutionS
 		plan.Result.Run.CompletedAt = &ct
 	}
 	return plan, nil
+}
+
+// hasLeastLoadedAssignment reports whether ops contain a least_loaded routing
+// step. Such a step's assignee exists only inside the transaction, so a plan
+// carrying one cannot name the post-plan assignee from its snapshot.
+func hasLeastLoadedAssignment(ops []WorkflowOperation) bool {
+	for _, op := range ops {
+		if _, ok := op.(LeastLoadedAssignmentOperation); ok {
+			return true
+		}
+	}
+	return false
 }
 
 // pinnedVersionID returns the ticket's pinned workflow version id, or 0 when the
