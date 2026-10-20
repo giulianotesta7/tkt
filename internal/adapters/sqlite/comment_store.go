@@ -29,29 +29,13 @@ func newCommentStore(db *sql.DB) *commentStore { return &commentStore{db: db} }
 // The authorship columns (migration 0013) persist as given; an empty
 // AuthorRole — the "unknown / legacy" domain value — is stored as SQL NULL
 // because the column CHECK only admits the four roles.
+//
+// This is the STORE-level insert (fixtures, seeds, direct store use). The
+// production comment path is CommentUnitOfWork.Add, which inserts through the
+// same insertCommentTx and adds the comment's notifications in the same
+// transaction (issue #344 spec S12).
 func (cs *commentStore) Add(ctx context.Context, c *domain.Comment) error {
-	vis := c.Visibility
-	if vis == "" {
-		vis = domain.CommentPublic
-	}
-	var authorRole *string
-	if c.AuthorRole != "" {
-		role := string(c.AuthorRole)
-		authorRole = &role
-	}
-	res, err := cs.db.ExecContext(ctx, `INSERT INTO comments (ticket_id, author, body, visibility, created_at, author_user_id, author_role)
-		VALUES (?, ?, ?, ?, ?, ?, ?)`,
-		c.TicketID, c.Author, c.Body, string(vis), formatTime(c.CreatedAt),
-		nullableInt64(c.AuthorUserID), nullableString(authorRole))
-	if err != nil {
-		return fmt.Errorf("sqlite: add comment: %w", err)
-	}
-	id, err := res.LastInsertId()
-	if err != nil {
-		return fmt.Errorf("sqlite: comment id: %w", err)
-	}
-	c.ID = id
-	return nil
+	return insertCommentTx(ctx, cs.db, c)
 }
 
 // ListByTicket returns the ticket's comments in creation order (ASC); the

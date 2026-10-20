@@ -355,7 +355,7 @@ func (s *TicketService) Transition(ctx context.Context, actor domain.User, ticke
 		via := domain.ClosureViaManualAgent
 		event.ClosureVia = &via
 	}
-	requester, assignee, err := s.ticketRecipients(ctx, t)
+	requester, assignee, err := ticketRecipients(ctx, s.users, t)
 	if err != nil {
 		return nil, err
 	}
@@ -398,7 +398,7 @@ func (s *TicketService) ConfirmResolution(ctx context.Context, actor domain.User
 	event.ActorUserID = &actor.ID
 	via := domain.ClosureViaRequesterConfirmation
 	event.ClosureVia = &via
-	_, assignee, err := s.ticketRecipients(ctx, t)
+	_, assignee, err := ticketRecipients(ctx, s.users, t)
 	if err != nil {
 		return nil, err
 	}
@@ -448,7 +448,7 @@ func (s *TicketService) RejectResolution(ctx context.Context, actor domain.User,
 	t.WorkflowVersionID = nil
 	event.Actor = actor.Name
 	event.ActorUserID = &actor.ID
-	_, assignee, err := s.ticketRecipients(ctx, t)
+	_, assignee, err := ticketRecipients(ctx, s.users, t)
 	if err != nil {
 		return nil, err
 	}
@@ -511,7 +511,7 @@ func (s *TicketService) Update(ctx context.Context, actor domain.User, ticketID 
 		if ev.Field == nil || *ev.Field != "priority" {
 			continue
 		}
-		requester, assignee, err := s.ticketRecipients(ctx, t)
+		requester, assignee, err := ticketRecipients(ctx, s.users, t)
 		if err != nil {
 			return nil, err
 		}

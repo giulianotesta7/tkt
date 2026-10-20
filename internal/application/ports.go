@@ -232,6 +232,39 @@ type CommentStore interface {
 	ListByTicket(ctx context.Context, ticketID int64, includeInternal bool) ([]domain.Comment, error)
 }
 
+// CommentUnitOfWork persists a comment and the notifications it produces as
+// ONE atomic unit (issue #344 specs S10, S12; S11 is the general contract it
+// instantiates for comments). The application issues a single call per
+// comment; implementations MUST insert the comment, stamp the assigned comment
+// id onto every notification, and append the notifications in ONE transaction,
+// rolling the comment back when any append fails — so a comment can never be
+// stored without the news about it, and a notification about a comment can
+// never outlive it.
+//
+// Recipients are computed by the APPLICATION layer from policy and roles; the
+// store only inserts what it is handed.
+type CommentUnitOfWork interface {
+	// Add persists m.Comment, assigning m.Comment.ID, and appends
+	// m.Notifications in the SAME transaction. Implementations stamp each
+	// notification's CommentID from the assigned id before persisting (the
+	// column's foreign key needs the comment row, which is exactly why both
+	// writes share the transaction).
+	Add(ctx context.Context, m CommentMutation) error
+}
+
+// CommentMutation is ONE atomic comment write and everything that must commit
+// with it: the comment row and the notifications addressed to the recipients
+// the application computed for it. Splitting these into separate calls would
+// allow a comment nobody was told about, or a notification pointing at a
+// comment that failed to persist.
+type CommentMutation struct {
+	Comment *domain.Comment
+	// Notifications carry the comment kind, the recipients policy allowed, and
+	// the author as actor. CommentID is left nil: the id does not exist until
+	// the insertion, so the unit of work stamps it.
+	Notifications []domain.Notification
+}
+
 // AuditStore persists the append-only audit trail (audit-log spec).
 type AuditStore interface {
 	// Append stores all events in occurrence order (one mutation batch).

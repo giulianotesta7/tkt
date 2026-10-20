@@ -266,6 +266,46 @@ func (f *fakeCommentStore) ListByTicket(_ context.Context, ticketID int64, inclu
 	return out, nil
 }
 
+// fakeCommentUnitOfWork implements CommentUnitOfWork with the same atomic
+// simulation as fakeUnitOfWork (issue #344 S12): the comment insert and its
+// notifications commit together, and the assigned comment id is stamped onto
+// every notification exactly as the SQLite adapter does. It records the rows
+// the APPLICATION stamped, which is the only place the comment recipient
+// policy is observable at this layer.
+type fakeCommentUnitOfWork struct {
+	comments      *fakeCommentStore
+	notifications []domain.Notification
+}
+
+func newFakeCommentUnitOfWork(comments *fakeCommentStore) *fakeCommentUnitOfWork {
+	return &fakeCommentUnitOfWork{comments: comments}
+}
+
+// Add inserts the comment (store-assigned id) and stamps that id onto every
+// notification, then records the batch.
+func (f *fakeCommentUnitOfWork) Add(ctx context.Context, m application.CommentMutation) error {
+	if err := f.comments.Add(ctx, m.Comment); err != nil {
+		return err
+	}
+	for i := range m.Notifications {
+		id := m.Comment.ID
+		m.Notifications[i].CommentID = &id
+	}
+	f.notifications = append(f.notifications, m.Notifications...)
+	return nil
+}
+
+// notified returns the recorded notifications for one recipient, in order.
+func (f *fakeCommentUnitOfWork) notified(userID int64) []domain.Notification {
+	var out []domain.Notification
+	for _, n := range f.notifications {
+		if n.UserID == userID {
+			out = append(out, n)
+		}
+	}
+	return out
+}
+
 // fakeAuditStore implements AuditStore with append-order timelines.
 type fakeAuditStore struct {
 	events map[int64][]domain.AuditEvent

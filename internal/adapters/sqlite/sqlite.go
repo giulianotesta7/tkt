@@ -151,6 +151,13 @@ func (s *Store) TicketMetricsStore() application.TicketMetricsStore {
 // CommentStore returns the comment timeline port (task 4.3).
 func (s *Store) CommentStore() application.CommentStore { return newCommentStore(s.db) }
 
+// CommentUnitOfWork returns the atomic comment+notification mutation port
+// (issue #344 slice B3, spec S12): the comment insert and the news about it in
+// one transaction.
+func (s *Store) CommentUnitOfWork() application.CommentUnitOfWork {
+	return newCommentUnitOfWork(s.db)
+}
+
 // AuditStore returns the audit trail port (task 4.3).
 func (s *Store) AuditStore() application.AuditStore { return newAuditStore(s.db) }
 
