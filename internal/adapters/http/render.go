@@ -102,7 +102,9 @@ func labeledValue(tr i18n.Translator, kind string, value any) string {
 // placeholder), so a composed sentence carries no English of its own.
 func resolveMsg(tr i18n.Translator, m application.Msg) string {
 	if m.Key == "" {
-		return ""
+		// Data, not copy: an admin-authored value carried as one field of a
+		// composed message renders verbatim.
+		return m.Raw
 	}
 	args := make([]any, len(m.Args))
 	for i, arg := range m.Args {
@@ -116,6 +118,52 @@ func resolveMsg(tr i18n.Translator, m application.Msg) string {
 		}
 	}
 	return tr.Tf(m.Key, args...)
+}
+
+// resolveIssueArg resolves one interpolation value of a domain message. A
+// lifecycle state or a priority is chrome the catalogue labels (label.state.*,
+// label.priority.*), so it follows the instance language; every other value is
+// data (a step position, a field key, an operator name) and renders verbatim.
+func resolveIssueArg(tr i18n.Translator, arg any) any {
+	switch v := arg.(type) {
+	case domain.Priority:
+		return labeledValue(tr, "priority", v)
+	case domain.State:
+		return labeledValue(tr, "state", v)
+	default:
+		return arg
+	}
+}
+
+// localizedMessage renders a domain message for the active locale. The English
+// string is the domain's single source of the wording and is returned byte for
+// byte on the default locale (S13: an English instance is unchanged); another
+// locale rebuilds the sentence from key and args. A message with no key (an
+// internal detail) always renders its own text.
+func localizedMessage(tr i18n.Translator, key, english string, args ...any) string {
+	if key == "" || tr.Locale() == i18n.Default {
+		return english
+	}
+	resolved := make([]any, len(args))
+	for i, arg := range args {
+		resolved[i] = resolveIssueArg(tr, arg)
+	}
+	return tr.Tf(key, resolved...)
+}
+
+// workflowIssueMessage renders one workflow validation finding through the
+// active catalogue. The domain carries the English message as its single source
+// of the wording plus a Key/Args pair naming the same finding as structured
+// data; an issue with no key (an internal parse detail) keeps its own text.
+func workflowIssueMessage(tr i18n.Translator, issue domain.WorkflowValidationIssue) string {
+	return localizedMessage(tr, issue.Key, issue.Message, issue.Args...)
+}
+
+// validationErrorMessage renders one field-level validation failure for the
+// active locale, using the keyed form when the domain carries one. The English
+// contract stays the domain Message.
+func validationErrorMessage(tr i18n.Translator, e *domain.ValidationError) string {
+	return localizedMessage(tr, e.Key, e.Message, e.Args...)
 }
 
 // stateBadge is the state_badge partial's payload: the badge class (the raw
@@ -162,7 +210,7 @@ func niceMetricsScale(max int) (step int, axisMax int) {
 // aware: when the two series meet near a point, each label moves
 // deterministically to the opposite side of its own point; labels are always
 // clamped inside the viewBox away from the axes and week labels.
-func metricsLineChart(weeks []application.TicketMetricsWeek) template.HTML {
+func metricsLineChart(tr i18n.Translator, weeks []application.TicketMetricsWeek) template.HTML {
 	const width, height, left, top, bottom = 620, 204, 46, 22, 40
 	max := 1
 	for _, week := range weeks {
@@ -211,9 +259,10 @@ func metricsLineChart(weeks []application.TicketMetricsWeek) template.HTML {
 		return clampY(v)
 	}
 	var b strings.Builder
-	fmt.Fprintf(&b, `<svg class="ticket-metrics-chart" viewBox="0 0 %d %d" role="img" aria-label="Weekly created tickets as a continuous line with circle markers and resolved tickets as a dashed line with square markers. Y axis from 0 to %d. Y axis title Tickets.">`, width, height, axisMax)
+	axisTitle := tr.T("ticket_metrics.line.y_axis_title")
+	fmt.Fprintf(&b, `<svg class="ticket-metrics-chart" viewBox="0 0 %d %d" role="img" aria-label="%s">`, width, height, tr.Tf("ticket_metrics.line.chart_aria", axisMax, axisTitle))
 	midY := float64(top) + float64(height-top-bottom)/2
-	fmt.Fprintf(&b, `<text x="10" y="%.1f" transform="rotate(-90 10 %.1f)" text-anchor="middle" class="metrics-axis-title">Tickets</text>`, midY, midY)
+	fmt.Fprintf(&b, `<text x="10" y="%.1f" transform="rotate(-90 10 %.1f)" text-anchor="middle" class="metrics-axis-title">%s</text>`, midY, midY, template.HTMLEscapeString(axisTitle))
 	fmt.Fprintf(&b, `<line x1="%d" y1="%d" x2="%d" y2="%d" class="metrics-axis"/>`, left, height-bottom, width-12, height-bottom)
 	for tick := step; tick <= axisMax; tick += step {
 		fmt.Fprintf(&b, `<line x1="%d" y1="%.1f" x2="%d" y2="%.1f" class="metrics-gridline"/>`, left, y(tick), width-12, y(tick))
@@ -245,7 +294,7 @@ func metricsLineChart(weeks []application.TicketMetricsWeek) template.HTML {
 // in their established order, the same accent fill for every bar, an x axis
 // that starts at zero with nice integer ticks and gridlines, left labels, and
 // the count at each bar end.
-func metricsAgeChart(buckets []application.TicketMetricsBucket) template.HTML {
+func metricsAgeChart(tr i18n.Translator, buckets []application.TicketMetricsBucket) template.HTML {
 	const width, left, top, rowH = 620, 120, 14, 30
 	const bottom = 54
 	max := 1
@@ -261,8 +310,9 @@ func metricsAgeChart(buckets []application.TicketMetricsBucket) template.HTML {
 	barW := func(count int) float64 {
 		return plotW * float64(count) / float64(axisMax)
 	}
+	axisTitle := tr.T("ticket_metrics.workload.axis_title")
 	var b strings.Builder
-	fmt.Fprintf(&b, `<svg class="ticket-metrics-chart ticket-metrics-bars" viewBox="0 0 %d %d" role="img" aria-label="Pending tickets by completed elapsed age. X axis from 0 to %d. X axis title Pending tickets.">`, width, top+plotH+bottom, axisMax)
+	fmt.Fprintf(&b, `<svg class="ticket-metrics-chart ticket-metrics-bars" viewBox="0 0 %d %d" role="img" aria-label="%s">`, width, top+plotH+bottom, tr.Tf("ticket_metrics.age.chart_aria", axisMax, axisTitle))
 	for tick := step; tick <= axisMax; tick += step {
 		fmt.Fprintf(&b, `<line x1="%.1f" y1="%d" x2="%.1f" y2="%.1f" class="metrics-gridline"/>`, float64(left)+barW(tick), top, float64(left)+barW(tick), baseline)
 	}
@@ -271,21 +321,53 @@ func metricsAgeChart(buckets []application.TicketMetricsBucket) template.HTML {
 	for tick := 0; tick <= axisMax; tick += step {
 		fmt.Fprintf(&b, `<text x="%.1f" y="%.1f" text-anchor="middle" class="metrics-axis-label">%d</text>`, float64(left)+barW(tick), baseline+16, tick)
 	}
-	fmt.Fprintf(&b, `<text x="%.1f" y="%.1f" text-anchor="middle" class="metrics-axis-title">Pending tickets</text>`, float64(left)+plotW/2, baseline+34)
+	fmt.Fprintf(&b, `<text x="%.1f" y="%.1f" text-anchor="middle" class="metrics-axis-title">%s</text>`, float64(left)+plotW/2, baseline+34, template.HTMLEscapeString(axisTitle))
 	for i, bucket := range buckets {
 		y := top + i*rowH + 6
 		fmt.Fprintf(&b, `<text x="2" y="%d" class="metrics-chart-label">%s</text><rect x="%d" y="%d" width="%.1f" height="18" class="metrics-bar"/><text x="%.1f" y="%d" class="metrics-chart-value">%d</text>`,
-			y+14, template.HTMLEscapeString(bucket.Label), left, y, barW(bucket.Count), float64(left)+barW(bucket.Count)+6, y+14, bucket.Count)
+			y+14, template.HTMLEscapeString(bucketLabel(tr, bucket)), left, y, barW(bucket.Count), float64(left)+barW(bucket.Count)+6, y+14, bucket.Count)
 	}
 	b.WriteString(`</svg>`)
 	return template.HTML(b.String())
+}
+
+// bucketLabel resolves one metrics label for display: a bucket or workload row
+// that names a catalogue entry (the four fixed age ranges, the numeric
+// histogram bins, the genuinely unassigned row) follows the instance language,
+// and every other label (an admin-authored workload name) renders verbatim. It
+// accepts both metrics row types so one template helper covers every table.
+func bucketLabel(tr i18n.Translator, value any) string {
+	switch v := value.(type) {
+	case application.TicketMetricsBucket:
+		if v.LabelKey != "" {
+			return tr.Tf(v.LabelKey, v.LabelArgs...)
+		}
+		return v.Label
+	case application.TicketMetricsWorkload:
+		if v.LabelKey != "" {
+			return tr.Tf(v.LabelKey, v.LabelArgs...)
+		}
+		return v.Label
+	case application.TicketMetricsAttainmentGroup:
+		if v.LabelKey != "" {
+			return tr.T(v.LabelKey)
+		}
+		return v.Label
+	case ticketMetricsAttainmentGroupView:
+		if v.LabelKey != "" {
+			return tr.T(v.LabelKey)
+		}
+		return v.Label
+	default:
+		return fmt.Sprint(value)
+	}
 }
 
 // metricsHistogramChart renders one adjacent rectangular bar per equal-width
 // resolution bin: identical pixel width, zero gap, zero-height bins included.
 // X ticks sit on the bin boundaries (each LowerDays plus the final UpperDays);
 // the y axis starts at zero with nice integer counts.
-func metricsHistogramChart(buckets []application.TicketMetricsBucket) template.HTML {
+func metricsHistogramChart(tr i18n.Translator, buckets []application.TicketMetricsBucket) template.HTML {
 	if len(buckets) == 0 {
 		return ""
 	}
@@ -312,9 +394,11 @@ func metricsHistogramChart(buckets []application.TicketMetricsBucket) template.H
 		return buckets[len(buckets)-1].UpperDays
 	}
 	var b strings.Builder
-	fmt.Fprintf(&b, `<svg class="ticket-metrics-chart ticket-metrics-histogram" viewBox="0 0 %d %d" role="img" aria-label="Resolved tickets by resolution duration in equal-width day bins. Y axis from 0 to %d. Y axis title Tickets. X axis title Resolution time (days).">`, width, height, axisMax)
+	yTitle := tr.T("ticket_metrics.line.y_axis_title")
+	xTitle := tr.T("ticket_metrics.histogram.x_axis_title")
+	fmt.Fprintf(&b, `<svg class="ticket-metrics-chart ticket-metrics-histogram" viewBox="0 0 %d %d" role="img" aria-label="%s">`, width, height, tr.Tf("ticket_metrics.histogram.chart_aria", axisMax, yTitle, xTitle))
 	midY := float64(top) + float64(plotH)/2
-	fmt.Fprintf(&b, `<text x="10" y="%.1f" transform="rotate(-90 10 %.1f)" text-anchor="middle" class="metrics-axis-title">Tickets</text>`, midY, midY)
+	fmt.Fprintf(&b, `<text x="10" y="%.1f" transform="rotate(-90 10 %.1f)" text-anchor="middle" class="metrics-axis-title">%s</text>`, midY, midY, template.HTMLEscapeString(yTitle))
 	fmt.Fprintf(&b, `<line x1="%d" y1="%.1f" x2="%d" y2="%.1f" class="metrics-axis"/>`, left, baseline, width-14, baseline)
 	for tick := step; tick <= axisMax; tick += step {
 		fmt.Fprintf(&b, `<line x1="%d" y1="%.1f" x2="%d" y2="%.1f" class="metrics-gridline"/>`, left, y(tick), width-14, y(tick))
@@ -337,7 +421,7 @@ func metricsHistogramChart(buckets []application.TicketMetricsBucket) template.H
 		}
 		fmt.Fprintf(&b, `<text x="%.1f" y="%.1f" text-anchor="%s" class="metrics-axis-label">%s</text>`, px, baseline+16, anchor, strconv.FormatFloat(boundary(i), 'f', -1, 64))
 	}
-	fmt.Fprintf(&b, `<text x="%.1f" y="%.1f" text-anchor="middle" class="metrics-axis-title">Resolution time (days)</text>`, float64(left)+plotW/2, baseline+34)
+	fmt.Fprintf(&b, `<text x="%.1f" y="%.1f" text-anchor="middle" class="metrics-axis-title">%s</text>`, float64(left)+plotW/2, baseline+34, template.HTMLEscapeString(xTitle))
 	b.WriteString(`</svg>`)
 	return template.HTML(b.String())
 }
@@ -348,7 +432,7 @@ func metricsHistogramChart(buckets []application.TicketMetricsBucket) template.H
 // labels, and the count at each bar end. classes[i] (when non-empty) is
 // appended to the rect class so callers can style single rows (e.g. the
 // neutral unassigned workload bar) without parsing labels.
-func metricsBarChartClasses(buckets []application.TicketMetricsBucket, label string, classes []string) template.HTML {
+func metricsBarChartClasses(tr i18n.Translator, buckets []application.TicketMetricsBucket, label string, classes []string) template.HTML {
 	const width, left, top, row, bottom = 620, 176, 6, 28, 54
 	max := 1
 	for _, bucket := range buckets {
@@ -363,8 +447,9 @@ func metricsBarChartClasses(buckets []application.TicketMetricsBucket, label str
 	barW := func(count int) float64 {
 		return plotW * float64(count) / float64(axisMax)
 	}
+	axisTitle := tr.T("ticket_metrics.workload.axis_title")
 	var b strings.Builder
-	fmt.Fprintf(&b, `<svg class="ticket-metrics-chart ticket-metrics-bars" viewBox="0 0 %d %d" role="img" aria-label="%s. X axis from 0 to %d. X axis title Pending tickets.">`, width, top+plotH+bottom, template.HTMLEscapeString(label), axisMax)
+	fmt.Fprintf(&b, `<svg class="ticket-metrics-chart ticket-metrics-bars" viewBox="0 0 %d %d" role="img" aria-label="%s">`, width, top+plotH+bottom, tr.Tf("ticket_metrics.workload.chart_aria", template.HTMLEscapeString(label), axisMax, axisTitle))
 	for tick := step; tick <= axisMax; tick += step {
 		fmt.Fprintf(&b, `<line x1="%.1f" y1="%d" x2="%.1f" y2="%.1f" class="metrics-gridline"/>`, float64(left)+barW(tick), top, float64(left)+barW(tick), baseline)
 	}
@@ -373,7 +458,7 @@ func metricsBarChartClasses(buckets []application.TicketMetricsBucket, label str
 	for tick := 0; tick <= axisMax; tick += step {
 		fmt.Fprintf(&b, `<text x="%.1f" y="%.1f" text-anchor="middle" class="metrics-axis-label">%d</text>`, float64(left)+barW(tick), baseline+16, tick)
 	}
-	fmt.Fprintf(&b, `<text x="%.1f" y="%.1f" text-anchor="middle" class="metrics-axis-title">Pending tickets</text>`, float64(left)+plotW/2, baseline+34)
+	fmt.Fprintf(&b, `<text x="%.1f" y="%.1f" text-anchor="middle" class="metrics-axis-title">%s</text>`, float64(left)+plotW/2, baseline+34, template.HTMLEscapeString(axisTitle))
 	for i, bucket := range buckets {
 		y := top + i*row + 6
 		class := "metrics-bar"
@@ -381,7 +466,7 @@ func metricsBarChartClasses(buckets []application.TicketMetricsBucket, label str
 			class += " " + classes[i]
 		}
 		fmt.Fprintf(&b, `<text x="2" y="%d" class="metrics-chart-label">%s</text><rect x="%d" y="%d" width="%.1f" height="18" class="%s"/><text x="%.1f" y="%d" class="metrics-chart-value">%d</text>`,
-			y+14, template.HTMLEscapeString(bucket.Label), left, y, barW(bucket.Count), class, float64(left)+barW(bucket.Count)+6, y+14, bucket.Count)
+			y+14, template.HTMLEscapeString(bucketLabel(tr, bucket)), left, y, barW(bucket.Count), class, float64(left)+barW(bucket.Count)+6, y+14, bucket.Count)
 	}
 	b.WriteString(`</svg>`)
 	return template.HTML(b.String())
@@ -390,67 +475,85 @@ func metricsBarChartClasses(buckets []application.TicketMetricsBucket, label str
 // metricsWorkloadChart renders the pending workload bars. Only the genuine
 // unassigned identity (nil current agent) receives the neutral class; a named
 // agent keeps the accent bar regardless of its display label.
-func metricsWorkloadChart(rows []application.TicketMetricsWorkload, label string) template.HTML {
+func metricsWorkloadChart(tr i18n.Translator, rows []application.TicketMetricsWorkload, label string) template.HTML {
 	buckets := make([]application.TicketMetricsBucket, len(rows))
 	classes := make([]string, len(rows))
 	for i, row := range rows {
-		buckets[i] = application.TicketMetricsBucket{Label: row.Label, Count: row.Count}
+		buckets[i] = application.TicketMetricsBucket{Label: row.Label, LabelKey: row.LabelKey, LabelArgs: row.LabelArgs, Count: row.Count}
 		if row.Unassigned {
 			classes[i] = "metrics-bar-unassigned"
 		}
 	}
-	return metricsBarChartClasses(buckets, label, classes)
+	return metricsBarChartClasses(tr, buckets, label, classes)
 }
 
-// workflowTypeLabel names a workflow step kind the way a non-technical admin
-// reads it. It is the single source for the builder's kind picker, the step
-// card title, and the editor heading. It names a choice; checklistStepName in
-// handlers_tickets.go names the outcome the same step produces.
+// workflowTypeKey names the catalogue key of a workflow step kind's label. It is
+// the single source for the builder's kind picker, the step card title, and the
+// editor heading: the template resolves it through the active instance language.
+// It names a choice; checklistStepName in handlers_tickets.go names the outcome
+// the same step produces.
+func workflowTypeKey(t domain.StepType) string {
+	switch t {
+	case domain.StepAssignToDesk:
+		return "workflow.type.assign_to_desk"
+	case domain.StepForm:
+		return "workflow.type.form"
+	case domain.StepManualTask:
+		return "workflow.type.manual_task"
+	case domain.StepResolve:
+		return "workflow.type.resolve_ticket"
+	case domain.StepClose:
+		return "workflow.type.close_ticket"
+	default:
+		return "workflow.type.unknown"
+	}
+}
+
+// workflowTypeHelpKey names the catalogue key of the one-line plain-language
+// description under the selected kind. It covers every kind the picker offers.
+func workflowTypeHelpKey(t domain.StepType) string {
+	switch t {
+	case domain.StepAssignToDesk:
+		return "workflow.type_help.assign_to_desk"
+	case domain.StepForm:
+		return "workflow.type_help.form"
+	case domain.StepManualTask:
+		return "workflow.type_help.manual_task"
+	case domain.StepResolve:
+		return "workflow.type_help.resolve_ticket"
+	case domain.StepClose:
+		return "workflow.type_help.close_ticket"
+	default:
+		return "workflow.type_help.unknown"
+	}
+}
+
+// workflowTypeLabel and workflowTypeHelp answer the English copy for a kind.
+// They remain the single-source English accessors for Go callers and tests;
+// the template funcs resolve the same keys through the active locale.
 func workflowTypeLabel(t domain.StepType) string {
-	switch t {
-	case domain.StepAssignToDesk:
-		return "Send to a desk"
-	case domain.StepForm:
-		return "Ask for information"
-	case domain.StepManualTask:
-		return "Give the agent a task"
-	case domain.StepResolve:
-		return "Mark the ticket resolved"
-	case domain.StepClose:
-		return "Close the ticket"
-	default:
-		return "Workflow step"
-	}
+	return i18n.T(i18n.English, workflowTypeKey(t))
 }
 
-// workflowTypeHelp is the one-line plain-language description under the
-// selected kind. It covers every kind the picker offers.
 func workflowTypeHelp(t domain.StepType) string {
-	switch t {
-	case domain.StepAssignToDesk:
-		return "Send the ticket to a desk."
-	case domain.StepForm:
-		return "Ask the requester or the agent for information."
-	case domain.StepManualTask:
-		return "The agent follows your instructions to complete the work."
-	case domain.StepResolve:
-		return "Mark the ticket resolved automatically."
-	case domain.StepClose:
-		return "Close the ticket automatically."
-	default:
-		return "Configure this workflow step."
-	}
+	return i18n.T(i18n.English, workflowTypeHelpKey(t))
 }
 
-// workflowFieldRequiredLabel is the builder's copy for a form field's required
-// control. Every kind except a checkbox says "Required" ("you must answer"); a
-// checkbox says "Must be ticked" because the box has exactly one answer — yes —
-// and "Required" would read as "you must answer" (#317).
-func workflowFieldRequiredLabel(kind domain.FieldKind) string {
+// workflowFieldRequiredKey names the catalogue key of the builder's copy for a
+// form field's required control. Every kind except a checkbox says "Required"
+// ("you must answer"); a checkbox says "Must be ticked" because the box has
+// exactly one answer — yes — and "Required" would read as "you must answer"
+// (#317).
+func workflowFieldRequiredKey(kind domain.FieldKind) string {
 	if kind == domain.FieldCheckbox {
-		return "Must be ticked"
+		return "workflow.field.must_be_ticked"
 	}
-	return "Required"
+	return "workflow.field.required"
+}
+
+// workflowFieldRequiredLabel answers the English copy for a required control.
+func workflowFieldRequiredLabel(kind domain.FieldKind) string {
+	return i18n.T(i18n.English, workflowFieldRequiredKey(kind))
 }
 
 // asStepType accepts a domain.StepType (a step's own field) or a string
@@ -503,17 +606,26 @@ var templateFuncs = template.FuncMap{
 		}
 		return false
 	},
-	"metricSelected":        func(id int64, selected *int64) bool { return selected != nil && id == *selected },
-	"metricsLineChart":      metricsLineChart,
-	"metricsAgeChart":       metricsAgeChart,
-	"metricsWorkloadChart":  metricsWorkloadChart,
-	"metricsHistogramChart": metricsHistogramChart,
-	"metricsDuration":       metricsDuration,
-	"workflowTypeLabel":     func(v any) string { return workflowTypeLabel(asStepType(v)) },
-	"workflowTypeHelp":      func(v any) string { return workflowTypeHelp(asStepType(v)) },
-	"workflowFieldRequiredLabel": func(v any) string {
-		return workflowFieldRequiredLabel(domain.FieldKind(fmt.Sprint(v)))
+	"metricSelected": func(id int64, selected *int64) bool { return selected != nil && id == *selected },
+	"metricsLineChart": func(weeks []application.TicketMetricsWeek) template.HTML {
+		return metricsLineChart(i18n.New(i18n.Default), weeks)
 	},
+	// The chart helpers take a Translator, which templateFuncsFor binds to the
+	// active locale; the default here keeps a caller without one rendering the
+	// English copy.
+	"metricsAgeChart": func(buckets []application.TicketMetricsBucket) template.HTML {
+		return metricsAgeChart(i18n.New(i18n.Default), buckets)
+	},
+	"metricsWorkloadChart": func(rows []application.TicketMetricsWorkload, label string) template.HTML {
+		return metricsWorkloadChart(i18n.New(i18n.Default), rows, label)
+	},
+	"bucketLabel": func(value any) string {
+		return bucketLabel(i18n.New(i18n.Default), value)
+	},
+	"metricsHistogramChart": func(buckets []application.TicketMetricsBucket) template.HTML {
+		return metricsHistogramChart(i18n.New(i18n.Default), buckets)
+	},
+	"metricsDuration": metricsDuration,
 }
 
 // shellFor maps a page to its shell root. Application pages use the rail
@@ -647,6 +759,9 @@ func templateFuncsFor(locale string) template.FuncMap {
 	// tf interpolates the catalogue sentence with the values the surface passes
 	// in, so no Go or template call site owns a fragment of copy.
 	funcs["tf"] = translator.Tf
+	// tp selects the one/other plural form of the catalogue sentence, so
+	// Spanish reads "1 cuenta" without changing English bytes (S13).
+	funcs["tp"] = translator.Tp
 	// msg renders one application message reference (key + args) in the active
 	// catalogue: the timeline narrative is decided in Go and translated here.
 	funcs["msg"] = func(m application.Msg) string { return resolveMsg(translator, m) }
@@ -656,7 +771,44 @@ func templateFuncsFor(locale string) template.FuncMap {
 	funcs["priorityLabel"] = func(value any) string { return labeledValue(translator, "priority", value) }
 	funcs["roleLabel"] = func(value any) string { return labeledValue(translator, "role", value) }
 	funcs["slaLabel"] = func(value any) string { return labeledValue(translator, "sla", value) }
+	// The workflow builder's kind labels resolve through the active catalogue,
+	// so the picker, the step card, and the editor heading all follow the
+	// instance language.
+	funcs["workflowTypeLabel"] = func(v any) string { return translator.T(workflowTypeKey(asStepType(v))) }
+	funcs["workflowTypeHelp"] = func(v any) string { return translator.T(workflowTypeHelpKey(asStepType(v))) }
+	funcs["workflowFieldRequiredLabel"] = func(v any) string {
+		return translator.T(workflowFieldRequiredKey(domain.FieldKind(fmt.Sprint(v))))
+	}
 	funcs["stateBadge"] = func(value any) stateBadge { return resolveStateBadge(translator, value) }
+	// The two metrics charts carry chrome (an accessible label, a visible axis
+	// title) and one label family (the four fixed age ranges): both resolve
+	// through the active catalogue, so a Spanish metrics page has no English
+	// word left in the SVG.
+	funcs["metricsAgeChart"] = func(buckets []application.TicketMetricsBucket) template.HTML {
+		return metricsAgeChart(translator, buckets)
+	}
+	funcs["metricsWorkloadChart"] = func(rows []application.TicketMetricsWorkload, label string) template.HTML {
+		return metricsWorkloadChart(translator, rows, label)
+	}
+	// The created-vs-resolved line chart and the resolution histogram carry
+	// chrome too (an accessible label and visible axis titles): both resolve
+	// through the active catalogue.
+	funcs["metricsLineChart"] = func(weeks []application.TicketMetricsWeek) template.HTML {
+		return metricsLineChart(translator, weeks)
+	}
+	funcs["metricsHistogramChart"] = func(buckets []application.TicketMetricsBucket) template.HTML {
+		return metricsHistogramChart(translator, buckets)
+	}
+	funcs["bucketLabel"] = func(value any) string {
+		return bucketLabel(translator, value)
+	}
+	// issueMessage renders one workflow validation finding: the domain carries
+	// the English message plus a catalogue key and its interpolation values, so
+	// the builder speaks the instance language while the domain owns no locale
+	// logic. An issue with no key renders its own text verbatim.
+	funcs["issueMessage"] = func(issue domain.WorkflowValidationIssue) string {
+		return workflowIssueMessage(translator, issue)
+	}
 	funcs["audienceStateBadge"] = func(value any, requester bool) stateBadge {
 		return newStateBadge(translator, value, requester)
 	}
@@ -747,7 +899,7 @@ func (r *Renderer) Render(w http.ResponseWriter, rq *http.Request, page, fragmen
 			// Natural fragment: the page's own content block (login/setup forms).
 			ps, ok := tree.pages[page]
 			if !ok {
-				http.Error(w, "Internal server error", http.StatusInternalServerError)
+				httpError(w, rq, "error.internal_server", http.StatusInternalServerError)
 				return
 			}
 			err = ps.tmpl.ExecuteTemplate(&buf, "content", data)
@@ -755,14 +907,14 @@ func (r *Renderer) Render(w http.ResponseWriter, rq *http.Request, page, fragmen
 	} else {
 		ps, ok := tree.pages[page]
 		if !ok {
-			http.Error(w, "Internal server error", http.StatusInternalServerError)
+			httpError(w, rq, "error.internal_server", http.StatusInternalServerError)
 			return
 		}
 		err = ps.tmpl.ExecuteTemplate(&buf, ps.shell, data)
 	}
 	if err != nil {
 		log.Printf("httpadapter: render %s/%s: %v", page, fragment, err)
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		httpError(w, rq, "error.internal_server", http.StatusInternalServerError)
 		return
 	}
 

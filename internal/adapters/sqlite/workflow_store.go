@@ -288,7 +288,7 @@ func (w *workflowStore) PublishAtRevision(ctx context.Context, categoryID int64,
 func (w *workflowStore) publish(ctx context.Context, categoryID int64, draft []byte, by *int64, expectedRevision *int64) (int64, int64, []domain.WorkflowValidationIssue, error) {
 	var iss []domain.WorkflowValidationIssue
 	if len(draft) == 0 {
-		iss = append(iss, domain.WorkflowValidationIssue{Step: 1, Field: "steps", Message: "workflow must have at least one step"})
+		iss = append(iss, domain.WorkflowValidationIssue{Step: 1, Field: "steps", Message: "workflow must have at least one step", Key: "error.workflow_min_steps"})
 		return 0, 0, iss, nil
 	}
 	def, err := domain.ParseWorkflowDefinition(draft)
@@ -506,13 +506,18 @@ func (w *workflowStore) ListSummaries(ctx context.Context) ([]application.Workfl
 			case perr != nil:
 				// A published definition that cannot be read is a broken category,
 				// not a silent one: say so rather than reporting nothing.
-				s.CannotRun = "its published definition cannot be read"
+				s.CannotRun = application.MsgRef("error.workflow_unreadable")
 			default:
 				if a := def.AssessRunnable(func(deskID int64) (string, int, bool) {
 					f, ok := facts[deskID]
 					return f.name, f.members, ok
 				}); len(a.Blockers) > 0 {
-					s.CannotRun = a.Blockers[0].Reason
+					b := a.Blockers[0]
+					if b.ReasonKey != "" {
+						s.CannotRun = application.MsgValues(b.ReasonKey, b.ReasonArgs...)
+					} else {
+						s.CannotRun = application.Data(b.Reason)
+					}
 				}
 			}
 			// The draft is compared against the LIVE version, so a draft that

@@ -74,15 +74,41 @@ type WorkflowValidationIssue struct {
 	// the step itself: a badge, a table row, a summary line. Message is what the
 	// builder shows beside a step; Reason is what a one-line label can carry.
 	Reason string
+	// ReasonKey and ReasonArgs name the same one-line Reason as structured data
+	// for the presentation layer, exactly as Key/Args do for Message: a badged
+	// surface follows the instance language while the domain keeps the English
+	// Reason as its source. An issue built without a ReasonKey renders its
+	// Reason verbatim.
+	ReasonKey  string
+	ReasonArgs []any
+	// Key and Args name the same finding as structured data: Key is a catalogue
+	// entry every shipped locale carries and Args are the values its sentence
+	// interpolates (a step position, a field key, a desk name). The English
+	// Message stays the domain's single source of the wording, and the
+	// presentation layer resolves the key through the active instance language;
+	// an issue built without a key renders its Message verbatim (issue #335, S8).
+	Key  string
+	Args []any
 }
+
+// issueAdder records one validation finding. key names the catalogue entry for
+// the same finding (empty when the message is internal detail); message is the
+// English wording; args interpolate the localized sentence.
+type issueAdder func(step int, field, key, message string, args ...any)
 
 func (d WorkflowDefinition) Validate() []WorkflowValidationIssue {
 	var issues []WorkflowValidationIssue
-	add := func(s int, f, m string) {
-		issues = append(issues, WorkflowValidationIssue{Step: s, Field: f, Message: m})
+	add := issueAdder(func(s int, f, key, m string, args ...any) {
+		issues = append(issues, WorkflowValidationIssue{Step: s, Field: f, Message: m, Key: key, Args: args})
+	})
+	// addKeyed records a fixed finding that has a catalogue key: the English
+	// message stays the domain's wording and the key lets a localized surface
+	// render the same finding.
+	addKeyed := func(s int, f, key, m string) {
+		issues = append(issues, WorkflowValidationIssue{Step: s, Field: f, Message: m, Key: key})
 	}
 	if len(d) == 0 {
-		add(1, "steps", "workflow must have at least one step")
+		addKeyed(1, "steps", "error.workflow_min_steps", "workflow must have at least one step")
 		return issues
 	}
 	tc, tp := 0, -1
@@ -93,7 +119,7 @@ func (d WorkflowDefinition) Validate() []WorkflowValidationIssue {
 		}
 	}
 	if tc > 1 {
-		add(tp+1, "type", "workflow must have at most one terminal step")
+		addKeyed(tp+1, "type", "error.workflow_max_terminal", "workflow must have at most one terminal step")
 	}
 	hr, hc := false, false
 	for _, s := range d {
@@ -105,10 +131,10 @@ func (d WorkflowDefinition) Validate() []WorkflowValidationIssue {
 		}
 	}
 	if hr && hc {
-		add(tp+1, "type", "resolve_ticket and close_ticket are mutually exclusive")
+		addKeyed(tp+1, "type", "error.workflow_terminal_exclusive", "resolve_ticket and close_ticket are mutually exclusive")
 	}
 	if tc == 1 && tp != len(d)-1 {
-		add(tp+1, "type", "terminal step must be the final step")
+		addKeyed(tp+1, "type", "error.workflow_terminal_last", "terminal step must be the final step")
 	}
 	seen := map[string]int{}
 	for i, s := range d {
@@ -116,28 +142,28 @@ func (d WorkflowDefinition) Validate() []WorkflowValidationIssue {
 		switch s.Type {
 		case StepAssignToDesk, StepForm, StepManualTask, StepResolve, StepClose:
 		default:
-			add(n, "type", fmt.Sprintf("Step %d: unknown step type %q", n, s.Type))
+			add(n, "type", "error.workflow.unknown_step_type", fmt.Sprintf("Step %d: unknown step type %q", n, s.Type), n, string(s.Type))
 			continue
 		}
 		switch s.Type {
 		case StepAssignToDesk:
 			if s.AssignToDesk == nil || s.Form != nil || s.ManualTask != nil {
-				add(n, "type", fmt.Sprintf("Step %d: assign_to_desk requires exactly assign_to_desk config", n))
+				add(n, "type", "error.workflow.assign_config", fmt.Sprintf("Step %d: assign_to_desk requires exactly assign_to_desk config", n), n)
 				continue
 			}
 		case StepForm:
 			if s.Form == nil || s.AssignToDesk != nil || s.ManualTask != nil {
-				add(n, "type", fmt.Sprintf("Step %d: form requires exactly form config", n))
+				add(n, "type", "error.workflow.form_config", fmt.Sprintf("Step %d: form requires exactly form config", n), n)
 				continue
 			}
 		case StepManualTask:
 			if s.ManualTask == nil || s.AssignToDesk != nil || s.Form != nil {
-				add(n, "type", fmt.Sprintf("Step %d: manual_task requires exactly manual_task config", n))
+				add(n, "type", "error.workflow.manual_config", fmt.Sprintf("Step %d: manual_task requires exactly manual_task config", n), n)
 				continue
 			}
 		case StepResolve, StepClose:
 			if s.AssignToDesk != nil || s.Form != nil || s.ManualTask != nil {
-				add(n, "type", fmt.Sprintf("Step %d: terminal step must have no config", n))
+				add(n, "type", "error.workflow.terminal_config", fmt.Sprintf("Step %d: terminal step must have no config", n), n)
 				continue
 			}
 		}
@@ -196,13 +222,15 @@ func (a RunnableAssessment) Runnable() bool { return len(a.Blockers) == 0 }
 // message to the step that caused it.
 func (d WorkflowDefinition) AssessRunnable(desks DeskLookup) RunnableAssessment {
 	var a RunnableAssessment
-	block := func(step int, field, msg, reason string) {
+	block := func(step int, field, key, msg, reasonKey, reason string, reasonArgs []any, args ...any) {
 		a.Blockers = append(a.Blockers, WorkflowValidationIssue{
-			Step: step, Field: field, Message: msg, Reason: reason})
+			Step: step, Field: field, Message: msg, Key: key, Args: args,
+			Reason: reason, ReasonKey: reasonKey, ReasonArgs: reasonArgs})
 	}
-	warn := func(step int, field, msg, reason string) {
+	warn := func(step int, field, key, msg, reasonKey, reason string, reasonArgs []any, args ...any) {
 		a.Warnings = append(a.Warnings, WorkflowValidationIssue{
-			Step: step, Field: field, Message: msg, Reason: reason})
+			Step: step, Field: field, Message: msg, Key: key, Args: args,
+			Reason: reason, ReasonKey: reasonKey, ReasonArgs: reasonArgs})
 	}
 
 	// assigned reports whether the definition CONTAINS an assignment step before
@@ -221,31 +249,40 @@ func (d WorkflowDefinition) AssessRunnable(desks DeskLookup) RunnableAssessment 
 			}
 			name, members, found := desks(s.AssignToDesk.DeskID)
 			if !found {
-				block(n, "desk_id",
+				block(n, "desk_id", "error.workflow.choose_desk",
 					fmt.Sprintf("Step %d: choose a desk", n),
-					"choose a desk")
+					"error.workflow_reason.choose_desk", "choose a desk",
+					nil,
+					n)
 				continue
 			}
 			if members == 0 {
-				block(n, "desk_id",
+				block(n, "desk_id", "error.workflow.no_members",
 					fmt.Sprintf(
 						"Step %d: nobody can take it — %s has no active members. Add someone to %s, or choose another desk.",
 						n, name, name),
-					fmt.Sprintf("%s has no active members", name))
+					"error.workflow_reason.no_members",
+					fmt.Sprintf("%s has no active members", name),
+					[]any{name},
+					n, name, name)
 			}
 		case StepManualTask:
 			if !assigned {
-				warn(n, "type",
+				warn(n, "type", "error.workflow.needs_assignment",
 					fmt.Sprintf(
 						"Step %d: every ticket waits here until someone assigns it — no earlier step puts a person on it.", n),
-					"needs someone assigned first")
+					"error.workflow_reason.needs_assignment", "needs someone assigned first",
+					nil,
+					n)
 			}
 		case StepForm:
 			if s.Form != nil && s.Form.Actor == FormActorAssignee && !assigned {
-				warn(n, "actor",
+				warn(n, "actor", "error.workflow.needs_assignment",
 					fmt.Sprintf(
 						"Step %d: every ticket waits here until someone assigns it — no earlier step puts a person on it.", n),
-					"needs someone assigned first")
+					"error.workflow_reason.needs_assignment", "needs someone assigned first",
+					nil,
+					n)
 			}
 		case StepResolve, StepClose:
 			// A terminal ends the run, so nothing after it is ever reached.
@@ -292,33 +329,33 @@ func CountChanges(a, b WorkflowDefinition) int {
 	return n
 }
 
-func validateAssign(n int, ad *AssignToDeskStep, add func(int, string, string)) {
+func validateAssign(n int, ad *AssignToDeskStep, add issueAdder) {
 	if ad.DeskID <= 0 {
-		add(n, "desk_id", fmt.Sprintf("Step %d: choose a desk", n))
+		add(n, "desk_id", "error.workflow.choose_desk", fmt.Sprintf("Step %d: choose a desk", n), n)
 	}
 	if ad.Strategy != StrategyClaim && ad.Strategy != StrategyLeastLoaded {
-		add(n, "strategy", fmt.Sprintf("Step %d: strategy must be claim or least_loaded", n))
+		add(n, "strategy", "error.workflow.strategy", fmt.Sprintf("Step %d: strategy must be claim or least_loaded", n), n)
 	}
 }
-func validateForm(n int, f *FormStep, seen map[string]int, add func(int, string, string)) {
+func validateForm(n int, f *FormStep, seen map[string]int, add issueAdder) {
 	a := FormActor(strings.TrimSpace(string(f.Actor)))
 	if a != FormActorRequester && a != FormActorAssignee {
-		add(n, "actor", fmt.Sprintf("Step %d: form actor must be requester or assignee", n))
+		add(n, "actor", "error.workflow.form_actor", fmt.Sprintf("Step %d: form actor must be requester or assignee", n), n)
 	}
 	if len(f.Fields) == 0 {
-		add(n, "fields", fmt.Sprintf("Step %d: form must have at least one field", n))
+		add(n, "fields", "error.workflow.form_fields", fmt.Sprintf("Step %d: form must have at least one field", n), n)
 	}
 	for _, fld := range f.Fields {
 		k, l := strings.TrimSpace(fld.Key), strings.TrimSpace(fld.Label)
 		if k == "" {
-			add(n, "key", fmt.Sprintf("Step %d: field key is required", n))
+			add(n, "key", "error.workflow.field_key_required", fmt.Sprintf("Step %d: field key is required", n), n)
 		}
 		if l == "" {
-			add(n, "label", fmt.Sprintf("Step %d: field label is required", n))
+			add(n, "label", "error.workflow.field_label_required", fmt.Sprintf("Step %d: field label is required", n), n)
 		}
 		if k != "" {
 			if p, ok := seen[k]; ok {
-				add(n, "key", fmt.Sprintf("Step %d: duplicate field key %q (also in step %d)", n, k, p))
+				add(n, "key", "error.workflow.duplicate_field_key", fmt.Sprintf("Step %d: duplicate field key %q (also in step %d)", n, k, p), n, k, p)
 			} else {
 				seen[k] = n
 			}
@@ -326,11 +363,11 @@ func validateForm(n int, f *FormStep, seen map[string]int, add func(int, string,
 		switch fld.Kind {
 		case FieldShortText, FieldLongText, FieldCheckbox, FieldSingleSelect:
 		default:
-			add(n, "kind", fmt.Sprintf("Step %d: unknown field kind %q", n, fld.Kind))
+			add(n, "kind", "error.workflow.unknown_field_kind", fmt.Sprintf("Step %d: unknown field kind %q", n, fld.Kind), n, string(fld.Kind))
 			continue
 		}
 		if fld.Kind != FieldSingleSelect && len(fld.Options) > 0 {
-			add(n, "options", fmt.Sprintf("Step %d: options are only allowed for single_select", n))
+			add(n, "options", "error.workflow.options_not_allowed", fmt.Sprintf("Step %d: options are only allowed for single_select", n), n)
 		}
 		if fld.Kind == FieldSingleSelect {
 			tr := []string{}
@@ -344,19 +381,19 @@ func validateForm(n int, f *FormStep, seen map[string]int, add func(int, string,
 				}
 			}
 			if len(ne) < 2 {
-				add(n, "options", fmt.Sprintf("Step %d: single_select requires at least two options", n))
+				add(n, "options", "error.workflow.select_options", fmt.Sprintf("Step %d: single_select requires at least two options", n), n)
 			} else {
 				m := map[string]bool{}
 				for _, o := range ne {
 					if m[o] {
-						add(n, "options", fmt.Sprintf("Step %d: duplicate option %q", n, o))
+						add(n, "options", "error.workflow.duplicate_option", fmt.Sprintf("Step %d: duplicate option %q", n, o), n, o)
 						break
 					}
 					m[o] = true
 				}
 				for _, o := range tr {
 					if o == "" {
-						add(n, "options", fmt.Sprintf("Step %d: option must not be empty", n))
+						add(n, "options", "error.workflow.empty_option", fmt.Sprintf("Step %d: option must not be empty", n), n)
 						break
 					}
 				}
@@ -364,9 +401,9 @@ func validateForm(n int, f *FormStep, seen map[string]int, add func(int, string,
 		}
 	}
 }
-func validateManual(n int, m *ManualTaskStep, add func(int, string, string)) {
+func validateManual(n int, m *ManualTaskStep, add issueAdder) {
 	if strings.TrimSpace(m.Instructions) == "" {
-		add(n, "instructions", fmt.Sprintf("Step %d: instructions are required", n))
+		add(n, "instructions", "error.workflow.instructions_required", fmt.Sprintf("Step %d: instructions are required", n), n)
 	}
 }
 

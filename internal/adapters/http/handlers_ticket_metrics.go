@@ -228,6 +228,7 @@ type ticketMetricsAttainmentView struct {
 // ticketMetricsAttainmentGroupView is one row of the attainment table.
 type ticketMetricsAttainmentGroupView struct {
 	Label         string
+	LabelKey      string
 	Tickets       int
 	FirstResponse ticketMetricsAttainmentMilestoneView
 	Resolve       ticketMetricsAttainmentMilestoneView
@@ -256,6 +257,7 @@ func attainmentViewFor(a application.TicketMetricsAttainment) ticketMetricsAttai
 		v.Resolve = accumulateAttainmentMilestone(v.Resolve, g.Resolve)
 		v.Groups = append(v.Groups, ticketMetricsAttainmentGroupView{
 			Label:         g.Label,
+			LabelKey:      g.LabelKey,
 			Tickets:       g.Tickets,
 			FirstResponse: attainmentMilestoneViewFor(g.FirstResponse),
 			Resolve:       attainmentMilestoneViewFor(g.Resolve),
@@ -333,7 +335,7 @@ func (h *TicketHandlers) metricsView(w http.ResponseWriter, r *http.Request) {
 	hx := r.Header.Get("HX-Request") != ""
 	data, err := h.metricsData(r)
 	if err != nil {
-		status, message := mapError(err)
+		status, message := mapErrorFor(r, err)
 		if hx && status == http.StatusUnprocessableEntity {
 			status = http.StatusOK
 		}

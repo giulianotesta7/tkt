@@ -9,6 +9,8 @@ import (
 	"net/http"
 	"sync"
 	"time"
+
+	"github.com/giulianotesta7/tkt/internal/i18n"
 )
 
 const (
@@ -19,10 +21,28 @@ const (
 // Canonical server-issued success copy: every persisted mutation reports
 // exactly Saved, and a successful workflow publish is the sole exception.
 // Failure feedback uses the dedicated in-page error paths, never this channel.
+// The constants are the canonical English identity canonicalSaveFeedback
+// enforces; the copy a user reads is resolved through the catalogue at delivery.
 const (
 	saveFeedbackSaved     = "Saved"
 	saveFeedbackPublished = "Published"
 )
+
+// saveFeedbackKey maps the two canonical outcomes to their catalogue entries.
+var saveFeedbackMessageKey = map[string]string{
+	saveFeedbackSaved:     "feedback.saved",
+	saveFeedbackPublished: "feedback.published",
+}
+
+// localizedSaveFeedback resolves the canonical English outcome into the
+// request's interface language. Only the emitted copy changes; the constants
+// stay the identity the invariant below enforces.
+func localizedSaveFeedback(r *http.Request, data saveFeedbackData) saveFeedbackData {
+	if key, ok := saveFeedbackMessageKey[data.Message]; ok {
+		data.Message = i18n.T(requestLocale(r), key)
+	}
+	return data
+}
 
 // canonicalSaveFeedback enforces the copy invariant on both delivery channels
 // (HTMX header and native flash cookie), so an action-specific string at a
@@ -73,30 +93,30 @@ func saveFeedbackCipher() cipher.AEAD {
 func saveFeedback(w http.ResponseWriter, r *http.Request, message string, kind saveFeedbackKind) {
 	data := canonicalSaveFeedback(saveFeedbackData{Message: message, Kind: kind})
 	if r.Header.Get("HX-Request") != "" {
-		payload, err := json.Marshal(map[string]saveFeedbackData{"save-feedback": data})
+		payload, err := json.Marshal(map[string]saveFeedbackData{"save-feedback": localizedSaveFeedback(r, data)})
 		if err != nil {
 			return
 		}
 		w.Header().Set("X-Save-Feedback", string(payload))
 		return
 	}
-	setSaveFeedbackCookie(w, data)
+	setSaveFeedbackCookie(w, r, data)
 }
 
 func saveDrawerFeedback(w http.ResponseWriter, r *http.Request, message string) {
 	data := canonicalSaveFeedback(saveFeedbackData{Message: message, Kind: saveFeedbackSuccess, Target: "drawer"})
 	if r.Header.Get("HX-Request") != "" {
-		payload, err := json.Marshal(map[string]saveFeedbackData{"save-feedback": data})
+		payload, err := json.Marshal(map[string]saveFeedbackData{"save-feedback": localizedSaveFeedback(r, data)})
 		if err == nil {
 			w.Header().Set("X-Save-Feedback", string(payload))
 		}
 		return
 	}
-	setSaveFeedbackCookie(w, data)
+	setSaveFeedbackCookie(w, r, data)
 }
 
-func setSaveFeedbackCookie(w http.ResponseWriter, data saveFeedbackData) {
-	data = canonicalSaveFeedback(data)
+func setSaveFeedbackCookie(w http.ResponseWriter, r *http.Request, data saveFeedbackData) {
+	data = localizedSaveFeedback(r, canonicalSaveFeedback(data))
 	data.IssuedAt = saveFeedbackNow().Unix()
 	plain, err := json.Marshal(data)
 	if err != nil {

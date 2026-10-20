@@ -1,6 +1,7 @@
 package httpadapter
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -11,6 +12,34 @@ import (
 
 	"github.com/giulianotesta7/tkt/internal/domain"
 )
+
+// TestSaveFeedbackFollowsTheInstanceLanguage proves the server-issued success
+// copy is catalogue-backed: the canonical constants stay the English identity
+// canonicalSaveFeedback enforces, and the emitted header/cookie carry the
+// active instance language (S8).
+func TestSaveFeedbackFollowsTheInstanceLanguage(t *testing.T) {
+	request := func(locale string) *http.Request {
+		req := httptest.NewRequest(http.MethodPost, "/settings/appearance", nil)
+		req.Header.Set("HX-Request", "true")
+		return req.WithContext(context.WithValue(req.Context(), ctxKeyInterfaceLanguage{}, locale))
+	}
+	for _, tc := range []struct {
+		name    string
+		message string
+		want    string
+	}{
+		{"saved", saveFeedbackSaved, `"message":"Guardado"`},
+		{"published", saveFeedbackPublished, `"message":"Publicado"`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			saveFeedback(rec, request("es"), tc.message, saveFeedbackSuccess)
+			if got := rec.Header().Get("X-Save-Feedback"); !strings.Contains(got, tc.want) {
+				t.Errorf("Spanish feedback header = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
 
 func TestSaveFeedbackUsesExplicitServerOutcomes(t *testing.T) {
 	t.Run("HTMX emits a settled success event with the canonical message", func(t *testing.T) {
@@ -344,7 +373,7 @@ func TestSaveFeedbackRejectsExpiredCookie(t *testing.T) {
 	t.Cleanup(func() { saveFeedbackNow = originalNow })
 
 	rec := httptest.NewRecorder()
-	setSaveFeedbackCookie(rec, saveFeedbackData{Message: "Appearance saved.", Kind: saveFeedbackSuccess})
+	setSaveFeedbackCookie(rec, httptest.NewRequest(http.MethodPost, "/", nil), saveFeedbackData{Message: "Appearance saved.", Kind: saveFeedbackSuccess})
 	cookie := rec.Result().Cookies()[0]
 	saveFeedbackNow = func() time.Time { return now.Add(saveFeedbackTTL) }
 

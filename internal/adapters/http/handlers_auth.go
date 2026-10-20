@@ -47,7 +47,7 @@ type loginData struct {
 
 func (h *AuthHandlers) loginForm(w http.ResponseWriter, r *http.Request) {
 	if count, err := h.auth.UserCount(r.Context()); err != nil {
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		httpError(w, r, "error.internal_server", http.StatusInternalServerError)
 		return
 	} else if count == 0 {
 		redirect(w, r, "/setup")
@@ -58,7 +58,7 @@ func (h *AuthHandlers) loginForm(w http.ResponseWriter, r *http.Request) {
 
 func (h *AuthHandlers) login(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		httpError(w, r, "error.internal_server", http.StatusInternalServerError)
 		return
 	}
 	email := strings.TrimSpace(r.Form.Get("email"))
@@ -66,7 +66,7 @@ func (h *AuthHandlers) login(w http.ResponseWriter, r *http.Request) {
 
 	session, err := h.auth.Login(r.Context(), email, password)
 	if err != nil {
-		status, msg := mapError(err)
+		status, msg := mapErrorFor(r, err)
 		if status == http.StatusInternalServerError {
 			http.Error(w, msg, status)
 			return
@@ -85,7 +85,7 @@ func (h *AuthHandlers) logout(w http.ResponseWriter, r *http.Request) {
 			// Session revocation failed: never report a successful logout
 			// while the server-side session survives — answer a recoverable
 			// 500 and keep the client cookie so the user can retry.
-			http.Error(w, "Internal server error", http.StatusInternalServerError)
+			httpError(w, r, "error.internal_server", http.StatusInternalServerError)
 			return
 		}
 	}
@@ -115,7 +115,7 @@ func (h *AuthHandlers) setupForm(w http.ResponseWriter, r *http.Request) {
 	// Defense in depth: the middleware already gates /setup*, but a direct
 	// handler call must never expose the bootstrap form with users present.
 	if count, err := h.auth.UserCount(r.Context()); err != nil {
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		httpError(w, r, "error.internal_server", http.StatusInternalServerError)
 		return
 	} else if count > 0 {
 		redirect(w, r, "/login")
@@ -126,7 +126,7 @@ func (h *AuthHandlers) setupForm(w http.ResponseWriter, r *http.Request) {
 
 func (h *AuthHandlers) setup(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		httpError(w, r, "error.internal_server", http.StatusInternalServerError)
 		return
 	}
 	name := r.Form.Get("name")
@@ -144,7 +144,7 @@ func (h *AuthHandlers) setup(w http.ResponseWriter, r *http.Request) {
 			redirect(w, r, "/login")
 			return
 		}
-		status, msg := mapError(err)
+		status, msg := mapErrorFor(r, err)
 		if status == http.StatusInternalServerError {
 			http.Error(w, msg, status)
 			return

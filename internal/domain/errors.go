@@ -60,9 +60,19 @@ var (
 )
 
 // ValidationError reports a field-level validation failure (422).
+//
+// Key and Args, when set, name the SAME finding as structured data for the
+// presentation layer (issue #335, S8): Key is a catalogue entry every shipped
+// locale carries and Args are the values its sentence interpolates (a step
+// position, a priority enum, a field key). The English Message stays the
+// single source of the wording and an error built without a key renders its
+// Message verbatim, so English bytes never change. The domain owns no locale
+// logic; it only names the fact.
 type ValidationError struct {
 	Field   string
 	Message string
+	Key     string
+	Args    []any
 }
 
 func (e *ValidationError) Error() string { return e.Message }

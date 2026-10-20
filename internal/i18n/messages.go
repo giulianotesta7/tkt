@@ -184,6 +184,37 @@ func (t Translator) Tf(key string, args ...any) string {
 	return fmt.Sprintf(t.T(key), args...)
 }
 
+// Tp answers the PLURAL form of key for count, interpolating count into the
+// sentence: the sentence's first value is always the count itself, so a plural
+// call passes the number once and any additional values after it (for example
+// the total in "%d of %d done").
+//
+// The mechanism is deliberately minimal (one/other): a catalogue adds
+// `<key>_one` when its singular reads differently, and omits it when the base
+// already does. The active locale's form is used without falling through to
+// the default catalogue (so a Spanish key with an `_one` and no `_other` still
+// reads its Spanish plural), and the base sentence keeps the documented
+// active-then-default fallback. English keeps its historical copy — for
+// example users.count stays "%d accounts" even at one — so a default instance
+// is unchanged (S13); Spanish adds the singular where it differs.
+func (t Translator) Tp(key string, count int, args ...any) string {
+	suffix := "_other"
+	if count == 1 {
+		suffix = "_one"
+	}
+	values := append([]any{count}, args...)
+	if message, ok := t.messages[key+suffix]; ok && message != "" {
+		return fmt.Sprintf(message, values...)
+	}
+	return fmt.Sprintf(t.T(key), values...)
+}
+
+// Tp answers one plural message for locale without holding a Translator: the
+// convenience form for Go-side copy, mirrored by the template's tp helper.
+func Tp(locale, key string, count int, args ...any) string {
+	return New(locale).Tp(key, count, args...)
+}
+
 // ScriptPrefix namespaces the catalogue entries the browser scripts read. A
 // script is served with the prologue Script builds, so the server owns every
 // user-facing string the browser renders and the JavaScript keeps no literal

@@ -13,6 +13,7 @@ import (
 
 	"github.com/giulianotesta7/tkt/internal/application"
 	"github.com/giulianotesta7/tkt/internal/domain"
+	"github.com/giulianotesta7/tkt/internal/i18n"
 )
 
 // TicketHandlers implement the ticket list, create, detail, edit, transition
@@ -728,7 +729,7 @@ func (h *TicketHandlers) list(w http.ResponseWriter, r *http.Request) {
 	f := parseFilters(r)
 	data, err := h.listData(r, f, pageNumber(r, "page"))
 	if err != nil {
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		httpError(w, r, "error.internal_server", http.StatusInternalServerError)
 		return
 	}
 	// The compact summary renders only on the authorized full list page. Its
@@ -738,7 +739,7 @@ func (h *TicketHandlers) list(w http.ResponseWriter, r *http.Request) {
 	if r.Header.Get("HX-Request") == "" && h.metrics != nil && application.NewPolicy().Capabilities(userFromContext(r.Context()).Role).Require(application.CapViewTicketMetrics) {
 		metricData, metricErr := h.metricsSummaryData(r)
 		if metricErr != nil {
-			http.Error(w, "Internal server error", http.StatusInternalServerError)
+			httpError(w, r, "error.internal_server", http.StatusInternalServerError)
 			return
 		}
 		data.Metrics = &metricData
@@ -778,7 +779,7 @@ func (h *TicketHandlers) newForm(w http.ResponseWriter, r *http.Request) {
 	}
 	opts, offers, err := h.createOptions(r)
 	if err != nil {
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		httpError(w, r, "error.internal_server", http.StatusInternalServerError)
 		return
 	}
 	page := pageDataFrom(r, "tickets")
@@ -794,7 +795,7 @@ func (h *TicketHandlers) newForm(w http.ResponseWriter, r *http.Request) {
 		if id := parseID(data.Values.CategoryID); id != 0 {
 			selected, findErr := h.catalog.FindCategory(r.Context(), id, h.workflows)
 			if findErr != nil {
-				http.Error(w, mapErrorMsg(findErr), statusFor(findErr))
+				http.Error(w, mapErrorMsg(r, findErr), statusFor(findErr))
 				return
 			}
 			data.Selected = selected
@@ -853,10 +854,10 @@ func offerRunnableCategories(in []domain.CatalogCategory, summary map[int64]appl
 			continue
 		}
 		reason := application.Msg{}
-		if s.CannotRun != "" {
-			reason = application.MsgRef("categories.badge.cannot_run", application.Text(s.CannotRun))
+		if !s.CannotRun.Empty() {
+			reason = application.MsgRef("categories.badge.cannot_run", application.Nested(s.CannotRun))
 		}
-		out = append(out, catalogCategoryEntry{CatalogCategory: c, Unavailable: s.CannotRun != "", Reason: reason})
+		out = append(out, catalogCategoryEntry{CatalogCategory: c, Unavailable: !s.CannotRun.Empty(), Reason: reason})
 	}
 	return out
 }
@@ -878,7 +879,7 @@ func (h *TicketHandlers) renderCatalog(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	departments, err := h.catalog.ListDepartments(ctx)
 	if err != nil {
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		httpError(w, r, "error.internal_server", http.StatusInternalServerError)
 		return
 	}
 	q := strings.TrimSpace(r.URL.Query().Get("q"))
@@ -901,7 +902,7 @@ func (h *TicketHandlers) renderCatalog(w http.ResponseWriter, r *http.Request) {
 	}
 	desks, err := h.catalog.ListDesks(ctx, departmentID)
 	if err != nil {
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		httpError(w, r, "error.internal_server", http.StatusInternalServerError)
 		return
 	}
 	if deskID != 0 {
@@ -921,7 +922,7 @@ func (h *TicketHandlers) renderCatalog(w http.ResponseWriter, r *http.Request) {
 	}
 	catalogCategories, err := h.catalog.ListCategories(ctx, deskID)
 	if err != nil {
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		httpError(w, r, "error.internal_server", http.StatusInternalServerError)
 		return
 	}
 	// The picker composes the same WorkflowSummary the categories screen does,
@@ -930,7 +931,7 @@ func (h *TicketHandlers) renderCatalog(w http.ResponseWriter, r *http.Request) {
 	// and the admin-gated ListSummaries would refuse them the whole screen.
 	summaries, err := h.workflows.ListRequesterSummaries(ctx)
 	if err != nil {
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		httpError(w, r, "error.internal_server", http.StatusInternalServerError)
 		return
 	}
 	summary := requesterSummaryIndex(summaries)
@@ -939,7 +940,7 @@ func (h *TicketHandlers) renderCatalog(w http.ResponseWriter, r *http.Request) {
 	if q != "" {
 		found, err := h.catalog.Search(ctx, q)
 		if err != nil {
-			http.Error(w, "Internal server error", http.StatusInternalServerError)
+			httpError(w, r, "error.internal_server", http.StatusInternalServerError)
 			return
 		}
 		results = offerRunnableCategories(found, summary)
@@ -1012,7 +1013,7 @@ func asCatalogCategories(in []domain.Category) []domain.CatalogCategory {
 // (422/409/...) and message.
 func (h *TicketHandlers) create(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		httpError(w, r, "error.internal_server", http.StatusInternalServerError)
 		return
 	}
 	// Amendment 2: creation binds NO assignee for ANY role. The mere PRESENCE
@@ -1021,14 +1022,14 @@ func (h *TicketHandlers) create(w http.ResponseWriter, r *http.Request) {
 	// the typed assignee validation error BEFORE any binding/validation and
 	// with ZERO writes (no ticket, pin, run, or audit results).
 	if r.Form.Has("user_id") || r.Form.Has("assignee_id") {
-		h.renderCreateError(w, r, "assignee", domain.ErrMsgCreateUnassignedOnly, http.StatusUnprocessableEntity)
+		h.renderCreateError(w, r, "assignee", i18n.T(requestLocale(r), "error.create_unassigned_only"), http.StatusUnprocessableEntity)
 		return
 	}
 	actor := *userFromContext(r.Context())
 
 	categoryID := parseID(r.Form.Get("category_id"))
 	if categoryID == 0 {
-		h.renderCreateError(w, r, "category", "category is required", http.StatusUnprocessableEntity)
+		h.renderCreateError(w, r, "category", i18n.T(requestLocale(r), "error.category_required"), http.StatusUnprocessableEntity)
 		return
 	}
 
@@ -1041,7 +1042,7 @@ func (h *TicketHandlers) create(w http.ResponseWriter, r *http.Request) {
 
 	_, err := h.tickets.Create(r.Context(), actor, in)
 	if err != nil {
-		status, msg := mapError(err)
+		status, msg := mapErrorFor(r, err)
 		if status == http.StatusInternalServerError {
 			http.Error(w, msg, status)
 			return
@@ -1056,7 +1057,7 @@ func (h *TicketHandlers) create(w http.ResponseWriter, r *http.Request) {
 			// The ticket is already committed: never report failure and
 			// never invite a duplicate-creating retry. Send the client to
 			// the list via the HX redirect instead of a misleading 500.
-			setSaveFeedbackCookie(w, saveFeedbackData{Message: saveFeedbackSaved, Kind: saveFeedbackSuccess})
+			setSaveFeedbackCookie(w, r, saveFeedbackData{Message: saveFeedbackSaved, Kind: saveFeedbackSuccess})
 			w.Header().Set("HX-Redirect", "/tickets")
 			w.WriteHeader(http.StatusOK)
 			return
@@ -1077,7 +1078,7 @@ func (h *TicketHandlers) create(w http.ResponseWriter, r *http.Request) {
 func (h *TicketHandlers) renderCreateError(w http.ResponseWriter, r *http.Request, field, msg string, status int) {
 	opts, offers, err := h.createOptions(r)
 	if err != nil {
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		httpError(w, r, "error.internal_server", http.StatusInternalServerError)
 		return
 	}
 	page := pageDataFrom(r, "tickets")
@@ -1098,7 +1099,7 @@ func (h *TicketHandlers) renderCreateError(w http.ResponseWriter, r *http.Reques
 		if id := parseID(data.Values.CategoryID); id != 0 {
 			selected, findErr := h.catalog.FindCategory(r.Context(), id, h.workflows)
 			if findErr != nil {
-				http.Error(w, mapErrorMsg(findErr), statusFor(findErr))
+				http.Error(w, mapErrorMsg(r, findErr), statusFor(findErr))
 				return
 			}
 			data.Selected = selected
@@ -1416,6 +1417,7 @@ func (h *TicketHandlers) checklistFor(r *http.Request, id int64, actor domain.Us
 	if cur < 0 || cur >= len(snap.Workflow) {
 		return workflowChecklist{}
 	}
+	tr := i18n.New(requestLocale(r))
 	completions := completionAuditsByStep(snap.Workflow, events)
 	deskNames := map[int64]string{}
 	rows := make([]workflowChecklistRow, 0, len(snap.Workflow))
@@ -1425,7 +1427,7 @@ func (h *TicketHandlers) checklistFor(r *http.Request, id int64, actor domain.Us
 		if step.Type == domain.StepAssignToDesk {
 			desk = h.deskLabel(r, step, deskNames)
 		}
-		row.Name = checklistStepName(step, desk)
+		row.Name = checklistStepName(tr, step, desk)
 		switch {
 		case i < cur:
 			row.State, row.Glyph = "done", "✓"
@@ -1435,17 +1437,17 @@ func (h *TicketHandlers) checklistFor(r *http.Request, id int64, actor domain.Us
 				// The automatic actor sentinel is never rendered as a person: the
 				// row says plainly that the step completed on its own.
 				if ev.Actor == "" || ev.Actor == "workflow" {
-					row.Actor = "Completed automatically"
+					row.Actor = tr.T("tickets.checklist.meta.completed_automatically")
 				} else {
 					row.Actor = ev.Actor
 				}
 			}
 		case i == cur:
 			row.State, row.Glyph = "current", "●"
-			h.fillChecklistCurrent(&row, step, desk, actor, t, assignee)
+			h.fillChecklistCurrent(tr, &row, step, desk, actor, t, assignee)
 		default:
 			row.State, row.Glyph = "next", "○"
-			row.Meta = checklistPendingMeta(step)
+			row.Meta = checklistPendingMeta(tr, step)
 		}
 		rows = append(rows, row)
 	}
@@ -1501,49 +1503,52 @@ func completionAuditsByStep(steps []domain.WorkflowStep, events []domain.AuditEv
 }
 
 // checklistStepName is the task in the reader's words, reusing the builder's
-// vocabulary (issue #245). desk is the resolved desk label for routing steps.
-func checklistStepName(step domain.WorkflowStep, desk string) string {
+// vocabulary (issue #245). desk is the resolved desk label for routing steps
+// and stays data; every other word follows the instance language.
+func checklistStepName(tr i18n.Translator, step domain.WorkflowStep, desk string) string {
 	switch step.Type {
 	case domain.StepForm:
 		if step.Form != nil && step.Form.Actor == domain.FormActorRequester {
-			return "The requester answers the form"
+			return tr.T("tickets.checklist.step.form_requester")
 		}
-		return "The agent answers the form"
+		return tr.T("tickets.checklist.step.form_assignee")
 	case domain.StepAssignToDesk:
 		if step.AssignToDesk != nil && step.AssignToDesk.Strategy == domain.StrategyClaim {
-			return "A member of " + desk + " takes it"
+			return tr.Tf("tickets.checklist.step.claim", desk)
 		}
-		return "The least busy member of " + desk + " is assigned"
+		return tr.Tf("tickets.checklist.step.least_loaded", desk)
 	case domain.StepManualTask:
 		if step.ManualTask != nil && step.ManualTask.Instructions != "" {
+			// Instructions are admin-authored content: never translated (S11).
 			return step.ManualTask.Instructions
 		}
-		return "Agent work"
+		return tr.T("tickets.checklist.step.agent_work")
 	case domain.StepResolve:
-		return "The ticket is marked resolved"
+		return tr.T("tickets.checklist.step.resolve")
 	case domain.StepClose:
-		return "The ticket is closed"
+		return tr.T("tickets.checklist.step.close")
 	default:
-		return "A step"
+		return tr.T("tickets.checklist.step.generic")
 	}
 }
 
 // checklistPendingMeta labels a step still waiting behind the current one: an
 // automatic step runs on its own, every other step waits for the step before it.
-func checklistPendingMeta(step domain.WorkflowStep) string {
+func checklistPendingMeta(tr i18n.Translator, step domain.WorkflowStep) string {
 	if step.Type == domain.StepResolve || step.Type == domain.StepClose {
-		return "Runs on its own"
+		return tr.T("tickets.checklist.meta.runs_on_its_own")
 	}
 	if step.Type == domain.StepAssignToDesk && step.AssignToDesk != nil && step.AssignToDesk.Strategy == domain.StrategyLeastLoaded {
-		return "Runs on its own"
+		return tr.T("tickets.checklist.meta.runs_on_its_own")
 	}
-	return "Waiting on the step before it"
+	return tr.T("tickets.checklist.meta.waiting_previous")
 }
 
 // fillChecklistCurrent fills the current row's control facts. A claim's control
 // stays in the Assignment sidebar, and an automatic step has no control at all;
-// both render as the row's honest status line instead.
-func (h *TicketHandlers) fillChecklistCurrent(row *workflowChecklistRow, step domain.WorkflowStep, desk string, actor domain.User, t *domain.Ticket, assignee *domain.User) {
+// both render as the row's honest status line instead. Person and desk names are
+// data and interpolate verbatim; every other word comes from the catalogue.
+func (h *TicketHandlers) fillChecklistCurrent(tr i18n.Translator, row *workflowChecklistRow, step domain.WorkflowStep, desk string, actor domain.User, t *domain.Ticket, assignee *domain.User) {
 	switch step.Type {
 	case domain.StepManualTask:
 		row.Kind = "manual"
@@ -1556,20 +1561,20 @@ func (h *TicketHandlers) fillChecklistCurrent(row *workflowChecklistRow, step do
 			// queued. Leaving Blocked empty also keeps the amber nobody-copy
 			// class off the requester's Steps area. Staff keep today's copy.
 			if actor.Role == domain.RoleUser {
-				row.Meta = "Your request has been received and is queued for support."
+				row.Meta = tr.T("tickets.checklist.meta.requester_received")
 				return
 			}
-			row.Meta = "Nobody is assigned yet."
-			row.Blocked = "No one can complete this step until an agent is assigned to this ticket."
+			row.Meta = tr.T("tickets.checklist.meta.nobody_assigned")
+			row.Blocked = tr.T("tickets.checklist.meta.blocked_no_agent")
 			return
 		}
 		if assignee != nil {
-			row.Meta = "Assigned to " + assignee.Name
+			row.Meta = tr.Tf("tickets.checklist.meta.assigned_to", assignee.Name)
 		} else {
-			row.Meta = "Assigned"
+			row.Meta = tr.T("tickets.checklist.meta.assigned")
 		}
 		if *t.UserID == actor.ID {
-			row.Meta += " · you"
+			row.Meta += " " + tr.T("tickets.checklist.meta.you")
 		}
 	case domain.StepForm:
 		row.Kind = "form"
@@ -1582,28 +1587,28 @@ func (h *TicketHandlers) fillChecklistCurrent(row *workflowChecklistRow, step do
 			}
 		}
 		if row.CanAct {
-			row.Meta = "Waiting on you"
+			row.Meta = tr.T("tickets.checklist.meta.waiting_on_you")
 			return
 		}
 		if step.Form != nil && step.Form.Actor == domain.FormActorRequester {
 			if t.RequesterName != "" {
-				row.Meta = "Waiting on " + t.RequesterName
+				row.Meta = tr.Tf("tickets.checklist.meta.waiting_on", t.RequesterName)
 			} else {
-				row.Meta = "Waiting on the requester"
+				row.Meta = tr.T("tickets.checklist.meta.waiting_on_requester")
 			}
 		} else if assignee != nil {
-			row.Meta = "Waiting on " + assignee.Name
+			row.Meta = tr.Tf("tickets.checklist.meta.waiting_on", assignee.Name)
 		} else {
-			row.Meta = "Waiting on the assignee"
+			row.Meta = tr.T("tickets.checklist.meta.waiting_on_assignee")
 		}
 	case domain.StepAssignToDesk:
 		if step.AssignToDesk != nil && step.AssignToDesk.Strategy == domain.StrategyClaim {
-			row.Meta = desk + " has been asked to take it"
+			row.Meta = tr.Tf("tickets.checklist.meta.asked_to_take", desk)
 			return
 		}
-		row.Meta = "Runs on its own"
+		row.Meta = tr.T("tickets.checklist.meta.runs_on_its_own")
 	default:
-		row.Meta = "Runs on its own"
+		row.Meta = tr.T("tickets.checklist.meta.runs_on_its_own")
 	}
 }
 
@@ -1611,14 +1616,15 @@ func (h *TicketHandlers) fillChecklistCurrent(row *workflowChecklistRow, step do
 // missing or unreadable desk degrades to "the desk" instead of failing the
 // ticket detail read.
 func (h *TicketHandlers) deskLabel(r *http.Request, step domain.WorkflowStep, cache map[int64]string) string {
+	fallback := i18n.New(requestLocale(r)).T("tickets.checklist.desk_fallback")
 	if step.AssignToDesk == nil {
-		return "the desk"
+		return fallback
 	}
 	id := step.AssignToDesk.DeskID
 	if name, ok := cache[id]; ok {
 		return name
 	}
-	name := "the desk"
+	name := fallback
 	if h.desks != nil {
 		if desk, err := h.desks.GetByID(r.Context(), id); err == nil && desk != nil {
 			name = desk.Name
@@ -1644,7 +1650,7 @@ func (h *TicketHandlers) claimFor(r *http.Request, id int64, actor domain.User) 
 	if step.Type != domain.StepAssignToDesk || step.AssignToDesk == nil || step.AssignToDesk.Strategy != domain.StrategyClaim {
 		return workflowClaim{}
 	}
-	claim := workflowClaim{Active: true, Position: cur + 1, DeskName: "Unknown desk"}
+	claim := workflowClaim{Active: true, Position: cur + 1, DeskName: i18n.T(requestLocale(r), "tickets.degrade.unknown_desk")}
 	if h.desks == nil {
 		return claim
 	}
@@ -1671,12 +1677,12 @@ func (h *TicketHandlers) claimFor(r *http.Request, id int64, actor domain.User) 
 func (h *TicketHandlers) show(w http.ResponseWriter, r *http.Request) {
 	id, ok := ticketID(r)
 	if !ok {
-		http.Error(w, "invalid ticket id", http.StatusBadRequest)
+		httpError(w, r, "error.invalid_ticket_id", http.StatusBadRequest)
 		return
 	}
 	data, status, err := h.detailDataFor(r, id)
 	if err != nil {
-		http.Error(w, mapErrorMsg(err), status)
+		http.Error(w, mapErrorMsg(r, err), status)
 		return
 	}
 	h.renderer.Render(w, r, "tickets_show", "ticket_detail", data, http.StatusOK)
@@ -1685,11 +1691,11 @@ func (h *TicketHandlers) show(w http.ResponseWriter, r *http.Request) {
 func (h *TicketHandlers) transition(w http.ResponseWriter, r *http.Request) {
 	id, ok := ticketID(r)
 	if !ok {
-		http.Error(w, "invalid ticket id", http.StatusBadRequest)
+		httpError(w, r, "error.invalid_ticket_id", http.StatusBadRequest)
 		return
 	}
 	if err := r.ParseForm(); err != nil {
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		httpError(w, r, "error.internal_server", http.StatusInternalServerError)
 		return
 	}
 	actor := *userFromContext(r.Context())
@@ -1712,11 +1718,11 @@ func (h *TicketHandlers) transition(w http.ResponseWriter, r *http.Request) {
 func (h *TicketHandlers) confirmation(w http.ResponseWriter, r *http.Request) {
 	id, ok := ticketID(r)
 	if !ok {
-		http.Error(w, "invalid ticket id", http.StatusBadRequest)
+		httpError(w, r, "error.invalid_ticket_id", http.StatusBadRequest)
 		return
 	}
 	if err := r.ParseForm(); err != nil {
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		httpError(w, r, "error.internal_server", http.StatusInternalServerError)
 		return
 	}
 	actor := *userFromContext(r.Context())
@@ -1742,11 +1748,11 @@ func (h *TicketHandlers) confirmation(w http.ResponseWriter, r *http.Request) {
 func (h *TicketHandlers) addComment(w http.ResponseWriter, r *http.Request) {
 	id, ok := ticketID(r)
 	if !ok {
-		http.Error(w, "invalid ticket id", http.StatusBadRequest)
+		httpError(w, r, "error.invalid_ticket_id", http.StatusBadRequest)
 		return
 	}
 	if err := r.ParseForm(); err != nil {
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		httpError(w, r, "error.internal_server", http.StatusInternalServerError)
 		return
 	}
 	actor := *userFromContext(r.Context())
@@ -1763,7 +1769,7 @@ func (h *TicketHandlers) addComment(w http.ResponseWriter, r *http.Request) {
 	// HX: swap the merged timeline fragment; full: back to the detail page.
 	data, status, err := h.detailDataFor(r, id)
 	if err != nil {
-		http.Error(w, mapErrorMsg(err), status)
+		http.Error(w, mapErrorMsg(r, err), status)
 		return
 	}
 	if r.Header.Get("HX-Request") != "" {
@@ -1784,11 +1790,11 @@ func (h *TicketHandlers) addComment(w http.ResponseWriter, r *http.Request) {
 func (h *TicketHandlers) assign(w http.ResponseWriter, r *http.Request) {
 	id, ok := ticketID(r)
 	if !ok {
-		http.Error(w, "invalid ticket id", http.StatusBadRequest)
+		httpError(w, r, "error.invalid_ticket_id", http.StatusBadRequest)
 		return
 	}
 	if err := r.ParseForm(); err != nil {
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		httpError(w, r, "error.internal_server", http.StatusInternalServerError)
 		return
 	}
 	// Desks are membership-only in this iteration. Reject a forged desk
@@ -1820,14 +1826,14 @@ func (h *TicketHandlers) assign(w http.ResponseWriter, r *http.Request) {
 // renderDetailError re-renders the detail view with an inline error and the
 // mapped status (HX → ticket_detail fragment; full → tickets_show page).
 func (h *TicketHandlers) renderDetailError(w http.ResponseWriter, r *http.Request, id int64, err error) {
-	status, msg := mapError(err)
+	status, msg := mapErrorFor(r, err)
 	if status == http.StatusInternalServerError {
 		http.Error(w, msg, status)
 		return
 	}
 	data, _, dataErr := h.detailDataFor(r, id)
 	if dataErr != nil {
-		http.Error(w, mapErrorMsg(dataErr), statusFor(dataErr))
+		http.Error(w, mapErrorMsg(r, dataErr), statusFor(dataErr))
 		return
 	}
 	data.Error = msg
@@ -1847,7 +1853,7 @@ func (h *TicketHandlers) renderDetailError(w http.ResponseWriter, r *http.Reques
 func (h *TicketHandlers) afterMutation(w http.ResponseWriter, r *http.Request, id int64, fragment string) {
 	data, status, err := h.detailDataFor(r, id)
 	if err != nil {
-		http.Error(w, mapErrorMsg(err), status)
+		http.Error(w, mapErrorMsg(r, err), status)
 		return
 	}
 	if r.Header.Get("HX-Request") != "" {
@@ -1863,11 +1869,11 @@ func (h *TicketHandlers) afterMutation(w http.ResponseWriter, r *http.Request, i
 func (h *TicketHandlers) update(w http.ResponseWriter, r *http.Request) {
 	id, ok := ticketID(r)
 	if !ok {
-		http.Error(w, "invalid ticket id", http.StatusBadRequest)
+		httpError(w, r, "error.invalid_ticket_id", http.StatusBadRequest)
 		return
 	}
 	if err := r.ParseForm(); err != nil {
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		httpError(w, r, "error.internal_server", http.StatusInternalServerError)
 		return
 	}
 	actor := *userFromContext(r.Context())
@@ -1902,14 +1908,14 @@ func (h *TicketHandlers) update(w http.ResponseWriter, r *http.Request) {
 
 // renderEditError re-renders the inline detail editor with submitted values.
 func (h *TicketHandlers) renderEditError(w http.ResponseWriter, r *http.Request, id int64, err error) {
-	status, msg := mapError(err)
+	status, msg := mapErrorFor(r, err)
 	if status == http.StatusInternalServerError {
 		http.Error(w, msg, status)
 		return
 	}
 	data, _, dataErr := h.detailDataFor(r, id)
 	if dataErr != nil {
-		http.Error(w, mapErrorMsg(dataErr), statusFor(dataErr))
+		http.Error(w, mapErrorMsg(r, dataErr), statusFor(dataErr))
 		return
 	}
 	data.Error = msg
@@ -1967,7 +1973,7 @@ func (h *TicketHandlers) renderAgentQueue(w http.ResponseWriter, r *http.Request
 	filters := simplifiedFilters(filterState{Q: q})
 	assigned, claimable, total, err := h.agentQueueSections(r, filters, assignedPage, claimablePage)
 	if err != nil {
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		httpError(w, r, "error.internal_server", http.StatusInternalServerError)
 		return
 	}
 	if claimError != "" {
@@ -2003,7 +2009,7 @@ const maxSolutionLength = 2000
 func (h *TicketHandlers) completeWorkflow(w http.ResponseWriter, r *http.Request) {
 	id, ok := ticketID(r)
 	if !ok {
-		http.Error(w, "invalid ticket id", http.StatusBadRequest)
+		httpError(w, r, "error.invalid_ticket_id", http.StatusBadRequest)
 		return
 	}
 	pos, err := strconv.Atoi(r.PathValue("position"))
@@ -2012,7 +2018,7 @@ func (h *TicketHandlers) completeWorkflow(w http.ResponseWriter, r *http.Request
 		return
 	}
 	if err := r.ParseForm(); err != nil {
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		httpError(w, r, "error.internal_server", http.StatusInternalServerError)
 		return
 	}
 	actor := *userFromContext(r.Context())
@@ -2020,12 +2026,12 @@ func (h *TicketHandlers) completeWorkflow(w http.ResponseWriter, r *http.Request
 	// Authorize the ticket read through the scoped view (404 for out-of-scope)
 	// before loading the execution snapshot.
 	if _, err := h.tickets.GetByID(r.Context(), actor, id); err != nil {
-		http.Error(w, mapErrorMsg(err), statusFor(err))
+		http.Error(w, mapErrorMsg(r, err), statusFor(err))
 		return
 	}
 	snap, err := h.workflowRuns.GetWorkflowExecution(r.Context(), id)
 	if err != nil {
-		http.Error(w, mapErrorMsg(err), statusFor(err))
+		http.Error(w, mapErrorMsg(r, err), statusFor(err))
 		return
 	}
 	if snap == nil {
@@ -2080,7 +2086,7 @@ func (h *TicketHandlers) completeWorkflow(w http.ResponseWriter, r *http.Request
 	// confirmation — no success toast and no native in-response flash.
 	data, status, err := h.detailDataFor(r, id)
 	if err != nil {
-		http.Error(w, mapErrorMsg(err), status)
+		http.Error(w, mapErrorMsg(r, err), status)
 		return
 	}
 	h.renderer.Render(w, r, "tickets_show", "ticket_detail", data, http.StatusOK)
@@ -2145,10 +2151,10 @@ func parsePositionalAnswers(form url.Values, fieldCount int) (application.RawPos
 		}
 		n, err := strconv.Atoi(strings.TrimPrefix(k, "answer_"))
 		if err != nil || n < 0 {
-			return nil, &domain.ValidationError{Field: "answers", Message: fmt.Sprintf("invalid answer position %q", k)}
+			return nil, &domain.ValidationError{Field: "answers", Message: fmt.Sprintf("invalid answer position %q", k), Key: "error.answers.invalid_position", Args: []any{k}}
 		}
 		if n >= fieldCount {
-			return nil, &domain.ValidationError{Field: "answers", Message: fmt.Sprintf("unknown position %d", n)}
+			return nil, &domain.ValidationError{Field: "answers", Message: fmt.Sprintf("unknown position %d", n), Key: "error.answers.unknown_position", Args: []any{n}}
 		}
 		raw = append(raw, application.RawPositionalValue{Position: n, Values: vals})
 	}
@@ -2156,19 +2162,21 @@ func parsePositionalAnswers(form url.Values, fieldCount int) (application.RawPos
 	seen := make(map[int]struct{}, len(raw))
 	for _, value := range raw {
 		if _, ok := seen[value.Position]; ok {
-			return nil, &domain.ValidationError{Field: "answers", Message: fmt.Sprintf("duplicate position %d", value.Position)}
+			return nil, &domain.ValidationError{Field: "answers", Message: fmt.Sprintf("duplicate position %d", value.Position), Key: "error.answers.duplicate_position", Args: []any{value.Position}}
 		}
 		seen[value.Position] = struct{}{}
 		if len(value.Values) > 1 {
-			return nil, &domain.ValidationError{Field: "answers", Message: fmt.Sprintf("ambiguous values for position %d", value.Position)}
+			return nil, &domain.ValidationError{Field: "answers", Message: fmt.Sprintf("ambiguous values for position %d", value.Position), Key: "error.answers.ambiguous_position", Args: []any{value.Position}}
 		}
 	}
 	return raw, nil
 }
 
-// mapErrorMsg returns the mapped message; statusFor the mapped status.
-func mapErrorMsg(err error) string {
-	_, msg := mapError(err)
+// mapErrorMsg returns the mapped message in the request's interface language;
+// statusFor the mapped status. mapError keeps its English contract for the
+// status table and internal callers.
+func mapErrorMsg(r *http.Request, err error) string {
+	_, msg := mapErrorFor(r, err)
 	return msg
 }
 

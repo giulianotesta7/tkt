@@ -147,7 +147,7 @@ func (h *SettingsHandlers) index(w http.ResponseWriter, r *http.Request) {
 	}
 	current, err := h.settings.GetAppearance(r.Context())
 	if err != nil {
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		httpError(w, r, "error.internal_server", http.StatusInternalServerError)
 		return
 	}
 	data := settingsIndexData{
@@ -156,11 +156,11 @@ func (h *SettingsHandlers) index(w http.ResponseWriter, r *http.Request) {
 		Colors:   appearanceOptions(),
 	}
 	if err := h.loadSLA(r, &data); err != nil {
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		httpError(w, r, "error.internal_server", http.StatusInternalServerError)
 		return
 	}
 	if err := h.loadCalendar(r, &data); err != nil {
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		httpError(w, r, "error.internal_server", http.StatusInternalServerError)
 		return
 	}
 	// The shell CSS must carry the same color the panel shows; stamp the
@@ -200,19 +200,19 @@ func (h *SettingsHandlers) updateAppearance(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	if err := r.ParseForm(); err != nil {
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		httpError(w, r, "error.internal_server", http.StatusInternalServerError)
 		return
 	}
 	err := h.settings.SetInternalCommentBg(r.Context(), *userFromContext(r.Context()), r.Form.Get("internal_comment_bg"))
 	if err != nil {
-		status, msg := mapError(err)
+		status, msg := mapErrorFor(r, err)
 		if status == http.StatusInternalServerError {
 			http.Error(w, msg, status)
 			return
 		}
 		current, getErr := h.settings.GetAppearance(r.Context())
 		if getErr != nil {
-			http.Error(w, "Internal server error", http.StatusInternalServerError)
+			httpError(w, r, "error.internal_server", http.StatusInternalServerError)
 			return
 		}
 		data := settingsIndexData{
@@ -224,11 +224,11 @@ func (h *SettingsHandlers) updateAppearance(w http.ResponseWriter, r *http.Reque
 		// The SLA and calendar panels are untouched by this POST, so they
 		// re-render from the stored values.
 		if loadErr := h.loadSLA(r, &data); loadErr != nil {
-			http.Error(w, "Internal server error", http.StatusInternalServerError)
+			httpError(w, r, "error.internal_server", http.StatusInternalServerError)
 			return
 		}
 		if loadErr := h.loadCalendar(r, &data); loadErr != nil {
-			http.Error(w, "Internal server error", http.StatusInternalServerError)
+			httpError(w, r, "error.internal_server", http.StatusInternalServerError)
 			return
 		}
 		data.InternalCommentBg = current
@@ -251,7 +251,7 @@ func (h *SettingsHandlers) updateSLA(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := r.ParseForm(); err != nil {
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		httpError(w, r, "error.internal_server", http.StatusInternalServerError)
 		return
 	}
 	actor := *userFromContext(r.Context())
@@ -264,7 +264,7 @@ func (h *SettingsHandlers) updateSLA(w http.ResponseWriter, r *http.Request) {
 	// is nothing to compensate for here.
 	err := h.sla.SetGlobalConfiguration(r.Context(), actor, enabled, percent, policies)
 	if err != nil {
-		status, msg := mapError(err)
+		status, msg := mapErrorFor(r, err)
 		if status == http.StatusInternalServerError {
 			http.Error(w, msg, status)
 			return
@@ -273,7 +273,7 @@ func (h *SettingsHandlers) updateSLA(w http.ResponseWriter, r *http.Request) {
 		// from the stored value.
 		current, getErr := h.settings.GetAppearance(r.Context())
 		if getErr != nil {
-			http.Error(w, "Internal server error", http.StatusInternalServerError)
+			httpError(w, r, "error.internal_server", http.StatusInternalServerError)
 			return
 		}
 		data := settingsIndexData{
@@ -290,7 +290,7 @@ func (h *SettingsHandlers) updateSLA(w http.ResponseWriter, r *http.Request) {
 		// The calendar panel is untouched by this POST, so it re-renders
 		// from the stored value.
 		if loadErr := h.loadCalendar(r, &data); loadErr != nil {
-			http.Error(w, "Internal server error", http.StatusInternalServerError)
+			httpError(w, r, "error.internal_server", http.StatusInternalServerError)
 			return
 		}
 		data.InternalCommentBg = current
@@ -332,7 +332,7 @@ func (h *SettingsHandlers) updateCalendar(w http.ResponseWriter, r *http.Request
 		return
 	}
 	if err := r.ParseForm(); err != nil {
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		httpError(w, r, "error.internal_server", http.StatusInternalServerError)
 		return
 	}
 	actor := *userFromContext(r.Context())
@@ -341,7 +341,7 @@ func (h *SettingsHandlers) updateCalendar(w http.ResponseWriter, r *http.Request
 		err = h.sla.SetSLACalendar(r.Context(), actor, calendar)
 	}
 	if err != nil {
-		status, msg := mapError(err)
+		status, msg := mapErrorFor(r, err)
 		if status == http.StatusInternalServerError {
 			http.Error(w, msg, status)
 			return
@@ -351,7 +351,7 @@ func (h *SettingsHandlers) updateCalendar(w http.ResponseWriter, r *http.Request
 		// SUBMITTED values so one bad field does not cost the rest.
 		current, getErr := h.settings.GetAppearance(r.Context())
 		if getErr != nil {
-			http.Error(w, "Internal server error", http.StatusInternalServerError)
+			httpError(w, r, "error.internal_server", http.StatusInternalServerError)
 			return
 		}
 		data := settingsIndexData{
@@ -366,7 +366,7 @@ func (h *SettingsHandlers) updateCalendar(w http.ResponseWriter, r *http.Request
 			CalendarTimezone: r.Form.Get("sla_calendar_timezone"),
 		}
 		if loadErr := h.loadSLA(r, &data); loadErr != nil {
-			http.Error(w, "Internal server error", http.StatusInternalServerError)
+			httpError(w, r, "error.internal_server", http.StatusInternalServerError)
 			return
 		}
 		data.InternalCommentBg = current

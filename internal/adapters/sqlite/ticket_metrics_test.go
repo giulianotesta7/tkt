@@ -214,7 +214,7 @@ func TestTicketMetricsStoreRegressionCases(t *testing.T) {
 					}
 				}
 				metrics, err := application.NewTicketMetricsService(s.TicketMetricsStore(), metricStoreClock{now: marchEnd}).View(context.Background(), domain.User{Role: domain.RoleAdmin}, application.TicketMetricsFilter{Start: marchStart, End: marchEnd, DeskID: &newDeskID, AgentID: &newAgentID, WorkloadBy: "desk"})
-				if err != nil || metrics.Pending != 1 || len(metrics.Workload) != 1 || metrics.Workload[0] != (application.TicketMetricsWorkload{Label: "New desk", Count: 1}) {
+				if err != nil || metrics.Pending != 1 || len(metrics.Workload) != 1 || metrics.Workload[0].Label != "New desk" || metrics.Workload[0].Count != 1 {
 					t.Fatalf("current desk workload = %+v, err=%v, want one New desk ticket", metrics.Workload, err)
 				}
 			}

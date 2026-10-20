@@ -384,14 +384,14 @@ func decodePositionalAnswers(fields []domain.FormField, raw RawPositionalValues)
 	seen := map[int]bool{}
 	for _, rv := range raw {
 		if rv.Position < 0 || rv.Position >= len(fields) {
-			return nil, &domain.ValidationError{Field: "answers", Message: fmt.Sprintf("unknown position %d", rv.Position)}
+			return nil, &domain.ValidationError{Field: "answers", Message: fmt.Sprintf("unknown position %d", rv.Position), Key: "error.answers.unknown_position", Args: []any{rv.Position}}
 		}
 		if seen[rv.Position] {
-			return nil, &domain.ValidationError{Field: "answers", Message: fmt.Sprintf("duplicate position %d", rv.Position)}
+			return nil, &domain.ValidationError{Field: "answers", Message: fmt.Sprintf("duplicate position %d", rv.Position), Key: "error.answers.duplicate_position", Args: []any{rv.Position}}
 		}
 		seen[rv.Position] = true
 		if len(rv.Values) > 1 {
-			return nil, &domain.ValidationError{Field: "answers", Message: fmt.Sprintf("ambiguous values for position %d", rv.Position)}
+			return nil, &domain.ValidationError{Field: "answers", Message: fmt.Sprintf("ambiguous values for position %d", rv.Position), Key: "error.answers.ambiguous_position", Args: []any{rv.Position}}
 		}
 	}
 	m := map[int]string{}
@@ -414,7 +414,7 @@ func decodePositionalAnswers(fields []domain.FormField, raw RawPositionalValues)
 				if s == "on" || s == "true" {
 					b = true
 				} else {
-					return nil, &domain.ValidationError{Field: f.Key, Message: fmt.Sprintf("Step %d: invalid checkbox value", i+1)}
+					return nil, &domain.ValidationError{Field: f.Key, Message: fmt.Sprintf("Step %d: invalid checkbox value", i+1), Key: "error.answers.invalid_checkbox", Args: []any{i + 1}}
 				}
 			}
 			// Required on a checkbox means "must be ticked" (#317): the box has
@@ -422,7 +422,7 @@ func decodePositionalAnswers(fields []domain.FormField, raw RawPositionalValues)
 			// This mirrors the unit-of-work recheck, which is now the second layer
 			// rather than the only one.
 			if f.Required && !b {
-				return nil, &domain.ValidationError{Field: f.Key, Message: fmt.Sprintf("Step %d: %s must be ticked", i+1, f.Key)}
+				return nil, &domain.ValidationError{Field: f.Key, Message: fmt.Sprintf("Step %d: %s must be ticked", i+1, f.Key), Key: "error.answers.must_be_ticked", Args: []any{i + 1, f.Key}}
 			}
 			out[i] = b
 		case domain.FieldShortText, domain.FieldLongText:
@@ -431,7 +431,7 @@ func decodePositionalAnswers(fields []domain.FormField, raw RawPositionalValues)
 				s = strings.TrimSpace(v)
 			}
 			if f.Required && s == "" {
-				return nil, &domain.ValidationError{Field: f.Key, Message: fmt.Sprintf("Step %d: %s is required", i+1, f.Key)}
+				return nil, &domain.ValidationError{Field: f.Key, Message: fmt.Sprintf("Step %d: %s is required", i+1, f.Key), Key: "error.answers.required", Args: []any{i + 1, f.Key}}
 			}
 			out[i] = s
 		case domain.FieldSingleSelect:
@@ -441,7 +441,7 @@ func decodePositionalAnswers(fields []domain.FormField, raw RawPositionalValues)
 			}
 			if s == "" {
 				if f.Required {
-					return nil, &domain.ValidationError{Field: f.Key, Message: fmt.Sprintf("Step %d: %s is required", i+1, f.Key)}
+					return nil, &domain.ValidationError{Field: f.Key, Message: fmt.Sprintf("Step %d: %s is required", i+1, f.Key), Key: "error.answers.required", Args: []any{i + 1, f.Key}}
 				}
 				out[i] = ""
 				continue
@@ -454,7 +454,7 @@ func decodePositionalAnswers(fields []domain.FormField, raw RawPositionalValues)
 				}
 			}
 			if !ok {
-				return nil, &domain.ValidationError{Field: f.Key, Message: fmt.Sprintf("Step %d: invalid option %q", i+1, s)}
+				return nil, &domain.ValidationError{Field: f.Key, Message: fmt.Sprintf("Step %d: invalid option %q", i+1, s), Key: "error.answers.invalid_option", Args: []any{i + 1, s}}
 			}
 			out[i] = s
 		default:

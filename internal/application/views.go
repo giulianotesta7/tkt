@@ -41,10 +41,14 @@ type TimelineItem struct {
 	ToLabel     string
 	// Summary retains the historical capitalized summary contract for callers
 	// that consume the view model directly. Narrative is the sentence-case
-	// action phrase rendered in the ticket timeline.
-	Summary    string
-	Narrative  string
-	ActorLabel string
+	// action phrase rendered in the ticket timeline; NarrativeMsg carries the
+	// SAME phrase as a catalogue reference (issue #335, S8), so the rendered
+	// timeline follows the instance language. Narrative stays the English
+	// fallback for a caller that renders the view model directly.
+	Summary      string
+	Narrative    string
+	NarrativeMsg Msg
+	ActorLabel   string
 	// StateClass carries a validated lifecycle state class for transition
 	// events. It never exposes arbitrary audit values (such as user IDs) in
 	// markup.
@@ -58,6 +62,12 @@ type TimelineItem struct {
 	// "Unknown user"/"Unknown desk").
 	AssignmentPerson string
 	AssignmentDesk   string
+	// AssignmentPersonMsg/AssignmentDeskMsg carry the same labels as catalogue
+	// references when the label is chrome (the Unknown user / Unknown desk
+	// degrade) and as data when it is a resolved name, so a Spanish timeline
+	// follows the instance language without translating a person or a desk.
+	AssignmentPersonMsg Msg
+	AssignmentDeskMsg   Msg
 	// SuppressDetail hides the Reason/Note detail line for legacy and semantic
 	// workflow-completion events (workflow_step, manual task, both forms):
 	// their answers stay behind the protected answers projection. Transitions,
@@ -203,6 +213,7 @@ func (b *ViewBuilder) enrichTimeline(ctx context.Context, view *TicketView) erro
 			item.ActorLabel = item.Event.Actor
 		}
 		item.Narrative = eventSummary(item.Event)
+		item.NarrativeMsg = eventSummaryMsg(item.Event)
 		item.Summary = legacyEventSummary(item.Event)
 		if item.Event.Action == domain.ActionTransition && item.Event.ToValue != nil {
 			item.StateClass = *item.Event.ToValue
@@ -261,6 +272,8 @@ func (b *ViewBuilder) enrichTimeline(ctx context.Context, view *TicketView) erro
 			}
 			item.AssignmentPerson = person
 			item.AssignmentDesk = desk
+			item.AssignmentPersonMsg = labelMsg(person)
+			item.AssignmentDeskMsg = labelMsg(desk)
 			continue
 		}
 		if item.Event.Field == nil {
@@ -279,22 +292,28 @@ func (b *ViewBuilder) enrichTimeline(ctx context.Context, view *TicketView) erro
 			return err
 		}
 		item.Narrative = eventSummary(item.Event)
+		item.NarrativeMsg = eventSummaryMsg(item.Event)
 		item.Summary = legacyEventSummary(item.Event)
 		if field == "user" || field == "user_id" {
 			if item.ToLabel != "" {
 				item.Narrative = "assigned the ticket to " + item.ToLabel
+				item.NarrativeMsg = MsgRef("tickets.timeline.narrative.assigned_to", Text(item.ToLabel))
 				item.Summary = "Assigned to " + item.ToLabel
 			} else {
 				item.Narrative = "changed the ticket assignee"
+				item.NarrativeMsg = MsgRef("tickets.timeline.narrative.changed_assignee")
 				item.Summary = "Changed assignee"
 			}
 		} else if item.Event.Action == domain.ActionUpdate {
 			label := auditFieldLabel(field)
 			if item.ToLabel != "" && item.ToLabel != item.FromLabel {
 				item.Narrative = "changed " + strings.ToLower(label) + " to " + item.ToLabel
+				item.NarrativeMsg = MsgRef("tickets.timeline.narrative.changed_to",
+					timelineFieldArg(field), timelineValueArg(field, item.Event.ToValue, item.ToLabel))
 				item.Summary = "Changed " + label + " to " + item.ToLabel
 			} else {
 				item.Narrative = "changed " + strings.ToLower(label)
+				item.NarrativeMsg = MsgRef("tickets.timeline.narrative.changed", timelineFieldArg(field))
 				item.Summary = "Changed " + label
 			}
 		}
@@ -439,6 +458,175 @@ func eventSummary(e *domain.AuditEvent) string {
 		}
 		return strings.ToLower(humanizeIdentifier(e.Action))
 	}
+}
+
+// eventSummaryMsg is the catalogue form of eventSummary: the same sentence-case
+// action phrase, expressed as a message reference so the ticket timeline can be
+// rendered in the active instance language (issue #335, S8). It deliberately
+// never includes the actor itself, mirroring eventSummary.
+func eventSummaryMsg(e *domain.AuditEvent) Msg {
+	switch e.Action {
+	case domain.ActionTransition:
+		if e.ToValue != nil {
+			if *e.ToValue == "in_progress" && e.FromValue != nil && isClosedState(*e.FromValue) {
+				return MsgRef("tickets.timeline.narrative.reopened")
+			}
+			return MsgRef("tickets.timeline.narrative.moved_to", timelineStateArg(*e.ToValue))
+		}
+		return MsgRef("tickets.timeline.narrative.changed_state")
+	case domain.ActionCreated:
+		return MsgRef("tickets.timeline.narrative.created")
+	case domain.ActionWorkflowAssignment:
+		return MsgRef("tickets.timeline.narrative.assigned")
+	case domain.ActionWorkflowStep:
+		return MsgRef("tickets.timeline.narrative.completed_step")
+	case domain.ActionWorkflowManualTask:
+		return MsgRef("tickets.timeline.narrative.completed_task")
+	case domain.ActionWorkflowRequesterForm:
+		return MsgRef("tickets.timeline.narrative.submitted_request")
+	case domain.ActionWorkflowAssigneeForm:
+		return MsgRef("tickets.timeline.narrative.submitted_work")
+	default:
+		if e.Field != nil {
+			return MsgRef("tickets.timeline.narrative.changed", timelineFieldArg(strings.ToLower(strings.TrimSpace(*e.Field))))
+		}
+		return MsgRef("tickets.timeline.narrative.changed", Text(strings.ToLower(humanizeIdentifier(e.Action))))
+	}
+}
+
+// labelMsg maps a resolved reference label to a catalogue message: the degrade
+// labels (Unknown user / Unknown category / Unknown desk / Unassigned) are
+// chrome and follow the instance language, while a resolved name is data and
+// renders verbatim. It is the single mapping, so no surface invents a second
+// vocabulary for a missing reference (issue #335, S8).
+func labelMsg(resolved string) Msg {
+	if key := degradeKey(resolved); key != "" {
+		return MsgRef(key)
+	}
+	return Data(resolved)
+}
+
+// labelArg is labelMsg for a value interpolated into a composed sentence.
+func labelArg(resolved string) Arg {
+	if key := degradeKey(resolved); key != "" {
+		return Copy(key)
+	}
+	return Text(resolved)
+}
+
+// degradeKey names the catalogue entry for one resolved-reference gap, or ""
+// for a resolved value.
+func degradeKey(resolved string) string {
+	switch resolved {
+	case "Unknown user":
+		return "tickets.degrade.unknown_user"
+	case "Unknown category":
+		return "tickets.degrade.unknown_category"
+	case "Unknown desk":
+		return "tickets.degrade.unknown_desk"
+	case "Unassigned":
+		return "tickets.degrade.unassigned"
+	default:
+		return ""
+	}
+}
+
+// timelineFieldKey names the catalogue key of a changed audit field inside a
+// narrative sentence ("changed priority to Low", "cambió la prioridad a
+// Baja"). The English copy is the lowercase word the sentence always used, so
+// a default instance renders exactly today's bytes. An unrecognized field has
+// no key: it interpolates its own lowercased label as data.
+func timelineFieldKey(field string) string {
+	switch field {
+	case "title":
+		return "tickets.timeline.field.title"
+	case "priority":
+		return "tickets.timeline.field.priority"
+	case "category", "category_id":
+		return "tickets.timeline.field.category"
+	case "state":
+		return "tickets.timeline.field.state"
+	default:
+		return ""
+	}
+}
+
+// timelineFieldArg resolves a changed field into a translated placeholder when
+// the catalogue names it, and into the lowercase label the narrative always
+// used otherwise ("assigned to" for the user field), so every English sentence
+// keeps its historical bytes.
+func timelineFieldArg(field string) Arg {
+	if key := timelineFieldKey(field); key != "" {
+		return Copy(key)
+	}
+	return Text(strings.ToLower(auditFieldLabel(field)))
+}
+
+// timelineValueKey names the catalogue key of a changed field's VALUE when that
+// value is chrome rather than data: a priority and a lifecycle state are
+// labelled by the catalogue (label.priority.low, label.state.in_progress). A
+// title, a category name, a person's name, and every other free value return
+// "" and render verbatim (S11).
+func timelineValueKey(field, value string) string {
+	switch field {
+	case "priority":
+		switch value {
+		case "low", "medium", "high", "critical":
+			return "label.priority." + value
+		}
+	case "state":
+		switch value {
+		case "new", "in_progress", "resolved", "closed", "cancelled":
+			return "label.state." + value
+		}
+	}
+	return ""
+}
+
+// timelineValueArg resolves a changed value through the catalogue when it is a
+// known priority or state, and keeps the caller's resolved label verbatim
+// otherwise. A resolved-reference gap (Unknown user, Unassigned) is chrome and
+// resolves through the catalogue too.
+func timelineValueArg(field string, value *string, resolved string) Arg {
+	if value == nil {
+		return Text("")
+	}
+	if key := timelineValueKey(field, strings.ToLower(strings.TrimSpace(*value))); key != "" {
+		return Copy(key)
+	}
+	return labelArg(resolved)
+}
+
+// timelineStateKey names the catalogue key of a lifecycle state inside a
+// narrative sentence. The English copy there is lowercase ("moved the ticket
+// to in progress"), unlike the standalone badge label, so it is a distinct key
+// rather than a reuse of label.state.*. An unknown state has no key and its raw
+// value is interpolated instead.
+func timelineStateKey(state string) string {
+	switch state {
+	case string(domain.StateNew):
+		return "tickets.timeline.state.new"
+	case string(domain.StateInProgress):
+		return "tickets.timeline.state.in_progress"
+	case string(domain.StateResolved):
+		return "tickets.timeline.state.resolved"
+	case string(domain.StateClosed):
+		return "tickets.timeline.state.closed"
+	case string(domain.StateCancelled):
+		return "tickets.timeline.state.cancelled"
+	default:
+		return ""
+	}
+}
+
+// timelineStateArg resolves a transition target into a translated placeholder
+// when the state is known, and into its raw value otherwise, so an unrecognized
+// state never renders a raw catalogue key.
+func timelineStateArg(state string) Arg {
+	if key := timelineStateKey(state); key != "" {
+		return Copy(key)
+	}
+	return Text(state)
 }
 
 func isClosedState(s string) bool {

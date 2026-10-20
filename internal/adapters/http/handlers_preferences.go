@@ -70,7 +70,7 @@ func queueOrderOptions() []queueOrderOption {
 func (h *PreferencesHandlers) index(w http.ResponseWriter, r *http.Request) {
 	current, err := h.preferences.GetDefaultQueueOrder(r.Context(), *userFromContext(r.Context()))
 	if err != nil {
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		httpError(w, r, "error.internal_server", http.StatusInternalServerError)
 		return
 	}
 	h.renderer.Render(w, r, "preferences", "", h.data(r, current, ""), http.StatusOK)
@@ -81,12 +81,12 @@ func (h *PreferencesHandlers) index(w http.ResponseWriter, r *http.Request) {
 // back to /preferences with the shared save feedback.
 func (h *PreferencesHandlers) update(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		httpError(w, r, "error.internal_server", http.StatusInternalServerError)
 		return
 	}
 	err := h.preferences.SetDefaultQueueOrder(r.Context(), *userFromContext(r.Context()), r.Form.Get("queue_order"))
 	if err != nil {
-		status, msg := mapError(err)
+		status, msg := mapErrorFor(r, err)
 		if status == http.StatusInternalServerError {
 			http.Error(w, msg, status)
 			return
@@ -96,7 +96,7 @@ func (h *PreferencesHandlers) update(w http.ResponseWriter, r *http.Request) {
 		// never render an unvalidated order as selected.
 		current, getErr := h.preferences.GetDefaultQueueOrder(r.Context(), *userFromContext(r.Context()))
 		if getErr != nil {
-			http.Error(w, "Internal server error", http.StatusInternalServerError)
+			httpError(w, r, "error.internal_server", http.StatusInternalServerError)
 			return
 		}
 		h.renderer.Render(w, r, "preferences", "", h.data(r, current, msg), status)

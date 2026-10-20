@@ -180,17 +180,17 @@ func (h *CategorySLAHandlers) get(w http.ResponseWriter, r *http.Request) {
 	}
 	categoryID, ok := categoryID(r)
 	if !ok {
-		http.Error(w, "invalid category id", http.StatusBadRequest)
+		httpError(w, r, "error.invalid_category_id", http.StatusBadRequest)
 		return
 	}
 	category, err := h.categories.GetByID(r.Context(), categoryID)
 	if err != nil {
-		http.Error(w, mapErrorMsg(err), statusFor(err))
+		http.Error(w, mapErrorMsg(r, err), statusFor(err))
 		return
 	}
 	policies, err := h.slaStore.ListByCategory(r.Context(), categoryID)
 	if err != nil {
-		http.Error(w, mapErrorMsg(err), statusFor(err))
+		http.Error(w, mapErrorMsg(r, err), statusFor(err))
 		return
 	}
 	h.render(w, r, category, policies, "", http.StatusOK)
@@ -202,16 +202,16 @@ func (h *CategorySLAHandlers) post(w http.ResponseWriter, r *http.Request) {
 	}
 	categoryID, ok := categoryID(r)
 	if !ok {
-		http.Error(w, "invalid category id", http.StatusBadRequest)
+		httpError(w, r, "error.invalid_category_id", http.StatusBadRequest)
 		return
 	}
 	if err := r.ParseForm(); err != nil {
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		httpError(w, r, "error.internal_server", http.StatusInternalServerError)
 		return
 	}
 	category, err := h.categories.GetByID(r.Context(), categoryID)
 	if err != nil {
-		http.Error(w, mapErrorMsg(err), statusFor(err))
+		http.Error(w, mapErrorMsg(r, err), statusFor(err))
 		return
 	}
 	// Parse the submitted matrix BEFORE loading anything for the error
@@ -224,13 +224,13 @@ func (h *CategorySLAHandlers) post(w http.ResponseWriter, r *http.Request) {
 	if r.PostFormValue("action") == categorySLAResetAction {
 		defaults, err := h.slaStore.ListDefaults(r.Context())
 		if err != nil {
-			http.Error(w, mapErrorMsg(err), statusFor(err))
+			http.Error(w, mapErrorMsg(r, err), statusFor(err))
 			return
 		}
 		policies = defaults
 	}
 	if err := h.sla.SetCategoryTargets(r.Context(), *userFromContext(r.Context()), categoryID, policies); err != nil {
-		status, msg := mapError(err)
+		status, msg := mapErrorFor(r, err)
 		if status == http.StatusInternalServerError {
 			http.Error(w, msg, status)
 			return
@@ -250,7 +250,7 @@ func (h *CategorySLAHandlers) post(w http.ResponseWriter, r *http.Request) {
 func (h *CategorySLAHandlers) render(w http.ResponseWriter, r *http.Request, category *domain.Category, policies []domain.SLAPolicy, errorMessage string, status int) {
 	defaults, err := h.slaStore.ListDefaults(r.Context())
 	if err != nil {
-		http.Error(w, mapErrorMsg(err), statusFor(err))
+		http.Error(w, mapErrorMsg(r, err), statusFor(err))
 		return
 	}
 	data := categorySLAData{

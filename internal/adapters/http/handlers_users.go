@@ -240,7 +240,7 @@ func (h *UserHandlers) index(w http.ResponseWriter, r *http.Request) {
 	actor := *userFromContext(r.Context())
 	data, err := h.usersIndexData(r, actor, normalizeUsersStatus(r.URL.Query().Get("status")))
 	if err != nil {
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		httpError(w, r, "error.internal_server", http.StatusInternalServerError)
 		return
 	}
 	data.UsersAssets = true
@@ -290,7 +290,7 @@ func (h *UserHandlers) newForm(w http.ResponseWriter, r *http.Request) {
 	}
 	data, err := h.usersIndexData(r, actor, status)
 	if err != nil {
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		httpError(w, r, "error.internal_server", http.StatusInternalServerError)
 		return
 	}
 	data.UsersAssets = true
@@ -304,7 +304,7 @@ func (h *UserHandlers) create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := r.ParseForm(); err != nil {
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		httpError(w, r, "error.internal_server", http.StatusInternalServerError)
 		return
 	}
 	_, err := h.users.Create(r.Context(), *userFromContext(r.Context()), application.CreateUserInput{
@@ -319,7 +319,7 @@ func (h *UserHandlers) create(w http.ResponseWriter, r *http.Request) {
 	if r.Header.Get("HX-Request") != "" {
 		data, err := h.usersIndexData(r, *userFromContext(r.Context()), usersStatusAll)
 		if err != nil {
-			http.Error(w, "Internal server error", http.StatusInternalServerError)
+			httpError(w, r, "error.internal_server", http.StatusInternalServerError)
 			return
 		}
 		data.UsersAssets = true
@@ -374,13 +374,13 @@ func (h *UserHandlers) editForm(w http.ResponseWriter, r *http.Request) {
 	}
 	id, ok := userID(r)
 	if !ok {
-		http.Error(w, "invalid user id", http.StatusBadRequest)
+		httpError(w, r, "error.invalid_user_id", http.StatusBadRequest)
 		return
 	}
 	actor := *userFromContext(r.Context())
 	u, err := h.users.GetByID(r.Context(), id)
 	if err != nil {
-		http.Error(w, mapErrorMsg(err), statusFor(err))
+		http.Error(w, mapErrorMsg(r, err), statusFor(err))
 		return
 	}
 	policy := application.NewPolicy()
@@ -389,11 +389,11 @@ func (h *UserHandlers) editForm(w http.ResponseWriter, r *http.Request) {
 		targetRole = domain.RoleUser
 	}
 	if targetRole == domain.RoleRoot {
-		http.Error(w, mapErrorMsg(domain.NewRootProtectedError()), http.StatusForbidden)
+		http.Error(w, mapErrorMsg(r, domain.NewRootProtectedError()), http.StatusForbidden)
 		return
 	}
 	if !policy.CanManageUser(actor.Role, targetRole) {
-		http.Error(w, "admin accounts require root", http.StatusForbidden)
+		httpError(w, r, "error.admin_requires_root", http.StatusForbidden)
 		return
 	}
 	status := normalizeUsersStatus(r.URL.Query().Get("status"))
@@ -404,7 +404,7 @@ func (h *UserHandlers) editForm(w http.ResponseWriter, r *http.Request) {
 	}
 	data, err := h.usersIndexData(r, actor, status)
 	if err != nil {
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		httpError(w, r, "error.internal_server", http.StatusInternalServerError)
 		return
 	}
 	data.UsersAssets = true
@@ -420,11 +420,11 @@ func (h *UserHandlers) update(w http.ResponseWriter, r *http.Request) {
 	}
 	id, ok := userID(r)
 	if !ok {
-		http.Error(w, "invalid user id", http.StatusBadRequest)
+		httpError(w, r, "error.invalid_user_id", http.StatusBadRequest)
 		return
 	}
 	if err := r.ParseForm(); err != nil {
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		httpError(w, r, "error.internal_server", http.StatusInternalServerError)
 		return
 	}
 
@@ -457,7 +457,7 @@ func (h *UserHandlers) update(w http.ResponseWriter, r *http.Request) {
 	if r.Header.Get("HX-Request") != "" {
 		data, err := h.usersIndexData(r, *userFromContext(r.Context()), status)
 		if err != nil {
-			http.Error(w, "Internal server error", http.StatusInternalServerError)
+			httpError(w, r, "error.internal_server", http.StatusInternalServerError)
 			return
 		}
 		data.UsersAssets = true
@@ -478,11 +478,11 @@ func (h *UserHandlers) changePassword(w http.ResponseWriter, r *http.Request) {
 	}
 	id, ok := userID(r)
 	if !ok {
-		http.Error(w, "invalid user id", http.StatusBadRequest)
+		httpError(w, r, "error.invalid_user_id", http.StatusBadRequest)
 		return
 	}
 	if err := r.ParseForm(); err != nil {
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		httpError(w, r, "error.internal_server", http.StatusInternalServerError)
 		return
 	}
 	if err := h.users.ChangePassword(r.Context(), *userFromContext(r.Context()), id, r.Form.Get("password")); err != nil {
@@ -498,11 +498,11 @@ func (h *UserHandlers) delete(w http.ResponseWriter, r *http.Request) {
 	}
 	id, ok := userID(r)
 	if !ok {
-		http.Error(w, "invalid user id", http.StatusBadRequest)
+		httpError(w, r, "error.invalid_user_id", http.StatusBadRequest)
 		return
 	}
 	if err := h.users.Delete(r.Context(), *userFromContext(r.Context()), id); err != nil {
-		status, msg := mapError(err)
+		status, msg := mapErrorFor(r, err)
 		if status == http.StatusInternalServerError {
 			http.Error(w, msg, status)
 			return
@@ -514,7 +514,7 @@ func (h *UserHandlers) delete(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *UserHandlers) renderUsersCreationError(w http.ResponseWriter, r *http.Request, err error) {
-	status, msg := mapError(err)
+	status, msg := mapErrorFor(r, err)
 	if status == http.StatusInternalServerError {
 		http.Error(w, msg, status)
 		return
@@ -531,7 +531,7 @@ func (h *UserHandlers) renderUsersCreationError(w http.ResponseWriter, r *http.R
 	}
 	data, dataErr := h.usersIndexData(r, actor, statusFilter)
 	if dataErr != nil {
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		httpError(w, r, "error.internal_server", http.StatusInternalServerError)
 		return
 	}
 	data.UsersAssets = true
@@ -546,7 +546,7 @@ func (h *UserHandlers) renderUserFormError(w http.ResponseWriter, r *http.Reques
 		h.renderUsersCreationError(w, r, err)
 		return
 	}
-	status, msg := mapError(err)
+	status, msg := mapErrorFor(r, err)
 	if status == http.StatusInternalServerError {
 		http.Error(w, msg, status)
 		return
@@ -578,7 +578,7 @@ func userFormErrorField(err error) string {
 }
 
 func (h *UserHandlers) renderUsersDrawerError(w http.ResponseWriter, r *http.Request, id int64, err error) {
-	status, msg := mapError(err)
+	status, msg := mapErrorFor(r, err)
 	if status == http.StatusInternalServerError {
 		http.Error(w, msg, status)
 		return
@@ -605,7 +605,7 @@ func (h *UserHandlers) renderUsersDrawerError(w http.ResponseWriter, r *http.Req
 	}
 	data, dataErr := h.usersIndexData(r, actor, statusFilter)
 	if dataErr != nil {
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		httpError(w, r, "error.internal_server", http.StatusInternalServerError)
 		return
 	}
 	data.UsersAssets = true
@@ -627,7 +627,7 @@ func (h *UserHandlers) renderUsersIndexError(w http.ResponseWriter, r *http.Requ
 	actor := *userFromContext(r.Context())
 	data, err := h.usersIndexData(r, actor, usersStatusAll)
 	if err != nil {
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		httpError(w, r, "error.internal_server", http.StatusInternalServerError)
 		return
 	}
 	data.UsersAssets = true

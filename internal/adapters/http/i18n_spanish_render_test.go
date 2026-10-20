@@ -1,11 +1,18 @@
 package httpadapter
 
 import (
+	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/giulianotesta7/tkt/internal/application"
+	"github.com/giulianotesta7/tkt/internal/domain"
+	"github.com/giulianotesta7/tkt/internal/i18n"
 	"github.com/giulianotesta7/tkt/web/templates"
 )
 
@@ -228,6 +235,368 @@ func TestSpanishSettingsScreen(t *testing.T) {
 	}
 }
 
+// TestSpanishValidationErrors proves mapErrorFor resolves the mapped copy in the
+// request's interface language: one validation error per family (ticket, user,
+// category, workflow, SLA) reads Spanish on a Spanish request, and the dynamic
+// transition error interpolates its translated states. The English contract of
+// mapError is untouched.
+func TestSpanishValidationErrors(t *testing.T) {
+	request := func(locale string) *http.Request {
+		req := httptest.NewRequest(http.MethodGet, "/", nil)
+		return req.WithContext(context.WithValue(req.Context(), ctxKeyInterfaceLanguage{}, locale))
+	}
+	es := request("es")
+	cases := []struct {
+		name string
+		err  error
+		want string
+	}{
+		{"ticket", &domain.ValidationError{Field: "title", Message: domain.ErrMsgTitleRequired}, "el título es obligatorio"},
+		{"user", &domain.ValidationError{Field: "email", Message: domain.ErrMsgUserEmailRequired}, "el correo electrónico es obligatorio"},
+		{"category", &domain.ValidationError{Field: "name", Message: domain.ErrMsgCategoryNameRequired}, "el nombre de la categoría es obligatorio"},
+		{"workflow", &domain.ValidationError{Field: "steps", Message: "workflow must have at least one step"}, "el flujo debe tener al menos un paso"},
+		{"SLA", &domain.ValidationError{Field: "warning", Message: "the SLA warning percent must be between 1 and 99"}, "el porcentaje de aviso del SLA debe estar entre 1 y 99"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			status, msg := mapErrorFor(es, tc.err)
+			if status != http.StatusUnprocessableEntity {
+				t.Errorf("mapErrorFor status = %d, want %d", status, http.StatusUnprocessableEntity)
+			}
+			if msg != tc.want {
+				t.Errorf("mapErrorFor(%s) = %q, want %q", tc.name, msg, tc.want)
+			}
+		})
+	}
+
+	transition := domain.NewInvalidTransitionError(domain.StateNew, domain.StateClosed)
+	if _, msg := mapErrorFor(es, transition); msg != "no se permite la transición de nuevo a cerrado" {
+		t.Errorf("Spanish transition error = %q", msg)
+	}
+
+	// English is unchanged: the same call through an English request answers the
+	// historical messages byte for byte.
+	en := request("en")
+	if _, msg := mapErrorFor(en, transition); msg != "transition not allowed from new to closed" {
+		t.Errorf("English transition error = %q, want the historical message", msg)
+	}
+	if _, msg := mapErrorFor(en, &domain.ValidationError{Field: "title", Message: domain.ErrMsgTitleRequired}); msg != domain.ErrMsgTitleRequired {
+		t.Errorf("English validation error = %q, want %q", msg, domain.ErrMsgTitleRequired)
+	}
+}
+
+// TestSpanishMetrics renders the compact summary and the metrics detail page in
+// Spanish: every panel heading, filter label, scope line, legend and attainment
+// header comes from the catalogue, including the enum-driven group names.
+func TestSpanishMetrics(t *testing.T) {
+	summary := renderLocalized(t, "es", "ticket_metrics_detail", "ticket_metrics_summary_content", ticketMetricsSummaryData())
+	for _, want := range []string{"Resumen operativo", "Tickets pendientes", "Tickets sin asignar", "Resueltos esta semana", "Tiempo medio de resolución", "Ver métricas"} {
+		if !strings.Contains(summary, want) {
+			t.Errorf("Spanish metrics summary must render %q, got: %.800s", want, summary)
+		}
+	}
+	if strings.Contains(summary, "Operational summary") {
+		t.Error("Spanish metrics summary must not render the English heading")
+	}
+
+	detail := renderLocalized(t, "es", "ticket_metrics_detail", "ticket_metrics_detail_content", ticketMetricsRenderData())
+	for _, want := range []string{
+		"Métricas de tickets",
+		"Carga operativa y resolución",
+		"Volver a los tickets",
+		"Cargando métricas",
+		"Todas las mesas",
+		"Todos los agentes",
+		"Creados frente a resueltos",
+		"Ver datos",
+		"Antigüedad de los tickets pendientes",
+		"Carga pendiente",
+		"Por agente",
+		"Por mesa",
+		"Carga pendiente por agente actual",
+		"Distribución del tiempo de resolución",
+		"Cumplimiento del SLA",
+		"Cumplimiento del SLA por Prioridad",
+		"Primera respuesta",
+		"Resolución",
+	} {
+		if !strings.Contains(detail, want) {
+			t.Errorf("Spanish metrics detail must render %q, got: %.1400s", want, detail)
+		}
+	}
+	for _, unwanted := range []string{"Ticket metrics", "Created vs resolved", "SLA attainment"} {
+		if strings.Contains(detail, unwanted) {
+			t.Errorf("Spanish metrics detail must not render the English %q", unwanted)
+		}
+	}
+}
+
+// ticketMetricsSummaryData is a small summary fixture with all four cards set.
+func ticketMetricsSummaryData() ticketMetricsData {
+	return ticketMetricsData{
+		Metrics:                  application.TicketMetrics{Pending: 4, Unassigned: 1, Resolved: 3},
+		MeanResolution:           "2 h",
+		MeanResolutionIsDuration: true,
+		ReturnHref:               "/tickets",
+	}
+}
+
+// ticketMetricsRenderData is a detail fixture that exercises every panel and the
+// enum-driven group names (workload by agent, attainment by priority).
+func ticketMetricsRenderData() ticketMetricsDetailData {
+	milestone := ticketMetricsAttainmentMilestoneView{Met: 1, Breached: 0, Open: 1, Decided: 1, Rate: "100%"}
+	return ticketMetricsDetailData{
+		pageData: pageData{NavActive: "tickets"},
+		ticketMetricsData: ticketMetricsData{
+			Metrics: application.TicketMetrics{
+				Pending:    4,
+				Unassigned: 1,
+				Created:    5,
+				Resolved:   3,
+				Samples:    3,
+				WorkloadBy: "agent",
+				Weeks:      []application.TicketMetricsWeek{{Start: time.Date(2026, 3, 2, 0, 0, 0, 0, time.UTC), Created: 5, Resolved: 3}},
+				Ages:       []application.TicketMetricsBucket{{Label: "0-1 days", Count: 2}},
+				Workload:   []application.TicketMetricsWorkload{{Label: "Ana", Count: 2}},
+				Histogram:  []application.TicketMetricsBucket{{Label: "0-1 days", Count: 3}},
+			},
+			MeanResolution:           "2 h",
+			MeanResolutionIsDuration: true,
+			Attainment: ticketMetricsAttainmentView{
+				GroupBy:       "priority",
+				Cohort:        2,
+				FirstResponse: milestone,
+				Resolve:       ticketMetricsAttainmentMilestoneView{Open: 2, Rate: "0%"},
+				Groups: []ticketMetricsAttainmentGroupView{
+					{Label: "Alta", Tickets: 1, FirstResponse: milestone, Resolve: ticketMetricsAttainmentMilestoneView{Open: 1, Rate: "0%"}},
+				},
+			},
+		},
+		BackHref: "/tickets",
+	}
+}
+
+// TestSpanishTimelineNarrative renders the ticket timeline in Spanish: the
+// comment verbs and the audit-event narrative sentences (assignment, state
+// move, creation) all come from the catalogue as application.Msg references.
+func TestSpanishTimelineNarrative(t *testing.T) {
+	data := fixtureDetailData()
+	// The golden fixture pins the view model directly, so bind the catalogue
+	// references enrichTimeline attaches in production (the application-layer
+	// test TestEventSummaryMsg pins the construction itself).
+	data.View.Timeline[1].NarrativeMsg = application.MsgRef("tickets.timeline.narrative.assigned_to", application.Text("Ana Torres"))
+	data.View.Timeline[2].NarrativeMsg = application.MsgRef("tickets.timeline.narrative.moved_to", application.Copy("tickets.timeline.state.in_progress"))
+	data.View.Timeline[3].NarrativeMsg = application.MsgRef("tickets.timeline.narrative.created")
+	// A changed field interpolates the FIELD NAME and its VALUE as catalogue
+	// messages too (TestTicketViewBuildsTheChangedFieldNarrativeFromTheCatalogue
+	// pins the construction), so neither an English field word nor an English
+	// priority label leaks into a Spanish sentence.
+	data.View.Timeline = append(data.View.Timeline, application.TimelineItem{
+		Event:      &data.View.AuditEvents[0],
+		ActorLabel: "Admin",
+		NarrativeMsg: application.MsgRef("tickets.timeline.narrative.changed_to",
+			application.Copy("tickets.timeline.field.priority"), application.Copy("label.priority.low")),
+	})
+	body := renderLocalized(t, "es", "tickets_show", "timeline", data)
+	for _, want := range []string{
+		"agregó un comentario público",
+		"asignó el ticket a Ana Torres",
+		"movió el ticket a en curso",
+		"creó el ticket",
+		"cambió la prioridad a Baja",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("Spanish timeline must render %q, got: %.1000s", want, body)
+		}
+	}
+	for _, unwanted := range []string{"added a public comment", "moved the ticket to in progress", "created the ticket", "changed priority", " to Low"} {
+		if strings.Contains(body, unwanted) {
+			t.Errorf("Spanish timeline must not render the English %q", unwanted)
+		}
+	}
+}
+
+// TestSpanishWorkflowBuilder renders the workflow builder page in Spanish: the
+// page chrome, the step-kind labels resolved from the catalogue, the editor and
+// dialog copy all follow the instance language. The disabled add options carry
+// the catalogue refusal too.
+func TestSpanishWorkflowBuilder(t *testing.T) {
+	data := mobileBuilderPageData()
+	data.Draft = append(data.Draft, domain.WorkflowDefinition{{Type: domain.StepResolve}}...)
+	data.Steps = workflowStepViews(data.Draft, 0, data.Desks)
+	data.HasFinal = true
+	body := renderLocalized(t, "es", "category_workflow", "", data)
+	for _, want := range []string{
+		"Flujo de la categoría",
+		"Construye un recorrido ordenado para esta categoría.",
+		"Pasos del flujo",
+		"Selecciona un paso para configurarlo. Arrastra para reordenar.",
+		"Dar una tarea al agente",
+		"Enviar a una mesa",
+		"Pedir información",
+		// Step-card facts come from the catalogue too, while the admin-authored
+		// instruction and the desk name stay data (S8/S11).
+		"Triage and answer the ticket.",
+		"Miembros de Support",
+		"En curso",
+		"Automático",
+		"Resuelto",
+		">+ Agregar paso</summary>",
+		"No se puede agregar · este flujo ya tiene un cierre",
+		"¿Quitar este paso?",
+		"El paso y sus campos se quitarán del flujo.",
+		"¿Guardar los cambios del flujo?",
+		"¿Salir sin guardar?",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("Spanish workflow builder must render %q, got: %.1600s", want, body)
+		}
+	}
+	for _, unwanted := range []string{">Category workflow<", ">Workflow steps<", ">Give the agent a task<", ">Members of Support<", ">In progress<", ">Automatic<"} {
+		if strings.Contains(body, unwanted) {
+			t.Errorf("Spanish workflow builder must not render the English %q", unwanted)
+		}
+	}
+}
+
+// TestSpanishWorkflowBuilderIssues renders the builder's validation banners in
+// Spanish: a domain validation issue is addressed by a catalogue key (the
+// domain keeps the English Message and exposes the finding as structured data),
+// the draft-conflict refusal follows the instance language, and an issue that
+// carries no key still renders its own text verbatim.
+func TestSpanishWorkflowBuilderIssues(t *testing.T) {
+	data := mobileBuilderPageData()
+	data.Issues = []domain.WorkflowValidationIssue{
+		{Step: 1, Field: "steps", Message: "workflow must have at least one step", Key: "error.workflow_min_steps"},
+		{Step: 1, Field: "draft", Message: draftConflictMessage, Key: "error.workflow_draft_conflict"},
+		{Step: 1, Field: "raw", Message: "raw internal detail"},
+	}
+	body := renderLocalized(t, "es", "category_workflow", "workflow_builder", data)
+	for _, want := range []string{
+		"el flujo debe tener al menos un paso",
+		"Otra sesión cambió este flujo mientras lo editabas. Tu cambio no se guardó; abajo se muestra el borrador más reciente.",
+		"raw internal detail",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("Spanish workflow builder must render %q, got: %.1600s", want, body)
+		}
+	}
+	for _, unwanted := range []string{
+		"workflow must have at least one step",
+		draftConflictMessage,
+	} {
+		if strings.Contains(body, unwanted) {
+			t.Errorf("Spanish workflow builder must not render the English %q", unwanted)
+		}
+	}
+}
+
+// TestSpanishMetricsCharts renders the age and workload charts in Spanish: the
+// chart's accessible label, its visible axis title, and the four fixed age
+// bucket labels all come from the catalogue, so no English word survives on a
+// Spanish metrics page (S8).
+func TestSpanishMetricsCharts(t *testing.T) {
+	ages := []application.TicketMetricsBucket{
+		{Label: "0–2 days", LabelKey: "ticket_metrics.age.bucket.0_2", Count: 2},
+		{Label: "3–7 days", LabelKey: "ticket_metrics.age.bucket.3_7", Count: 1},
+		{Label: "8–14 days", LabelKey: "ticket_metrics.age.bucket.8_14", Count: 0},
+		{Label: ">14 days", LabelKey: "ticket_metrics.age.bucket.14_plus", Count: 1},
+	}
+	ageSVG := string(metricsAgeChart(i18n.New("es"), ages))
+	for _, want := range []string{
+		"0–2 días", "3–7 días", "8–14 días", "&gt;14 días",
+		"Tickets pendientes",
+		"Tickets pendientes por antigüedad transcurrida completada.",
+	} {
+		if !strings.Contains(ageSVG, want) {
+			t.Errorf("Spanish age chart must render %q: %.1200s", want, ageSVG)
+		}
+	}
+	for _, unwanted := range []string{"0–2 days", "3–7 days", ">14 days", ">Pending tickets<", "by completed elapsed age"} {
+		if strings.Contains(ageSVG, unwanted) {
+			t.Errorf("Spanish age chart must not render the English %q: %.1200s", unwanted, ageSVG)
+		}
+	}
+
+	workloadSVG := string(metricsWorkloadChart(i18n.New("es"), []application.TicketMetricsWorkload{{Label: "Ana", Count: 2, Unassigned: false}}, "Carga pendiente"))
+	for _, want := range []string{"Carga pendiente. Eje X de 0 a 2. Título del eje X: Tickets pendientes.", ">Tickets pendientes<"} {
+		if !strings.Contains(workloadSVG, want) {
+			t.Errorf("Spanish workload chart must render %q: %.1200s", want, workloadSVG)
+		}
+	}
+}
+
+// TestSpanishWorkflowChecklist drives the real ticket-detail handler on a
+// Spanish instance: the Steps checklist is composed in Go, so this proves the
+// step names, the current row's control facts, the pending status lines and the
+// automatic-completion attribution all follow the catalogue instead of leaking
+// the English literals (S8).
+func TestSpanishWorkflowChecklist(t *testing.T) {
+	h := newHarness(t)
+	if err := h.settings.SetInterfaceLanguage(t.Context(), *h.admin, application.InterfaceLanguageSpanish); err != nil {
+		t.Fatalf("set interface language: %v", err)
+	}
+	cat, err := h.categories.Create(t.Context(), "Lista")
+	if err != nil {
+		t.Fatalf("create category: %v", err)
+	}
+	h.publishWorkflow(t, cat.ID, domain.WorkflowDefinition{
+		{Type: domain.StepManualTask, ManualTask: &domain.ManualTaskStep{Instructions: "Hacer el trabajo"}},
+		{Type: domain.StepManualTask, ManualTask: &domain.ManualTaskStep{Instructions: "Llamar a quien reportó"}},
+		{Type: domain.StepResolve},
+	})
+	tkt := h.seedTicket(t, "lista en español", func(in *application.CreateTicketInput) { in.CategoryID = cat.ID })
+	h.assignTicket(t, tkt.ID, h.admin.ID)
+
+	body := h.get(t, "/tickets/"+strconv.FormatInt(tkt.ID, 10), false).Body.String()
+	for _, want := range []string{
+		"Asignado a Admin · tú",
+		"Esperando el paso anterior",
+		"Se ejecuta por sí solo",
+		"El ticket se marca como resuelto",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("Spanish checklist must render %q, got: %.1600s", want, body)
+		}
+	}
+	for _, unwanted := range []string{
+		"Assigned to Admin",
+		"Waiting on the step before it",
+		"Runs on its own",
+		"The ticket is marked resolved",
+	} {
+		if strings.Contains(body, unwanted) {
+			t.Errorf("Spanish checklist must not render the English %q", unwanted)
+		}
+	}
+}
+
+// TestSpanishBadIdentifierErrors proves the plain-text 400 responses for a
+// malformed route identifier follow the instance language too, so a Spanish
+// instance never answers an English sentence (S8).
+func TestSpanishBadIdentifierErrors(t *testing.T) {
+	h := newHarness(t)
+	if err := h.settings.SetInterfaceLanguage(t.Context(), *h.admin, application.InterfaceLanguageSpanish); err != nil {
+		t.Fatalf("set interface language: %v", err)
+	}
+	for _, tc := range []struct {
+		path string
+		want string
+	}{
+		{"/tickets/not-a-number", "id de ticket inválido"},
+		{"/users/not-a-number/edit", "id de usuario inválido"},
+		{"/categories/not-a-number/edit", "id de categoría inválido"},
+	} {
+		rec := h.get(t, tc.path, false)
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("GET %s = %d, want 400: %s", tc.path, rec.Code, rec.Body.String())
+		}
+		if body := rec.Body.String(); !strings.Contains(body, tc.want) {
+			t.Errorf("GET %s must render %q, got %q", tc.path, tc.want, strings.TrimSpace(body))
+		}
+	}
+}
+
 // TestSpanishSetupShell renders the first-account screen in Spanish: the shell
 // copy and the form labels/placeholders both come from the catalogue, so no
 // English literal survives on the setup path.
@@ -252,5 +621,277 @@ func TestSpanishSetupShell(t *testing.T) {
 		if strings.Contains(body, unwanted) {
 			t.Errorf("Spanish setup page must not render the English %q", unwanted)
 		}
+	}
+}
+
+// TestSpanishInterpolatedErrors proves the user-facing errors that interpolate
+// a value (an SLA policy, workflow validation, workflow-answer parsing) follow
+// the instance language through a structured key and args, while the English
+// contract stays the domain's own bytes (S8, S13).
+func TestSpanishInterpolatedErrors(t *testing.T) {
+	request := func(locale string) *http.Request {
+		req := httptest.NewRequest(http.MethodGet, "/", nil)
+		return req.WithContext(context.WithValue(req.Context(), ctxKeyInterfaceLanguage{}, locale))
+	}
+	cases := []struct {
+		name string
+		err  error
+		en   string
+		es   string
+	}{
+		{
+			"SLA missing policy",
+			&domain.ValidationError{Field: "low", Message: `missing SLA policy for priority "low"`, Key: "error.sla_missing_policy", Args: []any{domain.PriorityLow}},
+			`missing SLA policy for priority "low"`,
+			`falta la política de SLA para la prioridad "Baja"`,
+		},
+		{
+			"SLA first response minimum",
+			&domain.ValidationError{Field: "high", Message: `first response target for priority "high" is below 60 seconds`, Key: "error.sla_first_response_min", Args: []any{domain.PriorityHigh, 60}},
+			`first response target for priority "high" is below 60 seconds`,
+			`el objetivo de primera respuesta para la prioridad "Alta" es inferior a 60 segundos`,
+		},
+		{
+			"workflow step validation",
+			&domain.ValidationError{Field: "answers", Message: "Step 2: choose a desk", Key: "error.workflow.choose_desk", Args: []any{2}},
+			"Step 2: choose a desk",
+			"Paso 2: elige una mesa",
+		},
+		{
+			"workflow answer parsing",
+			&domain.ValidationError{Field: "answers", Message: "unknown position 3", Key: "error.answers.unknown_position", Args: []any{3}},
+			"unknown position 3",
+			"posición desconocida 3",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if _, got := mapErrorFor(request("es"), tc.err); got != tc.es {
+				t.Errorf("Spanish %s = %q, want %q", tc.name, got, tc.es)
+			}
+			if _, got := mapErrorFor(request("en"), tc.err); got != tc.en {
+				t.Errorf("English %s = %q, want the domain bytes %q", tc.name, got, tc.en)
+			}
+		})
+	}
+}
+
+// TestSpanishEntityErrors proves NotFound/Duplicate/Referenced errors render the
+// labelled entity kind in Spanish and keep the domain bytes in English.
+func TestSpanishEntityErrors(t *testing.T) {
+	request := func(locale string) *http.Request {
+		req := httptest.NewRequest(http.MethodGet, "/", nil)
+		return req.WithContext(context.WithValue(req.Context(), ctxKeyInterfaceLanguage{}, locale))
+	}
+	cases := []struct {
+		name string
+		err  error
+		en   string
+		es   string
+	}{
+		{"not found", &domain.NotFoundError{Kind: "ticket", ID: int64(7)}, "ticket not found", "el ticket no existe"},
+		{"duplicate", &domain.DuplicateError{Kind: "user", Name: "ana@example.com"}, `user "ana@example.com" already exists`, `el usuario "ana@example.com" ya existe`},
+		{"referenced", &domain.ReferencedError{Kind: "category", ID: int64(7)}, "category is referenced and cannot be deleted", "la categoría está en uso y no se puede eliminar"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if _, got := mapErrorFor(request("es"), tc.err); got != tc.es {
+				t.Errorf("Spanish %s = %q, want %q", tc.name, got, tc.es)
+			}
+			if _, got := mapErrorFor(request("en"), tc.err); got != tc.en {
+				t.Errorf("English %s = %q, want the domain bytes %q", tc.name, got, tc.en)
+			}
+		})
+	}
+}
+
+// TestSpanishWorkflowValidationIssueArgs proves the per-step Validate findings
+// carry a key and args, so a Spanish builder shows the finding in Spanish with
+// its step number and field values interpolated.
+func TestSpanishWorkflowValidationIssueArgs(t *testing.T) {
+	tr := i18n.New("es")
+	issue := domain.WorkflowValidationIssue{
+		Step: 2, Field: "type",
+		Message: "Step 2: unknown step type \"bogus\"",
+		Key:     "error.workflow.unknown_step_type",
+		Args:    []any{2, "bogus"},
+	}
+	if got := workflowIssueMessage(tr, issue); got != `Paso 2: tipo de paso desconocido "bogus"` {
+		t.Errorf("Spanish workflow issue = %q", got)
+	}
+	if got := workflowIssueMessage(i18n.New("en"), issue); got != issue.Message {
+		t.Errorf("English workflow issue = %q, want the domain message %q", got, issue.Message)
+	}
+}
+
+// TestSpanishCannotRunReason proves the AssessRunnable reason reaches the
+// category badge as a catalogue reference: a Spanish instance reads the reason
+// in Spanish, and English is unchanged.
+func TestSpanishCannotRunReason(t *testing.T) {
+	def := domain.WorkflowDefinition{
+		{Type: domain.StepAssignToDesk, AssignToDesk: &domain.AssignToDeskStep{DeskID: 5, Strategy: domain.StrategyClaim}},
+	}
+	blocker := def.AssessRunnable(func(int64) (string, int, bool) { return "Infra", 0, true }).Blockers
+	if len(blocker) != 1 {
+		t.Fatalf("want one blocker, got %+v", blocker)
+	}
+	if blocker[0].ReasonKey != "error.workflow_reason.no_members" || len(blocker[0].ReasonArgs) != 1 {
+		t.Fatalf("blocker reason structure = %+v", blocker[0])
+	}
+	summary := application.WorkflowSummary{Version: 1, CannotRun: application.MsgValues(blocker[0].ReasonKey, blocker[0].ReasonArgs...)}
+	if got := resolveMsg(i18n.New("es"), categoryBadge(summary)); got != "No puede ejecutarse · Infra no tiene miembros activos" {
+		t.Errorf("Spanish cannot-run badge = %q", got)
+	}
+	if got := resolveMsg(i18n.New("en"), categoryBadge(summary)); got != "Can't run · Infra has no active members" {
+		t.Errorf("English cannot-run badge = %q", got)
+	}
+}
+
+// TestSpanishDegradeLabels proves the application-layer degrade labels that a
+// page shows follow the instance language: an unknown person or desk in a
+// workflow-assignment timeline entry reads Spanish, while a resolved name stays
+// data (S8/S11).
+func TestSpanishDegradeLabels(t *testing.T) {
+	data := fixtureDetailData()
+	data.View.Timeline = []application.TimelineItem{{
+		Event:                &domain.AuditEvent{Actor: "workflow", Action: domain.ActionWorkflowAssignment},
+		IsWorkflowAssignment: true,
+		NarrativeMsg:         application.MsgRef("tickets.timeline.narrative.assigned"),
+		AssignmentPerson:     "Unknown user",
+		AssignmentPersonMsg:  application.MsgRef("tickets.degrade.unknown_user"),
+		AssignmentDesk:       "Unknown desk",
+		AssignmentDeskMsg:    application.MsgRef("tickets.degrade.unknown_desk"),
+	}}
+	body := renderLocalized(t, "es", "tickets_show", "timeline", data)
+	for _, want := range []string{"asignó el ticket a", "Usuario desconocido", "Mesa desconocida"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("Spanish degrade timeline must render %q, got: %.800s", want, body)
+		}
+	}
+	for _, unwanted := range []string{"Unknown user", "Unknown desk"} {
+		if strings.Contains(body, unwanted) {
+			t.Errorf("Spanish degrade timeline must not render the English %q", unwanted)
+		}
+	}
+}
+
+// TestSpanishMetricsBucketLabels proves the application-supplied metrics labels
+// that are chrome follow the instance language: the resolution histogram bins
+// and the genuinely unassigned workload row.
+func TestSpanishMetricsBucketLabels(t *testing.T) {
+	bin := application.TicketMetricsBucket{Label: "0–<7 days", LabelKey: "ticket_metrics.resolution.bin", LabelArgs: []any{"0", "7"}}
+	unassigned := application.TicketMetricsWorkload{Label: "Unassigned (no agent)", LabelKey: "tickets.degrade.unassigned_no_agent"}
+	if got := bucketLabel(i18n.New("es"), bin); got != "0–<7 días" {
+		t.Errorf("Spanish histogram bin = %q, want %q", got, "0–<7 días")
+	}
+	if got := bucketLabel(i18n.New("es"), unassigned); got != "Sin asignar (sin agente)" {
+		t.Errorf("Spanish unassigned workload = %q, want %q", got, "Sin asignar (sin agente)")
+	}
+	if got := bucketLabel(i18n.New("en"), bin); got != "0–<7 days" {
+		t.Errorf("English histogram bin = %q, want the label bytes", got)
+	}
+	if got := bucketLabel(i18n.New("en"), application.TicketMetricsWorkload{Label: "Ana", Count: 2}); got != "Ana" {
+		t.Errorf("an agent name is data = %q, want %q", got, "Ana")
+	}
+	group := ticketMetricsAttainmentGroupView{Label: "High", LabelKey: "label.priority.high"}
+	if got := bucketLabel(i18n.New("es"), group); got != "Alta" {
+		t.Errorf("Spanish attainment priority label = %q, want %q", got, "Alta")
+	}
+	if got := bucketLabel(i18n.New("en"), group); got != "High" {
+		t.Errorf("English attainment priority label = %q, want the English bytes", got)
+	}
+}
+
+// TestSpanishGenericHTTPErrors proves the generic plain-text bodies a user can
+// see follow the instance language while the default locale keeps today's
+// bytes: the fallback 500, the capability refusal, and the oversized/body
+// refusals.
+func TestSpanishGenericHTTPErrors(t *testing.T) {
+	request := func(locale string) *http.Request {
+		req := httptest.NewRequest(http.MethodGet, "/", nil)
+		return req.WithContext(context.WithValue(req.Context(), ctxKeyInterfaceLanguage{}, locale))
+	}
+	if _, got := mapErrorFor(request("es"), errors.New("boom")); got != "Error interno del servidor" {
+		t.Errorf("Spanish generic 500 = %q", got)
+	}
+	if _, got := mapErrorFor(request("en"), errors.New("boom")); got != "Internal server error" {
+		t.Errorf("English generic 500 = %q, want the historical bytes", got)
+	}
+	for _, tc := range []struct {
+		key  string
+		want string
+	}{
+		{"error.forbidden", "Prohibido"},
+		{"error.request_too_large", "La solicitud es demasiado grande"},
+		{"error.bad_request", "Solicitud no válida"},
+	} {
+		rec := httptest.NewRecorder()
+		httpError(rec, request("es"), tc.key, http.StatusBadRequest)
+		if got := strings.TrimSpace(rec.Body.String()); got != tc.want {
+			t.Errorf("httpError(%s) = %q, want %q", tc.key, got, tc.want)
+		}
+	}
+}
+
+// TestSpanishPluralRendering proves the plural helper is wired into the
+// surfaces: a Spanish instance reads "1 cuenta" / "3 cuentas" and the singular
+// workload scope, while the default instance is unchanged.
+func TestSpanishPluralRendering(t *testing.T) {
+	users := fixtureUsersIndexData()
+	users.Counts.All = 1
+	if body := renderLocalized(t, "es", "users_index", "users_screen", users); !strings.Contains(body, "1 cuenta") {
+		t.Errorf("Spanish user count must read %q, got: %.600s", "1 cuenta", body)
+	}
+	users.Counts.All = 3
+	if body := renderLocalized(t, "es", "users_index", "users_screen", users); !strings.Contains(body, "3 cuentas") {
+		t.Errorf("Spanish user count must read %q, got: %.600s", "3 cuentas", body)
+	}
+
+	metrics := ticketMetricsRenderData()
+	metrics.Metrics.Pending = 1
+	if body := renderLocalized(t, "es", "ticket_metrics_detail", "ticket_metrics_detail_content", metrics); !strings.Contains(body, "Asignación actual · 1 ticket pendiente") {
+		t.Errorf("Spanish workload scope must read the singular, got: %.800s", body)
+	}
+}
+
+// TestSpanishMetricsLineChartChrome proves the created-vs-resolved line chart
+// and the resolution histogram carry no hardcoded English chrome on a Spanish
+// instance: the accessible label and the visible axis titles follow the
+// catalogue, while the English bytes are unchanged.
+func TestSpanishMetricsLineChartChrome(t *testing.T) {
+	weeks := lineChartWeeks()
+	esLine := string(metricsLineChart(i18n.New("es"), weeks))
+	for _, unwanted := range []string{"Weekly created tickets", "Y axis title Tickets"} {
+		if strings.Contains(esLine, unwanted) {
+			t.Errorf("Spanish line chart must not render the English %q: %.1200s", unwanted, esLine)
+		}
+	}
+	for _, want := range []string{"Tickets creados semanalmente", "Título del eje Y"} {
+		if !strings.Contains(esLine, want) {
+			t.Errorf("Spanish line chart must render %q: %.1200s", want, esLine)
+		}
+	}
+	enLine := string(metricsLineChart(i18n.New("en"), weeks))
+	for _, want := range []string{"Weekly created tickets as a continuous line", "Y axis title Tickets."} {
+		if !strings.Contains(enLine, want) {
+			t.Errorf("English line chart chrome changed, missing %q: %.1200s", want, enLine)
+		}
+	}
+
+	buckets := []application.TicketMetricsBucket{{LowerDays: 0, UpperDays: 7, Count: 1}}
+	esHist := string(metricsHistogramChart(i18n.New("es"), buckets))
+	for _, unwanted := range []string{"Resolved tickets by resolution duration", "X axis title Resolution time (days)"} {
+		if strings.Contains(esHist, unwanted) {
+			t.Errorf("Spanish histogram must not render the English %q: %.1200s", unwanted, esHist)
+		}
+	}
+	for _, want := range []string{"Tickets resueltos por duración de resolución", "Título del eje X"} {
+		if !strings.Contains(esHist, want) {
+			t.Errorf("Spanish histogram must render %q: %.1200s", want, esHist)
+		}
+	}
+	enHist := string(metricsHistogramChart(i18n.New("en"), buckets))
+	if !strings.Contains(enHist, "Resolved tickets by resolution duration in equal-width day bins.") {
+		t.Errorf("English histogram chrome changed: %.1200s", enHist)
 	}
 }

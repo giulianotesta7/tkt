@@ -217,7 +217,7 @@ func TestWorkflowStore_Summaries(t *testing.T) {
 	}
 	sums, _ = ws.ListSummaries(context.Background())
 	for _, v := range sums {
-		if v.CategoryID == cPub && v.CannotRun == "" {
+		if v.CategoryID == cPub && v.CannotRun.Empty() {
 			t.Fatalf("a published category whose desk has no member must say why it cannot run: %+v", v)
 		}
 	}
