@@ -20,7 +20,7 @@
     <div class="conversation">
       <div class="card">
         <h2>Description</h2>
-        <p>The login form 500s on submit</p>
+        <p class="ticket-description">The login form 500s on submit</p>
           </div>
 
 

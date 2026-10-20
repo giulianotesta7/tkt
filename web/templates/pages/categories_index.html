@@ -1,4 +1,10 @@
+{{define "title"}}{{if .Drawer}}{{if eq .Drawer.Kind "category"}}{{if .Drawer.ID}}{{tf "base.title.screen" (t "categories.new.rename")}}{{else}}{{tf "base.title.screen" (t "categories.form.title_new")}}{{end}}{{else if eq .Drawer.Kind "desk"}}{{if .Drawer.ID}}{{tf "base.title.screen" (t "categories.edit_desk")}}{{else}}{{tf "base.title.screen" (t "categories.new_desk")}}{{end}}{{else}}{{if .Drawer.ID}}{{tf "base.title.screen" (t "categories.edit_department")}}{{else}}{{tf "base.title.screen" (t "categories.new_department")}}{{end}}{{end}}{{else}}{{tf "base.title.screen" (t "base.nav.categories")}}{{end}}{{end}}
 {{define "content"}}
 <div class="users-root categories-root">{{template "categories_background" .}}<div id="category-drawer-host">{{if .Drawer}}{{template "category_drawer" .Drawer}}{{end}}</div>
+<dialog id="category-delete-dialog" aria-labelledby="category-delete-title" aria-describedby="category-delete-copy">
+  <h2 id="category-delete-title"></h2>
+  <p id="category-delete-copy">{{t "categories.delete_confirm.body"}}</p>
+  <div><button type="button" data-category-delete-cancel>{{t "common.cancel"}}</button><button type="button" data-category-delete-confirm>{{t "categories.delete_confirm.confirm"}}</button></div>
+</dialog>
 </div>
 {{end}}

@@ -133,6 +133,62 @@ test.describe("Ticket detail", () => {
     });
   });
 
+  test("the detail names the ticket in one h1 and keeps the description's line breaks", async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await loginAsSeeded(page);
+    const title = "VPN drops on the corporate network " + Date.now().toString(36).slice(2, 8);
+    const description = "Steps to reproduce:\n1. Connect\n2. Wait";
+    const id = await createTicketViaUi(page, {
+      title,
+      description,
+      category: "General",
+      priority: "high",
+    });
+
+    // The defect was measured at the phone breakpoint, so the assertions run
+    // there: the title has 362px, not a desktop column.
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto(base() + `/tickets/${id}`);
+    await expect(page.locator("#ticket-detail")).toBeVisible();
+
+    // S2: exactly one h1, and it names the ticket, so the browser tab, the
+    // outline and the heading all agree about which ticket this is.
+    const heading = page.locator("#ticket-detail h1");
+    await expect(heading).toHaveCount(1);
+    await expect(heading).toHaveText(title);
+    const number = (await page.locator("#ticket-detail .meta-row .num").first().innerText()).trim();
+    expect(number).toMatch(/^TKT-\d+$/);
+    await expect(page).toHaveTitle(`${number} · ${title} · tkt`);
+
+    // The editable title never clips silently: it carries an ellipsis
+    // affordance and the whole value in its title attribute.
+    const input = page.locator("#ticket-title");
+    await expect(input).toHaveCSS("text-overflow", "ellipsis");
+    await expect(input).toHaveAttribute("title", title);
+
+    // S3: the description keeps the breaks the author typed.
+    const rendered = page.locator("#ticket-detail .ticket-description");
+    await expect(rendered).toHaveText(description);
+    const metrics = await rendered.evaluate((el) => {
+      const style = getComputedStyle(el);
+      return {
+        whiteSpace: style.whiteSpace,
+        lineHeight: Number.parseFloat(style.lineHeight),
+        height: el.getBoundingClientRect().height,
+      };
+    });
+    expect(metrics.whiteSpace, "the description must render its authored line breaks").toBe(
+      "pre-line",
+    );
+    expect(Number.isFinite(metrics.lineHeight), "the line height must be a length").toBe(true);
+    expect(
+      metrics.height,
+      `three authored lines must occupy at least three line boxes, got ${metrics.height}px at ${metrics.lineHeight}px each`,
+    ).toBeGreaterThanOrEqual(metrics.lineHeight * 2.5);
+  });
+
   test("comment form hidden on closed states; requester-owned close blocked", async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 800 });
     const obs = collectObservability(page);

@@ -3,30 +3,31 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{{t "base.title"}}</title>
+<title>{{block "title" .}}{{t "base.title"}}{{end}}</title>
 {{template "styles" .}}
 {{if .UsersAssets}}<link rel="stylesheet" href="/static/users.css"><script src="/static/users.js" defer></script>{{else if or .PageFoundationAssets .CategoryAssets}}<link rel="stylesheet" href="/static/users.css">{{end}}{{if .CategoryAssets}}<script src="/static/categories.js" defer></script>{{end}}{{if .WorkflowAssets}}<script src="/static/workflow.js" defer></script>{{end}}{{if and (eq .NavActive "tickets") (or (eq .CurrentUser.Role "agent") (eq .CurrentUser.Role "user"))}}<script src="/static/tickets.js" defer></script>{{end}}{{if .MetricsAssets}}<link rel="stylesheet" href="/static/ticket_metrics.css"><script src="/static/ticket_metrics.js" defer></script>{{end}}{{if .SLACountdownAssets}}<script src="/static/sla_countdown.js" defer></script>{{end}}<script src="/static/save-feedback.js" defer></script><script src="/static/htmx.min.js" defer></script>
 </head>
 <body{{if or .UsersAssets .PageFoundationAssets}} class="users-page-body"{{end}}>
+<a class="skip-link" href="#main-content">{{t "base.skip_link"}}</a>
 <div class="layout">
   <aside class="rail">
     <a class="rail-brand" href="/tickets" title="tkt">tkt</a>
     <nav class="rail-nav">
-      <a class="rail-link{{if eq .NavActive "tickets"}} active{{end}}" href="/tickets" title="{{t "base.nav.tickets"}}" aria-label="{{t "base.nav.tickets"}}">
+      <a class="rail-link{{if eq .NavActive "tickets"}} active{{end}}" href="/tickets" title="{{t "base.nav.tickets"}}" aria-label="{{t "base.nav.tickets"}}"{{if eq .NavActive "tickets"}} aria-current="page"{{end}}>
         <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v1a2 2 0 0 0 0 4v1a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-1a2 2 0 0 0 0-4V9z"/><path d="M13 7v10"/></svg>
       </a>
-{{if .CanManageUsers}}<a class="rail-link{{if eq .NavActive "users"}} active{{end}}" href="/users" title="{{t "base.nav.users"}}" aria-label="{{t "base.nav.users"}}">
+{{if .CanManageUsers}}<a class="rail-link{{if eq .NavActive "users"}} active{{end}}" href="/users" title="{{t "base.nav.users"}}" aria-label="{{t "base.nav.users"}}"{{if eq .NavActive "users"}} aria-current="page"{{end}}>
         <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0"/><circle cx="17.5" cy="9" r="2.5"/><path d="M16 14.6a6 6 0 0 1 5.5 5.4"/></svg>
       </a>
 {{end}}
-{{if .CanManageCategories}}<a class="rail-link{{if eq .NavActive "categories"}} active{{end}}" href="/categories" title="{{t "base.nav.categories"}}" aria-label="{{t "base.nav.categories"}}">
+{{if .CanManageCategories}}<a class="rail-link{{if eq .NavActive "categories"}} active{{end}}" href="/categories" title="{{t "base.nav.categories"}}" aria-label="{{t "base.nav.categories"}}"{{if eq .NavActive "categories"}} aria-current="page"{{end}}>
         <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h6l2 2.5H20a1 1 0 0 1 1 1V19a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1z"/></svg>
       </a>
 {{end}}
-{{if .CanManageSettings}}<a class="rail-link{{if eq .NavActive "settings"}} active{{end}}" href="/settings" title="{{t "base.nav.settings"}}" aria-label="{{t "base.nav.settings"}}">
+{{if .CanManageSettings}}<a class="rail-link{{if eq .NavActive "settings"}} active{{end}}" href="/settings" title="{{t "base.nav.settings"}}" aria-label="{{t "base.nav.settings"}}"{{if eq .NavActive "settings"}} aria-current="page"{{end}}>
         <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></svg>
       </a>{{end}}
-      <a class="rail-link{{if eq .NavActive "preferences"}} active{{end}}" href="/preferences" title="{{t "base.nav.preferences"}}" aria-label="{{t "base.nav.preferences"}}">
+      <a class="rail-link{{if eq .NavActive "preferences"}} active{{end}}" href="/preferences" title="{{t "base.nav.preferences"}}" aria-label="{{t "base.nav.preferences"}}"{{if eq .NavActive "preferences"}} aria-current="page"{{end}}>
         <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="8" x2="21" y2="8"/><circle cx="9" cy="8" r="2.2"/><line x1="3" y1="16" x2="21" y2="16"/><circle cx="15" cy="16" r="2.2"/></svg>
       </a>
     </nav>
@@ -37,7 +38,7 @@
       </button>
     </form>
   </aside>
-  <main class="main">{{template "save_feedback" .}}{{template "content" .}}</main>
+  <main class="main" id="main-content">{{template "save_feedback" .}}{{template "content" .}}</main>
 </div>
 </body>
 </html>

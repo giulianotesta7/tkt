@@ -9,10 +9,11 @@
         <span class="num">{{ticketNumber .View.Ticket.Number}}</span>
       </div>
 {{if and .CanEdit (not .Closed)}}
+      <h1 class="command-title"><span class="visually-hidden">{{.View.Ticket.Title}}</span></h1>
       <form class="title-inline title-edit" method="post" action="/tickets/{{.View.Ticket.ID}}/edit"
             hx-post="/tickets/{{.View.Ticket.ID}}/edit" hx-target="#ticket-detail" hx-swap="outerHTML">
         <input type="text" id="ticket-title" name="title" value="{{.Values.Title}}" required
-               aria-label="{{t "tickets.detail.title_label"}}" class="title-input">
+               title="{{.Values.Title}}" aria-label="{{t "tickets.detail.title_label"}}" class="title-input">
         <button class="btn small title-save" type="submit" hidden>{{t "common.save"}}</button>
       </form>
 {{else}}
@@ -28,7 +29,7 @@
     <div class="conversation">
       <div class="card">
         <h2>{{t "tickets.detail.description"}}</h2>
-        {{if .View.Ticket.Description}}<p>{{.View.Ticket.Description}}</p>{{else}}<p class="empty">{{t "tickets.detail.no_description"}}</p>{{end}}
+        {{if .View.Ticket.Description}}<p class="ticket-description">{{.View.Ticket.Description}}</p>{{else}}<p class="empty">{{t "tickets.detail.no_description"}}</p>{{end}}
           </div>
 {{if .CanConfirm}}
 	<section class="card resolution-confirmation" aria-labelledby="resolution-confirmation-title">
