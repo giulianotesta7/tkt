@@ -46,9 +46,11 @@ jobs:
       - name: Build
         run: go build ./...
 
-  # The race tests dominate the run time, almost all of it in two packages, so
-  # they run as parallel shards. "rest" is computed from `go list` so a new
-  # package always lands in a shard.
+  # The race tests dominate the run time, almost all of it in two packages
+  # whose tests run serially. Those two each get a shard that compiles the
+  # test binary once and fans its tests out over every core
+  # (.github/scripts/race-fanout.sh); "rest" is computed from `go list` so a
+  # new package always lands in a shard.
   race:
     name: Go race (${{ matrix.shard }})
     runs-on: ubuntu-latest
@@ -84,7 +86,11 @@ jobs:
           echo "list=$list" >> "$GITHUB_OUTPUT"
 
       - name: Test (race)
-        run: go test ${{ steps.packages.outputs.list }} -race -count=1 -timeout 20m
+        run: |
+          case "${{ matrix.shard }}" in
+            rest) go test ${{ steps.packages.outputs.list }} -race -count=1 -timeout 20m ;;
+            *) .github/scripts/race-fanout.sh ./internal/adapters/${{ matrix.shard }} "$(nproc)" ;;
+          esac
 
   # Branch protection requires a check named "Go quality"; this job carries
   # that name and is red whenever the lint job or any race shard did not pass.
