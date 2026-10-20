@@ -44,7 +44,7 @@ func TestBuildUsersIndexData(t *testing.T) {
 	if len(data.Rows) != 2 || data.Rows[0].ID != 3 || data.Rows[1].ID != 1 {
 		t.Fatalf("rows did not preserve input order: %+v", data.Rows)
 	}
-	if row := data.Rows[0]; row.RoleLabel != "Unknown" || row.StatusLabel != "Active" || row.CanManage || row.LauncherID != "" {
+	if row := data.Rows[0]; row.RoleLabel != "users.role.unknown" || row.StatusLabel != "users.status.active" || row.CanManage || row.LauncherID != "" {
 		t.Fatalf("invalid row did not fail closed: %+v", row)
 	}
 	if row := data.Rows[1]; row.Initials != "AT" || row.CreatedAt != t0 || row.EditURL != "/users/1/edit" {
@@ -63,7 +63,7 @@ func TestBuildUsersIndexDataEmptyMessages(t *testing.T) {
 		{"all active", "", active, usersStatusAll},
 		{"all deactivated", "", inactive, usersStatusAll},
 		{"active match", "", active, usersStatusActive},
-		{"deactivated empty", "No deactivated users.", active, usersStatusDeactivated},
+		{"deactivated empty", "users.empty.deactivated", active, usersStatusDeactivated},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			data := buildUsersIndexData(domain.User{Role: domain.RoleRoot}, tc.users, tc.status)
@@ -95,7 +95,9 @@ func TestUsersRoleOptions(t *testing.T) {
 			}
 		})
 	}
-	if got := roleDescription(domain.RoleAdmin); got != "Includes Agent access and user management. Only Root can grant this role." {
+	// The description is a catalogue key (issue #335): the template renders it
+	// through t, so the language stays a presentation decision.
+	if got := roleDescription(domain.RoleAdmin); got != "users.role_description.admin" {
 		t.Fatalf("admin description = %q", got)
 	}
 }

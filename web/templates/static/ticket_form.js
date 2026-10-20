@@ -214,7 +214,7 @@
   }
 
   function sourceLabel(handoff) {
-    return handoff.name || "the previous category";
+    return handoff.name || window.tktI18n.t("js.ticket_draft.previous_category");
   }
 
   // Carry the source category's draft onto this form. The target's own draft
@@ -225,7 +225,7 @@
     const own = readDraft(scope);
     if (own) {
       applyDraft(form, own);
-      notice(form, `Your draft from ${sourceLabel(handoff)} is still saved under that category.`);
+      notice(form, window.tktI18n.t("js.ticket_draft.still_saved", { name: sourceLabel(handoff) }));
       return;
     }
     const source = readDraft(handoff.from);
@@ -235,9 +235,10 @@
       typeof source.priority === "string" && source.priority !== "" && priority === null;
     if (dropsPriority) {
       const kept = window.confirm(
-        `This category does not offer the priority "${source.priority}" from your ` +
-          `${sourceLabel(handoff)} draft. Discard that priority and keep the title and ` +
-          "description?",
+        window.tktI18n.t("js.ticket_draft.priority_dropped", {
+          priority: source.priority,
+          name: sourceLabel(handoff),
+        }),
       );
       // Cancelling preserves the source draft and leaves this form untouched.
       if (!kept) return;

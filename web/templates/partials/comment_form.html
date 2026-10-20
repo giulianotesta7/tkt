@@ -1,16 +1,16 @@
 {{define "comment_form"}}
 <form class="card" method="post" action="/tickets/{{.View.Ticket.ID}}/comments">
-  <h2>Add comment</h2>
+  <h2>{{t "tickets.comment.title"}}</h2>
 {{if .Error}}<div class="error-banner" role="alert">{{.Error}}</div>{{end}}
   <div class="field">
-    <textarea name="body" id="comment-body" hx-preserve="true" placeholder="Write a comment…" aria-label="Comment body"></textarea>{{/* hx-preserve keeps the typed draft across any swap of #ticket-detail (issue #261); the id is the preserve handle. */}}
+    <textarea name="body" id="comment-body" hx-preserve="true" placeholder="{{t "tickets.comment.placeholder"}}" aria-label="{{t "tickets.comment.body_label"}}"></textarea>{{/* hx-preserve keeps the typed draft across any swap of #ticket-detail (issue #261); the id is the preserve handle. */}}
   </div>
   <input type="hidden" name="visibility" value="public">
 {{if .CanCommentInternal}}
   <div class="field checkbox-field">
-    <label for="comment-internal"><input id="comment-internal" type="checkbox" name="internal" value="1" hx-preserve="true"> Internal comment</label>{{/* #308: the visibility control is preserved under the same id handle as the draft, so a swap keeps text and intent together. Guarded by CanCommentInternal: the preserve handle only exists when the server renders the control. */}}
+    <label for="comment-internal"><input id="comment-internal" type="checkbox" name="internal" value="1" hx-preserve="true"> {{t "tickets.comment.internal"}}</label>{{/* #308: the visibility control is preserved under the same id handle as the draft, so a swap keeps text and intent together. Guarded by CanCommentInternal: the preserve handle only exists when the server renders the control. */}}
   </div>
 {{end}}
-  <button class="btn primary" type="submit">Add comment</button>
+  <button class="btn primary" type="submit">{{t "tickets.comment.submit"}}</button>
 </form>
 {{end}}

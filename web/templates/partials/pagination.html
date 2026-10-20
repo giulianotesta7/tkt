@@ -1,8 +1,8 @@
-{{define "pagination"}}{{if gt .Pages 1}}<nav class="pagination" aria-label="Ticket pages">
-  <span>Page {{.Page}} of {{.Pages}} · {{.Total}} tickets</span>
+{{define "pagination"}}{{if gt .Pages 1}}<nav class="pagination" aria-label="{{t "pagination.label"}}">
+  <span>{{tf "pagination.summary" .Page .Pages .Total}}</span>
   <div class="pages">
-    {{if .PrevHref}}<a href="{{.PrevHref}}" hx-get="{{.PrevHref}}" hx-target="#tickets-screen" hx-swap="outerHTML" hx-push-url="true" hx-indicator="#tickets-screen" aria-label="Previous page">← Prev</a>{{end}}
-    {{if .NextHref}}<a href="{{.NextHref}}" hx-get="{{.NextHref}}" hx-target="#tickets-screen" hx-swap="outerHTML" hx-push-url="true" hx-indicator="#tickets-screen" aria-label="Next page">Next →</a>{{end}}
+    {{if .PrevHref}}<a href="{{.PrevHref}}" hx-get="{{.PrevHref}}" hx-target="#tickets-screen" hx-swap="outerHTML" hx-push-url="true" hx-indicator="#tickets-screen" aria-label="{{t "pagination.prev_label"}}">{{t "pagination.prev"}}</a>{{end}}
+    {{if .NextHref}}<a href="{{.NextHref}}" hx-get="{{.NextHref}}" hx-target="#tickets-screen" hx-swap="outerHTML" hx-push-url="true" hx-indicator="#tickets-screen" aria-label="{{t "pagination.next_label"}}">{{t "pagination.next"}}</a>{{end}}
     <span class="htmx-indicator spinner" aria-hidden="true"></span>
   </div>
 </nav>{{end}}{{end}}

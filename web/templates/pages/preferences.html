@@ -1,20 +1,20 @@
 {{define "content"}}
 <div class="command-header">
   <div>
-    <h1 class="command-title">Preferences</h1>
-    <p class="command-sub">Personal settings</p>
+    <h1 class="command-title">{{t "preferences.title"}}</h1>
+    <p class="command-sub">{{t "preferences.subtitle"}}</p>
   </div>
 </div>
 {{if .Error}}<div class="error-banner" role="alert">{{.Error}}</div>{{end}}
 <form class="card form-card" method="post" action="/preferences">
-  <h2>Queue order</h2>
-  <p class="help">How your ticket list opens when the URL does not choose an order. Picking one order in the list still wins for that visit.</p>
+  <h2>{{t "preferences.queue.title"}}</h2>
+  <p class="help">{{t "preferences.queue.help"}}</p>
   <div class="field">
-    <label for="queue_order">Default queue order</label>
+    <label for="queue_order">{{t "preferences.queue.default"}}</label>
     <select id="queue_order" name="queue_order">
-{{range .Orders}}      <option value="{{.Value}}"{{if eq $.Current .Value}} selected{{end}}>{{.Label}}</option>
+{{range .Orders}}      <option value="{{.Value}}"{{if eq $.Current .Value}} selected{{end}}>{{t .Label}}</option>
 {{end}}    </select>
   </div>
-  <button class="btn primary" type="submit">Save preferences</button>
+  <button class="btn primary" type="submit">{{t "preferences.save"}}</button>
 </form>
 {{end}}

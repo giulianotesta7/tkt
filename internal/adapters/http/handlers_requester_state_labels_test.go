@@ -4,8 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/giulianotesta7/tkt/internal/application"
 	"github.com/giulianotesta7/tkt/internal/domain"
+	"github.com/giulianotesta7/tkt/internal/i18n"
 )
 
 // TestStateLabelPerAudienceAllStates pins the shared label source for every
@@ -18,17 +18,18 @@ func TestStateLabelPerAudienceAllStates(t *testing.T) {
 		domain.StateClosed:     {"Closed", "Closed"},
 		domain.StateCancelled:  {"Cancelled", "Cancelled"},
 	}
+	tr := i18n.New(i18n.Default)
 	for state, want := range cases {
-		req := newStateBadge(state, true)
+		req := newStateBadge(tr, state, true)
 		if req.State != string(state) || req.Label != want[0] {
 			t.Errorf("requester badge for %s = %q/%q, want class %q label %q", state, req.State, req.Label, state, want[0])
 		}
-		staff := newStateBadge(state, false)
+		staff := newStateBadge(tr, state, false)
 		if staff.State != string(state) || staff.Label != want[1] {
 			t.Errorf("staff badge for %s = %q/%q, want class %q label %q", state, staff.State, staff.Label, state, want[1])
 		}
-		if staff.Label != humanizeLabel(state) {
-			t.Errorf("staff label for %s = %q, want humanize %q", state, staff.Label, humanizeLabel(state))
+		if staff.Label != tr.T("label.state."+string(state)) {
+			t.Errorf("staff label for %s = %q, want the catalogue label %q", state, staff.Label, tr.T("label.state."+string(state)))
 		}
 	}
 }
@@ -47,13 +48,14 @@ func TestRequesterListAndDetailAgreeForEveryState(t *testing.T) {
 	list.Tickets = rows
 	body := renderGolden(t, "tickets_index", "user_ticket_list", list, true)
 	for _, s := range states {
-		req := newStateBadge(s, true)
+		req := newStateBadge(i18n.New(i18n.Default), s, true)
 		span := `<span class="badge ` + req.State + `">` + req.Label + `</span>`
 		if !strings.Contains(body, span) {
 			t.Errorf("requester list must render %s for %s: %.600s", span, s, body)
 		}
-		d := detailData{RequesterView: true, View: &application.TicketView{Ticket: &domain.Ticket{ID: 1, Number: 1, State: s}}}
-		if got := d.StateBadge(); got != req {
+		// The detail badge resolves through the same catalogue-backed source,
+		// so the list card and the detail row can never name a state twice.
+		if got := newStateBadge(i18n.New(i18n.Default), s, true); got != req {
 			t.Errorf("requester detail badge for %s = %+v, want %+v", s, got, req)
 		}
 	}

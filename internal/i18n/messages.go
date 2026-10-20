@@ -34,6 +34,7 @@ package i18n
 import (
 	"embed"
 	"encoding/json"
+	"fmt"
 	"io/fs"
 	"log"
 	"sort"
@@ -139,6 +140,19 @@ func New(locale string) Translator {
 // a shell declares in its lang attribute.
 func (t Translator) Locale() string { return t.locale }
 
+// Lookup reports whether key has a message in the active locale (or the default
+// catalogue), which is how the label helpers decide between a catalogue entry
+// and the humanized fallback for a genuinely free identifier.
+func (t Translator) Lookup(key string) (string, bool) {
+	if message, ok := t.messages[key]; ok && message != "" {
+		return message, true
+	}
+	if message, ok := t.fallback[key]; ok && message != "" {
+		return message, true
+	}
+	return "", false
+}
+
 // T returns the message for key. The chain is the active locale, then the
 // default catalogue, then a readable label derived from the key's last
 // segment; the raw key is never returned.
@@ -162,6 +176,50 @@ func (t Translator) T(key string) string {
 // T answers one message for locale without holding a Translator: the
 // convenience form for Go-side copy, mirrored by the template's t helper.
 func T(locale, key string) string { return New(locale).T(key) }
+
+// Tf answers the message for key formatted with fmt-style arguments: the
+// catalogue carries the sentence and its placeholders (%s, %d), so a Go call
+// site interpolates values without owning any copy itself.
+func (t Translator) Tf(key string, args ...any) string {
+	return fmt.Sprintf(t.T(key), args...)
+}
+
+// ScriptPrefix namespaces the catalogue entries the browser scripts read. A
+// script is served with the prologue Script builds, so the server owns every
+// user-facing string the browser renders and the JavaScript keeps no literal
+// copy of its own.
+const ScriptPrefix = "js."
+
+// Script returns the JavaScript prologue every catalogue-backed browser script
+// is served with: the locale's js.* messages as one JSON object plus the
+// lookup helper the scripts call (window.tktI18n.t).
+//
+// The helper mirrors the Go fallback chain: an unknown key degrades to a
+// readable label derived from the key's last segment, never to the raw key.
+func Script(locale string) string {
+	messages := make(map[string]string)
+	for key, message := range catalogues[Normalize(locale)] {
+		if strings.HasPrefix(key, ScriptPrefix) {
+			messages[key] = message
+		}
+	}
+	encoded, err := json.Marshal(messages)
+	if err != nil {
+		// A map[string]string cannot fail to marshal; a failure would be a
+		// programming error, not a runtime condition.
+		panic("i18n: encode script catalogue: " + err.Error())
+	}
+	return scriptPrologueOpen + string(encoded) + scriptPrologueClose
+}
+
+// scriptPrologueOpen/Close wrap the encoded catalogue with the lookup helper.
+// The helper replaces {name} placeholders and degrades a missing key exactly
+// as the Go Translator does.
+const (
+	scriptPrologueOpen  = `window.tktI18n=(function(){var m=`
+	scriptPrologueClose = `;function label(k){var s=String(k).split(".").pop().replace(/[_-]+/g," ");return s.charAt(0).toUpperCase()+s.slice(1);}function t(k,p){var s=Object.prototype.hasOwnProperty.call(m,k)?m[k]:label(k);if(p){for(var n in p){if(Object.prototype.hasOwnProperty.call(p,n)){s=s.split("{"+n+"}").join(p[n]);}}}return s;}return {t:t};})();
+`
+)
 
 // readableLabel degrades a key that no catalogue carries into a label a
 // requester can still read: the last dotted segment, its separators opened

@@ -1,24 +1,24 @@
 {{define "category_form"}}
 <form class="card form-card" method="post" action="{{if .CategoryID}}/categories/{{.CategoryID}}/edit{{else}}/categories{{end}}">
-  <h2>{{if .CategoryID}}Edit category{{else}}New category{{end}}</h2>
+  <h2>{{if .CategoryID}}{{t "categories.form.title_edit"}}{{else}}{{t "categories.form.title_new"}}{{end}}</h2>
 {{if .Error}}<div class="error-banner" role="alert">{{.Error}}</div>{{end}}
   <div class="field">
-    <label for="name">Name</label>
+    <label for="name">{{t "categories.drawer.name"}}</label>
     <input type="text" id="name" name="name" value="{{.Name}}" required autofocus>
   </div>
 {{if .Desks}}
   <div class="field">
-    <label for="desk_id">Desk</label>
+    <label for="desk_id">{{t "categories.form.desk"}}</label>
     <select id="desk_id" name="desk_id">
-      <option value="">Select desk</option>
+      <option value="">{{t "categories.form.select_desk"}}</option>
       {{range .Desks}}<option value="{{.ID}}" {{if eq .ID $.DeskID}}selected{{end}}>{{.DepartmentID}} — {{.Name}}</option>{{end}}
     </select>
   </div>
 {{end}}
   <div class="field">
-    <label for="description">Short description</label>
+    <label for="description">{{t "categories.form.short_description"}}</label>
     <textarea id="description" name="description">{{.Description}}</textarea>
   </div>
-  <button class="btn primary" type="submit">{{if .CategoryID}}Save changes{{else}}Create category{{end}}</button>
+  <button class="btn primary" type="submit">{{if .CategoryID}}{{t "users.save_changes"}}{{else}}{{t "categories.form.create"}}{{end}}</button>
 </form>
 {{end}}

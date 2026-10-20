@@ -178,7 +178,7 @@ func newHarnessWithAdmin(t *testing.T, seedAdmin bool) *harness {
 	renderer := NewRenderer()
 
 	mux := http.NewServeMux()
-	RegisterStatic(mux)
+	RegisterStatic(mux, s.SettingsStore())
 	NewAuthHandlers(authSvc, usersSvc, renderer).Register(mux)
 	NewTicketHandlers(ticketSvc, commentSvc, searchSvc, catSvc, usersSvc, s.DeskStore(), workflowSvc, application.NewWorkflowRunner(clock), s.WorkflowRunStore(), s.WorkflowUnitOfWork(), renderer).WithMetrics(metricsSvc).WithSLA(slaSvc).WithPreferences(preferencesSvc).Register(mux)
 	NewUserHandlers(usersSvc, renderer).Register(mux)

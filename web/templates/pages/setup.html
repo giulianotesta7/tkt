@@ -1,21 +1,21 @@
 {{define "content"}}
 <form class="login-form" method="post" action="/setup" novalidate>
-  <h2>Set up tkt</h2>
-  <p class="lead">Create the first account for your support team. This only happens once.</p>
+  <h2>{{t "auth.setup.title"}}</h2>
+  <p class="lead">{{t "auth.setup.subtitle"}}</p>
 {{if .Error}}<div class="error-banner" role="alert">{{.Error}}</div>{{end}}
   <div class="field">
-    <label for="name">Name</label>
-    <input type="text" id="name" name="name" value="{{.Name}}" placeholder="Ana Torres" autocomplete="name" required autofocus>
+    <label for="name">{{t "auth.name"}}</label>
+    <input type="text" id="name" name="name" value="{{.Name}}" placeholder="{{t "auth.name_placeholder"}}" autocomplete="name" required autofocus>
   </div>
   <div class="field">
-    <label for="email">Email</label>
-    <input type="email" id="email" name="email" value="{{.Email}}" placeholder="you@example.com" autocomplete="email" required>
+    <label for="email">{{t "common.email"}}</label>
+    <input type="email" id="email" name="email" value="{{.Email}}" placeholder="{{t "auth.email_placeholder"}}" autocomplete="email" required>
   </div>
   <div class="field">
-    <label for="password">Password</label>
-    <input type="password" id="password" name="password" placeholder="••••••••" autocomplete="new-password" required>
+    <label for="password">{{t "common.password"}}</label>
+    <input type="password" id="password" name="password" placeholder="{{t "auth.password_placeholder"}}" autocomplete="new-password" required>
   </div>
-  <button class="btn primary" type="submit">Create account</button>
-  <p class="footnote">Your password is stored securely.</p>
+  <button class="btn primary" type="submit">{{t "auth.setup.submit"}}</button>
+  <p class="footnote">{{t "auth.setup.password_note"}}</p>
 </form>
 {{end}}

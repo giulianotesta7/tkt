@@ -6,4 +6,4 @@
      on_track included: an empty cell means the ticket has no commitment at
      all, and those two must never look the same. The glyph is hidden from
      assistive tech because the word beside it says the same thing. */}}
-{{define "sla_state_dot"}}{{if .}}<span class="sla-state"><span class="sla-dot {{.}}" aria-hidden="true"></span><span class="sla-state-word">{{humanize .}}</span></span> {{end}}{{end}}
+{{define "sla_state_dot"}}{{if .}}<span class="sla-state"><span class="sla-dot {{.}}" aria-hidden="true"></span><span class="sla-state-word">{{slaLabel .}}</span></span> {{end}}{{end}}

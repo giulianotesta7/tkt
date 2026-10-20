@@ -1,13 +1,13 @@
 {{define "workflow_answers"}}{{if .View.WorkflowResponses}}
 <div class="card workflow-responses-card">
-  <h2>Workflow responses</h2>
+  <h2>{{t "tickets.workflow.responses"}}</h2>
   <ol class="workflow-response-steps">
     {{range .View.WorkflowResponses}}
     <li>
       <dl class="workflow-responses">
         {{range .Fields}}
         <dt>{{.Label}}</dt>
-        <dd>{{if eq .Kind "checkbox"}}{{if eq .Value "true"}}<span class="workflow-bool workflow-bool-true" role="img" aria-label="Yes">✓</span>{{else}}<span class="workflow-bool workflow-bool-false" role="img" aria-label="No">×</span>{{end}}{{else}}{{.Value}}{{end}}</dd>
+        <dd>{{if eq .Kind "checkbox"}}{{if eq .Value "true"}}<span class="workflow-bool workflow-bool-true" role="img" aria-label="{{t "common.yes"}}">✓</span>{{else}}<span class="workflow-bool workflow-bool-false" role="img" aria-label="{{t "common.no"}}">×</span>{{end}}{{else}}{{.Value}}{{end}}</dd>
         {{end}}
       </dl>
     </li>

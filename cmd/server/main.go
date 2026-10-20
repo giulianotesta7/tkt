@@ -125,7 +125,7 @@ func main() {
 	renderer := httpadapter.NewRendererWithLanguage(store.SettingsStore())
 
 	mux := http.NewServeMux()
-	httpadapter.RegisterStatic(mux)
+	httpadapter.RegisterStatic(mux, store.SettingsStore())
 	httpadapter.NewAuthHandlers(authSvc, userSvc, renderer).Register(mux)
 	httpadapter.NewTicketHandlers(ticketSvc, commentSvc, searchSvc, catSvc, userSvc, store.DeskStore(), workflowSvc, application.NewWorkflowRunner(clock), store.WorkflowRunStore(), store.WorkflowUnitOfWork(), renderer, catalogSvc).WithMetrics(metricsSvc).WithSLA(slaSvc).WithPreferences(preferencesSvc).Register(mux)
 	httpadapter.NewUserHandlers(userSvc, renderer).Register(mux)

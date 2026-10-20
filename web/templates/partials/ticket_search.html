@@ -1,10 +1,10 @@
 {{define "ticket_search"}}<div class="ticket-search search-field">
-  <label class="visually-hidden" for="ticket-search">Search tickets</label>
+  <label class="visually-hidden" for="ticket-search">{{t "tickets.search.label"}}</label>
   {{template "search_icon"}}
-  <input id="ticket-search" type="search" name="q" value="{{.Filters.Q}}" placeholder="Search by ID or title" aria-label="Search tickets">
+  <input id="ticket-search" type="search" name="q" value="{{.Filters.Q}}" placeholder="{{t "tickets.search.placeholder"}}" aria-label="{{t "tickets.search.label"}}">
 </div>{{end}}
 {{define "role_ticket_search"}}<form class="ticket-search search-field" method="get" action="/tickets" hx-get="/tickets" hx-target="#tickets-screen" hx-swap="outerHTML" hx-push-url="true">
-  <label class="visually-hidden" for="role-ticket-search">Search tickets</label>
+  <label class="visually-hidden" for="role-ticket-search">{{t "tickets.search.label"}}</label>
   {{template "search_icon"}}
-  <input id="role-ticket-search" type="search" name="q" value="{{.Filters.Q}}" placeholder="Search by ID or title" aria-label="Search tickets" hx-preserve="true" hx-get="/tickets" hx-trigger="input changed delay:300ms" hx-target="#tickets-screen" hx-swap="outerHTML" hx-push-url="true">
+  <input id="role-ticket-search" type="search" name="q" value="{{.Filters.Q}}" placeholder="{{t "tickets.search.placeholder"}}" aria-label="{{t "tickets.search.label"}}" hx-preserve="true" hx-get="/tickets" hx-trigger="input changed delay:300ms" hx-target="#tickets-screen" hx-swap="outerHTML" hx-push-url="true">
 </form>{{end}}

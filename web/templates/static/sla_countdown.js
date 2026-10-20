@@ -32,8 +32,8 @@
   const COARSE_SELECTOR = ".sla-countdown-coarse";
   const TICK_MS = 1000;
   const COARSE_MS = 60000;
-  const REMAINING = "remaining";
-  const OVERDUE = "overdue";
+  const REMAINING = window.tktI18n.t("js.sla.remaining");
+  const OVERDUE = window.tktI18n.t("js.sla.overdue");
 
   // parseInstant returns epoch milliseconds, or null for a missing or
   // malformed instant. Callers skip such an element instead of throwing.
@@ -48,11 +48,13 @@
     const hours = Math.floor(totalSeconds / 3600);
     const minutes = Math.floor((totalSeconds % 3600) / 60);
     const seconds = totalSeconds % 60;
-    if (hours > 0 && seconds > 0) return `${hours}h ${minutes}m ${seconds}s`;
-    if (hours > 0) return `${hours}h ${minutes}m`;
-    if (minutes > 0 && seconds > 0) return `${minutes}m ${seconds}s`;
-    if (minutes > 0) return `${minutes}m`;
-    return `${seconds}s`;
+    if (hours > 0 && seconds > 0)
+      return window.tktI18n.t("js.sla.hours_minutes_seconds", { hours, minutes, seconds });
+    if (hours > 0) return window.tktI18n.t("js.sla.hours_minutes", { hours, minutes });
+    if (minutes > 0 && seconds > 0)
+      return window.tktI18n.t("js.sla.minutes_seconds", { minutes, seconds });
+    if (minutes > 0) return window.tktI18n.t("js.sla.minutes", { minutes });
+    return window.tktI18n.t("js.sla.seconds", { seconds });
   };
 
   // preciseText is the per-second reading; a passed instant reads a stable
@@ -75,8 +77,8 @@
     const hours = Math.floor(totalSeconds / 3600);
     const minutes = Math.floor((totalSeconds % 3600) / 60);
     let label;
-    if (hours > 0) label = `${hours}h ${minutes}m`;
-    else if (minutes > 0) label = `${minutes}m`;
+    if (hours > 0) label = window.tktI18n.t("js.sla.hours_minutes", { hours, minutes });
+    else if (minutes > 0) label = window.tktI18n.t("js.sla.minutes", { minutes });
     else label = "<1m";
     return remainingMs <= 0 ? `${label} ${OVERDUE}` : `${label} ${REMAINING}`;
   };

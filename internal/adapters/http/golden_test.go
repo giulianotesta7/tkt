@@ -920,8 +920,11 @@ func fixtureCategoriesIndexData() categoriesIndexData {
 		StructureCategories:  []catalogCategoryRow{bugs, supportCat},
 		SelectedDepartmentID: 1,
 		SelectedDeskID:       1,
-		Badges:               map[int64]string{1: "Published v1", 2: "Draft · not published"},
-		OpenTickets:          map[int64]int{1: 3, 2: 1},
+		Badges: map[int64]application.Msg{
+			1: application.MsgRef("categories.badge.published", application.Text("1")),
+			2: application.MsgRef("categories.badge.draft_only"),
+		},
+		OpenTickets: map[int64]int{1: 3, 2: 1},
 	}
 	// The real categories index sets both flags (handlers_categories.go), which
 	// is what makes the {{if .CategoryAssets}} block part of the frozen page.

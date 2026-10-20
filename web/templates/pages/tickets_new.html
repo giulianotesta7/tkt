@@ -1,7 +1,7 @@
 {{define "content"}}<div class="page-foundation ticket-create-page">
 {{if .Selected}}{{template "ticket_form" .}}
 {{else}}<div class="page-header">
-  <div><h1 class="page-title">New ticket</h1><p class="page-subtitle">Open a ticket in state new</p></div>
-  <div class="page-actions"><a class="page-action page-action-secondary" href="/tickets">Back to queue</a></div>
+  <div><h1 class="page-title">{{t "tickets.new.title"}}</h1><p class="page-subtitle">{{t "tickets.new.subtitle"}}</p></div>
+  <div class="page-actions"><a class="page-action page-action-secondary" href="/tickets">{{t "tickets.new.back"}}</a></div>
 </div>{{template "ticket_form" .}}
 {{end}}</div>{{end}}

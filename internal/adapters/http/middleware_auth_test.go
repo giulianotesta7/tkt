@@ -371,7 +371,7 @@ func TestMiddlewareStaticBypass(t *testing.T) {
 	s := openTestStore(t)
 	mw := NewSessionMiddleware(s.SessionStore(), s.UserStore(), s.SettingsStore())
 	mux := http.NewServeMux()
-	RegisterStatic(mux)
+	RegisterStatic(mux, nil)
 	mux.HandleFunc("GET /tickets", func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("protected")) })
 
 	rec := doRequest(mux, mw, http.MethodGet, "/static/htmx.min.js", nil)

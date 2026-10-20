@@ -5,135 +5,135 @@
   <div class="command-header">
     <div class="detail-head">
       <div class="meta-row">
-        <a href="{{.QueueHref}}">{{if .RequesterView}}← My tickets{{else}}← Queue{{end}}</a>
+        <a href="{{.QueueHref}}">{{if .RequesterView}}{{t "tickets.detail.back_requester"}}{{else}}{{t "tickets.detail.back_queue"}}{{end}}</a>
         <span class="num">{{ticketNumber .View.Ticket.Number}}</span>
       </div>
 {{if and .CanEdit (not .Closed)}}
       <form class="title-inline title-edit" method="post" action="/tickets/{{.View.Ticket.ID}}/edit"
             hx-post="/tickets/{{.View.Ticket.ID}}/edit" hx-target="#ticket-detail" hx-swap="outerHTML">
         <input type="text" id="ticket-title" name="title" value="{{.Values.Title}}" required
-               aria-label="Ticket title" class="title-input">
-        <button class="btn small title-save" type="submit" hidden>Save</button>
+               aria-label="{{t "tickets.detail.title_label"}}" class="title-input">
+        <button class="btn small title-save" type="submit" hidden>{{t "common.save"}}</button>
       </form>
 {{else}}
       <h1 class="command-title">{{.View.Ticket.Title}}</h1>
 {{end}}
       <div class="meta-row ticket-metadata">
-        <span>Created {{template "timestamp" .View.Ticket.CreatedAt}}</span>
-        <span>Updated {{template "timestamp" .View.Ticket.UpdatedAt}}</span>
+        <span>{{t "tickets.detail.created"}} {{template "timestamp" .View.Ticket.CreatedAt}}</span>
+        <span>{{t "tickets.detail.updated"}} {{template "timestamp" .View.Ticket.UpdatedAt}}</span>
       </div>
     </div>
   </div>
   <div class="cards">
     <div class="conversation">
       <div class="card">
-        <h2>Description</h2>
-        {{if .View.Ticket.Description}}<p>{{.View.Ticket.Description}}</p>{{else}}<p class="empty">No description.</p>{{end}}
+        <h2>{{t "tickets.detail.description"}}</h2>
+        {{if .View.Ticket.Description}}<p>{{.View.Ticket.Description}}</p>{{else}}<p class="empty">{{t "tickets.detail.no_description"}}</p>{{end}}
           </div>
 {{if .CanConfirm}}
 	<section class="card resolution-confirmation" aria-labelledby="resolution-confirmation-title">
-		<p class="resolution-eyebrow">Resolution confirmation</p>
-		<h2 id="resolution-confirmation-title"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="m8.5 12.5 2.5 2.5 4.5-5"/></svg>Is your issue solved?</h2>
-		<p class="resolution-help">Support marked this ticket as resolved. Confirm the result or return it to the team if you still need help.</p>
+		<p class="resolution-eyebrow">{{t "tickets.detail.resolution.eyebrow"}}</p>
+		<h2 id="resolution-confirmation-title"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="m8.5 12.5 2.5 2.5 4.5-5"/></svg>{{t "tickets.detail.resolution.title"}}</h2>
+		<p class="resolution-help">{{t "tickets.detail.resolution.help"}}</p>
 		<form class="resolution-actions" method="post" action="/tickets/{{.View.Ticket.ID}}/confirmation"
 		      hx-post="/tickets/{{.View.Ticket.ID}}/confirmation" hx-target="#ticket-detail" hx-swap="outerHTML">
-			<button class="btn primary" type="submit" name="decision" value="confirm">Yes, close ticket</button>
-			<button class="btn ghost" type="submit" name="decision" value="reject">No, I still need help</button>
+			<button class="btn primary" type="submit" name="decision" value="confirm">{{t "tickets.detail.resolution.confirm"}}</button>
+			<button class="btn ghost" type="submit" name="decision" value="reject">{{t "tickets.detail.resolution.reject"}}</button>
 		</form>
 	</section>
 {{end}}
 {{if .CanComment}}{{template "comment_form" .}}{{end}}
           <div class="card">
-        <h2>Timeline</h2>
+        <h2>{{t "tickets.detail.timeline"}}</h2>
 {{template "timeline_with_pending" .}}
       </div>
     </div>
     <div class="evidence">
       <div class="prop-list">
         <div class="prop-section">
-          <div class="prop-heading">Properties</div>
+          <div class="prop-heading">{{t "tickets.detail.properties"}}</div>
           <div class="prop-row">
-            <span class="prop-label">Requester</span>
+            <span class="prop-label">{{t "tickets.detail.requester"}}</span>
             <span class="prop-value">{{.View.Ticket.RequesterName}}</span>
           </div>
           <div class="prop-row">
-            <span class="prop-label">Category</span>
+            <span class="prop-label">{{t "tickets.detail.category"}}</span>
             <span id="ticket-category-value" class="prop-value">{{.View.Category.Name}}</span>
           </div>
           {{if not .Closed}}<div class="prop-row">
-            <span class="prop-label">Priority</span>
+            <span class="prop-label">{{t "tickets.detail.priority"}}</span>
 {{if .CanEdit}}            <form class="prop-control" method="post" action="/tickets/{{.View.Ticket.ID}}/edit"
                   hx-post="/tickets/{{.View.Ticket.ID}}/edit" hx-target="#ticket-detail" hx-swap="outerHTML">
               <select id="ticket-priority" name="priority" class="prop-select"
-                      aria-label="Priority">
-                {{range .Options.Priorities}}<option value="{{.}}" {{if eq . $.Values.Priority}}selected{{end}}>{{humanize .}}</option>{{end}}
+                      aria-label="{{t "tickets.detail.priority"}}">
+                {{range .Options.Priorities}}<option value="{{.}}" {{if eq . $.Values.Priority}}selected{{end}}>{{priorityLabel .}}</option>{{end}}
               </select>
-              <button class="btn small" type="submit">Apply</button>
+              <button class="btn small" type="submit">{{t "common.apply"}}</button>
             </form>
-{{else}}            <span id="ticket-priority-value" class="prop-value">{{humanize .View.Ticket.Priority}}</span>
+{{else}}            <span id="ticket-priority-value" class="prop-value">{{priorityLabel .View.Ticket.Priority}}</span>
 {{end}}          </div>{{end}}
         </div>
         <div class="prop-section">
-          <div class="prop-heading">Assignment</div>
+          <div class="prop-heading">{{t "tickets.detail.assignment"}}</div>
 {{if .Claim.Active}}
-          <div class="prop-row"><span class="prop-label">Desk</span><span class="prop-value">{{.Claim.DeskName}}</span></div>
-          <div class="prop-row"><span class="prop-label">Assignee</span><span id="assign-user-value" class="prop-value">{{if .View.AssignedUser}}{{.View.AssignedUser.Name}}{{else}}Unassigned{{end}}</span></div>
-          {{if .Claim.CanAct}}<form class="claim-control" method="post" action="/tickets/{{.View.Ticket.ID}}/workflow/steps/{{.Claim.Position}}/complete" hx-post="/tickets/{{.View.Ticket.ID}}/workflow/steps/{{.Claim.Position}}/complete" hx-target="#ticket-detail" hx-swap="outerHTML"><button class="btn primary" type="submit">Assign to me</button></form>{{end}}
+          <div class="prop-row"><span class="prop-label">{{t "tickets.detail.desk"}}</span><span class="prop-value">{{.Claim.DeskName}}</span></div>
+          <div class="prop-row"><span class="prop-label">{{t "tickets.detail.assignee"}}</span><span id="assign-user-value" class="prop-value">{{if .View.AssignedUser}}{{.View.AssignedUser.Name}}{{else}}{{t "tickets.detail.unassigned"}}{{end}}</span></div>
+          {{if .Claim.CanAct}}<form class="claim-control" method="post" action="/tickets/{{.View.Ticket.ID}}/workflow/steps/{{.Claim.Position}}/complete" hx-post="/tickets/{{.View.Ticket.ID}}/workflow/steps/{{.Claim.Position}}/complete" hx-target="#ticket-detail" hx-swap="outerHTML"><button class="btn primary" type="submit">{{t "tickets.detail.assign_to_me"}}</button></form>{{end}}
           {{else}}
           <div class="prop-row">
-            <span class="prop-label">Assignee</span>
+            <span class="prop-label">{{t "tickets.detail.assignee"}}</span>
 {{if .CanAssign}}
             <div class="assign-picker">
-              <input type="search" id="assign-user-filter" class="prop-filter" placeholder="Filter assignees" aria-label="Filter assignees" autocomplete="off">
+              <input type="search" id="assign-user-filter" class="prop-filter" placeholder="{{t "tickets.detail.filter_assignees"}}" aria-label="{{t "tickets.detail.filter_assignees"}}" autocomplete="off">
               <form class="prop-control" method="post" action="/tickets/{{.View.Ticket.ID}}/assign" hx-post="/tickets/{{.View.Ticket.ID}}/assign" hx-target="#ticket-detail" hx-swap="outerHTML">
-                <select id="assign-user" name="user_id" class="prop-select" aria-label="Assignee">
-                  <option value="">Unassigned</option>
-                  {{range .Options.AssignableUsers}}<option value="{{.ID}}" {{if eq (.ID | printf "%d") $.Values.UserID}}selected{{end}}>{{.Name}}{{if not .Active}} (inactive){{end}}</option>{{end}}
+                <select id="assign-user" name="user_id" class="prop-select" aria-label="{{t "tickets.detail.assignee"}}">
+                  <option value="">{{t "tickets.detail.unassigned"}}</option>
+                  {{range .Options.AssignableUsers}}<option value="{{.ID}}" {{if eq (.ID | printf "%d") $.Values.UserID}}selected{{end}}>{{.Name}}{{if not .Active}} {{t "tickets.detail.inactive"}}{{end}}</option>{{end}}
                 </select>
-                <button class="btn small" type="submit">Apply</button>
+                <button class="btn small" type="submit">{{t "common.apply"}}</button>
               </form>
             </div>
 {{else}}
-            <span id="assign-user-value" class="prop-value">{{if .View.AssignedUser}}{{.View.AssignedUser.Name}}{{else}}Unassigned{{end}}</span>{{end}}
+            <span id="assign-user-value" class="prop-value">{{if .View.AssignedUser}}{{.View.AssignedUser.Name}}{{else}}{{t "tickets.detail.unassigned"}}{{end}}</span>{{end}}
           </div>
 {{end}}
         </div>
         <div class="prop-section">
-          <div class="prop-heading">State</div>
+          <div class="prop-heading">{{t "tickets.detail.state"}}</div>
           <div class="prop-row">
-            <span class="prop-label">Current</span>
-            <span class="prop-value">{{template "state_badge" .StateBadge}}</span>
+            <span class="prop-label">{{t "tickets.detail.current"}}</span>
+            <span class="prop-value">{{template "state_badge" (audienceStateBadge .View.Ticket.State .RequesterView)}}</span>
           </div>
 {{if and .Next .CanTransition}}
           <div class="prop-row">
-            <span class="prop-label">Move to</span>
+            <span class="prop-label">{{t "tickets.detail.move_to"}}</span>
             <form class="prop-control transition-control" method="post" action="/tickets/{{.View.Ticket.ID}}/transition"
                   hx-post="/tickets/{{.View.Ticket.ID}}/transition" hx-target="#ticket-detail" hx-swap="outerHTML">
               <select id="ticket-state" name="to" class="prop-select"
-                      aria-label="Move to state" required>
-                <option value="" disabled selected>Select…</option>
-                {{range .Next}}<option value="{{.To}}"{{if eq (printf "%s" .To) $.SelectedTo}} selected{{end}}{{if .NeedsReason}} data-needs-reason{{end}}>{{humanize .To}}{{if .NeedsReason}} (reason required){{end}}</option>{{end}}
+                      aria-label="{{t "tickets.detail.move_to_state"}}" required>
+                <option value="" disabled selected>{{t "tickets.detail.select_placeholder"}}</option>
+                {{range .Next}}<option value="{{.To}}"{{if eq (printf "%s" .To) $.SelectedTo}} selected{{end}}{{if .NeedsReason}} data-needs-reason{{end}}>{{stateLabel .To}}{{if .NeedsReason}} {{t "tickets.detail.reason_required"}}{{end}}</option>{{end}}
               </select>
-              <button type="submit" id="state-apply" class="btn small state-apply">Apply</button>
+              <button type="submit" id="state-apply" class="btn small state-apply">{{t "common.apply"}}</button>
               <div id="state-reason-field" class="state-reason-field">
-                <label for="state-reason">Reopen reason</label>
+                <label for="state-reason">{{t "tickets.detail.reopen_reason"}}</label>
                 <input type="text" id="state-reason" name="reason" class="state-reason"
-                       placeholder="Required" required>
+                       placeholder="{{t "tickets.detail.required"}}" required>
               </div>
             </form>
           </div>
 {{end}}
 {{if or .View.Ticket.ResolvedAt .View.Ticket.ClosedAt}}
           <dl class="lifecycle-meta">
-{{with .View.Ticket.ResolvedAt}}            <dt>Resolved</dt><dd>{{template "timestamp" .}}</dd>
+{{with .View.Ticket.ResolvedAt}}            <dt>{{t "tickets.detail.resolved_at"}}</dt><dd>{{template "timestamp" .}}</dd>
 {{end}}
-{{with .View.Ticket.ClosedAt}}            <dt>Closed</dt><dd>{{template "timestamp" .}}</dd>
+{{with .View.Ticket.ClosedAt}}            <dt>{{t "tickets.detail.closed_at"}}</dt><dd>{{template "timestamp" .}}</dd>
 {{end}}
           </dl>
 {{end}}
         </div>
 {{if .SLA}}{{/* Staff-only SLA panel: the if/end hug their content so a nil .SLA leaves the requester golden byte-identical. */}}        <div class="prop-section" data-server-now="{{formatDatetime .SLA.ProjectedAt}}">
-          <div class="prop-heading">SLA</div>
+          <div class="prop-heading">{{t "tickets.detail.sla"}}</div>
 {{range .SLA.Milestones}}
           <div class="prop-row">
             <span class="prop-label">{{.Label}}</span>
@@ -145,9 +145,9 @@
     </div>
   </div>
   <dialog id="ticket-title-dialog" aria-labelledby="ticket-title-dialog-title" aria-describedby="ticket-title-dialog-copy">
-    <h2 id="ticket-title-dialog-title">Save the title first?</h2>
-    <p id="ticket-title-dialog-copy">The ticket title has unsaved changes.</p>
-    <div><button type="button" class="btn" data-title-discard>Discard and continue</button><button type="button" class="btn" data-title-save-continue>Save and continue</button></div>
+    <h2 id="ticket-title-dialog-title">{{t "tickets.detail.title_dialog.title"}}</h2>
+    <p id="ticket-title-dialog-copy">{{t "tickets.detail.title_dialog.body"}}</p>
+    <div><button type="button" class="btn" data-title-discard>{{t "common.discard_continue"}}</button><button type="button" class="btn" data-title-save-continue>{{t "common.save_continue"}}</button></div>
   </dialog>
 </div>
 <script>
