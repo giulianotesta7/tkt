@@ -537,6 +537,11 @@ func (h *CategoryHandlers) renderCategoryDeleteRefusal(w http.ResponseWriter, r 
 		http.Error(w, msg, status)
 		return
 	}
+	// The selection comes from the submitted form; parse it here so the
+	// helper does not depend on every caller having parsed it first.
+	if r.Form == nil {
+		_ = r.ParseForm()
+	}
 	state, stateErr := categoryStateFromValues(r.Form)
 	if stateErr != nil {
 		http.Error(w, mapErrorMsg(r, stateErr), statusFor(stateErr))

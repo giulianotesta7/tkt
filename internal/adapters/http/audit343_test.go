@@ -1,6 +1,7 @@
 package httpadapter
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -461,5 +462,54 @@ func TestS6DeleteControlsAskBeforeDeleting(t *testing.T) {
 	// copy stays generic and its body explains the consequence.
 	if !strings.Contains(body, `id="category-delete-copy">This cannot be undone.</p>`) {
 		t.Errorf("the confirmation dialog must explain that the delete is permanent")
+	}
+}
+
+// TestS6RefusalHelperParsesTheFormItself pins that the refusal renderer reads
+// the operator's selection even when its caller did not parse the form first,
+// so a future delete path cannot silently drop the structure selection
+// (native review R3-002 on #343).
+func TestS6RefusalHelperParsesTheFormItself(t *testing.T) {
+	h := newHarness(t)
+	catalog := application.NewCatalogService(h.store.CatalogStore(), h.store.CategoryStore(), h.clock)
+	department, err := catalog.CreateDepartmentFor(t.Context(), *h.admin, "Operations", "Operations")
+	if err != nil {
+		t.Fatalf("create department: %v", err)
+	}
+	desk, err := catalog.CreateDeskFor(t.Context(), *h.admin, department.ID, "Service desk")
+	if err != nil {
+		t.Fatalf("create desk: %v", err)
+	}
+	handlers := NewCategoryHandlersWithWorkflows(h.categories, h.workflows, h.renderer, catalog)
+	selection := url.Values{
+		"view":          {"structure"},
+		"department_id": {strconv.FormatInt(department.ID, 10)},
+		"desk_id":       {strconv.FormatInt(desk.ID, 10)},
+	}
+	req := httptest.NewRequest(http.MethodPost, "/categories/desks/"+strconv.FormatInt(desk.ID, 10)+"/delete",
+		strings.NewReader(selection.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("HX-Request", "true")
+	req = req.WithContext(context.WithValue(req.Context(), ctxKeyUser{}, h.admin))
+	rec := httptest.NewRecorder()
+	handlers.renderCategoryDeleteRefusal(rec, req, &domain.ReferencedError{Kind: "desk", ID: desk.ID})
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("refusal status = %d, want 409: %.600s", rec.Code, rec.Body.String())
+	}
+	want := `href="/categories?view=structure&department_id=` + strconv.FormatInt(department.ID, 10) +
+		`&desk_id=` + strconv.FormatInt(desk.ID, 10) + `" aria-current="true"`
+	if !strings.Contains(rec.Body.String(), want) {
+		t.Errorf("an unparsed refusal request must keep the structure selection, missing %q in: %.1200s", want, rec.Body.String())
+	}
+}
+
+// TestStandaloneCategoryFormPageUsesTheShellTitle pins that the standalone
+// category form page has no title of its own: it only hosts the drawer
+// fragment, every category drawer screen is titled through its route
+// (TestS1EveryRouteNamesItsScreen), and categories_new.golden holds the shell
+// fallback on purpose (native review R3-003 on #343).
+func TestStandaloneCategoryFormPageUsesTheShellTitle(t *testing.T) {
+	if got := documentTitle(t, renderAuditPage(t, "en", "categories_new", fixtureCategoryFormData())); got != "tkt — Ticket Desk" {
+		t.Errorf("standalone category form <title> = %q, want the shell fallback", got)
 	}
 }
