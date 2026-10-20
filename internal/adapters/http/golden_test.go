@@ -640,7 +640,10 @@ func requesterResolvedDetailData(viewer domain.User) detailData {
 	return detailData{
 		pageData: pageData{NavActive: "tickets", CurrentUser: viewer},
 		View:     view,
-		Next:     filteredNext(allowedNext(t.State), t),
+		// Mirrors detailDataFor: a role-user viewer is the requester audience
+		// (issue #334), so the state badge and back link use their vocabulary.
+		RequesterView: viewer.Role == domain.RoleUser,
+		Next:          filteredNext(allowedNext(t.State), t),
 		Options: options{
 			States:          listStates,
 			Priorities:      listPriorities,

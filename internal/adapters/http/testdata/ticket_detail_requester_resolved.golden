@@ -4,7 +4,7 @@
   <div class="command-header">
     <div class="detail-head">
       <div class="meta-row">
-        <a href="/tickets">← Queue</a>
+        <a href="/tickets">← My tickets</a>
         <span class="num">TKT-1</span>
       </div>
 

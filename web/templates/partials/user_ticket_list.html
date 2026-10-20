@@ -5,7 +5,7 @@
     <div class="user-request-content">
       <div class="user-request-head">
     <a class="user-request-title" href="/tickets/{{.ID}}">{{.Title}}</a>
-    {{- if eq .State "new"}}<span class="badge new">Received</span>{{else}}<span class="badge in_progress">In progress</span>{{end}}
+    {{- template "state_badge" (requesterStateBadge .State)}}
       </div>
       {{- if .Description}}<p class="user-request-description">{{.Description}}</p>{{end}}
       <span class="user-request-meta">{{ticketNumber .Number}} · Updated {{template "card_timestamp" .UpdatedAt}}</span>

@@ -654,7 +654,7 @@ func TestWorkflowChecklist_Presentation(t *testing.T) {
 		}
 	})
 
-	t.Run("no assignee renders the honest copy", func(t *testing.T) {
+	t.Run("no assignee sends each audience its own true copy", func(t *testing.T) {
 		h := newHarness(t)
 		cat, err := h.categories.Create(t.Context(), "PendingUnassigned")
 		if err != nil {
@@ -672,26 +672,50 @@ func TestWorkflowChecklist_Presentation(t *testing.T) {
 			t.Fatalf("seed pending unassigned ticket: %v", err)
 		}
 		// Creation is unassigned-only and this workflow's first step is a
-		// manual_task, so no step ever assigns anyone. The card must not
-		// claim an agent is handling a step nobody owns.
+		// manual_task, so no step ever assigns anyone.
 		sess := seedSession(t, h.store, requester.ID)
+
+		// The requester (issue #334 S1) reads their own true state — the
+		// request is received and queued — never the support-internal blocker
+		// or its amber treatment.
 		req := httptest.NewRequest(http.MethodGet, "/tickets/"+strconv.FormatInt(tkt.ID, 10), nil)
 		req.Header.Set("Cookie", sessionCookie+"="+sess.ID)
 		rec := httptest.NewRecorder()
 		h.mw.Wrap(h.mux).ServeHTTP(rec, req)
-		body := rec.Body.String()
+		reqBody := rec.Body.String()
 
 		if rec.Code != http.StatusOK {
-			t.Fatalf("status = %d, want 200", rec.Code)
+			t.Fatalf("requester status = %d, want 200", rec.Code)
 		}
-		if !strings.Contains(body, "Nobody is assigned yet.") {
-			t.Errorf("unassigned checklist must render the honest copy: %.600s", body)
+		if !strings.Contains(reqBody, "Your request has been received and is queued for support.") {
+			t.Errorf("requester checklist must state its own true state: %.600s", reqBody)
 		}
-		if !strings.Contains(body, "No one can complete this step until an agent is assigned to this ticket.") {
-			t.Errorf("unassigned checklist must state the blocking condition: %.600s", body)
+		for _, internal := range []string{
+			"Nobody is assigned yet.",
+			"No one can complete this step until an agent is assigned to this ticket.",
+			`class="workflow-checklist-meta workflow-checklist-meta-nobody"`,
+			`class="workflow-checklist-blocked"`,
+			"The assigned agent",
+		} {
+			if strings.Contains(reqBody, internal) {
+				t.Errorf("requester checklist must not render the support-internal %q: %.600s", internal, reqBody)
+			}
 		}
-		if strings.Contains(body, "The assigned agent") {
-			t.Errorf("unassigned checklist must not claim an assigned agent: %.600s", body)
+
+		// Staff keep today's honest blocker copy (issue #334 S4).
+		staff := h.get(t, "/tickets/"+strconv.FormatInt(tkt.ID, 10), false)
+		staffBody := staff.Body.String()
+		if staff.Code != http.StatusOK {
+			t.Fatalf("staff status = %d, want 200", staff.Code)
+		}
+		if !strings.Contains(staffBody, "Nobody is assigned yet.") {
+			t.Errorf("staff checklist must keep the honest copy: %.600s", staffBody)
+		}
+		if !strings.Contains(staffBody, "No one can complete this step until an agent is assigned to this ticket.") {
+			t.Errorf("staff checklist must keep the blocking condition: %.600s", staffBody)
+		}
+		if strings.Contains(staffBody, "The assigned agent") {
+			t.Errorf("staff checklist must not claim an assigned agent: %.600s", staffBody)
 		}
 	})
 
