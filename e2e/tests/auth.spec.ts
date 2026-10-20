@@ -4,6 +4,7 @@
 
 import { test, expect } from "@playwright/test";
 import { startServer, stopServer, activeServer } from "../server-lifecycle.js";
+import { loginAsSeeded } from "./helpers/auth.js";
 import { assertCanonicalScreen, collectObservability } from "./helpers/layout.js";
 
 function base(): string {
@@ -174,5 +175,44 @@ test.describe("Login and auth gates", () => {
     await expect(page).toHaveURL(/\/login/);
     await page.goto(base() + "/tickets");
     await expect(page).toHaveURL(/\/login/);
+  });
+
+  /**
+   * Issue #347: a session that dies while a page is open must not leak the login
+   * document into the region the next HTMX interaction targets. The gate refuses
+   * the HTMX request with HX-Redirect (empty 204, never a 3xx htmx would follow
+   * and swap), so htmx performs a full navigation and the user lands on /login.
+   */
+  test("expired session during an HTMX interaction lands on /login", async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await loginAsSeeded(page);
+    await expect(page.locator("#tickets-screen")).toBeVisible();
+    await expect(page.locator("#ticket-search")).toBeVisible();
+
+    // The session dies the way expiry does: the cookie the open document would
+    // send no longer resolves to a session server-side.
+    await page.context().clearCookies();
+
+    const refusal = page.waitForResponse(
+      (resp) =>
+        resp.request().headers()["hx-request"] === "true" &&
+        resp.request().method() === "GET" &&
+        new URL(resp.url()).pathname === "/tickets",
+    );
+    await page.getByPlaceholder(/search by id or title/i).fill("expired session");
+    await page.getByRole("button", { name: "Apply", exact: true }).click();
+
+    // The refusal is a redirect instruction, not a document to swap.
+    const response = await refusal;
+    expect(response.status()).toBe(204);
+    expect(response.headers()["hx-redirect"]).toBe("/login");
+
+    // htmx reads HX-Redirect and navigates: the open page is replaced by the
+    // login document instead of receiving login markup inside its list region.
+    await expect(page).toHaveURL(/\/login$/);
+    await expect(page.getByRole("heading", { name: /sign in to tkt/i })).toBeVisible();
+    await expect(page.locator("#tickets-screen")).toHaveCount(0);
+    await expect(page.locator("#ticket-list")).toHaveCount(0);
+    await expect(page.locator("#ticket-search")).toHaveCount(0);
   });
 });

@@ -13,6 +13,7 @@ Versioned Playwright regression for canonical frontend screens and selected crit
 - Functional journeys: representative journeys per domain. Not exhaustive.
 - HTMX swaps: proven by request evidence (`HX-Request: true`, exact endpoint, method, status), zero document navigation on the main frame, target region change, chrome intact, URL contract. Never by `hx-*` attributes alone.
 - HTMX no-swap requests: `assertHtmxNoSwap` proves `HX-Request: true`, exact endpoint and query, method, status 200, zero main-frame navigation, and unchanged URL for controls using `hx-swap="none"`; the consumer proves the persisted effect later.
+- HTMX session refusals: a request the session gate refuses because the session is gone answers `HX-Redirect` with an empty 204 — never a 3xx, which htmx's XHR would follow and swap into the requesting region. The journey proves the refusal status and header, the resulting `/login` navigation, and that no region of the previous document survived.
 - Native form submissions (comments, ticket creation) are tested as ordinary navigations, not through `assertHtmxSwap`.
 - Out of scope: domain edge cases, exhaustive authorization, exhaustive workflow validation, password change, deactivation, deletion. Covered by Go tests.
 
@@ -46,7 +47,7 @@ All screens below use `e2e/tests/helpers/layout.ts` (`collectObservability` + `a
 
 | Journey | Browser-evidenced behavior | Test file |
 |---|---|---|
-| Auth — setup, login, logout, gates | bootstrap on empty base, seeded login, `/setup` with users, `/` redirect, auth gate | `tests/auth.spec.ts` |
+| Auth — setup, login, logout, gates | bootstrap on empty base, seeded login, `/setup` with users, `/` redirect, auth gate, and a session that dies during an HTMX interaction: GET `/tickets` is refused with `HX-Redirect: /login` and an empty 204, and htmx navigates to `/login` instead of rendering login markup inside `#tickets-screen` | `tests/auth.spec.ts` |
 | Tickets — creation, list, detail | create via UI, visible in list, open detail | `tests/tickets.spec.ts` |
 | Tickets — search filter and pagination | HTMX swap on `#tickets-screen`: Apply sends the visible query controls together, Enter submits the same toolbar, an impossible term shows `No tickets match your filters`, and Clear restores the full list. A multi-page query preserves its controls through Next, reload, and 390px metadata rows. Each swap proves GET `/tickets`, 200, `HX-Request: true`, zero main-frame navigation, target mutation, and the pushed query URL. | `tests/tickets.spec.ts` |
 | Tickets — public comment | native POST (the comment form has no `hx-post`): 303 response, navigation to detail, comment in timeline, persists after reload | `tests/tickets.spec.ts` |

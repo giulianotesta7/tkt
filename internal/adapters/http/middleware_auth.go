@@ -145,7 +145,9 @@ func requestInterfaceLanguage(ctx context.Context, src InterfaceLanguageSource, 
 //   - Everything else requires a valid session: missing/expired token →
 //     303 /login (or 303 /setup when the table is empty); a deactivated
 //     user's session is destroyed on sight (D14 — deactivation kills
-//     sessions, next request is logged out).
+//     sessions, next request is logged out). An HTMX request refused here is
+//     answered with HX-Redirect instead of a 3xx (issue #347): see
+//     refuseUnauthenticated.
 type SessionMiddleware struct {
 	sessions application.SessionStore
 	users    application.UserStore
@@ -218,7 +220,7 @@ func (m *SessionMiddleware) Wrap(next http.Handler) http.Handler {
 				if session != nil {
 					redirect(w, r, "/tickets")
 				} else {
-					redirect(w, r, "/login")
+					refuseUnauthenticated(w, r, "/login")
 				}
 				return
 			}
@@ -233,10 +235,10 @@ func (m *SessionMiddleware) Wrap(next http.Handler) http.Handler {
 				return
 			}
 			if count == 0 {
-				redirect(w, r, "/setup")
+				refuseUnauthenticated(w, r, "/setup")
 				return
 			}
-			redirect(w, r, "/login")
+			refuseUnauthenticated(w, r, "/login")
 			return
 		}
 
@@ -250,14 +252,14 @@ func (m *SessionMiddleware) Wrap(next http.Handler) http.Handler {
 			// The user row vanished (deleted out from under the session):
 			// destroy the session and treat the request as logged out.
 			_ = m.sessions.Delete(r.Context(), session.ID)
-			redirect(w, r, "/login")
+			refuseUnauthenticated(w, r, "/login")
 			return
 		}
 		if !user.Active {
 			// D14: deactivation kills the user's sessions — destroy the
 			// row so the next request is logged out for good.
 			_ = m.sessions.Delete(r.Context(), session.ID)
-			redirect(w, r, "/login")
+			refuseUnauthenticated(w, r, "/login")
 			return
 		}
 
@@ -317,9 +319,44 @@ func originAllowed(r *http.Request) bool {
 	return strings.EqualFold(u.Host, r.Host)
 }
 
-// redirect issues a 303 See Other (HTMX follows it natively).
+// redirect issues a 303 See Other for an ordinary navigation or form post. It
+// must NOT answer an HTMX request the session gate refuses: htmx's XHR follows
+// the redirect transparently and swaps the destination document into the
+// requesting target, which is exactly the defect refuseUnauthenticated exists
+// to prevent (issue #347).
 func redirect(w http.ResponseWriter, r *http.Request, to string) {
 	http.Redirect(w, r, to, http.StatusSeeOther)
+}
+
+// htmxRequest reports whether htmx issued the request. Every htmx XHR carries
+// HX-Request, which is the header the rest of this adapter reads (it is set on
+// boosted and history-restore requests too; htmx adds HX-Boosted and
+// HX-History-Restore-Request alongside it rather than instead of it).
+func htmxRequest(r *http.Request) bool {
+	return r.Header.Get("HX-Request") != ""
+}
+
+// refuseUnauthenticated answers a request the session gate refuses because it
+// has no usable session, sending it to to (/login, or /setup on a fresh
+// instance).
+//
+// An ordinary navigation or form post keeps the 303 See Other it has always
+// answered. An HTMX request gets HX-Redirect plus an empty 204 instead, so htmx
+// performs a full navigation to to and never swaps anything into the requesting
+// target: without it, a drawer, a list region, or the ticket list receives the
+// whole login document (issue #347).
+//
+// The 204 is deliberate on htmx 2.0.4 (web/templates/static/htmx.min.js): the
+// HX-Redirect branch of the response handler runs BEFORE its responseHandling
+// table, so a 204 does not skip the header, and the default table marks 204 as
+// swap:false, so even a client that ignored the header has nothing to inject.
+func refuseUnauthenticated(w http.ResponseWriter, r *http.Request, to string) {
+	if htmxRequest(r) {
+		w.Header().Set("HX-Redirect", to)
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	redirect(w, r, to)
 }
 
 // sessionCookieValue builds the session cookie. Secure is enabled behind TLS
