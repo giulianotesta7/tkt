@@ -2614,11 +2614,15 @@ test.describe("Categories", () => {
       "rgb(180, 35, 24)",
     );
 
-    // Cancel is the safe exit: nothing is deleted and the row keeps its focus.
+    // Cancel is the safe exit: nothing is deleted, the menu the dialog
+    // replaced is closed, and focus is back on the trigger that opened it.
     await dialog.locator("[data-category-delete-cancel]").click();
     await expect(dialog).not.toBeVisible();
     await expect(deskRow).toHaveCount(1);
     await expect(page).toHaveURL(structureURL);
+    await expect(
+      deskRow.getByRole("button", { name: `Actions for ${deskName}`, exact: true }),
+    ).toBeFocused();
 
     // Confirming a delete the store refuses keeps the structure view, its
     // department and desk selection, and the URL, and reports the error there.
@@ -2630,8 +2634,9 @@ test.describe("Categories", () => {
     };
     page.on("request", navigationHandler);
     try {
-      // Cancelling returned focus to the same menu item, so the menu is still
-      // open: the second attempt starts where the first one ended.
+      // Cancelling closed the menu, so the second attempt starts from the
+      // trigger again.
+      await deskRow.getByRole("button", { name: `Actions for ${deskName}`, exact: true }).click();
       const deleteItem = deskRow.getByRole("menuitem", { name: "Delete desk", exact: true });
       await expect(deleteItem).toBeVisible();
       const refusal = page.waitForResponse(
@@ -2665,6 +2670,50 @@ test.describe("Categories", () => {
       [],
     );
     expect(obs.pageErrors).toEqual([]);
+  });
+
+  test("the delete confirmation cancels on Escape and returns focus to its trigger", async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await loginAsSeeded(page);
+    const name = "Delete confirm " + Date.now().toString(36).slice(2, 8);
+    await createCategoryViaUi(page, name);
+    const structureURL = page.url();
+    await page.goto(structureURL);
+
+    const row = page
+      .locator(".category-level-categories .category-table tbody tr")
+      .filter({ hasText: name });
+    await expect(row).toHaveCount(1);
+    const menu = row.getByRole("button", { name: `Actions for ${name}`, exact: true });
+    const focusKey = await menu.getAttribute("data-focus-key");
+    expect(focusKey).toBeTruthy();
+
+    await menu.click();
+    await row
+      .locator(".category-overflow-menu:not([hidden])")
+      .getByRole("menuitem", { name: "Delete category", exact: true })
+      .click();
+    const confirmation = page.locator("#category-delete-dialog");
+    await expect(confirmation).toBeVisible();
+    await expect(confirmation.getByRole("button", { name: "Cancel", exact: true })).toBeFocused();
+    // The confirmation replaces the menu, so nothing is left open behind it.
+    await expect(row.locator(".category-overflow-menu:not([hidden])")).toHaveCount(0);
+    await expect(menu).toHaveAttribute("aria-expanded", "false");
+
+    await page.keyboard.press("Escape");
+    await expect(confirmation, "one Escape answers the question").toBeHidden();
+    await expect(page.locator(`[data-focus-key="${focusKey}"]`)).toBeFocused();
+    await expect(row).toHaveCount(1);
+
+    await menu.click();
+    await row
+      .locator(".category-overflow-menu:not([hidden])")
+      .getByRole("menuitem", { name: "Delete category", exact: true })
+      .click();
+    await confirmation.getByRole("button", { name: "Delete", exact: true }).click();
+    await expect(row).toHaveCount(0);
   });
 
   test.describe("Add step popover dismissal", () => {

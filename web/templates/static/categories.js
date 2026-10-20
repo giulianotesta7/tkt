@@ -223,7 +223,13 @@
     const form = button.form;
     if (!dialog || !form) return;
     deleteForm = form;
-    deleteReturnFocus = button;
+    // The confirmation replaces the overflow menu, so the menu closes here:
+    // two overlays at once would leave the first Escape with the menu, and a
+    // hidden menu item cannot take focus back when the question is answered.
+    // Focus returns to the trigger that opened the menu instead.
+    deleteReturnFocus =
+      button.closest(".category-overflow")?.querySelector("[data-category-menu]") || button;
+    closeMenus();
     const title = dialog.querySelector("#category-delete-title");
     if (title) title.textContent = button.dataset.deleteConfirm || "";
     if (dialog.showModal) dialog.showModal();
