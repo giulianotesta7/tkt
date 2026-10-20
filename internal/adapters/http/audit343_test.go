@@ -3,9 +3,12 @@ package httpadapter
 import (
 	"net/http"
 	"net/http/httptest"
+	"net/url"
+	"strconv"
 	"strings"
 	"testing"
 
+	"github.com/giulianotesta7/tkt/internal/application"
 	"github.com/giulianotesta7/tkt/internal/domain"
 	"github.com/giulianotesta7/tkt/web/templates"
 )
@@ -249,5 +252,138 @@ func TestS5SkipLinkAndCurrentRailLink(t *testing.T) {
 	spanish := renderAuditPage(t, "es", "settings_index", fixtureSettingsIndexData())
 	if !strings.Contains(spanish, `>Saltar al contenido principal</a>`) {
 		t.Errorf("the skip link copy must follow the instance language")
+	}
+}
+
+// TestS6RefusedDeleteKeepsTheStructureSelection is S6's server half: a delete
+// the store refuses answers with the translated error and the structure view
+// the operator was on — same department, same desk — instead of a landing page
+// on the POST URL. The confirmation dialog itself is browser behaviour and is
+// covered by e2e/tests/categories.spec.ts.
+func TestS6RefusedDeleteKeepsTheStructureSelection(t *testing.T) {
+	h := newHarness(t)
+	catalog := application.NewCatalogService(h.store.CatalogStore(), h.store.CategoryStore(), h.clock)
+	department, err := catalog.CreateDepartmentFor(t.Context(), *h.admin, "Operations", "Operations")
+	if err != nil {
+		t.Fatalf("create department: %v", err)
+	}
+	desk, err := catalog.CreateDeskFor(t.Context(), *h.admin, department.ID, "Service desk")
+	if err != nil {
+		t.Fatalf("create desk: %v", err)
+	}
+	// A category in the desk makes the desk referenced, so the store refuses
+	// the delete exactly as the audit's reproduction step describes.
+	if _, err := h.categories.CreateWithDescriptionFor(t.Context(), *h.admin, "Desk incidents", "", desk.ID); err != nil {
+		t.Fatalf("create category: %v", err)
+	}
+
+	mux := http.NewServeMux()
+	NewCategoryHandlersWithWorkflows(h.categories, h.workflows, h.renderer, catalog).Register(mux)
+	post := func(hx bool, form url.Values) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodPost,
+			"/categories/desks/"+strconv.FormatInt(desk.ID, 10)+"/delete",
+			strings.NewReader(form.Encode()))
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		req.Header.Set("Cookie", sessionCookie+"="+h.adminSession.ID)
+		if hx {
+			req.Header.Set("HX-Request", "true")
+		}
+		rec := httptest.NewRecorder()
+		h.mw.Wrap(mux).ServeHTTP(rec, req)
+		return rec
+	}
+	selection := url.Values{
+		"view":          {"structure"},
+		"department_id": {strconv.FormatInt(department.ID, 10)},
+		"desk_id":       {strconv.FormatInt(desk.ID, 10)},
+	}
+
+	rec := post(true, selection)
+	if rec.Code != http.StatusConflict {
+		t.Errorf("refused desk delete = %d, want 409: %s", rec.Code, rec.Body.String())
+	}
+	if got := rec.Header().Get("HX-Retarget"); got != "#categories-background" {
+		t.Errorf("HX-Retarget = %q, want the structure region", got)
+	}
+	if got := rec.Header().Get("HX-Reswap"); got != "outerHTML" {
+		t.Errorf("HX-Reswap = %q, want outerHTML", got)
+	}
+	fragment := rec.Body.String()
+	for _, want := range []string{
+		`<div class="error-banner" role="alert">desk is referenced and cannot be deleted</div>`,
+		`href="/categories?view=structure&department_id=` + strconv.FormatInt(department.ID, 10) + `&desk_id=` + strconv.FormatInt(desk.ID, 10) + `" aria-current="true"`,
+		`<strong>Service desk</strong>`,
+	} {
+		if !strings.Contains(fragment, want) {
+			t.Errorf("the refused delete must keep the structure selection, missing %q in: %.1200s", want, fragment)
+		}
+	}
+	if strings.Contains(fragment, "<html") {
+		t.Errorf("an HTMX refusal must swap the structure region, not a whole page")
+	}
+
+	// The same refusal in a Spanish instance renders the translated error, and
+	// the native (no-HTML-override) path keeps the selection too.
+	if err := h.settings.SetInterfaceLanguage(t.Context(), *h.admin, application.InterfaceLanguageSpanish); err != nil {
+		t.Fatalf("set interface language: %v", err)
+	}
+	spanish := post(false, selection)
+	if spanish.Code != http.StatusConflict {
+		t.Errorf("native refused delete = %d, want 409", spanish.Code)
+	}
+	if body := spanish.Body.String(); !strings.Contains(body, "la mesa está en uso y no se puede eliminar") {
+		t.Errorf("the refusal must be translated, got: %.800s", body)
+	}
+	if body := spanish.Body.String(); !strings.Contains(body, `aria-current="true"`) {
+		t.Errorf("the native refusal must keep the structure selection, got: %.800s", body)
+	}
+}
+
+// TestS6DeleteControlsAskBeforeDeleting is the markup half of S6's
+// confirmation: every direct delete control is a confirmation trigger that
+// names its row, so a single click cannot reach the server, and the page ships
+// one dialog whose destructive action is styled apart from cancel.
+func TestS6DeleteControlsAskBeforeDeleting(t *testing.T) {
+	h := newHarness(t)
+	catalog := application.NewCatalogService(h.store.CatalogStore(), h.store.CategoryStore(), h.clock)
+	department, err := catalog.CreateDepartmentFor(t.Context(), *h.admin, "Operations", "Operations")
+	if err != nil {
+		t.Fatalf("create department: %v", err)
+	}
+	desk, err := catalog.CreateDeskFor(t.Context(), *h.admin, department.ID, "Service desk")
+	if err != nil {
+		t.Fatalf("create desk: %v", err)
+	}
+	if _, err := h.categories.CreateWithDescriptionFor(t.Context(), *h.admin, "Desk incidents", "", desk.ID); err != nil {
+		t.Fatalf("create category: %v", err)
+	}
+	mux := http.NewServeMux()
+	NewCategoryHandlersWithWorkflows(h.categories, h.workflows, h.renderer, catalog).Register(mux)
+	req := httptest.NewRequest(http.MethodGet,
+		"/categories?view=structure&department_id="+strconv.FormatInt(department.ID, 10)+"&desk_id="+strconv.FormatInt(desk.ID, 10), nil)
+	req.Header.Set("Cookie", sessionCookie+"="+h.adminSession.ID)
+	rec := httptest.NewRecorder()
+	h.mw.Wrap(mux).ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET structure = %d, want 200", rec.Code)
+	}
+	body := rec.Body.String()
+
+	for _, want := range []string{
+		`data-category-delete="department" data-delete-confirm="Delete the department “Operations”?"`,
+		`data-category-delete="desk" data-delete-confirm="Delete the desk “Service desk”?"`,
+		`data-category-delete="category" data-delete-confirm="Delete the category “Desk incidents”?"`,
+		`hx-post="/categories/desks/` + strconv.FormatInt(desk.ID, 10) + `/delete" hx-target="#categories-background" hx-swap="outerHTML"`,
+		`<dialog id="category-delete-dialog" aria-labelledby="category-delete-title" aria-describedby="category-delete-copy">`,
+		`data-category-delete-confirm`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("the structure view is missing the confirmation contract %q", want)
+		}
+	}
+	// The dialog names what will be deleted at click time, so its own static
+	// copy stays generic and its body explains the consequence.
+	if !strings.Contains(body, `id="category-delete-copy">This cannot be undone.</p>`) {
+		t.Errorf("the confirmation dialog must explain that the delete is permanent")
 	}
 }

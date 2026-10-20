@@ -11,6 +11,8 @@
   let dialogReturnFocus = null;
   let lastDrawerFocus = null;
   let drawerURL = "";
+  let deleteForm = null;
+  let deleteReturnFocus = null;
 
   const root = () => document.querySelector(".categories-root");
   const background = () => document.getElementById("categories-background");
@@ -204,6 +206,50 @@
         (validDialogReturnFocus(panel, target) ? target : dialogFocusFallback(panel)).focus();
       });
     }
+  }
+
+  // Deleting a department, desk or category cannot be undone (#343, S6), so the
+  // direct control opens a confirmation that names the row before the request
+  // leaves the browser. The menu item stays a submit button: without the script
+  // the form still submits, and the server keeps the last word either way. The
+  // sentence is rendered by the server per row, so the dialog holds no copy of
+  // its own and the instance language decides the wording.
+  function deleteDialog() {
+    return document.getElementById("category-delete-dialog");
+  }
+
+  function openDeleteDialog(button) {
+    const dialog = deleteDialog();
+    const form = button.form;
+    if (!dialog || !form) return;
+    deleteForm = form;
+    deleteReturnFocus = button;
+    const title = dialog.querySelector("#category-delete-title");
+    if (title) title.textContent = button.dataset.deleteConfirm || "";
+    if (dialog.showModal) dialog.showModal();
+    else dialog.setAttribute("open", "");
+    // Focus lands on the safe choice, as the drawer's leave-unsaved dialog does.
+    dialog.querySelector("[data-category-delete-cancel]")?.focus();
+  }
+
+  function closeDeleteDialog(restoreFocus) {
+    const dialog = deleteDialog();
+    if (dialog?.open) dialog.close();
+    else dialog?.removeAttribute("open");
+    // The title names the row that was about to go: clearing it keeps a stale
+    // name out of the document once the question is answered.
+    const title = dialog?.querySelector("#category-delete-title");
+    if (title) title.textContent = "";
+    deleteForm = null;
+    const target = deleteReturnFocus;
+    deleteReturnFocus = null;
+    if (restoreFocus && target?.isConnected) target.focus();
+  }
+
+  function confirmDelete() {
+    const form = deleteForm;
+    closeDeleteDialog(false);
+    if (form) form.requestSubmit();
   }
 
   function lockBackground(value) {
@@ -413,9 +459,13 @@
   function handleBeforeSwap(event) {
     const xhr = event.detail?.xhr;
     captureDeskValues(event);
+    // A refused form renders into the region it came from instead of being
+    // dropped: the drawer keeps its submitted values, and a refused delete
+    // keeps the structure view with the same department, desk and error.
+    const retarget = xhr?.getResponseHeader("HX-Retarget");
     const expected =
       [400, 403, 404, 409, 422].includes(xhr?.status) &&
-      xhr.getResponseHeader("HX-Retarget") === "#category-drawer-host" &&
+      (retarget === "#category-drawer-host" || retarget === "#categories-background") &&
       xhr.getResponseHeader("HX-Reswap") === "outerHTML";
     if (expected) {
       event.detail.shouldSwap = true;
@@ -461,6 +511,22 @@
       if (close) {
         event.preventDefault();
         requestClose(close);
+        return;
+      }
+      const deleteButton = event.target.closest("[data-category-delete]");
+      if (deleteButton) {
+        event.preventDefault();
+        openDeleteDialog(deleteButton);
+        return;
+      }
+      if (event.target.closest("[data-category-delete-cancel]")) {
+        event.preventDefault();
+        closeDeleteDialog(true);
+        return;
+      }
+      if (event.target.closest("[data-category-delete-confirm]")) {
+        event.preventDefault();
+        confirmDelete();
         return;
       }
       const menuButton = event.target.closest("[data-category-menu]");
@@ -550,6 +616,11 @@
   document.addEventListener(
     "cancel",
     (event) => {
+      if (event.target.matches("#category-delete-dialog")) {
+        event.preventDefault();
+        closeDeleteDialog(true);
+        return;
+      }
       if (!event.target.matches("#category-dirty-dialog")) return;
       event.preventDefault();
       closeDialog(true);

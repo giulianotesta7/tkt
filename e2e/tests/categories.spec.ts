@@ -1143,6 +1143,7 @@ test.describe("Categories", () => {
       if ((await rowByName(longName).count()) > 0) {
         await longRow.getByRole("button", { name: /^Actions for / }).click();
         await longRow.getByRole("menuitem", { name: "Delete category", exact: true }).click();
+        await page.locator("#category-delete-dialog [data-category-delete-confirm]").click();
         await expect(rowByName(longName)).toHaveCount(0);
       }
       if (emptyCreated) {
@@ -1154,6 +1155,7 @@ test.describe("Categories", () => {
         await expect(item, `${emptyName} cleanup at ${page.url()}`).toHaveCount(1);
         await item.getByRole("button", { name: `Actions for ${emptyName}`, exact: true }).click();
         await item.getByRole("menuitem", { name: "Delete desk", exact: true }).click();
+        await page.locator("#category-delete-dialog [data-category-delete-confirm]").click();
         await expect(item).toHaveCount(0);
       }
     }
@@ -1303,6 +1305,7 @@ test.describe("Categories", () => {
     await expect(delRow).toHaveCount(1);
     await delRow.getByRole("button", { name: /actions for/i }).click();
     await delRow.getByRole("menuitem", { name: /delete category/i }).click();
+    await page.locator("#category-delete-dialog [data-category-delete-confirm]").click();
     await expect(page.getByText(renamed)).toHaveCount(0);
 
     await assertCanonicalScreen(page, {
@@ -2561,6 +2564,107 @@ test.describe("Categories", () => {
       failedRequests: obs.failedRequests,
       failedResponses: obs.failedResponses,
     });
+  });
+
+  test("deleting a desk asks first, and a refused delete keeps the structure selection", async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    const obs = collectObservability(page);
+    await loginAsSeeded(page);
+    await page.goto(base() + "/categories?view=structure&department_id=unassigned");
+
+    // The seeded legacy desk still hosts a category, so the store refuses its
+    // delete: the fixture the audit's reproduction step names. The desk is
+    // resolved by its position under the Unassigned group, never by a name
+    // another journey in this file may have renamed.
+    const deskRow = page.locator(".category-level-desks .category-structure-item").first();
+    await expect(deskRow, `the unassigned desk at ${page.url()}`).toHaveCount(1);
+    const deskName = (await deskRow.locator(".category-structure-row strong").innerText()).trim();
+    const deskHref = await deskRow.locator(".category-structure-row").getAttribute("href");
+    const deskID = deskHref?.match(/desk_id=(\d+)/)?.[1];
+    if (!deskID) {
+      throw new Error(
+        `Could not resolve the desk id from ${deskHref ?? "missing href"} at ${page.url()}`,
+      );
+    }
+    await deskRow.locator(".category-structure-row").click();
+    await expect(page).toHaveURL(
+      new RegExp(`view=structure&department_id=unassigned&desk_id=${deskID}`),
+    );
+    const structureURL = page.url();
+    const dialog = page.locator("#category-delete-dialog");
+
+    await deskRow.getByRole("button", { name: `Actions for ${deskName}`, exact: true }).click();
+    await deskRow.getByRole("menuitem", { name: "Delete desk", exact: true }).click();
+
+    // The confirmation names the row, focuses the safe choice, and the
+    // destructive action is the only red control in the dialog.
+    await expect(dialog).toBeVisible();
+    await expect(dialog.locator("#category-delete-title")).toHaveText(
+      `Delete the desk \u201c${deskName}\u201d?`,
+    );
+    await expect(dialog.locator("[data-category-delete-cancel]")).toBeFocused();
+    await expect(dialog.locator("[data-category-delete-confirm]")).toHaveCSS(
+      "background-color",
+      "rgb(180, 35, 24)",
+    );
+    await expect(dialog.locator("[data-category-delete-cancel]")).not.toHaveCSS(
+      "background-color",
+      "rgb(180, 35, 24)",
+    );
+
+    // Cancel is the safe exit: nothing is deleted and the row keeps its focus.
+    await dialog.locator("[data-category-delete-cancel]").click();
+    await expect(dialog).not.toBeVisible();
+    await expect(deskRow).toHaveCount(1);
+    await expect(page).toHaveURL(structureURL);
+
+    // Confirming a delete the store refuses keeps the structure view, its
+    // department and desk selection, and the URL, and reports the error there.
+    const navigations: string[] = [];
+    const navigationHandler = (request: Request) => {
+      if (request.isNavigationRequest() && request.frame() === page.mainFrame()) {
+        navigations.push(request.url());
+      }
+    };
+    page.on("request", navigationHandler);
+    try {
+      // Cancelling returned focus to the same menu item, so the menu is still
+      // open: the second attempt starts where the first one ended.
+      const deleteItem = deskRow.getByRole("menuitem", { name: "Delete desk", exact: true });
+      await expect(deleteItem).toBeVisible();
+      const refusal = page.waitForResponse(
+        (response) =>
+          response.request().headers()["hx-request"] === "true" &&
+          response.request().method() === "POST" &&
+          response.url().endsWith(`/categories/desks/${deskID}/delete`),
+      );
+      await deleteItem.click();
+      await dialog.locator("[data-category-delete-confirm]").click();
+      const response = await refusal;
+      expect(response.status()).toBe(409);
+      expect(response.headers()["hx-retarget"]).toBe("#categories-background");
+      expect(response.headers()["hx-reswap"]).toBe("outerHTML");
+      await expect(page.locator("#categories-background .error-banner")).toHaveText(
+        "desk is referenced and cannot be deleted",
+      );
+      await expect(page).toHaveURL(structureURL);
+      const refusedRow = page
+        .locator(".category-level-desks .category-structure-item")
+        .filter({ has: page.getByText(deskName, { exact: true }) });
+      await expect(refusedRow.locator(".category-structure-row")).toHaveAttribute(
+        "aria-current",
+        "true",
+      );
+      await expect(refusedRow).toHaveCount(1);
+    } finally {
+      page.off("request", navigationHandler);
+    }
+    expect(navigations, `a refused delete must not navigate: ${navigations.join("; ")}`).toEqual(
+      [],
+    );
+    expect(obs.pageErrors).toEqual([]);
   });
 
   test.describe("Add step popover dismissal", () => {
