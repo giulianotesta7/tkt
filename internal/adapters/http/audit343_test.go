@@ -69,10 +69,8 @@ func TestS1EveryScreenNamesItselfInTheDocumentTitle(t *testing.T) {
 		{"tickets", "tickets_index", fixtureListData(), "Tickets · tkt"},
 		{"new ticket", "tickets_new", fixtureTicketFormData(), "New ticket · tkt"},
 		{"users", "users_index", fixtureUsersIndexData(), "Users · tkt"},
-		{"edit user", "users_new", fixtureUserFormData(), "Edit user · tkt"},
 		{"settings", "settings_index", fixtureSettingsIndexData(), "Settings · tkt"},
 		{"categories", "categories_index", fixtureCategoriesIndexData(), "Categories · tkt"},
-		{"edit category", "categories_new", fixtureCategoryFormData(), "Rename category · tkt"},
 		{"category SLA", "category_sla", fixtureCategorySLAData(), "Category SLA · tkt"},
 		{"category workflow", "category_workflow", mobileBuilderPageData(), "Category workflow · tkt"},
 		{"ticket metrics", "ticket_metrics_detail", data, "Ticket metrics · tkt"},
@@ -107,6 +105,84 @@ func TestS1EveryScreenNamesItselfInTheDocumentTitle(t *testing.T) {
 	want := "TKT-1 · VPN &lt;b&gt;drops&lt;/b&gt; &amp; reconnects · tkt"
 	if got != want {
 		t.Errorf("ticket <title> = %q, want the escaped title %q", got, want)
+	}
+}
+
+// TestS1EveryRouteNamesItsScreen proves S1 where a user actually meets it: the
+// document a route returns. The users and categories list pages are also the
+// drawer hosts (/users/new, /users/{id}/edit, /categories/{kind}/new and their
+// edit routes), so a title block that only knows the list leaves every drawer
+// screen sharing one name — which is exactly how the first version of this fix
+// passed a template-level test and still shipped the audited defect.
+func TestS1EveryRouteNamesItsScreen(t *testing.T) {
+	h := newHarness(t)
+	user := h.createUser(t, "Dana Requester", "dana@tkt.test", "SuperSecret42!")
+	catalog := application.NewCatalogService(h.store.CatalogStore(), h.store.CategoryStore(), h.clock)
+	department, err := catalog.CreateDepartmentFor(t.Context(), *h.admin, "Operations", "Operations")
+	if err != nil {
+		t.Fatalf("create department: %v", err)
+	}
+	desk, err := catalog.CreateDeskFor(t.Context(), *h.admin, department.ID, "Service desk")
+	if err != nil {
+		t.Fatalf("create desk: %v", err)
+	}
+	// The harness registers the category handlers without the catalog
+	// projection, so the desk and department drawers need the production
+	// composition; the users routes come from the harness mux.
+	catalogMux := http.NewServeMux()
+	NewCategoryHandlersWithWorkflows(h.categories, h.workflows, h.renderer, catalog).Register(catalogMux)
+
+	id := func(value int64) string { return strconv.FormatInt(value, 10) }
+	structure := "?view=structure&department_id=" + id(department.ID)
+	cases := []struct {
+		mux  *http.ServeMux
+		path string
+		want string
+	}{
+		{h.mux, "/users", "Users · tkt"},
+		{h.mux, "/users/new", "New user · tkt"},
+		{h.mux, "/users/" + id(user.ID) + "/edit", "Edit user · tkt"},
+		{catalogMux, "/categories?view=structure", "Categories · tkt"},
+		{catalogMux, "/categories/new?view=structure", "New category · tkt"},
+		{catalogMux, "/categories/" + id(h.bugCategory.ID) + "/edit?view=structure", "Rename category · tkt"},
+		{catalogMux, "/categories/desks/new" + structure, "New desk · tkt"},
+		{catalogMux, "/categories/desks/" + id(desk.ID) + "/edit" + structure + "&desk_id=" + id(desk.ID), "Edit desk · tkt"},
+		{catalogMux, "/categories/departments/new?view=structure", "New department · tkt"},
+		{catalogMux, "/categories/departments/" + id(department.ID) + "/edit?view=structure&department_id=" + id(department.ID), "Edit department · tkt"},
+	}
+	seen := map[string]string{}
+	for _, tc := range cases {
+		req := httptest.NewRequest(http.MethodGet, tc.path, nil)
+		req.Header.Set("Cookie", sessionCookie+"="+h.adminSession.ID)
+		rec := httptest.NewRecorder()
+		h.mw.Wrap(tc.mux).ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("GET %s = %d, want 200: %.400s", tc.path, rec.Code, rec.Body.String())
+		}
+		if got := documentTitle(t, rec.Body.String()); got != tc.want {
+			t.Errorf("GET %s <title> = %q, want %q", tc.path, got, tc.want)
+		}
+		if other, ok := seen[tc.want]; ok {
+			t.Errorf("GET %s and %s share the title %q", other, tc.path, tc.want)
+		}
+		seen[tc.want] = tc.path
+	}
+
+	// The standalone user form is a drawer-fragment host, and one route still
+	// reaches it as a document: a native (non-HTMX) POST to the edit route that
+	// fails validation re-renders the form page. Its title has to name the edit
+	// screen it just failed to save, not the list behind it.
+	rejected := h.postForm(t, "/users/"+id(user.ID)+"/edit", url.Values{
+		"name":     {""},
+		"email":    {"dana@tkt.test"},
+		"role":     {string(domain.RoleUser)},
+		"password": {"SuperSecret42!"},
+	}, false)
+	if rejected.Code == http.StatusOK || rejected.Code == http.StatusFound {
+		t.Fatalf("POST /users/{id}/edit with an empty name = %d, want a rejected form", rejected.Code)
+	}
+	if got := documentTitle(t, rejected.Body.String()); got != "Edit user · tkt" {
+		t.Errorf("rejected user edit <title> = %q, want %q", got, "Edit user · tkt")
 	}
 }
 
