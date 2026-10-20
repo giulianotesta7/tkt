@@ -82,7 +82,7 @@ func (s *PreferencesService) GetDefaultQueueOrder(ctx context.Context, actor dom
 // input); the value is stored verbatim because it is already inside the set.
 func (s *PreferencesService) SetDefaultQueueOrder(ctx context.Context, actor domain.User, order string) error {
 	if !IsAllowedQueueOrder(order) {
-		return &domain.ValidationError{Field: "queue_order", Message: "invalid queue order"}
+		return &domain.ValidationError{Field: "queue_order", Message: "invalid queue order", Key: "error.invalid_queue_order"}
 	}
 	return s.preferences.SetQueueOrder(ctx, actor.ID, order)
 }

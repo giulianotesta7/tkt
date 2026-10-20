@@ -32,7 +32,7 @@ func NewCommentService(tickets TicketStore, comments CommentStore, clock domain.
 // BEFORE any store call; roles agent+ may add public or internal comments.
 func (s *CommentService) Add(ctx context.Context, actor domain.User, ticketID int64, body, visibility string) (*domain.Comment, error) {
 	if strings.TrimSpace(body) == "" {
-		return nil, &domain.ValidationError{Field: "body", Message: domain.ErrMsgCommentBodyRequired}
+		return nil, &domain.ValidationError{Field: "body", Message: domain.ErrMsgCommentBodyRequired, Key: "error.comment_body_required"}
 	}
 	vis, err := parseCommentVisibility(visibility)
 	if err != nil {
@@ -85,7 +85,7 @@ func parseCommentVisibility(raw string) (domain.CommentVisibility, error) {
 	case string(domain.CommentInternal):
 		return domain.CommentInternal, nil
 	default:
-		return "", &domain.ValidationError{Field: "visibility", Message: domain.ErrMsgCommentVisibilityInvalid}
+		return "", &domain.ValidationError{Field: "visibility", Message: domain.ErrMsgCommentVisibilityInvalid, Key: "error.comment_visibility_invalid"}
 	}
 }
 

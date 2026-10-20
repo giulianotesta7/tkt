@@ -1,6 +1,7 @@
 package httpadapter
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -13,8 +14,9 @@ import (
 
 // SettingsHandlers expose the instance configuration settings (the Settings
 // screen): GET /settings renders the page, POST /settings/appearance persists
-// the internal-comment background color, POST /settings/sla persists the
-// SLA panel (enabled flag, warning percent, default target matrix), and
+// the internal-comment background color, POST /settings/language persists the
+// instance-wide interface language, POST /settings/sla persists the SLA panel
+// (enabled flag, warning percent, default target matrix), and
 // POST /settings/calendar persists the working calendar. All routes are gated
 // on CapManageSettings (admin/root) at the HTTP boundary; the application
 // service re-enforces the same capability before mutating anything.
@@ -43,17 +45,22 @@ func NewSettingsHandlers(settings *application.SettingsService, sla *application
 func (h *SettingsHandlers) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /settings", h.index)
 	mux.HandleFunc("POST /settings/appearance", h.updateAppearance)
+	mux.HandleFunc("POST /settings/language", h.updateLanguage)
 	mux.HandleFunc("POST /settings/sla", h.updateSLA)
 	mux.HandleFunc("POST /settings/calendar", h.updateCalendar)
 }
 
-// settingsIndexData is the appearance, SLA, and working-calendar panel
-// payload; Error carries a rejected-update message (422 re-render).
+// settingsIndexData is the appearance, interface-language, SLA, and
+// working-calendar panel payload; Error carries a rejected-update message (422
+// re-render).
 type settingsIndexData struct {
 	pageData
 	Error   string
 	Current string
 	Colors  []appearanceOption
+
+	CurrentLanguage string
+	Languages       []interfaceLanguageOption
 
 	SLAEnabled        bool
 	SLAWarningPercent int
@@ -116,6 +123,30 @@ func calendarDayOptionsMarked(picked func(isoDay int) bool) []calendarDayOption 
 	return options
 }
 
+// interfaceLanguageOption pairs a stored interface-language code with the
+// catalogue key of its display label.
+type interfaceLanguageOption struct {
+	Value string
+	Label string
+}
+
+// interfaceLanguageOptions lists the shipped interface languages in the order
+// the panel offers them, each labelled with its AUTONYM (English, Español): a
+// language name is never translated, so someone who cannot read the current
+// interface language can still find their own.
+func interfaceLanguageOptions() []interfaceLanguageOption {
+	labels := map[string]string{
+		application.InterfaceLanguageEnglish: "settings.language.english",
+		application.InterfaceLanguageSpanish: "settings.language.spanish",
+	}
+	codes := application.AllowedInterfaceLanguages()
+	out := make([]interfaceLanguageOption, 0, len(codes))
+	for _, code := range codes {
+		out = append(out, interfaceLanguageOption{Value: code, Label: labels[code]})
+	}
+	return out
+}
+
 // appearanceOption pairs a selectable color with its display label.
 type appearanceOption struct {
 	Value string
@@ -163,10 +194,28 @@ func (h *SettingsHandlers) index(w http.ResponseWriter, r *http.Request) {
 		httpError(w, r, "error.internal_server", http.StatusInternalServerError)
 		return
 	}
+	if err := h.loadLanguage(r, &data); err != nil {
+		httpError(w, r, "error.internal_server", http.StatusInternalServerError)
+		return
+	}
 	// The shell CSS must carry the same color the panel shows; stamp the
 	// authoritative read into the page data.
 	data.InternalCommentBg = current
 	h.renderer.Render(w, r, "settings_index", "", data, http.StatusOK)
+}
+
+// loadLanguage fills the interface-language panel payload from the
+// authoritative read through the settings service: the active code and the
+// offered languages. Every settings re-render calls it, so a panel untouched by
+// the rejected POST still marks the language the instance is rendering with.
+func (h *SettingsHandlers) loadLanguage(r *http.Request, data *settingsIndexData) error {
+	current, err := h.settings.GetInterfaceLanguage(r.Context())
+	if err != nil {
+		return err
+	}
+	data.CurrentLanguage = current
+	data.Languages = interfaceLanguageOptions()
+	return nil
 }
 
 // loadSLA fills the SLA panel payload from the authoritative reads: the
@@ -231,10 +280,73 @@ func (h *SettingsHandlers) updateAppearance(w http.ResponseWriter, r *http.Reque
 			httpError(w, r, "error.internal_server", http.StatusInternalServerError)
 			return
 		}
+		if loadErr := h.loadLanguage(r, &data); loadErr != nil {
+			httpError(w, r, "error.internal_server", http.StatusInternalServerError)
+			return
+		}
 		data.InternalCommentBg = current
 		h.renderer.Render(w, r, "settings_index", "", data, status)
 		return
 	}
+	saveFeedback(w, r, saveFeedbackSaved, saveFeedbackSuccess)
+	redirect(w, r, "/settings")
+}
+
+// updateLanguage persists the instance-wide interface language (issue #335,
+// S7-S9). A rejected code re-renders the page (422) with an inline error in the
+// language the instance is CURRENTLY rendering (the middleware stamped it for
+// this request) and changes nothing. Success redirects 303 back to /settings:
+// because the redirect is a new request, the middleware reads the saved language
+// and the page the administrator lands on renders in it.
+func (h *SettingsHandlers) updateLanguage(w http.ResponseWriter, r *http.Request) {
+	if !requireCapability(w, r, application.CapManageSettings) {
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		httpError(w, r, "error.internal_server", http.StatusInternalServerError)
+		return
+	}
+	err := h.settings.SetInterfaceLanguage(r.Context(), *userFromContext(r.Context()), r.Form.Get("interface_language"))
+	if err != nil {
+		status, msg := mapErrorFor(r, err)
+		if status == http.StatusInternalServerError {
+			http.Error(w, msg, status)
+			return
+		}
+		// The other panels are untouched by this POST, so they re-render from
+		// the stored values — the language panel included: a rejected code must
+		// leave the active language marked.
+		current, getErr := h.settings.GetAppearance(r.Context())
+		if getErr != nil {
+			httpError(w, r, "error.internal_server", http.StatusInternalServerError)
+			return
+		}
+		data := settingsIndexData{
+			pageData: pageDataFrom(r, "settings"),
+			Error:    msg,
+			Current:  current,
+			Colors:   appearanceOptions(),
+		}
+		if loadErr := h.loadSLA(r, &data); loadErr != nil {
+			httpError(w, r, "error.internal_server", http.StatusInternalServerError)
+			return
+		}
+		if loadErr := h.loadCalendar(r, &data); loadErr != nil {
+			httpError(w, r, "error.internal_server", http.StatusInternalServerError)
+			return
+		}
+		if loadErr := h.loadLanguage(r, &data); loadErr != nil {
+			httpError(w, r, "error.internal_server", http.StatusInternalServerError)
+			return
+		}
+		data.InternalCommentBg = current
+		h.renderer.Render(w, r, "settings_index", "", data, status)
+		return
+	}
+	// The save toast is resolved into the flash cookie on THIS request, so it
+	// must resolve in the language just saved: the page that renders it is that
+	// language, and S8 allows no leftover string in the previous one.
+	r = r.WithContext(context.WithValue(r.Context(), ctxKeyInterfaceLanguage{}, r.Form.Get("interface_language")))
 	saveFeedback(w, r, saveFeedbackSaved, saveFeedbackSuccess)
 	redirect(w, r, "/settings")
 }
@@ -287,9 +399,13 @@ func (h *SettingsHandlers) updateSLA(w http.ResponseWriter, r *http.Request) {
 			SLAWarningPercent: percent,
 			SLAGrid:           slaGridData{Rows: slaPolicyRows(policies)},
 		}
-		// The calendar panel is untouched by this POST, so it re-renders
-		// from the stored value.
+		// The calendar and language panels are untouched by this POST, so they
+		// re-render from the stored values.
 		if loadErr := h.loadCalendar(r, &data); loadErr != nil {
+			httpError(w, r, "error.internal_server", http.StatusInternalServerError)
+			return
+		}
+		if loadErr := h.loadLanguage(r, &data); loadErr != nil {
 			httpError(w, r, "error.internal_server", http.StatusInternalServerError)
 			return
 		}
@@ -346,8 +462,8 @@ func (h *SettingsHandlers) updateCalendar(w http.ResponseWriter, r *http.Request
 			http.Error(w, msg, status)
 			return
 		}
-		// The appearance and SLA panels are untouched by this POST, so they
-		// re-render from the stored values; the calendar panel echoes the
+		// The appearance, language and SLA panels are untouched by this POST, so
+		// they re-render from the stored values; the calendar panel echoes the
 		// SUBMITTED values so one bad field does not cost the rest.
 		current, getErr := h.settings.GetAppearance(r.Context())
 		if getErr != nil {
@@ -366,6 +482,10 @@ func (h *SettingsHandlers) updateCalendar(w http.ResponseWriter, r *http.Request
 			CalendarTimezone: r.Form.Get("sla_calendar_timezone"),
 		}
 		if loadErr := h.loadSLA(r, &data); loadErr != nil {
+			httpError(w, r, "error.internal_server", http.StatusInternalServerError)
+			return
+		}
+		if loadErr := h.loadLanguage(r, &data); loadErr != nil {
 			httpError(w, r, "error.internal_server", http.StatusInternalServerError)
 			return
 		}
@@ -398,6 +518,7 @@ func parseCalendarForm(r *http.Request) (domain.SLACalendar, error) {
 		return domain.SLACalendar{}, &domain.ValidationError{
 			Field:   "sla_calendar",
 			Message: "the working calendar needs a start and end time in HH:MM form",
+			Key:     "error.calendar_time_form",
 		}
 	}
 	rawZone := strings.TrimSpace(r.Form.Get("sla_calendar_timezone"))
@@ -409,6 +530,8 @@ func parseCalendarForm(r *http.Request) (domain.SLACalendar, error) {
 		return domain.SLACalendar{}, &domain.ValidationError{
 			Field:   "sla_calendar",
 			Message: fmt.Sprintf("unknown timezone name %q", rawZone),
+			Key:     "error.unknown_timezone",
+			Args:    []any{rawZone},
 		}
 	}
 	return domain.SLACalendar{WorkingDays: days, StartMinute: start, EndMinute: end, Location: loc}, nil

@@ -118,14 +118,14 @@ type TicketUpdate struct {
 // those belong to the state machine alone.
 func (t *Ticket) ApplyUpdate(u TicketUpdate, now time.Time) ([]AuditEvent, error) {
 	if u.Title != nil && strings.TrimSpace(*u.Title) == "" {
-		return nil, &ValidationError{Field: "title", Message: ErrMsgTitleRequired}
+		return nil, &ValidationError{Field: "title", Message: ErrMsgTitleRequired, Key: "error.title_required"}
 	}
 	if u.Priority != nil && !isValidPriority(*u.Priority) {
 		return nil, &InvalidPriorityError{Field: "priority", Message: ErrMsgInvalidPriority}
 	}
 	// Assign and clear cannot both be requested: the intent is ambiguous.
 	if u.ClearUserID && u.UserID != nil {
-		return nil, &ValidationError{Field: "user", Message: ErrMsgConflictingUserAssignment}
+		return nil, &ValidationError{Field: "user", Message: ErrMsgConflictingUserAssignment, Key: "error.conflicting_user_assignment"}
 	}
 
 	var events []AuditEvent

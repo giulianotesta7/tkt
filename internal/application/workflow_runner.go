@@ -60,7 +60,7 @@ func (r *WorkflowRunner) PlanComplete(_ context.Context, snap WorkflowExecutionS
 	// as a no-op, cancelled rejects with no writes — ticket-workflow-execution
 	// spec).
 	if domain.IsClosed(ticket.State) && step.Type != domain.StepResolve && step.Type != domain.StepClose {
-		return WorkflowMutationPlan{}, &domain.ValidationError{Field: "state", Message: "workflow step cannot complete in current ticket state"}
+		return WorkflowMutationPlan{}, &domain.ValidationError{Field: "state", Message: "workflow step cannot complete in current ticket state", Key: "error.workflow_step_state"}
 	}
 
 	stepAudit := func(action string, solution string) {
@@ -77,7 +77,7 @@ func (r *WorkflowRunner) PlanComplete(_ context.Context, snap WorkflowExecutionS
 	// is a plan CONTRADICTION rejected before any operation is built.
 	solution := strings.TrimSpace(cmd.Solution)
 	if solution != "" && step.Type != domain.StepManualTask {
-		return WorkflowMutationPlan{}, &domain.ValidationError{Field: "solution", Message: "a solution is only accepted for manual task completions"}
+		return WorkflowMutationPlan{}, &domain.ValidationError{Field: "solution", Message: "a solution is only accepted for manual task completions", Key: "error.workflow_solution_step"}
 	}
 	switch step.Type {
 	case domain.StepAssignToDesk:
@@ -289,7 +289,7 @@ func inProgressTransitionOp(ticket *domain.Ticket, stepIndex int, now time.Time)
 // and stamps actor "workflow" with a NULL user id.
 func applyTerminal(ticket *domain.Ticket, stepType domain.StepType, stepIndex int, now time.Time) ([]WorkflowOperation, error) {
 	if ticket.State == domain.StateCancelled {
-		return nil, &domain.ValidationError{Field: "state", Message: "terminal step cannot complete on a cancelled ticket"}
+		return nil, &domain.ValidationError{Field: "state", Message: "terminal step cannot complete on a cancelled ticket", Key: "error.workflow_terminal_cancelled"}
 	}
 	transition := func(to domain.State) (WorkflowOperation, error) {
 		ev, err := ticket.Transition(to, "", now)

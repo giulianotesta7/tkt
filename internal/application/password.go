@@ -16,7 +16,7 @@ const BcryptCost = 10
 // create-user rule).
 func HashPassword(plain string) (string, error) {
 	if strings.TrimSpace(plain) == "" {
-		return "", &domain.ValidationError{Field: "password", Message: domain.ErrMsgPasswordRequired}
+		return "", &domain.ValidationError{Field: "password", Message: domain.ErrMsgPasswordRequired, Key: "error.password_required"}
 	}
 	hash, err := bcrypt.GenerateFromPassword([]byte(plain), BcryptCost)
 	if err != nil {

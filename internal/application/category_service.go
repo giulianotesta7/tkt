@@ -28,7 +28,7 @@ func (s *CategoryService) Create(ctx context.Context, name string) (*domain.Cate
 func (s *CategoryService) CreateWithDescription(ctx context.Context, name, description string, deskID int64) (*domain.Category, error) {
 	name = strings.TrimSpace(name)
 	if name == "" {
-		return nil, &domain.ValidationError{Field: "name", Message: domain.ErrMsgCategoryNameRequired}
+		return nil, &domain.ValidationError{Field: "name", Message: domain.ErrMsgCategoryNameRequired, Key: "error.category_name_required"}
 	}
 	c := &domain.Category{Name: name, Description: strings.TrimSpace(description), DeskID: deskID, CreatedAt: s.clock.Now()}
 	if err := s.categories.Create(ctx, c); err != nil {
@@ -54,7 +54,7 @@ func (s *CategoryService) CreateWithDescriptionFor(ctx context.Context, actor do
 func (s *CategoryService) Rename(ctx context.Context, id int64, name string) (*domain.Category, error) {
 	name = strings.TrimSpace(name)
 	if name == "" {
-		return nil, &domain.ValidationError{Field: "name", Message: domain.ErrMsgCategoryNameRequired}
+		return nil, &domain.ValidationError{Field: "name", Message: domain.ErrMsgCategoryNameRequired, Key: "error.category_name_required"}
 	}
 	c, err := s.categories.GetByID(ctx, id)
 	if err != nil {

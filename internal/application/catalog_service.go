@@ -81,7 +81,7 @@ func (s *CatalogService) CreateDepartmentFor(ctx context.Context, actor domain.U
 	}
 	name = strings.TrimSpace(name)
 	if name == "" {
-		return nil, &domain.ValidationError{Field: "name", Message: domain.ErrMsgCategoryNameRequired}
+		return nil, &domain.ValidationError{Field: "name", Message: domain.ErrMsgCategoryNameRequired, Key: "error.category_name_required"}
 	}
 	d := &domain.Department{Name: name, Description: strings.TrimSpace(description), CreatedAt: s.clock.Now()}
 	if err := s.catalog.CreateDepartment(ctx, d); err != nil {
@@ -96,7 +96,7 @@ func (s *CatalogService) UpdateDepartmentFor(ctx context.Context, actor domain.U
 	}
 	name = strings.TrimSpace(name)
 	if name == "" {
-		return nil, &domain.ValidationError{Field: "name", Message: domain.ErrMsgCategoryNameRequired}
+		return nil, &domain.ValidationError{Field: "name", Message: domain.ErrMsgCategoryNameRequired, Key: "error.category_name_required"}
 	}
 	d := &domain.Department{ID: id, Name: name, Description: strings.TrimSpace(description)}
 	if err := s.catalog.UpdateDepartment(ctx, d); err != nil {
@@ -121,7 +121,7 @@ func (s *CatalogService) CreateDeskFor(ctx context.Context, actor domain.User, d
 	}
 	name = strings.TrimSpace(name)
 	if name == "" {
-		return nil, &domain.ValidationError{Field: "name", Message: "desk name is required"}
+		return nil, &domain.ValidationError{Field: "name", Message: "desk name is required", Key: "error.desk_name_required"}
 	}
 	store, ok := s.catalog.(CatalogDeskStore)
 	if !ok {
@@ -157,7 +157,7 @@ func (s *CatalogService) UpdateDeskFor(ctx context.Context, actor domain.User, i
 		d.Description = strings.TrimSpace(descriptions[0])
 	}
 	if d.Name == "" {
-		return &domain.ValidationError{Field: "name", Message: "desk name is required"}
+		return &domain.ValidationError{Field: "name", Message: "desk name is required", Key: "error.desk_name_required"}
 	}
 	d.DepartmentID = &departmentID
 	return store.UpdateDesk(ctx, d)
@@ -244,7 +244,7 @@ func (s *CatalogService) UpdateCategoryFor(ctx context.Context, actor domain.Use
 	c.Name = strings.TrimSpace(c.Name)
 	c.Description = strings.TrimSpace(c.Description)
 	if c.Name == "" {
-		return &domain.ValidationError{Field: "name", Message: domain.ErrMsgCategoryNameRequired}
+		return &domain.ValidationError{Field: "name", Message: domain.ErrMsgCategoryNameRequired, Key: "error.category_name_required"}
 	}
 	return s.categories.Update(ctx, c)
 }

@@ -35,7 +35,7 @@ func (s *DeskService) CreateWithDescription(ctx context.Context, actor domain.Us
 // callers and intentionally leaves DepartmentID nil.
 func (s *DeskService) CreateInDepartment(ctx context.Context, actor domain.User, departmentID int64, name string) (*domain.Desk, error) {
 	if departmentID <= 0 {
-		return nil, &domain.ValidationError{Field: "department_id", Message: "department is required"}
+		return nil, &domain.ValidationError{Field: "department_id", Message: "department is required", Key: "error.department_required"}
 	}
 	return s.create(ctx, actor, name, "", &departmentID)
 }
@@ -70,7 +70,7 @@ func (s *DeskService) RenameWithDescription(ctx context.Context, actor domain.Us
 // Desk record, members, workflows, and stable ID.
 func (s *DeskService) UpdateInDepartment(ctx context.Context, actor domain.User, id, departmentID int64, name string) (*domain.Desk, error) {
 	if departmentID <= 0 {
-		return nil, &domain.ValidationError{Field: "department_id", Message: "department is required"}
+		return nil, &domain.ValidationError{Field: "department_id", Message: "department is required", Key: "error.department_required"}
 	}
 	return s.update(ctx, actor, id, name, nil, &departmentID, true)
 }
@@ -130,7 +130,7 @@ func (s *DeskService) AddMember(ctx context.Context, actor domain.User, deskID, 
 		return err
 	}
 	if !u.Role.AtLeast(domain.RoleAgent) {
-		return &domain.ValidationError{Field: "user", Message: "desk members must have agent, admin, or root role"}
+		return &domain.ValidationError{Field: "user", Message: "desk members must have agent, admin, or root role", Key: "error.desk_members_role"}
 	}
 	return s.desks.AddMember(ctx, deskID, userID, s.clock.Now())
 }
@@ -178,7 +178,7 @@ func manageDesks(actor domain.User) error {
 func deskName(name string) (string, error) {
 	name = strings.TrimSpace(name)
 	if name == "" {
-		return "", &domain.ValidationError{Field: "name", Message: "desk name is required"}
+		return "", &domain.ValidationError{Field: "name", Message: "desk name is required", Key: "error.desk_name_required"}
 	}
 	return name, nil
 }

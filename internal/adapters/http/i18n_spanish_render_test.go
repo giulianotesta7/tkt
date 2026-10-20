@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strconv"
 	"strings"
 	"testing"
@@ -97,7 +98,7 @@ func TestSpanishTicketDetail(t *testing.T) {
 // TestSpanishTicketForm renders the ticket creation form in Spanish.
 func TestSpanishTicketForm(t *testing.T) {
 	body := renderLocalized(t, "es", "tickets_new", "ticket_form", fixtureTicketFormData())
-	for _, want := range []string{"Crear un ticket", "Describe tu solicitud.", "Título", "Descripción", "Crear ticket"} {
+	for _, want := range []string{"Crear un ticket", "Describe tu ticket.", "Título", "Descripción", "Crear ticket"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("Spanish ticket form must render %q, got: %.800s", want, body)
 		}
@@ -225,12 +226,12 @@ func TestSpanishSettingsScreen(t *testing.T) {
 		t.Fatalf("render settings in es: %d %s", rec.Code, rec.Body.String())
 	}
 	body := rec.Body.String()
-	for _, want := range []string{"Configuración", "Apariencia", "Acuerdos de nivel de servicio", "Calendario laboral", "Días laborables", "Zona horaria", "Azul", "Lunes"} {
+	for _, want := range []string{"Configuración", "Apariencia", "Acuerdos de nivel de servicio (SLA)", "Calendario laboral", "Días laborables", "Zona horaria", "Azul", "Lunes", "Idioma de la interfaz", "Guardar idioma"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("Spanish settings page must render %q, got: %.800s", want, body)
 		}
 	}
-	if strings.Contains(body, ">Appearance<") || strings.Contains(body, ">Monday<") {
+	if strings.Contains(body, ">Appearance<") || strings.Contains(body, ">Monday<") || strings.Contains(body, ">Interface language<") {
 		t.Errorf("Spanish settings page must not render English labels")
 	}
 }
@@ -597,6 +598,150 @@ func TestSpanishBadIdentifierErrors(t *testing.T) {
 	}
 }
 
+// TestSpanishKeylessErrorsAndLiteralsFollowTheInstanceLanguage covers the S18
+// defect class end to end. Two messages reached a page outside the catalogue: the
+// clone refusal the application raises when the target already has a draft, and
+// the metrics "No verifiable durations" literal. Both read Spanish on a Spanish
+// instance, and English keeps its historical bytes (S13).
+func TestSpanishKeylessErrorsAndLiteralsFollowTheInstanceLanguage(t *testing.T) {
+	for _, tc := range []struct {
+		name         string
+		language     string
+		draftRefusal string
+		meanNone     string
+	}{
+		{
+			name:         "english",
+			language:     application.InterfaceLanguageEnglish,
+			draftRefusal: "the target category already has a draft; cloning would overwrite it",
+			meanNone:     "No verifiable durations",
+		},
+		{
+			name:         "spanish",
+			language:     application.InterfaceLanguageSpanish,
+			draftRefusal: "la categoría de destino ya tiene un borrador; clonar lo sobrescribiría",
+			meanNone:     "Todavía no hay resoluciones para medir",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h := newHarness(t)
+			if err := h.settings.SetInterfaceLanguage(t.Context(), *h.admin, tc.language); err != nil {
+				t.Fatalf("set interface language: %v", err)
+			}
+			source, err := h.categories.Create(t.Context(), "Clone source")
+			if err != nil {
+				t.Fatalf("create source: %v", err)
+			}
+			h.publishWorkflow(t, source.ID, domain.WorkflowDefinition{{Type: domain.StepResolve}})
+			target, err := h.categories.Create(t.Context(), "Clone target")
+			if err != nil {
+				t.Fatalf("create target: %v", err)
+			}
+			path := "/categories/" + strconv.FormatInt(target.ID, 10) + "/workflow/clone"
+			form := url.Values{"source_category_id": {strconv.FormatInt(source.ID, 10)}}
+			if first := h.postBuilder(t, path, form, false); first.Code != http.StatusSeeOther {
+				t.Fatalf("first clone = %d, want 303: %s", first.Code, first.Body.String())
+			}
+			refused := h.postBuilder(t, path, form, false)
+			if refused.Code != http.StatusUnprocessableEntity {
+				t.Fatalf("clone refusal = %d, want 422: %s", refused.Code, refused.Body.String())
+			}
+			if body := refused.Body.String(); !strings.Contains(body, tc.draftRefusal) {
+				t.Errorf("clone refusal must render %q, got: %.800s", tc.draftRefusal, body)
+			}
+			if tc.language == application.InterfaceLanguageSpanish && strings.Contains(refused.Body.String(), "already has a draft") {
+				t.Errorf("Spanish clone refusal must not render the English sentence: %.800s", refused.Body.String())
+			}
+
+			summary := h.get(t, "/tickets", false)
+			if summary.Code != http.StatusOK || !strings.Contains(summary.Body.String(), tc.meanNone) {
+				t.Errorf("mean-resolution empty state must render %q, got %d: %.1200s", tc.meanNone, summary.Code, summary.Body.String())
+			}
+			if tc.language == application.InterfaceLanguageSpanish && strings.Contains(summary.Body.String(), "No verifiable durations") {
+				t.Errorf("Spanish metrics summary must not render the English literal: %.1200s", summary.Body.String())
+			}
+		})
+	}
+}
+
+// TestSpanishSLADetailAndDegradeLabels proves the handler/application literals
+// the S18 sweep catalogued follow the instance language: the ticket-detail SLA
+// milestone labels and overdue word, and the metrics workload "No desk" degrade
+// label. English stays byte-identical through the same catalogue entries.
+func TestSpanishSLADetailAndDegradeLabels(t *testing.T) {
+	frozen := &domain.TicketSLA{
+		FirstResponseSeconds: 14400,
+		ResolveSeconds:       86400,
+		WarnFirstResponseAt:  goldenT0.Add(3*time.Hour + 12*time.Minute),
+		DueFirstResponseAt:   goldenT0.Add(4 * time.Hour),
+		WarnResolveAt:        goldenT0.Add(19*time.Hour + 12*time.Minute),
+		DueResolveAt:         goldenT0.Add(24 * time.Hour),
+		StartedAt:            goldenT0,
+		PolicySnapshotAt:     goldenT0,
+	}
+	now := goldenT0.Add(48 * time.Hour)
+	panel := slaPanelFor(i18n.Spanish, domain.ProjectSLA(frozen, domain.SLAMilestones{}, now))
+	if panel == nil || len(panel.Milestones) != 2 {
+		t.Fatalf("Spanish SLA panel = %+v, want two milestones", panel)
+	}
+	if got := panel.Milestones[0].Label; got != "Primera respuesta" {
+		t.Errorf("Spanish first-response label = %q, want %q", got, "Primera respuesta")
+	}
+	if got := panel.Milestones[1].Label; got != "Resolución" {
+		t.Errorf("Spanish resolve label = %q, want %q", got, "Resolución")
+	}
+	if got := panel.Milestones[0].Remaining; !strings.Contains(got, "vencido") {
+		t.Errorf("Spanish overdue remaining = %q, want the vencido word", got)
+	}
+	if got := bucketLabel(i18n.New(i18n.Spanish), application.TicketMetricsWorkload{Label: "No desk", LabelKey: "tickets.degrade.no_desk"}); got != "Sin mesa" {
+		t.Errorf("Spanish workload no-desk label = %q, want %q", got, "Sin mesa")
+	}
+	for key, want := range map[string]string{
+		"tickets.agent.claim_unavailable":   "Este ticket ya no está disponible para tomarlo.",
+		"categories.refresh_error":          "Se guardaron los cambios, pero no se pudo actualizar la lista de categorías. Recarga la página para ver los cambios guardados.",
+		"categories.unassigned.name":        "Sin asignar",
+		"categories.unassigned.description": "Mesas sin departamento",
+	} {
+		if got := i18n.T(i18n.Spanish, key); got != want {
+			t.Errorf("es %q = %q, want %q", key, got, want)
+		}
+	}
+}
+
+// TestSpanishCatalogStructureSyntheticGroup renders the virtual Unassigned
+// department a legacy desk is exposed through in Spanish: the synthetic group
+// name and description are chrome, so they follow the instance language even
+// though the desks themselves are admin-authored content (S11).
+func TestSpanishCatalogStructureSyntheticGroup(t *testing.T) {
+	h := newHarness(t)
+	if err := h.settings.SetInterfaceLanguage(t.Context(), *h.admin, application.InterfaceLanguageSpanish); err != nil {
+		t.Fatalf("set interface language: %v", err)
+	}
+	legacy, err := h.desks.CreateWithDescription(t.Context(), *h.admin, "Legacy desk", "Legacy description")
+	if err != nil {
+		t.Fatalf("create legacy desk: %v", err)
+	}
+	catalog := application.NewCatalogService(h.store.CatalogStore(), h.store.CategoryStore(), h.clock)
+	mux := http.NewServeMux()
+	NewCategoryHandlersWithWorkflows(h.categories, h.workflows, h.renderer, catalog).Register(mux)
+	req := httptest.NewRequest(http.MethodGet, "/categories?view=structure&department_id=unassigned&desk_id="+strconv.FormatInt(legacy.ID, 10), nil)
+	req.Header.Set("Cookie", sessionCookie+"="+h.adminSession.ID)
+	rec := httptest.NewRecorder()
+	h.mw.Wrap(mux).ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("spanish legacy structure = %d, want 200: %s", rec.Code, rec.Body.String())
+	}
+	body := rec.Body.String()
+	for _, want := range []string{"Sin asignar", "Mesas sin departamento", "Legacy desk"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("Spanish catalog structure must render %q, got: %.800s", want, body)
+		}
+	}
+	if strings.Contains(body, ">Unassigned<") || strings.Contains(body, "Desks without a department") {
+		t.Errorf("Spanish catalog structure must not render the English synthetic group: %.800s", body)
+	}
+}
+
 // TestSpanishSetupShell renders the first-account screen in Spanish: the shell
 // copy and the form labels/placeholders both come from the catalogue, so no
 // English literal survives on the setup path.
@@ -893,5 +1038,118 @@ func TestSpanishMetricsLineChartChrome(t *testing.T) {
 	enHist := string(metricsHistogramChart(i18n.New("en"), buckets))
 	if !strings.Contains(enHist, "Resolved tickets by resolution duration in equal-width day bins.") {
 		t.Errorf("English histogram chrome changed: %.1200s", enHist)
+	}
+}
+
+// --- Locale-aware dates (issue #335, S12) ---
+//
+// Every date surface keeps the shape it renders today and only its month name
+// and ordering follow the instance language, so English output stays
+// byte-identical (S13) and a Spanish instance reads Spanish months.
+
+// TestSpanishCardTimestampKeepsItsShape renders the compact card timestamp
+// ("14:03 · 18 Oct") in Spanish: the clock and the day keep their positions and
+// the month name is the Spanish abbreviation.
+func TestSpanishCardTimestampKeepsItsShape(t *testing.T) {
+	at := time.Date(2026, 10, 18, 14, 3, 0, 0, time.UTC)
+
+	es := renderLocalized(t, "es", "tickets_index", "card_timestamp", at)
+	if !strings.Contains(es, "14:03 · 18 oct") {
+		t.Errorf("Spanish card timestamp must read %q, got: %s", "14:03 · 18 oct", es)
+	}
+	// The full date stays the accessible tooltip, unchanged: it carries no month
+	// name, so its shape is the same in both locales.
+	if !strings.Contains(es, `aria-label="14:03 · 18-10-2026"`) {
+		t.Errorf("Spanish card timestamp must keep the numeric full date, got: %s", es)
+	}
+
+	en := renderLocalized(t, "en", "tickets_index", "card_timestamp", at)
+	if !strings.Contains(en, "14:03 · 18 Oct") {
+		t.Errorf("English card timestamp must stay %q, got: %s", "14:03 · 18 Oct", en)
+	}
+}
+
+// TestSpanishTimestampKeepsItsNumericShape proves a surface whose shape carries
+// no month name renders identically in both locales: the ticket list, the
+// timeline and the detail header show "14:03 · 18-10-2026" either way.
+func TestSpanishTimestampKeepsItsNumericShape(t *testing.T) {
+	at := time.Date(2026, 10, 18, 14, 3, 0, 0, time.UTC)
+
+	es := renderLocalized(t, "es", "tickets_index", "timestamp", at)
+	en := renderLocalized(t, "en", "tickets_index", "timestamp", at)
+	if !strings.Contains(es, "14:03 · 18-10-2026") {
+		t.Errorf("Spanish timestamp must keep the numeric shape, got: %s", es)
+	}
+	if es != en {
+		t.Errorf("a monthless timestamp must render identically in both locales:\n es: %s\n en: %s", es, en)
+	}
+}
+
+// TestSpanishMetricsRangeUsesLocaleOrdering renders the metrics period range:
+// English keeps "Oct 12 – Oct 18, 2026" and Spanish reorders day and month
+// ("12 oct – 18 oct 2026"), which is the natural Spanish reading of the same
+// range.
+func TestSpanishMetricsRangeUsesLocaleOrdering(t *testing.T) {
+	rangeData := func() ticketMetricsData {
+		data := ticketMetricsSummaryData()
+		data.Metrics.Filter = application.TicketMetricsFilter{
+			Start: time.Date(2026, 10, 12, 0, 0, 0, 0, time.UTC),
+			End:   time.Date(2026, 10, 19, 0, 0, 0, 0, time.UTC),
+		}
+		return data
+	}
+
+	es := renderLocalized(t, "es", "ticket_metrics_detail", "ticket_metrics_summary_content", rangeData())
+	if !strings.Contains(es, "12 oct – 18 oct 2026") {
+		t.Errorf("Spanish metrics range must read %q, got: %.800s", "12 oct – 18 oct 2026", es)
+	}
+
+	en := renderLocalized(t, "en", "ticket_metrics_detail", "ticket_metrics_summary_content", rangeData())
+	if !strings.Contains(en, "Oct 12 – Oct 18, 2026") {
+		t.Errorf("English metrics range must stay %q, got: %.800s", "Oct 12 – Oct 18, 2026", en)
+	}
+
+	// A zero filter — the shape a rejected metrics submission re-renders with —
+	// keeps rendering exactly what it rendered before the catalogue owned the
+	// month names, four-digit year included (S13).
+	zero := ticketMetricsSummaryData()
+	zeroEN := renderLocalized(t, "en", "ticket_metrics_detail", "ticket_metrics_summary_content", zero)
+	if !strings.Contains(zeroEN, "Jan 1 – Dec 31, 0000") {
+		t.Errorf("English zero range must stay %q, got: %.800s", "Jan 1 – Dec 31, 0000", zeroEN)
+	}
+}
+
+// TestSpanishMetricsLineChartWeekLabels renders the weekly axis labels of the
+// created-vs-resolved chart: "Sep 14" in English, "14 sep" in Spanish.
+func TestSpanishMetricsLineChartWeekLabels(t *testing.T) {
+	weeks := []application.TicketMetricsWeek{{Start: time.Date(2026, 9, 14, 0, 0, 0, 0, time.UTC), Created: 2, Resolved: 1}}
+
+	es := string(metricsLineChart(i18n.New("es"), weeks))
+	if !strings.Contains(es, ">14 sep<") {
+		t.Errorf("Spanish chart label must read %q, got: %.1200s", "14 sep", es)
+	}
+	en := string(metricsLineChart(i18n.New("en"), weeks))
+	if !strings.Contains(en, ">Sep 14<") {
+		t.Errorf("English chart label must stay %q, got: %.1200s", "Sep 14", en)
+	}
+}
+
+// TestEveryMonthLabelResolvesInBothLocales walks all twelve months through the
+// rendered card timestamp, so a month the catalogue forgot degrades to a number
+// and fails here instead of shipping ("15 10" instead of "15 oct").
+func TestEveryMonthLabelResolvesInBothLocales(t *testing.T) {
+	esMonths := []string{"ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"}
+	enMonths := []string{"Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"}
+	for i := range esMonths {
+		at := time.Date(2026, time.Month(i+1), 15, 9, 30, 0, 0, time.UTC)
+
+		es := renderLocalized(t, "es", "tickets_index", "card_timestamp", at)
+		if want := "09:30 · 15 " + esMonths[i]; !strings.Contains(es, want) {
+			t.Errorf("month %d in Spanish must render %q, got: %s", i+1, want, es)
+		}
+		en := renderLocalized(t, "en", "tickets_index", "card_timestamp", at)
+		if want := "09:30 · 15 " + enMonths[i]; !strings.Contains(en, want) {
+			t.Errorf("month %d in English must render %q, got: %s", i+1, want, en)
+		}
 	}
 }

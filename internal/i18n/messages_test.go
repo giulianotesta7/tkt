@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -588,4 +589,307 @@ func TestTranslatorPluralForms(t *testing.T) {
 	if got := es.Tp("ticket_metrics.excluded", 3); got != "3 excluidos" {
 		t.Errorf("Tp on a key without a plural form = %q, want the base sentence", got)
 	}
+}
+
+// --- Keyless user-visible ValidationError guard (S18) ---
+
+// validationErrorLiteral matches a ValidationError composite literal in a
+// production Go source (the domain package's own unqualified form included).
+var validationErrorLiteral = regexp.MustCompile(`ValidationError\{`)
+
+// validationKeyField matches the Key field of a ValidationError literal.
+var validationKeyField = regexp.MustCompile(`Key:\s*"([^"]+)"`)
+
+// errMsgConstDecl matches a domain/application English message constant, so the
+// scan can resolve a Message that names one.
+var errMsgConstDecl = regexp.MustCompile(`(?:^|\s)(?:domain\.|application\.)?(ErrMsg\w+)\s*=\s*"((?:[^"\\]|\\.)*)"`)
+
+// validationMessageLiteral matches the first Go string literal inside a Message
+// expression, which is enough for fmt.Sprintf("...", args).
+var validationMessageLiteral = regexp.MustCompile(`"((?:[^"\\]|\\.)*)"`)
+
+// keylessValidationErrorAllowlist lists the keyless ValidationError literals
+// that are INTERNAL: unreachable from any rendered page because they guard a
+// programming error, a store recheck, or a workflow definition the publish path
+// already validated. Every other keyless literal is user-visible and must carry
+// a catalogue Key (S18), so a NEW keyless user-visible error fails this guard.
+// The key is `repo-relative/path.go|<resolved English message>`; the value is a
+// one-line reason.
+var keylessValidationErrorAllowlist = map[string]string{
+	"internal/adapters/http/handlers_tickets.go|assign_to_desk requires config":            "handler guard: a published assign_to_desk step always carries config",
+	"internal/adapters/sqlite/workflow_uow.go|create plan missing ticket":                  "store recheck: the caller always supplies a planned ticket",
+	"internal/adapters/sqlite/workflow_uow.go|assignment target must be an agent or above": "store recheck after the service already validated the assignment target",
+	"internal/application/catalog_service.go|category is required":                         "programming guard: no request hands UpdateCategoryFor a nil category",
+	"internal/application/catalog_service.go|identifier is required":                       "internal id guard for catalog ids, never a user-authored value",
+	"internal/application/workflow_runner.go|workflow definition is empty":                 "definition guard: a published workflow always has at least one step",
+	"internal/application/workflow_runner.go|assign_to_desk requires config":               "definition guard: publish rejects an assign_to_desk step without config",
+	"internal/application/workflow_runner.go|unknown strategy":                             "definition guard: publish rejects an unknown assignment strategy",
+	"internal/application/workflow_runner.go|form requires config":                         "definition guard: publish rejects a form step without fields",
+	"internal/application/workflow_runner.go|manual_task requires config":                  "definition guard: publish rejects a manual_task step without instructions",
+	"internal/application/workflow_runner.go|unknown step type %q":                         "definition guard: publish rejects an unknown step type",
+	"internal/application/workflow_runner.go|unknown form actor":                           "definition guard: publish rejects an unknown form actor",
+	"internal/application/workflow_runner.go|unknown terminal step type %q":                "definition guard: publish rejects an unknown terminal step type",
+	"internal/application/workflow_runner.go|unknown field kind":                           "definition guard: publish rejects an unknown form field kind",
+}
+
+// validationErrorSite is one ValidationError literal found in production source.
+type validationErrorSite struct {
+	path    string
+	line    int
+	key     string
+	message string
+	dynamic bool
+}
+
+// TestUserVisibleValidationErrorsCarryACatalogueKey is the S18 guard: every
+// non-test ValidationError literal a user can read must name a catalogue key,
+// unless it is an explicitly documented INTERNAL guard. It also proves the
+// English contract: a keyed static message equals its English catalogue entry
+// byte for byte (S13).
+func TestUserVisibleValidationErrorsCarryACatalogueKey(t *testing.T) {
+	root := filepath.Join("..", "..")
+	sites, err := validationErrorSites(root)
+	if err != nil {
+		t.Fatalf("scan ValidationError literals: %v", err)
+	}
+	if len(sites) < 30 {
+		t.Fatalf("scanned only %d ValidationError literals, want the production set", len(sites))
+	}
+	seen := map[string]bool{}
+	for _, site := range sites {
+		if site.key == "" {
+			allow := site.path + "|" + site.message
+			if _, ok := keylessValidationErrorAllowlist[allow]; !ok {
+				t.Errorf("%s:%d: keyless ValidationError %q is not in the INTERNAL allowlist; give it a catalogue key", site.path, site.line, site.message)
+			}
+			seen[allow] = true
+			continue
+		}
+		if site.dynamic {
+			continue
+		}
+		want, ok := catalogues[English][site.key]
+		if !ok {
+			t.Errorf("%s:%d: key %q is not in the English catalogue", site.path, site.line, site.key)
+			continue
+		}
+		if want != site.message {
+			t.Errorf("%s:%d: English catalogue %q = %q, want the Message bytes %q", site.path, site.line, site.key, want, site.message)
+		}
+	}
+	for allow := range keylessValidationErrorAllowlist {
+		if !seen[allow] {
+			t.Errorf("stale allowlist entry %q: no keyless ValidationError matches it", allow)
+		}
+	}
+}
+
+// TestKeylessValidationErrorGuardFailsOnANewLiteral proves the detection half
+// of the S18 guard on a temp tree (never the real one): the scanner reports a
+// new keyless literal by its resolved message, so a future user-visible error
+// without a catalogue key cannot slip past the allowlist.
+func TestKeylessValidationErrorGuardFailsOnANewLiteral(t *testing.T) {
+	dir := t.TempDir()
+	source := "package newerr\n\nimport \"github.com/giulianotesta7/tkt/internal/domain\"\n\nfunc f() error {\n\treturn &domain.ValidationError{Field: \"title\", Message: \"a brand new user-visible refusal\"}\n}\n"
+	if err := os.WriteFile(filepath.Join(dir, "newerr.go"), []byte(source), 0o600); err != nil {
+		t.Fatalf("write temp source: %v", err)
+	}
+	sites, err := validationErrorSites(dir)
+	if err != nil {
+		t.Fatalf("scan temp tree: %v", err)
+	}
+	found := false
+	for _, site := range sites {
+		if site.message != "a brand new user-visible refusal" {
+			continue
+		}
+		found = true
+		if _, ok := keylessValidationErrorAllowlist[site.path+"|"+site.message]; ok {
+			t.Fatal("a new literal must never match the INTERNAL allowlist")
+		}
+	}
+	if !found {
+		t.Fatalf("the scanner missed the keyless literal, got %+v", sites)
+	}
+}
+
+// validationErrorSites walks every production Go source under root and returns
+// each ValidationError literal it finds, resolving a constant Message where it
+// can so the allowlist stays readable.
+func validationErrorSites(root string) ([]validationErrorSite, error) {
+	consts := errMsgConstants(root)
+	var sites []validationErrorSite
+	err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if entry.IsDir() {
+			switch entry.Name() {
+			case ".git", "node_modules", "vendor", "data", "testdata":
+				return fs.SkipDir
+			}
+			return nil
+		}
+		if filepath.Ext(path) != ".go" || strings.HasSuffix(path, "_test.go") {
+			return nil
+		}
+		content, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		text := string(content)
+		rel, err := filepath.Rel(root, path)
+		if err != nil {
+			return err
+		}
+		rel = filepath.ToSlash(rel)
+		for _, loc := range validationErrorLiteral.FindAllStringIndex(text, -1) {
+			lineStart := strings.LastIndexByte(text[:loc[0]], '\n') + 1
+			if strings.Contains(text[lineStart:loc[0]], "//") {
+				continue // a comment naming the type, not a construction
+			}
+			block := validationBlock(text[loc[0]:])
+			message, dynamic := resolveValidationMessage(validationMessageExpr(block), consts)
+			sites = append(sites, validationErrorSite{
+				path:    rel,
+				line:    1 + strings.Count(text[:loc[0]], "\n"),
+				key:     validationKey(block),
+				message: message,
+				dynamic: dynamic,
+			})
+		}
+		return nil
+	})
+	return sites, err
+}
+
+// validationBlock returns the balanced `{...}` block that starts at the first
+// brace in text. Message literals in this repository carry no brace, so a plain
+// brace count is exact.
+func validationBlock(text string) string {
+	open := strings.IndexByte(text, '{')
+	if open < 0 {
+		return ""
+	}
+	depth := 0
+	for i := open; i < len(text); i++ {
+		switch text[i] {
+		case '{':
+			depth++
+		case '}':
+			depth--
+			if depth == 0 {
+				return text[open : i+1]
+			}
+		}
+	}
+	return text[open:]
+}
+
+// validationKey returns the Key field value of a ValidationError block, or "".
+func validationKey(block string) string {
+	if m := validationKeyField.FindStringSubmatch(block); m != nil {
+		return m[1]
+	}
+	return ""
+}
+
+// validationMessageExpr returns the source expression of the Message field: the
+// rest of its line, or the next line when the value sits on one.
+func validationMessageExpr(block string) string {
+	i := strings.Index(block, "Message:")
+	if i < 0 {
+		return ""
+	}
+	rest := block[i+len("Message:"):]
+	line := rest
+	if j := strings.IndexByte(rest, '\n'); j >= 0 {
+		line = rest[:j]
+	}
+	line = trimFieldValue(line)
+	if line != "" {
+		return line
+	}
+	nl := strings.IndexByte(rest, '\n')
+	if nl < 0 {
+		return ""
+	}
+	next := rest[nl+1:]
+	if j := strings.IndexByte(next, '\n'); j >= 0 {
+		next = next[:j]
+	}
+	return trimFieldValue(next)
+}
+
+// trimFieldValue strips a trailing comma, closing brace, or a following Key
+// field from one Message expression line.
+func trimFieldValue(value string) string {
+	value = strings.TrimSpace(value)
+	if j := strings.Index(value, ", Key:"); j >= 0 {
+		value = strings.TrimSpace(value[:j])
+	}
+	value = strings.TrimSuffix(value, "}")
+	value = strings.TrimSuffix(value, ",")
+	return strings.TrimSpace(value)
+}
+
+// resolveValidationMessage turns a Message expression into its English bytes
+// and reports whether the sentence is interpolated. A constant name resolves
+// through consts; a fmt.Sprintf call takes its format string.
+func resolveValidationMessage(expr string, consts map[string]string) (string, bool) {
+	expr = strings.TrimSpace(expr)
+	if expr == "" {
+		return "", false
+	}
+	if strings.HasPrefix(expr, "fmt.Sprintf(") {
+		if m := validationMessageLiteral.FindStringSubmatch(expr); m != nil {
+			if value, err := strconv.Unquote(`"` + m[1] + `"`); err == nil {
+				return value, true
+			}
+		}
+		return expr, true
+	}
+	if strings.HasPrefix(expr, `"`) {
+		if value, err := strconv.Unquote(expr); err == nil {
+			return value, false
+		}
+		return expr, false
+	}
+	name := strings.TrimPrefix(strings.TrimPrefix(expr, "domain."), "application.")
+	if value, ok := consts[name]; ok {
+		return value, false
+	}
+	return expr, false
+}
+
+// errMsgConstants resolves every domain/application English message constant so
+// a Message that names one can be reported by its copy.
+func errMsgConstants(root string) map[string]string {
+	out := map[string]string{}
+	_ = filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if entry.IsDir() {
+			switch entry.Name() {
+			case ".git", "node_modules", "vendor":
+				return fs.SkipDir
+			}
+			return nil
+		}
+		if filepath.Ext(path) != ".go" || strings.HasSuffix(path, "_test.go") {
+			return nil
+		}
+		content, err := os.ReadFile(path)
+		if err != nil {
+			return nil
+		}
+		for _, m := range errMsgConstDecl.FindAllStringSubmatch(string(content), -1) {
+			if value, uerr := strconv.Unquote(`"` + m[2] + `"`); uerr == nil {
+				out[m[1]] = value
+			}
+		}
+		return nil
+	})
+	return out
 }

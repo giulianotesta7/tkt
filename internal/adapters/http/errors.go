@@ -11,9 +11,8 @@ import (
 )
 
 const (
-	agentQueueListTargetID     = "agent-ticket-list"
-	agentQueueListTarget       = "#agent-ticket-list"
-	agentQueueClaimUnavailable = "This ticket is no longer available to claim."
+	agentQueueListTargetID = "agent-ticket-list"
+	agentQueueListTarget   = "#agent-ticket-list"
 )
 
 // mapError translates application/domain errors into the D5 status table.

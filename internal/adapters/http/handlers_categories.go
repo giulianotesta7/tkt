@@ -9,6 +9,7 @@ import (
 
 	"github.com/giulianotesta7/tkt/internal/application"
 	"github.com/giulianotesta7/tkt/internal/domain"
+	"github.com/giulianotesta7/tkt/internal/i18n"
 )
 
 // CategoryHandlers implement the category management routes (design "HTTP
@@ -621,15 +622,16 @@ func (h *CategoryHandlers) categoryIndexData(r *http.Request, message string) (c
 	}
 	if len(unassigned) > 0 {
 		data.Desks = append(data.Desks, unassigned...)
-		departmentNames[unassignedDepartmentID] = "Unassigned"
+		unassignedName := i18n.T(requestLocale(r), "categories.unassigned.name")
+		departmentNames[unassignedDepartmentID] = unassignedName
 		var categoryCount int
 		for _, desk := range unassigned {
 			deskNames[desk.ID] = desk.Name
-			deskDepartmentNames[desk.ID] = "Unassigned"
+			deskDepartmentNames[desk.ID] = unassignedName
 			categoryCount += desk.CategoryCount
 		}
 		data.StructureDepartments = append(data.StructureDepartments, catalogDepartmentView{CatalogDepartment: domain.CatalogDepartment{
-			Department: domain.Department{ID: unassignedDepartmentID, Name: "Unassigned", Description: "Desks without a department"},
+			Department: domain.Department{ID: unassignedDepartmentID, Name: unassignedName, Description: i18n.T(requestLocale(r), "categories.unassigned.description")},
 			DeskCount:  len(unassigned), CategoryCount: categoryCount,
 		}})
 	}
@@ -766,7 +768,7 @@ func categoryStateFromValues(values url.Values) (categoryViewState, error) {
 		state.View = "categories"
 	}
 	if state.View != "categories" && state.View != "structure" {
-		return categoryViewState{}, &domain.ValidationError{Field: "view", Message: "invalid category view"}
+		return categoryViewState{}, &domain.ValidationError{Field: "view", Message: "invalid category view", Key: "error.invalid_category_view"}
 	}
 	var err error
 	if state.DepartmentID, err = optionalCategoryID(values.Get("department_id"), "department_id"); err != nil {
@@ -776,7 +778,7 @@ func categoryStateFromValues(values url.Values) (categoryViewState, error) {
 		return categoryViewState{}, err
 	}
 	if state.DeskID != 0 && state.DepartmentID == 0 {
-		return categoryViewState{}, &domain.ValidationError{Field: "department_id", Message: "department is required when a desk is selected"}
+		return categoryViewState{}, &domain.ValidationError{Field: "department_id", Message: "department is required when a desk is selected", Key: "error.department_required_for_desk"}
 	}
 	return state, nil
 }
@@ -797,14 +799,14 @@ func optionalCategoryID(raw, field string) (int64, error) {
 	}
 	id, err := strconv.ParseInt(raw, 10, 64)
 	if err != nil || id <= 0 {
-		return 0, &domain.ValidationError{Field: field, Message: "invalid identifier"}
+		return 0, &domain.ValidationError{Field: field, Message: "invalid identifier", Key: "error.invalid_identifier"}
 	}
 	return id, nil
 }
 
 func requiredCategoryID(raw, field string) (int64, error) {
 	if raw == "" {
-		return 0, &domain.ValidationError{Field: field, Message: "identifier is required"}
+		return 0, &domain.ValidationError{Field: field, Message: "identifier is required", Key: "error.identifier_required"}
 	}
 	return optionalCategoryID(raw, field)
 }
@@ -896,7 +898,7 @@ func (h *CategoryHandlers) newDrawerData(r *http.Request, kind string) *category
 			if len(legacyDesks) > 0 {
 				d.Desks = append(d.Desks, legacyDesks...)
 				d.Departments = append(d.Departments, domain.CatalogDepartment{
-					Department: domain.Department{ID: unassignedDepartmentID, Name: "Unassigned", Description: "Desks without a department"},
+					Department: domain.Department{ID: unassignedDepartmentID, Name: i18n.T(requestLocale(r), "categories.unassigned.name"), Description: i18n.T(requestLocale(r), "categories.unassigned.description")},
 				})
 			}
 		}
@@ -973,7 +975,7 @@ func (h *CategoryHandlers) redirectCategoryMutation(w http.ResponseWriter, r *ht
 // failed post-commit projection refresh. It deliberately returns a successful
 // swap, so HTMX does not treat the response as a failed mutation and retry it.
 func (h *CategoryHandlers) renderCategoryRefreshError(w http.ResponseWriter, r *http.Request, state categoryViewState) {
-	message := "Changes saved, but the category list could not be refreshed. Reload the page to see the saved changes."
+	message := i18n.T(requestLocale(r), "categories.refresh_error")
 	if r.Header.Get("HX-Request") == "" {
 		redirect(w, r, categoryStatePath(state))
 		return

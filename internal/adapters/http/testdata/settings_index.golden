@@ -47,6 +47,18 @@
   </div>
 </div>
 
+<form class="card form-card" method="post" action="/settings/language">
+  <h2>Interface language</h2>
+  <p class="help">Changes the language of every screen for every person on this instance. Names and descriptions you write are never translated.</p>
+  <div class="field">
+    <label for="interface_language">Language</label>
+    <select id="interface_language" name="interface_language">
+      <option value="en" selected>English</option>
+      <option value="es">Español</option>
+    </select>
+  </div>
+  <button class="btn primary" type="submit">Save language</button>
+</form>
 <form class="card form-card" method="post" action="/settings/appearance">
   <h2>Appearance</h2>
   <p class="help">Background color for internal comments on ticket timelines.</p>
@@ -74,7 +86,7 @@
   <button class="btn primary" type="submit">Save appearance</button>
 </form>
 <form class="card form-card" method="post" action="/settings/sla">
-  <h2>Service level agreements</h2>
+  <h2>Service level agreements (SLA)</h2>
   <p class="help">Defaults for new categories. Editing them does not change existing categories.</p>
   <div class="field checkbox-field">
     <label><input type="checkbox" name="sla_enabled" value="1"> Enable SLA targets</label>
