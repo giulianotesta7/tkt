@@ -560,3 +560,71 @@ func TestNotificationDrawerScriptIsServed(t *testing.T) {
 		t.Errorf("the served script is not the drawer's: %.400s", rec.Body.String())
 	}
 }
+
+// TestNotificationsHTMXWithoutASessionRedirectsInsteadOfSwappingLoginMarkup is
+// the polling half of the bell's session contract (S13/S14). The bell polls
+// GET /notifications/count with htmx and the panel opens with htmx too, so a
+// request whose session is gone must NOT be answered with the 303 the session
+// middleware gives an ordinary navigation: htmx follows that redirect inside
+// the swap and pours the whole login document into the rail. The notification
+// routes therefore answer such a request with HX-Redirect to the login page, so
+// htmx navigates the way a normal click would, and with no body to swap. An
+// ordinary navigation to the same URL keeps the 303 it has always answered.
+func TestNotificationsHTMXWithoutASessionRedirectsInsteadOfSwappingLoginMarkup(t *testing.T) {
+	h := newHarness(t)
+	assignedNotificationFixture(t, h)
+
+	noSession := map[string]string{}
+	unknownSession := map[string]string{sessionCookie: "0123456789abcdef0123456789abcdef"}
+	for _, tc := range []struct {
+		name    string
+		cookies map[string]string
+	}{
+		{name: "no session cookie", cookies: noSession},
+		{name: "unknown session token", cookies: unknownSession},
+	} {
+		for _, target := range []string{"/notifications/count", "/notifications"} {
+			t.Run(tc.name+" HTMX "+target, func(t *testing.T) {
+				req := httptest.NewRequest(http.MethodGet, target, nil)
+				for k, v := range tc.cookies {
+					req.Header.Set("Cookie", k+"="+v)
+				}
+				req.Header.Set("HX-Request", "true")
+				rec := httptest.NewRecorder()
+				h.mw.Wrap(h.mux).ServeHTTP(rec, req)
+
+				if got := rec.Header().Get("HX-Redirect"); got != "/login" {
+					t.Errorf("HX-Redirect = %q, want /login (status %d)", got, rec.Code)
+				}
+				if rec.Code != http.StatusNoContent {
+					t.Errorf("status = %d, want 204: htmx has nothing to swap", rec.Code)
+				}
+				if body := rec.Body.String(); body != "" {
+					t.Errorf("a redirect answer carries a body to swap into the rail: %.400s", body)
+				}
+			})
+		}
+
+		// An ordinary navigation is untouched: it still lands on the login page
+		// through the 303 the middleware has always answered.
+		t.Run(tc.name+" ordinary /notifications", func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, "/notifications", nil)
+			for k, v := range tc.cookies {
+				req.Header.Set("Cookie", k+"="+v)
+			}
+			rec := httptest.NewRecorder()
+			h.mw.Wrap(h.mux).ServeHTTP(rec, req)
+
+			if rec.Code != http.StatusSeeOther || rec.Header().Get("Location") != "/login" {
+				t.Fatalf("ordinary /notifications = %d %q, want a 303 to /login", rec.Code, rec.Header().Get("Location"))
+			}
+			if got := rec.Header().Get("HX-Redirect"); got != "" {
+				t.Errorf("ordinary navigation returned HX-Redirect %q", got)
+			}
+		})
+	}
+}
+
+// TestBaseRailLoadsTheBellCountFromItsOwnEndpoint is S13's wiring half: the
+// rail renders the bell on every page and polls the count fragment from its own
+// endpoint instead of computing it in the page data.
