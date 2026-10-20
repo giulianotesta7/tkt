@@ -469,12 +469,7 @@ func (h *CategoryHandlers) delete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := h.categories.DeleteFor(r.Context(), *userFromContext(r.Context()), id); err != nil {
-		status, msg := mapErrorFor(r, err)
-		if status == http.StatusInternalServerError {
-			http.Error(w, msg, status)
-			return
-		}
-		h.renderCategoriesIndexError(w, r, msg, status)
+		h.renderCategoryDeleteRefusal(w, r, err)
 		return
 	}
 	h.redirectCategoryMutation(w, r)
@@ -526,10 +521,44 @@ func (h *CategoryHandlers) renderCategoryFormError(w http.ResponseWriter, r *htt
 	h.renderCatalogFormError(w, r, "category", id, err)
 }
 
-// renderCategoriesIndexError re-renders the category list with an inline
-// error (rejected delete).
-func (h *CategoryHandlers) renderCategoriesIndexError(w http.ResponseWriter, r *http.Request, msg string, status int) {
-	h.renderIndex(w, r, msg, status)
+// renderCategoryDeleteRefusal keeps the operator on the structure view they
+// deleted from, with the same department and desk selected, and reports the
+// refusal in the instance language (issue #343, S6). The selection rides in the
+// form the control submitted, not in the POST URL, so it has to be re-read from
+// there: the previous path rebuilt the index from the URL alone, which dropped
+// both ids and left the browser on /categories/desks/{id}/delete.
+//
+// An HTMX delete swaps the structure region in place and keeps the URL, so the
+// refusal keeps the real status with the retarget the script already honours for
+// form errors; a native post renders the same view as a whole page.
+func (h *CategoryHandlers) renderCategoryDeleteRefusal(w http.ResponseWriter, r *http.Request, err error) {
+	status, msg := mapErrorFor(r, err)
+	if status == http.StatusInternalServerError {
+		http.Error(w, msg, status)
+		return
+	}
+	// The selection comes from the submitted form; parse it here so the
+	// helper does not depend on every caller having parsed it first.
+	if r.Form == nil {
+		_ = r.ParseForm()
+	}
+	state, stateErr := categoryStateFromValues(r.Form)
+	if stateErr != nil {
+		http.Error(w, mapErrorMsg(r, stateErr), statusFor(stateErr))
+		return
+	}
+	data, dataErr := h.categoryIndexData(requestWithCategoryState(r, state), msg)
+	if dataErr != nil {
+		http.Error(w, mapErrorMsg(r, dataErr), statusFor(dataErr))
+		return
+	}
+	if r.Header.Get("HX-Request") == "" {
+		h.renderer.Render(w, r, "categories_index", "", data, status)
+		return
+	}
+	w.Header().Set("HX-Retarget", "#categories-background")
+	w.Header().Set("HX-Reswap", "outerHTML")
+	h.renderer.Render(w, r, "categories_index", "categories_background", data, status)
 }
 
 func (h *CategoryHandlers) renderIndex(w http.ResponseWriter, r *http.Request, message string, status int) {
@@ -1044,7 +1073,7 @@ func (h *CategoryHandlers) deleteDepartment(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	if err := h.catalog.DeleteDepartmentFor(r.Context(), *userFromContext(r.Context()), id); err != nil {
-		h.renderCategoriesIndexError(w, r, mapErrorMsg(r, err), statusFor(err))
+		h.renderCategoryDeleteRefusal(w, r, err)
 		return
 	}
 	h.redirectCategoryMutation(w, r)
@@ -1109,7 +1138,7 @@ func (h *CategoryHandlers) deleteDesk(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := h.catalog.DeleteDeskFor(r.Context(), *userFromContext(r.Context()), id); err != nil {
-		h.renderCategoriesIndexError(w, r, mapErrorMsg(r, err), statusFor(err))
+		h.renderCategoryDeleteRefusal(w, r, err)
 		return
 	}
 	h.redirectCategoryMutation(w, r)

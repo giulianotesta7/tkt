@@ -1,1 +1,2 @@
+{{define "title"}}{{if .Drawer}}{{if .Drawer.UserID}}{{tf "base.title.screen" (t "users.edit_title")}}{{else}}{{tf "base.title.screen" (t "users.new_title")}}{{end}}{{else}}{{tf "base.title.screen" (t "base.nav.users")}}{{end}}{{end}}
 {{define "content"}}{{template "users_screen" .}}{{end}}

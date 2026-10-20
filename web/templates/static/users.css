@@ -85,7 +85,7 @@
 .users-root .category-drawer[data-kind=desk] .desk-members h3{margin:0}
 .users-root .category-drawer[data-kind=desk] .desk-members-copy{margin:6px 0 20px;color:var(--muted);font-size:13px;line-height:1.5}
 .users-root .users-cancel,.users-root dialog button,.category-workflow-page dialog button{background:var(--surface);border-color:var(--line-strong);color:var(--ink-soft)}
-.users-root dialog [data-discard],.users-root dialog [data-confirm-deactivate],.users-root dialog [data-category-discard],.category-workflow-page dialog [data-workflow-discard-continue],.category-workflow-page dialog [data-workflow-leave-discard]{border-color:var(--red);background:var(--red);color:var(--surface)}
+.users-root dialog [data-discard],.users-root dialog [data-confirm-deactivate],.users-root dialog [data-category-discard],.users-root dialog [data-category-delete-confirm],.category-workflow-page dialog [data-workflow-discard-continue],.category-workflow-page dialog [data-workflow-leave-discard]{border-color:var(--red);background:var(--red);color:var(--surface)}
 .users-root dialog,.category-workflow-page dialog{width:min(520px,calc(100vw - 32px));border:0;border-radius:12px;padding:28px;background:var(--surface);color:var(--ink);box-shadow:var(--elevation-modal)}
 .users-root dialog::backdrop,.category-workflow-page dialog::backdrop{background:var(--scrim)}
 .users-root dialog h2,.category-workflow-page dialog h2{font-size:20px}

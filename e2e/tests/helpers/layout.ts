@@ -273,6 +273,54 @@ export async function expectHairlineBorder(locator: Locator, label: string): Pro
   }
 }
 
+/**
+ * A keyboard user must be able to skip the rail, and assistive technology must be able to
+ * say where the user is (#343, S5). Both are invisible until someone needs them, so they are
+ * asserted by behaviour: the skip link is off-screen until it takes focus and then lands in
+ * the viewport, and the rail link for the current section carries `aria-current="page"` —
+ * exactly once, on the active link, never on an inactive sibling.
+ *
+ * The auth screens ship the split shell: no rail, and no skip target, so the check returns
+ * unless the rail is present.
+ */
+export async function expectAccessibleNavigation(page: Page, label: string): Promise<void> {
+  if ((await page.locator(".rail").count()) === 0) return;
+
+  const skip = page.locator("a.skip-link");
+  await expect(skip, `${label}: the shell must ship a skip link`).toHaveCount(1);
+  await expect(skip, `${label}: the skip link must target the main region`).toHaveAttribute(
+    "href",
+    "#main-content",
+  );
+  await expect(page.locator("main#main-content"), `${label}: main region`).toHaveCount(1);
+  await expect(
+    skip,
+    `${label}: the skip link stays out of sight until it takes focus`,
+  ).not.toBeInViewport();
+  await skip.focus();
+  const focusedBox = await skip.boundingBox();
+  expect(focusedBox, `${label}: the skip link must be visible once focused`).not.toBeNull();
+  expect(
+    focusedBox?.height ?? 0,
+    `${label}: a focused skip link must render a readable box`,
+  ).toBeGreaterThan(8);
+  await expect(skip, `${label}: a focused skip link must be on screen`).toBeInViewport();
+  await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+
+  const active = page.locator(".rail-nav a.rail-link.active");
+  const activeCount = await active.count();
+  for (let index = 0; index < activeCount; index += 1) {
+    await expect(active.nth(index), `${label}: the active rail link`).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
+  }
+  await expect(
+    page.locator('.rail-nav a.rail-link[aria-current="page"]'),
+    `${label}: only the current section may carry aria-current`,
+  ).toHaveCount(activeCount);
+}
+
 export async function assertCanonicalScreen(
   page: Page,
   opts: {
@@ -289,6 +337,7 @@ export async function assertCanonicalScreen(
   const metrics = await assertNoHorizontalOverflow(page, opts.viewport);
   await assertNothingClipped(page);
   await expectDesignSystem(page);
+  await expectAccessibleNavigation(page, `[${opts.label}] ${opts.url} as ${opts.role}`);
 
   const prefix = `[${opts.label}] ${opts.url} as ${opts.role}`;
   expect(

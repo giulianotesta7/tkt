@@ -194,9 +194,9 @@ func (t Translator) Tf(key string, args ...any) string {
 // already does. The active locale's form is used without falling through to
 // the default catalogue (so a Spanish key with an `_one` and no `_other` still
 // reads its Spanish plural), and the base sentence keeps the documented
-// active-then-default fallback. English keeps its historical copy — for
-// example users.count stays "%d accounts" even at one — so a default instance
-// is unchanged (S13); Spanish adds the singular where it differs.
+// active-then-default fallback. English carries a singular form where it differs
+// too — #343 corrected users.count_one from "%d accounts" to "%d account" (S4) —
+// and Spanish adds the singular where it differs.
 func (t Translator) Tp(key string, count int, args ...any) string {
 	suffix := "_other"
 	if count == 1 {

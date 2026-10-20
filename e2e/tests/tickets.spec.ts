@@ -1129,8 +1129,10 @@ test.describe("Ticket Lifecycle", () => {
       const form = page.locator(`form:has(#${selectID})`);
       const queueHref = await page.getByRole("link", { name: "Queue" }).getAttribute("href");
       if (!queueHref) throw new Error(`Missing Queue href at ${page.url()}`);
-      // Editable detail has no h1: preserve its visible title and rail chrome.
-      await expect(page.locator("h1")).toHaveCount(0);
+      // Issue #343 S2: the editable detail names the ticket in exactly one h1;
+      // the apply swap must keep it, the visible title and the rail chrome.
+      await expect(page.locator("h1")).toHaveCount(1);
+      await expect(page.locator("h1")).toHaveText(title);
       const chrome = await page.locator(".rail").innerHTML();
       const response = await assertHtmxSwap(
         page,
@@ -1145,7 +1147,8 @@ test.describe("Ticket Lifecycle", () => {
       await expect(page.getByLabel("Ticket title")).toBeVisible();
       await expect(page.getByLabel("Ticket title")).toHaveValue(title);
       await expect(page.getByRole("link", { name: "Queue" })).toHaveAttribute("href", queueHref);
-      await expect(page.locator("h1")).toHaveCount(0);
+      await expect(page.locator("h1")).toHaveCount(1);
+      await expect(page.locator("h1")).toHaveText(title);
       expect(await page.locator(".rail").innerHTML()).toBe(chrome);
     };
     await openProbe();

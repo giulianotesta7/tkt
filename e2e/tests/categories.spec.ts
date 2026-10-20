@@ -1143,6 +1143,7 @@ test.describe("Categories", () => {
       if ((await rowByName(longName).count()) > 0) {
         await longRow.getByRole("button", { name: /^Actions for / }).click();
         await longRow.getByRole("menuitem", { name: "Delete category", exact: true }).click();
+        await page.locator("#category-delete-dialog [data-category-delete-confirm]").click();
         await expect(rowByName(longName)).toHaveCount(0);
       }
       if (emptyCreated) {
@@ -1154,6 +1155,7 @@ test.describe("Categories", () => {
         await expect(item, `${emptyName} cleanup at ${page.url()}`).toHaveCount(1);
         await item.getByRole("button", { name: `Actions for ${emptyName}`, exact: true }).click();
         await item.getByRole("menuitem", { name: "Delete desk", exact: true }).click();
+        await page.locator("#category-delete-dialog [data-category-delete-confirm]").click();
         await expect(item).toHaveCount(0);
       }
     }
@@ -1303,6 +1305,7 @@ test.describe("Categories", () => {
     await expect(delRow).toHaveCount(1);
     await delRow.getByRole("button", { name: /actions for/i }).click();
     await delRow.getByRole("menuitem", { name: /delete category/i }).click();
+    await page.locator("#category-delete-dialog [data-category-delete-confirm]").click();
     await expect(page.getByText(renamed)).toHaveCount(0);
 
     await assertCanonicalScreen(page, {
@@ -1516,6 +1519,54 @@ test.describe("Categories", () => {
       await expect(drawer).toHaveCount(0);
       await expect(page.locator(`[data-focus-key="${focusKey}"]`)).toBeFocused();
     }
+  });
+
+  test("a clean drawer close never takes focus back once it moved elsewhere", async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await loginAsSeeded(page);
+    const name = "Focus backstop " + Date.now().toString(36).slice(2, 8);
+    await createCategoryViaUi(page, name);
+    await page.goto(page.url());
+    const row = page
+      .locator(".category-level-categories .category-table tbody tr")
+      .filter({ hasText: name });
+    const menu = row.getByRole("button", { name: `Actions for ${name}`, exact: true });
+    const focusKey = await menu.getAttribute("data-focus-key");
+    await menu.click();
+    await row
+      .locator(".category-overflow-menu:not([hidden])")
+      .getByRole("menuitem", { name: "Edit category", exact: true })
+      .click();
+    const drawer = page.getByRole("dialog", { name: /Edit category/i });
+    await expect(drawer).toBeVisible();
+
+    // Hold the close's delayed focus backstop so the test, not the machine's
+    // speed, decides that focus moves before it runs (the CI race on #343).
+    await page.evaluate(() => {
+      const w = window as unknown as { __heldBackstops: Array<() => void> };
+      const original = window.setTimeout;
+      w.__heldBackstops = [];
+      window.setTimeout = ((handler: () => void, delay?: number, ...rest: unknown[]) => {
+        if (delay === 100) {
+          w.__heldBackstops.push(handler);
+          return 0;
+        }
+        return original(handler, delay, ...rest);
+      }) as typeof window.setTimeout;
+    });
+    await page.keyboard.press("Escape");
+    await expect(drawer).toHaveCount(0);
+    await expect(page.locator(`[data-focus-key="${focusKey}"]`)).toBeFocused();
+
+    const skip = page.locator("a.skip-link");
+    await skip.focus();
+    const held = await page.evaluate(() => {
+      const w = window as unknown as { __heldBackstops: Array<() => void> };
+      for (const handler of w.__heldBackstops) handler();
+      return w.__heldBackstops.length;
+    });
+    expect(held, "the close schedules its delayed backstop").toBeGreaterThan(0);
+    await expect(skip, "the backstop must not pull focus back from where it moved").toBeFocused();
   });
 
   test("clean close restores focus for every drawer launcher", async ({ page }) => {
@@ -2561,6 +2612,156 @@ test.describe("Categories", () => {
       failedRequests: obs.failedRequests,
       failedResponses: obs.failedResponses,
     });
+  });
+
+  test("deleting a desk asks first, and a refused delete keeps the structure selection", async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    const obs = collectObservability(page);
+    await loginAsSeeded(page);
+    await page.goto(base() + "/categories?view=structure&department_id=unassigned");
+
+    // The seeded legacy desk still hosts a category, so the store refuses its
+    // delete: the fixture the audit's reproduction step names. The desk is
+    // resolved by its position under the Unassigned group, never by a name
+    // another journey in this file may have renamed.
+    const deskRow = page.locator(".category-level-desks .category-structure-item").first();
+    await expect(deskRow, `the unassigned desk at ${page.url()}`).toHaveCount(1);
+    const deskName = (await deskRow.locator(".category-structure-row strong").innerText()).trim();
+    const deskHref = await deskRow.locator(".category-structure-row").getAttribute("href");
+    const deskID = deskHref?.match(/desk_id=(\d+)/)?.[1];
+    if (!deskID) {
+      throw new Error(
+        `Could not resolve the desk id from ${deskHref ?? "missing href"} at ${page.url()}`,
+      );
+    }
+    await deskRow.locator(".category-structure-row").click();
+    await expect(page).toHaveURL(
+      new RegExp(`view=structure&department_id=unassigned&desk_id=${deskID}`),
+    );
+    const structureURL = page.url();
+    const dialog = page.locator("#category-delete-dialog");
+
+    await deskRow.getByRole("button", { name: `Actions for ${deskName}`, exact: true }).click();
+    await deskRow.getByRole("menuitem", { name: "Delete desk", exact: true }).click();
+
+    // The confirmation names the row, focuses the safe choice, and the
+    // destructive action is the only red control in the dialog.
+    await expect(dialog).toBeVisible();
+    await expect(dialog.locator("#category-delete-title")).toHaveText(
+      `Delete the desk \u201c${deskName}\u201d?`,
+    );
+    await expect(dialog.locator("[data-category-delete-cancel]")).toBeFocused();
+    await expect(dialog.locator("[data-category-delete-confirm]")).toHaveCSS(
+      "background-color",
+      "rgb(180, 35, 24)",
+    );
+    await expect(dialog.locator("[data-category-delete-cancel]")).not.toHaveCSS(
+      "background-color",
+      "rgb(180, 35, 24)",
+    );
+
+    // Cancel is the safe exit: nothing is deleted, the menu the dialog
+    // replaced is closed, and focus is back on the trigger that opened it.
+    await dialog.locator("[data-category-delete-cancel]").click();
+    await expect(dialog).not.toBeVisible();
+    await expect(deskRow).toHaveCount(1);
+    await expect(page).toHaveURL(structureURL);
+    await expect(
+      deskRow.getByRole("button", { name: `Actions for ${deskName}`, exact: true }),
+    ).toBeFocused();
+
+    // Confirming a delete the store refuses keeps the structure view, its
+    // department and desk selection, and the URL, and reports the error there.
+    const navigations: string[] = [];
+    const navigationHandler = (request: Request) => {
+      if (request.isNavigationRequest() && request.frame() === page.mainFrame()) {
+        navigations.push(request.url());
+      }
+    };
+    page.on("request", navigationHandler);
+    try {
+      // Cancelling closed the menu, so the second attempt starts from the
+      // trigger again.
+      await deskRow.getByRole("button", { name: `Actions for ${deskName}`, exact: true }).click();
+      const deleteItem = deskRow.getByRole("menuitem", { name: "Delete desk", exact: true });
+      await expect(deleteItem).toBeVisible();
+      const refusal = page.waitForResponse(
+        (response) =>
+          response.request().headers()["hx-request"] === "true" &&
+          response.request().method() === "POST" &&
+          response.url().endsWith(`/categories/desks/${deskID}/delete`),
+      );
+      await deleteItem.click();
+      await dialog.locator("[data-category-delete-confirm]").click();
+      const response = await refusal;
+      expect(response.status()).toBe(409);
+      expect(response.headers()["hx-retarget"]).toBe("#categories-background");
+      expect(response.headers()["hx-reswap"]).toBe("outerHTML");
+      await expect(page.locator("#categories-background .error-banner")).toHaveText(
+        "desk is referenced and cannot be deleted",
+      );
+      await expect(page).toHaveURL(structureURL);
+      const refusedRow = page
+        .locator(".category-level-desks .category-structure-item")
+        .filter({ has: page.getByText(deskName, { exact: true }) });
+      await expect(refusedRow.locator(".category-structure-row")).toHaveAttribute(
+        "aria-current",
+        "true",
+      );
+      await expect(refusedRow).toHaveCount(1);
+    } finally {
+      page.off("request", navigationHandler);
+    }
+    expect(navigations, `a refused delete must not navigate: ${navigations.join("; ")}`).toEqual(
+      [],
+    );
+    expect(obs.pageErrors).toEqual([]);
+  });
+
+  test("the delete confirmation cancels on Escape and returns focus to its trigger", async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await loginAsSeeded(page);
+    const name = "Delete confirm " + Date.now().toString(36).slice(2, 8);
+    await createCategoryViaUi(page, name);
+    const structureURL = page.url();
+    await page.goto(structureURL);
+
+    const row = page
+      .locator(".category-level-categories .category-table tbody tr")
+      .filter({ hasText: name });
+    await expect(row).toHaveCount(1);
+    const menu = row.getByRole("button", { name: `Actions for ${name}`, exact: true });
+    const focusKey = await menu.getAttribute("data-focus-key");
+    expect(focusKey).toBeTruthy();
+
+    await menu.click();
+    await row
+      .locator(".category-overflow-menu:not([hidden])")
+      .getByRole("menuitem", { name: "Delete category", exact: true })
+      .click();
+    const confirmation = page.locator("#category-delete-dialog");
+    await expect(confirmation).toBeVisible();
+    await expect(confirmation.getByRole("button", { name: "Cancel", exact: true })).toBeFocused();
+    // The confirmation replaces the menu, so nothing is left open behind it.
+    await expect(row.locator(".category-overflow-menu:not([hidden])")).toHaveCount(0);
+    await expect(menu).toHaveAttribute("aria-expanded", "false");
+
+    await page.keyboard.press("Escape");
+    await expect(confirmation, "one Escape answers the question").toBeHidden();
+    await expect(page.locator(`[data-focus-key="${focusKey}"]`)).toBeFocused();
+    await expect(row).toHaveCount(1);
+
+    await menu.click();
+    await row
+      .locator(".category-overflow-menu:not([hidden])")
+      .getByRole("menuitem", { name: "Delete category", exact: true })
+      .click();
+    await confirmation.getByRole("button", { name: "Delete", exact: true }).click();
+    await expect(row).toHaveCount(0);
   });
 
   test.describe("Add step popover dismissal", () => {
