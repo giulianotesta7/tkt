@@ -127,6 +127,12 @@ func (h *NotificationHandlers) count(w http.ResponseWriter, r *http.Request) {
 // signed-in user, grouped by day, as a full page or as the drawer fragment the
 // bell opens.
 func (h *NotificationHandlers) panel(w http.ResponseWriter, r *http.Request) {
+	// GET /notifications answers two representations on one URL — the full page
+	// and the drawer fragment the bell opens — so the response names the request
+	// header that selects between them. Without it a shared cache could hand a
+	// drawer fragment to a navigation or a whole page to the rail's swap, which
+	// is the same contract the users and categories routes publish.
+	setNotificationsVary(w)
 	data, err := h.panelData(r)
 	if err != nil {
 		http.Error(w, mapErrorMsg(r, err), statusFor(err))
@@ -138,6 +144,13 @@ func (h *NotificationHandlers) panel(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("HX-Trigger-After-Swap", "notifications:changed")
 	}
 	h.renderer.Render(w, r, "notifications", "notification_panel", data, http.StatusOK)
+}
+
+// setNotificationsVary publishes the request header that selects between the
+// notification panel's two representations. Only the panel serves a choice; the
+// count endpoint has a single representation and is intentionally left alone.
+func setNotificationsVary(w http.ResponseWriter) {
+	w.Header().Add("Vary", "HX-Request")
 }
 
 // panelData reads the panel's two facts — the newest rows and the exact unread

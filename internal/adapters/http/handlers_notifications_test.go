@@ -137,9 +137,6 @@ func TestNotificationsCountRequiresASession(t *testing.T) {
 	}
 }
 
-// TestBaseRailLoadsTheBellCountFromItsOwnEndpoint is S13's wiring half: the
-// rail renders the bell on every page and polls the count fragment from its own
-// endpoint instead of computing it in the page data.
 func TestBaseRailLoadsTheBellCountFromItsOwnEndpoint(t *testing.T) {
 	h := newHarness(t)
 
@@ -177,6 +174,40 @@ func notificationPanelAs(t *testing.T, h *harness, sessionID string, hx bool) *h
 	rec := httptest.NewRecorder()
 	h.mw.Wrap(h.mux).ServeHTTP(rec, req)
 	return rec
+}
+
+// TestNotificationsPanelVariesOnHXRequest pins the caching contract of the ONE
+// URL that serves two representations (S13/S14): GET /notifications answers the
+// full page or the drawer fragment depending on HX-Request, so anything caching
+// it has to key on that header — the same contract the users and categories
+// routes already publish. The two representations themselves are pinned by the
+// panel tests below; this one only adds the header and proves neither form was
+// traded for the other.
+func TestNotificationsPanelVariesOnHXRequest(t *testing.T) {
+	h := newHarness(t)
+	_, session := assignedNotificationFixture(t, h)
+
+	for _, tc := range []struct {
+		name     string
+		hx       bool
+		document bool
+	}{
+		{name: "drawer fragment", hx: true, document: false},
+		{name: "full page", hx: false, document: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			rec := notificationPanelAs(t, h, session, tc.hx)
+			if rec.Code != http.StatusOK {
+				t.Fatalf("GET /notifications = %d, want 200: %s", rec.Code, rec.Body.String())
+			}
+			if got := rec.Header().Get("Vary"); got != "HX-Request" {
+				t.Errorf("Vary = %q, want HX-Request", got)
+			}
+			if got := strings.Contains(rec.Body.String(), "<!DOCTYPE"); got != tc.document {
+				t.Errorf("response carries a full document = %v, want %v", got, tc.document)
+			}
+		})
+	}
 }
 
 // notificationRowIDs returns the ids the panel offers to open, in rendered
