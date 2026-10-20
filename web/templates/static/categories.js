@@ -333,6 +333,7 @@
     drawerURL = "";
     lastDrawerFocus = null;
     if (panel) panel.removeAttribute("aria-busy");
+    let restoredTo = null;
     const restoreCloseFocus = () => {
       const candidate = focusKey
         ? document.querySelector(`[data-focus-key="${CSS.escape(focusKey)}"]`)
@@ -342,10 +343,15 @@
       if (target) target.focus();
       else if (fallback) fallback.focus();
       else restoreFocus();
+      restoredTo = document.activeElement;
     };
     window.requestAnimationFrame(restoreCloseFocus);
+    // The backstop retries a restore that landed nowhere or on a fallback; it
+    // never takes focus back from an element the user moved to since.
     window.setTimeout(() => {
-      if (!drawer()) restoreCloseFocus();
+      const active = document.activeElement;
+      const untouched = !active || active === document.body || active === restoredTo;
+      if (!drawer() && untouched) restoreCloseFocus();
     }, 100);
   }
 

@@ -1521,6 +1521,54 @@ test.describe("Categories", () => {
     }
   });
 
+  test("a clean drawer close never takes focus back once it moved elsewhere", async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await loginAsSeeded(page);
+    const name = "Focus backstop " + Date.now().toString(36).slice(2, 8);
+    await createCategoryViaUi(page, name);
+    await page.goto(page.url());
+    const row = page
+      .locator(".category-level-categories .category-table tbody tr")
+      .filter({ hasText: name });
+    const menu = row.getByRole("button", { name: `Actions for ${name}`, exact: true });
+    const focusKey = await menu.getAttribute("data-focus-key");
+    await menu.click();
+    await row
+      .locator(".category-overflow-menu:not([hidden])")
+      .getByRole("menuitem", { name: "Edit category", exact: true })
+      .click();
+    const drawer = page.getByRole("dialog", { name: /Edit category/i });
+    await expect(drawer).toBeVisible();
+
+    // Hold the close's delayed focus backstop so the test, not the machine's
+    // speed, decides that focus moves before it runs (the CI race on #343).
+    await page.evaluate(() => {
+      const w = window as unknown as { __heldBackstops: Array<() => void> };
+      const original = window.setTimeout;
+      w.__heldBackstops = [];
+      window.setTimeout = ((handler: () => void, delay?: number, ...rest: unknown[]) => {
+        if (delay === 100) {
+          w.__heldBackstops.push(handler);
+          return 0;
+        }
+        return original(handler, delay, ...rest);
+      }) as typeof window.setTimeout;
+    });
+    await page.keyboard.press("Escape");
+    await expect(drawer).toHaveCount(0);
+    await expect(page.locator(`[data-focus-key="${focusKey}"]`)).toBeFocused();
+
+    const skip = page.locator("a.skip-link");
+    await skip.focus();
+    const held = await page.evaluate(() => {
+      const w = window as unknown as { __heldBackstops: Array<() => void> };
+      for (const handler of w.__heldBackstops) handler();
+      return w.__heldBackstops.length;
+    });
+    expect(held, "the close schedules its delayed backstop").toBeGreaterThan(0);
+    await expect(skip, "the backstop must not pull focus back from where it moved").toBeFocused();
+  });
+
   test("clean close restores focus for every drawer launcher", async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 800 });
     await loginAsSeeded(page);
