@@ -9,9 +9,32 @@ import (
 // The S10 "a workflow form step now waits on this person" row: an answer to one
 // step can advance the run onto a form that is somebody else's turn, and that
 // person should learn there is something to do. Isolated from the rest of the
-// notification policy in its own file because the maintainer has not confirmed
-// this row yet (e6-batch-2 L5) — removing it means deleting this file, its test
-// file, and the one call in the runner.
+// notification policy in its own file because it is one self-contained row
+// (maintainer's decision, e6-batch-2 L20: "Si, a la persona que tiene que actuar
+// se le avisa").
+
+// assigneeFormStepIndex reports the zero-based index of the step the plan leaves
+// PENDING when that step is an ASSIGNEE form. Such a form's recipient is whoever
+// holds the ticket when the transaction ends, which a plan that routes the ticket
+// cannot name — the routing operation's template resolves it instead (see
+// AssigneeNotification.FormWaitingStepIndex).
+func assigneeFormStepIndex(def domain.WorkflowDefinition, cursor int) (int, bool) {
+	step, ok := stepAt(def, cursor)
+	if !ok || step.Type != domain.StepForm || step.Form == nil || step.Form.Actor != domain.FormActorAssignee {
+		return 0, false
+	}
+	return cursor, true
+}
+
+// stepAt returns the definition's step at cursor, or false when the cursor names
+// no step (the run ended, which is where a plan that completes the definition
+// leaves it).
+func stepAt(def domain.WorkflowDefinition, cursor int) (domain.WorkflowStep, bool) {
+	if cursor < 0 || cursor >= len(def) {
+		return domain.WorkflowStep{}, false
+	}
+	return def[cursor], true
+}
 
 // formWaitingNotifications builds the form_waiting row for the step the plan
 // leaves PENDING, addressed to the person that step waits on: the requester for
@@ -19,25 +42,15 @@ import (
 // read-access rule apply as everywhere else, so a form waiting on the person who
 // just answered it notifies nobody.
 //
-// KNOWN GAP (issue #344 slice B3 report): an assignee form left pending by a
-// plan whose least_loaded step MOVES the ticket tells nobody, because the new
-// assignee is a fact of the transaction and not of the plan. The row this
-// function builds for the pre-plan assignee now travels as a conditional row that
-// the unit of work releases only when the routing re-selects that person — so a
-// RE-SELECTION does notify the holder (correct), a CLAIM notifies nobody (the
-// claimant is the actor), and a REROUTE leaves the newly selected assignee
-// uninformed: they learn about the assignment (their "assigned" row) but not that
-// an assignee form is waiting on them. Closing that last case means carrying a
-// form_waiting TEMPLATE on the operation, filled with the in-transaction selection
-// like NotifyAssignee — deliberately NOT done here, because this row is still
-// unconfirmed by the maintainer (e6-batch-2 L5) and the fix would extend an
-// unconfirmed feature. Documented rather than guessed.
+// The assignee argument is nil whenever the plan ROUTES the ticket, because the
+// assignee form's recipient is then a fact of the transaction and not of the
+// plan: the routing operation's template names it (AssigneeNotification), and
+// passing nil here keeps the row out of the pre-plan assignee's conditional
+// block, which would otherwise duplicate it. Every other case — a requester form,
+// or an assignee form reached without routing — is decided here.
 func formWaitingNotifications(t *domain.Ticket, def domain.WorkflowDefinition, nextCursor int, actorUserID *int64, at time.Time, requester, assignee *NotificationRecipient) []domain.Notification {
-	if t == nil || nextCursor < 0 || nextCursor >= len(def) {
-		return nil
-	}
-	step := def[nextCursor]
-	if step.Type != domain.StepForm || step.Form == nil {
+	step, ok := stepAt(def, nextCursor)
+	if !ok || step.Type != domain.StepForm || step.Form == nil {
 		return nil
 	}
 	var waitingOn *NotificationRecipient

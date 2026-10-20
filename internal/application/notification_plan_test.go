@@ -129,7 +129,7 @@ func TestPlanCompleteLeastLoadedCarriesTheAssigneeTemplate(t *testing.T) {
 		if ll.NotifyAssignee.ActorUserID == nil || *ll.NotifyAssignee.ActorUserID != agent {
 			t.Errorf("template actor = %v, want the completing agent %d", ll.NotifyAssignee.ActorUserID, agent)
 		}
-		row := ll.NotifyAssignee.For(42)
+		row := ll.NotifyAssignee.Assigned(42)
 		if row.UserID != 42 || row.Kind != domain.NotificationAssigned {
 			t.Errorf("filled row = %+v, want an assigned row for the selected member", row)
 		}
@@ -139,7 +139,7 @@ func TestPlanCompleteLeastLoadedCarriesTheAssigneeTemplate(t *testing.T) {
 		// A row completed for the ACTOR is the one the unit of work drops: the
 		// template hands it every fact that decision needs (the recipient) and
 		// the fact it filters on (the actor).
-		if actorRow := ll.NotifyAssignee.For(agent); actorRow.ActorUserID == nil || *actorRow.ActorUserID != actorRow.UserID {
+		if actorRow := ll.NotifyAssignee.Assigned(agent); actorRow.ActorUserID == nil || *actorRow.ActorUserID != actorRow.UserID {
 			t.Errorf("actor-addressed row = %+v, want it to carry its own recipient as actor", actorRow)
 		}
 	}
