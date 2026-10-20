@@ -1,0 +1,130 @@
+package domain
+
+import (
+	"testing"
+	"time"
+)
+
+// Issue #344 slice B1: the notification kind vocabulary and its value rules
+// (spec S10 rows, S15 "kind + structured facts, never rendered text").
+// Written against the domain API that does not exist yet (strict TDD RED).
+
+func notifStrPtr(s string) *string { return &s }
+func ptrInt(v int) *int            { return &v }
+func ptrInt64(v int64) *int64      { return &v }
+
+func TestNotificationKindValid(t *testing.T) {
+	// Every row of the S10 table has exactly one kind; the vocabulary is
+	// closed, so anything else fails closed.
+	for _, k := range []NotificationKind{
+		NotificationAssigned,
+		NotificationStateChanged,
+		NotificationResolvedAwaitingConfirmation,
+		NotificationResolutionConfirmed,
+		NotificationResolutionRejected,
+		NotificationPriorityChanged,
+		NotificationCommentPublic,
+		NotificationCommentInternal,
+		NotificationFormWaiting,
+	} {
+		if !k.Valid() {
+			t.Errorf("%q.Valid() = false, want true", k)
+		}
+	}
+	for _, k := range []NotificationKind{"", "mentioned", "ASSIGNED", "assigned "} {
+		if k.Valid() {
+			t.Errorf("%q.Valid() = true, want false", k)
+		}
+	}
+}
+
+func TestNotificationKindIsComment(t *testing.T) {
+	for _, k := range []NotificationKind{NotificationCommentPublic, NotificationCommentInternal} {
+		if !k.IsComment() {
+			t.Errorf("%q.IsComment() = false, want true", k)
+		}
+	}
+	for _, k := range []NotificationKind{NotificationAssigned, NotificationStateChanged, NotificationFormWaiting} {
+		if k.IsComment() {
+			t.Errorf("%q.IsComment() = true, want false", k)
+		}
+	}
+}
+
+func validNotification() Notification {
+	return Notification{
+		UserID:    7,
+		TicketID:  11,
+		Kind:      NotificationStateChanged,
+		FromValue: notifStrPtr("resolved"),
+		ToValue:   notifStrPtr("in_progress"),
+		CreatedAt: time.Date(2026, 10, 20, 9, 0, 0, 0, time.UTC),
+	}
+}
+
+func TestNotificationValidate(t *testing.T) {
+	if err := validNotification().Validate(); err != nil {
+		t.Fatalf("valid notification rejected: %v", err)
+	}
+
+	comment := validNotification()
+	comment.Kind = NotificationCommentInternal
+	comment.CommentID = ptrInt64(42)
+	if err := comment.Validate(); err != nil {
+		t.Fatalf("comment notification with its comment id rejected: %v", err)
+	}
+
+	// An automatic workflow event has no user actor: nil is legal, it means
+	// "the system did it" (S10 automatic rows, actor_user_id NULL).
+	automatic := validNotification()
+	automatic.Kind = NotificationAssigned
+	automatic.ActorUserID = nil
+	if err := automatic.Validate(); err != nil {
+		t.Fatalf("automatic notification rejected: %v", err)
+	}
+
+	cases := []struct {
+		name   string
+		mutate func(*Notification)
+		field  string
+	}{
+		{"unknown kind", func(n *Notification) { n.Kind = "mentioned" }, "kind"},
+		{"missing recipient", func(n *Notification) { n.UserID = 0 }, "user_id"},
+		{"missing ticket", func(n *Notification) { n.TicketID = 0 }, "ticket_id"},
+		{"missing created_at", func(n *Notification) { n.CreatedAt = time.Time{} }, "created_at"},
+		// S10 "never the person who performed the action": the domain is the
+		// last place that can refuse a self-notification.
+		{"recipient is the actor", func(n *Notification) {
+			actor := n.UserID
+			n.ActorUserID = &actor
+		}, "actor_user_id"},
+		// A comment notification without its comment is unreferenceable: the
+		// panel could never open it, so it is refused instead of stored.
+		{"comment kind without comment id", func(n *Notification) {
+			n.Kind = NotificationCommentPublic
+		}, "comment_id"},
+		{"comment id on a non-comment kind", func(n *Notification) {
+			n.CommentID = ptrInt64(9)
+		}, "comment_id"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			n := validNotification()
+			tc.mutate(&n)
+			err := n.Validate()
+			if err == nil {
+				t.Fatalf("Validate() = nil, want a %s validation error", tc.field)
+			}
+			ie, ok := err.(*NotificationInvariantError)
+			if !ok {
+				t.Fatalf("Validate() error type = %T, want *NotificationInvariantError", err)
+			}
+			if ie.Field != tc.field {
+				t.Errorf("NotificationInvariantError.Field = %q, want %q", ie.Field, tc.field)
+			}
+			if ie.Message == "" {
+				t.Error("NotificationInvariantError.Message is empty, want the domain wording")
+			}
+		})
+	}
+}
