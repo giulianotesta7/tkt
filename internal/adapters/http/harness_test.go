@@ -188,6 +188,7 @@ func newHarnessWithAdmin(t *testing.T, seedAdmin bool) *harness {
 	NewSettingsHandlers(settingsSvc, slaSvc, s.SLAStore(), s.SettingsStore(), renderer).Register(mux)
 	NewCategorySLAHandlers(catSvc, slaSvc, s.SLAStore(), renderer).Register(mux)
 	NewPreferencesHandlers(preferencesSvc, renderer).Register(mux)
+	NewNotificationHandlers(s.NotificationStore(), s.TicketStore(), s.UserStore(), renderer, clock).Register(mux)
 	mw := NewSessionMiddleware(s.SessionStore(), s.UserStore(), s.SettingsStore())
 
 	h := &harness{

@@ -1049,3 +1049,76 @@ func TestGoldenCategorySLA(t *testing.T) {
 func TestGoldenCategoryWorkflow(t *testing.T) {
 	goldenFullPage(t, "category_workflow", renderGolden(t, "category_workflow", "", mobileBuilderPageData(), false))
 }
+
+// ---------------------------------------------------------------------------
+// Notification center goldens (issue #344, slice B4; specs S14/S15).
+// ---------------------------------------------------------------------------
+
+// fixtureNotificationsPanelData freezes the notification panel. It covers every
+// kind the vocabulary can store, both actor forms (a named person, "Automatic"
+// for a NULL actor, and the degrade label for an actor row that is gone), one
+// unread and one read row per group, a row whose ticket is outside the reader's
+// reach, and the three day-group shapes. The messages are built by the SAME
+// function the handler uses, so the snapshot freezes the catalogue copy AND the
+// kind→sentence mapping (S15). Every instant is literal (D7), so a day header
+// never depends on the wall clock.
+func fixtureNotificationsPanelData() notificationsPanelData {
+	ana := domain.User{ID: 1, Name: "Ana Torres", Email: "ana@example.com", Active: true, CreatedAt: goldenT0}
+	newState, inProgress := string(domain.StateNew), string(domain.StateInProgress)
+	high, medium := string(domain.PriorityHigh), string(domain.PriorityMedium)
+	message := func(kind domain.NotificationKind, from, to *string) application.Msg {
+		return notificationMessage(domain.Notification{Kind: kind, FromValue: from, ToValue: to})
+	}
+	assigned := message(domain.NotificationAssigned, nil, nil)
+	stateChanged := message(domain.NotificationStateChanged, &newState, &inProgress)
+	priorityChanged := message(domain.NotificationPriorityChanged, &medium, &high)
+	awaiting := message(domain.NotificationResolvedAwaitingConfirmation, &inProgress, nil)
+	confirmed := message(domain.NotificationResolutionConfirmed, nil, nil)
+	rejected := message(domain.NotificationResolutionRejected, nil, nil)
+	commentPublic := message(domain.NotificationCommentPublic, nil, nil)
+	commentInternal := message(domain.NotificationCommentInternal, nil, nil)
+	formWaiting := message(domain.NotificationFormWaiting, nil, nil)
+	automatic := application.MsgRef("notifications.actor.automatic")
+	unknown := application.MsgRef("notifications.actor.unknown")
+	ana2 := application.Data("Ana Torres")
+	marco := application.Data("Marco Ruiz")
+	return notificationsPanelData{
+		pageData: pageData{NavActive: "notifications", CurrentUser: ana},
+		Unread:   5,
+		Groups: []notificationGroup{
+			{Kind: "today", Date: goldenT0, Rows: []notificationRow{
+				{ID: 9, TicketID: 9, Number: 12, Title: "VPN drops every hour", Message: assigned, Actor: automatic, CreatedAt: goldenT1, Unread: true},
+				{ID: 8, TicketID: 8, Number: 11, Title: "Invoice export misses August", Message: stateChanged, Actor: marco, CreatedAt: goldenT0, Unread: true},
+				{ID: 7, TicketID: 7, Number: 10, Title: "Printer jam on the third floor", Message: commentPublic, Actor: ana2, CreatedAt: goldenT0, Unread: false},
+			}},
+			{Kind: "yesterday", Date: goldenT0.AddDate(0, 0, -1), Rows: []notificationRow{
+				{ID: 6, TicketID: 6, Number: 9, Title: "Onboarding checklist is out of date", Message: awaiting, Actor: marco, CreatedAt: goldenT0.AddDate(0, 0, -1), Unread: true},
+				{ID: 5, TicketID: 5, Number: 8, Title: "Badge reader rejects new cards", Message: confirmed, Actor: unknown, CreatedAt: goldenT0.AddDate(0, 0, -1), Unread: false},
+				{ID: 4, TicketID: 4, Number: 7, Title: "Laptop battery swells", Message: priorityChanged, Actor: ana2, CreatedAt: goldenT0.AddDate(0, 0, -1), Unread: true},
+			}},
+			{Kind: "date", Date: goldenT0.AddDate(0, 0, -9), Rows: []notificationRow{
+				{ID: 3, TicketID: 3, Number: 6, Title: "Mailbox quota warnings", Message: commentInternal, Actor: marco, CreatedAt: goldenT0.AddDate(0, 0, -9), Unread: true},
+				{ID: 2, TicketID: 2, Number: 5, Title: "Software request needs approval", Message: formWaiting, Actor: automatic, CreatedAt: goldenT0.AddDate(0, 0, -9), Unread: false},
+				{ID: 1, TicketID: 1, Number: 0, Title: "", Message: rejected, Actor: ana2, CreatedAt: goldenT0.AddDate(0, 0, -9), Unread: false},
+			}},
+		},
+	}
+}
+
+// TestGoldenNotifications freezes the panel as a page (GET /notifications).
+func TestGoldenNotifications(t *testing.T) {
+	goldenFullPage(t, "notifications", renderGolden(t, "notifications", "", fixtureNotificationsPanelData(), false))
+}
+
+// TestGoldenNotificationPanel freezes the drawer fragment the bell swaps in: the
+// dialog chrome the fragment owns, without a second document around it.
+func TestGoldenNotificationPanel(t *testing.T) {
+	goldenFile(t, "notification_panel", renderGolden(t, "notifications", "notification_panel", fixtureNotificationsPanelData(), true))
+}
+
+// TestGoldenNotificationBell freezes the bell's count fragment: the zero state
+// (no badge at all) and the counted state with its accessible name.
+func TestGoldenNotificationBell(t *testing.T) {
+	goldenFile(t, "notification_bell_zero", renderGolden(t, "notifications", "notification_bell", notificationBell{}, true))
+	goldenFile(t, "notification_bell_unread", renderGolden(t, "notifications", "notification_bell", notificationBell{Unread: 3}, true))
+}

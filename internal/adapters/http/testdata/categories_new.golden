@@ -6,7 +6,7 @@
 <meta name="htmx-config" content='{"refreshOnHistoryMiss":true}'>
 <title>tkt — Ticket Desk</title>
 
-<link rel="stylesheet" href="/static/users.css"><script src="/static/categories.js" defer></script><script src="/static/save-feedback.js" defer></script><script src="/static/htmx.min.js" defer></script>
+<link rel="stylesheet" href="/static/users.css"><script src="/static/categories.js" defer></script><script src="/static/save-feedback.js" defer></script><script src="/static/htmx.min.js" defer></script><script src="/static/notifications.js" defer></script>
 </head>
 <body class="users-page-body">
 <a class="skip-link" href="#main-content">Skip to main content</a>
@@ -14,6 +14,9 @@
   <aside class="rail">
     <a class="rail-brand" href="/tickets" title="tkt">tkt</a>
     <nav class="rail-nav">
+      <div class="rail-notifications" id="notification-bell" hx-get="/notifications/count" hx-trigger="load, every 45s [document.visibilityState === 'visible'], notifications:changed from:body" hx-target="this" hx-swap="innerHTML"><a class="rail-link" id="notification-bell-link" href="/notifications" hx-get="/notifications" hx-target="#notification-panel-host" hx-swap="innerHTML" title="Notifications" aria-label="Notifications">
+  <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 9a6 6 0 0 0-12 0c0 5-2.5 6.5-2.5 6.5h17S18 14 18 9z"/><path d="M10.4 19.5a2 2 0 0 0 3.2 0"/></svg>
+</a></div>
       <a class="rail-link" href="/tickets" title="Tickets" aria-label="Tickets">
         <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v1a2 2 0 0 0 0 4v1a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-1a2 2 0 0 0 0-4V9z"/><path d="M13 7v10"/></svg>
       </a>
@@ -31,6 +34,7 @@
       </button>
     </form>
   </aside>
+  <div class="notification-panel-host" id="notification-panel-host"></div>
   <main class="main" id="main-content">
 <div id="save-feedback" class="save-feedback" role="status" aria-live="polite" aria-atomic="true" hidden data-feedback-message="" data-feedback-kind="">
   <span class="save-feedback-message"></span>

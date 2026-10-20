@@ -1,0 +1,102 @@
+<div class="notifications-overlay">
+  <div class="notifications-backdrop" data-notifications-close aria-hidden="true"></div>
+  <section class="notifications-panel" role="dialog" aria-modal="true" aria-labelledby="notifications-panel-title" tabindex="-1">
+    <header class="notifications-header">
+      <h2 class="notifications-title" id="notifications-panel-title">Notifications</h2>
+      <button class="notifications-close" type="button" data-notifications-close aria-label="Close">×</button>
+    </header>
+<form class="notifications-actions" method="post" action="/notifications/read-all">
+  <button class="btn" type="submit">Mark all as read</button>
+</form>
+    <div class="notifications-body"><ul class="notifications-groups">
+  <li class="notifications-group">
+    <h3 class="notifications-day">Today</h3>
+    <ul class="notifications-rows">
+      <li class="notifications-row"><form method="post" action="/notifications/9/read">
+  <input type="hidden" name="ticket_id" value="9">
+  <button class="notification-open" type="submit">
+    <span class="notification-ident">TKT-12 · VPN drops every hour</span>
+    <span class="notification-what">Assigned to you</span>
+    <span class="notification-meta">Automatic · <time datetime="2026-08-06T10:30:00Z">10:30 · 06 Aug</time> <span class="notification-unread">Unread</span></span>
+  </button>
+</form></li>
+      <li class="notifications-row"><form method="post" action="/notifications/8/read">
+  <input type="hidden" name="ticket_id" value="8">
+  <button class="notification-open" type="submit">
+    <span class="notification-ident">TKT-11 · Invoice export misses August</span>
+    <span class="notification-what">State changed from New to In Progress</span>
+    <span class="notification-meta">Marco Ruiz · <time datetime="2026-08-06T10:00:00Z">10:00 · 06 Aug</time> <span class="notification-unread">Unread</span></span>
+  </button>
+</form></li>
+      <li class="notifications-row"><form method="post" action="/notifications/7/read">
+  <input type="hidden" name="ticket_id" value="7">
+  <button class="notification-open" type="submit">
+    <span class="notification-ident">TKT-10 · Printer jam on the third floor</span>
+    <span class="notification-what">New public comment</span>
+    <span class="notification-meta">Ana Torres · <time datetime="2026-08-06T10:00:00Z">10:00 · 06 Aug</time></span>
+  </button>
+</form></li>
+    </ul>
+  </li>
+  <li class="notifications-group">
+    <h3 class="notifications-day">Yesterday</h3>
+    <ul class="notifications-rows">
+      <li class="notifications-row"><form method="post" action="/notifications/6/read">
+  <input type="hidden" name="ticket_id" value="6">
+  <button class="notification-open" type="submit">
+    <span class="notification-ident">TKT-9 · Onboarding checklist is out of date</span>
+    <span class="notification-what">Resolved, confirm whether it is solved</span>
+    <span class="notification-meta">Marco Ruiz · <time datetime="2026-08-05T10:00:00Z">10:00 · 05 Aug</time> <span class="notification-unread">Unread</span></span>
+  </button>
+</form></li>
+      <li class="notifications-row"><form method="post" action="/notifications/5/read">
+  <input type="hidden" name="ticket_id" value="5">
+  <button class="notification-open" type="submit">
+    <span class="notification-ident">TKT-8 · Badge reader rejects new cards</span>
+    <span class="notification-what">The requester confirmed the resolution</span>
+    <span class="notification-meta">Unknown user · <time datetime="2026-08-05T10:00:00Z">10:00 · 05 Aug</time></span>
+  </button>
+</form></li>
+      <li class="notifications-row"><form method="post" action="/notifications/4/read">
+  <input type="hidden" name="ticket_id" value="4">
+  <button class="notification-open" type="submit">
+    <span class="notification-ident">TKT-7 · Laptop battery swells</span>
+    <span class="notification-what">Priority changed from Medium to High</span>
+    <span class="notification-meta">Ana Torres · <time datetime="2026-08-05T10:00:00Z">10:00 · 05 Aug</time> <span class="notification-unread">Unread</span></span>
+  </button>
+</form></li>
+    </ul>
+  </li>
+  <li class="notifications-group">
+    <h3 class="notifications-day"><time datetime="2026-07-28T10:00:00Z">Jul 28, 2026</time></h3>
+    <ul class="notifications-rows">
+      <li class="notifications-row"><form method="post" action="/notifications/3/read">
+  <input type="hidden" name="ticket_id" value="3">
+  <button class="notification-open" type="submit">
+    <span class="notification-ident">TKT-6 · Mailbox quota warnings</span>
+    <span class="notification-what">New internal comment</span>
+    <span class="notification-meta">Marco Ruiz · <time datetime="2026-07-28T10:00:00Z">10:00 · 28 Jul</time> <span class="notification-unread">Unread</span></span>
+  </button>
+</form></li>
+      <li class="notifications-row"><form method="post" action="/notifications/2/read">
+  <input type="hidden" name="ticket_id" value="2">
+  <button class="notification-open" type="submit">
+    <span class="notification-ident">TKT-5 · Software request needs approval</span>
+    <span class="notification-what">A workflow form step is waiting on you</span>
+    <span class="notification-meta">Automatic · <time datetime="2026-07-28T10:00:00Z">10:00 · 28 Jul</time></span>
+  </button>
+</form></li>
+      <li class="notifications-row"><form method="post" action="/notifications/1/read">
+  <input type="hidden" name="ticket_id" value="1">
+  <button class="notification-open" type="submit">
+    <span class="notification-ident">Ticket no longer available</span>
+    <span class="notification-what">The requester rejected the resolution</span>
+    <span class="notification-meta">Ana Torres · <time datetime="2026-07-28T10:00:00Z">10:00 · 28 Jul</time></span>
+  </button>
+</form></li>
+    </ul>
+  </li>
+</ul>
+</div>
+  </section>
+</div>

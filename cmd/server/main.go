@@ -135,6 +135,7 @@ func main() {
 	httpadapter.NewSettingsHandlers(settingsSvc, slaSvc, store.SLAStore(), store.SettingsStore(), renderer).Register(mux)
 	httpadapter.NewCategorySLAHandlers(catSvc, slaSvc, store.SLAStore(), renderer).Register(mux)
 	httpadapter.NewPreferencesHandlers(preferencesSvc, renderer).Register(mux)
+	httpadapter.NewNotificationHandlers(store.NotificationStore(), store.TicketStore(), store.UserStore(), renderer, clock).Register(mux)
 	// D12: /healthz is exempt from auth — registered on the mux before the
 	// session middleware wraps it, and the middleware already exempts the
 	// public setup/login routes.

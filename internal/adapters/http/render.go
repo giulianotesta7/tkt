@@ -960,3 +960,25 @@ func (r *Renderer) Render(w http.ResponseWriter, rq *http.Request, page, fragmen
 	w.WriteHeader(status)
 	_, _ = w.Write(buf.Bytes())
 }
+
+// RenderFragment executes ONE shared fragment (partials/*.html) in the
+// instance's active language, whatever the request asked for. It exists for an
+// endpoint whose whole response IS a fragment — the notification bell's unread
+// count (issue #344, S13) — so that endpoint never has to fake an HX-Request
+// header to reach the fragment path, and a plain browser hit cannot render a
+// page that was never written for it. The buffering and the 500 degradation are
+// exactly Render's.
+func (r *Renderer) RenderFragment(w http.ResponseWriter, rq *http.Request, fragment string, data any, status int) {
+	tree := r.treeFor(r.activeLocale(rq.Context()))
+	var buf bytes.Buffer
+	if err := tree.fragments.ExecuteTemplate(&buf, fragment, data); err != nil {
+		log.Printf("httpadapter: render fragment %s: %v", fragment, err)
+		httpError(w, rq, "error.internal_server", http.StatusInternalServerError)
+		return
+	}
+
+	clearSaveFeedbackCookie(w, rq)
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.WriteHeader(status)
+	_, _ = w.Write(buf.Bytes())
+}

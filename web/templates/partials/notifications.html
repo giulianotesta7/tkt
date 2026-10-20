@@ -1,0 +1,38 @@
+{{define "notification_bell"}}<a class="rail-link" id="notification-bell-link" href="/notifications" hx-get="/notifications" hx-target="#notification-panel-host" hx-swap="innerHTML" title="{{t "base.nav.notifications"}}" aria-label="{{if .Unread}}{{tf "base.nav.notifications_unread" .Unread}}{{else}}{{t "base.nav.notifications"}}{{end}}">
+  <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 9a6 6 0 0 0-12 0c0 5-2.5 6.5-2.5 6.5h17S18 14 18 9z"/><path d="M10.4 19.5a2 2 0 0 0 3.2 0"/></svg>
+{{if .Unread}}  <span class="rail-badge" aria-hidden="true">{{.Unread}}</span>
+{{end}}</a>{{end}}
+{{define "notification_panel"}}<div class="notifications-overlay">
+  <div class="notifications-backdrop" data-notifications-close aria-hidden="true"></div>
+  <section class="notifications-panel" role="dialog" aria-modal="true" aria-labelledby="notifications-panel-title" tabindex="-1">
+    <header class="notifications-header">
+      <h2 class="notifications-title" id="notifications-panel-title">{{t "notifications.title"}}</h2>
+      <button class="notifications-close" type="button" data-notifications-close aria-label="{{t "notifications.close"}}">×</button>
+    </header>
+{{template "notifications_actions" .}}    <div class="notifications-body">{{template "notifications_list" .}}</div>
+  </section>
+</div>{{end}}
+{{define "notifications_actions"}}{{if .Unread}}<form class="notifications-actions" method="post" action="/notifications/read-all">
+  <button class="btn" type="submit">{{t "notifications.mark_all"}}</button>
+</form>
+{{end}}{{end}}
+{{define "notifications_list"}}{{if .Groups}}<ul class="notifications-groups">
+{{range .Groups}}  <li class="notifications-group">
+    <h3 class="notifications-day">{{if eq .Kind "today"}}{{t "notifications.day.today"}}{{else if eq .Kind "yesterday"}}{{t "notifications.day.yesterday"}}{{else}}<time datetime="{{formatDatetime .Date}}">{{formatMonthDayYear .Date}}</time>{{end}}</h3>
+    <ul class="notifications-rows">
+{{range .Rows}}      <li class="notifications-row">{{template "notification_row" .}}</li>
+{{end}}    </ul>
+  </li>
+{{end}}</ul>
+{{else}}<div class="notifications-empty">
+  <p class="notifications-empty-title">{{t "notifications.empty.title"}}</p>
+  <p class="notifications-empty-body">{{t "notifications.empty.body"}}</p>
+</div>{{end}}{{end}}
+{{define "notification_row"}}<form method="post" action="/notifications/{{.ID}}/read">
+  <input type="hidden" name="ticket_id" value="{{.TicketID}}">
+  <button class="notification-open" type="submit">
+    <span class="notification-ident">{{if .Number}}{{ticketNumber .Number}} · {{.Title}}{{else}}{{t "notifications.ticket_unavailable"}}{{end}}</span>
+    <span class="notification-what">{{msg .Message}}</span>
+    <span class="notification-meta">{{msg .Actor}} · <time datetime="{{formatDatetime .CreatedAt}}">{{formatCardTime .CreatedAt}}</time>{{if .Unread}} <span class="notification-unread">{{t "notifications.unread"}}</span>{{end}}</span>
+  </button>
+</form>{{end}}
