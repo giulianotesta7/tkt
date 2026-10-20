@@ -73,8 +73,15 @@ func TestTicketsIndexUserShowsOnlyOwnOpenRequestsInPlainLanguage(t *testing.T) {
 					t.Errorf("hx=%t user list must render cards, not a table: %s", hx, body)
 				}
 			}
+			// The absence guard scans the rendered document without its head: the
+			// shell head carries the htmx config key refreshOnHistoryMiss (issue
+			// #347), and no token below is ever legitimately part of the head.
+			markup := body
+			if headEnd := strings.Index(markup, "</head>"); headEnd >= 0 {
+				markup = markup[headEnd:]
+			}
 			for _, absent := range []string{resolved.Title, closed.Title, cancelled.Title, otherOpen.Title, "<th>Priority</th>", "<th>State</th>", "Needs attention", "Complete details", "History"} {
-				if strings.Contains(body, absent) {
+				if strings.Contains(markup, absent) {
 					t.Errorf("hx=%t page=%d user list must exclude %q: %s", hx, page, absent, body)
 				}
 			}

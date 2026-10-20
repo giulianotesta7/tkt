@@ -216,8 +216,10 @@ func TestMiddlewareHealthzExempt(t *testing.T) {
 
 // wantHXRedirect asserts the HTMX refusal contract (issue #347): HX-Redirect
 // names the page htmx must navigate to, the answer is an empty 204 — never a
-// 3xx, which htmx follows and swaps — and nothing else rides along that could
-// be injected into the requesting target.
+// 3xx, which htmx follows and swaps — nothing else rides along that could be
+// injected into the requesting target, and the answer is never stored: a 204 is
+// heuristically cacheable, so without no-store a shared cache could replay a
+// refusal to an authenticated user and log them out of a working session.
 func wantHXRedirect(t *testing.T, rec *httptest.ResponseRecorder, wantTarget string) {
 	t.Helper()
 	if rec.Code != http.StatusNoContent {
@@ -228,6 +230,9 @@ func wantHXRedirect(t *testing.T, rec *httptest.ResponseRecorder, wantTarget str
 	}
 	if got := rec.Header().Get("Location"); got != "" {
 		t.Errorf("Location = %q, want none: a 3xx lets htmx swap the login document", got)
+	}
+	if got := rec.Header().Get("Cache-Control"); got != "no-store" {
+		t.Errorf("Cache-Control = %q, want %q: a cacheable refusal could be replayed to an authenticated user", got, "no-store")
 	}
 	if body := rec.Body.String(); body != "" {
 		t.Errorf("body = %q, want empty: nothing may be swappable", body)
@@ -402,6 +407,60 @@ func TestMiddlewareHTMXKilledSessionRedirectsToLogin(t *testing.T) {
 	})
 }
 
+// TestRefusedHTMXRequestNeverReachesHandler proves the refusal is a gate
+// decision and not a handler answer: a request the gate refuses must never run
+// the protected handler, so nothing is read and — on the unsafe method a form
+// sends — no write is committed behind the navigation the user only sees
+// afterwards.
+func TestRefusedHTMXRequestNeverReachesHandler(t *testing.T) {
+	s := openTestStore(t)
+	seedUser(t, s, "Ana", "ana@example.com")
+	mw := NewSessionMiddleware(s.SessionStore(), s.UserStore(), s.SettingsStore())
+	mux := http.NewServeMux()
+	calls := 0
+	mux.HandleFunc("GET /tickets", func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		w.Write([]byte("protected"))
+	})
+	mux.HandleFunc("POST /tickets", func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		w.Write([]byte("created"))
+	})
+
+	for _, method := range []string{http.MethodGet, http.MethodPost} {
+		t.Run(method, func(t *testing.T) {
+			rec := doRequest(mux, mw, method, "/tickets", map[string]string{"HX-Request": "true"})
+			wantHXRedirect(t, rec, "/login")
+		})
+	}
+	if calls != 0 {
+		t.Errorf("handler ran %d time(s) for a refused HTMX request, want 0", calls)
+	}
+}
+
+// TestHTMXRefusalTargetIsNotUserControlled proves the refusal target is a
+// constant the gate chooses: nothing the client sends — a query parameter, a
+// request header borrowing the response header's name, HX-Current-URL, the
+// request Host, or a forwarded host — can turn HX-Redirect into an open
+// redirect on a different origin.
+func TestHTMXRefusalTargetIsNotUserControlled(t *testing.T) {
+	s := openTestStore(t)
+	seedUser(t, s, "Ana", "ana@example.com")
+	mw := NewSessionMiddleware(s.SessionStore(), s.UserStore(), s.SettingsStore())
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /tickets", func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("protected")) })
+
+	// The absolute request URL also carries the hostile Host, which is the
+	// authority a proxy-forwarded request would arrive with.
+	rec := doRequest(mux, mw, http.MethodGet, "https://evil.example/tickets?next=//evil.example", map[string]string{
+		"HX-Request":       "true",
+		"HX-Redirect":      "/pwn",
+		"HX-Current-URL":   "https://evil.example/x",
+		"X-Forwarded-Host": "evil.example",
+	})
+	wantHXRedirect(t, rec, "/login")
+}
+
 // TestMiddlewareNonHTMXRefusalKeepsSeeOther is the preserve half of issue #347:
 // an ordinary navigation or form post the gate refuses keeps the exact 303 See
 // Other it has always answered — same status, same Location, and the same small
@@ -420,6 +479,11 @@ func TestMiddlewareNonHTMXRefusalKeepsSeeOther(t *testing.T) {
 		if got := rec.Header().Get("HX-Redirect"); got != "" {
 			t.Errorf("HX-Redirect = %q, want none for an ordinary navigation", got)
 		}
+		// The HTMX-only no-store never reaches the ordinary 303: its headers
+		// stay exactly what http.Redirect writes.
+		if got := rec.Header().Get("Cache-Control"); got != "" {
+			t.Errorf("Cache-Control = %q, want none on the ordinary 303", got)
+		}
 		if got, want := rec.Body.String(), "<a href=\"/login\">See Other</a>.\n\n"; got != want {
 			t.Errorf("body = %q, want %q", got, want)
 		}
@@ -432,6 +496,9 @@ func TestMiddlewareNonHTMXRefusalKeepsSeeOther(t *testing.T) {
 		wantRedirect(t, rec, http.StatusSeeOther, "/login")
 		if got := rec.Header().Get("HX-Redirect"); got != "" {
 			t.Errorf("HX-Redirect = %q, want none for an ordinary form post", got)
+		}
+		if got := rec.Header().Get("Cache-Control"); got != "" {
+			t.Errorf("Cache-Control = %q, want none on the ordinary 303", got)
 		}
 		if body := rec.Body.String(); body != "" {
 			t.Errorf("body = %q, want empty for a POST redirect", body)

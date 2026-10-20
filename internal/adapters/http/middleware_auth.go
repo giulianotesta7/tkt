@@ -350,9 +350,18 @@ func htmxRequest(r *http.Request) bool {
 // HX-Redirect branch of the response handler runs BEFORE its responseHandling
 // table, so a 204 does not skip the header, and the default table marks 204 as
 // swap:false, so even a client that ignored the header has nothing to inject.
+//
+// Cache-Control: no-store belongs to the HTMX answer only. 204 is one of the
+// status codes a cache may store heuristically, so without it a shared or
+// intermediary cache could keep this refusal and replay it to a user whose
+// session is perfectly valid, throwing them at the login page of a working
+// session. The ordinary 303 stays byte-identical to what it has always
+// answered: 303 is not heuristically cacheable, and #347 changes nothing about
+// the non-HTMX path.
 func refuseUnauthenticated(w http.ResponseWriter, r *http.Request, to string) {
 	if htmxRequest(r) {
 		w.Header().Set("HX-Redirect", to)
+		w.Header().Set("Cache-Control", "no-store")
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}

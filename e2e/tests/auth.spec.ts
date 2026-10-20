@@ -2,7 +2,7 @@
  * Auth journeys: First-user setup, login, /setup with existing users, / redirect, auth gate.
  */
 
-import { test, expect } from "@playwright/test";
+import { test, expect, type Page } from "@playwright/test";
 import { startServer, stopServer, activeServer } from "../server-lifecycle.js";
 import { loginAsSeeded } from "./helpers/auth.js";
 import { assertCanonicalScreen, collectObservability } from "./helpers/layout.js";
@@ -207,12 +207,69 @@ test.describe("Login and auth gates", () => {
     expect(response.status()).toBe(204);
     expect(response.headers()["hx-redirect"]).toBe("/login");
 
-    // htmx reads HX-Redirect and navigates: the open page is replaced by the
-    // login document instead of receiving login markup inside its list region.
+    // htmx read HX-Redirect and navigated. Only document-level facts tell a
+    // real navigation from the pre-#347 answer that swapped login markup into
+    // the still-open tickets page: htmx follows a 303 transparently and pushes
+    // the redirect target, so the /login URL, the login heading, and a login
+    // form appearing are all true of the swapped-in answer too. The auth shell's
+    // own main.auth-entry and the absence of the rail nav are what discriminate.
     await expect(page).toHaveURL(/\/login$/);
     await expect(page.getByRole("heading", { name: /sign in to tkt/i })).toBeVisible();
+    await expect(page.locator("main.auth-entry")).toHaveCount(1);
+    await expect(page.locator("nav a")).toHaveCount(0);
+    await expect(page.locator("form.login-form")).toHaveCount(1);
+    await expect(page.locator("#ticket-list form.login-form")).toHaveCount(0);
     await expect(page.locator("#tickets-screen")).toHaveCount(0);
-    await expect(page.locator("#ticket-list")).toHaveCount(0);
-    await expect(page.locator("#ticket-search")).toHaveCount(0);
+  });
+
+  /**
+   * Issue #347 follow-up: the same session death during an htmx HISTORY RESTORE.
+   * htmx answers a cache miss by fetching the previous URL itself, and that
+   * loader only swaps a 2xx/3xx response: the 204 refusal leaves the user
+   * looking at a stale, empty page at the tickets URL with no navigation at all.
+   * `htmx.config.refreshOnHistoryMiss` makes htmx reload the page instead, and
+   * that ordinary full load goes through the 303 to /login.
+   */
+  test("a session that dies before an htmx history restore still lands on /login", async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await loginAsSeeded(page);
+    await expect(page.locator("#tickets-screen")).toBeVisible();
+
+    // Two HTMX searches, so the entry Back returns to is one htmx pushed itself
+    // (history state {htmx:true}) — which is what makes htmx, not the browser,
+    // restore it.
+    await searchTickets(page, "alpha");
+    await searchTickets(page, "beta");
+
+    // The session dies and htmx's own history cache is empty, so the Back target
+    // cannot be restored from localStorage.
+    await page.context().clearCookies();
+    await page.evaluate(() => localStorage.removeItem("htmx-history-cache"));
+
+    await page.evaluate(() => window.history.back());
+
+    await expect(page).toHaveURL(/\/login$/);
+    await expect(page.locator("body > main.auth-entry")).toHaveCount(1);
+    await expect(page.locator("form.login-form")).toHaveCount(1);
+    await expect(page.locator("#tickets-screen")).toHaveCount(0);
+    await expect(page.locator("nav a")).toHaveCount(0);
   });
 });
+
+/** Apply one HTMX ticket search and wait for the swapped screen and its URL. */
+async function searchTickets(page: Page, term: string): Promise<void> {
+  await page.getByPlaceholder(/search by id or title/i).fill(term);
+  const swap = page.waitForResponse(
+    (resp) =>
+      resp.request().headers()["hx-request"] === "true" &&
+      resp.request().method() === "GET" &&
+      new URL(resp.url()).pathname === "/tickets" &&
+      resp.status() === 200,
+  );
+  await page.getByRole("button", { name: "Apply", exact: true }).click();
+  await swap;
+  await expect(page).toHaveURL(new RegExp(`[?&]q=${term}(&|$)`));
+  await expect(page.locator("#tickets-screen")).toBeVisible();
+}
