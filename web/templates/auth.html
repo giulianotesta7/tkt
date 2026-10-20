@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="{{locale}}">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -12,46 +12,46 @@
     <div class="auth-entry__content">
       <div class="auth-entry__logo" aria-label="tkt">tkt</div>
       <header class="auth-entry__intro">
-        <h1 id="auth-entry-title">Welcome to tkt</h1>
-        <p>Everything your team needs to receive, organize, and resolve support requests.</p>
+        <h1 id="auth-entry-title">{{t "auth.welcome.title"}}</h1>
+        <p>{{t "auth.welcome.subtitle"}}</p>
       </header>
       <section class="auth-entry__journey" aria-labelledby="journey-title">
-        <p id="journey-title" class="auth-entry__eyebrow">A clear path from request to resolution</p>
+        <p id="journey-title" class="auth-entry__eyebrow">{{t "auth.journey.title"}}</p>
         <ol class="auth-entry__steps">
           <li>
             <span class="auth-entry__step-mark" aria-hidden="true">1</span>
-            <h2>Received</h2>
-            <p>A request enters one shared queue.</p>
+            <h2>{{t "auth.journey.received.title"}}</h2>
+            <p>{{t "auth.journey.received.body"}}</p>
           </li>
           <li>
             <span class="auth-entry__connector" aria-hidden="true"></span>
             <span class="auth-entry__step-mark auth-entry__step-mark--active" aria-hidden="true">2</span>
-            <h2>Assigned</h2>
-            <p>The right teammate takes ownership.</p>
+            <h2>{{t "auth.journey.assigned.title"}}</h2>
+            <p>{{t "auth.journey.assigned.body"}}</p>
           </li>
           <li>
             <span class="auth-entry__connector" aria-hidden="true"></span>
             <span class="auth-entry__step-mark" aria-hidden="true">3</span>
-            <h2>Resolved</h2>
-            <p>The outcome stays clear and traceable.</p>
+            <h2>{{t "auth.journey.resolved.title"}}</h2>
+            <p>{{t "auth.journey.resolved.body"}}</p>
           </li>
         </ol>
       </section>
-      <section class="auth-entry__principles" aria-label="Product principles">
+      <section class="auth-entry__principles" aria-label="{{t "auth.principles.label"}}">
         <article>
           <span aria-hidden="true"></span>
-          <h2>Simple by design</h2>
-          <p>Everything your team needs, without unnecessary complexity.</p>
+          <h2>{{t "auth.principles.simple.title"}}</h2>
+          <p>{{t "auth.principles.simple.body"}}</p>
         </article>
         <article>
           <span aria-hidden="true"></span>
-          <h2>Built for collaboration</h2>
-          <p>Ownership, comments, and progress stay in one place.</p>
+          <h2>{{t "auth.principles.collaboration.title"}}</h2>
+          <p>{{t "auth.principles.collaboration.body"}}</p>
         </article>
         <article>
           <span aria-hidden="true"></span>
-          <h2>Your data, your control</h2>
-          <p>Self-hosted and managed on your infrastructure.</p>
+          <h2>{{t "auth.principles.control.title"}}</h2>
+          <p>{{t "auth.principles.control.body"}}</p>
         </article>
       </section>
     </div>

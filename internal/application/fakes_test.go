@@ -1156,6 +1156,17 @@ func (f *fakeSLASettingsStore) SetInternalCommentBg(_ context.Context, _ string)
 	return errors.New("fakeSLASettingsStore: SetInternalCommentBg not needed by the SLA service tests")
 }
 
+// The interface language (issue #335) is unused by the SLA service; the fake
+// answers the documented default so it keeps satisfying the widened
+// SettingsStore port.
+func (f *fakeSLASettingsStore) GetInterfaceLanguage(_ context.Context) (string, error) {
+	return application.DefaultInterfaceLanguage, nil
+}
+
+func (f *fakeSLASettingsStore) SetInterfaceLanguage(_ context.Context, _ string) error {
+	return errors.New("fakeSLASettingsStore: SetInterfaceLanguage not needed by the SLA service tests")
+}
+
 func (f *fakeSLASettingsStore) GetSLAEnabled(_ context.Context) (bool, error) {
 	if f.slaEnabledErr != nil {
 		return false, f.slaEnabledErr

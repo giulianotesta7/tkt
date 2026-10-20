@@ -32,6 +32,14 @@ type fakeSettingsStore struct {
 	setSLAEnabledStateCalls   int
 	setSLAWarningPercentCalls int
 	setSLAConfigurationCalls  int
+	// Interface-language seams (issue #335): language mirrors the persisted
+	// row ("" answers the documented default), and the writer records its
+	// calls so a denied or rejected actor can be proven to have persisted
+	// nothing.
+	language         string
+	languageErr      error
+	setLanguageErr   error
+	setLanguageCalls int
 }
 
 func (f *fakeSettingsStore) GetInternalCommentBg(_ context.Context) (string, error) {
@@ -123,6 +131,27 @@ func (f *fakeSettingsStore) SetSLAWarningPercent(_ context.Context, percent int)
 	return nil
 }
 
+// GetInterfaceLanguage mirrors the store contract: an absent row answers the
+// documented default.
+func (f *fakeSettingsStore) GetInterfaceLanguage(_ context.Context) (string, error) {
+	if f.languageErr != nil {
+		return "", f.languageErr
+	}
+	if f.language == "" {
+		return DefaultInterfaceLanguage, nil
+	}
+	return f.language, nil
+}
+
+func (f *fakeSettingsStore) SetInterfaceLanguage(_ context.Context, language string) error {
+	f.setLanguageCalls++
+	if f.setLanguageErr != nil {
+		return f.setLanguageErr
+	}
+	f.language = language
+	return nil
+}
+
 func adminActor() domain.User { return domain.User{ID: 1, Name: "Admin", Role: domain.RoleAdmin} }
 func agentActor() domain.User { return domain.User{ID: 2, Name: "Agent", Role: domain.RoleAgent} }
 func rootActor() domain.User  { return domain.User{ID: 3, Name: "Root", Role: domain.RoleRoot} }
@@ -196,5 +225,107 @@ func TestSettingsSetRootAllowed(t *testing.T) {
 	}
 	if st.bg != "#EFE9FB" {
 		t.Errorf("stored = %q, want %q", st.bg, "#EFE9FB")
+	}
+}
+
+// --- Interface language (issue #335, S7/S9) ---
+
+// TestSettingsInterfaceLanguageDefaultsToEnglish pins the shipped default: an
+// instance that never chose a language renders English, and the default needs
+// no persisted row to be true.
+func TestSettingsInterfaceLanguageDefaultsToEnglish(t *testing.T) {
+	if DefaultInterfaceLanguage != "en" {
+		t.Fatalf("DefaultInterfaceLanguage = %q, want %q", DefaultInterfaceLanguage, "en")
+	}
+	st := &fakeSettingsStore{}
+
+	got, err := NewSettingsService(st).GetInterfaceLanguage(context.Background())
+	if err != nil {
+		t.Fatalf("get interface language: %v", err)
+	}
+	if got != DefaultInterfaceLanguage {
+		t.Errorf("interface language = %q, want the default %q", got, DefaultInterfaceLanguage)
+	}
+}
+
+// TestSettingsSetInterfaceLanguageRejectsNonAdmin proves the instance-wide
+// setting keeps CapManageSettings: a denied actor changes nothing.
+func TestSettingsSetInterfaceLanguageRejectsNonAdmin(t *testing.T) {
+	st := &fakeSettingsStore{language: "en"}
+	svc := NewSettingsService(st)
+
+	err := svc.SetInterfaceLanguage(context.Background(), agentActor(), "es")
+	var forbidden *domain.ForbiddenError
+	if !errors.As(err, &forbidden) {
+		t.Fatalf("err = %v, want ForbiddenError", err)
+	}
+	if st.language != "en" {
+		t.Errorf("store mutated by denied actor: %q", st.language)
+	}
+	if st.setLanguageCalls != 0 {
+		t.Errorf("store writer called %d times by a denied actor, want 0", st.setLanguageCalls)
+	}
+}
+
+// TestSettingsSetInterfaceLanguageRejectsUnsupportedLanguage proves the
+// service validates before the store is reached: an unknown code, a case
+// variant, and an empty value are all refused and the stored language stands.
+func TestSettingsSetInterfaceLanguageRejectsUnsupportedLanguage(t *testing.T) {
+	for _, language := range []string{"fr", "ES", "english", "", "en-GB"} {
+		t.Run(language, func(t *testing.T) {
+			st := &fakeSettingsStore{language: "en"}
+			svc := NewSettingsService(st)
+
+			err := svc.SetInterfaceLanguage(context.Background(), adminActor(), language)
+			var validation *domain.ValidationError
+			if !errors.As(err, &validation) {
+				t.Fatalf("err = %v, want ValidationError", err)
+			}
+			if validation.Field != "interface_language" {
+				t.Errorf("validation field = %q, want %q", validation.Field, "interface_language")
+			}
+			if st.language != "en" {
+				t.Errorf("store changed to %q on an invalid language", st.language)
+			}
+			if st.setLanguageCalls != 0 {
+				t.Errorf("store writer called %d times on invalid input, want 0", st.setLanguageCalls)
+			}
+		})
+	}
+}
+
+// TestSettingsSetInterfaceLanguagePersistsShippedLanguages proves every
+// shipped language round-trips through the store, for an admin and for root
+// (S9: the selection is persisted).
+func TestSettingsSetInterfaceLanguagePersistsShippedLanguages(t *testing.T) {
+	shipped := AllowedInterfaceLanguages()
+	if len(shipped) != 2 || shipped[0] != InterfaceLanguageEnglish || shipped[1] != InterfaceLanguageSpanish {
+		t.Fatalf("AllowedInterfaceLanguages() = %v, want [en es]", shipped)
+	}
+
+	for _, actor := range []struct {
+		name string
+		user domain.User
+	}{{"admin", adminActor()}, {"root", rootActor()}} {
+		for _, language := range shipped {
+			t.Run(actor.name+"/"+language, func(t *testing.T) {
+				st := &fakeSettingsStore{language: DefaultInterfaceLanguage}
+				svc := NewSettingsService(st)
+
+				if err := svc.SetInterfaceLanguage(context.Background(), actor.user, language); err != nil {
+					t.Fatalf("set: %v", err)
+				}
+				if st.language != language {
+					t.Errorf("stored = %q, want %q", st.language, language)
+				}
+				got, err := svc.GetInterfaceLanguage(context.Background())
+				if err != nil {
+					t.Fatalf("get: %v", err)
+				}
+				if got != language {
+					t.Errorf("read back = %q, want %q", got, language)
+				}
+			})
+		}
 	}
 }

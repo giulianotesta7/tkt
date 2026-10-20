@@ -688,3 +688,110 @@ func TestSettingsStoreSetSLACalendarRollsBackAtomically(t *testing.T) {
 		t.Errorf("Location after rollback = %v, want UTC", got.Location)
 	}
 }
+
+// --- Interface language (issue #335, S7/S9) ---
+
+// TestSettingsStoreInterfaceLanguageDefaultsToEnglishWithoutSeeding proves
+// the setting needs no migration: a fresh database has no
+// interface_language row at all, and the read still answers the shipped
+// default, so nothing has to be persisted for the default to be true.
+func TestSettingsStoreInterfaceLanguageDefaultsToEnglishWithoutSeeding(t *testing.T) {
+	s := newTestDB(t)
+	ctx := context.Background()
+
+	want := "en"
+	got, err := s.SettingsStore().GetInterfaceLanguage(ctx)
+	if err != nil {
+		t.Fatalf("get interface language: %v", err)
+	}
+	if got != want {
+		t.Errorf("interface language = %q, want the default %q", got, want)
+	}
+
+	var rows int
+	if err := s.db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM settings WHERE key = 'interface_language'`).Scan(&rows); err != nil {
+		t.Fatalf("count interface_language rows: %v", err)
+	}
+	if rows != 0 {
+		t.Errorf("interface_language rows = %d on a fresh database, want 0 (the default needs no row)", rows)
+	}
+}
+
+// TestSettingsStoreInterfaceLanguageRoundTrip proves the selection persists:
+// the stored code reads back, and it survives a second write.
+func TestSettingsStoreInterfaceLanguageRoundTrip(t *testing.T) {
+	s := newTestDB(t)
+	ctx := context.Background()
+	st := s.SettingsStore()
+
+	if err := st.SetInterfaceLanguage(ctx, "es"); err != nil {
+		t.Fatalf("set es: %v", err)
+	}
+	if got, err := st.GetInterfaceLanguage(ctx); err != nil || got != "es" {
+		t.Fatalf("interface language = %q (err %v), want %q", got, err, "es")
+	}
+
+	if err := st.SetInterfaceLanguage(ctx, "en"); err != nil {
+		t.Fatalf("set en: %v", err)
+	}
+	if got, err := st.GetInterfaceLanguage(ctx); err != nil || got != "en" {
+		t.Errorf("interface language = %q (err %v), want %q", got, err, "en")
+	}
+
+	var rows int
+	if err := s.db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM settings WHERE key = 'interface_language'`).Scan(&rows); err != nil {
+		t.Fatalf("count interface_language rows: %v", err)
+	}
+	if rows != 1 {
+		t.Errorf("interface_language rows = %d, want exactly 1 (upsert, never duplicate)", rows)
+	}
+}
+
+// TestSettingsStoreInterfaceLanguageUnknownStoredValueFallsBackToEnglish
+// proves the read always answers a language the binary can render: a
+// hand-edited or legacy value the catalogues do not know degrades to the
+// default instead of failing the page.
+func TestSettingsStoreInterfaceLanguageUnknownStoredValueFallsBackToEnglish(t *testing.T) {
+	s := newTestDB(t)
+	ctx := context.Background()
+
+	for _, stored := range []string{"fr", "", "EN", "en-GB", "es-AR"} {
+		if _, err := s.db.ExecContext(ctx, `
+			INSERT INTO settings (key, value) VALUES ('interface_language', ?)
+			ON CONFLICT(key) DO UPDATE SET value = excluded.value`, stored); err != nil {
+			t.Fatalf("store %q: %v", stored, err)
+		}
+		got, err := s.SettingsStore().GetInterfaceLanguage(ctx)
+		if err != nil {
+			t.Fatalf("get with stored %q: %v", stored, err)
+		}
+		if got != "en" {
+			t.Errorf("stored %q: interface language = %q, want the default %q", stored, got, "en")
+		}
+	}
+}
+
+// TestSettingsStoreSetInterfaceLanguageRefusesUnsupportedValue proves the
+// store fails closed on a code no catalogue ships: it is the layer the next
+// read answers from, so persisting it would make the instance render a
+// language it does not have. The previous selection stands untouched.
+func TestSettingsStoreSetInterfaceLanguageRefusesUnsupportedValue(t *testing.T) {
+	s := newTestDB(t)
+	ctx := context.Background()
+	st := s.SettingsStore()
+
+	if err := st.SetInterfaceLanguage(ctx, "es"); err != nil {
+		t.Fatalf("seed es: %v", err)
+	}
+
+	for _, language := range []string{"fr", "", "ES", "english"} {
+		if err := st.SetInterfaceLanguage(ctx, language); err == nil {
+			t.Errorf("set %q succeeded, want an error", language)
+		}
+		if got, err := st.GetInterfaceLanguage(ctx); err != nil || got != "es" {
+			t.Errorf("interface language after refusing %q = %q (err %v), want the seeded %q", language, got, err, "es")
+		}
+	}
+}

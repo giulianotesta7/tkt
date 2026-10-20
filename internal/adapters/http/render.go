@@ -1,12 +1,13 @@
 // Package httpadapter implements the presentation layer (design "Package
 // Layout"): stdlib net/http handlers over http.ServeMux (D9), HX-aware
 // rendering (D6), session middleware (D14, D16, D17), and D5 error mapping.
-// It imports the application ports only; persistence stays behind the sqlite
-// adapter.
+// It imports the application ports and the interface message catalogues
+// (internal/i18n); persistence stays behind the sqlite adapter.
 package httpadapter
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"html/template"
 	"io/fs"
@@ -20,6 +21,7 @@ import (
 
 	"github.com/giulianotesta7/tkt/internal/application"
 	"github.com/giulianotesta7/tkt/internal/domain"
+	"github.com/giulianotesta7/tkt/internal/i18n"
 	"github.com/giulianotesta7/tkt/web/templates"
 )
 
@@ -499,18 +501,60 @@ type pageSet struct {
 	tmpl  *template.Template
 }
 
-// Renderer owns the parsed template sets (D6): one set per page (shell +
-// partials + page content) and one shared fragment set for HX swaps.
-type Renderer struct {
+// templateTree is one locale's parsed template tree: the per-page sets and the
+// shared fragment set, both with the locale-bound message helpers installed.
+// Templates are parsed once per shipped locale because a template func cannot
+// read per-request state: {{t}} must be bound to a locale at parse time, so the
+// renderer selects the whole tree per request instead of mutating funcs.
+type templateTree struct {
 	pages     map[string]pageSet
 	fragments *template.Template
 }
 
-// NewRenderer parses the embedded template tree (web/templates). Parse
-// errors are fatal: templates are static assets, a broken template is a
-// build error.
+// InterfaceLanguageSource answers the instance's active interface language
+// (issue #335, S15). The renderer asks it once per render and selects the
+// matching parsed tree, so a single instance-wide setting — not a cookie, not
+// a per-user preference — decides both <html lang> and every catalogue string.
+// application.SettingsStore satisfies it.
+type InterfaceLanguageSource interface {
+	GetInterfaceLanguage(ctx context.Context) (string, error)
+}
+
+// Renderer owns the parsed template sets (D6): one set per page (shell +
+// partials + page content) and one shared fragment set for HX swaps, parsed
+// once per shipped locale.
+type Renderer struct {
+	trees map[string]*templateTree
+	// fallback is the default locale's tree: it answers a renderer built
+	// without a language source (the test harness and the fixture sets) and
+	// any locale a tree was not parsed for.
+	fallback *templateTree
+	language InterfaceLanguageSource
+	// fragments is the DEFAULT locale's shared fragment set, for a caller
+	// that renders one fragment outside a request (the metrics
+	// not-enough-history fixture). Render itself always resolves the active
+	// locale and never reads this field, so it cannot bypass the instance
+	// language.
+	fragments *template.Template
+}
+
+// NewRenderer parses the embedded template tree (web/templates) for every
+// shipped locale, without a language source: rendering answers the default
+// locale. Parse errors are fatal: templates are static assets, a broken
+// template is a build error.
 func NewRenderer() *Renderer {
-	r, err := parseRenderer(templates.FS)
+	r, err := newRendererWithLanguage(templates.FS, nil)
+	if err != nil {
+		panic("httpadapter: parse templates: " + err.Error())
+	}
+	return r
+}
+
+// NewRendererWithLanguage parses the embedded template tree for every shipped
+// locale and resolves the active one per request through src — the composition
+// root's path, so the instance setting decides the language of every page.
+func NewRendererWithLanguage(src InterfaceLanguageSource) *Renderer {
+	r, err := newRendererWithLanguage(templates.FS, src)
 	if err != nil {
 		panic("httpadapter: parse templates: " + err.Error())
 	}
@@ -518,27 +562,66 @@ func NewRenderer() *Renderer {
 }
 
 // NewRendererWith parses an arbitrary template tree (test harness: fixture
-// sets, golden regeneration).
+// sets, golden regeneration) for the default locale only. A renderer built this
+// way answers the default locale for every request.
 func NewRendererWith(fsys fs.FS) (*Renderer, error) {
-	return parseRenderer(fsys)
+	tree, err := parseTemplateTree(fsys, i18n.Default)
+	if err != nil {
+		return nil, err
+	}
+	return &Renderer{trees: map[string]*templateTree{i18n.Default: tree}, fallback: tree, fragments: tree.fragments}, nil
 }
 
-// parseRenderer builds the per-page sets and the shared fragment set from
-// fsys. Layout: shell roots (base.html, auth.html) at the root; pages under
+// newRendererWithLanguage parses fsys once per shipped locale and wires src as
+// the per-request language resolver.
+func newRendererWithLanguage(fsys fs.FS, src InterfaceLanguageSource) (*Renderer, error) {
+	trees := make(map[string]*templateTree, len(i18n.Supported()))
+	for _, locale := range i18n.Supported() {
+		tree, err := parseTemplateTree(fsys, locale)
+		if err != nil {
+			return nil, fmt.Errorf("locale %s: %w", locale, err)
+		}
+		trees[locale] = tree
+	}
+	fallback, ok := trees[i18n.Default]
+	if !ok {
+		return nil, fmt.Errorf("the default locale %s has no parsed template tree", i18n.Default)
+	}
+	return &Renderer{trees: trees, fallback: fallback, language: src, fragments: fallback.fragments}, nil
+}
+
+// templateFuncsFor is the shared helper set with the locale-bound message
+// helpers installed: t answers a catalogue key for that locale, and locale
+// answers the code the shell declares in its lang attribute.
+func templateFuncsFor(locale string) template.FuncMap {
+	translator := i18n.New(locale)
+	funcs := make(template.FuncMap, len(templateFuncs)+2)
+	for name, fn := range templateFuncs {
+		funcs[name] = fn
+	}
+	funcs["t"] = translator.T
+	funcs["locale"] = func() string { return translator.Locale() }
+	return funcs
+}
+
+// parseTemplateTree builds one locale's per-page sets and shared fragment set
+// from fsys. Layout: shell roots (base.html, auth.html) at the root; pages under
 // pages/ (each defines "content"); swap fragments under partials/.
-func parseRenderer(fsys fs.FS) (*Renderer, error) {
-	fragments, err := template.New("").Funcs(templateFuncs).ParseFS(fsys, "partials/*.html")
+func parseTemplateTree(fsys fs.FS, locale string) (*templateTree, error) {
+	funcs := templateFuncsFor(locale)
+
+	fragments, err := template.New("").Funcs(funcs).ParseFS(fsys, "partials/*.html")
 	if err != nil {
 		return nil, err
 	}
 
-	base, err := template.New("base.html").Funcs(templateFuncs).ParseFS(fsys, "base.html")
+	base, err := template.New("base.html").Funcs(funcs).ParseFS(fsys, "base.html")
 	if err != nil {
 		return nil, err
 	}
 	shells := map[string]*template.Template{"base.html": base}
 	if _, err := fs.Stat(fsys, "auth.html"); err == nil {
-		auth, err := template.New("auth.html").Funcs(templateFuncs).ParseFS(fsys, "auth.html")
+		auth, err := template.New("auth.html").Funcs(funcs).ParseFS(fsys, "auth.html")
 		if err != nil {
 			return nil, err
 		}
@@ -565,22 +648,48 @@ func parseRenderer(fsys fs.FS) (*Renderer, error) {
 		}
 		pages[name] = pageSet{shell: shellFor(name), tmpl: page}
 	}
-	return &Renderer{pages: pages, fragments: fragments}, nil
+	return &templateTree{pages: pages, fragments: fragments}, nil
+}
+
+// activeLocale resolves the instance's interface language for one request. A
+// language read failure must not cost the page: the default locale answers it
+// and the failure is recorded, the same degradation a hand-edited value gets.
+func (r *Renderer) activeLocale(ctx context.Context) string {
+	if r.language == nil {
+		return i18n.Default
+	}
+	code, err := r.language.GetInterfaceLanguage(ctx)
+	if err != nil {
+		log.Printf("httpadapter: resolve interface language: %v", err)
+		return i18n.Default
+	}
+	return i18n.Normalize(code)
+}
+
+// treeFor returns the parsed tree for locale, falling back to the default tree
+// when no set was parsed for it.
+func (r *Renderer) treeFor(locale string) *templateTree {
+	if tree, ok := r.trees[locale]; ok {
+		return tree
+	}
+	return r.fallback
 }
 
 // Render executes the page (full request) or the fragment (HX-Request) with
-// the given status (D6). The response is buffered so template errors cannot
-// corrupt a partial write; a render failure degrades to a generic 500.
+// the given status (D6), in the instance's active language. The response is
+// buffered so template errors cannot corrupt a partial write; a render failure
+// degrades to a generic 500.
 func (r *Renderer) Render(w http.ResponseWriter, rq *http.Request, page, fragment string, data any, status int) {
+	tree := r.treeFor(r.activeLocale(rq.Context()))
 	var buf bytes.Buffer
 	var err error
 
 	if rq.Header.Get("HX-Request") != "" {
 		if fragment != "" {
-			err = r.fragments.ExecuteTemplate(&buf, fragment, data)
+			err = tree.fragments.ExecuteTemplate(&buf, fragment, data)
 		} else {
 			// Natural fragment: the page's own content block (login/setup forms).
-			ps, ok := r.pages[page]
+			ps, ok := tree.pages[page]
 			if !ok {
 				http.Error(w, "Internal server error", http.StatusInternalServerError)
 				return
@@ -588,7 +697,7 @@ func (r *Renderer) Render(w http.ResponseWriter, rq *http.Request, page, fragmen
 			err = ps.tmpl.ExecuteTemplate(&buf, "content", data)
 		}
 	} else {
-		ps, ok := r.pages[page]
+		ps, ok := tree.pages[page]
 		if !ok {
 			http.Error(w, "Internal server error", http.StatusInternalServerError)
 			return
