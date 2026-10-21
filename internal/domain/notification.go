@@ -39,6 +39,14 @@ const (
 	// their reply (issue #352). The pause reason is not copied here: the panel
 	// opens the ticket, whose banner shows the current reason.
 	NotificationOnHold NotificationKind = "on_hold"
+	// NotificationHoldReminder: the requester's held ticket will be closed
+	// automatically unless they reply (issue #353, S3). Sent at most once per
+	// hold, and only when the instance window is at least two working days.
+	NotificationHoldReminder NotificationKind = "hold_reminder"
+	// NotificationHoldClosed: the ticket was closed automatically because the
+	// requester never replied (issue #353, S4). The requester and the assignee
+	// both learn it.
+	NotificationHoldClosed NotificationKind = "hold_closed"
 )
 
 // notificationKinds is the single copy of the vocabulary. The migration's
@@ -55,6 +63,8 @@ var notificationKinds = []NotificationKind{
 	NotificationCommentInternal,
 	NotificationFormWaiting,
 	NotificationOnHold,
+	NotificationHoldReminder,
+	NotificationHoldClosed,
 }
 
 // Valid reports whether k is one of the persisted kinds. Unknown values are

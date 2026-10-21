@@ -14,9 +14,11 @@ import (
 
 // TestMigration0021KindVocabularyMatchesDomainConstants derives the kind list
 // from the domain source, so a new domain.NotificationKind cannot drift past
-// the 0021 CHECK without a red test (issue #344, S10/S18). Contributed by the
-// independent verifier. The CHECK it probes is the CURRENT one: 0023 rebuilt
-// the table to add on_hold (issue #352), so a new kind needs the same rebuild.
+// the current CHECK without a red test (issue #344, S10/S18). Contributed by
+// the independent verifier. The CHECK it probes is the CURRENT one: 0023
+// rebuilt the table to add on_hold (issue #352) and 0026 rebuilt it again for
+// hold_reminder and hold_closed (issue #353), so a new kind needs the same
+// rebuild.
 func TestMigration0021KindVocabularyMatchesDomainConstants(t *testing.T) {
 	s := newTestDB(t)
 	f, err := parser.ParseFile(token.NewFileSet(), "../../domain/notification.go", nil, 0)
@@ -49,8 +51,10 @@ func TestMigration0021KindVocabularyMatchesDomainConstants(t *testing.T) {
 		}
 		return true
 	})
-	if len(kinds) != 10 {
-		t.Fatalf("domain kinds = %v, want 10", kinds)
+	// Twelve after issue #353 added hold_reminder and hold_closed; the count is
+	// asserted so a kind added to the domain without the rebuild fails here.
+	if len(kinds) != 12 {
+		t.Fatalf("domain kinds = %v, want 12", kinds)
 	}
 	userID, ticketID := notificationFixture(t, s)
 	res, err := s.db.Exec(`INSERT INTO comments (ticket_id, author, body, created_at) VALUES (?, 'Ana', 'b', ?)`,
