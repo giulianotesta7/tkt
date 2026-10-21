@@ -144,8 +144,9 @@ func (s *NotificationEmailSender) Run(ctx context.Context, interval time.Duratio
 	}
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
+	var lastErr string
 	for {
-		if err := s.Pass(ctx); err != nil && ctx.Err() == nil {
+		if err := s.Pass(ctx); ctx.Err() == nil && ShouldLogPassError(&lastErr, err) {
 			log.Printf("email: %v", err)
 		}
 		select {
@@ -154,6 +155,22 @@ func (s *NotificationEmailSender) Run(ctx context.Context, interval time.Duratio
 		case <-ticker.C:
 		}
 	}
+}
+
+// ShouldLogPassError reports whether a pass error is worth a log line: the
+// first occurrence of an error is, a repeat of the previous pass's error is
+// not (a restored database without its key would otherwise log every
+// interval), and a clean pass resets it so a recurrence is reported again.
+func ShouldLogPassError(last *string, err error) bool {
+	if err == nil {
+		*last = ""
+		return false
+	}
+	if err.Error() == *last {
+		return false
+	}
+	*last = err.Error()
+	return true
 }
 
 // Pass delivers the due rows of one batch. The configuration is read on

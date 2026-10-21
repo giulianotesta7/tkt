@@ -428,3 +428,18 @@ func TestNotificationMessageNamesOnHold(t *testing.T) {
 		t.Errorf("NotificationMessage(on_hold) = %+v, want notifications.kind.on_hold", got)
 	}
 }
+
+func TestPassErrorLogIsReportedOncePerDistinctError(t *testing.T) {
+	var last string
+	report := []bool{
+		application.ShouldLogPassError(&last, errors.New("password unreadable")),
+		application.ShouldLogPassError(&last, errors.New("password unreadable")),
+		application.ShouldLogPassError(&last, nil),
+		application.ShouldLogPassError(&last, errors.New("password unreadable")),
+		application.ShouldLogPassError(&last, errors.New("smtp down")),
+	}
+	want := []bool{true, false, false, true, true}
+	if fmt.Sprint(report) != fmt.Sprint(want) {
+		t.Fatalf("log decisions = %v, want %v", report, want)
+	}
+}
