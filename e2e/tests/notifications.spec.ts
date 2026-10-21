@@ -23,7 +23,11 @@ import { startServer, stopServer } from "../server-lifecycle.js";
 import { assertHtmxSwap } from "./helpers/htmx.js";
 import { assertNoHorizontalOverflow, assertNothingClipped } from "./helpers/layout.js";
 import { base, createUserAsAdmin, loginAs, logout, seededCredentials } from "./helpers/auth.js";
-import { createTicketViaUi, resolveUserEditHref } from "./helpers/navigation.js";
+import {
+  createCategoryViaUi,
+  createTicketViaUi,
+  resolveUserEditHref,
+} from "./helpers/navigation.js";
 
 const uniq = Date.now().toString(36).slice(2, 8);
 const agent = {
@@ -186,5 +190,115 @@ test.describe("Notification center — assigned, opened, marked read (seeded)", 
     await expect(page.getByRole("button", { name: "Mark all as read" })).toHaveCount(0);
     // Read history is kept: the rows the agent acted on are still listed.
     await expect(page.locator(".notifications-row")).toHaveCount(2);
+  });
+});
+
+/**
+ * Refresh the rail's bell the way its own trigger does and wait until htmx has
+ * settled the new count, so a test can place the poll at an exact moment.
+ */
+async function refreshBell(page: Page): Promise<void> {
+  const counted = page.waitForResponse((r) => new URL(r.url()).pathname === "/notifications/count");
+  const settled = page.evaluate(
+    () =>
+      new Promise<void>((resolve) => {
+        const bell = document.getElementById("notification-bell");
+        const done = (event: Event) => {
+          if ((event as CustomEvent<{ target?: Element }>).detail?.target === bell) {
+            document.body.removeEventListener("htmx:afterSettle", done);
+            resolve();
+          }
+        };
+        document.body.addEventListener("htmx:afterSettle", done);
+        (window as unknown as { htmx: { trigger: (e: Element, n: string) => void } }).htmx.trigger(
+          document.body,
+          "notifications:changed",
+        );
+      }),
+  );
+  await counted;
+  await settled;
+}
+
+// The bell polls with htmx on every page, and htmx events bubble through the
+// document. Page scripts that listen there must never mistake the bell's
+// requests for their own (#344: a poll during a workflow save held the next
+// step back behind the unsaved-changes dialog; a poll while a drawer was open
+// pulled focus back to its first field).
+test.describe("The bell's polling never drives the page behind it", () => {
+  test.beforeAll(async () => {
+    await startServer({ seed: true });
+  });
+  test.afterAll(async () => {
+    await stopServer();
+  });
+
+  test("a poll during a workflow save keeps the builder's next step", async ({ page }) => {
+    test.setTimeout(60000);
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await loginAs(page, seededCredentials.email, seededCredentials.password);
+    const categoryId = await createCategoryViaUi(page, `Bell builder ${uniq}`);
+    await page.goto(base() + `/categories/${categoryId}/workflow`);
+    await expect(page.locator("#workflow-builder")).toBeVisible();
+    const addSummary = page.locator(".workflow-add-step summary").first();
+    const option = (label: RegExp) =>
+      page.locator(".workflow-add-options button").filter({ hasText: label }).first();
+    await addSummary.click();
+    await option(/^give the agent a task/i).click();
+    await page.getByLabel(/instructions/i).fill("Provision the account");
+
+    // Hold the save on the wire, poll the bell meanwhile, then let it land.
+    let release: () => void = () => undefined;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let entered: () => void = () => undefined;
+    const saveEntered = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    await page.route(`**/categories/${categoryId}/workflow`, async (route) => {
+      const request = route.request();
+      if (request.method() === "POST" && (request.postData() ?? "").includes("action=save")) {
+        entered();
+        await held;
+      }
+      await route.continue();
+    });
+    await page.locator('.page-actions button[name="action"][value="save"]').click();
+    await saveEntered;
+    await refreshBell(page);
+    release();
+    await expect(page.locator("#save-feedback .save-feedback-message")).toHaveText("Saved");
+
+    await addSummary.click();
+    await option(/^mark the ticket resolved/i).click();
+    await expect(page.locator("#workflow-dirty-dialog")).not.toBeVisible();
+    await expect(
+      page.locator(".workflow-step-card").last().locator(".workflow-step-actor"),
+    ).toHaveText("Automatic");
+  });
+
+  test("a poll keeps focus where it is in the users drawer", async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await loginAs(page, seededCredentials.email, seededCredentials.password);
+    await page.goto(base() + "/users");
+    await page.getByRole("link", { name: /new user/i }).click();
+    // The drawer focuses its name field once it opens; move focus after that.
+    await expect(page.locator("#user-name")).toBeFocused();
+    await page.locator("#user-email").focus();
+    await refreshBell(page);
+    await expect(page.locator("#user-email")).toBeFocused();
+  });
+
+  test("a poll keeps focus where it is in the category drawer", async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await loginAs(page, seededCredentials.email, seededCredentials.password);
+    await page.goto(base() + "/categories");
+    await page.getByRole("link", { name: "New category", exact: true }).click();
+    // The drawer focuses its name field once it settles; move focus after that.
+    await expect(page.locator("#category-name")).toBeFocused();
+    await page.locator("#category-description").focus();
+    await refreshBell(page);
+    await expect(page.locator("#category-description")).toBeFocused();
   });
 });
