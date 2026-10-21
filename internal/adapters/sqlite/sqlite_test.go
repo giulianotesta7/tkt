@@ -200,7 +200,7 @@ func TestMigrateCreatesSchema(t *testing.T) {
 	want := []string{
 		"users", "sessions", "categories", "tickets",
 		"comments", "audit_events", "desks", "desk_members",
-		"role_changes", "settings", "schema_migrations",
+		"role_changes", "settings", "notifications", "schema_migrations",
 	}
 	for _, name := range want {
 		var n int
@@ -218,8 +218,8 @@ func TestMigrateCreatesSchema(t *testing.T) {
 	if err := s.db.QueryRow(`SELECT COUNT(*) FROM schema_migrations`).Scan(&applied); err != nil {
 		t.Fatalf("schema_migrations: %v", err)
 	}
-	if applied != 20 {
-		t.Errorf("schema_migrations rows = %d, want 20 (through 0020_draft_attribution)", applied)
+	if applied != 21 {
+		t.Errorf("schema_migrations rows = %d, want 21 (through 0021_notifications)", applied)
 	}
 
 	rows, err := s.db.Query(`SELECT version FROM schema_migrations ORDER BY version`)
@@ -235,8 +235,8 @@ func TestMigrateCreatesSchema(t *testing.T) {
 		}
 		versions = append(versions, v)
 	}
-	if len(versions) != 20 || versions[0] != 1 || versions[1] != 2 || versions[2] != 3 || versions[3] != 4 || versions[4] != 5 || versions[5] != 6 || versions[6] != 7 || versions[7] != 8 || versions[8] != 9 || versions[9] != 10 || versions[10] != 11 || versions[11] != 12 || versions[12] != 13 || versions[13] != 14 || versions[14] != 15 || versions[15] != 16 || versions[16] != 17 || versions[17] != 18 || versions[18] != 19 || versions[19] != 20 {
-		t.Errorf("versions = %v, want [1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20]", versions)
+	if len(versions) != 21 || versions[0] != 1 || versions[1] != 2 || versions[2] != 3 || versions[3] != 4 || versions[4] != 5 || versions[5] != 6 || versions[6] != 7 || versions[7] != 8 || versions[8] != 9 || versions[9] != 10 || versions[10] != 11 || versions[11] != 12 || versions[12] != 13 || versions[13] != 14 || versions[14] != 15 || versions[15] != 16 || versions[16] != 17 || versions[17] != 18 || versions[18] != 19 || versions[19] != 20 || versions[20] != 21 {
+		t.Errorf("versions = %v, want [1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21]", versions)
 	}
 }
 
@@ -249,8 +249,8 @@ func TestMigrateRerunIsNoOp(t *testing.T) {
 	if err := s.db.QueryRow(`SELECT COUNT(*) FROM schema_migrations`).Scan(&applied); err != nil {
 		t.Fatalf("schema_migrations: %v", err)
 	}
-	if applied != 20 {
-		t.Errorf("rerun recorded %d versions, want 20 (no-op)", applied)
+	if applied != 21 {
+		t.Errorf("rerun recorded %d versions, want 21 (no-op)", applied)
 	}
 }
 

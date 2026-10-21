@@ -154,6 +154,14 @@ func (s *Store) CommentStore() application.CommentStore { return newCommentStore
 // AuditStore returns the audit trail port (task 4.3).
 func (s *Store) AuditStore() application.AuditStore { return newAuditStore(s.db) }
 
+// NotificationStore returns the notification center port (issue #344, slice
+// B1): the bell's unread count, the panel's list, and the read writes. The
+// append half is not on this port — notification rows are written by the
+// units of work inside the transaction of the ticket change they describe.
+func (s *Store) NotificationStore() application.NotificationStore {
+	return newNotificationStore(s.db)
+}
+
 // UserStore returns the user port (task 4.4).
 func (s *Store) UserStore() application.UserStore { return newUserStore(s.db) }
 

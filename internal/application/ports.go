@@ -209,6 +209,41 @@ type AuditStore interface {
 	ListByTicket(ctx context.Context, ticketID int64) ([]domain.AuditEvent, error)
 }
 
+// NotificationStore serves the in-app notification center (issue #344): the
+// bell's unread count, the panel's newest-first list, and the two read
+// writes. It is a READ/WRITE port for the UI only.
+//
+// Notifications are never appended through this port: the rows are written by
+// the ticket and workflow units of work, in the SAME transaction as the ticket
+// change they describe, so a change that fails leaves no notification and a
+// notification never exists without its change (spec S11). Recipients are
+// computed by the application layer from policy and roles; the store only
+// inserts what the unit of work hands it.
+//
+// Every method is scoped to ONE recipient. A caller can never read or mark
+// another user's rows: an id that does not belong to userID is
+// indistinguishable from a missing one, so the center leaks no existence.
+type NotificationStore interface {
+	// ListForUser returns the recipient's notifications, newest first
+	// (created_at DESC, id DESC), at most limit rows. A non-positive limit
+	// falls back to a bounded default rather than scanning the whole table.
+	// Read and unread rows are both returned: the panel marks the unread ones.
+	ListForUser(ctx context.Context, userID int64, limit int) ([]domain.Notification, error)
+	// UnreadCount returns how many of the recipient's rows are unread — the
+	// bell's number (spec S13), never computed while rendering an ordinary
+	// page.
+	UnreadCount(ctx context.Context, userID int64) (int, error)
+	// MarkRead marks ONE of the recipient's notifications read at instant at.
+	// Marking an already-read row is a no-op that keeps its first instant.
+	// An id owned by another user (or absent) returns domain.ErrNotFound and
+	// changes nothing — never a cross-user write (spec S14).
+	MarkRead(ctx context.Context, userID, id int64, at time.Time) error
+	// MarkAllRead marks every unread notification of the recipient read at
+	// instant at, and touches nobody else's rows (spec S14 "Mark all as
+	// read").
+	MarkAllRead(ctx context.Context, userID int64, at time.Time) error
+}
+
 // UserStore persists managed users (user-management spec).
 type UserStore interface {
 	// Create stores u, assigning u.ID; ErrDuplicate when the email exists.
