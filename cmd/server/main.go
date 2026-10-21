@@ -24,10 +24,14 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 	"time"
 
 	httpadapter "github.com/giulianotesta7/tkt/internal/adapters/http"
+	"github.com/giulianotesta7/tkt/internal/adapters/mail"
+	"github.com/giulianotesta7/tkt/internal/adapters/msgtext"
+	"github.com/giulianotesta7/tkt/internal/adapters/secretbox"
 	"github.com/giulianotesta7/tkt/internal/adapters/sqlite"
 	"github.com/giulianotesta7/tkt/internal/application"
 )
@@ -119,6 +123,12 @@ func main() {
 	preferencesSvc := application.NewPreferencesService(store.PreferencesStore())
 	workflowSvc := application.NewWorkflowService(store.WorkflowStore())
 	metricsSvc := application.NewTicketMetricsService(store.TicketMetricsStore(), clock)
+	// Issue #362: the SMTP password is sealed with a key file that lives in the
+	// data volume next to the database (S9), and delivery goes out through the
+	// company's own SMTP server. The key is not an environment variable, so the
+	// container contract is unchanged.
+	mailer := mail.NewSMTPMailer()
+	emailSettingsSvc := application.NewEmailSettingsService(store.EmailSettingsStore(), secretbox.New(filepath.Dir(dbPath)), mailer, store.SettingsStore(), msgtext.Renderer{})
 
 	// Issue #335: the interface language is an instance-wide setting, so the
 	// renderer resolves it per request and selects the parsed template tree
@@ -133,7 +143,7 @@ func main() {
 	httpadapter.NewCategoryHandlersWithWorkflows(catSvc, workflowSvc, renderer, catalogSvc).Register(mux)
 	httpadapter.NewCategoryWorkflowHandlers(catSvc, workflowSvc, deskSvc, renderer).Register(mux)
 	httpadapter.NewDeskHandlers(deskSvc, renderer).Register(mux)
-	httpadapter.NewSettingsHandlers(settingsSvc, slaSvc, store.SLAStore(), store.SettingsStore(), renderer).Register(mux)
+	httpadapter.NewSettingsHandlers(settingsSvc, slaSvc, store.SLAStore(), store.SettingsStore(), renderer).WithEmail(emailSettingsSvc).Register(mux)
 	httpadapter.NewCategorySLAHandlers(catSvc, slaSvc, store.SLAStore(), renderer).Register(mux)
 	httpadapter.NewPreferencesHandlers(preferencesSvc, renderer).Register(mux)
 	httpadapter.NewNotificationHandlers(store.NotificationStore(), store.TicketStore(), store.UserStore(), renderer, clock).Register(mux)
