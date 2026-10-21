@@ -10,7 +10,6 @@ import (
 // Written against the domain API that does not exist yet (strict TDD RED).
 
 func notifStrPtr(s string) *string { return &s }
-func ptrInt(v int) *int            { return &v }
 func ptrInt64(v int64) *int64      { return &v }
 
 func TestNotificationKindValid(t *testing.T) {
