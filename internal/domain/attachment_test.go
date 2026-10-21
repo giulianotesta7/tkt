@@ -180,6 +180,10 @@ func TestValidateAttachmentsSanitisesTheFileName(t *testing.T) {
 		{"  informe final.pdf  ", "informe final.pdf"},
 		{"línea\x00\x1b[31m.txt", "línea[31m.txt"},
 		{"\"quoted\".txt", "quoted.txt"},
+		// Format characters (bidi overrides, zero-width) would let a name
+		// display a different extension than the one validated.
+		{"gpj\u202Egnp.txt", "gpjgnp.txt"},
+		{"a\u200Bb\u2066.txt", "ab.txt"},
 	}
 	for _, tc := range tests {
 		data := pngBytes

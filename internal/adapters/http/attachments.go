@@ -52,6 +52,18 @@ func parseTicketForm(r *http.Request) ([]domain.AttachmentUpload, error) {
 	if err := r.ParseMultipartForm(multipartMemoryBytes); err != nil {
 		return nil, err
 	}
+	uploads, err := readUploads(r)
+	if err != nil {
+		// The caller only defers the release on success; a read failure after
+		// a successful parse must not leave the spilled parts behind.
+		releaseMultipartForm(r)
+		return nil, err
+	}
+	return uploads, nil
+}
+
+// readUploads reads the parsed file parts of the attachments field.
+func readUploads(r *http.Request) ([]domain.AttachmentUpload, error) {
 	headers := r.MultipartForm.File[attachmentField]
 	uploads := make([]domain.AttachmentUpload, 0, len(headers))
 	for _, header := range headers {
