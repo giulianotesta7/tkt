@@ -154,6 +154,9 @@ func (s *Store) CommentStore() application.CommentStore { return newCommentStore
 // CommentUnitOfWork returns the atomic comment+notification mutation port
 // (issue #344 slice B3, spec S12): the comment insert and the news about it in
 // one transaction.
+// AttachmentStore returns the read side of ticket attachments (issue #366).
+func (s *Store) AttachmentStore() application.AttachmentStore { return newAttachmentStore(s.db) }
+
 func (s *Store) CommentUnitOfWork() application.CommentUnitOfWork {
 	return newCommentUnitOfWork(s.db)
 }

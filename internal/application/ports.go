@@ -91,6 +91,10 @@ type TicketMutation struct {
 	// roles: who must learn about this change. Empty means nobody is told (the
 	// actor did it alone, or the change notifies no one by design).
 	Notifications []domain.Notification
+	// Attachments are the files of a ticket CREATION (issue #366): they are
+	// inserted with the ticket, stamped with its assigned id and no comment,
+	// in the same transaction. Update ignores them.
+	Attachments []domain.Attachment
 }
 
 // NotificationRecipient is the policy input for ONE candidate notification
@@ -183,6 +187,9 @@ type CreateTicketWithRunInput struct {
 	NextRunStatus     string
 	NextTicketState   domain.State
 	CompletedAt       *time.Time
+	// Attachments are the files of the creation (issue #366), inserted with
+	// the ticket in the same transaction; a failure rolls the ticket back.
+	Attachments []domain.Attachment
 }
 
 // SearchStore provides FTS5 full-text search over title, description, and
@@ -297,6 +304,9 @@ type CommentMutation struct {
 	// changed it) the resume is skipped and the comment STILL commits — the
 	// requester's reply is never lost to a race.
 	Resume *HoldResume
+	// Attachments are the comment's files (issue #366), inserted with the
+	// comment, stamped with its id and ticket, in the same transaction.
+	Attachments []domain.Attachment
 }
 
 // HoldResume is the hold change that rides a comment (issue #352): Ticket is
@@ -308,6 +318,29 @@ type HoldResume struct {
 	ExpectedOnHoldSince *time.Time
 	ShiftedSLA          *domain.TicketSLA
 	Events              []domain.AuditEvent
+}
+
+// AttachmentStore reads ticket attachments (issue #366). Attachments are
+// written only by the units of work that create a ticket or a comment, in
+// their transaction; this port never writes.
+type AttachmentStore interface {
+	// ListByTicket returns the ticket's attachments in upload order, WITHOUT
+	// their data. includeInternal=false excludes the files of internal
+	// comments at the SQL boundary — the same rule the comment list applies —
+	// so a requester never learns that a staff-only file exists.
+	ListByTicket(ctx context.Context, ticketID int64, includeInternal bool) ([]domain.Attachment, error)
+	// Get returns one attachment WITH its data and the visibility of what it
+	// is attached to (empty for a ticket-creation file), so the caller can
+	// authorise the download; a missing id is ErrNotFound.
+	Get(ctx context.Context, id int64) (*StoredAttachment, error)
+}
+
+// StoredAttachment is an attachment read back for download: the file and the
+// visibility that decides who may have it (issue #366, S3). Visibility is
+// empty for a file attached at ticket creation.
+type StoredAttachment struct {
+	domain.Attachment
+	Visibility domain.CommentVisibility
 }
 
 // AuditStore persists the append-only audit trail (audit-log spec).
