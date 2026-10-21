@@ -56,6 +56,10 @@ const (
 	// capability would make every future settings route inherit a grant whose
 	// meaning is about managing people, not about configuring the instance.
 	CapManageSettings Capability = "settings.manage"
+	// CapManageEmail allows the SMTP settings and the test email (issue
+	// #362). Root only: the SMTP credentials are the instance's own, so an
+	// administrator manages the instance without holding them.
+	CapManageEmail Capability = "email.manage"
 )
 
 // capabilityMatrix maps each role to its granted capabilities. The empty
@@ -99,6 +103,7 @@ var capabilityMatrix = map[domain.Role][]Capability{
 		CapManageCategories,
 		CapViewTicketMetrics,
 		CapManageSettings,
+		CapManageEmail,
 	},
 }
 
