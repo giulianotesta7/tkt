@@ -221,6 +221,7 @@ var nonKeyGoLiterals = map[string]bool{
 	"auth.html":            true,
 	"base.html":            true,
 	"go.mod":               true,
+	"smtp.key":             true,
 }
 
 // prefixKeySuffixes pins the concrete suffixes each enum-driven template
