@@ -50,3 +50,34 @@ type TicketSLA struct {
 	// instant is never load-bearing.
 	PolicySnapshotAt time.Time
 }
+
+// ShiftResolveForHold returns the commitment with its RESOLUTION warning and
+// due instants moved forward by the working time the ticket spent on hold
+// (issue #352). It is the one sanctioned change to a frozen commitment: the
+// targets, the start and the first-response instants never move — the
+// first-response clock does not pause.
+//
+// For each instant still ahead at pausedAt, the working time that was left
+// (cal.WorkingSecondsBetween(pausedAt, instant)) is re-applied from resumedAt
+// with the calendar in force when the hold ends, so the shift is frozen at
+// resume like the instants were frozen at creation. An instant already
+// reached at pausedAt stays where it is: a warning that already fired, or a
+// deadline already missed, is never undone by putting the ticket on hold. A
+// shift never moves an instant EARLIER (a calendar edited between the
+// freeze and the resume could otherwise bring a deadline forward), and the
+// zero instants of a pre-0017 row stay zero. The receiver is not modified.
+func (s TicketSLA) ShiftResolveForHold(pausedAt, resumedAt time.Time, cal SLACalendar) TicketSLA {
+	shift := func(at time.Time) time.Time {
+		if at.IsZero() || !pausedAt.Before(at) {
+			return at
+		}
+		moved := cal.AddWorkingSeconds(resumedAt, cal.WorkingSecondsBetween(pausedAt, at))
+		if moved.Before(at) {
+			return at
+		}
+		return moved.UTC()
+	}
+	s.WarnResolveAt = shift(s.WarnResolveAt)
+	s.DueResolveAt = shift(s.DueResolveAt)
+	return s
+}

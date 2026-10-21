@@ -120,6 +120,46 @@ func (c SLACalendar) AddWorkingSeconds(from time.Time, seconds int) time.Time {
 	}
 }
 
+// WorkingSecondsBetween returns how much WORKING time lies in [from, to):
+// the inverse of AddWorkingSeconds (issue #352). A ticket put on hold uses
+// it to measure the working time left on a frozen SLA instant at the pause,
+// so the resume can re-apply exactly that much from the resume instant.
+// to at or before from, and an invalid calendar, answer 0 rather than a
+// negative or invented duration. Pure: no clock reads, no I/O.
+func (c SLACalendar) WorkingSecondsBetween(from, to time.Time) int {
+	if !to.After(from) || !c.Valid() {
+		return 0
+	}
+	loc := c.Location
+	end := to.In(loc)
+	total := 0
+	for day := calendarMidnight(from, loc); day.Before(end); day = day.AddDate(0, 0, 1) {
+		if !c.isWorkingDay(day.Weekday()) {
+			continue
+		}
+		start := laterOf(wallClock(day, c.StartMinute), from)
+		stop := earlierOf(wallClock(day, c.EndMinute), to)
+		if stop.After(start) {
+			total += int(stop.Sub(start) / time.Second)
+		}
+	}
+	return total
+}
+
+func laterOf(a, b time.Time) time.Time {
+	if a.After(b) {
+		return a
+	}
+	return b
+}
+
+func earlierOf(a, b time.Time) time.Time {
+	if a.Before(b) {
+		return a
+	}
+	return b
+}
+
 // isWorkingDay reports whether the weekday is one of the calendar's
 // working days.
 func (c SLACalendar) isWorkingDay(d time.Weekday) bool {

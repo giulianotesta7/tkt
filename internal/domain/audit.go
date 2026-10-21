@@ -15,6 +15,11 @@ const (
 	ActionWorkflowManualTask    = "workflow_manual_task"
 	ActionWorkflowRequesterForm = "workflow_requester_form"
 	ActionWorkflowAssigneeForm  = "workflow_assignee_form"
+	// ActionHold and ActionResume put a ticket on hold while it waits for the
+	// requester and take it off hold (issue #352). The hold event's Note is
+	// the mandatory pause reason; the resume event carries no note.
+	ActionHold   = "hold"
+	ActionResume = "resume"
 )
 
 // Closure attribution values for the closure transition audit event (issue

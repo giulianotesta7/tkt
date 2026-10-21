@@ -35,6 +35,10 @@ const (
 	ErrMsgCategoryWorkflowUnavailable = "category is not available for new tickets — publish its workflow first"
 	ErrMsgCreateUnassignedOnly        = "tickets are created unassigned — assignment happens later through the category flow"
 	ErrMsgSolutionTooLong             = "solution must be 2,000 characters or fewer"
+	ErrMsgHoldReasonRequired          = "a reason is required to put the ticket on hold"
+	ErrMsgTicketAlreadyOnHold         = "the ticket is already on hold"
+	ErrMsgTicketNotOnHold             = "the ticket is not on hold"
+	ErrMsgTicketOnHold                = "take the ticket off hold before closing it"
 	// ErrMsgCategoryNotRunnable is read by the REQUESTER on the ticket form and by
 	// an agent on a stalled step, so it names no mechanism and points at the only
 	// person who can act. One wording covers both: the cause is the same category

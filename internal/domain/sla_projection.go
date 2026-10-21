@@ -24,6 +24,10 @@ const (
 type SLAMilestones struct {
 	FirstResponseAt *time.Time
 	FirstResolvedAt *time.Time
+	// ResolvePausedAt is the instant the ticket was put on hold while it is
+	// STILL on hold (issue #352); nil when it is not on hold. Only the
+	// resolution milestone pauses: the first-response clock keeps running.
+	ResolvePausedAt *time.Time
 }
 
 // SLAMilestoneStatus is one milestone projected against its frozen
@@ -48,6 +52,11 @@ type SLAMilestoneStatus struct {
 	// zero for an achieved milestone (the remaining time is meaningless
 	// once achieved; the elapsed time is the fact).
 	Remaining time.Duration
+	// Paused reports a pending milestone whose clock is stopped because the
+	// ticket is on hold (issue #352). State, Elapsed and Remaining are then
+	// judged at the pause instant, not at now: the ticket neither drifts
+	// toward at risk nor breaches while it waits on the requester.
+	Paused bool
 }
 
 // SLAProjection is the full projection for one ticket. Overall is the
@@ -90,8 +99,16 @@ func ProjectSLA(frozen *TicketSLA, m SLAMilestones, now time.Time) SLAProjection
 	}
 	firstResponse := projectSLAMilestone(frozen.StartedAt, frozen.WarnFirstResponseAt,
 		frozen.DueFirstResponseAt, frozen.FirstResponseSeconds, m.FirstResponseAt, now)
+	// A ticket on hold judges its pending resolution at the pause instant
+	// (issue #352); a pause instant after now (a skewed clock) never moves
+	// the judgement into the future.
+	resolveNow := now
+	if m.ResolvePausedAt != nil && m.FirstResolvedAt == nil && m.ResolvePausedAt.Before(now) {
+		resolveNow = *m.ResolvePausedAt
+	}
 	resolve := projectSLAMilestone(frozen.StartedAt, frozen.WarnResolveAt,
-		frozen.DueResolveAt, frozen.ResolveSeconds, m.FirstResolvedAt, now)
+		frozen.DueResolveAt, frozen.ResolveSeconds, m.FirstResolvedAt, resolveNow)
+	resolve.Paused = m.ResolvePausedAt != nil && m.FirstResolvedAt == nil && !frozen.DueResolveAt.IsZero()
 	return SLAProjection{
 		Frozen:        frozen,
 		FirstResponse: firstResponse,
