@@ -2,16 +2,13 @@
 <div id="ticket-detail" hx-headers="{{.QueueHeaders}}">
 {{if .Error}}  <div class="error-banner" role="alert">{{.Error}}</div>
 {{end}}
-{{if .View.Ticket.OnHoldSince}}  <div class="hold-banner" role="status">
+{{if and .View.Ticket.OnHoldSince .RequesterView}}  <div class="hold-banner" role="status">
     <div class="hold-banner-text">
-{{if .RequesterView}}      <p class="hold-banner-title">{{t "tickets.hold.banner.requester"}}</p>
+      <p class="hold-banner-title">{{t "tickets.hold.banner.requester"}}</p>
       <p class="hold-banner-reason">{{.View.Ticket.OnHoldReason}}</p>
-{{else}}      <p class="hold-banner-title">{{t "tickets.hold.banner.staff"}} <time datetime="{{formatDatetime .View.Ticket.OnHoldSince}}">{{formatMonthDayYear .View.Ticket.OnHoldSince}}</time> — {{.View.Ticket.OnHoldReason}}</p>
-{{end}}    </div>
-{{if .CanEdit}}    <form class="hold-resume" method="post" action="/tickets/{{.View.Ticket.ID}}/resume" hx-post="/tickets/{{.View.Ticket.ID}}/resume" hx-target="#ticket-detail" hx-swap="outerHTML"><button class="btn" type="submit">{{t "tickets.hold.resume"}}</button></form>
-{{end}}  </div>
-{{end}}
-  <div class="command-header">
+    </div>
+  </div>
+{{end}}  <div class="command-header">
     <div class="detail-head">
       <div class="meta-row">
         <a href="{{.QueueHref}}">{{if .RequesterView}}{{t "tickets.detail.back_requester"}}{{else}}{{t "tickets.detail.back_queue"}}{{end}}</a>
@@ -40,18 +37,6 @@
         <h2>{{t "tickets.detail.description"}}</h2>
         {{if .View.Ticket.Description}}<p class="ticket-description">{{.View.Ticket.Description}}</p>{{else}}<p class="empty">{{t "tickets.detail.no_description"}}</p>{{end}}
           </div>
-{{if and .CanEdit (not .View.Ticket.OnHoldSince)}}<section class="card" aria-labelledby="hold-form-title">
-  <h2 id="hold-form-title">{{t "tickets.hold.title"}}</h2>
-  <p class="resolution-help">{{t "tickets.hold.help"}}</p>
-  <form method="post" action="/tickets/{{.View.Ticket.ID}}/hold" hx-post="/tickets/{{.View.Ticket.ID}}/hold" hx-target="#ticket-detail" hx-swap="outerHTML">
-    <div class="field">
-      <label for="hold-reason">{{t "tickets.hold.reason_label"}}</label>
-      <textarea id="hold-reason" name="reason" rows="2" required placeholder="{{t "tickets.hold.reason_placeholder"}}">{{.HoldReason}}</textarea>
-    </div>
-    <button class="btn primary" type="submit">{{t "tickets.hold.submit"}}</button>
-  </form>
-</section>
-{{end}}
 {{if .CanConfirm}}
 	<section class="card resolution-confirmation" aria-labelledby="resolution-confirmation-title">
 		<p class="resolution-eyebrow">{{t "tickets.detail.resolution.eyebrow"}}</p>
@@ -162,11 +147,27 @@
             <span class="prop-value sla-value">{{template "sla_state_dot" .State}}{{if .Paused}}<span class="chip">{{t "label.sla.paused"}}</span>{{else if .Countdown}}<time datetime="{{formatDatetime .DueAt}}" data-sla-countdown><span class="sla-countdown-ticker" aria-hidden="true">{{.Remaining}}</span><span class="sla-countdown-coarse visually-hidden">{{formatTime .DueAt}}</span></time>{{end}}</span>
           </div>
 {{end}}
+{{if or .View.Ticket.OnHoldSince .CanEdit}}          {{template "hold_sla_block" .}}
+{{end}}        </div>
+{{else if and (not .RequesterView) (or .View.Ticket.OnHoldSince .CanEdit)}}{{/* No frozen SLA: the section still carries the hold, which is the requester-facing half (issue #352). */}}        <div class="prop-section">
+          <div class="prop-heading">{{t "tickets.detail.sla"}}</div>
+          {{template "hold_sla_block" .}}
         </div>
 {{end}}      </div>
     </div>
   </div>
-  <dialog id="ticket-title-dialog" aria-labelledby="ticket-title-dialog-title" aria-describedby="ticket-title-dialog-copy">
+{{if and .CanEdit (not .View.Ticket.OnHoldSince)}}  <dialog id="ticket-hold-dialog" aria-labelledby="ticket-hold-dialog-title" aria-describedby="ticket-hold-dialog-copy"{{if .HoldFailed}} data-open-on-load{{end}}>
+    <h2 id="ticket-hold-dialog-title">{{t "tickets.hold.title"}}</h2>
+    <p id="ticket-hold-dialog-copy">{{t "tickets.hold.help"}}</p>
+{{if .HoldFailed}}    <p class="hold-dialog-error" role="alert">{{.Error}}</p>
+{{end}}    <form method="post" action="/tickets/{{.View.Ticket.ID}}/hold" hx-post="/tickets/{{.View.Ticket.ID}}/hold" hx-target="#ticket-detail" hx-swap="outerHTML">
+      <label class="hold-dialog-field" for="hold-reason">{{t "tickets.hold.reason_label"}}
+        <textarea id="hold-reason" name="reason" rows="3" required placeholder="{{t "tickets.hold.reason_placeholder"}}">{{.HoldReason}}</textarea>
+      </label>
+      <div><button type="button" class="btn" data-hold-cancel>{{t "common.cancel"}}</button><button class="btn primary" type="submit">{{t "tickets.hold.submit"}}</button></div>
+    </form>
+  </dialog>
+{{end}}  <dialog id="ticket-title-dialog" aria-labelledby="ticket-title-dialog-title" aria-describedby="ticket-title-dialog-copy">
     <h2 id="ticket-title-dialog-title">{{t "tickets.detail.title_dialog.title"}}</h2>
     <p id="ticket-title-dialog-copy">{{t "tickets.detail.title_dialog.body"}}</p>
     <div><button type="button" class="btn" data-title-discard>{{t "common.discard_continue"}}</button><button type="button" class="btn" data-title-save-continue>{{t "common.save_continue"}}</button></div>
@@ -202,6 +203,50 @@ function syncReopenReason(select) {
 // submit is issued from htmx:afterRequest on the title form, re-resolves the
 // row from the swapped fragment, and runs htmx.process first so the fresh
 // form's submit goes through htmx rather than a native navigation.
+// initHoldDialog opens the hold dialog from the SLA section's button (issue
+// #352): the reason form lives in a dialog instead of a permanent card, so it
+// costs no room until an agent needs it. Cancel and Escape close it without a
+// request; a full-page re-render that carries the typed reason (a refused
+// submission) reopens it so the agent sees what they wrote. A refused hold
+// (422 validation, 409 lost race) answers the re-rendered detail; htmx does not
+// swap error responses by default, so the detail admits them for this form's
+// requests only (htmx fires beforeSwap on the swap target, and this is never a
+// document-level listener), and the swapped detail reopens the dialog with the
+// error and the typed reason.
+function initHoldDialog() {
+  const dialog = document.getElementById('ticket-hold-dialog');
+  const opener = document.querySelector('#ticket-detail [data-hold-open]');
+  if (!dialog || !opener) return;
+  const reason = dialog.querySelector('#hold-reason');
+  const show = () => {
+    if (dialog.showModal) dialog.showModal();
+    else dialog.setAttribute('open', '');
+    if (reason) reason.focus();
+  };
+  opener.addEventListener('click', show);
+  const form = dialog.querySelector('form');
+  const detail = document.getElementById('ticket-detail');
+  if (form && detail) {
+    detail.addEventListener('htmx:beforeSwap', (event) => {
+      const config = event.detail.requestConfig;
+      if (!config || config.elt !== form) return;
+      const status = event.detail.xhr ? event.detail.xhr.status : 0;
+      if (status === 422 || status === 409) {
+        event.detail.shouldSwap = true;
+        event.detail.isError = false;
+      }
+    });
+  }
+  const cancel = dialog.querySelector('[data-hold-cancel]');
+  if (cancel) {
+    cancel.addEventListener('click', () => {
+      if (dialog.open) dialog.close();
+      else dialog.removeAttribute('open');
+      opener.focus();
+    });
+  }
+  if (dialog.hasAttribute('data-open-on-load')) show();
+}
 function initTitleEditor() {
   const input = document.getElementById('ticket-title');
   const titleForm = input ? input.form : null;
@@ -330,6 +375,7 @@ function initTitleEditor() {
     syncReopenReason(select);
   }
   initTitleEditor();
+  initHoldDialog();
 })();
 </script>
 {{if .CanAssign}}<script>

@@ -5,8 +5,9 @@
  * with a mandatory reason, the agent's detail reads the hold banner, the
  * on-hold chip and the PAUSED resolution milestone, the requester reads "This
  * ticket is waiting for your reply" plus the reason and the timeline narrative,
- * the agent resumes (banner/chip gone, the resolution clock running again), and
- * resolving a held ticket ends the hold in the same write.
+ * the agent resumes (banner/chip gone, the resolution clock running again), the
+ * requester's reply to a new hold ends it (S1), and resolving a held ticket
+ * ends the hold in the same write.
  *
  * Layer boundary: exhaustive authorization, validation copy and persistence are
  * covered by Go tests (`internal/adapters/http/handlers_ticket_hold_test.go`,
@@ -46,6 +47,18 @@ function stateSection(page: Page) {
 }
 
 /** The staff-only SLA panel of the ticket detail page. */
+// holdNotice is the staff on-hold notice in the SLA section (with Resume).
+function holdNotice(page: Page) {
+  return slaSection(page).locator(".sla-hold-status");
+}
+
+// openHoldDialog opens the hold dialog from the SLA section's button (the
+// maintainer asked for a dialog instead of a permanent card).
+async function openHoldDialog(page: Page) {
+  await slaSection(page).getByRole("button", { name: "Put on hold" }).click();
+  await expect(page.locator("#ticket-hold-dialog")).toBeVisible();
+}
+
 function slaSection(page: Page) {
   return page
     .locator("#ticket-detail .prop-section")
@@ -122,10 +135,15 @@ test.describe("Ticket on hold", () => {
 
     // ---------- S3: the reason is mandatory ----------
 
+    // The hold costs no room until it is needed: the reason lives in a dialog
+    // opened from the SLA section.
+    await expect(page.locator("#hold-reason")).toBeHidden();
+    await openHoldDialog(page);
     const holdForm = page.locator("form:has(#hold-reason)");
     const reasonField = page.locator("#hold-reason");
     await expect(holdForm).toBeVisible();
-    await expect(page.locator("#hold-form-title")).toHaveText("Put on hold");
+    await expect(reasonField).toBeFocused();
+    await expect(page.locator("#ticket-hold-dialog-title")).toHaveText("Put on hold");
     // S8: the label tells the agent the requester will read the reason.
     await expect(page.locator('label[for="hold-reason"]')).toHaveText(
       "Reason (the requester will read it)",
@@ -158,7 +176,7 @@ test.describe("Ticket on hold", () => {
     expect(validity.valid, "the empty reason must be invalid").toBe(false);
     expect(validity.message.length, "the browser must explain the refusal").toBeGreaterThan(0);
     expect(navigations, "the blank submit must not navigate").toEqual([]);
-    await expect(page.locator(".hold-banner")).toHaveCount(0);
+    await expect(holdNotice(page)).toHaveCount(0);
     await expect(stateSection(page).locator(".chip")).toHaveCount(0);
 
     // A whitespace-only reason passes the browser check and is refused by the
@@ -177,24 +195,27 @@ test.describe("Ticket on hold", () => {
     expect(holdPosts, "only the whitespace attempt may reach /hold").toHaveLength(1);
     expect(navigations, "the refused hold must not navigate").toEqual([]);
     expect(page.url(), "the refused hold must stay on the detail").toBe(detailUrl);
-    // htmx does not swap an error response: the form keeps the reason the
-    // agent typed and the ticket keeps its open, off-hold surface.
-    await expect(reasonField).toHaveValue("   ");
-    await expect(page.locator(".hold-banner")).toHaveCount(0);
+    // The refusal swaps in the re-rendered detail and reopens the dialog with
+    // the server's message inside it and the reason the agent typed; the
+    // ticket keeps its open, off-hold surface.
+    await expect(page.locator("#ticket-hold-dialog")).toBeVisible();
+    await expect(page.locator("#ticket-hold-dialog .hold-dialog-error")).toHaveText(
+      "a reason is required to put the ticket on hold",
+    );
+    await expect(page.locator("#hold-reason")).toHaveValue("   ");
+    await expect(holdNotice(page)).toHaveCount(0);
     await expect(stateSection(page).locator(".chip")).toHaveCount(0);
     await expect(page.locator("#timeline")).not.toContainText("put the ticket on hold");
-    const failure = page.locator("#save-feedback");
-    await expect(failure).toHaveAttribute("role", "alert");
-    await expect(failure.locator(".save-feedback-message")).toHaveText(
-      "Unable to save changes. Please try again.",
-    );
+    // Cancel closes the dialog without a request.
+    await page.locator("#ticket-hold-dialog").getByRole("button", { name: "Cancel" }).click();
+    await expect(page.locator("#ticket-hold-dialog")).toBeHidden();
 
     // Nothing was persisted: a reload still shows an open ticket with the hold
     // form, an empty reason, and no hold narrative in the timeline.
     await page.reload();
     await expect(page.locator("#ticket-detail")).toBeVisible();
     await expect(page.locator("#hold-reason")).toHaveValue("");
-    await expect(page.locator(".hold-banner")).toHaveCount(0);
+    await expect(holdNotice(page)).toHaveCount(0);
     await expect(stateSection(page).locator(".chip")).toHaveCount(0);
     await expect(page.locator("#timeline")).not.toContainText("put the ticket on hold");
 
@@ -206,6 +227,7 @@ test.describe("Ticket on hold", () => {
     // ---------- S3: the hold records the reason ----------
 
     const reason = `send us a photo of the jammed tray ${suffix}`;
+    await openHoldDialog(page);
     await page.locator("#hold-reason").fill(reason);
     const holdSwap = await assertHtmxSwap(
       page,
@@ -224,12 +246,15 @@ test.describe("Ticket on hold", () => {
     );
     expect(holdSwap.status()).toBe(200);
 
-    const banner = page.locator("#ticket-detail .hold-banner");
+    // The staff notice lives in the SLA section of the properties, next to
+    // the clock it pauses; no banner above the ticket.
+    await expect(page.locator("#ticket-detail .hold-banner")).toHaveCount(0);
+    const banner = holdNotice(page);
     await expect(banner).toBeVisible();
     await expect(banner).toHaveAttribute("role", "status");
-    const bannerTitle = banner.locator(".hold-banner-title");
+    const bannerTitle = banner.locator(".sla-hold-since");
     await expect(bannerTitle).toContainText("On hold since");
-    await expect(bannerTitle).toContainText(reason);
+    await expect(banner.locator(".sla-hold-reason")).toHaveText(reason);
     // The pause instant is a semantic <time>, not a bare string.
     await expect(bannerTitle.locator("time")).toHaveAttribute(
       "datetime",
@@ -237,7 +262,7 @@ test.describe("Ticket on hold", () => {
     );
     const resumeButton = banner.getByRole("button", { name: "Resume" });
     await expect(resumeButton).toBeVisible();
-    await expectHairlineBorder(resumeButton, "hold banner Resume");
+    await expectHairlineBorder(resumeButton, "hold notice Resume");
     // A held ticket offers no second hold.
     await expect(page.locator("#hold-reason")).toHaveCount(0);
 
@@ -345,11 +370,11 @@ test.describe("Ticket on hold", () => {
     await logout(page);
     await loginAsSeeded(page);
     await page.goto(base() + detailPath);
-    await expect(page.locator("#ticket-detail .hold-banner")).toBeVisible();
+    await expect(holdNotice(page)).toBeVisible();
     const resumeSwap = await assertHtmxSwap(
       page,
       async () => {
-        await page.locator(".hold-banner").getByRole("button", { name: "Resume" }).click();
+        await holdNotice(page).getByRole("button", { name: "Resume" }).click();
       },
       {
         endpoint: resumePath,
@@ -360,9 +385,9 @@ test.describe("Ticket on hold", () => {
     );
     expect(resumeSwap.status()).toBe(200);
 
-    await expect(page.locator("#ticket-detail .hold-banner")).toHaveCount(0);
+    await expect(holdNotice(page)).toHaveCount(0);
     await expect(stateSection(page).locator(".chip")).toHaveCount(0);
-    await expect(page.locator("#hold-reason")).toBeVisible();
+    await expect(slaSection(page).getByRole("button", { name: "Put on hold" })).toBeVisible();
     await expect(page.locator("#timeline")).toContainText("took the ticket off hold");
     // Resumed: the resolution milestone counts down again, no "Paused".
     const resumedSla = slaSection(page);
@@ -370,13 +395,60 @@ test.describe("Ticket on hold", () => {
     await expect(resumedSla.locator("[data-sla-countdown]")).toHaveCount(2);
 
     await page.reload();
-    await expect(page.locator(".hold-banner")).toHaveCount(0);
+    await expect(holdNotice(page)).toHaveCount(0);
     await expect(stateSection(page).locator(".chip")).toHaveCount(0);
     await expect(page.locator("#timeline")).toContainText("took the ticket off hold");
+
+    // ---------- S1: the requester's reply ends the hold ----------
+
+    const replyReason = `waiting for the asset tag ${suffix}`;
+    await openHoldDialog(page);
+    await page.locator("#hold-reason").fill(replyReason);
+    await assertHtmxSwap(
+      page,
+      async () => {
+        await page
+          .locator("form:has(#hold-reason)")
+          .getByRole("button", { name: "Put on hold" })
+          .click();
+      },
+      {
+        endpoint: holdPath,
+        method: "POST",
+        expectedStatus: 200,
+        hxTarget: "#ticket-detail",
+      },
+    );
+    await expect(holdNotice(page)).toBeVisible();
+
+    await logout(page);
+    await loginAs(page, requesterEmail, requesterPassword);
+    await page.goto(base() + detailPath);
+    await expect(page.locator("#ticket-detail .hold-banner")).toBeVisible();
+    const replyBody = `asset tag is TK-${suffix}`;
+    await page.getByLabel(/comment body/i).fill(replyBody);
+    // The comment form is a native POST: 303 back to the detail.
+    const replyResponse = page.waitForResponse(
+      (r) =>
+        r.request().method() === "POST" && new URL(r.url()).pathname === `${detailPath}/comments`,
+    );
+    await page.getByRole("button", { name: /add comment/i }).click();
+    expect((await replyResponse).status()).toBe(303);
+    await page.waitForURL((u) => u.pathname === detailPath);
+    await expect(page.locator("#ticket-detail .hold-banner")).toHaveCount(0);
+    await expect(stateSection(page).locator(".chip")).toHaveCount(0);
+    await expect(page.locator("#timeline")).toContainText(replyBody);
+    await expect(page.locator("#timeline")).toContainText("took the ticket off hold");
+
+    await logout(page);
+    await loginAsSeeded(page);
+    await page.goto(base() + detailPath);
+    await expect(holdNotice(page)).toHaveCount(0);
 
     // ---------- S5: resolving a held ticket ends the hold ----------
 
     const secondReason = `waiting for the charger photo ${suffix}`;
+    await openHoldDialog(page);
     await page.locator("#hold-reason").fill(secondReason);
     await assertHtmxSwap(
       page,
@@ -393,7 +465,7 @@ test.describe("Ticket on hold", () => {
         hxTarget: "#ticket-detail",
       },
     );
-    await expect(page.locator(".hold-banner")).toBeVisible();
+    await expect(holdNotice(page)).toBeVisible();
     await expect(stateSection(page).locator(".chip")).toHaveText("On hold");
     await expect(slaSection(page).locator(".chip")).toHaveText("Paused");
 
@@ -412,7 +484,7 @@ test.describe("Ticket on hold", () => {
     );
 
     await expect(page.locator("#ticket-detail .badge.resolved")).toBeVisible();
-    await expect(page.locator(".hold-banner")).toHaveCount(0);
+    await expect(holdNotice(page)).toHaveCount(0);
     await expect(stateSection(page).locator(".chip")).toHaveCount(0);
     await expect(page.locator("#hold-reason")).toHaveCount(0);
     await expect(page.locator("#timeline")).toContainText(
@@ -423,7 +495,7 @@ test.describe("Ticket on hold", () => {
     // The held-then-resolved ticket stays resolved and off hold after reload.
     await page.reload();
     await expect(page.locator("#ticket-detail .badge.resolved")).toBeVisible();
-    await expect(page.locator(".hold-banner")).toHaveCount(0);
+    await expect(holdNotice(page)).toHaveCount(0);
     await expect(stateSection(page).locator(".chip")).toHaveCount(0);
   });
 });

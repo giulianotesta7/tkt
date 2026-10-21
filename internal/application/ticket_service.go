@@ -434,7 +434,15 @@ func (s *TicketService) PutOnHold(ctx context.Context, actor domain.User, ticket
 	}
 	event.Actor = actor.Name
 	event.ActorUserID = &actor.ID
-	write := HoldWrite{Ticket: t, Events: []domain.AuditEvent{*event}}
+	requester, err := recipientFacts(ctx, s.users, t.RequesterUserID)
+	if err != nil {
+		return nil, err
+	}
+	write := HoldWrite{
+		Ticket:        t,
+		Events:        []domain.AuditEvent{*event},
+		Notifications: onHoldNotifications(t, &actor.ID, event.CreatedAt, requester),
+	}
 	if err := s.tx.UpdateHold(ctx, write); err != nil {
 		return nil, err
 	}

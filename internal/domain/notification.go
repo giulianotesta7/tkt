@@ -35,6 +35,10 @@ const (
 	// NotificationFormWaiting: a workflow form step now waits on the
 	// recipient (requester form or assignee form).
 	NotificationFormWaiting NotificationKind = "form_waiting"
+	// NotificationOnHold: the requester's ticket was put on hold and waits for
+	// their reply (issue #352). The pause reason is not copied here: the panel
+	// opens the ticket, whose banner shows the current reason.
+	NotificationOnHold NotificationKind = "on_hold"
 )
 
 // notificationKinds is the single copy of the vocabulary. The migration's
@@ -50,6 +54,7 @@ var notificationKinds = []NotificationKind{
 	NotificationCommentPublic,
 	NotificationCommentInternal,
 	NotificationFormWaiting,
+	NotificationOnHold,
 }
 
 // Valid reports whether k is one of the persisted kinds. Unknown values are

@@ -245,6 +245,10 @@
   #ticket-detail dialog h2{font-size:20px}
   #ticket-detail dialog p{color:var(--muted);line-height:1.55}
   #ticket-detail dialog div{display:flex;justify-content:flex-end;gap:10px}
+  #ticket-detail .sla-hold-row{margin-top:8px}
+  #ticket-detail dialog .hold-dialog-field{display:flex;flex-direction:column;gap:6px;margin:16px 0 20px;font-size:13px;font-weight:600;color:var(--ink)}
+  #ticket-detail dialog .hold-dialog-field textarea{width:100%;font-weight:400}
+  #ticket-detail dialog .hold-dialog-error{color:var(--red);font-weight:600}
   #ticket-detail dialog [data-title-discard]{border-color:var(--red);background:var(--red);color:var(--surface)}
   .category-workflow-page dialog [data-workflow-remove-confirm]{border-color:var(--red);background:var(--red);color:var(--surface)}
   .ticket-description{white-space:pre-line;overflow-wrap:anywhere}
@@ -301,6 +305,9 @@
   .hold-banner-title{margin:0;color:var(--ink-strong);font-weight:500;overflow-wrap:anywhere}
   .hold-banner-reason{margin:4px 0 0;color:var(--ink-soft);overflow-wrap:anywhere}
   .hold-resume{margin:0;flex:0 0 auto}
+  .sla-hold-status{margin-top:8px;padding:10px 12px;background:var(--surface);border:1px solid var(--line-strong);border-radius:8px;font-size:13px}
+  .sla-hold-since{margin:0;color:var(--ink-strong);font-weight:500}
+  .sla-hold-reason{margin:4px 0 10px;color:var(--ink-soft);overflow-wrap:anywhere}
 
   .timeline-entry{margin-top:10px;border-radius:8px;min-width:0}
   .timeline-comment{padding:12px 14px;background:var(--card);border:1px solid var(--line)}

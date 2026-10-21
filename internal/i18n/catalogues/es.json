@@ -345,6 +345,7 @@
   "label.weekday.5": "Viernes",
   "label.weekday.6": "Sábado",
   "label.weekday.7": "Domingo",
+  "notifications.kind.on_hold": "Tu ticket está en espera hasta que respondas",
   "pagination.label": "Páginas de tickets",
   "notifications.actor.automatic": "Automático",
   "notifications.actor.unknown": "Usuario desconocido",

@@ -3,6 +3,7 @@ package sqlite
 import (
 	"context"
 	"errors"
+	"sync"
 	"testing"
 	"time"
 
@@ -302,4 +303,257 @@ func seedTicketForTimelineInCategory(t *testing.T, s *Store, number int, categor
 	return seedTicket(t, s, domain.Ticket{Number: number, Title: "other ticket",
 		CategoryID: categoryID, Priority: domain.PriorityMedium, State: domain.StateNew,
 		CreatedAt: testClock, UpdatedAt: testClock}).ID
+}
+
+// TestUpdateHoldCommitsNotificationsWithTheHold pins the #344 rule for the hold
+// path (issue #352, S7): the requester's on_hold notification commits with the
+// hold, and a hold refused by the compare-and-set leaves no notification.
+func TestUpdateHoldCommitsNotificationsWithTheHold(t *testing.T) {
+	s := newTestDB(t)
+	ctx := context.Background()
+	tk, _ := holdFixture(t, s)
+	requester := seedUser(t, s, "Carol", "carol@example.com", true)
+	stale := *tk
+	at := testClock.Add(time.Hour)
+	ev, err := tk.PutOnHold("send the serial number", at)
+	if err != nil {
+		t.Fatalf("PutOnHold: %v", err)
+	}
+	notification := domain.Notification{UserID: requester, TicketID: tk.ID, Kind: domain.NotificationOnHold, CreatedAt: at}
+	if err := s.TicketUnitOfWork().UpdateHold(ctx, application.HoldWrite{
+		Ticket: tk, Events: []domain.AuditEvent{*ev}, Notifications: []domain.Notification{notification},
+	}); err != nil {
+		t.Fatalf("UpdateHold: %v", err)
+	}
+	if n := countRows(t, s, `SELECT COUNT(*) FROM notifications WHERE user_id=? AND ticket_id=? AND kind='on_hold'`, requester, tk.ID); n != 1 {
+		t.Fatalf("on_hold notifications = %d, want 1", n)
+	}
+
+	// A second hold from a read taken before the first one loses the race.
+	ev2, err := stale.PutOnHold("another reason", at.Add(time.Minute))
+	if err != nil {
+		t.Fatalf("PutOnHold: %v", err)
+	}
+	err = s.TicketUnitOfWork().UpdateHold(ctx, application.HoldWrite{
+		Ticket: &stale, Events: []domain.AuditEvent{*ev2}, Notifications: []domain.Notification{notification},
+	})
+	if !errors.Is(err, domain.ErrHoldConflict) {
+		t.Fatalf("err = %v, want ErrHoldConflict", err)
+	}
+	if n := countRows(t, s, `SELECT COUNT(*) FROM notifications WHERE ticket_id=?`, tk.ID); n != 1 {
+		t.Errorf("notifications after a refused hold = %d, want still 1", n)
+	}
+}
+
+// --- S1: the requester's reply resumes the hold in the comment's transaction ---
+
+func replyResume(t *testing.T, tk *domain.Ticket, frozen domain.TicketSLA, at time.Time) (*domain.Comment, application.HoldResume, domain.TicketSLA) {
+	t.Helper()
+	since := *tk.OnHoldSince
+	if _, _, err := tk.ResumeFromHold(at); err != nil {
+		t.Fatalf("ResumeFromHold: %v", err)
+	}
+	shifted := frozen
+	shifted.WarnResolveAt = frozen.WarnResolveAt.Add(2 * time.Hour)
+	shifted.DueResolveAt = frozen.DueResolveAt.Add(2 * time.Hour)
+	comment := &domain.Comment{TicketID: tk.ID, Author: "Carol", Body: "here is the serial", Visibility: domain.CommentPublic, CreatedAt: at}
+	return comment, application.HoldResume{
+		Ticket: tk, ExpectedOnHoldSince: &since, ShiftedSLA: &shifted,
+		Events: []domain.AuditEvent{holdEvent(tk.ID, domain.ActionResume, at)},
+	}, shifted
+}
+
+func TestCommentUnitOfWorkResumesTheHold(t *testing.T) {
+	s := newTestDB(t)
+	ctx := context.Background()
+	tk, frozen := holdFixture(t, s)
+	putOnHold(t, s, tk, testClock.Add(time.Hour), "waiting")
+	comment, resume, shifted := replyResume(t, tk, frozen, testClock.Add(3*time.Hour))
+
+	if err := s.CommentUnitOfWork().Add(ctx, application.CommentMutation{Comment: comment, Resume: &resume}); err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+	if comment.ID == 0 {
+		t.Error("comment id not assigned")
+	}
+	got, _ := s.TicketStore().GetByID(ctx, tk.ID, anyTicket)
+	if got.OnHoldSince != nil || got.OnHoldReason != "" {
+		t.Errorf("hold not ended: %v %q", got.OnHoldSince, got.OnHoldReason)
+	}
+	if sla, _ := s.SLAStore().TicketSLA(ctx, tk.ID); sla == nil || *sla != shifted {
+		t.Errorf("sla = %+v, want %+v", sla, shifted)
+	}
+	if n := countRows(t, s, `SELECT COUNT(*) FROM audit_events WHERE ticket_id=? AND action='resume'`, tk.ID); n != 1 {
+		t.Errorf("resume events = %d, want 1", n)
+	}
+	if n := countRows(t, s, `SELECT COUNT(*) FROM comments WHERE ticket_id=?`, tk.ID); n != 1 {
+		t.Errorf("comments = %d, want 1", n)
+	}
+}
+
+// TestCommentUnitOfWorkKeepsTheReplyWhenTheHoldChanged: the hold the requester
+// read is gone (an agent resumed first), so the reply commits and resumes
+// nothing — no second shift, no resume event.
+func TestCommentUnitOfWorkKeepsTheReplyWhenTheHoldChanged(t *testing.T) {
+	s := newTestDB(t)
+	ctx := context.Background()
+	tk, frozen := holdFixture(t, s)
+	putOnHold(t, s, tk, testClock.Add(time.Hour), "waiting")
+	read := *tk
+	// An agent resumes first.
+	agentCopy := *tk
+	since := *agentCopy.OnHoldSince
+	if _, _, err := agentCopy.ResumeFromHold(testClock.Add(2 * time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.TicketUnitOfWork().UpdateHold(ctx, application.HoldWrite{Ticket: &agentCopy, ExpectedOnHoldSince: &since,
+		Events: []domain.AuditEvent{holdEvent(tk.ID, domain.ActionResume, testClock.Add(2*time.Hour))}}); err != nil {
+		t.Fatalf("agent resume: %v", err)
+	}
+	comment, resume, _ := replyResume(t, &read, frozen, testClock.Add(3*time.Hour))
+	resume.Ticket.Title = "a stale write that must not land"
+
+	if err := s.CommentUnitOfWork().Add(ctx, application.CommentMutation{Comment: comment, Resume: &resume}); err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+	if n := countRows(t, s, `SELECT COUNT(*) FROM comments WHERE ticket_id=?`, tk.ID); n != 1 {
+		t.Errorf("comments = %d, want the reply stored", n)
+	}
+	if n := countRows(t, s, `SELECT COUNT(*) FROM audit_events WHERE ticket_id=? AND action='resume'`, tk.ID); n != 1 {
+		t.Errorf("resume events = %d, want only the agent's", n)
+	}
+	if sla, _ := s.SLAStore().TicketSLA(ctx, tk.ID); sla == nil || *sla != frozen {
+		t.Errorf("sla changed by a skipped resume: %+v", sla)
+	}
+	if got, _ := s.TicketStore().GetByID(ctx, tk.ID, anyTicket); got.Title == "a stale write that must not land" {
+		t.Error("the skipped resume wrote the ticket row")
+	}
+}
+
+func TestCommentUnitOfWorkResumeIsAtomic(t *testing.T) {
+	s := newTestDB(t)
+	ctx := context.Background()
+	tk, frozen := holdFixture(t, s)
+	putOnHold(t, s, tk, testClock.Add(time.Hour), "waiting")
+	comment, resume, _ := replyResume(t, tk, frozen, testClock.Add(3*time.Hour))
+	if _, err := s.db.ExecContext(ctx, `CREATE TRIGGER trg_test_fail_reply_resume BEFORE INSERT ON audit_events
+		WHEN NEW.action = 'resume' BEGIN SELECT RAISE(ABORT, 'injected resume failure'); END`); err != nil {
+		t.Fatalf("inject: %v", err)
+	}
+	if err := s.CommentUnitOfWork().Add(ctx, application.CommentMutation{Comment: comment, Resume: &resume}); err == nil {
+		t.Fatal("Add succeeded despite the injected failure")
+	}
+	if n := countRows(t, s, `SELECT COUNT(*) FROM comments WHERE ticket_id=?`, tk.ID); n != 0 {
+		t.Errorf("comments = %d, want 0 after rollback", n)
+	}
+	if got, _ := s.TicketStore().GetByID(ctx, tk.ID, anyTicket); got.OnHoldSince == nil {
+		t.Error("hold cleared by a rolled-back write")
+	}
+	if sla, _ := s.SLAStore().TicketSLA(ctx, tk.ID); sla == nil || *sla != frozen {
+		t.Errorf("sla changed by a rolled-back write: %+v", sla)
+	}
+}
+
+// TestConcurrentResumesShiftTheSLAOnce races two resumes of the same hold
+// (issue #352, item 4): exactly one applies, the other is a HoldConflictError,
+// and the resolution SLA moves once — never twice.
+func TestConcurrentResumesShiftTheSLAOnce(t *testing.T) {
+	s := newTestDB(t)
+	ctx := context.Background()
+	tk, frozen := holdFixture(t, s)
+	putOnHold(t, s, tk, testClock.Add(time.Hour), "waiting")
+	since := *tk.OnHoldSince
+	at := testClock.Add(3 * time.Hour)
+	shifted := frozen
+	shifted.DueResolveAt = frozen.DueResolveAt.Add(2 * time.Hour)
+
+	start := make(chan struct{})
+	errs := make(chan error, 2)
+	var wg sync.WaitGroup
+	for i := 0; i < 2; i++ {
+		read := *tk
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			if _, _, err := read.ResumeFromHold(at); err != nil {
+				errs <- err
+				return
+			}
+			errs <- s.TicketUnitOfWork().UpdateHold(ctx, application.HoldWrite{Ticket: &read, ExpectedOnHoldSince: &since,
+				ShiftedSLA: &shifted, Events: []domain.AuditEvent{holdEvent(tk.ID, domain.ActionResume, at)}})
+		}()
+	}
+	close(start)
+	wg.Wait()
+	close(errs)
+	var ok, conflicts int
+	for err := range errs {
+		switch {
+		case err == nil:
+			ok++
+		case errors.Is(err, domain.ErrHoldConflict):
+			conflicts++
+		default:
+			t.Fatalf("unexpected error: %v", err)
+		}
+	}
+	if ok != 1 || conflicts != 1 {
+		t.Fatalf("ok=%d conflicts=%d, want 1 and 1", ok, conflicts)
+	}
+	if n := countRows(t, s, `SELECT COUNT(*) FROM audit_events WHERE ticket_id=? AND action='resume'`, tk.ID); n != 1 {
+		t.Errorf("resume events = %d, want 1", n)
+	}
+	if sla, _ := s.SLAStore().TicketSLA(ctx, tk.ID); sla == nil || *sla != shifted {
+		t.Errorf("sla = %+v, want shifted exactly once %+v", sla, shifted)
+	}
+}
+
+// TestRequesterReplyRacingAnAgentResume: whichever commits first, the reply is
+// always stored and the hold is resumed (and its SLA shifted) exactly once.
+func TestRequesterReplyRacingAnAgentResume(t *testing.T) {
+	s := newTestDB(t)
+	ctx := context.Background()
+	tk, frozen := holdFixture(t, s)
+	putOnHold(t, s, tk, testClock.Add(time.Hour), "waiting")
+	agentRead, replyRead := *tk, *tk
+	since := *tk.OnHoldSince
+	at := testClock.Add(3 * time.Hour)
+	if _, _, err := agentRead.ResumeFromHold(at); err != nil {
+		t.Fatal(err)
+	}
+	comment, resume, shifted := replyResume(t, &replyRead, frozen, at)
+
+	start := make(chan struct{})
+	var wg sync.WaitGroup
+	var agentErr, replyErr error
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		<-start
+		agentErr = s.TicketUnitOfWork().UpdateHold(ctx, application.HoldWrite{Ticket: &agentRead, ExpectedOnHoldSince: &since,
+			ShiftedSLA: &shifted, Events: []domain.AuditEvent{holdEvent(tk.ID, domain.ActionResume, at)}})
+	}()
+	go func() {
+		defer wg.Done()
+		<-start
+		replyErr = s.CommentUnitOfWork().Add(ctx, application.CommentMutation{Comment: comment, Resume: &resume})
+	}()
+	close(start)
+	wg.Wait()
+	if replyErr != nil {
+		t.Fatalf("reply: %v", replyErr)
+	}
+	if agentErr != nil && !errors.Is(agentErr, domain.ErrHoldConflict) {
+		t.Fatalf("agent resume: %v", agentErr)
+	}
+	if n := countRows(t, s, `SELECT COUNT(*) FROM comments WHERE ticket_id=?`, tk.ID); n != 1 {
+		t.Errorf("comments = %d, want the reply stored", n)
+	}
+	if n := countRows(t, s, `SELECT COUNT(*) FROM audit_events WHERE ticket_id=? AND action='resume'`, tk.ID); n != 1 {
+		t.Errorf("resume events = %d, want exactly 1", n)
+	}
+	if sla, _ := s.SLAStore().TicketSLA(ctx, tk.ID); sla == nil || *sla != shifted {
+		t.Errorf("sla = %+v, want shifted exactly once %+v", sla, shifted)
+	}
 }

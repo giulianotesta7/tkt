@@ -290,6 +290,24 @@ type CommentMutation struct {
 	// the author as actor. CommentID is left nil: the id does not exist until
 	// the insertion, so the unit of work stamps it.
 	Notifications []domain.Notification
+	// Resume, when non-nil, is the hold the requester's reply ends (issue
+	// #352, S1): it commits in the SAME transaction as the comment. It is
+	// applied under the same compare-and-set as TicketUnitOfWork.UpdateHold;
+	// when the stored hold no longer matches (someone already resumed or
+	// changed it) the resume is skipped and the comment STILL commits — the
+	// requester's reply is never lost to a race.
+	Resume *HoldResume
+}
+
+// HoldResume is the hold change that rides a comment (issue #352): Ticket is
+// the ticket after Ticket.ResumeFromHold, ExpectedOnHoldSince the hold the
+// caller read, ShiftedSLA the resolution instants moved by the working time
+// on hold (nil without a frozen SLA), and Events the resume audit event.
+type HoldResume struct {
+	Ticket              *domain.Ticket
+	ExpectedOnHoldSince *time.Time
+	ShiftedSLA          *domain.TicketSLA
+	Events              []domain.AuditEvent
 }
 
 // AuditStore persists the append-only audit trail (audit-log spec).

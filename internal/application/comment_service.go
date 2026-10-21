@@ -3,6 +3,7 @@ package application
 import (
 	"context"
 	"strings"
+	"time"
 
 	"github.com/giulianotesta7/tkt/internal/domain"
 )
@@ -22,11 +23,22 @@ type CommentService struct {
 	// together.
 	tx    CommentUnitOfWork
 	clock domain.Clock
+	// sla shifts the resolution SLA when the requester's reply ends a hold
+	// (issue #352). Nil keeps the legacy wiring: the hold still ends, with no
+	// shift, exactly like a TicketService built without an SLA service.
+	sla *SLAService
 }
 
 // NewCommentService wires the comment use cases against the given ports.
 func NewCommentService(tickets TicketStore, comments CommentStore, users UserStore, tx CommentUnitOfWork, clock domain.Clock) *CommentService {
 	return &CommentService{tickets: tickets, comments: comments, users: users, tx: tx, clock: clock}
+}
+
+// WithSLA wires the SLA service the hold resume uses (issue #352) and returns
+// the service, so the composition root chains it onto the constructor.
+func (s *CommentService) WithSLA(sla *SLAService) *CommentService {
+	s.sla = sla
+	return s
 }
 
 // Add validates the body and visibility, checks the ticket exists within the
@@ -90,10 +102,40 @@ func (s *CommentService) Add(ctx context.Context, actor domain.User, ticketID in
 		return nil, err
 	}
 	notifications := commentNotifications(t, vis, &actor.ID, c.CreatedAt, requester, assignee)
-	if err := s.tx.Add(ctx, CommentMutation{Comment: c, Notifications: notifications}); err != nil {
+	resume, err := s.requesterReplyResume(ctx, actor, t, vis, c.CreatedAt)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.tx.Add(ctx, CommentMutation{Comment: c, Notifications: notifications, Resume: resume}); err != nil {
 		return nil, err
 	}
 	return c, nil
+}
+
+// requesterReplyResume is the hold the requester's reply ends (issue #352,
+// S1): a PUBLIC comment by the ticket's requester on a ticket on hold resumes
+// it, at the comment's own instant, with the resolution SLA shifted by the
+// working time spent on hold. Staff comments and internal comments never
+// resume — the hold waits on the requester, not on the team. Anything else
+// answers nil and the comment is written exactly as before.
+func (s *CommentService) requesterReplyResume(ctx context.Context, actor domain.User, t *domain.Ticket, vis domain.CommentVisibility, at time.Time) (*HoldResume, error) {
+	if vis != domain.CommentPublic || !t.IsOnHold() || !isTicketRequester(actor, t) {
+		return nil, nil
+	}
+	expected := *t.OnHoldSince
+	pausedAt, event, err := t.ResumeFromHold(at)
+	if err != nil {
+		return nil, err
+	}
+	event.Actor = actor.Name
+	event.ActorUserID = &actor.ID
+	var shifted *domain.TicketSLA
+	if s.sla != nil {
+		if shifted, err = s.sla.ShiftForHold(ctx, t.ID, pausedAt, at); err != nil {
+			return nil, err
+		}
+	}
+	return &HoldResume{Ticket: t, ExpectedOnHoldSince: &expected, ShiftedSLA: shifted, Events: []domain.AuditEvent{*event}}, nil
 }
 
 // parseCommentVisibility maps the raw form value onto the domain type. An

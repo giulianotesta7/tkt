@@ -15,7 +15,8 @@ import (
 // TestMigration0021KindVocabularyMatchesDomainConstants derives the kind list
 // from the domain source, so a new domain.NotificationKind cannot drift past
 // the 0021 CHECK without a red test (issue #344, S10/S18). Contributed by the
-// independent verifier.
+// independent verifier. The CHECK it probes is the CURRENT one: 0023 rebuilt
+// the table to add on_hold (issue #352), so a new kind needs the same rebuild.
 func TestMigration0021KindVocabularyMatchesDomainConstants(t *testing.T) {
 	s := newTestDB(t)
 	f, err := parser.ParseFile(token.NewFileSet(), "../../domain/notification.go", nil, 0)
@@ -48,8 +49,8 @@ func TestMigration0021KindVocabularyMatchesDomainConstants(t *testing.T) {
 		}
 		return true
 	})
-	if len(kinds) != 9 {
-		t.Fatalf("domain kinds = %v, want 9", kinds)
+	if len(kinds) != 10 {
+		t.Fatalf("domain kinds = %v, want 10", kinds)
 	}
 	userID, ticketID := notificationFixture(t, s)
 	res, err := s.db.Exec(`INSERT INTO comments (ticket_id, author, body, created_at) VALUES (?, 'Ana', 'b', ?)`,
@@ -68,7 +69,7 @@ func TestMigration0021KindVocabularyMatchesDomainConstants(t *testing.T) {
 		}
 		if _, err := s.db.Exec(`INSERT INTO notifications (user_id, ticket_id, kind, comment_id, created_at)
 			VALUES (?,?,?,?,?)`, userID, ticketID, k, c, formatTime(testClock)); err != nil {
-			t.Errorf("domain kind %q rejected by the 0021 CHECK: %v", k, err)
+			t.Errorf("domain kind %q rejected by the notifications CHECK: %v", k, err)
 		}
 	}
 	for _, bad := range []string{"", "mentioned", "ASSIGNED", "assigned "} {

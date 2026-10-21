@@ -197,3 +197,28 @@ func TestProjectSLAAchievedResolutionIgnoresPause(t *testing.T) {
 		t.Errorf("Resolve = %+v, want met and not paused", p.Resolve)
 	}
 }
+
+// TestSLACalendarWorkingSecondsBetweenAcrossDST pins the inverse across the
+// America/New_York spring-forward: the 09:00-18:00 window keeps its wall-clock
+// hours, and a whole-day window counts the 23-hour day as 23 hours.
+func TestSLACalendarWorkingSecondsBetweenAcrossDST(t *testing.T) {
+	loc, err := time.LoadLocation("America/New_York")
+	if err != nil {
+		t.Fatalf("load location: %v", err)
+	}
+	cal := DefaultSLACalendar()
+	cal.Location = loc
+	from := time.Date(2026, 3, 5, 9, 0, 0, 0, loc)
+	to := time.Date(2026, 3, 9, 10, 0, 0, 0, loc)
+	if got, want := cal.WorkingSecondsBetween(from, to), 19*3600; got != want {
+		t.Errorf("Thu 09:00 .. Mon 10:00 = %d, want %d", got, want)
+	}
+	if got := cal.AddWorkingSeconds(from, cal.WorkingSecondsBetween(from, to)); !got.Equal(to) {
+		t.Errorf("round trip = %v, want %v", got, to)
+	}
+	allDay := SLACalendar{WorkingDays: []time.Weekday{0, 1, 2, 3, 4, 5, 6}, StartMinute: 0, EndMinute: minutesPerDay, Location: loc}
+	a, b := time.Date(2026, 3, 8, 0, 0, 0, 0, loc), time.Date(2026, 3, 9, 0, 0, 0, 0, loc)
+	if got := allDay.WorkingSecondsBetween(a, b); got != 23*3600 {
+		t.Errorf("spring-forward day = %d, want %d", got, 23*3600)
+	}
+}

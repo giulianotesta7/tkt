@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"reflect"
 	"strconv"
 	"strings"
 	"testing"
@@ -116,8 +117,19 @@ func TestTicketHoldRouteRejectsABlankReason(t *testing.T) {
 			if rec.Code != http.StatusUnprocessableEntity {
 				t.Errorf("status = %d, want 422", rec.Code)
 			}
-			if !strings.Contains(rec.Body.String(), domain.ErrMsgHoldReasonRequired) {
-				t.Errorf("re-render must show %q, got: %s", domain.ErrMsgHoldReasonRequired, rec.Body.String())
+			body := rec.Body.String()
+			if !strings.Contains(body, domain.ErrMsgHoldReasonRequired) {
+				t.Errorf("re-render must show %q, got: %s", domain.ErrMsgHoldReasonRequired, body)
+			}
+			// The refusal reopens the hold dialog with the error INSIDE it, so
+			// the message is not hidden behind the modal.
+			for _, want := range []string{
+				`<dialog id="ticket-hold-dialog" aria-labelledby="ticket-hold-dialog-title" aria-describedby="ticket-hold-dialog-copy" data-open-on-load>`,
+				`<p class="hold-dialog-error" role="alert">` + domain.ErrMsgHoldReasonRequired + `</p>`,
+			} {
+				if !strings.Contains(body, want) {
+					t.Errorf("re-render must contain %q, got: %s", want, body)
+				}
 			}
 			assertHoldColumns(t, h, tkt.ID, false, "")
 			if after := auditCount(t, h, tkt.ID); after != before {
@@ -367,6 +379,50 @@ func TestTicketDetailStaffHoldForm(t *testing.T) {
 	if strings.Contains(body, "On hold since") {
 		t.Errorf("a ticket that is not on hold must not render the hold banner, got: %s", body)
 	}
+
+	// The maintainer asked for a small dialog opened from the SLA section,
+	// not a permanent card: the trigger sits in the SLA section and the form
+	// lives inside the dialog.
+	assertHoldTriggerInSLASection(t, body)
+	dialogStart := strings.Index(body, `<dialog id="ticket-hold-dialog"`)
+	form := strings.Index(body, `action="`+ticketPath(tkt.ID)+`/hold"`)
+	if dialogStart < 0 || form < dialogStart || form > dialogStart+strings.Index(body[dialogStart:], `</dialog>`) {
+		t.Errorf("the hold form must live inside #ticket-hold-dialog, got: %s", body)
+	}
+	if strings.Contains(body, `aria-labelledby="hold-form-title"`) {
+		t.Error("the permanent hold card must be gone")
+	}
+}
+
+// assertHoldTriggerInSLASection proves the "Put on hold" button renders inside
+// the SLA property section, after its heading.
+func assertHoldTriggerInSLASection(t *testing.T, body string) {
+	t.Helper()
+	heading := strings.Index(body, `<div class="prop-heading">SLA</div>`)
+	trigger := strings.Index(body, `data-hold-open`)
+	if heading < 0 || trigger < heading {
+		t.Fatalf("the hold trigger must follow the SLA heading (heading=%d trigger=%d), got: %s", heading, trigger, body)
+	}
+	if next := strings.Index(body[heading:], `<div class="prop-section"`); next >= 0 && trigger > heading+next {
+		t.Errorf("the hold trigger must stay inside the SLA section, got: %s", body)
+	}
+}
+
+// TestTicketDetailHoldTriggerWithFrozenSLA proves the trigger also renders in
+// the SLA section when the ticket has a frozen commitment and milestones.
+func TestTicketDetailHoldTriggerWithFrozenSLA(t *testing.T) {
+	h := newHarness(t)
+	form := slaPanelForm("80")
+	form.Set("sla_enabled", "1")
+	if rec := h.postForm(t, "/settings/sla", form, false); rec.Code != http.StatusSeeOther {
+		t.Fatalf("enable SLA: status = %d", rec.Code)
+	}
+	tkt := h.seedTicket(t, "With SLA", nil)
+	body := h.get(t, ticketPath(tkt.ID), false).Body.String()
+	if !strings.Contains(body, `data-sla-countdown`) {
+		t.Fatalf("the fixture must render SLA milestones, got: %s", body)
+	}
+	assertHoldTriggerInSLASection(t, body)
 }
 
 // TestTicketDetailStaffOnHoldBanner proves a held ticket shows the agent when
@@ -382,7 +438,7 @@ func TestTicketDetailStaffOnHoldBanner(t *testing.T) {
 	body := h.get(t, ticketPath(tkt.ID), false).Body.String()
 
 	for _, want := range []string{
-		`class="hold-banner"`,
+		`class="sla-hold-status"`,
 		`On hold since`,
 		// The pause instant is a semantic <time> carrying the LOCALIZED date.
 		`datetime="` + formatDatetime(*held.OnHoldSince) + `"`,
@@ -401,6 +457,16 @@ func TestTicketDetailStaffOnHoldBanner(t *testing.T) {
 		if strings.Contains(body, absent) {
 			t.Errorf("a held ticket must not offer the hold form (%q), got: %s", absent, body)
 		}
+	}
+	// The maintainer moved the staff notice into the SLA section: no banner
+	// above the ticket, and the notice and Resume sit after the SLA heading.
+	if strings.Contains(body, `class="hold-banner"`) {
+		t.Errorf("staff must not get the top banner any more, got: %s", body)
+	}
+	heading := strings.Index(body, `<div class="prop-heading">SLA</div>`)
+	notice := strings.Index(body, `class="sla-hold-status"`)
+	if heading < 0 || notice < heading {
+		t.Errorf("the on-hold notice must live in the SLA section (heading=%d notice=%d)", heading, notice)
 	}
 }
 
@@ -608,8 +674,8 @@ func TestTicketHoldSurfaceInSpanish(t *testing.T) {
 		}
 	}
 	// The localized date shape ("6 ago 2026"), not the numeric fallback.
-	if !strings.Contains(staffHeld, "</time> — envíanos una foto de la bandeja") {
-		t.Errorf("es banner must render the localized date before the reason, got: %s", staffHeld)
+	if !strings.Contains(staffHeld, `</time></p><p class="sla-hold-reason">envíanos una foto de la bandeja`) {
+		t.Errorf("es notice must render the localized date before the reason, got: %s", staffHeld)
 	}
 
 	requesterBody := getDetailAs(t, h, ticketPath(tkt.ID), sess.ID, false).Body.String()
@@ -617,5 +683,41 @@ func TestTicketHoldSurfaceInSpanish(t *testing.T) {
 		if !strings.Contains(requesterBody, want) {
 			t.Errorf("es requester banner must contain %q, got: %s", want, requesterBody)
 		}
+	}
+}
+
+// TestNotificationMessageNamesOnHold pins the panel sentence of the on_hold
+// kind (issue #352, S7): it names its own catalogue entry, never the
+// "something happened" fallback.
+func TestNotificationMessageNamesOnHold(t *testing.T) {
+	got := notificationMessage(domain.Notification{Kind: domain.NotificationOnHold})
+	if want := application.MsgRef("notifications.kind.on_hold"); !reflect.DeepEqual(got, want) {
+		t.Errorf("notificationMessage(on_hold) = %+v, want %+v", got, want)
+	}
+}
+
+// TestRequesterCommentEndsTheHoldEndToEnd proves S1 through the real comment
+// route, service and unit of work: the requester's public reply on a held
+// ticket stores the comment, clears both hold columns, and records the resume
+// under the requester. The harness runs with SLA disabled, so the resolution
+// shift is proven in the application and SQLite layers.
+func TestRequesterCommentEndsTheHoldEndToEnd(t *testing.T) {
+	h := newHarness(t)
+	requester := seedUserRole(t, h.store, "Rosa", "rosa-reply@tkt.test", domain.RoleUser)
+	sess := seedSession(t, h.store, requester.ID)
+	tkt := createTicketFor(t, h, requester, "Printer jam")
+	holdViaService(t, h, tkt.ID, "send us a photo of the jammed tray")
+	db := h.rawDB(t)
+
+	rec := h.postFormAs(t, ticketPath(tkt.ID)+"/comments", url.Values{"body": {"photo attached"}}, sess.ID)
+	if rec.Code != http.StatusSeeOther {
+		t.Fatalf("comment status = %d, want 303; body: %s", rec.Code, rec.Body.String())
+	}
+	assertHoldColumns(t, h, tkt.ID, false, "")
+	if n := scanOneInt(t, db, `SELECT COUNT(*) FROM comments WHERE ticket_id = ? AND body = 'photo attached'`, tkt.ID); n != 1 {
+		t.Errorf("comments = %d, want 1", n)
+	}
+	if n := scanOneInt(t, db, `SELECT COUNT(*) FROM audit_events WHERE ticket_id = ? AND action = 'resume' AND actor_user_id = ?`, tkt.ID, requester.ID); n != 1 {
+		t.Errorf("resume events by the requester = %d, want 1", n)
 	}
 }
