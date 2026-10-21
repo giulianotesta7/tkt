@@ -42,7 +42,7 @@
 </div>
 <div class="page-foundation ticket-create-page">
 
-<form class="ticket-create-detail" method="post" action="/tickets">
+<form class="ticket-create-detail" method="post" action="/tickets" enctype="multipart/form-data">
   <div class="command-header ticket-create-command-header">
     <div class="detail-head">
       <h1 class="command-title">Create a ticket</h1>
@@ -59,6 +59,11 @@
       <section class="card ticket-create-description">
         <h2><label for="description">Description</label></h2>
         <textarea id="description" name="description">The login form 500s on submit</textarea>
+        <div class="field">
+          <label for="attachments">Attachments</label>
+          <input type="file" id="attachments" name="attachments" multiple accept=".png,.jpg,.jpeg,.gif,.webp,.pdf,.docx,.xlsx,.pptx,.txt,.csv,.log,.zip">
+          <p class="help">Up to 5 files, 10 MB each</p>
+        </div>
         <div class="ticket-create-actions"><button class="btn primary" type="submit">Create ticket</button></div>
       </section>
       <section class="card ticket-create-timeline">

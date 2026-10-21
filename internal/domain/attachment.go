@@ -156,8 +156,9 @@ func ValidateAttachments(uploads []AttachmentUpload) ([]Attachment, error) {
 }
 
 // sanitizeAttachmentName keeps only the base name a client sent (both slash
-// styles: browsers on Windows may send a full path), drops control characters
-// and quotes (they would break the Content-Disposition header on download),
+// styles: browsers on Windows may send a full path), drops control and format
+// characters (a bidi override would display an extension other than the one
+// validated) and quotes (they would break the Content-Disposition header on download),
 // trims spaces, and shortens a name longer than MaxAttachmentNameBytes while
 // keeping its extension. An empty result means the name is unusable.
 func sanitizeAttachmentName(raw string) string {
@@ -165,7 +166,7 @@ func sanitizeAttachmentName(raw string) string {
 		raw = raw[i+1:]
 	}
 	raw = strings.Map(func(r rune) rune {
-		if unicode.IsControl(r) || r == '"' || r == utf8.RuneError {
+		if unicode.IsControl(r) || unicode.Is(unicode.Cf, r) || r == '"' || r == utf8.RuneError {
 			return -1
 		}
 		return r

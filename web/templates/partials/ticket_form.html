@@ -1,5 +1,5 @@
 {{define "ticket_form"}}{{if .PageFoundationAssets}}<script src="/static/ticket_form.js" defer></script>{{end}}
-{{if .Selected}}<form class="ticket-create-detail" method="post" action="/tickets">
+{{if .Selected}}<form class="ticket-create-detail" method="post" action="/tickets" enctype="multipart/form-data">
 {{if .Error}}  <div class="error-banner" role="alert">{{.Error}}</div>
 {{end}}  <div class="command-header ticket-create-command-header">
     <div class="detail-head">
@@ -17,6 +17,11 @@
       <section class="card ticket-create-description">
         <h2><label for="description">{{t "tickets.form.description"}}</label></h2>
         <textarea id="description" name="description">{{.Values.Description}}</textarea>
+        <div class="field">
+          <label for="attachments">{{t "tickets.form.attachments"}}</label>
+          <input type="file" id="attachments" name="attachments" multiple accept=".png,.jpg,.jpeg,.gif,.webp,.pdf,.docx,.xlsx,.pptx,.txt,.csv,.log,.zip">
+          <p class="help">{{t "tickets.attachments.hint"}}</p>
+        </div>
         <div class="ticket-create-actions"><button class="btn primary" type="submit">{{t "tickets.form.submit"}}</button></div>
       </section>
       <section class="card ticket-create-timeline">
@@ -39,7 +44,7 @@
       </div>
     </aside>
   </div>
-</form>{{else}}<form class="card form-card ticket-create-form" method="post" action="/tickets">
+</form>{{else}}<form class="card form-card ticket-create-form" method="post" action="/tickets" enctype="multipart/form-data">
 {{if .Error}}<div class="error-banner" role="alert">{{.Error}}</div>{{end}}
   <div class="field">
     <label for="category_id">{{t "tickets.form.category"}}</label>
@@ -54,6 +59,11 @@
   <div class="field">
     <label for="ticket-create-description">{{t "tickets.form.description"}}</label>
     <textarea id="ticket-create-description" name="description">{{.Values.Description}}</textarea>
+  </div>
+  <div class="field">
+    <label for="attachments">{{t "tickets.form.attachments"}}</label>
+    <input type="file" id="attachments" name="attachments" multiple accept=".png,.jpg,.jpeg,.gif,.webp,.pdf,.docx,.xlsx,.pptx,.txt,.csv,.log,.zip">
+    <p class="help">{{t "tickets.attachments.hint"}}</p>
   </div>
   <div class="field">
     <label for="ticket-create-priority">{{t "tickets.form.priority"}}</label>
