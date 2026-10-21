@@ -18,6 +18,7 @@ import (
 	"net"
 	stdmail "net/mail"
 	"net/smtp"
+	"net/textproto"
 	"strconv"
 	"strings"
 	"time"
@@ -129,10 +130,10 @@ func (m *SMTPMailer) Send(ctx context.Context, cfg application.SMTPConfig, email
 		}
 	}
 	if err := client.Mail(from.Address); err != nil {
-		return fmt.Errorf("smtp: sender rejected: %w", err)
+		return fmt.Errorf("smtp: sender rejected: %w", classifyReply(err))
 	}
 	if err := client.Rcpt(to.Address); err != nil {
-		return fmt.Errorf("smtp: recipient rejected: %w", err)
+		return fmt.Errorf("smtp: recipient rejected: %w", classifyReply(err))
 	}
 	w, err := client.Data()
 	if err != nil {
@@ -142,12 +143,31 @@ func (m *SMTPMailer) Send(ctx context.Context, cfg application.SMTPConfig, email
 		return fmt.Errorf("smtp: data: %w", err)
 	}
 	if err := w.Close(); err != nil {
-		return fmt.Errorf("smtp: message rejected: %w", err)
+		var reply *textproto.Error
+		if !errors.As(err, &reply) {
+			// The message went out but no reply came back: the server may
+			// have accepted it, so a retry could deliver it twice.
+			return fmt.Errorf("smtp: no reply to the message: %w (%w)", err, application.ErrDeliveryOutcomeUnknown)
+		}
+		return fmt.Errorf("smtp: message rejected: %w", classifyReply(err))
 	}
 	// The message is accepted once DATA is answered; a failed QUIT does not
 	// make it undelivered.
 	_ = client.Quit()
 	return nil
+}
+
+// classifyReply marks a 5xx reply to MAIL, RCPT, or the message as
+// permanent: retrying the same message cannot change the answer. Every other
+// failure stays transient. Authentication and TLS failures are deliberately
+// NOT classified here: they are configuration problems root can fix while
+// the retries run.
+func classifyReply(err error) error {
+	var reply *textproto.Error
+	if errors.As(err, &reply) && reply.Code >= 500 {
+		return fmt.Errorf("%w (%w)", err, application.ErrDeliveryPermanent)
+	}
+	return err
 }
 
 // heloName introduces the client with the sender's domain, which servers

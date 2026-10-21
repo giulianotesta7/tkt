@@ -479,3 +479,59 @@ func TestSendReportsServerRejectionWithoutThePassword(t *testing.T) {
 		t.Fatal("error leaks the password")
 	}
 }
+
+func TestSendClassifiesFailuresForTheRetryPolicy(t *testing.T) {
+	h := newHarness(t, fakeServerOptions{rejectRcpt: "550 5.1.1 mailbox unavailable"}, true)
+	err := h.mailer.Send(context.Background(), baseConfig(), testEmail())
+	if !errors.Is(err, application.ErrDeliveryPermanent) {
+		t.Fatalf("5xx RCPT = %v, want ErrDeliveryPermanent", err)
+	}
+
+	h2 := newHarness(t, fakeServerOptions{rejectRcpt: "451 4.3.0 try later"}, true)
+	err = h2.mailer.Send(context.Background(), baseConfig(), testEmail())
+	if err == nil || errors.Is(err, application.ErrDeliveryPermanent) || errors.Is(err, application.ErrDeliveryOutcomeUnknown) {
+		t.Fatalf("4xx RCPT = %v, want a transient error", err)
+	}
+}
+
+func TestSendReportsAnUnknownOutcomeWhenTheConnectionDropsAfterTheMessage(t *testing.T) {
+	m := NewSMTPMailer()
+	done := make(chan struct{})
+	m.dial = func(context.Context, string) (net.Conn, error) {
+		client, server := socketPair(t)
+		go func() {
+			defer close(done)
+			defer server.Close()
+			r := bufio.NewReader(server)
+			say := func(s string) { server.Write([]byte(s + "\r\n")) }
+			say("220 fake")
+			for {
+				line, err := r.ReadString('\n')
+				if err != nil {
+					return
+				}
+				switch strings.ToUpper(strings.Fields(line)[0]) {
+				case "EHLO":
+					say("250 fake")
+				case "DATA":
+					say("354 go ahead")
+					for {
+						l, err := r.ReadString('\n')
+						if err != nil || l == ".\r\n" {
+							// Hang up without answering the message.
+							return
+						}
+					}
+				default:
+					say("250 ok")
+				}
+			}
+		}()
+		return client, nil
+	}
+	err := m.Send(context.Background(), baseConfig(), testEmail())
+	<-done
+	if !errors.Is(err, application.ErrDeliveryOutcomeUnknown) {
+		t.Fatalf("drop after DATA = %v, want ErrDeliveryOutcomeUnknown", err)
+	}
+}

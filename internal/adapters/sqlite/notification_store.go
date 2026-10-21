@@ -42,6 +42,13 @@ const defaultNotificationListLimit = 50
 // Every row is validated before the first insert, so a policy bug that
 // produces an unrenderable or self-addressed notification fails the batch
 // (and therefore the whole unit of work) instead of persisting it.
+//
+// Each notification is also given its pending email delivery row in THIS
+// transaction (issue #362, spec S6/S12): the change, the news about it, and
+// the fact that the news still owes an email commit or roll back together,
+// while the delivery itself runs later, outside this transaction. The row is
+// due immediately — next_attempt_at is the notification's own created_at — so
+// the background sender can pick it up on its next pass.
 func appendNotificationsTx(ctx context.Context, tx *sql.Tx, notifications []domain.Notification) error {
 	for _, n := range notifications {
 		if err := n.Validate(); err != nil {
@@ -49,13 +56,35 @@ func appendNotificationsTx(ctx context.Context, tx *sql.Tx, notifications []doma
 		}
 	}
 	for _, n := range notifications {
-		if _, err := tx.ExecContext(ctx, `INSERT INTO notifications (user_id, ticket_id, kind, actor_user_id, from_value, to_value, comment_id, step_index, created_at, read_at)
+		res, err := tx.ExecContext(ctx, `INSERT INTO notifications (user_id, ticket_id, kind, actor_user_id, from_value, to_value, comment_id, step_index, created_at, read_at)
 			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			n.UserID, n.TicketID, string(n.Kind), nullableInt64(n.ActorUserID),
 			nullableString(n.FromValue), nullableString(n.ToValue), nullableInt64(n.CommentID),
-			nullableInt(n.StepIndex), formatTime(n.CreatedAt), formatTimePtr(n.ReadAt)); err != nil {
+			nullableInt(n.StepIndex), formatTime(n.CreatedAt), formatTimePtr(n.ReadAt))
+		if err != nil {
 			return fmt.Errorf("sqlite: append notification: %w", err)
 		}
+		id, err := res.LastInsertId()
+		if err != nil {
+			return fmt.Errorf("sqlite: append notification email: %w", err)
+		}
+		if err := enqueueNotificationEmailTx(ctx, tx, id, n.CreatedAt); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// enqueueNotificationEmailTx writes the pending delivery row of one
+// notification. The notification carries no foreign key to this table (see
+// 0024_notification_emails.sql for why), so the row is written here, by the
+// only writer of notifications, rather than by a trigger.
+func enqueueNotificationEmailTx(ctx context.Context, tx *sql.Tx, notificationID int64, at time.Time) error {
+	instant := formatTime(at)
+	if _, err := tx.ExecContext(ctx, `INSERT INTO notification_emails (notification_id, status, attempts, next_attempt_at, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?)`,
+		notificationID, string(application.EmailPending), 0, instant, instant, instant); err != nil {
+		return fmt.Errorf("sqlite: append notification email: %w", err)
 	}
 	return nil
 }

@@ -208,7 +208,7 @@ func (f notificationFacts) row(ctx context.Context, n domain.Notification) (noti
 	row := notificationRow{
 		ID:        n.ID,
 		TicketID:  n.TicketID,
-		Message:   notificationMessage(n),
+		Message:   application.NotificationMessage(n),
 		Actor:     application.MsgRef("notifications.actor.automatic"),
 		CreatedAt: n.CreatedAt,
 		Unread:    n.ReadAt == nil,
@@ -286,55 +286,6 @@ func notificationGroups(rows []notificationRow, now time.Time) []notificationGro
 func notificationDay(t time.Time) time.Time {
 	utc := t.UTC()
 	return time.Date(utc.Year(), utc.Month(), utc.Day(), 0, 0, 0, 0, time.UTC)
-}
-
-// notificationMessage renders one stored notification's "what happened" from its
-// KIND plus its structured facts (S15). The change kinds interpolate the raw
-// domain values through the existing label.state / label.priority keys, so a
-// Spanish instance reads Spanish state and priority names. A comment kind names
-// its VISIBILITY only: the body is never stored on a notification and is never
-// read here.
-func notificationMessage(n domain.Notification) application.Msg {
-	switch n.Kind {
-	case domain.NotificationAssigned:
-		return application.MsgRef("notifications.kind.assigned")
-	case domain.NotificationStateChanged:
-		return application.MsgRef("notifications.kind.state_changed",
-			notificationFact("state", n.FromValue), notificationFact("state", n.ToValue))
-	case domain.NotificationResolvedAwaitingConfirmation:
-		return application.MsgRef("notifications.kind.resolved_awaiting_confirmation")
-	case domain.NotificationResolutionConfirmed:
-		return application.MsgRef("notifications.kind.resolution_confirmed")
-	case domain.NotificationResolutionRejected:
-		return application.MsgRef("notifications.kind.resolution_rejected")
-	case domain.NotificationPriorityChanged:
-		return application.MsgRef("notifications.kind.priority_changed",
-			notificationFact("priority", n.FromValue), notificationFact("priority", n.ToValue))
-	case domain.NotificationCommentPublic:
-		return application.MsgRef("notifications.kind.comment_public")
-	case domain.NotificationCommentInternal:
-		return application.MsgRef("notifications.kind.comment_internal")
-	case domain.NotificationFormWaiting:
-		return application.MsgRef("notifications.kind.form_waiting")
-	case domain.NotificationOnHold:
-		return application.MsgRef("notifications.kind.on_hold")
-	default:
-		// A kind no catalogue names cannot be stored (the domain refuses it), and
-		// the sentence still says something happened instead of printing an
-		// identifier the reader cannot use.
-		return application.MsgRef("notifications.kind.unknown")
-	}
-}
-
-// notificationFact names one stored change value through its label namespace
-// (label.state.* / label.priority.*), so the sentence speaks the instance
-// language. A kind stored without its fact says "unknown" rather than leaving
-// the sentence with an empty slot.
-func notificationFact(kind string, value *string) application.Arg {
-	if value == nil || *value == "" {
-		return application.Copy("notifications.value.unknown")
-	}
-	return application.Copy("label." + kind + "." + *value)
 }
 
 // markRead marks ONE notification read (S14 "Clicking one opens the ticket and
