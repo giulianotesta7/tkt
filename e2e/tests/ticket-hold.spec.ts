@@ -5,8 +5,9 @@
  * with a mandatory reason, the agent's detail reads the hold banner, the
  * on-hold chip and the PAUSED resolution milestone, the requester reads "This
  * ticket is waiting for your reply" plus the reason and the timeline narrative,
- * the agent resumes (banner/chip gone, the resolution clock running again), and
- * resolving a held ticket ends the hold in the same write.
+ * the agent resumes (banner/chip gone, the resolution clock running again), the
+ * requester's reply to a new hold ends it (S1), and resolving a held ticket
+ * ends the hold in the same write.
  *
  * Layer boundary: exhaustive authorization, validation copy and persistence are
  * covered by Go tests (`internal/adapters/http/handlers_ticket_hold_test.go`,
@@ -373,6 +374,51 @@ test.describe("Ticket on hold", () => {
     await expect(page.locator(".hold-banner")).toHaveCount(0);
     await expect(stateSection(page).locator(".chip")).toHaveCount(0);
     await expect(page.locator("#timeline")).toContainText("took the ticket off hold");
+
+    // ---------- S1: the requester's reply ends the hold ----------
+
+    const replyReason = `waiting for the asset tag ${suffix}`;
+    await page.locator("#hold-reason").fill(replyReason);
+    await assertHtmxSwap(
+      page,
+      async () => {
+        await page
+          .locator("form:has(#hold-reason)")
+          .getByRole("button", { name: "Put on hold" })
+          .click();
+      },
+      {
+        endpoint: holdPath,
+        method: "POST",
+        expectedStatus: 200,
+        hxTarget: "#ticket-detail",
+      },
+    );
+    await expect(page.locator(".hold-banner")).toBeVisible();
+
+    await logout(page);
+    await loginAs(page, requesterEmail, requesterPassword);
+    await page.goto(base() + detailPath);
+    await expect(page.locator("#ticket-detail .hold-banner")).toBeVisible();
+    const replyBody = `asset tag is TK-${suffix}`;
+    await page.getByLabel(/comment body/i).fill(replyBody);
+    // The comment form is a native POST: 303 back to the detail.
+    const replyResponse = page.waitForResponse(
+      (r) =>
+        r.request().method() === "POST" && new URL(r.url()).pathname === `${detailPath}/comments`,
+    );
+    await page.getByRole("button", { name: /add comment/i }).click();
+    expect((await replyResponse).status()).toBe(303);
+    await page.waitForURL((u) => u.pathname === detailPath);
+    await expect(page.locator("#ticket-detail .hold-banner")).toHaveCount(0);
+    await expect(stateSection(page).locator(".chip")).toHaveCount(0);
+    await expect(page.locator("#timeline")).toContainText(replyBody);
+    await expect(page.locator("#timeline")).toContainText("took the ticket off hold");
+
+    await logout(page);
+    await loginAsSeeded(page);
+    await page.goto(base() + detailPath);
+    await expect(page.locator("#ticket-detail .hold-banner")).toHaveCount(0);
 
     // ---------- S5: resolving a held ticket ends the hold ----------
 
