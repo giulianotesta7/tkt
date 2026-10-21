@@ -18,6 +18,16 @@
   </div>
   <button class="btn primary" type="submit">{{t "preferences.save"}}</button>
 </form>
+<form class="card form-card" method="post" action="/preferences/theme">
+  <h2>{{t "preferences.theme.title"}}</h2>
+  <div class="field">
+    <label class="visually-hidden" for="theme">{{t "preferences.theme.title"}}</label>
+    <select id="theme" name="theme">
+{{range .Themes}}      <option value="{{.Value}}"{{if eq $.Theme .Value}} selected{{end}}>{{t .Label}}</option>
+{{end}}    </select>
+  </div>
+  <button class="btn primary" type="submit">{{t "preferences.theme.save"}}</button>
+</form>
 <form class="card form-card" method="post" action="/preferences/email">
   <h2>{{t "preferences.email.title"}}</h2>
   <p class="help">{{t "preferences.email.help"}}</p>
