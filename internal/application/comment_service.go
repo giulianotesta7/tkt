@@ -14,22 +14,33 @@ import (
 type CommentService struct {
 	tickets  TicketStore
 	comments CommentStore
-	clock    domain.Clock
+	// users resolves the notification policy facts (role, active state) of the
+	// two S10 comment recipients: the ticket's requester and its assignee.
+	users UserStore
+	// tx writes the comment and its notifications as ONE transaction (issue
+	// #344 specs S10, S12): a comment and the news about it commit or roll back
+	// together.
+	tx    CommentUnitOfWork
+	clock domain.Clock
 }
 
 // NewCommentService wires the comment use cases against the given ports.
-func NewCommentService(tickets TicketStore, comments CommentStore, clock domain.Clock) *CommentService {
-	return &CommentService{tickets: tickets, comments: comments, clock: clock}
+func NewCommentService(tickets TicketStore, comments CommentStore, users UserStore, tx CommentUnitOfWork, clock domain.Clock) *CommentService {
+	return &CommentService{tickets: tickets, comments: comments, users: users, tx: tx, clock: clock}
 }
 
 // Add validates the body and visibility, checks the ticket exists within the
 // actor's ticket access scope (ticket-access spec: comments live on tickets
 // the actor can see), and stores the comment with the session user as author
-// (D14). The comment also carries the actor's user id and role snapshot, so
-// agent+ authorship stays provable for the first-response SLA milestone
-// (issue #211). Visibility follows the comment-visibility spec: role user may
-// only add public comments — an internal comment is denied (ForbiddenError)
-// BEFORE any store call; roles agent+ may add public or internal comments.
+// (D14) TOGETHER with the notifications it produces (issue #344 specs S10,
+// S12): the comment, its notifications, and the full-text reindex the insert
+// triggers all share one transaction, so a refused notification leaves no
+// comment and a stored comment always carries its news. The comment also
+// carries the actor's user id and role snapshot, so agent+ authorship stays
+// provable for the first-response SLA milestone (issue #211). Visibility
+// follows the comment-visibility spec: role user may only add public comments —
+// an internal comment is denied (ForbiddenError) BEFORE any store call; roles
+// agent+ may add public or internal comments.
 func (s *CommentService) Add(ctx context.Context, actor domain.User, ticketID int64, body, visibility string) (*domain.Comment, error) {
 	if strings.TrimSpace(body) == "" {
 		return nil, &domain.ValidationError{Field: "body", Message: domain.ErrMsgCommentBodyRequired, Key: "error.comment_body_required"}
@@ -68,7 +79,18 @@ func (s *CommentService) Add(ctx context.Context, actor domain.User, ticketID in
 		Visibility:   vis,
 		CreatedAt:    s.clock.Now(),
 	}
-	if err := s.comments.Add(ctx, c); err != nil {
+	// Comment notifications (S10 comment rows, S12): the recipients are
+	// computed HERE from policy and roles and handed to the same write that
+	// inserts the comment, so the comment and the news about it commit — or roll
+	// back — together (S11). A recipient lookup failure aborts BEFORE the write:
+	// a comment is never stored with a notification whose eligibility was not
+	// proven.
+	requester, assignee, err := ticketRecipients(ctx, s.users, t)
+	if err != nil {
+		return nil, err
+	}
+	notifications := commentNotifications(t, vis, &actor.ID, c.CreatedAt, requester, assignee)
+	if err := s.tx.Add(ctx, CommentMutation{Comment: c, Notifications: notifications}); err != nil {
 		return nil, err
 	}
 	return c, nil

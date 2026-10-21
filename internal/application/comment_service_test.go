@@ -9,6 +9,15 @@ import (
 	"github.com/giulianotesta7/tkt/internal/domain"
 )
 
+// newCommentService builds the comment service under test over the store-level
+// fakes. These fixtures seed no requester or assignee USER, so the comment unit
+// of work records no recipient: this file owns the pre-existing comment behavior
+// (validation, visibility, the closed-state guard, append-only), while
+// comment_notifications_test.go owns the #344 recipient policy.
+func newCommentService(tickets *fakeTicketStore, comments *fakeCommentStore, clock *fakeClock) *application.CommentService {
+	return application.NewCommentService(tickets, comments, newFakeUserStore(), newFakeCommentUnitOfWork(comments), clock)
+}
+
 func TestAddCommentStoresWithSessionAuthor(t *testing.T) {
 	clock := fixedClock()
 	tickets := newFakeTicketStore()
@@ -18,7 +27,7 @@ func TestAddCommentStoresWithSessionAuthor(t *testing.T) {
 		Title: "Seeded", CategoryID: cat.ID, Priority: domain.PriorityLow,
 		State: domain.StateNew, CreatedAt: clock.now, UpdatedAt: clock.now,
 	})
-	svc := application.NewCommentService(tickets, comments, clock)
+	svc := newCommentService(tickets, comments, clock)
 	actor := domain.User{ID: 7, Name: "Ada", Email: "ada@example.com", Role: domain.RoleAdmin}
 	clock.Advance(timeMinute)
 
@@ -60,7 +69,7 @@ func TestAddCommentRejectsEmptyBodyWithoutStoreCall(t *testing.T) {
 		Title: "Seeded", CategoryID: cat.ID, Priority: domain.PriorityLow,
 		State: domain.StateNew, CreatedAt: clock.now, UpdatedAt: clock.now,
 	})
-	svc := application.NewCommentService(tickets, comments, clock)
+	svc := newCommentService(tickets, comments, clock)
 
 	_, err := svc.Add(context.Background(), domain.User{Name: "Ada", Role: domain.RoleAdmin}, ticket.ID, "   ", "public")
 	var verr *domain.ValidationError
@@ -80,7 +89,7 @@ func TestAddCommentRejectsEmptyBodyWithoutStoreCall(t *testing.T) {
 
 func TestAddCommentUnknownTicket(t *testing.T) {
 	clock := fixedClock()
-	svc := application.NewCommentService(newFakeTicketStore(), newFakeCommentStore(), clock)
+	svc := newCommentService(newFakeTicketStore(), newFakeCommentStore(), clock)
 
 	_, err := svc.Add(context.Background(), domain.User{Name: "Ada", Role: domain.RoleAdmin}, 4242, "hello", "public")
 	var nerr *domain.NotFoundError
@@ -113,7 +122,7 @@ func TestAddCommentOnClosedTicketRejected(t *testing.T) {
 				Title: tc.name + " ticket", CategoryID: cat.ID, Priority: domain.PriorityLow,
 				State: tc.state, CreatedAt: now, UpdatedAt: now,
 			})
-			svc := application.NewCommentService(tickets, comments, clock)
+			svc := newCommentService(tickets, comments, clock)
 
 			_, err := svc.Add(context.Background(), domain.User{Name: "Ada", Role: domain.RoleAdmin}, ticket.ID, "Still relevant after closure", "public")
 			var ferr *domain.ForbiddenError
@@ -144,7 +153,7 @@ func TestAddCommentOnOpenTicketAccepted(t *testing.T) {
 				Title: "Open ticket", CategoryID: cat.ID, Priority: domain.PriorityLow,
 				State: state, CreatedAt: now, UpdatedAt: now,
 			})
-			svc := application.NewCommentService(tickets, comments, clock)
+			svc := newCommentService(tickets, comments, clock)
 
 			c, err := svc.Add(context.Background(), domain.User{Name: "Ada", Role: domain.RoleAdmin}, ticket.ID, "A note", "public")
 			if err != nil {
@@ -186,7 +195,7 @@ func TestAddCommentUserPublicOnly(t *testing.T) {
 	comments := newFakeCommentStore()
 	user := domain.User{ID: 1, Name: "Ula", Email: "ula@example.com", Role: domain.RoleUser}
 	ticket := seededOwnedTicket(t, clock, tickets, newFakeCategoryStore(), user)
-	svc := application.NewCommentService(tickets, comments, clock)
+	svc := newCommentService(tickets, comments, clock)
 
 	// User adds a public comment: accepted, stored with visibility public.
 	c, err := svc.Add(context.Background(), user, ticket.ID, "Visible note", "public")
@@ -238,7 +247,7 @@ func TestAddCommentAgentCreatesBothVisibilities(t *testing.T) {
 		State: domain.StateNew, CreatedAt: clock.now, UpdatedAt: clock.now,
 		UserID: &agent.ID,
 	})
-	svc := application.NewCommentService(tickets, comments, clock)
+	svc := newCommentService(tickets, comments, clock)
 
 	pub, err := svc.Add(context.Background(), agent, ticket.ID, "Public note", "public")
 	if err != nil {
@@ -273,7 +282,7 @@ func TestAddCommentVisibilityValidation(t *testing.T) {
 		Title: "Seeded", CategoryID: cat.ID, Priority: domain.PriorityLow,
 		State: domain.StateNew, CreatedAt: clock.now, UpdatedAt: clock.now,
 	})
-	svc := application.NewCommentService(tickets, comments, clock)
+	svc := newCommentService(tickets, comments, clock)
 
 	// Unknown visibility: rejected before any query or store call.
 	_, err := svc.Add(context.Background(), admin, ticket.ID, "Forged", "secret")
@@ -324,7 +333,7 @@ func TestAppendOnlyCommentsNoUpdateOrDelete(t *testing.T) {
 		Title: "Seeded", CategoryID: cat.ID, Priority: domain.PriorityLow,
 		State: domain.StateNew, CreatedAt: clock.now, UpdatedAt: clock.now,
 	})
-	svc := application.NewCommentService(tickets, store, clock)
+	svc := newCommentService(tickets, store, clock)
 
 	// The store port must not expose edit/delete operations...
 	if upd, ok := any(store).(commentUpdater); ok {
@@ -385,7 +394,7 @@ func TestAddCommentRequesterCarveOutOnResolved(t *testing.T) {
 			State: domain.StateResolved, CreatedAt: now, UpdatedAt: now,
 			RequesterUserID: &requester.ID,
 		})
-		svc := application.NewCommentService(tickets, comments, clock)
+		svc := newCommentService(tickets, comments, clock)
 		clock.Advance(timeMinute)
 
 		c, err := svc.Add(context.Background(), requester, ticket.ID, "Still relevant, one question", "public")
@@ -413,7 +422,7 @@ func TestAddCommentRequesterCarveOutOnResolved(t *testing.T) {
 			State: domain.StateResolved, CreatedAt: now, UpdatedAt: now,
 			RequesterUserID: &requester.ID,
 		})
-		svc := application.NewCommentService(tickets, comments, clock)
+		svc := newCommentService(tickets, comments, clock)
 
 		_, err := svc.Add(context.Background(), requester, ticket.ID, "Staff secret", "internal")
 		var ferr *domain.ForbiddenError
@@ -452,7 +461,7 @@ func TestAddCommentRequesterCarveOutOnResolved(t *testing.T) {
 					RequesterUserID: &requester.ID,
 					UserID:          &tc.rawID,
 				})
-				svc := application.NewCommentService(tickets, comments, clock)
+				svc := newCommentService(tickets, comments, clock)
 				actor := domain.User{ID: tc.rawID, Name: "Staff", Role: tc.role}
 
 				_, err := svc.Add(context.Background(), actor, ticket.ID, "Not my ticket", "public")
@@ -480,7 +489,7 @@ func TestAddCommentRequesterCarveOutOnResolved(t *testing.T) {
 				State: domain.StateResolved, CreatedAt: now, UpdatedAt: now,
 				RequesterUserID: &requester.ID,
 			})
-			svc := application.NewCommentService(tickets, comments, clock)
+			svc := newCommentService(tickets, comments, clock)
 			other := domain.User{ID: 42, Name: "Mallory", Role: domain.RoleUser}
 
 			_, err := svc.Add(context.Background(), other, ticket.ID, "Not my ticket", "public")
@@ -526,7 +535,7 @@ func TestAddCommentRequesterCarveOutOnResolved(t *testing.T) {
 					seeded.UserID = &tc.actor.ID
 				}
 				ticket := tickets.seed(seeded)
-				svc := application.NewCommentService(tickets, comments, clock)
+				svc := newCommentService(tickets, comments, clock)
 
 				if tc.assigned || tc.actor.Role == domain.RoleAdmin {
 					// In scope (assigned agent, or admin/root ScopeAll): the
@@ -571,7 +580,7 @@ func TestAddCommentRequesterCarveOutOnResolved(t *testing.T) {
 					State: state, CreatedAt: now, UpdatedAt: now,
 					RequesterUserID: &requester.ID,
 				})
-				svc := application.NewCommentService(tickets, comments, clock)
+				svc := newCommentService(tickets, comments, clock)
 
 				_, err := svc.Add(context.Background(), requester, ticket.ID, "Too late", "public")
 				var ferr *domain.ForbiddenError
@@ -597,7 +606,7 @@ func TestListByTicketCreationOrder(t *testing.T) {
 		Title: "Seeded", CategoryID: cat.ID, Priority: domain.PriorityLow,
 		State: domain.StateNew, CreatedAt: clock.now, UpdatedAt: clock.now,
 	})
-	svc := application.NewCommentService(tickets, comments, clock)
+	svc := newCommentService(tickets, comments, clock)
 	actor := domain.User{Name: "Ada", Role: domain.RoleAdmin}
 
 	for _, body := range []string{"first", "second", "third"} {

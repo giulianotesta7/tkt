@@ -18,6 +18,20 @@ import (
 // a requester form, the assignee for an assignee form. The actor rule and the
 // read-access rule apply as everywhere else, so a form waiting on the person who
 // just answered it notifies nobody.
+//
+// KNOWN GAP (issue #344 slice B3 report): an assignee form left pending by a
+// plan whose least_loaded step MOVES the ticket tells nobody, because the new
+// assignee is a fact of the transaction and not of the plan. The row this
+// function builds for the pre-plan assignee now travels as a conditional row that
+// the unit of work releases only when the routing re-selects that person — so a
+// RE-SELECTION does notify the holder (correct), a CLAIM notifies nobody (the
+// claimant is the actor), and a REROUTE leaves the newly selected assignee
+// uninformed: they learn about the assignment (their "assigned" row) but not that
+// an assignee form is waiting on them. Closing that last case means carrying a
+// form_waiting TEMPLATE on the operation, filled with the in-transaction selection
+// like NotifyAssignee — deliberately NOT done here, because this row is still
+// unconfirmed by the maintainer (e6-batch-2 L5) and the fix would extend an
+// unconfirmed feature. Documented rather than guessed.
 func formWaitingNotifications(t *domain.Ticket, def domain.WorkflowDefinition, nextCursor int, actorUserID *int64, at time.Time, requester, assignee *NotificationRecipient) []domain.Notification {
 	if t == nil || nextCursor < 0 || nextCursor >= len(def) {
 		return nil

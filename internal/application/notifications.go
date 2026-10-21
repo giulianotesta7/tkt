@@ -172,11 +172,15 @@ func recipientOf(u *domain.User) *NotificationRecipient {
 // recipient. A nil id or a user row that no longer exists answers nil — that
 // person is simply not a candidate. Any other store failure propagates: a
 // mutation must never persist a notification whose eligibility was not proven.
-func (s *TicketService) recipientFacts(ctx context.Context, userID *int64) (*NotificationRecipient, error) {
+//
+// It is a free function over the UserStore port because BOTH units of work that
+// notify read the same facts: the ticket service (B2) and the comment service
+// (B3). Parsing them twice would let the two drift.
+func recipientFacts(ctx context.Context, users UserStore, userID *int64) (*NotificationRecipient, error) {
 	if userID == nil {
 		return nil, nil
 	}
-	u, err := s.users.GetByID(ctx, *userID)
+	u, err := users.GetByID(ctx, *userID)
 	if err != nil {
 		if errors.Is(err, domain.ErrNotFound) {
 			return nil, nil
@@ -189,14 +193,55 @@ func (s *TicketService) recipientFacts(ctx context.Context, userID *int64) (*Not
 // ticketRecipients resolves both S10 candidates for one ticket: its requester
 // and its assignee (either may be absent, e.g. a legacy ticket with no
 // requester user or an unassigned ticket).
-func (s *TicketService) ticketRecipients(ctx context.Context, t *domain.Ticket) (requester, assignee *NotificationRecipient, err error) {
-	if requester, err = s.recipientFacts(ctx, t.RequesterUserID); err != nil {
+func ticketRecipients(ctx context.Context, users UserStore, t *domain.Ticket) (requester, assignee *NotificationRecipient, err error) {
+	if requester, err = recipientFacts(ctx, users, t.RequesterUserID); err != nil {
 		return nil, nil, err
 	}
-	if assignee, err = s.recipientFacts(ctx, t.UserID); err != nil {
+	if assignee, err = recipientFacts(ctx, users, t.UserID); err != nil {
 		return nil, nil, err
 	}
 	return requester, assignee, nil
+}
+
+// commentNotifications builds the S10 COMMENT rows for one added comment: a
+// public comment tells the requester and the assignee, an internal comment
+// tells the assignee ONLY — the requester must never learn that a staff-only
+// conversation happened (S10 "never", S16).
+//
+// The author is the actor, so the batch's own rules keep them out, and anyone
+// who cannot open the ticket is dropped. Internal comments add one more rule:
+// the recipient's role must hold CapCommentInternal, the same capability that
+// gates reading and writing them. A legacy ticket naming a user-role assignee
+// therefore notifies nobody rather than leaking the hidden conversation.
+func commentNotifications(t *domain.Ticket, visibility domain.CommentVisibility, actorUserID *int64, at time.Time, requester, assignee *NotificationRecipient) []domain.Notification {
+	if t == nil {
+		return nil
+	}
+	b := newNotificationBatch(t, actorUserID, at)
+	// A comment carries no state or priority change, so the rows hold the kind
+	// and the comment id alone (S15: never a rendered sentence).
+	if visibility == domain.CommentInternal {
+		// The requester is absent from this branch by construction, not by a
+		// filter: there is no path that hands an internal comment the
+		// requester candidate.
+		if canSeeInternalComments(assignee) {
+			b.add(domain.NotificationCommentInternal, assignee, nil, nil)
+		}
+		return b.list()
+	}
+	b.add(domain.NotificationCommentPublic, requester, nil, nil)
+	b.add(domain.NotificationCommentPublic, assignee, nil, nil)
+	return b.list()
+}
+
+// canSeeInternalComments reports whether r may be told about an INTERNAL
+// comment. The role must hold CapCommentInternal: a recipient without it cannot
+// read the comment, so learning one exists would already reveal it (S16).
+func canSeeInternalComments(r *NotificationRecipient) bool {
+	if r == nil || !r.Role.Valid() || !r.Active {
+		return false
+	}
+	return NewPolicy().Capabilities(r.Role).Require(CapCommentInternal)
 }
 
 // copyString copies a fact for storage: each row owns its own value, so a

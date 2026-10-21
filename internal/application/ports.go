@@ -232,6 +232,39 @@ type CommentStore interface {
 	ListByTicket(ctx context.Context, ticketID int64, includeInternal bool) ([]domain.Comment, error)
 }
 
+// CommentUnitOfWork persists a comment and the notifications it produces as
+// ONE atomic unit (issue #344 specs S10, S12; S11 is the general contract it
+// instantiates for comments). The application issues a single call per
+// comment; implementations MUST insert the comment, stamp the assigned comment
+// id onto every notification, and append the notifications in ONE transaction,
+// rolling the comment back when any append fails — so a comment can never be
+// stored without the news about it, and a notification about a comment can
+// never outlive it.
+//
+// Recipients are computed by the APPLICATION layer from policy and roles; the
+// store only inserts what it is handed.
+type CommentUnitOfWork interface {
+	// Add persists m.Comment, assigning m.Comment.ID, and appends
+	// m.Notifications in the SAME transaction. Implementations stamp each
+	// notification's CommentID from the assigned id before persisting (the
+	// column's foreign key needs the comment row, which is exactly why both
+	// writes share the transaction).
+	Add(ctx context.Context, m CommentMutation) error
+}
+
+// CommentMutation is ONE atomic comment write and everything that must commit
+// with it: the comment row and the notifications addressed to the recipients
+// the application computed for it. Splitting these into separate calls would
+// allow a comment nobody was told about, or a notification pointing at a
+// comment that failed to persist.
+type CommentMutation struct {
+	Comment *domain.Comment
+	// Notifications carry the comment kind, the recipients policy allowed, and
+	// the author as actor. CommentID is left nil: the id does not exist until
+	// the insertion, so the unit of work stamps it.
+	Notifications []domain.Notification
+}
+
 // AuditStore persists the append-only audit trail (audit-log spec).
 type AuditStore interface {
 	// Append stores all events in occurrence order (one mutation batch).
@@ -512,6 +545,33 @@ func (a AssigneeNotification) For(assigneeUserID int64) domain.Notification {
 	}
 }
 
+// ConditionalAssigneeNotification carries the rows the PRE-PLAN assignee of a
+// ticket is owed, with the condition that makes them truthful: they are written
+// only when the assignee the transaction ends up with is the person they name.
+// A least_loaded step chooses its assignee INSIDE the transaction, so at plan
+// time nobody can know whether the ticket keeps its holder (a re-selection) or
+// moves (a reroute).
+//
+// The two outcomes S10 requires:
+//   - re-selection: the holder keeps every row it is owed (state_changed, a form
+//     waiting on the assignee, …) and gets NO "assigned" row — nothing was
+//     assigned to them, and a redundant row is noise in a bell that counts;
+//   - reroute: the outgoing holder gets NOTHING (it may no longer be able to
+//     open the ticket), and the new holder gets its "assigned" row from the
+//     operation's NotifyAssignee template.
+//
+// The adapter re-reads its own selection and filters on it, so the recipient
+// decision never depends on a plan-time guess.
+type ConditionalAssigneeNotification struct {
+	// AssigneeUserID is the pre-plan assignee: the recipient every row in Rows
+	// is addressed to, and the value the transaction's final assignee must equal
+	// for the rows to be written.
+	AssigneeUserID int64
+	// Rows are already complete notifications (kind, actor, instant, ticket);
+	// the application computed them exactly as it does for every other batch.
+	Rows []domain.Notification
+}
+
 // TransitionOperation carries the exact domain.Ticket.Transition audit.
 type TransitionOperation struct {
 	StepIndex int
@@ -576,6 +636,14 @@ type WorkflowMutationPlan struct {
 	// inside the SAME transaction as the operations, the ticket write, and the
 	// cursor CAS, so a plan that fails leaves no notification behind (S11).
 	Notifications []domain.Notification
+	// ConditionalNotifications carry the rows addressed to the ticket's
+	// PRE-PLAN assignee, which are only truthful if the routing step this plan
+	// runs leaves that person in place. They are resolved against the selection
+	// the transaction actually made, because a least_loaded assignee is a
+	// persistence fact (design S6): re-selection keeps the holder's rows,
+	// rerouting drops them (the outgoing holder may no longer be able to open
+	// the ticket — S10 rule 2). See ConditionalAssigneeNotification.
+	ConditionalNotifications []ConditionalAssigneeNotification
 }
 type WorkflowExecutionResult struct {
 	Ticket *domain.Ticket

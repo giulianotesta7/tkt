@@ -215,9 +215,23 @@ func (u *workflowUnitOfWork) ApplyWorkflowPlan(ctx context.Context, in applicati
 	// same immediate transaction as the operations and the ticket write
 	// (S11): a failed apply leaves no notification behind, and a notification
 	// never exists without the change it describes. The adapter inserts what it
-	// is given and never decides a recipient.
+	// is given and never decides a recipient — with ONE exception, the rows the
+	// plan marks conditional: their recipient is the pre-plan assignee, and only
+	// THIS transaction knows whether the routing it just ran kept that person or
+	// moved the ticket (S10). The selection is already applied to ticket.UserID,
+	// so the condition is a plain comparison.
 	if err := appendNotificationsTx(ctx, tx, in.Notifications); err != nil {
 		return application.WorkflowExecutionResult{}, err
+	}
+	for _, c := range in.ConditionalNotifications {
+		if ticket.UserID == nil || *ticket.UserID != c.AssigneeUserID {
+			// The routing moved the ticket: the outgoing holder may no longer be
+			// able to open it, so its rows are stale (S10 rule 2).
+			continue
+		}
+		if err := appendNotificationsTx(ctx, tx, c.Rows); err != nil {
+			return application.WorkflowExecutionResult{}, err
+		}
 	}
 
 	// Persist the final ticket state (proven equal by the validator).
@@ -1889,9 +1903,16 @@ func applyWorkflowOperations(ctx context.Context, tx *sql.Tx, t *domain.Ticket, 
 			// filter belongs here: such a row would tell the agent about their own
 			// action. A same-person selection still writes its audit row (the
 			// timeline keeps it); only the notification is dropped.
+			//
+			// A selection that equals the CURRENT holder assigns nothing: the
+			// ticket stays theirs, so an "assigned" row would be noise in a bell
+			// that counts. What that person is owed for the change is not decided
+			// here — the plan carries it as a conditional block, which
+			// ApplyWorkflowPlan releases against this same selection.
 			if v.NotifyAssignee != nil {
 				row := v.NotifyAssignee.For(selected)
-				if row.ActorUserID == nil || *row.ActorUserID != selected {
+				keptHolder := from == to
+				if !keptHolder && (row.ActorUserID == nil || *row.ActorUserID != selected) {
 					if err := appendNotificationsTx(ctx, tx, []domain.Notification{row}); err != nil {
 						return err
 					}

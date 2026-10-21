@@ -109,7 +109,7 @@ func main() {
 	catSvc := application.NewCategoryService(store.CategoryStore(), clock)
 	catalogSvc := application.NewCatalogService(store.CatalogStore(), store.CategoryStore(), clock)
 	deskSvc := application.NewDeskService(store.DeskStore(), store.UserStore(), clock)
-	commentSvc := application.NewCommentService(store.TicketStore(), store.CommentStore(), clock)
+	commentSvc := application.NewCommentService(store.TicketStore(), store.CommentStore(), store.UserStore(), store.CommentUnitOfWork(), clock)
 	slaSvc := application.NewSLAService(store.SLAStore(), store.SettingsStore(), clock)
 	ticketSvc := application.NewTicketServiceWithWorkflowCreate(store.TicketStore(), store.UserStore(), store.CategoryStore(), store.TicketUnitOfWork(), viewBuilder, clock, store.WorkflowVersionStore(), application.NewWorkflowRunner(clock), store.WorkflowUnitOfWork(), slaSvc)
 	authSvc := application.NewAuthService(store.UserStore(), store.SessionStore(), clock)

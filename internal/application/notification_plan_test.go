@@ -152,6 +152,60 @@ func TestPlanCompleteLeastLoadedCarriesTheAssigneeTemplate(t *testing.T) {
 	}
 }
 
+// TestPlanCompleteLeastLoadedDefersTheAssigneeRows: a plan that routes the
+// ticket with least_loaded cannot know whether the ticket keeps its holder or
+// moves — the selection only exists inside the transaction — so the rows that
+// describe the snapshot's assignee travel as a CONDITIONAL block keyed to that
+// person. The unit of work releases them on a re-selection and drops them on a
+// reroute; the state-change row is not addressed to the requester here because
+// the requester is the actor who answered the form.
+func TestPlanCompleteLeastLoadedDefersTheAssigneeRows(t *testing.T) {
+	const requester, agent = 7, 9
+	r := application.NewWorkflowRunner(fixedClock())
+	// The REQUESTER answers the first form; the run then routes the ticket with
+	// least_loaded, which also moves it out of "new".
+	def := wf(fm(domain.FormActorRequester, domain.FormField{Key: "host", Label: "Host", Kind: domain.FieldShortText}),
+		least(1))
+	snapshot := notifySnap(t, domain.StateNew, 0, def, requester, agent)
+
+	plan, err := r.PlanComplete(context.Background(), snapshot, application.CompleteWorkflowCommand{
+		TicketID: 1, ActorUserID: requester, ActorName: "Rita", ExpectedPosition: 1,
+		RawAnswers: application.RawPositionalValues{{Position: 0, Values: []string{"api-01"}}},
+	})
+	if err != nil {
+		t.Fatalf("PlanComplete: %v", err)
+	}
+	if plan.NextTicketState != domain.StateInProgress {
+		t.Fatalf("next state = %s, want in_progress (the fixture must change state)", plan.NextTicketState)
+	}
+	if len(plan.Notifications) != 0 {
+		t.Fatalf("plan notifications = %+v, want none (the requester acted)", plan.Notifications)
+	}
+	if len(plan.ConditionalNotifications) != 1 {
+		t.Fatalf("conditional blocks = %+v, want one for the pre-plan assignee", plan.ConditionalNotifications)
+	}
+	c := plan.ConditionalNotifications[0]
+	if c.AssigneeUserID != agent {
+		t.Fatalf("conditional recipient = %d, want the pre-plan assignee %d", c.AssigneeUserID, agent)
+	}
+	if len(c.Rows) != 1 || c.Rows[0].Kind != domain.NotificationStateChanged {
+		t.Fatalf("conditional rows = %+v, want [state_changed]", c.Rows)
+	}
+	if c.Rows[0].UserID != agent || c.Rows[0].TicketID != 1 {
+		t.Errorf("row = %+v, want the assignee's row on the ticket", c.Rows[0])
+	}
+	// The selected member still gets the assigned row the operation carries.
+	var templates int
+	for _, op := range plan.Operations {
+		if ll, ok := op.(application.LeastLoadedAssignmentOperation); ok && ll.NotifyAssignee != nil {
+			templates++
+		}
+	}
+	if templates != 1 {
+		t.Fatalf("%d least_loaded templates, want 1", templates)
+	}
+}
+
 // TestPlanCompleteWithoutRecipientFactsNotifiesNobody pins the fail-closed
 // default: a snapshot that cannot prove who may open the ticket produces no
 // notification at all, and the plan still applies.
