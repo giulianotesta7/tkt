@@ -64,6 +64,17 @@ type TicketUnitOfWork interface {
 	// atomically. Either batch may be empty: a plain ticket write is still
 	// atomic by construction.
 	Update(ctx context.Context, m TicketMutation) error
+	// UpdateHold persists one hold change (issue #352) as ONE atomic unit:
+	// the ticket row, its hold columns, the optional shifted SLA, the event
+	// batch, and the notifications (#344: a notification never exists
+	// without its change). The hold columns are written
+	// ONLY here — Update never writes them — and only when the stored
+	// on_hold_since still equals w.ExpectedOnHoldSince (compare-and-set), so
+	// two concurrent resumes cannot shift the SLA twice and a stale read can
+	// never resurrect a hold. A mismatch is a *domain.HoldConflictError with
+	// no writes. Update refuses, with the same error, to write a terminal
+	// state over a row that is still on hold.
+	UpdateHold(ctx context.Context, w HoldWrite) error
 }
 
 // TicketMutation is ONE atomic ticket write and everything that must commit
@@ -92,6 +103,22 @@ type NotificationRecipient struct {
 	UserID int64
 	Role   domain.Role
 	Active bool
+}
+
+// HoldWrite is one hold change for TicketUnitOfWork.UpdateHold (issue
+// #352). Ticket carries the new hold columns (OnHoldSince, OnHoldReason)
+// and any field the same change wrote (a resolve or cancel that ends the
+// hold). ShiftedSLA, when non-nil, replaces the frozen RESOLUTION warning
+// and due instants — the one sanctioned update of a frozen commitment.
+// The requester reply that ends a hold is NOT written here: it rides the
+// comment unit of work (#344) so the comment, its notifications and the
+// resume share that one transaction.
+type HoldWrite struct {
+	Ticket              *domain.Ticket
+	ExpectedOnHoldSince *time.Time
+	ShiftedSLA          *domain.TicketSLA
+	Events              []domain.AuditEvent
+	Notifications       []domain.Notification
 }
 
 // WorkflowUnitOfWork persists application-planned workflow mutations as ONE
@@ -886,7 +913,9 @@ type SLAStore interface {
 	// retroactively breached.
 	TicketSLA(ctx context.Context, ticketID int64) (*domain.TicketSLA, error)
 	// InsertTicketSLA freezes a commitment onto one ticket. This is a
-	// creation-time write (the row is never updated afterwards); inserting
+	// creation-time write (the row is never updated afterwards, except the
+	// resolution instants a resumed hold shifts — TicketUnitOfWork.UpdateHold,
+	// issue #352); inserting
 	// a second row for the same ticket is a storage failure.
 	InsertTicketSLA(ctx context.Context, ticketID int64, sla domain.TicketSLA) error
 	// Milestones returns the observed SLA milestone instants for one
@@ -895,7 +924,8 @@ type SLAStore interface {
 	// the SLA measures the commitment made at ticket creation, so a later
 	// response or a reopen-and-reresolve never replaces the observed
 	// first. This differs from the administrative metrics read, which
-	// takes the LAST resolution of the requested interval.
+	// takes the LAST resolution of the requested interval. ResolvePausedAt
+	// carries the ticket's on_hold_since while it is on hold (issue #352).
 	Milestones(ctx context.Context, ticketID int64) (domain.SLAMilestones, error)
 	// TicketSLAs returns the commitments frozen onto MANY tickets, keyed
 	// by ticket id — the list-rendering read path (issue #211), so a page
@@ -908,9 +938,10 @@ type SLAStore interface {
 	TicketSLAs(ctx context.Context, ticketIDs []int64) (map[int64]*domain.TicketSLA, error)
 	// MilestonesFor returns the observed SLA milestone instants for MANY
 	// tickets, keyed by ticket id, using the same FIRST-response and
-	// FIRST-resolution semantics as Milestones. A ticket with NEITHER
-	// observation is ABSENT from the map; a ticket with only one
-	// observation is PRESENT with the other field nil. An empty
+	// FIRST-resolution semantics as Milestones, plus ResolvePausedAt. A
+	// ticket with NO observation (no response, no resolution, not on hold)
+	// is ABSENT from the map; a ticket with some observation is PRESENT with
+	// the others nil. An empty
 	// ticketIDs answers an empty map WITHOUT touching the database (an
 	// IN () list is a SQL syntax error) and without an error. Rows are
 	// answered in no particular order — the map is keyed by id.

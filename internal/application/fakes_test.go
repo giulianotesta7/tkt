@@ -350,6 +350,12 @@ type fakeUnitOfWork struct {
 	// createCalls counts Create invocations: it proves the workflow create path
 	// never falls back to the legacy TicketUnitOfWork create (PR5 S5).
 	createCalls int
+	// slas, when non-nil, receives the shifted resolution instants of an
+	// UpdateHold. It is nil by default because no service test under this
+	// port needs the SLA side yet, and a fake must not invent a store it was
+	// not given: with nil, ShiftedSLA is not persisted (documented
+	// simplification, issue #352).
+	slas *fakeSLAStore
 }
 
 func newFakeUnitOfWork(tickets *fakeTicketStore, audits *fakeAuditStore) *fakeUnitOfWork {
@@ -382,6 +388,13 @@ func (f *fakeUnitOfWork) Update(ctx context.Context, m application.TicketMutatio
 	if !ok {
 		return &domain.NotFoundError{Kind: "ticket", ID: m.Ticket.ID}
 	}
+	// The real store refuses a terminal write over a row that is still on
+	// hold (issue #352): resolving or cancelling ends the hold, so it goes
+	// through UpdateHold. Mirrored here so a service test cannot pass on a
+	// write the SQLite unit of work would refuse.
+	if domain.IsClosed(m.Ticket.State) && prev.OnHoldSince != nil {
+		return &domain.HoldConflictError{TicketID: m.Ticket.ID}
+	}
 	if err := f.tickets.Update(ctx, m.Ticket); err != nil {
 		return err
 	}
@@ -394,6 +407,69 @@ func (f *fakeUnitOfWork) Update(ctx context.Context, m application.TicketMutatio
 		return f.audits.Append(ctx, m.Events...)
 	}
 	return nil
+}
+
+// UpdateHold mirrors TicketUnitOfWork.UpdateHold (issue #352): the hold
+// columns are written only against the stored hold the caller read
+// (compare-and-set), so a stale read is a HoldConflictError with no writes,
+// and the ticket write, the shifted SLA and the event batch either all land
+// or all roll back on a failing audit append.
+//
+// Simplifications, documented per the fakes contract: the fake has no
+// workflow-run store, so ending the hold on a terminal change does not close
+// an active run (the sqlite layer proves that half); ShiftedSLA is persisted
+// only when an SLA fake is attached through f.slas, and that fake stores no
+// transaction of its own, so the rollback here restores it by hand; the
+// "missing ticket" and "lost race" cases are told apart exactly as the real
+// store does (NotFoundError vs HoldConflictError).
+func (f *fakeUnitOfWork) UpdateHold(ctx context.Context, w application.HoldWrite) error {
+	prev, ok := f.tickets.tickets[w.Ticket.ID]
+	if !ok {
+		return &domain.NotFoundError{Kind: "ticket", ID: w.Ticket.ID}
+	}
+	if !sameHoldInstant(prev.OnHoldSince, w.ExpectedOnHoldSince) {
+		return &domain.HoldConflictError{TicketID: w.Ticket.ID}
+	}
+	var prevSLA *domain.TicketSLA
+	if f.slas != nil {
+		if stored, ok := f.slas.frozen[w.Ticket.ID]; ok {
+			copyOf := *stored
+			prevSLA = &copyOf
+		}
+	}
+	f.tickets.store(w.Ticket)
+	if f.slas != nil && w.ShiftedSLA != nil {
+		shifted := *w.ShiftedSLA
+		if f.slas.frozen == nil {
+			f.slas.frozen = map[int64]*domain.TicketSLA{}
+		}
+		f.slas.frozen[w.Ticket.ID] = &shifted
+	}
+	if f.failAuditAppend {
+		f.tickets.tickets[w.Ticket.ID] = prev
+		if f.slas != nil {
+			if prevSLA == nil {
+				delete(f.slas.frozen, w.Ticket.ID)
+			} else {
+				f.slas.frozen[w.Ticket.ID] = prevSLA
+			}
+		}
+		return errAuditAppendFailed
+	}
+	f.notifications = append(f.notifications, w.Notifications...)
+	if len(w.Events) > 0 {
+		return f.audits.Append(ctx, w.Events...)
+	}
+	return nil
+}
+
+// sameHoldInstant reports whether two hold instants are the same hold state:
+// both nil, or the same instant. It is the fake's compare-and-set predicate.
+func sameHoldInstant(a, b *time.Time) bool {
+	if a == nil || b == nil {
+		return a == nil && b == nil
+	}
+	return a.Equal(*b)
 }
 
 // fakeUserStore implements UserStore: email uniqueness, delete guard via a

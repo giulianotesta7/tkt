@@ -17,7 +17,9 @@ import (
 // #211). The global defaults are seeded by migration 0014; a category's
 // matrix is materialized by the migration-0016 trigger at category
 // creation time, and a ticket's targets are frozen at creation and never
-// updated afterwards.
+// updated afterwards — with ONE sanctioned exception: resuming a hold
+// re-applies the RESOLUTION warning and due instants by the working time
+// the ticket spent paused (issue #352, updateTicketSLAResolveTx).
 type slaStore struct {
 	db *sql.DB
 }
@@ -348,8 +350,9 @@ func slaChunkArgs(ids []int64) (string, []any) {
 }
 
 // InsertTicketSLA freezes a commitment onto one ticket inside its own
-// small transaction — the only writer of the row. Creation-time write:
-// the row is never updated afterwards.
+// small transaction — the only writer of the row. Creation-time write: the
+// row is never updated afterwards, except by the one sanctioned resolution
+// shift of a resumed hold (updateTicketSLAResolveTx, issue #352).
 func (ss *slaStore) InsertTicketSLA(ctx context.Context, ticketID int64, sla domain.TicketSLA) error {
 	tx, err := ss.db.BeginTx(ctx, nil) // _txlock=immediate → BEGIN IMMEDIATE
 	if err != nil {
@@ -389,6 +392,28 @@ func insertTicketSLATx(ctx context.Context, tx *sql.Tx, ticketID int64, sla *dom
 	return nil
 }
 
+// updateTicketSLAResolveTx re-applies the RESOLUTION warning and due
+// instants of one ticket's frozen commitment inside the CALLER's
+// transaction (issue #352). It is the ONE sanctioned update of a frozen
+// commitment: a resumed hold moves the resolution clock forward by the
+// working time the ticket spent paused, and the shift must commit with the
+// ticket write that ended the hold — a shifted instant on a ticket still on
+// hold (or a resumed hold with the old instants) is exactly the drift the
+// transaction exists to prevent. The first-response instants, the targets
+// and the start never move: only the resolution clock pauses. The instants
+// go through formatSLAInstant, so the EMPTY pre-0017 legacy marker
+// round-trips unchanged, and the helper sits next to insertTicketSLATx so
+// the two writers of ticket_sla share one copy of the instant encoding.
+func updateTicketSLAResolveTx(ctx context.Context, tx *sql.Tx, ticketID int64, sla domain.TicketSLA) error {
+	if _, err := tx.ExecContext(ctx, `UPDATE ticket_sla
+		SET warn_resolve_at = ?, due_resolve_at = ?
+		WHERE ticket_id = ?`,
+		formatSLAInstant(sla.WarnResolveAt), formatSLAInstant(sla.DueResolveAt), ticketID); err != nil {
+		return fmt.Errorf("sqlite: shift ticket sla resolve instants: %w", err)
+	}
+	return nil
+}
+
 // formatSLAInstant stores one frozen warning/due instant, or ” when it
 // is the zero time. ” is the migration-0017 legacy marker: every row the
 // application writes carries real instants, so only pre-0017 rows (and
@@ -411,25 +436,30 @@ func parseSLAInstant(value string) (time.Time, error) {
 	return time.Parse(timeLayout, value)
 }
 
-// Milestones returns the FIRST public staff response and the FIRST
-// resolution instants for one ticket, each nil when it has not happened.
+// Milestones returns the FIRST public staff response, the FIRST resolution,
+// and the pause instant of a resolution clock that is still paused, each nil
+// when it does not apply (issue #352).
 //
-// Both are FIRSTS on purpose: the SLA measures the commitment made at
-// ticket creation, so it takes the first — this deliberately differs from
-// ticket_metrics.go, which takes the LAST resolution (ROW_NUMBER() ...
-// ORDER BY created_at DESC) because a report counts each closure, not the
-// creation-time promise. The predicates live in the shared
-// slaFirstResponseWhere / slaFirstResolvedWhere consts so the single and
-// batch reads cannot drift.
+// The two observations are FIRSTS on purpose: the SLA measures the
+// commitment made at ticket creation, so it takes the first — this
+// deliberately differs from ticket_metrics.go, which takes the LAST
+// resolution (ROW_NUMBER() ... ORDER BY created_at DESC) because a report
+// counts each closure, not the creation-time promise. The predicates live in
+// the shared slaFirstResponseWhere / slaFirstResolvedWhere consts so the
+// single and batch reads cannot drift. ResolvePausedAt is the ticket's
+// on_hold_since (migration 0022): the hold lives on the ticket, not on the
+// frozen commitment, because a hold is an attribute of an open ticket and
+// ends with it.
 func (ss *slaStore) Milestones(ctx context.Context, ticketID int64) (domain.SLAMilestones, error) {
-	var firstResponse, firstResolved sql.NullString
+	var firstResponse, firstResolved, paused sql.NullString
 	err := ss.db.QueryRowContext(ctx, `
 		SELECT
 		  (SELECT MIN(created_at) FROM comments
 		    WHERE ticket_id = ? AND `+slaFirstResponseWhere+`),
 		  (SELECT MIN(created_at) FROM audit_events
-		    WHERE ticket_id = ? AND `+slaFirstResolvedWhere+`)`,
-		ticketID, ticketID).Scan(&firstResponse, &firstResolved)
+		    WHERE ticket_id = ? AND `+slaFirstResolvedWhere+`),
+		  (SELECT on_hold_since FROM tickets WHERE id = ?)`,
+		ticketID, ticketID, ticketID).Scan(&firstResponse, &firstResolved, &paused)
 	if err != nil {
 		return domain.SLAMilestones{}, fmt.Errorf("sqlite: sla milestones: %w", err)
 	}
@@ -439,6 +469,9 @@ func (ss *slaStore) Milestones(ctx context.Context, ticketID int64) (domain.SLAM
 		return domain.SLAMilestones{}, err2
 	}
 	if m.FirstResolvedAt, err2 = parseSLAMilestone(firstResolved, "first resolution"); err2 != nil {
+		return domain.SLAMilestones{}, err2
+	}
+	if m.ResolvePausedAt, err2 = parseSLAMilestone(paused, "resolution pause"); err2 != nil {
 		return domain.SLAMilestones{}, err2
 	}
 	return m, nil
@@ -458,16 +491,15 @@ func parseSLAMilestone(value sql.NullString, label string) (*time.Time, error) {
 	return &t, nil
 }
 
-// MilestonesFor returns the FIRST public staff response and the FIRST
-// resolution instants for many tickets, keyed by ticket id, using the
-// SAME two milestone predicates as Milestones. A ticket with NEITHER
-// observation is ABSENT from the map; a ticket with only one observation
-// is PRESENT with the other field nil. An empty ticketIDs answers an
+// MilestonesFor returns the FIRST public staff response, the FIRST
+// resolution and the resolution pause instant for many tickets, keyed by
+// ticket id, using the SAME predicates as Milestones. A ticket with NONE of
+// the three observations is ABSENT from the map; a ticket with only some of
+// them is PRESENT with the other fields nil. An empty ticketIDs answers an
 // empty map WITHOUT querying (an IN () list is a SQL syntax error) and
-// without an error. The id list is chunked (slaBatchChunkSize) to stay
-// well inside SQLite's bound-parameter limit, and the result is correct
-// across chunks; rows are answered in no particular order — the map is
-// keyed by id.
+// without an error. The id list is chunked (slaBatchChunkSize) to stay well
+// inside SQLite's bound-parameter limit, and the result is correct across
+// chunks; rows are answered in no particular order — the map is keyed by id.
 func (ss *slaStore) MilestonesFor(ctx context.Context, ticketIDs []int64) (map[int64]domain.SLAMilestones, error) {
 	out := make(map[int64]domain.SLAMilestones, len(ticketIDs))
 	if len(ticketIDs) == 0 {
@@ -485,10 +517,13 @@ func (ss *slaStore) MilestonesFor(ctx context.Context, ticketIDs []int64) (map[i
 	return out, nil
 }
 
-// milestonesForChunk runs the two milestone predicates over ONE chunk of
-// ids — one query each, so the bound parameters of a single statement
-// stay inside SQLite's limit — and merges both observations into out, one
-// result per ticket.
+// milestonesForChunk runs the milestone predicates over ONE chunk of ids —
+// one query each, so the bound parameters of a single statement stay inside
+// SQLite's limit — and merges the observations into out, one result per
+// ticket. The third query reads the hold columns of migration 0022 (issue
+// #352): a ticket on hold is PRESENT in the map even when neither milestone
+// has happened yet, because the paused resolution clock is itself an
+// observation the projection needs.
 func (ss *slaStore) milestonesForChunk(ctx context.Context, ids []int64, out map[int64]domain.SLAMilestones) error {
 	placeholders, args := slaChunkArgs(ids)
 	if err := ss.mergeMilestonesForChunk(ctx, `
@@ -498,18 +533,24 @@ func (ss *slaStore) milestonesForChunk(ctx context.Context, ids []int64, out map
 		func(m *domain.SLAMilestones, at *time.Time) { m.FirstResponseAt = at }, out); err != nil {
 		return err
 	}
-	return ss.mergeMilestonesForChunk(ctx, `
+	if err := ss.mergeMilestonesForChunk(ctx, `
 		SELECT ticket_id, MIN(created_at) FROM audit_events
 		WHERE ticket_id IN (`+placeholders+`) AND `+slaFirstResolvedWhere+`
 		GROUP BY ticket_id`, args, "first resolution",
-		func(m *domain.SLAMilestones, at *time.Time) { m.FirstResolvedAt = at }, out)
+		func(m *domain.SLAMilestones, at *time.Time) { m.FirstResolvedAt = at }, out); err != nil {
+		return err
+	}
+	return ss.mergeMilestonesForChunk(ctx, `
+		SELECT id, on_hold_since FROM tickets
+		WHERE id IN (`+placeholders+`) AND on_hold_since IS NOT NULL`, args, "resolution pause",
+		func(m *domain.SLAMilestones, at *time.Time) { m.ResolvePausedAt = at }, out)
 }
 
 // mergeMilestonesForChunk runs ONE grouped milestone query (ticket_id,
-// MIN(created_at)) over a chunk of ids and merges each parsed instant
-// into out through setAt, so a ticket with both observations ends up with
-// both fields and one with a single observation stays present with the
-// other field nil.
+// instant) over a chunk of ids and merges each parsed instant into out
+// through setAt, so a ticket observed by several queries ends up with all
+// its fields and one observed only once stays present with the other fields
+// nil.
 func (ss *slaStore) mergeMilestonesForChunk(
 	ctx context.Context, query string, args []any, label string,
 	setAt func(m *domain.SLAMilestones, at *time.Time),

@@ -31,6 +31,14 @@ type Ticket struct {
 	UpdatedAt         time.Time
 	ResolvedAt        *time.Time
 	ClosedAt          *time.Time
+	// OnHoldSince is the instant the ticket was put on hold while it waits for
+	// the requester (issue #352); nil when it is not on hold. A hold is an
+	// ATTRIBUTE of an open ticket, not a lifecycle state: the state machine,
+	// the terminal states and the metrics are untouched, and only PutOnHold
+	// and ResumeFromHold set or clear it. OnHoldReason is the mandatory pause
+	// reason, empty whenever OnHoldSince is nil.
+	OnHoldSince  *time.Time
+	OnHoldReason string
 	// SLA is the SLA commitment FROZEN onto the ticket at creation (issue
 	// #211, the WorkflowVersionID precedent): it is carried ONLY through the
 	// creation path and written ONCE, in the ticket's own transaction; the
@@ -56,6 +64,13 @@ func (t *Ticket) Transition(to State, reason string, now time.Time) (*AuditEvent
 	from := t.State
 	if !transitions[from][to] {
 		return nil, NewInvalidTransitionError(from, to)
+	}
+	// No terminal ticket is left on hold (issue #352): every closing path
+	// ends the hold first, through ResumeFromHold, so the paused resolution
+	// clock is re-applied before the milestone is judged. A path that forgets
+	// fails here instead of storing a resolved ticket that still reads paused.
+	if IsClosed(to) && t.IsOnHold() {
+		return nil, &ValidationError{Field: "state", Message: ErrMsgTicketOnHold, Key: "error.ticket_on_hold"}
 	}
 
 	var note *string
@@ -92,6 +107,60 @@ func (t *Ticket) Transition(to State, reason string, now time.Time) (*AuditEvent
 		FromValue: ptr(string(from)),
 		ToValue:   ptr(string(to)),
 		Note:      note,
+		CreatedAt: now,
+	}, nil
+}
+
+// IsOnHold reports whether the ticket waits for the requester (issue #352).
+func (t *Ticket) IsOnHold() bool { return t.OnHoldSince != nil }
+
+// PutOnHold puts an open ticket on hold while it waits for the requester
+// (issue #352), recording the trimmed pause reason and the pause instant.
+// Every rejection is decided before any field changes, so a refused hold
+// leaves the ticket exactly as it was: a terminal ticket is read-only, a
+// blank reason is refused (the reason is why the clock stops, it is
+// mandatory), and a ticket already on hold keeps its original pause
+// instant rather than restarting it.
+func (t *Ticket) PutOnHold(reason string, now time.Time) (*AuditEvent, error) {
+	if IsClosed(t.State) {
+		return nil, NewForbiddenError(ErrMsgClosedTicketReadOnly)
+	}
+	if t.IsOnHold() {
+		return nil, &ValidationError{Field: "reason", Message: ErrMsgTicketAlreadyOnHold, Key: "error.ticket_already_on_hold"}
+	}
+	r := strings.TrimSpace(reason)
+	if r == "" {
+		return nil, &ValidationError{Field: "reason", Message: ErrMsgHoldReasonRequired, Key: "error.hold_reason_required"}
+	}
+	since := now
+	t.OnHoldSince = &since
+	t.OnHoldReason = r
+	t.UpdatedAt = now
+	return &AuditEvent{
+		TicketID:  t.ID,
+		Action:    ActionHold,
+		Field:     ptr("on_hold"),
+		Note:      ptr(r),
+		CreatedAt: now,
+	}, nil
+}
+
+// ResumeFromHold takes the ticket off hold (issue #352) and returns the
+// instant the hold began, which the caller needs to shift the frozen
+// resolution SLA by the working time spent on hold. A ticket not on hold is
+// refused with no change.
+func (t *Ticket) ResumeFromHold(now time.Time) (time.Time, *AuditEvent, error) {
+	if !t.IsOnHold() {
+		return time.Time{}, nil, &ValidationError{Field: "state", Message: ErrMsgTicketNotOnHold, Key: "error.ticket_not_on_hold"}
+	}
+	pausedAt := *t.OnHoldSince
+	t.OnHoldSince = nil
+	t.OnHoldReason = ""
+	t.UpdatedAt = now
+	return pausedAt, &AuditEvent{
+		TicketID:  t.ID,
+		Action:    ActionResume,
+		Field:     ptr("on_hold"),
 		CreatedAt: now,
 	}, nil
 }

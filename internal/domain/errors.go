@@ -35,6 +35,11 @@ const (
 	ErrMsgCategoryWorkflowUnavailable = "category is not available for new tickets — publish its workflow first"
 	ErrMsgCreateUnassignedOnly        = "tickets are created unassigned — assignment happens later through the category flow"
 	ErrMsgSolutionTooLong             = "solution must be 2,000 characters or fewer"
+	ErrMsgHoldReasonRequired          = "a reason is required to put the ticket on hold"
+	ErrMsgTicketAlreadyOnHold         = "the ticket is already on hold"
+	ErrMsgTicketNotOnHold             = "the ticket is not on hold"
+	ErrMsgTicketOnHold                = "take the ticket off hold before closing it"
+	ErrMsgHoldConflict                = "the ticket's hold changed meanwhile — reload the ticket and try again"
 	// ErrMsgCategoryNotRunnable is read by the REQUESTER on the ticket form and by
 	// an agent on a stalled step, so it names no mechanism and points at the only
 	// person who can act. One wording covers both: the cause is the same category
@@ -57,7 +62,22 @@ var (
 	// with the other contract sentinels (ErrNotFound, ErrDuplicate, ErrReferenced),
 	// so the adapter can return it and the HTTP layer can map it.
 	ErrWorkflowUnrunnable = errors.New("workflow unrunnable")
+	// ErrHoldConflict names the store-contract failure where a hold change
+	// lost a race (issue #352): the stored hold is not the one the caller
+	// read, so nothing was written.
+	ErrHoldConflict = errors.New("hold conflict")
 )
+
+// HoldConflictError reports a hold change refused because the stored hold
+// changed after the caller read it (issue #352). It satisfies errors.Is
+// against ErrHoldConflict.
+type HoldConflictError struct {
+	TicketID int64
+}
+
+func (e *HoldConflictError) Error() string { return ErrMsgHoldConflict }
+
+func (e *HoldConflictError) Is(target error) bool { return target == ErrHoldConflict }
 
 // ValidationError reports a field-level validation failure (422).
 //

@@ -38,8 +38,11 @@ func newUnitOfWork(db *sql.DB) *unitOfWork { return &unitOfWork{db: db} }
 // timeLayout is the persisted timestamp format (D7): ISO-8601 UTC TEXT.
 const timeLayout = time.RFC3339
 
-// ticketColumns is the SELECT column list shared by every ticket read.
-const ticketColumns = `t.id, t.number, t.title, t.description, t.requester_name, t.requester_email, t.requester_user_id, t.category_id, t.priority, t.state, t.user_id, t.workflow_version_id, t.created_at, t.updated_at, t.resolved_at, t.closed_at`
+// ticketColumns is the SELECT column list shared by every ticket read. The
+// hold columns (migration 0022, issue #352) belong here because every read
+// must know whether the resolution clock is paused — the SLA projection, the
+// timeline narrative and the list badges all decide from the ticket itself.
+const ticketColumns = `t.id, t.number, t.title, t.description, t.requester_name, t.requester_email, t.requester_user_id, t.category_id, t.priority, t.state, t.user_id, t.workflow_version_id, t.created_at, t.updated_at, t.resolved_at, t.closed_at, t.on_hold_since, t.on_hold_reason`
 
 // Create persists t inside an immediate transaction, assigning the
 // store-owned identity fields: ID (autoincrement) and Number (MAX+1, D8).
@@ -113,9 +116,13 @@ func (st *ticketStore) Update(ctx context.Context, t *domain.Ticket) error {
 }
 
 // updateTicketTx writes the ticket row inside the caller's transaction.
-// It NEVER writes ticket_sla: the SLA commitment is creation-only (issue
-// #211, the same mould as resolved_at/closed_at — written once by the
-// create path, never touched by any update).
+// It never writes ticket_sla (the SLA commitment is creation-only, issue
+// #211 — the same mould as resolved_at/closed_at: written once by the create
+// path) with ONE sanctioned exception, which lives in UpdateHold: resuming a
+// hold re-applies the resolution instants by the working time spent paused
+// (issue #352). It also never writes the hold columns (migration 0022): the
+// hold is written only by the compare-and-set in UpdateHold, so a stale field
+// edit can neither clear nor resurrect a hold.
 func updateTicketTx(ctx context.Context, tx *sql.Tx, t *domain.Ticket) error {
 	res, err := tx.ExecContext(ctx, `UPDATE tickets SET title = ?, description = ?, requester_name = ?, requester_email = ?, requester_user_id = ?, category_id = ?, priority = ?, state = ?, user_id = ?, workflow_version_id = ?, created_at = ?, updated_at = ?, resolved_at = ?, closed_at = ?
 		WHERE id = ?`,
@@ -288,6 +295,12 @@ func (u *unitOfWork) Create(ctx context.Context, m application.TicketMutation) e
 // events may be empty: a plain ticket write is still atomic by construction.
 // A ticket that reaches a terminal state (domain.IsClosed) also closes its
 // still-active workflow run in the SAME transaction (issue #256).
+//
+// A terminal state over a ticket that is still on hold is REFUSED instead:
+// resolving or cancelling ends the hold and shifts the resolution SLA, so it
+// must go through UpdateHold, which owns both. Refusing here means a caller
+// holding a stale read (one taken before the hold) cannot resolve the ticket
+// behind the hold — the store half of the invariant, with no writes at all.
 func (u *unitOfWork) Update(ctx context.Context, m application.TicketMutation) error {
 	t, events := m.Ticket, m.Events
 	tx, err := u.db.BeginTx(ctx, nil)
@@ -295,6 +308,15 @@ func (u *unitOfWork) Update(ctx context.Context, m application.TicketMutation) e
 		return fmt.Errorf("sqlite: begin update unit: %w", err)
 	}
 	defer tx.Rollback()
+	if domain.IsClosed(t.State) {
+		onHold, err := ticketOnHoldTx(ctx, tx, t.ID)
+		if err != nil {
+			return err
+		}
+		if onHold {
+			return &domain.HoldConflictError{TicketID: t.ID}
+		}
+	}
 	if err := updateTicketTx(ctx, tx, t); err != nil {
 		return err
 	}
@@ -336,6 +358,106 @@ func closeActiveRunTx(ctx context.Context, tx *sql.Tx, ticketID int64, completed
 	return nil
 }
 
+// ticketOnHoldTx reports whether the STORED row is on hold, read inside the
+// caller's transaction so the answer is the one the write is about to face.
+// A missing ticket answers false: the follow-up ticket write reports the
+// NotFoundError with the id the caller asked for.
+func ticketOnHoldTx(ctx context.Context, tx *sql.Tx, ticketID int64) (bool, error) {
+	var onHold sql.NullString
+	err := tx.QueryRowContext(ctx, `SELECT on_hold_since FROM tickets WHERE id = ?`, ticketID).Scan(&onHold)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("sqlite: read ticket hold: %w", err)
+	}
+	return onHold.Valid, nil
+}
+
+// UpdateHold persists one hold change (put on hold, resume, or a terminal
+// change that ends the hold) as ONE atomic unit (issue #352): the hold
+// columns, the rest of the ticket row, the shifted resolution SLA, and the
+// audit events and the notifications all commit together or not at all. The requester reply that
+// ends a hold is NOT written here — it rides the comment unit of work, so the
+// comment, its notifications and the resume share that one transaction.
+//
+// The hold columns are written by ONE compare-and-set on the stored
+// on_hold_since, so the write applies only against the hold the caller read:
+// two concurrent resumes cannot shift the SLA twice, and a stale read can
+// never resurrect a hold the database already cleared. A mismatch is a
+// *domain.HoldConflictError with NO writes — the hold, the ticket, the SLA
+// and the timeline are exactly as they were.
+func (u *unitOfWork) UpdateHold(ctx context.Context, w application.HoldWrite) error {
+	tx, err := u.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("sqlite: begin hold unit: %w", err)
+	}
+	defer tx.Rollback()
+	res, err := tx.ExecContext(ctx, `UPDATE tickets SET on_hold_since = ?, on_hold_reason = ?
+		WHERE id = ? AND on_hold_since IS ?`,
+		formatTimePtr(w.Ticket.OnHoldSince), w.Ticket.OnHoldReason,
+		w.Ticket.ID, formatTimePtr(w.ExpectedOnHoldSince))
+	if err != nil {
+		return fmt.Errorf("sqlite: write ticket hold: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("sqlite: write ticket hold rows: %w", err)
+	}
+	if n == 0 {
+		return holdWriteConflictTx(ctx, tx, w.Ticket.ID)
+	}
+	if err := updateTicketTx(ctx, tx, w.Ticket); err != nil {
+		return err
+	}
+	// The resumed hold is the ONE sanctioned update of the frozen resolution
+	// instants (issue #352): the commitment moves by the working time the
+	// ticket spent paused, frozen at resume like the instants were frozen at
+	// creation. The first-response instants never move.
+	if w.ShiftedSLA != nil {
+		if err := updateTicketSLAResolveTx(ctx, tx, w.Ticket.ID, *w.ShiftedSLA); err != nil {
+			return err
+		}
+	}
+	// A terminal state ends the hold too (issue #352 S5: resolving or
+	// cancelling a held ticket takes it off hold), and a ticket that leaves
+	// the workflow must not keep an active run (the same rule Update applies,
+	// issue #256).
+	if domain.IsClosed(w.Ticket.State) {
+		if err := closeActiveRunTx(ctx, tx, w.Ticket.ID, w.Ticket.UpdatedAt); err != nil {
+			return err
+		}
+	}
+	if err := appendAuditEventsTx(ctx, tx, w.Events...); err != nil {
+		return err
+	}
+	// The notifications commit with the hold change they describe (#344):
+	// a refused or rolled-back hold leaves no notification behind.
+	if err := appendNotificationsTx(ctx, tx, w.Notifications); err != nil {
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("sqlite: commit hold unit: %w", err)
+	}
+	return nil
+}
+
+// holdWriteConflictTx explains a compare-and-set that matched no row: a
+// MISSING ticket is a NotFoundError (the caller asked about a ticket that is
+// not there), anything else is a lost race against another hold change and
+// answers the port's *domain.HoldConflictError.
+func holdWriteConflictTx(ctx context.Context, tx *sql.Tx, ticketID int64) error {
+	var exists int
+	err := tx.QueryRowContext(ctx, `SELECT 1 FROM tickets WHERE id = ?`, ticketID).Scan(&exists)
+	if errors.Is(err, sql.ErrNoRows) {
+		return &domain.NotFoundError{Kind: "ticket", ID: ticketID}
+	}
+	if err != nil {
+		return fmt.Errorf("sqlite: check ticket %d: %w", ticketID, err)
+	}
+	return &domain.HoldConflictError{TicketID: ticketID}
+}
+
 // nullableInt converts a *int into a driver value: nil stays SQL NULL.
 func nullableInt(p *int) any {
 	if p == nil {
@@ -371,8 +493,8 @@ type rowScanner interface {
 }
 
 // scanTicketFrom projects one row into a domain.Ticket. Timestamps are
-// stored as ISO-8601 UTC TEXT (D7) and parsed back; NULL user_id and
-// lifecycle timestamps map to nil pointers.
+// stored as ISO-8601 UTC TEXT (D7) and parsed back; NULL user_id, NULL
+// lifecycle timestamps and a NULL on_hold_since map to nil pointers.
 func scanTicketFrom(scan rowScanner) (*domain.Ticket, error) {
 	var (
 		t                    domain.Ticket
@@ -382,9 +504,11 @@ func scanTicketFrom(scan rowScanner) (*domain.Ticket, error) {
 		priority, state      string
 		createdAt, updatedAt string
 		resolvedAt, closedAt sql.NullString
+		onHoldSince          sql.NullString
 	)
 	if err := scan.Scan(&t.ID, &t.Number, &t.Title, &t.Description, &t.RequesterName, &t.RequesterEmail,
-		&requesterUserID, &t.CategoryID, &priority, &state, &userID, &workflowVersionID, &createdAt, &updatedAt, &resolvedAt, &closedAt); err != nil {
+		&requesterUserID, &t.CategoryID, &priority, &state, &userID, &workflowVersionID, &createdAt, &updatedAt, &resolvedAt, &closedAt,
+		&onHoldSince, &t.OnHoldReason); err != nil {
 		return nil, err
 	}
 	t.Priority = domain.Priority(priority)
@@ -410,6 +534,13 @@ func scanTicketFrom(scan rowScanner) (*domain.Ticket, error) {
 			return nil, fmt.Errorf("sqlite: parse closed_at %q: %w", closedAt.String, err)
 		}
 		t.ClosedAt = &v
+	}
+	if onHoldSince.Valid {
+		v, err := time.Parse(timeLayout, onHoldSince.String)
+		if err != nil {
+			return nil, fmt.Errorf("sqlite: parse on_hold_since %q: %w", onHoldSince.String, err)
+		}
+		t.OnHoldSince = &v
 	}
 	if userID.Valid {
 		v := userID.Int64
