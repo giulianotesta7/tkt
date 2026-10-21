@@ -6,7 +6,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
-	"reflect"
 	"strconv"
 	"strings"
 	"testing"
@@ -683,16 +682,6 @@ func TestTicketHoldSurfaceInSpanish(t *testing.T) {
 		if !strings.Contains(requesterBody, want) {
 			t.Errorf("es requester banner must contain %q, got: %s", want, requesterBody)
 		}
-	}
-}
-
-// TestNotificationMessageNamesOnHold pins the panel sentence of the on_hold
-// kind (issue #352, S7): it names its own catalogue entry, never the
-// "something happened" fallback.
-func TestNotificationMessageNamesOnHold(t *testing.T) {
-	got := notificationMessage(domain.Notification{Kind: domain.NotificationOnHold})
-	if want := application.MsgRef("notifications.kind.on_hold"); !reflect.DeepEqual(got, want) {
-		t.Errorf("notificationMessage(on_hold) = %+v, want %+v", got, want)
 	}
 }
 

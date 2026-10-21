@@ -1067,7 +1067,7 @@ func fixtureNotificationsPanelData() notificationsPanelData {
 	newState, inProgress := string(domain.StateNew), string(domain.StateInProgress)
 	high, medium := string(domain.PriorityHigh), string(domain.PriorityMedium)
 	message := func(kind domain.NotificationKind, from, to *string) application.Msg {
-		return notificationMessage(domain.Notification{Kind: kind, FromValue: from, ToValue: to})
+		return application.NotificationMessage(domain.Notification{Kind: kind, FromValue: from, ToValue: to})
 	}
 	assigned := message(domain.NotificationAssigned, nil, nil)
 	stateChanged := message(domain.NotificationStateChanged, &newState, &inProgress)
