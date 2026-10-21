@@ -218,8 +218,8 @@ func TestMigrateCreatesSchema(t *testing.T) {
 	if err := s.db.QueryRow(`SELECT COUNT(*) FROM schema_migrations`).Scan(&applied); err != nil {
 		t.Fatalf("schema_migrations: %v", err)
 	}
-	if applied != 23 {
-		t.Errorf("schema_migrations rows = %d, want 23 (through 0023_notification_kind_on_hold)", applied)
+	if applied != len(wantMigrationVersions) {
+		t.Errorf("schema_migrations rows = %d, want %d (through 0024_notification_emails)", applied, len(wantMigrationVersions))
 	}
 
 	rows, err := s.db.Query(`SELECT version FROM schema_migrations ORDER BY version`)
@@ -235,10 +235,13 @@ func TestMigrateCreatesSchema(t *testing.T) {
 		}
 		versions = append(versions, v)
 	}
-	if len(versions) != 23 || versions[0] != 1 || versions[1] != 2 || versions[2] != 3 || versions[3] != 4 || versions[4] != 5 || versions[5] != 6 || versions[6] != 7 || versions[7] != 8 || versions[8] != 9 || versions[9] != 10 || versions[10] != 11 || versions[11] != 12 || versions[12] != 13 || versions[13] != 14 || versions[14] != 15 || versions[15] != 16 || versions[16] != 17 || versions[17] != 18 || versions[18] != 19 || versions[19] != 20 || versions[20] != 21 || versions[21] != 22 || versions[22] != 23 {
-		t.Errorf("versions = %v, want [1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23]", versions)
+	if fmt.Sprint(versions) != fmt.Sprint(wantMigrationVersions) {
+		t.Errorf("versions = %v, want %v", versions, wantMigrationVersions)
 	}
 }
+
+// wantMigrationVersions is every embedded migration version, in order.
+var wantMigrationVersions = []int{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24}
 
 func TestMigrateRerunIsNoOp(t *testing.T) {
 	s := newTestDB(t)
@@ -249,8 +252,8 @@ func TestMigrateRerunIsNoOp(t *testing.T) {
 	if err := s.db.QueryRow(`SELECT COUNT(*) FROM schema_migrations`).Scan(&applied); err != nil {
 		t.Fatalf("schema_migrations: %v", err)
 	}
-	if applied != 23 {
-		t.Errorf("rerun recorded %d versions, want 23 (no-op)", applied)
+	if applied != len(wantMigrationVersions) {
+		t.Errorf("rerun recorded %d versions, want %d (no-op)", applied, len(wantMigrationVersions))
 	}
 }
 
