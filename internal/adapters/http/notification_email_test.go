@@ -53,11 +53,16 @@ func TestAssignmentIsEmailedOnceThroughTheRealOutbox(t *testing.T) {
 	}
 	for _, want := range []string{
 		"Assigned to you",
-		fmt.Sprintf("Open the ticket: https://tkt.example.com/tickets/%d", tkt.ID),
-		"Preferences",
+		fmt.Sprintf("\nTicket: https://tkt.example.com/tickets/%d\n", tkt.ID),
+		"\n--\nYou can turn email notifications off in Preferences.\n",
 	} {
 		if !strings.Contains(got.Body, want) {
 			t.Errorf("Body lacks %q:\n%s", want, got.Body)
+		}
+	}
+	for _, gone := range []string{"Open the ticket", "You get this email"} {
+		if strings.Contains(got.Body, gone) {
+			t.Errorf("Body still says %q:\n%s", gone, got.Body)
 		}
 	}
 

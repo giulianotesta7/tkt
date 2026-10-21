@@ -18,4 +18,13 @@
   </div>
   <button class="btn primary" type="submit">{{t "preferences.save"}}</button>
 </form>
+<form class="card form-card" method="post" action="/preferences/email">
+  <h2>{{t "preferences.email.title"}}</h2>
+  <p class="help">{{t "preferences.email.help"}}</p>
+  <div class="field checkbox-field">
+    <label>{{if .EmailNotifications}}<input type="checkbox" name="email_notifications" value="1" checked> {{t "preferences.email.enable"}}{{else}}<input type="checkbox" name="email_notifications" value="1"> {{t "preferences.email.enable"}}{{end}}</label>
+    <p class="help">{{t "preferences.email.enable_help"}}</p>
+  </div>
+  <button class="btn primary" type="submit">{{t "preferences.email.save"}}</button>
+</form>
 {{end}}

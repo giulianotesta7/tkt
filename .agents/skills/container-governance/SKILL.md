@@ -33,6 +33,17 @@ Do NOT activate for:
 4. **One contract change updates every consumer in the same change.** The Dockerfile, compose, the CI workflows and the alignment table below move together, or the change is not done.
 5. **The machine check in `internal/container` is what proves alignment, and CI runs it.** Point at the check instead of restating its rules; if a new value needs guarding, extend the check rather than writing prose about it.
 
+### The data volume carries the SMTP key
+
+`smtp.key` sits in the data directory next to the database file, not in the image and not in an environment variable (issue #362, S9). The application writes it — 32 random bytes, owner-only — on the first save of an SMTP password, and seals that password in the database with it; the key is never read from the environment, so the image contract is unchanged and the alignment table below stays as it is. What the volume holds grows by one file, and the runtime user already owns the directory, so the prepared data directory of rule 3 is what makes that write possible.
+
+Two consequences for whoever operates an instance, stated here rather than discovered during a restore:
+
+- A backup must carry `smtp.key` alongside the database file. The database alone holds an SMTP password nothing can open.
+- Restoring the database without `smtp.key` is not fatal: root re-enters the SMTP password in Settings and the stored configuration is otherwise intact. The panel says the saved password cannot be read on this server, which is the honest account of a restore that lost the key rather than a silent re-key.
+
+The key file is a lock, not a secret store: it must never be committed, published with an image, or shipped inside an image layer, because anyone holding both the file and the database holds the password.
+
 ### Release contract
 
 The image is published to GHCR only when the maintainer pushes a `vX.Y.Z` tag (issue #208); there is no rolling publish from `main`. The workflow's tag filter (`v*.*.*`) is deliberately broad: GitHub filter patterns are glob-shaped rather than regular expressions, so the tag grammar cannot be expressed in a filter — the no-leading-zeros rule needs alternation, which glob has none of — and a filter that matches nothing fails silently. The workflow itself is the single authority on the shape: it validates the tag and fails loudly on a malformed one. A tag without the leading `v` does not trigger the workflow at all — the repository's tag convention is `vX.Y.Z`.

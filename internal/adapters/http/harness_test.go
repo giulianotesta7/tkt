@@ -203,7 +203,7 @@ func newHarnessWithAdmin(t *testing.T, seedAdmin bool) *harness {
 	attachmentSvc := application.NewAttachmentService(s.TicketStore(), s.AttachmentStore())
 	searchSvc := application.NewSearchService(s.TicketStore(), s.SearchStore())
 	settingsSvc := application.NewSettingsService(s.SettingsStore())
-	preferencesSvc := application.NewPreferencesService(s.PreferencesStore())
+	preferencesSvc := application.NewPreferencesService(s.PreferencesStore(), s.EmailPreferences())
 	workflowSvc := application.NewWorkflowService(s.WorkflowStore())
 	metricsSvc := application.NewTicketMetricsService(s.TicketMetricsStore(), clock)
 	// Issue #362: the SMTP password is sealed with the key file that lives next

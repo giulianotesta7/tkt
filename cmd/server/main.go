@@ -124,7 +124,7 @@ func main() {
 	authSvc := application.NewAuthService(store.UserStore(), store.SessionStore(), clock)
 	searchSvc := application.NewSearchService(store.TicketStore(), store.SearchStore())
 	settingsSvc := application.NewSettingsService(store.SettingsStore())
-	preferencesSvc := application.NewPreferencesService(store.PreferencesStore())
+	preferencesSvc := application.NewPreferencesService(store.PreferencesStore(), store.EmailPreferences())
 	workflowSvc := application.NewWorkflowService(store.WorkflowStore())
 	metricsSvc := application.NewTicketMetricsService(store.TicketMetricsStore(), clock)
 	// Issue #362: the SMTP password is sealed with a key file that lives in the
