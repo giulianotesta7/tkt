@@ -27,6 +27,14 @@ func NewSLAService(sla SLAStore, settings SettingsStore, clock domain.Clock) *SL
 	return &SLAService{sla: sla, settings: settings, clock: clock}
 }
 
+// Enabled reports the instance's sla_enabled setting (issue #382). The
+// queue uses it to decide whether the SLA column is drawn at all; it never
+// gates a projection read, because a commitment already frozen onto a ticket
+// stays visible after the feature is switched off.
+func (s *SLAService) Enabled(ctx context.Context) (bool, error) {
+	return s.settings.GetSLAEnabled(ctx)
+}
+
 // ForTicket returns the projection for one ticket. A ticket with no
 // frozen SLA returns a projection with Frozen nil and Overall SLANone,
 // and a nil error — a legitimate state for legacy tickets and for tickets
