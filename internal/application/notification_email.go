@@ -324,6 +324,11 @@ func NotificationMessage(n domain.Notification) Msg {
 		return MsgRef("notifications.kind.form_waiting")
 	case domain.NotificationOnHold:
 		return MsgRef("notifications.kind.on_hold")
+	case domain.NotificationHoldReminder:
+		// Issue #353 (S3): one sentence, the panel's and the email's alike.
+		return MsgRef("notifications.kind.hold_reminder")
+	case domain.NotificationHoldClosed:
+		return MsgRef("notifications.kind.hold_closed")
 	default:
 		// A kind no catalogue names cannot be stored (the domain refuses it),
 		// and the sentence still says something happened instead of printing

@@ -226,7 +226,9 @@ func TestSpanishSettingsScreen(t *testing.T) {
 		t.Fatalf("render settings in es: %d %s", rec.Code, rec.Body.String())
 	}
 	body := rec.Body.String()
-	for _, want := range []string{"Configuración", "Apariencia", "Acuerdos de nivel de servicio (SLA)", "Calendario laboral", "Días laborables", "Zona horaria", "Azul", "Lunes", "Idioma de la interfaz", "Guardar idioma"} {
+	for _, want := range []string{"Configuración", "Apariencia", "Acuerdos de nivel de servicio (SLA)", "Calendario laboral", "Días laborables", "Zona horaria", "Azul", "Lunes", "Idioma de la interfaz", "Guardar idioma",
+		// The automatic hold close (issue #353) is part of the SLA section.
+		"Cierre automático de tickets en espera", "Cerrar tickets en espera tras N días hábiles sin respuesta", "Guardar el cierre automático"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("Spanish settings page must render %q, got: %.800s", want, body)
 		}
@@ -257,6 +259,8 @@ func TestSpanishValidationErrors(t *testing.T) {
 		{"category", &domain.ValidationError{Field: "name", Message: domain.ErrMsgCategoryNameRequired}, "el nombre de la categoría es obligatorio"},
 		{"workflow", &domain.ValidationError{Field: "steps", Message: "workflow must have at least one step"}, "el flujo debe tener al menos un paso"},
 		{"SLA", &domain.ValidationError{Field: "warning", Message: "the SLA warning percent must be between 1 and 99"}, "el porcentaje de aviso del SLA debe estar entre 1 y 99"},
+		// Issue #353: the automatic hold close window reads Spanish too.
+		{"hold auto-close", &domain.ValidationError{Field: "hold_auto_close_working_days", Message: "the hold auto-close window must be between 0 and 60 working days", Key: "error.hold_auto_close_days_invalid"}, "la ventana de cierre automático en espera debe estar entre 0 y 60 días hábiles"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -398,6 +402,13 @@ func TestSpanishTimelineNarrative(t *testing.T) {
 		NarrativeMsg: application.MsgRef("tickets.timeline.narrative.changed_to",
 			application.Copy("tickets.timeline.field.priority"), application.Copy("label.priority.low")),
 	})
+	// The automatic hold close (issue #353, S5) says WHY it closed, in the
+	// instance language, and carries no actor label to translate.
+	via := domain.ClosureViaHoldExpired
+	data.View.Timeline = append(data.View.Timeline, application.TimelineItem{
+		Event:        &domain.AuditEvent{Actor: domain.AutomaticActorSystem, Action: domain.ActionTransition, FromValue: strptr("resolved"), ToValue: strptr("closed"), ClosureVia: &via},
+		NarrativeMsg: application.MsgRef("tickets.timeline.narrative.closed_hold_expired"),
+	})
 	body := renderLocalized(t, "es", "tickets_show", "timeline", data)
 	for _, want := range []string{
 		"agregó un comentario",
@@ -405,12 +416,13 @@ func TestSpanishTimelineNarrative(t *testing.T) {
 		"movió el ticket a en curso",
 		"creó el ticket",
 		"cambió la prioridad a Baja",
+		"cerró el ticket porque el solicitante no respondió",
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("Spanish timeline must render %q, got: %.1000s", want, body)
 		}
 	}
-	for _, unwanted := range []string{"added a comment", "moved the ticket to in progress", "created the ticket", "changed priority", " to Low"} {
+	for _, unwanted := range []string{"added a comment", "moved the ticket to in progress", "created the ticket", "changed priority", " to Low", "closed the ticket because the requester did not reply"} {
 		if strings.Contains(body, unwanted) {
 			t.Errorf("Spanish timeline must not render the English %q", unwanted)
 		}

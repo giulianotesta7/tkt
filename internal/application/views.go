@@ -212,10 +212,10 @@ func (b *ViewBuilder) enrichTimeline(ctx context.Context, view *TicketView) erro
 			continue
 		}
 		item.ActionLabel = humanizeIdentifier(item.Event.Action)
-		// Audit-log spec: the persisted automatic actor `workflow` renders no
-		// actor text at all (never a `Workflow` label); human events keep their
+		// Audit-log spec: the persisted automatic actors render no actor text at
+		// all (never a `Workflow` or `System` label); human events keep their
 		// attributed names.
-		if item.Event.Actor != "workflow" {
+		if !IsAutomaticActor(item.Event.Actor) {
 			item.ActorLabel = item.Event.Actor
 		}
 		item.Narrative = eventSummary(item.Event)
@@ -406,6 +406,22 @@ func StepCompletionAction(step domain.WorkflowStep) string {
 	}
 }
 
+// IsAutomaticActor reports whether an audit actor names something nobody
+// performed: the workflow runner's "workflow" sentinel and the automatic hold
+// expiry's domain.AutomaticActorSystem (issue #353). Both store a NULL
+// ActorUserID and render with no actor text at all, so the timeline and the
+// template share this one rule instead of listing the sentinels twice.
+func IsAutomaticActor(actor string) bool {
+	return actor == "workflow" || actor == domain.AutomaticActorSystem
+}
+
+// isHoldExpiredClosure reports whether one audit event is the closure the
+// automatic hold expiry wrote (issue #353): attributed by its closure_via, so
+// a human close of the same transition keeps its ordinary narrative.
+func isHoldExpiredClosure(e *domain.AuditEvent) bool {
+	return e.Action == domain.ActionTransition && e.ClosureVia != nil && *e.ClosureVia == domain.ClosureViaHoldExpired
+}
+
 // legacyEventSummary preserves the pre-narrative view-model summary for
 // callers outside the HTML presentation boundary.
 func legacyEventSummary(e *domain.AuditEvent) string {
@@ -448,6 +464,10 @@ func legacyEventSummary(e *domain.AuditEvent) string {
 func eventSummary(e *domain.AuditEvent) string {
 	switch e.Action {
 	case domain.ActionTransition:
+		if isHoldExpiredClosure(e) {
+			// Issue #353 (S5): the automatic close says why it closed.
+			return "closed the ticket because the requester did not reply"
+		}
 		if e.ToValue != nil {
 			if *e.ToValue == "in_progress" && e.FromValue != nil && isClosedState(*e.FromValue) {
 				return "reopened the ticket"
@@ -489,6 +509,9 @@ func eventSummary(e *domain.AuditEvent) string {
 func eventSummaryMsg(e *domain.AuditEvent) Msg {
 	switch e.Action {
 	case domain.ActionTransition:
+		if isHoldExpiredClosure(e) {
+			return MsgRef("tickets.timeline.narrative.closed_hold_expired")
+		}
 		if e.ToValue != nil {
 			if *e.ToValue == "in_progress" && e.FromValue != nil && isClosedState(*e.FromValue) {
 				return MsgRef("tickets.timeline.narrative.reopened")

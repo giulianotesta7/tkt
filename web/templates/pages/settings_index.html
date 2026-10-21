@@ -47,6 +47,16 @@
 {{template "sla_target_grid" .SLAGrid}}
   <button class="btn primary" type="submit">{{t "settings.sla.save"}}</button>
 </form>
+<form class="card form-card" method="post" action="/settings/hold-auto-close">
+  <h2>{{t "settings.sla.hold_close.title"}}</h2>
+  <p class="help">{{t "settings.sla.hold_close.help"}}</p>
+  <div class="field">
+    <label for="hold_auto_close_working_days">{{t "settings.sla.hold_close.days"}}</label>
+    <input type="number" id="hold_auto_close_working_days" name="hold_auto_close_working_days" class="sla-warning-input" min="0" value="{{.HoldAutoCloseDays}}">
+    <p class="help">{{t "settings.sla.hold_close.days_help"}}</p>
+  </div>
+  <button class="btn primary" type="submit">{{t "settings.sla.hold_close.save"}}</button>
+</form>
 <form class="card form-card" method="post" action="/settings/calendar">
   <h2>{{t "settings.calendar.title"}}</h2>
   <p class="help">{{t "settings.calendar.help"}}</p>

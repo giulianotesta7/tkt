@@ -54,6 +54,22 @@
   <li class="notifications-group">
     <h3 class="notifications-day">Today</h3>
     <ul class="notifications-rows">
+      <li class="notifications-row"><form method="post" action="/notifications/12/read">
+  <input type="hidden" name="ticket_id" value="12">
+  <button class="notification-open" type="submit">
+    <span class="notification-ident">TKT-15 · Monitor flickers on the dock</span>
+    <span class="notification-what">Your ticket will be closed tomorrow unless you reply</span>
+    <span class="notification-meta">Automatic · <time datetime="2026-08-06T10:30:00Z">10:30 · 06 Aug</time> <span class="notification-unread">Unread</span></span>
+  </button>
+</form></li>
+      <li class="notifications-row"><form method="post" action="/notifications/11/read">
+  <input type="hidden" name="ticket_id" value="11">
+  <button class="notification-open" type="submit">
+    <span class="notification-ident">TKT-14 · Headset microphone is mute</span>
+    <span class="notification-what">Closed because there was no reply</span>
+    <span class="notification-meta">Automatic · <time datetime="2026-08-06T10:30:00Z">10:30 · 06 Aug</time> <span class="notification-unread">Unread</span></span>
+  </button>
+</form></li>
       <li class="notifications-row"><form method="post" action="/notifications/10/read">
   <input type="hidden" name="ticket_id" value="10">
   <button class="notification-open" type="submit">

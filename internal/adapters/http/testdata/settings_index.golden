@@ -169,6 +169,16 @@
 </div>
   <button class="btn primary" type="submit">Save SLA settings</button>
 </form>
+<form class="card form-card" method="post" action="/settings/hold-auto-close">
+  <h2>Automatic close of held tickets</h2>
+  <p class="help">When the requester never answers, warn them one working day before and then close the ticket.</p>
+  <div class="field">
+    <label for="hold_auto_close_working_days">Close tickets on hold after N working days without a reply</label>
+    <input type="number" id="hold_auto_close_working_days" name="hold_auto_close_working_days" class="sla-warning-input" min="0" value="">
+    <p class="help">Empty means off: the instance never closes a held ticket on its own. The working calendar below counts the days.</p>
+  </div>
+  <button class="btn primary" type="submit">Save automatic close</button>
+</form>
 <form class="card form-card" method="post" action="/settings/calendar">
   <h2>Working calendar</h2>
   <p class="help">When the SLA clock runs. Frozen commitments keep their calendar.</p>

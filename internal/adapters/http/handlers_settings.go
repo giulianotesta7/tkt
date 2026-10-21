@@ -64,6 +64,7 @@ func (h *SettingsHandlers) Register(mux *http.ServeMux) {
 	mux.HandleFunc("POST /settings/appearance", h.updateAppearance)
 	mux.HandleFunc("POST /settings/language", h.updateLanguage)
 	mux.HandleFunc("POST /settings/sla", h.updateSLA)
+	mux.HandleFunc("POST /settings/hold-auto-close", h.updateHoldAutoClose)
 	mux.HandleFunc("POST /settings/calendar", h.updateCalendar)
 	mux.HandleFunc("POST /settings/email", h.updateEmail)
 	mux.HandleFunc("POST /settings/email/test", h.sendTestEmail)
@@ -84,6 +85,9 @@ type settingsIndexData struct {
 	SLAEnabled        bool
 	SLAWarningPercent int
 	SLAGrid           slaGridData
+	// HoldAutoCloseDays is the automatic hold close window (issue #353, S2) as
+	// the field renders it: EMPTY when the feature is off, never a literal 0.
+	HoldAutoCloseDays string
 
 	CalendarDays     []calendarDayOption
 	CalendarStart    string
@@ -322,14 +326,113 @@ func (h *SettingsHandlers) loadSLA(r *http.Request, data *settingsIndexData) err
 	if err != nil {
 		return err
 	}
+	holdAutoClose, err := h.sla.HoldAutoCloseDays(r.Context())
+	if err != nil {
+		return err
+	}
 	defaults, err := h.slaStore.ListDefaults(r.Context())
 	if err != nil {
 		return err
 	}
 	data.SLAEnabled = enabled
 	data.SLAWarningPercent = percent
+	data.HoldAutoCloseDays = holdAutoCloseFieldValue(holdAutoClose)
 	data.SLAGrid = slaGridData{Rows: slaPolicyRows(defaults)}
 	return nil
+}
+
+// holdAutoCloseFieldValue renders the stored hold auto-close window for the
+// field: the feature is off at 0, and the panel says so by rendering the field
+// EMPTY, because "empty = off" is the contract the label states (issue #353,
+// S2). A negative value cannot be stored; it renders empty like 0.
+func holdAutoCloseFieldValue(days int) string {
+	if days <= 0 {
+		return ""
+	}
+	return strconv.Itoa(days)
+}
+
+// parseHoldAutoCloseDays reads the submitted window: blank is 0 (off), and a
+// value that is not a whole number is refused instead of silently turning the
+// feature off. The 0..60 bound stays the SLA service's rule, so exactly one
+// place decides what a storable window is.
+func parseHoldAutoCloseDays(raw string) (int, bool) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return 0, true
+	}
+	days, err := strconv.Atoi(raw)
+	if err != nil {
+		return 0, false
+	}
+	return days, true
+}
+
+// updateHoldAutoClose persists the automatic hold close window (issue #353, S2)
+// from the SLA section's own form. ONE application call applies it, so a
+// rejected window writes nothing and the SLA panel that shares the section is
+// never half-saved; success redirects 303 back to /settings.
+func (h *SettingsHandlers) updateHoldAutoClose(w http.ResponseWriter, r *http.Request) {
+	if !requireCapability(w, r, application.CapManageSettings) {
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		httpError(w, r, "error.internal_server", http.StatusInternalServerError)
+		return
+	}
+	raw := strings.TrimSpace(r.Form.Get("hold_auto_close_working_days"))
+	days, ok := parseHoldAutoCloseDays(raw)
+	var err error
+	if ok {
+		err = h.sla.SetHoldAutoCloseDays(r.Context(), *userFromContext(r.Context()), days)
+	} else {
+		// A non-numeric submission never reaches the service, so the refusal is
+		// built here with the SAME catalogue key and English bytes the service
+		// uses: every refusal of this one field reads the same sentence.
+		err = &domain.ValidationError{
+			Field:   "hold_auto_close_working_days",
+			Message: "the hold auto-close window must be between 0 and 60 working days",
+			Key:     "error.hold_auto_close_days_invalid",
+		}
+	}
+	if err != nil {
+		status, msg := mapErrorFor(r, err)
+		if status == http.StatusInternalServerError {
+			http.Error(w, msg, status)
+			return
+		}
+		h.renderHoldAutoClosePage(w, r, status, msg, raw)
+		return
+	}
+	saveFeedback(w, r, saveFeedbackSaved, saveFeedbackSuccess)
+	redirect(w, r, "/settings")
+}
+
+// renderHoldAutoClosePage renders the whole Settings page for a rejected
+// window: every panel comes from storage, because this POST owns none of them,
+// and the field echoes what was submitted so the administrator sees what was
+// refused rather than the value that is still stored.
+func (h *SettingsHandlers) renderHoldAutoClosePage(w http.ResponseWriter, r *http.Request, status int, message, submitted string) {
+	current, err := h.settings.GetAppearance(r.Context())
+	if err != nil {
+		httpError(w, r, "error.internal_server", http.StatusInternalServerError)
+		return
+	}
+	data := settingsIndexData{
+		pageData: pageDataFrom(r, "settings"),
+		Error:    message,
+		Current:  current,
+		Colors:   appearanceOptions(),
+	}
+	for _, load := range []func(*http.Request, *settingsIndexData) error{h.loadSLA, h.loadCalendar, h.loadLanguage, h.claimEmailPanel} {
+		if loadErr := load(r, &data); loadErr != nil {
+			httpError(w, r, "error.internal_server", http.StatusInternalServerError)
+			return
+		}
+	}
+	data.HoldAutoCloseDays = submitted
+	data.InternalCommentBg = current
+	h.renderer.Render(w, r, "settings_index", "", data, status)
 }
 
 // updateAppearance persists the chosen color. A rejected color re-renders

@@ -938,3 +938,138 @@ func TestSettingsUpdateLanguageDeniedForNonAdmin(t *testing.T) {
 		})
 	}
 }
+
+// ---------------------------------------------------------------------------
+// Automatic close of held tickets (issue #353, spec S2). The field lives in
+// the SLA part of Settings, is saved by its own POST (one panel per form, so
+// one write per request), stores 0 when left empty — the feature is off — and
+// refuses a window outside 0..60 with the catalogued message.
+// ---------------------------------------------------------------------------
+
+// holdAutoCloseInput is the exact field markup the settings page renders, so a
+// test can assert one attribute order without matching unrelated numbers.
+func holdAutoCloseInput(value string) string {
+	return `id="hold_auto_close_working_days" name="hold_auto_close_working_days" class="sla-warning-input" min="0" value="` + value + `"`
+}
+
+func storedHoldAutoCloseDays(t *testing.T, h *harness) int {
+	t.Helper()
+	days, err := h.store.SettingsStore().GetHoldAutoCloseDays(t.Context())
+	if err != nil {
+		t.Fatalf("read hold_auto_close_working_days: %v", err)
+	}
+	return days
+}
+
+// TestSettingsHoldAutoCloseWindowRendersOffAsEmpty proves the seeded instance
+// (off) renders an EMPTY number field: "empty = off" is the panel's contract,
+// so a stored 0 must never render a literal 0 the administrator could mistake
+// for a one-day window.
+func TestSettingsHoldAutoCloseWindowRendersOffAsEmpty(t *testing.T) {
+	h := newHarness(t)
+
+	body := h.get(t, "/settings", false).Body.String()
+	if !strings.Contains(body, holdAutoCloseInput("")) {
+		t.Errorf("settings page must render the hold auto-close field empty while off, got: %s", body)
+	}
+	if !strings.Contains(body, "Close tickets on hold after N working days without a reply") {
+		t.Errorf("settings page must label the field with the spec sentence, got: %s", body)
+	}
+}
+
+// TestSettingsHoldAutoCloseWindowPersists proves a saved window survives and
+// renders back, and that clearing it turns the feature off, without touching
+// the SLA panel that shares the section.
+func TestSettingsHoldAutoCloseWindowPersists(t *testing.T) {
+	h := newHarness(t)
+	wantEnabled, wantPercent, wantDefaults := slaSettingsFixture(t, h)
+
+	rec := h.postForm(t, "/settings/hold-auto-close", url.Values{"hold_auto_close_working_days": {"3"}}, false)
+	wantRedirect(t, rec, http.StatusSeeOther, "/settings")
+	if got := storedHoldAutoCloseDays(t, h); got != 3 {
+		t.Errorf("stored window = %d, want 3", got)
+	}
+	if body := h.get(t, "/settings", false).Body.String(); !strings.Contains(body, holdAutoCloseInput("3")) {
+		t.Errorf("settings page must render the saved window, got: %s", body)
+	}
+
+	rec = h.postForm(t, "/settings/hold-auto-close", url.Values{"hold_auto_close_working_days": {""}}, false)
+	wantRedirect(t, rec, http.StatusSeeOther, "/settings")
+	if got := storedHoldAutoCloseDays(t, h); got != 0 {
+		t.Errorf("stored window = %d after clearing, want 0 (off)", got)
+	}
+	if body := h.get(t, "/settings", false).Body.String(); !strings.Contains(body, holdAutoCloseInput("")) {
+		t.Errorf("settings page must render the cleared field empty, got: %s", body)
+	}
+	assertSLASettingsEqual(t, h, wantEnabled, wantPercent, wantDefaults)
+}
+
+// TestSettingsHoldAutoCloseWindowRejectsOutOfRange proves every refused value
+// re-renders 422 with the catalogued message, echoes what was submitted, and
+// stores nothing.
+func TestSettingsHoldAutoCloseWindowRejectsOutOfRange(t *testing.T) {
+	h := newHarness(t)
+	rec := h.postForm(t, "/settings/hold-auto-close", url.Values{"hold_auto_close_working_days": {"3"}}, false)
+	wantRedirect(t, rec, http.StatusSeeOther, "/settings")
+
+	for _, submitted := range []string{"99", "-1", "abc"} {
+		t.Run(submitted, func(t *testing.T) {
+			rec := h.postForm(t, "/settings/hold-auto-close", url.Values{"hold_auto_close_working_days": {submitted}}, false)
+			if rec.Code != http.StatusUnprocessableEntity {
+				t.Fatalf("status = %d, want 422: %s", rec.Code, rec.Body.String())
+			}
+			body := rec.Body.String()
+			if !strings.Contains(body, `error-banner`) {
+				t.Errorf("rejected window must render the inline error banner, got: %s", body)
+			}
+			if !strings.Contains(body, "the hold auto-close window must be between 0 and 60 working days") {
+				t.Errorf("rejected window must render the catalogued message, got: %s", body)
+			}
+			// The re-render echoes the SUBMITTED value and the panels this POST
+			// does not own, so one bad number costs the administrator nothing.
+			if !strings.Contains(body, holdAutoCloseInput(submitted)) {
+				t.Errorf("re-render must echo the submitted %q, got: %s", submitted, body)
+			}
+			if !strings.Contains(body, `name="sla_warning_percent"`) {
+				t.Errorf("re-render must keep the SLA panel, got: %s", body)
+			}
+			if got := rec.Header().Get("X-Save-Feedback"); got != "" {
+				t.Errorf("rejected window must not emit save feedback, got %q", got)
+			}
+			if got := storedHoldAutoCloseDays(t, h); got != 3 {
+				t.Errorf("stored window = %d after a rejected %q, want the previous 3", got, submitted)
+			}
+		})
+	}
+}
+
+// TestSettingsHoldAutoCloseDeniedForNonAdmin proves the route is gated on the
+// same capability as the rest of the SLA section, and a denied post writes
+// nothing.
+func TestSettingsHoldAutoCloseDeniedForNonAdmin(t *testing.T) {
+	h := newHarness(t)
+	user, err := h.users.Create(t.Context(), *h.admin, application.CreateUserInput{Name: "User", Email: "user@tkt.test", Password: "secret"})
+	if err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+	session := h.loginCookie(t, user.Email, "secret")
+	if session == "" {
+		t.Fatal("user login must succeed")
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/settings/hold-auto-close", strings.NewReader(url.Values{"hold_auto_close_working_days": {"5"}}.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Cookie", sessionCookie+"="+session)
+	rec := httptest.NewRecorder()
+	h.mw.Wrap(h.mux).ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("non-admin POST /settings/hold-auto-close = %d, want 403", rec.Code)
+	}
+	if got := rec.Header().Get("X-Save-Feedback"); got != "" {
+		t.Errorf("denied update must not emit save feedback, got %q", got)
+	}
+	if got := storedHoldAutoCloseDays(t, h); got != 0 {
+		t.Errorf("stored window = %d after a denied post, want 0", got)
+	}
+}

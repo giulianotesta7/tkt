@@ -574,3 +574,67 @@ func TestViews_DetachedManualSolutionUsesPinIndependentPath(t *testing.T) {
 		}
 	})
 }
+
+// TestTicketViewLeavesNoActorLabelForAutomaticActors pins the automatic-actor
+// convention for the two sentinels (issue #353, S5): the hold expiry writes its
+// resume/resolved/closed events under domain.AutomaticActorSystem with no user
+// id, and the timeline must leave the actor label empty for them exactly as it
+// does for the workflow runner's "workflow", while a human event keeps its
+// attributed name.
+func TestTicketViewLeavesNoActorLabelForAutomaticActors(t *testing.T) {
+	clock := fixedClock()
+	tickets := newFakeTicketStore()
+	users := newFakeUserStore()
+	categories := newFakeCategoryStore()
+	audits := newFakeAuditStore()
+	ana := users.seed("Ana", "ana@example.com", true)
+	cat := categories.seed("Bugs")
+	ticket := tickets.seed(domain.Ticket{
+		Title: "Login page down", CategoryID: cat.ID, UserID: ptr(ana.ID),
+		Priority: domain.PriorityHigh, State: domain.StateClosed,
+		CreatedAt: clock.now, UpdatedAt: clock.now,
+	})
+	resolved, closed := string(domain.StateResolved), string(domain.StateClosed)
+	via := domain.ClosureViaHoldExpired
+	for _, ev := range []domain.AuditEvent{
+		{TicketID: ticket.ID, Actor: "Ana", Action: domain.ActionCreated, CreatedAt: clock.now},
+		{TicketID: ticket.ID, Actor: "workflow", Action: domain.ActionWorkflowAssignment, CreatedAt: clock.now},
+		{TicketID: ticket.ID, Actor: domain.AutomaticActorSystem, Action: domain.ActionResume, CreatedAt: clock.now},
+		{TicketID: ticket.ID, Actor: domain.AutomaticActorSystem, Action: domain.ActionTransition, Field: ptr("state"), FromValue: &resolved, ToValue: &closed, ClosureVia: &via, CreatedAt: clock.now},
+	} {
+		if err := audits.Append(context.Background(), ev); err != nil {
+			t.Fatalf("append audit: %v", err)
+		}
+	}
+
+	builder := application.NewViewBuilder(tickets, users, categories, newFakeCommentStore(), audits, newFakeDeskStore())
+	view, err := builder.TicketView(context.Background(), ticket.ID, application.TicketQuery{Scope: application.ScopeAll}, true)
+	if err != nil {
+		t.Fatalf("TicketView: %v", err)
+	}
+
+	byAction := map[string]application.TimelineItem{}
+	for _, item := range view.Timeline {
+		if item.Event != nil {
+			byAction[item.Event.Action] = item
+		}
+	}
+	if got := byAction[domain.ActionCreated].ActorLabel; got != "Ana" {
+		t.Errorf("human event ActorLabel = %q, want the attributed name", got)
+	}
+	for _, action := range []string{domain.ActionWorkflowAssignment, domain.ActionResume, domain.ActionTransition} {
+		if got := byAction[action].ActorLabel; got != "" {
+			t.Errorf("%s ActorLabel = %q, want empty (no actor text for an automatic actor)", action, got)
+		}
+	}
+	closedItem := byAction[domain.ActionTransition]
+	if closedItem.Narrative != "closed the ticket because the requester did not reply" {
+		t.Errorf("automatic close narrative = %q", closedItem.Narrative)
+	}
+	if closedItem.NarrativeMsg.Key != "tickets.timeline.narrative.closed_hold_expired" {
+		t.Errorf("automatic close narrative key = %q", closedItem.NarrativeMsg.Key)
+	}
+	if got := byAction[domain.ActionResume].NarrativeMsg.Key; got != "tickets.timeline.narrative.resumed" {
+		t.Errorf("resume narrative key = %q, want its normal narrative with no actor text", got)
+	}
+}
