@@ -1133,7 +1133,15 @@ test.describe("Ticket Lifecycle", () => {
       // the apply swap must keep it, the visible title and the rail chrome.
       await expect(page.locator("h1")).toHaveCount(1);
       await expect(page.locator("h1")).toHaveText(title);
-      const chrome = await page.locator(".rail").innerHTML();
+      // The notification bell refreshes itself (its own count poll), so the
+      // chrome compared here is the rail without it.
+      const railChrome = () =>
+        page.locator(".rail").evaluate((rail) => {
+          const copy = rail.cloneNode(true) as HTMLElement;
+          copy.querySelector("#notification-bell")?.remove();
+          return copy.innerHTML;
+        });
+      const chrome = await railChrome();
       const response = await assertHtmxSwap(
         page,
         async () => {
@@ -1149,7 +1157,7 @@ test.describe("Ticket Lifecycle", () => {
       await expect(page.getByRole("link", { name: "Queue" })).toHaveAttribute("href", queueHref);
       await expect(page.locator("h1")).toHaveCount(1);
       await expect(page.locator("h1")).toHaveText(title);
-      expect(await page.locator(".rail").innerHTML()).toBe(chrome);
+      expect(await railChrome()).toBe(chrome);
     };
     await openProbe();
     await applyProperty("assignee", "1");
