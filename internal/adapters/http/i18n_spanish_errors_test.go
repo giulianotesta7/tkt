@@ -34,7 +34,7 @@ func TestSpanishNewlyKeyedErrorsFollowTheInstanceLanguage(t *testing.T) {
 		form       url.Values
 		want       string
 	}{
-		{"empty category name", "/categories", url.Values{"name": {""}, "desk_id": {strconv.FormatInt(desk.ID, 10)}}, "el nombre de la categoría es obligatorio"},
+		{"empty category name", "/categories", url.Values{"name": {""}, "department_id": {strconv.FormatInt(dep.ID, 10)}, "desk_id": {strconv.FormatInt(desk.ID, 10)}}, "el nombre de la categoría es obligatorio"},
 		{"invalid role", "/users/" + strconv.FormatInt(h.admin.ID, 10) + "/edit", url.Values{"name": {"Admin"}, "email": {"admin@tkt.test"}, "role": {"bogus"}}, "rol no válido"},
 		{"empty comment body", "/tickets/" + strconv.FormatInt(tkt.ID, 10) + "/comments", url.Values{"body": {""}, "visibility": {"public"}}, "el texto del comentario es obligatorio"},
 		{"empty title", "/tickets/" + strconv.FormatInt(tkt.ID, 10) + "/edit", url.Values{"title": {""}}, "el título es obligatorio"},
