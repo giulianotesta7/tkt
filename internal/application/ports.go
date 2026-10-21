@@ -1059,6 +1059,20 @@ type PreferencesStore interface {
 	SetQueueOrder(ctx context.Context, userID int64, order string) error
 }
 
+// EmailPreferencesStore persists each user's email opt-out (issue #362, S5)
+// in the same user_preferences table, under its own key, so the queue-order
+// port above is unchanged and the two preferences can never overwrite each
+// other. It embeds the read half the background sender depends on
+// (EmailPreferences), so ONE adapter serves both the sender and the
+// preferences page. Like the queue order this is a personal setting with no
+// capability gate: the key is the acting user's id, never a caller-supplied
+// one.
+type EmailPreferencesStore interface {
+	EmailPreferences
+	// SetEmailNotificationsEnabled upserts the user's email choice.
+	SetEmailNotificationsEnabled(ctx context.Context, userID int64, enabled bool) error
+}
+
 // TicketSection narrows an agent's read scope into a presentation section.
 // The zero value keeps the full actor scope for existing list and detail reads.
 type TicketSection int

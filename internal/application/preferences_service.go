@@ -50,19 +50,22 @@ func NormalizeQueueOrder(order string) string {
 }
 
 // PreferencesService implements the per-user preference use cases
-// (issue #210). The queue order is a personal setting with no capability
-// gate: every authenticated user owns exactly one stored value, and the
-// handler layer is what requires a session. Validation happens BEFORE the
-// store is reached (fail closed on an invalid write), and the read
-// normalizes any stored value outside the closed set.
+// (issue #210, issue #362). The queue order and the email opt-out are both
+// personal settings with no capability gate: every authenticated user owns
+// exactly one stored value of each, and the handler layer is what requires a
+// session. Validation happens BEFORE the store is reached (fail closed on an
+// invalid write), and the queue-order read normalizes any stored value outside
+// the closed set. The two preferences share one table but never one value:
+// each use case below touches only its own key.
 type PreferencesService struct {
 	preferences PreferencesStore
+	email       EmailPreferencesStore
 }
 
 // NewPreferencesService wires the preference use cases against the store
-// port.
-func NewPreferencesService(preferences PreferencesStore) *PreferencesService {
-	return &PreferencesService{preferences: preferences}
+// ports: the queue order and the email opt-out (issue #362, S5).
+func NewPreferencesService(preferences PreferencesStore, email EmailPreferencesStore) *PreferencesService {
+	return &PreferencesService{preferences: preferences, email: email}
 }
 
 // GetDefaultQueueOrder returns the actor's own stored default queue order,
@@ -85,4 +88,20 @@ func (s *PreferencesService) SetDefaultQueueOrder(ctx context.Context, actor dom
 		return &domain.ValidationError{Field: "queue_order", Message: "invalid queue order", Key: "error.invalid_queue_order"}
 	}
 	return s.preferences.SetQueueOrder(ctx, actor.ID, order)
+}
+
+// GetEmailNotifications returns whether the actor wants notification email
+// (issue #362, S5). A user who never saved the preference gets true: email is
+// on by default (S14). The key is the actor's own id, so one user can only
+// ever read their own value.
+func (s *PreferencesService) GetEmailNotifications(ctx context.Context, actor domain.User) (bool, error) {
+	return s.email.EmailNotificationsEnabled(ctx, actor.ID)
+}
+
+// SetEmailNotifications persists the actor's email choice (issue #362, S14).
+// The toggle has no capability gate and no closed set beyond the boolean, so
+// there is nothing to validate; like the queue order the key is the actor's
+// own id, which is what keeps one user from changing another's value.
+func (s *PreferencesService) SetEmailNotifications(ctx context.Context, actor domain.User, enabled bool) error {
+	return s.email.SetEmailNotificationsEnabled(ctx, actor.ID, enabled)
 }
