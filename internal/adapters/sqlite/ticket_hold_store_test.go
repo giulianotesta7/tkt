@@ -303,3 +303,43 @@ func seedTicketForTimelineInCategory(t *testing.T, s *Store, number int, categor
 		CategoryID: categoryID, Priority: domain.PriorityMedium, State: domain.StateNew,
 		CreatedAt: testClock, UpdatedAt: testClock}).ID
 }
+
+// TestUpdateHoldCommitsNotificationsWithTheHold pins the #344 rule for the hold
+// path (issue #352, S7): the requester's on_hold notification commits with the
+// hold, and a hold refused by the compare-and-set leaves no notification.
+func TestUpdateHoldCommitsNotificationsWithTheHold(t *testing.T) {
+	s := newTestDB(t)
+	ctx := context.Background()
+	tk, _ := holdFixture(t, s)
+	requester := seedUser(t, s, "Carol", "carol@example.com", true)
+	stale := *tk
+	at := testClock.Add(time.Hour)
+	ev, err := tk.PutOnHold("send the serial number", at)
+	if err != nil {
+		t.Fatalf("PutOnHold: %v", err)
+	}
+	notification := domain.Notification{UserID: requester, TicketID: tk.ID, Kind: domain.NotificationOnHold, CreatedAt: at}
+	if err := s.TicketUnitOfWork().UpdateHold(ctx, application.HoldWrite{
+		Ticket: tk, Events: []domain.AuditEvent{*ev}, Notifications: []domain.Notification{notification},
+	}); err != nil {
+		t.Fatalf("UpdateHold: %v", err)
+	}
+	if n := countRows(t, s, `SELECT COUNT(*) FROM notifications WHERE user_id=? AND ticket_id=? AND kind='on_hold'`, requester, tk.ID); n != 1 {
+		t.Fatalf("on_hold notifications = %d, want 1", n)
+	}
+
+	// A second hold from a read taken before the first one loses the race.
+	ev2, err := stale.PutOnHold("another reason", at.Add(time.Minute))
+	if err != nil {
+		t.Fatalf("PutOnHold: %v", err)
+	}
+	err = s.TicketUnitOfWork().UpdateHold(ctx, application.HoldWrite{
+		Ticket: &stale, Events: []domain.AuditEvent{*ev2}, Notifications: []domain.Notification{notification},
+	})
+	if !errors.Is(err, domain.ErrHoldConflict) {
+		t.Fatalf("err = %v, want ErrHoldConflict", err)
+	}
+	if n := countRows(t, s, `SELECT COUNT(*) FROM notifications WHERE ticket_id=?`, tk.ID); n != 1 {
+		t.Errorf("notifications after a refused hold = %d, want still 1", n)
+	}
+}

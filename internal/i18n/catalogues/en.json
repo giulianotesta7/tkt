@@ -345,6 +345,7 @@
   "label.weekday.5": "Friday",
   "label.weekday.6": "Saturday",
   "label.weekday.7": "Sunday",
+  "notifications.kind.on_hold": "Your ticket is on hold until you reply",
   "pagination.label": "Ticket pages",
   "notifications.actor.automatic": "Automatic",
   "notifications.actor.unknown": "Unknown user",

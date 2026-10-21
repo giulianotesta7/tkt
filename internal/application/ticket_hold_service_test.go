@@ -861,3 +861,100 @@ func TestWorkflowTerminalStepOnHeldTicketIsRefused(t *testing.T) {
 		})
 	}
 }
+
+// --- S7: the requester learns their ticket waits for their reply ---
+
+// seedRequesterTicket seeds an open ticket owned by an active role-user
+// requester and assigned to an agent, the shape the on_hold notification is
+// about (issue #352, S7).
+func seedRequesterTicket(t *testing.T, h *holdHarness, requesterActive bool) (domain.Ticket, domain.User, domain.User) {
+	t.Helper()
+	cat := h.categories.seed("Bugs")
+	requester := h.users.seedRole("Carol", "carol@example.com", domain.RoleUser, requesterActive)
+	agent := h.users.seedRole("Bob", "bob@example.com", domain.RoleAgent, true)
+	ticket := seededTicket(h.tickets, cat.ID, domain.StateInProgress)
+	ticket.RequesterUserID = &requester.ID
+	ticket.UserID = &agent.ID
+	h.storeTicket(t, ticket)
+	return ticket, requester, agent
+}
+
+func TestPutOnHoldNotifiesTheRequesterOnly(t *testing.T) {
+	for _, role := range []domain.Role{domain.RoleAgent, domain.RoleAdmin} {
+		t.Run(string(role), func(t *testing.T) {
+			h := newHoldHarness()
+			ticket, requester, agent := seedRequesterTicket(t, h, true)
+			actor := domain.User{ID: agent.ID, Name: agent.Name, Role: role}
+			if role == domain.RoleAdmin {
+				admin := h.users.seedRole("Alice", "alice@example.com", domain.RoleAdmin, true)
+				actor = domain.User{ID: admin.ID, Name: admin.Name, Role: role}
+			}
+			if _, err := h.svc.PutOnHold(context.Background(), actor, ticket.ID, "send the serial number"); err != nil {
+				t.Fatalf("PutOnHold: %v", err)
+			}
+			if len(h.tx.notifications) != 1 {
+				t.Fatalf("notifications = %+v, want exactly one for the requester", h.tx.notifications)
+			}
+			n := h.tx.notifications[0]
+			if n.Kind != domain.NotificationOnHold || n.UserID != requester.ID || n.TicketID != ticket.ID {
+				t.Errorf("notification = %+v, want on_hold to the requester on ticket %d", n, ticket.ID)
+			}
+			if n.ActorUserID == nil || *n.ActorUserID != actor.ID {
+				t.Errorf("actor = %v, want %d", n.ActorUserID, actor.ID)
+			}
+			if !n.CreatedAt.Equal(h.clock.now) {
+				t.Errorf("created_at = %v, want %v", n.CreatedAt, h.clock.now)
+			}
+			if n.FromValue != nil || n.ToValue != nil || n.CommentID != nil || n.StepIndex != nil {
+				t.Errorf("on_hold carries no facts, got %+v", n)
+			}
+		})
+	}
+}
+
+func TestPutOnHoldNotifiesNobodyWithoutAReachableRequester(t *testing.T) {
+	t.Run("inactive requester", func(t *testing.T) {
+		h := newHoldHarness()
+		ticket, _, agent := seedRequesterTicket(t, h, false)
+		if _, err := h.svc.PutOnHold(context.Background(), holdActor(agent.ID, domain.RoleAgent), ticket.ID, "reason"); err != nil {
+			t.Fatalf("PutOnHold: %v", err)
+		}
+		if len(h.tx.notifications) != 0 {
+			t.Errorf("notifications = %+v, want none", h.tx.notifications)
+		}
+	})
+	t.Run("legacy ticket without a requester user", func(t *testing.T) {
+		h := newHoldHarness()
+		ticket, _, agent := seedRequesterTicket(t, h, true)
+		ticket.RequesterUserID = nil
+		h.storeTicket(t, ticket)
+		if _, err := h.svc.PutOnHold(context.Background(), holdActor(agent.ID, domain.RoleAgent), ticket.ID, "reason"); err != nil {
+			t.Fatalf("PutOnHold: %v", err)
+		}
+		if len(h.tx.notifications) != 0 {
+			t.Errorf("notifications = %+v, want none", h.tx.notifications)
+		}
+	})
+}
+
+func TestRejectedHoldAndResumeNotifyNobody(t *testing.T) {
+	h := newHoldHarness()
+	ticket, _, agent := seedRequesterTicket(t, h, true)
+	actor := holdActor(agent.ID, domain.RoleAgent)
+	if _, err := h.svc.PutOnHold(context.Background(), actor, ticket.ID, "   "); err == nil {
+		t.Fatal("blank reason accepted")
+	}
+	if len(h.tx.notifications) != 0 {
+		t.Fatalf("a refused hold notified: %+v", h.tx.notifications)
+	}
+	if _, err := h.svc.PutOnHold(context.Background(), actor, ticket.ID, "reason"); err != nil {
+		t.Fatalf("PutOnHold: %v", err)
+	}
+	h.clock.Advance(time.Hour)
+	if _, err := h.svc.ResumeFromHold(context.Background(), actor, ticket.ID); err != nil {
+		t.Fatalf("ResumeFromHold: %v", err)
+	}
+	if len(h.tx.notifications) != 1 {
+		t.Errorf("notifications = %+v, want only the hold's (resume tells nobody)", h.tx.notifications)
+	}
+}

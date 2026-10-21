@@ -1078,6 +1078,7 @@ func fixtureNotificationsPanelData() notificationsPanelData {
 	commentPublic := message(domain.NotificationCommentPublic, nil, nil)
 	commentInternal := message(domain.NotificationCommentInternal, nil, nil)
 	formWaiting := message(domain.NotificationFormWaiting, nil, nil)
+	onHold := message(domain.NotificationOnHold, nil, nil)
 	automatic := application.MsgRef("notifications.actor.automatic")
 	unknown := application.MsgRef("notifications.actor.unknown")
 	ana2 := application.Data("Ana Torres")
@@ -1087,6 +1088,7 @@ func fixtureNotificationsPanelData() notificationsPanelData {
 		Unread:   5,
 		Groups: []notificationGroup{
 			{Kind: "today", Date: goldenT0, Rows: []notificationRow{
+				{ID: 10, TicketID: 10, Number: 13, Title: "Laptop will not boot", Message: onHold, Actor: marco, CreatedAt: goldenT1, Unread: false},
 				{ID: 9, TicketID: 9, Number: 12, Title: "VPN drops every hour", Message: assigned, Actor: automatic, CreatedAt: goldenT1, Unread: true},
 				{ID: 8, TicketID: 8, Number: 11, Title: "Invoice export misses August", Message: stateChanged, Actor: marco, CreatedAt: goldenT0, Unread: true},
 				{ID: 7, TicketID: 7, Number: 10, Title: "Printer jam on the third floor", Message: commentPublic, Actor: ana2, CreatedAt: goldenT0, Unread: false},

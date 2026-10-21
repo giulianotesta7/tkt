@@ -316,6 +316,8 @@ func notificationMessage(n domain.Notification) application.Msg {
 		return application.MsgRef("notifications.kind.comment_internal")
 	case domain.NotificationFormWaiting:
 		return application.MsgRef("notifications.kind.form_waiting")
+	case domain.NotificationOnHold:
+		return application.MsgRef("notifications.kind.on_hold")
 	default:
 		// A kind no catalogue names cannot be stored (the domain refuses it), and
 		// the sentence still says something happened instead of printing an

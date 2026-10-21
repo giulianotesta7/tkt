@@ -159,6 +159,17 @@ func resolutionNotifications(t *domain.Ticket, kind domain.NotificationKind, fro
 	return b.list()
 }
 
+// onHoldNotifications builds the S7 row of issue #352: the REQUESTER learns
+// their ticket waits for their reply. The assignee is staff and is usually the
+// one who put it on hold, so they are not told; resuming tells nobody (the
+// requester's own reply resumes it, and the assignee hears about that reply
+// as a comment).
+func onHoldNotifications(t *domain.Ticket, actorUserID *int64, at time.Time, requester *NotificationRecipient) []domain.Notification {
+	b := newNotificationBatch(t, actorUserID, at)
+	b.add(domain.NotificationOnHold, requester, nil, nil)
+	return b.list()
+}
+
 // NotificationTicketQuery is the ticket READ scope the notification panel uses
 // to load the facts it shows for one row (the ticket number and its title). It
 // is exactly the scope the ticket DETAIL route applies — an agent widens to

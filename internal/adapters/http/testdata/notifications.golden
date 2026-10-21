@@ -54,6 +54,14 @@
   <li class="notifications-group">
     <h3 class="notifications-day">Today</h3>
     <ul class="notifications-rows">
+      <li class="notifications-row"><form method="post" action="/notifications/10/read">
+  <input type="hidden" name="ticket_id" value="10">
+  <button class="notification-open" type="submit">
+    <span class="notification-ident">TKT-13 · Laptop will not boot</span>
+    <span class="notification-what">Your ticket is on hold until you reply</span>
+    <span class="notification-meta">Marco Ruiz · <time datetime="2026-08-06T10:30:00Z">10:30 · 06 Aug</time></span>
+  </button>
+</form></li>
       <li class="notifications-row"><form method="post" action="/notifications/9/read">
   <input type="hidden" name="ticket_id" value="9">
   <button class="notification-open" type="submit">
