@@ -24,6 +24,7 @@ var (
 	_ application.PreferencesStore        = (*preferencesStore)(nil)
 	_ application.EmailPreferences        = (*preferencesStore)(nil)
 	_ application.SidebarPreferencesStore = (*preferencesStore)(nil)
+	_ application.ThemePreferencesStore   = (*preferencesStore)(nil)
 )
 
 // preferencesKeyQueueOrder is the user_preferences row key for the default
@@ -40,6 +41,12 @@ const preferencesKeyEmailNotifications = "email_notifications"
 // "collapsed"; an absent row means expanded, and any other stored value reads
 // as expanded.
 const preferencesKeySidebar = "sidebar"
+
+// preferencesKeyTheme is the user_preferences row key for the interface theme
+// (issue #378, S1). Its storable values are exactly "system", "light", and
+// "dark"; an absent row means no choice yet, and the application service
+// normalizes that — and any other stored value — to the system default.
+const preferencesKeyTheme = "theme"
 
 func newPreferencesStore(db *sql.DB) *preferencesStore { return &preferencesStore{db: db} }
 
@@ -60,6 +67,15 @@ func (s *Store) EmailPreferences() *preferencesStore { return newPreferencesStor
 // caller — the middleware stamps the state and the toggle writes it — so the
 // application interface is what this accessor answers.
 func (s *Store) SidebarPreferences() application.SidebarPreferencesStore {
+	return newPreferencesStore(s.db)
+}
+
+// ThemePreferences returns the per-user theme store (issue #378, S1). It is a
+// fourth view of the same user_preferences table, so the queue-order, email,
+// and sidebar ports stay unchanged. The port is enough for every caller — the
+// middleware stamps the theme and the preferences form writes it — so the
+// application interface is what this accessor answers.
+func (s *Store) ThemePreferences() application.ThemePreferencesStore {
 	return newPreferencesStore(s.db)
 }
 
@@ -183,6 +199,39 @@ func (ps *preferencesStore) SetSidebarCollapsed(ctx context.Context, userID int6
 		userID, preferencesKeySidebar, value)
 	if err != nil {
 		return fmt.Errorf("sqlite: set %s for user %d: %w", preferencesKeySidebar, userID, err)
+	}
+	return nil
+}
+
+// GetTheme returns the stored theme, or "" when the user has no row. An absent
+// row is not an error — it is the "no choice yet" state the service normalizes
+// to the system default. The value is returned verbatim: the closed set is the
+// application's contract, and this adapter has no opinion about it.
+func (ps *preferencesStore) GetTheme(ctx context.Context, userID int64) (string, error) {
+	var value string
+	err := ps.db.QueryRowContext(ctx,
+		`SELECT value FROM user_preferences WHERE user_id = ? AND "key" = ?`,
+		userID, preferencesKeyTheme).Scan(&value)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("sqlite: get %s for user %d: %w", preferencesKeyTheme, userID, err)
+	}
+	return value, nil
+}
+
+// SetTheme upserts the user's stored theme. The composite primary key makes the
+// ON CONFLICT target unambiguous, so choosing a theme twice updates one row
+// instead of accumulating one per save. The value is written verbatim, exactly
+// like the queue order: the service has already validated it.
+func (ps *preferencesStore) SetTheme(ctx context.Context, userID int64, theme string) error {
+	_, err := ps.db.ExecContext(ctx, `
+		INSERT INTO user_preferences (user_id, "key", value) VALUES (?, ?, ?)
+		ON CONFLICT(user_id, "key") DO UPDATE SET value = excluded.value`,
+		userID, preferencesKeyTheme, theme)
+	if err != nil {
+		return fmt.Errorf("sqlite: set %s for user %d: %w", preferencesKeyTheme, userID, err)
 	}
 	return nil
 }

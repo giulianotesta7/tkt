@@ -1132,6 +1132,29 @@ type SidebarPreferencesStore interface {
 	SetSidebarCollapsed(ctx context.Context, userID int64, collapsed bool) error
 }
 
+// ThemePreferencesStore persists each user's interface theme (issue #378, S1)
+// in the same user_preferences table, under its own key, so the queue-order,
+// email, and sidebar ports above are unchanged and no preference can overwrite
+// another. Like the other three this is a personal setting with no capability
+// gate: the key is the acting user's id, never a caller-supplied one.
+//
+// The readers (the request middleware that stamps the page attribute, and
+// pageDataFrom) read it ONCE per authenticated request, which is why the read
+// answers the bare stored string instead of a rendering concern.
+//
+// Defaults are part of the contract, not the adapter's mood: an absent row
+// means "" — no choice yet — and the application service normalizes that, and
+// every value outside the closed set, to ThemeSystem. The store persists
+// whatever it is given, so a hand-edited or restored-from-backup row can never
+// render a theme the stylesheet does not define.
+type ThemePreferencesStore interface {
+	// GetTheme returns the user's stored theme, or "" when the user has no
+	// stored preference.
+	GetTheme(ctx context.Context, userID int64) (string, error)
+	// SetTheme upserts the user's stored theme.
+	SetTheme(ctx context.Context, userID int64, theme string) error
+}
+
 // TicketSection narrows an agent's read scope into a presentation section.
 // The zero value keeps the full actor scope for existing list and detail reads.
 type TicketSection int

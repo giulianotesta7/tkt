@@ -203,7 +203,7 @@ func newHarnessWithAdmin(t *testing.T, seedAdmin bool) *harness {
 	attachmentSvc := application.NewAttachmentService(s.TicketStore(), s.AttachmentStore())
 	searchSvc := application.NewSearchService(s.TicketStore(), s.SearchStore())
 	settingsSvc := application.NewSettingsService(s.SettingsStore())
-	preferencesSvc := application.NewPreferencesService(s.PreferencesStore(), s.EmailPreferences(), s.SidebarPreferences())
+	preferencesSvc := application.NewPreferencesService(s.PreferencesStore(), s.EmailPreferences(), s.SidebarPreferences(), s.ThemePreferences())
 	workflowSvc := application.NewWorkflowService(s.WorkflowStore())
 	metricsSvc := application.NewTicketMetricsService(s.TicketMetricsStore(), clock)
 	// Issue #362: the SMTP password is sealed with the key file that lives next
@@ -226,7 +226,7 @@ func newHarnessWithAdmin(t *testing.T, seedAdmin bool) *harness {
 	NewCategorySLAHandlers(catSvc, slaSvc, s.SLAStore(), renderer).Register(mux)
 	NewPreferencesHandlers(preferencesSvc, renderer).Register(mux)
 	NewNotificationHandlers(s.NotificationStore(), s.TicketStore(), s.UserStore(), renderer, clock).Register(mux)
-	mw := NewSessionMiddleware(s.SessionStore(), s.UserStore(), s.SettingsStore()).WithSidebarPreferences(s.SidebarPreferences())
+	mw := NewSessionMiddleware(s.SessionStore(), s.UserStore(), s.SettingsStore()).WithSidebarPreferences(s.SidebarPreferences()).WithThemePreferences(s.ThemePreferences())
 
 	h := &harness{
 		store: s, dbPath: dbPath, clock: clock,
