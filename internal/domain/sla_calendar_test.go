@@ -352,3 +352,140 @@ func TestSLACalendarDSTShiftsWindowWithWallClock(t *testing.T) {
 		t.Errorf("AddWorkingSeconds across DST = %v, want %v", got, want)
 	}
 }
+
+// TestSLACalendarAddWorkingDays is the working-day arithmetic of issue #353:
+// N working days after an instant, keeping that instant's WALL-CLOCK time in
+// the calendar's location. A start on a non-working day has no wall-clock time
+// to keep, so it counts from the next working day's window opening.
+func TestSLACalendarAddWorkingDays(t *testing.T) {
+	tests := []struct {
+		name     string
+		cal      SLACalendar
+		from     time.Time
+		days     int
+		want     time.Time
+		wantSame bool // want from returned unchanged
+	}{
+		{
+			name: "one working day on a weekday keeps the wall-clock time",
+			cal:  workingWeekUTC(),
+			from: utcAt(2026, 8, 10, 10, 0, 0), // Monday
+			days: 1,
+			want: utcAt(2026, 8, 11, 10, 0, 0), // Tuesday
+		},
+		{
+			name: "three working days from a Monday land on Thursday",
+			cal:  workingWeekUTC(),
+			from: utcAt(2026, 8, 10, 14, 30, 0),
+			days: 3,
+			want: utcAt(2026, 8, 13, 14, 30, 0),
+		},
+		{
+			name: "across a weekend: Friday plus one working day is Monday",
+			cal:  workingWeekUTC(),
+			from: utcAt(2026, 8, 14, 17, 0, 0), // Friday
+			days: 1,
+			want: utcAt(2026, 8, 17, 17, 0, 0), // Monday
+		},
+		{
+			name: "across a weekend: Thursday plus two working days is Monday",
+			cal:  workingWeekUTC(),
+			from: utcAt(2026, 8, 13, 9, 15, 0), // Thursday
+			days: 2,
+			want: utcAt(2026, 8, 17, 9, 15, 0), // Monday
+		},
+		{
+			// A non-working start has no wall-clock time to keep, so the count
+			// begins at Monday's window opening and the whole working day is
+			// still owed: one working day later is Tuesday 09:00.
+			name: "a Saturday start counts from Monday's window opening",
+			cal:  workingWeekUTC(),
+			from: utcAt(2026, 8, 8, 10, 0, 0),
+			days: 1,
+			want: utcAt(2026, 8, 11, 9, 0, 0),
+		},
+		{
+			name: "a Sunday start counts from Monday's window opening",
+			cal:  workingWeekUTC(),
+			from: utcAt(2026, 8, 9, 7, 45, 0),
+			days: 2,
+			want: utcAt(2026, 8, 12, 9, 0, 0),
+		},
+		{
+			name: "a start outside the window on a working day keeps its time",
+			cal:  workingWeekUTC(),
+			from: utcAt(2026, 8, 10, 21, 0, 0), // Monday evening
+			days: 1,
+			want: utcAt(2026, 8, 11, 21, 0, 0),
+		},
+		{
+			name: "a single-day working week skips every other day",
+			cal:  SLACalendar{WorkingDays: []time.Weekday{time.Wednesday}, StartMinute: 540, EndMinute: 1080, Location: time.UTC},
+			from: utcAt(2026, 8, 10, 10, 0, 0), // Monday: not a working day
+			days: 1,
+			want: utcAt(2026, 8, 19, 9, 0, 0), // next Wednesday, one working day after the opening
+		},
+		{
+			name:     "zero days returns from unchanged",
+			cal:      workingWeekUTC(),
+			from:     utcAt(2026, 8, 8, 12, 0, 0),
+			days:     0,
+			wantSame: true,
+		},
+		{
+			name:     "negative days returns from unchanged",
+			cal:      workingWeekUTC(),
+			from:     utcAt(2026, 8, 10, 12, 0, 0),
+			days:     -2,
+			wantSame: true,
+		},
+		{
+			name:     "invalid calendar returns from unchanged",
+			cal:      SLACalendar{WorkingDays: nil, StartMinute: 540, EndMinute: 1080, Location: time.UTC},
+			from:     utcAt(2026, 8, 10, 10, 0, 0),
+			days:     1,
+			wantSame: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := tt.cal.AddWorkingDays(tt.from, tt.days)
+			if tt.wantSame {
+				if !got.Equal(tt.from) {
+					t.Errorf("AddWorkingDays = %v, want from unchanged (%v)", got, tt.from)
+				}
+				return
+			}
+			if !got.Equal(tt.want) {
+				t.Errorf("AddWorkingDays = %v, want %v", got, tt.want)
+			}
+			if got.Location() != time.UTC {
+				t.Errorf("AddWorkingDays location = %v, want UTC", got.Location())
+			}
+		})
+	}
+}
+
+// TestSLACalendarAddWorkingDaysKeepsTheWallClockAcrossDST pins the
+// daylight-saving rule for issue #353: the deadline is the same WALL-CLOCK
+// time in the calendar's zone, so the UTC instant moves with the offset
+// instead of drifting an hour.
+func TestSLACalendarAddWorkingDaysKeepsTheWallClockAcrossDST(t *testing.T) {
+	ny, err := time.LoadLocation("America/New_York")
+	if err != nil {
+		t.Fatalf("load location: %v", err)
+	}
+	cal := SLACalendar{
+		WorkingDays: []time.Weekday{time.Monday, time.Tuesday, time.Wednesday, time.Thursday, time.Friday},
+		StartMinute: 540, EndMinute: 1080, Location: ny,
+	}
+
+	// US DST ends Sunday 2026-11-01. Friday 17:00 EDT plus one working day is
+	// Monday 17:00 EST — the same wall clock, one hour later in UTC.
+	from := time.Date(2026, 10, 30, 17, 0, 0, 0, ny)
+	got := cal.AddWorkingDays(from, 1)
+	want := utcAt(2026, 11, 2, 22, 0, 0) // 17:00 EST = 22:00 UTC
+	if !got.Equal(want) {
+		t.Errorf("AddWorkingDays across DST = %v, want %v", got, want)
+	}
+}
