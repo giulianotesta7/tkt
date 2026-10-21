@@ -40,6 +40,10 @@ type systemClock struct{}
 
 func (systemClock) Now() time.Time { return time.Now().UTC() }
 
+// emailSendInterval is how often the background sender looks for pending
+// notification emails.
+const emailSendInterval = 15 * time.Second
+
 func envOr(key, fallback string) string {
 	if v := os.Getenv(key); v != "" {
 		return v
@@ -129,6 +133,7 @@ func main() {
 	// container contract is unchanged.
 	mailer := mail.NewSMTPMailer()
 	emailSettingsSvc := application.NewEmailSettingsService(store.EmailSettingsStore(), secretbox.New(filepath.Dir(dbPath)), mailer, store.SettingsStore(), msgtext.Renderer{})
+	emailSender := application.NewNotificationEmailSender(store.EmailOutbox(), emailSettingsSvc, store.UserStore(), store.TicketStore(), store.EmailPreferences(), mailer, msgtext.Renderer{}, clock)
 
 	// Issue #335: the interface language is an instance-wide setting, so the
 	// renderer resolves it per request and selects the parsed template tree
@@ -177,6 +182,21 @@ func main() {
 
 	errCh := make(chan error, 1)
 	go func() { errCh <- srv.ListenAndServe() }()
+
+	// Issue #362: notification emails go out in the background, outside the
+	// transactions that write them, until shutdown. Settings are read on
+	// every pass, so a saved change applies without a restart.
+	senderDone := make(chan struct{})
+	go func() {
+		defer close(senderDone)
+		emailSender.Run(ctx, emailSendInterval)
+	}()
+	// Stop the sender and wait for it before the deferred database close, on
+	// every exit path (not only a signal).
+	defer func() {
+		stop()
+		<-senderDone
+	}()
 
 	select {
 	case err := <-errCh:
