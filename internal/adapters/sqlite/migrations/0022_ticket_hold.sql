@@ -1,0 +1,44 @@
+-- 0022_ticket_hold.sql — a ticket on hold while it waits for the requester
+-- (issue #352).
+--
+-- HOLD IS AN ATTRIBUTE, NOT A STATE. tickets.state carries a CHECK since
+-- 0001_init.sql:35, so a new 'on_hold' value is not an ALTER: SQLite cannot
+-- modify a CHECK constraint in place, it would take a full table rebuild of
+-- the busiest table in the schema (copy, drop, rename, re-create every index
+-- and trigger). The hold also is not a state: the ticket keeps the state it
+-- was in (an in_progress ticket is still in_progress) and the hold only
+-- pauses the RESOLUTION clock until the requester answers or an agent
+-- resumes it (issue #352: only resolution pauses — the first response is
+-- not paused, because asking the requester something already required
+-- answering them first).
+--
+-- on_hold_since is the pause instant, the anchor the resolution SLA is
+-- shifted from at resume; NULL means the ticket is not on hold. It is
+-- nullable with no default: every pre-0022 ticket is truthfully off hold,
+-- and SQLite can only add a NOT NULL column when a non-NULL default is
+-- given.
+--
+-- on_hold_reason is the pause reason the agent must supply (issue #352:
+-- "the reason of the pause" is what the clock stopped for, recorded in the
+-- timeline). NOT NULL DEFAULT '' is the same migration-mechanics constraint
+-- migration 0017 documents: SQLite cannot add a NOT NULL column without a
+-- default, and '' is not a meaningful value — it is what an off-hold row
+-- carries.
+--
+-- The two columns are CHECKed as a PAIR — (on_hold_since IS NULL) =
+-- (on_hold_reason = '') — because the application must never persist half a
+-- hold: a pause instant without a reason, or a reason on a ticket that is
+-- not on hold, would both make the timeline narrative and the projection
+-- disagree about whether the resolution clock is running. The database
+-- enforces the invariant the domain methods already hold, so no code path
+-- (including a future one) can write one without the other.
+--
+-- The hold columns are written by exactly one statement: the
+-- compare-and-set UPDATE inside TicketUnitOfWork.UpdateHold. The generic
+-- ticket update never touches them (a stale field edit can neither clear
+-- nor resurrect a hold), and a resumed hold is the one sanctioned change to
+-- the frozen resolution instants (ticket_sla.warn_resolve_at and
+-- due_resolve_at), applied in that same transaction.
+
+ALTER TABLE tickets ADD COLUMN on_hold_since TEXT;
+ALTER TABLE tickets ADD COLUMN on_hold_reason TEXT NOT NULL DEFAULT '' CHECK ((on_hold_since IS NULL) = (on_hold_reason = ''));
