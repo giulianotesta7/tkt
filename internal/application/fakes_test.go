@@ -350,6 +350,10 @@ type fakeUnitOfWork struct {
 	// createCalls counts Create invocations: it proves the workflow create path
 	// never falls back to the legacy TicketUnitOfWork create (PR5 S5).
 	createCalls int
+	// updateHoldCalls counts UpdateHold invocations (issue #352): the hold use
+	// cases must persist through the compare-and-set write, while every other
+	// mutation must keep using Update and never touch the hold columns.
+	updateHoldCalls int
 	// slas, when non-nil, receives the shifted resolution instants of an
 	// UpdateHold. It is nil by default because no service test under this
 	// port needs the SLA side yet, and a fake must not invent a store it was
@@ -423,6 +427,7 @@ func (f *fakeUnitOfWork) Update(ctx context.Context, m application.TicketMutatio
 // "missing ticket" and "lost race" cases are told apart exactly as the real
 // store does (NotFoundError vs HoldConflictError).
 func (f *fakeUnitOfWork) UpdateHold(ctx context.Context, w application.HoldWrite) error {
+	f.updateHoldCalls++
 	prev, ok := f.tickets.tickets[w.Ticket.ID]
 	if !ok {
 		return &domain.NotFoundError{Kind: "ticket", ID: w.Ticket.ID}
