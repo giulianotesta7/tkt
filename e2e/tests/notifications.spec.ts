@@ -121,7 +121,7 @@ test.describe("Notification center — assigned, opened, marked read (seeded)", 
     expect(counts.at(-1)).toContain(`aria-label="Notifications, 2 unread"`);
     const counted = page.getByRole("link", { name: "Notifications, 2 unread" });
     await expect(counted).toBeVisible({ timeout: 10_000 });
-    await expect(page.locator("#notification-bell .rail-badge")).toHaveText("2");
+    await expect(page.locator("#notification-bell .bell-badge")).toHaveText("2");
 
     // S13's poll: 45s of visible page time asks the count endpoint again.
     const beforePoll = counts.length;
@@ -184,7 +184,7 @@ test.describe("Notification center — assigned, opened, marked read (seeded)", 
     await expect
       .poll(() => counts.at(-1) ?? "", { timeout: 10_000 })
       .toContain(`aria-label="Notifications"`);
-    expect(counts.at(-1)).not.toContain("rail-badge");
+    expect(counts.at(-1)).not.toContain("bell-badge");
     await expect(page.getByRole("link", { name: "Notifications", exact: true })).toBeVisible();
     await expect(page.locator(".notification-unread")).toHaveCount(0);
     await expect(page.getByRole("button", { name: "Mark all as read" })).toHaveCount(0);

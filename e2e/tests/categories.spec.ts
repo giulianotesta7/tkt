@@ -3540,7 +3540,7 @@ test.describe("Categories", () => {
       await page.setViewportSize({ width: 390, height: 844 });
       const categoryId = await openDirtyBuilder(page, "EXIT-DIRTY");
       const dialog = page.locator("#workflow-leave-dialog");
-      const sidebarLink = page.locator('a.rail-link[href="/categories"]');
+      const sidebarLink = page.locator('a.sidebar-link[href="/categories"]');
       const breadcrumbLink = page.locator(".page-breadcrumb a");
       const workflowUrl = new RegExp(`/categories/${categoryId}/workflow$`);
       // Stay: URL and values preserved, focus returns to the trigger.
@@ -3618,7 +3618,7 @@ test.describe("Categories", () => {
     test("reverted edits and a successful save clear the exit guard", async ({ page }) => {
       const categoryId = await openDirtyBuilder(page, "CLEAN-ME");
       const dialog = page.locator("#workflow-leave-dialog");
-      const sidebarLink = page.locator('a.rail-link[href="/categories"]');
+      const sidebarLink = page.locator('a.sidebar-link[href="/categories"]');
       // Guard is active while dirty, then a reverted field navigates freely.
       await sidebarLink.click();
       await expect(dialog).toBeVisible();
