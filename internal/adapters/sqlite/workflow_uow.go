@@ -105,6 +105,11 @@ func (u *workflowUnitOfWork) CreateTicketWithRun(ctx context.Context, in applica
 	if err := createTicketWithRunTx(ctx, tx, in.Ticket, in.ExpectedVersionID); err != nil {
 		return nil, err
 	}
+	// Files attached at creation commit with the ticket (issue #366); any
+	// failure below rolls them back with it.
+	if err := insertAttachmentsTx(ctx, tx, in.Ticket.ID, nil, in.Attachments); err != nil {
+		return nil, err
+	}
 
 	// Append the exact created audit (TicketID stamped from the assigned id).
 	created := in.CreatedAudit

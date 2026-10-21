@@ -92,6 +92,9 @@ type CreateTicketInput struct {
 	Description string
 	CategoryID  int64
 	Priority    domain.Priority
+	// Attachments are the files sent with the creation (issue #366); they are
+	// validated with the rest of the payload, before anything is written.
+	Attachments []domain.AttachmentUpload
 }
 
 // Create validates the payload, then persists ticket + created audit event
@@ -110,6 +113,12 @@ func (s *TicketService) Create(ctx context.Context, actor domain.User, in Create
 	}
 
 	now := s.clock.Now()
+	// Attachments (issue #366) are validated here, with the rest of the
+	// payload: a refused file refuses the creation before any write.
+	files, err := stampedAttachments(in.Attachments, actor, now)
+	if err != nil {
+		return nil, err
+	}
 	// SLA resolution (issue #211): resolve the commitment to freeze ONCE,
 	// after category validation and from the SAME now stamped on the ticket,
 	// before either create path. A resolution error fails the whole create
@@ -130,12 +139,12 @@ func (s *TicketService) Create(ctx context.Context, actor domain.User, in Create
 	// published workflows the exact 422 category message is returned and nothing
 	// is written.
 	if s.workflowTx != nil {
-		return s.createWithWorkflow(ctx, actor, in, now, sla)
+		return s.createWithWorkflow(ctx, actor, in, now, sla, files)
 	}
 
 	t, event := newCreateTicket(actor, in, now)
 	t.SLA = sla
-	if err := s.tx.Create(ctx, TicketMutation{Ticket: t, Events: []domain.AuditEvent{event}}); err != nil {
+	if err := s.tx.Create(ctx, TicketMutation{Ticket: t, Events: []domain.AuditEvent{event}, Attachments: files}); err != nil {
 		return nil, err
 	}
 	return t, nil
@@ -153,7 +162,7 @@ func (s *TicketService) Create(ctx context.Context, actor domain.User, in Create
 // itself — persistence atomicity is entirely the WorkflowUnitOfWork's
 // responsibility (design S5 all-or-nothing: ticket + pin + created audit +
 // active run + planned automatic operations).
-func (s *TicketService) createWithWorkflow(ctx context.Context, actor domain.User, in CreateTicketInput, now time.Time, sla *domain.TicketSLA) (*domain.Ticket, error) {
+func (s *TicketService) createWithWorkflow(ctx context.Context, actor domain.User, in CreateTicketInput, now time.Time, sla *domain.TicketSLA, files []domain.Attachment) (*domain.Ticket, error) {
 	pv, err := s.versions.GetCurrentVersion(ctx, in.CategoryID)
 	if err != nil {
 		return nil, err
@@ -193,6 +202,7 @@ func (s *TicketService) createWithWorkflow(ctx context.Context, actor domain.Use
 		NextCursor:        plan.NextCursor,
 		NextRunStatus:     plan.NextRunStatus,
 		NextTicketState:   plan.NextTicketState,
+		Attachments:       files,
 	}
 	if plan.NextRunStatus == "completed" {
 		ct := now
@@ -663,4 +673,22 @@ func (s *TicketService) GetByID(ctx context.Context, actor domain.User, id int64
 	// agents) so a claim-pending ticket on the actor's desk is visible; the
 	// mutation paths keep the strict scopedQuery and never inherit this widening.
 	return s.builder.TicketView(ctx, id, readQuery(actor, TicketQuery{}), includeInternal)
+}
+
+// stampedAttachments validates one submission's files (issue #366) and stamps
+// each with its uploader and the operation instant. No files answers nil.
+func stampedAttachments(uploads []domain.AttachmentUpload, actor domain.User, now time.Time) ([]domain.Attachment, error) {
+	if len(uploads) == 0 {
+		return nil, nil
+	}
+	files, err := domain.ValidateAttachments(uploads)
+	if err != nil {
+		return nil, err
+	}
+	for i := range files {
+		uploader := actor.ID
+		files[i].UploaderUserID = &uploader
+		files[i].CreatedAt = now
+	}
+	return files, nil
 }

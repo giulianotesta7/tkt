@@ -36,8 +36,9 @@
   // draft itself because it describes one picker trip, not stored text.
   const HANDOFF_KEY = "tktTicketDraftHandoff";
   const VERSION = 1;
-  // The server caps a request body at 1 MiB; these stay well under it while
-  // leaving any realistic ticket text intact.
+  // The server caps an ordinary request body at 1 MiB (issue #366 raises the
+  // cap only for the two multipart upload routes); these stay well under it
+  // while leaving any realistic ticket text intact.
   const TITLE_MAX = 512;
   const DESCRIPTION_MAX = 100000;
   const NAME_MAX = 200;

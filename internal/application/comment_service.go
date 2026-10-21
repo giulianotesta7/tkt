@@ -54,10 +54,21 @@ func (s *CommentService) WithSLA(sla *SLAService) *CommentService {
 // an internal comment is denied (ForbiddenError) BEFORE any store call; roles
 // agent+ may add public or internal comments.
 func (s *CommentService) Add(ctx context.Context, actor domain.User, ticketID int64, body, visibility string) (*domain.Comment, error) {
+	return s.AddWithAttachments(ctx, actor, ticketID, body, visibility, nil)
+}
+
+// AddWithAttachments is Add with the comment's files (issue #366): they are
+// validated with the body and visibility, before any store call, and written
+// in the comment's own transaction. Their visibility is the comment's.
+func (s *CommentService) AddWithAttachments(ctx context.Context, actor domain.User, ticketID int64, body, visibility string, uploads []domain.AttachmentUpload) (*domain.Comment, error) {
 	if strings.TrimSpace(body) == "" {
 		return nil, &domain.ValidationError{Field: "body", Message: domain.ErrMsgCommentBodyRequired, Key: "error.comment_body_required"}
 	}
 	vis, err := parseCommentVisibility(visibility)
+	if err != nil {
+		return nil, err
+	}
+	files, err := stampedAttachments(uploads, actor, s.clock.Now())
 	if err != nil {
 		return nil, err
 	}
@@ -106,7 +117,7 @@ func (s *CommentService) Add(ctx context.Context, actor domain.User, ticketID in
 	if err != nil {
 		return nil, err
 	}
-	if err := s.tx.Add(ctx, CommentMutation{Comment: c, Notifications: notifications, Resume: resume}); err != nil {
+	if err := s.tx.Add(ctx, CommentMutation{Comment: c, Notifications: notifications, Resume: resume, Attachments: files}); err != nil {
 		return nil, err
 	}
 	return c, nil

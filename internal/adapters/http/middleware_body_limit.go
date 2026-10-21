@@ -4,7 +4,11 @@ import (
 	"bytes"
 	"errors"
 	"io"
+	"mime"
 	"net/http"
+	"strings"
+
+	"github.com/giulianotesta7/tkt/internal/domain"
 )
 
 // maxRequestBodyBytes is the single, documented request-body cap applied to
@@ -26,6 +30,12 @@ import (
 // one documented limit, and a knob would only add a way to disable the bound
 // by accident.
 const maxRequestBodyBytes = 1 << 20 // 1 MiB
+
+// maxUploadBodyBytes is the cap of the two routes that carry attachments
+// (issue #366): a multipart POST /tickets or POST /tickets/{id}/comments may
+// hold up to five 10 MB files plus the form around them. Every other route —
+// and those two without a multipart body — keeps maxRequestBodyBytes.
+const maxUploadBodyBytes = 5*domain.MaxAttachmentBytes + maxRequestBodyBytes
 
 // BodyLimitMiddleware caps how many body bytes any wrapped route may consume.
 // It is a transport-boundary control: it runs before the mux and never
@@ -58,6 +68,20 @@ func (m *BodyLimitMiddleware) Wrap(next http.Handler) http.Handler {
 			return
 		}
 
+		// Upload routes (issue #366) stream: the body is not buffered here —
+		// up to maxUploadBodyBytes would be held in memory per request — but
+		// reaches the handler behind http.MaxBytesReader, and the handler maps
+		// the MaxBytesError of an undeclared oversize body to the same 413.
+		if isUploadRequest(r) {
+			if r.ContentLength > maxUploadBodyBytes {
+				httpError(w, r, "error.request_too_large", http.StatusRequestEntityTooLarge)
+				return
+			}
+			r.Body = http.MaxBytesReader(w, r.Body, maxUploadBodyBytes)
+			next.ServeHTTP(w, r)
+			return
+		}
+
 		if r.ContentLength > maxRequestBodyBytes {
 			httpError(w, r, "error.request_too_large", http.StatusRequestEntityTooLarge)
 			return
@@ -83,4 +107,34 @@ func (m *BodyLimitMiddleware) Wrap(next http.Handler) http.Handler {
 		r.ContentLength = int64(len(body))
 		next.ServeHTTP(w, r)
 	})
+}
+
+// isUploadRequest reports a multipart POST to one of the two routes that carry
+// attachments (issue #366): POST /tickets and POST /tickets/{id}/comments with
+// a numeric id. The match is exact, so no other route inherits the larger cap.
+func isUploadRequest(r *http.Request) bool {
+	if r.Method != http.MethodPost {
+		return false
+	}
+	mediaType, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
+	if err != nil || mediaType != "multipart/form-data" {
+		return false
+	}
+	if r.URL.Path == "/tickets" {
+		return true
+	}
+	id, ok := strings.CutPrefix(r.URL.Path, "/tickets/")
+	if !ok {
+		return false
+	}
+	id, ok = strings.CutSuffix(id, "/comments")
+	if !ok || id == "" {
+		return false
+	}
+	for _, c := range id {
+		if c < '0' || c > '9' {
+			return false
+		}
+	}
+	return true
 }

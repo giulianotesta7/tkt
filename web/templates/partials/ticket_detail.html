@@ -36,7 +36,8 @@
       <div class="card">
         <h2>{{t "tickets.detail.description"}}</h2>
         {{if .View.Ticket.Description}}<p class="ticket-description">{{.View.Ticket.Description}}</p>{{else}}<p class="empty">{{t "tickets.detail.no_description"}}</p>{{end}}
-          </div>
+{{if .Attachments}}        <ul class="attachments" aria-label="{{t "tickets.detail.attachments"}}">{{range .Attachments}}<li><a class="attachment-name" href="/attachments/{{.ID}}">{{.FileName}}</a> <span class="attachment-size">{{fileSize .Size}}</span></li>{{end}}</ul>
+{{end}}          </div>
 {{if .CanConfirm}}
 	<section class="card resolution-confirmation" aria-labelledby="resolution-confirmation-title">
 		<p class="resolution-eyebrow">{{t "tickets.detail.resolution.eyebrow"}}</p>

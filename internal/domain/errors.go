@@ -40,6 +40,14 @@ const (
 	ErrMsgTicketNotOnHold             = "the ticket is not on hold"
 	ErrMsgTicketOnHold                = "take the ticket off hold before closing it"
 	ErrMsgHoldConflict                = "the ticket's hold changed meanwhile — reload the ticket and try again"
+	// Attachment messages (issue #366). The ones carrying a file name are
+	// formats: the English catalogue entry is the same format, so the English
+	// UI and the Message read identically.
+	ErrMsgAttachmentTooManyFmt        = "you can attach at most %d files at a time"
+	ErrMsgAttachmentNameRequired      = "every attached file needs a name"
+	ErrMsgAttachmentEmptyFmt          = "%s is empty"
+	ErrMsgAttachmentTooLargeFmt       = "%s is larger than 10 MB"
+	ErrMsgAttachmentTypeNotAllowedFmt = "%s cannot be attached: only images, PDF, Office documents, text files and zip files are allowed"
 	// ErrMsgCategoryNotRunnable is read by the REQUESTER on the ticket form and by
 	// an agent on a stalled step, so it names no mechanism and points at the only
 	// person who can act. One wording covers both: the cause is the same category
