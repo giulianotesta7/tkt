@@ -1,6 +1,10 @@
-{{define "filter_form"}}<form class="filter-bar ticket-toolbar" method="get" action="/tickets" hx-get="/tickets" hx-target="#tickets-screen" hx-swap="outerHTML" hx-push-url="true" hx-indicator="this">
-  {{template "ticket_search" .}}
-{{if .ShowAdvancedFilters}}  <select name="state" aria-label="{{t "tickets.filter.state"}}">
+{{define "filter_form"}}<form id="queue-filters" class="filter-bar ticket-toolbar" method="get" action="/tickets" hx-get="/tickets" hx-target="{{if .ShowAdvancedFilters}}#queue-results{{else}}#tickets-screen{{end}}" hx-swap="outerHTML" hx-push-url="true" hx-indicator="this" hx-trigger="change, submit" hx-sync="this:queue last"{{if .ShowAdvancedFilters}} hx-select="#queue-results" hx-select-oob="#queue-tabs"{{end}}>
+{{if ne .Filters.View "all"}}  <input type="hidden" name="view" value="{{.Filters.View}}">
+{{end}}  {{template "ticket_search" .}}
+{{if .ShowAdvancedFilters}}  <details class="queue-filters" open>
+    <summary class="btn queue-filters-toggle">{{t "tickets.filter.filters"}}</summary>
+    <div class="queue-filters-controls">
+  <select name="state" aria-label="{{t "tickets.filter.state"}}">
     <option value="">{{t "tickets.filter.all_states"}}</option>
     {{range .Options.States}}<option value="{{.}}" {{if eq . $.Filters.State}}selected{{end}}>{{stateLabel .}}</option>{{end}}
   </select>
@@ -14,12 +18,19 @@
   <select name="user_id" aria-label="{{t "tickets.filter.assigned_user"}}">
     <option value="">{{t "tickets.filter.anyone"}}</option>{{range .Options.Users}}{{if eq (printf "%d" .ID) $.Filters.UserID}}<option value="{{.ID}}" selected>{{.Name}}</option>{{else}}<option value="{{.ID}}">{{.Name}}</option>{{end}}{{end}}
   </select>
-{{end}}  <select name="sort" aria-label="{{t "tickets.filter.order_by"}}">
+    </div>
+  </details>
+{{end}}  <label class="queue-sort"><span class="queue-sort-label">{{t "tickets.filter.sort"}}</span><select name="sort" aria-label="{{t "tickets.filter.order_by"}}">
     <option value="newest" {{if eq $.Filters.Sort "newest"}}selected{{end}}>{{t "tickets.filter.newest_first"}}</option>
     <option value="priority" {{if eq $.Filters.Sort "priority"}}selected{{end}}>{{t "tickets.filter.priority"}}</option>
     <option value="urgency" {{if eq $.Filters.Sort "urgency"}}selected{{end}}>{{t "tickets.filter.urgency"}}</option>
-  </select>
-  <button class="btn" type="submit">{{t "common.apply"}}</button>
-  <a class="btn ghost" href="/tickets" hx-get="/tickets" hx-target="#tickets-screen" hx-swap="outerHTML" hx-push-url="true" aria-label="{{t "tickets.filter.clear"}}">{{t "common.clear"}}</a>
+  </select></label>
   <span class="htmx-indicator spinner" aria-hidden="true"></span>
 </form>{{end}}
+{{define "queue_chips"}}{{if .Chips}}<div id="queue-chips" class="queue-chips" aria-label="{{t "tickets.filter.filters"}}">
+{{range .Chips}}  <a class="queue-chip" href="{{.Href}}" hx-get="{{.Href}}" hx-target="#tickets-screen" hx-swap="outerHTML" hx-push-url="true" aria-label="{{tf "tickets.chip.remove" .Label}}"><span>{{.Label}}</span><span class="queue-chip-x" aria-hidden="true">×</span></a>
+{{end}}  <a class="queue-chips-clear" href="{{.ClearHref}}" hx-get="{{.ClearHref}}" hx-target="#tickets-screen" hx-swap="outerHTML" hx-push-url="true" aria-label="{{t "tickets.filter.clear"}}">{{t "tickets.filter.clear"}}</a>
+</div>{{end}}{{end}}
+{{define "queue_tabs"}}<nav id="queue-tabs" class="queue-tabs" aria-label="{{t "tickets.screen.title"}}">
+{{range .Tabs}}  <a class="queue-tab{{if .Active}} active{{end}}" href="{{.Href}}" hx-get="{{.Href}}" hx-target="#tickets-screen" hx-swap="outerHTML" hx-push-url="true" data-view="{{.View}}" data-count="{{.Count}}"{{if .Active}} aria-current="page"{{end}}>{{t .LabelKey}} <span class="queue-tab-count">{{.Count}}</span></a>
+{{end}}</nav>{{end}}

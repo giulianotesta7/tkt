@@ -1,7 +1,7 @@
 {{define "ticket_search"}}<div class="ticket-search search-field">
   <label class="visually-hidden" for="ticket-search">{{t "tickets.search.label"}}</label>
   {{template "search_icon"}}
-  <input id="ticket-search" type="search" name="q" value="{{.Filters.Q}}" placeholder="{{t "tickets.search.placeholder"}}" aria-label="{{t "tickets.search.label"}}">
+  <input id="ticket-search" type="search" name="q" value="{{.Filters.Q}}" hx-get="/tickets" hx-trigger="input changed delay:300ms" hx-include="closest form" hx-sync="closest form:queue last" hx-target="#queue-results" hx-select="#queue-results" hx-select-oob="#queue-tabs" hx-swap="outerHTML" hx-push-url="true" hx-indicator="closest form" placeholder="{{t "tickets.search.placeholder"}}" aria-label="{{t "tickets.search.label"}}">
 </div>{{end}}
 {{define "role_ticket_search"}}<form class="ticket-search search-field" method="get" action="/tickets" hx-get="/tickets" hx-target="#tickets-screen" hx-swap="outerHTML" hx-push-url="true">
   <label class="visually-hidden" for="role-ticket-search">{{t "tickets.search.label"}}</label>
