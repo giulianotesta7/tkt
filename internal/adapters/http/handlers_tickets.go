@@ -46,6 +46,13 @@ type TicketHandlers struct {
 	// its historical newest-first order. It is only read for the staff queue
 	// surfaces and only when the request carries no explicit `sort`.
 	preferences *application.PreferencesService
+	// attachments is the OPTIONAL attachment read side (issue #366): the
+	// ticket-detail listing reads it, and attachmentDownloads authorises the
+	// download route. Unset means neither exists, so an unwired handler
+	// renders and routes exactly as it did before #366 (WithAttachments is
+	// what turns both on).
+	attachments         application.AttachmentStore
+	attachmentDownloads *application.AttachmentService
 }
 
 // NewTicketHandlers wires the ticket routes against the ticket, comment,
@@ -114,6 +121,12 @@ func (h *TicketHandlers) Register(mux *http.ServeMux) {
 	mux.HandleFunc("POST /tickets/{id}/confirmation", h.confirmation)
 	mux.HandleFunc("POST /tickets/{id}/comments", h.addComment)
 	mux.HandleFunc("POST /tickets/{id}/workflow/steps/{position}/complete", h.completeWorkflow)
+	// The download route exists only when WithAttachments wired it (issue
+	// #366): a handler built without the service answers the mux's 404
+	// instead of panicking on a nil service.
+	if h.attachmentDownloads != nil {
+		mux.HandleFunc("GET /attachments/{id}", h.downloadAttachment)
+	}
 }
 
 // pageData is the shared presentation payload for app-shell pages: the rail
@@ -1028,10 +1041,14 @@ func asCatalogCategories(in []domain.Category) []domain.CatalogCategory {
 // 303 to the detail page. Errors re-render the form with the mapped status
 // (422/409/...) and message.
 func (h *TicketHandlers) create(w http.ResponseWriter, r *http.Request) {
-	if err := r.ParseForm(); err != nil {
-		httpError(w, r, "error.internal_server", http.StatusInternalServerError)
+	uploads, err := parseTicketForm(r)
+	if err != nil {
+		renderUploadError(w, r, err)
 		return
 	}
+	// The file parts may have spilled to temp files; every response path below
+	// (created, refused, re-rendered) releases them.
+	defer releaseMultipartForm(r)
 	// Amendment 2: creation binds NO assignee for ANY role. The mere PRESENCE
 	// of a user_id or assignee_id parameter — any value, including empty,
 	// which is exactly what a stale cached form submits — is rejected with
@@ -1054,9 +1071,12 @@ func (h *TicketHandlers) create(w http.ResponseWriter, r *http.Request) {
 		Description: r.Form.Get("description"),
 		CategoryID:  categoryID,
 		Priority:    domain.Priority(r.Form.Get("priority")),
+		// The files of the creation (issue #366) are validated with the rest
+		// of the submission and written in the ticket's own transaction.
+		Attachments: uploads,
 	}
 
-	_, err := h.tickets.Create(r.Context(), actor, in)
+	_, err = h.tickets.Create(r.Context(), actor, in)
 	if err != nil {
 		status, msg := mapErrorFor(r, err)
 		if status == http.StatusInternalServerError {
@@ -1262,6 +1282,11 @@ type detailData struct {
 	// hold dialog reopens with the error inside it instead of hiding the
 	// message behind the modal (issue #352).
 	HoldFailed bool
+	// Attachments are the files attached at ticket creation (issue #366),
+	// listed under the description. Each comment's files travel on its own
+	// Timeline entry, so both lists are already filtered by the visibility the
+	// actor may read: a requester never receives a staff-only file.
+	Attachments []domain.Attachment
 }
 
 // QueueHref is the detail's "← Queue" target: the validated list return href
@@ -1366,6 +1391,10 @@ func (h *TicketHandlers) detailDataFor(r *http.Request, id int64) (detailData, i
 	// resolved carve-out on the comment form; the services stay the
 	// enforcement points for both.
 	requester := isRequester(actor, view.Ticket)
+	// The actor's internal-comment capability is the one visibility fact the
+	// detail needs twice: the comment form offers the internal option with it,
+	// and the attachment list is filtered by it (issue #366).
+	canReadInternal := application.NewPolicy().Capabilities(actor.Role).Require(application.CapCommentInternal)
 	// Move-to filtering at the call site: on a requester-owned resolved ticket
 	// the closed target is dropped for every actor (requester uses the
 	// confirmation control; agents keep only the reopen). Requester-NULL and
@@ -1391,6 +1420,22 @@ func (h *TicketHandlers) detailDataFor(r *http.Request, id int64) (detailData, i
 	// panel to tick: a ticket with no frozen commitment (or a requester, whose
 	// panel stays nil) must not pay for a script it never uses.
 	page.SLACountdownAssets = slaPanel != nil
+	// The attachment listing reads with the SAME internal-comment visibility the
+	// detail view already applied above (issue #366, S3): a requester gets the
+	// creation files and the public comments' files, never a staff-only one.
+	creationFiles, commentFiles, err := h.ticketAttachments(r, id, canReadInternal)
+	if err != nil {
+		return detailData{}, statusFor(err), err
+	}
+	// Stamp each comment's files onto its timeline entry: the listing travels
+	// with the comment it belongs to, so the timeline fragment renders it
+	// without a second lookup.
+	for i := range view.Timeline {
+		entry := &view.Timeline[i]
+		if entry.IsComment && entry.Comment != nil {
+			entry.Attachments = commentFiles[entry.Comment.ID]
+		}
+	}
 	queueOrigin := r.Referer()
 	// HTMX mutations refer to the detail URL, not the original queue. The
 	// inherited header survives whole-detail swaps, including error renders.
@@ -1407,7 +1452,7 @@ func (h *TicketHandlers) detailDataFor(r *http.Request, id int64) (detailData, i
 		Next:               next,
 		Options:            opts,
 		Values:             values,
-		CanCommentInternal: application.NewPolicy().Capabilities(actor.Role).Require(application.CapCommentInternal),
+		CanCommentInternal: canReadInternal,
 		CanEdit:            application.NewPolicy().Capabilities(actor.Role).Require(application.CapEditTicket) && !closed,
 		CanAssign:          application.NewPolicy().Capabilities(actor.Role).Require(application.CapAssignTicket) && !closed,
 		CanTransition:      application.NewPolicy().Capabilities(actor.Role).Require(application.CapEditTicket),
@@ -1419,6 +1464,7 @@ func (h *TicketHandlers) detailDataFor(r *http.Request, id int64) (detailData, i
 		SLA:                slaPanel,
 		RequesterView:      actor.Role == domain.RoleUser,
 		BackHref:           listReturnHref(queueOrigin, r.Host),
+		Attachments:        creationFiles,
 	}, 0, nil
 }
 
@@ -1845,17 +1891,22 @@ func (h *TicketHandlers) addComment(w http.ResponseWriter, r *http.Request) {
 		httpError(w, r, "error.invalid_ticket_id", http.StatusBadRequest)
 		return
 	}
-	if err := r.ParseForm(); err != nil {
-		httpError(w, r, "error.internal_server", http.StatusInternalServerError)
+	uploads, err := parseTicketForm(r)
+	if err != nil {
+		renderUploadError(w, r, err)
 		return
 	}
+	defer releaseMultipartForm(r)
 	actor := *userFromContext(r.Context())
 
 	visibility := r.Form.Get("visibility")
 	if r.Form.Get("internal") != "" {
 		visibility = string(domain.CommentInternal)
 	}
-	_, err := h.comments.Add(r.Context(), actor, id, r.Form.Get("body"), visibility)
+	// The comment's files (issue #366) share the comment's visibility and its
+	// transaction: a refused file refuses the comment, and the comment can
+	// never exist without the files the author sent with it.
+	_, err = h.comments.AddWithAttachments(r.Context(), actor, id, r.Form.Get("body"), visibility, uploads)
 	if err != nil {
 		h.renderDetailError(w, r, id, err)
 		return

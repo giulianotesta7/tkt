@@ -1320,3 +1320,111 @@ func TestGoldenTicketDetailRequesterOnHold(t *testing.T) {
 
 	goldenFile(t, "ticket_detail_requester_on_hold", body)
 }
+
+// ---------------------------------------------------------------------------
+// Issue #366 goldens: attachments on the detail. The staff view carries the
+// creation file under the description and one file under each comment — the
+// public one and the staff-only one. The requester view carries the creation
+// file and the public comment's file only, because the handler reads both
+// lists with the same includeInternal the comment timeline used.
+// ---------------------------------------------------------------------------
+
+// stampGoldenAttachments mirrors the handler's per-comment stamp: it puts the
+// files on the timeline entry of one comment.
+func stampGoldenAttachments(items []application.TimelineItem, commentID int64, files ...domain.Attachment) {
+	for i := range items {
+		if items[i].IsComment && items[i].Comment != nil && items[i].Comment.ID == commentID {
+			items[i].Attachments = files
+		}
+	}
+}
+
+// fixtureAttachmentStaffDetailData derives the staff detail from the open
+// fixture and adds one creation file plus one file per comment.
+func fixtureAttachmentStaffDetailData() detailData {
+	d := fixtureDetailData()
+	d.View.Comments = append(d.View.Comments, domain.Comment{
+		ID: 2, TicketID: 1, Author: "Admin", Body: "Staff-only note",
+		Visibility: domain.CommentInternal, CreatedAt: goldenT0,
+	})
+	d.View.Timeline = append([]application.TimelineItem{{
+		IsComment: true,
+		Comment:   &d.View.Comments[1],
+		Attachments: []domain.Attachment{
+			{ID: 3, TicketID: 1, FileName: "internal-notes.pdf", ContentType: "application/pdf", Size: 10 << 20},
+		},
+	}}, d.View.Timeline...)
+	// The public comment's file rides its own timeline entry, exactly as the
+	// handler stamps it after the scoped read.
+	stampGoldenAttachments(d.View.Timeline, 1, domain.Attachment{
+		ID: 2, TicketID: 1, FileName: "stack-trace.txt", ContentType: "text/plain; charset=utf-8", Size: 4096,
+	})
+	d.Attachments = []domain.Attachment{
+		{ID: 1, TicketID: 1, FileName: "shot.png", ContentType: "image/png", Size: 1258291},
+	}
+	return d
+}
+
+// fixtureAttachmentRequesterDetailData is the requester's view of a ticket that
+// carries a creation file and a public comment's file. The internal comment's
+// file is absent from the payload because the store read filtered it, not
+// because the template hides it.
+func fixtureAttachmentRequesterDetailData() detailData {
+	d := requesterResolvedDetailData(domain.User{ID: 2, Role: domain.RoleUser})
+	stampGoldenAttachments(d.View.Timeline, 1, domain.Attachment{
+		ID: 2, TicketID: 1, FileName: "stack-trace.txt", ContentType: "text/plain; charset=utf-8", Size: 4096,
+	})
+	d.Attachments = []domain.Attachment{
+		{ID: 1, TicketID: 1, FileName: "shot.png", ContentType: "image/png", Size: 1258291},
+	}
+	return d
+}
+
+// TestGoldenTicketDetailWithAttachments freezes the staff detail with the
+// creation file and one file per comment: each is a download link carrying the
+// original name and the human size, and the creation file sits under the
+// description, before the timeline.
+func TestGoldenTicketDetailWithAttachments(t *testing.T) {
+	body := renderGolden(t, "tickets_show", "ticket_detail", fixtureAttachmentStaffDetailData(), true)
+
+	for _, want := range []string{
+		`aria-label="Attachments"`,
+		`<a class="attachment-name" href="/attachments/1">shot.png</a> <span class="attachment-size">1.2 MB</span>`,
+		`<a class="attachment-name" href="/attachments/2">stack-trace.txt</a> <span class="attachment-size">4 KB</span>`,
+		`<a class="attachment-name" href="/attachments/3">internal-notes.pdf</a> <span class="attachment-size">10 MB</span>`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("staff detail with attachments must contain %q, got: %s", want, body)
+		}
+	}
+	creation := strings.Index(body, `/attachments/1"`)
+	timeline := strings.Index(body, `stack-trace.txt`)
+	if creation < 0 || timeline < 0 || creation > timeline {
+		t.Errorf("the creation file must render before the comment files\n%s", body)
+	}
+
+	goldenFile(t, "ticket_detail_attachments", body)
+}
+
+// TestGoldenTicketDetailWithAttachmentsRequester freezes the requester view:
+// the creation file and the public comment's file are listed, and the
+// staff-only file is nowhere on the page — no name and no link.
+func TestGoldenTicketDetailWithAttachmentsRequester(t *testing.T) {
+	body := renderGolden(t, "tickets_show", "ticket_detail", fixtureAttachmentRequesterDetailData(), true)
+
+	for _, want := range []string{
+		`<a class="attachment-name" href="/attachments/1">shot.png</a> <span class="attachment-size">1.2 MB</span>`,
+		`<a class="attachment-name" href="/attachments/2">stack-trace.txt</a> <span class="attachment-size">4 KB</span>`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("requester detail with attachments must contain %q, got: %s", want, body)
+		}
+	}
+	for _, absent := range []string{"internal-notes.pdf", `href="/attachments/3"`} {
+		if strings.Contains(body, absent) {
+			t.Errorf("requester detail must NOT contain the staff-only file %q\n%s", absent, body)
+		}
+	}
+
+	goldenFile(t, "ticket_detail_attachments_requester", body)
+}

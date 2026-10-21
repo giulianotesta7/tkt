@@ -655,6 +655,9 @@ var templateFuncs = template.FuncMap{
 		return metricsHistogramChart(i18n.New(i18n.Default), buckets)
 	},
 	"metricsDuration": metricsDuration,
+	// fileSize renders an attachment's byte count (issue #366) for the detail
+	// listing: the same units in every language, so it is not catalogued.
+	"fileSize": fileSize,
 }
 
 // shellFor maps a page to its shell root. Application pages use the rail
