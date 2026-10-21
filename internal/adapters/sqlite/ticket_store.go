@@ -393,42 +393,14 @@ func (u *unitOfWork) UpdateHold(ctx context.Context, w application.HoldWrite) er
 		return fmt.Errorf("sqlite: begin hold unit: %w", err)
 	}
 	defer tx.Rollback()
-	res, err := tx.ExecContext(ctx, `UPDATE tickets SET on_hold_since = ?, on_hold_reason = ?
-		WHERE id = ? AND on_hold_since IS ?`,
-		formatTimePtr(w.Ticket.OnHoldSince), w.Ticket.OnHoldReason,
-		w.Ticket.ID, formatTimePtr(w.ExpectedOnHoldSince))
+	applied, err := casTicketHoldTx(ctx, tx, w.Ticket, w.ExpectedOnHoldSince)
 	if err != nil {
-		return fmt.Errorf("sqlite: write ticket hold: %w", err)
-	}
-	n, err := res.RowsAffected()
-	if err != nil {
-		return fmt.Errorf("sqlite: write ticket hold rows: %w", err)
-	}
-	if n == 0 {
-		return holdWriteConflictTx(ctx, tx, w.Ticket.ID)
-	}
-	if err := updateTicketTx(ctx, tx, w.Ticket); err != nil {
 		return err
 	}
-	// The resumed hold is the ONE sanctioned update of the frozen resolution
-	// instants (issue #352): the commitment moves by the working time the
-	// ticket spent paused, frozen at resume like the instants were frozen at
-	// creation. The first-response instants never move.
-	if w.ShiftedSLA != nil {
-		if err := updateTicketSLAResolveTx(ctx, tx, w.Ticket.ID, *w.ShiftedSLA); err != nil {
-			return err
-		}
+	if !applied {
+		return holdWriteConflictTx(ctx, tx, w.Ticket.ID)
 	}
-	// A terminal state ends the hold too (issue #352 S5: resolving or
-	// cancelling a held ticket takes it off hold), and a ticket that leaves
-	// the workflow must not keep an active run (the same rule Update applies,
-	// issue #256).
-	if domain.IsClosed(w.Ticket.State) {
-		if err := closeActiveRunTx(ctx, tx, w.Ticket.ID, w.Ticket.UpdatedAt); err != nil {
-			return err
-		}
-	}
-	if err := appendAuditEventsTx(ctx, tx, w.Events...); err != nil {
+	if err := applyHoldChangeTx(ctx, tx, w.Ticket, w.ShiftedSLA, w.Events); err != nil {
 		return err
 	}
 	// The notifications commit with the hold change they describe (#344):
@@ -440,6 +412,53 @@ func (u *unitOfWork) UpdateHold(ctx context.Context, w application.HoldWrite) er
 		return fmt.Errorf("sqlite: commit hold unit: %w", err)
 	}
 	return nil
+}
+
+// casTicketHoldTx writes the hold columns ONLY when the stored on_hold_since
+// still equals expected (issue #352), and reports whether it did. It is the one
+// writer of the hold columns, shared by UpdateHold and by the comment unit of
+// work (the requester's reply that ends a hold), so both paths race on the same
+// predicate: two resumes of one hold can never both apply.
+func casTicketHoldTx(ctx context.Context, tx *sql.Tx, t *domain.Ticket, expected *time.Time) (bool, error) {
+	res, err := tx.ExecContext(ctx, `UPDATE tickets SET on_hold_since = ?, on_hold_reason = ?
+		WHERE id = ? AND on_hold_since IS ?`,
+		formatTimePtr(t.OnHoldSince), t.OnHoldReason, t.ID, formatTimePtr(expected))
+	if err != nil {
+		return false, fmt.Errorf("sqlite: write ticket hold: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return false, fmt.Errorf("sqlite: write ticket hold rows: %w", err)
+	}
+	return n == 1, nil
+}
+
+// applyHoldChangeTx writes everything an APPLIED hold change carries besides
+// the hold columns: the rest of the ticket row, the shifted resolution SLA, the
+// run closure of a terminal change, and the audit events.
+func applyHoldChangeTx(ctx context.Context, tx *sql.Tx, t *domain.Ticket, shifted *domain.TicketSLA, events []domain.AuditEvent) error {
+	if err := updateTicketTx(ctx, tx, t); err != nil {
+		return err
+	}
+	// The resumed hold is the ONE sanctioned update of the frozen resolution
+	// instants (issue #352): the commitment moves by the working time the
+	// ticket spent paused, frozen at resume like the instants were frozen at
+	// creation. The first-response instants never move.
+	if shifted != nil {
+		if err := updateTicketSLAResolveTx(ctx, tx, t.ID, *shifted); err != nil {
+			return err
+		}
+	}
+	// A terminal state ends the hold too (issue #352 S5: resolving or
+	// cancelling a held ticket takes it off hold), and a ticket that leaves
+	// the workflow must not keep an active run (the same rule Update applies,
+	// issue #256).
+	if domain.IsClosed(t.State) {
+		if err := closeActiveRunTx(ctx, tx, t.ID, t.UpdatedAt); err != nil {
+			return err
+		}
+	}
+	return appendAuditEventsTx(ctx, tx, events...)
 }
 
 // holdWriteConflictTx explains a compare-and-set that matched no row: a

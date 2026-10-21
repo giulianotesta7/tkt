@@ -43,6 +43,22 @@ func (u *commentUnitOfWork) Add(ctx context.Context, m application.CommentMutati
 		return fmt.Errorf("sqlite: begin comment unit: %w", err)
 	}
 	defer tx.Rollback()
+	// The requester's reply ends the hold in THIS transaction (issue #352,
+	// S1). A hold that changed after the read (someone already resumed it)
+	// matches no row: the resume is skipped, never retried, and the comment
+	// still commits — a reply is never lost to a race, and a hold is never
+	// resumed (or its SLA shifted) twice.
+	if r := m.Resume; r != nil {
+		applied, err := casTicketHoldTx(ctx, tx, r.Ticket, r.ExpectedOnHoldSince)
+		if err != nil {
+			return err
+		}
+		if applied {
+			if err := applyHoldChangeTx(ctx, tx, r.Ticket, r.ShiftedSLA, r.Events); err != nil {
+				return err
+			}
+		}
+	}
 	if err := insertCommentTx(ctx, tx, m.Comment); err != nil {
 		return err
 	}

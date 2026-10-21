@@ -275,6 +275,11 @@ func (f *fakeCommentStore) ListByTicket(_ context.Context, ticketID int64, inclu
 type fakeCommentUnitOfWork struct {
 	comments      *fakeCommentStore
 	notifications []domain.Notification
+	// holds, when attached, applies a CommentMutation.Resume through the ticket
+	// unit-of-work fake (issue #352). Simplification: the fake has no shared
+	// transaction, so a resume is applied before the comment insert and never
+	// rolled back by a later failure; the SQLite adapter owns that proof.
+	holds *fakeUnitOfWork
 }
 
 func newFakeCommentUnitOfWork(comments *fakeCommentStore) *fakeCommentUnitOfWork {
@@ -284,6 +289,11 @@ func newFakeCommentUnitOfWork(comments *fakeCommentStore) *fakeCommentUnitOfWork
 // Add inserts the comment (store-assigned id) and stamps that id onto every
 // notification, then records the batch.
 func (f *fakeCommentUnitOfWork) Add(ctx context.Context, m application.CommentMutation) error {
+	if m.Resume != nil && f.holds != nil {
+		if err := f.holds.applyResume(ctx, *m.Resume); err != nil {
+			return err
+		}
+	}
 	if err := f.comments.Add(ctx, m.Comment); err != nil {
 		return err
 	}
@@ -466,6 +476,18 @@ func (f *fakeUnitOfWork) UpdateHold(ctx context.Context, w application.HoldWrite
 		return f.audits.Append(ctx, w.Events...)
 	}
 	return nil
+}
+
+// applyResume applies a hold resume that rides a comment (issue #352): the
+// same compare-and-set as UpdateHold, except that a stored hold that no
+// longer matches skips the resume instead of failing — the comment still
+// commits, exactly as the SQLite comment unit of work does.
+func (f *fakeUnitOfWork) applyResume(ctx context.Context, r application.HoldResume) error {
+	prev, ok := f.tickets.tickets[r.Ticket.ID]
+	if !ok || !sameHoldInstant(prev.OnHoldSince, r.ExpectedOnHoldSince) {
+		return nil
+	}
+	return f.UpdateHold(ctx, application.HoldWrite{Ticket: r.Ticket, ExpectedOnHoldSince: r.ExpectedOnHoldSince, ShiftedSLA: r.ShiftedSLA, Events: r.Events})
 }
 
 // sameHoldInstant reports whether two hold instants are the same hold state:

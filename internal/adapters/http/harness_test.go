@@ -169,7 +169,7 @@ func newHarnessWithAdmin(t *testing.T, seedAdmin bool) *harness {
 	viewBuilder := application.NewViewBuilder(s.TicketStore(), s.UserStore(), s.CategoryStore(), s.CommentStore(), s.AuditStore(), s.DeskStore(), s.WorkflowResponseStore())
 	slaSvc := application.NewSLAService(s.SLAStore(), s.SettingsStore(), clock)
 	ticketSvc := application.NewTicketServiceWithWorkflowCreate(s.TicketStore(), s.UserStore(), s.CategoryStore(), s.TicketUnitOfWork(), viewBuilder, clock, s.WorkflowVersionStore(), application.NewWorkflowRunner(clock), s.WorkflowUnitOfWork(), slaSvc)
-	commentSvc := application.NewCommentService(s.TicketStore(), s.CommentStore(), s.UserStore(), s.CommentUnitOfWork(), clock)
+	commentSvc := application.NewCommentService(s.TicketStore(), s.CommentStore(), s.UserStore(), s.CommentUnitOfWork(), clock).WithSLA(slaSvc)
 	searchSvc := application.NewSearchService(s.TicketStore(), s.SearchStore())
 	settingsSvc := application.NewSettingsService(s.SettingsStore())
 	preferencesSvc := application.NewPreferencesService(s.PreferencesStore())

@@ -630,3 +630,29 @@ func TestNotificationMessageNamesOnHold(t *testing.T) {
 		t.Errorf("notificationMessage(on_hold) = %+v, want %+v", got, want)
 	}
 }
+
+// TestRequesterCommentEndsTheHoldEndToEnd proves S1 through the real comment
+// route, service and unit of work: the requester's public reply on a held
+// ticket stores the comment, clears both hold columns, and records the resume
+// under the requester. The harness runs with SLA disabled, so the resolution
+// shift is proven in the application and SQLite layers.
+func TestRequesterCommentEndsTheHoldEndToEnd(t *testing.T) {
+	h := newHarness(t)
+	requester := seedUserRole(t, h.store, "Rosa", "rosa-reply@tkt.test", domain.RoleUser)
+	sess := seedSession(t, h.store, requester.ID)
+	tkt := createTicketFor(t, h, requester, "Printer jam")
+	holdViaService(t, h, tkt.ID, "send us a photo of the jammed tray")
+	db := h.rawDB(t)
+
+	rec := h.postFormAs(t, ticketPath(tkt.ID)+"/comments", url.Values{"body": {"photo attached"}}, sess.ID)
+	if rec.Code != http.StatusSeeOther {
+		t.Fatalf("comment status = %d, want 303; body: %s", rec.Code, rec.Body.String())
+	}
+	assertHoldColumns(t, h, tkt.ID, false, "")
+	if n := scanOneInt(t, db, `SELECT COUNT(*) FROM comments WHERE ticket_id = ? AND body = 'photo attached'`, tkt.ID); n != 1 {
+		t.Errorf("comments = %d, want 1", n)
+	}
+	if n := scanOneInt(t, db, `SELECT COUNT(*) FROM audit_events WHERE ticket_id = ? AND action = 'resume' AND actor_user_id = ?`, tkt.ID, requester.ID); n != 1 {
+		t.Errorf("resume events by the requester = %d, want 1", n)
+	}
+}
