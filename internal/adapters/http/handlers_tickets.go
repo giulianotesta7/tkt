@@ -157,6 +157,11 @@ type pageData struct {
 	// renders it on the first paint, so a collapsed sidebar never flashes
 	// expanded while a script catches up.
 	SidebarCollapsed bool
+	// Theme is the session user's stored interface theme (issue #378, S1/S2),
+	// normalized and stamped once per request by the session middleware. The
+	// shell turns an explicit choice into the page's data-theme attribute and
+	// renders no attribute for "system".
+	Theme string
 	// NotificationBell is the rail bell's INITIAL state (issue #344, S13). It
 	// is always the zero value: an ordinary page render never queries the
 	// unread count — the bell's own endpoint answers it, and the browser fetches
@@ -166,10 +171,11 @@ type pageData struct {
 }
 
 // pageDataFrom builds the shell payload from the session user. The
-// internal-comment background and the sidebar state come from the per-request
-// middleware reads stamped into the context (appearance-settings spec, issue
-// #377 S2); "" leaves the stylesheet default in place and an absent sidebar
-// stamp renders the expanded shell.
+// internal-comment background, the sidebar state, and the theme come from the
+// per-request middleware reads stamped into the context (appearance-settings
+// spec, issue #377 S2, issue #378 S2); "" leaves the stylesheet default in
+// place, an absent sidebar stamp renders the expanded shell, and an absent
+// theme stamp resolves to the system default.
 func pageDataFrom(r *http.Request, nav string) pageData {
 	u := userFromContext(r.Context())
 	caps := application.NewPolicy().Capabilities(u.Role)
@@ -184,6 +190,7 @@ func pageDataFrom(r *http.Request, nav string) pageData {
 		InternalCommentBg:   internalCommentBgFrom(r.Context()),
 		SaveFeedback:        readSaveFeedback(r),
 		SidebarCollapsed:    sidebarCollapsedFrom(r.Context()),
+		Theme:               themeFrom(r.Context()),
 	}
 }
 

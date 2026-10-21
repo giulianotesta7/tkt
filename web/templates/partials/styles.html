@@ -1,4 +1,19 @@
-{{define "styles"}}<style>
+{{define "dark_tokens"}}    color-scheme:dark;
+    --bg:#15181D; --surface:#15181D; --card:#15181D;
+    --ink:rgb(255 255 255 / 90%); --ink-soft:rgb(255 255 255 / 78%); --ink-strong:#FFFFFF;
+    --muted:rgb(255 255 255 / 66%); --faint:rgb(255 255 255 / 58%); --line:rgb(255 255 255 / 10%); --line-strong:rgb(255 255 255 / 20%);
+    --hover:rgb(255 255 255 / 6%); --pressed:rgb(255 255 255 / 10%);
+    --accent:#7B96FF; --accent-soft:rgb(123 150 255 / 16%); --accent-ink:#8FA6FF; --accent-strong:#93AAFF;
+    --green:#4FCF95; --green-soft:rgb(79 207 149 / 14%);
+    --amber:#F0B454; --amber-soft:rgb(240 180 84 / 14%);
+    --red:#F27B6E; --red-soft:rgb(242 123 110 / 14%); --red-strong:#FF9C91;
+    --priority-medium:#F2C94C;
+    --gray-soft:rgb(255 255 255 / 8%); --gray-ink:rgb(255 255 255 / 66%);
+{{if eq .InternalCommentBg "#EFE9FB"}}    --internal-comment-bg:#2A2340;{{else if eq .InternalCommentBg "#FFF6DC"}}    --internal-comment-bg:#3A3012;{{else}}    --internal-comment-bg:#1B2440;{{end}}
+    --rail:#0A0B0D; --rail-ink:#FFFFFF; --rail-ink-soft:rgb(255 255 255 / 66%);
+    --rail-line:rgb(255 255 255 / 10%); --rail-hover:rgb(255 255 255 / 8%); --rail-surface:#1C2027; --rail-edge:var(--rail-line);
+    --elevation-raised:0 8px 24px rgb(0 0 0 / 45%); --elevation-drawer:-10px 0 28px rgb(0 0 0 / 40%); --elevation-modal:0 18px 50px rgb(0 0 0 / 55%); --scrim:rgb(0 0 0 / 55%);
+{{end}}{{define "styles"}}<style>
   @font-face{
     font-family:"Inter";
     src:url("/static/InterVariable.woff2") format("woff2-variations");
@@ -11,7 +26,7 @@
     --ink:rgb(0 0 0 / 92%); --ink-soft:rgb(0 0 0 / 76%); --ink-strong:#000000;
     --muted:rgb(0 0 0 / 62%); --faint:rgb(0 0 0 / 56%); --line:rgb(0 0 0 / 10%); --line-strong:rgb(0 0 0 / 18%);
     --hover:rgb(0 0 0 / 5%); --pressed:rgb(0 0 0 / 9%);
-    --accent:#315EFF; --accent-soft:rgb(49 94 255 / 10%); --accent-ink:#315EFF; --accent-strong:#2349DD;
+    --accent:#315EFF; --accent-soft:rgb(49 94 255 / 10%); --accent-ink:#2349DD; --accent-strong:#2349DD;
     --green:#18734D; --green-soft:rgb(24 115 77 / 10%);
     --amber:#B45309; --amber-soft:rgb(180 83 9 / 10%);
     --red:#B42318; --red-soft:rgb(180 35 24 / 10%); --red-strong:#7A271A;
@@ -19,9 +34,16 @@
     --gray-soft:rgb(0 0 0 / 6%); --gray-ink:rgb(0 0 0 / 62%);
 {{if .InternalCommentBg}}    --internal-comment-bg:{{.InternalCommentBg}};{{else}}    --internal-comment-bg:#E8EEFF;{{end}}
     --rail:#111111; --rail-ink:#FFFFFF; --rail-ink-soft:rgb(255 255 255 / 62%);
-    --rail-line:rgb(255 255 255 / 12%); --rail-hover:rgb(255 255 255 / 9%); --rail-surface:#1A1A1A;
+    --rail-line:rgb(255 255 255 / 12%); --rail-hover:rgb(255 255 255 / 9%); --rail-surface:#1A1A1A; --rail-edge:transparent;
     --elevation-raised:0 8px 24px rgb(0 0 0 / 12%); --elevation-drawer:-10px 0 28px rgb(0 0 0 / 9%); --elevation-modal:0 18px 50px rgb(0 0 0 / 13%); --scrim:rgb(0 0 0 / 20%);
     --mono:ui-monospace,SFMono-Regular,Menlo,monospace;
+    color-scheme:light;
+  }
+  :root[data-theme="dark"]{
+{{template "dark_tokens" .}}  }
+  @media (prefers-color-scheme:dark){
+    :root:not([data-theme="light"]){
+{{template "dark_tokens" .}}    }
   }
   *{box-sizing:border-box}
   html,body{margin:0;padding:0}
@@ -42,7 +64,7 @@
   .skip-link{position:absolute;left:8px;top:-48px;z-index:40;padding:10px 14px;border-radius:8px;background:var(--surface);color:var(--accent-ink);border:1px solid var(--line-strong);box-shadow:var(--elevation-raised);font-size:13px;font-weight:500}
   .skip-link:focus{top:8px;text-decoration:none}
   .sidebar{
-    background:var(--rail);color:var(--rail-ink);display:flex;flex-direction:column;
+    background:var(--rail);color:var(--rail-ink);display:flex;flex-direction:column;border-right:1px solid var(--rail-edge);
     padding:14px 12px;position:sticky;top:0;height:100vh;min-width:0;
   }
   .sidebar-brand{display:flex;align-items:center;gap:10px;padding:4px 8px 16px;min-width:0}

@@ -870,3 +870,187 @@ func TestPageDataCarriesTheStampedSidebarState(t *testing.T) {
 		t.Error("pageData.SidebarCollapsed = true without a stamped value, want false (expanded)")
 	}
 }
+
+// --- Per-user theme stamped into the request (issue #378, S1/S2) ---
+
+// countingThemeStore delegates to the real store and counts the reads, so a
+// test can prove the middleware reads the theme ONCE per authenticated request
+// instead of once per consumer.
+type countingThemeStore struct {
+	application.ThemePreferencesStore
+	reads int
+}
+
+func (c *countingThemeStore) GetTheme(ctx context.Context, userID int64) (string, error) {
+	c.reads++
+	return c.ThemePreferencesStore.GetTheme(ctx, userID)
+}
+
+// failingThemeStore answers the theme read with an operational error, the way
+// an unavailable preferences table would.
+type failingThemeStore struct {
+	application.ThemePreferencesStore
+}
+
+func (failingThemeStore) GetTheme(context.Context, int64) (string, error) {
+	return "", errors.New("preferences store unavailable")
+}
+
+// themeStubHandler reports what the middleware stamped, the way the shell's
+// pageData does: the handler reads the context value, never the store.
+func themeStubHandler() *http.ServeMux {
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /tickets", func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(themeFrom(r.Context())))
+	})
+	return mux
+}
+
+// TestMiddlewareStampsStoredTheme proves the shell applies the stored theme on
+// the first paint: the middleware reads it once and the handler sees the
+// normalized value through the context, with exactly one store read.
+func TestMiddlewareStampsStoredTheme(t *testing.T) {
+	s := openTestStore(t)
+	user := seedUser(t, s, "Ana", "ana@example.com")
+	session := seedSession(t, s, user.ID)
+	if err := s.ThemePreferences().SetTheme(context.Background(), user.ID, application.ThemeDark); err != nil {
+		t.Fatalf("seed dark theme: %v", err)
+	}
+	reads := &countingThemeStore{ThemePreferencesStore: s.ThemePreferences()}
+	mw := NewSessionMiddleware(s.SessionStore(), s.UserStore(), s.SettingsStore()).WithThemePreferences(reads)
+
+	rec := doRequest(themeStubHandler(), mw, http.MethodGet, "/tickets", map[string]string{"Cookie": "tkt_session=" + session.ID})
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+	if body := rec.Body.String(); body != application.ThemeDark {
+		t.Errorf("handler saw %q, want %q (the stored theme must reach the render)", body, application.ThemeDark)
+	}
+	if reads.reads != 1 {
+		t.Errorf("theme read %d times, want exactly 1 per authenticated request", reads.reads)
+	}
+}
+
+// TestMiddlewareThemeDefaultsToSystem proves all three halves of the default:
+// a middleware wired without the reader never asks the store, a user with no
+// stored row is stamped "system", and a stored value outside the closed set is
+// normalized to "system" instead of reaching the page unvalidated.
+func TestMiddlewareThemeDefaultsToSystem(t *testing.T) {
+	s := openTestStore(t)
+	user := seedUser(t, s, "Ana", "ana@example.com")
+	session := seedSession(t, s, user.ID)
+
+	t.Run("no store wired", func(t *testing.T) {
+		mw := NewSessionMiddleware(s.SessionStore(), s.UserStore(), s.SettingsStore())
+		rec := doRequest(themeStubHandler(), mw, http.MethodGet, "/tickets", map[string]string{"Cookie": "tkt_session=" + session.ID})
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status = %d, want 200", rec.Code)
+		}
+		if body := rec.Body.String(); body != application.ThemeSystem {
+			t.Errorf("handler saw %q without a wired reader, want %q", body, application.ThemeSystem)
+		}
+	})
+
+	t.Run("no stored row", func(t *testing.T) {
+		reads := &countingThemeStore{ThemePreferencesStore: s.ThemePreferences()}
+		mw := NewSessionMiddleware(s.SessionStore(), s.UserStore(), s.SettingsStore()).WithThemePreferences(reads)
+		rec := doRequest(themeStubHandler(), mw, http.MethodGet, "/tickets", map[string]string{"Cookie": "tkt_session=" + session.ID})
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status = %d, want 200", rec.Code)
+		}
+		if body := rec.Body.String(); body != application.ThemeSystem {
+			t.Errorf("handler saw %q without a stored row, want %q", body, application.ThemeSystem)
+		}
+		if reads.reads != 1 {
+			t.Errorf("theme read %d times, want exactly 1", reads.reads)
+		}
+	})
+
+	t.Run("unknown stored value", func(t *testing.T) {
+		if err := s.ThemePreferences().SetTheme(context.Background(), user.ID, "sepia"); err != nil {
+			t.Fatalf("seed unknown theme: %v", err)
+		}
+		mw := NewSessionMiddleware(s.SessionStore(), s.UserStore(), s.SettingsStore()).WithThemePreferences(s.ThemePreferences())
+		rec := doRequest(themeStubHandler(), mw, http.MethodGet, "/tickets", map[string]string{"Cookie": "tkt_session=" + session.ID})
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status = %d, want 200", rec.Code)
+		}
+		if body := rec.Body.String(); body != application.ThemeSystem {
+			t.Errorf("handler saw %q for a stored %q, want the normalized %q", body, "sepia", application.ThemeSystem)
+		}
+	})
+}
+
+// TestMiddlewareThemeReadFailureRendersSystem proves the degradation: a failing
+// read logs and falls back to the system theme, and the request is still
+// authenticated — a broken preference must never cost a page.
+func TestMiddlewareThemeReadFailureRendersSystem(t *testing.T) {
+	s := openTestStore(t)
+	user := seedUser(t, s, "Ana", "ana@example.com")
+	session := seedSession(t, s, user.ID)
+	mw := NewSessionMiddleware(s.SessionStore(), s.UserStore(), s.SettingsStore()).WithThemePreferences(failingThemeStore{})
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /tickets", func(w http.ResponseWriter, r *http.Request) {
+		if userFromContext(r.Context()) == nil {
+			t.Error("a failed theme read must not drop the session user")
+		}
+		w.Write([]byte(themeFrom(r.Context())))
+	})
+
+	rec := doRequest(mux, mw, http.MethodGet, "/tickets", map[string]string{"Cookie": "tkt_session=" + session.ID})
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (a failed preference read must not fail the request)", rec.Code)
+	}
+	if body := rec.Body.String(); body != application.ThemeSystem {
+		t.Errorf("handler saw %q after a failed read, want %q", body, application.ThemeSystem)
+	}
+}
+
+// TestMiddlewareAnonymousRequestNeverReadsTheme proves the read belongs to the
+// authenticated path only: an unauthenticated request is refused before any
+// preference is touched, so the auth shells render without a stamped theme.
+func TestMiddlewareAnonymousRequestNeverReadsTheme(t *testing.T) {
+	s := openTestStore(t)
+	seedUser(t, s, "Ana", "ana@example.com")
+	reads := &countingThemeStore{ThemePreferencesStore: s.ThemePreferences()}
+	mw := NewSessionMiddleware(s.SessionStore(), s.UserStore(), s.SettingsStore()).WithThemePreferences(reads)
+
+	rec := doRequest(themeStubHandler(), mw, http.MethodGet, "/tickets", nil)
+
+	wantRedirect(t, rec, http.StatusSeeOther, "/login")
+	if reads.reads != 0 {
+		t.Errorf("an unauthenticated request read the theme %d times, want none", reads.reads)
+	}
+}
+
+// TestPageDataCarriesTheStampedTheme proves the shell payload reads the value
+// the middleware stamped instead of querying the store again: pageData is what
+// every template receives, so this is the seam the dark theme (issue #378, S2)
+// renders its page attribute from.
+func TestPageDataCarriesTheStampedTheme(t *testing.T) {
+	stamped := func(theme string) *http.Request {
+		req := httptest.NewRequest(http.MethodGet, "/tickets", nil)
+		ctx := context.WithValue(req.Context(), ctxKeyUser{}, &domain.User{ID: 1, Name: "Ana"})
+		if theme != "" {
+			ctx = context.WithValue(ctx, ctxKeyTheme{}, theme)
+		}
+		return req.WithContext(ctx)
+	}
+
+	for _, theme := range []string{application.ThemeLight, application.ThemeDark, application.ThemeSystem} {
+		if data := pageDataFrom(stamped(theme), "tickets"); data.Theme != theme {
+			t.Errorf("pageData.Theme = %q for a stamped %q", data.Theme, theme)
+		}
+	}
+
+	// A request with nothing stamped (an auth shell, an isolated handler call)
+	// renders the documented default.
+	req := httptest.NewRequest(http.MethodGet, "/tickets", nil)
+	req = req.WithContext(context.WithValue(req.Context(), ctxKeyUser{}, &domain.User{ID: 1, Name: "Ana"}))
+	if data := pageDataFrom(req, "tickets"); data.Theme != application.ThemeSystem {
+		t.Errorf("pageData.Theme = %q without a stamped value, want %q", data.Theme, application.ThemeSystem)
+	}
+}

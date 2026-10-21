@@ -74,6 +74,24 @@ func sidebarCollapsedFrom(ctx context.Context) bool {
 	return collapsed
 }
 
+// ctxKeyTheme carries the session user's interface theme read once per
+// authenticated request (issue #378, S1/S2). Stamping it here is what lets the
+// shell apply the stored theme on the first paint — no flash of the light page
+// while a script catches up — and no preference read from pageDataFrom.
+type ctxKeyTheme struct{}
+
+// themeFrom returns the theme stamped by the middleware, or the system default
+// when nothing usable was stamped: an auth page (no user), a handler used in
+// isolation, or a request whose preference read failed all resolve to "system",
+// which is the documented default and the value the browser already applies.
+func themeFrom(ctx context.Context) string {
+	theme, _ := ctx.Value(ctxKeyTheme{}).(string)
+	if theme == "" {
+		return application.DefaultTheme
+	}
+	return theme
+}
+
 const (
 	// interfaceLanguageReadTimeout bounds ONE settings read (R4-001): the
 	// instance language is a single indexed row, so a read that has not
@@ -149,6 +167,38 @@ func (l *sidebarReadLog) recovered() {
 	l.count = 0
 }
 
+// themeReadLog deduplicates the theme read failure (issue #378, S1) with the
+// same policy languageReadLog and sidebarReadLog apply: the first failure logs,
+// the next success re-arms the counter, and a long outage logs once every
+// interfaceLanguageEveryNthFailure attempts. It is a separate type rather than
+// a reuse of sidebarReadLog because the fallback is a theme, not a shell state,
+// so the two must never share a message or a counter.
+type themeReadLog struct {
+	mu      sync.Mutex
+	failing bool
+	count   int
+}
+
+func (l *themeReadLog) failed(err error) {
+	l.mu.Lock()
+	l.count++
+	// Decide under the lock, log outside it: a slow log write must not hold
+	// every concurrent request behind the mutex.
+	report := !l.failing || l.count%interfaceLanguageEveryNthFailure == 0
+	l.failing = true
+	l.mu.Unlock()
+	if report {
+		log.Printf("httpadapter: read theme preference: %v (rendering the system theme)", err)
+	}
+}
+
+func (l *themeReadLog) recovered() {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.failing = false
+	l.count = 0
+}
+
 // readInterfaceLanguage resolves the instance interface language through one
 // bounded settings read, degrading to the default language on any failure. It
 // is the single read path shared by the request middleware and a renderer built
@@ -204,12 +254,19 @@ type SessionMiddleware struct {
 	// A middleware built without it stamps the expanded default, so every
 	// caller that does not care about the shell keeps working unchanged.
 	sidebar application.SidebarPreferencesStore
+	// theme is the OPTIONAL per-user theme reader (issue #378, S1/S2). A
+	// middleware built without it stamps the system default, the same opt-in
+	// shape the sidebar reader uses.
+	theme application.ThemePreferencesStore
 	// languageFailures deduplicates the interface-language read failure
 	// (R4-002) across requests.
 	languageFailures languageReadLog
 	// sidebarFailures deduplicates the sidebar-state read failure the same way
 	// (issue #377, S2).
 	sidebarFailures sidebarReadLog
+	// themeFailures deduplicates the theme read failure the same way (issue
+	// #378, S1).
+	themeFailures themeReadLog
 }
 
 // NewSessionMiddleware wires the middleware against the session, user, and
@@ -224,6 +281,15 @@ func NewSessionMiddleware(sessions application.SessionStore, users application.U
 // store (a focused test, a future surface) is never left with a nil read.
 func (m *SessionMiddleware) WithSidebarPreferences(store application.SidebarPreferencesStore) *SessionMiddleware {
 	m.sidebar = store
+	return m
+}
+
+// WithThemePreferences opts the middleware into stamping each authenticated
+// request with the user's stored theme (issue #378, S1/S2). It is opt-in for the
+// same reason as WithSidebarPreferences: the middleware keeps one constructor,
+// and a caller without a preferences store is never left with a nil read.
+func (m *SessionMiddleware) WithThemePreferences(store application.ThemePreferencesStore) *SessionMiddleware {
+	m.theme = store
 	return m
 }
 
@@ -350,9 +416,26 @@ func (m *SessionMiddleware) Wrap(next http.Handler) http.Handler {
 				sidebar = collapsed
 			}
 		}
+		// Issue #378: the user's theme is read ONCE here too, so the shell applies
+		// the stored choice on the first paint without a second preferences read.
+		// A failing read is NOT fatal — the request proceeds with the system
+		// default and the failure is logged under the dedup policy, because losing
+		// a theme must never cost a page. The stored value is normalized here
+		// because this read bypasses the preferences service on purpose.
+		theme := application.DefaultTheme
+		if m.theme != nil {
+			stored, err := m.theme.GetTheme(r.Context(), user.ID)
+			if err != nil {
+				m.themeFailures.failed(err)
+			} else {
+				m.themeFailures.recovered()
+				theme = application.NormalizeTheme(stored)
+			}
+		}
 		ctx := context.WithValue(r.Context(), ctxKeyUser{}, user)
 		ctx = context.WithValue(ctx, ctxKeyInternalCommentBg{}, bg)
 		ctx = context.WithValue(ctx, ctxKeySidebarCollapsed{}, sidebar)
+		ctx = context.WithValue(ctx, ctxKeyTheme{}, theme)
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }
