@@ -11,24 +11,31 @@ import (
 // exactly one stored value, it is ON when nothing is stored, and saving it
 // touches neither another actor's value nor the queue-order preference.
 
-// fakePreferences is ONE in-memory user_preferences table serving both
-// preference ports, the way the SQLite adapter serves the queue order and the
-// email opt-out from the same rows. It stores exactly what it is handed and
-// answers an absent queue order with "" and an absent email row with ON — the
+// fakePreferences is ONE in-memory user_preferences table serving all three
+// preference ports, the way the SQLite adapter serves the queue order, the
+// email opt-out, and the sidebar state from the same rows. It stores exactly
+// what it is handed and answers an absent queue order with "", an absent email
+// row with ON, and an absent sidebar row with expanded (false) — the
 // documented defaults — so the service cannot hide a normalization bug behind
 // a helpful fake.
 type fakePreferences struct {
-	orders map[int64]string
-	emails map[int64]bool
+	orders   map[int64]string
+	emails   map[int64]bool
+	sidebars map[int64]bool
 }
 
 var (
-	_ PreferencesStore      = (*fakePreferences)(nil)
-	_ EmailPreferencesStore = (*fakePreferences)(nil)
+	_ PreferencesStore        = (*fakePreferences)(nil)
+	_ EmailPreferencesStore   = (*fakePreferences)(nil)
+	_ SidebarPreferencesStore = (*fakePreferences)(nil)
 )
 
 func newFakePreferences() *fakePreferences {
-	return &fakePreferences{orders: map[int64]string{}, emails: map[int64]bool{}}
+	return &fakePreferences{
+		orders:   map[int64]string{},
+		emails:   map[int64]bool{},
+		sidebars: map[int64]bool{},
+	}
 }
 
 func (f *fakePreferences) GetQueueOrder(_ context.Context, userID int64) (string, error) {
@@ -55,10 +62,25 @@ func (f *fakePreferences) SetEmailNotificationsEnabled(_ context.Context, userID
 	return nil
 }
 
+// SidebarCollapsed answers the stored state and defaults an absent row to
+// false (expanded), exactly like the adapter.
+func (f *fakePreferences) SidebarCollapsed(_ context.Context, userID int64) (bool, error) {
+	collapsed, ok := f.sidebars[userID]
+	if !ok {
+		return false, nil
+	}
+	return collapsed, nil
+}
+
+func (f *fakePreferences) SetSidebarCollapsed(_ context.Context, userID int64, collapsed bool) error {
+	f.sidebars[userID] = collapsed
+	return nil
+}
+
 // TestPreferencesEmailNotificationsDefaultOn proves the documented default:
 // a user with no stored row receives email, so the toggle starts checked.
 func TestPreferencesEmailNotificationsDefaultOn(t *testing.T) {
-	svc := NewPreferencesService(newFakePreferences(), newFakePreferences())
+	svc := NewPreferencesService(newFakePreferences(), newFakePreferences(), newFakePreferences())
 	actor := domain.User{ID: 7, Email: "ana@tkt.test"}
 
 	enabled, err := svc.GetEmailNotifications(context.Background(), actor)
@@ -75,7 +97,7 @@ func TestPreferencesEmailNotificationsDefaultOn(t *testing.T) {
 // and no validation step to satisfy.
 func TestPreferencesEmailNotificationsRoundTripBothWays(t *testing.T) {
 	fake := newFakePreferences()
-	svc := NewPreferencesService(fake, fake)
+	svc := NewPreferencesService(fake, fake, fake)
 	actor := domain.User{ID: 7, Email: "ana@tkt.test"}
 	ctx := context.Background()
 
@@ -99,7 +121,7 @@ func TestPreferencesEmailNotificationsRoundTripBothWays(t *testing.T) {
 // either direction.
 func TestPreferencesEmailNotificationsBelongToTheActor(t *testing.T) {
 	fake := newFakePreferences()
-	svc := NewPreferencesService(fake, fake)
+	svc := NewPreferencesService(fake, fake, fake)
 	ctx := context.Background()
 	ana := domain.User{ID: 7, Email: "ana@tkt.test"}
 	bruno := domain.User{ID: 8, Email: "bruno@tkt.test"}
@@ -119,7 +141,7 @@ func TestPreferencesEmailNotificationsBelongToTheActor(t *testing.T) {
 // share the table but not a value: saving one never rewrites the other.
 func TestPreferencesEmailAndQueueOrderStayIndependent(t *testing.T) {
 	fake := newFakePreferences()
-	svc := NewPreferencesService(fake, fake)
+	svc := NewPreferencesService(fake, fake, fake)
 	ctx := context.Background()
 	actor := domain.User{ID: 7, Email: "ana@tkt.test"}
 

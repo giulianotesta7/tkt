@@ -124,7 +124,7 @@ func main() {
 	authSvc := application.NewAuthService(store.UserStore(), store.SessionStore(), clock)
 	searchSvc := application.NewSearchService(store.TicketStore(), store.SearchStore())
 	settingsSvc := application.NewSettingsService(store.SettingsStore())
-	preferencesSvc := application.NewPreferencesService(store.PreferencesStore(), store.EmailPreferences())
+	preferencesSvc := application.NewPreferencesService(store.PreferencesStore(), store.EmailPreferences(), store.SidebarPreferences())
 	workflowSvc := application.NewWorkflowService(store.WorkflowStore())
 	metricsSvc := application.NewTicketMetricsService(store.TicketMetricsStore(), clock)
 	// Issue #362: the SMTP password is sealed with a key file that lives in the
@@ -166,7 +166,7 @@ func main() {
 	// inside the session middleware so the existing Origin/auth short-circuits
 	// (403/303) still answer before any body byte is buffered; every request
 	// that reaches the mux is bounded, /healthz and /static included.
-	sessionHandler := httpadapter.NewSessionMiddleware(store.SessionStore(), store.UserStore(), store.SettingsStore()).Wrap(httpadapter.NewBodyLimitMiddleware().Wrap(mux))
+	sessionHandler := httpadapter.NewSessionMiddleware(store.SessionStore(), store.UserStore(), store.SettingsStore()).WithSidebarPreferences(store.SidebarPreferences()).Wrap(httpadapter.NewBodyLimitMiddleware().Wrap(mux))
 
 	srv := &http.Server{
 		Addr:              listen,

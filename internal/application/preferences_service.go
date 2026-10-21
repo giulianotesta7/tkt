@@ -50,22 +50,25 @@ func NormalizeQueueOrder(order string) string {
 }
 
 // PreferencesService implements the per-user preference use cases
-// (issue #210, issue #362). The queue order and the email opt-out are both
-// personal settings with no capability gate: every authenticated user owns
-// exactly one stored value of each, and the handler layer is what requires a
-// session. Validation happens BEFORE the store is reached (fail closed on an
-// invalid write), and the queue-order read normalizes any stored value outside
-// the closed set. The two preferences share one table but never one value:
-// each use case below touches only its own key.
+// (issue #210, issue #362, issue #377). The queue order, the email opt-out, and
+// the sidebar state are all personal settings with no capability gate: every
+// authenticated user owns exactly one stored value of each, and the handler
+// layer is what requires a session. Validation happens BEFORE the store is
+// reached (fail closed on an invalid write), and the queue-order read
+// normalizes any stored value outside the closed set. The three preferences
+// share one table but never one value: each use case below touches only its
+// own key.
 type PreferencesService struct {
 	preferences PreferencesStore
 	email       EmailPreferencesStore
+	sidebar     SidebarPreferencesStore
 }
 
 // NewPreferencesService wires the preference use cases against the store
-// ports: the queue order and the email opt-out (issue #362, S5).
-func NewPreferencesService(preferences PreferencesStore, email EmailPreferencesStore) *PreferencesService {
-	return &PreferencesService{preferences: preferences, email: email}
+// ports: the queue order, the email opt-out (issue #362, S5), and the sidebar
+// state (issue #377, S2).
+func NewPreferencesService(preferences PreferencesStore, email EmailPreferencesStore, sidebar SidebarPreferencesStore) *PreferencesService {
+	return &PreferencesService{preferences: preferences, email: email, sidebar: sidebar}
 }
 
 // GetDefaultQueueOrder returns the actor's own stored default queue order,
@@ -104,4 +107,22 @@ func (s *PreferencesService) GetEmailNotifications(ctx context.Context, actor do
 // own id, which is what keeps one user from changing another's value.
 func (s *PreferencesService) SetEmailNotifications(ctx context.Context, actor domain.User, enabled bool) error {
 	return s.email.SetEmailNotificationsEnabled(ctx, actor.ID, enabled)
+}
+
+// GetSidebarCollapsed reports whether the actor's sidebar is collapsed (issue
+// #377, S2). The store answers the documented default — an absent row means
+// expanded — so a user who never toggled it gets the shell every other page
+// already renders. The key is the actor's own id, so one user can only ever
+// read their own state.
+func (s *PreferencesService) GetSidebarCollapsed(ctx context.Context, actor domain.User) (bool, error) {
+	return s.sidebar.SidebarCollapsed(ctx, actor.ID)
+}
+
+// SetSidebarCollapsed persists the actor's sidebar state (issue #377, S2). The
+// state has no capability gate and no closed set beyond the boolean, so there
+// is nothing to validate; the wire vocabulary ("collapsed"/"expanded") is the
+// handler's, and the key is the actor's own id, which is what keeps one user
+// from changing another's shell.
+func (s *PreferencesService) SetSidebarCollapsed(ctx context.Context, actor domain.User, collapsed bool) error {
+	return s.sidebar.SetSidebarCollapsed(ctx, actor.ID, collapsed)
 }

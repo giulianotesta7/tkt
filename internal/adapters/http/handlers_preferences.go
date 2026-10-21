@@ -8,21 +8,23 @@ import (
 
 // PreferencesHandlers expose the per-user preferences page (issue #210):
 // GET /preferences renders the page for the session user, POST /preferences
-// persists the default queue order, and POST /preferences/email persists the
-// notification-email toggle (issue #362, S5).
+// persists the default queue order, POST /preferences/email persists the
+// notification-email toggle (issue #362, S5), and POST /preferences/sidebar
+// persists the collapsed sidebar (issue #377, S2).
 //
 // There is deliberately NO capability gate. A preference is personal, not
 // instance configuration: every authenticated user owns the row, and the
 // session middleware is what keeps anonymous callers out (an unauthenticated
 // request is redirected to /login before this handler runs).
 //
-// One form per preference, each posting to its own route. The two preferences
+// One form per preference, each posting to its own route. The preferences
 // share the user_preferences table, and a single form would have to guess the
 // unsent half: an unchecked checkbox is simply absent from a form body, so a
 // queue-order submission carrying no email field would be indistinguishable
 // from "turn email off". Separate actions remove the ambiguity at the wire
 // level — a route only ever writes the one key it names — instead of relying
-// on a hidden companion field nobody may forget.
+// on a hidden companion field nobody may forget. The sidebar route is the
+// narrowest case of that rule: its whole body is a single two-valued field.
 type PreferencesHandlers struct {
 	preferences *application.PreferencesService
 	renderer    *Renderer
@@ -39,6 +41,7 @@ func (h *PreferencesHandlers) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /preferences", h.index)
 	mux.HandleFunc("POST /preferences", h.update)
 	mux.HandleFunc("POST /preferences/email", h.updateEmail)
+	mux.HandleFunc("POST /preferences/sidebar", h.updateSidebar)
 }
 
 // preferencesData is the preferences page payload. Current is already
@@ -146,6 +149,43 @@ func (h *PreferencesHandlers) updateEmail(w http.ResponseWriter, r *http.Request
 	}
 	saveFeedback(w, r, saveFeedbackSaved, saveFeedbackSuccess)
 	redirect(w, r, "/preferences")
+}
+
+// sidebarStateCollapsed and sidebarStateExpanded are the only two values the
+// sidebar toggle accepts and the only two the store persists (issue #377,
+// S2). They are the wire vocabulary of POST /preferences/sidebar, so an
+// unknown value is refused here rather than reaching the store.
+const (
+	sidebarStateCollapsed = "collapsed"
+	sidebarStateExpanded  = "expanded"
+)
+
+// updateSidebar persists the collapsed sidebar (issue #377, S2). The route is
+// called from fetch, never from a navigation, so success answers 204 No
+// Content with NO body: there is no page to render and nothing to swap, the
+// browser flips the class itself. A value outside the two documented states is
+// a 422 through the shared error path and writes nothing.
+func (h *PreferencesHandlers) updateSidebar(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		httpError(w, r, "error.internal_server", http.StatusInternalServerError)
+		return
+	}
+	collapsed := false
+	switch r.Form.Get("sidebar") {
+	case sidebarStateCollapsed:
+		collapsed = true
+	case sidebarStateExpanded:
+		collapsed = false
+	default:
+		httpError(w, r, "error.invalid_sidebar_state", http.StatusUnprocessableEntity)
+		return
+	}
+	if err := h.preferences.SetSidebarCollapsed(r.Context(), *userFromContext(r.Context()), collapsed); err != nil {
+		status, msg := mapErrorFor(r, err)
+		http.Error(w, msg, status)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // data builds the page payload from the normalized current order and an

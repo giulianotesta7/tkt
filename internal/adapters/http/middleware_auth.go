@@ -59,6 +59,21 @@ func interfaceLanguageFrom(ctx context.Context) (string, bool) {
 	return language, ok
 }
 
+// ctxKeySidebarCollapsed carries the session user's sidebar state read once per
+// authenticated request (issue #377, S2). Stamping it here is what lets the
+// shell render the stored state on the first paint — no flash of the wrong
+// width, and no preference read from pageDataFrom or any template.
+type ctxKeySidebarCollapsed struct{}
+
+// sidebarCollapsedFrom returns the sidebar state stamped by the middleware, or
+// false (expanded) when nothing was stamped: an auth page, a handler used in
+// isolation, or a request whose preference read failed all render the expanded
+// shell, which is the documented default.
+func sidebarCollapsedFrom(ctx context.Context) bool {
+	collapsed, _ := ctx.Value(ctxKeySidebarCollapsed{}).(bool)
+	return collapsed
+}
+
 const (
 	// interfaceLanguageReadTimeout bounds ONE settings read (R4-001): the
 	// instance language is a single indexed row, so a read that has not
@@ -68,7 +83,7 @@ const (
 	// interfaceLanguageEveryNthFailure re-arms the deduplicated failure log
 	// (R4-002): a persistent outage records its first line, then one line per
 	// this many failures, so an operator still sees that it is ongoing without
-	// a line per request.
+	// a line per request. Both per-request read failure logs below share it.
 	interfaceLanguageEveryNthFailure = 100
 )
 
@@ -95,6 +110,39 @@ func (l *languageReadLog) failed(err error) {
 }
 
 func (l *languageReadLog) recovered() {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.failing = false
+	l.count = 0
+}
+
+// sidebarReadLog deduplicates the sidebar-state read failure (issue #377, S2)
+// with the same policy languageReadLog applies to the interface-language read
+// (R4-002): the first failure logs, the next success re-arms the counter, and a
+// long outage logs once every interfaceLanguageEveryNthFailure attempts. It is
+// a separate type rather than a reuse of languageReadLog because the fallback
+// is not a locale — the request proceeds with the expanded shell — so the two
+// must never share a message or a counter.
+type sidebarReadLog struct {
+	mu      sync.Mutex
+	failing bool
+	count   int
+}
+
+func (l *sidebarReadLog) failed(err error) {
+	l.mu.Lock()
+	l.count++
+	// Decide under the lock, log outside it: a slow log write must not hold
+	// every concurrent request behind the mutex.
+	report := !l.failing || l.count%interfaceLanguageEveryNthFailure == 0
+	l.failing = true
+	l.mu.Unlock()
+	if report {
+		log.Printf("httpadapter: read sidebar preference: %v (rendering the expanded sidebar)", err)
+	}
+}
+
+func (l *sidebarReadLog) recovered() {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	l.failing = false
@@ -152,15 +200,31 @@ type SessionMiddleware struct {
 	sessions application.SessionStore
 	users    application.UserStore
 	settings application.SettingsStore
+	// sidebar is the OPTIONAL per-user sidebar-state reader (issue #377, S2).
+	// A middleware built without it stamps the expanded default, so every
+	// caller that does not care about the shell keeps working unchanged.
+	sidebar application.SidebarPreferencesStore
 	// languageFailures deduplicates the interface-language read failure
 	// (R4-002) across requests.
 	languageFailures languageReadLog
+	// sidebarFailures deduplicates the sidebar-state read failure the same way
+	// (issue #377, S2).
+	sidebarFailures sidebarReadLog
 }
 
 // NewSessionMiddleware wires the middleware against the session, user, and
 // instance settings ports.
 func NewSessionMiddleware(sessions application.SessionStore, users application.UserStore, settings application.SettingsStore) *SessionMiddleware {
 	return &SessionMiddleware{sessions: sessions, users: users, settings: settings}
+}
+
+// WithSidebarPreferences opts the middleware into stamping each authenticated
+// request with the user's stored sidebar state (issue #377, S2). It is opt-in
+// so the middleware keeps one constructor and a caller without a preferences
+// store (a focused test, a future surface) is never left with a nil read.
+func (m *SessionMiddleware) WithSidebarPreferences(store application.SidebarPreferencesStore) *SessionMiddleware {
+	m.sidebar = store
+	return m
 }
 
 // Wrap returns the mux-wrapping handler.
@@ -270,8 +334,25 @@ func (m *SessionMiddleware) Wrap(next http.Handler) http.Handler {
 			httpError(w, r, "error.internal_server", http.StatusInternalServerError)
 			return
 		}
+		// Issue #377: the user's sidebar state is read ONCE here and stamped on
+		// the request, so every page render answers the stored state without a
+		// second preferences read. A failing read is NOT fatal — the request
+		// proceeds with the expanded shell (the documented default) and the
+		// failure is logged under the dedup policy, because losing the
+		// collapse state must never cost a page.
+		sidebar := false
+		if m.sidebar != nil {
+			collapsed, err := m.sidebar.SidebarCollapsed(r.Context(), user.ID)
+			if err != nil {
+				m.sidebarFailures.failed(err)
+			} else {
+				m.sidebarFailures.recovered()
+				sidebar = collapsed
+			}
+		}
 		ctx := context.WithValue(r.Context(), ctxKeyUser{}, user)
 		ctx = context.WithValue(ctx, ctxKeyInternalCommentBg{}, bg)
+		ctx = context.WithValue(ctx, ctxKeySidebarCollapsed{}, sidebar)
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }
