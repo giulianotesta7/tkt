@@ -306,24 +306,26 @@ func TestS5SkipLinkAndCurrentRailLink(t *testing.T) {
 	if !strings.Contains(page, `<main class="main" id="main-content">`) {
 		t.Errorf("the main region must carry the skip link's target id")
 	}
-	// The skip link is the first thing a keyboard reaches: it precedes the rail.
-	if strings.Index(page, `class="skip-link"`) > strings.Index(page, `class="rail"`) {
-		t.Errorf("the skip link must come before the rail in document order")
+	// The skip link is the first thing a keyboard reaches: it precedes the sidebar.
+	if strings.Index(page, `class="skip-link"`) > strings.Index(page, `class="sidebar"`) {
+		t.Errorf("the skip link must come before the sidebar in document order")
 	}
 	if !cssRuleDeclares(stylesheet, ".skip-link{", "position:absolute") ||
 		!strings.Contains(stylesheet, ".skip-link:focus{") {
 		t.Errorf("the skip link must be hidden until it takes focus, got:\n%s", stylesheet)
 	}
 
-	current := `<a class="rail-link active" href="/settings" title="Settings" aria-label="Settings" aria-current="page">`
+	current := `<a class="sidebar-link active" href="/settings" data-tip="Settings" aria-current="page">`
 	if !strings.Contains(page, current) {
-		t.Errorf("the active rail link must carry aria-current=\"page\", want %q", current)
+		t.Errorf("the active sidebar link must carry aria-current=\"page\", want %q", current)
 	}
+	// The sidebar link is current once; the mobile tab bar never duplicates
+	// the settings section, so the page carries exactly one aria-current.
 	if got := strings.Count(page, `aria-current="page"`); got != 1 {
-		t.Errorf("exactly one rail link may be current, got %d", got)
+		t.Errorf("exactly one sidebar link may be current, got %d", got)
 	}
-	if strings.Contains(page, `href="/tickets" title="Tickets" aria-label="Tickets" aria-current`) {
-		t.Errorf("an inactive rail link must not carry aria-current")
+	if strings.Contains(page, `href="/tickets" data-tip="Tickets" aria-current`) {
+		t.Errorf("an inactive sidebar link must not carry aria-current")
 	}
 
 	spanish := renderAuditPage(t, "es", "settings_index", fixtureSettingsIndexData())

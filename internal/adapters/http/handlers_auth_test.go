@@ -35,8 +35,8 @@ func TestLoginPageRendered(t *testing.T) {
 	if !strings.Contains(body, "Sign in") {
 		t.Errorf("login page must show the sign-in form, got: %s", body)
 	}
-	if strings.Contains(body, `<aside class="rail">`) {
-		t.Errorf("login page must NOT render the app rail, got: %s", body)
+	if strings.Contains(body, `<aside class="sidebar"`) {
+		t.Errorf("login page must NOT render the app sidebar, got: %s", body)
 	}
 }
 
