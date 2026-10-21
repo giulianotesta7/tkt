@@ -30,13 +30,18 @@
           </div>
 
 
-<form class="card" method="post" action="/tickets/1/comments">
+<form class="card" method="post" action="/tickets/1/comments" enctype="multipart/form-data">
   <h2>Add comment</h2>
 
   <div class="field">
     <textarea name="body" id="comment-body" hx-preserve="true" placeholder="Write a comment…" aria-label="Comment body"></textarea>
   </div>
   <input type="hidden" name="visibility" value="public">
+  <div class="field">
+    <label for="comment-attachments">Attachments</label>
+    <input type="file" id="comment-attachments" name="attachments" multiple accept=".png,.jpg,.jpeg,.gif,.webp,.pdf,.docx,.xlsx,.pptx,.txt,.csv,.log,.zip">
+    <p class="help">Up to 5 files, 10 MB each</p>
+  </div>
 
   <button class="btn primary" type="submit">Add comment</button>
 </form>

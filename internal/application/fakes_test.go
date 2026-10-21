@@ -280,6 +280,9 @@ type fakeCommentUnitOfWork struct {
 	// transaction, so a resume is applied before the comment insert and never
 	// rolled back by a later failure; the SQLite adapter owns that proof.
 	holds *fakeUnitOfWork
+	// attachments records the comment files the APPLICATION validated and
+	// stamped (issue #366); the SQLite adapter owns the insert proof.
+	attachments []domain.Attachment
 }
 
 func newFakeCommentUnitOfWork(comments *fakeCommentStore) *fakeCommentUnitOfWork {
@@ -302,6 +305,7 @@ func (f *fakeCommentUnitOfWork) Add(ctx context.Context, m application.CommentMu
 		m.Notifications[i].CommentID = &id
 	}
 	f.notifications = append(f.notifications, m.Notifications...)
+	f.attachments = append(f.attachments, m.Attachments...)
 	return nil
 }
 
@@ -370,6 +374,8 @@ type fakeUnitOfWork struct {
 	// not given: with nil, ShiftedSLA is not persisted (documented
 	// simplification, issue #352).
 	slas *fakeSLAStore
+	// attachments records the creation files of the legacy Create (issue #366).
+	attachments []domain.Attachment
 }
 
 func newFakeUnitOfWork(tickets *fakeTicketStore, audits *fakeAuditStore) *fakeUnitOfWork {
@@ -391,6 +397,7 @@ func (f *fakeUnitOfWork) Create(ctx context.Context, m application.TicketMutatio
 		m.Events[i].TicketID = m.Ticket.ID
 	}
 	f.notifications = append(f.notifications, m.Notifications...)
+	f.attachments = append(f.attachments, m.Attachments...)
 	return f.audits.Append(ctx, m.Events...)
 }
 
@@ -1396,4 +1403,28 @@ func (f *fakeSLASettingsStore) SetSLACalendar(_ context.Context, calendar domain
 	}
 	f.calendar = calendar
 	return nil
+}
+
+// fakeAttachmentStore serves downloads from a fixed map (issue #366); it has
+// no list semantics beyond the id lookup the download use case needs.
+type fakeAttachmentStore struct {
+	files map[int64]application.StoredAttachment
+}
+
+func (f *fakeAttachmentStore) ListByTicket(_ context.Context, ticketID int64, includeInternal bool) ([]domain.Attachment, error) {
+	var out []domain.Attachment
+	for _, a := range f.files {
+		if a.TicketID == ticketID && (includeInternal || a.Visibility != domain.CommentInternal) {
+			out = append(out, a.Attachment)
+		}
+	}
+	return out, nil
+}
+
+func (f *fakeAttachmentStore) Get(_ context.Context, id int64) (*application.StoredAttachment, error) {
+	a, ok := f.files[id]
+	if !ok {
+		return nil, &domain.NotFoundError{Kind: "attachment", ID: id}
+	}
+	return &a, nil
 }

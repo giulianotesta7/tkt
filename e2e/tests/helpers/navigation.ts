@@ -8,7 +8,18 @@ import { base } from "./auth.js";
  */
 export async function createTicketViaUi(
   page: Page,
-  o: { title: string; description?: string; category?: string; priority?: string },
+  o: {
+    title: string;
+    description?: string;
+    category?: string;
+    priority?: string;
+    /**
+     * Files put on the creation form before the single submit (issue #366).
+     * The form is multipart, so attaching is the same native POST the plain
+     * journey makes, with the files in the body.
+     */
+    attachments?: { name: string; mimeType: string; buffer: Buffer }[];
+  },
 ): Promise<string> {
   const title = o.title;
   const description = o.description ?? "probe";
@@ -36,6 +47,9 @@ export async function createTicketViaUi(
   await page.getByLabel(/title/i).fill(title);
   await page.getByLabel(/description/i).fill(description);
   await page.getByLabel(/priority/i).selectOption(priority);
+  if (o.attachments?.length) {
+    await page.locator('input[type="file"][name="attachments"]').setInputFiles(o.attachments);
+  }
   await page.getByRole("button", { name: /create ticket/i }).click();
 
   await expect(page).toHaveURL(/\/tickets/);
