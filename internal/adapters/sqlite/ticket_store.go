@@ -274,6 +274,10 @@ func (u *unitOfWork) Create(ctx context.Context, m application.TicketMutation) e
 		if err := createTicketTx(ctx, tx, m.Ticket); err != nil {
 			return err
 		}
+		// Files attached at creation commit with the ticket (issue #366).
+		if err := insertAttachmentsTx(ctx, tx, m.Ticket.ID, nil, m.Attachments); err != nil {
+			return err
+		}
 		for i := range m.Events {
 			m.Events[i].TicketID = m.Ticket.ID
 		}
