@@ -213,6 +213,7 @@ var nonKeyGoLiterals = map[string]bool{
 	"categories.manage":    true,
 	"desks.manage":         true,
 	"settings.manage":      true,
+	"email.manage":         true,
 	"comments.public":      true,
 	"comments.internal":    true,
 	"users.manage":         true,
