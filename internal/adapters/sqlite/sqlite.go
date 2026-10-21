@@ -220,6 +220,10 @@ func (s *Store) WorkflowUnitOfWork() application.WorkflowUnitOfWork {
 // SettingsStore returns the instance appearance settings port.
 func (s *Store) SettingsStore() application.SettingsStore { return newSettingsStore(s.db) }
 
+// EmailSettingsStore returns the email settings port (issue #362), served by
+// the same keyed settings table.
+func (s *Store) EmailSettingsStore() application.EmailSettingsStore { return newSettingsStore(s.db) }
+
 // SLAStore returns the SLA port (issue #211): global defaults,
 // materialized category matrices, observed milestone instants, and the
 // commitments frozen onto tickets.
