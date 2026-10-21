@@ -224,6 +224,11 @@ func (b *ViewBuilder) enrichTimeline(ctx context.Context, view *TicketView) erro
 		case domain.ActionWorkflowStep, domain.ActionWorkflowManualTask,
 			domain.ActionWorkflowRequesterForm, domain.ActionWorkflowAssigneeForm:
 			item.SuppressDetail = true
+		case domain.ActionHold:
+			// A hold event's Note IS the pause reason and the narrative already
+			// carries it ("put the ticket on hold: <reason>", issue #352), so the
+			// generic "Reason:" line would print it twice.
+			item.SuppressDetail = true
 		}
 		// PR10 task 10.2: a semantic completion event binds its pinned step
 		// context strictly through the persisted step_index. Missing, out-of-
@@ -419,6 +424,10 @@ func legacyEventSummary(e *domain.AuditEvent) string {
 		return "Submitted request details"
 	case domain.ActionWorkflowAssigneeForm:
 		return "Submitted work details"
+	case domain.ActionHold:
+		return "Put on hold"
+	case domain.ActionResume:
+		return "Resumed"
 	default:
 		if e.Field != nil {
 			return "Changed " + auditFieldLabel(strings.ToLower(strings.TrimSpace(*e.Field)))
@@ -452,6 +461,13 @@ func eventSummary(e *domain.AuditEvent) string {
 		return "submitted request details"
 	case domain.ActionWorkflowAssigneeForm:
 		return "submitted work details"
+	case domain.ActionHold:
+		if e.Note != nil {
+			return "put the ticket on hold: " + *e.Note
+		}
+		return "put the ticket on hold"
+	case domain.ActionResume:
+		return "took the ticket off hold"
 	default:
 		if e.Field != nil {
 			return "changed " + strings.ToLower(auditFieldLabel(strings.ToLower(strings.TrimSpace(*e.Field))))
@@ -486,6 +502,13 @@ func eventSummaryMsg(e *domain.AuditEvent) Msg {
 		return MsgRef("tickets.timeline.narrative.submitted_request")
 	case domain.ActionWorkflowAssigneeForm:
 		return MsgRef("tickets.timeline.narrative.submitted_work")
+	case domain.ActionHold:
+		if e.Note != nil {
+			return MsgRef("tickets.timeline.narrative.on_hold", Text(*e.Note))
+		}
+		return MsgRef("tickets.timeline.narrative.on_hold_no_reason")
+	case domain.ActionResume:
+		return MsgRef("tickets.timeline.narrative.resumed")
 	default:
 		if e.Field != nil {
 			return MsgRef("tickets.timeline.narrative.changed", timelineFieldArg(strings.ToLower(strings.TrimSpace(*e.Field))))

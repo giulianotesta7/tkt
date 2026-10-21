@@ -44,6 +44,7 @@
 
 <div id="ticket-detail" hx-headers="{&#34;X-TKT-Queue-Return&#34;:&#34;/tickets&#34;}">
 
+
   <div class="command-header">
     <div class="detail-head">
       <div class="meta-row">
@@ -71,6 +72,18 @@
         <h2>Description</h2>
         <p class="ticket-description">The login form 500s on submit</p>
           </div>
+<section class="card" aria-labelledby="hold-form-title">
+  <h2 id="hold-form-title">Put on hold</h2>
+  <p class="resolution-help">The resolution clock pauses while the ticket waits for the requester.</p>
+  <form method="post" action="/tickets/1/hold" hx-post="/tickets/1/hold" hx-target="#ticket-detail" hx-swap="outerHTML">
+    <div class="field">
+      <label for="hold-reason">Reason (the requester will read it)</label>
+      <textarea id="hold-reason" name="reason" rows="2" required placeholder="What do you need from the requester?"></textarea>
+    </div>
+    <button class="btn primary" type="submit">Put on hold</button>
+  </form>
+</section>
+
 
 
 <form class="card" method="post" action="/tickets/1/comments">

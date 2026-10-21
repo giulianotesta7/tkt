@@ -1,4 +1,9 @@
 {{define "state_badge"}}{{with stateBadge .}}<span class="badge {{.State}}">{{.Label}}</span>{{end}}{{end}}
+{{/* The on-hold chip rides next to the state badge wherever a ticket's state is
+     shown (issue #352). It is a chip, not a badge: the state pill keeps its
+     pill shape and the hold is a neutral second fact beside it, never a
+     lifecycle outcome of its own. */}}
+{{define "hold_chip"}}<span class="chip">{{t "label.ticket.on_hold"}}</span>{{end}}
 {{/* SLA state: never a pill. A 7px circle carries the state colour — the
      same shape, size and tokens the priority marker uses for "state in a data
      column" — and a muted word carries the state itself, so the cell is never

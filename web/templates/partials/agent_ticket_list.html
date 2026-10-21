@@ -12,7 +12,7 @@
 {{end}}          <p class="agent-row-meta">{{t "tickets.agent.requester"}} {{.RequesterName}}</p>
         </div>
         <div class="agent-row-side">
-          {{template "state_badge" .State}}{{if .SLA}}{{template "sla_state_dot" .SLA.State}}{{end}}
+          {{template "state_badge" .State}}{{if .OnHoldSince}} {{template "hold_chip" .}}{{end}}{{if .SLA}}{{template "sla_state_dot" .SLA.State}}{{end}}
           <span class="priority {{.Priority}}"><span class="ticket-priority-value">{{priorityLabel .Priority}}</span></span>
           <span class="agent-row-updated">{{t "tickets.agent.updated"}} {{template "card_timestamp" .UpdatedAt}}</span>
           <a class="agent-row-open" href="/tickets/{{.ID}}">{{t "tickets.agent.open_ticket"}}</a>
@@ -36,7 +36,7 @@
           <span class="agent-row-updated">{{t "tickets.agent.created"}} {{template "card_timestamp" .CreatedAt}}</span>
         </div>
         <div class="agent-row-side">
-          {{template "state_badge" .State}}{{if .SLA}}{{template "sla_state_dot" .SLA.State}}{{end}}
+          {{template "state_badge" .State}}{{if .OnHoldSince}} {{template "hold_chip" .}}{{end}}{{if .SLA}}{{template "sla_state_dot" .SLA.State}}{{end}}
           <span class="priority {{.Priority}}"><span class="ticket-priority-value">{{priorityLabel .Priority}}</span></span>
           <div class="agent-row-actions">
             <a class="agent-row-open" href="/tickets/{{.ID}}">{{t "tickets.agent.view_ticket"}}</a>

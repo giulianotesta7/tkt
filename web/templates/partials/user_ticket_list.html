@@ -5,7 +5,7 @@
     <div class="user-request-content">
       <div class="user-request-head">
     <a class="user-request-title" href="/tickets/{{.ID}}">{{.Title}}</a>
-    {{- template "state_badge" (requesterStateBadge .State)}}
+    {{- template "state_badge" (requesterStateBadge .State)}}{{if .OnHoldSince}} {{template "hold_chip" .}}{{end}}
       </div>
       {{- if .Description}}<p class="user-request-description">{{.Description}}</p>{{end}}
       <span class="user-request-meta">{{ticketNumber .Number}} · {{t "tickets.list.updated"}} {{template "card_timestamp" .UpdatedAt}}</span>

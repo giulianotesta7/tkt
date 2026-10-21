@@ -35,6 +35,7 @@ func mapError(err error) (int, string) {
 		forbidden        *domain.ForbiddenError
 		workflowConflict *domain.WorkflowPositionConflictError
 		unrunnable       *domain.WorkflowUnrunnableError
+		holdConflict     *domain.HoldConflictError
 		badCredentials   *application.InvalidCredentialsError
 	)
 	switch {
@@ -67,6 +68,11 @@ func mapError(err error) (int, string) {
 		// category cannot route it. Before the typed error existed this arrived as
 		// an unwrapped sentinel and fell through to the default arm.
 		return 409, unrunnable.Error()
+	case errors.As(err, &holdConflict):
+		// 409, not 500: the hold change lost its compare-and-set race (issue
+		// #352), so the ticket the actor read is no longer the ticket stored.
+		// Reloading and retrying is the only recovery, exactly what the copy says.
+		return 409, holdConflict.Error()
 	case errors.As(err, &badCredentials):
 		return 401, application.ErrMsgInvalidCredentials
 	default:
@@ -124,6 +130,7 @@ var errorKey = map[string]string{
 	domain.ErrMsgCreateUnassignedOnly:                        "error.create_unassigned_only",
 	domain.ErrMsgSolutionTooLong:                             "error.solution_too_long",
 	domain.ErrMsgCategoryNotRunnable:                         "error.category_not_runnable",
+	domain.ErrMsgHoldConflict:                                "error.hold_conflict",
 	application.ErrMsgInvalidCredentials:                     "error.invalid_credentials",
 	application.ErrMsgClosureRequiresConfirmation:            "error.closure_requires_confirmation",
 	application.ErrMsgNotTicketRequester:                     "error.not_ticket_requester",

@@ -1122,3 +1122,199 @@ func TestGoldenNotificationBell(t *testing.T) {
 	goldenFile(t, "notification_bell_zero", renderGolden(t, "notifications", "notification_bell", notificationBell{}, true))
 	goldenFile(t, "notification_bell_unread", renderGolden(t, "notifications", "notification_bell", notificationBell{Unread: 3}, true))
 }
+
+// ---------------------------------------------------------------------------
+// Issue #352 goldens: the ticket on hold. The staff and requester detail carry
+// a banner, the requester reads the pause reason, and the resolution milestone
+// renders as paused instead of ticking.
+// ---------------------------------------------------------------------------
+
+// fixturePausedSLAPanel projects the same frozen commitment the open detail
+// fixture uses, with the resolution milestone PAUSED at the literal pause
+// instant 2026-08-06T12:00Z (issue #352). The first response stays achieved, so
+// the golden also proves the pause leaves it untouched.
+func fixturePausedSLAPanel() *slaPanelView {
+	frozen := &domain.TicketSLA{
+		FirstResponseSeconds: 14400,
+		ResolveSeconds:       86400,
+		WarnFirstResponseAt:  goldenT0.Add(3*time.Hour + 12*time.Minute),
+		DueFirstResponseAt:   goldenT0.Add(4 * time.Hour),
+		WarnResolveAt:        goldenT0.Add(19*time.Hour + 12*time.Minute),
+		DueResolveAt:         goldenT0.Add(24 * time.Hour),
+		StartedAt:            goldenT0,
+		PolicySnapshotAt:     goldenT0,
+	}
+	achieved := goldenT1
+	pausedAt := goldenT0.Add(2 * time.Hour)
+	now := goldenT0.Add(20 * time.Hour)
+	return slaPanelFor(i18n.English, domain.ProjectSLA(frozen, domain.SLAMilestones{
+		FirstResponseAt: &achieved,
+		ResolvePausedAt: &pausedAt,
+	}, now))
+}
+
+// fixtureOnHoldStaffDetailData derives the staff on-hold detail from the open
+// fixture: the ticket waits for the requester, its resolution milestone is
+// paused, and the timeline narrates the hold exactly as enrichTimeline does.
+func fixtureOnHoldStaffDetailData() detailData {
+	d := fixtureDetailData()
+	held := goldenT1
+	d.View.Ticket.OnHoldSince = &held
+	d.View.Ticket.OnHoldReason = "waiting for the VPN logs"
+	holdEvent := domain.AuditEvent{
+		TicketID: 1, Actor: "Admin", Action: domain.ActionHold,
+		Field: strptr("on_hold"), Note: strptr("waiting for the VPN logs"), CreatedAt: goldenT1,
+	}
+	d.View.AuditEvents = append(d.View.AuditEvents, holdEvent)
+	d.View.Timeline = append([]application.TimelineItem{{
+		Event:        &d.View.AuditEvents[len(d.View.AuditEvents)-1],
+		ActorLabel:   "Admin",
+		Narrative:    "put the ticket on hold: waiting for the VPN logs",
+		NarrativeMsg: application.MsgRef("tickets.timeline.narrative.on_hold", application.Text("waiting for the VPN logs")),
+		Summary:      "Put on hold",
+		// Mirrors enrichTimeline: the narrative carries the reason, so the
+		// generic "Reason:" detail line is suppressed.
+		SuppressDetail: true,
+	}}, d.View.Timeline...)
+	d.SLA = fixturePausedSLAPanel()
+	return d
+}
+
+// fixtureRequesterOnHoldDetailData is the requester's own on-hold ticket
+// (issue #352 S8): the banner says the ticket waits for their reply and shows
+// the reason, and no staff control is offered.
+func fixtureRequesterOnHoldDetailData() detailData {
+	ana := domain.User{ID: 1, Name: "Ana Torres", Email: "ana@example.com", Active: true, Role: domain.RoleAgent, CreatedAt: goldenT0}
+	beto := domain.User{ID: 2, Name: "Beto Ruiz", Email: "beto@example.com", Active: true, Role: domain.RoleUser, CreatedAt: goldenT0}
+	held := goldenT1
+	t := &domain.Ticket{
+		ID: 1, Number: 1, Title: "Login page down",
+		Description:     "The login form 500s on submit",
+		RequesterName:   beto.Name,
+		RequesterEmail:  beto.Email,
+		RequesterUserID: &beto.ID,
+		UserID:          &ana.ID,
+		CategoryID:      1,
+		Priority:        domain.PriorityHigh,
+		State:           domain.StateInProgress,
+		OnHoldSince:     &held,
+		OnHoldReason:    "send us a photo of the jammed tray",
+		CreatedAt:       goldenT0,
+		UpdatedAt:       goldenT1,
+	}
+	view := &application.TicketView{
+		Ticket:       t,
+		Category:     &domain.Category{ID: 1, Name: "Bugs", CreatedAt: goldenT0},
+		AssignedUser: &ana,
+		Comments: []domain.Comment{
+			{ID: 1, TicketID: 1, Author: "Ana Torres", Body: "Can you send a photo?", CreatedAt: goldenT0},
+		},
+		AuditEvents: []domain.AuditEvent{
+			{TicketID: 1, Actor: beto.Name, Action: domain.ActionCreated, CreatedAt: goldenT0},
+			{TicketID: 1, Actor: "Admin", Action: domain.ActionHold, Field: strptr("on_hold"), Note: strptr("send us a photo of the jammed tray"), CreatedAt: goldenT1},
+		},
+	}
+	view.Timeline = []application.TimelineItem{
+		{
+			Event:          &view.AuditEvents[1],
+			ActorLabel:     "Admin",
+			Narrative:      "put the ticket on hold: send us a photo of the jammed tray",
+			NarrativeMsg:   application.MsgRef("tickets.timeline.narrative.on_hold", application.Text("send us a photo of the jammed tray")),
+			Summary:        "Put on hold",
+			SuppressDetail: true,
+		},
+		{IsComment: true, Comment: &view.Comments[0]},
+		{Event: &view.AuditEvents[0], ActorLabel: beto.Name, Narrative: "created the ticket", NarrativeMsg: application.MsgRef("tickets.timeline.narrative.created"), Summary: "Ticket created"},
+	}
+	return detailData{
+		pageData: pageData{NavActive: "tickets", CurrentUser: beto},
+		View:     view,
+		// Mirrors detailDataFor for a role-user viewer: requester vocabulary,
+		// no hold/resume capability, and the comment form stays available.
+		RequesterView:      true,
+		Next:               filteredNext(allowedNext(t.State), t),
+		Options:            options{States: listStates, Priorities: listPriorities, Categories: []domain.Category{*view.Category}},
+		CanCommentInternal: false,
+		CanEdit:            false,
+		CanAssign:          false,
+		CanTransition:      false,
+		CanComment:         true,
+		Values:             ticketFormValues{Title: t.Title, Description: t.Description, CategoryID: "1", Priority: t.Priority},
+	}
+}
+
+// TestGoldenTicketDetailOnHold freezes the staff detail of a held ticket: the
+// banner names the pause instant and the reason, Resume replaces the hold form,
+// the state badge carries the on-hold chip, and the paused resolution milestone
+// renders as a chip with no live countdown.
+func TestGoldenTicketDetailOnHold(t *testing.T) {
+	d := fixtureOnHoldStaffDetailData()
+	body := renderGolden(t, "tickets_show", "ticket_detail", d, true)
+
+	for _, want := range []string{
+		`class="hold-banner"`,
+		`On hold since`,
+		`datetime="` + formatDatetime(goldenT1) + `"`,
+		// The pause instant renders as the LOCALIZED date inside that <time>.
+		`>Aug 6, 2026</time>`,
+		`waiting for the VPN logs`,
+		`action="/tickets/1/resume"`,
+		`hx-post="/tickets/1/resume"`,
+		`>Resume</button>`,
+		`<span class="chip">On hold</span>`,
+		`<span class="chip">Paused</span>`,
+		`put the ticket on hold: waiting for the VPN logs`,
+		// First response unchanged: still achieved and labelled.
+		`<span class="sla-dot met" aria-hidden="true"></span>`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("staff on-hold detail must contain %q, got: %s", want, body)
+		}
+	}
+	for _, absent := range []string{
+		`id="hold-reason"`,
+		`action="/tickets/1/hold"`,
+		// The paused milestone holds a frozen remainder: no live countdown.
+		`<time datetime="2026-08-07T10:00:00Z" data-sla-countdown`,
+	} {
+		if strings.Contains(body, absent) {
+			t.Errorf("staff on-hold detail must NOT contain %q, got: %s", absent, body)
+		}
+	}
+
+	goldenFile(t, "ticket_detail_on_hold", body)
+}
+
+// TestGoldenTicketDetailRequesterOnHold freezes the requester's view of their
+// own held ticket: the waiting banner with the reason, and no hold or resume
+// control anywhere.
+func TestGoldenTicketDetailRequesterOnHold(t *testing.T) {
+	d := fixtureRequesterOnHoldDetailData()
+	body := renderGolden(t, "tickets_show", "ticket_detail", d, true)
+
+	for _, want := range []string{
+		`class="hold-banner"`,
+		`This ticket is waiting for your reply`,
+		`send us a photo of the jammed tray`,
+		`<span class="chip">On hold</span>`,
+		`put the ticket on hold: send us a photo of the jammed tray`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("requester on-hold detail must contain %q, got: %s", want, body)
+		}
+	}
+	for _, absent := range []string{
+		`action="/tickets/1/hold"`,
+		`action="/tickets/1/resume"`,
+		`id="hold-reason"`,
+		`Put on hold`,
+		// The requester never receives the SLA projection.
+		`class="prop-heading">SLA`,
+	} {
+		if strings.Contains(body, absent) {
+			t.Errorf("requester on-hold detail must NOT contain %q, got: %s", absent, body)
+		}
+	}
+
+	goldenFile(t, "ticket_detail_requester_on_hold", body)
+}
