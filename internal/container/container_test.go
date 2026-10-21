@@ -54,8 +54,8 @@ func TestContractsParse(t *testing.T) {
 	// The security gate and the shipped binary must use the corrected Go patch.
 	t.Run("corrected build toolchain", func(t *testing.T) {
 		for _, pin := range []struct{ file, directive string }{
-			{"go.mod", "go 1.26.9"},
-			{"Dockerfile", "FROM golang:1.26.9 AS build"},
+			{"go.mod", "go 1.26.10"},
+			{"Dockerfile", "FROM golang:1.26.10 AS build"},
 		} {
 			data, err := os.ReadFile(filepath.Join(root, pin.file))
 			if err != nil {

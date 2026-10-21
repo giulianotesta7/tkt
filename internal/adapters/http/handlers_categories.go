@@ -259,6 +259,10 @@ func (h *CategoryHandlers) create(w http.ResponseWriter, r *http.Request) {
 		httpError(w, r, "error.internal_server", http.StatusInternalServerError)
 		return
 	}
+	state, ok := h.categoryMutationState(w, r)
+	if !ok {
+		return
+	}
 	var err error
 	if h.catalog != nil {
 		deskID, parseErr := requiredCategoryID(r.Form.Get("desk_id"), "desk_id")
@@ -274,7 +278,7 @@ func (h *CategoryHandlers) create(w http.ResponseWriter, r *http.Request) {
 		h.renderCategoryFormError(w, r, 0, err)
 		return
 	}
-	h.redirectCategoryMutation(w, r)
+	h.redirectCategoryMutation(w, r, state)
 }
 
 func (h *CategoryHandlers) editForm(w http.ResponseWriter, r *http.Request) {
@@ -430,6 +434,10 @@ func (h *CategoryHandlers) update(w http.ResponseWriter, r *http.Request) {
 		httpError(w, r, "error.internal_server", http.StatusInternalServerError)
 		return
 	}
+	state, ok := h.categoryMutationState(w, r)
+	if !ok {
+		return
+	}
 	var err error
 	if h.catalog != nil {
 		c, getErr := h.categories.GetByID(r.Context(), id)
@@ -452,7 +460,7 @@ func (h *CategoryHandlers) update(w http.ResponseWriter, r *http.Request) {
 		h.renderCategoryFormError(w, r, id, err)
 		return
 	}
-	h.redirectCategoryMutation(w, r)
+	h.redirectCategoryMutation(w, r, state)
 }
 
 func (h *CategoryHandlers) delete(w http.ResponseWriter, r *http.Request) {
@@ -468,11 +476,15 @@ func (h *CategoryHandlers) delete(w http.ResponseWriter, r *http.Request) {
 		httpError(w, r, "error.internal_server", http.StatusInternalServerError)
 		return
 	}
+	state, ok := h.categoryMutationState(w, r)
+	if !ok {
+		return
+	}
 	if err := h.categories.DeleteFor(r.Context(), *userFromContext(r.Context()), id); err != nil {
 		h.renderCategoryDeleteRefusal(w, r, err)
 		return
 	}
-	h.redirectCategoryMutation(w, r)
+	h.redirectCategoryMutation(w, r, state)
 }
 
 // renderCatalogFormError re-renders a catalog drawer with submitted values.
@@ -972,15 +984,24 @@ func (h *CategoryHandlers) renderCategoryDrawerStatus(w http.ResponseWriter, r *
 	h.renderer.Render(w, r, "categories_index", "", index, status)
 }
 
-func (h *CategoryHandlers) redirectCategoryMutation(w http.ResponseWriter, r *http.Request) bool {
+// categoryMutationState validates the view state a category, department or
+// desk mutation re-renders after it succeeds. It runs BEFORE the write, so a
+// malformed state (issue #345: a desk without its department) is refused with
+// nothing stored instead of answering an error for a committed change. It
+// answers the refusal itself and reports false.
+func (h *CategoryHandlers) categoryMutationState(w http.ResponseWriter, r *http.Request) (categoryViewState, bool) {
 	if r.Form == nil {
 		_ = r.ParseForm()
 	}
 	state, err := categoryStateFromValues(r.Form)
 	if err != nil {
 		http.Error(w, mapErrorMsg(r, err), statusFor(err))
-		return true
+		return categoryViewState{}, false
 	}
+	return state, true
+}
+
+func (h *CategoryHandlers) redirectCategoryMutation(w http.ResponseWriter, r *http.Request, state categoryViewState) bool {
 	if r.Header.Get("HX-Request") == "" {
 		saveFeedback(w, r, saveFeedbackSaved, saveFeedbackSuccess)
 		redirect(w, r, categoryStatePath(state))
@@ -1032,11 +1053,15 @@ func (h *CategoryHandlers) createDepartment(w http.ResponseWriter, r *http.Reque
 		httpError(w, r, "error.internal_server", http.StatusInternalServerError)
 		return
 	}
+	state, ok := h.categoryMutationState(w, r)
+	if !ok {
+		return
+	}
 	if _, err := h.catalog.CreateDepartmentFor(r.Context(), *userFromContext(r.Context()), r.Form.Get("name"), r.Form.Get("description")); err != nil {
 		h.renderCatalogFormError(w, r, "department", 0, err)
 		return
 	}
-	h.redirectCategoryMutation(w, r)
+	h.redirectCategoryMutation(w, r, state)
 }
 
 func (h *CategoryHandlers) updateDepartment(w http.ResponseWriter, r *http.Request) {
@@ -1052,11 +1077,15 @@ func (h *CategoryHandlers) updateDepartment(w http.ResponseWriter, r *http.Reque
 		httpError(w, r, "error.internal_server", http.StatusInternalServerError)
 		return
 	}
+	state, ok := h.categoryMutationState(w, r)
+	if !ok {
+		return
+	}
 	if _, err := h.catalog.UpdateDepartmentFor(r.Context(), *userFromContext(r.Context()), id, r.Form.Get("name"), r.Form.Get("description")); err != nil {
 		h.renderCatalogFormError(w, r, "department", id, err)
 		return
 	}
-	h.redirectCategoryMutation(w, r)
+	h.redirectCategoryMutation(w, r, state)
 }
 
 func (h *CategoryHandlers) deleteDepartment(w http.ResponseWriter, r *http.Request) {
@@ -1072,11 +1101,15 @@ func (h *CategoryHandlers) deleteDepartment(w http.ResponseWriter, r *http.Reque
 		httpError(w, r, "error.internal_server", http.StatusInternalServerError)
 		return
 	}
+	state, ok := h.categoryMutationState(w, r)
+	if !ok {
+		return
+	}
 	if err := h.catalog.DeleteDepartmentFor(r.Context(), *userFromContext(r.Context()), id); err != nil {
 		h.renderCategoryDeleteRefusal(w, r, err)
 		return
 	}
-	h.redirectCategoryMutation(w, r)
+	h.redirectCategoryMutation(w, r, state)
 }
 
 func (h *CategoryHandlers) createDesk(w http.ResponseWriter, r *http.Request) {
@@ -1085,6 +1118,10 @@ func (h *CategoryHandlers) createDesk(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := r.ParseForm(); err != nil {
 		httpError(w, r, "error.internal_server", http.StatusInternalServerError)
+		return
+	}
+	state, ok := h.categoryMutationState(w, r)
+	if !ok {
 		return
 	}
 	departmentID, parseErr := requiredCategoryID(r.Form.Get("department_id"), "department_id")
@@ -1096,7 +1133,7 @@ func (h *CategoryHandlers) createDesk(w http.ResponseWriter, r *http.Request) {
 		h.renderCatalogFormError(w, r, "desk", 0, err)
 		return
 	}
-	h.redirectCategoryMutation(w, r)
+	h.redirectCategoryMutation(w, r, state)
 }
 
 func (h *CategoryHandlers) updateDesk(w http.ResponseWriter, r *http.Request) {
@@ -1112,6 +1149,10 @@ func (h *CategoryHandlers) updateDesk(w http.ResponseWriter, r *http.Request) {
 		httpError(w, r, "error.internal_server", http.StatusInternalServerError)
 		return
 	}
+	state, ok := h.categoryMutationState(w, r)
+	if !ok {
+		return
+	}
 	departmentID, parseErr := requiredCategoryID(r.Form.Get("department_id"), "department_id")
 	if parseErr != nil {
 		h.renderCatalogFormError(w, r, "desk", id, parseErr)
@@ -1121,7 +1162,7 @@ func (h *CategoryHandlers) updateDesk(w http.ResponseWriter, r *http.Request) {
 		h.renderCatalogFormError(w, r, "desk", id, err)
 		return
 	}
-	h.redirectCategoryMutation(w, r)
+	h.redirectCategoryMutation(w, r, state)
 }
 
 func (h *CategoryHandlers) deleteDesk(w http.ResponseWriter, r *http.Request) {
@@ -1137,11 +1178,15 @@ func (h *CategoryHandlers) deleteDesk(w http.ResponseWriter, r *http.Request) {
 		httpError(w, r, "error.internal_server", http.StatusInternalServerError)
 		return
 	}
+	state, ok := h.categoryMutationState(w, r)
+	if !ok {
+		return
+	}
 	if err := h.catalog.DeleteDeskFor(r.Context(), *userFromContext(r.Context()), id); err != nil {
 		h.renderCategoryDeleteRefusal(w, r, err)
 		return
 	}
-	h.redirectCategoryMutation(w, r)
+	h.redirectCategoryMutation(w, r, state)
 }
 
 func categoryID(r *http.Request) (int64, bool) {
