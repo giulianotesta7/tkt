@@ -210,13 +210,13 @@ func TestSettingsRailLinkCapabilityIsolation(t *testing.T) {
 			data.CanManageUsers = tc.manageUsers
 			data.CanManageSettings = tc.manageSettings
 			body := renderGolden(t, "users_index", "", data, false)
-			// The title attribute is unique to the rail anchor; a bare href also
-			// matches the in-page "All" filter link and "Back to users".
-			if got := strings.Contains(body, `href="/users" title="Users"`); got != tc.wantUsersLink {
-				t.Errorf("users rail link present = %t, want %t", got, tc.wantUsersLink)
+			// The data-tip attribute is unique to the sidebar anchor; a bare href
+			// also matches the in-page "All" filter link and "Back to users".
+			if got := strings.Contains(body, `href="/users" data-tip="Users"`); got != tc.wantUsersLink {
+				t.Errorf("users sidebar link present = %t, want %t", got, tc.wantUsersLink)
 			}
-			if got := strings.Contains(body, `href="/settings" title="Settings"`); got != tc.wantSettingsLink {
-				t.Errorf("settings rail link present = %t, want %t", got, tc.wantSettingsLink)
+			if got := strings.Contains(body, `href="/settings" data-tip="Settings"`); got != tc.wantSettingsLink {
+				t.Errorf("settings sidebar link present = %t, want %t", got, tc.wantSettingsLink)
 			}
 		})
 	}

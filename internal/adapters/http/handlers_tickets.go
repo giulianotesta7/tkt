@@ -152,6 +152,11 @@ type pageData struct {
 	SLACountdownAssets bool
 	InternalCommentBg  string
 	SaveFeedback       saveFeedbackData
+	// SidebarCollapsed is the session user's stored sidebar state (issue #377,
+	// S2), stamped once per request by the session middleware. The shell
+	// renders it on the first paint, so a collapsed sidebar never flashes
+	// expanded while a script catches up.
+	SidebarCollapsed bool
 	// NotificationBell is the rail bell's INITIAL state (issue #344, S13). It
 	// is always the zero value: an ordinary page render never queries the
 	// unread count — the bell's own endpoint answers it, and the browser fetches
@@ -161,9 +166,10 @@ type pageData struct {
 }
 
 // pageDataFrom builds the shell payload from the session user. The
-// internal-comment background comes from the per-request settings read the
-// middleware stamps into the context (appearance-settings spec); "" leaves
-// the stylesheet default in place.
+// internal-comment background and the sidebar state come from the per-request
+// middleware reads stamped into the context (appearance-settings spec, issue
+// #377 S2); "" leaves the stylesheet default in place and an absent sidebar
+// stamp renders the expanded shell.
 func pageDataFrom(r *http.Request, nav string) pageData {
 	u := userFromContext(r.Context())
 	caps := application.NewPolicy().Capabilities(u.Role)
@@ -177,6 +183,7 @@ func pageDataFrom(r *http.Request, nav string) pageData {
 		CanGrantAdmin:       caps.Require(application.CapGrantAdmin),
 		InternalCommentBg:   internalCommentBgFrom(r.Context()),
 		SaveFeedback:        readSaveFeedback(r),
+		SidebarCollapsed:    sidebarCollapsedFrom(r.Context()),
 	}
 }
 

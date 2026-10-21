@@ -20,9 +20,8 @@
 .page-foundation .page-breadcrumb{margin:0 0 8px;color:var(--muted);font-size:12px}
 .page-foundation .page-breadcrumb a{color:var(--accent)}
 .page-foundation .page-actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
-/* Keep workflow actions in their own left-aligned row, clear of the shared
-   top-right confirmation. The toast remains interactive for explicit dismissal. */
-.category-workflow-page .page-header{flex-direction:column;gap:16px}
+/* Workflow actions sit in the shared actions slot (issue #377); the save
+   confirmation lives bottom-right, so the two never meet. */
 .page-foundation .page-status{color:var(--muted);font-size:13px;line-height:1.2}
 .page-foundation .page-action-secondary{border-color:var(--line-strong);background:var(--surface);color:var(--accent)}
 .page-foundation .page-action-primary{border-color:var(--accent)}
@@ -106,7 +105,6 @@
       .users-root .users-header,.page-foundation .page-header{margin-bottom:24px}
   .page-foundation .page-header{flex-wrap:wrap}
   .page-foundation .page-actions{width:100%}
-  .category-workflow-page .page-actions{flex-direction:column;align-items:flex-start}
   .users-root #users-background{min-width:0}
   .users-root .users-layout{min-width:0}
   .users-root .users-layout > *{min-width:0}

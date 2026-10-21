@@ -320,7 +320,7 @@ func TestRenderRailShellFollowsTheInstanceLanguage(t *testing.T) {
 		absentLogout string
 	}{
 		{name: "english", language: "en", wantLang: "en", wantNav: "Tickets", absentNav: "Solicitudes", wantLogout: "Log out", absentLogout: "Cerrar sesión"},
-		{name: "spanish", language: "es", wantLang: "es", wantNav: "Tickets", absentNav: "Solicitudes", wantLogout: "Cerrar sesión", absentLogout: `title="Log out"`},
+		{name: "spanish", language: "es", wantLang: "es", wantNav: "Tickets", absentNav: "Solicitudes", wantLogout: "Cerrar sesión", absentLogout: `>Log out<`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			r, err := newRendererWithLanguage(localizedShellFS(t), stubInterfaceLanguage{language: tc.language})
@@ -339,7 +339,7 @@ func TestRenderRailShellFollowsTheInstanceLanguage(t *testing.T) {
 			if !strings.Contains(body, `<html lang="`+tc.wantLang+`">`) {
 				t.Errorf("rail shell must declare lang=%q, got: %s", tc.wantLang, firstLine(body))
 			}
-			for _, want := range []string{`title="` + tc.wantNav + `"`, `aria-label="` + tc.wantNav + `"`, `<h1>` + tc.wantNav + `</h1>`, tc.wantLogout} {
+			for _, want := range []string{`data-tip="` + tc.wantNav + `"`, `<span class="sidebar-label">` + tc.wantNav + `</span>`, `<h1>` + tc.wantNav + `</h1>`, tc.wantLogout} {
 				if !strings.Contains(body, want) {
 					t.Errorf("rail shell must render %q, got: %s", want, body)
 				}
@@ -423,7 +423,7 @@ func TestRenderWithoutLanguageSourceAnswersTheDefaultLocale(t *testing.T) {
 	if !strings.Contains(body, `<html lang="en">`) {
 		t.Errorf("a renderer without a language source must declare the default locale, got: %s", firstLine(body))
 	}
-	if !strings.Contains(body, `title="Tickets"`) {
+	if !strings.Contains(body, `data-tip="Tickets"`) {
 		t.Errorf("a renderer without a language source must render English copy, got: %s", body)
 	}
 }

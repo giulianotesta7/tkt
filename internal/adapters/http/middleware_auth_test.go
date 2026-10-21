@@ -694,3 +694,179 @@ func TestMiddlewareStaticBypass(t *testing.T) {
 		t.Errorf("static body must contain htmx, got %d bytes", len(body))
 	}
 }
+
+// --- Per-user sidebar state stamped into the request (issue #377, S2) ---
+
+// countingSidebarStore delegates to the real store and counts the reads, so a
+// test can prove the middleware reads the state ONCE per authenticated request
+// instead of once per consumer.
+type countingSidebarStore struct {
+	application.SidebarPreferencesStore
+	reads int
+}
+
+func (c *countingSidebarStore) SidebarCollapsed(ctx context.Context, userID int64) (bool, error) {
+	c.reads++
+	return c.SidebarPreferencesStore.SidebarCollapsed(ctx, userID)
+}
+
+// failingSidebarStore answers the sidebar-state read with an operational
+// error, the way an unavailable preferences table would.
+type failingSidebarStore struct {
+	application.SidebarPreferencesStore
+}
+
+func (failingSidebarStore) SidebarCollapsed(context.Context, int64) (bool, error) {
+	return false, errors.New("preferences store unavailable")
+}
+
+// sidebarStubHandler reports what the middleware stamped, the way the shell's
+// pageData does: the handler reads the context value, never the store.
+func sidebarStubHandler() *http.ServeMux {
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /tickets", func(w http.ResponseWriter, r *http.Request) {
+		if sidebarCollapsedFrom(r.Context()) {
+			w.Write([]byte("collapsed"))
+			return
+		}
+		w.Write([]byte("expanded"))
+	})
+	return mux
+}
+
+// TestMiddlewareStampsStoredSidebarState proves the shell renders the stored
+// state on the first paint (no flash): the middleware reads it once and the
+// handler sees it through the context, with exactly one store read.
+func TestMiddlewareStampsStoredSidebarState(t *testing.T) {
+	s := openTestStore(t)
+	user := seedUser(t, s, "Ana", "ana@example.com")
+	session := seedSession(t, s, user.ID)
+	if err := s.SidebarPreferences().SetSidebarCollapsed(context.Background(), user.ID, true); err != nil {
+		t.Fatalf("seed collapsed sidebar: %v", err)
+	}
+	reads := &countingSidebarStore{SidebarPreferencesStore: s.SidebarPreferences()}
+	mw := NewSessionMiddleware(s.SessionStore(), s.UserStore(), s.SettingsStore()).WithSidebarPreferences(reads)
+
+	rec := doRequest(sidebarStubHandler(), mw, http.MethodGet, "/tickets", map[string]string{"Cookie": "tkt_session=" + session.ID})
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+	if body := rec.Body.String(); body != "collapsed" {
+		t.Errorf("handler saw %q, want %q (the stored state must reach the render)", body, "collapsed")
+	}
+	if reads.reads != 1 {
+		t.Errorf("sidebar state read %d times, want exactly 1 per authenticated request", reads.reads)
+	}
+}
+
+// TestMiddlewareSidebarStateDefaultsToExpanded proves both halves of the
+// default: a middleware wired without the reader never asks the store, and a
+// user with no stored row is stamped expanded.
+func TestMiddlewareSidebarStateDefaultsToExpanded(t *testing.T) {
+	s := openTestStore(t)
+	user := seedUser(t, s, "Ana", "ana@example.com")
+	session := seedSession(t, s, user.ID)
+
+	t.Run("no store wired", func(t *testing.T) {
+		mw := NewSessionMiddleware(s.SessionStore(), s.UserStore(), s.SettingsStore())
+		rec := doRequest(sidebarStubHandler(), mw, http.MethodGet, "/tickets", map[string]string{"Cookie": "tkt_session=" + session.ID})
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status = %d, want 200", rec.Code)
+		}
+		if body := rec.Body.String(); body != "expanded" {
+			t.Errorf("handler saw %q without a wired reader, want %q", body, "expanded")
+		}
+	})
+
+	t.Run("no stored row", func(t *testing.T) {
+		reads := &countingSidebarStore{SidebarPreferencesStore: s.SidebarPreferences()}
+		mw := NewSessionMiddleware(s.SessionStore(), s.UserStore(), s.SettingsStore()).WithSidebarPreferences(reads)
+		rec := doRequest(sidebarStubHandler(), mw, http.MethodGet, "/tickets", map[string]string{"Cookie": "tkt_session=" + session.ID})
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status = %d, want 200", rec.Code)
+		}
+		if body := rec.Body.String(); body != "expanded" {
+			t.Errorf("handler saw %q without a stored row, want %q", body, "expanded")
+		}
+		if reads.reads != 1 {
+			t.Errorf("sidebar state read %d times, want exactly 1", reads.reads)
+		}
+	})
+}
+
+// TestMiddlewareSidebarReadFailureRendersExpanded proves the degradation: a
+// failing read logs and falls back to the expanded shell, and the request is
+// still authenticated — a broken preference must never cost a page.
+func TestMiddlewareSidebarReadFailureRendersExpanded(t *testing.T) {
+	s := openTestStore(t)
+	user := seedUser(t, s, "Ana", "ana@example.com")
+	session := seedSession(t, s, user.ID)
+	mw := NewSessionMiddleware(s.SessionStore(), s.UserStore(), s.SettingsStore()).WithSidebarPreferences(failingSidebarStore{})
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /tickets", func(w http.ResponseWriter, r *http.Request) {
+		if userFromContext(r.Context()) == nil {
+			t.Error("a failed sidebar read must not drop the session user")
+		}
+		if sidebarCollapsedFrom(r.Context()) {
+			w.Write([]byte("collapsed"))
+			return
+		}
+		w.Write([]byte("expanded"))
+	})
+
+	rec := doRequest(mux, mw, http.MethodGet, "/tickets", map[string]string{"Cookie": "tkt_session=" + session.ID})
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (a failed preference read must not fail the request)", rec.Code)
+	}
+	if body := rec.Body.String(); body != "expanded" {
+		t.Errorf("handler saw %q after a failed read, want %q", body, "expanded")
+	}
+}
+
+// TestMiddlewareAnonymousRequestNeverReadsSidebarState proves the read belongs
+// to the authenticated path only: an unauthenticated request is refused before
+// any preference is touched.
+func TestMiddlewareAnonymousRequestNeverReadsSidebarState(t *testing.T) {
+	s := openTestStore(t)
+	seedUser(t, s, "Ana", "ana@example.com")
+	reads := &countingSidebarStore{SidebarPreferencesStore: s.SidebarPreferences()}
+	mw := NewSessionMiddleware(s.SessionStore(), s.UserStore(), s.SettingsStore()).WithSidebarPreferences(reads)
+
+	rec := doRequest(sidebarStubHandler(), mw, http.MethodGet, "/tickets", nil)
+
+	wantRedirect(t, rec, http.StatusSeeOther, "/login")
+	if reads.reads != 0 {
+		t.Errorf("an unauthenticated request read the sidebar state %d times, want none", reads.reads)
+	}
+}
+
+// TestPageDataCarriesTheStampedSidebarState proves the shell payload reads the
+// value the middleware stamped instead of querying the store again: pageData is
+// what every template receives, so this is the seam the collapsible sidebar
+// (issue #377, S2) renders its first paint from.
+func TestPageDataCarriesTheStampedSidebarState(t *testing.T) {
+	stamped := func(collapsed bool) *http.Request {
+		req := httptest.NewRequest(http.MethodGet, "/tickets", nil)
+		ctx := context.WithValue(req.Context(), ctxKeyUser{}, &domain.User{ID: 1, Name: "Ana"})
+		ctx = context.WithValue(ctx, ctxKeySidebarCollapsed{}, collapsed)
+		return req.WithContext(ctx)
+	}
+
+	if data := pageDataFrom(stamped(true), "tickets"); !data.SidebarCollapsed {
+		t.Error("pageData.SidebarCollapsed = false for a collapsed request, want true")
+	}
+	if data := pageDataFrom(stamped(false), "tickets"); data.SidebarCollapsed {
+		t.Error("pageData.SidebarCollapsed = true for an expanded request, want false")
+	}
+
+	// A request with nothing stamped (an isolated handler call) renders the
+	// documented default.
+	req := httptest.NewRequest(http.MethodGet, "/tickets", nil)
+	req = req.WithContext(context.WithValue(req.Context(), ctxKeyUser{}, &domain.User{ID: 1, Name: "Ana"}))
+	if data := pageDataFrom(req, "tickets"); data.SidebarCollapsed {
+		t.Error("pageData.SidebarCollapsed = true without a stamped value, want false (expanded)")
+	}
+}

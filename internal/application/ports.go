@@ -1106,6 +1106,32 @@ type EmailPreferencesStore interface {
 	SetEmailNotificationsEnabled(ctx context.Context, userID int64, enabled bool) error
 }
 
+// SidebarPreferencesStore persists each user's sidebar state (issue #377, S2)
+// in the same user_preferences table, under its own key, so the queue-order
+// and email ports above are unchanged and no preference can overwrite another.
+// Like the other two this is a personal setting with no capability gate: the
+// key is the acting user's id, never a caller-supplied one, so one user can
+// only ever read or write their own shell.
+//
+// The readers (the request middleware that stamps the state, and
+// pageDataFrom) read it ONCE per authenticated request, which is why the read
+// is a plain boolean instead of a rendering concern.
+//
+// Defaults are part of the contract, not the adapter's mood: an absent row
+// means expanded (false) — the state every user starts with — and only the
+// exact stored value "collapsed" means true. Every other stored value reads as
+// expanded, so a hand-edited or restored-from-backup row can never collapse a
+// sidebar nobody collapsed.
+type SidebarPreferencesStore interface {
+	// SidebarCollapsed reports whether the user's sidebar is collapsed. An
+	// absent row answers false (expanded); only the exact stored value
+	// "collapsed" answers true.
+	SidebarCollapsed(ctx context.Context, userID int64) (bool, error)
+	// SetSidebarCollapsed upserts the user's sidebar state, keeping exactly
+	// one row per user ("collapsed" or "expanded").
+	SetSidebarCollapsed(ctx context.Context, userID int64, collapsed bool) error
+}
+
 // TicketSection narrows an agent's read scope into a presentation section.
 // The zero value keeps the full actor scope for existing list and detail reads.
 type TicketSection int

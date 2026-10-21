@@ -32,6 +32,7 @@ func RegisterStatic(mux *http.ServeMux, language InterfaceLanguageSource) {
 	// The notification drawer moves focus; it renders no copy, so it needs no
 	// catalogue prologue and can be cached like the other copy-free assets.
 	registerEmbeddedStatic(mux, "/static/notifications.js", "static/notifications.js", "text/javascript; charset=utf-8", "public, max-age=86400")
+	registerEmbeddedStatic(mux, "/static/shell.js", "static/shell.js", "text/javascript; charset=utf-8", "public, max-age=86400")
 }
 
 func registerEmbeddedStatic(mux *http.ServeMux, route, name, contentType, cacheControl string) {

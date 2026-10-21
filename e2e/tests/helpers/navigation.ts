@@ -226,3 +226,21 @@ export async function resolveUserEditHref(page: Page, userName: string): Promise
     `No edit href found for user "${userName}" using ${rowSelector} at ${page.url()}`,
   );
 }
+
+/**
+ * Reach Preferences the way a person does since issue #377: the entry lives in
+ * the user menu at the foot of the sidebar, not in the section navigation. The
+ * menu is a real popup (aria-haspopup/aria-expanded), so the helper proves the
+ * toggle state flips before it follows the link.
+ */
+export async function openPreferencesFromUserMenu(page: Page): Promise<void> {
+  const toggle = page.locator("[data-user-menu-toggle]");
+  await expect(toggle).toBeVisible();
+  await expect(toggle).toHaveAttribute("aria-expanded", "false");
+  await toggle.click();
+  await expect(toggle).toHaveAttribute("aria-expanded", "true");
+  const link = page.locator('#user-menu a[href="/preferences"]');
+  await expect(link).toBeVisible();
+  await link.click();
+  await expect(page).toHaveURL(/\/preferences$/);
+}

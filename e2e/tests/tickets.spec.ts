@@ -1130,13 +1130,13 @@ test.describe("Ticket Lifecycle", () => {
       const queueHref = await page.getByRole("link", { name: "Queue" }).getAttribute("href");
       if (!queueHref) throw new Error(`Missing Queue href at ${page.url()}`);
       // Issue #343 S2: the editable detail names the ticket in exactly one h1;
-      // the apply swap must keep it, the visible title and the rail chrome.
+      // the apply swap must keep it, the visible title and the sidebar chrome.
       await expect(page.locator("h1")).toHaveCount(1);
       await expect(page.locator("h1")).toHaveText(title);
       // The notification bell refreshes itself (its own count poll), so the
-      // chrome compared here is the rail without it.
+      // chrome compared here is the sidebar without it.
       const railChrome = () =>
-        page.locator(".rail").evaluate((rail) => {
+        page.locator(".sidebar").evaluate((rail) => {
           const copy = rail.cloneNode(true) as HTMLElement;
           copy.querySelector("#notification-bell")?.remove();
           return copy.innerHTML;

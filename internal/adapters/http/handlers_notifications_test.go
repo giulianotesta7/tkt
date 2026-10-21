@@ -73,14 +73,14 @@ func TestNotificationsCountRendersTheUnreadBadge(t *testing.T) {
 	for _, want := range []string{
 		`href="/notifications"`,
 		`aria-label="Notifications, 1 unread"`,
-		`<span class="rail-badge" aria-hidden="true">1</span>`,
+		`<span class="bell-badge" aria-hidden="true">1</span>`,
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("count fragment missing %q: %s", want, body)
 		}
 	}
 	// The count endpoint answers a fragment, never a full document.
-	if strings.Contains(body, "<!DOCTYPE html>") || strings.Contains(body, `class="rail"`) {
+	if strings.Contains(body, "<!DOCTYPE html>") || strings.Contains(body, `class="sidebar"`) {
 		t.Errorf("the count endpoint rendered a document instead of a fragment: %s", body)
 	}
 }
@@ -93,7 +93,7 @@ func TestNotificationsCountHidesTheBadgeAtZero(t *testing.T) {
 
 	body := notificationCountAs(t, h, h.adminSession.ID)
 
-	if strings.Contains(body, "rail-badge") {
+	if strings.Contains(body, "bell-badge") {
 		t.Errorf("a user with nothing unread still renders a badge: %s", body)
 	}
 	if !strings.Contains(body, `aria-label="Notifications"`) {
@@ -151,7 +151,7 @@ func TestBaseRailLoadsTheBellCountFromItsOwnEndpoint(t *testing.T) {
 		`href="/notifications"`,
 	} {
 		if !strings.Contains(body, want) {
-			t.Errorf("rail bell missing %q", want)
+			t.Errorf("top bar bell missing %q", want)
 		}
 	}
 	// Opening the panel is an HTMX link to the panel fragment; both live on the
@@ -290,7 +290,7 @@ func TestNotificationsPanelFragmentIsTheBellDrawer(t *testing.T) {
 			t.Errorf("panel fragment missing %q: %.2000s", want, body)
 		}
 	}
-	if strings.Contains(body, "<!DOCTYPE html>") || strings.Contains(body, `class="rail"`) {
+	if strings.Contains(body, "<!DOCTYPE html>") || strings.Contains(body, `class="sidebar"`) {
 		t.Errorf("the drawer fragment rendered a whole document: %.2000s", body)
 	}
 	// Opening the panel refreshes the bell without a page render: the count keeps
@@ -566,7 +566,7 @@ func TestNotificationDrawerScriptIsServed(t *testing.T) {
 // GET /notifications/count with htmx and the panel opens with htmx too, so a
 // request whose session is gone must NOT be answered with the 303 the session
 // middleware gives an ordinary navigation: htmx follows that redirect inside
-// the swap and pours the whole login document into the rail. The notification
+// the swap and pours the whole login document into the bell. The notification
 // routes therefore answer such a request with HX-Redirect to the login page, so
 // htmx navigates the way a normal click would, and with no body to swap. An
 // ordinary navigation to the same URL keeps the 303 it has always answered.
@@ -600,7 +600,7 @@ func TestNotificationsHTMXWithoutASessionRedirectsInsteadOfSwappingLoginMarkup(t
 					t.Errorf("status = %d, want 204: htmx has nothing to swap", rec.Code)
 				}
 				if body := rec.Body.String(); body != "" {
-					t.Errorf("a redirect answer carries a body to swap into the rail: %.400s", body)
+					t.Errorf("a redirect answer carries a body to swap into the bell: %.400s", body)
 				}
 			})
 		}

@@ -4,7 +4,7 @@
 
 import { test, expect, type Page } from "@playwright/test";
 import { startServer, stopServer, activeServer } from "../server-lifecycle.js";
-import { loginAsSeeded } from "./helpers/auth.js";
+import { loginAsSeeded, logout } from "./helpers/auth.js";
 import { assertCanonicalScreen, collectObservability } from "./helpers/layout.js";
 
 function base(): string {
@@ -169,10 +169,7 @@ test.describe("Login and auth gates", () => {
     await page.getByLabel(/password/i).fill("SuperSecret42!");
     await page.getByRole("button", { name: /log in|sign in/i }).click();
     await expect(page).toHaveURL(/\/tickets/);
-    const logoutBtn = page.getByRole("button", { name: /log out|sign out/i });
-    await expect(logoutBtn).toBeVisible();
-    await logoutBtn.click();
-    await expect(page).toHaveURL(/\/login/);
+    await logout(page);
     await page.goto(base() + "/tickets");
     await expect(page).toHaveURL(/\/login/);
   });

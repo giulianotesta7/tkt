@@ -274,17 +274,19 @@ export async function expectHairlineBorder(locator: Locator, label: string): Pro
 }
 
 /**
- * A keyboard user must be able to skip the rail, and assistive technology must be able to
+ * A keyboard user must be able to skip the sidebar, and assistive technology must be able to
  * say where the user is (#343, S5). Both are invisible until someone needs them, so they are
  * asserted by behaviour: the skip link is off-screen until it takes focus and then lands in
- * the viewport, and the rail link for the current section carries `aria-current="page"` —
- * exactly once, on the active link, never on an inactive sibling.
+ * the viewport, and the sidebar link for the current section carries `aria-current="page"` —
+ * exactly once per navigation, on the active link, never on an inactive sibling. Since #377
+ * the mobile tab bar is a second navigation that may repeat the current section, so the
+ * count is asserted per navigation, not per page.
  *
- * The auth screens ship the split shell: no rail, and no skip target, so the check returns
- * unless the rail is present.
+ * The auth screens ship the split shell: no sidebar, and no skip target, so the check returns
+ * unless the sidebar is present.
  */
 export async function expectAccessibleNavigation(page: Page, label: string): Promise<void> {
-  if ((await page.locator(".rail").count()) === 0) return;
+  if ((await page.locator(".sidebar").count()) === 0) return;
 
   const skip = page.locator("a.skip-link");
   await expect(skip, `${label}: the shell must ship a skip link`).toHaveCount(1);
@@ -307,18 +309,76 @@ export async function expectAccessibleNavigation(page: Page, label: string): Pro
   await expect(skip, `${label}: a focused skip link must be on screen`).toBeInViewport();
   await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
 
-  const active = page.locator(".rail-nav a.rail-link.active");
-  const activeCount = await active.count();
-  for (let index = 0; index < activeCount; index += 1) {
-    await expect(active.nth(index), `${label}: the active rail link`).toHaveAttribute(
-      "aria-current",
-      "page",
-    );
+  for (const [nav, link] of [
+    [".sidebar-nav", "a.sidebar-link"],
+    [".tabbar", "a.tabbar-item"],
+  ]) {
+    const active = page.locator(`${nav} ${link}.active`);
+    const activeCount = await active.count();
+    expect(activeCount, `${label}: ${nav} marks at most one section active`).toBeLessThanOrEqual(1);
+    for (let index = 0; index < activeCount; index += 1) {
+      await expect(active.nth(index), `${label}: the active ${nav} link`).toHaveAttribute(
+        "aria-current",
+        "page",
+      );
+    }
+    await expect(
+      page.locator(`${nav} ${link}[aria-current="page"]`),
+      `${label}: only the current section may carry aria-current in ${nav}`,
+    ).toHaveCount(activeCount);
   }
-  await expect(
-    page.locator('.rail-nav a.rail-link[aria-current="page"]'),
-    `${label}: only the current section may carry aria-current`,
-  ).toHaveCount(activeCount);
+}
+
+/**
+ * The shared shell (#377) at both viewports, measured rather than looked at: on a wide
+ * viewport the sidebar is on-canvas at one of its two widths (232px expanded, 72px collapsed),
+ * the top bar is visible and the mobile tab bar is not; on a narrow viewport the sidebar is
+ * off-canvas until opened, the compact top bar and the tab bar are visible, and the main
+ * region starts right under the top bar instead of under a block of chrome.
+ */
+export async function expectShellChrome(
+  page: Page,
+  viewport: number,
+  label: string,
+): Promise<void> {
+  if ((await page.locator(".sidebar").count()) === 0) return;
+  const chrome = await page.evaluate(() => {
+    const rect = (selector: string) => {
+      const el = document.querySelector(selector);
+      if (!el) return null;
+      const r = el.getBoundingClientRect();
+      return { x: r.x, y: r.y, width: r.width, height: r.height, right: r.right };
+    };
+    return {
+      sidebar: rect(".sidebar"),
+      topbar: rect(".topbar"),
+      tabbar: rect(".tabbar"),
+      main: rect("main#main-content"),
+      tabbarDisplay: getComputedStyle(document.querySelector(".tabbar") as Element).display,
+      collapsed: document.body.classList.contains("sidebar-collapsed"),
+    };
+  });
+  expect(chrome.sidebar, `${label}: sidebar`).not.toBeNull();
+  expect(chrome.topbar, `${label}: top bar`).not.toBeNull();
+  expect(chrome.main, `${label}: main`).not.toBeNull();
+  if (viewport <= 640) {
+    expect(
+      chrome.sidebar!.right,
+      `${label}: the sidebar stays off-canvas until opened`,
+    ).toBeLessThanOrEqual(0);
+    expect(chrome.tabbarDisplay, `${label}: the tab bar is visible on a phone`).not.toBe("none");
+    expect(chrome.topbar!.height, `${label}: compact top bar`).toBeLessThanOrEqual(48);
+    expect(chrome.main!.y, `${label}: main starts under the compact top bar`).toBeLessThanOrEqual(
+      chrome.topbar!.height + 1,
+    );
+  } else {
+    expect(chrome.sidebar!.x, `${label}: the sidebar is on-canvas`).toBe(0);
+    expect(chrome.sidebar!.width, `${label}: the sidebar is expanded (232) or collapsed (72)`).toBe(
+      chrome.collapsed ? 72 : 232,
+    );
+    expect(chrome.topbar!.height, `${label}: top bar`).toBe(52);
+    expect(chrome.tabbarDisplay, `${label}: no tab bar on a wide viewport`).toBe("none");
+  }
 }
 
 export async function assertCanonicalScreen(
@@ -338,6 +398,7 @@ export async function assertCanonicalScreen(
   await assertNothingClipped(page);
   await expectDesignSystem(page);
   await expectAccessibleNavigation(page, `[${opts.label}] ${opts.url} as ${opts.role}`);
+  await expectShellChrome(page, opts.viewport, `[${opts.label}] ${opts.url} as ${opts.role}`);
 
   const prefix = `[${opts.label}] ${opts.url} as ${opts.role}`;
   expect(

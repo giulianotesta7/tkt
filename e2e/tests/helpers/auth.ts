@@ -24,7 +24,11 @@ export async function loginAsSeeded(page: Page): Promise<void> {
 }
 
 export async function logout(page: Page): Promise<void> {
-  const btn = page.getByRole("button", { name: /log out|sign out/i });
+  // Since issue #377 Log out lives in the user menu at the foot of the sidebar.
+  const toggle = page.locator("[data-user-menu-toggle]");
+  await expect(toggle).toBeVisible();
+  await toggle.click();
+  const btn = page.locator("#user-menu").getByRole("menuitem", { name: /log out|sign out/i });
   await expect(btn).toBeVisible();
   await btn.click();
   await expect(page).toHaveURL(/\/login/);

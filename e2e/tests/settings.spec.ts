@@ -7,7 +7,7 @@ import { test, expect, type Page } from "@playwright/test";
 import { startServer, stopServer } from "../server-lifecycle.js";
 import { loginAsSeeded, createUserAsAdmin, loginAs, logout, base } from "./helpers/auth.js";
 import { assertCanonicalScreen, collectObservability } from "./helpers/layout.js";
-import { createTicketViaUi } from "./helpers/navigation.js";
+import { createTicketViaUi, openPreferencesFromUserMenu } from "./helpers/navigation.js";
 
 /**
  * Promote a freshly created user to administrator and return the credentials.
@@ -681,12 +681,8 @@ test.describe("Preferences", () => {
     const obs = collectObservability(page);
     await loginAsSeeded(page);
 
-    // Reach the page the way a user does: through the rail link, not by URL.
-    const preferencesLink = page.locator('a.rail-link[href="/preferences"]');
-    await expect(preferencesLink).toBeVisible();
-    await expect(preferencesLink).toHaveAttribute("aria-label", "Preferences");
-    await preferencesLink.click();
-    await expect(page).toHaveURL(/\/preferences$/);
+    // Reach the page the way a user does: through the user menu, not by URL.
+    await openPreferencesFromUserMenu(page);
     await expect(page.locator("h1").filter({ hasText: "Preferences" })).toBeVisible();
     await expect(page.getByText(/personal settings/i)).toBeVisible();
     const order = page.getByLabel("Default queue order");
@@ -745,11 +741,9 @@ test.describe("Preferences", () => {
     await expect(page).toHaveURL(/\/login/);
 
     await loginAs(page, email, "SuperSecret42!");
-    // The requester role sees the rail link too (the page is not
-    // capability-gated) and reaches the page by clicking it.
-    await expect(page.locator('a.rail-link[href="/preferences"]')).toBeVisible();
-    await page.locator('a.rail-link[href="/preferences"]').click();
-    await expect(page).toHaveURL(/\/preferences$/);
+    // The requester role has the user menu entry too (the page is not
+    // capability-gated) and reaches the page through it.
+    await openPreferencesFromUserMenu(page);
     await expect(page.locator("h1").filter({ hasText: "Preferences" })).toBeVisible();
     await expect(page.getByLabel("Default queue order")).toBeVisible();
   });
