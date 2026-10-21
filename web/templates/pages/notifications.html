@@ -1,0 +1,10 @@
+{{define "content"}}
+<div class="command-header">
+  <div>
+    <h1 class="command-title">{{t "notifications.title"}}</h1>
+  </div>
+</div>
+<div class="card notifications-page">
+{{template "notifications_actions" .}}  <div class="notifications-body">{{template "notifications_list" .}}</div>
+</div>
+{{end}}

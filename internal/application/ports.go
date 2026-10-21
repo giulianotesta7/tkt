@@ -520,7 +520,7 @@ type LeastLoadedAssignmentOperation struct {
 // AssigneeNotification is a notification whose recipient is the assignee a
 // least_loaded step selects inside the unit of work. It carries every fact the
 // stored row needs except the recipient, which the adapter supplies from its
-// own selection — and the actor, which lets the adapter drop the row when the
+// own selection — and the actor, which lets the adapter drop the rows when the
 // selection is the actor himself.
 type AssigneeNotification struct {
 	TicketID int64
@@ -530,12 +530,20 @@ type AssigneeNotification struct {
 	// actors-are-also-audit-actors invariant.
 	ActorUserID *int64
 	CreatedAt   time.Time
+	// FormWaitingStepIndex, when set, is the zero-based index of the assignee
+	// FORM step this plan leaves PENDING. The recipient of that row is the same
+	// selection: whoever the transaction ends up putting the ticket on is the
+	// person who has to act next, and a plan cannot name them (S10 "a workflow
+	// form step now waits on this person", decision e6-batch-2 L20). Only the
+	// LAST least_loaded operation may carry it — an earlier one selects an
+	// intermediate member, who is not the plan's final assignee.
+	FormWaitingStepIndex *int
 }
 
-// For completes the template into the stored row for the selected assignee.
-// The kind is always "assigned": that is the S10 event an automatic routing
-// step produces.
-func (a AssigneeNotification) For(assigneeUserID int64) domain.Notification {
+// Assigned completes the template into the "assigned" row for the selected
+// assignee. The kind is always "assigned": that is the S10 event an automatic
+// routing step produces when the ticket actually moves.
+func (a AssigneeNotification) Assigned(assigneeUserID int64) domain.Notification {
 	return domain.Notification{
 		UserID:      assigneeUserID,
 		TicketID:    a.TicketID,
@@ -543,6 +551,26 @@ func (a AssigneeNotification) For(assigneeUserID int64) domain.Notification {
 		ActorUserID: a.ActorUserID,
 		CreatedAt:   a.CreatedAt,
 	}
+}
+
+// FormWaiting completes the template into the "form_waiting" row for the same
+// selected assignee, when the plan leaves an assignee form pending. Unlike the
+// "assigned" row this one does not depend on the ticket having moved: a
+// re-selected holder is owed it too, and the plan's conditional block therefore
+// never carries it (the two would duplicate).
+func (a AssigneeNotification) FormWaiting(assigneeUserID int64) (domain.Notification, bool) {
+	if a.FormWaitingStepIndex == nil {
+		return domain.Notification{}, false
+	}
+	step := *a.FormWaitingStepIndex
+	return domain.Notification{
+		UserID:      assigneeUserID,
+		TicketID:    a.TicketID,
+		Kind:        domain.NotificationFormWaiting,
+		ActorUserID: a.ActorUserID,
+		StepIndex:   &step,
+		CreatedAt:   a.CreatedAt,
+	}, true
 }
 
 // ConditionalAssigneeNotification carries the rows the PRE-PLAN assignee of a
@@ -553,12 +581,16 @@ func (a AssigneeNotification) For(assigneeUserID int64) domain.Notification {
 // moves (a reroute).
 //
 // The two outcomes S10 requires:
-//   - re-selection: the holder keeps every row it is owed (state_changed, a form
-//     waiting on the assignee, …) and gets NO "assigned" row — nothing was
-//     assigned to them, and a redundant row is noise in a bell that counts;
+//   - re-selection: the holder keeps every row it is owed (state_changed, …) and
+//     gets NO "assigned" row — nothing was assigned to them, and a redundant
+//     row is noise in a bell that counts;
 //   - reroute: the outgoing holder gets NOTHING (it may no longer be able to
-//     open the ticket), and the new holder gets its "assigned" row from the
-//     operation's NotifyAssignee template.
+//     open the ticket), and the new holder gets its rows from the operation's
+//     NotifyAssignee template.
+//
+// A pending assignee form is never part of these rows: its recipient is the
+// ticket's FINAL holder, which the template above resolves to the same
+// in-transaction selection without duplicating a row.
 //
 // The adapter re-reads its own selection and filters on it, so the recipient
 // decision never depends on a plan-time guess.

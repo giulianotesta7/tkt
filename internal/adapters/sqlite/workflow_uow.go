@@ -1891,31 +1891,42 @@ func applyWorkflowOperations(ctx context.Context, tx *sql.Tx, t *domain.Ticket, 
 			}
 			t.UserID = &selected
 			t.UpdatedAt = lastAt
-			// The application decided the "assigned" notification for whichever
-			// member this step selects; the recipient is the selection made right
-			// above, so the row joins the same transaction (S10 automatic
-			// least_loaded routing, S11).
+			// The application decided the rows this step produces for whichever
+			// member it selects; the recipient is the selection made right above, so
+			// the rows join the same transaction (S10 automatic least_loaded routing,
+			// S11).
 			//
 			// S10 "never the person who performed the action": the selection can
 			// land back on the agent whose completion triggered the routing (a
 			// single-member desk, or that agent being the least loaded member).
 			// This is the first point where the recipient is known, so the actor
-			// filter belongs here: such a row would tell the agent about their own
+			// filter belongs here: such rows would tell the agent about their own
 			// action. A same-person selection still writes its audit row (the
-			// timeline keeps it); only the notification is dropped.
+			// timeline keeps it); only the notifications are dropped.
 			//
-			// A selection that equals the CURRENT holder assigns nothing: the
-			// ticket stays theirs, so an "assigned" row would be noise in a bell
-			// that counts. What that person is owed for the change is not decided
-			// here — the plan carries it as a conditional block, which
-			// ApplyWorkflowPlan releases against this same selection.
+			// Two different questions decide the rows:
+			//   - "assigned" answers "did the ticket move to this person IN THIS
+			//     STEP?" A selection that equals the current holder assigns
+			//     nothing, so the row would be noise in a bell that counts; what
+			//     that person is owed for the change is not decided here — the plan
+			//     carries it as a conditional block, which ApplyWorkflowPlan
+			//     releases against this same selection.
+			//   - "form_waiting" answers "does the run now wait on this person?"
+			//     and therefore does NOT depend on the ticket having moved: a
+			//     re-selected holder is owed it too (S10, decision e6-batch-2 L20),
+			//     which is why the plan keeps this row out of the conditional block.
 			if v.NotifyAssignee != nil {
-				row := v.NotifyAssignee.For(selected)
-				keptHolder := from == to
-				if !keptHolder && (row.ActorUserID == nil || *row.ActorUserID != selected) {
-					if err := appendNotificationsTx(ctx, tx, []domain.Notification{row}); err != nil {
-						return err
+				var rows []domain.Notification
+				if v.NotifyAssignee.ActorUserID == nil || *v.NotifyAssignee.ActorUserID != selected {
+					if from != to {
+						rows = append(rows, v.NotifyAssignee.Assigned(selected))
 					}
+					if row, waiting := v.NotifyAssignee.FormWaiting(selected); waiting {
+						rows = append(rows, row)
+					}
+				}
+				if err := appendNotificationsTx(ctx, tx, rows); err != nil {
+					return err
 				}
 			}
 		default:

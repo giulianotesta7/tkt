@@ -177,6 +177,12 @@ function authenticatedScreens(deps: {
       heading: (p) => p.locator('h1:has-text("Settings")'),
       control: (p) => p.locator('input[name="internal_comment_bg"]'),
     },
+    {
+      label: `/notifications`,
+      path: "/notifications",
+      heading: (p) => p.locator('h1:has-text("Notifications")'),
+      control: (p) => p.getByRole("link", { name: /^Notifications/ }),
+    },
   ];
 }
 

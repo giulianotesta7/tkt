@@ -400,7 +400,7 @@ func TestSpanishTimelineNarrative(t *testing.T) {
 	})
 	body := renderLocalized(t, "es", "tickets_show", "timeline", data)
 	for _, want := range []string{
-		"agregó un comentario público",
+		"agregó un comentario",
 		"asignó el ticket a Ana Torres",
 		"movió el ticket a en curso",
 		"creó el ticket",
@@ -410,7 +410,7 @@ func TestSpanishTimelineNarrative(t *testing.T) {
 			t.Errorf("Spanish timeline must render %q, got: %.1000s", want, body)
 		}
 	}
-	for _, unwanted := range []string{"added a public comment", "moved the ticket to in progress", "created the ticket", "changed priority", " to Low"} {
+	for _, unwanted := range []string{"added a comment", "moved the ticket to in progress", "created the ticket", "changed priority", " to Low"} {
 		if strings.Contains(body, unwanted) {
 			t.Errorf("Spanish timeline must not render the English %q", unwanted)
 		}

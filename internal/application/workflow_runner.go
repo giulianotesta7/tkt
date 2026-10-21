@@ -187,10 +187,19 @@ func (r *WorkflowRunner) PlanComplete(_ context.Context, snap WorkflowExecutionS
 	notifications := stateChangeNotifications(&ticket, snap.Ticket.State, ticket.State, &actor, now, snap.Requester, assigneeFacts)
 
 	// S10 last row: a form step this plan leaves pending is somebody's turn — the
-	// requester for a requester form, the assignee for an assignee form. Kept in
-	// its own file (notification_form.go) because the row is still unconfirmed.
+	// requester for a requester form, the assignee for an assignee form. A plan
+	// that ROUTES the ticket cannot name the assignee form's recipient at plan
+	// time (the selection only exists inside the transaction), so that row travels
+	// on the routing operation's template instead and the pre-plan assignee is
+	// passed as nil here (see notification_form.go).
+	routed := hasLeastLoadedAssignment(ops)
+	pendingFormStep, pendingAssigneeForm := assigneeFormStepIndex(snap.Workflow, nextCursor)
+	formAssignee := assigneeFacts
+	if routed && pendingAssigneeForm {
+		formAssignee = nil
+	}
 	notifications = append(notifications,
-		formWaitingNotifications(&ticket, snap.Workflow, nextCursor, &actor, now, snap.Requester, assigneeFacts)...)
+		formWaitingNotifications(&ticket, snap.Workflow, nextCursor, &actor, now, snap.Requester, formAssignee)...)
 
 	// A least_loaded step picks its assignee INSIDE the transaction, so this plan
 	// cannot know whether the ticket keeps its holder or moves: the snapshot's
@@ -198,13 +207,14 @@ func (r *WorkflowRunner) PlanComplete(_ context.Context, snap WorkflowExecutionS
 	// therefore travel as a CONDITIONAL block, resolved against the selection the
 	// transaction actually made (S10):
 	//   - the routing re-selects the holder → the holder keeps every row it is
-	//     owed (state change, a form waiting on it) and gets no redundant
-	//     "assigned" row;
+	//     owed (the state change) and gets no redundant "assigned" row; a form
+	//     left waiting on the assignee is NOT part of the block, because its
+	//     recipient is the final selection the template resolves;
 	//   - the routing moves the ticket → the outgoing holder gets nothing (it may
-	//     no longer be able to open the ticket) and the new holder's "assigned"
-	//     row comes from the operation template.
+	//     no longer be able to open the ticket) and the new holder's rows come
+	//     from the operation template.
 	var conditional []ConditionalAssigneeNotification
-	if assigneeFacts != nil && hasLeastLoadedAssignment(ops) {
+	if assigneeFacts != nil && routed {
 		var kept, holder []domain.Notification
 		for _, n := range notifications {
 			if n.UserID == assigneeFacts.UserID {
@@ -251,11 +261,29 @@ func (r *WorkflowRunner) PlanComplete(_ context.Context, snap WorkflowExecutionS
 	// their own action and must be dropped (S10 "never the person who performed
 	// the action"). The actor is also the actor of this plan's completion audit,
 	// so the row keeps the actors-are-audit-actors invariant.
+	//
+	// The LAST routing step additionally carries the pending assignee form: the
+	// member it selects is the plan's final assignee, so that member — and only
+	// that member — is told the run now waits on them (S10, decision L20). An
+	// earlier step selects an intermediate member who cannot act on that form.
+	lastRouting := -1
 	for i, op := range plan.Operations {
-		if ll, ok := op.(LeastLoadedAssignmentOperation); ok {
-			ll.NotifyAssignee = &AssigneeNotification{TicketID: plan.TicketID, ActorUserID: &actor, CreatedAt: now}
-			plan.Operations[i] = ll
+		if _, ok := op.(LeastLoadedAssignmentOperation); ok {
+			lastRouting = i
 		}
+	}
+	for i, op := range plan.Operations {
+		ll, ok := op.(LeastLoadedAssignmentOperation)
+		if !ok {
+			continue
+		}
+		template := &AssigneeNotification{TicketID: plan.TicketID, ActorUserID: &actor, CreatedAt: now}
+		if pendingAssigneeForm && i == lastRouting {
+			step := pendingFormStep
+			template.FormWaitingStepIndex = &step
+		}
+		ll.NotifyAssignee = template
+		plan.Operations[i] = ll
 	}
 	if status == "completed" {
 		ct := now

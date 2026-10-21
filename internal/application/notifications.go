@@ -159,6 +159,17 @@ func resolutionNotifications(t *domain.Ticket, kind domain.NotificationKind, fro
 	return b.list()
 }
 
+// NotificationTicketQuery is the ticket READ scope the notification panel uses
+// to load the facts it shows for one row (the ticket number and its title). It
+// is exactly the scope the ticket DETAIL route applies — an agent widens to
+// their assigned and claimable tickets, a requester to their own, staff to the
+// whole queue — so a row can never display facts about a ticket the reader
+// cannot open, and opening the row re-checks the same scope on the detail route
+// (issue #344, S16).
+func NotificationTicketQuery(actor domain.User) TicketQuery {
+	return readQuery(actor, TicketQuery{})
+}
+
 // recipientOf projects a stored user into the notification policy input. A
 // nil user stays nil: there is no candidate, never a guessed one.
 func recipientOf(u *domain.User) *NotificationRecipient {

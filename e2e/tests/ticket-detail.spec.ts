@@ -719,7 +719,7 @@ test.describe("Ticket detail", () => {
         .click(),
     ]);
     expect((await submitted).status()).toBe(303);
-    await expect(page.locator("#timeline")).toContainText("added a public comment");
+    await expect(page.locator("#timeline")).toContainText("added a comment");
     await expect(page.locator("#timeline .timeline-comment.internal")).toHaveCount(0);
     await expect(page.locator("#timeline .timeline-comment")).toContainText(draft);
   });

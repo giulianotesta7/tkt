@@ -314,9 +314,19 @@ function discardToClean() {
   } else restoreBaseline();
   captureBaseline();
 }
+// The rail's notification bell polls with htmx on every page and its events
+// bubble through the document like this page's own. They must never drive the
+// builder's state (#344: a poll during a save held the next step back).
+const fromNotifications = (event) => {
+  const elt = event.detail?.elt ?? event.detail?.requestConfig?.elt;
+  return (
+    elt instanceof Element && elt.closest("#notification-bell, #notification-panel-host") !== null
+  );
+};
 let lastWorkflowAction = "";
 let lastWorkflowStatus = 0;
 document.addEventListener("htmx:beforeRequest", (event) => {
+  if (fromNotifications(event)) return;
   lastWorkflowAction = event.detail?.requestConfig?.parameters?.action ?? "";
   if (event.detail?.xhr) event.detail.xhr.__wfAction = lastWorkflowAction;
   // One decision at a time; a structural request racing the save is held back.
@@ -338,9 +348,11 @@ document.addEventListener("htmx:beforeRequest", (event) => {
   dirtyDialog()?.querySelector("[data-workflow-save-continue]")?.focus();
 });
 document.addEventListener("htmx:beforeSwap", (event) => {
+  if (fromNotifications(event)) return;
   lastWorkflowStatus = event.detail?.xhr?.status ?? 0;
 });
-document.addEventListener("htmx:afterSwap", () => {
+document.addEventListener("htmx:afterSwap", (event) => {
+  if (fromNotifications(event)) return;
   if (lastWorkflowStatus === 200 && PERSISTING_ACTIONS.has(lastWorkflowAction)) captureBaseline();
   else if (!carriedDirty) {
     mergeBaseline();
@@ -349,6 +361,7 @@ document.addEventListener("htmx:afterSwap", () => {
   syncExitGuard();
 });
 document.addEventListener("htmx:afterRequest", (event) => {
+  if (fromNotifications(event)) return;
   if (!saveInFlight || event.detail?.xhr?.__wfAction !== "save") return;
   const status = event.detail?.xhr?.status ?? 0;
   if (event.detail?.successful === false || status === 0 || status >= 400) {
@@ -358,6 +371,7 @@ document.addEventListener("htmx:afterRequest", (event) => {
   }
 });
 document.addEventListener("htmx:afterSettle", (event) => {
+  if (fromNotifications(event)) return;
   if (!saveInFlight || event.detail?.xhr?.__wfAction !== "save") return;
   saveInFlight = false;
   if ((event.detail?.xhr?.status ?? 0) !== 200) return;

@@ -10,8 +10,13 @@ import (
 
 // Issue #344 slice B2, form_waiting row (S10 last row): "a workflow form step
 // now waits on this person" — the requester for a requester form, the assignee
-// for an assignee form, never the person who just acted. Isolated in its own
-// file because the maintainer has not confirmed this row yet.
+// for an assignee form, never the person who just acted. Confirmed by the
+// maintainer on e6-batch-2 L20: whoever must act is told.
+//
+// The assignee form reached through automatic least_loaded routing cannot be
+// decided here (its recipient exists only inside the transaction), so it travels
+// on the routing operation's template; the HTTP layer proves that half end to
+// end (workflow_notification_routing_test.go).
 
 func formWaitingKinds(pl application.WorkflowMutationPlan, userID int64) []domain.Notification {
 	var out []domain.Notification

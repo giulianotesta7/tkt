@@ -137,6 +137,12 @@ type pageData struct {
 	SLACountdownAssets bool
 	InternalCommentBg  string
 	SaveFeedback       saveFeedbackData
+	// NotificationBell is the rail bell's INITIAL state (issue #344, S13). It
+	// is always the zero value: an ordinary page render never queries the
+	// unread count — the bell's own endpoint answers it, and the browser fetches
+	// it on load. The field exists so the shell can render the bell in that zero
+	// state instead of an empty rail slot, without pageDataFrom reading anything.
+	NotificationBell notificationBell
 }
 
 // pageDataFrom builds the shell payload from the session user. The

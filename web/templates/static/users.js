@@ -380,7 +380,15 @@
     document.addEventListener("input", handleSearch, true);
     document.addEventListener("submit", handleSubmit, true);
     window.addEventListener("popstate", handlePop, true);
-    document.addEventListener("htmx:afterSettle", () => setTimeout(sync, 0));
+    // The rail's notification bell polls with htmx on every page; its settle
+    // must not re-run the drawer sync (#344: each poll pulled focus back to
+    // the drawer's first field).
+    document.addEventListener("htmx:afterSettle", (event) => {
+      const elt = event.detail?.elt;
+      if (elt instanceof Element && elt.closest("#notification-bell, #notification-panel-host"))
+        return;
+      setTimeout(sync, 0);
+    });
     document.addEventListener("htmx:historyRestore", () => setTimeout(restorePendingFocus, 0));
     document.addEventListener("htmx:afterRequest", (event) => {
       if (event.detail?.elt?.matches("#user-drawer-form")) {

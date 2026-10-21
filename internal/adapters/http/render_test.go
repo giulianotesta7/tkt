@@ -246,6 +246,9 @@ func localizedShellFS(t *testing.T) fstest.MapFS {
 		"pages/login.html",
 		"partials/styles.html",
 		"partials/save_feedback.html",
+		// base.html renders the rail bell (issue #344), so the fixture shell
+		// carries the partial that defines it.
+		"partials/notifications.html",
 	} {
 		data, err := fs.ReadFile(templates.FS, name)
 		if err != nil {

@@ -647,7 +647,12 @@
   });
   document.addEventListener("htmx:beforeSwap", handleBeforeSwap, true);
   window.addEventListener("popstate", handlePop, true);
-  document.addEventListener("htmx:afterSwap", () => {
+  // The rail's notification bell polls with htmx on every page; its swap must
+  // not re-open the drawer (#344: each poll pulled focus back to its first field).
+  document.addEventListener("htmx:afterSwap", (event) => {
+    const elt = event.detail?.elt;
+    if (elt instanceof Element && elt.closest("#notification-bell, #notification-panel-host"))
+      return;
     const panel = drawer();
     if (panel) {
       busy = false;

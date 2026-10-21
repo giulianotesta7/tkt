@@ -29,6 +29,9 @@ func RegisterStatic(mux *http.ServeMux, language InterfaceLanguageSource) {
 	registerLocalizedStatic(mux, "/static/save-feedback.js", "static/save-feedback.js", language)
 	registerLocalizedStatic(mux, "/static/ticket_metrics.js", "static/ticket_metrics.js", language)
 	registerLocalizedStatic(mux, "/static/sla_countdown.js", "static/sla_countdown.js", language)
+	// The notification drawer moves focus; it renders no copy, so it needs no
+	// catalogue prologue and can be cached like the other copy-free assets.
+	registerEmbeddedStatic(mux, "/static/notifications.js", "static/notifications.js", "text/javascript; charset=utf-8", "public, max-age=86400")
 }
 
 func registerEmbeddedStatic(mux *http.ServeMux, route, name, contentType, cacheControl string) {
