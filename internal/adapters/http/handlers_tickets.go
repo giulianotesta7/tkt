@@ -109,6 +109,8 @@ func (h *TicketHandlers) Register(mux *http.ServeMux) {
 	mux.HandleFunc("POST /tickets/{id}/edit", h.update)
 	mux.HandleFunc("POST /tickets/{id}/assign", h.assign)
 	mux.HandleFunc("POST /tickets/{id}/transition", h.transition)
+	mux.HandleFunc("POST /tickets/{id}/hold", h.hold)
+	mux.HandleFunc("POST /tickets/{id}/resume", h.resume)
 	mux.HandleFunc("POST /tickets/{id}/confirmation", h.confirmation)
 	mux.HandleFunc("POST /tickets/{id}/comments", h.addComment)
 	mux.HandleFunc("POST /tickets/{id}/workflow/steps/{position}/complete", h.completeWorkflow)
@@ -416,9 +418,15 @@ type slaMilestoneView struct {
 	Remaining string
 	// Countdown marks a PENDING milestone whose due instant the client turns
 	// into a live countdown (issue #211, PR 6). An achieved milestone never
-	// ticks, and a zero due instant (a legacy row with no frozen target) is
-	// not a countdown target either.
+	// ticks, a zero due instant (a legacy row with no frozen target) is not a
+	// countdown target either, and a PAUSED milestone holds a frozen remainder
+	// — ticking it would show a clock that is deliberately stopped (issue
+	// #352).
 	Countdown bool
+	// Paused marks a pending milestone whose clock is stopped because the
+	// ticket waits for the requester (issue #352). The template renders the
+	// paused chip INSTEAD of the countdown.
+	Paused bool
 }
 
 // slaPanelView is the ticket detail SLA section (issue #211). It exists only
@@ -460,7 +468,8 @@ func slaMilestoneViewFor(locale, label string, m domain.SLAMilestoneStatus) slaM
 		Label:     label,
 		State:     m.State,
 		DueAt:     m.DueAt,
-		Countdown: m.AchievedAt == nil && !m.DueAt.IsZero(),
+		Countdown: m.AchievedAt == nil && !m.DueAt.IsZero() && !m.Paused,
+		Paused:    m.Paused,
 	}
 	if m.AchievedAt == nil {
 		seconds := int(m.Remaining / time.Second)
@@ -1244,6 +1253,11 @@ type detailData struct {
 	// list URL the browser came from, reduced to whitelisted list parameters,
 	// or /tickets when the navigation carried no usable list origin.
 	BackHref string
+	// HoldReason carries the pause reason a REJECTED hold request submitted, so
+	// the re-rendered form keeps what the agent typed instead of blanking it
+	// (issue #352). It is empty on every successful read: the stored reason is
+	// read from the ticket itself.
+	HoldReason string
 }
 
 // QueueHref is the detail's "← Queue" target: the validated list return href
@@ -1715,6 +1729,74 @@ func (h *TicketHandlers) transition(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.afterMutation(w, r, id, "ticket_detail")
+}
+
+// hold puts the ticket on hold while it waits for the requester (issue #352):
+// the form carries the mandatory pause reason and the use case enforces every
+// rule (capability, scope, blank reason, already on hold, closed ticket), so a
+// refused request writes nothing. The response follows the transition route:
+// HX swaps the detail fragment, a full request redirects to the detail page.
+func (h *TicketHandlers) hold(w http.ResponseWriter, r *http.Request) {
+	id, ok := ticketID(r)
+	if !ok {
+		httpError(w, r, "error.invalid_ticket_id", http.StatusBadRequest)
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		httpError(w, r, "error.internal_server", http.StatusInternalServerError)
+		return
+	}
+	actor := *userFromContext(r.Context())
+
+	if _, err := h.tickets.PutOnHold(r.Context(), actor, id, r.Form.Get("reason")); err != nil {
+		h.renderHoldError(w, r, id, err)
+		return
+	}
+	h.afterMutation(w, r, id, "ticket_detail")
+}
+
+// resume takes the ticket off hold (issue #352, S1), re-applying the working
+// time spent paused to the frozen resolution instants. A lost compare-and-set
+// race answers 409 through the same detail re-render.
+func (h *TicketHandlers) resume(w http.ResponseWriter, r *http.Request) {
+	id, ok := ticketID(r)
+	if !ok {
+		httpError(w, r, "error.invalid_ticket_id", http.StatusBadRequest)
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		httpError(w, r, "error.internal_server", http.StatusInternalServerError)
+		return
+	}
+	actor := *userFromContext(r.Context())
+
+	if _, err := h.tickets.ResumeFromHold(r.Context(), actor, id); err != nil {
+		h.renderHoldError(w, r, id, err)
+		return
+	}
+	h.afterMutation(w, r, id, "ticket_detail")
+}
+
+// renderHoldError re-renders the detail view after a refused hold or resume,
+// keeping the pause reason the request carried so the agent does not retype it
+// (a full request submits the form natively). Every status the hold use cases
+// produce is rendered the same way: the message follows the instance language
+// and a 409 keeps the form in place for the retry the copy asks for. An
+// unexpected failure keeps the historical plain 500 body.
+func (h *TicketHandlers) renderHoldError(w http.ResponseWriter, r *http.Request, id int64, err error) {
+	status, msg := mapErrorFor(r, err)
+	if status == http.StatusInternalServerError {
+		http.Error(w, msg, status)
+		return
+	}
+	data, _, dataErr := h.detailDataFor(r, id)
+	if dataErr != nil {
+		http.Error(w, mapErrorMsg(r, dataErr), statusFor(dataErr))
+		return
+	}
+	data.Error = msg
+	data.HoldReason = r.Form.Get("reason")
+	h.renderer.Render(w, r, "tickets_show", "ticket_detail", data, status)
 }
 
 // confirmation applies the requester's resolution decision (issue #55):

@@ -86,7 +86,7 @@ test.describe("Ticket detail", () => {
     await page.goto(base() + `/tickets/${id}`);
     await expect(page.locator("#ticket-detail")).toBeVisible();
     await expect(page.getByText("Properties").first()).toBeVisible();
-    await expect(page.getByText("Requester")).toBeVisible();
+    await expect(page.getByText("Requester", { exact: true })).toBeVisible();
     await expect(page.getByText("Category")).toBeVisible();
     await expect(page.locator("#ticket-category-value")).toContainText("General");
     await expect(page.getByText("State")).toBeVisible();

@@ -1,6 +1,7 @@
 
 <div id="ticket-detail" hx-headers="{&#34;X-TKT-Queue-Return&#34;:&#34;/tickets&#34;}">
 
+
   <div class="command-header">
     <div class="detail-head">
       <div class="meta-row">
@@ -22,6 +23,7 @@
         <h2>Description</h2>
         <p class="ticket-description">The login form 500s on submit</p>
           </div>
+
 
 	<section class="card resolution-confirmation" aria-labelledby="resolution-confirmation-title">
 		<p class="resolution-eyebrow">Resolution confirmation</p>

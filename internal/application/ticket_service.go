@@ -325,7 +325,8 @@ func (s *TicketService) Assign(ctx context.Context, actor domain.User, ticketID 
 // out-of-scope ticket is ErrNotFound (ticket-access spec). Note: the
 // requester's exit from resolved is the separate RejectResolution path —
 // this generic method never detaches the workflow pin (state-machine delta:
-// an agent reopen MUST NOT detach).
+// an agent reopen MUST NOT detach). A ticket on hold that reaches a terminal
+// state ends its hold in the same atomic write (issue #352 S5).
 func (s *TicketService) Transition(ctx context.Context, actor domain.User, ticketID int64, to domain.State, reason string) (*domain.Ticket, error) {
 	if !NewPolicy().Capabilities(actor.Role).Require(CapEditTicket) {
 		return nil, domain.NewForbiddenError(domain.ErrMsgUserCannotTransition)
@@ -342,7 +343,29 @@ func (s *TicketService) Transition(ctx context.Context, actor domain.User, ticke
 	if from == domain.StateResolved && to == domain.StateClosed && t.RequesterUserID != nil {
 		return nil, domain.NewForbiddenError(ErrMsgClosureRequiresConfirmation)
 	}
-	event, err := t.Transition(to, reason, s.clock.Now())
+	// Resolving or cancelling a ticket that is on hold ends the hold in the SAME
+	// write (issue #352 S5): the resume runs FIRST, because the domain refuses
+	// any terminal state over a live hold, and it re-applies the paused working
+	// time to the frozen resolution instants at THIS instant. Non-terminal moves
+	// keep the hold and stay on the ordinary Update path.
+	now := s.clock.Now()
+	var hold *HoldWrite
+	var pausedAt time.Time
+	events := make([]domain.AuditEvent, 0, 2)
+	if t.IsOnHold() && domain.IsClosed(to) {
+		var resumeEvent *domain.AuditEvent
+		var rerr error
+		pausedAt, resumeEvent, rerr = t.ResumeFromHold(now)
+		if rerr != nil {
+			return nil, rerr
+		}
+		resumeEvent.Actor = actor.Name
+		resumeEvent.ActorUserID = &actor.ID
+		expected := pausedAt
+		hold = &HoldWrite{ExpectedOnHoldSince: &expected}
+		events = append(events, *resumeEvent)
+	}
+	event, err := t.Transition(to, reason, now)
 	if err != nil {
 		return nil, err
 	}
@@ -355,21 +378,116 @@ func (s *TicketService) Transition(ctx context.Context, actor domain.User, ticke
 		via := domain.ClosureViaManualAgent
 		event.ClosureVia = &via
 	}
+	events = append(events, *event)
 	requester, assignee, err := ticketRecipients(ctx, s.users, t)
 	if err != nil {
 		return nil, err
 	}
-	mutation := TicketMutation{
-		Ticket: t,
-		Events: []domain.AuditEvent{*event},
-		// S10 state row: requester and assignee, with the resolve move asking
-		// the requester to confirm instead.
-		Notifications: stateChangeNotifications(t, from, to, &actor.ID, event.CreatedAt, requester, assignee),
+	// S10 state row (#344): requester and assignee, with the resolve move
+	// asking the requester to confirm instead. Ending a hold on the way to a
+	// terminal state adds no notification of its own: the state change is the
+	// news.
+	notifications := stateChangeNotifications(t, from, to, &actor.ID, event.CreatedAt, requester, assignee)
+	if hold != nil {
+		// The shift is computed only once the move is legal: a refused transition
+		// must not read the SLA or the calendar on its way out.
+		shifted, serr := s.shiftResolveForHold(ctx, t.ID, pausedAt, now)
+		if serr != nil {
+			return nil, serr
+		}
+		hold.Ticket = t
+		hold.ShiftedSLA = shifted
+		hold.Events = events
+		hold.Notifications = notifications
+		if err := s.tx.UpdateHold(ctx, *hold); err != nil {
+			return nil, err
+		}
+		return t, nil
 	}
-	if err := s.tx.Update(ctx, mutation); err != nil {
+	if err := s.tx.Update(ctx, TicketMutation{Ticket: t, Events: events, Notifications: notifications}); err != nil {
 		return nil, err
 	}
 	return t, nil
+}
+
+// PutOnHold pauses the ticket's resolution clock while it waits for the
+// requester (issue #352 S3). Authorization is the same as Transition — the
+// CapEditTicket gate runs BEFORE the read, so a role user is refused without
+// ever loading the ticket — and the read is the strict mutation scope, so an
+// agent's out-of-scope ticket is ErrNotFound (no existence leak). The pause
+// reason is mandatory: the domain refuses a blank one, a ticket already on hold
+// and a closed ticket BEFORE any field changes, so every rejection writes
+// nothing. The hold is persisted through the compare-and-set hold write with a
+// nil expectation (the ticket was not on hold); the frozen SLA is NOT touched
+// here — only the resume shifts it.
+func (s *TicketService) PutOnHold(ctx context.Context, actor domain.User, ticketID int64, reason string) (*domain.Ticket, error) {
+	if !NewPolicy().Capabilities(actor.Role).Require(CapEditTicket) {
+		return nil, domain.NewForbiddenError(domain.ErrMsgUserCannotEdit)
+	}
+	t, err := s.tickets.GetByID(ctx, ticketID, scopedQuery(actor, TicketQuery{}))
+	if err != nil {
+		return nil, err
+	}
+	event, err := t.PutOnHold(reason, s.clock.Now())
+	if err != nil {
+		return nil, err
+	}
+	event.Actor = actor.Name
+	event.ActorUserID = &actor.ID
+	write := HoldWrite{Ticket: t, Events: []domain.AuditEvent{*event}}
+	if err := s.tx.UpdateHold(ctx, write); err != nil {
+		return nil, err
+	}
+	return t, nil
+}
+
+// ResumeFromHold takes the ticket off hold (issue #352 S1: the agent's manual
+// resume) and re-applies the working time spent paused to the frozen resolution
+// instants. Authorization matches PutOnHold and Transition. The compare-and-set
+// expectation is the hold instant the READ observed, handed back by the domain
+// resume itself, so a concurrent resume or re-hold refuses this write with a
+// *domain.HoldConflictError instead of shifting the SLA twice.
+func (s *TicketService) ResumeFromHold(ctx context.Context, actor domain.User, ticketID int64) (*domain.Ticket, error) {
+	if !NewPolicy().Capabilities(actor.Role).Require(CapEditTicket) {
+		return nil, domain.NewForbiddenError(domain.ErrMsgUserCannotEdit)
+	}
+	t, err := s.tickets.GetByID(ctx, ticketID, scopedQuery(actor, TicketQuery{}))
+	if err != nil {
+		return nil, err
+	}
+	now := s.clock.Now()
+	pausedAt, event, err := t.ResumeFromHold(now)
+	if err != nil {
+		return nil, err
+	}
+	shifted, err := s.shiftResolveForHold(ctx, t.ID, pausedAt, now)
+	if err != nil {
+		return nil, err
+	}
+	event.Actor = actor.Name
+	event.ActorUserID = &actor.ID
+	write := HoldWrite{
+		Ticket:              t,
+		ExpectedOnHoldSince: &pausedAt,
+		ShiftedSLA:          shifted,
+		Events:              []domain.AuditEvent{*event},
+	}
+	if err := s.tx.UpdateHold(ctx, write); err != nil {
+		return nil, err
+	}
+	return t, nil
+}
+
+// shiftResolveForHold asks the SLA service to move the frozen resolution
+// instants by the working time the ticket spent paused (issue #352 S2). The
+// legacy NewTicketService wiring carries no SLA collaborator: no commitment was
+// resolved for its tickets, so there is nothing to shift and the answer is nil
+// (the hold write then leaves the SLA side untouched).
+func (s *TicketService) shiftResolveForHold(ctx context.Context, ticketID int64, pausedAt, resumedAt time.Time) (*domain.TicketSLA, error) {
+	if s.sla == nil {
+		return nil, nil
+	}
+	return s.sla.ShiftForHold(ctx, ticketID, pausedAt, resumedAt)
 }
 
 // ConfirmResolution closes a requester-owned resolved ticket on the

@@ -2,6 +2,15 @@
 <div id="ticket-detail" hx-headers="{{.QueueHeaders}}">
 {{if .Error}}  <div class="error-banner" role="alert">{{.Error}}</div>
 {{end}}
+{{if .View.Ticket.OnHoldSince}}  <div class="hold-banner" role="status">
+    <div class="hold-banner-text">
+{{if .RequesterView}}      <p class="hold-banner-title">{{t "tickets.hold.banner.requester"}}</p>
+      <p class="hold-banner-reason">{{.View.Ticket.OnHoldReason}}</p>
+{{else}}      <p class="hold-banner-title">{{t "tickets.hold.banner.staff"}} <time datetime="{{formatDatetime .View.Ticket.OnHoldSince}}">{{formatMonthDayYear .View.Ticket.OnHoldSince}}</time> — {{.View.Ticket.OnHoldReason}}</p>
+{{end}}    </div>
+{{if .CanEdit}}    <form class="hold-resume" method="post" action="/tickets/{{.View.Ticket.ID}}/resume" hx-post="/tickets/{{.View.Ticket.ID}}/resume" hx-target="#ticket-detail" hx-swap="outerHTML"><button class="btn" type="submit">{{t "tickets.hold.resume"}}</button></form>
+{{end}}  </div>
+{{end}}
   <div class="command-header">
     <div class="detail-head">
       <div class="meta-row">
@@ -31,6 +40,18 @@
         <h2>{{t "tickets.detail.description"}}</h2>
         {{if .View.Ticket.Description}}<p class="ticket-description">{{.View.Ticket.Description}}</p>{{else}}<p class="empty">{{t "tickets.detail.no_description"}}</p>{{end}}
           </div>
+{{if and .CanEdit (not .View.Ticket.OnHoldSince)}}<section class="card" aria-labelledby="hold-form-title">
+  <h2 id="hold-form-title">{{t "tickets.hold.title"}}</h2>
+  <p class="resolution-help">{{t "tickets.hold.help"}}</p>
+  <form method="post" action="/tickets/{{.View.Ticket.ID}}/hold" hx-post="/tickets/{{.View.Ticket.ID}}/hold" hx-target="#ticket-detail" hx-swap="outerHTML">
+    <div class="field">
+      <label for="hold-reason">{{t "tickets.hold.reason_label"}}</label>
+      <textarea id="hold-reason" name="reason" rows="2" required placeholder="{{t "tickets.hold.reason_placeholder"}}">{{.HoldReason}}</textarea>
+    </div>
+    <button class="btn primary" type="submit">{{t "tickets.hold.submit"}}</button>
+  </form>
+</section>
+{{end}}
 {{if .CanConfirm}}
 	<section class="card resolution-confirmation" aria-labelledby="resolution-confirmation-title">
 		<p class="resolution-eyebrow">{{t "tickets.detail.resolution.eyebrow"}}</p>
@@ -103,7 +124,7 @@
           <div class="prop-heading">{{t "tickets.detail.state"}}</div>
           <div class="prop-row">
             <span class="prop-label">{{t "tickets.detail.current"}}</span>
-            <span class="prop-value">{{template "state_badge" (audienceStateBadge .View.Ticket.State .RequesterView)}}</span>
+            <span class="prop-value">{{template "state_badge" (audienceStateBadge .View.Ticket.State .RequesterView)}}{{if .View.Ticket.OnHoldSince}} {{template "hold_chip" .}}{{end}}</span>
           </div>
 {{if and .Next .CanTransition}}
           <div class="prop-row">
@@ -138,7 +159,7 @@
 {{range .SLA.Milestones}}
           <div class="prop-row">
             <span class="prop-label">{{.Label}}</span>
-            <span class="prop-value sla-value">{{template "sla_state_dot" .State}}{{if .Countdown}}<time datetime="{{formatDatetime .DueAt}}" data-sla-countdown><span class="sla-countdown-ticker" aria-hidden="true">{{.Remaining}}</span><span class="sla-countdown-coarse visually-hidden">{{formatTime .DueAt}}</span></time>{{end}}</span>
+            <span class="prop-value sla-value">{{template "sla_state_dot" .State}}{{if .Paused}}<span class="chip">{{t "label.sla.paused"}}</span>{{else if .Countdown}}<time datetime="{{formatDatetime .DueAt}}" data-sla-countdown><span class="sla-countdown-ticker" aria-hidden="true">{{.Remaining}}</span><span class="sla-countdown-coarse visually-hidden">{{formatTime .DueAt}}</span></time>{{end}}</span>
           </div>
 {{end}}
         </div>

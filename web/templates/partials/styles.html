@@ -173,6 +173,11 @@
   .badge.at_risk{background:var(--amber-soft);color:var(--amber)}
   .badge.breached{background:var(--red-soft);color:var(--red)}
   .badge.met{background:var(--green-soft);color:var(--green)}
+  .chip{
+    display:inline-flex;align-items:center;height:22px;padding:0 8px;
+    border-radius:6px;font-size:12px;font-weight:500;white-space:nowrap;
+    background:var(--gray-soft);color:var(--gray-ink);vertical-align:2px;
+  }
   .priority{font-size:12px;font-weight:500;color:var(--ink-soft)}
 
   .filter-bar{
@@ -287,6 +292,15 @@
   .resolution-eyebrow{margin:0 0 6px;color:var(--muted);font-size:12px;font-weight:600;letter-spacing:0;}
   .resolution-help{margin:0 0 12px;color:var(--ink-soft);font-size:13px;line-height:1.45}
   .resolution-actions{display:flex;gap:10px;flex-wrap:wrap}
+  .hold-banner{
+    display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap;
+    background:var(--surface);border:1px solid var(--line-strong);border-radius:8px;
+    padding:12px 14px;margin-bottom:16px;font-size:13.5px;
+  }
+  .hold-banner-text{min-width:0}
+  .hold-banner-title{margin:0;color:var(--ink-strong);font-weight:500;overflow-wrap:anywhere}
+  .hold-banner-reason{margin:4px 0 0;color:var(--ink-soft);overflow-wrap:anywhere}
+  .hold-resume{margin:0;flex:0 0 auto}
 
   .timeline-entry{margin-top:10px;border-radius:8px;min-width:0}
   .timeline-comment{padding:12px 14px;background:var(--card);border:1px solid var(--line)}

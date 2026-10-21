@@ -94,6 +94,36 @@ func (s *SLAService) ForTickets(ctx context.Context, ticketIDs []int64) (map[int
 	return out, nil
 }
 
+// ShiftForHold returns the commitment with its RESOLUTION instants moved by
+// the working time the ticket spent on hold, or (nil, nil) for a ticket with
+// no frozen commitment — the same absence-as-a-state rule as ForTicket, so a
+// resumed legacy ticket reports nothing to shift (issue #352 S2). The shift
+// itself is domain.TicketSLA.ShiftResolveForHold: the first-response clock
+// never pauses, an instant already reached at the pause stays put, and the
+// remaining working time is re-applied from resumedAt against the calendar in
+// force at resume, freezing the result exactly as creation froze the original
+// instants.
+//
+// pausedAt and resumedAt are PARAMETERS and deliberately not read from
+// s.clock: the caller passes the pause instant it read from the ticket and the
+// single now it stamps on the resume event, so the shift and the audit that
+// explains it can never disagree by a clock tick.
+func (s *SLAService) ShiftForHold(ctx context.Context, ticketID int64, pausedAt, resumedAt time.Time) (*domain.TicketSLA, error) {
+	frozen, err := s.sla.TicketSLA(ctx, ticketID)
+	if err != nil {
+		return nil, err
+	}
+	if frozen == nil {
+		return nil, nil
+	}
+	calendar, err := s.Calendar(ctx)
+	if err != nil {
+		return nil, err
+	}
+	shifted := frozen.ShiftResolveForHold(pausedAt, resumedAt, calendar)
+	return &shifted, nil
+}
+
 // ResolveForCreate returns the commitment to freeze onto a ticket about to
 // be created, or nil when SLA is disabled or the category has no policy
 // row. A store error is returned rather than swallowed.
