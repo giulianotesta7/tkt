@@ -211,6 +211,15 @@ func (u *workflowUnitOfWork) ApplyWorkflowPlan(ctx context.Context, in applicati
 		return application.WorkflowExecutionResult{}, err
 	}
 
+	// Append the notifications the APPLICATION computed for this plan, in the
+	// same immediate transaction as the operations and the ticket write
+	// (S11): a failed apply leaves no notification behind, and a notification
+	// never exists without the change it describes. The adapter inserts what it
+	// is given and never decides a recipient.
+	if err := appendNotificationsTx(ctx, tx, in.Notifications); err != nil {
+		return application.WorkflowExecutionResult{}, err
+	}
+
 	// Persist the final ticket state (proven equal by the validator).
 	ticket.State = in.NextTicketState
 	if err := updateTicketTx(ctx, tx, ticket); err != nil {
@@ -1868,6 +1877,26 @@ func applyWorkflowOperations(ctx context.Context, tx *sql.Tx, t *domain.Ticket, 
 			}
 			t.UserID = &selected
 			t.UpdatedAt = lastAt
+			// The application decided the "assigned" notification for whichever
+			// member this step selects; the recipient is the selection made right
+			// above, so the row joins the same transaction (S10 automatic
+			// least_loaded routing, S11).
+			//
+			// S10 "never the person who performed the action": the selection can
+			// land back on the agent whose completion triggered the routing (a
+			// single-member desk, or that agent being the least loaded member).
+			// This is the first point where the recipient is known, so the actor
+			// filter belongs here: such a row would tell the agent about their own
+			// action. A same-person selection still writes its audit row (the
+			// timeline keeps it); only the notification is dropped.
+			if v.NotifyAssignee != nil {
+				row := v.NotifyAssignee.For(selected)
+				if row.ActorUserID == nil || *row.ActorUserID != selected {
+					if err := appendNotificationsTx(ctx, tx, []domain.Notification{row}); err != nil {
+						return err
+					}
+				}
+			}
 		default:
 			return fmt.Errorf("sqlite: unknown workflow operation %T", op)
 		}

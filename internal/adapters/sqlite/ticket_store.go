@@ -257,18 +257,23 @@ func (st *ticketStore) CountsByPriority(ctx context.Context, q application.Ticke
 // the same immediate transaction, event.TicketID stamped from the
 // store-assigned ID (port contract). A failed audit append rolls the ticket
 // back; the UNIQUE number backstop retries the whole unit.
-func (u *unitOfWork) Create(ctx context.Context, t *domain.Ticket, event domain.AuditEvent) error {
+func (u *unitOfWork) Create(ctx context.Context, m application.TicketMutation) error {
 	return retryUnique(3, func() error {
 		tx, err := u.db.BeginTx(ctx, nil)
 		if err != nil {
 			return fmt.Errorf("sqlite: begin create unit: %w", err)
 		}
 		defer tx.Rollback()
-		if err := createTicketTx(ctx, tx, t); err != nil {
+		if err := createTicketTx(ctx, tx, m.Ticket); err != nil {
 			return err
 		}
-		event.TicketID = t.ID
-		if err := appendAuditEventsTx(ctx, tx, event); err != nil {
+		for i := range m.Events {
+			m.Events[i].TicketID = m.Ticket.ID
+		}
+		if err := appendAuditEventsTx(ctx, tx, m.Events...); err != nil {
+			return err
+		}
+		if err := appendNotificationsTx(ctx, tx, m.Notifications); err != nil {
 			return err
 		}
 		if err := tx.Commit(); err != nil {
@@ -283,7 +288,8 @@ func (u *unitOfWork) Create(ctx context.Context, t *domain.Ticket, event domain.
 // events may be empty: a plain ticket write is still atomic by construction.
 // A ticket that reaches a terminal state (domain.IsClosed) also closes its
 // still-active workflow run in the SAME transaction (issue #256).
-func (u *unitOfWork) Update(ctx context.Context, t *domain.Ticket, events ...domain.AuditEvent) error {
+func (u *unitOfWork) Update(ctx context.Context, m application.TicketMutation) error {
+	t, events := m.Ticket, m.Events
 	tx, err := u.db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("sqlite: begin update unit: %w", err)
@@ -303,6 +309,9 @@ func (u *unitOfWork) Update(ctx context.Context, t *domain.Ticket, events ...dom
 		}
 	}
 	if err := appendAuditEventsTx(ctx, tx, events...); err != nil {
+		return err
+	}
+	if err := appendNotificationsTx(ctx, tx, m.Notifications); err != nil {
 		return err
 	}
 	if err := tx.Commit(); err != nil {

@@ -135,7 +135,7 @@ func (s *TicketService) Create(ctx context.Context, actor domain.User, in Create
 
 	t, event := newCreateTicket(actor, in, now)
 	t.SLA = sla
-	if err := s.tx.Create(ctx, t, event); err != nil {
+	if err := s.tx.Create(ctx, TicketMutation{Ticket: t, Events: []domain.AuditEvent{event}}); err != nil {
 		return nil, err
 	}
 	return t, nil
@@ -251,6 +251,7 @@ func (s *TicketService) Assign(ctx context.Context, actor domain.User, ticketID 
 	if domain.IsClosed(t.State) {
 		return nil, domain.NewForbiddenError(domain.ErrMsgClosedTicketReadOnly)
 	}
+	var newAssignee *NotificationRecipient
 	if assigneeID != nil {
 		if actor.Role == domain.RoleAgent && t.UserID == nil && *assigneeID != actor.ID {
 			return nil, domain.NewForbiddenError("agents may only claim tickets for themselves")
@@ -265,6 +266,10 @@ func (s *TicketService) Assign(ctx context.Context, actor domain.User, ticketID 
 		if !user.Role.AtLeast(domain.RoleAgent) {
 			return nil, &domain.ValidationError{Field: "user", Message: domain.ErrMsgAssignTargetRole, Key: "error.assign_target_role"}
 		}
+		// The assignment target is already loaded and validated, so it is the
+		// notification candidate: S10 tells the new assignee about the
+		// assignment (and the actor rule drops a self-claim).
+		newAssignee = recipientOf(user)
 	}
 	// Same assignee (or both unassigned): no-op — no event, no refresh.
 	if t.UserID != nil && assigneeID != nil && *t.UserID == *assigneeID {
@@ -300,7 +305,12 @@ func (s *TicketService) Assign(ctx context.Context, actor domain.User, ticketID 
 	}
 	t.UserID = assigneeID
 	t.UpdatedAt = now
-	if err := s.tx.Update(ctx, t, event); err != nil {
+	mutation := TicketMutation{
+		Ticket:        t,
+		Events:        []domain.AuditEvent{event},
+		Notifications: assignmentNotifications(t, newAssignee, &actor.ID, now),
+	}
+	if err := s.tx.Update(ctx, mutation); err != nil {
 		return nil, err
 	}
 	return t, nil
@@ -345,7 +355,18 @@ func (s *TicketService) Transition(ctx context.Context, actor domain.User, ticke
 		via := domain.ClosureViaManualAgent
 		event.ClosureVia = &via
 	}
-	if err := s.tx.Update(ctx, t, *event); err != nil {
+	requester, assignee, err := s.ticketRecipients(ctx, t)
+	if err != nil {
+		return nil, err
+	}
+	mutation := TicketMutation{
+		Ticket: t,
+		Events: []domain.AuditEvent{*event},
+		// S10 state row: requester and assignee, with the resolve move asking
+		// the requester to confirm instead.
+		Notifications: stateChangeNotifications(t, from, to, &actor.ID, event.CreatedAt, requester, assignee),
+	}
+	if err := s.tx.Update(ctx, mutation); err != nil {
 		return nil, err
 	}
 	return t, nil
@@ -377,7 +398,19 @@ func (s *TicketService) ConfirmResolution(ctx context.Context, actor domain.User
 	event.ActorUserID = &actor.ID
 	via := domain.ClosureViaRequesterConfirmation
 	event.ClosureVia = &via
-	if err := s.tx.Update(ctx, t, *event); err != nil {
+	_, assignee, err := s.ticketRecipients(ctx, t)
+	if err != nil {
+		return nil, err
+	}
+	mutation := TicketMutation{
+		Ticket: t,
+		Events: []domain.AuditEvent{*event},
+		// S10: the assignee learns the resolution was confirmed; the requester
+		// is the actor and is never told about their own answer.
+		Notifications: resolutionNotifications(t, domain.NotificationResolutionConfirmed,
+			domain.StateResolved, t.State, &actor.ID, event.CreatedAt, assignee),
+	}
+	if err := s.tx.Update(ctx, mutation); err != nil {
 		return nil, err
 	}
 	return t, nil
@@ -415,7 +448,19 @@ func (s *TicketService) RejectResolution(ctx context.Context, actor domain.User,
 	t.WorkflowVersionID = nil
 	event.Actor = actor.Name
 	event.ActorUserID = &actor.ID
-	if err := s.tx.Update(ctx, t, *event); err != nil {
+	_, assignee, err := s.ticketRecipients(ctx, t)
+	if err != nil {
+		return nil, err
+	}
+	mutation := TicketMutation{
+		Ticket: t,
+		Events: []domain.AuditEvent{*event},
+		// S10: the assignee learns the resolution was rejected; the requester is
+		// the actor and is never told about their own answer.
+		Notifications: resolutionNotifications(t, domain.NotificationResolutionRejected,
+			domain.StateResolved, t.State, &actor.ID, event.CreatedAt, assignee),
+	}
+	if err := s.tx.Update(ctx, mutation); err != nil {
 		return nil, err
 	}
 	return t, nil
@@ -458,7 +503,22 @@ func (s *TicketService) Update(ctx context.Context, actor domain.User, ticketID 
 		events[i].Actor = actor.Name
 		events[i].ActorUserID = &actor.ID
 	}
-	if err := s.tx.Update(ctx, t, events...); err != nil {
+	// S10 edit rows and the maintainer's decision (L4): a priority edit tells
+	// the requester and the assignee, and every other edit (title, description)
+	// tells nobody.
+	var notifications []domain.Notification
+	for _, ev := range events {
+		if ev.Field == nil || *ev.Field != "priority" {
+			continue
+		}
+		requester, assignee, err := s.ticketRecipients(ctx, t)
+		if err != nil {
+			return nil, err
+		}
+		notifications = priorityChangeNotifications(t, domain.Priority(derefString(ev.FromValue)),
+			domain.Priority(derefString(ev.ToValue)), &actor.ID, ev.CreatedAt, requester, assignee)
+	}
+	if err := s.tx.Update(ctx, TicketMutation{Ticket: t, Events: events, Notifications: notifications}); err != nil {
 		return nil, err
 	}
 	return t, nil
