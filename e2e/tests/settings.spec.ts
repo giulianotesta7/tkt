@@ -1,12 +1,43 @@
 /**
- * Settings journeys: appearance panel and the SLA configuration panel.
+ * Settings journeys: appearance panel, the SLA configuration panel, the
+ * root-only Email section (issue #362), and the per-user Preferences page.
  */
 
-import { test, expect } from "@playwright/test";
+import { test, expect, type Page } from "@playwright/test";
 import { startServer, stopServer } from "../server-lifecycle.js";
 import { loginAsSeeded, createUserAsAdmin, loginAs, logout, base } from "./helpers/auth.js";
 import { assertCanonicalScreen, collectObservability } from "./helpers/layout.js";
 import { createTicketViaUi } from "./helpers/navigation.js";
+
+/**
+ * Promote a freshly created user to administrator and return the credentials.
+ *
+ * The Email section is root-only (#362, S4), and an admin is the role that
+ * reaches Settings without holding that capability — so this is the actor the
+ * visibility journey needs. The role change goes through the same edit control
+ * an administrator uses; the journey that owns its HTMX mechanism is
+ * `roles.spec.ts`, so this fixture only waits for the visible result.
+ */
+async function createAdminUser(page: Page): Promise<{ name: string; email: string }> {
+  const stamp = Date.now().toString(36);
+  const name = `Settings Admin ${stamp}`;
+  const email = `settings-admin-${stamp}@example.com`;
+  await createUserAsAdmin(page, { name, email, password: "SuperSecret42!" });
+
+  const row = page
+    .locator("tr[data-user-name]")
+    .filter({ has: page.getByText(name, { exact: true }) });
+  await expect(row).toHaveCount(1);
+  const href = await row.locator('a[href*="/users/"][href*="/edit"]').first().getAttribute("href");
+  if (!href) throw new Error(`edit href missing for ${name} at ${page.url()}`);
+  await page.goto(base() + href.split("?")[0]);
+  await page.locator('select[name="role"]').selectOption("admin");
+  await page.getByRole("button", { name: /save changes/i }).click();
+  await expect(
+    page.locator("tr[data-user-name]").filter({ has: page.getByText(name, { exact: true }) }),
+  ).toContainText("Admin");
+  return { name, email };
+}
 
 test.describe("Settings", () => {
   test.beforeAll(async () => {
@@ -252,8 +283,8 @@ test.describe("Settings", () => {
     // starts from.
     await page.locator('input[name="sla_calendar_days"][value="5"]').setChecked(false);
     await page.locator('input[name="sla_calendar_days"][value="6"]').setChecked(true);
-    await page.getByLabel("Start").fill("08:30");
-    await page.getByLabel("End").fill("17:45");
+    await page.getByLabel("Start", { exact: true }).fill("08:30");
+    await page.getByLabel("End", { exact: true }).fill("17:45");
     await page.getByLabel("Timezone").fill("America/Argentina/Buenos_Aires");
     await page.getByRole("button", { name: "Save working calendar" }).click();
     await expect(page).toHaveURL(/\/settings$/);
@@ -263,8 +294,8 @@ test.describe("Settings", () => {
     await page.reload();
     await expect(page.locator('input[name="sla_calendar_days"][value="5"]')).not.toBeChecked();
     await expect(page.locator('input[name="sla_calendar_days"][value="6"]')).toBeChecked();
-    await expect(page.getByLabel("Start")).toHaveValue("08:30");
-    await expect(page.getByLabel("End")).toHaveValue("17:45");
+    await expect(page.getByLabel("Start", { exact: true })).toHaveValue("08:30");
+    await expect(page.getByLabel("End", { exact: true })).toHaveValue("17:45");
     await expect(page.getByLabel("Timezone")).toHaveValue("America/Argentina/Buenos_Aires");
 
     // Structural screen assertion here, before the deliberate 422 below:
@@ -283,8 +314,8 @@ test.describe("Settings", () => {
 
     // Rejected save: a start after its end re-renders at the POST URL with
     // the error banner and must not touch the stored calendar.
-    await page.getByLabel("Start").fill("18:00");
-    await page.getByLabel("End").fill("09:00");
+    await page.getByLabel("Start", { exact: true }).fill("18:00");
+    await page.getByLabel("End", { exact: true }).fill("09:00");
     await page.getByRole("button", { name: "Save working calendar" }).click();
     const banner = page.locator(".error-banner");
     await expect(banner).toBeVisible();
@@ -296,8 +327,8 @@ test.describe("Settings", () => {
     await page.goto(base() + "/settings");
     await expect(page.locator('input[name="sla_calendar_days"][value="5"]')).not.toBeChecked();
     await expect(page.locator('input[name="sla_calendar_days"][value="6"]')).toBeChecked();
-    await expect(page.getByLabel("Start")).toHaveValue("08:30");
-    await expect(page.getByLabel("End")).toHaveValue("17:45");
+    await expect(page.getByLabel("Start", { exact: true })).toHaveValue("08:30");
+    await expect(page.getByLabel("End", { exact: true })).toHaveValue("17:45");
     await expect(page.getByLabel("Timezone")).toHaveValue("America/Argentina/Buenos_Aires");
   });
 
@@ -440,6 +471,199 @@ test.describe("Settings", () => {
     await expect(page.locator("html")).toHaveAttribute("lang", "en");
     await expect(page.locator("#ticket-detail .prop-value .badge.new")).toHaveText("New");
   });
+
+  // ------------------------------------------------------------------------
+  // Email section (issue #362; specs S4, S5, S8 browser-visible parts).
+  //
+  // The Email section is root-only and persistent: root fills it, saves, and
+  // reads the same values back after a reload; the test action reports the
+  // mail server's refusal without ever carrying the password back (S8); a
+  // saved password never renders again (S8). SMTP validation, the sealed
+  // storage and the authorization matrix are Go-owned
+  // (`handlers_settings_email_test.go`); these journeys prove only what the
+  // browser can see.
+  // ------------------------------------------------------------------------
+
+  test("the Email section saves the SMTP configuration and persists it after a reload", async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    const obs = collectObservability(page);
+    await loginAsSeeded(page);
+    await page.goto(base() + "/settings");
+    await expect(page.locator("h2").filter({ hasText: "Email" })).toBeVisible();
+
+    // An open internal relay (S2): no credentials, so no encryption is
+    // required either (S15). Port 1 is deliberately a port nothing listens
+    // on, and the values are filled rather than assumed, so the journey does
+    // not depend on what an earlier run stored.
+    await page.getByLabel("SMTP server", { exact: true }).fill("127.0.0.1");
+    await page.getByLabel("Port", { exact: true }).fill("1");
+    await page.getByLabel("Encryption", { exact: true }).selectOption("none");
+    // S16: the certificate is verified by default, and opting out is an
+    // explicit control with its warning on screen beside it.
+    await expect(
+      page.getByRole("checkbox", { name: "Do not verify the certificate" }),
+    ).not.toBeChecked();
+    await expect(
+      page.getByText(/the connection is still encrypted, but TKT cannot check/),
+    ).toBeVisible();
+    await page.getByLabel("Sender address", { exact: true }).fill("tkt@example.com");
+    await page.getByLabel("Sender name", { exact: true }).fill("TKT Notifications");
+    await page.getByLabel("TKT address", { exact: true }).fill("https://tkt.example.com");
+    await page.getByRole("button", { name: "Save email" }).click();
+    await expect(page).toHaveURL(/\/settings$/);
+    await expect(page.locator("#save-feedback")).toContainText("Saved");
+
+    // Persisted (S4): changing the configuration needs no restart, and a
+    // reload renders the stored values rather than the submitted ones.
+    await page.reload();
+    await expect(page.getByLabel("SMTP server", { exact: true })).toHaveValue("127.0.0.1");
+    await expect(page.getByLabel("Port", { exact: true })).toHaveValue("1");
+    await expect(page.getByLabel("Encryption", { exact: true })).toHaveValue("none");
+    await expect(page.getByLabel("Username", { exact: true })).toHaveValue("");
+    await expect(page.getByLabel("Sender address", { exact: true })).toHaveValue("tkt@example.com");
+    await expect(page.getByLabel("Sender name", { exact: true })).toHaveValue("TKT Notifications");
+    await expect(page.getByLabel("TKT address", { exact: true })).toHaveValue(
+      "https://tkt.example.com",
+    );
+    // Nothing was ever sealed, so no password is promised: an empty field with
+    // the plain help text, not the "a password is saved" hint.
+    await expect(page.getByLabel("Password", { exact: true })).toHaveValue("");
+    await expect(page.getByText("A password is saved; leave empty to keep it.")).toHaveCount(0);
+
+    await assertCanonicalScreen(page, {
+      viewport: 1280,
+      label: "settings email persist",
+      url: page.url(),
+      role: "root",
+      consoleErrors: obs.consoleErrors,
+      pageErrors: obs.pageErrors,
+      failedRequests: obs.failedRequests,
+      failedResponses: obs.failedResponses,
+    });
+
+    // The section is a new surface on a canonical screen, so it also owes the
+    // narrow viewport its own pass: a filled row of SMTP fields must not clip
+    // or overflow at 390px.
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto(base() + "/settings");
+    await expect(page.locator("h2").filter({ hasText: "Email" })).toBeVisible();
+    await assertCanonicalScreen(page, {
+      viewport: 390,
+      label: "settings email at 390px",
+      url: page.url(),
+      role: "root",
+      consoleErrors: obs.consoleErrors,
+      pageErrors: obs.pageErrors,
+      failedRequests: obs.failedRequests,
+      failedResponses: obs.failedResponses,
+    });
+  });
+
+  test("a refused test email renders the localized delivery error and never the password", async ({
+    page,
+  }) => {
+    test.setTimeout(45_000);
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await loginAsSeeded(page);
+    await page.goto(base() + "/settings");
+
+    // Fixture: a server that refuses the connection, reached with credentials.
+    // Credentials force STARTTLS (S15/S16), so this journey also carries a
+    // secret that no response is allowed to bring back (S8).
+    const secret = `S3cret-Smtp-${Date.now().toString(36)}`;
+    await page.getByLabel("SMTP server", { exact: true }).fill("127.0.0.1");
+    await page.getByLabel("Port", { exact: true }).fill("1");
+    await page.getByLabel("Encryption", { exact: true }).selectOption("starttls");
+    await page.getByLabel("Username", { exact: true }).fill("tkt-smtp");
+    await page.getByLabel("Password", { exact: true }).fill(secret);
+    await page.getByLabel("Sender address", { exact: true }).fill("tkt@example.com");
+    await page.getByLabel("TKT address", { exact: true }).fill("https://tkt.example.com");
+    await page.getByRole("button", { name: "Save email" }).click();
+    await expect(page).toHaveURL(/\/settings$/);
+    await expect(page.locator("#save-feedback")).toContainText("Saved");
+
+    // "Send test email" addresses root's own mailbox with the STORED
+    // configuration, so it never needs the form to be resubmitted.
+    await page.getByRole("button", { name: "Send test email" }).click();
+    await expect(page).toHaveURL(/\/settings\/email\/test$/);
+    const banner = page.locator(".error-banner");
+    await expect(banner).toBeVisible();
+    await expect(banner).toHaveAttribute("role", "alert");
+    await expect(banner).toContainText("The mail server refused the test email:");
+    await expect(banner).toContainText("connection refused");
+
+    // S8: the refusal travels, the secret does not — not in the message, not
+    // in any field of the re-rendered form.
+    expect(await page.content()).not.toContain(secret);
+    await expect(page.getByLabel("Password", { exact: true })).toHaveValue("");
+    await expect(page.getByText("A password is saved; leave empty to keep it.")).toBeVisible();
+  });
+
+  test("a saved password is never rendered back, only the hint that one is saved", async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    const obs = collectObservability(page);
+    await loginAsSeeded(page);
+    await page.goto(base() + "/settings");
+
+    const secret = `S3cret-Keep-${Date.now().toString(36)}`;
+    await page.getByLabel("SMTP server", { exact: true }).fill("127.0.0.1");
+    await page.getByLabel("Port", { exact: true }).fill("1");
+    await page.getByLabel("Encryption", { exact: true }).selectOption("starttls");
+    await page.getByLabel("Username", { exact: true }).fill("tkt-smtp");
+    await page.getByLabel("Password", { exact: true }).fill(secret);
+    await page.getByLabel("Sender address", { exact: true }).fill("tkt@example.com");
+    await page.getByLabel("TKT address", { exact: true }).fill("https://tkt.example.com");
+    await page.getByRole("button", { name: "Save email" }).click();
+    await expect(page).toHaveURL(/\/settings$/);
+    await expect(page.locator("#save-feedback")).toContainText("Saved");
+
+    // S8: the password is write-only. After a reload the field is empty, the
+    // hint says a password is saved, and the stored username and mode are
+    // still there, so root can change anything but the secret.
+    await page.reload();
+    await expect(page.getByLabel("Password", { exact: true })).toHaveValue("");
+    await expect(page.getByText("A password is saved; leave empty to keep it.")).toBeVisible();
+    await expect(page.getByLabel("Username", { exact: true })).toHaveValue("tkt-smtp");
+    await expect(page.getByLabel("Encryption", { exact: true })).toHaveValue("starttls");
+    expect(await page.content()).not.toContain(secret);
+
+    await assertCanonicalScreen(page, {
+      viewport: 1280,
+      label: "settings email saved password",
+      url: page.url(),
+      role: "root",
+      consoleErrors: obs.consoleErrors,
+      pageErrors: obs.pageErrors,
+      failedRequests: obs.failedRequests,
+      failedResponses: obs.failedResponses,
+    });
+  });
+
+  test("an administrator's Settings shows no Email section", async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await loginAsSeeded(page);
+    const admin = await createAdminUser(page);
+    // The drawer the role change ran in stays open over the shell, so a full
+    // navigation is what dismisses it before the session menu can be used.
+    await page.goto(base() + "/users");
+    await logout(page);
+    await loginAs(page, admin.email, "SuperSecret42!");
+
+    await page.goto(base() + "/settings");
+    // The administrator really is on Settings: the panels they do own render.
+    await expect(page.locator("h1").filter({ hasText: "Settings" })).toBeVisible();
+    await expect(page.locator("h2").filter({ hasText: "Appearance" })).toBeVisible();
+    // S4: the Email section is root-only, so neither its heading nor a single
+    // one of its controls reaches an administrator's page.
+    await expect(page.locator("h2").filter({ hasText: "Email" })).toHaveCount(0);
+    await expect(page.locator("#email_host")).toHaveCount(0);
+    await expect(page.getByLabel("SMTP server", { exact: true })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Send test email" })).toHaveCount(0);
+  });
 });
 
 test.describe("Preferences", () => {
@@ -528,5 +752,59 @@ test.describe("Preferences", () => {
     await expect(page).toHaveURL(/\/preferences$/);
     await expect(page.locator("h1").filter({ hasText: "Preferences" })).toBeVisible();
     await expect(page.getByLabel("Default queue order")).toBeVisible();
+  });
+
+  test("a user turns email notifications off and back on from Preferences", async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    const obs = collectObservability(page);
+    await loginAsSeeded(page);
+
+    // S5: the opt-out belongs to each user, not to the instance — so the
+    // journey runs as a plain requester, an actor who holds no settings
+    // capability at all.
+    const stamp = Date.now().toString(36);
+    const email = await createUserAsAdmin(page, {
+      name: `Preferences Email ${stamp}`,
+      email: `preferences-email-${stamp}@example.com`,
+      password: "SuperSecret42!",
+    });
+    await logout(page);
+    await loginAs(page, email, "SuperSecret42!");
+
+    await page.goto(base() + "/preferences");
+    const toggle = page.getByRole("checkbox", { name: "Receive notifications by email" });
+    // On by default (S14): the email adds to the bell, it does not replace it.
+    await expect(toggle).toBeChecked();
+
+    // Turned off, saved, and still off after a reload.
+    await toggle.uncheck();
+    await page.getByRole("button", { name: "Save email preference" }).click();
+    await expect(page).toHaveURL(/\/preferences$/);
+    await expect(page.locator("#save-feedback")).toContainText("Saved");
+    await page.reload();
+    await expect(toggle).not.toBeChecked();
+
+    // The email panel leaving the page alone does not take the rest of
+    // Preferences with it: the other preference on this page still renders.
+    await expect(page.getByLabel("Default queue order")).toBeVisible();
+    await assertCanonicalScreen(page, {
+      viewport: 1280,
+      label: "preferences email off",
+      url: page.url(),
+      role: "user",
+      consoleErrors: obs.consoleErrors,
+      pageErrors: obs.pageErrors,
+      failedRequests: obs.failedRequests,
+      failedResponses: obs.failedResponses,
+    });
+
+    // And back on, so the journey proves the toggle writes both ways and
+    // leaves the stored preference it found.
+    await toggle.check();
+    await page.getByRole("button", { name: "Save email preference" }).click();
+    await expect(page).toHaveURL(/\/preferences$/);
+    await expect(page.locator("#save-feedback")).toContainText("Saved");
+    await page.reload();
+    await expect(toggle).toBeChecked();
   });
 });
