@@ -175,7 +175,10 @@ export async function expectDesignSystem(page: Page): Promise<void> {
   const seen = await page.evaluate(() => {
     const root = getComputedStyle(document.documentElement);
     const read = (name: string) => root.getPropertyValue(name).trim();
+    const theme = document.documentElement.dataset.theme ?? "";
+    const systemDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
     return {
+      dark: theme === "dark" || (theme !== "light" && systemDark),
       canvas: getComputedStyle(document.body).backgroundColor,
       muted: read("--muted"),
       faint: read("--faint"),
@@ -193,14 +196,35 @@ export async function expectDesignSystem(page: Page): Promise<void> {
   // screen that should have one.
   if (!seen.muted) return;
 
-  expect(seen.canvas, "the canvas must be the neutral white, not a tinted neutral").toBe(
-    "rgb(255, 255, 255)",
+  // Two ladders, one contract (issue #378): the theme is resolved the way the
+  // stylesheet resolves it (an explicit data-theme wins, otherwise the OS), and
+  // every rung is asserted against the ladder that theme publishes.
+  const want = seen.dark
+    ? {
+        canvas: "rgb(21, 24, 29)",
+        muted: "rgb(255 255 255 / 66%)",
+        faint: "rgb(255 255 255 / 58%)",
+        line: "rgb(255 255 255 / 10%)",
+        accent: "#7B96FF",
+        rail: "#0A0B0D",
+      }
+    : {
+        canvas: "rgb(255, 255, 255)",
+        muted: "rgb(0 0 0 / 62%)",
+        faint: "rgb(0 0 0 / 56%)",
+        line: "rgb(0 0 0 / 10%)",
+        accent: "#315EFF",
+        rail: "#111111",
+      };
+  const ladder = seen.dark ? "dark" : "light";
+  expect(seen.canvas, `the ${ladder} canvas must be the neutral one, not a tinted neutral`).toBe(
+    want.canvas,
   );
-  expect(seen.muted, "the muted rung").toBe("rgb(0 0 0 / 62%)");
-  expect(seen.faint, "the faint rung").toBe("rgb(0 0 0 / 56%)");
-  expect(seen.line, "the hairline rung").toBe("rgb(0 0 0 / 10%)");
-  expect(seen.accent, "the single accent").toBe("#315EFF");
-  expect(seen.rail, "the inverted rail canvas").toBe("#111111");
+  expect(seen.muted, `the ${ladder} muted rung`).toBe(want.muted);
+  expect(seen.faint, `the ${ladder} faint rung`).toBe(want.faint);
+  expect(seen.line, `the ${ladder} hairline rung`).toBe(want.line);
+  expect(seen.accent, `the ${ladder} single accent`).toBe(want.accent);
+  expect(seen.rail, `the ${ladder} inverted rail canvas`).toBe(want.rail);
   expect(
     seen.loadedFamilies,
     "the vendored typeface must actually load; declaring a family is not loading one",
@@ -327,6 +351,66 @@ export async function expectAccessibleNavigation(page: Page, label: string): Pro
       `${label}: only the current section may carry aria-current in ${nav}`,
     ).toHaveCount(activeCount);
   }
+}
+
+/**
+ * WCAG contrast measured from computed styles (issue #378): the text colour is
+ * alpha-composited over the first painted ancestor background, so an alpha-black
+ * or alpha-white rung is judged on the surface it actually lands on, not on the
+ * page canvas. Returns the ratio and both resolved colours for the message.
+ */
+export async function measureContrast(
+  locator: Locator,
+): Promise<{ ratio: number; fg: string; bg: string }> {
+  return locator.evaluate((el) => {
+    const parse = (value: string): [number, number, number, number] => {
+      const m = value.match(/rgba?\(([^)]+)\)/);
+      if (!m) return [0, 0, 0, 1];
+      const parts = m[1]
+        .split(/[\s,/]+/)
+        .filter(Boolean)
+        .map(Number);
+      const [r, g, b] = parts;
+      let a = parts.length > 3 ? parts[3] : 1;
+      if (m[1].includes("%") && parts.length > 3) a = parts[3] / 100;
+      return [r, g, b, Number.isFinite(a) ? a : 1];
+    };
+    const over = (
+      top: [number, number, number, number],
+      under: [number, number, number],
+    ): [number, number, number] => {
+      const a = top[3];
+      return [
+        Math.round(top[0] * a + under[0] * (1 - a)),
+        Math.round(top[1] * a + under[1] * (1 - a)),
+        Math.round(top[2] * a + under[2] * (1 - a)),
+      ];
+    };
+    let bg: [number, number, number] = [255, 255, 255];
+    const chain: Element[] = [];
+    for (let node: Element | null = el; node; node = node.parentElement) chain.unshift(node);
+    for (const node of chain) {
+      const c = parse(getComputedStyle(node).backgroundColor);
+      if (c[3] > 0) bg = over(c, bg);
+    }
+    const fgRaw = parse(getComputedStyle(el).color);
+    const fg = over(fgRaw, bg);
+    const lum = ([r, g, b]: [number, number, number]) => {
+      const f = (v: number) => {
+        const s = v / 255;
+        return s <= 0.03928 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
+      };
+      return 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(b);
+    };
+    const l1 = lum(fg);
+    const l2 = lum(bg);
+    const ratio = (Math.max(l1, l2) + 0.05) / (Math.min(l1, l2) + 0.05);
+    return {
+      ratio: Math.round(ratio * 100) / 100,
+      fg: `rgb(${fg.join(", ")})`,
+      bg: `rgb(${bg.join(", ")})`,
+    };
+  });
 }
 
 /**
