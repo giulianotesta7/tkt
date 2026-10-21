@@ -2,6 +2,7 @@ package httpadapter
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/giulianotesta7/tkt/internal/application"
 	"github.com/giulianotesta7/tkt/internal/domain"
+	"github.com/giulianotesta7/tkt/internal/i18n"
 )
 
 // SettingsHandlers expose the instance configuration settings (the Settings
@@ -26,11 +28,19 @@ import (
 // user-management grant would silently widen every future settings route to
 // whatever managing people comes to mean. The rail link follows the same
 // capability through pageData.CanManageSettings.
+//
+// The Email section and its two routes (issue #362) are the exception to that
+// gate: they are root-only through CapManageEmail, because the SMTP
+// credentials are the instance's own and an administrator manages the instance
+// without holding them. An administrator's page does not render the section
+// and an administrator's POST is refused here before the service re-enforces
+// the same capability.
 type SettingsHandlers struct {
 	settings *application.SettingsService
 	sla      *application.SLAService
 	slaStore application.SLAStore
 	appSet   application.SettingsStore
+	email    *application.EmailSettingsService
 	renderer *Renderer
 }
 
@@ -41,6 +51,13 @@ func NewSettingsHandlers(settings *application.SettingsService, sla *application
 	return &SettingsHandlers{settings: settings, sla: sla, slaStore: slaStore, appSet: appSet, renderer: renderer}
 }
 
+// WithEmail wires the email settings use cases behind the root-only Email
+// section (issue #362).
+func (h *SettingsHandlers) WithEmail(email *application.EmailSettingsService) *SettingsHandlers {
+	h.email = email
+	return h
+}
+
 // Register mounts the settings routes.
 func (h *SettingsHandlers) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /settings", h.index)
@@ -48,6 +65,8 @@ func (h *SettingsHandlers) Register(mux *http.ServeMux) {
 	mux.HandleFunc("POST /settings/language", h.updateLanguage)
 	mux.HandleFunc("POST /settings/sla", h.updateSLA)
 	mux.HandleFunc("POST /settings/calendar", h.updateCalendar)
+	mux.HandleFunc("POST /settings/email", h.updateEmail)
+	mux.HandleFunc("POST /settings/email/test", h.sendTestEmail)
 }
 
 // settingsIndexData is the appearance, interface-language, SLA, and
@@ -70,6 +89,74 @@ type settingsIndexData struct {
 	CalendarStart    string
 	CalendarEnd      string
 	CalendarTimezone string
+
+	// CanManageEmail decides whether the Email section renders at all: it is
+	// root-only (CapManageEmail), so an administrator's page never shows a
+	// control it cannot use and never reads the SMTP configuration.
+	CanManageEmail bool
+	Email          emailPanelData
+}
+
+// emailPanelData is the Email section payload (issue #362): the stored SMTP
+// configuration with the password reduced to PasswordSet, the encryption
+// choices, and whether a test email just succeeded. It never carries the
+// password or its sealed form, so no render path can print one (S8).
+type emailPanelData struct {
+	Enabled       bool
+	Host          string
+	Port          string
+	Encryption    application.EmailEncryption
+	SkipTLSVerify bool
+	Username      string
+	PasswordSet   bool
+	FromAddress   string
+	FromName      string
+	BaseURL       string
+	Encryptions   []emailEncryptionOption
+	// TestSent marks the page rendered by a successful test email.
+	TestSent bool
+}
+
+// emailEncryptionOption is one encryption choice: the value the form submits
+// and the catalogue key of its label.
+type emailEncryptionOption struct {
+	Value    application.EmailEncryption
+	Label    string
+	Selected bool
+}
+
+// emailEncryptionOptions lists the offered modes in the service's order (none,
+// STARTTLS, TLS — S3) with the active one marked.
+func emailEncryptionOptions(selected application.EmailEncryption) []emailEncryptionOption {
+	labels := map[application.EmailEncryption]string{
+		application.EmailEncryptionNone:     "settings.email.encryption.none",
+		application.EmailEncryptionSTARTTLS: "settings.email.encryption.starttls",
+		application.EmailEncryptionTLS:      "settings.email.encryption.tls",
+	}
+	modes := application.AllowedEmailEncryptions()
+	out := make([]emailEncryptionOption, 0, len(modes))
+	for _, mode := range modes {
+		out = append(out, emailEncryptionOption{Value: mode, Label: labels[mode], Selected: mode == selected})
+	}
+	return out
+}
+
+// emailPanelFromStored reduces a stored configuration to the panel: the sealed
+// password stays behind, and only the fact that one is stored travels.
+func emailPanelFromStored(stored application.EmailSettings) emailPanelData {
+	return emailPanelData{
+		Enabled:       stored.Enabled,
+		Host:          stored.Host,
+		Port:          strconv.Itoa(stored.Port),
+		Encryption:    stored.Encryption,
+		SkipTLSVerify: stored.SkipTLSVerify,
+		Username:      stored.Username,
+		PasswordSet:   stored.PasswordSet,
+		FromAddress:   stored.FromAddress,
+		FromName:      stored.FromName,
+		BaseURL:       stored.BaseURL,
+		Encryptions:   emailEncryptionOptions(stored.Encryption),
+	}
 }
 
 // calendarDayOption is one selectable working day, in storage order
@@ -198,6 +285,10 @@ func (h *SettingsHandlers) index(w http.ResponseWriter, r *http.Request) {
 		httpError(w, r, "error.internal_server", http.StatusInternalServerError)
 		return
 	}
+	if err := h.claimEmailPanel(r, &data); err != nil {
+		httpError(w, r, "error.internal_server", http.StatusInternalServerError)
+		return
+	}
 	// The shell CSS must carry the same color the panel shows; stamp the
 	// authoritative read into the page data.
 	data.InternalCommentBg = current
@@ -284,6 +375,12 @@ func (h *SettingsHandlers) updateAppearance(w http.ResponseWriter, r *http.Reque
 			httpError(w, r, "error.internal_server", http.StatusInternalServerError)
 			return
 		}
+		// The email section is untouched by this POST too: it re-renders from
+		// the stored configuration for the root who may manage it.
+		if loadErr := h.claimEmailPanel(r, &data); loadErr != nil {
+			httpError(w, r, "error.internal_server", http.StatusInternalServerError)
+			return
+		}
 		data.InternalCommentBg = current
 		h.renderer.Render(w, r, "settings_index", "", data, status)
 		return
@@ -336,6 +433,12 @@ func (h *SettingsHandlers) updateLanguage(w http.ResponseWriter, r *http.Request
 			return
 		}
 		if loadErr := h.loadLanguage(r, &data); loadErr != nil {
+			httpError(w, r, "error.internal_server", http.StatusInternalServerError)
+			return
+		}
+		// The email section is untouched by this POST too: it re-renders from
+		// the stored configuration for the root who may manage it.
+		if loadErr := h.claimEmailPanel(r, &data); loadErr != nil {
 			httpError(w, r, "error.internal_server", http.StatusInternalServerError)
 			return
 		}
@@ -406,6 +509,12 @@ func (h *SettingsHandlers) updateSLA(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if loadErr := h.loadLanguage(r, &data); loadErr != nil {
+			httpError(w, r, "error.internal_server", http.StatusInternalServerError)
+			return
+		}
+		// The email section is untouched by this POST too: it re-renders from
+		// the stored configuration for the root who may manage it.
+		if loadErr := h.claimEmailPanel(r, &data); loadErr != nil {
 			httpError(w, r, "error.internal_server", http.StatusInternalServerError)
 			return
 		}
@@ -486,6 +595,12 @@ func (h *SettingsHandlers) updateCalendar(w http.ResponseWriter, r *http.Request
 			return
 		}
 		if loadErr := h.loadLanguage(r, &data); loadErr != nil {
+			httpError(w, r, "error.internal_server", http.StatusInternalServerError)
+			return
+		}
+		// The email section is untouched by this POST too: it re-renders from
+		// the stored configuration for the root who may manage it.
+		if loadErr := h.claimEmailPanel(r, &data); loadErr != nil {
 			httpError(w, r, "error.internal_server", http.StatusInternalServerError)
 			return
 		}
@@ -572,4 +687,184 @@ func slaFormInt(r *http.Request, key string) int {
 		return 0
 	}
 	return n
+}
+
+// ---------------------------------------------------------------------------
+// Email section (issue #362; specs S1-S4, S8, S10, S14, S15, S16)
+// ---------------------------------------------------------------------------
+
+// claimEmailPanel fills the root-only Email section payload. CanManageEmail
+// gates the MARKUP and the read together, so an administrator's page neither
+// shows a control it cannot use nor runs an email read it has no right to.
+func (h *SettingsHandlers) claimEmailPanel(r *http.Request, data *settingsIndexData) error {
+	if h.email == nil {
+		// A handler set built without WithEmail fails closed: the section is
+		// never rendered for anyone and no read runs.
+		return nil
+	}
+	actor := *userFromContext(r.Context())
+	data.CanManageEmail = application.NewPolicy().Capabilities(actor.Role).Require(application.CapManageEmail)
+	if !data.CanManageEmail {
+		return nil
+	}
+	stored, err := h.email.Get(r.Context(), actor)
+	if err != nil {
+		return err
+	}
+	data.Email = emailPanelFromStored(stored)
+	return nil
+}
+
+// requireEmail answers the root-only email gate: the capability AND the wired
+// use case, so a handler set built without WithEmail refuses instead of
+// dereferencing a nil service.
+func (h *SettingsHandlers) requireEmail(w http.ResponseWriter, r *http.Request) bool {
+	if h.email == nil {
+		httpError(w, r, "error.forbidden", http.StatusForbidden)
+		return false
+	}
+	return requireCapability(w, r, application.CapManageEmail)
+}
+
+// emailInputFromForm reconstructs one submission from the panel's fields. The
+// port is parsed rather than validated here: an unparseable value — and an
+// explicit 0, which the service would read as "unset" — becomes -1 so the
+// application service produces the 422 (the boundary never invents a default
+// that would silently persist the wrong port), and an empty one stays 0 so the
+// service applies its own default of 25 (S1).
+func emailInputFromForm(r *http.Request) application.EmailSettingsInput {
+	port := 0
+	if raw := strings.TrimSpace(r.Form.Get("email_port")); raw != "" {
+		parsed, err := strconv.Atoi(raw)
+		if err != nil || parsed == 0 {
+			parsed = -1
+		}
+		port = parsed
+	}
+	return application.EmailSettingsInput{
+		Enabled:       r.Form.Get("email_enabled") == "1",
+		Host:          r.Form.Get("email_host"),
+		Port:          port,
+		Encryption:    application.EmailEncryption(strings.TrimSpace(r.Form.Get("email_encryption"))),
+		SkipTLSVerify: r.Form.Get("email_skip_tls_verify") == "1",
+		Username:      r.Form.Get("email_username"),
+		Password:      r.Form.Get("email_password"),
+		FromAddress:   r.Form.Get("email_from_address"),
+		FromName:      r.Form.Get("email_from_name"),
+		BaseURL:       r.Form.Get("email_base_url"),
+	}
+}
+
+// echoEmailForm overwrites the panel's editable fields with one submission, so
+// a rejected save costs root nothing but the password — which no response
+// carries (S8), only the "one is saved" flag the stored configuration reports.
+func echoEmailForm(panel emailPanelData, r *http.Request) emailPanelData {
+	in := emailInputFromForm(r)
+	panel.Enabled = in.Enabled
+	panel.Host = in.Host
+	panel.Port = strings.TrimSpace(r.Form.Get("email_port"))
+	panel.Encryption = in.Encryption
+	panel.SkipTLSVerify = in.SkipTLSVerify
+	panel.Username = in.Username
+	panel.FromAddress = in.FromAddress
+	panel.FromName = in.FromName
+	panel.BaseURL = in.BaseURL
+	panel.Encryptions = emailEncryptionOptions(in.Encryption)
+	return panel
+}
+
+// renderEmailPage renders the whole Settings page for an email action that does
+// not simply redirect: every other panel comes from storage and the Email
+// section from the stored configuration, adjusted by the caller (the submitted
+// values of a rejected save, or the success of a test email).
+func (h *SettingsHandlers) renderEmailPage(w http.ResponseWriter, r *http.Request, status int, message string, adjust func(*emailPanelData)) {
+	current, err := h.settings.GetAppearance(r.Context())
+	if err != nil {
+		httpError(w, r, "error.internal_server", http.StatusInternalServerError)
+		return
+	}
+	data := settingsIndexData{
+		pageData: pageDataFrom(r, "settings"),
+		Error:    message,
+		Current:  current,
+		Colors:   appearanceOptions(),
+	}
+	for _, load := range []func(*http.Request, *settingsIndexData) error{h.loadSLA, h.loadCalendar, h.loadLanguage, h.claimEmailPanel} {
+		if loadErr := load(r, &data); loadErr != nil {
+			httpError(w, r, "error.internal_server", http.StatusInternalServerError)
+			return
+		}
+	}
+	if adjust != nil {
+		adjust(&data.Email)
+	}
+	data.InternalCommentBg = current
+	h.renderer.Render(w, r, "settings_index", "", data, status)
+}
+
+// updateEmail persists the whole SMTP configuration (S1-S4, S8, S10, S15, S16).
+// Root-only: refused here and re-refused by the service. ONE application call
+// validates everything before the store writes anything, so a rejected
+// submission changes nothing; it re-renders (422) with the submitted values
+// except the password. Success redirects 303 back to /settings, so the saved
+// configuration applies without a restart (S4).
+func (h *SettingsHandlers) updateEmail(w http.ResponseWriter, r *http.Request) {
+	if !h.requireEmail(w, r) {
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		httpError(w, r, "error.internal_server", http.StatusInternalServerError)
+		return
+	}
+	actor := *userFromContext(r.Context())
+	err := h.email.Save(r.Context(), actor, emailInputFromForm(r))
+	if err != nil {
+		status, msg := mapErrorFor(r, err)
+		if status == http.StatusInternalServerError {
+			http.Error(w, msg, status)
+			return
+		}
+		h.renderEmailPage(w, r, status, msg, func(panel *emailPanelData) {
+			*panel = echoEmailForm(*panel, r)
+		})
+		return
+	}
+	saveFeedback(w, r, saveFeedbackSaved, saveFeedbackSuccess)
+	redirect(w, r, "/settings")
+}
+
+// sendTestEmail sends one message to the ACTING ROOT's own address with the
+// stored configuration (S14), enabled or not, so root can try a server before
+// turning delivery on. The action cannot address anyone else, so it is never a
+// relay. Success re-renders the page (200) with the confirmation; a rejected
+// configuration re-renders it (422) with the localized reason; a refused send
+// re-renders it (502) with the server's own reply, which never contains the
+// password (S8).
+func (h *SettingsHandlers) sendTestEmail(w http.ResponseWriter, r *http.Request) {
+	if !h.requireEmail(w, r) {
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		httpError(w, r, "error.internal_server", http.StatusInternalServerError)
+		return
+	}
+	if err := h.email.SendTest(r.Context(), *userFromContext(r.Context())); err != nil {
+		status, msg := mapErrorFor(r, err)
+		var delivery *application.EmailDeliveryError
+		if errors.As(err, &delivery) {
+			// The submitted form is valid; the SMTP server is what failed, so
+			// this is an upstream failure rather than a rejected field.
+			status = http.StatusBadGateway
+			msg = i18n.New(requestLocale(r)).Tf("error.email_delivery_failed", delivery.Detail)
+		}
+		if status == http.StatusInternalServerError {
+			http.Error(w, msg, status)
+			return
+		}
+		h.renderEmailPage(w, r, status, msg, nil)
+		return
+	}
+	h.renderEmailPage(w, r, http.StatusOK, "", func(panel *emailPanelData) {
+		panel.TestSent = true
+	})
 }

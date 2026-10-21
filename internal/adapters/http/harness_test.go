@@ -9,10 +9,13 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/giulianotesta7/tkt/internal/adapters/msgtext"
+	"github.com/giulianotesta7/tkt/internal/adapters/secretbox"
 	"github.com/giulianotesta7/tkt/internal/adapters/sqlite"
 	"github.com/giulianotesta7/tkt/internal/application"
 	"github.com/giulianotesta7/tkt/internal/domain"
@@ -121,31 +124,56 @@ func wantRedirect(t *testing.T, rec *httptest.ResponseRecorder, wantStatus int, 
 	}
 }
 
+// fakeMailer is the harness's Mailer: it records every message the email
+// settings service hands it, so a test proves what was sent, to whom, and
+// through which server without opening a socket (this layer never does). err
+// makes every send fail with a transport-style refusal. The harness is
+// single-goroutine (no test here uses t.Parallel), so the fake needs no lock;
+// a background sender would need one.
+type fakeMailer struct {
+	sent []application.OutgoingEmail
+	cfg  application.SMTPConfig
+	err  error
+}
+
+var _ application.Mailer = (*fakeMailer)(nil)
+
+func (m *fakeMailer) Send(_ context.Context, cfg application.SMTPConfig, email application.OutgoingEmail) error {
+	m.cfg = cfg
+	if m.err != nil {
+		return m.err
+	}
+	m.sent = append(m.sent, email)
+	return nil
+}
+
 // harness is the fully wired test server: every application service over the
 // real sqlite store, the real renderer, all registered routes, and the
 // middleware-wrapped mux. An admin user with a live session is seeded so
 // tests can exercise authenticated routes directly.
 type harness struct {
-	store        *sqlite.Store
-	dbPath       string
-	clock        domain.Clock
-	tickets      *application.TicketService
-	comments     *application.CommentService
-	users        *application.UserService
-	auth         *application.AuthService
-	categories   *application.CategoryService
-	desks        *application.DeskService
-	search       *application.SearchService
-	settings     *application.SettingsService
-	workflows    *application.WorkflowService
-	sla          *application.SLAService
-	preferences  *application.PreferencesService
-	renderer     *Renderer
-	mux          *http.ServeMux
-	mw           *SessionMiddleware
-	admin        *domain.User
-	adminSession *domain.Session
-	bugCategory  *domain.Category
+	store         *sqlite.Store
+	dbPath        string
+	clock         domain.Clock
+	tickets       *application.TicketService
+	comments      *application.CommentService
+	users         *application.UserService
+	auth          *application.AuthService
+	categories    *application.CategoryService
+	desks         *application.DeskService
+	search        *application.SearchService
+	settings      *application.SettingsService
+	workflows     *application.WorkflowService
+	sla           *application.SLAService
+	preferences   *application.PreferencesService
+	emailSettings *application.EmailSettingsService
+	mailer        *fakeMailer
+	renderer      *Renderer
+	mux           *http.ServeMux
+	mw            *SessionMiddleware
+	admin         *domain.User
+	adminSession  *domain.Session
+	bugCategory   *domain.Category
 }
 
 func newHarness(t *testing.T) *harness {
@@ -178,6 +206,12 @@ func newHarnessWithAdmin(t *testing.T, seedAdmin bool) *harness {
 	preferencesSvc := application.NewPreferencesService(s.PreferencesStore())
 	workflowSvc := application.NewWorkflowService(s.WorkflowStore())
 	metricsSvc := application.NewTicketMetricsService(s.TicketMetricsStore(), clock)
+	// Issue #362: the SMTP password is sealed with the key file that lives next
+	// to the database in the data volume (S9), so the harness uses the REAL box
+	// over its own temp dir and fakes only the transport — a test must observe
+	// the send without opening a socket.
+	mailer := &fakeMailer{}
+	emailSettingsSvc := application.NewEmailSettingsService(s.EmailSettingsStore(), secretbox.New(filepath.Dir(dbPath)), mailer, s.SettingsStore(), msgtext.Renderer{})
 	renderer := NewRenderer()
 
 	mux := http.NewServeMux()
@@ -188,7 +222,7 @@ func newHarnessWithAdmin(t *testing.T, seedAdmin bool) *harness {
 	NewCategoryHandlersWithWorkflows(catSvc, workflowSvc, renderer).Register(mux)
 	NewCategoryWorkflowHandlers(catSvc, workflowSvc, deskSvc, renderer).Register(mux)
 	NewDeskHandlers(deskSvc, renderer).Register(mux)
-	NewSettingsHandlers(settingsSvc, slaSvc, s.SLAStore(), s.SettingsStore(), renderer).Register(mux)
+	NewSettingsHandlers(settingsSvc, slaSvc, s.SLAStore(), s.SettingsStore(), renderer).WithEmail(emailSettingsSvc).Register(mux)
 	NewCategorySLAHandlers(catSvc, slaSvc, s.SLAStore(), renderer).Register(mux)
 	NewPreferencesHandlers(preferencesSvc, renderer).Register(mux)
 	NewNotificationHandlers(s.NotificationStore(), s.TicketStore(), s.UserStore(), renderer, clock).Register(mux)
@@ -198,9 +232,9 @@ func newHarnessWithAdmin(t *testing.T, seedAdmin bool) *harness {
 		store: s, dbPath: dbPath, clock: clock,
 		tickets: ticketSvc, comments: commentSvc, users: usersSvc, auth: authSvc,
 		categories: catSvc, desks: deskSvc, search: searchSvc, settings: settingsSvc, workflows: workflowSvc, sla: slaSvc,
-		preferences: preferencesSvc,
-		renderer:    renderer,
-		mux:         mux, mw: mw,
+		preferences: preferencesSvc, emailSettings: emailSettingsSvc, mailer: mailer,
+		renderer: renderer,
+		mux:      mux, mw: mw,
 	}
 	if !seedAdmin {
 		return h
