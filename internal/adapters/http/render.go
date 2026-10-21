@@ -19,6 +19,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/giulianotesta7/tkt/internal/adapters/msgtext"
 	"github.com/giulianotesta7/tkt/internal/application"
 	"github.com/giulianotesta7/tkt/internal/domain"
 	"github.com/giulianotesta7/tkt/internal/i18n"
@@ -122,27 +123,9 @@ func labeledValue(tr i18n.Translator, kind string, value any) string {
 }
 
 // resolveMsg renders one application message reference through the active
-// catalogue: its key names the sentence and each argument is either a resolved
-// value (never translated) or a nested catalogue key (a translated
-// placeholder), so a composed sentence carries no English of its own.
+// catalogue (shared with the email renderer, issue #362).
 func resolveMsg(tr i18n.Translator, m application.Msg) string {
-	if m.Key == "" {
-		// Data, not copy: an admin-authored value carried as one field of a
-		// composed message renders verbatim.
-		return m.Raw
-	}
-	args := make([]any, len(m.Args))
-	for i, arg := range m.Args {
-		switch {
-		case arg.Msg != nil:
-			args[i] = resolveMsg(tr, *arg.Msg)
-		case arg.Key != "":
-			args[i] = tr.T(arg.Key)
-		default:
-			args[i] = arg.Value
-		}
-	}
-	return tr.Tf(m.Key, args...)
+	return msgtext.Resolve(tr, m)
 }
 
 // resolveIssueArg resolves one interpolation value of a domain message. A
