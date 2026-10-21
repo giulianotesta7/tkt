@@ -1254,7 +1254,7 @@ func TestGoldenTicketDetailOnHold(t *testing.T) {
 	body := renderGolden(t, "tickets_show", "ticket_detail", d, true)
 
 	for _, want := range []string{
-		`class="hold-banner"`,
+		`class="sla-hold-status"`,
 		`On hold since`,
 		`datetime="` + formatDatetime(goldenT1) + `"`,
 		// The pause instant renders as the LOCALIZED date inside that <time>.

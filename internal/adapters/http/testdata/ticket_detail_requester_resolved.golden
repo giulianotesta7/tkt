@@ -1,7 +1,6 @@
 
 <div id="ticket-detail" hx-headers="{&#34;X-TKT-Queue-Return&#34;:&#34;/tickets&#34;}">
 
-
   <div class="command-header">
     <div class="detail-head">
       <div class="meta-row">
@@ -23,7 +22,6 @@
         <h2>Description</h2>
         <p class="ticket-description">The login form 500s on submit</p>
           </div>
-
 
 	<section class="card resolution-confirmation" aria-labelledby="resolution-confirmation-title">
 		<p class="resolution-eyebrow">Resolution confirmation</p>
@@ -187,6 +185,50 @@ function syncReopenReason(select) {
 
 
 
+
+
+
+
+
+
+
+
+
+
+function initHoldDialog() {
+  const dialog = document.getElementById('ticket-hold-dialog');
+  const opener = document.querySelector('#ticket-detail [data-hold-open]');
+  if (!dialog || !opener) return;
+  const reason = dialog.querySelector('#hold-reason');
+  const show = () => {
+    if (dialog.showModal) dialog.showModal();
+    else dialog.setAttribute('open', '');
+    if (reason) reason.focus();
+  };
+  opener.addEventListener('click', show);
+  const form = dialog.querySelector('form');
+  const detail = document.getElementById('ticket-detail');
+  if (form && detail) {
+    detail.addEventListener('htmx:beforeSwap', (event) => {
+      const config = event.detail.requestConfig;
+      if (!config || config.elt !== form) return;
+      const status = event.detail.xhr ? event.detail.xhr.status : 0;
+      if (status === 422 || status === 409) {
+        event.detail.shouldSwap = true;
+        event.detail.isError = false;
+      }
+    });
+  }
+  const cancel = dialog.querySelector('[data-hold-cancel]');
+  if (cancel) {
+    cancel.addEventListener('click', () => {
+      if (dialog.open) dialog.close();
+      else dialog.removeAttribute('open');
+      opener.focus();
+    });
+  }
+  if (dialog.hasAttribute('data-open-on-load')) show();
+}
 function initTitleEditor() {
   const input = document.getElementById('ticket-title');
   const titleForm = input ? input.form : null;
@@ -315,5 +357,6 @@ function initTitleEditor() {
     syncReopenReason(select);
   }
   initTitleEditor();
+  initHoldDialog();
 })();
 </script>

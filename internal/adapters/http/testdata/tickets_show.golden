@@ -44,7 +44,6 @@
 
 <div id="ticket-detail" hx-headers="{&#34;X-TKT-Queue-Return&#34;:&#34;/tickets&#34;}">
 
-
   <div class="command-header">
     <div class="detail-head">
       <div class="meta-row">
@@ -72,18 +71,6 @@
         <h2>Description</h2>
         <p class="ticket-description">The login form 500s on submit</p>
           </div>
-<section class="card" aria-labelledby="hold-form-title">
-  <h2 id="hold-form-title">Put on hold</h2>
-  <p class="resolution-help">The resolution clock pauses while the ticket waits for the requester.</p>
-  <form method="post" action="/tickets/1/hold" hx-post="/tickets/1/hold" hx-target="#ticket-detail" hx-swap="outerHTML">
-    <div class="field">
-      <label for="hold-reason">Reason (the requester will read it)</label>
-      <textarea id="hold-reason" name="reason" rows="2" required placeholder="What do you need from the requester?"></textarea>
-    </div>
-    <button class="btn primary" type="submit">Put on hold</button>
-  </form>
-</section>
-
 
 
 <form class="card" method="post" action="/tickets/1/comments">
@@ -246,10 +233,21 @@
             <span class="prop-value sla-value"><span class="sla-state"><span class="sla-dot at_risk" aria-hidden="true"></span><span class="sla-state-word">At Risk</span></span> <time datetime="2026-08-07T10:00:00Z" data-sla-countdown><span class="sla-countdown-ticker" aria-hidden="true">4h 0m</span><span class="sla-countdown-coarse visually-hidden">10:00 · 07-08-2026</span></time></span>
           </div>
 
+          <div class="sla-hold-row"><button type="button" class="btn small" data-hold-open aria-haspopup="dialog" aria-controls="ticket-hold-dialog">Put on hold</button></div>
         </div>
       </div>
     </div>
   </div>
+  <dialog id="ticket-hold-dialog" aria-labelledby="ticket-hold-dialog-title" aria-describedby="ticket-hold-dialog-copy">
+    <h2 id="ticket-hold-dialog-title">Put on hold</h2>
+    <p id="ticket-hold-dialog-copy">The resolution clock pauses while the ticket waits for the requester.</p>
+    <form method="post" action="/tickets/1/hold" hx-post="/tickets/1/hold" hx-target="#ticket-detail" hx-swap="outerHTML">
+      <label class="hold-dialog-field" for="hold-reason">Reason (the requester will read it)
+        <textarea id="hold-reason" name="reason" rows="3" required placeholder="What do you need from the requester?"></textarea>
+      </label>
+      <div><button type="button" class="btn" data-hold-cancel>Cancel</button><button class="btn primary" type="submit">Put on hold</button></div>
+    </form>
+  </dialog>
   <dialog id="ticket-title-dialog" aria-labelledby="ticket-title-dialog-title" aria-describedby="ticket-title-dialog-copy">
     <h2 id="ticket-title-dialog-title">Save the title first?</h2>
     <p id="ticket-title-dialog-copy">The ticket title has unsaved changes.</p>
@@ -286,6 +284,50 @@ function syncReopenReason(select) {
 
 
 
+
+
+
+
+
+
+
+
+
+
+function initHoldDialog() {
+  const dialog = document.getElementById('ticket-hold-dialog');
+  const opener = document.querySelector('#ticket-detail [data-hold-open]');
+  if (!dialog || !opener) return;
+  const reason = dialog.querySelector('#hold-reason');
+  const show = () => {
+    if (dialog.showModal) dialog.showModal();
+    else dialog.setAttribute('open', '');
+    if (reason) reason.focus();
+  };
+  opener.addEventListener('click', show);
+  const form = dialog.querySelector('form');
+  const detail = document.getElementById('ticket-detail');
+  if (form && detail) {
+    detail.addEventListener('htmx:beforeSwap', (event) => {
+      const config = event.detail.requestConfig;
+      if (!config || config.elt !== form) return;
+      const status = event.detail.xhr ? event.detail.xhr.status : 0;
+      if (status === 422 || status === 409) {
+        event.detail.shouldSwap = true;
+        event.detail.isError = false;
+      }
+    });
+  }
+  const cancel = dialog.querySelector('[data-hold-cancel]');
+  if (cancel) {
+    cancel.addEventListener('click', () => {
+      if (dialog.open) dialog.close();
+      else dialog.removeAttribute('open');
+      opener.focus();
+    });
+  }
+  if (dialog.hasAttribute('data-open-on-load')) show();
+}
 function initTitleEditor() {
   const input = document.getElementById('ticket-title');
   const titleForm = input ? input.form : null;
@@ -414,6 +456,7 @@ function initTitleEditor() {
     syncReopenReason(select);
   }
   initTitleEditor();
+  initHoldDialog();
 })();
 </script>
 <script>

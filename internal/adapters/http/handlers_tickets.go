@@ -1258,6 +1258,10 @@ type detailData struct {
 	// (issue #352). It is empty on every successful read: the stored reason is
 	// read from the ticket itself.
 	HoldReason string
+	// HoldFailed marks a detail re-rendered for a refused hold request, so the
+	// hold dialog reopens with the error inside it instead of hiding the
+	// message behind the modal (issue #352).
+	HoldFailed bool
 }
 
 // QueueHref is the detail's "← Queue" target: the validated list return href
@@ -1796,6 +1800,7 @@ func (h *TicketHandlers) renderHoldError(w http.ResponseWriter, r *http.Request,
 	}
 	data.Error = msg
 	data.HoldReason = r.Form.Get("reason")
+	data.HoldFailed = true
 	h.renderer.Render(w, r, "tickets_show", "ticket_detail", data, status)
 }
 
