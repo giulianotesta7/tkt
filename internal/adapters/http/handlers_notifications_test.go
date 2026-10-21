@@ -497,7 +497,7 @@ func TestRequesterNeverSeesAnInternalCommentNotification(t *testing.T) {
 
 	body := notificationPanelAs(t, h, requesterSession, false).Body.String()
 
-	if !strings.Contains(body, "New public comment") {
+	if !strings.Contains(body, "New comment") {
 		t.Errorf("the requester never learned about the public comment: %.2000s", body)
 	}
 	for _, leaked := range []string{"New internal comment", "internal note", "comment_internal"} {

@@ -74,7 +74,7 @@
   <input type="hidden" name="ticket_id" value="7">
   <button class="notification-open" type="submit">
     <span class="notification-ident">TKT-10 · Printer jam on the third floor</span>
-    <span class="notification-what">New public comment</span>
+    <span class="notification-what">New comment</span>
     <span class="notification-meta">Ana Torres · <time datetime="2026-08-06T10:00:00Z">10:00 · 06 Aug</time></span>
   </button>
 </form></li>

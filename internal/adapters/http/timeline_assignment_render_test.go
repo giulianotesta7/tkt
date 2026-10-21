@@ -68,7 +68,7 @@ func TestTimelineEventsUseActorFirstNarrative(t *testing.T) {
 	}
 	body := renderTimelineFragment(t, items)
 	for _, want := range []string{
-		`<strong class="timeline-actor">Ada</strong> added a public comment`,
+		`<strong class="timeline-actor">Ada</strong> added a comment`,
 		`<strong class="timeline-actor">Ada</strong> added an internal comment`,
 		`<strong class="timeline-actor">Ada</strong> <span class="timeline-action">moved the ticket to resolved</span>`,
 		`<strong class="timeline-actor">Ada</strong> <span class="timeline-action">changed priority to high</span>`,
