@@ -322,7 +322,7 @@ func (h *TicketHandlers) metricsSummaryData(r *http.Request) (ticketMetricsData,
 // always the sanitized return value. The option lists and any retained filter
 // values are assembled by metricsData, so this only composes and renders.
 func (h *TicketHandlers) renderMetricsDetail(w http.ResponseWriter, r *http.Request, data ticketMetricsData, status int) {
-	page := pageDataFrom(r, "tickets")
+	page := pageDataFrom(r, "metrics")
 	page.PageFoundationAssets = true
 	page.MetricsAssets = true
 	detail := ticketMetricsDetailData{pageData: page, ticketMetricsData: data, BackHref: metricsReturnHref(r.URL.Query().Get("return"))}
