@@ -252,8 +252,8 @@ test.describe("Settings", () => {
     // starts from.
     await page.locator('input[name="sla_calendar_days"][value="5"]').setChecked(false);
     await page.locator('input[name="sla_calendar_days"][value="6"]').setChecked(true);
-    await page.getByLabel("Start").fill("08:30");
-    await page.getByLabel("End").fill("17:45");
+    await page.getByLabel("Start", { exact: true }).fill("08:30");
+    await page.getByLabel("End", { exact: true }).fill("17:45");
     await page.getByLabel("Timezone").fill("America/Argentina/Buenos_Aires");
     await page.getByRole("button", { name: "Save working calendar" }).click();
     await expect(page).toHaveURL(/\/settings$/);
@@ -263,8 +263,8 @@ test.describe("Settings", () => {
     await page.reload();
     await expect(page.locator('input[name="sla_calendar_days"][value="5"]')).not.toBeChecked();
     await expect(page.locator('input[name="sla_calendar_days"][value="6"]')).toBeChecked();
-    await expect(page.getByLabel("Start")).toHaveValue("08:30");
-    await expect(page.getByLabel("End")).toHaveValue("17:45");
+    await expect(page.getByLabel("Start", { exact: true })).toHaveValue("08:30");
+    await expect(page.getByLabel("End", { exact: true })).toHaveValue("17:45");
     await expect(page.getByLabel("Timezone")).toHaveValue("America/Argentina/Buenos_Aires");
 
     // Structural screen assertion here, before the deliberate 422 below:
@@ -283,8 +283,8 @@ test.describe("Settings", () => {
 
     // Rejected save: a start after its end re-renders at the POST URL with
     // the error banner and must not touch the stored calendar.
-    await page.getByLabel("Start").fill("18:00");
-    await page.getByLabel("End").fill("09:00");
+    await page.getByLabel("Start", { exact: true }).fill("18:00");
+    await page.getByLabel("End", { exact: true }).fill("09:00");
     await page.getByRole("button", { name: "Save working calendar" }).click();
     const banner = page.locator(".error-banner");
     await expect(banner).toBeVisible();
@@ -296,8 +296,8 @@ test.describe("Settings", () => {
     await page.goto(base() + "/settings");
     await expect(page.locator('input[name="sla_calendar_days"][value="5"]')).not.toBeChecked();
     await expect(page.locator('input[name="sla_calendar_days"][value="6"]')).toBeChecked();
-    await expect(page.getByLabel("Start")).toHaveValue("08:30");
-    await expect(page.getByLabel("End")).toHaveValue("17:45");
+    await expect(page.getByLabel("Start", { exact: true })).toHaveValue("08:30");
+    await expect(page.getByLabel("End", { exact: true })).toHaveValue("17:45");
     await expect(page.getByLabel("Timezone")).toHaveValue("America/Argentina/Buenos_Aires");
   });
 
