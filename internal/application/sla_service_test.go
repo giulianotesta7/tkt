@@ -547,6 +547,13 @@ func TestSLAServiceConfigWritesDeniedTouchesNoStore(t *testing.T) {
 		t.Errorf("denied SetWarningPercent touched the store (%d calls)", settings.setSLAWarningPercentCalls)
 	}
 
+	if err := svc.SetHoldAutoCloseDays(context.Background(), denied, 3); err == nil {
+		t.Fatal("SetHoldAutoCloseDays(agent) succeeded, want ForbiddenError")
+	}
+	if settings.setHoldAutoCloseDaysCalls != 0 {
+		t.Errorf("denied SetHoldAutoCloseDays touched the store (%d calls)", settings.setHoldAutoCloseDaysCalls)
+	}
+
 	if err := svc.SetDefaultTargets(context.Background(), denied, slaValidMatrix()); err == nil {
 		t.Fatal("SetDefaultTargets(agent) succeeded, want ForbiddenError")
 	}
@@ -1091,5 +1098,56 @@ func TestSLAServiceForTicketsNoFrozenEntry(t *testing.T) {
 	}
 	if entry.Overall != domain.SLANone {
 		t.Errorf("Overall = %q, want %q", entry.Overall, domain.SLANone)
+	}
+}
+
+// TestSLAServiceSetHoldAutoCloseDays pins the window contract of issue #353
+// (S2): 0 turns the feature off and 1..60 are real windows, while anything
+// outside that range is refused with the catalogued key and touches no store.
+func TestSLAServiceSetHoldAutoCloseDays(t *testing.T) {
+	for _, tc := range []struct {
+		days    int
+		wantErr bool
+	}{
+		{0, false},
+		{1, false},
+		{60, false},
+		{-1, true},
+		{61, true},
+		{1000, true},
+	} {
+		settings := &fakeSLASettingsStore{}
+		svc := application.NewSLAService(&fakeSLAStore{}, settings, fixedClock())
+
+		err := svc.SetHoldAutoCloseDays(context.Background(), slaAdminActor(), tc.days)
+		if tc.wantErr {
+			var validation *domain.ValidationError
+			if !errors.As(err, &validation) {
+				t.Fatalf("days %d: err = %v, want ValidationError", tc.days, err)
+			}
+			if validation.Field != "hold_auto_close_working_days" {
+				t.Errorf("days %d: field = %q, want hold_auto_close_working_days", tc.days, validation.Field)
+			}
+			if validation.Key != "error.hold_auto_close_days_invalid" {
+				t.Errorf("days %d: key = %q, want error.hold_auto_close_days_invalid", tc.days, validation.Key)
+			}
+			if settings.setHoldAutoCloseDaysCalls != 0 {
+				t.Errorf("days %d: store touched on rejected value (%d calls)", tc.days, settings.setHoldAutoCloseDaysCalls)
+			}
+			continue
+		}
+		if err != nil {
+			t.Fatalf("days %d: %v", tc.days, err)
+		}
+		if settings.holdAutoCloseDays != tc.days {
+			t.Errorf("days %d: stored %d", tc.days, settings.holdAutoCloseDays)
+		}
+		got, err := svc.HoldAutoCloseDays(context.Background())
+		if err != nil {
+			t.Fatalf("days %d: HoldAutoCloseDays: %v", tc.days, err)
+		}
+		if got != tc.days {
+			t.Errorf("days %d: HoldAutoCloseDays = %d", tc.days, got)
+		}
 	}
 }

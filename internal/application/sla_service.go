@@ -318,6 +318,35 @@ func (s *SLAService) SetEnabled(ctx context.Context, actor domain.User, enabled 
 	return s.settings.SetSLAEnabledState(ctx, enabled, s.clock.Now())
 }
 
+// HoldAutoCloseDays returns the instance's automatic hold expiry window in
+// working days (issue #353, S2): 0 means the feature is off. The store
+// normalizes an absent, unparseable, or out-of-range row to 0, so this always
+// answers a window the pass can act on.
+func (s *SLAService) HoldAutoCloseDays(ctx context.Context) (int, error) {
+	return s.settings.GetHoldAutoCloseDays(ctx)
+}
+
+// SetHoldAutoCloseDays configures how many WORKING days a ticket may stay on
+// hold before the instance closes it (issue #353, S2). The actor must hold
+// CapManageSettings (admin/root) — the same instance-configuration capability
+// the other SLA settings require — and the window must be 0..60: 0 turns the
+// feature off, and a larger window is refused rather than stored, so a mistyped
+// value cannot silently keep tickets paused for months. A refused value touches
+// no store.
+func (s *SLAService) SetHoldAutoCloseDays(ctx context.Context, actor domain.User, days int) error {
+	if !NewPolicy().Capabilities(actor.Role).Require(CapManageSettings) {
+		return domain.NewForbiddenError("sla settings are not permitted")
+	}
+	if days < 0 || days > MaxHoldAutoCloseWorkingDays {
+		return &domain.ValidationError{
+			Field:   "hold_auto_close_working_days",
+			Message: "the hold auto-close window must be between 0 and 60 working days",
+			Key:     "error.hold_auto_close_days_invalid",
+		}
+	}
+	return s.settings.SetHoldAutoCloseDays(ctx, days)
+}
+
 // SetWarningPercent updates the SLA warning threshold. The actor must
 // hold CapManageSettings (admin/root). The percent must be 1..99
 // inclusive — the projection treats a value outside (0,100) exclusive as

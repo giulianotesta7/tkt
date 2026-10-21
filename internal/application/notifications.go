@@ -170,6 +170,29 @@ func onHoldNotifications(t *domain.Ticket, actorUserID *int64, at time.Time, req
 	return b.list()
 }
 
+// holdReminderNotifications builds the issue #353 S3 row: the REQUESTER alone
+// learns the held ticket will close unless they reply. The action is
+// automatic — nobody performs it — so the batch carries no actor and excludes
+// nobody on that ground; a requester who can no longer open the ticket is
+// still dropped, and an empty batch means the pass writes nothing.
+func holdReminderNotifications(t *domain.Ticket, at time.Time, requester *NotificationRecipient) []domain.Notification {
+	b := newNotificationBatch(t, nil, at)
+	b.add(domain.NotificationHoldReminder, requester, nil, nil)
+	return b.list()
+}
+
+// holdClosedNotifications builds the issue #353 S4 rows: the REQUESTER and the
+// ASSIGNEE both learn the ticket was closed because the requester never
+// replied. Like the reminder this is an automatic action, so no actor is
+// excluded by the batch's own-action rule; whoever cannot open the ticket is
+// still dropped, and a requester who is also the assignee is told once.
+func holdClosedNotifications(t *domain.Ticket, at time.Time, requester, assignee *NotificationRecipient) []domain.Notification {
+	b := newNotificationBatch(t, nil, at)
+	b.add(domain.NotificationHoldClosed, requester, nil, nil)
+	b.add(domain.NotificationHoldClosed, assignee, nil, nil)
+	return b.list()
+}
+
 // NotificationTicketQuery is the ticket READ scope the notification panel uses
 // to load the facts it shows for one row (the ticket number and its title). It
 // is exactly the scope the ticket DETAIL route applies — an agent widens to

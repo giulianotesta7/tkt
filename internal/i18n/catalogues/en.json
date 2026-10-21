@@ -223,6 +223,7 @@
   "error.duplicate": "%s %q already exists",
   "error.email_required": "email is required",
   "error.forbidden": "Forbidden",
+  "error.hold_auto_close_days_invalid": "the hold auto-close window must be between 0 and 60 working days",
   "error.identifier_required": "identifier is required",
   "error.internal_server": "Internal server error",
   "error.invalid_category_view": "invalid category view",

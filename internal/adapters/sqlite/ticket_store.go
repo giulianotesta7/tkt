@@ -481,6 +481,37 @@ func holdWriteConflictTx(ctx context.Context, tx *sql.Tx, ticketID int64) error 
 	return &domain.HoldConflictError{TicketID: ticketID}
 }
 
+// RemindHold appends ONE reminder batch for a held ticket (issue #353, S3)
+// under the same compare-and-set the hold writes use: the reminder applies
+// only while the stored on_hold_since is still the hold the caller read, so a
+// requester who replied meanwhile is never told about a hold that already
+// ended. Nothing but the notifications is written — a reminder changes nothing
+// about the hold it announces — and a refused reminder leaves no row behind.
+func (u *unitOfWork) RemindHold(ctx context.Context, ticketID int64, expectedOnHoldSince time.Time, notifications []domain.Notification) error {
+	tx, err := u.db.BeginTx(ctx, nil) // _txlock=immediate → BEGIN IMMEDIATE
+	if err != nil {
+		return fmt.Errorf("sqlite: begin reminder unit: %w", err)
+	}
+	defer tx.Rollback()
+	expected := expectedOnHoldSince
+	var matched int
+	err = tx.QueryRowContext(ctx, `SELECT 1 FROM tickets WHERE id = ? AND on_hold_since IS ?`,
+		ticketID, formatTimePtr(&expected)).Scan(&matched)
+	switch {
+	case errors.Is(err, sql.ErrNoRows):
+		return holdWriteConflictTx(ctx, tx, ticketID)
+	case err != nil:
+		return fmt.Errorf("sqlite: check ticket %d hold: %w", ticketID, err)
+	}
+	if err := appendNotificationsTx(ctx, tx, notifications); err != nil {
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("sqlite: commit reminder unit: %w", err)
+	}
+	return nil
+}
+
 // nullableInt converts a *int into a driver value: nil stays SQL NULL.
 func nullableInt(p *int) any {
 	if p == nil {

@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/giulianotesta7/tkt/internal/application"
 	"github.com/giulianotesta7/tkt/internal/domain"
 )
 
@@ -347,6 +348,50 @@ func TestSettingsStoreSetSLAWarningPercentRoundTrip(t *testing.T) {
 	}
 	if got != 42 {
 		t.Errorf("sla_warning_percent = %d, want 42", got)
+	}
+}
+
+// TestSettingsStoreHoldAutoCloseDays pins the window key of issue #353: an
+// absent row is OFF, a stored value reads back, and a stored value the write
+// path would refuse (unparseable, negative, above the maximum) reads back OFF
+// rather than closing tickets on a window nobody configured.
+func TestSettingsStoreHoldAutoCloseDays(t *testing.T) {
+	s := newTestDB(t)
+	ctx := context.Background()
+	st := s.SettingsStore()
+
+	got, err := st.GetHoldAutoCloseDays(ctx)
+	if err != nil {
+		t.Fatalf("get from an absent row: %v", err)
+	}
+	if got != application.DefaultHoldAutoCloseWorkingDays {
+		t.Errorf("absent row = %d, want the off default %d", got, application.DefaultHoldAutoCloseWorkingDays)
+	}
+
+	for _, days := range []int{0, 1, 60} {
+		if err := st.SetHoldAutoCloseDays(ctx, days); err != nil {
+			t.Fatalf("set %d: %v", days, err)
+		}
+		got, err := st.GetHoldAutoCloseDays(ctx)
+		if err != nil {
+			t.Fatalf("get %d: %v", days, err)
+		}
+		if got != days {
+			t.Errorf("stored %d read back as %d", days, got)
+		}
+	}
+
+	for _, stored := range []string{"", "many", "-3", "61", "9999"} {
+		if _, err := s.db.ExecContext(ctx, `UPDATE settings SET value = ? WHERE key = ?`, stored, settingsKeyHoldAutoCloseDays); err != nil {
+			t.Fatalf("store %q: %v", stored, err)
+		}
+		got, err := st.GetHoldAutoCloseDays(ctx)
+		if err != nil {
+			t.Fatalf("get %q: %v", stored, err)
+		}
+		if got != application.DefaultHoldAutoCloseWorkingDays {
+			t.Errorf("stored %q read back as %d, want the off default", stored, got)
+		}
 	}
 }
 

@@ -40,6 +40,11 @@ type fakeSettingsStore struct {
 	languageErr      error
 	setLanguageErr   error
 	setLanguageCalls int
+	// holdAutoCloseDays mirrors the hold_auto_close_working_days setting (issue
+	// #353), which the settings service tests do not exercise: it answers the
+	// documented default (0, the feature off) so the fake keeps satisfying the
+	// SettingsStore port.
+	holdAutoCloseDays int
 }
 
 func (f *fakeSettingsStore) GetInternalCommentBg(_ context.Context) (string, error) {
@@ -65,6 +70,15 @@ func (f *fakeSettingsStore) SetInternalCommentBg(_ context.Context, color string
 // SettingsStore port.
 func (f *fakeSettingsStore) GetSLAEnabled(_ context.Context) (bool, error) {
 	return false, nil
+}
+
+func (f *fakeSettingsStore) GetHoldAutoCloseDays(_ context.Context) (int, error) {
+	return f.holdAutoCloseDays, nil
+}
+
+func (f *fakeSettingsStore) SetHoldAutoCloseDays(_ context.Context, days int) error {
+	f.holdAutoCloseDays = days
+	return nil
 }
 
 func (f *fakeSettingsStore) GetSLAWarningPercent(_ context.Context) (int, error) {

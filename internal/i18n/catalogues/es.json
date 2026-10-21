@@ -223,6 +223,7 @@
   "error.duplicate": "%s %q ya existe",
   "error.email_required": "el correo electrónico es obligatorio",
   "error.forbidden": "Prohibido",
+  "error.hold_auto_close_days_invalid": "la ventana de cierre automático en espera debe estar entre 0 y 60 días hábiles",
   "error.identifier_required": "el identificador es obligatorio",
   "error.internal_server": "Error interno del servidor",
   "error.invalid_category_view": "vista de categoría no válida",
