@@ -2,6 +2,7 @@ package sqlite
 
 import (
 	"context"
+	"fmt"
 	"io/fs"
 	"strings"
 	"testing"
@@ -340,5 +341,65 @@ func seedNotificationRowID(t *testing.T, s *Store, id, userID, ticketID int64) {
 		`INSERT INTO notifications (id, user_id, ticket_id, kind, created_at) VALUES (?, ?, ?, ?, ?)`,
 		id, userID, ticketID, string(domain.NotificationCommentPublic), formatTime(testClock)); err != nil {
 		t.Fatalf("seed notification %d: %v", id, err)
+	}
+}
+
+// TestMigration0024AppliesAfterALaterMigration covers an instance that ran
+// main between #366 and #362: 0025 is applied, 0024 is not. The runner checks
+// each version on its own, so the next start applies 0024 and records it.
+func TestMigration0024AppliesAfterALaterMigration(t *testing.T) {
+	ctx := context.Background()
+	db, err := openDSN(testDSN(t))
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	db.db.SetMaxOpenConns(1)
+	t.Cleanup(func() { _ = db.db.Close() })
+
+	without0024 := fstest.MapFS{}
+	entries, err := fs.ReadDir(migrationsFS, "migrations")
+	if err != nil {
+		t.Fatalf("read embedded migrations: %v", err)
+	}
+	for _, entry := range entries {
+		if entry.Name() == "0024_notification_emails.sql" {
+			continue
+		}
+		blob, err := fs.ReadFile(migrationsFS, "migrations/"+entry.Name())
+		if err != nil {
+			t.Fatalf("read %s: %v", entry.Name(), err)
+		}
+		without0024["migrations/"+entry.Name()] = &fstest.MapFile{Data: blob}
+	}
+	if err := migrate(ctx, db.db, without0024); err != nil {
+		t.Fatalf("migrate without 0024: %v", err)
+	}
+	if err := migrate(ctx, db.db, migrationsFS); err != nil {
+		t.Fatalf("apply 0024 after a later migration: %v", err)
+	}
+
+	var n int
+	if err := db.db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='notification_emails'`).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	if n != 1 {
+		t.Fatalf("notification_emails tables = %d, want 1", n)
+	}
+	rows, err := db.db.QueryContext(ctx, `SELECT version FROM schema_migrations ORDER BY version`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	var versions []int
+	for rows.Next() {
+		var v int
+		if err := rows.Scan(&v); err != nil {
+			t.Fatal(err)
+		}
+		versions = append(versions, v)
+	}
+	if fmt.Sprint(versions) != fmt.Sprint(wantMigrationVersions) {
+		t.Errorf("versions = %v, want %v", versions, wantMigrationVersions)
 	}
 }

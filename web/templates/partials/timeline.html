@@ -20,7 +20,8 @@
       <span class="when">{{template "timestamp" .Comment.CreatedAt}}</span>
     </div>
     <div class="body">{{.Comment.Body}}</div>
-  </div>
+{{if .Attachments}}    <ul class="attachments" aria-label="{{t "tickets.detail.attachments"}}">{{range .Attachments}}<li><a class="attachment-name" href="/attachments/{{.ID}}">{{.FileName}}</a> <span class="attachment-size">{{fileSize .Size}}</span></li>{{end}}</ul>
+{{end}}  </div>
 {{else}}
 {{if and (eq .Event.Action "workflow_manual_task") (or .StepInstruction .StepSolution)}}
   <div class="timeline-entry timeline-event timeline-manual{{if .StateClass}} st-{{.StateClass}}{{end}}">

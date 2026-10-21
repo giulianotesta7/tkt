@@ -83,7 +83,13 @@ type TimelineItem struct {
 	// through the same enrichment pass as StepInstruction; empty when none was
 	// submitted or for legacy completions. Data-only: rendering lands in WB.
 	StepSolution string
-	seq          int // original list index: deterministic tie-break
+	// Attachments are the files of a COMMENT entry (issue #366): the HTTP layer
+	// stamps them after the scoped ticket read, because the file list is read
+	// with the same includeInternal the timeline was, so a requester never
+	// receives a staff-only file here. Empty for every event entry and for a
+	// comment with no file.
+	Attachments []domain.Attachment
+	seq         int // original list index: deterministic tie-break
 }
 
 // ViewBuilder assembles TicketViews and resolves historical audit references.

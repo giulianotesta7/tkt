@@ -1,9 +1,11 @@
 package httpadapter
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"errors"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -198,6 +200,7 @@ func newHarnessWithAdmin(t *testing.T, seedAdmin bool) *harness {
 	slaSvc := application.NewSLAService(s.SLAStore(), s.SettingsStore(), clock)
 	ticketSvc := application.NewTicketServiceWithWorkflowCreate(s.TicketStore(), s.UserStore(), s.CategoryStore(), s.TicketUnitOfWork(), viewBuilder, clock, s.WorkflowVersionStore(), application.NewWorkflowRunner(clock), s.WorkflowUnitOfWork(), slaSvc)
 	commentSvc := application.NewCommentService(s.TicketStore(), s.CommentStore(), s.UserStore(), s.CommentUnitOfWork(), clock).WithSLA(slaSvc)
+	attachmentSvc := application.NewAttachmentService(s.TicketStore(), s.AttachmentStore())
 	searchSvc := application.NewSearchService(s.TicketStore(), s.SearchStore())
 	settingsSvc := application.NewSettingsService(s.SettingsStore())
 	preferencesSvc := application.NewPreferencesService(s.PreferencesStore(), s.EmailPreferences())
@@ -214,7 +217,7 @@ func newHarnessWithAdmin(t *testing.T, seedAdmin bool) *harness {
 	mux := http.NewServeMux()
 	RegisterStatic(mux, s.SettingsStore())
 	NewAuthHandlers(authSvc, usersSvc, renderer).Register(mux)
-	NewTicketHandlers(ticketSvc, commentSvc, searchSvc, catSvc, usersSvc, s.DeskStore(), workflowSvc, application.NewWorkflowRunner(clock), s.WorkflowRunStore(), s.WorkflowUnitOfWork(), renderer).WithMetrics(metricsSvc).WithSLA(slaSvc).WithPreferences(preferencesSvc).Register(mux)
+	NewTicketHandlers(ticketSvc, commentSvc, searchSvc, catSvc, usersSvc, s.DeskStore(), workflowSvc, application.NewWorkflowRunner(clock), s.WorkflowRunStore(), s.WorkflowUnitOfWork(), renderer).WithMetrics(metricsSvc).WithSLA(slaSvc).WithPreferences(preferencesSvc).WithAttachments(s.AttachmentStore(), attachmentSvc).Register(mux)
 	NewUserHandlers(usersSvc, renderer).Register(mux)
 	NewCategoryHandlersWithWorkflows(catSvc, workflowSvc, renderer).Register(mux)
 	NewCategoryWorkflowHandlers(catSvc, workflowSvc, deskSvc, renderer).Register(mux)
@@ -282,6 +285,48 @@ func (h *harness) postForm(t *testing.T, path string, form url.Values, hx bool) 
 	if hx {
 		req.Header.Set("HX-Request", "true")
 	}
+	rec := httptest.NewRecorder()
+	h.mw.Wrap(h.mux).ServeHTTP(rec, req)
+	return rec
+}
+
+// multipartFile is one file of a multipart submission (issue #366).
+type multipartFile struct {
+	name string
+	data []byte
+}
+
+// postMultipart runs a multipart/form-data POST through the middleware-wrapped
+// mux with an explicit session cookie: the browser's shape for the two forms
+// that carry files (ticket creation and comments). Every file travels under
+// the `attachments` field, the name both forms use.
+func (h *harness) postMultipart(t *testing.T, path string, fields url.Values, files []multipartFile, sessionID string) *httptest.ResponseRecorder {
+	t.Helper()
+	var body bytes.Buffer
+	w := multipart.NewWriter(&body)
+	for name, values := range fields {
+		for _, v := range values {
+			if err := w.WriteField(name, v); err != nil {
+				t.Fatalf("write multipart field %q: %v", name, err)
+			}
+		}
+	}
+	for _, f := range files {
+		part, err := w.CreateFormFile("attachments", f.name)
+		if err != nil {
+			t.Fatalf("create file part %q: %v", f.name, err)
+		}
+		if _, err := part.Write(f.data); err != nil {
+			t.Fatalf("write file part %q: %v", f.name, err)
+		}
+	}
+	if err := w.Close(); err != nil {
+		t.Fatalf("close multipart writer: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, path, &body)
+	req.Header.Set("Content-Type", w.FormDataContentType())
+	req.Header.Set("Cookie", sessionCookie+"="+sessionID)
 	rec := httptest.NewRecorder()
 	h.mw.Wrap(h.mux).ServeHTTP(rec, req)
 	return rec

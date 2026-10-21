@@ -71,6 +71,12 @@ func (u *commentUnitOfWork) Add(ctx context.Context, m application.CommentMutati
 		id := m.Comment.ID
 		n.CommentID = &id
 	}
+	// The comment's files commit with it (issue #366): a failed insert rolls
+	// the comment and its notifications back.
+	commentID := m.Comment.ID
+	if err := insertAttachmentsTx(ctx, tx, m.Comment.TicketID, &commentID, m.Attachments); err != nil {
+		return err
+	}
 	if err := appendNotificationsTx(ctx, tx, m.Notifications); err != nil {
 		return err
 	}
