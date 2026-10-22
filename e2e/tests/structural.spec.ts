@@ -113,7 +113,7 @@ function authenticatedScreens(deps: {
       control: (p) =>
         p
           .locator("#ticket-detail")
-          .locator('textarea, [aria-label="Ticket title"], button:has-text("Add comment")')
+          .locator('textarea, [aria-label="Ticket title"], button:has-text("Reply")')
           .first(),
     },
     {

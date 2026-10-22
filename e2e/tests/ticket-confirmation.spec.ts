@@ -9,6 +9,12 @@ import { base, createUserAsAdmin, loginAs, loginAsSeeded, logout } from "./helpe
 import { createTicketViaUi } from "./helpers/navigation.js";
 import { collectObservability } from "./helpers/layout.js";
 import { assertHtmxSwap } from "./helpers/htmx.js";
+import {
+  applyAssignee,
+  applyTransition,
+  pickerButton,
+  transitionAction,
+} from "./helpers/ticket.js";
 import { startServer, stopServer } from "../server-lifecycle.js";
 
 // ---------- Lifecycle ----------
@@ -57,11 +63,7 @@ test.describe("Ticket confirmation", () => {
       await assertHtmxSwap(
         page,
         async () => {
-          await page.locator("#assign-user").selectOption({ label: "Alice Admin" });
-          await page
-            .locator("form:has(#assign-user)")
-            .getByRole("button", { name: "Apply" })
-            .click();
+          await applyAssignee(page, "Alice Admin");
         },
         {
           endpoint: `/tickets/${id}/assign`,
@@ -89,13 +91,11 @@ test.describe("Ticket confirmation", () => {
     }
     for (const target of ["in_progress", "resolved"] as const) {
       await page.goto(base() + `/tickets/${id}`);
-      const stateSelect = page.locator("#ticket-state");
-      await expect(stateSelect).toBeVisible();
+      await expect(transitionAction(page, target)).toBeVisible();
       const resp = await assertHtmxSwap(
         page,
         async () => {
-          await stateSelect.selectOption(target);
-          await page.locator("#state-apply").click();
+          await applyTransition(page, target);
         },
         {
           endpoint: `/tickets/${id}/transition`,
@@ -144,8 +144,8 @@ test.describe("Ticket confirmation", () => {
     // (#263). This assertion used to pin the select as visible with `closed`
     // filtered out, which was a broken affordance that always returned 403. The
     // resolution panel above is the requester's real path.
-    await expect(page.locator("#ticket-state")).toHaveCount(0);
-    await expect(page.getByText("Move to", { exact: true })).toHaveCount(0);
+    await expect(transitionAction(page, "in_progress")).toHaveCount(0);
+    await expect(page.getByText("Reopen", { exact: true })).toHaveCount(0);
 
     const resp = await assertHtmxSwap(
       page,
@@ -223,11 +223,14 @@ test.describe("Ticket confirmation", () => {
         hasText: solution,
       });
       await expect(completedTask).toHaveCount(1);
-      await expect(completedTask.locator(".timeline-manual-heading .main")).toHaveText(
+      // One grammar (issue #386, S3): the head line carries the actor and the
+      // verb, with no nested body block.
+      await expect(completedTask.locator(".timeline-entry-head .narrative")).toHaveText(
         "Alice Admin completed the task",
       );
       await expect(completedTask.getByText("Solution", { exact: true })).toHaveCount(1);
       await expect(completedTask.locator("dd").first()).toHaveText(solution);
+      // The requester reads the assignee, never a picker (issue #263, S6).
       await expect(page.locator("#assign-user-value")).toHaveText("Alice Admin");
       await expect(page.locator("#workflow-pending")).toHaveCount(0);
     };
@@ -259,9 +262,12 @@ test.describe("Ticket confirmation", () => {
     await page.goto(base() + `/tickets/${id}`);
     await expect(page.locator(".resolution-confirmation")).toHaveCount(0);
     await expect(page.getByLabel(/comment body/i)).toHaveCount(0);
-    const moveSelect = page.locator("#ticket-state");
-    await expect(moveSelect).toBeVisible();
-    await expect(moveSelect.locator('option[value="closed"]')).toHaveCount(0);
-    await expect(moveSelect.locator('option[value="in_progress"]')).toHaveCount(1);
+    // The closure gate keeps Close off the header; the reopen is the only action.
+    await expect(
+      page.locator(
+        '#ticket-detail .detail-actions form.detail-action:has(input[name="to"][value="closed"])',
+      ),
+    ).toHaveCount(0);
+    await expect(transitionAction(page, "in_progress")).toBeVisible();
   });
 });

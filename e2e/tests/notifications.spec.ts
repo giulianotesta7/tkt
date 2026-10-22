@@ -21,6 +21,7 @@
 import { test, expect, type Page } from "@playwright/test";
 import { startServer, stopServer } from "../server-lifecycle.js";
 import { assertHtmxSwap } from "./helpers/htmx.js";
+import { applyAssignee, pickerButton } from "./helpers/ticket.js";
 import { assertNoHorizontalOverflow, assertNothingClipped } from "./helpers/layout.js";
 import { base, createUserAsAdmin, loginAs, logout, seededCredentials } from "./helpers/auth.js";
 import {
@@ -64,13 +65,11 @@ async function promoteToAgent(page: Page): Promise<void> {
 
 async function assignToAgent(page: Page, ticketId: string): Promise<void> {
   await page.goto(base() + `/tickets/${ticketId}`);
-  const assignee = page.locator('select[name="user_id"]');
-  await expect(assignee).toHaveCount(1);
+  await expect(pickerButton(page, "assign-user")).toBeVisible();
   await assertHtmxSwap(
     page,
     async () => {
-      await assignee.selectOption({ label: agent.name });
-      await page.locator("form:has(#assign-user)").getByRole("button", { name: "Apply" }).click();
+      await applyAssignee(page, agent.name);
     },
     {
       endpoint: `/tickets/${ticketId}/assign`,
