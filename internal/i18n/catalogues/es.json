@@ -225,6 +225,7 @@
   "error.email_username_invalid": "el usuario debe ocupar una sola línea y tener como máximo 255 caracteres",
   "error.email_username_required": "ingresa el usuario que corresponde a la contraseña",
   "error.forbidden": "Prohibido",
+  "error.hold_auto_close_days_invalid": "la ventana de cierre automático en espera debe estar entre 0 y 60 días hábiles",
   "error.hold_conflict": "la espera del ticket cambió mientras tanto — recarga el ticket y vuelve a intentarlo",
   "error.hold_reason_required": "se necesita un motivo para poner el ticket en espera",
   "error.identifier_required": "el identificador es obligatorio",

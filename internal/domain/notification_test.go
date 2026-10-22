@@ -25,6 +25,11 @@ func TestNotificationKindValid(t *testing.T) {
 		NotificationCommentPublic,
 		NotificationCommentInternal,
 		NotificationFormWaiting,
+		NotificationOnHold,
+		// The automatic hold expiry of issue #353 adds the reminder and the
+		// close notice to the same closed vocabulary.
+		NotificationHoldReminder,
+		NotificationHoldClosed,
 	} {
 		if !k.Valid() {
 			t.Errorf("%q.Valid() = false, want true", k)
@@ -80,6 +85,16 @@ func TestNotificationValidate(t *testing.T) {
 	automatic.ActorUserID = nil
 	if err := automatic.Validate(); err != nil {
 		t.Fatalf("automatic notification rejected: %v", err)
+	}
+
+	// The two hold-expiry kinds of issue #353 carry no from/to/comment/step
+	// facts at all, and they are system rows: no actor is required.
+	for _, kind := range []NotificationKind{NotificationHoldReminder, NotificationHoldClosed} {
+		hold := Notification{UserID: 7, TicketID: 11, Kind: kind,
+			CreatedAt: time.Date(2026, 10, 20, 9, 0, 0, 0, time.UTC)}
+		if err := hold.Validate(); err != nil {
+			t.Errorf("%q notification without change facts rejected: %v", kind, err)
+		}
 	}
 
 	cases := []struct {

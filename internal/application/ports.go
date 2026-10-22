@@ -75,6 +75,15 @@ type TicketUnitOfWork interface {
 	// no writes. Update refuses, with the same error, to write a terminal
 	// state over a row that is still on hold.
 	UpdateHold(ctx context.Context, w HoldWrite) error
+	// RemindHold appends ONE reminder batch for a held ticket (issue #353,
+	// S3) in one immediate transaction, and ONLY while the stored hold is
+	// still the one the caller read: the stored on_hold_since must equal
+	// expectedOnHoldSince. A mismatch — the requester replied meanwhile, or
+	// another hold replaced this one — is a *domain.HoldConflictError with
+	// nothing written, so a reminder can never describe a hold that already
+	// ended. Unlike UpdateHold it writes no ticket column at all: a reminder
+	// changes nothing about the hold it announces.
+	RemindHold(ctx context.Context, ticketID int64, expectedOnHoldSince time.Time, notifications []domain.Notification) error
 }
 
 // TicketMutation is ONE atomic ticket write and everything that must commit
@@ -123,6 +132,30 @@ type HoldWrite struct {
 	ShiftedSLA          *domain.TicketSLA
 	Events              []domain.AuditEvent
 	Notifications       []domain.Notification
+}
+
+// HoldExpiryStore is the READ half of the automatic hold expiry pass (issue
+// #353): the held tickets one pass walks and the once-per-hold check that keeps
+// a reminder from being sent twice. It is a read-only port — closing a hold and
+// writing a reminder both go through TicketUnitOfWork, so a reminder always
+// commits with the guard that proves its hold still exists.
+//
+// The pass runs outside any request: there is no session, so the reads are
+// UNSCOPED on purpose (the instance acts on every ticket), and they answer only
+// the facts the rules need.
+type HoldExpiryStore interface {
+	// HeldTickets returns one page of the OPEN tickets that are on hold: at
+	// most limit tickets with an id above afterID, ordered by id, so the pass
+	// pages through the whole set (keyset) instead of re-reading a first page
+	// that holds not yet due would fill forever. A ticket whose state is
+	// already terminal is not returned: it has nothing left to close.
+	HeldTickets(ctx context.Context, afterID int64, limit int) ([]domain.Ticket, error)
+	// ReminderSent reports whether this HOLD already told the requester it is
+	// about to close: a hold_reminder notification for the ticket exists with
+	// created_at at or after since (the instant the hold began). Scoping to the
+	// hold is what makes "once per hold" true — a reminder from an earlier
+	// hold, before a reply resumed it, never suppresses the new one.
+	ReminderSent(ctx context.Context, ticketID int64, since time.Time) (bool, error)
 }
 
 // WorkflowUnitOfWork persists application-planned workflow mutations as ONE
@@ -1098,6 +1131,17 @@ type SettingsStore interface {
 	// calendar standing. The service use case (SetSLACalendar) validates
 	// the calendar before this store call.
 	SetSLACalendar(ctx context.Context, calendar domain.SLACalendar) error
+	// GetHoldAutoCloseDays returns the hold auto-close window of issue #353,
+	// in WORKING days, or DefaultHoldAutoCloseWorkingDays (0, the feature off)
+	// when the row is absent, unparseable, or outside 0..60. Closing a ticket
+	// without a human is an explicit decision, so an unusable stored value
+	// fails safe to "off" rather than to some arbitrary window. The working
+	// calendar the window is measured on is GetSLACalendar.
+	GetHoldAutoCloseDays(ctx context.Context) (int, error)
+	// SetHoldAutoCloseDays persists the hold auto-close window in working
+	// days. The application service validates 0..60 before this call; the
+	// store writes the value it is given, like the other single-key settings.
+	SetHoldAutoCloseDays(ctx context.Context, days int) error
 }
 
 // OrganizationStore persists the instance identity (issue #383, S3): the

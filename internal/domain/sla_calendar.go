@@ -120,6 +120,59 @@ func (c SLACalendar) AddWorkingSeconds(from time.Time, seconds int) time.Time {
 	}
 }
 
+// AddWorkingDays returns the instant that is `days` WORKING days after
+// `from` (issue #353): the hold auto-close deadline. Unlike
+// AddWorkingSeconds it measures whole working DAYS, not elapsed working
+// time, and it keeps the wall-clock time of `from` in c.Location — a hold
+// started at 14:20 is due at 14:20 on the Nth working day, so the deadline
+// reads as the same moment of the day and daylight-saving transitions move
+// the UTC instant with the offset instead of drifting an hour.
+//
+// A start on a non-working day has no wall-clock time to keep: the count
+// begins at the NEXT working day's window opening, so a hold created over a
+// weekend is due N working days from Monday 09:00 rather than from an
+// instant the calendar does not run through. Every non-working day between
+// the start and the answer is skipped without consuming a day.
+//
+// A non-positive `days` and an invalid calendar return `from` unchanged
+// rather than inventing a deadline — the caller validates before calling.
+// The answer is UTC, like AddWorkingSeconds. The function is pure: no clock
+// reads, no I/O.
+func (c SLACalendar) AddWorkingDays(from time.Time, days int) time.Time {
+	if days <= 0 || !c.Valid() {
+		return from
+	}
+	loc := c.Location
+	cur := from.In(loc)
+	day := calendarMidnight(cur, loc)
+	if !c.isWorkingDay(cur.Weekday()) {
+		// Nothing ran yet: the count starts at the next working window's
+		// opening, and that opening becomes the wall-clock time the answer keeps.
+		day = c.nextWorkingDay(day)
+		cur = wallClock(day, c.StartMinute)
+	}
+	for i := 0; i < days; i++ {
+		day = c.nextWorkingDay(calendarMidnight(cur, loc))
+		// Wall-clock construction (not a duration addition) is what keeps the
+		// answer at the same local time across a daylight-saving change.
+		cur = time.Date(day.Year(), day.Month(), day.Day(),
+			cur.Hour(), cur.Minute(), cur.Second(), cur.Nanosecond(), loc)
+	}
+	return cur.UTC()
+}
+
+// nextWorkingDay returns the first working day AFTER day, walking calendar
+// days forward in the calendar's zone. A calendar whose week runs out (no
+// working days at all) is rejected by Valid, so the walk always terminates.
+func (c SLACalendar) nextWorkingDay(day time.Time) time.Time {
+	for {
+		day = day.AddDate(0, 0, 1)
+		if c.isWorkingDay(day.Weekday()) {
+			return day
+		}
+	}
+}
+
 // WorkingSecondsBetween returns how much WORKING time lies in [from, to):
 // the inverse of AddWorkingSeconds (issue #352). A ticket put on hold uses
 // it to measure the working time left on a frozen SLA instant at the pause,

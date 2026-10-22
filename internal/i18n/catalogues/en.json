@@ -225,6 +225,7 @@
   "error.email_username_invalid": "the username must fit on one line and have at most 255 characters",
   "error.email_username_required": "enter the username that goes with the password",
   "error.forbidden": "Forbidden",
+  "error.hold_auto_close_days_invalid": "the hold auto-close window must be between 0 and 60 working days",
   "error.hold_conflict": "the ticket's hold changed meanwhile — reload the ticket and try again",
   "error.hold_reason_required": "a reason is required to put the ticket on hold",
   "error.identifier_required": "identifier is required",

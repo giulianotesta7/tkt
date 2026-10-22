@@ -172,6 +172,13 @@ func (s *Store) NotificationStore() application.NotificationStore {
 	return newNotificationStore(s.db)
 }
 
+// HoldExpiryStore returns the read side of the automatic hold expiry pass
+// (issue #353): the held tickets one pass walks and the once-per-hold reminder
+// check. Its writes go through TicketUnitOfWork, never through this port.
+func (s *Store) HoldExpiryStore() application.HoldExpiryStore {
+	return newHoldExpiryStore(s.db)
+}
+
 // UserStore returns the user port (task 4.4).
 func (s *Store) UserStore() application.UserStore { return newUserStore(s.db) }
 

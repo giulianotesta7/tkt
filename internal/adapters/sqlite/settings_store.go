@@ -47,6 +47,13 @@ const (
 	settingsKeySLAEnabledAt      = "sla_enabled_at"
 )
 
+// settingsKeyHoldAutoCloseDays is the settings row key for the automatic hold
+// expiry window (issue #353). No migration seeds it: an absent row reads back
+// application.DefaultHoldAutoCloseWorkingDays (0, the feature off), so the
+// default is true without a stored row and the key/value table needs neither a
+// new column nor a migration.
+const settingsKeyHoldAutoCloseDays = "hold_auto_close_working_days"
+
 // SLA working-calendar row keys (migration 0017, issue #211) and their
 // documented defaults: Monday-Friday, 09:00-18:00, UTC — the same values
 // domain.DefaultSLACalendar answers, in their stored text form.
@@ -169,6 +176,41 @@ func (ss *settingsStore) GetSLAWarningPercent(ctx context.Context) (int, error) 
 		return application.DefaultSLAWarningPercent, nil
 	}
 	return n, nil
+}
+
+// GetHoldAutoCloseDays returns the automatic hold expiry window of issue #353,
+// or DefaultHoldAutoCloseWorkingDays (0, off) when the row is absent,
+// unparseable, or outside 0..60. A stored value the write path refuses is not
+// trusted to close tickets: failing safe to "off" keeps a hand-edited database
+// from silently closing held tickets on a window nobody configured.
+func (ss *settingsStore) GetHoldAutoCloseDays(ctx context.Context) (int, error) {
+	var value string
+	err := ss.db.QueryRowContext(ctx,
+		`SELECT value FROM settings WHERE key = ?`, settingsKeyHoldAutoCloseDays).Scan(&value)
+	if errors.Is(err, sql.ErrNoRows) {
+		return application.DefaultHoldAutoCloseWorkingDays, nil
+	}
+	if err != nil {
+		return 0, fmt.Errorf("sqlite: get %s: %w", settingsKeyHoldAutoCloseDays, err)
+	}
+	days, parseErr := strconv.Atoi(value)
+	if parseErr != nil || days < 0 || days > application.MaxHoldAutoCloseWorkingDays {
+		return application.DefaultHoldAutoCloseWorkingDays, nil
+	}
+	return days, nil
+}
+
+// SetHoldAutoCloseDays upserts the hold auto-close window as text (the keyed
+// settings table stores every value as text, like the SLA percent next to it).
+func (ss *settingsStore) SetHoldAutoCloseDays(ctx context.Context, days int) error {
+	_, err := ss.db.ExecContext(ctx, `
+		INSERT INTO settings (key, value) VALUES (?, ?)
+		ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+		settingsKeyHoldAutoCloseDays, strconv.Itoa(days))
+	if err != nil {
+		return fmt.Errorf("sqlite: set %s: %w", settingsKeyHoldAutoCloseDays, err)
+	}
+	return nil
 }
 
 // SetSLAEnabledState persists sla_enabled and, when enabling, the

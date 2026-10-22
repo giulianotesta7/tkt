@@ -368,6 +368,11 @@ type fakeUnitOfWork struct {
 	// cases must persist through the compare-and-set write, while every other
 	// mutation must keep using Update and never touch the hold columns.
 	updateHoldCalls int
+	// remindHoldCalls counts RemindHold invocations (issue #353): the automatic
+	// hold pass must send one reminder per hold through the guarded write, and
+	// none at all when the feature is off, the reminder is not due yet, or it
+	// was already sent for this hold.
+	remindHoldCalls int
 	// slas, when non-nil, receives the shifted resolution instants of an
 	// UpdateHold. It is nil by default because no service test under this
 	// port needs the SLA side yet, and a fake must not invent a store it was
@@ -482,6 +487,24 @@ func (f *fakeUnitOfWork) UpdateHold(ctx context.Context, w application.HoldWrite
 	if len(w.Events) > 0 {
 		return f.audits.Append(ctx, w.Events...)
 	}
+	return nil
+}
+
+// RemindHold mirrors TicketUnitOfWork.RemindHold (issue #353): the reminder
+// batch is appended only while the stored hold is still the one the caller
+// read, and nothing else is written — not even a ticket column. A stale read is
+// a HoldConflictError with no rows, and a missing ticket a NotFoundError,
+// exactly as the SQLite unit of work answers.
+func (f *fakeUnitOfWork) RemindHold(_ context.Context, ticketID int64, expectedOnHoldSince time.Time, notifications []domain.Notification) error {
+	f.remindHoldCalls++
+	stored, ok := f.tickets.tickets[ticketID]
+	if !ok {
+		return &domain.NotFoundError{Kind: "ticket", ID: ticketID}
+	}
+	if !sameHoldInstant(stored.OnHoldSince, &expectedOnHoldSince) {
+		return &domain.HoldConflictError{TicketID: ticketID}
+	}
+	f.notifications = append(f.notifications, notifications...)
 	return nil
 }
 
@@ -1305,6 +1328,12 @@ type fakeSLASettingsStore struct {
 	calendarErr         error
 	setSLACalendarErr   error
 	setSLACalendarCalls int
+	// holdAutoCloseDays mirrors the hold_auto_close_working_days setting (issue
+	// #353); the zero value is the documented default — the feature off.
+	holdAutoCloseDays         int
+	holdAutoCloseDaysErr      error
+	setHoldAutoCloseDaysErr   error
+	setHoldAutoCloseDaysCalls int
 }
 
 func (f *fakeSLASettingsStore) GetInternalCommentBg(_ context.Context) (string, error) {
@@ -1403,6 +1432,74 @@ func (f *fakeSLASettingsStore) SetSLACalendar(_ context.Context, calendar domain
 	}
 	f.calendar = calendar
 	return nil
+}
+
+// GetHoldAutoCloseDays mirrors the store contract of issue #353: an absent or
+// unparseable row reads back 0 (off), and a stored value answers itself.
+func (f *fakeSLASettingsStore) GetHoldAutoCloseDays(_ context.Context) (int, error) {
+	if f.holdAutoCloseDaysErr != nil {
+		return 0, f.holdAutoCloseDaysErr
+	}
+	return f.holdAutoCloseDays, nil
+}
+
+// SetHoldAutoCloseDays records the window and fails on demand before any state
+// changes, so a rejected or denied actor can be proven to have persisted
+// nothing.
+func (f *fakeSLASettingsStore) SetHoldAutoCloseDays(_ context.Context, days int) error {
+	f.setHoldAutoCloseDaysCalls++
+	if f.setHoldAutoCloseDaysErr != nil {
+		return f.setHoldAutoCloseDaysErr
+	}
+	f.holdAutoCloseDays = days
+	return nil
+}
+
+// fakeHoldExpiryStore implements HoldExpiryStore (issue #353) over the ticket
+// and unit-of-work fakes: the held-ticket read walks the ticket fake and the
+// reminder check reads the notification rows the fakes recorded as committed,
+// exactly as the real store answers from the notifications table.
+//
+// Simplifications, documented per the fakes contract: the read is unbounded
+// (the real one limits one pass, proven in the SQLite layer) and the ticket
+// fake has no SQL predicate, so the filtering is the same open-and-held
+// predicate written in Go.
+
+// errHeldTickets mirrors a store failure of the pass's first read.
+var errHeldTickets = errors.New("held tickets read failed")
+
+type fakeHoldExpiryStore struct {
+	tickets *fakeTicketStore
+	tx      *fakeUnitOfWork
+	// heldErr, when non-nil, makes the read fail with this exact error: the
+	// pass must abort instead of closing or reminding about nothing.
+	heldErr error
+}
+
+func (f *fakeHoldExpiryStore) HeldTickets(_ context.Context, afterID int64, limit int) ([]domain.Ticket, error) {
+	if f.heldErr != nil {
+		return nil, f.heldErr
+	}
+	var out []domain.Ticket
+	for _, t := range f.tickets.tickets {
+		if t.ID > afterID && t.OnHoldSince != nil && !domain.IsClosed(t.State) {
+			out = append(out, *t)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
+	if len(out) > limit {
+		out = out[:limit]
+	}
+	return out, nil
+}
+
+func (f *fakeHoldExpiryStore) ReminderSent(_ context.Context, ticketID int64, since time.Time) (bool, error) {
+	for _, n := range f.tx.notifications {
+		if n.TicketID == ticketID && n.Kind == domain.NotificationHoldReminder && !n.CreatedAt.Before(since) {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 // fakeAttachmentStore serves downloads from a fixed map (issue #366); it has

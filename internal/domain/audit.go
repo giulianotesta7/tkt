@@ -35,6 +35,11 @@ const (
 	// authorized agent closing a requester-NULL ticket manually
 	// (TicketService.Transition).
 	ClosureViaManualAgent = "manual_agent"
+	// ClosureViaHoldExpired marks a resolved -> closed event created by the
+	// automatic hold expiry (issue #353, S5): the requester never replied to a
+	// ticket that was on hold, so the instance closed it. The event's actor is
+	// AutomaticActorSystem with a NULL ActorUserID.
+	ClosureViaHoldExpired = "hold_expired"
 )
 
 // AuditEvent records a single mutation on a ticket. The domain fills
