@@ -102,8 +102,8 @@ func TestAmendment4_StructureDeskSelectionAndMutationPreserveContext(t *testing.
 			t.Fatalf("tree marker %q is missing: %s", marker, body)
 		}
 		rest := body[index:]
-		if len(rest) > 700 {
-			rest = rest[:700]
+		if next := strings.Index(rest[len(marker):], "<li "); next >= 0 {
+			rest = rest[:len(marker)+next]
 		}
 		return rest
 	}

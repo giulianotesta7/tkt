@@ -917,6 +917,7 @@
       .catalog-disclosure-mark{width:7px;height:7px;border-right:1.6px solid currentColor;border-bottom:1.6px solid currentColor;transform:rotate(45deg) translate(-1px,-1px)}
       .catalog-disclosure[aria-expanded=false] .catalog-disclosure-mark{transform:rotate(-45deg) translate(-1px,1px)}
       .catalog-disclosure-empty{visibility:hidden}
+      .catalog-node-icon{flex:none;color:var(--muted)}
       .catalog-node-name{min-width:0;color:var(--ink-strong);font-weight:500;overflow-wrap:anywhere}
       .catalog-tree-row-department>.catalog-node-name{font-weight:600}
       .catalog-category-link{text-decoration:none}

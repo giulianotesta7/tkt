@@ -104,6 +104,7 @@
         <li class="catalog-tree-node catalog-tree-department" data-catalog-node data-catalog-slug="d2" data-catalog-id="2" data-level="department">
           <div class="catalog-tree-row catalog-tree-row-department">
             <button class="catalog-disclosure" type="button" data-catalog-disclosure aria-expanded="true" aria-controls="catalog-d2" aria-label="Collapse Support" data-catalog-name="Support"><span class="catalog-disclosure-mark" aria-hidden="true"></span></button>
+            <svg class="catalog-node-icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 4h6l2 2.5H20a1 1 0 0 1 1 1V19a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1z"/></svg>
             <span class="catalog-node-name">Support</span>
             <span class="catalog-node-description">Customer support</span>
             <span class="catalog-node-meta">1 desk · 0 agents</span>
@@ -114,6 +115,7 @@
             <li class="catalog-tree-node catalog-tree-desk" data-catalog-node data-catalog-slug="k3" data-catalog-id="3" data-level="desk">
               <div class="catalog-tree-row catalog-tree-row-desk">
                 <span class="catalog-disclosure catalog-disclosure-empty" aria-hidden="true"></span>
+                <svg class="catalog-node-icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 8h20"/><path d="M4 8v12"/><path d="M20 8v12"/><path d="M14 8v5h6"/></svg>
                 <span class="catalog-node-name">Helpdesk</span>
                 <span class="catalog-badge catalog-badge-none">No agents</span>
                 <span class="catalog-node-meta">1 open</span>
@@ -126,6 +128,7 @@
         <li class="catalog-tree-node catalog-tree-department" data-catalog-node data-catalog-slug="d1" data-catalog-id="1" data-level="department" data-current="true">
           <div class="catalog-tree-row catalog-tree-row-department" aria-current="true">
             <button class="catalog-disclosure" type="button" data-catalog-disclosure aria-expanded="true" aria-controls="catalog-d1" aria-label="Collapse Technology" data-catalog-name="Technology"><span class="catalog-disclosure-mark" aria-hidden="true"></span></button>
+            <svg class="catalog-node-icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 4h6l2 2.5H20a1 1 0 0 1 1 1V19a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1z"/></svg>
             <span class="catalog-node-name">Technology</span>
             <span class="catalog-node-description">Engineering and platform</span>
             <span class="catalog-node-meta">2 desks · 3 agents</span>
@@ -136,6 +139,7 @@
             <li class="catalog-tree-node catalog-tree-desk" data-catalog-node data-catalog-slug="k2" data-catalog-id="2" data-level="desk">
               <div class="catalog-tree-row catalog-tree-row-desk">
                 <span class="catalog-disclosure catalog-disclosure-empty" aria-hidden="true"></span>
+                <svg class="catalog-node-icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 8h20"/><path d="M4 8v12"/><path d="M20 8v12"/><path d="M14 8v5h6"/></svg>
                 <span class="catalog-node-name">Platform</span>
                 <span class="catalog-badge catalog-badge-none">No agents</span>
                 <span class="catalog-node-meta">0 open</span>
@@ -146,6 +150,7 @@
             <li class="catalog-tree-node catalog-tree-desk" data-catalog-node data-catalog-slug="k1" data-catalog-id="1" data-level="desk" data-current="true">
               <div class="catalog-tree-row catalog-tree-row-desk" aria-current="true">
                 <button class="catalog-disclosure" type="button" data-catalog-disclosure aria-expanded="true" aria-controls="catalog-k1" aria-label="Collapse Service desk" data-catalog-name="Service desk"><span class="catalog-disclosure-mark" aria-hidden="true"></span></button>
+                <svg class="catalog-node-icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 8h20"/><path d="M4 8v12"/><path d="M20 8v12"/><path d="M14 8v5h6"/></svg>
                 <span class="catalog-node-name">Service desk</span>
                 <span class="catalog-node-meta">3 agents</span>
                 <span class="catalog-node-meta">4 open</span>
@@ -156,6 +161,7 @@
                 <li class="catalog-tree-node catalog-tree-category" data-catalog-id="1" data-level="category" data-desk-id="1" data-current="true">
                   <div class="catalog-tree-row catalog-tree-row-category" aria-current="true">
                     <span class="catalog-disclosure catalog-disclosure-empty" aria-hidden="true"></span>
+                    <svg class="catalog-node-icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12.6 2.6A2 2 0 0 0 11.2 2H4a2 2 0 0 0-2 2v7.2a2 2 0 0 0 .6 1.4l8.7 8.7a2.4 2.4 0 0 0 3.4 0l6.6-6.6a2.4 2.4 0 0 0 0-3.4z"/><circle cx="7.5" cy="7.5" r="1.5"/></svg>
                     <a class="catalog-node-name catalog-category-link" href="/categories/1/workflow">Bugs</a>
                     <span class="catalog-badge catalog-badge-ok">Workflow v1</span>
                     <span class="catalog-node-meta">Default SLA</span>
@@ -167,6 +173,7 @@
                 <li class="catalog-tree-node catalog-tree-category" data-catalog-id="2" data-level="category" data-desk-id="1" data-current="true">
                   <div class="catalog-tree-row catalog-tree-row-category" aria-current="true">
                     <span class="catalog-disclosure catalog-disclosure-empty" aria-hidden="true"></span>
+                    <svg class="catalog-node-icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12.6 2.6A2 2 0 0 0 11.2 2H4a2 2 0 0 0-2 2v7.2a2 2 0 0 0 .6 1.4l8.7 8.7a2.4 2.4 0 0 0 3.4 0l6.6-6.6a2.4 2.4 0 0 0 0-3.4z"/><circle cx="7.5" cy="7.5" r="1.5"/></svg>
                     <a class="catalog-node-name catalog-category-link" href="/categories/2/workflow">Support</a>
                     <span class="catalog-badge catalog-badge-neutral">Draft</span>
                     <span class="catalog-node-meta">Custom SLA</span>

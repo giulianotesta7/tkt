@@ -35,7 +35,8 @@
           <div class="catalog-tree-row catalog-tree-row-department"{{if .Current}} aria-current="true"{{end}}>
 {{if .Desks}}            <button class="catalog-disclosure" type="button" data-catalog-disclosure aria-expanded="true" aria-controls="catalog-{{.Slug}}" aria-label="{{tf "categories.collapse" .Name.Plain}}" data-catalog-name="{{.Name.Plain}}"><span class="catalog-disclosure-mark" aria-hidden="true"></span></button>
 {{else}}            <span class="catalog-disclosure catalog-disclosure-empty" aria-hidden="true"></span>
-{{end}}            <span class="catalog-node-name">{{range .Name.Parts}}{{if .Match}}<mark>{{.Text}}</mark>{{else}}{{.Text}}{{end}}{{end}}</span>
+{{end}}            <svg class="catalog-node-icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 4h6l2 2.5H20a1 1 0 0 1 1 1V19a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1z"/></svg>
+            <span class="catalog-node-name">{{range .Name.Parts}}{{if .Match}}<mark>{{.Text}}</mark>{{else}}{{.Text}}{{end}}{{end}}</span>
             <span class="catalog-node-description">{{.Description}}</span>
             <span class="catalog-node-meta">{{tp "categories.desk_count" .DeskCount}} · {{tp "categories.agent_count" .AgentCount}}</span>
             <span class="catalog-node-spacer"></span>
@@ -47,7 +48,8 @@
               <div class="catalog-tree-row catalog-tree-row-desk"{{if .Current}} aria-current="true"{{end}}>
 {{if .Categories}}                <button class="catalog-disclosure" type="button" data-catalog-disclosure aria-expanded="true" aria-controls="catalog-{{.Slug}}" aria-label="{{tf "categories.collapse" .Name.Plain}}" data-catalog-name="{{.Name.Plain}}"><span class="catalog-disclosure-mark" aria-hidden="true"></span></button>
 {{else}}                <span class="catalog-disclosure catalog-disclosure-empty" aria-hidden="true"></span>
-{{end}}                <span class="catalog-node-name">{{range .Name.Parts}}{{if .Match}}<mark>{{.Text}}</mark>{{else}}{{.Text}}{{end}}{{end}}</span>
+{{end}}                <svg class="catalog-node-icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 8h20"/><path d="M4 8v12"/><path d="M20 8v12"/><path d="M14 8v5h6"/></svg>
+                <span class="catalog-node-name">{{range .Name.Parts}}{{if .Match}}<mark>{{.Text}}</mark>{{else}}{{.Text}}{{end}}{{end}}</span>
 {{if eq .AgentCount 0}}                <span class="catalog-badge catalog-badge-none">{{t "categories.tree.no_agents"}}</span>
 {{else}}                <span class="catalog-node-meta">{{tp "categories.agent_count" .AgentCount}}</span>
 {{end}}                <span class="catalog-node-meta">{{tp "categories.open_count" .OpenTickets}}</span>
@@ -58,6 +60,7 @@
 {{range .Categories}}                <li class="catalog-tree-node catalog-tree-category" data-catalog-id="{{.ID}}" data-level="category" data-desk-id="{{.DeskID}}"{{if .Current}} data-current="true"{{end}}>
                   <div class="catalog-tree-row catalog-tree-row-category"{{if .Current}} aria-current="true"{{end}}>
                     <span class="catalog-disclosure catalog-disclosure-empty" aria-hidden="true"></span>
+                    <svg class="catalog-node-icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12.6 2.6A2 2 0 0 0 11.2 2H4a2 2 0 0 0-2 2v7.2a2 2 0 0 0 .6 1.4l8.7 8.7a2.4 2.4 0 0 0 3.4 0l6.6-6.6a2.4 2.4 0 0 0 0-3.4z"/><circle cx="7.5" cy="7.5" r="1.5"/></svg>
                     <a class="catalog-node-name catalog-category-link" href="/categories/{{.ID}}/workflow">{{range .Name.Parts}}{{if .Match}}<mark>{{.Text}}</mark>{{else}}{{.Text}}{{end}}{{end}}</a>
                     <span class="catalog-badge catalog-badge-{{.WorkflowTone}}">{{msg .Workflow}}</span>
 {{if .SLAKey}}                    <span class="catalog-node-meta">{{t .SLAKey}}</span>
