@@ -4,70 +4,74 @@
       <h1 class="command-title">{{t "categories.title"}}</h1>
       <p class="command-sub">{{t "categories.subtitle"}}</p>
     </div>
-
+    <div class="command-actions">
+      <button class="btn ghost" type="button" data-catalog-expand-toggle data-expand-label="{{t "categories.expand_all"}}" data-collapse-label="{{t "categories.collapse_all"}}">{{t "categories.collapse_all"}}</button>
+      <nav class="catalog-new" aria-label="{{t "categories.creation_label"}}">
+        <button class="btn primary" type="button" data-catalog-new-toggle data-category-menu data-focus-key="catalog-new" aria-controls="catalog-new-menu" aria-expanded="false">{{t "categories.new_menu"}}</button>
+        <div id="catalog-new-menu" class="category-overflow-menu" aria-label="{{t "categories.creation_label"}}" hidden>
+          <a class="category-drawer-launcher" data-focus-key="new-department" href="/categories/departments/new?view=structure" hx-get="/categories/departments/new?view=structure" hx-target="#category-drawer-host" hx-swap="outerHTML" hx-push-url="/categories/departments/new?view=structure">{{t "categories.new_department"}}</a>
+          <a class="category-drawer-launcher" data-focus-key="new-desk" href="/categories/desks/new?view=structure" hx-get="/categories/desks/new?view=structure" hx-target="#category-drawer-host" hx-swap="outerHTML" hx-push-url="/categories/desks/new?view=structure">{{t "categories.new_desk"}}</a>
+          <a class="category-drawer-launcher" data-focus-key="new-category" href="/categories/new?view=structure" hx-get="/categories/new?view=structure" hx-target="#category-drawer-host" hx-swap="outerHTML" hx-push-url="/categories/new?view=structure">{{t "categories.new_category"}}</a>
+        </div>
+      </nav>
+    </div>
   </header>
-  <nav class="category-mobile-actions" aria-label="{{t "categories.creation_label"}}">
-<a class="btn primary category-drawer-launcher" href="/categories/departments/new?view=structure" hx-get="/categories/departments/new?view=structure" hx-target="#category-drawer-host" hx-swap="outerHTML" hx-push-url="/categories/departments/new?view=structure">{{t "categories.new_department"}}</a>
-<a class="btn primary category-drawer-launcher" href="/categories/desks/new?view=structure{{if .SelectedDepartmentID}}&department_id={{categoryDepartmentValue .SelectedDepartmentID}}{{end}}" hx-get="/categories/desks/new?view=structure{{if .SelectedDepartmentID}}&department_id={{categoryDepartmentValue .SelectedDepartmentID}}{{end}}" hx-target="#category-drawer-host" hx-swap="outerHTML" hx-push-url="/categories/desks/new?view=structure{{if .SelectedDepartmentID}}&department_id={{categoryDepartmentValue .SelectedDepartmentID}}{{end}}">{{t "categories.new_desk"}}</a>
-<a class="btn primary category-drawer-launcher" href="/categories/new?view=structure{{if .SelectedDepartmentID}}&department_id={{categoryDepartmentValue .SelectedDepartmentID}}{{end}}{{if .SelectedDeskID}}&desk_id={{.SelectedDeskID}}{{end}}" hx-get="/categories/new?view=structure{{if .SelectedDepartmentID}}&department_id={{categoryDepartmentValue .SelectedDepartmentID}}{{end}}{{if .SelectedDeskID}}&desk_id={{.SelectedDeskID}}{{end}}" hx-target="#category-drawer-host" hx-swap="outerHTML" hx-push-url="/categories/new?view=structure{{if .SelectedDepartmentID}}&department_id={{categoryDepartmentValue .SelectedDepartmentID}}{{end}}{{if .SelectedDeskID}}&desk_id={{.SelectedDeskID}}{{end}}">{{t "categories.new_category"}}</a>
-  </nav>
 {{if .Error}}<div class="error-banner" role="alert">{{.Error}}</div>{{end}}
-<form class="category-search search-field" method="get" action="/categories" role="search">
-  <label class="visually-hidden" for="category-search">{{t "categories.search_label"}}</label>
-  {{template "search_icon"}}
-  <input id="category-search" type="search" name="q" value="{{.SearchQuery}}" placeholder="{{t "categories.search_label"}}" autocomplete="off">
-  <input type="hidden" name="view" value="{{.View}}">{{if .SelectedDepartmentID}}<input type="hidden" name="department_id" value="{{categoryDepartmentValue .SelectedDepartmentID}}">{{end}}{{if .SelectedDeskID}}<input type="hidden" name="desk_id" value="{{.SelectedDeskID}}">{{end}}
-  <button class="visually-hidden" type="submit">{{t "common.search"}}</button>{{if .SearchQuery}}<a class="category-search-clear" href="{{.SearchClearURL}}">{{t "common.clear_search"}}</a>{{end}}
-</form>
-{{if .SearchQuery}}
-<section id="category-search-results" class="category-search-results" aria-live="polite">
-  <h2>{{t "categories.search_results"}}</h2>
-{{range .SearchResults}}
-  <a class="category-search-result" data-search-result-kind="{{.Kind}}" href="{{.Location}}"><span><strong>{{.Name}}</strong><small>{{t .Type}}{{if .Path}} · {{.Path}}{{end}}</small></span><span aria-hidden="true">›</span></a>
-{{else}}<p class="category-empty">{{t "categories.search_empty"}}</p>{{end}}
-</section>
-{{end}}
-  <div class="category-structure" aria-label="{{t "categories.structure_label"}}">
-    <section class="category-level category-level-departments {{if eq .SelectedDepartmentID 0}}is-current{{end}}" aria-labelledby="departments-title">
-      <header><div><p class="category-level-eyebrow">{{t "categories.departments"}}</p><h2 id="departments-title">{{t "categories.departments"}}</h2></div><a class="btn primary category-level-action category-drawer-launcher" data-focus-key="new-department" href="/categories/departments/new?view=structure" hx-get="/categories/departments/new?view=structure" hx-target="#category-drawer-host" hx-swap="outerHTML" hx-push-url="/categories/departments/new?view=structure">{{t "categories.new_department"}}</a></header>
-      <div class="category-level-list">
-{{range .StructureDepartments}}
-        <div class="category-structure-item"><a class="category-structure-row {{if eq .ID $.SelectedDepartmentID}}is-selected{{end}}" href="/categories?view=structure&department_id={{categoryDepartmentValue .ID}}" aria-current="{{if eq .ID $.SelectedDepartmentID}}true{{end}}"><span><strong>{{.Name}}</strong><small>{{.Description}}</small><span class="category-count">{{if eq .DeskCount 1}}{{tf "categories.desk_count_one" .DeskCount}}{{else}}{{tf "categories.desk_count_other" .DeskCount}}{{end}}</span></span></a>{{if ne .ID -1}}<div class="category-overflow category-structure-menu"><button class="category-menu-button" type="button" data-category-menu data-focus-key="department-actions-{{.Name}}" aria-controls="department-menu-{{.ID}}" aria-expanded="false" aria-label="{{tf "categories.actions_for" .Name}}">⋯</button><div id="department-menu-{{.ID}}" class="category-overflow-menu" role="menu" hidden><a class="category-drawer-launcher" role="menuitem" href="/categories/departments/{{.ID}}/edit?view=structure&department_id={{.ID}}" hx-get="/categories/departments/{{.ID}}/edit?view=structure&department_id={{.ID}}" hx-target="#category-drawer-host" hx-swap="outerHTML" hx-push-url="/categories/departments/{{.ID}}/edit?view=structure&department_id={{.ID}}">{{t "categories.edit_department"}}</a><form method="post" action="/categories/departments/{{.ID}}/delete" hx-post="/categories/departments/{{.ID}}/delete" hx-target="#categories-background" hx-swap="outerHTML" role="none"><input type="hidden" name="view" value="structure"><input type="hidden" name="department_id" value="{{.ID}}"><button class="category-menu-danger" role="menuitem" data-category-delete="department" data-delete-confirm="{{tf "categories.delete_confirm.department" .Name}}" type="submit">{{t "categories.delete_department"}}</button></form></div></div>{{end}}</div>
-{{else}}<p class="category-empty">{{t "categories.no_departments"}}</p>{{end}}
-      </div>
-    </section>
-    <section class="category-level category-level-desks {{if and (ne .SelectedDepartmentID 0) (eq .SelectedDeskID 0)}}is-current{{end}}" aria-labelledby="desks-title">
-      <header><div><p class="category-level-eyebrow">{{t "categories.desks"}}</p><h2 id="desks-title">{{t "categories.desks"}}</h2></div><a class="btn primary category-level-action category-drawer-launcher" data-focus-key="new-desk" href="/categories/desks/new?view=structure{{if .SelectedDepartmentID}}&department_id={{categoryDepartmentValue .SelectedDepartmentID}}{{end}}" hx-get="/categories/desks/new?view=structure{{if .SelectedDepartmentID}}&department_id={{categoryDepartmentValue .SelectedDepartmentID}}{{end}}" hx-target="#category-drawer-host" hx-swap="outerHTML" hx-push-url="/categories/desks/new?view=structure{{if .SelectedDepartmentID}}&department_id={{categoryDepartmentValue .SelectedDepartmentID}}{{end}}">{{t "categories.new_desk"}}</a></header>
-      <div class="category-level-context">{{if .SelectedDepartmentID}}<a class="category-mobile-back" href="/categories?view=structure">{{t "categories.back_departments"}}</a>{{else}}<span>{{t "categories.select_department"}}</span>{{end}}</div>
-      <div class="category-level-list">
-{{range .StructureDesks}}
-        <div class="category-structure-item"><a class="category-structure-row {{if eq .ID $.SelectedDeskID}}is-selected{{end}}" href="/categories?view=structure&department_id={{if .DepartmentID}}{{.DepartmentID}}{{else}}unassigned{{end}}&desk_id={{.ID}}" aria-current="{{if eq .ID $.SelectedDeskID}}true{{end}}"><span><strong>{{.Name}}</strong><small>{{.Description}}</small><span class="category-count">{{if eq .CategoryCount 1}}{{tf "categories.category_count_one" .CategoryCount}}{{else}}{{tf "categories.category_count_other" .CategoryCount}}{{end}}</span></span></a><div class="category-overflow category-structure-menu"><button class="category-menu-button" type="button" data-category-menu data-focus-key="desk-actions-{{.ID}}" aria-controls="desk-menu-{{.ID}}" aria-expanded="false" aria-label="{{tf "categories.actions_for" .Name}}">⋯</button><div id="desk-menu-{{.ID}}" class="category-overflow-menu" role="menu" hidden><a class="category-drawer-launcher" role="menuitem" href="/categories/desks/{{.ID}}/edit?view=structure&department_id={{if .DepartmentID}}{{.DepartmentID}}{{else}}unassigned{{end}}&desk_id={{.ID}}" hx-get="/categories/desks/{{.ID}}/edit?view=structure&department_id={{if .DepartmentID}}{{.DepartmentID}}{{else}}unassigned{{end}}&desk_id={{.ID}}" hx-target="#category-drawer-host" hx-swap="outerHTML" hx-push-url="/categories/desks/{{.ID}}/edit?view=structure&department_id={{if .DepartmentID}}{{.DepartmentID}}{{else}}unassigned{{end}}&desk_id={{.ID}}">{{t "categories.edit_desk"}}</a><form method="post" action="/categories/desks/{{.ID}}/delete" hx-post="/categories/desks/{{.ID}}/delete" hx-target="#categories-background" hx-swap="outerHTML" role="none"><input type="hidden" name="view" value="structure"><input type="hidden" name="department_id" value="{{if .DepartmentID}}{{.DepartmentID}}{{else}}unassigned{{end}}"><input type="hidden" name="desk_id" value="{{.ID}}"><button class="category-menu-danger" role="menuitem" data-category-delete="desk" data-delete-confirm="{{tf "categories.delete_confirm.desk" .Name}}" type="submit">{{t "categories.delete_desk"}}</button></form></div></div></div>
-{{else}}<p class="category-empty">{{t "categories.select_department_to_browse"}}</p>{{end}}
-      </div>
-    </section>
-    <section class="category-level category-level-categories {{if ne .SelectedDeskID 0}}is-current{{end}}" aria-labelledby="structure-categories-title">
-      <header><div><p class="category-level-eyebrow">{{t "categories.categories"}}</p><h2 id="structure-categories-title">{{t "categories.categories"}}</h2></div><a class="btn primary category-level-action category-drawer-launcher" data-focus-key="new-category" href="/categories/new?view=structure{{if .SelectedDepartmentID}}&department_id={{categoryDepartmentValue .SelectedDepartmentID}}{{end}}{{if .SelectedDeskID}}&desk_id={{.SelectedDeskID}}{{end}}" hx-get="/categories/new?view=structure{{if .SelectedDepartmentID}}&department_id={{categoryDepartmentValue .SelectedDepartmentID}}{{end}}{{if .SelectedDeskID}}&desk_id={{.SelectedDeskID}}{{end}}" hx-target="#category-drawer-host" hx-swap="outerHTML" hx-push-url="/categories/new?view=structure{{if .SelectedDepartmentID}}&department_id={{categoryDepartmentValue .SelectedDepartmentID}}{{end}}{{if .SelectedDeskID}}&desk_id={{.SelectedDeskID}}{{end}}">{{t "categories.new_category"}}</a></header>
-      <div class="category-level-context">{{if .SelectedDeskID}}<a class="category-mobile-back" href="/categories?view=structure&department_id={{categoryDepartmentValue .SelectedDepartmentID}}">{{t "categories.back_desks"}}</a>{{else}}<span>{{t "categories.select_desk"}}</span>{{end}}</div>
-      <div class="category-level-list category-level-list-table">
-        <table class="category-table">
-          <thead><tr>
-            <th class="category-table-name" scope="col">{{t "categories.col_category"}}</th>
-            <th class="category-table-flow" scope="col">{{t "categories.col_workflow"}}</th>
-            <th class="category-table-num" scope="col">{{t "categories.col_open"}}</th>
-            <th class="category-table-act" scope="col"><span class="visually-hidden">{{t "categories.col_actions"}}</span></th>
-          </tr></thead>
-          <tbody>
-{{range .StructureCategories}}
-            <tr>
-              <td class="category-table-name" data-label="{{t "categories.col_category"}}"><a class="category-name" href="/categories/{{.ID}}/workflow"><strong>{{.Name}}</strong></a><small>{{.Description}}</small></td>
-              <td class="category-table-flow" data-label="{{t "categories.col_workflow"}}"><span class="category-status-inline">{{with index $.Badges .ID}}{{msg .}}{{else}}{{t "categories.badge.not_configured"}}{{end}}</span></td>
-              <td class="category-table-num" data-label="{{t "categories.col_open"}}">{{index $.OpenTickets .ID}}</td>
-              <td class="category-table-act" data-label="{{t "categories.col_actions"}}"><div class="category-overflow category-structure-menu"><button class="category-menu-button" type="button" data-category-menu data-focus-key="category-actions-{{.Name}}" aria-controls="structure-category-menu-{{.ID}}" aria-expanded="false" aria-label="{{tf "categories.actions_for" .Name}}">⋯</button><div id="structure-category-menu-{{.ID}}" class="category-overflow-menu" role="menu" hidden><a class="category-drawer-launcher" role="menuitem" href="/categories/{{.ID}}/edit?view=structure&department_id={{categoryDepartmentValue $.SelectedDepartmentID}}&desk_id={{$.SelectedDeskID}}" hx-get="/categories/{{.ID}}/edit?view=structure&department_id={{categoryDepartmentValue $.SelectedDepartmentID}}&desk_id={{$.SelectedDeskID}}" hx-target="#category-drawer-host" hx-swap="outerHTML" hx-push-url="/categories/{{.ID}}/edit?view=structure&department_id={{categoryDepartmentValue $.SelectedDepartmentID}}&desk_id={{$.SelectedDeskID}}">{{t "categories.edit_category"}}</a><a role="menuitem" href="/categories/{{.ID}}/workflow">{{t "categories.configure_workflow"}}</a><a role="menuitem" href="/categories/{{.ID}}/sla">{{t "categories.configure_sla"}}</a><form method="post" action="/categories/{{.ID}}/delete" hx-post="/categories/{{.ID}}/delete" hx-target="#categories-background" hx-swap="outerHTML" role="none"><input type="hidden" name="view" value="structure"><input type="hidden" name="department_id" value="{{categoryDepartmentValue $.SelectedDepartmentID}}"><input type="hidden" name="desk_id" value="{{$.SelectedDeskID}}"><button class="category-menu-danger" role="menuitem" data-category-delete="category" data-delete-confirm="{{tf "categories.delete_confirm.category" .Name}}" type="submit">{{t "categories.delete_category"}}</button></form></div></div></td>
-            </tr>
-{{else}}<tr><td colspan="4"><p class="category-empty">{{if .SelectedDeskID}}{{t "categories.no_categories"}}{{else}}{{t "categories.select_desk_to_browse"}}{{end}}</p></td></tr>{{end}}
-          </tbody>
-        </table>
-      </div>
-    </section>
-  </div>
+  <div class="catalog-toolbar">
+    <form class="category-search search-field" method="get" action="/categories" role="search">
+      <label class="visually-hidden" for="category-search">{{t "categories.search_label"}}</label>
+      {{template "search_icon"}}
+      <input id="category-search" type="search" name="q" value="{{.SearchQuery}}" placeholder="{{t "categories.search_label"}}" autocomplete="off">
+      <input type="hidden" name="view" value="{{.View}}">{{if .Attention}}<input type="hidden" name="attention" value="1">{{end}}
+      <button class="visually-hidden" type="submit">{{t "common.search"}}</button>{{if .SearchQuery}}<a class="category-search-clear" href="{{.SearchClearURL}}">{{t "common.clear_search"}}</a>{{end}}
+    </form>
+{{if gt .Tree.AttentionCount 0}}    <a class="catalog-attention-chip{{if .Attention}} is-active{{end}}" href="{{.AttentionURL}}"{{if .Attention}} aria-current="true"{{end}}>{{if eq .Tree.AttentionCount 1}}{{tf "categories.attention_one" .Tree.AttentionCount}}{{else}}{{tf "categories.attention_other" .Tree.AttentionCount}}{{end}}</a>
+{{end}}  </div>
+  <section class="catalog-tree-region" aria-labelledby="catalog-tree-title">
+    <h2 id="catalog-tree-title" class="visually-hidden">{{t "categories.structure_label"}}</h2>
+    <div class="catalog-tree">
+      <ul class="catalog-tree-list catalog-tree-departments" aria-label="{{t "categories.departments"}}">
+{{range .Tree.Departments}}        <li class="catalog-tree-node catalog-tree-department" data-catalog-node data-catalog-slug="{{.Slug}}" data-catalog-id="{{.ID}}" data-level="department"{{if .Current}} data-current="true"{{end}}>
+          <div class="catalog-tree-row catalog-tree-row-department"{{if .Current}} aria-current="true"{{end}}>
+{{if .Desks}}            <button class="catalog-disclosure" type="button" data-catalog-disclosure aria-expanded="true" aria-controls="catalog-{{.Slug}}" aria-label="{{tf "categories.collapse" .Name.Plain}}" data-catalog-name="{{.Name.Plain}}"><span class="catalog-disclosure-mark" aria-hidden="true"></span></button>
+{{else}}            <span class="catalog-disclosure catalog-disclosure-empty" aria-hidden="true"></span>
+{{end}}            <span class="catalog-node-name">{{range .Name.Parts}}{{if .Match}}<mark>{{.Text}}</mark>{{else}}{{.Text}}{{end}}{{end}}</span>
+            <span class="catalog-node-description">{{.Description}}</span>
+            <span class="catalog-node-meta">{{tp "categories.desk_count" .DeskCount}} · {{tp "categories.agent_count" .AgentCount}}</span>
+            <span class="catalog-node-spacer"></span>
+{{if not .Virtual}}            <div class="category-overflow catalog-row-menu"><button class="category-menu-button" type="button" data-category-menu data-focus-key="department-actions-{{.ID}}" aria-controls="department-menu-{{.ID}}" aria-expanded="false" aria-label="{{tf "categories.actions_for" .Name.Plain}}">⋯</button><div id="department-menu-{{.ID}}" class="category-overflow-menu" role="menu" hidden><a class="category-drawer-launcher" role="menuitem" href="/categories/departments/{{.ID}}/edit?view=structure&department_id={{categoryDepartmentValue .ID}}" hx-get="/categories/departments/{{.ID}}/edit?view=structure&department_id={{categoryDepartmentValue .ID}}" hx-target="#category-drawer-host" hx-swap="outerHTML" hx-push-url="/categories/departments/{{.ID}}/edit?view=structure&department_id={{categoryDepartmentValue .ID}}">{{t "categories.edit_department"}}</a><a class="category-drawer-launcher" role="menuitem" href="/categories/desks/new?view=structure&department_id={{categoryDepartmentValue .ID}}" hx-get="/categories/desks/new?view=structure&department_id={{categoryDepartmentValue .ID}}" hx-target="#category-drawer-host" hx-swap="outerHTML" hx-push-url="/categories/desks/new?view=structure&department_id={{categoryDepartmentValue .ID}}">{{t "categories.add_desk"}}</a><form method="post" action="/categories/departments/{{.ID}}/delete" hx-post="/categories/departments/{{.ID}}/delete" hx-target="#categories-background" hx-swap="outerHTML" role="none"><input type="hidden" name="view" value="structure"><input type="hidden" name="department_id" value="{{categoryDepartmentValue .ID}}"><button class="category-menu-danger" role="menuitem" data-category-delete="department" data-delete-confirm="{{tf "categories.delete_confirm.department" .Name.Plain}}" type="submit">{{t "categories.delete_department"}}</button></form></div></div>
+{{else}}            <span class="catalog-node-spacer catalog-node-spacer-menu" aria-hidden="true"></span>
+{{end}}          </div>
+          <ul class="catalog-tree-list" id="catalog-{{.Slug}}" aria-label="{{t "categories.desks"}}">
+{{range .Desks}}            <li class="catalog-tree-node catalog-tree-desk" data-catalog-node data-catalog-slug="{{.Slug}}" data-catalog-id="{{.ID}}" data-level="desk"{{if .Current}} data-current="true"{{end}}>
+              <div class="catalog-tree-row catalog-tree-row-desk"{{if .Current}} aria-current="true"{{end}}>
+{{if .Categories}}                <button class="catalog-disclosure" type="button" data-catalog-disclosure aria-expanded="true" aria-controls="catalog-{{.Slug}}" aria-label="{{tf "categories.collapse" .Name.Plain}}" data-catalog-name="{{.Name.Plain}}"><span class="catalog-disclosure-mark" aria-hidden="true"></span></button>
+{{else}}                <span class="catalog-disclosure catalog-disclosure-empty" aria-hidden="true"></span>
+{{end}}                <span class="catalog-node-name">{{range .Name.Parts}}{{if .Match}}<mark>{{.Text}}</mark>{{else}}{{.Text}}{{end}}{{end}}</span>
+{{if eq .AgentCount 0}}                <span class="catalog-badge catalog-badge-none">{{t "categories.tree.no_agents"}}</span>
+{{else}}                <span class="catalog-node-meta">{{tp "categories.agent_count" .AgentCount}}</span>
+{{end}}                <span class="catalog-node-meta">{{tp "categories.open_count" .OpenTickets}}</span>
+                <span class="catalog-node-spacer"></span>
+                <div class="category-overflow catalog-row-menu"><button class="category-menu-button" type="button" data-category-menu data-focus-key="desk-actions-{{.ID}}" aria-controls="desk-menu-{{.ID}}" aria-expanded="false" aria-label="{{tf "categories.actions_for" .Name.Plain}}">⋯</button><div id="desk-menu-{{.ID}}" class="category-overflow-menu" role="menu" hidden><a class="category-drawer-launcher" role="menuitem" href="/categories/desks/{{.ID}}/edit?view=structure&department_id={{.DepartmentValue}}&desk_id={{.ID}}" hx-get="/categories/desks/{{.ID}}/edit?view=structure&department_id={{.DepartmentValue}}&desk_id={{.ID}}" hx-target="#category-drawer-host" hx-swap="outerHTML" hx-push-url="/categories/desks/{{.ID}}/edit?view=structure&department_id={{.DepartmentValue}}&desk_id={{.ID}}">{{t "categories.edit_desk"}}</a><a class="category-drawer-launcher" role="menuitem" href="/categories/new?view=structure&department_id={{.DepartmentValue}}&desk_id={{.ID}}" hx-get="/categories/new?view=structure&department_id={{.DepartmentValue}}&desk_id={{.ID}}" hx-target="#category-drawer-host" hx-swap="outerHTML" hx-push-url="/categories/new?view=structure&department_id={{.DepartmentValue}}&desk_id={{.ID}}">{{t "categories.add_category"}}</a><form method="post" action="/categories/desks/{{.ID}}/delete" hx-post="/categories/desks/{{.ID}}/delete" hx-target="#categories-background" hx-swap="outerHTML" role="none"><input type="hidden" name="view" value="structure"><input type="hidden" name="department_id" value="{{.DepartmentValue}}"><input type="hidden" name="desk_id" value="{{.ID}}"><button class="category-menu-danger" role="menuitem" data-category-delete="desk" data-delete-confirm="{{tf "categories.delete_confirm.desk" .Name.Plain}}" type="submit">{{t "categories.delete_desk"}}</button></form></div></div>
+              </div>
+{{if .Categories}}              <ul class="catalog-tree-list" id="catalog-{{.Slug}}" aria-label="{{t "categories.categories"}}">
+{{range .Categories}}                <li class="catalog-tree-node catalog-tree-category" data-catalog-id="{{.ID}}" data-level="category" data-desk-id="{{.DeskID}}"{{if .Current}} data-current="true"{{end}}>
+                  <div class="catalog-tree-row catalog-tree-row-category"{{if .Current}} aria-current="true"{{end}}>
+                    <span class="catalog-disclosure catalog-disclosure-empty" aria-hidden="true"></span>
+                    <a class="catalog-node-name catalog-category-link" href="/categories/{{.ID}}/workflow">{{range .Name.Parts}}{{if .Match}}<mark>{{.Text}}</mark>{{else}}{{.Text}}{{end}}{{end}}</a>
+                    <span class="catalog-badge catalog-badge-{{.WorkflowTone}}">{{msg .Workflow}}</span>
+{{if .SLAKey}}                    <span class="catalog-node-meta">{{t .SLAKey}}</span>
+{{end}}                    <span class="catalog-node-meta">{{tp "categories.open_count" .OpenTickets}}</span>
+                    <span class="catalog-node-spacer"></span>
+                    <div class="category-overflow catalog-row-menu"><button class="category-menu-button" type="button" data-category-menu data-focus-key="category-actions-{{.ID}}" aria-controls="category-menu-{{.ID}}" aria-expanded="false" aria-label="{{tf "categories.actions_for" .Name.Plain}}">⋯</button><div id="category-menu-{{.ID}}" class="category-overflow-menu" role="menu" hidden><a class="category-drawer-launcher" role="menuitem" href="/categories/{{.ID}}/edit?view=structure&department_id={{.DepartmentValue}}&desk_id={{.DeskID}}" hx-get="/categories/{{.ID}}/edit?view=structure&department_id={{.DepartmentValue}}&desk_id={{.DeskID}}" hx-target="#category-drawer-host" hx-swap="outerHTML" hx-push-url="/categories/{{.ID}}/edit?view=structure&department_id={{.DepartmentValue}}&desk_id={{.DeskID}}">{{t "categories.edit_category"}}</a><a role="menuitem" href="/categories/{{.ID}}/workflow">{{t "categories.configure_workflow"}}</a><a role="menuitem" href="/categories/{{.ID}}/sla">{{t "categories.configure_sla"}}</a><form method="post" action="/categories/{{.ID}}/delete" hx-post="/categories/{{.ID}}/delete" hx-target="#categories-background" hx-swap="outerHTML" role="none"><input type="hidden" name="view" value="structure"><input type="hidden" name="department_id" value="{{.DepartmentValue}}"><input type="hidden" name="desk_id" value="{{.DeskID}}"><button class="category-menu-danger" role="menuitem" data-category-delete="category" data-delete-confirm="{{tf "categories.delete_confirm.category" .Name.Plain}}" type="submit">{{t "categories.delete_category"}}</button></form></div></div>
+                  </div>
+                </li>
+{{end}}              </ul>
+{{end}}            </li>
+{{end}}          </ul>
+        </li>
+{{end}}      </ul>
+{{if not .Tree.Departments}}      <p class="category-empty">{{if .SearchQuery}}{{t "categories.search_empty"}}{{else if .Attention}}{{t "categories.attention_empty"}}{{else}}{{t "categories.no_departments"}}{{end}}</p>
+{{end}}    </div>
+  </section>
 </div>{{end}}
