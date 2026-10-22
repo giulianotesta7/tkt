@@ -645,8 +645,58 @@ var templateFuncs = template.FuncMap{
 	// (issue #383, S5). The title keys take it as an argument rather than
 	// reading request state, so a template cannot render a title the request's
 	// identity did not decide.
-	"brandName":     brandName,
-	"brandHelpDesk": brandHelpDesk,
+	"brandName":        brandName,
+	"brandHelpDesk":    brandHelpDesk,
+	"signinIcon":       signinIcon,
+	"signinNoticeIcon": signinNoticeIcon,
+	"helpTip":          helpTip,
+}
+
+// helpTipData is one field explanation rendered as a toggletip (issue #383,
+// S11): the id its tooltip element is referenced by, the field's label and the
+// explanation. The template passes both as catalogue-resolved strings — it calls
+// t with each key — so the copy stays translated and the coverage guard sees
+// every key a surface renders.
+type helpTipData struct {
+	ID    string
+	Label string
+	Text  string
+}
+
+// helpTip builds one toggletip payload from the translated label and text.
+func helpTip(id, label, text string) helpTipData {
+	return helpTipData{ID: id, Label: label, Text: text}
+}
+
+// signinIconSVG is the inline mark of one sign-in highlight icon (issue #383,
+// S10). The set is closed and shipped with the binary, so the panel never
+// depends on an emoji font or on an administrator uploading a glyph. An unknown
+// name renders the info mark rather than nothing.
+var signinIconSVG = map[string]string{
+	domain.SigninIconClock:  `<circle cx="12" cy="12" r="8"/><path d="M12 8v4l3 2"/>`,
+	domain.SigninIconPhone:  `<path d="M6 4h3l2 5-2 1a10 10 0 0 0 5 5l1-2 5 2v3a2 2 0 0 1-2 2A16 16 0 0 1 4 6a2 2 0 0 1 2-2z"/>`,
+	domain.SigninIconCheck:  `<path d="M4 12.5l5 5L20 6.5"/>`,
+	domain.SigninIconShield: `<path d="M12 3l7 3v6c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V6l7-3z"/>`,
+	domain.SigninIconChat:   `<path d="M4 5h16v11H9l-5 4V5z"/>`,
+	domain.SigninIconInfo:   `<circle cx="12" cy="12" r="8"/><path d="M12 11v6"/><path d="M12 7.5v.5"/>`,
+}
+
+// signinIcon returns one highlight's mark as inline SVG.
+func signinIcon(name string) template.HTML {
+	body, ok := signinIconSVG[name]
+	if !ok {
+		body = signinIconSVG[domain.SigninIconInfo]
+	}
+	return template.HTML(`<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">` + body + `</svg>`)
+}
+
+// signinNoticeIcon returns the notice's mark: a warning triangle for a warning
+// and the info circle otherwise.
+func signinNoticeIcon(kind string) template.HTML {
+	if kind == domain.SigninNoticeWarning {
+		return template.HTML(`<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4l9 16H3l9-16z"/><path d="M12 10v4"/><path d="M12 17v.5"/></svg>`)
+	}
+	return signinIcon(domain.SigninIconInfo)
 }
 
 // brandName is the instance name a document title starts with. It answers the

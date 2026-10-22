@@ -2,8 +2,6 @@ package sqlite
 
 import (
 	"context"
-	"database/sql"
-	"errors"
 	"fmt"
 
 	"github.com/giulianotesta7/tkt/internal/application"
@@ -54,7 +52,7 @@ func (ss *settingsStore) GetOrganization(ctx context.Context) (domain.Organizati
 	if org.HelpDesk == "" {
 		org.HelpDesk = domain.DefaultOrganizationHelpDesk
 	}
-	logo, mime, err := ss.organizationLogo(ctx)
+	logo, mime, err := ss.blobValue(ctx, settingsKeyOrganizationLogo)
 	if err != nil {
 		return domain.Organization{}, err
 	}
@@ -100,24 +98,6 @@ func (ss *settingsStore) SetOrganization(ctx context.Context, org domain.Organiz
 		}
 	}
 	return tx.Commit()
-}
-
-// organizationLogo reads the stored logo and its type. An absent row answers
-// (nil, ""), which the identity read renders as the monogram.
-func (ss *settingsStore) organizationLogo(ctx context.Context) ([]byte, string, error) {
-	var (
-		value []byte
-		mime  string
-	)
-	err := ss.db.QueryRowContext(ctx,
-		`SELECT value, mime FROM settings_blobs WHERE key = ?`, settingsKeyOrganizationLogo).Scan(&value, &mime)
-	if errors.Is(err, sql.ErrNoRows) {
-		return nil, "", nil
-	}
-	if err != nil {
-		return nil, "", fmt.Errorf("sqlite: get %s: %w", settingsKeyOrganizationLogo, err)
-	}
-	return value, mime, nil
 }
 
 var _ application.OrganizationStore = (*settingsStore)(nil)

@@ -96,8 +96,8 @@ func TestMigration0026SettingsBlobsTableShape(t *testing.T) {
 }
 
 // TestMigration0026SettingsBlobsBounds proves the CHECKs the store turns into
-// refusals: one row per key, a non-empty payload, the 256 KiB logo cap, and a
-// named type.
+// refusals: one row per key, a non-empty payload, the per-key caps (a mark at
+// 256 KiB, the sign-in photograph at 1 MiB), and a named type.
 func TestMigration0026SettingsBlobsBounds(t *testing.T) {
 	s := newTestDB(t)
 	ctx := context.Background()
@@ -116,14 +116,31 @@ func TestMigration0026SettingsBlobsBounds(t *testing.T) {
 	if err := insert("empty", []byte{}, "image/png"); err == nil {
 		t.Error("empty payload accepted, want CHECK failure")
 	}
-	oversize := make([]byte, 256<<10+1)
-	if err := insert("oversize", oversize, "image/png"); err == nil {
-		t.Error("payload above the 256 KiB cap accepted, want CHECK failure")
+	clear := func(key string) {
+		t.Helper()
+		if _, err := s.db.ExecContext(ctx, `DELETE FROM settings_blobs WHERE key = ?`, key); err != nil {
+			t.Fatalf("delete %s: %v", key, err)
+		}
 	}
-	if atCap := make([]byte, 256<<10); len(atCap) == 0 {
-		t.Fatal("unreachable")
-	} else if err := insert("at_cap", atCap, "image/png"); err != nil {
-		t.Errorf("payload of exactly the cap refused: %v", err)
+	// A mark key keeps the 256 KiB cap the logo needs.
+	clear("org_logo")
+	if err := insert("org_logo", make([]byte, 256<<10+1), "image/png"); err == nil {
+		t.Error("payload above the 256 KiB mark cap accepted, want CHECK failure")
+	}
+	clear("org_logo")
+	if err := insert("org_logo", make([]byte, 256<<10), "image/png"); err != nil {
+		t.Errorf("mark of exactly the 256 KiB cap refused: %v", err)
+	}
+	// The sign-in background is a photograph behind a dark overlay, so its own
+	// cap is 1 MiB: the same size that is refused for a mark is accepted here,
+	// and one byte over its own cap is not.
+	clear("signin_background")
+	if err := insert("signin_background", make([]byte, 1<<20), "image/jpeg"); err != nil {
+		t.Errorf("background of exactly the 1 MiB cap refused: %v", err)
+	}
+	clear("signin_background")
+	if err := insert("signin_background", make([]byte, 1<<20+1), "image/jpeg"); err == nil {
+		t.Error("background above the 1 MiB cap accepted, want CHECK failure")
 	}
 	if err := insert("untyped", []byte("x"), ""); err == nil {
 		t.Error("empty mime accepted, want CHECK failure")

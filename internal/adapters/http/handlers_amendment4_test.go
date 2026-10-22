@@ -508,6 +508,7 @@ func TestAmendment4_FullPageHasNoTrailingWhitespace(t *testing.T) {
 		{name: "category_form", page: "categories_new", target: "category_form", data: fixtureCategoryFormData(), fragment: true},
 		{name: "category_sla", page: "category_sla", data: fixtureCategorySLAData()},
 		{name: "settings_organization", page: "settings_organization", data: fixtureSettingsOrganizationData()},
+		{name: "settings_signin", page: "settings_signin", data: fixtureSettingsSigninData()},
 		{name: "settings_language", page: "settings_language", data: fixtureSettingsLanguageData()},
 		{name: "settings_tickets", page: "settings_tickets", data: fixtureSettingsTicketsData()},
 		{name: "settings_calendar", page: "settings_calendar", data: fixtureSettingsCalendarData()},

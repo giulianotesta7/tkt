@@ -133,6 +133,10 @@ func (l *organizationReadLog) recovered() {
 // same way it lets /static/ through.
 type BrandHandlers struct {
 	organization application.OrganizationStore
+	// signin is the OPTIONAL sign-in page reader (issue #383, S9/S10). A handler
+	// set built without it serves no background image, so a caller that does not
+	// care about the sign-in page keeps working unchanged.
+	signin application.SigninStore
 }
 
 // NewBrandHandlers wires the logo route against the identity port.
@@ -140,9 +144,18 @@ func NewBrandHandlers(organization application.OrganizationStore) *BrandHandlers
 	return &BrandHandlers{organization: organization}
 }
 
-// Register mounts the logo route.
+// WithSignin opts the handler set into serving the sign-in page's background
+// image (issue #383, S10). It is opt-in for the same reason the logo route keeps
+// one constructor.
+func (h *BrandHandlers) WithSignin(signin application.SigninStore) *BrandHandlers {
+	h.signin = signin
+	return h
+}
+
+// Register mounts the two public brand images.
 func (h *BrandHandlers) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /brand/logo", h.logo)
+	mux.HandleFunc("GET /brand/signin-background", h.signinBackground)
 }
 
 // logo answers the stored logo. The type is the one stored with the bytes (a
@@ -163,11 +176,48 @@ func (h *BrandHandlers) logo(w http.ResponseWriter, r *http.Request) {
 	if contentType == "" {
 		contentType = domain.OrganizationLogoContentType
 	}
+	writeBrandImage(w, contentType, org.Logo)
+}
+
+// signinBackground answers the stored sign-in background image (issue #383,
+// S10). It mirrors the logo route exactly — the same public path prefix, the
+// same headers, and a 404 when the instance holds no image — because both are
+// requested by a page that renders before any session exists.
+func (h *BrandHandlers) signinBackground(w http.ResponseWriter, r *http.Request) {
+	if h.signin == nil {
+		http.NotFound(w, r)
+		return
+	}
+	configuration, err := h.signin.GetSignin(r.Context())
+	if err != nil {
+		httpError(w, r, "error.internal_server", http.StatusInternalServerError)
+		return
+	}
+	if !configuration.HasBackground() {
+		http.NotFound(w, r)
+		return
+	}
+	contentType := configuration.BackgroundMIME
+	if contentType == "" {
+		if derived, ok := domain.SigninBackgroundContentType(configuration.Background); ok {
+			contentType = derived
+		} else {
+			contentType = domain.SigninBackgroundPNG
+		}
+	}
+	writeBrandImage(w, contentType, configuration.Background)
+}
+
+// writeBrandImage answers one stored image with the headers a public brand image
+// carries: the type the row was validated as, nosniff so a browser cannot
+// reinterpret the bytes, and a day-long public cache that the shell's
+// content-hash URL keeps honest.
+func writeBrandImage(w http.ResponseWriter, contentType string, data []byte) {
 	w.Header().Set("Content-Type", contentType)
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.Header().Set("Cache-Control", "public, max-age=86400")
 	w.WriteHeader(http.StatusOK)
-	if _, err := w.Write(org.Logo); err != nil {
-		log.Printf("httpadapter: write organization logo: %v", err)
+	if _, err := w.Write(data); err != nil {
+		log.Printf("httpadapter: write brand image: %v", err)
 	}
 }

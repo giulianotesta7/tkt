@@ -44,6 +44,11 @@ const maxUploadBodyBytes = 5*domain.MaxAttachmentBytes + maxRequestBodyBytes
 // must never be able to carry ten megabytes of anything.
 const maxOrganizationUploadBodyBytes = domain.MaxOrganizationLogoBytes + 64<<10
 
+// maxSigninUploadBodyBytes is the cap of POST /settings/signin (issue #383,
+// S10): one background image of at most domain.MaxSigninBackgroundBytes plus
+// 64 KiB for the multipart envelope and the panel's text fields.
+const maxSigninUploadBodyBytes = domain.MaxSigninBackgroundBytes + 64<<10
+
 // BodyLimitMiddleware caps how many body bytes any wrapped route may consume.
 // It is a transport-boundary control: it runs before the mux and never
 // inspects route semantics.
@@ -119,7 +124,8 @@ func (m *BodyLimitMiddleware) Wrap(next http.Handler) http.Handler {
 // uploadBodyCap answers the cap of one multipart upload route and whether the
 // request is one. The match is exact per route, so no other route inherits a
 // larger cap: the two attachment forms share maxUploadBodyBytes, and the
-// organization form (issue #383, S4) has its own, far smaller one.
+// organization form (issue #383, S4) and the sign-in panel form (S10) each have
+// their own, far smaller one.
 func uploadBodyCap(r *http.Request) (int64, bool) {
 	if r.Method != http.MethodPost {
 		return 0, false
@@ -130,6 +136,9 @@ func uploadBodyCap(r *http.Request) (int64, bool) {
 	}
 	if r.URL.Path == "/settings/organization" {
 		return maxOrganizationUploadBodyBytes, true
+	}
+	if r.URL.Path == "/settings/signin" {
+		return maxSigninUploadBodyBytes, true
 	}
 	if isAttachmentUploadRequest(r) {
 		return maxUploadBodyBytes, true

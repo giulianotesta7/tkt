@@ -61,50 +61,69 @@ test.describe("Login and auth gates", () => {
   });
 
   /**
-   * Issue #383, S6: the sign-in page is one centered column carrying the
-   * instance identity — the mark (logo or monogram), the name and the help desk
-   * name above the form — and the marketing panel the old split shell showed is
-   * gone. The default identity of a fresh instance is "tkt" / "Help desk", which
-   * is what this journey asserts; the organization section owns the rest.
+   * Issue #383, S9: the sign-in page is the two-column split again — the dark
+   * presentation panel on the left and the form on the right — and the panel is
+   * never empty: an unconfigured instance renders the catalogue defaults (the
+   * title naming the help desk, the shipped subtitle and the three-step
+   * journey), so nothing has to be configured for the page to look finished.
    */
-  test("the sign-in page centres the instance identity above the form", async ({ page }) => {
+  test("the default sign-in page is the split layout's full default panel", async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 800 });
     const obs = collectObservability(page);
     await page.goto(base() + "/login");
 
     await expect(page.locator("body > main.auth-entry")).toHaveCount(1);
-    await expect(page.locator("main.auth-entry .auth-entry__logo")).toHaveText("T");
-    await expect(page.locator("main.auth-entry h1")).toHaveText("tkt");
-    await expect(page.locator("main.auth-entry .help").first()).toHaveText("Help desk");
-    await expect(page.locator("form.login-form")).toHaveCount(1);
-    await expect(page.getByRole("heading", { name: /sign in to tkt/i })).toBeVisible();
+    const panel = page.locator("main.auth-entry .auth-entry__presentation");
+    await expect(panel).toBeVisible();
+    await expect(panel.locator(".auth-entry__mark")).toHaveText("T");
+    await expect(panel.locator(".auth-entry__brand-text b")).toHaveText("tkt");
+    await expect(panel.locator(".auth-entry__brand-text span")).toHaveText("Help desk");
+    await expect(panel.locator("h2")).toHaveText("Welcome to Help desk");
+    await expect(panel.locator(".auth-entry__sub")).toHaveText(
+      "Everything your team needs to receive, organize, and resolve support requests.",
+    );
 
-    // The marketing panel and its journey/principles blocks are gone, and with
-    // them the split shell: one column, no sidebar, no presentation section.
-    await expect(page.locator(".auth-entry__presentation")).toHaveCount(0);
+    // The middle zone is the three-step journey, with the second step marked.
+    const steps = panel.locator(".auth-entry__steps li");
+    await expect(steps).toHaveCount(3);
+    await expect(steps.nth(0)).toContainText("Received");
+    await expect(steps.nth(1)).toContainText("Assigned");
+    await expect(steps.nth(1)).toHaveClass(/\bon\b/);
+    await expect(steps.nth(2)).toContainText("Resolved");
+    // No notice is configured, and no support address either, so the footer is
+    // absent rather than empty.
+    await expect(panel.locator(".auth-entry__notice")).toHaveCount(0);
+    await expect(panel.locator(".auth-entry__foot")).toHaveCount(0);
+
+    // The form is the right column, and the old marketing blocks stay gone.
+    await expect(
+      page.locator("main.auth-entry .auth-entry__form-panel form.login-form"),
+    ).toHaveCount(1);
     await expect(page.locator(".auth-entry__journey")).toHaveCount(0);
     await expect(page.locator(".auth-entry__principles")).toHaveCount(0);
     await expect(page.locator("nav a")).toHaveCount(0);
-    // A default instance configures no support address, so the footer line it
-    // would carry is absent rather than empty.
-    await expect(page.locator("main.auth-entry footer")).toHaveCount(0);
 
-    // One centered column: the identity and the form share the same column.
     const geometry = await page.evaluate(() => {
-      const identity = document.querySelector("main.auth-entry > div")?.getBoundingClientRect();
+      const panel = document
+        .querySelector("main.auth-entry .auth-entry__presentation")
+        ?.getBoundingClientRect();
       const form = document.querySelector("main.auth-entry form")?.getBoundingClientRect();
       return {
-        identityCenter: identity ? identity.left + identity.width / 2 : -1,
-        formCenter: form ? form.left + form.width / 2 : -1,
-        viewportCenter: window.innerWidth / 2,
+        panelLeft: panel ? panel.left : -1,
+        panelWidth: panel ? panel.width : 0,
+        formLeft: form ? form.left : -1,
+        viewport: window.innerWidth,
       };
     });
-    expect(Math.abs(geometry.identityCenter - geometry.viewportCenter)).toBeLessThan(24);
-    expect(Math.abs(geometry.formCenter - geometry.viewportCenter)).toBeLessThan(24);
+    expect(geometry.panelLeft).toBe(0);
+    // The panel takes 52% of the width (allowing for the fixed fraction's
+    // integer rounding), and the form sits to its right.
+    expect(Math.abs(geometry.panelWidth / geometry.viewport - 0.52)).toBeLessThan(0.02);
+    expect(geometry.formLeft).toBeGreaterThan(geometry.panelLeft + geometry.panelWidth - 1);
 
     await assertCanonicalScreen(page, {
       viewport: 1280,
-      label: "centred sign-in",
+      label: "split sign-in with the default panel",
       url: page.url(),
       role: "anonymous",
       consoleErrors: obs.consoleErrors,
@@ -112,6 +131,109 @@ test.describe("Login and auth gates", () => {
       failedRequests: obs.failedRequests,
       failedResponses: obs.failedResponses,
     });
+  });
+
+  /**
+   * Issue #383, S9/S10: whatever the administrator saves on Settings › Sign-in
+   * page is what the panel shows — title, highlights, the notice and the footer
+   * contact facts — and on a phone the panel collapses to a strip with the form
+   * still above the fold.
+   */
+  test("a customized sign-in panel renders what the sign-in page section saved", async ({
+    page,
+  }) => {
+    test.setTimeout(60_000);
+    await page.setViewportSize({ width: 1280, height: 800 });
+    const obs = collectObservability(page);
+    await loginAsSeeded(page);
+    await page.goto(base() + "/settings/signin");
+
+    await page.locator("#signin_title").fill("Sistemas, a un pedido");
+    await page.locator("#signin_subtitle").fill("Cargá tu pedido y seguí su estado.");
+    await page.locator('label:has(input[name="content"][value="highlights"])').click();
+    await page.locator("#highlight_0_title").fill("Primera respuesta en 4 h");
+    await page.locator("#highlight_0_text").fill("Los críticos en menos de 30 min.");
+    await page.locator("#highlight_1_icon").selectOption("phone");
+    await page.locator("#highlight_1_title").fill("Guardia 24/7");
+    await page.getByRole("checkbox", { name: /show a notice/i }).check();
+    await page.locator('label:has(input[name="notice_kind"][value="warning"])').click();
+    await page.locator("#signin_notice_title").fill("Mantenimiento programado");
+    await page.locator("#signin_notice_text").fill("El sábado de 10 a 12.");
+    await page.locator("#signin_support_phone").fill("Interno 4400");
+    await page.locator("#signin_support_hours").fill("Lun a vie, 8 a 18");
+    await page.getByRole("button", { name: "Save sign-in page" }).click();
+    await expect(page).toHaveURL(/\/settings\/signin$/);
+    await expect(page.locator("#save-feedback")).toContainText("Saved");
+
+    // The sign-in page renders the stored panel.
+    await logout(page);
+    const panel = page.locator("main.auth-entry .auth-entry__presentation");
+    await expect(panel.locator("h2")).toHaveText("Sistemas, a un pedido");
+    await expect(panel.locator(".auth-entry__sub")).toHaveText(
+      "Cargá tu pedido y seguí su estado.",
+    );
+    const highlights = panel.locator(".auth-entry__highlights li");
+    await expect(highlights).toHaveCount(2);
+    await expect(highlights.nth(0)).toContainText("Primera respuesta en 4 h");
+    await expect(highlights.nth(0)).toContainText("Los críticos en menos de 30 min.");
+    await expect(highlights.nth(1)).toContainText("Guardia 24/7");
+    await expect(panel.locator(".auth-entry__notice")).toHaveClass(/auth-entry__notice--warning/);
+    await expect(panel.locator(".auth-entry__notice")).toContainText("Mantenimiento programado");
+    await expect(panel.locator(".auth-entry__notice")).toContainText("El sábado de 10 a 12.");
+    await expect(panel.locator(".auth-entry__foot")).toContainText("Interno 4400");
+    await expect(panel.locator(".auth-entry__foot")).toContainText("Lun a vie, 8 a 18");
+    await expect(panel.locator(".auth-entry__steps")).toHaveCount(0);
+
+    await assertCanonicalScreen(page, {
+      viewport: 1280,
+      label: "customized sign-in panel",
+      url: page.url(),
+      role: "anonymous",
+      consoleErrors: obs.consoleErrors,
+      pageErrors: obs.pageErrors,
+      failedRequests: obs.failedRequests,
+      failedResponses: obs.failedResponses,
+    });
+
+    // A phone gets the compact strip: brand, title, subtitle and the notice,
+    // while the middle content and the footer step aside and the form stays
+    // above the fold.
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto(base() + "/login");
+    await expect(panel.locator("h2")).toBeVisible();
+    await expect(panel.locator(".auth-entry__notice")).toBeVisible();
+    await expect(panel.locator(".auth-entry__sub")).toBeVisible();
+    await expect(panel.locator(".auth-entry__highlights")).toBeHidden();
+    await expect(panel.locator(".auth-entry__foot")).toBeHidden();
+    const fold = await page.evaluate(() => {
+      const submit = document.querySelector("main.auth-entry form button[type=submit]");
+      const box = submit?.getBoundingClientRect();
+      return { bottom: box ? box.bottom : Number.POSITIVE_INFINITY, viewport: window.innerHeight };
+    });
+    expect(fold.bottom).toBeLessThanOrEqual(fold.viewport);
+    await assertCanonicalScreen(page, {
+      viewport: 390,
+      label: "sign-in strip at 390px",
+      url: page.url(),
+      role: "anonymous",
+      consoleErrors: obs.consoleErrors,
+      pageErrors: obs.pageErrors,
+      failedRequests: obs.failedRequests,
+      failedResponses: obs.failedResponses,
+    });
+
+    // Restore the default panel for the journeys that follow.
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await loginAsSeeded(page);
+    await page.goto(base() + "/settings/signin");
+    await page.locator("#signin_title").fill("");
+    await page.locator("#signin_subtitle").fill("");
+    await page.locator('label:has(input[name="content"][value="steps"])').click();
+    await page.getByRole("checkbox", { name: /show a notice/i }).uncheck();
+    await page.locator("#signin_support_phone").fill("");
+    await page.locator("#signin_support_hours").fill("");
+    await page.getByRole("button", { name: "Save sign-in page" }).click();
+    await expect(page).toHaveURL(/\/settings\/signin$/);
   });
 
   test("seeded root user can log in and reach tickets", async ({ page }) => {

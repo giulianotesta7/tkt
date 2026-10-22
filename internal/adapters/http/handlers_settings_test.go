@@ -203,7 +203,7 @@ func TestSettingsNavMarksTheActiveSectionAndHidesEmail(t *testing.T) {
 		`href="/settings/language">Language</a>`,
 		`href="/settings/tickets">Tickets &amp; SLA</a>`,
 		`href="/settings/calendar" aria-current="page">Working calendar</a>`,
-		`href="/settings/email">Email</a>`,
+		`href="/settings/email">Email notifications</a>`,
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("the section nav must contain %q, got: %s", want, body)
@@ -218,7 +218,7 @@ func TestSettingsNavMarksTheActiveSectionAndHidesEmail(t *testing.T) {
 	adminSession := seedSession(t, h.store, admin.ID)
 	adminBody := getAs(t, h, "/settings/organization", adminSession.ID).Body.String()
 	if strings.Contains(adminBody, `href="/settings/email"`) {
-		t.Errorf("an administrator's nav must not offer the root-only Email section, got: %s", adminBody)
+		t.Errorf("an administrator's nav must not offer the root-only Email notifications section, got: %s", adminBody)
 	}
 }
 

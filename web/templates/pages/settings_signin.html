@@ -1,0 +1,133 @@
+{{define "title"}}{{tf "base.title.screen" (t "settings.title") (brandHelpDesk .Brand)}}{{end}}
+{{define "content"}}
+<div class="command-header">
+  <div>
+    <h1 class="command-title">{{t "settings.title"}}</h1>
+  </div>
+</div>
+<div class="settings-layout">
+{{template "settings_nav" .}}
+  <div class="settings-content">
+{{if .Error}}    <div class="error-banner" role="alert">{{.Error}}</div>
+{{end}}    <div class="settings-signin">
+      <form class="settings-form card form-card" method="post" action="/settings/signin" enctype="multipart/form-data" data-settings-form>
+        <h2 class="settings-section-title">{{t "settings.signin.title"}}</h2>
+        <div class="field">
+          <label for="signin_title">{{t "settings.signin.field.title"}}</label>{{template "help_tip" (helpTip "signin-title" (t "settings.signin.field.title") (t "settings.signin.default_help"))}}
+          <input type="text" id="signin_title" name="title" value="{{.Values.Title}}" maxlength="80" data-preview-title>
+        </div>
+        <div class="field">
+          <label for="signin_subtitle">{{t "settings.signin.field.subtitle"}}</label>
+          <input type="text" id="signin_subtitle" name="subtitle" value="{{.Values.Subtitle}}" maxlength="200" data-preview-subtitle>
+        </div>
+        <h3 class="settings-group-title">{{t "settings.signin.field.content"}}</h3>
+        <fieldset class="settings-segment">
+          <legend class="visually-hidden">{{t "settings.signin.field.content"}}</legend>
+{{range .Contents}}          <label><input type="radio" name="content" value="{{.Value}}"{{if .Selected}} checked{{end}}>{{t (print "settings.signin.content." .Value)}}</label>
+{{end}}        </fieldset>
+        <div class="settings-highlights">
+{{range $index, $row := .Values.Highlights}}          <div class="settings-highlight" data-highlight-row="{{$index}}">
+            <div class="field">
+              <label for="highlight_{{$index}}_icon">{{t "settings.signin.field.highlight_icon"}}</label>
+              <select id="highlight_{{$index}}_icon" name="highlight_{{$index}}_icon" data-preview-hl-icon="{{$index}}">
+{{range $.Icons}}                <option value="{{.Value}}"{{if eq .Value $row.Icon}} selected{{end}} data-icon="{{signinIcon .Value}}">{{t (print "signin.icon." .Value)}}</option>
+{{end}}              </select>
+            </div>
+            <div class="field">
+              <label for="highlight_{{$index}}_title">{{t "settings.signin.field.highlight_title"}}</label>
+              <input type="text" id="highlight_{{$index}}_title" name="highlight_{{$index}}_title" value="{{$row.Title}}" maxlength="60" data-preview-hl-title="{{$index}}">
+            </div>
+            <div class="field">
+              <label for="highlight_{{$index}}_text">{{t "settings.signin.field.highlight_text"}}</label>
+              <input type="text" id="highlight_{{$index}}_text" name="highlight_{{$index}}_text" value="{{$row.Text}}" maxlength="120" data-preview-hl-text="{{$index}}">
+            </div>
+            <button class="btn settings-highlight-remove" type="button" data-highlight-remove="{{$index}}" aria-label="{{t "settings.signin.remove_highlight"}}">{{t "settings.signin.remove_highlight"}}</button>
+          </div>
+{{end}}          <button class="btn" type="button" data-highlight-add>{{t "settings.signin.add_highlight"}}</button>
+        </div>
+        <h3 class="settings-group-title">{{t "settings.signin.field.notice"}}</h3>
+        <div class="field checkbox-field">
+          <label>{{if .Values.NoticeEnabled}}<input type="checkbox" name="notice_enabled" value="1" checked data-preview-notice-toggle> {{t "settings.signin.field.notice_show"}}{{else}}<input type="checkbox" name="notice_enabled" value="1" data-preview-notice-toggle> {{t "settings.signin.field.notice_show"}}{{end}}</label>
+        </div>
+        <fieldset class="settings-segment">
+          <legend class="visually-hidden">{{t "settings.signin.field.notice_kind"}}</legend>
+{{range .NoticeKinds}}          <label><input type="radio" name="notice_kind" value="{{.Value}}"{{if .Selected}} checked{{end}}>{{t (print "settings.signin.notice_kind." .Value)}}</label>
+{{end}}        </fieldset>
+        <div class="field">
+          <label for="signin_notice_title">{{t "settings.signin.field.notice_title"}}</label>
+          <input type="text" id="signin_notice_title" name="notice_title" value="{{.Values.NoticeTitle}}" maxlength="80" data-preview-notice-title>
+        </div>
+        <div class="field">
+          <label for="signin_notice_text">{{t "settings.signin.field.notice_text"}}</label>
+          <input type="text" id="signin_notice_text" name="notice_text" value="{{.Values.NoticeText}}" maxlength="240" data-preview-notice-text>
+        </div>
+        <h3 class="settings-group-title">{{t "settings.signin.field.background"}}</h3>
+        <fieldset class="settings-segment">
+          <legend class="visually-hidden">{{t "settings.signin.field.background"}}</legend>
+{{range .Backgrounds}}          <label><input type="radio" name="background" value="{{.Value}}"{{if .Selected}} checked{{end}}>{{t (print "settings.signin.background." .Value)}}</label>
+{{end}}        </fieldset>
+        <div class="field">
+          <label for="signin_brand_color">{{t "settings.signin.field.brand_color"}}</label>
+          <input type="color" id="signin_brand_color" name="brand_color" value="{{if .Values.BrandColor}}{{.Values.BrandColor}}{{else}}#315EFF{{end}}" data-preview-brand>
+        </div>
+        <div class="field">
+          <label for="signin_background">{{t "settings.signin.field.background_image"}}</label>{{template "help_tip" (helpTip "signin-image" (t "settings.signin.field.background_image") (t "settings.signin.image_help"))}}
+          <div class="settings-logo">
+            <span class="settings-logo-mark">{{if .HasImage}}<img src="/brand/signin-background?v={{.ImageVersion}}" alt="" width="48" height="48">{{else}}{{signinIcon "info"}}{{end}}</span>
+            <div class="settings-logo-controls">
+              <input type="file" id="signin_background" name="background" accept="image/png,image/jpeg">
+{{if .HasImage}}              <button class="btn" type="submit" form="signin-background-remove">{{t "settings.signin.background_remove"}}</button>
+{{end}}            </div>
+          </div>
+        </div>
+        <h3 class="settings-group-title">{{t "settings.signin.field.support_contact"}}</h3>
+        <div class="field-row">
+          <div class="field">
+            <label for="signin_support_phone">{{t "settings.signin.field.support_phone"}}</label>
+            <input type="text" id="signin_support_phone" name="support_phone" value="{{.Values.SupportPhone}}" maxlength="40" data-preview-phone>
+          </div>
+          <div class="field">
+            <label for="signin_support_hours">{{t "settings.signin.field.support_hours"}}</label>
+            <input type="text" id="signin_support_hours" name="support_hours" value="{{.Values.SupportHours}}" maxlength="60" data-preview-hours>
+          </div>
+        </div>
+        <div class="settings-savebar" data-settings-savebar hidden>
+          <button class="btn primary" type="submit">{{t "settings.signin.save"}}</button>
+          <button class="btn" type="reset">{{t "settings.discard"}}</button>
+        </div>
+      </form>
+{{if .HasImage}}      <form id="signin-background-remove" method="post" action="/settings/signin/background/remove"></form>
+{{end}}      <aside class="settings-preview" aria-label="{{t "settings.signin.preview"}}">
+        <b class="settings-preview-label">{{t "settings.signin.preview"}}</b>
+        <div class="settings-preview-frame" data-clip-exempt>
+          <div class="settings-preview-scale">
+            <div class="auth-entry__presentation auth-entry__presentation--{{.Panel.Background}}"{{if .Panel.BackgroundStyle}} style="{{.Panel.BackgroundStyle}}"{{end}} data-preview-panel>
+              <div class="auth-entry__brand">
+{{if .Brand.HasLogo}}                <span class="auth-entry__mark"><img src="/brand/logo?v={{.Brand.LogoVersion}}" alt="" width="40" height="40"></span>
+{{else}}                <span class="auth-entry__mark" aria-hidden="true">{{.Brand.Monogram}}</span>
+{{end}}                <div class="auth-entry__brand-text"><b>{{brandName .Brand}}</b><span>{{brandHelpDesk .Brand}}</span></div>
+              </div>
+              <div class="auth-entry__body">
+                <div class="auth-entry__notice auth-entry__notice--{{.Panel.NoticeKind}}" data-preview-notice{{if not .Panel.NoticeEnabled}} hidden{{end}}>{{signinNoticeIcon .Panel.NoticeKind}}<div><b data-preview-notice-title-text>{{.Panel.NoticeTitle}}</b><span data-preview-notice-body-text>{{.Panel.NoticeText}}</span></div></div>
+                <h2 data-preview-title-text>{{.Panel.Title}}</h2>
+                <p class="auth-entry__sub" data-preview-subtitle-text>{{.Panel.Subtitle}}</p>
+                <ol class="auth-entry__steps" data-preview-zone="steps"{{if ne .Panel.Content "steps"}} hidden{{end}}>
+{{range .Panel.Steps}}                  <li{{if .Active}} class="on"{{end}}><span class="auth-entry__step-n" aria-hidden="true">{{.Number}}</span><b>{{.Title}}</b><span class="auth-entry__step-text">{{.Body}}</span></li>
+{{end}}                </ol>
+                <ul class="auth-entry__highlights" data-preview-zone="highlights"{{if ne .Panel.Content "highlights"}} hidden{{end}}>
+{{range $index, $row := .Values.Highlights}}                  <li data-preview-hl-row="{{$index}}"{{if not $row.Title}} hidden{{end}}><span class="auth-entry__hl-icon" aria-hidden="true" data-preview-hl-mark="{{$index}}">{{signinIcon $row.Icon}}</span><div><b data-preview-hl-title-text="{{$index}}">{{$row.Title}}</b><span data-preview-hl-text-text="{{$index}}">{{$row.Text}}</span></div></li>
+{{end}}                </ul>
+              </div>
+              <div class="auth-entry__foot" data-preview-foot>
+{{if .Panel.SupportEmail}}                <div><b>{{t "common.email"}}</b><span>{{.Panel.SupportEmail}}</span></div>
+{{end}}                <div data-preview-phone-block{{if not .Values.SupportPhone}} hidden{{end}}><b>{{t "auth.signin.footer.phone"}}</b><span data-preview-phone-text>{{.Values.SupportPhone}}</span></div>
+                <div data-preview-hours-block{{if not .Values.SupportHours}} hidden{{end}}><b>{{t "auth.signin.footer.hours"}}</b><span data-preview-hours-text>{{.Values.SupportHours}}</span></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </aside>
+    </div>
+  </div>
+</div>
+{{end}}

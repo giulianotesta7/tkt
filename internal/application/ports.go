@@ -1104,6 +1104,26 @@ type OrganizationStore interface {
 	SetOrganization(ctx context.Context, org domain.Organization) error
 }
 
+// SigninStore persists the sign-in page's customization (issue #383, S9/S10):
+// the text facts as keyed settings rows — the highlighted rows as one JSON array
+// decoded defensively — and the background image as a settings_blobs row, since
+// the settings table's value column is TEXT.
+//
+// Like OrganizationStore it is its own port because its reader is the login
+// page, which renders before any session exists: widening SettingsStore would
+// force every settings-only caller and fake to carry the sign-in panel too.
+type SigninStore interface {
+	// GetSignin returns the stored panel and background image. It NEVER fails
+	// for configuration reasons: absent rows answer the documented defaults
+	// (steps, no notice, the dark background), and a malformed highlights value
+	// reads back as "no highlights" instead of failing the login page.
+	GetSignin(ctx context.Context) (SigninConfiguration, error)
+	// SetSignin writes the panel's text facts AND the background image in ONE
+	// transaction, so a submission can never be half applied. A nil background
+	// means the instance holds no background image and deletes the stored row.
+	SetSignin(ctx context.Context, panel domain.SigninPanel, background []byte) error
+}
+
 // PreferencesStore persists per-user preferences (issue #210) in the
 // user_preferences table, keyed by (user_id, key). The first preference is
 // the default queue order; the table is generic so later preferences reuse

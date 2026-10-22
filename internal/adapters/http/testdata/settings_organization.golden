@@ -92,9 +92,10 @@
 
 <nav class="settings-nav" aria-label="Settings sections">
   <a class="settings-nav-link" href="/settings/organization" aria-current="page">Organization</a>
+  <a class="settings-nav-link" href="/settings/signin">Sign-in page</a>
   <a class="settings-nav-link" href="/settings/language">Language</a>
   <a class="settings-nav-link" href="/settings/tickets">Tickets &amp; SLA</a>
-  <a class="settings-nav-link" href="/settings/email">Email</a>
+  <a class="settings-nav-link" href="/settings/email">Email notifications</a>
   <a class="settings-nav-link" href="/settings/calendar">Working calendar</a>
 </nav>
 
@@ -114,14 +115,13 @@
         <input type="text" id="org_support_email" name="support_email" value="support@acme.test" spellcheck="false" autocapitalize="off">
       </div>
       <div class="field">
-        <label for="org_logo">Logo</label>
+        <label for="org_logo">Logo</label><span class="help-tip-wrap"><button class="help-tip" type="button" aria-label="More about Logo" aria-describedby="help-tip-org-logo" aria-expanded="false" data-help-tip>?</button><span class="help-tip-bubble" role="tooltip" id="help-tip-org-logo">PNG, up to 256 KiB.</span></span>
         <div class="settings-logo">
           <span class="settings-logo-mark">T</span>
           <div class="settings-logo-controls">
             <input type="file" id="org_logo" name="logo" accept="image/png">
           </div>
         </div>
-        <p class="help">PNG, up to 256 KiB.</p>
       </div>
       <div class="settings-savebar" data-settings-savebar hidden>
         <button class="btn primary" type="submit">Save organization</button>

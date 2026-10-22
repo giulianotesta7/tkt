@@ -126,6 +126,8 @@ export async function assertNothingClipped(page: Page): Promise<void> {
       // Deliberate affordances: the overflow is announced or reachable.
       if (cs.textOverflow === "ellipsis") continue;
       if (["auto", "scroll"].includes(cs.overflowX) && el.clientWidth > 0) continue;
+      // The sign-in preview is a miniature of the panel at a reduced scale: it clips by
+      // design, the way a thumbnail does, and the full panel is the page it previews.
       if (el.closest("[data-clip-exempt]")) continue;
 
       // Only the element's own clipping hides content. With `visible` the content spills and

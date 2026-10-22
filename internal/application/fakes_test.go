@@ -1470,3 +1470,73 @@ func (f *fakeOrganizationStore) SetOrganization(_ context.Context, org domain.Or
 	f.org = org
 	return nil
 }
+
+// fakeSigninStore is the in-memory SigninStore double for the sign-in page use
+// cases (issue #383, S9/S10). Simplifications, documented per the fakes
+// contract: one panel value and one image stand in for the keyed settings rows
+// and the settings_blobs row, the copy is shallow because no test mutates a
+// stored value in place, and a Set call replaces both in one step — the
+// transaction the real store commits. The zero value answers the documented
+// defaults, like the real store's absent-row fallback, and setErr fails the
+// whole write before any state changes, like a rolled-back transaction.
+type fakeSigninStore struct {
+	panel          domain.SigninPanel
+	background     []byte
+	backgroundMIME string
+	getErr         error
+	setErr         error
+	setCalls       int
+}
+
+var _ application.SigninStore = (*fakeSigninStore)(nil)
+
+func newFakeSigninStore() *fakeSigninStore { return &fakeSigninStore{} }
+
+func (f *fakeSigninStore) GetSignin(_ context.Context) (application.SigninConfiguration, error) {
+	if f.getErr != nil {
+		return application.SigninConfiguration{}, f.getErr
+	}
+	panel := f.panel
+	if panel.Content == "" {
+		panel.Content = domain.SigninContentSteps
+	}
+	if panel.Background == "" {
+		panel.Background = domain.SigninBackgroundDark
+	}
+	return application.SigninConfiguration{
+		Panel:          panel,
+		Background:     f.background,
+		BackgroundMIME: f.backgroundMIME,
+	}, nil
+}
+
+func (f *fakeSigninStore) SetSignin(_ context.Context, panel domain.SigninPanel, background []byte) error {
+	f.setCalls++
+	if f.setErr != nil {
+		return f.setErr
+	}
+	f.panel = panel
+	f.background = background
+	f.backgroundMIME = ""
+	if len(background) > 0 {
+		if mime, ok := domain.SigninBackgroundContentType(background); ok {
+			f.backgroundMIME = mime
+		}
+	}
+	return nil
+}
+
+// signinImageBytes builds an image of the given type and total size.
+func signinImageBytes(contentType string, size ...int) []byte {
+	magic := []byte("\x89PNG\r\n\x1a\n")
+	if contentType == domain.SigninBackgroundJPEG {
+		magic = []byte("\xFF\xD8\xFF\xE0")
+	}
+	total := 64
+	if len(size) > 0 {
+		total = size[0]
+	}
+	data := make([]byte, total)
+	copy(data, magic)
+	return data
+}

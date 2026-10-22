@@ -8,15 +8,10 @@
 </head>
 <body>
 <main class="auth-entry">
-  <div>
-    {{if .Brand.HasLogo}}<img class="auth-entry__logo" src="/brand/logo?v={{.Brand.LogoVersion}}" alt="" width="34" height="34">{{else}}<span class="auth-entry__logo">{{.Brand.Monogram}}</span>{{end}}
-    <h1 class="command-title">{{brandName .Brand}}</h1>
-    <p class="help">{{brandHelpDesk .Brand}}</p>
-  </div>
+{{template "signin_panel" .}}
   <section class="auth-entry__form-panel">
 {{template "content" .}}
   </section>
-{{if .Brand.SupportEmail}}  <footer class="help"><a href="mailto:{{.Brand.SupportEmail}}">{{.Brand.SupportEmail}}</a></footer>
-{{end}}</main>
+</main>
 </body>
 </html>

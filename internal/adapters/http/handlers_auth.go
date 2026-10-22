@@ -18,12 +18,46 @@ type AuthHandlers struct {
 	auth     *application.AuthService
 	users    *application.UserService
 	renderer *Renderer
+	// signin is the OPTIONAL sign-in page reader (issue #383, S9/S10): the split
+	// shell's presentation panel renders its stored customization, or the
+	// catalogue defaults when nothing is stored. A handler set built without it
+	// renders the defaults, so a caller that does not care keeps working.
+	signin *application.SigninService
+	// signinFailures deduplicates the panel read failure (issue #383, S9).
+	signinFailures signinReadLog
 }
 
 // NewAuthHandlers wires the auth handlers against the auth and user use
 // cases and the renderer.
 func NewAuthHandlers(auth *application.AuthService, users *application.UserService, renderer *Renderer) *AuthHandlers {
 	return &AuthHandlers{auth: auth, users: users, renderer: renderer}
+}
+
+// WithSignin wires the sign-in page use cases into the auth shell (issue #383,
+// S9/S10).
+func (h *AuthHandlers) WithSignin(signin *application.SigninService) *AuthHandlers {
+	h.signin = signin
+	return h
+}
+
+// panel answers the presentation panel of one auth page: the stored
+// customization for the sign-in page, the catalogue defaults for the setup page
+// (which runs before an instance is configured). A failing read is not fatal —
+// the page renders the defaults and the failure is logged — because losing the
+// panel must never cost the sign-in screen.
+func (h *AuthHandlers) panel(r *http.Request, stored bool) signinPanelData {
+	brand := brandFromContext(r.Context())
+	configuration := application.SigninConfiguration{}
+	if stored && h.signin != nil {
+		read, err := h.signin.GetSigninConfiguration(r.Context())
+		if err != nil {
+			h.signinFailures.failed(err)
+		} else {
+			h.signinFailures.recovered()
+			configuration = read
+		}
+	}
+	return signinPanelDataFor(configuration, brand, requestLocale(r))
 }
 
 // Register mounts the auth routes (D9 method+path patterns).
@@ -41,9 +75,11 @@ func (h *AuthHandlers) Register(mux *http.ServeMux) {
 type loginData struct {
 	Error string
 	Email string
-	// Brand is the instance identity the centered sign-in renders above the
-	// form (issue #383, S5/S6), stamped by the session middleware.
-	Brand             brandData
+	// Brand is the instance identity, stamped by the session middleware.
+	Brand brandData
+	// Panel is the split shell's presentation panel (issue #383, S9): the stored
+	// customization or the catalogue defaults.
+	Panel             signinPanelData
 	CategoryAssets    bool
 	InternalCommentBg string
 }
@@ -56,7 +92,7 @@ func (h *AuthHandlers) loginForm(w http.ResponseWriter, r *http.Request) {
 		redirect(w, r, "/setup")
 		return
 	}
-	h.renderer.Render(w, r, "login", "", loginData{Brand: brandFromContext(r.Context())}, http.StatusOK)
+	h.renderer.Render(w, r, "login", "", loginData{Brand: brandFromContext(r.Context()), Panel: h.panel(r, true)}, http.StatusOK)
 }
 
 func (h *AuthHandlers) login(w http.ResponseWriter, r *http.Request) {
@@ -74,7 +110,7 @@ func (h *AuthHandlers) login(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, msg, status)
 			return
 		}
-		h.renderer.Render(w, r, "login", "", loginData{Error: msg, Email: email, Brand: brandFromContext(r.Context())}, status)
+		h.renderer.Render(w, r, "login", "", loginData{Error: msg, Email: email, Brand: brandFromContext(r.Context()), Panel: h.panel(r, true)}, status)
 		return
 	}
 
@@ -110,9 +146,10 @@ type setupData struct {
 	Error string
 	Name  string
 	Email string
-	// Brand is the instance identity the setup shell renders above the form
-	// (issue #383, S5/S6), stamped by the session middleware.
-	Brand             brandData
+	// Brand is the instance identity, stamped by the session middleware.
+	Brand brandData
+	// Panel is the split shell's presentation panel. Setup renders the defaults.
+	Panel             signinPanelData
 	CategoryAssets    bool
 	InternalCommentBg string
 }
@@ -127,7 +164,7 @@ func (h *AuthHandlers) setupForm(w http.ResponseWriter, r *http.Request) {
 		redirect(w, r, "/login")
 		return
 	}
-	h.renderer.Render(w, r, "setup", "", setupData{Brand: brandFromContext(r.Context())}, http.StatusOK)
+	h.renderer.Render(w, r, "setup", "", setupData{Brand: brandFromContext(r.Context()), Panel: h.panel(r, false)}, http.StatusOK)
 }
 
 func (h *AuthHandlers) setup(w http.ResponseWriter, r *http.Request) {
@@ -155,7 +192,7 @@ func (h *AuthHandlers) setup(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, msg, status)
 			return
 		}
-		h.renderer.Render(w, r, "setup", "", setupData{Error: msg, Name: name, Email: email, Brand: brandFromContext(r.Context())}, status)
+		h.renderer.Render(w, r, "setup", "", setupData{Error: msg, Name: name, Email: email, Brand: brandFromContext(r.Context()), Panel: h.panel(r, false)}, status)
 		return
 	}
 

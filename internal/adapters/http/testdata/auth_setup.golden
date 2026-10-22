@@ -8,11 +8,18 @@
 </head>
 <body>
 <main class="auth-entry">
-  <div>
-    <span class="auth-entry__logo"></span>
-    <h1 class="command-title">tkt</h1>
-    <p class="help">Help desk</p>
+
+<section class="auth-entry__presentation auth-entry__presentation--" aria-label="tkt">
+  <div class="auth-entry__brand">
+    <span class="auth-entry__mark" aria-hidden="true"></span>
+    <div class="auth-entry__brand-text"><b>tkt</b><span>Help desk</span></div>
   </div>
+  <div class="auth-entry__body">
+    <h2></h2>
+    <p class="auth-entry__sub"></p>
+  </div>
+</section>
+
   <section class="auth-entry__form-panel">
 
 <form class="login-form" method="post" action="/setup" novalidate>

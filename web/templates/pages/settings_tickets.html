@@ -33,9 +33,8 @@
         <label>{{if .SLAEnabled}}<input type="checkbox" name="sla_enabled" value="1" checked> {{t "settings.sla.enable"}}{{else}}<input type="checkbox" name="sla_enabled" value="1"> {{t "settings.sla.enable"}}{{end}}</label>
       </div>
       <div class="field">
-        <label for="sla_warning_percent">{{t "settings.sla.warning"}}</label>
+        <label for="sla_warning_percent">{{t "settings.sla.warning"}}</label>{{template "help_tip" (helpTip "sla-warning" (t "settings.sla.warning") (t "settings.sla.warning_help"))}}
         <input type="number" id="sla_warning_percent" name="sla_warning_percent" class="sla-warning-input" min="1" max="99" value="{{.SLAWarningPercent}}">
-        <p class="help">{{t "settings.sla.warning_help"}}</p>
       </div>
 {{template "sla_target_grid" .SLAGrid}}
       <div class="settings-savebar" data-settings-savebar hidden>

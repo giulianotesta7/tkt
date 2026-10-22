@@ -92,9 +92,10 @@
 
 <nav class="settings-nav" aria-label="Settings sections">
   <a class="settings-nav-link" href="/settings/organization">Organization</a>
+  <a class="settings-nav-link" href="/settings/signin">Sign-in page</a>
   <a class="settings-nav-link" href="/settings/language" aria-current="page">Language</a>
   <a class="settings-nav-link" href="/settings/tickets">Tickets &amp; SLA</a>
-  <a class="settings-nav-link" href="/settings/email">Email</a>
+  <a class="settings-nav-link" href="/settings/email">Email notifications</a>
   <a class="settings-nav-link" href="/settings/calendar">Working calendar</a>
 </nav>
 

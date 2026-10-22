@@ -24,7 +24,7 @@
         <input type="text" id="org_support_email" name="support_email" value="{{.SupportEmail}}" spellcheck="false" autocapitalize="off">
       </div>
       <div class="field">
-        <label for="org_logo">{{t "settings.organization.logo"}}</label>
+        <label for="org_logo">{{t "settings.organization.logo"}}</label>{{template "help_tip" (helpTip "org-logo" (t "settings.organization.logo") (t "settings.organization.logo_help"))}}
         <div class="settings-logo">
           <span class="settings-logo-mark">{{if .Brand.HasLogo}}<img src="/brand/logo?v={{.Brand.LogoVersion}}" alt="" width="48" height="48">{{else}}{{.Brand.Monogram}}{{end}}</span>
           <div class="settings-logo-controls">
@@ -32,7 +32,6 @@
 {{if .Brand.HasLogo}}            <button class="btn" type="submit" form="org-logo-remove">{{t "settings.organization.logo_remove"}}</button>
 {{end}}          </div>
         </div>
-        <p class="help">{{t "settings.organization.logo_help"}}</p>
       </div>
       <div class="settings-savebar" data-settings-savebar hidden>
         <button class="btn primary" type="submit">{{t "settings.organization.save"}}</button>

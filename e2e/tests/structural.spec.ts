@@ -200,9 +200,15 @@ function authenticatedScreens(deps: {
       control: (p) => p.locator('input[name="internal_comment_bg"]'),
     },
     {
+      label: `/settings/signin`,
+      path: "/settings/signin",
+      heading: (p) => p.locator("h2").filter({ hasText: "Sign-in page" }),
+      control: (p) => p.locator("#signin_title"),
+    },
+    {
       label: `/settings/email`,
       path: "/settings/email",
-      heading: (p) => p.locator("h2").filter({ hasText: "Email" }),
+      heading: (p) => p.locator("h2").filter({ hasText: "Email notifications" }),
       control: (p) => p.locator("#email_host"),
     },
     {

@@ -225,7 +225,7 @@ test.describe("Settings", () => {
     // Seeded configuration (migration 0013): the feature is OFF and the 4x2
     // matrix carries the default seconds decomposed into h/m/s units.
     await expect(page.locator('input[name="sla_enabled"]')).not.toBeChecked();
-    await expect(page.getByLabel("Warning threshold")).toHaveValue("80");
+    await expect(page.getByLabel("Warning threshold", { exact: true })).toHaveValue("80");
     // [hours, minutes, seconds] per milestone: critical first response is
     // 1800s = 0h 30m 0s, every other seeded target is a whole number of hours.
     const seededMatrix = [
@@ -247,7 +247,7 @@ test.describe("Settings", () => {
     }
 
     // Edit the warning percent and one target, save, and verify persistence.
-    await page.getByLabel("Warning threshold").fill("55");
+    await page.getByLabel("Warning threshold", { exact: true }).fill("55");
     await page.getByLabel("Critical first response, minutes").fill("45");
     await page.getByLabel("Critical first response, seconds").fill("10");
     await page.getByRole("button", { name: "Save SLA settings" }).click();
@@ -255,7 +255,7 @@ test.describe("Settings", () => {
     await expect(page.locator("#save-feedback")).toContainText("Saved");
 
     await page.reload();
-    await expect(page.getByLabel("Warning threshold")).toHaveValue("55");
+    await expect(page.getByLabel("Warning threshold", { exact: true })).toHaveValue("55");
     await expect(page.getByLabel("Critical first response, minutes")).toHaveValue("45");
     await expect(page.getByLabel("Critical first response, seconds")).toHaveValue("10");
     await expect(page.getByLabel("Critical first response, hours")).toHaveValue("0");
@@ -292,7 +292,7 @@ test.describe("Settings", () => {
     await page.locator('input[name="sla_calendar_days"][value="6"]').setChecked(true);
     await page.getByLabel("Start", { exact: true }).fill("08:30");
     await page.getByLabel("End", { exact: true }).fill("17:45");
-    await page.getByLabel("Timezone").fill("America/Argentina/Buenos_Aires");
+    await page.getByLabel("Timezone", { exact: true }).fill("America/Argentina/Buenos_Aires");
     await page.getByRole("button", { name: "Save working calendar" }).click();
     await expect(page).toHaveURL(/\/settings\/calendar$/);
     await expect(page.locator("#save-feedback")).toContainText("Saved");
@@ -303,7 +303,9 @@ test.describe("Settings", () => {
     await expect(page.locator('input[name="sla_calendar_days"][value="6"]')).toBeChecked();
     await expect(page.getByLabel("Start", { exact: true })).toHaveValue("08:30");
     await expect(page.getByLabel("End", { exact: true })).toHaveValue("17:45");
-    await expect(page.getByLabel("Timezone")).toHaveValue("America/Argentina/Buenos_Aires");
+    await expect(page.getByLabel("Timezone", { exact: true })).toHaveValue(
+      "America/Argentina/Buenos_Aires",
+    );
 
     // Structural screen assertion here, before the deliberate 422 below:
     // the rejected save legitimately logs a failed resource, which the
@@ -336,7 +338,9 @@ test.describe("Settings", () => {
     await expect(page.locator('input[name="sla_calendar_days"][value="6"]')).toBeChecked();
     await expect(page.getByLabel("Start", { exact: true })).toHaveValue("08:30");
     await expect(page.getByLabel("End", { exact: true })).toHaveValue("17:45");
-    await expect(page.getByLabel("Timezone")).toHaveValue("America/Argentina/Buenos_Aires");
+    await expect(page.getByLabel("Timezone", { exact: true })).toHaveValue(
+      "America/Argentina/Buenos_Aires",
+    );
   });
 
   test("a rejected SLA save renders the error banner, echoes the submitted values, and stores nothing", async ({
@@ -348,7 +352,7 @@ test.describe("Settings", () => {
     // Fixture: a known valid configuration saved through the real UI, so the
     // rejection leg can prove the stored values survive untouched.
     await page.goto(base() + "/settings/tickets");
-    await page.getByLabel("Warning threshold").fill("55");
+    await page.getByLabel("Warning threshold", { exact: true }).fill("55");
     await page.getByLabel("Critical first response, minutes").fill("45");
     await page.getByLabel("Critical first response, seconds").fill("10");
     await page.getByRole("button", { name: "Save SLA settings" }).click();
@@ -359,7 +363,7 @@ test.describe("Settings", () => {
     // the seconds input) and must be rejected server-side: every target needs
     // at least 60 seconds.
     await page.goto(base() + "/settings/tickets");
-    await page.getByLabel("Warning threshold").fill("66");
+    await page.getByLabel("Warning threshold", { exact: true }).fill("66");
     await page.getByLabel("Critical first response, minutes").fill("0");
     await page.getByLabel("Critical first response, seconds").fill("30");
     await page.getByLabel("High resolve, hours").fill("9");
@@ -372,7 +376,7 @@ test.describe("Settings", () => {
     await expect(page).toHaveURL(/\/settings\/sla$/);
 
     // The re-render echoes the SUBMITTED values, not the stored ones.
-    await expect(page.getByLabel("Warning threshold")).toHaveValue("66");
+    await expect(page.getByLabel("Warning threshold", { exact: true })).toHaveValue("66");
     await expect(page.getByLabel("Critical first response, minutes")).toHaveValue("0");
     await expect(page.getByLabel("Critical first response, seconds")).toHaveValue("30");
     await expect(page.getByLabel("High resolve, hours")).toHaveValue("9");
@@ -380,7 +384,7 @@ test.describe("Settings", () => {
     // A fresh GET (not a reload: reloading a POST response re-submits the
     // form) shows the stored configuration untouched by the rejected post.
     await page.goto(base() + "/settings/tickets");
-    await expect(page.getByLabel("Warning threshold")).toHaveValue("55");
+    await expect(page.getByLabel("Warning threshold", { exact: true })).toHaveValue("55");
     await expect(page.getByLabel("Critical first response, minutes")).toHaveValue("45");
     await expect(page.getByLabel("Critical first response, seconds")).toHaveValue("10");
     await expect(page.getByLabel("High resolve, hours")).toHaveValue("8");
@@ -491,14 +495,14 @@ test.describe("Settings", () => {
   // browser can see.
   // ------------------------------------------------------------------------
 
-  test("the Email section saves the SMTP configuration and persists it after a reload", async ({
+  test("the Email notifications section saves the SMTP configuration and persists it after a reload", async ({
     page,
   }) => {
     await page.setViewportSize({ width: 1280, height: 800 });
     const obs = collectObservability(page);
     await loginAsSeeded(page);
     await page.goto(base() + "/settings/email");
-    await expect(page.locator("h2").filter({ hasText: "Email" })).toBeVisible();
+    await expect(page.locator("h2").filter({ hasText: "Email notifications" })).toBeVisible();
 
     // An open internal relay (S2): no credentials, so no encryption is
     // required either (S15). Port 1 is deliberately a port nothing listens
@@ -518,7 +522,7 @@ test.describe("Settings", () => {
     await page.getByLabel("Sender address", { exact: true }).fill("tkt@example.com");
     await page.getByLabel("Sender name", { exact: true }).fill("TKT Notifications");
     await page.getByLabel("TKT address", { exact: true }).fill("https://tkt.example.com");
-    await page.getByRole("button", { name: "Save email" }).click();
+    await page.getByRole("button", { name: "Save email notifications" }).click();
     await expect(page).toHaveURL(/\/settings\/email$/);
     await expect(page.locator("#save-feedback")).toContainText("Saved");
 
@@ -555,7 +559,7 @@ test.describe("Settings", () => {
     // or overflow at 390px.
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto(base() + "/settings/email");
-    await expect(page.locator("h2").filter({ hasText: "Email" })).toBeVisible();
+    await expect(page.locator("h2").filter({ hasText: "Email notifications" })).toBeVisible();
     await assertCanonicalScreen(page, {
       viewport: 390,
       label: "settings email at 390px",
@@ -587,7 +591,7 @@ test.describe("Settings", () => {
     await page.getByLabel("Password", { exact: true }).fill(secret);
     await page.getByLabel("Sender address", { exact: true }).fill("tkt@example.com");
     await page.getByLabel("TKT address", { exact: true }).fill("https://tkt.example.com");
-    await page.getByRole("button", { name: "Save email" }).click();
+    await page.getByRole("button", { name: "Save email notifications" }).click();
     await expect(page).toHaveURL(/\/settings\/email$/);
     await expect(page.locator("#save-feedback")).toContainText("Saved");
 
@@ -624,7 +628,7 @@ test.describe("Settings", () => {
     await page.getByLabel("Password", { exact: true }).fill(secret);
     await page.getByLabel("Sender address", { exact: true }).fill("tkt@example.com");
     await page.getByLabel("TKT address", { exact: true }).fill("https://tkt.example.com");
-    await page.getByRole("button", { name: "Save email" }).click();
+    await page.getByRole("button", { name: "Save email notifications" }).click();
     await expect(page).toHaveURL(/\/settings\/email$/);
     await expect(page.locator("#save-feedback")).toContainText("Saved");
 
@@ -650,7 +654,7 @@ test.describe("Settings", () => {
     });
   });
 
-  test("an administrator's Settings shows no Email section", async ({ page }) => {
+  test("an administrator's Settings shows no Email notifications section", async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 800 });
     await loginAsSeeded(page);
     const admin = await createAdminUser(page);
@@ -669,7 +673,9 @@ test.describe("Settings", () => {
     // S1/S4: the Email section is root-only, so its nav entry is hidden and a
     // direct visit is refused.
     await expect(page.locator('.settings-nav a[href="/settings/email"]')).toHaveCount(0);
-    await expect(page.getByRole("link", { name: "Email", exact: true })).toHaveCount(0);
+    await expect(page.getByRole("link", { name: "Email notifications", exact: true })).toHaveCount(
+      0,
+    );
     await page.goto(base() + "/settings/email");
     await expect(page.locator("#email_host")).toHaveCount(0);
     await expect(page.getByLabel("SMTP server", { exact: true })).toHaveCount(0);
@@ -844,9 +850,10 @@ test.describe("Preferences", () => {
     await expect(nav).toBeVisible();
     const entries = [
       { label: "Organization", url: /\/settings\/organization$/ },
+      { label: "Sign-in page", url: /\/settings\/signin$/ },
       { label: "Language", url: /\/settings\/language$/ },
       { label: "Tickets & SLA", url: /\/settings\/tickets$/ },
-      { label: "Email", url: /\/settings\/email$/ },
+      { label: "Email notifications", url: /\/settings\/email$/ },
       { label: "Working calendar", url: /\/settings\/calendar$/ },
     ];
     for (const entry of entries) {
@@ -955,10 +962,13 @@ test.describe("Preferences", () => {
     // above the form, and the support address as the footer line.
     await logout(page);
     await expect(page.locator("main.auth-entry")).toBeVisible();
-    await expect(page.locator("main.auth-entry h1")).toHaveText("Acme Support");
-    await expect(page.locator("main.auth-entry .help").first()).toHaveText("Service desk");
+    await expect(page.locator("main.auth-entry .auth-entry__brand-text b")).toHaveText(
+      "Acme Support",
+    );
+    await expect(page.locator("main.auth-entry .auth-entry__brand-text span")).toHaveText(
+      "Service desk",
+    );
     await expect(page.getByRole("link", { name: "support@acme.test" })).toBeVisible();
-    await expect(page.locator("main.auth-entry .auth-entry__presentation")).toHaveCount(0);
     expect(await page.title()).toBe("Sign in · Service desk");
     await loginAsSeeded(page);
 
@@ -971,6 +981,181 @@ test.describe("Preferences", () => {
     await page.getByRole("button", { name: "Save organization" }).click();
     await expect(page).toHaveURL(/\/settings\/organization$/);
     await expect(page.locator(".sidebar-brand .brand-name")).toHaveText("tkt");
+  });
+
+  test("the Sign-in page section mirrors the panel live, saves it, and uploads and removes its background image", async ({
+    page,
+  }) => {
+    test.setTimeout(60_000);
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await loginAsSeeded(page);
+    await page.goto(base() + "/settings/signin");
+    await expect(page.locator("h2").filter({ hasText: "Sign-in page" })).toBeVisible();
+
+    // The sticky save bar and the live preview: typing changes both.
+    const savebar = page.locator('form[action="/settings/signin"] [data-settings-savebar]');
+    await expect(savebar).toBeHidden();
+    await page.locator("#signin_title").fill("Sistemas, a un pedido");
+    await expect(savebar).toBeVisible();
+    await expect(page.locator("[data-preview-title-text]")).toHaveText("Sistemas, a un pedido");
+    await page.locator("#signin_subtitle").fill("Cargá tu pedido y seguí su estado.");
+    await expect(page.locator("[data-preview-subtitle-text]")).toHaveText(
+      "Cargá tu pedido y seguí su estado.",
+    );
+
+    // The middle zone follows the segmented control.
+    await expect(page.locator('[data-preview-zone="steps"]')).toBeVisible();
+    await page.locator('label:has(input[name="content"][value="highlights"])').click();
+    await expect(page.locator('[data-preview-zone="steps"]')).toBeHidden();
+    await page.locator("#highlight_0_title").fill("Primera respuesta en 4 h");
+    await expect(page.locator('[data-preview-hl-row="0"]')).toBeVisible();
+    await expect(page.locator('[data-preview-hl-title-text="0"]')).toHaveText(
+      "Primera respuesta en 4 h",
+    );
+
+    // The notice appears in the preview when the toggle is on.
+    await expect(page.locator("[data-preview-notice]")).toBeHidden();
+    await page.getByRole("checkbox", { name: /show a notice/i }).check();
+    await page.locator("#signin_notice_title").fill("Mantenimiento programado");
+    await expect(page.locator("[data-preview-notice]")).toBeVisible();
+    await expect(page.locator("[data-preview-notice-title-text]")).toHaveText(
+      "Mantenimiento programado",
+    );
+
+    // The contact facts the panel footer shows.
+    await page.locator("#signin_support_phone").fill("Interno 4400");
+    await expect(page.locator("[data-preview-phone-block]")).toBeVisible();
+    await expect(page.locator("[data-preview-phone-text]")).toHaveText("Interno 4400");
+
+    // One submit stores the panel.
+    await page.getByRole("button", { name: "Save sign-in page" }).click();
+    await expect(page).toHaveURL(/\/settings\/signin$/);
+    await expect(page.locator("#save-feedback")).toContainText("Saved");
+
+    // A real PNG uploads in the same submit and is served by its own route.
+    await page.locator('label:has(input[name="background"][value="image"])').click();
+    await page.locator("#signin_background").setInputFiles(tinyPNG());
+    await page.getByRole("button", { name: "Save sign-in page" }).click();
+    await expect(page).toHaveURL(/\/settings\/signin$/);
+    await expect(page.locator("#save-feedback")).toContainText("Saved");
+    const preview = page.locator(".settings-logo-mark img");
+    await expect(preview).toBeVisible();
+    const src = await preview.getAttribute("src");
+    expect(src).toMatch(/^\/brand\/signin-background\?v=[0-9a-f]+$/);
+    const served = await page.request.get(base() + src!);
+    expect(served.status()).toBe(200);
+    expect(served.headers()["content-type"]).toBe("image/png");
+    expect(served.headers()["x-content-type-options"]).toBe("nosniff");
+    expect(served.headers()["cache-control"]).toBe("public, max-age=86400");
+
+    // A text file named .jpg is refused, and the stored image is untouched.
+    await page.locator("#signin_background").setInputFiles({
+      name: "background.jpg",
+      mimeType: "image/jpeg",
+      buffer: Buffer.from("this is not an image"),
+    });
+    await page.getByRole("button", { name: "Save sign-in page" }).click();
+    const banner = page.locator(".error-banner");
+    await expect(banner).toBeVisible();
+    await expect(banner).toHaveAttribute("role", "alert");
+    await expect(banner).toContainText("the background must be a PNG or JPEG image");
+    await expect(page).toHaveURL(/\/settings\/signin$/);
+    await page.reload();
+    await expect(page.locator(".settings-logo-mark img")).toBeVisible();
+
+    // Remove is its own route: the section stops previewing an image.
+    await page.getByRole("button", { name: "Remove image" }).click();
+    await expect(page).toHaveURL(/\/settings\/signin$/);
+    await expect(page.locator("#save-feedback")).toContainText("Saved");
+    await expect(page.locator(".settings-logo-mark img")).toHaveCount(0);
+    const gone = await page.request.get(base() + "/brand/signin-background");
+    expect(gone.status()).toBe(404);
+
+    // Restore the default panel for the journeys that follow.
+    await page.goto(base() + "/settings/signin");
+    await page.locator("#signin_title").fill("");
+    await page.locator("#signin_subtitle").fill("");
+    await page.locator('label:has(input[name="content"][value="steps"])').click();
+    await page.getByRole("checkbox", { name: /show a notice/i }).uncheck();
+    await page.locator('label:has(input[name="background"][value="dark"])').click();
+    await page.locator("#signin_support_phone").fill("");
+    await page.getByRole("button", { name: "Save sign-in page" }).click();
+    await expect(page).toHaveURL(/\/settings\/signin$/);
+  });
+
+  /**
+   * Issue #383, S11: field help is a "?" button that opens on hover and on
+   * keyboard focus, toggles on click, and closes on Escape and on an outside
+   * click — while the security warning and the saved-password state stay
+   * visible under their fields.
+   */
+  test("field help opens as a toggletip on hover, focus, click and closes on Escape", async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    const obs = collectObservability(page);
+    await loginAsSeeded(page);
+    await page.goto(base() + "/settings/email");
+    await expect(page.locator("h2").filter({ hasText: "Email notifications" })).toBeVisible();
+
+    const tip = page.locator('button[aria-describedby="help-tip-email-host"]');
+    const bubble = page.locator("#help-tip-email-host");
+    await expect(tip).toBeVisible();
+    await expect(tip).toHaveAttribute("aria-label", "More about SMTP server");
+    await expect(bubble).toBeHidden();
+
+    // Hover opens it.
+    await tip.hover();
+    await expect(bubble).toBeVisible();
+    await expect(bubble).toContainText("Host name or IP address of the company's mail server.");
+
+    // Moving away closes the hover-only state.
+    await page.locator("#email_host").hover();
+    await expect(bubble).toBeHidden();
+
+    // Keyboard focus opens it too.
+    await tip.focus();
+    await expect(bubble).toBeVisible();
+
+    // A click toggles: the focus had already opened it, so the first click
+    // collapses it and the second pins it open again.
+    await tip.click();
+    await expect(tip).toHaveAttribute("aria-expanded", "false");
+    await tip.click();
+    await expect(tip).toHaveAttribute("aria-expanded", "true");
+    await expect(bubble).toBeVisible();
+
+    // Escape collapses it and leaves the focus on the control.
+    await page.keyboard.press("Escape");
+    await expect(tip).toHaveAttribute("aria-expanded", "false");
+    await page.locator("#email_host").hover();
+    await expect(bubble).toBeHidden();
+
+    // A click opens it, a click outside closes it.
+    await tip.click();
+    await expect(bubble).toBeVisible();
+    await page.locator("#email_host").click();
+    await expect(tip).toHaveAttribute("aria-expanded", "false");
+    await expect(bubble).toBeHidden();
+
+    // The explanations the interface already gives are gone, and the two
+    // exceptions stay readable without asking.
+    await expect(page.getByText("25 by default")).toHaveCount(0);
+    await expect(page.getByText("While off, TKT sends nothing.")).toHaveCount(0);
+    await expect(
+      page.getByText(/the connection is still encrypted, but TKT cannot check/),
+    ).toBeVisible();
+
+    await assertCanonicalScreen(page, {
+      viewport: 1280,
+      label: "settings email toggletips",
+      url: page.url(),
+      role: "root",
+      consoleErrors: obs.consoleErrors,
+      pageErrors: obs.pageErrors,
+      failedRequests: obs.failedRequests,
+      failedResponses: obs.failedResponses,
+    });
   });
 
   test("a logo uploads, renders in the shell, refuses a text file named .png, and can be removed", async ({

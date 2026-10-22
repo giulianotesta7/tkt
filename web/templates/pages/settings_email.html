@@ -11,21 +11,17 @@
 {{if .Error}}    <div class="error-banner" role="alert">{{.Error}}</div>
 {{end}}    <form class="settings-form card form-card" method="post" action="/settings/email" data-settings-form>
       <h2 class="settings-section-title">{{t "settings.email.title"}}</h2>
-      <p class="help">{{t "settings.email.help"}}</p>
       <div class="field checkbox-field">
         <label>{{if .Email.Enabled}}<input type="checkbox" name="email_enabled" value="1" checked> {{t "settings.email.enable"}}{{else}}<input type="checkbox" name="email_enabled" value="1"> {{t "settings.email.enable"}}{{end}}</label>
-        <p class="help">{{t "settings.email.enable_help"}}</p>
       </div>
       <div class="field-row">
         <div class="field">
-          <label for="email_host">{{t "settings.email.host"}}</label>
+          <label for="email_host">{{t "settings.email.host"}}</label>{{template "help_tip" (helpTip "email-host" (t "settings.email.host") (t "settings.email.host_help"))}}
           <input type="text" id="email_host" name="email_host" value="{{.Email.Host}}" spellcheck="false" autocapitalize="off">
-          <p class="help">{{t "settings.email.host_help"}}</p>
         </div>
         <div class="field">
           <label for="email_port">{{t "settings.email.port"}}</label>
           <input type="text" id="email_port" name="email_port" inputmode="numeric" value="{{.Email.Port}}" spellcheck="false" autocomplete="off">
-          <p class="help">{{t "settings.email.port_help"}}</p>
         </div>
       </div>
       <div class="field">
@@ -40,30 +36,26 @@
       </div>
       <div class="field-row">
         <div class="field">
-          <label for="email_username">{{t "settings.email.username"}}</label>
+          <label for="email_username">{{t "settings.email.username"}}</label>{{template "help_tip" (helpTip "email-username" (t "settings.email.username") (t "settings.email.username_help"))}}
           <input type="text" id="email_username" name="email_username" value="{{.Email.Username}}" spellcheck="false" autocapitalize="off" autocomplete="off">
-          <p class="help">{{t "settings.email.username_help"}}</p>
         </div>
         <div class="field">
-          <label for="email_password">{{t "settings.email.password"}}</label>
+          <label for="email_password">{{t "settings.email.password"}}</label>{{template "help_tip" (helpTip "email-password" (t "settings.email.password") (t "settings.email.password_help"))}}
           <input type="password" id="email_password" name="email_password" value="" autocomplete="new-password">
-{{if .Email.PasswordSet}}      <p class="help">{{t "settings.email.password_saved"}}</p>{{else}}      <p class="help">{{t "settings.email.password_help"}}</p>{{end}}
+{{if .Email.PasswordSet}}      <p class="help">{{t "settings.email.password_saved"}}</p>{{end}}
         </div>
       </div>
       <div class="field">
-        <label for="email_from_address">{{t "settings.email.from_address"}}</label>
+        <label for="email_from_address">{{t "settings.email.from_address"}}</label>{{template "help_tip" (helpTip "email-from-address" (t "settings.email.from_address") (t "settings.email.from_address_help"))}}
         <input type="text" id="email_from_address" name="email_from_address" value="{{.Email.FromAddress}}" spellcheck="false" autocapitalize="off">
-        <p class="help">{{t "settings.email.from_address_help"}}</p>
       </div>
       <div class="field">
-        <label for="email_from_name">{{t "settings.email.from_name"}}</label>
+        <label for="email_from_name">{{t "settings.email.from_name"}}</label>{{template "help_tip" (helpTip "email-from-name" (t "settings.email.from_name") (t "settings.email.from_name_help"))}}
         <input type="text" id="email_from_name" name="email_from_name" value="{{.Email.FromName}}">
-        <p class="help">{{t "settings.email.from_name_help"}}</p>
       </div>
       <div class="field">
-        <label for="email_base_url">{{t "settings.email.base_url"}}</label>
+        <label for="email_base_url">{{t "settings.email.base_url"}}</label>{{template "help_tip" (helpTip "email-base-url" (t "settings.email.base_url") (t "settings.email.base_url_help"))}}
         <input type="text" id="email_base_url" name="email_base_url" value="{{.Email.BaseURL}}" spellcheck="false" autocapitalize="off">
-        <p class="help">{{t "settings.email.base_url_help"}}</p>
       </div>
 {{if .Email.TestSent}}      <p class="help" role="status">{{tf "settings.email.test_sent" .CurrentUser.Email}}</p>
 {{end}}      <p class="help">{{tf "settings.email.test_help" .CurrentUser.Email}}</p>

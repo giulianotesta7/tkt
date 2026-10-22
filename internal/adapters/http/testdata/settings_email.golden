@@ -92,30 +92,27 @@
 
 <nav class="settings-nav" aria-label="Settings sections">
   <a class="settings-nav-link" href="/settings/organization">Organization</a>
+  <a class="settings-nav-link" href="/settings/signin">Sign-in page</a>
   <a class="settings-nav-link" href="/settings/language">Language</a>
   <a class="settings-nav-link" href="/settings/tickets">Tickets &amp; SLA</a>
-  <a class="settings-nav-link" href="/settings/email" aria-current="page">Email</a>
+  <a class="settings-nav-link" href="/settings/email" aria-current="page">Email notifications</a>
   <a class="settings-nav-link" href="/settings/calendar">Working calendar</a>
 </nav>
 
   <div class="settings-content">
     <form class="settings-form card form-card" method="post" action="/settings/email" data-settings-form>
-      <h2 class="settings-section-title">Email</h2>
-      <p class="help">TKT sends its notifications to your team through this SMTP server.</p>
+      <h2 class="settings-section-title">Email notifications</h2>
       <div class="field checkbox-field">
         <label><input type="checkbox" name="email_enabled" value="1" checked> Turn on email notifications</label>
-        <p class="help">While off, TKT sends nothing.</p>
       </div>
       <div class="field-row">
         <div class="field">
-          <label for="email_host">SMTP server</label>
+          <label for="email_host">SMTP server</label><span class="help-tip-wrap"><button class="help-tip" type="button" aria-label="More about SMTP server" aria-describedby="help-tip-email-host" aria-expanded="false" data-help-tip>?</button><span class="help-tip-bubble" role="tooltip" id="help-tip-email-host">Host name or IP address of the company&#39;s mail server.</span></span>
           <input type="text" id="email_host" name="email_host" value="smtp.acme.test" spellcheck="false" autocapitalize="off">
-          <p class="help">Host name or IP address of the company&#39;s mail server.</p>
         </div>
         <div class="field">
           <label for="email_port">Port</label>
           <input type="text" id="email_port" name="email_port" inputmode="numeric" value="587" spellcheck="false" autocomplete="off">
-          <p class="help">25 by default.</p>
         </div>
       </div>
       <div class="field">
@@ -132,35 +129,31 @@
       </div>
       <div class="field-row">
         <div class="field">
-          <label for="email_username">Username</label>
+          <label for="email_username">Username</label><span class="help-tip-wrap"><button class="help-tip" type="button" aria-label="More about Username" aria-describedby="help-tip-email-username" aria-expanded="false" data-help-tip>?</button><span class="help-tip-bubble" role="tooltip" id="help-tip-email-username">Leave it empty if your server accepts mail without authentication.</span></span>
           <input type="text" id="email_username" name="email_username" value="notifications" spellcheck="false" autocapitalize="off" autocomplete="off">
-          <p class="help">Leave it empty if your server accepts mail without authentication.</p>
         </div>
         <div class="field">
-          <label for="email_password">Password</label>
+          <label for="email_password">Password</label><span class="help-tip-wrap"><button class="help-tip" type="button" aria-label="More about Password" aria-describedby="help-tip-email-password" aria-expanded="false" data-help-tip>?</button><span class="help-tip-bubble" role="tooltip" id="help-tip-email-password">Stored encrypted and never shown again.</span></span>
           <input type="password" id="email_password" name="email_password" value="" autocomplete="new-password">
       <p class="help">A password is saved; leave empty to keep it.</p>
         </div>
       </div>
       <div class="field">
-        <label for="email_from_address">Sender address</label>
+        <label for="email_from_address">Sender address</label><span class="help-tip-wrap"><button class="help-tip" type="button" aria-label="More about Sender address" aria-describedby="help-tip-email-from-address" aria-expanded="false" data-help-tip>?</button><span class="help-tip-bubble" role="tooltip" id="help-tip-email-from-address">The address notifications are sent from, like tkt@example.com.</span></span>
         <input type="text" id="email_from_address" name="email_from_address" value="tkt@acme.test" spellcheck="false" autocapitalize="off">
-        <p class="help">The address notifications are sent from, like tkt@example.com.</p>
       </div>
       <div class="field">
-        <label for="email_from_name">Sender name</label>
+        <label for="email_from_name">Sender name</label><span class="help-tip-wrap"><button class="help-tip" type="button" aria-label="More about Sender name" aria-describedby="help-tip-email-from-name" aria-expanded="false" data-help-tip>?</button><span class="help-tip-bubble" role="tooltip" id="help-tip-email-from-name">Shown as the sender in the mail client. Optional.</span></span>
         <input type="text" id="email_from_name" name="email_from_name" value="Acme Support">
-        <p class="help">Shown as the sender in the mail client. Optional.</p>
       </div>
       <div class="field">
-        <label for="email_base_url">TKT address</label>
+        <label for="email_base_url">TKT address</label><span class="help-tip-wrap"><button class="help-tip" type="button" aria-label="More about TKT address" aria-describedby="help-tip-email-base-url" aria-expanded="false" data-help-tip>?</button><span class="help-tip-bubble" role="tooltip" id="help-tip-email-base-url">The public address of this instance, like https://tkt.example.com. Emails link to tickets with it.</span></span>
         <input type="text" id="email_base_url" name="email_base_url" value="https://tkt.acme.test" spellcheck="false" autocapitalize="off">
-        <p class="help">The public address of this instance, like https://tkt.example.com. Emails link to tickets with it.</p>
       </div>
       <p class="help">Sends one email to ana@example.com with the saved configuration.</p>
       <button class="btn" type="submit" formaction="/settings/email/test">Send test email</button>
       <div class="settings-savebar" data-settings-savebar hidden>
-        <button class="btn primary" type="submit">Save email</button>
+        <button class="btn primary" type="submit">Save email notifications</button>
         <button class="btn" type="reset">Discard</button>
       </div>
     </form>

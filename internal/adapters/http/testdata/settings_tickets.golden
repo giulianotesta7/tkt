@@ -92,9 +92,10 @@
 
 <nav class="settings-nav" aria-label="Settings sections">
   <a class="settings-nav-link" href="/settings/organization">Organization</a>
+  <a class="settings-nav-link" href="/settings/signin">Sign-in page</a>
   <a class="settings-nav-link" href="/settings/language">Language</a>
   <a class="settings-nav-link" href="/settings/tickets" aria-current="page">Tickets &amp; SLA</a>
-  <a class="settings-nav-link" href="/settings/email">Email</a>
+  <a class="settings-nav-link" href="/settings/email">Email notifications</a>
   <a class="settings-nav-link" href="/settings/calendar">Working calendar</a>
 </nav>
 
@@ -135,9 +136,8 @@
         <label><input type="checkbox" name="sla_enabled" value="1"> Enable SLA targets</label>
       </div>
       <div class="field">
-        <label for="sla_warning_percent">Warning threshold</label>
+        <label for="sla_warning_percent">Warning threshold</label><span class="help-tip-wrap"><button class="help-tip" type="button" aria-label="More about Warning threshold" aria-describedby="help-tip-sla-warning" aria-expanded="false" data-help-tip>?</button><span class="help-tip-bubble" role="tooltip" id="help-tip-sla-warning">At risk once this share of the target has elapsed.</span></span>
         <input type="number" id="sla_warning_percent" name="sla_warning_percent" class="sla-warning-input" min="1" max="99" value="80">
-        <p class="help">At risk once this share of the target has elapsed.</p>
       </div>
 <div class="sla-grid">
   <div class="sla-grid-row sla-grid-head" aria-hidden="true">

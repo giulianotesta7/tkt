@@ -1047,6 +1047,43 @@ func fixtureSettingsCalendarData() settingsCalendarData {
 	}
 }
 
+// fixtureSettingsSigninData models the Sign-in page section with a customized
+// panel, so the golden pins the form, the closed-set pickers and the live
+// preview markup a script mirrors.
+func fixtureSettingsSigninData() settingsSigninData {
+	panel := domain.SigninPanel{
+		Title:    "Sistemas, a un pedido",
+		Subtitle: "Cargá tu pedido y seguí su estado.",
+		Content:  domain.SigninContentHighlights,
+		Highlights: []domain.SigninHighlight{
+			{Icon: domain.SigninIconClock, Title: "Primera respuesta en 4 h", Text: "Los críticos en menos de 30 min."},
+			{Icon: domain.SigninIconPhone, Title: "Guardia 24/7", Text: "Interno 4400 fuera de horario."},
+		},
+		NoticeEnabled: true,
+		NoticeKind:    domain.SigninNoticeWarning,
+		NoticeTitle:   "Mantenimiento programado",
+		NoticeText:    "El sábado de 10 a 12.",
+		Background:    domain.SigninBackgroundBrand,
+		BrandColor:    "#C8102E",
+		SupportPhone:  "Interno 4400",
+		SupportHours:  "Lun a vie, 8 a 18",
+	}
+	values := signinFormValuesFromConfiguration(panel)
+	data := settingsSigninData{
+		settingsSectionData: fixtureSettingsSectionData(settingsSectionSignin),
+		Values:              values,
+		Panel:               signinPanelDataFor(application.SigninConfiguration{Panel: panel}, goldenBrand(), "en"),
+		HasImage:            true,
+		ImageVersion:        "0123456789ab",
+	}
+	data.Contents, data.Backgrounds, data.NoticeKinds, data.Icons = panelChoices(values)
+	return data
+}
+
+func TestGoldenSettingsSignin(t *testing.T) {
+	goldenFullPage(t, "settings_signin", renderGolden(t, "settings_signin", "", fixtureSettingsSigninData(), false))
+}
+
 func fixtureSettingsEmailData() settingsEmailData {
 	return settingsEmailData{
 		settingsSectionData: fixtureSettingsSectionData(settingsSectionEmail),

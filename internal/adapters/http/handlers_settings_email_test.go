@@ -80,7 +80,7 @@ func TestSettingsEmailSectionIsRootOnly(t *testing.T) {
 	}
 	body := rec.Body.String()
 	for _, want := range []string{
-		`<h2 class="settings-section-title">Email</h2>`,
+		`<h2 class="settings-section-title">Email notifications</h2>`,
 		`action="/settings/email"`,
 		`formaction="/settings/email/test"`,
 		`id="email_host" name="email_host" value=""`,
@@ -100,7 +100,7 @@ func TestSettingsEmailSectionIsRootOnly(t *testing.T) {
 		`id="email_base_url" name="email_base_url" value=""`, // S10
 		"https://tkt.example.com",                            // S10: the shape the field asks for
 		"Sends one email to root@tkt.test",
-		"Save email",
+		"Save email notifications",
 		"Send test email",
 	} {
 		if !strings.Contains(body, want) {
@@ -491,7 +491,7 @@ func TestSettingsEmailErrorsFollowTheInstanceLanguage(t *testing.T) {
 		t.Fatalf("rejected save = %d, want 422: %.800s", rec.Code, rec.Body.String())
 	}
 	body := rec.Body.String()
-	for _, want := range []string{"Configuración", "Email", "ingresa el servidor SMTP para activar el email", "Guardar email"} {
+	for _, want := range []string{"Configuración", "Notificaciones por email", "ingresa el servidor SMTP para activar el email", "Guardar notificaciones por email"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("Spanish settings page must render %q, got: %.1500s", want, body)
 		}
@@ -530,8 +530,8 @@ func TestSettingsEmailSectionKeepsItsSiblingsReachable(t *testing.T) {
 	for _, want := range []string{
 		`href="/settings/organization">Organization</a>`,
 		`href="/settings/tickets">Tickets &amp; SLA</a>`,
-		`href="/settings/email" aria-current="page">Email</a>`,
-		`<h2 class="settings-section-title">Email</h2>`,
+		`href="/settings/email" aria-current="page">Email notifications</a>`,
+		`<h2 class="settings-section-title">Email notifications</h2>`,
 		`id="email_host" name="email_host"`,
 	} {
 		if !strings.Contains(body, want) {

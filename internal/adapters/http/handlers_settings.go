@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"net/http"
 	"strconv"
 	"strings"
@@ -53,6 +52,7 @@ type SettingsHandlers struct {
 	appSet       application.SettingsStore
 	email        *application.EmailSettingsService
 	organization *application.OrganizationService
+	signin       *application.SigninService
 	renderer     *Renderer
 }
 
@@ -67,6 +67,13 @@ func NewSettingsHandlers(settings *application.SettingsService, sla *application
 // section (issue #362).
 func (h *SettingsHandlers) WithEmail(email *application.EmailSettingsService) *SettingsHandlers {
 	h.email = email
+	return h
+}
+
+// WithSignin wires the sign-in page use cases behind the Sign-in page section
+// (issue #383, S9/S10).
+func (h *SettingsHandlers) WithSignin(signin *application.SigninService) *SettingsHandlers {
+	h.signin = signin
 	return h
 }
 
@@ -89,11 +96,14 @@ func (h *SettingsHandlers) Register(mux *http.ServeMux) {
 	mux.HandleFunc("POST /settings/email/test", h.sendTestEmail)
 	mux.HandleFunc("POST /settings/organization", h.updateOrganization)
 	mux.HandleFunc("POST /settings/organization/logo/remove", h.removeOrganizationLogo)
+	mux.HandleFunc("POST /settings/signin", h.updateSignin)
+	mux.HandleFunc("POST /settings/signin/background/remove", h.removeSigninBackground)
 }
 
 // The settings sections, named exactly as their URL segment (S1).
 const (
 	settingsSectionOrganization = "organization"
+	settingsSectionSignin       = "signin"
 	settingsSectionLanguage     = "language"
 	settingsSectionTickets      = "tickets"
 	settingsSectionEmail        = "email"
@@ -120,6 +130,7 @@ type settingsNavItem struct {
 func settingsNavItems(active string, canManageEmail bool) []settingsNavItem {
 	items := []settingsNavItem{
 		{Section: settingsSectionOrganization, Href: settingsSectionHref(settingsSectionOrganization), Label: "settings.nav.organization"},
+		{Section: settingsSectionSignin, Href: settingsSectionHref(settingsSectionSignin), Label: "settings.nav.signin"},
 		{Section: settingsSectionLanguage, Href: settingsSectionHref(settingsSectionLanguage), Label: "settings.nav.language"},
 		{Section: settingsSectionTickets, Href: settingsSectionHref(settingsSectionTickets), Label: "settings.nav.tickets"},
 		{Section: settingsSectionEmail, Href: settingsSectionHref(settingsSectionEmail), Label: "settings.nav.email"},
@@ -384,7 +395,7 @@ func (h *SettingsHandlers) index(w http.ResponseWriter, r *http.Request) {
 func (h *SettingsHandlers) section(w http.ResponseWriter, r *http.Request) {
 	section := r.PathValue("section")
 	switch section {
-	case settingsSectionOrganization, settingsSectionLanguage, settingsSectionTickets, settingsSectionCalendar, settingsSectionEmail:
+	case settingsSectionOrganization, settingsSectionSignin, settingsSectionLanguage, settingsSectionTickets, settingsSectionCalendar, settingsSectionEmail:
 	default:
 		http.NotFound(w, r)
 		return
@@ -399,6 +410,8 @@ func (h *SettingsHandlers) section(w http.ResponseWriter, r *http.Request) {
 	switch section {
 	case settingsSectionOrganization:
 		h.renderOrganization(w, r, http.StatusOK, "", nil)
+	case settingsSectionSignin:
+		h.renderSignin(w, r, http.StatusOK, "", nil)
 	case settingsSectionLanguage:
 		h.renderLanguage(w, r, http.StatusOK, "")
 	case settingsSectionTickets:
@@ -532,38 +545,18 @@ func organizationRejectionStatus(err error, fallback int) int {
 	return fallback
 }
 
-// readOrganizationLogo reads the submitted file, or answers nil when the form
-// carried none. The read is bounded at one byte past the cap so an oversized
-// file is reported by the handler's own check instead of being read whole; a
-// file part with no bytes and no name is what a browser sends for an untouched
-// file input, and means "no file".
+// readOrganizationLogo reads the submitted logo file, or answers nil when the
+// form carried none. The read stops one byte past the cap so an oversized file
+// is reported by the handler's own check instead of being buffered whole.
 func readOrganizationLogo(r *http.Request) ([]byte, error) {
-	if r.MultipartForm == nil {
-		return nil, nil
-	}
-	files := r.MultipartForm.File[organizationLogoField]
-	if len(files) == 0 {
-		return nil, nil
-	}
-	header := files[0]
-	if header.Filename == "" && header.Size == 0 {
-		return nil, nil
-	}
-	file, err := header.Open()
-	if err != nil {
-		return nil, err
-	}
-	defer file.Close()
-	// One byte past the cap is enough to refuse it: the service re-validates
-	// size and magic bytes, so this read only prevents buffering a huge body.
-	logo, err := io.ReadAll(io.LimitReader(file, domain.MaxOrganizationLogoBytes+1))
-	if err != nil {
-		return nil, err
-	}
-	if len(logo) == 0 {
-		return nil, nil
-	}
-	return logo, nil
+	return readUpload(r, organizationLogoField, domain.MaxOrganizationLogoBytes)
+}
+
+// isBodyTooLarge reports the MaxBytesError the body-limit middleware surfaces
+// through a multipart parse: the request exceeded the route's cap.
+func isBodyTooLarge(err error) bool {
+	var maxErr *http.MaxBytesError
+	return errors.As(err, &maxErr)
 }
 
 // removeOrganizationLogo drops the stored logo (S4) and returns to the section.

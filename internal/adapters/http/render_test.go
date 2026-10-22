@@ -244,6 +244,7 @@ func localizedShellFS(t *testing.T) fstest.MapFS {
 		"base.html",
 		"auth.html",
 		"pages/login.html",
+		"partials/signin_panel.html",
 		"partials/styles.html",
 		"partials/save_feedback.html",
 		// base.html renders the rail bell (issue #344), so the fixture shell
