@@ -51,9 +51,9 @@ func TestSettingsFieldHelpIsBehindAToggletip(t *testing.T) {
 		label string
 		help  string
 	}{
-		{"/settings/organization", "org-logo", "Logo", "PNG, up to 256 KiB."},
+		{"/settings/organization", "org-logo", "Logo", "Square, 256 × 256 px recommended (128 × 128 px at least). PNG, up to 256 KiB."},
 		{"/settings/signin", "signin-title", "Title", "Leave it empty to use the default text."},
-		{"/settings/signin", "signin-image", "Background image", "PNG or JPEG, up to 1 MiB."},
+		{"/settings/signin", "signin-image", "Background image", "1600 × 1800 px recommended. Smaller screens crop the edges, so keep the subject centered."},
 		{"/settings/tickets", "sla-warning", "Warning threshold", "At risk once this share of the target has elapsed."},
 		{"/settings/calendar", "calendar-days", "Working days", "At least one day."},
 		{"/settings/calendar", "calendar-timezone", "Timezone", "IANA name"},

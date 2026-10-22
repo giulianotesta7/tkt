@@ -115,7 +115,7 @@
         <input type="text" id="org_support_email" name="support_email" value="support@acme.test" spellcheck="false" autocapitalize="off">
       </div>
       <div class="field">
-        <label for="org_logo">Logo</label><span class="help-tip-wrap"><button class="help-tip" type="button" aria-label="More about Logo" aria-describedby="help-tip-org-logo" aria-expanded="false" data-help-tip>?</button><span class="help-tip-bubble" role="tooltip" id="help-tip-org-logo">PNG, up to 256 KiB.</span></span>
+        <label for="org_logo">Logo</label><span class="help-tip-wrap"><button class="help-tip" type="button" aria-label="More about Logo" aria-describedby="help-tip-org-logo" aria-expanded="false" data-help-tip>?</button><span class="help-tip-bubble" role="tooltip" id="help-tip-org-logo">Square, 256 × 256 px recommended (128 × 128 px at least). PNG, up to 256 KiB.</span></span>
         <div class="settings-logo">
           <span class="settings-logo-mark">T</span>
           <div class="settings-logo-controls">

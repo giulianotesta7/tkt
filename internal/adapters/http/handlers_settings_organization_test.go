@@ -89,7 +89,7 @@ func TestOrganizationSectionShowsTheStoredIdentity(t *testing.T) {
 		`id="org_support_email" name="support_email" value="support@acme.test"`,
 		`<span class="settings-logo-mark">AS</span>`,
 		`type="file" id="org_logo" name="logo" accept="image/png"`,
-		`PNG, up to 256 KiB.`,
+		`256 × 256 px recommended (128 × 128 px at least). PNG, up to 256 KiB.`,
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("the organization section must contain %q, got: %s", want, body)
@@ -326,7 +326,9 @@ func TestOrganizationSaveRequiresNoDescriptiveCopy(t *testing.T) {
 	if strings.Contains(body, "This is the name") || strings.Contains(body, "shown across") {
 		t.Errorf("the organization section must not explain the obvious, got: %s", body)
 	}
-	if !strings.Contains(body, "PNG, up to 256 KiB.") {
-		t.Errorf("the logo rule is not inferable and must stay, got: %s", body)
+	for _, rule := range []string{"256 × 256 px recommended", "PNG, up to 256 KiB."} {
+		if !strings.Contains(body, rule) {
+			t.Errorf("the logo rule %q is not inferable and must stay, got: %s", rule, body)
+		}
 	}
 }

@@ -224,7 +224,7 @@
           <input type="color" id="signin_brand_color" name="brand_color" value="#C8102E" data-preview-brand>
         </div>
         <div class="field" data-show-when="background=image" hidden>
-          <label for="signin_background">Background image</label><span class="help-tip-wrap"><button class="help-tip" type="button" aria-label="More about Background image" aria-describedby="help-tip-signin-image" aria-expanded="false" data-help-tip>?</button><span class="help-tip-bubble" role="tooltip" id="help-tip-signin-image">PNG or JPEG, up to 1 MiB. A dark overlay keeps the text readable.</span></span>
+          <label for="signin_background">Background image</label><span class="help-tip-wrap"><button class="help-tip" type="button" aria-label="More about Background image" aria-describedby="help-tip-signin-image" aria-expanded="false" data-help-tip>?</button><span class="help-tip-bubble" role="tooltip" id="help-tip-signin-image">1600 × 1800 px recommended. Smaller screens crop the edges, so keep the subject centered. PNG or JPEG, up to 1 MiB; a dark overlay keeps the text readable.</span></span>
           <div class="settings-logo">
             <span class="settings-logo-mark"><img src="/brand/signin-background?v=0123456789ab" alt="" width="48" height="48"></span>
             <div class="settings-logo-controls">
