@@ -118,7 +118,7 @@
           <label><input type="radio" name="content" value="highlights" checked>Highlights</label>
           <label><input type="radio" name="content" value="none">None</label>
         </fieldset>
-        <div class="settings-highlights" data-editor-zone="highlights">
+        <div class="settings-highlights" data-show-when="content=highlights">
           <div class="settings-highlight" data-highlight-row="0">
             <div class="field">
               <label for="highlight_0_icon">Icon</label>
@@ -197,6 +197,7 @@
         <div class="field checkbox-field">
           <label><input type="checkbox" name="notice_enabled" value="1" checked data-preview-notice-toggle> Show a notice</label>
         </div>
+        <div class="settings-reveal" data-show-when="notice_enabled=checked">
         <fieldset class="settings-segment">
           <legend class="visually-hidden">Type</legend>
           <label><input type="radio" name="notice_kind" value="info">Info</label>
@@ -210,6 +211,7 @@
           <label for="signin_notice_text">Text</label>
           <input type="text" id="signin_notice_text" name="notice_text" value="El sábado de 10 a 12." maxlength="240" data-preview-notice-text>
         </div>
+        </div>
         <h3 class="settings-group-title">Background</h3>
         <fieldset class="settings-segment">
           <legend class="visually-hidden">Background</legend>
@@ -217,11 +219,11 @@
           <label><input type="radio" name="background" value="brand" checked>Brand color</label>
           <label><input type="radio" name="background" value="image">Image</label>
         </fieldset>
-        <div class="field">
+        <div class="field" data-show-when="background=brand">
           <label for="signin_brand_color">Brand color</label>
           <input type="color" id="signin_brand_color" name="brand_color" value="#C8102E" data-preview-brand>
         </div>
-        <div class="field">
+        <div class="field" data-show-when="background=image" hidden>
           <label for="signin_background">Background image</label><span class="help-tip-wrap"><button class="help-tip" type="button" aria-label="More about Background image" aria-describedby="help-tip-signin-image" aria-expanded="false" data-help-tip>?</button><span class="help-tip-bubble" role="tooltip" id="help-tip-signin-image">PNG or JPEG, up to 1 MiB. A dark overlay keeps the text readable.</span></span>
           <div class="settings-logo">
             <span class="settings-logo-mark"><img src="/brand/signin-background?v=0123456789ab" alt="" width="48" height="48"></span>

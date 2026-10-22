@@ -528,3 +528,45 @@ func TestSigninSectionRendersThePreviewHooks(t *testing.T) {
 		}
 	}
 }
+
+// TestSigninEditorShowsOnlyTheFieldsOfTheChosenOptions pins the progressive
+// disclosure the maintainer asked for: every dependent block carries the rule
+// settings.js applies on each change, and the server renders the initial
+// state from what is stored, so a reload never flashes a hidden field.
+func TestSigninEditorShowsOnlyTheFieldsOfTheChosenOptions(t *testing.T) {
+	h := newHarness(t)
+	block := func(body, rule string) string {
+		i := strings.Index(body, `data-show-when="`+rule+`"`)
+		if i < 0 {
+			t.Fatalf("no block for %q", rule)
+		}
+		return body[i : i+strings.Index(body[i:], ">")]
+	}
+	rules := []string{"content=highlights", "notice_enabled=checked", "background=brand", "background=image"}
+
+	// Defaults: steps, notice off, dark background: every dependent block hidden.
+	body := h.get(t, "/settings/signin", false).Body.String()
+	for _, rule := range rules {
+		if !strings.Contains(block(body, rule), " hidden") {
+			t.Errorf("default: %q must start hidden: %s", rule, block(body, rule))
+		}
+	}
+
+	// Highlights, notice on and a brand background: those three show, the
+	// image field stays hidden.
+	form := url.Values{
+		"content": {domain.SigninContentHighlights}, "highlight_0_icon": {domain.SigninIconClock}, "highlight_0_title": {"Fast"},
+		"notice_enabled": {"1"}, "notice_kind": {domain.SigninNoticeInfo}, "notice_title": {"Heads up"},
+		"background": {domain.SigninBackgroundBrand}, "brand_color": {"#C8102E"},
+	}
+	wantRedirect(t, postSignin(t, h, form, nil, ""), http.StatusSeeOther, "/settings/signin")
+	body = h.get(t, "/settings/signin", false).Body.String()
+	for _, rule := range []string{"content=highlights", "notice_enabled=checked", "background=brand"} {
+		if strings.Contains(block(body, rule), " hidden") {
+			t.Errorf("saved: %q must show: %s", rule, block(body, rule))
+		}
+	}
+	if !strings.Contains(block(body, "background=image"), " hidden") {
+		t.Errorf("a brand background must hide the image field")
+	}
+}

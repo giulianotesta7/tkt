@@ -1010,9 +1010,35 @@ test.describe("Preferences", () => {
       "Cargá tu pedido y seguí su estado.",
     );
 
+    // Progressive disclosure: each option shows only its own fields, at once,
+    // without a save. Steps and None hide the highlight rows.
+    const highlightRows = page.locator('[data-show-when="content=highlights"]');
+    const noticeFields = page.locator('[data-show-when="notice_enabled=checked"]');
+    const brandField = page.locator('[data-show-when="background=brand"]');
+    const imageField = page.locator('[data-show-when="background=image"]');
+    await expect(highlightRows).toBeHidden();
+    await expect(noticeFields).toBeHidden();
+    await expect(brandField).toBeHidden();
+    await expect(imageField).toBeHidden();
+    await page.locator('label:has(input[name="content"][value="none"])').click();
+    await expect(highlightRows).toBeHidden();
+    // Dark shows neither colour nor image; brand shows only the colour; image
+    // shows only the upload.
+    await page.locator('label:has(input[name="background"][value="brand"])').click();
+    await expect(brandField).toBeVisible();
+    await expect(imageField).toBeHidden();
+    await page.locator('label:has(input[name="background"][value="image"])').click();
+    await expect(imageField).toBeVisible();
+    await expect(brandField).toBeHidden();
+    await page.locator('label:has(input[name="background"][value="dark"])').click();
+    await expect(brandField).toBeHidden();
+    await expect(imageField).toBeHidden();
+
     // The middle zone follows the segmented control.
+    await page.locator('label:has(input[name="content"][value="steps"])').click();
     await expect(page.locator('[data-preview-zone="steps"]')).toBeVisible();
     await page.locator('label:has(input[name="content"][value="highlights"])').click();
+    await expect(highlightRows).toBeVisible();
     await expect(page.locator('[data-preview-zone="steps"]')).toBeHidden();
     await page.locator("#highlight_0_title").fill("Primera respuesta en 4 h");
     await expect(page.locator('[data-preview-hl-row="0"]')).toBeVisible();
@@ -1023,6 +1049,7 @@ test.describe("Preferences", () => {
     // The notice appears in the preview when the toggle is on.
     await expect(page.locator("[data-preview-notice]")).toBeHidden();
     await page.getByRole("checkbox", { name: /show a notice/i }).check();
+    await expect(noticeFields).toBeVisible();
     await page.locator("#signin_notice_title").fill("Mantenimiento programado");
     await expect(page.locator("[data-preview-notice]")).toBeVisible();
     await expect(page.locator("[data-preview-notice-title-text]")).toHaveText(

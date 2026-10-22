@@ -454,3 +454,15 @@
 .settings-highlights > [data-highlight-add] {
   align-self: flex-start;
 }
+
+/* Progressive disclosure (maintainer review): a revealed group keeps the
+   field rhythm of the form it belongs to. */
+.settings-reveal {
+  display: grid;
+  gap: 12px;
+}
+
+.settings-reveal[hidden],
+.settings-layout [data-show-when][hidden] {
+  display: none;
+}

@@ -110,9 +110,6 @@
     var content = selectedRadio("content");
     show('[data-preview-zone="steps"]', content === "steps");
     show('[data-preview-zone="highlights"]', content === "highlights");
-    for (const zone of document.querySelectorAll('[data-editor-zone="highlights"]')) {
-      zone.hidden = content !== "highlights";
-    }
 
     var background = selectedRadio("background");
     panel.className = "auth-entry__presentation auth-entry__presentation--" + background;
@@ -204,6 +201,23 @@
   document.addEventListener("change", editSignin);
   document.addEventListener("click", editSignin);
 
+  // Progressive disclosure (maintainer review): a block marked
+  // data-show-when="name=value" shows only while the named radio holds that
+  // value, or, with "name=checked", while the named checkbox is ticked. It
+  // reacts on every change, so switching an option reveals its fields at
+  // once instead of after a save. Hidden fields keep their values.
+  function syncDisclosure() {
+    Array.prototype.forEach.call(document.querySelectorAll("[data-show-when]"), function (block) {
+      var rule = block.getAttribute("data-show-when").split("=");
+      var form = block.closest("form");
+      if (!form) return;
+      var control = form.querySelector('[name="' + rule[0] + '"]:checked');
+      block.hidden = rule[1] === "checked" ? !control : !control || control.value !== rule[1];
+    });
+  }
+  document.addEventListener("change", syncDisclosure);
+
+  syncDisclosure();
   syncSigninPreview();
   syncHighlightRows();
 

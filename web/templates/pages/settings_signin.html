@@ -25,7 +25,7 @@
           <legend class="visually-hidden">{{t "settings.signin.field.content"}}</legend>
 {{range .Contents}}          <label><input type="radio" name="content" value="{{.Value}}"{{if .Selected}} checked{{end}}>{{t (print "settings.signin.content." .Value)}}</label>
 {{end}}        </fieldset>
-        <div class="settings-highlights" data-editor-zone="highlights"{{if ne .Values.Content "highlights"}} hidden{{end}}>
+        <div class="settings-highlights" data-show-when="content=highlights"{{if ne .Values.Content "highlights"}} hidden{{end}}>
 {{range $index, $row := .Values.Highlights}}          <div class="settings-highlight" data-highlight-row="{{$index}}">
             <div class="field">
               <label for="highlight_{{$index}}_icon">{{t "settings.signin.field.highlight_icon"}}</label>
@@ -50,6 +50,7 @@
         <div class="field checkbox-field">
           <label>{{if .Values.NoticeEnabled}}<input type="checkbox" name="notice_enabled" value="1" checked data-preview-notice-toggle> {{t "settings.signin.field.notice_show"}}{{else}}<input type="checkbox" name="notice_enabled" value="1" data-preview-notice-toggle> {{t "settings.signin.field.notice_show"}}{{end}}</label>
         </div>
+        <div class="settings-reveal" data-show-when="notice_enabled=checked"{{if not .Values.NoticeEnabled}} hidden{{end}}>
         <fieldset class="settings-segment">
           <legend class="visually-hidden">{{t "settings.signin.field.notice_kind"}}</legend>
 {{range .NoticeKinds}}          <label><input type="radio" name="notice_kind" value="{{.Value}}"{{if .Selected}} checked{{end}}>{{t (print "settings.signin.notice_kind." .Value)}}</label>
@@ -62,16 +63,17 @@
           <label for="signin_notice_text">{{t "settings.signin.field.notice_text"}}</label>
           <input type="text" id="signin_notice_text" name="notice_text" value="{{.Values.NoticeText}}" maxlength="240" data-preview-notice-text>
         </div>
+        </div>
         <h3 class="settings-group-title">{{t "settings.signin.field.background"}}</h3>
         <fieldset class="settings-segment">
           <legend class="visually-hidden">{{t "settings.signin.field.background"}}</legend>
 {{range .Backgrounds}}          <label><input type="radio" name="background" value="{{.Value}}"{{if .Selected}} checked{{end}}>{{t (print "settings.signin.background." .Value)}}</label>
 {{end}}        </fieldset>
-        <div class="field">
+        <div class="field" data-show-when="background=brand"{{if ne .Values.Background "brand"}} hidden{{end}}>
           <label for="signin_brand_color">{{t "settings.signin.field.brand_color"}}</label>
           <input type="color" id="signin_brand_color" name="brand_color" value="{{if .Values.BrandColor}}{{.Values.BrandColor}}{{else}}#315EFF{{end}}" data-preview-brand>
         </div>
-        <div class="field">
+        <div class="field" data-show-when="background=image"{{if ne .Values.Background "image"}} hidden{{end}}>
           <label for="signin_background">{{t "settings.signin.field.background_image"}}</label>{{template "help_tip" (helpTip "signin-image" (t "settings.signin.field.background_image") (t "settings.signin.image_help"))}}
           <div class="settings-logo">
             <span class="settings-logo-mark">{{if .HasImage}}<img src="/brand/signin-background?v={{.ImageVersion}}" alt="" width="48" height="48">{{else}}{{signinIcon "info"}}{{end}}</span>
