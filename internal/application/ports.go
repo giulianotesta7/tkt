@@ -1122,6 +1122,52 @@ type SettingsStore interface {
 	SetHoldAutoCloseDays(ctx context.Context, days int) error
 }
 
+// OrganizationStore persists the instance identity (issue #383, S3): the
+// name, the help desk name, an optional support email, and the logo. The three
+// text facts live beside the other instance settings; the logo needs bytes, so
+// it is stored in the settings_blobs table migration 0026 adds — the settings
+// table's value column is TEXT and cannot hold an image.
+//
+// It is a port of its own rather than three more methods on SettingsStore
+// because its reader is the request middleware: every page renders the brand,
+// so widening SettingsStore would force every settings fake and every
+// settings-only caller to carry the organization as well.
+type OrganizationStore interface {
+	// GetOrganization returns the stored identity. It NEVER fails for
+	// configuration reasons: an absent row answers the documented default
+	// (name "tkt", help desk "Help desk", no email, no logo), so a fresh or
+	// hand-edited instance still renders a usable brand. The monogram is
+	// derived, not stored.
+	GetOrganization(ctx context.Context) (domain.Organization, error)
+	// SetOrganization writes every field — the three text values and the
+	// logo — in ONE transaction, so a submission can never be half applied:
+	// either the name and the logo an administrator saved together are both
+	// stored, or neither is. A nil Logo means the instance has no logo and
+	// deletes the stored one; the caller decides whether an unsubmitted file
+	// keeps the previous logo.
+	SetOrganization(ctx context.Context, org domain.Organization) error
+}
+
+// SigninStore persists the sign-in page's customization (issue #383, S9/S10):
+// the text facts as keyed settings rows — the highlighted rows as one JSON array
+// decoded defensively — and the background image as a settings_blobs row, since
+// the settings table's value column is TEXT.
+//
+// Like OrganizationStore it is its own port because its reader is the login
+// page, which renders before any session exists: widening SettingsStore would
+// force every settings-only caller and fake to carry the sign-in panel too.
+type SigninStore interface {
+	// GetSignin returns the stored panel and background image. It NEVER fails
+	// for configuration reasons: absent rows answer the documented defaults
+	// (steps, no notice, the dark background), and a malformed highlights value
+	// reads back as "no highlights" instead of failing the login page.
+	GetSignin(ctx context.Context) (SigninConfiguration, error)
+	// SetSignin writes the panel's text facts AND the background image in ONE
+	// transaction, so a submission can never be half applied. A nil background
+	// means the instance holds no background image and deletes the stored row.
+	SetSignin(ctx context.Context, panel domain.SigninPanel, background []byte) error
+}
+
 // PreferencesStore persists per-user preferences (issue #210) in the
 // user_preferences table, keyed by (user_id, key). The first preference is
 // the default queue order; the table is generic so later preferences reuse
@@ -1148,6 +1194,55 @@ type EmailPreferencesStore interface {
 	EmailPreferences
 	// SetEmailNotificationsEnabled upserts the user's email choice.
 	SetEmailNotificationsEnabled(ctx context.Context, userID int64, enabled bool) error
+}
+
+// SidebarPreferencesStore persists each user's sidebar state (issue #377, S2)
+// in the same user_preferences table, under its own key, so the queue-order
+// and email ports above are unchanged and no preference can overwrite another.
+// Like the other two this is a personal setting with no capability gate: the
+// key is the acting user's id, never a caller-supplied one, so one user can
+// only ever read or write their own shell.
+//
+// The readers (the request middleware that stamps the state, and
+// pageDataFrom) read it ONCE per authenticated request, which is why the read
+// is a plain boolean instead of a rendering concern.
+//
+// Defaults are part of the contract, not the adapter's mood: an absent row
+// means expanded (false) — the state every user starts with — and only the
+// exact stored value "collapsed" means true. Every other stored value reads as
+// expanded, so a hand-edited or restored-from-backup row can never collapse a
+// sidebar nobody collapsed.
+type SidebarPreferencesStore interface {
+	// SidebarCollapsed reports whether the user's sidebar is collapsed. An
+	// absent row answers false (expanded); only the exact stored value
+	// "collapsed" answers true.
+	SidebarCollapsed(ctx context.Context, userID int64) (bool, error)
+	// SetSidebarCollapsed upserts the user's sidebar state, keeping exactly
+	// one row per user ("collapsed" or "expanded").
+	SetSidebarCollapsed(ctx context.Context, userID int64, collapsed bool) error
+}
+
+// ThemePreferencesStore persists each user's interface theme (issue #378, S1)
+// in the same user_preferences table, under its own key, so the queue-order,
+// email, and sidebar ports above are unchanged and no preference can overwrite
+// another. Like the other three this is a personal setting with no capability
+// gate: the key is the acting user's id, never a caller-supplied one.
+//
+// The readers (the request middleware that stamps the page attribute, and
+// pageDataFrom) read it ONCE per authenticated request, which is why the read
+// answers the bare stored string instead of a rendering concern.
+//
+// Defaults are part of the contract, not the adapter's mood: an absent row
+// means "" — no choice yet — and the application service normalizes that, and
+// every value outside the closed set, to ThemeSystem. The store persists
+// whatever it is given, so a hand-edited or restored-from-backup row can never
+// render a theme the stylesheet does not define.
+type ThemePreferencesStore interface {
+	// GetTheme returns the user's stored theme, or "" when the user has no
+	// stored preference.
+	GetTheme(ctx context.Context, userID int64) (string, error)
+	// SetTheme upserts the user's stored theme.
+	SetTheme(ctx context.Context, userID int64, theme string) error
 }
 
 // TicketSection narrows an agent's read scope into a presentation section.
@@ -1177,6 +1272,13 @@ type TicketQuery struct {
 	Priority   *domain.Priority
 	CategoryID *int64
 	UserID     *int64
+	// Unassigned restricts the list to tickets with no assignee (issue #382,
+	// the "Unassigned" queue view). It composes with every other filter and
+	// is meaningless together with UserID; the handler never sets both.
+	Unassigned bool
+	// OnHold restricts the list to tickets currently on hold (issue #382, the
+	// "On hold" queue view): on_hold_since is set, whatever the state.
+	OnHold bool
 	// Text is the D4-tokenized, title-scoped FTS expression ("" = no title
 	// filter). The search box matches ONLY ticket titles or IDs.
 	Text string

@@ -10,7 +10,6 @@ import (
 
 	"github.com/giulianotesta7/tkt/internal/application"
 	"github.com/giulianotesta7/tkt/internal/domain"
-	"github.com/giulianotesta7/tkt/internal/i18n"
 )
 
 // WithMetrics wires the optional ticket-metrics read service into the ticket handlers (issue #123); a nil service keeps every metrics surface hidden.
@@ -209,6 +208,10 @@ func (h *TicketHandlers) metricsData(r *http.Request) (ticketMetricsData, error)
 	}
 	data.Metrics = metrics
 	data.Attainment = attainmentViewFor(metrics.Attainment)
+	if metrics.Samples > 0 {
+		data.MeanResolution = metricsDuration(metrics.MeanDuration)
+		data.MeanResolutionIsDuration = true
+	}
 	return data, nil
 }
 
@@ -294,35 +297,12 @@ func finalizeAttainmentMilestone(m ticketMetricsAttainmentMilestoneView) ticketM
 	return m
 }
 
-// metricsSummaryData loads the fixed current-UTC-week list summary.
-func (h *TicketHandlers) metricsSummaryData(r *http.Request) (ticketMetricsData, error) {
-	if h.metrics == nil {
-		return ticketMetricsData{}, domain.NewForbiddenError("ticket metrics unavailable")
-	}
-	metrics, err := h.metrics.ViewCurrentWeek(r.Context(), *userFromContext(r.Context()))
-	if err != nil {
-		return ticketMetricsData{}, err
-	}
-	mean := i18n.T(requestLocale(r), "ticket_metrics.summary.mean_resolution_none")
-	meanIsDuration := false
-	if metrics.Samples > 0 {
-		mean = metricsDuration(metrics.MeanDuration)
-		meanIsDuration = true
-	}
-	return ticketMetricsData{
-		Metrics:                  metrics,
-		ReturnHref:               metricsReturnHref(r.URL.RequestURI()),
-		MeanResolution:           mean,
-		MeanResolutionIsDuration: meanIsDuration,
-	}, nil
-}
-
 // renderMetricsDetail answers the dedicated /tickets/metrics page (normal request)
 // or its #ticket-metrics-detail-content fragment (HX-Request); the Back href is
 // always the sanitized return value. The option lists and any retained filter
 // values are assembled by metricsData, so this only composes and renders.
 func (h *TicketHandlers) renderMetricsDetail(w http.ResponseWriter, r *http.Request, data ticketMetricsData, status int) {
-	page := pageDataFrom(r, "tickets")
+	page := pageDataFrom(r, "metrics")
 	page.PageFoundationAssets = true
 	page.MetricsAssets = true
 	detail := ticketMetricsDetailData{pageData: page, ticketMetricsData: data, BackHref: metricsReturnHref(r.URL.Query().Get("return"))}

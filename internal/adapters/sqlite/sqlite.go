@@ -231,6 +231,16 @@ func (s *Store) SettingsStore() application.SettingsStore { return newSettingsSt
 // the same keyed settings table.
 func (s *Store) EmailSettingsStore() application.EmailSettingsStore { return newSettingsStore(s.db) }
 
+// SigninStore returns the sign-in page customization port (issue #383, S9/S10),
+// served by the same keyed settings store: the text rows live in settings and
+// the background image in settings_blobs.
+func (s *Store) SigninStore() application.SigninStore { return newSettingsStore(s.db) }
+
+// OrganizationStore returns the instance-identity port (issue #383), served by
+// the same keyed settings store: the name, help desk name and support email are
+// settings rows and the logo lives in settings_blobs (migration 0026).
+func (s *Store) OrganizationStore() application.OrganizationStore { return newSettingsStore(s.db) }
+
 // SLAStore returns the SLA port (issue #211): global defaults,
 // materialized category matrices, observed milestone instants, and the
 // commitments frozen onto tickets.

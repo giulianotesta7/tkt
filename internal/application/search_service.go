@@ -44,15 +44,7 @@ func (s *SearchService) Search(ctx context.Context, actor domain.User, q TicketQ
 	if page < 1 {
 		page = 1
 	}
-	q = readQuery(actor, q)
-	if actor.Role == domain.RoleUser {
-		// The user list is always limited to active work. Ignore every
-		// caller-supplied state so crafted query strings cannot reveal history.
-		q.State = nil
-		q.States = []domain.State{domain.StateNew, domain.StateInProgress}
-	}
-	q.Text, q.Numbers = BuildTitleQuery(q.Text)
-	hasText := q.Text != "" || len(q.Numbers) > 0
+	q, hasText := s.scoped(actor, q)
 	p := Page{Offset: (page - 1) * PageSize, Limit: PageSize}
 
 	result := &SearchResult{Page: page}
@@ -74,6 +66,31 @@ func (s *SearchService) Search(ctx context.Context, actor domain.User, q TicketQ
 		return nil, err
 	}
 	return result, nil
+}
+
+// scoped applies the actor's scope, the requester's fixed active-work
+// restriction and the title/ID tokenization: the preparation Search and Count
+// share, so a tab count can never disagree with the list it opens.
+func (s *SearchService) scoped(actor domain.User, q TicketQuery) (TicketQuery, bool) {
+	q = readQuery(actor, q)
+	if actor.Role == domain.RoleUser {
+		// The user list is always limited to active work. Ignore every
+		// caller-supplied state so crafted query strings cannot reveal history.
+		q.State = nil
+		q.States = []domain.State{domain.StateNew, domain.StateInProgress}
+	}
+	q.Text, q.Numbers = BuildTitleQuery(q.Text)
+	return q, q.Text != "" || len(q.Numbers) > 0
+}
+
+// Count answers how many tickets Search would list for the same actor and
+// query (issue #382, the queue tab counts), with exactly Search's scope.
+func (s *SearchService) Count(ctx context.Context, actor domain.User, q TicketQuery) (int, error) {
+	q, hasText := s.scoped(actor, q)
+	if hasText {
+		return s.search.SearchCount(ctx, q)
+	}
+	return s.tickets.Count(ctx, q)
 }
 
 // AgentQueueContext batches the agent queue row context for one page of

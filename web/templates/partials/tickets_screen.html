@@ -2,10 +2,8 @@
   <header class="page-header">
     <div>
       <h1 class="page-title">{{if .AgentView}}{{t "tickets.screen.my_work"}}{{else if eq .CurrentUser.Role "user"}}{{t "tickets.screen.my_tickets"}}{{else}}{{t "tickets.screen.title"}}{{end}}</h1>
-    </div>
-    <div class="page-actions">
-      {{if or .AgentView (eq .CurrentUser.Role "user")}}{{template "role_ticket_search" .}}{{end}}<a class="page-action page-action-primary" href="/tickets/new">{{t "tickets.screen.new"}}</a>
-    </div>
+    </div>{{if or .AgentView (eq .CurrentUser.Role "user")}}
+    <div class="page-actions">{{template "role_ticket_search" .}}</div>{{end}}
   </header>
 </div>{{end}}
-{{define "tickets_screen"}}<section id="tickets-screen" class="page-foundation tickets-screen">{{if not .AgentView}}<p class="page-subtitle">{{if eq .Total 1}}{{tf "tickets.screen.count_one" .Total}}{{else}}{{tf "tickets.screen.count_other" .Total}}{{end}}</p>{{end}}{{if .AgentView}}{{template "agent_ticket_list" .}}{{else if eq .CurrentUser.Role "user"}}{{template "user_ticket_list" .}}{{else}}{{template "filter_form" .}}{{template "ticket_list" .}}{{end}}</section>{{end}}
+{{define "tickets_screen"}}<section id="tickets-screen" class="page-foundation tickets-screen">{{if not .AgentView}}<p class="page-subtitle">{{if eq .Total 1}}{{tf "tickets.screen.count_one" .Total}}{{else}}{{tf "tickets.screen.count_other" .Total}}{{end}}</p>{{end}}{{if .AgentView}}{{template "agent_ticket_list" .}}{{else if eq .CurrentUser.Role "user"}}{{template "user_ticket_list" .}}{{else}}{{template "queue_tabs" .}}{{template "filter_form" .}}<div id="queue-results">{{template "queue_chips" .}}{{template "ticket_list" .}}</div>{{end}}</section>{{end}}

@@ -328,7 +328,7 @@ func TestNotificationsNoPageRenderCarriesTheCount(t *testing.T) {
 	session := seedSession(t, h.store, agent.ID).ID
 	for _, target := range []string{"/tickets", "/notifications"} {
 		body := notificationRequestWithHeaders(t, h, session, http.MethodGet, target, "", nil).Body.String()
-		if strings.Contains(body, `<span class="rail-badge"`) || strings.Contains(body, " unread\"") {
+		if strings.Contains(body, `<span class="bell-badge"`) || strings.Contains(body, " unread\"") {
 			t.Errorf("GET %s rendered a badge from the page render", target)
 		}
 		if !strings.Contains(body, `hx-get="/notifications/count"`) {
@@ -339,7 +339,7 @@ func TestNotificationsNoPageRenderCarriesTheCount(t *testing.T) {
 		}
 	}
 	count := notificationRequestWithHeaders(t, h, session, http.MethodGet, "/notifications/count", "", nil).Body.String()
-	for _, want := range []string{`aria-label="Notifications, 3 unread"`, `<span class="rail-badge" aria-hidden="true">3</span>`} {
+	for _, want := range []string{`aria-label="Notifications, 3 unread"`, `<span class="bell-badge" aria-hidden="true">3</span>`} {
 		if !strings.Contains(count, want) {
 			t.Errorf("count fragment missing %q: %.400s", want, count)
 		}

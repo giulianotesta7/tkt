@@ -53,6 +53,10 @@ type TicketHandlers struct {
 	// what turns both on).
 	attachments         application.AttachmentStore
 	attachmentDownloads *application.AttachmentService
+	// clock is the OPTIONAL request clock the queue's relative "Updated"
+	// reading is judged against (issue #382). Unset leaves listData.Now zero,
+	// so every fixture and golden keeps rendering the absolute instant.
+	clock domain.Clock
 }
 
 // NewTicketHandlers wires the ticket routes against the ticket, comment,
@@ -103,6 +107,13 @@ func (h *TicketHandlers) WithPreferences(preferences *application.PreferencesSer
 	return h
 }
 
+// WithClock wires the request clock the queue reads once per list render
+// (issue #382). It follows the fluent shape of WithSLA and WithPreferences.
+func (h *TicketHandlers) WithClock(clock domain.Clock) *TicketHandlers {
+	h.clock = clock
+	return h
+}
+
 // Register mounts the ticket routes (D9 method+path patterns). Task 5.4
 // covers list + create; 5.5 registers the detail/edit/transition/comment
 // routes on the same handlers.
@@ -145,6 +156,12 @@ type pageData struct {
 	WorkflowAssets       bool
 	CategoryAssets       bool
 	MetricsAssets        bool
+	// SettingsAssets loads the settings section stylesheet and the save-bar
+	// script (issue #383, S2). It is set only on the settings pages, so no other
+	// surface downloads them.
+	SettingsAssets bool
+	// QueueAssets loads the staff queue's row-navigation script (issue #382).
+	QueueAssets bool
 	// SLACountdownAssets loads the live SLA countdown script (issue #211,
 	// PR 6). It is set only where the ticket detail page is built and only
 	// when that ticket carries a frozen commitment, because the panel is the
@@ -152,6 +169,21 @@ type pageData struct {
 	SLACountdownAssets bool
 	InternalCommentBg  string
 	SaveFeedback       saveFeedbackData
+	// SidebarCollapsed is the session user's stored sidebar state (issue #377,
+	// S2), stamped once per request by the session middleware. The shell
+	// renders it on the first paint, so a collapsed sidebar never flashes
+	// expanded while a script catches up.
+	SidebarCollapsed bool
+	// Theme is the session user's stored interface theme (issue #378, S1/S2),
+	// normalized and stamped once per request by the session middleware. The
+	// shell turns an explicit choice into the page's data-theme attribute and
+	// renders no attribute for "system".
+	Theme string
+	// Brand is the instance identity the shell renders (issue #383, S5): the
+	// name, the help desk name, the monogram or logo mark, and the logo's
+	// content hash. It comes from the identity the session middleware read once
+	// per request, so pageDataFrom performs no query of its own.
+	Brand brandData
 	// NotificationBell is the rail bell's INITIAL state (issue #344, S13). It
 	// is always the zero value: an ordinary page render never queries the
 	// unread count — the bell's own endpoint answers it, and the browser fetches
@@ -161,9 +193,11 @@ type pageData struct {
 }
 
 // pageDataFrom builds the shell payload from the session user. The
-// internal-comment background comes from the per-request settings read the
-// middleware stamps into the context (appearance-settings spec); "" leaves
-// the stylesheet default in place.
+// internal-comment background, the sidebar state, and the theme come from the
+// per-request middleware reads stamped into the context (appearance-settings
+// spec, issue #377 S2, issue #378 S2); "" leaves the stylesheet default in
+// place, an absent sidebar stamp renders the expanded shell, and an absent
+// theme stamp resolves to the system default.
 func pageDataFrom(r *http.Request, nav string) pageData {
 	u := userFromContext(r.Context())
 	caps := application.NewPolicy().Capabilities(u.Role)
@@ -177,6 +211,9 @@ func pageDataFrom(r *http.Request, nav string) pageData {
 		CanGrantAdmin:       caps.Require(application.CapGrantAdmin),
 		InternalCommentBg:   internalCommentBgFrom(r.Context()),
 		SaveFeedback:        readSaveFeedback(r),
+		SidebarCollapsed:    sidebarCollapsedFrom(r.Context()),
+		Theme:               themeFrom(r.Context()),
+		Brand:               brandFromContext(r.Context()),
 	}
 }
 
@@ -242,12 +279,48 @@ type filterState struct {
 	// stored default, so the handler needs to tell "the URL chose newest"
 	// apart from "the URL said nothing".
 	SortExplicit bool
+	// View is the queue tab (issue #382): viewAll, viewMine, viewUnassigned,
+	// viewOnHold or viewResolved. It is always concrete after parseFilters;
+	// an unknown value selects viewAll, never an error.
+	View string
+}
+
+// Queue views (issue #382). They are presentation sections of the staff
+// queue, composed ON TOP of the actor's scope and the other filters; none of
+// them widens what the actor may read.
+const (
+	viewAll        = "all"
+	viewMine       = "mine"
+	viewUnassigned = "unassigned"
+	viewOnHold     = "on_hold"
+	viewResolved   = "resolved"
+)
+
+// queueViews lists the tabs in display order.
+var queueViews = []string{viewAll, viewMine, viewUnassigned, viewOnHold, viewResolved}
+
+// queueViewLabelKeys maps a view to its catalogue label.
+var queueViewLabelKeys = map[string]string{
+	viewAll:        "tickets.view.all",
+	viewMine:       "tickets.view.mine",
+	viewUnassigned: "tickets.view.unassigned",
+	viewOnHold:     "tickets.view.on_hold",
+	viewResolved:   "tickets.view.resolved",
+}
+
+// validView reports whether v names a queue view.
+func validView(v string) bool {
+	_, ok := queueViewLabelKeys[v]
+	return ok
 }
 
 // parseFilters reads the query string, ignoring unknown or malformed values.
 func parseFilters(r *http.Request) filterState {
 	q := r.URL.Query()
-	f := filterState{Q: q.Get("q"), Sort: sortNewest, SortExplicit: q.Has("sort")}
+	f := filterState{Q: q.Get("q"), Sort: sortNewest, SortExplicit: q.Has("sort"), View: viewAll}
+	if v := q.Get("view"); validView(v) {
+		f.View = v
+	}
 	if s := domain.State(q.Get("state")); validState(s) {
 		f.State = s
 	}
@@ -298,6 +371,14 @@ func (f filterState) query() application.TicketQuery {
 		s := f.State
 		q.State = &s
 	}
+	switch f.View {
+	case viewUnassigned:
+		q.Unassigned = true
+	case viewOnHold:
+		q.OnHold = true
+	case viewResolved:
+		q.States = []domain.State{domain.StateResolved, domain.StateClosed}
+	}
 	if f.Priority != "" {
 		p := f.Priority
 		q.Priority = &p
@@ -320,6 +401,9 @@ func (f filterState) query() application.TicketQuery {
 // listHref rebuilds the /tickets URL carrying the current filters.
 func listHref(f filterState, page int) string {
 	v := url.Values{}
+	if f.View != "" && f.View != viewAll {
+		v.Set("view", f.View)
+	}
 	if f.State != "" {
 		v.Set("state", string(f.State))
 	}
@@ -532,6 +616,11 @@ type ticketRow struct {
 	domain.Ticket
 	Context application.AgentTicketRowContext
 	SLA     *slaRow
+	// AssigneeName and CategoryName are the row's triage context (issue
+	// #382), resolved from the option lists the page already loads; empty
+	// when the ticket is unassigned or the category is unknown.
+	AssigneeName string
+	CategoryName string
 }
 
 // ticketListData is one independently paged ticket section.
@@ -653,7 +742,33 @@ type listData struct {
 	Assigned            ticketListData
 	Claimable           ticketListData
 	ClaimError          string
-	Metrics             *ticketMetricsData
+	// Tabs, Chips, ShowSLA and Now are the triage queue's presentation
+	// (issue #382): the view tabs with their counts, the removable active
+	// filters, whether the SLA column is drawn, and the one clock snapshot
+	// the relative "Updated" reading is judged against (zero in fixtures).
+	Tabs    []queueTab
+	Chips   []queueChip
+	ShowSLA bool
+	Now     time.Time
+	// ClearHref is the current view with every filter removed.
+	ClearHref string
+}
+
+// queueTab is one view tab: its label key, href, count and whether it is the
+// current one.
+type queueTab struct {
+	View     string
+	LabelKey string
+	Href     string
+	Count    int
+	Active   bool
+}
+
+// queueChip is one active filter the user can remove: a label and the href
+// of the same query without it.
+type queueChip struct {
+	Label string
+	Href  string
 }
 
 func (h *TicketHandlers) index(w http.ResponseWriter, r *http.Request) {
@@ -711,7 +826,7 @@ func (h *TicketHandlers) listData(r *http.Request, f filterState, page int) (lis
 	if err != nil {
 		return listData{}, err
 	}
-	res, err := h.search.Search(r.Context(), actor, f.query(), page)
+	res, err := h.search.Search(r.Context(), actor, viewQuery(f, actor), page)
 	if err != nil {
 		return listData{}, err
 	}
@@ -733,17 +848,18 @@ func (h *TicketHandlers) listData(r *http.Request, f filterState, page int) (lis
 	}
 	pageMeta := pageDataFrom(r, "tickets")
 	pageMeta.PageFoundationAssets = true
-	pageMeta.MetricsAssets = true
+	staff := actor.Role != domain.RoleUser
+	pageMeta.QueueAssets = staff
 	data := listData{
 		pageData:            pageMeta,
 		Filters:             f,
 		Options:             opts,
-		Tickets:             wrapTicketRows(res.Tickets, nil, slas),
+		Tickets:             nameTicketRows(wrapTicketRows(res.Tickets, nil, slas), opts),
 		Total:               res.Total,
 		Page:                res.Page,
 		Pages:               pages,
-		ShowAdvancedFilters: userFromContext(r.Context()).Role != domain.RoleUser,
-		HasActiveQuery:      f.State != "" || f.Priority != "" || f.CategoryID != "" || f.UserID != "" || f.Q != "",
+		ShowAdvancedFilters: staff,
+		HasActiveQuery:      f.State != "" || f.Priority != "" || f.CategoryID != "" || f.UserID != "" || f.Q != "" || f.View != viewAll,
 	}
 	if res.Page > 1 {
 		data.PrevHref = listHref(f, res.Page-1)
@@ -751,7 +867,124 @@ func (h *TicketHandlers) listData(r *http.Request, f filterState, page int) (lis
 	if res.Page < pages {
 		data.NextHref = listHref(f, res.Page+1)
 	}
+	data.ClearHref = listHref(filterState{View: f.View, Sort: sortNewest}, 1)
+	if staff {
+		data.Chips = queueChips(r, f, opts)
+		data.Tabs, err = h.queueTabs(r, actor, f)
+		if err != nil {
+			return listData{}, err
+		}
+		data.ShowSLA, err = h.showSLAColumn(r, data.Tickets)
+		if err != nil {
+			return listData{}, err
+		}
+		if h.clock != nil {
+			data.Now = h.clock.Now()
+		}
+	}
 	return data, nil
+}
+
+// viewQuery turns the filters into the store query, binding the "mine" view
+// to the acting user: the only view that needs the actor rather than a
+// column predicate.
+func viewQuery(f filterState, actor domain.User) application.TicketQuery {
+	q := f.query()
+	if f.View == viewMine {
+		id := actor.ID
+		q.UserID = &id
+	}
+	return q
+}
+
+// nameTicketRows resolves each row's assignee and category names from the
+// option lists the page already loaded (issue #382): no extra store read.
+func nameTicketRows(rows []ticketRow, opts options) []ticketRow {
+	users := make(map[int64]string, len(opts.Users))
+	for _, u := range opts.Users {
+		users[u.ID] = u.Name
+	}
+	categories := make(map[int64]string, len(opts.Categories))
+	for _, c := range opts.Categories {
+		categories[c.ID] = c.Name
+	}
+	for i := range rows {
+		if rows[i].UserID != nil {
+			rows[i].AssigneeName = users[*rows[i].UserID]
+		}
+		rows[i].CategoryName = categories[rows[i].CategoryID]
+	}
+	return rows
+}
+
+// queueTabs builds the view tabs with the count each one would list under
+// the other active filters (issue #382, S1).
+func (h *TicketHandlers) queueTabs(r *http.Request, actor domain.User, f filterState) ([]queueTab, error) {
+	tabs := make([]queueTab, 0, len(queueViews))
+	for _, v := range queueViews {
+		tf := f
+		tf.View = v
+		count, err := h.search.Count(r.Context(), actor, viewQuery(tf, actor))
+		if err != nil {
+			return nil, err
+		}
+		tabs = append(tabs, queueTab{View: v, LabelKey: queueViewLabelKeys[v], Href: listHref(tf, 1), Count: count, Active: v == f.View})
+	}
+	return tabs, nil
+}
+
+// queueChips lists the active filters as removable chips (issue #382, S2).
+// Each href is the same query without that one key; view and sort survive.
+func queueChips(r *http.Request, f filterState, opts options) []queueChip {
+	tr := i18n.New(requestLocale(r))
+	var chips []queueChip
+	add := func(label string, without func(filterState) filterState) {
+		chips = append(chips, queueChip{Label: label, Href: listHref(without(f), 1)})
+	}
+	if f.Q != "" {
+		add(tr.Tf("tickets.chip.search", f.Q), func(x filterState) filterState { x.Q = ""; return x })
+	}
+	if f.State != "" {
+		add(labeledValue(tr, "state", f.State), func(x filterState) filterState { x.State = ""; return x })
+	}
+	if f.Priority != "" {
+		add(labeledValue(tr, "priority", f.Priority), func(x filterState) filterState { x.Priority = ""; return x })
+	}
+	if f.CategoryID != "" {
+		label := f.CategoryID
+		for _, c := range opts.Categories {
+			if strconv.FormatInt(c.ID, 10) == f.CategoryID {
+				label = c.Name
+			}
+		}
+		add(label, func(x filterState) filterState { x.CategoryID = ""; return x })
+	}
+	if f.UserID != "" {
+		label := f.UserID
+		for _, u := range opts.Users {
+			if strconv.FormatInt(u.ID, 10) == f.UserID {
+				label = u.Name
+			}
+		}
+		add(label, func(x filterState) filterState { x.UserID = ""; return x })
+	}
+	return chips
+}
+
+// showSLAColumn decides whether the queue draws its SLA column (issue #382,
+// S3): when the instance has SLA enabled, or when any row on the page already
+// carries a frozen commitment, because disabling the feature never hides a
+// commitment that exists.
+func (h *TicketHandlers) showSLAColumn(r *http.Request, rows []ticketRow) (bool, error) {
+	for _, row := range rows {
+		if row.SLA != nil {
+			return true, nil
+		}
+	}
+	if h.sla == nil {
+		return false, nil
+	}
+	return h.sla.Enabled(r.Context())
 }
 
 func (h *TicketHandlers) list(w http.ResponseWriter, r *http.Request) {
@@ -760,18 +993,6 @@ func (h *TicketHandlers) list(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		httpError(w, r, "error.internal_server", http.StatusInternalServerError)
 		return
-	}
-	// The compact summary renders only on the authorized full list page. Its
-	// period is the service's fixed CURRENT UTC week (issue #123): no list
-	// query value influences it, and HX list/filter swaps never carry or
-	// reload it (the summary lives outside #tickets-screen).
-	if r.Header.Get("HX-Request") == "" && h.metrics != nil && application.NewPolicy().Capabilities(userFromContext(r.Context()).Role).Require(application.CapViewTicketMetrics) {
-		metricData, metricErr := h.metricsSummaryData(r)
-		if metricErr != nil {
-			httpError(w, r, "error.internal_server", http.StatusInternalServerError)
-			return
-		}
-		data.Metrics = &metricData
 	}
 	h.renderer.Render(w, r, "tickets_index", "tickets_screen", data, http.StatusOK)
 }

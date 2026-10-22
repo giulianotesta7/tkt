@@ -1,0 +1,47 @@
+{{define "title"}}{{tf "base.title.screen" (t "settings.title") (brandHelpDesk .Brand)}}{{end}}
+{{define "content"}}
+<div class="command-header">
+  <div>
+    <h1 class="command-title">{{t "settings.title"}}</h1>
+  </div>
+</div>
+<div class="settings-layout">
+{{template "settings_nav" .}}
+  <div class="settings-content">
+{{if .Error}}    <div class="error-banner" role="alert">{{.Error}}</div>
+{{end}}    <form class="settings-form card form-card" method="post" action="/settings/appearance" data-settings-form>
+      <h2 class="settings-section-title">{{t "settings.tickets.title"}}</h2>
+      <h3 class="settings-group-title">{{t "settings.appearance.title"}}</h3>
+      <div class="swatch-grid">
+{{range .Colors}}
+    <label class="swatch">
+    {{if eq $.Current .Value}}<input type="radio" name="internal_comment_bg" value="{{.Value}}" checked>{{else}}<input type="radio" name="internal_comment_bg" value="{{.Value}}">{{end}}
+      <span class="swatch-chip" style="background:{{.Value}}"></span>
+      <span class="swatch-label">{{t .Label}}</span>
+    </label>
+{{end}}
+  </div>
+      <div class="settings-savebar" data-settings-savebar hidden>
+        <button class="btn primary" type="submit">{{t "settings.appearance.save"}}</button>
+        <button class="btn" type="reset">{{t "settings.discard"}}</button>
+      </div>
+    </form>
+    <form class="settings-form card form-card" method="post" action="/settings/sla" data-settings-form>
+      <h3 class="settings-group-title">{{t "settings.sla.title"}}</h3>
+      <p class="help">{{t "settings.sla.help"}}</p>
+      <div class="field checkbox-field">
+        <label>{{if .SLAEnabled}}<input type="checkbox" name="sla_enabled" value="1" checked> {{t "settings.sla.enable"}}{{else}}<input type="checkbox" name="sla_enabled" value="1"> {{t "settings.sla.enable"}}{{end}}</label>
+      </div>
+      <div class="field">
+        <label for="sla_warning_percent">{{t "settings.sla.warning"}}</label>{{template "help_tip" (helpTip "sla-warning" (t "settings.sla.warning") (t "settings.sla.warning_help"))}}
+        <input type="number" id="sla_warning_percent" name="sla_warning_percent" class="sla-warning-input" min="1" max="99" value="{{.SLAWarningPercent}}">
+      </div>
+{{template "sla_target_grid" .SLAGrid}}
+      <div class="settings-savebar" data-settings-savebar hidden>
+        <button class="btn primary" type="submit">{{t "settings.sla.save"}}</button>
+        <button class="btn" type="reset">{{t "settings.discard"}}</button>
+      </div>
+    </form>
+  </div>
+</div>
+{{end}}

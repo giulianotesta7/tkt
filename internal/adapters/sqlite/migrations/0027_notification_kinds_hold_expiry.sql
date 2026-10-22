@@ -1,4 +1,4 @@
--- 0026_notification_kinds_hold_expiry.sql — the hold_reminder and hold_closed
+-- 0027_notification_kinds_hold_expiry.sql — the hold_reminder and hold_closed
 -- notification kinds (issue #353): the requester is warned that a held ticket
 -- is about to close, and both the requester and the assignee learn it closed
 -- for lack of a reply.

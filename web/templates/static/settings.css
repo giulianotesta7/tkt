@@ -1,0 +1,468 @@
+/*
+ * Settings sections (issue #383, S2): the sub-navigation rail, the per-section
+ * content column, and the sticky save bar. Loaded only on the settings pages
+ * (pageData.SettingsAssets), so no other surface pays for it.
+ *
+ * The inline stylesheet is inlined into every page and cannot hold comments, so
+ * this file carries the rationale instead. Every value is a design-system token
+ * or a shape the system already defines (8px controls, 12px shells); nothing
+ * here introduces a new colour or radius.
+ */
+
+.settings-layout {
+  display: grid;
+  grid-template-columns: 220px minmax(0, 1fr);
+  gap: 32px;
+  align-items: start;
+}
+
+/* The section rail: a list of links, the active one marked with
+   aria-current="page" and the accent's soft fill. It sticks beside a long
+   section so the wayfinding survives a scroll. */
+.settings-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  position: sticky;
+  top: 76px;
+}
+
+.settings-nav-link {
+  display: block;
+  padding: 8px 12px;
+  border-radius: 8px;
+  color: var(--ink-soft);
+  font-size: 13px;
+  font-weight: 500;
+  text-decoration: none;
+}
+
+.settings-nav-link:hover {
+  background: var(--hover);
+  color: var(--ink);
+}
+
+.settings-nav-link[aria-current="page"] {
+  background: var(--accent-soft);
+  color: var(--ink-strong);
+}
+
+.settings-content {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  min-width: 0;
+}
+
+/* The section title is the smallest heading rung the system ships (14px at
+   weight 600): a settings section is a grouping, not a page banner. */
+.settings-section-title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ink-strong);
+}
+
+.settings-form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin: 0;
+}
+
+/* The sticky save bar sits at the bottom of the content column while its form
+   is dirty, so the primary action stays reachable in a long section. It is
+   hidden by default and revealed by settings.js; [hidden] must win over the
+   flex display, hence the explicit rule. */
+.settings-savebar {
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-top: 4px;
+  padding: 12px 0;
+  border-top: 1px solid var(--line);
+  background: var(--bg);
+}
+
+.settings-savebar[hidden] {
+  display: none;
+}
+
+.settings-logo {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.settings-logo-mark {
+  width: 48px;
+  height: 48px;
+  border-radius: 12px;
+  background: var(--accent);
+  color: var(--rail-ink);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+/* The logo and the monogram are one mark: the image fills the same tile the
+   monogram would, so a configured instance and a fresh one share the shape. */
+.settings-logo-mark img {
+  width: 48px;
+  height: 48px;
+  border-radius: 12px;
+  display: block;
+  object-fit: contain;
+}
+
+.settings-logo-controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.settings-logo-controls input[type="file"] {
+  max-width: 100%;
+}
+
+/* Mobile (≤640px): the rail becomes a horizontal row of chips above the
+   section, scrollable so a long section list never widens the page. */
+@media (max-width: 640px) {
+  .settings-layout {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 16px;
+  }
+
+  .settings-nav {
+    position: static;
+    flex-direction: row;
+    gap: 8px;
+    overflow-x: auto;
+    padding-bottom: 4px;
+  }
+
+  .settings-nav-link {
+    flex: 0 0 auto;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    white-space: nowrap;
+  }
+}
+
+/* A group inside a section (Appearance inside Tickets & SLA) is one rung below
+   the section title: 13px at weight 600. */
+.settings-group-title {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink-strong);
+}
+
+/* Sign-in page section (issue #383, S10): the form on the left and the live
+   preview on the right. The preview renders the real panel classes inside a
+   scaled frame, so the mirror cannot drift from what the sign-in page shows. */
+.settings-signin {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 340px;
+  gap: 24px;
+  align-items: start;
+}
+
+.settings-signin .form-card {
+  max-width: none;
+}
+
+/* A segmented control: one radio group drawn as a row of adjacent segments.
+   The native control stays in the DOM (focusable, announced), only the visual
+   is replaced. */
+.settings-segment {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 0;
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.settings-segment label {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 12px;
+  border-right: 1px solid var(--line-strong);
+  color: var(--ink-soft);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.settings-segment label:last-child {
+  border-right: 0;
+}
+
+.settings-segment input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.settings-segment label:has(input:checked) {
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+}
+
+.settings-segment label:has(input:focus-visible) {
+  outline: 3px solid var(--accent);
+  outline-offset: -3px;
+}
+
+.settings-highlights {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.settings-highlight {
+  display: grid;
+  grid-template-columns: minmax(0, 140px) minmax(0, 1fr) minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: end;
+}
+
+.settings-highlight[hidden] {
+  display: none;
+}
+
+.settings-highlight .field {
+  margin: 0;
+}
+
+.settings-highlight-remove {
+  align-self: end;
+}
+
+.settings-highlight-remove[hidden] {
+  display: none;
+}
+
+/* The preview column: a fixed frame holding the panel at a reduced scale. The
+   scale factor is the only place a raw number is unavoidable — it is a
+   measurement, not a design value. */
+.settings-preview {
+  position: sticky;
+  top: 76px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.settings-preview-label {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.settings-preview-frame {
+  width: 100%;
+  height: 210px;
+  overflow: hidden;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  background: var(--card);
+}
+
+.settings-preview-scale {
+  width: 1120px;
+  height: 640px;
+  transform: scale(0.3);
+  transform-origin: top left;
+  pointer-events: none;
+}
+
+.settings-preview-scale .auth-entry__presentation {
+  width: 1120px;
+  height: 640px;
+  min-height: 0;
+  border-right: 0;
+}
+
+.settings-preview-scale .auth-entry__body h2 {
+  font-size: 44px;
+}
+
+@media (max-width: 640px) {
+  .settings-signin {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .settings-preview {
+    position: static;
+  }
+
+  .settings-preview-frame {
+    height: 170px;
+  }
+
+  .settings-highlight {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* Field help behind a toggletip (issue #383, S11): the explanation sits next to
+   the label it belongs to, on the inverted ink ladder so it reads over any
+   surface, and it opens on hover, on keyboard focus and on a tap. */
+.help-tip-wrap {
+  position: relative;
+  display: inline-flex;
+  margin-left: 6px;
+  vertical-align: middle;
+}
+
+.help-tip {
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: 1px solid var(--line-strong);
+  border-radius: 50%;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1;
+  cursor: help;
+  display: grid;
+  place-items: center;
+}
+
+.help-tip:hover,
+.help-tip:focus-visible,
+.help-tip[aria-expanded="true"] {
+  border-color: var(--accent);
+  color: var(--accent-ink);
+}
+
+.help-tip-bubble {
+  display: none;
+  position: absolute;
+  z-index: 5;
+  left: 50%;
+  bottom: calc(100% + 8px);
+  width: 240px;
+  max-width: 70vw;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--rail);
+  color: var(--rail-ink);
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.45;
+  text-align: left;
+  transform: translateX(-50%);
+}
+
+/* Hover is the pointer's own affordance; aria-expanded carries the clicked and
+   the keyboard-focused state, which the script sets. */
+.help-tip-wrap:hover .help-tip-bubble,
+.help-tip[aria-expanded="true"] + .help-tip-bubble {
+  display: block;
+}
+
+/* The preview's zones are toggled with the hidden attribute, and their panel
+   classes declare a display: the hidden attribute wins here. */
+.settings-preview-scale [hidden] {
+  display: none;
+}
+
+@media (max-width: 640px) {
+  .help-tip-bubble {
+    left: auto;
+    right: -8px;
+    transform: none;
+  }
+}
+
+/* Review fixes (issue #383): the "?" sits on the label's line, not below it.
+   The shared .field label is a block, so a label followed by a tip becomes an
+   inline row and the control below keeps its full width. */
+.settings-layout .field > label:has(+ .help-tip-wrap) {
+  display: inline-block;
+  margin-bottom: 8px;
+}
+
+.settings-layout .field > .help-tip-wrap {
+  margin-left: 6px;
+  vertical-align: 1px;
+}
+
+.settings-layout .field > .help-tip-wrap + :is(input, select, textarea, .field-control) {
+  display: block;
+}
+
+/* Highlight rows (review fix): the form column shares the width with the
+   preview, so a row is two lines: icon, title and a compact remove action,
+   then the text across the whole row. Rows show only for Highlights. */
+.settings-highlights[hidden] {
+  display: none;
+}
+
+.settings-highlights .settings-highlight {
+  grid-template-columns: 120px minmax(0, 1fr) auto;
+  grid-template-areas: "icon title remove" "text text text";
+  align-items: end;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.settings-highlights .settings-highlight .field {
+  min-width: 0;
+}
+
+.settings-highlights .settings-highlight .field:nth-child(1) { grid-area: icon; }
+.settings-highlights .settings-highlight .field:nth-child(2) { grid-area: title; }
+.settings-highlights .settings-highlight .field:nth-child(3) { grid-area: text; }
+
+.settings-highlights .settings-highlight .field input,
+.settings-highlights .settings-highlight .field select {
+  width: 100%;
+}
+
+.settings-highlights .settings-highlight-remove {
+  grid-area: remove;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  justify-content: center;
+  font-size: 18px;
+  line-height: 1;
+}
+
+.settings-highlights > [data-highlight-add] {
+  align-self: flex-start;
+}
+
+/* Progressive disclosure (maintainer review): a revealed group keeps the
+   field rhythm of the form it belongs to. */
+.settings-reveal {
+  display: grid;
+  gap: 12px;
+}
+
+.settings-reveal[hidden],
+.settings-layout [data-show-when][hidden] {
+  display: none;
+}

@@ -35,13 +35,15 @@ func TestLoginPageRendered(t *testing.T) {
 	if !strings.Contains(body, "Sign in") {
 		t.Errorf("login page must show the sign-in form, got: %s", body)
 	}
-	if strings.Contains(body, `<aside class="rail">`) {
-		t.Errorf("login page must NOT render the app rail, got: %s", body)
+	if strings.Contains(body, `<aside class="sidebar"`) {
+		t.Errorf("login page must NOT render the app sidebar, got: %s", body)
 	}
 }
 
-// TestAuthEntryCopyAndFormContracts defines the approved setup/login identity
-// while pinning the existing server-rendered form contracts.
+// TestAuthEntryCopyAndFormContracts defines the approved setup/login shell
+// (issue #383, S9: the two-column split whose presentation panel carries the
+// instance identity and the default panel content) while pinning the existing
+// server-rendered form contracts.
 func TestAuthEntryCopyAndFormContracts(t *testing.T) {
 	tests := []struct {
 		name       string
@@ -56,12 +58,21 @@ func TestAuthEntryCopyAndFormContracts(t *testing.T) {
 			path:       "/setup",
 			newHarness: newEmptyHarness,
 			mustHave: []string{
+				`<main class="auth-entry">`,
+				`<section class="auth-entry__presentation auth-entry__presentation--dark" aria-label="tkt">`,
+				`<span class="auth-entry__mark" aria-hidden="true">T</span>`,
+				`<b>tkt</b><span>Help desk</span>`,
+				`<h2>Welcome to Help desk</h2>`,
+				"Everything your team needs to receive, organize, and resolve support requests.",
+				"Received",
+				"Assigned",
+				"Resolved",
 				"Set up tkt",
 				"Create the first account for your support team. This only happens once.",
 				"Create account",
 				"Your password is stored securely.",
 			},
-			mustMiss: []string{"Ticket Desk", "Server-side ticketing", "audit trail", "Go + HTMX + SQLite", "bcrypt", "Open source"},
+			mustMiss: []string{"Ticket Desk", "Server-side ticketing", "audit trail", "Go + HTMX + SQLite", "bcrypt", "Open source", "auth-entry__journey", "auth-entry__principles", "auth.welcome"},
 			form: []string{
 				`<form class="login-form" method="post" action="/setup" novalidate>`,
 				`<label for="name">Name</label>`, `name="name"`, `autocomplete="name"`,
@@ -73,8 +84,15 @@ func TestAuthEntryCopyAndFormContracts(t *testing.T) {
 			name:       "login",
 			path:       "/login",
 			newHarness: newHarness,
-			mustHave:   []string{"tkt", "Sign in"},
-			mustMiss:   []string{"Ticket Desk", "Server-side ticketing", "audit trail", "Go + HTMX + SQLite", "bcrypt", "Open source"},
+			mustHave: []string{
+				`<main class="auth-entry">`,
+				`<section class="auth-entry__presentation auth-entry__presentation--dark" aria-label="tkt">`,
+				`<span class="auth-entry__mark" aria-hidden="true">T</span>`,
+				`<b>tkt</b><span>Help desk</span>`,
+				`<h2>Welcome to Help desk</h2>`,
+				"Sign in to tkt",
+			},
+			mustMiss: []string{"Ticket Desk", "Server-side ticketing", "audit trail", "Go + HTMX + SQLite", "bcrypt", "Open source", "auth-entry__journey", "auth-entry__principles", "auth.welcome"},
 			form: []string{
 				`<form class="login-form" method="post" action="/login" novalidate>`,
 				`<label for="email">Email</label>`, `name="email"`, `autocomplete="email"`,
