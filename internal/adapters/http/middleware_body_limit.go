@@ -146,22 +146,10 @@ func uploadBodyCap(r *http.Request) (int64, bool) {
 	return 0, false
 }
 
-// isUploadRequest reports a multipart POST to one of the two routes that carry
-// attachments (issue #366): POST /tickets and POST /tickets/{id}/comments with
-// a numeric id. The match is exact, so no other route inherits the larger cap.
-func isUploadRequest(r *http.Request) bool {
-	if r.Method != http.MethodPost {
-		return false
-	}
-	mediaType, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
-	if err != nil || mediaType != "multipart/form-data" {
-		return false
-	}
-	return isAttachmentUploadRequest(r)
-}
-
-// isAttachmentUploadRequest is the attachment half of isUploadRequest: the two
-// routes whose bodies may carry ticket files.
+// isAttachmentUploadRequest reports the two routes whose multipart bodies may
+// carry ticket files (issue #366): POST /tickets and POST
+// /tickets/{id}/comments with a numeric id; uploadBodyCap has already checked
+// the method and the multipart media type.
 func isAttachmentUploadRequest(r *http.Request) bool {
 	if r.URL.Path == "/tickets" {
 		return true
