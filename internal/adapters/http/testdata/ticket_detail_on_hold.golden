@@ -1,25 +1,36 @@
 
 <div id="ticket-detail" hx-headers="{&#34;X-TKT-Queue-Return&#34;:&#34;/tickets&#34;}">
 
-  <div class="command-header">
+  <div class="command-header detail-header">
     <div class="detail-head">
       <div class="meta-row">
         <a href="/tickets">← Queue</a>
         <span class="num">TKT-1</span>
       </div>
+      <div class="detail-title">
 
-      <h1 class="command-title"><span class="visually-hidden">Login page down</span></h1>
-      <form class="title-inline title-edit" method="post" action="/tickets/1/edit"
-            hx-post="/tickets/1/edit" hx-target="#ticket-detail" hx-swap="outerHTML">
-        <input type="text" id="ticket-title" name="title" value="Login page down" required
-               title="Login page down" aria-label="Ticket title" class="title-input">
-        <button class="btn small title-save" type="submit" hidden>Save</button>
-      </form>
+        <h1 class="command-title"><span class="visually-hidden">Login page down</span></h1>
+        <form class="title-inline title-edit" method="post" action="/tickets/1/edit"
+              hx-post="/tickets/1/edit" hx-target="#ticket-detail" hx-swap="outerHTML">
+          <input type="text" id="ticket-title" name="title" value="Login page down" required
+                 title="Login page down" aria-label="Ticket title" class="title-input">
+          <button class="btn small title-save" type="submit" hidden>Save</button>
+        </form>
 
-      <div class="meta-row ticket-metadata">
-        <span>Created <time datetime="2026-08-06T10:00:00Z">10:00 · 06-08-2026</time></span>
-        <span>Updated <time datetime="2026-08-06T10:30:00Z">10:30 · 06-08-2026</time></span>
+        <span class="detail-state"><span class="badge in_progress">In Progress</span> <span class="chip">On hold</span></span>
       </div>
+      <p class="detail-meta">Opened by <span class="detail-meta-requester">Ana Torres</span> · <time datetime="2026-08-06T10:00:00Z" title="10:00 · 06-08-2026">10:00 · 06-08-2026</time> · <span class="detail-meta-category">Bugs</span></p>
+    </div>
+    <div class="command-actions detail-actions">
+      <form class="detail-action" method="post" action="/tickets/1/transition" hx-post="/tickets/1/transition" hx-target="#ticket-detail" hx-swap="outerHTML"><input type="hidden" name="to" value="resolved"><button class="btn primary" type="submit">Resolve</button></form>
+      <form class="detail-action" method="post" action="/tickets/1/transition" hx-post="/tickets/1/transition" hx-target="#ticket-detail" hx-swap="outerHTML"><input type="hidden" name="to" value="cancelled"><button class="btn danger" type="submit">Cancel</button></form>
+
+      <details class="detail-overflow" id="ticket-actions-overflow">
+        <summary class="btn detail-overflow-button" aria-haspopup="menu" aria-label="More actions">•••</summary>
+        <div class="detail-overflow-menu" role="menu">
+          <form class="hold-resume" method="post" action="/tickets/1/resume" hx-post="/tickets/1/resume" hx-target="#ticket-detail" hx-swap="outerHTML"><button class="btn" role="menuitem" type="submit">Resume</button></form>
+        </div>
+      </details>
     </div>
   </div>
   <div class="cards">
@@ -27,31 +38,9 @@
       <div class="card">
         <h2>Description</h2>
         <p class="ticket-description">The login form 500s on submit</p>
-          </div>
-
-
-<form class="card" method="post" action="/tickets/1/comments" enctype="multipart/form-data">
-  <h2>Add comment</h2>
-
-  <div class="field">
-    <textarea name="body" id="comment-body" hx-preserve="true" placeholder="Write a comment…" aria-label="Comment body"></textarea>
-  </div>
-  <input type="hidden" name="visibility" value="public">
-  <div class="field">
-    <label for="comment-attachments">Attachments</label>
-    <input type="file" id="comment-attachments" name="attachments" multiple accept=".png,.jpg,.jpeg,.gif,.webp,.pdf,.docx,.xlsx,.pptx,.txt,.csv,.log,.zip">
-    <p class="help">Up to 5 files, 10 MB each</p>
-  </div>
-
-  <div class="field checkbox-field">
-    <label for="comment-internal"><input id="comment-internal" type="checkbox" name="internal" value="1" hx-preserve="true"> Internal comment</label>
-  </div>
-
-  <button class="btn primary" type="submit">Add comment</button>
-</form>
-
-          <div class="card">
-        <h2>Timeline</h2>
+      </div>
+      <div class="card detail-activity">
+        <h2>Activity</h2>
 
 <div id="timeline">
 
@@ -59,63 +48,55 @@
 
 
 
-  <div class="timeline-entry timeline-event">
-    <span class="event-icon" aria-hidden="true"></span>
-    <div class="body">
-      <div class="main"><strong class="timeline-actor">Admin</strong> <span class="timeline-action">put the ticket on hold: waiting for the VPN logs</span></div>
-
-      <div class="when"><time datetime="2026-08-06T10:30:00Z">10:30 · 06-08-2026</time></div>
-    </div>
-  </div>
-
-
-
-
-  <div class="timeline-entry timeline-comment">
+  <article class="timeline-entry timeline-event st-new">
     <div class="timeline-entry-head">
-      <div class="narrative"><strong class="timeline-actor">Ana Torres</strong> added a comment</div>
-      <span class="when"><time datetime="2026-08-06T10:30:00Z">10:30 · 06-08-2026</time></span>
+      <div class="narrative"><strong class="timeline-actor">Admin</strong> <span class="timeline-action">created the ticket</span></div>
+      <div class="when"><time datetime="2026-08-06T10:00:00Z" title="10:00 · 06-08-2026">10:00 · 06-08-2026</time></div>
     </div>
-    <div class="body">Checking now</div>
-  </div>
+  </article>
 
 
 
 
-  <div class="timeline-entry timeline-event">
-    <span class="event-icon" aria-hidden="true"></span>
-    <div class="body">
-      <div class="main"><strong class="timeline-actor">Admin</strong> <span class="timeline-action">assigned the ticket to Ana Torres</span></div>
 
-      <div class="when"><time datetime="2026-08-06T10:30:00Z">10:30 · 06-08-2026</time></div>
+  <article class="timeline-entry timeline-event st-in_progress">
+    <div class="timeline-entry-head">
+      <div class="narrative"><strong class="timeline-actor">Admin</strong> <span class="timeline-action">moved the ticket to in progress</span></div>
+      <div class="when"><time datetime="2026-08-06T10:30:00Z" title="10:30 · 06-08-2026">10:30 · 06-08-2026</time></div>
     </div>
-  </div>
+  </article>
 
 
 
 
 
-  <div class="timeline-entry timeline-event st-in_progress">
-    <span class="event-icon" aria-hidden="true"></span>
-    <div class="body">
-      <div class="main"><strong class="timeline-actor">Admin</strong> <span class="timeline-action">moved the ticket to in progress</span></div>
-
-      <div class="when"><time datetime="2026-08-06T10:30:00Z">10:30 · 06-08-2026</time></div>
+  <article class="timeline-entry timeline-event">
+    <div class="timeline-entry-head">
+      <div class="narrative"><strong class="timeline-actor">Admin</strong> <span class="timeline-action">assigned the ticket to Ana Torres</span></div>
+      <div class="when"><time datetime="2026-08-06T10:30:00Z" title="10:30 · 06-08-2026">10:30 · 06-08-2026</time></div>
     </div>
-  </div>
+  </article>
 
 
 
 
-
-  <div class="timeline-entry timeline-event st-new">
-    <span class="event-icon" aria-hidden="true"></span>
-    <div class="body">
-      <div class="main"><strong class="timeline-actor">Admin</strong> <span class="timeline-action">created the ticket</span></div>
-
-      <div class="when"><time datetime="2026-08-06T10:00:00Z">10:00 · 06-08-2026</time></div>
+  <article class="timeline-entry timeline-comment">
+    <div class="timeline-entry-head">
+      <div class="narrative"><strong class="timeline-actor">Ana Torres</strong> <span class="timeline-action">added a comment</span></div>
+      <div class="when"><time datetime="2026-08-06T10:30:00Z" title="10:30 · 06-08-2026">10:30 · 06-08-2026</time></div>
     </div>
-  </div>
+    <div class="timeline-body">Checking now</div>
+  </article>
+
+
+
+
+  <article class="timeline-entry timeline-event">
+    <div class="timeline-entry-head">
+      <div class="narrative"><strong class="timeline-actor">Admin</strong> <span class="timeline-action">put the ticket on hold: waiting for the VPN logs</span></div>
+      <div class="when"><time datetime="2026-08-06T10:30:00Z" title="10:30 · 06-08-2026">10:30 · 06-08-2026</time></div>
+    </div>
+  </article>
 
 
 
@@ -124,331 +105,145 @@
 
       </div>
     </div>
-    <div class="evidence">
-      <div class="prop-list">
-        <div class="prop-section">
-          <div class="prop-heading">Properties</div>
-          <div class="prop-row">
-            <span class="prop-label">Requester</span>
-            <span class="prop-value">Ana Torres</span>
-          </div>
-          <div class="prop-row">
-            <span class="prop-label">Category</span>
-            <span id="ticket-category-value" class="prop-value">Bugs</span>
-          </div>
-          <div class="prop-row">
-            <span class="prop-label">Priority</span>
-            <form class="prop-control" method="post" action="/tickets/1/edit"
-                  hx-post="/tickets/1/edit" hx-target="#ticket-detail" hx-swap="outerHTML">
-              <select id="ticket-priority" name="priority" class="prop-select"
-                      aria-label="Priority">
-                <option value="critical" >Critical</option><option value="high" selected>High</option><option value="medium" >Medium</option><option value="low" >Low</option>
-              </select>
-              <button class="btn small" type="submit">Apply</button>
-            </form>
+    <aside class="evidence">
+      <details class="detail-properties" id="detail-properties" open>
+        <summary class="detail-properties-summary"><span>Properties</span><svg class="detail-properties-chevron" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg></summary>
+        <div class="prop-list">
+          <div class="prop-section">
+            <div class="prop-row">
+              <span class="prop-label">Requester</span>
+              <span class="prop-value">Ana Torres</span>
+            </div>
+            <div class="prop-row">
+              <span class="prop-label">Assignee</span>
+              <form class="prop-control listbox-form" method="post" action="/tickets/1/assign" hx-post="/tickets/1/assign" hx-target="#ticket-detail" hx-swap="outerHTML">
+        <div class="listbox" data-listbox>
+          <button id="assign-user" type="button" class="listbox-button" aria-haspopup="listbox" aria-expanded="false" aria-controls="assign-user-options">
+            <span class="person-mark" aria-hidden="true">AT</span>
+            <span class="listbox-current">Ana Torres</span>
+            <svg class="listbox-chevron" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>
+          </button>
+          <div class="listbox-popover" id="assign-user-options">
+            <input type="search" class="listbox-search" placeholder="Filter assignees" aria-label="Filter assignees" autocomplete="off">
+            <div class="listbox-options" role="listbox" aria-label="Assignee">
+              <button type="submit" role="option" class="listbox-option" name="user_id" value="" aria-selected="false">
+                <span class="person-mark is-empty" aria-hidden="true">–</span>
+                <span class="listbox-option-label">Unassigned</span>
+              </button>
+              <button type="submit" role="option" class="listbox-option" name="user_id" value="1" aria-selected="true">
+                <span class="person-mark" aria-hidden="true">AT</span>
+                <span class="listbox-option-label">Ana Torres</span>
+                <svg class="listbox-check" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 12.5 4.5 4.5L19 7"/></svg>
+              </button>
+            </div>
           </div>
         </div>
-        <div class="prop-section">
-          <div class="prop-heading">Assignment</div>
+</form>
+            </div>
+            <div class="prop-row">
+              <span class="prop-label">Priority</span>
+              <form class="prop-control listbox-form" method="post" action="/tickets/1/edit" hx-post="/tickets/1/edit" hx-target="#ticket-detail" hx-swap="outerHTML">
+        <div class="listbox" data-listbox>
+          <button id="ticket-priority" type="button" class="listbox-button" aria-haspopup="listbox" aria-expanded="false" aria-controls="ticket-priority-options">
+            <span class="priority-dot high" aria-hidden="true"></span>
+            <span class="listbox-current">High</span>
+            <svg class="listbox-chevron" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>
+          </button>
+          <div class="listbox-popover" id="ticket-priority-options">
+            <div class="listbox-options" role="listbox" aria-label="Priority">
+              <button type="submit" role="option" class="listbox-option" name="priority" value="critical" aria-selected="false">
+                <span class="priority-dot critical" aria-hidden="true"></span>
+                <span class="listbox-option-label">Critical</span>
+              </button>
+              <button type="submit" role="option" class="listbox-option" name="priority" value="high" aria-selected="true">
+                <span class="priority-dot high" aria-hidden="true"></span>
+                <span class="listbox-option-label">High</span>
+                <svg class="listbox-check" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 12.5 4.5 4.5L19 7"/></svg>
+              </button>
+              <button type="submit" role="option" class="listbox-option" name="priority" value="medium" aria-selected="false">
+                <span class="priority-dot medium" aria-hidden="true"></span>
+                <span class="listbox-option-label">Medium</span>
+              </button>
+              <button type="submit" role="option" class="listbox-option" name="priority" value="low" aria-selected="false">
+                <span class="priority-dot low" aria-hidden="true"></span>
+                <span class="listbox-option-label">Low</span>
+              </button>
+            </div>
+          </div>
+        </div>
+</form>
+            </div>
+            <div class="prop-row">
+              <span class="prop-label">Category</span>
+              <span id="ticket-category-value" class="prop-value">Bugs</span>
+            </div>
+            <div class="prop-row">
+              <span class="prop-label">Desk</span>
+              <span class="prop-value prop-value-empty">—</span>
+            </div>
+          </div>
+          <div class="prop-section" data-server-now="2026-08-07T06:00:00Z">
+            <div class="prop-heading">SLA</div>
 
-          <div class="prop-row">
-            <span class="prop-label">Assignee</span>
-
-            <div class="assign-picker">
-              <input type="search" id="assign-user-filter" class="prop-filter" placeholder="Filter assignees" aria-label="Filter assignees" autocomplete="off">
-              <form class="prop-control" method="post" action="/tickets/1/assign" hx-post="/tickets/1/assign" hx-target="#ticket-detail" hx-swap="outerHTML">
-                <select id="assign-user" name="user_id" class="prop-select" aria-label="Assignee">
-                  <option value="">Unassigned</option>
-                  <option value="1" selected>Ana Torres</option>
-                </select>
-                <button class="btn small" type="submit">Apply</button>
-              </form>
+            <div class="prop-row">
+              <span class="prop-label">First response</span>
+              <span class="prop-value sla-value"><span class="sla-state"><span class="sla-dot met" aria-hidden="true"></span><span class="sla-state-word">Met</span></span> </span>
             </div>
 
-          </div>
+            <div class="prop-row">
+              <span class="prop-label">Resolve</span>
+              <span class="prop-value sla-value"><span class="sla-state"><span class="sla-dot on_track" aria-hidden="true"></span><span class="sla-state-word">On Track</span></span> <span class="chip">Paused</span></span>
+            </div>
 
+            <div class="sla-hold-status" role="status"><p class="sla-hold-since">On hold since <time datetime="2026-08-06T10:30:00Z">Aug 6, 2026</time></p><p class="sla-hold-reason">waiting for the VPN logs</p></div>
+          </div>
+          <div class="prop-section">
+            <div class="prop-heading">Details</div>
+            <div class="prop-row">
+              <span class="prop-label">Created</span>
+              <span class="prop-value"><time datetime="2026-08-06T10:00:00Z" title="10:00 · 06-08-2026">Aug 6, 2026</time></span>
+            </div>
+            <div class="prop-row">
+              <span class="prop-label">Updated</span>
+              <span class="prop-value"><time datetime="2026-08-06T10:30:00Z" title="10:30 · 06-08-2026">10:30 · 06-08-2026</time></span>
+            </div>
+            <div class="prop-row">
+              <span class="prop-label">ID</span>
+              <span class="prop-value">TKT-1</span>
+            </div>
+          </div>
         </div>
-        <div class="prop-section">
-          <div class="prop-heading">State</div>
-          <div class="prop-row">
-            <span class="prop-label">Current</span>
-            <span class="prop-value"><span class="badge in_progress">In Progress</span> <span class="chip">On hold</span></span>
-          </div>
-
-          <div class="prop-row">
-            <span class="prop-label">Move to</span>
-            <form class="prop-control transition-control" method="post" action="/tickets/1/transition"
-                  hx-post="/tickets/1/transition" hx-target="#ticket-detail" hx-swap="outerHTML">
-              <select id="ticket-state" name="to" class="prop-select"
-                      aria-label="Move to state" required>
-                <option value="" disabled selected>Select…</option>
-                <option value="resolved">Resolved</option><option value="cancelled">Cancelled</option>
-              </select>
-              <button type="submit" id="state-apply" class="btn small state-apply">Apply</button>
-              <div id="state-reason-field" class="state-reason-field">
-                <label for="state-reason">Reopen reason</label>
-                <input type="text" id="state-reason" name="reason" class="state-reason"
-                       placeholder="Required" required>
-              </div>
-            </form>
-          </div>
+      </details>
+    </aside>
+    <div class="replies">
 
 
-        </div>
-        <div class="prop-section" data-server-now="2026-08-07T06:00:00Z">
-          <div class="prop-heading">SLA</div>
+<form class="card comment-form" method="post" action="/tickets/1/comments" enctype="multipart/form-data">
+  <div class="field comment-field">
+    <textarea name="body" id="comment-body" hx-preserve="true" placeholder="Write a comment…" aria-label="Comment body"></textarea>
+  </div>
+  <input type="hidden" name="visibility" value="public">
+  <div class="comment-tools">
+    <label class="comment-dropzone" for="comment-attachments">
+      <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 11.5 12.5 19a5 5 0 0 1-7-7l7.5-7.5a3.5 3.5 0 0 1 5 5L10.5 17a2 2 0 0 1-3-3l7-7"/></svg>
+      <span>Attachments</span>
+      <span class="comment-dropzone-files" data-dropzone-files></span>
+      <input type="file" id="comment-attachments" name="attachments" multiple accept=".png,.jpg,.jpeg,.gif,.webp,.pdf,.docx,.xlsx,.pptx,.txt,.csv,.log,.zip">
+    </label>
+    <div class="checkbox-field comment-internal">
+      <label for="comment-internal"><input id="comment-internal" type="checkbox" name="internal" value="1" hx-preserve="true"> Internal note</label>
+    </div>
+    <button class="btn primary comment-submit" type="submit">Reply</button>
+  </div>
+  <p class="help comment-attachment-hint">Up to 5 files, 10 MB each</p>
+</form>
 
-          <div class="prop-row">
-            <span class="prop-label">First response</span>
-            <span class="prop-value sla-value"><span class="sla-state"><span class="sla-dot met" aria-hidden="true"></span><span class="sla-state-word">Met</span></span> </span>
-          </div>
-
-          <div class="prop-row">
-            <span class="prop-label">Resolve</span>
-            <span class="prop-value sla-value"><span class="sla-state"><span class="sla-dot on_track" aria-hidden="true"></span><span class="sla-state-word">On Track</span></span> <span class="chip">Paused</span></span>
-          </div>
-
-          <div class="sla-hold-status" role="status"><p class="sla-hold-since">On hold since <time datetime="2026-08-06T10:30:00Z">Aug 6, 2026</time></p><p class="sla-hold-reason">waiting for the VPN logs</p><form class="hold-resume" method="post" action="/tickets/1/resume" hx-post="/tickets/1/resume" hx-target="#ticket-detail" hx-swap="outerHTML"><button class="btn small" type="submit">Resume</button></form></div>
-        </div>
-      </div>
     </div>
   </div>
+
   <dialog id="ticket-title-dialog" aria-labelledby="ticket-title-dialog-title" aria-describedby="ticket-title-dialog-copy">
     <h2 id="ticket-title-dialog-title">Save the title first?</h2>
     <p id="ticket-title-dialog-copy">The ticket title has unsaved changes.</p>
     <div><button type="button" class="btn" data-title-discard>Discard and continue</button><button type="button" class="btn" data-title-save-continue>Save and continue</button></div>
   </dialog>
 </div>
-<script>
-
-
-
-
-
-
-function syncReopenReason(select) {
-  const field = document.getElementById('state-reason-field');
-  const reason = document.getElementById('state-reason');
-  if (!field || !reason) return;
-  const opt = select && select.options[select.selectedIndex];
-  const needs = opt && opt.hasAttribute('data-needs-reason');
-  field.classList.toggle('visible', !!needs);
-  reason.required = !!needs;
-  if (needs) {
-    reason.focus();
-  }
-}
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-function initHoldDialog() {
-  const dialog = document.getElementById('ticket-hold-dialog');
-  const opener = document.querySelector('#ticket-detail [data-hold-open]');
-  if (!dialog || !opener) return;
-  const reason = dialog.querySelector('#hold-reason');
-  const show = () => {
-    if (dialog.showModal) dialog.showModal();
-    else dialog.setAttribute('open', '');
-    if (reason) reason.focus();
-  };
-  opener.addEventListener('click', show);
-  const form = dialog.querySelector('form');
-  const detail = document.getElementById('ticket-detail');
-  if (form && detail) {
-    detail.addEventListener('htmx:beforeSwap', (event) => {
-      const config = event.detail.requestConfig;
-      if (!config || config.elt !== form) return;
-      const status = event.detail.xhr ? event.detail.xhr.status : 0;
-      if (status === 422 || status === 409) {
-        event.detail.shouldSwap = true;
-        event.detail.isError = false;
-      }
-    });
-  }
-  const cancel = dialog.querySelector('[data-hold-cancel]');
-  if (cancel) {
-    cancel.addEventListener('click', () => {
-      if (dialog.open) dialog.close();
-      else dialog.removeAttribute('open');
-      opener.focus();
-    });
-  }
-  if (dialog.hasAttribute('data-open-on-load')) show();
-}
-function initTitleEditor() {
-  const input = document.getElementById('ticket-title');
-  const titleForm = input ? input.form : null;
-  const detail = document.getElementById('ticket-detail');
-  const dialog = document.getElementById('ticket-title-dialog');
-  if (!input || !titleForm || !detail || !dialog) return;
-  const saveButton = titleForm.querySelector('.title-save');
-  const discardButton = dialog.querySelector('[data-title-discard]');
-  const saveContinueButton = dialog.querySelector('[data-title-save-continue]');
-  const initial = input.value;
-  let pendingForm = null;
-  let pendingSelectId = null;
-  let returnFocus = null;
-  const dirty = () => input.value !== initial;
-  const syncSave = () => {
-    if (saveButton) saveButton.hidden = !dirty();
-  };
-  const showDialog = () => {
-    const active = document.activeElement;
-    returnFocus = active && detail.contains(active) && active !== detail ? active : input;
-    if (dialog.showModal) dialog.showModal();
-    else dialog.setAttribute('open', '');
-    if (discardButton) discardButton.focus();
-  };
-  const closeDialog = (restoreFocus) => {
-    if (dialog.open) dialog.close();
-    else dialog.removeAttribute('open');
-    const target = returnFocus;
-    returnFocus = null;
-    if (restoreFocus && target && target.isConnected) target.focus();
-  };
-  input.addEventListener('input', syncSave);
-  syncSave();
-  detail.addEventListener(
-    'click',
-    (event) => {
-      const target = event.target;
-      if (!dirty() || !(target instanceof Element) || target.closest('.title-edit')) return;
-      const button = target.closest('button[type=submit]');
-      const owner = button ? button.form : null;
-      const field = owner ? owner.querySelector('#ticket-priority, #assign-user, #ticket-state') : null;
-      if (!owner || !field) return;
-      event.preventDefault();
-      event.stopImmediatePropagation();
-      pendingForm = owner;
-      pendingSelectId = field.id;
-      showDialog();
-    },
-    true,
-  );
-  dialog.addEventListener('cancel', () => {
-    pendingForm = null;
-    pendingSelectId = null;
-    closeDialog(true);
-  });
-  if (discardButton) {
-    discardButton.addEventListener('click', () => {
-      input.value = initial;
-      syncSave();
-      const form = pendingForm;
-      pendingForm = null;
-      pendingSelectId = null;
-      closeDialog(false);
-      if (form) form.requestSubmit();
-    });
-  }
-  if (saveContinueButton) {
-    saveContinueButton.addEventListener('click', () => {
-      const form = pendingForm;
-      const selectId = pendingSelectId;
-      pendingForm = null;
-      pendingSelectId = null;
-
-
-
-
-
-
-      if (!titleForm.checkValidity()) {
-        closeDialog(false);
-        input.focus();
-        titleForm.reportValidity();
-        return;
-      }
-      const entries = [];
-      if (form) {
-        for (const control of form.elements) {
-          if (control.name) entries.push([control.name, control.value]);
-        }
-      }
-      closeDialog(false);
-      if (!selectId) return;
-      const submitPending = (event) => {
-        titleForm.removeEventListener('htmx:afterRequest', submitPending);
-        if (!event.detail || event.detail.successful !== true) return;
-        const select = document.getElementById(selectId);
-        const pending = select ? select.form : null;
-        if (!pending) return;
-        for (const [name, value] of entries) {
-          const control = pending.elements.namedItem(name);
-          if (control && 'value' in control) control.value = value;
-        }
-        if (window.htmx && typeof window.htmx.process === 'function') {
-          window.htmx.process(pending);
-        }
-        pending.requestSubmit();
-      };
-      titleForm.addEventListener('htmx:afterRequest', submitPending);
-      titleForm.requestSubmit();
-    });
-  }
-}
-
-
-
-
-
-
-(function () {
-  const select = document.getElementById('ticket-state');
-  if (select) {
-
-
-
-    select.addEventListener('change', () => syncReopenReason(select));
-    syncReopenReason(select);
-  }
-  initTitleEditor();
-  initHoldDialog();
-})();
-</script>
-<script>
-
-
-
-
-
-
-
-
-
-
-(function () {
-  const filter = document.getElementById('assign-user-filter');
-  const assignee = document.getElementById('assign-user');
-  if (!filter || !assignee) return;
-  const options = Array.from(assignee.options);
-  filter.addEventListener('input', () => {
-    const query = filter.value.trim().toLowerCase();
-    const kept = query
-      ? options.filter(
-          (option) =>
-            option.value === assignee.value || option.text.toLowerCase().includes(query),
-        )
-      : options;
-    assignee.replaceChildren(...kept);
-  });
-})();
-</script>

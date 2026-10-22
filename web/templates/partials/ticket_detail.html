@@ -8,28 +8,42 @@
       <p class="hold-banner-reason">{{.View.Ticket.OnHoldReason}}</p>
     </div>
   </div>
-{{end}}  <div class="command-header">
+{{end}}  <div class="command-header detail-header">
     <div class="detail-head">
       <div class="meta-row">
         <a href="{{.QueueHref}}">{{if .RequesterView}}{{t "tickets.detail.back_requester"}}{{else}}{{t "tickets.detail.back_queue"}}{{end}}</a>
         <span class="num">{{ticketNumber .View.Ticket.Number}}</span>
       </div>
+      <div class="detail-title">
 {{if and .CanEdit (not .Closed)}}
-      <h1 class="command-title"><span class="visually-hidden">{{.View.Ticket.Title}}</span></h1>
-      <form class="title-inline title-edit" method="post" action="/tickets/{{.View.Ticket.ID}}/edit"
-            hx-post="/tickets/{{.View.Ticket.ID}}/edit" hx-target="#ticket-detail" hx-swap="outerHTML">
-        <input type="text" id="ticket-title" name="title" value="{{.Values.Title}}" required
-               title="{{.Values.Title}}" aria-label="{{t "tickets.detail.title_label"}}" class="title-input">
-        <button class="btn small title-save" type="submit" hidden>{{t "common.save"}}</button>
-      </form>
+        <h1 class="command-title"><span class="visually-hidden">{{.View.Ticket.Title}}</span></h1>
+        <form class="title-inline title-edit" method="post" action="/tickets/{{.View.Ticket.ID}}/edit"
+              hx-post="/tickets/{{.View.Ticket.ID}}/edit" hx-target="#ticket-detail" hx-swap="outerHTML">
+          <input type="text" id="ticket-title" name="title" value="{{.Values.Title}}" required
+                 title="{{.Values.Title}}" aria-label="{{t "tickets.detail.title_label"}}" class="title-input">
+          <button class="btn small title-save" type="submit" hidden>{{t "common.save"}}</button>
+        </form>
 {{else}}
-      <h1 class="command-title">{{.View.Ticket.Title}}</h1>
+        <h1 class="command-title">{{.View.Ticket.Title}}</h1>
 {{end}}
-      <div class="meta-row ticket-metadata">
-        <span>{{t "tickets.detail.created"}} {{template "timestamp" .View.Ticket.CreatedAt}}</span>
-        <span>{{t "tickets.detail.updated"}} {{template "timestamp" .View.Ticket.UpdatedAt}}</span>
+        <span class="detail-state">{{template "state_badge" (audienceStateBadge .View.Ticket.State .RequesterView)}}{{if .View.Ticket.OnHoldSince}} {{template "hold_chip" .}}{{end}}</span>
       </div>
+      <p class="detail-meta">{{t "tickets.detail.opened_by"}} <span class="detail-meta-requester">{{.View.Ticket.RequesterName}}</span> · <time datetime="{{formatDatetime .View.Ticket.CreatedAt}}" title="{{formatTime .View.Ticket.CreatedAt}}">{{relativeTime .View.Ticket.CreatedAt .Now}}</time> · <span class="detail-meta-category">{{.View.Category.Name}}</span></p>
     </div>
+    <div class="command-actions detail-actions">
+{{if and .Next .CanTransition}}{{range .Next}}{{if .NeedsReason}}      <button class="btn {{.Weight}}" type="button" data-transition-open="{{.To}}" aria-haspopup="dialog" aria-controls="ticket-transition-dialog">{{t .LabelKey}}</button>
+{{else}}      <form class="detail-action" method="post" action="/tickets/{{$.View.Ticket.ID}}/transition" hx-post="/tickets/{{$.View.Ticket.ID}}/transition" hx-target="#ticket-detail" hx-swap="outerHTML"><input type="hidden" name="to" value="{{.To}}"><button class="btn {{.Weight}}" type="submit">{{t .LabelKey}}</button></form>
+{{end}}{{end}}{{end}}
+{{if .Claim.CanAct}}      <form class="detail-action" method="post" action="/tickets/{{.View.Ticket.ID}}/workflow/steps/{{.Claim.Position}}/complete" hx-post="/tickets/{{.View.Ticket.ID}}/workflow/steps/{{.Claim.Position}}/complete" hx-target="#ticket-detail" hx-swap="outerHTML"><button class="btn" type="submit">{{t "tickets.detail.assign_to_me"}}</button></form>
+{{else if .CanAssignToMe}}      <form class="detail-action" method="post" action="/tickets/{{.View.Ticket.ID}}/assign" hx-post="/tickets/{{.View.Ticket.ID}}/assign" hx-target="#ticket-detail" hx-swap="outerHTML"><input type="hidden" name="user_id" value="{{.CurrentUser.ID}}"><button class="btn" type="submit">{{t "tickets.detail.assign_to_me"}}</button></form>
+{{end}}{{if .CanEdit}}      <details class="detail-overflow" id="ticket-actions-overflow">
+        <summary class="btn detail-overflow-button" aria-haspopup="menu" aria-label="{{t "tickets.detail.more_actions"}}">•••</summary>
+        <div class="detail-overflow-menu" role="menu">
+{{if .View.Ticket.OnHoldSince}}          <form class="hold-resume" method="post" action="/tickets/{{.View.Ticket.ID}}/resume" hx-post="/tickets/{{.View.Ticket.ID}}/resume" hx-target="#ticket-detail" hx-swap="outerHTML"><button class="btn" role="menuitem" type="submit">{{t "tickets.hold.resume"}}</button></form>
+{{else}}          <button class="btn" type="button" role="menuitem" data-hold-open aria-haspopup="dialog" aria-controls="ticket-hold-dialog">{{t "tickets.hold.title"}}</button>
+{{end}}        </div>
+      </details>
+{{end}}    </div>
   </div>
   <div class="cards">
     <div class="conversation">
@@ -37,7 +51,78 @@
         <h2>{{t "tickets.detail.description"}}</h2>
         {{if .View.Ticket.Description}}<p class="ticket-description">{{.View.Ticket.Description}}</p>{{else}}<p class="empty">{{t "tickets.detail.no_description"}}</p>{{end}}
 {{if .Attachments}}        <ul class="attachments" aria-label="{{t "tickets.detail.attachments"}}">{{range .Attachments}}<li><a class="attachment-name" href="/attachments/{{.ID}}">{{.FileName}}</a> <span class="attachment-size">{{fileSize .Size}}</span></li>{{end}}</ul>
+{{end}}      </div>
+      <div class="card detail-activity">
+        <h2>{{t "tickets.detail.timeline"}}</h2>
+{{template "timeline_with_pending" .}}
+      </div>
+    </div>
+    <aside class="evidence">
+      <details class="detail-properties" id="detail-properties" open>
+        <summary class="detail-properties-summary"><span>{{t "tickets.detail.properties"}}</span><svg class="detail-properties-chevron" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg></summary>
+        <div class="prop-list">
+          <div class="prop-section">
+            <div class="prop-row">
+              <span class="prop-label">{{t "tickets.detail.requester"}}</span>
+              <span class="prop-value">{{.View.Ticket.RequesterName}}</span>
+            </div>
+            <div class="prop-row">
+              <span class="prop-label">{{t "tickets.detail.assignee"}}</span>
+{{if and .CanAssign (not .Claim.Active)}}              <form class="prop-control listbox-form" method="post" action="/tickets/{{.View.Ticket.ID}}/assign" hx-post="/tickets/{{.View.Ticket.ID}}/assign" hx-target="#ticket-detail" hx-swap="outerHTML">{{template "listbox" (assigneePicker .Values.UserID .Options.AssignableUsers)}}</form>
+{{else}}              <span id="assign-user-value" class="prop-value">{{if .View.AssignedUser}}{{.View.AssignedUser.Name}}{{else}}{{t "tickets.detail.unassigned"}}{{end}}</span>
+{{end}}            </div>
+            <div class="prop-row">
+              <span class="prop-label">{{t "tickets.detail.priority"}}</span>
+{{if .CanEdit}}              <form class="prop-control listbox-form" method="post" action="/tickets/{{.View.Ticket.ID}}/edit" hx-post="/tickets/{{.View.Ticket.ID}}/edit" hx-target="#ticket-detail" hx-swap="outerHTML">{{template "listbox" (priorityPicker .Values.Priority)}}</form>
+{{else}}              <span id="ticket-priority-value" class="prop-value">{{priorityLabel .View.Ticket.Priority}}</span>
+{{end}}            </div>
+            <div class="prop-row">
+              <span class="prop-label">{{t "tickets.detail.category"}}</span>
+              <span id="ticket-category-value" class="prop-value">{{.View.Category.Name}}</span>
+            </div>
+            <div class="prop-row">
+              <span class="prop-label">{{t "tickets.detail.desk"}}</span>
+{{if .Claim.Active}}              <span class="prop-value">{{.Claim.DeskName}}</span>
+{{else}}              <span class="prop-value prop-value-empty">—</span>
+{{end}}            </div>
+          </div>
+{{if .SLA}}{{/* Staff-only SLA panel: the if/end hug their content so a nil .SLA leaves the requester golden byte-identical. */}}          <div class="prop-section" data-server-now="{{formatDatetime .SLA.ProjectedAt}}">
+            <div class="prop-heading">{{t "tickets.detail.sla"}}</div>
+{{range .SLA.Milestones}}
+            <div class="prop-row">
+              <span class="prop-label">{{.Label}}</span>
+              <span class="prop-value sla-value">{{template "sla_state_dot" .State}}{{if .Paused}}<span class="chip">{{t "label.sla.paused"}}</span>{{else if .Countdown}}<time datetime="{{formatDatetime .DueAt}}" data-sla-countdown><span class="sla-countdown-ticker" aria-hidden="true">{{.Remaining}}</span><span class="sla-countdown-coarse visually-hidden">{{formatTime .DueAt}}</span></time>{{end}}</span>
+            </div>
+{{end}}
+{{if .View.Ticket.OnHoldSince}}            {{template "hold_sla_block" .}}
 {{end}}          </div>
+{{else if and (not .RequesterView) .View.Ticket.OnHoldSince}}{{/* No frozen SLA but on hold: the section still carries the notice, which is the requester-facing half (issue #352). */}}          <div class="prop-section">
+            <div class="prop-heading">{{t "tickets.detail.sla"}}</div>
+            {{template "hold_sla_block" .}}
+          </div>
+{{end}}          <div class="prop-section">
+            <div class="prop-heading">{{t "tickets.detail.details"}}</div>
+            <div class="prop-row">
+              <span class="prop-label">{{t "tickets.detail.created"}}</span>
+              <span class="prop-value"><time datetime="{{formatDatetime .View.Ticket.CreatedAt}}" title="{{formatTime .View.Ticket.CreatedAt}}">{{formatMonthDayYear .View.Ticket.CreatedAt}}</time></span>
+            </div>
+            <div class="prop-row">
+              <span class="prop-label">{{t "tickets.detail.updated"}}</span>
+              <span class="prop-value"><time datetime="{{formatDatetime .View.Ticket.UpdatedAt}}" title="{{formatTime .View.Ticket.UpdatedAt}}">{{relativeTime .View.Ticket.UpdatedAt .Now}}</time></span>
+            </div>
+            <div class="prop-row">
+              <span class="prop-label">{{t "tickets.detail.id"}}</span>
+              <span class="prop-value">{{ticketNumber .View.Ticket.Number}}</span>
+            </div>
+{{if or .View.Ticket.ResolvedAt .View.Ticket.ClosedAt}}            <dl class="lifecycle-meta">
+{{with .View.Ticket.ResolvedAt}}              <dt>{{t "tickets.detail.resolved_at"}}</dt><dd>{{template "timestamp" .}}</dd>
+{{end}}{{with .View.Ticket.ClosedAt}}              <dt>{{t "tickets.detail.closed_at"}}</dt><dd>{{template "timestamp" .}}</dd>
+{{end}}            </dl>
+{{end}}          </div>
+        </div>
+      </details>
+    </aside>
+    <div class="replies">
 {{if .CanConfirm}}
 	<section class="card resolution-confirmation" aria-labelledby="resolution-confirmation-title">
 		<p class="resolution-eyebrow">{{t "tickets.detail.resolution.eyebrow"}}</p>
@@ -51,110 +136,6 @@
 	</section>
 {{end}}
 {{if .CanComment}}{{template "comment_form" .}}{{end}}
-          <div class="card">
-        <h2>{{t "tickets.detail.timeline"}}</h2>
-{{template "timeline_with_pending" .}}
-      </div>
-    </div>
-    <div class="evidence">
-      <div class="prop-list">
-        <div class="prop-section">
-          <div class="prop-heading">{{t "tickets.detail.properties"}}</div>
-          <div class="prop-row">
-            <span class="prop-label">{{t "tickets.detail.requester"}}</span>
-            <span class="prop-value">{{.View.Ticket.RequesterName}}</span>
-          </div>
-          <div class="prop-row">
-            <span class="prop-label">{{t "tickets.detail.category"}}</span>
-            <span id="ticket-category-value" class="prop-value">{{.View.Category.Name}}</span>
-          </div>
-          {{if not .Closed}}<div class="prop-row">
-            <span class="prop-label">{{t "tickets.detail.priority"}}</span>
-{{if .CanEdit}}            <form class="prop-control" method="post" action="/tickets/{{.View.Ticket.ID}}/edit"
-                  hx-post="/tickets/{{.View.Ticket.ID}}/edit" hx-target="#ticket-detail" hx-swap="outerHTML">
-              <select id="ticket-priority" name="priority" class="prop-select"
-                      aria-label="{{t "tickets.detail.priority"}}">
-                {{range .Options.Priorities}}<option value="{{.}}" {{if eq . $.Values.Priority}}selected{{end}}>{{priorityLabel .}}</option>{{end}}
-              </select>
-              <button class="btn small" type="submit">{{t "common.apply"}}</button>
-            </form>
-{{else}}            <span id="ticket-priority-value" class="prop-value">{{priorityLabel .View.Ticket.Priority}}</span>
-{{end}}          </div>{{end}}
-        </div>
-        <div class="prop-section">
-          <div class="prop-heading">{{t "tickets.detail.assignment"}}</div>
-{{if .Claim.Active}}
-          <div class="prop-row"><span class="prop-label">{{t "tickets.detail.desk"}}</span><span class="prop-value">{{.Claim.DeskName}}</span></div>
-          <div class="prop-row"><span class="prop-label">{{t "tickets.detail.assignee"}}</span><span id="assign-user-value" class="prop-value">{{if .View.AssignedUser}}{{.View.AssignedUser.Name}}{{else}}{{t "tickets.detail.unassigned"}}{{end}}</span></div>
-          {{if .Claim.CanAct}}<form class="claim-control" method="post" action="/tickets/{{.View.Ticket.ID}}/workflow/steps/{{.Claim.Position}}/complete" hx-post="/tickets/{{.View.Ticket.ID}}/workflow/steps/{{.Claim.Position}}/complete" hx-target="#ticket-detail" hx-swap="outerHTML"><button class="btn primary" type="submit">{{t "tickets.detail.assign_to_me"}}</button></form>{{end}}
-          {{else}}
-          <div class="prop-row">
-            <span class="prop-label">{{t "tickets.detail.assignee"}}</span>
-{{if .CanAssign}}
-            <div class="assign-picker">
-              <input type="search" id="assign-user-filter" class="prop-filter" placeholder="{{t "tickets.detail.filter_assignees"}}" aria-label="{{t "tickets.detail.filter_assignees"}}" autocomplete="off">
-              <form class="prop-control" method="post" action="/tickets/{{.View.Ticket.ID}}/assign" hx-post="/tickets/{{.View.Ticket.ID}}/assign" hx-target="#ticket-detail" hx-swap="outerHTML">
-                <select id="assign-user" name="user_id" class="prop-select" aria-label="{{t "tickets.detail.assignee"}}">
-                  <option value="">{{t "tickets.detail.unassigned"}}</option>
-                  {{range .Options.AssignableUsers}}<option value="{{.ID}}" {{if eq (.ID | printf "%d") $.Values.UserID}}selected{{end}}>{{.Name}}{{if not .Active}} {{t "tickets.detail.inactive"}}{{end}}</option>{{end}}
-                </select>
-                <button class="btn small" type="submit">{{t "common.apply"}}</button>
-              </form>
-            </div>
-{{else}}
-            <span id="assign-user-value" class="prop-value">{{if .View.AssignedUser}}{{.View.AssignedUser.Name}}{{else}}{{t "tickets.detail.unassigned"}}{{end}}</span>{{end}}
-          </div>
-{{end}}
-        </div>
-        <div class="prop-section">
-          <div class="prop-heading">{{t "tickets.detail.state"}}</div>
-          <div class="prop-row">
-            <span class="prop-label">{{t "tickets.detail.current"}}</span>
-            <span class="prop-value">{{template "state_badge" (audienceStateBadge .View.Ticket.State .RequesterView)}}{{if .View.Ticket.OnHoldSince}} {{template "hold_chip" .}}{{end}}</span>
-          </div>
-{{if and .Next .CanTransition}}
-          <div class="prop-row">
-            <span class="prop-label">{{t "tickets.detail.move_to"}}</span>
-            <form class="prop-control transition-control" method="post" action="/tickets/{{.View.Ticket.ID}}/transition"
-                  hx-post="/tickets/{{.View.Ticket.ID}}/transition" hx-target="#ticket-detail" hx-swap="outerHTML">
-              <select id="ticket-state" name="to" class="prop-select"
-                      aria-label="{{t "tickets.detail.move_to_state"}}" required>
-                <option value="" disabled selected>{{t "tickets.detail.select_placeholder"}}</option>
-                {{range .Next}}<option value="{{.To}}"{{if eq (printf "%s" .To) $.SelectedTo}} selected{{end}}{{if .NeedsReason}} data-needs-reason{{end}}>{{stateLabel .To}}{{if .NeedsReason}} {{t "tickets.detail.reason_required"}}{{end}}</option>{{end}}
-              </select>
-              <button type="submit" id="state-apply" class="btn small state-apply">{{t "common.apply"}}</button>
-              <div id="state-reason-field" class="state-reason-field">
-                <label for="state-reason">{{t "tickets.detail.reopen_reason"}}</label>
-                <input type="text" id="state-reason" name="reason" class="state-reason"
-                       placeholder="{{t "tickets.detail.required"}}" required>
-              </div>
-            </form>
-          </div>
-{{end}}
-{{if or .View.Ticket.ResolvedAt .View.Ticket.ClosedAt}}
-          <dl class="lifecycle-meta">
-{{with .View.Ticket.ResolvedAt}}            <dt>{{t "tickets.detail.resolved_at"}}</dt><dd>{{template "timestamp" .}}</dd>
-{{end}}
-{{with .View.Ticket.ClosedAt}}            <dt>{{t "tickets.detail.closed_at"}}</dt><dd>{{template "timestamp" .}}</dd>
-{{end}}
-          </dl>
-{{end}}
-        </div>
-{{if .SLA}}{{/* Staff-only SLA panel: the if/end hug their content so a nil .SLA leaves the requester golden byte-identical. */}}        <div class="prop-section" data-server-now="{{formatDatetime .SLA.ProjectedAt}}">
-          <div class="prop-heading">{{t "tickets.detail.sla"}}</div>
-{{range .SLA.Milestones}}
-          <div class="prop-row">
-            <span class="prop-label">{{.Label}}</span>
-            <span class="prop-value sla-value">{{template "sla_state_dot" .State}}{{if .Paused}}<span class="chip">{{t "label.sla.paused"}}</span>{{else if .Countdown}}<time datetime="{{formatDatetime .DueAt}}" data-sla-countdown><span class="sla-countdown-ticker" aria-hidden="true">{{.Remaining}}</span><span class="sla-countdown-coarse visually-hidden">{{formatTime .DueAt}}</span></time>{{end}}</span>
-          </div>
-{{end}}
-{{if or .View.Ticket.OnHoldSince .CanEdit}}          {{template "hold_sla_block" .}}
-{{end}}        </div>
-{{else if and (not .RequesterView) (or .View.Ticket.OnHoldSince .CanEdit)}}{{/* No frozen SLA: the section still carries the hold, which is the requester-facing half (issue #352). */}}        <div class="prop-section">
-          <div class="prop-heading">{{t "tickets.detail.sla"}}</div>
-          {{template "hold_sla_block" .}}
-        </div>
-{{end}}      </div>
     </div>
   </div>
 {{if and .CanEdit (not .View.Ticket.OnHoldSince)}}  <dialog id="ticket-hold-dialog" aria-labelledby="ticket-hold-dialog-title" aria-describedby="ticket-hold-dialog-copy"{{if .HoldFailed}} data-open-on-load{{end}}>
@@ -168,243 +149,21 @@
       <div><button type="button" class="btn" data-hold-cancel>{{t "common.cancel"}}</button><button class="btn primary" type="submit">{{t "tickets.hold.submit"}}</button></div>
     </form>
   </dialog>
-{{end}}  <dialog id="ticket-title-dialog" aria-labelledby="ticket-title-dialog-title" aria-describedby="ticket-title-dialog-copy">
+{{end}}{{if and .Next .CanTransition}}{{range .Next}}{{if .NeedsReason}}  <dialog id="ticket-transition-dialog" aria-labelledby="ticket-transition-dialog-title"{{if $.SelectedTo}} data-open-on-load{{end}}>
+    <h2 id="ticket-transition-dialog-title">{{t "tickets.detail.reopen_reason"}}</h2>
+    <form method="post" action="/tickets/{{$.View.Ticket.ID}}/transition" hx-post="/tickets/{{$.View.Ticket.ID}}/transition" hx-target="#ticket-detail" hx-swap="outerHTML">
+      <input type="hidden" name="to" value="{{.To}}">
+      <label class="hold-dialog-field" for="state-reason"><span class="visually-hidden">{{t "tickets.detail.reopen_reason"}}</span>
+        <textarea id="state-reason" name="reason" rows="3" required placeholder="{{t "tickets.detail.reopen_reason"}}"></textarea>
+      </label>
+      <div><button type="button" class="btn" data-transition-cancel>{{t "common.cancel"}}</button><button class="btn primary" type="submit">{{t .LabelKey}}</button></div>
+    </form>
+  </dialog>
+{{end}}{{end}}{{end}}
+  <dialog id="ticket-title-dialog" aria-labelledby="ticket-title-dialog-title" aria-describedby="ticket-title-dialog-copy">
     <h2 id="ticket-title-dialog-title">{{t "tickets.detail.title_dialog.title"}}</h2>
     <p id="ticket-title-dialog-copy">{{t "tickets.detail.title_dialog.body"}}</p>
     <div><button type="button" class="btn" data-title-discard>{{t "common.discard_continue"}}</button><button type="button" class="btn" data-title-save-continue>{{t "common.save_continue"}}</button></div>
   </dialog>
 </div>
-<script>
-// syncReopenReason reveals the reopen-reason group (label + required input)
-// only for transitions that demand a reason (reopen, data-needs-reason).
-// A display:none control is barred from constraint validation, so the input
-// can stay `required` at all times: hidden it never blocks a non-reopen
-// transition; visible it enforces a reason client-side. The Apply button is
-// the form's explicit submit, so a selection alone never mutates the ticket.
-function syncReopenReason(select) {
-  const field = document.getElementById('state-reason-field');
-  const reason = document.getElementById('state-reason');
-  if (!field || !reason) return;
-  const opt = select && select.options[select.selectedIndex];
-  const needs = opt && opt.hasAttribute('data-needs-reason');
-  field.classList.toggle('visible', !!needs);
-  reason.required = !!needs;
-  if (needs) {
-    reason.focus();
-  }
-}
-// initTitleEditor guards the inline title against a sibling Apply: any Apply
-// swaps the whole #ticket-detail fragment, so a half-typed title would be
-// silently destroyed. While the title is dirty, a click on one of the three
-// Apply buttons is intercepted and the user chooses whether to save or
-// discard it first. "Save and continue" is two explicit requests on two
-// explicit endpoints: the title form posts only its own field, and only once
-// that save succeeds does the remembered sibling row post its own field on
-// its own endpoint. The title form never carries a sibling field. The sibling
-// submit is issued from htmx:afterRequest on the title form, re-resolves the
-// row from the swapped fragment, and runs htmx.process first so the fresh
-// form's submit goes through htmx rather than a native navigation.
-// initHoldDialog opens the hold dialog from the SLA section's button (issue
-// #352): the reason form lives in a dialog instead of a permanent card, so it
-// costs no room until an agent needs it. Cancel and Escape close it without a
-// request; a full-page re-render that carries the typed reason (a refused
-// submission) reopens it so the agent sees what they wrote. A refused hold
-// (422 validation, 409 lost race) answers the re-rendered detail; htmx does not
-// swap error responses by default, so the detail admits them for this form's
-// requests only (htmx fires beforeSwap on the swap target, and this is never a
-// document-level listener), and the swapped detail reopens the dialog with the
-// error and the typed reason.
-function initHoldDialog() {
-  const dialog = document.getElementById('ticket-hold-dialog');
-  const opener = document.querySelector('#ticket-detail [data-hold-open]');
-  if (!dialog || !opener) return;
-  const reason = dialog.querySelector('#hold-reason');
-  const show = () => {
-    if (dialog.showModal) dialog.showModal();
-    else dialog.setAttribute('open', '');
-    if (reason) reason.focus();
-  };
-  opener.addEventListener('click', show);
-  const form = dialog.querySelector('form');
-  const detail = document.getElementById('ticket-detail');
-  if (form && detail) {
-    detail.addEventListener('htmx:beforeSwap', (event) => {
-      const config = event.detail.requestConfig;
-      if (!config || config.elt !== form) return;
-      const status = event.detail.xhr ? event.detail.xhr.status : 0;
-      if (status === 422 || status === 409) {
-        event.detail.shouldSwap = true;
-        event.detail.isError = false;
-      }
-    });
-  }
-  const cancel = dialog.querySelector('[data-hold-cancel]');
-  if (cancel) {
-    cancel.addEventListener('click', () => {
-      if (dialog.open) dialog.close();
-      else dialog.removeAttribute('open');
-      opener.focus();
-    });
-  }
-  if (dialog.hasAttribute('data-open-on-load')) show();
-}
-function initTitleEditor() {
-  const input = document.getElementById('ticket-title');
-  const titleForm = input ? input.form : null;
-  const detail = document.getElementById('ticket-detail');
-  const dialog = document.getElementById('ticket-title-dialog');
-  if (!input || !titleForm || !detail || !dialog) return;
-  const saveButton = titleForm.querySelector('.title-save');
-  const discardButton = dialog.querySelector('[data-title-discard]');
-  const saveContinueButton = dialog.querySelector('[data-title-save-continue]');
-  const initial = input.value;
-  let pendingForm = null;
-  let pendingSelectId = null;
-  let returnFocus = null;
-  const dirty = () => input.value !== initial;
-  const syncSave = () => {
-    if (saveButton) saveButton.hidden = !dirty();
-  };
-  const showDialog = () => {
-    const active = document.activeElement;
-    returnFocus = active && detail.contains(active) && active !== detail ? active : input;
-    if (dialog.showModal) dialog.showModal();
-    else dialog.setAttribute('open', '');
-    if (discardButton) discardButton.focus();
-  };
-  const closeDialog = (restoreFocus) => {
-    if (dialog.open) dialog.close();
-    else dialog.removeAttribute('open');
-    const target = returnFocus;
-    returnFocus = null;
-    if (restoreFocus && target && target.isConnected) target.focus();
-  };
-  input.addEventListener('input', syncSave);
-  syncSave();
-  detail.addEventListener(
-    'click',
-    (event) => {
-      const target = event.target;
-      if (!dirty() || !(target instanceof Element) || target.closest('.title-edit')) return;
-      const button = target.closest('button[type=submit]');
-      const owner = button ? button.form : null;
-      const field = owner ? owner.querySelector('#ticket-priority, #assign-user, #ticket-state') : null;
-      if (!owner || !field) return;
-      event.preventDefault();
-      event.stopImmediatePropagation();
-      pendingForm = owner;
-      pendingSelectId = field.id;
-      showDialog();
-    },
-    true,
-  );
-  dialog.addEventListener('cancel', () => {
-    pendingForm = null;
-    pendingSelectId = null;
-    closeDialog(true);
-  });
-  if (discardButton) {
-    discardButton.addEventListener('click', () => {
-      input.value = initial;
-      syncSave();
-      const form = pendingForm;
-      pendingForm = null;
-      pendingSelectId = null;
-      closeDialog(false);
-      if (form) form.requestSubmit();
-    });
-  }
-  if (saveContinueButton) {
-    saveContinueButton.addEventListener('click', () => {
-      const form = pendingForm;
-      const selectId = pendingSelectId;
-      pendingForm = null;
-      pendingSelectId = null;
-// Validate BEFORE arming the replay listener and submitting. requestSubmit()
-// runs constraint validation, so an invalid title (e.g. cleared while dirty)
-// would block the submit, no request would be issued, htmx:afterRequest would
-// never fire, and the one-shot listener would stay armed to replay the pending
-// form on a LATER successful title save. Close the dialog back to the title
-// input and surface the invalid state instead, so the operator decides again.
-      if (!titleForm.checkValidity()) {
-        closeDialog(false);
-        input.focus();
-        titleForm.reportValidity();
-        return;
-      }
-      const entries = [];
-      if (form) {
-        for (const control of form.elements) {
-          if (control.name) entries.push([control.name, control.value]);
-        }
-      }
-      closeDialog(false);
-      if (!selectId) return;
-      const submitPending = (event) => {
-        titleForm.removeEventListener('htmx:afterRequest', submitPending);
-        if (!event.detail || event.detail.successful !== true) return;
-        const select = document.getElementById(selectId);
-        const pending = select ? select.form : null;
-        if (!pending) return;
-        for (const [name, value] of entries) {
-          const control = pending.elements.namedItem(name);
-          if (control && 'value' in control) control.value = value;
-        }
-        if (window.htmx && typeof window.htmx.process === 'function') {
-          window.htmx.process(pending);
-        }
-        pending.requestSubmit();
-      };
-      titleForm.addEventListener('htmx:afterRequest', submitPending);
-      titleForm.requestSubmit();
-    });
-  }
-}
-// The ticket_detail partial is re-rendered via hx-swap outerHTML; HTMX
-// re-executes this inline script on every swap. The select resolves against
-// the freshly rendered element, so the change listener is attached to the new
-// select on each swap and cannot accumulate. The IIFE also reveals the reason
-// group when a reason-requiring option was pre-selected (e.g. an error
-// re-render preserved the choice) and wires the title guard.
-(function () {
-  const select = document.getElementById('ticket-state');
-  if (select) {
-// Follow the operator's choice again: reveal the reason field for a
-// reason-requiring target and hide it otherwise. This listener only toggles
-// the field and never submits — Apply stays the deliberate act.
-    select.addEventListener('change', () => syncReopenReason(select));
-    syncReopenReason(select);
-  }
-  initTitleEditor();
-  initHoldDialog();
-})();
-</script>
-{{if .CanAssign}}<script>
-// Narrows the assignee select to the options whose name matches the typed
-// text. The filter input sits OUTSIDE the assign form on purpose: inside it,
-// Enter would submit the form and reassign the ticket to whatever option is
-// selected — the exact defect class #232 closed. Filtering only detaches
-// non-matching <option> nodes; the currently selected option is never
-// detached, so the submitted value is always a real candidate and the extra
-// option appended for an inactive current assignee survives. The original
-// nodes are kept in order, so clearing the filter restores the exact candidate
-// set. HTMX re-runs this script on every swap, so it always reads the freshly
-// rendered nodes.
-(function () {
-  const filter = document.getElementById('assign-user-filter');
-  const assignee = document.getElementById('assign-user');
-  if (!filter || !assignee) return;
-  const options = Array.from(assignee.options);
-  filter.addEventListener('input', () => {
-    const query = filter.value.trim().toLowerCase();
-    const kept = query
-      ? options.filter(
-          (option) =>
-            option.value === assignee.value || option.text.toLowerCase().includes(query),
-        )
-      : options;
-    assignee.replaceChildren(...kept);
-  });
-})();
-</script>
-{{end}}{{end}}
+{{end}}

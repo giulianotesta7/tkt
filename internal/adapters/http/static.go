@@ -38,6 +38,10 @@ func RegisterStatic(mux *http.ServeMux, language InterfaceLanguageSource) {
 	// The notification drawer moves focus; it renders no copy, so it needs no
 	// catalogue prologue and can be cached like the other copy-free assets.
 	registerEmbeddedStatic(mux, "/static/notifications.js", "static/notifications.js", "text/javascript; charset=utf-8", "public, max-age=86400")
+	// The ticket detail's own behaviour (title guard, property pickers, hold and
+	// reason dialogs, phone fold — issue #386) renders no copy of its own, so it
+	// needs no catalogue prologue either.
+	registerEmbeddedStatic(mux, "/static/ticket_detail.js", "static/ticket_detail.js", "text/javascript; charset=utf-8", "public, max-age=86400")
 	registerEmbeddedStatic(mux, "/static/shell.js", "static/shell.js", "text/javascript; charset=utf-8", "public, max-age=86400")
 	registerEmbeddedStatic(mux, "/static/queue.js", "static/queue.js", "text/javascript; charset=utf-8", "public, max-age=86400")
 }
