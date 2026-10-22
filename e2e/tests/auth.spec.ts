@@ -60,6 +60,60 @@ test.describe("Login and auth gates", () => {
     await stopServer();
   });
 
+  /**
+   * Issue #383, S6: the sign-in page is one centered column carrying the
+   * instance identity — the mark (logo or monogram), the name and the help desk
+   * name above the form — and the marketing panel the old split shell showed is
+   * gone. The default identity of a fresh instance is "tkt" / "Help desk", which
+   * is what this journey asserts; the organization section owns the rest.
+   */
+  test("the sign-in page centres the instance identity above the form", async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    const obs = collectObservability(page);
+    await page.goto(base() + "/login");
+
+    await expect(page.locator("body > main.auth-entry")).toHaveCount(1);
+    await expect(page.locator("main.auth-entry .auth-entry__logo")).toHaveText("T");
+    await expect(page.locator("main.auth-entry h1")).toHaveText("tkt");
+    await expect(page.locator("main.auth-entry .help").first()).toHaveText("Help desk");
+    await expect(page.locator("form.login-form")).toHaveCount(1);
+    await expect(page.getByRole("heading", { name: /sign in to tkt/i })).toBeVisible();
+
+    // The marketing panel and its journey/principles blocks are gone, and with
+    // them the split shell: one column, no sidebar, no presentation section.
+    await expect(page.locator(".auth-entry__presentation")).toHaveCount(0);
+    await expect(page.locator(".auth-entry__journey")).toHaveCount(0);
+    await expect(page.locator(".auth-entry__principles")).toHaveCount(0);
+    await expect(page.locator("nav a")).toHaveCount(0);
+    // A default instance configures no support address, so the footer line it
+    // would carry is absent rather than empty.
+    await expect(page.locator("main.auth-entry footer")).toHaveCount(0);
+
+    // One centered column: the identity and the form share the same column.
+    const geometry = await page.evaluate(() => {
+      const identity = document.querySelector("main.auth-entry > div")?.getBoundingClientRect();
+      const form = document.querySelector("main.auth-entry form")?.getBoundingClientRect();
+      return {
+        identityCenter: identity ? identity.left + identity.width / 2 : -1,
+        formCenter: form ? form.left + form.width / 2 : -1,
+        viewportCenter: window.innerWidth / 2,
+      };
+    });
+    expect(Math.abs(geometry.identityCenter - geometry.viewportCenter)).toBeLessThan(24);
+    expect(Math.abs(geometry.formCenter - geometry.viewportCenter)).toBeLessThan(24);
+
+    await assertCanonicalScreen(page, {
+      viewport: 1280,
+      label: "centred sign-in",
+      url: page.url(),
+      role: "anonymous",
+      consoleErrors: obs.consoleErrors,
+      pageErrors: obs.pageErrors,
+      failedRequests: obs.failedRequests,
+      failedResponses: obs.failedResponses,
+    });
+  });
+
   test("seeded root user can log in and reach tickets", async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 800 });
     const obs = collectObservability(page);

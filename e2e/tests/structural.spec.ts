@@ -171,11 +171,45 @@ function authenticatedScreens(deps: {
       heading: (p) => p.locator('h1:has-text("Categories")'),
       control: (p) => p.getByRole("link", { name: /new desk/i }),
     },
+    // Settings is one section per URL since issue #383: each section is its
+    // own canonical screen, and the bare /settings URL only redirects to the
+    // first one.
     {
-      label: `/settings`,
+      label: `/settings (redirect)`,
       path: "/settings",
+      expectedUrl: /\/settings\/organization$/,
       heading: (p) => p.locator('h1:has-text("Settings")'),
+      control: (p) => p.locator("#org_name"),
+    },
+    {
+      label: `/settings/organization`,
+      path: "/settings/organization",
+      heading: (p) => p.locator("h2").filter({ hasText: "Organization" }),
+      control: (p) => p.locator("#org_name"),
+    },
+    {
+      label: `/settings/language`,
+      path: "/settings/language",
+      heading: (p) => p.locator("h2").filter({ hasText: "Interface language" }),
+      control: (p) => p.locator("#interface_language"),
+    },
+    {
+      label: `/settings/tickets`,
+      path: "/settings/tickets",
+      heading: (p) => p.locator("h2").filter({ hasText: "Tickets & SLA" }),
       control: (p) => p.locator('input[name="internal_comment_bg"]'),
+    },
+    {
+      label: `/settings/email`,
+      path: "/settings/email",
+      heading: (p) => p.locator("h2").filter({ hasText: "Email" }),
+      control: (p) => p.locator("#email_host"),
+    },
+    {
+      label: `/settings/calendar`,
+      path: "/settings/calendar",
+      heading: (p) => p.locator("h2").filter({ hasText: "Working calendar" }),
+      control: (p) => p.locator('input[name="sla_calendar_days"]'),
     },
     {
       label: `/notifications`,

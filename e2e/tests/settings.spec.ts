@@ -51,10 +51,10 @@ test.describe("Settings", () => {
     await page.setViewportSize({ width: 1280, height: 800 });
     const obs = collectObservability(page);
     await loginAsSeeded(page);
-    await page.goto(base() + "/settings");
+    await page.goto(base() + "/settings/tickets");
     await expect(page.locator("h1").filter({ hasText: "Settings" })).toBeVisible();
-    await expect(page.getByText(/instance configuration/i)).toBeVisible();
-    await expect(page.locator("h2").filter({ hasText: "Appearance" })).toBeVisible();
+    await expect(page.locator("h2").filter({ hasText: "Tickets & SLA" })).toBeVisible();
+    await expect(page.locator("h3").filter({ hasText: "Appearance" })).toBeVisible();
 
     const radios = page.locator('input[name="internal_comment_bg"]');
     await expect(radios).toHaveCount(3);
@@ -68,11 +68,18 @@ test.describe("Settings", () => {
     const initialValue = await checked.getAttribute("value");
     expect(initialValue).toBeTruthy();
 
-    // Switch to Violet and save (chip overlays input, so click label)
+    // Switch to Violet and save (chip overlays input, so click label). The
+    // sticky save bar appears with the first change and the save lands back on
+    // the section with the bar hidden again.
     await page.locator('label.swatch:has(input[value="#EFE9FB"])').click();
     await expect(page.locator('input[name="internal_comment_bg"][value="#EFE9FB"]')).toBeChecked();
+    const appearanceBar = page.locator(
+      'form[action="/settings/appearance"] [data-settings-savebar]',
+    );
+    await expect(appearanceBar).toBeVisible();
     await page.getByRole("button", { name: /save appearance/i }).click();
-    await expect(page).toHaveURL(/\/settings/);
+    await expect(page).toHaveURL(/\/settings\/tickets$/);
+    await expect(appearanceBar).toBeHidden();
     await expect(page.locator('input[name="internal_comment_bg"][value="#EFE9FB"]')).toBeChecked();
     await expect(page.locator("#save-feedback")).toContainText("Saved");
 
@@ -111,13 +118,13 @@ test.describe("Settings", () => {
 
     for (const width of [1280, 390]) {
       await page.setViewportSize({ width, height: 844 });
-      await page.goto(base() + "/settings");
+      await page.goto(base() + "/settings/tickets");
       await expect(page.locator("h1").filter({ hasText: "Settings" })).toBeVisible();
 
       const focusBefore = await page.evaluate(() => document.activeElement?.tagName ?? "");
       await page.locator('label.swatch:has(input[value="#EFE9FB"])').click();
       await page.getByRole("button", { name: /save appearance/i }).click();
-      await expect(page).toHaveURL(/\/settings/);
+      await expect(page).toHaveURL(/\/settings\/tickets$/);
 
       const toast = page.locator("#save-feedback");
       await expect(toast).toBeVisible();
@@ -178,12 +185,12 @@ test.describe("Settings", () => {
     await page.emulateMedia({ reducedMotion: "reduce" });
     await page.setViewportSize({ width: 1280, height: 800 });
     await loginAsSeeded(page);
-    await page.goto(base() + "/settings");
+    await page.goto(base() + "/settings/tickets");
     await expect(page.locator("h1").filter({ hasText: "Settings" })).toBeVisible();
 
     await page.locator('label.swatch:has(input[value="#EFE9FB"])').click();
     await page.getByRole("button", { name: /save appearance/i }).click();
-    await expect(page).toHaveURL(/\/settings/);
+    await expect(page).toHaveURL(/\/settings\/tickets$/);
 
     const toast = page.locator("#save-feedback");
     await expect(toast).toBeVisible();
@@ -210,10 +217,10 @@ test.describe("Settings", () => {
     await page.setViewportSize({ width: 1280, height: 800 });
     const obs = collectObservability(page);
     await loginAsSeeded(page);
-    await page.goto(base() + "/settings");
+    await page.goto(base() + "/settings/tickets");
     await expect(page.locator("h1").filter({ hasText: "Settings" })).toBeVisible();
-    await expect(page.getByText(/instance configuration/i)).toBeVisible();
-    await expect(page.locator("h2").filter({ hasText: "Service level agreements" })).toBeVisible();
+    await expect(page.locator("h2").filter({ hasText: "Tickets & SLA" })).toBeVisible();
+    await expect(page.locator("h3").filter({ hasText: "Service level agreements" })).toBeVisible();
 
     // Seeded configuration (migration 0013): the feature is OFF and the 4x2
     // matrix carries the default seconds decomposed into h/m/s units.
@@ -244,7 +251,7 @@ test.describe("Settings", () => {
     await page.getByLabel("Critical first response, minutes").fill("45");
     await page.getByLabel("Critical first response, seconds").fill("10");
     await page.getByRole("button", { name: "Save SLA settings" }).click();
-    await expect(page).toHaveURL(/\/settings$/);
+    await expect(page).toHaveURL(/\/settings\/tickets$/);
     await expect(page.locator("#save-feedback")).toContainText("Saved");
 
     await page.reload();
@@ -273,7 +280,7 @@ test.describe("Settings", () => {
     await page.setViewportSize({ width: 1280, height: 800 });
     const obs = collectObservability(page);
     await loginAsSeeded(page);
-    await page.goto(base() + "/settings");
+    await page.goto(base() + "/settings/calendar");
     await expect(page.locator("h2").filter({ hasText: "Working calendar" })).toBeVisible();
     // Seven ISO working-day checkboxes, always all offered.
     await expect(page.locator('input[name="sla_calendar_days"]')).toHaveCount(7);
@@ -287,7 +294,7 @@ test.describe("Settings", () => {
     await page.getByLabel("End", { exact: true }).fill("17:45");
     await page.getByLabel("Timezone").fill("America/Argentina/Buenos_Aires");
     await page.getByRole("button", { name: "Save working calendar" }).click();
-    await expect(page).toHaveURL(/\/settings$/);
+    await expect(page).toHaveURL(/\/settings\/calendar$/);
     await expect(page.locator("#save-feedback")).toContainText("Saved");
 
     // Persistence survives a reload.
@@ -324,7 +331,7 @@ test.describe("Settings", () => {
 
     // A fresh GET (not a reload: reloading a POST response re-submits the
     // form) shows the stored calendar untouched by the rejected post.
-    await page.goto(base() + "/settings");
+    await page.goto(base() + "/settings/calendar");
     await expect(page.locator('input[name="sla_calendar_days"][value="5"]')).not.toBeChecked();
     await expect(page.locator('input[name="sla_calendar_days"][value="6"]')).toBeChecked();
     await expect(page.getByLabel("Start", { exact: true })).toHaveValue("08:30");
@@ -340,18 +347,18 @@ test.describe("Settings", () => {
 
     // Fixture: a known valid configuration saved through the real UI, so the
     // rejection leg can prove the stored values survive untouched.
-    await page.goto(base() + "/settings");
+    await page.goto(base() + "/settings/tickets");
     await page.getByLabel("Warning threshold").fill("55");
     await page.getByLabel("Critical first response, minutes").fill("45");
     await page.getByLabel("Critical first response, seconds").fill("10");
     await page.getByRole("button", { name: "Save SLA settings" }).click();
-    await expect(page).toHaveURL(/\/settings$/);
+    await expect(page).toHaveURL(/\/settings\/tickets$/);
     await expect(page.locator("#save-feedback")).toContainText("Saved");
 
     // A 30-second first response passes the grid's HTML constraints (min=0 on
     // the seconds input) and must be rejected server-side: every target needs
     // at least 60 seconds.
-    await page.goto(base() + "/settings");
+    await page.goto(base() + "/settings/tickets");
     await page.getByLabel("Warning threshold").fill("66");
     await page.getByLabel("Critical first response, minutes").fill("0");
     await page.getByLabel("Critical first response, seconds").fill("30");
@@ -372,7 +379,7 @@ test.describe("Settings", () => {
 
     // A fresh GET (not a reload: reloading a POST response re-submits the
     // form) shows the stored configuration untouched by the rejected post.
-    await page.goto(base() + "/settings");
+    await page.goto(base() + "/settings/tickets");
     await expect(page.getByLabel("Warning threshold")).toHaveValue("55");
     await expect(page.getByLabel("Critical first response, minutes")).toHaveValue("45");
     await expect(page.getByLabel("Critical first response, seconds")).toHaveValue("10");
@@ -398,13 +405,13 @@ test.describe("Settings", () => {
     await expect(weekRange).toHaveText(/[A-Z][a-z]{2} \d{1,2} – [A-Z][a-z]{2} \d{1,2}, \d{4}/);
 
     // Switch the instance-wide language from Settings.
-    await page.goto(base() + "/settings");
+    await page.goto(base() + "/settings/language");
     await expect(page.locator("h1").filter({ hasText: "Settings" })).toBeVisible();
     const language = page.getByLabel("Language");
     await expect(language).toHaveValue("en");
     await language.selectOption("es");
     await page.getByRole("button", { name: "Save language" }).click();
-    await expect(page).toHaveURL(/\/settings$/);
+    await expect(page).toHaveURL(/\/settings\/language$/);
 
     // The save lands on a NEW request, so the whole shell follows the saved
     // language — including the save toast the previous request issued.
@@ -453,10 +460,10 @@ test.describe("Settings", () => {
     );
 
     // Switch back to English and prove the previous language is restored.
-    await page.goto(base() + "/settings");
+    await page.goto(base() + "/settings/language");
     await page.getByLabel("Idioma").selectOption("en");
     await page.getByRole("button", { name: "Guardar idioma" }).click();
-    await expect(page).toHaveURL(/\/settings$/);
+    await expect(page).toHaveURL(/\/settings\/language$/);
     await expect(page.locator("html")).toHaveAttribute("lang", "en");
     await expect(page.locator("h1").filter({ hasText: "Settings" })).toBeVisible();
     await expect(page.getByLabel("Language")).toHaveValue("en");
@@ -490,7 +497,7 @@ test.describe("Settings", () => {
     await page.setViewportSize({ width: 1280, height: 800 });
     const obs = collectObservability(page);
     await loginAsSeeded(page);
-    await page.goto(base() + "/settings");
+    await page.goto(base() + "/settings/email");
     await expect(page.locator("h2").filter({ hasText: "Email" })).toBeVisible();
 
     // An open internal relay (S2): no credentials, so no encryption is
@@ -512,7 +519,7 @@ test.describe("Settings", () => {
     await page.getByLabel("Sender name", { exact: true }).fill("TKT Notifications");
     await page.getByLabel("TKT address", { exact: true }).fill("https://tkt.example.com");
     await page.getByRole("button", { name: "Save email" }).click();
-    await expect(page).toHaveURL(/\/settings$/);
+    await expect(page).toHaveURL(/\/settings\/email$/);
     await expect(page.locator("#save-feedback")).toContainText("Saved");
 
     // Persisted (S4): changing the configuration needs no restart, and a
@@ -547,7 +554,7 @@ test.describe("Settings", () => {
     // narrow viewport its own pass: a filled row of SMTP fields must not clip
     // or overflow at 390px.
     await page.setViewportSize({ width: 390, height: 844 });
-    await page.goto(base() + "/settings");
+    await page.goto(base() + "/settings/email");
     await expect(page.locator("h2").filter({ hasText: "Email" })).toBeVisible();
     await assertCanonicalScreen(page, {
       viewport: 390,
@@ -567,7 +574,7 @@ test.describe("Settings", () => {
     test.setTimeout(45_000);
     await page.setViewportSize({ width: 1280, height: 800 });
     await loginAsSeeded(page);
-    await page.goto(base() + "/settings");
+    await page.goto(base() + "/settings/email");
 
     // Fixture: a server that refuses the connection, reached with credentials.
     // Credentials force STARTTLS (S15/S16), so this journey also carries a
@@ -581,7 +588,7 @@ test.describe("Settings", () => {
     await page.getByLabel("Sender address", { exact: true }).fill("tkt@example.com");
     await page.getByLabel("TKT address", { exact: true }).fill("https://tkt.example.com");
     await page.getByRole("button", { name: "Save email" }).click();
-    await expect(page).toHaveURL(/\/settings$/);
+    await expect(page).toHaveURL(/\/settings\/email$/);
     await expect(page.locator("#save-feedback")).toContainText("Saved");
 
     // "Send test email" addresses root's own mailbox with the STORED
@@ -607,7 +614,7 @@ test.describe("Settings", () => {
     await page.setViewportSize({ width: 1280, height: 800 });
     const obs = collectObservability(page);
     await loginAsSeeded(page);
-    await page.goto(base() + "/settings");
+    await page.goto(base() + "/settings/email");
 
     const secret = `S3cret-Keep-${Date.now().toString(36)}`;
     await page.getByLabel("SMTP server", { exact: true }).fill("127.0.0.1");
@@ -618,7 +625,7 @@ test.describe("Settings", () => {
     await page.getByLabel("Sender address", { exact: true }).fill("tkt@example.com");
     await page.getByLabel("TKT address", { exact: true }).fill("https://tkt.example.com");
     await page.getByRole("button", { name: "Save email" }).click();
-    await expect(page).toHaveURL(/\/settings$/);
+    await expect(page).toHaveURL(/\/settings\/email$/);
     await expect(page.locator("#save-feedback")).toContainText("Saved");
 
     // S8: the password is write-only. After a reload the field is empty, the
@@ -653,16 +660,21 @@ test.describe("Settings", () => {
     await logout(page);
     await loginAs(page, admin.email, "SuperSecret42!");
 
-    await page.goto(base() + "/settings");
-    // The administrator really is on Settings: the panels they do own render.
+    await page.goto(base() + "/settings/organization");
+    // The administrator really is on Settings: the sections they do own render.
     await expect(page.locator("h1").filter({ hasText: "Settings" })).toBeVisible();
-    await expect(page.locator("h2").filter({ hasText: "Appearance" })).toBeVisible();
-    // S4: the Email section is root-only, so neither its heading nor a single
-    // one of its controls reaches an administrator's page.
-    await expect(page.locator("h2").filter({ hasText: "Email" })).toHaveCount(0);
+    await expect(page.locator("h2").filter({ hasText: "Organization" })).toBeVisible();
+    await page.goto(base() + "/settings/tickets");
+    await expect(page.locator("h3").filter({ hasText: "Appearance" })).toBeVisible();
+    // S1/S4: the Email section is root-only, so its nav entry is hidden and a
+    // direct visit is refused.
+    await expect(page.locator('.settings-nav a[href="/settings/email"]')).toHaveCount(0);
+    await expect(page.getByRole("link", { name: "Email", exact: true })).toHaveCount(0);
+    await page.goto(base() + "/settings/email");
     await expect(page.locator("#email_host")).toHaveCount(0);
     await expect(page.getByLabel("SMTP server", { exact: true })).toHaveCount(0);
     await expect(page.getByRole("button", { name: "Send test email" })).toHaveCount(0);
+    expect(await page.content()).not.toContain('settings-section-title">Email');
   });
 });
 
@@ -801,4 +813,250 @@ test.describe("Preferences", () => {
     await page.reload();
     await expect(toggle).toBeChecked();
   });
+
+  // ------------------------------------------------------------------------
+  // Sub-navigation and the sticky save bar (issue #383, S1/S2).
+  //
+  // The settings surface is one section per URL under a left sub-navigation,
+  // and each section's form owns a save bar that appears with the first change
+  // and disappears again with the discard control or a completed save. The
+  // section's own controls, validation and capabilities are Go-owned; these
+  // journeys prove what the browser can see.
+  // ------------------------------------------------------------------------
+
+  test("the section rail marks the active section and every section has its own URL", async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await loginAsSeeded(page);
+
+    // An unknown section is not a page: the URL answers 404. This runs before
+    // observability is collected, because a deliberate refusal logs one.
+    const missing = await page.goto(base() + "/settings/bogus");
+    expect(missing?.status()).toBe(404);
+
+    const obs = collectObservability(page);
+    await page.goto(base() + "/settings");
+    await expect(page).toHaveURL(/\/settings\/organization$/);
+    await expect(page.locator("h1").filter({ hasText: "Settings" })).toBeVisible();
+
+    const nav = page.locator("nav.settings-nav");
+    await expect(nav).toBeVisible();
+    const entries = [
+      { label: "Organization", url: /\/settings\/organization$/ },
+      { label: "Language", url: /\/settings\/language$/ },
+      { label: "Tickets & SLA", url: /\/settings\/tickets$/ },
+      { label: "Email", url: /\/settings\/email$/ },
+      { label: "Working calendar", url: /\/settings\/calendar$/ },
+    ];
+    for (const entry of entries) {
+      const link = nav.getByRole("link", { name: entry.label, exact: true });
+      await expect(link).toBeVisible();
+      await link.click();
+      await expect(page).toHaveURL(entry.url);
+      await expect(nav.getByRole("link", { name: entry.label, exact: true })).toHaveAttribute(
+        "aria-current",
+        "page",
+      );
+      await expect(nav.locator('[aria-current="page"]')).toHaveCount(1);
+    }
+
+    await page.goto(base() + "/settings/organization");
+    await assertCanonicalScreen(page, {
+      viewport: 1280,
+      label: "settings sub-navigation",
+      url: page.url(),
+      role: "root",
+      consoleErrors: obs.consoleErrors,
+      pageErrors: obs.pageErrors,
+      failedRequests: obs.failedRequests,
+      failedResponses: obs.failedResponses,
+    });
+  });
+
+  test("a section's save bar appears on the first change, hides on discard, and is gone after a save", async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await loginAsSeeded(page);
+    await page.goto(base() + "/settings/organization");
+
+    const savebar = page.locator("[data-settings-savebar]");
+    const name = page.getByLabel("Name", { exact: true });
+    const stored = await name.inputValue();
+
+    // Nothing changed yet: the bar is not offered.
+    await expect(savebar).toBeHidden();
+
+    // The first keystroke reveals it, named by the section it saves.
+    await name.fill("Acme Support");
+    await expect(savebar).toBeVisible();
+    await expect(savebar.getByRole("button", { name: "Save organization" })).toBeVisible();
+
+    // Discard restores the stored value and takes the bar away with it.
+    await savebar.getByRole("button", { name: "Discard" }).click();
+    await expect(savebar).toBeHidden();
+    await expect(name).toHaveValue(stored);
+
+    // A file input counts as a change too: choosing a logo reveals the bar.
+    await page.getByLabel("Logo", { exact: true }).setInputFiles(tinyPNG());
+    await expect(savebar).toBeVisible();
+
+    // Discard also drops the chosen file, so the form is back to stored state.
+    await savebar.getByRole("button", { name: "Discard" }).click();
+    await expect(savebar).toBeHidden();
+  });
+
+  test("the organization identity reaches the shell, the document title and the sign-in page", async ({
+    page,
+  }) => {
+    test.setTimeout(60_000);
+    await page.setViewportSize({ width: 1280, height: 800 });
+    const obs = collectObservability(page);
+    await loginAsSeeded(page);
+    await page.goto(base() + "/settings/organization");
+
+    // One submit carries the three text fields.
+    await page.getByLabel("Name", { exact: true }).fill("Acme Support");
+    await page.getByLabel("Help desk name", { exact: true }).fill("Service desk");
+    await page.getByLabel("Support email", { exact: true }).fill("support@acme.test");
+    await expect(page.locator("[data-settings-savebar]")).toBeVisible();
+    await page.getByRole("button", { name: "Save organization" }).click();
+    await expect(page).toHaveURL(/\/settings\/organization$/);
+    await expect(page.locator("#save-feedback")).toContainText("Saved");
+
+    // S5: the shell renders the stored identity, and the document title ends
+    // with the help desk name instead of the product name.
+    const brand = page.locator(".sidebar-brand");
+    await expect(brand.locator(".brand-name")).toHaveText("Acme Support");
+    await expect(brand.locator(".brand-product")).toHaveText("Service desk");
+    expect(await page.title()).toBe("Settings · Service desk");
+
+    // Persisted: a reload reads the stored identity, not the submitted one.
+    await page.reload();
+    await expect(page.getByLabel("Name", { exact: true })).toHaveValue("Acme Support");
+    await expect(page.getByLabel("Help desk name", { exact: true })).toHaveValue("Service desk");
+    await expect(page.getByLabel("Support email", { exact: true })).toHaveValue(
+      "support@acme.test",
+    );
+
+    await assertCanonicalScreen(page, {
+      viewport: 1280,
+      label: "settings organization identity",
+      url: page.url(),
+      role: "root",
+      consoleErrors: obs.consoleErrors,
+      pageErrors: obs.pageErrors,
+      failedRequests: obs.failedRequests,
+      failedResponses: obs.failedResponses,
+    });
+
+    // S6: the sign-in page is the identity's: the name and the help desk name
+    // above the form, and the support address as the footer line.
+    await logout(page);
+    await expect(page.locator("main.auth-entry")).toBeVisible();
+    await expect(page.locator("main.auth-entry h1")).toHaveText("Acme Support");
+    await expect(page.locator("main.auth-entry .help").first()).toHaveText("Service desk");
+    await expect(page.getByRole("link", { name: "support@acme.test" })).toBeVisible();
+    await expect(page.locator("main.auth-entry .auth-entry__presentation")).toHaveCount(0);
+    expect(await page.title()).toBe("Sign in · Service desk");
+    await loginAsSeeded(page);
+
+    // The address the footer offers is the one the section stored, so restore
+    // the instance identity for the journeys that follow this one.
+    await page.goto(base() + "/settings/organization");
+    await page.getByLabel("Name", { exact: true }).fill("tkt");
+    await page.getByLabel("Help desk name", { exact: true }).fill("Help desk");
+    await page.getByLabel("Support email", { exact: true }).fill("");
+    await page.getByRole("button", { name: "Save organization" }).click();
+    await expect(page).toHaveURL(/\/settings\/organization$/);
+    await expect(page.locator(".sidebar-brand .brand-name")).toHaveText("tkt");
+  });
+
+  test("a logo uploads, renders in the shell, refuses a text file named .png, and can be removed", async ({
+    page,
+  }) => {
+    test.setTimeout(60_000);
+    await page.setViewportSize({ width: 1280, height: 800 });
+    const obs = collectObservability(page);
+    await loginAsSeeded(page);
+    await page.goto(base() + "/settings/organization");
+
+    // Fixture: a known identity, so the logo is the only thing that moves.
+    await page.getByLabel("Name", { exact: true }).fill("Acme Support");
+    await page.getByLabel("Help desk name", { exact: true }).fill("Service desk");
+    await page.getByRole("button", { name: "Save organization" }).click();
+    await expect(page).toHaveURL(/\/settings\/organization$/);
+
+    // Upload a real PNG: the shell marks the brand with the image, and the
+    // section stops offering the monogram.
+    await page.getByLabel("Logo", { exact: true }).setInputFiles(tinyPNG());
+    await page.getByRole("button", { name: "Save organization" }).click();
+    await expect(page).toHaveURL(/\/settings\/organization$/);
+    await expect(page.locator("#save-feedback")).toContainText("Saved");
+
+    const mark = page.locator(".sidebar-brand .brand-mark img");
+    await expect(mark).toBeVisible();
+    await expect(mark).toHaveAttribute("src", /^\/brand\/logo\?v=[0-9a-f]+$/);
+    const served = await page.request.get(base() + (await mark.getAttribute("src"))!);
+    expect(served.status()).toBe(200);
+    expect(served.headers()["content-type"]).toBe("image/png");
+    expect(served.headers()["x-content-type-options"]).toBe("nosniff");
+    expect(served.headers()["cache-control"]).toBe("public, max-age=86400");
+
+    await assertCanonicalScreen(page, {
+      viewport: 1280,
+      label: "settings organization logo",
+      url: page.url(),
+      role: "root",
+      consoleErrors: obs.consoleErrors,
+      pageErrors: obs.pageErrors,
+      failedRequests: obs.failedRequests,
+      failedResponses: obs.failedResponses,
+    });
+
+    // A text file named .png is refused: the message says which rule failed
+    // and the stored logo is untouched.
+    await page.getByLabel("Logo", { exact: true }).setInputFiles({
+      name: "logo.png",
+      mimeType: "image/png",
+      buffer: Buffer.from("this is not a png"),
+    });
+    await page.getByRole("button", { name: "Save organization" }).click();
+    const banner = page.locator(".error-banner");
+    await expect(banner).toBeVisible();
+    await expect(banner).toHaveAttribute("role", "alert");
+    await expect(banner).toContainText("the logo must be a PNG image");
+    await expect(page).toHaveURL(/\/settings\/organization$/);
+    // The re-render still previews the STORED logo, not the refused bytes.
+    await page.reload();
+    await expect(page.locator(".sidebar-brand .brand-mark img")).toBeVisible();
+
+    // Remove is its own endpoint: one click, back to the monogram.
+    await page.getByRole("button", { name: "Remove logo" }).click();
+    await expect(page).toHaveURL(/\/settings\/organization$/);
+    await expect(page.locator("#save-feedback")).toContainText("Saved");
+    await expect(page.locator(".sidebar-brand .brand-mark img")).toHaveCount(0);
+    await expect(page.locator(".sidebar-brand .brand-mark")).toHaveText("AS");
+    await expect(page.getByRole("button", { name: "Remove logo" })).toHaveCount(0);
+
+    // Restore the instance identity and its monogram for the journeys after.
+    await page.goto(base() + "/settings/organization");
+    await page.getByLabel("Name", { exact: true }).fill("tkt");
+    await page.getByLabel("Help desk name", { exact: true }).fill("Help desk");
+    await page.getByRole("button", { name: "Save organization" }).click();
+    await expect(page).toHaveURL(/\/settings\/organization$/);
+  });
 });
+
+/** A real 1x1 PNG, so the uploaded logo renders and the served bytes are valid. */
+function tinyPNG(): { name: string; mimeType: string; buffer: Buffer } {
+  return {
+    name: "logo.png",
+    mimeType: "image/png",
+    buffer: Buffer.from(
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+      "base64",
+    ),
+  };
+}

@@ -84,16 +84,25 @@ export async function loginAs(page: Page, email: string, password: string): Prom
  * state it starts from.
  */
 export async function setSLAEnabled(page: Page, enabled: boolean): Promise<void> {
-  await page.goto(base() + "/settings");
+  // Since issue #383 the SLA panel lives in the Tickets & SLA section, and its
+  // save bar stays hidden until the form is dirty. The switch is the only
+  // control this helper owns, so when it already holds the desired state the
+  // helper flips it twice: the state is unchanged and the bar is revealed.
+  await page.goto(base() + "/settings/tickets");
   const toggle = page.getByRole("checkbox", { name: /enable sla targets/i });
   await expect(toggle).toBeVisible();
+  if ((await toggle.isChecked()) === enabled) {
+    await toggle.click();
+  }
   if (enabled) {
     await toggle.check();
   } else {
     await toggle.uncheck();
   }
-  await page.getByRole("button", { name: "Save SLA settings" }).click();
-  await expect(page).toHaveURL(/\/settings$/);
+  const save = page.getByRole("button", { name: "Save SLA settings" });
+  await expect(save).toBeVisible();
+  await save.click();
+  await expect(page).toHaveURL(/\/settings\/tickets$/);
   await expect(page.locator("#save-feedback")).toContainText("Saved");
   await page.reload();
   if (enabled) {
