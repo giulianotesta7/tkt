@@ -38,6 +38,41 @@ func AllowedInterfaceLanguages() []string {
 	return []string{InterfaceLanguageEnglish, InterfaceLanguageSpanish}
 }
 
+// Ticket creation modes (issue #391, S1/L2). The way an instance reaches the
+// category a new ticket needs is an INSTANCE setting, not a per-user one: the
+// create form is the same either way, and only how it is reached differs.
+const (
+	// TicketCreationSingle renders the whole form on one page, with the category
+	// as one more property of it. It is the default (L2: the recommended option),
+	// so an instance that never chose answers it without a stored row.
+	TicketCreationSingle = "single"
+	// TicketCreationTwoStep renders a service catalog first and the form — with
+	// the category fixed — after a card is chosen.
+	TicketCreationTwoStep = "two_step"
+	// DefaultTicketCreationMode is the mode an instance renders until an
+	// administrator chooses another one.
+	DefaultTicketCreationMode = TicketCreationSingle
+)
+
+// AllowedTicketCreationModes returns the creation modes an administrator may
+// choose, in the order the settings screen offers them.
+func AllowedTicketCreationModes() []string {
+	return []string{TicketCreationSingle, TicketCreationTwoStep}
+}
+
+// isAllowedTicketCreationMode reports whether mode is one of the shipped
+// creation modes. The values are exact: a case variant or a near-miss is
+// refused rather than quietly normalized, so what an administrator saved is
+// exactly what the instance renders.
+func isAllowedTicketCreationMode(mode string) bool {
+	for _, allowed := range AllowedTicketCreationModes() {
+		if mode == allowed {
+			return true
+		}
+	}
+	return false
+}
+
 // isAllowedInterfaceLanguage reports whether code is one of the shipped
 // interface languages. The codes are exact: a case variant or a regional tag
 // is refused rather than quietly normalized, so what an administrator saved
@@ -116,8 +151,7 @@ func (s *SettingsService) SetInterfaceLanguage(ctx context.Context, actor domain
 	return s.settings.SetInterfaceLanguage(ctx, language)
 }
 
-// SetInternalCommentBg updates the internal-comment background color.
-// The actor must hold CapManageSettings (admin/root); color must be one of
+// SetInternalCommentBg updates the internal-comment background color.// The actor must hold CapManageSettings (admin/root); color must be one of
 // AllowedInternalCommentBg — anything else is a ValidationError and the
 // store is never touched (fail closed on invalid input).
 func (s *SettingsService) SetInternalCommentBg(ctx context.Context, actor domain.User, color string) error {
@@ -128,4 +162,28 @@ func (s *SettingsService) SetInternalCommentBg(ctx context.Context, actor domain
 		return &domain.ValidationError{Field: "internal_comment_bg", Message: "invalid internal comment background color", Key: "error.invalid_internal_comment_bg"}
 	}
 	return s.settings.SetInternalCommentBg(ctx, color)
+}
+
+// GetTicketCreationMode returns the instance's ticket creation flow (issue
+// #391, S1). The store normalizes an absent row — and an unknown persisted
+// value — to DefaultTicketCreationMode, so this always answers a flow the
+// binary implements.
+func (s *SettingsService) GetTicketCreationMode(ctx context.Context) (string, error) {
+	return s.settings.GetTicketCreationMode(ctx)
+}
+
+// SetTicketCreationMode selects the instance's ticket creation flow (issue
+// #391, S1). The actor must hold CapManageSettings (admin/root) — the same
+// instance-configuration capability the appearance and language settings use —
+// and the mode must be one of AllowedTicketCreationModes; anything else is a
+// ValidationError and the store is never touched (fail closed on invalid
+// input).
+func (s *SettingsService) SetTicketCreationMode(ctx context.Context, actor domain.User, mode string) error {
+	if err := requireManageSettings(actor, "ticket creation settings are not permitted"); err != nil {
+		return err
+	}
+	if !isAllowedTicketCreationMode(mode) {
+		return &domain.ValidationError{Field: "ticket_creation_mode", Message: "invalid ticket creation mode", Key: "error.invalid_ticket_creation_mode"}
+	}
+	return s.settings.SetTicketCreationMode(ctx, mode)
 }

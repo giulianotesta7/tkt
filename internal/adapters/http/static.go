@@ -30,6 +30,11 @@ func RegisterStatic(mux *http.ServeMux, language InterfaceLanguageSource) {
 	registerLocalizedStatic(mux, "/static/users.js", "static/users.js", language)
 	registerLocalizedStatic(mux, "/static/tickets.js", "static/tickets.js", language)
 	registerLocalizedStatic(mux, "/static/ticket_form.js", "static/ticket_form.js", language)
+	// The ticket-creation behaviour (issue #391) enhances two native selects into
+	// the detail's listbox and filters the service catalog's cards. Its own copy
+	// arrives as translated data attributes from the server, so it needs no
+	// catalogue prologue and can be cached like the other copy-free assets.
+	registerEmbeddedStatic(mux, "/static/ticket_create.js", "static/ticket_create.js", "text/javascript; charset=utf-8", "public, max-age=86400")
 	registerLocalizedStatic(mux, "/static/workflow.js", "static/workflow.js", language)
 	registerLocalizedStatic(mux, "/static/categories.js", "static/categories.js", language)
 	registerLocalizedStatic(mux, "/static/save-feedback.js", "static/save-feedback.js", language)

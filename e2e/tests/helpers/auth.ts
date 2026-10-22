@@ -111,3 +111,35 @@ export async function setSLAEnabled(page: Page, enabled: boolean): Promise<void>
     await expect(toggle).not.toBeChecked();
   }
 }
+
+/**
+ * Choose how the instance reaches the category of a new ticket (issue #391,
+ * S1). The choice is instance-wide and shared with every later creation, so a
+ * journey that needs two-step mode MUST restore single-page mode when it
+ * finishes, or a later journey in the same database inherits a flow it never
+ * arranged. It proves the save lands back on the section with its own feedback,
+ * and that the stored choice survives a reload.
+ */
+export async function setTicketCreationMode(
+  page: Page,
+  mode: "single" | "two_step",
+): Promise<void> {
+  await page.goto(base() + "/settings/tickets");
+  const choice = page.getByRole("radio", {
+    name: mode === "single" ? /^single page$/i : /^two steps$/i,
+  });
+  await expect(choice).toBeVisible();
+  if (await choice.isChecked()) {
+    // Nothing to save: the section's save bar stays hidden until its form is
+    // dirty, and the stored choice is already the one requested.
+    return;
+  }
+  await choice.check();
+  const save = page.getByRole("button", { name: "Save creation flow" });
+  await expect(save).toBeVisible();
+  await save.click();
+  await expect(page).toHaveURL(/\/settings\/tickets$/);
+  await expect(page.locator("#save-feedback")).toContainText("Saved");
+  await page.reload();
+  await expect(choice).toBeChecked();
+}

@@ -840,3 +840,109 @@ func TestSettingsStoreSetInterfaceLanguageRefusesUnsupportedValue(t *testing.T) 
 		}
 	}
 }
+
+// --- Ticket creation mode (issue #391, S1) ---
+
+// TestSettingsStoreTicketCreationModeDefaultsToSinglePageWithoutSeeding
+// proves the setting needs no migration: a fresh database has no
+// ticket_creation_mode row at all, and the read still answers the shipped
+// default, so nothing has to be persisted for the default to be true.
+func TestSettingsStoreTicketCreationModeDefaultsToSinglePageWithoutSeeding(t *testing.T) {
+	s := newTestDB(t)
+	ctx := context.Background()
+
+	got, err := s.SettingsStore().GetTicketCreationMode(ctx)
+	if err != nil {
+		t.Fatalf("get ticket creation mode: %v", err)
+	}
+	if got != application.TicketCreationSingle {
+		t.Errorf("ticket creation mode = %q, want the default %q", got, application.TicketCreationSingle)
+	}
+
+	var rows int
+	if err := s.db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM settings WHERE key = 'ticket_creation_mode'`).Scan(&rows); err != nil {
+		t.Fatalf("count ticket_creation_mode rows: %v", err)
+	}
+	if rows != 0 {
+		t.Errorf("ticket_creation_mode rows = %d on a fresh database, want 0 (the default needs no row)", rows)
+	}
+}
+
+// TestSettingsStoreTicketCreationModeRoundTrip proves the choice persists:
+// the stored mode reads back, it survives a second write, and the key stays
+// a single row.
+func TestSettingsStoreTicketCreationModeRoundTrip(t *testing.T) {
+	s := newTestDB(t)
+	ctx := context.Background()
+	st := s.SettingsStore()
+
+	if err := st.SetTicketCreationMode(ctx, application.TicketCreationTwoStep); err != nil {
+		t.Fatalf("set two step: %v", err)
+	}
+	if got, err := st.GetTicketCreationMode(ctx); err != nil || got != application.TicketCreationTwoStep {
+		t.Fatalf("ticket creation mode = %q (err %v), want %q", got, err, application.TicketCreationTwoStep)
+	}
+
+	if err := st.SetTicketCreationMode(ctx, application.TicketCreationSingle); err != nil {
+		t.Fatalf("set single: %v", err)
+	}
+	if got, err := st.GetTicketCreationMode(ctx); err != nil || got != application.TicketCreationSingle {
+		t.Errorf("ticket creation mode = %q (err %v), want %q", got, err, application.TicketCreationSingle)
+	}
+
+	var rows int
+	if err := s.db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM settings WHERE key = 'ticket_creation_mode'`).Scan(&rows); err != nil {
+		t.Fatalf("count ticket_creation_mode rows: %v", err)
+	}
+	if rows != 1 {
+		t.Errorf("ticket_creation_mode rows = %d, want exactly 1 (upsert, never duplicate)", rows)
+	}
+}
+
+// TestSettingsStoreTicketCreationModeUnknownStoredValueFallsBackToSinglePage
+// proves the read always answers a mode the binary implements: a hand-edited
+// or legacy value degrades to the default instead of failing the screen.
+func TestSettingsStoreTicketCreationModeUnknownStoredValueFallsBackToSinglePage(t *testing.T) {
+	s := newTestDB(t)
+	ctx := context.Background()
+
+	for _, stored := range []string{"wizard", "", "SINGLE", "two-step", "two_step "} {
+		if _, err := s.db.ExecContext(ctx, `
+			INSERT INTO settings (key, value) VALUES ('ticket_creation_mode', ?)
+			ON CONFLICT(key) DO UPDATE SET value = excluded.value`, stored); err != nil {
+			t.Fatalf("store %q: %v", stored, err)
+		}
+		got, err := s.SettingsStore().GetTicketCreationMode(ctx)
+		if err != nil {
+			t.Fatalf("get with stored %q: %v", stored, err)
+		}
+		if got != application.TicketCreationSingle {
+			t.Errorf("stored %q: ticket creation mode = %q, want the default %q", stored, got, application.TicketCreationSingle)
+		}
+	}
+}
+
+// TestSettingsStoreSetTicketCreationModeRefusesUnsupportedValue proves the
+// store fails closed on a mode no surface implements: this is the layer the
+// next read answers from, so persisting it would leave the instance
+// declaring a flow it cannot render. The previous choice stands untouched.
+func TestSettingsStoreSetTicketCreationModeRefusesUnsupportedValue(t *testing.T) {
+	s := newTestDB(t)
+	ctx := context.Background()
+	st := s.SettingsStore()
+
+	if err := st.SetTicketCreationMode(ctx, application.TicketCreationTwoStep); err != nil {
+		t.Fatalf("seed two step: %v", err)
+	}
+
+	for _, mode := range []string{"wizard", "", "SINGLE", "two-step"} {
+		if err := st.SetTicketCreationMode(ctx, mode); err == nil {
+			t.Errorf("set %q succeeded, want an error", mode)
+		}
+		if got, err := st.GetTicketCreationMode(ctx); err != nil || got != application.TicketCreationTwoStep {
+			t.Errorf("mode after refusing %q = %q (err %v), want the seeded %q", mode, got, err, application.TicketCreationTwoStep)
+		}
+	}
+}

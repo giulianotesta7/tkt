@@ -1355,6 +1355,17 @@ func (f *fakeSLASettingsStore) SetInterfaceLanguage(_ context.Context, _ string)
 	return errors.New("fakeSLASettingsStore: SetInterfaceLanguage not needed by the SLA service tests")
 }
 
+// The ticket creation flow (issue #391) is unused by the SLA service; the fake
+// answers the documented default so it keeps satisfying the widened
+// SettingsStore port.
+func (f *fakeSLASettingsStore) GetTicketCreationMode(_ context.Context) (string, error) {
+	return application.DefaultTicketCreationMode, nil
+}
+
+func (f *fakeSLASettingsStore) SetTicketCreationMode(_ context.Context, _ string) error {
+	return errors.New("fakeSLASettingsStore: SetTicketCreationMode not needed by the SLA service tests")
+}
+
 func (f *fakeSLASettingsStore) GetSLAEnabled(_ context.Context) (bool, error) {
 	if f.slaEnabledErr != nil {
 		return false, f.slaEnabledErr

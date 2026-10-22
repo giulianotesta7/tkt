@@ -45,6 +45,12 @@ type fakeSettingsStore struct {
 	// documented default (0, the feature off) so the fake keeps satisfying the
 	// SettingsStore port.
 	holdAutoCloseDays int
+	// Ticket-creation seams (issue #391, S1): same shape as the language
+	// ones, so a denied or rejected actor can be proven to have persisted
+	// nothing.
+	ticketCreation        string
+	setTicketCreationErr  error
+	setTicketCreationCall int
 }
 
 func (f *fakeSettingsStore) GetInternalCommentBg(_ context.Context) (string, error) {
@@ -166,6 +172,24 @@ func (f *fakeSettingsStore) SetInterfaceLanguage(_ context.Context, language str
 	return nil
 }
 
+// GetTicketCreationMode mirrors the store contract: an absent row answers the
+// documented default.
+func (f *fakeSettingsStore) GetTicketCreationMode(_ context.Context) (string, error) {
+	if f.ticketCreation == "" {
+		return DefaultTicketCreationMode, nil
+	}
+	return f.ticketCreation, nil
+}
+
+func (f *fakeSettingsStore) SetTicketCreationMode(_ context.Context, mode string) error {
+	f.setTicketCreationCall++
+	if f.setTicketCreationErr != nil {
+		return f.setTicketCreationErr
+	}
+	f.ticketCreation = mode
+	return nil
+}
+
 func adminActor() domain.User { return domain.User{ID: 1, Name: "Admin", Role: domain.RoleAdmin} }
 func agentActor() domain.User { return domain.User{ID: 2, Name: "Agent", Role: domain.RoleAgent} }
 func rootActor() domain.User  { return domain.User{ID: 3, Name: "Root", Role: domain.RoleRoot} }
@@ -239,6 +263,108 @@ func TestSettingsSetRootAllowed(t *testing.T) {
 	}
 	if st.bg != "#EFE9FB" {
 		t.Errorf("stored = %q, want %q", st.bg, "#EFE9FB")
+	}
+}
+
+// --- Ticket creation mode (issue #391, S1) ---
+
+// TestSettingsTicketCreationModeDefaultsToSinglePage pins the documented
+// default: an instance that never chose a mode creates on one page, and the
+// default needs no persisted row to be true.
+func TestSettingsTicketCreationModeDefaultsToSinglePage(t *testing.T) {
+	if DefaultTicketCreationMode != TicketCreationSingle {
+		t.Fatalf("DefaultTicketCreationMode = %q, want %q", DefaultTicketCreationMode, TicketCreationSingle)
+	}
+	st := &fakeSettingsStore{}
+
+	got, err := NewSettingsService(st).GetTicketCreationMode(context.Background())
+	if err != nil {
+		t.Fatalf("get ticket creation mode: %v", err)
+	}
+	if got != DefaultTicketCreationMode {
+		t.Errorf("ticket creation mode = %q, want the default %q", got, DefaultTicketCreationMode)
+	}
+}
+
+// TestSettingsSetTicketCreationModeRejectsNonAdmin proves the instance-wide
+// setting keeps CapManageSettings: a denied actor changes nothing and never
+// reaches the store writer.
+func TestSettingsSetTicketCreationModeRejectsNonAdmin(t *testing.T) {
+	st := &fakeSettingsStore{ticketCreation: TicketCreationSingle}
+	svc := NewSettingsService(st)
+
+	err := svc.SetTicketCreationMode(context.Background(), agentActor(), TicketCreationTwoStep)
+	var forbidden *domain.ForbiddenError
+	if !errors.As(err, &forbidden) {
+		t.Fatalf("err = %v, want ForbiddenError", err)
+	}
+	if st.ticketCreation != TicketCreationSingle {
+		t.Errorf("store mutated by denied actor: %q", st.ticketCreation)
+	}
+	if st.setTicketCreationCall != 0 {
+		t.Errorf("store writer called %d times by a denied actor, want 0", st.setTicketCreationCall)
+	}
+}
+
+// TestSettingsSetTicketCreationModeRejectsUnknownMode proves the service
+// validates before the store is reached: anything outside the closed set is
+// refused and the stored mode stands.
+func TestSettingsSetTicketCreationModeRejectsUnknownMode(t *testing.T) {
+	for _, mode := range []string{"wizard", "SINGLE", "", "two-step", "twostep"} {
+		t.Run(mode, func(t *testing.T) {
+			st := &fakeSettingsStore{ticketCreation: TicketCreationSingle}
+			svc := NewSettingsService(st)
+
+			err := svc.SetTicketCreationMode(context.Background(), adminActor(), mode)
+			var validation *domain.ValidationError
+			if !errors.As(err, &validation) {
+				t.Fatalf("err = %v, want ValidationError", err)
+			}
+			if validation.Field != "ticket_creation_mode" {
+				t.Errorf("validation field = %q, want %q", validation.Field, "ticket_creation_mode")
+			}
+			if st.ticketCreation != TicketCreationSingle {
+				t.Errorf("store changed to %q on an invalid mode", st.ticketCreation)
+			}
+			if st.setTicketCreationCall != 0 {
+				t.Errorf("store writer called %d times on invalid input, want 0", st.setTicketCreationCall)
+			}
+		})
+	}
+}
+
+// TestSettingsSetTicketCreationModePersistsEveryAllowedMode proves both
+// shipped modes round-trip through the store, for an admin and for root.
+func TestSettingsSetTicketCreationModePersistsEveryAllowedMode(t *testing.T) {
+	allowed := AllowedTicketCreationModes()
+	if len(allowed) != 2 || allowed[0] != TicketCreationSingle || allowed[1] != TicketCreationTwoStep {
+		t.Fatalf("AllowedTicketCreationModes() = %v, want [%s %s]", allowed, TicketCreationSingle, TicketCreationTwoStep)
+	}
+
+	for _, actor := range []struct {
+		name string
+		user domain.User
+	}{{"admin", adminActor()}, {"root", rootActor()}} {
+		for _, mode := range allowed {
+			t.Run(actor.name+"/"+mode, func(t *testing.T) {
+				st := &fakeSettingsStore{ticketCreation: DefaultTicketCreationMode}
+				svc := NewSettingsService(st)
+
+				if err := svc.SetTicketCreationMode(context.Background(), actor.user, mode); err != nil {
+					t.Fatalf("set: %v", err)
+				}
+				if st.ticketCreation != mode {
+					t.Errorf("stored = %q, want %q", st.ticketCreation, mode)
+				}
+				got, err := svc.GetTicketCreationMode(context.Background())
+				if err != nil {
+					t.Fatalf("get: %v", err)
+				}
+				if got != mode {
+					t.Errorf("read back = %q, want %q", got, mode)
+				}
+			})
+		}
 	}
 }
 

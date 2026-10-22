@@ -17,8 +17,10 @@ import { applyAssignee, pickerButton } from "./helpers/ticket.js";
 import { logout, seededCredentials, setSLAEnabled } from "./helpers/auth.js";
 import {
   catalogCategoryRow,
+  chooseCreationPriority,
   createCategoryViaUi,
   createTicketViaUi,
+  pickCreationCategory,
 } from "./helpers/navigation.js";
 import { waitForExactPost } from "./helpers/network.js";
 
@@ -223,10 +225,10 @@ test.describe("Role — minimal matrix admin / agent / user (seeded)", () => {
     await page.setViewportSize({ width: 1280, height: 800 });
     const agentTicket = "Agent ticket " + Date.now().toString(36).slice(2, 8);
     await page.goto(baseURL() + "/tickets/new");
-    await page.locator(".catalog-category").filter({ hasText: "General" }).first().click();
+    await pickCreationCategory(page, "General");
     await page.getByLabel(/title/i).fill(agentTicket);
     await page.getByLabel(/description/i).fill("agent probe");
-    await page.getByLabel(/priority/i).selectOption("low");
+    await chooseCreationPriority(page, "low");
     await page.getByRole("button", { name: /create ticket/i }).click();
     await expect(page).toHaveURL(/\/tickets/);
     await expect(page.locator(".error-banner")).toHaveCount(0);

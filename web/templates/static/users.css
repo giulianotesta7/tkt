@@ -207,11 +207,56 @@
 .ticket-create-detail .ticket-create-title-field .title-input{width:100%;border:1px solid var(--line-strong);background:var(--card)}
 .ticket-create-detail .ticket-create-title-field .title-input:focus{border-color:var(--accent);background:var(--surface);box-shadow:0 0 0 2px var(--accent-soft)}
 .ticket-create-detail .ticket-create-title-label{display:block;margin:0 0 4px;color:var(--muted);font-size:12px;font-weight:600;letter-spacing:0;}
-.ticket-create-detail .ticket-create-description textarea{min-height:124px}
+.ticket-create-detail .ticket-create-description textarea{min-height:180px}
 .ticket-create-detail .ticket-create-actions{display:flex;justify-content:flex-end;margin-top:18px}
+.ticket-create-detail .ticket-create-dropzone{margin-top:12px}
 .ticket-create-detail .selected-catalog-path{display:flex;min-width:0;max-width:60%;flex-direction:column;align-items:flex-end;gap:2px;margin:0;padding:0;border:0;background:transparent;text-align:right}
 .ticket-create-detail .selected-catalog-path span{overflow-wrap:anywhere}
 .ticket-create-detail .selected-catalog-path a{font-size:13px}
+/* The property controls (issue #391, S2): a row's control sits at the end of the
+   row and may never push the panel wider than its column. */
+.ticket-create-detail .prop-control{display:flex;justify-content:flex-end;min-width:0;max-width:72%}
+.ticket-create-detail .prop-control .prop-select{max-width:100%}
+/* The native select stays the submitted field and the no-script control; once
+   the script has replaced it with the listbox, it leaves the layout the same way
+   the composer's file input does — clipped, never display:none, because a hidden
+   required field cannot be focused by constraint validation. */
+.ticket-create-detail .create-picker[data-enhanced] > select{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0;padding:0}
+.ticket-create-detail .create-listbox{min-width:0}
+.ticket-create-detail .create-listbox .listbox-button{max-width:100%}
+.ticket-create-detail .create-listbox .listbox-option[aria-disabled="true"]{color:var(--muted);cursor:not-allowed}
+.ticket-create-detail .create-listbox .listbox-option[aria-disabled="true"]:hover{background:transparent;color:var(--muted)}
+.listbox-popover-wide{width:min(320px,calc(100vw - 56px))}
+.listbox-group{display:flex;flex-direction:column;gap:2px}
+/* display:flex above beats the browser's [hidden] rule, so the filter's hidden
+   groups need the explicit one — the same reason .listbox-option[hidden] exists. */
+.listbox-group[hidden]{display:none}
+.listbox-group-label{padding:8px 8px 4px;color:var(--muted);font-size:11px;font-weight:600}
+.listbox-empty{margin:0;padding:10px 8px;color:var(--muted);font-size:12px}
+/* The two-step service catalog (issue #391, S4): one section per department
+   holding category cards, each card a control that opens the shared form with
+   its category fixed. Same 12px shell radius and hairline as every other
+   grouping; the hover ring is the accent's soft fill, not a second colour. */
+.create-catalog-search{margin-bottom:16px}
+.create-catalog-sections{display:flex;flex-direction:column;gap:20px}
+.create-catalog-department-group[hidden],.create-card[hidden]{display:none}
+.create-catalog-department{margin:0 0 8px;color:var(--muted);font-size:12px;font-weight:600;letter-spacing:0;text-transform:none}
+.create-catalog-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(184px,1fr));gap:10px}
+.create-card{display:flex;min-width:0;flex-direction:column;gap:2px;padding:10px 12px;border:1px solid var(--line-strong);border-radius:12px;background:var(--card);color:var(--ink);text-decoration:none}
+.create-card:hover{border-color:var(--accent);background:var(--accent-soft);text-decoration:none}
+.create-card:focus-visible{outline:3px solid var(--accent);outline-offset:1px}
+.create-card-name,.create-card-desk{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.create-card-name{font-size:13px;font-weight:500;color:var(--ink)}
+.create-card-desk{font-size:12px;color:var(--muted)}
+.create-card-unavailable{border-color:var(--line);background:var(--hover);cursor:not-allowed}
+.create-card-unavailable:hover{border-color:var(--line);background:var(--hover)}
+.create-card-unavailable .create-card-name{color:var(--muted)}
+.create-card-unavailable .create-card-desk{color:var(--amber)}
+.create-catalog-empty{margin:18px 0 0;padding:22px 16px;border:1px dashed var(--line-strong);border-radius:12px;color:var(--muted);font-size:13px;text-align:center}
+@media(max-width:640px){
+  .ticket-create-detail .prop-control{max-width:64%}
+  .create-catalog-grid{grid-template-columns:1fr}
+}
 @media(max-width:640px){
   .tickets-screen .user-request-card{flex-wrap:wrap}
   .tickets-screen .ticket-toolbar{align-items:stretch}

@@ -206,6 +206,23 @@ func fixtureTicketFormData() ticketFormData {
 		DepartmentName: "Technology",
 		DeskName:       "Service desk",
 	}
+	// The picker's offers, grouped one entry per desk (issue #391, S3). The
+	// second row is the shape a published category that cannot run renders: the
+	// frozen fixture pins it so the golden carries the disabled option and the
+	// reason beside a healthy one.
+	offers := []catalogCategoryEntry{
+		{CatalogCategory: *selected},
+		{
+			CatalogCategory: domain.CatalogCategory{
+				Category:       domain.Category{ID: 2, Name: "Printers", CreatedAt: goldenT0},
+				DepartmentName: "Technology",
+				DeskName:       "Service desk",
+			},
+			Unavailable: true,
+			Reason: application.MsgRef("categories.badge.cannot_run",
+				application.Nested(application.MsgValues("error.workflow_reason.no_members", "Service desk"))),
+		},
+	}
 	return ticketFormData{
 		pageData: pageData{NavActive: "tickets", CurrentUser: ana},
 		Selected: selected,
@@ -215,8 +232,19 @@ func fixtureTicketFormData() ticketFormData {
 			CategoryID:  "1",
 			Priority:    domain.PriorityHigh,
 		},
-		Options: opts,
+		Options:        opts,
+		CategoryOffers: offers,
+		CategoryGroups: groupCatalogCategories(offers),
 	}
+}
+
+// fixtureTwoStepTicketFormData is the same form as a service-catalog card opens
+// it: the category is fixed and Change returns to the catalog (issue #391, S4).
+func fixtureTwoStepTicketFormData() ticketFormData {
+	data := fixtureTicketFormData()
+	data.CategoryFixed = true
+	data.CatalogHref = "/tickets/new"
+	return data
 }
 
 func renderGolden(t *testing.T, page, fragment string, data any, hx bool) string {
@@ -272,22 +300,67 @@ func TestGoldenTicketsNew(t *testing.T) {
 }
 
 func TestSelectedTicketFormPresentation(t *testing.T) {
+	// One page, no fixed category (issue #391, S3): the category is a native
+	// select grouped by desk, so the form works with no script at all.
 	body := renderGolden(t, "tickets_new", "", fixtureTicketFormData(), false)
 	for _, want := range []string{
 		`<h1 class="command-title">Create a ticket</h1>`,
 		`Describe your request.`,
-		`class="prop-label">Category</span>`,
-		`Technology / Service desk / Bugs`,
-		`href="/tickets/new">Change</a>`,
+		`<span class="prop-label" id="create-category-label">Category</span>`,
+		`<select id="category_id" name="category_id" class="prop-select" required`,
+		`<optgroup label="Technology › Service desk">`,
+		`<option value="1" selected>Bugs</option>`,
+		`href="/tickets">Back to queue</a>`,
 	} {
 		if !strings.Contains(body, want) {
-			t.Errorf("selected ticket form must contain %q, got: %s", want, body)
+			t.Errorf("the single-page ticket form must contain %q, got: %s", want, body)
 		}
 	}
-	for _, absent := range []string{"Ticket details", "Back to catalog", "Change category"} {
+	// S5: a published category that cannot run stays visible, disabled, with its
+	// reason, and is never a submittable choice.
+	if !strings.Contains(body, `<option value="2" disabled>Printers — Can&#39;t run · Service desk has no active members</option>`) {
+		t.Errorf("the picker must keep an unrunnable category disabled with its reason, got: %s", pickerWindow(body))
+	}
+	for _, absent := range []string{"Ticket details", "Back to catalog", "Change category", `class="create-change"`, `href="/tickets/new">Change</a>`} {
 		if strings.Contains(body, absent) {
-			t.Errorf("selected ticket form must not contain %q, got: %s", absent, body)
+			t.Errorf("the single-page form must not contain %q, got: %s", absent, body)
 		}
+	}
+}
+
+// pickerWindow returns the markup around the create form's category picker, so a
+// failing assertion shows what was rendered instead of only what was expected.
+func pickerWindow(body string) string {
+	const marker = `id="category_id"`
+	i := strings.Index(body, marker)
+	if i < 0 {
+		return "(category picker not found)"
+	}
+	end := i + 900
+	if end > len(body) {
+		end = len(body)
+	}
+	return body[i:end]
+}
+
+// TestTwoStepTicketFormPresentation pins the form a service-catalog card opens
+// (issue #391, S4): the same form with the category fixed and Change returning
+// to the catalog.
+func TestTwoStepTicketFormPresentation(t *testing.T) {
+	body := renderGolden(t, "tickets_new", "", fixtureTwoStepTicketFormData(), false)
+	for _, want := range []string{
+		`<input type="hidden" name="category_id" value="1">`,
+		`<span class="prop-label">Category</span>`,
+		`<span>Technology / Service desk / Bugs</span>`,
+		`<a href="/tickets/new">Change</a>`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("the two-step ticket form must contain %q, got: %s", want, body)
+		}
+	}
+	// The picker belongs to the other flow: a card already chose the category.
+	if strings.Contains(body, `<select id="category_id"`) {
+		t.Errorf("the fixed-category form must not render the picker, got: %s", body)
 	}
 }
 
@@ -313,34 +386,33 @@ func TestSelectedTicketFormDetailLayoutPresentation(t *testing.T) {
 				`class="conversation"`,
 				`class="card ticket-create-description"`,
 				`for="description">Description</label>`,
-				`class="card ticket-create-timeline"`,
-				`<h2>Timeline</h2>`,
-				`<p class="empty">No activity yet.</p>`,
+				`class="comment-dropzone ticket-create-dropzone"`,
+				`name="attachments" multiple`,
+				`data-dropzone-files`,
 				`class="evidence" aria-label="Ticket creation properties"`,
 				`class="prop-heading">Properties</div>`,
 				`class="prop-label">Requester</span>`,
 				`>Current actor name</span>`,
-				`class="prop-label">Category</span>`,
-				`Technology / Service desk / Bugs`,
-				`href="/tickets/new">Change</a>`,
-				`class="prop-label" for="priority">Priority</label>`,
+				`<span class="prop-label" id="create-category-label">Category</span>`,
+				`<span class="prop-label" id="create-priority-label">Priority</span>`,
 				`id="priority" name="priority" class="prop-select"`,
 				`<option value="high" selected>High</option>`,
-				`class="prop-heading">Assignment</div>`,
-				`>Not assigned yet</span>`,
 			} {
 				if !strings.Contains(body, want) {
-					t.Errorf("selected ticket creation detail layout must contain %q, got: %s", want, body)
+					t.Errorf("the ticket creation layout must contain %q, got: %s", want, body)
 				}
 			}
+			// Issue #391, S2: the empty Timeline card and the Assignment section are
+			// gone — a ticket has no activity yet and creation assigns nobody.
 			for _, absent := range []string{
 				`ticket-create-preview`, `ticket-create-layout`,
 				`ticket-create-preview-priority`, `Add comment`, `name="body"`,
 				`name="requester_`, `name="user_id"`, `name="assignee_id"`,
 				`name="to"`, `Move to`, `class="prop-heading">State`,
+				`class="card ticket-create-timeline"`, `class="prop-heading">Assignment</div>`,
 			} {
 				if strings.Contains(body, absent) {
-					t.Errorf("selected ticket creation detail layout must not render %q, got: %s", absent, body)
+					t.Errorf("the ticket creation layout must not render %q, got: %s", absent, body)
 				}
 			}
 		})
@@ -349,8 +421,8 @@ func TestSelectedTicketFormDetailLayoutPresentation(t *testing.T) {
 	invalid := fixtureTicketFormData()
 	invalid.Values.Priority = domain.Priority("urgent")
 	body := renderGolden(t, "tickets_new", "ticket_form", invalid, true)
-	if !strings.Contains(body, `<option value="critical" >Critical</option>`) {
-		t.Errorf("invalid posted priority must retain the native Critical fallback option, got: %s", body)
+	if !strings.Contains(body, `<option value="critical">Critical</option>`) {
+		t.Errorf("an invalid posted priority must retain the native Critical fallback option, got: %s", body)
 	}
 
 	for _, role := range []domain.Role{domain.RoleUser, domain.RoleAgent, domain.RoleAdmin, domain.RoleRoot} {

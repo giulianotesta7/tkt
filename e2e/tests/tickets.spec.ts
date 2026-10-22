@@ -19,7 +19,12 @@ import {
   catalogCategoryRow,
   catalogNode,
   catalogNodeId,
+  chooseCreationPriority,
   createTicketViaUi,
+  creationCategoryPicker,
+  creationPriorityPicker,
+  openCatalogCard,
+  pickCreationCategory,
 } from "./helpers/navigation.js";
 import {
   applyTransition,
@@ -30,7 +35,7 @@ import {
 } from "./helpers/ticket.js";
 import { waitForExactPost } from "./helpers/network.js";
 import { assertHtmxSwap } from "./helpers/htmx.js";
-import { loginAsSeeded, setSLAEnabled } from "./helpers/auth.js";
+import { loginAsSeeded, setSLAEnabled, setTicketCreationMode } from "./helpers/auth.js";
 
 function base(): string {
   if (!activeServer) throw new Error("server not started");
@@ -185,28 +190,34 @@ async function createPublishedHierarchyFixture(
   return fixture;
 }
 
-// Choose one catalog category by its exact name. The picker's first view only
-// lists the first department/desk, so a category outside it is reached through
-// the picker's own search instead of guessing a URL.
+// Choose one category in the two-step service catalog (issue #391, S4) by its
+// exact name. The catalog is one page of cards grouped by department since
+// #391, so the search box is what narrows a long catalog and the card is what
+// opens the form — no drill-down exists any more.
 async function selectCatalogCategory(
   page: import("@playwright/test").Page,
   name: string,
 ): Promise<void> {
-  await expect(page.locator(".catalog-page")).toBeVisible();
-  let link = page.locator(".catalog-category").filter({
-    has: page.getByText(name, { exact: true }),
+  await expect(page.locator(".create-catalog")).toBeVisible();
+  const search = page.locator("[data-create-catalog-search]");
+  await search.fill(name);
+  const card = page.locator(".create-card").filter({
+    has: page.locator(".create-card-name", {
+      hasText: new RegExp(`^${name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`),
+    }),
   });
-  if ((await link.count()) === 0) {
-    const search = page.getByPlaceholder(/search categories, desks, or departments/i);
-    await search.fill(name);
-    await search.press("Enter");
-    link = page.locator(".catalog-result").filter({
-      has: page.getByText(name, { exact: true }),
-    });
-  }
-  await expect(link).toHaveCount(1);
-  await link.click();
-  await expect(page.locator(".selected-catalog-path")).toContainText(name);
+  await expect(card).toHaveCount(1);
+  await card.click();
+  await expect(page.locator(".ticket-create-detail .selected-catalog-path")).toContainText(name);
+}
+
+// The create form's priority reading: with a script it is the detail's listbox,
+// so the value lives on its button rather than on a native select.
+async function expectCreationPriority(
+  page: import("@playwright/test").Page,
+  label: string,
+): Promise<void> {
+  await expect(creationPriorityPicker(page).locator(".listbox-button")).toContainText(label);
 }
 
 test.describe("Ticket Lifecycle", () => {
@@ -262,164 +273,69 @@ test.describe("Ticket Lifecycle", () => {
     });
   });
 
-  test("catalog supports hierarchy selection, search, keyboard focus, and mobile drill-down", async ({
-    page,
-  }) => {
+  test("single-page creation keeps its shape, its picker and its values", async ({ page }) => {
+    // Issue #391, S2/S3/S6/S7. The create form is the detail's own anatomy: a
+    // title field that reads as the heading field, a description card with the
+    // composer's drop zone, and a properties panel holding Requester, Category
+    // and Priority. The category is a native select grouped one optgroup per
+    // "Department › Desk", enhanced into the detail's listbox.
+    await page.setViewportSize({ width: 1280, height: 800 });
     const obs = collectObservability(page);
-    await page.setViewportSize({ width: 1280, height: 800 });
-    await page.goto(base() + "/login");
-    await page.getByLabel(/email/i).fill("alice@example.com");
-    await page.getByLabel(/password/i).fill("SuperSecret42!");
-    await page.getByRole("button", { name: /log in|sign in/i }).click();
-    const ticketTitleSizes = new Map<number, string>();
-    for (const [width, height] of [
-      [1536, 900],
-      [1280, 800],
-      [390, 844],
-    ]) {
-      await page.setViewportSize({ width, height });
-      await page.goto(base() + "/tickets");
-      const ticketsTitle = page
-        .locator(".tickets-header")
-        .getByRole("heading", { name: "Tickets", exact: true });
-      await expect(ticketsTitle).toBeVisible();
-      ticketTitleSizes.set(
-        width,
-        await ticketsTitle.evaluate((element) => getComputedStyle(element).fontSize),
-      );
-    }
+    await loginAsSeeded(page);
     const fixture = await createPublishedHierarchyFixture(page);
-    await page.goto(base() + "/tickets/new?category_id=0");
-    const newTicketTitle = page
-      .locator(".ticket-create-page .page-header")
-      .getByRole("heading", { name: "New ticket", exact: true });
+    await page.goto(base() + "/tickets");
+    const ticketsTitle = page
+      .locator(".tickets-header")
+      .getByRole("heading", { name: "Tickets", exact: true });
+    await expect(ticketsTitle).toBeVisible();
+    const titleSizes = new Map<number, string>();
     for (const [width, height] of [
       [1536, 900],
       [1280, 800],
       [390, 844],
     ]) {
       await page.setViewportSize({ width, height });
-      await expect(newTicketTitle).toHaveCSS("font-size", ticketTitleSizes.get(width)!);
-    }
-    await page.goto(base() + "/tickets/new");
-    const catalogTitle = page
-      .locator(".catalog-page")
-      .getByRole("heading", { name: "Create a ticket", exact: true });
-    for (const [width, height] of [
-      [1536, 900],
-      [1280, 800],
-      [390, 844],
-    ]) {
-      await page.setViewportSize({ width, height });
-      await expect(catalogTitle).toHaveCSS("font-size", ticketTitleSizes.get(width)!);
+      await expect(ticketsTitle).toBeVisible();
+      titleSizes.set(width, await ticketsTitle.evaluate((el) => getComputedStyle(el).fontSize));
     }
     await page.setViewportSize({ width: 1280, height: 800 });
-    await expect(catalogTitle).toBeVisible();
-    await expect(page.getByRole("heading", { name: "Departments" })).toBeVisible();
-    await expect(page.getByRole("heading", { name: "Desks" })).toBeVisible();
-    await expect(page.getByRole("heading", { name: "Categories" })).toBeVisible();
-    const catalogSearch = page.locator(".catalog-search");
-    const catalogSearchInput = page.getByPlaceholder(/search categories, desks, or departments/i);
-    await expect(catalogSearchInput).toBeVisible();
-    const catalogSearchIcon = catalogSearch.locator(".search-icon");
-    for (const [name, value] of [
-      ["viewBox", "0 0 24 24"],
-      ["width", "18"],
-      ["height", "18"],
-      ["aria-hidden", "true"],
-      ["focusable", "false"],
-    ]) {
-      await expect(catalogSearchIcon).toHaveAttribute(name, value);
-    }
-    await expect(catalogSearch).toHaveCSS("height", "36px");
-    await expect(catalogSearch).toHaveCSS("border-radius", "8px");
-    await expect(catalogSearchInput).toHaveCSS("font-size", "13px");
-    await catalogSearchInput.focus();
-    await expect(catalogSearch).toHaveCSS("border-top-color", "rgb(49, 94, 255)");
-    await expect(
-      page.getByText("Choose a category to get started.", { exact: true }),
-    ).toBeVisible();
-    await page.getByPlaceholder(/search categories, desks, or departments/i).fill(fixture.category);
-    const neutralCatalogInk = await page
-      .locator(".catalog-category")
-      .first()
-      .evaluate((element) => getComputedStyle(element).color);
-    const catalogBreadcrumb = page.locator(".catalog-breadcrumb");
-    await expect(catalogBreadcrumb).toHaveCount(1);
-    await expect(catalogBreadcrumb).toHaveCSS("color", neutralCatalogInk);
-    await page.getByPlaceholder(/search categories, desks, or departments/i).press("Enter");
-    const catalogResult = page.locator(".catalog-result").filter({
-      has: page.getByText(fixture.category, { exact: true }),
-    });
-    await expect(catalogResult).toHaveCount(1);
-    await expect(catalogResult.locator("small")).toHaveCSS("color", neutralCatalogInk);
-    await catalogResult.click();
-    const selectedPath = page.locator(".selected-catalog-path");
-    await expect(selectedPath).toContainText(fixture.department);
-    await expect(selectedPath).toContainText(fixture.desk);
-    await expect(selectedPath).toContainText(fixture.category);
-    await expect(page.getByRole("heading", { name: "Create a ticket" })).toBeVisible();
+
+    await page.goto(base() + "/tickets/new");
+    const form = page.locator(".ticket-create-detail");
+    const heading = form.getByRole("heading", { name: "Create a ticket" });
+    await expect(heading).toBeVisible();
     await expect(page.getByText("Describe your request.", { exact: true })).toBeVisible();
-    await expect(page.getByRole("link", { name: "Change", exact: true })).toHaveAttribute(
-      "href",
-      "/tickets/new",
-    );
-    await expect(page.getByRole("link", { name: "Change", exact: true })).toHaveCount(1);
-    await expect(page.getByText("Ticket details", { exact: true })).toHaveCount(0);
-    const createForm = page.locator(".ticket-create-detail");
-    const selectedCreateTitle = createForm.getByRole("heading", {
-      name: "Create a ticket",
-      exact: true,
-    });
-    const descriptionCard = page.locator(".ticket-create-description");
-    const timeline = page.locator(".ticket-create-timeline");
-    const properties = page.locator("aside.evidence");
-    await expect(createForm).toHaveCount(1);
-    await expect(createForm.locator(".cards")).toHaveCount(1);
+    const titleInput = page.getByLabel("Title");
+    await expect(titleInput).toBeVisible();
+    const descriptionCard = form.locator(".ticket-create-description");
+    const properties = form.locator("aside.evidence");
+    await expect(descriptionCard).toHaveCount(1);
     await expect(properties).toContainText("Properties");
     await expect(properties).toContainText("Requester");
     await expect(properties).toContainText("Alice Admin");
-    await expect(properties).toContainText(fixture.department);
-    await expect(properties).toContainText(fixture.desk);
-    await expect(properties).toContainText(fixture.category);
-    await expect(properties).toContainText("Assignee");
-    await expect(properties).toContainText("Not assigned yet");
-    await expect(properties).not.toHaveClass(/card/);
-    await expect(timeline).toContainText("No activity yet.");
-    await expect(createForm.getByText("Reply", { exact: true })).toHaveCount(0);
-    await expect(createForm.locator("[name=to], [name=user_id], [name=assignee_id]")).toHaveCount(
-      0,
-    );
-    await expect(createForm.locator("input[name^=requester]")).toHaveCount(0);
-    await page.setViewportSize({ width: 1536, height: 900 });
-    const titleBox = await page.getByLabel("Title").boundingBox();
+    await expect(properties).toContainText("Category");
+    await expect(properties).toContainText("Priority");
+    // S2: no empty Timeline card and no Assignment section.
+    await expect(form.locator(".ticket-create-timeline")).toHaveCount(0);
+    await expect(properties).not.toContainText("Assignee");
+    await expect(properties).not.toContainText("Not assigned yet");
+    await expect(form.locator("[name=to], [name=user_id], [name=assignee_id]")).toHaveCount(0);
+    await expect(form.locator("input[name^=requester]")).toHaveCount(0);
+    // The attachment control is the composer's drop zone, wrapping one file input.
+    const dropzone = form.locator(".comment-dropzone.ticket-create-dropzone");
+    await expect(dropzone).toHaveCount(1);
+    await expect(dropzone.locator('input[type="file"][name="attachments"]')).toHaveCount(1);
+
+    // The title field reads as the page's heading field at the desktop measure
+    // the create page has always had, and shares the card's surface.
+    const titleBox = await titleInput.boundingBox();
     const descriptionBox = await descriptionCard.boundingBox();
     const propertiesBox = await properties.boundingBox();
     expect(titleBox && descriptionBox && propertiesBox).not.toBeNull();
     expect(titleBox!.y).toBeLessThan(descriptionBox!.y);
     expect(propertiesBox!.x - (descriptionBox!.x + descriptionBox!.width)).toBe(16);
-    expect(descriptionBox!.width).toBeGreaterThan(800);
-    await page.setViewportSize({ width: 1280, height: 800 });
-    const description1280 = await descriptionCard.boundingBox();
-    const properties1280 = await properties.boundingBox();
-    expect(description1280 && properties1280).not.toBeNull();
-    expect(properties1280!.x - (description1280!.x + description1280!.width)).toBe(16);
-    const mainCanvas = page.getByRole("main");
-    const bodyCanvas = page.locator("body");
-    const titleInput = page.getByLabel("Title");
-    await expect(mainCanvas).toHaveCount(1);
-    await expect(bodyCanvas).toHaveCount(1);
-    await expect(titleInput).toHaveCount(1);
-    await titleInput.evaluate((element) => (element as HTMLElement).blur());
-    const creationGeometry = new Map<
-      number,
-      {
-        main: { x: number; y: number; width: number; height: number };
-        rail: { x: number; y: number; width: number; height: number };
-        railStyle: string;
-        canvas: { body: string; main: string; rail: string };
-      }
-    >();
+    expect(titleBox!.width).toBeGreaterThanOrEqual(540);
+    expect(titleBox!.width).toBeLessThanOrEqual(560);
 
     for (const [width, height] of [
       [1536, 900],
@@ -427,206 +343,105 @@ test.describe("Ticket Lifecycle", () => {
       [390, 844],
     ]) {
       await page.setViewportSize({ width, height });
-      await expect(selectedCreateTitle).toHaveCSS("font-size", ticketTitleSizes.get(width)!);
-      const main = await descriptionCard.evaluate((element) =>
-        element.getBoundingClientRect().toJSON(),
-      );
-      const rail = await properties.evaluate((element) => element.getBoundingClientRect().toJSON());
-      const railStyle = await properties.evaluate((element) => {
-        const style = getComputedStyle(element);
-        return [style.backgroundColor, style.border, style.borderRadius].join("|");
-      });
-      const title = await titleInput.evaluate((element) => {
-        const style = getComputedStyle(element);
-        const box = element.getBoundingClientRect();
-        return {
-          backgroundColor: style.backgroundColor,
-          borderTopColor: style.borderTopColor,
-          borderTopWidth: style.borderTopWidth,
-          right: box.right,
-          width: box.width,
-        };
-      });
-      const descriptionBackground = await descriptionCard.evaluate(
-        (element) => getComputedStyle(element).backgroundColor,
-      );
-      expect(title.borderTopWidth).toBe("1px");
-      expect(title.borderTopColor).not.toBe("transparent");
-      expect(title.borderTopColor).not.toBe("rgba(0, 0, 0, 0)");
-      expect(title.backgroundColor).toBe(descriptionBackground);
-      expect(title.backgroundColor).not.toBe("transparent");
-      expect(title.backgroundColor).not.toBe("rgba(0, 0, 0, 0)");
-      expect(title.width).toBeLessThanOrEqual(main.width);
-      if (width >= 1280) {
-        expect(title.width).toBeGreaterThanOrEqual(540);
-        expect(title.width).toBeLessThanOrEqual(560);
-      } else {
-        expect(title.right).toBeLessThanOrEqual(main.right);
-        await expect(page.locator("body")).toHaveJSProperty("scrollWidth", width);
-      }
-      creationGeometry.set(width, {
-        main,
-        rail,
-        railStyle,
-        canvas: {
-          body: await effectivePaintedBackground(bodyCanvas),
-          main: await effectivePaintedBackground(mainCanvas),
-          rail: await effectivePaintedBackground(properties),
-        },
-      });
+      await expect(heading).toHaveCSS("font-size", titleSizes.get(width)!);
+      await expect(page.locator("body")).toHaveJSProperty("scrollWidth", width);
     }
+    await page.setViewportSize({ width: 390, height: 844 });
+    const mobileDescription = await descriptionCard.boundingBox();
+    const mobileProperties = await properties.boundingBox();
+    expect(mobileDescription && mobileProperties).not.toBeNull();
+    expect(mobileProperties!.y).toBeGreaterThan(mobileDescription!.y);
+    // A long title must never push the phone layout sideways.
+    const longTitle = `Published hierarchy ticket ${"that stays within the title input ".repeat(12)}`;
+    await titleInput.fill(longTitle);
+    await expect(titleInput).toHaveValue(longTitle);
+    await expect(page.locator("body")).toHaveJSProperty("scrollWidth", 390);
+    await titleInput.fill("Published hierarchy ticket");
     await page.setViewportSize({ width: 1280, height: 800 });
-    let priorityRequests = 0;
-    let priorityNavigations = 0;
-    const requestObserver = (request: import("@playwright/test").Request) => {
+
+    // S3: the picker never submits and never saves on change. Choosing another
+    // category keeps the title, the description and the priority already typed.
+    await titleInput.fill("Published hierarchy ticket");
+    await page.getByLabel("Description").fill("Kept description");
+    await chooseCreationPriority(page, "high");
+    let requests = 0;
+    let navigations = 0;
+    const onRequest = (request: import("@playwright/test").Request) => {
       if (request.url().startsWith(base()) && ["GET", "POST"].includes(request.method())) {
-        priorityRequests += 1;
+        requests += 1;
       }
     };
-    const navigationObserver = (frame: import("@playwright/test").Frame) => {
-      if (frame === page.mainFrame()) priorityNavigations += 1;
+    const onNavigation = (frame: import("@playwright/test").Frame) => {
+      if (frame === page.mainFrame()) navigations += 1;
     };
-    page.on("request", requestObserver);
-    page.on("framenavigated", navigationObserver);
-    await page.getByLabel("Priority").selectOption("high");
-    await expect(page.getByLabel("Priority")).toHaveValue("high");
-    page.off("request", requestObserver);
-    page.off("framenavigated", navigationObserver);
-    expect(priorityRequests).toBe(0);
-    expect(priorityNavigations).toBe(0);
-    await page.getByLabel("Title").fill("   ");
-    await page.getByLabel("Description").fill("Retained validation description");
+    page.on("request", onRequest);
+    page.on("framenavigated", onNavigation);
+    await pickCreationCategory(page, fixture.category);
+    page.off("request", onRequest);
+    page.off("framenavigated", onNavigation);
+    expect(requests, "changing the category must not issue a request").toBe(0);
+    expect(navigations, "changing the category must not navigate").toBe(0);
+    await expect(titleInput).toHaveValue("Published hierarchy ticket");
+    await expect(page.getByLabel("Description")).toHaveValue("Kept description");
+    await expect(creationPriorityPicker(page).locator(".listbox-button")).toContainText("High");
+
+    // S6: a rejected submit keeps every submitted value, including the category,
+    // and focuses the field that has to be fixed.
+    await titleInput.fill("   ");
     const validationResponse = waitForExactPost(page, "/tickets");
     await page.getByRole("button", { name: "Create ticket", exact: true }).click();
     expect((await validationResponse).status()).toBe(422);
     await expect(page.getByRole("alert")).toContainText(/title is required/i);
     await expect(page.getByLabel("Title")).toHaveValue("   ");
-    await expect(page.getByLabel("Description")).toHaveValue("Retained validation description");
-    await expect(page.getByLabel("Priority")).toHaveValue("high");
-    await expect(selectedPath).toContainText(fixture.department);
-    await expect(selectedPath).toContainText(fixture.desk);
-    await expect(selectedPath).toContainText(fixture.category);
-    await expect(titleInput).toBeFocused();
-    const focusedTitleStyle = await titleInput.evaluate((element) => {
-      const style = getComputedStyle(element);
-      return {
-        borderBottomColor: style.borderBottomColor,
-        borderTopColor: style.borderTopColor,
-        boxShadow: style.boxShadow,
-      };
-    });
-    expect(focusedTitleStyle.borderTopColor).toBe(focusedTitleStyle.borderBottomColor);
-    expect(focusedTitleStyle.boxShadow).not.toBe("none");
-    await page.setViewportSize({ width: 390, height: 844 });
-    await expect(titleInput).toBeVisible();
-    await expect(page.getByLabel("Description")).toBeVisible();
-    await expect(page.getByLabel("Priority")).toBeVisible();
-    await expect(page.getByRole("link", { name: "Change", exact: true })).toBeVisible();
-    await expect(page.getByRole("button", { name: "Create ticket", exact: true })).toBeVisible();
-    await expect(properties).toBeVisible();
-    const mobileDescriptionBox = await descriptionCard.boundingBox();
-    const mobilePropertiesBox = await properties.boundingBox();
-    expect(mobileDescriptionBox && mobilePropertiesBox).not.toBeNull();
-    expect(mobilePropertiesBox!.y).toBeGreaterThan(mobileDescriptionBox!.y);
-    await expect(page.locator("body")).toHaveJSProperty("scrollWidth", 390);
-    const routeBox = await selectedPath.boundingBox();
-    expect(routeBox, `selected hierarchy has no geometry at ${page.url()}`).not.toBeNull();
-    expect(routeBox!.height, "long hierarchy must wrap across multiple lines").toBeGreaterThan(42);
-    const longRetainedTitle = `Published hierarchy ticket ${"that stays within the title input ".repeat(12)}`;
-    await titleInput.fill(longRetainedTitle);
-    await expect(titleInput).toHaveValue(longRetainedTitle);
-    const longTitleBox = await titleInput.boundingBox();
-    expect(longTitleBox).not.toBeNull();
-    expect(longTitleBox!.x + longTitleBox!.width).toBeLessThanOrEqual(390);
-    await expect(page.locator("body")).toHaveJSProperty("scrollWidth", 390);
+    await expect(page.getByLabel("Description")).toHaveValue("Kept description");
+    await expect(creationPriorityPicker(page).locator(".listbox-button")).toContainText("High");
+    await expect(creationCategoryPicker(page).locator(".listbox-button")).toContainText(
+      fixture.category,
+    );
+    await expect(page.getByLabel("Title")).toBeFocused();
+
+    // The picker searches by category, desk AND department name, and it keeps
+    // the group headings of the matches.
     await titleInput.fill("Published hierarchy ticket");
+    const pickerButton = creationCategoryPicker(page).locator(".listbox-button");
+    await pickerButton.click();
+    await expect(pickerButton).toHaveAttribute("aria-expanded", "true");
+    const pickerSearch = creationCategoryPicker(page).locator(".listbox-search");
+    await expect(pickerSearch).toBeFocused();
+    const groupHeadings = creationCategoryPicker(page).locator(".listbox-group-label");
+    const groupCount = await groupHeadings.count();
+    expect(groupCount).toBeGreaterThan(1);
+    await pickerSearch.fill(fixture.department);
+    // A department name matches every group beneath it, and the groups left
+    // with no match are hidden — the same rule the two-step catalog applies.
+    const visibleHeadings = creationCategoryPicker(page).locator(".listbox-group-label:visible");
+    await expect(visibleHeadings).toHaveCount(1);
+    await expect(visibleHeadings.first()).toContainText(fixture.department);
+    await expect(
+      creationCategoryPicker(page).locator(".listbox-option").filter({ hasText: fixture.category }),
+    ).toBeVisible();
+    // Escape closes without changing anything.
+    await page.keyboard.press("Escape");
+    await expect(pickerButton).toHaveAttribute("aria-expanded", "false");
+    await expect(pickerButton).toContainText(fixture.category);
     await page.getByRole("button", { name: "Create ticket", exact: true }).click();
     await expect(page).toHaveURL(/\/tickets$/);
-    const publishedTicketLink = page.getByRole("link", {
-      name: "Published hierarchy ticket",
-      exact: true,
-    });
-    await expect(publishedTicketLink).toHaveCount(1);
-    await expect(publishedTicketLink).toBeVisible();
-    const publishedTicketRow = publishedTicketLink.locator("xpath=ancestor::tr");
-    await expect(publishedTicketRow).toHaveCount(1);
-    const publishedTicketPriority = publishedTicketRow.locator(
-      "td.priority .ticket-priority-value",
-    );
-    await expect(publishedTicketPriority).toHaveCount(1);
-    await expect(publishedTicketPriority).toHaveText("High");
-    await publishedTicketLink.click();
-
+    const created = page.getByRole("link", { name: "Published hierarchy ticket", exact: true });
+    await expect(created).toHaveCount(1);
+    const row = created.locator("xpath=ancestor::tr");
+    await expect(row.locator("td.priority .ticket-priority-value")).toHaveText("High");
+    await created.click();
     await expect(page.locator("#ticket-detail")).toBeVisible();
-    for (const [width, height] of [
-      [1536, 900],
-      [1280, 800],
-      [390, 844],
-    ]) {
-      await page.setViewportSize({ width, height });
-      const creation = creationGeometry.get(width);
-      const detailDescription = page.locator("#ticket-detail .conversation > .card").first();
-      const detailRail = page.locator("#ticket-detail .evidence");
-      const detailMain = await detailDescription.evaluate((element) =>
-        element.getBoundingClientRect().toJSON(),
-      );
-      const detailRailBox = await detailRail.evaluate((element) =>
-        element.getBoundingClientRect().toJSON(),
-      );
-      const detailRailStyle = await detailRail.evaluate((element) => {
-        const style = getComputedStyle(element);
-        return [style.backgroundColor, style.border, style.borderRadius].join("|");
-      });
-      const detailCanvas = {
-        body: await effectivePaintedBackground(bodyCanvas),
-        main: await effectivePaintedBackground(mainCanvas),
-        rail: await effectivePaintedBackground(detailRail),
-      };
-      expect(creation, `missing creation geometry at ${width}px`).toBeDefined();
-      expect(detailCanvas.body).toBe(creation!.canvas.body);
-      expect(detailCanvas.main).toBe(creation!.canvas.main);
-      expect(detailCanvas.rail).toBe(creation!.canvas.rail);
-      expect(detailMain.x).toBe(creation!.main.x);
+    await expect(page.locator("#ticket-detail .detail-meta-category")).toContainText(
+      fixture.category,
+    );
+    await expect(page.locator("#ticket-detail .ticket-description")).toContainText(
+      "Kept description",
+    );
 
-      expect(detailMain.width).toBe(creation!.main.width);
-      expect(detailRailBox.x).toBe(creation!.rail.x);
-      expect(detailRailBox.width).toBe(creation!.rail.width);
-      expect(detailRailStyle).toBe(creation!.railStyle);
-      if (width > 900) {
-        expect(detailRailBox.x - (detailMain.x + detailMain.width)).toBe(16);
-      } else {
-        expect(detailRailBox.y).toBeGreaterThan(detailMain.y);
-      }
-    }
-    await page.goto(base() + "/tickets/new");
-    await page.setViewportSize({ width: 390, height: 844 });
-    await page.reload();
-    await expect(page.locator(".catalog-mobile-departments .catalog-departments")).toBeVisible();
-    const generalDepartment = page
-      .locator(".catalog-departments .catalog-item")
-      .filter({ has: page.getByText("General", { exact: true }) });
-    await expect(generalDepartment).toHaveCount(1);
-    await generalDepartment.click();
-    await expect(page.locator(".catalog-mobile-desks .catalog-desks")).toBeVisible();
-    const generalDesk = page
-      .locator(".catalog-desks .catalog-item")
-      .filter({ has: page.getByText("General", { exact: true }) });
-    await expect(generalDesk).toHaveCount(1);
-    await generalDesk.click();
-    await expect(page.locator(".catalog-mobile-categories .catalog-categories")).toBeVisible();
-    await expect(page.locator("body")).toHaveJSProperty("scrollWidth", 390);
-    const generalCategory = page.locator(".catalog-category").filter({
-      has: page.getByText("General", { exact: true }),
-    });
-    await expect(generalCategory).toHaveCount(1);
-    await generalCategory.focus();
-    await expect(generalCategory).toBeFocused();
-    await expect(obs.consoleErrors).toEqual([
-      "Failed to load resource: the server responded with a status of 422 (Unprocessable Entity)",
-    ]);
     await expect(obs.pageErrors).toEqual([]);
+    await expect(obs.failedResponses).toEqual([]);
   });
-
   test("changing the category preserves the ticket-creation draft", async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 800 });
     await loginAsSeeded(page);
@@ -639,48 +454,58 @@ test.describe("Ticket Lifecycle", () => {
     await page.setViewportSize({ width: 1280, height: 800 });
     const draftTitle = "Draft survives the picker " + Date.now();
 
-    await page.goto(base() + "/tickets/new");
-    await selectCatalogCategory(page, "General");
-    await page.getByLabel("Title").fill(draftTitle);
-    await page.getByLabel("Description").fill("Draft description");
-    await page.getByLabel("Priority").selectOption("high");
+    // The draft exists because changing category is a NAVIGATION: that is the
+    // two-step flow (#302), so this journey runs the instance in that mode and
+    // restores the default afterwards.
+    await setTicketCreationMode(page, "two_step");
+    try {
+      await page.goto(base() + "/tickets/new");
+      await selectCatalogCategory(page, "General");
+      await page.getByLabel("Title").fill(draftTitle);
+      await page.getByLabel("Description").fill("Draft description");
+      await chooseCreationPriority(page, "high");
 
-    // Change the category through the picker and re-select the SAME one.
-    await page.getByRole("link", { name: "Change", exact: true }).click();
-    await selectCatalogCategory(page, "General");
-    await expect(page.getByLabel("Title")).toHaveValue(draftTitle);
-    await expect(page.getByLabel("Description")).toHaveValue("Draft description");
-    await expect(page.getByLabel("Priority")).toHaveValue("high");
+      // Change the category through the link back to the catalog and re-select
+      // the SAME one.
+      await page.getByRole("link", { name: "Change", exact: true }).click();
+      await expect(page.locator(".create-catalog")).toBeVisible();
+      await selectCatalogCategory(page, "General");
+      await expect(page.getByLabel("Title")).toHaveValue(draftTitle);
+      await expect(page.getByLabel("Description")).toHaveValue("Draft description");
+      await expectCreationPriority(page, "High");
 
-    // Back/Forward must not lose it either.
-    await page.goBack();
-    await expect(page.locator(".catalog-page")).toBeVisible();
-    await page.goForward();
-    await expect(page.getByLabel("Title")).toHaveValue(draftTitle);
-    await expect(page.getByLabel("Description")).toHaveValue("Draft description");
-    await expect(page.getByLabel("Priority")).toHaveValue("high");
+      // Back/Forward must not lose it either.
+      await page.goBack();
+      await expect(page.locator(".create-catalog")).toBeVisible();
+      await page.goForward();
+      await expect(page.getByLabel("Title")).toHaveValue(draftTitle);
+      await expect(page.getByLabel("Description")).toHaveValue("Draft description");
+      await expectCreationPriority(page, "High");
 
-    // A different category inherits the compatible values (issue #302): the
-    // handoff opened from this form, so the target pulls the draft forward.
-    await page.getByRole("link", { name: "Change", exact: true }).click();
-    await selectCatalogCategory(page, other.category);
-    await expect(page.getByLabel("Title")).toHaveValue(draftTitle);
-    await expect(page.getByLabel("Description")).toHaveValue("Draft description");
-    await expect(page.getByLabel("Priority")).toHaveValue("high");
+      // A different category inherits the compatible values (issue #302): the
+      // handoff opened from this form, so the target pulls the draft forward.
+      await page.getByRole("link", { name: "Change", exact: true }).click();
+      await selectCatalogCategory(page, other.category);
+      await expect(page.getByLabel("Title")).toHaveValue(draftTitle);
+      await expect(page.getByLabel("Description")).toHaveValue("Draft description");
+      await expectCreationPriority(page, "High");
 
-    // Back on the original category the draft is still there; creating the
-    // ticket then clears it so the next creation does not inherit the text.
-    await page.getByRole("link", { name: "Change", exact: true }).click();
-    await selectCatalogCategory(page, "General");
-    await expect(page.getByLabel("Title")).toHaveValue(draftTitle);
-    await page.getByRole("button", { name: "Create ticket", exact: true }).click();
-    await expect(page).toHaveURL(/\/tickets$/);
+      // Back on the original category the draft is still there; creating the
+      // ticket then clears it so the next creation does not inherit the text.
+      await page.getByRole("link", { name: "Change", exact: true }).click();
+      await selectCatalogCategory(page, "General");
+      await expect(page.getByLabel("Title")).toHaveValue(draftTitle);
+      await page.getByRole("button", { name: "Create ticket", exact: true }).click();
+      await expect(page).toHaveURL(/\/tickets$/);
 
-    await page.goto(base() + "/tickets/new");
-    await selectCatalogCategory(page, "General");
-    await expect(page.getByLabel("Title")).toHaveValue("");
-    await expect(page.getByLabel("Description")).toHaveValue("");
-    await expect(page.getByLabel("Priority")).toHaveValue("medium");
+      await page.goto(base() + "/tickets/new");
+      await selectCatalogCategory(page, "General");
+      await expect(page.getByLabel("Title")).toHaveValue("");
+      await expect(page.getByLabel("Description")).toHaveValue("");
+      await expectCreationPriority(page, "Medium");
+    } finally {
+      await setTicketCreationMode(page, "single");
+    }
   });
 
   test("a draft value the target category cannot take is confirmed before it is dropped", async ({
@@ -693,12 +518,13 @@ test.describe("Ticket Lifecycle", () => {
     await page.setViewportSize({ width: 1280, height: 800 });
 
     const draftTitle = "Incompatible priority draft " + Date.now();
+    await setTicketCreationMode(page, "two_step");
     await page.goto(base() + "/tickets/new");
     await selectCatalogCategory(page, "General");
     const generalKey = `tktTicketDraft:${await page.locator('input[name="category_id"]').inputValue()}`;
     await page.getByLabel("Title").fill(draftTitle);
     await page.getByLabel("Description").fill("Kept description");
-    await page.getByLabel("Priority").selectOption("high");
+    await chooseCreationPriority(page, "high");
     // Defocus before tampering: blurring a dirty field fires `change`, which
     // would re-save the live form values over the payload under test.
     await page.evaluate(() => {
@@ -732,7 +558,7 @@ test.describe("Ticket Lifecycle", () => {
     // Cancelling preserves the draft and leaves the target untouched.
     await expect(page.getByLabel("Title")).toHaveValue("");
     await expect(page.getByLabel("Description")).toHaveValue("");
-    await expect(page.getByLabel("Priority")).toHaveValue("medium");
+    await expectCreationPriority(page, "Medium");
 
     // The source category still holds the text.
     await page.goto(base() + "/tickets/new");
@@ -746,7 +572,8 @@ test.describe("Ticket Lifecycle", () => {
     await selectCatalogCategory(page, other.category);
     await expect(page.getByLabel("Title")).toHaveValue(draftTitle);
     await expect(page.getByLabel("Description")).toHaveValue("Kept description");
-    await expect(page.getByLabel("Priority")).toHaveValue("medium");
+    await expectCreationPriority(page, "Medium");
+    await setTicketCreationMode(page, "single");
   });
 
   test("the target category's own draft wins a switch and says so", async ({ page }) => {
@@ -759,26 +586,27 @@ test.describe("Ticket Lifecycle", () => {
     const existing = "Target draft " + Date.now();
     const incoming = "Incoming draft " + Date.now();
 
+    await setTicketCreationMode(page, "two_step");
     // The target gets its own draft first.
     await page.goto(base() + "/tickets/new");
     await selectCatalogCategory(page, other.category);
     await page.getByLabel("Title").fill(existing);
     await page.getByLabel("Description").fill("Target description");
-    await page.getByLabel("Priority").selectOption("low");
+    await chooseCreationPriority(page, "low");
 
     // A different draft is typed in General, then switched to the target.
     await page.goto(base() + "/tickets/new");
     await selectCatalogCategory(page, "General");
     await page.getByLabel("Title").fill(incoming);
     await page.getByLabel("Description").fill("Incoming description");
-    await page.getByLabel("Priority").selectOption("high");
+    await chooseCreationPriority(page, "high");
     await page.getByRole("link", { name: "Change", exact: true }).click();
     await selectCatalogCategory(page, other.category);
 
     // The target's own draft stays; the notice says the source is still saved.
     await expect(page.getByLabel("Title")).toHaveValue(existing);
     await expect(page.getByLabel("Description")).toHaveValue("Target description");
-    await expect(page.getByLabel("Priority")).toHaveValue("low");
+    await expectCreationPriority(page, "Low");
     await expect(page.locator("#ticket-draft-notice")).toContainText("General");
     await expect(page.locator("#ticket-draft-notice")).toContainText("still saved");
 
@@ -787,6 +615,7 @@ test.describe("Ticket Lifecycle", () => {
     await selectCatalogCategory(page, "General");
     await expect(page.getByLabel("Title")).toHaveValue(incoming);
     await expect(page.getByLabel("Description")).toHaveValue("Incoming description");
+    await setTicketCreationMode(page, "single");
   });
 
   test("a tampered cross-category draft is refused by the storage guards", async ({ page }) => {
@@ -797,6 +626,7 @@ test.describe("Ticket Lifecycle", () => {
     await page.setViewportSize({ width: 1280, height: 800 });
 
     const draftTitle = "Guard draft " + Date.now();
+    await setTicketCreationMode(page, "two_step");
     await page.goto(base() + "/tickets/new");
     await selectCatalogCategory(page, "General");
     const generalKey = `tktTicketDraft:${await page.locator('input[name="category_id"]').inputValue()}`;
@@ -865,62 +695,96 @@ test.describe("Ticket Lifecycle", () => {
     });
     await page.goto(base() + `/tickets/new?category_id=${other.categoryID}`);
     await expect(page.getByLabel("Title")).toHaveValue("");
+    await setTicketCreationMode(page, "single");
   });
 
-  test("an unrunnable published category stays visible, is not a link, and says why", async ({
+  test("two-step creation: the catalog searches, a card opens the form, and Change goes back", async ({
     page,
   }) => {
+    // Issue #391, S4/S5. Two-step mode opens on a service catalog: a search box,
+    // then one section per department holding category cards captioned with their
+    // desk. A card opens the shared form with the category fixed, Change returns
+    // to the catalog, and a published category that cannot run stays visible with
+    // its reason instead of walking the requester into a refused submit.
     await page.setViewportSize({ width: 1280, height: 800 });
     const obs = collectObservability(page);
-    await page.goto(base() + "/login");
-    await page.getByLabel(/email/i).fill("alice@example.com");
-    await page.getByLabel(/password/i).fill("SuperSecret42!");
-    await page.getByRole("button", { name: /log in|sign in/i }).click();
-    await expect(page).toHaveURL(/\/tickets/);
+    await loginAsSeeded(page);
+    await setTicketCreationMode(page, "two_step");
+    try {
+      await page.goto(base() + "/tickets/new");
+      const catalog = page.locator(".create-catalog");
+      await expect(catalog).toBeVisible();
+      await expect(page.getByRole("heading", { name: "Create a ticket" })).toBeVisible();
+      await expect(
+        page.getByText("Choose a category to get started.", { exact: true }),
+      ).toBeVisible();
+      const search = page.locator("[data-create-catalog-search]");
+      await expect(search).toBeVisible();
 
-    // "Unstaffed Desk" is seeded staffed, published, then unstaffed: the only
-    // way to reach a published category that cannot move a ticket.
-    await page.goto(base() + "/tickets/new");
-    const unstaffedDesk = page
-      .locator(".catalog-desks .catalog-item")
-      .filter({ has: page.getByText("Unstaffed Desk", { exact: true }) });
-    await expect(unstaffedDesk).toHaveCount(1);
-    await unstaffedDesk.click();
+      // One section per department, holding name + desk caption cards.
+      const sections = catalog.locator(".create-catalog-department-group");
+      expect(await sections.count()).toBeGreaterThan(0);
+      const generalCard = page
+        .locator(".create-card")
+        .filter({ has: page.locator(".create-card-name", { hasText: /^General$/ }) });
+      await expect(generalCard).toHaveCount(1);
+      await expect(generalCard.locator(".create-card-desk")).toHaveText("General");
 
-    // The category IS published, so it must not be hidden behind the empty state:
-    // that copy would claim nothing is published while a published category is
-    // right there on screen.
-    await expect(page.getByText("No published categories in this desk yet.")).toHaveCount(0);
+      // The search filters the cards live, by category, desk or department, and
+      // hides the departments left with no match.
+      await search.fill("Unrunnable");
+      await expect(generalCard).toBeHidden();
+      const unavailableCard = catalog.locator(".create-card-unavailable");
+      await expect(unavailableCard).toHaveCount(1);
+      await expect(unavailableCard).toBeVisible();
+      await expect(unavailableCard).toContainText("Unrunnable Requests");
+      await expect(unavailableCard).toContainText(
+        "Can't run · Unstaffed Desk has no active members",
+      );
+      // A card that cannot run is never a link into the form.
+      await expect(unavailableCard).toHaveJSProperty("tagName", "DIV");
+      await expect(unavailableCard).toHaveAttribute("aria-disabled", "true");
+      await expect(unavailableCard).toHaveCSS("cursor", "not-allowed");
+      await expect(catalog.locator("a.create-card-unavailable")).toHaveCount(0);
 
-    const unavailable = page.locator(".catalog-category.unavailable");
-    await expect(unavailable).toHaveCount(1);
-    await expect(unavailable).toContainText("Unrunnable Requests");
-    await expect(unavailable).toContainText("Can't run · Unstaffed Desk has no active members");
+      // The server-side half of the same rule: ?q keeps working with no script.
+      await page.goto(base() + "/tickets/new?q=Unrunnable");
+      await expect(page.locator(".create-card-unavailable")).toBeVisible();
+      await expect(generalCard).toBeHidden();
+      await page.goto(base() + "/tickets/new?q=nothing-here");
+      await expect(page.locator(".create-catalog-empty")).toContainText(
+        "No categories match your search.",
+      );
 
-    // Nothing in the column is a link into a form whose submit the create guard
-    // will refuse, so the picker cannot walk the requester into a dead end.
-    await expect(page.locator("a.catalog-category")).toHaveCount(0);
-    await expect(unavailable.locator("a")).toHaveCount(0);
-    await expect(unavailable).toHaveCSS("cursor", "not-allowed");
+      // A card opens the shared form with the category fixed.
+      await page.goto(base() + "/tickets/new");
+      await openCatalogCard(page, "General");
+      const form = page.locator(".ticket-create-detail");
+      await expect(form).toHaveCount(1);
+      await expect(form.locator(".selected-catalog-path")).toContainText("General");
+      await expect(form.locator('input[name="category_id"]')).toHaveCount(1);
+      await expect(form.getByLabel("Title")).toBeVisible();
+      await expect(form.locator(".ticket-create-timeline")).toHaveCount(0);
 
-    // The reason is the whole point of the row, so it must be painted with the
-    // same muted token the description uses — never quieter, and never a token
-    // invented for this one surface. The Go tests cannot see real CSS.
-    const reasonColor = await unavailable
-      .locator(".catalog-category-reason")
-      .evaluate((element) => getComputedStyle(element).color);
-    const descriptionColor = await unavailable
-      .locator("small")
-      .evaluate((element) => getComputedStyle(element).color);
-    expect(reasonColor).toBe(descriptionColor);
+      // Change goes back to the catalog, not to a category picker.
+      await form.getByRole("link", { name: "Change", exact: true }).click();
+      await expect(page).toHaveURL(/\/tickets\/new$/);
+      await expect(page.locator(".create-catalog")).toBeVisible();
 
-    // The row still holds its place at the narrow width instead of overflowing.
-    await page.setViewportSize({ width: 390, height: 844 });
-    await page.reload();
-    await expect(page.locator("body")).toHaveJSProperty("scrollWidth", 390);
-    await expect(page.locator(".catalog-category.unavailable")).toHaveCount(1);
+      // The catalog holds its layout at 390px with no horizontal scroll.
+      await page.setViewportSize({ width: 390, height: 844 });
+      await expect(page.locator("body")).toHaveJSProperty("scrollWidth", 390);
+      await expect(page.locator(".create-catalog-grid").first()).toHaveCSS(
+        "grid-template-columns",
+        /.+/,
+      );
+      await expect(page.locator("body")).toHaveJSProperty("scrollWidth", 390);
 
-    await expect(obs.pageErrors).toEqual([]);
+      await expect(obs.pageErrors).toEqual([]);
+    } finally {
+      await page.setViewportSize({ width: 1280, height: 800 });
+      await setTicketCreationMode(page, "single");
+    }
   });
 
   test("search filter shows filtered results and empty state", async ({ page }) => {
@@ -1850,21 +1714,16 @@ test.describe("Ticket list SLA visibility (seeded)", () => {
 });
 
 /**
- * Create-form fallback category select (issue #247).
+ * Create-form category picker (issues #247, #391).
  *
- * The normal create form shows the chosen category read-only, so the picker
- * already handles an unrunnable category (#239). The fallback branch — reached
- * by GET /tickets/new?category_id=0, where parseID("0") == 0 leaves no category
- * selected — built its own <select> from the narrower published-only rule, so it
- * offered "Unrunnable Requests" as a choosable option even though every submit
- * against it is refused.
- *
- * This journey proves the fallback select reads the SAME viability facts as the
- * picker: the published-but-unrunnable category is present, disabled, and
- * carries its reason; a healthy category stays selectable; and a never-published
- * category stays absent.
+ * The picker is a native select, so it carries the viability facts the whole
+ * create flow reads: a published-but-unrunnable category is present, disabled,
+ * and says why (#239/#247); a healthy category stays selectable; and a
+ * never-published one stays absent. Issue #391 put that select into the form
+ * itself — GET /tickets/new?category_id=0 is the request that leaves no category
+ * selected — and the enhancement above it must not lose any of it.
  */
-test.describe("Create fallback category select (seeded)", () => {
+test.describe("Create category picker options (seeded)", () => {
   test.beforeAll(async () => {
     await startServer({ seed: true });
   });
@@ -1872,7 +1731,9 @@ test.describe("Create fallback category select (seeded)", () => {
     await stopServer();
   });
 
-  test("an unrunnable published category is a disabled option that says why", async ({ page }) => {
+  test("an unrunnable published category is a disabled picker option that says why", async ({
+    page,
+  }) => {
     await page.setViewportSize({ width: 1280, height: 800 });
     const obs = collectObservability(page);
     await page.goto(base() + "/login");
@@ -1881,8 +1742,8 @@ test.describe("Create fallback category select (seeded)", () => {
     await page.getByRole("button", { name: /log in|sign in/i }).click();
     await expect(page).toHaveURL(/\/tickets/);
 
-    // The fallback branch: no category is selected, so the form renders its own
-    // select instead of the picker. This is a real GET path the page exposes.
+    // No category is selected, so the form renders the picker itself. This is a
+    // real GET path the page exposes (`?category_id=0` parses as "none").
     await page.goto(base() + "/tickets/new?category_id=0");
     const select = page.locator("#category_id");
     await expect(select).toBeVisible();
@@ -1909,12 +1770,14 @@ test.describe("Create fallback category select (seeded)", () => {
   });
 });
 
-// Issue #248: the picker's department and desk numbers must count exactly the
-// categories that picker offers. The admin structure keeps the total (it lists
-// drafts too), so the two surfaces are deliberately allowed to disagree for
-// the same desk: 2 on the structure, 1 on the picker. This invariant is what a
-// future re-point at the total field would break.
-test.describe("Ticket picker counts (seeded)", () => {
+// Issue #248 asked the requester picker's counts to agree with what it offers.
+// The redesigned creation (issue #391) no longer counts anything: the single-page
+// picker groups by desk and the two-step catalog shows every card. The invariant
+// that still matters — and that #248 protected — is which categories those
+// surfaces offer: only published ones, and never a draft. A desk holding one
+// published and one draft category must therefore show exactly one of them on
+// each requester surface.
+test.describe("Requester creation surfaces (seeded)", () => {
   test.beforeAll(async () => {
     await startServer({ seed: true });
   });
@@ -1922,75 +1785,146 @@ test.describe("Ticket picker counts (seeded)", () => {
     await stopServer();
   });
 
-  test("the picker count agrees with the categories the picker offers", async ({ page }) => {
+  test("a draft category is offered by neither creation flow while the published one is", async ({
+    page,
+  }) => {
     await page.setViewportSize({ width: 1280, height: 800 });
     const obs = collectObservability(page);
-    await page.goto(base() + "/login");
-    await page.getByLabel(/email/i).fill("alice@example.com");
-    await page.getByLabel(/password/i).fill("SuperSecret42!");
-    await page.getByRole("button", { name: /log in|sign in/i }).click();
-    await expect(page).toHaveURL(/\/tickets/);
-    // Let the login navigation settle before the fixture navigates away; a
-    // still-pending navigation otherwise stalls the next click's actionability.
+    await loginAsSeeded(page);
     await expect(
       page.locator(".tickets-header").getByRole("heading", { name: "Tickets", exact: true }),
     ).toBeVisible();
 
-    // The shared fixture helper drives the mobile catalog-creation nav, so it
-    // runs at the narrow viewport; the picker assertions below use the desktop
-    // three-column layout.
     await page.setViewportSize({ width: 390, height: 844 });
     const fixture = await createPublishedHierarchyFixture(page);
+    await page.setViewportSize({ width: 1280, height: 800 });
 
-    // Add a second, UNPUBLISHED category to the same desk. The admin structure
-    // lists it, so its desk total must rise to 2; the picker offers only the
-    // published one, so its desk count must stay 1.
+    // Add a second, UNPUBLISHED category to the same desk: the admin structure
+    // lists it, the requester surfaces must not.
     await page.goto(base() + "/categories?view=structure");
-    const structureDepartment = catalogNode(page, "department", fixture.department);
-    await expect(structureDepartment).toHaveCount(1);
     const structureDesk = catalogNode(page, "desk", fixture.desk);
     await expect(structureDesk).toHaveCount(1);
     const deskID = await catalogNodeId(structureDesk, `desk ${fixture.desk}`);
     expect(deskID, `cannot resolve fixture desk ${fixture.desk} at ${page.url()}`).toBeTruthy();
-    // The tree's desk row renders the categories it holds, so the count is the
-    // rows behind that desk rather than a separate "N categories" label.
-    await expect(
-      page.locator(`[data-level="desk"][data-catalog-id="${deskID}"] [data-level="category"]`),
-    ).toHaveCount(1);
-
     await openCatalogNewMenu(page, "New category");
     const categoryDrawer = page.getByRole("dialog", { name: /New category/i });
     await expect(categoryDrawer).toBeVisible();
     await categoryDrawer.locator("select[name=department_id]").selectOption(fixture.departmentID);
-    await categoryDrawer.locator("select[name=desk_id]").selectOption(deskID!);
+    await categoryDrawer.locator("select[name=desk_id]").selectOption(deskID);
     await categoryDrawer.locator("#category-name").fill(`${fixture.category} Draft`);
     await categoryDrawer.getByRole("button", { name: /create category/i }).click();
-
-    // The admin tree renders drafts, so it now lists the new category too.
     await expect(
       page.locator(`[data-level="desk"][data-catalog-id="${deskID}"] [data-level="category"]`),
     ).toHaveCount(2);
 
-    // On the picker the number must equal the category rows that picker lists.
-    await page.setViewportSize({ width: 1280, height: 800 });
+    // The single-page picker offers exactly one option in that desk's group.
     await page.goto(base() + "/tickets/new");
-    const pickerDepartment = page
-      .locator(".catalog-departments .catalog-item")
-      .filter({ has: page.getByText(fixture.department, { exact: true }) });
-    await expect(pickerDepartment).toHaveCount(1);
-    await pickerDepartment.click();
-    const pickerDesk = page
-      .locator(".catalog-desks .catalog-item")
-      .filter({ has: page.getByText(fixture.desk, { exact: true }) });
-    await expect(pickerDesk).toHaveCount(1);
-    await pickerDesk.click();
+    const pickerButton = creationCategoryPicker(page).locator(".listbox-button");
+    await pickerButton.click();
+    const deskGroup = creationCategoryPicker(page)
+      .locator(".listbox-group")
+      .filter({ has: page.locator(".listbox-group-label", { hasText: fixture.desk }) });
+    await expect(deskGroup).toHaveCount(1);
+    await expect(deskGroup.locator(".listbox-option")).toHaveCount(1);
+    await expect(deskGroup).toContainText(fixture.category);
+    await expect(deskGroup).not.toContainText(`${fixture.category} Draft`);
+    await page.keyboard.press("Escape");
 
-    const listedCategories = page.locator(".catalog-categories .catalog-category");
-    await expect(listedCategories).toHaveCount(1);
-    await expect(listedCategories).toContainText(fixture.category);
-    const listedCount = await listedCategories.count();
-    const badge = (await pickerDesk.locator("small").textContent())?.trim() ?? "";
-    expect(Number.parseInt(badge, 10)).toBe(listedCount);
+    // The two-step catalog offers exactly the same single card.
+    await setTicketCreationMode(page, "two_step");
+    try {
+      await page.goto(base() + "/tickets/new");
+      const search = page.locator("[data-create-catalog-search]");
+      await search.fill(fixture.category);
+      const cards = page.locator(".create-card").filter({ hasText: fixture.category });
+      await expect(cards).toHaveCount(1);
+      await expect(cards).not.toContainText(`${fixture.category} Draft`);
+    } finally {
+      await setTicketCreationMode(page, "single");
+    }
+
+    await expect(obs.pageErrors).toEqual([]);
+  });
+});
+
+/**
+ * Issue #391, S8: creating a ticket must not depend on JavaScript in EITHER
+ * mode. Both creation surfaces are progressive enhancements of native markup —
+ * a grouped <select> and a GET form — so with scripting off the picker is a
+ * plain select and the catalog's server-side ?q is the search.
+ */
+test.describe("Ticket creation without scripting (seeded)", () => {
+  test.use({ javaScriptEnabled: false });
+
+  test.beforeAll(async () => {
+    await startServer({ seed: true });
+  });
+  test.afterAll(async () => {
+    await stopServer();
+  });
+
+  test("single-page mode creates from the native select", async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    const obs = collectObservability(page);
+    await loginAsSeeded(page);
+
+    await page.goto(base() + "/tickets/new");
+    // No script ran, so the enhancement never replaced the select.
+    await expect(page.locator(".create-listbox")).toHaveCount(0);
+    const select = page.locator('.ticket-create-detail select[name="category_id"]');
+    await expect(select).toBeVisible();
+    // One optgroup per "Department › Desk".
+    const groups = select.locator("optgroup");
+    expect(await groups.count()).toBeGreaterThan(0);
+    await select.selectOption({ label: "General" });
+
+    const title = "No-script single page " + Date.now().toString(36);
+    await page.getByLabel(/title/i).fill(title);
+    await page.getByLabel(/description/i).fill("Created without a script");
+    await page.locator('.ticket-create-detail select[name="priority"]').selectOption("low");
+    await page.getByRole("button", { name: /create ticket/i }).click();
+    await expect(page).toHaveURL(/\/tickets$/);
+    const row = page.getByRole("link", { name: title, exact: true });
+    await expect(row).toHaveCount(1);
+    await expect(row.locator("xpath=ancestor::tr").locator("td.priority")).toContainText("Low");
+
+    await expect(obs.pageErrors).toEqual([]);
+  });
+
+  test("two-step mode creates from the server-rendered catalog", async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    const obs = collectObservability(page);
+    await loginAsSeeded(page);
+    // The setting is a plain form POST, so it saves with no script either.
+    await setTicketCreationMode(page, "two_step");
+    try {
+      await page.goto(base() + "/tickets/new");
+      await expect(page.locator(".create-catalog")).toBeVisible();
+      // The server-side search filters the cards, because the live filter needs
+      // a script this context does not run.
+      const search = page.locator("[data-create-catalog-search]");
+      await search.fill("General");
+      await search.press("Enter");
+      await expect(page).toHaveURL(/\/tickets\/new\?q=General$/);
+      const card = page.locator(".create-card").filter({
+        has: page.locator(".create-card-name", { hasText: /^General$/ }),
+      });
+      await expect(card).toHaveCount(1);
+      await expect(card).toBeVisible();
+      await card.click();
+
+      await expect(page.locator(".ticket-create-detail")).toBeVisible();
+      await expect(page.locator(".selected-catalog-path")).toContainText("General");
+      const title = "No-script two steps " + Date.now().toString(36);
+      await page.getByLabel(/title/i).fill(title);
+      await page.getByLabel(/description/i).fill("Created from a catalog card");
+      await page.locator('.ticket-create-detail select[name="priority"]').selectOption("medium");
+      await page.getByRole("button", { name: /create ticket/i }).click();
+      await expect(page).toHaveURL(/\/tickets$/);
+      await expect(page.getByRole("link", { name: title, exact: true })).toHaveCount(1);
+    } finally {
+      await setTicketCreationMode(page, "single");
+    }
 
     await expect(obs.pageErrors).toEqual([]);
   });

@@ -90,6 +90,7 @@ func (h *SettingsHandlers) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /settings", h.index)
 	mux.HandleFunc("GET /settings/{section}", h.section)
 	mux.HandleFunc("POST /settings/appearance", h.updateAppearance)
+	mux.HandleFunc("POST /settings/ticket-creation", h.updateTicketCreation)
 	mux.HandleFunc("POST /settings/language", h.updateLanguage)
 	mux.HandleFunc("POST /settings/sla", h.updateSLA)
 	mux.HandleFunc("POST /settings/hold-auto-close", h.updateHoldAutoClose)
@@ -191,12 +192,15 @@ type settingsLanguageData struct {
 }
 
 // settingsTicketsData is the Tickets section payload: the internal-comment
-// background control and the SLA panel, which are two forms on one page
-// because both are ticket configuration (S2, L2).
+// background control, the ticket creation flow and the SLA panel, which are
+// three forms on one page because all three are ticket configuration (S2, L2;
+// issue #391, S1).
 type settingsTicketsData struct {
 	settingsSectionData
 	Current           string
 	Colors            []appearanceOption
+	CreationMode      string
+	CreationModes     []ticketCreationOption
 	SLAEnabled        bool
 	SLAWarningPercent int
 	SLAGrid           slaGridData
@@ -380,6 +384,54 @@ func appearanceOptions() []appearanceOption {
 		out = append(out, appearanceOption{Value: c, Label: labels[c]})
 	}
 	return out
+}
+
+// ticketCreationOption pairs a stored ticket-creation mode with the catalogue
+// key of its display label (issue #391, S1).
+type ticketCreationOption struct {
+	Value string
+	Label string
+}
+
+// ticketCreationOptions lists the shipped creation flows in the order the panel
+// offers them: the recommended one first, since it is also the default.
+func ticketCreationOptions() []ticketCreationOption {
+	labels := map[string]string{
+		application.TicketCreationSingle:  "settings.ticket_creation.single",
+		application.TicketCreationTwoStep: "settings.ticket_creation.two_step",
+	}
+	modes := application.AllowedTicketCreationModes()
+	out := make([]ticketCreationOption, 0, len(modes))
+	for _, mode := range modes {
+		out = append(out, ticketCreationOption{Value: mode, Label: labels[mode]})
+	}
+	return out
+}
+
+// updateTicketCreation persists the instance ticket creation flow (issue #391,
+// S1). A rejected mode re-renders the Tickets section with an inline error (422)
+// and changes nothing; success redirects 303 back to the section with the same
+// save feedback every other settings form uses.
+func (h *SettingsHandlers) updateTicketCreation(w http.ResponseWriter, r *http.Request) {
+	if !requireCapability(w, r, application.CapManageSettings) {
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		httpError(w, r, "error.internal_server", http.StatusInternalServerError)
+		return
+	}
+	err := h.settings.SetTicketCreationMode(r.Context(), *userFromContext(r.Context()), r.Form.Get("ticket_creation_mode"))
+	if err != nil {
+		status, msg := mapErrorFor(r, err)
+		if status == http.StatusInternalServerError {
+			http.Error(w, msg, status)
+			return
+		}
+		h.renderTickets(w, r, status, msg, nil)
+		return
+	}
+	saveFeedback(w, r, saveFeedbackSaved, saveFeedbackSuccess)
+	redirect(w, r, settingsSectionHref(settingsSectionTickets))
 }
 
 // index answers GET /settings: the surface has no page of its own any more, so
@@ -667,7 +719,14 @@ func (h *SettingsHandlers) renderTickets(w http.ResponseWriter, r *http.Request,
 		settingsSectionData: h.sectionData(r, settingsSectionTickets),
 		Current:             current,
 		Colors:              appearanceOptions(),
+		CreationModes:       ticketCreationOptions(),
 	}
+	mode, err := h.settings.GetTicketCreationMode(r.Context())
+	if err != nil {
+		httpError(w, r, "error.internal_server", http.StatusInternalServerError)
+		return
+	}
+	data.CreationMode = mode
 	data.Error = message
 	if err := h.loadSLA(r, &data); err != nil {
 		httpError(w, r, "error.internal_server", http.StatusInternalServerError)

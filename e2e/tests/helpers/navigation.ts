@@ -3,8 +3,14 @@ import { base } from "./auth.js";
 
 /**
  * Create a ticket via the UI and return its numeric ID.
- * Navigates to /tickets/new, fills the form, submits, and extracts the ID
- * from the resulting page URL or ticket link.
+ *
+ * Creation has two modes since issue #391 and this helper speaks both, because
+ * every journey that needs a ticket should not care which flow the instance is
+ * configured with:
+ *  - single page (the default): the category is a picker in the properties
+ *    panel, a native select enhanced into the detail's listbox;
+ *  - two steps: the service catalog's card for the category opens the form with
+ *    the category already fixed.
  */
 export async function createTicketViaUi(
   page: Page,
@@ -29,24 +35,19 @@ export async function createTicketViaUi(
   await page.goto(base() + "/tickets/new");
   await expect(page.getByRole("heading", { name: "Create a ticket" })).toBeVisible();
 
-  // Select the exact catalog category. Search is the deterministic fallback
-  // for categories outside the first department/desk.
-  let categoryLink = page.locator(".catalog-category").filter({ hasText: category }).first();
-  if ((await categoryLink.count()) === 0) {
-    const search = page.getByPlaceholder(/search categories, desks, or departments/i);
-    await search.fill(category);
-    await search.press("Enter");
-    categoryLink = page.locator(".catalog-result").filter({ hasText: category }).first();
+  const picker = page.locator("#create-category-picker");
+  if (await picker.count()) {
+    await pickCreationCategory(page, category);
+  } else {
+    await openCatalogCard(page, category);
+    await expect(page.locator(".ticket-create-detail .selected-catalog-path")).toContainText(
+      category,
+    );
   }
-  if ((await categoryLink.count()) !== 1) {
-    throw new Error(`Expected exactly one catalog category "${category}" at ${page.url()}`);
-  }
-  await categoryLink.click();
-  await expect(page.locator(".selected-catalog-path")).toContainText(category);
 
   await page.getByLabel(/title/i).fill(title);
   await page.getByLabel(/description/i).fill(description);
-  await page.getByLabel(/priority/i).selectOption(priority);
+  await chooseCreationPriority(page, priority);
   if (o.attachments?.length) {
     await page.locator('input[type="file"][name="attachments"]').setInputFiles(o.attachments);
   }
@@ -67,6 +68,82 @@ export async function createTicketViaUi(
     `could not extract ticket id for "${title}" using ${titleSelector} at ${page.url()} — ` +
       `href was ${href ?? "null"}`,
   );
+}
+
+/**
+ * One enhanced create-form picker (issue #391, S3): the listbox root that holds
+ * the opener button, the value it shows and the popover of options. The id the
+ * script assigns addresses the BUTTON (that is what the page's own markup names
+ * for the closed control), so the root is its parent.
+ */
+export function creationPicker(page: Page, field: "category" | "priority"): Locator {
+  return page.locator(`.ticket-create-detail #create-${field}-picker`).locator("xpath=..");
+}
+
+/** The create form's category picker root. */
+export function creationCategoryPicker(page: Page): Locator {
+  return creationPicker(page, "category");
+}
+
+/** The create form's priority picker root. */
+export function creationPriorityPicker(page: Page): Locator {
+  return creationPicker(page, "priority");
+}
+
+/**
+ * Pick a category in the single-page picker: open it, search, and click the
+ * exact option. The search narrows the list the way a person would, which is
+ * also what proves the picker filters by category, desk and department name.
+ */
+export async function pickCreationCategory(page: Page, category: string): Promise<void> {
+  const picker = creationCategoryPicker(page);
+  const button = picker.locator(".listbox-button");
+  await expect(button).toBeVisible();
+  await button.click();
+  await expect(button).toHaveAttribute("aria-expanded", "true");
+  const search = picker.locator(".listbox-search");
+  await search.fill(category);
+  const option = picker.locator(".listbox-option").filter({
+    has: page.locator(".listbox-option-label", {
+      hasText: new RegExp(`^${escapeRegExp(category)}$`),
+    }),
+  });
+  await expect(option).toHaveCount(1);
+  await option.click();
+  await expect(button).toContainText(category);
+}
+
+/**
+ * Choose the create form's priority. With a script the picker is the detail's
+ * listbox; without one it stays the native select the page ships.
+ */
+export async function chooseCreationPriority(page: Page, priority: string): Promise<void> {
+  const picker = creationPriorityPicker(page);
+  if (await picker.count()) {
+    const button = picker.locator(".listbox-button");
+    await button.click();
+    await picker.locator(`.listbox-option[value="${priority}"]`).click();
+    await expect(button).toHaveAttribute("aria-expanded", "false");
+    return;
+  }
+  await page.locator('.ticket-create-detail select[name="priority"]').selectOption(priority);
+}
+
+/** Open the two-step catalog's card for one exact category name. */
+export async function openCatalogCard(page: Page, category: string): Promise<void> {
+  await expect(page.locator(".create-catalog")).toBeVisible();
+  const search = page.locator("[data-create-catalog-search]");
+  await search.fill(category);
+  const card = page.locator(".create-card").filter({
+    has: page.locator(".create-card-name", { hasText: new RegExp(`^${escapeRegExp(category)}$`) }),
+  });
+  await expect(card).toHaveCount(1);
+  await card.click();
+  await expect(page).toHaveURL(/\/tickets\/new\?category_id=\d+$/);
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 /**

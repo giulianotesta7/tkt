@@ -9,23 +9,21 @@
         <input type="text" id="title" name="title" value="Login page down" required autofocus class="title-input">
       </div>
     </div>
+    <div class="command-actions"><a class="page-action page-action-secondary" href="/tickets">Back to queue</a></div>
   </div>
-  <input type="hidden" name="category_id" value="1">
   <div class="cards">
     <div class="conversation">
       <section class="card ticket-create-description">
         <h2><label for="description">Description</label></h2>
-        <textarea id="description" name="description">The login form 500s on submit</textarea>
-        <div class="field">
-          <label for="attachments">Attachments</label>
+        <textarea id="description" name="description" class="ticket-create-textarea">The login form 500s on submit</textarea>
+        <label class="comment-dropzone ticket-create-dropzone">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 11.5 12.5 19a5 5 0 0 1-7-7l7.5-7.5a3.5 3.5 0 0 1 5 5L10.5 17a2 2 0 0 1-3-3l7-7"/></svg>
+          <span>Attachments</span>
           <input type="file" id="attachments" name="attachments" multiple accept=".png,.jpg,.jpeg,.gif,.webp,.pdf,.docx,.xlsx,.pptx,.txt,.csv,.log,.zip">
-          <p class="help">Up to 5 files, 10 MB each</p>
-        </div>
+          <span class="comment-dropzone-files" data-dropzone-files></span>
+        </label>
+        <p class="help">Up to 5 files, 10 MB each</p>
         <div class="ticket-create-actions"><button class="btn primary" type="submit">Create ticket</button></div>
-      </section>
-      <section class="card ticket-create-timeline">
-        <h2>Timeline</h2>
-        <p class="empty">No activity yet.</p>
       </section>
     </div>
     <aside class="evidence" aria-label="Ticket creation properties">
@@ -33,12 +31,8 @@
         <div class="prop-section">
           <div class="prop-heading">Properties</div>
           <div class="prop-row"><span class="prop-label">Requester</span><span class="prop-value">Ana Torres</span></div>
-          <div class="prop-row"><span class="prop-label">Category</span><span class="prop-value selected-catalog-path"><span>Technology / Service desk / Bugs</span><a href="/tickets/new">Change</a></span></div>
-          <div class="prop-row"><label class="prop-label" for="priority">Priority</label><select id="priority" name="priority" class="prop-select"><option value="critical" >Critical</option><option value="high" selected>High</option><option value="medium" >Medium</option><option value="low" >Low</option></select></div>
-        </div>
-        <div class="prop-section">
-          <div class="prop-heading">Assignment</div>
-          <div class="prop-row"><span class="prop-label">Assignee</span><span class="prop-value">Not assigned yet</span></div>
+          <div class="prop-row"><span class="prop-label" id="create-category-label">Category</span><span class="prop-control create-picker" data-create-picker data-picker-search="Search categories, desks, or departments" data-picker-empty="No category matches that search."><select id="category_id" name="category_id" class="prop-select" required aria-labelledby="create-category-label"><option value="">Select category</option><optgroup label="Technology › Service desk"><option value="1" selected>Bugs</option><option value="2" disabled>Printers — Can&#39;t run · Service desk has no active members</option></optgroup></select></span></div>
+          <div class="prop-row"><span class="prop-label" id="create-priority-label">Priority</span><span class="prop-control create-picker" data-create-picker><select id="priority" name="priority" class="prop-select" aria-labelledby="create-priority-label"><option value="critical">Critical</option><option value="high" selected>High</option><option value="medium">Medium</option><option value="low">Low</option></select></span></div>
         </div>
       </div>
     </aside>
