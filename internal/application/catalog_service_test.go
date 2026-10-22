@@ -564,3 +564,55 @@ func TestCatalogServiceDeskMembershipForPropagatesStoreErrors(t *testing.T) {
 
 var _ application.CatalogStore = (*catalogServiceStore)(nil)
 var _ domain.Clock = (*fakeClock)(nil)
+
+// treeCatalogStore is a catalog store that also answers the bounded tree
+// projection (issue #387, S8): the desk health read and the SLA default match.
+type treeCatalogStore struct {
+	*catalogServiceStore
+	desks []domain.CatalogDesk
+	sla   []int64
+	err   error
+}
+
+func (s *treeCatalogStore) ListTreeDesks(context.Context) ([]domain.CatalogDesk, error) {
+	return s.desks, s.err
+}
+
+func (s *treeCatalogStore) ListDefaultSLACategories(context.Context) ([]int64, error) {
+	return s.sla, s.err
+}
+
+// The tree projection is an optional port: a store that cannot answer it says so
+// instead of reporting an installation with no desks.
+func TestCatalogServiceTreeProjectionsRequireTheTreeStore(t *testing.T) {
+	svc := application.NewCatalogService(&catalogOnlyStore{}, newFakeCategoryStore(), fixedClock())
+	if _, err := svc.ListTreeDesks(context.Background()); err == nil {
+		t.Fatal("ListTreeDesks must report a missing projection")
+	}
+	if _, err := svc.ListDefaultSLACategories(context.Background()); err == nil {
+		t.Fatal("ListDefaultSLACategories must report a missing projection")
+	}
+}
+
+func TestCatalogServiceTreeProjectionsDelegateAndPropagateErrors(t *testing.T) {
+	ctx := context.Background()
+	want := errors.New("projection unavailable")
+	desk := domain.CatalogDesk{Desk: domain.Desk{ID: 7, Name: "Support"}, AgentCount: 2, OpenTickets: 3}
+	svc := application.NewCatalogService(&treeCatalogStore{catalogServiceStore: &catalogServiceStore{}, desks: []domain.CatalogDesk{desk}, sla: []int64{5}}, newFakeCategoryStore(), fixedClock())
+	desks, err := svc.ListTreeDesks(ctx)
+	if err != nil || len(desks) != 1 || desks[0].AgentCount != 2 {
+		t.Fatalf("ListTreeDesks = %+v, %v", desks, err)
+	}
+	defaults, err := svc.ListDefaultSLACategories(ctx)
+	if err != nil || len(defaults) != 1 || defaults[0] != 5 {
+		t.Fatalf("ListDefaultSLACategories = %+v, %v", defaults, err)
+	}
+
+	failing := application.NewCatalogService(&treeCatalogStore{catalogServiceStore: &catalogServiceStore{}, err: want}, newFakeCategoryStore(), fixedClock())
+	if _, err := failing.ListTreeDesks(ctx); !errors.Is(err, want) {
+		t.Fatalf("ListTreeDesks error = %v, want %v", err, want)
+	}
+	if _, err := failing.ListDefaultSLACategories(ctx); !errors.Is(err, want) {
+		t.Fatalf("ListDefaultSLACategories error = %v, want %v", err, want)
+	}
+}
