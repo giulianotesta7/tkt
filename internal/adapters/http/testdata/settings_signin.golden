@@ -118,17 +118,17 @@
           <label><input type="radio" name="content" value="highlights" checked>Highlights</label>
           <label><input type="radio" name="content" value="none">None</label>
         </fieldset>
-        <div class="settings-highlights">
+        <div class="settings-highlights" data-editor-zone="highlights">
           <div class="settings-highlight" data-highlight-row="0">
             <div class="field">
               <label for="highlight_0_icon">Icon</label>
               <select id="highlight_0_icon" name="highlight_0_icon" data-preview-hl-icon="0">
-                <option value="clock" selected data-icon="%3csvg%20viewBox=%220%200%2024%2024%22%20width=%2216%22%20height=%2216%22%20fill=%22none%22%20stroke=%22currentColor%22%20stroke-width=%221.8%22%20stroke-linecap=%22round%22%20stroke-linejoin=%22round%22%20aria-hidden=%22true%22%3e%3ccircle%20cx=%2212%22%20cy=%2212%22%20r=%228%22/%3e%3cpath%20d=%22M12%208v4l3%202%22/%3e%3c/svg%3e">Clock</option>
-                <option value="phone" data-icon="%3csvg%20viewBox=%220%200%2024%2024%22%20width=%2216%22%20height=%2216%22%20fill=%22none%22%20stroke=%22currentColor%22%20stroke-width=%221.8%22%20stroke-linecap=%22round%22%20stroke-linejoin=%22round%22%20aria-hidden=%22true%22%3e%3cpath%20d=%22M6%204h3l2%205-2%201a10%2010%200%200%200%205%205l1-2%205%202v3a2%202%200%200%201-2%202A16%2016%200%200%201%204%206a2%202%200%200%201%202-2z%22/%3e%3c/svg%3e">Phone</option>
-                <option value="check" data-icon="%3csvg%20viewBox=%220%200%2024%2024%22%20width=%2216%22%20height=%2216%22%20fill=%22none%22%20stroke=%22currentColor%22%20stroke-width=%221.8%22%20stroke-linecap=%22round%22%20stroke-linejoin=%22round%22%20aria-hidden=%22true%22%3e%3cpath%20d=%22M4%2012.5l5%205L20%206.5%22/%3e%3c/svg%3e">Check</option>
-                <option value="shield" data-icon="%3csvg%20viewBox=%220%200%2024%2024%22%20width=%2216%22%20height=%2216%22%20fill=%22none%22%20stroke=%22currentColor%22%20stroke-width=%221.8%22%20stroke-linecap=%22round%22%20stroke-linejoin=%22round%22%20aria-hidden=%22true%22%3e%3cpath%20d=%22M12%203l7%203v6c0%204.5-3%207.5-7%209-4-1.5-7-4.5-7-9V6l7-3z%22/%3e%3c/svg%3e">Shield</option>
-                <option value="chat" data-icon="%3csvg%20viewBox=%220%200%2024%2024%22%20width=%2216%22%20height=%2216%22%20fill=%22none%22%20stroke=%22currentColor%22%20stroke-width=%221.8%22%20stroke-linecap=%22round%22%20stroke-linejoin=%22round%22%20aria-hidden=%22true%22%3e%3cpath%20d=%22M4%205h16v11H9l-5%204V5z%22/%3e%3c/svg%3e">Chat</option>
-                <option value="info" data-icon="%3csvg%20viewBox=%220%200%2024%2024%22%20width=%2216%22%20height=%2216%22%20fill=%22none%22%20stroke=%22currentColor%22%20stroke-width=%221.8%22%20stroke-linecap=%22round%22%20stroke-linejoin=%22round%22%20aria-hidden=%22true%22%3e%3ccircle%20cx=%2212%22%20cy=%2212%22%20r=%228%22/%3e%3cpath%20d=%22M12%2011v6%22/%3e%3cpath%20d=%22M12%207.5v.5%22/%3e%3c/svg%3e">Info</option>
+                <option value="clock" selected>Clock</option>
+                <option value="phone">Phone</option>
+                <option value="check">Check</option>
+                <option value="shield">Shield</option>
+                <option value="chat">Chat</option>
+                <option value="info">Info</option>
               </select>
             </div>
             <div class="field">
@@ -139,18 +139,18 @@
               <label for="highlight_0_text">Text</label>
               <input type="text" id="highlight_0_text" name="highlight_0_text" value="Los críticos en menos de 30 min." maxlength="120" data-preview-hl-text="0">
             </div>
-            <button class="btn settings-highlight-remove" type="button" data-highlight-remove="0" aria-label="Remove highlight">Remove highlight</button>
+            <button class="btn settings-highlight-remove" type="button" data-highlight-remove="0" aria-label="Remove highlight"><span aria-hidden="true">×</span></button>
           </div>
           <div class="settings-highlight" data-highlight-row="1">
             <div class="field">
               <label for="highlight_1_icon">Icon</label>
               <select id="highlight_1_icon" name="highlight_1_icon" data-preview-hl-icon="1">
-                <option value="clock" data-icon="%3csvg%20viewBox=%220%200%2024%2024%22%20width=%2216%22%20height=%2216%22%20fill=%22none%22%20stroke=%22currentColor%22%20stroke-width=%221.8%22%20stroke-linecap=%22round%22%20stroke-linejoin=%22round%22%20aria-hidden=%22true%22%3e%3ccircle%20cx=%2212%22%20cy=%2212%22%20r=%228%22/%3e%3cpath%20d=%22M12%208v4l3%202%22/%3e%3c/svg%3e">Clock</option>
-                <option value="phone" selected data-icon="%3csvg%20viewBox=%220%200%2024%2024%22%20width=%2216%22%20height=%2216%22%20fill=%22none%22%20stroke=%22currentColor%22%20stroke-width=%221.8%22%20stroke-linecap=%22round%22%20stroke-linejoin=%22round%22%20aria-hidden=%22true%22%3e%3cpath%20d=%22M6%204h3l2%205-2%201a10%2010%200%200%200%205%205l1-2%205%202v3a2%202%200%200%201-2%202A16%2016%200%200%201%204%206a2%202%200%200%201%202-2z%22/%3e%3c/svg%3e">Phone</option>
-                <option value="check" data-icon="%3csvg%20viewBox=%220%200%2024%2024%22%20width=%2216%22%20height=%2216%22%20fill=%22none%22%20stroke=%22currentColor%22%20stroke-width=%221.8%22%20stroke-linecap=%22round%22%20stroke-linejoin=%22round%22%20aria-hidden=%22true%22%3e%3cpath%20d=%22M4%2012.5l5%205L20%206.5%22/%3e%3c/svg%3e">Check</option>
-                <option value="shield" data-icon="%3csvg%20viewBox=%220%200%2024%2024%22%20width=%2216%22%20height=%2216%22%20fill=%22none%22%20stroke=%22currentColor%22%20stroke-width=%221.8%22%20stroke-linecap=%22round%22%20stroke-linejoin=%22round%22%20aria-hidden=%22true%22%3e%3cpath%20d=%22M12%203l7%203v6c0%204.5-3%207.5-7%209-4-1.5-7-4.5-7-9V6l7-3z%22/%3e%3c/svg%3e">Shield</option>
-                <option value="chat" data-icon="%3csvg%20viewBox=%220%200%2024%2024%22%20width=%2216%22%20height=%2216%22%20fill=%22none%22%20stroke=%22currentColor%22%20stroke-width=%221.8%22%20stroke-linecap=%22round%22%20stroke-linejoin=%22round%22%20aria-hidden=%22true%22%3e%3cpath%20d=%22M4%205h16v11H9l-5%204V5z%22/%3e%3c/svg%3e">Chat</option>
-                <option value="info" data-icon="%3csvg%20viewBox=%220%200%2024%2024%22%20width=%2216%22%20height=%2216%22%20fill=%22none%22%20stroke=%22currentColor%22%20stroke-width=%221.8%22%20stroke-linecap=%22round%22%20stroke-linejoin=%22round%22%20aria-hidden=%22true%22%3e%3ccircle%20cx=%2212%22%20cy=%2212%22%20r=%228%22/%3e%3cpath%20d=%22M12%2011v6%22/%3e%3cpath%20d=%22M12%207.5v.5%22/%3e%3c/svg%3e">Info</option>
+                <option value="clock">Clock</option>
+                <option value="phone" selected>Phone</option>
+                <option value="check">Check</option>
+                <option value="shield">Shield</option>
+                <option value="chat">Chat</option>
+                <option value="info">Info</option>
               </select>
             </div>
             <div class="field">
@@ -161,18 +161,18 @@
               <label for="highlight_1_text">Text</label>
               <input type="text" id="highlight_1_text" name="highlight_1_text" value="Interno 4400 fuera de horario." maxlength="120" data-preview-hl-text="1">
             </div>
-            <button class="btn settings-highlight-remove" type="button" data-highlight-remove="1" aria-label="Remove highlight">Remove highlight</button>
+            <button class="btn settings-highlight-remove" type="button" data-highlight-remove="1" aria-label="Remove highlight"><span aria-hidden="true">×</span></button>
           </div>
           <div class="settings-highlight" data-highlight-row="2">
             <div class="field">
               <label for="highlight_2_icon">Icon</label>
               <select id="highlight_2_icon" name="highlight_2_icon" data-preview-hl-icon="2">
-                <option value="clock" selected data-icon="%3csvg%20viewBox=%220%200%2024%2024%22%20width=%2216%22%20height=%2216%22%20fill=%22none%22%20stroke=%22currentColor%22%20stroke-width=%221.8%22%20stroke-linecap=%22round%22%20stroke-linejoin=%22round%22%20aria-hidden=%22true%22%3e%3ccircle%20cx=%2212%22%20cy=%2212%22%20r=%228%22/%3e%3cpath%20d=%22M12%208v4l3%202%22/%3e%3c/svg%3e">Clock</option>
-                <option value="phone" data-icon="%3csvg%20viewBox=%220%200%2024%2024%22%20width=%2216%22%20height=%2216%22%20fill=%22none%22%20stroke=%22currentColor%22%20stroke-width=%221.8%22%20stroke-linecap=%22round%22%20stroke-linejoin=%22round%22%20aria-hidden=%22true%22%3e%3cpath%20d=%22M6%204h3l2%205-2%201a10%2010%200%200%200%205%205l1-2%205%202v3a2%202%200%200%201-2%202A16%2016%200%200%201%204%206a2%202%200%200%201%202-2z%22/%3e%3c/svg%3e">Phone</option>
-                <option value="check" data-icon="%3csvg%20viewBox=%220%200%2024%2024%22%20width=%2216%22%20height=%2216%22%20fill=%22none%22%20stroke=%22currentColor%22%20stroke-width=%221.8%22%20stroke-linecap=%22round%22%20stroke-linejoin=%22round%22%20aria-hidden=%22true%22%3e%3cpath%20d=%22M4%2012.5l5%205L20%206.5%22/%3e%3c/svg%3e">Check</option>
-                <option value="shield" data-icon="%3csvg%20viewBox=%220%200%2024%2024%22%20width=%2216%22%20height=%2216%22%20fill=%22none%22%20stroke=%22currentColor%22%20stroke-width=%221.8%22%20stroke-linecap=%22round%22%20stroke-linejoin=%22round%22%20aria-hidden=%22true%22%3e%3cpath%20d=%22M12%203l7%203v6c0%204.5-3%207.5-7%209-4-1.5-7-4.5-7-9V6l7-3z%22/%3e%3c/svg%3e">Shield</option>
-                <option value="chat" data-icon="%3csvg%20viewBox=%220%200%2024%2024%22%20width=%2216%22%20height=%2216%22%20fill=%22none%22%20stroke=%22currentColor%22%20stroke-width=%221.8%22%20stroke-linecap=%22round%22%20stroke-linejoin=%22round%22%20aria-hidden=%22true%22%3e%3cpath%20d=%22M4%205h16v11H9l-5%204V5z%22/%3e%3c/svg%3e">Chat</option>
-                <option value="info" data-icon="%3csvg%20viewBox=%220%200%2024%2024%22%20width=%2216%22%20height=%2216%22%20fill=%22none%22%20stroke=%22currentColor%22%20stroke-width=%221.8%22%20stroke-linecap=%22round%22%20stroke-linejoin=%22round%22%20aria-hidden=%22true%22%3e%3ccircle%20cx=%2212%22%20cy=%2212%22%20r=%228%22/%3e%3cpath%20d=%22M12%2011v6%22/%3e%3cpath%20d=%22M12%207.5v.5%22/%3e%3c/svg%3e">Info</option>
+                <option value="clock" selected>Clock</option>
+                <option value="phone">Phone</option>
+                <option value="check">Check</option>
+                <option value="shield">Shield</option>
+                <option value="chat">Chat</option>
+                <option value="info">Info</option>
               </select>
             </div>
             <div class="field">
@@ -183,8 +183,14 @@
               <label for="highlight_2_text">Text</label>
               <input type="text" id="highlight_2_text" name="highlight_2_text" value="" maxlength="120" data-preview-hl-text="2">
             </div>
-            <button class="btn settings-highlight-remove" type="button" data-highlight-remove="2" aria-label="Remove highlight">Remove highlight</button>
+            <button class="btn settings-highlight-remove" type="button" data-highlight-remove="2" aria-label="Remove highlight"><span aria-hidden="true">×</span></button>
           </div>
+          <template data-icon-template="clock"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="8"/><path d="M12 8v4l3 2"/></svg></template>
+          <template data-icon-template="phone"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 4h3l2 5-2 1a10 10 0 0 0 5 5l1-2 5 2v3a2 2 0 0 1-2 2A16 16 0 0 1 4 6a2 2 0 0 1 2-2z"/></svg></template>
+          <template data-icon-template="check"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 12.5l5 5L20 6.5"/></svg></template>
+          <template data-icon-template="shield"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l7 3v6c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V6l7-3z"/></svg></template>
+          <template data-icon-template="chat"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 5h16v11H9l-5 4V5z"/></svg></template>
+          <template data-icon-template="info"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="8"/><path d="M12 11v6"/><path d="M12 7.5v.5"/></svg></template>
           <button class="btn" type="button" data-highlight-add>Add highlight</button>
         </div>
         <h3 class="settings-group-title">Notice</h3>

@@ -394,3 +394,63 @@
     transform: none;
   }
 }
+
+/* Review fixes (issue #383): the "?" sits on the label's line, not below it.
+   The shared .field label is a block, so a label followed by a tip becomes an
+   inline row and the control below keeps its full width. */
+.settings-layout .field > label:has(+ .help-tip-wrap) {
+  display: inline-block;
+  margin-bottom: 8px;
+}
+
+.settings-layout .field > .help-tip-wrap {
+  margin-left: 6px;
+  vertical-align: 1px;
+}
+
+.settings-layout .field > .help-tip-wrap + :is(input, select, textarea, .field-control) {
+  display: block;
+}
+
+/* Highlight rows (review fix): the form column shares the width with the
+   preview, so a row is two lines: icon, title and a compact remove action,
+   then the text across the whole row. Rows show only for Highlights. */
+.settings-highlights[hidden] {
+  display: none;
+}
+
+.settings-highlights .settings-highlight {
+  grid-template-columns: 120px minmax(0, 1fr) auto;
+  grid-template-areas: "icon title remove" "text text text";
+  align-items: end;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.settings-highlights .settings-highlight .field {
+  min-width: 0;
+}
+
+.settings-highlights .settings-highlight .field:nth-child(1) { grid-area: icon; }
+.settings-highlights .settings-highlight .field:nth-child(2) { grid-area: title; }
+.settings-highlights .settings-highlight .field:nth-child(3) { grid-area: text; }
+
+.settings-highlights .settings-highlight .field input,
+.settings-highlights .settings-highlight .field select {
+  width: 100%;
+}
+
+.settings-highlights .settings-highlight-remove {
+  grid-area: remove;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  justify-content: center;
+  font-size: 18px;
+  line-height: 1;
+}
+
+.settings-highlights > [data-highlight-add] {
+  align-self: flex-start;
+}

@@ -25,12 +25,12 @@
           <legend class="visually-hidden">{{t "settings.signin.field.content"}}</legend>
 {{range .Contents}}          <label><input type="radio" name="content" value="{{.Value}}"{{if .Selected}} checked{{end}}>{{t (print "settings.signin.content." .Value)}}</label>
 {{end}}        </fieldset>
-        <div class="settings-highlights">
+        <div class="settings-highlights" data-editor-zone="highlights"{{if ne .Values.Content "highlights"}} hidden{{end}}>
 {{range $index, $row := .Values.Highlights}}          <div class="settings-highlight" data-highlight-row="{{$index}}">
             <div class="field">
               <label for="highlight_{{$index}}_icon">{{t "settings.signin.field.highlight_icon"}}</label>
               <select id="highlight_{{$index}}_icon" name="highlight_{{$index}}_icon" data-preview-hl-icon="{{$index}}">
-{{range $.Icons}}                <option value="{{.Value}}"{{if eq .Value $row.Icon}} selected{{end}} data-icon="{{signinIcon .Value}}">{{t (print "signin.icon." .Value)}}</option>
+{{range $.Icons}}                <option value="{{.Value}}"{{if eq .Value $row.Icon}} selected{{end}}>{{t (print "signin.icon." .Value)}}</option>
 {{end}}              </select>
             </div>
             <div class="field">
@@ -41,8 +41,9 @@
               <label for="highlight_{{$index}}_text">{{t "settings.signin.field.highlight_text"}}</label>
               <input type="text" id="highlight_{{$index}}_text" name="highlight_{{$index}}_text" value="{{$row.Text}}" maxlength="120" data-preview-hl-text="{{$index}}">
             </div>
-            <button class="btn settings-highlight-remove" type="button" data-highlight-remove="{{$index}}" aria-label="{{t "settings.signin.remove_highlight"}}">{{t "settings.signin.remove_highlight"}}</button>
+            <button class="btn settings-highlight-remove" type="button" data-highlight-remove="{{$index}}" aria-label="{{t "settings.signin.remove_highlight"}}"><span aria-hidden="true">×</span></button>
           </div>
+{{end}}{{range $.Icons}}          <template data-icon-template="{{.Value}}">{{signinIcon .Value}}</template>
 {{end}}          <button class="btn" type="button" data-highlight-add>{{t "settings.signin.add_highlight"}}</button>
         </div>
         <h3 class="settings-group-title">{{t "settings.signin.field.notice"}}</h3>

@@ -110,6 +110,9 @@
     var content = selectedRadio("content");
     show('[data-preview-zone="steps"]', content === "steps");
     show('[data-preview-zone="highlights"]', content === "highlights");
+    for (const zone of document.querySelectorAll('[data-editor-zone="highlights"]')) {
+      zone.hidden = content !== "highlights";
+    }
 
     var background = selectedRadio("background");
     panel.className = "auth-entry__presentation auth-entry__presentation--" + background;
@@ -128,9 +131,10 @@
       text('[data-preview-hl-title-text="' + index + '"]', title.value);
       text('[data-preview-hl-text-text="' + index + '"]', body.value);
       var mark = document.querySelector('[data-preview-hl-mark="' + index + '"]');
-      var option = icon.options[icon.selectedIndex];
-      if (mark && option && option.getAttribute("data-icon")) {
-        mark.innerHTML = option.getAttribute("data-icon");
+      var iconTemplate =
+        icon && document.querySelector('template[data-icon-template="' + icon.value + '"]');
+      if (mark && iconTemplate) {
+        mark.replaceChildren(iconTemplate.content.cloneNode(true));
       }
     });
 
