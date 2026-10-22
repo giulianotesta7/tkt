@@ -12,32 +12,7 @@ import { loginAsSeeded, base } from "./helpers/auth.js";
 import { assertCanonicalScreen, collectObservability } from "./helpers/layout.js";
 import { assertHtmxSwap } from "./helpers/htmx.js";
 import { isHtmxPost } from "./helpers/save-feedback.js";
-import { catalogNode, catalogNodeId } from "./helpers/navigation.js";
-
-// The Catalog renders every desk in one tree (issue #387), so resolving a desk is
-// one lookup by its exact name instead of a drill-down through departments. The
-// function still leaves the browser on the legacy selection URL, because that is
-// the state the drawer and the mutation redirects carry.
-async function selectDesk(page: import("@playwright/test").Page, name: string): Promise<string> {
-  await page.goto(base() + "/categories?view=structure");
-  const desk = catalogNode(page, "desk", name);
-  await expect(desk).toHaveCount(1);
-  const deskID = await catalogNodeId(desk, `desk ${name}`);
-  if (!/^\d+$/.test(deskID)) {
-    throw new Error(`Could not resolve the exact desk ID for "${name}" at ${page.url()}`);
-  }
-  const departmentValue = await desk
-    .locator("xpath=ancestor::li[@data-level='department']")
-    .getAttribute("data-catalog-id");
-  if (!departmentValue) {
-    throw new Error(`Could not resolve the department of desk "${name}" at ${page.url()}`);
-  }
-  const departmentID = departmentValue === "-1" ? "unassigned" : departmentValue;
-  await page.goto(
-    base() + `/categories?view=structure&department_id=${departmentID}&desk_id=${deskID}`,
-  );
-  return deskID;
-}
+import { catalogRowMenu, selectCatalogDesk } from "./helpers/navigation.js";
 
 test.describe("Desks", () => {
   test.beforeAll(async () => {
@@ -84,9 +59,9 @@ test.describe("Desks", () => {
     await page.getByRole("button", { name: /save changes/i }).click();
     await expect(page).toHaveURL(/\/users$/);
 
-    const deskID = await selectDesk(page, "General Support");
+    const deskID = await selectCatalogDesk(page, "General Support");
     const deskRow = page.locator(`[data-level="desk"][data-catalog-id="${deskID}"]`);
-    await deskRow.locator(".catalog-tree-row").first().locator("[data-category-menu]").click();
+    await catalogRowMenu(deskRow).click();
     await deskRow
       .locator(".category-overflow-menu:not([hidden])")
       .getByRole("menuitem", { name: "Edit desk", exact: true })
@@ -235,7 +210,7 @@ test.describe("Desks", () => {
       await expect(page).toHaveURL(/\/users$/);
 
       if (!deskID) {
-        deskID = await selectDesk(page, "General Support");
+        deskID = await selectCatalogDesk(page, "General Support");
         deskDepartmentID = new URL(page.url()).searchParams.get("department_id") ?? "";
         if (!deskDepartmentID)
           throw new Error(`General Support department missing at ${page.url()}`);

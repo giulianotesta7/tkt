@@ -9,7 +9,14 @@ import { test, expect, type Page } from "@playwright/test";
 import { startServer, stopServer } from "../server-lifecycle.js";
 import { assertHtmxSwap } from "./helpers/htmx.js";
 import { base, createUserAsAdmin, loginAs, logout, seededCredentials } from "./helpers/auth.js";
-import { createTicketViaUi, resolveUserEditHref } from "./helpers/navigation.js";
+import {
+  catalogCategoryRow,
+  catalogNode,
+  catalogNodeId,
+  catalogTree,
+  createTicketViaUi,
+  resolveUserEditHref,
+} from "./helpers/navigation.js";
 
 const uniq = Date.now().toString(36).slice(2, 8);
 const agent = {
@@ -38,13 +45,12 @@ async function prepareFixtures(page: Page): Promise<void> {
   await expect(page).toHaveURL(/\/users$/);
   await expect(agentRow).toContainText("Agent");
 
+  // The Catalog is one tree (issue #387): the first department row carries its
+  // own id, so the fixture no longer needs a drill-down link to find it.
   await page.goto(base() + "/categories?view=structure");
-  const deptHref = await page
-    .locator(".category-level-departments .category-structure-row")
-    .first()
-    .getAttribute("href");
-  const deptId = deptHref?.match(/department_id=(\d+)/)?.[1];
-  if (!deptId) throw new Error(`no department at ${page.url()}`);
+  const firstDepartment = catalogTree(page).locator('[data-level="department"]').first();
+  await expect(firstDepartment).toHaveCount(1);
+  const deptId = await catalogNodeId(firstDepartment, "the first department");
 
   await page.goto(base() + "/categories/desks/new?view=structure&department_id=" + deptId);
   const deskDrawer = page.getByRole("dialog", { name: /New desk/i });
@@ -52,13 +58,9 @@ async function prepareFixtures(page: Page): Promise<void> {
   await deskDrawer.locator('select[name="department_id"]').selectOption(deptId);
   await deskDrawer.getByLabel("Name").fill(deskName);
   await deskDrawer.getByRole("button", { name: /create desk/i }).click();
-  const deskRow = page
-    .locator(".category-level-desks .category-structure-item")
-    .filter({ hasText: deskName });
+  const deskRow = catalogNode(page, "desk", deskName);
   await expect(deskRow).toHaveCount(1);
-  const deskHref = await deskRow.locator('a[href*="desk_id="]').first().getAttribute("href");
-  const deskId = deskHref?.match(/desk_id=(\d+)/)?.[1];
-  if (!deskId) throw new Error(`no desk ${deskName} at ${page.url()}`);
+  const deskId = await catalogNodeId(deskRow, `desk ${deskName}`);
 
   await page.goto(base() + `/categories/desks/${deskId}/edit?view=structure`);
   const editDrawer = page.getByRole("dialog", { name: /Edit desk/i });
@@ -72,13 +74,9 @@ async function prepareFixtures(page: Page): Promise<void> {
   await expect(page.locator('select[name="desk_id"]')).toHaveValue(deskId);
   await page.locator("#category-name").fill(categoryName);
   await page.getByRole("button", { name: /create category/i }).click();
-  const catRow = page
-    .locator(".category-level-categories .category-table tbody tr")
-    .filter({ hasText: categoryName });
+  const catRow = catalogCategoryRow(page, categoryName);
   await expect(catRow).toHaveCount(1);
-  const catHref = await catRow.locator('a[href*="/edit"]').getAttribute("href");
-  const catId = catHref?.match(/\/categories\/(\d+)\/edit/)?.[1];
-  if (!catId) throw new Error(`no category at ${page.url()}`);
+  const catId = await catalogNodeId(catRow, `category ${categoryName}`);
 
   await page.goto(base() + `/categories/${catId}/workflow`);
   const addStep = page.locator(".workflow-add-popover summary");

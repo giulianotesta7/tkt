@@ -117,10 +117,9 @@ export async function assertNothingClipped(page: Page): Promise<void> {
       // Collapsed to a pixel: how this codebase hides content from sight while keeping it for
       // assistive tech. Deliberately invisible, so there is nothing to clip.
       if (r.width <= 1.5 || r.height <= 1.5) continue;
-      // Collapsed in an axis: the mobile catalog drill-down sizes the inactive columns to zero
-      // and hides their content until you drill in. Collapsed shows nothing, which is not the
-      // same failure as a box that cuts off content it was supposed to show. Whether a required
-      // element is *missing* is the structural baseline's job, and it already asserts it.
+      // Collapsed in an axis: a container sized to zero in one dimension shows nothing, which is
+      // not the same failure as a box that cuts off content it was supposed to show. Whether a
+      // required element is *missing* is the structural baseline's job, and it already asserts it.
       if (el.clientWidth === 0 || el.clientHeight === 0) continue;
 
       // Deliberate affordances: the overflow is announced or reachable.

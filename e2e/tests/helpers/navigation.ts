@@ -105,6 +105,51 @@ export async function catalogNodeId(node: Locator, what: string): Promise<string
   return value;
 }
 
+/**
+ * The row-level menu trigger of one tree node. Every level owns one, and the
+ * trigger's accessible name is "Actions for <name>".
+ */
+export function catalogRowMenu(node: Locator): Locator {
+  return node.locator(".catalog-tree-row").first().locator("[data-category-menu]");
+}
+
+/** The currently open menu panel of one tree node. */
+export function openCatalogRowMenu(node: Locator): Locator {
+  return node.locator(".category-overflow-menu:not([hidden])");
+}
+
+/**
+ * Resolve a desk by its exact name and leave the browser on its legacy
+ * selection URL, because that is the context the desk drawer and the mutation
+ * redirects carry. Returns the desk id.
+ *
+ * A desk name is not unique across departments, so the lookup fails loudly when
+ * the name resolves to more than one row instead of picking one.
+ */
+export async function selectCatalogDesk(page: Page, name: string): Promise<string> {
+  await page.goto(base() + "/categories?view=structure");
+  const desk = catalogNode(page, "desk", name);
+  await expect(
+    desk,
+    `Expected exactly one desk "${name}" in the catalog at ${page.url()}`,
+  ).toHaveCount(1);
+  const deskID = await catalogNodeId(desk, `desk ${name}`);
+  if (!/^\d+$/.test(deskID)) {
+    throw new Error(`Could not resolve the exact desk ID for "${name}" at ${page.url()}`);
+  }
+  const departmentValue = await desk
+    .locator("xpath=ancestor::li[@data-level='department']")
+    .getAttribute("data-catalog-id");
+  if (!departmentValue) {
+    throw new Error(`Could not resolve the department of desk "${name}" at ${page.url()}`);
+  }
+  const departmentID = departmentValue === "-1" ? "unassigned" : departmentValue;
+  await page.goto(
+    base() + `/categories?view=structure&department_id=${departmentID}&desk_id=${deskID}`,
+  );
+  return deskID;
+}
+
 /** Toggle one disclosure and prove the state flipped. */
 export async function toggleCatalogNode(node: Locator): Promise<void> {
   const button = node.locator(".catalog-tree-row").first().locator("[data-catalog-disclosure]");
