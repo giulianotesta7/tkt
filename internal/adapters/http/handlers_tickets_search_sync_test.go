@@ -41,15 +41,21 @@ func TestTicketsIndexRoleSearchSyncContract(t *testing.T) {
 			}
 			body := rec.Body.String()
 
-			gotLiveForm := strings.Contains(body, `hx-trigger="input changed delay:300ms"`)
+			gotLiveForm := strings.Contains(body, `<form class="ticket-search search-field"`)
 			if gotLiveForm != tc.wantLiveForm {
 				t.Fatalf("%s live-search form = %t, want %t", tc.name, gotLiveForm, tc.wantLiveForm)
 			}
 			if !tc.wantLiveForm {
-				for _, keep := range []string{`type="submit">Apply`, `aria-label="Clear filters"`, `name="state"`} {
+				// The staff queue (issue #382) filters live from one form: the
+				// search field triggers through the form's own trigger, the
+				// selects on change, and the view tabs sit above it.
+				for _, keep := range []string{`hx-trigger="input changed delay:300ms" hx-include="closest form"`, `name="state"`, `class="queue-tabs"`} {
 					if !strings.Contains(body, keep) {
-						t.Errorf("%s view must keep the filter bar control %q", tc.name, keep)
+						t.Errorf("%s view must keep the queue control %q", tc.name, keep)
 					}
+				}
+				if strings.Contains(body, `type="submit">Apply`) {
+					t.Errorf("%s view must not render an Apply button", tc.name)
 				}
 				return
 			}

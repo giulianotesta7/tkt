@@ -392,10 +392,17 @@ test.describe("Settings", () => {
     const title = `Printer offline ${Date.now().toString(36)}`;
     const ticketId = await createTicketViaUi(page, { title });
 
-    // The period range is the list surface that carries a month name, so it
-    // anchors the before/after comparison of the rendered dates.
-    const weekRange = page.locator(".ticket-metrics-summary-range");
-    await expect(weekRange).toHaveText(/[A-Z][a-z]{2} \d{1,2} – [A-Z][a-z]{2} \d{1,2}, \d{4}/);
+    // The queue's relative "Updated" reading is the list surface whose words
+    // come from the catalogue (issue #382), so it anchors the before/after
+    // comparison of the rendered times; the absolute instant rides in its
+    // title in the numeric shape no language moves.
+    await page.goto(base() + "/tickets");
+    const updated = page
+      .locator("#ticket-list tr.queue-row")
+      .filter({ has: page.getByRole("link", { name: title, exact: true }) })
+      .locator(".queue-updated time");
+    await expect(updated).toHaveText(/^(just now|\d+ (min|h|d) ago)$/);
+    await expect(updated).toHaveAttribute("title", /^\d{2}:\d{2} · \d{2}-\d{2}-\d{4}$/);
 
     // Switch the instance-wide language from Settings.
     await page.goto(base() + "/settings");
@@ -431,15 +438,14 @@ test.describe("Settings", () => {
       failedResponses: obs.failedResponses,
     });
 
-    // The tickets list: Spanish chrome, and the period range reads Spanish
-    // months in the day-month order Spanish uses.
+    // The tickets list: Spanish chrome, view tabs and the relative time.
     await page.goto(base() + "/tickets");
     await expect(page.locator("html")).toHaveAttribute("lang", "es");
-    await expect(page.locator("th").filter({ hasText: "Título" })).toBeVisible();
+    await expect(page.locator("th").filter({ hasText: "Categoría" })).toBeVisible();
+    await expect(page.locator("th").filter({ hasText: "Asignado" })).toBeVisible();
+    await expect(page.locator(".queue-tab").filter({ hasText: "Sin asignar" })).toBeVisible();
     await expect(page.getByRole("link", { name: title, exact: true })).toBeVisible();
-    await expect(page.locator(".ticket-metrics-summary-range")).toHaveText(
-      /\d{1,2} (ene|feb|mar|abr|may|jun|jul|ago|sep|oct|nov|dic) – \d{1,2} (ene|feb|mar|abr|may|jun|jul|ago|sep|oct|nov|dic) \d{4}/,
-    );
+    await expect(updated).toHaveText(/^(recién|hace \d+ (min|h|d))$/);
 
     // The ticket detail: the state badge and the properties speak Spanish, and
     // the date keeps the numeric shape this surface has always had — that
@@ -464,8 +470,9 @@ test.describe("Settings", () => {
 
     await page.goto(base() + "/tickets");
     await expect(page.locator("html")).toHaveAttribute("lang", "en");
-    await expect(page.locator("th").filter({ hasText: "Title" })).toBeVisible();
-    await expect(weekRange).toHaveText(/[A-Z][a-z]{2} \d{1,2} – [A-Z][a-z]{2} \d{1,2}, \d{4}/);
+    await expect(page.locator("th").filter({ hasText: "Category" })).toBeVisible();
+    await expect(page.locator(".queue-tab").filter({ hasText: "Unassigned" })).toBeVisible();
+    await expect(updated).toHaveText(/^(just now|\d+ (min|h|d) ago)$/);
 
     await page.goto(base() + `/tickets/${ticketId}`);
     await expect(page.locator("html")).toHaveAttribute("lang", "en");

@@ -72,6 +72,27 @@ func formatMonthDayYear(tr i18n.Translator, t time.Time) string {
 	return tr.Tf("date.month_day_year", monthLabel(tr, utc.Month()), utc.Day(), utc.Format("2006"))
 }
 
+// relativeTime phrases how long ago t was, judged at now: under a minute
+// "just now", then minutes, hours and days, and the absolute date once a
+// week has passed. A zero now, or a t after now, renders the absolute instant.
+func relativeTime(tr i18n.Translator, t, now time.Time) string {
+	if now.IsZero() || t.After(now) {
+		return formatDisplayTime(t)
+	}
+	d := now.Sub(t)
+	switch {
+	case d < time.Minute:
+		return tr.T("tickets.time.just_now")
+	case d < time.Hour:
+		return tr.Tf("tickets.time.minutes_ago", int(d/time.Minute))
+	case d < 24*time.Hour:
+		return tr.Tf("tickets.time.hours_ago", int(d/time.Hour))
+	case d < 7*24*time.Hour:
+		return tr.Tf("tickets.time.days_ago", int(d/(24*time.Hour)))
+	}
+	return formatDisplayTime(t)
+}
+
 func formatDatetime(t time.Time) string {
 	if t.IsZero() {
 		return ""
@@ -794,6 +815,10 @@ func templateFuncsFor(locale string) template.FuncMap {
 	funcs["priorityLabel"] = func(value any) string { return labeledValue(translator, "priority", value) }
 	funcs["roleLabel"] = func(value any) string { return labeledValue(translator, "role", value) }
 	funcs["slaLabel"] = func(value any) string { return labeledValue(translator, "sla", value) }
+	// relativeTime renders the queue's "Updated" reading against the one clock
+	// snapshot the list took (issue #382); a zero snapshot (fixtures, goldens)
+	// falls back to the absolute instant so renders stay frozen.
+	funcs["relativeTime"] = func(t, now time.Time) string { return relativeTime(translator, t, now) }
 	// The workflow builder's kind labels resolve through the active catalogue,
 	// so the picker, the step card, and the editor heading all follow the
 	// instance language.
