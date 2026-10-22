@@ -1,0 +1,32 @@
+{{/*
+  One property picker (issue #386, S5, maintainer decision L2): the current
+  value is a BUTTON with the listbox affordances, and every option is a real
+  submit button of the surrounding form — so a pick is a native POST of one
+  field of one form and never a change-driven autosave (#232). The popover is
+  inert while closed: no arrow, no wheel and no change ever submits.
+  With scripting off nothing would open a popover, so the stylesheet renders it
+  inline as a plain list of option buttons and hides the script-only search
+  field: the pick saves either way.
+*/}}
+{{define "listbox"}}
+        <div class="listbox" data-listbox>
+          <button id="{{.ID}}" type="button" class="listbox-button" aria-haspopup="listbox" aria-expanded="false" aria-controls="{{.ID}}-options">
+{{if eq .Kind "priority"}}            <span class="priority-dot {{.Level}}" aria-hidden="true"></span>
+{{else}}            <span class="person-mark{{if not .Initials}} is-empty{{end}}" aria-hidden="true">{{if .Initials}}{{.Initials}}{{else}}–{{end}}</span>
+{{end}}            <span class="listbox-current">{{.Current}}</span>
+            <svg class="listbox-chevron" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>
+          </button>
+          <div class="listbox-popover" id="{{.ID}}-options">
+{{if .Filter}}            <input type="search" class="listbox-search" placeholder="{{.Filter}}" aria-label="{{.Filter}}" autocomplete="off">
+{{end}}            <div class="listbox-options" role="listbox" aria-label="{{.Label}}">
+{{range .Options}}              <button type="submit" role="option" class="listbox-option" name="{{$.Name}}" value="{{.Value}}" aria-selected="{{if .Selected}}true{{else}}false{{end}}">
+{{if eq $.Kind "priority"}}                <span class="priority-dot {{.Level}}" aria-hidden="true"></span>
+{{else}}                <span class="person-mark{{if not .Initials}} is-empty{{end}}" aria-hidden="true">{{if .Initials}}{{.Initials}}{{else}}–{{end}}</span>
+{{end}}                <span class="listbox-option-label">{{.Label}}</span>
+{{if .Inactive}}                <span class="listbox-inactive">{{$.InactiveLabel}}</span>
+{{end}}{{if .Selected}}                <svg class="listbox-check" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 12.5 4.5 4.5L19 7"/></svg>
+{{end}}              </button>
+{{end}}            </div>
+          </div>
+        </div>
+{{end}}

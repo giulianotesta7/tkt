@@ -28,6 +28,24 @@ import { assertHtmxSwap } from "./helpers/htmx.js";
 import { isHtmxPost } from "./helpers/save-feedback.js";
 import { createTicketViaUi, resolveUserEditHref } from "./helpers/navigation.js";
 import { waitForExactPost } from "./helpers/network.js";
+import {
+  applyAssignee,
+  pickAssignee,
+  pickPriority,
+  applyHold,
+  applyPriority,
+  applyResume,
+  applyTransition,
+  composer,
+  currentAssignee,
+  currentPriority,
+  openPicker,
+  picker,
+  pickerButton,
+  pickerOption,
+  ticketId,
+  transitionAction,
+} from "./helpers/ticket.js";
 
 /** The staff-only SLA panel of the ticket detail page. */
 function slaPanel(page: Page) {
@@ -89,7 +107,8 @@ test.describe("Ticket detail", () => {
     await expect(page.getByText("Requester", { exact: true })).toBeVisible();
     await expect(page.getByText("Category")).toBeVisible();
     await expect(page.locator("#ticket-category-value")).toContainText("General");
-    await expect(page.getByText("State")).toBeVisible();
+    // Issue #386 (S1): the state badge moved to the header, beside the title.
+    await expect(page.locator("#ticket-detail .detail-state .badge")).toHaveText("New");
     await expect(page.locator("#timeline")).toBeVisible();
     await expect(page.getByText("Description")).toBeVisible();
 
@@ -207,13 +226,11 @@ test.describe("Ticket detail", () => {
     for (const target of ["in_progress", "resolved"] as const) {
       await page.goto(base() + `/tickets/${id}`);
       await expect(page.locator("#ticket-detail")).toBeVisible();
-      const moveSelect = page.locator("#ticket-state");
-      await expect(moveSelect).toBeVisible();
+      await expect(page.locator("#ticket-detail .detail-actions")).toBeVisible();
       const resp = await assertHtmxSwap(
         page,
         async () => {
-          await moveSelect.selectOption(target);
-          await page.locator("#state-apply").click();
+          await applyTransition(page, target);
         },
         {
           endpoint: `/tickets/${id}/transition`,
@@ -240,10 +257,13 @@ test.describe("Ticket detail", () => {
     // resolved until the requester confirms. Direct-POST rejection (403) is
     // exhaustively covered by Go tests (see spec header note).
     await page.goto(base() + `/tickets/${id}`);
-    const moveSelect = page.locator("#ticket-state");
-    await expect(moveSelect).toBeVisible();
-    const closedOption = await moveSelect.locator('option[value="closed"]').count();
-    expect(closedOption).toBe(0);
+    // The closure gate keeps the header from offering Close: the closed target
+    // is dropped from the rendered actions for every actor.
+    await expect(
+      page.locator(
+        '#ticket-detail .detail-actions form.detail-action:has(input[name="to"][value="closed"])',
+      ),
+    ).toHaveCount(0);
     // The requester keeps the comment form (carve-out); only the transition
     // to closed is blocked. The comment form stays for the requester.
     await expect(page.getByLabel(/comment body/i)).toHaveCount(1);
@@ -259,14 +279,12 @@ test.describe("Ticket detail", () => {
       priority: "high",
     });
     await page.goto(base() + `/tickets/${cancelId}`);
-    const toCancel = page.locator("#ticket-state");
-    await expect(toCancel).toBeVisible();
+    await expect(transitionAction(page, "cancelled")).toBeVisible();
     {
       const resp = await assertHtmxSwap(
         page,
         async () => {
-          await toCancel.selectOption("cancelled");
-          await page.locator("#state-apply").click();
+          await applyTransition(page, "cancelled");
         },
         {
           endpoint: `/tickets/${cancelId}/transition`,
@@ -311,13 +329,11 @@ test.describe("Ticket detail", () => {
     // confirms, which is the only UI path to `closed`.
     for (const target of ["in_progress", "resolved"] as const) {
       await page.goto(base() + `/tickets/${id}`);
-      const moveSelect = page.locator("#ticket-state");
-      await expect(moveSelect).toBeVisible();
+      await expect(page.locator("#ticket-detail .detail-actions")).toBeVisible();
       const resp = await assertHtmxSwap(
         page,
         async () => {
-          await moveSelect.selectOption(target);
-          await page.locator("#state-apply").click();
+          await applyTransition(page, target);
         },
         {
           endpoint: `/tickets/${id}/transition`,
@@ -345,30 +361,23 @@ test.describe("Ticket detail", () => {
     );
     await expect(page.getByText("Closed").first()).toBeVisible({ timeout: 10_000 });
 
-    // On a closed ticket the only Move-to target is the reason-requiring
-    // reopen (`in_progress`). Selecting it must reveal the reason field; the
-    // Apply button stays the only thing that submits.
-    const moveSelect = page.locator("#ticket-state");
-    await expect(moveSelect).toBeVisible();
-    const reasonField = page.locator("#state-reason-field");
-    await expect(reasonField).toBeHidden();
-    await moveSelect.selectOption("in_progress");
-    await expect(reasonField).toBeVisible();
+    // On a closed ticket the only header action is the reason-requiring reopen
+    // (`in_progress`). Its dialog appears and carries a REQUIRED reason: the
+    // button never posts until the reason is typed and submitted.
+    const reasonOpener = transitionAction(page, "in_progress");
+    await expect(reasonOpener).toBeVisible();
+    await expect(reasonOpener).toHaveText("Reopen");
+    const dialog = page.locator("#ticket-transition-dialog");
+    await expect(dialog).toBeHidden();
+    await reasonOpener.click();
+    await expect(dialog).toBeVisible();
     const reason = page.locator("#state-reason");
     await expect(reason).toBeFocused();
     await expect(reason).toHaveAttribute("required", "");
-
-    // A non-reason target hides the field again: reverting to the placeholder
-    // (the closed ticket's only other choice) toggles it back off.
-    await page.evaluate(() => {
-      const select = document.querySelector("#ticket-state");
-      if (!(select instanceof HTMLSelectElement)) throw new Error("Missing #ticket-state");
-      select.selectedIndex = 0;
-      select.dispatchEvent(new Event("change", { bubbles: true }));
-    });
-    await expect(reasonField).toBeHidden();
-    await moveSelect.selectOption("in_progress");
-    await expect(reasonField).toBeVisible();
+    // Escape closes it and hands the focus back, without a request.
+    await page.keyboard.press("Escape");
+    await expect(dialog).toBeHidden();
+    await expect(reasonOpener).toBeFocused();
 
     // The reopen swap changes the header by design: a closed ticket renders an
     // h1, an editable in_progress ticket renders the title form. That is the
@@ -392,8 +401,10 @@ test.describe("Ticket detail", () => {
           response.request().headers()["hx-request"] === "true" &&
           new URL(response.url()).pathname === `/tickets/${id}/transition`,
       );
-      await reason.fill(reopenReason);
-      await page.locator("#state-apply").click();
+      await reasonOpener.click();
+      await expect(dialog).toBeVisible();
+      await page.locator("#state-reason").fill(reopenReason);
+      await dialog.locator('button[type="submit"]').click();
       const response = await transitionResponse;
       expect(response.status()).toBe(200);
       await expect.poll(() => page.locator("#ticket-detail").innerHTML()).not.toBe(detailBefore);
@@ -430,17 +441,12 @@ test.describe("Ticket detail", () => {
     const hxForms = page.locator('[hx-post][hx-target="#ticket-detail"]');
     await expect(hxForms.first()).toBeVisible();
 
-    const prioritySelect = page.locator("#ticket-priority");
-    await expect(prioritySelect).toBeVisible();
+    await expect(pickerButton(page, "ticket-priority")).toBeVisible();
 
     const prioritySwap = await assertHtmxSwap(
       page,
       async () => {
-        await prioritySelect.selectOption("critical");
-        await page
-          .locator("form:has(#ticket-priority)")
-          .getByRole("button", { name: "Apply" })
-          .click();
+        await applyPriority(page, "critical");
       },
       {
         endpoint: `/tickets/${id}/edit`,
@@ -450,13 +456,13 @@ test.describe("Ticket detail", () => {
       },
     );
 
-    // Issue #234: the edit swaps #ticket-detail in place, so the re-rendered
-    // fragment IS the confirmation. Assert that fragment, and assert no
-    // success toast fired (no feedback header; the toast stays hidden/empty).
-    await expect(page.locator("#ticket-detail")).toContainText(/critical/i);
-    expect(prioritySwap.headers()["x-save-feedback"]).toBeUndefined();
-    await expect(page.locator("#save-feedback")).toBeHidden();
-    await expect(page.locator("#save-feedback .save-feedback-message")).toHaveText("");
+    // Issue #386 (S5): the picker replaced the explicit Apply, and the
+    // maintainer's chosen option promises the same "Saved" confirmation the
+    // other explicit-save surfaces show. Assert the swapped value AND the toast.
+    await expect(pickerButton(page, "ticket-priority")).toContainText("Critical");
+    expect(prioritySwap.headers()["x-save-feedback"]).toContain('"message":"Saved"');
+    await expect(page.locator("#save-feedback")).toBeVisible();
+    await expect(page.locator("#save-feedback .save-feedback-message")).toHaveText("Saved");
 
     await assertCanonicalScreen(page, {
       viewport: 1280,
@@ -491,11 +497,7 @@ test.describe("Ticket detail", () => {
     await assertHtmxSwap(
       page,
       async () => {
-        await page.locator("#ticket-priority").selectOption("critical");
-        await page
-          .locator("form:has(#ticket-priority)")
-          .getByRole("button", { name: "Apply" })
-          .click();
+        await applyPriority(page, "critical");
       },
       {
         endpoint: `/tickets/${id}/edit`,
@@ -531,14 +533,13 @@ test.describe("Ticket detail", () => {
       route.fulfill({ status: 500, contentType: "text/plain", body: "boom" }),
     );
     try {
-      await page.locator("#ticket-priority").selectOption("critical");
       await Promise.all([
         page.waitForResponse(
           (response) =>
             response.request().method() === "POST" &&
             new URL(response.url()).pathname === `/tickets/${id}/edit`,
         ),
-        page.locator("form:has(#ticket-priority)").getByRole("button", { name: "Apply" }).click(),
+        applyPriority(page, "critical"),
       ]);
     } finally {
       await page.unroute(`**/tickets/${id}/edit`);
@@ -559,7 +560,7 @@ test.describe("Ticket detail", () => {
     await page.goto(base() + `/tickets/${id}`);
 
     const comment = page.getByLabel(/comment body/i);
-    const internal = page.getByLabel(/internal comment/i);
+    const internal = page.getByLabel("Internal note");
     await expect(comment).toBeVisible();
     // The form defaults to public and re-renders unchecked; the author opts in.
     await expect(internal).not.toBeChecked();
@@ -570,11 +571,7 @@ test.describe("Ticket detail", () => {
     await assertHtmxSwap(
       page,
       async () => {
-        await page.locator("#ticket-priority").selectOption("critical");
-        await page
-          .locator("form:has(#ticket-priority)")
-          .getByRole("button", { name: "Apply" })
-          .click();
+        await applyPriority(page, "critical");
       },
       {
         endpoint: `/tickets/${id}/edit`,
@@ -587,7 +584,7 @@ test.describe("Ticket detail", () => {
     await expect(page.locator("#ticket-detail")).toContainText(/critical/i);
     // #261 preserved the typed text; #308 preserves the selected visibility too.
     await expect(page.getByLabel(/comment body/i)).toHaveValue(draft);
-    await expect(page.getByLabel(/internal comment/i)).toBeChecked();
+    await expect(page.getByLabel("Internal note")).toBeChecked();
     // Applying a property is not posting the comment: nothing was stored.
     await expect(page.locator("#timeline")).not.toContainText(draft);
   });
@@ -603,22 +600,19 @@ test.describe("Ticket detail", () => {
     });
     await page.goto(base() + `/tickets/${id}`);
 
-    const assignee = page.locator("#assign-user");
-    await expect(assignee).toBeVisible();
+    await expect(pickerButton(page, "assign-user")).toBeVisible();
     const comment = page.getByLabel(/comment body/i);
-    const internal = page.getByLabel(/internal comment/i);
+    const internal = page.getByLabel("Internal note");
     const draft = "internal draft " + Date.now().toString(36);
     await internal.check();
     await comment.fill(draft);
 
-    const target = await assignee.locator("option:not([value=''])").first().getAttribute("value");
-    if (!target) throw new Error(`No assignable user at ${page.url()}`);
-
+    // The first candidate the picker offers that the ticket does not hold yet.
+    const target = (await currentAssignee(page)) === "Unassigned" ? "Alice Admin" : "Admin";
     await assertHtmxSwap(
       page,
       async () => {
-        await assignee.selectOption(target);
-        await page.locator("form:has(#assign-user)").getByRole("button", { name: "Apply" }).click();
+        await applyAssignee(page, target);
       },
       {
         endpoint: `/tickets/${id}/assign`,
@@ -629,9 +623,9 @@ test.describe("Ticket detail", () => {
     );
 
     // Re-resolve after the swap: the fragment was replaced in place.
-    await expect(page.locator("#assign-user")).toHaveValue(target);
+    await expect(pickerButton(page, "assign-user")).toContainText(target);
     await expect(page.getByLabel(/comment body/i)).toHaveValue(draft);
-    await expect(page.getByLabel(/internal comment/i)).toBeChecked();
+    await expect(page.getByLabel("Internal note")).toBeChecked();
     await expect(page.locator("#timeline")).not.toContainText(draft);
   });
 
@@ -647,7 +641,7 @@ test.describe("Ticket detail", () => {
     await page.goto(base() + `/tickets/${id}`);
 
     const comment = page.getByLabel(/comment body/i);
-    const internal = page.getByLabel(/internal comment/i);
+    const internal = page.getByLabel("Internal note");
     const draft = "internal draft " + Date.now().toString(36);
     await internal.check();
     await comment.fill(draft);
@@ -657,21 +651,20 @@ test.describe("Ticket detail", () => {
       route.fulfill({ status: 500, contentType: "text/plain", body: "boom" }),
     );
     try {
-      await page.locator("#ticket-priority").selectOption("critical");
       await Promise.all([
         page.waitForResponse(
           (response) =>
             response.request().method() === "POST" &&
             new URL(response.url()).pathname === `/tickets/${id}/edit`,
         ),
-        page.locator("form:has(#ticket-priority)").getByRole("button", { name: "Apply" }).click(),
+        applyPriority(page, "critical"),
       ]);
     } finally {
       await page.unroute(`**/tickets/${id}/edit`);
     }
 
     await expect(page.getByLabel(/comment body/i)).toHaveValue(draft);
-    await expect(page.getByLabel(/internal comment/i)).toBeChecked();
+    await expect(page.getByLabel("Internal note")).toBeChecked();
   });
 
   test("a public draft stays public after an unrelated apply", async ({ page }) => {
@@ -686,7 +679,7 @@ test.describe("Ticket detail", () => {
     await page.goto(base() + `/tickets/${id}`);
 
     const comment = page.getByLabel(/comment body/i);
-    const internal = page.getByLabel(/internal comment/i);
+    const internal = page.getByLabel("Internal note");
     await expect(internal).not.toBeChecked();
     const draft = "public draft " + Date.now().toString(36);
     await comment.fill(draft);
@@ -694,11 +687,7 @@ test.describe("Ticket detail", () => {
     await assertHtmxSwap(
       page,
       async () => {
-        await page.locator("#ticket-priority").selectOption("critical");
-        await page
-          .locator("form:has(#ticket-priority)")
-          .getByRole("button", { name: "Apply" })
-          .click();
+        await applyPriority(page, "critical");
       },
       {
         endpoint: `/tickets/${id}/edit`,
@@ -710,15 +699,12 @@ test.describe("Ticket detail", () => {
 
     // The author never changed visibility: the draft stays public.
     await expect(page.getByLabel(/comment body/i)).toHaveValue(draft);
-    await expect(page.getByLabel(/internal comment/i)).not.toBeChecked();
+    await expect(page.getByLabel("Internal note")).not.toBeChecked();
 
     const submitted = waitForExactPost(page, `/tickets/${id}/comments`);
     await Promise.all([
       submitted,
-      page
-        .locator("form:has(#comment-body)")
-        .getByRole("button", { name: /add comment/i })
-        .click(),
+      page.locator("form:has(#comment-body)").getByRole("button", { name: "Reply" }).click(),
     ]);
     expect((await submitted).status()).toBe(303);
     await expect(page.locator("#timeline")).toContainText("added a comment");
@@ -751,7 +737,7 @@ test.describe("Ticket detail", () => {
     await page.goto(base() + `/tickets/${id}`);
 
     const comment = page.getByLabel(/comment body/i);
-    const internal = page.getByLabel(/internal comment/i);
+    const internal = page.getByLabel("Internal note");
     await expect(internal).toBeVisible();
     const draft = "internal note " + Date.now().toString(36);
     await internal.check();
@@ -761,11 +747,7 @@ test.describe("Ticket detail", () => {
     await assertHtmxSwap(
       page,
       async () => {
-        await page.locator("#ticket-priority").selectOption("critical");
-        await page
-          .locator("form:has(#ticket-priority)")
-          .getByRole("button", { name: "Apply" })
-          .click();
+        await applyPriority(page, "critical");
       },
       {
         endpoint: `/tickets/${id}/edit`,
@@ -774,16 +756,13 @@ test.describe("Ticket detail", () => {
         hxTarget: "#ticket-detail",
       },
     );
-    await expect(page.getByLabel(/internal comment/i)).toBeChecked();
+    await expect(page.getByLabel("Internal note")).toBeChecked();
     await expect(page.getByLabel(/comment body/i)).toHaveValue(draft);
 
     const submitted = waitForExactPost(page, `/tickets/${id}/comments`);
     await Promise.all([
       submitted,
-      page
-        .locator("form:has(#comment-body)")
-        .getByRole("button", { name: /add comment/i })
-        .click(),
+      page.locator("form:has(#comment-body)").getByRole("button", { name: "Reply" }).click(),
     ]);
     expect((await submitted).status()).toBe(303);
     await expect(page.locator("#timeline .timeline-comment.internal")).toContainText(draft);
@@ -799,105 +778,182 @@ test.describe("Ticket detail", () => {
     await expect(page.locator("#timeline .timeline-comment.internal")).toHaveCount(0);
   });
 
-  test("detail selects mutate only after Apply, never on change alone", async ({ page }) => {
+  test("a picker still saves with scripting disabled", async ({ browser }) => {
+    // S5/L3: the options are real submit buttons, so the property changes
+    // without a single line of script running. This context has JavaScript
+    // switched off, which no other journey can prove.
+    const context = await browser.newContext({ javaScriptEnabled: false });
+    const page = await context.newPage();
+    try {
+      // The login form is a native POST, so signing in needs no script either.
+      await page.goto(base() + "/login");
+      await page.getByLabel(/email/i).fill("alice@example.com");
+      await page.getByLabel(/password/i).fill("SuperSecret42!");
+      await page.getByRole("button", { name: /log in|sign in/i }).click();
+      await expect(page).toHaveURL(/\/tickets$/);
+      // Fixture only: create the ticket over the same session with a plain form
+      // post (the catalog picker page is script-only, so it cannot drive the
+      // creation here). The journey itself — opening the ticket, picking, and
+      // the resulting save — runs entirely through the no-script page.
+      const categoryId = await page
+        .goto(base() + "/tickets")
+        .then(() =>
+          page
+            .locator('select[name="category_id"] option:not([value=""])')
+            .first()
+            .getAttribute("value"),
+        );
+      if (!categoryId) throw new Error(`no category to file the ticket under at ${page.url()}`);
+      const created = await context.request.post(base() + "/tickets", {
+        form: {
+          title: `No-script picker ${Date.now()}`,
+          description: "picked without scripts",
+          category_id: categoryId,
+          priority: "high",
+        },
+        maxRedirects: 0,
+      });
+      expect(created.status()).toBe(303);
+      // The queue is server-rendered; its title link is the plain href a
+      // no-script browser follows (the row-wide click is script-only).
+      await page.goto(base() + "/tickets");
+      const ticketHref = await page
+        .locator('tr.queue-row a[href^="/tickets/"]')
+        .first()
+        .getAttribute("href");
+      if (!ticketHref) throw new Error(`the created ticket is not in the queue at ${page.url()}`);
+      await page.goto(new URL(ticketHref, page.url()).href);
+      await expect(page.locator("#ticket-detail")).toBeVisible();
+      const id = ticketId(page);
+
+      // The picker's option list is rendered inline, so the pick is a plain
+      // click on a submit button that posts its own field to the same route.
+      const option = page.locator('#ticket-priority-options .listbox-option[value="low"]');
+      await expect(option).toBeVisible();
+      // The popover's own button is a script affordance and stays out of the way.
+      await expect(pickerButton(page, "ticket-priority")).toBeHidden();
+      // The script-only search field is hidden too: nothing invites typing into
+      // a filter that cannot run.
+      await expect(page.locator("#assign-user-options .listbox-search")).toBeHidden();
+
+      await Promise.all([page.waitForNavigation(), option.click()]);
+      await expect(page).toHaveURL(new RegExp(`/tickets/${id}$`));
+      await expect(
+        page.locator('#ticket-priority-options .listbox-option[aria-selected="true"]'),
+      ).toContainText("Low");
+      await expect(page.locator("#timeline")).toContainText("changed priority to Low");
+    } finally {
+      await context.close();
+    }
+  });
+
+  test("a closed picker ignores the arrows and the wheel, and opening it changes nothing", async ({
+    page,
+  }) => {
     await page.setViewportSize({ width: 1280, height: 800 });
     await loginAsSeeded(page);
     const id = await createTicketViaUi(page, {
-      title: "Apply guard " + Date.now().toString(36).slice(2, 8),
-      description: "select change must not mutate",
+      title: "Picker guard " + Date.now().toString(36).slice(2, 8),
+      description: "a closed picker must stay inert",
       category: "General",
       priority: "high",
     });
     await page.goto(base() + `/tickets/${id}`);
-    const assignee = page.locator("#assign-user");
-    await expect(assignee).toBeVisible();
 
-    // A neutral control must draw its own edge: the shared button paints a white
-    // surface, so a missing hairline leaves it indistinguishable from the label
-    // beside it. Read the computed value — no screenshot reveals a 1px border —
-    // and pin it against the --line token and the button's own background: a
-    // white hairline on the white card is what a transparency check misses.
-    for (const row of ["#ticket-priority", "#assign-user", "#ticket-state"]) {
-      const apply = page.locator(`form:has(${row})`).getByRole("button", { name: "Apply" });
-      await expect(apply).toBeVisible();
-      await expectHairlineBorder(apply, `${row} Apply`);
-    }
+    const assigneeButton = pickerButton(page, "assign-user");
+    const priorityButton = pickerButton(page, "ticket-priority");
+    await expect(assigneeButton).toBeVisible();
+    await expect(priorityButton).toBeVisible();
+    // The picker rests as a value on the card and draws its own hairline the
+    // moment it is interactive (hover or expanded), so it never looks like dead
+    // text. Read the computed value — no screenshot reveals a 1px border.
+    await expect(priorityButton).toHaveCSS("border-top-color", "rgba(0, 0, 0, 0)");
+    await priorityButton.hover();
+    await expectHairlineBorder(priorityButton, "priority picker button on hover");
+    await openPicker(page, "ticket-priority");
+    await expectHairlineBorder(priorityButton, "priority picker button when expanded");
+    await page.keyboard.press("Escape");
 
-    const assignPath = `/tickets/${id}/assign`;
-    const editPath = `/tickets/${id}/edit`;
-    const transitionPath = `/tickets/${id}/transition`;
-    const assignRequests: string[] = [];
-    const editRequests: string[] = [];
-    const transitionRequests: string[] = [];
+    // Every mutation the detail can make is recorded, so "nothing happened" is
+    // evidence rather than an assumption.
+    const posts: string[] = [];
     page.on("request", (request) => {
-      if (request.method() !== "POST") return;
-      const path = new URL(request.url()).pathname;
-      if (path === assignPath) assignRequests.push(request.url());
-      if (path === editPath) editRequests.push(request.url());
-      if (path === transitionPath) transitionRequests.push(request.url());
+      if (request.method() === "POST") posts.push(new URL(request.url()).pathname);
     });
 
-    // Deterministic: a bubbling `change` event alone must never mutate. The
-    // removed inline onchange used to requestSubmit() from exactly this event.
+    // #232: no control carries a change-driven save. A bubbling `change` across
+    // every input and button in the detail must not POST anything.
     await page.evaluate(() => {
-      const select = document.querySelector("#assign-user");
-      if (!select) throw new Error("Missing #assign-user");
-      select.dispatchEvent(new Event("change", { bubbles: true }));
+      for (const control of document.querySelectorAll(
+        "#ticket-detail input, #ticket-detail button",
+      )) {
+        control.dispatchEvent(new Event("change", { bubbles: true }));
+      }
     });
     await page.waitForTimeout(300);
-    expect(assignRequests, "change alone must not POST /assign").toEqual([]);
+    expect(posts, "a change event alone must not mutate the ticket").toEqual([]);
 
-    // The same contract holds for the priority and state controls: a bubbling
-    // change must not POST /edit or /transition. Reintroducing an
-    // hx-trigger="change" autosave would fail exactly here.
-    await page.evaluate(() => {
-      const select = document.querySelector("#ticket-priority");
-      if (!select) throw new Error("Missing #ticket-priority");
-      select.dispatchEvent(new Event("change", { bubbles: true }));
-    });
-    await page.evaluate(() => {
-      const select = document.querySelector("#ticket-state");
-      if (!select) throw new Error("Missing #ticket-state");
-      select.dispatchEvent(new Event("change", { bubbles: true }));
-    });
-    await page.waitForTimeout(300);
-    expect(editRequests, "change alone must not POST /edit").toEqual([]);
-    expect(transitionRequests, "change alone must not POST /transition").toEqual([]);
-
-    // Browser-real: on a closed native select Chromium moves the selection on
-    // ArrowDown and fires change — the exact reassignment footgun. The value
-    // moves; the POST must not.
-    const beforeArrow = await assignee.inputValue();
-    await assignee.focus();
+    // The closed picker ignores the arrow keys: a native closed select moved
+    // its selection on ArrowDown and fired change, which is exactly how a
+    // ticket was reassigned by accident before #232.
+    const assigneeBefore = await currentAssignee(page);
+    const priorityBefore = await currentPriority(page);
+    await assigneeButton.focus();
+    await page.keyboard.press("ArrowDown");
+    await page.keyboard.press("ArrowUp");
+    await priorityButton.focus();
     await page.keyboard.press("ArrowDown");
     await page.waitForTimeout(300);
-    const afterArrow = await assignee.inputValue();
-    expect(
-      afterArrow,
-      "ArrowDown must move the closed-select selection for this regression to be meaningful",
-    ).not.toBe(beforeArrow);
-    expect(assignRequests, "ArrowDown must not POST /assign").toEqual([]);
+    expect(posts, "the arrow keys on a closed picker must not mutate the ticket").toEqual([]);
+    expect(await currentAssignee(page)).toBe(assigneeBefore);
+    expect(await currentPriority(page)).toBe(priorityBefore);
+    await expect(picker(page, "assign-user").locator(".listbox-popover")).toBeHidden();
+    await expect(picker(page, "ticket-priority").locator(".listbox-popover")).toBeHidden();
 
-    // Apply is the deliberate act: the same control now mutates.
-    const attemptedAssignee = await assignee
-      .locator("option:not([value=''])")
-      .first()
-      .getAttribute("value");
-    if (!attemptedAssignee) throw new Error(`No assignable user at ${page.url()}`);
-    await assignee.selectOption(attemptedAssignee);
-    await assertHtmxSwap(
-      page,
-      async () => {
-        await page.locator("form:has(#assign-user)").getByRole("button", { name: "Apply" }).click();
-      },
-      {
-        endpoint: assignPath,
-        method: "POST",
-        expectedStatus: 200,
-        hxTarget: "#ticket-detail",
-      },
-    );
-    await expect(assignee).toHaveValue(attemptedAssignee);
+    // The wheel over a closed picker does nothing either.
+    await assigneeButton.hover();
+    await page.mouse.wheel(0, 240);
+    await page.waitForTimeout(300);
+    expect(posts, "the wheel on a closed picker must not mutate the ticket").toEqual([]);
+    expect(await currentAssignee(page)).toBe(assigneeBefore);
+
+    // Opening and closing changes nothing: no request, no value, no selection.
+    await openPicker(page, "assign-user");
+    await page.keyboard.press("Escape");
+    await expect(picker(page, "assign-user").locator(".listbox-popover")).toBeHidden();
+    await expect(assigneeButton).toHaveAttribute("aria-expanded", "false");
+    await expect(assigneeButton).toBeFocused();
+    await openPicker(page, "ticket-priority");
+    await page.keyboard.press("Escape");
+    await expect(priorityButton).toHaveAttribute("aria-expanded", "false");
+    await expect(posts, "opening and closing a picker must not mutate the ticket").toEqual([]);
+    expect(await currentAssignee(page)).toBe(assigneeBefore);
+    expect(await currentPriority(page)).toBe(priorityBefore);
+
+    // The pick itself is the explicit act, and it is one field of one form: the
+    // priority pick posts only `priority`, the assignment only `user_id`.
+    const bodies: { path: string; body: URLSearchParams }[] = [];
+    page.on("request", (request) => {
+      if (request.method() !== "POST") return;
+      bodies.push({
+        path: new URL(request.url()).pathname,
+        body: new URLSearchParams(request.postData() ?? ""),
+      });
+    });
+    await pickPriority(page, "critical");
+    await expect(pickerButton(page, "ticket-priority")).toContainText("Critical");
+    const [priorityPost] = bodies;
+    expect(priorityPost.path).toBe(`/tickets/${id}/edit`);
+    expect(priorityPost.body.get("priority")).toBe("critical");
+    expect(priorityPost.body.has("title")).toBe(false);
+    expect(priorityPost.body.has("user_id")).toBe(false);
+
+    await pickAssignee(page, "Alice Admin");
+    await expect(pickerButton(page, "assign-user")).toContainText("Alice Admin");
+    const assignPost = bodies[bodies.length - 1];
+    expect(assignPost.path).toBe(`/tickets/${id}/assign`);
+    expect(assignPost.body.has("user_id")).toBe(true);
+    expect(assignPost.body.has("priority")).toBe(false);
   });
 
   test("a dirty title guards a sibling Apply and Save and continue ships both fields", async ({
@@ -959,10 +1015,10 @@ test.describe("Ticket detail", () => {
       }
     });
 
-    // A sibling Apply must not silently destroy the typed title: the click is
+    // A sibling pick must not silently destroy the typed title: the click is
     // intercepted and no request is issued until the user answers.
-    await page.locator("#ticket-priority").selectOption("critical");
-    await page.locator("form:has(#ticket-priority)").getByRole("button", { name: "Apply" }).click();
+    await openPicker(page, "ticket-priority");
+    await pickerOption(page, "ticket-priority", "critical").click();
     const dialog = page.locator("#ticket-title-dialog");
     await expect(dialog).toBeVisible();
     await expectHairlineBorder(
@@ -1009,11 +1065,11 @@ test.describe("Ticket detail", () => {
 
     await expect(dialog).toBeHidden();
     await expect(page.locator("#ticket-title")).toHaveValue(editedTitle);
-    await expect(page.locator("#ticket-priority")).toHaveValue("critical");
+    await expect(pickerButton(page, "ticket-priority")).toContainText("Critical");
 
     await page.reload();
     await expect(page.locator("#ticket-title")).toHaveValue(editedTitle);
-    await expect(page.locator("#ticket-priority")).toHaveValue("critical");
+    await expect(pickerButton(page, "ticket-priority")).toContainText("Critical");
 
     await assertCanonicalScreen(page, {
       viewport: 1280,
@@ -1046,19 +1102,11 @@ test.describe("Ticket detail", () => {
     const editedTitle = `${originalTitle} edited`;
     await titleInput.fill(editedTitle);
 
-    const assignee = page.locator("#assign-user");
-    await expect(assignee).toBeVisible();
-    const currentAssignee = await assignee.inputValue();
-    const assignable = await assignee
-      .locator("option:not([value=''])")
-      .evaluateAll((options) =>
-        options.map((option) => (option as HTMLOptionElement).value).filter((value) => value),
-      );
-    const attemptedAssignee = assignable.find((value) => value !== currentAssignee);
-    if (!attemptedAssignee) {
-      throw new Error(`No alternative assignable user at ${page.url()}`);
-    }
-    await assignee.selectOption(attemptedAssignee);
+    await expect(pickerButton(page, "assign-user")).toBeVisible();
+    // The picker lists the assignable people; pick the first one the ticket
+    // does not already hold. The pick is the explicit act (S5).
+    const assignee = "Alice Admin";
+    const attemptedAssignee = "1";
 
     const editPath = `/tickets/${id}/edit`;
     const assignPath = `/tickets/${id}/assign`;
@@ -1078,9 +1126,10 @@ test.describe("Ticket detail", () => {
       });
     });
 
-    // A sibling Apply with a dirty title is intercepted: nothing is posted
+    // A sibling pick with a dirty title is intercepted: nothing is posted
     // until the operator answers the guard.
-    await page.locator("form:has(#assign-user)").getByRole("button", { name: "Apply" }).click();
+    await openPicker(page, "assign-user");
+    await pickerOption(page, "assign-user", attemptedAssignee).click();
     const dialog = page.locator("#ticket-title-dialog");
     await expect(dialog).toBeVisible();
     await page.waitForTimeout(300);
@@ -1098,7 +1147,7 @@ test.describe("Ticket detail", () => {
 
     await expect(dialog).toBeHidden();
     await expect(page.locator("#ticket-title")).toHaveValue(editedTitle);
-    await expect(page.locator("#assign-user")).toHaveValue(attemptedAssignee);
+    await expect(pickerButton(page, "assign-user")).toContainText(assignee);
 
     await expect
       .poll(() => posts.map((post) => post.path), {
@@ -1117,7 +1166,7 @@ test.describe("Ticket detail", () => {
 
     await page.reload();
     await expect(page.locator("#ticket-title")).toHaveValue(editedTitle);
-    await expect(page.locator("#assign-user")).toHaveValue(attemptedAssignee);
+    await expect(pickerButton(page, "assign-user")).toContainText(assignee);
   });
 
   test("Save and continue ships the dirty title and the pending transition on their own endpoints", async ({
@@ -1139,9 +1188,8 @@ test.describe("Ticket detail", () => {
     const editedTitle = `${originalTitle} edited`;
     await titleInput.fill(editedTitle);
 
-    const moveSelect = page.locator("#ticket-state");
-    await expect(moveSelect).toBeVisible();
-    await moveSelect.selectOption("in_progress");
+    const startAction = transitionAction(page, "in_progress");
+    await expect(startAction).toBeVisible();
 
     const editPath = `/tickets/${id}/edit`;
     const transitionPath = `/tickets/${id}/transition`;
@@ -1161,7 +1209,7 @@ test.describe("Ticket detail", () => {
       });
     });
 
-    await page.locator("#state-apply").click();
+    await startAction.click();
     const dialog = page.locator("#ticket-title-dialog");
     await expect(dialog).toBeVisible();
     await page.waitForTimeout(300);
@@ -1215,15 +1263,12 @@ test.describe("Ticket detail", () => {
     const titleInput = page.locator("#ticket-title");
     await titleInput.fill(`${originalTitle} unsaved`);
 
-    const assignee = page.locator("#assign-user");
-    const attemptedAssignee = await assignee
-      .locator("option:not([value=''])")
+    const attemptedAssignee = "Alice Admin";
+    await openPicker(page, "assign-user");
+    await picker(page, "assign-user")
+      .locator(".listbox-option", { hasText: attemptedAssignee })
       .first()
-      .getAttribute("value");
-    if (!attemptedAssignee) throw new Error(`No assignable user at ${page.url()}`);
-    await assignee.selectOption(attemptedAssignee);
-
-    await page.locator("form:has(#assign-user)").getByRole("button", { name: "Apply" }).click();
+      .click();
     const dialog = page.locator("#ticket-title-dialog");
     await expect(dialog).toBeVisible();
 
@@ -1242,9 +1287,9 @@ test.describe("Ticket detail", () => {
       },
     );
 
-    await expect(page.locator("#assign-user")).toHaveValue(attemptedAssignee);
+    await expect(pickerButton(page, "assign-user")).toContainText(attemptedAssignee);
     await page.reload();
-    await expect(page.locator("#assign-user")).toHaveValue(attemptedAssignee);
+    await expect(pickerButton(page, "assign-user")).toContainText(attemptedAssignee);
     await expect(page.locator("#ticket-title")).toHaveValue(originalTitle);
 
     await assertCanonicalScreen(page, {
@@ -1361,11 +1406,11 @@ test.describe("Ticket detail", () => {
       }
       const response = await route.fetch();
       expect(response.status()).toBe(200);
-      // Issue #234: the held edit response is the re-rendered #ticket-detail
-      // fragment (the in-place confirmation) and carries no save-feedback
-      // header, so nothing can show a success toast for this save.
-      expect(response.headers()["x-save-feedback"]).toBeUndefined();
-      expect(await response.text()).toContain("selected>Critical</option>");
+      // The held edit response is the re-rendered #ticket-detail fragment (the
+      // in-place confirmation) and, since the picker replaced the explicit
+      // Apply, carries the shared save toast (issue #386, S5).
+      expect(response.headers()["x-save-feedback"]).toContain('"message":"Saved"');
+      expect(await response.text()).toContain('aria-selected="true">');
       markPriorityResponseHeld();
       await new Promise<void>((resolve) => {
         releasePriorityResponse = resolve;
@@ -1401,17 +1446,13 @@ test.describe("Ticket detail", () => {
             });
           }),
       );
-      const priority = page.locator("#ticket-priority");
+      await expect(pickerButton(page, "ticket-priority")).toBeVisible();
       const priorityRequestPromise = page.waitForRequest(
         (request) =>
           isHtmxPost(request, { path: editPath, target: "#ticket-detail" }) &&
           new URLSearchParams(request.postData() ?? "").get("priority") === "critical",
       );
-      await priority.selectOption("critical");
-      await page
-        .locator("form:has(#ticket-priority)")
-        .getByRole("button", { name: "Apply" })
-        .click();
+      await applyPriority(page, "critical");
       const priorityRequest = await priorityRequestPromise;
       expect(priorityRequest.headers()["hx-request"]).toBe("true");
       expect(priorityRequest.headers()["hx-target"]).toBe("ticket-detail");
@@ -1420,12 +1461,9 @@ test.describe("Ticket detail", () => {
       );
       await priorityResponseHeld;
 
-      const assignee = page.locator("#assign-user");
-      const attemptedAssignee = await assignee
-        .locator("option:not([value=''])")
-        .first()
-        .getAttribute("value");
-      if (!attemptedAssignee) throw new Error(`No assignable user at ${page.url()}`);
+      const attemptedAssigneeName = "Alice Admin";
+      const attemptedAssignee = "1";
+      const assigneeBefore = await currentAssignee(page);
       let assignmentAborted = false;
       const abortAssignment = async (route: Route) => {
         const request = route.request();
@@ -1443,8 +1481,7 @@ test.describe("Ticket detail", () => {
             isHtmxPost(request, { path: assignPath, target: "#ticket-detail" }) &&
             new URLSearchParams(request.postData() ?? "").get("user_id") === attemptedAssignee,
         );
-        await assignee.selectOption(attemptedAssignee);
-        await page.locator("form:has(#assign-user)").getByRole("button", { name: "Apply" }).click();
+        await applyAssignee(page, attemptedAssigneeName);
         const assignmentRequest = await assignmentRequestPromise;
         expect(assignmentRequest.headers()["hx-request"]).toBe("true");
         expect(assignmentRequest.headers()["hx-target"]).toBe("ticket-detail");
@@ -1457,7 +1494,7 @@ test.describe("Ticket detail", () => {
           "Unable to save changes. Please try again.",
         );
         await expect(feedback).toHaveAttribute("role", "alert");
-        await expect(assignee).toHaveValue(attemptedAssignee);
+        await expect(pickerButton(page, "assign-user")).toContainText(assigneeBefore);
 
         releasePriorityResponse();
         const [, swapRejected] = await Promise.all([
@@ -1469,7 +1506,9 @@ test.describe("Ticket detail", () => {
           "Unable to save changes. Please try again.",
         );
         await expect(feedback).toHaveAttribute("role", "alert");
-        await expect(assignee).toHaveValue(attemptedAssignee);
+        // The picker keeps the STORED value: a refused pick must never leave
+        // the row claiming a value the ticket does not hold.
+        await expect(pickerButton(page, "assign-user")).toContainText(assigneeBefore);
       } finally {
         await page.unroute((url) => url.pathname === assignPath, abortAssignment);
       }
@@ -1479,10 +1518,10 @@ test.describe("Ticket detail", () => {
     }
 
     await page.reload();
-    await expect(page.locator("#ticket-priority")).toHaveValue("critical");
+    await expect(pickerButton(page, "ticket-priority")).toContainText("Critical");
   });
 
-  test("the assignee filter narrows candidates and never submits the ticket form", async ({
+  test("the assignee popover narrows candidates and never submits the ticket form", async ({
     page,
   }) => {
     await page.setViewportSize({ width: 1280, height: 800 });
@@ -1501,64 +1540,55 @@ test.describe("Ticket detail", () => {
     });
     await page.goto(base() + `/tickets/${id}`);
 
-    const filter = page.locator("#assign-user-filter");
-    const assignee = page.locator("#assign-user");
-    await expect(filter).toBeVisible();
-    await expect(assignee).toBeVisible();
-
-    // The filter must not become a mutation path: Enter inside it cannot submit
-    // the assign form, because the input lives outside that form.
-    const assignPosts: string[] = [];
+    const assigneePosts: string[] = [];
     page.on("request", (request) => {
       if (
         request.method() === "POST" &&
         new URL(request.url()).pathname === `/tickets/${id}/assign`
       ) {
-        assignPosts.push(request.url());
+        assigneePosts.push(request.url());
       }
     });
 
-    const alphaOption = assignee.locator("option", { hasText: alphaName });
-    const bravoOption = assignee.locator("option", { hasText: bravoName });
-    const alphaValue = await alphaOption.getAttribute("value");
-    const bravoValue = await bravoOption.getAttribute("value");
-    if (!alphaValue || !bravoValue) {
-      throw new Error(`both filtered agents must be assignable at ${page.url()}`);
-    }
-    const total = await assignee.locator("option").count();
+    await openPicker(page, "assign-user");
+    const filter = picker(page, "assign-user").locator(".listbox-search");
+    await expect(filter).toBeVisible();
+    const alphaOption = picker(page, "assign-user").locator(".listbox-option", {
+      hasText: alphaName,
+    });
+    const bravoOption = picker(page, "assign-user").locator(".listbox-option", {
+      hasText: bravoName,
+    });
+    await expect(alphaOption).toHaveCount(1);
+    await expect(bravoOption).toHaveCount(1);
+    const total = await picker(page, "assign-user").locator(".listbox-option").count();
     expect(total).toBeGreaterThanOrEqual(4); // Unassigned + Alice + the two agents
 
-    // Typing narrows the visible options to the match plus the current
-    // selection; a non-matching candidate disappears.
+    // Typing narrows the visible options; a non-matching candidate disappears.
     await filter.fill("bravo");
-    await expect(alphaOption).toHaveCount(0);
-    await expect(bravoOption).toHaveCount(1);
-    await expect(assignee).toHaveValue(""); // Unassigned stays selected, so it survives
-    await expect(assignee.locator("option")).toHaveCount(2);
+    await expect(alphaOption).toBeHidden();
+    await expect(bravoOption).toBeVisible();
 
+    // The search must never become a mutation path: Enter inside it cannot
+    // submit the form, because it moves the highlight to the first visible
+    // option instead (a closed form cannot pick anything by accident, #232).
     await filter.press("Enter");
     await page.waitForTimeout(300);
-    expect(assignPosts, "Enter in the filter must not POST /assign").toEqual([]);
+    expect(assigneePosts, "Enter in the search must not POST /assign").toEqual([]);
     await expect(page.locator("#ticket-detail")).toBeVisible();
+    await expect(bravoOption).toBeFocused();
 
-    // Clearing the filter restores the exact candidate set.
+    // Clearing the search restores the exact candidate set.
     await filter.fill("");
-    await expect(assignee.locator("option")).toHaveCount(total);
+    await expect(alphaOption).toBeVisible();
+    await expect(picker(page, "assign-user").locator(".listbox-option")).toHaveCount(total);
 
-    // The current selection survives a query it does not match.
-    await assignee.selectOption(alphaValue);
+    // Picking the narrowed candidate is the explicit act and posts one field.
     await filter.fill("bravo");
-    await expect(alphaOption).toHaveCount(1);
-    await expect(assignee).toHaveValue(alphaValue);
-    await expect(bravoOption).toHaveCount(1);
-    await expect(assignee.locator("option")).toHaveCount(2);
-
-    // Picking a narrowed candidate still mutates only on the explicit Apply.
-    await assignee.selectOption(bravoValue);
     await assertHtmxSwap(
       page,
       async () => {
-        await page.locator("form:has(#assign-user)").getByRole("button", { name: "Apply" }).click();
+        await bravoOption.click();
       },
       {
         endpoint: `/tickets/${id}/assign`,
@@ -1567,10 +1597,10 @@ test.describe("Ticket detail", () => {
         hxTarget: "#ticket-detail",
       },
     );
-    await expect(page.locator("#assign-user")).toHaveValue(bravoValue);
+    await expect(pickerButton(page, "assign-user")).toContainText(bravoName);
   });
 
-  test("the assignee filter never hides the inactive current assignee", async ({ page }) => {
+  test("the assignee popover never hides the inactive current assignee", async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 800 });
     await loginAsSeeded(page);
     const suffix = Date.now().toString(36).slice(2, 8);
@@ -1585,27 +1615,12 @@ test.describe("Ticket detail", () => {
     });
     await page.goto(base() + `/tickets/${id}`);
 
-    const assignee = page.locator("#assign-user");
-    const agentValue = await assignee
-      .locator("option", { hasText: agentName })
-      .getAttribute("value");
-    if (!agentValue) throw new Error(`the agent must be assignable at ${page.url()}`);
-    await assignee.selectOption(agentValue);
-    await assertHtmxSwap(
-      page,
-      async () => {
-        await page.locator("form:has(#assign-user)").getByRole("button", { name: "Apply" }).click();
-      },
-      {
-        endpoint: `/tickets/${id}/assign`,
-        method: "POST",
-        expectedStatus: 200,
-        hxTarget: "#ticket-detail",
-      },
-    );
+    await pickAssignee(page, agentName);
+    await expect(pickerButton(page, "assign-user")).toContainText(agentName);
 
     // Deactivate the assigned operator: the detail page now appends the
-    // inactive current assignee as an extra option.
+    // inactive current assignee so the person the ticket still holds stays
+    // visible and labelled.
     await page.goto(base() + editHref);
     await page.locator("#user-drawer-form [data-deactivate]").click();
     const deactivateDialog = page.locator("#users-deactivate-dialog");
@@ -1620,26 +1635,24 @@ test.describe("Ticket detail", () => {
     expect((await deactivateResponse).status()).toBe(200);
 
     await page.goto(base() + `/tickets/${id}`);
-    const inactiveOption = page.locator("#assign-user option", {
+    await expect(pickerButton(page, "assign-user")).toContainText(agentName);
+    await openPicker(page, "assign-user");
+    const inactiveOption = picker(page, "assign-user").locator(".listbox-option", {
       hasText: `${agentName} (inactive)`,
     });
     await expect(inactiveOption).toHaveCount(1);
-    await expect(page.locator("#assign-user")).toHaveValue(agentValue);
+    await expect(inactiveOption).toHaveAttribute("aria-selected", "true");
 
-    // A non-matching query must not hide it.
-    await page.locator("#assign-user-filter").fill("no-such-assignee");
-    await expect(inactiveOption).toHaveCount(1);
-    await expect(page.locator("#assign-user")).toHaveValue(agentValue);
+    // A non-matching query must not hide it: the current assignee always stays.
+    await picker(page, "assign-user").locator(".listbox-search").fill("no-such-assignee");
+    await expect(inactiveOption).toBeHidden();
+    const heldByQuery = await picker(page, "assign-user")
+      .locator(".listbox-option[aria-selected='true']")
+      .count();
+    expect(heldByQuery, "the current assignee must stay in the list").toBe(1);
   });
 });
 
-/**
- * Ticket detail SLA panel (issue #211, PR 4).
- *
- * The panel exists only for a non-`user` actor on a ticket with a frozen
- * commitment. SLA is instance-wide, so the journey enables it, creates the
- * committed ticket, and disables it again in afterEach.
- */
 test.describe("Ticket detail SLA panel (seeded)", () => {
   test.beforeAll(async () => {
     await startServer({ seed: true });
@@ -1852,7 +1865,7 @@ test.describe("Ticket detail SLA live countdown (seeded)", () => {
     await expect(page.locator("#ticket-detail")).toBeVisible();
     await page.getByLabel(/comment body/i).fill("first staff response");
     const commentPost = waitForExactPost(page, `/tickets/${id}/comments`);
-    await page.getByRole("button", { name: /add comment/i }).click();
+    await page.getByRole("button", { name: "Reply" }).click();
     expect((await commentPost).status()).toBe(303);
 
     await page.goto(base() + `/tickets/${id}`);

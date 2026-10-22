@@ -38,12 +38,11 @@ import {
   expectHairlineBorder,
 } from "./helpers/layout.js";
 import { createTicketViaUi } from "./helpers/navigation.js";
+import { applyTransition, openTicketActions } from "./helpers/ticket.js";
 
-/** The Properties sidebar's State block, which carries the on-hold chip. */
+/** The header's state badge, which carries the on-hold chip (issue #386, S1). */
 function stateSection(page: Page) {
-  return page
-    .locator("#ticket-detail .prop-section")
-    .filter({ has: page.locator(".prop-heading", { hasText: /^State$/ }) });
+  return page.locator("#ticket-detail .detail-state");
 }
 
 /** The staff-only SLA panel of the ticket detail page. */
@@ -52,10 +51,11 @@ function holdNotice(page: Page) {
   return slaSection(page).locator(".sla-hold-status");
 }
 
-// openHoldDialog opens the hold dialog from the SLA section's button (the
-// maintainer asked for a dialog instead of a permanent card).
+// openHoldDialog opens the hold dialog from the header's overflow menu (issue
+// #386, S1: Put on hold / Resume moved there; the dialog itself is unchanged).
 async function openHoldDialog(page: Page) {
-  await slaSection(page).getByRole("button", { name: "Put on hold" }).click();
+  await openTicketActions(page);
+  await page.locator("#ticket-detail [data-hold-open]").click();
   await expect(page.locator("#ticket-hold-dialog")).toBeVisible();
 }
 
@@ -121,8 +121,7 @@ test.describe("Ticket on hold", () => {
     await assertHtmxSwap(
       page,
       async () => {
-        await page.locator("#ticket-state").selectOption("in_progress");
-        await page.locator("#state-apply").click();
+        await applyTransition(page, "in_progress");
       },
       {
         endpoint: transitionPath,
@@ -260,9 +259,18 @@ test.describe("Ticket on hold", () => {
       "datetime",
       /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/,
     );
-    const resumeButton = banner.getByRole("button", { name: "Resume" });
+    // The Resume control lives in the header overflow menu (issue #386, S1),
+    // while the notice keeps saying since when and why.
+    await openTicketActions(page);
+    const resumeButton = page.locator("#ticket-actions-overflow .hold-resume button");
     await expect(resumeButton).toBeVisible();
-    await expectHairlineBorder(resumeButton, "hold notice Resume");
+    // A menu row carries no edge of its own: the popover that holds it draws
+    // the hairline, so the row never floats on an unbounded surface.
+    await expectHairlineBorder(
+      page.locator("#ticket-actions-overflow .detail-overflow-menu"),
+      "header overflow menu",
+    );
+    await page.locator("#ticket-actions-overflow summary").click();
     // A held ticket offers no second hold.
     await expect(page.locator("#hold-reason")).toHaveCount(0);
 
@@ -374,7 +382,8 @@ test.describe("Ticket on hold", () => {
     const resumeSwap = await assertHtmxSwap(
       page,
       async () => {
-        await holdNotice(page).getByRole("button", { name: "Resume" }).click();
+        await openTicketActions(page);
+        await page.locator("#ticket-actions-overflow .hold-resume button").click();
       },
       {
         endpoint: resumePath,
@@ -387,7 +396,9 @@ test.describe("Ticket on hold", () => {
 
     await expect(holdNotice(page)).toHaveCount(0);
     await expect(stateSection(page).locator(".chip")).toHaveCount(0);
-    await expect(slaSection(page).getByRole("button", { name: "Put on hold" })).toBeVisible();
+    await openTicketActions(page);
+    await expect(page.locator("#ticket-detail [data-hold-open]")).toBeVisible();
+    await page.locator("#ticket-actions-overflow summary").click();
     await expect(page.locator("#timeline")).toContainText("took the ticket off hold");
     // Resumed: the resolution milestone counts down again, no "Paused".
     const resumedSla = slaSection(page);
@@ -432,7 +443,7 @@ test.describe("Ticket on hold", () => {
       (r) =>
         r.request().method() === "POST" && new URL(r.url()).pathname === `${detailPath}/comments`,
     );
-    await page.getByRole("button", { name: /add comment/i }).click();
+    await page.getByRole("button", { name: "Reply", exact: true }).click();
     expect((await replyResponse).status()).toBe(303);
     await page.waitForURL((u) => u.pathname === detailPath);
     await expect(page.locator("#ticket-detail .hold-banner")).toHaveCount(0);
@@ -472,8 +483,7 @@ test.describe("Ticket on hold", () => {
     await assertHtmxSwap(
       page,
       async () => {
-        await page.locator("#ticket-state").selectOption("resolved");
-        await page.locator("#state-apply").click();
+        await applyTransition(page, "resolved");
       },
       {
         endpoint: transitionPath,

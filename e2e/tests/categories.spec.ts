@@ -31,6 +31,7 @@ import {
   createCategoryViaUi,
   createTicketViaUi,
 } from "./helpers/navigation.js";
+import { applyAssignee, pickerButton } from "./helpers/ticket.js";
 
 /** The row-level menu trigger of one tree node. */
 function rowMenu(node: Locator): Locator {
@@ -2353,13 +2354,11 @@ test.describe("Categories", () => {
 
     await page.setViewportSize({ width: 1280, height: 800 });
     await page.reload();
-    const assignee = page.locator("#assign-user");
-    await expect(assignee).toBeVisible();
+    await expect(pickerButton(page, "assign-user")).toBeVisible();
     await assertHtmxSwap(
       page,
       async () => {
-        await assignee.selectOption({ label: "Alice Admin" });
-        await page.locator("form:has(#assign-user)").getByRole("button", { name: "Apply" }).click();
+        await applyAssignee(page, "Alice Admin");
       },
       {
         endpoint: `/tickets/${ticketId}/assign`,
@@ -2400,12 +2399,12 @@ test.describe("Categories", () => {
       const completedManual = page.locator("#timeline .timeline-entry.timeline-manual").first();
       await expect(completedManual).toHaveCount(1);
       await expect(completedManual).toBeVisible();
-      const checkIcon = completedManual.locator(".timeline-manual-heading .event-icon");
-      await expect(checkIcon.locator("svg")).toBeVisible();
-      await expect(checkIcon).toHaveCSS("color", "rgb(24, 115, 77)");
-      await expect(completedManual.locator(".timeline-manual-heading .main")).toHaveText(
+      // One grammar (issue #386, S3): the entry carries its head line and the
+      // rail dot, not a per-event glyph.
+      await expect(completedManual.locator(".timeline-entry-head .narrative")).toHaveText(
         "Alice Admin completed the task",
       );
+      await expect(completedManual.locator(".event-icon")).toHaveCount(0);
       await expect(completedManual.getByText("Task", { exact: true })).toHaveCount(1);
       await expect(completedManual.locator("dd").first()).toHaveText("Handle the ticket");
       await expect(completedManual.locator("dl")).toBeVisible();
@@ -2416,17 +2415,18 @@ test.describe("Categories", () => {
           "details, summary, button, .timeline-event-summary, [open], [aria-expanded], [aria-controls], [tabindex]",
         ),
       ).toHaveCount(0);
-      await expect(completedManual.locator(".event-icon")).not.toContainText("›");
       await expect(completedManual.locator(".when")).not.toContainText("Alice Admin");
       await expect(completedManual).not.toHaveCSS("cursor", "pointer");
-      await expect(completedManual.locator(".timeline-manual-heading")).not.toHaveCSS(
+      await expect(completedManual.locator(".timeline-entry-head")).not.toHaveCSS(
         "cursor",
         "pointer",
       );
-      const iconBefore = await completedManual
-        .locator(".event-icon")
-        .evaluate((element) => getComputedStyle(element, "::before").content);
-      expect(iconBefore).toBe("none");
+      // The rail draws the dot: exactly one marker per entry, never a glyph.
+      const dot = await completedManual.evaluate((element) => {
+        const style = getComputedStyle(element, "::before");
+        return { content: style.content, radius: style.borderTopLeftRadius };
+      });
+      expect(dot.radius).toBe("50%");
     };
 
     // Desktop: the completed task and both definition-list rows are visible

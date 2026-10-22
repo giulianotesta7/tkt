@@ -11,23 +11,32 @@
 </div>
 {{end}}
 
+{{/*
+  One grammar for every entry (issue #386, S3): a head line carrying the actor
+  in ink, the verb in muted copy and the relative time right-aligned (machine
+  datetime, absolute instant in the title), on a rail that draws one dot per
+  entry. A comment adds a bordered block under its own head line; an internal
+  note keeps its own background and says who may read it. Entries are listed
+  oldest first, so the feed reads down into the composer.
+*/}}
 {{define "timeline_entries"}}
-{{range .View.Timeline}}
+{{range .TimelineOldestFirst}}
 {{if .IsComment}}
-  <div class="timeline-entry timeline-comment{{if eq .Comment.Visibility "internal"}} internal{{end}}">
+  <article class="timeline-entry timeline-comment{{if eq .Comment.Visibility "internal"}} internal{{end}}">
     <div class="timeline-entry-head">
-      <div class="narrative"><strong class="timeline-actor">{{.Comment.Author}}</strong> {{if eq .Comment.Visibility "internal"}}{{t "tickets.timeline.added_internal"}}{{else}}{{t "tickets.timeline.added_public"}}{{end}}</div>
-      <span class="when">{{template "timestamp" .Comment.CreatedAt}}</span>
+      <div class="narrative"><strong class="timeline-actor">{{.Comment.Author}}</strong> <span class="timeline-action">{{if eq .Comment.Visibility "internal"}}{{t "tickets.timeline.added_internal"}}{{else}}{{t "tickets.timeline.added_public"}}{{end}}</span></div>
+      <div class="when"><time datetime="{{formatDatetime .Comment.CreatedAt}}" title="{{formatTime .Comment.CreatedAt}}">{{relativeTime .Comment.CreatedAt $.Now}}</time></div>
     </div>
-    <div class="body">{{.Comment.Body}}</div>
+{{if eq .Comment.Visibility "internal"}}    <p class="timeline-visibility">{{t "tickets.timeline.internal_label"}}</p>
+{{end}}    <div class="timeline-body">{{.Comment.Body}}</div>
 {{if .Attachments}}    <ul class="attachments" aria-label="{{t "tickets.detail.attachments"}}">{{range .Attachments}}<li><a class="attachment-name" href="/attachments/{{.ID}}">{{.FileName}}</a> <span class="attachment-size">{{fileSize .Size}}</span></li>{{end}}</ul>
-{{end}}  </div>
+{{end}}  </article>
 {{else}}
 {{if and (eq .Event.Action "workflow_manual_task") (or .StepInstruction .StepSolution)}}
-  <div class="timeline-entry timeline-event timeline-manual{{if .StateClass}} st-{{.StateClass}}{{end}}">
-    <div class="timeline-manual-heading">
-      <span class="event-icon" aria-hidden="true"><svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m3 8 3 3 7-7"/></svg></span>
-      <div class="main">{{if and .ActorLabel (not (automaticActor .Event.Actor))}}<strong class="timeline-actor">{{.ActorLabel}}</strong> {{end}}<span class="timeline-action">{{if .NarrativeMsg.Key}}{{msg .NarrativeMsg}}{{else if .Narrative}}{{.Narrative}}{{else}}{{.Summary}}{{end}}</span></div>
+  <article class="timeline-entry timeline-event timeline-manual{{if .StateClass}} st-{{.StateClass}}{{end}}">
+    <div class="timeline-entry-head">
+      <div class="narrative">{{if and .ActorLabel (not (automaticActor .Event.Actor))}}<strong class="timeline-actor">{{.ActorLabel}}</strong> {{end}}<span class="timeline-action">{{if .NarrativeMsg.Key}}{{msg .NarrativeMsg}}{{else if .Narrative}}{{.Narrative}}{{else}}{{.Summary}}{{end}}</span></div>
+      <div class="when"><time datetime="{{formatDatetime .Event.CreatedAt}}" title="{{formatTime .Event.CreatedAt}}">{{relativeTime .Event.CreatedAt $.Now}}</time></div>
     </div>
     <dl class="workflow-manual-details">
       {{if .StepInstruction}}<dt>{{t "tickets.timeline.task"}}</dt>
@@ -35,23 +44,20 @@
       {{end}}{{if .StepSolution}}<dt>{{t "tickets.timeline.solution"}}</dt>
       <dd>{{.StepSolution}}</dd>{{end}}
     </dl>
-    <div class="when">{{template "timestamp" .Event.CreatedAt}}</div>
-  </div>
+  </article>
 {{else}}
-  <div class="timeline-entry timeline-event{{if .IsWorkflowAssignment}}{{else if .StateClass}} st-{{.StateClass}}{{end}}">
-    <span class="event-icon" aria-hidden="true"></span>
-    <div class="body">
-      <div class="main">{{if and .ActorLabel (not (automaticActor .Event.Actor))}}<strong class="timeline-actor">{{.ActorLabel}}</strong> {{end}}{{if .IsWorkflowAssignment}}<span class="timeline-action">{{if .NarrativeMsg.Key}}{{msg .NarrativeMsg}}{{else if .Narrative}}{{.Narrative}}{{else}}{{.Summary}}{{end}} <strong>{{if .AssignmentPersonMsg.Key}}{{msg .AssignmentPersonMsg}}{{else}}{{.AssignmentPerson}}{{end}}</strong> {{t "tickets.timeline.at"}} <strong>{{if .AssignmentDeskMsg.Key}}{{msg .AssignmentDeskMsg}}{{else}}{{.AssignmentDesk}}{{end}}</strong></span>{{else}}<span class="timeline-action">{{if .NarrativeMsg.Key}}{{msg .NarrativeMsg}}{{else if .Narrative}}{{.Narrative}}{{else}}{{.Summary}}{{end}}</span>{{end}}</div>
-{{if .StepFields}}      <dl class="workflow-responses">
-{{range .StepFields}}        <dt>{{.Label}}</dt>
-            <dd>{{if eq .Kind "checkbox"}}{{if eq .Value "true"}}<span class="workflow-bool workflow-bool-true" role="img" aria-label="{{t "common.yes"}}">✓</span>{{else}}<span class="workflow-bool workflow-bool-false" role="img" aria-label="{{t "common.no"}}">×</span>{{end}}{{else}}{{.Value}}{{end}}</dd>
-{{end}}      </dl>
-{{end}}{{if not .SuppressDetail}}{{if .Event.Reason}}      <div class="detail">{{t "tickets.timeline.reason"}} {{.Event.Reason}}</div>
-{{else if .Event.Note}}      <div class="detail">{{t "tickets.timeline.reason"}} {{.Event.Note}}</div>
-{{end}}{{end}}
-      <div class="when">{{template "timestamp" .Event.CreatedAt}}</div>
+  <article class="timeline-entry timeline-event{{if .IsWorkflowAssignment}}{{else if .StateClass}} st-{{.StateClass}}{{end}}">
+    <div class="timeline-entry-head">
+      <div class="narrative">{{if and .ActorLabel (not (automaticActor .Event.Actor))}}<strong class="timeline-actor">{{.ActorLabel}}</strong> {{end}}{{if .IsWorkflowAssignment}}<span class="timeline-action">{{if .NarrativeMsg.Key}}{{msg .NarrativeMsg}}{{else if .Narrative}}{{.Narrative}}{{else}}{{.Summary}}{{end}} <strong>{{if .AssignmentPersonMsg.Key}}{{msg .AssignmentPersonMsg}}{{else}}{{.AssignmentPerson}}{{end}}</strong> {{t "tickets.timeline.at"}} <strong>{{if .AssignmentDeskMsg.Key}}{{msg .AssignmentDeskMsg}}{{else}}{{.AssignmentDesk}}{{end}}</strong></span>{{else}}<span class="timeline-action">{{if .NarrativeMsg.Key}}{{msg .NarrativeMsg}}{{else if .Narrative}}{{.Narrative}}{{else}}{{.Summary}}{{end}}</span>{{end}}</div>
+      <div class="when"><time datetime="{{formatDatetime .Event.CreatedAt}}" title="{{formatTime .Event.CreatedAt}}">{{relativeTime .Event.CreatedAt $.Now}}</time></div>
     </div>
-  </div>
+{{if .StepFields}}    <dl class="workflow-responses">
+{{range .StepFields}}      <dt>{{.Label}}</dt>
+      <dd>{{if eq .Kind "checkbox"}}{{if eq .Value "true"}}<span class="workflow-bool workflow-bool-true" role="img" aria-label="{{t "common.yes"}}">✓</span>{{else}}<span class="workflow-bool workflow-bool-false" role="img" aria-label="{{t "common.no"}}">×</span>{{end}}{{else}}{{.Value}}{{end}}</dd>
+{{end}}    </dl>
+{{end}}{{if not .SuppressDetail}}{{if .Event.Reason}}    <div class="timeline-detail">{{t "tickets.timeline.reason"}} {{.Event.Reason}}</div>
+{{else if .Event.Note}}    <div class="timeline-detail">{{t "tickets.timeline.reason"}} {{.Event.Note}}</div>
+{{end}}{{end}}  </article>
 {{end}}
 {{end}}
 {{else}}

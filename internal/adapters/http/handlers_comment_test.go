@@ -112,7 +112,7 @@ func TestTicketDetailAgentSeesInternalComment(t *testing.T) {
 	if !strings.Contains(body, "added an internal comment") {
 		t.Errorf("agent detail must use the actor-first internal-comment narrative, got: %s", body)
 	}
-	if !strings.Contains(body, `name="internal" value="1"`) || !strings.Contains(body, "Internal comment") {
+	if !strings.Contains(body, `name="internal" value="1"`) || !strings.Contains(body, "Internal note") {
 		t.Errorf("agent comment form must offer the internal checkbox, got: %s", body)
 	}
 	if !strings.Contains(body, `timeline-comment internal`) {

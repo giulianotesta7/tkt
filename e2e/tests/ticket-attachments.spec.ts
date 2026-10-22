@@ -196,7 +196,7 @@ test.describe("Ticket attachments", () => {
     await page.locator("#comment-internal").check();
     await page.locator('input[id="comment-attachments"]').setInputFiles([TXT]);
     const internalPost = waitForExactPost(page, `${detailPath}/comments`);
-    await page.getByRole("button", { name: /add comment/i }).click();
+    await page.getByRole("button", { name: "Reply", exact: true }).click();
     expect((await internalPost).status(), "a comment with a file is a native 303 POST").toBe(303);
     await expect(page).toHaveURL(new RegExp(`${detailPath}$`));
 
@@ -220,7 +220,7 @@ test.describe("Ticket attachments", () => {
     await expect(page.locator("#comment-internal")).not.toBeChecked();
     await page.locator('input[id="comment-attachments"]').setInputFiles([PDF]);
     const publicPost = waitForExactPost(page, `${detailPath}/comments`);
-    await page.getByRole("button", { name: /add comment/i }).click();
+    await page.getByRole("button", { name: "Reply", exact: true }).click();
     expect((await publicPost).status()).toBe(303);
     await expect(page).toHaveURL(new RegExp(`${detailPath}$`));
 

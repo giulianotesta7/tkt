@@ -93,6 +93,22 @@ func relativeTime(tr i18n.Translator, t, now time.Time) string {
 	return formatDisplayTime(t)
 }
 
+// initialsOf renders a person's mark: the first letters of the first and last
+// word, uppercased. It is the ONE implementation behind the shell's avatars, the
+// users table and the detail's property pickers (issue #386), so a person reads
+// the same two letters everywhere.
+func initialsOf(name string) string {
+	parts := strings.Fields(name)
+	if len(parts) == 0 {
+		return "?"
+	}
+	out := strings.ToUpper(parts[0][:1])
+	if len(parts) > 1 {
+		out += strings.ToUpper(parts[len(parts)-1][:1])
+	}
+	return out
+}
+
 func formatDatetime(t time.Time) string {
 	if t.IsZero() {
 		return ""
@@ -618,17 +634,7 @@ var templateFuncs = template.FuncMap{
 	"ticketNumber": func(n int) string {
 		return "TKT-" + strconv.Itoa(n)
 	},
-	"initials": func(name string) string {
-		parts := strings.Fields(name)
-		if len(parts) == 0 {
-			return "?"
-		}
-		out := strings.ToUpper(parts[0][:1])
-		if len(parts) > 1 {
-			out += strings.ToUpper(parts[len(parts)-1][:1])
-		}
-		return out
-	},
+	"initials": initialsOf,
 	"categoryDepartmentValue": func(id int64) string {
 		if id == -1 {
 			return "unassigned"
@@ -942,6 +948,15 @@ func templateFuncsFor(locale string) template.FuncMap {
 	}
 	funcs["requesterStateBadge"] = func(value any) stateBadge {
 		return newStateBadge(translator, value, true)
+	}
+	// The property pickers (issue #386, S5) are built here so every detailData
+	// renders the same component from its own values; the labels resolve
+	// through the active catalogue like the rest of the surface.
+	funcs["priorityPicker"] = func(current domain.Priority) listboxView {
+		return newPriorityPicker(translator, current)
+	}
+	funcs["assigneePicker"] = func(current string, users []domain.User) listboxView {
+		return newAssigneePicker(translator, current, users)
 	}
 	return funcs
 }

@@ -126,18 +126,17 @@ func TestSaveFeedbackUsesExplicitServerOutcomes(t *testing.T) {
 	})
 }
 
-// TestTicketDetailActionsDoNotIssueSaveFeedback pins issue #234's placement
-// rule on the ticket-detail actions the maintainer silenced: the inline
-// title/priority edit, the assign, the transition, and the resolution
-// confirmation all re-render #ticket-detail in place, so the value the actor
-// just wrote is already on screen and the toast is a second "ok". The
-// response must NOT carry the save-feedback channel (HTMX header for the
-// swap, native flash cookie for the redirect). Each removed action is
-// asserted together with its in-place result, so the test cannot pass by
-// dropping the mutation itself, and the comment path is the kept-surface
-// control that must still issue the channel.
-func TestTicketDetailActionsDoNotIssueSaveFeedback(t *testing.T) {
-	t.Run("inline title edit", func(t *testing.T) {
+// TestTicketDetailActionsSaveFeedback pins the save-feedback placement rule on
+// the ticket-detail actions. The title edit, the transition and the resolution
+// confirmation still re-render #ticket-detail in place with no toast (issue
+// #234). The priority pick and the assignment DO toast (issue #386, S5): the
+// maintainer chose the listbox menu over autosave, and both columns of that
+// comparison promise the same "Saved" confirmation the other explicit-save
+// surfaces use. Each mutation is asserted together with its in-place result, so
+// the test cannot pass by dropping the mutation itself, and the comment path is
+// the kept-surface control that must still issue the channel.
+func TestTicketDetailActionsSaveFeedback(t *testing.T) {
+	t.Run("inline title edit issues no feedback", func(t *testing.T) {
 		h := newHarness(t)
 		h.seedTicket(t, "Original title", nil)
 
@@ -154,7 +153,7 @@ func TestTicketDetailActionsDoNotIssueSaveFeedback(t *testing.T) {
 		}
 	})
 
-	t.Run("inline priority edit", func(t *testing.T) {
+	t.Run("priority pick carries the save toast", func(t *testing.T) {
 		h := newHarness(t)
 		h.seedTicket(t, "Priority ticket", nil)
 
@@ -163,15 +162,15 @@ func TestTicketDetailActionsDoNotIssueSaveFeedback(t *testing.T) {
 		if rec.Code != http.StatusOK {
 			t.Fatalf("status = %d, want 200", rec.Code)
 		}
-		if got := rec.Header().Get("X-Save-Feedback"); got != "" {
-			t.Errorf("priority edit must not carry the save-feedback header, got %q", got)
+		if got := rec.Header().Get("X-Save-Feedback"); !strings.Contains(got, `"message":"`+saveFeedbackSaved+`"`) {
+			t.Errorf("priority pick must carry the save-feedback header, got %q", got)
 		}
-		if !strings.Contains(rec.Body.String(), "selected>Critical</option>") {
-			t.Errorf("priority edit body must show Critical selected in place, got: %.400s", rec.Body.String())
+		if !strings.Contains(rec.Body.String(), `aria-selected="true">`) || !strings.Contains(rec.Body.String(), `>Critical</span>`) {
+			t.Errorf("priority pick body must show Critical in place, got: %.400s", rec.Body.String())
 		}
 	})
 
-	t.Run("assign", func(t *testing.T) {
+	t.Run("assign carries the save toast", func(t *testing.T) {
 		h := newHarness(t)
 		h.seedTicket(t, "Assign ticket", nil)
 		agent := seedUserRole(t, h.store, "Ann Agent", "ann@tkt.test", domain.RoleAgent)
@@ -181,15 +180,15 @@ func TestTicketDetailActionsDoNotIssueSaveFeedback(t *testing.T) {
 		if rec.Code != http.StatusOK {
 			t.Fatalf("status = %d, want 200", rec.Code)
 		}
-		if got := rec.Header().Get("X-Save-Feedback"); got != "" {
-			t.Errorf("assign must not carry the save-feedback header, got %q", got)
+		if got := rec.Header().Get("X-Save-Feedback"); !strings.Contains(got, `"message":"`+saveFeedbackSaved+`"`) {
+			t.Errorf("assign must carry the save-feedback header, got %q", got)
 		}
 		if !strings.Contains(rec.Body.String(), "Ann Agent") {
 			t.Errorf("assign body must show the new assignee in place, got: %.400s", rec.Body.String())
 		}
 	})
 
-	t.Run("transition", func(t *testing.T) {
+	t.Run("transition issues no feedback", func(t *testing.T) {
 		h := newHarness(t)
 		h.seedTicket(t, "Transition ticket", nil)
 

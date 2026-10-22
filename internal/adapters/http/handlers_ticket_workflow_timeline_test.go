@@ -162,7 +162,7 @@ func TestTicketWorkflowTimelineDetailCopyAvoidsWorkflowTerminology(t *testing.T)
 // WB.6 (Amendment 2) — a manual completion's stored solution renders INSIDE
 // its static completion event as escaped plain text, attributed/timestamped by
 // that event; a completion without a solution renders the instruction alone
-// with no empty block; newest-first ordering and the no-visible-`workflow`-copy
+// with no empty block; oldest-first ordering and the no-visible-`workflow`-copy
 // rule are preserved.
 func TestWorkflowStepTimelineManualSolutionRendersInsideEvent(t *testing.T) {
 	h := newHarness(t)
@@ -176,7 +176,7 @@ func TestWorkflowStepTimelineManualSolutionRendersInsideEvent(t *testing.T) {
 	}})
 
 	// Solved ticket: requester-owned, assigned to admin, completed WITH a
-	// markup-laden solution; an older comment locks newest-first ordering.
+	// markup-laden solution; an older comment locks the ordering.
 	requester := seedUserRole(t, h.store, "Solvetta", "solvetta@tkt.test", domain.RoleUser)
 	solved, err := h.tickets.Create(t.Context(), *requester, application.CreateTicketInput{
 		Title: "solved manual", Description: "d", CategoryID: cat.ID, Priority: domain.PriorityMedium,
@@ -192,7 +192,7 @@ func TestWorkflowStepTimelineManualSolutionRendersInsideEvent(t *testing.T) {
 	// completion event at the same second, and the preserved
 	// comments-before-events tie rule (views.go) would then legitimately
 	// render it above the event. Backdate the comment deterministically so
-	// the strict newest-first assertion below proves ordering, not tie luck.
+	// the strict ordering assertion below proves order, not tie luck.
 	if _, err := h.rawDB(t).ExecContext(t.Context(),
 		`UPDATE comments SET created_at = ? WHERE ticket_id = ? AND body = 'older comment first'`,
 		time.Now().UTC().Add(-time.Hour).Format(time.RFC3339), solved.ID); err != nil {
@@ -207,10 +207,8 @@ func TestWorkflowStepTimelineManualSolutionRendersInsideEvent(t *testing.T) {
 
 	body := h.get(t, "/tickets/"+sid, false).Body.String()
 	for _, want := range []string{
-		`<div class="timeline-entry timeline-event timeline-manual">`,
-		`<div class="timeline-manual-heading">`,
-		`<span class="event-icon" aria-hidden="true"><svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor"`,
-		`<path d="m3 8 3 3 7-7"/>`,
+		`<article class="timeline-entry timeline-event timeline-manual">`,
+		`<div class="timeline-entry-head">`,
 		`<strong class="timeline-actor">Admin</strong> <span class="timeline-action">completed the task</span>`,
 		`<dt>Task</dt>`,
 		`<dd>inspect the server</dd>`,
@@ -243,11 +241,12 @@ func TestWorkflowStepTimelineManualSolutionRendersInsideEvent(t *testing.T) {
 			t.Errorf("solution must stay inside the timestamped completion event: %s", entry)
 		}
 	}
-	// Newest-first: the older comment sits BELOW the newer completion event.
+	// Oldest-first (issue #386, S3): the older comment sits ABOVE the newer
+	// completion event.
 	eventIdx := strings.Index(body, "Solution")
 	commentIdx := strings.Index(body, "older comment first")
-	if eventIdx < 0 || commentIdx < 0 || commentIdx < eventIdx {
-		t.Errorf("newest-first ordering broken (event at %d, older comment at %d)", eventIdx, commentIdx)
+	if eventIdx < 0 || commentIdx < 0 || eventIdx < commentIdx {
+		t.Errorf("oldest-first ordering broken (older comment at %d, event at %d)", commentIdx, eventIdx)
 	}
 	if text := stripTags(body); strings.Contains(text, "workflow") {
 		t.Errorf("no ticket-facing copy may contain workflow, got: %s", text)
@@ -274,16 +273,19 @@ func TestWorkflowStepTimelineManualSolutionRendersInsideEvent(t *testing.T) {
 		t.Fatalf("seed tied comment: %v", err)
 	}
 	ubody := h.get(t, "/tickets/"+uid, false).Body.String()
-	if !strings.Contains(ubody, `<div class="timeline-entry timeline-event timeline-manual">`) || !strings.Contains(ubody, `<div class="timeline-manual-heading">`) || !strings.Contains(ubody, `<svg viewBox="0 0 16 16" width="16" height="16"`) || !strings.Contains(ubody, `<path d="m3 8 3 3 7-7"/>`) || !strings.Contains(ubody, `<strong class="timeline-actor">Admin</strong> <span class="timeline-action">completed the task</span>`) || !strings.Contains(ubody, `<dt>Task</dt>`) || !strings.Contains(ubody, `<dd>inspect the server</dd>`) {
+	if !strings.Contains(ubody, `<article class="timeline-entry timeline-event timeline-manual">`) || !strings.Contains(ubody, `<div class="timeline-entry-head">`) || !strings.Contains(ubody, `<strong class="timeline-actor">Admin</strong> <span class="timeline-action">completed the task</span>`) || !strings.Contains(ubody, `<dt>Task</dt>`) || !strings.Contains(ubody, `<dd>inspect the server</dd>`) {
 		t.Errorf("static manual event must render actor-first task details: %s", ubody)
 	}
 	if strings.Contains(ubody, `<details class="timeline-entry timeline-event timeline-manual">`) || strings.Contains(ubody, `<summary class="timeline-event-summary">`) || strings.Contains(ubody, "timeline-event-summary") {
 		t.Errorf("manual event must not render disclosure or interaction markup: %s", ubody)
 	}
+	// The tie rule is preserved and reversed with the feed: the newest-first
+	// stream puts the comment before the same-second event, so the oldest-first
+	// detail reads the event first.
 	tieComment := strings.Index(ubody, "tied same-second comment")
 	tieEvent := strings.Index(ubody, `class="timeline-entry timeline-event`)
-	if tieComment < 0 || tieEvent < 0 || tieEvent < tieComment {
-		t.Errorf("same-second tie must render the comment before the event (comment at %d, event at %d)", tieComment, tieEvent)
+	if tieComment < 0 || tieEvent < 0 || tieComment < tieEvent {
+		t.Errorf("same-second tie must keep its rule under the new order (comment at %d, event at %d)", tieComment, tieEvent)
 	}
 	if strings.Contains(ubody, "<dt>Solution</dt>") || strings.Contains(stripTags(ubody), "No solution") {
 		t.Errorf("empty completion must render no solution block or placeholder: %s", ubody)

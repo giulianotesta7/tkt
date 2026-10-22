@@ -536,16 +536,22 @@ test.describe("Settings", () => {
     await expect(page.getByRole("link", { name: title, exact: true })).toBeVisible();
     await expect(updated).toHaveText(/^(recién|hace \d+ (min|h|d))$/);
 
-    // The ticket detail: the state badge and the properties speak Spanish, and
-    // the date keeps the numeric shape this surface has always had — that
-    // shape carries no month name, so the language must not move it.
+    // The ticket detail: the properties panel and the state badge speak Spanish,
+    // and the creation instant keeps the numeric shape this surface has always
+    // had — that shape carries no month name, so the language must not move it.
     await page.goto(base() + `/tickets/${ticketId}`);
     await expect(page.locator("html")).toHaveAttribute("lang", "es");
-    await expect(page.locator(".prop-heading").filter({ hasText: "Propiedades" })).toBeVisible();
-    await expect(page.locator("#ticket-detail .prop-value .badge.new")).toHaveText("Nuevo");
-    await expect(page.locator("time[datetime]").first()).toHaveText(
-      /^\d{2}:\d{2} · \d{2}-\d{2}-\d{4}$/,
-    );
+    // Issue #386: the properties panel heading is the disclosure summary of
+    // `details.detail-properties`, and the state badge sits beside the title.
+    await expect(
+      page.locator("#ticket-detail .detail-properties-summary").filter({ hasText: "Propiedades" }),
+    ).toBeVisible();
+    await expect(page.locator("#ticket-detail .detail-state .badge.new")).toHaveText("Nuevo");
+    // The header meta line reads relatively and carries the absolute instant in
+    // its title (S3): the language moves the reading, never the instant.
+    const headerTime = page.locator("#ticket-detail .detail-meta time");
+    await expect(headerTime).toHaveAttribute("title", /^\d{2}:\d{2} · \d{2}-\d{2}-\d{4}$/);
+    await expect(headerTime).toHaveText(/^(recién|hace \d+ (min|h|d))$/);
 
     // Switch back to English and prove the previous language is restored.
     await page.goto(base() + "/settings/language");
@@ -565,7 +571,14 @@ test.describe("Settings", () => {
 
     await page.goto(base() + `/tickets/${ticketId}`);
     await expect(page.locator("html")).toHaveAttribute("lang", "en");
-    await expect(page.locator("#ticket-detail .prop-value .badge.new")).toHaveText("New");
+    await expect(page.locator("#ticket-detail .detail-state .badge.new")).toHaveText("New");
+    await expect(page.locator("#ticket-detail .detail-meta time")).toHaveAttribute(
+      "title",
+      /^\d{2}:\d{2} · \d{2}-\d{2}-\d{4}$/,
+    );
+    await expect(page.locator("#ticket-detail .detail-meta time")).toHaveText(
+      /^(just now|\d+ (min|h|d) ago)$/,
+    );
   });
 
   // ------------------------------------------------------------------------

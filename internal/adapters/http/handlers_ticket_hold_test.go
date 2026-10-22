@@ -379,10 +379,10 @@ func TestTicketDetailStaffHoldForm(t *testing.T) {
 		t.Errorf("a ticket that is not on hold must not render the hold banner, got: %s", body)
 	}
 
-	// The maintainer asked for a small dialog opened from the SLA section,
-	// not a permanent card: the trigger sits in the SLA section and the form
-	// lives inside the dialog.
-	assertHoldTriggerInSLASection(t, body)
+	// The hold costs no room until it is needed: the reason lives in a dialog
+	// opened from the header's overflow menu (issue #386, S1), and the SLA panel
+	// keeps its content.
+	assertHoldTriggerInHeaderOverflow(t, body)
 	dialogStart := strings.Index(body, `<dialog id="ticket-hold-dialog"`)
 	form := strings.Index(body, `action="`+ticketPath(tkt.ID)+`/hold"`)
 	if dialogStart < 0 || form < dialogStart || form > dialogStart+strings.Index(body[dialogStart:], `</dialog>`) {
@@ -393,17 +393,20 @@ func TestTicketDetailStaffHoldForm(t *testing.T) {
 	}
 }
 
-// assertHoldTriggerInSLASection proves the "Put on hold" button renders inside
-// the SLA property section, after its heading.
-func assertHoldTriggerInSLASection(t *testing.T, body string) {
+// assertHoldTriggerInHeaderOverflow proves the "Put on hold" button renders in
+// the header's overflow menu (issue #386, S1) and not in the SLA section any
+// more, while the dialog it opens stays where it was.
+func assertHoldTriggerInHeaderOverflow(t *testing.T, body string) {
 	t.Helper()
-	heading := strings.Index(body, `<div class="prop-heading">SLA</div>`)
+	overflow := strings.Index(body, `id="ticket-actions-overflow"`)
 	trigger := strings.Index(body, `data-hold-open`)
-	if heading < 0 || trigger < heading {
-		t.Fatalf("the hold trigger must follow the SLA heading (heading=%d trigger=%d), got: %s", heading, trigger, body)
+	if overflow < 0 || trigger < 0 || trigger < overflow {
+		t.Fatalf("the hold trigger must live in the header overflow (overflow=%d trigger=%d), got: %s", overflow, trigger, body)
 	}
-	if next := strings.Index(body[heading:], `<div class="prop-section"`); next >= 0 && trigger > heading+next {
-		t.Errorf("the hold trigger must stay inside the SLA section, got: %s", body)
+	// The menu closes before the cards, so a trigger rendered in the SLA panel
+	// cannot pass by being after the overflow opener.
+	if menuEnd := strings.Index(body[overflow:], `</details>`); menuEnd >= 0 && trigger > overflow+menuEnd {
+		t.Errorf("the hold trigger must stay inside the overflow menu, got: %s", body)
 	}
 }
 
@@ -421,7 +424,7 @@ func TestTicketDetailHoldTriggerWithFrozenSLA(t *testing.T) {
 	if !strings.Contains(body, `data-sla-countdown`) {
 		t.Fatalf("the fixture must render SLA milestones, got: %s", body)
 	}
-	assertHoldTriggerInSLASection(t, body)
+	assertHoldTriggerInHeaderOverflow(t, body)
 }
 
 // TestTicketDetailStaffOnHoldBanner proves a held ticket shows the agent when
@@ -458,7 +461,8 @@ func TestTicketDetailStaffOnHoldBanner(t *testing.T) {
 		}
 	}
 	// The maintainer moved the staff notice into the SLA section: no banner
-	// above the ticket, and the notice and Resume sit after the SLA heading.
+	// above the ticket, and the notice sits after the SLA heading. The Resume
+	// control moved to the header's overflow menu (issue #386, S1).
 	if strings.Contains(body, `class="hold-banner"`) {
 		t.Errorf("staff must not get the top banner any more, got: %s", body)
 	}
@@ -466,6 +470,11 @@ func TestTicketDetailStaffOnHoldBanner(t *testing.T) {
 	notice := strings.Index(body, `class="sla-hold-status"`)
 	if heading < 0 || notice < heading {
 		t.Errorf("the on-hold notice must live in the SLA section (heading=%d notice=%d)", heading, notice)
+	}
+	overflow := strings.Index(body, `id="ticket-actions-overflow"`)
+	resume := strings.Index(body, `action="`+ticketPath(tkt.ID)+`/resume"`)
+	if overflow < 0 || resume < overflow {
+		t.Errorf("the Resume control must live in the header overflow (overflow=%d resume=%d), got: %s", overflow, resume, body)
 	}
 }
 
