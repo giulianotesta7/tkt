@@ -244,6 +244,7 @@ func localizedShellFS(t *testing.T) fstest.MapFS {
 		"base.html",
 		"auth.html",
 		"pages/login.html",
+		"partials/signin_panel.html",
 		"partials/styles.html",
 		"partials/save_feedback.html",
 		// base.html renders the rail bell (issue #344), so the fixture shell
@@ -272,11 +273,11 @@ func TestRenderDeclaresAndRendersTheInstanceLanguage(t *testing.T) {
 		wantCopy   string
 		absentCopy string
 	}{
-		{name: "english", source: stubInterfaceLanguage{language: "en"}, wantLang: "en", wantCopy: "Welcome to tkt", absentCopy: "Te damos la bienvenida a tkt"},
-		{name: "spanish", source: stubInterfaceLanguage{language: "es"}, wantLang: "es", wantCopy: "Te damos la bienvenida a tkt", absentCopy: "Welcome to tkt"},
-		{name: "unknown value degrades to the default", source: stubInterfaceLanguage{language: "fr"}, wantLang: "en", wantCopy: "Welcome to tkt", absentCopy: "Te damos la bienvenida a tkt"},
-		{name: "empty value degrades to the default", source: stubInterfaceLanguage{language: ""}, wantLang: "en", wantCopy: "Welcome to tkt", absentCopy: "Te damos la bienvenida a tkt"},
-		{name: "read failure degrades to the default", source: stubInterfaceLanguage{err: errors.New("settings unavailable")}, wantLang: "en", wantCopy: "Welcome to tkt", absentCopy: "Te damos la bienvenida a tkt"},
+		{name: "english", source: stubInterfaceLanguage{language: "en"}, wantLang: "en", wantCopy: "you@example.com", absentCopy: "tu@ejemplo.com"},
+		{name: "spanish", source: stubInterfaceLanguage{language: "es"}, wantLang: "es", wantCopy: "tu@ejemplo.com", absentCopy: "you@example.com"},
+		{name: "unknown value degrades to the default", source: stubInterfaceLanguage{language: "fr"}, wantLang: "en", wantCopy: "you@example.com", absentCopy: "tu@ejemplo.com"},
+		{name: "empty value degrades to the default", source: stubInterfaceLanguage{language: ""}, wantLang: "en", wantCopy: "you@example.com", absentCopy: "tu@ejemplo.com"},
+		{name: "read failure degrades to the default", source: stubInterfaceLanguage{err: errors.New("settings unavailable")}, wantLang: "en", wantCopy: "you@example.com", absentCopy: "tu@ejemplo.com"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			r, err := newRendererWithLanguage(localizedShellFS(t), tc.source)
@@ -320,7 +321,7 @@ func TestRenderRailShellFollowsTheInstanceLanguage(t *testing.T) {
 		absentLogout string
 	}{
 		{name: "english", language: "en", wantLang: "en", wantNav: "Tickets", absentNav: "Solicitudes", wantLogout: "Log out", absentLogout: "Cerrar sesión"},
-		{name: "spanish", language: "es", wantLang: "es", wantNav: "Tickets", absentNav: "Solicitudes", wantLogout: "Cerrar sesión", absentLogout: `title="Log out"`},
+		{name: "spanish", language: "es", wantLang: "es", wantNav: "Tickets", absentNav: "Solicitudes", wantLogout: "Cerrar sesión", absentLogout: `>Log out<`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			r, err := newRendererWithLanguage(localizedShellFS(t), stubInterfaceLanguage{language: tc.language})
@@ -339,7 +340,7 @@ func TestRenderRailShellFollowsTheInstanceLanguage(t *testing.T) {
 			if !strings.Contains(body, `<html lang="`+tc.wantLang+`">`) {
 				t.Errorf("rail shell must declare lang=%q, got: %s", tc.wantLang, firstLine(body))
 			}
-			for _, want := range []string{`title="` + tc.wantNav + `"`, `aria-label="` + tc.wantNav + `"`, `<h1>` + tc.wantNav + `</h1>`, tc.wantLogout} {
+			for _, want := range []string{`data-tip="` + tc.wantNav + `"`, `<span class="sidebar-label">` + tc.wantNav + `</span>`, `<h1>` + tc.wantNav + `</h1>`, tc.wantLogout} {
 				if !strings.Contains(body, want) {
 					t.Errorf("rail shell must render %q, got: %s", want, body)
 				}
@@ -423,7 +424,7 @@ func TestRenderWithoutLanguageSourceAnswersTheDefaultLocale(t *testing.T) {
 	if !strings.Contains(body, `<html lang="en">`) {
 		t.Errorf("a renderer without a language source must declare the default locale, got: %s", firstLine(body))
 	}
-	if !strings.Contains(body, `title="Tickets"`) {
+	if !strings.Contains(body, `data-tip="Tickets"`) {
 		t.Errorf("a renderer without a language source must render English copy, got: %s", body)
 	}
 }

@@ -970,24 +970,19 @@ test.describe("Ticket Lifecycle", () => {
       await expect(ticketSearchIcon).toHaveAttribute(name, value);
     }
 
-    // The list filter Apply is a bare neutral control: pin its hairline against
-    // the --line token and its own background before the journey arms the form.
-    await expectHairlineBorder(
-      page.getByRole("button", { name: "Apply", exact: true }),
-      "ticket list filter Apply",
-    );
+    // The queue filters live (issue #382): every select applies on change and
+    // the search on a debounced input, with no Apply button at all.
+    await expect(page.getByRole("button", { name: "Apply", exact: true })).toHaveCount(0);
 
-    // 1. Search for the unique title — filtered result visible.
-    // Fill and submit inside the trigger so the interceptor is armed before
-    // the form's HTMX GET is dispatched.
+    // 1. Narrow by state, priority and category, then type the unique title:
+    // the debounced search request carries every control.
     await assertHtmxSwap(
       page,
       async () => {
-        await searchInput.fill(uniqueTitle);
         await page.getByLabel("State").selectOption("new");
         await page.getByLabel("Priority").selectOption("low");
         await page.getByLabel("Category").selectOption({ label: "General" });
-        await page.getByRole("button", { name: "Apply", exact: true }).click();
+        await searchInput.fill(uniqueTitle);
       },
       {
         endpoint: (url) => {
@@ -1003,7 +998,7 @@ test.describe("Ticket Lifecycle", () => {
         },
         method: "GET",
         expectedStatus: 200,
-        hxTarget: "#tickets-screen",
+        hxTarget: "#queue-results",
         expectedUrl: /\/tickets\?q=/,
       },
     );
@@ -1013,6 +1008,37 @@ test.describe("Ticket Lifecycle", () => {
     await expect(page.getByLabel("Search tickets")).toHaveValue(uniqueTitle);
     await expect(page.getByLabel("State")).toHaveValue("new");
     await expect(page.getByLabel("Priority")).toHaveValue("low");
+    // Every active filter is a removable chip.
+    const chips = page.locator(".queue-chips .queue-chip");
+    await expect(chips).toHaveCount(4);
+    await expect(chips.filter({ hasText: `Search: ${uniqueTitle}` })).toHaveCount(1);
+    await expect(chips.filter({ hasText: /^New/ })).toHaveCount(1);
+    await expect(chips.filter({ hasText: /^Low/ })).toHaveCount(1);
+    await expect(chips.filter({ hasText: /^General/ })).toHaveCount(1);
+    // Removing one chip drops exactly that key and keeps the others.
+    await assertHtmxSwap(
+      page,
+      async () => {
+        await chips.filter({ hasText: /^Low/ }).click();
+      },
+      {
+        endpoint: (url) => {
+          const parsedURL = new URL(url);
+          return (
+            parsedURL.pathname === "/tickets" &&
+            parsedURL.searchParams.get("q") === uniqueTitle &&
+            parsedURL.searchParams.get("state") === "new" &&
+            !parsedURL.searchParams.has("priority")
+          );
+        },
+        method: "GET",
+        expectedStatus: 200,
+        hxTarget: "#tickets-screen",
+        expectedUrl: /\/tickets\?/,
+      },
+    );
+    await expect(page.getByLabel("Priority")).toHaveValue("");
+    await expect(page.locator(".queue-chips .queue-chip")).toHaveCount(3);
 
     // 2. Search for an impossible term — empty state
     const impossibleTerm = "zzz_no_match_" + Date.now().toString(36).replace(/[0-9]/g, "x");
@@ -1020,7 +1046,6 @@ test.describe("Ticket Lifecycle", () => {
       page,
       async () => {
         await searchInput.fill(impossibleTerm);
-        await page.getByRole("button", { name: "Apply", exact: true }).click();
       },
       {
         endpoint: (url) => {
@@ -1031,7 +1056,7 @@ test.describe("Ticket Lifecycle", () => {
         },
         method: "GET",
         expectedStatus: 200,
-        hxTarget: "#tickets-screen",
+        hxTarget: "#queue-results",
         expectedUrl: /\/tickets\?q=/,
       },
     );
@@ -1042,7 +1067,7 @@ test.describe("Ticket Lifecycle", () => {
     await assertHtmxSwap(
       page,
       async () => {
-        await page.getByRole("link", { name: "Clear filters", exact: true }).click();
+        await page.locator(".queue-chips-clear").click();
       },
       {
         endpoint: "/tickets",
@@ -1078,7 +1103,7 @@ test.describe("Ticket Lifecycle", () => {
         },
         method: "GET",
         expectedStatus: 200,
-        hxTarget: "#tickets-screen",
+        hxTarget: "#queue-results",
         expectedUrl: /\/tickets\?q=/,
       },
     );
@@ -1130,13 +1155,13 @@ test.describe("Ticket Lifecycle", () => {
       const queueHref = await page.getByRole("link", { name: "Queue" }).getAttribute("href");
       if (!queueHref) throw new Error(`Missing Queue href at ${page.url()}`);
       // Issue #343 S2: the editable detail names the ticket in exactly one h1;
-      // the apply swap must keep it, the visible title and the rail chrome.
+      // the apply swap must keep it, the visible title and the sidebar chrome.
       await expect(page.locator("h1")).toHaveCount(1);
       await expect(page.locator("h1")).toHaveText(title);
       // The notification bell refreshes itself (its own count poll), so the
-      // chrome compared here is the rail without it.
+      // chrome compared here is the sidebar without it.
       const railChrome = () =>
-        page.locator(".rail").evaluate((rail) => {
+        page.locator(".sidebar").evaluate((rail) => {
           const copy = rail.cloneNode(true) as HTMLElement;
           copy.querySelector("#notification-bell")?.remove();
           return copy.innerHTML;
@@ -1182,7 +1207,6 @@ test.describe("Ticket Lifecycle", () => {
         await page.getByLabel("Category").selectOption(categoryID);
         await page.getByLabel("Assigned user").selectOption("1");
         await page.getByLabel("Order by").selectOption("priority");
-        await page.getByRole("button", { name: "Apply", exact: true }).click();
       },
       {
         endpoint: (url) => {
@@ -1199,7 +1223,7 @@ test.describe("Ticket Lifecycle", () => {
         },
         method: "GET",
         expectedStatus: 200,
-        hxTarget: "#tickets-screen",
+        hxTarget: "#queue-results",
         expectedUrl: /\/tickets\?.*sort=priority/,
       },
     );
@@ -1420,10 +1444,11 @@ test.describe("Ticket Lifecycle", () => {
     await expect(page.getByLabel("Search tickets")).toHaveValue(prefix);
     await expect(page.getByText("Page 2 of 2", { exact: false })).toBeVisible();
 
+    // A filter change (here the sort) drops the page and keeps the search.
     await assertHtmxSwap(
       page,
       async () => {
-        await page.getByRole("button", { name: "Apply", exact: true }).click();
+        await page.getByLabel("Order by").selectOption("priority");
       },
       {
         endpoint: (url) => {
@@ -1431,12 +1456,13 @@ test.describe("Ticket Lifecycle", () => {
           return (
             parsedURL.pathname === "/tickets" &&
             parsedURL.searchParams.get("q") === prefix &&
+            parsedURL.searchParams.get("sort") === "priority" &&
             !parsedURL.searchParams.has("page")
           );
         },
         method: "GET",
         expectedStatus: 200,
-        hxTarget: "#tickets-screen",
+        hxTarget: "#queue-results",
         expectedUrl: /\/tickets\?q=/,
       },
     );
@@ -1464,7 +1490,7 @@ test.describe("Ticket Lifecycle", () => {
     await assertHtmxSwap(
       page,
       async () => {
-        await page.getByRole("link", { name: "Clear filters", exact: true }).click();
+        await page.locator(".queue-chips-clear").click();
       },
       {
         endpoint: "/tickets",
@@ -1483,11 +1509,12 @@ test.describe("Ticket Lifecycle", () => {
     const rows = page.locator("#ticket-list tbody tr");
     await expect(rows).toHaveCount(10);
     await expect(page.getByText(longTitle, { exact: true })).toBeVisible();
-    // The staff queue carried five metadata cells per row before the SLA
-    // column (issue #211) added a sixth. Assert the WHOLE current geometry:
-    // every label below has one cell per row, and the total is rows x labels,
-    // so a future column is a visible change here rather than a silent gap.
-    const metadataLabels = ["ID", "Title", "State", "Priority", "SLA", "Updated"];
+    // The triage queue (issue #382) carries seven metadata cells per row while
+    // SLA is off (the SLA column appears only with a commitment or the setting
+    // on). Assert the WHOLE current geometry: every label below has one cell
+    // per row, and the total is rows x labels, so a future column is a visible
+    // change here rather than a silent gap.
+    const metadataLabels = ["ID", "Ticket", "Category", "Assignee", "Priority", "State", "Updated"];
     const metadataCells = rows.locator("td[data-label]");
     await expect(metadataCells).toHaveCount(10 * metadataLabels.length);
     for (const label of metadataLabels) {
@@ -1506,7 +1533,7 @@ test.describe("Ticket Lifecycle", () => {
       new Set(["Critical", "High", "Medium", "Low"]),
     );
     await assertPriorityIndicators();
-    await expect(rows.locator('td[data-label="Title"] a').first()).toBeVisible();
+    await expect(rows.locator('td[data-label="Ticket"] a').first()).toBeVisible();
 
     await assertCanonicalScreen(page, {
       viewport: 390,
@@ -1767,7 +1794,6 @@ test.describe("Ticket list SLA visibility (seeded)", () => {
       page,
       async () => {
         await page.getByLabel("Order by").selectOption("urgency");
-        await page.getByRole("button", { name: "Apply", exact: true }).click();
       },
       {
         endpoint: (url) => {
@@ -1778,7 +1804,7 @@ test.describe("Ticket list SLA visibility (seeded)", () => {
         },
         method: "GET",
         expectedStatus: 200,
-        hxTarget: "#tickets-screen",
+        hxTarget: "#queue-results",
         expectedUrl: /\/tickets\?.*sort=urgency/,
       },
     );
@@ -1794,7 +1820,6 @@ test.describe("Ticket list SLA visibility (seeded)", () => {
       page,
       async () => {
         await page.getByLabel("Order by").selectOption("priority");
-        await page.getByRole("button", { name: "Apply", exact: true }).click();
       },
       {
         endpoint: (url) => {
@@ -1805,7 +1830,7 @@ test.describe("Ticket list SLA visibility (seeded)", () => {
         },
         method: "GET",
         expectedStatus: 200,
-        hxTarget: "#tickets-screen",
+        hxTarget: "#queue-results",
         expectedUrl: /\/tickets\?.*sort=priority/,
       },
     );

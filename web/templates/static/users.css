@@ -20,9 +20,8 @@
 .page-foundation .page-breadcrumb{margin:0 0 8px;color:var(--muted);font-size:12px}
 .page-foundation .page-breadcrumb a{color:var(--accent)}
 .page-foundation .page-actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
-/* Keep workflow actions in their own left-aligned row, clear of the shared
-   top-right confirmation. The toast remains interactive for explicit dismissal. */
-.category-workflow-page .page-header{flex-direction:column;gap:16px}
+/* Workflow actions sit in the shared actions slot (issue #377); the save
+   confirmation lives bottom-right, so the two never meet. */
 .page-foundation .page-status{color:var(--muted);font-size:13px;line-height:1.2}
 .page-foundation .page-action-secondary{border-color:var(--line-strong);background:var(--surface);color:var(--accent)}
 .page-foundation .page-action-primary{border-color:var(--accent)}
@@ -106,7 +105,6 @@
       .users-root .users-header,.page-foundation .page-header{margin-bottom:24px}
   .page-foundation .page-header{flex-wrap:wrap}
   .page-foundation .page-actions{width:100%}
-  .category-workflow-page .page-actions{flex-direction:column;align-items:flex-start}
   .users-root #users-background{min-width:0}
   .users-root .users-layout{min-width:0}
   .users-root .users-layout > *{min-width:0}
@@ -121,21 +119,57 @@
   .users-root *{scroll-behavior:auto!important;transition:none!important}
 }
 
+.tickets-header{max-width:1440px}
+.tickets-header .page-header{margin-bottom:20px}
 .tickets-screen{max-width:1440px}
 .tickets-screen .page-header{margin-bottom:20px}
-.tickets-screen .ticket-toolbar{align-items:center;flex-wrap:wrap;gap:8px;padding:10px 12px}
+.tickets-screen .queue-tabs{display:flex;gap:4px;border-bottom:1px solid var(--line);margin-bottom:14px;overflow-x:auto;scrollbar-width:none}
+.tickets-screen .queue-tabs::-webkit-scrollbar{display:none}
+.tickets-screen .queue-tab{display:inline-flex;align-items:center;gap:6px;padding:8px 12px;color:var(--muted);font-size:13px;font-weight:500;white-space:nowrap;border-bottom:2px solid transparent;margin-bottom:-1px}
+.tickets-screen .queue-tab:hover{color:var(--ink);text-decoration:none}
+.tickets-screen .queue-tab.active{color:var(--ink-strong);border-bottom-color:var(--accent)}
+.tickets-screen .queue-tab-count{font-size:12px;color:var(--faint);font-variant-numeric:tabular-nums}
+.tickets-screen .queue-tab.active .queue-tab-count{color:var(--muted)}
+.tickets-screen .ticket-toolbar{align-items:center;flex-wrap:wrap;gap:8px;padding:10px 12px;margin-bottom:10px}
 .tickets-screen .ticket-search{flex:1 1 240px;min-width:180px}
 .tickets-screen .ticket-search input[type=search]{width:100%;height:36px}
 .tickets-screen .ticket-toolbar select{height:36px;min-width:132px}
-.tickets-screen .ticket-toolbar .btn{height:36px}
+.tickets-screen .queue-filters{display:contents}
+.tickets-screen .queue-filters-toggle{display:none}
+.tickets-screen .queue-filters-controls{display:contents}
+.tickets-screen .queue-sort{display:inline-flex;align-items:center;gap:8px;margin-left:auto;color:var(--muted);font-size:13px}
+.tickets-screen .queue-sort select{min-width:120px}
+.tickets-screen .queue-chips{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:0 0 12px}
+.tickets-screen .queue-chip{display:inline-flex;align-items:center;gap:6px;height:30px;padding:0 10px;border:1px solid var(--accent);border-radius:999px;background:var(--accent-soft);color:var(--accent-ink);font-size:12px;font-weight:500;white-space:nowrap}
+.tickets-screen .queue-chip:hover{text-decoration:none;background:var(--hover)}
+.tickets-screen .queue-chip-x{font-size:14px;line-height:1}
+.tickets-screen .queue-chips-clear{font-size:12px;font-weight:500;color:var(--muted);margin-left:4px}
+.tickets-screen .queue-chips-clear:hover{color:var(--ink)}
 .tickets-screen .queue-shell{overflow:hidden}
 .tickets-screen .queue{table-layout:fixed}
-.tickets-screen .queue th:nth-child(1),.tickets-screen .queue td:nth-child(1){width:88px}
-.tickets-screen .queue th:nth-child(3),.tickets-screen .queue td:nth-child(3){width:130px}
-.tickets-screen .queue th:nth-child(4),.tickets-screen .queue td:nth-child(4){width:86px}
-.tickets-screen .queue th:nth-child(5),.tickets-screen .queue td:nth-child(5){width:224px}
+.tickets-screen .queue th:nth-child(1),.tickets-screen .queue td:nth-child(1){width:84px}
+.tickets-screen .queue th:nth-child(3),.tickets-screen .queue td:nth-child(3){width:140px}
+.tickets-screen .queue th:nth-child(4),.tickets-screen .queue td:nth-child(4){width:170px}
+.tickets-screen .queue th:nth-child(5),.tickets-screen .queue td:nth-child(5){width:96px}
+.tickets-screen .queue th:nth-child(6),.tickets-screen .queue td:nth-child(6){width:150px}
+.tickets-screen .queue th:last-child,.tickets-screen .queue td:last-child{width:110px}
+.tickets-screen .queue-with-sla th:nth-child(7),.tickets-screen .queue-with-sla td:nth-child(7){width:120px}
+.tickets-screen .queue-row{cursor:pointer}
+.tickets-screen .queue-row:focus-within td{background:var(--hover)}
+.tickets-screen .queue .num{color:var(--muted)}
+.tickets-screen .queue td{padding-top:10px;padding-bottom:10px;height:auto}
 .tickets-screen .cell-title{overflow-wrap:anywhere}
-.tickets-screen .cell-title a{color:var(--ink-strong)}
+.tickets-screen .queue-title{display:block;color:var(--ink-strong);font-weight:500;line-height:1.35}
+.tickets-screen .queue-title:hover{text-decoration:none}
+.tickets-screen .queue-requester{display:block;margin-top:2px;color:var(--muted);font-size:12px;font-weight:400}
+.tickets-screen .queue-category{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tickets-screen .queue-assignee{display:inline-flex;align-items:center;gap:8px;min-width:0;max-width:100%;color:var(--ink);font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tickets-screen .queue-mark{display:inline-flex;align-items:center;justify-content:center;flex:0 0 24px;width:24px;height:24px;border-radius:50%;background:var(--accent-soft);color:var(--accent-ink);font-size:10px;font-weight:600}
+.tickets-screen .queue-unassigned{color:var(--muted)}
+.tickets-screen .queue-updated{white-space:nowrap}
+.tickets-screen .queue-updated time{cursor:help}
+.tickets-screen .queue-empty{display:flex;flex-direction:column;align-items:center;gap:12px;padding:36px 0}
+.tickets-screen .queue-empty p{margin:0;color:var(--muted)}
 .tickets-screen .ticket-priority-value{display:inline-flex;align-items:center;gap:6px;white-space:nowrap;color:var(--ink-strong)}
 .tickets-screen .ticket-priority-value::before{content:"";flex:0 0 7px;width:7px;height:7px;border-radius:50%;background:var(--amber)}
 .tickets-screen .priority.low .ticket-priority-value::before{background:var(--green)}
@@ -182,18 +216,29 @@
   .tickets-screen .user-request-card{flex-wrap:wrap}
   .tickets-screen .ticket-toolbar{align-items:stretch}
   .tickets-screen .ticket-search{flex-basis:100%}
-  .tickets-screen .ticket-toolbar select{flex:1 1 calc(50% - 4px);min-width:0}
-  .tickets-screen .ticket-toolbar .btn{flex:1 1 auto;justify-content:center}
+  .tickets-screen .queue-filters{display:block;flex:1 1 auto}
+  .tickets-screen .queue-filters-toggle{display:inline-flex;list-style:none;cursor:pointer;justify-content:center;width:100%}
+  .tickets-screen .queue-filters-toggle::-webkit-details-marker{display:none}
+  .tickets-screen .queue-filters-controls{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px}
+  .tickets-screen .queue-filters-controls select{min-width:0;width:100%}
+  .tickets-screen .queue-sort{margin-left:0;flex:1 1 100%}
+  .tickets-screen .queue-sort select{flex:1}
   .tickets-screen .queue-shell{overflow:visible;background:transparent;padding:0}
   .tickets-screen .queue,.tickets-screen .queue tbody,.tickets-screen .queue tr,.tickets-screen .queue td{display:block;width:100%}
-  .tickets-screen .queue td:nth-child(n){width:auto}
+  .tickets-screen .queue td:nth-child(n),.tickets-screen .queue td:last-child{width:auto}
   .tickets-screen .queue{background:transparent}
   .tickets-screen .queue thead{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
-  .tickets-screen .queue tr{margin-bottom:10px;border:1px solid var(--line);border-radius:12px;background:var(--card);padding:8px 14px}
-  .tickets-screen .queue td{display:grid;grid-template-columns:78px minmax(0,1fr);gap:10px;min-height:0;height:auto;padding:7px 0;border:0;overflow-wrap:anywhere}
+  .tickets-screen .queue tr{margin-bottom:10px;border:1px solid var(--line);border-radius:12px;background:var(--card);padding:10px 14px}
+  .tickets-screen .queue td{display:grid;grid-template-columns:78px minmax(0,1fr);gap:10px;min-height:0;height:auto;padding:6px 0;border:0;overflow-wrap:anywhere}
   .tickets-screen .queue td::before{content:attr(data-label);color:var(--muted);font-size:12px;font-weight:500}
+  .tickets-screen .queue td.num{color:var(--muted);font-size:12px}
+  .tickets-screen .queue td.cell-title{display:block;padding:4px 0 8px}
+  .tickets-screen .queue td.cell-title::before{content:none}
+  .tickets-screen .queue-title{font-size:15px}
   .tickets-screen .queue td[colspan]{display:block}
   .tickets-screen .queue td[colspan]::before{content:none}
+  .tickets-screen .queue-row:focus-within,.tickets-screen .queue-row:hover{border-color:var(--line-strong)}
+  .tickets-screen .queue-row:hover td{background:transparent}
   .tickets-screen .empty{padding:20px 0}
   .tickets-screen .pagination{align-items:flex-start;gap:10px;flex-direction:column}
   .ticket-create-detail .selected-catalog-path{max-width:60%}

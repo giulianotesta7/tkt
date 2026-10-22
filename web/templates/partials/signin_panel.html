@@ -1,0 +1,25 @@
+{{define "signin_panel"}}
+<section class="auth-entry__presentation auth-entry__presentation--{{.Panel.Background}}"{{if .Panel.BackgroundStyle}} style="{{.Panel.BackgroundStyle}}"{{end}} aria-label="{{brandName .Brand}}">
+  <div class="auth-entry__brand">
+{{if .Brand.HasLogo}}    <span class="auth-entry__mark"><img src="/brand/logo?v={{.Brand.LogoVersion}}" alt="" width="40" height="40"></span>
+{{else}}    <span class="auth-entry__mark" aria-hidden="true">{{.Brand.Monogram}}</span>
+{{end}}    <div class="auth-entry__brand-text"><b>{{brandName .Brand}}</b><span>{{brandHelpDesk .Brand}}</span></div>
+  </div>
+  <div class="auth-entry__body">
+{{if .Panel.NoticeEnabled}}    <div class="auth-entry__notice auth-entry__notice--{{.Panel.NoticeKind}}">{{signinNoticeIcon .Panel.NoticeKind}}<div><b>{{.Panel.NoticeTitle}}</b>{{if .Panel.NoticeText}}<span>{{.Panel.NoticeText}}</span>{{end}}</div></div>
+{{end}}    <h2>{{.Panel.Title}}</h2>
+    <p class="auth-entry__sub">{{.Panel.Subtitle}}</p>
+{{if eq .Panel.Content "steps"}}    <ol class="auth-entry__steps">
+{{range .Panel.Steps}}      <li{{if .Active}} class="on"{{end}}><span class="auth-entry__step-n" aria-hidden="true">{{.Number}}</span><b>{{.Title}}</b><span class="auth-entry__step-text">{{.Body}}</span></li>
+{{end}}    </ol>
+{{else if eq .Panel.Content "highlights"}}    <ul class="auth-entry__highlights">
+{{range .Panel.Highlights}}      <li><span class="auth-entry__hl-icon" aria-hidden="true">{{signinIcon .Icon}}</span><div><b>{{.Title}}</b>{{if .Text}}<span>{{.Text}}</span>{{end}}</div></li>
+{{end}}    </ul>
+{{end}}  </div>
+{{if or .Panel.SupportEmail .Panel.SupportPhone .Panel.SupportHours}}  <div class="auth-entry__foot">
+{{if .Panel.SupportEmail}}    <div><b>{{t "common.email"}}</b><a href="mailto:{{.Panel.SupportEmail}}">{{.Panel.SupportEmail}}</a></div>
+{{end}}{{if .Panel.SupportPhone}}    <div><b>{{t "auth.signin.footer.phone"}}</b><span>{{.Panel.SupportPhone}}</span></div>
+{{end}}{{if .Panel.SupportHours}}    <div><b>{{t "auth.signin.footer.hours"}}</b><span>{{.Panel.SupportHours}}</span></div>
+{{end}}  </div>
+{{end}}</section>
+{{end}}

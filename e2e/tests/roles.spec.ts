@@ -13,7 +13,7 @@ import { test, expect } from "@playwright/test";
 import { startServer, stopServer, activeServer } from "../server-lifecycle.js";
 import { assertCanonicalScreen, collectObservability } from "./helpers/layout.js";
 import { assertHtmxSwap } from "./helpers/htmx.js";
-import { seededCredentials, setSLAEnabled } from "./helpers/auth.js";
+import { logout, seededCredentials, setSLAEnabled } from "./helpers/auth.js";
 import { createCategoryViaUi, createTicketViaUi } from "./helpers/navigation.js";
 import { waitForExactPost } from "./helpers/network.js";
 
@@ -171,8 +171,7 @@ test.describe("Role — minimal matrix admin / agent / user (seeded)", () => {
     );
 
     // Admin: one allowed admin action — create a category
-    await page.getByRole("button", { name: /log out|sign out/i }).click();
-    await expect(page).toHaveURL(/\/login/);
+    await logout(page);
     await login(page, adminEmail, "Secret123!");
     const catName = "AdminCat " + Date.now().toString(36).slice(2, 8);
     await createCategoryViaUi(page, catName);
@@ -183,8 +182,7 @@ test.describe("Role — minimal matrix admin / agent / user (seeded)", () => {
     ).toBeVisible();
 
     // Agent: one allowed operative action — create a ticket (no error, even though not in agent's own list)
-    await page.getByRole("button", { name: /log out|sign out/i }).click();
-    await expect(page).toHaveURL(/\/login/);
+    await logout(page);
     await login(page, agentEmail, "Secret123!");
     await expect(page.getByRole("heading", { name: "My work", exact: true })).toBeVisible();
     const agentQueue = page.locator("#agent-ticket-list");
@@ -341,8 +339,7 @@ test.describe("Role — minimal matrix admin / agent / user (seeded)", () => {
       password: "Secret123!",
       role: "user",
     });
-    await page.getByRole("button", { name: /log out|sign out/i }).click();
-    await expect(page).toHaveURL(/\/login/);
+    await logout(page);
     await login(page, uEmail, "Secret123!");
     const title = "User public comment " + Date.now().toString(36).slice(2, 8);
     const id = await createTicketViaUi(page, { title, category: "General", priority: "low" });
@@ -385,8 +382,7 @@ test.describe("Role — minimal matrix admin / agent / user (seeded)", () => {
       password: "Secret123!",
       role: "user",
     });
-    await page.getByRole("button", { name: /log out|sign out/i }).click();
-    await expect(page).toHaveURL(/\/login/);
+    await logout(page);
     await login(page, uEmail, "Secret123!");
     const title = "Forbidden probe " + Date.now().toString(36).slice(2, 8);
     const id = await createTicketViaUi(page, { title, category: "General", priority: "low" });

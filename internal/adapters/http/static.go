@@ -21,6 +21,12 @@ func RegisterStatic(mux *http.ServeMux, language InterfaceLanguageSource) {
 	registerEmbeddedStatic(mux, "/static/InterVariable.woff2", "static/InterVariable.woff2", "font/woff2", "public, max-age=86400")
 	registerEmbeddedStatic(mux, "/static/users.css", "static/users.css", "text/css; charset=utf-8", "no-cache")
 	registerEmbeddedStatic(mux, "/static/ticket_metrics.css", "static/ticket_metrics.css", "text/css; charset=utf-8", "no-cache")
+	// The settings section stylesheet is loaded only on settings pages (the
+	// SettingsAssets flag), so the rest of the interface never downloads it.
+	registerEmbeddedStatic(mux, "/static/settings.css", "static/settings.css", "text/css; charset=utf-8", "no-cache")
+	// The dirty-tracking script renders no copy of its own, so it needs no
+	// catalogue prologue and can be cached like the other copy-free assets.
+	registerEmbeddedStatic(mux, "/static/settings.js", "static/settings.js", "text/javascript; charset=utf-8", "public, max-age=86400")
 	registerLocalizedStatic(mux, "/static/users.js", "static/users.js", language)
 	registerLocalizedStatic(mux, "/static/tickets.js", "static/tickets.js", language)
 	registerLocalizedStatic(mux, "/static/ticket_form.js", "static/ticket_form.js", language)
@@ -32,6 +38,8 @@ func RegisterStatic(mux *http.ServeMux, language InterfaceLanguageSource) {
 	// The notification drawer moves focus; it renders no copy, so it needs no
 	// catalogue prologue and can be cached like the other copy-free assets.
 	registerEmbeddedStatic(mux, "/static/notifications.js", "static/notifications.js", "text/javascript; charset=utf-8", "public, max-age=86400")
+	registerEmbeddedStatic(mux, "/static/shell.js", "static/shell.js", "text/javascript; charset=utf-8", "public, max-age=86400")
+	registerEmbeddedStatic(mux, "/static/queue.js", "static/queue.js", "text/javascript; charset=utf-8", "public, max-age=86400")
 }
 
 func registerEmbeddedStatic(mux *http.ServeMux, route, name, contentType, cacheControl string) {

@@ -1,2 +1,2 @@
-{{define "title"}}{{tf "base.title.screen" (t "base.nav.tickets")}}{{end}}
-{{define "content"}}{{template "tickets_header" .}}{{if .Metrics}}{{template "ticket_metrics" .Metrics}}{{end}}{{template "tickets_screen" .}}{{end}}
+{{define "title"}}{{tf "base.title.screen" (t "base.nav.tickets") (brandHelpDesk .Brand)}}{{end}}
+{{define "content"}}{{template "tickets_header" .}}{{template "tickets_screen" .}}{{if .QueueAssets}}<script src="/static/queue.js" defer></script>{{end}}{{end}}

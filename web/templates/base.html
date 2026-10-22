@@ -1,47 +1,105 @@
 <!DOCTYPE html>
-<html lang="{{locale}}">
+<html lang="{{locale}}"{{if eq .Theme "dark"}} data-theme="dark"{{else if eq .Theme "light"}} data-theme="light"{{end}}>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="htmx-config" content='{"refreshOnHistoryMiss":true}'>
-<title>{{block "title" .}}{{t "base.title"}}{{end}}</title>
+<title>{{block "title" .}}{{tf "base.title" (brandName .Brand) (brandHelpDesk .Brand)}}{{end}}</title>
 {{template "styles" .}}
-{{if .UsersAssets}}<link rel="stylesheet" href="/static/users.css"><script src="/static/users.js" defer></script>{{else if or .PageFoundationAssets .CategoryAssets}}<link rel="stylesheet" href="/static/users.css">{{end}}{{if .CategoryAssets}}<script src="/static/categories.js" defer></script>{{end}}{{if .WorkflowAssets}}<script src="/static/workflow.js" defer></script>{{end}}{{if and (eq .NavActive "tickets") (or (eq .CurrentUser.Role "agent") (eq .CurrentUser.Role "user"))}}<script src="/static/tickets.js" defer></script>{{end}}{{if .MetricsAssets}}<link rel="stylesheet" href="/static/ticket_metrics.css"><script src="/static/ticket_metrics.js" defer></script>{{end}}{{if .SLACountdownAssets}}<script src="/static/sla_countdown.js" defer></script>{{end}}<script src="/static/save-feedback.js" defer></script><script src="/static/htmx.min.js" defer></script><script src="/static/notifications.js" defer></script>
+{{if .UsersAssets}}<link rel="stylesheet" href="/static/users.css"><script src="/static/users.js" defer></script>{{else if or .PageFoundationAssets .CategoryAssets}}<link rel="stylesheet" href="/static/users.css">{{end}}{{if .CategoryAssets}}<script src="/static/categories.js" defer></script>{{end}}{{if .WorkflowAssets}}<script src="/static/workflow.js" defer></script>{{end}}{{if and (eq .NavActive "tickets") (or (eq .CurrentUser.Role "agent") (eq .CurrentUser.Role "user"))}}<script src="/static/tickets.js" defer></script>{{end}}{{if .MetricsAssets}}<link rel="stylesheet" href="/static/ticket_metrics.css"><script src="/static/ticket_metrics.js" defer></script>{{end}}{{if .SettingsAssets}}<link rel="stylesheet" href="/static/settings.css"><script src="/static/settings.js" defer></script>{{end}}{{if .SLACountdownAssets}}<script src="/static/sla_countdown.js" defer></script>{{end}}<script src="/static/save-feedback.js" defer></script><script src="/static/htmx.min.js" defer></script><script src="/static/notifications.js" defer></script><script src="/static/shell.js" defer></script>
 </head>
-<body{{if or .UsersAssets .PageFoundationAssets}} class="users-page-body"{{end}}>
+<body class="{{if or .UsersAssets .PageFoundationAssets}}users-page-body {{end}}{{if .SidebarCollapsed}}sidebar-collapsed{{end}}">
 <a class="skip-link" href="#main-content">{{t "base.skip_link"}}</a>
-<div class="layout">
-  <aside class="rail">
-    <a class="rail-brand" href="/tickets" title="tkt">tkt</a>
-    <nav class="rail-nav">
-      <div class="rail-notifications" id="notification-bell" hx-get="/notifications/count" hx-trigger="load, every 45s [document.visibilityState === 'visible'], notifications:changed from:body" hx-target="this" hx-swap="innerHTML">{{template "notification_bell" .NotificationBell}}</div>
-      <a class="rail-link{{if eq .NavActive "tickets"}} active{{end}}" href="/tickets" title="{{t "base.nav.tickets"}}" aria-label="{{t "base.nav.tickets"}}"{{if eq .NavActive "tickets"}} aria-current="page"{{end}}>
-        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v1a2 2 0 0 0 0 4v1a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-1a2 2 0 0 0 0-4V9z"/><path d="M13 7v10"/></svg>
-      </a>
-{{if .CanManageUsers}}<a class="rail-link{{if eq .NavActive "users"}} active{{end}}" href="/users" title="{{t "base.nav.users"}}" aria-label="{{t "base.nav.users"}}"{{if eq .NavActive "users"}} aria-current="page"{{end}}>
-        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0"/><circle cx="17.5" cy="9" r="2.5"/><path d="M16 14.6a6 6 0 0 1 5.5 5.4"/></svg>
-      </a>
-{{end}}
-{{if .CanManageCategories}}<a class="rail-link{{if eq .NavActive "categories"}} active{{end}}" href="/categories" title="{{t "base.nav.categories"}}" aria-label="{{t "base.nav.categories"}}"{{if eq .NavActive "categories"}} aria-current="page"{{end}}>
-        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h6l2 2.5H20a1 1 0 0 1 1 1V19a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1z"/></svg>
-      </a>
-{{end}}
-{{if .CanManageSettings}}<a class="rail-link{{if eq .NavActive "settings"}} active{{end}}" href="/settings" title="{{t "base.nav.settings"}}" aria-label="{{t "base.nav.settings"}}"{{if eq .NavActive "settings"}} aria-current="page"{{end}}>
-        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></svg>
-      </a>{{end}}
-      <a class="rail-link{{if eq .NavActive "preferences"}} active{{end}}" href="/preferences" title="{{t "base.nav.preferences"}}" aria-label="{{t "base.nav.preferences"}}"{{if eq .NavActive "preferences"}} aria-current="page"{{end}}>
-        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="8" x2="21" y2="8"/><circle cx="9" cy="8" r="2.2"/><line x1="3" y1="16" x2="21" y2="16"/><circle cx="15" cy="16" r="2.2"/></svg>
-      </a>
-    </nav>
-    <div class="rail-operator" title="{{.CurrentUser.Name}}">{{initials .CurrentUser.Name}}</div>
-    <form class="rail-logout" method="post" action="/logout">
-      <button class="rail-link" type="submit" title="{{t "base.nav.logout"}}" aria-label="{{t "base.nav.logout"}}">
-        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 4H6a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h3"/><path d="M15 8l4 4-4 4"/><path d="M19 12H9"/></svg>
+<div class="shell">
+  <aside class="sidebar" id="sidebar" aria-label="{{t "base.sidebar.label"}}">
+    <div class="sidebar-brand">
+      <a class="brand-mark" href="/tickets" aria-label="{{.Brand.Name}}">{{if .Brand.HasLogo}}<img src="/brand/logo?v={{.Brand.LogoVersion}}" alt="" width="22" height="22">{{else}}{{.Brand.Monogram}}{{end}}</a>
+      <a class="brand-text" href="/tickets" tabindex="-1" aria-hidden="true"><span class="brand-name">{{.Brand.Name}}</span><span class="brand-product">{{.Brand.HelpDesk}}</span></a>
+      <button class="sidebar-close" type="button" data-sidebar-close aria-label="{{t "base.sidebar.close"}}">×</button>
+    </div>
+    <nav class="sidebar-nav" aria-label="{{t "base.sidebar.nav_label"}}">
+      <div class="sidebar-group">
+        <span class="sidebar-group-label">{{t "base.sidebar.group_work"}}</span>
+        <a class="sidebar-link{{if eq .NavActive "tickets"}} active{{end}}" href="/tickets" data-tip="{{t "base.nav.tickets"}}"{{if eq .NavActive "tickets"}} aria-current="page"{{end}}>
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 9a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v1a2 2 0 0 0 0 4v1a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-1a2 2 0 0 0 0-4V9z"/><path d="M13 7v10"/></svg>
+          <span class="sidebar-label">{{t "base.nav.tickets"}}</span>
+        </a>
+{{if .CanManageSettings}}        <a class="sidebar-link{{if eq .NavActive "metrics"}} active{{end}}" href="/tickets/metrics" data-tip="{{t "base.nav.metrics"}}"{{if eq .NavActive "metrics"}} aria-current="page"{{end}}>
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20V10"/><path d="M10 20V4"/><path d="M16 20v-7"/><path d="M22 20H2"/></svg>
+          <span class="sidebar-label">{{t "base.nav.metrics"}}</span>
+        </a>
+{{end}}      </div>
+{{if or .CanManageUsers .CanManageCategories .CanManageSettings}}      <div class="sidebar-group">
+        <span class="sidebar-group-label">{{t "base.sidebar.group_admin"}}</span>
+{{if .CanManageUsers}}        <a class="sidebar-link{{if eq .NavActive "users"}} active{{end}}" href="/users" data-tip="{{t "base.nav.users"}}"{{if eq .NavActive "users"}} aria-current="page"{{end}}>
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0"/><circle cx="17.5" cy="9" r="2.5"/><path d="M16 14.6a6 6 0 0 1 5.5 5.4"/></svg>
+          <span class="sidebar-label">{{t "base.nav.users"}}</span>
+        </a>
+{{end}}{{if .CanManageCategories}}        <a class="sidebar-link{{if eq .NavActive "categories"}} active{{end}}" href="/categories" data-tip="{{t "base.nav.categories"}}"{{if eq .NavActive "categories"}} aria-current="page"{{end}}>
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 4h6l2 2.5H20a1 1 0 0 1 1 1V19a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1z"/></svg>
+          <span class="sidebar-label">{{t "base.nav.categories"}}</span>
+        </a>
+{{end}}{{if .CanManageSettings}}        <a class="sidebar-link{{if eq .NavActive "settings"}} active{{end}}" href="/settings" data-tip="{{t "base.nav.settings"}}"{{if eq .NavActive "settings"}} aria-current="page"{{end}}>
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></svg>
+          <span class="sidebar-label">{{t "base.nav.settings"}}</span>
+        </a>
+{{end}}      </div>
+{{end}}    </nav>
+    <div class="sidebar-foot">
+      <button class="sidebar-collapse" type="button" data-sidebar-collapse aria-pressed="{{if .SidebarCollapsed}}true{{else}}false{{end}}" data-tip="{{t "base.sidebar.expand"}}" data-label-collapse="{{t "base.sidebar.collapse"}}" data-label-expand="{{t "base.sidebar.expand"}}" aria-keyshortcuts="[">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 7l-5 5 5 5"/><path d="M18 7l-5 5 5 5"/></svg>
+        <span class="sidebar-label">{{if .SidebarCollapsed}}{{t "base.sidebar.expand"}}{{else}}{{t "base.sidebar.collapse"}}{{end}}</span>
       </button>
-    </form>
+      <div class="sidebar-user">
+        <button class="sidebar-user-button" type="button" data-user-menu-toggle aria-haspopup="menu" aria-expanded="false" aria-controls="user-menu" data-tip="{{.CurrentUser.Name}}">
+          <span class="sidebar-avatar" aria-hidden="true">{{initials .CurrentUser.Name}}</span>
+          <span class="sidebar-label sidebar-user-text"><span class="sidebar-user-name">{{.CurrentUser.Name}}</span><span class="sidebar-user-role">{{roleLabel .CurrentUser.Role}}</span></span>
+          <svg class="sidebar-user-chevron" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 14l6-6 6 6"/></svg>
+        </button>
+        <div class="user-menu" id="user-menu" role="menu" aria-label="{{.CurrentUser.Name}}" hidden>
+          <a class="user-menu-item{{if eq .NavActive "preferences"}} active{{end}}" role="menuitem" href="/preferences">{{t "base.nav.preferences"}}</a>
+          <form class="user-menu-logout" method="post" action="/logout">
+            <button class="user-menu-item" role="menuitem" type="submit">{{t "base.nav.logout"}}</button>
+          </form>
+        </div>
+      </div>
+    </div>
   </aside>
+  <div class="sidebar-scrim" data-sidebar-close hidden></div>
+  <div class="shell-body">
+    <header class="topbar">
+      <button class="topbar-menu" type="button" data-sidebar-open aria-label="{{t "base.sidebar.open"}}" aria-controls="sidebar" aria-expanded="false">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M4 7h16"/><path d="M4 12h16"/><path d="M4 17h16"/></svg>
+      </button>
+      <span class="topbar-section" aria-hidden="true">{{if eq .NavActive "tickets"}}{{t "base.nav.tickets"}}{{else if eq .NavActive "metrics"}}{{t "base.nav.metrics"}}{{else if eq .NavActive "users"}}{{t "base.nav.users"}}{{else if eq .NavActive "categories"}}{{t "base.nav.categories"}}{{else if eq .NavActive "settings"}}{{t "base.nav.settings"}}{{else if eq .NavActive "preferences"}}{{t "base.nav.preferences"}}{{else if eq .NavActive "notifications"}}{{t "base.nav.notifications"}}{{else}}{{.Brand.Name}}{{end}}</span>
+      <div class="topbar-spacer"></div>
+      <div class="topbar-notifications" id="notification-bell" hx-get="/notifications/count" hx-trigger="load, every 45s [document.visibilityState === 'visible'], notifications:changed from:body" hx-target="this" hx-swap="innerHTML">{{template "notification_bell" .NotificationBell}}</div>
+      <a class="btn primary topbar-new" href="/tickets/new">
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14"/><path d="M5 12h14"/></svg>
+        <span class="topbar-new-label">{{t "tickets.screen.new"}}</span>
+      </a>
+    </header>
+    <main class="main" id="main-content">{{template "save_feedback" .}}{{template "content" .}}</main>
+    <nav class="tabbar" aria-label="{{t "base.sidebar.nav_label"}}">
+      <a class="tabbar-item{{if eq .NavActive "tickets"}} active{{end}}" href="/tickets"{{if eq .NavActive "tickets"}} aria-current="page"{{end}}>
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 9a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v1a2 2 0 0 0 0 4v1a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-1a2 2 0 0 0 0-4V9z"/><path d="M13 7v10"/></svg>
+        <span>{{t "base.nav.tickets"}}</span>
+      </a>
+      <a class="tabbar-item{{if eq .NavActive "notifications"}} active{{end}}" href="/notifications"{{if eq .NavActive "notifications"}} aria-current="page"{{end}}>
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 9a6 6 0 0 0-12 0c0 5-2.5 6.5-2.5 6.5h17S18 14 18 9z"/><path d="M10.4 19.5a2 2 0 0 0 3.2 0"/></svg>
+        <span>{{t "base.nav.notifications"}}</span>
+      </a>
+{{if .CanManageCategories}}      <a class="tabbar-item{{if eq .NavActive "categories"}} active{{end}}" href="/categories"{{if eq .NavActive "categories"}} aria-current="page"{{end}}>
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 4h6l2 2.5H20a1 1 0 0 1 1 1V19a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1z"/></svg>
+        <span>{{t "base.nav.categories"}}</span>
+      </a>
+{{end}}      <button class="tabbar-item" type="button" data-sidebar-open aria-controls="sidebar" aria-expanded="false">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M4 7h16"/><path d="M4 12h16"/><path d="M4 17h16"/></svg>
+        <span>{{t "base.tabbar.more"}}</span>
+      </button>
+    </nav>
+  </div>
   <div class="notification-panel-host" id="notification-panel-host"></div>
-  <main class="main" id="main-content">{{template "save_feedback" .}}{{template "content" .}}</main>
 </div>
 </body>
 </html>

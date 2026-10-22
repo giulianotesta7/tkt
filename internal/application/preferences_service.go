@@ -15,6 +15,51 @@ const (
 	QueueOrderUrgency  = "urgency"
 )
 
+// Theme preference values (issue #378, S1). The set is closed: the preferences
+// page offers exactly these three, the store holds one of them, and the shell
+// turns the two explicit choices into a data-theme attribute.
+const (
+	ThemeSystem = "system"
+	ThemeLight  = "light"
+	ThemeDark   = "dark"
+)
+
+// DefaultTheme is the theme a user without a stored preference gets, and the
+// value every unknown or malformed stored value normalizes to. Following the
+// system setting is what a browser already does, so a user who never opened
+// Preferences sees what their operating system asks for.
+const DefaultTheme = ThemeSystem
+
+// AllowedThemes returns the closed set of storable themes in the order the
+// preferences control offers them: the system default first, then the two
+// explicit choices.
+func AllowedThemes() []string {
+	return []string{ThemeSystem, ThemeLight, ThemeDark}
+}
+
+// IsAllowedTheme reports whether theme is inside the closed set. It is the
+// single predicate both the write validation and the read normalization use,
+// so the two can never disagree.
+func IsAllowedTheme(theme string) bool {
+	for _, allowed := range AllowedThemes() {
+		if theme == allowed {
+			return true
+		}
+	}
+	return false
+}
+
+// NormalizeTheme fails closed: any value outside the closed set (including the
+// empty string, a hand-edited row, or a value written by a future version)
+// becomes DefaultTheme. The shell therefore always resolves a theme the
+// stylesheet defines and never an unvalidated stored value.
+func NormalizeTheme(theme string) string {
+	if IsAllowedTheme(theme) {
+		return theme
+	}
+	return DefaultTheme
+}
+
 // DefaultQueueOrder is the order a user without a stored preference gets,
 // and the value every unknown or malformed stored value normalizes to. It is
 // the same default the queue has always used (newest first).
@@ -50,22 +95,26 @@ func NormalizeQueueOrder(order string) string {
 }
 
 // PreferencesService implements the per-user preference use cases
-// (issue #210, issue #362). The queue order and the email opt-out are both
-// personal settings with no capability gate: every authenticated user owns
-// exactly one stored value of each, and the handler layer is what requires a
-// session. Validation happens BEFORE the store is reached (fail closed on an
-// invalid write), and the queue-order read normalizes any stored value outside
-// the closed set. The two preferences share one table but never one value:
-// each use case below touches only its own key.
+// (issue #210, issue #362, issue #377, issue #378). The queue order, the email
+// opt-out, the sidebar state, and the interface theme are all personal settings
+// with no capability gate: every authenticated user owns exactly one stored
+// value of each, and the handler layer is what requires a session. Validation
+// happens BEFORE the store is reached (fail closed on an invalid write), and the
+// queue-order and theme reads normalize any stored value outside their closed
+// set. The four preferences share one table but never one value: each use case
+// below touches only its own key.
 type PreferencesService struct {
 	preferences PreferencesStore
 	email       EmailPreferencesStore
+	sidebar     SidebarPreferencesStore
+	theme       ThemePreferencesStore
 }
 
 // NewPreferencesService wires the preference use cases against the store
-// ports: the queue order and the email opt-out (issue #362, S5).
-func NewPreferencesService(preferences PreferencesStore, email EmailPreferencesStore) *PreferencesService {
-	return &PreferencesService{preferences: preferences, email: email}
+// ports: the queue order, the email opt-out (issue #362, S5), the sidebar
+// state (issue #377, S2), and the interface theme (issue #378, S1).
+func NewPreferencesService(preferences PreferencesStore, email EmailPreferencesStore, sidebar SidebarPreferencesStore, theme ThemePreferencesStore) *PreferencesService {
+	return &PreferencesService{preferences: preferences, email: email, sidebar: sidebar, theme: theme}
 }
 
 // GetDefaultQueueOrder returns the actor's own stored default queue order,
@@ -104,4 +153,45 @@ func (s *PreferencesService) GetEmailNotifications(ctx context.Context, actor do
 // own id, which is what keeps one user from changing another's value.
 func (s *PreferencesService) SetEmailNotifications(ctx context.Context, actor domain.User, enabled bool) error {
 	return s.email.SetEmailNotificationsEnabled(ctx, actor.ID, enabled)
+}
+
+// GetSidebarCollapsed reports whether the actor's sidebar is collapsed (issue
+// #377, S2). The store answers the documented default — an absent row means
+// expanded — so a user who never toggled it gets the shell every other page
+// already renders. The key is the actor's own id, so one user can only ever
+// read their own state.
+func (s *PreferencesService) GetSidebarCollapsed(ctx context.Context, actor domain.User) (bool, error) {
+	return s.sidebar.SidebarCollapsed(ctx, actor.ID)
+}
+
+// SetSidebarCollapsed persists the actor's sidebar state (issue #377, S2). The
+// state has no capability gate and no closed set beyond the boolean, so there
+// is nothing to validate; the wire vocabulary ("collapsed"/"expanded") is the
+// handler's, and the key is the actor's own id, which is what keeps one user
+// from changing another's shell.
+func (s *PreferencesService) SetSidebarCollapsed(ctx context.Context, actor domain.User, collapsed bool) error {
+	return s.sidebar.SetSidebarCollapsed(ctx, actor.ID, collapsed)
+}
+
+// GetTheme returns the actor's own stored theme, normalized to the closed set:
+// no row, an empty value, or an unknown value all answer DefaultTheme. Only a
+// real storage failure is an error. The key is the actor's own id, so one user
+// can only ever read their own theme.
+func (s *PreferencesService) GetTheme(ctx context.Context, actor domain.User) (string, error) {
+	stored, err := s.theme.GetTheme(ctx, actor.ID)
+	if err != nil {
+		return "", err
+	}
+	return NormalizeTheme(stored), nil
+}
+
+// SetTheme validates the requested theme against the closed set and persists
+// it for the actor. Anything outside the set is a ValidationError and the
+// store is never touched (fail closed on invalid input); the value is stored
+// verbatim because it is already inside the set.
+func (s *PreferencesService) SetTheme(ctx context.Context, actor domain.User, theme string) error {
+	if !IsAllowedTheme(theme) {
+		return &domain.ValidationError{Field: "theme", Message: "invalid theme", Key: "error.invalid_theme"}
+	}
+	return s.theme.SetTheme(ctx, actor.ID, theme)
 }

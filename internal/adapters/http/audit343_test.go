@@ -67,17 +67,17 @@ func TestS1EveryScreenNamesItselfInTheDocumentTitle(t *testing.T) {
 		data any
 		want string
 	}{
-		{"tickets", "tickets_index", fixtureListData(), "Tickets · tkt"},
-		{"new ticket", "tickets_new", fixtureTicketFormData(), "New ticket · tkt"},
-		{"users", "users_index", fixtureUsersIndexData(), "Users · tkt"},
-		{"settings", "settings_index", fixtureSettingsIndexData(), "Settings · tkt"},
-		{"categories", "categories_index", fixtureCategoriesIndexData(), "Categories · tkt"},
-		{"category SLA", "category_sla", fixtureCategorySLAData(), "Category SLA · tkt"},
-		{"category workflow", "category_workflow", mobileBuilderPageData(), "Category workflow · tkt"},
-		{"ticket metrics", "ticket_metrics_detail", data, "Ticket metrics · tkt"},
-		{"ticket detail", "tickets_show", fixtureDetailData(), "TKT-1 · Login page down · tkt"},
-		{"login", "login", loginData{}, "Sign in · tkt"},
-		{"setup", "setup", setupData{}, "Create account · tkt"},
+		{"tickets", "tickets_index", fixtureListData(), "Tickets · Help desk"},
+		{"new ticket", "tickets_new", fixtureTicketFormData(), "New ticket · Help desk"},
+		{"users", "users_index", fixtureUsersIndexData(), "Users · Help desk"},
+		{"settings", "settings_organization", fixtureSettingsOrganizationData(), "Settings · Help desk"},
+		{"categories", "categories_index", fixtureCategoriesIndexData(), "Categories · Help desk"},
+		{"category SLA", "category_sla", fixtureCategorySLAData(), "Category SLA · Help desk"},
+		{"category workflow", "category_workflow", mobileBuilderPageData(), "Category workflow · Help desk"},
+		{"ticket metrics", "ticket_metrics_detail", data, "Ticket metrics · Help desk"},
+		{"ticket detail", "tickets_show", fixtureDetailData(), "TKT-1 · Login page down · Help desk"},
+		{"login", "login", loginData{}, "Sign in · Help desk"},
+		{"setup", "setup", setupData{}, "Create account · Help desk"},
 	}
 
 	seen := map[string]string{}
@@ -97,13 +97,13 @@ func TestS1EveryScreenNamesItselfInTheDocumentTitle(t *testing.T) {
 	// The instance language decides the title, and the ticket title is data:
 	// it is escaped, never trusted into the document.
 	spanish := documentTitle(t, renderAuditPage(t, "es", "tickets_index", fixtureListData()))
-	if spanish != "Tickets · tkt" {
-		t.Errorf("es <title> = %q, want the Spanish catalogue's title", spanish)
+	if spanish != "Tickets · Help desk" {
+		t.Errorf("es <title> = %q, want the Spanish catalogue's title with the help desk name", spanish)
 	}
 	escaping := fixtureDetailData()
 	escaping.View.Ticket.Title = `VPN <b>drops</b> & reconnects`
 	got := documentTitle(t, renderAuditPage(t, "en", "tickets_show", escaping))
-	want := "TKT-1 · VPN &lt;b&gt;drops&lt;/b&gt; &amp; reconnects · tkt"
+	want := "TKT-1 · VPN &lt;b&gt;drops&lt;/b&gt; &amp; reconnects · Help desk"
 	if got != want {
 		t.Errorf("ticket <title> = %q, want the escaped title %q", got, want)
 	}
@@ -140,16 +140,16 @@ func TestS1EveryRouteNamesItsScreen(t *testing.T) {
 		path string
 		want string
 	}{
-		{h.mux, "/users", "Users · tkt"},
-		{h.mux, "/users/new", "New user · tkt"},
-		{h.mux, "/users/" + id(user.ID) + "/edit", "Edit user · tkt"},
-		{catalogMux, "/categories?view=structure", "Categories · tkt"},
-		{catalogMux, "/categories/new?view=structure", "New category · tkt"},
-		{catalogMux, "/categories/" + id(h.bugCategory.ID) + "/edit?view=structure", "Rename category · tkt"},
-		{catalogMux, "/categories/desks/new" + structure, "New desk · tkt"},
-		{catalogMux, "/categories/desks/" + id(desk.ID) + "/edit" + structure + "&desk_id=" + id(desk.ID), "Edit desk · tkt"},
-		{catalogMux, "/categories/departments/new?view=structure", "New department · tkt"},
-		{catalogMux, "/categories/departments/" + id(department.ID) + "/edit?view=structure&department_id=" + id(department.ID), "Edit department · tkt"},
+		{h.mux, "/users", "Users · Help desk"},
+		{h.mux, "/users/new", "New user · Help desk"},
+		{h.mux, "/users/" + id(user.ID) + "/edit", "Edit user · Help desk"},
+		{catalogMux, "/categories?view=structure", "Categories · Help desk"},
+		{catalogMux, "/categories/new?view=structure", "New category · Help desk"},
+		{catalogMux, "/categories/" + id(h.bugCategory.ID) + "/edit?view=structure", "Rename category · Help desk"},
+		{catalogMux, "/categories/desks/new" + structure, "New desk · Help desk"},
+		{catalogMux, "/categories/desks/" + id(desk.ID) + "/edit" + structure + "&desk_id=" + id(desk.ID), "Edit desk · Help desk"},
+		{catalogMux, "/categories/departments/new?view=structure", "New department · Help desk"},
+		{catalogMux, "/categories/departments/" + id(department.ID) + "/edit?view=structure&department_id=" + id(department.ID), "Edit department · Help desk"},
 	}
 	seen := map[string]string{}
 	for _, tc := range cases {
@@ -182,8 +182,8 @@ func TestS1EveryRouteNamesItsScreen(t *testing.T) {
 	if rejected.Code == http.StatusOK || rejected.Code == http.StatusFound {
 		t.Fatalf("POST /users/{id}/edit with an empty name = %d, want a rejected form", rejected.Code)
 	}
-	if got := documentTitle(t, rejected.Body.String()); got != "Edit user · tkt" {
-		t.Errorf("rejected user edit <title> = %q, want %q", got, "Edit user · tkt")
+	if got := documentTitle(t, rejected.Body.String()); got != "Edit user · Help desk" {
+		t.Errorf("rejected user edit <title> = %q, want %q", got, "Edit user · Help desk")
 	}
 }
 
@@ -297,7 +297,7 @@ func TestS4EnglishReadsOneAccountAndTwoAccounts(t *testing.T) {
 // and is visible on focus, and the rail link for the current section carries
 // aria-current so assistive technology can name the location.
 func TestS5SkipLinkAndCurrentRailLink(t *testing.T) {
-	body := renderAuditPage(t, "en", "settings_index", fixtureSettingsIndexData())
+	body := renderAuditPage(t, "en", "settings_organization", fixtureSettingsOrganizationData())
 	page, stylesheet := splitStylesheet(t, "audit343_s5", body)
 
 	if !strings.Contains(page, `<a class="skip-link" href="#main-content">Skip to main content</a>`) {
@@ -306,27 +306,33 @@ func TestS5SkipLinkAndCurrentRailLink(t *testing.T) {
 	if !strings.Contains(page, `<main class="main" id="main-content">`) {
 		t.Errorf("the main region must carry the skip link's target id")
 	}
-	// The skip link is the first thing a keyboard reaches: it precedes the rail.
-	if strings.Index(page, `class="skip-link"`) > strings.Index(page, `class="rail"`) {
-		t.Errorf("the skip link must come before the rail in document order")
+	// The skip link is the first thing a keyboard reaches: it precedes the sidebar.
+	if strings.Index(page, `class="skip-link"`) > strings.Index(page, `class="sidebar"`) {
+		t.Errorf("the skip link must come before the sidebar in document order")
 	}
 	if !cssRuleDeclares(stylesheet, ".skip-link{", "position:absolute") ||
 		!strings.Contains(stylesheet, ".skip-link:focus{") {
 		t.Errorf("the skip link must be hidden until it takes focus, got:\n%s", stylesheet)
 	}
 
-	current := `<a class="rail-link active" href="/settings" title="Settings" aria-label="Settings" aria-current="page">`
+	current := `<a class="sidebar-link active" href="/settings" data-tip="Settings" aria-current="page">`
 	if !strings.Contains(page, current) {
-		t.Errorf("the active rail link must carry aria-current=\"page\", want %q", current)
+		t.Errorf("the active sidebar link must carry aria-current=\"page\", want %q", current)
 	}
-	if got := strings.Count(page, `aria-current="page"`); got != 1 {
-		t.Errorf("exactly one rail link may be current, got %d", got)
+	// The rail link is current once, and the settings sub-navigation marks the
+	// active section once (issue #383, S2); the mobile tab bar never duplicates
+	// the settings section, so the page carries exactly those two marks.
+	if got := strings.Count(page, `aria-current="page"`); got != 2 {
+		t.Errorf("the rail link and the active section must be current, got %d marks", got)
 	}
-	if strings.Contains(page, `href="/tickets" title="Tickets" aria-label="Tickets" aria-current`) {
-		t.Errorf("an inactive rail link must not carry aria-current")
+	if !strings.Contains(page, `href="/settings/organization" aria-current="page"`) {
+		t.Errorf("the active settings section must carry aria-current")
+	}
+	if strings.Contains(page, `href="/tickets" data-tip="Tickets" aria-current`) {
+		t.Errorf("an inactive sidebar link must not carry aria-current")
 	}
 
-	spanish := renderAuditPage(t, "es", "settings_index", fixtureSettingsIndexData())
+	spanish := renderAuditPage(t, "es", "settings_organization", fixtureSettingsOrganizationData())
 	if !strings.Contains(spanish, `>Saltar al contenido principal</a>`) {
 		t.Errorf("the skip link copy must follow the instance language")
 	}
@@ -509,7 +515,7 @@ func TestS6RefusalHelperParsesTheFormItself(t *testing.T) {
 // (TestS1EveryRouteNamesItsScreen), and categories_new.golden holds the shell
 // fallback on purpose (native review R3-003 on #343).
 func TestStandaloneCategoryFormPageUsesTheShellTitle(t *testing.T) {
-	if got := documentTitle(t, renderAuditPage(t, "en", "categories_new", fixtureCategoryFormData())); got != "tkt — Ticket Desk" {
+	if got := documentTitle(t, renderAuditPage(t, "en", "categories_new", fixtureCategoryFormData())); got != "tkt — Help desk" {
 		t.Errorf("standalone category form <title> = %q, want the shell fallback", got)
 	}
 }

@@ -140,6 +140,7 @@ var errorKey = map[string]string{
 	"department is required":                                 "error.department_required",
 	"desk members must have agent, admin, or root role":      "error.desk_members_role",
 	"invalid queue order":                                    "error.invalid_queue_order",
+	"invalid theme":                                          "error.invalid_theme",
 	"invalid interface language":                             "error.invalid_interface_language",
 	"invalid internal comment background color":              "error.invalid_internal_comment_bg",
 	"choose both metrics dates":                              "error.choose_both_metrics_dates",

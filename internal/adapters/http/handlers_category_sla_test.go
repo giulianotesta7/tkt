@@ -393,7 +393,7 @@ func TestSLATwoLevelsCopy(t *testing.T) {
 		t.Errorf("category SLA page must not keep the old provenance-free copy, got: %s", categoryBody)
 	}
 
-	settingsBody := h.get(t, "/settings", false).Body.String()
+	settingsBody := h.get(t, "/settings/tickets", false).Body.String()
 	if !strings.Contains(settingsBody, "Editing them does not change existing categories.") {
 		t.Errorf("settings page must state that edits do not change existing categories, got: %s", settingsBody)
 	}

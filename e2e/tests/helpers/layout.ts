@@ -126,6 +126,8 @@ export async function assertNothingClipped(page: Page): Promise<void> {
       // Deliberate affordances: the overflow is announced or reachable.
       if (cs.textOverflow === "ellipsis") continue;
       if (["auto", "scroll"].includes(cs.overflowX) && el.clientWidth > 0) continue;
+      // The sign-in preview is a miniature of the panel at a reduced scale: it clips by
+      // design, the way a thumbnail does, and the full panel is the page it previews.
       if (el.closest("[data-clip-exempt]")) continue;
 
       // Only the element's own clipping hides content. With `visible` the content spills and
@@ -175,7 +177,10 @@ export async function expectDesignSystem(page: Page): Promise<void> {
   const seen = await page.evaluate(() => {
     const root = getComputedStyle(document.documentElement);
     const read = (name: string) => root.getPropertyValue(name).trim();
+    const theme = document.documentElement.dataset.theme ?? "";
+    const systemDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
     return {
+      dark: theme === "dark" || (theme !== "light" && systemDark),
       canvas: getComputedStyle(document.body).backgroundColor,
       muted: read("--muted"),
       faint: read("--faint"),
@@ -193,14 +198,35 @@ export async function expectDesignSystem(page: Page): Promise<void> {
   // screen that should have one.
   if (!seen.muted) return;
 
-  expect(seen.canvas, "the canvas must be the neutral white, not a tinted neutral").toBe(
-    "rgb(255, 255, 255)",
+  // Two ladders, one contract (issue #378): the theme is resolved the way the
+  // stylesheet resolves it (an explicit data-theme wins, otherwise the OS), and
+  // every rung is asserted against the ladder that theme publishes.
+  const want = seen.dark
+    ? {
+        canvas: "rgb(21, 24, 29)",
+        muted: "rgb(255 255 255 / 66%)",
+        faint: "rgb(255 255 255 / 58%)",
+        line: "rgb(255 255 255 / 10%)",
+        accent: "#7B96FF",
+        rail: "#0A0B0D",
+      }
+    : {
+        canvas: "rgb(255, 255, 255)",
+        muted: "rgb(0 0 0 / 62%)",
+        faint: "rgb(0 0 0 / 56%)",
+        line: "rgb(0 0 0 / 10%)",
+        accent: "#315EFF",
+        rail: "#111111",
+      };
+  const ladder = seen.dark ? "dark" : "light";
+  expect(seen.canvas, `the ${ladder} canvas must be the neutral one, not a tinted neutral`).toBe(
+    want.canvas,
   );
-  expect(seen.muted, "the muted rung").toBe("rgb(0 0 0 / 62%)");
-  expect(seen.faint, "the faint rung").toBe("rgb(0 0 0 / 56%)");
-  expect(seen.line, "the hairline rung").toBe("rgb(0 0 0 / 10%)");
-  expect(seen.accent, "the single accent").toBe("#315EFF");
-  expect(seen.rail, "the inverted rail canvas").toBe("#111111");
+  expect(seen.muted, `the ${ladder} muted rung`).toBe(want.muted);
+  expect(seen.faint, `the ${ladder} faint rung`).toBe(want.faint);
+  expect(seen.line, `the ${ladder} hairline rung`).toBe(want.line);
+  expect(seen.accent, `the ${ladder} single accent`).toBe(want.accent);
+  expect(seen.rail, `the ${ladder} inverted rail canvas`).toBe(want.rail);
   expect(
     seen.loadedFamilies,
     "the vendored typeface must actually load; declaring a family is not loading one",
@@ -274,17 +300,19 @@ export async function expectHairlineBorder(locator: Locator, label: string): Pro
 }
 
 /**
- * A keyboard user must be able to skip the rail, and assistive technology must be able to
+ * A keyboard user must be able to skip the sidebar, and assistive technology must be able to
  * say where the user is (#343, S5). Both are invisible until someone needs them, so they are
  * asserted by behaviour: the skip link is off-screen until it takes focus and then lands in
- * the viewport, and the rail link for the current section carries `aria-current="page"` —
- * exactly once, on the active link, never on an inactive sibling.
+ * the viewport, and the sidebar link for the current section carries `aria-current="page"` —
+ * exactly once per navigation, on the active link, never on an inactive sibling. Since #377
+ * the mobile tab bar is a second navigation that may repeat the current section, so the
+ * count is asserted per navigation, not per page.
  *
- * The auth screens ship the split shell: no rail, and no skip target, so the check returns
- * unless the rail is present.
+ * The auth screens ship the split shell: no sidebar, and no skip target, so the check returns
+ * unless the sidebar is present.
  */
 export async function expectAccessibleNavigation(page: Page, label: string): Promise<void> {
-  if ((await page.locator(".rail").count()) === 0) return;
+  if ((await page.locator(".sidebar").count()) === 0) return;
 
   const skip = page.locator("a.skip-link");
   await expect(skip, `${label}: the shell must ship a skip link`).toHaveCount(1);
@@ -307,18 +335,136 @@ export async function expectAccessibleNavigation(page: Page, label: string): Pro
   await expect(skip, `${label}: a focused skip link must be on screen`).toBeInViewport();
   await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
 
-  const active = page.locator(".rail-nav a.rail-link.active");
-  const activeCount = await active.count();
-  for (let index = 0; index < activeCount; index += 1) {
-    await expect(active.nth(index), `${label}: the active rail link`).toHaveAttribute(
-      "aria-current",
-      "page",
-    );
+  for (const [nav, link] of [
+    [".sidebar-nav", "a.sidebar-link"],
+    [".tabbar", "a.tabbar-item"],
+  ]) {
+    const active = page.locator(`${nav} ${link}.active`);
+    const activeCount = await active.count();
+    expect(activeCount, `${label}: ${nav} marks at most one section active`).toBeLessThanOrEqual(1);
+    for (let index = 0; index < activeCount; index += 1) {
+      await expect(active.nth(index), `${label}: the active ${nav} link`).toHaveAttribute(
+        "aria-current",
+        "page",
+      );
+    }
+    await expect(
+      page.locator(`${nav} ${link}[aria-current="page"]`),
+      `${label}: only the current section may carry aria-current in ${nav}`,
+    ).toHaveCount(activeCount);
   }
-  await expect(
-    page.locator('.rail-nav a.rail-link[aria-current="page"]'),
-    `${label}: only the current section may carry aria-current`,
-  ).toHaveCount(activeCount);
+}
+
+/**
+ * WCAG contrast measured from computed styles (issue #378): the text colour is
+ * alpha-composited over the first painted ancestor background, so an alpha-black
+ * or alpha-white rung is judged on the surface it actually lands on, not on the
+ * page canvas. Returns the ratio and both resolved colours for the message.
+ */
+export async function measureContrast(
+  locator: Locator,
+): Promise<{ ratio: number; fg: string; bg: string }> {
+  return locator.evaluate((el) => {
+    const parse = (value: string): [number, number, number, number] => {
+      const m = value.match(/rgba?\(([^)]+)\)/);
+      if (!m) return [0, 0, 0, 1];
+      const parts = m[1]
+        .split(/[\s,/]+/)
+        .filter(Boolean)
+        .map(Number);
+      const [r, g, b] = parts;
+      let a = parts.length > 3 ? parts[3] : 1;
+      if (m[1].includes("%") && parts.length > 3) a = parts[3] / 100;
+      return [r, g, b, Number.isFinite(a) ? a : 1];
+    };
+    const over = (
+      top: [number, number, number, number],
+      under: [number, number, number],
+    ): [number, number, number] => {
+      const a = top[3];
+      return [
+        Math.round(top[0] * a + under[0] * (1 - a)),
+        Math.round(top[1] * a + under[1] * (1 - a)),
+        Math.round(top[2] * a + under[2] * (1 - a)),
+      ];
+    };
+    let bg: [number, number, number] = [255, 255, 255];
+    const chain: Element[] = [];
+    for (let node: Element | null = el; node; node = node.parentElement) chain.unshift(node);
+    for (const node of chain) {
+      const c = parse(getComputedStyle(node).backgroundColor);
+      if (c[3] > 0) bg = over(c, bg);
+    }
+    const fgRaw = parse(getComputedStyle(el).color);
+    const fg = over(fgRaw, bg);
+    const lum = ([r, g, b]: [number, number, number]) => {
+      const f = (v: number) => {
+        const s = v / 255;
+        return s <= 0.03928 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
+      };
+      return 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(b);
+    };
+    const l1 = lum(fg);
+    const l2 = lum(bg);
+    const ratio = (Math.max(l1, l2) + 0.05) / (Math.min(l1, l2) + 0.05);
+    return {
+      ratio: Math.round(ratio * 100) / 100,
+      fg: `rgb(${fg.join(", ")})`,
+      bg: `rgb(${bg.join(", ")})`,
+    };
+  });
+}
+
+/**
+ * The shared shell (#377) at both viewports, measured rather than looked at: on a wide
+ * viewport the sidebar is on-canvas at one of its two widths (232px expanded, 72px collapsed),
+ * the top bar is visible and the mobile tab bar is not; on a narrow viewport the sidebar is
+ * off-canvas until opened, the compact top bar and the tab bar are visible, and the main
+ * region starts right under the top bar instead of under a block of chrome.
+ */
+export async function expectShellChrome(
+  page: Page,
+  viewport: number,
+  label: string,
+): Promise<void> {
+  if ((await page.locator(".sidebar").count()) === 0) return;
+  const chrome = await page.evaluate(() => {
+    const rect = (selector: string) => {
+      const el = document.querySelector(selector);
+      if (!el) return null;
+      const r = el.getBoundingClientRect();
+      return { x: r.x, y: r.y, width: r.width, height: r.height, right: r.right };
+    };
+    return {
+      sidebar: rect(".sidebar"),
+      topbar: rect(".topbar"),
+      tabbar: rect(".tabbar"),
+      main: rect("main#main-content"),
+      tabbarDisplay: getComputedStyle(document.querySelector(".tabbar") as Element).display,
+      collapsed: document.body.classList.contains("sidebar-collapsed"),
+    };
+  });
+  expect(chrome.sidebar, `${label}: sidebar`).not.toBeNull();
+  expect(chrome.topbar, `${label}: top bar`).not.toBeNull();
+  expect(chrome.main, `${label}: main`).not.toBeNull();
+  if (viewport <= 640) {
+    expect(
+      chrome.sidebar!.right,
+      `${label}: the sidebar stays off-canvas until opened`,
+    ).toBeLessThanOrEqual(0);
+    expect(chrome.tabbarDisplay, `${label}: the tab bar is visible on a phone`).not.toBe("none");
+    expect(chrome.topbar!.height, `${label}: compact top bar`).toBeLessThanOrEqual(48);
+    expect(chrome.main!.y, `${label}: main starts under the compact top bar`).toBeLessThanOrEqual(
+      chrome.topbar!.height + 1,
+    );
+  } else {
+    expect(chrome.sidebar!.x, `${label}: the sidebar is on-canvas`).toBe(0);
+    expect(chrome.sidebar!.width, `${label}: the sidebar is expanded (232) or collapsed (72)`).toBe(
+      chrome.collapsed ? 72 : 232,
+    );
+    expect(chrome.topbar!.height, `${label}: top bar`).toBe(52);
+    expect(chrome.tabbarDisplay, `${label}: no tab bar on a wide viewport`).toBe("none");
+  }
 }
 
 export async function assertCanonicalScreen(
@@ -338,6 +484,7 @@ export async function assertCanonicalScreen(
   await assertNothingClipped(page);
   await expectDesignSystem(page);
   await expectAccessibleNavigation(page, `[${opts.label}] ${opts.url} as ${opts.role}`);
+  await expectShellChrome(page, opts.viewport, `[${opts.label}] ${opts.url} as ${opts.role}`);
 
   const prefix = `[${opts.label}] ${opts.url} as ${opts.role}`;
   expect(

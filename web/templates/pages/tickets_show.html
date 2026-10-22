@@ -1,4 +1,4 @@
-{{define "title"}}{{tf "base.title.ticket" (ticketNumber .View.Ticket.Number) .View.Ticket.Title}}{{end}}
+{{define "title"}}{{tf "base.title.ticket" (ticketNumber .View.Ticket.Number) .View.Ticket.Title (brandHelpDesk .Brand)}}{{end}}
 {{define "content"}}
 {{template "ticket_detail" .}}
 {{end}}

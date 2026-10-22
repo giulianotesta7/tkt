@@ -1,4 +1,4 @@
-{{define "title"}}{{if .UserID}}{{tf "base.title.screen" (t "users.edit_title")}}{{else}}{{tf "base.title.screen" (t "users.new_title")}}{{end}}{{end}}
+{{define "title"}}{{if .UserID}}{{tf "base.title.screen" (t "users.edit_title") (brandHelpDesk .Brand)}}{{else}}{{tf "base.title.screen" (t "users.new_title") (brandHelpDesk .Brand)}}{{end}}{{end}}
 {{define "content"}}
 <div class="command-header">
   <div>

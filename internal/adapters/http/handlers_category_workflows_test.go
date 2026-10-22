@@ -1582,22 +1582,37 @@ func TestCategoryWorkflowBuilder_MobileStyles_WrapNarrow(t *testing.T) {
 		{"editor head wraps", ".workflow-editor-head{", "flex-wrap:wrap"},
 		{"step cards stay compact", ".workflow-step-card{", "flex-basis:180px"},
 		{"field rows stack in mobile grid", ".workflow-field-row{", "grid-template-columns:1fr 44px"},
-		{"mobile rail wraps", ".rail{", "flex-wrap:wrap"},
-		{"mobile nav wraps", ".rail-nav{", "flex-wrap:wrap"},
 	} {
 		if !cssRuleDeclares(mobile, tc.sel, tc.decl) {
 			t.Errorf("max-width:640 block must declare %s on %s", tc.decl, tc.name)
 		}
 	}
-	if !cssRuleDeclares(mobile, ".rail-nav{", "min-width:0") {
-		t.Error("max-width:640 block must let .rail-nav shrink below its min-content width (no residual rail/nav min-width)")
+	// The shell (issue #377) owns its own narrow block: the sidebar leaves the
+	// flow as a drawer and the tab bar takes over, so no chrome imposes a
+	// residual min-content width on the builder.
+	shell := extractMediaBlock(t, style, "width <= 640px")
+	if shell == "" {
+		t.Fatal("shared styles must define the shell's width <= 640px block")
+	}
+	if !cssRuleDeclares(shell, ".sidebar,.sidebar-collapsed .sidebar{", "position:fixed") {
+		t.Error("the narrow shell block must take the sidebar out of the flow as a drawer")
+	}
+	if !cssRuleDeclares(shell, ".shell,.sidebar-collapsed .shell{", "grid-template-columns:1fr") {
+		t.Error("the narrow shell block must give the content the whole width")
 	}
 
 	// Keyboard accessibility: wrapping keeps controls visible and focusable —
 	// nothing in the mobile block may hide controls, and the global
-	// :focus-visible outline contract must survive.
+	// :focus-visible outline contract must survive. The sign-in presentation
+	// panel is the one exception, and it is content rather than a control: S9
+	// (issue #383) requires it to collapse to a strip on a phone, so its steps,
+	// highlights and footer are hidden there while every form control stays.
+	controls := mobile
+	for _, content := range []string{".auth-entry__steps,.auth-entry__highlights,.auth-entry__foot{display:none}"} {
+		controls = strings.ReplaceAll(controls, content, "")
+	}
 	for _, hidden := range []string{"display:none", "visibility:hidden", "pointer-events:none"} {
-		if strings.Contains(mobile, hidden) {
+		if strings.Contains(controls, hidden) {
 			t.Errorf("max-width:640 block must not hide controls (%s present)", hidden)
 		}
 	}

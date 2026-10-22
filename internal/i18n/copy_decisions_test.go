@@ -20,7 +20,7 @@ func TestSpanishTicketVocabularyAndStrategyNames(t *testing.T) {
 	es := New(Spanish)
 	for key, want := range map[string]string{
 		"base.nav.tickets":                          "Tickets",
-		"auth.welcome.subtitle":                     "Todo lo que tu equipo necesita para recibir, organizar y resolver tickets.",
+		"auth.login.title":                          "Inicia sesión en tkt",
 		"tickets.checklist.meta.requester_received": "Tu ticket se recibió y está en cola para soporte.",
 		"tickets.list.user_empty":                   "Todavía no hay tickets",
 		"tickets.list.user_no_match":                "Ningún ticket coincide con tu búsqueda",

@@ -72,6 +72,27 @@ func formatMonthDayYear(tr i18n.Translator, t time.Time) string {
 	return tr.Tf("date.month_day_year", monthLabel(tr, utc.Month()), utc.Day(), utc.Format("2006"))
 }
 
+// relativeTime phrases how long ago t was, judged at now: under a minute
+// "just now", then minutes, hours and days, and the absolute date once a
+// week has passed. A zero now, or a t after now, renders the absolute instant.
+func relativeTime(tr i18n.Translator, t, now time.Time) string {
+	if now.IsZero() || t.After(now) {
+		return formatDisplayTime(t)
+	}
+	d := now.Sub(t)
+	switch {
+	case d < time.Minute:
+		return tr.T("tickets.time.just_now")
+	case d < time.Hour:
+		return tr.Tf("tickets.time.minutes_ago", int(d/time.Minute))
+	case d < 24*time.Hour:
+		return tr.Tf("tickets.time.hours_ago", int(d/time.Hour))
+	case d < 7*24*time.Hour:
+		return tr.Tf("tickets.time.days_ago", int(d/(24*time.Hour)))
+	}
+	return formatDisplayTime(t)
+}
+
 func formatDatetime(t time.Time) string {
 	if t.IsZero() {
 		return ""
@@ -645,6 +666,82 @@ var templateFuncs = template.FuncMap{
 	// fileSize renders an attachment's byte count (issue #366) for the detail
 	// listing: the same units in every language, so it is not catalogued.
 	"fileSize": fileSize,
+	// brandHelpDesk answers the help desk name every document title ends with
+	// (issue #383, S5). The title keys take it as an argument rather than
+	// reading request state, so a template cannot render a title the request's
+	// identity did not decide.
+	"brandName":        brandName,
+	"brandHelpDesk":    brandHelpDesk,
+	"signinIcon":       signinIcon,
+	"signinNoticeIcon": signinNoticeIcon,
+	"helpTip":          helpTip,
+}
+
+// helpTipData is one field explanation rendered as a toggletip (issue #383,
+// S11): the id its tooltip element is referenced by, the field's label and the
+// explanation. The template passes both as catalogue-resolved strings — it calls
+// t with each key — so the copy stays translated and the coverage guard sees
+// every key a surface renders.
+type helpTipData struct {
+	ID    string
+	Label string
+	Text  string
+}
+
+// helpTip builds one toggletip payload from the translated label and text.
+func helpTip(id, label, text string) helpTipData {
+	return helpTipData{ID: id, Label: label, Text: text}
+}
+
+// signinIconSVG is the inline mark of one sign-in highlight icon (issue #383,
+// S10). The set is closed and shipped with the binary, so the panel never
+// depends on an emoji font or on an administrator uploading a glyph. An unknown
+// name renders the info mark rather than nothing.
+var signinIconSVG = map[string]string{
+	domain.SigninIconClock:  `<circle cx="12" cy="12" r="8"/><path d="M12 8v4l3 2"/>`,
+	domain.SigninIconPhone:  `<path d="M6 4h3l2 5-2 1a10 10 0 0 0 5 5l1-2 5 2v3a2 2 0 0 1-2 2A16 16 0 0 1 4 6a2 2 0 0 1 2-2z"/>`,
+	domain.SigninIconCheck:  `<path d="M4 12.5l5 5L20 6.5"/>`,
+	domain.SigninIconShield: `<path d="M12 3l7 3v6c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V6l7-3z"/>`,
+	domain.SigninIconChat:   `<path d="M4 5h16v11H9l-5 4V5z"/>`,
+	domain.SigninIconInfo:   `<circle cx="12" cy="12" r="8"/><path d="M12 11v6"/><path d="M12 7.5v.5"/>`,
+}
+
+// signinIcon returns one highlight's mark as inline SVG.
+func signinIcon(name string) template.HTML {
+	body, ok := signinIconSVG[name]
+	if !ok {
+		body = signinIconSVG[domain.SigninIconInfo]
+	}
+	return template.HTML(`<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">` + body + `</svg>`)
+}
+
+// signinNoticeIcon returns the notice's mark: a warning triangle for a warning
+// and the info circle otherwise.
+func signinNoticeIcon(kind string) template.HTML {
+	if kind == domain.SigninNoticeWarning {
+		return template.HTML(`<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4l9 16H3l9-16z"/><path d="M12 10v4"/><path d="M12 17v.5"/></svg>`)
+	}
+	return signinIcon(domain.SigninIconInfo)
+}
+
+// brandName is the instance name a document title starts with. It answers the
+// documented default for an unset brand, so a page rendered without an
+// identity still names the instance instead of starting with a dash.
+func brandName(brand brandData) string {
+	if brand.Name == "" {
+		return domain.DefaultOrganizationName
+	}
+	return brand.Name
+}
+
+// brandHelpDesk is the help desk name a document title ends with. It answers
+// the documented default for an unset brand, so a page rendered without an
+// identity still names a help desk instead of ending in a dash.
+func brandHelpDesk(brand brandData) string {
+	if brand.HelpDesk == "" {
+		return domain.DefaultOrganizationHelpDesk
+	}
+	return brand.HelpDesk
 }
 
 // shellFor maps a page to its shell root. Application pages use the rail
@@ -798,6 +895,10 @@ func templateFuncsFor(locale string) template.FuncMap {
 	funcs["priorityLabel"] = func(value any) string { return labeledValue(translator, "priority", value) }
 	funcs["roleLabel"] = func(value any) string { return labeledValue(translator, "role", value) }
 	funcs["slaLabel"] = func(value any) string { return labeledValue(translator, "sla", value) }
+	// relativeTime renders the queue's "Updated" reading against the one clock
+	// snapshot the list took (issue #382); a zero snapshot (fixtures, goldens)
+	// falls back to the absolute instant so renders stay frozen.
+	funcs["relativeTime"] = func(t, now time.Time) string { return relativeTime(translator, t, now) }
 	// The workflow builder's kind labels resolve through the active catalogue,
 	// so the picker, the step card, and the editor heading all follow the
 	// instance language.

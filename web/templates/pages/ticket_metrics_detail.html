@@ -1,2 +1,2 @@
-{{define "title"}}{{tf "base.title.screen" (t "ticket_metrics.title")}}{{end}}
+{{define "title"}}{{tf "base.title.screen" (t "ticket_metrics.title") (brandHelpDesk .Brand)}}{{end}}
 {{define "content"}}{{template "ticket_metrics_detail_content" .}}{{end}}
