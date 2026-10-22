@@ -272,7 +272,7 @@
   .sla-state{display:inline-flex;align-items:center;gap:6px;vertical-align:-1px}
   .sla-state-word{color:var(--muted)}
   .sla-dot{display:inline-block;width:7px;height:7px;border-radius:50%}
-  .sla-value{min-width:20ch}
+  .sla-value{min-width:20ch;gap:6px}
   .sla-countdown-ticker{font-variant-numeric:tabular-nums}
   .sla-countdown-coarse{user-select:none}
   .sla-dot.on_track{background:var(--green)}
@@ -374,7 +374,8 @@
   .detail-header{flex-wrap:wrap}
   .detail-title{display:flex;align-items:center;gap:10px;flex-wrap:wrap;min-width:0}
   .detail-title .command-title{min-width:0;overflow-wrap:anywhere}
-  .detail-title .title-edit{flex:1 1 320px}
+  .detail-title .title-edit{flex:1 1 320px;margin-left:-4px}
+  @supports (field-sizing:content){.detail-title .title-edit{flex:0 1 auto}.detail-title .title-input{field-sizing:content;max-width:100%}}
   .detail-state{display:flex;align-items:center;gap:6px;flex:0 0 auto}
   .detail-meta{margin:6px 0 0;color:var(--muted);font-size:13px;line-height:1.45}
   .detail-meta-requester,.detail-meta-category{color:var(--ink-soft)}

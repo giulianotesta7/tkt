@@ -16,7 +16,7 @@
       </div>
       <div class="detail-title">
 {{if and .CanEdit (not .Closed)}}
-        <h1 class="command-title"><span class="visually-hidden">{{.View.Ticket.Title}}</span></h1>
+        <h1 class="visually-hidden">{{.View.Ticket.Title}}</h1>
         <form class="title-inline title-edit" method="post" action="/tickets/{{.View.Ticket.ID}}/edit"
               hx-post="/tickets/{{.View.Ticket.ID}}/edit" hx-target="#ticket-detail" hx-swap="outerHTML">
           <input type="text" id="ticket-title" name="title" value="{{.Values.Title}}" required
