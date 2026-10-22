@@ -159,11 +159,11 @@ test.describe("Theme", () => {
       });
       await page.goto(base() + `/tickets/${ticketId}`);
       await page.getByLabel("Comment body").fill("A public reply.");
-      await page.getByRole("button", { name: "Add comment" }).click();
+      await page.getByRole("button", { name: "Reply", exact: true }).click();
       await expect(page).toHaveURL(new RegExp(`/tickets/${ticketId}$`));
-      await page.getByLabel("Internal comment").check();
+      await page.getByLabel("Internal note").check();
       await page.getByLabel("Comment body").fill("A staff-only note.");
-      await page.getByRole("button", { name: "Add comment" }).click();
+      await page.getByRole("button", { name: "Reply", exact: true }).click();
       await expect(page).toHaveURL(new RegExp(`/tickets/${ticketId}$`));
       await setTheme(page, theme);
 

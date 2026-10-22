@@ -13,6 +13,7 @@ import { test, expect } from "@playwright/test";
 import { startServer, stopServer, activeServer } from "../server-lifecycle.js";
 import { assertCanonicalScreen, collectObservability } from "./helpers/layout.js";
 import { assertHtmxSwap } from "./helpers/htmx.js";
+import { applyAssignee, pickerButton } from "./helpers/ticket.js";
 import { logout, seededCredentials, setSLAEnabled } from "./helpers/auth.js";
 import {
   catalogCategoryRow,
@@ -158,13 +159,11 @@ test.describe("Role — minimal matrix admin / agent / user (seeded)", () => {
       priority: "low",
     });
     await page.goto(baseURL() + `/tickets/${assignedID}`);
-    const assignee = page.locator('select[name="user_id"]');
-    await expect(assignee).toHaveCount(1);
+    await expect(pickerButton(page, "assign-user")).toBeVisible();
     await assertHtmxSwap(
       page,
       async () => {
-        await assignee.selectOption({ label: "Agent Ava" });
-        await page.locator("form:has(#assign-user)").getByRole("button", { name: "Apply" }).click();
+        await applyAssignee(page, "Agent Ava");
       },
       {
         endpoint: `/tickets/${assignedID}/assign`,
@@ -296,13 +295,18 @@ test.describe("Role — minimal matrix admin / agent / user (seeded)", () => {
     await page.setViewportSize({ width: 1280, height: 800 });
     await page.goto(baseURL() + `/tickets/${userTicketId}`);
     await expect(page.locator("#ticket-detail")).toBeVisible();
-    await expect(page.getByLabel(/internal comment/i)).toHaveCount(0);
+    await expect(page.getByLabel("Internal note")).toHaveCount(0);
     await expect(page.getByLabel(/comment body/i)).toBeVisible();
     // #263: a requester is not offered mutation controls the server will
     // reject. No priority form, no assign form, no transition form; the
     // read-only property values stay visible instead.
     const requesterDetail = page.locator("#ticket-detail");
-    for (const selector of ["#ticket-priority", "#assign-user", "#ticket-state"]) {
+    for (const selector of [
+      "#ticket-priority",
+      "#assign-user",
+      ".detail-actions form.detail-action",
+      "[data-transition-open]",
+    ]) {
       await expect(requesterDetail.locator(selector)).toHaveCount(0);
     }
     await expect(requesterDetail.locator("#ticket-priority-value")).toHaveText("Low");
@@ -346,13 +350,13 @@ test.describe("Role — minimal matrix admin / agent / user (seeded)", () => {
     const id = await createTicketViaUi(page, { title, category: "General", priority: "low" });
     await page.goto(baseURL() + `/tickets/${id}`);
     await expect(page.locator("#ticket-detail")).toBeVisible();
-    await expect(page.getByLabel(/internal comment/i)).toHaveCount(0);
+    await expect(page.getByLabel("Internal note")).toHaveCount(0);
     const comment = "User public " + Date.now().toString(36).slice(2, 6);
     await page.getByLabel(/comment body/i).fill(comment);
     const commentResponsePromise = waitForExactPost(page, `/tickets/${id}/comments`);
     await Promise.all([
       commentResponsePromise,
-      page.getByRole("button", { name: /add comment/i }).click(),
+      page.getByRole("button", { name: "Reply", exact: true }).click(),
     ]);
     const commentResponse = await commentResponsePromise;
     expect(commentResponse.status()).toBe(303);
@@ -501,7 +505,7 @@ test.describe("Role — requester SLA blindness (seeded)", () => {
     // Requester vocabulary (issue #334): the detail carries the same state
     // label as the list, names the requester's own list in the back link, and
     // shows no support-internal blocker in the Steps area.
-    await expect(page.locator("#ticket-detail .prop-value .badge.new")).toHaveText("Received");
+    await expect(page.locator("#ticket-detail .detail-state .badge.new")).toHaveText("Received");
     await expect(page.locator("#ticket-detail .detail-head .meta-row > a").first()).toHaveText(
       "← My tickets",
     );

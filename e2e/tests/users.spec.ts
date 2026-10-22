@@ -14,6 +14,7 @@ import { test, expect } from "@playwright/test";
 import { startServer, stopServer, activeServer } from "../server-lifecycle.js";
 import { assertCanonicalScreen, collectObservability } from "./helpers/layout.js";
 import { assertHtmxSwap } from "./helpers/htmx.js";
+import { applyAssignee, currentAssignee, pickerButton } from "./helpers/ticket.js";
 import {
   catalogNode,
   catalogRowMenu,
@@ -381,10 +382,10 @@ test.describe("Users", () => {
     await expect(page.locator(".error-banner, [role='alert']")).toHaveCount(0);
   }
 
+  // The assignee picker shows the ticket's current assignee on its button
+  // (issue #386, S5): that reading IS the stored value.
   async function assigneeLabel(page: import("@playwright/test").Page): Promise<string> {
-    const checked = page.locator('select[name="user_id"] option:checked');
-    await expect(checked).toHaveCount(1);
-    return (await checked.textContent())?.trim() ?? "";
+    return currentAssignee(page);
   }
 
   test("downgrade desk member reassigns open ticket and records handoff audit", async ({
@@ -420,11 +421,7 @@ test.describe("Users", () => {
       await assertHtmxSwap(
         page,
         async () => {
-          await page.locator('select[name="user_id"]').selectOption({ label: agentA.name });
-          await page
-            .locator("form:has(#assign-user)")
-            .getByRole("button", { name: "Apply" })
-            .click();
+          await applyAssignee(page, agentA.name);
         },
         {
           endpoint: `/tickets/${ticketId}/assign`,
@@ -433,7 +430,7 @@ test.describe("Users", () => {
           hxTarget: "#ticket-detail",
         },
       );
-      await expect(page.locator('select[name="user_id"] option:checked')).toHaveText(agentA.name);
+      await expect(pickerButton(page, "assign-user")).toContainText(agentA.name);
     }
 
     // Downgrade agent A to user from the user edit drawer: must succeed with
@@ -475,9 +472,9 @@ test.describe("Users", () => {
 
     // The open ticket moved to agent B and persisted across reload.
     await page.goto(base() + `/tickets/${ticketId}`);
-    await expect(page.locator('select[name="user_id"] option:checked')).toHaveText(agentB.name);
+    await expect(pickerButton(page, "assign-user")).toContainText(agentB.name);
     await page.reload();
-    await expect(page.locator('select[name="user_id"] option:checked')).toHaveText(agentB.name);
+    await expect(pickerButton(page, "assign-user")).toContainText(agentB.name);
 
     // Audit trail: the handoff event carries the downgrade reason.
     await expect(page.locator("#timeline")).toContainText("role downgrade handoff");
@@ -516,8 +513,7 @@ test.describe("Users", () => {
     await assertHtmxSwap(
       page,
       async () => {
-        await page.locator('select[name="user_id"]').selectOption({ label: agentC.name });
-        await page.locator("form:has(#assign-user)").getByRole("button", { name: "Apply" }).click();
+        await applyAssignee(page, agentC.name);
       },
       {
         endpoint: `/tickets/${ticketId}/assign`,
@@ -526,7 +522,7 @@ test.describe("Users", () => {
         hxTarget: "#ticket-detail",
       },
     );
-    await expect(page.locator('select[name="user_id"] option:checked')).toHaveText(agentC.name);
+    await expect(pickerButton(page, "assign-user")).toContainText(agentC.name);
 
     // Downgrade C: succeeds (no 500) and the open ticket becomes unassigned.
     await page.goto(base() + "/users");
@@ -551,9 +547,9 @@ test.describe("Users", () => {
     expect(saved.status()).toBe(200);
 
     await page.goto(base() + `/tickets/${ticketId}`);
-    await expect(page.locator('select[name="user_id"] option:checked')).toHaveText("Unassigned");
+    await expect(pickerButton(page, "assign-user")).toContainText("Unassigned");
     await expect(page.locator("#timeline")).toContainText("role downgrade handoff");
     await page.reload();
-    await expect(page.locator('select[name="user_id"] option:checked')).toHaveText("Unassigned");
+    await expect(pickerButton(page, "assign-user")).toContainText("Unassigned");
   });
 });

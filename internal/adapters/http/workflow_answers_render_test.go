@@ -15,7 +15,7 @@ func TestWorkflowAnswersRenderDefinitionListAndEscapesValues(t *testing.T) {
 	req := httptest.NewRequest("GET", "/tickets/1", nil)
 	req.Header.Set("HX-Request", "true")
 	response := httptest.NewRecorder()
-	data := struct{ View *application.TicketView }{View: &application.TicketView{WorkflowResponses: []application.WorkflowResponse{{
+	data := detailData{View: &application.TicketView{WorkflowResponses: []application.WorkflowResponse{{
 		StepIndex: 0, SubmittedAt: time.Date(2026, 8, 20, 10, 0, 0, 0, time.UTC),
 		Fields: []application.WorkflowResponseField{{Label: "Server <name>", Value: "<b>api-01</b>"}},
 	}}}}
@@ -38,7 +38,7 @@ func TestWorkflowAnswersOmittedWhenAbsent(t *testing.T) {
 	req := httptest.NewRequest("GET", "/tickets/1", nil)
 	req.Header.Set("HX-Request", "true")
 	response := httptest.NewRecorder()
-	renderer.Render(response, req, "", "workflow_answers", struct{ View *application.TicketView }{View: &application.TicketView{}}, 200)
+	renderer.Render(response, req, "", "workflow_answers", detailData{View: &application.TicketView{}}, 200)
 	if body := response.Body.String(); response.Code != 200 || strings.Contains(body, "Workflow responses") {
 		t.Fatalf("empty/legacy response projection rendered a card: %s", body)
 	}
@@ -50,7 +50,7 @@ func TestWorkflowStepTimelineDoesNotRenderAnswerContent(t *testing.T) {
 	req.Header.Set("HX-Request", "true")
 	response := httptest.NewRecorder()
 	secret := `answer <b>must-not-leak</b>`
-	data := struct{ View *application.TicketView }{View: &application.TicketView{Timeline: []application.TimelineItem{{
+	data := detailData{View: &application.TicketView{Timeline: []application.TimelineItem{{
 		Event:          &domain.AuditEvent{Actor: "Requester", Action: domain.ActionWorkflowStep, Note: &secret, CreatedAt: time.Date(2026, 8, 20, 10, 0, 0, 0, time.UTC)},
 		Summary:        "Completed workflow step",
 		ActorLabel:     "Requester",
@@ -70,7 +70,7 @@ func TestTimelineFormEventRendersEscapedInlineDefinitionList(t *testing.T) {
 	req := httptest.NewRequest("GET", "/tickets/1", nil)
 	req.Header.Set("HX-Request", "true")
 	response := httptest.NewRecorder()
-	data := struct{ View *application.TicketView }{View: &application.TicketView{Timeline: []application.TimelineItem{{
+	data := detailData{View: &application.TicketView{Timeline: []application.TimelineItem{{
 		Event:          &domain.AuditEvent{Actor: "Ada", Action: domain.ActionWorkflowRequesterForm, CreatedAt: time.Date(2026, 8, 20, 10, 0, 0, 0, time.UTC)},
 		Summary:        "submitted request details",
 		ActorLabel:     "Ada",
@@ -104,7 +104,7 @@ func TestTimelineManualEventRendersEscapedPinnedInstruction(t *testing.T) {
 	req := httptest.NewRequest("GET", "/tickets/1", nil)
 	req.Header.Set("HX-Request", "true")
 	response := httptest.NewRecorder()
-	data := struct{ View *application.TicketView }{View: &application.TicketView{Timeline: []application.TimelineItem{{
+	data := detailData{View: &application.TicketView{Timeline: []application.TimelineItem{{
 		Event:           &domain.AuditEvent{Actor: "Beto", Action: domain.ActionWorkflowManualTask, CreatedAt: time.Date(2026, 8, 20, 10, 0, 0, 0, time.UTC)},
 		Summary:         "completed the task",
 		ActorLabel:      "Beto",
@@ -115,10 +115,8 @@ func TestTimelineManualEventRendersEscapedPinnedInstruction(t *testing.T) {
 	renderer.Render(response, req, "", "timeline", data, 200)
 	body := response.Body.String()
 	for _, want := range []string{
-		`<div class="timeline-entry timeline-event timeline-manual">`,
-		`<div class="timeline-manual-heading">`,
-		`<span class="event-icon" aria-hidden="true"><svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor"`,
-		`<path d="m3 8 3 3 7-7"/>`,
+		`<article class="timeline-entry timeline-event timeline-manual">`,
+		`<div class="timeline-entry-head">`,
 		`<strong class="timeline-actor">Beto</strong> <span class="timeline-action">completed the task</span>`,
 		`<dt>Task</dt>`,
 		`<dd>&lt;script&gt;alert(1)&lt;/script&gt;</dd>`,
@@ -147,7 +145,7 @@ func TestTimelineManualEventRendersEscapedSolutionWhenPresent(t *testing.T) {
 	req := httptest.NewRequest("GET", "/tickets/1", nil)
 	req.Header.Set("HX-Request", "true")
 	response := httptest.NewRecorder()
-	data := struct{ View *application.TicketView }{View: &application.TicketView{Timeline: []application.TimelineItem{{
+	data := detailData{View: &application.TicketView{Timeline: []application.TimelineItem{{
 		Event:           &domain.AuditEvent{Actor: "Beto", Action: domain.ActionWorkflowManualTask, CreatedAt: time.Date(2026, 8, 20, 10, 0, 0, 0, time.UTC)},
 		Summary:         "completed the task",
 		ActorLabel:      "Beto",
@@ -162,10 +160,8 @@ func TestTimelineManualEventRendersEscapedSolutionWhenPresent(t *testing.T) {
 		t.Fatalf("status = %d, body = %s", response.Code, body)
 	}
 	for _, want := range []string{
-		`<div class="timeline-entry timeline-event timeline-manual">`,
-		`<div class="timeline-manual-heading">`,
-		`<span class="event-icon" aria-hidden="true"><svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor"`,
-		`<path d="m3 8 3 3 7-7"/>`,
+		`<article class="timeline-entry timeline-event timeline-manual">`,
+		`<div class="timeline-entry-head">`,
 		`<strong class="timeline-actor">Beto</strong> <span class="timeline-action">completed the task</span>`,
 		`<dt>Task</dt>`,
 		`<dd>inspect the server</dd>`,
@@ -200,7 +196,7 @@ func TestTimelineManualEventOmitsEmptySolution(t *testing.T) {
 	req := httptest.NewRequest("GET", "/tickets/1", nil)
 	req.Header.Set("HX-Request", "true")
 	response := httptest.NewRecorder()
-	data := struct{ View *application.TicketView }{View: &application.TicketView{Timeline: []application.TimelineItem{{
+	data := detailData{View: &application.TicketView{Timeline: []application.TimelineItem{{
 		Event:           &domain.AuditEvent{Actor: "Beto", Action: domain.ActionWorkflowManualTask, CreatedAt: time.Date(2026, 8, 20, 10, 0, 0, 0, time.UTC)},
 		Summary:         "completed the task",
 		ActorLabel:      "Beto",
@@ -211,7 +207,7 @@ func TestTimelineManualEventOmitsEmptySolution(t *testing.T) {
 
 	renderer.Render(response, req, "", "timeline", data, 200)
 	body := response.Body.String()
-	if !strings.Contains(body, `<div class="timeline-entry timeline-event timeline-manual">`) || !strings.Contains(body, `<div class="timeline-manual-heading">`) || !strings.Contains(body, `<svg viewBox="0 0 16 16" width="16" height="16"`) || !strings.Contains(body, `<path d="m3 8 3 3 7-7"/>`) || !strings.Contains(body, `<strong class="timeline-actor">Beto</strong> <span class="timeline-action">completed the task</span>`) || !strings.Contains(body, `<dt>Task</dt>`) || !strings.Contains(body, `<dd>inspect the server</dd>`) {
+	if !strings.Contains(body, `<article class="timeline-entry timeline-event timeline-manual">`) || !strings.Contains(body, `<div class="timeline-entry-head">`) || !strings.Contains(body, `<strong class="timeline-actor">Beto</strong> <span class="timeline-action">completed the task</span>`) || !strings.Contains(body, `<dt>Task</dt>`) || !strings.Contains(body, `<dd>inspect the server</dd>`) {
 		t.Fatalf("static manual event must render actor-first task details: %s", body)
 	}
 	if strings.Contains(body, `<details class="timeline-entry timeline-event timeline-manual">`) || strings.Contains(body, `<summary class="timeline-event-summary">`) || strings.Contains(body, "timeline-event-summary") {
@@ -229,7 +225,7 @@ func TestTimelineFormEventNeverRendersSolutionBlock(t *testing.T) {
 	req := httptest.NewRequest("GET", "/tickets/1", nil)
 	req.Header.Set("HX-Request", "true")
 	response := httptest.NewRecorder()
-	data := struct{ View *application.TicketView }{View: &application.TicketView{Timeline: []application.TimelineItem{{
+	data := detailData{View: &application.TicketView{Timeline: []application.TimelineItem{{
 		Event:          &domain.AuditEvent{Actor: "Ada", Action: domain.ActionWorkflowRequesterForm, CreatedAt: time.Date(2026, 8, 20, 10, 0, 0, 0, time.UTC)},
 		Summary:        "submitted request details",
 		ActorLabel:     "Ada",

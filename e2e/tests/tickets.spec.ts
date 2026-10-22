@@ -21,6 +21,13 @@ import {
   catalogNodeId,
   createTicketViaUi,
 } from "./helpers/navigation.js";
+import {
+  applyTransition,
+  openPicker,
+  pickerButton,
+  pickerOption,
+  transitionAction,
+} from "./helpers/ticket.js";
 import { waitForExactPost } from "./helpers/network.js";
 import { assertHtmxSwap } from "./helpers/htmx.js";
 import { loginAsSeeded, setSLAEnabled } from "./helpers/auth.js";
@@ -239,7 +246,9 @@ test.describe("Ticket Lifecycle", () => {
     await expect(page.getByText(title)).toBeVisible({ timeout: 5000 });
     await page.getByText(title).first().click();
     await page.waitForURL(/\/tickets\/\d+/);
-    await expect(page.getByText(ticketNumberText!)).toBeVisible();
+    // The number appears twice by design (the header's crumb and the Details
+    // card, issue #386 S5), so resolve the first one.
+    await expect(page.getByText(ticketNumberText!).first()).toBeVisible();
 
     await assertCanonicalScreen(page, {
       viewport: 1280,
@@ -373,11 +382,11 @@ test.describe("Ticket Lifecycle", () => {
     await expect(properties).toContainText(fixture.department);
     await expect(properties).toContainText(fixture.desk);
     await expect(properties).toContainText(fixture.category);
-    await expect(properties).toContainText("Assignment");
+    await expect(properties).toContainText("Assignee");
     await expect(properties).toContainText("Not assigned yet");
     await expect(properties).not.toHaveClass(/card/);
     await expect(timeline).toContainText("No activity yet.");
-    await expect(createForm.getByText("Add comment", { exact: true })).toHaveCount(0);
+    await expect(createForm.getByText("Reply", { exact: true })).toHaveCount(0);
     await expect(createForm.locator("[name=to], [name=user_id], [name=assignee_id]")).toHaveCount(
       0,
     );
@@ -1139,8 +1148,10 @@ test.describe("Ticket Lifecycle", () => {
     const applyProperty = async (property: "priority" | "assignee", value: string) => {
       const selectID = property === "priority" ? "ticket-priority" : "assign-user";
       const endpoint = ticketPath + (property === "priority" ? "/edit" : "/assign");
-      const select = page.locator(`#${selectID}`);
-      const form = page.locator(`form:has(#${selectID})`);
+      const button = pickerButton(page, selectID as "ticket-priority" | "assign-user");
+      // The picker's options are submit buttons; `value` is the field value
+      // (a priority level, or the user id, "" for Unassigned).
+      const option = pickerOption(page, selectID as "ticket-priority" | "assign-user", value);
       const queueHref = await page.getByRole("link", { name: "Queue" }).getAttribute("href");
       if (!queueHref) throw new Error(`Missing Queue href at ${page.url()}`);
       // Issue #343 S2: the editable detail names the ticket in exactly one h1;
@@ -1159,13 +1170,14 @@ test.describe("Ticket Lifecycle", () => {
       const response = await assertHtmxSwap(
         page,
         async () => {
-          await select.selectOption(value);
-          await form.getByRole("button", { name: "Apply", exact: true }).click();
+          await openPicker(page, selectID as "ticket-priority" | "assign-user");
+          await option.click();
         },
         { endpoint, method: "POST", expectedStatus: 200, hxTarget: "#ticket-detail" },
       );
       expect(response.request().headers()["x-tkt-queue-return"]).toBe(queueHref);
-      await expect(select).toHaveValue(value);
+      await expect(option).toHaveAttribute("aria-selected", "true");
+      await expect(button).not.toBeEmpty();
       await expect(page.getByLabel("Ticket title")).toBeVisible();
       await expect(page.getByLabel("Ticket title")).toHaveValue(title);
       await expect(page.getByRole("link", { name: "Queue" })).toHaveAttribute("href", queueHref);
@@ -1276,12 +1288,11 @@ test.describe("Ticket Lifecycle", () => {
     await test.step("priority updates preserve the filtered queue across repeated detail swaps", async () => {
       await openProbe();
       await applyProperty("priority", "critical");
-      await expect(page.locator("#ticket-priority option:checked")).toHaveText("Critical");
+      await expect(pickerButton(page, "ticket-priority")).toContainText("Critical");
       await applyProperty("priority", "high");
       await returnToExcludedProbe(returnedURL);
       await page.goto(base() + ticketPath);
-      await expect(page.getByLabel("Priority")).toHaveValue("high");
-      await expect(page.locator("#ticket-priority option:checked")).toHaveText("High");
+      await expect(pickerButton(page, "ticket-priority")).toContainText("High");
     });
 
     await test.step("assignee updates preserve the filtered queue across repeated detail swaps", async () => {
@@ -1291,14 +1302,13 @@ test.describe("Ticket Lifecycle", () => {
       await page.goto(assignmentQueue.href);
       await openProbe();
       await applyProperty("assignee", "");
-      await expect(page.locator("#assign-user option:checked")).toHaveText("Unassigned");
+      await expect(pickerButton(page, "assign-user")).toContainText("Unassigned");
       await applyProperty("assignee", "1");
-      await expect(page.locator("#assign-user option:checked")).toHaveText("Alice Admin");
+      await expect(pickerButton(page, "assign-user")).toContainText("Alice Admin");
       await applyProperty("assignee", "");
       await returnToExcludedProbe(assignmentQueue);
       await page.goto(base() + ticketPath);
-      await expect(page.getByLabel("Assignee", { exact: true })).toHaveValue("");
-      await expect(page.locator("#assign-user option:checked")).toHaveText("Unassigned");
+      await expect(pickerButton(page, "assign-user")).toContainText("Unassigned");
     });
 
     await test.step("ordinary queue gains no search after priority and assignment swaps", async () => {
@@ -1312,9 +1322,8 @@ test.describe("Ticket Lifecycle", () => {
       await expect(page).toHaveURL(base() + "/tickets");
       await expect(page.getByLabel("Search tickets")).toHaveValue("");
       await openProbe();
-      await expect(page.getByLabel("Priority")).toHaveValue("critical");
-      await expect(page.getByLabel("Assignee", { exact: true })).toHaveValue("1");
-      await expect(page.locator("#assign-user option:checked")).toHaveText("Alice Admin");
+      await expect(pickerButton(page, "ticket-priority")).toContainText("Critical");
+      await expect(pickerButton(page, "assign-user")).toContainText("Alice Admin");
       await page.getByRole("link", { name: "Queue" }).click();
       await expect(page).toHaveURL(base() + "/tickets");
     });
@@ -1558,7 +1567,7 @@ test.describe("Ticket Lifecycle", () => {
     await page.getByLabel(/comment body/i).fill(commentBody);
     // Comment form is a native POST (no hx-post) — submit and wait for navigation
     const responsePromise = waitForExactPost(page, `/tickets/${id}/comments`);
-    await page.getByRole("button", { name: /add comment/i }).click();
+    await page.getByRole("button", { name: "Reply", exact: true }).click();
     const response = await responsePromise;
     expect(response.status()).toBe(303);
     expect(new URL(page.url()).pathname).toBe(`/tickets/${id}`);
@@ -1598,14 +1607,12 @@ test.describe("Ticket Lifecycle", () => {
     await page.goto(base() + `/tickets/${id}`);
     await expect(page.locator("#ticket-detail")).toBeVisible();
     await expect(page.getByText("New").first()).toBeVisible();
-    const moveSelect = page.locator("#ticket-state");
-    await expect(moveSelect).toBeVisible();
+    await expect(transitionAction(page, "in_progress")).toBeVisible();
 
     await assertHtmxSwap(
       page,
       async () => {
-        await moveSelect.selectOption("in_progress");
-        await page.locator("#state-apply").click();
+        await applyTransition(page, "in_progress");
       },
       {
         endpoint: `/tickets/${id}/transition`,

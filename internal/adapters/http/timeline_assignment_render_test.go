@@ -23,7 +23,7 @@ func renderTimelineFragment(t *testing.T, items []application.TimelineItem) stri
 	req := httptest.NewRequest("GET", "/tickets/1", nil)
 	req.Header.Set("HX-Request", "true")
 	rec := httptest.NewRecorder()
-	data := struct{ View *application.TicketView }{View: &application.TicketView{Timeline: items}}
+	data := detailData{View: &application.TicketView{Timeline: items}}
 	renderer.Render(rec, req, "", "timeline", data, 200)
 	if rec.Code != 200 {
 		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
@@ -68,8 +68,8 @@ func TestTimelineEventsUseActorFirstNarrative(t *testing.T) {
 	}
 	body := renderTimelineFragment(t, items)
 	for _, want := range []string{
-		`<strong class="timeline-actor">Ada</strong> added a comment`,
-		`<strong class="timeline-actor">Ada</strong> added an internal comment`,
+		`<strong class="timeline-actor">Ada</strong> <span class="timeline-action">added a comment</span>`,
+		`<strong class="timeline-actor">Ada</strong> <span class="timeline-action">added an internal comment</span>`,
 		`<strong class="timeline-actor">Ada</strong> <span class="timeline-action">moved the ticket to resolved</span>`,
 		`<strong class="timeline-actor">Ada</strong> <span class="timeline-action">changed priority to high</span>`,
 		`<strong class="timeline-actor">Ada</strong> <span class="timeline-action">assigned the ticket to <strong>Beto</strong> at <strong>Network</strong></span>`,
@@ -106,7 +106,7 @@ func TestTimelineAssignmentDoesNotDeriveStClassFromToValue(t *testing.T) {
 	if strings.Contains(body, `st-7`) || strings.Contains(body, `st-`) {
 		t.Fatalf("assignment entry must not derive an st- class from the ToValue user id: %s", body)
 	}
-	if !strings.Contains(body, `<div class="timeline-entry timeline-event">`) {
+	if !strings.Contains(body, `<article class="timeline-entry timeline-event">`) {
 		t.Fatalf("assignment entry class must stay plain timeline-event, got: %s", body)
 	}
 }
@@ -159,8 +159,8 @@ func TestTimelineDetachedManualEventRendersSolutionWithoutInstruction(t *testing
 		StepSolution:   `<b>reseat</b> the cable`,
 	}})
 	for _, want := range []string{
-		`<div class="timeline-entry timeline-event timeline-manual">`,
-		`<div class="timeline-manual-heading">`,
+		`<article class="timeline-entry timeline-event timeline-manual">`,
+		`<div class="timeline-entry-head">`,
 		`<strong class="timeline-actor">Admin</strong> <span class="timeline-action">completed the task</span>`,
 		`<dt>Solution</dt>`,
 		`<dd>&lt;b&gt;reseat&lt;/b&gt; the cable</dd>`,

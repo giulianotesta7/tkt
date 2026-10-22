@@ -505,7 +505,7 @@ func closedDetailData(state domain.State) detailData {
 	d.CanAssign = false
 	// A closed ticket's only remaining mutation is the reopen transition, and
 	// the capability (CapEditTicket) is not gated on the closed state, so a
-	// capable actor keeps the Move-to control here.
+	// capable actor keeps the reopen action here.
 	d.CanTransition = true
 	d.CanComment = false // closed ticket: no comment form (issue #55 requester carve-out handled in detailDataFor, not this read-only fixture)
 	return d
@@ -513,9 +513,9 @@ func closedDetailData(state domain.State) detailData {
 
 // TestClosedTicketDetailReadOnly proves a closed ticket (resolved/closed/
 // cancelled) renders read-only: no comment form, no inline title edit (plain
-// <h1>), no priority/assignment controls — but keeps the read-only metadata
-// (Requester, Category) and the State control. Only resolved/closed offer a
-// "Move to" reopen; cancelled is terminal (closed-ticket read-only spec).
+// <h1>), no priority/assignment pickers — but keeps the read-only metadata
+// (Requester, Assignee, Category) and the reopen action. Only resolved/closed
+// offer a reopen; cancelled is terminal (closed-ticket read-only spec).
 func TestClosedTicketDetailReadOnly(t *testing.T) {
 	for _, state := range []domain.State{domain.StateResolved, domain.StateClosed, domain.StateCancelled} {
 		t.Run(string(state), func(t *testing.T) {
@@ -523,15 +523,12 @@ func TestClosedTicketDetailReadOnly(t *testing.T) {
 
 			// Read-only metadata stays visible.
 			for _, want := range []string{
-				`class="prop-heading">Properties</`,
+				`class="detail-properties"`,
 				`class="prop-label">Requester</`,
 				`class="prop-label">Category</`,
-				`class="prop-heading">Assignment</`, // last assignee shown read-only
 				`class="prop-label">Assignee</`,
 				`>Ana Torres</span>`, // the last assignee name (read-only)
-				`class="prop-heading">State</`,
 				`<h1 class="command-title">`,
-				`class="prop-label">Current</`,
 			} {
 				if !strings.Contains(body, want) {
 					t.Errorf("closed detail must contain %q, got: %s", want, body)
@@ -540,35 +537,36 @@ func TestClosedTicketDetailReadOnly(t *testing.T) {
 
 			// Every mutation control is hidden.
 			for _, absent := range []string{
-				`id="ticket-title"`,    // inline title edit
-				`name="title"`,         // title input
-				`id="ticket-priority"`, // priority select
-				`name="priority"`,      // priority form
-				`id="assign-user"`,     // assignment select
-				`name="user_id"`,       // assign form
-				`Add comment`,          // comment form
-				`name="body"`,          // comment textarea
-				`name="visibility"`,    // comment visibility
+				`id="ticket-title"`,      // inline title edit
+				`name="title"`,           // title input
+				`id="ticket-priority"`,   // priority picker
+				`name="priority"`,        // priority form
+				`id="assign-user"`,       // assignment picker
+				`name="user_id"`,         // assign form
+				`class="listbox-button"`, // either picker's opener
+				`Add comment`,            // comment form
+				`name="body"`,            // comment textarea
+				`name="internal"`,        // internal-note switch
 			} {
 				if strings.Contains(body, absent) {
 					t.Errorf("closed detail must NOT contain %q, got: %s", absent, body)
 				}
 			}
 
-			// State control: reopen only for resolved/closed, none for cancelled.
+			// Reopen only for resolved/closed, none for cancelled.
 			if state == domain.StateCancelled {
-				if strings.Contains(body, `id="ticket-state"`) {
-					t.Errorf("cancelled detail must not render a Move to control, got: %s", body)
+				if strings.Contains(body, `data-transition-open="in_progress"`) {
+					t.Errorf("cancelled detail must not render a reopen action, got: %s", body)
 				}
-				if strings.Contains(body, `class="prop-label">Move to</`) {
-					t.Errorf("cancelled detail must not render Move to, got: %s", body)
+				if strings.Contains(body, `>Reopen</button>`) {
+					t.Errorf("cancelled detail must not render Reopen, got: %s", body)
 				}
 			} else {
-				if !strings.Contains(body, `id="ticket-state"`) {
-					t.Errorf("%s detail must render the Move to control, got: %s", state, body)
+				if !strings.Contains(body, `data-transition-open="in_progress"`) {
+					t.Errorf("%s detail must render the reopen action, got: %s", state, body)
 				}
-				if !strings.Contains(body, `class="prop-label">Move to</`) {
-					t.Errorf("%s detail must render Move to, got: %s", state, body)
+				if !strings.Contains(body, `>Reopen</button>`) {
+					t.Errorf("%s detail must render Reopen, got: %s", state, body)
 				}
 			}
 		})
@@ -701,15 +699,20 @@ func TestGoldenTicketDetailRequesterResolvedRequesterView(t *testing.T) {
 	}
 
 	// Comment form present (resolved carve-out for the requester).
-	for _, want := range []string{`action="/tickets/1/comments"`, `Add comment`} {
+	for _, want := range []string{`action="/tickets/1/comments"`, `>Reply</button>`} {
 		if !strings.Contains(body, want) {
 			t.Errorf("requester comment form must render on own resolved ticket, missing %q, got: %s", want, body)
 		}
 	}
 
-	// No Move-to closed for anyone (D7 call-site filter).
-	if strings.Contains(body, `<option value="closed"`) {
-		t.Errorf("requester-owned resolved must not offer Move to closed\n%s", body)
+	// No close target for anyone (D7 call-site filter): the requester-owned
+	// resolved ticket offers no header transition at all to this actor, and the
+	// confirmation panel above the composer is their real path.
+	if strings.Contains(body, `name="to" value="closed"`) {
+		t.Errorf("requester-owned resolved must not offer a close transition\n%s", body)
+	}
+	if strings.Contains(body, `action="/tickets/1/transition"`) {
+		t.Errorf("a requester owns no transition route action\n%s", body)
 	}
 
 	goldenFile(t, "ticket_detail_requester_resolved", body)
@@ -728,16 +731,16 @@ func TestGoldenTicketDetailRequesterResolvedAgentView(t *testing.T) {
 		`Is your issue solved?`,
 		`/tickets/1/confirmation`,
 		`action="/tickets/1/comments"`, // no comment form for non-requesters
-		`<option value="closed"`,       // closure gate presentation filter
+		`name="to" value="closed"`,     // closure gate presentation filter
 	} {
 		if strings.Contains(body, absent) {
 			t.Errorf("agent view of requester-owned resolved must NOT contain %q\n%s", absent, body)
 		}
 	}
 
-	// Reopen stays available to the assigned agent (state-machine delta:
-	// agent reopen keeps the pin).
-	for _, want := range []string{`id="ticket-state"`, `<option value="in_progress"`} {
+	// Reopen stays available to the agent holding the capability (state-machine
+	// delta: agent reopen keeps the pin).
+	for _, want := range []string{`data-transition-open="in_progress"`, `>Reopen</button>`} {
 		if !strings.Contains(body, want) {
 			t.Errorf("agent view must keep the reopen target %q\n%s", want, body)
 		}
@@ -767,7 +770,10 @@ func TestGoldenTicketDetailLegacyResolvedAgentView(t *testing.T) {
 			t.Errorf("requester-NULL resolved must NOT contain %q\n%s", absent, body)
 		}
 	}
-	for _, want := range []string{`<option value="closed"`, `<option value="in_progress"`} {
+	for _, want := range []string{
+		`name="to" value="closed"`,
+		`data-transition-open="in_progress"`,
+	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("requester-NULL resolved agent view must offer %q\n%s", want, body)
 		}
@@ -796,22 +802,23 @@ func TestTicketDetailPresentationContract(t *testing.T) {
 	body := renderGolden(t, "tickets_show", "", staff, false)
 	for _, want := range []string{
 		`class="prop-list"`,
-		`class="prop-heading">Properties</`,
-		`class="prop-heading">Assignment</`,
-		`class="prop-heading">State</`,
+		`class="detail-properties"`,
+		`class="prop-heading">Details</`,
+		`class="prop-heading">SLA</`,
 		`id="ticket-title"`,
 		`name="title"`,
 		`id="ticket-priority"`,
 		`name="priority"`,
 		`id="assign-user"`,
 		`name="user_id"`,
-		`id="ticket-state"`,
+		`action="/tickets/1/transition"`,
 		`name="to"`,
-		`name="visibility" value="public"`,
+		`id="comment-body"`,
 		`name="internal" value="1"`,
-		`Internal comment`,
+		`Internal note`,
 		`class="timeline-entry timeline-comment internal"`,
 		`--internal-comment-bg`,
+		`id="ticket-actions-overflow"`,
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("ticket detail must contain %q, got: %s", want, body)
@@ -1383,6 +1390,9 @@ func TestGoldenTicketDetailOnHold(t *testing.T) {
 		`<span class="chip">On hold</span>`,
 		`<span class="chip">Paused</span>`,
 		`put the ticket on hold: waiting for the VPN logs`,
+		// The pause moves the hold controls into the header overflow (S1) and
+		// leaves the SLA panel's content in place.
+		`id="ticket-actions-overflow"`,
 		// First response unchanged: still achieved and labelled.
 		`<span class="sla-dot met" aria-hidden="true"></span>`,
 	} {

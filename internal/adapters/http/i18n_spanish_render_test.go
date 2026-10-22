@@ -81,11 +81,13 @@ func TestSpanishFilterBarAndPagination(t *testing.T) {
 }
 
 // TestSpanishTicketDetail renders the staff detail surface in Spanish: the
-// property labels, the state controls, and the reopen-reason field.
+// property labels, the header actions, and the reopen-reason dialog (issue
+// #386, S1/S5: the panel is one Properties card and the state moves to the
+// header, so the old "Asignación"/"Estado"/"Mover a" headings are gone).
 func TestSpanishTicketDetail(t *testing.T) {
 	data := fixtureDetailData()
 	body := renderLocalized(t, "es", "tickets_show", "ticket_detail", data)
-	for _, want := range []string{"Propiedades", "Solicitante", "Prioridad", "Asignación", "Responsable", "Estado", "Mover a", "Actividad"} {
+	for _, want := range []string{"Propiedades", "Solicitante", "Prioridad", "Responsable", "Detalles", "Resolver", "Cancelar", "Actividad"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("Spanish ticket detail must render %q, got: %.800s", want, body)
 		}
