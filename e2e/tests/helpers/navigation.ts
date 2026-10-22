@@ -1,4 +1,4 @@
-import { expect, type Page } from "@playwright/test";
+import { expect, type Locator, type Page } from "@playwright/test";
 import { base } from "./auth.js";
 
 /**
@@ -70,6 +70,50 @@ export async function createTicketViaUi(
 }
 
 /**
+ * The Catalog is one expandable tree (issue #387): departments › desks ›
+ * categories, every level on the page at once. These helpers are the only place
+ * that knows the tree's markup, so a journey names the entity it needs and never
+ * the DOM shape around it.
+ */
+export function catalogTree(page: Page): Locator {
+  return page.locator(".catalog-tree");
+}
+
+/** An anchored matcher, so "General" never resolves "General Support". */
+function exact(name: string): RegExp {
+  return new RegExp(`^${name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`);
+}
+
+/** One tree node by level and exact name. */
+export function catalogNode(page: Page, level: "department" | "desk", name: string): Locator {
+  return catalogTree(page)
+    .locator(`[data-level="${level}"]`)
+    .filter({ has: page.locator(".catalog-node-name", { hasText: exact(name) }) });
+}
+
+/** One category row by exact name. */
+export function catalogCategoryRow(page: Page, name: string): Locator {
+  return catalogTree(page)
+    .locator('[data-level="category"]')
+    .filter({ has: page.locator(".catalog-category-link", { hasText: exact(name) }) });
+}
+
+/** The numeric id the server put on a tree node, so a journey can build a URL. */
+export async function catalogNodeId(node: Locator, what: string): Promise<string> {
+  const value = await node.getAttribute("data-catalog-id");
+  if (!value) throw new Error(`Cannot resolve the id of ${what}`);
+  return value;
+}
+
+/** Toggle one disclosure and prove the state flipped. */
+export async function toggleCatalogNode(node: Locator): Promise<void> {
+  const button = node.locator(".catalog-tree-row").first().locator("[data-catalog-disclosure]");
+  const before = await button.getAttribute("aria-expanded");
+  await button.click();
+  await expect(button).toHaveAttribute("aria-expanded", before === "false" ? "true" : "false");
+}
+
+/**
  * Create a category through the catalog drawer and return its stable ID.
  * The drawer requires an explicit department and desk selection.
  */
@@ -86,40 +130,20 @@ export async function createCategoryViaUi(page: Page, name: string): Promise<str
   await drawer.locator("#category-name").fill(name);
   await drawer.getByRole("button", { name: /create category/i }).click();
   await expect(page).toHaveURL(/\/categories/);
-  const row = page
-    .locator(".category-level-categories .category-table tbody tr")
-    .filter({ hasText: name });
+  const row = catalogCategoryRow(page, name);
   await expect(row).toHaveCount(1);
-  const editHref = await row.locator('a[href*="/edit"]').first().getAttribute("href");
-  const id = editHref?.match(/\/categories\/(\d+)\/edit/)?.[1];
-  if (!id) throw new Error(`cannot resolve category id for ${name} at ${page.url()}`);
-  return id;
-}
-
-async function selectFirstStructureDesk(page: Page): Promise<void> {
-  await page.goto(base() + "/categories?view=structure");
-  const department = page.locator(".category-level-departments .category-structure-row").first();
-  if ((await department.count()) !== 1) {
-    throw new Error(`No department is available for structure selection at ${page.url()}`);
-  }
-  await department.click();
-  const desk = page.locator(".category-level-desks .category-structure-row").first();
-  if ((await desk.count()) !== 1) {
-    throw new Error(`No desk is available for structure selection at ${page.url()}`);
-  }
-  await desk.click();
+  return catalogNodeId(row, `category ${name}`);
 }
 
 /**
  * Resolve the workflow builder href for the "General" category.
- * Throws if the General row or its workflow link is not found.
+ * The tree renders every category, so no drill-down is needed; the row's own
+ * workflow link is the answer. Throws if the General row or its link is missing.
  */
 export async function resolveWorkflowHref(page: Page): Promise<string> {
-  await selectFirstStructureDesk(page);
-  const rowSelector = '.category-level-categories .category-table tbody tr:has-text("General")';
-  const generalRow = page
-    .locator(".category-level-categories .category-table tbody tr")
-    .filter({ has: page.getByText("General", { exact: true }) });
+  await page.goto(base() + "/categories?view=structure");
+  const rowSelector = '[data-level="category"]:has-text("General")';
+  const generalRow = catalogCategoryRow(page, "General");
   if ((await generalRow.count()) !== 1) {
     throw new Error(
       `Expected exactly one category "General" using ${rowSelector} at ${page.url()}`,
@@ -163,13 +187,13 @@ export async function resolveCategoryEditHref(
   page: Page,
   name: string = "General",
 ): Promise<string> {
-  await expect(page.locator('h1:has-text("Categories")')).toBeVisible({ timeout: 10_000 });
-  await selectFirstStructureDesk(page);
+  if (!page.url().includes("/categories")) {
+    await page.goto(base() + "/categories?view=structure");
+  }
+  await expect(page.locator('h1:has-text("Catalog")')).toBeVisible({ timeout: 10_000 });
 
-  const rowSelector = `.category-level-categories .category-table tbody tr:has-text("${name}")`;
-  const row = page
-    .locator(".category-level-categories .category-table tbody tr")
-    .filter({ has: page.getByText(name, { exact: true }) });
+  const rowSelector = `[data-level="category"]:has-text("${name}")`;
+  const row = catalogCategoryRow(page, name);
   if ((await row.count()) !== 1) {
     throw new Error(
       `Expected exactly one category "${name}" using ${rowSelector} at ${page.url()}`,

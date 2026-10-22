@@ -12,29 +12,31 @@ import { loginAsSeeded, base } from "./helpers/auth.js";
 import { assertCanonicalScreen, collectObservability } from "./helpers/layout.js";
 import { assertHtmxSwap } from "./helpers/htmx.js";
 import { isHtmxPost } from "./helpers/save-feedback.js";
+import { catalogNode, catalogNodeId } from "./helpers/navigation.js";
 
+// The Catalog renders every desk in one tree (issue #387), so resolving a desk is
+// one lookup by its exact name instead of a drill-down through departments. The
+// function still leaves the browser on the legacy selection URL, because that is
+// the state the drawer and the mutation redirects carry.
 async function selectDesk(page: import("@playwright/test").Page, name: string): Promise<string> {
   await page.goto(base() + "/categories?view=structure");
-  const departments = page.locator(".category-level-departments .category-structure-row");
-  for (let i = 0; i < (await departments.count()); i += 1) {
-    await page.goto(base() + "/categories?view=structure");
-    await departments.nth(i).click();
-    const desk = page
-      .locator(".category-level-desks .category-structure-row")
-      .filter({ has: page.getByText(name, { exact: true }) });
-    if ((await desk.count()) !== 1) continue;
-    const href = await desk.getAttribute("href");
-    if (!href) throw new Error(`Desk link href missing for "${name}" at ${page.url()}`);
-    const deskID = new URL(href, page.url()).searchParams.get("desk_id");
-    if (!deskID || !/^\d+$/.test(deskID)) {
-      throw new Error(
-        `Could not resolve exact desk ID for "${name}" from ${href} at ${page.url()}`,
-      );
-    }
-    await desk.click();
-    return deskID;
+  const desk = catalogNode(page, "desk", name);
+  await expect(desk).toHaveCount(1);
+  const deskID = await catalogNodeId(desk, `desk ${name}`);
+  if (!/^\d+$/.test(deskID)) {
+    throw new Error(`Could not resolve the exact desk ID for "${name}" at ${page.url()}`);
   }
-  throw new Error(`Expected exactly one desk "${name}" in the catalog at ${page.url()}`);
+  const departmentValue = await desk
+    .locator("xpath=ancestor::li[@data-level='department']")
+    .getAttribute("data-catalog-id");
+  if (!departmentValue) {
+    throw new Error(`Could not resolve the department of desk "${name}" at ${page.url()}`);
+  }
+  const departmentID = departmentValue === "-1" ? "unassigned" : departmentValue;
+  await page.goto(
+    base() + `/categories?view=structure&department_id=${departmentID}&desk_id=${deskID}`,
+  );
+  return deskID;
 }
 
 test.describe("Desks", () => {
@@ -49,10 +51,11 @@ test.describe("Desks", () => {
     await loginAsSeeded(page);
     await page.goto(base() + "/desks");
     await expect(page).toHaveURL(/\/categories$/);
-    await expect(page.locator("h1")).toHaveText("Categories");
-    await expect(page.locator(".category-level-departments")).toBeVisible();
-    await expect(page.locator(".category-level-desks")).toBeVisible();
-    await expect(page.locator(".category-level-categories")).toBeVisible();
+    await expect(page.locator("h1")).toHaveText("Catalog");
+    await expect(page.locator(".catalog-tree")).toBeVisible();
+    await expect(page.locator('[data-level="department"]').first()).toBeVisible();
+    await expect(page.locator('[data-level="desk"]').first()).toBeVisible();
+    await expect(page.locator('[data-level="category"]').first()).toBeVisible();
   });
 
   test("desk membership add and remove uses the unified drawer context", async ({ page }) => {
@@ -81,11 +84,11 @@ test.describe("Desks", () => {
     await page.getByRole("button", { name: /save changes/i }).click();
     await expect(page).toHaveURL(/\/users$/);
 
-    await selectDesk(page, "General Support");
-    const drawerLink = page.locator(".category-level-desks .category-menu-button").first();
-    await drawerLink.click();
-    await page
-      .locator(".category-level-desks .category-overflow-menu:not([hidden])")
+    const deskID = await selectDesk(page, "General Support");
+    const deskRow = page.locator(`[data-level="desk"][data-catalog-id="${deskID}"]`);
+    await deskRow.locator(".catalog-tree-row").first().locator("[data-category-menu]").click();
+    await deskRow
+      .locator(".category-overflow-menu:not([hidden])")
       .getByRole("menuitem", { name: "Edit desk", exact: true })
       .click();
     const drawer = page.getByRole("dialog", { name: /Edit desk/i });
