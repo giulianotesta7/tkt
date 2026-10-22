@@ -512,6 +512,28 @@ type CatalogStore interface {
 	MoveCategory(ctx context.Context, categoryID, deskID int64) error
 }
 
+// CatalogTreeStore is the optional bounded-read projection the administration
+// catalog tree renders from (issue #387, S8). The tree used to fan out one
+// ListDesks call per department and still could not answer two questions the
+// rows now show, so the index costs a constant number of queries instead.
+//
+// Both reads are presentation facts, which is why they live beside the catalog
+// hierarchy and not on the workflow store: the desk agent count deliberately
+// reuses the publish gate's predicate (active, agent or above) so the tree and
+// the gate can never disagree about who can take a ticket.
+type CatalogTreeStore interface {
+	// ListTreeDesks returns every desk with its department, category count,
+	// agent count and open-ticket count in ONE read. A legacy desk with no
+	// department is reported with DepartmentID 0 and DepartmentName
+	// "Unassigned", which is how the handler places it in its virtual group.
+	ListTreeDesks(ctx context.Context) ([]domain.CatalogDesk, error)
+	// ListDefaultSLACategories returns the ids of the categories whose
+	// materialized SLA matrix still equals the current instance defaults. A
+	// category absent from the result has custom targets (or none), which is the
+	// only distinction the tree draws.
+	ListDefaultSLACategories(ctx context.Context) ([]int64, error)
+}
+
 // CatalogDeskStore is the optional unified administration port implemented by
 // the production SQLite catalog store. It reuses the existing Desk records and
 // membership rows rather than creating a second persistence model.

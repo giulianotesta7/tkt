@@ -30,7 +30,7 @@ func TestCategoryWorkflowBuilder_UsesUsersHeaderFoundationAndCategoryIdentity(t 
 	body := rec.Body.String()
 	for _, want := range []string{
 		`class="page-foundation category-workflow-page"`,
-		`<nav class="page-breadcrumb" aria-label="Breadcrumb"><a href="/categories">Categories</a><span aria-hidden="true"> / </span><span>Hardware</span></nav>`,
+		`<nav class="page-breadcrumb" aria-label="Breadcrumb"><a href="/categories">Catalog</a><span aria-hidden="true"> / </span><span>Hardware</span></nav>`,
 		`class="page-title">Category workflow</h1>`,
 		`class="page-subtitle">Build one ordered path for this category.</p>`,
 		`<button class="page-action" type="submit" form="workflow-form" name="action" value="save">Save</button>`,
@@ -201,8 +201,8 @@ func TestCategoryWorkflowBuilder_SafeGetAuthorizationAndIndex(t *testing.T) {
 	if !strings.Contains(body, "Configure workflow") {
 		t.Errorf("category index must offer workflow configuration, got: %s", body)
 	}
-	if got := categoryStatusBadge(t, body, category.Name); got != "Not configured" {
-		t.Errorf("category %q status = %q, want Not configured", category.Name, got)
+	if got := categoryStatusBadge(t, body, category.Name); got != "No workflow" {
+		t.Errorf("category %q status = %q, want No workflow", category.Name, got)
 	}
 }
 
@@ -215,11 +215,11 @@ func TestCategoryBadge_States(t *testing.T) {
 		in   application.WorkflowSummary
 		want string
 	}{
-		{"not configured", application.WorkflowSummary{}, "Not configured"},
-		{"draft never published", application.WorkflowSummary{HasDraft: true}, "Draft · not published"},
-		{"published, first version", application.WorkflowSummary{Version: 1, HasDraft: true}, "Published v1"},
-		{"published with one unpublished change", application.WorkflowSummary{Version: 2, HasDraft: true, PendingSteps: 1}, "Published v2 · 1 unpublished change"},
-		{"published with several", application.WorkflowSummary{Version: 3, HasDraft: true, PendingSteps: 4}, "Published v3 · 4 unpublished changes"},
+		{"not configured", application.WorkflowSummary{}, "No workflow"},
+		{"draft never published", application.WorkflowSummary{HasDraft: true}, "Draft"},
+		{"published, first version", application.WorkflowSummary{Version: 1, HasDraft: true}, "Workflow v1"},
+		{"published with one unpublished change", application.WorkflowSummary{Version: 2, HasDraft: true, PendingSteps: 1}, "Workflow v2 · 1 unpublished change"},
+		{"published with several", application.WorkflowSummary{Version: 3, HasDraft: true, PendingSteps: 4}, "Workflow v3 · 4 unpublished changes"},
 		{
 			"cannot run outranks pending work", application.WorkflowSummary{
 				Version: 1, HasDraft: true, PendingSteps: 2, CannotRun: application.MsgRef("error.workflow_reason.no_members", application.Text("Infra")),
@@ -236,44 +236,43 @@ func TestCategoryBadge_States(t *testing.T) {
 	}
 }
 
-// TestStructureLayout_CSSPinned pins the declarations the categories screen's OWN
-// inline style block must carry.
+// TestStructureLayout_CSSPinned pins the declarations the Catalog screen's OWN
+// inline style block must carry. Since issue #387 the surface is one expandable
+// tree, so the pins are the tree's contract: indentation per level, a disclosure
+// affordance, the health badges, the current-row mark and the mobile rules that
+// keep the category's second line readable without horizontal overflow.
 //
-// TestGoldenStylesheet freezes both the shared and category-specific blocks.
-// These explicit pins also document the critical layout contracts independently
-// of the byte-level snapshot.
+// TestGoldenStylesheet freezes both the shared and catalog-specific blocks. These
+// explicit pins also document the critical layout contracts independently of the
+// byte-level snapshot.
 func TestStructureLayout_CSSPinned(t *testing.T) {
 	h := newHarness(t)
 	body := h.get(t, "/categories", false).Body.String()
 	for _, want := range []string{
-		// The dense column stops competing with two sparse ones for equal width.
-		// Measured before: 383px each, and the longest status left its category
-		// name 80px while the status took 224px.
-		"grid-template-columns:minmax(0,.72fr) minmax(0,.82fr) minmax(0,1.55fr)",
-		// One column per row, so the tail stacks under the text instead of fighting
-		// it. Measured before: a 256px desk row gave the desk name 83px.
-		".category-structure-row{display:grid;grid-template-columns:minmax(0,1fr)",
-		".category-structure-row .category-count,.category-structure-row .category-status-inline{display:block;margin-top:4px}",
-		// An inert row must not hover like a link.
-		".category-structure-row-static:hover{background:transparent}",
-		// Narrow headers wrap their items instead of squeezing titles into actions.
-		".category-level>header{display:flex;flex-wrap:wrap;",
-		// The level action keeps its label on one line when the columns narrow.
-		".category-level-action{white-space:nowrap;flex-shrink:0}",
-		// The dense level is a table: alignment is the whole point, and the numeric
-		// column is right-aligned with tabular figures so the counts line up.
-		".category-table{width:100%;border-collapse:collapse;table-layout:fixed}",
-		".category-table-num{width:9%;text-align:right;font-variant-numeric:tabular-nums",
-		// The categories page reuses the `users-root` shell class, so
-		// users.css's generic first-column rule (`.users-root td:first-child{
-		// width:46%}`) landed on this table. At mobile the shared 88px label
-		// column then left the category name ~21px wide, wrapping it per
-		// character. This override is scoped to the categories table and the
-		// mobile media query, so the desktop first column keeps its 46%.
-		".categories-root .category-table td:first-child{width:100%}",
+		// The tree is one panel: a card with a hairline, never three columns.
+		".catalog-tree{border:1px solid var(--line);border-radius:12px;background:var(--card);",
+		// Depth is drawn by indentation, and only the depth inside a department and
+		// inside a desk is declared, so a new level cannot appear by accident.
+		".catalog-tree-department>.catalog-tree-list>.catalog-tree-node>.catalog-tree-row{padding-left:24px}",
+		".catalog-tree-desk>.catalog-tree-list>.catalog-tree-node>.catalog-tree-row{padding-left:48px}",
+		// The disclosure is a button with a drawn chevron; its expanded state flips
+		// the mark instead of swapping a glyph, so the copy stays in the catalogue.
+		".catalog-disclosure[aria-expanded=false] .catalog-disclosure-mark{transform:rotate(-45deg)",
+		// Health is a badge pair, and amber is reserved for the two states that need
+		// action (no agents, no workflow): neutralising either destroys the signal.
+		".catalog-badge-ok{background:var(--green-soft);color:var(--green)}",
+		".catalog-badge-warn{background:var(--amber-soft);color:var(--amber)}",
+		// A legacy selection marks the row; it never filters the tree.
+		".catalog-tree-row[aria-current=true]{background:var(--accent-soft);box-shadow:inset 3px 0 0 var(--accent)",
+		// The catalog reuses the `users-root` shell class, and users.css gives the
+		// first table cell 46%. The tree's rows are flex rows, so the narrow-viewport
+		// rule that matters is the one that lets a category's health wrap to a second
+		// line instead of forcing horizontal scroll.
+		".catalog-tree-row-category{flex-wrap:wrap;column-gap:8px;row-gap:5px}",
+		".catalog-tree-row-category>.catalog-node-name{flex:1 1 100%}",
 	} {
 		if !strings.Contains(body, want) {
-			t.Errorf("the categories screen's inline styles must contain %q", want)
+			t.Errorf("the catalog screen's inline styles must contain %q", want)
 		}
 	}
 }
@@ -281,29 +280,30 @@ func TestStructureLayout_CSSPinned(t *testing.T) {
 func TestCategoryWorkflowStatusBadge_UsesExactCategoryRow(t *testing.T) {
 	// The fixture mirrors the rendered table row: the name is a link in the first
 	// cell and the status is its own cell.
-	const body = `<td class="category-table-name" data-label="Category"><a class="category-name" href="/categories/1/workflow"><strong>Target category</strong></a><small></small></td><td class="category-table-flow" data-label="Workflow"><span class="category-status-inline">Draft · not published</span></td><td class="category-table-name" data-label="Category"><a class="category-name" href="/categories/2/workflow"><strong>Other category</strong></a><small></small></td><td class="category-table-flow" data-label="Workflow"><span class="category-status-inline">Published v1</span></td>`
+	const body = `<a class="catalog-node-name catalog-category-link" href="/categories/1/workflow">Target category</a><span class="catalog-badge catalog-badge-neutral">Draft</span><a class="catalog-node-name catalog-category-link" href="/categories/2/workflow">Other category</a><span class="catalog-badge catalog-badge-ok">Workflow v1</span>`
 
 	// The point of the test is that a broad substring must not be able to satisfy
 	// it: "Published" occurs elsewhere in the body, and the extraction must still
 	// return THIS category's own status.
-	if !strings.Contains(body, "Published") {
-		t.Fatal("fixture must contain a Published substring a broad assertion could be fooled by")
+	if !strings.Contains(body, "Workflow v1") {
+		t.Fatal("fixture must contain a Workflow v1 substring a broad assertion could be fooled by")
 	}
-	if got := categoryStatusBadge(t, body, "Target category"); got != "Draft · not published" {
-		t.Errorf("Target category status = %q, want Draft · not published", got)
+	if got := categoryStatusBadge(t, body, "Target category"); got != "Draft" {
+		t.Errorf("Target category status = %q, want Draft", got)
 	}
 }
 
 func categoryStatusBadge(t *testing.T, body, categoryName string) string {
 	t.Helper()
-	// The dense level is a table now: the name is a link in the first cell and the
-	// status is its own cell, which is what makes the states scannable. The
-	// extraction still binds to THIS category's row, never to the first one on the
-	// page, and the whitespace between the cells is not assumed.
-	pattern := `<td class="category-table-name"[^>]*><a class="category-name" href="/categories/\d+/workflow"><strong>` + regexp.QuoteMeta(categoryName) + `</strong></a><small>[^<]*</small></td>\s*<td class="category-table-flow"[^>]*><span class="category-status-inline">([^<]+)</span></td>`
+	// The catalog tree renders one category row per category: the name is the
+	// workflow link and the state is the badge that follows it. The extraction
+	// binds to THIS category's row, never to the first one on the page, so a broad
+	// substring cannot satisfy it.
+	pattern := `<a class="catalog-node-name catalog-category-link" href="/categories/\d+/workflow">` +
+		regexp.QuoteMeta(categoryName) + `</a>\s*<span class="catalog-badge catalog-badge-[a-z]+">([^<]+)</span>`
 	matches := regexp.MustCompile(pattern).FindAllStringSubmatch(body, -1)
 	if len(matches) != 1 {
-		t.Fatalf("category %q must have exactly one status badge row, found %d in: %s", categoryName, len(matches), body)
+		t.Fatalf("category %q must have exactly one status badge row, found %d in: %.2000s", categoryName, len(matches), body)
 	}
 	return matches[0][1]
 }
@@ -471,15 +471,15 @@ func TestCategoryWorkflowBuilder_PublishAndHTMXParity(t *testing.T) {
 		index := h.get(t, "/categories", false)
 		// The badge now names the version. A bare "Published" could not tell a
 		// category on its eleventh version from one on its first.
-		if got := categoryStatusBadge(t, index.Body.String(), category.Name); got != "Published v1 · by Admin" {
-			t.Errorf("category %q status = %q, want Published v1 · by Admin", category.Name, got)
+		if got := categoryStatusBadge(t, index.Body.String(), category.Name); got != "Workflow v1 · by Admin" {
+			t.Errorf("category %q status = %q, want Workflow v1 · by Admin", category.Name, got)
 		}
 
 		edited := builderDraft(t, "edited")
 		wantRedirect(t, h.postBuilder(t, path, builderForm("save", edited), false), http.StatusSeeOther, path)
 		// Both steps moved, so both canonical bytes differ by position; the badge
 		// counts differing STEPS, which is what a one-line label can state.
-		if got := categoryStatusBadge(t, h.get(t, "/categories", false).Body.String(), category.Name); got != "Published v1 · 2 unpublished changes · by Admin" {
+		if got := categoryStatusBadge(t, h.get(t, "/categories", false).Body.String(), category.Name); got != "Workflow v1 · 2 unpublished changes · by Admin" {
 			t.Errorf("category %q status = %q, want the version plus 2 unpublished changes and the publisher", category.Name, got)
 		}
 	})
@@ -3099,12 +3099,15 @@ func TestCategoryWorkflowBuilder_SurfacesStoredVersionFacts(t *testing.T) {
 
 	wantRedirect(t, h.postBuilder(t, path, builderForm("publish", draft), false), http.StatusSeeOther, path)
 	published := h.get(t, path, false).Body.String()
+	// The builder names its live version with its own copy ("Published v1 · by
+	// Admin"); the catalog tree's row says "Workflow v1 · by Admin". Both compose
+	// from the same stored facts, and the row assertion below pins the tree's word.
 	if !strings.Contains(published, "data-workflow-version") || !strings.Contains(published, "Published v1 · by Admin") {
 		t.Errorf("published builder must surface the live version and its publisher, got: %s", published)
 	}
 
 	index := h.get(t, "/categories", false)
-	if got := categoryStatusBadge(t, index.Body.String(), category.Name); got != "Published v1 · by Admin" {
+	if got := categoryStatusBadge(t, index.Body.String(), category.Name); got != "Workflow v1 · by Admin" {
 		t.Errorf("category row = %q, want the live version attributed to its publisher", got)
 	}
 }

@@ -2,6 +2,7 @@ package application
 
 import (
 	"context"
+	"errors"
 	"strings"
 
 	"github.com/giulianotesta7/tkt/internal/domain"
@@ -35,6 +36,28 @@ func (s *CatalogService) ListDesks(ctx context.Context, departmentID int64) ([]d
 
 func (s *CatalogService) ListCategories(ctx context.Context, deskID int64) ([]domain.CatalogCategory, error) {
 	return s.catalog.ListCatalogCategories(ctx, deskID)
+}
+
+// ListTreeDesks is the catalog tree's desk projection: every desk with its
+// department, category, agent and open-ticket counts in one read. A store that
+// cannot answer it reports that plainly instead of pretending the installation
+// has no desks.
+func (s *CatalogService) ListTreeDesks(ctx context.Context) ([]domain.CatalogDesk, error) {
+	store, ok := s.catalog.(CatalogTreeStore)
+	if !ok {
+		return nil, errors.New("catalog tree projection is not configured")
+	}
+	return store.ListTreeDesks(ctx)
+}
+
+// ListDefaultSLACategories reports which categories still run on the instance
+// SLA defaults, the single fact the tree shows as Default or Custom SLA.
+func (s *CatalogService) ListDefaultSLACategories(ctx context.Context) ([]int64, error) {
+	store, ok := s.catalog.(CatalogTreeStore)
+	if !ok {
+		return nil, errors.New("catalog tree projection is not configured")
+	}
+	return store.ListDefaultSLACategories(ctx)
 }
 
 func (s *CatalogService) Search(ctx context.Context, query string) ([]domain.CatalogCategory, error) {

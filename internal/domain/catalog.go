@@ -39,4 +39,14 @@ type CatalogDesk struct {
 	// published version: the requester picker offers only those, while
 	// CategoryCount stays the total the admin structure lists.
 	OfferedCategoryCount int
+	// AgentCount is the number of members who could actually take a ticket on
+	// this desk — active, agent or above — which is the same predicate the
+	// workflow publish gate applies before it lets a definition ship. A desk that
+	// reports zero here cannot run an assign-to-desk step, so the catalog tree
+	// shows it as needing attention instead of as a healthy desk (issue #387).
+	AgentCount int
+	// OpenTickets is the number of the desk's tickets that are still work
+	// somebody owes: not closed and not cancelled. It is resolved for every desk
+	// in the same read as the rest of the projection.
+	OpenTickets int
 }

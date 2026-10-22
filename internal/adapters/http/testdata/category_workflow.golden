@@ -31,9 +31,9 @@
           <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0"/><circle cx="17.5" cy="9" r="2.5"/><path d="M16 14.6a6 6 0 0 1 5.5 5.4"/></svg>
           <span class="sidebar-label">Users</span>
         </a>
-        <a class="sidebar-link active" href="/categories" data-tip="Categories" aria-current="page">
+        <a class="sidebar-link active" href="/categories" data-tip="Catalog" aria-current="page">
           <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 4h6l2 2.5H20a1 1 0 0 1 1 1V19a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1z"/></svg>
-          <span class="sidebar-label">Categories</span>
+          <span class="sidebar-label">Catalog</span>
         </a>
       </div>
     </nav>
@@ -63,7 +63,7 @@
       <button class="topbar-menu" type="button" data-sidebar-open aria-label="Open menu" aria-controls="sidebar" aria-expanded="false">
         <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M4 7h16"/><path d="M4 12h16"/><path d="M4 17h16"/></svg>
       </button>
-      <span class="topbar-section" aria-hidden="true">Categories</span>
+      <span class="topbar-section" aria-hidden="true">Catalog</span>
       <div class="topbar-spacer"></div>
       <div class="topbar-notifications" id="notification-bell" hx-get="/notifications/count" hx-trigger="load, every 45s [document.visibilityState === 'visible'], notifications:changed from:body" hx-target="this" hx-swap="innerHTML"><a class="bell-link" id="notification-bell-link" href="/notifications" hx-get="/notifications" hx-target="#notification-panel-host" hx-swap="innerHTML" title="Notifications" aria-label="Notifications">
   <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 9a6 6 0 0 0-12 0c0 5-2.5 6.5-2.5 6.5h17S18 14 18 9z"/><path d="M10.4 19.5a2 2 0 0 0 3.2 0"/></svg>
@@ -82,7 +82,7 @@
 <div class="page-foundation category-workflow-page" hx-on::before-request="if(event.target.matches('.workflow-step-card-link')){var rail=this.querySelector('.workflow-step-rail');if(rail)this.dataset.workflowRailScrollLeft=rail.scrollLeft;this.dataset.workflowBuilderFocus='card'};if(event.target.matches('.workflow-step-menu-actions button'))this.dataset.workflowBuilderFocus='menu';if(event.target.matches('.workflow-add-options button')){this.dataset.workflowBuilderFocus='add'}" hx-on::after-swap="if(event.target.id==='workflow-builder'){var focusMode=this.dataset.workflowBuilderFocus,rail=this.querySelector('.workflow-step-rail');delete this.dataset.workflowBuilderFocus;if(focusMode==='card'&&rail){rail.scrollLeft=Number(this.dataset.workflowRailScrollLeft||0);delete this.dataset.workflowRailScrollLeft};if(focusMode==='add'&&rail)rail.scrollLeft=rail.scrollWidth;if(focusMode){var control=this.querySelector('.workflow-step-card.selected .workflow-step-card-link')||this.querySelector('.workflow-add-step summary,.workflow-add-step button');if(control)control.focus({preventScroll:true})}}">
   <header class="page-header">
     <div>
-      <nav class="page-breadcrumb" aria-label="Breadcrumb"><a href="/categories">Categories</a><span aria-hidden="true"> / </span><span></span></nav>
+      <nav class="page-breadcrumb" aria-label="Breadcrumb"><a href="/categories">Catalog</a><span aria-hidden="true"> / </span><span></span></nav>
       <h1 class="page-title">Category workflow</h1>
       <p class="page-subtitle">Build one ordered path for this category.</p>
     </div>
@@ -171,7 +171,7 @@
       </a>
       <a class="tabbar-item active" href="/categories" aria-current="page">
         <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 4h6l2 2.5H20a1 1 0 0 1 1 1V19a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1z"/></svg>
-        <span>Categories</span>
+        <span>Catalog</span>
       </a>
       <button class="tabbar-item" type="button" data-sidebar-open aria-controls="sidebar" aria-expanded="false">
         <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M4 7h16"/><path d="M4 12h16"/><path d="M4 17h16"/></svg>
