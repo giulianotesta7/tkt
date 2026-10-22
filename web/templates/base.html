@@ -4,17 +4,17 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="htmx-config" content='{"refreshOnHistoryMiss":true}'>
-<title>{{block "title" .}}{{t "base.title"}}{{end}}</title>
+<title>{{block "title" .}}{{tf "base.title" (brandName .Brand) (brandHelpDesk .Brand)}}{{end}}</title>
 {{template "styles" .}}
-{{if .UsersAssets}}<link rel="stylesheet" href="/static/users.css"><script src="/static/users.js" defer></script>{{else if or .PageFoundationAssets .CategoryAssets}}<link rel="stylesheet" href="/static/users.css">{{end}}{{if .CategoryAssets}}<script src="/static/categories.js" defer></script>{{end}}{{if .WorkflowAssets}}<script src="/static/workflow.js" defer></script>{{end}}{{if and (eq .NavActive "tickets") (or (eq .CurrentUser.Role "agent") (eq .CurrentUser.Role "user"))}}<script src="/static/tickets.js" defer></script>{{end}}{{if .MetricsAssets}}<link rel="stylesheet" href="/static/ticket_metrics.css"><script src="/static/ticket_metrics.js" defer></script>{{end}}{{if .SLACountdownAssets}}<script src="/static/sla_countdown.js" defer></script>{{end}}<script src="/static/save-feedback.js" defer></script><script src="/static/htmx.min.js" defer></script><script src="/static/notifications.js" defer></script><script src="/static/shell.js" defer></script>
+{{if .UsersAssets}}<link rel="stylesheet" href="/static/users.css"><script src="/static/users.js" defer></script>{{else if or .PageFoundationAssets .CategoryAssets}}<link rel="stylesheet" href="/static/users.css">{{end}}{{if .CategoryAssets}}<script src="/static/categories.js" defer></script>{{end}}{{if .WorkflowAssets}}<script src="/static/workflow.js" defer></script>{{end}}{{if and (eq .NavActive "tickets") (or (eq .CurrentUser.Role "agent") (eq .CurrentUser.Role "user"))}}<script src="/static/tickets.js" defer></script>{{end}}{{if .MetricsAssets}}<link rel="stylesheet" href="/static/ticket_metrics.css"><script src="/static/ticket_metrics.js" defer></script>{{end}}{{if .SettingsAssets}}<link rel="stylesheet" href="/static/settings.css"><script src="/static/settings.js" defer></script>{{end}}{{if .SLACountdownAssets}}<script src="/static/sla_countdown.js" defer></script>{{end}}<script src="/static/save-feedback.js" defer></script><script src="/static/htmx.min.js" defer></script><script src="/static/notifications.js" defer></script><script src="/static/shell.js" defer></script>
 </head>
 <body class="{{if or .UsersAssets .PageFoundationAssets}}users-page-body {{end}}{{if .SidebarCollapsed}}sidebar-collapsed{{end}}">
 <a class="skip-link" href="#main-content">{{t "base.skip_link"}}</a>
 <div class="shell">
   <aside class="sidebar" id="sidebar" aria-label="{{t "base.sidebar.label"}}">
     <div class="sidebar-brand">
-      <a class="brand-mark" href="/tickets" aria-label="{{t "base.brand.name"}}">{{t "base.brand.mark"}}</a>
-      <a class="brand-text" href="/tickets" tabindex="-1" aria-hidden="true"><span class="brand-name">{{t "base.brand.name"}}</span><span class="brand-product">{{t "base.brand.product"}}</span></a>
+      <a class="brand-mark" href="/tickets" aria-label="{{.Brand.Name}}">{{if .Brand.HasLogo}}<img src="/brand/logo?v={{.Brand.LogoVersion}}" alt="" width="22" height="22">{{else}}{{.Brand.Monogram}}{{end}}</a>
+      <a class="brand-text" href="/tickets" tabindex="-1" aria-hidden="true"><span class="brand-name">{{.Brand.Name}}</span><span class="brand-product">{{.Brand.HelpDesk}}</span></a>
       <button class="sidebar-close" type="button" data-sidebar-close aria-label="{{t "base.sidebar.close"}}">×</button>
     </div>
     <nav class="sidebar-nav" aria-label="{{t "base.sidebar.nav_label"}}">
@@ -71,7 +71,7 @@
       <button class="topbar-menu" type="button" data-sidebar-open aria-label="{{t "base.sidebar.open"}}" aria-controls="sidebar" aria-expanded="false">
         <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M4 7h16"/><path d="M4 12h16"/><path d="M4 17h16"/></svg>
       </button>
-      <span class="topbar-section" aria-hidden="true">{{if eq .NavActive "tickets"}}{{t "base.nav.tickets"}}{{else if eq .NavActive "metrics"}}{{t "base.nav.metrics"}}{{else if eq .NavActive "users"}}{{t "base.nav.users"}}{{else if eq .NavActive "categories"}}{{t "base.nav.categories"}}{{else if eq .NavActive "settings"}}{{t "base.nav.settings"}}{{else if eq .NavActive "preferences"}}{{t "base.nav.preferences"}}{{else if eq .NavActive "notifications"}}{{t "base.nav.notifications"}}{{else}}{{t "base.brand.name"}}{{end}}</span>
+      <span class="topbar-section" aria-hidden="true">{{if eq .NavActive "tickets"}}{{t "base.nav.tickets"}}{{else if eq .NavActive "metrics"}}{{t "base.nav.metrics"}}{{else if eq .NavActive "users"}}{{t "base.nav.users"}}{{else if eq .NavActive "categories"}}{{t "base.nav.categories"}}{{else if eq .NavActive "settings"}}{{t "base.nav.settings"}}{{else if eq .NavActive "preferences"}}{{t "base.nav.preferences"}}{{else if eq .NavActive "notifications"}}{{t "base.nav.notifications"}}{{else}}{{.Brand.Name}}{{end}}</span>
       <div class="topbar-spacer"></div>
       <div class="topbar-notifications" id="notification-bell" hx-get="/notifications/count" hx-trigger="load, every 45s [document.visibilityState === 'visible'], notifications:changed from:body" hx-target="this" hx-swap="innerHTML">{{template "notification_bell" .NotificationBell}}</div>
       <a class="btn primary topbar-new" href="/tickets/new">

@@ -972,31 +972,134 @@ func TestGoldenCategoryForm(t *testing.T) {
 	goldenFile(t, "category_form", renderGolden(t, "categories_new", "category_form", fixtureCategoryFormData(), true))
 }
 
-// fixtureSettingsIndexData models an admin shell on the settings page, so it
-// carries both management grants: the page is only reachable through
+// The settings section fixtures model an admin shell on each section, so they
+// carry both management grants: every section is reachable through
 // CapManageSettings, and the shell still renders the Users rail link through
-// CapManageUsers. The SLA panel carries the seeded configuration (migration
-// 0013): off, 80 percent, and the seeded default matrix. The calendar panel
-// carries the seeded working calendar (migration 0016): Monday-Friday,
-// 09:00-18:00, UTC. The interface-language panel carries the default English
-// selection and the two shipped languages as keys, exactly as the handler
-// supplies them.
-func fixtureSettingsIndexData() settingsIndexData {
+// CapManageUsers. Each fixture carries the sub-navigation the handler supplies,
+// with the Email entry present because a root is the only actor who sees it —
+// except the Email fixture itself, which is root-shaped.
+func fixtureSettingsPage() pageData {
 	ana := domain.User{ID: 1, Name: "Ana Torres", Email: "ana@example.com", Active: true, CreatedAt: goldenT0}
-	calendar := domain.DefaultSLACalendar()
-	return settingsIndexData{
-		pageData:          pageData{NavActive: "settings", CurrentUser: ana, CanManageUsers: true, CanManageSettings: true},
-		Current:           "#E8EEFF",
-		Colors:            appearanceOptions(),
-		CurrentLanguage:   application.DefaultInterfaceLanguage,
-		Languages:         interfaceLanguageOptions(),
-		SLAGrid:           slaGridData{Rows: slaPolicyRows(seededSLADefaults())},
-		SLAWarningPercent: 80,
+	return pageData{
+		NavActive:         "settings",
+		CurrentUser:       ana,
+		CanManageUsers:    true,
+		CanManageSettings: true,
+		SettingsAssets:    true,
+		Brand:             goldenBrand(),
+		InternalCommentBg: application.DefaultInternalCommentBg,
+	}
+}
 
-		CalendarDays:     calendarDayOptions(calendar.WorkingDays),
-		CalendarStart:    formatClockMinute(calendar.StartMinute),
-		CalendarEnd:      formatClockMinute(calendar.EndMinute),
-		CalendarTimezone: calendar.Location.String(),
+// goldenBrand is the instance identity the frozen shell renders: the name and
+// help desk name a default instance answers, with the monogram the shell marks
+// it by. It carries no logo, so the golden pins the monogram path.
+func goldenBrand() brandData { return brandOf(defaultOrganization()) }
+
+// fixtureSettingsSectionData is the shared settings payload for one section.
+func fixtureSettingsSectionData(section string) settingsSectionData {
+	return settingsSectionData{
+		pageData: fixtureSettingsPage(),
+		Section:  section,
+		Nav:      settingsNavItems(section, true),
+	}
+}
+
+func fixtureSettingsOrganizationData() settingsOrganizationData {
+	data := settingsOrganizationData{
+		settingsSectionData: fixtureSettingsSectionData(settingsSectionOrganization),
+		Name:                "Acme Support",
+		HelpDesk:            "Service desk",
+		SupportEmail:        "support@acme.test",
+		Brand:               goldenBrand(),
+	}
+	return data
+}
+
+func fixtureSettingsLanguageData() settingsLanguageData {
+	return settingsLanguageData{
+		settingsSectionData: fixtureSettingsSectionData(settingsSectionLanguage),
+		CurrentLanguage:     application.DefaultInterfaceLanguage,
+		Languages:           interfaceLanguageOptions(),
+	}
+}
+
+// fixtureSettingsTicketsData carries the seeded SLA configuration (migration
+// 0013): off, 80 percent, and the seeded default matrix.
+func fixtureSettingsTicketsData() settingsTicketsData {
+	return settingsTicketsData{
+		settingsSectionData: fixtureSettingsSectionData(settingsSectionTickets),
+		Current:             application.DefaultInternalCommentBg,
+		Colors:              appearanceOptions(),
+		SLAGrid:             slaGridData{Rows: slaPolicyRows(seededSLADefaults())},
+		SLAWarningPercent:   80,
+	}
+}
+
+// fixtureSettingsCalendarData carries the seeded working calendar (migration
+// 0016): Monday-Friday, 09:00-18:00, UTC.
+func fixtureSettingsCalendarData() settingsCalendarData {
+	calendar := domain.DefaultSLACalendar()
+	return settingsCalendarData{
+		settingsSectionData: fixtureSettingsSectionData(settingsSectionCalendar),
+		CalendarDays:        calendarDayOptions(calendar.WorkingDays),
+		CalendarStart:       formatClockMinute(calendar.StartMinute),
+		CalendarEnd:         formatClockMinute(calendar.EndMinute),
+		CalendarTimezone:    calendar.Location.String(),
+	}
+}
+
+// fixtureSettingsSigninData models the Sign-in page section with a customized
+// panel, so the golden pins the form, the closed-set pickers and the live
+// preview markup a script mirrors.
+func fixtureSettingsSigninData() settingsSigninData {
+	panel := domain.SigninPanel{
+		Title:    "Sistemas, a un pedido",
+		Subtitle: "Cargá tu pedido y seguí su estado.",
+		Content:  domain.SigninContentHighlights,
+		Highlights: []domain.SigninHighlight{
+			{Icon: domain.SigninIconClock, Title: "Primera respuesta en 4 h", Text: "Los críticos en menos de 30 min."},
+			{Icon: domain.SigninIconPhone, Title: "Guardia 24/7", Text: "Interno 4400 fuera de horario."},
+		},
+		NoticeEnabled: true,
+		NoticeKind:    domain.SigninNoticeWarning,
+		NoticeTitle:   "Mantenimiento programado",
+		NoticeText:    "El sábado de 10 a 12.",
+		Background:    domain.SigninBackgroundBrand,
+		BrandColor:    "#C8102E",
+		SupportPhone:  "Interno 4400",
+		SupportHours:  "Lun a vie, 8 a 18",
+	}
+	values := signinFormValuesFromConfiguration(panel)
+	data := settingsSigninData{
+		settingsSectionData: fixtureSettingsSectionData(settingsSectionSignin),
+		Values:              values,
+		Panel:               signinPanelDataFor(application.SigninConfiguration{Panel: panel}, goldenBrand(), "en"),
+		HasImage:            true,
+		ImageVersion:        "0123456789ab",
+	}
+	data.Contents, data.Backgrounds, data.NoticeKinds, data.Icons = panelChoices(values)
+	return data
+}
+
+func TestGoldenSettingsSignin(t *testing.T) {
+	goldenFullPage(t, "settings_signin", renderGolden(t, "settings_signin", "", fixtureSettingsSigninData(), false))
+}
+
+func fixtureSettingsEmailData() settingsEmailData {
+	return settingsEmailData{
+		settingsSectionData: fixtureSettingsSectionData(settingsSectionEmail),
+		Email: emailPanelFromStored(application.EmailSettings{
+			Enabled:     true,
+			Host:        "smtp.acme.test",
+			Port:        587,
+			Encryption:  application.EmailEncryptionSTARTTLS,
+			Username:    "notifications",
+			PasswordSet: true,
+			FromAddress: "tkt@acme.test",
+			FromName:    "Acme Support",
+			BaseURL:     "https://tkt.acme.test",
+		}),
 	}
 }
 
@@ -1011,8 +1114,28 @@ func seededSLADefaults() []domain.SLAPolicy {
 	}
 }
 
-func TestGoldenSettingsIndex(t *testing.T) {
-	goldenFullPage(t, "settings_index", renderGolden(t, "settings_index", "", fixtureSettingsIndexData(), false))
+// The settings surface is one section per URL (issue #383, S1/S2), so it has
+// one golden per section instead of the single page snapshot the old surface
+// had: a change to the shared layout shows up once per page, and a change to one
+// section shows up in that section's snapshot alone.
+func TestGoldenSettingsOrganization(t *testing.T) {
+	goldenFullPage(t, "settings_organization", renderGolden(t, "settings_organization", "", fixtureSettingsOrganizationData(), false))
+}
+
+func TestGoldenSettingsLanguage(t *testing.T) {
+	goldenFullPage(t, "settings_language", renderGolden(t, "settings_language", "", fixtureSettingsLanguageData(), false))
+}
+
+func TestGoldenSettingsTickets(t *testing.T) {
+	goldenFullPage(t, "settings_tickets", renderGolden(t, "settings_tickets", "", fixtureSettingsTicketsData(), false))
+}
+
+func TestGoldenSettingsCalendar(t *testing.T) {
+	goldenFullPage(t, "settings_calendar", renderGolden(t, "settings_calendar", "", fixtureSettingsCalendarData(), false))
+}
+
+func TestGoldenSettingsEmail(t *testing.T) {
+	goldenFullPage(t, "settings_email", renderGolden(t, "settings_email", "", fixtureSettingsEmailData(), false))
 }
 
 // fixtureCategorySLAData models an admin shell on the category SLA screen

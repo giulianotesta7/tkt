@@ -241,7 +241,7 @@ func TestMigrateCreatesSchema(t *testing.T) {
 }
 
 // wantMigrationVersions is every embedded migration version, in order.
-var wantMigrationVersions = []int{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25}
+var wantMigrationVersions = []int{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26}
 
 func TestMigrateRerunIsNoOp(t *testing.T) {
 	s := newTestDB(t)

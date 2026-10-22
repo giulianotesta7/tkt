@@ -1054,3 +1054,126 @@ func TestPageDataCarriesTheStampedTheme(t *testing.T) {
 		t.Errorf("pageData.Theme = %q without a stamped value, want %q", data.Theme, application.ThemeSystem)
 	}
 }
+
+// countingOrganizationStore delegates to the real identity store and counts the
+// reads, so a test can prove the middleware reads the organization ONCE per
+// request (issue #383, S5) instead of once per template that renders the brand.
+type countingOrganizationStore struct {
+	application.OrganizationStore
+	reads int
+}
+
+func (c *countingOrganizationStore) GetOrganization(ctx context.Context) (domain.Organization, error) {
+	c.reads++
+	return c.OrganizationStore.GetOrganization(ctx)
+}
+
+// failingOrganizationStore answers the identity read with an operational error,
+// the way an unavailable settings table would.
+type failingOrganizationStore struct{}
+
+func (failingOrganizationStore) GetOrganization(context.Context) (domain.Organization, error) {
+	return domain.Organization{}, errors.New("settings store unavailable")
+}
+
+func (failingOrganizationStore) SetOrganization(context.Context, domain.Organization) error {
+	return errors.New("failingOrganizationStore: SetOrganization not needed by this test")
+}
+
+// TestMiddlewareStampsTheOrganizationOnce proves the read happens once and
+// reaches the handler through the context: the shell renders the brand from the
+// stamp, so a page never queries the identity per template.
+func TestMiddlewareStampsTheOrganizationOnce(t *testing.T) {
+	s := openTestStore(t)
+	user := seedUser(t, s, "Ana", "ana@example.com")
+	session := seedSession(t, s, user.ID)
+	if err := s.OrganizationStore().SetOrganization(context.Background(), domain.Organization{Name: "Acme", HelpDesk: "Service desk"}); err != nil {
+		t.Fatalf("seed organization: %v", err)
+	}
+	reads := &countingOrganizationStore{OrganizationStore: s.OrganizationStore()}
+	mw := NewSessionMiddleware(s.SessionStore(), s.UserStore(), s.SettingsStore()).WithOrganization(reads)
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /tickets", func(w http.ResponseWriter, r *http.Request) {
+		org := organizationFrom(r.Context())
+		w.Write([]byte(org.Name + "|" + org.HelpDesk))
+	})
+
+	rec := doRequest(mux, mw, http.MethodGet, "/tickets", map[string]string{"Cookie": "tkt_session=" + session.ID})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+	if body := rec.Body.String(); body != "Acme|Service desk" {
+		t.Errorf("handler saw %q, want the stored identity", body)
+	}
+	if reads.reads != 1 {
+		t.Errorf("organization read %d times, want exactly 1 per request", reads.reads)
+	}
+}
+
+// TestMiddlewareStampsTheDefaultOrganizationWithoutAStore proves the opt-in
+// default: a middleware wired without the identity reader stamps the documented
+// default brand and never panics.
+func TestMiddlewareStampsTheDefaultOrganizationWithoutAStore(t *testing.T) {
+	s := openTestStore(t)
+	user := seedUser(t, s, "Ana", "ana@example.com")
+	session := seedSession(t, s, user.ID)
+	mw := NewSessionMiddleware(s.SessionStore(), s.UserStore(), s.SettingsStore())
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /tickets", func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(brandFromContext(r.Context()).Name))
+	})
+	rec := doRequest(mux, mw, http.MethodGet, "/tickets", map[string]string{"Cookie": "tkt_session=" + session.ID})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+	if body := rec.Body.String(); body != domain.DefaultOrganizationName {
+		t.Errorf("handler saw %q, want the default brand %q", body, domain.DefaultOrganizationName)
+	}
+}
+
+// TestMiddlewareOrganizationReadFailureRendersTheDefaultBrand proves the
+// degradation: a failing identity read logs and falls back to the default
+// brand, and the request still renders — a broken setting must never cost a
+// page, least of all the login screen.
+func TestMiddlewareOrganizationReadFailureRendersTheDefaultBrand(t *testing.T) {
+	s := openTestStore(t)
+	user := seedUser(t, s, "Ana", "ana@example.com")
+	session := seedSession(t, s, user.ID)
+	mw := NewSessionMiddleware(s.SessionStore(), s.UserStore(), s.SettingsStore()).WithOrganization(failingOrganizationStore{})
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /tickets", func(w http.ResponseWriter, r *http.Request) {
+		if userFromContext(r.Context()) == nil {
+			t.Error("a failed identity read must not drop the session user")
+		}
+		w.Write([]byte(brandFromContext(r.Context()).Name))
+	})
+	rec := doRequest(mux, mw, http.MethodGet, "/tickets", map[string]string{"Cookie": "tkt_session=" + session.ID})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+	if body := rec.Body.String(); body != domain.DefaultOrganizationName {
+		t.Errorf("handler saw %q, want the default brand %q", body, domain.DefaultOrganizationName)
+	}
+}
+
+// TestBrandLogoRouteSkipsTheIdentityStamp proves the public route costs no
+// extra read: /brand/logo answers from its own read, so the middleware does not
+// stamp an identity the route never renders.
+func TestBrandLogoRouteSkipsTheIdentityStamp(t *testing.T) {
+	s := openTestStore(t)
+	reads := &countingOrganizationStore{OrganizationStore: s.OrganizationStore()}
+	mw := NewSessionMiddleware(s.SessionStore(), s.UserStore(), s.SettingsStore()).WithOrganization(reads)
+
+	mux := http.NewServeMux()
+	NewBrandHandlers(s.OrganizationStore()).Register(mux)
+	rec := doRequest(mux, mw, http.MethodGet, "/brand/logo", nil)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("anonymous GET /brand/logo without a logo = %d, want 404", rec.Code)
+	}
+	if reads.reads != 0 {
+		t.Errorf("the middleware stamped %d identities for the logo route, want 0", reads.reads)
+	}
+}

@@ -1078,6 +1078,52 @@ type SettingsStore interface {
 	SetSLACalendar(ctx context.Context, calendar domain.SLACalendar) error
 }
 
+// OrganizationStore persists the instance identity (issue #383, S3): the
+// name, the help desk name, an optional support email, and the logo. The three
+// text facts live beside the other instance settings; the logo needs bytes, so
+// it is stored in the settings_blobs table migration 0026 adds — the settings
+// table's value column is TEXT and cannot hold an image.
+//
+// It is a port of its own rather than three more methods on SettingsStore
+// because its reader is the request middleware: every page renders the brand,
+// so widening SettingsStore would force every settings fake and every
+// settings-only caller to carry the organization as well.
+type OrganizationStore interface {
+	// GetOrganization returns the stored identity. It NEVER fails for
+	// configuration reasons: an absent row answers the documented default
+	// (name "tkt", help desk "Help desk", no email, no logo), so a fresh or
+	// hand-edited instance still renders a usable brand. The monogram is
+	// derived, not stored.
+	GetOrganization(ctx context.Context) (domain.Organization, error)
+	// SetOrganization writes every field — the three text values and the
+	// logo — in ONE transaction, so a submission can never be half applied:
+	// either the name and the logo an administrator saved together are both
+	// stored, or neither is. A nil Logo means the instance has no logo and
+	// deletes the stored one; the caller decides whether an unsubmitted file
+	// keeps the previous logo.
+	SetOrganization(ctx context.Context, org domain.Organization) error
+}
+
+// SigninStore persists the sign-in page's customization (issue #383, S9/S10):
+// the text facts as keyed settings rows — the highlighted rows as one JSON array
+// decoded defensively — and the background image as a settings_blobs row, since
+// the settings table's value column is TEXT.
+//
+// Like OrganizationStore it is its own port because its reader is the login
+// page, which renders before any session exists: widening SettingsStore would
+// force every settings-only caller and fake to carry the sign-in panel too.
+type SigninStore interface {
+	// GetSignin returns the stored panel and background image. It NEVER fails
+	// for configuration reasons: absent rows answer the documented defaults
+	// (steps, no notice, the dark background), and a malformed highlights value
+	// reads back as "no highlights" instead of failing the login page.
+	GetSignin(ctx context.Context) (SigninConfiguration, error)
+	// SetSignin writes the panel's text facts AND the background image in ONE
+	// transaction, so a submission can never be half applied. A nil background
+	// means the instance holds no background image and deletes the stored row.
+	SetSignin(ctx context.Context, panel domain.SigninPanel, background []byte) error
+}
+
 // PreferencesStore persists per-user preferences (issue #210) in the
 // user_preferences table, keyed by (user_id, key). The first preference is
 // the default queue order; the table is generic so later preferences reuse

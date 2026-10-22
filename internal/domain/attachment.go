@@ -58,9 +58,9 @@ type attachmentKind struct {
 }
 
 var attachmentKinds = map[string]attachmentKind{
-	".png":  {"image/png", hasPrefix("\x89PNG\r\n\x1a\n")},
-	".jpg":  {"image/jpeg", hasPrefix("\xFF\xD8\xFF")},
-	".jpeg": {"image/jpeg", hasPrefix("\xFF\xD8\xFF")},
+	".png":  {"image/png", IsPNG},
+	".jpg":  {"image/jpeg", IsJPEG},
+	".jpeg": {"image/jpeg", IsJPEG},
 	".gif":  {"image/gif", func(b []byte) bool { return hasPrefix("GIF87a")(b) || hasPrefix("GIF89a")(b) }},
 	".webp": {"image/webp", func(b []byte) bool { return len(b) >= 12 && string(b[:4]) == "RIFF" && string(b[8:12]) == "WEBP" }},
 	".pdf":  {"application/pdf", hasPrefix("%PDF-")},
@@ -73,6 +73,17 @@ var attachmentKinds = map[string]attachmentKind{
 	".zip":  {"application/zip", func(b []byte) bool { _, ok := zipEntries(b); return ok }},
 }
 
+// IsPNG reports whether data starts with the PNG signature: the eight magic
+// bytes, which is how the instance logo, the sign-in background and every .png
+// attachment prove their type instead of trusting a name.
+func IsPNG(data []byte) bool { return hasPrefix("\x89PNG\r\n\x1a\n")(data) }
+
+// IsJPEG reports whether data starts with the JPEG start-of-image marker. It is
+// the same proof the .jpg attachment kind uses, exported for the sign-in
+// background, which is served back as an image like the logo.
+func IsJPEG(data []byte) bool { return hasPrefix("\xFF\xD8\xFF")(data) }
+
+// hasPrefix builds the magic-bytes check of one allowed type.
 func hasPrefix(magic string) func([]byte) bool {
 	return func(b []byte) bool { return bytes.HasPrefix(b, []byte(magic)) }
 }

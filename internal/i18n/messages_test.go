@@ -105,10 +105,10 @@ func TestTranslatorFallsBackToTheDefaultCatalogue(t *testing.T) {
 	tr := Translator{
 		locale:   Spanish,
 		messages: catalogue{},
-		fallback: catalogue{"auth.welcome.title": "Welcome to tkt"},
+		fallback: catalogue{"auth.login.title": "Sign in to tkt"},
 	}
 
-	if got := tr.T("auth.welcome.title"); got != "Welcome to tkt" {
+	if got := tr.T("auth.login.title"); got != "Sign in to tkt" {
 		t.Errorf("T(missing in es) = %q, want the English copy", got)
 	}
 }
@@ -118,11 +118,11 @@ func TestTranslatorFallsBackToTheDefaultCatalogue(t *testing.T) {
 func TestTranslatorPrefersTheActiveCatalogue(t *testing.T) {
 	tr := Translator{
 		locale:   Spanish,
-		messages: catalogue{"auth.welcome.title": "Te damos la bienvenida a tkt"},
-		fallback: catalogue{"auth.welcome.title": "Welcome to tkt"},
+		messages: catalogue{"auth.login.title": "Inicia sesión en tkt"},
+		fallback: catalogue{"auth.login.title": "Sign in to tkt"},
 	}
 
-	if got := tr.T("auth.welcome.title"); got != "Te damos la bienvenida a tkt" {
+	if got := tr.T("auth.login.title"); got != "Inicia sesión en tkt" {
 		t.Errorf("T(es) = %q, want the Spanish copy", got)
 	}
 }
@@ -153,15 +153,15 @@ func TestNormalizeAnswersAShippedLocale(t *testing.T) {
 // different: a Spanish instance must not render the English string, and the
 // package-level T must agree with a Translator built for the locale.
 func TestTranslatorAnswersShippedCopy(t *testing.T) {
-	en := New(English).T("auth.welcome.title")
-	es := New(Spanish).T("auth.welcome.title")
+	en := New(English).T("auth.login.title")
+	es := New(Spanish).T("auth.login.title")
 	if en == "" || es == "" {
 		t.Fatalf("welcome title = (%q, %q), want copy in both locales", en, es)
 	}
 	if en == es {
 		t.Errorf("welcome title is identical in both locales (%q), want a translation", en)
 	}
-	if got := T(Spanish, "auth.welcome.title"); got != es {
+	if got := T(Spanish, "auth.login.title"); got != es {
 		t.Errorf("T(es, key) = %q, want %q", got, es)
 	}
 }

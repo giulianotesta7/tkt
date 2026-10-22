@@ -37,6 +37,18 @@ const maxRequestBodyBytes = 1 << 20 // 1 MiB
 // and those two without a multipart body — keeps maxRequestBodyBytes.
 const maxUploadBodyBytes = 5*domain.MaxAttachmentBytes + maxRequestBodyBytes
 
+// maxOrganizationUploadBodyBytes is the cap of POST /settings/organization
+// (issue #383, S4): one logo of at most domain.MaxOrganizationLogoBytes plus
+// 64 KiB for the multipart envelope and the three short text fields. It is far
+// below the attachment cap because a logo is not a document: the same request
+// must never be able to carry ten megabytes of anything.
+const maxOrganizationUploadBodyBytes = domain.MaxOrganizationLogoBytes + 64<<10
+
+// maxSigninUploadBodyBytes is the cap of POST /settings/signin (issue #383,
+// S10): one background image of at most domain.MaxSigninBackgroundBytes plus
+// 64 KiB for the multipart envelope and the panel's text fields.
+const maxSigninUploadBodyBytes = domain.MaxSigninBackgroundBytes + 64<<10
+
 // BodyLimitMiddleware caps how many body bytes any wrapped route may consume.
 // It is a transport-boundary control: it runs before the mux and never
 // inspects route semantics.
@@ -68,16 +80,16 @@ func (m *BodyLimitMiddleware) Wrap(next http.Handler) http.Handler {
 			return
 		}
 
-		// Upload routes (issue #366) stream: the body is not buffered here —
-		// up to maxUploadBodyBytes would be held in memory per request — but
-		// reaches the handler behind http.MaxBytesReader, and the handler maps
-		// the MaxBytesError of an undeclared oversize body to the same 413.
-		if isUploadRequest(r) {
-			if r.ContentLength > maxUploadBodyBytes {
+		// Upload routes (issue #366, #383) stream: the body is not buffered
+		// here — up to maxUploadBodyBytes would be held in memory per request —
+		// but reaches the handler behind http.MaxBytesReader, and the handler
+		// maps the MaxBytesError of an undeclared oversize body to the same 413.
+		if cap, ok := uploadBodyCap(r); ok {
+			if r.ContentLength > cap {
 				httpError(w, r, "error.request_too_large", http.StatusRequestEntityTooLarge)
 				return
 			}
-			r.Body = http.MaxBytesReader(w, r.Body, maxUploadBodyBytes)
+			r.Body = http.MaxBytesReader(w, r.Body, cap)
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -109,17 +121,36 @@ func (m *BodyLimitMiddleware) Wrap(next http.Handler) http.Handler {
 	})
 }
 
-// isUploadRequest reports a multipart POST to one of the two routes that carry
-// attachments (issue #366): POST /tickets and POST /tickets/{id}/comments with
-// a numeric id. The match is exact, so no other route inherits the larger cap.
-func isUploadRequest(r *http.Request) bool {
+// uploadBodyCap answers the cap of one multipart upload route and whether the
+// request is one. The match is exact per route, so no other route inherits a
+// larger cap: the two attachment forms share maxUploadBodyBytes, and the
+// organization form (issue #383, S4) and the sign-in panel form (S10) each have
+// their own, far smaller one.
+func uploadBodyCap(r *http.Request) (int64, bool) {
 	if r.Method != http.MethodPost {
-		return false
+		return 0, false
 	}
 	mediaType, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
 	if err != nil || mediaType != "multipart/form-data" {
-		return false
+		return 0, false
 	}
+	if r.URL.Path == "/settings/organization" {
+		return maxOrganizationUploadBodyBytes, true
+	}
+	if r.URL.Path == "/settings/signin" {
+		return maxSigninUploadBodyBytes, true
+	}
+	if isAttachmentUploadRequest(r) {
+		return maxUploadBodyBytes, true
+	}
+	return 0, false
+}
+
+// isAttachmentUploadRequest reports the two routes whose multipart bodies may
+// carry ticket files (issue #366): POST /tickets and POST
+// /tickets/{id}/comments with a numeric id; uploadBodyCap has already checked
+// the method and the multipart media type.
+func isAttachmentUploadRequest(r *http.Request) bool {
 	if r.URL.Path == "/tickets" {
 		return true
 	}

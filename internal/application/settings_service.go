@@ -107,8 +107,8 @@ func (s *SettingsService) GetInterfaceLanguage(ctx context.Context) (string, err
 // ValidationError and the store is never touched (fail closed on invalid
 // input).
 func (s *SettingsService) SetInterfaceLanguage(ctx context.Context, actor domain.User, language string) error {
-	if !NewPolicy().Capabilities(actor.Role).Require(CapManageSettings) {
-		return domain.NewForbiddenError("interface language settings are not permitted")
+	if err := requireManageSettings(actor, "interface language settings are not permitted"); err != nil {
+		return err
 	}
 	if !isAllowedInterfaceLanguage(language) {
 		return &domain.ValidationError{Field: "interface_language", Message: "invalid interface language", Key: "error.invalid_interface_language"}
@@ -121,8 +121,8 @@ func (s *SettingsService) SetInterfaceLanguage(ctx context.Context, actor domain
 // AllowedInternalCommentBg — anything else is a ValidationError and the
 // store is never touched (fail closed on invalid input).
 func (s *SettingsService) SetInternalCommentBg(ctx context.Context, actor domain.User, color string) error {
-	if !NewPolicy().Capabilities(actor.Role).Require(CapManageSettings) {
-		return domain.NewForbiddenError("appearance settings are not permitted")
+	if err := requireManageSettings(actor, "appearance settings are not permitted"); err != nil {
+		return err
 	}
 	if !isAllowedInternalCommentBg(color) {
 		return &domain.ValidationError{Field: "internal_comment_bg", Message: "invalid internal comment background color", Key: "error.invalid_internal_comment_bg"}

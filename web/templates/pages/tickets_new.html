@@ -1,4 +1,4 @@
-{{define "title"}}{{tf "base.title.screen" (t "tickets.new.title")}}{{end}}
+{{define "title"}}{{tf "base.title.screen" (t "tickets.new.title") (brandHelpDesk .Brand)}}{{end}}
 {{define "content"}}<div class="page-foundation ticket-create-page">
 {{if .Selected}}{{template "ticket_form" .}}
 {{else}}<div class="page-header">

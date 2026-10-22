@@ -29,7 +29,7 @@ func TestRenderAppliesLanguageChangesWithoutRebuilding(t *testing.T) {
 		return rec.Body.String()
 	}
 	before := render()
-	if !strings.Contains(before, `<html lang="en">`) || !strings.Contains(before, "Welcome to tkt") {
+	if !strings.Contains(before, `<html lang="en">`) || !strings.Contains(before, "you@example.com") {
 		t.Fatalf("first render must be English, got: %s", firstLine(before))
 	}
 	src.language = "es"
@@ -37,10 +37,10 @@ func TestRenderAppliesLanguageChangesWithoutRebuilding(t *testing.T) {
 	if !strings.Contains(after, `<html lang="es">`) {
 		t.Errorf("after changing the setting, lang must follow it, got: %s", firstLine(after))
 	}
-	if !strings.Contains(after, "Te damos la bienvenida a tkt") {
+	if !strings.Contains(after, "tu@ejemplo.com") {
 		t.Errorf("after changing the setting, copy must follow it, got: %s", after)
 	}
-	if strings.Contains(after, "Welcome to tkt") {
+	if strings.Contains(after, "you@example.com") {
 		t.Errorf("after changing the setting, the previous language must not linger, got: %s", after)
 	}
 }

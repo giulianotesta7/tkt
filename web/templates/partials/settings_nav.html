@@ -1,0 +1,5 @@
+{{define "settings_nav"}}
+<nav class="settings-nav" aria-label="{{t "settings.nav.label"}}">
+{{range .Nav}}  <a class="settings-nav-link" href="{{.Href}}"{{if .Active}} aria-current="page"{{end}}>{{t .Label}}</a>
+{{end}}</nav>
+{{end}}

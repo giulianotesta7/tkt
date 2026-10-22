@@ -160,7 +160,9 @@ test.describe("Ticket detail", () => {
     await expect(heading).toHaveText(title);
     const number = (await page.locator("#ticket-detail .meta-row .num").first().innerText()).trim();
     expect(number).toMatch(/^TKT-\d+$/);
-    await expect(page).toHaveTitle(`${number} · ${title} · tkt`);
+    // Since issue #383 the title ends with the help desk name, "Help desk" until
+    // an administrator configures the organization.
+    await expect(page).toHaveTitle(`${number} · ${title} · Help desk`);
 
     // The editable title never clips silently: it carries an ellipsis
     // affordance and the whole value in its title attribute.
