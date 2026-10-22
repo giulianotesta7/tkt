@@ -23,7 +23,8 @@ func TestAmendment3_CategoryIndexUsesAccessibleResponsiveTable(t *testing.T) {
 	}
 	body := rec.Body.String()
 	for _, want := range []string{
-		`class="category-level category-level-categories is-current"`, `<h2 id="structure-categories-title">Categories</h2>`,
+		`data-level="category"`,
+		`catalog-category-link" href="/categories/` + strconv.FormatInt(category.ID, 10) + `/workflow"`,
 		`/categories/` + strconv.FormatInt(category.ID, 10) + `/delete`, `category-menu-button`, `>Delete category</button>`, `Actions for ` + category.Name,
 	} {
 		if !strings.Contains(body, want) {

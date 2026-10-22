@@ -15,7 +15,11 @@ import { assertCanonicalScreen, collectObservability } from "./helpers/layout.js
 import { assertHtmxSwap } from "./helpers/htmx.js";
 import { applyAssignee, pickerButton } from "./helpers/ticket.js";
 import { logout, seededCredentials, setSLAEnabled } from "./helpers/auth.js";
-import { createCategoryViaUi, createTicketViaUi } from "./helpers/navigation.js";
+import {
+  catalogCategoryRow,
+  createCategoryViaUi,
+  createTicketViaUi,
+} from "./helpers/navigation.js";
 import { waitForExactPost } from "./helpers/network.js";
 
 function baseURL(): string {
@@ -174,11 +178,8 @@ test.describe("Role — minimal matrix admin / agent / user (seeded)", () => {
     await login(page, adminEmail, "Secret123!");
     const catName = "AdminCat " + Date.now().toString(36).slice(2, 8);
     await createCategoryViaUi(page, catName);
-    await expect(
-      page
-        .locator(".category-level-categories .category-table tbody tr strong")
-        .filter({ hasText: catName }),
-    ).toBeVisible();
+    // The Catalog renders one tree row per category (issue #387).
+    await expect(catalogCategoryRow(page, catName)).toBeVisible();
 
     // Agent: one allowed operative action — create a ticket (no error, even though not in agent's own list)
     await logout(page);

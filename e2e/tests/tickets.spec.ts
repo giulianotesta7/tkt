@@ -15,7 +15,12 @@ import {
   collectObservability,
   expectHairlineBorder,
 } from "./helpers/layout.js";
-import { createTicketViaUi } from "./helpers/navigation.js";
+import {
+  catalogCategoryRow,
+  catalogNode,
+  catalogNodeId,
+  createTicketViaUi,
+} from "./helpers/navigation.js";
 import {
   applyTransition,
   openPicker,
@@ -51,10 +56,20 @@ async function effectivePaintedBackground(
 
 type PublishedHierarchyFixture = {
   department: string;
+  departmentID: string;
   desk: string;
   category: string;
   categoryID: string;
 };
+
+/** Open the Catalog's one New menu and choose one of its three entries. */
+async function openCatalogNewMenu(page: import("@playwright/test").Page, item: string) {
+  await page.locator("[data-catalog-new-toggle]").click();
+  await page
+    .locator(".catalog-new .category-overflow-menu:not([hidden])")
+    .getByRole("link", { name: item, exact: true })
+    .click();
+}
 
 async function createPublishedHierarchyFixture(
   page: import("@playwright/test").Page,
@@ -62,16 +77,16 @@ async function createPublishedHierarchyFixture(
   const suffix = Date.now().toString(36);
   const fixture = {
     department: `Technology Infrastructure Operations Department ${suffix}`,
+    departmentID: "",
     desk: `Enterprise Network Endpoint Support Desk ${suffix}`,
     category: `Connectivity Device Assistance Category ${suffix}`,
     categoryID: "",
   };
 
   await page.goto(base() + "/categories?view=structure");
-  await page
-    .getByLabel("Catalog creation")
-    .getByRole("link", { name: "New department", exact: true })
-    .click();
+  // The Catalog's three creation entries live in one New menu since issue #387:
+  // the menu opens first, then the entry inside it.
+  await openCatalogNewMenu(page, "New department");
   const departmentDrawer = page.getByRole("dialog", {
     name: /New department/i,
   });
@@ -79,64 +94,38 @@ async function createPublishedHierarchyFixture(
   await departmentDrawer.locator("#category-name").fill(fixture.department);
   await departmentDrawer.getByRole("button", { name: /create department/i }).click();
 
-  const departmentRow = page
-    .locator(".category-level-departments .category-structure-row")
-    .filter({ has: page.getByText(fixture.department, { exact: true }) });
+  // The Catalog is one tree since issue #387: the new department is a row, and
+  // its id is on the row itself instead of in a drill-down link.
+  const departmentRow = catalogNode(page, "department", fixture.department);
   await expect(departmentRow).toHaveCount(1);
-  const departmentHref = await departmentRow.getAttribute("href");
-  const departmentID = departmentHref?.match(/department_id=(\d+)/)?.[1];
-  if (!departmentID) {
-    throw new Error(
-      `Cannot resolve fixture department ${fixture.department} from ${departmentHref ?? "missing href"} at ${page.url()}`,
-    );
-  }
-  await departmentRow.click();
+  const departmentID = await catalogNodeId(departmentRow, `department ${fixture.department}`);
+  fixture.departmentID = departmentID;
 
-  await page
-    .getByLabel("Catalog creation")
-    .getByRole("link", { name: "New desk", exact: true })
-    .click();
+  await openCatalogNewMenu(page, "New desk");
   const deskDrawer = page.getByRole("dialog", { name: /New desk/i });
   await expect(deskDrawer).toBeVisible();
   await deskDrawer.locator("select[name=department_id]").selectOption(departmentID);
   await deskDrawer.locator("#category-name").fill(fixture.desk);
   await deskDrawer.getByRole("button", { name: /create desk/i }).click();
 
-  const deskRow = page
-    .locator(".category-level-desks .category-structure-item")
-    .filter({ has: page.getByText(fixture.desk, { exact: true }) });
+  const deskRow = catalogNode(page, "desk", fixture.desk);
   await expect(deskRow).toHaveCount(1);
-  const deskHref = await deskRow.locator("a.category-structure-row").getAttribute("href");
-  const deskID = deskHref?.match(/desk_id=(\d+)/)?.[1];
-  if (!deskID) {
-    throw new Error(
-      `Cannot resolve fixture desk ${fixture.desk} from ${deskHref ?? "missing href"} at ${page.url()}`,
-    );
-  }
-  await deskRow.locator("a.category-structure-row").click();
+  const deskID = await catalogNodeId(deskRow, `desk ${fixture.desk}`);
 
-  await page
-    .getByLabel("Catalog creation")
-    .getByRole("link", { name: "New category", exact: true })
-    .click();
+  await openCatalogNewMenu(page, "New category");
   const categoryDrawer = page.getByRole("dialog", { name: /New category/i });
   await expect(categoryDrawer).toBeVisible();
+  // The generic New menu preselects nothing, so the drawer is driven the way a
+  // person does: department first, then the desk inside it.
+  await categoryDrawer.locator("select[name=department_id]").selectOption(departmentID);
   await categoryDrawer.locator("select[name=desk_id]").selectOption(deskID);
   await categoryDrawer.locator("#category-name").fill(fixture.category);
   await categoryDrawer.getByRole("button", { name: /create category/i }).click();
 
-  const categoryRow = page
-    .locator(".category-level-categories .category-table tbody tr")
-    .filter({ has: page.getByText(fixture.category, { exact: true }) });
+  const categoryRow = catalogCategoryRow(page, fixture.category);
   await expect(categoryRow).toHaveCount(1);
-  const categoryHref = await categoryRow.locator('a[href*="/edit"]').getAttribute("href");
-  const categoryID = categoryHref?.match(/\/categories\/(\d+)\/edit/)?.[1];
-  if (!categoryID) {
-    throw new Error(
-      `Cannot resolve fixture category ${fixture.category} from ${categoryHref ?? "missing href"} at ${page.url()}`,
-    );
-  }
-  fixture.categoryID = categoryID;
+  fixture.categoryID = await catalogNodeId(categoryRow, `category ${fixture.category}`);
+  const categoryID = fixture.categoryID;
 
   await page.goto(base() + `/categories/${categoryID}/workflow`);
   const addStep = page.locator(".workflow-add-step summary").first();
@@ -1957,43 +1946,30 @@ test.describe("Ticket picker counts (seeded)", () => {
     // lists it, so its desk total must rise to 2; the picker offers only the
     // published one, so its desk count must stay 1.
     await page.goto(base() + "/categories?view=structure");
-    const structureDepartment = page
-      .locator(".category-level-departments .category-structure-row")
-      .filter({ has: page.getByText(fixture.department, { exact: true }) });
+    const structureDepartment = catalogNode(page, "department", fixture.department);
     await expect(structureDepartment).toHaveCount(1);
-    await structureDepartment.click();
-    const structureDesk = page
-      .locator(".category-level-desks .category-structure-item")
-      .filter({ has: page.getByText(fixture.desk, { exact: true }) });
+    const structureDesk = catalogNode(page, "desk", fixture.desk);
     await expect(structureDesk).toHaveCount(1);
-    await expect(structureDesk.locator(".category-count")).toHaveText("1 category");
-    const structureDeskHref = await structureDesk
-      .locator("a.category-structure-row")
-      .getAttribute("href");
-    const deskID = structureDeskHref?.match(/desk_id=(\d+)/)?.[1];
-    expect(
-      deskID,
-      `cannot resolve fixture desk ${fixture.desk} from ${structureDeskHref ?? "missing href"} at ${page.url()}`,
-    ).toBeTruthy();
-    await structureDesk.locator("a.category-structure-row").click();
+    const deskID = await catalogNodeId(structureDesk, `desk ${fixture.desk}`);
+    expect(deskID, `cannot resolve fixture desk ${fixture.desk} at ${page.url()}`).toBeTruthy();
+    // The tree's desk row renders the categories it holds, so the count is the
+    // rows behind that desk rather than a separate "N categories" label.
+    await expect(
+      page.locator(`[data-level="desk"][data-catalog-id="${deskID}"] [data-level="category"]`),
+    ).toHaveCount(1);
 
-    await page
-      .getByLabel("Catalog creation")
-      .getByRole("link", { name: "New category", exact: true })
-      .click();
+    await openCatalogNewMenu(page, "New category");
     const categoryDrawer = page.getByRole("dialog", { name: /New category/i });
     await expect(categoryDrawer).toBeVisible();
+    await categoryDrawer.locator("select[name=department_id]").selectOption(fixture.departmentID);
     await categoryDrawer.locator("select[name=desk_id]").selectOption(deskID!);
     await categoryDrawer.locator("#category-name").fill(`${fixture.category} Draft`);
     await categoryDrawer.getByRole("button", { name: /create category/i }).click();
 
-    // The admin structure renders drafts, so its total now counts the new one.
+    // The admin tree renders drafts, so it now lists the new category too.
     await expect(
-      page
-        .locator(".category-level-desks .category-structure-item")
-        .filter({ has: page.getByText(fixture.desk, { exact: true }) })
-        .locator(".category-count"),
-    ).toHaveText("2 categories");
+      page.locator(`[data-level="desk"][data-catalog-id="${deskID}"] [data-level="category"]`),
+    ).toHaveCount(2);
 
     // On the picker the number must equal the category rows that picker lists.
     await page.setViewportSize({ width: 1280, height: 800 });

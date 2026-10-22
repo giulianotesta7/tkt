@@ -16,9 +16,13 @@ import { assertCanonicalScreen, collectObservability } from "./helpers/layout.js
 import { assertHtmxSwap } from "./helpers/htmx.js";
 import { applyAssignee, currentAssignee, pickerButton } from "./helpers/ticket.js";
 import {
+  catalogNode,
+  catalogRowMenu,
   createCategoryViaUi,
   createTicketViaUi,
+  openCatalogRowMenu,
   resolveUserEditHref,
+  selectCatalogDesk,
 } from "./helpers/navigation.js";
 
 function base(): string {
@@ -225,43 +229,21 @@ test.describe("Users", () => {
 
   // Issue #47 regression journeys: atomic Agent-to-User downgrade handoff.
 
+  // The Catalog is one tree (issue #387): the desk is resolved by its exact row
+  // and the browser is left on its legacy selection URL, which is the context the
+  // desk drawer and the member routes carry.
   async function selectDesk(page: import("@playwright/test").Page, name: string): Promise<string> {
-    await page.goto(base() + "/categories?view=structure");
-    const departments = page.locator(".category-level-departments .category-structure-row");
-    for (let i = 0; i < (await departments.count()); i += 1) {
-      await page.goto(base() + "/categories?view=structure");
-      await departments.nth(i).click();
-      const link = page
-        .locator(".category-level-desks .category-structure-row")
-        .filter({ has: page.getByText(name, { exact: true }) });
-      if ((await link.count()) !== 1) continue;
-      const href = await link.getAttribute("href");
-      if (!href) throw new Error(`Desk link href missing for "${name}" at ${page.url()}`);
-      const deskID = new URL(href, page.url()).searchParams.get("desk_id");
-      if (!deskID || !/^\d+$/.test(deskID)) {
-        throw new Error(
-          `Could not resolve exact desk ID for "${name}" from ${href} at ${page.url()}`,
-        );
-      }
-      await link.click();
-      return deskID;
-    }
-    throw new Error(`Expected exactly one desk "${name}" in the catalog at ${page.url()}`);
+    return selectCatalogDesk(page, name);
   }
 
   async function openSelectedDeskDrawer(
     page: import("@playwright/test").Page,
     name: string,
   ): Promise<void> {
-    const row = page
-      .locator(".category-level-desks .category-structure-item")
-      .filter({ hasText: name });
+    const row = catalogNode(page, "desk", name);
     await expect(row).toHaveCount(1);
-    await row.getByRole("button", { name: /actions for/i }).click();
-    await row
-      .locator(".category-overflow-menu:not([hidden])")
-      .getByRole("menuitem", { name: "Edit desk", exact: true })
-      .click();
+    await catalogRowMenu(row).click();
+    await openCatalogRowMenu(row).getByRole("menuitem", { name: "Edit desk", exact: true }).click();
     await expect(page.getByRole("dialog", { name: /Edit desk/i })).toBeVisible();
   }
 

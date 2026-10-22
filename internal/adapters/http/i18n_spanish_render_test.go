@@ -198,19 +198,19 @@ func TestSpanishUserForm(t *testing.T) {
 // including a composed workflow badge (the Msg path: key + nested sentence).
 func TestSpanishCategoriesScreen(t *testing.T) {
 	body := renderLocalized(t, "es", "categories_index", "categories_background", fixtureCategoriesIndexData())
-	for _, want := range []string{"Categorías", "Nuevo departamento", "Nueva mesa", "Nueva categoría", "Estructura del catálogo", "Abiertos"} {
+	for _, want := range []string{"Catálogo", "Nuevo departamento", "Nueva mesa", "Nueva categoría", "Estructura del catálogo", "abiertos"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("Spanish catalog must render %q, got: %.800s", want, body)
 		}
 	}
-	// The fixture's badges compose through the catalogue: "Published v1" and
-	// "Draft · not published" both speak Spanish on a Spanish instance.
-	for _, want := range []string{"Publicado v1", "Borrador · sin publicar"} {
+	// The fixture's badges compose through the catalogue: "Workflow v1" and
+	// "Draft" both speak Spanish on a Spanish instance.
+	for _, want := range []string{"Flujo v1", ">Borrador<"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("Spanish catalog badge must render %q, got: %.1200s", want, body)
 		}
 	}
-	if strings.Contains(body, "Published v1") || strings.Contains(body, "Not configured") {
+	if strings.Contains(body, "Workflow v1") || strings.Contains(body, "No workflow") {
 		t.Errorf("Spanish catalog must not render an English badge")
 	}
 }

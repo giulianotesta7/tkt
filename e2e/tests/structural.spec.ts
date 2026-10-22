@@ -137,8 +137,10 @@ function authenticatedScreens(deps: {
     {
       label: `/categories`,
       path: "/categories",
-      heading: (p) => p.locator('h1:has-text("Categories")'),
-      control: (p) => p.getByRole("link", { name: /new category/i }),
+      heading: (p) => p.locator('h1:has-text("Catalog")'),
+      // The tree replaced three creation launchers with one New menu; its trigger
+      // is the screen's primary control, and the menu holds the three entries.
+      control: (p) => p.locator("[data-catalog-new-toggle]"),
     },
     {
       label: `/categories/new`,
@@ -168,8 +170,8 @@ function authenticatedScreens(deps: {
       label: `/categories/desk-compatibility`,
       path: "/desks",
       expectedUrl: /\/categories$/,
-      heading: (p) => p.locator('h1:has-text("Categories")'),
-      control: (p) => p.getByRole("link", { name: /new desk/i }),
+      heading: (p) => p.locator('h1:has-text("Catalog")'),
+      control: (p) => p.locator("[data-catalog-new-toggle]"),
     },
     // Settings is one section per URL since issue #383: each section is its
     // own canonical screen, and the bare /settings URL only redirects to the

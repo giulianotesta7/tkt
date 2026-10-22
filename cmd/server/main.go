@@ -151,7 +151,7 @@ func main() {
 	httpadapter.NewAuthHandlers(authSvc, userSvc, renderer).WithSignin(signinSvc).Register(mux)
 	httpadapter.NewTicketHandlers(ticketSvc, commentSvc, searchSvc, catSvc, userSvc, store.DeskStore(), workflowSvc, application.NewWorkflowRunner(clock), store.WorkflowRunStore(), store.WorkflowUnitOfWork(), renderer, catalogSvc).WithMetrics(metricsSvc).WithSLA(slaSvc).WithPreferences(preferencesSvc).WithClock(clock).WithAttachments(store.AttachmentStore(), attachmentSvc).Register(mux)
 	httpadapter.NewUserHandlers(userSvc, renderer).Register(mux)
-	httpadapter.NewCategoryHandlersWithWorkflows(catSvc, workflowSvc, renderer, catalogSvc).Register(mux)
+	httpadapter.NewCategoryHandlersWithWorkflows(catSvc, workflowSvc, renderer, catalogSvc).WithSettings(store.SettingsStore()).Register(mux)
 	httpadapter.NewCategoryWorkflowHandlers(catSvc, workflowSvc, deskSvc, renderer).Register(mux)
 	httpadapter.NewDeskHandlers(deskSvc, renderer).Register(mux)
 	httpadapter.NewSettingsHandlers(settingsSvc, slaSvc, store.SLAStore(), store.SettingsStore(), renderer).WithEmail(emailSettingsSvc).WithOrganization(organizationSvc).WithSignin(signinSvc).Register(mux)

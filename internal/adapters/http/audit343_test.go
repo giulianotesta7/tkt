@@ -71,7 +71,7 @@ func TestS1EveryScreenNamesItselfInTheDocumentTitle(t *testing.T) {
 		{"new ticket", "tickets_new", fixtureTicketFormData(), "New ticket · Help desk"},
 		{"users", "users_index", fixtureUsersIndexData(), "Users · Help desk"},
 		{"settings", "settings_organization", fixtureSettingsOrganizationData(), "Settings · Help desk"},
-		{"categories", "categories_index", fixtureCategoriesIndexData(), "Categories · Help desk"},
+		{"categories", "categories_index", fixtureCategoriesIndexData(), "Catalog · Help desk"},
 		{"category SLA", "category_sla", fixtureCategorySLAData(), "Category SLA · Help desk"},
 		{"category workflow", "category_workflow", mobileBuilderPageData(), "Category workflow · Help desk"},
 		{"ticket metrics", "ticket_metrics_detail", data, "Ticket metrics · Help desk"},
@@ -143,7 +143,7 @@ func TestS1EveryRouteNamesItsScreen(t *testing.T) {
 		{h.mux, "/users", "Users · Help desk"},
 		{h.mux, "/users/new", "New user · Help desk"},
 		{h.mux, "/users/" + id(user.ID) + "/edit", "Edit user · Help desk"},
-		{catalogMux, "/categories?view=structure", "Categories · Help desk"},
+		{catalogMux, "/categories?view=structure", "Catalog · Help desk"},
 		{catalogMux, "/categories/new?view=structure", "New category · Help desk"},
 		{catalogMux, "/categories/" + id(h.bugCategory.ID) + "/edit?view=structure", "Rename category · Help desk"},
 		{catalogMux, "/categories/desks/new" + structure, "New desk · Help desk"},
@@ -394,8 +394,8 @@ func TestS6RefusedDeleteKeepsTheStructureSelection(t *testing.T) {
 	fragment := rec.Body.String()
 	for _, want := range []string{
 		`<div class="error-banner" role="alert">desk is referenced and cannot be deleted</div>`,
-		`href="/categories?view=structure&department_id=` + strconv.FormatInt(department.ID, 10) + `&desk_id=` + strconv.FormatInt(desk.ID, 10) + `" aria-current="true"`,
-		`<strong>Service desk</strong>`,
+		`data-level="desk" data-current="true"`,
+		`<span class="catalog-node-name">Service desk</span>`,
 	} {
 		if !strings.Contains(fragment, want) {
 			t.Errorf("the refused delete must keep the structure selection, missing %q in: %.1200s", want, fragment)
@@ -502,8 +502,7 @@ func TestS6RefusalHelperParsesTheFormItself(t *testing.T) {
 	if rec.Code != http.StatusConflict {
 		t.Fatalf("refusal status = %d, want 409: %.600s", rec.Code, rec.Body.String())
 	}
-	want := `href="/categories?view=structure&department_id=` + strconv.FormatInt(department.ID, 10) +
-		`&desk_id=` + strconv.FormatInt(desk.ID, 10) + `" aria-current="true"`
+	want := `data-level="desk" data-current="true"`
 	if !strings.Contains(rec.Body.String(), want) {
 		t.Errorf("an unparsed refusal request must keep the structure selection, missing %q in: %.1200s", want, rec.Body.String())
 	}

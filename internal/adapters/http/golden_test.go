@@ -879,23 +879,21 @@ func fixtureUserFormData() userFormData {
 
 func fixtureCategoriesIndexData() categoriesIndexData {
 	ana := domain.User{ID: 1, Name: "Ana Torres", Email: "ana@example.com", Active: true, CreatedAt: goldenT0}
-	// Seed the dense Structure level (issue #238), not just the flat category
-	// list: without departments, desks, and structure category rows the golden
-	// cannot see the level the recent work changed.
+	// The catalog tree (issue #387): the frozen page has to see every level, its
+	// per-row health and both native filters' chrome, so the fixture supplies real
+	// departments, desks and categories instead of a flat list.
 	technology := domain.CatalogDepartment{
-		Department:    domain.Department{ID: 1, Name: "Technology", Description: "Engineering and platform", CreatedAt: goldenT0},
-		DeskCount:     2,
-		CategoryCount: 2,
+		Department: domain.Department{ID: 1, Name: "Technology", Description: "Engineering and platform", CreatedAt: goldenT0},
 	}
 	support := domain.CatalogDepartment{
-		Department:    domain.Department{ID: 2, Name: "Support", Description: "Customer support", CreatedAt: goldenT0},
-		DeskCount:     1,
-		CategoryCount: 0,
+		Department: domain.Department{ID: 2, Name: "Support", Description: "Customer support", CreatedAt: goldenT0},
 	}
 	serviceDesk := domain.CatalogDesk{
 		Desk:          domain.Desk{ID: 1, Name: "Service desk", Description: "First-line triage", CreatedAt: goldenT0},
 		DepartmentID:  1,
 		CategoryCount: 2,
+		AgentCount:    3,
+		OpenTickets:   4,
 	}
 	platform := domain.CatalogDesk{
 		Desk:         domain.Desk{ID: 2, Name: "Platform", Description: "Infrastructure", CreatedAt: goldenT0},
@@ -904,37 +902,31 @@ func fixtureCategoriesIndexData() categoriesIndexData {
 	helpdesk := domain.CatalogDesk{
 		Desk:         domain.Desk{ID: 3, Name: "Helpdesk", Description: "Walk-up support", CreatedAt: goldenT0},
 		DepartmentID: 2,
+		OpenTickets:  1,
 	}
-	bugs := catalogCategoryRow{
-		Category:       domain.Category{ID: 1, Name: "Bugs", Description: "Defects and regressions", DeskID: 1, CreatedAt: goldenT0},
-		DepartmentName: "Technology",
-		DeskName:       "Service desk",
-		HierarchyPath:  "Technology / Service desk",
-	}
-	supportCat := catalogCategoryRow{
-		Category:       domain.Category{ID: 2, Name: "Support", Description: "Customer questions", DeskID: 1, CreatedAt: goldenT1},
-		DepartmentName: "Technology",
-		DeskName:       "Service desk",
-		HierarchyPath:  "Technology / Service desk",
-	}
-	// SelectedDepartmentID/SelectedDeskID mirror the real structure route with a
-	// desk chosen, so the dense category table renders its rows instead of the
-	// "select a desk" prompt.
+	bugs := domain.Category{ID: 1, Name: "Bugs", Description: "Defects and regressions", DeskID: 1, CreatedAt: goldenT0}
+	supportCat := domain.Category{ID: 2, Name: "Support", Description: "Customer questions", DeskID: 1, CreatedAt: goldenT1}
 	data := categoriesIndexData{
 		pageData:             pageData{NavActive: "categories", CurrentUser: ana},
-		Categories:           []domain.Category{bugs.Category, supportCat.Category},
-		Departments:          []domain.CatalogDepartment{technology, support},
-		Desks:                []domain.CatalogDesk{serviceDesk, platform, helpdesk},
-		StructureDepartments: []catalogDepartmentView{{CatalogDepartment: technology}, {CatalogDepartment: support}},
-		StructureDesks:       []catalogDeskView{{CatalogDesk: serviceDesk}, {CatalogDesk: platform}},
-		StructureCategories:  []catalogCategoryRow{bugs, supportCat},
 		SelectedDepartmentID: 1,
 		SelectedDeskID:       1,
-		Badges: map[int64]application.Msg{
-			1: application.MsgRef("categories.badge.published", application.Text("1")),
-			2: application.MsgRef("categories.badge.draft_only"),
-		},
-		OpenTickets: map[int64]int{1: 3, 2: 1},
+		SearchClearURL:       "/categories",
+		AttentionURL:         "/categories?attention=1",
+		Tree: buildCatalogTree(catalogTreeInput{
+			Locale:      "en",
+			Departments: []domain.CatalogDepartment{technology, support},
+			Desks:       []domain.CatalogDesk{serviceDesk, platform, helpdesk},
+			Categories:  []domain.Category{bugs, supportCat},
+			States: map[int64]catalogCategoryState{
+				1: {Badge: application.MsgRef("categories.badge.published", application.Text("1")), Tone: "ok", Published: true},
+				2: {Badge: application.MsgRef("categories.badge.draft_only"), Tone: "neutral"},
+			},
+			OpenTickets:  map[int64]int{1: 3, 2: 1},
+			SLADefaults:  map[int64]bool{1: true},
+			SLAEnabled:   true,
+			DepartmentID: 1,
+			DeskID:       1,
+		}),
 	}
 	// The real categories index sets both flags (handlers_categories.go), which
 	// is what makes the {{if .CategoryAssets}} block part of the frozen page.
