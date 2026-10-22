@@ -58,7 +58,7 @@ type attachmentKind struct {
 }
 
 var attachmentKinds = map[string]attachmentKind{
-	".png":  {"image/png", hasPrefix("\x89PNG\r\n\x1a\n")},
+	".png":  {"image/png", IsPNG},
 	".jpg":  {"image/jpeg", hasPrefix("\xFF\xD8\xFF")},
 	".jpeg": {"image/jpeg", hasPrefix("\xFF\xD8\xFF")},
 	".gif":  {"image/gif", func(b []byte) bool { return hasPrefix("GIF87a")(b) || hasPrefix("GIF89a")(b) }},
@@ -73,6 +73,12 @@ var attachmentKinds = map[string]attachmentKind{
 	".zip":  {"application/zip", func(b []byte) bool { _, ok := zipEntries(b); return ok }},
 }
 
+// IsPNG reports whether data starts with the PNG signature: the eight magic
+// bytes, which is how the instance logo and every .png attachment prove their
+// type instead of trusting a name.
+func IsPNG(data []byte) bool { return hasPrefix("\x89PNG\r\n\x1a\n")(data) }
+
+// hasPrefix builds the magic-bytes check of one allowed type.
 func hasPrefix(magic string) func([]byte) bool {
 	return func(b []byte) bool { return bytes.HasPrefix(b, []byte(magic)) }
 }

@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"net/mail"
 	"net/url"
 	"strings"
 
@@ -296,7 +295,7 @@ func normalizeEmailInput(in EmailSettingsInput, passwordStored bool) (EmailSetti
 	switch {
 	case out.FromAddress == "" && out.Enabled:
 		return out, errEmailFromAddressRequired
-	case out.FromAddress != "" && !isBareAddress(out.FromAddress):
+	case out.FromAddress != "" && !domain.IsSingleMailAddress(out.FromAddress):
 		return out, errEmailFromAddressInvalid
 	}
 	if len(out.FromName) > 100 || strings.ContainsFunc(out.FromName, isControl) {
@@ -328,14 +327,6 @@ func normalizeEmailInput(in EmailSettingsInput, passwordStored bool) (EmailSetti
 func isControl(r rune) bool { return r < 0x20 || r == 0x7f }
 
 func isSpaceOrControl(r rune) bool { return r == ' ' || isControl(r) }
-
-// isBareAddress accepts one plain address: the display name has its own
-// field, and a name smuggled into the address would be a header the form
-// does not show.
-func isBareAddress(s string) bool {
-	addr, err := mail.ParseAddress(s)
-	return err == nil && addr.Name == "" && addr.Address == s
-}
 
 // isPublicBaseURL accepts an absolute http(s) URL with a host and nothing a
 // ticket path could not be appended to.

@@ -1428,3 +1428,45 @@ func (f *fakeAttachmentStore) Get(_ context.Context, id int64) (*application.Sto
 	}
 	return &a, nil
 }
+
+// fakeOrganizationStore is the in-memory OrganizationStore double for the
+// identity use cases (issue #383, S3). Simplifications, documented per the
+// fakes contract: one memory value stands in for the keyed settings rows and
+// the settings_blobs logo row, and the copy is a shallow one — these tests
+// never mutate a stored logo in place, so a deep copy would prove nothing. The
+// zero value answers the documented defaults, exactly like the real store's
+// absent-or-empty fallback, and every field is replaced by one Set call, which
+// is the transaction the real store commits.
+type fakeOrganizationStore struct {
+	org      domain.Organization
+	getErr   error
+	setErr   error
+	setCalls int
+}
+
+var _ application.OrganizationStore = (*fakeOrganizationStore)(nil)
+
+func newFakeOrganizationStore() *fakeOrganizationStore { return &fakeOrganizationStore{} }
+
+func (f *fakeOrganizationStore) GetOrganization(_ context.Context) (domain.Organization, error) {
+	if f.getErr != nil {
+		return domain.Organization{}, f.getErr
+	}
+	org := f.org
+	if org.Name == "" {
+		org.Name = domain.DefaultOrganizationName
+	}
+	if org.HelpDesk == "" {
+		org.HelpDesk = domain.DefaultOrganizationHelpDesk
+	}
+	return org, nil
+}
+
+func (f *fakeOrganizationStore) SetOrganization(_ context.Context, org domain.Organization) error {
+	f.setCalls++
+	if f.setErr != nil {
+		return f.setErr
+	}
+	f.org = org
+	return nil
+}
