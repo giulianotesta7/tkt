@@ -101,10 +101,12 @@ function authenticatedScreens(deps: {
           .or(p.locator('input[aria-label="Search tickets"]')),
     },
     {
+      // Single page is the shipped creation flow (issue #391, S1/L2): the form
+      // renders directly and its category is a picker in the properties panel.
       label: `/tickets/new`,
       path: "/tickets/new",
       heading: (p) => p.getByRole("heading", { name: /create a ticket/i }),
-      control: (p) => p.getByPlaceholder(/search categories, desks, or departments/i),
+      control: (p) => p.getByLabel("Title"),
     },
     {
       label: `/tickets/{id}`,

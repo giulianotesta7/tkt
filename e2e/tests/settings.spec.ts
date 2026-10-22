@@ -468,6 +468,56 @@ test.describe("Settings", () => {
     await expect(days).toHaveValue("");
   });
 
+  test("the ticket creation flow is chosen in Settings and drives the creation screen", async ({
+    page,
+  }) => {
+    // Issue #391, S1/S3/S4: how a new ticket reaches its category is an INSTANCE
+    // setting, saved like every other settings form, and a missing value reads as
+    // the one-page default.
+    await page.setViewportSize({ width: 1280, height: 800 });
+    const obs = collectObservability(page);
+    await loginAsSeeded(page);
+    await page.goto(base() + "/settings/tickets");
+    await expect(page.locator("h3").filter({ hasText: "Ticket creation" })).toBeVisible();
+
+    const single = page.getByRole("radio", { name: /^single page$/i });
+    const twoSteps = page.getByRole("radio", { name: /^two steps$/i });
+    await expect(single).toBeChecked();
+    await expect(twoSteps).not.toBeChecked();
+    // The save bar stays hidden until the choice changes.
+    const save = page.getByRole("button", { name: "Save creation flow" });
+    await expect(save).toBeHidden();
+
+    await twoSteps.check();
+    await expect(save).toBeVisible();
+    await save.click();
+    await expect(page).toHaveURL(/\/settings\/tickets$/);
+    await expect(page.locator("#save-feedback")).toContainText("Saved");
+    await page.reload();
+    await expect(twoSteps).toBeChecked();
+    await expect(single).not.toBeChecked();
+
+    // The stored flow decides what GET /tickets/new renders.
+    await page.goto(base() + "/tickets/new");
+    await expect(page.locator(".create-catalog")).toBeVisible();
+    await expect(page.locator(".ticket-create-detail")).toHaveCount(0);
+
+    // Back to the default: the form renders directly, with the picker.
+    await page.goto(base() + "/settings/tickets");
+    await single.check();
+    await expect(save).toBeVisible();
+    await save.click();
+    await expect(page).toHaveURL(/\/settings\/tickets$/);
+    await page.reload();
+    await expect(single).toBeChecked();
+    await page.goto(base() + "/tickets/new");
+    await expect(page.locator(".ticket-create-detail")).toBeVisible();
+    await expect(page.locator(".create-catalog")).toHaveCount(0);
+    await expect(page.locator("#create-category-picker")).toBeVisible();
+
+    await expect(obs.pageErrors).toEqual([]);
+  });
+
   test("switching the interface language re-renders every screen and switching back restores English", async ({
     page,
   }) => {

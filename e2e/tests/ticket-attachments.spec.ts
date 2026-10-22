@@ -25,9 +25,12 @@ import {
   assertNoHorizontalOverflow,
   assertNothingClipped,
   collectObservability,
-  expectHairlineBorder,
 } from "./helpers/layout.js";
-import { createTicketViaUi } from "./helpers/navigation.js";
+import {
+  chooseCreationPriority,
+  createTicketViaUi,
+  pickCreationCategory,
+} from "./helpers/navigation.js";
 import { waitForExactPost } from "./helpers/network.js";
 
 // The smallest payloads the domain sniffer accepts. The magic bytes are what is
@@ -125,15 +128,12 @@ async function fillCreationForm(
 ): Promise<void> {
   await page.goto(base() + "/tickets/new");
   await expect(page.getByRole("heading", { name: "Create a ticket" })).toBeVisible();
-  const categoryLink = page.locator(".catalog-category").filter({ hasText: "General" }).first();
-  if ((await categoryLink.count()) === 0) {
-    throw new Error(`no catalog category "General" on the creation catalog at ${page.url()}`);
-  }
-  await categoryLink.click();
-  await expect(page.locator(".selected-catalog-path")).toContainText("General");
+  // The category is the properties panel's picker (issue #391, S3).
+  await pickCreationCategory(page, "General");
+  await expect(page.locator("#create-category-picker")).toContainText("General");
   await page.getByLabel(/title/i).fill(o.title);
   await page.getByLabel(/description/i).fill(o.description);
-  await page.getByLabel(/priority/i).selectOption("medium");
+  await chooseCreationPriority(page, "medium");
 }
 
 test.describe("Ticket attachments", () => {
@@ -332,15 +332,30 @@ test.describe("Ticket attachments", () => {
     await expect(creationInput).toHaveAttribute("multiple", "");
     await expect(creationInput).toHaveAttribute("accept", /\.png/);
     await expect(page.getByText("Up to 5 files, 10 MB each", { exact: true })).toBeVisible();
-    await expectHairlineBorder(creationInput, "ticket creation file input");
-    // Measured, never looked at: the control is an 8px-radius field on the shared
-    // 13.5px control step, not a browser default.
-    const inputMetrics = await creationInput.evaluate((el) => {
+    // Issue #391, S2: the creation form's attachment control IS the composer's
+    // drop zone — one dashed 8px-radius control wrapping the same clipped file
+    // input, not a second browser-default field. Measured, never looked at.
+    const dropzone = page.locator(".ticket-create-dropzone");
+    await expect(dropzone).toHaveCount(1);
+    await expect(dropzone.locator("input[type=file]")).toHaveCount(1);
+    const dropzoneMetrics = await dropzone.evaluate((el) => {
       const style = getComputedStyle(el);
-      return { radius: style.borderTopLeftRadius, fontSize: style.fontSize };
+      return {
+        radius: style.borderTopLeftRadius,
+        borderStyle: style.borderTopStyle,
+        cursor: style.cursor,
+      };
     });
-    expect(inputMetrics.radius, "a control is the 8px shape").toBe("8px");
-    expect(inputMetrics.fontSize, "a control sits on the 13.5px control step").toBe("13.5px");
+    expect(dropzoneMetrics.radius, "a control is the 8px shape").toBe("8px");
+    expect(dropzoneMetrics.borderStyle, "the drop zone is a dashed control").toBe("dashed");
+    expect(dropzoneMetrics.cursor, "the drop zone is the clickable label").toBe("pointer");
+    // The input itself is collapsed to the visually-hidden pattern inside it, so
+    // the browser default field never paints beside the control it belongs to.
+    const inputMetrics = await creationInput.evaluate((el) => {
+      const box = el.getBoundingClientRect();
+      return { width: box.width, height: box.height };
+    });
+    expect(inputMetrics.width, "the file input is clipped, not painted").toBeLessThanOrEqual(1);
 
     const creationObs = collectObservability(page);
     await assertCanonicalScreen(page, {
