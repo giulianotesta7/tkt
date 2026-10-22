@@ -22,9 +22,13 @@ func assignToDeskDef(deskID int64) domain.WorkflowDefinition {
 	}}
 }
 
-// catalogPickerPage renders the requester's picker for one desk.
+// catalogPickerPage renders the two-step service catalog (issue #391, S4) as a
+// requester sees it. The creation flow is an INSTANCE setting, so the helper
+// puts the instance in two-step mode before it asks for the catalog — the
+// surface these tests have always described.
 func catalogPickerPage(t *testing.T, h *harness, mux *http.ServeMux, query string) string {
 	t.Helper()
+	setCreationMode(t, h, application.TicketCreationTwoStep)
 	req := httptest.NewRequest(http.MethodGet, "/tickets/new?"+query, nil)
 	req.Header.Set("Cookie", sessionCookie+"="+h.adminSession.ID)
 	rec := httptest.NewRecorder()
@@ -86,10 +90,10 @@ func TestCatalogUnavailableCategoryStaysVisibleAndExplainsItself(t *testing.T) {
 	categoryRef := "category_id=" + strconv.FormatInt(category.ID, 10)
 
 	healthy := catalogPickerPage(t, h, mux, deskQuery)
-	if !strings.Contains(healthy, `class="catalog-category" href=`) || !strings.Contains(healthy, categoryRef) {
-		t.Fatalf("a runnable category must be offered as a link:\n%s", healthy)
+	if !strings.Contains(healthy, `class="create-card" href="/tickets/new?category_id=`) || !strings.Contains(healthy, categoryRef) {
+		t.Fatalf("a runnable category must be offered as a card that opens the form:\n%s", healthy)
 	}
-	if strings.Contains(healthy, "catalog-category unavailable") {
+	if strings.Contains(healthy, "create-card-unavailable") {
 		t.Error("a runnable category must not render the unavailable state")
 	}
 
@@ -106,11 +110,11 @@ func TestCatalogUnavailableCategoryStaysVisibleAndExplainsItself(t *testing.T) {
 	if strings.Contains(broken, categoryRef) {
 		t.Error("an unrunnable category must not link into a form whose submit the create guard refuses")
 	}
-	if !strings.Contains(broken, `class="catalog-category unavailable"`) {
+	if !strings.Contains(broken, `class="create-card create-card-unavailable" aria-disabled="true"`) {
 		t.Error("an unrunnable category must render the unavailable state")
 	}
 	if want := "Can't run · Support has no active members"; !strings.Contains(broken, want) {
-		t.Errorf("unrunnable row must carry its reason %q, rendered: %s", want, pickerRow(broken, "catalog-category unavailable"))
+		t.Errorf("unrunnable card must carry its reason %q, rendered: %s", want, pickerRow(broken, "create-card-unavailable"))
 	}
 	if strings.Contains(broken, "No published categories") {
 		t.Error("the empty state must not claim nothing is published while a published category is on screen")
@@ -119,11 +123,11 @@ func TestCatalogUnavailableCategoryStaysVisibleAndExplainsItself(t *testing.T) {
 	// Search reaches the same fact through the same summary, so the result must
 	// not offer a dead end either.
 	searched := catalogPickerPage(t, h, mux, "q=Onboarding")
-	if !strings.Contains(searched, `class="catalog-result unavailable"`) {
-		t.Error("a search result for an unrunnable category must carry the unavailable state")
+	if !strings.Contains(searched, `class="create-card create-card-unavailable"`) {
+		t.Error("a searched card for an unrunnable category must carry the unavailable state")
 	}
 	if want := "Can't run · Support has no active members"; !strings.Contains(searched, want) {
-		t.Errorf("search result must carry its reason %q, rendered: %s", want, pickerRow(searched, "catalog-result unavailable"))
+		t.Errorf("a searched card must carry its reason %q, rendered: %s", want, pickerRow(searched, "create-card-unavailable"))
 	}
 	if strings.Contains(searched, categoryRef) {
 		t.Error("a search result for an unrunnable category must not be a link")
@@ -169,6 +173,7 @@ func TestCatalogPickerIsReachableByAPlainRequester(t *testing.T) {
 		t.Fatal("requester login returned no session cookie")
 	}
 
+	setCreationMode(t, h, application.TicketCreationTwoStep)
 	req := httptest.NewRequest(http.MethodGet, "/tickets/new", nil)
 	req.Header.Set("Cookie", sessionCookie+"="+cookie)
 	rec := httptest.NewRecorder()
@@ -207,11 +212,11 @@ func TestCatalogUnpublishedCategoryStaysAbsent(t *testing.T) {
 		t.Fatalf("save draft: %v", err)
 	}
 
-	body := catalogPickerPage(t, h, mux, "department_id="+strconv.FormatInt(department.ID, 10)+"&desk_id="+strconv.FormatInt(desk.ID, 10))
+	body := catalogPickerPage(t, h, mux, "")
 	if strings.Contains(body, "Refunds") {
 		t.Error("a category with no published version must stay out of the picker")
 	}
-	if !strings.Contains(body, "No published categories") {
-		t.Error("a desk with nothing published must still show the empty state")
+	if !strings.Contains(body, `class="create-card" href="/tickets/new?category_id=`) {
+		t.Error("the catalog must still offer the published categories")
 	}
 }

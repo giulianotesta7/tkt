@@ -40,6 +40,12 @@ const settingsKeyInternalCommentBg = "internal_comment_bg"
 // and the key/value table needs no new column or migration.
 const settingsKeyInterfaceLanguage = "interface_language"
 
+// settingsKeyTicketCreationMode is the settings row key for the instance ticket
+// creation flow (issue #391, S1). Like the interface language it is never
+// seeded: an absent row reads back DefaultTicketCreationMode, so the default is
+// true without a stored row and the key/value table needs no migration.
+const settingsKeyTicketCreationMode = "ticket_creation_mode"
+
 // SLA settings row keys (migration 0014, issue #211).
 const (
 	settingsKeySLAEnabled        = "sla_enabled"
@@ -143,8 +149,52 @@ func isShippedInterfaceLanguage(code string) bool {
 	return false
 }
 
-// GetSLAEnabled reports whether the per-category SLA is enabled. The row
-// stores '0'/'1' text; an absent or unparseable value falls back to
+// GetTicketCreationMode returns the instance ticket creation flow (issue #391,
+// S1). An absent, empty, or unknown value answers DefaultTicketCreationMode, so
+// the read never fails for configuration reasons and always answers a flow the
+// binary implements — the same degradation the interface-language read uses for
+// a hand-edited database.
+func (ss *settingsStore) GetTicketCreationMode(ctx context.Context) (string, error) {
+	value, err := ss.settingValue(ctx, settingsKeyTicketCreationMode)
+	if err != nil {
+		return "", err
+	}
+	if !isShippedTicketCreationMode(value) {
+		return application.DefaultTicketCreationMode, nil
+	}
+	return value, nil
+}
+
+// SetTicketCreationMode upserts the ticket-creation-mode row. A mode no surface
+// implements is refused rather than persisted: this is the layer the NEXT read
+// will answer from, so accepting it would leave the instance declaring a flow it
+// cannot render while both the write and the read reported success.
+func (ss *settingsStore) SetTicketCreationMode(ctx context.Context, mode string) error {
+	if !isShippedTicketCreationMode(mode) {
+		return fmt.Errorf("sqlite: set %s: unsupported mode %q", settingsKeyTicketCreationMode, mode)
+	}
+	_, err := ss.db.ExecContext(ctx, `
+		INSERT INTO settings (key, value) VALUES (?, ?)
+		ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+		settingsKeyTicketCreationMode, mode)
+	if err != nil {
+		return fmt.Errorf("sqlite: set %s: %w", settingsKeyTicketCreationMode, err)
+	}
+	return nil
+}
+
+// isShippedTicketCreationMode reports whether mode is one of the creation flows
+// an administrator may select (application.AllowedTicketCreationModes).
+func isShippedTicketCreationMode(mode string) bool {
+	for _, allowed := range application.AllowedTicketCreationModes() {
+		if mode == allowed {
+			return true
+		}
+	}
+	return false
+}
+
+// GetSLAEnabled reports whether the per-category SLA is enabled. The row// stores '0'/'1' text; an absent or unparseable value falls back to
 // disabled (fail-safe: enabling is an explicit admin action).
 func (ss *settingsStore) GetSLAEnabled(ctx context.Context) (bool, error) {
 	var value string

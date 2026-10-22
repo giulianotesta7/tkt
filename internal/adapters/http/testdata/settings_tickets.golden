@@ -129,6 +129,16 @@
         <button class="btn" type="reset">Discard</button>
       </div>
     </form>
+    <form class="settings-form card form-card" method="post" action="/settings/ticket-creation" data-settings-form>
+      <h3 class="settings-group-title">Ticket creation</h3>
+      <fieldset class="settings-choice-group">
+        <legend class="field-label">How the category is chosen</legend>
+      </fieldset>
+      <div class="settings-savebar" data-settings-savebar hidden>
+        <button class="btn primary" type="submit">Save creation flow</button>
+        <button class="btn" type="reset">Discard</button>
+      </div>
+    </form>
     <form class="settings-form card form-card" method="post" action="/settings/sla" data-settings-form>
       <h3 class="settings-group-title">Service level agreements (SLA)</h3>
       <p class="help">Defaults for new categories. Editing them does not change existing categories.</p>

@@ -92,6 +92,25 @@ func themeFrom(ctx context.Context) string {
 	return theme
 }
 
+// ctxKeyTicketCreationMode carries the instance ticket creation flow read once
+// per authenticated request (issue #391, S1). Stamping it here is what lets the
+// create route render the form or the service catalog without a second settings
+// read, and keeps the GET that renders a form and the POST that re-renders it
+// after a refused submission answering the SAME mode.
+type ctxKeyTicketCreationMode struct{}
+
+// ticketCreationModeFrom returns the creation flow stamped by the middleware, or
+// the documented default when nothing was stamped: an auth page, a handler used
+// in isolation, or a request whose settings read failed all create on one page,
+// which is the default L2 chose.
+func ticketCreationModeFrom(ctx context.Context) string {
+	mode, _ := ctx.Value(ctxKeyTicketCreationMode{}).(string)
+	if mode == "" {
+		return application.DefaultTicketCreationMode
+	}
+	return mode
+}
+
 const (
 	// interfaceLanguageReadTimeout bounds ONE settings read (R4-001): the
 	// instance language is a single indexed row, so a read that has not
@@ -442,6 +461,14 @@ func (m *SessionMiddleware) Wrap(next http.Handler) http.Handler {
 			httpError(w, r, "error.internal_server", http.StatusInternalServerError)
 			return
 		}
+		// Issue #391: the instance ticket creation flow is read from the SAME
+		// store on the same request and stamped once. It is normalized by the
+		// store, so every reader answers a flow the binary implements.
+		creationMode, err := m.settings.GetTicketCreationMode(r.Context())
+		if err != nil {
+			httpError(w, r, "error.internal_server", http.StatusInternalServerError)
+			return
+		}
 		// Issue #377: the user's sidebar state is read ONCE here and stamped on
 		// the request, so every page render answers the stored state without a
 		// second preferences read. A failing read is NOT fatal — the request
@@ -476,6 +503,7 @@ func (m *SessionMiddleware) Wrap(next http.Handler) http.Handler {
 		}
 		ctx := context.WithValue(r.Context(), ctxKeyUser{}, user)
 		ctx = context.WithValue(ctx, ctxKeyInternalCommentBg{}, bg)
+		ctx = context.WithValue(ctx, ctxKeyTicketCreationMode{}, creationMode)
 		ctx = context.WithValue(ctx, ctxKeySidebarCollapsed{}, sidebar)
 		ctx = context.WithValue(ctx, ctxKeyTheme{}, theme)
 		next.ServeHTTP(w, r.WithContext(ctx))

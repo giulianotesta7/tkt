@@ -172,8 +172,13 @@ type pageData struct {
 	// the phone fold of the properties panel. It is set only where the detail
 	// page is built, so no other surface downloads it.
 	TicketDetailAssets bool
-	InternalCommentBg  string
-	SaveFeedback       saveFeedbackData
+	// CreateAssets loads the ticket-creation script (issue #391): the category
+	// picker that enhances the native select into a searchable, grouped listbox,
+	// and the service catalog's live card filter. It is set only on the two
+	// creation surfaces, so no other page downloads it.
+	CreateAssets      bool
+	InternalCommentBg string
+	SaveFeedback      saveFeedbackData
 	// SidebarCollapsed is the session user's stored sidebar state (issue #377,
 	// S2), stamped once per request by the session middleware. The shell
 	// renders it on the first paint, so a collapsed sidebar never flashes
@@ -1013,10 +1018,26 @@ type ticketFormData struct {
 	Options options
 	// CategoryOffers is the create form's OWN category list; the create template
 	// reads this and never Options.Categories. It carries the same viability
-	// facts the picker shows (Unavailable + Reason) so the fallback select can
-	// render an unrunnable category as a disabled option instead of offering it.
+	// facts the picker shows (Unavailable + Reason) so a native select can render
+	// an unrunnable category as a disabled option instead of offering it.
 	CategoryOffers []catalogCategoryEntry
-	Selected       *domain.CatalogCategory
+	// CategoryGroups is the same offer set grouped one entry per
+	// "Department › Desk" (issue #391, S3), which is the shape the picker's
+	// <optgroup> headings read.
+	CategoryGroups []catalogCategoryGroup
+	// Selected is the category the request fixed when the catalog could resolve
+	// it. Two-step mode renders it read-only with a Change link; single-page mode
+	// only uses it to mark the option, so a handler built without the catalog
+	// service still preselects from Values.CategoryID alone.
+	Selected *domain.CatalogCategory
+	// CategoryFixed turns the category into a fixed value with a Change link
+	// instead of a picker. It is true only in two-step mode with a resolved
+	// category: that is the form a catalog card opens.
+	CategoryFixed bool
+	// CatalogHref is the URL the two-step form's Change link returns to. It is
+	// empty in single-page mode, where the category is editable in place and
+	// there is nothing to go back to.
+	CatalogHref string
 }
 
 type ticketFormValues struct {
@@ -1028,7 +1049,13 @@ type ticketFormValues struct {
 }
 
 func (h *TicketHandlers) newForm(w http.ResponseWriter, r *http.Request) {
-	if h.catalog != nil && r.URL.Query().Get("category_id") == "" {
+	// Issue #391, S1: the instance setting decides how the category is reached,
+	// not what the form is. Two-step mode opens on the service catalog; every
+	// other request — and every request in single-page mode — renders the shared
+	// form, which preselects ?category_id so existing links keep working (S5).
+	mode := ticketCreationModeFrom(r.Context())
+	categoryID := parseID(r.URL.Query().Get("category_id"))
+	if mode == application.TicketCreationTwoStep && categoryID == 0 && h.catalog != nil {
 		h.renderCatalog(w, r)
 		return
 	}
@@ -1039,24 +1066,44 @@ func (h *TicketHandlers) newForm(w http.ResponseWriter, r *http.Request) {
 	}
 	page := pageDataFrom(r, "tickets")
 	page.PageFoundationAssets = true
+	page.CreateAssets = true
 	data := ticketFormData{
 		pageData:       page,
 		Values:         ticketFormValues{Priority: domain.PriorityMedium},
 		Options:        opts,
 		CategoryOffers: offers,
+		CategoryGroups: groupCatalogCategories(offers),
 	}
-	if h.catalog != nil {
-		data.Values.CategoryID = r.URL.Query().Get("category_id")
-		if id := parseID(data.Values.CategoryID); id != 0 {
-			selected, findErr := h.catalog.FindCategory(r.Context(), id, h.workflows)
-			if findErr != nil {
-				http.Error(w, mapErrorMsg(r, findErr), statusFor(findErr))
-				return
-			}
-			data.Selected = selected
+	data.Values.CategoryID = r.URL.Query().Get("category_id")
+	if id := parseID(data.Values.CategoryID); id != 0 {
+		selected, ok := h.selectCategory(r, w, id)
+		if !ok {
+			return
 		}
+		data.Selected = selected
+	}
+	data.CategoryFixed = mode == application.TicketCreationTwoStep && data.Selected != nil
+	if data.CategoryFixed {
+		data.CatalogHref = "/tickets/new"
 	}
 	h.renderer.Render(w, r, "tickets_new", "ticket_form", data, http.StatusOK)
+}
+
+// selectCategory resolves a fixed category for the form. The catalog is the
+// authority (it refuses an unpublished category, which answers 404 through the
+// response writer), and a handler built without it answers (nil, true): the
+// picker then marks the option from the posted value, so the same request still
+// renders a usable form.
+func (h *TicketHandlers) selectCategory(r *http.Request, w http.ResponseWriter, id int64) (*domain.CatalogCategory, bool) {
+	if h.catalog == nil {
+		return nil, true
+	}
+	selected, err := h.catalog.FindCategory(r.Context(), id, h.workflows)
+	if err != nil {
+		http.Error(w, mapErrorMsg(r, err), statusFor(err))
+		return nil, false
+	}
+	return selected, true
 }
 
 // catalogCategoryEntry is one row of the requester's category picker.
@@ -1117,137 +1164,187 @@ func offerRunnableCategories(in []domain.CatalogCategory, summary map[int64]appl
 	return out
 }
 
-type catalogPageData struct {
-	pageData
-	Departments  []domain.CatalogDepartment
-	Desks        []domain.CatalogDesk
-	Categories   []catalogCategoryEntry
-	Results      []catalogCategoryEntry
-	Query        string
-	DepartmentID int64
-	DeskID       int64
-	Breadcrumb   string
-	MobileStep   string
+// createCatalogCard is one category card of the two-step service catalog
+// (issue #391, S4): the category's name, the desk that holds it as the caption,
+// and — for a published category that cannot run — the reason it is disabled.
+type createCatalogCard struct {
+	catalogCategoryEntry
+	// Hidden marks a card the server-side ?q search filtered out. It is
+	// rendered with the hidden attribute so the no-script path shows only the
+	// matches, while the browser applies exactly the same rule live.
+	Hidden bool
 }
 
+// createCatalogSection is one department of the catalog with its cards.
+type createCatalogSection struct {
+	ID     int64
+	Name   string
+	Hidden bool
+	Cards  []createCatalogCard
+}
+
+// catalogPageData is the two-step catalog payload.
+type catalogPageData struct {
+	pageData
+	Query    string
+	Sections []createCatalogSection
+	// NoMatch reports a query no card matches, so the page states that instead
+	// of rendering an empty catalog.
+	NoMatch bool
+}
+
+// catalogMatches is the ONE search rule the server and the browser apply
+// (issue #391, S4): a card matches when the query appears in the category, its
+// desk, or its department name. It is case-insensitive and trims the query, so
+// typing with a stray space never empties the catalog.
+func catalogMatches(query, category, desk, department string) bool {
+	q := strings.ToLower(strings.TrimSpace(query))
+	if q == "" {
+		return true
+	}
+	for _, value := range []string{category, desk, department} {
+		if strings.Contains(strings.ToLower(value), q) {
+			return true
+		}
+	}
+	return false
+}
+
+// catalogSections groups the choosable categories into one section per
+// department, in catalog order (department, desk, category, as the projection
+// answers them), marking the cards and sections a query filters out.
+func catalogSections(offers []catalogCategoryEntry, query string) ([]createCatalogSection, bool) {
+	sections := make([]createCatalogSection, 0, 4)
+	index := make(map[int64]int, 4)
+	matches := false
+	for _, offer := range offers {
+		i, ok := index[offer.DepartmentID]
+		if !ok {
+			index[offer.DepartmentID] = len(sections)
+			sections = append(sections, createCatalogSection{ID: offer.DepartmentID, Name: offer.DepartmentName, Hidden: true})
+			i = len(sections) - 1
+		}
+		hit := catalogMatches(query, offer.Name, offer.DeskName, offer.DepartmentName)
+		section := &sections[i]
+		section.Cards = append(section.Cards, createCatalogCard{catalogCategoryEntry: offer, Hidden: !hit})
+		if hit {
+			section.Hidden = false
+			matches = true
+		}
+	}
+	return sections, matches
+}
+
+// renderCatalog renders the two-step service catalog (issue #391, S4): a search
+// box, then one section per department holding category cards. A card links to
+// the shared form with its category, and a published category that cannot run
+// stays visible, disabled, with its reason — the same rule the picker applies.
 func (h *TicketHandlers) renderCatalog(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
-	departments, err := h.catalog.ListDepartments(ctx)
+	offers, err := h.choosableCategories(r, nil)
 	if err != nil {
 		httpError(w, r, "error.internal_server", http.StatusInternalServerError)
 		return
 	}
-	q := strings.TrimSpace(r.URL.Query().Get("q"))
-	departmentID, _ := strconv.ParseInt(r.URL.Query().Get("department_id"), 10, 64)
-	deskID, _ := strconv.ParseInt(r.URL.Query().Get("desk_id"), 10, 64)
-	if departmentID != 0 {
-		found := false
-		for _, department := range departments {
-			if department.ID == departmentID {
-				found = true
-				break
-			}
-		}
-		if !found {
-			departmentID = 0
-		}
+	query := strings.TrimSpace(r.URL.Query().Get("q"))
+	sections, matches := catalogSections(offers, query)
+	page := pageDataFrom(r, "tickets")
+	// The catalog is a creation surface: it carries the same page foundation
+	// (and therefore the same stylesheet) the form does, because the cards and
+	// the search are built from the shared control and shell rungs.
+	page.PageFoundationAssets = true
+	page.CreateAssets = true
+	data := catalogPageData{
+		pageData: page,
+		Query:    query,
+		Sections: sections,
+		NoMatch:  query != "" && !matches,
 	}
-	if departmentID == 0 && len(departments) > 0 {
-		departmentID = departments[0].ID
-	}
-	desks, err := h.catalog.ListDesks(ctx, departmentID)
-	if err != nil {
-		httpError(w, r, "error.internal_server", http.StatusInternalServerError)
-		return
-	}
-	if deskID != 0 {
-		found := false
-		for _, a := range desks {
-			if a.ID == deskID {
-				found = true
-				break
-			}
-		}
-		if !found {
-			deskID = 0
-		}
-	}
-	if deskID == 0 && len(desks) > 0 {
-		deskID = desks[0].ID
-	}
-	catalogCategories, err := h.catalog.ListCategories(ctx, deskID)
-	if err != nil {
-		httpError(w, r, "error.internal_server", http.StatusInternalServerError)
-		return
-	}
-	// The picker composes the same WorkflowSummary the categories screen does,
-	// instead of a second viability path: one truth, every surface. It reads the
-	// requester-safe entry point, because this page is open to a plain requester
-	// and the admin-gated ListSummaries would refuse them the whole screen.
-	summaries, err := h.workflows.ListRequesterSummaries(ctx)
-	if err != nil {
-		httpError(w, r, "error.internal_server", http.StatusInternalServerError)
-		return
-	}
-	summary := requesterSummaryIndex(summaries)
-	categories := offerRunnableCategories(catalogCategories, summary)
-	var results []catalogCategoryEntry
-	if q != "" {
-		found, err := h.catalog.Search(ctx, q)
-		if err != nil {
-			httpError(w, r, "error.internal_server", http.StatusInternalServerError)
-			return
-		}
-		results = offerRunnableCategories(found, summary)
-	}
-	breadcrumb := ""
-	for _, d := range departments {
-		if d.ID == departmentID {
-			breadcrumb = d.Name
-			break
-		}
-	}
-	for _, a := range desks {
-		if a.ID == deskID {
-			if breadcrumb != "" {
-				breadcrumb += " / "
-			}
-			breadcrumb += a.Name
-			break
-		}
-	}
-	step := "departments"
-	if r.URL.Query().Get("department_id") != "" && departmentID != 0 {
-		step = "desks"
-	}
-	if r.URL.Query().Get("desk_id") != "" && deskID != 0 {
-		step = "categories"
-	}
-	data := catalogPageData{pageData: pageDataFrom(r, "tickets"), Departments: departments, Desks: desks, Categories: categories, Results: results, Query: q, DepartmentID: departmentID, DeskID: deskID, Breadcrumb: breadcrumb, MobileStep: step}
 	h.renderer.Render(w, r, "tickets_catalog", "ticket_catalog", data, http.StatusOK)
 }
 
+// catalogCategories lists every category the catalog knows, with the desk and
+// department that hold it, in catalog order. It reads the same projection the
+// search does, because the picker and the catalog need the names that make
+// their groups, not just the ids.
+func (h *TicketHandlers) catalogCategories(r *http.Request, fallback []domain.Category) ([]domain.CatalogCategory, error) {
+	if h.catalog != nil {
+		return h.catalog.ListAllCategories(r.Context())
+	}
+	return asCatalogCategories(fallback), nil
+}
+
+// choosableCategories is the ONE requester-facing offer set every create surface
+// reads (issue #391, S3/S4/S5): the catalog projection, filtered through the same
+// viability predicate the picker has always used (offerRunnableCategories over
+// ListRequesterSummaries). Unpublished categories are absent, a runnable one is
+// offered, and a published one that cannot run is offered as a disabled choice
+// with its reason. fallback carries the plain category rows a handler built
+// without the catalog service can still offer.
+func (h *TicketHandlers) choosableCategories(r *http.Request, fallback []domain.Category) ([]catalogCategoryEntry, error) {
+	categories, err := h.catalogCategories(r, fallback)
+	if err != nil {
+		return nil, err
+	}
+	summaries, err := h.workflows.ListRequesterSummaries(r.Context())
+	if err != nil {
+		return nil, err
+	}
+	return offerRunnableCategories(categories, requesterSummaryIndex(summaries)), nil
+}
+
+// catalogCategoryGroup is one optgroup of the create form's category picker
+// (issue #391, S3): the "Department › Desk" its categories belong to.
+type catalogCategoryGroup struct {
+	Label   string
+	Options []catalogCategoryEntry
+}
+
+// groupCatalogCategories groups the offers by the desk that holds them, keeping
+// the catalog's order so the picker reads like the service catalog. A category
+// with no desk name (a handler built without the catalog service) lands in one
+// unlabelled group, which the picker renders as a plain list.
+func groupCatalogCategories(offers []catalogCategoryEntry) []catalogCategoryGroup {
+	groups := make([]catalogCategoryGroup, 0, len(offers))
+	index := make(map[string]int, len(offers))
+	for _, offer := range offers {
+		label := offer.DepartmentName
+		if offer.DeskName != "" {
+			if label != "" {
+				label += " › "
+			}
+			label += offer.DeskName
+		}
+		i, ok := index[label]
+		if !ok {
+			index[label] = len(groups)
+			groups = append(groups, catalogCategoryGroup{Label: label})
+			i = len(groups) - 1
+		}
+		groups[i].Options = append(groups[i].Options, offer)
+	}
+	return groups
+}
+
 // createOptions builds the create-form option lists. The category list comes
-// from the SAME requester-safe predicate the picker uses
-// (offerRunnableCategories over ListRequesterSummaries), never a second rule:
-// the picker and this select must agree about which categories are choosable.
+// from the SAME requester-safe predicate the catalog renders
+// (choosableCategories), never a second rule: the picker, the catalog and the
+// create guard can never disagree about which categories are choosable.
 // Unpublished/draft-only categories are absent for every role; legacy and
 // historical tickets remain filterable on the list screen because listData
-// keeps using collectOptions (all categories). The create template reads the
-// returned offers, not opts.Categories: collectOptions still fills that field
-// for the shared list-filter template, and no create-page surface renders it.
-// The POST path repeats the availability check and still answers the exact 422
-// category message.
+// keeps using collectOptions (all categories). The POST path repeats the
+// availability check and still answers the exact 422 category message.
 func (h *TicketHandlers) createOptions(r *http.Request) (options, []catalogCategoryEntry, error) {
 	opts, err := h.collectOptions(r)
 	if err != nil {
 		return options{}, nil, err
 	}
-	summaries, err := h.workflows.ListRequesterSummaries(r.Context())
+	offers, err := h.choosableCategories(r, opts.Categories)
 	if err != nil {
 		return options{}, nil, err
 	}
-	offers := offerRunnableCategories(asCatalogCategories(opts.Categories), requesterSummaryIndex(summaries))
+	// The create page reads the offers, never Options.Categories: the filter
+	// form on the list screen still carries that list.
+	opts.Categories = nil
 	return opts, offers, nil
 }
 
@@ -1345,6 +1442,7 @@ func (h *TicketHandlers) renderCreateError(w http.ResponseWriter, r *http.Reques
 	}
 	page := pageDataFrom(r, "tickets")
 	page.PageFoundationAssets = true
+	page.CreateAssets = true
 	data := ticketFormData{
 		pageData: page,
 		Error:    msg,
@@ -1356,16 +1454,22 @@ func (h *TicketHandlers) renderCreateError(w http.ResponseWriter, r *http.Reques
 		},
 		Options:        opts,
 		CategoryOffers: offers,
+		CategoryGroups: groupCatalogCategories(offers),
 	}
-	if h.catalog != nil {
-		if id := parseID(data.Values.CategoryID); id != 0 {
-			selected, findErr := h.catalog.FindCategory(r.Context(), id, h.workflows)
-			if findErr != nil {
-				http.Error(w, mapErrorMsg(r, findErr), statusFor(findErr))
-				return
-			}
-			data.Selected = selected
+	// Issue #391, S6: the re-render keeps every submitted value INCLUDING the
+	// category, and answers in the SAME mode the form was served in — a refused
+	// submission must never move the requester to the other flow.
+	mode := ticketCreationModeFrom(r.Context())
+	if id := parseID(data.Values.CategoryID); id != 0 {
+		selected, ok := h.selectCategory(r, w, id)
+		if !ok {
+			return
 		}
+		data.Selected = selected
+	}
+	data.CategoryFixed = mode == application.TicketCreationTwoStep && data.Selected != nil
+	if data.CategoryFixed {
+		data.CatalogHref = "/tickets/new"
 	}
 	_ = field // the inline banner is a single generic error block
 	h.renderer.Render(w, r, "tickets_new", "ticket_form", data, status)

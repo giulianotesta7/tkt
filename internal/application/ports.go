@@ -1100,6 +1100,19 @@ type SettingsStore interface {
 	// existing value is left alone, so enabling twice does not move it, and
 	// disabling never erases it.
 	SetSLAEnabledState(ctx context.Context, enabled bool, at time.Time) error
+	// GetTicketCreationMode returns the instance's ticket creation flow (issue
+	// #391, S1), or DefaultTicketCreationMode when the row is absent or holds a
+	// value no surface implements. Like the interface-language read it never
+	// fails for configuration reasons: it always answers a flow the binary can
+	// render, so a hand-edited database degrades to the default instead of
+	// dropping the create screen.
+	GetTicketCreationMode(ctx context.Context) (string, error)
+	// SetTicketCreationMode persists the instance ticket creation flow. The
+	// application service validates the value against
+	// AllowedTicketCreationModes before this call; the store refuses an
+	// unsupported mode rather than persisting a flow the binary cannot render,
+	// because this is the layer the next read will answer from.
+	SetTicketCreationMode(ctx context.Context, mode string) error
 	// SetSLAConfiguration writes the WHOLE instance SLA panel — the enable
 	// flag and its first-enable activation instant, the warning percent, and
 	// all four default targets — in ONE transaction.

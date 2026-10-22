@@ -38,6 +38,16 @@ func (s *CatalogService) ListCategories(ctx context.Context, deskID int64) ([]do
 	return s.catalog.ListCatalogCategories(ctx, deskID)
 }
 
+// ListAllCategories lists every category with the desk and department that hold
+// it, in catalog order (department, desk, category). The create surfaces need
+// the desk and department NAMES, not just the ids, to group a picker by
+// "Department › Desk" and to caption a catalog card with its desk (issue #391).
+// It reads the same projection the search uses with an empty query, so there is
+// no second definition of "the catalog's categories".
+func (s *CatalogService) ListAllCategories(ctx context.Context) ([]domain.CatalogCategory, error) {
+	return s.catalog.SearchCatalog(ctx, "")
+}
+
 // ListTreeDesks is the catalog tree's desk projection: every desk with its
 // department, category, agent and open-ticket counts in one read. A store that
 // cannot answer it reports that plainly instead of pretending the installation

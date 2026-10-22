@@ -26,6 +26,20 @@
         <button class="btn" type="reset">{{t "settings.discard"}}</button>
       </div>
     </form>
+    <form class="settings-form card form-card" method="post" action="/settings/ticket-creation" data-settings-form>
+      <h3 class="settings-group-title">{{t "settings.ticket_creation.title"}}</h3>
+      <fieldset class="settings-choice-group">
+        <legend class="field-label">{{t "settings.ticket_creation.label"}}</legend>
+{{range .CreationModes}}        <label class="settings-choice">
+          <input type="radio" name="ticket_creation_mode" value="{{.Value}}"{{if eq $.CreationMode .Value}} checked{{end}}>
+          <span class="settings-choice-label">{{t .Label}}</span>
+        </label>
+{{end}}      </fieldset>
+      <div class="settings-savebar" data-settings-savebar hidden>
+        <button class="btn primary" type="submit">{{t "settings.ticket_creation.save"}}</button>
+        <button class="btn" type="reset">{{t "settings.discard"}}</button>
+      </div>
+    </form>
     <form class="settings-form card form-card" method="post" action="/settings/sla" data-settings-form>
       <h3 class="settings-group-title">{{t "settings.sla.title"}}</h3>
       <p class="help">{{t "settings.sla.help"}}</p>

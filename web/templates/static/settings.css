@@ -92,6 +92,19 @@
   display: none;
 }
 
+/* Without a script nothing reveals the bar, and a section whose submit control
+   is hidden cannot be saved at all. The reveal is a progressive enhancement, so
+   with scripting off the bar simply renders — the same rule the ticket detail's
+   listboxes follow. Django/Go templates drop <noscript><style>, so this is the
+   media query that expresses it.
+   Issue #391 needed it: the creation-flow choice is an instance setting, and an
+   instance configured to two steps must still be able to go back. */
+@media (scripting: none) {
+  .settings-savebar[hidden] {
+    display: flex;
+  }
+}
+
 .settings-logo {
   display: flex;
   align-items: center;
@@ -165,6 +178,56 @@
   font-size: 13px;
   font-weight: 600;
   color: var(--ink-strong);
+}
+
+/* Ticket creation (issue #391, S1): a closed set of two flows, offered as
+   radios. A fieldset is the honest grouping: the labels are one choice, not two
+   unrelated switches. Same 8px control radius and neutral rungs as every other
+   control, so the choice reads as a control and not as chrome. */
+.settings-choice-group {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.settings-choice-group .field-label {
+  padding: 0;
+  margin-bottom: 2px;
+  color: var(--ink-soft);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.settings-choice {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 32px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--ink);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.settings-choice:hover {
+  background: var(--hover);
+}
+
+.settings-choice:has(input:checked) {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.settings-choice input {
+  margin: 0;
+}
+
+.settings-choice-label {
+  min-width: 0;
 }
 
 /* Sign-in page section (issue #383, S10): the form on the left and the live

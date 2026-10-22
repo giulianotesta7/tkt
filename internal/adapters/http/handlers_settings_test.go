@@ -269,11 +269,12 @@ func TestSettingsSaveBarNamesItsSection(t *testing.T) {
 			t.Errorf("GET %s must offer a discard control beside its save, got: %s", tc.path, body)
 		}
 	}
-	// The tickets section owns three forms (appearance, SLA, automatic hold
-	// close), so it owes three bars: one per form, each naming its own save.
+	// The tickets section owns four forms (appearance, creation flow, SLA,
+	// automatic hold close), so it owes four bars: one per form, each naming its
+	// own save.
 	tickets := sectionGet(t, h, "/settings/tickets")
-	if got := strings.Count(tickets, `data-settings-savebar hidden`); got != 3 {
-		t.Errorf("the tickets section renders %d save bars, want one per form (3)", got)
+	if got := strings.Count(tickets, `data-settings-savebar hidden`); got != 4 {
+		t.Errorf("the tickets section renders %d save bars, want one per form (4)", got)
 	}
 }
 
