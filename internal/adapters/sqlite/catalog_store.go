@@ -143,6 +143,77 @@ func scanCatalogCategories(rows *sql.Rows) ([]domain.CatalogCategory, error) {
 
 func parseCatalogTime(value string) (time.Time, error) { return time.Parse(timeLayout, value) }
 
+func (cs *catalogStore) ListTreeDesks(ctx context.Context) ([]domain.CatalogDesk, error) {
+	// One read for the whole page (issue #387, S8): the index used to call
+	// ListDesks once per department and still had no agent or open-ticket count.
+	// Agent counting reuses the publish gate's predicate (deskActiveAgentCount),
+	// and "open" reuses the workflow summary's: not closed, not cancelled.
+	rows, err := cs.db.QueryContext(ctx, `SELECT ds.id, ds.name, ds.description, ds.department_id, ds.created_at,
+		COUNT(DISTINCT c.id), COALESCE(d.name, 'Unassigned'),
+		COUNT(DISTINCT CASE WHEN cw.current_version_id IS NOT NULL THEN c.id END),
+		`+deskActiveAgentCount+`,
+		(SELECT COUNT(*) FROM tickets t JOIN categories tc ON tc.id=t.category_id
+		  WHERE tc.desk_id=ds.id AND t.state IN ('new','in_progress','resolved'))
+		FROM desks ds LEFT JOIN departments d ON d.id=ds.department_id
+		LEFT JOIN categories c ON c.desk_id=ds.id
+		LEFT JOIN category_workflows cw ON cw.category_id=c.id
+		GROUP BY ds.id ORDER BY ds.name COLLATE NOCASE, ds.id`)
+	if err != nil {
+		return nil, fmt.Errorf("sqlite: list tree desks: %w", err)
+	}
+	defer rows.Close()
+	var out []domain.CatalogDesk
+	for rows.Next() {
+		var d domain.CatalogDesk
+		var departmentID sql.NullInt64
+		var created string
+		if err := rows.Scan(&d.ID, &d.Name, &d.Description, &departmentID, &created, &d.CategoryCount,
+			&d.DepartmentName, &d.OfferedCategoryCount, &d.AgentCount, &d.OpenTickets); err != nil {
+			return nil, err
+		}
+		if departmentID.Valid {
+			d.Desk.DepartmentID = &departmentID.Int64
+			d.DepartmentID = departmentID.Int64
+		}
+		var parseErr error
+		d.CreatedAt, parseErr = parseCatalogTime(created)
+		if parseErr != nil {
+			return nil, parseErr
+		}
+		out = append(out, d)
+	}
+	return out, rows.Err()
+}
+
+func (cs *catalogStore) ListDefaultSLACategories(ctx context.Context) ([]int64, error) {
+	// A category matches the defaults when its materialized matrix has exactly the
+	// current default priorities and none of them differs. The comparison reads
+	// the CURRENT sla_defaults rows, so an admin who moves the defaults turns every
+	// untouched category back to Custom with no row rewritten (migration 0016
+	// materializes at creation time only).
+	rows, err := cs.db.QueryContext(ctx, `
+		SELECT p.category_id
+		  FROM sla_policies p JOIN sla_defaults d ON d.priority = p.priority
+		 GROUP BY p.category_id
+		HAVING COUNT(*) = (SELECT COUNT(*) FROM sla_defaults)
+		   AND SUM(CASE WHEN p.first_response_seconds = d.first_response_seconds
+		                 AND p.resolve_seconds = d.resolve_seconds THEN 0 ELSE 1 END) = 0
+		 ORDER BY p.category_id`)
+	if err != nil {
+		return nil, fmt.Errorf("sqlite: list default sla categories: %w", err)
+	}
+	defer rows.Close()
+	var out []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		out = append(out, id)
+	}
+	return out, rows.Err()
+}
+
 func (cs *catalogStore) CreateDepartment(ctx context.Context, d *domain.Department) error {
 	res, err := cs.db.ExecContext(ctx, `INSERT INTO departments(name, description, created_at) VALUES(?,?,?)`, d.Name, d.Description, formatTime(d.CreatedAt))
 	if err != nil {

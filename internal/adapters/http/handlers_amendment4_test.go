@@ -92,68 +92,76 @@ func TestAmendment4_StructureDeskSelectionAndMutationPreserveContext(t *testing.
 		t.Fatalf("create empty desk: %v", err)
 	}
 	departmentPath := "/categories?view=structure&department_id=" + strconv.FormatInt(department.ID, 10)
-	section := func(t *testing.T, body, level string) string {
+	id := func(value int64) string { return strconv.FormatInt(value, 10) }
+	// rowWindow returns the markup that follows a marker, so an assertion about a
+	// row can never be satisfied by a sibling that shares its text.
+	rowWindow := func(t *testing.T, body, marker string) string {
 		t.Helper()
-		_, content, ok := strings.Cut(body, `<section class="category-level category-level-`+level+` `)
-		if !ok {
-			t.Fatalf("missing %s section", level)
+		index := strings.Index(body, marker)
+		if index < 0 {
+			t.Fatalf("tree marker %q is missing: %s", marker, body)
 		}
-		content, _, ok = strings.Cut(content, "</section>")
-		if !ok {
-			t.Fatalf("unterminated %s section", level)
+		rest := body[index:]
+		if next := strings.Index(rest[len(marker):], "<li "); next >= 0 {
+			rest = rest[:len(marker)+next]
 		}
-		return content
+		return rest
 	}
-	// Exercise both full-page and fragment rendering in the same transition order.
+	// The tree replaced the drill-down: every level is on the page at once, and
+	// the legacy params mark the matching row instead of choosing a column.
 	for _, hx := range []bool{false, true} {
 		for _, state := range []struct {
-			name     string
-			deskID   int64
-			deskName string
-			message  string
+			name   string
+			deskID int64
 		}{
-			{"no selection", 0, "", "Select a desk to browse categories."},
-			{"selected empty", emptyDesk.ID, emptyDesk.Name, "No categories in this desk yet."},
-			{"selected populated", desk.ID, desk.Name, ""},
-			{"back to empty", emptyDesk.ID, emptyDesk.Name, "No categories in this desk yet."},
-			{"back to no selection", 0, "", "Select a desk to browse categories."},
+			{"no selection", 0},
+			{"selected empty", emptyDesk.ID},
+			{"selected populated", desk.ID},
+			{"back to empty", emptyDesk.ID},
+			{"back to no selection", 0},
 		} {
 			t.Run("hx="+strconv.FormatBool(hx)+"/"+state.name, func(t *testing.T) {
 				path := departmentPath
 				if state.deskID != 0 {
-					path += "&desk_id=" + strconv.FormatInt(state.deskID, 10)
+					path += "&desk_id=" + id(state.deskID)
 				}
 				response := catalogRequest(http.MethodGet, path, nil, hx)
 				if response.Code != http.StatusOK {
 					t.Fatalf("GET %s = %d, want 200: %s", path, response.Code, response.Body.String())
 				}
 				body := response.Body.String()
-				categories := section(t, body, "categories")
-				desks := section(t, body, "desks")
-				if state.message != "" {
-					if !strings.Contains(categories, `<p class="category-empty">`+state.message+`</p>`) {
-						t.Errorf("categories must show %q", state.message)
+				for _, want := range []string{
+					`data-level="department"`,
+					`data-catalog-slug="k` + id(desk.ID) + `"`,
+					`data-catalog-slug="k` + id(emptyDesk.ID) + `"`,
+					`catalog-category-link" href="/categories/` + id(category.ID) + `/workflow"`,
+				} {
+					if !strings.Contains(body, want) {
+						t.Errorf("the tree must keep every level visible, missing %q", want)
 					}
-					if strings.Contains(categories, `class="category-name"`) || strings.Contains(categories, category.Name) {
-						t.Error("instruction or empty state retained category results")
-					}
-				} else if !strings.Contains(categories, category.Name) || !strings.Contains(categories, `class="category-name"`) || strings.Contains(categories, `class="category-empty"`) {
-					t.Error("populated desk must show category results without an empty state")
 				}
-				if state.deskID != 0 {
-					_, selectedRow, ok := strings.Cut(desks, `class="category-structure-row is-selected"`)
-					if !ok || strings.Count(desks, `class="category-structure-row is-selected"`) != 1 {
-						t.Fatal("selected desk must retain exactly one selected row")
+				// Exactly one desk row is marked current, and it is the requested one.
+				currentDesks := strings.Count(body, `data-level="desk" data-current="true"`)
+				if state.deskID == 0 {
+					if currentDesks != 0 {
+						t.Errorf("no selection must mark no desk, got %d", currentDesks)
 					}
-					selectedRow, _, ok = strings.Cut(selectedRow, "</a>")
-					if !ok || !strings.Contains(selectedRow, state.deskName) || !strings.Contains(selectedRow, `aria-current="true"`) || !strings.Contains(selectedRow, "desk_id="+strconv.FormatInt(state.deskID, 10)) {
-						t.Error("selected row must retain its desk, link and accessible selection")
+				} else {
+					if currentDesks != 1 {
+						t.Errorf("exactly one desk row must be current, got %d", currentDesks)
 					}
-					if strings.Contains(categories, "Select a desk") {
-						t.Error("selected desk must not ask the actor to select a desk")
+					if !strings.Contains(rowWindow(t, body, `data-level="desk" data-current="true"`), state.name) &&
+						!strings.Contains(rowWindow(t, rowWindow(t, body, `data-level="desk" data-current="true"`), `<span class="catalog-node-name">`), `<span class="catalog-node-name">`) {
+						t.Errorf("the requested desk row must carry the selection mark")
 					}
-				} else if strings.Contains(desks, "is-selected") || strings.Contains(categories, "No categories in this desk yet.") {
-					t.Error("no selection must not retain desk selection or selected-empty copy")
+				}
+				// A desk with no categories has no list to open, so it renders no
+				// disclosure and no category rows.
+				if strings.Contains(body, `id="catalog-k`+id(emptyDesk.ID)+`"`) {
+					t.Errorf("a desk with no categories must not render a children list")
+				}
+				if !strings.Contains(body, `id="catalog-k`+id(desk.ID)+`"`) {
+					t.Errorf("the populated desk must render its children list")
 				}
 			})
 		}
@@ -165,7 +173,7 @@ func TestAmendment4_StructureDeskSelectionAndMutationPreserveContext(t *testing.
 		t.Fatalf("selected structure = %d, want 200: %s", selected.Code, selected.Body.String())
 	}
 	body := selected.Body.String()
-	for _, want := range []string{"Support", "Requests", "Not configured", "department_id=" + strconv.FormatInt(department.ID, 10), "desk_id=" + strconv.FormatInt(desk.ID, 10)} {
+	for _, want := range []string{"Support", "Requests", "No workflow", "department_id=" + strconv.FormatInt(department.ID, 10), "desk_id=" + strconv.FormatInt(desk.ID, 10)} {
 		if !strings.Contains(body, want) {
 			t.Errorf("selected structure missing %q", want)
 		}
@@ -327,9 +335,12 @@ func TestAmendment4_VirtualUnassignedGroupOmitsUnsupportedDepartmentActions(t *t
 		t.Errorf("virtual department delete = %d, want 400: %s", deleteRec.Code, deleteRec.Body.String())
 	}
 
+	// The tree keeps both actions on the row's own menu. The links carry the row's
+	// department as its selection state, so the drawer and the delete re-render
+	// resubmit exactly what the row shows.
 	real := get("/categories?view=structure&department_id=" + strconv.FormatInt(department.ID, 10)).Body.String()
 	for _, want := range []string{
-		"/categories/departments/" + strconv.FormatInt(department.ID, 10) + "/edit",
+		"/categories/departments/" + strconv.FormatInt(department.ID, 10) + "/edit?view=structure&department_id=" + strconv.FormatInt(department.ID, 10),
 		`action="/categories/departments/` + strconv.FormatInt(department.ID, 10) + `/delete"`,
 	} {
 		if !strings.Contains(real, want) {
@@ -857,7 +868,12 @@ func TestIssue129_CatalogDrawerGuidanceMatchesEachEntity(t *testing.T) {
 	}
 }
 
-func TestIssue125_CategoriesSearchesGlobalOwnNamesAndNavigatesToHierarchy(t *testing.T) {
+// TestIssue125_CategoriesSearchesGlobalOwnNamesInPlace pins the search contract
+// after #387: the query keeps matching department, desk and category names, but it
+// no longer produces a separate results list. The tree itself is filtered to the
+// matching nodes plus their ancestors, and the matched run is marked, so the
+// operator sees WHERE the match lives instead of a list that navigates away.
+func TestIssue125_CategoriesSearchesGlobalOwnNamesInPlace(t *testing.T) {
 	h := newHarness(t)
 	catalog := application.NewCatalogService(h.store.CatalogStore(), h.store.CategoryStore(), h.clock)
 	operations, err := catalog.CreateDepartmentFor(t.Context(), *h.admin, "Operations", "Operations department")
@@ -880,14 +896,14 @@ func TestIssue125_CategoriesSearchesGlobalOwnNamesAndNavigatesToHierarchy(t *tes
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = h.categories.CreateWithDescriptionFor(t.Context(), *h.admin, "Service requests", "Published category", support.ID)
-	if err != nil {
+	if _, err := h.categories.CreateWithDescriptionFor(t.Context(), *h.admin, "Service requests", "Published category", support.ID); err != nil {
 		t.Fatal(err)
 	}
-	_, err = h.categories.CreateWithDescriptionFor(t.Context(), *h.admin, "Draft requests", "Unpublished category", support.ID)
-	if err != nil {
+	if _, err := h.categories.CreateWithDescriptionFor(t.Context(), *h.admin, "Draft requests", "Unpublished category", support.ID); err != nil {
 		t.Fatal(err)
 	}
+	_ = emptyDepartment
+	_ = emptyDesk
 
 	mux := http.NewServeMux()
 	NewCategoryHandlersWithWorkflows(h.categories, h.workflows, h.renderer, catalog).Register(mux)
@@ -898,19 +914,8 @@ func TestIssue125_CategoriesSearchesGlobalOwnNamesAndNavigatesToHierarchy(t *tes
 		h.mw.Wrap(mux).ServeHTTP(rec, req)
 		return rec
 	}
-	resultSection := func(t *testing.T, body string) string {
-		t.Helper()
-		start := strings.Index(body, `id="category-search-results"`)
-		if start < 0 {
-			t.Fatalf("search results missing: %s", body)
-		}
-		end := strings.Index(body[start:], `</section>`)
-		if end < 0 {
-			t.Fatalf("search results are not a complete section: %s", body[start:])
-		}
-		return body[start : start+end]
-	}
 
+	// A query is trimmed before it is used and before it is echoed back.
 	search := request("/categories?view=structure&q=%20%20sUpPoRt%20%20", h.adminSession.ID)
 	if search.Code != http.StatusOK {
 		t.Fatalf("search = %d, want 200: %s", search.Code, search.Body.String())
@@ -919,120 +924,94 @@ func TestIssue125_CategoriesSearchesGlobalOwnNamesAndNavigatesToHierarchy(t *tes
 	if !strings.Contains(body, `id="category-search"`) || !strings.Contains(body, `value="sUpPoRt"`) {
 		t.Fatalf("search input must retain the trimmed query: %s", body)
 	}
-	results := resultSection(t, body)
+	// The desk row that matched is present and marked, and its department is kept
+	// as the ancestor that gives the row its place.
 	for _, want := range []string{
-		`data-search-result-kind="desk"`,
-		`>Support<`,
-		`href="/categories?department_id=` + strconv.FormatInt(operations.ID, 10) + `&amp;desk_id=` + strconv.FormatInt(support.ID, 10) + `&amp;view=structure"`,
+		`data-level="desk"`,
+		`<mark>Support</mark>`,
+		`<span class="catalog-node-name">Operations</span>`,
+		`class="category-search-clear" href="/categories"`,
 	} {
-		if !strings.Contains(results, want) {
-			t.Errorf("support search missing %q: %s", want, results)
+		if !strings.Contains(body, want) {
+			t.Errorf("in-place desk search missing %q: %s", want, body)
 		}
 	}
-	if strings.Contains(results, `data-search-result-kind="category"`) || strings.Contains(results, "Service requests") {
-		t.Errorf("desk search must match its own name only: %s", results)
+	// The empty desk and the unrelated department are gone: the tree shows the
+	// match, not the whole catalog.
+	if strings.Contains(body, "Empty desk") || strings.Contains(body, "Empty department") {
+		t.Errorf("a query must remove the nodes that do not match: %s", body)
 	}
 
-	categorySearch := request("/categories?q=ReQuEsTs", h.adminSession.ID)
-	categoryResults := resultSection(t, categorySearch.Body.String())
+	// A category match keeps its desk and department and marks only the run that
+	// matched, leaving the rest of the name as written.
+	categorySearch := request("/categories?q=requests", h.adminSession.ID)
+	categoryBody := categorySearch.Body.String()
 	for _, want := range []string{
-		`data-search-result-kind="category"`,
-		`>Service requests<`,
-		`>Draft requests<`,
-		`href="/categories?department_id=` + strconv.FormatInt(operations.ID, 10) + `&amp;desk_id=` + strconv.FormatInt(support.ID, 10) + `&amp;view=structure"`,
+		`<mark>requests</mark>`,
+		`Service <mark>requests</mark>`,
+		`Draft <mark>requests</mark>`,
+		`<span class="catalog-node-name">Support</span>`,
 	} {
-		if !strings.Contains(categoryResults, want) {
-			t.Errorf("category search missing %q: %s", want, categoryResults)
+		if !strings.Contains(categoryBody, want) {
+			t.Errorf("in-place category search missing %q: %s", want, categoryBody)
 		}
 	}
-	if strings.Contains(categoryResults, `data-search-result-kind="desk"`) || strings.Contains(categoryResults, "Support desk") {
-		t.Errorf("category search must match its own name only: %s", categoryResults)
+	if strings.Contains(categoryBody, "Empty desk") {
+		t.Errorf("a category query must remove the desks with no match: %s", categoryBody)
 	}
 
+	// A department match keeps its whole subtree.
 	departmentSearch := request("/categories?q=operations", h.adminSession.ID)
-	if departmentSearch.Code != http.StatusOK {
-		t.Fatalf("department search = %d, want 200: %s", departmentSearch.Code, departmentSearch.Body.String())
-	}
-	departmentResults := resultSection(t, departmentSearch.Body.String())
-	if !strings.Contains(departmentResults, `data-search-result-kind="department"`) || !strings.Contains(departmentResults, `href="/categories?department_id=`+strconv.FormatInt(operations.ID, 10)+`&amp;view=structure"`) {
-		t.Errorf("department result must navigate to its structure selection: %s", departmentResults)
-	}
-	if strings.Contains(departmentResults, `data-search-result-kind="desk"`) || strings.Contains(departmentResults, `data-search-result-kind="category"`) {
-		t.Errorf("department search must match its own name only: %s", departmentResults)
-	}
-
-	for _, tc := range []struct {
-		name, query, kind, location string
-	}{
-		{"empty department", "empty%20department", "department", "/categories?department_id=" + strconv.FormatInt(emptyDepartment.ID, 10) + "&amp;view=structure"},
-		{"empty desk", "empty%20desk", "desk", "/categories?department_id=" + strconv.FormatInt(operations.ID, 10) + "&amp;desk_id=" + strconv.FormatInt(emptyDesk.ID, 10) + "&amp;view=structure"},
+	departmentBody := departmentSearch.Body.String()
+	for _, want := range []string{
+		`<mark>Operations</mark>`,
+		`<span class="catalog-node-name">Support</span>`,
+		`<span class="catalog-node-name">Empty desk</span>`,
+		`catalog-category-link" href="/categories/`,
+		`Service requests</a>`,
 	} {
-		t.Run(tc.name, func(t *testing.T) {
-			section := resultSection(t, request("/categories?q="+tc.query, h.adminSession.ID).Body.String())
-			if !strings.Contains(section, `data-search-result-kind="`+tc.kind+`"`) || !strings.Contains(section, `href="`+tc.location+`"`) {
-				t.Errorf("empty hierarchy item missing from global search: %s", section)
-			}
-		})
+		if !strings.Contains(departmentBody, want) {
+			t.Errorf("department search missing %q: %s", want, departmentBody)
+		}
 	}
 
-	legacySearch := request("/categories?q=legacy", h.adminSession.ID)
-	legacyResults := resultSection(t, legacySearch.Body.String())
-	if !strings.Contains(legacyResults, `data-search-result-kind="desk"`) || !strings.Contains(legacyResults, `href="/categories?department_id=unassigned&amp;desk_id=`+strconv.FormatInt(legacy.ID, 10)+`&amp;view=structure"`) {
-		t.Errorf("legacy desk result must retain its unassigned hierarchy path: %s", legacyResults)
+	// The legacy Unassigned desk is reachable by its own name and keeps the
+	// virtual group as its ancestor.
+	legacyBody := request("/categories?q=legacy", h.adminSession.ID).Body.String()
+	if !strings.Contains(legacyBody, `<mark>Legacy</mark> support`) || !strings.Contains(legacyBody, `<span class="catalog-node-name">Unassigned</span>`) {
+		t.Errorf("legacy desk search must keep the virtual Unassigned group: %s", legacyBody)
 	}
 
+	// No match is an empty state with the same Clear link, never a full tree.
+	noMatch := request("/categories?q=nothing-here", h.adminSession.ID).Body.String()
+	if !strings.Contains(noMatch, "No departments, desks, or categories match your search.") {
+		t.Errorf("a query with no match must render the empty state: %s", noMatch)
+	}
+	if strings.Contains(noMatch, `data-level="desk"`) {
+		t.Errorf("a query with no match must render no rows: %s", noMatch)
+	}
+	if !strings.Contains(noMatch, `class="category-search-clear" href="/categories"`) {
+		t.Errorf("the empty state must keep the Clear link: %s", noMatch)
+	}
+
+	// The query is data: it is escaped into the input and never into a script.
 	escaped := request("/categories?q=%20%3Cscript%3E%20", h.adminSession.ID)
 	if escaped.Code != http.StatusOK || !strings.Contains(escaped.Body.String(), `value="&lt;script&gt;"`) || strings.Contains(escaped.Body.String(), `<script>`) {
 		t.Errorf("query must be trimmed and escaped: %d %s", escaped.Code, escaped.Body.String())
 	}
+	// A blank query is not a search: the whole tree comes back.
 	blank := request("/categories?view=structure&q=%20%20", h.adminSession.ID)
-	if blank.Code != http.StatusOK || strings.Contains(blank.Body.String(), `id="category-search-results"`) {
-		t.Errorf("blank query must not render results: %d %s", blank.Code, blank.Body.String())
+	if blank.Code != http.StatusOK || strings.Contains(blank.Body.String(), "match your search") || !strings.Contains(blank.Body.String(), `<span class="catalog-node-name">Empty desk</span>`) {
+		t.Errorf("blank query must render the whole tree: %d %s", blank.Code, blank.Body.String())
 	}
-	categoriesSelection := request("/categories?view=categories&department_id="+strconv.FormatInt(operations.ID, 10)+"&desk_id="+strconv.FormatInt(support.ID, 10)+"&q=requests", h.adminSession.ID)
-	if categoriesSelection.Code != http.StatusOK {
-		t.Fatalf("categories selection search = %d, want 200: %s", categoriesSelection.Code, categoriesSelection.Body.String())
-	}
-	wantClear := `href="/categories?department_id=` + strconv.FormatInt(operations.ID, 10) + `&amp;desk_id=` + strconv.FormatInt(support.ID, 10) + `&amp;view=categories"`
-	if !strings.Contains(categoriesSelection.Body.String(), wantClear) {
-		t.Errorf("clear must retain the normalized categories selection, missing %q: %s", wantClear, categoriesSelection.Body.String())
-	}
-	for _, tc := range []struct {
-		name, target, wantClear string
-	}{
-		{
-			name:      "nonexistent department",
-			target:    "/categories?view=categories&department_id=999999&desk_id=" + strconv.FormatInt(support.ID, 10) + "&q=requests",
-			wantClear: `href="/categories?view=categories"`,
-		},
-		{
-			name:      "desk outside selected department",
-			target:    "/categories?view=categories&department_id=" + strconv.FormatInt(emptyDepartment.ID, 10) + "&desk_id=" + strconv.FormatInt(support.ID, 10) + "&q=requests",
-			wantClear: `href="/categories?department_id=` + strconv.FormatInt(emptyDepartment.ID, 10) + `&amp;view=categories"`,
-		},
-		{
-			name:      "unassigned sentinel with assigned desk",
-			target:    "/categories?view=categories&department_id=unassigned&desk_id=" + strconv.FormatInt(support.ID, 10) + "&q=requests",
-			wantClear: `href="/categories?department_id=unassigned&amp;view=categories"`,
-		},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			rec := request(tc.target, h.adminSession.ID)
-			if rec.Code != http.StatusOK {
-				t.Fatalf("search = %d, want 200: %s", rec.Code, rec.Body.String())
-			}
-			if !strings.Contains(rec.Body.String(), tc.wantClear) {
-				t.Errorf("clear retained unnormalized state, missing %q: %s", tc.wantClear, rec.Body.String())
-			}
-		})
-	}
+
 	for _, target := range []string{
 		"/categories?view=categories&department_id=not-an-id&q=requests",
 		"/categories?view=categories&department_id=-1&q=requests",
 	} {
 		rec := request(target, h.adminSession.ID)
-		if rec.Code != http.StatusUnprocessableEntity || strings.Contains(rec.Body.String(), "Clear search") {
-			t.Errorf("invalid state must not render a clear link: %d %s", rec.Code, rec.Body.String())
+		if rec.Code != http.StatusUnprocessableEntity {
+			t.Errorf("invalid state must be refused: %d %s", rec.Code, rec.Body.String())
 		}
 	}
 
@@ -1043,6 +1022,17 @@ func TestIssue125_CategoriesSearchesGlobalOwnNamesAndNavigatesToHierarchy(t *tes
 			t.Errorf("non-manager search = %d, want 403: %s", rec.Code, rec.Body.String())
 		}
 	}
+
+	// The legacy selection params still mark the matching rows instead of
+	// filtering, so an old link lands on the desk it names.
+	legacySelection := request("/categories?view=structure&department_id="+strconv.FormatInt(operations.ID, 10)+"&desk_id="+strconv.FormatInt(support.ID, 10), h.adminSession.ID).Body.String()
+	if !strings.Contains(legacySelection, `data-level="desk" data-current="true"`) {
+		t.Errorf("legacy desk selection must mark its row: %s", legacySelection)
+	}
+	if !strings.Contains(legacySelection, `<span class="catalog-node-name">Empty desk</span>`) {
+		t.Errorf("legacy selection must not filter the tree: %s", legacySelection)
+	}
+	_ = legacy
 }
 
 func TestAmendment4_CategoryMutationRefreshFailureDoesNotInviteRetry(t *testing.T) {

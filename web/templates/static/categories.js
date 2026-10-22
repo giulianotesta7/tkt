@@ -289,27 +289,14 @@
     }
   }
 
-  // Accessible fallback for a launcher that vanished during an update. Prefer the
-  // drawer's own level control ("New department" / "New desk" / "New category"),
-  // which is a real focusable control with a visible accessible name. If even that
-  // is gone, focus the level's labelled region (headings "Departments" / "Desks" /
-  // "Categories") as a programmatic target. Focus never falls silently to <body>.
+  // Accessible fallback for a launcher that vanished during an update. The New
+  // menu is the catalog's one creation control and it is always on the page, so it
+  // is the first target. If even that is gone, focus the tree's labelled region as
+  // a programmatic target. Focus never falls silently to <body>.
   function closeFallbackFocus(panel) {
-    const level = {
-      department: ".category-level-departments",
-      desk: ".category-level-desks",
-      category: ".category-level-categories",
-    }[panel?.dataset.kind];
-    const scope = (level && root()?.querySelector(level)) || root();
-    const launcher = scope?.querySelector(".category-level-action.category-drawer-launcher");
+    const launcher = root()?.querySelector("[data-catalog-new-toggle]");
     if (launcher) return launcher;
-    // The level section IS the labelled region (e.g.
-    // <section class="category-level-categories" aria-labelledby="...">), so a
-    // descendant-only query would never find it. Match the scope itself first,
-    // then fall back to a descendant for the generic root scope.
-    const region = scope?.matches("section[aria-labelledby]")
-      ? scope
-      : scope?.querySelector("section[aria-labelledby]");
+    const region = root()?.querySelector("section[aria-labelledby]");
     if (!region) return null;
     if (!region.hasAttribute("tabindex")) region.setAttribute("tabindex", "-1");
     return region;
@@ -334,11 +321,17 @@
     lastDrawerFocus = null;
     if (panel) panel.removeAttribute("aria-busy");
     let restoredTo = null;
+    // A launcher inside the New menu is connected but hidden once the menu
+    // closes, and focusing a hidden element silently does nothing. Only a
+    // reachable control is restored; otherwise the drawer's tiered fallback runs.
+    const reachable = (element) =>
+      !!element?.isConnected &&
+      (element.offsetParent !== null || element.getClientRects().length > 0);
     const restoreCloseFocus = () => {
       const candidate = focusKey
         ? document.querySelector(`[data-focus-key="${CSS.escape(focusKey)}"]`)
         : opener;
-      const target = candidate?.isConnected ? candidate : null;
+      const target = reachable(candidate) ? candidate : null;
       const fallback = closeFallbackFocus(panel);
       if (target) target.focus();
       else if (fallback) fallback.focus();
@@ -662,5 +655,144 @@
       openDrawer();
     }
   });
+
+  // ---------------------------------------------------------------------------
+  // Catalog tree (issue #387, S2): disclosure buttons with a per-browser
+  // collapsed set. The server always renders the tree expanded, so a browser
+  // without this script (or with storage disabled) still sees every row; the
+  // collapsed set is a preference applied ON TOP of the rendered truth, and it is
+  // re-applied after every swap of the region because HTMX replaces the markup.
+  // ---------------------------------------------------------------------------
+  const COLLAPSED_KEY = "tkt.catalog.collapsed";
+
+  function readCollapsed() {
+    try {
+      const stored = JSON.parse(window.localStorage.getItem(COLLAPSED_KEY) || "[]");
+      return new Set(Array.isArray(stored) ? stored.filter((id) => typeof id === "string") : []);
+    } catch {
+      return new Set();
+    }
+  }
+
+  function writeCollapsed(collapsed) {
+    try {
+      window.localStorage.setItem(COLLAPSED_KEY, JSON.stringify([...collapsed]));
+    } catch {
+      // A browser with storage disabled keeps the tree expanded: the preference
+      // is a convenience, never a requirement for reading the page.
+    }
+  }
+
+  const treeRoot = () => document.querySelector(".catalog-tree");
+  const treeNodes = (scope = treeRoot()) =>
+    scope ? [...scope.querySelectorAll("[data-catalog-node]")] : [];
+  const nodeDisclosure = (node) =>
+    node.querySelector(":scope > .catalog-tree-row > [data-catalog-disclosure]");
+  const nodeList = (node) => {
+    const button = nodeDisclosure(node);
+    return button ? document.getElementById(button.getAttribute("aria-controls")) : null;
+  };
+  // A filter renders only matching nodes plus their ancestors, so the stored
+  // collapsed set would hide the very rows the filter found. While a filter is
+  // active the tree renders fully expanded and the preference is left untouched.
+  const treeFiltered = () => {
+    const params = new URLSearchParams(location.search);
+    return params.has("q") || params.has("attention");
+  };
+
+  function setNodeCollapsed(node, collapsed) {
+    const button = nodeDisclosure(node);
+    const list = nodeList(node);
+    if (!button) return;
+    button.setAttribute("aria-expanded", collapsed ? "false" : "true");
+    const name = button.dataset.catalogName || "";
+    button.setAttribute(
+      "aria-label",
+      collapsed
+        ? window.tktI18n.t("js.catalog.expand", { name })
+        : window.tktI18n.t("js.catalog.collapse", { name }),
+    );
+    if (list) list.hidden = collapsed;
+  }
+
+  function applyCollapsed() {
+    const filtered = treeFiltered();
+    const collapsed = filtered ? new Set() : readCollapsed();
+    treeNodes().forEach((node) => {
+      setNodeCollapsed(node, collapsed.has(node.dataset.catalogSlug));
+    });
+    syncExpandToggle(collapsed);
+  }
+
+  function syncExpandToggle(collapsed) {
+    const toggle = document.querySelector("[data-catalog-expand-toggle]");
+    if (!toggle) return;
+    // The label names the action the control will take: with anything collapsed
+    // it offers Expand all, and only a fully expanded tree offers Collapse all.
+    const anyCollapsed = treeNodes().some(
+      (node) => !!nodeDisclosure(node) && collapsed.has(node.dataset.catalogSlug),
+    );
+    toggle.textContent = anyCollapsed ? toggle.dataset.expandLabel : toggle.dataset.collapseLabel;
+  }
+
+  function toggleNode(node) {
+    const button = nodeDisclosure(node);
+    if (!button) return;
+    const collapsed = readCollapsed();
+    const slug = node.dataset.catalogSlug;
+    if (button.getAttribute("aria-expanded") === "false") collapsed.delete(slug);
+    else collapsed.add(slug);
+    writeCollapsed(collapsed);
+    setNodeCollapsed(node, collapsed.has(slug));
+    syncExpandToggle(collapsed);
+  }
+
+  // "Expand all" / "Collapse all": one control whose label states the action it
+  // will take, so the header never carries two buttons for one decision.
+  function toggleAllNodes() {
+    // One control, two states: a partly collapsed tree expands fully, and only a
+    // fully expanded one collapses.
+    const anyCollapsed = treeNodes().some((node) => {
+      const button = nodeDisclosure(node);
+      return !!button && button.getAttribute("aria-expanded") === "false";
+    });
+    const next = new Set();
+    if (!anyCollapsed) {
+      treeNodes().forEach((node) => {
+        if (nodeDisclosure(node)) next.add(node.dataset.catalogSlug);
+      });
+    }
+    writeCollapsed(next);
+    applyCollapsed();
+  }
+
+  document.addEventListener(
+    "click",
+    (event) => {
+      const disclosure = event.target.closest("[data-catalog-disclosure]");
+      if (disclosure) {
+        const node = disclosure.closest("[data-catalog-node]");
+        if (node) toggleNode(node);
+        return;
+      }
+      if (event.target.closest("[data-catalog-expand-toggle]")) {
+        toggleAllNodes();
+      }
+    },
+    true,
+  );
+
+  // The region is swapped by HTMX after every save, so the collapsed set is
+  // re-applied to the fresh markup. The drawer's own afterSwap handler owns the
+  // panel and the notification bell's poll must stay untouched.
+  document.addEventListener("htmx:afterSettle", (event) => {
+    const target = event.detail?.target;
+    const element = target instanceof Element ? target : target?.parentElement;
+    if (element?.closest("#notification-bell, #notification-panel-host")) return;
+    if (!document.querySelector(".catalog-tree")) return;
+    applyCollapsed();
+  });
+
+  applyCollapsed();
   openDrawer();
 })();

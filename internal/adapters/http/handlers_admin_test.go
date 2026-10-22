@@ -301,22 +301,54 @@ func TestCategoriesIndexRenders(t *testing.T) {
 // redirects 303.
 func TestCategoryCreateSuccess(t *testing.T) {
 	h := newHarness(t)
+	departmentID, deskID := h.seededDesk(t)
 
-	rec := h.postForm(t, "/categories", url.Values{"name": {"Support"}}, false)
+	rec := h.postForm(t, "/categories", categoryFormValues(t, "Support", departmentID, deskID), false)
 
 	wantRedirect(t, rec, http.StatusSeeOther, "/categories")
-	_, err := h.categories.GetByID(t.Context(), 2) // 1 = Bugs seeded by the harness
-	if err != nil {
-		t.Errorf("created category must be readable: %v", err)
+	created, ok := categoryNamed(t, h, "Support")
+	if !ok {
+		t.Fatalf("created category must be readable")
 	}
+	if created.DeskID != deskID {
+		t.Errorf("created category desk = %d, want %d", created.DeskID, deskID)
+	}
+}
+
+// categoryFormValues is the drawer's own payload: a category always belongs to a
+// desk, and the desk to a department, so the catalog-aware route requires both.
+func categoryFormValues(t *testing.T, name string, departmentID, deskID int64) url.Values {
+	t.Helper()
+	return url.Values{
+		"name":          {name},
+		"department_id": {strconv.FormatInt(departmentID, 10)},
+		"desk_id":       {strconv.FormatInt(deskID, 10)},
+	}
+}
+
+// categoryNamed resolves a category by name, so a test never depends on an
+// autoincrement id another fixture may have consumed.
+func categoryNamed(t *testing.T, h *harness, name string) (domain.Category, bool) {
+	t.Helper()
+	categories, err := h.categories.List(t.Context())
+	if err != nil {
+		t.Fatalf("list categories: %v", err)
+	}
+	for _, category := range categories {
+		if category.Name == name {
+			return category, true
+		}
+	}
+	return domain.Category{}, false
 }
 
 // TestCategoryCreateDuplicate409 proves duplicate category names are
 // rejected 409 (category spec).
 func TestCategoryCreateDuplicate409(t *testing.T) {
 	h := newHarness(t)
+	departmentID, deskID := h.seededDesk(t)
 
-	rec := h.postForm(t, "/categories", url.Values{"name": {"Bugs"}}, false)
+	rec := h.postForm(t, "/categories", categoryFormValues(t, "Bugs", departmentID, deskID), false)
 
 	if rec.Code != http.StatusConflict {
 		t.Errorf("status = %d, want 409", rec.Code)
@@ -329,8 +361,9 @@ func TestCategoryCreateDuplicate409(t *testing.T) {
 // TestCategoryCreateValidation422 proves an empty name is a 422.
 func TestCategoryCreateValidation422(t *testing.T) {
 	h := newHarness(t)
+	departmentID, deskID := h.seededDesk(t)
 
-	rec := h.postForm(t, "/categories", url.Values{"name": {"   "}}, false)
+	rec := h.postForm(t, "/categories", categoryFormValues(t, "   ", departmentID, deskID), false)
 
 	if rec.Code != http.StatusUnprocessableEntity {
 		t.Errorf("status = %d, want 422", rec.Code)
@@ -344,8 +377,9 @@ func TestCategoryCreateValidation422(t *testing.T) {
 // the old one (rename spec).
 func TestCategoryRenameSuccess(t *testing.T) {
 	h := newHarness(t)
+	departmentID, deskID := h.seededDesk(t)
 
-	rec := h.postForm(t, "/categories/1/edit", url.Values{"name": {"Defects"}}, false)
+	rec := h.postForm(t, "/categories/1/edit", categoryFormValues(t, "Defects", departmentID, deskID), false)
 
 	wantRedirect(t, rec, http.StatusSeeOther, "/categories")
 	c, err := h.categories.GetByID(t.Context(), 1)
@@ -358,9 +392,10 @@ func TestCategoryRenameSuccess(t *testing.T) {
 // 409 (rename spec).
 func TestCategoryRenameDuplicate409(t *testing.T) {
 	h := newHarness(t)
-	h.postForm(t, "/categories", url.Values{"name": {"Support"}}, false)
+	departmentID, deskID := h.seededDesk(t)
+	h.postForm(t, "/categories", categoryFormValues(t, "Support", departmentID, deskID), false)
 
-	rec := h.postForm(t, "/categories/1/edit", url.Values{"name": {"Support"}}, false)
+	rec := h.postForm(t, "/categories/1/edit", categoryFormValues(t, "Support", departmentID, deskID), false)
 
 	if rec.Code != http.StatusConflict {
 		t.Errorf("status = %d, want 409", rec.Code)
@@ -374,12 +409,17 @@ func TestCategoryRenameDuplicate409(t *testing.T) {
 // deletable.
 func TestCategoryDeleteUnreferenced(t *testing.T) {
 	h := newHarness(t)
-	h.postForm(t, "/categories", url.Values{"name": {"Support"}}, false)
+	departmentID, deskID := h.seededDesk(t)
+	h.postForm(t, "/categories", categoryFormValues(t, "Support", departmentID, deskID), false)
+	created, ok := categoryNamed(t, h, "Support")
+	if !ok {
+		t.Fatal("created category must be readable")
+	}
 
-	rec := h.postForm(t, "/categories/2/delete", url.Values{}, false)
+	rec := h.postForm(t, "/categories/"+strconv.FormatInt(created.ID, 10)+"/delete", url.Values{}, false)
 
 	wantRedirect(t, rec, http.StatusSeeOther, "/categories")
-	if _, err := h.categories.GetByID(t.Context(), 2); !errors.Is(err, domain.ErrNotFound) {
+	if _, err := h.categories.GetByID(t.Context(), created.ID); !errors.Is(err, domain.ErrNotFound) {
 		t.Errorf("deleted category must be gone, err = %v (want ErrNotFound)", err)
 	}
 }

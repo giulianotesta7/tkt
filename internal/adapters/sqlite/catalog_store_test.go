@@ -5,6 +5,7 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/giulianotesta7/tkt/internal/application"
 	"github.com/giulianotesta7/tkt/internal/domain"
 )
 
@@ -229,5 +230,160 @@ func TestCatalogStoreOfferedCategoryCount(t *testing.T) {
 	}
 	if total, offered := departmentCounts(); total != 2 || offered != 1 {
 		t.Fatalf("draft-only department counts = total %d/offered %d, want 2/1", total, offered)
+	}
+}
+
+// The catalog tree (issue #387, S8) renders every desk with two facts no
+// existing projection carries — how many agents can act on its tickets and how
+// much work is open in it — and ONE read has to answer both for every desk.
+// Before this, the index fanned out one ListDesks per department and still had
+// no agent or open-ticket count at all.
+//
+// RED: the projection does not exist yet.
+func TestCatalogStoreListTreeDesksCountsAgentsAndOpenTickets(t *testing.T) {
+	store := newTestDB(t)
+	ctx := context.Background()
+	catalog := store.CatalogStore()
+	operations := &domain.Department{Name: "Operations", Description: "Ops", CreatedAt: testClock}
+	if err := catalog.CreateDepartment(ctx, operations); err != nil {
+		t.Fatalf("create department: %v", err)
+	}
+	support := &domain.Desk{Name: "Support", Description: "First line", CreatedAt: testClock, DepartmentID: &operations.ID}
+	if err := store.DeskStore().Create(ctx, support); err != nil {
+		t.Fatalf("create support desk: %v", err)
+	}
+	platform := &domain.Desk{Name: "Platform", Description: "Infrastructure", CreatedAt: testClock, DepartmentID: &operations.ID}
+	if err := store.DeskStore().Create(ctx, platform); err != nil {
+		t.Fatalf("create platform desk: %v", err)
+	}
+	// A legacy desk keeps a NULL department and must still be projected, with
+	// DepartmentID 0, so the handler can place it in the virtual Unassigned
+	// group instead of losing it.
+	legacy, err := store.db.ExecContext(ctx, `INSERT INTO desks(name, description, department_id, created_at) VALUES(?, ?, NULL, ?)`, "Legacy", "", formatTime(testClock))
+	if err != nil {
+		t.Fatalf("insert legacy desk: %v", err)
+	}
+	legacyID, err := legacy.LastInsertId()
+	if err != nil {
+		t.Fatalf("legacy desk id: %v", err)
+	}
+
+	// Agent counting is the workflow publish gate's predicate: active, and agent
+	// or above. An inactive member is still a member of the desk but can never
+	// act, so it must not be counted. (The membership triggers already refuse to
+	// add a plain requester, so inactivity is the state worth proving here.)
+	activeAgent := seedUserRole(t, store, "Ana Agent", "ana@tree.test", true, domain.RoleAgent)
+	activeAdmin := seedUserRole(t, store, "Ada Admin", "ada@tree.test", true, domain.RoleAdmin)
+	inactiveAgent := seedUserRole(t, store, "Gone Agent", "gone@tree.test", false, domain.RoleAgent)
+	for _, userID := range []int64{activeAgent, activeAdmin, inactiveAgent} {
+		if err := store.DeskStore().AddMember(ctx, support.ID, userID, testClock); err != nil {
+			t.Fatalf("add member %d: %v", userID, err)
+		}
+	}
+
+	supportCategory := &domain.Category{Name: "VPN", Description: "Remote access", DeskID: support.ID, CreatedAt: testClock}
+	if err := store.CategoryStore().Create(ctx, supportCategory); err != nil {
+		t.Fatalf("create support category: %v", err)
+	}
+	platformCategory := &domain.Category{Name: "Deploys", DeskID: platform.ID, CreatedAt: testClock}
+	if err := store.CategoryStore().Create(ctx, platformCategory); err != nil {
+		t.Fatalf("create platform category: %v", err)
+	}
+	// "Open" is the same predicate the workflow summary uses: everything not
+	// closed and not cancelled. A resolved ticket is still work somebody owes.
+	seedSearchTicket(t, store, 1, "VPN down", "", domain.StateNew, domain.PriorityHigh, supportCategory.ID)
+	seedSearchTicket(t, store, 2, "VPN flaky", "", domain.StateInProgress, domain.PriorityLow, supportCategory.ID)
+	seedSearchTicket(t, store, 3, "VPN resolved", "", domain.StateResolved, domain.PriorityLow, supportCategory.ID)
+	seedSearchTicket(t, store, 4, "VPN closed", "", domain.StateClosed, domain.PriorityLow, supportCategory.ID)
+	seedSearchTicket(t, store, 5, "VPN cancelled", "", domain.StateCancelled, domain.PriorityLow, supportCategory.ID)
+	seedSearchTicket(t, store, 6, "Deploy failed", "", domain.StateNew, domain.PriorityHigh, platformCategory.ID)
+
+	tree, ok := catalog.(application.CatalogTreeStore)
+	if !ok {
+		t.Fatal("the SQLite catalog store must implement the tree projection")
+	}
+	desks, err := tree.ListTreeDesks(ctx)
+	if err != nil {
+		t.Fatalf("list tree desks: %v", err)
+	}
+	// Migration 0011 seeds the compatibility "General" desk, so the projection
+	// answers the whole installation: that desk plus the three arranged here.
+	if len(desks) != 4 {
+		t.Fatalf("tree desks = %d, want every desk in one read: %+v", len(desks), desks)
+	}
+	byID := make(map[int64]domain.CatalogDesk, len(desks))
+	for _, desk := range desks {
+		byID[desk.ID] = desk
+	}
+	if got := byID[support.ID]; got.AgentCount != 2 || got.OpenTickets != 3 || got.CategoryCount != 1 || got.DepartmentID != operations.ID {
+		t.Errorf("support = agents %d/open %d/categories %d/department %d, want 2/3/1/%d",
+			got.AgentCount, got.OpenTickets, got.CategoryCount, got.DepartmentID, operations.ID)
+	}
+	if got := byID[platform.ID]; got.AgentCount != 0 || got.OpenTickets != 1 {
+		t.Errorf("platform = agents %d/open %d, want 0/1", got.AgentCount, got.OpenTickets)
+	}
+	if got := byID[legacyID]; got.AgentCount != 0 || got.OpenTickets != 0 || got.DepartmentID != 0 || got.DepartmentName != "Unassigned" {
+		t.Errorf("legacy = %+v, want the virtual unassigned shape", got)
+	}
+}
+
+// The tree shows SLA state as Default or Custom (issue #387, S1/S8): the only
+// fact it needs is whether a category's materialized matrix still equals the
+// instance defaults. Comparing four priorities per category in the browser
+// would cost a read per row; this projection answers it for the whole page.
+//
+// RED: the projection does not exist yet.
+func TestCatalogStoreListDefaultSLACategoriesSeparatesCustomTargets(t *testing.T) {
+	store := newTestDB(t)
+	ctx := context.Background()
+	catalog := store.CatalogStore()
+	department := &domain.Department{Name: "Operations", CreatedAt: testClock}
+	if err := catalog.CreateDepartment(ctx, department); err != nil {
+		t.Fatalf("create department: %v", err)
+	}
+	desk := &domain.Desk{Name: "Support", CreatedAt: testClock, DepartmentID: &department.ID}
+	if err := store.DeskStore().Create(ctx, desk); err != nil {
+		t.Fatalf("create desk: %v", err)
+	}
+	// Migration 0016 materializes the defaults onto every new category, so this
+	// one matches out of the box.
+	defaulted := &domain.Category{Name: "VPN", DeskID: desk.ID, CreatedAt: testClock}
+	if err := store.CategoryStore().Create(ctx, defaulted); err != nil {
+		t.Fatalf("create defaulted category: %v", err)
+	}
+	tuned := &domain.Category{Name: "Onboarding", DeskID: desk.ID, CreatedAt: testClock}
+	if err := store.CategoryStore().Create(ctx, tuned); err != nil {
+		t.Fatalf("create tuned category: %v", err)
+	}
+	if err := store.SLAStore().UpsertCategoryTarget(ctx, tuned.ID, domain.SLAPolicy{
+		Priority: domain.PriorityCritical, FirstResponseSeconds: 900, ResolveSeconds: 7200,
+	}); err != nil {
+		t.Fatalf("tune category target: %v", err)
+	}
+
+	tree, ok := catalog.(application.CatalogTreeStore)
+	if !ok {
+		t.Fatal("the SQLite catalog store must implement the tree projection")
+	}
+	matches, err := tree.ListDefaultSLACategories(ctx)
+	if err != nil {
+		t.Fatalf("list default sla categories: %v", err)
+	}
+	if len(matches) != 1 || matches[0] != defaulted.ID {
+		t.Fatalf("default-SLA categories = %v, want only %d", matches, defaulted.ID)
+	}
+
+	// A category created while the defaults were different keeps ITS matrix: the
+	// comparison reads the current defaults, so changing them after creation
+	// turns a defaulted category into a custom one without touching its rows.
+	if _, err := store.db.ExecContext(ctx, `UPDATE sla_defaults SET first_response_seconds=1200 WHERE priority='high'`); err != nil {
+		t.Fatalf("move the defaults: %v", err)
+	}
+	matches, err = tree.ListDefaultSLACategories(ctx)
+	if err != nil {
+		t.Fatalf("list default sla categories after the defaults moved: %v", err)
+	}
+	if len(matches) != 0 {
+		t.Fatalf("default-SLA categories = %v, want none once the defaults moved", matches)
 	}
 }

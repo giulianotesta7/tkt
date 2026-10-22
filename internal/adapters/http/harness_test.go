@@ -221,7 +221,7 @@ func newHarnessWithAdmin(t *testing.T, seedAdmin bool) *harness {
 	NewAuthHandlers(authSvc, usersSvc, renderer).WithSignin(signinSvc).Register(mux)
 	NewTicketHandlers(ticketSvc, commentSvc, searchSvc, catSvc, usersSvc, s.DeskStore(), workflowSvc, application.NewWorkflowRunner(clock), s.WorkflowRunStore(), s.WorkflowUnitOfWork(), renderer).WithMetrics(metricsSvc).WithSLA(slaSvc).WithPreferences(preferencesSvc).WithClock(clock).WithAttachments(s.AttachmentStore(), attachmentSvc).Register(mux)
 	NewUserHandlers(usersSvc, renderer).Register(mux)
-	NewCategoryHandlersWithWorkflows(catSvc, workflowSvc, renderer).Register(mux)
+	NewCategoryHandlersWithWorkflows(catSvc, workflowSvc, renderer, application.NewCatalogService(s.CatalogStore(), s.CategoryStore(), clock)).WithSettings(s.SettingsStore()).Register(mux)
 	NewCategoryWorkflowHandlers(catSvc, workflowSvc, deskSvc, renderer).Register(mux)
 	NewDeskHandlers(deskSvc, renderer).Register(mux)
 	NewSettingsHandlers(settingsSvc, slaSvc, s.SLAStore(), s.SettingsStore(), renderer).WithEmail(emailSettingsSvc).WithOrganization(application.NewOrganizationService(s.OrganizationStore())).WithSignin(signinSvc).Register(mux)
@@ -262,6 +262,29 @@ func newHarnessWithAdmin(t *testing.T, seedAdmin bool) *harness {
 	// the shape unrelated create tests already expect.
 	h.publishWorkflow(t, bugs.ID, simpleManualDef())
 	return h
+}
+
+// seededDesk resolves the compatibility Department/Desk pair migration 0011
+// creates ("General"/"General"). A catalog-aware category route needs both, since
+// that is what the drawer submits; these tests assert the create/rename/delete
+// contracts, not the drawer's preselection.
+func (h *harness) seededDesk(t *testing.T) (departmentID, deskID int64) {
+	t.Helper()
+	departments, err := h.store.CatalogStore().ListDepartments(t.Context())
+	if err != nil {
+		t.Fatalf("list departments: %v", err)
+	}
+	for _, department := range departments {
+		desks, err := h.store.CatalogStore().ListDesks(t.Context(), department.ID)
+		if err != nil {
+			t.Fatalf("list desks: %v", err)
+		}
+		if len(desks) > 0 {
+			return department.ID, desks[0].ID
+		}
+	}
+	t.Fatal("no seeded desk")
+	return 0, 0
 }
 
 // get runs an authenticated GET through the middleware-wrapped mux.
