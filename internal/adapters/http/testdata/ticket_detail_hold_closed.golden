@@ -1,0 +1,178 @@
+
+<div id="ticket-detail" hx-headers="{&#34;X-TKT-Queue-Return&#34;:&#34;/tickets&#34;}">
+
+  <div class="command-header detail-header">
+    <div class="detail-head">
+      <div class="meta-row">
+        <a href="/tickets">← Queue</a>
+        <span class="num">TKT-1</span>
+      </div>
+      <div class="detail-title">
+
+        <h1 class="command-title">Login page down</h1>
+
+        <span class="detail-state"><span class="badge closed">Closed</span></span>
+      </div>
+      <p class="detail-meta">Opened by <span class="detail-meta-requester">Ana Torres</span> · <time datetime="2026-08-06T10:00:00Z" title="10:00 · 06-08-2026">10:00 · 06-08-2026</time> · <span class="detail-meta-category">Bugs</span></p>
+    </div>
+    <div class="command-actions detail-actions">
+      <button class="btn primary" type="button" data-transition-open="in_progress" aria-haspopup="dialog" aria-controls="ticket-transition-dialog">Reopen</button>
+
+    </div>
+  </div>
+  <div class="cards">
+    <div class="conversation">
+      <div class="card">
+        <h2>Description</h2>
+        <p class="ticket-description">The login form 500s on submit</p>
+      </div>
+      <div class="card detail-activity">
+        <h2>Activity</h2>
+
+<div id="timeline">
+
+
+
+
+
+  <article class="timeline-entry timeline-event st-new">
+    <div class="timeline-entry-head">
+      <div class="narrative"><strong class="timeline-actor">Admin</strong> <span class="timeline-action">created the ticket</span></div>
+      <div class="when"><time datetime="2026-08-06T10:00:00Z" title="10:00 · 06-08-2026">10:00 · 06-08-2026</time></div>
+    </div>
+  </article>
+
+
+
+
+
+  <article class="timeline-entry timeline-event">
+    <div class="timeline-entry-head">
+      <div class="narrative"><span class="timeline-action">took the ticket off hold</span></div>
+      <div class="when"><time datetime="2026-08-07T12:00:00Z" title="12:00 · 07-08-2026">12:00 · 07-08-2026</time></div>
+    </div>
+  </article>
+
+
+
+
+
+  <article class="timeline-entry timeline-event st-resolved">
+    <div class="timeline-entry-head">
+      <div class="narrative"><span class="timeline-action">moved the ticket to resolved</span></div>
+      <div class="when"><time datetime="2026-08-07T12:00:00Z" title="12:00 · 07-08-2026">12:00 · 07-08-2026</time></div>
+    </div>
+  </article>
+
+
+
+
+
+  <article class="timeline-entry timeline-event st-closed">
+    <div class="timeline-entry-head">
+      <div class="narrative"><span class="timeline-action">closed the ticket because the requester did not reply</span></div>
+      <div class="when"><time datetime="2026-08-07T12:00:00Z" title="12:00 · 07-08-2026">12:00 · 07-08-2026</time></div>
+    </div>
+  </article>
+
+
+
+
+  <article class="timeline-entry timeline-comment">
+    <div class="timeline-entry-head">
+      <div class="narrative"><strong class="timeline-actor">Ana Torres</strong> <span class="timeline-action">added a comment</span></div>
+      <div class="when"><time datetime="2026-08-06T10:30:00Z" title="10:30 · 06-08-2026">10:30 · 06-08-2026</time></div>
+    </div>
+    <div class="timeline-body">Checking now</div>
+  </article>
+
+
+
+</div>
+
+      </div>
+    </div>
+    <aside class="evidence">
+      <details class="detail-properties" id="detail-properties" open>
+        <summary class="detail-properties-summary"><span>Properties</span><svg class="detail-properties-chevron" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg></summary>
+        <div class="prop-list">
+          <div class="prop-section">
+            <div class="prop-row">
+              <span class="prop-label">Requester</span>
+              <span class="prop-value">Ana Torres</span>
+            </div>
+            <div class="prop-row">
+              <span class="prop-label">Assignee</span>
+              <span id="assign-user-value" class="prop-value">Ana Torres</span>
+            </div>
+            <div class="prop-row">
+              <span class="prop-label">Priority</span>
+              <span id="ticket-priority-value" class="prop-value">High</span>
+            </div>
+            <div class="prop-row">
+              <span class="prop-label">Category</span>
+              <span id="ticket-category-value" class="prop-value">Bugs</span>
+            </div>
+            <div class="prop-row">
+              <span class="prop-label">Desk</span>
+              <span class="prop-value prop-value-empty">—</span>
+            </div>
+          </div>
+          <div class="prop-section" data-server-now="2026-08-07T06:00:00Z">
+            <div class="prop-heading">SLA</div>
+
+            <div class="prop-row">
+              <span class="prop-label">First response</span>
+              <span class="prop-value sla-value"><span class="sla-state"><span class="sla-dot met" aria-hidden="true"></span><span class="sla-state-word">Met</span></span> </span>
+            </div>
+
+            <div class="prop-row">
+              <span class="prop-label">Resolve</span>
+              <span class="prop-value sla-value"><span class="sla-state"><span class="sla-dot at_risk" aria-hidden="true"></span><span class="sla-state-word">At Risk</span></span> <time datetime="2026-08-07T10:00:00Z" data-sla-countdown><span class="sla-countdown-ticker" aria-hidden="true">4h 0m</span><span class="sla-countdown-coarse visually-hidden">10:00 · 07-08-2026</span></time></span>
+            </div>
+
+          </div>
+          <div class="prop-section">
+            <div class="prop-heading">Details</div>
+            <div class="prop-row">
+              <span class="prop-label">Created</span>
+              <span class="prop-value"><time datetime="2026-08-06T10:00:00Z" title="10:00 · 06-08-2026">Aug 6, 2026</time></span>
+            </div>
+            <div class="prop-row">
+              <span class="prop-label">Updated</span>
+              <span class="prop-value"><time datetime="2026-08-06T10:30:00Z" title="10:30 · 06-08-2026">10:30 · 06-08-2026</time></span>
+            </div>
+            <div class="prop-row">
+              <span class="prop-label">ID</span>
+              <span class="prop-value">TKT-1</span>
+            </div>
+            <dl class="lifecycle-meta">
+              <dt>Resolved</dt><dd><time datetime="2026-08-06T10:00:00Z">10:00 · 06-08-2026</time></dd>
+              <dt>Closed</dt><dd><time datetime="2026-08-06T10:00:00Z">10:00 · 06-08-2026</time></dd>
+            </dl>
+          </div>
+        </div>
+      </details>
+    </aside>
+    <div class="replies">
+
+
+    </div>
+  </div>
+  <dialog id="ticket-transition-dialog" aria-labelledby="ticket-transition-dialog-title">
+    <h2 id="ticket-transition-dialog-title">Reopen reason</h2>
+    <form method="post" action="/tickets/1/transition" hx-post="/tickets/1/transition" hx-target="#ticket-detail" hx-swap="outerHTML">
+      <input type="hidden" name="to" value="in_progress">
+      <label class="hold-dialog-field" for="state-reason"><span class="visually-hidden">Reopen reason</span>
+        <textarea id="state-reason" name="reason" rows="3" required placeholder="Reopen reason"></textarea>
+      </label>
+      <div><button type="button" class="btn" data-transition-cancel>Cancel</button><button class="btn primary" type="submit">Reopen</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="ticket-title-dialog" aria-labelledby="ticket-title-dialog-title" aria-describedby="ticket-title-dialog-copy">
+    <h2 id="ticket-title-dialog-title">Save the title first?</h2>
+    <p id="ticket-title-dialog-copy">The ticket title has unsaved changes.</p>
+    <div><button type="button" class="btn" data-title-discard>Discard and continue</button><button type="button" class="btn" data-title-save-continue>Save and continue</button></div>
+  </dialog>
+</div>

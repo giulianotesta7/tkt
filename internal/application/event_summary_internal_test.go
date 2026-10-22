@@ -26,6 +26,9 @@ func TestEventSummaryMsg(t *testing.T) {
 		{"field update", domain.AuditEvent{Action: domain.ActionUpdate, Field: str("title")}, "tickets.timeline.narrative.changed", "tickets.timeline.field.title", ""},
 		{"workflow assignment", domain.AuditEvent{Action: domain.ActionWorkflowAssignment}, "tickets.timeline.narrative.assigned", "", ""},
 		{"manual task", domain.AuditEvent{Action: domain.ActionWorkflowManualTask}, "tickets.timeline.narrative.completed_task", "", ""},
+		// Issue #353 (S5): the automatic close says WHY it closed instead of the
+		// generic "moved the ticket to closed".
+		{"automatic hold close", domain.AuditEvent{Action: domain.ActionTransition, FromValue: str("resolved"), ToValue: str("closed"), ClosureVia: str(domain.ClosureViaHoldExpired)}, "tickets.timeline.narrative.closed_hold_expired", "", ""},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -61,6 +64,7 @@ func TestEventSummaryReopen(t *testing.T) {
 		{"in progress", domain.AuditEvent{Action: domain.ActionTransition, FromValue: str("new"), ToValue: str("in_progress")}, "moved the ticket to in progress"},
 		{"resolve", domain.AuditEvent{Action: domain.ActionTransition, FromValue: str("in_progress"), ToValue: str("resolved")}, "moved the ticket to resolved"},
 		{"close", domain.AuditEvent{Action: domain.ActionTransition, FromValue: str("resolved"), ToValue: str("closed")}, "moved the ticket to closed"},
+		{"automatic hold close", domain.AuditEvent{Action: domain.ActionTransition, FromValue: str("resolved"), ToValue: str("closed"), ClosureVia: str(domain.ClosureViaHoldExpired)}, "closed the ticket because the requester did not reply"},
 		{"cancel", domain.AuditEvent{Action: domain.ActionTransition, FromValue: str("in_progress"), ToValue: str("cancelled")}, "moved the ticket to cancelled"},
 		{"created", domain.AuditEvent{Action: domain.ActionCreated}, "created the ticket"},
 		{"update field", domain.AuditEvent{Action: domain.ActionUpdate, Field: str("title")}, "changed title"},

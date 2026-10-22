@@ -429,6 +429,47 @@ func TestNotificationMessageNamesOnHold(t *testing.T) {
 	}
 }
 
+// TestNotificationMessageNamesTheHoldKinds pins the two sentences of the
+// automatic hold expiry (issue #353, S3/S4), shared by the panel and the email:
+// each names its own catalogue entry, never the "something happened" fallback.
+func TestNotificationMessageNamesTheHoldKinds(t *testing.T) {
+	for kind, key := range map[domain.NotificationKind]string{
+		domain.NotificationHoldReminder: "notifications.kind.hold_reminder",
+		domain.NotificationHoldClosed:   "notifications.kind.hold_closed",
+	} {
+		got := application.NotificationMessage(domain.Notification{Kind: kind})
+		if got.Key != key || len(got.Args) != 0 {
+			t.Errorf("NotificationMessage(%s) = %+v, want %s", kind, got, key)
+		}
+	}
+}
+
+// TestSenderDeliversTheAutomaticHoldClose proves the closed notice reaches both
+// recipients (S4) through the same composition the panel uses: each email body
+// carries the hold_closed sentence and names the automatic actor, because the
+// audit row stores a NULL actor_user_id.
+func TestSenderDeliversTheAutomaticHoldClose(t *testing.T) {
+	f := newSenderFixture(t)
+	requesterID, assigneeID := f.notify(f.req.ID, domain.NotificationHoldClosed, nil), f.notify(f.agent.ID, domain.NotificationHoldClosed, nil)
+
+	f.pass(t)
+	if len(f.mailer.sent) != 2 {
+		t.Fatalf("sent %d emails, want one per recipient", len(f.mailer.sent))
+	}
+	for _, sent := range f.mailer.sent {
+		for _, want := range []string{"en:notifications.kind.hold_closed[]", "en:email.notification.actor[en:notifications.actor.automatic[]]"} {
+			if !strings.Contains(sent.email.Body, want) {
+				t.Errorf("body lacks %q:\n%s", want, sent.email.Body)
+			}
+		}
+	}
+	for _, id := range []int64{requesterID, assigneeID} {
+		if r := f.outbox.row(id); r.status != application.EmailSent {
+			t.Errorf("row %d = %+v, want sent", id, r)
+		}
+	}
+}
+
 func TestPassErrorLogIsReportedOncePerDistinctError(t *testing.T) {
 	var last string
 	report := []bool{

@@ -1,6 +1,13 @@
 /**
- * Settings journeys: appearance panel, the SLA configuration panel, the
- * root-only Email section (issue #362), and the per-user Preferences page.
+ * Settings journeys: appearance panel, the SLA configuration panel (including
+ * the automatic hold close of issue #353), the root-only Email section (issue
+ * #362), and the per-user Preferences page.
+ *
+ * The automatic hold close itself is NOT exercised here: it fires on a real
+ * working-day deadline, so an end-to-end proof would need days of wall clock.
+ * Go proves that rule with an injected clock
+ * (`internal/application/hold_expiry_test.go`); this file proves the setting
+ * the rule reads.
  */
 
 import { test, expect, type Page } from "@playwright/test";
@@ -388,6 +395,77 @@ test.describe("Settings", () => {
     await expect(page.getByLabel("Critical first response, minutes")).toHaveValue("45");
     await expect(page.getByLabel("Critical first response, seconds")).toHaveValue("10");
     await expect(page.getByLabel("High resolve, hours")).toHaveValue("8");
+  });
+
+  test("hold auto-close window: persists, clears to off, and refuses an out-of-range value", async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    const obs = collectObservability(page);
+    await loginAsSeeded(page);
+    await page.goto(base() + "/settings/tickets");
+    await expect(page.locator("h1").filter({ hasText: "Settings" })).toBeVisible();
+
+    // Issue #353, S2: the automatic close is configured in the SLA part of the
+    // Tickets & SLA section (#383), and a seeded instance is OFF — which the
+    // field shows as EMPTY.
+    await expect(
+      page.locator("h3").filter({ hasText: "Automatic close of held tickets" }),
+    ).toBeVisible();
+    const days = page.getByLabel("Close tickets on hold after N working days without a reply", {
+      exact: true,
+    });
+    await expect(days).toHaveValue("");
+
+    // A saved window persists across a reload.
+    await days.fill("3");
+    await page.getByRole("button", { name: "Save automatic close" }).click();
+    await expect(page).toHaveURL(/\/settings\/tickets$/);
+    await expect(page.locator("#save-feedback")).toContainText("Saved");
+    await page.reload();
+    await expect(days).toHaveValue("3");
+
+    // Clearing it turns the feature off, and THAT persists too.
+    await days.fill("");
+    await page.getByRole("button", { name: "Save automatic close" }).click();
+    await expect(page).toHaveURL(/\/settings\/tickets$/);
+    await expect(page.locator("#save-feedback")).toContainText("Saved");
+    await page.reload();
+    await expect(days).toHaveValue("");
+
+    // Structural screen assertion here, before the deliberate 422 below: the
+    // refused save legitimately logs a failed resource, which the canonical
+    // observability check does not allow.
+    await assertCanonicalScreen(page, {
+      viewport: 1280,
+      label: "settings hold auto-close persist",
+      url: page.url(),
+      role: "root",
+      consoleErrors: obs.consoleErrors,
+      pageErrors: obs.pageErrors,
+      failedRequests: obs.failedRequests,
+      failedResponses: obs.failedResponses,
+    });
+
+    // The field constrains only the lower bound, so an out-of-range window
+    // reaches the server and is refused with nothing stored.
+    await days.fill("99");
+    await page.getByRole("button", { name: "Save automatic close" }).click();
+    const banner = page.locator(".error-banner");
+    await expect(banner).toBeVisible();
+    await expect(banner).toHaveAttribute("role", "alert");
+    await expect(banner).toContainText(
+      "the hold auto-close window must be between 0 and 60 working days",
+    );
+    // Native form: the rejection re-renders the section at the POST URL, no
+    // redirect.
+    await expect(page).toHaveURL(/\/settings\/hold-auto-close$/);
+    await expect(days).toHaveValue("99");
+
+    // A fresh GET (not a reload: reloading a POST response re-submits the form)
+    // shows the previous value untouched.
+    await page.goto(base() + "/settings/tickets");
+    await expect(days).toHaveValue("");
   });
 
   test("switching the interface language re-renders every screen and switching back restores English", async ({

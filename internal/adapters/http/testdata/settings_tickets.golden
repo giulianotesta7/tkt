@@ -208,6 +208,18 @@
         <button class="btn" type="reset">Discard</button>
       </div>
     </form>
+    <form class="settings-form card form-card" method="post" action="/settings/hold-auto-close" data-settings-form>
+      <h3 class="settings-group-title">Automatic close of held tickets</h3>
+      <p class="help">When the requester never answers, warn them one working day before and then close the ticket.</p>
+      <div class="field">
+        <label for="hold_auto_close_working_days">Close tickets on hold after N working days without a reply</label><span class="help-tip-wrap"><button class="help-tip" type="button" aria-label="More about Close tickets on hold after N working days without a reply" aria-describedby="help-tip-hold-auto-close-days" aria-expanded="false" data-help-tip>?</button><span class="help-tip-bubble" role="tooltip" id="help-tip-hold-auto-close-days">Empty means off: the instance never closes a held ticket on its own. Working days follow the SLA working calendar.</span></span>
+        <input type="number" id="hold_auto_close_working_days" name="hold_auto_close_working_days" class="sla-warning-input" min="0" value="">
+      </div>
+      <div class="settings-savebar" data-settings-savebar hidden>
+        <button class="btn primary" type="submit">Save automatic close</button>
+        <button class="btn" type="reset">Discard</button>
+      </div>
+    </form>
   </div>
 </div>
 </main>

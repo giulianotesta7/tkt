@@ -55,6 +55,7 @@ func TestSettingsFieldHelpIsBehindAToggletip(t *testing.T) {
 		{"/settings/signin", "signin-title", "Title", "Leave it empty to use the default text."},
 		{"/settings/signin", "signin-image", "Background image", "1600 × 1800 px recommended. Smaller screens crop the edges, so keep the subject centered."},
 		{"/settings/tickets", "sla-warning", "Warning threshold", "At risk once this share of the target has elapsed."},
+		{"/settings/tickets", "hold-auto-close-days", "Close tickets on hold after N working days without a reply", "Empty means off: the instance never closes a held ticket on its own. Working days follow the SLA working calendar."},
 		{"/settings/calendar", "calendar-days", "Working days", "At least one day."},
 		{"/settings/calendar", "calendar-timezone", "Timezone", "IANA name"},
 		{"/settings/email", "email-host", "SMTP server", "Host name or IP address"},

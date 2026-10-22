@@ -42,6 +42,18 @@
         <button class="btn" type="reset">{{t "settings.discard"}}</button>
       </div>
     </form>
+    <form class="settings-form card form-card" method="post" action="/settings/hold-auto-close" data-settings-form>
+      <h3 class="settings-group-title">{{t "settings.sla.hold_close.title"}}</h3>
+      <p class="help">{{t "settings.sla.hold_close.help"}}</p>
+      <div class="field">
+        <label for="hold_auto_close_working_days">{{t "settings.sla.hold_close.days"}}</label>{{template "help_tip" (helpTip "hold-auto-close-days" (t "settings.sla.hold_close.days") (t "settings.sla.hold_close.days_help"))}}
+        <input type="number" id="hold_auto_close_working_days" name="hold_auto_close_working_days" class="sla-warning-input" min="0" value="{{.HoldAutoCloseDays}}">
+      </div>
+      <div class="settings-savebar" data-settings-savebar hidden>
+        <button class="btn primary" type="submit">{{t "settings.sla.hold_close.save"}}</button>
+        <button class="btn" type="reset">{{t "settings.discard"}}</button>
+      </div>
+    </form>
   </div>
 </div>
 {{end}}

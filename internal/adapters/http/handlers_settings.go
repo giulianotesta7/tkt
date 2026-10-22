@@ -23,8 +23,9 @@ import (
 // unknown section is a 404.
 //
 // Every existing POST /settings/* endpoint keeps its path, validation and
-// capability: POST /settings/appearance and POST /settings/sla persist the two
-// forms of the tickets section, POST /settings/language the language,
+// capability: POST /settings/appearance, POST /settings/sla and
+// POST /settings/hold-auto-close persist the three forms of the tickets
+// section, POST /settings/language the language,
 // POST /settings/calendar the working calendar, and POST /settings/email (with
 // its test) the SMTP configuration. POST /settings/organization is new and
 // multipart, because the identity and its logo are one submission. A successful
@@ -91,6 +92,7 @@ func (h *SettingsHandlers) Register(mux *http.ServeMux) {
 	mux.HandleFunc("POST /settings/appearance", h.updateAppearance)
 	mux.HandleFunc("POST /settings/language", h.updateLanguage)
 	mux.HandleFunc("POST /settings/sla", h.updateSLA)
+	mux.HandleFunc("POST /settings/hold-auto-close", h.updateHoldAutoClose)
 	mux.HandleFunc("POST /settings/calendar", h.updateCalendar)
 	mux.HandleFunc("POST /settings/email", h.updateEmail)
 	mux.HandleFunc("POST /settings/email/test", h.sendTestEmail)
@@ -198,6 +200,9 @@ type settingsTicketsData struct {
 	SLAEnabled        bool
 	SLAWarningPercent int
 	SLAGrid           slaGridData
+	// HoldAutoCloseDays is the automatic hold close window (issue #353, S2) as
+	// the field renders it: EMPTY when the feature is off, never a literal 0.
+	HoldAutoCloseDays string
 }
 
 // settingsCalendarData is the Working calendar section payload.
@@ -642,13 +647,17 @@ func (h *SettingsHandlers) updateLanguage(w http.ResponseWriter, r *http.Request
 }
 
 // ---------------------------------------------------------------------------
-// Tickets section: appearance and the SLA panel (issue #211, #335)
+// Tickets section: appearance, the SLA panel and the automatic hold close
+// (issue #211, #335, #353)
 // ---------------------------------------------------------------------------
 
 // renderTickets renders the Tickets section: the internal-comment background
-// control and the SLA panel, from storage unless echo supplies a rejected
-// submission's values.
-func (h *SettingsHandlers) renderTickets(w http.ResponseWriter, r *http.Request, status int, message string, echo *settingsTicketsData) {
+// control, the SLA panel and the automatic hold close window, from storage
+// unless adjust supplies a rejected submission's values. adjust, when non-nil,
+// changes the payload the stored configuration produced — the submitted values
+// of whichever form of the section was refused — so a rejection never costs the
+// administrator the panels that form does not own.
+func (h *SettingsHandlers) renderTickets(w http.ResponseWriter, r *http.Request, status int, message string, adjust func(*settingsTicketsData)) {
 	current, err := h.settings.GetAppearance(r.Context())
 	if err != nil {
 		httpError(w, r, "error.internal_server", http.StatusInternalServerError)
@@ -664,10 +673,8 @@ func (h *SettingsHandlers) renderTickets(w http.ResponseWriter, r *http.Request,
 		httpError(w, r, "error.internal_server", http.StatusInternalServerError)
 		return
 	}
-	if echo != nil {
-		data.SLAEnabled = echo.SLAEnabled
-		data.SLAWarningPercent = echo.SLAWarningPercent
-		data.SLAGrid = echo.SLAGrid
+	if adjust != nil {
+		adjust(&data)
 	}
 	// The shell CSS must carry the same color the panel shows; stamp the
 	// authoritative read into the page data.
@@ -676,9 +683,10 @@ func (h *SettingsHandlers) renderTickets(w http.ResponseWriter, r *http.Request,
 }
 
 // loadSLA fills the SLA panel payload from the authoritative reads: the
-// enabled flag and warning percent come through the settings store port,
-// the default target matrix through the SLA store port (the application
-// service exposes no read use case for them).
+// enabled flag and warning percent come through the settings store port, the
+// automatic hold close window through the SLA service, and the default target
+// matrix through the SLA store port (the application service exposes no read
+// use case for them).
 func (h *SettingsHandlers) loadSLA(r *http.Request, data *settingsTicketsData) error {
 	enabled, err := h.appSet.GetSLAEnabled(r.Context())
 	if err != nil {
@@ -688,14 +696,93 @@ func (h *SettingsHandlers) loadSLA(r *http.Request, data *settingsTicketsData) e
 	if err != nil {
 		return err
 	}
+	holdAutoClose, err := h.sla.HoldAutoCloseDays(r.Context())
+	if err != nil {
+		return err
+	}
 	defaults, err := h.slaStore.ListDefaults(r.Context())
 	if err != nil {
 		return err
 	}
 	data.SLAEnabled = enabled
 	data.SLAWarningPercent = percent
+	data.HoldAutoCloseDays = holdAutoCloseFieldValue(holdAutoClose)
 	data.SLAGrid = slaGridData{Rows: slaPolicyRows(defaults)}
 	return nil
+}
+
+// holdAutoCloseFieldValue renders the stored hold auto-close window for the
+// field: the feature is off at 0, and the panel says so by rendering the field
+// EMPTY, because "empty = off" is the contract the label states (issue #353,
+// S2). A negative value cannot be stored; it renders empty like 0.
+func holdAutoCloseFieldValue(days int) string {
+	if days <= 0 {
+		return ""
+	}
+	return strconv.Itoa(days)
+}
+
+// parseHoldAutoCloseDays reads the submitted window: blank is 0 (off), and a
+// value that is not a whole number is refused instead of silently turning the
+// feature off. The 0..60 bound stays the SLA service's rule, so exactly one
+// place decides what a storable window is.
+func parseHoldAutoCloseDays(raw string) (int, bool) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return 0, true
+	}
+	days, err := strconv.Atoi(raw)
+	if err != nil {
+		return 0, false
+	}
+	return days, true
+}
+
+// updateHoldAutoClose persists the automatic hold close window (issue #353, S2)
+// from the Tickets section's own form (the section the SLA panel owns, issue
+// #383). ONE application call applies it, so a rejected window writes nothing
+// and the SLA panel that shares the section is never half-saved; success
+// redirects 303 back to the section, exactly as the SLA save does.
+func (h *SettingsHandlers) updateHoldAutoClose(w http.ResponseWriter, r *http.Request) {
+	if !requireCapability(w, r, application.CapManageSettings) {
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		httpError(w, r, "error.internal_server", http.StatusInternalServerError)
+		return
+	}
+	raw := strings.TrimSpace(r.Form.Get("hold_auto_close_working_days"))
+	days, ok := parseHoldAutoCloseDays(raw)
+	var err error
+	if ok {
+		err = h.sla.SetHoldAutoCloseDays(r.Context(), *userFromContext(r.Context()), days)
+	} else {
+		// A non-numeric submission never reaches the service, so the refusal is
+		// built here with the SAME catalogue key and English bytes the service
+		// uses: every refusal of this one field reads the same sentence.
+		err = &domain.ValidationError{
+			Field:   "hold_auto_close_working_days",
+			Message: "the hold auto-close window must be between 0 and 60 working days",
+			Key:     "error.hold_auto_close_days_invalid",
+		}
+	}
+	if err != nil {
+		status, msg := mapErrorFor(r, err)
+		if status == http.StatusInternalServerError {
+			http.Error(w, msg, status)
+			return
+		}
+		// The re-render echoes the SUBMITTED window, so the administrator reads
+		// what was refused instead of the value that is still stored; the
+		// appearance and SLA panels come from storage, because this POST owns
+		// neither.
+		h.renderTickets(w, r, status, msg, func(data *settingsTicketsData) {
+			data.HoldAutoCloseDays = raw
+		})
+		return
+	}
+	saveFeedback(w, r, saveFeedbackSaved, saveFeedbackSuccess)
+	redirect(w, r, settingsSectionHref(settingsSectionTickets))
 }
 
 // updateAppearance persists the chosen color. A rejected color re-renders the
@@ -755,10 +842,10 @@ func (h *SettingsHandlers) updateSLA(w http.ResponseWriter, r *http.Request) {
 		}
 		// Echo the SUBMITTED values: one bad number must not cost the
 		// administrator the other twenty-three fields.
-		h.renderTickets(w, r, status, msg, &settingsTicketsData{
-			SLAEnabled:        enabled,
-			SLAWarningPercent: percent,
-			SLAGrid:           slaGridData{Rows: slaPolicyRows(policies)},
+		h.renderTickets(w, r, status, msg, func(data *settingsTicketsData) {
+			data.SLAEnabled = enabled
+			data.SLAWarningPercent = percent
+			data.SLAGrid = slaGridData{Rows: slaPolicyRows(policies)}
 		})
 		return
 	}

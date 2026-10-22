@@ -627,6 +627,10 @@ var templateFuncs = template.FuncMap{
 	},
 	"formatDatetime": formatDatetime,
 	"humanize":       humanizeLabel,
+	// automaticActor is the single automatic-actor rule (issue #353): the
+	// timeline omits the actor text for the workflow sentinel and the automatic
+	// hold close alike.
+	"automaticActor": application.IsAutomaticActor,
 	"ticketNumber": func(n int) string {
 		return "TKT-" + strconv.Itoa(n)
 	},

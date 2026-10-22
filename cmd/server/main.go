@@ -44,6 +44,13 @@ func (systemClock) Now() time.Time { return time.Now().UTC() }
 // notification emails.
 const emailSendInterval = 15 * time.Second
 
+// holdExpiryInterval is how often the automatic hold expiry looks for held
+// tickets whose reminder or deadline is due (issue #353). Five minutes: the
+// deadlines are working-day instants, so a pass that runs a few minutes late
+// closes a ticket a few minutes late, while a pass with the feature off costs
+// one setting read and stops there.
+const holdExpiryInterval = 5 * time.Minute
+
 func envOr(key, fallback string) string {
 	if v := os.Getenv(key); v != "" {
 		return v
@@ -136,6 +143,11 @@ func main() {
 	mailer := mail.NewSMTPMailer()
 	emailSettingsSvc := application.NewEmailSettingsService(store.EmailSettingsStore(), secretbox.New(filepath.Dir(dbPath)), mailer, store.SettingsStore(), msgtext.Renderer{})
 	emailSender := application.NewNotificationEmailSender(store.EmailOutbox(), emailSettingsSvc, store.UserStore(), store.TicketStore(), store.EmailPreferences(), mailer, msgtext.Renderer{}, clock)
+	// Issue #353: the automatic hold expiry closes a ticket whose requester
+	// never replied, after warning them one working day earlier. It shares the
+	// SLA service with the ticket use cases, so an automatic close shifts the
+	// paused resolution commitment exactly as a manual resume does.
+	holdExpiry := application.NewHoldExpiryService(store.HoldExpiryStore(), store.TicketUnitOfWork(), store.UserStore(), slaSvc, store.SettingsStore(), clock)
 	// Attachment downloads (issue #366): read-only, authorised per request by
 	// the actor's ticket scope and the visibility of what the file belongs to.
 	attachmentSvc := application.NewAttachmentService(store.TicketStore(), store.AttachmentStore())
@@ -202,6 +214,19 @@ func main() {
 	defer func() {
 		stop()
 		<-senderDone
+	}()
+
+	// Issue #353: the hold expiry runs the same background shape — one pass per
+	// interval, the window read on every pass — and is likewise stopped and
+	// awaited before the database closes, so no pass outlives the connection.
+	holdExpiryDone := make(chan struct{})
+	go func() {
+		defer close(holdExpiryDone)
+		holdExpiry.Run(ctx, holdExpiryInterval)
+	}()
+	defer func() {
+		stop()
+		<-holdExpiryDone
 	}()
 
 	select {

@@ -1024,7 +1024,9 @@ func fixtureSettingsLanguageData() settingsLanguageData {
 }
 
 // fixtureSettingsTicketsData carries the seeded SLA configuration (migration
-// 0013): off, 80 percent, and the seeded default matrix.
+// 0013): off, 80 percent, and the seeded default matrix. The automatic hold
+// close (issue #353) is OFF on a seeded instance, and the panel renders that
+// as an EMPTY field ("empty = off"), never a 0.
 func fixtureSettingsTicketsData() settingsTicketsData {
 	return settingsTicketsData{
 		settingsSectionData: fixtureSettingsSectionData(settingsSectionTickets),
@@ -1032,6 +1034,7 @@ func fixtureSettingsTicketsData() settingsTicketsData {
 		Colors:              appearanceOptions(),
 		SLAGrid:             slaGridData{Rows: slaPolicyRows(seededSLADefaults())},
 		SLAWarningPercent:   80,
+		HoldAutoCloseDays:   "",
 	}
 }
 
@@ -1203,15 +1206,21 @@ func fixtureNotificationsPanelData() notificationsPanelData {
 	commentInternal := message(domain.NotificationCommentInternal, nil, nil)
 	formWaiting := message(domain.NotificationFormWaiting, nil, nil)
 	onHold := message(domain.NotificationOnHold, nil, nil)
+	holdReminder := message(domain.NotificationHoldReminder, nil, nil)
+	holdClosed := message(domain.NotificationHoldClosed, nil, nil)
 	automatic := application.MsgRef("notifications.actor.automatic")
 	unknown := application.MsgRef("notifications.actor.unknown")
 	ana2 := application.Data("Ana Torres")
 	marco := application.Data("Marco Ruiz")
 	return notificationsPanelData{
 		pageData: pageData{NavActive: "notifications", CurrentUser: ana},
-		Unread:   5,
+		Unread:   7,
 		Groups: []notificationGroup{
 			{Kind: "today", Date: goldenT0, Rows: []notificationRow{
+				// Issue #353: the reminder and the close are automatic, so both
+				// carry the "Automatic" actor and their own sentence.
+				{ID: 12, TicketID: 12, Number: 15, Title: "Monitor flickers on the dock", Message: holdReminder, Actor: automatic, CreatedAt: goldenT1, Unread: true},
+				{ID: 11, TicketID: 11, Number: 14, Title: "Headset microphone is mute", Message: holdClosed, Actor: automatic, CreatedAt: goldenT1, Unread: true},
 				{ID: 10, TicketID: 10, Number: 13, Title: "Laptop will not boot", Message: onHold, Actor: marco, CreatedAt: goldenT1, Unread: false},
 				{ID: 9, TicketID: 9, Number: 12, Title: "VPN drops every hour", Message: assigned, Actor: automatic, CreatedAt: goldenT1, Unread: true},
 				{ID: 8, TicketID: 8, Number: 11, Title: "Invoice export misses August", Message: stateChanged, Actor: marco, CreatedAt: goldenT0, Unread: true},
@@ -1446,6 +1455,91 @@ func TestGoldenTicketDetailRequesterOnHold(t *testing.T) {
 	}
 
 	goldenFile(t, "ticket_detail_requester_on_hold", body)
+}
+
+// ---------------------------------------------------------------------------
+// Issue #353 goldens: the automatic close of an expired hold. The write stores
+// three audit events under the automatic actor (resume, resolve, close), so the
+// snapshot proves all three render with NO actor text — the automatic-actor
+// convention, never a "System" label — and that the closure says why it closed
+// instead of the generic "moved the ticket to closed".
+// ---------------------------------------------------------------------------
+
+// fixtureAutomaticHoldCloseDetailData derives the closed detail from the open
+// fixture and replaces its timeline with the three events of one hold-expiry
+// write (issue #353, S5), as enrichTimeline shapes them in production.
+func fixtureAutomaticHoldCloseDetailData() detailData {
+	d := closedDetailData(domain.StateClosed)
+	write := goldenT0.Add(26 * time.Hour)
+	resume := domain.AuditEvent{TicketID: 1, Actor: domain.AutomaticActorSystem, Action: domain.ActionResume, CreatedAt: write}
+	resolved := domain.AuditEvent{TicketID: 1, Actor: domain.AutomaticActorSystem, Action: domain.ActionTransition, Field: strptr("state"), FromValue: strptr("in_progress"), ToValue: strptr("resolved"), CreatedAt: write}
+	via := domain.ClosureViaHoldExpired
+	closed := domain.AuditEvent{TicketID: 1, Actor: domain.AutomaticActorSystem, Action: domain.ActionTransition, Field: strptr("state"), FromValue: strptr("resolved"), ToValue: strptr("closed"), ClosureVia: &via, CreatedAt: write}
+	d.View.AuditEvents = []domain.AuditEvent{d.View.AuditEvents[0], resume, resolved, closed}
+	// Mirrors enrichTimeline: an automatic actor keeps NO actor label, and the
+	// closure carries the hold-expired narrative.
+	d.View.Timeline = []application.TimelineItem{
+		{IsComment: true, Comment: &d.View.Comments[0]},
+		{
+			Event:        &d.View.AuditEvents[3],
+			Narrative:    "closed the ticket because the requester did not reply",
+			NarrativeMsg: application.MsgRef("tickets.timeline.narrative.closed_hold_expired"),
+			Summary:      "Ticket closed",
+			StateClass:   string(domain.StateClosed),
+		},
+		{
+			Event:        &d.View.AuditEvents[2],
+			Narrative:    "moved the ticket to resolved",
+			NarrativeMsg: application.MsgRef("tickets.timeline.narrative.moved_to", application.Copy("tickets.timeline.state.resolved")),
+			Summary:      "Ticket resolved",
+			StateClass:   string(domain.StateResolved),
+		},
+		{
+			Event:        &d.View.AuditEvents[1],
+			Narrative:    "took the ticket off hold",
+			NarrativeMsg: application.MsgRef("tickets.timeline.narrative.resumed"),
+			Summary:      "Resumed",
+		},
+		{
+			Event:        &d.View.AuditEvents[0],
+			ActorLabel:   "Admin",
+			Narrative:    "created the ticket",
+			NarrativeMsg: application.MsgRef("tickets.timeline.narrative.created"),
+			Summary:      "Ticket created",
+			StateClass:   string(domain.StateNew),
+		},
+	}
+	return d
+}
+
+// TestGoldenTicketDetailAutomaticHoldClose freezes the timeline of an
+// automatically closed hold: the reason the ticket closed, the three automatic
+// events with no actor text, and the human event that keeps its name.
+func TestGoldenTicketDetailAutomaticHoldClose(t *testing.T) {
+	d := fixtureAutomaticHoldCloseDetailData()
+	body := renderGolden(t, "tickets_show", "ticket_detail", d, true)
+
+	for _, want := range []string{
+		`<span class="timeline-action">closed the ticket because the requester did not reply</span>`,
+		`<span class="timeline-action">moved the ticket to resolved</span>`,
+		`<span class="timeline-action">took the ticket off hold</span>`,
+		// The one human event of the fixture still names who acted.
+		`<strong class="timeline-actor">Admin</strong> <span class="timeline-action">created the ticket</span>`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("automatic hold close timeline must contain %q, got: %s", want, body)
+		}
+	}
+	for _, absent := range []string{
+		`<strong class="timeline-actor">system</strong>`,
+		`<strong class="timeline-actor">System</strong>`,
+	} {
+		if strings.Contains(body, absent) {
+			t.Errorf("automatic events must render no actor text, got %q in: %s", absent, body)
+		}
+	}
+
+	goldenFile(t, "ticket_detail_hold_closed", body)
 }
 
 // ---------------------------------------------------------------------------
