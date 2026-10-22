@@ -41,7 +41,8 @@ func TestLoginPageRendered(t *testing.T) {
 }
 
 // TestAuthEntryCopyAndFormContracts defines the approved setup/login identity
-// while pinning the existing server-rendered form contracts.
+// (issue #383, S6: one centered column carrying the instance identity above the
+// form) while pinning the existing server-rendered form contracts.
 func TestAuthEntryCopyAndFormContracts(t *testing.T) {
 	tests := []struct {
 		name       string
@@ -56,12 +57,16 @@ func TestAuthEntryCopyAndFormContracts(t *testing.T) {
 			path:       "/setup",
 			newHarness: newEmptyHarness,
 			mustHave: []string{
+				`<main class="auth-entry">`,
+				`<span class="auth-entry__logo">T</span>`,
+				`<h1 class="command-title">tkt</h1>`,
+				`<p class="help">Help desk</p>`,
 				"Set up tkt",
 				"Create the first account for your support team. This only happens once.",
 				"Create account",
 				"Your password is stored securely.",
 			},
-			mustMiss: []string{"Ticket Desk", "Server-side ticketing", "audit trail", "Go + HTMX + SQLite", "bcrypt", "Open source"},
+			mustMiss: []string{"Ticket Desk", "Server-side ticketing", "audit trail", "Go + HTMX + SQLite", "bcrypt", "Open source", "auth-entry__presentation", "auth-entry__journey", "auth-entry__principles"},
 			form: []string{
 				`<form class="login-form" method="post" action="/setup" novalidate>`,
 				`<label for="name">Name</label>`, `name="name"`, `autocomplete="name"`,
@@ -73,8 +78,14 @@ func TestAuthEntryCopyAndFormContracts(t *testing.T) {
 			name:       "login",
 			path:       "/login",
 			newHarness: newHarness,
-			mustHave:   []string{"tkt", "Sign in"},
-			mustMiss:   []string{"Ticket Desk", "Server-side ticketing", "audit trail", "Go + HTMX + SQLite", "bcrypt", "Open source"},
+			mustHave: []string{
+				`<main class="auth-entry">`,
+				`<span class="auth-entry__logo">T</span>`,
+				`<h1 class="command-title">tkt</h1>`,
+				`<p class="help">Help desk</p>`,
+				"Sign in to tkt",
+			},
+			mustMiss: []string{"Ticket Desk", "Server-side ticketing", "audit trail", "Go + HTMX + SQLite", "bcrypt", "Open source", "auth-entry__presentation", "auth-entry__journey", "auth-entry__principles"},
 			form: []string{
 				`<form class="login-form" method="post" action="/login" novalidate>`,
 				`<label for="email">Email</label>`, `name="email"`, `autocomplete="email"`,

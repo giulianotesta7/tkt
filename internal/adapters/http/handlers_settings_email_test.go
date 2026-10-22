@@ -74,13 +74,13 @@ func TestSettingsEmailSectionIsRootOnly(t *testing.T) {
 	h := newHarness(t)
 	_, rootSession := seedRoot(t, h)
 
-	rec := getAs(t, h, "/settings", rootSession.ID)
+	rec := getAs(t, h, "/settings/email", rootSession.ID)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("root GET /settings = %d, want 200: %s", rec.Code, rec.Body.String())
 	}
 	body := rec.Body.String()
 	for _, want := range []string{
-		`<h2>Email</h2>`,
+		`<h2 class="settings-section-title">Email</h2>`,
 		`action="/settings/email"`,
 		`formaction="/settings/email/test"`,
 		`id="email_host" name="email_host" value=""`,
@@ -109,7 +109,7 @@ func TestSettingsEmailSectionIsRootOnly(t *testing.T) {
 	}
 	assertNoWhitespaceViolations(t, body)
 
-	adminBody := h.get(t, "/settings", false).Body.String()
+	adminBody := h.get(t, "/settings/email", false).Body.String()
 	for _, absent := range []string{
 		`action="/settings/email"`,
 		`name="email_host"`,
@@ -164,7 +164,7 @@ func TestSettingsEmailRoutesRejectEveryoneButRoot(t *testing.T) {
 
 	// The root the same harness holds still reaches the section, so the
 	// refusals above are the capability and not a broken route.
-	if rec := getAs(t, h, "/settings", rootSession.ID); rec.Code != http.StatusOK {
+	if rec := getAs(t, h, "/settings/email", rootSession.ID); rec.Code != http.StatusOK {
 		t.Errorf("root GET /settings = %d, want 200", rec.Code)
 	}
 }
@@ -178,7 +178,7 @@ func TestSettingsEmailSavePersistsAndRedirects(t *testing.T) {
 	rec := h.postFormAs(t, "/settings/email", emailSettingsForm(func(f url.Values) {
 		f.Set("email_skip_tls_verify", "1")
 	}), rootSession.ID)
-	wantRedirect(t, rec, http.StatusSeeOther, "/settings")
+	wantRedirect(t, rec, http.StatusSeeOther, "/settings/email")
 
 	stored, err := h.store.EmailSettingsStore().GetEmailSettings(t.Context())
 	if err != nil {
@@ -210,7 +210,7 @@ func TestSettingsEmailSavePersistsAndRedirects(t *testing.T) {
 	}
 
 	// The next render shows the stored configuration and no password.
-	rec = getAs(t, h, "/settings", rootSession.ID)
+	rec = getAs(t, h, "/settings/email", rootSession.ID)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("root GET /settings = %d, want 200", rec.Code)
 	}
@@ -310,7 +310,7 @@ func TestSettingsEmailKeepsTheStoredPasswordOnAnEmptyField(t *testing.T) {
 		f.Del("email_password")
 		f.Set("email_host", "smtp2.tkt.test")
 	}), rootSession.ID)
-	wantRedirect(t, rec, http.StatusSeeOther, "/settings")
+	wantRedirect(t, rec, http.StatusSeeOther, "/settings/email")
 
 	stored, err := h.store.EmailSettingsStore().GetEmailSettings(t.Context())
 	if err != nil {
@@ -346,7 +346,7 @@ func TestSettingsEmailRemovingTheUsernameRemovesTheCredentials(t *testing.T) {
 		f.Del("email_password")
 		f.Set("email_encryption", "none")
 	}), rootSession.ID)
-	wantRedirect(t, rec, http.StatusSeeOther, "/settings")
+	wantRedirect(t, rec, http.StatusSeeOther, "/settings/email")
 
 	stored, err := h.store.EmailSettingsStore().GetEmailSettings(t.Context())
 	if err != nil {
@@ -459,7 +459,7 @@ func TestSettingsEmailSectionDisabledSaveIsAllowed(t *testing.T) {
 		"email_password":        {""},
 		"email_skip_tls_verify": {""},
 	}, rootSession.ID)
-	wantRedirect(t, rec, http.StatusSeeOther, "/settings")
+	wantRedirect(t, rec, http.StatusSeeOther, "/settings/email")
 
 	stored, err := h.store.EmailSettingsStore().GetEmailSettings(t.Context())
 	if err != nil {
@@ -514,27 +514,33 @@ func TestSettingsEmailErrorsFollowTheInstanceLanguage(t *testing.T) {
 	}
 }
 
-// TestSettingsEmailIndexKeepsTheOtherPanels proves the root's email section
-// renders beside the panels an administrator sees, so the page did not fork.
-func TestSettingsEmailIndexKeepsTheOtherPanels(t *testing.T) {
+// TestSettingsEmailSectionKeepsItsSiblingsReachable proves the root's Email
+// section is one settings section among the others rather than a page of its
+// own: the section rail reaches every other section, and the section itself
+// renders only its own controls (issue #383, S1/S2).
+func TestSettingsEmailSectionKeepsItsSiblingsReachable(t *testing.T) {
 	h := newHarness(t)
 	_, rootSession := seedRoot(t, h)
 
-	rec := getAs(t, h, "/settings", rootSession.ID)
+	rec := getAs(t, h, "/settings/email", rootSession.ID)
 	if rec.Code != http.StatusOK {
-		t.Fatalf("root GET /settings = %d, want 200", rec.Code)
+		t.Fatalf("root GET /settings/email = %d, want 200", rec.Code)
 	}
 	body := rec.Body.String()
 	for _, want := range []string{
-		`<h2>Appearance</h2>`,
-		`<h2>Interface language</h2>`,
-		"<h2>Service level agreements (SLA)</h2>",
-		`<h2>Working calendar</h2>`,
-		`<h2>Email</h2>`,
-		`min="1" max="99" value="80"`,
+		`href="/settings/organization">Organization</a>`,
+		`href="/settings/tickets">Tickets &amp; SLA</a>`,
+		`href="/settings/email" aria-current="page">Email</a>`,
+		`<h2 class="settings-section-title">Email</h2>`,
+		`id="email_host" name="email_host"`,
 	} {
 		if !strings.Contains(body, want) {
-			t.Errorf("root settings page must keep %q, got: %.1500s", want, body)
+			t.Errorf("the root's email section must contain %q, got: %.1500s", want, body)
+		}
+	}
+	for _, unwanted := range []string{`name="internal_comment_bg"`, `min="1" max="99" value="80"`, `id="sla_calendar_start"`} {
+		if strings.Contains(body, unwanted) {
+			t.Errorf("the email section must not render another section's %q", unwanted)
 		}
 	}
 }

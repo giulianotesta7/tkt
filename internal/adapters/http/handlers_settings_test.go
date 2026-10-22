@@ -12,13 +12,23 @@ import (
 	"github.com/giulianotesta7/tkt/internal/domain"
 )
 
-// Instance appearance, SLA, and working-calendar settings
-// (handlers_settings.go): GET /settings is admin/root-only and shows the
-// current color, the SLA panel, and the working-calendar panel;
-// POST /settings/appearance persists a valid color, POST /settings/sla
-// persists the SLA panel, POST /settings/calendar persists the working
-// calendar, and each rejects an invalid submission with an inline error
-// that re-renders EVERY panel; the shell CSS follows the stored value.
+// Settings sections (issue #383, S1/S2): GET /settings redirects to the first
+// section, GET /settings/{section} renders exactly that section, an unknown
+// section is a 404, and every existing POST keeps its path, validation and
+// capability while redirecting back to the section it belongs to. The tests
+// below also pin the pieces of the layout a user meets: the sub-navigation with
+// its aria-current mark, and the sticky save bar that names its section.
+
+// sectionGet is an authenticated GET of one settings section, fataling on a
+// non-200 so the assertions below can read the body directly.
+func sectionGet(t *testing.T, h *harness, path string) string {
+	t.Helper()
+	rec := h.get(t, path, false)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET %s = %d, want 200: %s", path, rec.Code, rec.Body.String())
+	}
+	return rec.Body.String()
+}
 
 func TestSettingsIndexRequiresAdmin(t *testing.T) {
 	h := newHarness(t)
@@ -41,59 +51,260 @@ func TestSettingsIndexRequiresAdmin(t *testing.T) {
 	}
 }
 
-func TestSettingsIndexShowsCurrentColor(t *testing.T) {
+// TestSettingsIndexRedirectsToTheFirstSection proves S1's entry point: the
+// surface has no page of its own, so the bare URL answers a 303 to the
+// Organization section.
+func TestSettingsIndexRedirectsToTheFirstSection(t *testing.T) {
 	h := newHarness(t)
 
 	rec := h.get(t, "/settings", false)
 
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status = %d, want 200: %s", rec.Code, rec.Body.String())
+	wantRedirect(t, rec, http.StatusSeeOther, "/settings/organization")
+}
+
+// TestSettingsSectionsRenderOneSectionEach proves S2's core promise: each URL
+// renders exactly its own section, so a longer page never hides the control the
+// administrator opened.
+func TestSettingsSectionsRenderOneSectionEach(t *testing.T) {
+	h := newHarness(t)
+
+	cases := []struct {
+		path   string
+		title  string
+		own    []string
+		absent []string
+	}{
+		{
+			path:  "/settings/organization",
+			title: "<h2 class=\"settings-section-title\">Organization</h2>",
+			own: []string{
+				`action="/settings/organization"`,
+				`id="org_name" name="name"`,
+				`id="org_help_desk" name="help_desk"`,
+				`id="org_support_email" name="support_email"`,
+				`type="file" id="org_logo" name="logo" accept="image/png"`,
+				`Save organization`,
+			},
+			absent: []string{`action="/settings/language"`, `action="/settings/sla"`, `name="internal_comment_bg"`, `action="/settings/calendar"`},
+		},
+		{
+			path:  "/settings/language",
+			title: "<h2 class=\"settings-section-title\">Interface language</h2>",
+			own: []string{
+				`action="/settings/language"`,
+				`<select id="interface_language" name="interface_language">`,
+				`Save language`,
+			},
+			absent: []string{`action="/settings/organization"`, `name="internal_comment_bg"`, `action="/settings/calendar"`},
+		},
+		{
+			path:  "/settings/tickets",
+			title: "<h2 class=\"settings-section-title\">Tickets &amp; SLA</h2>",
+			own: []string{
+				`action="/settings/appearance"`,
+				`name="internal_comment_bg" value="#E8EEFF"`,
+				`action="/settings/sla"`,
+				`min="1" max="99" value="80"`,
+				`name="first_response_m_critical" value="30"`,
+				`Save appearance`,
+				`Save SLA settings`,
+			},
+			absent: []string{`action="/settings/organization"`, `action="/settings/calendar"`, `action="/settings/language"`},
+		},
+		{
+			path:  "/settings/calendar",
+			title: "<h2 class=\"settings-section-title\">Working calendar</h2>",
+			own: []string{
+				`action="/settings/calendar"`,
+				`name="sla_calendar_days" value="1" checked`,
+				`name="sla_calendar_days" value="6"> Saturday`,
+				`id="sla_calendar_start" name="sla_calendar_start" value="09:00"`,
+				`id="sla_calendar_end" name="sla_calendar_end" value="18:00"`,
+				`id="sla_calendar_timezone" name="sla_calendar_timezone" value="UTC"`,
+				`Save working calendar`,
+			},
+			absent: []string{`action="/settings/sla"`, `name="internal_comment_bg"`, `action="/settings/organization"`},
+		},
 	}
-	body := rec.Body.String()
+	for _, tc := range cases {
+		t.Run(tc.path, func(t *testing.T) {
+			body := sectionGet(t, h, tc.path)
+			if !strings.Contains(body, tc.title) {
+				t.Errorf("GET %s must render %q, got: %s", tc.path, tc.title, body)
+			}
+			for _, want := range tc.own {
+				if !strings.Contains(body, want) {
+					t.Errorf("GET %s must contain %q, got: %s", tc.path, want, body)
+				}
+			}
+			for _, unwanted := range tc.absent {
+				if strings.Contains(body, unwanted) {
+					t.Errorf("GET %s must not render another section's %q, got: %s", tc.path, unwanted, body)
+				}
+			}
+			// Every section page is still the Settings surface: the rail link is
+			// active and the shell keeps the internal-comment background.
+			if !strings.Contains(body, `href="/settings" data-tip="Settings" aria-current="page"`) {
+				t.Errorf("GET %s must keep the Settings rail link active", tc.path)
+			}
+		})
+	}
+}
+
+// TestSettingsUnknownSectionIs404 proves S1: an unknown segment is not a
+// section, so it answers 404 instead of a page with an empty content column.
+func TestSettingsUnknownSectionIs404(t *testing.T) {
+	h := newHarness(t)
+
+	for _, path := range []string{"/settings/appearance", "/settings/bogus", "/settings/settings"} {
+		if rec := h.get(t, path, false); rec.Code != http.StatusNotFound {
+			t.Errorf("GET %s = %d, want 404", path, rec.Code)
+		}
+	}
+}
+
+// TestSettingsSectionsRequireTheirCapability proves each section keeps the gate
+// its controls have: every section but Email is CapManageSettings, and Email is
+// root-only, so an administrator's direct visit is refused with 403.
+func TestSettingsSectionsRequireTheirCapability(t *testing.T) {
+	h := newHarness(t)
+	admin := seedUserRole(t, h.store, "Section Admin", "section-admin@tkt.test", domain.RoleAdmin)
+	session := seedSession(t, h.store, admin.ID)
+
+	for _, section := range []string{"organization", "language", "tickets", "calendar"} {
+		if rec := getAs(t, h, "/settings/"+section, session.ID); rec.Code != http.StatusOK {
+			t.Errorf("admin GET /settings/%s = %d, want 200", section, rec.Code)
+		}
+	}
+	if rec := getAs(t, h, "/settings/email", session.ID); rec.Code != http.StatusForbidden {
+		t.Errorf("admin GET /settings/email = %d, want 403: the Email section is root-only", rec.Code)
+	}
+
+	requester := seedUserRole(t, h.store, "Section User", "section-user@tkt.test", domain.RoleUser)
+	requesterSession := seedSession(t, h.store, requester.ID)
+	for _, section := range []string{"organization", "language", "tickets", "calendar", "email"} {
+		if rec := getAs(t, h, "/settings/"+section, requesterSession.ID); rec.Code != http.StatusForbidden {
+			t.Errorf("requester GET /settings/%s = %d, want 403", section, rec.Code)
+		}
+	}
+}
+
+// TestSettingsNavMarksTheActiveSectionAndHidesEmail proves the sub-navigation:
+// one entry per section in a stable order, aria-current="page" exactly on the
+// active one, and no Email entry for an actor who may not open it.
+func TestSettingsNavMarksTheActiveSectionAndHidesEmail(t *testing.T) {
+	h := newHarness(t)
+
+	_, rootSession := seedRoot(t, h)
+	body := getAs(t, h, "/settings/calendar", rootSession.ID).Body.String()
 	for _, want := range []string{
-		`href="/settings"`, // rail link present for the admin shell
-		`>Settings</h1>`,   // page title
-		`Appearance`,       // panel heading
-		`name="internal_comment_bg" value="#E8EEFF"`,
-		`--internal-comment-bg:#E8EEFF;`, // shell CSS carries the seeded default
-		// SLA panel: seeded warning percent, the feature seeded OFF, and the
-		// seeded default matrix decomposed into the grid's h/m/s units
-		// (critical 1800s/14400s, low 28800s/259200s).
-		`min="1" max="99" value="80"`,
-		`name="sla_enabled" value="1"> Enable SLA targets`,
-		`name="first_response_m_critical" value="30"`,
-		`name="resolve_h_critical" value="4"`,
-		`name="first_response_h_low" value="8"`,
-		`name="resolve_h_low" value="72"`,
-		// Calendar panel: the seeded default calendar (migration 0016) —
-		// Monday-Friday checked, Saturday and Sunday unchecked, a 09:00-18:00
-		// window, and the UTC zone.
-		`<h2>Working calendar</h2>`,
-		`name="sla_calendar_days" value="1" checked`,
-		`name="sla_calendar_days" value="2" checked`,
-		`name="sla_calendar_days" value="3" checked`,
-		`name="sla_calendar_days" value="4" checked`,
-		`name="sla_calendar_days" value="5" checked`,
-		`name="sla_calendar_days" value="6"> Saturday`,
-		`name="sla_calendar_days" value="7"> Sunday`,
-		`id="sla_calendar_start" name="sla_calendar_start" value="09:00"`,
-		`id="sla_calendar_end" name="sla_calendar_end" value="18:00"`,
-		`id="sla_calendar_timezone" name="sla_calendar_timezone" value="UTC"`,
+		`<nav class="settings-nav" aria-label="Settings sections">`,
+		`href="/settings/organization">Organization</a>`,
+		`href="/settings/language">Language</a>`,
+		`href="/settings/tickets">Tickets &amp; SLA</a>`,
+		`href="/settings/calendar" aria-current="page">Working calendar</a>`,
+		`href="/settings/email">Email</a>`,
 	} {
 		if !strings.Contains(body, want) {
-			t.Errorf("settings page must contain %q, got: %s", want, body)
+			t.Errorf("the section nav must contain %q, got: %s", want, body)
 		}
 	}
-	for _, absent := range []string{
-		`name="sla_calendar_days" value="6" checked`,
-		`name="sla_calendar_days" value="7" checked`,
+	if got := strings.Count(body, `aria-current="page"`); got < 1 {
+		t.Errorf("the active section must be marked, got %d marks", got)
+	}
+
+	// The admin's rail never offers the root-only section.
+	admin := seedUserRole(t, h.store, "Nav Admin", "nav-admin@tkt.test", domain.RoleAdmin)
+	adminSession := seedSession(t, h.store, admin.ID)
+	adminBody := getAs(t, h, "/settings/organization", adminSession.ID).Body.String()
+	if strings.Contains(adminBody, `href="/settings/email"`) {
+		t.Errorf("an administrator's nav must not offer the root-only Email section, got: %s", adminBody)
+	}
+}
+
+// TestSettingsPagesLoadTheirOwnAssets proves S2's asset contract: the settings
+// stylesheet and the save-bar script load on a settings page, and nowhere else.
+func TestSettingsPagesLoadTheirOwnAssets(t *testing.T) {
+	h := newHarness(t)
+
+	body := sectionGet(t, h, "/settings/organization")
+	for _, want := range []string{
+		`<link rel="stylesheet" href="/static/settings.css">`,
+		`<script src="/static/settings.js" defer></script>`,
 	} {
-		if strings.Contains(body, absent) {
-			t.Errorf("settings page must not contain %q (Saturday and Sunday seed unchecked), got: %s", absent, body)
+		if !strings.Contains(body, want) {
+			t.Errorf("a settings page must load %q, got: %s", want, body)
 		}
 	}
-	if strings.Contains(body, `name="sla_enabled" value="1" checked`) {
-		t.Errorf("sla_enabled seeds OFF, the panel must render it unchecked, got: %s", body)
+	tickets := h.get(t, "/tickets", false).Body.String()
+	if strings.Contains(tickets, "/static/settings.css") {
+		t.Errorf("a non-settings page must not download the settings stylesheet")
+	}
+}
+
+// TestSettingsSaveBarNamesItsSection proves S2's save bar: every settings form
+// carries a sticky bar that is hidden until the form is dirty and names the
+// section it saves, with a discard control beside it.
+func TestSettingsSaveBarNamesItsSection(t *testing.T) {
+	h := newHarness(t)
+
+	cases := []struct {
+		path  string
+		label string
+	}{
+		{"/settings/organization", "Save organization"},
+		{"/settings/language", "Save language"},
+		{"/settings/tickets", "Save SLA settings"},
+		{"/settings/calendar", "Save working calendar"},
+	}
+	for _, tc := range cases {
+		body := sectionGet(t, h, tc.path)
+		if got := strings.Count(body, `class="settings-savebar" data-settings-savebar hidden`); got == 0 {
+			t.Errorf("GET %s must render a hidden save bar, got: %s", tc.path, body)
+		}
+		if !strings.Contains(body, tc.label) {
+			t.Errorf("GET %s must name its save action %q, got: %s", tc.path, tc.label, body)
+		}
+		if !strings.Contains(body, `type="reset">Discard</button>`) {
+			t.Errorf("GET %s must offer a discard control beside its save, got: %s", tc.path, body)
+		}
+	}
+	// The tickets section owns two forms (appearance, SLA), so it owes two bars:
+	// one per form, each naming its own save.
+	tickets := sectionGet(t, h, "/settings/tickets")
+	if got := strings.Count(tickets, `data-settings-savebar hidden`); got != 2 {
+		t.Errorf("the tickets section renders %d save bars, want one per form (2)", got)
+	}
+}
+
+// TestSettingsDroppedCopyIsGone proves S2's copy rule: the descriptive
+// paragraphs an administrator can infer are gone, while the help that states a
+// rule they cannot infer (the SLA warning meaning, the calendar semantics, the
+// encryption rule) stays.
+func TestSettingsDroppedCopyIsGone(t *testing.T) {
+	h := newHarness(t)
+
+	for _, path := range []string{"/settings/organization", "/settings/language", "/settings/tickets", "/settings/calendar"} {
+		body := sectionGet(t, h, path)
+		for _, unwanted := range []string{
+			"Instance configuration",
+			"Changes the language of every screen",
+			"Background color for internal comments",
+			"Off by default",
+		} {
+			if strings.Contains(body, unwanted) {
+				t.Errorf("GET %s must not carry the dropped copy %q", path, unwanted)
+			}
+		}
+	}
+
+	tickets := sectionGet(t, h, "/settings/tickets")
+	if !strings.Contains(tickets, "At risk once this share of the target has elapsed.") {
+		t.Errorf("the SLA warning meaning is a rule the user cannot infer and must stay")
+	}
+	calendar := sectionGet(t, h, "/settings/calendar")
+	if !strings.Contains(calendar, "When the SLA clock runs.") {
+		t.Errorf("the calendar semantics are a rule the user cannot infer and must stay")
 	}
 }
 
@@ -102,7 +313,7 @@ func TestSettingsUpdatePersistsAndRedirects(t *testing.T) {
 
 	rec := h.postForm(t, "/settings/appearance", url.Values{"internal_comment_bg": {"#EFE9FB"}}, false)
 
-	wantRedirect(t, rec, http.StatusSeeOther, "/settings")
+	wantRedirect(t, rec, http.StatusSeeOther, "/settings/tickets")
 
 	got, err := h.store.SettingsStore().GetInternalCommentBg(t.Context())
 	if err != nil {
@@ -113,17 +324,13 @@ func TestSettingsUpdatePersistsAndRedirects(t *testing.T) {
 	}
 
 	// The following GET renders the new color as selected AND in the CSS.
-	rec = h.get(t, "/settings", false)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status = %d, want 200", rec.Code)
-	}
-	body := rec.Body.String()
+	body := sectionGet(t, h, "/settings/tickets")
 	for _, want := range []string{
 		`value="#EFE9FB" checked`,
 		`--internal-comment-bg:#EFE9FB;`,
 	} {
 		if !strings.Contains(body, want) {
-			t.Errorf("settings page after update must contain %q, got: %s", want, body)
+			t.Errorf("tickets section after update must contain %q, got: %s", want, body)
 		}
 	}
 }
@@ -139,21 +346,22 @@ func TestSettingsUpdateRejectsInvalidColor(t *testing.T) {
 	if !strings.Contains(rec.Body.String(), `error-banner`) {
 		t.Errorf("invalid color must render the inline error banner, got: %s", rec.Body.String())
 	}
-	if got := rec.Header().Get("X-Save-Feedback"); got != "" {
-		t.Errorf("rejected update must not emit save feedback, got %q", got)
+	// The rejection re-renders its OWN section: the appearance control and the
+	// SLA panel that share the page are both there.
+	for _, want := range []string{`name="internal_comment_bg"`, `name="sla_warning_percent"`} {
+		if !strings.Contains(rec.Body.String(), want) {
+			t.Errorf("rejected appearance must keep rendering %q, got: %s", want, rec.Body.String())
+		}
 	}
-
 	got, err := h.store.SettingsStore().GetInternalCommentBg(t.Context())
 	if err != nil {
 		t.Fatalf("read stored color: %v", err)
 	}
-	if got != "#E8EEFF" {
-		t.Errorf("bg = %q after rejected update, want %q", got, "#E8EEFF")
+	if got != application.DefaultInternalCommentBg {
+		t.Errorf("stored bg = %q after a rejected update, want the default", got)
 	}
 }
 
-// TestSettingsUpdateDeniedForNonAdmin proves the POST is gated on the same
-// capability as the page (server-side check, not markup hiding).
 func TestSettingsUpdateDeniedForNonAdmin(t *testing.T) {
 	h := newHarness(t)
 	user, err := h.users.Create(t.Context(), *h.admin, application.CreateUserInput{Name: "User", Email: "user@tkt.test", Password: "secret"})
@@ -181,16 +389,16 @@ func TestSettingsUpdateDeniedForNonAdmin(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read stored color: %v", err)
 	}
-	if got != "#E8EEFF" {
-		t.Errorf("bg = %q after denied update, want %q", got, "#E8EEFF")
+	if got != application.DefaultInternalCommentBg {
+		t.Errorf("stored bg = %q after a denied update, want the default", got)
 	}
 }
 
-// TestSettingsRailLinkCapabilityIsolation proves the Settings rail link is
-// driven by CanManageSettings and the Users link by CanManageUsers, in both
-// directions. The two role sets coincide today (admin and root grant both),
-// so the presentation flags are the only place this split is observable — and
-// conflating them is exactly the coupling the split removes.
+// TestSettingsRailLinkCapabilityIsolation proves the rail keeps the Settings
+// link behind CanManageSettings and the Users link behind CanManageUsers, in
+// both directions. The two role sets coincide today (admin and root grant
+// both), so the presentation flags are the only place this split is observable
+// — and conflating them is exactly the coupling the split removes.
 func TestSettingsRailLinkCapabilityIsolation(t *testing.T) {
 	cases := []struct {
 		name             string
@@ -282,14 +490,14 @@ func slaPanelForm(percent string) url.Values {
 }
 
 // TestSettingsSLAPersistsAndRedirects proves a valid panel post persists all
-// three SLA settings groups and redirects 303 back to /settings, and that
-// the following GET renders the new values.
+// three SLA settings groups and redirects 303 back to the Tickets section, and
+// that the following GET renders the new values.
 func TestSettingsSLAPersistsAndRedirects(t *testing.T) {
 	h := newHarness(t)
 
 	rec := h.postForm(t, "/settings/sla", slaPanelForm("90"), false)
 
-	wantRedirect(t, rec, http.StatusSeeOther, "/settings")
+	wantRedirect(t, rec, http.StatusSeeOther, "/settings/tickets")
 
 	enabled, err := h.store.SettingsStore().GetSLAEnabled(t.Context())
 	if err != nil {
@@ -326,14 +534,14 @@ func TestSettingsSLAPersistsAndRedirects(t *testing.T) {
 
 	// The following GET renders the persisted values: enabled unchecked,
 	// 90 percent, critical first response 1h.
-	body := h.get(t, "/settings", false).Body.String()
+	body := sectionGet(t, h, "/settings/tickets")
 	for _, want := range []string{
 		`value="90"`,
 		`name="first_response_h_critical" value="1"`,
 		`name="resolve_h_critical" value="4"`,
 	} {
 		if !strings.Contains(body, want) {
-			t.Errorf("settings page after SLA save must contain %q, got: %s", want, body)
+			t.Errorf("tickets section after SLA save must contain %q, got: %s", want, body)
 		}
 	}
 }
@@ -346,7 +554,7 @@ func TestSettingsSLAPersistsEnabled(t *testing.T) {
 	form.Set("sla_enabled", "1")
 	rec := h.postForm(t, "/settings/sla", form, false)
 
-	wantRedirect(t, rec, http.StatusSeeOther, "/settings")
+	wantRedirect(t, rec, http.StatusSeeOther, "/settings/tickets")
 
 	enabled, err := h.store.SettingsStore().GetSLAEnabled(t.Context())
 	if err != nil {
@@ -421,9 +629,9 @@ func TestSettingsCalendarDeniedForNonAdmin(t *testing.T) {
 }
 
 // TestSettingsSLARejectsInvalidPercent proves a percent outside 1..99
-// re-renders 422 with the inline error banner and leaves the store exactly
-// as it was — the targets and the enabled flag submitted alongside it are
-// not persisted either.
+// re-renders the Tickets section 422 with the inline error banner and leaves the
+// store exactly as it was — the targets and the enabled flag submitted alongside
+// it are not persisted either.
 func TestSettingsSLARejectsInvalidPercent(t *testing.T) {
 	h := newHarness(t)
 	wantEnabled, wantPercent, wantDefaults := slaSettingsFixture(t, h)
@@ -435,6 +643,9 @@ func TestSettingsSLARejectsInvalidPercent(t *testing.T) {
 	}
 	if !strings.Contains(rec.Body.String(), `error-banner`) {
 		t.Errorf("invalid percent must render the inline error banner, got: %s", rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `name="internal_comment_bg"`) {
+		t.Errorf("the rejection must re-render the whole Tickets section, got: %s", rec.Body.String())
 	}
 	if got := rec.Header().Get("X-Save-Feedback"); got != "" {
 		t.Errorf("rejected update must not emit save feedback, got %q", got)
@@ -511,8 +722,8 @@ func assertCalendarEqual(t *testing.T, got, want domain.SLACalendar) {
 }
 
 // TestSettingsCalendarPersistsAndRedirects proves a valid calendar post
-// persists all four sla_calendar_* keys and redirects 303 back to
-// /settings, and that the following GET renders the persisted values.
+// persists all four sla_calendar_* keys and redirects 303 back to the Working
+// calendar section, and that the following GET renders the persisted values.
 func TestSettingsCalendarPersistsAndRedirects(t *testing.T) {
 	h := newHarness(t)
 
@@ -524,7 +735,7 @@ func TestSettingsCalendarPersistsAndRedirects(t *testing.T) {
 	}
 	rec := h.postForm(t, "/settings/calendar", form, false)
 
-	wantRedirect(t, rec, http.StatusSeeOther, "/settings")
+	wantRedirect(t, rec, http.StatusSeeOther, "/settings/calendar")
 
 	// The unknown submitted days dropped out and the survivors kept the
 	// canonical ISO order; the window and the zone round-trip.
@@ -536,7 +747,7 @@ func TestSettingsCalendarPersistsAndRedirects(t *testing.T) {
 	})
 
 	// The following GET renders the persisted values.
-	body := h.get(t, "/settings", false).Body.String()
+	body := sectionGet(t, h, "/settings/calendar")
 	for _, want := range []string{
 		`name="sla_calendar_days" value="1" checked`,
 		`name="sla_calendar_days" value="3" checked`,
@@ -547,7 +758,7 @@ func TestSettingsCalendarPersistsAndRedirects(t *testing.T) {
 		`id="sla_calendar_timezone" name="sla_calendar_timezone" value="America/Argentina/Buenos_Aires"`,
 	} {
 		if !strings.Contains(body, want) {
-			t.Errorf("settings page after calendar save must contain %q, got: %s", want, body)
+			t.Errorf("calendar section after save must contain %q, got: %s", want, body)
 		}
 	}
 }
@@ -681,105 +892,31 @@ func TestSettingsCalendarRejectsUnparsableClock(t *testing.T) {
 	assertCalendarEqual(t, readStoredCalendar(t, h), domain.DefaultSLACalendar())
 }
 
-// TestSettingsRejectionsPopulateSiblingPanels proves every settings
-// rejection re-renders EVERY panel: a rejected post on one panel must not
-// blank the two sibling panels.
-func TestSettingsRejectionsPopulateSiblingPanels(t *testing.T) {
-	// The seeded storage values each sibling panel must keep showing.
-	slaSeed := []string{
-		`min="1" max="99" value="80"`,
-		`name="first_response_m_critical" value="30"`,
-		`name="resolve_h_critical" value="4"`,
-	}
-	calendarSeed := []string{
-		`name="sla_calendar_days" value="1" checked`,
-		`name="sla_calendar_days" value="6"> Saturday`,
-		`id="sla_calendar_start" name="sla_calendar_start" value="09:00"`,
-		`id="sla_calendar_end" name="sla_calendar_end" value="18:00"`,
-		`id="sla_calendar_timezone" name="sla_calendar_timezone" value="UTC"`,
-	}
-
-	t.Run("rejected appearance keeps SLA and calendar panels", func(t *testing.T) {
-		h := newHarness(t)
-		rec := h.postForm(t, "/settings/appearance", url.Values{"internal_comment_bg": {"#123456"}}, false)
-		if rec.Code != http.StatusUnprocessableEntity {
-			t.Fatalf("status = %d, want 422", rec.Code)
-		}
-		for _, panel := range [][]string{slaSeed, calendarSeed} {
-			for _, want := range panel {
-				if !strings.Contains(rec.Body.String(), want) {
-					t.Errorf("rejected appearance must keep rendering %q, got: %s", want, rec.Body.String())
-				}
-			}
-		}
-	})
-
-	t.Run("rejected SLA keeps the calendar panel", func(t *testing.T) {
-		h := newHarness(t)
-		rec := h.postForm(t, "/settings/sla", slaPanelForm("150"), false)
-		if rec.Code != http.StatusUnprocessableEntity {
-			t.Fatalf("status = %d, want 422", rec.Code)
-		}
-		for _, want := range calendarSeed {
-			if !strings.Contains(rec.Body.String(), want) {
-				t.Errorf("rejected SLA must keep rendering %q, got: %s", want, rec.Body.String())
-			}
-		}
-	})
-
-	t.Run("rejected calendar keeps the SLA panel", func(t *testing.T) {
-		h := newHarness(t)
-		form := url.Values{
-			"sla_calendar_days":     {"1"},
-			"sla_calendar_start":    {"18:00"},
-			"sla_calendar_end":      {"09:00"},
-			"sla_calendar_timezone": {"UTC"},
-		}
-		rec := h.postForm(t, "/settings/calendar", form, false)
-		if rec.Code != http.StatusUnprocessableEntity {
-			t.Fatalf("status = %d, want 422", rec.Code)
-		}
-		for _, want := range slaSeed {
-			if !strings.Contains(rec.Body.String(), want) {
-				t.Errorf("rejected calendar must keep rendering %q, got: %s", want, rec.Body.String())
-			}
-		}
-	})
-}
-
-// --- Interface language panel (issue #335, S8/S9/S14) ---
+// --- Interface language section (issue #335, S8/S9/S14; issue #383, S1) ---
 //
-// The Settings screen offers the instance-wide interface language next to the
-// other instance settings: root/admin only, one option per shipped language,
-// persisted through the settings store, and the page re-renders in the language
-// just saved. A rejected code changes nothing and its message reads in the
-// language the instance is currently rendering.
+// The Language section offers the instance-wide interface language: root/admin
+// only, one option per shipped language, persisted through the settings store,
+// and the page re-renders in the language just saved. A rejected code changes
+// nothing and its message reads in the language the instance is currently
+// rendering. The descriptive paragraph the old page carried is gone (S2): the
+// choice is instance-wide by being a section of the instance settings.
 
-// TestSettingsIndexShowsInterfaceLanguagePanel proves the panel exists with
-// the stored language marked and help copy that states the two rules an
-// administrator needs: the choice is instance-wide, and the names they author
-// are never translated (S14).
-func TestSettingsIndexShowsInterfaceLanguagePanel(t *testing.T) {
+// TestSettingsLanguageSectionShowsTheStoredLanguage proves the section exists
+// with the stored language marked and no descriptive paragraph.
+func TestSettingsLanguageSectionShowsTheStoredLanguage(t *testing.T) {
 	h := newHarness(t)
 
-	rec := h.get(t, "/settings", false)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status = %d, want 200: %s", rec.Code, rec.Body.String())
-	}
-	body := rec.Body.String()
+	body := sectionGet(t, h, "/settings/language")
 	for _, want := range []string{
 		`action="/settings/language"`,
-		`<h2>Interface language</h2>`,
+		`<h2 class="settings-section-title">Interface language</h2>`,
 		`<select id="interface_language" name="interface_language">`,
 		`<option value="en" selected>English</option>`,
 		`<option value="es">Español</option>`,
 		`Save language`,
-		// Help copy: instance-wide, and admin-authored names stay as written.
-		`every person on this instance`,
-		`never translated`,
 	} {
 		if !strings.Contains(body, want) {
-			t.Errorf("settings page must contain %q, got: %s", want, body)
+			t.Errorf("the language section must contain %q, got: %s", want, body)
 		}
 	}
 	if got := strings.Count(body, `value="es" selected`); got != 0 {
@@ -795,12 +932,12 @@ func TestSettingsUpdateLanguagePersistsAndRendersTheNewLanguage(t *testing.T) {
 	h := newHarness(t)
 
 	rec := h.postForm(t, "/settings/language", url.Values{"interface_language": {"es"}}, false)
-	wantRedirect(t, rec, http.StatusSeeOther, "/settings")
+	wantRedirect(t, rec, http.StatusSeeOther, "/settings/language")
 
 	// The save toast the redirect carries must already read the language just
 	// saved: the page that renders it is Spanish, and S8 allows no leftover
 	// string in the previous language.
-	feedback := h.getWithSaveFeedback(t, "/settings", rec)
+	feedback := h.getWithSaveFeedback(t, "/settings/language", rec)
 	if !strings.Contains(feedback, `data-feedback-message="Guardado"`) {
 		t.Errorf("the save toast must read the saved language, got: %.400s", feedback)
 	}
@@ -816,26 +953,22 @@ func TestSettingsUpdateLanguagePersistsAndRendersTheNewLanguage(t *testing.T) {
 		t.Fatalf("stored language = %q, want %q", got, application.InterfaceLanguageSpanish)
 	}
 
-	rec = h.get(t, "/settings", false)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status = %d, want 200: %s", rec.Code, rec.Body.String())
-	}
-	body := rec.Body.String()
+	body := sectionGet(t, h, "/settings/language")
 	for _, want := range []string{
 		`<html lang="es">`,
 		`<h1 class="command-title">Configuración</h1>`,
-		`<h2>Idioma de la interfaz</h2>`,
+		`<h2 class="settings-section-title">Idioma de la interfaz</h2>`,
 		`<option value="es" selected>Español</option>`,
 		`Guardar idioma`,
-		`<h2>Apariencia</h2>`,
+		`href="/settings/tickets">Tickets y SLA</a>`,
 	} {
 		if !strings.Contains(body, want) {
-			t.Errorf("settings page in Spanish must contain %q, got: %s", want, body)
+			t.Errorf("the language section in Spanish must contain %q, got: %s", want, body)
 		}
 	}
-	for _, unwanted := range []string{`<h2>Interface language</h2>`, `<h2>Appearance</h2>`, `>Save language<`} {
+	for _, unwanted := range []string{`<h2 class="settings-section-title">Interface language</h2>`, `>Save language<`} {
 		if strings.Contains(body, unwanted) {
-			t.Errorf("settings page in Spanish must not render the English %q", unwanted)
+			t.Errorf("the language section in Spanish must not render the English %q", unwanted)
 		}
 	}
 }

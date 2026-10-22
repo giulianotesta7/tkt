@@ -124,6 +124,7 @@ func main() {
 	authSvc := application.NewAuthService(store.UserStore(), store.SessionStore(), clock)
 	searchSvc := application.NewSearchService(store.TicketStore(), store.SearchStore())
 	settingsSvc := application.NewSettingsService(store.SettingsStore())
+	organizationSvc := application.NewOrganizationService(store.OrganizationStore())
 	preferencesSvc := application.NewPreferencesService(store.PreferencesStore(), store.EmailPreferences(), store.SidebarPreferences(), store.ThemePreferences())
 	workflowSvc := application.NewWorkflowService(store.WorkflowStore())
 	metricsSvc := application.NewTicketMetricsService(store.TicketMetricsStore(), clock)
@@ -145,13 +146,14 @@ func main() {
 
 	mux := http.NewServeMux()
 	httpadapter.RegisterStatic(mux, store.SettingsStore())
+	httpadapter.NewBrandHandlers(store.OrganizationStore()).Register(mux)
 	httpadapter.NewAuthHandlers(authSvc, userSvc, renderer).Register(mux)
 	httpadapter.NewTicketHandlers(ticketSvc, commentSvc, searchSvc, catSvc, userSvc, store.DeskStore(), workflowSvc, application.NewWorkflowRunner(clock), store.WorkflowRunStore(), store.WorkflowUnitOfWork(), renderer, catalogSvc).WithMetrics(metricsSvc).WithSLA(slaSvc).WithPreferences(preferencesSvc).WithAttachments(store.AttachmentStore(), attachmentSvc).Register(mux)
 	httpadapter.NewUserHandlers(userSvc, renderer).Register(mux)
 	httpadapter.NewCategoryHandlersWithWorkflows(catSvc, workflowSvc, renderer, catalogSvc).Register(mux)
 	httpadapter.NewCategoryWorkflowHandlers(catSvc, workflowSvc, deskSvc, renderer).Register(mux)
 	httpadapter.NewDeskHandlers(deskSvc, renderer).Register(mux)
-	httpadapter.NewSettingsHandlers(settingsSvc, slaSvc, store.SLAStore(), store.SettingsStore(), renderer).WithEmail(emailSettingsSvc).Register(mux)
+	httpadapter.NewSettingsHandlers(settingsSvc, slaSvc, store.SLAStore(), store.SettingsStore(), renderer).WithEmail(emailSettingsSvc).WithOrganization(organizationSvc).Register(mux)
 	httpadapter.NewCategorySLAHandlers(catSvc, slaSvc, store.SLAStore(), renderer).Register(mux)
 	httpadapter.NewPreferencesHandlers(preferencesSvc, renderer).Register(mux)
 	httpadapter.NewNotificationHandlers(store.NotificationStore(), store.TicketStore(), store.UserStore(), renderer, clock).Register(mux)
@@ -166,7 +168,7 @@ func main() {
 	// inside the session middleware so the existing Origin/auth short-circuits
 	// (403/303) still answer before any body byte is buffered; every request
 	// that reaches the mux is bounded, /healthz and /static included.
-	sessionHandler := httpadapter.NewSessionMiddleware(store.SessionStore(), store.UserStore(), store.SettingsStore()).WithSidebarPreferences(store.SidebarPreferences()).WithThemePreferences(store.ThemePreferences()).Wrap(httpadapter.NewBodyLimitMiddleware().Wrap(mux))
+	sessionHandler := httpadapter.NewSessionMiddleware(store.SessionStore(), store.UserStore(), store.SettingsStore()).WithSidebarPreferences(store.SidebarPreferences()).WithThemePreferences(store.ThemePreferences()).WithOrganization(store.OrganizationStore()).Wrap(httpadapter.NewBodyLimitMiddleware().Wrap(mux))
 
 	srv := &http.Server{
 		Addr:              listen,

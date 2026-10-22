@@ -216,17 +216,18 @@ func newHarnessWithAdmin(t *testing.T, seedAdmin bool) *harness {
 
 	mux := http.NewServeMux()
 	RegisterStatic(mux, s.SettingsStore())
+	NewBrandHandlers(s.OrganizationStore()).Register(mux)
 	NewAuthHandlers(authSvc, usersSvc, renderer).Register(mux)
 	NewTicketHandlers(ticketSvc, commentSvc, searchSvc, catSvc, usersSvc, s.DeskStore(), workflowSvc, application.NewWorkflowRunner(clock), s.WorkflowRunStore(), s.WorkflowUnitOfWork(), renderer).WithMetrics(metricsSvc).WithSLA(slaSvc).WithPreferences(preferencesSvc).WithAttachments(s.AttachmentStore(), attachmentSvc).Register(mux)
 	NewUserHandlers(usersSvc, renderer).Register(mux)
 	NewCategoryHandlersWithWorkflows(catSvc, workflowSvc, renderer).Register(mux)
 	NewCategoryWorkflowHandlers(catSvc, workflowSvc, deskSvc, renderer).Register(mux)
 	NewDeskHandlers(deskSvc, renderer).Register(mux)
-	NewSettingsHandlers(settingsSvc, slaSvc, s.SLAStore(), s.SettingsStore(), renderer).WithEmail(emailSettingsSvc).Register(mux)
+	NewSettingsHandlers(settingsSvc, slaSvc, s.SLAStore(), s.SettingsStore(), renderer).WithEmail(emailSettingsSvc).WithOrganization(application.NewOrganizationService(s.OrganizationStore())).Register(mux)
 	NewCategorySLAHandlers(catSvc, slaSvc, s.SLAStore(), renderer).Register(mux)
 	NewPreferencesHandlers(preferencesSvc, renderer).Register(mux)
 	NewNotificationHandlers(s.NotificationStore(), s.TicketStore(), s.UserStore(), renderer, clock).Register(mux)
-	mw := NewSessionMiddleware(s.SessionStore(), s.UserStore(), s.SettingsStore()).WithSidebarPreferences(s.SidebarPreferences()).WithThemePreferences(s.ThemePreferences())
+	mw := NewSessionMiddleware(s.SessionStore(), s.UserStore(), s.SettingsStore()).WithSidebarPreferences(s.SidebarPreferences()).WithThemePreferences(s.ThemePreferences()).WithOrganization(s.OrganizationStore())
 
 	h := &harness{
 		store: s, dbPath: dbPath, clock: clock,

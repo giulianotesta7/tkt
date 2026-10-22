@@ -1,7 +1,9 @@
 package httpadapter
 
 import (
+	"bytes"
 	"io"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -146,4 +148,57 @@ func TestBodyLimitRealFormPostReachesHandler(t *testing.T) {
 	h.mw.Wrap(NewBodyLimitMiddleware().Wrap(h.mux)).ServeHTTP(rec, req)
 
 	wantRedirect(t, rec, http.StatusSeeOther, "/tickets")
+}
+
+// TestBodyLimitOrganizationUploadHasItsOwnCap proves the third upload route
+// (issue #383, S4) carries neither the 1 MiB text cap nor the attachment cap: a
+// multipart identity save with a logo under 256 KiB + 64 KiB reaches the
+// handler, and a body above that cap is refused 413 before the handler runs.
+func TestBodyLimitOrganizationUploadHasItsOwnCap(t *testing.T) {
+	ran := false
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /settings/organization", func(w http.ResponseWriter, r *http.Request) {
+		ran = true
+		w.Write([]byte("saved"))
+	})
+
+	// A logo at the documented cap plus the multipart envelope travels: the
+	// handler is what validates the image's type, not this middleware.
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	if err := writer.WriteField("name", "Acme"); err != nil {
+		t.Fatalf("write field: %v", err)
+	}
+	part, err := writer.CreateFormFile("logo", "logo.png")
+	if err != nil {
+		t.Fatalf("create file part: %v", err)
+	}
+	if _, err := part.Write(make([]byte, maxOrganizationUploadBodyBytes-1024)); err != nil {
+		t.Fatalf("write logo: %v", err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("close writer: %v", err)
+	}
+	// One byte over the cap: the middleware refuses before the handler.
+	oversize := httptest.NewRequest(http.MethodPost, "/settings/organization", bytes.NewReader(make([]byte, maxOrganizationUploadBodyBytes+1)))
+	oversize.Header.Set("Content-Type", "multipart/form-data; boundary=x")
+	rec := httptest.NewRecorder()
+	NewBodyLimitMiddleware().Wrap(mux).ServeHTTP(rec, oversize)
+	if rec.Code != http.StatusRequestEntityTooLarge {
+		t.Errorf("oversize organization upload = %d, want 413", rec.Code)
+	}
+	if ran {
+		t.Error("handler must not run for an oversize organization upload")
+	}
+
+	inside := httptest.NewRequest(http.MethodPost, "/settings/organization", &body)
+	inside.Header.Set("Content-Type", writer.FormDataContentType())
+	insideRec := httptest.NewRecorder()
+	NewBodyLimitMiddleware().Wrap(mux).ServeHTTP(insideRec, inside)
+	if insideRec.Code != http.StatusOK {
+		t.Errorf("organization upload at the cap = %d, want it to reach the handler", insideRec.Code)
+	}
+	if !ran {
+		t.Error("a body at the cap must reach the handler")
+	}
 }

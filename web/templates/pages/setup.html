@@ -1,4 +1,4 @@
-{{define "title"}}{{tf "base.title.screen" (t "auth.setup.submit")}}{{end}}
+{{define "title"}}{{tf "base.title.screen" (t "auth.setup.submit") (brandHelpDesk .Brand)}}{{end}}
 {{define "content"}}
 <form class="login-form" method="post" action="/setup" novalidate>
   <h2>{{t "auth.setup.title"}}</h2>

@@ -105,8 +105,9 @@ func TestSpanishTicketForm(t *testing.T) {
 	}
 }
 
-// TestSpanishAuthShell renders the login page in Spanish: the auth shell copy
-// and the form labels both come from the catalogue.
+// TestSpanishAuthShell renders the login page in Spanish: the form copy comes
+// from the catalogue, and the identity above it is data — the instance name and
+// help desk name as they are stored.
 func TestSpanishAuthShell(t *testing.T) {
 	r, err := newRendererWithLanguage(templates.FS, stubInterfaceLanguage{language: "es"})
 	if err != nil {
@@ -117,12 +118,12 @@ func TestSpanishAuthShell(t *testing.T) {
 	r.Render(rec, req, "login", "", loginData{}, http.StatusOK)
 
 	body := rec.Body.String()
-	for _, want := range []string{`<html lang="es">`, "Te damos la bienvenida a tkt", "Inicia sesión en tkt", "Correo electrónico", "Contraseña", "Iniciar sesión"} {
+	for _, want := range []string{`<html lang="es">`, "Inicia sesión en tkt", "Correo electrónico", "Contraseña", "Iniciar sesión"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("Spanish login page must render %q, got: %.600s", want, body)
 		}
 	}
-	if strings.Contains(body, "Welcome to tkt") || strings.Contains(body, ">Sign in<") {
+	if strings.Contains(body, ">Sign in<") || strings.Contains(body, "Welcome to tkt") {
 		t.Errorf("Spanish login page must not render English copy")
 	}
 }
@@ -212,27 +213,54 @@ func TestSpanishCategoriesScreen(t *testing.T) {
 	}
 }
 
-// TestSpanishSettingsScreen renders the instance settings page in Spanish,
-// including the color and weekday labels Go supplies as catalogue keys.
+// TestSpanishSettingsScreen renders the instance settings sections in Spanish,
+// including the color and weekday labels Go supplies as catalogue keys. Since
+// issue #383 the surface is one section per URL, so the labels live on the
+// sections that own them and this test renders those sections.
 func TestSpanishSettingsScreen(t *testing.T) {
 	r, err := newRendererWithLanguage(templates.FS, stubInterfaceLanguage{language: "es"})
 	if err != nil {
 		t.Fatalf("newRendererWithLanguage: %v", err)
 	}
-	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/settings", nil)
-	r.Render(rec, req, "settings_index", "", fixtureSettingsIndexData(), http.StatusOK)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("render settings in es: %d %s", rec.Code, rec.Body.String())
+	render := func(page string, data any) string {
+		t.Helper()
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, "/settings/"+page, nil)
+		r.Render(rec, req, page, "", data, http.StatusOK)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("render %s in es: %d %s", page, rec.Code, rec.Body.String())
+		}
+		return rec.Body.String()
 	}
-	body := rec.Body.String()
-	for _, want := range []string{"Configuración", "Apariencia", "Acuerdos de nivel de servicio (SLA)", "Calendario laboral", "Días laborables", "Zona horaria", "Azul", "Lunes", "Idioma de la interfaz", "Guardar idioma"} {
-		if !strings.Contains(body, want) {
-			t.Errorf("Spanish settings page must render %q, got: %.800s", want, body)
+
+	tickets := render("settings_tickets", fixtureSettingsTicketsData())
+	for _, want := range []string{"Configuración", "Apariencia", "Acuerdos de nivel de servicio (SLA)", "Azul", "Guardar apariencia"} {
+		if !strings.Contains(tickets, want) {
+			t.Errorf("Spanish tickets section must render %q, got: %.800s", want, tickets)
 		}
 	}
-	if strings.Contains(body, ">Appearance<") || strings.Contains(body, ">Monday<") || strings.Contains(body, ">Interface language<") {
-		t.Errorf("Spanish settings page must not render English labels")
+	if strings.Contains(tickets, ">Appearance<") {
+		t.Errorf("Spanish tickets section must not render English labels")
+	}
+
+	calendar := render("settings_calendar", fixtureSettingsCalendarData())
+	for _, want := range []string{"Calendario laboral", "Días laborables", "Zona horaria", "Lunes", "Guardar el calendario laboral"} {
+		if !strings.Contains(calendar, want) {
+			t.Errorf("Spanish calendar section must render %q, got: %.800s", want, calendar)
+		}
+	}
+	if strings.Contains(calendar, ">Monday<") {
+		t.Errorf("Spanish calendar section must not render English weekday labels")
+	}
+
+	language := render("settings_language", fixtureSettingsLanguageData())
+	for _, want := range []string{"Idioma de la interfaz", "Guardar idioma", "Organización"} {
+		if !strings.Contains(language, want) {
+			t.Errorf("Spanish language section must render %q, got: %.800s", want, language)
+		}
+	}
+	if strings.Contains(language, ">Interface language<") {
+		t.Errorf("Spanish language section must not render English labels")
 	}
 }
 

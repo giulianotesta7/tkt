@@ -258,6 +258,10 @@ type SessionMiddleware struct {
 	// middleware built without it stamps the system default, the same opt-in
 	// shape the sidebar reader uses.
 	theme application.ThemePreferencesStore
+	// organization is the OPTIONAL instance-identity reader (issue #383, S5).
+	// A middleware built without it stamps the documented default brand, so a
+	// focused test or a future surface is never left with a nil read.
+	organization application.OrganizationStore
 	// languageFailures deduplicates the interface-language read failure
 	// (R4-002) across requests.
 	languageFailures languageReadLog
@@ -267,6 +271,9 @@ type SessionMiddleware struct {
 	// themeFailures deduplicates the theme read failure the same way (issue
 	// #378, S1).
 	themeFailures themeReadLog
+	// organizationFailures deduplicates the identity read failure (issue #383,
+	// S5) across requests.
+	organizationFailures organizationReadLog
 }
 
 // NewSessionMiddleware wires the middleware against the session, user, and
@@ -290,6 +297,15 @@ func (m *SessionMiddleware) WithSidebarPreferences(store application.SidebarPref
 // and a caller without a preferences store is never left with a nil read.
 func (m *SessionMiddleware) WithThemePreferences(store application.ThemePreferencesStore) *SessionMiddleware {
 	m.theme = store
+	return m
+}
+
+// WithOrganization opts the middleware into stamping each request with the
+// instance identity (issue #383, S5). It is opt-in for the same reason as the
+// preferences readers: the middleware keeps one constructor, and a caller
+// without an identity port is never left with a nil read.
+func (m *SessionMiddleware) WithOrganization(store application.OrganizationStore) *SessionMiddleware {
+	m.organization = store
 	return m
 }
 
@@ -322,6 +338,32 @@ func (m *SessionMiddleware) Wrap(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 			return
 		}
+
+		// The instance logo is public for the same reason (issue #383, S5): the
+		// login page renders it before any session exists, and the route reads
+		// the identity itself, so no stamp is prepared here.
+		if path == "/brand/logo" || strings.HasPrefix(path, "/brand/") {
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		// Issue #383: the instance identity is read ONCE here and stamped on the
+		// request, so the shell, the document titles and the auth pages render one
+		// read. A failing read is NOT fatal — the request proceeds with the
+		// documented default brand and the failure is logged under the dedup
+		// policy, because losing the brand must never cost a page, and a login
+		// screen is the last place an operator can afford a 500.
+		organization := defaultOrganization()
+		if m.organization != nil {
+			stored, err := m.organization.GetOrganization(r.Context())
+			if err != nil {
+				m.organizationFailures.failed(err)
+			} else {
+				m.organizationFailures.recovered()
+				organization = normalizeBrand(stored)
+			}
+		}
+		r = r.WithContext(context.WithValue(r.Context(), ctxKeyOrganization{}, organization))
 
 		session, err := m.resolveSession(r)
 		if err != nil {

@@ -272,11 +272,11 @@ func TestRenderDeclaresAndRendersTheInstanceLanguage(t *testing.T) {
 		wantCopy   string
 		absentCopy string
 	}{
-		{name: "english", source: stubInterfaceLanguage{language: "en"}, wantLang: "en", wantCopy: "Welcome to tkt", absentCopy: "Te damos la bienvenida a tkt"},
-		{name: "spanish", source: stubInterfaceLanguage{language: "es"}, wantLang: "es", wantCopy: "Te damos la bienvenida a tkt", absentCopy: "Welcome to tkt"},
-		{name: "unknown value degrades to the default", source: stubInterfaceLanguage{language: "fr"}, wantLang: "en", wantCopy: "Welcome to tkt", absentCopy: "Te damos la bienvenida a tkt"},
-		{name: "empty value degrades to the default", source: stubInterfaceLanguage{language: ""}, wantLang: "en", wantCopy: "Welcome to tkt", absentCopy: "Te damos la bienvenida a tkt"},
-		{name: "read failure degrades to the default", source: stubInterfaceLanguage{err: errors.New("settings unavailable")}, wantLang: "en", wantCopy: "Welcome to tkt", absentCopy: "Te damos la bienvenida a tkt"},
+		{name: "english", source: stubInterfaceLanguage{language: "en"}, wantLang: "en", wantCopy: "you@example.com", absentCopy: "tu@ejemplo.com"},
+		{name: "spanish", source: stubInterfaceLanguage{language: "es"}, wantLang: "es", wantCopy: "tu@ejemplo.com", absentCopy: "you@example.com"},
+		{name: "unknown value degrades to the default", source: stubInterfaceLanguage{language: "fr"}, wantLang: "en", wantCopy: "you@example.com", absentCopy: "tu@ejemplo.com"},
+		{name: "empty value degrades to the default", source: stubInterfaceLanguage{language: ""}, wantLang: "en", wantCopy: "you@example.com", absentCopy: "tu@ejemplo.com"},
+		{name: "read failure degrades to the default", source: stubInterfaceLanguage{err: errors.New("settings unavailable")}, wantLang: "en", wantCopy: "you@example.com", absentCopy: "tu@ejemplo.com"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			r, err := newRendererWithLanguage(localizedShellFS(t), tc.source)

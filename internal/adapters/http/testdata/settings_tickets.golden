@@ -4,16 +4,16 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="htmx-config" content='{"refreshOnHistoryMiss":true}'>
-<title>Settings · tkt</title>
+<title>Settings · Help desk</title>
 
-<script src="/static/save-feedback.js" defer></script><script src="/static/htmx.min.js" defer></script><script src="/static/notifications.js" defer></script><script src="/static/shell.js" defer></script>
+<link rel="stylesheet" href="/static/settings.css"><script src="/static/settings.js" defer></script><script src="/static/save-feedback.js" defer></script><script src="/static/htmx.min.js" defer></script><script src="/static/notifications.js" defer></script><script src="/static/shell.js" defer></script>
 </head>
 <body class="">
 <a class="skip-link" href="#main-content">Skip to main content</a>
 <div class="shell">
   <aside class="sidebar" id="sidebar" aria-label="Sidebar">
     <div class="sidebar-brand">
-      <a class="brand-mark" href="/tickets" aria-label="tkt">tkt</a>
+      <a class="brand-mark" href="/tickets" aria-label="tkt">T</a>
       <a class="brand-text" href="/tickets" tabindex="-1" aria-hidden="true"><span class="brand-name">tkt</span><span class="brand-product">Help desk</span></a>
       <button class="sidebar-close" type="button" data-sidebar-close aria-label="Close menu">×</button>
     </div>
@@ -86,26 +86,23 @@
 <div class="command-header">
   <div>
     <h1 class="command-title">Settings</h1>
-    <p class="command-sub">Instance configuration</p>
   </div>
 </div>
+<div class="settings-layout">
 
-<form class="card form-card" method="post" action="/settings/language">
-  <h2>Interface language</h2>
-  <p class="help">Changes the language of every screen for every person on this instance. Names and descriptions you write are never translated.</p>
-  <div class="field">
-    <label for="interface_language">Language</label>
-    <select id="interface_language" name="interface_language">
-      <option value="en" selected>English</option>
-      <option value="es">Español</option>
-    </select>
-  </div>
-  <button class="btn primary" type="submit">Save language</button>
-</form>
-<form class="card form-card" method="post" action="/settings/appearance">
-  <h2>Appearance</h2>
-  <p class="help">Background color for internal comments on ticket timelines.</p>
-  <div class="swatch-grid">
+<nav class="settings-nav" aria-label="Settings sections">
+  <a class="settings-nav-link" href="/settings/organization">Organization</a>
+  <a class="settings-nav-link" href="/settings/language">Language</a>
+  <a class="settings-nav-link" href="/settings/tickets" aria-current="page">Tickets &amp; SLA</a>
+  <a class="settings-nav-link" href="/settings/email">Email</a>
+  <a class="settings-nav-link" href="/settings/calendar">Working calendar</a>
+</nav>
+
+  <div class="settings-content">
+    <form class="settings-form card form-card" method="post" action="/settings/appearance" data-settings-form>
+      <h2 class="settings-section-title">Tickets &amp; SLA</h2>
+      <h3 class="settings-group-title">Appearance</h3>
+      <div class="swatch-grid">
 
     <label class="swatch">
     <input type="radio" name="internal_comment_bg" value="#E8EEFF" checked>
@@ -126,20 +123,22 @@
     </label>
 
   </div>
-  <button class="btn primary" type="submit">Save appearance</button>
-</form>
-<form class="card form-card" method="post" action="/settings/sla">
-  <h2>Service level agreements (SLA)</h2>
-  <p class="help">Defaults for new categories. Editing them does not change existing categories.</p>
-  <div class="field checkbox-field">
-    <label><input type="checkbox" name="sla_enabled" value="1"> Enable SLA targets</label>
-    <p class="help">Off by default. Existing commitments keep rendering.</p>
-  </div>
-  <div class="field">
-    <label for="sla_warning_percent">Warning threshold</label>
-    <input type="number" id="sla_warning_percent" name="sla_warning_percent" class="sla-warning-input" min="1" max="99" value="80">
-    <p class="help">At risk once this share of the target has elapsed.</p>
-  </div>
+      <div class="settings-savebar" data-settings-savebar hidden>
+        <button class="btn primary" type="submit">Save appearance</button>
+        <button class="btn" type="reset">Discard</button>
+      </div>
+    </form>
+    <form class="settings-form card form-card" method="post" action="/settings/sla" data-settings-form>
+      <h3 class="settings-group-title">Service level agreements (SLA)</h3>
+      <p class="help">Defaults for new categories. Editing them does not change existing categories.</p>
+      <div class="field checkbox-field">
+        <label><input type="checkbox" name="sla_enabled" value="1"> Enable SLA targets</label>
+      </div>
+      <div class="field">
+        <label for="sla_warning_percent">Warning threshold</label>
+        <input type="number" id="sla_warning_percent" name="sla_warning_percent" class="sla-warning-input" min="1" max="99" value="80">
+        <p class="help">At risk once this share of the target has elapsed.</p>
+      </div>
 <div class="sla-grid">
   <div class="sla-grid-row sla-grid-head" aria-hidden="true">
     <span class="sla-grid-priority"></span>
@@ -204,49 +203,13 @@
   </div>
 
 </div>
-  <button class="btn primary" type="submit">Save SLA settings</button>
-</form>
-<form class="card form-card" method="post" action="/settings/calendar">
-  <h2>Working calendar</h2>
-  <p class="help">When the SLA clock runs. Frozen commitments keep their calendar.</p>
-  <fieldset class="checkbox-field calendar-days">
-    <legend>Working days</legend>
-    <div class="calendar-day-list">
-
-      <label class="calendar-day"><input type="checkbox" name="sla_calendar_days" value="1" checked> Monday</label>
-
-      <label class="calendar-day"><input type="checkbox" name="sla_calendar_days" value="2" checked> Tuesday</label>
-
-      <label class="calendar-day"><input type="checkbox" name="sla_calendar_days" value="3" checked> Wednesday</label>
-
-      <label class="calendar-day"><input type="checkbox" name="sla_calendar_days" value="4" checked> Thursday</label>
-
-      <label class="calendar-day"><input type="checkbox" name="sla_calendar_days" value="5" checked> Friday</label>
-
-      <label class="calendar-day"><input type="checkbox" name="sla_calendar_days" value="6"> Saturday</label>
-
-      <label class="calendar-day"><input type="checkbox" name="sla_calendar_days" value="7"> Sunday</label>
-
-    </div>
-    <p class="help">At least one day.</p>
-  </fieldset>
-  <div class="field-row">
-    <div class="field">
-      <label for="sla_calendar_start">Start</label>
-      <input type="time" id="sla_calendar_start" name="sla_calendar_start" value="09:00" step="60">
-    </div>
-    <div class="field">
-      <label for="sla_calendar_end">End</label>
-      <input type="time" id="sla_calendar_end" name="sla_calendar_end" value="18:00" step="60">
-    </div>
+      <div class="settings-savebar" data-settings-savebar hidden>
+        <button class="btn primary" type="submit">Save SLA settings</button>
+        <button class="btn" type="reset">Discard</button>
+      </div>
+    </form>
   </div>
-  <div class="field">
-    <label for="sla_calendar_timezone">Timezone</label>
-    <input type="text" id="sla_calendar_timezone" name="sla_calendar_timezone" value="UTC" spellcheck="false" autocapitalize="off">
-    <p class="help">IANA name, e.g. America/Argentina/Buenos_Aires. Defaults to UTC.</p>
-  </div>
-  <button class="btn primary" type="submit">Save working calendar</button>
-</form>
+</div>
 </main>
     <nav class="tabbar" aria-label="Sections">
       <a class="tabbar-item" href="/tickets">

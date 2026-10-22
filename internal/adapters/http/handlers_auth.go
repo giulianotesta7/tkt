@@ -39,8 +39,11 @@ func (h *AuthHandlers) Register(mux *http.ServeMux) {
 // the email prefilled for a failed attempt. InternalCommentBg keeps the
 // shared styles partial happy (auth pages render the static default).
 type loginData struct {
-	Error             string
-	Email             string
+	Error string
+	Email string
+	// Brand is the instance identity the centered sign-in renders above the
+	// form (issue #383, S5/S6), stamped by the session middleware.
+	Brand             brandData
 	CategoryAssets    bool
 	InternalCommentBg string
 }
@@ -53,7 +56,7 @@ func (h *AuthHandlers) loginForm(w http.ResponseWriter, r *http.Request) {
 		redirect(w, r, "/setup")
 		return
 	}
-	h.renderer.Render(w, r, "login", "", loginData{}, http.StatusOK)
+	h.renderer.Render(w, r, "login", "", loginData{Brand: brandFromContext(r.Context())}, http.StatusOK)
 }
 
 func (h *AuthHandlers) login(w http.ResponseWriter, r *http.Request) {
@@ -71,7 +74,7 @@ func (h *AuthHandlers) login(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, msg, status)
 			return
 		}
-		h.renderer.Render(w, r, "login", "", loginData{Error: msg, Email: email}, status)
+		h.renderer.Render(w, r, "login", "", loginData{Error: msg, Email: email, Brand: brandFromContext(r.Context())}, status)
 		return
 	}
 
@@ -104,9 +107,12 @@ func (h *AuthHandlers) logout(w http.ResponseWriter, r *http.Request) {
 // setupData is the first-user form payload (D16). InternalCommentBg keeps
 // the shared styles partial happy (auth pages render the static default).
 type setupData struct {
-	Error             string
-	Name              string
-	Email             string
+	Error string
+	Name  string
+	Email string
+	// Brand is the instance identity the setup shell renders above the form
+	// (issue #383, S5/S6), stamped by the session middleware.
+	Brand             brandData
 	CategoryAssets    bool
 	InternalCommentBg string
 }
@@ -121,7 +127,7 @@ func (h *AuthHandlers) setupForm(w http.ResponseWriter, r *http.Request) {
 		redirect(w, r, "/login")
 		return
 	}
-	h.renderer.Render(w, r, "setup", "", setupData{}, http.StatusOK)
+	h.renderer.Render(w, r, "setup", "", setupData{Brand: brandFromContext(r.Context())}, http.StatusOK)
 }
 
 func (h *AuthHandlers) setup(w http.ResponseWriter, r *http.Request) {
@@ -149,7 +155,7 @@ func (h *AuthHandlers) setup(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, msg, status)
 			return
 		}
-		h.renderer.Render(w, r, "setup", "", setupData{Error: msg, Name: name, Email: email}, status)
+		h.renderer.Render(w, r, "setup", "", setupData{Error: msg, Name: name, Email: email, Brand: brandFromContext(r.Context())}, status)
 		return
 	}
 

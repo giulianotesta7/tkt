@@ -3,62 +3,20 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{{block "title" .}}{{t "base.title"}}{{end}}</title>
+<title>{{block "title" .}}{{tf "base.title" (brandName .Brand) (brandHelpDesk .Brand)}}{{end}}</title>
 {{template "styles" .}}
 </head>
 <body>
 <main class="auth-entry">
-  <section class="auth-entry__presentation" aria-labelledby="auth-entry-title">
-    <div class="auth-entry__content">
-      <div class="auth-entry__logo" aria-label="tkt">tkt</div>
-      <header class="auth-entry__intro">
-        <h1 id="auth-entry-title">{{t "auth.welcome.title"}}</h1>
-        <p>{{t "auth.welcome.subtitle"}}</p>
-      </header>
-      <section class="auth-entry__journey" aria-labelledby="journey-title">
-        <p id="journey-title" class="auth-entry__eyebrow">{{t "auth.journey.title"}}</p>
-        <ol class="auth-entry__steps">
-          <li>
-            <span class="auth-entry__step-mark" aria-hidden="true">1</span>
-            <h2>{{t "auth.journey.received.title"}}</h2>
-            <p>{{t "auth.journey.received.body"}}</p>
-          </li>
-          <li>
-            <span class="auth-entry__connector" aria-hidden="true"></span>
-            <span class="auth-entry__step-mark auth-entry__step-mark--active" aria-hidden="true">2</span>
-            <h2>{{t "auth.journey.assigned.title"}}</h2>
-            <p>{{t "auth.journey.assigned.body"}}</p>
-          </li>
-          <li>
-            <span class="auth-entry__connector" aria-hidden="true"></span>
-            <span class="auth-entry__step-mark" aria-hidden="true">3</span>
-            <h2>{{t "auth.journey.resolved.title"}}</h2>
-            <p>{{t "auth.journey.resolved.body"}}</p>
-          </li>
-        </ol>
-      </section>
-      <section class="auth-entry__principles" aria-label="{{t "auth.principles.label"}}">
-        <article>
-          <span aria-hidden="true"></span>
-          <h2>{{t "auth.principles.simple.title"}}</h2>
-          <p>{{t "auth.principles.simple.body"}}</p>
-        </article>
-        <article>
-          <span aria-hidden="true"></span>
-          <h2>{{t "auth.principles.collaboration.title"}}</h2>
-          <p>{{t "auth.principles.collaboration.body"}}</p>
-        </article>
-        <article>
-          <span aria-hidden="true"></span>
-          <h2>{{t "auth.principles.control.title"}}</h2>
-          <p>{{t "auth.principles.control.body"}}</p>
-        </article>
-      </section>
-    </div>
-  </section>
+  <div>
+    {{if .Brand.HasLogo}}<img class="auth-entry__logo" src="/brand/logo?v={{.Brand.LogoVersion}}" alt="" width="34" height="34">{{else}}<span class="auth-entry__logo">{{.Brand.Monogram}}</span>{{end}}
+    <h1 class="command-title">{{brandName .Brand}}</h1>
+    <p class="help">{{brandHelpDesk .Brand}}</p>
+  </div>
   <section class="auth-entry__form-panel">
 {{template "content" .}}
   </section>
-</main>
+{{if .Brand.SupportEmail}}  <footer class="help"><a href="mailto:{{.Brand.SupportEmail}}">{{.Brand.SupportEmail}}</a></footer>
+{{end}}</main>
 </body>
 </html>

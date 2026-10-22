@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"strconv"
 	"strings"
@@ -14,34 +15,45 @@ import (
 	"github.com/giulianotesta7/tkt/internal/i18n"
 )
 
-// SettingsHandlers expose the instance configuration settings (the Settings
-// screen): GET /settings renders the page, POST /settings/appearance persists
-// the internal-comment background color, POST /settings/language persists the
-// instance-wide interface language, POST /settings/sla persists the SLA panel
-// (enabled flag, warning percent, default target matrix), and
-// POST /settings/calendar persists the working calendar. All routes are gated
-// on CapManageSettings (admin/root) at the HTTP boundary; the application
-// service re-enforces the same capability before mutating anything.
+// SettingsHandlers expose the instance configuration settings (issue #383,
+// S1/S2/S4). The Settings surface is one section per URL under a left
+// sub-navigation: GET /settings redirects to /settings/organization, and
+// GET /settings/{section} renders exactly that section for the sections
+// organization, language, tickets (appearance and the SLA panel), email (root
+// only, as the capability already dictated) and calendar (working hours). An
+// unknown section is a 404.
 //
-// The gate is CapManageSettings and NOT CapManageUsers: the two coincide for
-// admin/root today, but they mean different things, and reusing the
-// user-management grant would silently widen every future settings route to
+// Every existing POST /settings/* endpoint keeps its path, validation and
+// capability: POST /settings/appearance and POST /settings/sla persist the two
+// forms of the tickets section, POST /settings/language the language,
+// POST /settings/calendar the working calendar, and POST /settings/email (with
+// its test) the SMTP configuration. POST /settings/organization is new and
+// multipart, because the identity and its logo are one submission. A successful
+// save redirects (303) back to its own section; a rejected one re-renders that
+// section with the error.
+//
+// All routes are gated on CapManageSettings (admin/root) at the HTTP boundary;
+// the application service re-enforces the same capability before mutating
+// anything. The gate is CapManageSettings and NOT CapManageUsers: the two
+// coincide for admin/root today, but they mean different things, and reusing
+// the user-management grant would silently widen every future settings route to
 // whatever managing people comes to mean. The rail link follows the same
 // capability through pageData.CanManageSettings.
 //
 // The Email section and its two routes (issue #362) are the exception to that
-// gate: they are root-only through CapManageEmail, because the SMTP
-// credentials are the instance's own and an administrator manages the instance
-// without holding them. An administrator's page does not render the section
-// and an administrator's POST is refused here before the service re-enforces
-// the same capability.
+// gate: they are root-only through CapManageEmail, because the SMTP credentials
+// are the instance's own and an administrator manages the instance without
+// holding them. An administrator's page does not render the section, its URL is
+// refused with 403, and an administrator's POST is refused here before the
+// service re-enforces the same capability.
 type SettingsHandlers struct {
-	settings *application.SettingsService
-	sla      *application.SLAService
-	slaStore application.SLAStore
-	appSet   application.SettingsStore
-	email    *application.EmailSettingsService
-	renderer *Renderer
+	settings     *application.SettingsService
+	sla          *application.SLAService
+	slaStore     application.SLAStore
+	appSet       application.SettingsStore
+	email        *application.EmailSettingsService
+	organization *application.OrganizationService
+	renderer     *Renderer
 }
 
 // NewSettingsHandlers wires the settings routes against the appearance and
@@ -58,43 +70,138 @@ func (h *SettingsHandlers) WithEmail(email *application.EmailSettingsService) *S
 	return h
 }
 
+// WithOrganization wires the organization-identity use cases behind the
+// Organization section (issue #383, S3/S4).
+func (h *SettingsHandlers) WithOrganization(organization *application.OrganizationService) *SettingsHandlers {
+	h.organization = organization
+	return h
+}
+
 // Register mounts the settings routes.
 func (h *SettingsHandlers) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /settings", h.index)
+	mux.HandleFunc("GET /settings/{section}", h.section)
 	mux.HandleFunc("POST /settings/appearance", h.updateAppearance)
 	mux.HandleFunc("POST /settings/language", h.updateLanguage)
 	mux.HandleFunc("POST /settings/sla", h.updateSLA)
 	mux.HandleFunc("POST /settings/calendar", h.updateCalendar)
 	mux.HandleFunc("POST /settings/email", h.updateEmail)
 	mux.HandleFunc("POST /settings/email/test", h.sendTestEmail)
+	mux.HandleFunc("POST /settings/organization", h.updateOrganization)
+	mux.HandleFunc("POST /settings/organization/logo/remove", h.removeOrganizationLogo)
 }
 
-// settingsIndexData is the appearance, interface-language, SLA, and
-// working-calendar panel payload; Error carries a rejected-update message (422
-// re-render).
-type settingsIndexData struct {
+// The settings sections, named exactly as their URL segment (S1).
+const (
+	settingsSectionOrganization = "organization"
+	settingsSectionLanguage     = "language"
+	settingsSectionTickets      = "tickets"
+	settingsSectionEmail        = "email"
+	settingsSectionCalendar     = "calendar"
+)
+
+// settingsSectionHref is a section's URL. One function keeps the nav, the
+// redirect after a save and the forms' targets from drifting apart.
+func settingsSectionHref(section string) string { return "/settings/" + section }
+
+// settingsNavItem is one entry of the left sub-navigation: the section it opens,
+// the catalogue key of its label, and whether it is the active one.
+type settingsNavItem struct {
+	Section string
+	Href    string
+	Label   string
+	Active  bool
+}
+
+// settingsNavItems lists the sections in the order the rail shows them, with
+// the Entry the actor may not open omitted entirely (S2): an administrator never
+// sees an Email entry they cannot use, and the active entry carries
+// aria-current="page" through its own flag.
+func settingsNavItems(active string, canManageEmail bool) []settingsNavItem {
+	items := []settingsNavItem{
+		{Section: settingsSectionOrganization, Href: settingsSectionHref(settingsSectionOrganization), Label: "settings.nav.organization"},
+		{Section: settingsSectionLanguage, Href: settingsSectionHref(settingsSectionLanguage), Label: "settings.nav.language"},
+		{Section: settingsSectionTickets, Href: settingsSectionHref(settingsSectionTickets), Label: "settings.nav.tickets"},
+		{Section: settingsSectionEmail, Href: settingsSectionHref(settingsSectionEmail), Label: "settings.nav.email"},
+		{Section: settingsSectionCalendar, Href: settingsSectionHref(settingsSectionCalendar), Label: "settings.nav.calendar"},
+	}
+	out := make([]settingsNavItem, 0, len(items))
+	for _, item := range items {
+		if item.Section == settingsSectionEmail && !canManageEmail {
+			continue
+		}
+		item.Active = item.Section == active
+		out = append(out, item)
+	}
+	return out
+}
+
+// settingsSectionData is the payload every settings page shares: the shell, a
+// rejected-save message, and the sub-navigation for the active section.
+type settingsSectionData struct {
 	pageData
 	Error   string
-	Current string
-	Colors  []appearanceOption
+	Section string
+	Nav     []settingsNavItem
+}
 
+// sectionData builds the shared payload for one section. canManageEmail gates
+// the Email nav entry the same way it gates that section's markup, so the rail
+// never offers a URL the actor cannot open.
+func (h *SettingsHandlers) sectionData(r *http.Request, section string) settingsSectionData {
+	actor := *userFromContext(r.Context())
+	canManageEmail := h.email != nil && application.NewPolicy().Capabilities(actor.Role).Require(application.CapManageEmail)
+	page := pageDataFrom(r, "settings")
+	page.SettingsAssets = true
+	return settingsSectionData{
+		pageData: page,
+		Section:  section,
+		Nav:      settingsNavItems(section, canManageEmail),
+	}
+}
+
+// settingsOrganizationData is the Organization section payload (S4): the stored
+// identity's editable fields, plus the brand the logo block previews.
+type settingsOrganizationData struct {
+	settingsSectionData
+	Name         string
+	HelpDesk     string
+	SupportEmail string
+	Brand        brandData
+}
+
+// settingsLanguageData is the Language section payload.
+type settingsLanguageData struct {
+	settingsSectionData
 	CurrentLanguage string
 	Languages       []interfaceLanguageOption
+}
 
+// settingsTicketsData is the Tickets section payload: the internal-comment
+// background control and the SLA panel, which are two forms on one page
+// because both are ticket configuration (S2, L2).
+type settingsTicketsData struct {
+	settingsSectionData
+	Current           string
+	Colors            []appearanceOption
 	SLAEnabled        bool
 	SLAWarningPercent int
 	SLAGrid           slaGridData
+}
 
+// settingsCalendarData is the Working calendar section payload.
+type settingsCalendarData struct {
+	settingsSectionData
 	CalendarDays     []calendarDayOption
 	CalendarStart    string
 	CalendarEnd      string
 	CalendarTimezone string
+}
 
-	// CanManageEmail decides whether the Email section renders at all: it is
-	// root-only (CapManageEmail), so an administrator's page never shows a
-	// control it cannot use and never reads the SMTP configuration.
-	CanManageEmail bool
-	Email          emailPanelData
+// settingsEmailData is the root-only Email section payload (issue #362).
+type settingsEmailData struct {
+	settingsSectionData
+	Email emailPanelData
 }
 
 // emailPanelData is the Email section payload (issue #362): the stored SMTP
@@ -259,61 +366,327 @@ func appearanceOptions() []appearanceOption {
 	return out
 }
 
+// index answers GET /settings: the surface has no page of its own any more, so
+// it sends the visitor to the first section (S1). It keeps the capability gate
+// the old page had, so an actor without CapManageSettings is refused here
+// instead of being bounced to a section that refuses them.
 func (h *SettingsHandlers) index(w http.ResponseWriter, r *http.Request) {
 	if !requireCapability(w, r, application.CapManageSettings) {
 		return
 	}
+	redirect(w, r, settingsSectionHref(settingsSectionOrganization))
+}
+
+// section answers GET /settings/{section} (S1). An unknown segment is a 404
+// whatever the actor holds; a known one is gated on the capability that owns
+// it — CapManageEmail for the root-only Email section, CapManageSettings for
+// every other.
+func (h *SettingsHandlers) section(w http.ResponseWriter, r *http.Request) {
+	section := r.PathValue("section")
+	switch section {
+	case settingsSectionOrganization, settingsSectionLanguage, settingsSectionTickets, settingsSectionCalendar, settingsSectionEmail:
+	default:
+		http.NotFound(w, r)
+		return
+	}
+	if section == settingsSectionEmail {
+		if !h.requireEmail(w, r) {
+			return
+		}
+	} else if !requireCapability(w, r, application.CapManageSettings) {
+		return
+	}
+	switch section {
+	case settingsSectionOrganization:
+		h.renderOrganization(w, r, http.StatusOK, "", nil)
+	case settingsSectionLanguage:
+		h.renderLanguage(w, r, http.StatusOK, "")
+	case settingsSectionTickets:
+		h.renderTickets(w, r, http.StatusOK, "", nil)
+	case settingsSectionCalendar:
+		h.renderCalendar(w, r, http.StatusOK, "", nil)
+	case settingsSectionEmail:
+		h.renderEmail(w, r, http.StatusOK, "", nil)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Organization section (issue #383, S3/S4)
+// ---------------------------------------------------------------------------
+
+// renderOrganization renders the Organization section. echo, when non-nil,
+// replaces the editable fields with a rejected submission's values, so one bad
+// field does not cost the administrator the other two; the logo block always
+// previews what is actually stored, because a rejected file was not saved.
+func (h *SettingsHandlers) renderOrganization(w http.ResponseWriter, r *http.Request, status int, message string, echo *settingsOrganizationData) {
+	if h.organization == nil {
+		// A handler set built without the identity use cases fails closed
+		// instead of dereferencing a nil service.
+		httpError(w, r, "error.internal_server", http.StatusInternalServerError)
+		return
+	}
+	stored, err := h.organization.GetOrganization(r.Context())
+	if err != nil {
+		httpError(w, r, "error.internal_server", http.StatusInternalServerError)
+		return
+	}
+	data := settingsOrganizationData{
+		settingsSectionData: h.sectionData(r, settingsSectionOrganization),
+		Name:                stored.Name,
+		HelpDesk:            stored.HelpDesk,
+		SupportEmail:        stored.SupportEmail,
+		Brand:               brandOf(stored),
+	}
+	data.Error = message
+	if echo != nil {
+		data.Name, data.HelpDesk, data.SupportEmail = echo.Name, echo.HelpDesk, echo.SupportEmail
+	}
+	h.renderer.Render(w, r, "settings_organization", "", data, status)
+}
+
+// organizationLogoField is the multipart field the logo travels under.
+const organizationLogoField = "logo"
+
+// organizationLogoMemory bounds how much of a multipart body is held in memory
+// while the parts are parsed: the text fields are tiny, so the logo — capped at
+// 256 KiB — is streamed from the temporary file the parser writes.
+const organizationLogoMemory = 64 << 10
+
+// updateOrganization persists the identity (S4). The form is multipart because
+// the name, the help desk name, the support email and an optional logo are ONE
+// submission: the service validates every field before the store writes
+// anything, and the store applies the text and the bytes in one transaction, so
+// a rejected logo stores neither. An unsubmitted file keeps the stored logo.
+func (h *SettingsHandlers) updateOrganization(w http.ResponseWriter, r *http.Request) {
+	if !requireCapability(w, r, application.CapManageSettings) {
+		return
+	}
+	if h.organization == nil {
+		httpError(w, r, "error.internal_server", http.StatusInternalServerError)
+		return
+	}
+	// ParseMultipartForm also parses a plain urlencoded body, so the endpoint
+	// accepts a text-only submission from a client that sends no file.
+	if err := r.ParseMultipartForm(organizationLogoMemory); err != nil {
+		var maxErr *http.MaxBytesError
+		if errors.As(err, &maxErr) {
+			h.renderOrganizationRejection(w, r, http.StatusRequestEntityTooLarge, "error.org_logo_too_large")
+			return
+		}
+		httpError(w, r, "error.bad_request", http.StatusBadRequest)
+		return
+	}
+	submitted := &settingsOrganizationData{
+		Name:         strings.TrimSpace(r.FormValue("name")),
+		HelpDesk:     strings.TrimSpace(r.FormValue("help_desk")),
+		SupportEmail: strings.TrimSpace(r.FormValue("support_email")),
+	}
+	logo, err := readOrganizationLogo(r)
+	if err != nil {
+		h.renderOrganizationRejection(w, r, http.StatusBadRequest, "error.org_logo_invalid")
+		return
+	}
+	if len(logo) > domain.MaxOrganizationLogoBytes {
+		h.renderOrganizationRejection(w, r, http.StatusRequestEntityTooLarge, "error.org_logo_too_large")
+		return
+	}
+	actor := *userFromContext(r.Context())
+	err = h.organization.UpdateOrganization(r.Context(), actor, application.OrganizationInput{
+		Name:         submitted.Name,
+		HelpDesk:     submitted.HelpDesk,
+		SupportEmail: submitted.SupportEmail,
+		Logo:         logo,
+	})
+	if err != nil {
+		status, msg := mapErrorFor(r, err)
+		if status == http.StatusInternalServerError {
+			http.Error(w, msg, status)
+			return
+		}
+		h.renderOrganization(w, r, organizationRejectionStatus(err, status), msg, submitted)
+		return
+	}
+	saveFeedback(w, r, saveFeedbackSaved, saveFeedbackSuccess)
+	redirect(w, r, settingsSectionHref(settingsSectionOrganization))
+}
+
+// renderOrganizationRejection re-renders the section with one catalogue message
+// for a refusal the handler itself made (an unparseable or oversized file),
+// keeping the submitted text fields the administrator typed.
+func (h *SettingsHandlers) renderOrganizationRejection(w http.ResponseWriter, r *http.Request, status int, key string) {
+	h.renderOrganization(w, r, status, i18n.T(requestLocale(r), key), &settingsOrganizationData{
+		Name:         strings.TrimSpace(r.FormValue("name")),
+		HelpDesk:     strings.TrimSpace(r.FormValue("help_desk")),
+		SupportEmail: strings.TrimSpace(r.FormValue("support_email")),
+	})
+}
+
+// organizationRejectionStatus answers the status a refused identity save
+// renders: an oversized logo is a request-entity problem (413), not a field
+// value (422), exactly as S4 specifies.
+func organizationRejectionStatus(err error, fallback int) int {
+	var validation *domain.ValidationError
+	if errors.As(err, &validation) && validation.Key == "error.org_logo_too_large" {
+		return http.StatusRequestEntityTooLarge
+	}
+	return fallback
+}
+
+// readOrganizationLogo reads the submitted file, or answers nil when the form
+// carried none. The read is bounded at one byte past the cap so an oversized
+// file is reported by the handler's own check instead of being read whole; a
+// file part with no bytes and no name is what a browser sends for an untouched
+// file input, and means "no file".
+func readOrganizationLogo(r *http.Request) ([]byte, error) {
+	if r.MultipartForm == nil {
+		return nil, nil
+	}
+	files := r.MultipartForm.File[organizationLogoField]
+	if len(files) == 0 {
+		return nil, nil
+	}
+	header := files[0]
+	if header.Filename == "" && header.Size == 0 {
+		return nil, nil
+	}
+	file, err := header.Open()
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+	// One byte past the cap is enough to refuse it: the service re-validates
+	// size and magic bytes, so this read only prevents buffering a huge body.
+	logo, err := io.ReadAll(io.LimitReader(file, domain.MaxOrganizationLogoBytes+1))
+	if err != nil {
+		return nil, err
+	}
+	if len(logo) == 0 {
+		return nil, nil
+	}
+	return logo, nil
+}
+
+// removeOrganizationLogo drops the stored logo (S4) and returns to the section.
+// Removing a logo the instance does not have is not an error.
+func (h *SettingsHandlers) removeOrganizationLogo(w http.ResponseWriter, r *http.Request) {
+	if !requireCapability(w, r, application.CapManageSettings) {
+		return
+	}
+	if h.organization == nil {
+		httpError(w, r, "error.internal_server", http.StatusInternalServerError)
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		httpError(w, r, "error.internal_server", http.StatusInternalServerError)
+		return
+	}
+	if err := h.organization.RemoveLogo(r.Context(), *userFromContext(r.Context())); err != nil {
+		status, msg := mapErrorFor(r, err)
+		if status == http.StatusInternalServerError {
+			http.Error(w, msg, status)
+			return
+		}
+		h.renderOrganization(w, r, status, msg, nil)
+		return
+	}
+	saveFeedback(w, r, saveFeedbackSaved, saveFeedbackSuccess)
+	redirect(w, r, settingsSectionHref(settingsSectionOrganization))
+}
+
+// ---------------------------------------------------------------------------
+// Language section (issue #335, S7-S9)
+// ---------------------------------------------------------------------------
+
+// renderLanguage renders the Language section from the stored code: a rejected
+// save keeps the ACTIVE language marked, because the refusal is about the code
+// that was submitted, not about the one the instance renders with.
+func (h *SettingsHandlers) renderLanguage(w http.ResponseWriter, r *http.Request, status int, message string) {
+	current, err := h.settings.GetInterfaceLanguage(r.Context())
+	if err != nil {
+		httpError(w, r, "error.internal_server", http.StatusInternalServerError)
+		return
+	}
+	data := settingsLanguageData{
+		settingsSectionData: h.sectionData(r, settingsSectionLanguage),
+		CurrentLanguage:     current,
+		Languages:           interfaceLanguageOptions(),
+	}
+	data.Error = message
+	h.renderer.Render(w, r, "settings_language", "", data, status)
+}
+
+// updateLanguage persists the instance-wide interface language (issue #335,
+// S7-S9). A rejected code re-renders the section (422) with an inline error in
+// the language the instance is CURRENTLY rendering (the middleware stamped it
+// for this request) and changes nothing. Success redirects 303 back to the
+// section: because the redirect is a new request, the middleware reads the saved
+// language and the page the administrator lands on renders in it.
+func (h *SettingsHandlers) updateLanguage(w http.ResponseWriter, r *http.Request) {
+	if !requireCapability(w, r, application.CapManageSettings) {
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		httpError(w, r, "error.internal_server", http.StatusInternalServerError)
+		return
+	}
+	submitted := r.Form.Get("interface_language")
+	err := h.settings.SetInterfaceLanguage(r.Context(), *userFromContext(r.Context()), submitted)
+	if err != nil {
+		status, msg := mapErrorFor(r, err)
+		if status == http.StatusInternalServerError {
+			http.Error(w, msg, status)
+			return
+		}
+		h.renderLanguage(w, r, status, msg)
+		return
+	}
+	// The save toast is resolved into the flash cookie on THIS request, so it
+	// must resolve in the language just saved: the page that renders it is that
+	// language, and S8 allows no leftover string in the previous one.
+	r = r.WithContext(context.WithValue(r.Context(), ctxKeyInterfaceLanguage{}, submitted))
+	saveFeedback(w, r, saveFeedbackSaved, saveFeedbackSuccess)
+	redirect(w, r, settingsSectionHref(settingsSectionLanguage))
+}
+
+// ---------------------------------------------------------------------------
+// Tickets section: appearance and the SLA panel (issue #211, #335)
+// ---------------------------------------------------------------------------
+
+// renderTickets renders the Tickets section: the internal-comment background
+// control and the SLA panel, from storage unless echo supplies a rejected
+// submission's values.
+func (h *SettingsHandlers) renderTickets(w http.ResponseWriter, r *http.Request, status int, message string, echo *settingsTicketsData) {
 	current, err := h.settings.GetAppearance(r.Context())
 	if err != nil {
 		httpError(w, r, "error.internal_server", http.StatusInternalServerError)
 		return
 	}
-	data := settingsIndexData{
-		pageData: pageDataFrom(r, "settings"),
-		Current:  current,
-		Colors:   appearanceOptions(),
+	data := settingsTicketsData{
+		settingsSectionData: h.sectionData(r, settingsSectionTickets),
+		Current:             current,
+		Colors:              appearanceOptions(),
 	}
+	data.Error = message
 	if err := h.loadSLA(r, &data); err != nil {
 		httpError(w, r, "error.internal_server", http.StatusInternalServerError)
 		return
 	}
-	if err := h.loadCalendar(r, &data); err != nil {
-		httpError(w, r, "error.internal_server", http.StatusInternalServerError)
-		return
-	}
-	if err := h.loadLanguage(r, &data); err != nil {
-		httpError(w, r, "error.internal_server", http.StatusInternalServerError)
-		return
-	}
-	if err := h.claimEmailPanel(r, &data); err != nil {
-		httpError(w, r, "error.internal_server", http.StatusInternalServerError)
-		return
+	if echo != nil {
+		data.SLAEnabled = echo.SLAEnabled
+		data.SLAWarningPercent = echo.SLAWarningPercent
+		data.SLAGrid = echo.SLAGrid
 	}
 	// The shell CSS must carry the same color the panel shows; stamp the
 	// authoritative read into the page data.
 	data.InternalCommentBg = current
-	h.renderer.Render(w, r, "settings_index", "", data, http.StatusOK)
-}
-
-// loadLanguage fills the interface-language panel payload from the
-// authoritative read through the settings service: the active code and the
-// offered languages. Every settings re-render calls it, so a panel untouched by
-// the rejected POST still marks the language the instance is rendering with.
-func (h *SettingsHandlers) loadLanguage(r *http.Request, data *settingsIndexData) error {
-	current, err := h.settings.GetInterfaceLanguage(r.Context())
-	if err != nil {
-		return err
-	}
-	data.CurrentLanguage = current
-	data.Languages = interfaceLanguageOptions()
-	return nil
+	h.renderer.Render(w, r, "settings_tickets", "", data, status)
 }
 
 // loadSLA fills the SLA panel payload from the authoritative reads: the
 // enabled flag and warning percent come through the settings store port,
 // the default target matrix through the SLA store port (the application
 // service exposes no read use case for them).
-func (h *SettingsHandlers) loadSLA(r *http.Request, data *settingsIndexData) error {
+func (h *SettingsHandlers) loadSLA(r *http.Request, data *settingsTicketsData) error {
 	enabled, err := h.appSet.GetSLAEnabled(r.Context())
 	if err != nil {
 		return err
@@ -332,9 +705,9 @@ func (h *SettingsHandlers) loadSLA(r *http.Request, data *settingsIndexData) err
 	return nil
 }
 
-// updateAppearance persists the chosen color. A rejected color re-renders
-// the page with an inline error (422) and changes nothing; success
-// redirects 303 back to /settings (HTMX follows it natively).
+// updateAppearance persists the chosen color. A rejected color re-renders the
+// Tickets section with an inline error (422) and changes nothing; success
+// redirects 303 back to the section.
 func (h *SettingsHandlers) updateAppearance(w http.ResponseWriter, r *http.Request) {
 	if !requireCapability(w, r, application.CapManageSettings) {
 		return
@@ -350,108 +723,11 @@ func (h *SettingsHandlers) updateAppearance(w http.ResponseWriter, r *http.Reque
 			http.Error(w, msg, status)
 			return
 		}
-		current, getErr := h.settings.GetAppearance(r.Context())
-		if getErr != nil {
-			httpError(w, r, "error.internal_server", http.StatusInternalServerError)
-			return
-		}
-		data := settingsIndexData{
-			pageData: pageDataFrom(r, "settings"),
-			Error:    msg,
-			Current:  current,
-			Colors:   appearanceOptions(),
-		}
-		// The SLA and calendar panels are untouched by this POST, so they
-		// re-render from the stored values.
-		if loadErr := h.loadSLA(r, &data); loadErr != nil {
-			httpError(w, r, "error.internal_server", http.StatusInternalServerError)
-			return
-		}
-		if loadErr := h.loadCalendar(r, &data); loadErr != nil {
-			httpError(w, r, "error.internal_server", http.StatusInternalServerError)
-			return
-		}
-		if loadErr := h.loadLanguage(r, &data); loadErr != nil {
-			httpError(w, r, "error.internal_server", http.StatusInternalServerError)
-			return
-		}
-		// The email section is untouched by this POST too: it re-renders from
-		// the stored configuration for the root who may manage it.
-		if loadErr := h.claimEmailPanel(r, &data); loadErr != nil {
-			httpError(w, r, "error.internal_server", http.StatusInternalServerError)
-			return
-		}
-		data.InternalCommentBg = current
-		h.renderer.Render(w, r, "settings_index", "", data, status)
+		h.renderTickets(w, r, status, msg, nil)
 		return
 	}
 	saveFeedback(w, r, saveFeedbackSaved, saveFeedbackSuccess)
-	redirect(w, r, "/settings")
-}
-
-// updateLanguage persists the instance-wide interface language (issue #335,
-// S7-S9). A rejected code re-renders the page (422) with an inline error in the
-// language the instance is CURRENTLY rendering (the middleware stamped it for
-// this request) and changes nothing. Success redirects 303 back to /settings:
-// because the redirect is a new request, the middleware reads the saved language
-// and the page the administrator lands on renders in it.
-func (h *SettingsHandlers) updateLanguage(w http.ResponseWriter, r *http.Request) {
-	if !requireCapability(w, r, application.CapManageSettings) {
-		return
-	}
-	if err := r.ParseForm(); err != nil {
-		httpError(w, r, "error.internal_server", http.StatusInternalServerError)
-		return
-	}
-	err := h.settings.SetInterfaceLanguage(r.Context(), *userFromContext(r.Context()), r.Form.Get("interface_language"))
-	if err != nil {
-		status, msg := mapErrorFor(r, err)
-		if status == http.StatusInternalServerError {
-			http.Error(w, msg, status)
-			return
-		}
-		// The other panels are untouched by this POST, so they re-render from
-		// the stored values — the language panel included: a rejected code must
-		// leave the active language marked.
-		current, getErr := h.settings.GetAppearance(r.Context())
-		if getErr != nil {
-			httpError(w, r, "error.internal_server", http.StatusInternalServerError)
-			return
-		}
-		data := settingsIndexData{
-			pageData: pageDataFrom(r, "settings"),
-			Error:    msg,
-			Current:  current,
-			Colors:   appearanceOptions(),
-		}
-		if loadErr := h.loadSLA(r, &data); loadErr != nil {
-			httpError(w, r, "error.internal_server", http.StatusInternalServerError)
-			return
-		}
-		if loadErr := h.loadCalendar(r, &data); loadErr != nil {
-			httpError(w, r, "error.internal_server", http.StatusInternalServerError)
-			return
-		}
-		if loadErr := h.loadLanguage(r, &data); loadErr != nil {
-			httpError(w, r, "error.internal_server", http.StatusInternalServerError)
-			return
-		}
-		// The email section is untouched by this POST too: it re-renders from
-		// the stored configuration for the root who may manage it.
-		if loadErr := h.claimEmailPanel(r, &data); loadErr != nil {
-			httpError(w, r, "error.internal_server", http.StatusInternalServerError)
-			return
-		}
-		data.InternalCommentBg = current
-		h.renderer.Render(w, r, "settings_index", "", data, status)
-		return
-	}
-	// The save toast is resolved into the flash cookie on THIS request, so it
-	// must resolve in the language just saved: the page that renders it is that
-	// language, and S8 allows no leftover string in the previous one.
-	r = r.WithContext(context.WithValue(r.Context(), ctxKeyInterfaceLanguage{}, r.Form.Get("interface_language")))
-	saveFeedback(w, r, saveFeedbackSaved, saveFeedbackSuccess)
-	redirect(w, r, "/settings")
+	redirect(w, r, settingsSectionHref(settingsSectionTickets))
 }
 
 // updateSLA persists the SLA panel: the enabled flag, the warning percent,
@@ -484,53 +760,57 @@ func (h *SettingsHandlers) updateSLA(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, msg, status)
 			return
 		}
-		// The appearance panel is untouched by this POST, so it re-renders
-		// from the stored value.
-		current, getErr := h.settings.GetAppearance(r.Context())
-		if getErr != nil {
-			httpError(w, r, "error.internal_server", http.StatusInternalServerError)
-			return
-		}
-		data := settingsIndexData{
-			pageData: pageDataFrom(r, "settings"),
-			Error:    msg,
-			// Echo the SUBMITTED values: one bad number must not cost the
-			// administrator the other twenty-three fields.
-			Current:           current,
-			Colors:            appearanceOptions(),
+		// Echo the SUBMITTED values: one bad number must not cost the
+		// administrator the other twenty-three fields.
+		h.renderTickets(w, r, status, msg, &settingsTicketsData{
 			SLAEnabled:        enabled,
 			SLAWarningPercent: percent,
 			SLAGrid:           slaGridData{Rows: slaPolicyRows(policies)},
-		}
-		// The calendar and language panels are untouched by this POST, so they
-		// re-render from the stored values.
-		if loadErr := h.loadCalendar(r, &data); loadErr != nil {
-			httpError(w, r, "error.internal_server", http.StatusInternalServerError)
-			return
-		}
-		if loadErr := h.loadLanguage(r, &data); loadErr != nil {
-			httpError(w, r, "error.internal_server", http.StatusInternalServerError)
-			return
-		}
-		// The email section is untouched by this POST too: it re-renders from
-		// the stored configuration for the root who may manage it.
-		if loadErr := h.claimEmailPanel(r, &data); loadErr != nil {
-			httpError(w, r, "error.internal_server", http.StatusInternalServerError)
-			return
-		}
-		data.InternalCommentBg = current
-		h.renderer.Render(w, r, "settings_index", "", data, status)
+		})
 		return
 	}
 	saveFeedback(w, r, saveFeedbackSaved, saveFeedbackSuccess)
-	redirect(w, r, "/settings")
+	redirect(w, r, settingsSectionHref(settingsSectionTickets))
+}
+
+// slaFormInt parses one submitted integer, counting a blank or non-numeric
+// value as 0 so the application service's own validation produces the
+// rejection rather than the parser.
+func slaFormInt(r *http.Request, key string) int {
+	n, err := strconv.Atoi(strings.TrimSpace(r.Form.Get(key)))
+	if err != nil {
+		return 0
+	}
+	return n
+}
+
+// ---------------------------------------------------------------------------
+// Working calendar section (issue #211)
+// ---------------------------------------------------------------------------
+
+// renderCalendar renders the Working calendar section. echo, when non-nil,
+// echoes a rejected submission's values instead of the stored calendar.
+func (h *SettingsHandlers) renderCalendar(w http.ResponseWriter, r *http.Request, status int, message string, echo *settingsCalendarData) {
+	data := settingsCalendarData{settingsSectionData: h.sectionData(r, settingsSectionCalendar)}
+	data.Error = message
+	if err := h.loadCalendar(r, &data); err != nil {
+		httpError(w, r, "error.internal_server", http.StatusInternalServerError)
+		return
+	}
+	if echo != nil {
+		data.CalendarDays = echo.CalendarDays
+		data.CalendarStart = echo.CalendarStart
+		data.CalendarEnd = echo.CalendarEnd
+		data.CalendarTimezone = echo.CalendarTimezone
+	}
+	h.renderer.Render(w, r, "settings_calendar", "", data, status)
 }
 
 // loadCalendar fills the working-calendar panel payload from the
 // authoritative read through the SLA service's Calendar use case: the
 // working days decomposed into the seven ISO checkboxes, the window as
 // HH:MM clock strings, and the zone's IANA name.
-func (h *SettingsHandlers) loadCalendar(r *http.Request, data *settingsIndexData) error {
+func (h *SettingsHandlers) loadCalendar(r *http.Request, data *settingsCalendarData) error {
 	cal, err := h.sla.Calendar(r.Context())
 	if err != nil {
 		return err
@@ -549,9 +829,8 @@ func (h *SettingsHandlers) loadCalendar(r *http.Request, data *settingsIndexData
 // never masquerade as a saved setting). An unparseable clock is likewise
 // never coerced to 00:00 — midnight is a legal window start, so coercion
 // would silently persist a wrong calendar. A rejected save re-renders the
-// page (422) with every panel populated — appearance and SLA from storage,
-// the calendar echoing the SUBMITTED values — and changes nothing; success
-// redirects 303 back to /settings (HTMX follows it natively).
+// section (422) with the SUBMITTED values and changes nothing; success
+// redirects 303 back to the section.
 func (h *SettingsHandlers) updateCalendar(w http.ResponseWriter, r *http.Request) {
 	if !requireCapability(w, r, application.CapManageSettings) {
 		return
@@ -571,45 +850,16 @@ func (h *SettingsHandlers) updateCalendar(w http.ResponseWriter, r *http.Request
 			http.Error(w, msg, status)
 			return
 		}
-		// The appearance, language and SLA panels are untouched by this POST, so
-		// they re-render from the stored values; the calendar panel echoes the
-		// SUBMITTED values so one bad field does not cost the rest.
-		current, getErr := h.settings.GetAppearance(r.Context())
-		if getErr != nil {
-			httpError(w, r, "error.internal_server", http.StatusInternalServerError)
-			return
-		}
-		data := settingsIndexData{
-			pageData: pageDataFrom(r, "settings"),
-			Error:    msg,
-			Current:  current,
-			Colors:   appearanceOptions(),
-
+		h.renderCalendar(w, r, status, msg, &settingsCalendarData{
 			CalendarDays:     calendarDayOptionsFromValues(r.Form["sla_calendar_days"]),
 			CalendarStart:    r.Form.Get("sla_calendar_start"),
 			CalendarEnd:      r.Form.Get("sla_calendar_end"),
 			CalendarTimezone: r.Form.Get("sla_calendar_timezone"),
-		}
-		if loadErr := h.loadSLA(r, &data); loadErr != nil {
-			httpError(w, r, "error.internal_server", http.StatusInternalServerError)
-			return
-		}
-		if loadErr := h.loadLanguage(r, &data); loadErr != nil {
-			httpError(w, r, "error.internal_server", http.StatusInternalServerError)
-			return
-		}
-		// The email section is untouched by this POST too: it re-renders from
-		// the stored configuration for the root who may manage it.
-		if loadErr := h.claimEmailPanel(r, &data); loadErr != nil {
-			httpError(w, r, "error.internal_server", http.StatusInternalServerError)
-			return
-		}
-		data.InternalCommentBg = current
-		h.renderer.Render(w, r, "settings_index", "", data, status)
+		})
 		return
 	}
 	saveFeedback(w, r, saveFeedbackSaved, saveFeedbackSuccess)
-	redirect(w, r, "/settings")
+	redirect(w, r, settingsSectionHref(settingsSectionCalendar))
 }
 
 // parseCalendarForm reconstructs the working calendar from the panel's
@@ -678,41 +928,40 @@ func parseClockMinute(value string) (int, bool) {
 	return hour*60 + minute, true
 }
 
-// slaFormInt parses one submitted integer, counting a blank or non-numeric
-// value as 0 so the application service's own validation produces the
-// rejection rather than the parser.
-func slaFormInt(r *http.Request, key string) int {
-	n, err := strconv.Atoi(strings.TrimSpace(r.Form.Get(key)))
-	if err != nil {
-		return 0
-	}
-	return n
-}
-
 // ---------------------------------------------------------------------------
 // Email section (issue #362; specs S1-S4, S8, S10, S14, S15, S16)
 // ---------------------------------------------------------------------------
 
-// claimEmailPanel fills the root-only Email section payload. CanManageEmail
-// gates the MARKUP and the read together, so an administrator's page neither
-// shows a control it cannot use nor runs an email read it has no right to.
-func (h *SettingsHandlers) claimEmailPanel(r *http.Request, data *settingsIndexData) error {
+// renderEmail renders the root-only Email section. adjust, when non-nil,
+// changes the panel the stored configuration produced — the submitted values of
+// a rejected save, or the success of a test email.
+func (h *SettingsHandlers) renderEmail(w http.ResponseWriter, r *http.Request, status int, message string, adjust func(*emailPanelData)) {
 	if h.email == nil {
 		// A handler set built without WithEmail fails closed: the section is
 		// never rendered for anyone and no read runs.
-		return nil
+		httpError(w, r, "error.forbidden", http.StatusForbidden)
+		return
 	}
 	actor := *userFromContext(r.Context())
-	data.CanManageEmail = application.NewPolicy().Capabilities(actor.Role).Require(application.CapManageEmail)
-	if !data.CanManageEmail {
-		return nil
-	}
 	stored, err := h.email.Get(r.Context(), actor)
 	if err != nil {
-		return err
+		status, msg := mapErrorFor(r, err)
+		if status == http.StatusInternalServerError {
+			http.Error(w, msg, status)
+			return
+		}
+		http.Error(w, msg, status)
+		return
 	}
-	data.Email = emailPanelFromStored(stored)
-	return nil
+	data := settingsEmailData{
+		settingsSectionData: h.sectionData(r, settingsSectionEmail),
+		Email:               emailPanelFromStored(stored),
+	}
+	data.Error = message
+	if adjust != nil {
+		adjust(&data.Email)
+	}
+	h.renderer.Render(w, r, "settings_email", "", data, status)
 }
 
 // requireEmail answers the root-only email gate: the capability AND the wired
@@ -773,41 +1022,12 @@ func echoEmailForm(panel emailPanelData, r *http.Request) emailPanelData {
 	return panel
 }
 
-// renderEmailPage renders the whole Settings page for an email action that does
-// not simply redirect: every other panel comes from storage and the Email
-// section from the stored configuration, adjusted by the caller (the submitted
-// values of a rejected save, or the success of a test email).
-func (h *SettingsHandlers) renderEmailPage(w http.ResponseWriter, r *http.Request, status int, message string, adjust func(*emailPanelData)) {
-	current, err := h.settings.GetAppearance(r.Context())
-	if err != nil {
-		httpError(w, r, "error.internal_server", http.StatusInternalServerError)
-		return
-	}
-	data := settingsIndexData{
-		pageData: pageDataFrom(r, "settings"),
-		Error:    message,
-		Current:  current,
-		Colors:   appearanceOptions(),
-	}
-	for _, load := range []func(*http.Request, *settingsIndexData) error{h.loadSLA, h.loadCalendar, h.loadLanguage, h.claimEmailPanel} {
-		if loadErr := load(r, &data); loadErr != nil {
-			httpError(w, r, "error.internal_server", http.StatusInternalServerError)
-			return
-		}
-	}
-	if adjust != nil {
-		adjust(&data.Email)
-	}
-	data.InternalCommentBg = current
-	h.renderer.Render(w, r, "settings_index", "", data, status)
-}
-
 // updateEmail persists the whole SMTP configuration (S1-S4, S8, S10, S15, S16).
 // Root-only: refused here and re-refused by the service. ONE application call
 // validates everything before the store writes anything, so a rejected
-// submission changes nothing; it re-renders (422) with the submitted values
-// except the password. Success redirects 303 back to /settings, so the saved
-// configuration applies without a restart (S4).
+// submission changes nothing; it re-renders the section (422) with the submitted
+// values except the password. Success redirects 303 back to the section, so the
+// saved configuration applies without a restart (S4).
 func (h *SettingsHandlers) updateEmail(w http.ResponseWriter, r *http.Request) {
 	if !h.requireEmail(w, r) {
 		return
@@ -824,19 +1044,19 @@ func (h *SettingsHandlers) updateEmail(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, msg, status)
 			return
 		}
-		h.renderEmailPage(w, r, status, msg, func(panel *emailPanelData) {
+		h.renderEmail(w, r, status, msg, func(panel *emailPanelData) {
 			*panel = echoEmailForm(*panel, r)
 		})
 		return
 	}
 	saveFeedback(w, r, saveFeedbackSaved, saveFeedbackSuccess)
-	redirect(w, r, "/settings")
+	redirect(w, r, settingsSectionHref(settingsSectionEmail))
 }
 
 // sendTestEmail sends one message to the ACTING ROOT's own address with the
 // stored configuration (S14), enabled or not, so root can try a server before
 // turning delivery on. The action cannot address anyone else, so it is never a
-// relay. Success re-renders the page (200) with the confirmation; a rejected
+// relay. Success re-renders the section (200) with the confirmation; a rejected
 // configuration re-renders it (422) with the localized reason; a refused send
 // re-renders it (502) with the server's own reply, which never contains the
 // password (S8).
@@ -861,10 +1081,10 @@ func (h *SettingsHandlers) sendTestEmail(w http.ResponseWriter, r *http.Request)
 			http.Error(w, msg, status)
 			return
 		}
-		h.renderEmailPage(w, r, status, msg, nil)
+		h.renderEmail(w, r, status, msg, nil)
 		return
 	}
-	h.renderEmailPage(w, r, http.StatusOK, "", func(panel *emailPanelData) {
+	h.renderEmail(w, r, http.StatusOK, "", func(panel *emailPanelData) {
 		panel.TestSent = true
 	})
 }

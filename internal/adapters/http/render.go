@@ -641,6 +641,32 @@ var templateFuncs = template.FuncMap{
 	// fileSize renders an attachment's byte count (issue #366) for the detail
 	// listing: the same units in every language, so it is not catalogued.
 	"fileSize": fileSize,
+	// brandHelpDesk answers the help desk name every document title ends with
+	// (issue #383, S5). The title keys take it as an argument rather than
+	// reading request state, so a template cannot render a title the request's
+	// identity did not decide.
+	"brandName":     brandName,
+	"brandHelpDesk": brandHelpDesk,
+}
+
+// brandName is the instance name a document title starts with. It answers the
+// documented default for an unset brand, so a page rendered without an
+// identity still names the instance instead of starting with a dash.
+func brandName(brand brandData) string {
+	if brand.Name == "" {
+		return domain.DefaultOrganizationName
+	}
+	return brand.Name
+}
+
+// brandHelpDesk is the help desk name a document title ends with. It answers
+// the documented default for an unset brand, so a page rendered without an
+// identity still names a help desk instead of ending in a dash.
+func brandHelpDesk(brand brandData) string {
+	if brand.HelpDesk == "" {
+		return domain.DefaultOrganizationHelpDesk
+	}
+	return brand.HelpDesk
 }
 
 // shellFor maps a page to its shell root. Application pages use the rail

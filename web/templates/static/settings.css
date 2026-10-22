@@ -1,0 +1,168 @@
+/*
+ * Settings sections (issue #383, S2): the sub-navigation rail, the per-section
+ * content column, and the sticky save bar. Loaded only on the settings pages
+ * (pageData.SettingsAssets), so no other surface pays for it.
+ *
+ * The inline stylesheet is inlined into every page and cannot hold comments, so
+ * this file carries the rationale instead. Every value is a design-system token
+ * or a shape the system already defines (8px controls, 12px shells); nothing
+ * here introduces a new colour or radius.
+ */
+
+.settings-layout {
+  display: grid;
+  grid-template-columns: 220px minmax(0, 1fr);
+  gap: 32px;
+  align-items: start;
+}
+
+/* The section rail: a list of links, the active one marked with
+   aria-current="page" and the accent's soft fill. It sticks beside a long
+   section so the wayfinding survives a scroll. */
+.settings-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  position: sticky;
+  top: 76px;
+}
+
+.settings-nav-link {
+  display: block;
+  padding: 8px 12px;
+  border-radius: 8px;
+  color: var(--ink-soft);
+  font-size: 13px;
+  font-weight: 500;
+  text-decoration: none;
+}
+
+.settings-nav-link:hover {
+  background: var(--hover);
+  color: var(--ink);
+}
+
+.settings-nav-link[aria-current="page"] {
+  background: var(--accent-soft);
+  color: var(--ink-strong);
+}
+
+.settings-content {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  min-width: 0;
+}
+
+/* The section title is the smallest heading rung the system ships (14px at
+   weight 600): a settings section is a grouping, not a page banner. */
+.settings-section-title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ink-strong);
+}
+
+.settings-form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin: 0;
+}
+
+/* The sticky save bar sits at the bottom of the content column while its form
+   is dirty, so the primary action stays reachable in a long section. It is
+   hidden by default and revealed by settings.js; [hidden] must win over the
+   flex display, hence the explicit rule. */
+.settings-savebar {
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-top: 4px;
+  padding: 12px 0;
+  border-top: 1px solid var(--line);
+  background: var(--bg);
+}
+
+.settings-savebar[hidden] {
+  display: none;
+}
+
+.settings-logo {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.settings-logo-mark {
+  width: 48px;
+  height: 48px;
+  border-radius: 12px;
+  background: var(--accent);
+  color: var(--rail-ink);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+/* The logo and the monogram are one mark: the image fills the same tile the
+   monogram would, so a configured instance and a fresh one share the shape. */
+.settings-logo-mark img {
+  width: 48px;
+  height: 48px;
+  border-radius: 12px;
+  display: block;
+  object-fit: contain;
+}
+
+.settings-logo-controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.settings-logo-controls input[type="file"] {
+  max-width: 100%;
+}
+
+/* Mobile (≤640px): the rail becomes a horizontal row of chips above the
+   section, scrollable so a long section list never widens the page. */
+@media (max-width: 640px) {
+  .settings-layout {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 16px;
+  }
+
+  .settings-nav {
+    position: static;
+    flex-direction: row;
+    gap: 8px;
+    overflow-x: auto;
+    padding-bottom: 4px;
+  }
+
+  .settings-nav-link {
+    flex: 0 0 auto;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    white-space: nowrap;
+  }
+}
+
+/* A group inside a section (Appearance inside Tickets & SLA) is one rung below
+   the section title: 13px at weight 600. */
+.settings-group-title {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink-strong);
+}

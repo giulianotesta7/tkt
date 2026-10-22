@@ -145,6 +145,10 @@ type pageData struct {
 	WorkflowAssets       bool
 	CategoryAssets       bool
 	MetricsAssets        bool
+	// SettingsAssets loads the settings section stylesheet and the save-bar
+	// script (issue #383, S2). It is set only on the settings pages, so no other
+	// surface downloads them.
+	SettingsAssets bool
 	// SLACountdownAssets loads the live SLA countdown script (issue #211,
 	// PR 6). It is set only where the ticket detail page is built and only
 	// when that ticket carries a frozen commitment, because the panel is the
@@ -162,6 +166,11 @@ type pageData struct {
 	// shell turns an explicit choice into the page's data-theme attribute and
 	// renders no attribute for "system".
 	Theme string
+	// Brand is the instance identity the shell renders (issue #383, S5): the
+	// name, the help desk name, the monogram or logo mark, and the logo's
+	// content hash. It comes from the identity the session middleware read once
+	// per request, so pageDataFrom performs no query of its own.
+	Brand brandData
 	// NotificationBell is the rail bell's INITIAL state (issue #344, S13). It
 	// is always the zero value: an ordinary page render never queries the
 	// unread count — the bell's own endpoint answers it, and the browser fetches
@@ -191,6 +200,7 @@ func pageDataFrom(r *http.Request, nav string) pageData {
 		SaveFeedback:        readSaveFeedback(r),
 		SidebarCollapsed:    sidebarCollapsedFrom(r.Context()),
 		Theme:               themeFrom(r.Context()),
+		Brand:               brandFromContext(r.Context()),
 	}
 }
 
