@@ -1228,6 +1228,13 @@ type TicketQuery struct {
 	Priority   *domain.Priority
 	CategoryID *int64
 	UserID     *int64
+	// Unassigned restricts the list to tickets with no assignee (issue #382,
+	// the "Unassigned" queue view). It composes with every other filter and
+	// is meaningless together with UserID; the handler never sets both.
+	Unassigned bool
+	// OnHold restricts the list to tickets currently on hold (issue #382, the
+	// "On hold" queue view): on_hold_since is set, whatever the state.
+	OnHold bool
 	// Text is the D4-tokenized, title-scoped FTS expression ("" = no title
 	// filter). The search box matches ONLY ticket titles or IDs.
 	Text string

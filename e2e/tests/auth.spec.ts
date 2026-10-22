@@ -373,7 +373,7 @@ test.describe("Login and auth gates", () => {
         new URL(resp.url()).pathname === "/tickets",
     );
     await page.getByPlaceholder(/search by id or title/i).fill("expired session");
-    await page.getByRole("button", { name: "Apply", exact: true }).click();
+    await page.getByPlaceholder(/search by id or title/i).press("Enter");
 
     // The refusal is a redirect instruction, not a document to swap.
     const response = await refusal;
@@ -441,7 +441,7 @@ async function searchTickets(page: Page, term: string): Promise<void> {
       new URL(resp.url()).pathname === "/tickets" &&
       resp.status() === 200,
   );
-  await page.getByRole("button", { name: "Apply", exact: true }).click();
+  await page.getByPlaceholder(/search by id or title/i).press("Enter");
   await swap;
   await expect(page).toHaveURL(new RegExp(`[?&]q=${term}(&|$)`));
   await expect(page.locator("#tickets-screen")).toBeVisible();

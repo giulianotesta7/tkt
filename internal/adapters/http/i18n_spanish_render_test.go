@@ -43,12 +43,12 @@ func renderLocalized(t *testing.T, locale, page, fragment string, data any) stri
 // table headers, the priority label from the catalogue, and the empty state.
 func TestSpanishTicketsQueue(t *testing.T) {
 	body := renderLocalized(t, "es", "tickets_index", "ticket_list", fixtureListData())
-	for _, want := range []string{"Título", "Prioridad", "Actualizado", "Alta"} {
+	for _, want := range []string{"Ticket", "Categoría", "Asignado", "Prioridad", "Actualizado", "Alta", "Sin asignar"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("Spanish queue must render %q, got: %.800s", want, body)
 		}
 	}
-	for _, unwanted := range []string{">Title<", ">Priority<", ">Updated<", ">High<"} {
+	for _, unwanted := range []string{">Category<", ">Assignee<", ">Priority<", ">Updated<", ">High<", ">Unassigned<"} {
 		if strings.Contains(body, unwanted) {
 			t.Errorf("Spanish queue must not render the English %q, got: %.800s", unwanted, body)
 		}
@@ -60,7 +60,7 @@ func TestSpanishTicketsQueue(t *testing.T) {
 func TestSpanishFilterBarAndPagination(t *testing.T) {
 	list := fixtureListData()
 	filters := renderLocalized(t, "es", "tickets_index", "filter_form", list)
-	for _, want := range []string{"Todos los estados", "Todas las prioridades", "Cualquiera", "Ordenar por", "Aplicar", "Limpiar filtros"} {
+	for _, want := range []string{"Todos los estados", "Todas las prioridades", "Cualquiera", "Ordenar por", "Filtros", "Orden"} {
 		if !strings.Contains(filters, want) {
 			t.Errorf("Spanish filter bar must render %q, got: %.1200s", want, filters)
 		}
@@ -318,14 +318,14 @@ func TestSpanishValidationErrors(t *testing.T) {
 // Spanish: every panel heading, filter label, scope line, legend and attainment
 // header comes from the catalogue, including the enum-driven group names.
 func TestSpanishMetrics(t *testing.T) {
-	summary := renderLocalized(t, "es", "ticket_metrics_detail", "ticket_metrics_summary_content", ticketMetricsSummaryData())
-	for _, want := range []string{"Resumen operativo", "Tickets pendientes", "Tickets sin asignar", "Resueltos esta semana", "Tiempo medio de resolución", "Ver métricas"} {
-		if !strings.Contains(summary, want) {
-			t.Errorf("Spanish metrics summary must render %q, got: %.800s", want, summary)
+	kpis := renderLocalized(t, "es", "ticket_metrics_detail", "ticket_metrics_kpis", ticketMetricsSummaryData())
+	for _, want := range []string{"Creados", "Resueltos", "Pendientes"} {
+		if !strings.Contains(kpis, want) {
+			t.Errorf("Spanish KPI row must render %q, got: %.800s", want, kpis)
 		}
 	}
-	if strings.Contains(summary, "Operational summary") {
-		t.Error("Spanish metrics summary must not render the English heading")
+	if strings.Contains(kpis, ">Created<") {
+		t.Error("Spanish KPI row must not render the English label")
 	}
 
 	detail := renderLocalized(t, "es", "ticket_metrics_detail", "ticket_metrics_detail_content", ticketMetricsRenderData())
@@ -636,19 +636,16 @@ func TestSpanishKeylessErrorsAndLiteralsFollowTheInstanceLanguage(t *testing.T) 
 		name         string
 		language     string
 		draftRefusal string
-		meanNone     string
 	}{
 		{
 			name:         "english",
 			language:     application.InterfaceLanguageEnglish,
 			draftRefusal: "the target category already has a draft; cloning would overwrite it",
-			meanNone:     "No verifiable durations",
 		},
 		{
 			name:         "spanish",
 			language:     application.InterfaceLanguageSpanish,
 			draftRefusal: "la categoría de destino ya tiene un borrador; clonar lo sobrescribiría",
-			meanNone:     "Todavía no hay resoluciones para medir",
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -679,14 +676,6 @@ func TestSpanishKeylessErrorsAndLiteralsFollowTheInstanceLanguage(t *testing.T) 
 			}
 			if tc.language == application.InterfaceLanguageSpanish && strings.Contains(refused.Body.String(), "already has a draft") {
 				t.Errorf("Spanish clone refusal must not render the English sentence: %.800s", refused.Body.String())
-			}
-
-			summary := h.get(t, "/tickets", false)
-			if summary.Code != http.StatusOK || !strings.Contains(summary.Body.String(), tc.meanNone) {
-				t.Errorf("mean-resolution empty state must render %q, got %d: %.1200s", tc.meanNone, summary.Code, summary.Body.String())
-			}
-			if tc.language == application.InterfaceLanguageSpanish && strings.Contains(summary.Body.String(), "No verifiable durations") {
-				t.Errorf("Spanish metrics summary must not render the English literal: %.1200s", summary.Body.String())
 			}
 		})
 	}
@@ -1110,40 +1099,6 @@ func TestSpanishTimestampKeepsItsNumericShape(t *testing.T) {
 	}
 	if es != en {
 		t.Errorf("a monthless timestamp must render identically in both locales:\n es: %s\n en: %s", es, en)
-	}
-}
-
-// TestSpanishMetricsRangeUsesLocaleOrdering renders the metrics period range:
-// English keeps "Oct 12 – Oct 18, 2026" and Spanish reorders day and month
-// ("12 oct – 18 oct 2026"), which is the natural Spanish reading of the same
-// range.
-func TestSpanishMetricsRangeUsesLocaleOrdering(t *testing.T) {
-	rangeData := func() ticketMetricsData {
-		data := ticketMetricsSummaryData()
-		data.Metrics.Filter = application.TicketMetricsFilter{
-			Start: time.Date(2026, 10, 12, 0, 0, 0, 0, time.UTC),
-			End:   time.Date(2026, 10, 19, 0, 0, 0, 0, time.UTC),
-		}
-		return data
-	}
-
-	es := renderLocalized(t, "es", "ticket_metrics_detail", "ticket_metrics_summary_content", rangeData())
-	if !strings.Contains(es, "12 oct – 18 oct 2026") {
-		t.Errorf("Spanish metrics range must read %q, got: %.800s", "12 oct – 18 oct 2026", es)
-	}
-
-	en := renderLocalized(t, "en", "ticket_metrics_detail", "ticket_metrics_summary_content", rangeData())
-	if !strings.Contains(en, "Oct 12 – Oct 18, 2026") {
-		t.Errorf("English metrics range must stay %q, got: %.800s", "Oct 12 – Oct 18, 2026", en)
-	}
-
-	// A zero filter — the shape a rejected metrics submission re-renders with —
-	// keeps rendering exactly what it rendered before the catalogue owned the
-	// month names, four-digit year included (S13).
-	zero := ticketMetricsSummaryData()
-	zeroEN := renderLocalized(t, "en", "ticket_metrics_detail", "ticket_metrics_summary_content", zero)
-	if !strings.Contains(zeroEN, "Jan 1 – Dec 31, 0000") {
-		t.Errorf("English zero range must stay %q, got: %.800s", "Jan 1 – Dec 31, 0000", zeroEN)
 	}
 }
 

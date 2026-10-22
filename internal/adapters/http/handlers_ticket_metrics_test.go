@@ -140,7 +140,7 @@ func TestTicketMetricsHTTPDetailPage(t *testing.T) {
 			t.Fatalf("full page must contain %q: %s", want, body)
 		}
 	}
-	if strings.Contains(body, `id="tickets-screen"`) || strings.Contains(body, "ticket-metrics-cards") {
+	if strings.Contains(body, `id="tickets-screen"`) {
 		t.Fatalf("full page must be the dedicated detail page, not the list: %s", body)
 	}
 	assertNoDuplicateIDs(t, body)

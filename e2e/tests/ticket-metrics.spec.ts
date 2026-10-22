@@ -55,69 +55,43 @@ test.describe("Ticket metrics summary", () => {
     await stopServer();
   });
 
-  test("summary is visible to root and survives the #tickets-screen HTMX swap", async ({
+  test("the queue carries no summary strip and the metrics page opens from the sidebar with a KPI row", async ({
     page,
   }) => {
     await page.setViewportSize({ width: 1280, height: 800 });
     const obs = collectObservability(page);
-
-    await page.goto(base() + "/login");
-    await page.getByLabel(/email/i).fill("alice@example.com");
-    await page.getByLabel(/password/i).fill("SuperSecret42!");
-    await page.getByRole("button", { name: /log in|sign in/i }).click();
+    await loginAsSeeded(page);
     await expect(page).toHaveURL(/\/tickets/);
 
-    const summary = page.locator("#ticket-metrics");
-    await expect(summary).toBeVisible();
-    await expect(summary.getByRole("heading", { name: "Operational summary" })).toBeVisible();
-    await expect(summary.locator(".ticket-metrics-card")).toHaveCount(4);
-    await expect(summary.getByRole("link", { name: "View metrics" })).toBeVisible();
-    await expect(page.locator("#tickets-screen #ticket-metrics")).toHaveCount(0);
+    // Issue #382: the weekly strip left the queue; the page is tabs, filters
+    // and the table, and the metrics asset is not loaded here.
+    await expect(page.locator("#ticket-metrics")).toHaveCount(0);
+    await expect(page.locator(".queue-tabs")).toBeVisible();
+    expect(
+      await page.evaluate(() =>
+        [...document.styleSheets].some((s) => (s.href ?? "").includes("ticket_metrics.css")),
+      ),
+    ).toBe(false);
 
-    const probe = "zz-no-such-ticket-metrics";
-    await assertHtmxSwap(
-      page,
-      async () => {
-        await page.getByPlaceholder(/search by id or title/i).fill(probe);
-        await page.getByRole("button", { name: "Apply", exact: true }).click();
-      },
-      {
-        endpoint: (url) =>
-          new URL(url).pathname === "/tickets" && new URL(url).searchParams.get("q") === probe,
-        method: "GET",
-        expectedStatus: 200,
-        hxTarget: "#tickets-screen",
-        expectedUrl: /\/tickets\?q=/,
-      },
+    await createTicketViaUi(page, { title: "kpi probe ticket" });
+    await page.locator('a.sidebar-link[href="/tickets/metrics"]').click();
+    await expect(page).toHaveURL(/\/tickets\/metrics$/);
+    const kpis = page.locator(".ticket-metrics-kpis");
+    await expect(kpis).toBeVisible();
+    // Three headline counts of the selected period; the mean appears only
+    // once a verifiable duration exists.
+    await expect(kpis.locator(".ticket-metrics-card")).toHaveCount(3);
+    await expect(kpis.locator(".ticket-metrics-card-label")).toHaveText([
+      "Created",
+      "Resolved",
+      "Pending",
+    ]);
+    await expect(kpis.locator(".ticket-metrics-card-value").first()).toHaveText(/^\d+$/);
+    const kpiBox = await kpis.boundingBox();
+    const gridBox = await page.locator(".ticket-metrics-grid").boundingBox();
+    expect(kpiBox && gridBox && kpiBox.y < gridBox.y, "the KPI row sits above the charts").toBe(
+      true,
     );
-    await expect(page.locator("#ticket-list").getByText(/no tickets match/i)).toBeVisible({
-      timeout: 10_000,
-    });
-
-    await expect(summary).toBeVisible();
-
-    // The summary sits outside #tickets-screen, so the swap must have been
-    // followed client-side by a link sync: the "View metrics" href now
-    // mirrors the current list query (return starts with /tickets and
-    // carries the searched term).
-    const metricsHref = await summary
-      .getByRole("link", { name: "View metrics" })
-      .getAttribute("href");
-    expect(metricsHref).toMatch(/^\/tickets\/metrics\?return=%2Ftickets/);
-    const returnQuery = new URL(metricsHref ?? "", base()).searchParams.get("return");
-    expect(returnQuery).toBeTruthy();
-    expect(returnQuery?.startsWith("/tickets")).toBe(true);
-    expect(returnQuery).toContain(probe);
-
-    // The summary is server-rendered outside the swapped region, so a reload of
-    // the pushed list URL must still show it and still mirror the query.
-    await page.reload();
-    await expect(summary).toBeVisible();
-    const reloadedReturn = new URL(
-      (await summary.getByRole("link", { name: "View metrics" }).getAttribute("href")) ?? "",
-      base(),
-    ).searchParams.get("return");
-    expect(reloadedReturn).toContain(probe);
 
     expectNoConsoleOrPageErrors(obs.consoleErrors, obs.pageErrors);
   });
@@ -129,8 +103,8 @@ test.describe("Ticket metrics summary", () => {
     const obs = collectObservability(page);
     await loginAsSeeded(page);
     await createTicketViaUi(page, { title: "metrics probe ticket" });
-    await page.getByRole("link", { name: "View metrics" }).click();
-    await expect(page).toHaveURL(/\/tickets\/metrics\?return=/);
+    await page.locator('a.sidebar-link[href="/tickets/metrics"]').click();
+    await expect(page).toHaveURL(/\/tickets\/metrics$/);
     await expect(page.getByRole("heading", { name: "Ticket metrics", level: 1 })).toBeVisible();
     const detail = page.locator("#ticket-metrics-detail-content");
     await expect(detail.getByRole("heading", { name: "Created vs resolved" })).toBeVisible();
@@ -266,56 +240,32 @@ test.describe("Ticket metrics summary", () => {
     expectNoConsoleOrPageErrors(obs.consoleErrors, obs.pageErrors);
   });
 
-  test("the metrics return preserves the list order", async ({ page }) => {
+  test("an explicit return keeps the list order on Back to tickets", async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 800 });
     const obs = collectObservability(page);
     await loginAsSeeded(page);
 
-    // Choose an explicit order on the list. The summary's View metrics link
-    // mirrors the pushed URL client-side, so its return value carries the sort.
-    await page.goto(base() + "/tickets");
-    await expect(page.locator("#tickets-screen")).toBeVisible();
-    await assertHtmxSwap(
-      page,
-      async () => {
-        await page.getByLabel("Order by").selectOption("priority");
-        await page.getByRole("button", { name: "Apply", exact: true }).click();
-      },
-      {
-        endpoint: (url) => {
-          const u = new URL(url);
-          return u.pathname === "/tickets" && u.searchParams.get("sort") === "priority";
-        },
-        method: "GET",
-        expectedStatus: 200,
-        hxTarget: "#tickets-screen",
-        expectedUrl: /\/tickets\?.*sort=priority/,
-      },
+    // The queue no longer links to metrics with its query (the sidebar owns
+    // Metrics since #377), but the return contract still holds for any caller
+    // that passes it: Back to tickets honours the recognised parameters.
+    await page.goto(
+      base() + "/tickets/metrics?return=" + encodeURIComponent("/tickets?sort=priority&evil=1"),
     );
-    await expect(page.getByLabel("Order by")).toHaveValue("priority");
-    await expect(page.getByRole("link", { name: "View metrics" })).toHaveAttribute(
-      "href",
-      /sort%3Dpriority/,
-    );
-
-    await page.getByRole("link", { name: "View metrics" }).click();
-    await expect(page).toHaveURL(/\/tickets\/metrics\?return=/);
     await expect(page.getByRole("link", { name: "Back to tickets" })).toHaveAttribute(
       "href",
       "/tickets?sort=priority",
     );
-
-    // Back to tickets restores the ordered list, not the newest-first default.
     await page.getByRole("link", { name: "Back to tickets" }).click();
     await expect(page).toHaveURL(/\/tickets\?.*sort=priority/);
     await expect(page.getByLabel("Order by")).toHaveValue("priority");
 
-    // Browser Back/Forward round-trips the metrics page and the ordered list.
-    await page.goBack();
-    await expect(page).toHaveURL(/\/tickets\/metrics/);
-    await page.goForward();
-    await expect(page.getByLabel("Order by")).toHaveValue("priority");
-    expect(new URL(page.url()).searchParams.get("sort")).toBe("priority");
+    // Without a return, Back goes to the plain queue.
+    await page.locator('a.sidebar-link[href="/tickets/metrics"]').click();
+    await expect(page).toHaveURL(/\/tickets\/metrics$/);
+    await expect(page.getByRole("link", { name: "Back to tickets" })).toHaveAttribute(
+      "href",
+      "/tickets",
+    );
 
     expectNoConsoleOrPageErrors(obs.consoleErrors, obs.pageErrors);
   });

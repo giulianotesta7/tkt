@@ -187,6 +187,8 @@ func fixtureListData() listData {
 		PrevHref:            "",
 		NextHref:            "",
 		ShowAdvancedFilters: true,
+		ShowSLA:             true,
+		ClearHref:           "/tickets",
 	}
 }
 
