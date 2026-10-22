@@ -31,7 +31,7 @@ func TestTicketShowRendersDetail(t *testing.T) {
 		t.Fatalf("status = %d, want 200", rec.Code)
 	}
 	body := rec.Body.String()
-	for _, want := range []string{"Login page down", "TKT-1", "Bugs", "Checking now", "Timeline", "Properties", "id=\"ticket-title\"", "<h2>Description</h2>", "Test description"} {
+	for _, want := range []string{"Login page down", "TKT-1", "Bugs", "Checking now", "Activity", "Properties", "id=\"ticket-title\"", "<h2>Description</h2>", "Test description"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("detail page must contain %q, got: %s", want, body)
 		}
@@ -67,12 +67,13 @@ func TestTicketShowRendersDetail(t *testing.T) {
 	if !strings.Contains(body, `id="ticket-category-value"`) {
 		t.Errorf("the category must stay visible as read-only metadata, got: %s", body)
 	}
-	// Merged timeline DESC: the transition (newer) renders before created.
-	// Match the actor-first event narrative lines (not bare words).
+	// Merged timeline ASC (issue #386, S3): the feed reads top to bottom into
+	// the composer, so the oldest entry renders before the newest one. Match
+	// the actor-first event narrative lines (not bare words).
 	createdEvent := "created the ticket"
 	transitionEvent := "moved the ticket to in progress"
-	if !(strings.Index(body, transitionEvent) < strings.Index(body, createdEvent)) {
-		t.Errorf("merged timeline must be newest-first (transition before created), got: %s", body)
+	if !(strings.Index(body, createdEvent) < strings.Index(body, transitionEvent)) {
+		t.Errorf("merged timeline must be oldest-first (created before transition), got: %s", body)
 	}
 }
 
@@ -480,8 +481,16 @@ func TestTicketCommentHXFragment(t *testing.T) {
 // document: every ticket page emits the shared inline stylesheet in <head>, so
 // an unscoped strings.Index can be broken by a token outside the timeline
 // (a CSS selector such as :first-child) while the rendering stays correct. The
+// TestTicketCommentsOldestFirst proves the rendered timeline shows comments
+// oldest first (issue #386, S3: the approved mockup reads top to bottom into
+// the composer).
+//
+// The ordering is proved over the timeline region alone, never over the whole
+// document: every ticket page emits the shared inline stylesheet in <head>, so
+// an unscoped strings.Index can be broken by a token outside the timeline
+// (a CSS selector such as :first-child) while the rendering stays correct. The
 // seeded bodies are therefore distinctive tokens, not bare ordinal words.
-func TestTicketCommentsNewestFirst(t *testing.T) {
+func TestTicketCommentsOldestFirst(t *testing.T) {
 	h := newHarness(t)
 	h.seedTicket(t, "Login page down", nil)
 	for _, body := range []string{"timeline-comment-first", "timeline-comment-second", "timeline-comment-third"} {
@@ -511,8 +520,160 @@ func TestTicketCommentsNewestFirst(t *testing.T) {
 		if olderAt < 0 || newerAt < 0 {
 			t.Fatalf("timeline must carry %q and %q, got: %s", pair.older, pair.newer, timeline)
 		}
-		if newerAt > olderAt {
-			t.Errorf("%q must render before %q (newest first), got: %s", pair.newer, pair.older, timeline)
+		if olderAt > newerAt {
+			t.Errorf("%q must render before %q (oldest first), got: %s", pair.older, pair.newer, timeline)
+		}
+	}
+}
+
+// TestTicketTimelineGrammar proves issue #386's S3 grammar: ONE shape for every
+// entry — a head line with the actor in ink, the verb in muted copy and the
+// relative time right-aligned (machine datetime, absolute instant in title) —
+// and comments as a bordered block under their own head line. Internal notes
+// keep their own background and say who may read them; the coloured verbs and
+// the monospace times are gone.
+func TestTicketTimelineGrammar(t *testing.T) {
+	h := newHarness(t)
+	tkt := h.seedTicket(t, "Grammar", nil)
+	h.seedTransition(t, tkt.ID, domain.StateInProgress, "")
+	if _, err := h.comments.Add(t.Context(), *h.admin, tkt.ID, "public-grammar-token", "public"); err != nil {
+		t.Fatalf("seed public comment: %v", err)
+	}
+	if _, err := h.comments.Add(t.Context(), *h.admin, tkt.ID, "internal-grammar-token", "internal"); err != nil {
+		t.Fatalf("seed internal comment: %v", err)
+	}
+
+	body := h.get(t, "/tickets/1", true).Body.String()
+	start := strings.Index(body, `<div id="timeline">`)
+	if start < 0 {
+		t.Fatalf("detail must render #timeline, got: %s", body)
+	}
+	timeline := body[start:]
+	if end := strings.Index(timeline, `id="detail-properties"`); end >= 0 {
+		timeline = timeline[:end]
+	}
+
+	// One head line per entry, and every head carries a semantic time with the
+	// absolute instant in its title.
+	entries := strings.Count(timeline, `<article class="timeline-entry`)
+	heads := strings.Count(timeline, `class="timeline-entry-head"`)
+	if entries == 0 || entries != heads {
+		t.Errorf("every entry must carry exactly one head line (entries=%d heads=%d)\n%s", entries, heads, timeline)
+	}
+	if times := strings.Count(timeline, `<time datetime="`); times < entries {
+		t.Errorf("every entry must carry a semantic time (entries=%d times=%d)\n%s", entries, times, timeline)
+	}
+	if !strings.Contains(timeline, `title="`) {
+		t.Errorf("the relative time must carry the absolute instant in its title\n%s", timeline)
+	}
+	// Relative time, judged against the render's clock snapshot.
+	if !strings.Contains(timeline, "just now") {
+		t.Errorf("the timeline must phrase its instants relatively\n%s", timeline)
+	}
+
+	// One comment grammar: the bordered block sits under its own head line.
+	if !strings.Contains(timeline, `class="timeline-body"`) {
+		t.Errorf("a comment body must render as a block under its head line\n%s", timeline)
+	}
+	if strings.Contains(timeline, `class="event-icon"`) {
+		t.Errorf("the per-entry glyph is gone: the rail carries the dots\n%s", timeline)
+	}
+	if strings.Contains(timeline, `class="main"`) {
+		t.Errorf("events must be one line, not a nested body block\n%s", timeline)
+	}
+
+	// Internal notes keep their affordance and say who may read them.
+	if !strings.Contains(timeline, `class="timeline-entry timeline-comment internal"`) {
+		t.Errorf("an internal comment must keep its own class\n%s", timeline)
+	}
+	if !strings.Contains(timeline, `Internal · staff only`) {
+		t.Errorf("an internal comment must label its audience\n%s", timeline)
+	}
+	// The internal note is invisible to a requester: the store read filters it,
+	// so the label cannot leak either.
+	requester := seedUserRole(t, h.store, "Rosa", "rosa-grammar@tkt.test", domain.RoleUser)
+	sess := seedSession(t, h.store, requester.ID)
+	if _, err := h.rawDB(t).Exec(`UPDATE tickets SET requester_user_id = ? WHERE id = ?`, requester.ID, tkt.ID); err != nil {
+		t.Fatalf("pin requester: %v", err)
+	}
+	requesterBody := getDetailAs(t, h, "/tickets/1", sess.ID, true).Body.String()
+	for _, absent := range []string{"internal-grammar-token", "Internal · staff only"} {
+		if strings.Contains(requesterBody, absent) {
+			t.Errorf("a requester must never read the staff-only note (%q)\n%s", absent, requesterBody)
+		}
+	}
+	if !strings.Contains(requesterBody, "public-grammar-token") {
+		t.Errorf("a requester still reads the public comment\n%s", requesterBody)
+	}
+}
+
+// TestTicketDetailBodyOrder proves issue #386's S2 order: the description card
+// first, then the activity region, then the properties, then the requester
+// confirmation (which stays above the composer), and the composer last.
+func TestTicketDetailBodyOrder(t *testing.T) {
+	h := newHarness(t)
+	requester := seedUserRole(t, h.store, "Rosa", "rosa-order@tkt.test", domain.RoleUser)
+	sess := seedSession(t, h.store, requester.ID)
+	tkt := createTicketFor(t, h, requester, "Printer jam")
+	h.seedTransition(t, tkt.ID, domain.StateInProgress, "")
+	h.seedTransition(t, tkt.ID, domain.StateResolved, "")
+
+	body := getDetailAs(t, h, ticketPath(tkt.ID), sess.ID, true).Body.String()
+	markers := []string{
+		`<h2>Description</h2>`,
+		`id="timeline"`,
+		`id="detail-properties"`,
+		`class="card resolution-confirmation"`,
+		`class="card comment-form"`,
+	}
+	previous := -1
+	for _, marker := range markers {
+		at := strings.Index(body, marker)
+		if at < 0 {
+			t.Fatalf("body must render %q, got: %s", marker, body)
+		}
+		if at < previous {
+			t.Errorf("body order is wrong: %q must follow the previous marker\n%s", marker, body)
+		}
+		previous = at
+	}
+	// The workflow checklist stays the first block of the activity region
+	// (today's #timeline contract, S2/L3).
+	activity := body[strings.Index(body, `id="timeline"`):]
+	if pending := strings.Index(activity, `id="workflow-pending"`); pending >= 0 {
+		firstEntry := strings.Index(activity, `class="timeline-entry`)
+		if firstEntry >= 0 && pending > firstEntry {
+			t.Errorf("the checklist must stay the first block of #timeline, got: %s", activity[:firstEntry])
+		}
+	}
+}
+
+// TestTicketComposer proves issue #386's S4 composer: the draft-retaining
+// textarea keeps its ids, the internal-note switch keeps the same field, the
+// attachments become a drop zone wrapping the same file input, and the submit
+// is Reply — all on today's native POST.
+func TestTicketComposer(t *testing.T) {
+	h := newHarness(t)
+	h.seedTicket(t, "Composer", nil)
+	body := h.get(t, "/tickets/1", true).Body.String()
+
+	for _, want := range []string{
+		`<form class="card comment-form" method="post" action="/tickets/1/comments" enctype="multipart/form-data">`,
+		`<textarea name="body" id="comment-body" hx-preserve="true"`,
+		`<input id="comment-internal" type="checkbox" name="internal" value="1" hx-preserve="true">`,
+		`Internal note`,
+		`<label class="comment-dropzone" for="comment-attachments">`,
+		`<input type="file" id="comment-attachments" name="attachments" multiple`,
+		`<span class="comment-dropzone-files" data-dropzone-files></span>`,
+		`>Reply</button>`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("composer must contain %q, got: %s", want, body)
+		}
+	}
+	for _, absent := range []string{`>Add comment</button>`, `Add comment</h2>`, `hx-post="/tickets/1/comments"`} {
+		if strings.Contains(body, absent) {
+			t.Errorf("composer must not keep %q, got: %s", absent, body)
 		}
 	}
 }
@@ -770,9 +931,9 @@ func TestTicketEditErrorRerenderPreservesUncarriedValues(t *testing.T) {
 	if !strings.Contains(body, `id="ticket-title" name="title" value="Login page down"`) {
 		t.Errorf("error re-render must keep the persisted title, got: %s", body)
 	}
-	selected := `<option value="` + strconv.FormatInt(beto.ID, 10) + `" selected>`
+	selected := `name="user_id" value="` + strconv.FormatInt(beto.ID, 10) + `" aria-selected="true"`
 	if !strings.Contains(body, selected) {
-		t.Errorf("error re-render must keep the assigned user selected, want %q, got: %s", selected, body)
+		t.Errorf("error re-render must keep the assigned user marked, want %q, got: %s", selected, body)
 	}
 }
 
@@ -821,15 +982,12 @@ func renderedFormBlock(t *testing.T, body, marker string) string {
 	return rest[:end+len("</form>")]
 }
 
-var (
-	htmlNameAttrRE  = regexp.MustCompile(`name="([^"]+)"`)
-	htmlValueAttrRE = regexp.MustCompile(`value="([^"]*)"`)
-)
+var htmlNameAttrRE = regexp.MustCompile(`name="([^"]+)"`)
 
 // formFieldNames returns the name attributes of every control in a rendered
-// form block, in document order, so a test can build its POST body from the
-// shipped markup instead of guessing the fields — a re-added hidden sibling
-// shows up here.
+// form block, in document order, so a test can assert exactly which fields the
+// shipped markup offers — a re-added hidden sibling shows up here, and so does
+// a picker whose options each carry the one field the form posts.
 func formFieldNames(form string) []string {
 	matches := htmlNameAttrRE.FindAllStringSubmatch(form, -1)
 	names := make([]string, 0, len(matches))
@@ -837,55 +995,6 @@ func formFieldNames(form string) []string {
 		names = append(names, m[1])
 	}
 	return names
-}
-
-// renderedFormValues builds the POST body a browser would send for the
-// rendered form block: every named control becomes a key, a select
-// contributes its selected (or first) option value, and other inputs
-// contribute their value attribute.
-func renderedFormValues(t *testing.T, form string) url.Values {
-	t.Helper()
-	values := url.Values{}
-	for _, name := range formFieldNames(form) {
-		values.Set(name, renderedControlValue(form, name))
-	}
-	return values
-}
-
-func renderedControlValue(form, name string) string {
-	at := strings.Index(form, `name="`+name+`"`)
-	if at < 0 {
-		return ""
-	}
-	tagStart := strings.LastIndex(form[:at], "<")
-	if tagStart < 0 {
-		return ""
-	}
-	tag := form[tagStart:]
-	if strings.HasPrefix(tag, "<select") {
-		body := tag
-		if end := strings.Index(body, "</select>"); end >= 0 {
-			body = body[:end]
-		}
-		for _, chunk := range strings.Split(body, "<option") {
-			if !strings.Contains(chunk, "selected") {
-				continue
-			}
-			if m := htmlValueAttrRE.FindStringSubmatch(chunk); m != nil {
-				return m[1]
-			}
-		}
-		if first := strings.Index(body, "<option"); first >= 0 {
-			if m := htmlValueAttrRE.FindStringSubmatch(body[first:]); m != nil {
-				return m[1]
-			}
-		}
-		return ""
-	}
-	if m := htmlValueAttrRE.FindStringSubmatch(tag); m != nil {
-		return m[1]
-	}
-	return ""
 }
 
 // TestTicketDetailEditControlsRequireExplicitSubmit proves the rendered detail
@@ -926,15 +1035,28 @@ func TestTicketDetailEditControlsRequireExplicitSubmit(t *testing.T) {
 		t.Errorf("priority form must not carry a hidden title field, got: %s", priorityForm)
 	}
 
+	// Issue #386 (S5): the picker options ARE the submit buttons. Each form
+	// still ships an explicit `type="submit"` button per value, so a pick is a
+	// native POST and never a change-driven autosave.
 	for _, tc := range []struct{ name, marker string }{
 		{"priority edit", `id="ticket-priority"`},
 		{"assignment", `id="assign-user"`},
-		{"state transition", `id="ticket-state"`},
 	} {
 		block := renderedFormBlock(t, body, tc.marker)
-		if !strings.Contains(block, "<button") || !strings.Contains(block, `type="submit"`) {
-			t.Errorf("%s form must contain an explicit submit button, got: %s", tc.name, block)
+		if !strings.Contains(block, `<button type="submit" role="option"`) {
+			t.Errorf("%s form must contain the option submit buttons, got: %s", tc.name, block)
 		}
+		if strings.Contains(block, ">Apply</button>") {
+			t.Errorf("%s form must not keep an Apply button (S5), got: %s", tc.name, block)
+		}
+	}
+
+	// The header transition actions are forms with their own explicit submit
+	// button, one per reachable target.
+	transition := renderedFormBlock(t, body, `value="in_progress"`)
+	if !strings.Contains(transition, `action="/tickets/1/transition"`) ||
+		!strings.Contains(transition, `<button class="btn primary" type="submit">Start</button>`) {
+		t.Errorf("header transition form must post the transition with an explicit submit, got: %s", transition)
 	}
 }
 
@@ -974,21 +1096,30 @@ func TestTicketDetailTitleFormAndGuard(t *testing.T) {
 }
 
 // TestTicketDetailPriorityFormPostsOnlyItsOwnFields derives its POST body from
-// the RENDERED priority form and submits it: the stored title and its audit
-// trail stay untouched, proving applying the priority can never ship a sibling
-// field again.
+// the RENDERED priority picker and submits it: the stored title and its audit
+// trail stay untouched, proving picking a priority can never ship a sibling
+// field again. Issue #386 (S5) keeps #232's contract with the picker: the only
+// named controls in the form are the option submit buttons, one per priority,
+// and a pick sends exactly the chosen value.
 func TestTicketDetailPriorityFormPostsOnlyItsOwnFields(t *testing.T) {
 	h := newHarness(t)
 	h.seedTicket(t, "Login page down", nil)
 	body := h.get(t, "/tickets/1", true).Body.String()
 	block := renderedFormBlock(t, body, `id="ticket-priority"`)
 
-	if names := formFieldNames(block); len(names) != 1 || names[0] != "priority" {
-		t.Fatalf("priority form must expose exactly the priority field, got %v (markup: %s)", names, block)
+	if names := formFieldNames(block); len(names) != len(listPriorities) {
+		t.Fatalf("priority form must expose one control per priority, got %v (markup: %s)", names, block)
+	}
+	for _, name := range formFieldNames(block) {
+		if name != "priority" {
+			t.Fatalf("priority form must only carry its own field, got %q (markup: %s)", name, block)
+		}
+	}
+	if !strings.Contains(block, `name="priority" value="critical"`) {
+		t.Fatalf("priority form must carry one submit option per priority, got: %s", block)
 	}
 
-	form := renderedFormValues(t, block)
-	form.Set("priority", "critical")
+	form := url.Values{"priority": {"critical"}}
 	rec := h.postForm(t, "/tickets/1/edit", form, true)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("priority-only edit status = %d, want 200: %s", rec.Code, rec.Body.String())
@@ -1011,34 +1142,392 @@ func TestTicketDetailPriorityFormPostsOnlyItsOwnFields(t *testing.T) {
 	}
 }
 
-// TestTicketDetailStateApplyIsAFormChild proves the transition Apply button is
-// a direct child of the state form, sits on the same row as the Move-to select,
-// and is not nested inside the hidden reopen-reason field. The reason field
-// follows the button in document order so it wraps onto its own line below the
-// row, keeping visual order and tab order identical.
-func TestTicketDetailStateApplyIsAFormChild(t *testing.T) {
+// TestTicketDetailReasonDialog proves a reason-requiring transition is behind a
+// dialog instead of an inline field (issue #386, S1): the header button opens
+// it, the form posts the SAME `to` and the SAME `reason` field the inline
+// control used, the reason stays required, and the server validation is
+// untouched (a blank reason is still the same 422).
+func TestTicketDetailReasonDialog(t *testing.T) {
 	h := newHarness(t)
-	h.seedTicket(t, "Login page down", nil)
+	tkt := h.seedTicket(t, "Login page down", nil)
+	h.makeLegacy(t, tkt.ID)
+	h.seedTransition(t, tkt.ID, domain.StateInProgress, "")
+	h.seedTransition(t, tkt.ID, domain.StateResolved, "")
 	body := h.get(t, "/tickets/1", true).Body.String()
-	block := renderedFormBlock(t, body, `id="ticket-state"`)
 
-	selectClose := strings.Index(block, "</select>")
-	if selectClose < 0 {
-		t.Fatalf("state form must render the Move-to select, got: %s", block)
+	// The header button opens the dialog and never submits on its own.
+	for _, want := range []string{
+		`<button class="btn secondary" type="button" data-transition-open="in_progress" aria-haspopup="dialog" aria-controls="ticket-transition-dialog">Reopen</button>`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("reason-requiring transition must render its dialog opener, missing %q, got: %s", want, body)
+		}
 	}
-	fieldStart := strings.Index(block, `<div id="state-reason-field"`)
-	if fieldStart < 0 {
-		t.Fatalf("state form must keep the reason field, got: %s", block)
+
+	dialogAt := strings.Index(body, `<dialog id="ticket-transition-dialog"`)
+	if dialogAt < 0 {
+		t.Fatalf("detail must render #ticket-transition-dialog, got: %s", body)
 	}
-	apply := strings.Index(block, `id="state-apply"`)
-	if apply < 0 {
-		t.Fatalf("state form must render the Apply button, got: %s", block)
+	dialog := body[dialogAt:]
+	dialog = dialog[:strings.Index(dialog, "</dialog>")]
+	for _, want := range []string{
+		`aria-labelledby="ticket-transition-dialog-title"`,
+		`action="/tickets/1/transition"`,
+		`hx-post="/tickets/1/transition"`,
+		`name="to" value="in_progress"`,
+		`id="state-reason"`,
+		`name="reason"`,
+		`required`,
+		`data-transition-cancel`,
+	} {
+		if !strings.Contains(dialog, want) {
+			t.Errorf("reason dialog must contain %q, got: %s", want, dialog)
+		}
 	}
-	if apply < selectClose {
-		t.Fatalf("state Apply must follow the select so both sit on one row, got: %s", block)
+	if strings.Contains(body, `id="state-reason-field"`) || strings.Contains(body, `id="ticket-state"`) {
+		t.Errorf("the inline Move-to select and its reason field must be gone, got: %s", body)
 	}
-	if apply > fieldStart {
-		t.Fatalf("state Apply must precede the reason field rather than sit below it, got: %s", block)
+
+	// The server validation is unchanged: a closed ticket reopened without a
+	// reason is still the same 422.
+	h.seedTransition(t, tkt.ID, domain.StateClosed, "")
+	rec := h.postForm(t, "/tickets/1/transition", url.Values{"to": {"in_progress"}}, false)
+	if rec.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("status = %d, want 422", rec.Code)
+	}
+	if !strings.Contains(rec.Body.String(), domain.ErrMsgReopenReasonRequired) {
+		t.Errorf("re-render must show %q, got: %s", domain.ErrMsgReopenReasonRequired, rec.Body.String())
+	}
+}
+
+// renderedTransitionAction is the exact header form one no-reason transition
+// renders: a native POST of `to` to the existing route through HTMX, with the
+// catalogue verb and the weight S1 assigns it.
+func renderedTransitionAction(id int64, to domain.State, label, class string) string {
+	action := "/tickets/" + strconv.FormatInt(id, 10) + "/transition"
+	return `<form class="detail-action" method="post" action="` + action + `" hx-post="` + action +
+		`" hx-target="#ticket-detail" hx-swap="outerHTML"><input type="hidden" name="to" value="` +
+		string(to) + `"><button class="btn ` + class + `" type="submit">` + label + `</button></form>`
+}
+
+// renderedReasonOpener is the header button that opens the reason dialog: it
+// never submits on its own, so a reopen reason is asked for before the act.
+func renderedReasonOpener(to domain.State, label, class string) string {
+	return `<button class="btn ` + class + `" type="button" data-transition-open="` + string(to) +
+		`" aria-haspopup="dialog" aria-controls="ticket-transition-dialog">` + label + `</button>`
+}
+
+// TestTicketDetailHeaderTransitionActions pins S1's header action set against
+// the state machine and both staff audiences: one button per transition the
+// actor may take today (exactly filteredNext for a capable actor), labelled by
+// the catalogue verb, the forward move primary, Cancel a quiet danger button,
+// the rest secondary, and a reason-requiring transition behind the dialog.
+func TestTicketDetailHeaderTransitionActions(t *testing.T) {
+	for _, tc := range []struct {
+		state domain.State
+		path  []domain.State
+		want  []string
+	}{
+		{domain.StateNew, nil, []string{
+			renderedTransitionAction(1, domain.StateInProgress, "Start", "primary"),
+			renderedTransitionAction(1, domain.StateResolved, "Resolve", "secondary"),
+			renderedTransitionAction(1, domain.StateCancelled, "Cancel", "danger"),
+		}},
+		{domain.StateInProgress, []domain.State{domain.StateInProgress}, []string{
+			renderedTransitionAction(1, domain.StateResolved, "Resolve", "primary"),
+			renderedTransitionAction(1, domain.StateCancelled, "Cancel", "danger"),
+		}},
+		{domain.StateResolved, []domain.State{domain.StateInProgress, domain.StateResolved}, []string{
+			renderedTransitionAction(1, domain.StateClosed, "Close", "primary"),
+			renderedReasonOpener(domain.StateInProgress, "Reopen", "secondary"),
+		}},
+		{domain.StateClosed, []domain.State{domain.StateInProgress, domain.StateResolved, domain.StateClosed}, []string{
+			renderedReasonOpener(domain.StateInProgress, "Reopen", "primary"),
+		}},
+		{domain.StateCancelled, []domain.State{domain.StateCancelled}, nil},
+	} {
+		t.Run(string(tc.state), func(t *testing.T) {
+			h := newHarness(t)
+			tkt := h.seedTicket(t, "Header actions", nil)
+			h.makeLegacy(t, tkt.ID)
+			for _, step := range tc.path {
+				h.seedTransition(t, tkt.ID, step, "")
+			}
+
+			body := h.get(t, "/tickets/1", true).Body.String()
+			for _, want := range tc.want {
+				if !strings.Contains(body, want) {
+					t.Errorf("header must render the action %q, got: %s", want, body)
+				}
+			}
+			// The inline select and its Apply are gone for every state.
+			for _, absent := range []string{`id="ticket-state"`, `id="state-apply"`, "Move to"} {
+				if strings.Contains(body, absent) {
+					t.Errorf("the Move-to select must be gone, still found %q, got: %s", absent, body)
+				}
+			}
+			// A terminal ticket offers no action at all.
+			if len(tc.want) == 0 {
+				for _, absent := range []string{`data-transition-open=`, `action="/tickets/1/transition"`} {
+					if strings.Contains(body, absent) {
+						t.Errorf("a terminal ticket must offer no transition, still found %q, got: %s", absent, body)
+					}
+				}
+			}
+		})
+	}
+
+	// A requester holds no transition capability: no header transition at all.
+	t.Run("requester", func(t *testing.T) {
+		h := newHarness(t)
+		requester := seedUserRole(t, h.store, "Rosa", "rosa-actions@tkt.test", domain.RoleUser)
+		sess := seedSession(t, h.store, requester.ID)
+		tkt := createTicketFor(t, h, requester, "Printer jam")
+		body := getDetailAs(t, h, ticketPath(tkt.ID), sess.ID, true).Body.String()
+		for _, absent := range []string{`data-transition-open=`, `/transition"`} {
+			if strings.Contains(body, absent) {
+				t.Errorf("a requester must not be offered a transition, still found %q, got: %s", absent, body)
+			}
+		}
+	})
+
+	// An assigned agent keeps the same action set its capability grants.
+	t.Run("assigned agent", func(t *testing.T) {
+		h := newHarness(t)
+		agent := h.createUser(t, "Agent", "agent-actions@tkt.test", "secret")
+		tkt := h.seedTicket(t, "Header actions", nil)
+		h.assignTicket(t, tkt.ID, agent.ID)
+		session := h.loginCookie(t, agent.Email, "secret")
+		if session == "" {
+			t.Fatal("agent login must succeed")
+		}
+		req := httptest.NewRequest(http.MethodGet, ticketPath(tkt.ID), nil)
+		req.Header.Set("Cookie", sessionCookie+"="+session)
+		rec := httptest.NewRecorder()
+		h.mw.Wrap(h.mux).ServeHTTP(rec, req)
+		body := rec.Body.String()
+		for _, want := range []string{
+			renderedTransitionAction(tkt.ID, domain.StateInProgress, "Start", "primary"),
+			renderedTransitionAction(tkt.ID, domain.StateResolved, "Resolve", "secondary"),
+			renderedTransitionAction(tkt.ID, domain.StateCancelled, "Cancel", "danger"),
+		} {
+			if !strings.Contains(body, want) {
+				t.Errorf("assigned agent header must render %q, got: %s", want, body)
+			}
+		}
+	})
+}
+
+// TestTicketDetailAssignToMe proves S1's header shortcut posts the EXISTING
+// assign route for the acting user, and only where it can succeed: an open,
+// unassigned ticket. The workflow claim keeps its own route and wins when it
+// applies, so one ticket never shows two "Assign to me" actions.
+func TestTicketDetailAssignToMe(t *testing.T) {
+	h := newHarness(t)
+	tkt := h.seedTicket(t, "Shortcut", nil)
+	self := strconv.FormatInt(h.admin.ID, 10)
+	want := `<form class="detail-action" method="post" action="/tickets/1/assign" hx-post="/tickets/1/assign" hx-target="#ticket-detail" hx-swap="outerHTML"><input type="hidden" name="user_id" value="` + self + `"><button class="btn" type="submit">Assign to me</button></form>`
+	body := h.get(t, "/tickets/1", true).Body.String()
+	if !strings.Contains(body, want) {
+		t.Fatalf("an unassigned open ticket must offer Assign to me for the acting user, want %q, got: %s", want, body)
+	}
+
+	// Once assigned, the shortcut is gone (the picker is the way to change it).
+	agent := h.createUser(t, "Agent", "agent-shortcut@tkt.test", "secret")
+	h.assignTicket(t, tkt.ID, agent.ID)
+	if body := h.get(t, "/tickets/1", true).Body.String(); strings.Contains(body, ">Assign to me</button>") {
+		t.Errorf("an assigned ticket must not offer Assign to me, got: %s", body)
+	}
+
+	// A requester never gets the staff shortcut.
+	requester := seedUserRole(t, h.store, "Rosa", "rosa-shortcut@tkt.test", domain.RoleUser)
+	sess := seedSession(t, h.store, requester.ID)
+	ownTicket := createTicketFor(t, h, requester, "Printer jam")
+	if body := getDetailAs(t, h, ticketPath(ownTicket.ID), sess.ID, true).Body.String(); strings.Contains(body, "Assign to me") {
+		t.Errorf("a requester must not be offered Assign to me, got: %s", body)
+	}
+}
+
+// TestTicketDetailOverflowActions proves S1's overflow menu holds the hold
+// controls, reusing the existing hold dialog and the existing resume form, and
+// that a terminal or requester ticket offers neither.
+func TestTicketDetailOverflowActions(t *testing.T) {
+	h := newHarness(t)
+	tkt := h.seedTicket(t, "Overflow", nil)
+	h.seedTransition(t, tkt.ID, domain.StateInProgress, "")
+
+	body := h.get(t, "/tickets/1", true).Body.String()
+	for _, want := range []string{
+		`id="ticket-actions-overflow"`,
+		`aria-label="More actions"`,
+		`data-hold-open`,
+		`aria-controls="ticket-hold-dialog"`,
+		`id="ticket-hold-dialog"`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("an open ticket must carry the hold control in its overflow menu, missing %q, got: %s", want, body)
+		}
+	}
+	if strings.Contains(body, `id="ticket-actions-overflow-more"`) {
+		t.Errorf("no extra ids are needed in the overflow menu, got: %s", body)
+	}
+	// The hold trigger left the SLA section: the panel keeps its content.
+	if strings.Contains(body, `class="sla-hold-row"`) {
+		t.Errorf("the hold trigger must live in the header overflow, not the SLA section, got: %s", body)
+	}
+
+	// A held ticket swaps the hold item for the resume form.
+	holdViaService(t, h, tkt.ID, "waiting for the VPN logs")
+	held := h.get(t, "/tickets/1", true).Body.String()
+	for _, want := range []string{
+		`id="ticket-actions-overflow"`,
+		`<form class="hold-resume" method="post" action="/tickets/1/resume" hx-post="/tickets/1/resume" hx-target="#ticket-detail" hx-swap="outerHTML"><button class="btn" role="menuitem" type="submit">Resume</button></form>`,
+	} {
+		if !strings.Contains(held, want) {
+			t.Errorf("a held ticket must offer Resume in the overflow, missing %q, got: %s", want, held)
+		}
+	}
+	if strings.Contains(held, `id="hold-reason"`) {
+		t.Errorf("a held ticket must not offer the hold dialog, got: %s", held)
+	}
+}
+
+// TestTicketDetailOverflowHiddenForRequesterAndTerminal proves the overflow
+// menu never renders a control the actor or the state cannot use.
+func TestTicketDetailOverflowHiddenForRequesterAndTerminal(t *testing.T) {
+	h := newHarness(t)
+	requester := seedUserRole(t, h.store, "Rosa", "rosa-overflow@tkt.test", domain.RoleUser)
+	sess := seedSession(t, h.store, requester.ID)
+	ownTicket := createTicketFor(t, h, requester, "Printer jam")
+	body := getDetailAs(t, h, ticketPath(ownTicket.ID), sess.ID, true).Body.String()
+	for _, absent := range []string{`id="ticket-actions-overflow"`, "Put on hold"} {
+		if strings.Contains(body, absent) {
+			t.Errorf("a requester must not get the overflow menu (%q), got: %s", absent, body)
+		}
+	}
+
+	legacy := h.seedTicket(t, "Terminal", nil)
+	h.makeLegacy(t, legacy.ID)
+	h.seedTransition(t, legacy.ID, domain.StateCancelled, "")
+	cancelled := h.get(t, "/tickets/"+strconv.FormatInt(legacy.ID, 10), true).Body.String()
+	for _, absent := range []string{`id="ticket-actions-overflow"`, "Put on hold", `class="hold-resume"`} {
+		if strings.Contains(cancelled, absent) {
+			t.Errorf("a terminal ticket must not get the overflow menu (%q), got: %s", absent, cancelled)
+		}
+	}
+}
+
+// TestTicketDetailHeaderMetaLine proves S1's one meta line: the requester, the
+// relative creation reading with the absolute instant in its title, and the
+// category path. A zero Now snapshot (every golden fixture) renders the
+// absolute instant instead, so fixtures stay frozen.
+func TestTicketDetailHeaderMetaLine(t *testing.T) {
+	h := newHarness(t)
+	tkt := h.seedTicket(t, "Meta line", nil)
+	view, err := h.tickets.GetByID(t.Context(), *h.admin, tkt.ID)
+	if err != nil {
+		t.Fatalf("view: %v", err)
+	}
+
+	body := h.get(t, "/tickets/1", true).Body.String()
+	for _, want := range []string{
+		`<p class="detail-meta">Opened by <span class="detail-meta-requester">` + view.Ticket.RequesterName + `</span> · <time datetime="` + formatDatetime(view.Ticket.CreatedAt) + `" title="` + formatDisplayTime(view.Ticket.CreatedAt) + `">`,
+		`</time> · <span class="detail-meta-category">Bugs</span></p>`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("header meta line must contain %q, got: %s", want, body)
+		}
+	}
+	// The handler stamps the render's clock, so the reading is relative.
+	if !strings.Contains(body, "just now") {
+		t.Errorf("a stamped clock must render the creation reading relatively, got: %s", body)
+	}
+}
+
+// TestTicketDetailListboxProperties pins S5's property panel: Requester,
+// Assignee, Priority, Category and Desk, the two editable ones as listbox
+// buttons whose options are submit buttons of the existing forms (no Apply,
+// no onchange), the assignee picker filtered by a search field, and an
+// already-assigned inactive user still visible.
+func TestTicketDetailListboxProperties(t *testing.T) {
+	h := newHarness(t)
+	agent := h.createUser(t, "Ann Agent", "ann-listbox@tkt.test", "secret")
+	tkt := h.seedTicket(t, "Listbox", nil)
+	h.assignTicket(t, tkt.ID, agent.ID)
+	// Deactivate the assignee: the assigned person stays visible (today's rule).
+	agent.Active = false
+	if err := h.store.UserStore().Update(t.Context(), agent); err != nil {
+		t.Fatalf("deactivate assignee: %v", err)
+	}
+
+	body := h.get(t, "/tickets/1", true).Body.String()
+	for _, want := range []string{
+		`<details class="detail-properties" id="detail-properties" open>`,
+		`<summary class="detail-properties-summary"><span>Properties</span>`,
+		`<span class="prop-label">Requester</span>`,
+		`<span class="prop-label">Assignee</span>`,
+		`<span class="prop-label">Priority</span>`,
+		`<span class="prop-label">Category</span>`,
+		`<span class="prop-label">Desk</span>`,
+		`<div class="prop-heading">Details</div>`,
+		// The two pickers: a button with the listbox affordances.
+		`<button id="ticket-priority" type="button" class="listbox-button" aria-haspopup="listbox" aria-expanded="false" aria-controls="ticket-priority-options">`,
+		`<button id="assign-user" type="button" class="listbox-button" aria-haspopup="listbox" aria-expanded="false" aria-controls="assign-user-options">`,
+		// Options are submit buttons of the existing forms.
+		`<button type="submit" role="option" class="listbox-option" name="priority" value="critical" aria-selected="false">`,
+		`<button type="submit" role="option" class="listbox-option" name="priority" value="medium" aria-selected="true">`,
+		`<button type="submit" role="option" class="listbox-option" name="user_id" value="" aria-selected="false">`,
+		`<button type="submit" role="option" class="listbox-option" name="user_id" value="` + strconv.FormatInt(agent.ID, 10) + `" aria-selected="true">`,
+		// The inactive assignee stays listed and labelled.
+		`<span class="listbox-inactive">(inactive)</span>`,
+		// The assignee popover filters with its own search field.
+		`<input type="search" class="listbox-search" placeholder="Filter assignees" aria-label="Filter assignees" autocomplete="off">`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("listbox properties must contain %q, got: %s", want, body)
+		}
+	}
+	// Issue #386 (S5/L3): the picker still saves with scripting off, because its
+	// options are submit buttons. The popover is closed by the stylesheet and
+	// opened by the script, so the no-script fallback can render the same
+	// buttons inline without a second copy in the markup.
+	for _, want := range []string{
+		`<div class="listbox-popover" id="ticket-priority-options">`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("the picker popover must render closed without a duplicate list, missing %q, got: %s", want, body)
+		}
+	}
+	for _, absent := range []string{"onchange", `hx-trigger`, `>Apply</button>`} {
+		if strings.Contains(body, absent) {
+			t.Errorf("property controls must keep #232's explicit act, still found %q, got: %s", absent, body)
+		}
+	}
+}
+
+// TestTicketDetailPropertiesReadOnlyForRequester proves S6: the same panel
+// without staff controls renders the stored values read-only under today's
+// ids, so nothing the server will refuse is offered.
+func TestTicketDetailPropertiesReadOnlyForRequester(t *testing.T) {
+	h := newHarness(t)
+	requester := seedUserRole(t, h.store, "Rosa", "rosa-readonly@tkt.test", domain.RoleUser)
+	sess := seedSession(t, h.store, requester.ID)
+	tkt := createTicketFor(t, h, requester, "Printer jam")
+
+	body := getDetailAs(t, h, ticketPath(tkt.ID), sess.ID, true).Body.String()
+	for _, want := range []string{
+		`<span id="ticket-priority-value" class="prop-value">Medium</span>`,
+		`<span id="assign-user-value" class="prop-value">Unassigned</span>`,
+		`<span id="ticket-category-value" class="prop-value">Bugs</span>`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("requester properties must keep the read-only value %q, got: %s", want, body)
+		}
+	}
+	for _, absent := range []string{`class="listbox-button"`, `class="listbox-option"`} {
+		if strings.Contains(body, absent) {
+			t.Errorf("a requester must not get the picker (%q), got: %s", absent, body)
+		}
 	}
 }
 
@@ -1289,7 +1778,7 @@ func TestTicketDetailRequesterHidesUnusableMutationControls(t *testing.T) {
 	}
 
 	body := getDetailAs(t, h, "/tickets/1", sess.ID, true).Body.String()
-	for _, absent := range []string{`id="ticket-priority"`, `id="assign-user"`, `id="ticket-state"`} {
+	for _, absent := range []string{`id="ticket-priority"`, `id="assign-user"`, `action="/tickets/1/transition"`} {
 		if strings.Contains(body, absent) {
 			t.Errorf("a requester's own ticket must not render the unusable control %q, got: %s", absent, body)
 		}
@@ -1302,7 +1791,7 @@ func TestTicketDetailRequesterHidesUnusableMutationControls(t *testing.T) {
 
 	// The capable actor keeps all three controls on the same ticket.
 	capable := h.get(t, "/tickets/1", true).Body.String()
-	for _, want := range []string{`id="ticket-priority"`, `id="assign-user"`, `id="ticket-state"`} {
+	for _, want := range []string{`id="ticket-priority"`, `id="assign-user"`, `action="/tickets/1/transition"`} {
 		if !strings.Contains(capable, want) {
 			t.Errorf("a capable actor must keep the control %q, got: %s", want, capable)
 		}
@@ -1360,15 +1849,19 @@ func TestClosedTicketDetailKeepsReopenForCapableActor(t *testing.T) {
 	// Capable actor (admin) GET: the reopen control is present and offers
 	// in_progress. This is the behaviour a naive CanEdit gate destroys.
 	capable := h.get(t, "/tickets/1", true).Body.String()
-	for _, want := range []string{`id="ticket-state"`, "Move to", `<option value="in_progress"`} {
+	for _, want := range []string{
+		`data-transition-open="in_progress"`,
+		`>Reopen</button>`,
+		`name="to" value="in_progress"`,
+	} {
 		if !strings.Contains(capable, want) {
 			t.Errorf("closed ticket must keep the reopen control %q for a capable actor, got: %s", want, capable)
 		}
 	}
 
-	// Requester GET: the same closed ticket offers no Move-to control.
+	// Requester GET: the same closed ticket offers no transition control.
 	requesterBody := getDetailAs(t, h, "/tickets/1", sess.ID, true).Body.String()
-	if strings.Contains(requesterBody, `id="ticket-state"`) {
+	if strings.Contains(requesterBody, `data-transition-open=`) || strings.Contains(requesterBody, `/tickets/1/transition`) {
 		t.Errorf("a requester must not be offered the closed-ticket reopen control, got: %s", requesterBody)
 	}
 }

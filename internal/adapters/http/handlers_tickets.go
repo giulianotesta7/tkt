@@ -167,6 +167,11 @@ type pageData struct {
 	// when that ticket carries a frozen commitment, because the panel is the
 	// only place that renders a countdown element.
 	SLACountdownAssets bool
+	// TicketDetailAssets loads the ticket detail's own script (issue #386):
+	// the title guard, the property pickers, the hold and reason dialogs, and
+	// the phone fold of the properties panel. It is set only where the detail
+	// page is built, so no other surface downloads it.
+	TicketDetailAssets bool
 	InternalCommentBg  string
 	SaveFeedback       saveFeedbackData
 	// SidebarCollapsed is the session user's stored sidebar state (issue #377,
@@ -1368,26 +1373,92 @@ func (h *TicketHandlers) renderCreateError(w http.ResponseWriter, r *http.Reques
 
 // --- Task 5.5: detail, edit, transition, comments -------------------------
 
-// transitionTarget is one allowed next state shown in the transition panel.
-// The table mirrors the domain transition map (design "Domain Model"); the
-// domain remains the single enforcement point — this list is presentation.
+// transitionTarget is one allowed next state offered by the header (issue
+// #386, S1). The table mirrors the domain transition map (design "Domain
+// Model"); the domain remains the single enforcement point — this list is
+// presentation.
 type transitionTarget struct {
 	To          domain.State
 	NeedsReason bool // closed -> in_progress requires a reopen reason
+	// LabelKey is the catalogue verb the header renders: the move reads as an
+	// action (Start, Resolve, Close, Reopen, Cancel), never as a state name.
+	LabelKey string
+	// Weight is the button's place in the header's hierarchy (S1): the forward
+	// move is primary, Cancel is the quiet danger button, the rest secondary.
+	Weight string
+}
+
+// The catalogue verbs a header transition renders (issue #386, S1). They are
+// held as literals so the i18n coverage scan sees every key the view model
+// hands to the template.
+const (
+	transitionLabelStart   = "tickets.detail.transition.start"
+	transitionLabelResolve = "tickets.detail.transition.resolve"
+	transitionLabelClose   = "tickets.detail.transition.close"
+	transitionLabelReopen  = "tickets.detail.transition.reopen"
+	transitionLabelCancel  = "tickets.detail.transition.cancel"
+)
+
+// transitionVerb names the action a move reads as, from the state it leaves and
+// the state it reaches (S1: in_progress from new is "Start", in_progress from
+// resolved or closed is "Reopen").
+func transitionVerb(from, to domain.State) string {
+	switch to {
+	case domain.StateInProgress:
+		if from == domain.StateNew {
+			return transitionLabelStart
+		}
+		return transitionLabelReopen
+	case domain.StateResolved:
+		return transitionLabelResolve
+	case domain.StateClosed:
+		return transitionLabelClose
+	default: // cancelled
+		return transitionLabelCancel
+	}
+}
+
+// weighTransitions assigns each target its button weight: the first move that is
+// not Cancel is the primary action, Cancel is the quiet danger button, and
+// everything else is secondary. It runs on the RENDERED list, so a filtered
+// ticket (a requester-owned resolved one keeps only the reopen) still has one
+// primary action instead of a set of equal buttons.
+func weighTransitions(next []transitionTarget) []transitionTarget {
+	primary := false
+	for i := range next {
+		switch {
+		case next[i].To == domain.StateCancelled:
+			next[i].Weight = "danger"
+		case !primary:
+			next[i].Weight, primary = "primary", true
+		default:
+			next[i].Weight = "secondary"
+		}
+	}
+	return next
 }
 
 // allowedNext returns the presentation list of legal next states (design
 // transition table).
 func allowedNext(s domain.State) []transitionTarget {
+	return weighTransitions(rawNext(s))
+}
+
+// rawNext is the state machine's presentation mirror before the header weights
+// are assigned, so the labels can name the verb the move reads as.
+func rawNext(s domain.State) []transitionTarget {
+	target := func(to domain.State, needsReason bool) transitionTarget {
+		return transitionTarget{To: to, NeedsReason: needsReason, LabelKey: transitionVerb(s, to)}
+	}
 	switch s {
 	case domain.StateNew:
-		return []transitionTarget{{To: domain.StateInProgress}, {To: domain.StateResolved}, {To: domain.StateCancelled}}
+		return []transitionTarget{target(domain.StateInProgress, false), target(domain.StateResolved, false), target(domain.StateCancelled, false)}
 	case domain.StateInProgress:
-		return []transitionTarget{{To: domain.StateResolved}, {To: domain.StateCancelled}}
+		return []transitionTarget{target(domain.StateResolved, false), target(domain.StateCancelled, false)}
 	case domain.StateResolved:
-		return []transitionTarget{{To: domain.StateClosed}, {To: domain.StateInProgress, NeedsReason: true}}
+		return []transitionTarget{target(domain.StateClosed, false), target(domain.StateInProgress, true)}
 	case domain.StateClosed:
-		return []transitionTarget{{To: domain.StateInProgress, NeedsReason: true}}
+		return []transitionTarget{target(domain.StateInProgress, true)}
 	default:
 		return nil // cancelled is terminal
 	}
@@ -1419,7 +1490,9 @@ func filteredNext(next []transitionTarget, t *domain.Ticket) []transitionTarget 
 		}
 		filtered = append(filtered, tgt)
 	}
-	return filtered
+	// The weights follow the RENDERED list: the surviving reopen becomes the
+	// primary action instead of leaving the header with no primary at all.
+	return weighTransitions(filtered)
 }
 
 // detailData is the ticket detail payload (page + HX fragment share it).
@@ -1431,9 +1504,19 @@ type detailData struct {
 	Options options
 	Values  ticketFormValues
 	// SelectedTo carries the transition target submitted by the user so an
-	// error re-render (e.g. a blank reopen reason, 422) preserves the select
-	// choice instead of resetting it to the "Select…" placeholder.
+	// error re-render (e.g. a blank reopen reason, 422) keeps the reason dialog
+	// armed for the same move instead of resetting the header.
 	SelectedTo string
+	// Now is the render's clock snapshot (issue #386, S3). The header and the
+	// timeline phrase their instants relatively against it; a zero snapshot
+	// (every golden fixture) renders the absolute instant so fixtures stay
+	// frozen.
+	Now time.Time
+	// CanAssignToMe reports whether the header offers the "Assign to me"
+	// shortcut through the ordinary assign route: staff holding CapAssignTicket
+	// on an open, unassigned ticket (S1). The workflow claim keeps its own route
+	// and wins when it applies, so one ticket never shows two shortcuts.
+	CanAssignToMe bool
 	// CanCommentInternal is the actor's comment-visibility capability
 	// (comment-visibility spec): the comment form offers the internal
 	// option only to agent+ actors. This is presentation only — the
@@ -1523,6 +1606,20 @@ func (d detailData) QueueHref() string {
 }
 
 const ticketQueueReturnHeader = "X-TKT-Queue-Return"
+
+// TimelineOldestFirst is the detail's reading order (issue #386, S3): the
+// application stream stays newest-first (its documented contract), and the
+// detail reverses it so the feed reads top to bottom into the composer. It
+// returns a copy, so the reversal never mutates the view the caller shares with
+// the rest of the request.
+func (d detailData) TimelineOldestFirst() []application.TimelineItem {
+	source := d.View.Timeline
+	oldest := make([]application.TimelineItem, len(source))
+	for i, item := range source {
+		oldest[len(source)-1-i] = item
+	}
+	return oldest
+}
 
 // QueueHeaders carries the validated origin through every whole-detail swap.
 // JSON encoding and the template's attribute escaping are separate layers;
@@ -1641,6 +1738,17 @@ func (h *TicketHandlers) detailDataFor(r *http.Request, id int64) (detailData, i
 	// panel to tick: a ticket with no frozen commitment (or a requester, whose
 	// panel stays nil) must not pay for a script it never uses.
 	page.SLACountdownAssets = slaPanel != nil
+	// The detail's own behaviour (title guard, pickers, hold and reason dialogs,
+	// and the phone fold of the properties panel, issue #386) ships as one
+	// static file loaded by this page only.
+	page.TicketDetailAssets = true
+	// The render's clock snapshot: the header and the timeline read relative
+	// instants against it. An unset clock leaves it zero, which renders the
+	// absolute instant (the queue's rule, issue #382).
+	var now time.Time
+	if h.clock != nil {
+		now = h.clock.Now()
+	}
 	// The attachment listing reads with the SAME internal-comment visibility the
 	// detail view already applied above (issue #366, S3): a requester gets the
 	// creation files and the public comments' files, never a staff-only one.
@@ -1673,19 +1781,24 @@ func (h *TicketHandlers) detailDataFor(r *http.Request, id int64) (detailData, i
 		Next:               next,
 		Options:            opts,
 		Values:             values,
+		Now:                now,
 		CanCommentInternal: canReadInternal,
 		CanEdit:            application.NewPolicy().Capabilities(actor.Role).Require(application.CapEditTicket) && !closed,
 		CanAssign:          application.NewPolicy().Capabilities(actor.Role).Require(application.CapAssignTicket) && !closed,
-		CanTransition:      application.NewPolicy().Capabilities(actor.Role).Require(application.CapEditTicket),
-		Closed:             closed,
-		CanConfirm:         view.Ticket.State == domain.StateResolved && requester,
-		CanComment:         !closed || (view.Ticket.State == domain.StateResolved && requester),
-		Pending:            pending,
-		Claim:              h.claimFor(r, id, actor),
-		SLA:                slaPanel,
-		RequesterView:      actor.Role == domain.RoleUser,
-		BackHref:           listReturnHref(queueOrigin, r.Host),
-		Attachments:        creationFiles,
+		// The header shortcut needs an open, unassigned ticket: a ticket that
+		// already has an assignee changes hands through the picker, which is the
+		// same rule the assign use case enforces for a reassignment reason.
+		CanAssignToMe: application.NewPolicy().Capabilities(actor.Role).Require(application.CapAssignTicket) && !closed && view.Ticket.UserID == nil,
+		CanTransition: application.NewPolicy().Capabilities(actor.Role).Require(application.CapEditTicket),
+		Closed:        closed,
+		CanConfirm:    view.Ticket.State == domain.StateResolved && requester,
+		CanComment:    !closed || (view.Ticket.State == domain.StateResolved && requester),
+		Pending:       pending,
+		Claim:         h.claimFor(r, id, actor),
+		SLA:           slaPanel,
+		RequesterView: actor.Role == domain.RoleUser,
+		BackHref:      listReturnHref(queueOrigin, r.Host),
+		Attachments:   creationFiles,
 	}, 0, nil
 }
 
@@ -2186,6 +2299,10 @@ func (h *TicketHandlers) assign(w http.ResponseWriter, r *http.Request) {
 		h.renderDetailError(w, r, id, err)
 		return
 	}
+	// The picker confirms its pick with the shared save toast (issue #386, S5):
+	// the listbox menu replaced the explicit Apply, so the pick itself has to
+	// report that it was stored.
+	saveFeedback(w, r, saveFeedbackSaved, saveFeedbackSuccess)
 	h.afterMutation(w, r, id, "ticket_detail")
 }
 
@@ -2268,6 +2385,12 @@ func (h *TicketHandlers) update(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		h.renderEditError(w, r, id, err)
 		return
+	}
+	// A priority pick confirms itself with the shared save toast (issue #386,
+	// S5). The inline title edit stays silent (issue #234): its new value is on
+	// screen in the field the actor is typing into.
+	if u.Priority != nil {
+		saveFeedback(w, r, saveFeedbackSaved, saveFeedbackSuccess)
 	}
 	h.afterMutation(w, r, id, "ticket_detail")
 }

@@ -219,20 +219,22 @@ func TestRejectResolutionKeepsHistoricalSolutionAndAssignee(t *testing.T) {
 		{
 			name: "staff detail",
 			body: h.get(t, "/tickets/"+id, false).Body.String(),
-			// A staff actor keeps the assign control; the retained assignee is
-			// the selected option, never the Unassigned placeholder.
-			wantRow: `<option value="1" selected>Admin</option>`,
+			// A staff actor keeps the assign picker; its button names the
+			// retained assignee, never the Unassigned placeholder.
+			wantRow: `<span class="listbox-current">Admin</span>`,
 		},
 		{
-			name:    "requester detail",
-			body:    doRequest(h.mux, h.mw, http.MethodGet, "/tickets/"+id, map[string]string{"Cookie": sessionCookie + "=" + sess.ID}).Body.String(),
+			name: "requester detail",
+			body: doRequest(h.mux, h.mw, http.MethodGet, "/tickets/"+id, map[string]string{"Cookie": sessionCookie + "=" + sess.ID}).Body.String(),
+			// The last assignee stays readable in the Properties panel; the
+			// picker stays out of a requester's ticket (issue #263, S6).
 			wantRow: `<span id="assign-user-value" class="prop-value">Admin</span>`,
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			for _, want := range []string{
-				`<div class="timeline-entry timeline-event timeline-manual">`,
-				`<div class="timeline-manual-heading">`,
+				`<article class="timeline-entry timeline-event timeline-manual">`,
+				`<div class="timeline-entry-head">`,
 				`<strong class="timeline-actor">Admin</strong> <span class="timeline-action">completed the task</span>`,
 				`<dt>Solution</dt>`,
 				`<dd>` + solution + `</dd>`,
