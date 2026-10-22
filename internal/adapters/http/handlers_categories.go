@@ -24,6 +24,7 @@ type CategoryHandlers struct {
 	workflows  *application.WorkflowService
 	renderer   *Renderer
 	catalog    *application.CatalogService
+	appSet     application.SettingsStore
 }
 
 // NewCategoryHandlers wires category routes without workflow projections. It
@@ -39,6 +40,14 @@ func NewCategoryHandlersWithWorkflows(categories *application.CategoryService, w
 	if len(catalogs) > 0 {
 		h.catalog = catalogs[0]
 	}
+	return h
+}
+
+// WithSettings supplies the instance settings the catalog tree reads. The only
+// setting it needs is whether SLA is enabled at all: with SLA off, a row shows no
+// SLA state instead of claiming "Default SLA" for a feature nobody turned on.
+func (h *CategoryHandlers) WithSettings(settings application.SettingsStore) *CategoryHandlers {
+	h.appSet = settings
 	return h
 }
 
@@ -62,51 +71,22 @@ func (h *CategoryHandlers) Register(mux *http.ServeMux) {
 	mux.HandleFunc("POST /categories/desks/{id}/edit", h.updateDesk)
 }
 
-// categoriesIndexData is the canonical Categories/Structure administration
-// payload. The raw slices remain available for backwards-compatible fragments;
-// the view slices provide resolved hierarchy context for the polished shell.
+// categoriesIndexData is the Catalog administration payload: one tree of
+// departments, desks and categories, with the two native filters (search and
+// Needs attention) already applied by the handler and the legacy selection
+// params reduced to a mark on the matching row.
 type categoriesIndexData struct {
 	pageData
 	Error                string
 	View                 string
-	Categories           []domain.Category
-	CategoryRows         []catalogCategoryRow
-	Badges               map[int64]application.Msg
-	OpenTickets          map[int64]int
-	Departments          []domain.CatalogDepartment
-	Desks                []domain.CatalogDesk
-	StructureDepartments []catalogDepartmentView
-	StructureDesks       []catalogDeskView
-	StructureCategories  []catalogCategoryRow
+	Attention            bool
+	Tree                 catalogTree
 	SelectedDepartmentID int64
 	SelectedDeskID       int64
 	SearchQuery          string
 	SearchClearURL       string
-	SearchResults        []categorySearchResult
+	AttentionURL         string
 	Drawer               *categoryDrawerData
-}
-
-type catalogDepartmentView struct {
-	domain.CatalogDepartment
-}
-
-type catalogDeskView struct {
-	domain.CatalogDesk
-}
-
-type catalogCategoryRow struct {
-	domain.Category
-	DepartmentName string
-	DeskName       string
-	HierarchyPath  string
-}
-
-type categorySearchResult struct {
-	Kind     string
-	Type     string
-	Name     string
-	Path     string
-	Location string
 }
 
 type categoryViewState struct {
@@ -583,216 +563,115 @@ func (h *CategoryHandlers) renderIndex(w http.ResponseWriter, r *http.Request, m
 }
 
 func (h *CategoryHandlers) categoryIndexData(r *http.Request, message string) (categoriesIndexData, error) {
-	categories, err := h.categories.List(r.Context())
-	if err != nil {
-		return categoriesIndexData{}, err
-	}
+	locale := requestLocale(r)
 	state, err := categoryStateFromRequest(r)
 	if err != nil {
 		return categoriesIndexData{}, err
 	}
-	data := categoriesIndexData{pageData: pageDataFrom(r, "categories"), Error: message, View: state.View, SearchQuery: strings.TrimSpace(r.URL.Query().Get("q"))}
+	categories, err := h.categories.List(r.Context())
+	if err != nil {
+		return categoriesIndexData{}, err
+	}
+	query := strings.TrimSpace(r.URL.Query().Get("q"))
+	attention := r.URL.Query().Get("attention") == "1"
+	data := categoriesIndexData{
+		pageData:             pageDataFrom(r, "categories"),
+		Error:                message,
+		View:                 state.View,
+		Attention:            attention,
+		SelectedDepartmentID: state.DepartmentID,
+		SelectedDeskID:       state.DeskID,
+		SearchQuery:          query,
+	}
 	data.CategoryAssets, data.PageFoundationAssets = true, true
-	data.SelectedDepartmentID, data.SelectedDeskID = state.DepartmentID, state.DeskID
-	data.Badges = make(map[int64]application.Msg)
-	// Both maps come from the SAME summary list, so a row's state and its open
-	// count can never disagree about which category they describe.
-	data.OpenTickets = make(map[int64]int)
-	// Attribution is its own read (issue #253), keyed by category id in one
-	// query; a store that cannot answer leaves the map empty and every row keeps
-	// the bare badge.
+	data.SearchClearURL = categoryTreePath("", false)
+	data.AttentionURL = categoryTreePath(query, !attention)
+
+	input := catalogTreeInput{
+		Locale:       locale,
+		Categories:   categories,
+		States:       make(map[int64]catalogCategoryState, len(categories)),
+		OpenTickets:  make(map[int64]int, len(categories)),
+		SLADefaults:  make(map[int64]bool),
+		Query:        query,
+		Attention:    attention,
+		DepartmentID: state.DepartmentID,
+		DeskID:       state.DeskID,
+	}
+	// The badge, the open count and the tone all come from the SAME summary list,
+	// so a row's state and its count can never disagree about which category they
+	// describe.
 	if h.workflows != nil {
 		summaries, summaryErr := h.workflows.ListSummaries(r.Context(), *userFromContext(r.Context()))
 		if summaryErr != nil {
 			return categoriesIndexData{}, summaryErr
 		}
+		// Attribution is its own read (issue #253), keyed by category id in one
+		// query; a store that cannot answer leaves the map empty and every row keeps
+		// the bare badge.
 		attributions, attributionErr := h.workflows.ListAttribution(r.Context(), *userFromContext(r.Context()))
 		if attributionErr != nil {
 			return categoriesIndexData{}, attributionErr
 		}
 		for _, summary := range summaries {
-			data.Badges[summary.CategoryID] = categoryStatusLine(summary, attributions[summary.CategoryID])
-			data.OpenTickets[summary.CategoryID] = summary.OpenTickets
+			input.States[summary.CategoryID] = catalogCategoryStateOf(summary, attributions[summary.CategoryID])
+			input.OpenTickets[summary.CategoryID] = summary.OpenTickets
 		}
 	}
-	if h.catalog == nil {
-		// Focused legacy handler tests may omit the catalog projection. Keep the
-		// unified renderer useful by exposing their categories in the final
-		// column; production composition always supplies the catalog service.
-		data.SelectedDepartmentID = 1
-		data.SelectedDeskID = 1
-		data.SearchClearURL = categorySearchClearPath(categoryViewState{View: data.View})
-		for _, category := range categories {
-			row := catalogCategoryRow{Category: category}
-			data.CategoryRows = append(data.CategoryRows, row)
-			data.StructureCategories = append(data.StructureCategories, row)
-			if categorySearchMatches(category.Name, data.SearchQuery) {
-				data.SearchResults = append(data.SearchResults, categorySearchResult{
-					Kind: "category", Type: "categories.kind.category", Name: category.Name,
-					Location: categoryStatePath(categoryViewState{View: "structure"}),
-				})
+	if h.catalog != nil {
+		input.Departments, err = h.catalog.ListDepartments(r.Context())
+		if err != nil {
+			return categoriesIndexData{}, err
+		}
+		// One bounded read for every desk, with its agent and open-ticket count:
+		// the index no longer fans out one ListDesks call per department.
+		input.Desks, err = h.catalog.ListTreeDesks(r.Context())
+		if err != nil {
+			return categoriesIndexData{}, err
+		}
+		input.SLAEnabled, err = h.slaEnabled(r)
+		if err != nil {
+			return categoriesIndexData{}, err
+		}
+		if input.SLAEnabled {
+			defaults, listErr := h.catalog.ListDefaultSLACategories(r.Context())
+			if listErr != nil {
+				return categoriesIndexData{}, listErr
 			}
-		}
-		return data, nil
-	}
-	data.Departments, err = h.catalog.ListDepartments(r.Context())
-	if err != nil {
-		return categoriesIndexData{}, err
-	}
-	departmentNames := make(map[int64]string, len(data.Departments)+1)
-	deskNames := make(map[int64]string)
-	deskDepartmentNames := make(map[int64]string)
-	for _, department := range data.Departments {
-		departmentNames[department.ID] = department.Name
-		desks, listErr := h.catalog.ListDesks(r.Context(), department.ID)
-		if listErr != nil {
-			return categoriesIndexData{}, listErr
-		}
-		data.Desks = append(data.Desks, desks...)
-		data.StructureDepartments = append(data.StructureDepartments, catalogDepartmentView{CatalogDepartment: department})
-		for _, desk := range desks {
-			deskNames[desk.ID] = desk.Name
-			deskDepartmentNames[desk.ID] = department.Name
-		}
-	}
-	// Legacy desks keep their NULL parent in storage. Expose them through a
-	// virtual group only; no Department row is created for this presentation.
-	unassigned, err := h.catalog.ListDesks(r.Context(), 0)
-	if err != nil {
-		return categoriesIndexData{}, err
-	}
-	if len(unassigned) > 0 {
-		data.Desks = append(data.Desks, unassigned...)
-		unassignedName := i18n.T(requestLocale(r), "categories.unassigned.name")
-		departmentNames[unassignedDepartmentID] = unassignedName
-		var categoryCount int
-		for _, desk := range unassigned {
-			deskNames[desk.ID] = desk.Name
-			deskDepartmentNames[desk.ID] = unassignedName
-			categoryCount += desk.CategoryCount
-		}
-		data.StructureDepartments = append(data.StructureDepartments, catalogDepartmentView{CatalogDepartment: domain.CatalogDepartment{
-			Department: domain.Department{ID: unassignedDepartmentID, Name: unassignedName, Description: i18n.T(requestLocale(r), "categories.unassigned.description")},
-			DeskCount:  len(unassigned), CategoryCount: categoryCount,
-		}})
-	}
-	if data.SelectedDepartmentID != 0 {
-		if _, ok := departmentNames[data.SelectedDepartmentID]; !ok {
-			data.SelectedDepartmentID = 0
-			data.SelectedDeskID = 0
-		}
-	}
-	if data.SelectedDeskID != 0 {
-		desk, ok := deskNames[data.SelectedDeskID]
-		if !ok || desk == "" {
-			data.SelectedDeskID = 0
-		} else {
-			for _, candidate := range data.Desks {
-				matchesDepartment := candidate.DepartmentID == data.SelectedDepartmentID
-				if data.SelectedDepartmentID == unassignedDepartmentID {
-					matchesDepartment = candidate.DepartmentID == 0
-				}
-				if candidate.ID == data.SelectedDeskID && !matchesDepartment {
-					data.SelectedDeskID = 0
-					break
-				}
+			for _, id := range defaults {
+				input.SLADefaults[id] = true
 			}
 		}
 	}
-	data.SearchClearURL = categorySearchClearPath(categoryViewState{
-		View:         data.View,
-		DepartmentID: data.SelectedDepartmentID,
-		DeskID:       data.SelectedDeskID,
-	})
-	for _, category := range categories {
-		row := catalogCategoryRow{Category: category, DepartmentName: deskDepartmentNames[category.DeskID], DeskName: deskNames[category.DeskID]}
-		if row.DepartmentName != "" {
-			row.HierarchyPath = row.DepartmentName + " / " + row.DeskName
-		}
-		data.CategoryRows = append(data.CategoryRows, row)
-	}
-	// data.Desks is the complete desktop projection assembled above, including
-	// desks from every Department and the virtual Unassigned group. An explicit
-	// Department selection narrows that projection; the zero selection keeps all
-	// desks visible without overloading ListDesks(0)'s legacy-only meaning.
-	for _, desk := range data.Desks {
-		matchesDepartment := data.SelectedDepartmentID == 0 || desk.DepartmentID == data.SelectedDepartmentID
-		if data.SelectedDepartmentID == unassignedDepartmentID {
-			matchesDepartment = desk.DepartmentID == 0
-		}
-		if matchesDepartment {
-			data.StructureDesks = append(data.StructureDesks, catalogDeskView{CatalogDesk: desk})
-		}
-	}
-	if data.SelectedDeskID != 0 {
-		catalogCategories, listErr := h.catalog.ListCategories(r.Context(), data.SelectedDeskID)
-		if listErr != nil {
-			return categoriesIndexData{}, listErr
-		}
-		for _, category := range catalogCategories {
-			data.StructureCategories = append(data.StructureCategories, catalogCategoryRow{Category: category.Category, DepartmentName: category.DepartmentName, DeskName: category.DeskName, HierarchyPath: category.DepartmentName + " / " + category.DeskName})
-		}
-	}
-	data.SearchResults = categorySearchResults(data.SearchQuery, data.Departments, data.Desks, data.CategoryRows)
+	data.Tree = buildCatalogTree(input)
 	return data, nil
 }
 
-func categorySearchMatches(name, query string) bool {
-	return query != "" && strings.Contains(strings.ToLower(name), strings.ToLower(query))
+// slaEnabled reports whether the instance has per-category SLA switched on. A
+// handler composed without the settings port (focused legacy tests) answers
+// false rather than guessing, so no row claims an SLA state nobody configured.
+func (h *CategoryHandlers) slaEnabled(r *http.Request) (bool, error) {
+	if h.appSet == nil {
+		return false, nil
+	}
+	return h.appSet.GetSLAEnabled(r.Context())
 }
 
-func categorySearchResults(query string, departments []domain.CatalogDepartment, desks []domain.CatalogDesk, categories []catalogCategoryRow) []categorySearchResult {
-	if query == "" {
-		return nil
+// categoryTreePath is the URL of one filtered catalog view. Both filters are
+// plain GET parameters, so search and Needs attention keep working without a
+// script and compose by simply appearing together.
+func categoryTreePath(query string, attention bool) string {
+	values := url.Values{}
+	if query != "" {
+		values.Set("q", query)
 	}
-	results := make([]categorySearchResult, 0)
-	departmentNames := make(map[int64]string, len(departments))
-	for _, department := range departments {
-		departmentNames[department.ID] = department.Name
-		if categorySearchMatches(department.Name, query) {
-			results = append(results, categorySearchResult{
-				Kind: "department", Type: "categories.kind.department", Name: department.Name,
-				Location: categoryStatePath(categoryViewState{View: "structure", DepartmentID: department.ID}),
-			})
-		}
+	if attention {
+		values.Set("attention", "1")
 	}
-	for _, desk := range desks {
-		departmentID := desk.DepartmentID
-		departmentName := departmentNames[departmentID]
-		if departmentID == 0 {
-			departmentID, departmentName = unassignedDepartmentID, "Unassigned"
-		}
-		if categorySearchMatches(desk.Name, query) {
-			results = append(results, categorySearchResult{
-				Kind: "desk", Type: "categories.kind.desk", Name: desk.Name, Path: departmentName,
-				Location: categoryStatePath(categoryViewState{View: "structure", DepartmentID: departmentID, DeskID: desk.ID}),
-			})
-		}
+	if len(values) == 0 {
+		return "/categories"
 	}
-	for _, category := range categories {
-		if !categorySearchMatches(category.Name, query) {
-			continue
-		}
-		departmentID := int64(0)
-		for _, desk := range desks {
-			if desk.ID == category.DeskID {
-				departmentID = desk.DepartmentID
-				break
-			}
-		}
-		state := categoryViewState{View: "structure"}
-		if category.DeskID != 0 {
-			if departmentID == 0 {
-				departmentID = unassignedDepartmentID
-			}
-			state.DepartmentID, state.DeskID = departmentID, category.DeskID
-		}
-		results = append(results, categorySearchResult{
-			Kind: "category", Type: "categories.kind.category", Name: category.Name, Path: category.HierarchyPath,
-			Location: categoryStatePath(state),
-		})
-	}
-	return results
+	return "/categories?" + values.Encode()
 }
 
 func setCategoriesVary(w http.ResponseWriter) {

@@ -400,19 +400,26 @@ func (w *workflowStore) deskFacts(ctx context.Context, def domain.WorkflowDefini
 	return facts, nil
 }
 
+// deskActiveAgentCount is the ONE desk agent-count predicate in the SQLite
+// adapter. It is written once because the workflow publish gate (allDeskFacts)
+// and the catalog tree (ListTreeDesks) must agree about who can act on a desk:
+// active, and agent or above — the same set the executor's least_loaded
+// selection admits. The alias `ds` is the desk table in both queries on purpose,
+// so the constant can be pasted into either SELECT.
+const deskActiveAgentCount = `(SELECT COUNT(*)
+		    FROM desk_members dm
+		    JOIN users u ON u.id = dm.user_id
+		   WHERE dm.desk_id = ds.id
+		     AND u.active = 1
+		     AND u.role IN ('agent', 'admin', 'root'))`
+
 // allDeskFacts resolves every desk's name and the number of members who could
 // actually act on a ticket. An absent desk is simply not in the map, which is
 // what makes the rule report "choose a desk".
 func (w *workflowStore) allDeskFacts(ctx context.Context) (map[int64]deskFact, error) {
 	rows, err := w.db.QueryContext(ctx, `
-		SELECT d.id, d.name,
-		       (SELECT COUNT(*)
-		          FROM desk_members dm
-		          JOIN users u ON u.id = dm.user_id
-		         WHERE dm.desk_id = d.id
-		           AND u.active = 1
-		           AND u.role IN ('agent', 'admin', 'root'))
-		  FROM desks d`)
+		SELECT ds.id, ds.name, `+deskActiveAgentCount+`
+		  FROM desks ds`)
 	if err != nil {
 		return nil, fmt.Errorf("sqlite: read desk facts: %w", err)
 	}
