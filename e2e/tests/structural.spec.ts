@@ -227,6 +227,12 @@ function authenticatedScreens(deps: {
       heading: (p) => p.locator('h1:has-text("Notifications")'),
       control: (p) => p.getByRole("link", { name: /^Notifications/ }),
     },
+    {
+      label: `/preferences`,
+      path: "/preferences",
+      heading: (p) => p.locator('h1:has-text("Preferences")'),
+      control: (p) => p.getByLabel("Default queue order"),
+    },
   ];
 }
 
