@@ -78,28 +78,49 @@
   <input id="role-ticket-search" type="search" name="q" value="printer" placeholder="Search by ID or title" aria-label="Search tickets" hx-preserve="true" hx-get="/tickets" hx-trigger="input changed delay:300ms" hx-target="#tickets-screen" hx-swap="outerHTML" hx-push-url="true">
 </form></div>
   </header>
-</div><section id="tickets-screen" class="page-foundation tickets-screen"><p class="page-subtitle">2 tickets</p><div id="user-ticket-list">
-  <div class="user-ticket-grid">
-  <div class="card user-request-card">
-    <div class="user-request-content">
-      <div class="user-request-head">
-    <a class="user-request-title" href="/tickets/2">Printer jam</a><span class="badge in_progress">In progress</span>
-      </div><p class="user-request-description">Clear the jammed tray, then reload paper.</p>
-      <span class="user-request-meta">TKT-2 · Updated <time class="card-timestamp" tabindex="0" datetime="2026-08-06T10:30:00Z" aria-label="10:30 · 06-08-2026" data-full-date="10:30 · 06-08-2026">10:30 · 06 Aug</time></span>
-    </div>
-    <a class="user-request-open" href="/tickets/2">View request</a>
-  </div>
-  <div class="card user-request-card">
-    <div class="user-request-content">
-      <div class="user-request-head">
-    <a class="user-request-title" href="/tickets/1">Login page down</a><span class="badge new">Received</span>
-      </div>
-      <span class="user-request-meta">TKT-1 · Updated <time class="card-timestamp" tabindex="0" datetime="2026-08-06T10:00:00Z" aria-label="10:00 · 06-08-2026" data-full-date="10:00 · 06-08-2026">10:00 · 06 Aug</time></span>
-    </div>
-    <a class="user-request-open" href="/tickets/1">View request</a>
-  </div>
-    </div>
-  </div></section></main>
+</div><section id="tickets-screen" class="page-foundation tickets-screen"><p class="page-subtitle">3 open tickets</p><div id="user-ticket-list">
+  <section class="req-section" aria-labelledby="action-tickets-title">
+    <h2 class="req-section-title" id="action-tickets-title">Needs your action · 2</h2>
+    <ul class="req-waiting-list">
+      <li class="req-waiting" data-href="/tickets/5">
+        <div class="req-waiting-main">
+          <span class="req-waiting-label req-waiting-label-confirm">Is your issue solved?</span>
+          <a class="req-title" href="/tickets/5">Resolved printer request</a>
+          <span class="req-meta">TKT-5 · Updated <time class="card-timestamp" tabindex="0" datetime="2026-08-06T10:30:00Z" aria-label="10:30 · 06-08-2026" data-full-date="10:30 · 06-08-2026" title="10:30 · 06-08-2026">10:30 · 06-08-2026</time></span>
+        </div>
+        <a class="btn primary small req-action" href="/tickets/5#resolution">Review</a>
+      </li>
+      <li class="req-waiting" data-href="/tickets/2">
+        <div class="req-waiting-main">
+          <span class="req-waiting-label">This ticket is waiting for your reply</span>
+          <a class="req-title" href="/tickets/2">Printer jam</a>
+          <span class="req-meta">TKT-2 · Updated <time class="card-timestamp" tabindex="0" datetime="2026-08-06T10:30:00Z" aria-label="10:30 · 06-08-2026" data-full-date="10:30 · 06-08-2026" title="10:30 · 06-08-2026">10:30 · 06-08-2026</time></span>
+        </div>
+        <a class="btn primary small req-action" href="/tickets/2#reply">Reply</a>
+      </li>
+    </ul>
+  </section>
+  <section class="req-section" aria-labelledby="open-tickets-title">
+    <h2 class="req-section-title" id="open-tickets-title">Open · 1</h2>
+    <ul class="req-list">
+      <li class="req" data-href="/tickets/1">
+        <a class="req-title" href="/tickets/1">Login page down</a>
+        <span class="req-meta">TKT-1 · Updated <time class="card-timestamp" tabindex="0" datetime="2026-08-06T10:00:00Z" aria-label="10:00 · 06-08-2026" data-full-date="10:00 · 06-08-2026" title="10:00 · 06-08-2026">10:00 · 06-08-2026</time></span>
+        <span class="req-side"><span class="badge new">Received</span></span>
+      </li>
+    </ul>
+  </section>
+  <details class="req-fold">
+    <summary class="req-fold-summary" id="closed-tickets-title">Closed · 1</summary>
+    <ul class="req-list" aria-labelledby="closed-tickets-title">
+      <li class="req" data-href="/tickets/4">
+        <a class="req-title" href="/tickets/4">Closed printer request</a>
+        <span class="req-meta">TKT-4 · Updated <time class="card-timestamp" tabindex="0" datetime="2026-08-06T10:30:00Z" aria-label="10:30 · 06-08-2026" data-full-date="10:30 · 06-08-2026" title="10:30 · 06-08-2026">10:30 · 06-08-2026</time></span>
+        <span class="req-side"><span class="badge closed">Closed</span></span>
+      </li>
+    </ul>
+  </details>
+</div></section></main>
     <nav class="tabbar" aria-label="Sections">
       <a class="tabbar-item active" href="/tickets" aria-current="page">
         <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 9a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v1a2 2 0 0 0 0 4v1a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-1a2 2 0 0 0 0-4V9z"/><path d="M13 7v10"/></svg>

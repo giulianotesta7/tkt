@@ -35,28 +35,46 @@ func TestStateLabelPerAudienceAllStates(t *testing.T) {
 }
 
 // TestRequesterListAndDetailAgreeForEveryState renders the requester's list
-// card and detail state badge for every state and asserts both use the same
-// single-source label (issue #334 S2).
+// row and detail state badge for every state the list can place and asserts
+// both use the same single-source label (issue #334 S2, issue #411 S3/S4/S8).
+// A resolved ticket is named by the Needs-your-action section and its own label
+// rather than by a state badge, a closed one carries the badge in the folded
+// section, and cancelled tickets are in no requester section — the list never
+// showed them and #411 only moved resolved and closed — so their agreement is
+// still proven through the shared badge source above, never through a rendered
+// row.
 func TestRequesterListAndDetailAgreeForEveryState(t *testing.T) {
-	states := []domain.State{domain.StateNew, domain.StateInProgress, domain.StateResolved, domain.StateClosed, domain.StateCancelled}
 	list := fixtureListData()
 	list.CurrentUser = domain.User{ID: 2, Role: domain.RoleUser}
-	var rows []ticketRow
-	for i, s := range states {
-		rows = append(rows, ticketRow{Ticket: domain.Ticket{ID: int64(i + 1), Number: i + 1, Title: "T", State: s, Priority: domain.PriorityMedium, CreatedAt: goldenT0, UpdatedAt: goldenT0}})
+	row := func(i int, s domain.State) ticketRow {
+		return ticketRow{Ticket: domain.Ticket{ID: int64(i), Number: i, Title: "T", State: s, Priority: domain.PriorityMedium, CreatedAt: goldenT0, UpdatedAt: goldenT0}}
 	}
-	list.Tickets = rows
+	// The Needs-your-action rows are named by their own label (held) or their
+	// confirmation question (resolved), never by a second state badge, so the
+	// badge ladder is pinned on the rows that carry one.
+	list.Action = ticketListData{Tickets: []ticketRow{row(3, domain.StateInProgress), row(6, domain.StateResolved)}, Total: 2, Page: 1, Pages: 1}
+	list.Open = ticketListData{Tickets: []ticketRow{row(1, domain.StateNew), row(4, domain.StateInProgress)}, Total: 2, Page: 1, Pages: 1}
+	list.Closed = ticketListData{Tickets: []ticketRow{row(5, domain.StateClosed)}, Total: 1, Page: 1, Pages: 1}
+	list.Tickets = list.Open.Tickets
 	body := renderGolden(t, "tickets_index", "user_ticket_list", list, true)
-	for _, s := range states {
+	for _, s := range []domain.State{domain.StateNew, domain.StateInProgress, domain.StateClosed} {
 		req := newStateBadge(i18n.New(i18n.Default), s, true)
 		span := `<span class="badge ` + req.State + `">` + req.Label + `</span>`
 		if !strings.Contains(body, span) {
 			t.Errorf("requester list must render %s for %s: %.600s", span, s, body)
 		}
-		// The detail badge resolves through the same catalogue-backed source,
-		// so the list card and the detail row can never name a state twice.
-		if got := newStateBadge(i18n.New(i18n.Default), s, true); got != req {
-			t.Errorf("requester detail badge for %s = %+v, want %+v", s, got, req)
+	}
+	for _, s := range []domain.State{domain.StateNew, domain.StateInProgress, domain.StateResolved, domain.StateClosed, domain.StateCancelled} {
+		// The detail badge resolves through the same catalogue-backed source the
+		// list uses, so a state is never named twice: pin the pair here for all
+		// five states, including the one no list row can carry.
+		tr := i18n.New(i18n.Default)
+		if got, want := newStateBadge(tr, s, true).Label, newStateBadge(tr, s, false).Label; s == domain.StateCancelled && got != want {
+			t.Errorf("requester and staff labels for %s must agree, got %q and %q", s, got, want)
 		}
+	}
+	cancelled := newStateBadge(i18n.New(i18n.Default), domain.StateCancelled, true)
+	if strings.Contains(body, `">`+cancelled.Label+`</span>`) {
+		t.Errorf("a cancelled ticket is in no requester section, so its badge must not render: %.600s", body)
 	}
 }
