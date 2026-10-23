@@ -19,7 +19,13 @@ import { test, expect, type Locator, type Page } from "@playwright/test";
 import { startServer, stopServer } from "../server-lifecycle.js";
 import { assertCanonicalScreen, collectObservability } from "./helpers/layout.js";
 import { assertHtmxSwap } from "./helpers/htmx.js";
-import { base, seededCredentials } from "./helpers/auth.js";
+import {
+  base,
+  createUserAsAdmin,
+  loginAs,
+  loginAsSeeded,
+  seededCredentials,
+} from "./helpers/auth.js";
 import {
   createTicketViaUi,
   resolveCategoryEditHref,
@@ -525,4 +531,59 @@ test.describe("Structural — empty base", () => {
       }
     });
   }
+});
+
+test.describe("Structural — requester list (issue #411)", () => {
+  /**
+   * The requester's "My tickets" list is a canonical screen of its own since
+   * issue #411: a full-width list with the Needs-your-action section, an open
+   * section and a folded closed section. It has to survive the 390px fold and both themes
+   * with nothing clipped, no horizontal scroll, and a single active nav mark,
+   * exactly like every other canonical screen.
+   */
+  test("requester /tickets at 390px and 1280px in both themes", async ({ page }) => {
+    await startServer({ seed: true });
+    try {
+      const email = `requester-baseline-${Date.now().toString(36).slice(2, 8)}@example.com`;
+      await loginAsSeeded(page);
+      await createUserAsAdmin(page, { name: "Requester Baseline", email, password: "Secret123!" });
+      await page.context().clearCookies();
+      await loginAs(page, email, "Secret123!");
+      await createTicketViaUi(page, {
+        title: `Requester baseline ${Date.now().toString(36).slice(2, 8)}`,
+        description: "baseline probe",
+        category: "General",
+        priority: "high",
+      });
+      await page.goto(base() + "/tickets");
+      await expect(page.getByRole("heading", { name: "My tickets" })).toBeVisible();
+      await expect(page.locator("#open-tickets-title")).toHaveText("Open · 1");
+
+      const obs = collectObservability(page);
+      // Each pass loads the page AT its viewport: the shell's sidebar slides
+      // off canvas with a transition, so a resized page measured mid-animation
+      // would read a half-hidden rail rather than the settled layout.
+      for (const theme of ["light", "dark"] as const) {
+        await page.emulateMedia({ colorScheme: theme });
+        for (const viewport of [390, 1280] as const) {
+          await page.setViewportSize({ width: viewport, height: viewport === 390 ? 844 : 800 });
+          await page.goto(base() + "/tickets");
+          await expect(page.getByRole("heading", { name: "My tickets" })).toBeVisible();
+          await expect(page.locator("#open-tickets-title")).toHaveText("Open · 1");
+          await assertCanonicalScreen(page, {
+            viewport,
+            label: `requester /tickets (${theme}) @ ${viewport}px`,
+            url: page.url(),
+            role: "user",
+            consoleErrors: obs.consoleErrors,
+            pageErrors: obs.pageErrors,
+            failedRequests: obs.failedRequests,
+            failedResponses: obs.failedResponses,
+          });
+        }
+      }
+    } finally {
+      await stopServer();
+    }
+  });
 });

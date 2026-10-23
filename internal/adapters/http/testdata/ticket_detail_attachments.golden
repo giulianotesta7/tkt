@@ -217,7 +217,7 @@
         </div>
       </details>
     </aside>
-    <div class="replies">
+    <div class="replies" id="reply">
 
 
 <form class="card comment-form" method="post" action="/tickets/1/comments" enctype="multipart/form-data">

@@ -24,7 +24,6 @@ func TestSpanishTicketVocabularyAndStrategyNames(t *testing.T) {
 		"tickets.checklist.meta.requester_received": "Tu ticket se recibió y está en cola para soporte.",
 		"tickets.list.user_empty":                   "Todavía no hay tickets",
 		"tickets.list.user_no_match":                "Ningún ticket coincide con tu búsqueda",
-		"tickets.list.view_request":                 "Ver ticket",
 		"workflow.editor.strategy.claim":            "Autoasignación",
 		"workflow.editor.strategy.least_loaded":     "Por menor carga",
 		"tickets.agent.claim_ticket":                "Tomar ticket",
