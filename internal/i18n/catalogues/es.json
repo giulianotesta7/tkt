@@ -198,6 +198,7 @@
   "error.comment_visibility_invalid": "visibilidad del comentario no válida",
   "error.conflicting_user_assignment": "no se puede asignar y desasignar al usuario a la vez",
   "error.create_unassigned_only": "los tickets se crean sin asignar — la asignación ocurre después con el flujo de la categoría",
+  "error.current_password_incorrect": "la contraseña actual no es correcta",
   "error.department_not_found": "departamento no encontrado",
   "error.department_required": "el departamento es obligatorio",
   "error.department_required_for_desk": "el departamento es obligatorio cuando se selecciona una mesa",

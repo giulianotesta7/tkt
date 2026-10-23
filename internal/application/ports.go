@@ -1258,6 +1258,27 @@ type PasswordSettingsStore interface {
 	SetPasswordSettings(ctx context.Context, settings PasswordSettings) error
 }
 
+// PasswordChangeStore persists a signed-in user's own password change (issue
+// #414, S2) as ONE atomic unit: the new hash and the sign-out of every other
+// session of that account commit together. A user is therefore never left with
+// the new password stored while a device signed in with the old one stays
+// signed in, and never signed out while the password they typed was not stored.
+//
+// It is a port of its own rather than a UserStore method because the unit spans
+// two tables (users and sessions), and the pending recovery tokens of #414's
+// recovery path (migration 0029) will join the same transaction. #417, #419 and
+// #420 build on this seam: a password write always carries the sessions it
+// voids.
+type PasswordChangeStore interface {
+	// ChangePasswordAndSignOutOtherSessions replaces userID's stored password
+	// hash with passwordHash and deletes every session of that user EXCEPT
+	// keepSessionID — the session making the request, which stays signed in
+	// (S2). Both writes are ONE transaction, so a failure leaves the hash and
+	// the sessions exactly as they were. Sessions belonging to any other user
+	// are never touched. An unknown user is ErrNotFound with nothing deleted.
+	ChangePasswordAndSignOutOtherSessions(ctx context.Context, userID int64, passwordHash, keepSessionID string) error
+}
+
 // SigninStore persists the sign-in page's customization (issue #383, S9/S10):
 // the text facts as keyed settings rows — the highlighted rows as one JSON array
 // decoded defensively — and the background image as a settings_blobs row, since

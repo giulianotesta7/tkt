@@ -1766,3 +1766,38 @@ func (f *fakePasswordSettingsStore) SetPasswordSettings(_ context.Context, setti
 	f.stored = true
 	return nil
 }
+
+// fakePasswordChangeStore is the in-memory PasswordChangeStore double for the
+// own-password change (issue #414, S2). It writes through the two other fakes,
+// so a service-level test can assert the hash AND the surviving sessions. Two
+// documented simplifications: the hash update and the session delete happen in
+// one untorn step standing in for the real immediate transaction (a test that
+// needs a real rollback belongs to the sqlite layer), and an unknown user is
+// answered before anything is written, like the real store's rows-affected
+// check.
+type fakePasswordChangeStore struct {
+	users    *fakeUserStore
+	sessions *fakeSessionStore
+	calls    int
+}
+
+var _ application.PasswordChangeStore = (*fakePasswordChangeStore)(nil)
+
+func newFakePasswordChangeStore(users *fakeUserStore, sessions *fakeSessionStore) *fakePasswordChangeStore {
+	return &fakePasswordChangeStore{users: users, sessions: sessions}
+}
+
+func (f *fakePasswordChangeStore) ChangePasswordAndSignOutOtherSessions(_ context.Context, userID int64, passwordHash, keepSessionID string) error {
+	f.calls++
+	u, ok := f.users.users[userID]
+	if !ok {
+		return &domain.NotFoundError{Kind: "user", ID: userID}
+	}
+	u.PasswordHash = passwordHash
+	for id, session := range f.sessions.sessions {
+		if session.UserID == userID && id != keepSessionID {
+			delete(f.sessions.sessions, id)
+		}
+	}
+	return nil
+}

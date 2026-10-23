@@ -259,6 +259,13 @@ func (s *Store) PasswordSettingsStore() application.PasswordSettingsStore {
 	return newSettingsStore(s.db)
 }
 
+// PasswordChangeStore returns the atomic own-password-change port (issue #414,
+// S2): the new hash and the sign-out of every other session of that user commit
+// in one transaction.
+func (s *Store) PasswordChangeStore() application.PasswordChangeStore {
+	return newPasswordChangeStore(s.db)
+}
+
 // SLAStore returns the SLA port (issue #211): global defaults,
 // materialized category matrices, observed milestone instants, and the
 // commitments frozen onto tickets.

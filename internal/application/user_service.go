@@ -16,6 +16,9 @@ type UserService struct {
 	// passwords, when wired, answers the instance minimum every NEW password
 	// must reach (issue #414, S4).
 	passwords PasswordSettingsStore
+	// passwordChanges, when wired, is the atomic write of a user's own password
+	// change and the sign-out of their other sessions (issue #414, S2).
+	passwordChanges PasswordChangeStore
 }
 
 // WithPasswordSettings wires the password policy the create, setup and
@@ -79,14 +82,24 @@ func (s *UserService) prepareUser(ctx context.Context, in CreateUserInput, role 
 // accepting anything. A store failure is returned, never defaulted away: the
 // write is refused rather than accepted under a rule nobody read.
 func (s *UserService) passwordMinimum(ctx context.Context) (int, error) {
-	if s.passwords == nil {
-		return DefaultPasswordMinLength, nil
-	}
-	settings, err := s.passwords.GetPasswordSettings(ctx)
+	policy, err := s.passwordPolicy(ctx)
 	if err != nil {
 		return 0, err
 	}
-	return settings.MinLength, nil
+	return policy.MinLength, nil
+}
+
+// passwordPolicy answers the whole instance policy for the password paths that
+// read a switch as well as the minimum (issue #414, S1/S2). With no store wired
+// the documented defaults apply — both switches ON, minimum 12 — so a missing
+// port never silently drops a self-service path, and a store failure is
+// returned so the write is refused (fail closed) instead of accepted under a
+// policy nobody read.
+func (s *UserService) passwordPolicy(ctx context.Context) (PasswordSettings, error) {
+	if s.passwords == nil {
+		return DefaultPasswordSettings(), nil
+	}
+	return s.passwords.GetPasswordSettings(ctx)
 }
 
 // Create validates an authorized management actor, then validates name, email,
