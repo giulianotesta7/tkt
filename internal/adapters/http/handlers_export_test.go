@@ -179,6 +179,25 @@ func TestMetricsExportCarriesTheDashboardAggregates(t *testing.T) {
 	}
 }
 
+// S23/S27: filtering the queue swaps only the results and the tab row
+// (hx-select + hx-select-oob), so the download link must live INSIDE the tab
+// row; anywhere else it would keep the previous filters and download a
+// different set than the screen shows.
+func TestTicketExportLinkFollowsAnHTMXFilterChange(t *testing.T) {
+	h := newHarness(t)
+	h.seedTicket(t, "filtered", nil)
+
+	body := h.get(t, "/tickets?state=new&priority=high", true).Body.String()
+	start := strings.Index(body, `id="queue-tabs"`)
+	if start < 0 {
+		t.Fatalf("the HTMX response carries no tab row: %.400s", body)
+	}
+	tabs := body[start : start+strings.Index(body[start:], "</nav>")]
+	if !strings.Contains(tabs, `href="/tickets/export.csv?priority=high&amp;state=new"`) {
+		t.Fatalf("the tab row's download link does not carry the new filters: %s", tabs)
+	}
+}
+
 // The screens that own the data must offer the download (S27).
 func TestExportLinksAppearOnTheScreensThatOwnTheData(t *testing.T) {
 	h := newHarness(t)

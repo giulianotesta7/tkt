@@ -74,7 +74,8 @@
     </div>
   </header>
 </div><section id="tickets-screen" class="page-foundation tickets-screen"><p class="page-subtitle">2 tickets</p><nav id="queue-tabs" class="queue-tabs" aria-label="Tickets">
-</nav><div class="queue-export"><a class="btn ghost" href="" download>Download CSV</a></div><form id="queue-filters" class="filter-bar ticket-toolbar" method="get" action="/tickets" hx-get="/tickets" hx-target="#queue-results" hx-swap="outerHTML" hx-push-url="true" hx-indicator="this" hx-trigger="change, submit" hx-sync="this:queue last" hx-select="#queue-results" hx-select-oob="#queue-tabs">
+  <a class="queue-export" href="" download><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11"/><path d="m7 10 5 5 5-5"/><path d="M5 20h14"/></svg>Download CSV</a>
+</nav><form id="queue-filters" class="filter-bar ticket-toolbar" method="get" action="/tickets" hx-get="/tickets" hx-target="#queue-results" hx-swap="outerHTML" hx-push-url="true" hx-indicator="this" hx-trigger="change, submit" hx-sync="this:queue last" hx-select="#queue-results" hx-select-oob="#queue-tabs">
   <input type="hidden" name="view" value="">
   <div class="ticket-search search-field">
   <label class="visually-hidden" for="ticket-search">Search tickets</label>
