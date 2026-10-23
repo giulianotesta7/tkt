@@ -10,11 +10,13 @@
  * the rule reads.
  */
 
-import { test, expect, type Page } from "@playwright/test";
+import { test, expect, type Page, type Request } from "@playwright/test";
 import { startServer, stopServer } from "../server-lifecycle.js";
 import { loginAsSeeded, createUserAsAdmin, loginAs, logout, base } from "./helpers/auth.js";
 import { assertCanonicalScreen, collectObservability } from "./helpers/layout.js";
 import { createTicketViaUi, openPreferencesFromUserMenu } from "./helpers/navigation.js";
+import { createSuggestableCategory } from "./helpers/suggestions.js";
+import { assertHtmxSwap } from "./helpers/htmx.js";
 
 /**
  * Promote a freshly created user to administrator and return the credentials.
@@ -571,14 +573,14 @@ test.describe("Settings", () => {
     // Issue #416, S1/S5/S6/S7: one instance setting with three choices. Off is
     // the shipped state, the decision model is the only choice that needs an
     // endpoint, a model and a key, and the card states what that choice sends to
-    // the external service and what it never sends.
-    //
-    // The card's "Try it" box is not asserted here: the disclosure script that
-    // reveals it never does, so the browser has no way to run it today. Its POST
-    // contract is Go's (handlers_category_suggestions_test.go).
+    // the external service and what it never sends. The Try it box runs the
+    // values the form submits without saving them.
     await page.setViewportSize({ width: 1280, height: 800 });
     const obs = collectObservability(page);
     await loginAsSeeded(page);
+    // The Try it box answers with what the engine would suggest, so the database
+    // holds one runnable category carrying the word the test types.
+    const fixture = await createSuggestableCategory(page, "impresora, tóner");
     await page.goto(base() + "/settings/tickets");
     const card = page
       .locator("form")
@@ -635,6 +637,75 @@ test.describe("Settings", () => {
     await expect(onThisServer).toBeChecked();
     await expect(off).not.toBeChecked();
     await expect(endpoint).toBeHidden();
+
+    // The Try it box follows the engine choice: Off hides it, and any engine that
+    // answers reveals it.
+    const tryBox = card.locator(".settings-suggestion-try");
+    const tryInput = card.getByLabel("Try it", { exact: true });
+    const tryResult = page.locator("#category-suggestions-try-result");
+    const savebar = card.locator("[data-settings-savebar]");
+    await expect(tryBox).toBeVisible();
+    await off.check();
+    await expect(tryBox).toBeHidden();
+    await onThisServer.check();
+    await expect(tryBox).toBeVisible();
+
+    // Test runs the submitted configuration in place: the result is a row per
+    // candidate with its share, over the card's own endpoint, with no
+    // navigation and no save.
+    const saves: string[] = [];
+    const saveWatcher = (request: Request) => {
+      if (request.method() !== "POST") return;
+      if (new URL(request.url()).pathname !== "/settings/category-suggestions") return;
+      saves.push(request.url());
+    };
+    page.on("request", saveWatcher);
+    try {
+      await assertHtmxSwap(
+        page,
+        async () => {
+          await tryInput.fill("the impresora is not working");
+          await card.getByRole("button", { name: "Test", exact: true }).click();
+        },
+        {
+          endpoint: "/settings/category-suggestions/try",
+          method: "POST",
+          expectedStatus: 200,
+          hxTarget: "#category-suggestions-try-result",
+          allowEmptyTarget: true,
+        },
+      );
+      await expect(tryResult.locator(".suggestion-try-name").first()).toContainText(
+        fixture.category,
+      );
+      await expect(tryResult.locator(".suggestion-try-percent").first()).toHaveText(/^\d+%$/);
+
+      // Enter in the field the administrator types in runs the test instead of
+      // submitting the save form: the bar keeps the state it had, the URL does
+      // not move, and no save request leaves the page.
+      await expect(savebar).toBeVisible();
+      await assertHtmxSwap(
+        page,
+        async () => {
+          await tryInput.fill("no encuentro mi tarjeta de transporte");
+          await tryInput.press("Enter");
+        },
+        {
+          endpoint: "/settings/category-suggestions/try",
+          method: "POST",
+          expectedStatus: 200,
+          hxTarget: "#category-suggestions-try-result",
+        },
+      );
+      await expect(tryResult).toContainText(
+        "No category matched: requesters would choose from the catalog.",
+      );
+      await expect(savebar).toBeVisible();
+      await expect(page).toHaveURL(base() + "/settings/tickets");
+      expect(saves, "Enter in the Try it field must never submit the save form").toEqual([]);
+    } finally {
+      page.removeListener("request", saveWatcher);
+    }
 
     // Back to the shipped state, so a later journey inherits the default.
     await off.check();

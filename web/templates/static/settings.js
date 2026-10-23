@@ -201,7 +201,7 @@
   document.addEventListener("change", editSignin);
   document.addEventListener("click", editSignin);
 
-  // Progressive disclosure (maintainer review): a block marked
+  // Progressive disclosure: a block marked
   // data-show-when="name=value" shows only while the named radio holds that
   // value, or, with "name=checked", while the named checkbox is ticked, or, with
   // "name!=value", for every value but that one. It reacts on every change, so
@@ -209,14 +209,17 @@
   // Hidden fields keep their values.
   function syncDisclosure() {
     Array.prototype.forEach.call(document.querySelectorAll("[data-show-when]"), function (block) {
-      var rule = block.getAttribute("data-show-when").split("=");
+      var rule = block.getAttribute("data-show-when");
       var form = block.closest("form");
       if (!form) return;
-      var control = form.querySelector('[name="' + rule[0] + '"]:checked');
-      var want = rule[1];
-      var except = want.charAt(0) === "!";
-      if (except) {
-        want = want.slice(1);
+      // The negated rule is parsed first: splitting on "=" alone would read
+      // "name!=value" as the control "name!" holding "value", which no form
+      // has, and the block would never be revealed.
+      var negated = rule.indexOf("!=");
+      var name = negated === -1 ? rule.split("=")[0] : rule.slice(0, negated);
+      var want = negated === -1 ? rule.slice(name.length + 1) : rule.slice(negated + 2);
+      var control = form.querySelector('[name="' + name + '"]:checked');
+      if (negated !== -1) {
         block.hidden = Boolean(control) && control.value === want;
         return;
       }

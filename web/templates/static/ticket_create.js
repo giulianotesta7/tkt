@@ -540,8 +540,13 @@
     markSelectedChip();
   });
 
+  // The mark has to be restored on the swap of the chips AND on the invisible
+  // live region they are swapped into, so both are matched.
   document.body.addEventListener("htmx:afterSwap", (event) => {
-    if (event.target instanceof Element && event.target.closest(".create-suggestions")) {
+    if (
+      event.target instanceof Element &&
+      event.target.closest(".create-suggestions, .create-suggestions-live")
+    ) {
       markSelectedChip();
     }
   });

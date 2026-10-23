@@ -180,13 +180,172 @@ export async function createSuggestableCategory(
 }
 
 /**
- * The single-page form's suggestion host: the element the fragment swaps into.
- * It is the one carrying `hx-get`, because the fragment it receives wraps its own
- * container in the same class, so the plain class matches the host AND its
- * content once a suggestion has been rendered.
+ * The single-page form's suggestion host: the one element carrying the htmx call,
+ * whatever class it wears, because it is what the fragment swaps into. It is an
+ * invisible live region, so the host draws no box and the fragment's container
+ * inside it is the only thing that draws the hairline. Two boxes with the same
+ * hairline is exactly the defect that separation fixes.
  */
 export const singlePageSuggestionSelector =
-  '.ticket-create-detail .create-suggestions[hx-get="/tickets/suggestions?mode=single"]';
+  '.ticket-create-detail [hx-get="/tickets/suggestions?mode=single"]';
 
 /** The two-step catalog's suggestion host, above the department sections. */
 export const catalogSuggestionSelector = "#create-catalog-suggestions";
+
+/**
+ * The region the single-page form draws the suggestions in: the container whose
+ * descendants are measured, and the two rows that bound it — the row holding the
+ * category picker above, the priority row below.
+ */
+export const singlePageSuggestionRegion: DividerRegion = {
+  container: ".ticket-create-detail .evidence .prop-section",
+  from: ".ticket-create-detail .prop-row:has(select#category_id)",
+  to: ".ticket-create-detail .prop-row:has(#priority)",
+};
+
+/**
+ * The same region in the two-step catalog: between the search box and the first
+ * department group, which is where the Suggested group appears.
+ */
+export const catalogSuggestionRegion: DividerRegion = {
+  container: ".create-catalog-sections",
+  from: ".create-catalog-search",
+  to: ".create-catalog-department-group",
+};
+
+/**
+ * One horizontal rule, read from the computed style rather than from a picture.
+ * `top` and `bottom` are viewport coordinates, so a caller can tell two stacked
+ * rules apart; `borderTop` and `borderBottom` carry the resolved width, style and
+ * colour the browser painted.
+ */
+export interface Divider {
+  element: string;
+  top: number;
+  bottom: number;
+  borderTop: string;
+  borderBottom: string;
+}
+
+/** The two boxes that bound the region a divider count is measured in. */
+export interface DividerRegion {
+  /** The container whose descendants are measured. */
+  container: string;
+  /** The block above the region: a rule inside it must sit below this box. */
+  from: string;
+  /** The block below the region: a rule inside it must sit above this box. */
+  to: string;
+}
+
+/**
+ * Every horizontal rule the region draws, measured from the computed style.
+ *
+ * A screenshot cannot prove a 1px rule at ten percent ink, and it cannot tell one
+ * rule from two stacked ones a few pixels apart, so the count comes from the
+ * document: a divider is an element with a top or bottom edge, without a left or
+ * right edge — a box with side edges is a card, not a rule — and positioned
+ * between the region's two bounding boxes.
+ */
+export async function measureDividers(page: Page, region: DividerRegion): Promise<Divider[]> {
+  return page.evaluate((bounds) => {
+    const scope = document.querySelector(bounds.container);
+    if (!scope) throw new Error(`the divider region ${bounds.container} must be rendered`);
+    const above = document.querySelector(bounds.from);
+    const below = document.querySelector(bounds.to);
+    if (!above || !below) {
+      throw new Error(`the divider region needs both edges: ${bounds.from} and ${bounds.to}`);
+    }
+    const start = above.getBoundingClientRect().bottom;
+    const end = below.getBoundingClientRect().top;
+    const dividers: Divider[] = [];
+    for (const element of Array.from(scope.querySelectorAll("*"))) {
+      const style = getComputedStyle(element);
+      const rect = element.getBoundingClientRect();
+      if (rect.width === 0 || rect.height === 0) continue;
+      const top = Number.parseFloat(style.borderTopWidth) || 0;
+      const bottom = Number.parseFloat(style.borderBottomWidth) || 0;
+      if (top === 0 && bottom === 0) continue;
+      if ((Number.parseFloat(style.borderLeftWidth) || 0) > 0) continue;
+      if ((Number.parseFloat(style.borderRightWidth) || 0) > 0) continue;
+      if (rect.top < start - 0.5 || rect.bottom > end + 0.5) continue;
+      const classes =
+        typeof element.className === "string"
+          ? element.className.trim().split(/\s+/).join(".")
+          : "";
+      dividers.push({
+        element: `${element.tagName.toLowerCase()}${classes === "" ? "" : `.${classes}`}`,
+        top: Math.round(rect.top * 100) / 100,
+        bottom: Math.round(rect.bottom * 100) / 100,
+        borderTop: `${style.borderTopWidth} ${style.borderTopStyle} ${style.borderTopColor}`,
+        borderBottom: `${style.borderBottomWidth} ${style.borderBottomStyle} ${style.borderBottomColor}`,
+      });
+    }
+    return dividers.sort((a, b) => a.top - b.top);
+  }, region);
+}
+
+/**
+ * The approved look has ONE hairline between the suggestions and the row above
+ * them, and none at all when nothing is suggested. This asserts how many rules
+ * the region draws — the count, the position and the computed border of each, at
+ * 1280px and at 390px, in the light and the dark ladder — because the defect it
+ * pins is a second rule a few pixels under the first, which no screenshot of a
+ * page-scale surface shows reliably. The page is left wide and on the light
+ * ladder for the rest of the journey.
+ */
+export async function expectDividers(
+  page: Page,
+  region: DividerRegion,
+  expected: { count: number; element?: RegExp },
+  label: string,
+): Promise<void> {
+  try {
+    for (const viewport of [
+      { width: 1280, height: 800 },
+      { width: 390, height: 844 },
+    ]) {
+      await page.setViewportSize(viewport);
+      for (const scheme of ["light", "dark"] as const) {
+        await page.emulateMedia({ colorScheme: scheme });
+        const dividers = await measureDividers(page, region);
+        const measured = dividers.length === 0 ? "none" : JSON.stringify(dividers, null, 2);
+        expect(
+          dividers.length,
+          `${label} (${viewport.width}px, ${scheme}): ${expected.count} horizontal rule(s) expected, measured ${measured}`,
+        ).toBe(expected.count);
+        if (expected.element) {
+          for (const divider of dividers) {
+            expect(
+              divider.element,
+              `${label} (${viewport.width}px, ${scheme}): the region's rule must be the suggestion block's own`,
+            ).toMatch(expected.element);
+          }
+        }
+      }
+    }
+  } finally {
+    await page.emulateMedia({ colorScheme: null });
+    await page.setViewportSize({ width: 1280, height: 800 });
+  }
+}
+
+/**
+ * Where the two-step catalog's first block of content starts, measured from the
+ * bottom edge of its search box. The live suggestion region is a sibling of the
+ * department groups, so an empty one must leave this number alone: with nothing
+ * suggested the catalog reads exactly as it did before the feature existed.
+ */
+export async function catalogContentOffset(page: Page): Promise<number> {
+  return page.evaluate(() => {
+    const search = document.querySelector(".create-catalog-search");
+    const sections = document.querySelector(".create-catalog-sections");
+    if (!search || !sections)
+      throw new Error("the catalog must render its search and its sections");
+    const start = search.getBoundingClientRect().bottom;
+    const content = Array.from(sections.children).find(
+      (child) => child.getBoundingClientRect().height > 0,
+    );
+    if (!content) throw new Error("the catalog must render content under its search box");
+    return Math.round((content.getBoundingClientRect().top - start) * 100) / 100;
+  });
+}

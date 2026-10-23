@@ -197,6 +197,20 @@ func TestCategorySuggestionsSinglePageOffersTheMatchingCategory(t *testing.T) {
 	// The form carries the container the fragment refreshes and the htmx call
 	// that refreshes it, from both text fields.
 	_, form := getPath(t, h, mux, "/tickets/new")
+
+	// The block draws its hairline ONCE: the live host the form owns is an
+	// invisible region of its own class, and the fragment's container is the only
+	// box that carries the rule. Two boxes with the same rule is the doubled
+	// divider an owner sees the moment a suggestion appears.
+	if got := strings.Count(body, `class="create-suggestions"`); got != 1 {
+		t.Errorf("the fragment must render one suggestion block, got %d: %s", got, body)
+	}
+	if strings.Contains(form, `class="create-suggestions"`) {
+		t.Error("the live host must not carry the styled suggestion block, or the two hairlines stack")
+	}
+	if got := strings.Count(form, `class="create-suggestions-live"`); got != 1 {
+		t.Errorf("the form must render one suggestion host, got %d", got)
+	}
 	for _, want := range []string{
 		`hx-get="/tickets/suggestions?mode=single"`,
 		`aria-live="polite"`,

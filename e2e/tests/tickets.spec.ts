@@ -37,9 +37,13 @@ import { waitForExactPost } from "./helpers/network.js";
 import { assertHtmxSwap } from "./helpers/htmx.js";
 import { loginAsSeeded, setSLAEnabled, setTicketCreationMode } from "./helpers/auth.js";
 import {
+  catalogContentOffset,
+  catalogSuggestionRegion,
   catalogSuggestionSelector,
   createSuggestableCategory,
+  expectDividers,
   setCategorySuggestionEngine,
+  singlePageSuggestionRegion,
   singlePageSuggestionSelector,
 } from "./helpers/suggestions.js";
 
@@ -1921,6 +1925,7 @@ test.describe("Ticket category suggestions (seeded)", () => {
           method: "GET",
           expectedStatus: 200,
           hxTarget: singlePageSuggestionSelector,
+          allowEmptyTarget: true,
         },
       );
       await expect(host.locator(".create-suggestions-title")).toHaveText(
@@ -1931,6 +1936,17 @@ test.describe("Ticket category suggestions (seeded)", () => {
       await expect(chip.locator(".create-suggestion-chip-name")).toHaveText(fixture.category);
       await expect(chip.locator(".create-suggestion-chip-desk")).toHaveText(
         `${fixture.department} · ${fixture.desk}`,
+      );
+
+      // The block adds ONE hairline between the Category row and the row below
+      // it, measured in the computed style at both viewports and in both themes:
+      // a second stacked rule is the defect, and a count of the drawn rules is
+      // the only honest proof of it.
+      await expectDividers(
+        page,
+        singlePageSuggestionRegion,
+        { count: 1, element: /create-suggestions/ },
+        "the suggestion block's divider",
       );
 
       // A typo of the keyword still reaches the same category: the engine's
@@ -1959,6 +1975,31 @@ test.describe("Ticket category suggestions (seeded)", () => {
       await expect(chip).toHaveAttribute("aria-pressed", "true");
       await expect(page).toHaveURL(base() + "/tickets/new");
 
+      // A later suggestion refresh keeps the mark: the chips come back and the
+      // one the picker holds is still shown as chosen, so the requester never
+      // loses sight of the category they picked. The repeated answer is the same
+      // markup, so the proof that the region was swapped is a marker the refresh
+      // drops: it can only disappear with a new chip element.
+      await host
+        .locator(".create-suggestion-chip")
+        .evaluate((el) => el.setAttribute("data-stale", "1"));
+      const refreshResponse = page.waitForResponse(
+        (response) =>
+          response.request().headers()["hx-request"] === "true" &&
+          response.request().method() === "GET" &&
+          new URL(response.url()).pathname === "/tickets/suggestions" &&
+          (new URL(response.url()).searchParams.get("description") ?? "").includes("broken again"),
+      );
+      await page.getByLabel("Description").fill("the impresora is broken again");
+      expect((await refreshResponse).status()).toBe(200);
+      const refreshed = host.locator(".create-suggestion-chip");
+      await expect(refreshed).not.toHaveAttribute("data-stale", "1");
+      await expect(refreshed).toHaveAttribute("aria-pressed", "true");
+      await expect(page.locator('.ticket-create-detail select[name="category_id"]')).toHaveValue(
+        fixture.categoryID,
+      );
+      await expect(page).toHaveURL(base() + "/tickets/new");
+
       // A description that names no category leaves the catalog as it was: the
       // fragment comes back empty and no suggestion is rendered (S3).
       await assertHtmxSwap(
@@ -1978,10 +2019,20 @@ test.describe("Ticket category suggestions (seeded)", () => {
           method: "GET",
           expectedStatus: 200,
           hxTarget: singlePageSuggestionSelector,
+          allowEmptyTarget: true,
         },
       );
       await expect(host).toHaveText("");
       await expect(page.locator(".create-suggestion-chip")).toHaveCount(0);
+
+      // S3/S7: nothing suggested leaves no stray rule and no empty box behind.
+      await expect(host).toBeHidden();
+      await expectDividers(
+        page,
+        singlePageSuggestionRegion,
+        { count: 0 },
+        "no divider with nothing suggested",
+      );
 
       // The chosen category survived the suggestion refreshes, so the ticket is
       // created with the category the chip picked.
@@ -2046,6 +2097,16 @@ test.describe("Ticket category suggestions (seeded)", () => {
       await expect(tile).toHaveCount(1);
       await expect(tile.locator(".create-card-name")).toHaveText(fixture.category);
       await expect(tile.locator(".create-card-matches")).toHaveText("Matches: wifi");
+      // The group adds no rule of its own: the region between the search box and
+      // the first department group draws none, measured at both viewports and in
+      // both themes, exactly as it draws none with nothing suggested below.
+      await expectDividers(
+        page,
+        catalogSuggestionRegion,
+        { count: 0 },
+        "the Suggested group's divider count",
+      );
+      const offsetWithSuggestion = await catalogContentOffset(page);
       // S3: the departments stay whole under the group, because choosing from the
       // catalog is still the way to pick a category the engine did not name.
       expect(
@@ -2076,6 +2137,14 @@ test.describe("Ticket category suggestions (seeded)", () => {
         },
       );
       await expect(suggested).toHaveText("");
+      await expect(suggested).toBeHidden();
+      await expectDividers(
+        page,
+        catalogSuggestionRegion,
+        { count: 0 },
+        "the divider count with nothing suggested",
+      );
+      const offsetWithNothing = await catalogContentOffset(page);
       const unavailable = page.locator(".create-card-unavailable");
       await expect(unavailable).toBeVisible();
       await expect(unavailable).toContainText("Unrunnable Requests");
@@ -2089,6 +2158,17 @@ test.describe("Ticket category suggestions (seeded)", () => {
       await page.goto(base() + "/tickets/new");
       await expect(page.locator(catalogSuggestionSelector)).toHaveCount(0);
       await expect(page.locator('[hx-get^="/tickets/suggestions"]')).toHaveCount(0);
+      // An empty suggestion region must not move the catalog, and the Suggested
+      // group must open it where its own content opens it: the same distance
+      // from the search box to the first block, feature off, feature on and
+      // empty, feature on with a group.
+      const offsetOff = await catalogContentOffset(page);
+      expect(offsetWithNothing, "an empty suggestion region must not move the catalog").toBe(
+        offsetOff,
+      );
+      expect(offsetWithSuggestion, "the Suggested group opens the catalog's content").toBe(
+        offsetOff,
+      );
       await page.locator("[data-create-catalog-search]").fill("wifi is not working");
       await expect(page.locator(".create-card:visible")).toHaveCount(0);
       await page.goto(base() + "/tickets/new?q=wifi+is+not+working");

@@ -14,7 +14,11 @@
 
 {{/* The single-page chips: a title that says where they come from, then one
      button per suggestion. A click writes the category into the picker the form
-     already has, so a suggestion never bypasses the field that submits. */}}
+     already has, so a suggestion never bypasses the field that submits.
+
+     The block below is the ONE box that draws the hairline above the
+     suggestions: it exists only while there is something to show, and the live
+     region it is swapped into draws nothing, so the rule never stacks twice. */}}
 {{define "category_suggestion_chips"}}{{if .Suggestions}}<div class="create-suggestions">
   <p class="create-suggestions-title">{{template "suggestion_spark"}}{{t "tickets.suggest.title"}}</p>
 {{range .Suggestions}}  <button type="button" class="create-suggestion-chip" data-suggest-category="{{.ID}}"><span class="create-suggestion-chip-name">{{.Name}}</span><span class="create-suggestion-chip-desk">{{.Caption}}</span></button>
