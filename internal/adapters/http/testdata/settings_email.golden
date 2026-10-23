@@ -96,6 +96,7 @@
   <a class="settings-nav-link" href="/settings/language">Language</a>
   <a class="settings-nav-link" href="/settings/tickets">Tickets &amp; SLA</a>
   <a class="settings-nav-link" href="/settings/email" aria-current="page">Email notifications</a>
+  <a class="settings-nav-link" href="/settings/security">Security</a>
   <a class="settings-nav-link" href="/settings/calendar">Working calendar</a>
 </nav>
 

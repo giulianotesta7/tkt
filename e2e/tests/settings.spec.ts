@@ -877,6 +877,62 @@ test.describe("Settings", () => {
     await expect(page.getByRole("button", { name: "Send test email" })).toHaveCount(0);
     expect(await page.content()).not.toContain('settings-section-title">Email');
   });
+
+  test("the Security section saves the password policy as one form", async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    const obs = collectObservability(page);
+    await loginAsSeeded(page);
+    await page.goto(base() + "/settings/security");
+
+    await expect(page.locator("h2").filter({ hasText: "Security" })).toBeVisible();
+    const change = page.getByRole("checkbox", {
+      name: "Allow people to change their own password from Preferences",
+    });
+    const recovery = page.getByRole("checkbox", { name: /Forgot your password\?/ });
+    const minimum = page.getByLabel("Minimum password length", { exact: true });
+
+    // A fresh instance: both switches on and the documented default minimum.
+    await expect(change).toBeChecked();
+    await expect(recovery).toBeChecked();
+    await expect(minimum).toHaveValue("12");
+    // Nothing can send a recovery link yet, and the section says so next to the
+    // switch it affects.
+    await expect(page.locator(".dep-note")).toContainText("Email notifications are off");
+
+    // One form: the switch, the stepper and nothing else. The stepper's buttons
+    // move the number input, and the first change reveals the section's save bar.
+    await change.uncheck();
+    await page.getByRole("button", { name: "Increase minimum length" }).click();
+    await page.getByRole("button", { name: "Increase minimum length" }).click();
+    await expect(minimum).toHaveValue("14");
+    const savebar = page.locator("[data-settings-savebar]");
+    await expect(savebar).toBeVisible();
+
+    await savebar.getByRole("button", { name: "Save password settings" }).click();
+    await expect(page).toHaveURL(/\/settings\/security$/);
+    await expect(page.locator("#save-feedback")).toContainText("Saved");
+
+    // The policy is what the next request renders, not what the form last held.
+    await page.reload();
+    await expect(
+      page.getByRole("checkbox", {
+        name: "Allow people to change their own password from Preferences",
+      }),
+    ).not.toBeChecked();
+    await expect(page.getByRole("checkbox", { name: /Forgot your password\?/ })).toBeChecked();
+    await expect(page.getByLabel("Minimum password length", { exact: true })).toHaveValue("14");
+
+    await assertCanonicalScreen(page, {
+      viewport: 1280,
+      label: "settings security saved policy",
+      url: page.url(),
+      role: "root",
+      consoleErrors: obs.consoleErrors,
+      pageErrors: obs.pageErrors,
+      failedRequests: obs.failedRequests,
+      failedResponses: obs.failedResponses,
+    });
+  });
 });
 
 test.describe("Preferences", () => {
@@ -1094,6 +1150,7 @@ test.describe("Preferences", () => {
       { label: "Language", url: /\/settings\/language$/ },
       { label: "Tickets & SLA", url: /\/settings\/tickets$/ },
       { label: "Email notifications", url: /\/settings\/email$/ },
+      { label: "Security", url: /\/settings\/security$/ },
       { label: "Working calendar", url: /\/settings\/calendar$/ },
     ];
     for (const entry of entries) {

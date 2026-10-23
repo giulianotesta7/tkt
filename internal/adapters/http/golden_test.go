@@ -1264,6 +1264,26 @@ func fixtureSettingsEmailData() settingsEmailData {
 	}
 }
 
+// fixtureSettingsSecurityData models the Security section (issue #414) with a
+// policy that differs from the defaults on every value, so the golden pins a
+// readable form rather than the state of a fresh instance.
+func fixtureSettingsSecurityData() settingsSecurityData {
+	return settingsSecurityData{
+		settingsSectionData: fixtureSettingsSectionData(settingsSectionSecurity),
+		ChangeEnabled:       true,
+		RecoveryEnabled:     false,
+		MinLength:           "16",
+		EmailConfigured:     false,
+		CanManageEmail:      true,
+		MinLengthFloor:      application.MinPasswordMinLength,
+		MinLengthCeiling:    application.MaxPasswordMinLength,
+	}
+}
+
+func TestGoldenSettingsSecurity(t *testing.T) {
+	goldenFullPage(t, "settings_security", renderGolden(t, "settings_security", "", fixtureSettingsSecurityData(), false))
+}
+
 // seededSLADefaults is the migration 0013 default matrix, frozen as literals
 // so the golden never depends on a store read.
 func seededSLADefaults() []domain.SLAPolicy {

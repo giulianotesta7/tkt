@@ -225,6 +225,12 @@ function authenticatedScreens(deps: {
       control: (p) => p.locator("#email_host"),
     },
     {
+      label: `/settings/security`,
+      path: "/settings/security",
+      heading: (p) => p.locator("h2").filter({ hasText: "Security" }),
+      control: (p) => p.locator("#password_min_length"),
+    },
+    {
       label: `/settings/calendar`,
       path: "/settings/calendar",
       heading: (p) => p.locator("h2").filter({ hasText: "Working calendar" }),

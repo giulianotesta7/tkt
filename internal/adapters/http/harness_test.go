@@ -167,6 +167,7 @@ type harness struct {
 	sla           *application.SLAService
 	preferences   *application.PreferencesService
 	emailSettings *application.EmailSettingsService
+	passwords     *application.PasswordSettingsService
 	mailer        *fakeMailer
 	renderer      *Renderer
 	mux           *http.ServeMux
@@ -213,6 +214,7 @@ func newHarnessWithAdmin(t *testing.T, seedAdmin bool) *harness {
 	mailer := &fakeMailer{}
 	emailSettingsSvc := application.NewEmailSettingsService(s.EmailSettingsStore(), secretbox.New(filepath.Dir(dbPath)), mailer, s.SettingsStore(), msgtext.Renderer{})
 	signinSvc := application.NewSigninService(s.SigninStore())
+	passwordSettingsSvc := application.NewPasswordSettingsService(s.PasswordSettingsStore())
 	renderer := NewRenderer()
 
 	mux := http.NewServeMux()
@@ -224,7 +226,7 @@ func newHarnessWithAdmin(t *testing.T, seedAdmin bool) *harness {
 	NewCategoryHandlersWithWorkflows(catSvc, workflowSvc, renderer, application.NewCatalogService(s.CatalogStore(), s.CategoryStore(), clock)).WithSettings(s.SettingsStore()).Register(mux)
 	NewCategoryWorkflowHandlers(catSvc, workflowSvc, deskSvc, renderer).Register(mux)
 	NewDeskHandlers(deskSvc, renderer).Register(mux)
-	NewSettingsHandlers(settingsSvc, slaSvc, s.SLAStore(), s.SettingsStore(), renderer).WithEmail(emailSettingsSvc).WithOrganization(application.NewOrganizationService(s.OrganizationStore())).WithSignin(signinSvc).Register(mux)
+	NewSettingsHandlers(settingsSvc, slaSvc, s.SLAStore(), s.SettingsStore(), renderer).WithEmail(emailSettingsSvc).WithOrganization(application.NewOrganizationService(s.OrganizationStore())).WithSignin(signinSvc).WithPasswordSettings(passwordSettingsSvc).Register(mux)
 	NewCategorySLAHandlers(catSvc, slaSvc, s.SLAStore(), renderer).Register(mux)
 	NewPreferencesHandlers(preferencesSvc, renderer).Register(mux)
 	NewNotificationHandlers(s.NotificationStore(), s.TicketStore(), s.UserStore(), renderer, clock).Register(mux)
@@ -234,7 +236,7 @@ func newHarnessWithAdmin(t *testing.T, seedAdmin bool) *harness {
 		store: s, dbPath: dbPath, clock: clock,
 		tickets: ticketSvc, comments: commentSvc, users: usersSvc, auth: authSvc,
 		categories: catSvc, desks: deskSvc, search: searchSvc, settings: settingsSvc, workflows: workflowSvc, sla: slaSvc,
-		preferences: preferencesSvc, emailSettings: emailSettingsSvc, mailer: mailer,
+		preferences: preferencesSvc, emailSettings: emailSettingsSvc, passwords: passwordSettingsSvc, mailer: mailer,
 		renderer: renderer,
 		mux:      mux, mw: mw,
 	}
