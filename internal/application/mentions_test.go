@@ -33,8 +33,42 @@ func TestMentionsName(t *testing.T) {
 		"a name with a comma inside it is exact": {"@Ruiz, Bob", "Ruiz, Bob", true},
 	}
 	for name, tc := range cases {
-		if got := mentionsName(tc.body, tc.name); got != tc.want {
-			t.Errorf("%s: mentionsName(%q, %q) = %v, want %v", name, tc.body, tc.name, got, tc.want)
+		if got := mentionedNames(tc.body, []string{tc.name})[tc.name]; got != tc.want {
+			t.Errorf("%s: mentionedNames(%q, [%q]) = %v, want %v", name, tc.body, tc.name, got, tc.want)
+		}
+	}
+}
+
+// A mention starts at the beginning of the text or after a character that is
+// neither a letter nor a digit, so an address-like word never mentions anyone.
+// When several people's names are written from the same @ sign, the longest
+// one is the person meant: "@Ana Assignee" names Ana Assignee, not a colleague
+// called Ana.
+func TestMentionedNamesPicksOnePersonPerAtSign(t *testing.T) {
+	names := []string{"Ana", "Ana Assignee", "Bob Ruiz"}
+	cases := map[string]struct {
+		body string
+		want []string
+	}{
+		"the longer name wins at one @":         {"@Ana Assignee please check", []string{"Ana Assignee"}},
+		"the shorter name alone":                {"@Ana please check", []string{"Ana"}},
+		"both people written separately":        {"@Ana and @Ana Assignee", []string{"Ana", "Ana Assignee"}},
+		"a letter before the @ is a word":       {"mail foo@Ana Assignee", nil},
+		"a digit before the @ is a word":        {"x1@Bob Ruiz", nil},
+		"punctuation before the @ is fine":      {"(@Bob Ruiz)", []string{"Bob Ruiz"}},
+		"a newline before the @ is fine":        {"hi\n@Bob Ruiz", []string{"Bob Ruiz"}},
+		"a longer word leaves the shorter name": {"@Ana Assigneex", []string{"Ana"}},
+	}
+	for label, tc := range cases {
+		got := mentionedNames(tc.body, names)
+		if len(got) != len(tc.want) {
+			t.Errorf("%s: mentionedNames(%q) = %v, want %v", label, tc.body, got, tc.want)
+			continue
+		}
+		for _, n := range tc.want {
+			if !got[n] {
+				t.Errorf("%s: mentionedNames(%q) = %v, want %v", label, tc.body, got, tc.want)
+			}
 		}
 	}
 }

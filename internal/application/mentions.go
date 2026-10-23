@@ -12,35 +12,54 @@ import (
 // from swallowing another: "@Bob Ruiz," names Bob Ruiz, while "@Bob Ruizz" names
 // nobody, because the "z" after the name makes it a different word.
 //
-// The boundary is Unicode-aware on purpose: a name ending in an accented letter
-// is matched the same way, and a letter or digit in any script continues the
-// word. The match is case-sensitive — the name must be written as it is stored,
-// the same way the ticket names people everywhere else.
+// The @ sign itself must start a word too: it is the first character of the
+// text or follows a character that is neither a letter nor a digit, so an
+// address-like "foo@Bob Ruiz" mentions nobody. And one @ sign names one person:
+// when several names are written from it, the longest wins, so "@Ana Assignee"
+// names Ana Assignee and not a colleague called Ana.
+//
+// The boundaries are Unicode-aware on purpose: a name ending in an accented
+// letter is matched the same way, and a letter or digit in any script continues
+// the word. The match is case-sensitive — the name must be written as it is
+// stored, the same way the ticket names people everywhere else.
 //
 // The grammar only says whether a name is WRITTEN in a body. Whether that person
 // can be mentioned at all is the candidate list's decision (FollowService), and
 // nobody outside it is ever mentioned.
 
-// mentionsName reports whether body mentions name.
-func mentionsName(body, name string) bool {
-	if name == "" || body == "" {
-		return false
-	}
-	needle := "@" + name
-	for from := 0; from < len(body); {
-		i := strings.Index(body[from:], needle)
-		if i < 0 {
-			return false
+// mentionedNames returns the names, among the given ones, that body mentions.
+func mentionedNames(body string, names []string) map[string]bool {
+	found := map[string]bool{}
+	for i := 0; i < len(body); i++ {
+		if body[i] != '@' || !mentionBoundaryStart(body, i) {
+			continue
 		}
-		end := from + i + len(needle)
-		if mentionBoundaryEnd(body, end) {
-			return true
+		rest := body[i+1:]
+		best := ""
+		for _, name := range names {
+			if name == "" || len(name) <= len(best) || !strings.HasPrefix(rest, name) {
+				continue
+			}
+			if mentionBoundaryEnd(body, i+1+len(name)) {
+				best = name
+			}
 		}
-		// The name is written, but as the beginning of a longer word: keep
-		// looking for another occurrence.
-		from += i + 1
+		if best != "" {
+			found[best] = true
+		}
 	}
-	return false
+	return found
+}
+
+// mentionBoundaryStart reports whether the @ sign at i starts a word: it is the
+// first character of the text, or the character before it is neither a letter
+// nor a digit.
+func mentionBoundaryStart(body string, i int) bool {
+	if i == 0 {
+		return true
+	}
+	r, _ := utf8.DecodeLastRuneInString(body[:i])
+	return !unicode.IsLetter(r) && !unicode.IsDigit(r)
 }
 
 // mentionBoundaryEnd reports whether the rune starting at i closes a mention:

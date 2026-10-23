@@ -214,10 +214,15 @@ func (s *FollowService) mentionFanOut(ctx context.Context, actor domain.User, ti
 	if err != nil {
 		return nil, nil, err
 	}
+	names := make([]string, 0, len(candidates))
+	for _, c := range candidates {
+		names = append(names, c.user.Name)
+	}
+	written := mentionedNames(body, names)
 	var people []domain.User
 	var verified []verifiedRecipient
 	for _, c := range candidates {
-		if !mentionsName(body, c.user.Name) {
+		if !written[c.user.Name] {
 			continue
 		}
 		people = append(people, c.user)
