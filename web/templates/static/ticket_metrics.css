@@ -1,29 +1,31 @@
-/* Ticket metrics: the dedicated /tickets/metrics page. Only existing design
-   tokens are used; the established 640px breakpoint stacks the layout. */
-/* KPI row (issue #382): the four headline numbers of the selected period sit
-   above the charts, where the queue's weekly strip used to live. */
+/* Ticket metrics: the dedicated /tickets/metrics dashboard (issue #123, redesigned
+   in issue #393). Only existing design tokens are used; the established 640px
+   breakpoint stacks the layout. */
+/* KPI row: the five headline figures of the selected period sit above the
+   charts, each with the derived context its card states. */
 .ticket-metrics-kpis{margin:4px 0 2px;grid-template-columns:repeat(auto-fit,minmax(180px,1fr))}
-/* Compact operational summary cards. Always visible: there is no hide or
-   show toggle, so no hidden-state display override exists. */
 .ticket-metrics-cards{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}
 .ticket-metrics-card{display:grid;gap:4px;align-content:start;padding:12px;border:1px solid var(--line);border-radius:8px;background:var(--surface)}
 .ticket-metrics-visually-hidden{position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0}
 .ticket-metrics-card-label{color:var(--muted);font-size:12px}
 .ticket-metrics-card-value{color:var(--ink-strong);font-size:26px;font-weight:600;line-height:1.15}
+.ticket-metrics-card-detail{color:var(--muted);font-size:12px}
 @media(max-width:640px){
   .ticket-metrics-cards{grid-template-columns:repeat(2,minmax(0,1fr))}
   .ticket-metrics-card-value{font-size:22px}
 }
-/* A mean that cannot be computed is an absence, not a datum. Rendering it at the value rung
-   made the absence the loudest element on the row while its three siblings showed a single
-   digit. It drops to the text rung and a softer ink instead. Declared after the media query
-   above on purpose: same specificity, so source order is what keeps it winning at 640px too. */
+/* A figure that cannot be computed is an absence, not a datum. Rendering it at
+   the value rung made the absence the loudest element on the row while its
+   siblings showed a single digit. It drops to the text rung and a softer ink
+   instead. Declared after the media query above on purpose: same specificity,
+   so source order is what keeps it winning at 640px too. */
 .ticket-metrics-card-value-prose{color:var(--ink-soft);font-size:14px;font-weight:500;line-height:1.45}
-/* Detail page (issue #123) + weekly line card, on existing design tokens. */
-/* The detail page is a page, not a card (issue #377): it shares the page
-   header contract and lays its panels on the canvas like every other screen. */
+/* Detail page (issue #123). The page, not a card (issue #377): it shares the
+   page header contract and lays its panels on the canvas like every screen. */
 .ticket-metrics-detail{display:grid;gap:14px;max-width:1440px;margin:0 0 16px}
 .ticket-metrics-detail-header{margin-bottom:4px}
+/* The filter bar stays the compact row of the reference: the four controls,
+   Apply, Clear and the swap indicator share one line on a wide viewport. */
 .ticket-metrics-filters{display:flex;flex-wrap:wrap;gap:10px;align-items:end}
 .ticket-metrics-filters>label{display:grid;gap:4px;color:var(--muted);font-size:12px}
 .ticket-metrics-filters input[type="date"],.ticket-metrics-filters select{height:34px;border:1px solid var(--line);border-radius:8px;background:var(--surface);color:var(--ink);font:inherit;padding:0 8px}
@@ -34,28 +36,52 @@
 .ticket-metrics-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
 .ticket-metrics-panel{gap:8px;min-width:0}
 .ticket-metrics-panel h2{margin:0;color:var(--ink-strong);font-size:17px}
-.ticket-metrics-scope-row{display:flex;flex-wrap:wrap;align-items:center;gap:8px} /* under the 17px title; legend shares the row */
+/* One header row per panel: the section title, then its Chart/Table switch. */
+.ticket-metrics-panel-head{display:flex;flex-wrap:wrap;align-items:center;gap:8px;min-width:0}
+/* The view switch is a compact segmented pair, the same control family as the
+   workload grouping below: one 8px shell holding two 30px buttons. */
+.ticket-metrics-view{display:inline-flex;margin-left:auto;padding:0;border:1px solid var(--line);border-radius:8px;background:var(--surface)}
+.ticket-metrics-view-btn{height:30px;padding:0 10px;border:0;border-radius:8px;background:transparent;color:var(--muted);font:inherit;font-size:12px;font-weight:500;cursor:pointer}
+.ticket-metrics-view-btn+button{border-left:1px solid var(--line);border-top-left-radius:0;border-bottom-left-radius:0}
+.ticket-metrics-view-btn:first-child{border-top-right-radius:0;border-bottom-right-radius:0}
+.ticket-metrics-view-btn[aria-pressed="true"]{background:var(--pressed);color:var(--ink-strong)}
+.ticket-metrics-view-btn:hover{background:var(--hover);color:var(--ink)}
+.ticket-metrics-view-btn:focus-visible{outline:3px solid var(--accent);outline-offset:-1px}
+/* Without scripting the switch cannot fire, so the table renders instead of a
+   chart the reader could never leave. The media query, not a <noscript> block,
+   because the template engine drops styles inside <noscript> (issue #386
+   shipped the same rule for the detail's listboxes). */
+@media (scripting: none){
+  .ticket-metrics-view{display:none}
+  .ticket-metrics-view-chart{display:none}
+  .ticket-metrics-view-table[hidden]{display:block}
+}
+.ticket-metrics-scope-row{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
 .ticket-metrics-legend{display:inline-flex;flex-wrap:wrap;gap:14px;margin-left:auto}
 .ticket-metrics-legend-item{display:inline-flex;align-items:center;gap:6px;color:var(--muted);font-size:12px}
 .ticket-metrics-legend-line{width:18px;border-top:3px solid var(--accent);border-radius:2px}
 .metrics-legend-resolved{border-top-style:dashed;border-top-color:var(--green)}
-/* Workload grouping: a compact segmented radio pair inside the workload card.
-   The radios stay form-associated with the filter toolbar through the form
-   attribute, so no control moves into the toolbar. */
+/* The attainment legend names the three states one stacked bar encodes. */
+.ticket-metrics-legend-swatch{width:12px;height:12px;border-radius:3px}
+.metrics-legend-met{background:var(--green)}
+.metrics-legend-breached{background:var(--red)}
+.metrics-legend-open{background:var(--gray-ink)}
+/* Workload and attainment grouping: a compact segmented radio pair inside its
+   card. The radios stay form-associated with the filter toolbar through the
+   form attribute, so no control moves into the toolbar. */
 .ticket-metrics-group{display:inline-flex;padding:0;border:1px solid var(--line);border-radius:8px;background:var(--surface)}
 .ticket-metrics-group label{display:inline-flex;align-items:center;gap:6px;padding:8px 12px;color:var(--muted);font-size:12px;cursor:pointer}
 .ticket-metrics-group label+label{border-left:1px solid var(--line)}
 .ticket-metrics-group input{margin:0;accent-color:var(--accent)}
-.ticket-metrics-stats{margin:0;color:var(--ink-soft);font-size:13px}
-.ticket-metrics-data{margin:0} /* native View data disclosure */
-.ticket-metrics-data summary{color:var(--accent);font-size:13px;font-weight:600;cursor:pointer}
-.ticket-metrics-data summary:hover{text-decoration:underline}
-.ticket-metrics-table-wrap{max-width:100%;margin-top:8px;overflow-x:auto}
-.ticket-metrics-data table{width:100%;border-collapse:collapse;font-size:12px}
-.ticket-metrics-data caption{text-align:left;color:var(--muted);font-size:12px;padding:0 0 6px}
-.ticket-metrics-data th,.ticket-metrics-data td{border:1px solid var(--line);padding:6px 10px;text-align:left;color:var(--ink-soft)}
-.ticket-metrics-data th{background:var(--surface);color:var(--ink-strong);font-weight:600}
-/* Line chart: TKT font family; dashed resolved stroke is semantic, never inline. */
+/* The table view: the same values as the chart, on the same wrapper every wide
+   table in the app scrolls inside, so a narrow card never scrolls the page. */
+.ticket-metrics-table-wrap{max-width:100%;overflow-x:auto}
+.ticket-metrics-view-table table{width:100%;border-collapse:collapse;font-size:12px}
+.ticket-metrics-view-table caption{text-align:left;color:var(--muted);font-size:12px;padding:0 0 6px}
+.ticket-metrics-view-table th,.ticket-metrics-view-table td{border:1px solid var(--line);padding:6px 10px;text-align:left;color:var(--ink-soft)}
+.ticket-metrics-view-table th{background:var(--surface);color:var(--ink-strong);font-weight:600}
+/* Charts: TKT font family; the dashed resolved stroke is semantic, never
+   inline, and every SVG scales inside its own card. */
 .ticket-metrics-chart{display:block;width:100%;min-width:0;height:auto;margin:0 0 8px;background:var(--surface);overflow:visible}
 .metrics-axis{stroke:var(--line-strong);stroke-width:1}
 .metrics-gridline{stroke:var(--line);stroke-width:1}
@@ -78,15 +104,26 @@ svg.ticket-metrics-chart:not(.ticket-metrics-bars) .metrics-chart-label{text-anc
 /* Genuinely unassigned workload identity (nil current agent): neutral bar so
    it reads as absence of ownership, never as team workload. */
 .ticket-metrics-bars .metrics-bar-unassigned{fill:var(--gray-ink)}
+/* SLA attainment chart: one row per group, two stacked bars per row. The track
+   is the neutral rung; met, breached and open keep the semantic state tokens
+   the badges use, so one colour means one state across the app. */
+.ticket-metrics-attainment .metrics-chart-label{text-anchor:start;font-size:13px}
+.metrics-att-group{fill:var(--ink-strong);font-weight:600}
+.metrics-att-tag{fill:var(--muted);font-family:inherit;font-size:11px;font-weight:600}
+.metrics-att-track{fill:var(--hover)}
+.metrics-att-met{fill:var(--green)}
+.metrics-att-breached{fill:var(--red)}
+.metrics-att-open{fill:var(--gray-ink)}
+.metrics-att-rate{text-anchor:start}
 @media(max-width:640px){
   .ticket-metrics-grid{grid-template-columns:1fr}
   .ticket-metrics-filters>*{flex:1 1 100%}
   .ticket-metrics-detail-header .btn{margin-left:0}
 }
-/* SLA attainment (issue #211, PR 5): the cohort is the tickets created in the
-   selected period that carry a frozen commitment. The milestone summary pairs
-   on desktop and stacks at the shared 640px breakpoint; the wide per-group
-   table scrolls inside the existing table wrapper. */
+/* SLA attainment summary (issue #211, PR 5): the cohort is the tickets created
+   in the selected period that carry a frozen commitment. The milestone summary
+   pairs on desktop and stacks at the shared 640px breakpoint; the wide
+   per-group table scrolls inside the table wrapper. */
 .ticket-metrics-attainment{display:grid;gap:10px}
 .ticket-metrics-attainment-summary{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
 .ticket-metrics-attainment-milestone{display:grid;gap:4px;padding:10px;border:1px solid var(--line);border-radius:8px;background:var(--surface)}

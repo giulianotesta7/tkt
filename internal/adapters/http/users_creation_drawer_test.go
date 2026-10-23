@@ -28,11 +28,28 @@ func TestUsersCreationDrawerGETContracts(t *testing.T) {
 		`name="password"`,
 		`New accounts are created with the User role. You can change the role after creation.`,
 		`name="status"`,
+		`class="users-drawer-footer"`,
 		`Create user`,
 		`Cancel`,
 	)
 	if strings.Contains(normalBody, `name="role"`) || strings.Contains(normalBody, `name="active"`) || strings.Contains(normalBody, "Edit user") {
 		t.Fatalf("creation drawer exposes edit-only controls: %s", normalBody)
+	}
+	// Creation has no lifecycle section yet: the account is created active, so the
+	// reference hierarchy is identity, credential, then actions (issue #394, S3).
+	if strings.Contains(normalBody, "users-lifecycle") {
+		t.Fatalf("creation drawer must not render the lifecycle section: %s", normalBody)
+	}
+	for _, pair := range [][2]string{
+		{`name="name"`, `name="email"`},
+		{`name="email"`, `name="password"`},
+		{`name="password"`, `class="users-help"`},
+		{`class="users-help"`, `class="users-drawer-footer"`},
+	} {
+		first, second := strings.Index(normalBody, pair[0]), strings.Index(normalBody, pair[1])
+		if first < 0 || second < 0 || first > second {
+			t.Errorf("creation drawer must render %s before %s, got %d and %d", pair[0], pair[1], first, second)
+		}
 	}
 	if strings.Contains(normalBody, "Create a user account with standard access.") || strings.Contains(normalBody, "Update this user's name, email, role, or sign-in state.") || strings.Contains(normalBody, "user-drawer-summary") {
 		t.Fatalf("drawer includes a redundant summary: %s", normalBody)
