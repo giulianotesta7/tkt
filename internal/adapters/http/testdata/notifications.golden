@@ -68,16 +68,17 @@
   <button class="save-feedback-dismiss" type="button" aria-label="Dismiss confirmation">Dismiss</button>
 </div>
 
-<div class="command-header">
-  <div>
-    <h1 class="command-title">Notifications</h1>
-  </div>
-</div>
-<div class="card notifications-page">
+<div class="notifications-screen">
+  <div class="command-header">
+    <div>
+      <h1 class="command-title">Notifications</h1>
+    </div>
 <form class="notifications-actions" method="post" action="/notifications/read-all">
   <button class="btn" type="submit">Mark all as read</button>
 </form>
-  <div class="notifications-body"><ul class="notifications-groups">
+</div>
+  <div class="notifications-page">
+    <div class="notifications-body"><ul class="notifications-groups">
   <li class="notifications-group">
     <h3 class="notifications-day">Today</h3>
     <ul class="notifications-rows">
@@ -191,6 +192,7 @@
   </li>
 </ul>
 </div>
+  </div>
 </div>
 </main>
     <nav class="tabbar" aria-label="Sections">

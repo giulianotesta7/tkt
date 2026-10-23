@@ -203,10 +203,26 @@
   .notification-what{display:block;margin-top:2px;font-size:14px;color:var(--ink)}
   .notification-meta{display:flex;align-items:center;gap:8px;margin-top:6px;font-size:12px;color:var(--muted)}
   .notification-unread{border-radius:6px;background:var(--gray-soft);color:var(--ink);padding:1px 6px;font-size:12px;font-weight:500}
-  .notifications-page{max-width:720px}
+  .notifications-page{max-width:850px}
   .notifications-empty{padding:18px 0}
   .notifications-empty-title{margin:0 0 4px;font-size:14px;font-weight:500;color:var(--ink-strong)}
   .notifications-empty-body{margin:0;font-size:14px;color:var(--ink-soft)}
+
+  .notifications-screen .command-header{align-items:center}
+  .notifications-screen .notifications-actions{margin:0;padding:0}
+  .notifications-screen .notifications-body{padding:0}
+  .notifications-screen .notifications-day{margin:22px 0 6px}
+  .notifications-screen .notifications-group:first-child .notifications-day{margin-top:0}
+  .notifications-screen .notifications-rows{gap:0}
+  .notifications-screen .notifications-row+.notifications-row{border-top:1px solid var(--line)}
+  .notifications-screen .notification-open{padding:16px 8px;border:0;border-radius:8px;background:transparent}
+  .notifications-screen .notification-open:hover{border-color:transparent}
+  .notifications-screen .notification-ident{display:flex;align-items:flex-start;gap:8px;font-size:13px;line-height:1.5;overflow-wrap:anywhere}
+  .notifications-screen .notifications-row:has(.notification-unread) .notification-ident::before{content:"";flex:0 0 auto;width:6px;height:6px;margin-top:7px;border-radius:50%;background:var(--accent)}
+  .notifications-screen .notification-what{margin-top:3px;font-size:13px;line-height:1.5;color:var(--muted)}
+  .notifications-screen .notification-meta{margin-top:7px;flex-wrap:wrap}
+  .notifications-screen .notification-unread{padding:0;background:none;color:var(--muted);font-weight:500}
+  .notifications-screen .notifications-empty{padding:56px 20px;border:1px solid var(--line);border-radius:12px;text-align:center}
 
   .main{padding:22px 28px 40px;min-width:0}
 
@@ -865,6 +881,8 @@
     .desks-layout{grid-template-columns:1fr}.desk-list{order:0}.desk-detail{order:1}.desk-create[open] .form-card{position:static;margin-top:10px}.desk-add-member>div{align-items:stretch}.desk-add-member select{flex:1}
     .sla-grid-row{grid-template-columns:1fr 1fr;gap:8px;padding:12px 0}
     .sla-grid-priority{grid-column:1 / -1}
+    .notifications-screen .notifications-day{margin:18px 0 4px}
+    .notifications-screen .notification-open{padding:14px 4px}
   }
 
   .workflow-responses{
