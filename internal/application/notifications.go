@@ -193,6 +193,18 @@ func holdClosedNotifications(t *domain.Ticket, at time.Time, requester, assignee
 	return b.list()
 }
 
+// alertNotifications builds the issue #408 row for ONE operational alert: the
+// ASSIGNED agent alone learns that their ticket reached an SLA threshold or
+// stopped moving. Nobody performed this — the condition is the passage of time
+// — so the batch carries no actor and excludes nobody on that ground; an
+// assignee who can no longer open the ticket is still dropped, and an empty
+// batch means the pass writes nothing and records no alert.
+func alertNotifications(t *domain.Ticket, kind domain.NotificationKind, at time.Time, assignee *NotificationRecipient) []domain.Notification {
+	b := newNotificationBatch(t, nil, at)
+	b.add(kind, assignee, nil, nil)
+	return b.list()
+}
+
 // NotificationTicketQuery is the ticket READ scope the notification panel uses
 // to load the facts it shows for one row (the ticket number and its title). It
 // is exactly the scope the ticket DETAIL route applies — an agent widens to

@@ -1513,6 +1513,82 @@ func (f *fakeHoldExpiryStore) ReminderSent(_ context.Context, ticketID int64, si
 	return false, nil
 }
 
+// fakeAlertStore serves the operational alert pass (issue #408) from a fixed
+// candidate list: the tests arrange the exact facts the pass reads, so the
+// alert RULES are what each case exercises, not the SQL that gathers them (the
+// real query is covered in the sqlite adapter tests).
+//
+// Documented simplification: the list is NOT filtered by assignee or state the
+// way the real read is. The real store excludes unassigned and closed tickets
+// at the source; keeping them here lets a test prove the pass ALSO refuses to
+// alert about them, which is the behavior the specs name.
+type fakeAlertStore struct {
+	candidates []application.AlertCandidate
+	tx         *fakeAlertUnitOfWork
+	// err, when non-nil, makes the candidate read fail with this exact error:
+	// the pass must abort rather than alert on partial information.
+	err error
+}
+
+func (f *fakeAlertStore) AlertCandidates(_ context.Context, afterID int64, limit int) ([]application.AlertCandidate, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	var out []application.AlertCandidate
+	for _, c := range f.candidates {
+		if c.Ticket.ID > afterID {
+			out = append(out, c)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Ticket.ID < out[j].Ticket.ID })
+	if len(out) > limit {
+		out = out[:limit]
+	}
+	return out, nil
+}
+
+func (f *fakeAlertStore) AlertSent(_ context.Context, ticketID int64, kind domain.NotificationKind, since *time.Time) (bool, error) {
+	return f.tx.sent(ticketID, kind, since), nil
+}
+
+// fakeAlertUnitOfWork records the alerts the pass appends. It re-checks the
+// same once-per-condition predicate the real unit of work evaluates inside its
+// transaction, so a test can prove the pass never writes a duplicate even when
+// the cheap read missed it.
+type fakeAlertUnitOfWork struct {
+	notifications []domain.Notification
+	// err, when non-nil, makes the write fail with this exact error.
+	err error
+}
+
+func (f *fakeAlertUnitOfWork) AppendAlert(_ context.Context, ticketID int64, kind domain.NotificationKind, since *time.Time, notifications []domain.Notification) error {
+	if f.err != nil {
+		return f.err
+	}
+	if len(notifications) == 0 || f.sent(ticketID, kind, since) {
+		return nil
+	}
+	for _, n := range notifications {
+		if err := n.Validate(); err != nil {
+			return err
+		}
+	}
+	f.notifications = append(f.notifications, notifications...)
+	return nil
+}
+
+func (f *fakeAlertUnitOfWork) sent(ticketID int64, kind domain.NotificationKind, since *time.Time) bool {
+	for _, n := range f.notifications {
+		if n.TicketID != ticketID || n.Kind != kind {
+			continue
+		}
+		if since == nil || !n.CreatedAt.Before(*since) {
+			return true
+		}
+	}
+	return false
+}
+
 // fakeAttachmentStore serves downloads from a fixed map (issue #366); it has
 // no list semantics beyond the id lookup the download use case needs.
 type fakeAttachmentStore struct {
