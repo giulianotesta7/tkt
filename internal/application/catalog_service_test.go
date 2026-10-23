@@ -3,6 +3,7 @@ package application_test
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -614,5 +615,49 @@ func TestCatalogServiceTreeProjectionsDelegateAndPropagateErrors(t *testing.T) {
 	}
 	if _, err := failing.ListDefaultSLACategories(ctx); !errors.Is(err, want) {
 		t.Fatalf("ListDefaultSLACategories error = %v, want %v", err, want)
+	}
+}
+
+// Suggestion keywords on the catalog's category editor (issue #416, S4): the
+// manager path stores what the drawer submitted, trimmed, and applies the same
+// bound the category service applies.
+
+func TestCatalogServiceUpdateCategoryStoresKeywords(t *testing.T) {
+	categories := newFakeCategoryStore()
+	category := categories.seed("Printers")
+	category.DeskID = 4
+	svc := application.NewCatalogService(&catalogServiceStore{}, categories, fixedClock())
+
+	category.Keywords = "  impresora, tóner "
+	if err := svc.UpdateCategoryFor(context.Background(), domain.User{Role: domain.RoleAdmin}, &category); err != nil {
+		t.Fatalf("UpdateCategoryFor: %v", err)
+	}
+	stored, err := categories.GetByID(context.Background(), category.ID)
+	if err != nil {
+		t.Fatalf("GetByID: %v", err)
+	}
+	if stored.Keywords != "impresora, tóner" {
+		t.Fatalf("stored keywords = %q, want the trimmed value", stored.Keywords)
+	}
+}
+
+func TestCatalogServiceUpdateCategoryRefusesUnboundedKeywords(t *testing.T) {
+	categories := newFakeCategoryStore()
+	category := categories.seed("Printers")
+	category.DeskID = 4
+	svc := application.NewCatalogService(&catalogServiceStore{}, categories, fixedClock())
+
+	category.Keywords = strings.Repeat("a", application.MaxCategoryKeywordsRunes+1)
+	err := svc.UpdateCategoryFor(context.Background(), domain.User{Role: domain.RoleAdmin}, &category)
+	var validation *domain.ValidationError
+	if !errors.As(err, &validation) || validation.Field != "keywords" {
+		t.Fatalf("UpdateCategoryFor error = %v, want the keywords ValidationError", err)
+	}
+	stored, err := categories.GetByID(context.Background(), category.ID)
+	if err != nil {
+		t.Fatalf("GetByID: %v", err)
+	}
+	if stored.Keywords != "" {
+		t.Fatalf("a refused update must store nothing, keywords = %q", stored.Keywords)
 	}
 }

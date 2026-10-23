@@ -3,6 +3,7 @@ package application_test
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/giulianotesta7/tkt/internal/application"
@@ -169,5 +170,110 @@ func TestCategoryManagementRequiresAdminOrRoot(t *testing.T) {
 	stored, err := categories.GetByID(ctx, created.ID)
 	if err != nil || stored.Name != "Managed" {
 		t.Fatalf("forged mutations changed category: %+v err=%v", stored, err)
+	}
+}
+
+// Suggestion keywords (issue #416, S4): the administrator's field is stored as
+// typed and trimmed, and it is bounded the way every other validated field is.
+
+func TestCategoryCreateStoresSuggestionKeywords(t *testing.T) {
+	svc, categories, _ := newCategoryService()
+
+	created, err := svc.CreateWithKeywords(context.Background(), "Printers", "Printer problems", " impresora, tóner ", 0)
+	if err != nil {
+		t.Fatalf("CreateWithKeywords: %v", err)
+	}
+	if created.Keywords != "impresora, tóner" {
+		t.Fatalf("created keywords = %q, want them trimmed and otherwise as typed", created.Keywords)
+	}
+	stored, err := categories.GetByID(context.Background(), created.ID)
+	if err != nil {
+		t.Fatalf("GetByID: %v", err)
+	}
+	if stored.Keywords != "impresora, tóner" {
+		t.Fatalf("stored keywords = %q, want the trimmed value", stored.Keywords)
+	}
+}
+
+func TestCategoryCreateWithoutKeywordsStoresEmpty(t *testing.T) {
+	svc, categories, _ := newCategoryService()
+
+	created, err := svc.CreateWithDescription(context.Background(), "Printers", "Printer problems", 0)
+	if err != nil {
+		t.Fatalf("CreateWithDescription: %v", err)
+	}
+	stored, err := categories.GetByID(context.Background(), created.ID)
+	if err != nil {
+		t.Fatalf("GetByID: %v", err)
+	}
+	if stored.Keywords != "" {
+		t.Fatalf("stored keywords = %q, want empty", stored.Keywords)
+	}
+}
+
+func TestCategoryKeywordsAreBoundedToOneLine(t *testing.T) {
+	cases := []struct {
+		name     string
+		keywords string
+		want     string
+	}{
+		{name: "at the bound", keywords: strings.Repeat("a", application.MaxCategoryKeywordsRunes)},
+		{name: "one rune over the bound", keywords: strings.Repeat("a", application.MaxCategoryKeywordsRunes+1), want: application.ErrMsgCategoryKeywordsInvalid},
+		{name: "spanning two lines", keywords: "impresora\ntóner", want: application.ErrMsgCategoryKeywordsInvalid},
+		{name: "a carriage return", keywords: "impresora\r\ntóner", want: application.ErrMsgCategoryKeywordsInvalid},
+	}
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			svc, categories, _ := newCategoryService()
+
+			created, err := svc.CreateWithKeywords(context.Background(), "Printers", "", testCase.keywords, 0)
+			if testCase.want == "" {
+				if err != nil {
+					t.Fatalf("CreateWithKeywords: %v", err)
+				}
+				if created.Keywords != testCase.keywords {
+					t.Fatalf("stored keywords = %q, want the value at the bound", created.Keywords)
+				}
+				return
+			}
+			var validation *domain.ValidationError
+			if !errors.As(err, &validation) {
+				t.Fatalf("CreateWithKeywords error = %v, want a ValidationError", err)
+			}
+			if validation.Field != "keywords" || validation.Key != "error.category_keywords_invalid" {
+				t.Fatalf("validation = %+v, want the keywords field and its catalogue key", validation)
+			}
+			if validation.Error() != testCase.want {
+				t.Fatalf("message = %q, want %q", validation.Error(), testCase.want)
+			}
+			if list, err := svc.List(context.Background()); err != nil || len(list) != 0 {
+				t.Fatalf("a refused create must store nothing: list=%v err=%v", list, err)
+			}
+			_ = categories
+		})
+	}
+}
+
+func TestCategoryKeywordsValidationDoesNotDependOnTheActor(t *testing.T) {
+	// The authorized form owns the same bound: a root actor cannot store keywords
+	// the manager form refuses.
+	svc, _, _ := newCategoryService()
+
+	_, err := svc.CreateWithKeywordsFor(context.Background(), domain.User{Role: domain.RoleRoot}, "Printers", "", strings.Repeat("a", application.MaxCategoryKeywordsRunes+1), 0)
+	var validation *domain.ValidationError
+	if !errors.As(err, &validation) || validation.Field != "keywords" {
+		t.Fatalf("CreateWithKeywordsFor error = %v, want the keywords ValidationError", err)
+	}
+}
+
+func TestCategoryKeywordsRefusalOutranksNoForbiddenActor(t *testing.T) {
+	// Authorization comes first: a user role is refused before the field is read,
+	// so the refusal never leaks what a manager form would have said.
+	svc, _, _ := newCategoryService()
+
+	_, err := svc.CreateWithKeywordsFor(context.Background(), domain.User{Role: domain.RoleUser}, "Printers", "", "ok", 0)
+	var forbidden *domain.ForbiddenError
+	if !errors.As(err, &forbidden) {
+		t.Fatalf("CreateWithKeywordsFor error = %v, want Forbidden", err)
 	}
 }

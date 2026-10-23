@@ -1724,3 +1724,35 @@ func signinImageBytes(contentType string, size ...int) []byte {
 	copy(data, magic)
 	return data
 }
+
+// fakeCategorySuggestionIndex implements CategorySuggestionIndex with canned
+// candidates.
+//
+// The simplifications are deliberate and are the point of the fake: it does NO
+// normalization, NO ranking and NO allowed-id filtering. It records the text and
+// the allowed ids it was handed, and returns its configured candidates in the
+// order it holds them, scores included. A fake that normalized, reordered or
+// filtered would hide a missing check in the suggester under test — the suggester
+// is the layer that must not trust a collaborator for the three properties it
+// claims (only allowed ids, only genuinely ranked candidates, only confident
+// results). Where the real normalization, ranking and filtering are proven is the
+// SQLite adapter test.
+type fakeCategorySuggestionIndex struct {
+	candidates []application.CategorySuggestion
+	err        error
+	texts      []string
+	allowed    [][]int64
+}
+
+func newFakeCategorySuggestionIndex(candidates ...application.CategorySuggestion) *fakeCategorySuggestionIndex {
+	return &fakeCategorySuggestionIndex{candidates: candidates}
+}
+
+func (f *fakeCategorySuggestionIndex) SuggestCandidates(_ context.Context, text string, allowed []int64) ([]application.CategorySuggestion, error) {
+	f.texts = append(f.texts, text)
+	f.allowed = append(f.allowed, append([]int64(nil), allowed...))
+	if f.err != nil {
+		return nil, f.err
+	}
+	return append([]application.CategorySuggestion(nil), f.candidates...), nil
+}
