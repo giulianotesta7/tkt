@@ -74,8 +74,8 @@ CREATE VIRTUAL TABLE category_suggest_vocab USING fts5vocab(category_suggest_fts
 CREATE TRIGGER trg_category_suggest_ai AFTER INSERT ON categories BEGIN
   INSERT INTO category_suggest_fts(rowid, name, keywords, description, desk, department)
   VALUES (NEW.id, NEW.name, NEW.keywords, NEW.description,
-    (SELECT ds.name FROM desks ds WHERE ds.id = NEW.desk_id),
-    (SELECT d.name FROM departments d JOIN desks ds ON ds.department_id = d.id WHERE ds.id = NEW.desk_id));
+    COALESCE((SELECT ds.name FROM desks ds WHERE ds.id = NEW.desk_id), ''),
+    COALESCE((SELECT d.name FROM departments d JOIN desks ds ON ds.department_id = d.id WHERE ds.id = NEW.desk_id), ''));
   INSERT INTO category_suggest_trigram(rowid, name, keywords)
   VALUES (NEW.id, NEW.name, NEW.keywords);
 END;
@@ -86,8 +86,8 @@ CREATE TRIGGER trg_category_suggest_au AFTER UPDATE OF name, keywords, descripti
   DELETE FROM category_suggest_fts WHERE rowid = NEW.id;
   INSERT INTO category_suggest_fts(rowid, name, keywords, description, desk, department)
   VALUES (NEW.id, NEW.name, NEW.keywords, NEW.description,
-    (SELECT ds.name FROM desks ds WHERE ds.id = NEW.desk_id),
-    (SELECT d.name FROM departments d JOIN desks ds ON ds.department_id = d.id WHERE ds.id = NEW.desk_id));
+    COALESCE((SELECT ds.name FROM desks ds WHERE ds.id = NEW.desk_id), ''),
+    COALESCE((SELECT d.name FROM departments d JOIN desks ds ON ds.department_id = d.id WHERE ds.id = NEW.desk_id), ''));
   DELETE FROM category_suggest_trigram WHERE rowid = NEW.id;
   INSERT INTO category_suggest_trigram(rowid, name, keywords)
   VALUES (NEW.id, NEW.name, NEW.keywords);
@@ -105,7 +105,7 @@ CREATE TRIGGER trg_category_suggest_desk_au AFTER UPDATE OF name, department_id 
   DELETE FROM category_suggest_fts WHERE rowid IN (SELECT c.id FROM categories c WHERE c.desk_id = NEW.id);
   INSERT INTO category_suggest_fts(rowid, name, keywords, description, desk, department)
     SELECT c.id, c.name, c.keywords, c.description, NEW.name,
-           (SELECT d.name FROM departments d WHERE d.id = NEW.department_id)
+           COALESCE((SELECT d.name FROM departments d WHERE d.id = NEW.department_id), '')
       FROM categories c WHERE c.desk_id = NEW.id;
 END;
 
@@ -132,10 +132,11 @@ CREATE TRIGGER trg_category_suggest_dept_ad AFTER DELETE ON departments BEGIN
 END;
 
 -- Backfill: every category that already existed is indexed with the desk and
--- department it sits in, and the legacy desk-less category (desk_id NULL before
--- 0011 filled it) indexes with no place instead of an empty-string placeholder.
+-- department it sits in. A missing place (a desk without a department) is
+-- indexed as '' here and in every trigger, so the stored row never depends on
+-- which path wrote it.
 INSERT INTO category_suggest_fts(rowid, name, keywords, description, desk, department)
-  SELECT c.id, c.name, c.keywords, c.description, ds.name, COALESCE(d.name, '')
+  SELECT c.id, c.name, c.keywords, c.description, COALESCE(ds.name, ''), COALESCE(d.name, '')
     FROM categories c
     LEFT JOIN desks ds ON ds.id = c.desk_id
     LEFT JOIN departments d ON d.id = ds.department_id;
