@@ -28,7 +28,8 @@ func newCommentNotifyHarness(t *testing.T) *commentNotifyHarness {
 	t.Helper()
 	h := &commentNotifyHarness{notifyHarness: newNotifyHarness(t)}
 	h.commentTx = newFakeCommentUnitOfWork(h.comments)
-	h.svc = application.NewCommentService(h.tickets, h.comments, h.users, h.commentTx, h.clock)
+	h.commentTx.followers = h.followers
+	h.svc = application.NewCommentService(h.tickets, h.comments, h.users, h.commentTx, h.clock).WithFollowers(h.followSvc)
 	return h
 }
 

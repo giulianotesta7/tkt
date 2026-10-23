@@ -62,6 +62,12 @@ func (u *commentUnitOfWork) Add(ctx context.Context, m application.CommentMutati
 	if err := insertCommentTx(ctx, tx, m.Comment); err != nil {
 		return err
 	}
+	// A mention subscribes the people it names (issue #418) in THIS transaction:
+	// the rows are written before the notification append, so a refused
+	// notification rolls the comment AND its new followers back together.
+	if err := followTicketTx(ctx, tx, m.Comment.TicketID, m.Followers, m.Comment.CreatedAt); err != nil {
+		return err
+	}
 	for i := range m.Notifications {
 		n := &m.Notifications[i]
 		if m.Comment.AuthorUserID == nil || n.ActorUserID == nil || *n.ActorUserID != *m.Comment.AuthorUserID {

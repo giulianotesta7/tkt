@@ -131,9 +131,14 @@ func main() {
 	catalogSvc := application.NewCatalogService(store.CatalogStore(), store.CategoryStore(), clock)
 	deskSvc := application.NewDeskService(store.DeskStore(), store.UserStore(), clock)
 	slaSvc := application.NewSLAService(store.SLAStore(), store.SettingsStore(), clock)
+	// Issue #418: following a ticket and mentioning a staff member in a comment.
+	// The same collaborator serves the ticket changes, the comments, the planned
+	// workflow steps and the automatic close, so every event that reaches the
+	// requester or the assignee reaches the ticket's followers too.
+	followSvc := application.NewFollowService(store.TicketStore(), store.UserStore(), store.TicketFollowerStore(), clock)
 	// The requester's reply that ends a hold shifts the resolution SLA (#352).
-	commentSvc := application.NewCommentService(store.TicketStore(), store.CommentStore(), store.UserStore(), store.CommentUnitOfWork(), clock).WithSLA(slaSvc)
-	ticketSvc := application.NewTicketServiceWithWorkflowCreate(store.TicketStore(), store.UserStore(), store.CategoryStore(), store.TicketUnitOfWork(), viewBuilder, clock, store.WorkflowVersionStore(), application.NewWorkflowRunner(clock), store.WorkflowUnitOfWork(), slaSvc)
+	commentSvc := application.NewCommentService(store.TicketStore(), store.CommentStore(), store.UserStore(), store.CommentUnitOfWork(), clock).WithSLA(slaSvc).WithFollowers(followSvc)
+	ticketSvc := application.NewTicketServiceWithWorkflowCreate(store.TicketStore(), store.UserStore(), store.CategoryStore(), store.TicketUnitOfWork(), viewBuilder, clock, store.WorkflowVersionStore(), application.NewWorkflowRunner(clock).WithFollowers(followSvc), store.WorkflowUnitOfWork(), slaSvc).WithFollowers(followSvc)
 	authSvc := application.NewAuthService(store.UserStore(), store.SessionStore(), clock)
 	searchSvc := application.NewSearchService(store.TicketStore(), store.SearchStore())
 	settingsSvc := application.NewSettingsService(store.SettingsStore())
@@ -153,7 +158,7 @@ func main() {
 	// never replied, after warning them one working day earlier. It shares the
 	// SLA service with the ticket use cases, so an automatic close shifts the
 	// paused resolution commitment exactly as a manual resume does.
-	holdExpiry := application.NewHoldExpiryService(store.HoldExpiryStore(), store.TicketUnitOfWork(), store.UserStore(), slaSvc, store.SettingsStore(), clock)
+	holdExpiry := application.NewHoldExpiryService(store.HoldExpiryStore(), store.TicketUnitOfWork(), store.UserStore(), slaSvc, store.SettingsStore(), clock).WithFollowers(followSvc)
 	// Issue #408: the operational alerts tell the assigned agent that a ticket
 	// reached an SLA threshold or stopped moving. They are ordinary
 	// notifications, so the bell and the opt-in email sender above carry them
@@ -172,7 +177,7 @@ func main() {
 	httpadapter.RegisterStatic(mux, store.SettingsStore())
 	httpadapter.NewBrandHandlers(store.OrganizationStore()).WithSignin(store.SigninStore()).Register(mux)
 	httpadapter.NewAuthHandlers(authSvc, userSvc, renderer).WithSignin(signinSvc).Register(mux)
-	httpadapter.NewTicketHandlers(ticketSvc, commentSvc, searchSvc, catSvc, userSvc, store.DeskStore(), workflowSvc, application.NewWorkflowRunner(clock), store.WorkflowRunStore(), store.WorkflowUnitOfWork(), renderer, catalogSvc).WithMetrics(metricsSvc).WithSLA(slaSvc).WithPreferences(preferencesSvc).WithClock(clock).WithAttachments(store.AttachmentStore(), attachmentSvc).Register(mux)
+	httpadapter.NewTicketHandlers(ticketSvc, commentSvc, searchSvc, catSvc, userSvc, store.DeskStore(), workflowSvc, application.NewWorkflowRunner(clock).WithFollowers(followSvc), store.WorkflowRunStore(), store.WorkflowUnitOfWork(), renderer, catalogSvc).WithMetrics(metricsSvc).WithSLA(slaSvc).WithPreferences(preferencesSvc).WithClock(clock).WithAttachments(store.AttachmentStore(), attachmentSvc).Register(mux)
 	httpadapter.NewUserHandlers(userSvc, renderer).Register(mux)
 	httpadapter.NewCategoryHandlersWithWorkflows(catSvc, workflowSvc, renderer, catalogSvc).WithSettings(store.SettingsStore()).Register(mux)
 	httpadapter.NewCategoryWorkflowHandlers(catSvc, workflowSvc, deskSvc, renderer).Register(mux)

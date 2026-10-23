@@ -27,15 +27,16 @@ func holdExpiryCalendar() domain.SLACalendar { return domain.DefaultSLACalendar(
 // recipients, the SLA service (whose ShiftForHold the close reuses), and the
 // settings that carry the window and the calendar.
 type holdExpiryHarness struct {
-	svc      *application.HoldExpiryService
-	store    *fakeHoldExpiryStore
-	tickets  *fakeTicketStore
-	users    *fakeUserStore
-	audits   *fakeAuditStore
-	tx       *fakeUnitOfWork
-	clock    *fakeClock
-	settings *fakeSLASettingsStore
-	slaStore *fakeSLAStore
+	svc       *application.HoldExpiryService
+	store     *fakeHoldExpiryStore
+	tickets   *fakeTicketStore
+	users     *fakeUserStore
+	audits    *fakeAuditStore
+	tx        *fakeUnitOfWork
+	clock     *fakeClock
+	settings  *fakeSLASettingsStore
+	slaStore  *fakeSLAStore
+	followers *fakeFollowerStore
 }
 
 func newHoldExpiryHarness() *holdExpiryHarness {
@@ -51,11 +52,13 @@ func newHoldExpiryHarness() *holdExpiryHarness {
 	tx.slas = slaStore
 	sla := application.NewSLAService(slaStore, settings, clock)
 	store := &fakeHoldExpiryStore{tickets: tickets, tx: tx}
+	followers := newFakeFollowerStore(users)
 	h := &holdExpiryHarness{
 		store: store, tickets: tickets, users: users, audits: audits, tx: tx,
-		clock: clock, settings: settings, slaStore: slaStore,
+		clock: clock, settings: settings, slaStore: slaStore, followers: followers,
 	}
-	h.svc = application.NewHoldExpiryService(store, tx, users, sla, settings, clock)
+	h.svc = application.NewHoldExpiryService(store, tx, users, sla, settings, clock).
+		WithFollowers(application.NewFollowService(tickets, users, followers, clock))
 	return h
 }
 

@@ -291,6 +291,14 @@ func TestSenderRechecksTheRecipientAtSendTime(t *testing.T) {
 			f.tickets.tickets[f.ticket.ID].RequesterUserID = &agentID
 			return f.notify(f.agent.ID, domain.NotificationCommentInternal, nil)
 		}, application.EmailSkipOutOfReach},
+		"mention, no longer staff": {func(f *senderFixture) int64 {
+			// A mention is written from a staff comment, so it carries the same
+			// rule: the ticket is still in reach, the comment is not any more.
+			f.users.users[f.agent.ID].Role = domain.RoleUser
+			agentID := f.agent.ID
+			f.tickets.tickets[f.ticket.ID].RequesterUserID = &agentID
+			return f.notify(f.agent.ID, domain.NotificationMentioned, nil)
+		}, application.EmailSkipOutOfReach},
 	}
 	for name, tc := range cases {
 		f := newSenderFixture(t)

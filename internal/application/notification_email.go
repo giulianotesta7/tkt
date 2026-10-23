@@ -259,7 +259,7 @@ func (s *NotificationEmailSender) compose(ctx context.Context, cfg DeliveryConfi
 	case err != nil:
 		return OutgoingEmail{}, "", err
 	}
-	if n.Kind == domain.NotificationCommentInternal && !NewPolicy().Capabilities(recipient.Role).Require(CapCommentInternal) {
+	if requiresInternalReader(n.Kind) && !NewPolicy().Capabilities(recipient.Role).Require(CapCommentInternal) {
 		return OutgoingEmail{}, EmailSkipOutOfReach, nil
 	}
 	actor, err := s.actorMessage(ctx, n.ActorUserID)

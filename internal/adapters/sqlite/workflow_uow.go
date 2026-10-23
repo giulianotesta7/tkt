@@ -125,7 +125,7 @@ func (u *workflowUnitOfWork) CreateTicketWithRun(ctx context.Context, in applica
 
 	// Apply only the runner-decided fixed operations in literal order. Any error
 	// (including an empty least_loaded desk) rolls back everything.
-	if err := applyWorkflowOperations(ctx, tx, in.Ticket, in.Operations, in.StartedAt); err != nil {
+	if err := applyWorkflowOperations(ctx, tx, in.Ticket, in.Operations, in.StartedAt, nil); err != nil {
 		return nil, err
 	}
 
@@ -212,7 +212,8 @@ func (u *workflowUnitOfWork) ApplyWorkflowPlan(ctx context.Context, in applicati
 
 	// Apply the fixed data-only operations in literal order (audits/answers/
 	// assignee/state). The validator proved they reproduce in.NextTicketState.
-	if err := applyWorkflowOperations(ctx, tx, ticket, in.Operations, run.StartedAt); err != nil {
+	addressed := notifiedRecipients(in)
+	if err := applyWorkflowOperations(ctx, tx, ticket, in.Operations, run.StartedAt, addressed); err != nil {
 		return application.WorkflowExecutionResult{}, err
 	}
 
@@ -1801,7 +1802,15 @@ func requireActiveAgentTx(ctx context.Context, tx *sql.Tx, id int64) error {
 // least_loaded assignment audit is stamped at the most recent prior stored event
 // time so it stays monotonic with the ordered operations while the selection is
 // still resolved inside the same immediate transaction.
-func applyWorkflowOperations(ctx context.Context, tx *sql.Tx, t *domain.Ticket, ops []application.WorkflowOperation, baseAt time.Time) error {
+//
+// addressed is the set of recipients this submission already notifies — the
+// rows the plan writes, plus every row an operation before this one wrote — so
+// an operation never adds a second row for somebody the same submission already
+// addresses.
+func applyWorkflowOperations(ctx context.Context, tx *sql.Tx, t *domain.Ticket, ops []application.WorkflowOperation, baseAt time.Time, addressed map[int64]bool) error {
+	if addressed == nil {
+		addressed = map[int64]bool{}
+	}
 	lastAt := baseAt
 	for _, op := range ops {
 		switch v := op.(type) {
@@ -1922,13 +1931,27 @@ func applyWorkflowOperations(ctx context.Context, tx *sql.Tx, t *domain.Ticket, 
 			//     which is why the plan keeps this row out of the conditional block.
 			if v.NotifyAssignee != nil {
 				var rows []domain.Notification
+				moved := from != to
 				if v.NotifyAssignee.ActorUserID == nil || *v.NotifyAssignee.ActorUserID != selected {
-					if from != to {
+					if moved {
 						rows = append(rows, v.NotifyAssignee.Assigned(selected))
+						addressed[selected] = true
 					}
 					if row, waiting := v.NotifyAssignee.FormWaiting(selected); waiting {
 						rows = append(rows, row)
+						addressed[selected] = true
 					}
+				}
+				if moved {
+					// The ticket moved to the selected person, so the followers it
+					// carries learn WHO holds it now (issue #418). Their rows name the
+					// selection, whose display name only exists inside this
+					// transaction.
+					followerRows, err := assigneeChangedRowsTx(ctx, tx, *v.NotifyAssignee, selected, addressed)
+					if err != nil {
+						return err
+					}
+					rows = append(rows, followerRows...)
 				}
 				if err := appendNotificationsTx(ctx, tx, rows); err != nil {
 					return err
@@ -1939,6 +1962,53 @@ func applyWorkflowOperations(ctx context.Context, tx *sql.Tx, t *domain.Ticket, 
 		}
 	}
 	return nil
+}
+
+// notifiedRecipients collects the people a plan submission already notifies: the
+// rows it writes unconditionally and the rows of every conditional block. An
+// operation that adds rows of its own starts from this set, so one submission
+// never tells the same person twice about the same event.
+func notifiedRecipients(in application.WorkflowMutationPlan) map[int64]bool {
+	out := map[int64]bool{}
+	for _, n := range in.Notifications {
+		out[n.UserID] = true
+	}
+	for _, c := range in.ConditionalNotifications {
+		for _, n := range c.Rows {
+			out[n.UserID] = true
+		}
+	}
+	return out
+}
+
+// assigneeChangedRowsTx builds the "assignee_changed" rows a routing step that
+// MOVES the ticket owes the followers its template carries. The selected person's
+// display name is read HERE, inside the same transaction, because that is the
+// first place their identity exists.
+//
+// Three people are never addressed: the actor, who is being told nothing about
+// their own action; the selected person, who is told "assigned" instead; and
+// anybody this submission already addresses, so nobody hears one event twice.
+func assigneeChangedRowsTx(ctx context.Context, tx *sql.Tx, template application.AssigneeNotification, selected int64, addressed map[int64]bool) ([]domain.Notification, error) {
+	if len(template.Followers) == 0 {
+		return nil, nil
+	}
+	var name string
+	if err := tx.QueryRowContext(ctx, `SELECT name FROM users WHERE id = ?`, selected).Scan(&name); err != nil {
+		return nil, fmt.Errorf("sqlite: read the selected assignee name: %w", err)
+	}
+	var rows []domain.Notification
+	for _, userID := range template.Followers {
+		if userID == selected || addressed[userID] {
+			continue
+		}
+		if template.ActorUserID != nil && *template.ActorUserID == userID {
+			continue
+		}
+		rows = append(rows, template.AssigneeChanged(userID, name))
+		addressed[userID] = true
+	}
+	return rows, nil
 }
 
 // insertAnswerTx persists one form step's typed positional answers with the

@@ -255,6 +255,17 @@ func (f *fakeCommentStore) Add(_ context.Context, c *domain.Comment) error {
 	return nil
 }
 
+// remove undoes one insertion (the fake's stand-in for a rolled-back insert).
+func (f *fakeCommentStore) remove(id, ticketID int64) {
+	kept := f.comments[ticketID][:0]
+	for _, c := range f.comments[ticketID] {
+		if c.ID != id {
+			kept = append(kept, c)
+		}
+	}
+	f.comments[ticketID] = kept
+}
+
 func (f *fakeCommentStore) ListByTicket(_ context.Context, ticketID int64, includeInternal bool) ([]domain.Comment, error) {
 	var out []domain.Comment
 	for _, c := range f.comments[ticketID] {
@@ -275,6 +286,17 @@ func (f *fakeCommentStore) ListByTicket(_ context.Context, ticketID int64, inclu
 type fakeCommentUnitOfWork struct {
 	comments      *fakeCommentStore
 	notifications []domain.Notification
+	// followers, when attached, receives the mentions' subscriber rows of
+	// CommentMutation.Followers (issue #418).
+	followers *fakeFollowerStore
+	// failNotifications makes the NEXT Add fail the way a refused notification
+	// insert does — AFTER the comment row and its follower rows were written, so
+	// the rollback of the whole write is observable.
+	//
+	// Simplification, documented per the fakes contract: the fake has no shared
+	// transaction, so it undoes the comment and the follower rows by hand; the
+	// SQLite adapter owns the proof that one transaction does it.
+	failNotifications bool
 	// holds, when attached, applies a CommentMutation.Resume through the ticket
 	// unit-of-work fake (issue #352). Simplification: the fake has no shared
 	// transaction, so a resume is applied before the comment insert and never
@@ -289,8 +311,9 @@ func newFakeCommentUnitOfWork(comments *fakeCommentStore) *fakeCommentUnitOfWork
 	return &fakeCommentUnitOfWork{comments: comments}
 }
 
-// Add inserts the comment (store-assigned id) and stamps that id onto every
-// notification, then records the batch.
+// Add inserts the comment (store-assigned id), subscribes the people its
+// mentions name, and stamps the comment id onto every notification, then
+// records the batch.
 func (f *fakeCommentUnitOfWork) Add(ctx context.Context, m application.CommentMutation) error {
 	if m.Resume != nil && f.holds != nil {
 		if err := f.holds.applyResume(ctx, *m.Resume); err != nil {
@@ -299,6 +322,22 @@ func (f *fakeCommentUnitOfWork) Add(ctx context.Context, m application.CommentMu
 	}
 	if err := f.comments.Add(ctx, m.Comment); err != nil {
 		return err
+	}
+	if f.followers != nil {
+		for _, userID := range m.Followers {
+			if err := f.followers.Follow(ctx, m.Comment.TicketID, userID, m.Comment.CreatedAt); err != nil {
+				return err
+			}
+		}
+	}
+	if f.failNotifications {
+		f.comments.remove(m.Comment.ID, m.Comment.TicketID)
+		if f.followers != nil {
+			for _, userID := range m.Followers {
+				_ = f.followers.Unfollow(ctx, m.Comment.TicketID, userID)
+			}
+		}
+		return errNotificationAppendFailed
 	}
 	for i := range m.Notifications {
 		id := m.Comment.ID
@@ -309,6 +348,11 @@ func (f *fakeCommentUnitOfWork) Add(ctx context.Context, m application.CommentMu
 	return nil
 }
 
+// errNotificationAppendFailed is the simulated refused notification insert of
+// the comment unit of work (issue #418): the comment and the followers it added
+// must be gone once the write fails.
+var errNotificationAppendFailed = errors.New("notification append failed")
+
 // notified returns the recorded notifications for one recipient, in order.
 func (f *fakeCommentUnitOfWork) notified(userID int64) []domain.Notification {
 	var out []domain.Notification
@@ -318,6 +362,72 @@ func (f *fakeCommentUnitOfWork) notified(userID int64) []domain.Notification {
 		}
 	}
 	return out
+}
+
+// fakeFollowerStore implements TicketFollowerStore over a (ticket, person) set,
+// ordered like the real adapter answers: by display name, then id.
+//
+// Simplification, documented per the fakes contract: the follower rows live
+// beside the user fake instead of joining it, so a follower row whose user was
+// deleted simply stops appearing (the real schema cascades the row away).
+type fakeFollowerStore struct {
+	users *fakeUserStore
+	rows  map[int64][]int64
+}
+
+func newFakeFollowerStore(users *fakeUserStore) *fakeFollowerStore {
+	return &fakeFollowerStore{users: users, rows: map[int64][]int64{}}
+}
+
+func (f *fakeFollowerStore) Follow(_ context.Context, ticketID, userID int64, _ time.Time) error {
+	for _, id := range f.rows[ticketID] {
+		if id == userID {
+			return nil
+		}
+	}
+	f.rows[ticketID] = append(f.rows[ticketID], userID)
+	return nil
+}
+
+func (f *fakeFollowerStore) Unfollow(_ context.Context, ticketID, userID int64) error {
+	kept := f.rows[ticketID][:0]
+	for _, id := range f.rows[ticketID] {
+		if id != userID {
+			kept = append(kept, id)
+		}
+	}
+	f.rows[ticketID] = kept
+	return nil
+}
+
+func (f *fakeFollowerStore) IsFollowing(_ context.Context, ticketID, userID int64) (bool, error) {
+	for _, id := range f.rows[ticketID] {
+		if id == userID {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+func (f *fakeFollowerStore) ListFollowers(_ context.Context, ticketID int64) ([]domain.User, error) {
+	var out []domain.User
+	for _, id := range f.rows[ticketID] {
+		if u, ok := f.users.users[id]; ok {
+			out = append(out, *u)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Name != out[j].Name {
+			return out[i].Name < out[j].Name
+		}
+		return out[i].ID < out[j].ID
+	})
+	return out, nil
+}
+
+// seedFollow arranges one follower row directly, without the service.
+func (f *fakeFollowerStore) seedFollow(ticketID, userID int64) {
+	f.rows[ticketID] = append(f.rows[ticketID], userID)
 }
 
 // fakeAuditStore implements AuditStore with append-order timelines.
