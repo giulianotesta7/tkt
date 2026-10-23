@@ -274,6 +274,13 @@ test.describe("Role — minimal matrix admin / agent / user (seeded)", () => {
     await expect(userRow.locator(".req-meta")).toContainText("TKT-");
     await expect(userRow.locator(".req-meta")).toContainText("Updated");
     await expect(userRow.locator(".req-meta")).toHaveCSS("color", "rgba(0, 0, 0, 0.62)");
+    // The exact instant stays reachable from the keyboard and named for
+    // screen readers, as on the cards the list replaced.
+    const userTime = userRow.locator("time.card-timestamp");
+    await expect(userTime).toHaveAttribute("tabindex", "0");
+    await expect(userTime).toHaveAttribute("aria-label", /\d{2}:\d{2} · \d{2}-\d{2}-\d{4}/);
+    await userTime.focus();
+    await expect(userTime).toBeFocused();
     await expect(userRow.locator(".req-title")).toHaveAttribute("href", `/tickets/${userTicketId}`);
     // The duplicated "View request" link is gone and the row itself is the
     // target; no queue table, no waiting section, no closed disclosure for a

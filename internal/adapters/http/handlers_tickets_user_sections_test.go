@@ -297,3 +297,24 @@ func TestTicketsIndexUserSearchReadsEverySection(t *testing.T) {
 		}
 	}
 }
+
+// Every requester row keeps its timestamp reachable from the keyboard and
+// named for screen readers: the relative reading is visible, and the exact
+// instant is the focusable element's accessible name and tooltip, as on the
+// cards the list replaced. It holds in all three sections.
+func TestTicketsIndexUserTimestampsStayFocusableWithTheFullDate(t *testing.T) {
+	h := newHarness(t)
+	user := seedUserRole(t, h.store, "Tess", "tess@example.com", domain.RoleUser)
+	sess := seedSession(t, h.store, user.ID)
+
+	held := createTicketFor(t, h, user, "Waiting timestamp request")
+	holdViaService(t, h, held.ID, "send the log")
+	createTicketFor(t, h, user, "Open timestamp request")
+	resolved := createTicketFor(t, h, user, "Closed timestamp request")
+	h.seedTransition(t, resolved.ID, domain.StateResolved, "")
+
+	waiting, openSection, closedSection := requesterSections(t, ticketsIndexAs(t, h, sess.ID, "", false))
+	for _, section := range []string{waiting, openSection, closedSection} {
+		mustContain(t, section, `<time class="card-timestamp" tabindex="0" datetime="`, `aria-label="`, `data-full-date="`)
+	}
+}
