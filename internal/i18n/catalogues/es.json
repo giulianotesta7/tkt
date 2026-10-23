@@ -183,6 +183,8 @@
   "error.bad_request": "Solicitud no válida",
   "error.bootstrap_unavailable": "la configuración del primer usuario ya no está disponible",
   "error.calendar_time_form": "el calendario laboral necesita una hora de inicio y una de fin en formato HH:MM",
+  "error.canned_reply_body_length": "el texto de la respuesta debe tener entre 1 y 10000 caracteres",
+  "error.canned_reply_title_length": "el título debe tener entre 1 y 120 caracteres",
   "error.category_name_required": "el nombre de la categoría es obligatorio",
   "error.category_not_runnable": "ahora mismo nadie puede tomar tickets de esta categoría — un administrador necesita revisarla",
   "error.category_required": "la categoría es obligatoria",

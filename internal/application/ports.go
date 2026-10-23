@@ -613,6 +613,45 @@ type DeskStore interface {
 	ListMembers(ctx context.Context, deskID int64) ([]domain.User, error)
 }
 
+// CannedReplyStore persists saved replies (issue #418). A reply belongs to
+// exactly ONE owner — one person or one desk, never both — and every read is
+// scoped to a person or to one desk, so this port cannot answer "every reply":
+// there is no cross-owner listing on it.
+//
+// Callers pass a reply that already went through domain.CannedReply.Validate,
+// which trims the text and enforces the same bounds as the canned_replies
+// CHECK (migration 0033). The store re-asserts the shapes it can prove on its
+// own: an unknown owner or desk is ErrNotFound, a missing id is ErrNotFound.
+type CannedReplyStore interface {
+	// Create stores r, assigning r.ID. ErrNotFound when the owner user or the
+	// desk does not exist.
+	Create(ctx context.Context, r *domain.CannedReply) error
+	// Update persists the editable fields (title, body, updated_at) of r. The
+	// ownership columns are NOT editable: a saved reply never moves between
+	// people or desks. ErrNotFound when the id is absent.
+	Update(ctx context.Context, r *domain.CannedReply) error
+	// Delete removes the reply. ErrNotFound when the id is absent, so a repeated
+	// delete is reported instead of silently succeeding.
+	Delete(ctx context.Context, id int64) error
+	// GetByID returns the reply. ErrNotFound when it is absent, and the caller
+	// cannot tell an id owned by somebody else from a missing one, because
+	// existence is the only fact this read answers.
+	GetByID(ctx context.Context, id int64) (*domain.CannedReply, error)
+	// ListPersonal returns ownerUserID's personal replies, ordered by title then
+	// id (deterministic, so two runs render the same list).
+	ListPersonal(ctx context.Context, ownerUserID int64) ([]domain.CannedReply, error)
+	// ListByDesk returns deskID's shared replies, ordered by title then id.
+	ListByDesk(ctx context.Context, deskID int64) ([]domain.CannedReply, error)
+	// ListUsable returns every reply userID may insert in the composer: the
+	// user's OWN personal replies first (by title, then id), then the replies of
+	// every desk the user is a MEMBER of (by desk name, then title, then id).
+	// Membership is the single grant: a reply of a desk the user does not
+	// belong to is never returned, so removing a membership removes that desk's
+	// replies from the next read. An empty result (never nil-as-error) is the
+	// answer for somebody who owns nothing and belongs to no desk.
+	ListUsable(ctx context.Context, userID int64) ([]domain.CannedReply, error)
+}
+
 type WorkflowRun struct {
 	TicketID         int64
 	CurrentStepIndex int

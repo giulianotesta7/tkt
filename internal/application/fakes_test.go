@@ -1724,3 +1724,227 @@ func signinImageBytes(contentType string, size ...int) []byte {
 	copy(data, magic)
 	return data
 }
+
+// fakeCannedReplyDesks is the desk double the saved-reply tests need (issue
+// #418). It is deliberately NOT fakeDeskStore: that older fake
+// answers GetByID with (nil, nil) and ListMembers with nothing, while the
+// saved-reply rules are exactly about a desk that must exist and about who is a
+// member of it, so reusing it would have proved nothing. Documented
+// simplification: the write half exists only to satisfy DeskStore, members are
+// remembered as ids and reported as active agents, and no desk carries a
+// description or a department.
+type fakeCannedReplyDesks struct {
+	desks   map[int64]*domain.Desk
+	members map[int64]map[int64]bool
+	nextID  int64
+}
+
+func newFakeCannedReplyDesks() *fakeCannedReplyDesks {
+	return &fakeCannedReplyDesks{desks: map[int64]*domain.Desk{}, members: map[int64]map[int64]bool{}, nextID: 1}
+}
+
+func (f *fakeCannedReplyDesks) create(name string) *domain.Desk {
+	d := &domain.Desk{ID: f.nextID, Name: name, CreatedAt: fixedClock().Now()}
+	f.nextID++
+	f.desks[d.ID] = d
+	return d
+}
+
+// join records a membership, which is the only grant ListUsable honours.
+func (f *fakeCannedReplyDesks) join(deskID, userID int64) {
+	if f.members[deskID] == nil {
+		f.members[deskID] = map[int64]bool{}
+	}
+	f.members[deskID][userID] = true
+}
+
+func (f *fakeCannedReplyDesks) isMember(deskID, userID int64) bool { return f.members[deskID][userID] }
+
+func (f *fakeCannedReplyDesks) name(deskID int64) string {
+	if d, ok := f.desks[deskID]; ok {
+		return d.Name
+	}
+	return ""
+}
+
+func (f *fakeCannedReplyDesks) Create(_ context.Context, d *domain.Desk) error {
+	d.ID = f.nextID
+	f.nextID++
+	cp := *d
+	f.desks[d.ID] = &cp
+	return nil
+}
+
+func (f *fakeCannedReplyDesks) Update(_ context.Context, d *domain.Desk) error {
+	f.desks[d.ID] = d
+	return nil
+}
+
+func (f *fakeCannedReplyDesks) Delete(_ context.Context, id int64) error {
+	delete(f.desks, id)
+	return nil
+}
+
+func (f *fakeCannedReplyDesks) GetByID(_ context.Context, id int64) (*domain.Desk, error) {
+	d, ok := f.desks[id]
+	if !ok {
+		return nil, &domain.NotFoundError{Kind: "desk", ID: id}
+	}
+	return d, nil
+}
+
+func (f *fakeCannedReplyDesks) List(_ context.Context) ([]domain.Desk, error) {
+	ids := make([]int64, 0, len(f.desks))
+	for id := range f.desks {
+		ids = append(ids, id)
+	}
+	sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
+	desks := make([]domain.Desk, 0, len(ids))
+	for _, id := range ids {
+		desks = append(desks, *f.desks[id])
+	}
+	return desks, nil
+}
+
+func (f *fakeCannedReplyDesks) AddMember(_ context.Context, deskID, userID int64, _ time.Time) error {
+	f.join(deskID, userID)
+	return nil
+}
+
+func (f *fakeCannedReplyDesks) RemoveMember(_ context.Context, deskID, userID int64) error {
+	delete(f.members[deskID], userID)
+	return nil
+}
+
+func (f *fakeCannedReplyDesks) ListMembers(_ context.Context, deskID int64) ([]domain.User, error) {
+	ids := make([]int64, 0, len(f.members[deskID]))
+	for id := range f.members[deskID] {
+		ids = append(ids, id)
+	}
+	sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
+	users := make([]domain.User, 0, len(ids))
+	for _, id := range ids {
+		users = append(users, domain.User{ID: id, Role: domain.RoleAgent, Active: true})
+	}
+	return users, nil
+}
+
+// fakeCannedReplyStore implements CannedReplyStore over one map (issue #418).
+// Documented simplification: the real port answers ListUsable with
+// a join against desk_members, so the fake asks the desk double instead and
+// reproduces the documented order exactly (personal first by title then id,
+// then desk name, title, id) — the service's grouping and the manager screen
+// read that order, so the fake has to be as deterministic as the SQL. Writes
+// are counted so a denied operation can be proved to touch nothing.
+type fakeCannedReplyStore struct {
+	replies   map[int64]*domain.CannedReply
+	desks     *fakeCannedReplyDesks
+	nextID    int64
+	mutations int
+}
+
+func newFakeCannedReplyStore(desks *fakeCannedReplyDesks) *fakeCannedReplyStore {
+	return &fakeCannedReplyStore{replies: map[int64]*domain.CannedReply{}, desks: desks, nextID: 1}
+}
+
+// seed inserts a reply directly (test arrange), assigning its id.
+func (f *fakeCannedReplyStore) seed(r domain.CannedReply) domain.CannedReply {
+	r.ID = f.nextID
+	f.nextID++
+	cp := r
+	f.replies[r.ID] = &cp
+	return r
+}
+
+func (f *fakeCannedReplyStore) Create(_ context.Context, r *domain.CannedReply) error {
+	if r.OwnerUserID != nil {
+		// owner is the acting user; the fake keeps no user table, so nothing to
+		// prove here.
+	} else if _, err := f.desks.GetByID(context.Background(), *r.DeskID); err != nil {
+		return err
+	}
+	r.ID = f.nextID
+	f.nextID++
+	cp := *r
+	f.replies[r.ID] = &cp
+	f.mutations++
+	return nil
+}
+
+func (f *fakeCannedReplyStore) Update(_ context.Context, r *domain.CannedReply) error {
+	existing, ok := f.replies[r.ID]
+	if !ok {
+		return &domain.NotFoundError{Kind: "canned reply", ID: r.ID}
+	}
+	// Ownership is not editable, exactly like the adapter's UPDATE.
+	cp := *existing
+	cp.Title, cp.Body, cp.UpdatedAt = r.Title, r.Body, r.UpdatedAt
+	f.replies[r.ID] = &cp
+	f.mutations++
+	return nil
+}
+
+func (f *fakeCannedReplyStore) Delete(_ context.Context, id int64) error {
+	if _, ok := f.replies[id]; !ok {
+		return &domain.NotFoundError{Kind: "canned reply", ID: id}
+	}
+	delete(f.replies, id)
+	f.mutations++
+	return nil
+}
+
+func (f *fakeCannedReplyStore) GetByID(_ context.Context, id int64) (*domain.CannedReply, error) {
+	r, ok := f.replies[id]
+	if !ok {
+		return nil, &domain.NotFoundError{Kind: "canned reply", ID: id}
+	}
+	cp := *r
+	return &cp, nil
+}
+
+func (f *fakeCannedReplyStore) ListPersonal(_ context.Context, ownerUserID int64) ([]domain.CannedReply, error) {
+	return f.sorted(func(r *domain.CannedReply) bool {
+		return r.OwnerUserID != nil && *r.OwnerUserID == ownerUserID
+	}), nil
+}
+
+func (f *fakeCannedReplyStore) ListByDesk(_ context.Context, deskID int64) ([]domain.CannedReply, error) {
+	return f.sorted(func(r *domain.CannedReply) bool {
+		return r.DeskID != nil && *r.DeskID == deskID
+	}), nil
+}
+
+func (f *fakeCannedReplyStore) ListUsable(_ context.Context, userID int64) ([]domain.CannedReply, error) {
+	return f.sorted(func(r *domain.CannedReply) bool {
+		if r.OwnerUserID != nil {
+			return *r.OwnerUserID == userID
+		}
+		return f.desks.isMember(*r.DeskID, userID)
+	}), nil
+}
+
+// sorted applies the shared deterministic order to the replies keep accepts.
+func (f *fakeCannedReplyStore) sorted(keep func(*domain.CannedReply) bool) []domain.CannedReply {
+	out := make([]domain.CannedReply, 0, len(f.replies))
+	for _, r := range f.replies {
+		if keep(r) {
+			out = append(out, *r)
+		}
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		personalI, personalJ := out[i].OwnerUserID != nil, out[j].OwnerUserID != nil
+		if personalI != personalJ {
+			return personalI
+		}
+		if !personalI {
+			if ni, nj := f.desks.name(*out[i].DeskID), f.desks.name(*out[j].DeskID); ni != nj {
+				return ni < nj
+			}
+		}
+		if out[i].Title != out[j].Title {
+			return out[i].Title < out[j].Title
+		}
+		return out[i].ID < out[j].ID
+	})
+	return out
+}

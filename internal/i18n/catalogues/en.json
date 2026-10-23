@@ -183,6 +183,8 @@
   "error.bad_request": "Bad request",
   "error.bootstrap_unavailable": "first-user setup is no longer available",
   "error.calendar_time_form": "the working calendar needs a start and end time in HH:MM form",
+  "error.canned_reply_body_length": "the reply text must be from 1 to 10,000 characters",
+  "error.canned_reply_title_length": "the title must be from 1 to 120 characters",
   "error.category_name_required": "category name is required",
   "error.category_not_runnable": "no one can take tickets in this category right now — an administrator needs to review it",
   "error.category_required": "category is required",
