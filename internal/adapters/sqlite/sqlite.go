@@ -266,6 +266,13 @@ func (s *Store) PasswordChangeStore() application.PasswordChangeStore {
 	return newPasswordChangeStore(s.db)
 }
 
+// PasswordResetStore returns the single-use recovery-link port (issue #414,
+// S3/S8/S9): the throttle read, the void-and-issue write, and the one
+// transaction a redeemed link runs in.
+func (s *Store) PasswordResetStore() application.PasswordResetStore {
+	return newPasswordResetStore(s.db)
+}
+
 // SLAStore returns the SLA port (issue #211): global defaults,
 // materialized category matrices, observed milestone instants, and the
 // commitments frozen onto tickets.

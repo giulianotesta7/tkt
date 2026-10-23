@@ -1809,3 +1809,115 @@ func (f *fakePasswordChangeStore) ChangePasswordAndSignOutOtherSessions(_ contex
 	}
 	return nil
 }
+
+// fakePasswordResetStore is the in-memory PasswordResetStore double for the
+// self-service recovery path (issue #414, S3/S8/S9). Three documented
+// simplifications: one flat slice stands in for the table, every mutation is
+// one untorn step standing in for the real immediate transaction (a test that
+// needs a real rollback belongs to the sqlite layer), and an unknown, spent or
+// expired hash answers domain.ErrNotFound alike, exactly like the real store, so
+// the use case owns the one refusal the caller sees.
+type fakePasswordResetStore struct {
+	tokens    []*fakePasswordResetToken
+	users     *fakeUserStore
+	sessions  *fakeSessionStore
+	lastErr   error
+	issueErr  error
+	usableErr error
+	redeemErr error
+}
+
+// fakePasswordResetToken is one stored link.
+type fakePasswordResetToken struct {
+	userID    int64
+	hash      string
+	createdAt time.Time
+	expiresAt time.Time
+	usedAt    *time.Time
+}
+
+var _ application.PasswordResetStore = (*fakePasswordResetStore)(nil)
+
+func newFakePasswordResetStore(users *fakeUserStore, sessions *fakeSessionStore) *fakePasswordResetStore {
+	return &fakePasswordResetStore{users: users, sessions: sessions}
+}
+
+func (f *fakePasswordResetStore) LastPasswordResetRequest(_ context.Context, userID int64) (*time.Time, error) {
+	if f.lastErr != nil {
+		return nil, f.lastErr
+	}
+	var newest *time.Time
+	for _, token := range f.tokens {
+		if token.userID != userID {
+			continue
+		}
+		if newest == nil || token.createdAt.After(*newest) {
+			at := token.createdAt
+			newest = &at
+		}
+	}
+	return newest, nil
+}
+
+func (f *fakePasswordResetStore) IssuePasswordResetToken(_ context.Context, userID int64, hash string, createdAt, expiresAt time.Time) error {
+	if f.issueErr != nil {
+		return f.issueErr
+	}
+	f.voidPending(userID)
+	f.tokens = append(f.tokens, &fakePasswordResetToken{userID: userID, hash: hash, createdAt: createdAt, expiresAt: expiresAt})
+	return nil
+}
+
+func (f *fakePasswordResetStore) PasswordResetTokenUsable(_ context.Context, hash string, now time.Time) (bool, error) {
+	if f.usableErr != nil {
+		return false, f.usableErr
+	}
+	token := f.find(hash)
+	return token != nil && token.usedAt == nil && now.Before(token.expiresAt), nil
+}
+
+func (f *fakePasswordResetStore) RedeemPasswordResetToken(_ context.Context, hash, passwordHash string, now time.Time) error {
+	if f.redeemErr != nil {
+		return f.redeemErr
+	}
+	token := f.find(hash)
+	if token == nil || token.usedAt != nil || !now.Before(token.expiresAt) {
+		return domain.ErrNotFound
+	}
+	user, ok := f.users.users[token.userID]
+	if !ok {
+		return domain.ErrNotFound
+	}
+	user.PasswordHash = passwordHash
+	spentAt := now
+	token.usedAt = &spentAt
+	f.voidPending(token.userID)
+	for id, session := range f.sessions.sessions {
+		if session.UserID == token.userID {
+			delete(f.sessions.sessions, id)
+		}
+	}
+	return nil
+}
+
+// voidPending drops the account's redeemable links, standing in for the real
+// store's delete of the rows that have no used_at.
+func (f *fakePasswordResetStore) voidPending(userID int64) {
+	kept := make([]*fakePasswordResetToken, 0, len(f.tokens))
+	for _, token := range f.tokens {
+		if token.userID == userID && token.usedAt == nil {
+			continue
+		}
+		kept = append(kept, token)
+	}
+	f.tokens = kept
+}
+
+func (f *fakePasswordResetStore) find(hash string) *fakePasswordResetToken {
+	for _, token := range f.tokens {
+		if token.hash == hash {
+			return token
+		}
+	}
+	return nil
+}

@@ -23,10 +23,11 @@ func newPasswordChangeStore(db *sql.DB) *passwordChangeStore {
 	return &passwordChangeStore{db: db}
 }
 
-// ChangePasswordAndSignOutOtherSessions replaces userID's password hash and
-// deletes every session of that user except keepSessionID, in ONE immediate
-// transaction: either the new password is stored AND the other devices are
-// signed out, or neither happens. Sessions of other users are never selected.
+// ChangePasswordAndSignOutOtherSessions replaces userID's password hash, voids
+// the user's pending recovery links and deletes every session of that user
+// except keepSessionID, in ONE immediate transaction: either the new password is
+// stored AND the other devices are signed out AND no older link can still set a
+// password, or neither happens. Sessions of other users are never selected.
 //
 // The hash write runs FIRST so an id no user row matches answers ErrNotFound
 // before a single session is deleted. The kept session is then resolved inside
@@ -65,10 +66,13 @@ func (us *passwordChangeStore) ChangePasswordAndSignOutOtherSessions(ctx context
 		return domain.NewForbiddenError("the session making the change belongs to another account")
 	}
 
-	// Seam for #414's recovery path (T3, S3): the user's pending reset tokens
-	// are voided HERE, in this same transaction, so a link mailed before the
-	// change can never set a password after it. The table arrives with
-	// migration 0029; it does not exist yet, so nothing is deleted here today.
+	// The user's pending recovery links go in this same transaction (S2): a link
+	// mailed before the change must never set a password after it. Spent links
+	// stay as history.
+	if _, err := tx.ExecContext(ctx, `DELETE FROM password_reset_tokens WHERE user_id = ? AND used_at IS NULL`, userID); err != nil {
+		return fmt.Errorf("sqlite: void the pending password reset links: %w", err)
+	}
+
 	if _, err := tx.ExecContext(ctx, `DELETE FROM sessions WHERE user_id = ? AND id <> ?`, userID, keepSessionID); err != nil {
 		return fmt.Errorf("sqlite: sign out the other sessions: %w", err)
 	}

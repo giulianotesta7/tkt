@@ -523,3 +523,28 @@ func hasSessionID(ids []string, id string) bool {
 	}
 	return false
 }
+
+// TestPasswordChangeVoidsPendingResetTokens proves the other half of the
+// transaction (issue #414, S2): a password change voids the account's
+// pending recovery links, because a link mailed before the change must never
+// set a password after it. Spent links stay as history and another account's
+// pending link is untouched.
+func TestPasswordChangeVoidsPendingResetTokens(t *testing.T) {
+	f := newPasswordChangeFixture(t)
+	ctx := context.Background()
+	expires := testClock.Add(time.Hour)
+	seedResetToken(t, f.store, f.userID, "hash-pending", testClock.Add(-time.Minute), expires, nil)
+	seedResetToken(t, f.store, f.userID, "hash-spent", testClock.Add(-time.Hour), expires, ptr(testClock.Add(-30*time.Minute)))
+	seedResetToken(t, f.store, f.other, "hash-other", testClock.Add(-time.Minute), expires, nil)
+
+	if err := f.store.PasswordChangeStore().ChangePasswordAndSignOutOtherSessions(ctx, f.userID, "new-bcrypt-hash", "sess-current"); err != nil {
+		t.Fatalf("ChangePasswordAndSignOutOtherSessions: %v", err)
+	}
+
+	if got, want := resetTokenHashes(t, f.store, f.userID), []string{"hash-spent"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("stored links of the account = %v, want %v (the pending one voided, the spent one kept)", got, want)
+	}
+	if got, want := resetTokenHashes(t, f.store, f.other), []string{"hash-other"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("the other account's links = %v, want %v", got, want)
+	}
+}
