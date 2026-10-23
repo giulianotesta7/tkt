@@ -874,6 +874,7 @@
   "tickets.hold.resume": "Reanudar",
   "tickets.hold.submit": "Poner en espera",
   "tickets.hold.title": "Poner en espera",
+  "tickets.list.changed": "Actualizado desde tu última visita",
   "tickets.list.col_assignee": "Asignado",
   "tickets.list.col_category": "Categoría",
   "tickets.list.col_id": "ID",

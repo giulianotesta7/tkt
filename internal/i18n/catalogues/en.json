@@ -874,6 +874,7 @@
   "tickets.hold.resume": "Resume",
   "tickets.hold.submit": "Put on hold",
   "tickets.hold.title": "Put on hold",
+  "tickets.list.changed": "Updated since your last visit",
   "tickets.list.col_assignee": "Assignee",
   "tickets.list.col_category": "Category",
   "tickets.list.col_id": "ID",
