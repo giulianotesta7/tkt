@@ -1435,12 +1435,29 @@ type ThemePreferencesStore interface {
 
 // TicketSection narrows an agent's read scope into a presentation section.
 // The zero value keeps the full actor scope for existing list and detail reads.
+//
+// The Requester sections belong to the requester's OWN list (issue #411): the
+// server chooses one per section of the page, and SearchService derives the
+// state set and the on-hold half of the predicate from it, so a caller can
+// never pick a section or widen what a requester reads.
 type TicketSection int
 
 const (
 	TicketSectionAll TicketSection = iota
 	TicketSectionPersonal
 	TicketSectionClaimable
+	// TicketSectionRequesterAction is the requester's "Needs your action" set
+	// (issue #411, S8): the active work held for their reply OR a resolved
+	// ticket awaiting their confirmation. It replaces the former on-hold-only
+	// waiting section, so both requests for the requester live in one list.
+	TicketSectionRequesterAction
+	// TicketSectionRequesterOpen is the requester's active work that is NOT on
+	// hold, so a held ticket is never listed twice.
+	TicketSectionRequesterOpen
+	// TicketSectionRequesterClosed is the requester's CLOSED work only, folded
+	// at the end of the list. A resolved ticket still awaiting confirmation
+	// belongs to the Needs-your-action section, never here (issue #411, S8).
+	TicketSectionRequesterClosed
 )
 
 // TicketQuery is the filter set shared by list, count, and search queries
@@ -1455,7 +1472,8 @@ const (
 type TicketQuery struct {
 	State *domain.State
 	// States is an internal multi-state restriction. It composes with State
-	// when both are set, and lets the user ticket view stay open-only.
+	// when both are set. The requester's list sets it from the section the
+	// server chose (active work, or resolved+closed for the folded section).
 	States     []domain.State
 	Priority   *domain.Priority
 	CategoryID *int64
@@ -1467,6 +1485,18 @@ type TicketQuery struct {
 	// OnHold restricts the list to tickets currently on hold (issue #382, the
 	// "On hold" queue view): on_hold_since is set, whatever the state.
 	OnHold bool
+	// NotOnHold restricts the list to tickets that are NOT on hold, so the
+	// requester's Needs-your-action set and their open set never overlap
+	// (issue #411, S3/S4).
+	NotOnHold bool
+	// RequesterNeedsAction restricts the read to the requester's "Needs your
+	// action" set (issue #411, S8): active work on hold for their reply, OR a
+	// resolved ticket awaiting their confirmation. States, OnHold and NotOnHold
+	// cannot express an OR, so this is a predicate of its own. It is
+	// SERVER-ONLY: SearchService derives it from the section it chose and
+	// clears every caller-supplied value, exactly like the state set it
+	// accompanies, so a crafted query can never select the section.
+	RequesterNeedsAction bool
 	// Text is the D4-tokenized, title-scoped FTS expression ("" = no title
 	// filter). The search box matches ONLY ticket titles or IDs.
 	Text string

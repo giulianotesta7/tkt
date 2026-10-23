@@ -310,7 +310,7 @@ func TestTicketHrefsPreserveSort(t *testing.T) {
 	if got, want := listHref(f, 2), "/tickets?page=2&sort=urgency"; got != want {
 		t.Errorf("listHref = %q, want %q", got, want)
 	}
-	if got, want := agentListHref(f, 2, 1), "/tickets?assigned_page=2&sort=urgency"; got != want {
+	if got, want := agentListHref(f, 2, 1, 1), "/tickets?assigned_page=2&sort=urgency"; got != want {
 		t.Errorf("agentListHref = %q, want %q", got, want)
 	}
 	if got := ticketFilterValues(f).Get("sort"); got != sortUrgency {
@@ -602,7 +602,7 @@ func TestTicketsSearchUserRoleDoesNotLeakMatchingTickets(t *testing.T) {
 	if strings.Contains(body, "Shared printer issue for admin") {
 		t.Errorf("user search must exclude another user's matching ticket, got: %s", body)
 	}
-	if !strings.Contains(body, "1 ticket") || strings.Contains(body, "2 tickets") {
+	if !strings.Contains(body, "1 open ticket") || strings.Contains(body, "2 open tickets") {
 		t.Errorf("user scoped result count must describe only the visible ticket, got: %s", body)
 	}
 }

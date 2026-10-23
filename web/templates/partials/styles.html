@@ -644,6 +644,31 @@
   }
   .empty{color:var(--muted);padding:32px 0;text-align:center}
   .empty.compact{padding:12px 0 0;text-align:left}
+  .req-section{margin:0 0 26px}
+  .req-section:last-of-type{margin-bottom:0}
+  .req-section-title{margin:0 0 10px;color:var(--ink-strong);font-size:13px;font-weight:600}
+  .req-list{list-style:none;margin:0;padding:0;border:1px solid var(--line);border-radius:12px;overflow:hidden}
+  .req{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:4px 18px;align-items:center;padding:14px 16px;border-bottom:1px solid var(--line);cursor:pointer;min-width:0}
+  .req:last-child{border-bottom:0}
+  .req:hover{background:var(--hover)}
+  .req-title{color:var(--ink-strong);font-size:14px;font-weight:500;overflow-wrap:anywhere}
+  .req-desc{grid-column:1;margin:0;color:var(--muted);font-size:13px;line-height:1.5;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .req-meta{grid-column:1;color:var(--muted);font-size:12px}
+  .req-side{grid-row:1/4;grid-column:2;display:flex;flex-direction:column;align-items:flex-end;gap:8px}
+  .req-waiting-list{list-style:none;margin:0;padding:0;display:grid;gap:10px}
+  .req-waiting{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:6px 18px;align-items:center;padding:16px;border:1px solid var(--line-strong);border-radius:12px;cursor:pointer;min-width:0}
+  .req-waiting:hover{background:var(--hover)}
+  .req-waiting-main{display:flex;flex-direction:column;gap:4px;min-width:0}
+  .req-waiting-label{color:var(--amber);font-size:12px;font-weight:500}
+  .req-waiting-label-confirm{color:var(--green)}
+  .req-action{flex:0 0 auto}
+  .req-empty{border:1px solid var(--line);border-radius:12px;padding:8px}
+  .req-empty .empty{padding:24px 0}
+  .req-empty .btn{margin-top:12px}
+  .req-fold{margin:0}
+  .req-fold-summary{width:max-content;padding:8px 0;color:var(--muted);font-size:13px;cursor:pointer}
+  .req-fold-summary:hover{color:var(--ink)}
+  .req-fold[open] .req-fold-summary{margin-bottom:10px}
 
   .workflow-builder{width:100%;position:relative;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:0}
   .workflow-builder-head{position:relative;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:18px 20px 0}.workflow-step-head,.workflow-actions{display:flex;align-items:center;justify-content:space-between;gap:12px}
@@ -924,6 +949,10 @@
     .notifications-screen .notification-open{padding:14px 4px}
     .preferences-section{grid-template-columns:minmax(0,1fr);gap:16px;padding:20px 0}
     .preferences-section:first-child{padding-top:0}
+    .req{grid-template-columns:minmax(0,1fr)}
+    .req-side{grid-row:auto;grid-column:1;flex-direction:row;align-items:center;justify-content:space-between}
+    .req-waiting{grid-template-columns:minmax(0,1fr)}
+    .req-action{justify-content:center}
   }
 
   .workflow-responses{
@@ -963,6 +992,39 @@
       .search-field .search-icon{position:absolute;top:50%;left:12px;width:18px;height:18px;transform:translateY(-50%);color:var(--faint);pointer-events:none}
       .ticket-search input[type=search]{padding:0 12px 0 38px}
       .catalog-search input{padding:0 0 0 26px}
+  .tickets-screen #agent-ticket-list.agent-ticket-list{display:block}
+  .agent-summary{margin:0 0 20px}
+  .agent-queue{min-width:0}
+  .agent-queue + .agent-queue{margin-top:32px}
+  .agent-queue-title{font-size:14px;font-weight:600;color:var(--ink-strong);margin:0 0 10px}
+  .agent-queue-count{font-weight:500;color:var(--muted)}
+  .agent-task{display:block;margin-top:4px;font-size:12px;color:var(--ink-soft)}
+  .agent-task-label{color:var(--muted)}
+  .agent-fold{margin-top:10px}
+  .agent-fold > summary{cursor:pointer;font-size:13px;font-weight:500;color:var(--muted);padding:8px 0;width:max-content;max-width:100%}
+  .agent-fold > summary:hover{color:var(--ink)}
+  .agent-fold[open] > summary{margin-bottom:10px}
+  .agent-fold-count{font-weight:500;color:var(--muted)}
+  @media (min-width:641px){
+    .tickets-screen .queue.agent-table{table-layout:fixed}
+    .tickets-screen .queue.agent-table th:nth-child(1),.tickets-screen .queue.agent-table td:nth-child(1){width:76px}
+    .tickets-screen .queue.agent-table th:nth-child(3),.tickets-screen .queue.agent-table td:nth-child(3){width:124px}
+    .tickets-screen .queue.agent-table th:nth-child(4),.tickets-screen .queue.agent-table td:nth-child(4){width:100px}
+    .tickets-screen .queue.agent-table th:nth-child(5),.tickets-screen .queue.agent-table td:nth-child(5){width:140px}
+    .tickets-screen .queue.agent-table th:nth-child(6),.tickets-screen .queue.agent-table td:nth-child(6){width:92px}
+    .tickets-screen .queue.agent-table th:nth-child(7),.tickets-screen .queue.agent-table td:nth-child(7){width:100px}
+    .tickets-screen .queue.agent-table th:last-child,.tickets-screen .queue.agent-table td:last-child{width:112px}
+    .tickets-screen .queue.agent-table .agent-desk{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    .tickets-screen .queue.agent-table .cell-actions{text-align:right;white-space:nowrap}
+  }
+  @media (max-width:640px){
+    .tickets-screen .queue.agent-table td.cell-actions{display:block;padding-top:2px}
+    .tickets-screen .queue.agent-table td.cell-actions::before{content:none}
+    .tickets-screen .queue.agent-table td.cell-actions .agent-claim-form{display:block;margin:0}
+    .tickets-screen .queue.agent-table td.cell-actions .btn{width:100%;justify-content:center}
+    .tickets-screen .queue.agent-table td > .badge,.tickets-screen .queue.agent-table td > .priority,.tickets-screen .queue.agent-table td > .sla-state{justify-self:start}
+    .agent-queue-title{margin-bottom:8px}
+  }
       </style>{{if .CategoryAssets}}<style>
       .categories-root{min-width:0}
       .categories-root #categories-background{min-width:0}

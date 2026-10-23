@@ -445,10 +445,16 @@ func listHref(f filterState, page int) string {
 	return "/tickets?" + v.Encode()
 }
 
-func agentListHref(f filterState, assignedPage, claimablePage int) string {
+// agentListHref rebuilds the /tickets URL for one agent section page while
+// keeping the other sections' cursors, so paging one queue never resets the
+// two beside it.
+func agentListHref(f filterState, assignedPage, donePage, claimablePage int) string {
 	v := ticketFilterValues(f)
 	if assignedPage > 1 {
 		v.Set("assigned_page", strconv.Itoa(assignedPage))
+	}
+	if donePage > 1 {
+		v.Set("done_page", strconv.Itoa(donePage))
 	}
 	if claimablePage > 1 {
 		v.Set("claimable_page", strconv.Itoa(claimablePage))
@@ -637,6 +643,13 @@ type ticketRow struct {
 	CategoryName string
 }
 
+// AwaitingConfirmation reports whether the row is a resolved ticket waiting for
+// the requester's decision (issue #411, S8). The requester list renders its two
+// Needs-your-action requests differently — a held ticket asks for a reply, a
+// resolved one asks whether the issue is solved — so the row answers that
+// question instead of leaving the template to compare state strings.
+func (r ticketRow) AwaitingConfirmation() bool { return r.State == domain.StateResolved }
+
 // ticketListData is one independently paged ticket section.
 type ticketListData struct {
 	Tickets        []ticketRow
@@ -646,6 +659,10 @@ type ticketListData struct {
 	PrevHref       string
 	NextHref       string
 	HasActiveQuery bool
+	// Now is the section's clock snapshot for its relative timestamps. It
+	// travels WITH the section because a template invoked with the section as
+	// its data cannot reach the page's own Now.
+	Now time.Time
 }
 
 func sectionData(res *application.SearchResult, f filterState, hrefForPage func(int) string) ticketListData {
@@ -668,54 +685,85 @@ func sectionData(res *application.SearchResult, f filterState, hrefForPage func(
 	return data
 }
 
-// agentQueueSections builds BOTH agent queue sections through the shared
-// helper used by GET /tickets and list-claim responses: the two independent
-// scoped searches run as today, the union of page ticket IDs (≤ 20 at PageSize
-// 10) is batched through ONE SearchService.AgentQueueContext call AND ONE
+// agentOpenStates and agentDoneStates split the agent's personal queue by
+// lifecycle (issue #410, S4): active work stays in "Assigned to me" and the
+// agent's finished work (resolved, closed or cancelled) collapses into its own
+// disclosure. The split lives in the query, so each section paginates over its
+// own set and the counts never disagree with the rows below them.
+var (
+	agentOpenStates = []domain.State{domain.StateNew, domain.StateInProgress}
+	agentDoneStates = domain.ClosedStates()
+)
+
+// agentQueueSections builds the THREE agent queue sections through the shared
+// helper used by GET /tickets and list-claim responses: the open and done
+// halves of the personal queue plus the claimable queue run as independent
+// scoped searches, the union of their page ticket IDs (≤ 30 at PageSize 10) is
+// batched through ONE SearchService.AgentQueueContext call AND ONE
 // SLAService.ForTickets call (one clock snapshot for the whole page), and
 // every ticket is wrapped with its row context and optional SLA row. A missing
 // production capability or a store error propagates — rows are never
 // fabricated.
-func (h *TicketHandlers) agentQueueSections(r *http.Request, f filterState, assignedPage, claimablePage int) (assigned, claimable ticketListData, total int, err error) {
+func (h *TicketHandlers) agentQueueSections(r *http.Request, f filterState, assignedPage, donePage, claimablePage int) (assigned, done, claimable ticketListData, total int, err error) {
 	actor := *userFromContext(r.Context())
 	assignedQuery := f.query()
 	assignedQuery.Section = application.TicketSectionPersonal
+	assignedQuery.States = agentOpenStates
 	assignedRes, err := h.search.Search(r.Context(), actor, assignedQuery, assignedPage)
 	if err != nil {
-		return assigned, claimable, 0, err
+		return assigned, done, claimable, 0, err
+	}
+	doneQuery := f.query()
+	doneQuery.Section = application.TicketSectionPersonal
+	doneQuery.States = agentDoneStates
+	doneRes, err := h.search.Search(r.Context(), actor, doneQuery, donePage)
+	if err != nil {
+		return assigned, done, claimable, 0, err
 	}
 	claimableQuery := f.query()
 	claimableQuery.Section = application.TicketSectionClaimable
 	claimableRes, err := h.search.Search(r.Context(), actor, claimableQuery, claimablePage)
 	if err != nil {
-		return assigned, claimable, 0, err
+		return assigned, done, claimable, 0, err
 	}
-	union := make([]domain.Ticket, 0, len(assignedRes.Tickets)+len(claimableRes.Tickets))
+	union := make([]domain.Ticket, 0, len(assignedRes.Tickets)+len(doneRes.Tickets)+len(claimableRes.Tickets))
 	union = append(union, assignedRes.Tickets...)
+	union = append(union, doneRes.Tickets...)
 	union = append(union, claimableRes.Tickets...)
 	contexts, err := h.search.AgentQueueContext(r.Context(), union)
 	if err != nil {
-		return assigned, claimable, 0, err
+		return assigned, done, claimable, 0, err
 	}
-	// ONE SLA batch over the union of BOTH sections' page ids, instead of a
+	// ONE SLA batch over the union of every section's page ids, instead of a
 	// per-section or per-ticket read. An unset service leaves slas nil, so
 	// every row's SLA row stays nil and no badge renders.
 	var slas map[int64]domain.SLAProjection
 	if h.sla != nil {
 		slas, err = h.sla.ForTickets(r.Context(), ticketIDs(union))
 		if err != nil {
-			return assigned, claimable, 0, err
+			return assigned, done, claimable, 0, err
 		}
 	}
 	assigned = sectionData(assignedRes, f, func(page int) string {
-		return agentListHref(f, page, claimablePage)
+		return agentListHref(f, page, donePage, claimablePage)
 	})
 	assigned.Tickets = wrapTicketRows(assignedRes.Tickets, contexts, slas)
+	done = sectionData(doneRes, f, func(page int) string {
+		return agentListHref(f, assignedPage, page, claimablePage)
+	})
+	done.Tickets = wrapTicketRows(doneRes.Tickets, contexts, slas)
 	claimable = sectionData(claimableRes, f, func(page int) string {
-		return agentListHref(f, assignedPage, page)
+		return agentListHref(f, assignedPage, donePage, page)
 	})
 	claimable.Tickets = wrapTicketRows(claimableRes.Tickets, contexts, slas)
-	return assigned, claimable, assignedRes.Total + claimableRes.Total, nil
+	// ONE clock snapshot for the whole page, handed to every section so the
+	// three relative timestamps can never disagree with each other.
+	var now time.Time
+	if h.clock != nil {
+		now = h.clock.Now()
+	}
+	assigned.Now, done.Now, claimable.Now = now, now, now
+	return assigned, done, claimable, assignedRes.Total + doneRes.Total + claimableRes.Total, nil
 }
 
 // wrapTicketRows pairs one section's tickets with their batched contexts and
@@ -754,8 +802,19 @@ type listData struct {
 	HasActiveQuery      bool
 	AgentView           bool
 	Assigned            ticketListData
+	Done                ticketListData
 	Claimable           ticketListData
 	ClaimError          string
+	// Action, Open and Closed are the requester list's three sections (issue
+	// #411, S3/S4/S8): the combined Needs-your-action set (the on-hold work
+	// waiting for the requester's reply plus the resolved tickets awaiting their
+	// confirmation), the active work, and the closed work folded at the end.
+	// Each carries its own page cursor and its own count. Every other view
+	// leaves them zero, and the requester's Total is the open work their header
+	// counts.
+	Action ticketListData
+	Open   ticketListData
+	Closed ticketListData
 	// Tabs, Chips, ShowSLA and Now are the triage queue's presentation
 	// (issue #382): the view tabs with their counts, the removable active
 	// filters, whether the SLA column is drawn, and the one clock snapshot
@@ -807,6 +866,101 @@ func pageNumber(r *http.Request, key string) int {
 	return page
 }
 
+// requesterListHref rebuilds /tickets carrying the filters and the requester's
+// three INDEPENDENT page cursors (issue #411, S4). Each section's next and
+// previous links keep the other two cursors where they were, so paging one
+// section never resets another, and the search term survives every page.
+func requesterListHref(f filterState, openPage, actionPage, closedPage int) string {
+	v := ticketFilterValues(f)
+	if openPage > 1 {
+		v.Set("page", strconv.Itoa(openPage))
+	}
+	if actionPage > 1 {
+		v.Set("action_page", strconv.Itoa(actionPage))
+	}
+	if closedPage > 1 {
+		v.Set("closed_page", strconv.Itoa(closedPage))
+	}
+	if len(v) == 0 {
+		return "/tickets"
+	}
+	return "/tickets?" + v.Encode()
+}
+
+// requesterSection reads ONE requester section through the same scoped search
+// the rest of the list uses: the section (never the URL) decides its state set
+// and its on-hold half, the text filter applies to all three alike, and its own
+// cursor pages it.
+func (h *TicketHandlers) requesterSection(r *http.Request, f filterState, actor domain.User, section application.TicketSection, page int, hrefForPage func(int) string) (ticketListData, error) {
+	query := viewQuery(f, actor)
+	query.Section = section
+	res, err := h.search.Search(r.Context(), actor, query, page)
+	if err != nil {
+		return ticketListData{}, err
+	}
+	data := sectionData(res, f, hrefForPage)
+	// SLA stays STAFF-ONLY (issue #211): the requester rows carry no SLA row,
+	// and no SLA read is made for them.
+	data.Tickets = wrapTicketRows(res.Tickets, nil, nil)
+	return data, nil
+}
+
+// requesterListSections builds the requester's three independently paged
+// sections (issue #411, S3/S4). The counts come from the same reads that
+// produce the rows, so a section header can never disagree with its list.
+func (h *TicketHandlers) requesterListSections(r *http.Request, f filterState, openPage, actionPage, closedPage int) (action, open, closed ticketListData, err error) {
+	actor := *userFromContext(r.Context())
+	action, err = h.requesterSection(r, f, actor, application.TicketSectionRequesterAction, actionPage, func(page int) string {
+		return requesterListHref(f, openPage, page, closedPage)
+	})
+	if err != nil {
+		return action, open, closed, err
+	}
+	open, err = h.requesterSection(r, f, actor, application.TicketSectionRequesterOpen, openPage, func(page int) string {
+		return requesterListHref(f, page, actionPage, closedPage)
+	})
+	if err != nil {
+		return action, open, closed, err
+	}
+	closed, err = h.requesterSection(r, f, actor, application.TicketSectionRequesterClosed, closedPage, func(page int) string {
+		return requesterListHref(f, openPage, actionPage, page)
+	})
+	return action, open, closed, err
+}
+
+// requesterListData is the requester payload: three sections, the open-work
+// count the header reads, and the one clock snapshot the relative "Updated"
+// reading is judged against.
+func (h *TicketHandlers) requesterListData(r *http.Request, f filterState, openPage, actionPage, closedPage int) (listData, error) {
+	action, open, closed, err := h.requesterListSections(r, f, openPage, actionPage, closedPage)
+	if err != nil {
+		return listData{}, err
+	}
+	pageMeta := pageDataFrom(r, "tickets")
+	pageMeta.PageFoundationAssets = true
+	// The requester's rows use the same plain-click row navigation as the
+	// staff queue (issue #411, S2).
+	pageMeta.QueueAssets = true
+	data := listData{
+		pageData:       pageMeta,
+		Filters:        f,
+		Tickets:        open.Tickets,
+		Total:          action.Total + open.Total,
+		Page:           open.Page,
+		Pages:          open.Pages,
+		PrevHref:       open.PrevHref,
+		NextHref:       open.NextHref,
+		HasActiveQuery: f.Q != "",
+		Action:         action,
+		Open:           open,
+		Closed:         closed,
+	}
+	if h.clock != nil {
+		data.Now = h.clock.Now()
+	}
+	return data, nil
+}
+
 // listData builds the full list payload for the given filters and page.
 // The search is scoped to the session actor (ticket-access spec): the
 // list shows only tickets within the actor's scope.
@@ -828,14 +982,16 @@ func (h *TicketHandlers) listData(r *http.Request, f filterState, page int) (lis
 		f = simplifiedFilters(f)
 		pageMeta := pageDataFrom(r, "tickets")
 		pageMeta.PageFoundationAssets = true
-		assigned, claimable, total, err := h.agentQueueSections(r, f, pageNumber(r, "assigned_page"), pageNumber(r, "claimable_page"))
+		pageMeta.QueueAssets = true
+		assigned, done, claimable, total, err := h.agentQueueSections(r, f, pageNumber(r, "assigned_page"), pageNumber(r, "done_page"), pageNumber(r, "claimable_page"))
 		if err != nil {
 			return listData{}, err
 		}
-		return listData{pageData: pageMeta, Filters: f, Total: total, HasActiveQuery: f.Q != "", AgentView: true, Assigned: assigned, Claimable: claimable}, nil
+		return listData{pageData: pageMeta, Filters: f, Total: total, HasActiveQuery: f.Q != "", AgentView: true, Assigned: assigned, Done: done, Claimable: claimable}, nil
 	}
 	if actor.Role == domain.RoleUser {
 		f = simplifiedFilters(f)
+		return h.requesterListData(r, f, page, pageNumber(r, "action_page"), pageNumber(r, "closed_page"))
 	}
 
 	opts, err := h.collectOptions(r)
@@ -2542,21 +2698,22 @@ func isAgentQueueClaimRequest(r *http.Request, actor domain.User) bool {
 		r.Header.Get("HX-Target") == agentQueueListTargetID
 }
 
-// agentQueueCurrentContext recovers q and page cursors from HX-Current-URL.
-// Missing or malformed values fall back to the first page. Successful claims
-// reset both cursors, while conflicts retain valid requested cursors.
-func agentQueueCurrentContext(r *http.Request, isConflict bool) (q string, assignedPage, claimablePage int) {
+// agentQueueCurrentContext recovers q and the three page cursors from
+// HX-Current-URL. Missing or malformed values fall back to the first page.
+// Successful claims reset every cursor, while conflicts retain the valid
+// requested cursors so no section jumps out from under the agent.
+func agentQueueCurrentContext(r *http.Request, isConflict bool) (q string, assignedPage, donePage, claimablePage int) {
 	raw := r.Header.Get("HX-Current-URL")
 	u, err := url.Parse(raw)
 	if raw == "" || err != nil || u == nil {
-		return "", 1, 1
+		return "", 1, 1, 1
 	}
 	qp := u.Query()
-	assignedPage, claimablePage = urlPageNumber(qp, "assigned_page"), urlPageNumber(qp, "claimable_page")
+	assignedPage, donePage, claimablePage = urlPageNumber(qp, "assigned_page"), urlPageNumber(qp, "done_page"), urlPageNumber(qp, "claimable_page")
 	if !isConflict {
-		assignedPage, claimablePage = 1, 1
+		assignedPage, donePage, claimablePage = 1, 1, 1
 	}
-	return qp.Get("q"), assignedPage, claimablePage
+	return qp.Get("q"), assignedPage, donePage, claimablePage
 }
 
 // urlPageNumber returns a positive page number or the first page.
@@ -2569,9 +2726,9 @@ func urlPageNumber(q url.Values, key string) int {
 }
 
 func (h *TicketHandlers) renderAgentQueue(w http.ResponseWriter, r *http.Request, claimError string, status int) {
-	q, assignedPage, claimablePage := agentQueueCurrentContext(r, claimError != "")
+	q, assignedPage, donePage, claimablePage := agentQueueCurrentContext(r, claimError != "")
 	filters := simplifiedFilters(filterState{Q: q})
-	assigned, claimable, total, err := h.agentQueueSections(r, filters, assignedPage, claimablePage)
+	assigned, done, claimable, total, err := h.agentQueueSections(r, filters, assignedPage, donePage, claimablePage)
 	if err != nil {
 		httpError(w, r, "error.internal_server", http.StatusInternalServerError)
 		return
@@ -2580,7 +2737,7 @@ func (h *TicketHandlers) renderAgentQueue(w http.ResponseWriter, r *http.Request
 		w.Header().Set("HX-Retarget", agentQueueListTarget)
 		w.Header().Set("HX-Reswap", "outerHTML")
 	}
-	h.renderer.Render(w, r, "tickets_index", "agent_ticket_list", listData{Filters: filters, Total: total, AgentView: true, Assigned: assigned, Claimable: claimable, ClaimError: claimError}, status)
+	h.renderer.Render(w, r, "tickets_index", "agent_ticket_list", listData{Filters: filters, Total: total, AgentView: true, Assigned: assigned, Done: done, Claimable: claimable, ClaimError: claimError}, status)
 }
 
 func (h *TicketHandlers) renderAgentQueueClaimError(w http.ResponseWriter, r *http.Request, actor domain.User, err error) bool {

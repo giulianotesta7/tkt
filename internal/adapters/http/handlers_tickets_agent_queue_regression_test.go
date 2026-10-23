@@ -125,7 +125,7 @@ func TestTicketsIndexAgentSectionPaginationPreservesBothPages(t *testing.T) {
 				t.Errorf("page %d summary count = %d, want %d", page, got, want)
 			}
 		}
-		for _, heading := range []string{"Assigned to me · 11", "Available to claim · 11"} {
+		for _, heading := range []string{agentHeading("Assigned to me", 11), agentHeading("Available to claim", 11)} {
 			if !strings.Contains(body, heading) {
 				t.Errorf("missing exact section heading %q", heading)
 			}
@@ -186,7 +186,7 @@ func TestTicketsIndexAgentQueueExcludesCancelledTicketFromClaimable(t *testing.T
 
 	// Baseline: the active-workflow ticket is offered to the desk member, and
 	// its run is active.
-	if body := request(); !strings.Contains(body, "Cancelled claim target") || !strings.Contains(body, "Available to claim · 1</h2>") {
+	if body := request(); !strings.Contains(body, "Cancelled claim target") || !strings.Contains(body, agentHeading("Available to claim", 1)) {
 		t.Fatalf("claimable ticket must be offered before cancellation, got %s", body)
 	}
 	db := h.rawDB(t)
@@ -210,7 +210,7 @@ func TestTicketsIndexAgentQueueExcludesCancelledTicketFromClaimable(t *testing.T
 	if strings.Contains(body, "Cancelled claim target") {
 		t.Fatalf("cancelled ticket must not be offered as claimable, got %s", body)
 	}
-	if !strings.Contains(body, "Available to claim · 0</h2>") {
+	if !strings.Contains(body, agentHeading("Available to claim", 0)) {
 		t.Fatalf("claimable section must be empty after cancellation, got %s", body)
 	}
 }
