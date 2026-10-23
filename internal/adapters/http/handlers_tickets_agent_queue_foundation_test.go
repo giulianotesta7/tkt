@@ -41,7 +41,7 @@ func TestAgentQueueSectionsBatchesRowContextIntoWrapper(t *testing.T) {
 	queue := NewTicketHandlers(h.tickets, h.comments, h.search, h.categories, h.users,
 		h.store.DeskStore(), h.workflows, application.NewWorkflowRunner(h.clock),
 		h.store.WorkflowRunStore(), h.store.WorkflowUnitOfWork(), h.renderer)
-	assigned, claimable, total, err := queue.agentQueueSections(req, filterState{}, 1, 1)
+	assigned, _, claimable, total, err := queue.agentQueueSections(req, filterState{}, 1, 1, 1)
 	if err != nil {
 		t.Fatalf("agentQueueSections: %v", err)
 	}
