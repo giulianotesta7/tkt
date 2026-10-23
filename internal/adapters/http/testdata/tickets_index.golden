@@ -74,7 +74,7 @@
     </div>
   </header>
 </div><section id="tickets-screen" class="page-foundation tickets-screen"><p class="page-subtitle">2 tickets</p><nav id="queue-tabs" class="queue-tabs" aria-label="Tickets">
-</nav><form id="queue-filters" class="filter-bar ticket-toolbar" method="get" action="/tickets" hx-get="/tickets" hx-target="#queue-results" hx-swap="outerHTML" hx-push-url="true" hx-indicator="this" hx-trigger="change, submit" hx-sync="this:queue last" hx-select="#queue-results" hx-select-oob="#queue-tabs">
+</nav><div class="queue-export"><a class="btn ghost" href="" download>Download CSV</a></div><form id="queue-filters" class="filter-bar ticket-toolbar" method="get" action="/tickets" hx-get="/tickets" hx-target="#queue-results" hx-swap="outerHTML" hx-push-url="true" hx-indicator="this" hx-trigger="change, submit" hx-sync="this:queue last" hx-select="#queue-results" hx-select-oob="#queue-tabs">
   <input type="hidden" name="view" value="">
   <div class="ticket-search search-field">
   <label class="visually-hidden" for="ticket-search">Search tickets</label>
