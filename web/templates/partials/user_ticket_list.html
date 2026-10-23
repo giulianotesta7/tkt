@@ -1,18 +1,39 @@
 {{define "user_ticket_list"}}<div id="user-ticket-list">
-  <div class="user-ticket-grid">
-  {{- range .Tickets}}
-  <div class="card user-request-card">
-    <div class="user-request-content">
-      <div class="user-request-head">
-    <a class="user-request-title" href="/tickets/{{.ID}}">{{.Title}}</a>
-    {{- template "state_badge" (requesterStateBadge .State)}}{{if .OnHoldSince}} {{template "hold_chip" .}}{{end}}
-      </div>
-      {{- if .Description}}<p class="user-request-description">{{.Description}}</p>{{end}}
-      <span class="user-request-meta">{{ticketNumber .Number}} · {{t "tickets.list.updated"}} {{template "card_timestamp" .UpdatedAt}}</span>
-    </div>
-    <a class="user-request-open" href="/tickets/{{.ID}}">{{t "tickets.list.view_request"}}</a>
-  </div>
-      {{- end}}
-      {{- if not .Tickets}}<div class="card user-request-card user-request-empty"><div class="empty">{{if .HasActiveQuery}}{{t "tickets.list.user_no_match"}}{{else}}{{t "tickets.list.user_empty"}}{{end}}</div></div>{{end}}
-    </div>{{template "pagination" .}}
-  </div>{{end}}
+{{if .Action.Total}}  <section class="req-section" aria-labelledby="action-tickets-title">
+    <h2 class="req-section-title" id="action-tickets-title">{{t "tickets.list.needs_action"}} · {{.Action.Total}}</h2>
+    <ul class="req-waiting-list">
+{{range .Action.Tickets}}      <li class="req-waiting" data-href="/tickets/{{.ID}}">
+        <div class="req-waiting-main">
+{{if .AwaitingConfirmation}}          <span class="req-waiting-label req-waiting-label-confirm">{{t "tickets.detail.resolution.title"}}</span>
+{{else}}          <span class="req-waiting-label">{{t "tickets.hold.banner.requester"}}</span>
+{{end}}          <a class="req-title" href="/tickets/{{.ID}}">{{.Title}}</a>
+          <span class="req-meta">{{ticketNumber .Number}} · {{t "tickets.list.updated"}} <time class="card-timestamp" tabindex="0" datetime="{{formatDatetime .UpdatedAt}}" aria-label="{{formatTime .UpdatedAt}}" data-full-date="{{formatTime .UpdatedAt}}" title="{{formatTime .UpdatedAt}}">{{relativeTime .UpdatedAt $.Now}}</time></span>
+        </div>
+{{if .AwaitingConfirmation}}        <a class="btn primary small req-action" href="/tickets/{{.ID}}#resolution">{{t "tickets.list.review"}}</a>
+{{else}}        <a class="btn primary small req-action" href="/tickets/{{.ID}}#reply">{{t "tickets.comment.submit"}}</a>
+{{end}}      </li>
+{{end}}    </ul>{{template "pagination" .Action}}
+  </section>
+{{end}}  <section class="req-section" aria-labelledby="open-tickets-title">
+    <h2 class="req-section-title" id="open-tickets-title">{{t "tickets.list.open"}} · {{.Open.Total}}</h2>
+{{if .Open.Tickets}}    <ul class="req-list">
+{{range .Open.Tickets}}      <li class="req" data-href="/tickets/{{.ID}}">
+        <a class="req-title" href="/tickets/{{.ID}}">{{.Title}}</a>
+{{if .Description}}        <p class="req-desc">{{.Description}}</p>
+{{end}}        <span class="req-meta">{{ticketNumber .Number}} · {{t "tickets.list.updated"}} <time class="card-timestamp" tabindex="0" datetime="{{formatDatetime .UpdatedAt}}" aria-label="{{formatTime .UpdatedAt}}" data-full-date="{{formatTime .UpdatedAt}}" title="{{formatTime .UpdatedAt}}">{{relativeTime .UpdatedAt $.Now}}</time></span>
+        <span class="req-side">{{template "state_badge" (requesterStateBadge .State)}}</span>
+      </li>
+{{end}}    </ul>{{else}}    <div class="req-empty"><p class="empty">{{if .HasActiveQuery}}{{t "tickets.list.user_no_match"}}{{else}}{{t "tickets.list.user_empty"}}{{end}}</p><a class="btn primary" href="/tickets/new">{{t "tickets.screen.new"}}</a></div>{{end}}{{template "pagination" .Open}}
+  </section>
+{{if .Closed.Total}}  <details class="req-fold">
+    <summary class="req-fold-summary" id="closed-tickets-title">{{t "tickets.list.closed"}} · {{.Closed.Total}}</summary>
+    <ul class="req-list" aria-labelledby="closed-tickets-title">
+{{range .Closed.Tickets}}      <li class="req" data-href="/tickets/{{.ID}}">
+        <a class="req-title" href="/tickets/{{.ID}}">{{.Title}}</a>
+{{if .Description}}        <p class="req-desc">{{.Description}}</p>
+{{end}}        <span class="req-meta">{{ticketNumber .Number}} · {{t "tickets.list.updated"}} <time class="card-timestamp" tabindex="0" datetime="{{formatDatetime .UpdatedAt}}" aria-label="{{formatTime .UpdatedAt}}" data-full-date="{{formatTime .UpdatedAt}}" title="{{formatTime .UpdatedAt}}">{{relativeTime .UpdatedAt $.Now}}</time></span>
+        <span class="req-side">{{template "state_badge" (requesterStateBadge .State)}}</span>
+      </li>
+{{end}}    </ul>{{template "pagination" .Closed}}
+  </details>
+{{end}}</div>{{end}}

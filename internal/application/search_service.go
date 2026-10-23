@@ -124,13 +124,43 @@ func (s *SearchService) Export(ctx context.Context, actor domain.User, q TicketQ
 func (s *SearchService) scoped(actor domain.User, q TicketQuery) (TicketQuery, bool) {
 	q = readQuery(actor, q)
 	if actor.Role == domain.RoleUser {
-		// The user list is always limited to active work. Ignore every
-		// caller-supplied state so crafted query strings cannot reveal history.
+		// A requester reads their own work only, and the SERVER chooses which
+		// part of it: ignore every caller-supplied state so a crafted query
+		// string can neither reveal history outside the folded section nor
+		// choose a section. The chosen section is translated here, so no store
+		// adapter has to know about presentation sections (issue #411).
 		q.State = nil
-		q.States = []domain.State{domain.StateNew, domain.StateInProgress}
+		q.States, q.OnHold, q.NotOnHold, q.RequesterNeedsAction = requesterSectionScope(q.Section, q.OnHold)
+		q.Section = TicketSectionAll
 	}
 	q.Text, q.Numbers = BuildTitleQuery(q.Text)
 	return q, q.Text != "" || len(q.Numbers) > 0
+}
+
+// requesterSectionScope translates one requester presentation section into the
+// store predicates that define it (issue #411, S3/S4/S8). An unknown or absent
+// section keeps the pre-#411 behavior — active work only, with the caller's
+// own on-hold filter (the CSV export's view=on_hold) — so a caller that never
+// names a section can never widen a requester's read. Every arm returns a
+// fresh slice, so no caller can mutate another query's state set, and every
+// caller-supplied filter is overwritten here, including the Needs-your-action
+// predicate itself.
+func requesterSectionScope(section TicketSection, callerOnHold bool) (states []domain.State, onHold, notOnHold, needsAction bool) {
+	switch section {
+	case TicketSectionRequesterAction:
+		// Two different requests for the requester — an on-hold ticket and a
+		// resolved one — compose as an OR that States/OnHold cannot express, so
+		// the store owns the predicate and this arm owns nothing else.
+		return nil, false, false, true
+	case TicketSectionRequesterClosed:
+		// Only CLOSED tickets: a resolved one still waits for the requester's
+		// confirmation, which the Needs-your-action section owns.
+		return []domain.State{domain.StateClosed}, false, false, false
+	case TicketSectionRequesterOpen:
+		return []domain.State{domain.StateNew, domain.StateInProgress}, false, true, false
+	default:
+		return []domain.State{domain.StateNew, domain.StateInProgress}, callerOnHold, false, false
+	}
 }
 
 // Count answers how many tickets Search would list for the same actor and
