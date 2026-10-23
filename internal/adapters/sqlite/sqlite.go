@@ -179,6 +179,17 @@ func (s *Store) HoldExpiryStore() application.HoldExpiryStore {
 	return newHoldExpiryStore(s.db)
 }
 
+// AlertStore is the read half of the operational alert pass (issue #408).
+func (s *Store) AlertStore() application.AlertStore {
+	return newAlertStore(s.db)
+}
+
+// AlertUnitOfWork is the idempotent write half of the operational alert pass
+// (issue #408).
+func (s *Store) AlertUnitOfWork() application.AlertUnitOfWork {
+	return newAlertUnitOfWork(s.db)
+}
+
 // UserStore returns the user port (task 4.4).
 func (s *Store) UserStore() application.UserStore { return newUserStore(s.db) }
 

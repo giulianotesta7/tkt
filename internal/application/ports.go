@@ -158,6 +158,58 @@ type HoldExpiryStore interface {
 	ReminderSent(ctx context.Context, ticketID int64, since time.Time) (bool, error)
 }
 
+// AlertCandidate is ONE open, assigned ticket with every fact the operational
+// alert rules need (issue #408), read in a single statement so a pass never
+// issues one query per ticket.
+type AlertCandidate struct {
+	Ticket domain.Ticket
+	// SLA is the commitment FROZEN onto the ticket, nil when it has none
+	// (legacy tickets, or tickets created while SLA was disabled). The alert
+	// rules compare against these instants and never recompute a threshold.
+	SLA *domain.TicketSLA
+	// Milestones are the observed first public staff response and first
+	// resolution, plus the pause instant of an active hold, exactly as the
+	// SLA projection expects them.
+	Milestones domain.SLAMilestones
+	// LastActivityAt is the most recent movement on the ticket: the latest of
+	// its own updated_at and its newest comment. It is the instant the
+	// inactivity window counts from.
+	LastActivityAt time.Time
+}
+
+// AlertStore is the READ half of the operational alert pass (issue #408). Like
+// the hold expiry reads it is unscoped on purpose: the pass runs outside any
+// request, so the instance acts on every ticket. It never writes — alerts are
+// appended through AlertUnitOfWork, which re-checks the same once-per-condition
+// rule inside its transaction.
+type AlertStore interface {
+	// AlertCandidates returns one page of the OPEN tickets that HAVE an
+	// assignee, with an id above afterID and ordered by id, so the pass keyset
+	// pages through the whole set. Tickets nobody is assigned to are excluded
+	// at the source: the maintainer chose the assigned agent as the only
+	// recipient, so a candidate without one has nobody to tell.
+	AlertCandidates(ctx context.Context, afterID int64, limit int) ([]AlertCandidate, error)
+	// AlertSent reports whether this ticket was already alerted about this
+	// condition: a notification of that kind exists, and — when since is not
+	// nil — it was created at or after that instant. The since argument is
+	// what makes a REPEATABLE condition repeatable: an inactivity alert is
+	// scoped to the current period of silence, so fresh activity allows a new
+	// one, while an SLA alert passes nil and is sent once per ticket.
+	AlertSent(ctx context.Context, ticketID int64, kind domain.NotificationKind, since *time.Time) (bool, error)
+}
+
+// AlertUnitOfWork is the WRITE half of the operational alert pass (issue #408).
+// It is separate from TicketUnitOfWork because an alert changes no ticket: it
+// only reports a condition the ticket already reached.
+type AlertUnitOfWork interface {
+	// AppendAlert appends the rows of ONE alert in one immediate transaction,
+	// and ONLY when the same condition has not been recorded yet — the exact
+	// AlertSent predicate, re-evaluated inside the transaction, so two passes
+	// that overlap can never write the same alert twice. An alert that is
+	// already recorded is a silent no-op, never an error.
+	AppendAlert(ctx context.Context, ticketID int64, kind domain.NotificationKind, since *time.Time, notifications []domain.Notification) error
+}
+
 // WorkflowUnitOfWork persists application-planned workflow mutations as ONE
 // atomic unit (design S5/S6). The application decides transitions, operations,
 // and their literal order; implementations re-read and recheck every expected

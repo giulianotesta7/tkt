@@ -47,6 +47,28 @@ const (
 	// requester never replied (issue #353, S4). The requester and the assignee
 	// both learn it.
 	NotificationHoldClosed NotificationKind = "hold_closed"
+	// The operational alert kinds (issue #408) are addressed to the ASSIGNED
+	// agent alone. Each milestone has its own pair of kinds rather than one
+	// kind plus a milestone fact, so "once per ticket per condition" is a
+	// plain lookup by kind, and so each one carries copy a reader can act on.
+	//
+	// NotificationSLAFirstResponseAtRisk: the ticket reached the frozen
+	// warning instant of its FIRST RESPONSE commitment and nobody has
+	// answered yet.
+	NotificationSLAFirstResponseAtRisk NotificationKind = "sla_first_response_at_risk"
+	// NotificationSLAFirstResponseBreached: the first response commitment
+	// came due with no answer.
+	NotificationSLAFirstResponseBreached NotificationKind = "sla_first_response_breached"
+	// NotificationSLAResolutionAtRisk: the ticket reached the frozen warning
+	// instant of its RESOLUTION commitment and is still open.
+	NotificationSLAResolutionAtRisk NotificationKind = "sla_resolution_at_risk"
+	// NotificationSLAResolutionBreached: the resolution commitment came due
+	// with the ticket still open.
+	NotificationSLAResolutionBreached NotificationKind = "sla_resolution_breached"
+	// NotificationNoMovement: the ticket had no comment and no change for the
+	// inactivity window (domain.InactivityWorkingDays). A ticket waiting on
+	// the requester (on hold) never reaches this state.
+	NotificationNoMovement NotificationKind = "no_movement"
 )
 
 // notificationKinds is the single copy of the vocabulary. The migration's
@@ -65,6 +87,11 @@ var notificationKinds = []NotificationKind{
 	NotificationOnHold,
 	NotificationHoldReminder,
 	NotificationHoldClosed,
+	NotificationSLAFirstResponseAtRisk,
+	NotificationSLAFirstResponseBreached,
+	NotificationSLAResolutionAtRisk,
+	NotificationSLAResolutionBreached,
+	NotificationNoMovement,
 }
 
 // Valid reports whether k is one of the persisted kinds. Unknown values are

@@ -51,10 +51,11 @@ func TestMigration0021KindVocabularyMatchesDomainConstants(t *testing.T) {
 		}
 		return true
 	})
-	// Twelve after issue #353 added hold_reminder and hold_closed; the count is
-	// asserted so a kind added to the domain without the rebuild fails here.
-	if len(kinds) != 12 {
-		t.Fatalf("domain kinds = %v, want 12", kinds)
+	// Seventeen after issue #408 added the four SLA alert kinds and no_movement
+	// to the twelve issue #353 left; the count is asserted so a kind added to
+	// the domain without the rebuild fails here.
+	if len(kinds) != 17 {
+		t.Fatalf("domain kinds = %v, want 17", kinds)
 	}
 	userID, ticketID := notificationFixture(t, s)
 	res, err := s.db.Exec(`INSERT INTO comments (ticket_id, author, body, created_at) VALUES (?, 'Ana', 'b', ?)`,
