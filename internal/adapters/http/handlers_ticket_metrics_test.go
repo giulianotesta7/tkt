@@ -134,7 +134,7 @@ func TestTicketMetricsHTTPDetailPage(t *testing.T) {
 	for _, want := range []string{
 		`id="ticket-metrics-detail-content"`, "Ticket metrics", `href="/tickets?page=2&amp;q=vpn&amp;state=new">Back to tickets`,
 		`<input type="hidden" name="return" value="/tickets?page=2&amp;q=vpn&amp;state=new">`,
-		`href="/tickets/metrics?return=%2Ftickets%3Fpage%3D2%26q%3Dvpn%26state%3Dnew"`, "Timezone: UTC", "Partial week",
+		`href="/tickets/metrics?return=%2Ftickets%3Fpage%3D2%26q%3Dvpn%26state%3Dnew"`, "Timezone: UTC",
 	} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("full page must contain %q: %s", want, body)
@@ -145,7 +145,7 @@ func TestTicketMetricsHTTPDetailPage(t *testing.T) {
 	}
 	assertNoDuplicateIDs(t, body)
 	// With a ticket inside the default window the line card renders the chart,
-	// legend, precomputed totals, and its View data table.
+	// legend, precomputed totals, the partial-week marker, and its table view.
 	h.seedTicket(t, "week ticket", nil)
 	card := h.get(t, "/tickets/metrics", false)
 	if card.Code != http.StatusOK {
@@ -154,15 +154,15 @@ func TestTicketMetricsHTTPDetailPage(t *testing.T) {
 	cardBody := card.Body.String()
 	for _, want := range []string{
 		`<h2>Created vs resolved</h2>`, "Weekly events within the selected period", "metrics-legend-created", "metrics-legend-resolved", "Created 1 · Resolved 0",
-		`<details class="ticket-metrics-data">`, ">View data</summary>", "<caption>Weekly ticket totals</caption>", `scope="col">Created`, `scope="col">Resolved`,
-		`role="img"`, `class="metrics-line metrics-created"`, `class="metrics-line metrics-resolved"`,
+		`data-metrics-panel="table" hidden`, "<caption>Weekly ticket totals</caption>", `scope="col">Created`, `scope="col">Resolved`,
+		`role="img"`, `class="metrics-line metrics-created"`, `class="metrics-line metrics-resolved"`, "Partial week",
 	} {
 		if !strings.Contains(cardBody, want) {
 			t.Fatalf("line card must contain %q: %s", want, cardBody)
 		}
 	}
-	// The dashboard completes with exactly four panels in order and one native
-	// View data disclosure each; no card id may repeat.
+	// The dashboard completes with exactly five panels in order, each with the
+	// Chart/Table switch and its own table; no card id may repeat.
 	for i, title := range []string{"Created vs resolved", "Age of pending tickets", "Pending workload", "Resolution time distribution", "SLA attainment"} {
 		if !strings.Contains(cardBody, ">"+title+"</h2>") {
 			t.Fatalf("panel %d must render h2 %q", i, title)
@@ -174,8 +174,8 @@ func TestTicketMetricsHTTPDetailPage(t *testing.T) {
 	if got := strings.Count(cardBody, `<section class="ticket-metrics-card ticket-metrics-panel"`); got != 5 {
 		t.Fatalf("exactly five dashboard panels, got %d", got)
 	}
-	if got := strings.Count(cardBody, "View data"); got != 4 {
-		t.Fatalf("exactly four View data disclosures, got %d", got)
+	if got := strings.Count(cardBody, `data-metrics-view="table"`); got != 5 {
+		t.Fatalf("one table switch per panel, got %d", got)
 	}
 	assertNoDuplicateIDs(t, cardBody)
 	if hx := h.get(t, "/tickets/metrics", true); hx.Code != http.StatusOK || strings.Contains(hx.Body.String(), "<html") || !strings.Contains(hx.Body.String(), `id="ticket-metrics-detail-content"`) {
@@ -213,8 +213,8 @@ func sectionBody(t *testing.T, body, title string) string {
 }
 
 // Empty dataset: each card answers with its distinct scope line and empty
-// state, no chart frame renders, no statistics are fabricated, and all four
-// View data tables stay reachable with their captions.
+// state, no chart frame renders, no statistics are fabricated, and all five
+// table views stay reachable with their captions.
 func TestTicketMetricsHTTPCardScopesAndEmptyStates(t *testing.T) {
 	h := newHarness(t)
 	body := h.get(t, "/tickets/metrics", true).Body.String()
@@ -235,14 +235,16 @@ func TestTicketMetricsHTTPCardScopesAndEmptyStates(t *testing.T) {
 	if got := strings.Count(body, "No results for selected period."); got != 2 {
 		t.Fatalf("line + resolution cards must show the no-results message, got %d: %s", got, body)
 	}
-	if got := strings.Count(body, "No current pending tickets."); got != 2 {
-		t.Fatalf("age + workload cards must show the current-pending message, got %d: %s", got, body)
+	// Three answers carry it: the Pending KPI card states the same absence the
+	// age and workload cards state, so no card fabricates a zero backlog.
+	if got := strings.Count(body, "No current pending tickets."); got != 3 {
+		t.Fatalf("KPI + age + workload cards must show the current-pending message, got %d: %s", got, body)
 	}
 	if strings.Contains(body, "<svg") || strings.Contains(body, "90th percentile") {
 		t.Fatalf("empty dataset must not render chart frames or fake zero stats: %s", body)
 	}
-	if got := strings.Count(body, ">View data</summary>"); got != 4 {
-		t.Fatalf("every card keeps its View data table, got %d: %s", got, body)
+	if got := strings.Count(body, `class="ticket-metrics-view-table" data-metrics-panel="table" hidden`); got != 5 {
+		t.Fatalf("every card keeps its table view, got %d: %s", got, body)
 	}
 	for _, caption := range []string{
 		"Weekly ticket totals",
@@ -299,11 +301,13 @@ func TestTicketMetricsHTTPPendingChartsAndWorkloadGrouping(t *testing.T) {
 	if strings.Contains(body, "<b>") || !strings.Contains(body, "Ada &lt;b&gt;&amp;") {
 		t.Fatalf("agent label must render escaped in the workload chart: %s", body)
 	}
-	if !strings.Contains(body, "Mean 0.0 days · Median 0.0 days · 90th percentile 0.0 days") {
-		t.Fatalf("stats row must show day units: %s", body)
+	// The mean, median and p90 moved into the KPI row (issue #393, S3), so the
+	// three readings sit together above every chart.
+	if !strings.Contains(body, "median 0.0 days · p90 0.0 days") {
+		t.Fatalf("mean card must show median and p90 in day units: %s", body)
 	}
-	if stats, chart := strings.Index(body, "Mean 0.0 days"), strings.Index(body, "metrics-histogram"); stats < 0 || chart < 0 || stats > chart {
-		t.Fatalf("stats row must render above the histogram svg: %s", body)
+	if stats, grid := strings.Index(body, "median 0.0 days · p90 0.0 days"), strings.Index(body, "ticket-metrics-grid"); stats < 0 || grid < 0 || stats > grid {
+		t.Fatalf("the mean card must render above the chart grid: %s", body)
 	}
 	if !strings.Contains(body, "1 valid · 0 excluded") {
 		t.Fatalf("samples/excluded line must stay visible below: %s", body)
@@ -336,11 +340,11 @@ func TestTicketMetricsTemplateNotEnoughHistoryState(t *testing.T) {
 	if !strings.Contains(body, "Not enough historical data to calculate resolution times.") || !strings.Contains(body, "2 excluded") {
 		t.Fatalf("not-enough-history message must carry the exclusion count: %s", body)
 	}
-	if strings.Contains(body, "Mean ") || strings.Contains(body, "90th percentile") {
+	if strings.Contains(body, "90th percentile") {
 		t.Fatalf("must not fabricate zero statistics: %s", body)
 	}
-	if got := strings.Count(body, "View data"); got != 4 {
-		t.Fatalf("View data tables stay reachable in every state, got %d: %s", got, body)
+	if got := strings.Count(body, `data-metrics-panel="table"`); got != 5 {
+		t.Fatalf("table views stay reachable in every state, got %d: %s", got, body)
 	}
 }
 
@@ -474,5 +478,139 @@ func TestTicketMetricsHTTPAttainmentGroupingRows(t *testing.T) {
 		if !strings.Contains(category, label) {
 			t.Fatalf("category grouping must render %q: %s", label, category)
 		}
+	}
+}
+
+// The redesigned dashboard (issue #393, S3) leads with five headline figures.
+// Each card states the derived context the service's numbers allow — unassigned
+// share of the pending backlog, the week count, the net of created minus
+// resolved, the median/p90 next to the mean, and the SLA rates with their
+// decided denominator — and an absence is prose, never a fabricated zero.
+func TestTicketMetricsHTTPDashboardKPIs(t *testing.T) {
+	h := newHarness(t)
+	h.seedTicket(t, "pending one", nil)
+	assigned := h.seedTicket(t, "pending two", nil)
+	h.assignTicket(t, assigned.ID, h.createUser(t, "KPI Agent", "kpi-agent@metrics.test", "password123").ID)
+	resolved := h.seedTicket(t, "resolved one", nil)
+	h.seedTransition(t, resolved.ID, domain.StateInProgress, "")
+	h.seedTransition(t, resolved.ID, domain.StateResolved, "")
+	body := h.get(t, "/tickets/metrics", false).Body.String()
+	if got := strings.Count(body, `class="ticket-metrics-card"`); got != 5 {
+		t.Fatalf("exactly five KPI cards, got %d: %s", got, body)
+	}
+	order := []string{">Pending<", ">Created<", ">Resolved<", ">Mean resolution<", ">SLA · first response<"}
+	last := -1
+	for _, label := range order {
+		at := strings.Index(body, label)
+		if at < 0 {
+			t.Fatalf("KPI label %q missing: %s", label, body)
+		}
+		if at < last {
+			t.Fatalf("KPI label %q is out of order: %s", label, body)
+		}
+		last = at
+	}
+	for _, want := range []string{
+		"1 unassigned · 50% of pending",
+		" weeks in the period",
+		// html/template escapes the sign it would otherwise read as a protocol: the
+		// browser renders "net +2" from the escaped bytes.
+		"net &#43;2",
+		"median 0.0 days · p90 0.0 days",
+		// SLA stays off in this fixture, so the card states the absence.
+		"No frozen commitments in the period.",
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("KPI row must carry %q: %s", want, body)
+		}
+	}
+	// With a frozen commitment the SLA card leads with the first response rate
+	// and states the decided denominator plus the resolution rate.
+	enableMetricsSLA(t, h)
+	h.seedTicket(t, "committed after SLA", nil)
+	committed := h.get(t, "/tickets/metrics", false).Body.String()
+	sla := committed[strings.Index(committed, ">SLA · first response<"):]
+	if !strings.Contains(sla[:strings.Index(sla, "</div></div>")], ">0%<") || !strings.Contains(sla[:strings.Index(sla, "</div></div>")], "0 decided · resolution 0%") {
+		t.Fatalf("SLA card must render the rate and its denominator: %s", sla[:600])
+	}
+}
+
+// Every chart section carries the Chart/Table view switch (issue #393, S4):
+// the chart stays the default view, the same values stay in the DOM as a table
+// one click away, and the table panel is hidden so both copies never render at
+// once. Without scripting the stylesheet reveals the table instead.
+func TestTicketMetricsHTTPChartTableToggles(t *testing.T) {
+	h := newHarness(t)
+	h.seedTicket(t, "switch ticket", nil)
+	body := h.get(t, "/tickets/metrics", false).Body.String()
+	for _, want := range []struct {
+		sel  string
+		want int
+	}{
+		{`role="group" aria-label="View data"`, 5},
+		{`data-metrics-view="chart" aria-pressed="true">Chart</button>`, 5},
+		{`data-metrics-view="table" aria-pressed="false">Table</button>`, 5},
+		{`class="ticket-metrics-view-chart" data-metrics-panel="chart"`, 5},
+		{`class="ticket-metrics-view-table" data-metrics-panel="table" hidden`, 5},
+		// SLA stays off in this fixture, so its empty cohort renders the empty
+		// state in place of a zeroed table.
+		{"<table>", 4},
+	} {
+		if got := strings.Count(body, want.sel); got != want.want {
+			t.Fatalf("expected %d occurrences of %q, got %d: %s", want.want, want.sel, got, body)
+		}
+	}
+	// Each switch sits in its own panel header, above the chart it controls.
+	for _, title := range []string{"Created vs resolved", "Age of pending tickets", "Pending workload", "Resolution time distribution", "SLA attainment"} {
+		section := sectionBody(t, body, title)
+		h2 := strings.Index(section, ">"+title+"</h2>")
+		view := strings.Index(section, `data-metrics-view="chart"`)
+		if h2 < 0 || view < h2 {
+			t.Fatalf("panel %q must carry the view switch after its heading: %s", title, section)
+		}
+	}
+	// The table view holds the values the chart draws: the weekly table repeats
+	// the chart's totals for the single seeded ticket.
+	weekly := sectionBody(t, body, "Created vs resolved")
+	if !strings.Contains(weekly, "Created 1 · Resolved 0") {
+		t.Fatalf("weekly chart totals must stay visible: %s", weekly)
+	}
+	table := weekly[strings.Index(weekly, `data-metrics-panel="table"`):]
+	if !strings.Contains(table, "<caption>Weekly ticket totals</caption>") {
+		t.Fatalf("weekly table must keep its caption: %s", table)
+	}
+}
+
+// The SLA attainment section gains its own inline SVG (issue #393, S4): one row
+// per group with the two milestone bars, a met/breached/open legend, and its
+// values repeated in the table view. A period with no commitment renders the
+// empty state instead of an empty chart frame.
+func TestTicketMetricsHTTPAttainmentChart(t *testing.T) {
+	h := newHarness(t)
+	enableMetricsSLA(t, h)
+	h.seedTicket(t, "chart committed", nil)
+	section := sectionBody(t, h.get(t, "/tickets/metrics", false).Body.String(), "SLA attainment")
+	if !strings.Contains(section, "ticket-metrics-chart ticket-metrics-attainment") {
+		t.Fatalf("attainment section must render its inline SVG: %s", section)
+	}
+	for _, want := range []string{"metrics-att-track", "metrics-att-open", "1 ticket</text>", ">0%</text>"} {
+		if !strings.Contains(section, want) {
+			t.Fatalf("attainment chart must carry %q: %s", want, section)
+		}
+	}
+	for _, key := range []string{">Met<", ">Breached<", ">Open<"} {
+		if !strings.Contains(section, key) {
+			t.Fatalf("attainment chart must carry its %q legend: %s", key, section)
+		}
+	}
+	// The same counts stay in the table view.
+	table := section[strings.Index(section, `data-metrics-panel="table"`):]
+	if !strings.Contains(table, "SLA attainment by Total") || !strings.Contains(table, "ticket-metrics-attainment-row") {
+		t.Fatalf("attainment table must hold the same values: %s", table)
+	}
+	// No commitment in the period: the empty state replaces the chart frame.
+	empty := sectionBody(t, h.get(t, "/tickets/metrics?metrics_start=2020-01-06&metrics_end=2020-01-13", false).Body.String(), "SLA attainment")
+	if strings.Contains(empty, "ticket-metrics-chart ticket-metrics-attainment") || strings.Contains(empty, "metrics-att-track") || !strings.Contains(empty, "No tickets created in the selected period carry a frozen commitment.") {
+		t.Fatalf("an empty cohort must render the empty state, not a chart: %s", empty)
 	}
 }

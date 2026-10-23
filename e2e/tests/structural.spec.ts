@@ -119,6 +119,15 @@ function authenticatedScreens(deps: {
           .first(),
     },
     {
+      // The metrics dashboard is a canonical screen: its charts, tables and
+      // KPI cards must survive the 390px fold with no clipped content and no
+      // horizontal page scroll (issue #393, S7).
+      label: `/tickets/metrics`,
+      path: "/tickets/metrics",
+      heading: (p) => p.getByRole("heading", { name: "Ticket metrics", level: 1 }),
+      control: (p) => p.getByRole("button", { name: "Apply", exact: true }),
+    },
+    {
       label: `/users`,
       path: "/users",
       heading: (p) => p.locator("#users-list-title"),

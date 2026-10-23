@@ -1044,7 +1044,7 @@ func TestTicketsIndexCarriesNoSummaryStrip(t *testing.T) {
 }
 
 // TestTicketMetricsPageRendersTheKPIRow proves the metrics page shows the
-// four headline numbers of the selected period above the charts.
+// five headline cards of the selected period above the charts.
 func TestTicketMetricsPageRendersTheKPIRow(t *testing.T) {
 	h := newHarness(t)
 	h.seedTicket(t, "week ticket", nil)
@@ -1055,18 +1055,17 @@ func TestTicketMetricsPageRendersTheKPIRow(t *testing.T) {
 		t.Fatalf("KPI row must render above the charts (%d < %d): %.600s", kpis, grid, body)
 	}
 	row := body[kpis:grid]
-	// Three headline counts; the mean card appears only once a verifiable
-	// duration exists, so an empty period never shows a fabricated mean.
-	if got := strings.Count(row, `class="ticket-metrics-card"`); got != 3 {
-		t.Errorf("KPI cards = %d, want 3: %s", got, row)
+	// Five cards remain present; unavailable duration and SLA figures use prose.
+	if got := strings.Count(row, `class="ticket-metrics-card"`); got != 5 {
+		t.Errorf("KPI cards = %d, want 5: %s", got, row)
 	}
-	for _, label := range []string{"Created", "Resolved", "Pending"} {
+	for _, label := range []string{"Created", "Resolved", "Pending", "Mean resolution", "SLA"} {
 		if !strings.Contains(row, label) {
 			t.Errorf("KPI row must carry %q: %s", label, row)
 		}
 	}
-	if strings.Contains(row, "Mean resolution") {
-		t.Errorf("no mean card without a verifiable duration: %s", row)
+	if !strings.Contains(row, "Not enough historical data to calculate resolution times.") {
+		t.Errorf("unavailable mean must use prose instead of a fabricated duration: %s", row)
 	}
 }
 
