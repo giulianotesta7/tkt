@@ -2,6 +2,7 @@ package httpadapter
 
 import (
 	"errors"
+	"html/template"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/giulianotesta7/tkt/internal/application"
 	"github.com/giulianotesta7/tkt/internal/domain"
+	"github.com/giulianotesta7/tkt/internal/i18n"
 )
 
 // WithMetrics wires the optional ticket-metrics read service into the ticket handlers (issue #123); a nil service keeps every metrics surface hidden.
@@ -34,7 +36,14 @@ type ticketMetricsData struct {
 	// slot carries prose. The copy and its rendering rung come from this one condition
 	// and cannot drift apart.
 	MeanResolutionIsDuration bool
-	Error                    string
+	// Summary carries the dashboard's derived headline figures (issue #393, S3),
+	// computed from Metrics only so the surface keeps one data source (S1).
+	Summary ticketMetricsSummaryView
+	// AttainmentChart is the server-rendered SLA attainment SVG (issue #393,
+	// S4). It is Go-side because the chart is a graphic, not template logic:
+	// the same counts stay in the section's table view.
+	AttainmentChart template.HTML
+	Error           string
 }
 
 // ticketMetricsDetailData is the dedicated /tickets/metrics page payload (issue #123).
@@ -208,11 +217,19 @@ func (h *TicketHandlers) metricsData(r *http.Request) (ticketMetricsData, error)
 	}
 	data.Metrics = metrics
 	data.Attainment = attainmentViewFor(metrics.Attainment)
+	data.Summary = newTicketMetricsSummary(metrics)
 	if metrics.Samples > 0 {
 		data.MeanResolution = metricsDuration(metrics.MeanDuration)
 		data.MeanResolutionIsDuration = true
 	}
 	return data, nil
+}
+
+// metricsTranslator resolves the instance language for the Go-rendered metrics
+// chart (issue #393): the SVG is built outside the template engine, so it reads
+// the same active locale the renderer resolves for the page it lands on.
+func (h *TicketHandlers) metricsTranslator(r *http.Request) i18n.Translator {
+	return i18n.New(h.renderer.activeLocale(r.Context()))
 }
 
 // ticketMetricsAttainmentView is the pre-formatted SLA attainment panel
@@ -305,6 +322,9 @@ func (h *TicketHandlers) renderMetricsDetail(w http.ResponseWriter, r *http.Requ
 	page := pageDataFrom(r, "metrics")
 	page.PageFoundationAssets = true
 	page.MetricsAssets = true
+	if data.Attainment.Cohort > 0 {
+		data.AttainmentChart = metricsAttainmentChart(h.metricsTranslator(r), data.Attainment)
+	}
 	detail := ticketMetricsDetailData{pageData: page, ticketMetricsData: data, BackHref: metricsReturnHref(r.URL.Query().Get("return"))}
 	h.renderer.Render(w, r, "ticket_metrics_detail", "ticket_metrics_detail_content", detail, status)
 }
