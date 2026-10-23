@@ -22,7 +22,11 @@ import { test, expect, type Page } from "@playwright/test";
 import { startServer, stopServer } from "../server-lifecycle.js";
 import { assertHtmxSwap } from "./helpers/htmx.js";
 import { applyAssignee, pickerButton } from "./helpers/ticket.js";
-import { assertNoHorizontalOverflow, assertNothingClipped } from "./helpers/layout.js";
+import {
+  assertNoHorizontalOverflow,
+  assertNothingClipped,
+  collectObservability,
+} from "./helpers/layout.js";
 import { base, createUserAsAdmin, loginAs, logout, seededCredentials } from "./helpers/auth.js";
 import {
   createCategoryViaUi,
@@ -88,7 +92,10 @@ test.describe("Notification center — assigned, opened, marked read (seeded)", 
     await stopServer();
   });
 
-  test("the assignee reads one notification and then marks everything read", async ({ page }) => {
+  test("the assignee reads one notification and then marks everything read", async ({
+    page,
+    browser,
+  }) => {
     test.setTimeout(180_000);
     await page.setViewportSize({ width: 1280, height: 800 });
     await loginAs(page, seededCredentials.email, seededCredentials.password);
@@ -174,6 +181,39 @@ test.describe("Notification center — assigned, opened, marked read (seeded)", 
     await expect.poll(() => counts.at(-1) ?? "", { timeout: 10_000 }).toContain("1 unread");
     await expect(page.getByRole("link", { name: "Notifications, 1 unread" })).toBeVisible();
 
+    // Issue #396 (S2): the full page is an open feed, not a card, and its
+    // read-all action belongs to the page header above the feed. One unread row
+    // is left over, so the page's own unread affordance is measurable here.
+    await page.goto(base() + "/notifications");
+    await expect(page.locator(".notifications-screen")).toBeVisible();
+    await expect(
+      page.locator(".command-header").getByRole("button", { name: "Mark all as read" }),
+    ).toBeVisible();
+    await expect(page.locator(".notifications-page")).toBeVisible();
+    await expect(page.locator(".notifications-screen .card")).toHaveCount(0);
+    await expect(page.locator(".notifications-day")).toHaveCount(1);
+    await expect(page.locator(".notifications-row")).toHaveCount(2);
+    await expect(page.locator(".notifications-row .notification-unread")).toHaveCount(1);
+    // The unread row carries the accent dot, and the event line is quieter than
+    // the ticket line: the hierarchy is measured, not looked at.
+    const unreadRow = page
+      .locator(".notifications-row")
+      .filter({ has: page.locator(".notification-unread") });
+    const marks = await unreadRow.locator(".notification-ident").evaluate((el) => ({
+      dot: getComputedStyle(el, "::before").width,
+      ticket: getComputedStyle(el).color,
+    }));
+    expect(marks.dot).toBe("6px");
+    const eventInk = await unreadRow.locator(".notification-what").evaluate((el) => {
+      return getComputedStyle(el).color;
+    });
+    expect(eventInk).not.toBe(marks.ticket);
+    // The page keeps the feed's hierarchy at 390px: no overflow, nothing clipped.
+    await page.setViewportSize({ width: 390, height: 844 });
+    await assertNoHorizontalOverflow(page, 390);
+    await assertNothingClipped(page);
+    await page.setViewportSize({ width: 1280, height: 800 });
+
     // S14: "Mark all as read" clears the badge and the rows' marker.
     await page.getByRole("link", { name: "Notifications, 1 unread" }).click();
     const reopened = page.getByRole("dialog", { name: "Notifications" });
@@ -189,6 +229,25 @@ test.describe("Notification center — assigned, opened, marked read (seeded)", 
     await expect(page.getByRole("button", { name: "Mark all as read" })).toHaveCount(0);
     // Read history is kept: the rows the agent acted on are still listed.
     await expect(page.locator(".notifications-row")).toHaveCount(2);
+
+    // Issue #396 (S5): neither screen depends on scripting. A browser with
+    // JavaScript off loads the same server-rendered feed and its rows.
+    const noScript = await browser.newContext({ javaScriptEnabled: false });
+    try {
+      const plain = await noScript.newPage();
+      const plainErrors = collectObservability(plain);
+      await plain.setViewportSize({ width: 390, height: 844 });
+      await loginAs(plain, agent.email, agent.password);
+      await plain.goto(base() + "/notifications");
+      await expect(plain.locator(".notifications-screen")).toBeVisible();
+      await expect(plain.locator(".notifications-day")).toHaveCount(1);
+      await expect(plain.locator(".notifications-row")).toHaveCount(2);
+      await assertNoHorizontalOverflow(plain, 390);
+      expect(plainErrors.pageErrors).toEqual([]);
+      expect(plainErrors.consoleErrors).toEqual([]);
+    } finally {
+      await noScript.close();
+    }
   });
 });
 
