@@ -415,3 +415,120 @@ func TestAttainmentViewForFormatsRateFromDecided(t *testing.T) {
 		t.Fatalf("undecided group rate = %+v, want 0%% with 0 decided", got)
 	}
 }
+
+// metricsPercent is the one rounding rule the dashboard's derived figures use:
+// a whole percent of a whole, and zero for any non-positive denominator so a
+// share can never come out of a division artifact.
+func TestMetricsPercentRoundsAndGuardsZeroDenominator(t *testing.T) {
+	for _, tc := range []struct{ part, whole, want int }{
+		{1, 3, 33},
+		{2, 3, 67},
+		{0, 5, 0},
+		{5, 5, 100},
+		{0, 0, 0},
+		{5, 0, 0},
+		{-1, 4, -25},
+	} {
+		if got := metricsPercent(tc.part, tc.whole); got != tc.want {
+			t.Fatalf("metricsPercent(%d, %d) = %d, want %d", tc.part, tc.whole, got, tc.want)
+		}
+	}
+}
+
+// The dashboard's derived figures come from the service's numbers only: net
+// resolution is created minus resolved, and the unassigned share is a whole
+// percent of the current pending backlog.
+func TestTicketMetricsSummaryDerivedFigures(t *testing.T) {
+	s := newTicketMetricsSummary(application.TicketMetrics{Created: 9, Resolved: 4, Pending: 3, Unassigned: 1})
+	if s.Net != 5 {
+		t.Fatalf("net = %d, want created-resolved = 5", s.Net)
+	}
+	if s.UnassignedShare != 33 {
+		t.Fatalf("unassigned share = %d, want 33", s.UnassignedShare)
+	}
+	// A period that resolved more than it created reports a negative net.
+	if got := newTicketMetricsSummary(application.TicketMetrics{Created: 1, Resolved: 4}); got.Net != -3 {
+		t.Fatalf("net = %d, want -3", got.Net)
+	}
+	// No pending backlog: the share is 0, not a division artifact.
+	if got := newTicketMetricsSummary(application.TicketMetrics{Created: 2, Unassigned: 0}); got.UnassignedShare != 0 {
+		t.Fatalf("empty backlog share = %d, want 0", got.UnassignedShare)
+	}
+}
+
+// The attainment bar segments are normalized to the group's ticket count, so
+// the three states of one milestone always fill exactly the plot width and an
+// empty group draws nothing.
+func TestMetricsBarSegmentWidthsNormalizeToTickets(t *testing.T) {
+	milestone := ticketMetricsAttainmentMilestoneView{Met: 2, Breached: 1, Open: 1, Decided: 3, Rate: "67%"}
+	met, breached, open := metricsBarSegmentWidths(400, milestone, 4)
+	if met != 200 || breached != 100 || open != 100 {
+		t.Fatalf("segments = %v/%v/%v, want 200/100/100 of 400", met, breached, open)
+	}
+	if met+breached+open != 400 {
+		t.Fatalf("segments must fill the track: %v+%v+%v != 400", met, breached, open)
+	}
+	if m, b, o := metricsBarSegmentWidths(400, ticketMetricsAttainmentMilestoneView{}, 0); m != 0 || b != 0 || o != 0 {
+		t.Fatalf("an empty group must draw no segment, got %v/%v/%v", m, b, o)
+	}
+}
+
+// The attainment chart is a server-rendered inline SVG with a text alternative,
+// one row per group, two stacked bars per row (first response, resolution) and
+// the rate label beside each bar. The row's three state segments hold the
+// values the table repeats.
+func TestMetricsAttainmentChartGeometry(t *testing.T) {
+	view := ticketMetricsAttainmentView{
+		GroupBy: "priority",
+		Groups: []ticketMetricsAttainmentGroupView{{
+			Label:         "High",
+			LabelKey:      "label.priority.high",
+			Tickets:       4,
+			FirstResponse: ticketMetricsAttainmentMilestoneView{Met: 2, Breached: 1, Open: 1, Decided: 3, Rate: "67%"},
+			Resolve:       ticketMetricsAttainmentMilestoneView{Met: 1, Breached: 1, Open: 2, Decided: 2, Rate: "50%"},
+		}},
+	}
+	svg := string(metricsAttainmentChart(i18n.New("en"), view))
+	if !strings.Contains(svg, `role="img"`) || !strings.Contains(svg, "aria-label") {
+		t.Fatalf("attainment chart must expose an accessible image: %s", svg)
+	}
+	if !strings.Contains(svg, `class="ticket-metrics-chart ticket-metrics-attainment"`) {
+		t.Fatalf("attainment chart must carry its own class: %s", svg)
+	}
+	if got := strings.Count(svg, `class="metrics-att-bar metrics-att-met"`); got != 2 {
+		t.Fatalf("one met segment per bar, got %d: %s", got, svg)
+	}
+	if got := strings.Count(svg, `class="metrics-att-bar metrics-att-breached"`); got != 2 {
+		t.Fatalf("one breached segment per bar, got %d: %s", got, svg)
+	}
+	if got := strings.Count(svg, `class="metrics-att-bar metrics-att-open"`); got != 2 {
+		t.Fatalf("one open segment per bar, got %d: %s", got, svg)
+	}
+	// The first response rate and the resolution rate label their own bars.
+	if !strings.Contains(svg, ">67%</text>") || !strings.Contains(svg, ">50%</text>") {
+		t.Fatalf("each bar must print its rate: %s", svg)
+	}
+	// The group's own label and ticket count identify the row.
+	if !strings.Contains(svg, ">High</text>") || !strings.Contains(svg, ">4 tickets</text>") {
+		t.Fatalf("the row must name its group and ticket count: %s", svg)
+	}
+}
+
+// A category name is admin-authored data: it is HTML-escaped before the
+// fragment becomes template.HTML.
+func TestMetricsAttainmentChartEscapesGroupLabels(t *testing.T) {
+	svg := string(metricsAttainmentChart(i18n.New("en"), ticketMetricsAttainmentView{
+		GroupBy: "category",
+		Groups: []ticketMetricsAttainmentGroupView{{
+			Label:   "<script>alert(1)</script>",
+			Tickets: 1,
+			Resolve: ticketMetricsAttainmentMilestoneView{Met: 1, Decided: 1, Rate: "100%"},
+		}},
+	}))
+	if strings.Contains(svg, "<script>") {
+		t.Fatalf("category label must be escaped: %s", svg)
+	}
+	if !strings.Contains(svg, "&lt;script&gt;alert(1)&lt;/script&gt;") {
+		t.Fatalf("category label must survive as escaped text: %s", svg)
+	}
+}
