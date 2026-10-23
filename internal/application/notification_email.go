@@ -329,6 +329,18 @@ func NotificationMessage(n domain.Notification) Msg {
 		return MsgRef("notifications.kind.hold_reminder")
 	case domain.NotificationHoldClosed:
 		return MsgRef("notifications.kind.hold_closed")
+	case domain.NotificationSLAFirstResponseAtRisk:
+		// Issue #408: each alert condition has its own sentence, so the reader
+		// knows which commitment is in trouble without opening the ticket.
+		return MsgRef("notifications.kind.sla_first_response_at_risk")
+	case domain.NotificationSLAFirstResponseBreached:
+		return MsgRef("notifications.kind.sla_first_response_breached")
+	case domain.NotificationSLAResolutionAtRisk:
+		return MsgRef("notifications.kind.sla_resolution_at_risk")
+	case domain.NotificationSLAResolutionBreached:
+		return MsgRef("notifications.kind.sla_resolution_breached")
+	case domain.NotificationNoMovement:
+		return MsgRef("notifications.kind.no_movement")
 	default:
 		// A kind no catalogue names cannot be stored (the domain refuses it),
 		// and the sentence still says something happened instead of printing
