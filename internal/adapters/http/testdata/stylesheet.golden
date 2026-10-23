@@ -993,6 +993,7 @@
   .agent-fold > summary:hover{color:var(--ink)}
   .agent-fold[open] > summary{margin-bottom:10px}
   .agent-fold-count{font-weight:500;color:var(--muted)}
+  .agent-fold-changed{display:inline-block;width:6px;height:6px;margin-left:8px;border-radius:50%;background:var(--accent);vertical-align:1px}
   @media (min-width:641px){
     .tickets-screen .queue.agent-table{table-layout:fixed}
     .tickets-screen .queue.agent-table th:nth-child(1),.tickets-screen .queue.agent-table td:nth-child(1){width:76px}

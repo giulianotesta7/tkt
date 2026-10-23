@@ -752,6 +752,7 @@
   "tickets.agent.current_task": "Current task:",
   "tickets.agent.desk": "Desk",
   "tickets.agent.done": "Resolved and closed",
+  "tickets.agent.done_has_updates": "Has updates",
   "tickets.agent.no_desk": "No desk assigned",
   "tickets.agent.no_match": "No tickets match your search.",
   "tickets.agent.none_assigned": "No tickets assigned to you.",

@@ -154,7 +154,9 @@ func TestTicketsIndexAgentSplitsOpenFromDoneSections(t *testing.T) {
 	if !strings.HasPrefix(doneSection, `<details class="agent-fold">`) {
 		t.Errorf("done disclosure must render collapsed, got: %s", doneSection)
 	}
-	if want := `>Resolved and closed <span class="agent-fold-count">· 2</span></summary>`; !strings.Contains(doneSection, want) {
+	// The agent has never opened these tickets and the administrator arranged
+	// them, so every row carries the last-visit mark (issue #415).
+	if want := `>Resolved and closed <span class="agent-fold-count">· 2</span><span class="agent-fold-changed">`; !strings.Contains(doneSection, want) {
 		t.Errorf("done disclosure summary must contain %q, got: %s", want, doneSection)
 	}
 	for _, want := range []string{"Finished ticket resolved", "Finished ticket closed"} {
@@ -171,7 +173,7 @@ func TestTicketsIndexAgentSplitsOpenFromDoneSections(t *testing.T) {
 	if want := `<tr class="queue-row" data-href="/tickets/` + strconv.FormatInt(openNew.ID, 10) + `">`; !strings.Contains(body, want) {
 		t.Errorf("open row must carry its navigation href, missing %q", want)
 	}
-	if want := `<a class="queue-title" href="/tickets/` + strconv.FormatInt(openNew.ID, 10) + `">Open ticket new</a>`; !strings.Contains(body, want) {
+	if want := `<a class="queue-title queue-title-changed" href="/tickets/` + strconv.FormatInt(openNew.ID, 10) + `">Open ticket new</a>`; !strings.Contains(body, want) {
 		t.Errorf("row title must stay a link to its ticket, missing %q", want)
 	}
 
@@ -275,7 +277,7 @@ func TestTicketsIndexAgentSearchSpansOpenDoneAndClaimable(t *testing.T) {
 	if want := `>Assigned to me <span class="agent-queue-count">· 1</span></h2>`; !strings.Contains(body, want) {
 		t.Errorf("open section must count the search matches, missing %q", want)
 	}
-	if want := `>Resolved and closed <span class="agent-fold-count">· 1</span></summary>`; !strings.Contains(body, want) {
+	if want := `>Resolved and closed <span class="agent-fold-count">· 1</span><span class="agent-fold-changed">`; !strings.Contains(body, want) {
 		t.Errorf("done section must count the search matches, missing %q", want)
 	}
 	openSection := between(t, body, `id="assigned-tickets-title"`, "<details")

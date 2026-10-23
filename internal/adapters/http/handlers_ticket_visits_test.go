@@ -17,10 +17,9 @@ import (
 // cases go through the real routes, the real middleware, the real services and
 // the real SQLite store, so what they prove is what a browser receives.
 //
-// Scope note: another change owns the agent sections' and the requester cards'
-// markup (#410, #411), so only the admin/root queue renders the mark here. The
-// handler payload is still asserted for every list, because the `Changed` fact
-// is filled for all of them and those two surfaces will render it.
+// Scope note: the admin/root queue and the agent's "My work" (#410) render the
+// mark; the requester list's markup belongs to #411, so its payload is asserted
+// without HTML until that markup lands.
 
 // queueRow returns the rendered <tr> of one ticket in the plain queue, so an
 // assertion is about that ticket's row and never about a page-wide substring.
@@ -304,5 +303,65 @@ func TestTicketVisitStoreErrorsPropagate(t *testing.T) {
 	agentReq = agentReq.WithContext(context.WithValue(agentReq.Context(), ctxKeyUser{}, agent))
 	if _, err := handlers.listData(agentReq, filterState{}, 1); !errors.Is(err, wantErr) {
 		t.Fatalf("listData for the agent queue: err = %v, want %v", err, wantErr)
+	}
+}
+
+// agentFold returns the folded "Resolved and closed" summary of the agent's
+// "My work", so an assertion is about that line and not about a row inside it.
+func agentFold(t *testing.T, body string) string {
+	t.Helper()
+	start := strings.Index(body, `<details class="agent-fold"`)
+	if start < 0 {
+		t.Fatalf("the agent page has no folded section: %.400s", body)
+	}
+	end := strings.Index(body[start:], "</summary>")
+	if end < 0 {
+		t.Fatalf("the folded section's summary is not terminated: %.400s", body[start:])
+	}
+	return body[start : start+end]
+}
+
+// The agent's own queue marks the rows somebody else changed, and the folded
+// "Resolved and closed" line shows only a dot, with hidden text, while any
+// ticket inside it changed. Opening that ticket clears both.
+func TestTicketVisitAgentWorkMarksRowsAndTheFoldedSection(t *testing.T) {
+	h := newHarness(t)
+	agent := seedUserRole(t, h.store, "Ana", "ana@visits.test", domain.RoleAgent)
+	other := seedUserRole(t, h.store, "Ada", "ada@visits.test", domain.RoleAdmin)
+	session := h.sessionFor(t, agent.ID)
+
+	open := h.seedTicket(t, "VPN drops", nil)
+	h.assignTicket(t, open.ID, agent.ID)
+	quiet := h.seedTicket(t, "monitor flickers", nil)
+	h.assignTicket(t, quiet.ID, agent.ID)
+	done := h.seedTicket(t, "mail does not sync", nil)
+	h.assignTicket(t, done.ID, agent.ID)
+	h.seedTransition(t, done.ID, domain.StateInProgress, "")
+	h.seedTransition(t, done.ID, domain.StateResolved, "")
+	// The agent has seen the quiet ticket since it was assigned.
+	if rec := h.getAs(t, fmt.Sprintf("/tickets/%d", quiet.ID), session); rec.Code != http.StatusOK {
+		t.Fatalf("opening the quiet ticket: status = %d", rec.Code)
+	}
+	if _, err := h.comments.Add(context.Background(), *other, open.ID, "any news?", "public"); err != nil {
+		t.Fatalf("add comment: %v", err)
+	}
+
+	body := h.getAs(t, "/tickets", session).Body.String()
+	wantMarked(t, queueRow(t, body, open.ID), true)
+	wantMarked(t, queueRow(t, body, quiet.ID), false)
+	fold := agentFold(t, body)
+	if !strings.Contains(fold, `class="agent-fold-changed"`) || !strings.Contains(fold, `>Has updates<`) {
+		t.Errorf("the folded section does not show its dot: %s", fold)
+	}
+	if strings.Contains(fold, "updated") {
+		t.Errorf("the folded section shows a visible count or word: %s", fold)
+	}
+
+	if rec := h.getAs(t, fmt.Sprintf("/tickets/%d", done.ID), session); rec.Code != http.StatusOK {
+		t.Fatalf("opening the resolved ticket: status = %d", rec.Code)
+	}
+	fold = agentFold(t, h.getAs(t, "/tickets", session).Body.String())
+	if strings.Contains(fold, "agent-fold-changed") || strings.Contains(fold, "Has updates") {
+		t.Errorf("the folded section keeps its dot after the visit: %s", fold)
 	}
 }

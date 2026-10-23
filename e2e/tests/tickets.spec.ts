@@ -1501,6 +1501,12 @@ test.describe("Ticket Lifecycle", () => {
     await logout(page);
 
     await loginAs(page, agent.email, agent.password);
+    // The agent's own "My work" marks the ticket the administrator assigned,
+    // because the agent has never opened it.
+    await page.goto(base() + "/tickets");
+    await expect(
+      page.locator(`#agent-ticket-list tr[data-href="/tickets/${id}"] .queue-title-changed`),
+    ).toBeVisible();
     await page.goto(base() + `/tickets/${id}`);
     const comment = `Changed by somebody else ${suffix}`;
     await page.getByLabel(/comment body/i).fill(comment);

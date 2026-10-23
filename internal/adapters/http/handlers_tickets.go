@@ -675,6 +675,9 @@ type ticketListData struct {
 	// travels WITH the section because a template invoked with the section as
 	// its data cannot reach the page's own Now.
 	Now time.Time
+	// HasChanged reports that a ticket on this page changed since the viewer
+	// last opened it (issue #415), so a folded section can say so unopened.
+	HasChanged bool
 }
 
 func sectionData(res *application.SearchResult, f filterState, hrefForPage func(int) string) ticketListData {
@@ -770,6 +773,7 @@ func (h *TicketHandlers) agentQueueSections(r *http.Request, f filterState, assi
 		return agentListHref(f, assignedPage, page, claimablePage)
 	})
 	done.Tickets = wrapTicketRows(doneRes.Tickets, contexts, slas, changed)
+	done.HasChanged = anyChanged(done.Tickets)
 	claimable = sectionData(claimableRes, f, func(page int) string {
 		return agentListHref(f, assignedPage, donePage, page)
 	})
@@ -806,6 +810,16 @@ func (h *TicketHandlers) changedTickets(r *http.Request, tickets []domain.Ticket
 		return nil, nil
 	}
 	return h.visits.Changed(r.Context(), *userFromContext(r.Context()), ticketIDs(tickets))
+}
+
+// anyChanged reports whether any row of a page carries the last-visit mark.
+func anyChanged(rows []ticketRow) bool {
+	for _, row := range rows {
+		if row.Changed {
+			return true
+		}
+	}
+	return false
 }
 
 // ticketIDs extracts one page's ids for the batched SLA read.

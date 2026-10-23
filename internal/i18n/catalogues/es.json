@@ -752,6 +752,7 @@
   "tickets.agent.current_task": "Tarea actual:",
   "tickets.agent.desk": "Mesa",
   "tickets.agent.done": "Resueltos y cerrados",
+  "tickets.agent.done_has_updates": "Con novedades",
   "tickets.agent.no_desk": "Sin mesa asignada",
   "tickets.agent.no_match": "Ningún ticket coincide con tu búsqueda.",
   "tickets.agent.none_assigned": "No tienes tickets asignados.",
