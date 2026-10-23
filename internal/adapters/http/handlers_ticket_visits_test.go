@@ -13,7 +13,7 @@ import (
 	"github.com/giulianotesta7/tkt/internal/domain"
 )
 
-// The "what is new since the last visit" mark (issue #415, specs S1-S6). These
+// The "what is new since the last visit" mark (issue #415). These
 // cases go through the real routes, the real middleware, the real services and
 // the real SQLite store, so what they prove is what a browser receives.
 //
@@ -49,7 +49,7 @@ func wantMarked(t *testing.T, row string, marked bool) {
 	}
 }
 
-// S1/S4/S5: a ticket somebody else changed carries the mark in the admin queue,
+// A ticket somebody else changed carries the mark in the admin queue,
 // and opening it clears the mark.
 func TestTicketVisitMarkClearsWhenTheViewerOpensTheTicket(t *testing.T) {
 	h := newHarness(t)
@@ -75,7 +75,7 @@ func TestTicketVisitMarkClearsWhenTheViewerOpensTheTicket(t *testing.T) {
 	wantMarked(t, queueRow(t, body, untouched.ID), false)
 }
 
-// S2 "Lo que hiciste vos nunca cuenta": the viewer's own ticket and own comment
+// The viewer's own ticket and own comment
 // never mark, so the queue stays quiet about what the viewer just did.
 func TestTicketVisitOwnChangeNeverMarks(t *testing.T) {
 	h := newHarness(t)
@@ -87,7 +87,7 @@ func TestTicketVisitOwnChangeNeverMarks(t *testing.T) {
 	wantMarked(t, queueRow(t, h.get(t, "/tickets", false).Body.String(), mine.ID), false)
 }
 
-// S2 "Las notas internas cuentan solo para el staff que puede verlas": staff
+// Staff
 // see the mark for an internal comment and the requester who owns the ticket
 // does not.
 func TestTicketVisitInternalCommentMarksStaffOnly(t *testing.T) {
@@ -123,7 +123,7 @@ func TestTicketVisitInternalCommentMarksStaffOnly(t *testing.T) {
 	}
 }
 
-// S5 "En las tres listas": the queue renders the mark and the two lists another
+// The queue renders the mark and the two lists another
 // change owns still carry the fact, so those surfaces can render it without a
 // second derivation.
 func TestTicketVisitChangedIsFilledForEveryList(t *testing.T) {
@@ -166,7 +166,7 @@ func TestTicketVisitChangedIsFilledForEveryList(t *testing.T) {
 	}
 }
 
-// S6 "Sí, las de ese ticket": opening a ticket marks that user's bell rows for
+// Opening a ticket marks that user's bell rows for
 // it read and leaves another ticket's unread.
 func TestTicketVisitOpeningATicketReadsItsNotifications(t *testing.T) {
 	h := newHarness(t)
@@ -208,7 +208,7 @@ func unreadFor(t *testing.T, h *harness, userID int64) int {
 	return unread
 }
 
-// S1: filtering the queue swaps only the results, so the mark has to be
+// Filtering the queue swaps only the results, so the mark has to be
 // recomputed on the HTMX fragment — not only on a full page load.
 func TestTicketVisitMarkSurvivesAnHTMXFilterChange(t *testing.T) {
 	h := newHarness(t)

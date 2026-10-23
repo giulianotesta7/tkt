@@ -7,7 +7,7 @@ import (
 )
 
 // TicketVisitService implements the "what is new since the last visit" use
-// cases (issue #415, specs S1-S3 and S6). It is composition only: the history
+// cases (issue #415). It is composition only: the history
 // derivation and the same-transaction notification read live in
 // TicketVisitStore, and the two rules that are policy rather than storage
 // live here — which comments a reader may compare against, and which instant a
@@ -34,7 +34,7 @@ func (s *TicketVisitService) Mark(ctx context.Context, ticketID int64) (VisitMar
 
 // RecordVisit stores the reader's visit at ONE clock instant and, in the
 // store's same transaction, marks that reader's notifications about the ticket
-// read (S6). The actor is the reader: a visit is always the caller's own, so
+// read. The actor is the reader: a visit is always the caller's own, so
 // no visitor can record a visit for somebody else.
 func (s *TicketVisitService) RecordVisit(ctx context.Context, actor domain.User, ticketID int64, mark VisitMark) error {
 	return s.visits.RecordVisit(ctx, actor.ID, ticketID, mark, s.clock.Now())
@@ -42,7 +42,7 @@ func (s *TicketVisitService) RecordVisit(ctx context.Context, actor domain.User,
 
 // Changed reports which of ticketIDs changed for the actor since their last
 // visit. Internal comments count only for a reader whose role holds
-// CapCommentInternal (S2), which is the same capability the comment form and
+// CapCommentInternal, which is the same capability the comment form and
 // the timeline already gate on. An empty page answers an empty map without
 // reaching the store.
 func (s *TicketVisitService) Changed(ctx context.Context, actor domain.User, ticketIDs []int64) (map[int64]bool, error) {

@@ -895,8 +895,8 @@ func (h *TicketHandlers) listData(r *http.Request, f filterState, page int) (lis
 			return listData{}, err
 		}
 	}
-	// The last-visit mark is for EVERY list, requester included (issue #415,
-	// S5): ONE batch for the page, with the internal-comment visibility the
+	// The last-visit mark is for EVERY list, requester included (issue #415):
+	// ONE batch for the page, with the internal-comment visibility the
 	// actor's role allows. A store error propagates like the SLA read above.
 	changed, err := h.changedTickets(r, res.Tickets)
 	if err != nil {
@@ -1856,7 +1856,7 @@ func (h *TicketHandlers) detailDataFor(r *http.Request, id int64) (detailData, i
 		return detailData{}, status, err
 	}
 	// Only a SUCCESSFUL read is a visit, and every detail render is one: the
-	// record also reads the actor's notifications about this ticket (S6).
+	// record also reads the actor's notifications about this ticket.
 	if h.visits != nil {
 		if err := h.visits.RecordVisit(r.Context(), actor, id, mark); err != nil {
 			return detailData{}, http.StatusInternalServerError, err

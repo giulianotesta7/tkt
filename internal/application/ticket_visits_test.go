@@ -9,7 +9,7 @@ import (
 	"github.com/giulianotesta7/tkt/internal/domain"
 )
 
-// TicketVisitService (issue #415, specs S1-S3, S6): the three rules this layer
+// TicketVisitService (issue #415): the three rules this layer
 // owns — what counts as somebody else's change, which visibility a reader is
 // allowed to compare against, and which instant a visit is stamped with. The
 // history derivation itself is the store's, and is covered in the sqlite
@@ -26,7 +26,7 @@ func visitActor(id int64, role domain.Role) domain.User {
 	return domain.User{ID: id, Name: "actor", Role: role}
 }
 
-// S2 "Lo que hiciste vos nunca cuenta": a change the reader made is never news
+// A change the reader made is never news
 // to the reader, while the same history written by somebody else is.
 func TestTicketVisitChangedIgnoresTheReadersOwnChange(t *testing.T) {
 	visits, svc, _ := newVisitHarness()
@@ -52,7 +52,7 @@ func TestTicketVisitChangedIgnoresTheReadersOwnChange(t *testing.T) {
 	}
 }
 
-// S2 "Las notas internas cuentan solo para el staff que puede verlas": the
+// The
 // service derives internal-comment visibility from CapCommentInternal, so an
 // agent and an admin compare against internal comments and a requester does
 // not.
@@ -92,7 +92,7 @@ func TestTicketVisitChangedFiltersInternalCommentsByRole(t *testing.T) {
 	}
 }
 
-// S3: a ticket the reader never opened is judged from its creation, and a
+// A ticket the reader never opened is judged from its creation, and a
 // ticket they did open is judged from the mark the visit stored.
 func TestTicketVisitChangedRespectsTheStoredMark(t *testing.T) {
 	visits, svc, clock := newVisitHarness()
@@ -137,7 +137,7 @@ func TestTicketVisitChangedRespectsTheStoredMark(t *testing.T) {
 	}
 }
 
-// S6: a visit is stamped with ONE clock instant, and it is the injected one —
+// A visit is stamped with ONE clock instant, and it is the injected one —
 // never the wall clock — and it reads a ticket's mark without a user.
 func TestTicketVisitRecordVisitStampsTheInjectedClock(t *testing.T) {
 	visits, svc, clock := newVisitHarness()
@@ -163,7 +163,7 @@ func TestTicketVisitRecordVisitStampsTheInjectedClock(t *testing.T) {
 	}
 }
 
-// S6 "las de ese ticket": opening the ticket reads that ticket's unread bell
+// Opening the ticket reads that ticket's unread bell
 // rows and leaves another ticket's alone.
 func TestTicketVisitRecordVisitReadsOnlyThatTicketsNotifications(t *testing.T) {
 	visits, svc, clock := newVisitHarness()
