@@ -28,8 +28,13 @@ const deskName = `Claim desk ${uniq}`;
 const categoryName = `Claim flow ${uniq}`;
 const ticketTitle = `Claimable ticket ${uniq}`;
 
+// Issue #410, S2: the claimable queue is the triage table, so a row is a
+// queue-row inside the claimable table and its title is the ticket link.
 const claimableRow = (page: Page, title: string) =>
-  page.locator(".agent-row-claimable").filter({ hasText: title });
+  page.locator("table.agent-table-claimable tr.queue-row").filter({ hasText: title });
+
+const assignedRow = (page: Page, title: string) =>
+  page.locator("table.agent-table").first().locator("tr.queue-row").filter({ hasText: title });
 
 const queueHeading = (page: Page, name: string) => page.getByRole("heading", { name, exact: true });
 
@@ -121,7 +126,7 @@ test.describe("Agent claim — winner and stale journey", () => {
 
     const rowA = claimableRow(page, ticketTitle);
     await expect(rowA).toHaveCount(1);
-    const viewHref = await rowA.locator("a.agent-row-open").getAttribute("href");
+    const viewHref = await rowA.locator("a.queue-title").getAttribute("href");
     const ticketId = viewHref?.match(/^\/tickets\/(\d+)$/)?.[1];
     if (!ticketId) throw new Error(`no ticket at ${page.url()}`);
     const claimPost = await rowA.locator("form.agent-claim-form").getAttribute("hx-post");
@@ -129,9 +134,9 @@ test.describe("Agent claim — winner and stale journey", () => {
     if (claimPost !== claimPath) {
       throw new Error(`bad claim endpoint ${claimPost} at ${page.url()}`);
     }
-    const orderOk = await rowA.evaluate((li) => {
-      const view = li.querySelector("a.agent-row-open");
-      const claim = li.querySelector(".agent-claim-form button");
+    const orderOk = await rowA.evaluate((row) => {
+      const view = row.querySelector("a.queue-title");
+      const claim = row.querySelector(".agent-claim-form button");
       if (!view || !claim) return false;
       const pos = view.compareDocumentPosition(claim);
       return !!(pos & Node.DOCUMENT_POSITION_FOLLOWING);
@@ -155,8 +160,10 @@ test.describe("Agent claim — winner and stale journey", () => {
     await assertHtmxSwap(page, () => claimBtn(rowA).click(), claimOpts);
     await expect(queueHeading(page, "Assigned to me · 1")).toBeVisible();
     await expect(queueHeading(page, "Available to claim · 0")).toBeVisible();
-    const winnerRow = page.locator(".agent-row-assigned").filter({ hasText: ticketTitle });
-    await expect(winnerRow.locator(".badge.in_progress")).toBeVisible();
+    const winnerRow = assignedRow(page, ticketTitle);
+    await expect(winnerRow).toHaveCount(1);
+    await expect(winnerRow.locator(".badge")).toBeVisible();
+    await expect(page.locator("#tickets-screen .page-subtitle")).toHaveText("1 open · 0 available");
     await expect(page.locator(".agent-claim-error")).toHaveCount(0);
     await expect(page).toHaveURL(/\/tickets$/);
 
@@ -175,6 +182,9 @@ test.describe("Agent claim — winner and stale journey", () => {
     await page.reload();
     await expect(queueHeading(page, "Assigned to me · 1")).toBeVisible();
     await expect(queueHeading(page, "Available to claim · 0")).toBeVisible();
+    // The claimed ticket is open work, so it never lands in the collapsed
+    // "Resolved and closed" disclosure (issue #410, S4).
+    await expect(page.locator("details.agent-fold")).toHaveCount(0);
     await page.goto(base() + `/tickets/${ticketId}`);
     await expect(page.locator("#ticket-detail")).toContainText(agent.name);
     await pageB.reload();

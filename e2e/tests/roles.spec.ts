@@ -13,7 +13,7 @@ import { test, expect } from "@playwright/test";
 import { startServer, stopServer, activeServer } from "../server-lifecycle.js";
 import { assertCanonicalScreen, collectObservability } from "./helpers/layout.js";
 import { assertHtmxSwap } from "./helpers/htmx.js";
-import { applyAssignee, pickerButton } from "./helpers/ticket.js";
+import { applyAssignee, pickerButton, transitionTo } from "./helpers/ticket.js";
 import { logout, seededCredentials, setSLAEnabled } from "./helpers/auth.js";
 import {
   catalogCategoryRow,
@@ -196,33 +196,58 @@ test.describe("Role — minimal matrix admin / agent / user (seeded)", () => {
     await expect(agentQueue.getByRole("button", { name: "Claim ticket", exact: true })).toHaveCount(
       0,
     );
-    const agentGrid = agentQueue.locator(".agent-queue-list").first();
-    expect(
-      await agentGrid.evaluate((el) => getComputedStyle(el).gridTemplateColumns.split(" ").length),
-    ).toBe(3);
-    const assignedCard = agentQueue.locator(".agent-row-assigned").first();
-    await expect(assignedCard.locator(".agent-row-open")).toHaveCSS("color", "rgb(49, 94, 255)");
-    await expect(assignedCard.locator(".agent-row-meta").first()).toHaveCSS(
-      "color",
-      "rgba(0, 0, 0, 0.62)",
-    );
-    await expect(assignedCard.locator("time.card-timestamp")).toHaveAttribute("tabindex", "0");
-    await expect(assignedCard.locator("time.card-timestamp")).toHaveAttribute(
-      "data-full-date",
+    // Issue #410, S2/S6: the page summary carries the live counts and the
+    // assigned queue is the triage table, one row per ticket.
+    await expect(page.locator("#tickets-screen .page-subtitle")).toHaveText("1 open · 0 available");
+    const assignedTable = agentQueue.locator("table.agent-table").first();
+    await expect(assignedTable.locator("thead th")).toHaveCount(7);
+    const assignedRow = assignedTable.locator("tr.queue-row").first();
+    await expect(assignedRow).toHaveAttribute("data-href", new RegExp(`^/tickets/${assignedID}$`));
+    await expect(assignedRow.locator("a.queue-title")).toHaveText(assignedTitle);
+    await expect(assignedRow.locator(".queue-requester")).toHaveCSS("color", "rgba(0, 0, 0, 0.62)");
+    await expect(assignedRow.locator("time")).toHaveAttribute(
+      "title",
       /\d{2}:\d{2} · \d{2}-\d{2}-\d{4}/,
     );
-    await page.setViewportSize({ width: 800, height: 900 });
-    expect(
-      await agentGrid.evaluate((el) => getComputedStyle(el).gridTemplateColumns.split(" ").length),
-    ).toBe(2);
+    // The whole row opens its ticket without swallowing the title link.
+    await assignedRow.locator("td.agent-desk").click();
+    await expect(page).toHaveURL(new RegExp(`/tickets/${assignedID}$`));
+    await page.goBack();
+    await expect(agentQueue.getByRole("link", { name: assignedTitle, exact: true })).toBeVisible();
+    // Under 640px the rows become cards and the page never scrolls sideways.
     await page.setViewportSize({ width: 390, height: 844 });
-    expect(
-      await agentGrid.evaluate((el) => getComputedStyle(el).gridTemplateColumns.split(" ").length),
-    ).toBe(1);
+    await expect(assignedRow).toHaveCSS("display", "block");
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(
       390,
     );
+    // Issue #410, S7: the cards hold their ladder in the dark theme too.
+    await page.emulateMedia({ colorScheme: "dark" });
+    await expect(assignedRow.locator(".queue-requester")).toHaveCSS(
+      "color",
+      "rgba(255, 255, 255, 0.66)",
+    );
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(
+      390,
+    );
+    await page.emulateMedia({ colorScheme: "light" });
     await page.setViewportSize({ width: 1280, height: 800 });
+    await expect(assignedRow).toHaveCSS("display", "table-row");
+    // Issue #410, S4: finished work leaves the open queue and collapses into
+    // its own disclosure, with its own count and its own cursor.
+    await page.goto(baseURL() + `/tickets/${assignedID}`);
+    await transitionTo(page, "in_progress");
+    await transitionTo(page, "resolved");
+    await page.goto(baseURL() + "/tickets");
+    await expect(
+      page.getByRole("heading", { name: "Assigned to me · 0", exact: true }),
+    ).toBeVisible();
+    await expect(page.locator("#tickets-screen .page-subtitle")).toHaveText("0 open · 0 available");
+    const doneFold = page.locator("details.agent-fold");
+    await expect(doneFold.locator("summary")).toHaveText("Resolved and closed · 1");
+    expect(await doneFold.evaluate((node) => (node as HTMLDetailsElement).open)).toBe(false);
+    await expect(doneFold.getByRole("link", { name: assignedTitle, exact: true })).toBeHidden();
+    await doneFold.locator("summary").click();
+    await expect(doneFold.getByRole("link", { name: assignedTitle, exact: true })).toBeVisible();
     const agentTicket = "Agent ticket " + Date.now().toString(36).slice(2, 8);
     await page.goto(baseURL() + "/tickets/new");
     await pickCreationCategory(page, "General");
