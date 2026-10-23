@@ -33,4 +33,5 @@
 </div>{{end}}{{end}}
 {{define "queue_tabs"}}<nav id="queue-tabs" class="queue-tabs" aria-label="{{t "tickets.screen.title"}}">
 {{range .Tabs}}  <a class="queue-tab{{if .Active}} active{{end}}" href="{{.Href}}" hx-get="{{.Href}}" hx-target="#tickets-screen" hx-swap="outerHTML" hx-push-url="true" data-view="{{.View}}" data-count="{{.Count}}"{{if .Active}} aria-current="page"{{end}}>{{t .LabelKey}} <span class="queue-tab-count">{{.Count}}</span></a>
-{{end}}</nav>{{end}}
+{{end}}  <a class="queue-export" href="{{.ExportHref}}" download><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11"/><path d="m7 10 5 5 5-5"/><path d="M5 20h14"/></svg>{{t "export.tickets.action"}}</a>
+</nav>{{end}}

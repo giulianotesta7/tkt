@@ -121,6 +121,10 @@ func (h *TicketHandlers) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /", h.index)
 	mux.HandleFunc("GET /tickets", h.list)
 	mux.HandleFunc("GET /tickets/metrics", h.metricsView)
+	// CSV downloads (issue #409). Each one mirrors the screen above it: same
+	// filters, same authorization, every match instead of one page.
+	mux.HandleFunc("GET /tickets/export.csv", h.exportTickets)
+	mux.HandleFunc("GET /tickets/metrics/export.csv", h.exportMetrics)
 	mux.HandleFunc("GET /tickets/new", h.newForm)
 	mux.HandleFunc("POST /tickets", h.create)
 	mux.HandleFunc("GET /tickets/{id}", h.show)
@@ -762,6 +766,8 @@ type listData struct {
 	Now     time.Time
 	// ClearHref is the current view with every filter removed.
 	ClearHref string
+	// ExportHref downloads the current filter set as CSV (issue #409).
+	ExportHref string
 }
 
 // queueTab is one view tab: its label key, href, count and whether it is the
@@ -878,6 +884,7 @@ func (h *TicketHandlers) listData(r *http.Request, f filterState, page int) (lis
 		data.NextHref = listHref(f, res.Page+1)
 	}
 	data.ClearHref = listHref(filterState{View: f.View, Sort: sortNewest}, 1)
+	data.ExportHref = ticketExportHref(f)
 	if staff {
 		data.Chips = queueChips(r, f, opts)
 		data.Tabs, err = h.queueTabs(r, actor, f)

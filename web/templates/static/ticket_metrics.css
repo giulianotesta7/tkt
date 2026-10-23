@@ -31,6 +31,17 @@
 .ticket-metrics-filters input[type="date"],.ticket-metrics-filters select{height:34px;border:1px solid var(--line);border-radius:8px;background:var(--surface);color:var(--ink);font:inherit;padding:0 8px}
 .ticket-metrics-error{border-left:3px solid var(--red);background:var(--red-soft);color:var(--red);padding:12px 14px}
 .ticket-metrics-note,.ticket-metrics-loading{margin:0;color:var(--muted);font-size:12px}
+/* The CSV download (issue #409) closes the note line, the same quiet link the
+   ticket queue puts at the end of its tab row (users.css .queue-export): no
+   strip of its own, and it is swapped with the rest of the detail content, so
+   its query follows every filter change. */
+.ticket-metrics-note-row{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.ticket-metrics-export{display:inline-flex;align-items:center;gap:6px;padding:8px 6px;color:var(--muted);font-size:12px;font-weight:500;white-space:nowrap;text-decoration:none;border-radius:6px;margin-left:auto}
+.ticket-metrics-export:hover{color:var(--ink);background:var(--hover)}
+/* The download icon is drawn here rather than as inline markup: an empty
+   metrics period must render no svg at all, so a chart frame can never pass
+   for data. It is the same glyph the queue link draws inline. */
+.ticket-metrics-export::before{content:"";width:15px;height:15px;flex:none;background:currentColor;-webkit-mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 4v11'/%3E%3Cpath d='m7 10 5 5 5-5'/%3E%3Cpath d='M5 20h14'/%3E%3C/svg%3E") center/contain no-repeat;mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 4v11'/%3E%3Cpath d='m7 10 5 5 5-5'/%3E%3Cpath d='M5 20h14'/%3E%3C/svg%3E") center/contain no-repeat}
 .ticket-metrics-card-scope,.ticket-metrics-empty{margin:0;color:var(--muted);font-size:13px}
 .ticket-metrics-chart-totals{margin:0;color:var(--ink-soft);font-size:13px}
 .ticket-metrics-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}

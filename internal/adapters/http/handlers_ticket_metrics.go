@@ -22,10 +22,13 @@ func (h *TicketHandlers) WithMetrics(metrics *application.TicketMetricsService) 
 
 // ticketMetricsData holds the compact summary and its safe detail-page origin.
 type ticketMetricsData struct {
-	Metrics        application.TicketMetrics
-	Desks          []domain.Desk
-	Users          []domain.User
-	ReturnHref     string
+	Metrics    application.TicketMetrics
+	Desks      []domain.Desk
+	Users      []domain.User
+	ReturnHref string
+	// ExportHref downloads the aggregates below for the current filters
+	// (issue #409).
+	ExportHref     string
 	MeanResolution string
 	// Attainment is the pre-formatted SLA attainment report (issue #211, PR 5).
 	// The render path has no percent formatter, so the 0..1 rate is formatted
@@ -216,6 +219,7 @@ func (h *TicketHandlers) metricsData(r *http.Request) (ticketMetricsData, error)
 		return data, err
 	}
 	data.Metrics = metrics
+	data.ExportHref = metricsExportHref(metrics.Filter, metrics.Attainment.GroupBy, metrics.WorkloadBy)
 	data.Attainment = attainmentViewFor(metrics.Attainment)
 	data.Summary = newTicketMetricsSummary(metrics)
 	if metrics.Samples > 0 {

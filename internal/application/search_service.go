@@ -68,6 +68,56 @@ func (s *SearchService) Search(ctx context.Context, actor domain.User, q TicketQ
 	return result, nil
 }
 
+// Export sizes (issue #409). The export answers the SAME question the list
+// does, for every match rather than one page, so it reads in large batches and
+// hands each ticket to the caller as it arrives: the CSV is written while the
+// read walks, and neither the service nor the handler ever holds the whole
+// result set.
+const (
+	// ExportBatchSize is one read of the export walk.
+	ExportBatchSize = 500
+	// ExportMaxRows bounds one export. A desk with more matches than this has
+	// a reporting problem a download cannot solve, and an unbounded walk would
+	// let one request read the entire table.
+	ExportMaxRows = 50000
+)
+
+// Export walks every ticket matching q WITHIN THE ACTOR'S SCOPE and calls visit
+// once per ticket, in the query's order.
+//
+// It deliberately goes through the same scoped() preparation Search and Count
+// use, so an export can never return a row its own list would hide: a requester
+// exports their own active work, an agent what their scope allows, staff the
+// whole queue. visit returning an error stops the walk and is returned as is.
+func (s *SearchService) Export(ctx context.Context, actor domain.User, q TicketQuery, visit func(domain.Ticket) error) error {
+	scoped, hasText := s.scoped(actor, q)
+	for offset := 0; offset < ExportMaxRows; offset += ExportBatchSize {
+		limit := ExportBatchSize
+		if remaining := ExportMaxRows - offset; remaining < limit {
+			limit = remaining
+		}
+		var batch []domain.Ticket
+		var err error
+		if hasText {
+			batch, err = s.search.Search(ctx, scoped, Page{Offset: offset, Limit: limit})
+		} else {
+			batch, err = s.tickets.List(ctx, scoped, Page{Offset: offset, Limit: limit})
+		}
+		if err != nil {
+			return err
+		}
+		for i := range batch {
+			if err := visit(batch[i]); err != nil {
+				return err
+			}
+		}
+		if len(batch) < limit {
+			return nil
+		}
+	}
+	return nil
+}
+
 // scoped applies the actor's scope, the requester's fixed active-work
 // restriction and the title/ID tokenization: the preparation Search and Count
 // share, so a tab count can never disagree with the list it opens.

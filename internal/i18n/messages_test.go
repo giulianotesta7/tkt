@@ -223,6 +223,10 @@ var nonKeyGoLiterals = map[string]bool{
 	"base.html":            true,
 	"go.mod":               true,
 	"smtp.key":             true,
+	// Download file names (issue #409): they name the file the browser saves,
+	// not copy a reader sees, so they stay stable across instance languages.
+	"tickets.csv": true,
+	"metrics.csv": true,
 }
 
 // prefixKeySuffixes pins the concrete suffixes each enum-driven template

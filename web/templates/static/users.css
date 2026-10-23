@@ -140,6 +140,12 @@
 .tickets-screen .queue-tabs{display:flex;gap:4px;border-bottom:1px solid var(--line);margin-bottom:14px;overflow-x:auto;scrollbar-width:none}
 .tickets-screen .queue-tabs::-webkit-scrollbar{display:none}
 .tickets-screen .queue-tab{display:inline-flex;align-items:center;gap:6px;padding:8px 12px;color:var(--muted);font-size:13px;font-weight:500;white-space:nowrap;border-bottom:2px solid transparent;margin-bottom:-1px}
+/* The CSV download (issue #409) closes the tab row: it lives inside #queue-tabs
+   because a filter change swaps that row out-of-band, which keeps the link's
+   query equal to the filters on screen. It is a quiet link, not a button, so
+   the row still reads as navigation first. */
+.tickets-screen .queue-export{margin-left:auto;display:inline-flex;align-items:center;gap:6px;padding:8px 6px;color:var(--muted);font-size:12px;font-weight:500;white-space:nowrap;text-decoration:none;border-radius:6px;flex:none}
+.tickets-screen .queue-export:hover{color:var(--ink);background:var(--hover)}
 .tickets-screen .queue-tab:hover{color:var(--ink);text-decoration:none}
 .tickets-screen .queue-tab.active{color:var(--ink-strong);border-bottom-color:var(--accent)}
 .tickets-screen .queue-tab-count{font-size:12px;color:var(--faint);font-variant-numeric:tabular-nums}
