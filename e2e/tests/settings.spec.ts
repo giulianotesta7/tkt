@@ -1015,6 +1015,50 @@ test.describe("Preferences", () => {
     await expect(toggle).toBeChecked();
   });
 
+  test("pairs each label with its control and writes only on submit", async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    const obs = collectObservability(page);
+    await loginAsSeeded(page);
+
+    // Issue #396 (S3): three sections that pair a label with its control, each
+    // owning one form and its own explicit save.
+    await page.goto(base() + "/preferences");
+    await expect(page.locator(".preferences-screen")).toBeVisible();
+    await expect(page.locator(".preferences-section")).toHaveCount(3);
+    const saves = page.locator(".preferences-form button[type=submit]");
+    await expect(saves).toHaveCount(3);
+    await expect(saves.nth(0)).toHaveText("Save preferences");
+    await expect(saves.nth(1)).toHaveText("Save theme");
+    await expect(saves.nth(2)).toHaveText("Save email preference");
+
+    // S3: a select change alone never saves. The value is only written by the
+    // section's own submit, so the stored order survives a reload untouched.
+    let writes = 0;
+    page.on("request", (request) => {
+      if (request.method() !== "POST") return;
+      if (!new URL(request.url()).pathname.startsWith("/preferences")) return;
+      writes += 1;
+    });
+    await page.getByLabel("Default queue order").selectOption("urgency");
+    await page.reload();
+    await expect(page.getByLabel("Default queue order")).toHaveValue("newest");
+    expect(writes, "choosing an option must not save it").toBe(0);
+
+    // 390px: the sections stack, nothing overflows, nothing is clipped.
+    await assertCanonicalScreen(page, {
+      viewport: 390,
+      label: "preferences sections @ 390px",
+      url: page.url(),
+      role: "root",
+      consoleErrors: obs.consoleErrors,
+      pageErrors: obs.pageErrors,
+      failedRequests: obs.failedRequests,
+      failedResponses: obs.failedResponses,
+    });
+    expect(obs.consoleErrors).toEqual([]);
+    expect(obs.pageErrors).toEqual([]);
+  });
+
   // ------------------------------------------------------------------------
   // Sub-navigation and the sticky save bar (issue #383, S1/S2).
   //
@@ -1467,3 +1511,48 @@ function tinyPNG(): { name: string; mimeType: string; buffer: Buffer } {
     ),
   };
 }
+
+/**
+ * Issue #396 (S3/S5): Preferences must stay usable with scripting off — the
+ * three preferences are native forms, so an explicit save is an ordinary POST
+ * and the stored value is server truth.
+ */
+test.describe("Preferences without scripting (seeded)", () => {
+  test.use({ javaScriptEnabled: false });
+
+  test.beforeAll(async () => {
+    await startServer({ seed: true });
+  });
+  test.afterAll(async () => {
+    await stopServer();
+  });
+
+  test("an explicit save persists without a script", async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    const obs = collectObservability(page);
+    await loginAsSeeded(page);
+
+    await page.goto(base() + "/preferences");
+    await expect(page.locator(".preferences-section")).toHaveCount(3);
+    await page.getByLabel("Default queue order").selectOption("priority");
+    await page.getByRole("button", { name: "Save preferences" }).click();
+    await expect(page).toHaveURL(/\/preferences$/);
+    await page.reload();
+    await expect(page.getByLabel("Default queue order")).toHaveValue("priority");
+    // The queue the preference orders is the server's own list.
+    await page.goto(base() + "/tickets");
+    await expect(page.getByLabel("Order by")).toHaveValue("priority");
+
+    // Back to the default so the seeded profile is left as it was found.
+    await page.goto(base() + "/preferences");
+    await page.getByLabel("Default queue order").selectOption("newest");
+    await page.getByRole("button", { name: "Save preferences" }).click();
+    await expect(page).toHaveURL(/\/preferences$/);
+    await page.reload();
+    await expect(page.getByLabel("Default queue order")).toHaveValue("newest");
+
+    expect(obs.consoleErrors).toEqual([]);
+    expect(obs.pageErrors).toEqual([]);
+    expect(obs.failedResponses).toEqual([]);
+  });
+});

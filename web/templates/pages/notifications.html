@@ -1,11 +1,13 @@
 {{define "title"}}{{tf "base.title.screen" (t "notifications.title") (brandHelpDesk .Brand)}}{{end}}
 {{define "content"}}
-<div class="command-header">
-  <div>
-    <h1 class="command-title">{{t "notifications.title"}}</h1>
+<div class="notifications-screen">
+  <div class="command-header">
+    <div>
+      <h1 class="command-title">{{t "notifications.title"}}</h1>
+    </div>
+{{template "notifications_actions" .}}</div>
+  <div class="notifications-page">
+    <div class="notifications-body">{{template "notifications_list" .}}</div>
   </div>
-</div>
-<div class="card notifications-page">
-{{template "notifications_actions" .}}  <div class="notifications-body">{{template "notifications_list" .}}</div>
 </div>
 {{end}}
