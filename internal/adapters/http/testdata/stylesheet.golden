@@ -239,6 +239,19 @@
   .notifications-screen .notification-unread{padding:0;background:none;color:var(--muted);font-weight:500}
   .notifications-screen .notifications-empty{padding:56px 20px;border:1px solid var(--line);border-radius:12px;text-align:center}
 
+  .preferences-screen{max-width:850px}
+  .preferences-section{display:grid;grid-template-columns:220px minmax(0,1fr);gap:28px;padding:24px 0;border-top:1px solid var(--line)}
+  .preferences-section:first-child{padding-top:0;border-top:0}
+  .preferences-section-head h2{margin:0 0 7px;font-size:14px;font-weight:600;color:var(--ink-strong)}
+  .preferences-section-head p{margin:0;font-size:12px;line-height:1.6;color:var(--muted)}
+  .preferences-form{min-width:0}
+  .preferences-form .field{margin-bottom:16px}
+  .preferences-form .field label{font-size:13px;font-weight:500;color:var(--ink)}
+  .preferences-form .field select{max-width:360px}
+  .preferences-form .checkbox-field label{align-items:flex-start;font-weight:400;line-height:1.6}
+  .preferences-form .checkbox-field input[type=checkbox]{margin-top:2px}
+  .preferences-actions{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+
   .main{padding:22px 28px 40px;min-width:0}
 
   .page-header,.command-header{display:flex;align-items:flex-start;justify-content:space-between;gap:24px;margin-bottom:20px}
@@ -898,6 +911,8 @@
     .sla-grid-priority{grid-column:1 / -1}
     .notifications-screen .notifications-day{margin:18px 0 4px}
     .notifications-screen .notification-open{padding:14px 4px}
+    .preferences-section{grid-template-columns:minmax(0,1fr);gap:16px;padding:20px 0}
+    .preferences-section:first-child{padding-top:0}
   }
 
   .workflow-responses{

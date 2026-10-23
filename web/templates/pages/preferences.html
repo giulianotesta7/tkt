@@ -1,40 +1,61 @@
 {{define "title"}}{{tf "base.title.screen" (t "preferences.title") (brandHelpDesk .Brand)}}{{end}}
 {{define "content"}}
-<div class="command-header">
-  <div>
-    <h1 class="command-title">{{t "preferences.title"}}</h1>
-    <p class="command-sub">{{t "preferences.subtitle"}}</p>
+<div class="preferences-screen">
+  <div class="command-header">
+    <div>
+      <h1 class="command-title">{{t "preferences.title"}}</h1>
+      <p class="command-sub">{{t "preferences.subtitle"}}</p>
+    </div>
+  </div>
+{{if .Error}}<div class="error-banner" role="alert">{{.Error}}</div>{{end}}  <div class="preferences-sections">
+    <section class="preferences-section">
+      <div class="preferences-section-head">
+        <h2>{{t "preferences.queue.title"}}</h2>
+        <p>{{t "preferences.queue.help"}}</p>
+      </div>
+      <form class="preferences-form" method="post" action="/preferences">
+        <div class="field">
+          <label for="queue_order">{{t "preferences.queue.default"}}</label>
+          <select id="queue_order" name="queue_order">
+{{range .Orders}}            <option value="{{.Value}}"{{if eq $.Current .Value}} selected{{end}}>{{t .Label}}</option>
+{{end}}          </select>
+        </div>
+        <div class="preferences-actions">
+          <button class="btn primary" type="submit">{{t "preferences.save"}}</button>
+        </div>
+      </form>
+    </section>
+    <section class="preferences-section">
+      <div class="preferences-section-head">
+        <h2>{{t "preferences.theme.title"}}</h2>
+      </div>
+      <form class="preferences-form" method="post" action="/preferences/theme">
+        <div class="field">
+          <label class="visually-hidden" for="theme">{{t "preferences.theme.title"}}</label>
+          <select id="theme" name="theme">
+{{range .Themes}}            <option value="{{.Value}}"{{if eq $.Theme .Value}} selected{{end}}>{{t .Label}}</option>
+{{end}}          </select>
+        </div>
+        <div class="preferences-actions">
+          <button class="btn primary" type="submit">{{t "preferences.theme.save"}}</button>
+        </div>
+      </form>
+    </section>
+    <section class="preferences-section">
+      <div class="preferences-section-head">
+        <h2>{{t "preferences.email.title"}}</h2>
+        <p>{{t "preferences.email.help"}}</p>
+      </div>
+      <form class="preferences-form" method="post" action="/preferences/email">
+        <div class="field checkbox-field">
+          <label>{{if .EmailNotifications}}<input type="checkbox" name="email_notifications" value="1" checked> {{t "preferences.email.enable"}}{{else}}<input type="checkbox" name="email_notifications" value="1"> {{t "preferences.email.enable"}}{{end}}</label>
+          <p class="help">{{t "preferences.email.enable_help"}}</p>
+        </div>
+        <div class="preferences-actions">
+          <button class="btn primary" type="submit">{{t "preferences.email.save"}}</button>
+        </div>
+      </form>
+    </section>
   </div>
 </div>
-{{if .Error}}<div class="error-banner" role="alert">{{.Error}}</div>{{end}}
-<form class="card form-card" method="post" action="/preferences">
-  <h2>{{t "preferences.queue.title"}}</h2>
-  <p class="help">{{t "preferences.queue.help"}}</p>
-  <div class="field">
-    <label for="queue_order">{{t "preferences.queue.default"}}</label>
-    <select id="queue_order" name="queue_order">
-{{range .Orders}}      <option value="{{.Value}}"{{if eq $.Current .Value}} selected{{end}}>{{t .Label}}</option>
-{{end}}    </select>
-  </div>
-  <button class="btn primary" type="submit">{{t "preferences.save"}}</button>
-</form>
-<form class="card form-card" method="post" action="/preferences/theme">
-  <h2>{{t "preferences.theme.title"}}</h2>
-  <div class="field">
-    <label class="visually-hidden" for="theme">{{t "preferences.theme.title"}}</label>
-    <select id="theme" name="theme">
-{{range .Themes}}      <option value="{{.Value}}"{{if eq $.Theme .Value}} selected{{end}}>{{t .Label}}</option>
-{{end}}    </select>
-  </div>
-  <button class="btn primary" type="submit">{{t "preferences.theme.save"}}</button>
-</form>
-<form class="card form-card" method="post" action="/preferences/email">
-  <h2>{{t "preferences.email.title"}}</h2>
-  <p class="help">{{t "preferences.email.help"}}</p>
-  <div class="field checkbox-field">
-    <label>{{if .EmailNotifications}}<input type="checkbox" name="email_notifications" value="1" checked> {{t "preferences.email.enable"}}{{else}}<input type="checkbox" name="email_notifications" value="1"> {{t "preferences.email.enable"}}{{end}}</label>
-    <p class="help">{{t "preferences.email.enable_help"}}</p>
-  </div>
-  <button class="btn primary" type="submit">{{t "preferences.email.save"}}</button>
-</form>
 {{end}}
