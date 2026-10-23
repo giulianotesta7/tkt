@@ -240,8 +240,11 @@ func TestMigrateCreatesSchema(t *testing.T) {
 	}
 }
 
-// wantMigrationVersions is every embedded migration version, in order.
-var wantMigrationVersions = []int{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28}
+// wantMigrationVersions is every embedded migration version, in order. 0033 is
+// the reserved number issue #418 fixed for canned replies, followers and the
+// two new notification kinds; the versions between 0028 and it belong to other
+// in-flight branches, so a gap here is the collision guard, not an omission.
+var wantMigrationVersions = []int{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 33}
 
 func TestMigrateRerunIsNoOp(t *testing.T) {
 	s := newTestDB(t)

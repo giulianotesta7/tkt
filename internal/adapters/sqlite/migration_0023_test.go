@@ -108,7 +108,7 @@ func TestMigration0023AcceptsOnHoldAndStaysClosed(t *testing.T) {
 		user, tk.ID, string(domain.NotificationOnHold), formatTime(testClock)); err != nil {
 		t.Errorf("insert on_hold: %v, want it accepted", err)
 	}
-	for _, kind := range []string{"", "mentioned", "ON_HOLD", "on_hold "} {
+	for _, kind := range []string{"", "mention", "ON_HOLD", "on_hold "} {
 		if _, err := s.db.ExecContext(ctx, `INSERT INTO notifications (user_id, ticket_id, kind, created_at) VALUES (?, ?, ?, ?)`,
 			user, tk.ID, kind, formatTime(testClock)); err == nil {
 			t.Errorf("insert kind %q succeeded, want CHECK failure", kind)

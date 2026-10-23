@@ -341,6 +341,20 @@ func NotificationMessage(n domain.Notification) Msg {
 		return MsgRef("notifications.kind.sla_resolution_breached")
 	case domain.NotificationNoMovement:
 		return MsgRef("notifications.kind.no_movement")
+	case domain.NotificationAssigneeChanged:
+		// Issue #418: a follower learns who the ticket went to. The new
+		// assignee's display name is a snapshot in to_value, interpolated as a
+		// literal (it is data, not copy); a NULL or empty value means nobody
+		// holds the ticket now, so the sentence says that instead of naming an
+		// empty slot.
+		if n.ToValue == nil || *n.ToValue == "" {
+			return MsgRef("notifications.kind.unassigned")
+		}
+		return MsgRef("notifications.kind.assignee_changed", Text(*n.ToValue))
+	case domain.NotificationMentioned:
+		// Issue #418: the person named in a comment. The comment is
+		// opened from the ticket, so the sentence carries no body and no name.
+		return MsgRef("notifications.kind.mentioned")
 	default:
 		// A kind no catalogue names cannot be stored (the domain refuses it),
 		// and the sentence still says something happened instead of printing
