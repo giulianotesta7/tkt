@@ -334,3 +334,23 @@ func TestTicketsIndexAgentListsCancelledTicketsInTheDoneSection(t *testing.T) {
 		}
 	}
 }
+
+// Every agent row keeps its timestamp reachable from the keyboard and named
+// for screen readers: the relative reading is visible, and the exact instant
+// is the focusable element's accessible name and tooltip, as on the cards the
+// tables replaced.
+func TestTicketsIndexAgentTimestampsStayFocusableWithTheFullDate(t *testing.T) {
+	h := newHarness(t)
+	agent := seedUserRole(t, h.store, "Tia", "tia-sections@example.com", domain.RoleAgent)
+	sess := seedSession(t, h.store, agent.ID)
+	ticket := h.seedTicket(t, "Timestamp ticket", nil)
+	h.assignTicket(t, ticket.ID, agent.ID)
+
+	body := agentSectionsBody(t, h, sess.ID, "")
+	row := between(t, body, `id="assigned-tickets-title"`, "</table>")
+	for _, want := range []string{`<time class="card-timestamp" tabindex="0" datetime="`, `aria-label="`, `data-full-date="`} {
+		if !strings.Contains(row, want) {
+			t.Errorf("assigned row timestamp must contain %q, got: %s", want, row)
+		}
+	}
+}

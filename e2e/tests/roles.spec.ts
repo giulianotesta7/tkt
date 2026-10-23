@@ -205,10 +205,14 @@ test.describe("Role — minimal matrix admin / agent / user (seeded)", () => {
     await expect(assignedRow).toHaveAttribute("data-href", new RegExp(`^/tickets/${assignedID}$`));
     await expect(assignedRow.locator("a.queue-title")).toHaveText(assignedTitle);
     await expect(assignedRow.locator(".queue-requester")).toHaveCSS("color", "rgba(0, 0, 0, 0.62)");
-    await expect(assignedRow.locator("time")).toHaveAttribute(
-      "title",
-      /\d{2}:\d{2} · \d{2}-\d{2}-\d{4}/,
-    );
+    const assignedTime = assignedRow.locator("time.card-timestamp");
+    await expect(assignedTime).toHaveAttribute("title", /\d{2}:\d{2} · \d{2}-\d{2}-\d{4}/);
+    // The exact instant stays reachable from the keyboard and named for
+    // screen readers, as on the cards the table replaced.
+    await expect(assignedTime).toHaveAttribute("tabindex", "0");
+    await expect(assignedTime).toHaveAttribute("aria-label", /\d{2}:\d{2} · \d{2}-\d{2}-\d{4}/);
+    await assignedTime.focus();
+    await expect(assignedTime).toBeFocused();
     // The whole row opens its ticket without swallowing the title link.
     await assignedRow.locator("td.agent-desk").click();
     await expect(page).toHaveURL(new RegExp(`/tickets/${assignedID}$`));

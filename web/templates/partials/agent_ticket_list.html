@@ -18,7 +18,7 @@
         <tbody>
 {{range .Tickets}}          <tr class="queue-row" data-href="/tickets/{{.ID}}">
             {{template "agent_row_cells" .}}
-            <td class="cell-muted queue-updated" data-label="{{t "tickets.list.col_updated"}}"><time datetime="{{formatDatetime .UpdatedAt}}" title="{{formatTime .UpdatedAt}}">{{relativeTime .UpdatedAt $.Now}}</time></td>
+            <td class="cell-muted queue-updated" data-label="{{t "tickets.list.col_updated"}}"><time class="card-timestamp" tabindex="0" datetime="{{formatDatetime .UpdatedAt}}" aria-label="{{formatTime .UpdatedAt}}" data-full-date="{{formatTime .UpdatedAt}}" title="{{formatTime .UpdatedAt}}">{{relativeTime .UpdatedAt $.Now}}</time></td>
           </tr>
 {{else}}          <tr><td colspan="7"><div class="empty queue-empty">{{if .HasActiveQuery}}<p>{{t "tickets.agent.no_match"}}</p><a class="agent-clear-search" href="/tickets" hx-get="/tickets" hx-target="#tickets-screen" hx-swap="outerHTML" hx-push-url="true">{{t "tickets.agent.clear_search"}}</a>{{else}}<p>{{t "tickets.agent.none_assigned"}}</p>{{end}}</div></td></tr>
 {{end}}        </tbody>
@@ -35,7 +35,7 @@
         <tbody>
 {{range .Tickets}}          <tr class="queue-row" data-href="/tickets/{{.ID}}">
             {{template "agent_row_cells" .}}
-            <td class="cell-muted queue-updated" data-label="{{t "tickets.agent.created"}}"><time datetime="{{formatDatetime .CreatedAt}}" title="{{formatTime .CreatedAt}}">{{relativeTime .CreatedAt $.Now}}</time></td>
+            <td class="cell-muted queue-updated" data-label="{{t "tickets.agent.created"}}"><time class="card-timestamp" tabindex="0" datetime="{{formatDatetime .CreatedAt}}" aria-label="{{formatTime .CreatedAt}}" data-full-date="{{formatTime .CreatedAt}}" title="{{formatTime .CreatedAt}}">{{relativeTime .CreatedAt $.Now}}</time></td>
             <td class="cell-actions">{{if .Context.Position}}<form class="agent-claim-form" method="post" action="/tickets/{{.ID}}/workflow/steps/{{.Context.Position}}/complete" hx-post="/tickets/{{.ID}}/workflow/steps/{{.Context.Position}}/complete" hx-target="#agent-ticket-list" hx-swap="outerHTML"><button class="btn small" type="submit">{{t "tickets.agent.claim_ticket"}}</button></form>{{end}}</td>
           </tr>
 {{else}}          <tr><td colspan="8"><div class="empty queue-empty">{{if .HasActiveQuery}}<p>{{t "tickets.agent.no_match"}}</p><a class="agent-clear-search" href="/tickets" hx-get="/tickets" hx-target="#tickets-screen" hx-swap="outerHTML" hx-push-url="true">{{t "tickets.agent.clear_search"}}</a>{{else}}<p>{{t "tickets.agent.none_available"}}</p>{{end}}</div></td></tr>
