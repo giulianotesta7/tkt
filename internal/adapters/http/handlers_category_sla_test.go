@@ -94,11 +94,11 @@ func TestCategorySLAIndexShowsMaterializedMatrix(t *testing.T) {
 		`action="/categories/` + strconv.FormatInt(h.bugCategory.ID, 10) + `/sla"`,
 		// Seeded matrix (migration 0015 backfill): critical 1800s/14400s,
 		// high 3600s/28800s, low 28800s/259200s.
-		`name="first_response_m_critical" value="30"`,
-		`name="resolve_h_critical" value="4"`,
-		`name="first_response_h_high" value="1"`,
-		`name="first_response_h_low" value="8"`,
-		`name="resolve_h_low" value="72"`,
+		`name="first_response_duration_critical" value="30m"`,
+		`name="resolve_duration_critical" value="4h"`,
+		`name="first_response_duration_high" value="1h"`,
+		`name="first_response_duration_low" value="8h"`,
+		`name="resolve_duration_low" value="72h"`,
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("category SLA page must contain %q, got: %s", want, body)
@@ -106,7 +106,7 @@ func TestCategorySLAIndexShowsMaterializedMatrix(t *testing.T) {
 	}
 	// All four priorities appear once as a row.
 	for _, priority := range []string{"critical", "high", "medium", "low"} {
-		if got := strings.Count(body, `name="first_response_h_`+priority+`"`); got != 1 {
+		if got := strings.Count(body, `name="first_response_duration_`+priority+`"`); got != 1 {
 			t.Errorf("priority %q row count = %d, want 1", priority, got)
 		}
 	}
@@ -230,11 +230,11 @@ func TestCategorySLARejectsInvalidEchoesSubmitted(t *testing.T) {
 	}
 	for _, want := range []string{
 		// Echoed SUBMITTED values, not the stored matrix.
-		`name="first_response_h_critical" value="5"`,
-		`name="resolve_s_critical" value="30"`,
-		// The other 22 fields survive the round-trip too.
-		`name="first_response_m_high" value="30"`,
-		`name="resolve_h_low" value="48"`,
+		`name="first_response_duration_critical" value="5h 30m"`,
+		`name="resolve_duration_critical" value="30s"`,
+		// Legacy submitted components survive in their compact representation.
+		`name="first_response_duration_high" value="1h 30m"`,
+		`name="resolve_duration_low" value="48h"`,
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("rejected save must echo submitted value %q, got: %s", want, body)
@@ -327,10 +327,10 @@ func TestCategorySLAResetAppliesInstanceDefaults(t *testing.T) {
 
 	body := h.get(t, path, false).Body.String()
 	for _, want := range []string{
-		`name="first_response_m_critical" value="30"`,
-		`name="resolve_h_high" value="8"`,
-		`name="resolve_h_medium" value="24"`,
-		`name="resolve_h_low" value="72"`,
+		`name="first_response_duration_critical" value="30m"`,
+		`name="resolve_duration_high" value="8h"`,
+		`name="resolve_duration_medium" value="24h"`,
+		`name="resolve_duration_low" value="72h"`,
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("reset screen must render instance default %q, got: %s", want, body)
@@ -368,10 +368,10 @@ func TestCategorySLANormalSaveDoesNotReset(t *testing.T) {
 	}
 
 	body := h.get(t, path, false).Body.String()
-	if !strings.Contains(body, `name="resolve_h_medium" value="30"`) {
+	if !strings.Contains(body, `name="resolve_duration_medium" value="30h"`) {
 		t.Errorf("normal save must render the edited value, got: %s", body)
 	}
-	if strings.Contains(body, `name="resolve_h_medium" value="24"`) {
+	if strings.Contains(body, `name="resolve_duration_medium" value="24h"`) {
 		t.Errorf("normal save must not reset medium to the instance default, got: %s", body)
 	}
 }

@@ -1608,7 +1608,9 @@ func TestCategoryWorkflowBuilder_MobileStyles_WrapNarrow(t *testing.T) {
 	// (issue #383) requires it to collapse to a strip on a phone, so its steps,
 	// highlights and footer are hidden there while every form control stays.
 	controls := mobile
-	for _, content := range []string{".auth-entry__steps,.auth-entry__highlights,.auth-entry__foot{display:none}"} {
+	// Category SLA replaces the redundant column headings with visible labels
+	// on each stacked mobile field (issue #395); these are content, not controls.
+	for _, content := range []string{".auth-entry__steps,.auth-entry__highlights,.auth-entry__foot{display:none}", ".sla-duration-grid .sla-grid-head{display:none}"} {
 		controls = strings.ReplaceAll(controls, content, "")
 	}
 	for _, hidden := range []string{"display:none", "visibility:hidden", "pointer-events:none"} {
