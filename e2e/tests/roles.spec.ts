@@ -258,43 +258,53 @@ test.describe("Role — minimal matrix admin / agent / user (seeded)", () => {
     // The page title stays outside #tickets-screen: the metrics summary sits
     // between them and is never part of an HX list swap. Only the swapped region
     // carries the live count, so the subtitle is what must track the fragment.
+    // Issue #411 removed the card grid: the header counts the OPEN work and the
+    // rows are one full-width hairline list.
     await expect(page.getByRole("heading", { name: "My tickets" })).toBeVisible();
-    await expect(listScreen.locator(".page-subtitle")).toHaveText("1 ticket");
-    const userCard = listScreen
-      .locator(".user-request-card")
+    await expect(listScreen.locator(".page-subtitle")).toHaveText("1 open ticket");
+    const openSection = listScreen
+      .locator(".req-section")
+      .filter({ has: page.locator("#open-tickets-title") });
+    await expect(openSection.locator("#open-tickets-title")).toHaveText("Open · 1");
+    const userRow = openSection
+      .locator("li.req")
       .filter({ has: page.getByText(userTicket, { exact: true }) });
-    await expect(userCard).toHaveCount(1);
-    await expect(userCard.locator(".badge.new")).toHaveText("Received");
-    await expect(userCard.getByRole("link", { name: "View request" })).toBeVisible();
-    await expect(userCard.locator(".user-request-meta")).toContainText("TKT-");
-    await expect(userCard).not.toContainText(/priority|assignee|requester|state/i);
+    await expect(userRow).toHaveCount(1);
+    await expect(userRow.locator(".badge.new")).toHaveText("Received");
+    await expect(userRow.locator(".req-meta")).toContainText("TKT-");
+    await expect(userRow.locator(".req-meta")).toContainText("Updated");
+    await expect(userRow.locator(".req-meta")).toHaveCSS("color", "rgba(0, 0, 0, 0.62)");
+    await expect(userRow.locator(".req-title")).toHaveAttribute("href", `/tickets/${userTicketId}`);
+    // The duplicated "View request" link is gone and the row itself is the
+    // target; no queue table, no waiting section, no closed disclosure for a
+    // brand-new open ticket.
+    await expect(listScreen.getByRole("link", { name: "View request" })).toHaveCount(0);
     await expect(listScreen.locator("table")).toHaveCount(0);
-    const userGrid = listScreen.locator(".user-ticket-grid");
-    expect(
-      await userGrid.evaluate((el) => getComputedStyle(el).gridTemplateColumns.split(" ").length),
-    ).toBe(3);
-    await expect(userCard.getByRole("link", { name: "View request" })).toHaveCSS(
-      "color",
-      "rgb(49, 94, 255)",
-    );
-    await expect(userCard.locator(".user-request-meta")).toHaveCSS("color", "rgba(0, 0, 0, 0.62)");
-    await expect(userCard.locator("time.card-timestamp")).toHaveAttribute("tabindex", "0");
-    await expect(userCard.locator("time.card-timestamp")).toHaveAttribute(
-      "data-full-date",
-      /\d{2}:\d{2} · \d{2}-\d{2}-\d{4}/,
-    );
+    await expect(listScreen.locator(".req-waiting-list")).toHaveCount(0);
+    await expect(listScreen.locator(".req-fold")).toHaveCount(0);
+    // The row folds to one column on a phone and keeps two tracks above it.
+    const reqColumnCount = () =>
+      listScreen
+        .locator(".req-list")
+        .first()
+        .locator(".req")
+        .first()
+        .evaluate((el) => getComputedStyle(el).gridTemplateColumns.split(" ").length);
     await page.setViewportSize({ width: 800, height: 900 });
-    expect(
-      await userGrid.evaluate((el) => getComputedStyle(el).gridTemplateColumns.split(" ").length),
-    ).toBe(2);
+    expect(await reqColumnCount()).toBe(2);
     await page.setViewportSize({ width: 390, height: 800 });
-    expect(
-      await userGrid.evaluate((el) => getComputedStyle(el).gridTemplateColumns.split(" ").length),
-    ).toBe(1);
+    expect(await reqColumnCount()).toBe(1);
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(
       390,
     );
     await page.setViewportSize({ width: 1280, height: 800 });
+    expect(await reqColumnCount()).toBe(2);
+    // A plain click anywhere on the row (never on its own link) opens the
+    // ticket: the click target here is the meta line, not the title.
+    const rowHref = await userRow.locator(".req-title").getAttribute("href");
+    await userRow.locator(".req-meta").click();
+    await expect(page).toHaveURL(new RegExp(`${rowHref}$`));
+    await expect(page.locator("#ticket-detail")).toBeVisible();
     await page.goto(baseURL() + `/tickets/${userTicketId}`);
     await expect(page.locator("#ticket-detail")).toBeVisible();
     await expect(page.getByLabel("Internal note")).toHaveCount(0);
@@ -472,11 +482,12 @@ test.describe("Role — requester SLA blindness (seeded)", () => {
       priority: "high",
     });
 
-    // Requester list: the user card grid, no SLA column and no SLA badge.
+    // Requester list: the full-width rows of issue #411, no SLA column and no
+    // SLA badge.
     await expect(page.getByRole("heading", { name: "My tickets", exact: true })).toBeVisible();
     const listScreen = page.locator("#tickets-screen");
     const card = listScreen
-      .locator(".user-request-card")
+      .locator("li.req")
       .filter({ has: page.getByText(title, { exact: true }) });
     await expect(card).toHaveCount(1);
     await expect(card.locator(".badge.new")).toHaveText("Received");

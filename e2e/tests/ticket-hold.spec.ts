@@ -351,13 +351,42 @@ test.describe("Ticket on hold", () => {
     await logout(page);
     await loginAs(page, requesterEmail, requesterPassword);
 
-    // The requester's list chips the held ticket beside its state.
+    // The requester's list opens with its own "waiting for your reply"
+    // section (issue #411, S3): the held ticket is named by that section and
+    // its label, with one primary Reply action, instead of a chip beside a
+    // state badge.
     await page.goto(base() + "/tickets");
-    const requesterCard = page
-      .locator("#user-ticket-list .user-request-card")
-      .filter({ hasText: title });
-    await expect(requesterCard).toHaveCount(1);
-    await expect(requesterCard.locator(".chip")).toHaveText("On hold");
+    const waitingSection = page.locator("#user-ticket-list .req-section").filter({
+      has: page.locator("#waiting-tickets-title"),
+    });
+    await expect(waitingSection.locator("#waiting-tickets-title")).toHaveText(
+      "Waiting for your reply · 1",
+    );
+    const waitingRow = waitingSection.locator(".req-waiting").filter({ hasText: title });
+    await expect(waitingRow).toHaveCount(1);
+    await expect(waitingRow.locator(".req-waiting-label")).toHaveText(
+      "This ticket is waiting for your reply",
+    );
+    await expect(waitingRow.locator(".chip")).toHaveCount(0);
+    await expect(waitingRow.getByRole("link", { name: "Reply" })).toHaveAttribute(
+      "href",
+      `${detailPath}#reply`,
+    );
+    // The held ticket is in the waiting section only: the open section never
+    // lists it twice.
+    await expect(
+      page.locator("#user-ticket-list .req-list li.req").filter({ hasText: title }),
+    ).toHaveCount(0);
+    // The waiting section survives the phone fold like the rest of the shell.
+    await page.setViewportSize({ width: 390, height: 844 });
+    await assertNoHorizontalOverflow(page, 390);
+    await assertNothingClipped(page);
+    await page.setViewportSize({ width: 1280, height: 800 });
+    // Reply lands on the ticket with the composer in reach.
+    await waitingRow.getByRole("link", { name: "Reply" }).click();
+    await expect(page).toHaveURL(new RegExp(`${detailPath}#reply$`));
+    await expect(page.locator("#reply")).toBeVisible();
+    await expect(page.locator("#reply").getByLabel(/comment body/i)).toBeVisible();
 
     await page.goto(base() + detailPath);
     await expect(page.locator("#ticket-detail")).toBeVisible();

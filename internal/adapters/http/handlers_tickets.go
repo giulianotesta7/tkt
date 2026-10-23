@@ -756,6 +756,14 @@ type listData struct {
 	Assigned            ticketListData
 	Claimable           ticketListData
 	ClaimError          string
+	// Waiting, Open and Closed are the requester list's three sections (issue
+	// #411, S3/S4): the on-hold work waiting for the requester's reply, the
+	// active work, and the resolved+closed work folded at the end. Each carries
+	// its own page cursor and its own count. Every other view leaves them zero,
+	// and the requester's Total is the open work their header counts.
+	Waiting ticketListData
+	Open    ticketListData
+	Closed  ticketListData
 	// Tabs, Chips, ShowSLA and Now are the triage queue's presentation
 	// (issue #382): the view tabs with their counts, the removable active
 	// filters, whether the SLA column is drawn, and the one clock snapshot
@@ -807,6 +815,101 @@ func pageNumber(r *http.Request, key string) int {
 	return page
 }
 
+// requesterListHref rebuilds /tickets carrying the filters and the requester's
+// three INDEPENDENT page cursors (issue #411, S4). Each section's next and
+// previous links keep the other two cursors where they were, so paging one
+// section never resets another, and the search term survives every page.
+func requesterListHref(f filterState, openPage, waitingPage, closedPage int) string {
+	v := ticketFilterValues(f)
+	if openPage > 1 {
+		v.Set("page", strconv.Itoa(openPage))
+	}
+	if waitingPage > 1 {
+		v.Set("waiting_page", strconv.Itoa(waitingPage))
+	}
+	if closedPage > 1 {
+		v.Set("closed_page", strconv.Itoa(closedPage))
+	}
+	if len(v) == 0 {
+		return "/tickets"
+	}
+	return "/tickets?" + v.Encode()
+}
+
+// requesterSection reads ONE requester section through the same scoped search
+// the rest of the list uses: the section (never the URL) decides its state set
+// and its on-hold half, the text filter applies to all three alike, and its own
+// cursor pages it.
+func (h *TicketHandlers) requesterSection(r *http.Request, f filterState, actor domain.User, section application.TicketSection, page int, hrefForPage func(int) string) (ticketListData, error) {
+	query := viewQuery(f, actor)
+	query.Section = section
+	res, err := h.search.Search(r.Context(), actor, query, page)
+	if err != nil {
+		return ticketListData{}, err
+	}
+	data := sectionData(res, f, hrefForPage)
+	// SLA stays STAFF-ONLY (issue #211): the requester rows carry no SLA row,
+	// and no SLA read is made for them.
+	data.Tickets = wrapTicketRows(res.Tickets, nil, nil)
+	return data, nil
+}
+
+// requesterListSections builds the requester's three independently paged
+// sections (issue #411, S3/S4). The counts come from the same reads that
+// produce the rows, so a section header can never disagree with its list.
+func (h *TicketHandlers) requesterListSections(r *http.Request, f filterState, openPage, waitingPage, closedPage int) (waiting, open, closed ticketListData, err error) {
+	actor := *userFromContext(r.Context())
+	waiting, err = h.requesterSection(r, f, actor, application.TicketSectionRequesterWaiting, waitingPage, func(page int) string {
+		return requesterListHref(f, openPage, page, closedPage)
+	})
+	if err != nil {
+		return waiting, open, closed, err
+	}
+	open, err = h.requesterSection(r, f, actor, application.TicketSectionRequesterOpen, openPage, func(page int) string {
+		return requesterListHref(f, page, waitingPage, closedPage)
+	})
+	if err != nil {
+		return waiting, open, closed, err
+	}
+	closed, err = h.requesterSection(r, f, actor, application.TicketSectionRequesterClosed, closedPage, func(page int) string {
+		return requesterListHref(f, openPage, waitingPage, page)
+	})
+	return waiting, open, closed, err
+}
+
+// requesterListData is the requester payload: three sections, the open-work
+// count the header reads, and the one clock snapshot the relative "Updated"
+// reading is judged against.
+func (h *TicketHandlers) requesterListData(r *http.Request, f filterState, openPage, waitingPage, closedPage int) (listData, error) {
+	waiting, open, closed, err := h.requesterListSections(r, f, openPage, waitingPage, closedPage)
+	if err != nil {
+		return listData{}, err
+	}
+	pageMeta := pageDataFrom(r, "tickets")
+	pageMeta.PageFoundationAssets = true
+	// The requester's rows use the same plain-click row navigation as the
+	// staff queue (issue #411, S2).
+	pageMeta.QueueAssets = true
+	data := listData{
+		pageData:       pageMeta,
+		Filters:        f,
+		Tickets:        open.Tickets,
+		Total:          waiting.Total + open.Total,
+		Page:           open.Page,
+		Pages:          open.Pages,
+		PrevHref:       open.PrevHref,
+		NextHref:       open.NextHref,
+		HasActiveQuery: f.Q != "",
+		Waiting:        waiting,
+		Open:           open,
+		Closed:         closed,
+	}
+	if h.clock != nil {
+		data.Now = h.clock.Now()
+	}
+	return data, nil
+}
+
 // listData builds the full list payload for the given filters and page.
 // The search is scoped to the session actor (ticket-access spec): the
 // list shows only tickets within the actor's scope.
@@ -836,6 +939,7 @@ func (h *TicketHandlers) listData(r *http.Request, f filterState, page int) (lis
 	}
 	if actor.Role == domain.RoleUser {
 		f = simplifiedFilters(f)
+		return h.requesterListData(r, f, page, pageNumber(r, "waiting_page"), pageNumber(r, "closed_page"))
 	}
 
 	opts, err := h.collectOptions(r)

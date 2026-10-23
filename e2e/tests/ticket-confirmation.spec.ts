@@ -7,7 +7,11 @@
 import { expect, test } from "@playwright/test";
 import { base, createUserAsAdmin, loginAs, loginAsSeeded, logout } from "./helpers/auth.js";
 import { createTicketViaUi } from "./helpers/navigation.js";
-import { collectObservability } from "./helpers/layout.js";
+import {
+  assertNoHorizontalOverflow,
+  assertNothingClipped,
+  collectObservability,
+} from "./helpers/layout.js";
 import { assertHtmxSwap } from "./helpers/htmx.js";
 import {
   applyAssignee,
@@ -168,6 +172,31 @@ test.describe("Ticket confirmation", () => {
     // Refresh to prove persistence.
     await page.reload();
     await expect(page.getByText("Closed").first()).toBeVisible();
+
+    // The closed ticket leaves the requester's open work and moves into the
+    // folded "Closed" disclosure at the end of their list (issue #411, S4):
+    // the header no longer counts it, the disclosure names its own count, and
+    // it is collapsed until the requester opens it.
+    await page.goto(base() + "/tickets");
+    const listScreen = page.locator("#tickets-screen");
+    await expect(listScreen.locator(".page-subtitle")).toHaveText("0 open tickets");
+    await expect(listScreen.locator("#open-tickets-title")).toHaveText("Open · 0");
+    await expect(listScreen.locator(".req-empty")).toContainText("No requests yet");
+    const closedFold = listScreen.locator("details.req-fold");
+    await expect(closedFold).toHaveCount(1);
+    await expect(closedFold.locator("summary")).toHaveText("Closed · 1");
+    await expect(closedFold).not.toHaveAttribute("open", /.*/);
+    await expect(closedFold.locator("li.req")).toBeHidden();
+    await closedFold.locator("summary").click();
+    const closedRow = closedFold.locator("li.req").filter({ hasText: "Confirmation probe" });
+    await expect(closedRow).toHaveCount(1);
+    await expect(closedRow.locator(".badge.closed")).toHaveText("Closed");
+    // The disclosure and its rows hold at the phone width like the rest of the
+    // list: nothing clipped, nothing pushing the page sideways.
+    await page.setViewportSize({ width: 390, height: 844 });
+    await assertNoHorizontalOverflow(page, 390);
+    await assertNothingClipped(page);
+    await page.setViewportSize({ width: 1280, height: 800 });
   });
 
   test("requester rejects and the ticket reopens as a detached manual in_progress", async ({

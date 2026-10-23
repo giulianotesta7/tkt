@@ -556,7 +556,10 @@ func TestTicketDetailTerminalTicketHasNoHoldControl(t *testing.T) {
 }
 
 // TestTicketOnHoldChipInLists proves the on-hold chip renders next to the state
-// badge in the staff queue AND the requester list.
+// badge in the staff queue, and that the requester's list names the hold with
+// its own "waiting for your reply" section instead (issue #411, S3): the issue
+// #352 chip stays where a state badge lives, which the requester's waiting row
+// replaces with the section and its label.
 func TestTicketOnHoldChipInLists(t *testing.T) {
 	h := newHarness(t)
 	requester := seedUserRole(t, h.store, "Rosa", "rosa-list@tkt.test", domain.RoleUser)
@@ -570,8 +573,13 @@ func TestTicketOnHoldChipInLists(t *testing.T) {
 	}
 
 	own := getDetailAs(t, h, "/tickets", sess.ID, false).Body.String()
-	if !strings.Contains(own, `<span class="chip">On hold</span>`) {
-		t.Errorf("the requester list must chip a held ticket, got: %s", own)
+	for _, want := range []string{"Waiting for your reply · 1", "This ticket is waiting for your reply", `href="/tickets/` + strconv.FormatInt(tkt.ID, 10) + `#reply"`} {
+		if !strings.Contains(own, want) {
+			t.Errorf("the requester list must put a held ticket in the waiting section (%q), got: %s", want, own)
+		}
+	}
+	if strings.Contains(own, `<span class="chip">On hold</span>`) {
+		t.Errorf("the requester's held ticket is named by its section, not duplicated as a chip, got: %s", own)
 	}
 }
 

@@ -348,6 +348,16 @@ func TestGoldenTicketsIndexUser(t *testing.T) {
 	data.ShowAdvancedFilters = false
 	data.Filters = filterState{Q: "printer"}
 	data.Tickets[0].Description = "Clear the jammed tray, then reload paper."
+	// The requester's three sections (issue #411): the on-hold ticket waiting
+	// for the reply, the open work, and the resolved+closed pair folded at the
+	// end. Sections carry their own totals, and the header counts the open work.
+	data.Open = ticketListData{Tickets: []ticketRow{data.Tickets[1]}, Total: 1, Page: 1, Pages: 1, HasActiveQuery: true}
+	data.Waiting = ticketListData{Tickets: []ticketRow{data.Tickets[0]}, Total: 1, Page: 1, Pages: 1, HasActiveQuery: true}
+	data.Closed = ticketListData{Tickets: []ticketRow{
+		{Ticket: domain.Ticket{ID: 3, Number: 3, Title: "Resolved printer request", State: domain.StateResolved, Priority: domain.PriorityLow, CreatedAt: goldenT0, UpdatedAt: goldenT0}},
+		{Ticket: domain.Ticket{ID: 4, Number: 4, Title: "Closed printer request", State: domain.StateClosed, Priority: domain.PriorityLow, CreatedAt: goldenT0, UpdatedAt: goldenT1}},
+	}, Total: 2, Page: 1, Pages: 1, HasActiveQuery: true}
+	data.Total = data.Waiting.Total + data.Open.Total
 	goldenFullPage(t, "tickets_index_user", renderGolden(t, "tickets_index", "", data, false))
 }
 
