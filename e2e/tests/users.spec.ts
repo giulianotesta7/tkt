@@ -43,6 +43,29 @@ async function login(page: import("@playwright/test").Page) {
   await expect(page).toHaveURL(/\/tickets/);
 }
 
+/**
+ * Fill the New user drawer through its own fields.
+ *
+ * The drawer arrives through an HTMX swap targeting #users-drawer-host, and its
+ * fields are in the document before the drawer's own settle work focuses the name
+ * field. A fill that starts in that gap is typed into whichever element holds
+ * focus when the keystroke is delivered, not into the field the journey
+ * addressed: a password typed while the drawer is still settling lands in the
+ * name field, which leaves the required password empty so the browser refuses the
+ * submit and no request is sent at all. Waiting for the name field to take focus
+ * is the state the typing depends on.
+ */
+async function fillNewUserDrawer(
+  page: import("@playwright/test").Page,
+  values: { name: string; email: string; password: string },
+): Promise<void> {
+  const name = page.getByLabel(/^name$/i);
+  await expect(name).toBeFocused();
+  await name.fill(values.name);
+  await page.getByLabel(/^email$/i).fill(values.email);
+  await page.getByLabel(/^password$/i).fill(values.password);
+}
+
 test.describe("Users", () => {
   test.beforeAll(async () => {
     await startServer({ seed: true });
@@ -65,9 +88,7 @@ test.describe("Users", () => {
     await page.getByRole("link", { name: /new user/i }).click();
     await expect(page.getByRole("heading", { name: "New user", exact: true })).toBeVisible();
     await expect(page.getByRole("button", { name: /create user/i })).toBeVisible();
-    await page.getByLabel(/^name$/i).fill(baseName);
-    await page.getByLabel(/^email$/i).fill(email);
-    await page.getByLabel(/^password$/i).fill(password);
+    await fillNewUserDrawer(page, { name: baseName, email, password });
     await assertHtmxSwap(
       page,
       async () => {
@@ -260,9 +281,7 @@ test.describe("Users", () => {
     await page.goto(base() + "/users");
     await page.getByRole("link", { name: /new user/i }).click();
     await expect(page.getByRole("heading", { name: "New user", exact: true })).toBeVisible();
-    await page.getByLabel(/^name$/i).fill(name);
-    await page.getByLabel(/^email$/i).fill(email);
-    await page.getByLabel(/^password$/i).fill("AgentSecret1!");
+    await fillNewUserDrawer(page, { name, email, password: "AgentSecret1!" });
     await assertHtmxSwap(
       page,
       async () => {
@@ -593,9 +612,7 @@ async function createUserThroughDrawer(
   await page.getByRole("link", { name: /new user/i }).click();
   const drawer = page.getByRole("dialog", { name: "New user" });
   await expect(drawer).toBeVisible();
-  await drawer.getByLabel(/^name$/i).fill(name);
-  await drawer.getByLabel(/^email$/i).fill(email);
-  await drawer.getByLabel(/^password$/i).fill("ProbeSecret123!");
+  await fillNewUserDrawer(page, { name, email, password: "ProbeSecret123!" });
   await page.getByRole("button", { name: /create user/i }).click();
   await expect(page).toHaveURL(/\/users$/);
   await expect(page.locator(`tr[data-user-name="${name}"]`)).toBeVisible();
