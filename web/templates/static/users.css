@@ -4,12 +4,16 @@
 .users-root,.page-foundation{min-width:0;color:var(--ink);font-size:14px}
 .users-root *,.page-foundation *{box-sizing:border-box}
 .users-root #users-background{max-width:none;margin:0;padding:0}
-.users-root .users-list,.users-root .users-access-card,.page-foundation .page-panel{border:1px solid var(--line);border-radius:12px;background:var(--surface)}
+.users-root .users-list,.page-foundation .page-panel{border:1px solid var(--line);border-radius:12px;background:var(--surface)}
 .page-foundation .page-panel,.users-root .users-list{overflow:hidden}
 .users-root .users-header,.page-foundation .page-header{display:flex;align-items:flex-start;justify-content:space-between;gap:24px;margin-bottom:32px}
 .users-root h1,.users-root h2{margin:0;color:var(--ink-strong);letter-spacing:-.02em}
 .users-root h1,.page-foundation .page-title{font-size:24px;line-height:1.15;margin:0;color:var(--ink-strong);letter-spacing:-.02em}
 .users-root .users-header p,.page-foundation .page-subtitle{margin:8px 0 0;color:var(--muted)}
+/* Option A (issue #394, S1/S2): the list owns the page width, so the head, the
+   filters and the table read as one column. The shared rule above keeps its
+   32px gap for the pages it also serves. */
+.users-root :where(#users-background) .users-header{margin-bottom:20px}
 /* One button contract for all three families in this file: 36px tall, 8px radius,
    0 14px padding, 13px/500. The previous 'font:600 13px/1.2 inherit' shorthand
    was invalid (inherit is not a family name), so the browser dropped the whole
@@ -25,40 +29,32 @@
 .page-foundation .page-status{color:var(--muted);font-size:13px;line-height:1.2}
 .page-foundation .page-action-secondary{border-color:var(--line-strong);background:var(--surface);color:var(--accent)}
 .page-foundation .page-action-primary{border-color:var(--accent)}
-.users-root .users-filters{grid-area:filters;display:flex;align-items:flex-end;justify-content:space-between;gap:20px;border-bottom:1px solid var(--line)}
-.users-root .users-status-tabs{display:flex;gap:24px;min-width:0}
-.users-root .users-status-tabs a{position:relative;padding:11px 0;color:var(--muted);text-decoration:none}
+.users-root .users-filters{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:16px;margin-bottom:16px}
+.users-root .users-status-tabs{display:flex;gap:24px;min-width:0;border-bottom:1px solid var(--line)}
+.users-root .users-status-tabs a{position:relative;padding:10px 0;color:var(--muted);font-size:13px;text-decoration:none}
 .users-root .users-status-tabs a span{margin-left:5px;font-variant-numeric:tabular-nums}
-.users-root .users-status-tabs a.is-selected{color:var(--accent);font-weight:600}
-.users-root .users-status-tabs a.is-selected:after{position:absolute;right:0;bottom:-1px;left:0;height:2px;background:var(--accent);content:""}
-.users-root .users-search{position:relative;flex:0 0 320px;margin-bottom:4px}
+.users-root .users-status-tabs a.is-selected{color:var(--ink-strong);font-weight:500}
+.users-root .users-status-tabs a.is-selected:after{position:absolute;right:0;bottom:-1px;left:0;height:2px;background:var(--ink-strong);content:""}
+.users-root .users-search{position:relative;flex:0 1 260px;min-width:0}
 .users-root .users-search svg{position:absolute;top:50%;left:12px;transform:translateY(-50%);color:var(--faint);pointer-events:none}
-.users-root .users-search input{width:100%;height:36px;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--ink-soft);font:inherit;font-size:13px;padding:0 12px 0 38px}
+.users-root .users-search input{width:100%;height:36px;border:1px solid var(--line-strong);border-radius:8px;background:var(--card);color:var(--ink-soft);font:inherit;font-size:13px;padding:0 12px 0 38px}
 .users-root .users-search input:focus{outline:0;border-color:var(--accent);box-shadow:0 0 0 2px var(--accent-soft)}
-.users-root .users-layout{display:grid;grid-template-areas:"filters ." "list access";grid-template-columns:minmax(0,73fr) minmax(0,27fr);column-gap:24px;row-gap:20px;align-items:start}
-.users-root .users-list{grid-area:list}
-.users-root .users-access-card{grid-area:access;min-width:0;padding:18px}
-.users-root .users-access-card h2{font-size:18px;line-height:1.2}
-.users-root .users-access-subtitle{margin:6px 0 16px;color:var(--muted);font-size:13px}
-.users-root .users-access-card dl{margin:0}
-.users-root .users-access-card dl>div{padding:12px 0;border-top:1px solid var(--line)}
-.users-root .users-access-card dt{font-weight:600}
-.users-root .users-access-card dd{margin:4px 0 0;color:var(--muted);font-size:13px;line-height:1.45}
 .users-root table{width:100%;border-collapse:collapse}
-.users-root th{color:var(--muted);font-size:12px;font-weight:600;letter-spacing:0;text-align:left;}
-.users-root th,.users-root td{padding:15px 18px;border-bottom:1px solid var(--line);vertical-align:middle}
+.users-root th{color:var(--muted);font-size:12px;font-weight:500;letter-spacing:0;text-align:left;}
+.users-root th,.users-root td{padding:14px 16px;border-bottom:1px solid var(--line);vertical-align:middle}
 .users-root tbody tr:last-child td{border-bottom:0}
+.users-root tbody tr:hover{background:var(--hover)}
 .users-root th:first-child,.users-root td:first-child{width:46%}
 .users-root .user-launcher,.users-root .user-factual{display:flex;align-items:center;gap:11px;color:inherit;text-decoration:none}
 .users-root .user-launcher:hover strong{text-decoration:underline}
-.users-root .user-initials{display:grid;place-items:center;flex:0 0 34px;width:34px;height:34px;border-radius:50%;background:var(--accent-soft);color:var(--accent);font-size:12px;font-weight:600}
+.users-root .user-initials{display:grid;place-items:center;flex:0 0 32px;width:32px;height:32px;border:1px solid var(--line);border-radius:50%;background:var(--hover);color:var(--ink-soft);font-size:11px;font-weight:500}
 .users-root strong,.users-root small{display:block}
 .users-root small{margin-top:3px;color:var(--muted);font-size:12px}
-.users-root .user-status{display:inline-block;border-radius:6px;background:var(--gray-soft);color:var(--muted);padding:5px 8px;font-size:12px}
+.users-root .user-status{display:inline-block;border-radius:999px;background:var(--gray-soft);color:var(--muted);padding:3px 9px;font-size:12px}
 .users-root .user-status.is-active{background:var(--green-soft);color:var(--green)}
 .users-root time{color:var(--muted);font-size:13px}
-.users-root .user-actions{display:grid;place-items:center;width:30px;height:30px;border:0;background:transparent;color:var(--muted);cursor:pointer}
-.users-root .user-actions:hover{color:var(--accent)}
+.users-root .user-actions{display:grid;place-items:center;width:30px;height:30px;border:0;border-radius:8px;background:transparent;color:var(--muted);cursor:pointer}
+.users-root .user-actions:hover{background:var(--hover);color:var(--ink)}
 .users-root .users-empty{margin:0;padding:40px;text-align:center;color:var(--muted)}
 .users-root .users-error{margin:0 0 16px;border-left:3px solid var(--red);background:var(--red-soft);color:var(--red);padding:12px 14px}
 /* Elevation ladder, defined once in the inline token block: --elevation-raised for
@@ -71,14 +67,31 @@
 .users-root .users-drawer h2{font-size:22px}
 .users-root .users-drawer-close{border:0;background:transparent;color:var(--muted);cursor:pointer;font-size:25px;line-height:1}
 .users-root .users-drawer-body{overflow:auto;flex:1;padding:24px 32px}
+.users-root #user-drawer-form{display:flex;flex-direction:column;flex:1}
 .users-root .users-field{margin-bottom:20px}
 .users-root .users-field label{display:block;margin-bottom:7px;font-weight:600}
 .users-root .users-field input,.users-root .users-field select{width:100%;border:1px solid var(--line-strong);border-radius:8px;background:var(--surface);color:var(--ink);font:inherit;padding:11px 12px}
 .users-root .users-field input:focus,.users-root .users-field select:focus,.users-root button:focus-visible,.users-root a:focus-visible{outline:3px solid rgb(49 94 255 / 28%);outline-offset:2px}
-.users-root .users-help,.users-root .users-lifecycle-copy{margin:7px 0 0;color:var(--muted);font-size:13px;line-height:1.5}
+.users-root .users-help{margin:7px 0 0;color:var(--muted);font-size:13px;line-height:1.5}
 .users-root .users-danger-action{margin-top:8px;border-color:rgb(180 35 24 / 30%);background:var(--surface);color:var(--red)}
 .users-root .users-secondary-action{margin-top:8px;border-color:var(--line-strong);background:var(--surface);color:var(--accent)}
 .users-root .users-drawer-footer{display:flex;justify-content:flex-end;gap:10px;margin:30px -32px -24px;padding:16px 32px;border-top:1px solid var(--line);background:var(--surface)}
+/* Option A's drawer geometry (issue #394, S3). The category and desk drawers
+   reuse the drawer, field, help and footer classes, so every departure from the
+   shared metrics is scoped to #users-drawer-host and leaves that surface alone. */
+.users-root #users-drawer-host .users-drawer{width:min(440px,100vw)}
+.users-root #users-drawer-host .users-drawer-header{padding:24px}
+/* One column, identity then access then lifecycle, with the actions pinned to
+   the panel's foot: the fields scroll, the actions stay reachable. */
+.users-root #users-drawer-host .users-drawer-body{display:flex;flex-direction:column;padding:24px 24px 0}
+.users-root #users-drawer-host .users-field label{margin-bottom:7px;font-size:13px;font-weight:500}
+.users-root #users-drawer-host .users-field input,.users-root #users-drawer-host .users-field select{height:38px;font-family:inherit;font-size:13px;padding:0 10px}
+.users-root #users-drawer-host .users-help{font-size:12px}
+.users-root #users-drawer-host .users-lifecycle{margin-top:8px;padding-top:20px;border-top:1px solid var(--line)}
+.users-root #users-drawer-host .users-lifecycle h3{margin:0 0 10px;color:var(--ink);font-size:13px;font-weight:600}
+.users-root #users-drawer-host .users-lifecycle-status{margin:0 0 8px}
+.users-root #users-drawer-host .users-lifecycle-copy{margin:0 0 14px;color:var(--muted);font-size:12px;line-height:1.5}
+.users-root #users-drawer-host .users-drawer-footer{position:sticky;bottom:0;margin:auto -24px 0;padding:16px 24px 24px}
 .users-root .category-drawer[data-kind=desk] .users-drawer-footer{margin:28px 0 0;padding:0;border-top:0;background:transparent}
 .users-root .category-drawer[data-kind=desk] .desk-members{margin-top:40px}
 .users-root .category-drawer[data-kind=desk] .desk-members h3{margin:0}
@@ -92,11 +105,9 @@
 .users-root dialog div,.category-workflow-page dialog div{display:flex;justify-content:flex-end;gap:10px}
 .users-root .users-drawer[aria-busy=true]{pointer-events:none;opacity:.7}
 @media(max-width:900px){
-  .users-root .users-layout{grid-template-areas:"filters" "list" "access";grid-template-columns:minmax(0,1fr);row-gap:24px;min-width:0}
-  .users-root .users-layout > *{min-width:0}
   .users-root .users-filters{align-items:stretch;flex-direction:column;gap:12px}
   .users-root .users-status-tabs{flex-wrap:wrap}
-  .users-root .users-search{flex-basis:auto;width:100%;margin:0 0 12px}
+  .users-root .users-search{flex-basis:auto;width:100%}
 }
     @media(max-width:640px){
       /* The page title steps down with .command-title in styles.html: the two title
@@ -106,13 +117,16 @@
   .page-foundation .page-header{flex-wrap:wrap}
   .page-foundation .page-actions{width:100%}
   .users-root #users-background{min-width:0}
-  .users-root .users-layout{min-width:0}
-  .users-root .users-layout > *{min-width:0}
   .users-root table{min-width:620px}
+  /* The rows pan inside the panel, which is what keeps the page itself from
+     scrolling sideways on a phone (issue #394, S4). */
   .users-root .users-list{min-width:0;max-width:100%;overflow:auto;position:relative}
   .users-root .users-drawer-header{height:64px;padding:20px 24px}
   .users-root .users-drawer-body{padding:24px}
   .users-root .users-drawer-footer{margin:30px -24px -24px;padding:16px 24px}
+  .users-root #users-drawer-host .users-drawer-header{height:auto;padding:18px 20px}
+  .users-root #users-drawer-host .users-drawer-body{padding:20px 20px 0}
+  .users-root #users-drawer-host .users-drawer-footer{margin:auto -20px 0;padding:14px 20px 20px}
   .users-root th,.users-root td{padding:13px 14px}
 }
 @media(prefers-reduced-motion:reduce){

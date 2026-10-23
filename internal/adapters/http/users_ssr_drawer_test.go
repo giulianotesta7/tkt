@@ -37,7 +37,15 @@ func TestUsersListNormalAndHTMXContracts(t *testing.T) {
 		t.Fatalf("normal status/vary = %d/%q", normal.Code, normal.Header().Get("Vary"))
 	}
 	body := normal.Body.String()
-	mustContain(t, body, `id="users-root"`, `All <span>3</span>`, `Active <span>2</span>`, `Deactivated <span>1</span>`, `href="/users/new"`, active.Email, inactive.Email, "Created", "3 accounts", `type="search"`, `aria-label="Search users"`, `placeholder="Search by name or email..."`, "Access levels", "Permissions by role", "Full instance access.", "Manages users, desks, categories and workflows.", "Handles assigned tickets and moves requests toward resolution.", "Creates requests and tracks their progress.", "users.css", "users.js")
+	mustContain(t, body, `id="users-root"`, `class="users-filters"`, `class="users-list"`, `All <span>3</span>`, `Active <span>2</span>`, `Deactivated <span>1</span>`, `href="/users/new"`, active.Email, inactive.Email, "Created", "3 accounts", `type="search"`, `aria-label="Search users"`, `placeholder="Search by name or email..."`, "users.css", "users.js")
+	// Option A (issue #394, S2): the list owns the page width, so the permanent
+	// Access levels card is gone. The role rules stay contextual to the Role
+	// field of the edit drawer, where the existing description renders.
+	for _, gone := range []string{`users-access-card`, "Access levels", "Permissions by role", "Full instance access.", "Manages users, desks, categories and workflows."} {
+		if strings.Contains(body, gone) {
+			t.Errorf("the full-width Users list must not carry the permanent access card: found %q", gone)
+		}
+	}
 	if strings.Count(body, `id="users-root"`) != 1 || strings.Contains(body, `>Edit<`) || strings.Contains(body, `>Delete<`) || strings.Contains(body, `name="password"`) {
 		t.Fatalf("invalid Users markup: %s", body)
 	}
@@ -73,9 +81,24 @@ func TestUsersDrawerGETUpdateAndFailureContracts(t *testing.T) {
 	if normal.Code != http.StatusOK || normal.Header().Get("Vary") != "HX-Request" {
 		t.Fatalf("normal edit status/vary = %d/%q", normal.Code, normal.Header().Get("Vary"))
 	}
-	mustContain(t, normal.Body.String(), `id="users-root"`, `id="users-drawer-host"`, `role="dialog"`, `hx-post="`, `data-server-error="false"`, `name="name"`, `name="email"`, `name="role"`, `name="active"`, "Includes User access")
-	if strings.Contains(normal.Body.String(), `name="password"`) || strings.Contains(normal.Body.String(), `>Delete<`) {
-		t.Fatalf("drawer exposes forbidden data: %s", normal.Body.String())
+	editBody := normal.Body.String()
+	mustContain(t, editBody, `id="users-root"`, `id="users-drawer-host"`, `role="dialog"`, `hx-post="`, `data-server-error="false"`, `name="name"`, `name="email"`, `name="role"`, `name="active"`, "Includes User access", `class="users-drawer-footer"`, "Save changes", "Cancel", `class="users-lifecycle"`, `id="user-lifecycle-title"`, "Account status", `class="user-status is-active">Active`)
+	if strings.Contains(editBody, `name="password"`) || strings.Contains(editBody, `>Delete<`) {
+		t.Fatalf("drawer exposes forbidden data: %s", editBody)
+	}
+	// The reference hierarchy reads identity, then access, then lifecycle, and
+	// only then the actions (issue #394, S3).
+	for _, pair := range [][2]string{
+		{`name="name"`, `name="email"`},
+		{`name="email"`, `name="role"`},
+		{`name="role"`, `class="users-help"`},
+		{`class="users-help"`, `class="users-lifecycle"`},
+		{`class="users-lifecycle"`, `class="users-drawer-footer"`},
+	} {
+		first, second := strings.Index(editBody, pair[0]), strings.Index(editBody, pair[1])
+		if first < 0 || second < 0 || first > second {
+			t.Errorf("drawer must render %s before %s, got %d and %d", pair[0], pair[1], first, second)
+		}
 	}
 	hx := h.get(t, path, true)
 	if hx.Code != http.StatusOK || strings.Contains(hx.Body.String(), `id="users-root"`) {
