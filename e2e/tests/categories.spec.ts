@@ -82,6 +82,45 @@ async function assertDrawerHtmxSwap(
   }
 }
 
+/**
+ * Open one category row's edit drawer and wait until it owns the keyboard.
+ *
+ * The drawer arrives through an HTMX swap targeting #category-drawer-host. Its
+ * fields are in the document as soon as that swap lands, but its focus arrives
+ * later: htmx processes the swapped nodes and honours the name field's
+ * `autofocus`, which moves focus off the drawer's first control. A field filled
+ * before that point is typed into whichever element holds focus when the
+ * keystroke is delivered, not into the one the journey addressed, so a
+ * description typed while the drawer is still settling is saved as part of the
+ * category name. Waiting for the name field to take focus is the state the
+ * typing depends on, and it also proves the drawer was rendered for the row this
+ * journey opened.
+ */
+async function openCategoryDrawer(
+  page: Page,
+  row: Locator,
+  expected: { name: string; description: string },
+): Promise<Locator> {
+  const id = await catalogNodeId(row, `category ${expected.name}`);
+  const responsePromise = page.waitForResponse((response) => {
+    if (response.request().headers()["hx-request"] !== "true") return false;
+    if (response.request().method() !== "GET") return false;
+    return new URL(response.url()).pathname === `/categories/${id}/edit`;
+  });
+  await row.getByRole("button", { name: /actions for/i }).click();
+  await row.getByRole("menuitem", { name: "Edit category", exact: true }).click();
+  const response = await responsePromise;
+  expect(response.status(), `the edit drawer for ${expected.name}`).toBe(200);
+
+  const drawer = page.getByRole("dialog", { name: /Edit category/i });
+  await expect(drawer).toBeVisible();
+  const name = page.locator("#category-name");
+  await expect(name).toBeFocused();
+  await expect(name).toHaveValue(expected.name);
+  await expect(drawer.getByLabel("Description", { exact: true })).toHaveValue(expected.description);
+  return drawer;
+}
+
 test.describe("Categories", () => {
   test.beforeAll(async () => {
     await startServer({ seed: true });
@@ -1123,10 +1162,10 @@ test.describe("Categories", () => {
 
     const row = catalogCategoryRow(page, catName);
     await expect(row).toHaveCount(1);
-    await row.getByRole("button", { name: /actions for/i }).click();
-    await row.getByRole("menuitem", { name: "Edit category", exact: true }).click();
-    const drawer = page.getByRole("dialog", { name: /Edit category/i });
-    await expect(drawer).toBeVisible();
+    const drawer = await openCategoryDrawer(page, row, {
+      name: catName,
+      description: "",
+    });
     const description = drawer.getByLabel("Description", { exact: true });
     await expect(description).toHaveValue("");
     const renamed = catName + " Renamed";
@@ -1138,9 +1177,10 @@ test.describe("Categories", () => {
     await expect(catalogCategoryRow(page, renamed)).toBeVisible();
 
     const editedRow = catalogCategoryRow(page, renamed);
-    await editedRow.getByRole("button", { name: /actions for/i }).click();
-    await editedRow.getByRole("menuitem", { name: "Edit category", exact: true }).click();
-    const clearedDrawer = page.getByRole("dialog", { name: /Edit category/i });
+    const clearedDrawer = await openCategoryDrawer(page, editedRow, {
+      name: renamed,
+      description: "Temporary description",
+    });
     await clearedDrawer.getByLabel("Description", { exact: true }).fill("");
     await clearedDrawer.getByRole("button", { name: /save changes/i }).click();
     await expect(page).toHaveURL(/\/categories/);
