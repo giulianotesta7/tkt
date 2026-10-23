@@ -8,8 +8,9 @@ import (
 )
 
 // The approved redesign (issue #395, option A) turns the workflow builder into
-// a lateral step sequence beside the selected step's editor. Go cannot measure
-// layout, so these tests
+// a lateral step sequence beside the selected step's editor, and it gives the
+// category SLA screen its own scoped presentation without touching the shared
+// grid that Settings also renders. Go cannot measure layout, so these tests
 // freeze the contract the browser needs: the rendered structure, the class
 // names the stylesheet scopes, and the copy every control reads.
 
@@ -254,6 +255,107 @@ func TestWorkflowLateralLayoutCSS(t *testing.T) {
 	}
 }
 
+// TestCategorySLAPageScopedLayout pins the category SLA presentation (S4/S5):
+// the category screen frames the written-duration grid in its own card with a
+// scroll region that keeps it inside the page at 390px, and states what Reset
+// does.
+func TestCategorySLAPageScopedLayout(t *testing.T) {
+	body := renderGolden(t, "category_sla", "", fixtureCategorySLAData(), false)
+	for _, want := range []string{
+		`class="page-foundation category-sla-page"`,
+		`class="category-sla-scroll"`,
+		`class="category-sla-note"`,
+		`name="first_response_duration_critical"`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("category SLA page must contain %q, got: %.900s", want, body)
+		}
+	}
+	// The scroll region wraps the shared grid, so the grid itself is the thing
+	// that may exceed the card, never the document.
+	scroll := strings.Index(body, `class="category-sla-scroll"`)
+	grid := strings.Index(body, `class="sla-grid sla-duration-grid"`)
+	if scroll < 0 || grid < 0 || scroll > grid {
+		t.Errorf("the scroll region must wrap the shared grid, got scroll=%d grid=%d", scroll, grid)
+	}
+	// Reset is a real consequence, so the screen states it.
+	if !strings.Contains(body, "Reset") {
+		t.Errorf("the category SLA page must name the reset action it explains, got: %.900s", body)
+	}
+}
+
+// TestCategorySLAScopedStylesLeaveSettingsAlone is the S4 guard on the shared
+// stylesheet: every category rule is scoped to the category page, the written
+// duration rules both SLA screens use carry their own classes (S10), and the
+// shared .sla-grid rules stay byte-for-byte as they were.
+func TestCategorySLAScopedStylesLeaveSettingsAlone(t *testing.T) {
+	body := renderGolden(t, "category_sla", "", fixtureCategorySLAData(), false)
+	style := extractStyleBlock(t, body)
+
+	for _, tc := range []struct {
+		name, sel, decl string
+	}{
+		{"the card spans the page", ".category-sla-page .form-card{", "max-width:none"},
+		{"the grid fills its card", ".category-sla-page .sla-grid{", "max-width:none"},
+		{"the grid columns are a table", ".category-sla-page .sla-grid-row{", "grid-template-columns:minmax(112px,.9fr) minmax(0,1.5fr) minmax(0,1.5fr)"},
+		{"the duration owns the border", ".sla-duration-input{", "border:1px solid var(--line-strong)"},
+		{"the reading stays legible", ".sla-duration-reading{", "font-size:12px"},
+		{"the scroll region never widens the page", ".category-sla-page .category-sla-scroll{", "overflow-x:auto"},
+	} {
+		if !cssRuleDeclares(style, tc.sel, tc.decl) {
+			t.Errorf("%s: %s must declare %s", tc.name, tc.sel, tc.decl)
+		}
+	}
+
+	// The wide grid scrolls inside its own card under 640px instead of pushing
+	// the page sideways.
+	mobile := extractMediaBlock(t, style, "max-width:640px")
+	if !cssRuleDeclares(mobile, ".category-sla-page .sla-grid{", "min-width:0") || !cssRuleDeclares(mobile, ".sla-duration-grid .sla-grid-row{", "grid-template-columns:1fr") || !cssRuleDeclares(mobile, ".sla-duration-label{", "display:block") {
+		t.Error("the duration targets must stack with visible labels within the phone viewport")
+	}
+
+	// No scoped rule escapes the page scope, or Settings would inherit it.
+	for _, rawRule := range strings.Split(style, "}") {
+		open := strings.LastIndex(rawRule, "{")
+		if open < 0 {
+			continue
+		}
+		selector := rawRule[:open]
+		if strings.Contains(selector, "category-sla") && !strings.Contains(selector, ".category-sla-page") {
+			t.Errorf("category SLA rules must stay scoped under .category-sla-page, got: %s", selector)
+		}
+	}
+
+	// The shared grid's own geometry is untouched: Settings renders it, and
+	// this change is not allowed to move that screen.
+	for _, want := range []string{
+		".sla-grid{max-width:640px;margin:14px 0 16px;border-top:1px solid var(--line)}",
+		".sla-grid-row{display:grid;grid-template-columns:80px 1fr 1fr;gap:12px;align-items:center;padding:14px 0;border-bottom:1px solid var(--line)}",
+	} {
+		if !strings.Contains(style, want) {
+			t.Errorf("the shared SLA grid rule must stay untouched, missing %q", want)
+		}
+	}
+}
+
+// TestSettingsSLAUsesWrittenDurationsWithoutCategoryScope proves the Settings
+// screen renders the same written-duration grid (issue #395, S10) with no
+// category-scoped class, so the category presentation cannot reach it.
+func TestSettingsSLAUsesWrittenDurationsWithoutCategoryScope(t *testing.T) {
+	settings, _ := splitStylesheet(t, "settings_tickets", renderGolden(t, "settings_tickets", "", fixtureSettingsTicketsData(), false))
+	if got := strings.Count(settings, `class="sla-grid sla-duration-grid"`); got != 1 {
+		t.Fatalf("the Settings screen renders the written-duration grid once, got %d", got)
+	}
+	for _, gone := range []string{"category-sla-page", "category-sla-scroll", "category-sla-note"} {
+		if strings.Contains(settings, gone) {
+			t.Errorf("the category scope %q must never reach Settings", gone)
+		}
+	}
+	if got := strings.Count(settings, `class="sla-duration-input"`); got != 8 {
+		t.Errorf("the Settings screen renders eight written durations, got %d", got)
+	}
+}
+
 // TestWorkflowBuilderPageHasNoWhitespaceOnlyLines keeps the lateral layout
 // inside amendment 4's machine check: the page ships no whitespace-only line and
 // no line ending in a space or tab, so a template indentation change cannot
@@ -265,6 +367,7 @@ func TestWorkflowBuilderPageHasNoWhitespaceOnlyLines(t *testing.T) {
 		data any
 	}{
 		{"builder", "category_workflow", lateralBuilderPageData()},
+		{"category SLA", "category_sla", fixtureCategorySLAData()},
 	} {
 		body := renderGolden(t, tc.page, "", tc.data, false)
 		for lineNumber, line := range strings.Split(body, "\n") {

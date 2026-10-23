@@ -3677,44 +3677,102 @@ test.describe("Categories", () => {
     await expect(page.locator("h1")).toHaveText("Category SLA");
     await expect(page.locator(".page-breadcrumb")).toContainText(categoryName);
 
-    // The category's materialized 4x2 matrix: seeded at creation from the
-    // global defaults (migration 0013), decomposed into h/m/s units.
+    // Compact inputs keep all eight exact targets; Settings retains h/m/s.
     const gridRows = page.locator(".sla-grid-row:not(.sla-grid-head)");
     await expect(gridRows).toHaveCount(4);
+    await expect(page.locator(".sla-duration-input")).toHaveCount(8);
     const seededMatrix = [
-      { priority: "Critical", firstResponse: ["0", "30", "0"], resolve: ["4", "0", "0"] },
-      { priority: "High", firstResponse: ["1", "0", "0"], resolve: ["8", "0", "0"] },
-      { priority: "Medium", firstResponse: ["4", "0", "0"], resolve: ["24", "0", "0"] },
-      { priority: "Low", firstResponse: ["8", "0", "0"], resolve: ["72", "0", "0"] },
+      { priority: "Critical", firstResponse: "30m", resolve: "4h" },
+      { priority: "High", firstResponse: "1h", resolve: "8h" },
+      { priority: "Medium", firstResponse: "4h", resolve: "24h" },
+      { priority: "Low", firstResponse: "8h", resolve: "72h" },
     ];
     for (const [index, row] of seededMatrix.entries()) {
       await expect(gridRows.nth(index).locator(".sla-grid-priority")).toHaveText(row.priority);
-      const units = ["hours", "minutes", "seconds"] as const;
-      for (const [unitIndex, unit] of units.entries()) {
-        await expect(page.getByLabel(`${row.priority} first response, ${unit}`)).toHaveValue(
-          row.firstResponse[unitIndex],
-        );
-        await expect(page.getByLabel(`${row.priority} resolve, ${unit}`)).toHaveValue(
-          row.resolve[unitIndex],
-        );
-      }
+      await expect(page.getByLabel(`${row.priority} first response`, { exact: true })).toHaveValue(
+        row.firstResponse,
+      );
+      await expect(page.getByLabel(`${row.priority} resolve`, { exact: true })).toHaveValue(
+        row.resolve,
+      );
     }
-
-    // Edit one target through the real form and verify persistence.
-    await page.getByLabel("Medium resolve, hours").fill("1");
-    await page.getByLabel("Medium resolve, minutes").fill("2");
-    await page.getByLabel("Medium resolve, seconds").fill("3");
+    const resolve = page.getByLabel("Medium resolve", { exact: true });
+    await resolve.fill("1h 2m 3s");
+    await expect(page.locator("#resolve_duration_medium-reading")).toHaveText("1 h 2 min 3 s");
+    let posts = 0;
+    const countPost = (request: import("@playwright/test").Request) => {
+      if (new URL(request.url()).pathname === slaPath && request.method() === "POST") posts++;
+    };
+    page.on("request", countPost);
+    await resolve.fill("1h junk");
+    await expect(resolve).toHaveAttribute("aria-invalid", "true");
     await page.getByRole("button", { name: "Save SLA targets" }).click();
-    await expect(page).toHaveURL(new RegExp(`${slaPath}$`));
+    expect(posts).toBe(0);
+    await resolve.fill("59s");
+    await expect(page.locator("#resolve_duration_medium-reading")).toHaveText(
+      "The target must be at least 60 seconds.",
+    );
+    await resolve.fill("1h 2m 3s");
+    await page.getByRole("button", { name: "Save SLA targets" }).click();
     await expect(page.locator("#save-feedback")).toContainText("Saved");
-
+    expect(posts).toBe(1);
+    page.off("request", countPost);
     await page.reload();
-    await expect(page.getByLabel("Medium resolve, hours")).toHaveValue("1");
-    await expect(page.getByLabel("Medium resolve, minutes")).toHaveValue("2");
-    await expect(page.getByLabel("Medium resolve, seconds")).toHaveValue("3");
-    await expect(page.getByLabel("Medium first response, hours")).toHaveValue("4");
-    await expect(page.getByLabel("Critical first response, minutes")).toHaveValue("30");
-    await expect(page.getByLabel("Low resolve, hours")).toHaveValue("72");
+    await expect(resolve).toHaveValue("1h 2m 3s");
+    await expect(page.getByLabel("Medium first response", { exact: true })).toHaveValue("4h");
+    await expect(page.getByLabel("Critical first response", { exact: true })).toHaveValue("30m");
+    await expect(page.getByLabel("Low resolve", { exact: true })).toHaveValue("72h");
+    await expect(page.locator(".category-sla-note")).toContainText(
+      "Reset replaces this category's targets with the instance defaults.",
+    );
+    // Reset bypasses invalid client fields, then uses the unchanged server reset.
+    await resolve.fill("not a duration");
+    await page.getByRole("button", { name: "Reset to the instance defaults" }).click();
+    await expect(page).toHaveURL(new RegExp(`${slaPath}$`));
+    await page.reload();
+    await expect(resolve).toHaveValue("24h");
+    await expect(page.locator(".sla-diverges")).toHaveCount(0);
+    // No-script rejection preserves raw text and all other fields, atomically.
+    const noScriptContext = await page
+      .context()
+      .browser()!
+      .newContext({
+        javaScriptEnabled: false,
+        storageState: await page.context().storageState(),
+      });
+    try {
+      const noScript = await noScriptContext.newPage();
+      await noScript.goto(base() + slaPath);
+      await noScript.getByLabel("Medium resolve", { exact: true }).fill("2h 3m 4s");
+      await noScript.getByLabel("Critical first response", { exact: true }).fill("bad");
+      const rejected = noScript.waitForResponse(
+        (r) => r.url() === base() + slaPath && r.request().method() === "POST",
+      );
+      await noScript.getByRole("button", { name: "Save SLA targets" }).click();
+      expect((await rejected).status()).toBe(422);
+      await expect(noScript.getByLabel("Critical first response", { exact: true })).toHaveValue(
+        "bad",
+      );
+      await expect(noScript.getByLabel("Medium resolve", { exact: true })).toHaveValue("2h 3m 4s");
+      await page.reload();
+      await expect(resolve).toHaveValue("24h");
+      await noScript.getByLabel("Critical first response", { exact: true }).fill("90m");
+      await noScript.getByRole("button", { name: "Save SLA targets" }).click();
+      await noScript.reload();
+      await expect(noScript.getByLabel("Critical first response", { exact: true })).toHaveValue(
+        "1h 30m",
+      );
+      await expect(noScript.getByLabel("Medium resolve", { exact: true })).toHaveValue("2h 3m 4s");
+    } finally {
+      await noScriptContext.close();
+    }
+    await page.reload();
+    await page.setViewportSize({ width: 390, height: 844 });
+    await expect(resolve).toBeVisible();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)).toBe(
+      false,
+    );
+    await page.setViewportSize({ width: 1280, height: 800 });
 
     await assertCanonicalScreen(page, {
       viewport: 1280,

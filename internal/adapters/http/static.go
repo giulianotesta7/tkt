@@ -35,6 +35,9 @@ func RegisterStatic(mux *http.ServeMux, language InterfaceLanguageSource) {
 	// arrives as translated data attributes from the server, so it needs no
 	// catalogue prologue and can be cached like the other copy-free assets.
 	registerEmbeddedStatic(mux, "/static/ticket_create.js", "static/ticket_create.js", "text/javascript; charset=utf-8", "public, max-age=86400")
+	// The written SLA durations (issue #395) take their copy from translated
+	// data attributes, so the script needs no catalogue prologue.
+	registerEmbeddedStatic(mux, "/static/sla_duration.js", "static/sla_duration.js", "text/javascript; charset=utf-8", "no-cache")
 	registerLocalizedStatic(mux, "/static/workflow.js", "static/workflow.js", language)
 	registerLocalizedStatic(mux, "/static/categories.js", "static/categories.js", language)
 	registerLocalizedStatic(mux, "/static/save-feedback.js", "static/save-feedback.js", language)

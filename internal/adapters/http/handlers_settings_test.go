@@ -105,7 +105,7 @@ func TestSettingsSectionsRenderOneSectionEach(t *testing.T) {
 				`name="internal_comment_bg" value="#E8EEFF"`,
 				`action="/settings/sla"`,
 				`min="1" max="99" value="80"`,
-				`name="first_response_m_critical" value="30"`,
+				`name="first_response_duration_critical" value="30m"`,
 				`Save appearance`,
 				`Save SLA settings`,
 			},
@@ -538,8 +538,8 @@ func TestSettingsSLAPersistsAndRedirects(t *testing.T) {
 	body := sectionGet(t, h, "/settings/tickets")
 	for _, want := range []string{
 		`value="90"`,
-		`name="first_response_h_critical" value="1"`,
-		`name="resolve_h_critical" value="4"`,
+		`name="first_response_duration_critical" value="1h"`,
+		`name="resolve_duration_critical" value="4h"`,
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("tickets section after SLA save must contain %q, got: %s", want, body)

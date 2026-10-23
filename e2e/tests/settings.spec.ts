@@ -229,45 +229,62 @@ test.describe("Settings", () => {
     await expect(page.locator("h2").filter({ hasText: "Tickets & SLA" })).toBeVisible();
     await expect(page.locator("h3").filter({ hasText: "Service level agreements" })).toBeVisible();
 
-    // Seeded configuration (migration 0013): the feature is OFF and the 4x2
-    // matrix carries the default seconds decomposed into h/m/s units.
+    // Seeded configuration (migration 0013): the feature is OFF and each of the
+    // eight default targets renders as one written duration (issue #395, S10).
     await expect(page.locator('input[name="sla_enabled"]')).not.toBeChecked();
     await expect(page.getByLabel("Warning threshold", { exact: true })).toHaveValue("80");
-    // [hours, minutes, seconds] per milestone: critical first response is
-    // 1800s = 0h 30m 0s, every other seeded target is a whole number of hours.
+    await expect(page.locator(".sla-duration-input")).toHaveCount(8);
     const seededMatrix = [
-      { priority: "Critical", firstResponse: ["0", "30", "0"], resolve: ["4", "0", "0"] },
-      { priority: "High", firstResponse: ["1", "0", "0"], resolve: ["8", "0", "0"] },
-      { priority: "Medium", firstResponse: ["4", "0", "0"], resolve: ["24", "0", "0"] },
-      { priority: "Low", firstResponse: ["8", "0", "0"], resolve: ["72", "0", "0"] },
+      { priority: "Critical", firstResponse: "30m", resolve: "4h" },
+      { priority: "High", firstResponse: "1h", resolve: "8h" },
+      { priority: "Medium", firstResponse: "4h", resolve: "24h" },
+      { priority: "Low", firstResponse: "8h", resolve: "72h" },
     ];
-    const units = ["hours", "minutes", "seconds"] as const;
     for (const row of seededMatrix) {
-      for (const [unitIndex, unit] of units.entries()) {
-        await expect(page.getByLabel(`${row.priority} first response, ${unit}`)).toHaveValue(
-          row.firstResponse[unitIndex],
-        );
-        await expect(page.getByLabel(`${row.priority} resolve, ${unit}`)).toHaveValue(
-          row.resolve[unitIndex],
-        );
-      }
+      await expect(page.getByLabel(`${row.priority} first response`, { exact: true })).toHaveValue(
+        row.firstResponse,
+      );
+      await expect(page.getByLabel(`${row.priority} resolve`, { exact: true })).toHaveValue(
+        row.resolve,
+      );
     }
+
+    // Discard is a native reset: the typed duration, its reading and its
+    // validity all return to the stored target, and the save bar hides.
+    const critical = page.getByLabel("Critical first response", { exact: true });
+    const reading = page.locator("#first_response_duration_critical-reading");
+    const saveBar = page.locator('form[action="/settings/sla"] [data-settings-savebar]');
+    await critical.fill("59s");
+    await expect(critical).toHaveAttribute("aria-invalid", "true");
+    await expect(reading).toHaveText("The target must be at least 60 seconds.");
+    await expect(saveBar).toBeVisible();
+    await saveBar.getByRole("button", { name: "Discard", exact: true }).click();
+    await expect(critical).toHaveValue("30m");
+    await expect(critical).toHaveAttribute("aria-invalid", "false");
+    await expect(reading).toHaveText("30 min");
+    await expect(saveBar).toBeHidden();
 
     // Edit the warning percent and one target, save, and verify persistence.
     await page.getByLabel("Warning threshold", { exact: true }).fill("55");
-    await page.getByLabel("Critical first response, minutes").fill("45");
-    await page.getByLabel("Critical first response, seconds").fill("10");
+    await critical.fill("45m 10s");
+    await expect(reading).toHaveText("45 min 10 s");
     await page.getByRole("button", { name: "Save SLA settings" }).click();
     await expect(page).toHaveURL(/\/settings\/tickets$/);
     await expect(page.locator("#save-feedback")).toContainText("Saved");
 
     await page.reload();
     await expect(page.getByLabel("Warning threshold", { exact: true })).toHaveValue("55");
-    await expect(page.getByLabel("Critical first response, minutes")).toHaveValue("45");
-    await expect(page.getByLabel("Critical first response, seconds")).toHaveValue("10");
-    await expect(page.getByLabel("Critical first response, hours")).toHaveValue("0");
-    await expect(page.getByLabel("High first response, hours")).toHaveValue("1");
+    await expect(critical).toHaveValue("45m 10s");
+    await expect(page.getByLabel("High first response", { exact: true })).toHaveValue("1h");
     await expect(page.locator('input[name="sla_enabled"]')).not.toBeChecked();
+
+    // The written durations stack inside a phone viewport.
+    await page.setViewportSize({ width: 390, height: 844 });
+    await expect(page.getByLabel("Low resolve", { exact: true })).toBeVisible();
+    expect(
+      await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth),
+    ).toBe(false);
+    await page.setViewportSize({ width: 1280, height: 800 });
 
     await assertCanonicalScreen(page, {
       viewport: 1280,
@@ -360,41 +377,71 @@ test.describe("Settings", () => {
     // rejection leg can prove the stored values survive untouched.
     await page.goto(base() + "/settings/tickets");
     await page.getByLabel("Warning threshold", { exact: true }).fill("55");
-    await page.getByLabel("Critical first response, minutes").fill("45");
-    await page.getByLabel("Critical first response, seconds").fill("10");
+    await page.getByLabel("Critical first response", { exact: true }).fill("45m 10s");
     await page.getByRole("button", { name: "Save SLA settings" }).click();
     await expect(page).toHaveURL(/\/settings\/tickets$/);
     await expect(page.locator("#save-feedback")).toContainText("Saved");
 
-    // A 30-second first response passes the grid's HTML constraints (min=0 on
-    // the seconds input) and must be rejected server-side: every target needs
-    // at least 60 seconds.
-    await page.goto(base() + "/settings/tickets");
-    await page.getByLabel("Warning threshold", { exact: true }).fill("66");
-    await page.getByLabel("Critical first response, minutes").fill("0");
-    await page.getByLabel("Critical first response, seconds").fill("30");
-    await page.getByLabel("High resolve, hours").fill("9");
+    // With scripting the browser refuses a 30-second target before any
+    // request; without it the server is the only judge, which is the path
+    // under test: every target needs at least 60 seconds.
+    let posts = 0;
+    const countPost = (request: import("@playwright/test").Request) => {
+      if (new URL(request.url()).pathname === "/settings/sla" && request.method() === "POST")
+        posts++;
+    };
+    page.on("request", countPost);
+    await page.getByLabel("Critical first response", { exact: true }).fill("30s");
     await page.getByRole("button", { name: "Save SLA settings" }).click();
+    await expect(page.getByLabel("Critical first response", { exact: true })).toHaveAttribute(
+      "aria-invalid",
+      "true",
+    );
+    expect(posts).toBe(0);
+    page.off("request", countPost);
 
-    const banner = page.locator(".error-banner");
-    await expect(banner).toBeVisible();
-    await expect(banner).toHaveAttribute("role", "alert");
-    // Native form: the rejection re-renders at the POST URL, no redirect.
-    await expect(page).toHaveURL(/\/settings\/sla$/);
+    const noScriptContext = await page
+      .context()
+      .browser()!
+      .newContext({ javaScriptEnabled: false, storageState: await page.context().storageState() });
+    try {
+      const noScript = await noScriptContext.newPage();
+      await noScript.goto(base() + "/settings/tickets");
+      await noScript.getByLabel("Warning threshold", { exact: true }).fill("66");
+      await noScript.getByLabel("Critical first response", { exact: true }).fill("30s");
+      await noScript.getByLabel("High resolve", { exact: true }).fill("9h");
+      await noScript.getByLabel("Low first response", { exact: true }).fill("1h 2h");
+      const rejected = noScript.waitForResponse(
+        (r) => new URL(r.url()).pathname === "/settings/sla" && r.request().method() === "POST",
+      );
+      await noScript.getByRole("button", { name: "Save SLA settings" }).click();
+      expect((await rejected).status()).toBe(422);
 
-    // The re-render echoes the SUBMITTED values, not the stored ones.
-    await expect(page.getByLabel("Warning threshold", { exact: true })).toHaveValue("66");
-    await expect(page.getByLabel("Critical first response, minutes")).toHaveValue("0");
-    await expect(page.getByLabel("Critical first response, seconds")).toHaveValue("30");
-    await expect(page.getByLabel("High resolve, hours")).toHaveValue("9");
+      const banner = noScript.locator(".error-banner");
+      await expect(banner).toBeVisible();
+      await expect(banner).toHaveAttribute("role", "alert");
+      // Native form: the rejection re-renders at the POST URL, no redirect.
+      await expect(noScript).toHaveURL(/\/settings\/sla$/);
 
-    // A fresh GET (not a reload: reloading a POST response re-submits the
-    // form) shows the stored configuration untouched by the rejected post.
+      // The re-render echoes the SUBMITTED text, not the stored values.
+      await expect(noScript.getByLabel("Warning threshold", { exact: true })).toHaveValue("66");
+      await expect(noScript.getByLabel("Critical first response", { exact: true })).toHaveValue(
+        "30s",
+      );
+      await expect(noScript.getByLabel("High resolve", { exact: true })).toHaveValue("9h");
+      await expect(noScript.getByLabel("Low first response", { exact: true })).toHaveValue("1h 2h");
+    } finally {
+      await noScriptContext.close();
+    }
+
+    // A fresh GET shows the stored configuration untouched by the rejected post.
     await page.goto(base() + "/settings/tickets");
     await expect(page.getByLabel("Warning threshold", { exact: true })).toHaveValue("55");
-    await expect(page.getByLabel("Critical first response, minutes")).toHaveValue("45");
-    await expect(page.getByLabel("Critical first response, seconds")).toHaveValue("10");
-    await expect(page.getByLabel("High resolve, hours")).toHaveValue("8");
+    await expect(page.getByLabel("Critical first response", { exact: true })).toHaveValue(
+      "45m 10s",
+    );
+    await expect(page.getByLabel("High resolve", { exact: true })).toHaveValue("8h");
+    await expect(page.getByLabel("Low first response", { exact: true })).toHaveValue("8h");
   });
 
   test("hold auto-close window: persists, clears to off, and refuses an out-of-range value", async ({

@@ -6,6 +6,7 @@ import (
 
 	"github.com/giulianotesta7/tkt/internal/application"
 	"github.com/giulianotesta7/tkt/internal/domain"
+	"github.com/giulianotesta7/tkt/internal/i18n"
 )
 
 // CategorySLAHandlers own the per-category SLA configuration screen (issue
@@ -56,9 +57,12 @@ type slaPriorityRow struct {
 	Diverges      bool
 }
 
-// slaGridData is the payload of the shared sla_target_grid partial.
+// slaGridData is the payload of the shared sla_duration_grid partial.
 type slaGridData struct {
 	Rows []slaPriorityRow
+	// DurationValues holds the written durations exactly as a rejected post
+	// submitted them; nil on GET, where each field renders its stored target.
+	DurationValues map[string]string
 }
 
 // slaGridPriorities fixes the shared grid's display order: the store lists
@@ -218,6 +222,14 @@ func (h *CategorySLAHandlers) post(w http.ResponseWriter, r *http.Request) {
 	// path: a rejected save echoes the SUBMITTED values, not the stored
 	// ones, so one bad number does not cost the administrator 24 fields.
 	policies := parseSLATargets(r)
+	if r.PostFormValue("action") != categorySLAResetAction && hasSLADurations(r) {
+		var valid bool
+		policies, valid = parseSLADurations(r)
+		if !valid {
+			h.render(w, r, category, policies, i18n.T(requestLocale(r), "sla.grid.duration_invalid"), http.StatusUnprocessableEntity)
+			return
+		}
+	}
 	// A reset is an explicit submitted action. Only that action replaces the
 	// matrix with the instance defaults, and it goes through the SAME
 	// SetCategoryTargets validation path as a normal save.
@@ -259,6 +271,9 @@ func (h *CategorySLAHandlers) render(w http.ResponseWriter, r *http.Request, cat
 		CategoryName: category.Name,
 		Error:        errorMessage,
 		Grid:         slaGridData{Rows: slaPolicyRowsDiverging(policies, defaults)},
+	}
+	if r.Method == http.MethodPost && r.PostFormValue("action") != categorySLAResetAction && hasSLADurations(r) {
+		data.Grid.DurationValues = slaDurationValues(r)
 	}
 	data.PageFoundationAssets = true
 	h.renderer.Render(w, r, "category_sla", "", data, status)

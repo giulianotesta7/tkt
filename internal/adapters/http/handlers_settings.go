@@ -888,6 +888,19 @@ func (h *SettingsHandlers) updateSLA(w http.ResponseWriter, r *http.Request) {
 	enabled := r.Form.Get("sla_enabled") == "1"
 	percent := slaFormInt(r, "sla_warning_percent")
 	policies := parseSLATargets(r)
+	// Written durations (issue #395, S10) replace the h/m/s fields when they
+	// are submitted. One that does not parse rejects the whole panel before
+	// the application call, so nothing is written.
+	var durations map[string]string
+	if hasSLADurations(r) {
+		durations = slaDurationValues(r)
+		var valid bool
+		policies, valid = parseSLADurations(r)
+		if !valid {
+			h.rejectSLA(w, r, http.StatusUnprocessableEntity, i18n.T(requestLocale(r), "sla.grid.duration_invalid"), enabled, percent, policies, durations)
+			return
+		}
+	}
 
 	// ONE application call applies the whole panel: validation runs before
 	// any store write and the store commits it in one transaction, so there
@@ -899,17 +912,21 @@ func (h *SettingsHandlers) updateSLA(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, msg, status)
 			return
 		}
-		// Echo the SUBMITTED values: one bad number must not cost the
-		// administrator the other twenty-three fields.
-		h.renderTickets(w, r, status, msg, func(data *settingsTicketsData) {
-			data.SLAEnabled = enabled
-			data.SLAWarningPercent = percent
-			data.SLAGrid = slaGridData{Rows: slaPolicyRows(policies)}
-		})
+		h.rejectSLA(w, r, status, msg, enabled, percent, policies, durations)
 		return
 	}
 	saveFeedback(w, r, saveFeedbackSaved, saveFeedbackSuccess)
 	redirect(w, r, settingsSectionHref(settingsSectionTickets))
+}
+
+// rejectSLA re-renders the Tickets section with the SUBMITTED panel: one bad
+// value must not cost the administrator the rest of what they typed.
+func (h *SettingsHandlers) rejectSLA(w http.ResponseWriter, r *http.Request, status int, message string, enabled bool, percent int, policies []domain.SLAPolicy, durations map[string]string) {
+	h.renderTickets(w, r, status, message, func(data *settingsTicketsData) {
+		data.SLAEnabled = enabled
+		data.SLAWarningPercent = percent
+		data.SLAGrid = slaGridData{Rows: slaPolicyRows(policies), DurationValues: durations}
+	})
 }
 
 // slaFormInt parses one submitted integer, counting a blank or non-numeric

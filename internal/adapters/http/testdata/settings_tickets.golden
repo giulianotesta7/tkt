@@ -149,69 +149,33 @@
         <label for="sla_warning_percent">Warning threshold</label><span class="help-tip-wrap"><button class="help-tip" type="button" aria-label="More about Warning threshold" aria-describedby="help-tip-sla-warning" aria-expanded="false" data-help-tip>?</button><span class="help-tip-bubble" role="tooltip" id="help-tip-sla-warning">At risk once this share of the target has elapsed.</span></span>
         <input type="number" id="sla_warning_percent" name="sla_warning_percent" class="sla-warning-input" min="1" max="99" value="80">
       </div>
-<div class="sla-grid">
-  <div class="sla-grid-row sla-grid-head" aria-hidden="true">
-    <span class="sla-grid-priority"></span>
-    <span class="sla-grid-milestone">First response</span>
-    <span class="sla-grid-milestone">Resolve</span>
-  </div>
+<div class="sla-grid sla-duration-grid" data-sla-durations data-duration-max="9223372036854775807" data-duration-invalid="Use whole numbers with h, m or s, without repeated units. Example: 1h 30m." data-duration-minimum="The target must be at least 60 seconds.">
+  <p id="sla-duration-help" class="sla-duration-help">Use h, m and s: 1h 30m, 90m or 45m 20s. Minimum: 60 seconds.</p>
+  <div class="sla-grid-row sla-grid-head" aria-hidden="true"><span></span><span>First response</span><span>Resolve</span></div>
 
   <div class="sla-grid-row">
     <span class="sla-grid-priority">Critical</span>
-    <div class="sla-target">
-      <span class="sla-unit"><span class="sla-unit-mark" aria-hidden="true">h</span><input type="number" inputmode="numeric" min="0" name="first_response_h_critical" value="0" aria-label="Critical first response, hours"></span>
-      <span class="sla-unit"><span class="sla-unit-mark" aria-hidden="true">m</span><input type="number" inputmode="numeric" min="0" max="59" name="first_response_m_critical" value="30" aria-label="Critical first response, minutes"></span>
-      <span class="sla-unit"><span class="sla-unit-mark" aria-hidden="true">s</span><input type="number" inputmode="numeric" min="0" max="59" name="first_response_s_critical" value="0" aria-label="Critical first response, seconds"></span>
-    </div>
-    <div class="sla-target">
-      <span class="sla-unit"><span class="sla-unit-mark" aria-hidden="true">h</span><input type="number" inputmode="numeric" min="0" name="resolve_h_critical" value="4" aria-label="Critical resolve, hours"></span>
-      <span class="sla-unit"><span class="sla-unit-mark" aria-hidden="true">m</span><input type="number" inputmode="numeric" min="0" max="59" name="resolve_m_critical" value="0" aria-label="Critical resolve, minutes"></span>
-      <span class="sla-unit"><span class="sla-unit-mark" aria-hidden="true">s</span><input type="number" inputmode="numeric" min="0" max="59" name="resolve_s_critical" value="0" aria-label="Critical resolve, seconds"></span>
-    </div>
+    <div class="sla-duration-field"><label class="sla-duration-label" for="first_response_duration_critical">First response</label><input class="sla-duration-input" id="first_response_duration_critical" name="first_response_duration_critical" value="30m" aria-label="Critical first response" aria-describedby="sla-duration-help first_response_duration_critical-reading" aria-invalid="false" autocomplete="off" spellcheck="false" required><p id="first_response_duration_critical-reading" class="sla-duration-reading">30 min</p></div>
+    <div class="sla-duration-field"><label class="sla-duration-label" for="resolve_duration_critical">Resolve</label><input class="sla-duration-input" id="resolve_duration_critical" name="resolve_duration_critical" value="4h" aria-label="Critical resolve" aria-describedby="sla-duration-help resolve_duration_critical-reading" aria-invalid="false" autocomplete="off" spellcheck="false" required><p id="resolve_duration_critical-reading" class="sla-duration-reading">4 h</p></div>
   </div>
 
   <div class="sla-grid-row">
     <span class="sla-grid-priority">High</span>
-    <div class="sla-target">
-      <span class="sla-unit"><span class="sla-unit-mark" aria-hidden="true">h</span><input type="number" inputmode="numeric" min="0" name="first_response_h_high" value="1" aria-label="High first response, hours"></span>
-      <span class="sla-unit"><span class="sla-unit-mark" aria-hidden="true">m</span><input type="number" inputmode="numeric" min="0" max="59" name="first_response_m_high" value="0" aria-label="High first response, minutes"></span>
-      <span class="sla-unit"><span class="sla-unit-mark" aria-hidden="true">s</span><input type="number" inputmode="numeric" min="0" max="59" name="first_response_s_high" value="0" aria-label="High first response, seconds"></span>
-    </div>
-    <div class="sla-target">
-      <span class="sla-unit"><span class="sla-unit-mark" aria-hidden="true">h</span><input type="number" inputmode="numeric" min="0" name="resolve_h_high" value="8" aria-label="High resolve, hours"></span>
-      <span class="sla-unit"><span class="sla-unit-mark" aria-hidden="true">m</span><input type="number" inputmode="numeric" min="0" max="59" name="resolve_m_high" value="0" aria-label="High resolve, minutes"></span>
-      <span class="sla-unit"><span class="sla-unit-mark" aria-hidden="true">s</span><input type="number" inputmode="numeric" min="0" max="59" name="resolve_s_high" value="0" aria-label="High resolve, seconds"></span>
-    </div>
+    <div class="sla-duration-field"><label class="sla-duration-label" for="first_response_duration_high">First response</label><input class="sla-duration-input" id="first_response_duration_high" name="first_response_duration_high" value="1h" aria-label="High first response" aria-describedby="sla-duration-help first_response_duration_high-reading" aria-invalid="false" autocomplete="off" spellcheck="false" required><p id="first_response_duration_high-reading" class="sla-duration-reading">1 h</p></div>
+    <div class="sla-duration-field"><label class="sla-duration-label" for="resolve_duration_high">Resolve</label><input class="sla-duration-input" id="resolve_duration_high" name="resolve_duration_high" value="8h" aria-label="High resolve" aria-describedby="sla-duration-help resolve_duration_high-reading" aria-invalid="false" autocomplete="off" spellcheck="false" required><p id="resolve_duration_high-reading" class="sla-duration-reading">8 h</p></div>
   </div>
 
   <div class="sla-grid-row">
     <span class="sla-grid-priority">Medium</span>
-    <div class="sla-target">
-      <span class="sla-unit"><span class="sla-unit-mark" aria-hidden="true">h</span><input type="number" inputmode="numeric" min="0" name="first_response_h_medium" value="4" aria-label="Medium first response, hours"></span>
-      <span class="sla-unit"><span class="sla-unit-mark" aria-hidden="true">m</span><input type="number" inputmode="numeric" min="0" max="59" name="first_response_m_medium" value="0" aria-label="Medium first response, minutes"></span>
-      <span class="sla-unit"><span class="sla-unit-mark" aria-hidden="true">s</span><input type="number" inputmode="numeric" min="0" max="59" name="first_response_s_medium" value="0" aria-label="Medium first response, seconds"></span>
-    </div>
-    <div class="sla-target">
-      <span class="sla-unit"><span class="sla-unit-mark" aria-hidden="true">h</span><input type="number" inputmode="numeric" min="0" name="resolve_h_medium" value="24" aria-label="Medium resolve, hours"></span>
-      <span class="sla-unit"><span class="sla-unit-mark" aria-hidden="true">m</span><input type="number" inputmode="numeric" min="0" max="59" name="resolve_m_medium" value="0" aria-label="Medium resolve, minutes"></span>
-      <span class="sla-unit"><span class="sla-unit-mark" aria-hidden="true">s</span><input type="number" inputmode="numeric" min="0" max="59" name="resolve_s_medium" value="0" aria-label="Medium resolve, seconds"></span>
-    </div>
+    <div class="sla-duration-field"><label class="sla-duration-label" for="first_response_duration_medium">First response</label><input class="sla-duration-input" id="first_response_duration_medium" name="first_response_duration_medium" value="4h" aria-label="Medium first response" aria-describedby="sla-duration-help first_response_duration_medium-reading" aria-invalid="false" autocomplete="off" spellcheck="false" required><p id="first_response_duration_medium-reading" class="sla-duration-reading">4 h</p></div>
+    <div class="sla-duration-field"><label class="sla-duration-label" for="resolve_duration_medium">Resolve</label><input class="sla-duration-input" id="resolve_duration_medium" name="resolve_duration_medium" value="24h" aria-label="Medium resolve" aria-describedby="sla-duration-help resolve_duration_medium-reading" aria-invalid="false" autocomplete="off" spellcheck="false" required><p id="resolve_duration_medium-reading" class="sla-duration-reading">24 h</p></div>
   </div>
 
   <div class="sla-grid-row">
     <span class="sla-grid-priority">Low</span>
-    <div class="sla-target">
-      <span class="sla-unit"><span class="sla-unit-mark" aria-hidden="true">h</span><input type="number" inputmode="numeric" min="0" name="first_response_h_low" value="8" aria-label="Low first response, hours"></span>
-      <span class="sla-unit"><span class="sla-unit-mark" aria-hidden="true">m</span><input type="number" inputmode="numeric" min="0" max="59" name="first_response_m_low" value="0" aria-label="Low first response, minutes"></span>
-      <span class="sla-unit"><span class="sla-unit-mark" aria-hidden="true">s</span><input type="number" inputmode="numeric" min="0" max="59" name="first_response_s_low" value="0" aria-label="Low first response, seconds"></span>
-    </div>
-    <div class="sla-target">
-      <span class="sla-unit"><span class="sla-unit-mark" aria-hidden="true">h</span><input type="number" inputmode="numeric" min="0" name="resolve_h_low" value="72" aria-label="Low resolve, hours"></span>
-      <span class="sla-unit"><span class="sla-unit-mark" aria-hidden="true">m</span><input type="number" inputmode="numeric" min="0" max="59" name="resolve_m_low" value="0" aria-label="Low resolve, minutes"></span>
-      <span class="sla-unit"><span class="sla-unit-mark" aria-hidden="true">s</span><input type="number" inputmode="numeric" min="0" max="59" name="resolve_s_low" value="0" aria-label="Low resolve, seconds"></span>
-    </div>
+    <div class="sla-duration-field"><label class="sla-duration-label" for="first_response_duration_low">First response</label><input class="sla-duration-input" id="first_response_duration_low" name="first_response_duration_low" value="8h" aria-label="Low first response" aria-describedby="sla-duration-help first_response_duration_low-reading" aria-invalid="false" autocomplete="off" spellcheck="false" required><p id="first_response_duration_low-reading" class="sla-duration-reading">8 h</p></div>
+    <div class="sla-duration-field"><label class="sla-duration-label" for="resolve_duration_low">Resolve</label><input class="sla-duration-input" id="resolve_duration_low" name="resolve_duration_low" value="72h" aria-label="Low resolve" aria-describedby="sla-duration-help resolve_duration_low-reading" aria-invalid="false" autocomplete="off" spellcheck="false" required><p id="resolve_duration_low-reading" class="sla-duration-reading">72 h</p></div>
   </div>
-
 </div>
       <div class="settings-savebar" data-settings-savebar hidden>
         <button class="btn primary" type="submit">Save SLA settings</button>
@@ -232,6 +196,7 @@
     </form>
   </div>
 </div>
+<script src="/static/sla_duration.js" defer></script>
 </main>
     <nav class="tabbar" aria-label="Sections">
       <a class="tabbar-item" href="/tickets">

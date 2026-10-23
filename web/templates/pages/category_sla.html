@@ -8,13 +8,15 @@
       <p class="page-subtitle">{{th "categories.sla.subtitle"}}</p>
     </div>
     <div class="page-actions">
-      <button class="page-action" type="submit" form="sla-form" name="action" value="reset">{{t "categories.sla.reset"}}</button>
+      <button class="page-action" type="submit" form="sla-form" name="action" value="reset" formnovalidate>{{t "categories.sla.reset"}}</button>
       <button class="page-action page-action-primary" type="submit" form="sla-form" name="action" value="save">{{t "categories.sla.save"}}</button>
     </div>
   </header>
 {{if .Error}}<div class="error-banner" role="alert">{{.Error}}</div>{{end}}
-  <form id="sla-form" class="card form-card" method="post" action="/categories/{{.CategoryID}}/sla">
-{{template "sla_target_grid" .Grid}}
+  <form id="sla-form" class="card form-card category-sla-card" method="post" action="/categories/{{.CategoryID}}/sla">
+    <div class="category-sla-scroll">{{template "sla_duration_grid" .Grid}}</div>
+    <p class="category-sla-note">{{t "categories.sla.reset_note"}}</p>
   </form>
 </div>
+<script src="/static/sla_duration.js" defer></script>
 {{end}}
