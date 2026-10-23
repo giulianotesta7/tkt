@@ -1948,3 +1948,39 @@ func (f *fakePasswordResetStore) find(hash string) *fakePasswordResetToken {
 	}
 	return nil
 }
+
+// fakeCompanySignInStore is the in-memory CompanySignInSettingsStore double
+// for the company sign-in configuration (issue #419). Simplifications,
+// documented per the fakes contract: ONE value stands in for the keyed settings
+// rows and a Set replaces it in one step — the transaction the real store
+// commits; an unset fake answers the documented defaults, like the real
+// store's absent-row fallback; writes counts every Set, refused or not.
+type fakeCompanySignInStore struct {
+	settings application.CompanySignInSettings
+	stored   bool
+	getErr   error
+	writes   int
+}
+
+var _ application.CompanySignInSettingsStore = (*fakeCompanySignInStore)(nil)
+
+func newFakeCompanySignInStore() *fakeCompanySignInStore {
+	return &fakeCompanySignInStore{}
+}
+
+func (f *fakeCompanySignInStore) GetCompanySignIn(_ context.Context) (application.CompanySignInSettings, error) {
+	if f.getErr != nil {
+		return application.CompanySignInSettings{}, f.getErr
+	}
+	if !f.stored {
+		return application.DefaultCompanySignInSettings(), nil
+	}
+	return f.settings, nil
+}
+
+func (f *fakeCompanySignInStore) SetCompanySignIn(_ context.Context, settings application.CompanySignInSettings) error {
+	f.writes++
+	f.settings = settings
+	f.stored = true
+	return nil
+}

@@ -1517,3 +1517,17 @@ type Page struct {
 	Offset int
 	Limit  int
 }
+
+// CompanySignInSettingsStore persists the company sign-in configuration (issue
+// #419). It is a port of its own for the reason PasswordSettingsStore is: its
+// readers are the sign-in page and the sign-in flow.
+type CompanySignInSettingsStore interface {
+	// GetCompanySignIn returns the stored configuration with the sealed
+	// secrets. It NEVER fails for configuration reasons: absent rows answer
+	// DefaultCompanySignInSettings, an unknown new-account policy reads back
+	// requester, and an unparseable password switch reads back ON.
+	GetCompanySignIn(ctx context.Context) (CompanySignInSettings, error)
+	// SetCompanySignIn writes the whole configuration in ONE transaction: an
+	// administrator's save is one configuration, never half applied.
+	SetCompanySignIn(ctx context.Context, settings CompanySignInSettings) error
+}
