@@ -2031,13 +2031,6 @@ func (h *TicketHandlers) detailDataFor(r *http.Request, id int64) (detailData, i
 		status, _ := mapError(err)
 		return detailData{}, status, err
 	}
-	// Only a SUCCESSFUL read is a visit, and every detail render is one: the
-	// record also reads the actor's notifications about this ticket.
-	if h.visits != nil {
-		if err := h.visits.RecordVisit(r.Context(), actor, id, mark); err != nil {
-			return detailData{}, http.StatusInternalServerError, err
-		}
-	}
 	opts, err := h.collectOptions(r)
 	if err != nil {
 		return detailData{}, http.StatusInternalServerError, err
@@ -2123,6 +2116,15 @@ func (h *TicketHandlers) detailDataFor(r *http.Request, id int64) (detailData, i
 	if r.Header.Get("HX-Request") != "" {
 		if explicit := r.Header.Get(ticketQueueReturnHeader); explicit != "" {
 			queueOrigin = explicit
+		}
+	}
+	// Only a page that can be shown is a visit, so the visit is recorded
+	// after every fallible step above: a failure leaves the mark and the bell
+	// as they were. The record also reads the actor's notifications about
+	// this ticket.
+	if h.visits != nil {
+		if err := h.visits.RecordVisit(r.Context(), actor, id, mark); err != nil {
+			return detailData{}, http.StatusInternalServerError, err
 		}
 	}
 	return detailData{

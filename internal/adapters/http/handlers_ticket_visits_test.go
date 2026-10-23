@@ -448,3 +448,34 @@ func TestTicketVisitRequesterListMarksEverySection(t *testing.T) {
 		t.Errorf("the folded Closed line keeps its dot after the visit: %s", fold)
 	}
 }
+
+// failingCategoryList fails the category read the detail page makes after
+// the ticket itself was read, so the page cannot be shown.
+type failingCategoryList struct{ application.CategoryStore }
+
+func (failingCategoryList) List(context.Context) ([]domain.Category, error) {
+	return nil, errors.New("categories unavailable")
+}
+
+// A detail page that fails after the ticket was read is not a visit: the
+// mark and the bell stay as they were, because the reader never saw it.
+func TestTicketVisitFailedDetailRecordsNoVisit(t *testing.T) {
+	h := newHarness(t)
+	agent := seedUserRole(t, h.store, "Ana", "ana@visits.test", domain.RoleAgent)
+	tk := h.seedTicket(t, "VPN drops", nil)
+	h.assignTicket(t, tk.ID, agent.ID)
+
+	broken := NewTicketHandlers(h.tickets, h.comments, h.search, application.NewCategoryService(failingCategoryList{h.store.CategoryStore()}, h.clock), h.users, h.store.DeskStore(), h.workflows, application.NewWorkflowRunner(h.clock), h.store.WorkflowRunStore(), h.store.WorkflowUnitOfWork(), h.renderer).WithVisits(h.visits)
+	req := httptest.NewRequest(http.MethodGet, fmt.Sprintf("/tickets/%d", tk.ID), nil)
+	req = req.WithContext(context.WithValue(req.Context(), ctxKeyUser{}, agent))
+	if _, _, err := broken.detailDataFor(req, tk.ID); err == nil {
+		t.Fatal("the detail page succeeded with its category read failing")
+	}
+
+	if unread := unreadFor(t, h, agent.ID); unread != 1 {
+		t.Errorf("bell = %d after a failed detail page, want 1", unread)
+	}
+	if data := listDataAs(t, h, *agent); len(data.Assigned.Tickets) != 1 || !data.Assigned.Tickets[0].Changed {
+		t.Errorf("the mark was cleared by a failed detail page: %+v", data.Assigned.Tickets)
+	}
+}
