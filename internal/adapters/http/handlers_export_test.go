@@ -198,6 +198,17 @@ func TestTicketExportLinkFollowsAnHTMXFilterChange(t *testing.T) {
 	}
 }
 
+// S23: the metrics filters swap the whole detail content, so the download
+// link refreshed with it must carry the newly chosen period.
+func TestMetricsExportLinkFollowsAnHTMXFilterChange(t *testing.T) {
+	h := newHarness(t)
+
+	body := h.get(t, "/tickets/metrics?metrics_start=2026-01-05&metrics_end=2026-01-11", true).Body.String()
+	if !strings.Contains(body, `class="ticket-metrics-export" href="/tickets/metrics/export.csv?metrics_attainment_group=total&amp;metrics_end=2026-01-11&amp;metrics_group=agent&amp;metrics_start=2026-01-05"`) {
+		t.Fatalf("the refreshed download link does not carry the chosen period: %s", body)
+	}
+}
+
 // The screens that own the data must offer the download (S27).
 func TestExportLinksAppearOnTheScreensThatOwnTheData(t *testing.T) {
 	h := newHarness(t)
