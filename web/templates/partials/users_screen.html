@@ -8,46 +8,34 @@
       </div>
       <a id="users-new-launcher" class="users-primary-action users-new-launcher" href="/users/new" hx-get="/users/new?status={{.Status}}" hx-target="#users-drawer-host" hx-swap="outerHTML" hx-push-url="/users/new" data-edit-url="/users/new">{{t "users.new"}}</a>
     </header>{{if .Error}}<div class="users-error" role="alert">{{.Error}}</div>{{end}}
-        <div class="users-layout">
-          <div class="users-filters">
-            <nav class="users-status-tabs" aria-label="{{t "users.status_filter_label"}}">
-              {{if eq .Status "all"}}<a class="is-selected" href="/users" hx-get="/users" hx-target="#users-root" hx-swap="outerHTML" hx-push-url="true">{{t "users.filter.all"}} <span>{{.Counts.All}}</span></a>{{else}}<a href="/users" hx-get="/users" hx-target="#users-root" hx-swap="outerHTML" hx-push-url="true">{{t "users.filter.all"}} <span>{{.Counts.All}}</span></a>{{end}}
-              {{if eq .Status "active"}}<a class="is-selected" href="/users?status=active" hx-get="/users?status=active" hx-target="#users-root" hx-swap="outerHTML" hx-push-url="true">{{t "users.filter.active"}} <span>{{.Counts.Active}}</span></a>{{else}}<a href="/users?status=active" hx-get="/users?status=active" hx-target="#users-root" hx-swap="outerHTML" hx-push-url="true">{{t "users.filter.active"}} <span>{{.Counts.Active}}</span></a>{{end}}
-              {{if eq .Status "deactivated"}}<a class="is-selected" href="/users?status=deactivated" hx-get="/users?status=deactivated" hx-target="#users-root" hx-swap="outerHTML" hx-push-url="true">{{t "users.filter.deactivated"}} <span>{{.Counts.Deactivated}}</span></a>{{else}}<a href="/users?status=deactivated" hx-get="/users?status=deactivated" hx-target="#users-root" hx-swap="outerHTML" hx-push-url="true">{{t "users.filter.deactivated"}} <span>{{.Counts.Deactivated}}</span></a>{{end}}
-            </nav>
-            <div class="users-search search-field" role="search">
-              {{template "search_icon"}}
-              <input type="search" aria-label="{{t "users.search_label"}}" placeholder="{{t "users.search_placeholder"}}" autocomplete="off">
-            </div>
-          </div>
-          <section class="users-list" aria-labelledby="users-list-title">
-        <table>
-          <thead><tr><th scope="col">{{t "users.col_user"}}</th><th scope="col">{{t "users.col_role"}}</th><th scope="col">{{t "users.col_status"}}</th><th scope="col">{{t "users.col_created"}}</th><th scope="col"><span class="visually-hidden">{{t "users.col_actions"}}</span></th></tr></thead>
-          <tbody>
-            {{range .Rows}}
-            <tr data-user-name="{{.Name}}" data-user-email="{{.Email}}">
-              <td>{{if .CanManage}}<a id="{{.LauncherID}}" class="user-launcher" href="{{.EditHref}}" hx-get="{{.EditHref}}" hx-target="#users-drawer-host" hx-swap="outerHTML" data-edit-url="{{.EditURL}}"><span class="user-initials" aria-hidden="true">{{.Initials}}</span><span><strong>{{.Name}}</strong><small>{{.Email}}</small></span></a>{{else}}<span class="user-factual"><span class="user-initials" aria-hidden="true">{{.Initials}}</span><span><strong>{{.Name}}</strong><small>{{.Email}}</small></span></span>{{end}}</td>
-              <td>{{t .RoleLabel}}</td>
-              <td><span class="user-status{{if .Active}} is-active{{end}}">{{t .StatusLabel}}</span></td>
-              <td><time datetime="{{formatDatetime .CreatedAt}}">{{formatTime .CreatedAt}}</time></td>
-              <td>{{if .CanManage}}<button class="user-actions" type="button" aria-label="{{tf "users.edit_named" .Name}}" hx-get="{{.EditHref}}" hx-target="#users-drawer-host" hx-swap="outerHTML" data-edit-url="{{.EditURL}}"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><circle cx="5" cy="12" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="19" cy="12" r="1.5"/></svg></button>{{end}}</td>
-            </tr>
-            {{else}}<tr><td colspan="5"><p class="users-empty">{{t .EmptyMessage}}</p></td></tr>{{end}}
-{{if .Rows}}<tr class="users-search-empty" hidden><td colspan="5"><p class="users-empty">{{t "users.empty.search"}}</p></td></tr>{{end}}
-          </tbody>
-        </table>
-      </section>
-      <aside class="users-access-card" aria-labelledby="users-access-title">
-        <h2 id="users-access-title">{{t "users.access.title"}}</h2>
-        <p class="users-access-subtitle">{{t "users.access.subtitle"}}</p>
-        <dl>
-          <div><dt>{{t "label.role.root"}}</dt><dd>{{t "users.access.root"}}</dd></div>
-          <div><dt>{{t "label.role.admin"}}</dt><dd>{{t "users.access.admin"}}</dd></div>
-          <div><dt>{{t "label.role.agent"}}</dt><dd>{{t "users.access.agent"}}</dd></div>
-          <div><dt>{{t "label.role.user"}}</dt><dd>{{t "users.access.user"}}</dd></div>
-        </dl>
-      </aside>
+    <div class="users-filters">
+      <nav class="users-status-tabs" aria-label="{{t "users.status_filter_label"}}">
+        {{if eq .Status "all"}}<a class="is-selected" href="/users" hx-get="/users" hx-target="#users-root" hx-swap="outerHTML" hx-push-url="true">{{t "users.filter.all"}} <span>{{.Counts.All}}</span></a>{{else}}<a href="/users" hx-get="/users" hx-target="#users-root" hx-swap="outerHTML" hx-push-url="true">{{t "users.filter.all"}} <span>{{.Counts.All}}</span></a>{{end}}
+        {{if eq .Status "active"}}<a class="is-selected" href="/users?status=active" hx-get="/users?status=active" hx-target="#users-root" hx-swap="outerHTML" hx-push-url="true">{{t "users.filter.active"}} <span>{{.Counts.Active}}</span></a>{{else}}<a href="/users?status=active" hx-get="/users?status=active" hx-target="#users-root" hx-swap="outerHTML" hx-push-url="true">{{t "users.filter.active"}} <span>{{.Counts.Active}}</span></a>{{end}}
+        {{if eq .Status "deactivated"}}<a class="is-selected" href="/users?status=deactivated" hx-get="/users?status=deactivated" hx-target="#users-root" hx-swap="outerHTML" hx-push-url="true">{{t "users.filter.deactivated"}} <span>{{.Counts.Deactivated}}</span></a>{{else}}<a href="/users?status=deactivated" hx-get="/users?status=deactivated" hx-target="#users-root" hx-swap="outerHTML" hx-push-url="true">{{t "users.filter.deactivated"}} <span>{{.Counts.Deactivated}}</span></a>{{end}}
+      </nav>
+      <div class="users-search search-field" role="search">
+        {{template "search_icon"}}
+        <input type="search" aria-label="{{t "users.search_label"}}" placeholder="{{t "users.search_placeholder"}}" autocomplete="off">
+      </div>
     </div>
+    <section class="users-list" aria-labelledby="users-list-title">
+      <table>
+        <thead><tr><th scope="col">{{t "users.col_user"}}</th><th scope="col">{{t "users.col_role"}}</th><th scope="col">{{t "users.col_status"}}</th><th scope="col">{{t "users.col_created"}}</th><th scope="col"><span class="visually-hidden">{{t "users.col_actions"}}</span></th></tr></thead>
+        <tbody>
+          {{range .Rows}}
+          <tr data-user-name="{{.Name}}" data-user-email="{{.Email}}">
+            <td>{{if .CanManage}}<a id="{{.LauncherID}}" class="user-launcher" href="{{.EditHref}}" hx-get="{{.EditHref}}" hx-target="#users-drawer-host" hx-swap="outerHTML" data-edit-url="{{.EditURL}}"><span class="user-initials" aria-hidden="true">{{.Initials}}</span><span><strong>{{.Name}}</strong><small>{{.Email}}</small></span></a>{{else}}<span class="user-factual"><span class="user-initials" aria-hidden="true">{{.Initials}}</span><span><strong>{{.Name}}</strong><small>{{.Email}}</small></span></span>{{end}}</td>
+            <td>{{t .RoleLabel}}</td>
+            <td><span class="user-status{{if .Active}} is-active{{end}}">{{t .StatusLabel}}</span></td>
+            <td><time datetime="{{formatDatetime .CreatedAt}}">{{formatTime .CreatedAt}}</time></td>
+            <td>{{if .CanManage}}<button class="user-actions" type="button" aria-label="{{tf "users.edit_named" .Name}}" hx-get="{{.EditHref}}" hx-target="#users-drawer-host" hx-swap="outerHTML" data-edit-url="{{.EditURL}}"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><circle cx="5" cy="12" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="19" cy="12" r="1.5"/></svg></button>{{end}}</td>
+          </tr>
+          {{else}}<tr><td colspan="5"><p class="users-empty">{{t .EmptyMessage}}</p></td></tr>{{end}}
+{{if .Rows}}<tr class="users-search-empty" hidden><td colspan="5"><p class="users-empty">{{t "users.empty.search"}}</p></td></tr>{{end}}
+        </tbody>
+      </table>
+    </section>
   </div>
   {{if .Drawer}}{{template "user_drawer" .Drawer}}{{else}}<div id="users-drawer-host"></div>{{end}}
 </div>

@@ -12,7 +12,12 @@
 
 import { test, expect } from "@playwright/test";
 import { startServer, stopServer, activeServer } from "../server-lifecycle.js";
-import { assertCanonicalScreen, collectObservability } from "./helpers/layout.js";
+import {
+  assertCanonicalScreen,
+  collectObservability,
+  expectDesignSystem,
+  measureContrast,
+} from "./helpers/layout.js";
 import { assertHtmxSwap } from "./helpers/htmx.js";
 import { applyAssignee, currentAssignee, pickerButton } from "./helpers/ticket.js";
 import {
@@ -551,5 +556,203 @@ test.describe("Users", () => {
     await expect(page.locator("#timeline")).toContainText("role downgrade handoff");
     await page.reload();
     await expect(pickerButton(page, "assign-user")).toContainText("Unassigned");
+  });
+});
+
+// The approved option A (issue #394, S1-S4): the list owns the page width and
+// the side drawer is the only form surface. These journeys cover the viewports
+// and input modes the canonical baselines cannot: a phone-sized drawer whose
+// actions stay reachable, the same drawer on the dark ladder, and the whole
+// flow with scripting disabled.
+
+async function drawerGeometry(page: import("@playwright/test").Page, scrollToEnd = false) {
+  return page.evaluate((scroll) => {
+    const drawer = document.querySelector<HTMLElement>(".users-drawer");
+    const footer = document.querySelector<HTMLElement>(".users-drawer-footer");
+    const body = document.querySelector<HTMLElement>(".users-drawer-body");
+    if (!drawer || !footer || !body) throw new Error("the Users drawer is not rendered");
+    if (scroll) body.scrollTop = body.scrollHeight;
+    const drawerRect = drawer.getBoundingClientRect();
+    const footerRect = footer.getBoundingClientRect();
+    return {
+      pageOverflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+      footerGap: Math.round(drawerRect.bottom - footerRect.bottom),
+      footerVisible: footerRect.top >= 0 && footerRect.bottom <= window.innerHeight + 1,
+      footerPosition: getComputedStyle(footer).position,
+      drawerWidth: Math.round(drawerRect.width),
+    };
+  }, scrollToEnd);
+}
+
+async function createUserThroughDrawer(
+  page: import("@playwright/test").Page,
+  name: string,
+  email: string,
+): Promise<void> {
+  await page.goto(base() + "/users");
+  await page.getByRole("link", { name: /new user/i }).click();
+  const drawer = page.getByRole("dialog", { name: "New user" });
+  await expect(drawer).toBeVisible();
+  await drawer.getByLabel(/^name$/i).fill(name);
+  await drawer.getByLabel(/^email$/i).fill(email);
+  await drawer.getByLabel(/^password$/i).fill("ProbeSecret123!");
+  await page.getByRole("button", { name: /create user/i }).click();
+  await expect(page).toHaveURL(/\/users$/);
+  await expect(page.locator(`tr[data-user-name="${name}"]`)).toBeVisible();
+}
+
+async function openUserDrawer(
+  page: import("@playwright/test").Page,
+  name: string,
+): Promise<import("@playwright/test").Locator> {
+  await page.locator(`tr[data-user-name="${name}"] .user-launcher`).click();
+  const drawer = page.getByRole("dialog", { name: /edit user/i });
+  await expect(drawer).toBeVisible();
+  await expect(drawer.getByRole("heading", { name: "Account status", exact: true })).toBeVisible();
+  return drawer;
+}
+
+test.describe("Users — mobile drawer", () => {
+  test.beforeAll(async () => {
+    await startServer({ seed: true });
+  });
+  test.afterAll(async () => {
+    await stopServer();
+  });
+
+  test("holds one column, its lifecycle section and its actions at 390px", async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 500 });
+    await login(page);
+    await page.goto(base() + "/users");
+
+    // The table pans inside its own panel, so the page itself never does.
+    const list = await page.evaluate(() => {
+      const panel = document.querySelector<HTMLElement>(".users-list");
+      if (!panel) throw new Error("no .users-list");
+      return {
+        pageOverflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+        tablePans: panel.scrollWidth > panel.clientWidth,
+      };
+    });
+    expect(list.pageOverflow, "the Users list must not scroll the page sideways").toBe(0);
+    expect(list.tablePans, "the table pans inside its own panel").toBe(true);
+    await expect(page.locator(".users-access-card")).toHaveCount(0);
+
+    const stamp = Date.now().toString(36).slice(2, 7);
+    const name = `Mobile User ${stamp}`;
+    await createUserThroughDrawer(page, name, `mobile-${stamp}@example.com`);
+
+    // Edition keeps the reference hierarchy, and the drawer never exceeds the
+    // phone's width (issue #394, S3/S4).
+    await openUserDrawer(page, name);
+    const drawer = page.getByRole("dialog", { name: /edit user/i });
+    await expect(drawer).toHaveCSS("width", "390px");
+    await expect(drawer.locator(".users-help")).toHaveText("Standard user access.");
+    await expect(drawer.locator(".users-lifecycle")).toContainText("This user can sign in.");
+    const geometry = await drawerGeometry(page, true);
+    expect(geometry.drawerWidth).toBe(390);
+    expect(geometry.footerPosition).toBe("sticky");
+    expect(geometry.footerGap, "the actions stay at the drawer's foot").toBeLessThanOrEqual(1);
+    expect(geometry.footerVisible, "the actions stay in the viewport").toBe(true);
+
+    // The deactivation confirmation still opens and fits the phone viewport.
+    await drawer.getByRole("button", { name: "Deactivate user", exact: true }).click();
+    const confirmation = page.getByRole("dialog", { name: "Deactivate user?" });
+    await expect(confirmation).toBeVisible();
+    const dialog = await confirmation.evaluate((el) => {
+      const rect = el.getBoundingClientRect();
+      return {
+        open: (el as HTMLDialogElement).open,
+        fits:
+          rect.top >= 0 &&
+          rect.left >= 0 &&
+          rect.bottom <= window.innerHeight &&
+          rect.right <= document.documentElement.clientWidth,
+      };
+    });
+    expect(dialog.open).toBe(true);
+    expect(dialog.fits, "the confirmation must not overflow the 390px viewport").toBe(true);
+    await confirmation.getByRole("button", { name: "Cancel", exact: true }).click();
+    await expect(confirmation).toBeHidden();
+  });
+});
+
+test.describe("Users — dark drawer", () => {
+  test.use({ colorScheme: "dark" });
+  test.beforeAll(async () => {
+    await startServer({ seed: true });
+  });
+  test.afterAll(async () => {
+    await stopServer();
+  });
+
+  test("keeps the dark ladder live and its drawer text readable at 390px", async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await login(page);
+    const stamp = Date.now().toString(36).slice(2, 7);
+    const name = `Dark User ${stamp}`;
+    await createUserThroughDrawer(page, name, `dark-${stamp}@example.com`);
+    await openUserDrawer(page, name);
+
+    // The drawer paints the surface the dark ladder publishes, not a stale white.
+    await expectDesignSystem(page);
+    await expect(page.locator(".users-drawer")).toHaveCSS("background-color", "rgb(21, 24, 29)");
+    for (const [label, locator] of [
+      ["role help", page.locator(".users-help")],
+      ["lifecycle copy", page.locator(".users-lifecycle-copy")],
+      ["lifecycle status", page.locator(".users-lifecycle .user-status")],
+    ] as const) {
+      const { ratio } = await measureContrast(locator);
+      expect(ratio, `${label} on the dark drawer must reach 4.5:1`).toBeGreaterThanOrEqual(4.5);
+    }
+    expect(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+      ),
+    ).toBe(0);
+  });
+});
+
+test.describe("Users — without scripting", () => {
+  test.use({ javaScriptEnabled: false });
+  test.beforeAll(async () => {
+    await startServer({ seed: true });
+  });
+  test.afterAll(async () => {
+    await stopServer();
+  });
+
+  test("the server-rendered drawer creates a user as a plain navigation", async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await login(page);
+
+    // The status filter is a real link: with no script it is an ordinary GET.
+    await page.goto(base() + "/users");
+    await page.getByRole("link", { name: /^Active/ }).click();
+    await expect(page).toHaveURL(/\/users\?status=active$/);
+
+    // /users/new renders the drawer's markup server-side, so the form is the
+    // page: every field is there with no enhancement at all.
+    await page.goto(base() + "/users/new");
+    const drawer = page.getByRole("dialog", { name: "New user" });
+    await expect(drawer).toBeVisible();
+    await expect(drawer.getByLabel(/^name$/i)).toBeVisible();
+    await expect(drawer.getByLabel(/^email$/i)).toBeVisible();
+    await expect(drawer.getByLabel(/^password$/i)).toBeVisible();
+    await expect(drawer.getByRole("button", { name: /create user/i })).toBeVisible();
+    expect(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+      ),
+    ).toBe(0);
+
+    const stamp = Date.now().toString(36).slice(2, 7);
+    const name = `NoScript User ${stamp}`;
+    await drawer.getByLabel(/^name$/i).fill(name);
+    await drawer.getByLabel(/^email$/i).fill(`noscript-${stamp}@example.com`);
+    await drawer.getByLabel(/^password$/i).fill("ProbeSecret123!");
+    await page.getByRole("button", { name: /create user/i }).click();
+    await expect(page).toHaveURL(/\/users$/);
+    await expect(page.locator(`tr[data-user-name="${name}"]`)).toBeVisible();
   });
 });
