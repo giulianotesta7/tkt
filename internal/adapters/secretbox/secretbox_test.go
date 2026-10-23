@@ -198,3 +198,27 @@ func TestPurposeBoundValuesOpenOnlyUnderTheirPurpose(t *testing.T) {
 		t.Fatalf("the SMTP value no longer opens as before: %q, %v", got, err)
 	}
 }
+
+// smtpFixtureSealed is an SMTP password sealed before the purpose-bound
+// sealers existed, under the key bytes 0x00..0x1f. It pins the stored format
+// and the purpose-less binding: every instance upgraded past issue #419 must
+// still open the SMTP password it saved, and no purpose may open it.
+const smtpFixtureSealed = "v1:ebkMn_aN3mlAqIfTPLeaAuRoBjQnjoYOvpfLRApb5J9oPbfkJzrOkVJYsu8wj3I8dw"
+
+func TestSMTPValueSealedBeforePurposesStillOpens(t *testing.T) {
+	box, keyPath := newTestBox(t)
+	key := make([]byte, keySize)
+	for i := range key {
+		key[i] = byte(i)
+	}
+	if err := os.WriteFile(keyPath, key, 0o600); err != nil {
+		t.Fatalf("write key: %v", err)
+	}
+	got, err := box.Open(smtpFixtureSealed)
+	if err != nil || string(got) != "smtp-fixture-password" {
+		t.Fatalf("Open(fixture) = %q, %v; want smtp-fixture-password", got, err)
+	}
+	if _, err := box.For("google-client-secret").Open(smtpFixtureSealed); !errors.Is(err, ErrInvalidSealed) {
+		t.Fatalf("a purpose opened the SMTP fixture: err = %v", err)
+	}
+}
