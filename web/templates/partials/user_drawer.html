@@ -28,19 +28,18 @@
           {{if .RoleDescription}}<p class="users-help">{{t .RoleDescription}}</p>{{end}}
         </div>
         <input type="hidden" name="active" value="{{if .Values.Active}}true{{else}}false{{end}}">
-        {{if .Values.Active}}
-        <p class="users-lifecycle-copy">{{t "users.lifecycle.active"}}</p>
-        <button class="users-danger-action" type="button" data-deactivate>{{t "users.deactivate"}}</button>
-        {{else}}
-        <p class="users-lifecycle-copy">{{t "users.lifecycle.inactive"}}</p>
-        <button class="users-secondary-action" type="submit" name="active" value="true">{{t "users.reactivate"}}</button>
-        {{end}}
+        <section class="users-lifecycle" aria-labelledby="user-lifecycle-title">
+          <h3 id="user-lifecycle-title">{{t "users.lifecycle.title"}}</h3>
+          <p class="users-lifecycle-status"><span class="user-status{{if .Values.Active}} is-active{{end}}">{{if .Values.Active}}{{t "users.status.active"}}{{else}}{{t "users.status.deactivated"}}{{end}}</span></p>
+          <p class="users-lifecycle-copy">{{if .Values.Active}}{{t "users.lifecycle.active"}}{{else}}{{t "users.lifecycle.inactive"}}{{end}}</p>
+          {{if .Values.Active}}<button class="users-danger-action" type="button" data-deactivate>{{t "users.deactivate"}}</button>{{else}}<button class="users-secondary-action" type="submit" name="active" value="true">{{t "users.reactivate"}}</button>{{end}}
+        </section>
         {{else}}
         <div class="users-field">
           <label for="user-password">{{t "users.field.password"}}</label>
           <input id="user-password" name="password" type="password" autocomplete="new-password" required aria-invalid="{{.PasswordInvalid}}" aria-describedby="{{.ErrorID}}">
+          <p class="users-help">{{t "users.create_help"}}</p>
         </div>
-        <p class="users-help">{{t "users.create_help"}}</p>
         {{end}}
         <footer class="users-drawer-footer">
           <button class="users-cancel" type="button">{{t "common.cancel"}}</button>
