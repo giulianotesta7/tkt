@@ -649,6 +649,12 @@ test.describe("Settings", () => {
     await expect(tryBox).toBeHidden();
     await onThisServer.check();
     await expect(tryBox).toBeVisible();
+    await decisionModel.check();
+    await expect(tryBox).toBeVisible();
+    await expect(modelFields).toBeVisible();
+    await onThisServer.check();
+    await expect(tryBox).toBeVisible();
+    await expect(modelFields).toBeHidden();
 
     // Test runs the submitted configuration in place: the result is a row per
     // candidate with its share, over the card's own endpoint, with no
