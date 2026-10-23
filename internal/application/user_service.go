@@ -196,22 +196,20 @@ func (s *UserService) UpdateManagedUser(ctx context.Context, actor domain.User, 
 
 // ChangePassword hashes a secret that reaches the instance minimum, then
 // replaces only the target's password hash. It shares the managed-user
-// authorization and protections.
-//
-// The new-password rule (issue #414, S4) runs BEFORE the target is read, so a
-// refused password changes nothing at all, and the administrator route S6 keeps
-// is subject to exactly the same minimum as every other write.
+// authorization and protections, in the base order: the capability check, the
+// blank refusal, the target lookup (404) and the root/peer guards (403) answer
+// BEFORE the new-password rule (issue #414, S4; 422). Putting the minimum first
+// would hide "this account is root" and "no such user" behind a validation
+// refusal, and those two answers must not move because a new rule was added.
+// Only then is the policy read, so an unreadable policy refuses the write
+// (fail closed) instead of accepting anything.
 func (s *UserService) ChangePassword(ctx context.Context, actor domain.User, id int64, password string) error {
 	policy := NewPolicy()
 	if !policy.Capabilities(actor.Role).Require(CapManageUsers) {
 		return domain.NewForbiddenError("user management is not permitted")
 	}
-	minimum, err := s.passwordMinimum(ctx)
-	if err != nil {
-		return err
-	}
-	if err := ValidateNewPassword(password, minimum); err != nil {
-		return err
+	if strings.TrimSpace(password) == "" {
+		return &domain.ValidationError{Field: "password", Message: domain.ErrMsgPasswordRequired, Key: "error.password_required"}
 	}
 	u, err := s.users.GetByID(ctx, id)
 	if err != nil {
@@ -226,6 +224,13 @@ func (s *UserService) ChangePassword(ctx context.Context, actor domain.User, id 
 	}
 	if !policy.CanManageUser(actor.Role, targetRole) {
 		return domain.NewForbiddenError("admin accounts require root")
+	}
+	minimum, err := s.passwordMinimum(ctx)
+	if err != nil {
+		return err
+	}
+	if err := ValidateNewPassword(password, minimum); err != nil {
+		return err
 	}
 	hash, err := HashPassword(password)
 	if err != nil {

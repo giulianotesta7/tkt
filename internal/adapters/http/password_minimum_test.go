@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/giulianotesta7/tkt/internal/application"
+	"github.com/giulianotesta7/tkt/internal/domain"
 )
 
 // New-password minimum on the existing routes (issue #414, T1/S4/S6/S10). The
@@ -125,5 +126,48 @@ func TestSetupShortPasswordRefusalFollowsTheInstanceLanguage(t *testing.T) {
 	}
 	if body := rec.Body.String(); !strings.Contains(body, "la contraseña debe tener al menos 12 caracteres") {
 		t.Errorf("the setup refusal must render in the instance language, got: %.600s", body)
+	}
+}
+
+// TestSetPasswordRouteKeepsTheBaseRefusalPrecedence pins the ORDER the minimum
+// must not change. The route that sets another person's password already
+// answered 403 for the root account and 404 for an unknown id; a short password
+// submitted to either must still answer exactly that, because a 422 there would
+// both regress the base behavior and tell an operator "root" or "no such user"
+// through a different status than before.
+func TestSetPasswordRouteKeepsTheBaseRefusalPrecedence(t *testing.T) {
+	h := newHarness(t)
+	ctx := t.Context()
+
+	// The harness admin is a regular admin, so seed the root through the real
+	// store port; the DB allows exactly one root row.
+	root := &domain.User{Name: "Root", Email: "root@example.com", PasswordHash: "hash",
+		Role: domain.RoleRoot, Active: true, CreatedAt: fixedNow}
+	if err := h.store.UserStore().Create(ctx, root); err != nil {
+		t.Fatalf("seed root: %v", err)
+	}
+
+	short := url.Values{"password": {"s3cret-pass"}}
+
+	// Root target: 403 root-protected, exactly as before the minimum existed.
+	rec := h.postForm(t, "/users/"+strconv.FormatInt(root.ID, 10)+"/password", short, false)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("POST /users/{root}/password with eleven characters = %d, want 403: %s", rec.Code, rec.Body.String())
+	}
+	if body := rec.Body.String(); !strings.Contains(body, domain.ErrMsgRootProtected) {
+		t.Errorf("the root refusal must still say %q, got: %.600s", domain.ErrMsgRootProtected, body)
+	}
+	storedRoot, err := h.store.UserStore().GetByID(ctx, root.ID)
+	if err != nil {
+		t.Fatalf("read root: %v", err)
+	}
+	if storedRoot.PasswordHash != "hash" {
+		t.Error("a refused root password must leave the stored hash unchanged")
+	}
+
+	// Unknown id: 404 not-found, exactly as before the minimum existed.
+	rec = h.postForm(t, "/users/99999/password", short, false)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("POST /users/{unknown}/password with eleven characters = %d, want 404: %s", rec.Code, rec.Body.String())
 	}
 }

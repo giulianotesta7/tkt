@@ -2,7 +2,9 @@ package sqlite
 
 import (
 	"context"
+	"fmt"
 	"strconv"
+	"strings"
 
 	"github.com/giulianotesta7/tkt/internal/application"
 )
@@ -28,24 +30,51 @@ var _ application.PasswordSettingsStore = (*settingsStore)(nil)
 // out-of-band minimum reads back the default 12 — a stored value the write path
 // refuses is not trusted to weaken every password rule. Only a real storage
 // failure is an error.
+//
+// The three rows are read in ONE statement, so the answer is always one saved
+// policy: SetPasswordSettings commits all three together, and three separate
+// reads could otherwise interleave with a concurrent save and return the
+// minimum of one configuration next to the switches of another.
 func (ss *settingsStore) GetPasswordSettings(ctx context.Context) (application.PasswordSettings, error) {
-	change, err := ss.passwordSwitch(ctx, settingsKeyPasswordChangeEnabled)
-	if err != nil {
-		return application.PasswordSettings{}, err
-	}
-	recovery, err := ss.passwordSwitch(ctx, settingsKeyPasswordRecoveryEnabled)
-	if err != nil {
-		return application.PasswordSettings{}, err
-	}
-	raw, err := ss.settingValue(ctx, settingsKeyPasswordMinLength)
+	values, err := ss.settingValues(ctx, settingsKeyPasswordChangeEnabled, settingsKeyPasswordRecoveryEnabled, settingsKeyPasswordMinLength)
 	if err != nil {
 		return application.PasswordSettings{}, err
 	}
 	return application.PasswordSettings{
-		ChangeEnabled:   change,
-		RecoveryEnabled: recovery,
-		MinLength:       parsePasswordMinLength(raw),
+		ChangeEnabled:   passwordSwitch(values[settingsKeyPasswordChangeEnabled]),
+		RecoveryEnabled: passwordSwitch(values[settingsKeyPasswordRecoveryEnabled]),
+		MinLength:       parsePasswordMinLength(values[settingsKeyPasswordMinLength]),
 	}, nil
+}
+
+// settingValues reads the named settings rows in ONE query and answers the
+// values that exist. A missing key is simply absent from the map, so each
+// caller applies its own documented default per row.
+func (ss *settingsStore) settingValues(ctx context.Context, keys ...string) (map[string]string, error) {
+	placeholders := strings.TrimSuffix(strings.Repeat("?,", len(keys)), ",")
+	args := make([]any, len(keys))
+	for i, key := range keys {
+		args[i] = key
+	}
+	rows, err := ss.db.QueryContext(ctx,
+		`SELECT key, value FROM settings WHERE key IN (`+placeholders+`)`, args...)
+	if err != nil {
+		return nil, fmt.Errorf("sqlite: get settings %s: %w", strings.Join(keys, ", "), err)
+	}
+	defer rows.Close()
+
+	values := make(map[string]string, len(keys))
+	for rows.Next() {
+		var key, value string
+		if err := rows.Scan(&key, &value); err != nil {
+			return nil, fmt.Errorf("sqlite: get settings %s: %w", strings.Join(keys, ", "), err)
+		}
+		values[key] = value
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("sqlite: get settings %s: %w", strings.Join(keys, ", "), err)
+	}
+	return values, nil
 }
 
 // SetPasswordSettings writes the two switches and the minimum in ONE
@@ -71,15 +100,11 @@ func (ss *settingsStore) SetPasswordSettings(ctx context.Context, settings appli
 	return tx.Commit()
 }
 
-// passwordSwitch reads one stored switch. Only the two canonical values are
-// trusted; anything else — including an absent row — reads back ON, the
-// documented default.
-func (ss *settingsStore) passwordSwitch(ctx context.Context, key string) (bool, error) {
-	value, err := ss.settingValue(ctx, key)
-	if err != nil {
-		return false, err
-	}
-	return value != "0", nil
+// passwordSwitch reads one stored switch value. Only the two canonical values
+// are trusted; anything else — including an absent row, which contributes no
+// value at all — reads back ON, the documented default.
+func passwordSwitch(value string) bool {
+	return value != "0"
 }
 
 // parsePasswordMinLength reads the stored minimum. An unparseable value, or one

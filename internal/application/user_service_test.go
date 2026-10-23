@@ -783,3 +783,72 @@ func TestChangePasswordRefusesAShortPasswordAndKeepsTheHash(t *testing.T) {
 		t.Fatalf("a refused password changed the stored hash to %q", stored.PasswordHash)
 	}
 }
+
+// --- Refusal precedence restored to the base order (issue #414 review) ---
+//
+// The minimum is a NEW rule on an EXISTING route, so it must not answer before
+// the guards that route already had: the capability check, the target lookup
+// (404), and the root/peer protections (403) stay exactly where they were, and
+// only then does the password rule run (422). Otherwise a short password would
+// hide "this account is root" and "this account does not exist" behind a
+// validation refusal, which is both a regression and a disclosure change.
+
+// TestChangePasswordKeepsTheTargetGuardsAheadOfTheMinimum pins that order for
+// the two guards the minimum could otherwise mask, and proves neither refusal
+// writes a hash.
+func TestChangePasswordKeepsTheTargetGuardsAheadOfTheMinimum(t *testing.T) {
+	ctx := context.Background()
+	svc, users, _ := newUserService()
+	root := users.seedRole("Root", "root@example.com", domain.RoleRoot, true)
+	root.PasswordHash = "root-hash"
+	if err := users.Update(ctx, &root); err != nil {
+		t.Fatal(err)
+	}
+	member := users.seedRole("Member", "member@example.com", domain.RoleUser, true)
+	member.PasswordHash = "old-hash"
+	if err := users.Update(ctx, &member); err != nil {
+		t.Fatal(err)
+	}
+
+	// Root target + short password: the root protection answers, not the rule.
+	err := svc.ChangePassword(ctx, managerActor, root.ID, "s3cret-pass")
+	var protected *domain.RootProtectedError
+	if !errors.As(err, &protected) {
+		t.Fatalf("short password on the root target = %v, want a RootProtectedError (the base 403)", err)
+	}
+
+	// Unknown target + short password: the lookup answers, not the rule.
+	err = svc.ChangePassword(ctx, managerActor, 424242, "s3cret-pass")
+	var missing *domain.NotFoundError
+	if !errors.As(err, &missing) {
+		t.Fatalf("short password on an unknown target = %v, want a NotFoundError (the base 404)", err)
+	}
+
+	// A blank password keeps the base order too: it is refused BEFORE the
+	// target is read, so an unknown target answers the blank refusal, exactly
+	// as it did before this change.
+	err = svc.ChangePassword(ctx, managerActor, 424242, " ")
+	var verr *domain.ValidationError
+	if !errors.As(err, &verr) {
+		t.Fatalf("blank password on an unknown target = %v, want the ValidationError the base returned", err)
+	}
+	if verr.Key != "error.password_required" {
+		t.Errorf("blank password key = %q, want %q", verr.Key, "error.password_required")
+	}
+
+	// Neither refusal touched a stored hash.
+	storedRoot, err := users.GetByID(ctx, root.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if storedRoot.PasswordHash != "root-hash" {
+		t.Errorf("a refused root password changed the hash to %q", storedRoot.PasswordHash)
+	}
+	storedMember, err := users.GetByID(ctx, member.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if storedMember.PasswordHash != "old-hash" {
+		t.Errorf("a refused password changed the member hash to %q", storedMember.PasswordHash)
+	}
+}

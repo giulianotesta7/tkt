@@ -2,6 +2,10 @@ package sqlite
 
 import (
 	"context"
+	"database/sql"
+	"database/sql/driver"
+	"fmt"
+	"sync/atomic"
 	"testing"
 
 	"github.com/giulianotesta7/tkt/internal/application"
@@ -198,5 +202,147 @@ func TestPasswordSettingsStoreSetRollsBackAtomically(t *testing.T) {
 	}
 	if got, getErr := st.GetPasswordSettings(ctx); getErr != nil || got != seeded {
 		t.Errorf("password settings after the rollback = %+v (err %v), want the seeded %+v", got, getErr, seeded)
+	}
+}
+
+// --- One snapshot: the three rows in ONE statement (issue #414 review) ---
+
+// statementCountingConnector wraps the real driver and counts the statements
+// issued through it, so a test can prove a read is one query instead of three.
+// It forwards every database/sql fast path the driver implements, so nothing
+// but the count differs from the production path.
+type statementCountingConnector struct {
+	inner driver.Driver
+	dsn   string
+	count *int64
+}
+
+func (c statementCountingConnector) Driver() driver.Driver { return c.inner }
+
+func (c statementCountingConnector) Connect(context.Context) (driver.Conn, error) {
+	conn, err := c.inner.Open(c.dsn)
+	if err != nil {
+		return nil, err
+	}
+	queryer, ok := conn.(driver.QueryerContext)
+	if !ok {
+		conn.Close()
+		return nil, fmt.Errorf("driver connection does not implement QueryerContext")
+	}
+	execer, ok := conn.(driver.ExecerContext)
+	if !ok {
+		conn.Close()
+		return nil, fmt.Errorf("driver connection does not implement ExecerContext")
+	}
+	beginner, ok := conn.(driver.ConnBeginTx)
+	if !ok {
+		conn.Close()
+		return nil, fmt.Errorf("driver connection does not implement ConnBeginTx")
+	}
+	return &statementCountingConn{Conn: conn, queryer: queryer, execer: execer, beginner: beginner, count: c.count}, nil
+}
+
+// statementCountingConn counts each QueryContext/ExecContext call.
+type statementCountingConn struct {
+	driver.Conn
+	queryer  driver.QueryerContext
+	execer   driver.ExecerContext
+	beginner driver.ConnBeginTx
+	count    *int64
+}
+
+func (c *statementCountingConn) QueryContext(ctx context.Context, query string, args []driver.NamedValue) (driver.Rows, error) {
+	atomic.AddInt64(c.count, 1)
+	return c.queryer.QueryContext(ctx, query, args)
+}
+
+func (c *statementCountingConn) ExecContext(ctx context.Context, query string, args []driver.NamedValue) (driver.Result, error) {
+	atomic.AddInt64(c.count, 1)
+	return c.execer.ExecContext(ctx, query, args)
+}
+
+func (c *statementCountingConn) BeginTx(ctx context.Context, opts driver.TxOptions) (driver.Tx, error) {
+	return c.beginner.BeginTx(ctx, opts)
+}
+
+// newStatementCountingTestDB opens the same isolated in-memory database as
+// newTestDB, migrated over the real embedded set, through the counting driver.
+func newStatementCountingTestDB(t *testing.T) (*Store, *int64) {
+	t.Helper()
+	dsn := testDSN(t)
+	probe, err := sql.Open("sqlite", dsn)
+	if err != nil {
+		t.Fatalf("open probe db: %v", err)
+	}
+	inner := probe.Driver()
+	probe.Close()
+
+	count := new(int64)
+	db := sql.OpenDB(statementCountingConnector{inner: inner, dsn: dsn, count: count})
+	db.SetMaxOpenConns(1)
+	t.Cleanup(func() { db.Close() })
+	s := &Store{db: db}
+	if err := s.Migrate(context.Background()); err != nil {
+		t.Fatalf("migrate test db: %v", err)
+	}
+	return s, count
+}
+
+// TestPasswordSettingsStoreReadsOneSnapshotInOneQuery pins the fix: the policy
+// is read with a SINGLE statement, so a concurrent Set — which commits all
+// three rows in one transaction — can never be interleaved between the reads and
+// answer the minimum of one save next to the switches of another.
+func TestPasswordSettingsStoreReadsOneSnapshotInOneQuery(t *testing.T) {
+	s, count := newStatementCountingTestDB(t)
+	ctx := context.Background()
+	st := s.PasswordSettingsStore()
+
+	if err := st.SetPasswordSettings(ctx, application.PasswordSettings{
+		ChangeEnabled: false, RecoveryEnabled: true, MinLength: 30,
+	}); err != nil {
+		t.Fatalf("set password settings: %v", err)
+	}
+
+	before := atomic.LoadInt64(count)
+	got, err := st.GetPasswordSettings(ctx)
+	if err != nil {
+		t.Fatalf("get password settings: %v", err)
+	}
+	want := application.PasswordSettings{ChangeEnabled: false, RecoveryEnabled: true, MinLength: 30}
+	if got != want {
+		t.Fatalf("password settings = %+v, want %+v", got, want)
+	}
+	if queries := atomic.LoadInt64(count) - before; queries != 1 {
+		t.Fatalf("GetPasswordSettings issued %d statements, want exactly 1 (one snapshot, never three reads)", queries)
+	}
+}
+
+// TestPasswordSettingsStoreDefaultAppliesPerMissingRow proves the fail-safe
+// fallback is per ROW, not per policy: a stored switch beside two absent rows
+// keeps its own value while each missing row answers the documented default.
+func TestPasswordSettingsStoreDefaultAppliesPerMissingRow(t *testing.T) {
+	s := newTestDB(t)
+	ctx := context.Background()
+
+	if _, err := s.db.ExecContext(ctx, `
+		INSERT INTO settings (key, value) VALUES (?, '0')
+		ON CONFLICT(key) DO UPDATE SET value = excluded.value`, settingsKeyPasswordRecoveryEnabled); err != nil {
+		t.Fatalf("store the recovery switch: %v", err)
+	}
+	if rows := passwordPolicyRows(t, s); rows != 1 {
+		t.Fatalf("password settings rows = %d, want 1 (only the stored switch)", rows)
+	}
+
+	got, err := s.PasswordSettingsStore().GetPasswordSettings(ctx)
+	if err != nil {
+		t.Fatalf("get password settings: %v", err)
+	}
+	want := application.PasswordSettings{
+		ChangeEnabled:   true,                                 // absent row -> ON
+		RecoveryEnabled: false,                                // stored "0"
+		MinLength:       application.DefaultPasswordMinLength, // absent row -> 12
+	}
+	if got != want {
+		t.Fatalf("password settings = %+v, want the stored switch beside per-row defaults %+v", got, want)
 	}
 }

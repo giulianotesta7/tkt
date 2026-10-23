@@ -223,3 +223,59 @@ func TestConfiguredMinimumLowersTheFloor(t *testing.T) {
 		t.Fatalf("stored users = %d, want 1 (only the accepted one)", len(users.users))
 	}
 }
+
+// TestNewPasswordPathsRefuseWhenThePolicyCannotBeRead covers the fail-closed
+// half of S4: a minimum the store could not answer is never replaced by "no
+// rule at all". Every path that writes a hash refuses with the store's own
+// error and changes nothing — no user is created and no hash is replaced.
+func TestNewPasswordPathsRefuseWhenThePolicyCannotBeRead(t *testing.T) {
+	boom := errors.New("settings read failed")
+	ctx := context.Background()
+
+	for _, tc := range []struct {
+		name string
+		run  func(*application.UserService) error
+	}{
+		{"create", func(svc *application.UserService) error {
+			_, err := svc.Create(ctx, managerActor, application.CreateUserInput{
+				Name: "Ana", Email: "ana@example.com", Password: "s3cret-pass-12",
+			})
+			return err
+		}},
+		{"bootstrap root", func(svc *application.UserService) error {
+			_, err := svc.BootstrapRoot(ctx, application.CreateUserInput{
+				Name: "Root", Email: "root@example.com", Password: "s3cret-pass-12",
+			})
+			return err
+		}},
+		{"change password", func(svc *application.UserService) error {
+			return svc.ChangePassword(ctx, managerActor, 1, "s3cret-pass-12")
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			store := newFakePasswordSettingsStore()
+			store.getErr = boom
+			svc, users, _ := newUserService()
+			svc.WithPasswordSettings(store)
+			member := users.seedRole("Member", "member@example.com", domain.RoleUser, true)
+			member.PasswordHash = "old-hash"
+			if err := users.Update(ctx, &member); err != nil {
+				t.Fatal(err)
+			}
+
+			if err := tc.run(svc); !errors.Is(err, boom) {
+				t.Fatalf("%s with an unreadable policy = %v, want the store error (fail closed)", tc.name, err)
+			}
+			if len(users.users) != 1 {
+				t.Fatalf("%s with an unreadable policy stored %d users, want only the seeded one", tc.name, len(users.users))
+			}
+			stored, err := users.GetByID(ctx, member.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if stored.PasswordHash != "old-hash" {
+				t.Errorf("%s with an unreadable policy changed the stored hash to %q", tc.name, stored.PasswordHash)
+			}
+		})
+	}
+}
