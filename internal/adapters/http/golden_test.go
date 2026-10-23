@@ -381,7 +381,6 @@ func TestSelectedTicketFormPresentation(t *testing.T) {
 	body := renderGolden(t, "tickets_new", "", fixtureTicketFormData(), false)
 	for _, want := range []string{
 		`<h1 class="command-title">Create a ticket</h1>`,
-		`Describe your request.`,
 		`<span class="prop-label" id="create-category-label">Category</span>`,
 		`<select id="category_id" name="category_id" class="prop-select" required`,
 		`<optgroup label="Technology › Service desk">`,
@@ -397,7 +396,9 @@ func TestSelectedTicketFormPresentation(t *testing.T) {
 	if !strings.Contains(body, `<option value="2" disabled>Printers — Can&#39;t run · Service desk has no active members</option>`) {
 		t.Errorf("the picker must keep an unrunnable category disabled with its reason, got: %s", pickerWindow(body))
 	}
-	for _, absent := range []string{"Ticket details", "Back to catalog", "Change category", `class="create-change"`, `href="/tickets/new">Change</a>`} {
+	// Issue #380: the heading and the form's own fields say what to do, so the
+	// "Describe your request." subtitle is gone.
+	for _, absent := range []string{"Ticket details", "Back to catalog", "Change category", `class="create-change"`, `href="/tickets/new">Change</a>`, "Describe your request."} {
 		if strings.Contains(body, absent) {
 			t.Errorf("the single-page form must not contain %q, got: %s", absent, body)
 		}

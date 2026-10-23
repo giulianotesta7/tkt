@@ -32,7 +32,6 @@ func TestCategoryWorkflowBuilder_UsesUsersHeaderFoundationAndCategoryIdentity(t 
 		`class="page-foundation category-workflow-page"`,
 		`<nav class="page-breadcrumb" aria-label="Breadcrumb"><a href="/categories">Catalog</a><span aria-hidden="true"> / </span><span>Hardware</span></nav>`,
 		`class="page-title">Category workflow</h1>`,
-		`class="page-subtitle">Build one ordered path for this category.</p>`,
 		`<button class="page-action" type="submit" form="workflow-form" name="action" value="save">Save</button>`,
 		`class="page-action page-action-primary" type="submit" form="workflow-form" name="action" value="publish">Publish</button>`,
 		`<form method="post" action="/categories/`,
@@ -48,6 +47,11 @@ func TestCategoryWorkflowBuilder_UsesUsersHeaderFoundationAndCategoryIdentity(t 
 		if !strings.Contains(body, want) {
 			t.Errorf("workflow header must contain %q, got: %s", want, body)
 		}
+	}
+	// Issue #380: the heading and the builder name the job already, so the
+	// "one ordered path" subtitle is gone.
+	if strings.Contains(body, "Build one ordered path for this category.") {
+		t.Errorf("the workflow header must not carry the repeated subtitle, got: %s", body)
 	}
 
 	usersBody := h.get(t, "/users", false).Body.String()
@@ -1881,28 +1885,67 @@ func TestCategoryWorkflowBuilder_TypedAddPopoverMarkup(t *testing.T) {
 	}
 }
 
-// WorkflowKindVocabulary freezes the builder's plain-language kind copy:
-// every kind the picker offers has one label and one explanation, and the
-// terminal kinds carry their own sentence instead of sharing a fallback.
-// The label is used by the picker, the step card, and the editor heading; the
-// explanation only by the editor panel.
+// WorkflowKindVocabulary freezes the builder's plain-language kind labels:
+// every kind the picker offers has one label, and the picker, the step card and
+// the editor heading all resolve it. The one-line explanation that used to sit
+// under the editor heading is deleted (issue #380): the label names the kind and
+// the panel below configures it.
 func TestWorkflowKindVocabulary(t *testing.T) {
 	for _, tc := range []struct {
-		typ         domain.StepType
-		label       string
-		explanation string
+		typ   domain.StepType
+		label string
 	}{
-		{domain.StepAssignToDesk, "Send to a desk", "Send the ticket to a desk."},
-		{domain.StepForm, "Ask for information", "Ask the requester or the agent for information."},
-		{domain.StepManualTask, "Give the agent a task", "The agent follows your instructions to complete the work."},
-		{domain.StepResolve, "Mark the ticket resolved", "Mark the ticket resolved automatically."},
-		{domain.StepClose, "Close the ticket", "Close the ticket automatically."},
+		{domain.StepAssignToDesk, "Send to a desk"},
+		{domain.StepForm, "Ask for information"},
+		{domain.StepManualTask, "Give the agent a task"},
+		{domain.StepResolve, "Mark the ticket resolved"},
+		{domain.StepClose, "Close the ticket"},
 	} {
 		if got := workflowTypeLabel(tc.typ); got != tc.label {
 			t.Errorf("workflowTypeLabel(%s) = %q, want %q", tc.typ, got, tc.label)
 		}
-		if got := workflowTypeHelp(tc.typ); got != tc.explanation {
-			t.Errorf("workflowTypeHelp(%s) = %q, want %q", tc.typ, got, tc.explanation)
+	}
+}
+
+// TestWorkflowEditorHeadCarriesNoTypeHelp proves the editor head is its heading
+// alone: no paragraph follows it, and none of the retired explanations renders
+// for any kind the picker offers.
+func TestWorkflowEditorHeadCarriesNoTypeHelp(t *testing.T) {
+	h := newHarness(t)
+	h.staff(t, 1)
+	retired := []string{
+		"Send the ticket to a desk.",
+		"Ask the requester or the agent for information.",
+		"The agent follows your instructions to complete the work.",
+		"Mark the ticket resolved automatically.",
+		"Close the ticket automatically.",
+		"Configure this workflow step.",
+	}
+	for _, tc := range []struct {
+		typ   string
+		step  bstep
+		label string
+	}{
+		{"assign_to_desk", bstep{typ: "assign_to_desk", desk: "1", strategy: "claim"}, "Send to a desk"},
+		{"form", bstep{typ: "form", actor: "requester", fields: []bfield{{key: "k", label: "Key", kind: "short_text"}}}, "Ask for information"},
+		{"manual_task", bstep{typ: "manual_task", manual: "a"}, "Give the agent a task"},
+		{"resolve_ticket", bstep{typ: "resolve_ticket"}, "Mark the ticket resolved"},
+		{"close_ticket", bstep{typ: "close_ticket"}, "Close the ticket"},
+	} {
+		category, err := h.categories.Create(t.Context(), "Editor head "+tc.typ)
+		if err != nil {
+			t.Fatalf("create category: %v", err)
+		}
+		path := "/categories/" + strconv.FormatInt(category.ID, 10) + "/workflow"
+		wantRedirect(t, h.postBuilder(t, path, builderFieldForm("save", tc.step), false), http.StatusSeeOther, path)
+		body := h.get(t, path+"?selected_step_index=0", false).Body.String()
+		if want := `id="workflow-editor-title">Step 1 · ` + tc.label + `</h3></div></div>`; !strings.Contains(body, want) {
+			t.Errorf("the %s editor head must be the heading alone, want %q, got: %.1600s", tc.typ, want, body)
+		}
+		for _, gone := range retired {
+			if strings.Contains(body, gone) {
+				t.Errorf("the %s editor must not render the retired type help %q, got: %.1600s", tc.typ, gone, body)
+			}
 		}
 	}
 }

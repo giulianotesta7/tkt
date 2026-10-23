@@ -72,7 +72,6 @@
   <div class="command-header">
     <div>
       <h1 class="command-title">Preferences</h1>
-      <p class="command-sub">Personal settings</p>
     </div>
   </div>
   <div class="preferences-sections">
@@ -116,7 +115,6 @@
     <section class="preferences-section">
       <div class="preferences-section-head">
         <h2>Email notifications</h2>
-        <p>A copy of every notification goes to your email address.</p>
       </div>
       <form class="preferences-form" method="post" action="/preferences/email">
         <div class="field checkbox-field">

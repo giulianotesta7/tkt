@@ -54,7 +54,7 @@ like an unsaved workflow edit. */}}
       </div>
 {{- if .HasSelection}}{{$sel := index .Steps .SelectedStepIndex}}
     <section class="workflow-editor-panel" aria-labelledby="workflow-editor-title">
-      <div class="workflow-editor-head"><div><h3 id="workflow-editor-title">{{t "workflow.editor.step"}} {{.SelectedStepPosition}} · {{workflowTypeLabel $sel.Step.Type}}</h3><p>{{workflowTypeHelp $sel.Step.Type}}</p></div></div>
+      <div class="workflow-editor-head"><div><h3 id="workflow-editor-title">{{t "workflow.editor.step"}} {{.SelectedStepPosition}} · {{workflowTypeLabel $sel.Step.Type}}</h3></div></div>
       <div class="step-body">
         {{- if or (eq $sel.Step.Type "resolve_ticket") (eq $sel.Step.Type "close_ticket")}}
         <p class="workflow-final-helper">{{t "workflow.editor.terminal_help"}}</p>

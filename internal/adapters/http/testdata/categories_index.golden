@@ -72,7 +72,6 @@
   <header class="users-header command-header">
     <div>
       <h1 class="command-title">Catalog</h1>
-      <p class="command-sub">Manage the Department, Desk, and Category hierarchy</p>
     </div>
     <div class="command-actions">
       <button class="btn ghost" type="button" data-catalog-expand-toggle data-expand-label="Expand all" data-collapse-label="Collapse all">Collapse all</button>

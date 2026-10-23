@@ -181,8 +181,13 @@ func TestCatalogPickerIsReachableByAPlainRequester(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("requester picker = %d, want 200: %s", rec.Code, rec.Body.String())
 	}
-	if !strings.Contains(html.UnescapeString(rec.Body.String()), "Choose a category to get started.") {
+	picker := html.UnescapeString(rec.Body.String())
+	if !strings.Contains(picker, `class="create-catalog"`) || !strings.Contains(picker, `id="catalog-query"`) {
 		t.Error("requester picker did not render the catalog")
+	}
+	// Issue #380: the removed instruction must not come back for a requester.
+	if strings.Contains(picker, "Choose a category to get started.") {
+		t.Error("requester picker must not carry the repeated catalog subtitle")
 	}
 }
 

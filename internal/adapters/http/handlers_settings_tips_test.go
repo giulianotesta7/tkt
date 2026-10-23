@@ -58,7 +58,6 @@ func TestSettingsFieldHelpIsBehindAToggletip(t *testing.T) {
 		{"/settings/tickets", "hold-auto-close-days", "Close tickets on hold after N working days without a reply", "Empty means off: the instance never closes a held ticket on its own. Working days follow the SLA working calendar."},
 		{"/settings/calendar", "calendar-days", "Working days", "At least one day."},
 		{"/settings/calendar", "calendar-timezone", "Timezone", "IANA name"},
-		{"/settings/email", "email-host", "SMTP server", "Host name or IP address"},
 		{"/settings/email", "email-username", "Username", "Leave it empty if your server accepts mail"},
 		{"/settings/email", "email-password", "Password", "Stored encrypted and never shown again."},
 		{"/settings/email", "email-from-address", "Sender address", "The address notifications are sent from"},
@@ -96,18 +95,27 @@ func TestSettingsFieldHelpIsBehindAToggletip(t *testing.T) {
 	}
 }
 
-// TestSettingsObviousHelpIsDeleted proves the two explanations the interface
-// makes by itself are gone: the port's default (the field shows 25) and the
-// email switch's consequence (the switch says it).
+// TestSettingsObviousHelpIsDeleted proves the explanations the interface makes
+// by itself are gone: the port's default (the field shows 25), the email
+// switch's consequence (the switch says it), the notifications transport (the
+// section title says it), and the SMTP server's address (the label names it) —
+// which also drops that field's toggletip.
 func TestSettingsObviousHelpIsDeleted(t *testing.T) {
 	h := newHarness(t)
 	_, rootSession := seedRoot(t, h)
 
 	body := sectionBodyFor(t, h, "/settings/email", rootSession.ID)
-	for _, gone := range []string{"25 by default", "While off, TKT sends nothing", "TKT sends its notifications to your team through this SMTP server"} {
+	for _, gone := range []string{"25 by default", "While off, TKT sends nothing", "TKT sends its notifications to your team through this SMTP server", "Host name or IP address"} {
 		if strings.Contains(body, gone) {
 			t.Errorf("the email section must not carry the obvious copy %q", gone)
 		}
+	}
+	if strings.Contains(body, `id="help-tip-email-host"`) {
+		t.Error("the SMTP server field must not carry a toggletip")
+	}
+	// The label and the control keep working without one.
+	if !strings.Contains(body, `<label for="email_host">SMTP server</label>`) {
+		t.Error("the SMTP server field must keep its label")
 	}
 }
 
@@ -165,7 +173,7 @@ func TestSettingsEmailSectionIsNamedEmailNotifications(t *testing.T) {
 		`Notificaciones por email</a>`,
 		`<h2 class="settings-section-title">Notificaciones por email</h2>`,
 		`Guardar notificaciones por email`,
-		`aria-label="Más sobre Servidor SMTP"`,
+		`aria-label="Más sobre Usuario"`,
 	} {
 		if !strings.Contains(spanish, want) {
 			t.Errorf("the Spanish email section must contain %q, got: %s", want, spanish)

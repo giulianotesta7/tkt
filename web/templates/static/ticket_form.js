@@ -207,8 +207,10 @@
       el.id = "ticket-draft-notice";
       el.className = "command-sub";
       el.setAttribute("role", "status");
-      const subtitle = form.querySelector(".command-header .command-sub");
-      if (subtitle) subtitle.insertAdjacentElement("afterend", el);
+      // The notice sits right under the page title (issue #380 removed the
+      // subtitle it used to follow), so it never lands above the header.
+      const title = form.querySelector(".command-header .command-title");
+      if (title) title.insertAdjacentElement("afterend", el);
       else form.prepend(el);
     }
     el.textContent = text;

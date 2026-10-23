@@ -107,7 +107,7 @@
       </div>
       <div class="field-row">
         <div class="field">
-          <label for="email_host">SMTP server</label><span class="help-tip-wrap"><button class="help-tip" type="button" aria-label="More about SMTP server" aria-describedby="help-tip-email-host" aria-expanded="false" data-help-tip>?</button><span class="help-tip-bubble" role="tooltip" id="help-tip-email-host">Host name or IP address of the company&#39;s mail server.</span></span>
+          <label for="email_host">SMTP server</label>
           <input type="text" id="email_host" name="email_host" value="smtp.acme.test" spellcheck="false" autocapitalize="off">
         </div>
         <div class="field">
