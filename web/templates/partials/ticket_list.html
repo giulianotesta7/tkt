@@ -7,7 +7,7 @@
       <tbody>
 {{range .Tickets}}        <tr class="queue-row" data-href="/tickets/{{.ID}}">
           <td class="num" data-label="{{t "tickets.list.col_id"}}">{{ticketNumber .Number}}</td>
-          <td class="cell-title" data-label="{{t "tickets.list.col_ticket"}}"><a class="queue-title" href="/tickets/{{.ID}}">{{.Title}}</a><span class="queue-requester">{{.RequesterName}}</span></td>
+          <td class="cell-title" data-label="{{t "tickets.list.col_ticket"}}">{{if .Changed}}<span class="visually-hidden">{{t "tickets.list.changed"}}</span>{{end}}<a class="queue-title{{if .Changed}} queue-title-changed{{end}}" href="/tickets/{{.ID}}">{{.Title}}</a><span class="queue-requester">{{.RequesterName}}</span></td>
           <td class="cell-muted queue-category" data-label="{{t "tickets.list.col_category"}}">{{.CategoryName}}</td>
           <td data-label="{{t "tickets.list.col_assignee"}}">{{if .AssigneeName}}<span class="queue-assignee"><span class="queue-mark" aria-hidden="true">{{initials .AssigneeName}}</span>{{.AssigneeName}}</span>{{else}}<span class="queue-assignee queue-unassigned">{{t "tickets.list.unassigned"}}</span>{{end}}</td>
           <td class="priority {{.Priority}}" data-label="{{t "tickets.list.col_priority"}}"><span class="ticket-priority-value">{{priorityLabel .Priority}}</span></td>
