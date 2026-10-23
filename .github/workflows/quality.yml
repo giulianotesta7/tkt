@@ -96,12 +96,15 @@ jobs:
   # depends on another's leftover state, or a goroutine one test leaks into the
   # next, is only seen when both land in the same group. After every merge to
   # main, this job runs the whole suite in one serial process as before, to keep
-  # that coverage without slowing pull requests.
+  # that coverage without slowing pull requests. The serial internal/adapters/http
+  # run already sits past 20 minutes on hosted runners, so this job gets its own
+  # 45-minute test limit; it never gates a pull request, so the extra time costs
+  # no feedback speed.
   race-full:
     name: Go race (full, serial)
     if: github.event_name == 'push'
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 50
 
     steps:
       - uses: actions/checkout@v4
@@ -112,7 +115,7 @@ jobs:
           cache: true
 
       - name: Test (race, serial)
-        run: go test ./... -race -count=1 -timeout 20m
+        run: go test ./... -race -count=1 -timeout 45m
 
   # Branch protection requires a check named "Go quality"; this job carries
   # that name and is red whenever the lint job or any race shard did not pass.
