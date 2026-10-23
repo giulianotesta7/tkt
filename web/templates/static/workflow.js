@@ -1,9 +1,10 @@
 (() => {
-  // Horizontal drag reorder for the master-detail rail. Dragging starts only from
-  // the per-card grip (.workflow-drag-handle), so selection clicks and the step
-  // menu keep working. During a drag the source card dims as the placeholder and
-  // a blue insertion indicator marks the target slot; drop submits the existing
-  // POST action `reorder` with the presentation-only source/target indexes.
+  // Vertical drag reorder for the lateral step sequence (#395 option A).
+  // Dragging starts only from the per-card grip (.workflow-drag-handle), so
+  // selection clicks and the step menu keep working. During a drag the source
+  // card dims as the placeholder and an accent insertion line marks the target
+  // slot; drop submits the existing POST action `reorder` with the
+  // presentation-only source/target indexes the server already validates.
   const rail = () => document.querySelector(".workflow-step-rail");
   const cards = () => [...(rail()?.querySelectorAll(".workflow-step-card") || [])];
   const controls = () => {
@@ -33,7 +34,7 @@
     if (destination < 0 || destination >= list.length) indicator.style.display = "none";
     else {
       indicator.style.display = "block";
-      indicator.style.left = list[destination].offsetLeft - 2 + "px";
+      indicator.style.top = list[destination].offsetTop - 2 + "px";
     }
   };
   const clearDrag = () => {
@@ -41,16 +42,25 @@
     if (indicator) indicator.style.display = "none";
     source = destination = -1;
   };
-  // Slot before the card whose midpoint the pointer crossed; rail edges snap to
-  // the first/last slot so a drag can land on any reachable step.
+  // Slot above the card whose midpoint the pointer crossed; the list's edges
+  // snap to the first/last slot so a drag can land on any reachable step.
   const hoveredSlot = (event) => {
     const list = cards();
-    if (event.clientX < rail().getBoundingClientRect().left) return 0;
+    if (event.clientY < rail().getBoundingClientRect().top) return 0;
     for (let i = 0; i < list.length; i++) {
       const rect = list[i].getBoundingClientRect();
-      if (event.clientX <= rect.left + rect.width / 2) return i;
+      if (event.clientY <= rect.top + rect.height / 2) return i;
     }
     return list.length;
+  };
+  // A vertical sequence sits in normal flow, so the page is usually what
+  // scrolls. Nudge whichever element owns the overflow while the pointer rests
+  // near the list's top or bottom edge, so a drag can still reach a step that
+  // starts out of view.
+  const nudge = (step) => {
+    const list = rail();
+    if (list.scrollHeight > list.clientHeight + 1) list.scrollTop += step;
+    else window.scrollBy(0, step);
   };
   document.addEventListener("dragstart", (event) => {
     const handle =
@@ -73,8 +83,8 @@
     event.preventDefault();
     event.dataTransfer.dropEffect = "move";
     const bounds = rail().getBoundingClientRect();
-    if (event.clientX > bounds.right - 48) rail().scrollLeft += 12;
-    else if (event.clientX < bounds.left + 48) rail().scrollLeft -= 12;
+    if (event.clientY > bounds.bottom - 48) nudge(12);
+    else if (event.clientY < bounds.top + 48) nudge(-12);
     const slot = hoveredSlot(event);
     if (slot === source || slot === source + 1) destination = source;
     else destination = slot < source ? slot : slot - 1;
@@ -168,7 +178,8 @@
   // share one dismissal contract: Escape or a click outside it closes the open
   // one. `closeDropdown` is that single close routine, reused by both paths so
   // they cannot drift apart.
-  const DROPDOWN_SELECTOR = ".workflow-step-menu, .workflow-add-popover, .workflow-field-menu";
+  const DROPDOWN_SELECTOR =
+    ".workflow-step-menu, .workflow-add-popover, .workflow-field-menu, .workflow-clone";
   const closeDropdown = (details, { restoreFocus }) => {
     if (!details.open) return;
     details.open = false;

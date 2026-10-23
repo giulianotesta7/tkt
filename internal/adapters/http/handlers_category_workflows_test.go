@@ -1580,7 +1580,7 @@ func TestCategoryWorkflowBuilder_MobileStyles_WrapNarrow(t *testing.T) {
 	}{
 		{"builder head wraps", ".workflow-builder-head{", "flex-wrap:wrap"},
 		{"editor head wraps", ".workflow-editor-head{", "flex-wrap:wrap"},
-		{"step cards stay compact", ".workflow-step-card{", "flex-basis:180px"},
+		{"the sequence stacks above the editor", ".workflow-rail-wrap{", "border-bottom:1px solid var(--line)"},
 		{"field rows stack in mobile grid", ".workflow-field-row{", "grid-template-columns:1fr 44px"},
 	} {
 		if !cssRuleDeclares(mobile, tc.sel, tc.decl) {
@@ -2010,10 +2010,11 @@ func TestCategoryWorkflowBuilder_TypedAddTerminalProtection(t *testing.T) {
 	}
 }
 
-// MenuLabelsHorizontal freezes the horizontal rail action names: Move left and
-// Move right replace the vertical labels while the backend action values,
-// endpoints, and persistence contract stay byte-for-byte unchanged.
-func TestCategoryWorkflowBuilder_MenuLabelsHorizontal(t *testing.T) {
+// MenuLabelsVertical freezes the lateral sequence's action names: the visible
+// labels follow the vertical axis (Move up / Move down) after issue #395 chose
+// option A, while the backend action values, endpoints, and persistence
+// contract stay byte-for-byte unchanged.
+func TestCategoryWorkflowBuilder_MenuLabelsVertical(t *testing.T) {
 	h := newHarness(t)
 	category, err := h.categories.Create(t.Context(), "Horizontal menu")
 	if err != nil {
@@ -2023,16 +2024,16 @@ func TestCategoryWorkflowBuilder_MenuLabelsHorizontal(t *testing.T) {
 	steps := []bstep{{typ: "manual_task", manual: "a"}, {typ: "manual_task", manual: "b"}}
 	wantRedirect(t, h.postBuilder(t, path, builderFieldForm("save", steps...), false), http.StatusSeeOther, path)
 	body := h.get(t, path, false).Body.String()
-	if !strings.Contains(body, ">Move left</button>") || !strings.Contains(body, ">Move right</button>") {
-		t.Errorf("menu must label horizontal actions Move left/Move right, got: %s", body)
+	if !strings.Contains(body, ">Move up</button>") || !strings.Contains(body, ">Move down</button>") {
+		t.Errorf("menu must label vertical actions Move up/Move down, got: %s", body)
 	}
-	for _, legacy := range []string{">Move up<", ">Move down<"} {
+	for _, legacy := range []string{">Move left<", ">Move right<"} {
 		if strings.Contains(body, legacy) {
-			t.Errorf("menu must not keep vertical label %q, got: %s", legacy, body)
+			t.Errorf("menu must not keep horizontal label %q, got: %s", legacy, body)
 		}
 	}
-	// Impossible moves are hidden, not disabled: the first card has no Move left,
-	// the last card (no final step here) has no Move right.
+	// Impossible moves are hidden, not disabled: the first card has no Move up,
+	// the last card (no final step here) has no Move down.
 	if got := strings.Count(body, `name="action" value="move_up"`); got != 1 {
 		t.Errorf("move_up submitters = %d, want 1 (only the not-first card)", got)
 	}
@@ -2207,18 +2208,19 @@ func TestCategoryWorkflowBuilder_ThreeDotTriggerPolish(t *testing.T) {
 	}
 	// This asset has no browser test for its keyboard contract, so this pin is
 	// its only automated guard. It must describe the contract that now exists:
-	// the three dropdowns (step menu, add popover, field menu) share one
-	// selector and one close routine, and Escape closes the open dropdown and
-	// refocuses its trigger. A literal pin that forbids the correct
-	// implementation is a lock, not a guard, so it is repointed at the shared
-	// contract instead of the old two-menu matcher.
+	// the four dropdowns (step menu, add popover, field menu, and the clone
+	// control the version bar hosts since issue #395) share one selector and one
+	// close routine, and Escape closes the open dropdown and refocuses its
+	// trigger. A literal pin that forbids the correct implementation is a lock,
+	// not a guard, so it is repointed at the shared contract.
 	asset := h.get(t, "/static/workflow.js", false)
 	if asset.Code != http.StatusOK {
 		t.Fatalf("workflow asset status = %d, want 200", asset.Code)
 	}
 	for _, want := range []string{
 		`event.key !== "Escape"`,
-		`const DROPDOWN_SELECTOR = ".workflow-step-menu, .workflow-add-popover, .workflow-field-menu"`,
+		`const DROPDOWN_SELECTOR =`,
+		`".workflow-step-menu, .workflow-add-popover, .workflow-field-menu, .workflow-clone"`,
 		`const closeDropdown = (details, { restoreFocus }) =>`,
 		`details.open = false`,
 		`details.querySelector("summary")?.focus()`,
@@ -2539,10 +2541,10 @@ func TestCategoryWorkflowBuilder_BusySignalling(t *testing.T) {
 	}
 }
 
-// DragResponsiveCSS freezes the 390px drag polish: the rail keeps its internal
-// horizontal overflow so cards and the insertion indicator never spill onto
-// the document, the indicator is inert and hidden by default, and the grip
-// compacts under 640px.
+// DragResponsiveCSS freezes the 390px drag polish: the vertical sequence keeps
+// no scroll container of its own, so the insertion indicator can never spill
+// onto the document, the indicator is inert and hidden by default, and the
+// grip compacts under 640px.
 func TestCategoryWorkflowBuilder_DragResponsiveCSS(t *testing.T) {
 	body := renderGolden(t, "category_workflow", "", mobileBuilderPageData(), false)
 	style := extractStyleBlock(t, body)
@@ -2550,7 +2552,7 @@ func TestCategoryWorkflowBuilder_DragResponsiveCSS(t *testing.T) {
 	for _, tc := range []struct {
 		name, sel, decl string
 	}{
-		{"rail scrolls without document overflow", ".workflow-step-rail{", "overflow-x:auto"},
+		{"the sequence keeps no scroll container", ".workflow-step-rail{", "overflow:visible"},
 		{"indicator stays inside the rail", ".workflow-drag-indicator{", "pointer-events:none"},
 		{"indicator hidden until a drag starts", ".workflow-drag-indicator{", "display:none"},
 		{"grip compacts on narrow screens", ".workflow-drag-handle{", "flex-basis:20px"},

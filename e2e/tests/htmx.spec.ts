@@ -88,7 +88,7 @@ test.describe("HTMX interactions", () => {
     await page.goto(base() + wfHref);
     await expect(page.locator("#workflow-builder")).toBeVisible();
     // Also assert hx-target complementary
-    await expect(page.locator("#workflow-builder form")).toHaveAttribute(
+    await expect(page.locator("#workflow-builder #workflow-form")).toHaveAttribute(
       "hx-target",
       "#workflow-builder",
     );

@@ -1,83 +1,98 @@
 {{define "workflow_builder"}}
 <section id="workflow-builder" class="workflow-builder page-panel" aria-labelledby="workflow-builder-title" hx-on::before-swap="if(event.detail.xhr.status === 422 || event.detail.xhr.status === 409){event.detail.shouldSwap = true; event.detail.isError = false}">
-  <form method="post" action="/categories/{{.CategoryID}}/workflow" id="workflow-form" hx-post="/categories/{{.CategoryID}}/workflow" hx-target="#workflow-builder" hx-swap="outerHTML" hx-sync="this:queue last" hx-indicator="#workflow-form" hx-on::before-request="this.setAttribute('aria-busy','true')" hx-on::after-request="this.removeAttribute('aria-busy')">
-    {{if ge .SelectedStepIndex 0}}<input type="hidden" name="selected_step_index" value="{{.SelectedStepIndex}}">{{end}}
+  <div class="workflow-builder-head">
+    <p>{{t "workflow.builder.subtitle"}}</p>
+    <span class="htmx-indicator spinner" aria-hidden="true"></span>
+  </div>
+{{/* Issue #395 (option A): the version facts, the transient success live
+region and the clone control share one bar above the two panes. The clone form
+is deliberately OUTSIDE the builder form: the dirty baseline tracks every
+control inside #workflow-form, so a clone source choice here must never look
+like an unsaved workflow edit. */}}
+  <div class="workflow-version-bar">
+{{if .LiveVersion}}    <p class="workflow-badge workflow-badge-published" data-workflow-version>{{t "workflow.builder.published"}} v{{.LiveVersion}}{{if .PublishedByName}} · {{t "workflow.builder.by"}} {{.PublishedByName}}{{end}}{{if .PublishedAt}} · {{.PublishedAt}}{{end}}</p>
+{{end}}{{if .DraftUpdatedByName}}    <p class="workflow-badge workflow-badge-draft" data-workflow-draft-author>{{t "workflow.builder.draft_author"}} {{.DraftUpdatedByName}}{{if .DraftUpdatedAt}} · {{.DraftUpdatedAt}}{{end}}</p>
+{{end}}{{if .Live}}    <p class="workflow-live" role="status" aria-live="polite" data-workflow-live>{{.Live}}</p>
+{{end}}{{if .CloneSources}}    <details class="workflow-clone"><summary class="btn ghost small">{{t "workflow.page.clone.heading"}}</summary>
+      <form class="workflow-clone-body" method="post" action="/categories/{{.CategoryID}}/workflow/clone">
+        <label for="clone-source">{{t "workflow.page.clone.label"}}</label>
+        <select id="clone-source" name="source_category_id" required>
+          <option value="">{{t "workflow.page.clone.choose"}}</option>
+{{range .CloneSources}}          <option value="{{.ID}}">{{.Name}}</option>
+{{end}}        </select>
+        <button class="btn small" type="submit">{{t "workflow.page.clone.submit"}}</button>
+      </form>
+    </details>
+{{end}}  </div>
+{{if .CloneError}}  <div class="error-banner" role="alert">{{.CloneError}}</div>
+{{end}}{{range .Issues}}  <div class="error-banner" role="alert">{{issueMessage .}}</div>
+{{end}}  <form method="post" action="/categories/{{.CategoryID}}/workflow" id="workflow-form" hx-post="/categories/{{.CategoryID}}/workflow" hx-target="#workflow-builder" hx-swap="outerHTML" hx-sync="this:queue last" hx-indicator="#workflow-form" hx-on::before-request="this.setAttribute('aria-busy','true')" hx-on::after-request="this.removeAttribute('aria-busy')">
+    {{- if ge .SelectedStepIndex 0}}<input type="hidden" name="selected_step_index" value="{{.SelectedStepIndex}}">{{end}}
     <input type="hidden" name="draft_revision" value="{{.DraftRevision}}">
     <input type="hidden" name="source_index" value=""><input type="hidden" name="target_index" value=""><button class="visually-hidden" type="submit" name="action" value="reorder" data-workflow-reorder aria-hidden="true" tabindex="-1" formaction="/categories/{{.CategoryID}}/workflow" hx-post="/categories/{{.CategoryID}}/workflow" hx-target="#workflow-builder" hx-swap="outerHTML" hx-include="closest form">{{t "workflow.builder.reorder"}}</button>
-    {{range .Steps}}{{if not .Selected}}<input type="hidden" name="step_{{.Index}}_snapshot" value="{{.Snapshot}}">{{end}}{{end}}
-    <div class="workflow-builder-head">
-      <div><h2 id="workflow-builder-title">{{t "workflow.builder.title"}}</h2><p>{{t "workflow.builder.subtitle"}}</p>
-        {{/* The stored version facts and the draft's author were kept but shown
-        nowhere before issue #253. They sit under the subtitle as facts,
-        separately from the transient success live region, so a validation or
-        conflict render can still say who owns the current draft without faking
-        a success status. */}}
-        {{if .LiveVersion}}<p class="workflow-version-facts" data-workflow-version>{{t "workflow.builder.published"}} v{{.LiveVersion}}{{if .PublishedByName}} · {{t "workflow.builder.by"}} {{.PublishedByName}}{{end}}{{if .PublishedAt}} · {{.PublishedAt}}{{end}}</p>{{end}}
-        {{if .DraftUpdatedByName}}<p class="workflow-draft-author" data-workflow-draft-author>{{t "workflow.builder.draft_author"}} {{.DraftUpdatedByName}}{{if .DraftUpdatedAt}} · {{.DraftUpdatedAt}}{{end}}</p>{{end}}</div>
-      <span class="htmx-indicator spinner" aria-hidden="true"></span>
-      {{if .Live}}<p class="workflow-live" role="status" aria-live="polite" data-workflow-live>{{.Live}}</p>{{end}}
-    </div>
-    {{range .Issues}}<div class="error-banner" role="alert">{{issueMessage .}}</div>{{end}}
-    <div class="workflow-rail-wrap">
-      <ol class="workflow-step-rail" aria-label="{{t "workflow.builder.title"}}">
-        {{range .Steps}}
-        {{if .Final}}<li class="workflow-add-step">{{template "workflow_add" $}}</li>{{end}}
+{{range .Steps}}{{if not .Selected}}    <input type="hidden" name="step_{{.Index}}_snapshot" value="{{.Snapshot}}">
+{{- end}}{{end}}
+    <div class="workflow-builder-panels">
+      <div class="workflow-rail-wrap">
+        <div class="workflow-pane-label"><h2 id="workflow-builder-title">{{t "workflow.builder.title"}}</h2><span class="workflow-pane-count">{{tp "workflow.builder.step_count" (len .Steps)}}</span></div>
+        <ol class="workflow-step-rail" aria-label="{{t "workflow.builder.title"}}">
+        {{- range .Steps}}
+        {{- if .Final}}<li class="workflow-add-step">{{template "workflow_add" $}}</li>{{end}}
         <li class="workflow-step-card{{if .Selected}} selected{{end}}">
-          {{if not .Final}}<span class="workflow-drag-handle" draggable="true" aria-hidden="true">⋮⋮</span>{{end}}
-          <button class="workflow-step-card-link" type="submit" name="selection_step_index" value="{{.Index}}" formaction="/categories/{{$.CategoryID}}/workflow?action=select_step" hx-post="/categories/{{$.CategoryID}}/workflow" hx-include="closest form" hx-vals='{"action":"select_step","selection_step_index":"{{.Index}}"}' hx-target="#workflow-builder" hx-swap="outerHTML show:none" hx-push-url="false"{{if .Selected}} aria-current="step"{{end}}><span class="workflow-step-position">{{.Position}}</span><strong>{{workflowTypeLabel .Step.Type}}</strong><span class="workflow-step-summary">{{msg .Summary}}</span><span class="workflow-step-meta">{{if not .Actor.Empty}}<span class="workflow-step-actor">{{msg .Actor}}</span>{{end}}{{if not .Outcome.Empty}}<span class="workflow-step-outcome">→ {{msg .Outcome}}</span>{{end}}</span>{{if .Final}}<span class="workflow-final-badge">{{t "workflow.builder.final"}}</span>{{end}}</button>
-          {{if not .Final}}<details class="workflow-step-menu"><summary class="workflow-trigger" aria-label="{{t "workflow.builder.step_actions"}}">⋯</summary><div class="workflow-step-menu-actions">
-            {{if .CanMoveLeft}}<button class="btn ghost small" type="submit" name="action" value="move_up" formaction="/categories/{{$.CategoryID}}/workflow?step_index={{.Index}}&amp;selected_step_index={{$.SelectedStepIndex}}" hx-post="/categories/{{$.CategoryID}}/workflow?step_index={{.Index}}&amp;selected_step_index={{$.SelectedStepIndex}}">{{t "workflow.builder.move_left"}}</button>{{end}}
-            {{if .CanMoveRight}}<button class="btn ghost small" type="submit" name="action" value="move_down" formaction="/categories/{{$.CategoryID}}/workflow?step_index={{.Index}}&amp;selected_step_index={{$.SelectedStepIndex}}" hx-post="/categories/{{$.CategoryID}}/workflow?step_index={{.Index}}&amp;selected_step_index={{$.SelectedStepIndex}}">{{t "workflow.builder.move_right"}}</button>{{end}}
+          {{- if not .Final}}<span class="workflow-drag-handle" draggable="true" aria-hidden="true">⋮⋮</span>{{end}}
+          <button class="workflow-step-card-link" type="submit" name="selection_step_index" value="{{.Index}}" formaction="/categories/{{$.CategoryID}}/workflow?action=select_step" hx-post="/categories/{{$.CategoryID}}/workflow" hx-include="closest form" hx-vals='{"action":"select_step","selection_step_index":"{{.Index}}"}' hx-target="#workflow-builder" hx-swap="outerHTML show:none" hx-push-url="false"{{if .Selected}} aria-current="step"{{end}}><span class="workflow-step-position">{{.Position}}</span><span class="workflow-step-body"><strong>{{workflowTypeLabel .Step.Type}}</strong><span class="workflow-step-summary">{{msg .Summary}}</span><span class="workflow-step-meta">{{if not .Actor.Empty}}<span class="workflow-step-actor">{{msg .Actor}}</span>{{end}}{{if not .Outcome.Empty}}<span class="workflow-step-outcome">→ {{msg .Outcome}}</span>{{end}}</span>{{if .Final}}<span class="workflow-final-badge">{{t "workflow.builder.final"}}</span>{{end}}</span></button>
+{{if not .Final}}          <details class="workflow-step-menu"><summary class="workflow-trigger" aria-label="{{t "workflow.builder.step_actions"}}">⋯</summary><div class="workflow-step-menu-actions">
+            {{- if .CanMoveLeft}}<button class="btn ghost small" type="submit" name="action" value="move_up" formaction="/categories/{{$.CategoryID}}/workflow?step_index={{.Index}}&amp;selected_step_index={{$.SelectedStepIndex}}" hx-post="/categories/{{$.CategoryID}}/workflow?step_index={{.Index}}&amp;selected_step_index={{$.SelectedStepIndex}}">{{t "workflow.builder.move_up"}}</button>{{end}}
+            {{- if .CanMoveRight}}<button class="btn ghost small" type="submit" name="action" value="move_down" formaction="/categories/{{$.CategoryID}}/workflow?step_index={{.Index}}&amp;selected_step_index={{$.SelectedStepIndex}}" hx-post="/categories/{{$.CategoryID}}/workflow?step_index={{.Index}}&amp;selected_step_index={{$.SelectedStepIndex}}">{{t "workflow.builder.move_down"}}</button>{{end}}
             <span class="workflow-menu-sep" aria-hidden="true"></span>
             <button class="btn danger small" type="submit" name="action" value="remove_step" data-workflow-confirm="step" formaction="/categories/{{$.CategoryID}}/workflow?step_index={{.Index}}&amp;selected_step_index={{$.SelectedStepIndex}}" hx-post="/categories/{{$.CategoryID}}/workflow?step_index={{.Index}}&amp;selected_step_index={{$.SelectedStepIndex}}">{{t "workflow.builder.remove_step"}}</button>
           </div></details>{{end}}
         </li>
-        {{else}}<li class="empty compact">{{t "workflow.builder.empty"}}</li>{{end}}
-        {{if not .HasFinal}}<li class="workflow-add-step">{{template "workflow_add" $}}</li>{{end}}
-      </ol>
-    </div>
-    {{if .HasSelection}}
-    {{$sel := index .Steps .SelectedStepIndex}}
+        {{- else}}<li class="empty compact">{{t "workflow.builder.empty"}}</li>{{end}}
+        {{- if not .HasFinal}}<li class="workflow-add-step">{{template "workflow_add" $}}</li>{{end}}
+        </ol>
+      </div>
+{{- if .HasSelection}}{{$sel := index .Steps .SelectedStepIndex}}
     <section class="workflow-editor-panel" aria-labelledby="workflow-editor-title">
       <div class="workflow-editor-head"><div><h3 id="workflow-editor-title">{{t "workflow.editor.step"}} {{.SelectedStepPosition}} · {{workflowTypeLabel $sel.Step.Type}}</h3><p>{{workflowTypeHelp $sel.Step.Type}}</p></div></div>
       <div class="step-body">
-        {{if or (eq $sel.Step.Type "resolve_ticket") (eq $sel.Step.Type "close_ticket")}}
+        {{- if or (eq $sel.Step.Type "resolve_ticket") (eq $sel.Step.Type "close_ticket")}}
         <p class="workflow-final-helper">{{t "workflow.editor.terminal_help"}}</p>
         <div class="field workflow-terminal-type"><label for="step_{{.SelectedStepIndex}}_terminal">{{t "workflow.editor.final_type"}}</label><select id="step_{{.SelectedStepIndex}}_terminal" name="step_{{.SelectedStepIndex}}_type"><option value="resolve_ticket" {{if eq $sel.Step.Type "resolve_ticket"}}selected{{end}}>{{workflowTypeLabel "resolve_ticket"}}</option><option value="close_ticket" {{if eq $sel.Step.Type "close_ticket"}}selected{{end}}>{{workflowTypeLabel "close_ticket"}}</option></select></div>
         <noscript><button class="btn ghost small" type="submit" name="action" value="change_type" formaction="/categories/{{$.CategoryID}}/workflow?step_index={{.SelectedStepIndex}}">{{t "common.apply"}}</button></noscript>
-        {{else}}
+        {{- else}}
         <input type="hidden" name="step_{{.SelectedStepIndex}}_type" value="{{$sel.Step.Type}}">
-        {{if eq $sel.Step.Type "manual_task"}}
+        {{- if eq $sel.Step.Type "manual_task"}}
         <div class="field"><label for="step_{{.SelectedStepIndex}}_instructions">{{t "workflow.editor.instructions"}}</label><textarea id="step_{{.SelectedStepIndex}}_instructions" name="step_{{.SelectedStepIndex}}_instructions">{{$sel.Step.ManualTask.Instructions}}</textarea></div>
-        {{end}}
-        {{if eq $sel.Step.Type "assign_to_desk"}}
+        {{- end}}
+        {{- if eq $sel.Step.Type "assign_to_desk"}}
         <div class="field-row">
           <div class="field"><label for="step_{{.SelectedStepIndex}}_desk">{{t "workflow.editor.desk"}}</label><select id="step_{{.SelectedStepIndex}}_desk" name="step_{{.SelectedStepIndex}}_desk">{{$current := $sel.Step.AssignToDesk.DeskID}}{{range $.Desks}}<option value="{{.ID}}" {{if eq $current .ID}}selected{{end}}>{{.Name}}</option>{{end}}{{if and (gt $current 0) (not (hasDesk $.Desks $current))}}<option value="{{$current}}" selected>{{t "workflow.editor.desk"}} {{$current}}</option>{{end}}</select></div>
           <div class="field"><label for="step_{{.SelectedStepIndex}}_strategy">{{t "workflow.editor.strategy"}}</label><select id="step_{{.SelectedStepIndex}}_strategy" name="step_{{.SelectedStepIndex}}_strategy"><option value="claim" {{if eq $sel.Step.AssignToDesk.Strategy "claim"}}selected{{end}}>{{t "workflow.editor.strategy.claim"}}</option><option value="least_loaded" {{if eq $sel.Step.AssignToDesk.Strategy "least_loaded"}}selected{{end}}>{{t "workflow.editor.strategy.least_loaded"}}</option></select></div>
         </div>
-        {{end}}
-        {{if eq $sel.Step.Type "form"}}
+        {{- end}}
+        {{- if eq $sel.Step.Type "form"}}
         <div class="field"><label for="step_{{.SelectedStepIndex}}_actor">{{t "workflow.editor.actor"}}</label><select id="step_{{.SelectedStepIndex}}_actor" name="step_{{.SelectedStepIndex}}_actor"><option value="requester" {{if eq $sel.Step.Form.Actor "requester"}}selected{{end}}>{{t "workflow.editor.actor.requester"}}</option><option value="assignee" {{if eq $sel.Step.Form.Actor "assignee"}}selected{{end}}>{{t "workflow.editor.actor.assignee"}}</option></select></div>
         <div class="workflow-fields-head"><h4>{{t "workflow.editor.fields"}}</h4><button class="btn ghost small" type="submit" name="action" value="add_field" formaction="/categories/{{$.CategoryID}}/workflow?step_index={{.SelectedStepIndex}}" hx-post="/categories/{{$.CategoryID}}/workflow?step_index={{.SelectedStepIndex}}">{{th "workflow.editor.add_field"}}</button></div>
           <div class="workflow-form-fields">
-          {{$stepIdx := .SelectedStepIndex}}
-          {{range $fi, $f := $sel.Step.Form.Fields}}
+          {{- $stepIdx := .SelectedStepIndex}}
+          {{- range $fi, $f := $sel.Step.Form.Fields}}
           <div class="workflow-field-row">
             <input type="hidden" name="step_{{$stepIdx}}_field_{{$fi}}_key" value="{{$f.Key}}">
             <div class="field workflow-field-label"><label for="step_{{$stepIdx}}_field_{{$fi}}_label">{{t "workflow.editor.field_label"}}</label><input id="step_{{$stepIdx}}_field_{{$fi}}_label" type="text" name="step_{{$stepIdx}}_field_{{$fi}}_label" value="{{$f.Label}}"></div>
             <div class="field workflow-field-kind"><label for="step_{{$stepIdx}}_field_{{$fi}}_kind">{{t "workflow.editor.field_kind"}}</label><select id="step_{{$stepIdx}}_field_{{$fi}}_kind" name="step_{{$stepIdx}}_field_{{$fi}}_kind" hx-trigger="change" hx-post="/categories/{{$.CategoryID}}/workflow" hx-include="closest form" hx-vals='{"action":"select_step","selection_step_index":"{{$.SelectedStepIndex}}"}' hx-target="#workflow-builder" hx-swap="outerHTML"><option value="short_text" {{if eq $f.Kind "short_text"}}selected{{end}}>{{t "workflow.editor.kind.short_text"}}</option><option value="long_text" {{if eq $f.Kind "long_text"}}selected{{end}}>{{t "workflow.editor.kind.long_text"}}</option><option value="checkbox" {{if eq $f.Kind "checkbox"}}selected{{end}}>{{t "workflow.editor.kind.checkbox"}}</option><option value="single_select" {{if eq $f.Kind "single_select"}}selected{{end}}>{{t "workflow.editor.kind.single_select"}}</option></select></div>
-            {{if eq $f.Kind "single_select"}}<div class="field workflow-field-options"><label for="step_{{$stepIdx}}_field_{{$fi}}_options">{{t "workflow.editor.options"}}</label><textarea id="step_{{$stepIdx}}_field_{{$fi}}_options" name="step_{{$stepIdx}}_field_{{$fi}}_options">{{range $oi, $opt := $f.Options}}{{if $oi}}
+            {{- if eq $f.Kind "single_select"}}<div class="field workflow-field-options"><label for="step_{{$stepIdx}}_field_{{$fi}}_options">{{t "workflow.editor.options"}}</label><textarea id="step_{{$stepIdx}}_field_{{$fi}}_options" name="step_{{$stepIdx}}_field_{{$fi}}_options">{{range $oi, $opt := $f.Options}}{{if $oi}}
 {{end}}{{$opt}}{{end}}</textarea><p class="help">{{t "workflow.editor.options_help"}}</p></div>{{end}}
             <div class="field checkbox-field workflow-field-required"><label><input type="checkbox" name="step_{{$stepIdx}}_field_{{$fi}}_required" value="on" {{if $f.Required}}checked{{end}}> {{workflowFieldRequiredLabel $f.Kind}}</label></div>
             <div class="workflow-field-actions"><details class="workflow-field-menu"><summary class="workflow-trigger" aria-label="{{t "workflow.editor.field_actions"}}">⋯</summary><div class="workflow-field-menu-actions"><button class="btn danger small" type="submit" name="action" value="remove_field" data-workflow-confirm="field" formaction="/categories/{{$.CategoryID}}/workflow?step_index={{$stepIdx}}&amp;field_index={{$fi}}" hx-post="/categories/{{$.CategoryID}}/workflow?step_index={{$stepIdx}}&amp;field_index={{$fi}}">{{t "workflow.editor.remove_field"}}</button></div></details></div>
           </div>
-          {{end}}
+          {{- end}}
           </div>
-        {{end}}
-        {{end}}
+        {{- end}}
+        {{- end}}
       </div>
     </section>
-    {{end}}
+{{end}}    </div>
   </form>
     <dialog id="workflow-remove-step-dialog" data-workflow-remove-dialog aria-labelledby="workflow-remove-step-title" aria-describedby="workflow-remove-step-copy">
       <h2 id="workflow-remove-step-title">{{t "workflow.dialog.remove_step.title"}}</h2>
