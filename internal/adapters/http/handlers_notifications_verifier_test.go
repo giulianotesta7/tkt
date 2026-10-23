@@ -84,14 +84,14 @@ func unreadNotificationRows(t *testing.T, h *harness) int64 {
 // anywhere the panel surfaces, while the row itself stays readable.
 func TestNotificationsPanelDropsTicketFactsAfterReassignment(t *testing.T) {
 	h := newHarness(t)
-	reader := h.createUser(t, "Verifier Reader", "verifier-reader@tkt.test", "Secret123!")
+	reader := h.createUser(t, "Verifier Reader", "verifier-reader@tkt.test", "Secret123!42")
 	ticket := h.seedTicket(t, "Secret payroll outage", nil)
 	h.assignTicket(t, ticket.ID, reader.ID)
 	session := seedSession(t, h.store, reader.ID).ID
 	if body := notificationRequestWithHeaders(t, h, session, http.MethodGet, "/notifications", "", nil).Body.String(); !strings.Contains(body, "Secret payroll outage") {
 		t.Fatalf("precondition: reader cannot see their own row title")
 	}
-	other := h.createUser(t, "Verifier New Owner", "verifier-owner@tkt.test", "Secret123!")
+	other := h.createUser(t, "Verifier New Owner", "verifier-owner@tkt.test", "Secret123!42")
 	if _, err := h.tickets.Assign(t.Context(), *h.admin, ticket.ID, &other.ID, "hand over"); err != nil {
 		t.Fatalf("reassign: %v", err)
 	}
@@ -127,7 +127,7 @@ func TestNotificationsPanelDropsTicketFactsAfterReassignment(t *testing.T) {
 // assigned to them; the panel must stop repeating its facts.
 func TestNotificationsPanelDropsTicketFactsAfterDemotion(t *testing.T) {
 	h := newHarness(t)
-	agent := h.createUser(t, "Verifier Demoted", "verifier-demoted@tkt.test", "Secret123!")
+	agent := h.createUser(t, "Verifier Demoted", "verifier-demoted@tkt.test", "Secret123!42")
 	ticket := h.seedTicket(t, "Confidential merger plan", nil)
 	h.assignTicket(t, ticket.ID, agent.ID)
 	session := seedSession(t, h.store, agent.ID).ID
@@ -157,7 +157,7 @@ func TestNotificationsRequesterPanelHidesInternalComments(t *testing.T) {
 	h := newHarness(t)
 	requester := seedUserRole(t, h.store, "Verifier Requester", "verifier-requester@tkt.test", domain.RoleUser)
 	ticket := seedUserOwnedTicket(t, h, requester, "Printer on fire")
-	agent := h.createUser(t, "Verifier Commenter", "verifier-commenter@tkt.test", "Secret123!")
+	agent := h.createUser(t, "Verifier Commenter", "verifier-commenter@tkt.test", "Secret123!42")
 	h.assignTicket(t, ticket.ID, agent.ID)
 	requesterSession := seedSession(t, h.store, requester.ID).ID
 	agentSession := seedSession(t, h.store, agent.ID).ID
@@ -185,11 +185,11 @@ func TestNotificationsRequesterPanelHidesInternalComments(t *testing.T) {
 // S14 / cross-user: another user's id answers 404 and changes nothing.
 func TestNotificationsForeignReadIs404AndChangesNothing(t *testing.T) {
 	h := newHarness(t)
-	owner := h.createUser(t, "Verifier Owner", "verifier-owner2@tkt.test", "Secret123!")
+	owner := h.createUser(t, "Verifier Owner", "verifier-owner2@tkt.test", "Secret123!42")
 	ticket := h.seedTicket(t, "Owned by the recipient", nil)
 	h.assignTicket(t, ticket.ID, owner.ID)
 	ownerSession := seedSession(t, h.store, owner.ID).ID
-	bystander := h.createUser(t, "Verifier Bystander", "verifier-bystander@tkt.test", "Secret123!")
+	bystander := h.createUser(t, "Verifier Bystander", "verifier-bystander@tkt.test", "Secret123!42")
 	bystanderSession := seedSession(t, h.store, bystander.ID).ID
 
 	body := notificationRequestWithHeaders(t, h, ownerSession, http.MethodGet, "/notifications", "", nil).Body.String()
@@ -227,7 +227,7 @@ func TestNotificationsForeignReadIs404AndChangesNothing(t *testing.T) {
 // non-ticket targets.
 func TestNotificationsMarkReadCannotRedirectOffSite(t *testing.T) {
 	h := newHarness(t)
-	owner := h.createUser(t, "Verifier Redirect", "verifier-redirect@tkt.test", "Secret123!")
+	owner := h.createUser(t, "Verifier Redirect", "verifier-redirect@tkt.test", "Secret123!42")
 	ticket := h.seedTicket(t, "Redirect target", nil)
 	h.assignTicket(t, ticket.ID, owner.ID)
 	session := seedSession(t, h.store, owner.ID).ID
@@ -256,7 +256,7 @@ func TestNotificationsMarkReadCannotRedirectOffSite(t *testing.T) {
 // D17 / S14: the Origin gate covers both new POSTs.
 func TestNotificationsReadWritesRejectCrossSiteOrigin(t *testing.T) {
 	h := newHarness(t)
-	owner := h.createUser(t, "Verifier Origin", "verifier-origin@tkt.test", "Secret123!")
+	owner := h.createUser(t, "Verifier Origin", "verifier-origin@tkt.test", "Secret123!42")
 	ticket := h.seedTicket(t, "Origin target", nil)
 	h.assignTicket(t, ticket.ID, owner.ID)
 	session := seedSession(t, h.store, owner.ID).ID
@@ -286,7 +286,7 @@ func TestNotificationsReadWritesRejectCrossSiteOrigin(t *testing.T) {
 // clears a badge larger than the window.
 func TestNotificationsPanelShowsTheNewestTwentyRows(t *testing.T) {
 	h := newHarness(t)
-	agent := h.createUser(t, "Verifier Window", "verifier-window@tkt.test", "Secret123!")
+	agent := h.createUser(t, "Verifier Window", "verifier-window@tkt.test", "Secret123!42")
 	session := seedSession(t, h.store, agent.ID).ID
 	for i := 1; i <= 25; i++ {
 		ticket := h.seedTicket(t, fmt.Sprintf("Window ticket %02d", i), nil)
@@ -320,7 +320,7 @@ func TestNotificationsPanelShowsTheNewestTwentyRows(t *testing.T) {
 // source, and its zero state has no badge.
 func TestNotificationsNoPageRenderCarriesTheCount(t *testing.T) {
 	h := newHarness(t)
-	agent := h.createUser(t, "Verifier Page", "verifier-page@tkt.test", "Secret123!")
+	agent := h.createUser(t, "Verifier Page", "verifier-page@tkt.test", "Secret123!42")
 	for i := 1; i <= 3; i++ {
 		ticket := h.seedTicket(t, fmt.Sprintf("Page ticket %d", i), nil)
 		h.assignTicket(t, ticket.ID, agent.ID)
@@ -356,7 +356,7 @@ func TestNotificationsNoPageRenderCarriesTheCount(t *testing.T) {
 // language at render time (neutral tuteo, "ticket" vocabulary).
 func TestNotificationsSpanishPanelAndBell(t *testing.T) {
 	h := newHarness(t)
-	agent := h.createUser(t, "Verifier Es", "verifier-es@tkt.test", "Secret123!")
+	agent := h.createUser(t, "Verifier Es", "verifier-es@tkt.test", "Secret123!42")
 	session := seedSession(t, h.store, agent.ID).ID
 
 	en := notificationRequestWithHeaders(t, h, session, http.MethodGet, "/notifications", "", nil).Body.String()
@@ -410,7 +410,7 @@ func TestNotificationsSpanishPanelAndBell(t *testing.T) {
 // with the access, not with the assignment.
 func TestNotificationsPanelDropsTicketFactsAfterUnassignment(t *testing.T) {
 	h := newHarness(t)
-	reader := h.createUser(t, "Verifier Unassigned", "verifier-unassigned@tkt.test", "Secret123!")
+	reader := h.createUser(t, "Verifier Unassigned", "verifier-unassigned@tkt.test", "Secret123!42")
 	ticket := h.seedTicket(t, "Quarterly layoff list", nil)
 	h.assignTicket(t, ticket.ID, reader.ID)
 	session := seedSession(t, h.store, reader.ID).ID

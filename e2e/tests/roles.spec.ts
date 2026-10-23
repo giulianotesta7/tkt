@@ -139,19 +139,19 @@ test.describe("Role — minimal matrix admin / agent / user (seeded)", () => {
     const adminEmail = await createUserAndSetRole(page, {
       name: "Admin Adam",
       email: `admin-${Date.now().toString(36).slice(2, 8)}@example.com`,
-      password: "Secret123!",
+      password: "Secret123!42",
       role: "admin",
     });
     const agentEmail = await createUserAndSetRole(page, {
       name: "Agent Ava",
       email: `agent-${Date.now().toString(36).slice(2, 8)}@example.com`,
-      password: "Secret123!",
+      password: "Secret123!42",
       role: "agent",
     });
     const userEmail = await createUserAndSetRole(page, {
       name: "User Uma",
       email: `user-${Date.now().toString(36).slice(2, 8)}@example.com`,
-      password: "Secret123!",
+      password: "Secret123!42",
       role: "user",
     });
     const assignedTitle = "Assigned queue ticket " + Date.now().toString(36).slice(2, 8);
@@ -177,7 +177,7 @@ test.describe("Role — minimal matrix admin / agent / user (seeded)", () => {
 
     // Admin: one allowed admin action — create a category
     await logout(page);
-    await login(page, adminEmail, "Secret123!");
+    await login(page, adminEmail, "Secret123!42");
     const catName = "AdminCat " + Date.now().toString(36).slice(2, 8);
     await createCategoryViaUi(page, catName);
     // The Catalog renders one tree row per category (issue #387).
@@ -185,7 +185,7 @@ test.describe("Role — minimal matrix admin / agent / user (seeded)", () => {
 
     // Agent: one allowed operative action — create a ticket (no error, even though not in agent's own list)
     await logout(page);
-    await login(page, agentEmail, "Secret123!");
+    await login(page, agentEmail, "Secret123!42");
     await expect(page.getByRole("heading", { name: "My work", exact: true })).toBeVisible();
     const agentQueue = page.locator("#agent-ticket-list");
     await expect(agentQueue.getByRole("link", { name: assignedTitle, exact: true })).toBeVisible();
@@ -280,7 +280,7 @@ test.describe("Role — minimal matrix admin / agent / user (seeded)", () => {
     await expect(page.getByRole("heading", { name: /sign in to tkt/i })).toBeVisible();
 
     // User: one allowed action — create a ticket, internal controls hidden, admin forbidden
-    await login(page, userEmail, "Secret123!");
+    await login(page, userEmail, "Secret123!42");
     const userTicket = "User ticket " + Date.now().toString(36).slice(2, 8);
     const userTicketId = await createTicketViaUi(page, {
       title: userTicket,
@@ -377,11 +377,11 @@ test.describe("Role — minimal matrix admin / agent / user (seeded)", () => {
     await createUserAndSetRole(page, {
       name: "User Two",
       email: uEmail,
-      password: "Secret123!",
+      password: "Secret123!42",
       role: "user",
     });
     await logout(page);
-    await login(page, uEmail, "Secret123!");
+    await login(page, uEmail, "Secret123!42");
     const title = "User public comment " + Date.now().toString(36).slice(2, 8);
     const id = await createTicketViaUi(page, { title, category: "General", priority: "low" });
     await page.goto(baseURL() + `/tickets/${id}`);
@@ -420,11 +420,11 @@ test.describe("Role — minimal matrix admin / agent / user (seeded)", () => {
     await createUserAndSetRole(page, {
       name: "Forbidden Fiona",
       email: uEmail,
-      password: "Secret123!",
+      password: "Secret123!42",
       role: "user",
     });
     await logout(page);
-    await login(page, uEmail, "Secret123!");
+    await login(page, uEmail, "Secret123!42");
     const title = "Forbidden probe " + Date.now().toString(36).slice(2, 8);
     const id = await createTicketViaUi(page, { title, category: "General", priority: "low" });
     await page.goto(baseURL() + `/tickets/${id}`);
@@ -491,12 +491,12 @@ test.describe("Role — requester SLA blindness (seeded)", () => {
     const userEmail = await createUserAndSetRole(page, {
       name: "Uma Requester",
       email: `requester-${Date.now().toString(36).slice(2, 8)}@example.com`,
-      password: "Secret123!",
+      password: "Secret123!42",
       role: "user",
     });
 
     await page.context().clearCookies();
-    await login(page, userEmail, "Secret123!");
+    await login(page, userEmail, "Secret123!42");
     // The fixture name and title deliberately avoid the literal "SLA" so the
     // absence assertions below cannot be satisfied by the fixture's own text.
     const title = "Requester probe " + Date.now().toString(36).slice(2, 8);

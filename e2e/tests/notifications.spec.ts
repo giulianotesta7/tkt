@@ -38,7 +38,7 @@ const uniq = Date.now().toString(36).slice(2, 8);
 const agent = {
   name: "Notify Agent",
   email: `notify-agent-${uniq}@example.com`,
-  password: "Secret123!",
+  password: "Secret123!42",
 };
 const firstTicket = `Notify first ${uniq}`;
 const secondTicket = `Notify second ${uniq}`;

@@ -1724,3 +1724,45 @@ func signinImageBytes(contentType string, size ...int) []byte {
 	copy(data, magic)
 	return data
 }
+
+// fakePasswordSettingsStore is the in-memory PasswordSettingsStore double for
+// the self-service password configuration (issue #414, S1/S4). Simplifications,
+// documented per the fakes contract: ONE value stands in for the three keyed
+// settings rows, and a Set call replaces all three in one step — the
+// transaction the real store commits. An unset fake answers the documented
+// defaults (both switches ON, 12), exactly like the real store's absent-row
+// fallback, and setErr fails the whole write before any state changes, like a
+// rolled-back transaction.
+type fakePasswordSettingsStore struct {
+	settings application.PasswordSettings
+	stored   bool
+	getErr   error
+	setErr   error
+	setCalls int
+}
+
+var _ application.PasswordSettingsStore = (*fakePasswordSettingsStore)(nil)
+
+func newFakePasswordSettingsStore() *fakePasswordSettingsStore {
+	return &fakePasswordSettingsStore{}
+}
+
+func (f *fakePasswordSettingsStore) GetPasswordSettings(_ context.Context) (application.PasswordSettings, error) {
+	if f.getErr != nil {
+		return application.PasswordSettings{}, f.getErr
+	}
+	if !f.stored {
+		return application.DefaultPasswordSettings(), nil
+	}
+	return f.settings, nil
+}
+
+func (f *fakePasswordSettingsStore) SetPasswordSettings(_ context.Context, settings application.PasswordSettings) error {
+	f.setCalls++
+	if f.setErr != nil {
+		return f.setErr
+	}
+	f.settings = settings
+	f.stored = true
+	return nil
+}

@@ -126,7 +126,7 @@ func main() {
 	clock := systemClock{}
 
 	viewBuilder := application.NewViewBuilder(store.TicketStore(), store.UserStore(), store.CategoryStore(), store.CommentStore(), store.AuditStore(), store.DeskStore(), store.WorkflowResponseStore())
-	userSvc := application.NewUserService(store.UserStore(), clock)
+	userSvc := application.NewUserService(store.UserStore(), clock).WithPasswordSettings(store.PasswordSettingsStore())
 	catSvc := application.NewCategoryService(store.CategoryStore(), clock)
 	catalogSvc := application.NewCatalogService(store.CatalogStore(), store.CategoryStore(), clock)
 	deskSvc := application.NewDeskService(store.DeskStore(), store.UserStore(), clock)

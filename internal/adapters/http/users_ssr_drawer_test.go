@@ -26,8 +26,8 @@ func mustContain(t *testing.T, body string, values ...string) {
 
 func TestUsersListNormalAndHTMXContracts(t *testing.T) {
 	h := newHarness(t)
-	active := h.createUser(t, "Ana Torres", "ana@example.com", "secret")
-	inactive := h.createUser(t, "Beto Ruiz", "beto@example.com", "secret")
+	active := h.createUser(t, "Ana Torres", "ana@example.com", "s3cret-pass-12")
+	inactive := h.createUser(t, "Beto Ruiz", "beto@example.com", "s3cret-pass-12")
 	inactive.Active = false
 	if err := h.store.UserStore().Update(context.Background(), inactive); err != nil {
 		t.Fatal(err)
@@ -61,7 +61,7 @@ func TestUsersListNormalAndHTMXContracts(t *testing.T) {
 
 func TestUsersEmptyAndIneligibleRows(t *testing.T) {
 	h := newHarness(t)
-	h.createUser(t, "Ana", "ana@example.com", "secret")
+	h.createUser(t, "Ana", "ana@example.com", "s3cret-pass-12")
 	peer := seedUserRole(t, h.store, "Peer Admin", "peer-admin@tkt.test", domain.RoleAdmin)
 	empty := h.get(t, "/users?status=deactivated", true).Body.String()
 	mustContain(t, empty, "No deactivated users.", "All <span>3</span>", "Deactivated <span>0</span>")
@@ -74,8 +74,8 @@ func TestUsersEmptyAndIneligibleRows(t *testing.T) {
 
 func TestUsersDrawerGETUpdateAndFailureContracts(t *testing.T) {
 	h := newHarness(t)
-	target := h.createUser(t, "Ana Torres", "ana@example.com", "secret")
-	other := h.createUser(t, "Bea Smith", "bea@example.com", "secret")
+	target := h.createUser(t, "Ana Torres", "ana@example.com", "s3cret-pass-12")
+	other := h.createUser(t, "Bea Smith", "bea@example.com", "s3cret-pass-12")
 	path := "/users/" + strconv.FormatInt(target.ID, 10) + "/edit"
 	normal := h.get(t, path+"?status=active", false)
 	if normal.Code != http.StatusOK || normal.Header().Get("Vary") != "HX-Request" {
@@ -166,7 +166,7 @@ func postUsersFormWithService(t *testing.T, h *harness, users *application.UserS
 func TestUsersHTMX403OperationFailureDrawerContract(t *testing.T) {
 	h := newHarness(t)
 	target := seedUserRole(t, h.store, "Peer Admin", "peer-admin@tkt.test", domain.RoleAdmin)
-	other := h.createUser(t, "Unrelated", "unrelated@tkt.test", "secret")
+	other := h.createUser(t, "Unrelated", "unrelated@tkt.test", "s3cret-pass-12")
 	path := "/users/" + strconv.FormatInt(target.ID, 10) + "/edit"
 	form := url.Values{
 		"name":   {"Attempted Name"},
@@ -230,7 +230,7 @@ func TestUsersHTMX404StaleUpdateDrawerContract(t *testing.T) {
 
 func TestUsersDrawerLifecycleSubmitter(t *testing.T) {
 	h := newHarness(t)
-	target := h.createUser(t, "Ana", "ana@example.com", "secret")
+	target := h.createUser(t, "Ana", "ana@example.com", "s3cret-pass-12")
 	path := "/users/" + strconv.FormatInt(target.ID, 10) + "/edit"
 	form := url.Values{"name": {"Ana"}, "email": {"ana@example.com"}, "role": {"agent"}, "active": {"true", "false"}}
 	rec := h.postForm(t, path, form, false)
@@ -255,8 +255,8 @@ func TestUsersDrawerDowngradeNoGeneric500(t *testing.T) {
 	if err := h.store.DeskStore().Create(ctx, desk); err != nil {
 		t.Fatal(err)
 	}
-	target := h.createUser(t, "Nico Agent", "nico@example.com", "secret")
-	peer := h.createUser(t, "Bea Peer", "bea@example.com", "secret")
+	target := h.createUser(t, "Nico Agent", "nico@example.com", "s3cret-pass-12")
+	peer := h.createUser(t, "Bea Peer", "bea@example.com", "s3cret-pass-12")
 	if err := h.store.DeskStore().AddMember(ctx, desk.ID, target.ID, time.Now()); err != nil {
 		t.Fatal(err)
 	}

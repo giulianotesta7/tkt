@@ -17,7 +17,7 @@ import (
 
 // userForm builds a valid create-user form; mod may override fields.
 func userForm(mod func(url.Values)) url.Values {
-	f := url.Values{"name": {"Ana Torres"}, "email": {"ana@example.com"}, "password": {"secret"}}
+	f := url.Values{"name": {"Ana Torres"}, "email": {"ana@example.com"}, "password": {"s3cret-pass-12"}}
 	if mod != nil {
 		mod(f)
 	}
@@ -28,8 +28,8 @@ func userForm(mod func(url.Values)) url.Values {
 // their status.
 func TestUsersIndexRenders(t *testing.T) {
 	h := newHarness(t)
-	h.createUser(t, "Ana Torres", "ana@example.com", "secret")
-	beto := h.createUser(t, "Beto", "beto@example.com", "secret")
+	h.createUser(t, "Ana Torres", "ana@example.com", "s3cret-pass-12")
+	beto := h.createUser(t, "Beto", "beto@example.com", "s3cret-pass-12")
 	beto.Active = false
 	if err := h.store.UserStore().Update(context.Background(), beto); err != nil {
 		t.Fatalf("deactivate beto: %v", err)
@@ -64,22 +64,22 @@ func TestUserCreateSuccess(t *testing.T) {
 	if !u.Active {
 		t.Error("new users must be active by default")
 	}
-	if strings.Contains(u.PasswordHash, "secret") {
+	if strings.Contains(u.PasswordHash, "s3cret-pass-12") {
 		t.Error("password must not be stored in plaintext")
 	}
 	// The real hash authenticates (login spec).
-	if cookie := h.loginCookie(t, "ana@example.com", "secret"); cookie == "" {
+	if cookie := h.loginCookie(t, "ana@example.com", "s3cret-pass-12"); cookie == "" {
 		t.Error("new user must be able to log in")
 	}
 }
 
 func TestUserCreateDeniedForNonAdmin(t *testing.T) {
 	h := newHarness(t)
-	user, err := h.users.Create(t.Context(), *h.admin, application.CreateUserInput{Name: "User", Email: "user@tkt.test", Password: "secret"})
+	user, err := h.users.Create(t.Context(), *h.admin, application.CreateUserInput{Name: "User", Email: "user@tkt.test", Password: "s3cret-pass-12"})
 	if err != nil {
 		t.Fatalf("create user: %v", err)
 	}
-	session := h.loginCookie(t, user.Email, "secret")
+	session := h.loginCookie(t, user.Email, "s3cret-pass-12")
 	if session == "" {
 		t.Fatal("user login must succeed")
 	}
@@ -93,7 +93,7 @@ func TestUserCreateDeniedForNonAdmin(t *testing.T) {
 // a 409 and the message is re-rendered (create-user spec).
 func TestUserCreateDuplicateEmail409(t *testing.T) {
 	h := newHarness(t)
-	h.createUser(t, "Ana", "ana@example.com", "secret")
+	h.createUser(t, "Ana", "ana@example.com", "s3cret-pass-12")
 
 	rec := h.postForm(t, "/users", userForm(nil), false)
 
@@ -123,7 +123,7 @@ func TestUserCreateValidation422(t *testing.T) {
 // TestUserEditFormPrefilled proves GET /users/{id}/edit pre-fills the form.
 func TestUserEditFormPrefilled(t *testing.T) {
 	h := newHarness(t)
-	ana := h.createUser(t, "Ana Torres", "ana@example.com", "secret")
+	ana := h.createUser(t, "Ana Torres", "ana@example.com", "s3cret-pass-12")
 
 	rec := h.get(t, "/users/"+strconv.FormatInt(ana.ID, 10)+"/edit", false)
 
@@ -140,7 +140,7 @@ func TestUserEditFormPrefilled(t *testing.T) {
 // changes use the dedicated endpoint.
 func TestUserUpdateSuccess(t *testing.T) {
 	h := newHarness(t)
-	ana := h.createUser(t, "Ana", "ana@example.com", "secret")
+	ana := h.createUser(t, "Ana", "ana@example.com", "s3cret-pass-12")
 
 	form := url.Values{
 		"name":   {"Ana Torres"},
@@ -158,12 +158,12 @@ func TestUserUpdateSuccess(t *testing.T) {
 	if u.Name != "Ana Torres" {
 		t.Errorf("name = %q, want Ana Torres", u.Name)
 	}
-	rec = h.postForm(t, "/users/"+strconv.FormatInt(ana.ID, 10)+"/password", url.Values{"password": {"new-secret"}}, false)
+	rec = h.postForm(t, "/users/"+strconv.FormatInt(ana.ID, 10)+"/password", url.Values{"password": {"new-s3cret-12"}}, false)
 	wantRedirect(t, rec, http.StatusSeeOther, "/users/"+strconv.FormatInt(ana.ID, 10)+"/edit")
-	if cookie := h.loginCookie(t, "ana.torres@example.com", "new-secret"); cookie == "" {
+	if cookie := h.loginCookie(t, "ana.torres@example.com", "new-s3cret-12"); cookie == "" {
 		t.Error("the new password must authenticate")
 	}
-	if cookie := h.loginCookie(t, "ana.torres@example.com", "secret"); cookie != "" {
+	if cookie := h.loginCookie(t, "ana.torres@example.com", "s3cret-pass-12"); cookie != "" {
 		t.Error("the old password must no longer authenticate")
 	}
 }
@@ -172,8 +172,8 @@ func TestUserUpdateSuccess(t *testing.T) {
 // rejected 409 (update-user spec).
 func TestUserUpdateDuplicateEmail409(t *testing.T) {
 	h := newHarness(t)
-	h.createUser(t, "Ana", "ana@example.com", "secret")
-	beto := h.createUser(t, "Beto", "beto@example.com", "secret")
+	h.createUser(t, "Ana", "ana@example.com", "s3cret-pass-12")
+	beto := h.createUser(t, "Beto", "beto@example.com", "s3cret-pass-12")
 
 	// Rename beto to ana's email: uniqueness applies to the new email.
 	form := url.Values{"name": {"Beto"}, "email": {"ana@example.com"}, "active": {"on"}}
@@ -192,8 +192,8 @@ func TestUserUpdateDuplicateEmail409(t *testing.T) {
 // request with the old token is redirected to login and the row is gone.
 func TestUserDeactivateKillsSessions(t *testing.T) {
 	h := newHarness(t)
-	beto := h.createUser(t, "Beto", "beto@example.com", "secret")
-	betoSession := h.loginCookie(t, "beto@example.com", "secret")
+	beto := h.createUser(t, "Beto", "beto@example.com", "s3cret-pass-12")
+	betoSession := h.loginCookie(t, "beto@example.com", "s3cret-pass-12")
 	if betoSession == "" {
 		t.Fatal("beto must log in first")
 	}
@@ -224,7 +224,7 @@ func TestUserDeactivateKillsSessions(t *testing.T) {
 // (user-deletion spec).
 func TestUserDeleteUnreferenced(t *testing.T) {
 	h := newHarness(t)
-	ana := h.createUser(t, "Ana", "ana@example.com", "secret")
+	ana := h.createUser(t, "Ana", "ana@example.com", "s3cret-pass-12")
 
 	rec := h.postForm(t, "/users/"+strconv.FormatInt(ana.ID, 10)+"/delete", url.Values{}, false)
 
@@ -238,8 +238,8 @@ func TestUserDeleteUnreferenced(t *testing.T) {
 // sweeps their sessions and succeeds (only ticket references block).
 func TestUserDeleteWithLiveSession(t *testing.T) {
 	h := newHarness(t)
-	ana := h.createUser(t, "Ana", "ana@example.com", "secret")
-	_ = h.loginCookie(t, "ana@example.com", "secret")
+	ana := h.createUser(t, "Ana", "ana@example.com", "s3cret-pass-12")
+	_ = h.loginCookie(t, "ana@example.com", "s3cret-pass-12")
 
 	rec := h.postForm(t, "/users/"+strconv.FormatInt(ana.ID, 10)+"/delete", url.Values{}, false)
 
@@ -250,7 +250,7 @@ func TestUserDeleteWithLiveSession(t *testing.T) {
 // rejected 409 with the message (referenced-user spec).
 func TestUserDeleteReferenced409(t *testing.T) {
 	h := newHarness(t)
-	beto := h.createUser(t, "Beto", "beto@example.com", "secret")
+	beto := h.createUser(t, "Beto", "beto@example.com", "s3cret-pass-12")
 	assigned := h.seedTicket(t, "Assigned ticket", nil)
 	h.assignTicket(t, assigned.ID, beto.ID)
 
@@ -627,13 +627,13 @@ func TestUserEditOwnsRoleStatusAndPasswordWorkflows(t *testing.T) {
 		t.Fatalf("former role endpoint = %d, want 405", rec.Code)
 	}
 
-	rec = h.postForm(t, "/users/"+strconv.FormatInt(member.ID, 10)+"/password", url.Values{"password": {"new-secret"}}, false)
+	rec = h.postForm(t, "/users/"+strconv.FormatInt(member.ID, 10)+"/password", url.Values{"password": {"new-s3cret-12"}}, false)
 	wantRedirect(t, rec, http.StatusSeeOther, editPath)
-	if strings.Contains(rec.Body.String(), "new-secret") {
+	if strings.Contains(rec.Body.String(), "new-s3cret-12") {
 		t.Error("password response must not echo plaintext")
 	}
 	stored, err = h.store.UserStore().GetByID(context.Background(), member.ID)
-	if err != nil || !application.VerifyPassword(stored.PasswordHash, "new-secret") {
+	if err != nil || !application.VerifyPassword(stored.PasswordHash, "new-s3cret-12") {
 		t.Errorf("dedicated password endpoint must update only the password hash: user=%+v err=%v", stored, err)
 	}
 }

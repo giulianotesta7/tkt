@@ -1235,6 +1235,29 @@ type OrganizationStore interface {
 	SetOrganization(ctx context.Context, org domain.Organization) error
 }
 
+// PasswordSettingsStore persists the instance password policy (issue #414,
+// S1/S4): the two switches that remove the self-service password paths, and the
+// minimum length every NEW password obeys.
+//
+// It is a port of its own rather than three more methods on SettingsStore for
+// the same reason OrganizationStore and SigninStore are: its readers are the
+// password write paths and the sign-in page, so widening SettingsStore would
+// force every settings fake and every settings-only caller to carry the
+// password policy as well.
+type PasswordSettingsStore interface {
+	// GetPasswordSettings returns the stored policy. It NEVER fails for
+	// configuration reasons: absent rows answer DefaultPasswordSettings, an
+	// unparseable or out-of-band minimum reads back the default 12, and an
+	// unparseable switch reads back ON — a hand-edited database degrades to
+	// the shipped policy instead of dropping every password surface.
+	GetPasswordSettings(ctx context.Context) (PasswordSettings, error)
+	// SetPasswordSettings writes the switches and the minimum. The three values
+	// are one configuration, so implementations MUST store them in ONE
+	// transaction: an administrator's save is either entirely applied or not at
+	// all, never half of it.
+	SetPasswordSettings(ctx context.Context, settings PasswordSettings) error
+}
+
 // SigninStore persists the sign-in page's customization (issue #383, S9/S10):
 // the text facts as keyed settings rows — the highlighted rows as one JSON array
 // decoded defensively — and the background image as a settings_blobs row, since

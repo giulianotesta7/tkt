@@ -85,7 +85,7 @@ test.describe("Ticket on hold", () => {
     await page.setViewportSize({ width: 1280, height: 800 });
     const suffix = Date.now().toString(36).slice(2, 8);
     const requesterEmail = `on-hold-${suffix}@tkt.test`;
-    const requesterPassword = "Secret123!";
+    const requesterPassword = "Secret123!42";
     const requesterName = `Rosa Hold ${suffix}`;
 
     await loginAsSeeded(page);

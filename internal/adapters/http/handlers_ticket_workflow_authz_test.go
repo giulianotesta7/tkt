@@ -108,7 +108,7 @@ func TestTicketWorkflow_Authz_AssigneeFormDeniedNonAssignee(t *testing.T) {
 	h.publishFormWorkflow(t, cat.ID, domain.FormActorAssignee,
 		domain.FormField{Key: "env", Label: "Environment", Kind: domain.FieldShortText, Required: true})
 
-	assignee := h.createUser(t, "Assignee Bob", "bob@tkt.test", "secret")
+	assignee := h.createUser(t, "Assignee Bob", "bob@tkt.test", "s3cret-pass-12")
 	tkt := h.seedTicket(t, "assignee form", func(in *application.CreateTicketInput) { in.CategoryID = cat.ID })
 	h.assignTicket(t, tkt.ID, assignee.ID)
 	id := strconv.FormatInt(tkt.ID, 10)
@@ -146,7 +146,7 @@ func TestTicketWorkflow_Authz_ManualTaskDeniedNonAssignee(t *testing.T) {
 		ManualTask: &domain.ManualTaskStep{Instructions: "inspect the server"},
 	}})
 
-	assignee := h.createUser(t, "Assignee Carol", "carol@tkt.test", "secret")
+	assignee := h.createUser(t, "Assignee Carol", "carol@tkt.test", "s3cret-pass-12")
 	tkt := h.seedTicket(t, "manual task", func(in *application.CreateTicketInput) { in.CategoryID = cat.ID })
 	h.assignTicket(t, tkt.ID, assignee.ID)
 	id := strconv.FormatInt(tkt.ID, 10)

@@ -295,7 +295,7 @@ test.describe("Structural — seeded canonical screens", () => {
       await page.goto(base() + "/users/new");
       await page.getByLabel(/^name$/i).fill(seededUserName);
       await page.getByLabel(/^email$/i).fill(seededUserEmail);
-      await page.getByLabel(/^password$/i).fill("Secret123!");
+      await page.getByLabel(/^password$/i).fill("Secret123!42");
       await assertHtmxSwap(
         page,
         async () => {
