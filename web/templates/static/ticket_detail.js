@@ -506,6 +506,211 @@
     });
   }
 
+  // ---------------------------------------------------------------------
+  // Saved replies in the composer (issue #418).
+  //
+  // The button opens a list the server already filled for this ticket, so
+  // inserting a reply costs no request: the text lands at the caret of the
+  // comment box and stays editable. The list is placed from the button's own
+  // box and clamped to the viewport, because the tools row wraps and a fixed
+  // offset would push the popover off a phone screen.
+  //
+  // Contracts this section keeps: #261 — it only writes into #comment-body,
+  // which keeps its preserve handle, so a swap never loses the draft; and the
+  // form's native multipart submission — nothing here submits, and Enter in the
+  // search field is intercepted before the browser's implicit submission.
+  // ---------------------------------------------------------------------
+  const savedRepliesRoot = () => {
+    const root = document.querySelector("[data-saved-replies]");
+    return root instanceof Element ? root : null;
+  };
+
+  const savedRepliesPopover = (root) => {
+    const popover = root.querySelector(".comment-saved-replies-popover");
+    return popover instanceof HTMLElement ? popover : null;
+  };
+
+  const savedRepliesIsOpen = (root) => {
+    const popover = root ? savedRepliesPopover(root) : null;
+    return Boolean(popover && !popover.hidden);
+  };
+
+  const savedRepliesButtons = (root) =>
+    Array.from(root.querySelectorAll(".comment-saved-replies-option")).filter(
+      (option) => !option.hidden,
+    );
+
+  const closeSavedReplies = (restoreFocus) => {
+    const root = savedRepliesRoot();
+    if (!root) return;
+    const popover = savedRepliesPopover(root);
+    const toggle = root.querySelector("[data-saved-replies-open]");
+    if (popover) popover.hidden = true;
+    if (toggle) toggle.setAttribute("aria-expanded", "false");
+    if (!restoreFocus) return;
+    const body = document.getElementById("comment-body");
+    if (body instanceof HTMLTextAreaElement) body.focus();
+  };
+
+  // placeSavedReplies positions the popover under the button, or above it when
+  // there is no room below, and keeps it inside the viewport at any width.
+  const placeSavedReplies = (root, toggle, popover) => {
+    const margin = 8;
+    const gap = 6;
+    const button = toggle.getBoundingClientRect();
+    const width = Math.min(360, window.innerWidth - margin * 2);
+    popover.style.width = width + "px";
+    popover.style.left =
+      Math.min(Math.max(margin, button.left), window.innerWidth - width - margin) + "px";
+    const height = popover.getBoundingClientRect().height;
+    const below = button.bottom + gap;
+    popover.style.top =
+      (below + height + margin <= window.innerHeight
+        ? below
+        : Math.max(margin, button.top - gap - height)) + "px";
+  };
+
+  const filterSavedReplies = (root) => {
+    const search = root.querySelector("[data-saved-replies-search]");
+    const query = search instanceof HTMLInputElement ? search.value.trim().toLowerCase() : "";
+    let visible = 0;
+    for (const group of root.querySelectorAll(".comment-saved-replies-group")) {
+      let shown = 0;
+      for (const option of group.querySelectorAll(".comment-saved-replies-option")) {
+        option.hidden = query !== "" && !option.textContent.toLowerCase().includes(query);
+        if (!option.hidden) shown++;
+      }
+      group.hidden = shown === 0;
+      visible += shown;
+    }
+    const empty = root.querySelector("[data-saved-replies-empty]");
+    if (empty instanceof HTMLElement) empty.hidden = visible !== 0;
+  };
+
+  const openSavedReplies = (root) => {
+    const popover = savedRepliesPopover(root);
+    const toggle = root.querySelector("[data-saved-replies-open]");
+    if (!popover || !toggle) return;
+    closePicker(false);
+    toggle.setAttribute("aria-expanded", "true");
+    popover.hidden = false;
+    const search = root.querySelector("[data-saved-replies-search]");
+    if (search instanceof HTMLInputElement) {
+      search.value = "";
+      filterSavedReplies(root);
+      placeSavedReplies(root, toggle, popover);
+      search.focus();
+      return;
+    }
+    placeSavedReplies(root, toggle, popover);
+    const first = savedRepliesButtons(root)[0];
+    if (first) first.focus();
+  };
+
+  // insertSavedReply writes the reply at the caret and leaves the caret after
+  // it, so a second insertion continues where the first ended. The text is the
+  // preview's own content — the server already replaced the placeholders — and
+  // the input event is dispatched so anything listening to the draft sees it.
+  const insertSavedReply = (option) => {
+    const body = document.getElementById("comment-body");
+    const preview = option.querySelector(".comment-saved-replies-preview");
+    if (!(body instanceof HTMLTextAreaElement) || !preview) return;
+    const text = preview.textContent;
+    const start = typeof body.selectionStart === "number" ? body.selectionStart : body.value.length;
+    const end = typeof body.selectionEnd === "number" ? body.selectionEnd : start;
+    body.value = body.value.slice(0, start) + text + body.value.slice(end);
+    closeSavedReplies(false);
+    body.focus();
+    const caret = start + text.length;
+    body.setSelectionRange(caret, caret);
+    body.dispatchEvent(new Event("input", { bubbles: true }));
+  };
+
+  // moveSavedReplies walks the visible options, so the highlight follows the
+  // filter. Enter on an option is never intercepted: activating the focused
+  // button is the explicit act, exactly like the property pickers.
+  const moveSavedReplies = (root, step) => {
+    const visible = savedRepliesButtons(root);
+    if (visible.length === 0) return;
+    const current = visible.indexOf(document.activeElement);
+    const next = current < 0 ? 0 : (current + step + visible.length) % visible.length;
+    visible[next].focus();
+  };
+
+  document.addEventListener("click", (event) => {
+    const target = event.target;
+    if (!(target instanceof Element)) return;
+    const root = savedRepliesRoot();
+    if (!root) return;
+    const toggle = target.closest("[data-saved-replies-open]");
+    if (toggle) {
+      if (savedRepliesIsOpen(root)) closeSavedReplies(true);
+      else openSavedReplies(root);
+      return;
+    }
+    const option = target.closest(".comment-saved-replies-option");
+    if (option && root.contains(option)) {
+      insertSavedReply(option);
+      return;
+    }
+    if (savedRepliesIsOpen(root) && !root.contains(target)) closeSavedReplies(false);
+  });
+
+  document.addEventListener(
+    "keydown",
+    (event) => {
+      const target = event.target;
+      const root = savedRepliesRoot();
+      if (!(target instanceof Element) || !root || !savedRepliesIsOpen(root)) return;
+      if (!root.contains(target)) return;
+      if (event.key === "Escape") {
+        event.preventDefault();
+        event.stopPropagation();
+        closeSavedReplies(true);
+        return;
+      }
+      const inSearch = target.classList.contains("comment-saved-replies-search");
+      if (event.key === "ArrowDown") {
+        event.preventDefault();
+        moveSavedReplies(root, 1);
+        return;
+      }
+      if (event.key === "ArrowUp") {
+        event.preventDefault();
+        if (inSearch) return;
+        moveSavedReplies(root, -1);
+        return;
+      }
+      // Enter in the search field filters, it never submits the composer.
+      if (event.key === "Enter" && inSearch) {
+        event.preventDefault();
+        const first = savedRepliesButtons(root)[0];
+        if (first) first.focus();
+      }
+    },
+    true,
+  );
+
+  document.addEventListener("input", (event) => {
+    const target = event.target;
+    if (!(target instanceof Element) || !target.classList.contains("comment-saved-replies-search"))
+      return;
+    const root = savedRepliesRoot();
+    if (root) filterSavedReplies(root);
+  });
+
+  // A whole-detail swap replaces the composer, so an open popover must not
+  // survive it: the freshly rendered one starts hidden, and a resize (a phone
+  // turned sideways) re-clamps the one that is open.
+  document.addEventListener("htmx:afterSettle", () => closeSavedReplies(false));
+  window.addEventListener("resize", () => {
+    const root = savedRepliesRoot();
+    if (!root || !savedRepliesIsOpen(root)) return;
+    const popover = savedRepliesPopover(root);
+    const toggle = root.querySelector("[data-saved-replies-open]");
+    if (popover && toggle) placeSavedReplies(root, toggle, popover);
+  });
+
   const initialize = () => {
     syncAfterSwap();
     foldProperties();

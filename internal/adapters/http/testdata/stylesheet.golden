@@ -488,6 +488,46 @@
   .comment-internal{margin:0}
   .comment-submit{margin-left:auto}
   .comment-attachment-hint{margin:0}
+  .comment-saved-replies{display:inline-flex}
+  .comment-saved-replies-popover{position:fixed;z-index:60;display:flex;flex-direction:column;gap:2px;padding:8px;border:1px solid var(--line-strong);border-radius:12px;background:var(--card);box-shadow:var(--elevation-raised)}
+  .comment-saved-replies-popover[hidden]{display:none}
+  .comment-saved-replies-search{width:100%;height:32px;padding:0 10px;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--ink);font:inherit;font-size:13px}
+  .comment-saved-replies-search:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 2px var(--accent-soft)}
+  .comment-saved-replies-groups{display:flex;flex-direction:column;gap:2px;max-height:280px;overflow-y:auto}
+  .comment-saved-replies-group{display:flex;flex-direction:column;gap:2px}
+  .comment-saved-replies-group[hidden]{display:none}
+  .comment-saved-replies-group-label{margin:6px 8px 2px;color:var(--muted);font-size:12px;font-weight:500}
+  .comment-saved-replies-option{display:block;width:100%;padding:7px 8px;border:0;border-radius:8px;background:transparent;font:inherit;text-align:left;cursor:pointer}
+  .comment-saved-replies-option[hidden]{display:none}
+  .comment-saved-replies-option:hover,.comment-saved-replies-option:focus-visible{background:var(--hover)}
+  .comment-saved-replies-option:focus-visible{outline:3px solid var(--accent);outline-offset:-1px}
+  .comment-saved-replies-title{display:block;color:var(--ink);font-size:13px;font-weight:500}
+  .comment-saved-replies-preview{display:block;color:var(--muted);font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .comment-saved-replies-empty{margin:6px 8px;color:var(--muted);font-size:12px}
+  .comment-saved-replies-foot{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:4px;padding:6px 8px 2px;border-top:1px solid var(--line);color:var(--muted);font-size:12px}
+  .saved-replies-screen{max-width:900px}
+  .saved-replies-head{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:14px}
+  .saved-replies-tabs{display:flex;align-items:flex-end;gap:4px;margin-bottom:12px;border-bottom:1px solid var(--line);flex-wrap:wrap}
+  .saved-replies-tab{padding:9px 12px;border-bottom:2px solid transparent;color:var(--muted);font-size:13px}
+  .saved-replies-tab:hover{color:var(--ink);text-decoration:none}
+  .saved-replies-tab[aria-selected=true]{color:var(--ink);border-color:var(--ink-strong);font-weight:500}
+  .saved-replies-scope{margin:0 0 12px}
+  .saved-replies-editor{margin-bottom:14px}
+  .saved-replies-editor textarea{min-height:120px}
+  .saved-replies-editor-actions{display:flex;align-items:center;justify-content:flex-end;gap:8px;margin-top:12px}
+  .saved-replies-placeholders{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-top:8px}
+  .saved-replies-placeholders .help{margin:0}
+  .saved-replies-placeholder{height:26px;padding:0 8px;border:1px solid var(--line-strong);border-radius:6px;background:var(--card);color:var(--muted);font:inherit;font-size:12px;cursor:pointer}
+  .saved-replies-placeholder:hover{color:var(--ink)}
+  .saved-replies-list{border:1px solid var(--line);border-radius:12px;background:var(--card)}
+  .saved-replies-row{display:flex;align-items:flex-start;gap:12px;padding:12px 14px;border-bottom:1px solid var(--line)}
+  .saved-replies-row:last-child{border-bottom:0}
+  .saved-replies-row-text{flex:1 1 auto;min-width:0}
+  .saved-replies-row-title{display:block;color:var(--ink);font-size:13px;font-weight:500}
+  .saved-replies-row-preview{margin:2px 0 0;color:var(--muted);font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .saved-replies-row-actions{display:flex;align-items:center;gap:6px;flex:0 0 auto}
+  .saved-replies-delete{margin:0}
+  .saved-replies-empty{margin:0;padding:16px 14px;color:var(--muted);font-size:13px}
   .resolution-confirmation{background:color-mix(in srgb,var(--green-soft) 30%,var(--card));border-top:3px solid var(--green)}
   .resolution-confirmation h2{display:flex;align-items:center;gap:6px;color:var(--ink-strong);font-size:13px;letter-spacing:0;text-transform:none}
   .resolution-confirmation h2 svg{color:var(--green);flex:0 0 auto}

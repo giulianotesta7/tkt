@@ -57,6 +57,11 @@ type TicketHandlers struct {
 	// reading is judged against (issue #382). Unset leaves listData.Now zero,
 	// so every fixture and golden keeps rendering the absolute instant.
 	clock domain.Clock
+	// savedReplies is the OPTIONAL composer picker (issue #418). Unset means
+	// the detail renders no saved-reply picker at all, so a handler built
+	// without the service (a focused test, an out-of-band render) behaves
+	// exactly as before wiring; WithCannedReplies turns it on.
+	savedReplies *application.CannedReplyService
 }
 
 // NewTicketHandlers wires the ticket routes against the ticket, comment,
@@ -114,6 +119,16 @@ func (h *TicketHandlers) WithClock(clock domain.Clock) *TicketHandlers {
 	return h
 }
 
+// WithCannedReplies wires the composer's saved-reply picker (issue #418). It
+// follows the fluent shape of WithClock, so the constructor keeps the
+// positional signature its existing call sites depend on. A nil or unset
+// service renders no picker: the comment form is byte-identical to the one
+// without saved replies.
+func (h *TicketHandlers) WithCannedReplies(replies *application.CannedReplyService) *TicketHandlers {
+	h.savedReplies = replies
+	return h
+}
+
 // Register mounts the ticket routes (D9 method+path patterns). Task 5.4
 // covers list + create; 5.5 registers the detail/edit/transition/comment
 // routes on the same handlers.
@@ -148,11 +163,16 @@ func (h *TicketHandlers) Register(mux *http.ServeMux) {
 // highlights the active section and the operator chip shows the session
 // user.
 type pageData struct {
-	NavActive            string
-	CurrentUser          domain.User
-	CanManageUsers       bool
-	CanManageSettings    bool
-	CanManageDesks       bool
+	NavActive         string
+	CurrentUser       domain.User
+	CanManageUsers    bool
+	CanManageSettings bool
+	CanManageDesks    bool
+	// CanUseSavedReplies reports whether the rail offers the saved-reply
+	// manager (issue #418): the internal-comment capability, which is what a
+	// role that works inside a ticket holds. Presentation only; every
+	// saved-reply route checks the capability again.
+	CanUseSavedReplies   bool
 	CanManageCategories  bool
 	CanGrantAdmin        bool
 	UsersAssets          bool
@@ -176,6 +196,10 @@ type pageData struct {
 	// the phone fold of the properties panel. It is set only where the detail
 	// page is built, so no other surface downloads it.
 	TicketDetailAssets bool
+	// SavedRepliesAssets loads the saved-reply manager's script (issue #418):
+	// the placeholder chips and the delete confirmation. It is set only on the
+	// manager screen, so no other surface downloads it.
+	SavedRepliesAssets bool
 	// CreateAssets loads the ticket-creation script (issue #391): the category
 	// picker that enhances the native select into a searchable, grouped listbox,
 	// and the service catalog's live card filter. It is set only on the two
@@ -221,6 +245,7 @@ func pageDataFrom(r *http.Request, nav string) pageData {
 		CanManageUsers:      caps.Require(application.CapManageUsers),
 		CanManageSettings:   caps.Require(application.CapManageSettings),
 		CanManageDesks:      caps.Require(application.CapManageDesks),
+		CanUseSavedReplies:  caps.Require(application.CapCommentInternal),
 		CanManageCategories: caps.Require(application.CapManageCategories),
 		CanGrantAdmin:       caps.Require(application.CapGrantAdmin),
 		InternalCommentBg:   internalCommentBgFrom(r.Context()),
@@ -1858,6 +1883,13 @@ type detailData struct {
 	// Timeline entry, so both lists are already filtered by the visibility the
 	// actor may read: a requester never receives a staff-only file.
 	Attachments []domain.Attachment
+	// SavedReplies is the composer's saved-reply picker (issue #418): the actor's
+	// own replies and the shared replies of the desks they belong to, with the
+	// placeholders already filled for THIS ticket. It is nil for a requester and
+	// for a ticket with no composer, so the picker renders exactly where a staff
+	// member can insert a reply, and no reply of a desk they do not belong to is
+	// ever part of it.
+	SavedReplies *application.CannedReplyPickerView
 }
 
 // QueueHref is the detail's "← Queue" target: the validated list return href
@@ -2032,6 +2064,23 @@ func (h *TicketHandlers) detailDataFor(r *http.Request, id int64) (detailData, i
 			entry.Attachments = commentFiles[entry.Comment.ID]
 		}
 	}
+	// The composer renders on an open ticket, plus the resolved carve-out for
+	// its own requester; the saved-reply picker follows the composer, because a
+	// reply can only be inserted where a comment can be written.
+	canComment := !closed || (view.Ticket.State == domain.StateResolved && requester)
+	// The composer's saved replies (issue #418): STAFF ONLY, and only when the
+	// service is wired. A requester never triggers the read at all, so their
+	// detail page never touches the saved-reply store and the picker cannot
+	// leak. The picker is the service's answer for THIS ticket: the actor's own
+	// replies and the desks they belong to, placeholders already filled.
+	var savedReplies *application.CannedReplyPickerView
+	if h.savedReplies != nil && canReadInternal && canComment {
+		picker, pickerErr := h.savedReplies.ForTicket(r.Context(), actor, view.Ticket)
+		if pickerErr != nil {
+			return detailData{}, statusFor(pickerErr), pickerErr
+		}
+		savedReplies = picker
+	}
 	queueOrigin := r.Referer()
 	// HTMX mutations refer to the detail URL, not the original queue. The
 	// inherited header survives whole-detail swaps, including error renders.
@@ -2059,13 +2108,14 @@ func (h *TicketHandlers) detailDataFor(r *http.Request, id int64) (detailData, i
 		CanTransition: application.NewPolicy().Capabilities(actor.Role).Require(application.CapEditTicket),
 		Closed:        closed,
 		CanConfirm:    view.Ticket.State == domain.StateResolved && requester,
-		CanComment:    !closed || (view.Ticket.State == domain.StateResolved && requester),
+		CanComment:    canComment,
 		Pending:       pending,
 		Claim:         h.claimFor(r, id, actor),
 		SLA:           slaPanel,
 		RequesterView: actor.Role == domain.RoleUser,
 		BackHref:      listReturnHref(queueOrigin, r.Host),
 		Attachments:   creationFiles,
+		SavedReplies:  savedReplies,
 	}, 0, nil
 }
 

@@ -4,6 +4,10 @@
   attachments become a drop zone wrapping the same file input (click or drag;
   the script only lists the chosen names), and Reply is the submit. The request
   is today's native POST of the same fields, answered by the same 303.
+
+  The saved-reply picker (issue #418) sits beside the attachments zone for a
+  staff actor. It adds no form control and no field: the form keeps the same
+  method, action, enctype and the same two preserve handles.
 */}}
 {{define "comment_form"}}
 <form class="card comment-form" method="post" action="/tickets/{{.View.Ticket.ID}}/comments" enctype="multipart/form-data">
@@ -18,7 +22,7 @@
       <span>{{t "tickets.comment.attachments"}}</span>
       <span class="comment-dropzone-files" data-dropzone-files></span>
       <input type="file" id="comment-attachments" name="attachments" multiple accept=".png,.jpg,.jpeg,.gif,.webp,.pdf,.docx,.xlsx,.pptx,.txt,.csv,.log,.zip">
-    </label>
+    </label>{{if .SavedReplies}}{{template "saved_replies_picker" .SavedReplies}}{{end}}
 {{if .CanCommentInternal}}    <div class="checkbox-field comment-internal">
       <label for="comment-internal"><input id="comment-internal" type="checkbox" name="internal" value="1" hx-preserve="true"> {{t "tickets.comment.internal"}}</label>{{/* #308: the visibility control is preserved under the same id handle as the draft, so a swap keeps text and intent together. Guarded by CanCommentInternal: the preserve handle only exists when the server renders the control. */}}
     </div>

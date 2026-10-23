@@ -758,6 +758,79 @@ func TestGoldenCommentForm(t *testing.T) {
 	goldenFile(t, "comment_form", renderGolden(t, "tickets_show", "comment_form", fixtureDetailData(), true))
 }
 
+// fixtureSavedReplies is the composer's saved-reply picker for the detail
+// fixture (issue #418): the actor's own reply and one shared with the desk the
+// ticket belongs to, both already filled for this ticket.
+func fixtureSavedReplies() *application.CannedReplyPickerView {
+	owner := int64(1)
+	desk := int64(2)
+	return &application.CannedReplyPickerView{
+		Mine: []domain.CannedReply{{
+			ID: 1, Title: "Looking into it", OwnerUserID: &owner,
+			Body: "Hi Ana Torres, thanks for reaching out about TKT-1. I am looking into it now.",
+		}},
+		Desks: []application.CannedReplyGroup{{
+			DeskID: desk, DeskName: "Service desk",
+			Replies: []domain.CannedReply{{
+				ID: 2, Title: "Need more details", DeskID: &desk,
+				Body: "Hi Ana Torres, to move TKT-1 forward we need a screenshot of the error.",
+			}},
+		}},
+	}
+}
+
+// TestGoldenCommentFormSavedReplies freezes the composer's picker: the button
+// beside the attachments zone, the two groups the server filled, and the footer
+// that leads to the manager screen.
+func TestGoldenCommentFormSavedReplies(t *testing.T) {
+	data := fixtureDetailData()
+	data.SavedReplies = fixtureSavedReplies()
+	goldenFile(t, "comment_form_saved_replies", renderGolden(t, "tickets_show", "comment_form", data, true))
+}
+
+// fixtureRepliesData freezes the saved-reply manager (issue #418) on the desk
+// tab, with the editor open on a refused submission, so one snapshot holds the
+// tab strip, the read-only split, the editor and its placeholders, the list rows
+// and the inline error. readOnly is the member's view of the same desk.
+func fixtureRepliesData(readOnly bool) savedRepliesData {
+	ana := domain.User{ID: 1, Name: "Ana Torres", Email: "ana@example.com", Active: true, CreatedAt: goldenT0}
+	owner := int64(1)
+	desk := int64(2)
+	view := &application.CannedReplyManagerView{
+		Mine: []domain.CannedReply{{
+			ID: 1, Title: "Looking into it", OwnerUserID: &owner,
+			Body: "Hi {requester}, thanks for reaching out about {ticket}. I am looking into it now.",
+		}},
+		Desks: []application.CannedReplyGroup{{
+			DeskID: desk, DeskName: "Service desk", Editable: !readOnly,
+			Replies: []domain.CannedReply{{
+				ID: 2, Title: "Need more details", DeskID: &desk,
+				Body: "Hi {requester}, to move {ticket} forward we need a screenshot of the error.",
+			}},
+		}},
+	}
+	tabs := savedReplyTabs(i18n.New(i18n.Default), view)
+	tab := savedReplyTabFor(tabs, desk)
+	page := pageData{NavActive: "replies", CurrentUser: ana, CanUseSavedReplies: true}
+	return newSavedRepliesData(page, tabs, tab, savedReplyEditor{Open: !readOnly, DeskID: desk}, "")
+}
+
+// TestGoldenReplies freezes the manager screen as an administrator sees it: the
+// editor posts to the desk route it belongs to.
+func TestGoldenReplies(t *testing.T) {
+	data := fixtureRepliesData(false)
+	data.Editor = savedReplyEditor{Open: true, DeskID: 2, Body: "Hi {requester}, send us the error text."}
+	data.Error = "the title must be from 1 to 120 characters"
+	goldenFullPage(t, "replies", renderGolden(t, "replies", "", data, false))
+}
+
+// TestGoldenRepliesReadOnly freezes the same desk tab as a member of that desk
+// sees it: no way to add, edit or delete, and the notice that says who can.
+func TestGoldenRepliesReadOnly(t *testing.T) {
+	data := fixtureRepliesData(true)
+	goldenFullPage(t, "replies_readonly", renderGolden(t, "replies", "", data, false))
+}
+
 func TestGoldenTimeline(t *testing.T) {
 	goldenFile(t, "timeline", renderGolden(t, "tickets_show", "timeline", fixtureDetailData(), true))
 }
