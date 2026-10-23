@@ -186,7 +186,16 @@ func (h *TicketHandlers) suggestCategories(w http.ResponseWriter, r *http.Reques
 
 // catalogSuggestions answers the two-step catalog's Suggested group for the query
 // the requester typed. An empty query suggests nothing: there is no text to read.
-func (h *TicketHandlers) catalogSuggestions(r *http.Request, query string, entries []catalogCategoryEntry) []suggestionView {
+// The catalog hands over every card it shows, including the disabled ones, so the
+// categories that cannot run are dropped here, as suggestionEntries does for the
+// live fragment: a suggestion is never a link the create guard would refuse.
+func (h *TicketHandlers) catalogSuggestions(r *http.Request, query string, catalog []catalogCategoryEntry) []suggestionView {
+	entries := make([]catalogCategoryEntry, 0, len(catalog))
+	for _, entry := range catalog {
+		if !entry.Unavailable {
+			entries = append(entries, entry)
+		}
+	}
 	if !h.suggestionsEnabled(r) || strings.TrimSpace(query) == "" || len(entries) == 0 {
 		return nil
 	}

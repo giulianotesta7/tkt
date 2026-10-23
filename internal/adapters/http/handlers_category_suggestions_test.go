@@ -777,3 +777,40 @@ func TestCategorySuggestionTrySentences(t *testing.T) {
 		})
 	}
 }
+
+// TestCategorySuggestionsTwoStepCatalogNeverSuggestsACategoryThatCannotRun pins
+// the server-rendered half of the offer rule: a published category that cannot
+// run keeps its disabled card and is never a Suggested link, exactly as the live
+// fragment already guarantees.
+func TestCategorySuggestionsTwoStepCatalogNeverSuggestsACategoryThatCannotRun(t *testing.T) {
+	h := newHarness(t)
+	mux := suggestionHarness(t, h)
+	suggestionCatalog(t, h)
+	catalog := application.NewCatalogService(h.store.CatalogStore(), h.store.CategoryStore(), h.clock)
+	department, err := catalog.CreateDepartmentFor(t.Context(), *h.admin, "Engineering", "Engineering department")
+	if err != nil {
+		t.Fatalf("create department: %v", err)
+	}
+	desk, err := catalog.CreateDeskFor(t.Context(), *h.admin, department.ID, "Plotting")
+	if err != nil {
+		t.Fatalf("create desk: %v", err)
+	}
+	broken, err := h.categories.CreateWithKeywordsFor(t.Context(), *h.admin, "Plotters", "Large format plotters", "plotter, gran formato", desk.ID)
+	if err != nil {
+		t.Fatalf("create category: %v", err)
+	}
+	h.publishWorkflow(t, broken.ID, assignToDeskDef(desk.ID))
+	if err := h.desks.RemoveMember(t.Context(), *h.admin, desk.ID, h.admin.ID); err != nil {
+		t.Fatalf("remove member: %v", err)
+	}
+	enableLocalSuggestions(t, h)
+	setCreationMode(t, h, application.TicketCreationTwoStep)
+
+	_, page := getPath(t, h, mux, "/tickets/new?q=el+plotter+de+gran+formato+no+anda")
+	if strings.Contains(page, `data-suggest-category="`+strconv.FormatInt(broken.ID, 10)+`"`) {
+		t.Errorf("the two-step catalog must not suggest the category that cannot run, got: %s", page)
+	}
+	if !strings.Contains(page, "Plotters") {
+		t.Errorf("the category that cannot run must keep its disabled card, got: %s", page)
+	}
+}
