@@ -51,6 +51,12 @@ const emailSendInterval = 15 * time.Second
 // one setting read and stops there.
 const holdExpiryInterval = 5 * time.Minute
 
+// alertInterval is how often the operational alerts (issue #408) look for
+// tickets that crossed an SLA threshold or stopped moving. The conditions are
+// measured in hours and working days, so a five-minute cadence is already far
+// finer than the rules it serves, and it matches the hold expiry next to it.
+const alertInterval = 5 * time.Minute
+
 func envOr(key, fallback string) string {
 	if v := os.Getenv(key); v != "" {
 		return v
@@ -148,6 +154,11 @@ func main() {
 	// SLA service with the ticket use cases, so an automatic close shifts the
 	// paused resolution commitment exactly as a manual resume does.
 	holdExpiry := application.NewHoldExpiryService(store.HoldExpiryStore(), store.TicketUnitOfWork(), store.UserStore(), slaSvc, store.SettingsStore(), clock)
+	// Issue #408: the operational alerts tell the assigned agent that a ticket
+	// reached an SLA threshold or stopped moving. They are ordinary
+	// notifications, so the bell and the opt-in email sender above carry them
+	// without a second delivery path.
+	alerts := application.NewAlertService(store.AlertStore(), store.AlertUnitOfWork(), store.UserStore(), store.SettingsStore(), clock)
 	// Attachment downloads (issue #366): read-only, authorised per request by
 	// the actor's ticket scope and the visibility of what the file belongs to.
 	attachmentSvc := application.NewAttachmentService(store.TicketStore(), store.AttachmentStore())
@@ -227,6 +238,18 @@ func main() {
 	defer func() {
 		stop()
 		<-holdExpiryDone
+	}()
+
+	// Issue #408: the alert pass follows the same background shape and is
+	// likewise stopped and awaited before the database closes.
+	alertsDone := make(chan struct{})
+	go func() {
+		defer close(alertsDone)
+		alerts.Run(ctx, alertInterval)
+	}()
+	defer func() {
+		stop()
+		<-alertsDone
 	}()
 
 	select {
