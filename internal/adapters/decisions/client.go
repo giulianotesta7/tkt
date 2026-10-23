@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	neturl "net/url"
 	"strings"
 	"time"
 
@@ -123,6 +124,11 @@ func (c *Client) Choose(ctx context.Context, cfg application.DecisionModelConfig
 		return application.DecisionChoiceAnswer{}, fmt.Errorf("decisions: encode request: %w", err)
 	}
 
+	// The settings validation already requires https, but the key must not
+	// leave over cleartext even when a stored endpoint bypassed it.
+	if endpoint, err := neturl.Parse(cfg.EndpointURL); err != nil || endpoint.Scheme != "https" || endpoint.Host == "" {
+		return application.DecisionChoiceAnswer{}, errors.New("decisions: the endpoint must be an https URL with a host")
+	}
 	url := strings.TrimRight(cfg.EndpointURL, "/") + decisionsPath
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
 	if err != nil {

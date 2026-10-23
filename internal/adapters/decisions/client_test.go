@@ -244,3 +244,25 @@ func TestClientRefusesRedirectsAndBoundsTheTimeout(t *testing.T) {
 		t.Fatalf("client timeout = %v, want 2s (S5)", NewClient().http.Timeout)
 	}
 }
+
+// TestChooseRefusesAnEndpointThatIsNotHTTPS proves the key never leaves over
+// cleartext even when the stored endpoint bypassed the settings validation (a
+// hand-edited database): the request is refused before the transport is called.
+func TestChooseRefusesAnEndpointThatIsNotHTTPS(t *testing.T) {
+	for _, endpoint := range []string{"http://api.example.com/v1", "ftp://api.example.com/v1", "/v1", "https:///v1"} {
+		rec := &recordedRequest{}
+		client := respondWith(rec, http.StatusOK, `{"answers":[]}`, nil)
+		cfg := testConfig()
+		cfg.EndpointURL = endpoint
+		_, err := client.Choose(context.Background(), cfg, testRequest())
+		if err == nil {
+			t.Fatalf("Choose(%q) = nil error, want a refusal", endpoint)
+		}
+		if rec.calls != 0 {
+			t.Fatalf("Choose(%q) called the transport %d times, want 0", endpoint, rec.calls)
+		}
+		if strings.Contains(err.Error(), testAPIKey) {
+			t.Fatalf("Choose(%q) error carries the key: %v", endpoint, err)
+		}
+	}
+}
