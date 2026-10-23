@@ -95,7 +95,8 @@ func (s *CategorySuggestionService) Enabled(ctx context.Context) bool {
 // and no engine is called at all. With the decision engine, anything that keeps
 // the model from answering — a transport failure, the two-second bound, a
 // refusal, a doubt, an unreadable key — answers the LOCAL engine's suggestions
-// instead, and the requester notices nothing (S5).
+// instead, and the requester notices nothing (S5). A model that answers that no
+// category fits suggests nothing at all.
 func (s *CategorySuggestionService) Suggest(ctx context.Context, in SuggestInput) ([]SuggestedCategory, error) {
 	if s == nil || s.settings == nil || len(in.Offers) == 0 {
 		return nil, nil
@@ -134,8 +135,10 @@ func (s *CategorySuggestionService) requesterSuggestions(ctx context.Context, te
 }
 
 // modelSuggestions asks the decision engine. ok is false whenever the caller
-// must fall back to the local engine, which is every error the suggester
-// reports (S5).
+// must fall back to the local engine: a failure, a refusal, the two-second
+// bound or a doubt (S5). A "none of these" answer is not one of them: the model
+// answered, so ok is true with no suggestion and the requester chooses from the
+// catalog.
 //
 // The matched words of a model suggestion are the ones the local engine finds
 // for the same category: the model reports probabilities, not the words that
@@ -146,6 +149,9 @@ func (s *CategorySuggestionService) modelSuggestions(ctx context.Context, cfg Ca
 		Model:       cfg.Model,
 		APIKey:      cfg.APIKey,
 	}, text, offers)
+	if errors.Is(err, ErrDecisionNoCategoryFits) {
+		return nil, true
+	}
 	if err != nil {
 		return nil, false
 	}
@@ -287,7 +293,8 @@ type TryResult struct {
 // Every reason the model cannot answer — a blank endpoint or model, an
 // unreadable stored key, a transport failure, the two-second bound, a refusal —
 // reports the local engine's answer with FellBack set, which is exactly what a
-// requester would have got (S5).
+// requester would have got (S5). A "none of these" answer reports no candidate
+// and no fallback, because the requester would see nothing.
 func (s *CategorySuggestionService) Try(ctx context.Context, actor domain.User, in TryInput) (TryResult, error) {
 	if err := requireManageSettings(actor, "category suggestion settings are not permitted"); err != nil {
 		return TryResult{}, err

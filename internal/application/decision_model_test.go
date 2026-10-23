@@ -93,7 +93,6 @@ func TestDecisionSuggesterFallsBackToTheLocalEngine(t *testing.T) {
 		"port error":            {err: errors.New("connection reset")},
 		"timeout":               {err: context.DeadlineExceeded},
 		"refusal":               {answer: DecisionChoiceAnswer{Refused: true}},
-		"none chosen":           {answer: DecisionChoiceAnswer{Choice: "none", Probabilities: map[string]float64{"none": 0.99}}},
 		"top below threshold":   {answer: DecisionChoiceAnswer{Choice: "1", Probabilities: map[string]float64{"1": 0.49, "2": 0.4}}},
 		"unknown choice":        {answer: DecisionChoiceAnswer{Choice: "99", Probabilities: map[string]float64{"1": 0.9}}},
 		"unknown value":         {answer: DecisionChoiceAnswer{Choice: "1", Probabilities: map[string]float64{"1": 0.9, "99": 0.1}}},
@@ -184,5 +183,23 @@ func TestDecisionErrorsNeverFormatTheKey(t *testing.T) {
 		if got := fmt.Sprintf(verb, err); strings.Contains(got, "sk-test-key") {
 			t.Errorf("%s leaks the api key: %s", verb, got)
 		}
+	}
+}
+
+// TestDecisionSuggesterReportsThatNoCategoryFits pins the "none" answer: the
+// model says none of the offered categories fits, which is an answer and not a
+// failure, so it is reported apart from ErrDecisionUnavailable and the caller
+// suggests nothing instead of asking the local engine.
+func TestDecisionSuggesterReportsThatNoCategoryFits(t *testing.T) {
+	f := &fakeDecisionModel{answer: DecisionChoiceAnswer{Choice: "none", Probabilities: map[string]float64{"none": 0.99}}}
+	got, err := NewDecisionCategorySuggester(f).Suggest(context.Background(), decisionConfig(), "anything", decisionCategories())
+	if !errors.Is(err, ErrDecisionNoCategoryFits) {
+		t.Fatalf("Suggest error = %v, want ErrDecisionNoCategoryFits", err)
+	}
+	if errors.Is(err, ErrDecisionUnavailable) {
+		t.Fatalf("Suggest error = %v, must not read as unavailable (that would fall back)", err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("Suggest = %+v, want no suggestion", got)
 	}
 }

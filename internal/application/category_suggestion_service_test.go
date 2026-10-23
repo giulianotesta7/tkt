@@ -223,7 +223,6 @@ func TestSuggestFallsBackToTheLocalEngineWhenTheModelFails(t *testing.T) {
 	}{
 		{name: "transport failure", err: errors.New("dial tcp: connection refused")},
 		{name: "refusal", answer: DecisionChoiceAnswer{Refused: true}},
-		{name: "no category fits", answer: DecisionChoiceAnswer{Choice: "none", Confidence: 0.9}},
 		{name: "below the decision threshold", answer: DecisionChoiceAnswer{Choice: "4", Probabilities: map[string]float64{"4": 0.3, "7": 0.2}, Confidence: 0.3}},
 	}
 	for _, tc := range cases {
@@ -492,5 +491,50 @@ func TestTryIsGatedOnCapManageSettings(t *testing.T) {
 		}); err != nil {
 			t.Errorf("%s: Try = %v, want permission", actor.Role, err)
 		}
+	}
+}
+
+// TestSuggestAnswersNothingWhenTheModelSaysNoCategoryFits pins the owner's rule
+// for the "none" answer: the requester sees no suggestion and picks from the
+// catalog, and the local engine is not asked to guess instead.
+func TestSuggestAnswersNothingWhenTheModelSaysNoCategoryFits(t *testing.T) {
+	f := newSuggestionServiceFixture()
+	f.storedModelConfig()
+	f.model.answer = DecisionChoiceAnswer{Choice: "none", Probabilities: map[string]float64{"none": 0.95, "7": 0.05}}
+	f.index.candidates = []CategorySuggestion{{CategoryID: 7, Score: 5, MatchedWords: []string{"wifi"}}}
+
+	got, err := f.svc.Suggest(context.Background(), SuggestInput{Title: "no anda el wifi", Offers: suggestionOffers()})
+	if err != nil {
+		t.Fatalf("Suggest: %v", err)
+	}
+	if f.model.calls != 1 {
+		t.Fatalf("the decision model was called %d times, want 1", f.model.calls)
+	}
+	if len(got) != 0 {
+		t.Fatalf("Suggest = %+v, want nothing when no category fits", got)
+	}
+}
+
+// TestTryReportsNoMatchWhenTheModelSaysNoCategoryFits keeps the Try it box
+// honest about the same rule: no candidate and no fallback.
+func TestTryReportsNoMatchWhenTheModelSaysNoCategoryFits(t *testing.T) {
+	f := newSuggestionServiceFixture()
+	f.storedModelConfig()
+	f.model.answer = DecisionChoiceAnswer{Choice: "none", Probabilities: map[string]float64{"none": 0.95}}
+	f.index.candidates = []CategorySuggestion{{CategoryID: 4, Score: 6}}
+
+	result, err := f.svc.Try(context.Background(), suggestionAdmin(), TryInput{
+		Settings: CategorySuggestionSettingsInput{Engine: CategorySuggestionModel, EndpointURL: "https://api.example.com/v1", Model: "gpt-4.1-mini", APIKey: "sk-typed"},
+		Text:     "tengo una consulta",
+		Offers:   suggestionOffers(),
+	})
+	if err != nil {
+		t.Fatalf("Try: %v", err)
+	}
+	if result.FellBack {
+		t.Error("FellBack = true, want the model's own answer")
+	}
+	if len(result.Candidates) != 0 {
+		t.Errorf("Candidates = %+v, want none", result.Candidates)
 	}
 }

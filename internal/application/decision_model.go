@@ -38,7 +38,7 @@ const (
 )
 
 // decisionNoneChoice is the value of the offered "none of these" choice: a
-// model that picks it says no category fits, so the local engine answers.
+// model that picks it says no category fits, so nothing is suggested.
 const decisionNoneChoice = "none"
 
 // decisionNoneDescription is the copy the model reads for the "none" choice. It
@@ -46,10 +46,16 @@ const decisionNoneChoice = "none"
 const decisionNoneDescription = "None of these categories fits the request."
 
 // ErrDecisionUnavailable reports that the decision engine cannot answer this
-// request: the model failed, timed out, refused, chose no category, answered
-// with an unknown choice, or was not confident enough. The caller then takes the
+// request: the model failed, timed out, refused, answered with an unknown
+// choice, or was not confident enough. The caller then takes the
 // suggestion from the local engine (S5).
 var ErrDecisionUnavailable = errors.New("decision model unavailable")
+
+// ErrDecisionNoCategoryFits reports that the model answered "none of these":
+// no offered category fits the request. It is an answer, not a failure, so it
+// does not wrap ErrDecisionUnavailable: the caller suggests nothing and the
+// requester chooses from the catalog, instead of asking the local engine.
+var ErrDecisionNoCategoryFits = errors.New("decision model: no category fits")
 
 // DecisionModelConfig is what one decision-model call needs. String keeps the
 // API key out of every log line and error.
@@ -128,8 +134,8 @@ func NewDecisionCategorySuggester(model DecisionModel) *DecisionCategorySuggeste
 // Suggest returns up to three suggestions ordered by probability. It answers
 // ErrDecisionUnavailable, and no suggestion, in every case where the caller must
 // fall back to the local engine: a port error, the two-second timeout, a
-// refusal, the "none" choice, an unknown value, or a best probability below the
-// decision threshold.
+// refusal, an unknown value, or a best probability below the decision
+// threshold. The "none" choice answers ErrDecisionNoCategoryFits instead.
 func (s *DecisionCategorySuggester) Suggest(ctx context.Context, cfg DecisionModelConfig, text string, categories []DecisionCategory) ([]DecisionSuggestion, error) {
 	if len(categories) == 0 {
 		return nil, fmt.Errorf("%w: no categories to choose from", ErrDecisionUnavailable)
@@ -153,7 +159,7 @@ func (s *DecisionCategorySuggester) Suggest(ctx context.Context, cfg DecisionMod
 	case answer.Refused:
 		return nil, fmt.Errorf("%w: the model refused to answer", ErrDecisionUnavailable)
 	case answer.Choice == decisionNoneChoice:
-		return nil, fmt.Errorf("%w: no category fits the request", ErrDecisionUnavailable)
+		return nil, ErrDecisionNoCategoryFits
 	}
 	chosenID, ok := byValue[answer.Choice]
 	if !ok {
