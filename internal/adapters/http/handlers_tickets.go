@@ -959,6 +959,7 @@ func (h *TicketHandlers) requesterSection(r *http.Request, f filterState, actor 
 	// SLA stays STAFF-ONLY (issue #211): the requester rows carry no SLA row,
 	// and no SLA read is made for them.
 	data.Tickets = wrapTicketRows(res.Tickets, nil, nil, changed)
+	data.HasChanged = anyChanged(data.Tickets)
 	return data, nil
 }
 

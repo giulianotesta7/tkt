@@ -52,7 +52,7 @@
     <h2 id="assigned-tickets-title" class="agent-queue-title">{{t "tickets.agent.assigned"}} <span class="agent-queue-count">· {{.Assigned.Total}}</span></h2>
 {{template "agent_section_table" .Assigned}}
 {{if .Done.Total}}    <details class="agent-fold"{{if gt .Done.Page 1}} open{{end}}>
-      <summary>{{t "tickets.agent.done"}} <span class="agent-fold-count">· {{.Done.Total}}</span>{{if .Done.HasChanged}}<span class="agent-fold-changed"><span class="visually-hidden">{{t "tickets.agent.done_has_updates"}}</span></span>{{end}}</summary>
+      <summary>{{t "tickets.agent.done"}} <span class="agent-fold-count">· {{.Done.Total}}</span>{{if .Done.HasChanged}}<span class="fold-changed"><span class="visually-hidden">{{t "tickets.list.has_updates"}}</span></span>{{end}}</summary>
 {{template "agent_section_table" .Done}}
     </details>{{end}}
   </section>

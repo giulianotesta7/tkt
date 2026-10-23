@@ -350,7 +350,7 @@ func TestTicketVisitAgentWorkMarksRowsAndTheFoldedSection(t *testing.T) {
 	wantMarked(t, queueRow(t, body, open.ID), true)
 	wantMarked(t, queueRow(t, body, quiet.ID), false)
 	fold := agentFold(t, body)
-	if !strings.Contains(fold, `class="agent-fold-changed"`) || !strings.Contains(fold, `>Has updates<`) {
+	if !strings.Contains(fold, `class="fold-changed"`) || !strings.Contains(fold, `>Has updates<`) {
 		t.Errorf("the folded section does not show its dot: %s", fold)
 	}
 	if strings.Contains(fold, "updated") {
@@ -361,7 +361,90 @@ func TestTicketVisitAgentWorkMarksRowsAndTheFoldedSection(t *testing.T) {
 		t.Fatalf("opening the resolved ticket: status = %d", rec.Code)
 	}
 	fold = agentFold(t, h.getAs(t, "/tickets", session).Body.String())
-	if strings.Contains(fold, "agent-fold-changed") || strings.Contains(fold, "Has updates") {
+	if strings.Contains(fold, "fold-changed") || strings.Contains(fold, "Has updates") {
 		t.Errorf("the folded section keeps its dot after the visit: %s", fold)
+	}
+}
+
+// reqRow returns the rendered <li> of one ticket in the requester's list.
+func reqRow(t *testing.T, body string, ticketID int64) string {
+	t.Helper()
+	marker := fmt.Sprintf(`data-href="/tickets/%d">`, ticketID)
+	at := strings.Index(body, marker)
+	if at < 0 {
+		t.Fatalf("ticket %d is not in the requester list: %.400s", ticketID, body)
+	}
+	start := strings.LastIndex(body[:at], "<li ")
+	end := strings.Index(body[at:], "</li>")
+	if start < 0 || end < 0 {
+		t.Fatalf("ticket %d's row is not a list item: %.400s", ticketID, body[at:])
+	}
+	return body[start : at+end]
+}
+
+// The requester's "My tickets" marks what staff changed in every section,
+// "Needs your action" included, and the folded "Closed" line shows only a dot
+// with hidden text while a closed ticket inside it changed.
+func TestTicketVisitRequesterListMarksEverySection(t *testing.T) {
+	h := newHarness(t)
+	requester := seedUserRole(t, h.store, "Carol", "carol@visits.test", domain.RoleUser)
+	session := h.sessionFor(t, requester.ID)
+	own := func(title string) int64 {
+		tk := h.seedTicket(t, title, nil)
+		if _, err := h.rawDB(t).Exec(`UPDATE tickets SET requester_user_id = ? WHERE id = ?`, requester.ID, tk.ID); err != nil {
+			t.Fatalf("link requester: %v", err)
+		}
+		return tk.ID
+	}
+	waiting := own("printer prints no colour")
+	h.seedTransition(t, waiting, domain.StateInProgress, "")
+	if _, err := h.tickets.PutOnHold(context.Background(), *h.admin, waiting, "which printer?"); err != nil {
+		t.Fatalf("put on hold: %v", err)
+	}
+	open := own("no welcome mail")
+	quiet := own("new laptop")
+	// The Closed section lists closed tickets only. A requester-owned ticket
+	// closes through the requester's own confirmation, so the administrator
+	// closes this one before it is linked to the requester.
+	closedTk := h.seedTicket(t, "wifi password", nil)
+	h.makeLegacy(t, closedTk.ID)
+	h.seedTransition(t, closedTk.ID, domain.StateInProgress, "")
+	h.seedTransition(t, closedTk.ID, domain.StateResolved, "")
+	h.seedTransition(t, closedTk.ID, domain.StateClosed, "")
+	if _, err := h.rawDB(t).Exec(`UPDATE tickets SET requester_user_id = ? WHERE id = ?`, requester.ID, closedTk.ID); err != nil {
+		t.Fatalf("link requester: %v", err)
+	}
+	closed := closedTk.ID
+	if rec := h.getAs(t, fmt.Sprintf("/tickets/%d", quiet), session); rec.Code != http.StatusOK {
+		t.Fatalf("opening the quiet ticket: status = %d", rec.Code)
+	}
+	if _, err := h.comments.Add(context.Background(), *h.admin, open, "on its way", "public"); err != nil {
+		t.Fatalf("add comment: %v", err)
+	}
+
+	body := h.getAs(t, "/tickets", session).Body.String()
+	for _, tc := range []struct {
+		id     int64
+		marked bool
+	}{{waiting, true}, {open, true}, {quiet, false}, {closed, true}} {
+		row := reqRow(t, body, tc.id)
+		if got := strings.Contains(row, `class="req-title req-title-changed"`); got != tc.marked {
+			t.Errorf("ticket %d mark = %v, want %v: %s", tc.id, got, tc.marked, row)
+		}
+		if got := strings.Contains(row, `>Updated since your last visit<`); got != tc.marked {
+			t.Errorf("ticket %d screen-reader text = %v, want %v: %s", tc.id, got, tc.marked, row)
+		}
+	}
+	fold := between(t, body, `<summary class="req-fold-summary"`, "</summary>")
+	if !strings.Contains(fold, `class="fold-changed"`) || !strings.Contains(fold, `>Has updates<`) {
+		t.Errorf("the folded Closed line does not show its dot: %s", fold)
+	}
+
+	if rec := h.getAs(t, fmt.Sprintf("/tickets/%d", closed), session); rec.Code != http.StatusOK {
+		t.Fatalf("opening the closed ticket: status = %d", rec.Code)
+	}
+	fold = between(t, h.getAs(t, "/tickets", session).Body.String(), `<summary class="req-fold-summary"`, "</summary>")
+	if strings.Contains(fold, "fold-changed") || strings.Contains(fold, "Has updates") {
+		t.Errorf("the folded Closed line keeps its dot after the visit: %s", fold)
 	}
 }
