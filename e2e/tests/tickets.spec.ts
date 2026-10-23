@@ -25,17 +25,26 @@ import {
   creationPriorityPicker,
   openCatalogCard,
   pickCreationCategory,
+  resolveUserEditHref,
 } from "./helpers/navigation.js";
 import {
   applyTransition,
   openPicker,
+  pickAssignee,
   pickerButton,
   pickerOption,
   transitionAction,
 } from "./helpers/ticket.js";
 import { waitForExactPost } from "./helpers/network.js";
 import { assertHtmxSwap } from "./helpers/htmx.js";
-import { loginAsSeeded, setSLAEnabled, setTicketCreationMode } from "./helpers/auth.js";
+import {
+  createUserAsAdmin,
+  loginAs,
+  loginAsSeeded,
+  logout,
+  setSLAEnabled,
+  setTicketCreationMode,
+} from "./helpers/auth.js";
 import {
   catalogContentOffset,
   catalogSuggestionRegion,
@@ -1459,6 +1468,111 @@ test.describe("Ticket Lifecycle", () => {
     await assertCanonicalScreen(page, {
       viewport: 1280,
       label: "tickets public comment",
+      url: page.url(),
+      role: "root",
+      consoleErrors: obs.consoleErrors,
+      pageErrors: obs.pageErrors,
+      failedRequests: obs.failedRequests,
+      failedResponses: obs.failedResponses,
+    });
+  });
+
+  test("the queue marks a ticket changed by somebody else until the viewer opens it", async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    const obs = collectObservability(page);
+    await loginAsSeeded(page);
+
+    const suffix = Date.now().toString(36).slice(2, 8);
+    const agent = {
+      name: `Visit Agent ${suffix}`,
+      email: `visit-agent-${suffix}@example.com`,
+      password: "Secret123!",
+    };
+    await createUserAsAdmin(page, agent);
+    // Managed users start as requesters and a requester can only reach their
+    // own tickets, so the "somebody else" of this journey is made an agent.
+    await page.goto(base() + "/users");
+    await page.goto(base() + (await resolveUserEditHref(page, agent.name)));
+    await page.locator('select[name="role"]').selectOption("agent");
+    await page.getByRole("button", { name: /save changes/i }).click();
+    await expect(page).toHaveURL(/\/users$/);
+
+    const title = `Visit mark ${suffix}`;
+    const id = await createTicketViaUi(page, {
+      title,
+      category: "General",
+      priority: "medium",
+    });
+    // The agent has to hold the ticket to be allowed to comment on it.
+    await page.goto(base() + `/tickets/${id}`);
+    await pickAssignee(page, agent.name);
+    await logout(page);
+
+    await loginAs(page, agent.email, agent.password);
+    // The agent's own "My work" marks the ticket the administrator assigned,
+    // because the agent has never opened it.
+    await page.goto(base() + "/tickets");
+    await expect(
+      page.locator(`#agent-ticket-list tr[data-href="/tickets/${id}"] .queue-title-changed`),
+    ).toBeVisible();
+    await page.goto(base() + `/tickets/${id}`);
+    const comment = `Changed by somebody else ${suffix}`;
+    await page.getByLabel(/comment body/i).fill(comment);
+    const posted = waitForExactPost(page, `/tickets/${id}/comments`);
+    await page.getByRole("button", { name: "Reply", exact: true }).click();
+    expect((await posted).status()).toBe(303);
+    await expect(page.locator("#timeline")).toContainText(comment);
+    await logout(page);
+
+    // Back on the viewer's own queue: the ticket somebody else changed carries
+    // the mark — the accent dot before the title, the title at 600 and the
+    // hidden sentence a screen reader announces.
+    await loginAsSeeded(page);
+    await page.goto(base() + "/tickets");
+    const row = page.locator(`#ticket-list tr[data-href="/tickets/${id}"]`);
+    const markedTitle = row.locator(".queue-title-changed");
+    await expect(markedTitle).toBeVisible();
+    await expect(row.locator(".visually-hidden")).toHaveText("Updated since your last visit");
+    const weight = await markedTitle.evaluate((element) => getComputedStyle(element).fontWeight);
+    expect(weight).toBe("600");
+    // The dot wears the same accent the notification center's unread marker
+    // does, read from the token rather than from a hard-coded value.
+    const accent = await page.evaluate(() => {
+      const probe = document.createElement("span");
+      probe.style.backgroundColor = "var(--accent)";
+      document.body.appendChild(probe);
+      const value = getComputedStyle(probe).backgroundColor;
+      probe.remove();
+      return value;
+    });
+    const dot = await markedTitle.evaluate((element) => {
+      const marker = getComputedStyle(element, "::before");
+      return {
+        width: marker.width,
+        height: marker.height,
+        radius: marker.borderRadius,
+        background: marker.backgroundColor,
+      };
+    });
+    expect(dot).toEqual({ width: "6px", height: "6px", radius: "50%", background: accent });
+
+    // Opening the ticket is the visit that clears the mark.
+    await page.goto(base() + `/tickets/${id}`);
+    await expect(page.locator("#ticket-detail")).toBeVisible();
+    await page.goto(base() + "/tickets");
+    await expect(page.locator(`#ticket-list tr[data-href="/tickets/${id}"]`)).toBeVisible();
+    await expect(page.locator(`#ticket-list tr[data-href="/tickets/${id}"]`)).not.toContainText(
+      "Updated since your last visit",
+    );
+    await expect(
+      page.locator(`#ticket-list tr[data-href="/tickets/${id}"] .queue-title-changed`),
+    ).toHaveCount(0);
+
+    await assertCanonicalScreen(page, {
+      viewport: 1280,
+      label: "tickets what's new mark",
       url: page.url(),
       role: "root",
       consoleErrors: obs.consoleErrors,

@@ -174,7 +174,10 @@ func fixtureListData() listData {
 			Ticket: domain.Ticket{ID: 2, Number: 2, Title: "Printer jam", State: domain.StateInProgress, Priority: domain.PriorityHigh, CreatedAt: goldenT1, UpdatedAt: goldenT1},
 			SLA:    &slaRow{State: domain.SLAAtRisk},
 		},
-		{Ticket: domain.Ticket{ID: 1, Number: 1, Title: "Login page down", State: domain.StateNew, Priority: domain.PriorityCritical, CreatedAt: goldenT0, UpdatedAt: goldenT0}},
+		// Issue #415: the second row carries the "changed since your last visit"
+		// mark, so the queue golden freezes the dot's class and the hidden text a
+		// screen reader announces beside the plain row above.
+		{Ticket: domain.Ticket{ID: 1, Number: 1, Title: "Login page down", State: domain.StateNew, Priority: domain.PriorityCritical, CreatedAt: goldenT0, UpdatedAt: goldenT0}, Changed: true},
 	}
 	return listData{
 		pageData:            pageData{NavActive: "tickets", CurrentUser: ana},
