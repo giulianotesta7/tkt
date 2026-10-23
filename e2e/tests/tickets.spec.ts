@@ -36,6 +36,12 @@ import {
 import { waitForExactPost } from "./helpers/network.js";
 import { assertHtmxSwap } from "./helpers/htmx.js";
 import { loginAsSeeded, setSLAEnabled, setTicketCreationMode } from "./helpers/auth.js";
+import {
+  catalogSuggestionSelector,
+  createSuggestableCategory,
+  setCategorySuggestionEngine,
+  singlePageSuggestionSelector,
+} from "./helpers/suggestions.js";
 
 function base(): string {
   if (!activeServer) throw new Error("server not started");
@@ -1850,6 +1856,253 @@ test.describe("Requester creation surfaces (seeded)", () => {
     }
 
     await expect(obs.pageErrors).toEqual([]);
+  });
+});
+
+/**
+ * Issue #416, S2/S3/S4/S7: the same catalog a requester already has, plus up to
+ * three suggested categories built from what they wrote. The engines themselves
+ * — ranking, thresholds, typo correction and the decision model with its
+ * fallback — are Go's (handlers_category_suggestions_test.go,
+ * category_suggestion_service_test.go, category_suggest_index_test.go). These
+ * journeys prove the two pickers: the chips under Category on the single page,
+ * and the Suggested group above the two-step catalog.
+ */
+test.describe("Ticket category suggestions (seeded)", () => {
+  test.beforeAll(async () => {
+    await startServer({ seed: true });
+  });
+  test.afterAll(async () => {
+    await stopServer();
+  });
+
+  test("single-page creation suggests a category from the description and the chip picks it", async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    const obs = collectObservability(page);
+    await loginAsSeeded(page);
+
+    // S7: the feature ships off, and with it off the create form is the form it
+    // has always been — no suggestion container and no suggestion request wired.
+    await page.goto(base() + "/tickets/new");
+    await expect(page.locator(".ticket-create-detail")).toBeVisible();
+    await expect(page.locator(".create-suggestions")).toHaveCount(0);
+    await expect(page.locator('[hx-get^="/tickets/suggestions"]')).toHaveCount(0);
+
+    // A runnable category carrying suggestion keywords is what the local engine
+    // matches, and "On this server" is the engine that reads them.
+    const fixture = await createSuggestableCategory(page, "impresora, tóner");
+    await setCategorySuggestionEngine(page, "local");
+    try {
+      await page.goto(base() + "/tickets/new");
+      const host = page.locator(singlePageSuggestionSelector);
+      await expect(host).toHaveCount(1);
+      const title = `Broken device ${Date.now().toString(36)}`;
+      await page.getByLabel("Title").fill(title);
+
+      // Typing the keyword reaches the fragment over HTMX and swaps the chips
+      // under the Category row: exact endpoint, exact query, 200, no navigation,
+      // no change to the page's chrome.
+      await assertHtmxSwap(
+        page,
+        async () => {
+          await page.getByLabel("Description").fill("the impresora is not working");
+        },
+        {
+          endpoint: (url) => {
+            const parsedURL = new URL(url);
+            return (
+              parsedURL.pathname === "/tickets/suggestions" &&
+              parsedURL.searchParams.get("mode") === "single" &&
+              (parsedURL.searchParams.get("description") ?? "").includes("impresora")
+            );
+          },
+          method: "GET",
+          expectedStatus: 200,
+          hxTarget: singlePageSuggestionSelector,
+        },
+      );
+      await expect(host.locator(".create-suggestions-title")).toHaveText(
+        "Suggested from your description",
+      );
+      const chip = host.locator(".create-suggestion-chip");
+      await expect(chip).toHaveCount(1);
+      await expect(chip.locator(".create-suggestion-chip-name")).toHaveText(fixture.category);
+      await expect(chip.locator(".create-suggestion-chip-desk")).toHaveText(
+        `${fixture.department} · ${fixture.desk}`,
+      );
+
+      // A typo of the keyword still reaches the same category: the engine's
+      // correction is the reason, and the requester only sees the chip.
+      const typoResponse = page.waitForResponse(
+        (response) =>
+          response.request().headers()["hx-request"] === "true" &&
+          response.request().method() === "GET" &&
+          new URL(response.url()).pathname === "/tickets/suggestions" &&
+          (new URL(response.url()).searchParams.get("description") ?? "").includes("impresroa"),
+      );
+      await page.getByLabel("Description").fill("the impresroa is not working");
+      expect((await typoResponse).status()).toBe(200);
+      await expect(page).toHaveURL(base() + "/tickets/new");
+      await expect(host.locator(".create-suggestion-chip-name")).toHaveText(fixture.category);
+
+      // One click picks the category in the picker the form already has: the
+      // native field that submits holds it, and the listbox reads it back.
+      await chip.click();
+      await expect(page.locator('.ticket-create-detail select[name="category_id"]')).toHaveValue(
+        fixture.categoryID,
+      );
+      await expect(creationCategoryPicker(page).locator(".listbox-button")).toContainText(
+        fixture.category,
+      );
+      await expect(chip).toHaveAttribute("aria-pressed", "true");
+      await expect(page).toHaveURL(base() + "/tickets/new");
+
+      // A description that names no category leaves the catalog as it was: the
+      // fragment comes back empty and no suggestion is rendered (S3).
+      await assertHtmxSwap(
+        page,
+        async () => {
+          await page.getByLabel("Description").fill("a completely unrelated request about parking");
+        },
+        {
+          endpoint: (url) => {
+            const parsedURL = new URL(url);
+            return (
+              parsedURL.pathname === "/tickets/suggestions" &&
+              parsedURL.searchParams.get("mode") === "single" &&
+              (parsedURL.searchParams.get("description") ?? "").includes("parking")
+            );
+          },
+          method: "GET",
+          expectedStatus: 200,
+          hxTarget: singlePageSuggestionSelector,
+        },
+      );
+      await expect(host).toHaveText("");
+      await expect(page.locator(".create-suggestion-chip")).toHaveCount(0);
+
+      // The chosen category survived the suggestion refreshes, so the ticket is
+      // created with the category the chip picked.
+      await page.getByRole("button", { name: "Create ticket", exact: true }).click();
+      await expect(page).toHaveURL(/\/tickets$/);
+      const created = page.getByRole("link", { name: title, exact: true });
+      await expect(created).toHaveCount(1);
+      await created.click();
+      await expect(page.locator("#ticket-detail .detail-meta-category")).toContainText(
+        fixture.category,
+      );
+
+      await expect(obs.pageErrors).toEqual([]);
+      await expect(obs.failedResponses).toEqual([]);
+    } finally {
+      await setCategorySuggestionEngine(page, "off");
+    }
+  });
+
+  test("two-step creation suggests a category above the catalog and keeps the departments", async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    const obs = collectObservability(page);
+    await loginAsSeeded(page);
+    await setTicketCreationMode(page, "two_step");
+    const fixture = await createSuggestableCategory(page, "wifi, inalámbrica");
+    await setCategorySuggestionEngine(page, "local");
+    try {
+      await page.goto(base() + "/tickets/new");
+      const catalog = page.locator(".create-catalog");
+      await expect(catalog).toBeVisible();
+      const search = page.locator("[data-create-catalog-search]");
+      const suggested = page.locator(catalogSuggestionSelector);
+      await expect(suggested).toHaveCount(1);
+
+      // The search box accepts a description, and the Suggested group above the
+      // catalog arrives from the same fragment endpoint over HTMX. The host is an
+      // empty live region before the first answer, so it has no box yet.
+      await assertHtmxSwap(
+        page,
+        async () => {
+          await search.fill("wifi is not working");
+        },
+        {
+          endpoint: (url) => {
+            const parsedURL = new URL(url);
+            return (
+              parsedURL.pathname === "/tickets/suggestions" &&
+              parsedURL.searchParams.get("mode") === "two_step" &&
+              (parsedURL.searchParams.get("q") ?? "").includes("wifi")
+            );
+          },
+          method: "GET",
+          expectedStatus: 200,
+          hxTarget: catalogSuggestionSelector,
+          allowEmptyTarget: true,
+        },
+      );
+      await expect(suggested.getByRole("heading", { name: "Suggested" })).toBeVisible();
+      const tile = suggested.locator(".create-card-suggested");
+      await expect(tile).toHaveCount(1);
+      await expect(tile.locator(".create-card-name")).toHaveText(fixture.category);
+      await expect(tile.locator(".create-card-matches")).toHaveText("Matches: wifi");
+      // S3: the departments stay whole under the group, because choosing from the
+      // catalog is still the way to pick a category the engine did not name.
+      expect(
+        await page.locator(".create-catalog-department-group:visible").count(),
+      ).toBeGreaterThan(0);
+      await expect(page.locator(".create-catalog-empty")).toHaveCount(0);
+
+      // A plain category-name search still filters the catalog the way it does
+      // today: only the matching card remains, with its own reason when it cannot
+      // run. It is never suggested, because only runnable categories are offered.
+      await assertHtmxSwap(
+        page,
+        async () => {
+          await search.fill("Unrunnable");
+        },
+        {
+          endpoint: (url) => {
+            const parsedURL = new URL(url);
+            return (
+              parsedURL.pathname === "/tickets/suggestions" &&
+              parsedURL.searchParams.get("mode") === "two_step" &&
+              (parsedURL.searchParams.get("q") ?? "").includes("Unrunnable")
+            );
+          },
+          method: "GET",
+          expectedStatus: 200,
+          hxTarget: catalogSuggestionSelector,
+        },
+      );
+      await expect(suggested).toHaveText("");
+      const unavailable = page.locator(".create-card-unavailable");
+      await expect(unavailable).toBeVisible();
+      await expect(unavailable).toContainText("Unrunnable Requests");
+      await expect(unavailable).toContainText("Unstaffed Desk has no active members");
+      await expect(page.locator(".create-catalog-department-group:visible")).toHaveCount(1);
+
+      // With the feature off the catalog is the catalog: no suggestion group, no
+      // suggestion request, and a description filters to nothing exactly as it
+      // did before the feature existed (S7).
+      await setCategorySuggestionEngine(page, "off");
+      await page.goto(base() + "/tickets/new");
+      await expect(page.locator(catalogSuggestionSelector)).toHaveCount(0);
+      await expect(page.locator('[hx-get^="/tickets/suggestions"]')).toHaveCount(0);
+      await page.locator("[data-create-catalog-search]").fill("wifi is not working");
+      await expect(page.locator(".create-card:visible")).toHaveCount(0);
+      await page.goto(base() + "/tickets/new?q=wifi+is+not+working");
+      await expect(page.locator(".create-catalog-empty")).toContainText(
+        "No categories match your search.",
+      );
+      await expect(page.locator(catalogSuggestionSelector)).toHaveCount(0);
+
+      await expect(obs.pageErrors).toEqual([]);
+      await expect(obs.failedResponses).toEqual([]);
+    } finally {
+      await setCategorySuggestionEngine(page, "off");
+      await setTicketCreationMode(page, "single");
+    }
   });
 });
 

@@ -565,6 +565,87 @@ test.describe("Settings", () => {
     await expect(obs.pageErrors).toEqual([]);
   });
 
+  test("the Category suggestions card starts off, discloses the model fields and persists the engine choice", async ({
+    page,
+  }) => {
+    // Issue #416, S1/S5/S6/S7: one instance setting with three choices. Off is
+    // the shipped state, the decision model is the only choice that needs an
+    // endpoint, a model and a key, and the card states what that choice sends to
+    // the external service and what it never sends.
+    //
+    // The card's "Try it" box is not asserted here: the disclosure script that
+    // reveals it never does, so the browser has no way to run it today. Its POST
+    // contract is Go's (handlers_category_suggestions_test.go).
+    await page.setViewportSize({ width: 1280, height: 800 });
+    const obs = collectObservability(page);
+    await loginAsSeeded(page);
+    await page.goto(base() + "/settings/tickets");
+    const card = page
+      .locator("form")
+      .filter({ has: page.getByRole("heading", { name: "Category suggestions" }) });
+    await expect(card).toHaveCount(1);
+    const off = card.getByRole("radio", { name: /^off\b/i });
+    const onThisServer = card.getByRole("radio", { name: /^on this server\b/i });
+    const decisionModel = card.getByRole("radio", { name: /^decision model\b/i });
+    await expect(off).toBeChecked();
+    await expect(onThisServer).not.toBeChecked();
+    await expect(decisionModel).not.toBeChecked();
+
+    // The model fields are hidden until the model is the chosen engine.
+    const endpoint = card.getByLabel("Endpoint URL", { exact: true });
+    const model = card.getByLabel("Model", { exact: true });
+    const apiKey = card.getByLabel("API key", { exact: true });
+    await expect(endpoint).toBeHidden();
+    await expect(model).toBeHidden();
+    await expect(apiKey).toBeHidden();
+
+    await decisionModel.check();
+    const modelFields = card.locator(".settings-suggestion-model");
+    await expect(modelFields).toBeVisible();
+    await expect(endpoint).toBeVisible();
+    await expect(model).toBeVisible();
+    await expect(apiKey).toBeVisible();
+    await expect(modelFields).toContainText("Sent:");
+    await expect(modelFields).toContainText(
+      "the description and each category's name and description.",
+    );
+    await expect(modelFields).toContainText("Never sent:");
+    await expect(modelFields).toContainText(
+      "the requester's name or email, attachments, or ticket history.",
+    );
+    // The key is never rendered back, so the field is empty and typed as a secret.
+    await expect(apiKey).toHaveValue("");
+    await expect(apiKey).toHaveAttribute("type", "password");
+
+    // Choosing the local engine takes the model fields away again.
+    await onThisServer.check();
+    await expect(modelFields).toBeHidden();
+    await expect(endpoint).toBeHidden();
+    await expect(model).toBeHidden();
+    await expect(apiKey).toBeHidden();
+
+    // Saving is the section's ordinary form submit and the choice survives a
+    // reload, which is what both creation screens read.
+    const save = card.getByRole("button", { name: "Save category suggestions" });
+    await expect(save).toBeVisible();
+    await save.click();
+    await expect(page).toHaveURL(/\/settings\/tickets$/);
+    await expect(page.locator("#save-feedback")).toContainText("Saved");
+    await page.reload();
+    await expect(onThisServer).toBeChecked();
+    await expect(off).not.toBeChecked();
+    await expect(endpoint).toBeHidden();
+
+    // Back to the shipped state, so a later journey inherits the default.
+    await off.check();
+    await save.click();
+    await expect(page).toHaveURL(/\/settings\/tickets$/);
+    await page.reload();
+    await expect(off).toBeChecked();
+
+    await expect(obs.pageErrors).toEqual([]);
+  });
+
   test("switching the interface language re-renders every screen and switching back restores English", async ({
     page,
   }) => {

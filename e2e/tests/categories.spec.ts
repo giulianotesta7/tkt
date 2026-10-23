@@ -1165,6 +1165,63 @@ test.describe("Categories", () => {
     });
   });
 
+  test("a category's suggestion keywords are edited in the drawer and shown again", async ({
+    page,
+  }) => {
+    // Issue #416, S4: the local engine matches what a requester writes against,
+    // among other fields, the words an administrator lists per category. The
+    // field belongs to the category drawer and to nobody else, and it is whoever
+    // manages the catalog who fills it — the same edit the rest of the drawer has.
+    await page.setViewportSize({ width: 1280, height: 800 });
+    const obs = collectObservability(page);
+    await loginAsSeeded(page);
+
+    const name = "Keyword Category " + Date.now().toString(36);
+    await createCategoryViaUi(page, name);
+
+    const openEditDrawer = async () => {
+      const row = catalogCategoryRow(page, name);
+      await expect(row).toHaveCount(1);
+      await row.getByRole("button", { name: /actions for/i }).click();
+      await row.getByRole("menuitem", { name: "Edit category", exact: true }).click();
+      const drawer = page.getByRole("dialog", { name: /Edit category/i });
+      await expect(drawer).toBeVisible();
+      return drawer;
+    };
+
+    const drawer = await openEditDrawer();
+    const keywords = drawer.getByLabel("Keywords for suggestions", { exact: true });
+    await expect(keywords).toHaveValue("");
+    await expect(drawer.locator("#category-keywords-help")).toHaveText(
+      "Words people use for this category. Comma separated; accents and capitals do not matter.",
+    );
+    await keywords.fill("impresora, tóner");
+    await drawer.getByRole("button", { name: /save changes/i }).click();
+    await expect(page).toHaveURL(/\/categories/);
+    await expect(catalogCategoryRow(page, name)).toHaveCount(1);
+
+    // Re-opening the drawer reads the stored words back, which is what an
+    // administrator needs before editing them again. Closing it leaves the plain
+    // catalog for the canonical screen assertion below.
+    const reopened = await openEditDrawer();
+    await expect(reopened.getByLabel("Keywords for suggestions", { exact: true })).toHaveValue(
+      "impresora, tóner",
+    );
+    await reopened.getByRole("button", { name: "Close catalog details", exact: true }).click();
+    await expect(page.getByRole("dialog", { name: /Edit category/i })).toHaveCount(0);
+
+    await assertCanonicalScreen(page, {
+      viewport: 1280,
+      label: "categories suggestion keywords",
+      url: page.url(),
+      role: "root",
+      consoleErrors: obs.consoleErrors,
+      pageErrors: obs.pageErrors,
+      failedRequests: obs.failedRequests,
+      failedResponses: obs.failedResponses,
+    });
+  });
+
   test("category duplicate marks only name, keeps the draft, and saves after Stay", async ({
     page,
   }) => {
