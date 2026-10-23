@@ -79,7 +79,7 @@
   <button class="save-feedback-dismiss" type="button" aria-label="Dismiss confirmation">Dismiss</button>
 </div>
 
-<div class="page-foundation category-workflow-page" hx-on::before-request="if(event.target.matches('.workflow-step-card-link')){var rail=this.querySelector('.workflow-step-rail');if(rail)this.dataset.workflowRailScrollLeft=rail.scrollLeft;this.dataset.workflowBuilderFocus='card'};if(event.target.matches('.workflow-step-menu-actions button'))this.dataset.workflowBuilderFocus='menu';if(event.target.matches('.workflow-add-options button')){this.dataset.workflowBuilderFocus='add'}" hx-on::after-swap="if(event.target.id==='workflow-builder'){var focusMode=this.dataset.workflowBuilderFocus,rail=this.querySelector('.workflow-step-rail');delete this.dataset.workflowBuilderFocus;if(focusMode==='card'&&rail){rail.scrollLeft=Number(this.dataset.workflowRailScrollLeft||0);delete this.dataset.workflowRailScrollLeft};if(focusMode==='add'&&rail)rail.scrollLeft=rail.scrollWidth;if(focusMode){var control=this.querySelector('.workflow-step-card.selected .workflow-step-card-link')||this.querySelector('.workflow-add-step summary,.workflow-add-step button');if(control)control.focus({preventScroll:true})}}">
+<div class="page-foundation category-workflow-page" hx-on::before-request="if(event.target.matches('.workflow-step-card-link')){var rail=this.querySelector('.workflow-step-rail');if(rail)this.dataset.workflowRailScrollTop=rail.scrollTop;this.dataset.workflowBuilderFocus='card'};if(event.target.matches('.workflow-step-menu-actions button'))this.dataset.workflowBuilderFocus='menu';if(event.target.matches('.workflow-add-options button')){this.dataset.workflowBuilderFocus='add'}" hx-on::after-swap="if(event.target.id==='workflow-builder'){var focusMode=this.dataset.workflowBuilderFocus,rail=this.querySelector('.workflow-step-rail');delete this.dataset.workflowBuilderFocus;if(focusMode==='card'&&rail){rail.scrollTop=Number(this.dataset.workflowRailScrollTop||0);delete this.dataset.workflowRailScrollTop};if(focusMode){var control=this.querySelector('.workflow-step-card.selected .workflow-step-card-link')||this.querySelector('.workflow-add-step summary,.workflow-add-step button');if(control){if(focusMode==='add')control.scrollIntoView({block:'nearest'});control.focus({preventScroll:true})}}}">
   <header class="page-header">
     <div>
       <nav class="page-breadcrumb" aria-label="Breadcrumb"><a href="/categories">Catalog</a><span aria-hidden="true"> / </span><span></span></nav>
@@ -91,26 +91,24 @@
       <button class="page-action page-action-primary" type="submit" form="workflow-form" name="action" value="publish">Publish</button>
     </div>
   </header>
-      
+
 <section id="workflow-builder" class="workflow-builder page-panel" aria-labelledby="workflow-builder-title" hx-on::before-swap="if(event.detail.xhr.status === 422 || event.detail.xhr.status === 409){event.detail.shouldSwap = true; event.detail.isError = false}">
-  <form method="post" action="/categories/1/workflow" id="workflow-form" hx-post="/categories/1/workflow" hx-target="#workflow-builder" hx-swap="outerHTML" hx-sync="this:queue last" hx-indicator="#workflow-form" hx-on::before-request="this.setAttribute('aria-busy','true')" hx-on::after-request="this.removeAttribute('aria-busy')">
-    <input type="hidden" name="selected_step_index" value="0">
+  <div class="workflow-builder-head">
+    <p>Select a step to configure it. Drag to reorder.</p>
+    <span class="htmx-indicator spinner" aria-hidden="true"></span>
+  </div>
+
+  <div class="workflow-version-bar">
+    <p class="workflow-live" role="status" aria-live="polite" data-workflow-live>Use Up and Down to change a step position.</p>
+  </div>
+  <form method="post" action="/categories/1/workflow" id="workflow-form" hx-post="/categories/1/workflow" hx-target="#workflow-builder" hx-swap="outerHTML" hx-sync="this:queue last" hx-indicator="#workflow-form" hx-on::before-request="this.setAttribute('aria-busy','true')" hx-on::after-request="this.removeAttribute('aria-busy')"><input type="hidden" name="selected_step_index" value="0">
     <input type="hidden" name="draft_revision" value="0">
     <input type="hidden" name="source_index" value=""><input type="hidden" name="target_index" value=""><button class="visually-hidden" type="submit" name="action" value="reorder" data-workflow-reorder aria-hidden="true" tabindex="-1" formaction="/categories/1/workflow" hx-post="/categories/1/workflow" hx-target="#workflow-builder" hx-swap="outerHTML" hx-include="closest form">Reorder</button>
-    
-    <div class="workflow-builder-head">
-      <div><h2 id="workflow-builder-title">Workflow steps</h2><p>Select a step to configure it. Drag to reorder.</p>
-        
-        
-        </div>
-      <span class="htmx-indicator spinner" aria-hidden="true"></span>
-      <p class="workflow-live" role="status" aria-live="polite" data-workflow-live>Use Up and Down to change a step position.</p>
-    </div>
-    
-    <div class="workflow-rail-wrap">
-      <ol class="workflow-step-rail" aria-label="Workflow steps">
-        <li class="empty compact">No steps yet. Add a step to begin configuration.</li>
-        <li class="workflow-add-step">
+
+    <div class="workflow-builder-panels">
+      <div class="workflow-rail-wrap">
+        <div class="workflow-pane-label"><h2 id="workflow-builder-title">Workflow steps</h2><span class="workflow-pane-count">0 steps</span></div>
+        <ol class="workflow-step-rail" aria-label="Workflow steps"><li class="empty compact">No steps yet. Add a step to begin configuration.</li><li class="workflow-add-step">
 <details class="workflow-add-popover"><summary class="btn ghost">+ Add step</summary><div class="workflow-add-options">
   <button type="submit" name="action" value="add_step" formaction="/categories/1/workflow?add_step_type=manual_task" hx-post="/categories/1/workflow?add_step_type=manual_task" hx-include="closest form" hx-target="#workflow-builder" hx-swap="outerHTML show:none" hx-push-url="false">Give the agent a task</button>
   <button type="submit" name="action" value="add_step" formaction="/categories/1/workflow?add_step_type=assign_to_desk" hx-post="/categories/1/workflow?add_step_type=assign_to_desk" hx-include="closest form" hx-target="#workflow-builder" hx-swap="outerHTML show:none" hx-push-url="false">Send to a desk</button>
@@ -119,9 +117,8 @@
   <button type="submit" name="action" value="add_step" formaction="/categories/1/workflow?add_step_type=close_ticket" hx-post="/categories/1/workflow?add_step_type=close_ticket" hx-include="closest form" hx-target="#workflow-builder" hx-swap="outerHTML show:none" hx-push-url="false">Close the ticket</button>
 </div></details>
 </li>
-      </ol>
-    </div>
-    
+        </ol>
+      </div>    </div>
   </form>
     <dialog id="workflow-remove-step-dialog" data-workflow-remove-dialog aria-labelledby="workflow-remove-step-title" aria-describedby="workflow-remove-step-copy">
       <h2 id="workflow-remove-step-title">Remove this step?</h2>

@@ -1,6 +1,6 @@
 {{define "title"}}{{tf "base.title.screen" (t "workflow.page.title") (brandHelpDesk .Brand)}}{{end}}
 {{define "content"}}
-<div class="page-foundation category-workflow-page" hx-on::before-request="if(event.target.matches('.workflow-step-card-link')){var rail=this.querySelector('.workflow-step-rail');if(rail)this.dataset.workflowRailScrollLeft=rail.scrollLeft;this.dataset.workflowBuilderFocus='card'};if(event.target.matches('.workflow-step-menu-actions button'))this.dataset.workflowBuilderFocus='menu';if(event.target.matches('.workflow-add-options button')){this.dataset.workflowBuilderFocus='add'}" hx-on::after-swap="if(event.target.id==='workflow-builder'){var focusMode=this.dataset.workflowBuilderFocus,rail=this.querySelector('.workflow-step-rail');delete this.dataset.workflowBuilderFocus;if(focusMode==='card'&&rail){rail.scrollLeft=Number(this.dataset.workflowRailScrollLeft||0);delete this.dataset.workflowRailScrollLeft};if(focusMode==='add'&&rail)rail.scrollLeft=rail.scrollWidth;if(focusMode){var control=this.querySelector('.workflow-step-card.selected .workflow-step-card-link')||this.querySelector('.workflow-add-step summary,.workflow-add-step button');if(control)control.focus({preventScroll:true})}}">
+<div class="page-foundation category-workflow-page" hx-on::before-request="if(event.target.matches('.workflow-step-card-link')){var rail=this.querySelector('.workflow-step-rail');if(rail)this.dataset.workflowRailScrollTop=rail.scrollTop;this.dataset.workflowBuilderFocus='card'};if(event.target.matches('.workflow-step-menu-actions button'))this.dataset.workflowBuilderFocus='menu';if(event.target.matches('.workflow-add-options button')){this.dataset.workflowBuilderFocus='add'}" hx-on::after-swap="if(event.target.id==='workflow-builder'){var focusMode=this.dataset.workflowBuilderFocus,rail=this.querySelector('.workflow-step-rail');delete this.dataset.workflowBuilderFocus;if(focusMode==='card'&&rail){rail.scrollTop=Number(this.dataset.workflowRailScrollTop||0);delete this.dataset.workflowRailScrollTop};if(focusMode){var control=this.querySelector('.workflow-step-card.selected .workflow-step-card-link')||this.querySelector('.workflow-add-step summary,.workflow-add-step button');if(control){if(focusMode==='add')control.scrollIntoView({block:'nearest'});control.focus({preventScroll:true})}}}">
   <header class="page-header">
     <div>
       <nav class="page-breadcrumb" aria-label="{{t "workflow.page.breadcrumb_label"}}"><a href="/categories">{{t "base.nav.categories"}}</a><span aria-hidden="true"> / </span><span>{{.CategoryName}}</span></nav>
@@ -12,19 +12,7 @@
       <button class="page-action page-action-primary" type="submit" form="workflow-form" name="action" value="publish">{{t "workflow.page.publish"}}</button>
     </div>
   </header>
-{{if .CloneError}}  <div class="error-banner" role="alert">{{.CloneError}}</div>
-{{end}}{{if .CloneSources}}  <form class="card form-card" method="post" action="/categories/{{.CategoryID}}/workflow/clone">
-    <h2>{{t "workflow.page.clone.heading"}}</h2>
-    <div class="field">
-      <label for="clone-source">{{t "workflow.page.clone.label"}}</label>
-      <select id="clone-source" name="source_category_id" required>
-        <option value="">{{t "workflow.page.clone.choose"}}</option>
-{{range .CloneSources}}        <option value="{{.ID}}">{{.Name}}</option>
-{{end}}      </select>
-    </div>
-    <button class="btn" type="submit">{{t "workflow.page.clone.submit"}}</button>
-  </form>
-{{end}}      {{template "workflow_builder" .}}
+{{template "workflow_builder" .}}
       <dialog id="workflow-dirty-dialog" aria-labelledby="workflow-dirty-dialog-title" aria-describedby="workflow-dirty-dialog-copy">
         <h2 id="workflow-dirty-dialog-title">{{t "workflow.page.dirty.title"}}</h2>
         <p id="workflow-dirty-dialog-copy">{{t "workflow.page.dirty.body"}}</p>

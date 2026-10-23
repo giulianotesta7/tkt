@@ -2123,8 +2123,11 @@ test.describe("Categories", () => {
     await expect(page.locator(".workflow-step-rail")).toBeVisible();
 
     // Ensure workflow builder form carries HTMX contract (complementary evidence)
-    await expect(page.locator("#workflow-builder form")).toHaveAttribute("hx-post", /\/workflow/);
-    await expect(page.locator("#workflow-builder form")).toHaveAttribute(
+    await expect(page.locator("#workflow-builder #workflow-form")).toHaveAttribute(
+      "hx-post",
+      /\/workflow/,
+    );
+    await expect(page.locator("#workflow-builder #workflow-form")).toHaveAttribute(
       "hx-target",
       "#workflow-builder",
     );
@@ -2988,15 +2991,17 @@ test.describe("Categories", () => {
       move_up: async (page) => {
         const card = page.locator(".workflow-step-card").nth(1);
         await openMenu(card.locator(".workflow-step-menu-actions"));
-        await card.getByRole("button", { name: /move left/i }).click();
+        await card.getByRole("button", { name: /move up/i }).click();
       },
       move_down: async (page) => {
         const card = page.locator(".workflow-step-card").first();
         await openMenu(card.locator(".workflow-step-menu-actions"));
-        await card.getByRole("button", { name: /move right/i }).click();
+        await card.getByRole("button", { name: /move down/i }).click();
       },
       reorder: async (page) => {
         // The drag listeners funnel the drop into the hidden reorder submitter.
+        // The sequence is vertical (issue #395, option A), so the pointer crosses
+        // the second card's lower half on the Y axis.
         await page.evaluate(() => {
           const transfer = new DataTransfer();
           const handle = document.querySelectorAll(".workflow-drag-handle")[0];
@@ -3004,7 +3009,7 @@ test.describe("Categories", () => {
           const at = {
             bubbles: true,
             dataTransfer: transfer,
-            clientX: target.getBoundingClientRect().right - 10,
+            clientY: target.getBoundingClientRect().bottom - 10,
           };
           handle.dispatchEvent(
             new DragEvent("dragstart", { bubbles: true, dataTransfer: transfer }),
@@ -3517,6 +3522,119 @@ test.describe("Categories", () => {
     });
   });
 
+  // Issue #395, option A: the approved composition puts the whole step sequence
+  // in a vertical list beside the selected step's editor on a wide viewport, and
+  // stacks the sequence above the editor on a phone. Go freezes the markup and
+  // the stylesheet; only a browser can prove the two panes actually land in
+  // those positions, so this journey measures them.
+  test("workflow builder keeps the step sequence beside the editor and stacks it on a phone (issue #395)", async ({
+    page,
+  }) => {
+    test.setTimeout(90_000);
+    await page.setViewportSize({ width: 1280, height: 800 });
+    const obs = collectObservability(page);
+    await loginAsSeeded(page);
+    const categoryId = await createCategoryViaUi(
+      page,
+      "Lateral " + Date.now().toString(36).slice(2, 8),
+    );
+    const workflowPath = `/categories/${categoryId}/workflow`;
+    await page.goto(base() + workflowPath);
+    await expect(page.locator("#workflow-builder")).toBeVisible();
+
+    // Two steps, so the vertical ordering and the step count are real.
+    for (let i = 0; i < 2; i++) {
+      await page.locator(".workflow-add-step summary").first().click();
+      await page
+        .locator(".workflow-add-options button")
+        .filter({ hasText: "Give the agent a task" })
+        .first()
+        .click();
+      await expect(page.locator(".workflow-add-options")).not.toBeVisible();
+    }
+
+    const rail = page.locator(".workflow-rail-wrap");
+    const editor = page.locator(".workflow-editor-panel");
+    await expect(rail).toBeVisible();
+    await expect(editor).toBeVisible();
+    await expect(page.locator(".workflow-pane-count")).toHaveText("2 steps");
+
+    const railBox = await rail.boundingBox();
+    const editorBox = await editor.boundingBox();
+    if (!railBox || !editorBox) throw new Error("both builder panes must have a box");
+    expect(
+      railBox.x + railBox.width,
+      "the sequence must sit left of the editor",
+    ).toBeLessThanOrEqual(editorBox.x);
+    expect(Math.abs(railBox.y - editorBox.y), "both panes must share a row").toBeLessThan(40);
+
+    // The sequence itself reads top to bottom: the second step starts below the
+    // first, and both start at the same left edge.
+    const cards = page.locator(".workflow-step-card");
+    await expect(cards).toHaveCount(2);
+    const first = await cards.nth(0).boundingBox();
+    const second = await cards.nth(1).boundingBox();
+    if (!first || !second) throw new Error("both step cards must have a box");
+    expect(second.y, "the second step must sit below the first").toBeGreaterThan(
+      first.y + first.height - 1,
+    );
+    expect(Math.abs(first.x - second.x), "the sequence must share a left edge").toBeLessThan(2);
+
+    // The published/draft facts and the clone control share the version bar
+    // above both panes.
+    const versionBar = page.locator(".workflow-version-bar");
+    await expect(versionBar).toBeVisible();
+    const versionBox = await versionBar.boundingBox();
+    if (!versionBox) throw new Error("the version bar must have a box");
+    expect(versionBox.y + versionBox.height).toBeLessThanOrEqual(railBox.y);
+    await expect(versionBar.locator(".workflow-clone")).toBeVisible();
+
+    // Choosing a clone source is not an edit of this workflow: it must not arm
+    // the unsaved-changes guard.
+    await versionBar.locator(".workflow-clone summary").click();
+    const cloneOptions = page.locator("#clone-source option:not([value=''])");
+    if ((await cloneOptions.count()) > 0) {
+      await page.locator("#clone-source").selectOption({ index: 1 });
+      await page.keyboard.press("Escape");
+      // Choosing a source must not arm the unsaved-changes guard: the link leaves
+      // the builder with no dialog, exactly as it would with nothing edited.
+      await page.locator(".page-breadcrumb a").click();
+      await expect(page.locator("#workflow-leave-dialog")).not.toBeVisible();
+      await expect(page).toHaveURL(/\/categories$/);
+      await page.goto(base() + workflowPath);
+      await expect(page.locator("#workflow-builder")).toBeVisible();
+    } else {
+      await page.keyboard.press("Escape");
+    }
+
+    // A phone stacks the same two panes: sequence first, editor after it, and
+    // nothing spills sideways from the page.
+    await page.setViewportSize({ width: 390, height: 844 });
+    const stackedRail = await rail.boundingBox();
+    const stackedEditor = await editor.boundingBox();
+    if (!stackedRail || !stackedEditor) throw new Error("both panes must keep a box at 390px");
+    expect(
+      stackedEditor.y,
+      "on a phone the editor must follow the sequence",
+    ).toBeGreaterThanOrEqual(stackedRail.y + stackedRail.height - 1);
+    const overflow = await page.evaluate(
+      () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+    );
+    expect(overflow, "the builder must not overflow the page at 390px").toBeLessThanOrEqual(0);
+
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await assertCanonicalScreen(page, {
+      viewport: 1280,
+      label: "workflow lateral layout",
+      url: page.url(),
+      role: "root",
+      consoleErrors: obs.consoleErrors,
+      pageErrors: obs.pageErrors,
+      failedRequests: obs.failedRequests,
+      failedResponses: obs.failedResponses,
+    });
+  });
+
   test("category SLA screen shows the materialized matrix and persists an edited target", async ({
     page,
   }) => {
@@ -3622,8 +3740,13 @@ test.describe("Categories", () => {
     const targetPath = `/categories/${targetId}/workflow`;
     await page.goto(base() + targetPath);
 
-    // The target's builder offers the seeded published category as a clone source.
+    // The target's builder offers the seeded published category as a clone
+    // source; since issue #395 the control is a disclosure in the version bar,
+    // so the source selector becomes reachable once it is opened.
     const cloneForm = page.locator('form[action$="/workflow/clone"]');
+    const cloneTrigger = page.locator(".workflow-clone summary");
+    await expect(cloneTrigger).toBeVisible();
+    await cloneTrigger.click();
     await expect(cloneForm).toBeVisible();
     const sourceSelect = cloneForm.getByLabel("Clone a published workflow from");
     await expect(sourceSelect.locator("option", { hasText: "General" })).toHaveCount(1);
@@ -3641,6 +3764,7 @@ test.describe("Categories", () => {
 
     // A second clone must be REFUSED and must not overwrite the target's draft.
     await page.reload();
+    await cloneTrigger.click();
     await cloneForm
       .getByLabel("Clone a published workflow from")
       .selectOption({ label: "General" });
