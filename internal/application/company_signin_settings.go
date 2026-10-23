@@ -184,9 +184,15 @@ func (s *CompanySignInSettingsService) ClientSecret(ctx context.Context, p Compa
 	if err != nil {
 		return "", err
 	}
-	sealed, sealer := stored.Google.SealedSecret, s.google
-	if p == ProviderMicrosoft {
+	var sealed string
+	var sealer SecretSealer
+	switch p {
+	case ProviderGoogle:
+		sealed, sealer = stored.Google.SealedSecret, s.google
+	case ProviderMicrosoft:
 		sealed, sealer = stored.Microsoft.SealedSecret, s.microsoft
+	default:
+		return "", fmt.Errorf("company sign-in: unknown provider %q", p)
 	}
 	if sealed == "" {
 		return "", fmt.Errorf("company sign-in: no client secret stored for %s", p)
@@ -236,23 +242,20 @@ func (s *CompanySignInSettingsService) Update(ctx context.Context, actor domain.
 		return companySignInError("company_signin_address", "enter the public address of TKT, such as https://tkt.example.com", "error.company_signin_address")
 	}
 
+	// The domain list is validated whether Google is on or off: it is what the
+	// administrator typed and is stored either way, so a bad line is refused
+	// rather than silently dropped.
 	domains, domainsOK := parseGoogleDomains(in.Google.Domains)
 	googleSecret := strings.TrimSpace(in.Google.ClientSecret)
-	if next.Google.Enabled {
-		switch {
-		case next.Google.ClientID == "":
-			return companySignInError("google_client_id", "enter the Google client ID", "error.company_signin_client_id")
-		case googleSecret == "" && next.Google.SealedSecret == "":
-			return companySignInError("google_client_secret", "enter the Google client secret", "error.company_signin_client_secret")
-		case !domainsOK || len(domains) == 0:
-			return companySignInError("google_domains", "enter at least one domain, one per line, such as example.com", "error.company_signin_domains")
-		}
+	switch {
+	case !domainsOK || (next.Google.Enabled && len(domains) == 0):
+		return companySignInError("google_domains", "enter at least one domain, one per line, such as example.com", "error.company_signin_domains")
+	case next.Google.Enabled && next.Google.ClientID == "":
+		return companySignInError("google_client_id", "enter the Google client ID", "error.company_signin_client_id")
+	case next.Google.Enabled && googleSecret == "" && next.Google.SealedSecret == "":
+		return companySignInError("google_client_secret", "enter the Google client secret", "error.company_signin_client_secret")
 	}
-	if domainsOK {
-		next.Google.Domains = domains
-	} else {
-		next.Google.Domains = stored.Google.Domains
-	}
+	next.Google.Domains = domains
 
 	microsoftSecret := strings.TrimSpace(in.Microsoft.ClientSecret)
 	if next.Microsoft.Enabled {

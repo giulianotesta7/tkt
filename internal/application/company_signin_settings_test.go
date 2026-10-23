@@ -226,3 +226,41 @@ func TestCompanySignInClientSecretOpensWithItsProviderSealer(t *testing.T) {
 		t.Fatal("a Google secret moved into the Microsoft column opened")
 	}
 }
+
+// An administrator who edits the domains of a provider that is off still
+// expects the edit to be kept or refused, never silently dropped.
+func TestUpdateCompanySignInRefusesInvalidDomainsOfAProviderThatIsOff(t *testing.T) {
+	svc, store := newCompanySignInSettingsService()
+	ctx := context.Background()
+	admin := domain.User{ID: 1, Role: domain.RoleAdmin}
+	if err := svc.Update(ctx, admin, validCompanySignInInput()); err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+	in := validCompanySignInInput()
+	in.Google.Enabled = false
+	in.Google.Domains = "https://changed.example.org"
+	err := svc.Update(ctx, admin, in)
+	var ve *domain.ValidationError
+	if !errors.As(err, &ve) || ve.Field != "google_domains" {
+		t.Fatalf("Update err = %v, want a google_domains ValidationError", err)
+	}
+	if store.writes != 1 {
+		t.Fatalf("writes = %d, want only the first save", store.writes)
+	}
+	if strings.Join(store.settings.Google.Domains, ",") != "example.com,example.org" || !store.settings.Google.Enabled {
+		t.Fatalf("a refused save changed the stored Google settings: %+v", store.settings.Google)
+	}
+}
+
+func TestCompanySignInClientSecretRefusesAnUnknownProvider(t *testing.T) {
+	svc, _ := newCompanySignInSettingsService()
+	ctx := context.Background()
+	if err := svc.Update(ctx, domain.User{ID: 1, Role: domain.RoleAdmin}, validCompanySignInInput()); err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+	for _, p := range []application.CompanyProvider{"", "oidc", "Google"} {
+		if secret, err := svc.ClientSecret(ctx, p); err == nil {
+			t.Errorf("ClientSecret(%q) = %q, want a refusal", p, secret)
+		}
+	}
+}
