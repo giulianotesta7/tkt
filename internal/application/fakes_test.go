@@ -81,6 +81,15 @@ func matchesQuery(t *domain.Ticket, q application.TicketQuery) bool {
 	if q.NotOnHold && t.OnHoldSince != nil {
 		return false
 	}
+	// The requester's Needs-your-action predicate (issue #411, S8): active work
+	// held for the requester's reply OR a resolved ticket awaiting their
+	// confirmation. It mirrors the store's parenthesized OR.
+	if q.RequesterNeedsAction {
+		held := (t.State == domain.StateNew || t.State == domain.StateInProgress) && t.OnHoldSince != nil
+		if !held && t.State != domain.StateResolved {
+			return false
+		}
+	}
 	if q.Priority != nil && t.Priority != *q.Priority {
 		return false
 	}

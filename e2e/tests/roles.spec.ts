@@ -317,8 +317,8 @@ test.describe("Role — minimal matrix admin / agent / user (seeded)", () => {
     await expect(userTime).toBeFocused();
     await expect(userRow.locator(".req-title")).toHaveAttribute("href", `/tickets/${userTicketId}`);
     // The duplicated "View request" link is gone and the row itself is the
-    // target; no queue table, no waiting section, no closed disclosure for a
-    // brand-new open ticket.
+    // target; no queue table, no Needs-your-action section, no closed
+    // disclosure for a brand-new open ticket.
     await expect(listScreen.getByRole("link", { name: "View request" })).toHaveCount(0);
     await expect(listScreen.locator("table")).toHaveCount(0);
     await expect(listScreen.locator(".req-waiting-list")).toHaveCount(0);

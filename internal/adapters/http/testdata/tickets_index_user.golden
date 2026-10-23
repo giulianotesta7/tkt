@@ -78,17 +78,25 @@
   <input id="role-ticket-search" type="search" name="q" value="printer" placeholder="Search by ID or title" aria-label="Search tickets" hx-preserve="true" hx-get="/tickets" hx-trigger="input changed delay:300ms" hx-target="#tickets-screen" hx-swap="outerHTML" hx-push-url="true">
 </form></div>
   </header>
-</div><section id="tickets-screen" class="page-foundation tickets-screen"><p class="page-subtitle">2 open tickets</p><div id="user-ticket-list">
-  <section class="req-section" aria-labelledby="waiting-tickets-title">
-    <h2 class="req-section-title" id="waiting-tickets-title">Waiting for your reply · 1</h2>
+</div><section id="tickets-screen" class="page-foundation tickets-screen"><p class="page-subtitle">3 open tickets</p><div id="user-ticket-list">
+  <section class="req-section" aria-labelledby="action-tickets-title">
+    <h2 class="req-section-title" id="action-tickets-title">Needs your action · 2</h2>
     <ul class="req-waiting-list">
+      <li class="req-waiting" data-href="/tickets/5">
+        <div class="req-waiting-main">
+          <span class="req-waiting-label req-waiting-label-confirm">Is your issue solved?</span>
+          <a class="req-title" href="/tickets/5">Resolved printer request</a>
+          <span class="req-meta">TKT-5 · Updated <time class="card-timestamp" tabindex="0" datetime="2026-08-06T10:30:00Z" aria-label="10:30 · 06-08-2026" data-full-date="10:30 · 06-08-2026" title="10:30 · 06-08-2026">10:30 · 06-08-2026</time></span>
+        </div>
+        <a class="btn primary small req-action" href="/tickets/5#resolution">Review</a>
+      </li>
       <li class="req-waiting" data-href="/tickets/2">
         <div class="req-waiting-main">
           <span class="req-waiting-label">This ticket is waiting for your reply</span>
           <a class="req-title" href="/tickets/2">Printer jam</a>
           <span class="req-meta">TKT-2 · Updated <time class="card-timestamp" tabindex="0" datetime="2026-08-06T10:30:00Z" aria-label="10:30 · 06-08-2026" data-full-date="10:30 · 06-08-2026" title="10:30 · 06-08-2026">10:30 · 06-08-2026</time></span>
         </div>
-        <a class="btn primary small req-reply" href="/tickets/2#reply">Reply</a>
+        <a class="btn primary small req-action" href="/tickets/2#reply">Reply</a>
       </li>
     </ul>
   </section>
@@ -103,13 +111,8 @@
     </ul>
   </section>
   <details class="req-fold">
-    <summary class="req-fold-summary" id="closed-tickets-title">Closed · 2</summary>
+    <summary class="req-fold-summary" id="closed-tickets-title">Closed · 1</summary>
     <ul class="req-list" aria-labelledby="closed-tickets-title">
-      <li class="req" data-href="/tickets/3">
-        <a class="req-title" href="/tickets/3">Resolved printer request</a>
-        <span class="req-meta">TKT-3 · Updated <time class="card-timestamp" tabindex="0" datetime="2026-08-06T10:00:00Z" aria-label="10:00 · 06-08-2026" data-full-date="10:00 · 06-08-2026" title="10:00 · 06-08-2026">10:00 · 06-08-2026</time></span>
-        <span class="req-side"><span class="badge resolved">Resolved</span></span>
-      </li>
       <li class="req" data-href="/tickets/4">
         <a class="req-title" href="/tickets/4">Closed printer request</a>
         <span class="req-meta">TKT-4 · Updated <time class="card-timestamp" tabindex="0" datetime="2026-08-06T10:30:00Z" aria-label="10:30 · 06-08-2026" data-full-date="10:30 · 06-08-2026" title="10:30 · 06-08-2026">10:30 · 06-08-2026</time></span>

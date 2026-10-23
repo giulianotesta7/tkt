@@ -122,6 +122,26 @@ func claimableClause(actorID int64) (string, []any) {
 	)`, []any{actorID}
 }
 
+// requesterNeedsActionClause is the requester's "Needs your action" section
+// (issue #411, S8): an active ticket held for the requester's reply, OR a
+// resolved ticket awaiting their confirmation. Both halves are literal, the
+// states travel as bound parameters, and the OR is wrapped in one pair of
+// parentheses so buildTicketWhere can only ever append it with AND — a bare OR
+// would let the predicate escape the actor scope and expose another
+// requester's tickets. It is a clause of its own because States and OnHold
+// express only conjunctions.
+func requesterNeedsActionClause() (string, []any) {
+	active := []domain.State{domain.StateNew, domain.StateInProgress}
+	placeholders := make([]string, 0, len(active))
+	args := make([]any, 0, len(active)+1)
+	for _, state := range active {
+		placeholders = append(placeholders, "?")
+		args = append(args, string(state))
+	}
+	args = append(args, string(domain.StateResolved))
+	return "((t.state IN (" + strings.Join(placeholders, ",") + ") AND t.on_hold_since IS NOT NULL) OR t.state = ?)", args
+}
+
 // scopeClause returns the actor-scope WHERE fragment from q (ticket-access
 // spec): requester = self for ScopeOwned, assignee = self for ScopeAssigned,
 // the full queue for ScopeAll, the agent assignment scope (self OR
@@ -197,10 +217,20 @@ func buildTicketWhere(q application.TicketQuery) (string, []any) {
 	if q.OnHold {
 		clauses = append(clauses, "t.on_hold_since IS NOT NULL")
 	}
-	// The requester's open section excludes the on-hold work the waiting
-	// section already listed, so one ticket is never shown twice (issue #411).
+	// The requester's open section excludes the on-hold work the action section
+	// already listed, so one ticket is never shown twice (issue #411).
 	if q.NotOnHold {
 		clauses = append(clauses, "t.on_hold_since IS NULL")
+	}
+	// The requester's "Needs your action" section (issue #411, S8): the active
+	// work held for their reply OR a resolved ticket awaiting their
+	// confirmation. It is a literal predicate of its own because States and
+	// OnHold cannot express an OR, and the whole OR stays parenthesized so it
+	// ANDs with the own-ticket scope clause instead of escaping it.
+	if q.RequesterNeedsAction {
+		clause, needsArgs := requesterNeedsActionClause()
+		clauses = append(clauses, clause)
+		args = append(args, needsArgs...)
 	}
 	// Text clause (FTS5, 0002): tickets whose TITLE rowid matches the
 	// D4-tokenized, title-scoped expression, OR whose exact ticket number

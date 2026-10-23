@@ -351,16 +351,15 @@ test.describe("Ticket on hold", () => {
     await logout(page);
     await loginAs(page, requesterEmail, requesterPassword);
 
-    // The requester's list opens with its own "waiting for your reply"
-    // section (issue #411, S3): the held ticket is named by that section and
-    // its label, with one primary Reply action, instead of a chip beside a
-    // state badge.
+    // The requester's list opens with its Needs-your-action section (issue
+    // #411, S8): the held ticket is named there by its own label, with one
+    // primary Reply action, instead of a chip beside a state badge.
     await page.goto(base() + "/tickets");
     const waitingSection = page.locator("#user-ticket-list .req-section").filter({
-      has: page.locator("#waiting-tickets-title"),
+      has: page.locator("#action-tickets-title"),
     });
-    await expect(waitingSection.locator("#waiting-tickets-title")).toHaveText(
-      "Waiting for your reply · 1",
+    await expect(waitingSection.locator("#action-tickets-title")).toHaveText(
+      "Needs your action · 1",
     );
     const waitingRow = waitingSection.locator(".req-waiting").filter({ hasText: title });
     await expect(waitingRow).toHaveCount(1);
@@ -372,12 +371,13 @@ test.describe("Ticket on hold", () => {
       "href",
       `${detailPath}#reply`,
     );
-    // The held ticket is in the waiting section only: the open section never
-    // lists it twice.
+    // The held ticket is in the Needs-your-action section only: the open
+    // section never lists it twice.
     await expect(
       page.locator("#user-ticket-list .req-list li.req").filter({ hasText: title }),
     ).toHaveCount(0);
-    // The waiting section survives the phone fold like the rest of the shell.
+    // The Needs-your-action section survives the phone fold like the rest of
+    // the shell.
     await page.setViewportSize({ width: 390, height: 844 });
     await assertNoHorizontalOverflow(page, 390);
     await assertNothingClipped(page);

@@ -675,7 +675,8 @@
   .req-waiting:hover{background:var(--hover)}
   .req-waiting-main{display:flex;flex-direction:column;gap:4px;min-width:0}
   .req-waiting-label{color:var(--amber);font-size:12px;font-weight:500}
-  .req-reply{flex:0 0 auto}
+  .req-waiting-label-confirm{color:var(--green)}
+  .req-action{flex:0 0 auto}
   .req-empty{border:1px solid var(--line);border-radius:12px;padding:8px}
   .req-empty .empty{padding:24px 0}
   .req-empty .btn{margin-top:12px}
@@ -966,7 +967,7 @@
     .req{grid-template-columns:minmax(0,1fr)}
     .req-side{grid-row:auto;grid-column:1;flex-direction:row;align-items:center;justify-content:space-between}
     .req-waiting{grid-template-columns:minmax(0,1fr)}
-    .req-reply{justify-content:center}
+    .req-action{justify-content:center}
   }
 
   .workflow-responses{

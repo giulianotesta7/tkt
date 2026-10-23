@@ -643,6 +643,13 @@ type ticketRow struct {
 	CategoryName string
 }
 
+// AwaitingConfirmation reports whether the row is a resolved ticket waiting for
+// the requester's decision (issue #411, S8). The requester list renders its two
+// Needs-your-action requests differently — a held ticket asks for a reply, a
+// resolved one asks whether the issue is solved — so the row answers that
+// question instead of leaving the template to compare state strings.
+func (r ticketRow) AwaitingConfirmation() bool { return r.State == domain.StateResolved }
+
 // ticketListData is one independently paged ticket section.
 type ticketListData struct {
 	Tickets        []ticketRow
@@ -798,14 +805,16 @@ type listData struct {
 	Done                ticketListData
 	Claimable           ticketListData
 	ClaimError          string
-	// Waiting, Open and Closed are the requester list's three sections (issue
-	// #411, S3/S4): the on-hold work waiting for the requester's reply, the
-	// active work, and the resolved+closed work folded at the end. Each carries
-	// its own page cursor and its own count. Every other view leaves them zero,
-	// and the requester's Total is the open work their header counts.
-	Waiting ticketListData
-	Open    ticketListData
-	Closed  ticketListData
+	// Action, Open and Closed are the requester list's three sections (issue
+	// #411, S3/S4/S8): the combined Needs-your-action set (the on-hold work
+	// waiting for the requester's reply plus the resolved tickets awaiting their
+	// confirmation), the active work, and the closed work folded at the end.
+	// Each carries its own page cursor and its own count. Every other view
+	// leaves them zero, and the requester's Total is the open work their header
+	// counts.
+	Action ticketListData
+	Open   ticketListData
+	Closed ticketListData
 	// Tabs, Chips, ShowSLA and Now are the triage queue's presentation
 	// (issue #382): the view tabs with their counts, the removable active
 	// filters, whether the SLA column is drawn, and the one clock snapshot
@@ -861,13 +870,13 @@ func pageNumber(r *http.Request, key string) int {
 // three INDEPENDENT page cursors (issue #411, S4). Each section's next and
 // previous links keep the other two cursors where they were, so paging one
 // section never resets another, and the search term survives every page.
-func requesterListHref(f filterState, openPage, waitingPage, closedPage int) string {
+func requesterListHref(f filterState, openPage, actionPage, closedPage int) string {
 	v := ticketFilterValues(f)
 	if openPage > 1 {
 		v.Set("page", strconv.Itoa(openPage))
 	}
-	if waitingPage > 1 {
-		v.Set("waiting_page", strconv.Itoa(waitingPage))
+	if actionPage > 1 {
+		v.Set("action_page", strconv.Itoa(actionPage))
 	}
 	if closedPage > 1 {
 		v.Set("closed_page", strconv.Itoa(closedPage))
@@ -899,31 +908,31 @@ func (h *TicketHandlers) requesterSection(r *http.Request, f filterState, actor 
 // requesterListSections builds the requester's three independently paged
 // sections (issue #411, S3/S4). The counts come from the same reads that
 // produce the rows, so a section header can never disagree with its list.
-func (h *TicketHandlers) requesterListSections(r *http.Request, f filterState, openPage, waitingPage, closedPage int) (waiting, open, closed ticketListData, err error) {
+func (h *TicketHandlers) requesterListSections(r *http.Request, f filterState, openPage, actionPage, closedPage int) (action, open, closed ticketListData, err error) {
 	actor := *userFromContext(r.Context())
-	waiting, err = h.requesterSection(r, f, actor, application.TicketSectionRequesterWaiting, waitingPage, func(page int) string {
+	action, err = h.requesterSection(r, f, actor, application.TicketSectionRequesterAction, actionPage, func(page int) string {
 		return requesterListHref(f, openPage, page, closedPage)
 	})
 	if err != nil {
-		return waiting, open, closed, err
+		return action, open, closed, err
 	}
 	open, err = h.requesterSection(r, f, actor, application.TicketSectionRequesterOpen, openPage, func(page int) string {
-		return requesterListHref(f, page, waitingPage, closedPage)
+		return requesterListHref(f, page, actionPage, closedPage)
 	})
 	if err != nil {
-		return waiting, open, closed, err
+		return action, open, closed, err
 	}
 	closed, err = h.requesterSection(r, f, actor, application.TicketSectionRequesterClosed, closedPage, func(page int) string {
-		return requesterListHref(f, openPage, waitingPage, page)
+		return requesterListHref(f, openPage, actionPage, page)
 	})
-	return waiting, open, closed, err
+	return action, open, closed, err
 }
 
 // requesterListData is the requester payload: three sections, the open-work
 // count the header reads, and the one clock snapshot the relative "Updated"
 // reading is judged against.
-func (h *TicketHandlers) requesterListData(r *http.Request, f filterState, openPage, waitingPage, closedPage int) (listData, error) {
-	waiting, open, closed, err := h.requesterListSections(r, f, openPage, waitingPage, closedPage)
+func (h *TicketHandlers) requesterListData(r *http.Request, f filterState, openPage, actionPage, closedPage int) (listData, error) {
+	action, open, closed, err := h.requesterListSections(r, f, openPage, actionPage, closedPage)
 	if err != nil {
 		return listData{}, err
 	}
@@ -936,13 +945,13 @@ func (h *TicketHandlers) requesterListData(r *http.Request, f filterState, openP
 		pageData:       pageMeta,
 		Filters:        f,
 		Tickets:        open.Tickets,
-		Total:          waiting.Total + open.Total,
+		Total:          action.Total + open.Total,
 		Page:           open.Page,
 		Pages:          open.Pages,
 		PrevHref:       open.PrevHref,
 		NextHref:       open.NextHref,
 		HasActiveQuery: f.Q != "",
-		Waiting:        waiting,
+		Action:         action,
 		Open:           open,
 		Closed:         closed,
 	}
@@ -982,7 +991,7 @@ func (h *TicketHandlers) listData(r *http.Request, f filterState, page int) (lis
 	}
 	if actor.Role == domain.RoleUser {
 		f = simplifiedFilters(f)
-		return h.requesterListData(r, f, page, pageNumber(r, "waiting_page"), pageNumber(r, "closed_page"))
+		return h.requesterListData(r, f, page, pageNumber(r, "action_page"), pageNumber(r, "closed_page"))
 	}
 
 	opts, err := h.collectOptions(r)

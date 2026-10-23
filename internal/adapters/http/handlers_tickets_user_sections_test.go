@@ -11,9 +11,10 @@ import (
 	"github.com/giulianotesta7/tkt/internal/domain"
 )
 
-// This file pins the requester's three-section list (issue #411, S3/S4/S5/S7):
-// the on-hold tickets waiting for the requester's reply, the open ones, and the
-// resolved-and-closed ones folded at the end. Each section has its own page
+// This file pins the requester's three-section list (issue #411, S3/S4/S5/S7/
+// S8): the tickets needing the requester's action (on-hold work waiting for
+// their reply, plus the resolved ones awaiting their confirmation), the open
+// ones, and the closed ones folded at the end. Each section has its own page
 // cursor, the header counts the open work, and the search reaches every
 // section while the actor scope stays exactly their own tickets.
 
@@ -31,28 +32,28 @@ func closeViaRequester(t *testing.T, h *harness, requester *domain.User, id int6
 // through the section landmarks the template publishes. A missing landmark is
 // a contract failure, not an empty section: the closed section announces itself
 // with a disclosure summary, and the open section is always rendered.
-func requesterSections(t *testing.T, body string) (waiting, open, closed string) {
+func requesterSections(t *testing.T, body string) (action, open, closed string) {
 	t.Helper()
 	openAt := strings.Index(body, `id="open-tickets-title"`)
 	if openAt < 0 {
 		t.Fatalf("requester list must render the open section: %s", body)
 	}
-	waitingAt := strings.Index(body, `id="waiting-tickets-title"`)
+	actionAt := strings.Index(body, `id="action-tickets-title"`)
 	closedAt := strings.Index(body, `id="closed-tickets-title"`)
-	if waitingAt >= 0 && waitingAt > openAt {
-		t.Fatalf("the waiting section must render before the open section")
+	if actionAt >= 0 && actionAt > openAt {
+		t.Fatalf("the needs-your-action section must render before the open section")
 	}
 	if closedAt >= 0 && closedAt < openAt {
 		t.Fatalf("the closed section must render after the open section")
 	}
-	if waitingAt >= 0 {
-		waiting = body[waitingAt:openAt]
+	if actionAt >= 0 {
+		action = body[actionAt:openAt]
 	}
 	if closedAt >= 0 {
 		open, closed = body[openAt:closedAt], body[closedAt:]
-		return waiting, open, closed
+		return action, open, closed
 	}
-	return waiting, body[openAt:], ""
+	return action, body[openAt:], ""
 }
 
 // ticketsIndexAs reads /tickets as the given session, optionally as an HTMX
@@ -71,13 +72,14 @@ func ticketsIndexAs(t *testing.T, h *harness, sessionID, query string, hx bool) 
 	return rec.Body.String()
 }
 
-// TestTicketsIndexUserSplitsWaitingOpenAndClosed proves the requester list
-// splits into the three sections in order (S3, S4), that the header counts the
-// open work (S5), that the waiting row carries the single primary Reply action
-// into the ticket's reply box (S3), and that a cancelled ticket keeps its
-// current placement — the requester list never showed it, so it is in no
-// section (S4, L3).
-func TestTicketsIndexUserSplitsWaitingOpenAndClosed(t *testing.T) {
+// TestTicketsIndexUserSplitsNeedsYourActionOpenAndClosed proves the requester
+// list splits into the three sections in order (S3, S4, S8), that the combined
+// Needs-your-action section holds BOTH the on-hold work and the resolved tickets
+// awaiting confirmation with their own action, that the folded Closed section
+// holds only closed tickets, that the header counts all open work (S5), and that
+// a cancelled ticket keeps its current placement — the requester list never
+// showed it, so it is in no section (S4, L3).
+func TestTicketsIndexUserSplitsNeedsYourActionOpenAndClosed(t *testing.T) {
 	h := newHarness(t)
 	user := seedUserRole(t, h.store, "Ula", "ula@example.com", domain.RoleUser)
 	other := seedUserRole(t, h.store, "Omar", "omar@example.com", domain.RoleUser)
@@ -96,33 +98,54 @@ func TestTicketsIndexUserSplitsWaitingOpenAndClosed(t *testing.T) {
 	h.seedTransition(t, cancelled.ID, domain.StateCancelled, "")
 	otherHeld := createTicketFor(t, h, other, "Other owner held request")
 	holdViaService(t, h, otherHeld.ID, "not your ticket")
+	otherResolved := createTicketFor(t, h, other, "Other owner resolved request")
+	h.seedTransition(t, otherResolved.ID, domain.StateResolved, "")
 	otherClosed := createTicketFor(t, h, other, "Other owner closed request")
 	h.seedTransition(t, otherClosed.ID, domain.StateResolved, "")
 	closeViaRequester(t, h, other, otherClosed.ID)
 
 	for _, hx := range []bool{false, true} {
 		body := ticketsIndexAs(t, h, sess.ID, "", hx)
-		waiting, openSection, closedSection := requesterSections(t, body)
+		action, openSection, closedSection := requesterSections(t, body)
 
-		// S5: the header counts the open work: one waiting plus one open.
-		mustContain(t, body, "2 open tickets")
-		// S4: every section names itself and its own count.
-		mustContain(t, waiting, "Waiting for your reply · 1")
+		// S5/S8: the header counts every row the Needs-your-action section
+		// carries plus the open work: one held, one resolved, one open.
+		mustContain(t, body, "3 open tickets")
+		// S4/S8: every section names itself and its own count.
+		mustContain(t, action, "Needs your action · 2")
 		mustContain(t, openSection, "Open · 1")
-		mustContain(t, closedSection, "Closed · 2")
+		mustContain(t, closedSection, "Closed · 1")
 
-		// S3: the waiting row reuses the hold copy and offers one Reply action
+		// S8: the held row reuses the hold copy and offers one Reply action
 		// that opens the ticket at its reply box.
-		mustContain(t, waiting,
+		mustContain(t, action,
 			"This ticket is waiting for your reply",
 			held.Title,
 			`href="/tickets/`+strconv.FormatInt(held.ID, 10)+`#reply"`,
 			">Reply<",
 		)
+		// S8: the resolved row names the question that still awaits the
+		// requester and offers one primary Review action into the existing
+		// confirmation panel.
+		mustContain(t, action,
+			"Is your issue solved?",
+			resolved.Title,
+			`href="/tickets/`+strconv.FormatInt(resolved.ID, 10)+`#resolution"`,
+			">Review<",
+		)
+		// The list's existing order rule holds inside the combined section:
+		// newest first by creation (created_at DESC, id DESC), so the resolved
+		// ticket seeded after the held one opens the section.
+		if resolvedAt, heldAt := strings.Index(action, resolved.Title), strings.Index(action, held.Title); resolvedAt < 0 || heldAt < 0 || resolvedAt > heldAt {
+			t.Errorf("hx=%t the Needs-your-action rows must stay newest first (resolved=%d held=%d): %s", hx, resolvedAt, heldAt, body)
+		}
 		// S2: the open row is a title, one-line description, number/updated
 		// meta and the requester state badge; the duplicated link is gone.
 		mustContain(t, openSection, open.Title, `class="req"`, `class="req-desc"`, `class="req-meta"`, "Received")
-		mustContain(t, closedSection, resolved.Title, closed.Title, "Resolved", "Closed")
+		mustContain(t, closedSection, closed.Title, "Closed")
+		if strings.Contains(closedSection, resolved.Title) {
+			t.Errorf("hx=%t a resolved ticket awaiting confirmation must not sit in the closed fold: %s", hx, closedSection)
+		}
 		if strings.Contains(body, "View request") {
 			t.Errorf("hx=%t the duplicated View request link must be gone: %s", hx, body)
 		}
@@ -135,10 +158,10 @@ func TestTicketsIndexUserSplitsWaitingOpenAndClosed(t *testing.T) {
 			out    []string
 			absent string
 		}{
-			{name: "waiting ticket", title: held.Title, in: waiting, out: []string{openSection, closedSection}},
-			{name: "open ticket", title: open.Title, in: openSection, out: []string{waiting, closedSection}},
-			{name: "resolved ticket", title: resolved.Title, in: closedSection, out: []string{waiting, openSection}},
-			{name: "closed ticket", title: closed.Title, in: closedSection, out: []string{waiting, openSection}},
+			{name: "held ticket", title: held.Title, in: action, out: []string{openSection, closedSection}},
+			{name: "resolved ticket", title: resolved.Title, in: action, out: []string{openSection, closedSection}},
+			{name: "open ticket", title: open.Title, in: openSection, out: []string{action, closedSection}},
+			{name: "closed ticket", title: closed.Title, in: closedSection, out: []string{action, openSection}},
 		} {
 			if !strings.Contains(tc.in, tc.title) {
 				t.Errorf("hx=%t %s %q must render in its own section", hx, tc.name, tc.title)
@@ -151,9 +174,9 @@ func TestTicketsIndexUserSplitsWaitingOpenAndClosed(t *testing.T) {
 		}
 
 		// A cancelled ticket keeps its current placement: the requester list
-		// never listed it, so no section carries it. S7: another user's held
-		// and closed tickets stay out of every section.
-		for _, absent := range []string{cancelled.Title, otherHeld.Title, otherClosed.Title, "Other owner held request"} {
+		// never listed it, so no section carries it. S7: another user's held,
+		// resolved and closed tickets stay out of every section.
+		for _, absent := range []string{cancelled.Title, otherHeld.Title, otherResolved.Title, otherClosed.Title} {
 			if strings.Contains(body, absent) {
 				t.Errorf("hx=%t requester list must exclude %q: %s", hx, absent, body)
 			}
@@ -161,15 +184,39 @@ func TestTicketsIndexUserSplitsWaitingOpenAndClosed(t *testing.T) {
 	}
 
 	// The same page read as the other requester proves the split is per actor:
-	// their held ticket is waiting for THEM, and none of Ula's ids appear.
+	// their held and resolved tickets are what awaits THEM, and none of Ula's
+	// ids appear.
 	otherBody := ticketsIndexAs(t, h, otherSess.ID, "", false)
-	otherWaiting, _, _ := requesterSections(t, otherBody)
-	mustContain(t, otherWaiting, otherHeld.Title, "Waiting for your reply · 1")
+	otherAction, _, _ := requesterSections(t, otherBody)
+	mustContain(t, otherAction, otherHeld.Title, otherResolved.Title, "Needs your action · 2")
 	for _, absent := range []string{held.Title, open.Title, resolved.Title, closed.Title} {
 		if strings.Contains(otherBody, absent) {
 			t.Errorf("another requester must not see %q: %s", absent, otherBody)
 		}
 	}
+}
+
+// TestTicketsIndexUserReviewOpensTheConfirmationPanel pins the resolved half of
+// the Needs-your-action section (issue #411, S8): the Review link lands on the
+// ticket detail at the EXISTING confirmation panel anchor, so the requester
+// reads the resolution before deciding, and the closed fold never carries it.
+func TestTicketsIndexUserReviewOpensTheConfirmationPanel(t *testing.T) {
+	h := newHarness(t)
+	user := seedUserRole(t, h.store, "Rita", "rita@example.com", domain.RoleUser)
+	sess := seedSession(t, h.store, user.ID)
+	resolved := createTicketFor(t, h, user, "Resolved needs confirmation")
+	h.seedTransition(t, resolved.ID, domain.StateResolved, "")
+
+	body := ticketsIndexAs(t, h, sess.ID, "", false)
+	action, _, closedSection := requesterSections(t, body)
+	mustContain(t, action, "Needs your action · 1", "Is your issue solved?",
+		`href="/tickets/`+strconv.FormatInt(resolved.ID, 10)+`#resolution"`, ">Review<")
+	if closedSection != "" {
+		t.Errorf("the closed fold must hold only closed tickets, got: %s", closedSection)
+	}
+
+	detail := getDetailAs(t, h, "/tickets/"+strconv.FormatInt(resolved.ID, 10), sess.ID, false).Body.String()
+	mustContain(t, detail, `id="resolution"`, "Is your issue solved?")
 }
 
 // TestTicketsIndexUserSectionsPageIndependently proves every section carries
@@ -200,24 +247,24 @@ func TestTicketsIndexUserSectionsPageIndependently(t *testing.T) {
 	// Page one: each section links to its own second page, and the open
 	// section's next link keeps no closed cursor because none was chosen yet.
 	body := ticketsIndexAs(t, h, sess.ID, "?q=probe", false)
-	waiting, openSection, closedSection := requesterSections(t, body)
-	mustContain(t, body, "22 open tickets")
-	mustContain(t, waiting, "Waiting for your reply · 11", "waiting_page=2")
+	action, openSection, closedSection := requesterSections(t, body)
+	mustContain(t, body, "33 open tickets")
+	mustContain(t, action, "Needs your action · 22", "action_page=2")
 	mustContain(t, openSection, "Open · 11", "page=2")
-	mustContain(t, closedSection, "Closed · 22", "closed_page=2")
+	mustContain(t, closedSection, "Closed · 11", "closed_page=2")
 
-	// Paging the closed section leaves the open and waiting sections on page
-	// one: their page boundaries are separate queries.
+	// Paging the closed section leaves the action and open sections on page one:
+	// their page boundaries are separate queries.
 	body = ticketsIndexAs(t, h, sess.ID, "?q=probe&closed_page=2", false)
-	waiting, openSection, closedSection = requesterSections(t, body)
+	action, openSection, closedSection = requesterSections(t, body)
 	mustContain(t, openSection, "Open · 11", "Open probe 10")
-	mustContain(t, waiting, "Waiting for your reply · 11", "Held probe 10")
+	mustContain(t, action, "Needs your action · 22", "Resolved probe 10", "Held probe 10")
 	if strings.Contains(closedSection, "Closed probe 10") {
 		t.Errorf("closed page 2 must not repeat the closed rows of page 1: %s", closedSection)
 	}
-	for _, absent := range []string{"Open probe 00", "Held probe 00", "Closed probe 00"} {
+	for _, absent := range []string{"Open probe 00", "Held probe 00", "Resolved probe 00"} {
 		if strings.Contains(body, absent) {
-			t.Errorf("closed page 2 must not move the open or waiting sections off page 1 (%s): %s", absent, body)
+			t.Errorf("closed page 2 must not move the action or open sections off page 1 (%s): %s", absent, body)
 		}
 	}
 
@@ -231,20 +278,23 @@ func TestTicketsIndexUserSectionsPageIndependently(t *testing.T) {
 		t.Errorf("paging the open section must not page the closed one: %s", closedSection)
 	}
 
-	// Paging the waiting section leaves both list sections alone.
-	body = ticketsIndexAs(t, h, sess.ID, "?q=probe&waiting_page=2", false)
-	waiting, openSection, _ = requesterSections(t, body)
-	mustContain(t, waiting, "Held probe 00")
+	// Paging the action section leaves both list sections alone.
+	body = ticketsIndexAs(t, h, sess.ID, "?q=probe&action_page=2", false)
+	action, openSection, _ = requesterSections(t, body)
+	mustContain(t, action, "Resolved probe 05", "Held probe 01")
 	mustContain(t, openSection, "Open · 11", "Open probe 10")
-	if strings.Contains(openSection, "Open probe 00") {
-		t.Errorf("paging the waiting section must not page the open one: %s", openSection)
+	for _, absent := range []string{"Resolved probe 10", "Held probe 10", "Open probe 00"} {
+		if strings.Contains(body, absent) {
+			t.Errorf("action page 2 must not repeat the action rows of page 1 or page the open section (%s): %s", absent, body)
+		}
 	}
 }
 
 // TestTicketsIndexUserSearchReadsEverySection proves the search filter composes
-// with all three sections (S5): a match in the waiting, the open and the closed
-// set renders in its own section, a non-matching ticket disappears from every
-// section, and the header count follows the filtered open work.
+// with all three sections (S5): a match in the action (held and resolved), the
+// open and the closed set renders in its own section, a non-matching ticket
+// disappears from every section, and the header count follows the filtered open
+// work.
 func TestTicketsIndexUserSearchReadsEverySection(t *testing.T) {
 	h := newHarness(t)
 	user := seedUserRole(t, h.store, "Sara", "sara@example.com", domain.RoleUser)
@@ -255,20 +305,25 @@ func TestTicketsIndexUserSearchReadsEverySection(t *testing.T) {
 	open := createTicketFor(t, h, user, "VPN client logs")
 	resolved := createTicketFor(t, h, user, "VPN resolved case")
 	h.seedTransition(t, resolved.ID, domain.StateResolved, "")
+	closed := createTicketFor(t, h, user, "VPN closed case")
+	h.seedTransition(t, closed.ID, domain.StateResolved, "")
+	closeViaRequester(t, h, user, closed.ID)
 	unrelated := createTicketFor(t, h, user, "Printer jam on floor three")
 	unrelatedClosed := createTicketFor(t, h, user, "Old printer case")
 	h.seedTransition(t, unrelatedClosed.ID, domain.StateResolved, "")
+	otherResolved := createTicketFor(t, h, user, "Printer resolved case")
+	h.seedTransition(t, otherResolved.ID, domain.StateResolved, "")
 
 	for _, hx := range []bool{false, true} {
 		body := ticketsIndexAs(t, h, sess.ID, "?q=VPN", hx)
-		waiting, openSection, closedSection := requesterSections(t, body)
-		mustContain(t, waiting, held.Title, "Waiting for your reply · 1")
+		action, openSection, closedSection := requesterSections(t, body)
+		mustContain(t, action, held.Title, resolved.Title, "Needs your action · 2")
 		mustContain(t, openSection, open.Title, "Open · 1")
-		mustContain(t, closedSection, resolved.Title, "Closed · 1")
-		if !strings.Contains(body, "2 open tickets") {
+		mustContain(t, closedSection, closed.Title, "Closed · 1")
+		if !strings.Contains(body, "3 open tickets") {
 			t.Errorf("hx=%t the header must count the filtered open work: %s", hx, body)
 		}
-		for _, absent := range []string{unrelated.Title, unrelatedClosed.Title} {
+		for _, absent := range []string{unrelated.Title, unrelatedClosed.Title, otherResolved.Title} {
 			if strings.Contains(body, absent) {
 				t.Errorf("hx=%t search must drop the non-matching %q: %s", hx, absent, body)
 			}
@@ -279,7 +334,7 @@ func TestTicketsIndexUserSearchReadsEverySection(t *testing.T) {
 	// offers the primary New ticket action, and no empty section survives.
 	body := ticketsIndexAs(t, h, sess.ID, "?q=zzzabsent", false)
 	mustContain(t, body, "No requests match your search", `href="/tickets/new"`, "0 open tickets")
-	for _, title := range []string{held.Title, open.Title, resolved.Title} {
+	for _, title := range []string{held.Title, open.Title, resolved.Title, closed.Title} {
 		if strings.Contains(body, title) {
 			t.Errorf("a search with no match must render no row %q: %s", title, body)
 		}
@@ -291,7 +346,7 @@ func TestTicketsIndexUserSearchReadsEverySection(t *testing.T) {
 	emptySess := seedSession(t, h.store, empty.ID)
 	body = ticketsIndexAs(t, h, emptySess.ID, "", false)
 	mustContain(t, body, "No requests yet", `href="/tickets/new"`, "0 open tickets")
-	for _, absent := range []string{"Waiting for your reply", `id="closed-tickets-title"`} {
+	for _, absent := range []string{"Needs your action", `id="closed-tickets-title"`} {
 		if strings.Contains(body, absent) {
 			t.Errorf("an empty requester list must not render %q: %s", absent, body)
 		}
@@ -310,11 +365,14 @@ func TestTicketsIndexUserTimestampsStayFocusableWithTheFullDate(t *testing.T) {
 	held := createTicketFor(t, h, user, "Waiting timestamp request")
 	holdViaService(t, h, held.ID, "send the log")
 	createTicketFor(t, h, user, "Open timestamp request")
-	resolved := createTicketFor(t, h, user, "Closed timestamp request")
+	resolved := createTicketFor(t, h, user, "Resolved timestamp request")
 	h.seedTransition(t, resolved.ID, domain.StateResolved, "")
+	closed := createTicketFor(t, h, user, "Closed timestamp request")
+	h.seedTransition(t, closed.ID, domain.StateResolved, "")
+	closeViaRequester(t, h, user, closed.ID)
 
-	waiting, openSection, closedSection := requesterSections(t, ticketsIndexAs(t, h, sess.ID, "", false))
-	for _, section := range []string{waiting, openSection, closedSection} {
+	action, openSection, closedSection := requesterSections(t, ticketsIndexAs(t, h, sess.ID, "", false))
+	for _, section := range []string{action, openSection, closedSection} {
 		mustContain(t, section, `<time class="card-timestamp" tabindex="0" datetime="`, `aria-label="`, `data-full-date="`)
 	}
 }

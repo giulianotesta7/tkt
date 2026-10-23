@@ -557,9 +557,9 @@ func TestTicketDetailTerminalTicketHasNoHoldControl(t *testing.T) {
 
 // TestTicketOnHoldChipInLists proves the on-hold chip renders next to the state
 // badge in the staff queue, and that the requester's list names the hold with
-// its own "waiting for your reply" section instead (issue #411, S3): the issue
-// #352 chip stays where a state badge lives, which the requester's waiting row
-// replaces with the section and its label.
+// its combined "Needs your action" section instead (issue #411, S3/S8): the
+// issue #352 chip stays where a state badge lives, which the requester's held
+// row replaces with the section and its label.
 func TestTicketOnHoldChipInLists(t *testing.T) {
 	h := newHarness(t)
 	requester := seedUserRole(t, h.store, "Rosa", "rosa-list@tkt.test", domain.RoleUser)
@@ -573,9 +573,9 @@ func TestTicketOnHoldChipInLists(t *testing.T) {
 	}
 
 	own := getDetailAs(t, h, "/tickets", sess.ID, false).Body.String()
-	for _, want := range []string{"Waiting for your reply · 1", "This ticket is waiting for your reply", `href="/tickets/` + strconv.FormatInt(tkt.ID, 10) + `#reply"`} {
+	for _, want := range []string{"Needs your action · 1", "This ticket is waiting for your reply", `href="/tickets/` + strconv.FormatInt(tkt.ID, 10) + `#reply"`} {
 		if !strings.Contains(own, want) {
-			t.Errorf("the requester list must put a held ticket in the waiting section (%q), got: %s", want, own)
+			t.Errorf("the requester list must put a held ticket in the Needs-your-action section (%q), got: %s", want, own)
 		}
 	}
 	if strings.Contains(own, `<span class="chip">On hold</span>`) {

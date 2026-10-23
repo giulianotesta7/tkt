@@ -536,8 +536,8 @@ test.describe("Structural — empty base", () => {
 test.describe("Structural — requester list (issue #411)", () => {
   /**
    * The requester's "My tickets" list is a canonical screen of its own since
-   * issue #411: a full-width list with a waiting section, an open section and a
-   * folded closed section. It has to survive the 390px fold and both themes
+   * issue #411: a full-width list with the Needs-your-action section, an open
+   * section and a folded closed section. It has to survive the 390px fold and both themes
    * with nothing clipped, no horizontal scroll, and a single active nav mark,
    * exactly like every other canonical screen.
    */

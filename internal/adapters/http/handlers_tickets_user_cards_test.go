@@ -66,13 +66,13 @@ func TestTicketsIndexUserShowsOnlyOwnRequestsInPlainLanguage(t *testing.T) {
 				t.Fatalf("hx=%t page=%d status = %d, want 200", hx, page, rec.Code)
 			}
 			body := rec.Body.String()
-			if !strings.Contains(body, "2 open tickets") {
-				t.Errorf("hx=%t page=%d the header must count the requester's open work: %s", hx, page, body)
+			if !strings.Contains(body, "3 open tickets") {
+				t.Errorf("hx=%t page=%d the header must count the requester's open work (the resolved ticket awaiting confirmation plus the open two): %s", hx, page, body)
 			}
-			waiting, openSection, closedSection := requesterSections(t, body)
-			if waiting != "" {
-				t.Errorf("hx=%t page=%d no ticket is on hold, so the waiting section must not render: %s", hx, page, waiting)
-			}
+			action, openSection, closedSection := requesterSections(t, body)
+			// The resolved ticket awaits the requester's confirmation, so it
+			// sits in the Needs-your-action section, never in the open one.
+			mustContain(t, action, "Needs your action · 1", resolved.Title)
 			if page == 1 {
 				for _, want := range []string{newTicket.Title, inProgress.Title, "Received", "In progress", "Printer report with steps to reproduce", `class="req"`, `class="req-desc"`, `class="req-meta"`} {
 					if !strings.Contains(openSection, want) {
@@ -80,10 +80,13 @@ func TestTicketsIndexUserShowsOnlyOwnRequestsInPlainLanguage(t *testing.T) {
 					}
 				}
 			}
-			// The closed work is reachable but folded: resolved and closed own
-			// their own section, never the open one.
-			if !strings.Contains(closedSection, resolved.Title) || !strings.Contains(closedSection, closed.Title) {
-				t.Errorf("hx=%t page=%d resolved and closed requests belong in the closed section: %s", hx, page, body)
+			// The closed work is reachable but folded: the closed section holds
+			// only closed tickets, and the resolved one never joins it.
+			if !strings.Contains(closedSection, closed.Title) {
+				t.Errorf("hx=%t page=%d the closed request belongs in the closed section: %s", hx, page, body)
+			}
+			if strings.Contains(closedSection, resolved.Title) {
+				t.Errorf("hx=%t page=%d a resolved ticket awaiting confirmation must stay out of the closed fold: %s", hx, page, body)
 			}
 			if strings.Contains(body, "<table") {
 				t.Errorf("hx=%t requester list must render rows, not a table: %s", hx, body)
@@ -191,18 +194,19 @@ func TestTicketsIndexUserForbiddenFiltersCannotChooseASection(t *testing.T) {
 	h.seedTransition(t, resolved.ID, domain.StateResolved, "")
 
 	// A forged filter set must not reach into another section: the open ticket
-	// stays in the open section and the resolved one stays in the closed
-	// section, whatever state, priority, category or assignee the URL claims.
+	// stays in the open section and the resolved one stays in the
+	// Needs-your-action section, whatever state, priority, category or assignee
+	// the URL claims.
 	for _, hx := range []bool{false, true} {
 		body := ticketsIndexAs(t, h, sess.ID, "?state=resolved&priority=critical&category_id=999&user_id=999", hx)
-		waiting, openSection, closedSection := requesterSections(t, body)
-		if waiting != "" {
-			t.Errorf("hx=%t a forged state filter must not create a waiting section: %s", hx, waiting)
-		}
+		action, openSection, closedSection := requesterSections(t, body)
+		mustContain(t, action, "Needs your action · 1", resolved.Title)
 		mustContain(t, openSection, "Open · 1", open.Title)
 		if strings.Contains(openSection, resolved.Title) {
 			t.Errorf("hx=%t a forged state filter must not move a resolved own ticket into the open section: %s", hx, body)
 		}
-		mustContain(t, closedSection, "Closed · 1", resolved.Title)
+		if closedSection != "" {
+			t.Errorf("hx=%t no ticket is closed, so no closed fold may render: %s", hx, body)
+		}
 	}
 }

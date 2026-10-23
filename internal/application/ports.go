@@ -1345,14 +1345,17 @@ const (
 	TicketSectionAll TicketSection = iota
 	TicketSectionPersonal
 	TicketSectionClaimable
-	// TicketSectionRequesterWaiting is the requester's on-hold work: a ticket
-	// in an active state that waits for the requester's reply.
-	TicketSectionRequesterWaiting
+	// TicketSectionRequesterAction is the requester's "Needs your action" set
+	// (issue #411, S8): the active work held for their reply OR a resolved
+	// ticket awaiting their confirmation. It replaces the former on-hold-only
+	// waiting section, so both requests for the requester live in one list.
+	TicketSectionRequesterAction
 	// TicketSectionRequesterOpen is the requester's active work that is NOT on
-	// hold, so a waiting ticket is never listed twice.
+	// hold, so a held ticket is never listed twice.
 	TicketSectionRequesterOpen
-	// TicketSectionRequesterClosed is the requester's finished work: resolved
-	// and closed tickets, folded at the end of the list.
+	// TicketSectionRequesterClosed is the requester's CLOSED work only, folded
+	// at the end of the list. A resolved ticket still awaiting confirmation
+	// belongs to the Needs-your-action section, never here (issue #411, S8).
 	TicketSectionRequesterClosed
 )
 
@@ -1382,9 +1385,17 @@ type TicketQuery struct {
 	// "On hold" queue view): on_hold_since is set, whatever the state.
 	OnHold bool
 	// NotOnHold restricts the list to tickets that are NOT on hold, so the
-	// requester's "waiting for your reply" set and their open set never
-	// overlap (issue #411, S3/S4).
+	// requester's Needs-your-action set and their open set never overlap
+	// (issue #411, S3/S4).
 	NotOnHold bool
+	// RequesterNeedsAction restricts the read to the requester's "Needs your
+	// action" set (issue #411, S8): active work on hold for their reply, OR a
+	// resolved ticket awaiting their confirmation. States, OnHold and NotOnHold
+	// cannot express an OR, so this is a predicate of its own. It is
+	// SERVER-ONLY: SearchService derives it from the section it chose and
+	// clears every caller-supplied value, exactly like the state set it
+	// accompanies, so a crafted query can never select the section.
+	RequesterNeedsAction bool
 	// Text is the D4-tokenized, title-scoped FTS expression ("" = no title
 	// filter). The search box matches ONLY ticket titles or IDs.
 	Text string

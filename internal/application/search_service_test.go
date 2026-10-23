@@ -420,11 +420,12 @@ func seedSectionTicket(store *fakeTicketStore, clock *fakeClock, title string, r
 }
 
 // TestSearchRequesterSectionsAreServerChosen pins the requester's section
-// contract (issue #411, S3/S4/S7): the section the SERVER names decides the
-// state set and the on-hold half, every caller-supplied state is ignored, an
-// absent section keeps the pre-#411 active-work behavior, and no section ever
-// returns another requester's ticket. Count must agree with Search for each
-// section, so a section header can never disagree with the rows below it.
+// contract (issue #411, S3/S4/S8/S7): the section the SERVER names decides the
+// state set and the on-hold half, every caller-supplied state, on-hold flag and
+// the Needs-your-action predicate itself are ignored, an absent section keeps
+// the pre-#411 active-work behavior, and no section ever returns another
+// requester's ticket. Count must agree with Search for each section, so a
+// section header can never disagree with the rows below it.
 func TestSearchRequesterSectionsAreServerChosen(t *testing.T) {
 	svc, tickets, clock := newSearchService()
 	alice := domain.User{ID: 1, Name: "Alice", Role: domain.RoleUser}
@@ -435,7 +436,8 @@ func TestSearchRequesterSectionsAreServerChosen(t *testing.T) {
 	resolved := seedSectionTicket(tickets, clock, "alice resolved", alice.ID, domain.StateResolved, false)
 	closed := seedSectionTicket(tickets, clock, "alice closed", alice.ID, domain.StateClosed, false)
 	cancelled := seedSectionTicket(tickets, clock, "alice cancelled", alice.ID, domain.StateCancelled, false)
-	bobClosed := seedSectionTicket(tickets, clock, "bob closed", bob.ID, domain.StateResolved, false)
+	bobHeld := seedSectionTicket(tickets, clock, "bob waiting", bob.ID, domain.StateInProgress, true)
+	bobResolved := seedSectionTicket(tickets, clock, "bob resolved", bob.ID, domain.StateResolved, false)
 
 	ids := func(result *application.SearchResult) []int64 {
 		out := make([]int64, 0, len(result.Tickets))
@@ -461,14 +463,16 @@ func TestSearchRequesterSectionsAreServerChosen(t *testing.T) {
 		section application.TicketSection
 		want    []int64
 	}{
-		{name: "waiting", section: application.TicketSectionRequesterWaiting, want: []int64{held.ID}},
+		{name: "needs your action", section: application.TicketSectionRequesterAction, want: []int64{resolved.ID, held.ID}},
 		{name: "open", section: application.TicketSectionRequesterOpen, want: []int64{open.ID}},
-		{name: "closed", section: application.TicketSectionRequesterClosed, want: []int64{closed.ID, resolved.ID}},
+		{name: "closed holds only closed tickets", section: application.TicketSectionRequesterClosed, want: []int64{closed.ID}},
 		{name: "no section keeps active work", section: application.TicketSectionAll, want: []int64{held.ID, open.ID}},
 	}
-	// A crafted state restriction must never override what the server chose,
-	// in any section — including asking for the closed set from the open
-	// section, which is where a hand-built URL would try to reach history.
+	// A crafted state restriction or on-hold flag must never override what the
+	// server chose, in any section — including asking for the closed set from
+	// the open section, which is where a hand-built URL would try to reach
+	// history, and setting the Needs-your-action predicate itself, which would
+	// let a caller add the resolved half to the open section.
 	crafted := []func(*application.TicketQuery){
 		func(q *application.TicketQuery) { q.State = ptr(domain.StateResolved) },
 		func(q *application.TicketQuery) { q.States = []domain.State{domain.StateClosed} },
@@ -476,6 +480,8 @@ func TestSearchRequesterSectionsAreServerChosen(t *testing.T) {
 			q.State = ptr(domain.StateCancelled)
 			q.States = []domain.State{domain.StateCancelled, domain.StateResolved}
 		},
+		func(q *application.TicketQuery) { q.RequesterNeedsAction = true },
+		func(q *application.TicketQuery) { q.NotOnHold = true },
 	}
 
 	for _, tc := range cases {
@@ -499,10 +505,7 @@ func TestSearchRequesterSectionsAreServerChosen(t *testing.T) {
 				t.Fatalf("%s crafted=%d: Count = %d, want %d (a section header must match its rows)", tc.name, index, count, len(tc.want))
 			}
 			for _, ticket := range result.Tickets {
-				if ticket.ID == bobClosed.ID {
-					t.Fatalf("%s crafted=%d: another requester's ticket leaked into the section", tc.name, index)
-				}
-				for _, outside := range []int64{cancelled.ID, bobClosed.ID} {
+				for _, outside := range []int64{cancelled.ID, bobHeld.ID, bobResolved.ID} {
 					if ticket.ID == outside {
 						t.Fatalf("%s crafted=%d: ticket %d must stay out of every section", tc.name, index, outside)
 					}
@@ -539,7 +542,10 @@ func TestSearchRequesterExportHonorsCallerOnHoldWithoutSection(t *testing.T) {
 	if got := exported(crafted); len(got) != 1 || got[0] != held.ID {
 		t.Fatalf("export with crafted states = %v, want [%d] (resolved %d stays hidden)", got, held.ID, resolved.ID)
 	}
-	if got := exported(application.TicketQuery{Section: application.TicketSectionRequesterClosed}); len(got) != 1 || got[0] != resolved.ID {
-		t.Fatalf("closed section export = %v, want [%d]", got, resolved.ID)
+	if got := exported(application.TicketQuery{Section: application.TicketSectionRequesterAction}); len(got) != 2 || got[0] != resolved.ID || got[1] != held.ID {
+		t.Fatalf("needs-your-action section export = %v, want [%d %d] (held and awaiting confirmation)", got, resolved.ID, held.ID)
+	}
+	if got := exported(application.TicketQuery{Section: application.TicketSectionRequesterClosed}); len(got) != 0 {
+		t.Fatalf("closed section export = %v, want no rows (a resolved ticket awaits confirmation)", got)
 	}
 }
