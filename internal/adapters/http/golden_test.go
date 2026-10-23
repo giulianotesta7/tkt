@@ -351,6 +351,20 @@ func TestGoldenTicketsIndexUser(t *testing.T) {
 	data.ShowAdvancedFilters = false
 	data.Filters = filterState{Q: "printer"}
 	data.Tickets[0].Description = "Clear the jammed tray, then reload paper."
+	// The requester's three sections (issue #411, S3/S4/S8): the combined
+	// Needs-your-action section holds the on-hold ticket waiting for the reply
+	// and the resolved ticket awaiting confirmation, the open work follows, and
+	// only CLOSED tickets sit in the fold at the end. Sections carry their own
+	// totals, and the header counts the open work.
+	data.Open = ticketListData{Tickets: []ticketRow{data.Tickets[1]}, Total: 1, Page: 1, Pages: 1, HasActiveQuery: true}
+	data.Action = ticketListData{Tickets: []ticketRow{
+		{Ticket: domain.Ticket{ID: 5, Number: 5, Title: "Resolved printer request", State: domain.StateResolved, Priority: domain.PriorityLow, CreatedAt: goldenT1, UpdatedAt: goldenT1}},
+		{Ticket: domain.Ticket{ID: 2, Number: 2, Title: "Printer jam", State: domain.StateInProgress, Priority: domain.PriorityHigh, CreatedAt: goldenT1, UpdatedAt: goldenT1, OnHoldSince: &goldenT0, OnHoldReason: "waiting for the requester"}},
+	}, Total: 2, Page: 1, Pages: 1, HasActiveQuery: true}
+	data.Closed = ticketListData{Tickets: []ticketRow{
+		{Ticket: domain.Ticket{ID: 4, Number: 4, Title: "Closed printer request", State: domain.StateClosed, Priority: domain.PriorityLow, CreatedAt: goldenT0, UpdatedAt: goldenT1}},
+	}, Total: 1, Page: 1, Pages: 1, HasActiveQuery: true}
+	data.Total = data.Action.Total + data.Open.Total
 	goldenFullPage(t, "tickets_index_user", renderGolden(t, "tickets_index", "", data, false))
 }
 

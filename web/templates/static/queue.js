@@ -1,9 +1,10 @@
 /*
- * Staff queue row navigation (issue #382). The row's single link is the
- * title; this makes the rest of the row open the same ticket on a plain
- * click, while leaving links, buttons, form controls, text selections and
- * modified clicks (new tab, context menu) to the browser. It survives HTMX
- * swaps of #tickets-screen because it listens on the document.
+ * Row navigation for the ticket lists (issue #382, staff queue; issue #411,
+ * requester list). The row's single link is the title; this makes the rest of
+ * the row open the same ticket on a plain click, while leaving links, buttons,
+ * form controls, text selections and modified clicks (new tab, context menu)
+ * to the browser. It survives HTMX swaps of #tickets-screen because it listens
+ * on the document.
  */
 (() => {
   // Under 640px the four selects fold behind the Filters disclosure; the
@@ -41,7 +42,9 @@
     // A disclosure's summary keeps its toggle; rows folded inside a <details>
     // still navigate, and a click elsewhere in a disclosure finds no row.
     if (target.closest("a, button, input, select, textarea, label, summary")) return;
-    const row = target.closest("tr.queue-row[data-href]");
+    const row = target.closest(
+      "tr.queue-row[data-href], li.req[data-href], li.req-waiting[data-href]",
+    );
     if (!row) return;
     const selection = window.getSelection();
     if (selection && selection.type === "Range" && String(selection).length > 0) return;
