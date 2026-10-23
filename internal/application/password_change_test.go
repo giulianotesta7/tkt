@@ -126,6 +126,27 @@ func assertOwnPasswordUnchanged(t *testing.T, f *ownPasswordFixture, want ownPas
 	}
 }
 
+// TestChangeOwnPasswordRefusesAForeignCurrentSession covers the store guard at
+// the use case: a request naming ANOTHER account's session changes nothing for
+// either account. The write path refuses it, and the service must surface that
+// refusal instead of reporting a change that never happened.
+func TestChangeOwnPasswordRefusesAForeignCurrentSession(t *testing.T) {
+	f := newOwnPasswordFixture(t)
+	before := f.state(t, f.actor)
+	otherBefore := f.state(t, f.otherUser)
+
+	err := f.svc.ChangeOwnPassword(context.Background(), f.actor, "sess-bea", ownCurrentPassword, ownNextPassword)
+	var forbidden *domain.ForbiddenError
+	if !errors.As(err, &forbidden) {
+		t.Fatalf("ChangeOwnPassword with another account's session = %v, want a ForbiddenError", err)
+	}
+	assertOwnPasswordUnchanged(t, f, before)
+	if got := f.state(t, f.otherUser); !reflect.DeepEqual(got, otherBefore) {
+		t.Errorf("another account changed: hash %q -> %q, sessions %v -> %v",
+			otherBefore.hash, got.hash, otherBefore.sessions, got.sessions)
+	}
+}
+
 // TestChangeOwnPasswordRefusesWhenTheInstanceSwitchIsOff covers S1 for this
 // path: with the change switch OFF the request is refused and nothing is
 // written — not the hash, not one session.

@@ -3,6 +3,7 @@ package sqlite
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 
 	"github.com/giulianotesta7/tkt/internal/application"
@@ -28,7 +29,11 @@ func newPasswordChangeStore(db *sql.DB) *passwordChangeStore {
 // signed out, or neither happens. Sessions of other users are never selected.
 //
 // The hash write runs FIRST so an id no user row matches answers ErrNotFound
-// before a single session is deleted.
+// before a single session is deleted. The kept session is then resolved inside
+// the same transaction and must belong to that user: a request naming another
+// account's session (or one the table no longer holds) is refused, and the hash
+// write it travelled with rolls back, because the alternative is signing the
+// actor out of every device including the one in use.
 func (us *passwordChangeStore) ChangePasswordAndSignOutOtherSessions(ctx context.Context, userID int64, passwordHash, keepSessionID string) error {
 	tx, err := beginImmediate(ctx, us.db, "change password and sign out other sessions")
 	if err != nil {
@@ -46,6 +51,18 @@ func (us *passwordChangeStore) ChangePasswordAndSignOutOtherSessions(ctx context
 	}
 	if n == 0 {
 		return &domain.NotFoundError{Kind: "user", ID: userID}
+	}
+
+	var keeper int64
+	err = tx.QueryRowContext(ctx, `SELECT user_id FROM sessions WHERE id = ?`, keepSessionID).Scan(&keeper)
+	if errors.Is(err, sql.ErrNoRows) {
+		return &domain.NotFoundError{Kind: "session", ID: keepSessionID}
+	}
+	if err != nil {
+		return fmt.Errorf("sqlite: read the session making the change: %w", err)
+	}
+	if keeper != userID {
+		return domain.NewForbiddenError("the session making the change belongs to another account")
 	}
 
 	// Seam for #414's recovery path (T3, S3): the user's pending reset tokens

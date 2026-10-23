@@ -250,6 +250,7 @@
   .preferences-form .field select{max-width:360px}
   .preferences-form .checkbox-field label{align-items:flex-start;font-weight:400;line-height:1.6}
   .preferences-form .checkbox-field input[type=checkbox]{margin-top:2px}
+  .preferences-note{margin:0 0 16px;color:var(--muted);font-size:12px;line-height:1.6}
   .preferences-actions{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
 
   .main{padding:22px 28px 40px;min-width:0}
