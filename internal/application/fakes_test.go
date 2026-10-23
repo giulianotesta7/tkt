@@ -63,6 +63,24 @@ func matchesQuery(t *domain.Ticket, q application.TicketQuery) bool {
 	if q.State != nil && t.State != *q.State {
 		return false
 	}
+	if len(q.States) > 0 {
+		matched := false
+		for _, state := range q.States {
+			if t.State == state {
+				matched = true
+				break
+			}
+		}
+		if !matched {
+			return false
+		}
+	}
+	if q.OnHold && t.OnHoldSince == nil {
+		return false
+	}
+	if q.NotOnHold && t.OnHoldSince != nil {
+		return false
+	}
 	if q.Priority != nil && t.Priority != *q.Priority {
 		return false
 	}

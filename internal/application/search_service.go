@@ -124,13 +124,36 @@ func (s *SearchService) Export(ctx context.Context, actor domain.User, q TicketQ
 func (s *SearchService) scoped(actor domain.User, q TicketQuery) (TicketQuery, bool) {
 	q = readQuery(actor, q)
 	if actor.Role == domain.RoleUser {
-		// The user list is always limited to active work. Ignore every
-		// caller-supplied state so crafted query strings cannot reveal history.
+		// A requester reads their own work only, and the SERVER chooses which
+		// part of it: ignore every caller-supplied state so a crafted query
+		// string can neither reveal history outside the folded section nor
+		// choose a section. The chosen section is translated here, so no store
+		// adapter has to know about presentation sections (issue #411).
 		q.State = nil
-		q.States = []domain.State{domain.StateNew, domain.StateInProgress}
+		q.States, q.OnHold, q.NotOnHold = requesterSectionScope(q.Section, q.OnHold)
+		q.Section = TicketSectionAll
 	}
 	q.Text, q.Numbers = BuildTitleQuery(q.Text)
 	return q, q.Text != "" || len(q.Numbers) > 0
+}
+
+// requesterSectionScope translates one requester presentation section into the
+// store predicates that define it (issue #411, S3/S4). An unknown or absent
+// section keeps the pre-#411 behavior — active work only, with the caller's
+// own on-hold filter (the CSV export's view=on_hold) — so a caller that never
+// names a section can never widen a requester's read. Every arm returns a
+// fresh slice, so no caller can mutate another query's state set.
+func requesterSectionScope(section TicketSection, callerOnHold bool) (states []domain.State, onHold, notOnHold bool) {
+	switch section {
+	case TicketSectionRequesterWaiting:
+		return []domain.State{domain.StateNew, domain.StateInProgress}, true, false
+	case TicketSectionRequesterClosed:
+		return []domain.State{domain.StateResolved, domain.StateClosed}, false, false
+	case TicketSectionRequesterOpen:
+		return []domain.State{domain.StateNew, domain.StateInProgress}, false, true
+	default:
+		return []domain.State{domain.StateNew, domain.StateInProgress}, callerOnHold, false
+	}
 }
 
 // Count answers how many tickets Search would list for the same actor and

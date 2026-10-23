@@ -197,6 +197,11 @@ func buildTicketWhere(q application.TicketQuery) (string, []any) {
 	if q.OnHold {
 		clauses = append(clauses, "t.on_hold_since IS NOT NULL")
 	}
+	// The requester's open section excludes the on-hold work the waiting
+	// section already listed, so one ticket is never shown twice (issue #411).
+	if q.NotOnHold {
+		clauses = append(clauses, "t.on_hold_since IS NULL")
+	}
 	// Text clause (FTS5, 0002): tickets whose TITLE rowid matches the
 	// D4-tokenized, title-scoped expression, OR whose exact ticket number
 	// (TKT-N) matches one of the extracted IDs — the search box scope is
