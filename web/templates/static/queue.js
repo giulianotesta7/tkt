@@ -39,7 +39,9 @@
     if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
     const target = event.target;
     if (!(target instanceof Element)) return;
-    if (target.closest("a, button, input, select, textarea, label, summary, details")) return;
+    // A disclosure's summary keeps its toggle; rows folded inside a <details>
+    // still navigate, and a click elsewhere in a disclosure finds no row.
+    if (target.closest("a, button, input, select, textarea, label, summary")) return;
     const row = target.closest(
       "tr.queue-row[data-href], li.req[data-href], li.req-waiting[data-href]",
     );

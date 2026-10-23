@@ -197,6 +197,11 @@ test.describe("Ticket confirmation", () => {
     await assertNoHorizontalOverflow(page, 390);
     await assertNothingClipped(page);
     await page.setViewportSize({ width: 1280, height: 800 });
+    // A folded row opens its ticket from anywhere on the row, like every other
+    // list row: the disclosure around it must not swallow the click.
+    const closedHref = await closedRow.getAttribute("data-href");
+    await closedRow.locator(".req-meta").click();
+    await expect(page).toHaveURL(new RegExp(`${closedHref}$`));
   });
 
   test("requester rejects and the ticket reopens as a detached manual in_progress", async ({
