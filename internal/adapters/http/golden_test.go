@@ -262,6 +262,82 @@ func renderGolden(t *testing.T, page, fragment string, data any, hx bool) string
 	return rec.Body.String()
 }
 
+// fixtureTicketMetricsData builds a frozen dashboard payload (issue #393): one
+// selected period whose edge week is partial, a pending backlog spread over the
+// age buckets and the workload rows, resolved tickets with a verifiable
+// duration, and a committed cohort. Every derived block is produced by the same
+// Go functions the handler uses, so the snapshot pins the real view model
+// rather than a hand-copied one.
+func fixtureTicketMetricsData() ticketMetricsDetailData {
+	start := time.Date(2026, 9, 2, 0, 0, 0, 0, time.UTC)
+	end := time.Date(2026, 9, 20, 0, 0, 0, 0, time.UTC)
+	metrics := application.TicketMetrics{
+		Filter:       application.TicketMetricsFilter{Start: start, End: end, WorkloadBy: "agent"},
+		Pending:      4,
+		Unassigned:   1,
+		Created:      9,
+		Resolved:     6,
+		MeanDuration: 42 * time.Hour,
+		Median:       30 * time.Hour,
+		P90:          120 * time.Hour,
+		Samples:      5,
+		Excluded:     1,
+		WorkloadBy:   "agent",
+		Weeks: []application.TicketMetricsWeek{
+			{Start: time.Date(2026, 8, 31, 0, 0, 0, 0, time.UTC), Created: 1, Resolved: 0, Partial: true},
+			{Start: time.Date(2026, 9, 7, 0, 0, 0, 0, time.UTC), Created: 5, Resolved: 3},
+			{Start: time.Date(2026, 9, 14, 0, 0, 0, 0, time.UTC), Created: 3, Resolved: 3},
+		},
+		Ages: []application.TicketMetricsBucket{
+			{Label: "0–2 days", LabelKey: "ticket_metrics.age.bucket.0_2", Count: 2},
+			{Label: "3–7 days", LabelKey: "ticket_metrics.age.bucket.3_7", Count: 1},
+			{Label: "8–14 days", LabelKey: "ticket_metrics.age.bucket.8_14", Count: 0},
+			{Label: ">14 days", LabelKey: "ticket_metrics.age.bucket.14_plus", Count: 1},
+		},
+		Workload: []application.TicketMetricsWorkload{
+			{Label: "Ana Torres", Count: 2},
+			{Label: "Unassigned", LabelKey: "tickets.degrade.unassigned", Count: 1, Unassigned: true},
+			{Label: "Zoe Chen", Count: 1},
+		},
+		Histogram: []application.TicketMetricsBucket{
+			{Label: "0–<5 days", LabelKey: "ticket_metrics.resolution.bin", LabelArgs: []any{"0", "5"}, Count: 4, LowerDays: 0, UpperDays: 5},
+			{Label: "5–<10 days", LabelKey: "ticket_metrics.resolution.bin", LabelArgs: []any{"5", "10"}, Count: 1, LowerDays: 5, UpperDays: 10},
+		},
+		Attainment: application.TicketMetricsAttainment{
+			GroupBy:      application.TicketMetricsGroupPriority,
+			NoCommitment: 1,
+			Groups: []application.TicketMetricsAttainmentGroup{
+				{Label: "Critical", LabelKey: "label.priority.critical", Tickets: 2, FirstResponse: application.TicketMetricsMilestoneAttainment{Met: 1, Breached: 0, Open: 1}, Resolve: application.TicketMetricsMilestoneAttainment{Met: 1, Breached: 1}},
+				{Label: "High", LabelKey: "label.priority.high", Tickets: 3, FirstResponse: application.TicketMetricsMilestoneAttainment{Met: 2, Breached: 1}, Resolve: application.TicketMetricsMilestoneAttainment{Open: 3}},
+			},
+		},
+	}
+	view := attainmentViewFor(metrics.Attainment)
+	return ticketMetricsDetailData{
+		pageData: pageData{NavActive: "metrics", PageFoundationAssets: true, MetricsAssets: true},
+		ticketMetricsData: ticketMetricsData{
+			Metrics:                  metrics,
+			Summary:                  newTicketMetricsSummary(metrics),
+			MeanResolution:           metricsDuration(metrics.MeanDuration),
+			MeanResolutionIsDuration: true,
+			Attainment:               view,
+			AttainmentChart:          metricsAttainmentChart(i18n.New(i18n.Default), view),
+			ReturnHref:               "/tickets",
+			Desks:                    []domain.Desk{{ID: 1, Name: "Service desk", CreatedAt: goldenT0}},
+			Users:                    []domain.User{{ID: 1, Name: "Ana Torres", Email: "ana@example.com", Active: true, CreatedAt: goldenT0}},
+		},
+		BackHref: "/tickets",
+	}
+}
+
+// TestGoldenTicketMetricsDashboard freezes the redesigned metrics dashboard
+// (issue #393): the five KPI cards, each section's Chart/Table switch with both
+// views in the document, and the server-rendered attainment SVG. Update, then
+// prove without -update.
+func TestGoldenTicketMetricsDashboard(t *testing.T) {
+	goldenFullPage(t, "ticket_metrics_dashboard", renderGolden(t, "ticket_metrics_detail", "", fixtureTicketMetricsData(), false))
+}
+
 func TestGoldenTicketsIndex(t *testing.T) {
 	goldenFullPage(t, "tickets_index", renderGolden(t, "tickets_index", "", fixtureListData(), false))
 }
