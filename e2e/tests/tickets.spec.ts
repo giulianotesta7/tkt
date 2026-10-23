@@ -304,7 +304,8 @@ test.describe("Ticket Lifecycle", () => {
     const form = page.locator(".ticket-create-detail");
     const heading = form.getByRole("heading", { name: "Create a ticket" });
     await expect(heading).toBeVisible();
-    await expect(page.getByText("Describe your request.", { exact: true })).toBeVisible();
+    // Issue #380: the subtitle repeated what the heading and fields say.
+    await expect(page.getByText("Describe your request.", { exact: true })).toHaveCount(0);
     const titleInput = page.getByLabel("Title");
     await expect(titleInput).toBeVisible();
     const descriptionCard = form.locator(".ticket-create-description");
@@ -609,6 +610,10 @@ test.describe("Ticket Lifecycle", () => {
     await expectCreationPriority(page, "Low");
     await expect(page.locator("#ticket-draft-notice")).toContainText("General");
     await expect(page.locator("#ticket-draft-notice")).toContainText("still saved");
+    // It reads as part of the header, right under the page title (issue #380).
+    await expect(page.locator(".command-header .command-title + #ticket-draft-notice")).toHaveCount(
+      1,
+    );
 
     // The source draft was not consumed by the collision.
     await page.goto(base() + "/tickets/new");
@@ -715,9 +720,10 @@ test.describe("Ticket Lifecycle", () => {
       const catalog = page.locator(".create-catalog");
       await expect(catalog).toBeVisible();
       await expect(page.getByRole("heading", { name: "Create a ticket" })).toBeVisible();
+      // Issue #380: the search box and the cards already say what to do.
       await expect(
         page.getByText("Choose a category to get started.", { exact: true }),
-      ).toBeVisible();
+      ).toHaveCount(0);
       const search = page.locator("[data-create-catalog-search]");
       await expect(search).toBeVisible();
 

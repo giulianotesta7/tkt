@@ -216,7 +216,7 @@ func TestGoldenPreferences(t *testing.T) {
 func TestRedesignedScreensSpeakSpanish(t *testing.T) {
 	preferences := renderLocalized(t, "es", "preferences", "", fixturePreferencesPageData())
 	for _, want := range []string{
-		"Preferencias", "Configuración personal",
+		"Preferencias",
 		"Orden de la cola", "Orden de cola por defecto", "Guardar preferencias",
 		"Tema", "Guardar tema",
 		"Notificaciones por email", "Recibir notificaciones por email", "Guardar preferencia de email",
@@ -229,6 +229,10 @@ func TestRedesignedScreensSpeakSpanish(t *testing.T) {
 		if strings.Contains(preferences, unwanted) {
 			t.Errorf("Spanish preferences must not render the English %q", unwanted)
 		}
+	}
+	// Issue #380: the subtitle repeated the heading, so it is gone.
+	if strings.Contains(preferences, "Configuración personal") {
+		t.Errorf("Spanish preferences must not render the repeated subtitle, got: %.800s", preferences)
 	}
 
 	notifications := renderLocalized(t, "es", "notifications", "", fixtureNotificationsPanelData())

@@ -84,7 +84,6 @@
     <div>
       <nav class="page-breadcrumb" aria-label="Breadcrumb"><a href="/categories">Catalog</a><span aria-hidden="true"> / </span><span></span></nav>
       <h1 class="page-title">Category workflow</h1>
-      <p class="page-subtitle">Build one ordered path for this category.</p>
     </div>
     <div class="page-actions">
       <button class="page-action" type="submit" form="workflow-form" name="action" value="save">Save</button>

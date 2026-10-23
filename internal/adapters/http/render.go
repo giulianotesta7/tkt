@@ -554,34 +554,11 @@ func workflowTypeKey(t domain.StepType) string {
 	}
 }
 
-// workflowTypeHelpKey names the catalogue key of the one-line plain-language
-// description under the selected kind. It covers every kind the picker offers.
-func workflowTypeHelpKey(t domain.StepType) string {
-	switch t {
-	case domain.StepAssignToDesk:
-		return "workflow.type_help.assign_to_desk"
-	case domain.StepForm:
-		return "workflow.type_help.form"
-	case domain.StepManualTask:
-		return "workflow.type_help.manual_task"
-	case domain.StepResolve:
-		return "workflow.type_help.resolve_ticket"
-	case domain.StepClose:
-		return "workflow.type_help.close_ticket"
-	default:
-		return "workflow.type_help.unknown"
-	}
-}
-
-// workflowTypeLabel and workflowTypeHelp answer the English copy for a kind.
-// They remain the single-source English accessors for Go callers and tests;
-// the template funcs resolve the same keys through the active locale.
+// workflowTypeLabel answers the English copy for a kind. It remains the
+// single-source English accessor for Go callers and tests; the template func
+// resolves the same key through the active locale.
 func workflowTypeLabel(t domain.StepType) string {
 	return i18n.T(i18n.English, workflowTypeKey(t))
-}
-
-func workflowTypeHelp(t domain.StepType) string {
-	return i18n.T(i18n.English, workflowTypeHelpKey(t))
 }
 
 // workflowFieldRequiredKey names the catalogue key of the builder's copy for a
@@ -909,7 +886,6 @@ func templateFuncsFor(locale string) template.FuncMap {
 	// so the picker, the step card, and the editor heading all follow the
 	// instance language.
 	funcs["workflowTypeLabel"] = func(v any) string { return translator.T(workflowTypeKey(asStepType(v))) }
-	funcs["workflowTypeHelp"] = func(v any) string { return translator.T(workflowTypeHelpKey(asStepType(v))) }
 	funcs["workflowFieldRequiredLabel"] = func(v any) string {
 		return translator.T(workflowFieldRequiredKey(domain.FieldKind(fmt.Sprint(v))))
 	}

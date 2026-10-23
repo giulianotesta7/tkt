@@ -100,10 +100,15 @@ func TestSpanishTicketDetail(t *testing.T) {
 // TestSpanishTicketForm renders the ticket creation form in Spanish.
 func TestSpanishTicketForm(t *testing.T) {
 	body := renderLocalized(t, "es", "tickets_new", "ticket_form", fixtureTicketFormData())
-	for _, want := range []string{"Crear un ticket", "Describe tu ticket.", "Título", "Descripción", "Crear ticket"} {
+	for _, want := range []string{"Crear un ticket", "Título", "Descripción", "Crear ticket"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("Spanish ticket form must render %q, got: %.800s", want, body)
 		}
+	}
+	// Issue #380: the heading and the form's own fields say what to do, so the
+	// Spanish subtitle is gone too.
+	if strings.Contains(body, "Describe tu ticket.") {
+		t.Errorf("Spanish ticket form must not render the repeated subtitle, got: %.800s", body)
 	}
 }
 
@@ -337,7 +342,6 @@ func TestSpanishMetrics(t *testing.T) {
 	detail := renderLocalized(t, "es", "ticket_metrics_detail", "ticket_metrics_detail_content", ticketMetricsRenderData())
 	for _, want := range []string{
 		"Métricas de tickets",
-		"Carga operativa y resolución",
 		"Volver a los tickets",
 		"Cargando métricas",
 		"Todas las mesas",
@@ -363,6 +367,11 @@ func TestSpanishMetrics(t *testing.T) {
 		if strings.Contains(detail, unwanted) {
 			t.Errorf("Spanish metrics detail must not render the English %q", unwanted)
 		}
+	}
+	// Issue #380: the heading names the surface, so the repeated subtitle is gone
+	// in both locales.
+	if strings.Contains(detail, "Carga operativa y resolución") {
+		t.Errorf("Spanish metrics detail must not render the repeated subtitle, got: %.1400s", detail)
 	}
 }
 
@@ -471,7 +480,6 @@ func TestSpanishWorkflowBuilder(t *testing.T) {
 	body := renderLocalized(t, "es", "category_workflow", "", data)
 	for _, want := range []string{
 		"Flujo de la categoría",
-		"Construye un recorrido ordenado para esta categoría.",
 		"Pasos del flujo",
 		"Selecciona un paso para configurarlo. Arrastra para reordenar.",
 		"Dar una tarea al agente",
@@ -499,6 +507,11 @@ func TestSpanishWorkflowBuilder(t *testing.T) {
 		if strings.Contains(body, unwanted) {
 			t.Errorf("Spanish workflow builder must not render the English %q", unwanted)
 		}
+	}
+	// Issue #380: the page title and the builder name the job, so the subtitle is
+	// gone.
+	if strings.Contains(body, "Construye un recorrido ordenado para esta categoría.") {
+		t.Errorf("Spanish workflow builder must not render the repeated subtitle, got: %.1600s", body)
 	}
 }
 

@@ -140,7 +140,6 @@ func TestCreateModeTwoStepRendersTheCatalogThenTheForm(t *testing.T) {
 	for _, want := range []string{
 		`class="create-catalog"`,
 		`<h1 class="command-title">Create a ticket</h1>`,
-		`Choose a category to get started.`,
 		`id="catalog-query"`,
 		`type="search" name="q"`,
 		// One section per department, holding the cards of that department.
@@ -152,6 +151,11 @@ func TestCreateModeTwoStepRendersTheCatalogThenTheForm(t *testing.T) {
 		if !strings.Contains(body, want) {
 			t.Errorf("the two-step catalog must contain %q, got: %s", want, body)
 		}
+	}
+	// Issue #380: the search box and the cards already say what to do, so the
+	// "Choose a category to get started." subtitle is gone.
+	if strings.Contains(body, "Choose a category to get started.") {
+		t.Error("the two-step catalog must not repeat the instruction its search box and cards give")
 	}
 	if strings.Contains(body, `class="ticket-create-detail"`) {
 		t.Error("the two-step catalog must not render the form")

@@ -897,7 +897,8 @@ test.describe("Preferences", () => {
     // Reach the page the way a user does: through the user menu, not by URL.
     await openPreferencesFromUserMenu(page);
     await expect(page.locator("h1").filter({ hasText: "Preferences" })).toBeVisible();
-    await expect(page.getByText(/personal settings/i)).toBeVisible();
+    // Issue #380: the subtitle repeated the heading, so it is gone.
+    await expect(page.getByText(/personal settings/i)).toHaveCount(0);
     const order = page.getByLabel("Default queue order");
     await expect(order).toBeVisible();
     await expect(order).toHaveValue("newest");
@@ -1364,19 +1365,26 @@ test.describe("Preferences", () => {
     await page.goto(base() + "/settings/email");
     await expect(page.locator("h2").filter({ hasText: "Email notifications" })).toBeVisible();
 
-    const tip = page.locator('button[aria-describedby="help-tip-email-host"]');
-    const bubble = page.locator("#help-tip-email-host");
+    // Issue #380: the SMTP server's address is what its label says, so that
+    // field carries no toggletip; the Username field's is the one exercised.
+    await expect(page.locator('button[aria-describedby="help-tip-email-host"]')).toHaveCount(0);
+    await expect(page.locator("#help-tip-email-host")).toHaveCount(0);
+
+    const tip = page.locator('button[aria-describedby="help-tip-email-username"]');
+    const bubble = page.locator("#help-tip-email-username");
     await expect(tip).toBeVisible();
-    await expect(tip).toHaveAttribute("aria-label", "More about SMTP server");
+    await expect(tip).toHaveAttribute("aria-label", "More about Username");
     await expect(bubble).toBeHidden();
 
     // Hover opens it.
     await tip.hover();
     await expect(bubble).toBeVisible();
-    await expect(bubble).toContainText("Host name or IP address of the company's mail server.");
+    await expect(bubble).toContainText(
+      "Leave it empty if your server accepts mail without authentication.",
+    );
 
     // Moving away closes the hover-only state.
-    await page.locator("#email_host").hover();
+    await page.locator("#email_username").hover();
     await expect(bubble).toBeHidden();
 
     // Keyboard focus opens it too.
@@ -1394,13 +1402,13 @@ test.describe("Preferences", () => {
     // Escape collapses it and leaves the focus on the control.
     await page.keyboard.press("Escape");
     await expect(tip).toHaveAttribute("aria-expanded", "false");
-    await page.locator("#email_host").hover();
+    await page.locator("#email_username").hover();
     await expect(bubble).toBeHidden();
 
     // A click opens it, a click outside closes it.
     await tip.click();
     await expect(bubble).toBeVisible();
-    await page.locator("#email_host").click();
+    await page.locator("#email_username").click();
     await expect(tip).toHaveAttribute("aria-expanded", "false");
     await expect(bubble).toBeHidden();
 
