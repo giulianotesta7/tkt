@@ -252,6 +252,11 @@ test.describe("Role — minimal matrix admin / agent / user (seeded)", () => {
     await expect(doneFold.getByRole("link", { name: assignedTitle, exact: true })).toBeHidden();
     await doneFold.locator("summary").click();
     await expect(doneFold.getByRole("link", { name: assignedTitle, exact: true })).toBeVisible();
+    // A folded row opens its ticket from anywhere on the row, like every other
+    // queue row: the disclosure around it must not swallow the click.
+    await doneFold.locator("tr.queue-row td.agent-desk").first().click();
+    await expect(page).toHaveURL(new RegExp(`/tickets/${assignedID}$`));
+    await page.goBack();
     const agentTicket = "Agent ticket " + Date.now().toString(36).slice(2, 8);
     await page.goto(baseURL() + "/tickets/new");
     await pickCreationCategory(page, "General");
