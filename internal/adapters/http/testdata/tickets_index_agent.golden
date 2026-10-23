@@ -78,63 +78,80 @@
   <input id="role-ticket-search" type="search" name="q" value="printer" placeholder="Search by ID or title" aria-label="Search tickets" hx-preserve="true" hx-get="/tickets" hx-trigger="input changed delay:300ms" hx-target="#tickets-screen" hx-swap="outerHTML" hx-push-url="true">
 </form></div>
   </header>
-</div><section id="tickets-screen" class="page-foundation tickets-screen"><div id="agent-ticket-list">
+</div><section id="tickets-screen" class="page-foundation tickets-screen"><div id="agent-ticket-list" class="agent-ticket-list">
+  <p class="page-subtitle agent-summary">2 open · 1 available</p>
   <section class="agent-queue" aria-labelledby="assigned-tickets-title">
-    <header class="command-header"><h2 id="assigned-tickets-title" class="command-title">Assigned to me · 2</h2></header>
-    <ul class="agent-queue-list">
-      <li class="agent-row agent-row-assigned">
-        <div class="agent-row-main">
-          <a class="agent-row-title" href="/tickets/2">Printer jam</a>
-          <span class="agent-row-number">TKT-2</span>
-
-          <p class="agent-row-meta">Desk: Service desk</p>
-          <p class="agent-row-meta">Requester: Ana Torres</p>
-        </div>
-        <div class="agent-row-side">
-          <span class="badge in_progress">In Progress</span><span class="sla-state"><span class="sla-dot at_risk" aria-hidden="true"></span><span class="sla-state-word">At Risk</span></span> 
-          <span class="priority high"><span class="ticket-priority-value">High</span></span>
-          <span class="agent-row-updated">Updated <time class="card-timestamp" tabindex="0" datetime="2026-08-06T10:30:00Z" aria-label="10:30 · 06-08-2026" data-full-date="10:30 · 06-08-2026">10:30 · 06 Aug</time></span>
-          <a class="agent-row-open" href="/tickets/2">Open ticket</a>
-        </div>
-      </li>
-      <li class="agent-row agent-row-assigned">
-        <div class="agent-row-main">
-          <a class="agent-row-title" href="/tickets/1">Login page down</a>
-          <span class="agent-row-number">TKT-1</span>
-          <p class="agent-row-task">Current task: Restart the printer spooler</p>
-          <p class="agent-row-meta">No desk assigned</p>
-          <p class="agent-row-meta">Requester: Ana Torres</p>
-        </div>
-        <div class="agent-row-side">
-          <span class="badge new">New</span>
-          <span class="priority critical"><span class="ticket-priority-value">Critical</span></span>
-          <span class="agent-row-updated">Updated <time class="card-timestamp" tabindex="0" datetime="2026-08-06T10:00:00Z" aria-label="10:00 · 06-08-2026" data-full-date="10:00 · 06-08-2026">10:00 · 06 Aug</time></span>
-          <a class="agent-row-open" href="/tickets/1">Open ticket</a>
-        </div>
-      </li>
-    </ul>
+    <h2 id="assigned-tickets-title" class="agent-queue-title">Assigned to me <span class="agent-queue-count">· 2</span></h2>
+    <div class="queue-shell">
+      <table class="queue agent-table">
+        <thead>
+          <tr><th>ID</th><th>Ticket</th><th>Desk</th><th>Priority</th><th>State</th><th>SLA</th><th>Updated</th></tr>
+        </thead>
+        <tbody>
+          <tr class="queue-row" data-href="/tickets/2">
+            <td class="num" data-label="ID">TKT-2</td>
+            <td class="cell-title" data-label="Ticket"><a class="queue-title" href="/tickets/2">Printer jam</a><span class="queue-requester">Ana Torres</span></td>
+            <td class="cell-muted agent-desk" data-label="Desk">Service desk</td>
+            <td class="priority high" data-label="Priority"><span class="ticket-priority-value">High</span></td>
+            <td data-label="State"><span class="badge in_progress">In Progress</span></td>
+            <td data-label="SLA"><span class="sla-state"><span class="sla-dot at_risk" aria-hidden="true"></span><span class="sla-state-word">At Risk</span></span> </td>
+            <td class="cell-muted queue-updated" data-label="Updated"><time class="card-timestamp" tabindex="0" datetime="2026-08-06T10:30:00Z" aria-label="10:30 · 06-08-2026" data-full-date="10:30 · 06-08-2026" title="10:30 · 06-08-2026">2 h ago</time></td>
+          </tr>
+          <tr class="queue-row" data-href="/tickets/1">
+            <td class="num" data-label="ID">TKT-1</td>
+            <td class="cell-title" data-label="Ticket"><a class="queue-title" href="/tickets/1">Login page down</a><span class="queue-requester">Ana Torres</span><span class="agent-task"><span class="agent-task-label">Current task:</span> Restart the printer spooler</span></td>
+            <td class="cell-muted agent-desk" data-label="Desk">No desk assigned</td>
+            <td class="priority critical" data-label="Priority"><span class="ticket-priority-value">Critical</span></td>
+            <td data-label="State"><span class="badge new">New</span></td>
+            <td data-label="SLA"></td>
+            <td class="cell-muted queue-updated" data-label="Updated"><time class="card-timestamp" tabindex="0" datetime="2026-08-06T10:00:00Z" aria-label="10:00 · 06-08-2026" data-full-date="10:00 · 06-08-2026" title="10:00 · 06-08-2026">2 h ago</time></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <details class="agent-fold">
+      <summary>Resolved and closed <span class="agent-fold-count">· 1</span></summary>
+    <div class="queue-shell">
+      <table class="queue agent-table">
+        <thead>
+          <tr><th>ID</th><th>Ticket</th><th>Desk</th><th>Priority</th><th>State</th><th>SLA</th><th>Updated</th></tr>
+        </thead>
+        <tbody>
+          <tr class="queue-row" data-href="/tickets/4">
+            <td class="num" data-label="ID">TKT-4</td>
+            <td class="cell-title" data-label="Ticket"><a class="queue-title" href="/tickets/4">Printer replaced</a><span class="queue-requester">Ana Torres</span></td>
+            <td class="cell-muted agent-desk" data-label="Desk">Service desk</td>
+            <td class="priority low" data-label="Priority"><span class="ticket-priority-value">Low</span></td>
+            <td data-label="State"><span class="badge resolved">Resolved</span></td>
+            <td data-label="SLA"></td>
+            <td class="cell-muted queue-updated" data-label="Updated"><time class="card-timestamp" tabindex="0" datetime="2026-08-06T10:30:00Z" aria-label="10:30 · 06-08-2026" data-full-date="10:30 · 06-08-2026" title="10:30 · 06-08-2026">2 h ago</time></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    </details>
   </section>
   <section class="agent-queue" aria-labelledby="claimable-tickets-title">
-    <header class="command-header"><h2 id="claimable-tickets-title" class="command-title">Available to claim · 1</h2></header>
-    <ul class="agent-queue-list">
-      <li class="agent-row agent-row-claimable">
-        <div class="agent-row-main">
-          <a class="agent-row-title" href="/tickets/3">Email bounce</a>
-          <span class="agent-row-number">TKT-3</span>
-          <p class="agent-row-meta">Requester: Ana Torres</p>
-          <p class="agent-row-meta">Desk: Service desk</p>
-          <span class="agent-row-updated">Created <time class="card-timestamp" tabindex="0" datetime="2026-08-06T10:30:00Z" aria-label="10:30 · 06-08-2026" data-full-date="10:30 · 06-08-2026">10:30 · 06 Aug</time></span>
-        </div>
-        <div class="agent-row-side">
-          <span class="badge new">New</span><span class="sla-state"><span class="sla-dot on_track" aria-hidden="true"></span><span class="sla-state-word">On Track</span></span> 
-          <span class="priority medium"><span class="ticket-priority-value">Medium</span></span>
-          <div class="agent-row-actions">
-            <a class="agent-row-open" href="/tickets/3">View ticket</a>
-
-          </div>
-        </div>
-      </li>
-    </ul>
+    <h2 id="claimable-tickets-title" class="agent-queue-title">Available to claim <span class="agent-queue-count">· 1</span></h2>
+    <div class="queue-shell">
+      <table class="queue agent-table agent-table-claimable">
+        <thead>
+          <tr><th>ID</th><th>Ticket</th><th>Desk</th><th>Priority</th><th>State</th><th>SLA</th><th>Created</th><th class="cell-actions"><span class="visually-hidden">Actions</span></th></tr>
+        </thead>
+        <tbody>
+          <tr class="queue-row" data-href="/tickets/3">
+            <td class="num" data-label="ID">TKT-3</td>
+            <td class="cell-title" data-label="Ticket"><a class="queue-title" href="/tickets/3">Email bounce</a><span class="queue-requester">Ana Torres</span></td>
+            <td class="cell-muted agent-desk" data-label="Desk">Service desk</td>
+            <td class="priority medium" data-label="Priority"><span class="ticket-priority-value">Medium</span></td>
+            <td data-label="State"><span class="badge new">New</span></td>
+            <td data-label="SLA"><span class="sla-state"><span class="sla-dot on_track" aria-hidden="true"></span><span class="sla-state-word">On Track</span></span> </td>
+            <td class="cell-muted queue-updated" data-label="Created"><time class="card-timestamp" tabindex="0" datetime="2026-08-06T10:30:00Z" aria-label="10:30 · 06-08-2026" data-full-date="10:30 · 06-08-2026" title="10:30 · 06-08-2026">2 h ago</time></td>
+            <td class="cell-actions"><form class="agent-claim-form" method="post" action="/tickets/3/workflow/steps/1/complete" hx-post="/tickets/3/workflow/steps/1/complete" hx-target="#agent-ticket-list" hx-swap="outerHTML"><button class="btn small" type="submit">Claim ticket</button></form></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
   </section>
 </div></section></main>
     <nav class="tabbar" aria-label="Sections">

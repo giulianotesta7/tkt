@@ -358,21 +358,31 @@ func TestGoldenTicketsIndexAgent(t *testing.T) {
 	data := fixtureListData()
 	data.CurrentUser.Role = domain.RoleAgent
 	data.AgentView = true
+	data.Now = goldenT1.Add(2 * time.Hour)
 	data.Filters = filterState{Q: "printer"}
 	data.Tickets[0].RequesterName = "Ana Torres"
 	data.Tickets[1].RequesterName = "Ana Torres"
 	data.Assigned = ticketListData{Tickets: []ticketRow{
 		{Ticket: data.Tickets[0].Ticket, Context: application.AgentTicketRowContext{DeskName: "Service desk"}, SLA: data.Tickets[0].SLA},
 		{Ticket: data.Tickets[1].Ticket, Context: application.AgentTicketRowContext{CurrentTask: "Restart the printer spooler"}, SLA: data.Tickets[1].SLA},
-	}, Total: 2, Page: 1, Pages: 1}
+	}, Total: 2, Page: 1, Pages: 1, Now: goldenT1.Add(2 * time.Hour)}
+	// The finished half of the personal queue (issue #410, S4): its own count,
+	// its own rows, collapsed until asked for.
+	data.Done = ticketListData{Tickets: []ticketRow{{
+		Ticket:  domain.Ticket{ID: 4, Number: 4, Title: "Printer replaced", RequesterName: "Ana Torres", State: domain.StateResolved, Priority: domain.PriorityLow, CreatedAt: goldenT0, UpdatedAt: goldenT1},
+		Context: application.AgentTicketRowContext{DeskName: "Service desk"},
+	}}, Total: 1, Page: 1, Pages: 1, Now: goldenT1.Add(2 * time.Hour)}
 	data.Claimable = ticketListData{Tickets: []ticketRow{{
 		Ticket:  domain.Ticket{ID: 3, Number: 3, Title: "Email bounce", RequesterName: "Ana Torres", State: domain.StateNew, Priority: domain.PriorityMedium, CreatedAt: goldenT1, UpdatedAt: goldenT1},
-		Context: application.AgentTicketRowContext{DeskName: "Service desk"},
+		Context: application.AgentTicketRowContext{DeskName: "Service desk", Position: intPtr(1)},
 		SLA:     &slaRow{State: domain.SLAOnTrack},
-	}}, Total: 1, Page: 1, Pages: 1}
-	data.Total = 3
+	}}, Total: 1, Page: 1, Pages: 1, Now: goldenT1.Add(2 * time.Hour)}
+	data.Total = 4
 	goldenFullPage(t, "tickets_index_agent", renderGolden(t, "tickets_index", "", data, false))
 }
+
+// intPtr is the fixture helper for the optional zero-based workflow cursor.
+func intPtr(v int) *int { return &v }
 
 func TestGoldenTicketsNew(t *testing.T) {
 	goldenFullPage(t, "tickets_new", renderGolden(t, "tickets_new", "", fixtureTicketFormData(), false))

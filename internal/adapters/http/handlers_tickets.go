@@ -460,10 +460,16 @@ func listHref(f filterState, page int) string {
 	return "/tickets?" + v.Encode()
 }
 
-func agentListHref(f filterState, assignedPage, claimablePage int) string {
+// agentListHref rebuilds the /tickets URL for one agent section page while
+// keeping the other sections' cursors, so paging one queue never resets the
+// two beside it.
+func agentListHref(f filterState, assignedPage, donePage, claimablePage int) string {
 	v := ticketFilterValues(f)
 	if assignedPage > 1 {
 		v.Set("assigned_page", strconv.Itoa(assignedPage))
+	}
+	if donePage > 1 {
+		v.Set("done_page", strconv.Itoa(donePage))
 	}
 	if claimablePage > 1 {
 		v.Set("claimable_page", strconv.Itoa(claimablePage))
@@ -665,6 +671,10 @@ type ticketListData struct {
 	PrevHref       string
 	NextHref       string
 	HasActiveQuery bool
+	// Now is the section's clock snapshot for its relative timestamps. It
+	// travels WITH the section because a template invoked with the section as
+	// its data cannot reach the page's own Now.
+	Now time.Time
 }
 
 func sectionData(res *application.SearchResult, f filterState, hrefForPage func(int) string) ticketListData {
@@ -687,60 +697,91 @@ func sectionData(res *application.SearchResult, f filterState, hrefForPage func(
 	return data
 }
 
-// agentQueueSections builds BOTH agent queue sections through the shared
-// helper used by GET /tickets and list-claim responses: the two independent
-// scoped searches run as today, the union of page ticket IDs (≤ 20 at PageSize
-// 10) is batched through ONE SearchService.AgentQueueContext call AND ONE
+// agentOpenStates and agentDoneStates split the agent's personal queue by
+// lifecycle (issue #410, S4): active work stays in "Assigned to me" and the
+// agent's finished work (resolved, closed or cancelled) collapses into its own
+// disclosure. The split lives in the query, so each section paginates over its
+// own set and the counts never disagree with the rows below them.
+var (
+	agentOpenStates = []domain.State{domain.StateNew, domain.StateInProgress}
+	agentDoneStates = domain.ClosedStates()
+)
+
+// agentQueueSections builds the THREE agent queue sections through the shared
+// helper used by GET /tickets and list-claim responses: the open and done
+// halves of the personal queue plus the claimable queue run as independent
+// scoped searches, the union of their page ticket IDs (≤ 30 at PageSize 10) is
+// batched through ONE SearchService.AgentQueueContext call AND ONE
 // SLAService.ForTickets call (one clock snapshot for the whole page), and
 // every ticket is wrapped with its row context and optional SLA row. A missing
 // production capability or a store error propagates — rows are never
 // fabricated.
-func (h *TicketHandlers) agentQueueSections(r *http.Request, f filterState, assignedPage, claimablePage int) (assigned, claimable ticketListData, total int, err error) {
+func (h *TicketHandlers) agentQueueSections(r *http.Request, f filterState, assignedPage, donePage, claimablePage int) (assigned, done, claimable ticketListData, total int, err error) {
 	actor := *userFromContext(r.Context())
 	assignedQuery := f.query()
 	assignedQuery.Section = application.TicketSectionPersonal
+	assignedQuery.States = agentOpenStates
 	assignedRes, err := h.search.Search(r.Context(), actor, assignedQuery, assignedPage)
 	if err != nil {
-		return assigned, claimable, 0, err
+		return assigned, done, claimable, 0, err
+	}
+	doneQuery := f.query()
+	doneQuery.Section = application.TicketSectionPersonal
+	doneQuery.States = agentDoneStates
+	doneRes, err := h.search.Search(r.Context(), actor, doneQuery, donePage)
+	if err != nil {
+		return assigned, done, claimable, 0, err
 	}
 	claimableQuery := f.query()
 	claimableQuery.Section = application.TicketSectionClaimable
 	claimableRes, err := h.search.Search(r.Context(), actor, claimableQuery, claimablePage)
 	if err != nil {
-		return assigned, claimable, 0, err
+		return assigned, done, claimable, 0, err
 	}
-	union := make([]domain.Ticket, 0, len(assignedRes.Tickets)+len(claimableRes.Tickets))
+	union := make([]domain.Ticket, 0, len(assignedRes.Tickets)+len(doneRes.Tickets)+len(claimableRes.Tickets))
 	union = append(union, assignedRes.Tickets...)
+	union = append(union, doneRes.Tickets...)
 	union = append(union, claimableRes.Tickets...)
 	contexts, err := h.search.AgentQueueContext(r.Context(), union)
 	if err != nil {
-		return assigned, claimable, 0, err
+		return assigned, done, claimable, 0, err
 	}
-	// ONE SLA batch over the union of BOTH sections' page ids, instead of a
+	// ONE SLA batch over the union of every section's page ids, instead of a
 	// per-section or per-ticket read. An unset service leaves slas nil, so
 	// every row's SLA row stays nil and no badge renders.
 	var slas map[int64]domain.SLAProjection
 	if h.sla != nil {
 		slas, err = h.sla.ForTickets(r.Context(), ticketIDs(union))
 		if err != nil {
-			return assigned, claimable, 0, err
+			return assigned, done, claimable, 0, err
 		}
 	}
 	// ONE visit batch over the SAME union (issue #415), so a ticket that sits
 	// in both sections cannot disagree with itself.
 	changed, err := h.changedTickets(r, union)
 	if err != nil {
-		return assigned, claimable, 0, err
+		return assigned, done, claimable, 0, err
 	}
 	assigned = sectionData(assignedRes, f, func(page int) string {
-		return agentListHref(f, page, claimablePage)
+		return agentListHref(f, page, donePage, claimablePage)
 	})
 	assigned.Tickets = wrapTicketRows(assignedRes.Tickets, contexts, slas, changed)
+	done = sectionData(doneRes, f, func(page int) string {
+		return agentListHref(f, assignedPage, page, claimablePage)
+	})
+	done.Tickets = wrapTicketRows(doneRes.Tickets, contexts, slas, changed)
 	claimable = sectionData(claimableRes, f, func(page int) string {
-		return agentListHref(f, assignedPage, page)
+		return agentListHref(f, assignedPage, donePage, page)
 	})
 	claimable.Tickets = wrapTicketRows(claimableRes.Tickets, contexts, slas, changed)
-	return assigned, claimable, assignedRes.Total + claimableRes.Total, nil
+	// ONE clock snapshot for the whole page, handed to every section so the
+	// three relative timestamps can never disagree with each other.
+	var now time.Time
+	if h.clock != nil {
+		now = h.clock.Now()
+	}
+	assigned.Now, done.Now, claimable.Now = now, now, now
+	return assigned, done, claimable, assignedRes.Total + doneRes.Total + claimableRes.Total, nil
 }
 
 // wrapTicketRows pairs one section's tickets with their batched contexts,
@@ -791,6 +832,7 @@ type listData struct {
 	HasActiveQuery      bool
 	AgentView           bool
 	Assigned            ticketListData
+	Done                ticketListData
 	Claimable           ticketListData
 	ClaimError          string
 	// Tabs, Chips, ShowSLA and Now are the triage queue's presentation
@@ -865,11 +907,12 @@ func (h *TicketHandlers) listData(r *http.Request, f filterState, page int) (lis
 		f = simplifiedFilters(f)
 		pageMeta := pageDataFrom(r, "tickets")
 		pageMeta.PageFoundationAssets = true
-		assigned, claimable, total, err := h.agentQueueSections(r, f, pageNumber(r, "assigned_page"), pageNumber(r, "claimable_page"))
+		pageMeta.QueueAssets = true
+		assigned, done, claimable, total, err := h.agentQueueSections(r, f, pageNumber(r, "assigned_page"), pageNumber(r, "done_page"), pageNumber(r, "claimable_page"))
 		if err != nil {
 			return listData{}, err
 		}
-		return listData{pageData: pageMeta, Filters: f, Total: total, HasActiveQuery: f.Q != "", AgentView: true, Assigned: assigned, Claimable: claimable}, nil
+		return listData{pageData: pageMeta, Filters: f, Total: total, HasActiveQuery: f.Q != "", AgentView: true, Assigned: assigned, Done: done, Claimable: claimable}, nil
 	}
 	if actor.Role == domain.RoleUser {
 		f = simplifiedFilters(f)
@@ -2605,21 +2648,22 @@ func isAgentQueueClaimRequest(r *http.Request, actor domain.User) bool {
 		r.Header.Get("HX-Target") == agentQueueListTargetID
 }
 
-// agentQueueCurrentContext recovers q and page cursors from HX-Current-URL.
-// Missing or malformed values fall back to the first page. Successful claims
-// reset both cursors, while conflicts retain valid requested cursors.
-func agentQueueCurrentContext(r *http.Request, isConflict bool) (q string, assignedPage, claimablePage int) {
+// agentQueueCurrentContext recovers q and the three page cursors from
+// HX-Current-URL. Missing or malformed values fall back to the first page.
+// Successful claims reset every cursor, while conflicts retain the valid
+// requested cursors so no section jumps out from under the agent.
+func agentQueueCurrentContext(r *http.Request, isConflict bool) (q string, assignedPage, donePage, claimablePage int) {
 	raw := r.Header.Get("HX-Current-URL")
 	u, err := url.Parse(raw)
 	if raw == "" || err != nil || u == nil {
-		return "", 1, 1
+		return "", 1, 1, 1
 	}
 	qp := u.Query()
-	assignedPage, claimablePage = urlPageNumber(qp, "assigned_page"), urlPageNumber(qp, "claimable_page")
+	assignedPage, donePage, claimablePage = urlPageNumber(qp, "assigned_page"), urlPageNumber(qp, "done_page"), urlPageNumber(qp, "claimable_page")
 	if !isConflict {
-		assignedPage, claimablePage = 1, 1
+		assignedPage, donePage, claimablePage = 1, 1, 1
 	}
-	return qp.Get("q"), assignedPage, claimablePage
+	return qp.Get("q"), assignedPage, donePage, claimablePage
 }
 
 // urlPageNumber returns a positive page number or the first page.
@@ -2632,9 +2676,9 @@ func urlPageNumber(q url.Values, key string) int {
 }
 
 func (h *TicketHandlers) renderAgentQueue(w http.ResponseWriter, r *http.Request, claimError string, status int) {
-	q, assignedPage, claimablePage := agentQueueCurrentContext(r, claimError != "")
+	q, assignedPage, donePage, claimablePage := agentQueueCurrentContext(r, claimError != "")
 	filters := simplifiedFilters(filterState{Q: q})
-	assigned, claimable, total, err := h.agentQueueSections(r, filters, assignedPage, claimablePage)
+	assigned, done, claimable, total, err := h.agentQueueSections(r, filters, assignedPage, donePage, claimablePage)
 	if err != nil {
 		httpError(w, r, "error.internal_server", http.StatusInternalServerError)
 		return
@@ -2643,7 +2687,7 @@ func (h *TicketHandlers) renderAgentQueue(w http.ResponseWriter, r *http.Request
 		w.Header().Set("HX-Retarget", agentQueueListTarget)
 		w.Header().Set("HX-Reswap", "outerHTML")
 	}
-	h.renderer.Render(w, r, "tickets_index", "agent_ticket_list", listData{Filters: filters, Total: total, AgentView: true, Assigned: assigned, Claimable: claimable, ClaimError: claimError}, status)
+	h.renderer.Render(w, r, "tickets_index", "agent_ticket_list", listData{Filters: filters, Total: total, AgentView: true, Assigned: assigned, Done: done, Claimable: claimable, ClaimError: claimError}, status)
 }
 
 func (h *TicketHandlers) renderAgentQueueClaimError(w http.ResponseWriter, r *http.Request, actor domain.User, err error) bool {
