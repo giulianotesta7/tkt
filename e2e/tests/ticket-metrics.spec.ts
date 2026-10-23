@@ -1,8 +1,9 @@
 /**
- * Ticket metrics (issue #123): the list summary survives the #tickets-screen
- * swap; the dedicated /tickets/metrics page serves the five dashboard cards
- * (including SLA attainment, issue #211), View data tables, workload By desk
- * and attainment grouping HX swaps, HX filter recovery, and a safe return to
+ * Ticket metrics (issue #123, dashboard redesign issue #393): the dedicated
+ * /tickets/metrics page serves the five KPI cards, every section's Chart/Table
+ * switch, the server-rendered charts and the same values in the table view,
+ * workload By desk and attainment grouping HX swaps, HX filter recovery with
+ * Clear, the empty states, the no-script table fallback, and a safe return to
  * the list.
  */
 
@@ -40,14 +41,21 @@ const metricsPanelHeadings = [
   "SLA attainment",
 ];
 
-// Panels that always render their native View data disclosure. SLA attainment
-// renders one only when the period cohort carries a frozen commitment, so its
-// disclosure is covered by the dedicated attainment journeys below.
-const metricsDisclosureHeadings = metricsPanelHeadings.filter(
-  (heading) => heading !== "SLA attainment",
-);
+// Every panel carries the same Chart/Table switch, named for the values it
+// shows: the group's accessible name is the section's "View data" affordance.
+function viewSwitch(page: Page, heading: string) {
+  return metricsPanel(page, heading).getByRole("group", { name: "View data" });
+}
 
-test.describe("Ticket metrics summary", () => {
+function chartPanel(page: Page, heading: string) {
+  return metricsPanel(page, heading).locator('[data-metrics-panel="chart"]');
+}
+
+function tablePanel(page: Page, heading: string) {
+  return metricsPanel(page, heading).locator('[data-metrics-panel="table"]');
+}
+
+test.describe("Ticket metrics dashboard", () => {
   test.beforeAll(async () => {
     await startServer({ seed: true });
   });
@@ -55,7 +63,7 @@ test.describe("Ticket metrics summary", () => {
     await stopServer();
   });
 
-  test("the queue carries no summary strip and the metrics page opens from the sidebar with a KPI row", async ({
+  test("the queue carries no summary strip and the dashboard leads with five KPI cards", async ({
     page,
   }) => {
     await page.setViewportSize({ width: 1280, height: 800 });
@@ -78,15 +86,23 @@ test.describe("Ticket metrics summary", () => {
     await expect(page).toHaveURL(/\/tickets\/metrics$/);
     const kpis = page.locator(".ticket-metrics-kpis");
     await expect(kpis).toBeVisible();
-    // Three headline counts of the selected period; the mean appears only
-    // once a verifiable duration exists.
-    await expect(kpis.locator(".ticket-metrics-card")).toHaveCount(3);
+    // Five headline figures, always present: an absent figure is prose, never
+    // a hidden card (issue #393, S3).
+    await expect(kpis.locator(".ticket-metrics-card")).toHaveCount(5);
     await expect(kpis.locator(".ticket-metrics-card-label")).toHaveText([
+      "Pending",
       "Created",
       "Resolved",
-      "Pending",
+      "Mean resolution",
+      "SLA · first response",
     ]);
-    await expect(kpis.locator(".ticket-metrics-card-value").first()).toHaveText(/^\d+$/);
+    const details = kpis.locator(".ticket-metrics-card-detail");
+    await expect(details.nth(0)).toHaveText(/^\d+ unassigned · \d+% of pending$/);
+    await expect(details.nth(1)).toHaveText(/^\d+ weeks? in the period$/);
+    await expect(details.nth(2)).toHaveText(/^net \+\d+$/);
+    // No resolution has been observed yet in this fresh database, so the mean
+    // card states the absence and the SLA card names the missing commitment.
+    await expect(kpis.locator(".ticket-metrics-card-value-prose").first()).toBeVisible();
     const kpiBox = await kpis.boundingBox();
     const gridBox = await page.locator(".ticket-metrics-grid").boundingBox();
     expect(kpiBox && gridBox && kpiBox.y < gridBox.y, "the KPI row sits above the charts").toBe(
@@ -96,7 +112,7 @@ test.describe("Ticket metrics summary", () => {
     expectNoConsoleOrPageErrors(obs.consoleErrors, obs.pageErrors);
   });
 
-  test("admin opens the metrics page, filters over HX with error recovery, and returns safely", async ({
+  test("admin filters over HX with error recovery, clears the range, and returns safely", async ({
     page,
   }) => {
     await page.setViewportSize({ width: 1280, height: 800 });
@@ -115,7 +131,7 @@ test.describe("Ticket metrics summary", () => {
       "metrics filter Apply",
     );
     await expect(
-      metricsPanel(page, "Created vs resolved").locator("svg.ticket-metrics-chart"),
+      chartPanel(page, "Created vs resolved").locator("svg.ticket-metrics-chart"),
     ).toBeVisible();
     await expect(
       metricsPanel(page, "Created vs resolved").locator(".ticket-metrics-legend"),
@@ -123,17 +139,6 @@ test.describe("Ticket metrics summary", () => {
     await expect(detail.locator(".ticket-metrics-chart-totals")).toContainText(
       /Created \d+ · Resolved \d+/,
     );
-    const disclosure = metricsPanel(page, "Created vs resolved").locator(
-      "details.ticket-metrics-data",
-    );
-    await disclosure.locator("summary").click();
-    const table = disclosure.getByRole("table");
-    await expect(table).toBeVisible();
-    await expect(table.getByRole("columnheader")).toHaveText([
-      "Monday week",
-      "Created",
-      "Resolved",
-    ]);
     // Capture the server-resolved default period before mutating inputs;
     // recovery reuses it so the journey stays clock-stable.
     const fromInput = detail.getByLabel("From", { exact: true });
@@ -178,23 +183,21 @@ test.describe("Ticket metrics summary", () => {
     await applyFilters();
     await expect(page.locator(".ticket-metrics-error")).toHaveCount(0);
     await expect(
-      metricsPanel(page, "Created vs resolved").locator("svg.ticket-metrics-chart"),
+      chartPanel(page, "Created vs resolved").locator("svg.ticket-metrics-chart"),
     ).toBeVisible();
+    // Clear is a bare /tickets/metrics link: following it restores the default
+    // period instead of re-submitting the current filter.
+    await detail.getByRole("link", { name: "Clear" }).click();
+    await expect(page).toHaveURL(/\/tickets\/metrics\?return=%2Ftickets$/);
+    await expect(page.locator(".ticket-metrics-error")).toHaveCount(0);
+    await expect(detail.getByLabel("From", { exact: true })).toHaveValue(fromDefault);
     // The dashboard completes with exactly one visible panel per heading; the
-    // count derives from the heading list. Every panel is visible, and the
-    // panels that always disclose open their native View data caption table.
+    // count derives from the heading list.
     const panels = detail.locator(".ticket-metrics-panel");
     await expect(panels).toHaveCount(metricsPanelHeadings.length);
     for (const heading of metricsPanelHeadings) {
       await expect(metricsPanel(page, heading)).toBeVisible();
-    }
-    for (const heading of metricsDisclosureHeadings) {
-      const panel = metricsPanel(page, heading);
-      await panel.locator(".ticket-metrics-data summary").click();
-      const table = panel.locator(".ticket-metrics-data table");
-      await expect(table).toBeVisible();
-      await expect(table.locator("caption")).toBeVisible();
-      await panel.locator(".ticket-metrics-data summary").click();
+      await expect(viewSwitch(page, heading)).toBeVisible();
     }
     // By desk re-renders the workload card through the same filter form: the
     // swap proves the exact endpoint, fragment target, and URL, and the
@@ -217,8 +220,8 @@ test.describe("Ticket metrics summary", () => {
     expect(page.url()).toBe(detailURL);
     const workload = metricsPanel(page, "Pending workload");
     await expect(workload.locator('input[name="metrics_group"][value="desk"]')).toBeChecked();
-    await workload.locator(".ticket-metrics-data summary").click();
-    await expect(workload.locator(".ticket-metrics-data caption")).toContainText(
+    await viewSwitch(page, "Pending workload").getByRole("button", { name: "Table" }).click();
+    await expect(tablePanel(page, "Pending workload").locator("caption")).toContainText(
       "Pending workload by current desk",
     );
     // Two-column desktop grid down to a one-column mobile stack, never
@@ -237,6 +240,103 @@ test.describe("Ticket metrics summary", () => {
     await page.getByRole("link", { name: "Back to tickets" }).click();
     await expect(page).toHaveURL(/\/tickets/);
     await expect(page.locator("#tickets-screen")).toBeVisible();
+    expectNoConsoleOrPageErrors(obs.consoleErrors, obs.pageErrors);
+  });
+
+  test("each section switches between its chart and the same values as a table", async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    const obs = collectObservability(page);
+    await loginAsSeeded(page);
+    await createTicketViaUi(page, { title: "table probe ticket" });
+    await page.goto(base() + "/tickets/metrics");
+    const detail = page.locator("#ticket-metrics-detail-content");
+    await expect(detail.getByRole("heading", { name: "Created vs resolved" })).toBeVisible();
+
+    const weeklyURL = page.url();
+    const weekly = viewSwitch(page, "Created vs resolved");
+    // Default view: the chart is shown, the table is in the document but not
+    // rendered, so the two never read as two copies of one number.
+    await expect(weekly.getByRole("button", { name: "Chart" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    await expect(chartPanel(page, "Created vs resolved").locator("svg")).toBeVisible();
+    await expect(tablePanel(page, "Created vs resolved")).toBeHidden();
+
+    await weekly.getByRole("button", { name: "Table" }).click();
+    await expect(weekly.getByRole("button", { name: "Table" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    await expect(weekly.getByRole("button", { name: "Chart" })).toHaveAttribute(
+      "aria-pressed",
+      "false",
+    );
+    await expect(chartPanel(page, "Created vs resolved")).toBeHidden();
+    const table = tablePanel(page, "Created vs resolved");
+    await expect(table).toBeVisible();
+    await expect(table.locator("caption")).toHaveText("Weekly ticket totals");
+    await expect(table.getByRole("columnheader")).toHaveText([
+      "Monday week",
+      "Created",
+      "Resolved",
+    ]);
+    // The table holds the same values as the chart: the weekly created column
+    // sums to the Created KPI card.
+    const createdCells = await table.locator("tbody tr td:nth-child(2)").allTextContents();
+    const weeklyCreated = createdCells.reduce((sum, value) => sum + Number(value), 0);
+    const kpiCreated = Number(
+      await page.locator(".ticket-metrics-kpis .ticket-metrics-card-value").nth(1).textContent(),
+    );
+    expect(weeklyCreated).toBe(kpiCreated);
+    // The switch is client-side state only: the URL never moves.
+    expect(page.url()).toBe(weeklyURL);
+
+    // Chart is the way back, and it restores the graphic, not another table.
+    await weekly.getByRole("button", { name: "Chart" }).click();
+    await expect(chartPanel(page, "Created vs resolved").locator("svg")).toBeVisible();
+    await expect(tablePanel(page, "Created vs resolved")).toBeHidden();
+
+    // The same switch exists in every section, including the attainment chart
+    // that only exists when the period has a frozen commitment.
+    for (const heading of metricsPanelHeadings.slice(1)) {
+      await expect(viewSwitch(page, heading)).toBeVisible();
+    }
+    expectNoConsoleOrPageErrors(obs.consoleErrors, obs.pageErrors);
+  });
+
+  test("an empty period renders each affected section's own empty state", async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    const obs = collectObservability(page);
+    await loginAsSeeded(page);
+    // A period before any ticket exists in this database.
+    await page.goto(base() + "/tickets/metrics?metrics_start=2020-01-06&metrics_end=2020-01-13");
+    await expect(chartPanel(page, "Created vs resolved")).toContainText(
+      "No results for selected period.",
+    );
+    // Age and workload are CURRENT-scope figures (the note under the filters
+    // says so), so a past period does not empty them; their empty state is
+    // proven by the Go layer against an empty database. Everything the period
+    // scopes answers with its own message and draws no empty chart frame.
+    await expect(chartPanel(page, "Resolution time distribution")).toContainText(
+      "No results for selected period.",
+    );
+    await expect(chartPanel(page, "SLA attainment")).toContainText(
+      "No tickets created in the selected period carry a frozen commitment.",
+    );
+    for (const heading of [
+      "Created vs resolved",
+      "Resolution time distribution",
+      "SLA attainment",
+    ]) {
+      await expect(metricsPanel(page, heading).locator("svg")).toHaveCount(0);
+    }
+    // The table view still answers with its rows, so nothing is unreachable.
+    await viewSwitch(page, "Created vs resolved").getByRole("button", { name: "Table" }).click();
+    await expect(tablePanel(page, "Created vs resolved").getByRole("table")).toBeVisible();
+    await assertNoHorizontalOverflow(page, 1280);
     expectNoConsoleOrPageErrors(obs.consoleErrors, obs.pageErrors);
   });
 
@@ -272,7 +372,41 @@ test.describe("Ticket metrics summary", () => {
 });
 
 /**
- * SLA attainment panel (issue #211, PR 5).
+ * Issue #393, S4: without scripting the switch cannot fire, so the stylesheet
+ * reveals the table and hides the chart and the inert control. The dashboard
+ * keeps every value it had with a script, and the filter form submits natively.
+ */
+test.describe("Ticket metrics without scripting (seeded)", () => {
+  test.use({ javaScriptEnabled: false });
+
+  test.beforeAll(async () => {
+    await startServer({ seed: true });
+  });
+  test.afterAll(async () => {
+    await stopServer();
+  });
+
+  test("the table view renders instead of the chart", async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    const obs = collectObservability(page);
+    await loginAsSeeded(page);
+    await page.goto(base() + "/tickets/metrics");
+    await expect(page.getByRole("heading", { name: "Ticket metrics", level: 1 })).toBeVisible();
+    // The switch is inert without a script, so it is not offered at all.
+    await expect(page.getByRole("group", { name: "View data" })).toBeHidden();
+    // The chart is replaced by the table that holds the same values.
+    await expect(chartPanel(page, "Created vs resolved").locator("svg")).toBeHidden();
+    const table = tablePanel(page, "Created vs resolved").getByRole("table");
+    await expect(table).toBeVisible();
+    await expect(table.locator("caption")).toHaveText("Weekly ticket totals");
+    await expect(table.getByRole("columnheader")).toHaveCount(3);
+    await assertNoHorizontalOverflow(page, 390);
+    expectNoConsoleOrPageErrors(obs.consoleErrors, obs.pageErrors);
+  });
+});
+
+/**
+ * SLA attainment panel (issue #211, PR 5; chart added in #393, S4).
  *
  * The panel aggregates the frozen commitments of tickets CREATED in the
  * selected period, grouped by total, priority or category. Each journey
@@ -295,7 +429,7 @@ test.describe("SLA attainment panel (seeded)", () => {
     await setSLAEnabled(page, false);
   });
 
-  test("renders the committed cohort with numeric milestone counts and a visible rate denominator", async ({
+  test("renders the committed cohort with numeric counts, a visible denominator and the chart", async ({
     page,
   }) => {
     await page.setViewportSize({ width: 1280, height: 800 });
@@ -345,9 +479,17 @@ test.describe("SLA attainment panel (seeded)", () => {
       expect(Number(rateMatch![1])).toBe(expectedPercent);
     }
 
-    // The View data disclosure carries exactly one total group.
-    await panel.locator(".ticket-metrics-data summary").click();
-    const table = panel.locator(".ticket-metrics-data table");
+    // The section's own inline SVG draws one row per group with the milestone
+    // tags and the met/breached/open legend the table explains.
+    const chart = chartPanel(page, "SLA attainment").locator("svg.ticket-metrics-attainment");
+    await expect(chart).toBeVisible();
+    await expect(chart).toHaveAttribute("role", "img");
+    await expect(chart).toHaveAttribute("aria-label", /SLA attainment chart/);
+    await expect(panel.locator(".ticket-metrics-legend-swatch")).toHaveCount(3);
+
+    // The View data table carries exactly one total group.
+    await viewSwitch(page, "SLA attainment").getByRole("button", { name: "Table" }).click();
+    const table = tablePanel(page, "SLA attainment").locator("table");
     await expect(table).toBeVisible();
     await expect(table.locator("caption")).toHaveText("SLA attainment by Total");
     const rows = table.locator("tbody tr.ticket-metrics-attainment-row");
@@ -374,8 +516,8 @@ test.describe("SLA attainment panel (seeded)", () => {
     await page.goto(base() + "/tickets/metrics");
     const initialPanel = metricsPanel(page, "SLA attainment");
     await expect(initialPanel).toBeVisible();
-    await initialPanel.locator(".ticket-metrics-data summary").click();
-    await expect(initialPanel.locator(".ticket-metrics-data table")).toBeVisible();
+    await viewSwitch(page, "SLA attainment").getByRole("button", { name: "Table" }).click();
+    await expect(tablePanel(page, "SLA attainment").locator("table")).toBeVisible();
 
     // By priority always emits the four canonical priorities in rank order,
     // even for an empty group.
@@ -397,8 +539,8 @@ test.describe("SLA attainment panel (seeded)", () => {
     await expect(
       priorityPanel.locator('input[name="metrics_attainment_group"][value="priority"]'),
     ).toBeChecked();
-    await priorityPanel.locator(".ticket-metrics-data summary").click();
-    const priorityTable = priorityPanel.locator(".ticket-metrics-data table");
+    await viewSwitch(page, "SLA attainment").getByRole("button", { name: "Table" }).click();
+    const priorityTable = tablePanel(page, "SLA attainment").locator("table");
     await expect(priorityTable).toBeVisible();
     await expect(priorityTable.locator("caption")).toHaveText("SLA attainment by Priority");
     await expect(
@@ -425,8 +567,8 @@ test.describe("SLA attainment panel (seeded)", () => {
     await expect(
       categoryPanel.locator('input[name="metrics_attainment_group"][value="category"]'),
     ).toBeChecked();
-    await categoryPanel.locator(".ticket-metrics-data summary").click();
-    const categoryTable = categoryPanel.locator(".ticket-metrics-data table");
+    await viewSwitch(page, "SLA attainment").getByRole("button", { name: "Table" }).click();
+    const categoryTable = tablePanel(page, "SLA attainment").locator("table");
     await expect(categoryTable).toBeVisible();
     await expect(categoryTable.locator("caption")).toHaveText("SLA attainment by Category");
     const categoryLabels = await categoryTable
@@ -450,12 +592,13 @@ test.describe("SLA attainment panel (seeded)", () => {
     await page.goto(base() + "/tickets/metrics?metrics_start=2020-01-06&metrics_end=2020-01-13");
     const panel = metricsPanel(page, "SLA attainment");
     await expect(panel).toBeVisible();
-    await expect(panel.locator(".ticket-metrics-empty")).toHaveText(
+    await expect(chartPanel(page, "SLA attainment").locator(".ticket-metrics-empty")).toHaveText(
       "No tickets created in the selected period carry a frozen commitment.",
     );
     await expect(panel.locator(".ticket-metrics-attainment")).toHaveCount(0);
     await expect(panel.locator(".ticket-metrics-attainment-counts")).toHaveCount(0);
     await expect(panel.locator(".ticket-metrics-attainment-rate")).toHaveCount(0);
+    await expect(panel.locator("svg.ticket-metrics-attainment")).toHaveCount(0);
 
     expectNoConsoleOrPageErrors(obs.consoleErrors, obs.pageErrors);
   });
