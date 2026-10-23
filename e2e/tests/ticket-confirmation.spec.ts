@@ -7,7 +7,11 @@
 import { expect, test } from "@playwright/test";
 import { base, createUserAsAdmin, loginAs, loginAsSeeded, logout } from "./helpers/auth.js";
 import { createTicketViaUi } from "./helpers/navigation.js";
-import { collectObservability } from "./helpers/layout.js";
+import {
+  assertNoHorizontalOverflow,
+  assertNothingClipped,
+  collectObservability,
+} from "./helpers/layout.js";
 import { assertHtmxSwap } from "./helpers/htmx.js";
 import {
   applyAssignee,
@@ -128,7 +132,38 @@ test.describe("Ticket confirmation", () => {
     const id = await requesterOwnedResolvedTicket(page, requesterEmail, requesterPassword);
     const obs = collectObservability(page);
 
-    await page.goto(base() + `/tickets/${id}`);
+    // The resolved ticket awaits the requester's confirmation, so the list
+    // opens it under "Needs your action" (issue #411, S8): the row names the
+    // question and offers one primary Review action that lands on the existing
+    // confirmation panel.
+    await page.goto(base() + "/tickets");
+    const listScreen = page.locator("#tickets-screen");
+    await expect(listScreen.locator(".page-subtitle")).toHaveText("1 open ticket");
+    const actionSection = listScreen
+      .locator(".req-section")
+      .filter({ has: page.locator("#action-tickets-title") });
+    await expect(actionSection.locator("#action-tickets-title")).toHaveText(
+      "Needs your action · 1",
+    );
+    const actionRow = actionSection
+      .locator(".req-waiting")
+      .filter({ hasText: "Confirmation probe" });
+    await expect(actionRow).toHaveCount(1);
+    await expect(actionRow.locator(".req-waiting-label")).toHaveText("Is your issue solved?");
+    await expect(actionRow.locator(".badge")).toHaveCount(0);
+    await expect(actionRow.getByRole("link", { name: "Review" })).toHaveAttribute(
+      "href",
+      `/tickets/${id}#resolution`,
+    );
+    // The section holds at the phone width like the rest of the list.
+    await page.setViewportSize({ width: 390, height: 844 });
+    await assertNoHorizontalOverflow(page, 390);
+    await assertNothingClipped(page);
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await actionRow.getByRole("link", { name: "Review" }).click();
+    await expect(page).toHaveURL(new RegExp(`/tickets/${id}#resolution$`));
+    await expect(page.locator("#resolution")).toBeVisible();
+
     // Resolution confirmation panel visible for the requester.
     await expect(page.locator(".resolution-confirmation")).toBeVisible();
     await expect(page.getByText("Resolution confirmation")).toBeVisible();
@@ -168,6 +203,37 @@ test.describe("Ticket confirmation", () => {
     // Refresh to prove persistence.
     await page.reload();
     await expect(page.getByText("Closed").first()).toBeVisible();
+
+    // The closed ticket leaves the requester's open work and moves into the
+    // folded "Closed" disclosure at the end of their list (issue #411,
+    // S4/S8): the Needs-your-action section is gone, the header no longer
+    // counts it, the disclosure names its own count, and it is collapsed until
+    // the requester opens it.
+    await page.goto(base() + "/tickets");
+    await expect(listScreen.locator(".page-subtitle")).toHaveText("0 open tickets");
+    await expect(listScreen.locator("#action-tickets-title")).toHaveCount(0);
+    await expect(listScreen.locator("#open-tickets-title")).toHaveText("Open · 0");
+    await expect(listScreen.locator(".req-empty")).toContainText("No requests yet");
+    const closedFold = listScreen.locator("details.req-fold");
+    await expect(closedFold).toHaveCount(1);
+    await expect(closedFold.locator("summary")).toHaveText("Closed · 1");
+    await expect(closedFold).not.toHaveAttribute("open", /.*/);
+    await expect(closedFold.locator("li.req")).toBeHidden();
+    await closedFold.locator("summary").click();
+    const closedRow = closedFold.locator("li.req").filter({ hasText: "Confirmation probe" });
+    await expect(closedRow).toHaveCount(1);
+    await expect(closedRow.locator(".badge.closed")).toHaveText("Closed");
+    // The disclosure and its rows hold at the phone width like the rest of the
+    // list: nothing clipped, nothing pushing the page sideways.
+    await page.setViewportSize({ width: 390, height: 844 });
+    await assertNoHorizontalOverflow(page, 390);
+    await assertNothingClipped(page);
+    await page.setViewportSize({ width: 1280, height: 800 });
+    // A folded row opens its ticket from anywhere on the row, like every other
+    // list row: the disclosure around it must not swallow the click.
+    const closedHref = await closedRow.getAttribute("data-href");
+    await closedRow.locator(".req-meta").click();
+    await expect(page).toHaveURL(new RegExp(`${closedHref}$`));
   });
 
   test("requester rejects and the ticket reopens as a detached manual in_progress", async ({
