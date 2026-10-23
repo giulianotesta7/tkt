@@ -310,7 +310,7 @@ func TestTicketHrefsPreserveSort(t *testing.T) {
 	if got, want := listHref(f, 2), "/tickets?page=2&sort=urgency"; got != want {
 		t.Errorf("listHref = %q, want %q", got, want)
 	}
-	if got, want := agentListHref(f, 2, 1), "/tickets?assigned_page=2&sort=urgency"; got != want {
+	if got, want := agentListHref(f, 2, 1, 1), "/tickets?assigned_page=2&sort=urgency"; got != want {
 		t.Errorf("agentListHref = %q, want %q", got, want)
 	}
 	if got := ticketFilterValues(f).Get("sort"); got != sortUrgency {

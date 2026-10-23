@@ -83,8 +83,8 @@ func TestTicketsStaticAssetAndAgentGating(t *testing.T) {
 	if !strings.Contains(body, claimForm) {
 		t.Error("claimable ticket omits the workflow completion form")
 	}
-	if strings.Index(body, "View ticket</a>") > strings.Index(body, "Claim ticket") {
-		t.Error("View ticket must precede Claim ticket in DOM order")
+	if strings.Index(body, `<a class="queue-title"`) > strings.Index(body, "Claim ticket") {
+		t.Error("the row title must precede the Claim control in DOM order")
 	}
 }
 

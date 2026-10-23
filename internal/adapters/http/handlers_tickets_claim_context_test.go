@@ -46,14 +46,16 @@ func TestAgentQueueCurrentContext(t *testing.T) {
 		isConflict        bool
 		wantQ             string
 		wantAssignedPage  int
+		wantDonePage      int
 		wantClaimablePage int
 	}{
 		{
 			name:              "conflict retains valid context",
-			currentURL:        "https://tkt.test/tickets?q=claims+today&assigned_page=2&claimable_page=3",
+			currentURL:        "https://tkt.test/tickets?q=claims+today&assigned_page=2&done_page=4&claimable_page=3",
 			isConflict:        true,
 			wantQ:             "claims today",
 			wantAssignedPage:  2,
+			wantDonePage:      4,
 			wantClaimablePage: 3,
 		},
 		{
@@ -62,20 +64,23 @@ func TestAgentQueueCurrentContext(t *testing.T) {
 			isConflict:        true,
 			wantQ:             "claims",
 			wantAssignedPage:  1,
+			wantDonePage:      1,
 			wantClaimablePage: 1,
 		},
 		{
 			name:              "success resets cursors",
-			currentURL:        "https://tkt.test/tickets?q=claims&assigned_page=4&claimable_page=5",
+			currentURL:        "https://tkt.test/tickets?q=claims&assigned_page=4&done_page=6&claimable_page=5",
 			isConflict:        false,
 			wantQ:             "claims",
 			wantAssignedPage:  1,
+			wantDonePage:      1,
 			wantClaimablePage: 1,
 		},
 		{
 			name:              "missing URL falls back",
 			isConflict:        true,
 			wantAssignedPage:  1,
+			wantDonePage:      1,
 			wantClaimablePage: 1,
 		},
 		{
@@ -83,14 +88,16 @@ func TestAgentQueueCurrentContext(t *testing.T) {
 			currentURL:        "http://[::1",
 			isConflict:        true,
 			wantAssignedPage:  1,
+			wantDonePage:      1,
 			wantClaimablePage: 1,
 		},
 		{
 			name:              "missing and malformed cursors normalize",
-			currentURL:        "https://tkt.test/tickets?q=claims&assigned_page=nope",
+			currentURL:        "https://tkt.test/tickets?q=claims&assigned_page=nope&done_page=0",
 			isConflict:        true,
 			wantQ:             "claims",
 			wantAssignedPage:  1,
+			wantDonePage:      1,
 			wantClaimablePage: 1,
 		},
 	}
@@ -101,9 +108,9 @@ func TestAgentQueueCurrentContext(t *testing.T) {
 			if tt.currentURL != "" {
 				r.Header.Set("HX-Current-URL", tt.currentURL)
 			}
-			q, assignedPage, claimablePage := agentQueueCurrentContext(r, tt.isConflict)
-			if q != tt.wantQ || assignedPage != tt.wantAssignedPage || claimablePage != tt.wantClaimablePage {
-				t.Errorf("agentQueueCurrentContext() = (%q, %d, %d), want (%q, %d, %d)", q, assignedPage, claimablePage, tt.wantQ, tt.wantAssignedPage, tt.wantClaimablePage)
+			q, assignedPage, donePage, claimablePage := agentQueueCurrentContext(r, tt.isConflict)
+			if q != tt.wantQ || assignedPage != tt.wantAssignedPage || donePage != tt.wantDonePage || claimablePage != tt.wantClaimablePage {
+				t.Errorf("agentQueueCurrentContext() = (%q, %d, %d, %d), want (%q, %d, %d, %d)", q, assignedPage, donePage, claimablePage, tt.wantQ, tt.wantAssignedPage, tt.wantDonePage, tt.wantClaimablePage)
 			}
 		})
 	}
