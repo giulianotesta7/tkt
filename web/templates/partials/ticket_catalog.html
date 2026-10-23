@@ -9,6 +9,13 @@
   cards a ?q filters out with the hidden attribute, so the no-script path shows
   only the matches, and ticket_create.js applies the same rule live as the
   requester types.
+
+  With a category-suggestion engine on (issue #416, S2), the same box also accepts
+  a full description. A "Suggested" group then renders above the departments and
+  refreshes into its own container as the requester types; the categories it names
+  are left out of their department below, so one category is offered once. A
+  description that names no card keeps the whole catalog visible instead of the
+  no-match message (S3) — the departments are still the way to choose by hand.
 */}}
 {{define "ticket_catalog"}}{{if .CreateAssets}}<script src="/static/ticket_create.js" defer></script>{{end}}
 <div class="create-catalog">
@@ -18,14 +25,15 @@
     </div>
     <div class="command-actions"><a class="btn ghost" href="/tickets">{{t "tickets.catalog.back"}}</a></div>
   </div>
-  <form class="catalog-search create-catalog-search" method="get" action="/tickets/new" role="search">
-    <label class="visually-hidden" for="catalog-query">{{t "tickets.catalog.search_label"}}</label>
+{{$searchLabel := t "tickets.catalog.search_label"}}{{if .SuggestionsEnabled}}{{$searchLabel = t "tickets.suggest.catalog_search"}}{{end}}  <form class="catalog-search create-catalog-search" method="get" action="/tickets/new" role="search">
+    <label class="visually-hidden" for="catalog-query">{{$searchLabel}}</label>
     {{template "search_icon"}}
-    <input id="catalog-query" type="search" name="q" value="{{.Query}}" placeholder="{{t "tickets.catalog.search_label"}}" autocomplete="off" data-create-catalog-search>
+    <input id="catalog-query" type="search" name="q" value="{{.Query}}" placeholder="{{$searchLabel}}" autocomplete="off" data-create-catalog-search{{if .SuggestionsEnabled}} hx-get="/tickets/suggestions?mode=two_step" hx-trigger="input changed delay:500ms" hx-include="this" hx-target="#create-catalog-suggestions" hx-swap="innerHTML"{{end}}>
     <button class="visually-hidden" type="submit">{{t "common.search"}}</button>
   </form>
   <div class="create-catalog-sections" data-create-catalog>
-{{range .Sections}}    <section class="create-catalog-department-group"{{if .Hidden}} hidden{{end}}>
+{{if .SuggestionsEnabled}}    <div class="create-catalog-suggested" id="create-catalog-suggestions" aria-live="polite">{{template "category_suggestion_tiles" .}}</div>
+{{end}}{{range .Sections}}    <section class="create-catalog-department-group"{{if .Hidden}} hidden{{end}}>
       <h2 class="create-catalog-department">{{.Name}}</h2>
       <div class="create-catalog-grid">
 {{range .Cards}}{{if .Unavailable}}        <div class="create-card create-card-unavailable" aria-disabled="true"{{if .Hidden}} hidden{{end}}>

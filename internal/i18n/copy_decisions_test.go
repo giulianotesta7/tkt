@@ -61,18 +61,18 @@ func TestSpanishTicketVocabularyAndStrategyNames(t *testing.T) {
 
 // --- Category suggestion keywords (issue #416, S4) ---
 
-// TestCategoryKeywordsCopyIsTheApprovedWording pins the copy the approved
-// category-suggestion mockup carries for the new drawer field, in both locales. The
-// English help sentence is verbatim: it is the sentence the mockup was approved
-// with, and a "clearer" rewrite would change what the administrator was shown.
-func TestCategoryKeywordsCopyIsTheApprovedWording(t *testing.T) {
+// TestCategoryKeywordsCopy pins the copy of the drawer field that feeds the local
+// suggestion engine, in both locales. The sentences are fixed: an administrator
+// learned the field and its rule from them, so a "clearer" rewrite changes what
+// the field says without changing what it does.
+func TestCategoryKeywordsCopy(t *testing.T) {
 	en := New(English)
 	if got, want := en.T("categories.drawer.keywords"), "Keywords for suggestions"; got != want {
 		t.Errorf("en label = %q, want %q", got, want)
 	}
 	if got, want := en.T("categories.drawer.keywords_help"),
 		"Words people use for this category. Comma separated; accents and capitals do not matter."; got != want {
-		t.Errorf("en help = %q, want the approved sentence %q", got, want)
+		t.Errorf("en help = %q, want the fixed sentence %q", got, want)
 	}
 
 	es := New(Spanish)

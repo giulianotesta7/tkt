@@ -21,6 +21,12 @@
  *     rule the server applies for `?q` (category, desk, or department name),
  *     hiding the departments left with no match. With no script the server has
  *     already rendered exactly that filter.
+ *
+ *  3. Category suggestions (issue #416, S2) are shortcuts for the pickers that
+ *     are already here: a suggested chip writes its category into the form's own
+ *     select, and a suggested tile is an ordinary link into the same form. A
+ *     suggested category is offered once, so its department card stays hidden
+ *     while the Suggested group names it.
  */
 (() => {
   "use strict";
@@ -399,6 +405,18 @@
 
   for (const wrapper of document.querySelectorAll("[data-create-picker]")) enhance(wrapper);
 
+  // The category a catalog card opens, read from the link the card already is:
+  // the Suggested group and the departments have to agree on one identity without
+  // the markup carrying a second attribute for it.
+  const catalogCardID = (card) => {
+    if (!(card instanceof HTMLAnchorElement)) return "";
+    try {
+      return new URL(card.href, window.location.href).searchParams.get("category_id") || "";
+    } catch {
+      return "";
+    }
+  };
+
   // ---------------------------------------------------------------------
   // Two-step catalog: the live half of the search
   // ---------------------------------------------------------------------
@@ -413,6 +431,7 @@
       name: (group.querySelector(".create-catalog-department") || group).textContent.toLowerCase(),
       cards: Array.from(group.querySelectorAll(".create-card")).map((card) => ({
         card,
+        id: catalogCardID(card),
         name: (
           card.querySelector(".create-card-name").textContent +
           " " +
@@ -422,18 +441,41 @@
     }));
     const empty = document.querySelector(".create-catalog-empty");
 
+    // The categories the Suggested group already names (issue #416, S2). It is
+    // read from the DOM on every pass because the search refreshes the group
+    // itself, so the set changes while the page stays where it is.
+    const suggestedIDs = () => {
+      const ids = new Set();
+      for (const tile of catalog.querySelectorAll("[data-suggest-category]")) {
+        ids.add(tile.getAttribute("data-suggest-category"));
+      }
+      return ids;
+    };
+
     const filter = () => {
       // The rule is the server's own (catalogMatches): a card matches when the
       // query appears in the category, its desk, or its department name.
       const query = catalogSearch.value.trim().toLowerCase();
-      let matches = 0;
+      const suggested = suggestedIDs();
+      let named = 0;
       for (const section of sections) {
         const sectionHit = query === "" || section.name.includes(query);
+        for (const card of section.cards) {
+          card.hit = !suggested.has(card.id) && (sectionHit || card.name.includes(query));
+          if (card.hit) named += 1;
+        }
+      }
+      // A description that names no card still leaves a usable catalog under the
+      // Suggested group: the departments are the manual way to choose, so they
+      // stay whole instead of collapsing into the no-match message (S3).
+      const keepAll = suggested.size > 0 && named === 0;
+      let matches = 0;
+      for (const section of sections) {
         let shown = 0;
         for (const card of section.cards) {
-          const hit = sectionHit || card.name.includes(query);
-          card.card.hidden = !hit;
-          if (hit) shown += 1;
+          const visible = !suggested.has(card.id) && (keepAll || card.hit);
+          card.card.hidden = !visible;
+          if (visible) shown += 1;
         }
         section.group.hidden = shown === 0;
         matches += shown;
@@ -442,6 +484,65 @@
     };
 
     catalogSearch.addEventListener("input", filter);
+    // A swap replaces the Suggested group, so the duplicates it creates move and
+    // the filter has to run again: the group and the departments are one view.
+    document.body.addEventListener("htmx:afterSwap", (event) => {
+      if (event.target instanceof Element && event.target.id === "create-catalog-suggestions") {
+        filter();
+      }
+    });
     filter();
   }
+
+  // ---------------------------------------------------------------------
+  // Suggested categories (issue #416, S2)
+  // ---------------------------------------------------------------------
+
+  // A suggested category is a shortcut for the picker, never a second way to
+  // submit: it writes the category into the native select through the picker's
+  // own pick, so the listbox, the change event and the form all behave exactly
+  // as they do when the requester chooses from the list below it.
+  const chooseCategory = (value) => {
+    const select = document.getElementById("category_id");
+    if (!select || !value) return;
+    const picker = pickers.find((candidate) => candidate.select === select);
+    const option =
+      picker &&
+      Array.from(picker.list.querySelectorAll(".listbox-option")).find(
+        (candidate) => candidate.value === value,
+      );
+    if (picker && option) {
+      pick(picker, option);
+      return;
+    }
+    select.value = value;
+    select.dispatchEvent(new Event("change", { bubbles: true }));
+  };
+
+  // The chip a suggestion was chosen from stays marked, and a refresh of the
+  // chips restores the mark from the field that actually submits.
+  const markSelectedChip = () => {
+    const select = document.getElementById("category_id");
+    const value = select ? select.value : "";
+    for (const chip of document.querySelectorAll(".create-suggestion-chip")) {
+      const on = value !== "" && chip.getAttribute("data-suggest-category") === value;
+      chip.setAttribute("aria-pressed", on ? "true" : "false");
+    }
+  };
+
+  document.addEventListener("click", (event) => {
+    const target = event.target;
+    if (!(target instanceof Element)) return;
+    const chip = target.closest(".create-suggestion-chip");
+    if (!chip) return;
+    event.preventDefault();
+    chooseCategory(chip.getAttribute("data-suggest-category"));
+    markSelectedChip();
+  });
+
+  document.body.addEventListener("htmx:afterSwap", (event) => {
+    if (event.target instanceof Element && event.target.closest(".create-suggestions")) {
+      markSelectedChip();
+    }
+  });
 })();

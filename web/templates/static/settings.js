@@ -203,16 +203,28 @@
 
   // Progressive disclosure (maintainer review): a block marked
   // data-show-when="name=value" shows only while the named radio holds that
-  // value, or, with "name=checked", while the named checkbox is ticked. It
-  // reacts on every change, so switching an option reveals its fields at
-  // once instead of after a save. Hidden fields keep their values.
+  // value, or, with "name=checked", while the named checkbox is ticked, or, with
+  // "name!=value", for every value but that one. It reacts on every change, so
+  // switching an option reveals its fields at once instead of after a save.
+  // Hidden fields keep their values.
   function syncDisclosure() {
     Array.prototype.forEach.call(document.querySelectorAll("[data-show-when]"), function (block) {
       var rule = block.getAttribute("data-show-when").split("=");
       var form = block.closest("form");
       if (!form) return;
       var control = form.querySelector('[name="' + rule[0] + '"]:checked');
-      block.hidden = rule[1] === "checked" ? !control : !control || control.value !== rule[1];
+      var want = rule[1];
+      var except = want.charAt(0) === "!";
+      if (except) {
+        want = want.slice(1);
+        block.hidden = Boolean(control) && control.value === want;
+        return;
+      }
+      if (want === "checked") {
+        block.hidden = !control;
+        return;
+      }
+      block.hidden = !control || control.value !== want;
     });
   }
   document.addEventListener("change", syncDisclosure);
@@ -274,5 +286,20 @@
     var open = document.querySelector('[data-help-tip][aria-expanded="true"]');
     if (!open) return;
     open.setAttribute("aria-expanded", "false");
+  });
+
+  // --- Category suggestions: the Try it box (issue #416, S6) --------------
+
+  // The Try it field sits in the card's save form, so Enter would submit the save.
+  // Enter runs the test instead: the field exists to be tried, and a test never
+  // changes the configuration a save changes.
+  document.addEventListener("keydown", function (event) {
+    if (event.key !== "Enter") return;
+    var input = event.target;
+    if (!input || !input.closest || !input.closest("[data-suggestion-try-input]")) return;
+    var button = document.querySelector("[data-suggestion-try]");
+    if (!button) return;
+    event.preventDefault();
+    button.click();
   });
 })();

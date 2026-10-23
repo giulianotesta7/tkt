@@ -139,6 +139,57 @@
         <button class="btn" type="reset">Discard</button>
       </div>
     </form>
+
+    <form class="settings-form card form-card" method="post" action="/settings/category-suggestions" data-settings-form>
+      <h3 class="settings-group-title" id="category-suggestions-title">Category suggestions</h3>
+      <p class="help">Suggest up to three categories from what the requester writes. Requesters always choose; with no confident suggestion they use the catalog as today.</p>
+      <fieldset class="settings-choice-group" aria-labelledby="category-suggestions-title">
+        <label class="settings-choice settings-choice-detailed">
+          <input type="radio" name="suggestion_engine" value="off" checked>
+          <span class="settings-choice-label">Off<small class="settings-choice-help">Requesters choose the category themselves, as today.</small></span>
+        </label>
+        <label class="settings-choice settings-choice-detailed">
+          <input type="radio" name="suggestion_engine" value="local">
+          <span class="settings-choice-label">On this server<small class="settings-choice-help">Matches the description against category names, descriptions and keywords. Nothing leaves TKT.</small></span>
+        </label>
+        <label class="settings-choice settings-choice-detailed">
+          <input type="radio" name="suggestion_engine" value="model">
+          <span class="settings-choice-label">Decision model<small class="settings-choice-help">Sends the description and the category list to an external decision model (OpenAI Decisions format). Falls back to “On this server” if it fails or takes longer than 2 seconds.</small></span>
+        </label>
+      </fieldset>
+      <div class="settings-suggestion-model" data-show-when="suggestion_engine=model" hidden>
+        <div class="field">
+          <label for="suggestion_endpoint">Endpoint URL</label>
+          <input type="text" id="suggestion_endpoint" name="suggestion_endpoint" value="" spellcheck="false" autocapitalize="off" placeholder="https://api.openai.com/v1">
+          <p class="help">Any service that implements POST /decisions, for example OpenAI or Vercel AI Gateway (which also reaches Jev).</p>
+        </div>
+        <div class="field-row">
+          <div class="field">
+            <label for="suggestion_model">Model</label>
+            <input type="text" id="suggestion_model" name="suggestion_model" value="" spellcheck="false" autocapitalize="off" placeholder="gpt-6-luna">
+          </div>
+          <div class="field">
+            <label for="suggestion_api_key">API key</label>
+            <input type="password" id="suggestion_api_key" name="suggestion_api_key" value="" autocomplete="new-password" aria-describedby="suggestion_api_key_help">
+            <p class="help" id="suggestion_api_key_help">Stored encrypted, like the SMTP password.</p>
+          </div>
+        </div>
+        <p class="help"><strong>Sent:</strong> the description and each category&#39;s name and description. <strong>Never sent:</strong> the requester&#39;s name or email, attachments, or ticket history.</p>
+      </div>
+      <div class="settings-suggestion-try" data-show-when="suggestion_engine!=off" hidden>
+        <label for="suggestion_try">Try it</label>
+        <div class="settings-suggestion-try-row">
+          <input type="text" id="suggestion_try" name="suggestion_try" value="" placeholder="Type a description a requester might write" data-suggestion-try-input autocomplete="off">
+          <button class="btn" type="button" data-suggestion-try hx-post="/settings/category-suggestions/try" hx-include="closest form" hx-target="#category-suggestions-try-result" hx-swap="innerHTML">Test</button>
+        </div>
+        <div id="category-suggestions-try-result" class="settings-suggestion-try-result" aria-live="polite"></div>
+      </div>
+      <div class="settings-savebar" data-settings-savebar hidden>
+        <button class="btn primary" type="submit">Save category suggestions</button>
+        <button class="btn" type="reset">Discard</button>
+      </div>
+    </form>
+
     <form class="settings-form card form-card" method="post" action="/settings/sla" data-settings-form>
       <h3 class="settings-group-title">Service level agreements (SLA)</h3>
       <p class="help">Defaults for new categories. Editing them does not change existing categories.</p>

@@ -101,14 +101,33 @@ const (
 //
 // It returns nothing — no error, no partial list — when the text names no
 // category clearly: S3 says the requester still chooses, and with no confident
-// suggestion the catalog behaves exactly as it does today.
+// suggestion the catalog behaves exactly as it does today. A caller that has to
+// REPORT a ranking the engine is not confident about — the Settings card's Try
+// it box, which shows what the engine found and then says requesters would not
+// see it — reads Rank instead.
 func (s *LocalCategorySuggester) Suggest(ctx context.Context, text string, allowed []int64) ([]CategorySuggestion, error) {
-	if s == nil || s.index == nil || len(allowed) == 0 || strings.TrimSpace(text) == "" {
+	ranked, confident, err := s.Rank(ctx, text, allowed)
+	if err != nil {
+		return nil, err
+	}
+	if !confident {
 		return nil, nil
+	}
+	return ranked, nil
+}
+
+// Rank returns the candidates the local engine ranks for text, best first, at
+// most CategorySuggestionLimit of them, only from allowed, and whether they
+// clear the local thresholds. The two answers are separate because they answer
+// different questions: the ranked candidates describe what the engine found,
+// and the flag says whether a requester would ever see them.
+func (s *LocalCategorySuggester) Rank(ctx context.Context, text string, allowed []int64) ([]CategorySuggestion, bool, error) {
+	if s == nil || s.index == nil || len(allowed) == 0 || strings.TrimSpace(text) == "" {
+		return nil, false, nil
 	}
 	candidates, err := s.index.SuggestCandidates(ctx, text, allowed)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 
 	allowedSet := make(map[int64]struct{}, len(allowed))
@@ -130,13 +149,16 @@ func (s *LocalCategorySuggester) Suggest(ctx context.Context, text string, allow
 		ranked = append(ranked, candidate)
 	}
 	if len(ranked) == 0 {
-		return nil, nil
+		return nil, false, nil
 	}
 	sort.SliceStable(ranked, func(i, j int) bool { return ranked[i].Score > ranked[j].Score })
 
 	top := ranked[0].Score
 	if top < LocalSuggestionMinScore {
-		return nil, nil
+		// Below the engine's floor. The ranking is still the engine's answer to
+		// "what looks closest", which is what a report of the engine shows; it is
+		// just not confident, so no requester surface renders it.
+		return cappedCandidates(ranked), false, nil
 	}
 
 	keep := 0
@@ -144,16 +166,26 @@ func (s *LocalCategorySuggester) Suggest(ctx context.Context, text string, allow
 		keep++
 	}
 	if keep == 0 {
-		return nil, nil
+		return nil, false, nil
 	}
+	kept := ranked[:keep]
 	// The first candidate that was not kept is what "the rest" means here: either
 	// it fell below the relative cutoff, or it was the fourth-placed one. When
 	// every candidate is kept there is nothing to separate from, so the margin
 	// holds by definition.
 	if keep < len(ranked) && top-ranked[keep].Score < top*LocalSuggestionMargin {
-		return nil, nil
+		return kept, false, nil
 	}
-	return ranked[:keep], nil
+	return kept, true, nil
+}
+
+// cappedCandidates limits a ranking to the product's ceiling, so a report never
+// shows more rows than a picker could ever offer.
+func cappedCandidates(ranked []CategorySuggestion) []CategorySuggestion {
+	if len(ranked) > CategorySuggestionLimit {
+		return ranked[:CategorySuggestionLimit]
+	}
+	return ranked
 }
 
 // The normalization the local engine applies to requester text before it reaches

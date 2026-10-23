@@ -1,0 +1,33 @@
+{{/*
+  The two category-suggestion fragments (issue #416, S2/S3).
+
+  One fragment per creation mode, both fed by the same endpoint and the same
+  payload: the single-page form swaps the chips under its Category row, and the
+  two-step catalog swaps the "Suggested" group above its departments.
+
+  Both render NOTHING when the engine found no confident suggestion. That is the
+  whole point of S3: the requester always chooses, and with no confident
+  suggestion the catalog works exactly as it does today — so an empty answer is
+  an empty fragment, not a sentence explaining the absence of one.
+*/}}
+{{define "suggestion_spark"}}<svg class="suggestion-spark" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v4M12 17v4M3 12h4M17 12h4M6 6l2.5 2.5M15.5 15.5 18 18M6 18l2.5-2.5M15.5 8.5 18 6"/></svg>{{end}}
+
+{{/* The single-page chips: a title that says where they come from, then one
+     button per suggestion. A click writes the category into the picker the form
+     already has, so a suggestion never bypasses the field that submits. */}}
+{{define "category_suggestion_chips"}}{{if .Suggestions}}<div class="create-suggestions">
+  <p class="create-suggestions-title">{{template "suggestion_spark"}}{{t "tickets.suggest.title"}}</p>
+{{range .Suggestions}}  <button type="button" class="create-suggestion-chip" data-suggest-category="{{.ID}}"><span class="create-suggestion-chip-name">{{.Name}}</span><span class="create-suggestion-chip-desk">{{.Caption}}</span></button>
+{{end}}</div>{{end}}{{end}}
+
+{{/* The two-step tiles: the same cards the catalog renders below, marked as
+     suggested and carrying the words that matched. A tile opens the shared form
+     exactly as a catalog card does. */}}
+{{define "category_suggestion_tiles"}}{{if .Suggestions}}<h2 class="create-catalog-department create-catalog-suggested-title">{{template "suggestion_spark"}}{{t "tickets.suggest.group"}}</h2>
+  <div class="create-catalog-grid">
+{{range .Suggestions}}    <a class="create-card create-card-suggested" href="/tickets/new?category_id={{.ID}}" data-suggest-category="{{.ID}}">
+      <span class="create-card-name">{{.Name}}</span>
+      <span class="create-card-desk">{{.Caption}}</span>
+{{if .MatchedWords}}      <span class="create-card-matches">{{t "tickets.suggest.matches"}} {{range $index, $word := .MatchedWords}}{{if $index}}, {{end}}{{$word}}{{end}}</span>
+{{end}}    </a>
+{{end}}  </div>{{end}}{{end}}

@@ -1,0 +1,66 @@
+{{/*
+  The "Category suggestions" card of Settings › Tickets & SLA (issue #416, S6).
+
+  One instance setting: which engine suggests a category while a requester writes
+  a ticket. Off keeps both creation screens exactly as they were (S7), "On this
+  server" runs the local algorithm (S4), and the decision model asks an external
+  service (S5) whose endpoint, model and key live here — the key sealed like the
+  SMTP password, and never rendered back.
+
+  The save is the section's ordinary native form post with the sticky save bar;
+  the Try it box is the only control here that answers in place, and it runs the
+  values the form SUBMITS without saving them.
+*/}}
+{{define "category_suggestions_card"}}
+    <form class="settings-form card form-card" method="post" action="/settings/category-suggestions" data-settings-form>
+      <h3 class="settings-group-title" id="category-suggestions-title">{{t "settings.suggestions.title"}}</h3>
+      <p class="help">{{t "settings.suggestions.help"}}</p>
+      <fieldset class="settings-choice-group" aria-labelledby="category-suggestions-title">
+{{range .Suggestions.Engines}}        <label class="settings-choice settings-choice-detailed">
+          <input type="radio" name="suggestion_engine" value="{{.Value}}"{{if .Selected}} checked{{end}}>
+          <span class="settings-choice-label">{{t .Label}}<small class="settings-choice-help">{{t .Help}}</small></span>
+        </label>
+{{end}}      </fieldset>
+      <div class="settings-suggestion-model" data-show-when="suggestion_engine=model"{{if not .Suggestions.ModelSelected}} hidden{{end}}>
+        <div class="field">
+          <label for="suggestion_endpoint">{{t "settings.suggestions.endpoint"}}</label>
+          <input type="text" id="suggestion_endpoint" name="suggestion_endpoint" value="{{.Suggestions.EndpointURL}}" spellcheck="false" autocapitalize="off" placeholder="{{t "settings.suggestions.endpoint_placeholder"}}">
+          <p class="help">{{t "settings.suggestions.endpoint_help"}}</p>
+        </div>
+        <div class="field-row">
+          <div class="field">
+            <label for="suggestion_model">{{t "settings.suggestions.model"}}</label>
+            <input type="text" id="suggestion_model" name="suggestion_model" value="{{.Suggestions.Model}}" spellcheck="false" autocapitalize="off" placeholder="{{t "settings.suggestions.model_placeholder"}}">
+          </div>
+          <div class="field">
+            <label for="suggestion_api_key">{{t "settings.suggestions.api_key"}}</label>
+            <input type="password" id="suggestion_api_key" name="suggestion_api_key" value="" autocomplete="new-password" aria-describedby="suggestion_api_key_help"{{if .Suggestions.WithAPIKeyPlaceholder}} placeholder="{{t "auth.password_placeholder"}}"{{end}}>
+            <p class="help" id="suggestion_api_key_help">{{t "settings.suggestions.api_key_help"}}</p>
+          </div>
+        </div>
+        <p class="help"><strong>{{t "settings.suggestions.sent_label"}}</strong> {{t "settings.suggestions.sent_text"}} <strong>{{t "settings.suggestions.never_sent_label"}}</strong> {{t "settings.suggestions.never_sent_text"}}</p>
+      </div>
+      <div class="settings-suggestion-try" data-show-when="suggestion_engine!=off"{{if eq .Suggestions.Engine "off"}} hidden{{end}}>
+        <label for="suggestion_try">{{t "settings.suggestions.try"}}</label>
+        <div class="settings-suggestion-try-row">
+          <input type="text" id="suggestion_try" name="suggestion_try" value="" placeholder="{{t "settings.suggestions.try_placeholder"}}" data-suggestion-try-input autocomplete="off">
+          <button class="btn" type="button" data-suggestion-try hx-post="/settings/category-suggestions/try" hx-include="closest form" hx-target="#category-suggestions-try-result" hx-swap="innerHTML">{{t "settings.suggestions.test"}}</button>
+        </div>
+        <div id="category-suggestions-try-result" class="settings-suggestion-try-result" aria-live="polite"></div>
+      </div>
+      <div class="settings-savebar" data-settings-savebar hidden>
+        <button class="btn primary" type="submit">{{t "settings.suggestions.save"}}</button>
+        <button class="btn" type="reset">{{t "settings.discard"}}</button>
+      </div>
+    </form>
+{{end}}
+
+{{/* The Try it result: one row per candidate with its share, then the sentence
+     the answer deserves. The fallback sentence is the honest one: a decision
+     model that could not answer is reported, never disguised as its own. */}}
+{{define "category_suggestion_try"}}{{if .Candidates}}<div class="suggestion-try-rows">
+{{range .Candidates}}  <span class="suggestion-try-name">{{.Name}}<span class="suggestion-try-bar"><i style="width:{{.Percent}}%"></i></span></span><span class="suggestion-try-percent">{{.Percent}}%</span>
+{{end}}</div>
+  <p class="help">{{if .Confident}}{{t "settings.suggestions.try_confident"}}{{else}}{{t "settings.suggestions.try_below_threshold"}}{{end}}{{if .FellBack}} {{t "settings.suggestions.try_fallback"}}{{end}}</p>
+{{else}}  <p class="help">{{t "settings.suggestions.try_no_match"}}{{if .FellBack}} {{t "settings.suggestions.try_fallback"}}{{end}}</p>
+{{end}}{{end}}
