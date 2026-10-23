@@ -110,9 +110,11 @@ func TestMigration0031RefusedCatalogDeleteLeavesIndexIntact(t *testing.T) {
 	assertSuggestIndexExact(t, s, "after refused deletes")
 }
 
-// TestMigration0031LateNeighbourMigrations proves the 0029/0030 gap is safe: a
-// migration numbered below 0031 that lands later still applies, and 0031 is
-// never applied twice.
+// TestMigration0031LateNeighbourMigrations proves that a migration numbered
+// below 0031 which reaches an instance after 0031 still applies, and that 0031
+// is never applied twice. The late neighbour is the highest embedded migration
+// below 0031, withheld from the first run and delivered in the second, so the
+// test keeps meaning something as the reserved numbers land.
 func TestMigration0031LateNeighbourMigrations(t *testing.T) {
 	ctx := context.Background()
 	s, err := openDSN(testDSN(t))
@@ -121,8 +123,34 @@ func TestMigration0031LateNeighbourMigrations(t *testing.T) {
 	}
 	s.db.SetMaxOpenConns(1)
 	t.Cleanup(func() { _ = s.db.Close() })
-	if err := migrate(ctx, s.db, migrationsFS); err != nil {
-		t.Fatalf("migrate: %v", err)
+
+	names, err := fs.Glob(migrationsFS, "migrations/*.sql")
+	if err != nil {
+		t.Fatalf("glob: %v", err)
+	}
+	late, lateVersion := "", 0
+	for _, name := range names {
+		version, err := migrationVersion(name)
+		if err != nil {
+			t.Fatalf("version of %s: %v", name, err)
+		}
+		if version < 31 && version > lateVersion {
+			late, lateVersion = name, version
+		}
+	}
+	first := fstest.MapFS{}
+	for _, name := range names {
+		if name == late {
+			continue
+		}
+		blob, err := fs.ReadFile(migrationsFS, name)
+		if err != nil {
+			t.Fatalf("read %s: %v", name, err)
+		}
+		first[name] = &fstest.MapFile{Data: blob}
+	}
+	if err := migrate(ctx, s.db, first); err != nil {
+		t.Fatalf("migrate without %s: %v", late, err)
 	}
 	desk := seedCatalogDesk(t, s, "Service desk", seedCatalogDepartment(t, s, "Tecnología"))
 	seedCatalogCategory(t, s, 100, "Printers", "printer problems", "impresora", desk)
@@ -131,28 +159,12 @@ func TestMigration0031LateNeighbourMigrations(t *testing.T) {
 	if err := s.db.QueryRow(`SELECT applied_at FROM schema_migrations WHERE version = 31`).Scan(&appliedAt); err != nil {
 		t.Fatalf("applied_at 31: %v", err)
 	}
-	names, err := fs.Glob(migrationsFS, "migrations/*.sql")
-	if err != nil {
-		t.Fatalf("glob: %v", err)
+	if err := migrate(ctx, s.db, migrationsFS); err != nil {
+		t.Fatalf("late neighbour %s: %v", late, err)
 	}
-	next := fstest.MapFS{}
-	for _, name := range names {
-		blob, err := fs.ReadFile(migrationsFS, name)
-		if err != nil {
-			t.Fatalf("read %s: %v", name, err)
-		}
-		next[name] = &fstest.MapFile{Data: blob}
-	}
-	next["migrations/0029_reserved_a.sql"] = &fstest.MapFile{Data: []byte("CREATE TABLE probe_0029 (id INTEGER PRIMARY KEY);")}
-	next["migrations/0030_reserved_b.sql"] = &fstest.MapFile{Data: []byte("CREATE TABLE probe_0030 (id INTEGER PRIMARY KEY);")}
-	if err := migrate(ctx, s.db, next); err != nil {
-		t.Fatalf("late neighbours: %v", err)
-	}
-	for _, table := range []string{"probe_0029", "probe_0030"} {
-		var n int
-		if err := s.db.QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE name = ?`, table).Scan(&n); err != nil || n != 1 {
-			t.Errorf("late migration %s not applied (n=%d, err=%v)", table, n, err)
-		}
+	var n int
+	if err := s.db.QueryRow(`SELECT COUNT(*) FROM schema_migrations WHERE version = ?`, lateVersion).Scan(&n); err != nil || n != 1 {
+		t.Errorf("late migration %s not applied (n=%d, err=%v)", late, n, err)
 	}
 	var again string
 	if err := s.db.QueryRow(`SELECT applied_at FROM schema_migrations WHERE version = 31`).Scan(&again); err != nil {
@@ -161,5 +173,5 @@ func TestMigration0031LateNeighbourMigrations(t *testing.T) {
 	if again != appliedAt {
 		t.Errorf("0031 was re-applied after a neighbour landed")
 	}
-	assertSuggestIndexExact(t, s, "after late neighbours")
+	assertSuggestIndexExact(t, s, "after the late neighbour")
 }
