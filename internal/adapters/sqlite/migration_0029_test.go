@@ -22,13 +22,29 @@ import (
 // full set (pattern of pre0026Migrations).
 func pre0029Migrations(t *testing.T) fstest.MapFS {
 	t.Helper()
+	return migrationsBefore(t, "0029_password_reset_tokens.sql", false)
+}
+
+// through0029Migrations is the embedded set up to and including 0029, so a
+// comparison with pre0029Migrations isolates what 0029 itself changed even when
+// later migrations exist.
+func through0029Migrations(t *testing.T) fstest.MapFS {
+	t.Helper()
+	return migrationsBefore(t, "0029_password_reset_tokens.sql", true)
+}
+
+// migrationsBefore copies the embedded migrations that sort before name, plus
+// name itself when inclusive is set.
+func migrationsBefore(t *testing.T, name string, inclusive bool) fstest.MapFS {
+	t.Helper()
 	entries, err := fs.ReadDir(migrationsFS, "migrations")
 	if err != nil {
 		t.Fatalf("read embedded migrations: %v", err)
 	}
 	out := fstest.MapFS{}
 	for _, entry := range entries {
-		if strings.Compare(entry.Name(), "0029_password_reset_tokens.sql") >= 0 {
+		cmp := strings.Compare(entry.Name(), name)
+		if cmp > 0 || (cmp == 0 && !inclusive) {
 			continue
 		}
 		blob, err := fs.ReadFile(migrationsFS, "migrations/"+entry.Name())
@@ -330,8 +346,8 @@ func TestMigration0029LeavesEveryOtherSchemaObjectUntouched(t *testing.T) {
 	}
 	upgraded.db.SetMaxOpenConns(1)
 	t.Cleanup(func() { _ = upgraded.db.Close() })
-	if err := migrate(ctx, upgraded.db, migrationsFS); err != nil {
-		t.Fatalf("migrate the full set: %v", err)
+	if err := migrate(ctx, upgraded.db, through0029Migrations(t)); err != nil {
+		t.Fatalf("migrate through 0029: %v", err)
 	}
 
 	if after := schemaOutsideResetTable(t, upgraded); !reflect.DeepEqual(after, before) {

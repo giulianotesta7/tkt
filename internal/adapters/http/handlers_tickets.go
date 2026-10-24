@@ -57,6 +57,11 @@ type TicketHandlers struct {
 	// reading is judged against (issue #382). Unset leaves listData.Now zero,
 	// so every fixture and golden keeps rendering the absolute instant.
 	clock domain.Clock
+	// visits is the OPTIONAL last-visit read/write (issue #415). UNSET means
+	// "no mark is ever rendered and no visit is ever recorded": every row's
+	// Changed stays false and the detail page writes nothing, so a handler
+	// built without WithVisits behaves exactly as it did before #415.
+	visits *application.TicketVisitService
 }
 
 // NewTicketHandlers wires the ticket routes against the ticket, comment,
@@ -111,6 +116,16 @@ func (h *TicketHandlers) WithPreferences(preferences *application.PreferencesSer
 // (issue #382). It follows the fluent shape of WithSLA and WithPreferences.
 func (h *TicketHandlers) WithClock(clock domain.Clock) *TicketHandlers {
 	h.clock = clock
+	return h
+}
+
+// WithVisits wires the optional last-visit read and write (issue #415). It
+// follows the fluent shape of WithSLA, WithPreferences and WithClock: a nil or
+// unset service leaves every row unmarked and records no visit, so the lists
+// and the detail page render exactly as they did before, and no store read is
+// paid for a mark nobody displays.
+func (h *TicketHandlers) WithVisits(visits *application.TicketVisitService) *TicketHandlers {
+	h.visits = visits
 	return h
 }
 
@@ -641,6 +656,10 @@ type ticketRow struct {
 	// when the ticket is unassigned or the category is unknown.
 	AssigneeName string
 	CategoryName string
+	// Changed is whether the row's ticket changed for the viewer since their
+	// last visit (issue #415). False when nothing changed, and false on a
+	// handler built without WithVisits.
+	Changed bool
 }
 
 // AwaitingConfirmation reports whether the row is a resolved ticket waiting for
@@ -663,6 +682,9 @@ type ticketListData struct {
 	// travels WITH the section because a template invoked with the section as
 	// its data cannot reach the page's own Now.
 	Now time.Time
+	// HasChanged reports that a ticket on this page changed since the viewer
+	// last opened it (issue #415), so a folded section can say so unopened.
+	HasChanged bool
 }
 
 func sectionData(res *application.SearchResult, f filterState, hrefForPage func(int) string) ticketListData {
@@ -744,18 +766,25 @@ func (h *TicketHandlers) agentQueueSections(r *http.Request, f filterState, assi
 			return assigned, done, claimable, 0, err
 		}
 	}
+	// ONE visit batch over the SAME union (issue #415), so a ticket that sits
+	// in both sections cannot disagree with itself.
+	changed, err := h.changedTickets(r, union)
+	if err != nil {
+		return assigned, done, claimable, 0, err
+	}
 	assigned = sectionData(assignedRes, f, func(page int) string {
 		return agentListHref(f, page, donePage, claimablePage)
 	})
-	assigned.Tickets = wrapTicketRows(assignedRes.Tickets, contexts, slas)
+	assigned.Tickets = wrapTicketRows(assignedRes.Tickets, contexts, slas, changed)
 	done = sectionData(doneRes, f, func(page int) string {
 		return agentListHref(f, assignedPage, page, claimablePage)
 	})
-	done.Tickets = wrapTicketRows(doneRes.Tickets, contexts, slas)
+	done.Tickets = wrapTicketRows(doneRes.Tickets, contexts, slas, changed)
+	done.HasChanged = anyChanged(done.Tickets)
 	claimable = sectionData(claimableRes, f, func(page int) string {
 		return agentListHref(f, assignedPage, donePage, page)
 	})
-	claimable.Tickets = wrapTicketRows(claimableRes.Tickets, contexts, slas)
+	claimable.Tickets = wrapTicketRows(claimableRes.Tickets, contexts, slas, changed)
 	// ONE clock snapshot for the whole page, handed to every section so the
 	// three relative timestamps can never disagree with each other.
 	var now time.Time
@@ -766,16 +795,38 @@ func (h *TicketHandlers) agentQueueSections(r *http.Request, f filterState, assi
 	return assigned, done, claimable, assignedRes.Total + doneRes.Total + claimableRes.Total, nil
 }
 
-// wrapTicketRows pairs one section's tickets with their batched contexts and
-// optional SLA rows. The plain staff table reuses it with nil contexts, so
-// both staff lists carry the SAME row shape. An unknown id degrades to the
-// zero context and a nil SLA row — never a fabricated row.
-func wrapTicketRows(tickets []domain.Ticket, contexts map[int64]application.AgentTicketRowContext, slas map[int64]domain.SLAProjection) []ticketRow {
+// wrapTicketRows pairs one section's tickets with their batched contexts,
+// optional SLA rows, and last-visit marks. The plain staff table reuses it with
+// nil contexts, so both staff lists carry the SAME row shape. An unknown id
+// degrades to the zero context, a nil SLA row and an unmarked row — never a
+// fabricated row.
+func wrapTicketRows(tickets []domain.Ticket, contexts map[int64]application.AgentTicketRowContext, slas map[int64]domain.SLAProjection, changed map[int64]bool) []ticketRow {
 	rows := make([]ticketRow, len(tickets))
 	for i, tk := range tickets {
-		rows[i] = ticketRow{Ticket: tk, Context: contexts[tk.ID], SLA: slaRowFor(slas[tk.ID])}
+		rows[i] = ticketRow{Ticket: tk, Context: contexts[tk.ID], SLA: slaRowFor(slas[tk.ID]), Changed: changed[tk.ID]}
 	}
 	return rows
+}
+
+// changedTickets answers ONE last-visit read over one page's tickets (issue
+// #415): the batch is per page, never per row. An unset service answers no
+// marks and reaches no store; a store error propagates exactly like the SLA
+// read beside it, so a page is never rendered with silently missing marks.
+func (h *TicketHandlers) changedTickets(r *http.Request, tickets []domain.Ticket) (map[int64]bool, error) {
+	if h.visits == nil || len(tickets) == 0 {
+		return nil, nil
+	}
+	return h.visits.Changed(r.Context(), *userFromContext(r.Context()), ticketIDs(tickets))
+}
+
+// anyChanged reports whether any row of a page carries the last-visit mark.
+func anyChanged(rows []ticketRow) bool {
+	for _, row := range rows {
+		if row.Changed {
+			return true
+		}
+	}
+	return false
 }
 
 // ticketIDs extracts one page's ids for the batched SLA read.
@@ -899,9 +950,16 @@ func (h *TicketHandlers) requesterSection(r *http.Request, f filterState, actor 
 		return ticketListData{}, err
 	}
 	data := sectionData(res, f, hrefForPage)
+	// The last-visit mark (issue #415): one batch per section, with the
+	// requester's comment visibility, so an internal note never marks a row.
+	changed, err := h.changedTickets(r, res.Tickets)
+	if err != nil {
+		return ticketListData{}, err
+	}
 	// SLA stays STAFF-ONLY (issue #211): the requester rows carry no SLA row,
 	// and no SLA read is made for them.
-	data.Tickets = wrapTicketRows(res.Tickets, nil, nil)
+	data.Tickets = wrapTicketRows(res.Tickets, nil, nil, changed)
+	data.HasChanged = anyChanged(data.Tickets)
 	return data, nil
 }
 
@@ -1014,6 +1072,12 @@ func (h *TicketHandlers) listData(r *http.Request, f filterState, page int) (lis
 			return listData{}, err
 		}
 	}
+	// The last-visit mark (issue #415): ONE batch for the page, with the internal-comment visibility the
+	// actor's role allows. A store error propagates like the SLA read above.
+	changed, err := h.changedTickets(r, res.Tickets)
+	if err != nil {
+		return listData{}, err
+	}
 	pages := (res.Total + application.PageSize - 1) / application.PageSize
 	if pages < 1 {
 		pages = 1
@@ -1026,7 +1090,7 @@ func (h *TicketHandlers) listData(r *http.Request, f filterState, page int) (lis
 		pageData:            pageMeta,
 		Filters:             f,
 		Options:             opts,
-		Tickets:             nameTicketRows(wrapTicketRows(res.Tickets, nil, slas), opts),
+		Tickets:             nameTicketRows(wrapTicketRows(res.Tickets, nil, slas, changed), opts),
 		Total:               res.Total,
 		Page:                res.Page,
 		Pages:               pages,
@@ -1950,6 +2014,18 @@ func ticketID(r *http.Request) (int64, bool) {
 // payload.
 func (h *TicketHandlers) detailDataFor(r *http.Request, id int64) (detailData, int, error) {
 	actor := *userFromContext(r.Context())
+	// The visit mark is taken BEFORE the authorized read (issue #415): any
+	// event or comment written while the ticket is being read is past the mark
+	// and therefore stays new, instead of being swallowed by this visit. An
+	// unset service takes no mark and records nothing.
+	var mark application.VisitMark
+	if h.visits != nil {
+		seen, markErr := h.visits.Mark(r.Context(), id)
+		if markErr != nil {
+			return detailData{}, http.StatusInternalServerError, markErr
+		}
+		mark = seen
+	}
 	view, err := h.tickets.GetByID(r.Context(), actor, id)
 	if err != nil {
 		status, _ := mapError(err)
@@ -2040,6 +2116,15 @@ func (h *TicketHandlers) detailDataFor(r *http.Request, id int64) (detailData, i
 	if r.Header.Get("HX-Request") != "" {
 		if explicit := r.Header.Get(ticketQueueReturnHeader); explicit != "" {
 			queueOrigin = explicit
+		}
+	}
+	// Only a page that can be shown is a visit, so the visit is recorded
+	// after every fallible step above: a failure leaves the mark and the bell
+	// as they were. The record also reads the actor's notifications about
+	// this ticket.
+	if h.visits != nil {
+		if err := h.visits.RecordVisit(r.Context(), actor, id, mark); err != nil {
+			return detailData{}, http.StatusInternalServerError, err
 		}
 	}
 	return detailData{
