@@ -57,9 +57,9 @@ func TestLoginRefusesValidNonRootPasswordWhilePasswordSignInIsOff(t *testing.T) 
 	users := newFakeUserStore()
 	sessions := newFakeSessionStore(clock)
 	svc := application.NewAuthService(users, sessions, clock).WithCompanySignIn(companySignInSwitch(t, false))
-	ana := createUserWithPassword(users, "Ana", "ana@example.com", "s3cret-pass")
+	ana := createUserWithPassword(users, "Ana", "ana@example.com", "s3cret-pass-12")
 
-	_, err := svc.Login(context.Background(), ana.Email, "s3cret-pass")
+	_, err := svc.Login(context.Background(), ana.Email, "s3cret-pass-12")
 	var off *application.PasswordSignInOffError
 	if !errors.As(err, &off) {
 		t.Fatalf("Login with a valid non-root password = %v, want PasswordSignInOffError", err)
@@ -113,9 +113,9 @@ func TestLoginFailsClosedWhenTheCompanySignInSettingsCannotBeRead(t *testing.T) 
 	store := newFakeCompanySignInStore()
 	store.getErr = errors.New("settings unavailable")
 	svc := application.NewAuthService(users, sessions, clock).WithCompanySignIn(store)
-	ana := createUserWithPassword(users, "Ana", "ana@example.com", "s3cret-pass")
+	ana := createUserWithPassword(users, "Ana", "ana@example.com", "s3cret-pass-12")
 
-	_, err := svc.Login(context.Background(), ana.Email, "s3cret-pass")
+	_, err := svc.Login(context.Background(), ana.Email, "s3cret-pass-12")
 	if err == nil {
 		t.Fatal("Login with an unreadable company sign-in switch = nil, want an error")
 	}
@@ -138,9 +138,9 @@ func TestLoginKeepsPasswordSignInWhileTheSwitchIsOn(t *testing.T) {
 	users := newFakeUserStore()
 	sessions := newFakeSessionStore(clock)
 	svc := application.NewAuthService(users, sessions, clock).WithCompanySignIn(companySignInSwitch(t, true))
-	ana := createUserWithPassword(users, "Ana", "ana@example.com", "s3cret-pass")
+	ana := createUserWithPassword(users, "Ana", "ana@example.com", "s3cret-pass-12")
 
-	session, err := svc.Login(context.Background(), ana.Email, "s3cret-pass")
+	session, err := svc.Login(context.Background(), ana.Email, "s3cret-pass-12")
 	if err != nil {
 		t.Fatalf("Login with the switch on = %v, want a session", err)
 	}
