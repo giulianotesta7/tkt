@@ -50,11 +50,21 @@ type PasswordResetLinkError struct{}
 func (e *PasswordResetLinkError) Error() string { return ErrMsgPasswordResetLinkInvalid }
 
 // PasswordResetDispatch hands one prepared send to the runner that executes it.
-// Production passes a function that starts a goroutine, so the request answers
-// as soon as the message is ready; a test passes one that runs the send where
-// it stands. A nil dispatcher runs the send inline, so a composition root that
-// forgot to wire one still delivers.
+// Production passes AsyncPasswordResetDispatch, so the request answers as soon
+// as the message is ready; a test passes one that runs the send where it stands.
+// A nil dispatcher runs the send inline, so a composition root that forgot to
+// wire one still delivers.
 type PasswordResetDispatch func(send func())
+
+// AsyncPasswordResetDispatch is the production runner (S3/S9): it executes the
+// prepared send on its own goroutine, so the request answers as soon as the
+// message is built and a slow or unreachable mail server cannot be told apart
+// from a fast one by how long the form took. The send detaches from the request
+// context, bounds itself (PasswordResetSendTimeout) and logs its own failure
+// with the token and the address redacted — see dispatchSend.
+func AsyncPasswordResetDispatch(send func()) {
+	go send()
+}
 
 // PasswordResetService implements the self-service recovery use cases.
 //

@@ -150,6 +150,13 @@ func main() {
 	mailer := mail.NewSMTPMailer()
 	emailSettingsSvc := application.NewEmailSettingsService(store.EmailSettingsStore(), secretbox.New(filepath.Dir(dbPath)), mailer, store.SettingsStore(), msgtext.Renderer{})
 	emailSender := application.NewNotificationEmailSender(store.EmailOutbox(), emailSettingsSvc, store.UserStore(), store.TicketStore(), store.EmailPreferences(), mailer, msgtext.Renderer{}, clock)
+	// Issue #414: self-service password recovery. The send leaves the request
+	// goroutine through AsyncPasswordResetDispatch, so the neutral answer never
+	// waits for the mail server and a known address cannot be told apart from an
+	// unknown one by how long the form took. The send detaches from the request
+	// context, bounds itself (PasswordResetSendTimeout) and logs its failure with
+	// the token and the address redacted.
+	resetSvc := application.NewPasswordResetService(store.UserStore(), store.PasswordResetStore(), store.PasswordSettingsStore(), emailSettingsSvc, mailer, msgtext.Renderer{}, application.AsyncPasswordResetDispatch, clock)
 	// Issue #353: the automatic hold expiry closes a ticket whose requester
 	// never replied, after warning them one working day earlier. It shares the
 	// SLA service with the ticket use cases, so an automatic close shifts the
@@ -172,7 +179,7 @@ func main() {
 	mux := http.NewServeMux()
 	httpadapter.RegisterStatic(mux, store.SettingsStore())
 	httpadapter.NewBrandHandlers(store.OrganizationStore()).WithSignin(store.SigninStore()).Register(mux)
-	httpadapter.NewAuthHandlers(authSvc, userSvc, renderer).WithSignin(signinSvc).Register(mux)
+	httpadapter.NewAuthHandlers(authSvc, userSvc, renderer).WithSignin(signinSvc).WithPasswordRecovery(resetSvc, passwordSettingsSvc, emailSettingsSvc).Register(mux)
 	httpadapter.NewTicketHandlers(ticketSvc, commentSvc, searchSvc, catSvc, userSvc, store.DeskStore(), workflowSvc, application.NewWorkflowRunner(clock), store.WorkflowRunStore(), store.WorkflowUnitOfWork(), renderer, catalogSvc).WithMetrics(metricsSvc).WithSLA(slaSvc).WithPreferences(preferencesSvc).WithClock(clock).WithAttachments(store.AttachmentStore(), attachmentSvc).Register(mux)
 	httpadapter.NewUserHandlers(userSvc, renderer).Register(mux)
 	httpadapter.NewCategoryHandlersWithWorkflows(catSvc, workflowSvc, renderer, catalogSvc).WithSettings(store.SettingsStore()).Register(mux)

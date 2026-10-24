@@ -576,3 +576,57 @@ func TestResetPasswordRefusesWhileTheSwitchIsOff(t *testing.T) {
 		t.Error("switch OFF spent the link")
 	}
 }
+
+// gatedMailer holds every send until the test releases it, so a test can prove
+// the request answered while the mail server was still holding the message. The
+// channels are the synchronization: no sleep and no timeout takes part.
+type gatedMailer struct {
+	started chan application.OutgoingEmail
+	release chan struct{}
+	done    chan struct{}
+}
+
+func newGatedMailer() *gatedMailer {
+	return &gatedMailer{
+		started: make(chan application.OutgoingEmail, 1),
+		release: make(chan struct{}),
+		done:    make(chan struct{}),
+	}
+}
+
+func (m *gatedMailer) Send(_ context.Context, _ application.SMTPConfig, email application.OutgoingEmail) error {
+	m.started <- email
+	<-m.release
+	close(m.done)
+	return nil
+}
+
+// TestAsyncDispatcherAnswersBeforeTheMailServerDoes proves the production
+// dispatcher (S3/S9) runs the send on its own goroutine: the request answers
+// while the mailer is still holding the message, so how long a mail server takes
+// cannot distinguish a known address from an unknown one. The test also rules
+// out an inline runner: with one, the answer below would never arrive.
+func TestAsyncDispatcherAnswersBeforeTheMailServerDoes(t *testing.T) {
+	f := newResetFixture(t)
+	mailer := newGatedMailer()
+	svc := application.NewPasswordResetService(f.users, f.tokens, f.policy, f.config, mailer, senderRenderer{}, application.AsyncPasswordResetDispatch, f.clock)
+
+	answers := make(chan error, 1)
+	go func() { answers <- svc.RequestPasswordReset(context.Background(), "ana@example.com") }()
+
+	sent := <-mailer.started // the send is running on its own goroutine
+	if err := <-answers; err != nil {
+		t.Fatalf("RequestPasswordReset = %v, want nil", err)
+	}
+	// The link is stored before the answer, so the visitor could already use it
+	// while delivery is still in flight.
+	if got := len(f.tokens.tokens); got != 1 {
+		t.Errorf("stored %d links, want 1 while the mail server is still sending", got)
+	}
+
+	close(mailer.release)
+	<-mailer.done
+	if sent.To != "ana@example.com" {
+		t.Errorf("email sent to %q, want the account address", sent.To)
+	}
+}

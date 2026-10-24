@@ -143,8 +143,50 @@ func TestGoldenAuthSetup(t *testing.T) {
 	goldenFullPage(t, "auth_setup", renderGolden(t, "setup", "", setupData{}, false))
 }
 
+// goldenResetToken is the frozen token the recovery snapshots render: a value
+// shaped like a real one (32 random bytes as hex) so the form's hidden field is
+// captured at its real width, never a token that could ever have been issued.
+const goldenResetToken = "4f8b1d2c6a9e0b3d5f7a1c2e4b6d8f0a2c4e6f8b1d3a5c7e9f0b2d4a6c8e1f3b"
+
+// TestGoldenAuthLogin freezes the sign-in page with the recovery link the
+// instance offers (issue #414): the one line the link adds under the
+// password field is the whole diff against the previous snapshot.
 func TestGoldenAuthLogin(t *testing.T) {
-	goldenFullPage(t, "auth_login", renderGolden(t, "login", "", loginData{}, false))
+	goldenFullPage(t, "auth_login", renderGolden(t, "login", "", loginData{RecoveryOffered: true}, false))
+}
+
+// TestGoldenAuthLoginChanged freezes the sign-in page a completed reset lands on
+// (issue #414): the banner states the password changed and every session was
+// signed out, above an otherwise unchanged form.
+func TestGoldenAuthLoginChanged(t *testing.T) {
+	goldenFullPage(t, "auth_login_changed", renderGolden(t, "login", "", loginData{RecoveryOffered: true, PasswordChanged: true}, false))
+}
+
+// TestGoldenAuthForgot freezes the public recovery form.
+func TestGoldenAuthForgot(t *testing.T) {
+	goldenFullPage(t, "auth_forgot", renderGolden(t, "login_forgot", "", forgotData{loginData: loginData{RecoveryOffered: true}}, false))
+}
+
+// TestGoldenAuthForgotSent freezes the neutral confirmation that replaces the
+// form in the same card: the answer is the same for every address.
+func TestGoldenAuthForgotSent(t *testing.T) {
+	goldenFullPage(t, "auth_forgot_sent", renderGolden(t, "login_forgot", "", forgotData{loginData: loginData{RecoveryOffered: true}, Sent: true}, false))
+}
+
+// TestGoldenAuthReset freezes the new-password form with its token field, its
+// confirmation and the instance minimum as help.
+func TestGoldenAuthReset(t *testing.T) {
+	goldenFullPage(t, "auth_reset", renderGolden(t, "login_reset", "", resetData{
+		loginData: loginData{RecoveryOffered: true},
+		Token:     goldenResetToken,
+		MinLength: 12,
+	}, false))
+}
+
+// TestGoldenAuthResetRefused freezes the one refusal state a dead link answers
+// It carries no token at all and offers to request a new link.
+func TestGoldenAuthResetRefused(t *testing.T) {
+	goldenFullPage(t, "auth_reset_refused", renderGolden(t, "login_reset", "", resetData{loginData: loginData{RecoveryOffered: true}, Refused: true}, false))
 }
 
 // ---------------------------------------------------------------------------

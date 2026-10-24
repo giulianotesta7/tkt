@@ -552,9 +552,15 @@ test.describe("Structural — requester list (issue #411)", () => {
     try {
       const email = `requester-baseline-${Date.now().toString(36).slice(2, 8)}@example.com`;
       await loginAsSeeded(page);
-      await createUserAsAdmin(page, { name: "Requester Baseline", email, password: "Secret123!" });
+      // The instance minimum is 12 characters (issue #414, S4), so this fixture
+      // uses the same length every other generated user does.
+      await createUserAsAdmin(page, {
+        name: "Requester Baseline",
+        email,
+        password: "Secret123!42",
+      });
       await page.context().clearCookies();
-      await loginAs(page, email, "Secret123!");
+      await loginAs(page, email, "Secret123!42");
       await createTicketViaUi(page, {
         title: `Requester baseline ${Date.now().toString(36).slice(2, 8)}`,
         description: "baseline probe",
