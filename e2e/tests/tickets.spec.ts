@@ -8,6 +8,7 @@
  * htmx.spec.ts covers transversal swaps only (users tabs, workflow builder).
  */
 
+import { randomUUID } from "node:crypto";
 import { test, expect } from "@playwright/test";
 import { startServer, stopServer, activeServer } from "../server-lifecycle.js";
 import {
@@ -2016,7 +2017,14 @@ test.describe("Ticket category suggestions (seeded)", () => {
       await page.goto(base() + "/tickets/new");
       const host = page.locator(singlePageSuggestionSelector);
       await expect(host).toHaveCount(1);
-      const title = `Broken device ${Date.now().toString(36)}`;
+      // Unique, so the ticket created at the end is found by its exact name. The
+      // token is random hex rather than a base36 timestamp on purpose: the local
+      // engine corrects typos by trigram similarity over ALL the text it reads,
+      // which is this title plus the description, so a timestamp here would be a
+      // near twin of the timestamp the fixture category is named with (both are
+      // base36 milliseconds a second apart) and the "unrelated" description
+      // further down would legitimately suggest that category.
+      const title = `Broken device ${randomUUID().slice(0, 8)}`;
       await page.getByLabel("Title").fill(title);
 
       // Typing the keyword reaches the fragment over HTMX and swaps the chips
@@ -2064,7 +2072,13 @@ test.describe("Ticket category suggestions (seeded)", () => {
       );
 
       // A typo of the keyword still reaches the same category: the engine's
-      // correction is the reason, and the requester only sees the chip.
+      // correction is the reason, and the requester only sees the chip. The
+      // answer is the same markup again, so this swap is proven by a marker on
+      // the chip it replaces — and waiting for it keeps the click below from
+      // landing in the middle of a swap.
+      await host
+        .locator(".create-suggestion-chip")
+        .evaluate((el) => el.setAttribute("data-stale", "typo"));
       const typoResponse = page.waitForResponse(
         (response) =>
           response.request().headers()["hx-request"] === "true" &&
@@ -2074,6 +2088,10 @@ test.describe("Ticket category suggestions (seeded)", () => {
       );
       await page.getByLabel("Description").fill("the impresroa is not working");
       expect((await typoResponse).status()).toBe(200);
+      await expect(host.locator(".create-suggestion-chip")).not.toHaveAttribute(
+        "data-stale",
+        "typo",
+      );
       await expect(page).toHaveURL(base() + "/tickets/new");
       await expect(host.locator(".create-suggestion-chip-name")).toHaveText(fixture.category);
 

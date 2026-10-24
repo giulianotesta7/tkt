@@ -124,7 +124,13 @@ export async function createSuggestableCategory(
   const categoryDrawer = page.getByRole("dialog", { name: /New category/i });
   await expect(categoryDrawer).toBeVisible();
   await categoryDrawer.locator("#category-name").fill(fixture.category);
-  await categoryDrawer.locator("#category-description").fill(`Requests about ${fixture.category}`);
+  // Neutral copy on purpose: this description is indexed for the local engine, so
+  // wording that a journey also writes ("request", say) would turn that journey's
+  // "names no category" text into a near match and make its result depend on the
+  // engine's thresholds instead of on the text being unrelated.
+  await categoryDrawer
+    .locator("#category-description")
+    .fill(`Everything about ${fixture.category}`);
   await categoryDrawer.locator("#category-keywords").fill(fixture.keywords);
   await categoryDrawer.getByRole("button", { name: /create category/i }).click();
   const categoryRow = catalogCategoryRow(page, fixture.category);
