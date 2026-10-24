@@ -10,7 +10,7 @@ import (
 	"github.com/giulianotesta7/tkt/internal/domain"
 )
 
-// Migration 0036 tests (root credentials — issue #414, S12): the root account
+// Migration 0036 tests (root credentials — issue #414): the root account
 // rotates or recovers its own password, and nothing else about it moves. The
 // guard migration 0003 installed refused EVERY update to a root row, so the two
 // password paths (the Preferences change and the recovery link) could not store
@@ -103,7 +103,7 @@ func TestMigration0036RootPasswordRotation(t *testing.T) {
 	agentID := seedUserRole(t, s, "Agent", "agent@example.com", true, domain.RoleAgent)
 	before := readStoredUser(t, s, rootID)
 
-	// S12: root rotates its own credential.
+	// Root rotates its own credential.
 	if _, err := s.db.ExecContext(ctx, `UPDATE users SET password_hash = 'rotated-hash' WHERE id = ?`, rootID); err != nil {
 		t.Fatalf("root password update = %v, want success", err)
 	}

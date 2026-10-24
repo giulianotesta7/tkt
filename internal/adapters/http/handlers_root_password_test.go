@@ -11,7 +11,7 @@ import (
 	"github.com/giulianotesta7/tkt/internal/domain"
 )
 
-// Root credentials (issue #414, S12): the root account rotates its own password
+// Root credentials (issue #414): the root account rotates its own password
 // from Preferences and recovers it through the mailed link, while every other
 // root protection stays where it was. The root row carries its own database
 // guard, so these tests drive the two REAL routes with a real bcrypt credential
@@ -70,7 +70,7 @@ func assertRootIdentityUnchanged(t *testing.T, h *harness, root *domain.User) {
 	}
 }
 
-// TestRootChangesOwnPasswordFromPreferences proves S12 on the own-password route:
+// TestRootChangesOwnPasswordFromPreferences proves the root credential contract on the own-password route:
 // the root account signs in, submits current/new/confirmation, keeps the session
 // it changed from, loses its other sessions and its pending recovery links, and
 // can sign in with the new password only.
@@ -125,7 +125,7 @@ func TestRootChangesOwnPasswordFromPreferences(t *testing.T) {
 	assertRootIdentityUnchanged(t, h, root)
 }
 
-// TestRootRecoversPasswordThroughTheResetLink proves S12 on the recovery route:
+// TestRootRecoversPasswordThroughTheResetLink proves the root credential contract on the recovery route:
 // the mailed link stores a new root password, signs every root session out, and
 // works exactly once.
 func TestRootRecoversPasswordThroughTheResetLink(t *testing.T) {
