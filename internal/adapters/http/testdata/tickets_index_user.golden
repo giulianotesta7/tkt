@@ -104,7 +104,7 @@
     <h2 class="req-section-title" id="open-tickets-title">Open · 1</h2>
     <ul class="req-list">
       <li class="req" data-href="/tickets/1">
-        <a class="req-title" href="/tickets/1">Login page down</a>
+        <span class="visually-hidden">Updated since your last visit</span><a class="req-title req-title-changed" href="/tickets/1">Login page down</a>
         <span class="req-meta">TKT-1 · Updated <time class="card-timestamp" tabindex="0" datetime="2026-08-06T10:00:00Z" aria-label="10:00 · 06-08-2026" data-full-date="10:00 · 06-08-2026" title="10:00 · 06-08-2026">10:00 · 06-08-2026</time></span>
         <span class="req-side"><span class="badge new">Received</span></span>
       </li>

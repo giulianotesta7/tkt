@@ -167,6 +167,7 @@ type harness struct {
 	sla           *application.SLAService
 	preferences   *application.PreferencesService
 	emailSettings *application.EmailSettingsService
+	visits        *application.TicketVisitService
 	mailer        *fakeMailer
 	renderer      *Renderer
 	mux           *http.ServeMux
@@ -206,6 +207,9 @@ func newHarnessWithAdmin(t *testing.T, seedAdmin bool) *harness {
 	searchSvc := application.NewSearchService(s.TicketStore(), s.SearchStore())
 	settingsSvc := application.NewSettingsService(s.SettingsStore())
 	preferencesSvc := application.NewPreferencesService(s.PreferencesStore(), s.EmailPreferences(), s.SidebarPreferences(), s.ThemePreferences())
+	// Issue #415: the last-visit mark, wired exactly where WithSLA and WithClock
+	// are, so every route below renders and records it.
+	visitSvc := application.NewTicketVisitService(s.TicketVisitStore(), clock)
 	workflowSvc := application.NewWorkflowService(s.WorkflowStore())
 	metricsSvc := application.NewTicketMetricsService(s.TicketMetricsStore(), clock)
 	// Issue #362: the SMTP password is sealed with the key file that lives next
@@ -221,7 +225,7 @@ func newHarnessWithAdmin(t *testing.T, seedAdmin bool) *harness {
 	RegisterStatic(mux, s.SettingsStore())
 	NewBrandHandlers(s.OrganizationStore()).WithSignin(s.SigninStore()).Register(mux)
 	NewAuthHandlers(authSvc, usersSvc, renderer).WithSignin(signinSvc).Register(mux)
-	NewTicketHandlers(ticketSvc, commentSvc, searchSvc, catSvc, usersSvc, s.DeskStore(), workflowSvc, application.NewWorkflowRunner(clock).WithFollowers(followSvc), s.WorkflowRunStore(), s.WorkflowUnitOfWork(), renderer).WithMetrics(metricsSvc).WithSLA(slaSvc).WithPreferences(preferencesSvc).WithClock(clock).WithAttachments(s.AttachmentStore(), attachmentSvc).WithCannedReplies(cannedReplySvc).WithFollows(followSvc).Register(mux)
+	NewTicketHandlers(ticketSvc, commentSvc, searchSvc, catSvc, usersSvc, s.DeskStore(), workflowSvc, application.NewWorkflowRunner(clock).WithFollowers(followSvc), s.WorkflowRunStore(), s.WorkflowUnitOfWork(), renderer).WithMetrics(metricsSvc).WithSLA(slaSvc).WithPreferences(preferencesSvc).WithClock(clock).WithVisits(visitSvc).WithAttachments(s.AttachmentStore(), attachmentSvc).WithCannedReplies(cannedReplySvc).WithFollows(followSvc).Register(mux)
 	NewSavedReplyHandlers(cannedReplySvc, renderer).Register(mux)
 	NewUserHandlers(usersSvc, renderer).Register(mux)
 	NewCategoryHandlersWithWorkflows(catSvc, workflowSvc, renderer, application.NewCatalogService(s.CatalogStore(), s.CategoryStore(), clock)).WithSettings(s.SettingsStore()).Register(mux)
@@ -238,6 +242,7 @@ func newHarnessWithAdmin(t *testing.T, seedAdmin bool) *harness {
 		tickets: ticketSvc, comments: commentSvc, users: usersSvc, auth: authSvc,
 		categories: catSvc, desks: deskSvc, search: searchSvc, settings: settingsSvc, workflows: workflowSvc, sla: slaSvc,
 		preferences: preferencesSvc, emailSettings: emailSettingsSvc, mailer: mailer,
+		visits:   visitSvc,
 		renderer: renderer,
 		mux:      mux, mw: mw,
 	}

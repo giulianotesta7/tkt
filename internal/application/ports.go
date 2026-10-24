@@ -504,6 +504,34 @@ type NotificationStore interface {
 	MarkAllRead(ctx context.Context, userID int64, at time.Time) error
 }
 
+// VisitMark is how much of one ticket's history a reader had on screen: the
+// newest audit event id and the newest comment id when it was read (issue
+// #415). Ids, not instants, because instants are stored to the second.
+type VisitMark struct {
+	AuditID   int64
+	CommentID int64
+}
+
+// TicketVisitStore records when each user last opened each ticket and answers
+// which tickets changed for them since (issue #415). Every method is scoped to
+// ONE reader; access to the ticket is checked by the caller before a visit is
+// recorded.
+type TicketVisitStore interface {
+	// Mark returns the ticket's current history mark. The caller takes it
+	// BEFORE reading the ticket, so anything written during the read stays
+	// new instead of being swallowed by the visit.
+	Mark(ctx context.Context, ticketID int64) (VisitMark, error)
+	// RecordVisit stores the mark for userID and, in the same transaction,
+	// marks userID's unread notifications about that ticket read at instant
+	// at. A mark never moves backwards.
+	RecordVisit(ctx context.Context, userID, ticketID int64, mark VisitMark, at time.Time) error
+	// Changed reports which of ticketIDs have, past userID's mark (or since
+	// creation when userID never opened them), an audit event or a comment
+	// made by someone else. Internal comments count only when includeInternal
+	// is true. Tickets with nothing new are absent from the map.
+	Changed(ctx context.Context, userID int64, ticketIDs []int64, includeInternal bool) (map[int64]bool, error)
+}
+
 // UserStore persists managed users (user-management spec).
 type UserStore interface {
 	// Create stores u, assigning u.ID; ErrDuplicate when the email exists.

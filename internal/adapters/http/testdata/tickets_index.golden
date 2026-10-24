@@ -126,7 +126,7 @@
         </tr>
         <tr class="queue-row" data-href="/tickets/1">
           <td class="num" data-label="ID">TKT-1</td>
-          <td class="cell-title" data-label="Ticket"><a class="queue-title" href="/tickets/1">Login page down</a><span class="queue-requester"></span></td>
+          <td class="cell-title" data-label="Ticket"><span class="visually-hidden">Updated since your last visit</span><a class="queue-title queue-title-changed" href="/tickets/1">Login page down</a><span class="queue-requester"></span></td>
           <td class="cell-muted queue-category" data-label="Category"></td>
           <td data-label="Assignee"><span class="queue-assignee queue-unassigned">Unassigned</span></td>
           <td class="priority critical" data-label="Priority"><span class="ticket-priority-value">Critical</span></td>

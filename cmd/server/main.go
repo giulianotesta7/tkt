@@ -170,6 +170,10 @@ func main() {
 	// Saved replies (issue #418): a staff member's own texts and the ones a desk
 	// shares, offered in the composer and maintained on their own screen.
 	cannedReplySvc := application.NewCannedReplyService(store.CannedReplyStore(), store.DeskStore(), clock)
+	// Issue #415: what is new since a user's last visit. The visit store
+	// answers the per-ticket history mark, records the visit (and reads that
+	// ticket's notifications) and derives the per-page "changed for me" set.
+	visitSvc := application.NewTicketVisitService(store.TicketVisitStore(), clock)
 
 	// Issue #335: the interface language is an instance-wide setting, so the
 	// renderer resolves it per request and selects the parsed template tree
@@ -180,7 +184,7 @@ func main() {
 	httpadapter.RegisterStatic(mux, store.SettingsStore())
 	httpadapter.NewBrandHandlers(store.OrganizationStore()).WithSignin(store.SigninStore()).Register(mux)
 	httpadapter.NewAuthHandlers(authSvc, userSvc, renderer).WithSignin(signinSvc).Register(mux)
-	httpadapter.NewTicketHandlers(ticketSvc, commentSvc, searchSvc, catSvc, userSvc, store.DeskStore(), workflowSvc, application.NewWorkflowRunner(clock).WithFollowers(followSvc), store.WorkflowRunStore(), store.WorkflowUnitOfWork(), renderer, catalogSvc).WithMetrics(metricsSvc).WithSLA(slaSvc).WithPreferences(preferencesSvc).WithClock(clock).WithAttachments(store.AttachmentStore(), attachmentSvc).WithCannedReplies(cannedReplySvc).WithFollows(followSvc).Register(mux)
+	httpadapter.NewTicketHandlers(ticketSvc, commentSvc, searchSvc, catSvc, userSvc, store.DeskStore(), workflowSvc, application.NewWorkflowRunner(clock).WithFollowers(followSvc), store.WorkflowRunStore(), store.WorkflowUnitOfWork(), renderer, catalogSvc).WithMetrics(metricsSvc).WithSLA(slaSvc).WithPreferences(preferencesSvc).WithClock(clock).WithVisits(visitSvc).WithAttachments(store.AttachmentStore(), attachmentSvc).WithCannedReplies(cannedReplySvc).WithFollows(followSvc).Register(mux)
 	httpadapter.NewSavedReplyHandlers(cannedReplySvc, renderer).Register(mux)
 	httpadapter.NewUserHandlers(userSvc, renderer).Register(mux)
 	httpadapter.NewCategoryHandlersWithWorkflows(catSvc, workflowSvc, renderer, catalogSvc).WithSettings(store.SettingsStore()).Register(mux)

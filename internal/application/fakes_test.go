@@ -2085,3 +2085,143 @@ func (f *fakeCannedReplyStore) sorted(keep func(*domain.CannedReply) bool) []dom
 	})
 	return out
 }
+
+// fakeVisitEntry is one piece of a ticket's history in the fake: an audit
+// event or a comment, with the actor who made it and — for comments — whether
+// it is internal. id 0 on the actor means "no actor" (an automatic or legacy
+// action), which the port contract says counts as somebody else's change.
+type fakeVisitEntry struct {
+	id       int64
+	actorID  int64
+	internal bool
+}
+
+// fakeTicketVisitStore is the in-memory TicketVisitStore double for the
+// "what's new since the last visit" use cases (issue #415).
+//
+// Documented simplifications, per the fakes contract:
+//   - the real store derives history from the audit_events and comments
+//     tables; this fake keeps one log per kind instead, each with the same
+//     shape the derivation needs (a monotonic id, an actor, a visibility),
+//     because the SQL that gathers them is covered in the sqlite adapter
+//     tests and is not what the service rules are about;
+//   - the marks live in a nested map instead of one upserted row, so a
+//     MAX(seen, new) upsert would be re-implemented rather than exercised —
+//     the fake's RecordVisit overwrites, and the real store's monotonic
+//     upsert has its own adapter test;
+//   - notifications are a flat list the test appends to, and RecordVisit
+//     stamps read_at on the reader's unread rows, mirroring the store's
+//     same-transaction second statement.
+type fakeTicketVisitStore struct {
+	audits        map[int64][]fakeVisitEntry
+	comments      map[int64][]fakeVisitEntry
+	marks         map[int64]map[int64]application.VisitMark
+	notifications []*domain.Notification
+	nextAuditID   int64
+	nextCommentID int64
+	// returned is every mark the service asked for, in call order.
+	returned []int64
+	// recorded is every visit the service wrote, in call order.
+	recorded []fakeVisitRecord
+	// markErr, changedErr and recordErr make the matching call fail with the
+	// exact error, so a test can prove the service never swallows one.
+	markErr    error
+	changedErr error
+	recordErr  error
+}
+
+// fakeVisitRecord is one recorded visit as the port received it.
+type fakeVisitRecord struct {
+	userID   int64
+	ticketID int64
+	mark     application.VisitMark
+	at       time.Time
+}
+
+var _ application.TicketVisitStore = (*fakeTicketVisitStore)(nil)
+
+func newFakeTicketVisitStore() *fakeTicketVisitStore {
+	return &fakeTicketVisitStore{
+		audits:   map[int64][]fakeVisitEntry{},
+		comments: map[int64][]fakeVisitEntry{},
+		marks:    map[int64]map[int64]application.VisitMark{},
+	}
+}
+
+// addAudit appends one audit event to the ticket's history and answers its id.
+// actorID 0 means an automatic action.
+func (f *fakeTicketVisitStore) addAudit(ticketID, actorID int64) int64 {
+	f.nextAuditID++
+	f.audits[ticketID] = append(f.audits[ticketID], fakeVisitEntry{id: f.nextAuditID, actorID: actorID})
+	return f.nextAuditID
+}
+
+// addComment appends one comment to the ticket's history and answers its id.
+func (f *fakeTicketVisitStore) addComment(ticketID, actorID int64, internal bool) int64 {
+	f.nextCommentID++
+	f.comments[ticketID] = append(f.comments[ticketID], fakeVisitEntry{id: f.nextCommentID, actorID: actorID, internal: internal})
+	return f.nextCommentID
+}
+
+// addNotification appends one unread notification about the ticket.
+func (f *fakeTicketVisitStore) addNotification(userID, ticketID int64) {
+	f.notifications = append(f.notifications, &domain.Notification{UserID: userID, TicketID: ticketID})
+}
+
+func (f *fakeTicketVisitStore) Mark(_ context.Context, ticketID int64) (application.VisitMark, error) {
+	f.returned = append(f.returned, ticketID)
+	if f.markErr != nil {
+		return application.VisitMark{}, f.markErr
+	}
+	var mark application.VisitMark
+	for _, e := range f.audits[ticketID] {
+		mark.AuditID = e.id
+	}
+	for _, e := range f.comments[ticketID] {
+		mark.CommentID = e.id
+	}
+	return mark, nil
+}
+
+func (f *fakeTicketVisitStore) RecordVisit(_ context.Context, userID, ticketID int64, mark application.VisitMark, at time.Time) error {
+	if f.recordErr != nil {
+		return f.recordErr
+	}
+	f.recorded = append(f.recorded, fakeVisitRecord{userID: userID, ticketID: ticketID, mark: mark, at: at})
+	if f.marks[userID] == nil {
+		f.marks[userID] = map[int64]application.VisitMark{}
+	}
+	f.marks[userID][ticketID] = mark
+	for _, n := range f.notifications {
+		if n.UserID == userID && n.TicketID == ticketID && n.ReadAt == nil {
+			read := at
+			n.ReadAt = &read
+		}
+	}
+	return nil
+}
+
+func (f *fakeTicketVisitStore) Changed(_ context.Context, userID int64, ticketIDs []int64, includeInternal bool) (map[int64]bool, error) {
+	if f.changedErr != nil {
+		return nil, f.changedErr
+	}
+	out := map[int64]bool{}
+	for _, ticketID := range ticketIDs {
+		mark := f.marks[userID][ticketID]
+		for _, e := range f.audits[ticketID] {
+			if e.id > mark.AuditID && e.actorID != userID {
+				out[ticketID] = true
+			}
+		}
+		for _, e := range f.comments[ticketID] {
+			if e.id <= mark.CommentID || e.actorID == userID {
+				continue
+			}
+			if e.internal && !includeInternal {
+				continue
+			}
+			out[ticketID] = true
+		}
+	}
+	return out, nil
+}

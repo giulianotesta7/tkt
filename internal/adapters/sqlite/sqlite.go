@@ -172,6 +172,13 @@ func (s *Store) NotificationStore() application.NotificationStore {
 	return newNotificationStore(s.db)
 }
 
+// TicketVisitStore returns the last-visit port (issue #415): the history mark
+// taken before a ticket is read, the visit record, and the changed-for-me
+// batch the ticket lists ask once per page.
+func (s *Store) TicketVisitStore() application.TicketVisitStore {
+	return newTicketVisitStore(s.db)
+}
+
 // HoldExpiryStore returns the read side of the automatic hold expiry pass
 // (issue #353): the held tickets one pass walks and the once-per-hold reminder
 // check. Its writes go through TicketUnitOfWork, never through this port.
