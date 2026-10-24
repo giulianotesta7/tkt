@@ -170,12 +170,19 @@ type harness struct {
 	passwords     *application.PasswordSettingsService
 	visits        *application.TicketVisitService
 	mailer        *fakeMailer
-	renderer      *Renderer
-	mux           *http.ServeMux
-	mw            *SessionMiddleware
-	admin         *domain.User
-	adminSession  *domain.Session
-	bugCategory   *domain.Category
+	// companySettings and companySignIn are the company sign-in surface (issue
+	// #419, S11): the real configuration service over the sealed store, and the
+	// flow over the real identity and session stores. Only the provider is
+	// faked, because this layer never opens a socket.
+	companySettings *application.CompanySignInSettingsService
+	companySignIn   *application.CompanySignInService
+	companyProvider *fakeCompanyProvider
+	renderer        *Renderer
+	mux             *http.ServeMux
+	mw              *SessionMiddleware
+	admin           *domain.User
+	adminSession    *domain.Session
+	bugCategory     *domain.Category
 }
 
 func newHarness(t *testing.T) *harness {
@@ -216,7 +223,15 @@ func newHarnessWithAdmin(t *testing.T, seedAdmin bool) *harness {
 	// over its own temp dir and fakes only the transport — a test must observe
 	// the send without opening a socket.
 	mailer := &fakeMailer{}
-	emailSettingsSvc := application.NewEmailSettingsService(s.EmailSettingsStore(), secretbox.New(filepath.Dir(dbPath)), mailer, s.SettingsStore(), msgtext.Renderer{})
+	secretBox := secretbox.New(filepath.Dir(dbPath))
+	emailSettingsSvc := application.NewEmailSettingsService(s.EmailSettingsStore(), secretBox, mailer, s.SettingsStore(), msgtext.Renderer{})
+	// Issue #419: the company sign-in configuration seals each client secret
+	// with its own purpose, and the flow drives the real identity store, the
+	// real session store, and a fake provider.
+	companySettingsSvc := application.NewCompanySignInSettingsService(s.CompanySignInSettingsStore(),
+		secretBox.For("google-client-secret"), secretBox.For("microsoft-client-secret"))
+	companyProvider := &fakeCompanyProvider{}
+	companySignInSvc := application.NewCompanySignInService(companySettingsSvc, s.CompanyIdentityStore(), companyProvider, s.SessionStore(), nil, clock)
 	signinSvc := application.NewSigninService(s.SigninStore())
 	passwordSettingsSvc := application.NewPasswordSettingsService(s.PasswordSettingsStore())
 	renderer := NewRenderer()
@@ -224,7 +239,7 @@ func newHarnessWithAdmin(t *testing.T, seedAdmin bool) *harness {
 	mux := http.NewServeMux()
 	RegisterStatic(mux, s.SettingsStore())
 	NewBrandHandlers(s.OrganizationStore()).WithSignin(s.SigninStore()).Register(mux)
-	NewAuthHandlers(authSvc, usersSvc, renderer).WithSignin(signinSvc).Register(mux)
+	NewAuthHandlers(authSvc, usersSvc, renderer).WithSignin(signinSvc).WithCompanySignIn(companySettingsSvc, companySignInSvc).Register(mux)
 	NewTicketHandlers(ticketSvc, commentSvc, searchSvc, catSvc, usersSvc, s.DeskStore(), workflowSvc, application.NewWorkflowRunner(clock), s.WorkflowRunStore(), s.WorkflowUnitOfWork(), renderer).WithMetrics(metricsSvc).WithSLA(slaSvc).WithPreferences(preferencesSvc).WithClock(clock).WithVisits(visitSvc).WithAttachments(s.AttachmentStore(), attachmentSvc).Register(mux)
 	NewUserHandlers(usersSvc, renderer).Register(mux)
 	NewCategoryHandlersWithWorkflows(catSvc, workflowSvc, renderer, application.NewCatalogService(s.CatalogStore(), s.CategoryStore(), clock)).WithSettings(s.SettingsStore()).Register(mux)
@@ -241,7 +256,8 @@ func newHarnessWithAdmin(t *testing.T, seedAdmin bool) *harness {
 		tickets: ticketSvc, comments: commentSvc, users: usersSvc, auth: authSvc,
 		categories: catSvc, desks: deskSvc, search: searchSvc, settings: settingsSvc, workflows: workflowSvc, sla: slaSvc,
 		preferences: preferencesSvc, emailSettings: emailSettingsSvc, passwords: passwordSettingsSvc, mailer: mailer,
-		visits:   visitSvc,
+		visits:          visitSvc,
+		companySettings: companySettingsSvc, companySignIn: companySignInSvc, companyProvider: companyProvider,
 		renderer: renderer,
 		mux:      mux, mw: mw,
 	}

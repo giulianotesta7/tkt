@@ -259,6 +259,10 @@ func requestInterfaceLanguage(ctx context.Context, src InterfaceLanguageSource, 
 //   - /setup*: available ONLY while the users table is empty (D16);
 //     otherwise anonymous visitors go to /login and authed users to
 //     /tickets.
+//   - /auth/*: the public company sign-in routes (issue #419, S11). They are
+//     exempt so a provider's callback is answered by the flow with no session
+//     in the browser, and so a signed-in browser is never bounced to its
+//     tickets before the callback runs.
 //   - Everything else requires a valid session: missing/expired token →
 //     303 /login (or 303 /setup when the table is empty); a deactivated
 //     user's session is destroyed on sight (D14 — deactivation kills
@@ -415,6 +419,18 @@ func (m *SessionMiddleware) Wrap(next http.Handler) http.Handler {
 				}
 				return
 			}
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		// Issue #419, S11: the company sign-in routes are public. The provider's
+		// callback arrives with no TKT session, so the gate below would answer a
+		// redirect to /login and the flow would never run; and the /login/ branch
+		// above must never answer it either, because a browser that already holds
+		// a session would be sent to its tickets instead of finishing the
+		// callback. Whether a sign-in earns a session is the flow's decision, not
+		// this middleware's.
+		if strings.HasPrefix(path, application.CompanySignInPathPrefix) {
 			next.ServeHTTP(w, r)
 			return
 		}

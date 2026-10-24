@@ -26,6 +26,16 @@ type AuthHandlers struct {
 	signin *application.SigninService
 	// signinFailures deduplicates the panel read failure (issue #383, S9).
 	signinFailures signinReadLog
+	// companyConfig and companyFlow are the OPTIONAL company sign-in wiring
+	// (issue #419, S11): the configuration decides which provider buttons the
+	// sign-in page offers, and the flow serves the public start and callback
+	// routes. A handler set built without them serves the password form alone
+	// and mounts no company route, which is what every focused caller wants.
+	companyConfig application.CompanySignInConfiguration
+	companyFlow   *application.CompanySignInService
+	// companyFailures deduplicates the company configuration read failure, the
+	// same policy the panel read follows (R4-002).
+	companyFailures companyReadLog
 }
 
 // NewAuthHandlers wires the auth handlers against the auth and user use
@@ -38,6 +48,17 @@ func NewAuthHandlers(auth *application.AuthService, users *application.UserServi
 // S9/S10).
 func (h *AuthHandlers) WithSignin(signin *application.SigninService) *AuthHandlers {
 	h.signin = signin
+	return h
+}
+
+// WithCompanySignIn wires the company sign-in configuration and flow into the
+// auth surface (issue #419, S11): the configuration decides which provider
+// buttons the sign-in page offers, and the flow serves the public start and
+// callback routes. Both are opt-in, so a handler set built without them keeps
+// the shipped password-only sign-in page.
+func (h *AuthHandlers) WithCompanySignIn(config application.CompanySignInConfiguration, flow *application.CompanySignInService) *AuthHandlers {
+	h.companyConfig = config
+	h.companyFlow = flow
 	return h
 }
 
@@ -68,6 +89,9 @@ func (h *AuthHandlers) Register(mux *http.ServeMux) {
 	mux.HandleFunc("POST /logout", h.logout)
 	mux.HandleFunc("GET /setup", h.setupForm)
 	mux.HandleFunc("POST /setup", h.setup)
+	if h.companyFlow != nil {
+		h.registerCompanySignIn(mux)
+	}
 }
 
 // loginData is the login page payload: the generic error message (D5) and
@@ -83,6 +107,28 @@ type loginData struct {
 	Panel             signinPanelData
 	CategoryAssets    bool
 	InternalCommentBg string
+	// CompanyProviders lists the company sign-in buttons the stored
+	// configuration makes usable, in display order (issue #419, S12). Empty
+	// means no button renders, which is what an instance with no provider
+	// configured answers and what a handler set built without the company
+	// wiring answers.
+	CompanyProviders []companyProviderButton
+	// CompanySignInOff reports password sign-in turned off: the form then sits
+	// behind the break-glass disclosure root still needs (issue #419, S4/S12).
+	CompanySignInOff bool
+	// CompanyPending renders the pending-approval card instead of the form
+	// (issue #419, S3/S12): the account exists, no role was granted, and the
+	// callback issued no session, so the only way out is back to the form.
+	CompanyPending bool
+}
+
+// loginPageData assembles the sign-in payload: the optional message and the
+// email a failed attempt submitted, plus the company sign-in state the stored
+// configuration decides (issue #419).
+func (h *AuthHandlers) loginPageData(r *http.Request, message, email string) loginData {
+	data := loginData{Error: message, Email: email, Brand: brandFromContext(r.Context()), Panel: h.panel(r, true)}
+	h.applyCompanySignIn(r, &data)
+	return data
 }
 
 func (h *AuthHandlers) loginForm(w http.ResponseWriter, r *http.Request) {
@@ -93,7 +139,7 @@ func (h *AuthHandlers) loginForm(w http.ResponseWriter, r *http.Request) {
 		redirect(w, r, "/setup")
 		return
 	}
-	h.renderer.Render(w, r, "login", "", loginData{Brand: brandFromContext(r.Context()), Panel: h.panel(r, true)}, http.StatusOK)
+	h.renderer.Render(w, r, "login", "", h.loginPageData(r, "", ""), http.StatusOK)
 }
 
 // passwordSignInOffKey is the catalogue key of the sentence a verified
@@ -118,7 +164,7 @@ func (h *AuthHandlers) login(w http.ResponseWriter, r *http.Request) {
 		// no session. The generic credential failure keeps its own status.
 		var signInOff *application.PasswordSignInOffError
 		if errors.As(err, &signInOff) {
-			h.renderer.Render(w, r, "login", "", loginData{Error: i18n.T(requestLocale(r), passwordSignInOffKey), Email: email, Brand: brandFromContext(r.Context()), Panel: h.panel(r, true)}, http.StatusForbidden)
+			h.renderer.Render(w, r, "login", "", h.loginPageData(r, i18n.T(requestLocale(r), passwordSignInOffKey), email), http.StatusForbidden)
 			return
 		}
 		status, msg := mapErrorFor(r, err)
@@ -126,7 +172,7 @@ func (h *AuthHandlers) login(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, msg, status)
 			return
 		}
-		h.renderer.Render(w, r, "login", "", loginData{Error: msg, Email: email, Brand: brandFromContext(r.Context()), Panel: h.panel(r, true)}, status)
+		h.renderer.Render(w, r, "login", "", h.loginPageData(r, msg, email), status)
 		return
 	}
 

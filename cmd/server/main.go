@@ -31,6 +31,7 @@ import (
 	httpadapter "github.com/giulianotesta7/tkt/internal/adapters/http"
 	"github.com/giulianotesta7/tkt/internal/adapters/mail"
 	"github.com/giulianotesta7/tkt/internal/adapters/msgtext"
+	"github.com/giulianotesta7/tkt/internal/adapters/oidc"
 	"github.com/giulianotesta7/tkt/internal/adapters/secretbox"
 	"github.com/giulianotesta7/tkt/internal/adapters/sqlite"
 	"github.com/giulianotesta7/tkt/internal/application"
@@ -148,7 +149,17 @@ func main() {
 	// company's own SMTP server. The key is not an environment variable, so the
 	// container contract is unchanged.
 	mailer := mail.NewSMTPMailer()
-	emailSettingsSvc := application.NewEmailSettingsService(store.EmailSettingsStore(), secretbox.New(filepath.Dir(dbPath)), mailer, store.SettingsStore(), msgtext.Renderer{})
+	secretBox := secretbox.New(filepath.Dir(dbPath))
+	emailSettingsSvc := application.NewEmailSettingsService(store.EmailSettingsStore(), secretBox, mailer, store.SettingsStore(), msgtext.Renderer{})
+	// Issue #419: the company sign-in client secrets are sealed like the SMTP
+	// password, each under its own purpose so one provider's ciphertext can
+	// never open as the other's. The flow reads its configuration from the
+	// database and talks to the providers through the OpenID Connect client, so
+	// no environment variable is added to the container contract.
+	companySettingsSvc := application.NewCompanySignInSettingsService(store.CompanySignInSettingsStore(),
+		secretBox.For("google-client-secret"), secretBox.For("microsoft-client-secret"))
+	companySignInSvc := application.NewCompanySignInService(companySettingsSvc, store.CompanyIdentityStore(),
+		oidc.NewClient(nil, clock), store.SessionStore(), nil, clock)
 	emailSender := application.NewNotificationEmailSender(store.EmailOutbox(), emailSettingsSvc, store.UserStore(), store.TicketStore(), store.EmailPreferences(), mailer, msgtext.Renderer{}, clock)
 	// Issue #353: the automatic hold expiry closes a ticket whose requester
 	// never replied, after warning them one working day earlier. It shares the
@@ -176,7 +187,7 @@ func main() {
 	mux := http.NewServeMux()
 	httpadapter.RegisterStatic(mux, store.SettingsStore())
 	httpadapter.NewBrandHandlers(store.OrganizationStore()).WithSignin(store.SigninStore()).Register(mux)
-	httpadapter.NewAuthHandlers(authSvc, userSvc, renderer).WithSignin(signinSvc).Register(mux)
+	httpadapter.NewAuthHandlers(authSvc, userSvc, renderer).WithSignin(signinSvc).WithCompanySignIn(companySettingsSvc, companySignInSvc).Register(mux)
 	httpadapter.NewTicketHandlers(ticketSvc, commentSvc, searchSvc, catSvc, userSvc, store.DeskStore(), workflowSvc, application.NewWorkflowRunner(clock), store.WorkflowRunStore(), store.WorkflowUnitOfWork(), renderer, catalogSvc).WithMetrics(metricsSvc).WithSLA(slaSvc).WithPreferences(preferencesSvc).WithClock(clock).WithVisits(visitSvc).WithAttachments(store.AttachmentStore(), attachmentSvc).Register(mux)
 	httpadapter.NewUserHandlers(userSvc, renderer).Register(mux)
 	httpadapter.NewCategoryHandlersWithWorkflows(catSvc, workflowSvc, renderer, catalogSvc).WithSettings(store.SettingsStore()).Register(mux)

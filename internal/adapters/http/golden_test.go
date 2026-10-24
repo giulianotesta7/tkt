@@ -147,6 +147,13 @@ func TestGoldenAuthLogin(t *testing.T) {
 	goldenFullPage(t, "auth_login", renderGolden(t, "login", "", loginData{}, false))
 }
 
+// TestGoldenCompanyPending freezes the pending-approval screen (issue #419, S3):
+// the sign-in shell with the pending card instead of the form, so a session-less
+// state still carries the instance branding and exactly one way out.
+func TestGoldenCompanyPending(t *testing.T) {
+	goldenFullPage(t, "auth_company_pending", renderGolden(t, "login", "", loginData{CompanyPending: true}, false))
+}
+
 // ---------------------------------------------------------------------------
 // Task 5.4 goldens: tickets index/new pages + list fragments with frozen
 // fixture instants (D7 — the render path never calls time.Now()).
