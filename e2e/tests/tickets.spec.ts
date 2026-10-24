@@ -1995,6 +1995,108 @@ test.describe("Ticket category suggestions (seeded)", () => {
     await stopServer();
   });
 
+  for (const mode of ["single", "two_step"] as const) {
+    test(`${mode} suggestion loading is delayed and clears on completion and supersession`, async ({
+      page,
+    }) => {
+      await loginAsSeeded(page);
+      await setCategorySuggestionEngine(page, "local");
+      await setTicketCreationMode(page, mode);
+      try {
+        await page.goto(base() + "/tickets/new");
+        await page.clock.install({ time: new Date("2030-01-01T00:00:00Z") });
+        await page.clock.pauseAt(new Date("2030-01-01T00:00:01Z"));
+        const status = page.locator("[data-suggestion-loading]");
+        const host = page.locator(
+          mode === "single" ? singlePageSuggestionSelector : catalogSuggestionSelector,
+        );
+        const url = page.url();
+        const heading = await page.locator("h1").innerText();
+        let navigations = 0;
+        page.on("framenavigated", (frame) => {
+          if (frame === page.mainFrame()) navigations++;
+        });
+        const input =
+          mode === "single" ? page.getByLabel("Description") : page.locator("#catalog-query");
+        const pending: import("@playwright/test").Route[] = [];
+        await page.route("**/tickets/suggestions?**", async (route) => {
+          pending.push(route);
+        });
+        const begin = async (text: string) => {
+          const n = pending.length;
+          await input.fill(text);
+          await page.clock.runFor(500);
+          await expect.poll(() => pending.length).toBe(n + 1);
+          expect(pending[n].request().method()).toBe("GET");
+          expect(pending[n].request().headers()["hx-request"]).toBe("true");
+          return pending[n];
+        };
+        const complete = async (
+          route: import("@playwright/test").Route,
+          code: number,
+          body: string,
+        ) => {
+          const done = page.waitForResponse((r) => r.url() === route.request().url());
+          await route.fulfill({ status: code, contentType: "text/html", body });
+          expect((await done).status()).toBe(code);
+          if (code === 200) await expect(host).toHaveText(body ? "Network" : "");
+          await expect(status).toBeHidden();
+        };
+        await expect(status).toBeHidden();
+        // A fast response cancels the pending 200 ms timer.
+        const fast = await begin("fast response");
+        await expect(status).toBeHidden();
+        await complete(fast, 200, "");
+        await page.clock.runFor(201);
+        await expect(status).toBeHidden();
+        // Slow success, no match and error all finish the same status lifecycle.
+        for (const [text, code, body] of [
+          ["success", 200, '<div class="create-suggestions">Network</div>'],
+          ["no match", 200, ""],
+          ["server error", 500, ""],
+        ] as const) {
+          const route = await begin(text);
+          await page.clock.runFor(199);
+          await expect(status).toBeHidden();
+          await page.clock.runFor(1);
+          await expect(status).toBeVisible();
+          await expect(status).toHaveText("Finding a category…");
+          await expect(status).toHaveAttribute("role", "status");
+          await expect(status).toHaveAttribute("aria-live", "polite");
+          await expect(status).toHaveCSS("border-top-width", "0px");
+          await expect(input).toBeEnabled();
+          await page.emulateMedia({ reducedMotion: "reduce" });
+          await expect(status.locator("[aria-hidden=true]")).toHaveCSS("animation-name", "none");
+          await complete(route, code, body);
+        }
+        const old = await begin("old request");
+        await page.clock.runFor(200);
+        await expect(status).toBeVisible();
+        const latest = await begin("latest request");
+        await expect(status).toBeHidden();
+        await page.clock.runFor(200);
+        await expect(status).toBeVisible();
+        // Finishing an aborted request cannot clear the new request's indicator.
+        await old.fulfill({ status: 200, body: "obsolete" });
+        await expect(status).toBeVisible();
+        await complete(latest, 200, "");
+        const broken = await begin("network failure");
+        await page.clock.runFor(200);
+        await expect(status).toBeVisible();
+        await broken.abort("failed");
+        await expect(status).toBeHidden();
+        await expect(page).toHaveURL(url);
+        await expect(page.locator("h1")).toHaveText(heading);
+        expect(navigations).toBe(0);
+      } finally {
+        await page.unrouteAll({ behavior: "ignoreErrors" });
+        await page.clock.resume();
+        await setCategorySuggestionEngine(page, "off");
+        await setTicketCreationMode(page, "single");
+      }
+    });
+  }
+
   test("single-page creation suggests a category from the description and the chip picks it", async ({
     page,
   }) => {

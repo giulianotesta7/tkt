@@ -159,3 +159,5 @@ npm run explore -- snapshot
 npm run explore -- close-all
 npm run server:stop
 ```
+
+Category suggestion loading is covered in `tests/tickets.spec.ts` for both creation modes: a frozen browser clock proves the 200 ms delay, fast completion cancels the timer, and success, no match, HTTP/network failure and supersession clear the status without navigation. Responses are intercepted; no external model is called. Reduced motion keeps the status ring static.

@@ -802,6 +802,7 @@
   "tickets.catalog.no_match": "No categories match your search.",
   "tickets.catalog.search_label": "Search categories, desks, or departments",
   "tickets.catalog.title": "Create a ticket",
+  "tickets.suggest.loading": "Finding a category…",
   "tickets.suggest.catalog_search": "Describe your problem or search categories",
   "tickets.suggest.group": "Suggested",
   "tickets.suggest.matches": "Matches:",

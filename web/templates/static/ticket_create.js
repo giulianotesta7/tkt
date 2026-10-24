@@ -540,6 +540,37 @@
     markSelectedChip();
   });
 
+  // Loading state belongs to the request source, not the swapped fragment.
+  // An older request's completion must never clear its successor's status.
+  const suggestionRequests = new WeakMap();
+  document.body.addEventListener("htmx:beforeRequest", (event) => {
+    const source = event.detail.elt;
+    if (!(source instanceof Element) || !source.hasAttribute("data-suggestion-status")) return;
+    const status = document.getElementById(source.dataset.suggestionStatus);
+    if (!status) return;
+    const previous = suggestionRequests.get(source);
+    if (previous) clearTimeout(previous.timer);
+    status.hidden = true;
+    const request = { xhr: event.detail.xhr, timer: null };
+    request.timer = setTimeout(() => {
+      if (suggestionRequests.get(source) === request) status.hidden = false;
+    }, 200);
+    suggestionRequests.set(source, request);
+  });
+  const finishSuggestionRequest = (event) => {
+    const source = event.detail.elt;
+    if (!(source instanceof Element)) return;
+    const request = suggestionRequests.get(source);
+    if (!request || request.xhr !== event.detail.xhr) return;
+    clearTimeout(request.timer);
+    suggestionRequests.delete(source);
+    const status = document.getElementById(source.dataset.suggestionStatus);
+    if (status) status.hidden = true;
+  };
+  for (const event of ["htmx:afterRequest", "htmx:sendAbort", "htmx:sendError", "htmx:timeout"]) {
+    document.body.addEventListener(event, finishSuggestionRequest);
+  }
+
   // The mark has to be restored on the swap of the chips AND on the invisible
   // live region they are swapped into, so both are matched.
   document.body.addEventListener("htmx:afterSwap", (event) => {

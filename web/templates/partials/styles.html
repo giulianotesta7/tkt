@@ -468,6 +468,10 @@
   .create-suggestion-chip[aria-pressed="true"]{border-color:var(--accent);background:var(--accent-soft)}
   .create-suggestion-chip-name{font-size:13px;font-weight:500}
   .create-suggestion-chip-desk{font-size:12px;color:var(--muted)}
+  .create-suggestion-loading{display:flex;align-items:center;gap:8px;min-height:30px;margin:4px 0 6px;font-size:12px;color:var(--muted)}
+  .create-suggestion-loading[hidden]{display:none}
+  .create-suggestion-spinner{width:14px;height:14px;flex:none;border:2px solid var(--line-strong);border-top-color:currentColor;border-radius:50%;animation:spin .8s linear infinite}
+  @media(prefers-reduced-motion:reduce){.create-suggestion-spinner{animation:none}}
   .create-catalog-suggested:empty{display:none}
   .create-catalog-suggested-title{display:flex;align-items:center;gap:6px}
   .create-catalog .create-card-suggested{border-color:var(--accent)}
