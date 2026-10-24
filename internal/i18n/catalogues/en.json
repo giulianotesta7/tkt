@@ -290,6 +290,7 @@
   "error.page_not_found": "page not found",
   "error.password_min_length": "the minimum password length must be between %d and %d characters",
   "error.password_required": "password is required",
+  "error.password_too_long": "the password must be at most %d bytes long",
   "error.password_too_short": "the password must be at least %d characters long",
   "error.provide_title_or_priority": "provide a title or a priority",
   "error.reassign_reason_required": "a reason is required to reassign the ticket",

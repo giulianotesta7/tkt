@@ -81,11 +81,7 @@ func (s *PasswordSettingsService) Update(ctx context.Context, actor domain.User,
 	if in.MinLength < MinPasswordMinLength || in.MinLength > MaxPasswordMinLength {
 		return PasswordMinLengthRangeError()
 	}
-	return s.store.SetPasswordSettings(ctx, PasswordSettings{
-		ChangeEnabled:   in.ChangeEnabled,
-		RecoveryEnabled: in.RecoveryEnabled,
-		MinLength:       in.MinLength,
-	})
+	return s.store.SetPasswordSettings(ctx, PasswordSettings(in))
 }
 
 // PasswordMinLengthRangeError builds the ONE refusal for a minimum outside the

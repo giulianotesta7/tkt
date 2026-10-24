@@ -373,3 +373,81 @@ func TestPreferencesPasswordSpeaksSpanish(t *testing.T) {
 		}
 	}
 }
+
+// TestPreferencesPasswordRefusesForeignOrigins pins the shared Origin gate (D17)
+// on this route: a submission from another origin, and the literal "null" a
+// browser sends from a no-referrer document, is refused before a single form
+// value is read, and nothing changes — not the stored hash and not one session.
+func TestPreferencesPasswordRefusesForeignOrigins(t *testing.T) {
+	h := newHarness(t)
+	user := ownPasswordUser(t, h, "owner@example.com")
+	own := ownPasswordSession(t, h, user.Email)
+	other := ownPasswordSession(t, h, user.Email)
+	before := storedOwnPasswordHash(t, h, user.ID)
+
+	for _, origin := range []string{"https://evil.example", "null"} {
+		req := httptest.NewRequest(http.MethodPost, "/preferences/password", strings.NewReader(ownPasswordForm(nil).Encode()))
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		req.Header.Set("Cookie", sessionCookie+"="+own)
+		req.Header.Set("Origin", origin)
+		rec := httptest.NewRecorder()
+		h.mw.Wrap(h.mux).ServeHTTP(rec, req)
+		if rec.Code != http.StatusForbidden {
+			t.Errorf("POST /preferences/password with Origin %q = %d, want 403: %.600s", origin, rec.Code, rec.Body.String())
+		}
+	}
+
+	if got := storedOwnPasswordHash(t, h, user.ID); got != before {
+		t.Error("a refused submission wrote the hash")
+	}
+	if !sessionAuthenticates(t, h, own) || !sessionAuthenticates(t, h, other) {
+		t.Error("a refused submission signed a session out")
+	}
+}
+
+// TestPreferencesPasswordIgnoresASessionIDInTheFormBody proves the route reads the
+// session making the request from the cookie only: a session id smuggled in a
+// form field is inert. The cookie session is the one kept, a smuggled id of the
+// same account is signed out like any other session of that account, and a
+// smuggled id belonging to another account is untouched.
+func TestPreferencesPasswordIgnoresASessionIDInTheFormBody(t *testing.T) {
+	h := newHarness(t)
+	user := ownPasswordUser(t, h, "owner@example.com")
+	victim := ownPasswordUser(t, h, "someone-else@example.com")
+	own := ownPasswordSession(t, h, user.Email)
+	sibling := ownPasswordSession(t, h, user.Email)
+	victimSession := ownPasswordSession(t, h, victim.Email)
+	before := storedOwnPasswordHash(t, h, user.ID)
+
+	rec := h.postFormAs(t, "/preferences/password", ownPasswordForm(func(f url.Values) {
+		// Every name a plausible implementation might trust, pointed at the same
+		// account's other session; the two the form uses for the visitor's own
+		// account are pointed at another account entirely.
+		f.Set("session", sibling)
+		f.Set("session_id", sibling)
+		f.Set("keep_session", victimSession)
+		f.Set("tkt_session", victimSession)
+	}), own)
+	if rec.Code != http.StatusSeeOther {
+		t.Fatalf("POST /preferences/password = %d, want 303: %.800s", rec.Code, rec.Body.String())
+	}
+
+	if got := storedOwnPasswordHash(t, h, user.ID); got == before {
+		t.Fatal("the change did not happen at all")
+	}
+	if h.loginCookie(t, user.Email, ownPasswordNext) == "" {
+		t.Error("the submitted new password must sign in")
+	}
+	// The cookie session is the one kept.
+	if !sessionAuthenticates(t, h, own) {
+		t.Error("the session making the change was signed out")
+	}
+	// A smuggled id of the same account is one more session of that account, so
+	// it goes with the rest.
+	wantRedirect(t, doRequest(h.mux, h.mw, http.MethodGet, "/preferences",
+		map[string]string{"Cookie": sessionCookie + "=" + sibling}), http.StatusSeeOther, "/login")
+	// Another account's session is not the actor's to end.
+	if !sessionAuthenticates(t, h, victimSession) {
+		t.Error("another account's smuggled session was signed out")
+	}
+}

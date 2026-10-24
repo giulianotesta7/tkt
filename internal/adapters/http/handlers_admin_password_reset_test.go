@@ -6,6 +6,8 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/giulianotesta7/tkt/internal/application"
 )
 
 // The administrator set-password route under the rule that every password change
@@ -65,5 +67,55 @@ func TestAdministratorSetPasswordVoidsThePendingRecoveryLink(t *testing.T) {
 	}
 	if h.loginCookie(t, "miembro@tkt.test", adminPassword) == "" {
 		t.Error("the administrator's password must still sign in after the refused link")
+	}
+}
+
+// TestAdministratorSetPasswordVoidsOnlyTheTargetAccountsLink proves the void is
+// scoped: the account whose password was set loses its pending link, another
+// account's link is untouched, and the refusals on the way (an administrator
+// without the capability, an unknown target, a password under the minimum) leave
+// the target's own link usable.
+func TestAdministratorSetPasswordVoidsOnlyTheTargetAccountsLink(t *testing.T) {
+	h := newHarness(t)
+	const oldPassword = "s3cret-pass-12"
+	member := h.createUser(t, "Miembro", "miembro@tkt.test", oldPassword)
+	h.createUser(t, "Otra", "otra@tkt.test", oldPassword)
+	configureEmailDelivery(t, h)
+	memberSession := h.loginCookie(t, "miembro@tkt.test", oldPassword)
+	if memberSession == "" {
+		t.Fatal("the member could not sign in")
+	}
+
+	// Two accounts, two links. The throttle window belongs to the account, so the
+	// clock only has to pass it before asking again for the first one.
+	otherToken := requestResetLink(t, h, "otra@tkt.test")
+	h.clock.Advance(application.PasswordResetThrottle)
+	token := requestResetLink(t, h, "miembro@tkt.test")
+
+	target := "/users/" + itoa(member.ID) + "/password"
+
+	// The refusals keep their codes and leave the link alone.
+	if rec := h.postFormAs(t, target, url.Values{"password": {"admin-set-pass-12"}}, memberSession); rec.Code != http.StatusForbidden {
+		t.Errorf("as a member without the capability = %d, want 403", rec.Code)
+	}
+	if rec := h.postForm(t, "/users/999999/password", url.Values{"password": {"admin-set-pass-12"}}, false); rec.Code != http.StatusNotFound {
+		t.Errorf("unknown target = %d, want 404", rec.Code)
+	}
+	if rec := h.postForm(t, target, url.Values{"password": {"short"}}, false); rec.Code != http.StatusUnprocessableEntity {
+		t.Errorf("password under the minimum = %d, want 422", rec.Code)
+	}
+	if rec := doRequest(h.mux, h.mw, http.MethodGet, "/login/reset?token="+token, nil); rec.Code != http.StatusOK {
+		t.Fatalf("a refused administrator change must leave the link usable, got %d", rec.Code)
+	}
+
+	wantRedirect(t, h.postForm(t, target, url.Values{"password": {"admin-set-pass-12"}}, false),
+		http.StatusSeeOther, "/users/"+itoa(member.ID)+"/edit")
+
+	// The target's link is dead and the other account's link still works.
+	if rec := doRequest(h.mux, h.mw, http.MethodGet, "/login/reset?token="+token, nil); rec.Code != http.StatusGone {
+		t.Errorf("the target's link = %d, want the refusal state", rec.Code)
+	}
+	if rec := doRequest(h.mux, h.mw, http.MethodGet, "/login/reset?token="+otherToken, nil); rec.Code != http.StatusOK {
+		t.Errorf("another account's link = %d, want the form (the void is scoped)", rec.Code)
 	}
 }

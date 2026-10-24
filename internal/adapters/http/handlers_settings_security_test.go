@@ -1,6 +1,7 @@
 package httpadapter
 
 import (
+	"fmt"
 	"net/http"
 	"net/url"
 	"strings"
@@ -114,29 +115,51 @@ func TestSettingsSecurityRendersTheStoredPolicy(t *testing.T) {
 	}
 }
 
-// TestSettingsSecurityIsGatedOnCapManageSettings proves the gate on both verbs:
-// an agent and a requester may neither read nor write the instance policy, and a
-// refused write stores nothing.
+// TestSettingsSecurityIsGatedOnCapManageSettings proves the gate on both verbs for
+// all four roles: the two that hold CapManageSettings open the section and can
+// save it, and the two that do not may neither read nor write the instance
+// policy — their refusal stores nothing. Each role gets its own instance, so one
+// role's save cannot be what another role's assertion sees.
 func TestSettingsSecurityIsGatedOnCapManageSettings(t *testing.T) {
-	h := newHarness(t)
-
-	for _, role := range []domain.Role{domain.RoleAgent, domain.RoleUser} {
-		t.Run(string(role), func(t *testing.T) {
-			actor := seedUserRole(t, h.store, "Security "+string(role), "security-"+string(role)+"@tkt.test", role)
+	for _, tc := range []struct {
+		role   domain.Role
+		canMan bool
+	}{
+		{role: domain.RoleRoot, canMan: true},
+		{role: domain.RoleAdmin, canMan: true},
+		{role: domain.RoleAgent, canMan: false},
+		{role: domain.RoleUser, canMan: false},
+	} {
+		t.Run(string(tc.role), func(t *testing.T) {
+			h := newHarness(t)
+			actor := seedUserRole(t, h.store, "Security "+string(tc.role), "security-"+string(tc.role)+"@tkt.test", tc.role)
 			session := seedSession(t, h.store, actor.ID)
 
-			if rec := getAs(t, h, "/settings/security", session.ID); rec.Code != http.StatusForbidden {
-				t.Errorf("%s GET /settings/security = %d, want 403", role, rec.Code)
-			}
+			get := getAs(t, h, "/settings/security", session.ID)
 			rec := h.postFormAs(t, "/settings/security", securityForm(func(form url.Values) {
-				form.Set("password_min_length", "9")
 				form.Del("password_change_enabled")
 			}), session.ID)
-			if rec.Code != http.StatusForbidden {
-				t.Errorf("%s POST /settings/security = %d, want 403", role, rec.Code)
+
+			if !tc.canMan {
+				if get.Code != http.StatusForbidden {
+					t.Errorf("%s GET /settings/security = %d, want 403", tc.role, get.Code)
+				}
+				if rec.Code != http.StatusForbidden {
+					t.Errorf("%s POST /settings/security = %d, want 403", tc.role, rec.Code)
+				}
+				if got, want := storedPasswordSettings(t, h), application.DefaultPasswordSettings(); got != want {
+					t.Errorf("%s refused write changed the policy: %+v, want %+v", tc.role, got, want)
+				}
+				return
 			}
-			if got, want := storedPasswordSettings(t, h), application.DefaultPasswordSettings(); got != want {
-				t.Errorf("%s refused write changed the policy: %+v, want %+v", role, got, want)
+
+			if get.Code != http.StatusOK {
+				t.Fatalf("%s GET /settings/security = %d, want 200: %.600s", tc.role, get.Code, get.Body.String())
+			}
+			wantRedirect(t, rec, http.StatusSeeOther, "/settings/security")
+			want := application.PasswordSettings{ChangeEnabled: false, RecoveryEnabled: true, MinLength: 14}
+			if got := storedPasswordSettings(t, h); got != want {
+				t.Errorf("%s saved write stored %+v, want %+v", tc.role, got, want)
 			}
 		})
 	}
@@ -178,14 +201,16 @@ func TestSettingsSecuritySavesThePolicy(t *testing.T) {
 }
 
 // TestSettingsSecurityRefusesAMinimumOutsideTheBand proves S4's band: a minimum
-// below 8 or above 64 — and a value that is not a whole number at all — is
-// refused with the catalogued sentence (422), the submitted values come back so
-// the administrator does not retype them, and nothing is stored.
+// below 8 or above 64, an empty one, whitespace only, and a value that is not a
+// whole number at all are each refused with the catalogued sentence (422), the
+// submitted values come back so the administrator does not retype them, and
+// nothing is stored. Every refusal is the same one, so the form never explains
+// which parse failed.
 func TestSettingsSecurityRefusesAMinimumOutsideTheBand(t *testing.T) {
 	h := newHarness(t)
 
-	for _, minimum := range []string{"7", "65", "twelve"} {
-		t.Run(minimum, func(t *testing.T) {
+	for _, minimum := range []string{"7", "65", "", " ", "twelve", "8.5", "13x"} {
+		t.Run(fmt.Sprintf("%q", minimum), func(t *testing.T) {
 			rec := h.postForm(t, "/settings/security", securityForm(func(form url.Values) {
 				form.Set("password_min_length", minimum)
 			}), false)
@@ -197,7 +222,9 @@ func TestSettingsSecurityRefusesAMinimumOutsideTheBand(t *testing.T) {
 			if !strings.Contains(body, "the minimum password length must be between 8 and 64 characters") {
 				t.Errorf("the refusal must carry the catalogued sentence, got: %.1500s", body)
 			}
-			if !strings.Contains(body, `id="password_min_length" name="password_min_length" type="number" min="8" max="64" step="1" value="`+minimum+`"`) {
+			// The field echoes what was submitted: the value is trimmed first, so a
+			// whitespace-only submission comes back as the empty value it really is.
+			if !strings.Contains(body, `id="password_min_length" name="password_min_length" type="number" min="8" max="64" step="1" value="`+strings.TrimSpace(minimum)+`"`) {
 				t.Errorf("the refusal must echo the submitted minimum %q, got: %.1500s", minimum, body)
 			}
 			wantSecurityCheckedSwitch(t, body, "password_change_enabled", true)

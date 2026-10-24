@@ -162,6 +162,14 @@ func TestGoldenAuthLoginChanged(t *testing.T) {
 	goldenFullPage(t, "auth_login_changed", renderGolden(t, "login", "", loginData{RecoveryOffered: true, PasswordChanged: true}, false))
 }
 
+// TestGoldenAuthLoginNoRecovery freezes the sign-in page an instance renders
+// while the recovery switch is off (issue #414, S1). It is the page that shipped
+// before the recovery link existed: the link lives inside one conditional, so
+// turning the feature off leaves the sign-in page exactly as it was.
+func TestGoldenAuthLoginNoRecovery(t *testing.T) {
+	goldenFullPage(t, "auth_login_no_recovery", renderGolden(t, "login", "", loginData{}, false))
+}
+
 // TestGoldenAuthForgot freezes the public recovery form.
 func TestGoldenAuthForgot(t *testing.T) {
 	goldenFullPage(t, "auth_forgot", renderGolden(t, "login_forgot", "", forgotData{loginData: loginData{RecoveryOffered: true}}, false))

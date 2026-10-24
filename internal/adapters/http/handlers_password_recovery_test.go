@@ -1,9 +1,12 @@
 package httpadapter
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -250,6 +253,17 @@ func TestForgotAnswersOneNeutralConfirmation(t *testing.T) {
 		}
 		if body := rec.Body.String(); body != first.Body.String() {
 			t.Errorf("%s: body differs from the known-account answer:\n%.2000s\n--- want ---\n%.2000s", name, body, first.Body.String())
+		}
+		// Every byte the client can see matches, the complete header map
+		// included: a differing header would let one answer be told apart from
+		// another even when the body is identical.
+		if got, want := len(rec.Header()), len(first.Header()); got != want {
+			t.Errorf("%s: %d headers, want %d (%v)", name, got, want, rec.Header())
+		}
+		for key := range first.Header() {
+			if got, want := rec.Header().Get(key), first.Header().Get(key); got != want {
+				t.Errorf("%s: header %s = %q, want %q", name, key, got, want)
+			}
 		}
 	}
 	for _, want := range []string{
@@ -529,7 +543,17 @@ func TestRecoveryPagesAreNotCacheableAndKeepTheTokenInsideTheSite(t *testing.T) 
 		"forgot confirmation": forgot(t, h, "nobody@example.com"),
 		"reset form":          doRequest(h.mux, h.mw, http.MethodGet, "/login/reset?token="+token, nil),
 		"reset refusal":       doRequest(h.mux, h.mw, http.MethodGet, "/login/reset?token=dead", nil),
+		// The states a submission reaches, not only the pages a GET renders.
+		"reset 422 mismatch":  resetForm(t, h, token, "recovered-pass-12", "other-pass-12"),
+		"reset 422 short":     resetForm(t, h, token, "short", "short"),
+		"reset 410 dead POST": resetForm(t, h, "dead", "recovered-pass-12", "recovered-pass-12"),
+		"reset 410 no token":  doRequest(h.mux, h.mw, http.MethodGet, "/login/reset", nil),
 	}
+	// An instance that offers no recovery answers 404 on both routes and still
+	// carries the pair, because the refusal must not become cacheable either.
+	setRecoverySwitch(t, h, false)
+	cases["forgot 404"] = doRequest(h.mux, h.mw, http.MethodGet, "/login/forgot", nil)
+	cases["reset 404"] = doRequest(h.mux, h.mw, http.MethodGet, "/login/reset?token="+token, nil)
 	for name, rec := range cases {
 		if got := rec.Header().Get("Referrer-Policy"); got != "same-origin" {
 			t.Errorf("%s: Referrer-Policy = %q, want same-origin", name, got)
@@ -690,4 +714,116 @@ func TestRecoverySubmissionsRefuseTheNullOrigin(t *testing.T) {
 	}
 	resetRec := postRecovery(t, h, "/login/reset", forms["POST /login/reset"].form, map[string]string{"Origin": "https://example.com"})
 	wantRedirect(t, resetRec, http.StatusSeeOther, "/login?password_changed=1")
+}
+
+// recoveryDatabaseDigest answers a digest of the database file, so a refused
+// submission can be proved to have written nothing at all — not only "not the
+// row the test looked at".
+func recoveryDatabaseDigest(t *testing.T, h *harness) string {
+	t.Helper()
+	body, err := os.ReadFile(h.dbPath)
+	if err != nil {
+		t.Fatalf("read the database file: %v", err)
+	}
+	sum := sha256.Sum256(body)
+	return hex.EncodeToString(sum[:])
+}
+
+// pendingResetLinks counts the links still waiting to be redeemed. No store port
+// exposes the count, so this is the one raw read the recovery tests need.
+func pendingResetLinks(t *testing.T, h *harness) int {
+	t.Helper()
+	var count int
+	if err := h.rawDB(t).QueryRow(`SELECT COUNT(*) FROM password_reset_tokens WHERE used_at IS NULL`).Scan(&count); err != nil {
+		t.Fatalf("count pending links: %v", err)
+	}
+	return count
+}
+
+// TestRecoveryOriginGateLeavesTheDatabaseUntouched proves the shared Origin gate
+// (D17) on both public submissions with the evidence a refusal owes: the database
+// file is byte-identical, the pending links are the same, nothing was mailed, and
+// the answers were 403 — for the literal "null" a browser sends from a
+// no-referrer document and for a foreign origin alike. The page's own origin is
+// then accepted and does reset the password.
+func TestRecoveryOriginGateLeavesTheDatabaseUntouched(t *testing.T) {
+	h := newHarness(t)
+	const oldPassword = "s3cret-pass-12"
+	h.createUser(t, "Ana", "ana@example.com", oldPassword)
+	configureEmailDelivery(t, h)
+	token := requestResetLink(t, h, "ana@example.com")
+
+	digestBefore := recoveryDatabaseDigest(t, h)
+	linksBefore := pendingResetLinks(t, h)
+	mailedBefore := len(h.mailer.sent)
+	resetValues := url.Values{
+		passwordResetTokenField: {token},
+		passwordFieldNew:        {"recovered-pass-12"},
+		passwordFieldConfirm:    {"recovered-pass-12"},
+	}
+
+	for _, origin := range []string{"null", "https://evil.example"} {
+		for name, request := range map[string]struct {
+			path string
+			form url.Values
+		}{
+			"POST /login/forgot": {path: "/login/forgot", form: url.Values{"email": {"ana@example.com"}}},
+			"POST /login/reset":  {path: "/login/reset", form: resetValues},
+		} {
+			rec := postRecovery(t, h, request.path, request.form, map[string]string{"Origin": origin})
+			if rec.Code != http.StatusForbidden {
+				t.Errorf("%s with Origin %q = %d, want 403", name, origin, rec.Code)
+			}
+		}
+	}
+
+	if got := recoveryDatabaseDigest(t, h); got != digestBefore {
+		t.Error("a refused submission changed the database file")
+	}
+	if got := pendingResetLinks(t, h); got != linksBefore {
+		t.Errorf("pending links = %d, want %d after the refusals", got, linksBefore)
+	}
+	if len(h.mailer.sent) != mailedBefore {
+		t.Error("a refused submission mailed a message")
+	}
+
+	// The origin the pages themselves are served from passes, and the link works.
+	wantRedirect(t, postRecovery(t, h, "/login/reset", resetValues, map[string]string{"Origin": "https://example.com"}),
+		http.StatusSeeOther, "/login?password_changed=1")
+	if h.loginCookie(t, "ana@example.com", "recovered-pass-12") == "" {
+		t.Error("the same-origin submission must store the new password")
+	}
+}
+
+// TestResetLinkStopsWorkingAfterOneHour proves S3's boundary at the surface: a
+// link read twice still renders the form, still renders it one minute before the
+// hour is up, and is refused as soon as the hour has passed — on the page and on
+// the submission alike, with the stored password untouched.
+func TestResetLinkStopsWorkingAfterOneHour(t *testing.T) {
+	h := newHarness(t)
+	const oldPassword = "s3cret-pass-12"
+	h.createUser(t, "Ana", "ana@example.com", oldPassword)
+	configureEmailDelivery(t, h)
+	token := requestResetLink(t, h, "ana@example.com")
+
+	for read := 0; read < 2; read++ {
+		if rec := doRequest(h.mux, h.mw, http.MethodGet, "/login/reset?token="+token, nil); rec.Code != http.StatusOK {
+			t.Fatalf("GET /login/reset read %d = %d, want the form", read+1, rec.Code)
+		}
+	}
+	h.clock.Advance(59 * time.Minute)
+	if rec := doRequest(h.mux, h.mw, http.MethodGet, "/login/reset?token="+token, nil); rec.Code != http.StatusOK {
+		t.Errorf("GET /login/reset at 59 minutes = %d, want the form", rec.Code)
+	}
+
+	h.clock.Advance(2 * time.Minute)
+	if rec := doRequest(h.mux, h.mw, http.MethodGet, "/login/reset?token="+token, nil); rec.Code != http.StatusGone {
+		t.Errorf("GET /login/reset at 61 minutes = %d, want the refusal state", rec.Code)
+	}
+	if rec := resetForm(t, h, token, "recovered-pass-12", "recovered-pass-12"); rec.Code != http.StatusGone {
+		t.Errorf("POST /login/reset at 61 minutes = %d, want the refusal state", rec.Code)
+	}
+	if h.loginCookie(t, "ana@example.com", oldPassword) == "" {
+		t.Error("an expired link must not change the password")
+	}
 }

@@ -290,6 +290,7 @@
   "error.page_not_found": "página no encontrada",
   "error.password_min_length": "la longitud mínima de la contraseña debe estar entre %d y %d caracteres",
   "error.password_required": "la contraseña es obligatoria",
+  "error.password_too_long": "la contraseña debe tener como máximo %d bytes",
   "error.password_too_short": "la contraseña debe tener al menos %d caracteres",
   "error.provide_title_or_priority": "indica un título o una prioridad",
   "error.reassign_reason_required": "se necesita un motivo para reasignar el ticket",
