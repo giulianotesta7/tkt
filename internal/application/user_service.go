@@ -153,6 +153,9 @@ type UpdateManagedUserInput struct {
 // UpdateManagedUser applies identity, role, and active state as one guarded
 // store transaction. The root and peer-admin protections are enforced before
 // the store is reached; admins cannot grant or manage admin accounts.
+// An account that waits for approval is not a managed user (issue #419, S3):
+// editing or reactivating it is refused like an unknown id, so the Pending tab
+// is the only surface that turns one into a managed user.
 func (s *UserService) UpdateManagedUser(ctx context.Context, actor domain.User, id int64, in UpdateManagedUserInput) (*domain.User, error) {
 	policy := NewPolicy()
 	if !policy.Capabilities(actor.Role).Require(CapManageUsers) {
@@ -174,7 +177,7 @@ func (s *UserService) UpdateManagedUser(ctx context.Context, actor domain.User, 
 		return nil, domain.NewForbiddenError("admin accounts require root")
 	}
 
-	u, err := s.users.GetByID(ctx, id)
+	u, err := s.managedUserTarget(ctx, id)
 	if err != nil {
 		return nil, err
 	}
@@ -228,7 +231,7 @@ func (s *UserService) ChangePassword(ctx context.Context, actor domain.User, id 
 	if strings.TrimSpace(password) == "" {
 		return &domain.ValidationError{Field: "password", Message: domain.ErrMsgPasswordRequired, Key: "error.password_required"}
 	}
-	u, err := s.users.GetByID(ctx, id)
+	u, err := s.managedUserTarget(ctx, id)
 	if err != nil {
 		return err
 	}
@@ -312,7 +315,7 @@ func (s *UserService) Delete(ctx context.Context, actor domain.User, id int64) e
 	if !policy.Capabilities(actor.Role).Require(CapManageUsers) {
 		return domain.NewForbiddenError("user management is not permitted")
 	}
-	u, err := s.users.GetByID(ctx, id)
+	u, err := s.managedUserTarget(ctx, id)
 	if err != nil {
 		return err
 	}
@@ -327,6 +330,22 @@ func (s *UserService) Delete(ctx context.Context, actor domain.User, id int64) e
 		return domain.NewForbiddenError("admin accounts require root")
 	}
 	return s.users.Delete(ctx, id)
+}
+
+// managedUserTarget loads the account an ordinary management route addresses
+// and refuses one that waits for approval (issue #419, S3). A pending account is
+// not a managed user yet: edit, reactivate, password and delete answer as if it
+// did not exist, so an ordinary route never reveals or mutates it and only the
+// Pending tab reaches it. The store keeps the same guard as a backstop.
+func (s *UserService) managedUserTarget(ctx context.Context, id int64) (*domain.User, error) {
+	u, err := s.users.GetByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if u.Pending {
+		return nil, &domain.NotFoundError{Kind: "user", ID: id}
+	}
+	return u, nil
 }
 
 // GetByID returns the user, including inactive ones (historical display).

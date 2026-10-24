@@ -695,6 +695,11 @@ func (f *fakeUserStore) applyManagedUpdate(updated *domain.User, expectedRole do
 	if u.Role != expectedRole {
 		return &domain.NotFoundError{Kind: "user", ID: updated.ID}
 	}
+	if u.Pending {
+		// Mirrors the real store's guarded WHERE (issue #419, S3): an account that
+		// waits for approval is not edited or reactivated here.
+		return &domain.NotFoundError{Kind: "user", ID: updated.ID}
+	}
 	if otherID, dup := f.byEmail[updated.Email]; dup && otherID != updated.ID {
 		return &domain.DuplicateError{Kind: "user", Name: updated.Email}
 	}
@@ -757,6 +762,11 @@ func (f *fakeUserStore) List(_ context.Context) ([]domain.User, error) {
 	sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
 	var out []domain.User
 	for _, id := range ids {
+		if f.users[id].Pending {
+			// Mirrors the real store: a pending account belongs to the Pending tab
+			// and never to the managed-user list (issue #419, S3).
+			continue
+		}
 		out = append(out, *f.users[id])
 	}
 	return out, nil
@@ -2081,14 +2091,18 @@ func (f *fakeCompanyIdentityStore) ResolveIdentity(_ context.Context, provider a
 }
 
 func (f *fakeCompanyIdentityStore) UsersByEmail(_ context.Context, email string) ([]domain.User, error) {
-	all, err := f.users.List(context.Background())
-	if err != nil {
-		return nil, err
+	// It reads every account, pending ones included: the company sign-in decision
+	// must recognise a waiting account by its address (issue #419, S3). It
+	// therefore cannot use List, which answers managed users only.
+	ids := make([]int64, 0, len(f.users.users))
+	for id := range f.users.users {
+		ids = append(ids, id)
 	}
+	sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
 	var out []domain.User
-	for _, u := range all {
-		if strings.EqualFold(u.Email, email) {
-			out = append(out, u)
+	for _, id := range ids {
+		if strings.EqualFold(f.users.users[id].Email, email) {
+			out = append(out, *f.users.users[id])
 		}
 	}
 	return out, nil
