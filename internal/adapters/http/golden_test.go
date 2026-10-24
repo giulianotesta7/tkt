@@ -1290,7 +1290,9 @@ func fixtureSettingsEmailData() settingsEmailData {
 
 // fixtureSettingsSecurityData models the Security section (issue #414) with a
 // policy that differs from the defaults on every value, so the golden pins a
-// readable form rather than the state of a fresh instance.
+// readable form rather than the state of a fresh instance. The company sign-in
+// cards (issue #419) are configured too: a saved secret per provider renders the
+// write-only indicator and never a value.
 func fixtureSettingsSecurityData() settingsSecurityData {
 	return settingsSecurityData{
 		settingsSectionData: fixtureSettingsSectionData(settingsSectionSecurity),
@@ -1301,6 +1303,25 @@ func fixtureSettingsSecurityData() settingsSecurityData {
 		CanManageEmail:      true,
 		MinLengthFloor:      application.MinPasswordMinLength,
 		MinLengthCeiling:    application.MaxPasswordMinLength,
+		Company: &settingsCompanySignIn{
+			PasswordSignInEnabled: false,
+			Address:               "https://tkt.example.test",
+			NewAccounts:           application.NewAccountsPending,
+			Google: settingsProviderSignIn{
+				Enabled:     true,
+				ClientID:    "812345678901-acme.apps.googleusercontent.com",
+				Domains:     "acme.test\nacme-support.test",
+				SecretSet:   true,
+				RedirectURI: "https://tkt.example.test/auth/google/callback",
+			},
+			Microsoft: settingsProviderSignIn{
+				Enabled:     false,
+				TenantID:    "72f988bf-86f1-41af-91ab-2d7cd011db47",
+				ClientID:    "b1d2c3e4-5f60-4718-9abc-def012345678",
+				SecretSet:   true,
+				RedirectURI: "https://tkt.example.test/auth/microsoft/callback",
+			},
+		},
 	}
 }
 

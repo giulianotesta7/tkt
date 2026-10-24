@@ -107,6 +107,14 @@
       <div class="switch-list">
         <div class="switch-row">
           <div class="switch-copy">
+            <span class="switch-label" id="password-signin-label">Password sign-in</span>
+            <p class="help">Off for everyone except root. The root account keeps the password form as a break-glass in case the provider fails.</p>
+            <p class="dep-note">Password sign-in is off. Only root can still use the password form, which the sign-in page keeps as a break-glass. “Forgot your password?” and Preferences › Password are hidden.</p>
+          </div>
+          <span class="switch"><input type="checkbox" id="password_signin_enabled" name="password_signin_enabled" value="1" form="company-signin-form" aria-labelledby="password-signin-label"></span>
+        </div>
+        <div class="switch-row">
+          <div class="switch-copy">
             <span class="switch-label" id="password-change-label">Allow people to change their own password from Preferences</span>
             <p class="help">Preferences gets a Password section. Administrators keep the Users action that sets any password.</p>
           </div>
@@ -132,6 +140,100 @@
       </div>
       <div class="settings-savebar" data-settings-savebar hidden>
         <button class="btn primary" type="submit">Save password settings</button>
+        <button class="btn" type="reset">Discard</button>
+      </div>
+    </form>
+    <form class="settings-company-form" id="company-signin-form" method="post" action="/settings/security/company" data-settings-form>
+      <div class="card form-card">
+        <h3 class="settings-group-title">Company sign-in</h3>
+        <div class="field">
+          <label for="company_signin_address">TKT address</label>
+          <input type="text" id="company_signin_address" name="company_signin_address" value="https://tkt.example.test" spellcheck="false" autocapitalize="off" placeholder="https://tkt.example.com">
+          <p class="help">The public address of this instance, such as https://tkt.example.com. Both redirect URIs are built from it: the address cannot be taken safely from the request host.</p>
+        </div>
+      </div>
+      <div class="card form-card">
+        <div class="switch-row settings-provider-head">
+          <div class="switch-copy">
+            <h3 class="settings-group-title" id="google-signin-label">Google Workspace</h3>
+            <p class="help">Company Google accounts only.</p>
+          </div>
+          <span class="switch"><input type="checkbox" id="google_enabled" name="google_enabled" value="1" aria-labelledby="google-signin-label" checked></span>
+        </div>
+        <div class="field">
+          <label for="google_client_id">Client ID</label>
+          <input type="text" id="google_client_id" name="google_client_id" value="812345678901-acme.apps.googleusercontent.com" spellcheck="false" autocapitalize="off" autocomplete="off">
+        </div>
+        <div class="field">
+          <label for="google_client_secret">Client secret <span class="chip">Saved</span></label>
+          <input type="password" id="google_client_secret" name="google_client_secret" value="" autocomplete="new-password">
+          <p class="help">Write-only: it is sealed like the SMTP password and never shown again. Leave it blank to keep the saved secret.</p>
+        </div>
+        <div class="field">
+          <label for="google_domains">Allowed domains</label>
+          <textarea id="google_domains" name="google_domains" spellcheck="false" autocapitalize="off">acme.test
+acme-support.test</textarea>
+          <p class="help">One domain per line. Only Google accounts whose verified email ends in one of these domains can sign in. An account outside them is refused.</p>
+        </div>
+        <div class="field">
+          <label for="google_redirect_uri">Redirect URI</label>
+          <div class="copy-field">
+            <input type="text" id="google_redirect_uri" class="settings-readonly" value="https://tkt.example.test/auth/google/callback" readonly spellcheck="false">
+            <button type="button" class="btn" data-copy-target="google_redirect_uri" data-copied-label="Copied">Copy</button>
+          </div>
+          <span class="visually-hidden" role="status" aria-live="polite" data-copy-status></span>
+          <p class="help">Built from the TKT address above. Paste it into the Google Cloud console as an authorized redirect URI.</p>
+        </div>
+      </div>
+      <div class="card form-card">
+        <div class="switch-row settings-provider-head">
+          <div class="switch-copy">
+            <h3 class="settings-group-title" id="microsoft-signin-label">Microsoft Entra</h3>
+            <p class="help">Your organization only.</p>
+          </div>
+          <span class="switch"><input type="checkbox" id="microsoft_enabled" name="microsoft_enabled" value="1" aria-labelledby="microsoft-signin-label"></span>
+        </div>
+        <div class="field">
+          <label for="microsoft_tenant_id">Directory (tenant) ID</label>
+          <input type="text" id="microsoft_tenant_id" name="microsoft_tenant_id" value="72f988bf-86f1-41af-91ab-2d7cd011db47" spellcheck="false" autocapitalize="off" autocomplete="off" placeholder="00000000-0000-0000-0000-000000000000">
+          <p class="help">Only accounts from this tenant can sign in. The tenant is the restriction, so there is no separate domain list for Microsoft.</p>
+        </div>
+        <div class="field">
+          <label for="microsoft_client_id">Client ID</label>
+          <input type="text" id="microsoft_client_id" name="microsoft_client_id" value="b1d2c3e4-5f60-4718-9abc-def012345678" spellcheck="false" autocapitalize="off" autocomplete="off" placeholder="Application (client) ID">
+        </div>
+        <div class="field">
+          <label for="microsoft_client_secret">Client secret <span class="chip">Saved</span></label>
+          <input type="password" id="microsoft_client_secret" name="microsoft_client_secret" value="" autocomplete="new-password">
+          <p class="help">Write-only: it is sealed like the SMTP password and never shown again. Leave it blank to keep the saved secret.</p>
+        </div>
+        <div class="field">
+          <label for="microsoft_redirect_uri">Redirect URI</label>
+          <div class="copy-field">
+            <input type="text" id="microsoft_redirect_uri" class="settings-readonly" value="https://tkt.example.test/auth/microsoft/callback" readonly spellcheck="false">
+            <button type="button" class="btn" data-copy-target="microsoft_redirect_uri" data-copied-label="Copied">Copy</button>
+          </div>
+          <span class="visually-hidden" role="status" aria-live="polite" data-copy-status></span>
+          <p class="help">Built from the TKT address above. Add it in the Entra portal as a redirect URI of type Web.</p>
+        </div>
+        <p class="dep-note">Microsoft sign-in is off. Paste the Directory (tenant) ID, Client ID and Client secret from the Entra portal to turn it on.</p>
+      </div>
+      <div class="card form-card">
+        <fieldset class="settings-choice-group">
+          <legend class="field-label">New accounts</legend>
+          <label class="settings-choice">
+            <input type="radio" name="company_signin_new_accounts" value="requester">
+            <span class="settings-choice-label">Create the account as a requester</span>
+          </label>
+          <label class="settings-choice">
+            <input type="radio" name="company_signin_new_accounts" value="pending" checked>
+            <span class="settings-choice-label">Create the account as pending approval</span>
+          </label>
+        </fieldset>
+        <p class="dep-note">The account is created pending: it waits for an administrator’s approval, and the person gets no session. Until it is approved, the person sees “Your access is pending approval” and cannot open or see tickets.</p>
+      </div>
+      <div class="settings-savebar" data-settings-savebar hidden>
+        <button class="btn primary" type="submit">Save company sign-in</button>
         <button class="btn" type="reset">Discard</button>
       </div>
     </form>

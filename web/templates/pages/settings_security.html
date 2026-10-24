@@ -13,7 +13,15 @@
 {{end}}    <form class="settings-form card form-card" method="post" action="/settings/security" data-settings-form>
       <h3 class="settings-group-title">{{t "settings.security.passwords.title"}}</h3>
       <div class="switch-list">
-        <div class="switch-row">
+{{if .Company}}        <div class="switch-row">
+          <div class="switch-copy">
+            <span class="switch-label" id="password-signin-label">{{t "settings.security.company.password_signin"}}</span>
+            <p class="help">{{t "settings.security.company.password_signin_help"}}</p>
+{{if not .Company.PasswordSignInEnabled}}            <p class="dep-note">{{t "settings.security.company.password_signin_off"}}</p>
+{{end}}          </div>
+          <span class="switch"><input type="checkbox" id="password_signin_enabled" name="password_signin_enabled" value="1" form="company-signin-form" aria-labelledby="password-signin-label"{{if .Company.PasswordSignInEnabled}} checked{{end}}></span>
+        </div>
+{{end}}        <div class="switch-row">
           <div class="switch-copy">
             <span class="switch-label" id="password-change-label">{{t "settings.security.change"}}</span>
             <p class="help">{{t "settings.security.change_help"}}</p>
@@ -43,6 +51,101 @@
         <button class="btn" type="reset">{{t "settings.discard"}}</button>
       </div>
     </form>
-  </div>
+{{if .Company}}    <form class="settings-company-form" id="company-signin-form" method="post" action="/settings/security/company" data-settings-form>
+      <div class="card form-card">
+        <h3 class="settings-group-title">{{t "settings.security.company.title"}}</h3>
+        <div class="field">
+          <label for="company_signin_address">{{t "settings.security.company.address"}}</label>
+          <input type="text" id="company_signin_address" name="company_signin_address" value="{{.Company.Address}}" spellcheck="false" autocapitalize="off" placeholder="https://tkt.example.com">
+          <p class="help">{{t "settings.security.company.address_help"}}</p>
+        </div>
+      </div>
+      <div class="card form-card">
+        <div class="switch-row settings-provider-head">
+          <div class="switch-copy">
+            <h3 class="settings-group-title" id="google-signin-label">{{t "settings.security.company.google.title"}}</h3>
+            <p class="help">{{t "settings.security.company.google.help"}}</p>
+          </div>
+          <span class="switch"><input type="checkbox" id="google_enabled" name="google_enabled" value="1" aria-labelledby="google-signin-label"{{if .Company.Google.Enabled}} checked{{end}}></span>
+        </div>
+        <div class="field">
+          <label for="google_client_id">{{t "settings.security.company.client_id"}}</label>
+          <input type="text" id="google_client_id" name="google_client_id" value="{{.Company.Google.ClientID}}" spellcheck="false" autocapitalize="off" autocomplete="off">
+        </div>
+        <div class="field">
+          <label for="google_client_secret">{{t "settings.security.company.client_secret"}}{{if .Company.Google.SecretSet}} <span class="chip">{{t "settings.security.company.secret_saved"}}</span>{{end}}</label>
+          <input type="password" id="google_client_secret" name="google_client_secret" value="" autocomplete="new-password">
+          <p class="help">{{t "settings.security.company.secret_help"}}</p>
+        </div>
+        <div class="field">
+          <label for="google_domains">{{t "settings.security.company.google.domains"}}</label>
+          <textarea id="google_domains" name="google_domains" spellcheck="false" autocapitalize="off">{{.Company.Google.Domains}}</textarea>
+          <p class="help">{{t "settings.security.company.google.domains_help"}}</p>
+        </div>
+        <div class="field">
+          <label for="google_redirect_uri">{{t "settings.security.company.redirect"}}</label>
+          <div class="copy-field">
+            <input type="text" id="google_redirect_uri" class="settings-readonly" value="{{.Company.Google.RedirectURI}}" readonly spellcheck="false">
+            <button type="button" class="btn" data-copy-target="google_redirect_uri" data-copied-label="{{t "settings.security.company.copied"}}">{{t "settings.security.company.copy"}}</button>
+          </div>
+          <span class="visually-hidden" role="status" aria-live="polite" data-copy-status></span>
+          <p class="help">{{t "settings.security.company.google.redirect_help"}}</p>
+        </div>
+{{if not .Company.Google.Enabled}}        <p class="dep-note">{{t "settings.security.company.google.off"}}</p>
+{{end}}      </div>
+      <div class="card form-card">
+        <div class="switch-row settings-provider-head">
+          <div class="switch-copy">
+            <h3 class="settings-group-title" id="microsoft-signin-label">{{t "settings.security.company.microsoft.title"}}</h3>
+            <p class="help">{{t "settings.security.company.microsoft.help"}}</p>
+          </div>
+          <span class="switch"><input type="checkbox" id="microsoft_enabled" name="microsoft_enabled" value="1" aria-labelledby="microsoft-signin-label"{{if .Company.Microsoft.Enabled}} checked{{end}}></span>
+        </div>
+        <div class="field">
+          <label for="microsoft_tenant_id">{{t "settings.security.company.microsoft.tenant"}}</label>
+          <input type="text" id="microsoft_tenant_id" name="microsoft_tenant_id" value="{{.Company.Microsoft.TenantID}}" spellcheck="false" autocapitalize="off" autocomplete="off" placeholder="00000000-0000-0000-0000-000000000000">
+          <p class="help">{{t "settings.security.company.microsoft.tenant_help"}}</p>
+        </div>
+        <div class="field">
+          <label for="microsoft_client_id">{{t "settings.security.company.client_id"}}</label>
+          <input type="text" id="microsoft_client_id" name="microsoft_client_id" value="{{.Company.Microsoft.ClientID}}" spellcheck="false" autocapitalize="off" autocomplete="off" placeholder="Application (client) ID">
+        </div>
+        <div class="field">
+          <label for="microsoft_client_secret">{{t "settings.security.company.client_secret"}}{{if .Company.Microsoft.SecretSet}} <span class="chip">{{t "settings.security.company.secret_saved"}}</span>{{end}}</label>
+          <input type="password" id="microsoft_client_secret" name="microsoft_client_secret" value="" autocomplete="new-password">
+          <p class="help">{{t "settings.security.company.secret_help"}}</p>
+        </div>
+        <div class="field">
+          <label for="microsoft_redirect_uri">{{t "settings.security.company.redirect"}}</label>
+          <div class="copy-field">
+            <input type="text" id="microsoft_redirect_uri" class="settings-readonly" value="{{.Company.Microsoft.RedirectURI}}" readonly spellcheck="false">
+            <button type="button" class="btn" data-copy-target="microsoft_redirect_uri" data-copied-label="{{t "settings.security.company.copied"}}">{{t "settings.security.company.copy"}}</button>
+          </div>
+          <span class="visually-hidden" role="status" aria-live="polite" data-copy-status></span>
+          <p class="help">{{t "settings.security.company.microsoft.redirect_help"}}</p>
+        </div>
+{{if not .Company.Microsoft.Enabled}}        <p class="dep-note">{{t "settings.security.company.microsoft.off"}}</p>
+{{end}}      </div>
+      <div class="card form-card">
+        <fieldset class="settings-choice-group">
+          <legend class="field-label">{{t "settings.security.company.new_accounts"}}</legend>
+          <label class="settings-choice">
+            <input type="radio" name="company_signin_new_accounts" value="requester"{{if eq .Company.NewAccounts "requester"}} checked{{end}}>
+            <span class="settings-choice-label">{{t "settings.security.company.requester"}}</span>
+          </label>
+          <label class="settings-choice">
+            <input type="radio" name="company_signin_new_accounts" value="pending"{{if eq .Company.NewAccounts "pending"}} checked{{end}}>
+            <span class="settings-choice-label">{{t "settings.security.company.pending"}}</span>
+          </label>
+        </fieldset>
+{{if eq .Company.NewAccounts "pending"}}        <p class="dep-note">{{t "settings.security.company.pending_help"}}</p>
+{{else}}        <p class="dep-note">{{t "settings.security.company.requester_help"}}</p>
+{{end}}      </div>
+      <div class="settings-savebar" data-settings-savebar hidden>
+        <button class="btn primary" type="submit">{{t "settings.security.company.save"}}</button>
+        <button class="btn" type="reset">{{t "settings.discard"}}</button>
+      </div>
+    </form>
+{{end}}  </div>
 </div>
 {{end}}

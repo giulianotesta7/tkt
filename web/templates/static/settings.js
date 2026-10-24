@@ -300,4 +300,38 @@
     input.value = String(next);
     input.dispatchEvent(new Event("input", { bubbles: true }));
   });
+
+  // --- Redirect URI copy (issue #419) -------------------------------------
+
+  // A redirect URI is derived from the shared TKT address, so it is copied from
+  // the readonly field rather than typed. The copied label, which also fills the
+  // live status region, comes from the server's translated data attribute; the
+  // button carries no form field name and never submits, so copying cannot save
+  // the configuration.
+  function copyField(input, button) {
+    var field = button.closest(".field");
+    var status = field ? field.querySelector("[data-copy-status]") : null;
+    var copied = button.getAttribute("data-copied-label") || button.textContent;
+    function announce() {
+      button.textContent = copied;
+      if (status) status.textContent = copied;
+    }
+    function selectValue() {
+      input.focus();
+      input.select();
+    }
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(input.value).then(announce, selectValue);
+    } else {
+      selectValue();
+    }
+  }
+
+  document.addEventListener("click", function (event) {
+    var button =
+      event.target && event.target.closest ? event.target.closest("[data-copy-target]") : null;
+    if (!button) return;
+    var input = document.getElementById(button.getAttribute("data-copy-target"));
+    if (input) copyField(input, button);
+  });
 })();

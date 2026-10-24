@@ -101,11 +101,22 @@ func TestSettingsSecurityRendersTheStoredPolicy(t *testing.T) {
 					t.Errorf("GET /settings/security must contain %q, got: %.1500s", want, body)
 				}
 			}
-			if got := strings.Count(body, `class="switch-row"`); got != 2 {
-				t.Errorf("the section renders %d switch rows, want one per switch (2)", got)
+			// Three instance switches sit in the Passwords card — password sign-in
+			// (issue #419), self-service change and recovery. Each provider card
+			// heads itself with a switch row carrying its own modifier.
+			if got := strings.Count(body, `class="switch-row"`); got != 3 {
+				t.Errorf("the Passwords card renders %d switch rows, want one per instance switch (3)", got)
+			}
+			if got := strings.Count(body, `class="switch-row settings-provider-head"`); got != 2 {
+				t.Errorf("the section renders %d provider enable rows, want one per provider (2)", got)
 			}
 			wantSecurityCheckedSwitch(t, body, "password_change_enabled", true)
 			wantSecurityCheckedSwitch(t, body, "password_recovery_enabled", true)
+			// Issue #419: the password sign-in switch belongs to the company
+			// sign-in configuration, so it carries that form's association.
+			if want := `<input type="checkbox" id="password_signin_enabled" name="password_signin_enabled" value="1" form="company-signin-form" aria-labelledby="password-signin-label" checked>`; !strings.Contains(body, want) {
+				t.Errorf("the Passwords card must render the password sign-in switch, got: %.1500s", body)
+			}
 			if !strings.Contains(body, `class="settings-savebar" data-settings-savebar hidden`) {
 				t.Errorf("the section must carry the shared save bar, got: %.1500s", body)
 			}
