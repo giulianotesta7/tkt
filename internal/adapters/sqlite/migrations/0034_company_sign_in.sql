@@ -1,13 +1,14 @@
 -- 0034_company_sign_in.sql — company sign-in: provider identity links, the
--- pending approval state, and the in-flight authorization rows (issue #419,
--- S3/S7/S10).
+-- pending approval state, the in-flight authorization rows, and the ticketless
+-- account announcement (issue #419, S3/S7/S10).
 --
 -- Employees sign in with their Google Workspace or Microsoft Entra account.
 -- That needs three additive facts: which provider identity an account is
 -- linked to, an account state for someone a first sign-in created who is not
--- approved yet, and a short-lived row per authorization in progress. This
--- migration only ADDS; it rebuilds no table, so an upgraded instance keeps
--- every account, session, ticket, comment and notification exactly as it was.
+-- approved yet, and a short-lived row per authorization in progress. Apart
+-- from one documented rebuild of the notifications table (below), this
+-- migration only ADDS, so an upgraded instance keeps every account, session,
+-- ticket and comment exactly as it was.
 --
 -- Why users.pending is a column of its own: the role column is a closed set
 -- ('user','agent','admin','root') whose CHECK lives in 0003, so a new role
@@ -68,12 +69,41 @@
 -- No row of any of the three is seeded: a fresh instance offers password
 -- sign-in only until an administrator configures a provider.
 --
--- Deliberately not here: the bell notification administrators get when an account
--- waits for approval. A notification without a ticket needs the notifications
--- table to grow a shape it does not have, and rebuilding that table belongs to
--- the unit that lands the notification — with every kind from 0029 onward — not
--- to this one. The flow announces the account through its own seam and stores
--- nothing about it.
+-- The notifications rebuild. An account created by a company sign-in waits for
+-- approval, and the administrator has to learn about it in the bell. That
+-- notice is the one notification that is not about a ticket, and the table
+-- 0021 created cannot express it: ticket_id is NOT NULL and every kind is a
+-- ticket event. SQLite cannot relax a NOT NULL or change a CHECK in place, so
+-- 0034 produces the table's fifth shape — the initial 0021 table and the
+-- rebuilds of 0023, 0027 and 0028 came before it — by applying the recipe 0023
+-- documented:
+--   * The kind CHECK lists every value from 0021 plus the ones 0023, 0027 and
+--     0028 added, and finally company_account_pending.
+--   * ticket_id becomes nullable: NULL is the truthful state of a notice that
+--     names no ticket. A ticket notification still requires a ticket exactly
+--     as before, and a stored 0 is impossible because the foreign key would
+--     reject it.
+--   * pending_user_id is the account being announced, cascading with it: a
+--     rejected account that is deleted takes its notice with it, so the bell
+--     never points at a missing account. It is NULL for every ticket kind.
+--   * A table CHECK closes the shape: the account kind carries a POSITIVE
+--     account and no ticket, and every other kind carries a ticket and no
+--     account. The positivity mirrors the domain rule; the foreign key alone
+--     would accept a 0 or negative id if a row with that id existed, and a
+--     bare "pending_user_id > 0" would let NULL through because a CHECK only
+--     fails on FALSE, not on NULL. It deliberately says nothing about
+--     actor_user_id, which is optional for both shapes (an administrator may
+--     be recorded, the system may not).
+--   * Every existing row is copied with its id, and the sqlite_sequence
+--     counter is carried over before the old table is dropped, so the
+--     AUTOINCREMENT promise that a deleted id is never reused holds across
+--     the rebuild.
+--   * idx_notifications_recipient is recreated unchanged: the bell count and
+--     the newest-first list read exactly as before.
+-- The rebuild touches no other object. notification_emails (0024) is not
+-- referenced by a foreign key precisely so this rebuild cannot cascade the
+-- delivery rows away, and those rows keep pointing at the same notification
+-- ids. Nothing references notifications by foreign key.
 
 ALTER TABLE users ADD COLUMN pending INTEGER NOT NULL DEFAULT 0
   CHECK(pending IN (0,1) AND (pending = 0 OR active = 0));
@@ -102,3 +132,63 @@ CREATE TABLE oidc_sign_in_attempts (
   expires_at    TEXT NOT NULL);
 
 CREATE INDEX idx_oidc_sign_in_attempts_expires ON oidc_sign_in_attempts(expires_at);
+
+-- The ticketless account announcement, applying the notifications rebuild
+-- recipe of 0023/0027/0028 with one extra change: the ticket becomes an
+-- optional subject next to the pending account.
+CREATE TABLE notifications_new (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  ticket_id INTEGER REFERENCES tickets(id) ON DELETE CASCADE,
+  pending_user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+  kind TEXT NOT NULL CHECK(kind IN (
+    'assigned',
+    'state_changed',
+    'resolved_awaiting_confirmation',
+    'resolution_confirmed',
+    'resolution_rejected',
+    'priority_changed',
+    'comment_public',
+    'comment_internal',
+    'form_waiting',
+    'on_hold',
+    'hold_reminder',
+    'hold_closed',
+    'sla_first_response_at_risk',
+    'sla_first_response_breached',
+    'sla_resolution_at_risk',
+    'sla_resolution_breached',
+    'no_movement',
+    'company_account_pending')),
+  actor_user_id INTEGER REFERENCES users(id),
+  from_value TEXT,
+  to_value TEXT,
+  comment_id INTEGER REFERENCES comments(id) ON DELETE CASCADE,
+  step_index INTEGER,
+  created_at TEXT NOT NULL,
+  read_at TEXT,
+  CHECK (
+    (kind = 'company_account_pending'
+      AND ticket_id IS NULL
+      AND pending_user_id IS NOT NULL
+      AND pending_user_id > 0
+      AND from_value IS NULL
+      AND to_value IS NULL
+      AND comment_id IS NULL
+      AND step_index IS NULL)
+    OR (kind <> 'company_account_pending'
+      AND ticket_id IS NOT NULL
+      AND pending_user_id IS NULL)));
+
+INSERT INTO notifications_new (id, user_id, ticket_id, pending_user_id, kind, actor_user_id, from_value, to_value, comment_id, step_index, created_at, read_at)
+  SELECT id, user_id, ticket_id, NULL, kind, actor_user_id, from_value, to_value, comment_id, step_index, created_at, read_at
+  FROM notifications;
+
+DELETE FROM sqlite_sequence WHERE name = 'notifications_new';
+INSERT INTO sqlite_sequence (name, seq)
+  SELECT 'notifications_new', seq FROM sqlite_sequence WHERE name = 'notifications';
+
+DROP TABLE notifications;
+ALTER TABLE notifications_new RENAME TO notifications;
+
+CREATE INDEX idx_notifications_recipient ON notifications(user_id, read_at, created_at);

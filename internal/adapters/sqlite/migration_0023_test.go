@@ -86,9 +86,14 @@ func notificationsSchema(t *testing.T, s *Store) []string {
 	return out
 }
 
+// TestMigration0023KeepsTheNotificationsShape compares the table as 0023 left
+// it with the table 0023 itself produces, so the claim is about THAT rebuild
+// (a vocabulary-only change) rather than about the later ones. 0034 rebuilds
+// the table again to add the ticketless account kind; that shape is pinned in
+// migration_0034_notifications_test.go.
 func TestMigration0023KeepsTheNotificationsShape(t *testing.T) {
 	before := notificationsSchema(t, openPre0023(t))
-	after := notificationsSchema(t, newTestDB(t))
+	after := notificationsSchema(t, openThrough(t, "0023_notification_kind_on_hold.sql"))
 	if len(before) == 0 {
 		t.Fatal("pre-0023 notifications schema is empty")
 	}

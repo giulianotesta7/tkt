@@ -40,13 +40,56 @@ func pre0021Migrations(t *testing.T) fstest.MapFS {
 	return out
 }
 
+// migrationsThrough returns the embedded migrations up to and including last,
+// so a test can assert what a HISTORICAL migration itself produced. The
+// notifications table has been rebuilt several times, so the shape an earlier
+// migration declared only exists inside this window.
+func migrationsThrough(t *testing.T, last string) fstest.MapFS {
+	t.Helper()
+	entries, err := fs.ReadDir(migrationsFS, "migrations")
+	if err != nil {
+		t.Fatalf("read embedded migrations: %v", err)
+	}
+	out := fstest.MapFS{}
+	for _, entry := range entries {
+		if strings.Compare(entry.Name(), last) > 0 {
+			continue
+		}
+		blob, err := fs.ReadFile(migrationsFS, "migrations/"+entry.Name())
+		if err != nil {
+			t.Fatalf("read %s: %v", entry.Name(), err)
+		}
+		out["migrations/"+entry.Name()] = &fstest.MapFile{Data: blob}
+	}
+	return out
+}
+
+// openThrough applies the migrations up to and including last and returns the
+// store, so a historical shape can be asserted on the schema that migration
+// actually produced rather than on the one the whole set produces today.
+func openThrough(t *testing.T, last string) *Store {
+	t.Helper()
+	s, err := openDSN(testDSN(t))
+	if err != nil {
+		t.Fatalf("open through %s: %v", last, err)
+	}
+	s.db.SetMaxOpenConns(1)
+	t.Cleanup(func() { _ = s.db.Close() })
+	if err := migrate(context.Background(), s.db, migrationsThrough(t, last)); err != nil {
+		t.Fatalf("migrate through %s: %v", last, err)
+	}
+	return s
+}
+
 // TestMigration0021NotificationsTableShape proves the notifications columns
 // exist with the nullability the domain relies on: recipient, ticket, kind and
 // created_at are required; everything else is a fact that may be absent (an
 // automatic action has no actor, a state change has no comment, an unread row
-// has no read_at).
+// has no read_at). It asserts the table 0021 itself creates; 0034 later
+// rebuilds it so the bell can also carry a ticketless account announcement,
+// and that shape is pinned in migration_0034_notifications_test.go.
 func TestMigration0021NotificationsTableShape(t *testing.T) {
-	s := newTestDB(t)
+	s := openThrough(t, "0021_notifications.sql")
 
 	type columnShape struct {
 		column  string
@@ -168,9 +211,12 @@ func TestMigration0021KindVocabularyIsClosed(t *testing.T) {
 // TestMigration0021ForeignKeys proves the three ownership edges and their
 // cascade behavior: a notification belongs to a recipient, a ticket and
 // (for comment kinds) a comment, and it disappears with any of them. The
-// actor edge carries no cascade — the actor is history, not an owner.
+// actor edge carries no cascade — the actor is history, not an owner. It
+// asserts the edges 0021 declared; 0034 adds the pending-account edge on the
+// rebuilt table, and that full set is pinned in
+// migration_0034_notifications_test.go.
 func TestMigration0021ForeignKeys(t *testing.T) {
-	s := newTestDB(t)
+	s := openThrough(t, "0021_notifications.sql")
 
 	type fk struct {
 		table, to, onDelete string

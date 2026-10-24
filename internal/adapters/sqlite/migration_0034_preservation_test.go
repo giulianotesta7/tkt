@@ -11,6 +11,8 @@ import (
 	"sort"
 	"strings"
 	"testing"
+
+	"github.com/giulianotesta7/tkt/internal/domain"
 )
 
 // TestMigration0034PreservesEveryExistingObjectAndRow proves 0034 rebuilds
@@ -37,6 +39,12 @@ func TestMigration0034PreservesEveryExistingObjectAndRow(t *testing.T) {
 			t.Fatalf("%s: %v", q, err)
 		}
 	}
+	mustExec := func(q string, args ...any) {
+		t.Helper()
+		if _, err := s.db.Exec(q, args...); err != nil {
+			t.Fatalf("%s: %v", q, err)
+		}
+	}
 	exec(`INSERT INTO users(id,name,email,password_hash,role,active,created_at) VALUES
  (1,'Root','root@example.com','hash','root',1,'2026-08-06T10:00:00Z'),
  (2,'Imported','import@example.com','hash','agent',1,'2026-08-06T10:00:00Z'),
@@ -49,7 +57,37 @@ func TestMigration0034PreservesEveryExistingObjectAndRow(t *testing.T) {
 	exec(fmt.Sprintf(`INSERT INTO tickets(number,title,requester_name,requester_email,requester_user_id,category_id,priority,state,created_at,updated_at) VALUES(912,'Keep','Imported','import@example.com',2,%d,'medium','new','2026-08-06T10:00:00Z','2026-08-06T10:00:00Z')`, cat))
 	exec(`INSERT INTO comments(ticket_id,author,body,created_at) SELECT id,'Imported','Keep comment','2026-08-06T10:00:00Z' FROM tickets WHERE number=912`)
 	exec(`INSERT INTO audit_events(ticket_id,actor,action,created_at) SELECT id,'Imported','created','2026-08-06T10:00:00Z' FROM tickets WHERE number=912`)
-	exec(`INSERT INTO notifications(user_id,ticket_id,kind,created_at) SELECT 2,id,'assigned','2026-08-06T10:00:00Z' FROM tickets WHERE number=912`)
+	var ticketID, commentID int64
+	if err := s.db.QueryRow(`SELECT id FROM tickets WHERE number=912`).Scan(&ticketID); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.db.QueryRow(`SELECT id FROM comments WHERE ticket_id=?`, ticketID).Scan(&commentID); err != nil {
+		t.Fatal(err)
+	}
+	// One notification of every kind 0028 left, under HIGH explicit ids, so
+	// the rebuild has to copy them rather than renumber them, and the email
+	// delivery rows that point at them have to survive the table's rebuild.
+	for i, kind := range priorNotificationKinds {
+		var comment, from, to, step any
+		if kind.IsComment() {
+			comment = commentID
+		}
+		switch kind {
+		case domain.NotificationStateChanged:
+			from, to = "new", "in_progress"
+		case domain.NotificationPriorityChanged:
+			from, to = "medium", "high"
+		case domain.NotificationFormWaiting:
+			step = 1
+		}
+		mustExec(`INSERT INTO notifications(id,user_id,ticket_id,kind,actor_user_id,from_value,to_value,comment_id,step_index,created_at,read_at)
+			VALUES(?,2,?,?,2,?,?,?,?,'2026-08-06T10:00:00Z','2026-08-06T11:00:00Z')`,
+			int64(5001+i), ticketID, string(kind), from, to, comment, step)
+	}
+	mustExec(`INSERT INTO notification_emails(notification_id,status,attempts,next_attempt_at,created_at,updated_at)
+		VALUES(5001,'sent',1,'2026-08-06T10:00:00Z','2026-08-06T10:00:00Z','2026-08-06T10:00:00Z')`)
+	mustExec(`INSERT INTO notification_emails(notification_id,status,attempts,next_attempt_at,last_error,created_at,updated_at)
+		VALUES(5002,'failed',3,'2026-08-06T10:00:00Z','smtp refused','2026-08-06T10:00:00Z','2026-08-06T10:00:00Z')`)
 	exec(`INSERT INTO password_reset_tokens(user_id,token_hash,created_at,expires_at) VALUES(2,'token','2026-08-06T10:00:00Z','2027-08-06T10:00:00Z')`)
 
 	type object struct {
@@ -133,6 +171,12 @@ func TestMigration0034PreservesEveryExistingObjectAndRow(t *testing.T) {
 	if err := s.Migrate(ctx); err != nil {
 		t.Fatal(err)
 	}
+	// Two objects are allowed to change, and only in the documented way: users
+	// gains the appended pending column, and notifications is rebuilt so the
+	// bell can carry a ticketless account announcement. The rebuild recreates
+	// its index and may move root pages, including the sequence row's; the
+	// definitions of those two must not drift. Every other object keeps its
+	// definition AND its root page, so no unrelated table was rebuilt.
 	after := master()
 	for name, want := range before {
 		got, ok := after[name]
@@ -140,18 +184,62 @@ func TestMigration0034PreservesEveryExistingObjectAndRow(t *testing.T) {
 			t.Errorf("lost schema object %s", name)
 			continue
 		}
-		if name == "users" {
+		switch name {
+		case "users":
 			if got.definition == want.definition {
 				t.Error("users DDL did not change")
 			}
 			got.definition = want.definition
+			if got != want {
+				t.Errorf("users object changed beyond the appended column: %#v -> %#v", want, got)
+			}
+		case "idx_notifications_recipient", "sqlite_sequence":
+			got.root = want.root
+			if got != want {
+				t.Errorf("schema object %s changed: %#v -> %#v", name, want, got)
+			}
+		case "notifications":
+			if got.kind != want.kind || got.table != want.table {
+				t.Errorf("notifications object type changed: %#v -> %#v", want, got)
+			}
+			if got.definition == want.definition {
+				t.Error("notifications DDL did not change, want the documented rebuild for the account kind")
+			}
+		default:
+			if got != want {
+				t.Errorf("schema object %s changed: %#v -> %#v", name, want, got)
+			}
 		}
-		if got != want {
-			t.Errorf("schema object %s changed: %#v -> %#v", name, want, got)
+	}
+	for name := range after {
+		if _, ok := before[name]; ok {
+			continue
+		}
+		switch name {
+		case "user_identities", "oidc_sign_in_attempts", "idx_oidc_sign_in_attempts_expires",
+			"sqlite_autoindex_user_identities_1", "sqlite_autoindex_user_identities_2",
+			"sqlite_autoindex_oidc_sign_in_attempts_1":
+		default:
+			t.Errorf("unexpected new schema object %s", name)
 		}
 	}
 	if got := snapshot(); !reflect.DeepEqual(got, data) {
 		t.Fatalf("pre-existing rows changed:\nbefore=%#v\nafter=%#v", data, got)
+	}
+	// The rebuild adds only the account subject: every copied row has none.
+	var oldWithAccount int
+	if err := s.db.QueryRow(`SELECT count(*) FROM notifications WHERE pending_user_id IS NOT NULL`).Scan(&oldWithAccount); err != nil {
+		t.Fatal(err)
+	}
+	if oldWithAccount != 0 {
+		t.Errorf("pre-existing notifications with an account subject = %d, want 0", oldWithAccount)
+	}
+	var deliveryRows int
+	if err := s.db.QueryRow(`SELECT count(*) FROM notification_emails`).Scan(&deliveryRows); err != nil {
+		t.Fatal(err)
+	}
+	if deliveryRows != 2 {
+		t.Errorf("notification_emails rows after the rebuild = %d, want 2 (no delivery row is cascaded away)", deliveryRows)
 	}
 	var n int
 	if err := s.db.QueryRow(`SELECT count(*) FROM users WHERE pending<>0`).Scan(&n); err != nil || n != 0 {

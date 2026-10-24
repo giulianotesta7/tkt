@@ -56,11 +56,13 @@ func openPre0027(t *testing.T) *Store {
 }
 
 // TestMigration0027KeepsTheNotificationsShape compares the table as the
-// 0023 migration left it with the table the whole migration set produces, so a
-// column, foreign key, or index that drifts during the rebuild is a red test.
+// 0027 migration itself leaves it with the table it found, so a column, foreign
+// key, or index that drifts during THAT vocabulary-only rebuild is a red test.
+// 0034 rebuilds the table again to add the ticketless account kind; that shape
+// is pinned in migration_0034_notifications_test.go.
 func TestMigration0027KeepsTheNotificationsShape(t *testing.T) {
 	before := notificationsSchema(t, openPre0027(t))
-	after := notificationsSchema(t, newTestDB(t))
+	after := notificationsSchema(t, openThrough(t, "0027_notification_kinds_hold_expiry.sql"))
 	if len(before) == 0 {
 		t.Fatal("pre-0027 notifications schema is empty")
 	}

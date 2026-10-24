@@ -69,6 +69,11 @@ const (
 	// inactivity window (domain.InactivityWorkingDays). A ticket waiting on
 	// the requester (on hold) never reaches this state.
 	NotificationNoMovement NotificationKind = "no_movement"
+	// NotificationCompanyAccountPending: a company sign-in created an account
+	// that waits for an administrator's approval (issue #419, S3). It is the
+	// one kind that is not about a ticket: it announces the pending account
+	// itself, so it names that account instead of a ticket.
+	NotificationCompanyAccountPending NotificationKind = "company_account_pending"
 )
 
 // notificationKinds is the single copy of the vocabulary. The migration's
@@ -92,6 +97,7 @@ var notificationKinds = []NotificationKind{
 	NotificationSLAResolutionAtRisk,
 	NotificationSLAResolutionBreached,
 	NotificationNoMovement,
+	NotificationCompanyAccountPending,
 }
 
 // Valid reports whether k is one of the persisted kinds. Unknown values are
@@ -113,21 +119,28 @@ func (k NotificationKind) IsComment() bool {
 }
 
 // Notification is one entry of a user's in-app notification center (issue
-// #344). It records WHO has to learn something, WHICH ticket it is about, and
-// WHAT happened as a kind plus structured facts — never a rendered sentence
-// (S15), so the same row renders in English or Spanish at render time.
+// #344). It records WHO has to learn something, WHICH subject it is about — a
+// ticket, or the account waiting for approval — and WHAT happened as a kind
+// plus structured facts — never a rendered sentence (S15), so the same row
+// renders in English or Spanish at render time.
 //
 // Recipients are computed by the application layer (policy and roles); the
-// store only inserts what it is given, inside the transaction of the ticket
-// change being described (S11).
+// store only inserts what it is given, inside the transaction of the change
+// being described (S11).
 type Notification struct {
 	ID int64
 	// UserID is the recipient — the single user this row is addressed to.
 	UserID int64
 	// TicketID is the ticket the notification is about. The panel opens it,
-	// and the ticket detail re-checks access on open (S16).
+	// and the ticket detail re-checks access on open (S16). It is 0 for the
+	// account kind, which is about an account rather than a ticket and stores
+	// no ticket at all.
 	TicketID int64
 	Kind     NotificationKind
+	// PendingUserID is the account waiting for approval. It is set by the
+	// account kind alone, whose subject is that account rather than a ticket;
+	// every ticket kind leaves it nil.
+	PendingUserID *int64
 	// ActorUserID is the user whose action caused the notification; NULL
 	// means the system did it (automatic assignment, workflow events).
 	// It is never the recipient: nobody is notified about their own action.
@@ -151,8 +164,8 @@ type Notification struct {
 
 // Validate enforces the invariants every stored notification must satisfy.
 // The application layer filters recipients (S10); this is the last check
-// before the row joins the ticket change's transaction, so a self-addressed
-// or unrenderable notification can never be persisted.
+// before the row joins its change's transaction, so a self-addressed or
+// unrenderable notification can never be persisted.
 //
 // A failure here is a programming or policy bug, not a user mistake: the
 // caller aborts the whole unit of work. It therefore returns
@@ -165,8 +178,31 @@ func (n Notification) Validate() error {
 	if n.UserID <= 0 {
 		return &NotificationInvariantError{Field: "user_id", Message: notifMsgRecipientRequired}
 	}
-	if n.TicketID <= 0 {
-		return &NotificationInvariantError{Field: "ticket_id", Message: notifMsgTicketRequired}
+	// A stored notification names exactly one subject: the ticket it is about,
+	// or — for the account kind — the account waiting for approval.
+	if n.Kind == NotificationCompanyAccountPending {
+		if n.TicketID != 0 {
+			return &NotificationInvariantError{Field: "ticket_id", Message: notifMsgTicketUnexpected}
+		}
+		if n.PendingUserID == nil || *n.PendingUserID <= 0 {
+			return &NotificationInvariantError{Field: "pending_user_id", Message: notifMsgPendingUserRequired}
+		}
+		if n.FromValue != nil {
+			return &NotificationInvariantError{Field: "from_value", Message: notifMsgAccountFactUnexpected}
+		}
+		if n.ToValue != nil {
+			return &NotificationInvariantError{Field: "to_value", Message: notifMsgAccountFactUnexpected}
+		}
+		if n.StepIndex != nil {
+			return &NotificationInvariantError{Field: "step_index", Message: notifMsgAccountFactUnexpected}
+		}
+	} else {
+		if n.TicketID <= 0 {
+			return &NotificationInvariantError{Field: "ticket_id", Message: notifMsgTicketRequired}
+		}
+		if n.PendingUserID != nil {
+			return &NotificationInvariantError{Field: "pending_user_id", Message: notifMsgPendingUserUnexpected}
+		}
 	}
 	if n.CreatedAt.IsZero() {
 		return &NotificationInvariantError{Field: "created_at", Message: notifMsgCreatedAtRequired}
@@ -199,11 +235,15 @@ func (e *NotificationInvariantError) Error() string { return e.Message }
 // person, so they carry no catalogue key (contrast the ErrMsg* constants in
 // errors.go, which are the English half of user-facing copy).
 const (
-	notifMsgKindInvalid       = "invalid notification kind"
-	notifMsgRecipientRequired = "notification recipient is required"
-	notifMsgTicketRequired    = "notification ticket is required"
-	notifMsgCreatedAtRequired = "notification creation instant is required"
-	notifMsgSelfRecipient     = "a notification cannot be sent to the actor who caused it"
-	notifMsgCommentRequired   = "comment notification requires its comment id"
-	notifMsgCommentUnexpected = "only comment notifications carry a comment id"
+	notifMsgKindInvalid           = "invalid notification kind"
+	notifMsgRecipientRequired     = "notification recipient is required"
+	notifMsgTicketRequired        = "notification ticket is required"
+	notifMsgTicketUnexpected      = "a company account notification is not about a ticket"
+	notifMsgCreatedAtRequired     = "notification creation instant is required"
+	notifMsgSelfRecipient         = "a notification cannot be sent to the actor who caused it"
+	notifMsgCommentRequired       = "comment notification requires its comment id"
+	notifMsgCommentUnexpected     = "only comment notifications carry a comment id"
+	notifMsgPendingUserRequired   = "company account notification requires the account waiting for approval"
+	notifMsgPendingUserUnexpected = "only a company account notification carries a pending account"
+	notifMsgAccountFactUnexpected = "a company account notification carries no ticket facts"
 )
