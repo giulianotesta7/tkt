@@ -1796,13 +1796,16 @@ func (f *fakePasswordSettingsStore) SetPasswordSettings(_ context.Context, setti
 
 // fakePasswordChangeStore is the in-memory PasswordChangeStore double for the
 // own-password change (issue #414, S2). It writes through the two other fakes,
-// so a service-level test can assert the hash AND the surviving sessions. Three
+// so a service-level test can assert the hash AND the surviving sessions. Four
 // documented simplifications: the hash update and the session delete happen in
 // one untorn step standing in for the real immediate transaction (a test that
 // needs a real rollback belongs to the sqlite layer), an unknown user is
 // answered before anything is written, like the real store's rows-affected
-// check, and the keep session is resolved before either write so a session that
-// belongs to another account (or to nobody) is refused with nothing changed.
+// check, the write is the same compare-and-set the real store performs — a
+// stored hash that is no longer the expected one is refused with the shared
+// current-password refusal and changes nothing — and the keep session is
+// resolved before either write so a session that belongs to another account (or
+// to nobody) is refused with nothing changed.
 type fakePasswordChangeStore struct {
 	users    *fakeUserStore
 	sessions *fakeSessionStore
@@ -1815,11 +1818,14 @@ func newFakePasswordChangeStore(users *fakeUserStore, sessions *fakeSessionStore
 	return &fakePasswordChangeStore{users: users, sessions: sessions}
 }
 
-func (f *fakePasswordChangeStore) ChangePasswordAndSignOutOtherSessions(_ context.Context, userID int64, passwordHash, keepSessionID string) error {
+func (f *fakePasswordChangeStore) ChangePasswordAndSignOutOtherSessions(_ context.Context, userID int64, expectedPasswordHash, passwordHash, keepSessionID string) error {
 	f.calls++
 	u, ok := f.users.users[userID]
 	if !ok {
 		return &domain.NotFoundError{Kind: "user", ID: userID}
+	}
+	if u.PasswordHash != expectedPasswordHash {
+		return application.CurrentPasswordRefusal()
 	}
 	kept, ok := f.sessions.sessions[keepSessionID]
 	if !ok {

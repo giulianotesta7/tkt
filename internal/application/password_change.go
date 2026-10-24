@@ -14,6 +14,20 @@ import (
 // it cannot be used to probe an account.
 const ErrMsgCurrentPasswordIncorrect = "the current password is incorrect"
 
+// CurrentPasswordRefusal builds the field refusal that carries
+// ErrMsgCurrentPasswordIncorrect. Two situations answer with it: a current
+// password that does not verify, and a submission whose account was changed
+// after it verified — the write port's compare-and-set reports the latter, so a
+// lost race is indistinguishable from a mistyped password and the person simply
+// retries.
+func CurrentPasswordRefusal() *domain.ValidationError {
+	return &domain.ValidationError{
+		Field:   "current_password",
+		Message: ErrMsgCurrentPasswordIncorrect,
+		Key:     "error.current_password_incorrect",
+	}
+}
+
 // WithPasswordChangeStore wires the atomic write an own-password change needs
 // (issue #414, S2): the new hash and the sign-out of every other session commit
 // together. Without it the use case refuses instead of hashing a secret nobody
@@ -58,11 +72,7 @@ func (s *UserService) ChangeOwnPassword(ctx context.Context, actor domain.User, 
 		return domain.NewForbiddenError("a password change needs the session making the request")
 	}
 	if !VerifyPassword(user.PasswordHash, currentPassword) {
-		return &domain.ValidationError{
-			Field:   "current_password",
-			Message: ErrMsgCurrentPasswordIncorrect,
-			Key:     "error.current_password_incorrect",
-		}
+		return CurrentPasswordRefusal()
 	}
 	if err := ValidateNewPassword(newPassword, policy.MinLength); err != nil {
 		return err
@@ -76,5 +86,9 @@ func (s *UserService) ChangeOwnPassword(ctx context.Context, actor domain.User, 
 		// was never persisted is the one outcome the store exists to prevent.
 		return errors.New("the password change store is not wired")
 	}
-	return s.passwordChanges.ChangePasswordAndSignOutOtherSessions(ctx, user.ID, hash, currentSessionID)
+	// The hash the current password was just verified against travels with the
+	// write, so the store only applies it while that hash is still the stored
+	// one: two submissions that both verified the old password cannot both be
+	// stored, and the one that lost answers the current-password refusal.
+	return s.passwordChanges.ChangePasswordAndSignOutOtherSessions(ctx, user.ID, user.PasswordHash, hash, currentSessionID)
 }

@@ -126,6 +126,58 @@ func assertOwnPasswordUnchanged(t *testing.T, f *ownPasswordFixture, want ownPas
 	}
 }
 
+// racingPasswordChangeStore replaces the stored hash immediately before the
+// atomic write runs, standing in for a concurrent change that lands between this
+// request's current-password verification and its store call. Everything else it
+// delegates to the in-memory write double.
+type racingPasswordChangeStore struct {
+	inner *fakePasswordChangeStore
+	hash  string
+}
+
+func (r *racingPasswordChangeStore) ChangePasswordAndSignOutOtherSessions(ctx context.Context, userID int64, expectedPasswordHash, passwordHash, keepSessionID string) error {
+	if stored, ok := r.inner.users.users[userID]; ok {
+		stored.PasswordHash = r.hash
+	}
+	return r.inner.ChangePasswordAndSignOutOtherSessions(ctx, userID, expectedPasswordHash, passwordHash, keepSessionID)
+}
+
+// TestChangeOwnPasswordRefusesWhenTheStoredHashMovedAfterVerification proves the
+// use case surfaces the write port's compare-and-set refusal: a submission whose
+// current password verified, but whose account was changed by another request
+// before the write, answers the SAME current-password field refusal a wrong
+// password gets, and the password the other change stored — with every session —
+// survives untouched. Without it the losing submission silently replaced the
+// winner's password and signed the winner out of the account.
+func TestChangeOwnPasswordRefusesWhenTheStoredHashMovedAfterVerification(t *testing.T) {
+	f := newOwnPasswordFixture(t)
+	winnerHash, err := application.HashPassword("winner-pass-12")
+	if err != nil {
+		t.Fatalf("hash the winning password: %v", err)
+	}
+	sessionsBefore := f.state(t, f.actor).sessions
+	f.svc.WithPasswordChangeStore(&racingPasswordChangeStore{inner: f.changes, hash: winnerHash})
+
+	err = f.svc.ChangeOwnPassword(context.Background(), f.actor, "sess-current", ownCurrentPassword, ownNextPassword)
+	var verr *domain.ValidationError
+	if !errors.As(err, &verr) {
+		t.Fatalf("ChangeOwnPassword after a concurrent change = %v, want a ValidationError", err)
+	}
+	if verr.Field != "current_password" || verr.Key != "error.current_password_incorrect" {
+		t.Errorf("refusal field/key = %q/%q, want current_password/error.current_password_incorrect", verr.Field, verr.Key)
+	}
+	stored := f.state(t, f.actor)
+	if stored.hash != winnerHash {
+		t.Error("the losing submission replaced the password the winning change stored")
+	}
+	if !reflect.DeepEqual(stored.sessions, sessionsBefore) {
+		t.Errorf("sessions after the refused change = %v, want %v", stored.sessions, sessionsBefore)
+	}
+	if f.changes.calls != 1 {
+		t.Errorf("the atomic store write ran %d times, want 1", f.changes.calls)
+	}
+}
+
 // TestChangeOwnPasswordRefusesAForeignCurrentSession covers the store guard at
 // the use case: a request naming ANOTHER account's session changes nothing for
 // either account. The write path refuses it, and the service must surface that

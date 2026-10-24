@@ -1308,7 +1308,16 @@ type PasswordChangeStore interface {
 	// The user's pending recovery links are voided in the same transaction,
 	// because a link mailed before the change must never set a password after
 	// it.
-	ChangePasswordAndSignOutOtherSessions(ctx context.Context, userID int64, passwordHash, keepSessionID string) error
+	//
+	// The hash write is a compare-and-set against expectedPasswordHash: the very
+	// hash the caller verified the current password against. Two submissions can
+	// both verify the old password before either writes, and without this check
+	// the second one silently replaces the password the first one stored, and
+	// the person who believes the change succeeded is signed out of it. A stored
+	// hash that is no longer expectedPasswordHash refuses the whole unit — before
+	// a session or a pending link is touched — with the shared
+	// current-password refusal, the same one a wrong current password gets.
+	ChangePasswordAndSignOutOtherSessions(ctx context.Context, userID int64, expectedPasswordHash, passwordHash, keepSessionID string) error
 }
 
 // PasswordResetStore persists the single-use recovery links of the self-service
