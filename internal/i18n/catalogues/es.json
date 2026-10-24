@@ -1118,5 +1118,14 @@
   "workflow.type.form": "Pedir información",
   "workflow.type.manual_task": "Dar una tarea al agente",
   "workflow.type.resolve_ticket": "Marcar el ticket como resuelto",
-  "workflow.type.unknown": "Paso del flujo"
+  "workflow.type.unknown": "Paso del flujo",
+  "error.company_signin_new_accounts": "elige qué crea un primer inicio de sesión",
+  "error.password_signin_needs_provider": "activa el inicio de sesión con Google o Microsoft antes de desactivar el acceso con contraseña",
+  "error.company_signin_address": "ingresa la dirección pública de TKT, como https://tkt.example.com",
+  "error.company_signin_domains": "ingresa al menos un dominio, uno por línea, como example.com",
+  "error.company_signin_google_client_id": "ingresa el Client ID de Google",
+  "error.company_signin_google_client_secret": "ingresa el Client secret de Google",
+  "error.company_signin_tenant_id": "ingresa el Directory (tenant) ID, un GUID como 0f8fad5b-d9cb-469f-a165-70867728950e",
+  "error.company_signin_microsoft_client_id": "ingresa el Client ID de Microsoft",
+  "error.company_signin_microsoft_client_secret": "ingresa el Client secret de Microsoft"
 }

@@ -233,13 +233,13 @@ func (s *CompanySignInSettingsService) Update(ctx context.Context, actor domain.
 		},
 	}
 	if next.NewAccounts != NewAccountsRequester && next.NewAccounts != NewAccountsPending {
-		return companySignInError("company_signin_new_accounts", "choose what a first sign-in creates", "error.company_signin_new_accounts")
+		return &domain.ValidationError{Field: "company_signin_new_accounts", Message: "choose what a first sign-in creates", Key: "error.company_signin_new_accounts"}
 	}
 	if !next.PasswordSignInEnabled && !next.Google.Enabled && !next.Microsoft.Enabled {
-		return companySignInError("password_signin_enabled", "turn on Google or Microsoft sign-in before turning password sign-in off", "error.password_signin_needs_provider")
+		return &domain.ValidationError{Field: "password_signin_enabled", Message: "turn on Google or Microsoft sign-in before turning password sign-in off", Key: "error.password_signin_needs_provider"}
 	}
 	if (next.Google.Enabled || next.Microsoft.Enabled || next.Address != "") && !isPublicBaseURL(next.Address) {
-		return companySignInError("company_signin_address", "enter the public address of TKT, such as https://tkt.example.com", "error.company_signin_address")
+		return &domain.ValidationError{Field: "company_signin_address", Message: "enter the public address of TKT, such as https://tkt.example.com", Key: "error.company_signin_address"}
 	}
 
 	// The domain list is validated whether Google is on or off: it is what the
@@ -249,11 +249,11 @@ func (s *CompanySignInSettingsService) Update(ctx context.Context, actor domain.
 	googleSecret := strings.TrimSpace(in.Google.ClientSecret)
 	switch {
 	case !domainsOK || (next.Google.Enabled && len(domains) == 0):
-		return companySignInError("google_domains", "enter at least one domain, one per line, such as example.com", "error.company_signin_domains")
+		return &domain.ValidationError{Field: "google_domains", Message: "enter at least one domain, one per line, such as example.com", Key: "error.company_signin_domains"}
 	case next.Google.Enabled && next.Google.ClientID == "":
-		return companySignInError("google_client_id", "enter the Google client ID", "error.company_signin_client_id")
+		return &domain.ValidationError{Field: "google_client_id", Message: "enter the Google Client ID", Key: "error.company_signin_google_client_id"}
 	case next.Google.Enabled && googleSecret == "" && next.Google.SealedSecret == "":
-		return companySignInError("google_client_secret", "enter the Google client secret", "error.company_signin_client_secret")
+		return &domain.ValidationError{Field: "google_client_secret", Message: "enter the Google Client secret", Key: "error.company_signin_google_client_secret"}
 	}
 	next.Google.Domains = domains
 
@@ -261,11 +261,11 @@ func (s *CompanySignInSettingsService) Update(ctx context.Context, actor domain.
 	if next.Microsoft.Enabled {
 		switch {
 		case !tenantIDPattern.MatchString(next.Microsoft.TenantID):
-			return companySignInError("microsoft_tenant_id", "enter the directory (tenant) ID, a GUID such as 0f8fad5b-d9cb-469f-a165-70867728950e", "error.company_signin_tenant_id")
+			return &domain.ValidationError{Field: "microsoft_tenant_id", Message: "enter the Directory (tenant) ID, a GUID such as 0f8fad5b-d9cb-469f-a165-70867728950e", Key: "error.company_signin_tenant_id"}
 		case next.Microsoft.ClientID == "":
-			return companySignInError("microsoft_client_id", "enter the Microsoft client ID", "error.company_signin_client_id")
+			return &domain.ValidationError{Field: "microsoft_client_id", Message: "enter the Microsoft Client ID", Key: "error.company_signin_microsoft_client_id"}
 		case microsoftSecret == "" && next.Microsoft.SealedSecret == "":
-			return companySignInError("microsoft_client_secret", "enter the Microsoft client secret", "error.company_signin_client_secret")
+			return &domain.ValidationError{Field: "microsoft_client_secret", Message: "enter the Microsoft Client secret", Key: "error.company_signin_microsoft_client_secret"}
 		}
 	}
 
@@ -312,8 +312,4 @@ func parseGoogleDomains(text string) ([]string, bool) {
 		}
 	}
 	return domains, true
-}
-
-func companySignInError(field, message, key string) *domain.ValidationError {
-	return &domain.ValidationError{Field: field, Message: message, Key: key}
 }
