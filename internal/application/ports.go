@@ -522,14 +522,17 @@ type UserStore interface {
 	// Delete removes an unreferenced user; ErrReferenced when the user is
 	// assigned to tickets (deactivation is the removal path then).
 	Delete(ctx context.Context, id int64) error
-	// GetByID returns the user, including inactive ones (historical display);
-	// ErrNotFound when absent.
+	// GetByID returns the user, including inactive ones (historical display),
+	// with the pending flag an account waiting for approval carries; ErrNotFound
+	// when absent.
 	GetByID(ctx context.Context, id int64) (*domain.User, error)
 	// GetByEmail returns the user by email; ErrNotFound when absent.
 	GetByEmail(ctx context.Context, email string) (*domain.User, error)
 	// Count returns the number of users (first-user bootstrap check, D16).
 	Count(ctx context.Context) (int, error)
-	// List returns all users.
+	// List returns all managed users. An account that waits for approval is
+	// not one of them: it belongs to PendingUserStore.ListPending (issue #419,
+	// S3), so no ordinary user list exposes it.
 	List(ctx context.Context) ([]domain.User, error)
 	// ListActive returns only active users.
 	ListActive(ctx context.Context) ([]domain.User, error)
@@ -550,6 +553,22 @@ type UserStore interface {
 	// It fails closed when a root already exists or the user is unknown —
 	// recovery never guesses and never creates a second root.
 	RecoverRoot(ctx context.Context, id int64) (*domain.User, error)
+}
+
+// PendingUserStore persists the company sign-in accounts that wait for an
+// administrator's approval (issue #419, S3). It is a port of its own rather
+// than more methods on UserStore because the Pending tab is the only surface
+// that reaches such an account: ordinary user management never does.
+type PendingUserStore interface {
+	// ListPending answers every account waiting for approval, ordered by id.
+	// Those accounts are inactive as well, so no other list reaches them.
+	ListPending(ctx context.Context) ([]domain.User, error)
+	// ApprovePending activates each named account, clears its pending flag, and
+	// grants the chosen role in ONE immediate transaction: an unknown id, an
+	// account that is no longer pending, a repeated id, an invalid or root
+	// role, or an empty selection changes nothing at all. Approval never grants
+	// a privilege of its own (S9) and never creates or promotes a root.
+	ApprovePending(ctx context.Context, approvals []PendingApproval, actorID int64, at time.Time) ([]domain.User, error)
 }
 
 // SessionStore persists server-side login sessions (D14).

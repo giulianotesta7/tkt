@@ -786,6 +786,54 @@ func (f *fakeUserStore) ListActive(_ context.Context) ([]domain.User, error) {
 	return out, nil
 }
 
+// ListPending mirrors the real store's Pending tab read (issue #419, S3).
+func (f *fakeUserStore) ListPending(_ context.Context) ([]domain.User, error) {
+	ids := make([]int64, 0, len(f.users))
+	for id, u := range f.users {
+		if u.Pending {
+			ids = append(ids, id)
+		}
+	}
+	sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
+	var out []domain.User
+	for _, id := range ids {
+		out = append(out, *f.users[id])
+	}
+	return out, nil
+}
+
+// ApprovePending mirrors the real store's atomic bulk approval: the batch is
+// validated and every entry checked before anything is written, so a refused
+// batch changes nothing (issue #419, S3).
+func (f *fakeUserStore) ApprovePending(_ context.Context, approvals []application.PendingApproval, actorID int64, _ time.Time) ([]domain.User, error) {
+	if err := application.ValidatePendingApprovals(approvals); err != nil {
+		return nil, err
+	}
+	for _, approval := range approvals {
+		if approval.Role == domain.RoleRoot {
+			return nil, domain.NewRootProtectedError()
+		}
+	}
+	for _, approval := range approvals {
+		u, ok := f.users[approval.ID]
+		if !ok || !u.Pending || u.Role == domain.RoleRoot {
+			return nil, &domain.NotFoundError{Kind: "user", ID: approval.ID}
+		}
+	}
+	var approved []domain.User
+	for _, approval := range approvals {
+		u := f.users[approval.ID]
+		if u.Role != approval.Role {
+			f.roleChanges = append(f.roleChanges, fakeRoleChange{actorID: actorID})
+		}
+		u.Role = approval.Role
+		u.Active = true
+		u.Pending = false
+		approved = append(approved, *u)
+	}
+	return approved, nil
+}
+
 // fakeSessionStore implements SessionStore with lazy purge of expired
 // sessions (D14). Expiry is checked against the injected clock (D7), never
 // the real time — otherwise tests pass only while the fixed fake clock date

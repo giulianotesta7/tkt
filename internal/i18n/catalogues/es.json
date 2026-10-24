@@ -1130,5 +1130,7 @@
   "error.company_signin_google_client_secret": "ingresa el Client secret de Google",
   "error.company_signin_tenant_id": "ingresa el Directory (tenant) ID, un GUID como 0f8fad5b-d9cb-469f-a165-70867728950e",
   "error.company_signin_microsoft_client_id": "ingresa el Client ID de Microsoft",
-  "error.company_signin_microsoft_client_secret": "ingresa el Client secret de Microsoft"
+  "error.company_signin_microsoft_client_secret": "ingresa el Client secret de Microsoft",
+  "error.pending_approval_selection_required": "Selecciona al menos una cuenta para aprobar.",
+  "error.pending_approval_duplicate_account": "Una cuenta aparece más de una vez."
 }
