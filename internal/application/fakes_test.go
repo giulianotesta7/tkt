@@ -608,6 +608,15 @@ func (f *fakeUserStore) seedRole(name, email string, role domain.Role, active bo
 
 func (f *fakeUserStore) markReferenced(id int64) { f.referenced[id] = true }
 
+// seedPending inserts a requester that waits for approval directly (test
+// arrange): inactive, with the pending flag the company sign-in decision reads
+// (issue #419, S3).
+func (f *fakeUserStore) seedPending(name, email string) domain.User {
+	u := f.seedRole(name, email, domain.RoleUser, false)
+	f.users[u.ID].Pending = true
+	return *f.users[u.ID]
+}
+
 func (f *fakeUserStore) Create(_ context.Context, u *domain.User) error {
 	if _, dup := f.byEmail[u.Email]; dup {
 		return &domain.DuplicateError{Kind: "user", Name: u.Email}
@@ -1983,4 +1992,197 @@ func (f *fakeCompanySignInStore) SetCompanySignIn(_ context.Context, settings ap
 	f.settings = settings
 	f.stored = true
 	return nil
+}
+
+// fakeCompanyIdentityStore is the in-memory CompanyIdentityStore double for the
+// company sign-in flow (issue #419). Simplifications, documented per the fakes
+// contract: the attempt table is a map keyed by state hash, which reproduces the
+// real primary key and the delete-on-consume rule; identities are a slice and
+// the account they point at lives in the fake user store, so the pending flag
+// and the role are the ones that store holds; the two uniques
+// ((issuer, subject) and (user_id, provider)) are checked before the write, which
+// is what the real table's constraints do; a state hash never collides here.
+type fakeCompanyIdentityStore struct {
+	users          *fakeUserStore
+	attempts       map[string]application.CompanySignInAttempt
+	identities     []*application.CompanyIdentity
+	nextIdentityID int64
+	purges         []time.Time
+	// failNextCreate makes the next CreateUserWithIdentity behave like a lost
+	// race: the hook runs first (the winning flow's rows), then the call
+	// answers ErrCompanyIdentityTaken and stores nothing.
+	failNextCreate bool
+	beforeCreate   func()
+}
+
+var _ application.CompanyIdentityStore = (*fakeCompanyIdentityStore)(nil)
+
+func newFakeCompanyIdentityStore(users *fakeUserStore) *fakeCompanyIdentityStore {
+	return &fakeCompanyIdentityStore{
+		users:          users,
+		attempts:       map[string]application.CompanySignInAttempt{},
+		nextIdentityID: 1,
+	}
+}
+
+func (f *fakeCompanyIdentityStore) CreateAttempt(_ context.Context, attempt *application.CompanySignInAttempt) error {
+	if _, dup := f.attempts[attempt.StateHash]; dup {
+		return errors.New("duplicate state hash")
+	}
+	f.attempts[attempt.StateHash] = *attempt
+	return nil
+}
+
+func (f *fakeCompanyIdentityStore) ConsumeAttempt(_ context.Context, stateHash string) (*application.CompanySignInAttempt, error) {
+	attempt, ok := f.attempts[stateHash]
+	if !ok {
+		return nil, &domain.NotFoundError{Kind: "sign-in attempt", ID: stateHash}
+	}
+	delete(f.attempts, stateHash)
+	return &attempt, nil
+}
+
+func (f *fakeCompanyIdentityStore) PurgeExpiredAttempts(_ context.Context, before time.Time) (int, error) {
+	f.purges = append(f.purges, before)
+	purged := 0
+	for hash, attempt := range f.attempts {
+		if attempt.ExpiresAt.Before(before) {
+			delete(f.attempts, hash)
+			purged++
+		}
+	}
+	return purged, nil
+}
+
+func (f *fakeCompanyIdentityStore) ResolveIdentity(_ context.Context, provider application.CompanyProvider, issuer, subject string) (*application.CompanyIdentity, *domain.User, error) {
+	for _, identity := range f.identities {
+		if identity.Provider != provider || identity.Issuer != issuer || identity.Subject != subject {
+			continue
+		}
+		user, err := f.users.GetByID(context.Background(), identity.UserID)
+		if err != nil {
+			return nil, nil, err
+		}
+		cp := *identity
+		return &cp, user, nil
+	}
+	return nil, nil, &domain.NotFoundError{Kind: "user identity", ID: subject}
+}
+
+func (f *fakeCompanyIdentityStore) UsersByEmail(_ context.Context, email string) ([]domain.User, error) {
+	all, err := f.users.List(context.Background())
+	if err != nil {
+		return nil, err
+	}
+	var out []domain.User
+	for _, u := range all {
+		if strings.EqualFold(u.Email, email) {
+			out = append(out, u)
+		}
+	}
+	return out, nil
+}
+
+func (f *fakeCompanyIdentityStore) CreateUserWithIdentity(_ context.Context, user *domain.User, identity *application.CompanyIdentity) error {
+	if f.failNextCreate {
+		f.failNextCreate = false
+		if f.beforeCreate != nil {
+			f.beforeCreate()
+		}
+		return application.ErrCompanyIdentityTaken
+	}
+	if f.hasIdentity(identity.Provider, identity.Issuer, identity.Subject) {
+		return application.ErrCompanyIdentityTaken
+	}
+	if err := f.users.Create(context.Background(), user); err != nil {
+		return err
+	}
+	cp := *identity
+	cp.ID = f.nextIdentityID
+	f.nextIdentityID++
+	cp.UserID = user.ID
+	f.identities = append(f.identities, &cp)
+	return nil
+}
+
+func (f *fakeCompanyIdentityStore) LinkIdentity(_ context.Context, identity *application.CompanyIdentity) error {
+	for _, existing := range f.identities {
+		if existing.UserID == identity.UserID && existing.Provider == identity.Provider {
+			return application.ErrCompanyIdentityTaken
+		}
+	}
+	cp := *identity
+	cp.ID = f.nextIdentityID
+	f.nextIdentityID++
+	f.identities = append(f.identities, &cp)
+	return nil
+}
+
+func (f *fakeCompanyIdentityStore) TouchIdentity(_ context.Context, identityID int64, email string, at time.Time) error {
+	for _, identity := range f.identities {
+		if identity.ID == identityID {
+			identity.Email = email
+			identity.LastSignInAt = at
+			return nil
+		}
+	}
+	return &domain.NotFoundError{Kind: "user identity", ID: identityID}
+}
+
+func (f *fakeCompanyIdentityStore) hasIdentity(provider application.CompanyProvider, issuer, subject string) bool {
+	for _, identity := range f.identities {
+		if identity.Provider == provider && identity.Issuer == issuer && identity.Subject == subject {
+			return true
+		}
+	}
+	return false
+}
+
+// seedIdentity links an account to a provider identity directly (test arrange).
+func (f *fakeCompanyIdentityStore) seedIdentity(userID int64, provider application.CompanyProvider, issuer, subject, email string) {
+	f.identities = append(f.identities, &application.CompanyIdentity{
+		ID: f.nextIdentityID, UserID: userID, Provider: provider, Issuer: issuer, Subject: subject, Email: email,
+	})
+	f.nextIdentityID++
+}
+
+// fakeCompanyIdentityProvider is the CompanyIdentityProvider double: it answers
+// a predictable URL and the claims the test gave it. Simplifications, per the
+// fakes contract: the nonce, state, signature and lifetime checks belong to the
+// adapter (internal/adapters/oidc), so this double only records the request it
+// was handed and returns the arranged claims.
+type fakeCompanyIdentityProvider struct {
+	authURL     string
+	claims      application.CompanyIdentityClaims
+	exchangeErr error
+	requests    []application.CompanyAuthorizationRequest
+	codes       []string
+}
+
+var _ application.CompanyIdentityProvider = (*fakeCompanyIdentityProvider)(nil)
+
+func (f *fakeCompanyIdentityProvider) AuthorizationURL(_ context.Context, _ application.CompanyProviderCredentials, req application.CompanyAuthorizationRequest) (string, error) {
+	f.requests = append(f.requests, req)
+	return f.authURL + "?state=" + req.State, nil
+}
+
+func (f *fakeCompanyIdentityProvider) Exchange(_ context.Context, _ application.CompanyProviderCredentials, req application.CompanyAuthorizationRequest, code string) (application.CompanyIdentityClaims, error) {
+	f.requests = append(f.requests, req)
+	f.codes = append(f.codes, code)
+	if f.exchangeErr != nil {
+		return application.CompanyIdentityClaims{}, f.exchangeErr
+	}
+	return f.claims, nil
+}
+
+// fakeApprovalNotifier records the accounts a pending first sign-in announced
+// (the seam for the administrator notification).
+type fakeApprovalNotifier struct {
+	accounts []domain.User
+	err      error
+}
+
+func (f *fakeApprovalNotifier) AccountAwaitingApproval(_ context.Context, account domain.User) error {
+	f.accounts = append(f.accounts, account)
+	return f.err
 }

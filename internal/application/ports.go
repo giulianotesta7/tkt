@@ -534,6 +534,76 @@ type SessionStore interface {
 	Delete(ctx context.Context, id string) error
 }
 
+// CompanyIdentity is one provider identity linked to an account (issue #419,
+// S7). Issuer and Subject are what later sign-ins resolve on — the pair the ID
+// token calls iss and sub — so a changed email at the provider still reaches
+// this row. Email is the address last seen at the provider, kept for
+// administration.
+type CompanyIdentity struct {
+	ID           int64
+	UserID       int64
+	Provider     CompanyProvider
+	Issuer       string
+	Subject      string
+	Email        string
+	CreatedAt    time.Time
+	LastSignInAt time.Time
+}
+
+// CompanySignInAttempt is one authorization in flight (issue #419). It is
+// addressed by the SHA-256 hex digest of the flow's random state, never by the
+// state itself, and it is deleted by the callback that consumes it, which is
+// what makes a callback single use.
+type CompanySignInAttempt struct {
+	StateHash    string
+	Provider     CompanyProvider
+	Nonce        string
+	CodeVerifier string
+	CreatedAt    time.Time
+	ExpiresAt    time.Time
+}
+
+// CompanyIdentityStore persists the provider links and the in-flight
+// authorizations of the company sign-in flow (issue #419).
+type CompanyIdentityStore interface {
+	// CreateAttempt stores one authorization in flight, keyed by its state
+	// hash. The row is never returned to a browser; the flow keeps the state.
+	CreateAttempt(ctx context.Context, attempt *CompanySignInAttempt) error
+	// ConsumeAttempt deletes the attempt for stateHash and returns it, so a
+	// callback can be answered at most once. ErrNotFound when no attempt
+	// exists, including one already consumed. Expiry is the caller's check:
+	// both instants travel with the row and the decision uses the injected
+	// clock.
+	ConsumeAttempt(ctx context.Context, stateHash string) (*CompanySignInAttempt, error)
+	// PurgeExpiredAttempts deletes every attempt whose ExpiresAt is before
+	// the given instant and reports how many it removed. A flow that was
+	// started and never came back leaves nothing behind for long.
+	PurgeExpiredAttempts(ctx context.Context, before time.Time) (int, error)
+	// ResolveIdentity answers the account and the identity linked to
+	// (provider, issuer, subject), or ErrNotFound when that provider identity
+	// was never seen. The account is returned with its pending state, which
+	// the sign-in decision needs.
+	ResolveIdentity(ctx context.Context, provider CompanyProvider, issuer, subject string) (*CompanyIdentity, *domain.User, error)
+	// UsersByEmail answers every account whose email matches case-
+	// insensitively, ordered by id. The caller links only when exactly one
+	// account matches; two accounts differing in case are an ambiguity, not a
+	// choice.
+	UsersByEmail(ctx context.Context, email string) ([]domain.User, error)
+	// CreateUserWithIdentity stores the account and its provider identity in
+	// ONE transaction: an account created for a first sign-in is never left
+	// without the link that identifies it. It returns
+	// ErrCompanyIdentityTaken when either the account's email or the identity
+	// pair was created concurrently, and then stores nothing.
+	CreateUserWithIdentity(ctx context.Context, user *domain.User, identity *CompanyIdentity) error
+	// LinkIdentity attaches a provider identity to an existing account. It
+	// returns ErrCompanyIdentityTaken when that account already holds an
+	// identity for the same provider.
+	LinkIdentity(ctx context.Context, identity *CompanyIdentity) error
+	// TouchIdentity records the email last seen at the provider and the
+	// instant of this sign-in on an existing identity.
+	TouchIdentity(ctx context.Context, identityID int64, email string, at time.Time) error
+}
+
 // CategoryStore persists managed categories (category-management spec).
 type CategoryStore interface {
 	// Create stores c, assigning c.ID; ErrDuplicate when the name exists.
