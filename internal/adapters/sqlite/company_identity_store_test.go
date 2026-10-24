@@ -308,3 +308,94 @@ func TestCompanyIdentityStoreIdentityGoesWithTheAccount(t *testing.T) {
 		t.Errorf("ResolveIdentity after the account was deleted = %v, want ErrNotFound (ON DELETE CASCADE)", err)
 	}
 }
+
+// TestResolveIdentityAnswersTheLinkedAccountID is S7 on the real driver: a
+// stored identity resolves to the account it belongs to. The in-memory fake
+// cannot catch a lost id, so this read is pinned here.
+func TestResolveIdentityAnswersTheLinkedAccountID(t *testing.T) {
+	s, store := newCompanyIdentityTestStore(t)
+	ctx := context.Background()
+	id := seedUser(t, s, "Ana", "ana@example.com", true)
+	link := &application.CompanyIdentity{
+		UserID: id, Provider: application.ProviderGoogle, Issuer: "https://accounts.google.com", Subject: "subject",
+		Email: "ana@example.com", CreatedAt: testClock, LastSignInAt: testClock,
+	}
+	if err := store.LinkIdentity(ctx, link); err != nil {
+		t.Fatalf("LinkIdentity: %v", err)
+	}
+	got, user, err := store.ResolveIdentity(ctx, application.ProviderGoogle, link.Issuer, link.Subject)
+	if err != nil {
+		t.Fatalf("ResolveIdentity: %v", err)
+	}
+	if user.ID != id || got.UserID != id {
+		t.Fatalf("resolved user.ID = %d, identity.UserID = %d; want %d", user.ID, got.UserID, id)
+	}
+}
+
+type repeatSignInClock struct{}
+
+func (repeatSignInClock) Now() time.Time { return testClock }
+
+type repeatSignInConfig struct{}
+
+func (repeatSignInConfig) Get(context.Context) (application.CompanySignInSettings, error) {
+	return application.CompanySignInSettings{
+		Address: "https://tkt.example.com", NewAccounts: application.NewAccountsRequester,
+		Google: application.GoogleSignIn{Enabled: true, ClientID: "client", SealedSecret: "secret", Domains: []string{"example.com"}},
+	}, nil
+}
+
+func (repeatSignInConfig) ClientSecret(context.Context, application.CompanyProvider) (string, error) {
+	return "secret", nil
+}
+
+type repeatSignInProvider struct{ email string }
+
+func (*repeatSignInProvider) AuthorizationURL(context.Context, application.CompanyProviderCredentials, application.CompanyAuthorizationRequest) (string, error) {
+	return "https://accounts.google.com/auth", nil
+}
+
+func (p *repeatSignInProvider) Exchange(context.Context, application.CompanyProviderCredentials, application.CompanyAuthorizationRequest, string) (application.CompanyIdentityClaims, error) {
+	return application.CompanyIdentityClaims{
+		Issuer: "https://accounts.google.com", Subject: "subject", Email: p.email, EmailVerified: true, HostedDomain: "example.com",
+	}, nil
+}
+
+// TestRepeatCompanySignInAfterAnEmailChangeKeepsTheAccount is S7 end to end
+// on the real store and session table: the second sign-in, after the provider
+// changed the email, signs the SAME account in and creates no other.
+func TestRepeatCompanySignInAfterAnEmailChangeKeepsTheAccount(t *testing.T) {
+	s, store := newCompanyIdentityTestStore(t)
+	ctx := context.Background()
+	provider := &repeatSignInProvider{email: "ana@example.com"}
+	service := application.NewCompanySignInService(repeatSignInConfig{}, store, provider, newSessionStore(s.db), nil, repeatSignInClock{})
+	complete := func() (application.CompanySignInOutcome, error) {
+		start, err := service.Begin(ctx, application.ProviderGoogle)
+		if err != nil {
+			return application.CompanySignInOutcome{}, err
+		}
+		return service.Complete(ctx, application.CompanySignInCallback{
+			Provider: application.ProviderGoogle, CookieState: start.State, QueryState: start.State, Code: "code",
+		})
+	}
+
+	first, err := complete()
+	if err != nil || first.Kind != application.CompanySignInSignedIn {
+		t.Fatalf("first sign-in = %+v, %v", first, err)
+	}
+	provider.email = "ana.changed@example.com"
+	second, err := complete()
+	if err != nil {
+		t.Fatalf("repeat sign-in after an email change: %v", err)
+	}
+	if second.Kind != application.CompanySignInSignedIn || second.User.ID != first.User.ID || second.Session.UserID != first.User.ID {
+		t.Fatalf("first = %+v, second = %+v; want the same account signed in", first, second)
+	}
+	var users int
+	if err := s.db.QueryRow(`SELECT COUNT(*) FROM users`).Scan(&users); err != nil {
+		t.Fatal(err)
+	}
+	if users != 1 {
+		t.Fatalf("users = %d, want 1", users)
+	}
+}

@@ -135,7 +135,7 @@ func (cs *companyIdentityStore) ResolveIdentity(ctx context.Context, provider ap
 		return nil, nil, fmt.Errorf("sqlite: read user identity: %w", err)
 	}
 	identity.Provider = application.CompanyProvider(providerDB)
-	identity.UserID = user.ID
+	user.ID = identity.UserID
 	identity.CreatedAt, err = time.Parse(timeLayout, createdAt)
 	if err != nil {
 		return nil, nil, fmt.Errorf("sqlite: parse identity created_at %q: %w", createdAt, err)
