@@ -738,3 +738,250 @@ func TestCompanySignInOperationalFailureIsReportedNotRefused(t *testing.T) {
 		t.Fatal("Complete with unavailable settings = nil error, want the failure")
 	}
 }
+
+// Administrator notice of a first pending account (issue #419, S3/S9/S11): the
+// flow decides WHO is told that an account waits for approval, and the store
+// writes that batch with the account, its identity, and nothing else. These
+// tests pin the recipient policy (active managers only, one notice each, never
+// the person who is waiting), that only the FIRST creation announces anything,
+// and that a refusal announces nothing.
+
+// noticeRecipients answers the recipients of the recorded notices, in the order
+// the store was handed them.
+func (h *companySignInHarness) noticeRecipients() []int64 {
+	ids := make([]int64, 0, len(h.identities.notices))
+	for _, n := range h.identities.notices {
+		ids = append(ids, n.UserID)
+	}
+	return ids
+}
+
+// assertNoticesAboutCreatedAccount proves every recorded notice has the shape
+// the store persists: the account kind, the created account as its subject, no
+// ticket, no actor, and the injected instant.
+func (h *companySignInHarness) assertNoticesAboutCreatedAccount(t *testing.T, accountID int64) {
+	t.Helper()
+	for _, n := range h.identities.notices {
+		if n.Kind != domain.NotificationCompanyAccountPending {
+			t.Errorf("notice kind = %q, want %q", n.Kind, domain.NotificationCompanyAccountPending)
+		}
+		if n.TicketID != 0 {
+			t.Errorf("notice ticket = %d, want 0 (an account announcement is about no ticket)", n.TicketID)
+		}
+		if n.PendingUserID == nil || *n.PendingUserID != accountID {
+			t.Errorf("notice subject = %v, want the created account %d", n.PendingUserID, accountID)
+		}
+		if n.ActorUserID != nil {
+			t.Errorf("notice actor = %d, want none (the instance created the account)", *n.ActorUserID)
+		}
+		if !n.CreatedAt.Equal(h.clock.Now()) {
+			t.Errorf("notice created at = %v, want the injected instant %v", n.CreatedAt, h.clock.Now())
+		}
+	}
+}
+
+// TestCompanySignInPendingCreationNotifiesActiveManagers proves the recipient
+// matrix: a first sign-in that creates a pending account tells every ACTIVE
+// account the role policy lets approve one — admin and root — and nobody else.
+// An agent and a requester cannot approve, a deactivated administrator cannot
+// sign in at all, a pending one is still waiting, and the account that waits is
+// the person who just arrived.
+func TestCompanySignInPendingCreationNotifiesActiveManagers(t *testing.T) {
+	h := newCompanySignInHarness()
+	h.settings.settings.NewAccounts = application.NewAccountsPending
+	root := h.users.seedRole("Rita", "rita@example.com", domain.RoleRoot, true)
+	admin := h.users.seedRole("Ada", "ada@example.com", domain.RoleAdmin, true)
+	h.users.seedRole("Abe", "abe@example.com", domain.RoleAgent, true)
+	h.users.seedRole("Uma", "uma@example.com", domain.RoleUser, true)
+	h.users.seedRole("Iris", "iris@example.com", domain.RoleAdmin, false)
+	h.users.seedPending("Pia", "pia@example.com")
+
+	out := h.signIn(t, application.ProviderGoogle, googleClaims("sub-1", "ana@example.com"))
+	if out.Kind != application.CompanySignInPending {
+		t.Fatalf("outcome = %q/%q, want pending", out.Kind, out.Reason)
+	}
+	if out.Session != nil {
+		t.Errorf("pending outcome carried session %q, want none", out.Session.ID)
+	}
+	recipients := map[int64]bool{}
+	for _, n := range h.identities.notices {
+		if recipients[n.UserID] {
+			t.Errorf("recipient %d was told twice", n.UserID)
+		}
+		recipients[n.UserID] = true
+	}
+	if len(h.identities.notices) != 2 || !recipients[root.ID] || !recipients[admin.ID] {
+		t.Fatalf("notice recipients = %v, want exactly the active administrator %d and root %d",
+			h.noticeRecipients(), admin.ID, root.ID)
+	}
+	h.assertNoticesAboutCreatedAccount(t, out.User.ID)
+	if recipients[out.User.ID] {
+		t.Error("the account waiting for approval was told about itself")
+	}
+	if out.User.Role != domain.RoleUser {
+		t.Errorf("pending role = %q, want user (a notice grants no privilege)", out.User.Role)
+	}
+	if len(h.sessions.sessions) != 0 {
+		t.Errorf("sessions = %d, want 0 for a pending account", len(h.sessions.sessions))
+	}
+}
+
+// TestCompanySignInNotifiesEachManagerOnce proves the plan cannot address one
+// account twice: whatever the roster read answers — a repeated row, an inactive
+// one, an agent, or a row without an id — the batch carries one notice per
+// recipient.
+func TestCompanySignInNotifiesEachManagerOnce(t *testing.T) {
+	h := newCompanySignInHarness()
+	h.settings.settings.NewAccounts = application.NewAccountsPending
+	admin := h.users.seedRole("Ada", "ada@example.com", domain.RoleAdmin, true)
+	h.identities.candidates = []domain.User{
+		admin,
+		admin,
+		{ID: 0, Role: domain.RoleRoot, Active: true},
+		{ID: 90, Role: domain.RoleAdmin, Active: false},
+		{ID: 91, Role: domain.RoleAgent, Active: true},
+	}
+
+	out := h.signIn(t, application.ProviderGoogle, googleClaims("sub-1", "ana@example.com"))
+	if out.Kind != application.CompanySignInPending {
+		t.Fatalf("outcome = %q/%q, want pending", out.Kind, out.Reason)
+	}
+	if got := h.noticeRecipients(); len(got) != 1 || got[0] != admin.ID {
+		t.Fatalf("notice recipients = %v, want exactly [%d]", got, admin.ID)
+	}
+}
+
+// TestCompanySignInPendingCreationWithoutAnActiveManagerCreatesTheAccount
+// proves a missing recipient is not a missing account: with nobody able to
+// approve, the account is still created and waits, and the batch is empty.
+func TestCompanySignInPendingCreationWithoutAnActiveManagerCreatesTheAccount(t *testing.T) {
+	h := newCompanySignInHarness()
+	h.settings.settings.NewAccounts = application.NewAccountsPending
+	h.users.seedRole("Abe", "abe@example.com", domain.RoleAgent, true)
+
+	out := h.signIn(t, application.ProviderGoogle, googleClaims("sub-1", "ana@example.com"))
+	if out.Kind != application.CompanySignInPending || out.User == nil {
+		t.Fatalf("outcome = %q/%q, want the pending account", out.Kind, out.Reason)
+	}
+	if len(h.identities.notices) != 0 {
+		t.Errorf("notice recipients = %v, want none", h.noticeRecipients())
+	}
+	if len(h.users.users) != 2 {
+		t.Errorf("accounts = %d, want the seeded agent and the created account", len(h.users.users))
+	}
+}
+
+// TestCompanySignInNotifiesOnlyOnTheFirstPendingCreation proves the announcement
+// belongs to the creation and to nothing else: a requester-mode creation, a
+// repeated sign-in of an account that already waits, a link to an existing
+// account, and a refusal all tell nobody.
+func TestCompanySignInNotifiesOnlyOnTheFirstPendingCreation(t *testing.T) {
+	t.Run("requester creation", func(t *testing.T) {
+		h := newCompanySignInHarness()
+		h.users.seedRole("Ada", "ada@example.com", domain.RoleAdmin, true)
+
+		if out := h.signIn(t, application.ProviderGoogle, googleClaims("sub-1", "ana@example.com")); out.Kind != application.CompanySignInSignedIn {
+			t.Fatalf("outcome = %q/%q, want signed_in", out.Kind, out.Reason)
+		}
+		if len(h.identities.notices) != 0 {
+			t.Errorf("notice recipients = %v, want none (a requester account waits for nobody)", h.noticeRecipients())
+		}
+	})
+
+	t.Run("repeated sign-in", func(t *testing.T) {
+		h := newCompanySignInHarness()
+		h.settings.settings.NewAccounts = application.NewAccountsPending
+		h.users.seedRole("Ada", "ada@example.com", domain.RoleAdmin, true)
+		if out := h.signIn(t, application.ProviderGoogle, googleClaims("sub-1", "ana@example.com")); out.Kind != application.CompanySignInPending {
+			t.Fatalf("first sign-in = %q/%q, want pending", out.Kind, out.Reason)
+		}
+		accounts := len(h.users.users)
+
+		if out := h.signIn(t, application.ProviderGoogle, googleClaims("sub-1", "ana@example.com")); out.Kind != application.CompanySignInPending {
+			t.Fatalf("repeat sign-in = %q/%q, want pending", out.Kind, out.Reason)
+		}
+		if len(h.identities.notices) != 1 {
+			t.Errorf("notice recipients after the repeat = %v, want the one from the creation", h.noticeRecipients())
+		}
+		if len(h.users.users) != accounts {
+			t.Errorf("accounts after the repeat = %d, want %d", len(h.users.users), accounts)
+		}
+	})
+
+	t.Run("linked existing account", func(t *testing.T) {
+		h := newCompanySignInHarness()
+		h.settings.settings.NewAccounts = application.NewAccountsPending
+		h.users.seedRole("Ada", "ada@example.com", domain.RoleAdmin, true)
+		h.users.seedRole("Ana", "ana@example.com", domain.RoleAgent, true)
+
+		if out := h.signIn(t, application.ProviderGoogle, googleClaims("sub-1", "ana@example.com")); out.Kind != application.CompanySignInSignedIn {
+			t.Fatalf("outcome = %q/%q, want signed_in", out.Kind, out.Reason)
+		}
+		if len(h.identities.notices) != 0 {
+			t.Errorf("notice recipients = %v, want none (linking creates no account)", h.noticeRecipients())
+		}
+		if h.identities.identities[0].Email != "ana@example.com" {
+			t.Errorf("linked identity = %+v, want the provider identity", h.identities.identities[0])
+		}
+	})
+
+	t.Run("deactivated account", func(t *testing.T) {
+		h := newCompanySignInHarness()
+		h.settings.settings.NewAccounts = application.NewAccountsPending
+		h.users.seedRole("Ada", "ada@example.com", domain.RoleAdmin, true)
+		h.users.seedRole("Ana", "ana@example.com", domain.RoleUser, false)
+
+		out := h.signIn(t, application.ProviderGoogle, googleClaims("sub-1", "ana@example.com"))
+		assertRefused(t, out, application.CompanySignInDeactivated)
+		if len(h.identities.notices) != 0 {
+			t.Errorf("notice recipients = %v, want none for a refusal", h.noticeRecipients())
+		}
+		if len(h.users.users) != 2 || len(h.identities.identities) != 0 {
+			t.Errorf("accounts/identities = %d/%d, want the two seeded accounts and no link",
+				len(h.users.users), len(h.identities.identities))
+		}
+	})
+
+	t.Run("a refused sign-in", func(t *testing.T) {
+		h := newCompanySignInHarness()
+		h.settings.settings.NewAccounts = application.NewAccountsPending
+		h.users.seedRole("Ada", "ada@example.com", domain.RoleAdmin, true)
+		claims := googleClaims("sub-1", "ana@elsewhere.com")
+		claims.HostedDomain = "elsewhere.com"
+
+		assertRefused(t, h.signIn(t, application.ProviderGoogle, claims), application.CompanySignInOutsideDomain)
+		if len(h.identities.notices) != 0 {
+			t.Errorf("notice recipients = %v, want none for a refusal", h.noticeRecipients())
+		}
+		if len(h.users.users) != 1 || len(h.identities.identities) != 0 {
+			t.Errorf("accounts/identities = %d/%d, want the seeded administrator and no link",
+				len(h.users.users), len(h.identities.identities))
+		}
+	})
+}
+
+// TestCompanySignInReportsARosterFailureWithoutCreatingTheAccount proves the
+// recipients are read before the account is written: when the roster cannot be
+// read, the flow reports the failure and creates no account, no identity, and no
+// notice, so a pending account is never stored unannounced.
+func TestCompanySignInReportsARosterFailureWithoutCreatingTheAccount(t *testing.T) {
+	h := newCompanySignInHarness()
+	h.settings.settings.NewAccounts = application.NewAccountsPending
+	h.users.seedRole("Ada", "ada@example.com", domain.RoleAdmin, true)
+	h.identities.activeUsersErr = errors.New("roster unavailable")
+
+	start := h.start(t, application.ProviderGoogle)
+	h.provider.claims = googleClaims("sub-1", "ana@example.com")
+	if _, err := h.service.Complete(context.Background(), application.CompanySignInCallback{
+		Provider: application.ProviderGoogle, CookieState: start.State, QueryState: start.State, Code: "auth-code",
+	}); err == nil {
+		t.Fatal("Complete with an unreadable roster = nil error, want the failure")
+	}
+	if len(h.users.users) != 1 || len(h.identities.identities) != 0 || len(h.identities.notices) != 0 {
+		t.Errorf("accounts/identities/notices = %d/%d/%d, want only the seeded administrator",
+			len(h.users.users), len(h.identities.identities), len(h.identities.notices))
+	}
+	if len(h.sessions.sessions) != 0 {
+		t.Errorf("sessions = %d, want 0", len(h.sessions.sessions))
+	}
+}

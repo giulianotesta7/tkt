@@ -129,7 +129,7 @@ func TestCompanyIdentityStoreCreateUserWithIdentityIsAtomic(t *testing.T) {
 	err := store.CreateUserWithIdentity(ctx, &lost, &application.CompanyIdentity{
 		Provider: application.ProviderGoogle, Issuer: "https://accounts.google.com", Subject: "sub-1",
 		Email: "bo@example.com", CreatedAt: testClock, LastSignInAt: testClock,
-	})
+	}, nil)
 	if !errors.Is(err, application.ErrCompanyIdentityTaken) {
 		t.Fatalf("CreateUserWithIdentity with a taken identity = %v, want ErrCompanyIdentityTaken", err)
 	}
@@ -153,7 +153,7 @@ func TestCompanyIdentityStoreCreatesThePendingAccountAndItsLink(t *testing.T) {
 		Provider: application.ProviderGoogle, Issuer: "https://accounts.google.com", Subject: "sub-1",
 		Email: "ana@example.com", CreatedAt: testClock, LastSignInAt: testClock,
 	}
-	if err := store.CreateUserWithIdentity(ctx, &user, identity); err != nil {
+	if err := store.CreateUserWithIdentity(ctx, &user, identity, nil); err != nil {
 		t.Fatalf("CreateUserWithIdentity: %v", err)
 	}
 	if user.ID == 0 || identity.UserID != user.ID {
@@ -262,7 +262,7 @@ func TestCompanyIdentityStoreTouchIdentityRecordsTheEmailAndInstant(t *testing.T
 		Provider: application.ProviderGoogle, Issuer: "https://accounts.google.com", Subject: "sub-1",
 		Email: "ana@example.com", CreatedAt: testClock, LastSignInAt: testClock,
 	}
-	if err := store.CreateUserWithIdentity(ctx, &user, identity); err != nil {
+	if err := store.CreateUserWithIdentity(ctx, &user, identity, nil); err != nil {
 		t.Fatalf("CreateUserWithIdentity: %v", err)
 	}
 

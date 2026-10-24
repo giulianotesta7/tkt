@@ -2070,7 +2070,10 @@ func (f *fakeCompanySignInStore) SetCompanySignIn(_ context.Context, settings ap
 // the account they point at lives in the fake user store, so the pending flag
 // and the role are the ones that store holds; the two uniques
 // ((issuer, subject) and (user_id, provider)) are checked before the write, which
-// is what the real table's constraints do; a state hash never collides here.
+// is what the real table's constraints do; a state hash never collides here; and
+// the notices a pending creation carries are stamped with the account id the fake
+// is about to assign and validated before the write, so a rejected batch stores
+// nothing — the rollback the real transaction performs.
 type fakeCompanyIdentityStore struct {
 	users          *fakeUserStore
 	attempts       map[string]application.CompanySignInAttempt
@@ -2082,6 +2085,16 @@ type fakeCompanyIdentityStore struct {
 	// answers ErrCompanyIdentityTaken and stores nothing.
 	failNextCreate bool
 	beforeCreate   func()
+	// notices records the account announcements the service asked the store to
+	// write with the account it created, stamped the way the real store stamps
+	// them (issue #419, S3): the pending account as the subject and no ticket.
+	notices []domain.Notification
+	// candidates, when not nil, is the roster ActiveUsers answers instead of the
+	// active accounts of the user store, so a test can arrange a duplicate row or
+	// a roster the user store would never answer.
+	candidates []domain.User
+	// activeUsersErr makes ActiveUsers fail, the way a roster read can fail.
+	activeUsersErr error
 }
 
 var _ application.CompanyIdentityStore = (*fakeCompanyIdentityStore)(nil)
@@ -2156,7 +2169,7 @@ func (f *fakeCompanyIdentityStore) UsersByEmail(_ context.Context, email string)
 	return out, nil
 }
 
-func (f *fakeCompanyIdentityStore) CreateUserWithIdentity(_ context.Context, user *domain.User, identity *application.CompanyIdentity) error {
+func (f *fakeCompanyIdentityStore) CreateUserWithIdentity(_ context.Context, user *domain.User, identity *application.CompanyIdentity, notifications []domain.Notification) error {
 	if f.failNextCreate {
 		f.failNextCreate = false
 		if f.beforeCreate != nil {
@@ -2167,6 +2180,20 @@ func (f *fakeCompanyIdentityStore) CreateUserWithIdentity(_ context.Context, use
 	if f.hasIdentity(identity.Provider, identity.Issuer, identity.Subject) {
 		return application.ErrCompanyIdentityTaken
 	}
+	// The account's own id is the subject of every notice, exactly as the real
+	// store stamps it (issue #419, S3). The fake knows the id it is about to
+	// assign, so the batch is stamped and validated BEFORE the write: a rejected
+	// notice stores neither the account nor the identity, which is the rollback
+	// the real transaction performs.
+	batch := make([]domain.Notification, 0, len(notifications))
+	for _, n := range notifications {
+		subject := f.users.nextID
+		n.PendingUserID = &subject
+		if err := n.Validate(); err != nil {
+			return err
+		}
+		batch = append(batch, n)
+	}
 	if err := f.users.Create(context.Background(), user); err != nil {
 		return err
 	}
@@ -2175,7 +2202,20 @@ func (f *fakeCompanyIdentityStore) CreateUserWithIdentity(_ context.Context, use
 	f.nextIdentityID++
 	cp.UserID = user.ID
 	f.identities = append(f.identities, &cp)
+	f.notices = append(f.notices, batch...)
 	return nil
+}
+
+// ActiveUsers answers the roster the recipient policy filters (issue #419, S3):
+// every active account, pending ones excluded, exactly like the real read.
+func (f *fakeCompanyIdentityStore) ActiveUsers(_ context.Context) ([]domain.User, error) {
+	if f.activeUsersErr != nil {
+		return nil, f.activeUsersErr
+	}
+	if f.candidates != nil {
+		return append([]domain.User(nil), f.candidates...), nil
+	}
+	return f.users.ListActive(context.Background())
 }
 
 func (f *fakeCompanyIdentityStore) LinkIdentity(_ context.Context, identity *application.CompanyIdentity) error {

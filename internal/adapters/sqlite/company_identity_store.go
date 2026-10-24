@@ -177,12 +177,14 @@ func (cs *companyIdentityStore) UsersByEmail(ctx context.Context, email string) 
 	return out, nil
 }
 
-// CreateUserWithIdentity stores the account and its provider link in ONE
-// immediate transaction. A UNIQUE failure — the account's email or the
-// (issuer, subject) pair — rolls the whole pair back and answers
-// ErrCompanyIdentityTaken, which the flow reads as a lost race and answers by
-// repeating the lookup.
-func (cs *companyIdentityStore) CreateUserWithIdentity(ctx context.Context, user *domain.User, identity *application.CompanyIdentity) error {
+// CreateUserWithIdentity stores the account, its provider link, and the notices
+// that announce it in ONE immediate transaction: an account created for a first
+// sign-in is never left without the link that identifies it, nor without the
+// news of its arrival (issue #419, S3/S11). A UNIQUE failure — the account's
+// email or the (issuer, subject) pair — or a rejected notice rolls the whole set
+// back and answers ErrCompanyIdentityTaken (the uniques) or the invariant error,
+// so nothing is ever stored while its announcement is not.
+func (cs *companyIdentityStore) CreateUserWithIdentity(ctx context.Context, user *domain.User, identity *application.CompanyIdentity, notifications []domain.Notification) error {
 	tx, err := beginImmediate(ctx, cs.db, "create company account")
 	if err != nil {
 		return err
@@ -211,10 +213,52 @@ func (cs *companyIdentityStore) CreateUserWithIdentity(ctx context.Context, user
 		}
 		return err
 	}
+	if err := appendAccountNoticesTx(ctx, tx, id, notifications); err != nil {
+		return err
+	}
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("sqlite: commit company account: %w", err)
 	}
 	return nil
+}
+
+// appendAccountNoticesTx writes the pending-account announcements of the account
+// the same transaction just created. The account's id exists by now, so each
+// notice is stamped with it as the subject it names — a company account
+// announcement carries the account and no ticket — and the batch then goes
+// through appendNotificationsTx, which validates every row and writes it, so a
+// policy bug aborts the creation instead of storing an unrenderable notice. The
+// kind is checked here as well: this path announces ONE fact, and a caller that
+// hands it a ticket kind is a policy bug, not a notification to store.
+func appendAccountNoticesTx(ctx context.Context, tx *sql.Tx, accountID int64, notifications []domain.Notification) error {
+	if len(notifications) == 0 {
+		return nil
+	}
+	batch := make([]domain.Notification, 0, len(notifications))
+	for _, n := range notifications {
+		if n.Kind != domain.NotificationCompanyAccountPending {
+			return &domain.NotificationInvariantError{Field: "kind", Message: notificationKindNotAccountAnnouncement}
+		}
+		subject := accountID
+		n.PendingUserID = &subject
+		batch = append(batch, n)
+	}
+	return appendNotificationsTx(ctx, tx, batch)
+}
+
+// notificationKindNotAccountAnnouncement is the internal wording of the one
+// invariant this append owns beyond the domain's own checks. It never reaches a
+// person: a kind the announcement path cannot produce is a policy bug that
+// aborts the account's transaction.
+const notificationKindNotAccountAnnouncement = "a created pending account announces only a company account notification"
+
+// ActiveUsers answers every active account, ordered by id, as the roster of
+// possible recipients of a pending-account announcement. It reuses the managed
+// user read, so a pending account — always inactive (0034) — is absent and an
+// inactive one never appears: the store answers facts, and the application
+// decides who among them is told (issue #419, S3).
+func (cs *companyIdentityStore) ActiveUsers(ctx context.Context) ([]domain.User, error) {
+	return newUserStore(cs.db).ListActive(ctx)
 }
 
 // LinkIdentity attaches a provider identity to an existing account. Either

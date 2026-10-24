@@ -636,12 +636,27 @@ type CompanyIdentityStore interface {
 	// account matches; two accounts differing in case are an ambiguity, not a
 	// choice.
 	UsersByEmail(ctx context.Context, email string) ([]domain.User, error)
+	// ActiveUsers answers every ACTIVE account, ordered by id, with the role and
+	// the pending state the caller's policy reads. It is a roster, not a
+	// decision: who must learn that an account waits for approval is computed by
+	// the application layer from these facts (issue #419, S3), and the store
+	// never selects recipients itself. A pending account is inactive, so it is
+	// absent here.
+	ActiveUsers(ctx context.Context) ([]domain.User, error)
 	// CreateUserWithIdentity stores the account and its provider identity in
 	// ONE transaction: an account created for a first sign-in is never left
 	// without the link that identifies it. It returns
 	// ErrCompanyIdentityTaken when either the account's email or the identity
 	// pair was created concurrently, and then stores nothing.
-	CreateUserWithIdentity(ctx context.Context, user *domain.User, identity *CompanyIdentity) error
+	//
+	// notifications are the notices that must commit with the account — the
+	// pending-account announcements the application computed for it (issue #419,
+	// S3/S11). They are appended in the SAME transaction, after the account's id
+	// exists, and each one carries its recipient, its kind, and its instant: the
+	// implementation stamps the created account as the subject, exactly as the
+	// ticket units of work stamp the ticket id. An empty batch stores no notice,
+	// and a rejected notice rolls the account and the identity back with it.
+	CreateUserWithIdentity(ctx context.Context, user *domain.User, identity *CompanyIdentity, notifications []domain.Notification) error
 	// LinkIdentity attaches a provider identity to an existing account. It
 	// returns ErrCompanyIdentityTaken when that account already holds an
 	// identity for the same provider.

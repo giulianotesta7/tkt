@@ -205,14 +205,16 @@ type CompanySignInConfiguration interface {
 }
 
 // CompanySignInApprovalNotifier is told when a first sign-in created an account
-// that waits for approval (S3). It is the seam for the administrator
-// notification: this flow never notifies on its own, and a service wired
-// without a notifier announces nothing.
+// that waits for approval (S3). The in-app notice itself is NOT raised here: the
+// flow computes the recipients and the store writes the batch inside the
+// account's own transaction, so the notice can never describe an account that
+// was rolled back. This seam is the optional post-commit announcement of the
+// same fact — for a channel that cannot join that transaction, such as an email
+// — and a service wired without a notifier announces nothing beyond the stored
+// notices.
 //
-// The announced fact is an account, not a ticket, so the notification it will
-// raise is a bell entry without one. That needs the notifications shape to grow
-// a kind that carries no ticket, which is a migration of its own; this flow only
-// calls the seam.
+// An implementation must not store the pending-account notice a second time:
+// that row already committed with the account.
 type CompanySignInApprovalNotifier interface {
 	AccountAwaitingApproval(ctx context.Context, account domain.User) error
 }
@@ -428,7 +430,17 @@ func (s *CompanySignInService) resolveAccountOnce(ctx context.Context, settings 
 	switch len(matches) {
 	case 0:
 		user := newCompanyAccount(settings, claims, email, now)
-		if err := s.store.CreateUserWithIdentity(ctx, &user, identity); err != nil {
+		// The notices commit with the account, so they are planned before the write
+		// and travel into its transaction (S3/S11). A requester account is
+		// announced to nobody, so its creation reads no roster at all.
+		var notices []domain.Notification
+		if user.Pending {
+			notices, err = s.approvalNotices(ctx, now)
+			if err != nil {
+				return companyResolution{}, "", err
+			}
+		}
+		if err := s.store.CreateUserWithIdentity(ctx, &user, identity, notices); err != nil {
 			return companyResolution{}, "", err
 		}
 		return companyResolution{User: user, Created: true}, "", nil
@@ -453,6 +465,49 @@ func (s *CompanySignInService) resolveAccountOnce(ctx context.Context, settings 
 		// choose between them.
 		return companyResolution{}, CompanySignInAmbiguousEmail, nil
 	}
+}
+
+// approvalNotices plans the administrator notices a newly created pending
+// account raises, reading the current roster through the store. The read happens
+// before the account exists, so the planning is a decision over stored users and
+// the injected instant, never over anything the flow invents.
+func (s *CompanySignInService) approvalNotices(ctx context.Context, at time.Time) ([]domain.Notification, error) {
+	candidates, err := s.store.ActiveUsers(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return companyApprovalNotices(candidates, at), nil
+}
+
+// companyApprovalNotices is the recipient policy of the pending-account notice
+// (S3): one notice per ACTIVE account whose role the policy lets approve a
+// waiting account — CapManageUsers, which today is admin and root (S9).
+//
+// The policy lives here, not in the store: the store answers the roster and the
+// application decides who is told. Three facts keep the batch honest. An account
+// that is not active cannot approve anything, so it is dropped. The person who
+// just arrived IS the account that waits — it has no row yet and a pending row
+// is never active — so it can never be a candidate of its own announcement. And
+// a candidate the roster names twice is told once: one account, one notice.
+func companyApprovalNotices(candidates []domain.User, at time.Time) []domain.Notification {
+	policy := NewPolicy()
+	seen := make(map[int64]bool, len(candidates))
+	notices := make([]domain.Notification, 0, len(candidates))
+	for _, candidate := range candidates {
+		if candidate.ID <= 0 || !candidate.Active || candidate.Pending || seen[candidate.ID] {
+			continue
+		}
+		if !policy.Capabilities(candidate.Role).Require(CapManageUsers) {
+			continue
+		}
+		seen[candidate.ID] = true
+		notices = append(notices, domain.Notification{
+			UserID:    candidate.ID,
+			Kind:      domain.NotificationCompanyAccountPending,
+			CreatedAt: at,
+		})
+	}
+	return notices
 }
 
 // companySignInRestriction applies the provider's own rule before any account
@@ -518,10 +573,10 @@ func (s *CompanySignInService) newSession(ctx context.Context, userID int64) (*d
 	return session, nil
 }
 
-// announceAwaitingApproval is the single seam of the administrator notification
-// a pending first sign-in will raise (S3). A service wired without a notifier
-// announces nothing; the call site is the one place a notifier has to be wired
-// into.
+// announceAwaitingApproval is the optional announcement of a pending first
+// sign-in (S3), made AFTER the account and its notices committed. A service
+// wired without a notifier announces nothing here; the in-app notice the bell
+// renders is the one stored with the account.
 func (s *CompanySignInService) announceAwaitingApproval(ctx context.Context, account domain.User) error {
 	if s.notifier == nil {
 		return nil
