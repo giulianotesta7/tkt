@@ -132,3 +132,108 @@ func TestTicketStoreRequesterNeedsActionKeepsTheOwnedScope(t *testing.T) {
 		t.Fatalf("unscoped Needs-your-action List = %v, want [107 106 103 102]", numbers(all))
 	}
 }
+
+// TestSearchServiceRequesterExportKeepsOwnTicketsOnly pins the requester export
+// scope against the real store (issue #425, S1/S5/S8): every state the My
+// tickets list can show — new, in progress on hold or not, resolved and closed
+// — comes back for the requester and for nobody else, cancelled work stays out
+// exactly as on the list, and no caller-supplied filter can select, widen or
+// narrow the file. The service chooses the scope, so the same query with a
+// crafted state set, on-hold flag, assignee or predicate must return the same
+// rows.
+func TestSearchServiceRequesterExportKeepsOwnTicketsOnly(t *testing.T) {
+	s := newTestDB(t)
+	ctx := context.Background()
+	alice := seedUser(t, s, "Alice", "alice@export.test", true)
+	bob := seedUser(t, s, "Bob", "bob@export.test", true)
+	categoryID := seedCategory(t, s, "Support")
+
+	at := func(minutes int) time.Time { return testClock.Add(time.Duration(minutes) * time.Minute) }
+	for _, ticket := range []domain.Ticket{
+		{Number: 101, Title: "Alice open", CategoryID: categoryID, RequesterUserID: &alice, Priority: domain.PriorityMedium, State: domain.StateNew, CreatedAt: at(0), UpdatedAt: at(0)},
+		{Number: 102, Title: "Alice working", CategoryID: categoryID, RequesterUserID: &alice, Priority: domain.PriorityMedium, State: domain.StateInProgress, CreatedAt: at(1), UpdatedAt: at(1)},
+		{Number: 103, Title: "Alice held", CategoryID: categoryID, RequesterUserID: &alice, Priority: domain.PriorityMedium, State: domain.StateInProgress, CreatedAt: at(2), UpdatedAt: at(2)},
+		{Number: 104, Title: "Alice resolved", CategoryID: categoryID, RequesterUserID: &alice, Priority: domain.PriorityMedium, State: domain.StateResolved, CreatedAt: at(3), UpdatedAt: at(3)},
+		{Number: 105, Title: "Alice closed", CategoryID: categoryID, RequesterUserID: &alice, Priority: domain.PriorityMedium, State: domain.StateClosed, CreatedAt: at(4), UpdatedAt: at(4)},
+		{Number: 106, Title: "Alice cancelled", CategoryID: categoryID, RequesterUserID: &alice, Priority: domain.PriorityMedium, State: domain.StateCancelled, CreatedAt: at(5), UpdatedAt: at(5)},
+		{Number: 107, Title: "Bob held", CategoryID: categoryID, RequesterUserID: &bob, Priority: domain.PriorityMedium, State: domain.StateInProgress, CreatedAt: at(6), UpdatedAt: at(6)},
+		{Number: 108, Title: "Bob resolved", CategoryID: categoryID, RequesterUserID: &bob, Priority: domain.PriorityMedium, State: domain.StateResolved, CreatedAt: at(7), UpdatedAt: at(7)},
+		{Number: 109, Title: "Bob closed", CategoryID: categoryID, RequesterUserID: &bob, Priority: domain.PriorityMedium, State: domain.StateClosed, CreatedAt: at(8), UpdatedAt: at(8)},
+	} {
+		seedTicket(t, s, ticket)
+	}
+	if _, err := s.db.ExecContext(ctx, `UPDATE tickets SET on_hold_since = ?, on_hold_reason = 'waiting for the requester' WHERE number IN (103, 107)`, at(9).Format(time.RFC3339)); err != nil {
+		t.Fatalf("set holds: %v", err)
+	}
+
+	svc := application.NewSearchService(s.TicketStore(), s.SearchStore())
+	aliceUser := domain.User{ID: alice, Name: "Alice", Email: "alice@export.test", Role: domain.RoleUser}
+	bobUser := domain.User{ID: bob, Name: "Bob", Email: "bob@export.test", Role: domain.RoleUser}
+
+	exported := func(actor domain.User, q application.TicketQuery) []int64 {
+		t.Helper()
+		var numbers []int64
+		if err := svc.Export(ctx, actor, q, func(ticket domain.Ticket) error {
+			numbers = append(numbers, int64(ticket.Number))
+			return nil
+		}); err != nil {
+			t.Fatalf("Export: %v", err)
+		}
+		return numbers
+	}
+	equal := func(got []int64, want ...int64) bool {
+		if len(got) != len(want) {
+			return false
+		}
+		for i := range got {
+			if got[i] != want[i] {
+				return false
+			}
+		}
+		return true
+	}
+
+	scope := application.TicketQuery{Section: application.TicketSectionRequesterExport}
+	if got := exported(aliceUser, scope); !equal(got, 105, 104, 103, 102, 101) {
+		t.Fatalf("requester export = %v, want [105 104 103 102 101] (every list section, newest first)", got)
+	}
+	// The file and the screen it was asked from must agree.
+	count, err := svc.Count(ctx, aliceUser, scope)
+	if err != nil {
+		t.Fatalf("Count: %v", err)
+	}
+	if count != 5 {
+		t.Fatalf("requester export Count = %d, want 5", count)
+	}
+
+	// Every filter a caller could send is overwritten by the scope the service
+	// chose, including the assignee filter a queue view would set.
+	crafted := []application.TicketQuery{
+		{Section: application.TicketSectionRequesterExport, State: ptr(domain.StateCancelled)},
+		{Section: application.TicketSectionRequesterExport, States: []domain.State{domain.StateCancelled}},
+		{Section: application.TicketSectionRequesterExport, States: []domain.State{domain.StateResolved, domain.StateClosed}},
+		{Section: application.TicketSectionRequesterExport, OnHold: true},
+		{Section: application.TicketSectionRequesterExport, NotOnHold: true},
+		{Section: application.TicketSectionRequesterExport, RequesterNeedsAction: true},
+		{Section: application.TicketSectionRequesterExport, Unassigned: true},
+		{Section: application.TicketSectionRequesterExport, UserID: &bob},
+	}
+	for index, query := range crafted {
+		if got := exported(aliceUser, query); !equal(got, 105, 104, 103, 102, 101) {
+			t.Fatalf("crafted=%d: requester export = %v, want the same five tickets", index, got)
+		}
+	}
+
+	// The search text still applies, on the title as on the list.
+	if got := exported(aliceUser, application.TicketQuery{Section: application.TicketSectionRequesterExport, Text: "Alice closed"}); !equal(got, 105) {
+		t.Fatalf("searched requester export = %v, want [105]", got)
+	}
+	if got := exported(aliceUser, application.TicketQuery{Section: application.TicketSectionRequesterExport, Text: "Alice"}); !equal(got, 105, 104, 103, 102, 101) {
+		t.Fatalf("searched requester export = %v, want the same five tickets", got)
+	}
+
+	// The other requester reads their own file, never Alice's.
+	if got := exported(bobUser, scope); !equal(got, 109, 108, 107) {
+		t.Fatalf("other requester export = %v, want [109 108 107]", got)
+	}
+}

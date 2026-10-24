@@ -83,6 +83,15 @@ func (h *TicketHandlers) exportTickets(w http.ResponseWriter, r *http.Request) {
 		httpError(w, r, "error.internal_server", http.StatusInternalServerError)
 		return
 	}
+	query := viewQuery(f, actor)
+	if actor.Role == domain.RoleUser {
+		// A requester's file is their WHOLE My tickets screen, not one section
+		// (issue #425, S1/S8): the held, resolved and closed work the list shows
+		// belongs in the download too. The handler names the scope because the
+		// server owns it — no query value can pick a section, widen the file to
+		// another requester, or narrow it to one state or view.
+		query.Section = application.TicketSectionRequesterExport
+	}
 	names := newExportNames(opts)
 	translator := h.metricsTranslator(r)
 	header := make([]string, 0, len(ticketExportColumns))
@@ -117,7 +126,7 @@ func (h *TicketHandlers) exportTickets(w http.ResponseWriter, r *http.Request) {
 		chunk = chunk[:0]
 		return nil
 	}
-	err = h.search.Export(r.Context(), actor, viewQuery(f, actor), func(t domain.Ticket) error {
+	err = h.search.Export(r.Context(), actor, query, func(t domain.Ticket) error {
 		chunk = append(chunk, t)
 		if len(chunk) < exportChunkSize {
 			return nil

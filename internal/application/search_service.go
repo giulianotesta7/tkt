@@ -87,8 +87,10 @@ const (
 //
 // It deliberately goes through the same scoped() preparation Search and Count
 // use, so an export can never return a row its own list would hide: a requester
-// exports their own active work, an agent what their scope allows, staff the
-// whole queue. visit returning an error stops the walk and is returned as is.
+// exports exactly the sections the server named for the download (a caller that
+// names none keeps their active work), an agent what their scope allows, staff
+// the whole queue. visit returning an error stops the walk and is returned as
+// is.
 func (s *SearchService) Export(ctx context.Context, actor domain.User, q TicketQuery, visit func(domain.Ticket) error) error {
 	scoped, hasText := s.scoped(actor, q)
 	for offset := 0; offset < ExportMaxRows; offset += ExportBatchSize {
@@ -131,6 +133,12 @@ func (s *SearchService) scoped(actor domain.User, q TicketQuery) (TicketQuery, b
 		// adapter has to know about presentation sections (issue #411).
 		q.State = nil
 		q.States, q.OnHold, q.NotOnHold, q.RequesterNeedsAction = requesterSectionScope(q.Section, q.OnHold)
+		if q.Section == TicketSectionRequesterExport {
+			// The export answers the whole list, so no queue filter (the assignee
+			// filters a view would add, or a priority or category) can narrow it
+			// either (issue #425, S8).
+			q.Unassigned, q.UserID, q.Priority, q.CategoryID = false, nil, nil, nil
+		}
 		q.Section = TicketSectionAll
 	}
 	q.Text, q.Numbers = BuildTitleQuery(q.Text)
@@ -138,10 +146,10 @@ func (s *SearchService) scoped(actor domain.User, q TicketQuery) (TicketQuery, b
 }
 
 // requesterSectionScope translates one requester presentation section into the
-// store predicates that define it (issue #411, S3/S4/S8). An unknown or absent
-// section keeps the pre-#411 behavior — active work only, with the caller's
-// own on-hold filter (the CSV export's view=on_hold) — so a caller that never
-// names a section can never widen a requester's read. Every arm returns a
+// store predicates that define it (issue #411, S3/S4/S8; the export section is
+// issue #425). An unknown or absent section keeps the pre-#411 behavior —
+// active work only, with the caller's own on-hold filter — so a caller that
+// never names a section can never widen a requester's read. Every arm returns a
 // fresh slice, so no caller can mutate another query's state set, and every
 // caller-supplied filter is overwritten here, including the Needs-your-action
 // predicate itself.
@@ -158,6 +166,13 @@ func requesterSectionScope(section TicketSection, callerOnHold bool) (states []d
 		return []domain.State{domain.StateClosed}, false, false, false
 	case TicketSectionRequesterOpen:
 		return []domain.State{domain.StateNew, domain.StateInProgress}, false, true, false
+	case TicketSectionRequesterExport:
+		// The download is the whole My tickets screen (issue #425, S8), so it
+		// carries the union of the three sections: active work on hold or not,
+		// the resolved tickets awaiting confirmation, and the closed ones.
+		// Cancelled work is absent exactly as it is absent from the list, and no
+		// on-hold flag narrows the set.
+		return []domain.State{domain.StateNew, domain.StateInProgress, domain.StateResolved, domain.StateClosed}, false, false, false
 	default:
 		return []domain.State{domain.StateNew, domain.StateInProgress}, callerOnHold, false, false
 	}
