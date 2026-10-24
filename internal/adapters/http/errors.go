@@ -136,6 +136,7 @@ var errorKey = map[string]string{
 	application.ErrMsgInvalidCredentials:                     "error.invalid_credentials",
 	application.ErrMsgCannedRepliesStaffOnly:                 "error.canned_replies_staff_only",
 	application.ErrMsgCannedReplyDeskManagement:              "error.canned_reply_desk_management",
+	application.ErrMsgFollowersStaffOnly:                     "error.followers_staff_only",
 	application.ErrMsgClosureRequiresConfirmation:            "error.closure_requires_confirmation",
 	application.ErrMsgNotTicketRequester:                     "error.not_ticket_requester",
 	"desk name is required":                                  "error.desk_name_required",

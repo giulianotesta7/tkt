@@ -62,6 +62,11 @@ type TicketHandlers struct {
 	// without the service (a focused test, an out-of-band render) behaves
 	// exactly as before wiring; WithCannedReplies turns it on.
 	savedReplies *application.CannedReplyService
+	// follows is the OPTIONAL follow and mention read (issue #418). Unset means
+	// the detail renders no follow control, no followers row, no mention list
+	// and registers no follow route, so an unwired handler behaves exactly as
+	// before wiring; WithFollows turns all four on.
+	follows *application.FollowService
 }
 
 // NewTicketHandlers wires the ticket routes against the ticket, comment,
@@ -119,6 +124,17 @@ func (h *TicketHandlers) WithClock(clock domain.Clock) *TicketHandlers {
 	return h
 }
 
+// WithFollows wires the follow and mention use cases into the ticket handlers
+// (issue #418): the detail's follow control, its followers row, the composer's
+// candidate list, and the two routes that change the subscription. It follows
+// the same fluent shape as the setters above, so the constructor keeps the
+// positional signature its call sites depend on, and a handler built without it
+// renders and routes exactly as it did before.
+func (h *TicketHandlers) WithFollows(follows *application.FollowService) *TicketHandlers {
+	h.follows = follows
+	return h
+}
+
 // WithCannedReplies wires the composer's saved-reply picker (issue #418). It
 // follows the fluent shape of WithClock, so the constructor keeps the
 // positional signature its existing call sites depend on. A nil or unset
@@ -156,6 +172,12 @@ func (h *TicketHandlers) Register(mux *http.ServeMux) {
 	// instead of panicking on a nil service.
 	if h.attachmentDownloads != nil {
 		mux.HandleFunc("GET /attachments/{id}", h.downloadAttachment)
+	}
+	// The follow routes exist only when WithFollows wired the use case (issue
+	// #418): a handler built without it answers the mux's 404, exactly like it
+	// did before the routes existed.
+	if h.follows != nil {
+		h.registerFollows(mux)
 	}
 }
 
@@ -1890,6 +1912,18 @@ type detailData struct {
 	// member can insert a reply, and no reply of a desk they do not belong to is
 	// ever part of it.
 	SavedReplies *application.CannedReplyPickerView
+	// Follow is the header's follow control (issue #418): present for a staff
+	// member who can already open the ticket, and nil for everybody else, so a
+	// requester and an out-of-scope agent receive no control at all.
+	Follow *detailFollow
+	// Followers is the Properties row: everybody following the ticket, marked so
+	// the reader recognises themselves. It is nil where the controls are nil, and
+	// its People are empty when nobody follows yet.
+	Followers *detailFollowers
+	// Mentions is the composer's candidate list (issue #418): the staff this
+	// ticket's comment may name. It is nil for a requester and for a ticket with
+	// no composer, and both mention inputs render it or nothing.
+	Mentions *mentionPickerView
 }
 
 // QueueHref is the detail's "← Queue" target: the validated list return href
@@ -2081,6 +2115,27 @@ func (h *TicketHandlers) detailDataFor(r *http.Request, id int64) (detailData, i
 		}
 		savedReplies = picker
 	}
+	// Following (issue #418): STAFF ONLY. The follow control and the followers
+	// row come from the same read the two routes apply, so an agent the ticket is
+	// out of reach for receives neither and learns nothing from the page.
+	var follow *detailFollow
+	var followers *detailFollowers
+	if canReadInternal {
+		follow, followers, err = h.followStateFor(r, actor, id)
+		if err != nil {
+			return detailData{}, statusFor(err), err
+		}
+	}
+	// The composer's mention list follows the composer: it is the staff this
+	// ticket's comment may name, so a requester — who can write a comment but is
+	// never mentioned — and a closed ticket without a composer get none.
+	var mentions *mentionPickerView
+	if canReadInternal && canComment {
+		mentions, err = h.mentionListOf(r, actor, id)
+		if err != nil {
+			return detailData{}, statusFor(err), err
+		}
+	}
 	queueOrigin := r.Referer()
 	// HTMX mutations refer to the detail URL, not the original queue. The
 	// inherited header survives whole-detail swaps, including error renders.
@@ -2116,6 +2171,9 @@ func (h *TicketHandlers) detailDataFor(r *http.Request, id int64) (detailData, i
 		BackHref:      listReturnHref(queueOrigin, r.Host),
 		Attachments:   creationFiles,
 		SavedReplies:  savedReplies,
+		Follow:        follow,
+		Followers:     followers,
+		Mentions:      mentions,
 	}, 0, nil
 }
 

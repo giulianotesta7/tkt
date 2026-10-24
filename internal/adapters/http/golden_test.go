@@ -1895,3 +1895,103 @@ func TestGoldenTicketDetailWithAttachmentsRequester(t *testing.T) {
 
 	goldenFile(t, "ticket_detail_attachments_requester", body)
 }
+
+// ---------------------------------------------------------------------------
+// Following and mentioning (issue #418). The detail fixture carries no follow
+// state, no followers and no mention list, so every pre-existing snapshot stays
+// byte-identical; these two freeze the surfaces the state adds.
+// ---------------------------------------------------------------------------
+
+// fixtureFollowerUsers is the followers row's population: an administrator and
+// the fixture's own viewer, so the snapshot holds both the plain name and "You".
+func fixtureFollowerUsers() []domain.User {
+	return []domain.User{
+		{ID: 2, Name: "Bea Admin", Email: "bea@example.com", Active: true, Role: domain.RoleAdmin, CreatedAt: goldenT0},
+		{ID: 1, Name: "Ana Torres", Email: "ana@example.com", Active: true, Role: domain.RoleAgent, CreatedAt: goldenT0},
+	}
+}
+
+// fixtureDetailFollowData is the open detail fixture with the follow state a
+// staff reader sees on a ticket they already follow and whose comment may
+// mention a colleague.
+func fixtureDetailFollowData() detailData {
+	return fixtureDetailFollowDataIn(i18n.Default)
+}
+
+// fixtureDetailFollowDataIn builds that same state for one interface language,
+// which is what the handler does per request: the control's label and the
+// candidate's role subtitle are copy, and the names are data.
+func fixtureDetailFollowDataIn(locale string) detailData {
+	data := fixtureDetailData()
+	followersOf := fixtureFollowerUsers()
+	tr := i18n.New(locale)
+	data.Follow = followControl(1, true, tr)
+	data.Followers = followersRow(followersOf, data.CurrentUser)
+	data.Mentions = mentionListFor(followersOf[1:], map[int64][]string{1: {"Service desk"}}, tr)
+	// Both composer tools at once: the snapshot is what proves the mention
+	// button follows the saved replies instead of displacing them.
+	data.SavedReplies = fixtureSavedReplies()
+	return data
+}
+
+// TestGoldenTicketDetailFollows freezes the header's follow control in its
+// pressed state, the Properties followers row with its disclosure and "You",
+// and the composer's mention list with one candidate and its role subtitle.
+func TestGoldenTicketDetailFollows(t *testing.T) {
+	body := renderGolden(t, "tickets_show", "ticket_detail", fixtureDetailFollowData(), true)
+	for _, want := range []string{
+		`class="detail-action detail-follow"`,
+		`aria-pressed="true">Following</button>`,
+		`<details class="prop-followers">`,
+		`<span class="prop-followers-name">Ana Torres</span><span class="prop-followers-you">You</span>`,
+		`<span class="prop-followers-count">2</span>`,
+		`data-mention-name="Ana Torres"`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("the follow surfaces must render %q, got: %s", want, body)
+		}
+	}
+	// One tools row, in the order the composer reads: the attachments zone,
+	// the saved replies, the mention button, the internal switch and Reply.
+	order := []string{"comment-dropzone", "data-saved-replies-open", "data-mentions-open", "comment-internal", "comment-submit"}
+	previousMarker := ""
+	previousIndex := -1
+	for _, marker := range order {
+		index := strings.Index(body, marker)
+		if index < 0 {
+			t.Fatalf("the tools row must carry %q, got: %s", marker, body)
+		}
+		if index < previousIndex {
+			t.Errorf("the tools row moved %q ahead of %q", marker, previousMarker)
+		}
+		previousMarker, previousIndex = marker, index
+	}
+	goldenFile(t, "ticket_detail_follows", body)
+}
+
+// fixtureDetailMentionsEmptyData is the open detail fixture whose comment may
+// mention nobody: the ticket has no staff besides its reader, so the list has no
+// candidate to offer.
+func fixtureDetailMentionsEmptyData() detailData {
+	data := fixtureDetailData()
+	data.Mentions = mentionListFor(nil, nil, i18n.New(i18n.Default))
+	return data
+}
+
+// TestGoldenCommentFormMentionsEmpty freezes the composer when the ticket has
+// nobody to mention: the button and the list still render, and the list says so
+// instead of showing an empty box.
+func TestGoldenCommentFormMentionsEmpty(t *testing.T) {
+	body := renderGolden(t, "tickets_show", "comment_form", fixtureDetailMentionsEmptyData(), true)
+	for _, want := range []string{
+		`data-mentions-open`,
+		`class="comment-mentions-empty">Nobody who can open this ticket matches.`,
+		`Only staff who can open this ticket`,
+		`Type @ to mention someone who can open this ticket.`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("the empty candidate list must render %q, got: %s", want, body)
+		}
+	}
+	goldenFile(t, "comment_form_mentions_empty", body)
+}

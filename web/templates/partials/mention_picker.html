@@ -1,0 +1,37 @@
+{{/*
+  The composer's mention picker (issue #418): a small button beside the saved
+  replies opens a list the server already filled for this ticket, so choosing a
+  person costs no request. The typed "@" completion and this button share the
+  one list and the one insertion, because they are two ways to say the same
+  thing.
+
+  Two contracts this markup keeps. The list is every OTHER staff member who can
+  open this ticket right now, rendered with the page, so nobody else is in the
+  document at all. And nothing here is a named form control: the search input
+  carries no name and the buttons are type="button", so the comment form keeps
+  its native multipart submission. The field the script writes is
+  #comment-body, which keeps its hx-preserve handle.
+
+  A name is the display name exactly as stored, because that is what the mention
+  grammar matches on the server; the interface only helps people type it.
+*/}}
+{{define "mention_picker"}}
+<div class="comment-mentions" data-mentions>
+  <button class="btn small comment-mentions-open" type="button" data-mentions-open aria-haspopup="dialog" aria-expanded="false" aria-controls="comment-mentions-list">
+    <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M16 8v5a3 3 0 0 0 6 0v-1a10 10 0 1 0-4 8"/></svg>
+    <span>{{t "tickets.mentions.button"}}</span>
+  </button>
+  <div class="comment-mentions-popover" role="dialog" aria-label="{{t "tickets.mentions.label"}}" hidden>
+{{if .Candidates}}    <input class="comment-mentions-search" type="search" data-mentions-search placeholder="{{t "tickets.mentions.search"}}" aria-label="{{t "tickets.mentions.search"}}" autocomplete="off">
+    <div class="comment-mentions-list" id="comment-mentions-list" role="listbox" aria-label="{{t "tickets.mentions.label"}}">
+{{range .Candidates}}      <button class="comment-mentions-option" type="button" role="option" aria-selected="false" data-mention-name="{{.Name}}">
+        <span class="person-mark comment-mentions-mark" aria-hidden="true">{{.Initials}}</span>
+        <span class="comment-mentions-text"><b class="comment-mentions-name">{{.Name}}</b><small class="comment-mentions-role">{{.Subtitle}}</small></span>
+      </button>
+{{end}}    </div>
+    <p class="comment-mentions-empty" data-mentions-empty hidden>{{t "tickets.mentions.no_match"}}</p>
+{{else}}    <p class="comment-mentions-empty">{{t "tickets.mentions.no_match"}}</p>
+{{end}}    <div class="comment-mentions-foot"><span>{{t "tickets.mentions.only_staff"}}</span></div>
+  </div>
+</div>
+{{end}}
