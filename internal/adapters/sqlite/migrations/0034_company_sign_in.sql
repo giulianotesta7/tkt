@@ -19,8 +19,8 @@
 -- rejection leaves the account inactive with pending = 0, which is exactly a
 -- deactivated account. The column is appended by ALTER TABLE ADD COLUMN with a
 -- NOT NULL default, so every existing row reads 0 and nobody is asked for an
--- approval they never applied for. SQLite does not test an added CHECK against
--- pre-existing rows; the default satisfies it for all of them anyway.
+-- approval they never applied for. SQLite checks an added CHECK against the
+-- rows already there, and the default satisfies it for every one of them.
 --
 -- user_identities answers, per row:
 --   id              the row's own identity, referenced by nothing.
