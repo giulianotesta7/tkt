@@ -1385,6 +1385,13 @@ const (
 	// at the end of the list. A resolved ticket still awaiting confirmation
 	// belongs to the Needs-your-action section, never here (issue #411, S8).
 	TicketSectionRequesterClosed
+	// TicketSectionRequesterExport is the requester's WHOLE list (issue #425,
+	// S1/S5/S8): every ticket their three list sections show — active work on
+	// hold or not, the resolved ones awaiting confirmation, and the closed
+	// ones — with cancelled work left out exactly as the list leaves it out.
+	// The export handler chooses it for a requester; nothing a caller sends can
+	// select, widen or narrow it.
+	TicketSectionRequesterExport
 )
 
 // TicketQuery is the filter set shared by list, count, and search queries
