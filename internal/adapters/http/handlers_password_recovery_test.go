@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/giulianotesta7/tkt/internal/application"
+	"github.com/giulianotesta7/tkt/internal/domain"
 )
 
 // Self-service password recovery, public side (issue #414, S3/S5/S7/S9): the
@@ -30,7 +31,14 @@ const emailBaseURL = "https://tkt.example.test"
 func configureEmailDelivery(t *testing.T, h *harness) {
 	t.Helper()
 	root, _ := seedRoot(t, h)
-	err := h.emailSettings.Save(t.Context(), *root, application.EmailSettingsInput{
+	configureEmailDeliveryAs(t, h, *root)
+}
+
+// configureEmailDeliveryAs saves the same configuration with an explicit root
+// actor, for a test that already stored the single root account itself.
+func configureEmailDeliveryAs(t *testing.T, h *harness, root domain.User) {
+	t.Helper()
+	err := h.emailSettings.Save(t.Context(), root, application.EmailSettingsInput{
 		Enabled:       true,
 		Host:          "smtp.tkt.test",
 		Port:          587,
