@@ -23,10 +23,12 @@ var _ application.CategoryStore = (*categoryStore)(nil)
 func newCategoryStore(db *sql.DB) *categoryStore { return &categoryStore{db: db} }
 
 // Create stores c, assigning c.ID. A duplicate name is a DuplicateError.
+// c.Keywords rides along as typed — the application layer owns its bound and the
+// migration-0031 triggers index it (issue #416).
 func (cs *categoryStore) Create(ctx context.Context, c *domain.Category) error {
-	res, err := cs.db.ExecContext(ctx, `INSERT INTO categories (name, description, desk_id, created_at)
-		VALUES (?, ?, COALESCE(NULLIF(?, 0), (SELECT id FROM desks WHERE lower(name)='general' ORDER BY id LIMIT 1)), ?)`,
-		c.Name, c.Description, c.DeskID, formatTime(c.CreatedAt))
+	res, err := cs.db.ExecContext(ctx, `INSERT INTO categories (name, description, keywords, desk_id, created_at)
+		VALUES (?, ?, ?, COALESCE(NULLIF(?, 0), (SELECT id FROM desks WHERE lower(name)='general' ORDER BY id LIMIT 1)), ?)`,
+		c.Name, c.Description, c.Keywords, c.DeskID, formatTime(c.CreatedAt))
 	if err != nil {
 		if isUniqueViolation(err) {
 			return &domain.DuplicateError{Kind: "category", Name: c.Name}
@@ -47,8 +49,8 @@ func (cs *categoryStore) Create(ctx context.Context, c *domain.Category) error {
 // Update persists the category (rename). A rename onto an existing name is
 // a DuplicateError.
 func (cs *categoryStore) Update(ctx context.Context, c *domain.Category) error {
-	res, err := cs.db.ExecContext(ctx, `UPDATE categories SET name = ?, description = ?, desk_id = COALESCE(NULLIF(?, 0), desk_id) WHERE id = ?`,
-		c.Name, c.Description, c.DeskID, c.ID)
+	res, err := cs.db.ExecContext(ctx, `UPDATE categories SET name = ?, description = ?, keywords = ?, desk_id = COALESCE(NULLIF(?, 0), desk_id) WHERE id = ?`,
+		c.Name, c.Description, c.Keywords, c.DeskID, c.ID)
 	if err != nil {
 		if isUniqueViolation(err) {
 			return &domain.DuplicateError{Kind: "category", Name: c.Name}
@@ -88,8 +90,8 @@ func (cs *categoryStore) Delete(ctx context.Context, id int64) error {
 
 // GetByID returns the category; ErrNotFound when absent.
 func (cs *categoryStore) GetByID(ctx context.Context, id int64) (*domain.Category, error) {
-	c, err := scanCategoryFrom(cs.db.QueryRowContext(ctx,
-		`SELECT id, name, description, desk_id, created_at FROM categories WHERE id = ?`, id))
+	c, err := scanCategoryWithKeywordsFrom(cs.db.QueryRowContext(ctx,
+		`SELECT id, name, description, keywords, desk_id, created_at FROM categories WHERE id = ?`, id))
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, &domain.NotFoundError{Kind: "category", ID: id}
 	}
@@ -101,14 +103,14 @@ func (cs *categoryStore) GetByID(ctx context.Context, id int64) (*domain.Categor
 
 // List returns all categories ordered by id.
 func (cs *categoryStore) List(ctx context.Context) ([]domain.Category, error) {
-	rows, err := cs.db.QueryContext(ctx, `SELECT id, name, description, desk_id, created_at FROM categories ORDER BY id ASC`)
+	rows, err := cs.db.QueryContext(ctx, `SELECT id, name, description, keywords, desk_id, created_at FROM categories ORDER BY id ASC`)
 	if err != nil {
 		return nil, fmt.Errorf("sqlite: list categories: %w", err)
 	}
 	defer rows.Close()
 	var out []domain.Category
 	for rows.Next() {
-		c, err := scanCategoryFrom(rows)
+		c, err := scanCategoryWithKeywordsFrom(rows)
 		if err != nil {
 			return nil, fmt.Errorf("sqlite: scan category: %w", err)
 		}
@@ -120,7 +122,10 @@ func (cs *categoryStore) List(ctx context.Context) ([]domain.Category, error) {
 	return out, nil
 }
 
-// scanCategoryFrom projects one row into a domain.Category.
+// scanCategoryFrom projects one row of the FIVE-column category projection into a
+// domain.Category: id, name, description, desk_id, created_at. It is the shape
+// ListAvailableCategories selects, so callers that need the suggestion keywords
+// use scanCategoryWithKeywordsFrom instead of teaching every read the new column.
 func scanCategoryFrom(scan rowScanner) (*domain.Category, error) {
 	var (
 		c         domain.Category
@@ -128,6 +133,27 @@ func scanCategoryFrom(scan rowScanner) (*domain.Category, error) {
 		deskID    sql.NullInt64
 	)
 	if err := scan.Scan(&c.ID, &c.Name, &c.Description, &deskID, &createdAt); err != nil {
+		return nil, err
+	}
+	if deskID.Valid {
+		c.DeskID = deskID.Int64
+	}
+	var err error
+	if c.CreatedAt, err = time.Parse(timeLayout, createdAt); err != nil {
+		return nil, fmt.Errorf("sqlite: parse category created_at %q: %w", createdAt, err)
+	}
+	return &c, nil
+}
+
+// scanCategoryWithKeywordsFrom projects one row of the SIX-column projection the
+// category manager reads: the five columns above plus the suggestion keywords.
+func scanCategoryWithKeywordsFrom(scan rowScanner) (*domain.Category, error) {
+	var (
+		c         domain.Category
+		createdAt string
+		deskID    sql.NullInt64
+	)
+	if err := scan.Scan(&c.ID, &c.Name, &c.Description, &c.Keywords, &deskID, &createdAt); err != nil {
 		return nil, err
 	}
 	if deskID.Valid {

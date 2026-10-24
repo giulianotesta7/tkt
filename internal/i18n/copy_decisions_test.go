@@ -57,3 +57,35 @@ func TestSpanishTicketVocabularyAndStrategyNames(t *testing.T) {
 		t.Errorf("en strategy error = %q, want the historical bytes", got)
 	}
 }
+
+// --- Category suggestion keywords (issue #416, S4) ---
+
+// TestCategoryKeywordsCopy pins the copy of the drawer field that feeds the local
+// suggestion engine, in both locales. The sentences are fixed: an administrator
+// learned the field and its rule from them, so a "clearer" rewrite changes what
+// the field says without changing what it does.
+func TestCategoryKeywordsCopy(t *testing.T) {
+	en := New(English)
+	if got, want := en.T("categories.drawer.keywords"), "Keywords for suggestions"; got != want {
+		t.Errorf("en label = %q, want %q", got, want)
+	}
+	if got, want := en.T("categories.drawer.keywords_help"),
+		"Words people use for this category. Comma separated; accents and capitals do not matter."; got != want {
+		t.Errorf("en help = %q, want the fixed sentence %q", got, want)
+	}
+
+	es := New(Spanish)
+	if got, want := es.T("categories.drawer.keywords"), "Palabras clave para sugerencias"; got != want {
+		t.Errorf("es label = %q, want %q", got, want)
+	}
+	if got, want := es.T("categories.drawer.keywords_help"),
+		"Palabras que la gente usa para esta categoría. Separadas por comas; los acentos y las mayúsculas no importan."; got != want {
+		t.Errorf("es help = %q, want %q", got, want)
+	}
+	// The refusal copy names the bound the server enforces, in both locales.
+	for _, locale := range []string{English, Spanish} {
+		if got := New(locale).T("error.category_keywords_invalid"); !strings.Contains(got, "500") {
+			t.Errorf("%s refusal copy = %q, want it to name the 500-character bound", locale, got)
+		}
+	}
+}

@@ -217,3 +217,81 @@ func TestCategoryListEmpty(t *testing.T) {
 		t.Errorf("fresh db list len = %d, want 0", len(all))
 	}
 }
+
+// TestCategoryKeywordsRoundTrip proves the store carries the administrator's
+// suggestion keywords (issue #416, S4) through create, read, list and update, and
+// that the value reaches the category-suggestion index the same write feeds.
+func TestCategoryKeywordsRoundTrip(t *testing.T) {
+	s := newTestDB(t)
+	ctx := context.Background()
+	store := newCategoryStore(s.db)
+
+	c := &domain.Category{Name: "Printers", Description: "Printer problems", Keywords: "impresora, tóner", CreatedAt: testClock}
+	if err := store.Create(ctx, c); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	stored, err := store.GetByID(ctx, c.ID)
+	if err != nil {
+		t.Fatalf("GetByID: %v", err)
+	}
+	if stored.Keywords != "impresora, tóner" {
+		t.Fatalf("GetByID keywords = %q, want the stored value", stored.Keywords)
+	}
+	listed, err := store.List(ctx)
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if len(listed) != 1 || listed[0].Keywords != "impresora, tóner" {
+		t.Fatalf("List keywords = %+v, want the stored value", listed)
+	}
+
+	stored.Keywords = "impresora, escáner"
+	if err := store.Update(ctx, stored); err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+	updated, err := store.GetByID(ctx, c.ID)
+	if err != nil {
+		t.Fatalf("GetByID after update: %v", err)
+	}
+	if updated.Keywords != "impresora, escáner" {
+		t.Fatalf("updated keywords = %q, want the new value", updated.Keywords)
+	}
+	// The update also reaches the index, because the same row write fires the
+	// migration-0031 trigger.
+	var indexed string
+	if err := s.db.QueryRow(`SELECT keywords FROM category_suggest_fts WHERE rowid = ?`, c.ID).Scan(&indexed); err != nil {
+		t.Fatalf("read indexed keywords: %v", err)
+	}
+	if indexed != "impresora, escáner" {
+		t.Fatalf("indexed keywords = %q, want the new value", indexed)
+	}
+}
+
+// TestAvailableCategoriesKeepTheirProjection is the preserve test for the category
+// projection refactor: ListAvailableCategories selects five columns and shares its
+// scan with the category manager, so adding the suggestion keywords must not change
+// what the requester's picker reads. It publishes a workflow and asks the picker's
+// own port, which is the call a regression would break.
+func TestAvailableCategoriesKeepTheirProjection(t *testing.T) {
+	s := newTestDB(t)
+	ctx := context.Background()
+	c := seedCategory(t, s, "available")
+	desk := seedDeskWithMemberNamed(t, s, seedUserRaw(t, s, "Available Agent", "available@tkt.test", "agent"), "DeskAvailable")
+	ws := s.WorkflowStore()
+	definition := mustCanon(t, domain.WorkflowDefinition{{Type: domain.StepAssignToDesk,
+		AssignToDesk: &domain.AssignToDeskStep{DeskID: desk, Strategy: domain.StrategyClaim}}})
+	if _, issues, err := ws.Publish(ctx, c, definition, nil); err != nil || len(issues) != 0 {
+		t.Fatalf("Publish: err=%v issues=%v", err, issues)
+	}
+
+	available, err := ws.ListAvailableCategories(ctx)
+	if err != nil {
+		t.Fatalf("ListAvailableCategories: %v", err)
+	}
+	if len(available) != 1 {
+		t.Fatalf("available = %+v, want the one published category", available)
+	}
+	if available[0].ID != c || available[0].Name != "available" || available[0].DeskID == 0 {
+		t.Fatalf("available category = %+v, want the five-column projection intact", available[0])
+	}
+}

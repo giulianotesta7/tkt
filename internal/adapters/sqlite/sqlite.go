@@ -214,6 +214,13 @@ func (s *Store) CategoryStore() application.CategoryStore { return newCategorySt
 // CatalogStore returns the Department/Desk/Category hierarchy port.
 func (s *Store) CatalogStore() application.CatalogStore { return newCatalogStore(s.db) }
 
+// CategorySuggestionIndex returns the ranked-candidate read port behind the local
+// category suggestion engine (issue #416, S4). It reads the FTS5 indexes migration
+// 0031 keeps in sync with the catalog, and never writes.
+func (s *Store) CategorySuggestionIndex() application.CategorySuggestionIndex {
+	return newCategorySuggestionIndex(s.db)
+}
+
 // DeskStore returns the desk and membership port.
 func (s *Store) DeskStore() application.DeskStore { return newDeskStore(s.db) }
 

@@ -31,6 +31,12 @@ export interface HtmxSwapOptions {
    * Omit to assert URL unchanged. Provide a RegExp when hx-push-url is used.
    */
   expectedUrl?: RegExp;
+  /**
+   * The target region is legitimately empty before the swap — an empty live
+   * region has no box, so it is not "visible" until the fragment arrives. The
+   * region must still be attached, and the swap is proven exactly as usual.
+   */
+  allowEmptyTarget?: boolean;
 }
 
 export interface HtmxNoSwapOptions {
@@ -68,7 +74,11 @@ export async function assertHtmxSwap(
   opts: HtmxSwapOptions,
 ): Promise<Response> {
   const targetLocator: Locator = page.locator(opts.hxTarget).first();
-  await expect(targetLocator).toBeVisible({ timeout: 10_000 });
+  if (opts.allowEmptyTarget) {
+    await expect(targetLocator).toHaveCount(1);
+  } else {
+    await expect(targetLocator).toBeVisible({ timeout: 10_000 });
+  }
 
   // Navigation events accumulator
   const navigations: NavigationEvent[] = [];

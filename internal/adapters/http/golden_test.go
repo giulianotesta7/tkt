@@ -1211,6 +1211,12 @@ func fixtureSettingsTicketsData() settingsTicketsData {
 		SLAGrid:             slaGridData{Rows: slaPolicyRows(seededSLADefaults())},
 		SLAWarningPercent:   80,
 		HoldAutoCloseDays:   "",
+		// The suggestion card ships off (S7): the golden pins the card an
+		// instance that never chose an engine shows, Try it box included.
+		Suggestions: categorySuggestionsCardData{
+			Engines: categorySuggestionEngineOptions(application.DefaultCategorySuggestionEngine),
+			Engine:  application.DefaultCategorySuggestionEngine,
+		},
 	}
 }
 
