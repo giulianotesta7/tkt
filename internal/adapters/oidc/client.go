@@ -5,6 +5,12 @@
 // which issuer belongs to which provider, the scope set, the Google domain hint,
 // the RS256-only verifier, the nonce check, and the reduction of the verified
 // claims to the ones the sign-in decision reads.
+//
+// It also decides what a failure says. The libraries' own messages repeat the
+// provider's text — an error_description, an audience, an advertised issuer, the
+// body of a key set — and a provider may put anything there, including the client
+// secret. So a failure leaves this package as one of a few fixed reasons that
+// describe its shape, and the provider's words never travel with it.
 package oidc
 
 import (
@@ -65,10 +71,31 @@ var _ application.CompanyIdentityProvider = (*Client)(nil)
 // lifetimes are compared with. The HTTP client carries every request of the
 // flow: discovery, the key set, and the code exchange.
 func NewClient(httpClient *http.Client, clock domain.Clock) *Client {
-	if httpClient == nil {
+	switch {
+	case httpClient == nil:
 		httpClient = &http.Client{Timeout: 2 * requestTimeout}
+	case httpClient.Timeout == 0:
+		// go-oidc reads the key set on a context that ignores cancellation, so the
+		// client's own timeout is the only bound on that request: a client without
+		// one would let a key fetch outlive the sign-in that triggered it. Bound a
+		// copy rather than mutating the caller's client.
+		bounded := *httpClient
+		bounded.Timeout = 2 * requestTimeout
+		httpClient = &bounded
 	}
 	return &Client{http: httpClient, clock: clock, providers: map[string]*gooidc.Provider{}}
+}
+
+// providerName answers the closed-list name of the provider. It is this
+// program's own word, never text the provider wrote, so a failure may report it.
+func providerName(provider application.CompanyProvider) string {
+	switch provider {
+	case application.ProviderGoogle:
+		return "google"
+	case application.ProviderMicrosoft:
+		return "microsoft"
+	}
+	return "unknown"
 }
 
 // issuer answers the provider's issuer, refusing a provider outside the closed
@@ -90,7 +117,7 @@ func (c *Client) issuer(creds application.CompanyProviderCredentials) (string, e
 // provider answers the discovered provider of one issuer: its endpoints, its
 // supported algorithms, and its key set. The first call reads the discovery
 // document; every later sign-in reuses it.
-func (c *Client) provider(ctx context.Context, issuer string) (*gooidc.Provider, error) {
+func (c *Client) provider(ctx context.Context, provider application.CompanyProvider, issuer string) (*gooidc.Provider, error) {
 	c.mu.Lock()
 	discovered, cached := c.providers[issuer]
 	c.mu.Unlock()
@@ -102,29 +129,41 @@ func (c *Client) provider(ctx context.Context, issuer string) (*gooidc.Provider,
 	defer cancel()
 	discovered, err := gooidc.NewProvider(discoveryCtx, issuer)
 	if err != nil {
-		return nil, fmt.Errorf("oidc: discover %s: %w", issuer, err)
+		return nil, discoveryFailure(provider, err)
 	}
 	// A provider that publishes no usable endpoint or no key set cannot run a
 	// flow, and refusing it here is clearer than sending a request to an empty
 	// URL later.
 	endpoint := discovered.Endpoint()
 	if endpoint.AuthURL == "" || endpoint.TokenURL == "" {
-		return nil, fmt.Errorf("oidc: %s publishes no authorization or token endpoint", issuer)
+		return nil, fmt.Errorf("oidc: %s publishes no authorization or token endpoint", providerName(provider))
 	}
 	var published struct {
 		JWKSURI string `json:"jwks_uri"`
 	}
 	if err := discovered.Claims(&published); err != nil {
-		return nil, fmt.Errorf("oidc: read the metadata of %s: %w", issuer, err)
+		return nil, fmt.Errorf("oidc: the metadata of %s is not readable", providerName(provider))
 	}
 	if published.JWKSURI == "" {
-		return nil, fmt.Errorf("oidc: %s publishes no key set", issuer)
+		return nil, fmt.Errorf("oidc: %s publishes no key set", providerName(provider))
 	}
 
 	c.mu.Lock()
 	c.providers[issuer] = discovered
 	c.mu.Unlock()
 	return discovered, nil
+}
+
+// discoveryFailure reports a discovery read that failed as one of two fixed
+// reasons. The library's message repeats the document's body and the issuer it
+// advertises, and both belong to the provider, so the cause is dropped instead
+// of wrapped: a caller reads the reason and never the provider's string.
+func discoveryFailure(provider application.CompanyProvider, err error) error {
+	var mismatch *gooidc.IssuerMismatchError
+	if errors.As(err, &mismatch) {
+		return fmt.Errorf("oidc: the discovery document of %s advertises another issuer", providerName(provider))
+	}
+	return fmt.Errorf("oidc: the discovery document of %s could not be read", providerName(provider))
 }
 
 // oauthConfig is the OAuth2 client of one provider for one installation.
@@ -159,7 +198,7 @@ func (c *Client) AuthorizationURL(ctx context.Context, creds application.Company
 	if req.State == "" || req.Nonce == "" || req.CodeVerifier == "" {
 		return "", errors.New("oidc: the authorization request needs a state, a nonce and a PKCE verifier")
 	}
-	discovered, err := c.provider(ctx, issuer)
+	discovered, err := c.provider(ctx, creds.Provider, issuer)
 	if err != nil {
 		return "", err
 	}
@@ -177,7 +216,8 @@ func (c *Client) AuthorizationURL(ctx context.Context, creds application.Company
 // ID token it returns. A code the provider refuses, a token that does not
 // verify, and an answer that carries no usable token all wrap
 // ErrCompanyProviderRejected: the flow refuses the callback. A provider that
-// cannot be reached is an operational error instead.
+// cannot be reached is an operational error instead. Neither kind carries the
+// provider's own text: each reports a fixed reason.
 func (c *Client) Exchange(ctx context.Context, creds application.CompanyProviderCredentials, req application.CompanyAuthorizationRequest, code string) (application.CompanyIdentityClaims, error) {
 	issuer, err := c.issuer(creds)
 	if err != nil {
@@ -186,7 +226,7 @@ func (c *Client) Exchange(ctx context.Context, creds application.CompanyProvider
 	if code == "" {
 		return application.CompanyIdentityClaims{}, rejected("the callback carried no authorization code")
 	}
-	discovered, err := c.provider(ctx, issuer)
+	discovered, err := c.provider(ctx, creds.Provider, issuer)
 	if err != nil {
 		return application.CompanyIdentityClaims{}, err
 	}
@@ -197,9 +237,12 @@ func (c *Client) Exchange(ctx context.Context, creds application.CompanyProvider
 	if err != nil {
 		var retrieve *oauth2.RetrieveError
 		if errors.As(err, &retrieve) {
-			return application.CompanyIdentityClaims{}, rejected("the token endpoint refused the code: %v", err)
+			// The provider refused the code: report the status, which is an
+			// integer, and never its error document, whose description and URI are
+			// text the provider writes.
+			return application.CompanyIdentityClaims{}, rejected("the token endpoint refused the code%s", refusalStatus(retrieve))
 		}
-		return application.CompanyIdentityClaims{}, fmt.Errorf("oidc: token exchange: %w", err)
+		return application.CompanyIdentityClaims{}, fmt.Errorf("oidc: the token exchange with %s failed", providerName(creds.Provider))
 	}
 	rawIDToken, ok := token.Extra("id_token").(string)
 	if !ok || rawIDToken == "" {
@@ -215,22 +258,23 @@ func (c *Client) Exchange(ctx context.Context, creds application.CompanyProvider
 	})
 	idToken, err := verifier.Verify(verifyCtx, rawIDToken)
 	if err != nil {
-		return application.CompanyIdentityClaims{}, rejected("the ID token did not verify: %v", err)
+		return application.CompanyIdentityClaims{}, rejected("%s", verificationFailure(err))
 	}
 	if idToken.Nonce != req.Nonce {
 		return application.CompanyIdentityClaims{}, rejected("the ID token nonce does not match the attempt")
 	}
 	var claims struct {
-		Email         string `json:"email"`
-		EmailVerified bool   `json:"email_verified"`
-		HostedDomain  string `json:"hd"`
-		TenantID      string `json:"tid"`
-		Name          string `json:"name"`
+		Email             string `json:"email"`
+		EmailVerified     bool   `json:"email_verified"`
+		PreferredUsername string `json:"preferred_username"`
+		HostedDomain      string `json:"hd"`
+		TenantID          string `json:"tid"`
+		Name              string `json:"name"`
 	}
 	if err := idToken.Claims(&claims); err != nil {
-		return application.CompanyIdentityClaims{}, rejected("the ID token claims are not readable: %v", err)
+		return application.CompanyIdentityClaims{}, rejected("the ID token claims are not readable")
 	}
-	return application.CompanyIdentityClaims{
+	identity := application.CompanyIdentityClaims{
 		Issuer:        idToken.Issuer,
 		Subject:       idToken.Subject,
 		Audience:      idToken.Audience,
@@ -240,7 +284,36 @@ func (c *Client) Exchange(ctx context.Context, creds application.CompanyProvider
 		TenantID:      claims.TenantID,
 		Name:          claims.Name,
 		Nonce:         idToken.Nonce,
-	}, nil
+	}
+	// A Microsoft token carries the address in preferred_username when the
+	// email claim is absent. Google's contract is the email claim itself, so the
+	// fallback stays inside the provider that documents it.
+	if identity.Email == "" && creds.Provider == application.ProviderMicrosoft {
+		identity.Email = claims.PreferredUsername
+	}
+	return identity, nil
+}
+
+// refusalStatus reports the HTTP status of a refused token request. The status
+// is an integer the HTTP stack produces rather than a string the provider writes,
+// so it is the one detail of a refusal that may accompany the reason.
+func refusalStatus(retrieve *oauth2.RetrieveError) string {
+	if retrieve.Response == nil {
+		return ""
+	}
+	return fmt.Sprintf(" with status %d", retrieve.Response.StatusCode)
+}
+
+// verificationFailure reduces a failed verification to a fixed reason. The
+// library's message repeats the token's audience and issuer and, when the key set
+// cannot be read, the provider's own body: every one of those is text the
+// provider controls.
+func verificationFailure(err error) string {
+	var expired *gooidc.TokenExpiredError
+	if errors.As(err, &expired) {
+		return "the ID token is expired"
+	}
+	return "the ID token did not verify"
 }
 
 // rejected reports an answer the flow must refuse. It wraps

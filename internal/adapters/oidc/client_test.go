@@ -23,10 +23,13 @@ import (
 	"github.com/giulianotesta7/tkt/internal/application"
 )
 
-// OpenID Connect client (issue #419, S11): the flow is built on the standard
-// library, so these tests prove the parts a library would have provided — the
-// authorization request, the code exchange, and the ID token verification that
-// stands between a provider's answer and a TKT session.
+// OpenID Connect client (issue #419): the adapter runs on
+// github.com/coreos/go-oidc/v3 (discovery, key set, ID token verification) and
+// golang.org/x/oauth2 (the code exchange). These tests prove the decisions the
+// adapter makes on top of them — the authorization request, the claims the
+// application reads, and the refusals — and the rule that the libraries' own
+// error text, which repeats values the provider controls, never reaches a
+// caller.
 //
 // The provider runs in-process: a Transport hands every request to an
 // http.Handler, so no socket is opened and no certificate is needed, while the
@@ -57,10 +60,14 @@ func fixedTestClock() *testClock {
 const (
 	googleClientID     = "google-client"
 	googleClientSecret = "google-secret"
-	microsoftClientID  = "microsoft-client"
-	microsoftSecret    = "microsoft-secret"
-	microsoftTenant    = "0f8fad5b-d9cb-469f-a165-70867728950e"
-	callbackURI        = "https://tkt.example.com/auth/google/callback"
+	// sensitiveProviderValue stands for any string a provider controls: the
+	// error_description of a refused code, an audience, an issuer, the body of a
+	// key set. A refusal may describe its shape, never repeat one of these.
+	sensitiveProviderValue = "sensitive-provider-value"
+	microsoftClientID      = "microsoft-client"
+	microsoftSecret        = "microsoft-secret"
+	microsoftTenant        = "0f8fad5b-d9cb-469f-a165-70867728950e"
+	callbackURI            = "https://tkt.example.com/auth/google/callback"
 )
 
 // fakeProvider is an OpenID Connect provider served from memory: a discovery
@@ -81,6 +88,11 @@ type fakeProvider struct {
 	tokenStatus   int
 	bodyBytes     int
 	omitIDToken   bool
+	// tokenErrorCode and tokenErrorDescription make the token endpoint answer a
+	// refused code the way a real provider does, with an error document whose
+	// description the provider writes.
+	tokenErrorCode        string
+	tokenErrorDescription string
 }
 
 func newFakeProvider(t *testing.T) *fakeProvider {
@@ -171,6 +183,15 @@ func (p *fakeProvider) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		p.tokenRequests = append(p.tokenRequests, r.PostForm)
+		if p.tokenErrorCode != "" {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"error":             p.tokenErrorCode,
+				"error_description": p.tokenErrorDescription,
+			})
+			return
+		}
 		if p.tokenStatus != 0 {
 			http.Error(w, "provider refused the code", p.tokenStatus)
 			return
@@ -244,6 +265,17 @@ func (p *fakeProvider) exchange(t *testing.T, clock *testClock, creds applicatio
 	return p.client(clock).Exchange(context.Background(), creds, req, "auth-code")
 }
 
+// rotate publishes a new signing key and signs with it from then on. The
+// provider serves requests from any goroutine, so the swap holds the lock the
+// handler takes.
+func (p *fakeProvider) rotate(kid string, key *rsa.PrivateKey) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.keys[kid] = key
+	p.signerKey = key
+	p.signerKid = kid
+}
+
 func assertRejected(t *testing.T, err error, detail string) {
 	t.Helper()
 	if err == nil {
@@ -251,6 +283,26 @@ func assertRejected(t *testing.T, err error, detail string) {
 	}
 	if !errors.Is(err, application.ErrCompanyProviderRejected) {
 		t.Fatalf("%s = %v, want an error wrapping ErrCompanyProviderRejected", detail, err)
+	}
+}
+
+// assertDoesNotEcho proves an error carries no provider-controlled text: the
+// probes answer with sensitiveProviderValue and with the client secret, and
+// neither may reach the caller in the message or in anything it wraps.
+func assertDoesNotEcho(t *testing.T, err error, detail string) {
+	t.Helper()
+	if err == nil {
+		t.Fatalf("%s = nil error, want a refusal", detail)
+	}
+	var messages []string
+	for current := err; current != nil; current = errors.Unwrap(current) {
+		messages = append(messages, current.Error())
+	}
+	message := strings.Join(messages, "\n")
+	for _, secret := range []string{sensitiveProviderValue, googleClientSecret} {
+		if strings.Contains(message, secret) {
+			t.Errorf("%s error = %q, want it to carry no provider-controlled text %q", detail, message, secret)
+		}
 	}
 }
 
@@ -292,6 +344,11 @@ func TestAuthorizationURLCarriesTheFlowValues(t *testing.T) {
 	sum := sha256.Sum256([]byte("verifier-1"))
 	if got, wantChallenge := query.Get("code_challenge"), b64(sum[:]); got != wantChallenge {
 		t.Errorf("code_challenge = %q, want the S256 digest of the verifier %q", got, wantChallenge)
+	}
+	// The browser reads this URL: the secret belongs in the token request, so it
+	// is never a query parameter here.
+	if strings.Contains(raw, googleClientSecret) || strings.Contains(raw, "client_secret") {
+		t.Errorf("authorization URL = %q, want no client secret in a browser-facing URL", raw)
 	}
 
 	if provider.discoveryHits != 1 {
@@ -434,8 +491,9 @@ func TestExchangeRejectsAWrongIssuer(t *testing.T) {
 }
 
 // TestExchangeRejectsAWrongAudience proves the token is issued for this client:
-// an audience that does not contain the client ID, and an authorized party that
-// names another client, are both refused.
+// an audience that does not contain the client ID is refused, while a
+// multi-valued audience that contains it is accepted. The authorized party
+// (azp) is not a check this client makes: the audience is.
 func TestExchangeRejectsAWrongAudience(t *testing.T) {
 	clock := fixedTestClock()
 	provider := newFakeProvider(t)
@@ -453,6 +511,21 @@ func TestExchangeRejectsAWrongAudience(t *testing.T) {
 	if _, err := provider.exchange(t, clock, googleCreds(), googleRequest()); err != nil {
 		t.Errorf("Exchange with the client in a multi-valued audience = %v, want it accepted", err)
 	}
+}
+
+// TestExchangeRejectsAWrongAudienceWithoutEchoingIt proves the refusal of a
+// wrong audience reports its shape only: the audience is the provider's value,
+// and the verifier's own message would repeat it.
+func TestExchangeRejectsAWrongAudienceWithoutEchoingIt(t *testing.T) {
+	provider := newFakeProvider(t)
+	clock := fixedTestClock()
+	claims := googleClaims(clock.Now())
+	claims["aud"] = []string{sensitiveProviderValue, googleClientSecret}
+	provider.claims = claims
+
+	_, err := provider.exchange(t, clock, googleCreds(), googleRequest())
+	assertRejected(t, err, "Exchange with an audience that carries provider-controlled values")
+	assertDoesNotEcho(t, err, "the wrong-audience refusal")
 }
 
 // TestExchangeRejectsAnExpiredToken proves the token lifetime is compared with
@@ -494,25 +567,29 @@ func TestExchangeRejectsAWrongNonce(t *testing.T) {
 	assertRejected(t, err, "Exchange with another flow's nonce")
 }
 
-// TestExchangePicksUpARotatedKey proves key rotation: the key set is cached, and
-// a token signed with a key the cache does not have makes the client read the
-// keys once more, which is how a rotation lands without a restart.
+// TestExchangePicksUpARotatedKey proves key rotation on one running client:
+// the discovered provider and its key set are cached, and a token signed with a
+// key the cached set does not have makes the client read the keys once more,
+// which is how a rotation lands without a restart.
 func TestExchangePicksUpARotatedKey(t *testing.T) {
 	provider := newFakeProvider(t)
 	clock := fixedTestClock()
-	if _, err := provider.exchange(t, clock, googleCreds(), googleRequest()); err != nil {
-		t.Fatalf("Exchange with the first key: %v", err)
+	client := provider.client(clock)
+	exchange := func(detail string) {
+		t.Helper()
+		if _, err := client.Exchange(context.Background(), googleCreds(), googleRequest(), "auth-code"); err != nil {
+			t.Fatalf("Exchange %s: %v", detail, err)
+		}
 	}
-	if provider.jwksHits != 1 {
-		t.Fatalf("JWKS reads after the first sign-in = %d, want 1", provider.jwksHits)
+	exchange("with the first key")
+	if provider.discoveryHits != 1 || provider.jwksHits != 1 {
+		t.Fatalf("discovery reads / JWKS reads after the first sign-in = %d/%d, want 1/1", provider.discoveryHits, provider.jwksHits)
 	}
 
-	rotated := mustKey(t)
-	provider.keys["key-2"] = rotated
-	provider.signerKey = rotated
-	provider.signerKid = "key-2"
-	if _, err := provider.exchange(t, clock, googleCreds(), googleRequest()); err != nil {
-		t.Fatalf("Exchange with the rotated key: %v", err)
+	provider.rotate("key-2", mustKey(t))
+	exchange("with the rotated key")
+	if provider.discoveryHits != 1 {
+		t.Errorf("discovery reads after the rotation = %d, want the cached document", provider.discoveryHits)
 	}
 	if provider.jwksHits != 2 {
 		t.Errorf("JWKS reads after the rotation = %d, want 2 (one refresh)", provider.jwksHits)
@@ -538,6 +615,25 @@ func TestExchangeRejectsAnUnknownKidThatNeverArrives(t *testing.T) {
 	}
 }
 
+// TestExchangeRejectsAMalformedKeySetWithoutEchoingIt proves a key set the
+// provider publishes but the client cannot read is refused without repeating
+// the body the provider sent.
+func TestExchangeRejectsAMalformedKeySetWithoutEchoingIt(t *testing.T) {
+	provider := newFakeProvider(t)
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/jwks" {
+			writeJSON(w, map[string]any{"keys": sensitiveProviderValue + " " + googleClientSecret})
+			return
+		}
+		provider.ServeHTTP(w, r)
+	})
+	client := oidc.NewClient(&http.Client{Transport: handlerTransport{handler: handler}}, fixedTestClock())
+
+	_, err := client.Exchange(context.Background(), googleCreds(), googleRequest(), "auth-code")
+	assertRejected(t, err, "Exchange against a malformed key set")
+	assertDoesNotEcho(t, err, "the malformed key set refusal")
+}
+
 // TestExchangeRejectsAnUnusableTokenAnswer proves the exchange refuses what it
 // cannot verify: a missing ID token, an error status, and a body larger than the
 // client will read.
@@ -559,6 +655,21 @@ func TestExchangeRejectsAnUnusableTokenAnswer(t *testing.T) {
 	if _, err := provider.exchange(t, clock, googleCreds(), googleRequest()); err == nil {
 		t.Fatal("Exchange of an oversized answer = nil error, want it refused")
 	}
+}
+
+// TestExchangeRejectsARefusedCodeWithoutEchoingTheProviderAnswer proves a
+// refused code is reported without the provider's error document: the
+// error_description (and the error URI) is text the provider writes, and a
+// provider that echoes the client secret there must not reach a log or a
+// response through this client.
+func TestExchangeRejectsARefusedCodeWithoutEchoingTheProviderAnswer(t *testing.T) {
+	provider := newFakeProvider(t)
+	provider.tokenErrorCode = "invalid_grant"
+	provider.tokenErrorDescription = "client_secret " + googleClientSecret + " and " + sensitiveProviderValue
+
+	_, err := provider.exchange(t, fixedTestClock(), googleCreds(), googleRequest())
+	assertRejected(t, err, "Exchange of a code the provider refused with a description")
+	assertDoesNotEcho(t, err, "the refused-code refusal")
 }
 
 // TestExchangeRefusesAnUnsupportedProvider proves the client has exactly two
@@ -597,6 +708,66 @@ func TestExchangeRequiresAMicrosoftTenant(t *testing.T) {
 	}
 }
 
+// TestExchangeFallsBackToPreferredUsernameForMicrosoft proves the Microsoft
+// provider claim: the email comes from the email claim, and from
+// preferred_username when the token carries no email. Google keeps its own
+// contract, where the email claim is the address the flow links and no
+// fallback applies.
+func TestExchangeFallsBackToPreferredUsernameForMicrosoft(t *testing.T) {
+	clock := fixedTestClock()
+	microsoftClaims := func() map[string]any {
+		return map[string]any{
+			"iss": "https://login.microsoftonline.com/" + microsoftTenant + "/v2.0",
+			"sub": "sub-2", "aud": microsoftClientID, "tid": microsoftTenant,
+			"exp": clock.Now().Add(time.Hour).Unix(), "iat": clock.Now().Unix(),
+			"nonce": "nonce-1", "name": "Ana",
+		}
+	}
+
+	provider := newFakeProvider(t)
+	claims := microsoftClaims()
+	claims["preferred_username"] = "ana@example.com"
+	provider.claims = claims
+	got, err := provider.exchange(t, clock, microsoftCreds(), googleRequest())
+	if err != nil {
+		t.Fatalf("Exchange of a Microsoft token without an email claim: %v", err)
+	}
+	if got.Email != "ana@example.com" {
+		t.Errorf("email = %q, want preferred_username ana@example.com", got.Email)
+	}
+	if got.TenantID != microsoftTenant {
+		t.Errorf("tid = %q, want %q", got.TenantID, microsoftTenant)
+	}
+
+	// The email claim wins when the provider sends both.
+	provider = newFakeProvider(t)
+	claims = microsoftClaims()
+	claims["email"] = "ana@contoso.example"
+	claims["preferred_username"] = "ana@example.com"
+	provider.claims = claims
+	got, err = provider.exchange(t, clock, microsoftCreds(), googleRequest())
+	if err != nil {
+		t.Fatalf("Exchange of a Microsoft token with both claims: %v", err)
+	}
+	if got.Email != "ana@contoso.example" {
+		t.Errorf("email = %q, want the email claim ana@contoso.example", got.Email)
+	}
+
+	// Google does not take the fallback: its contract is the email claim.
+	provider = newFakeProvider(t)
+	claims = googleClaims(clock.Now())
+	delete(claims, "email")
+	claims["preferred_username"] = "ana@example.com"
+	provider.claims = claims
+	got, err = provider.exchange(t, clock, googleCreds(), googleRequest())
+	if err != nil {
+		t.Fatalf("Exchange of a Google token without an email claim: %v", err)
+	}
+	if got.Email != "" {
+		t.Errorf("google email = %q, want no preferred_username fallback", got.Email)
+	}
+}
+
 // TestExchangeReportsTheTokenEndpoint proves the token endpoint used is the one
 // the discovery document published, not a hardcoded one.
 func TestExchangeReportsTheTokenEndpoint(t *testing.T) {
@@ -626,6 +797,46 @@ func TestExchangeRejectsAnIncompleteDiscoveryDocument(t *testing.T) {
 	client := oidc.NewClient(&http.Client{Transport: handlerTransport{handler: handler}}, fixedTestClock())
 	if _, err := client.AuthorizationURL(context.Background(), googleCreds(), googleRequest()); err == nil {
 		t.Fatal("AuthorizationURL with an incomplete discovery document = nil error, want a refusal")
+	}
+}
+
+// TestAuthorizationURLReportsAnUnreadableDiscoveryDocumentWithoutEchoingIt
+// proves a discovery document the client cannot use is an operational failure
+// whose message carries no provider-controlled text: the library's own message
+// repeats the document's body and its advertised issuer.
+func TestAuthorizationURLReportsAnUnreadableDiscoveryDocumentWithoutEchoingIt(t *testing.T) {
+	probes := map[string]http.HandlerFunc{
+		"a failing document": func(w http.ResponseWriter, r *http.Request) {
+			http.Error(w, sensitiveProviderValue+" "+googleClientSecret, http.StatusInternalServerError)
+		},
+		"an advertised issuer that differs": func(w http.ResponseWriter, r *http.Request) {
+			writeJSON(w, map[string]any{
+				"issuer":                   "https://" + sensitiveProviderValue + "." + googleClientSecret + ".example.com",
+				"authorization_endpoint":   "https://provider.example.com/google/authorize",
+				"token_endpoint":           "https://provider.example.com/token",
+				"jwks_uri":                 "https://provider.example.com/jwks",
+				"response_types_supported": []string{"code"},
+			})
+		},
+	}
+	for name, handler := range probes {
+		t.Run(name, func(t *testing.T) {
+			client := oidc.NewClient(&http.Client{Transport: handlerTransport{handler: handler}}, fixedTestClock())
+			raw, err := client.AuthorizationURL(context.Background(), googleCreds(), googleRequest())
+			if err == nil {
+				t.Fatalf("AuthorizationURL against %s = nil error, want a refusal", name)
+			}
+			if raw != "" {
+				t.Errorf("authorization URL = %q, want none when discovery fails", raw)
+			}
+			assertDoesNotEcho(t, err, "AuthorizationURL against "+name)
+			// A provider that cannot be read is an operational failure, not a
+			// refused answer: the flow must not tell the person their sign-in was
+			// rejected.
+			if errors.Is(err, application.ErrCompanyProviderRejected) {
+				t.Errorf("error = %v, want an operational failure, not ErrCompanyProviderRejected", err)
+			}
+		})
 	}
 }
 
