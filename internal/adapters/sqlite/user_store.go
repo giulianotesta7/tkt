@@ -310,9 +310,20 @@ func downgradeDeskTx(ctx context.Context, tx *sql.Tx, ticketID int64, workflowVe
 	return &id, nil
 }
 
-// UpdatePasswordHash changes only the password hash for one existing user.
+// UpdatePasswordHash replaces one existing user's password hash and voids the
+// account's pending recovery links in ONE immediate transaction (issue #414,
+// S3): a link mailed before a password change must never set a password after
+// it, whichever path changed it. Spent links stay as history, and nothing else
+// about the account moves — an administrator setting a password signs nobody
+// out (S6).
 func (us *userStore) UpdatePasswordHash(ctx context.Context, id int64, passwordHash string) error {
-	res, err := us.db.ExecContext(ctx, `UPDATE users SET password_hash = ? WHERE id = ?`, passwordHash, id)
+	tx, err := beginImmediate(ctx, us.db, "update password hash")
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	res, err := tx.ExecContext(ctx, `UPDATE users SET password_hash = ? WHERE id = ?`, passwordHash, id)
 	if err != nil {
 		return fmt.Errorf("sqlite: update password hash: %w", err)
 	}
@@ -323,7 +334,11 @@ func (us *userStore) UpdatePasswordHash(ctx context.Context, id int64, passwordH
 	if n == 0 {
 		return &domain.NotFoundError{Kind: "user", ID: id}
 	}
-	return nil
+	if _, err := tx.ExecContext(ctx,
+		`DELETE FROM password_reset_tokens WHERE user_id = ? AND used_at IS NULL`, id); err != nil {
+		return fmt.Errorf("sqlite: void the pending password reset links: %w", err)
+	}
+	return tx.Commit()
 }
 
 // Delete removes an unreferenced user and their sessions in one

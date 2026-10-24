@@ -2,13 +2,19 @@ package sqlite
 
 import (
 	"context"
+	"crypto/sha256"
 	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
 	"reflect"
 	"sort"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/giulianotesta7/tkt/internal/application"
 	"github.com/giulianotesta7/tkt/internal/domain"
 )
 
@@ -346,5 +352,212 @@ func TestPasswordResetStoreRedeemsOneLinkExactlyOnceConcurrently(t *testing.T) {
 	}
 	if got := passwordSessionIDs(t, s, ana); len(got) != 0 {
 		t.Errorf("sessions after the reset = %v, want none", got)
+	}
+}
+
+// resetServiceClock is the injected clock these tests hand the recovery use
+// cases, so a link's instants are the test's and never the wall clock's.
+type resetServiceClock struct{ now time.Time }
+
+func (c resetServiceClock) Now() time.Time { return c.now }
+
+// resetServicePolicy answers one fixed instance policy.
+type resetServicePolicy struct{ settings application.PasswordSettings }
+
+func (p resetServicePolicy) GetPasswordSettings(context.Context) (application.PasswordSettings, error) {
+	return p.settings, nil
+}
+
+func (p resetServicePolicy) SetPasswordSettings(context.Context, application.PasswordSettings) error {
+	return nil
+}
+
+// resetServiceDelivery answers one fixed, complete delivery configuration.
+type resetServiceDelivery struct{ config application.DeliveryConfig }
+
+func (d resetServiceDelivery) DeliveryConfig(context.Context) (application.DeliveryConfig, bool, error) {
+	return d.config, true, nil
+}
+
+// resetServiceMailer records the messages the recovery use case would send.
+type resetServiceMailer struct{ sent []application.OutgoingEmail }
+
+func (m *resetServiceMailer) Send(_ context.Context, _ application.SMTPConfig, email application.OutgoingEmail) error {
+	m.sent = append(m.sent, email)
+	return nil
+}
+
+// resetServiceRenderer answers "key(arg,arg)" so a test can read the mailed link
+// back out of the body.
+type resetServiceRenderer struct{}
+
+func (resetServiceRenderer) Render(_ string, message application.Msg) string {
+	args := make([]string, 0, len(message.Args))
+	for _, arg := range message.Args {
+		args = append(args, arg.Value)
+	}
+	return message.Key + "(" + strings.Join(args, ",") + ")"
+}
+
+// resetLinkToken answers the token the recovery link in a mailed body carries.
+func resetLinkToken(t *testing.T, body string) string {
+	t.Helper()
+	marker := application.PasswordResetPath + "?token="
+	i := strings.Index(body, marker)
+	if i < 0 {
+		t.Fatalf("the mailed body carries no reset link:\n%s", body)
+	}
+	rest := body[i+len(marker):]
+	end := strings.IndexFunc(rest, func(r rune) bool {
+		return !(r >= '0' && r <= '9' || r >= 'a' && r <= 'f')
+	})
+	if end < 0 {
+		end = len(rest)
+	}
+	if end == 0 {
+		t.Fatalf("the mailed link carries an empty token:\n%s", body)
+	}
+	return rest[:end]
+}
+
+// issueResetLink asks for a recovery link through the real use case and answers
+// the raw token its mailed link carries.
+func issueResetLink(t *testing.T, s *Store, mailer *resetServiceMailer, email string) string {
+	t.Helper()
+	svc := application.NewPasswordResetService(
+		s.UserStore(), s.PasswordResetStore(),
+		resetServicePolicy{settings: application.DefaultPasswordSettings()},
+		resetServiceDelivery{config: application.DeliveryConfig{
+			SMTP:     application.SMTPConfig{Host: "smtp.example.com", Port: 25, FromAddress: "tkt@example.com"},
+			BaseURL:  "https://tkt.example.com",
+			Language: "en",
+		}},
+		mailer, resetServiceRenderer{}, func(send func()) { send() },
+		resetServiceClock{now: testClock})
+	before := len(mailer.sent)
+	if err := svc.RequestPasswordReset(context.Background(), email); err != nil {
+		t.Fatalf("RequestPasswordReset(%q): %v", email, err)
+	}
+	if len(mailer.sent) != before+1 {
+		t.Fatalf("mailed %d messages, want exactly 1", len(mailer.sent)-before)
+	}
+	return resetLinkToken(t, mailer.sent[len(mailer.sent)-1].Body)
+}
+
+// databaseFiles answers every byte of the database a test opened, WAL and shared
+// memory sidecars included, so a test can search what really reached the disk.
+func databaseFiles(t *testing.T, path string) []byte {
+	t.Helper()
+	paths, err := filepath.Glob(path + "*")
+	if err != nil {
+		t.Fatalf("list the database files of %s: %v", path, err)
+	}
+	var blob []byte
+	for _, file := range paths {
+		if strings.HasSuffix(file, "-shm") {
+			continue // shared-memory index, no row data
+		}
+		part, err := os.ReadFile(file)
+		if err != nil {
+			t.Fatalf("read %s: %v", file, err)
+		}
+		blob = append(blob, part...)
+	}
+	return blob
+}
+
+// TestPasswordResetStoreNeverWritesTheRawTokenToTheDatabaseFile proves S8 on the
+// bytes a copy of the instance would contain: the mailed token is only ever
+// stored as its SHA-256 digest, so the database file yields no working link.
+func TestPasswordResetStoreNeverWritesTheRawTokenToTheDatabaseFile(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "app.db")
+	s, err := OpenForTests(path)
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	t.Cleanup(func() { _ = s.db.Close() })
+	if err := s.Migrate(ctx); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	ana := seedUser(t, s, "Ana", "ana@example.com", true)
+	mailer := &resetServiceMailer{}
+	raw := issueResetLink(t, s, mailer, "ana@example.com")
+	if len(raw) != 64 {
+		t.Fatalf("token %q (%d characters), want 32 random bytes as 64 hex characters", raw, len(raw))
+	}
+	if _, err := s.db.ExecContext(ctx, `PRAGMA wal_checkpoint(TRUNCATE)`); err != nil {
+		t.Fatalf("checkpoint: %v", err)
+	}
+
+	blob := databaseFiles(t, path)
+	if strings.Contains(string(blob), raw) {
+		t.Error("the raw token reached the database files, want only its digest")
+	}
+	digest := fmt.Sprintf("%x", sha256.Sum256([]byte(raw)))
+	if !strings.Contains(string(blob), digest) {
+		t.Fatalf("the digest %q is absent from the database files, so this test searched the wrong bytes", digest)
+	}
+	var stored string
+	if err := s.db.QueryRowContext(ctx, `SELECT token_hash FROM password_reset_tokens WHERE user_id = ?`, ana).Scan(&stored); err != nil {
+		t.Fatalf("read the stored link: %v", err)
+	}
+	if stored != digest {
+		t.Errorf("stored token_hash = %q, want the SHA-256 digest %q", stored, digest)
+	}
+}
+
+// TestPasswordResetStoreRedeemsOneLinkExactlyOnceOnTheFileDSN proves single use
+// under the production file DSN (WAL, busy_timeout, immediate transactions) at
+// increasing fan-in: exactly one concurrent redemption wins, the losers meet a
+// spent link instead of a lock error, and every session of the account is gone.
+func TestPasswordResetStoreRedeemsOneLinkExactlyOnceOnTheFileDSN(t *testing.T) {
+	for _, fanIn := range []int{2, 4, 8, 16} {
+		t.Run(fmt.Sprintf("fan-in-%d", fanIn), func(t *testing.T) {
+			ctx := context.Background()
+			s, err := OpenForTests(filepath.Join(t.TempDir(), "app.db"))
+			if err != nil {
+				t.Fatalf("open: %v", err)
+			}
+			t.Cleanup(func() { _ = s.db.Close() })
+			if err := s.Migrate(ctx); err != nil {
+				t.Fatalf("migrate: %v", err)
+			}
+			ana := seedUser(t, s, "Ana", "ana@example.com", true)
+			seedPasswordSession(t, s, "sess-laptop", ana)
+			seedResetToken(t, s, ana, "hash-live", testClock.Add(-time.Minute), testClock.Add(time.Hour), nil)
+
+			errs := make([]error, fanIn)
+			start := make(chan struct{})
+			var wg sync.WaitGroup
+			for i := 0; i < fanIn; i++ {
+				wg.Add(1)
+				go func(i int) {
+					defer wg.Done()
+					<-start
+					errs[i] = s.PasswordResetStore().RedeemPasswordResetToken(ctx, "hash-live", fmt.Sprintf("hash-%d", i), testClock)
+				}(i)
+			}
+			close(start)
+			wg.Wait()
+
+			winners := 0
+			for i, err := range errs {
+				switch {
+				case err == nil:
+					winners++
+				case errors.Is(err, domain.ErrNotFound):
+					// The loser met a link that was already spent: expected.
+				default:
+					t.Errorf("redeem %d failed with an unexpected error: %v", i, err)
+				}
+			}
+			if winners != 1 {
+				t.Errorf("%d of %d concurrent redemptions succeeded, want exactly 1", winners, fanIn)
+			}
+			if got := passwordSessionIDs(t, s, ana); len(got) != 0 {
+				t.Errorf("sessions after the redemptions = %v, want none", got)
+			}
+		})
 	}
 }

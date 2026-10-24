@@ -548,3 +548,46 @@ func TestPasswordChangeVoidsPendingResetTokens(t *testing.T) {
 		t.Errorf("the other account's links = %v, want %v", got, want)
 	}
 }
+
+// TestAdministratorSetPasswordVoidsPendingResetTokens proves the administrator
+// set-password route obeys the same rule as every other password change (issue
+// #414, S3/S6): replacing the hash voids the account's pending recovery links in
+// the same write, so a link mailed before the change can never set a password
+// after it. Spent links stay as history, another account keeps its own pending
+// link, and the account's sessions survive — S6 asks for nothing beyond the new
+// password.
+func TestAdministratorSetPasswordVoidsPendingResetTokens(t *testing.T) {
+	s := newTestDB(t)
+	ctx := context.Background()
+	root := seedUserRole(t, s, "Root", "root@example.com", true, domain.RoleRoot)
+	ana := seedUser(t, s, "Ana", "ana@example.com", true)
+	bea := seedUser(t, s, "Bea", "bea@example.com", true)
+	seedPasswordSession(t, s, "sess-ana", ana)
+	expires := testClock.Add(time.Hour)
+	seedResetToken(t, s, ana, "hash-pending", testClock.Add(-time.Minute), expires, nil)
+	seedResetToken(t, s, ana, "hash-spent", testClock.Add(-time.Hour), expires, ptr(testClock.Add(-30*time.Minute)))
+	seedResetToken(t, s, bea, "hash-other", testClock.Add(-time.Minute), expires, nil)
+
+	users := application.NewUserService(s.UserStore(), passwordChangeClock()).
+		WithPasswordSettings(s.PasswordSettingsStore())
+	actor := passwordChangeActor(t, s, root)
+	if err := users.ChangePassword(ctx, actor, ana, "admin-set-pass-12"); err != nil {
+		t.Fatalf("administrator ChangePassword: %v", err)
+	}
+
+	if got, want := resetTokenHashes(t, s, ana), []string{"hash-spent"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("stored links of the account = %v, want %v (the pending one voided, the spent one kept)", got, want)
+	}
+	if got, want := resetTokenHashes(t, s, bea), []string{"hash-other"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("the other account's links = %v, want %v", got, want)
+	}
+	if usable, err := s.PasswordResetStore().PasswordResetTokenUsable(ctx, "hash-pending", testClock); err != nil || usable {
+		t.Errorf("the pending link after the administrator's change = %v, %v; want unusable", usable, err)
+	}
+	if hash := passwordHashOf(t, s, ana); !application.VerifyPassword(hash, "admin-set-pass-12") {
+		t.Error("the stored hash does not hold the administrator's new password")
+	}
+	if got, want := passwordSessionIDs(t, s, ana), []string{"sess-ana"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("sessions of the account = %v, want %v (an administrator set-password signs nobody out)", got, want)
+	}
+}

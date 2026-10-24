@@ -489,7 +489,9 @@ type UserStore interface {
 	// desk context exists), the guarded role update persists, and the role
 	// audit is appended — all in ONE transaction, all or nothing.
 	DowngradeToUser(ctx context.Context, u *domain.User, expectedRole domain.Role, actorID int64, at time.Time) (*domain.User, error)
-	// UpdatePasswordHash changes only the stored password hash.
+	// UpdatePasswordHash replaces the stored password hash and voids the
+	// account's pending password reset links, all or nothing (issue #414: every
+	// password change voids pending links).
 	UpdatePasswordHash(ctx context.Context, id int64, passwordHash string) error
 	// Delete removes an unreferenced user; ErrReferenced when the user is
 	// assigned to tickets (deactivation is the removal path then).
