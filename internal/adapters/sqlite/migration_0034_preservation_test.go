@@ -15,13 +15,12 @@ import (
 	"github.com/giulianotesta7/tkt/internal/domain"
 )
 
-// TestMigration0034PreservesEveryExistingObjectAndRow proves 0034 rebuilds
-// nothing: every schema object keeps its definition and root page (only the
-// users DDL changes, by the appended column), every existing row reads back
-// unchanged, and objects later migrations add to users — a column, a partial
-// index and an enforcing trigger stand in for them here — survive and keep
-// working. Existing accounts read pending = 0, version 34 is recorded once,
-// and a rerun changes nothing.
+// TestMigration0034PreservesEveryExistingObjectAndRow proves every existing row
+// survives the notifications rebuild and every unrelated schema object keeps
+// its definition and root page. The users DDL changes only by the appended
+// column; extension columns, indexes and enforcing triggers keep working.
+// Existing accounts read pending = 0, notification IDs and delivery rows stay
+// intact, version 34 is recorded once, and a rerun changes nothing.
 func TestMigration0034PreservesEveryExistingObjectAndRow(t *testing.T) {
 	s, err := openDSN(testDSN(t))
 	if err != nil {
