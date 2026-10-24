@@ -193,8 +193,8 @@ func newHarnessWithAdmin(t *testing.T, seedAdmin bool) *harness {
 	s := openTestStoreAt(t, dbPath)
 	clock := testClock{now: fixedNow}
 
-	usersSvc := application.NewUserService(s.UserStore(), clock).WithPasswordSettings(s.PasswordSettingsStore()).WithPasswordChangeStore(s.PasswordChangeStore())
-	authSvc := application.NewAuthService(s.UserStore(), s.SessionStore(), clock)
+	usersSvc := application.NewUserService(s.UserStore(), clock).WithPasswordSettings(s.PasswordSettingsStore()).WithPasswordChangeStore(s.PasswordChangeStore()).WithCompanySignIn(s.CompanySignInSettingsStore())
+	authSvc := application.NewAuthService(s.UserStore(), s.SessionStore(), clock).WithCompanySignIn(s.CompanySignInSettingsStore())
 	catSvc := application.NewCategoryService(s.CategoryStore(), clock)
 	deskSvc := application.NewDeskService(s.DeskStore(), s.UserStore(), clock)
 	viewBuilder := application.NewViewBuilder(s.TicketStore(), s.UserStore(), s.CategoryStore(), s.CommentStore(), s.AuditStore(), s.DeskStore(), s.WorkflowResponseStore())

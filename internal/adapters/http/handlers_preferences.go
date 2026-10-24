@@ -344,7 +344,13 @@ func (h *PreferencesHandlers) passwordChangeSection(r *http.Request) (passwordSe
 	if err != nil {
 		return passwordSectionData{}, err
 	}
-	return passwordSectionData{Shown: policy.ChangeEnabled, MinLength: policy.MinLength}, nil
+	// Issue #419, S5: while password sign-in is off, only root keeps the
+	// section.
+	allowed, err := h.users.PasswordSignInAllowed(r.Context(), *userFromContext(r.Context()))
+	if err != nil {
+		return passwordSectionData{}, err
+	}
+	return passwordSectionData{Shown: policy.ChangeEnabled && allowed, MinLength: policy.MinLength}, nil
 }
 
 // updatePassword replaces the session user's own password (issue #414, S2). The
@@ -374,6 +380,15 @@ func (h *PreferencesHandlers) updatePassword(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	if !policy.ChangeEnabled {
+		httpError(w, r, "error.forbidden", http.StatusForbidden)
+		return
+	}
+	allowed, err := h.users.PasswordSignInAllowed(r.Context(), *userFromContext(r.Context()))
+	if err != nil {
+		httpError(w, r, "error.internal_server", http.StatusInternalServerError)
+		return
+	}
+	if !allowed {
 		httpError(w, r, "error.forbidden", http.StatusForbidden)
 		return
 	}

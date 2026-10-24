@@ -1378,6 +1378,10 @@ type PasswordResetStore interface {
 	// at now, without consuming it. An unknown, spent or expired hash answers
 	// false and no error: the three are indistinguishable on purpose.
 	PasswordResetTokenUsable(ctx context.Context, tokenHash string, now time.Time) (bool, error)
+	// PasswordResetTokenOwner answers the account a still-usable link belongs
+	// to, consuming nothing (issue #419, S5). An unknown, spent or expired hash
+	// answers ok false and no error.
+	PasswordResetTokenOwner(ctx context.Context, tokenHash string, now time.Time) (userID int64, ok bool, err error)
 	// RedeemPasswordResetToken spends the link in ONE transaction: it stores
 	// passwordHash as the owner's new password, marks the link spent, voids
 	// that account's other pending links, and deletes EVERY session of that

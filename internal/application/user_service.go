@@ -19,6 +19,10 @@ type UserService struct {
 	// passwordChanges, when wired, is the atomic write of a user's own password
 	// change and the sign-out of their other sessions (issue #414, S2).
 	passwordChanges PasswordChangeStore
+	// companySignIn, when wired, carries the instance switch that keeps
+	// password sign-in — and the own-password change with it — to root alone
+	// (issue #419, S5).
+	companySignIn CompanySignInSettingsStore
 }
 
 // WithPasswordSettings wires the password policy the create, setup and

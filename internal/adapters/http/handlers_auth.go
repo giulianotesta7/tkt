@@ -7,6 +7,7 @@ import (
 
 	"github.com/giulianotesta7/tkt/internal/application"
 	"github.com/giulianotesta7/tkt/internal/domain"
+	"github.com/giulianotesta7/tkt/internal/i18n"
 )
 
 // AuthHandlers implement the authentication and bootstrap routes (design
@@ -95,6 +96,13 @@ func (h *AuthHandlers) loginForm(w http.ResponseWriter, r *http.Request) {
 	h.renderer.Render(w, r, "login", "", loginData{Brand: brandFromContext(r.Context()), Panel: h.panel(r, true)}, http.StatusOK)
 }
 
+// passwordSignInOffKey is the catalogue key of the sentence a verified
+// non-root password answers once password sign-in is turned off (issue #419,
+// S4). It renders on the sign-in page itself, the same path the generic
+// credential failure uses, so the person learns which way to sign in instead of
+// being told their password is wrong.
+const passwordSignInOffKey = "error.password_signin_off"
+
 func (h *AuthHandlers) login(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
 		httpError(w, r, "error.internal_server", http.StatusInternalServerError)
@@ -105,6 +113,14 @@ func (h *AuthHandlers) login(w http.ResponseWriter, r *http.Request) {
 
 	session, err := h.auth.Login(r.Context(), email, password)
 	if err != nil {
+		// A verified password of a non-root account is refused while password
+		// sign-in is off (issue #419, S4): its own sentence, the same page, and
+		// no session. The generic credential failure keeps its own status.
+		var signInOff *application.PasswordSignInOffError
+		if errors.As(err, &signInOff) {
+			h.renderer.Render(w, r, "login", "", loginData{Error: i18n.T(requestLocale(r), passwordSignInOffKey), Email: email, Brand: brandFromContext(r.Context()), Panel: h.panel(r, true)}, http.StatusForbidden)
+			return
+		}
 		status, msg := mapErrorFor(r, err)
 		if status == http.StatusInternalServerError {
 			http.Error(w, msg, status)

@@ -207,6 +207,7 @@
   "error.create_unassigned_only": "tickets are created unassigned — assignment happens later through the category flow",
   "error.current_password_incorrect": "the current password is incorrect",
   "error.password_confirm_mismatch": "the new passwords do not match",
+  "error.password_signin_off": "Password sign-in is turned off. Sign in with your company account.",
   "error.department_not_found": "department not found",
   "error.department_required": "department is required",
   "error.department_required_for_desk": "department is required when a desk is selected",

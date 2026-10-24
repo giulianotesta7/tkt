@@ -1912,6 +1912,17 @@ func (f *fakePasswordResetStore) PasswordResetTokenUsable(_ context.Context, has
 	return token != nil && token.usedAt == nil && now.Before(token.expiresAt), nil
 }
 
+func (f *fakePasswordResetStore) PasswordResetTokenOwner(_ context.Context, hash string, now time.Time) (int64, bool, error) {
+	if f.usableErr != nil {
+		return 0, false, f.usableErr
+	}
+	token := f.find(hash)
+	if token == nil || token.usedAt != nil || !now.Before(token.expiresAt) {
+		return 0, false, nil
+	}
+	return token.userID, true, nil
+}
+
 func (f *fakePasswordResetStore) RedeemPasswordResetToken(_ context.Context, hash, passwordHash string, now time.Time) error {
 	if f.redeemErr != nil {
 		return f.redeemErr

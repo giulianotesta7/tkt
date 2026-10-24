@@ -207,6 +207,7 @@
   "error.create_unassigned_only": "los tickets se crean sin asignar — la asignación ocurre después con el flujo de la categoría",
   "error.current_password_incorrect": "la contraseña actual no es correcta",
   "error.password_confirm_mismatch": "las contraseñas nuevas no coinciden",
+  "error.password_signin_off": "El acceso con contraseña está desactivado. Inicia sesión con tu cuenta de la empresa.",
   "error.department_not_found": "departamento no encontrado",
   "error.department_required": "el departamento es obligatorio",
   "error.department_required_for_desk": "el departamento es obligatorio cuando se selecciona una mesa",

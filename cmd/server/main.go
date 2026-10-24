@@ -126,7 +126,7 @@ func main() {
 	clock := systemClock{}
 
 	viewBuilder := application.NewViewBuilder(store.TicketStore(), store.UserStore(), store.CategoryStore(), store.CommentStore(), store.AuditStore(), store.DeskStore(), store.WorkflowResponseStore())
-	userSvc := application.NewUserService(store.UserStore(), clock).WithPasswordSettings(store.PasswordSettingsStore()).WithPasswordChangeStore(store.PasswordChangeStore())
+	userSvc := application.NewUserService(store.UserStore(), clock).WithPasswordSettings(store.PasswordSettingsStore()).WithPasswordChangeStore(store.PasswordChangeStore()).WithCompanySignIn(store.CompanySignInSettingsStore())
 	catSvc := application.NewCategoryService(store.CategoryStore(), clock)
 	catalogSvc := application.NewCatalogService(store.CatalogStore(), store.CategoryStore(), clock)
 	deskSvc := application.NewDeskService(store.DeskStore(), store.UserStore(), clock)
@@ -134,7 +134,7 @@ func main() {
 	// The requester's reply that ends a hold shifts the resolution SLA (#352).
 	commentSvc := application.NewCommentService(store.TicketStore(), store.CommentStore(), store.UserStore(), store.CommentUnitOfWork(), clock).WithSLA(slaSvc)
 	ticketSvc := application.NewTicketServiceWithWorkflowCreate(store.TicketStore(), store.UserStore(), store.CategoryStore(), store.TicketUnitOfWork(), viewBuilder, clock, store.WorkflowVersionStore(), application.NewWorkflowRunner(clock), store.WorkflowUnitOfWork(), slaSvc)
-	authSvc := application.NewAuthService(store.UserStore(), store.SessionStore(), clock)
+	authSvc := application.NewAuthService(store.UserStore(), store.SessionStore(), clock).WithCompanySignIn(store.CompanySignInSettingsStore())
 	searchSvc := application.NewSearchService(store.TicketStore(), store.SearchStore())
 	settingsSvc := application.NewSettingsService(store.SettingsStore())
 	organizationSvc := application.NewOrganizationService(store.OrganizationStore())
