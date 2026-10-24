@@ -214,3 +214,141 @@ func TestPendingUsersApproveChangesNothingWhenAnyEntryIsRefused(t *testing.T) {
 		})
 	}
 }
+
+// Issue #419, S3/S12: the Pending tab's Sign-in column reports the provider
+// identities the account actually holds. The order is the closed provider set's
+// display order whatever order the store answered, an account with no stored
+// identity carries none, and no fact beyond the account and the provider
+// travels.
+func TestPendingUsersListWithSignInReportsTheStoredFacts(t *testing.T) {
+	ctx := context.Background()
+	svc, users, _ := newPendingUsersService()
+	googleOnly := users.seedPending("Wanda", "wanda@example.com")
+	both := users.seedPending("Vic", "vic@example.com")
+	none := users.seedPending("Nora", "nora@example.com")
+	settled := users.seedRole("Ana", "ana@example.com", domain.RoleUser, true)
+	users.seedPendingSignIn(googleOnly.ID, application.ProviderGoogle)
+	// The store answers insertion order; the service owns the display order.
+	users.seedPendingSignIn(both.ID, application.ProviderMicrosoft)
+	users.seedPendingSignIn(both.ID, application.ProviderGoogle)
+	users.seedPendingSignIn(settled.ID, application.ProviderGoogle)
+
+	accounts, err := svc.ListWithSignIn(ctx, managerActor)
+	if err != nil {
+		t.Fatalf("ListWithSignIn: %v", err)
+	}
+	if len(accounts) != 3 {
+		t.Fatalf("ListWithSignIn answered %d accounts, want the 3 waiting ones: %+v", len(accounts), accounts)
+	}
+	got := map[int64][]application.CompanyProvider{}
+	for _, account := range accounts {
+		got[account.User.ID] = account.Providers
+		if !account.User.Pending || account.User.Active {
+			t.Errorf("account %d = %+v, want the waiting account the list named", account.User.ID, account.User)
+		}
+	}
+	wantProviders := [][]application.CompanyProvider{
+		{application.ProviderGoogle},
+		{application.ProviderGoogle, application.ProviderMicrosoft},
+	}
+	for i, id := range []int64{googleOnly.ID, both.ID} {
+		if len(got[id]) != len(wantProviders[i]) {
+			t.Fatalf("account %d providers = %v, want %v", id, got[id], wantProviders[i])
+		}
+		for j, want := range wantProviders[i] {
+			if got[id][j] != want {
+				t.Errorf("account %d provider %d = %q, want %q", id, j, got[id][j], want)
+			}
+		}
+	}
+	if providers, ok := got[none.ID]; !ok || len(providers) != 0 {
+		t.Errorf("an account with no stored identity must answer no provider, got %v (present %v)", providers, ok)
+	}
+	if _, ok := got[settled.ID]; ok {
+		t.Errorf("an active account must never appear in the Pending tab: %+v", got[settled.ID])
+	}
+
+	again, err := svc.ListWithSignIn(ctx, managerActor)
+	if err != nil {
+		t.Fatalf("ListWithSignIn again: %v", err)
+	}
+	for i := range accounts {
+		if len(accounts[i].Providers) != len(again[i].Providers) {
+			t.Fatalf("ListWithSignIn is not deterministic: %+v then %+v", accounts[i], again[i])
+		}
+		for j := range accounts[i].Providers {
+			if accounts[i].Providers[j] != again[i].Providers[j] {
+				t.Fatalf("ListWithSignIn provider order changed between calls: %+v then %+v", accounts[i], again[i])
+			}
+		}
+	}
+}
+
+// Issue #419, S12: a stored value the closed provider set does not name is still
+// reported, last, so the screen can label it explicitly. Reporting it is honest;
+// dropping it or reordering it into a guess would not be.
+func TestPendingUsersListWithSignInKeepsAnUnnamedProviderVisible(t *testing.T) {
+	ctx := context.Background()
+	svc, users, _ := newPendingUsersService()
+	waiting := users.seedPending("Wanda", "wanda@example.com")
+	users.seedPendingSignIn(waiting.ID, application.CompanyProvider("github"))
+	users.seedPendingSignIn(waiting.ID, application.ProviderMicrosoft)
+
+	accounts, err := svc.ListWithSignIn(ctx, managerActor)
+	if err != nil {
+		t.Fatalf("ListWithSignIn: %v", err)
+	}
+	if len(accounts) != 1 {
+		t.Fatalf("ListWithSignIn answered %d accounts, want 1", len(accounts))
+	}
+	got := accounts[0].Providers
+	if len(got) != 2 || got[0] != application.ProviderMicrosoft || got[1] != application.CompanyProvider("github") {
+		t.Fatalf("providers = %v, want the named provider first and the unnamed one last", got)
+	}
+}
+
+// Issue #419, S3: the richer read is management-only, and the capability gate
+// refuses before the identities are read at all.
+func TestPendingUsersListWithSignInIsManagementOnly(t *testing.T) {
+	ctx := context.Background()
+	svc, users, _ := newPendingUsersService()
+	waiting := users.seedPending("Wanda", "wanda@example.com")
+	users.seedPendingSignIn(waiting.ID, application.ProviderGoogle)
+
+	for _, role := range []domain.Role{domain.RoleUser, domain.RoleAgent} {
+		users.signInReads = 0
+		if _, err := svc.ListWithSignIn(ctx, domain.User{ID: 7, Role: role}); err == nil {
+			t.Errorf("ListWithSignIn as %q must be denied", role)
+		}
+		if users.signInReads != 0 {
+			t.Errorf("a refused actor (%q) must not reach the identity read, got %d reads", role, users.signInReads)
+		}
+	}
+	if _, err := svc.ListWithSignIn(ctx, managerActor); err != nil {
+		t.Fatalf("ListWithSignIn as a manager: %v", err)
+	}
+	if users.signInReads != 1 {
+		t.Errorf("identity reads = %d, want the manager's single read", users.signInReads)
+	}
+}
+
+// Issue #419, S3: the plain List contract is unchanged — the waiting accounts
+// only, with no sign-in data added to them.
+func TestPendingUsersListKeepsItsPlainContract(t *testing.T) {
+	ctx := context.Background()
+	svc, users, _ := newPendingUsersService()
+	waiting := users.seedPending("Wanda", "wanda@example.com")
+	users.seedRole("Ana", "ana@example.com", domain.RoleUser, true)
+	users.seedPendingSignIn(waiting.ID, application.ProviderGoogle)
+
+	got, err := svc.List(ctx, managerActor)
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if len(got) != 1 || got[0].ID != waiting.ID || got[0].Pending != true {
+		t.Fatalf("List = %+v, want only the waiting account", got)
+	}
+	if users.signInReads != 0 {
+		t.Errorf("List must not read identities, got %d reads", users.signInReads)
+	}
+}

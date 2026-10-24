@@ -3,6 +3,7 @@ package sqlite
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/giulianotesta7/tkt/internal/application"
@@ -29,6 +30,84 @@ func seedApprovalActor(t *testing.T, s *Store) int64 {
 		t.Fatalf("seed approval actor: %v", err)
 	}
 	return actor.ID
+}
+
+// seedPendingIdentity attaches one provider identity to an account through the
+// real identity port, so the fixture is exactly the row a company sign-in
+// stores (issue #419, S7).
+func seedPendingIdentity(t *testing.T, s *Store, userID int64, provider application.CompanyProvider) {
+	t.Helper()
+	identity := &application.CompanyIdentity{
+		UserID: userID, Provider: provider,
+		Issuer: "https://issuer.example.com", Subject: fmt.Sprintf("subject-%d-%s", userID, provider),
+		Email: "identity@example.com", CreatedAt: testClock, LastSignInAt: testClock,
+	}
+	if err := s.CompanyIdentityStore().LinkIdentity(context.Background(), identity); err != nil {
+		t.Fatalf("seed %s identity for user %d: %v", provider, userID, err)
+	}
+}
+
+// Issue #419, S3/S12: the Sign-in column's facts come from the stored
+// identities joined to the accounts that wait for approval. One row per
+// identity, ordered by account then provider; an account with no identity has
+// no row, an ordinary account's identity is never listed, and approving the
+// account takes it and its rows out of the pending read while the identity
+// itself stays stored.
+func TestPendingUserStoreAnswersTheStoredSignInMethods(t *testing.T) {
+	s, pending := newPendingUserTestStore(t)
+	ctx := context.Background()
+	googleOnly := seedPendingUser(t, s, "Wanda", "wanda@example.com")
+	both := seedPendingUser(t, s, "Vic", "vic@example.com")
+	none := seedPendingUser(t, s, "Nora", "nora@example.com")
+	settled := seedApprovalActor(t, s)
+	seedPendingIdentity(t, s, googleOnly, application.ProviderGoogle)
+	seedPendingIdentity(t, s, both, application.ProviderMicrosoft)
+	seedPendingIdentity(t, s, both, application.ProviderGoogle)
+	seedPendingIdentity(t, s, settled, application.ProviderMicrosoft)
+
+	rows, err := pending.ListPendingSignIn(ctx)
+	if err != nil {
+		t.Fatalf("ListPendingSignIn: %v", err)
+	}
+	want := []application.PendingSignIn{
+		{UserID: googleOnly, Provider: application.ProviderGoogle},
+		{UserID: both, Provider: application.ProviderGoogle},
+		{UserID: both, Provider: application.ProviderMicrosoft},
+	}
+	if len(rows) != len(want) {
+		t.Fatalf("ListPendingSignIn = %+v, want %+v", rows, want)
+	}
+	for i, expected := range want {
+		if rows[i] != expected {
+			t.Errorf("row %d = %+v, want %+v", i, rows[i], expected)
+		}
+	}
+	for _, row := range rows {
+		if row.UserID == settled {
+			t.Errorf("an ordinary account's identity must never reach the pending read: %+v", row)
+		}
+		if row.UserID == none {
+			t.Errorf("an account with no stored identity must answer no row: %+v", row)
+		}
+	}
+
+	// Approval takes the account out of the pending read; the identity itself is
+	// historical and stays stored.
+	if _, err := pending.ApprovePending(ctx, []application.PendingApproval{{ID: googleOnly, Role: domain.RoleUser}}, settled, testClock); err != nil {
+		t.Fatalf("ApprovePending: %v", err)
+	}
+	after, err := pending.ListPendingSignIn(ctx)
+	if err != nil {
+		t.Fatalf("ListPendingSignIn after approval: %v", err)
+	}
+	for _, row := range after {
+		if row.UserID == googleOnly {
+			t.Errorf("an approved account must leave the pending sign-in read: %+v", after)
+		}
+	}
+	if got := countRows(t, s, `SELECT COUNT(*) FROM user_identities WHERE user_id = ?`, googleOnly); got != 1 {
+		t.Errorf("the approved account's identity rows = %d, want the stored identity kept", got)
+	}
 }
 
 func TestPendingUserStoreListsAndApproves(t *testing.T) {

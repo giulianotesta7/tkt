@@ -555,6 +555,15 @@ type UserStore interface {
 	RecoverRoot(ctx context.Context, id int64) (*domain.User, error)
 }
 
+// PendingSignIn is one provider identity held by an account that waits for
+// approval (issue #419, S3/S12). It carries the account and the provider only:
+// the issuer, the subject and the address last seen at the provider are the
+// identity's own record and never travel to a screen.
+type PendingSignIn struct {
+	UserID   int64
+	Provider CompanyProvider
+}
+
 // PendingUserStore persists the company sign-in accounts that wait for an
 // administrator's approval (issue #419, S3). It is a port of its own rather
 // than more methods on UserStore because the Pending tab is the only surface
@@ -563,6 +572,13 @@ type PendingUserStore interface {
 	// ListPending answers every account waiting for approval, ordered by id.
 	// Those accounts are inactive as well, so no other list reaches them.
 	ListPending(ctx context.Context) ([]domain.User, error)
+	// ListPendingSignIn answers one row per provider identity held by an account
+	// that waits for approval, ordered by account id and then provider. It is
+	// the factual half of the Pending tab's Sign-in column: the provider comes
+	// from the stored identity, never from the address or the configuration. An
+	// account with no stored identity has no row, and one that reached two
+	// providers has two.
+	ListPendingSignIn(ctx context.Context) ([]PendingSignIn, error)
 	// ApprovePending activates each named account, clears its pending flag, and
 	// grants the chosen role in ONE immediate transaction: an unknown id, an
 	// account that is no longer pending, a repeated id, an invalid or root

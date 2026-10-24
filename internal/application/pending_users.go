@@ -2,6 +2,7 @@ package application
 
 import (
 	"context"
+	"sort"
 
 	"github.com/giulianotesta7/tkt/internal/domain"
 )
@@ -35,6 +36,15 @@ func NewPendingUsersService(pending PendingUserStore, clock domain.Clock) *Pendi
 	return &PendingUsersService{pending: pending, clock: clock}
 }
 
+// PendingAccount is one account waiting for approval together with the sign-in
+// methods its stored identities carry (issue #419, S3/S12). The providers are
+// the closed provider set, in display order; an account with no stored identity
+// carries none, and the presentation layer says so instead of guessing one.
+type PendingAccount struct {
+	User      domain.User
+	Providers []CompanyProvider
+}
+
 // List answers the accounts waiting for approval to an authorized management
 // actor. It carries no other account: a pending one is inactive, so nothing
 // else lists it either.
@@ -43,6 +53,54 @@ func (s *PendingUsersService) List(ctx context.Context, actor domain.User) ([]do
 		return nil, domain.NewForbiddenError("user management is not permitted")
 	}
 	return s.pending.ListPending(ctx)
+}
+
+// ListWithSignIn answers the same accounts as List, each with the sign-in
+// methods its stored identities carry. It reads the identities as facts: the
+// account list decides which accounts answer, and a stored identity the closed
+// provider set does not name is still reported (the presentation layer labels it
+// explicitly) rather than dropped or replaced by a guess.
+func (s *PendingUsersService) ListWithSignIn(ctx context.Context, actor domain.User) ([]PendingAccount, error) {
+	users, err := s.List(ctx, actor)
+	if err != nil {
+		return nil, err
+	}
+	signIns, err := s.pending.ListPendingSignIn(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return mergePendingSignIn(users, signIns), nil
+}
+
+// mergePendingSignIn pairs each waiting account with its own provider rows, in
+// the providers' display order, so the answer is deterministic whatever order
+// the store used. An account with no row keeps an empty list.
+func mergePendingSignIn(users []domain.User, signIns []PendingSignIn) []PendingAccount {
+	byUser := make(map[int64][]CompanyProvider, len(users))
+	for _, signIn := range signIns {
+		byUser[signIn.UserID] = append(byUser[signIn.UserID], signIn.Provider)
+	}
+	accounts := make([]PendingAccount, 0, len(users))
+	for _, user := range users {
+		providers := byUser[user.ID]
+		sort.SliceStable(providers, func(i, j int) bool {
+			return providerDisplayIndex(providers[i]) < providerDisplayIndex(providers[j])
+		})
+		accounts = append(accounts, PendingAccount{User: user, Providers: providers})
+	}
+	return accounts
+}
+
+// providerDisplayIndex answers where a provider sits in the closed provider set;
+// a value the set does not name sorts after every named one, so it stays visible
+// at the end instead of being reordered into a claim.
+func providerDisplayIndex(provider CompanyProvider) int {
+	for index, known := range CompanyProviders {
+		if provider == known {
+			return index
+		}
+	}
+	return len(CompanyProviders)
 }
 
 // Approve turns the selected accounts into managed users: each one becomes

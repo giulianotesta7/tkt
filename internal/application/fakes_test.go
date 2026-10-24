@@ -565,6 +565,13 @@ type fakeUserStore struct {
 	referenced  map[int64]bool
 	roleChanges []fakeRoleChange
 	downgrades  []fakeDowngrade
+	// signIns holds one provider row per stored identity of a waiting account
+	// (issue #419, S3/S12), in insertion order, so a test can prove the service
+	// reports the stored facts and normalizes the display order itself.
+	signIns map[int64][]application.CompanyProvider
+	// signInReads counts the identity reads that reached the port, so a refused
+	// actor can prove the capability gate refused before any read.
+	signInReads int
 }
 
 // fakeDowngrade records one DowngradeToUser call (issue #47 handoff route).
@@ -578,6 +585,7 @@ type fakeRoleChange struct{ actorID int64 }
 
 func newFakeUserStore() *fakeUserStore {
 	return &fakeUserStore{
+		signIns:    map[int64][]application.CompanyProvider{},
 		users:      map[int64]*domain.User{},
 		byEmail:    map[string]int64{},
 		nextID:     1,
@@ -615,6 +623,12 @@ func (f *fakeUserStore) seedPending(name, email string) domain.User {
 	u := f.seedRole(name, email, domain.RoleUser, false)
 	f.users[u.ID].Pending = true
 	return *f.users[u.ID]
+}
+
+// seedPendingSignIn attaches one stored provider identity to an account, the
+// fact the Pending tab's Sign-in column reads (issue #419, S12).
+func (f *fakeUserStore) seedPendingSignIn(userID int64, provider application.CompanyProvider) {
+	f.signIns[userID] = append(f.signIns[userID], provider)
 }
 
 func (f *fakeUserStore) Create(_ context.Context, u *domain.User) error {
@@ -798,6 +812,27 @@ func (f *fakeUserStore) ListPending(_ context.Context) ([]domain.User, error) {
 	var out []domain.User
 	for _, id := range ids {
 		out = append(out, *f.users[id])
+	}
+	return out, nil
+}
+
+// ListPendingSignIn answers the stored provider rows of the accounts that wait
+// for approval, ordered by account id in insertion order per account: the
+// service normalizes the display order, so the fake keeps the store's own.
+func (f *fakeUserStore) ListPendingSignIn(_ context.Context) ([]application.PendingSignIn, error) {
+	f.signInReads++
+	ids := make([]int64, 0, len(f.signIns))
+	for id := range f.signIns {
+		if u, ok := f.users[id]; ok && u.Pending {
+			ids = append(ids, id)
+		}
+	}
+	sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
+	var out []application.PendingSignIn
+	for _, id := range ids {
+		for _, provider := range f.signIns[id] {
+			out = append(out, application.PendingSignIn{UserID: id, Provider: provider})
+		}
 	}
 	return out, nil
 }

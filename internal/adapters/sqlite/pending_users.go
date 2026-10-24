@@ -57,6 +57,40 @@ func (ps *pendingUserStore) ListPending(ctx context.Context) ([]domain.User, err
 	return out, nil
 }
 
+// ListPendingSignIn answers the provider identities held by the accounts that
+// wait for approval (issue #419, S3/S12): one row per stored identity, ordered
+// by account id and then provider, so the read is deterministic without a
+// display decision. The join is what makes it factual — an ordinary account's
+// identity never reaches the Pending tab, an account with no identity has no row,
+// and only the account id and the provider travel: the issuer, the subject and
+// the address last seen at the provider stay in the identity's own record.
+func (ps *pendingUserStore) ListPendingSignIn(ctx context.Context) ([]application.PendingSignIn, error) {
+	rows, err := ps.db.QueryContext(ctx,
+		`SELECT i.user_id, i.provider
+		 FROM user_identities i
+		 JOIN users u ON u.id = i.user_id
+		 WHERE u.pending = 1
+		 ORDER BY i.user_id ASC, i.provider ASC`)
+	if err != nil {
+		return nil, fmt.Errorf("sqlite: list pending sign-in methods: %w", err)
+	}
+	defer rows.Close()
+	var out []application.PendingSignIn
+	for rows.Next() {
+		var row application.PendingSignIn
+		var provider string
+		if err := rows.Scan(&row.UserID, &provider); err != nil {
+			return nil, fmt.Errorf("sqlite: scan pending sign-in method: %w", err)
+		}
+		row.Provider = application.CompanyProvider(provider)
+		out = append(out, row)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("sqlite: list pending sign-in methods: %w", err)
+	}
+	return out, nil
+}
+
 // ApprovePending turns each named account into a managed user in ONE immediate
 // transaction: the pending flag clears and active is set together (the 0034
 // CHECK refuses any other order), the chosen role is written, and a role_changes
