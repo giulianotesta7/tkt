@@ -50,6 +50,8 @@ func TestTicketsIndexAgentUsesPersonalAndClaimSections(t *testing.T) {
 	// The triage queue's visual language (issue #410, S2): one table per
 	// section, rows that open their ticket, the state/hold/SLA facts beside
 	// the priority, and a live count summary in the page subtitle.
+	// The agent has never opened these tickets and the administrator arranged
+	// them, so every row carries the last-visit mark (issue #415).
 	for _, want := range []string{
 		`<h1 class="page-title">My work</h1>`,
 		`class="page-subtitle agent-summary">1 open · 1 available<`,
@@ -59,7 +61,7 @@ func TestTicketsIndexAgentUsesPersonalAndClaimSections(t *testing.T) {
 		`hx-get="/tickets"`,
 		`table class="queue agent-table"`,
 		`<tr class="queue-row" data-href="/tickets/` + strconv.FormatInt(mine.ID, 10) + `">`,
-		`class="queue-title" href="/tickets/` + strconv.FormatInt(mine.ID, 10) + `">Assigned to Ava</a>`,
+		`class="queue-title queue-title-changed" href="/tickets/` + strconv.FormatInt(mine.ID, 10) + `">Assigned to Ava</a>`,
 		"Claim me now",
 		`>Current task:</span> handle<`,
 		"No desk assigned",
@@ -108,7 +110,7 @@ func TestTicketsIndexAgentUsesPersonalAndClaimSections(t *testing.T) {
 	if strings.Contains(assignedSection, `class="agent-claim-form"`) || strings.Contains(assignedSection, "Claim ticket") {
 		t.Error("assigned row must not render a claim control")
 	}
-	titleIndex := strings.Index(body, `class="queue-title" href="/tickets/`+strconv.FormatInt(claimable.ID, 10)+`"`)
+	titleIndex := strings.Index(body, `class="queue-title queue-title-changed" href="/tickets/`+strconv.FormatInt(claimable.ID, 10)+`"`)
 	claimIndex := strings.Index(body, ">Claim ticket</button>")
 	if titleIndex < 0 || claimIndex < 0 || titleIndex > claimIndex {
 		t.Error("the row title must precede the Claim control in DOM/tab order")

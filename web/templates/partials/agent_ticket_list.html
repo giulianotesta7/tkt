@@ -3,7 +3,7 @@
      two queues read like every other queue. The title keeps its own link and
      the whole row carries data-href for the shared row navigation. */}}
 {{define "agent_row_cells"}}<td class="num" data-label="{{t "tickets.list.col_id"}}">{{ticketNumber .Number}}</td>
-            <td class="cell-title" data-label="{{t "tickets.list.col_ticket"}}"><a class="queue-title" href="/tickets/{{.ID}}">{{.Title}}</a><span class="queue-requester">{{.RequesterName}}</span>{{if .Context.CurrentTask}}<span class="agent-task"><span class="agent-task-label">{{t "tickets.agent.current_task"}}</span> {{.Context.CurrentTask}}</span>{{end}}</td>
+            <td class="cell-title" data-label="{{t "tickets.list.col_ticket"}}">{{if .Changed}}<span class="visually-hidden">{{t "tickets.list.changed"}}</span>{{end}}<a class="queue-title{{if .Changed}} queue-title-changed{{end}}" href="/tickets/{{.ID}}">{{.Title}}</a><span class="queue-requester">{{.RequesterName}}</span>{{if .Context.CurrentTask}}<span class="agent-task"><span class="agent-task-label">{{t "tickets.agent.current_task"}}</span> {{.Context.CurrentTask}}</span>{{end}}</td>
             <td class="cell-muted agent-desk" data-label="{{t "tickets.agent.desk"}}">{{if .Context.DeskName}}{{.Context.DeskName}}{{else}}{{t "tickets.agent.no_desk"}}{{end}}</td>
             <td class="priority {{.Priority}}" data-label="{{t "tickets.list.col_priority"}}"><span class="ticket-priority-value">{{priorityLabel .Priority}}</span></td>
             <td data-label="{{t "tickets.list.col_state"}}">{{template "state_badge" .State}}{{if .OnHoldSince}} {{template "hold_chip" .}}{{end}}</td>
@@ -52,7 +52,7 @@
     <h2 id="assigned-tickets-title" class="agent-queue-title">{{t "tickets.agent.assigned"}} <span class="agent-queue-count">· {{.Assigned.Total}}</span></h2>
 {{template "agent_section_table" .Assigned}}
 {{if .Done.Total}}    <details class="agent-fold"{{if gt .Done.Page 1}} open{{end}}>
-      <summary>{{t "tickets.agent.done"}} <span class="agent-fold-count">· {{.Done.Total}}</span></summary>
+      <summary>{{t "tickets.agent.done"}} <span class="agent-fold-count">· {{.Done.Total}}</span>{{if .Done.HasChanged}}<span class="fold-changed"><span class="visually-hidden">{{t "tickets.list.has_updates"}}</span></span>{{end}}</summary>
 {{template "agent_section_table" .Done}}
     </details>{{end}}
   </section>
