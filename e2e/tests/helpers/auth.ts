@@ -63,6 +63,31 @@ export async function createUserAsAdmin(
   return opts.email;
 }
 
+/**
+ * Give one existing user the role a journey needs. The new-user form creates a
+ * requester account only, so every staff fixture becomes an agent or an
+ * administrator the way an operator does it: on that user's own page, where the
+ * role is a stored field.
+ */
+export async function grantUserRole(
+  page: Page,
+  name: string,
+  role: "agent" | "admin",
+): Promise<void> {
+  await page.goto(base() + "/users");
+  const row = page
+    .locator("tr[data-user-name]")
+    .filter({ has: page.getByText(name, { exact: true }) });
+  await expect(row, `Expected exactly one user row for "${name}" at ${page.url()}`).toHaveCount(1);
+  const launcher = row.locator('a.user-launcher, a[href*="/users/"][href*="/edit"]').first();
+  const href = await launcher.getAttribute("href");
+  if (!href) throw new Error(`No edit href found for user "${name}" at ${page.url()}`);
+  await page.goto(base() + href.split("?")[0]);
+  await page.locator('select[name="role"]').selectOption(role);
+  await page.getByRole("button", { name: /save changes/i }).click();
+  await expect(page).toHaveURL(/\/users$/);
+}
+
 export async function loginAs(page: Page, email: string, password: string): Promise<void> {
   await page.goto(base() + "/login");
   await page.getByLabel(/email/i).fill(email);

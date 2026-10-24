@@ -243,6 +243,14 @@ function authenticatedScreens(deps: {
       control: (p) => p.getByRole("link", { name: /^Notifications/ }),
     },
     {
+      // Saved replies is a staff screen of its own (issue #418): the operator's
+      // own texts and the ones a desk shares, one screen with one tab per set.
+      label: `/replies`,
+      path: "/replies",
+      heading: (p) => p.locator('h1:has-text("Saved replies")'),
+      control: (p) => p.getByRole("link", { name: "New reply", exact: true }),
+    },
+    {
       label: `/preferences`,
       path: "/preferences",
       heading: (p) => p.locator('h1:has-text("Preferences")'),

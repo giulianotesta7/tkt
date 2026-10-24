@@ -15,6 +15,7 @@ import {
   loginAsSeeded,
   base,
   createUserAsAdmin,
+  grantUserRole,
   loginAs,
   logout,
   setSLAEnabled,
@@ -77,6 +78,27 @@ async function createAssignableAgent(
   await page.getByRole("button", { name: /save changes/i }).click();
   await expect(page).toHaveURL(/\/users$/);
   return { name, editHref };
+}
+
+/**
+ * Create an account for one journey. The name carries the caller's unique
+ * token, so the account resolves to exactly one row; the role is the one the
+ * journey needs, granted the way an operator grants it.
+ */
+async function createAccount(
+  page: Page,
+  name: string,
+  role?: "agent" | "admin",
+): Promise<{ name: string; email: string; password: string }> {
+  const suffix = Math.random().toString(36).slice(2, 8);
+  const account = {
+    name,
+    email: `${name.replace(/\s+/g, "-").toLowerCase()}-${suffix}@example.com`,
+    password: "Secret123!",
+  };
+  await createUserAsAdmin(page, account);
+  if (role) await grantUserRole(page, name, role);
+  return account;
 }
 
 test.describe("Ticket detail", () => {
@@ -1650,6 +1672,234 @@ test.describe("Ticket detail", () => {
       .locator(".listbox-option[aria-selected='true']")
       .count();
     expect(heldByQuery, "the current assignee must stay in the list").toBe(1);
+  });
+
+  test("the reply box names only the staff who can open the ticket", async ({ page }) => {
+    test.setTimeout(180_000);
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await loginAsSeeded(page);
+    const unique = Date.now().toString(36).slice(2, 8);
+
+    const requester = await createAccount(page, `Rita Requester ${unique}`);
+    const assignee = await createAccount(page, `Ana Assignee ${unique}`, "agent");
+    const outside = await createAccount(page, `Outside Agent ${unique}`, "agent");
+    const colleague = await createAccount(page, `Beatrix Backoffice ${unique}`, "admin");
+
+    await logout(page);
+    await loginAs(page, requester.email, requester.password);
+    const title = `Mention probe ${unique}`;
+    const ticketID = await createTicketViaUi(page, {
+      title,
+      description: "mention probe",
+      category: "General",
+      priority: "high",
+    });
+    await logout(page);
+    await loginAsSeeded(page);
+    await page.goto(base() + `/tickets/${ticketID}`);
+    await pickAssignee(page, assignee.name);
+    await logout(page);
+
+    await loginAs(page, assignee.email, assignee.password);
+    await page.goto(base() + `/tickets/${ticketID}`);
+    await expect(page.locator("#ticket-detail")).toBeVisible();
+
+    // The Mention button opens the one candidate list, with a search field.
+    const toggle = page.locator("#ticket-detail [data-mentions-open]");
+    await expect(toggle).toBeVisible();
+    await toggle.click();
+    await expect(toggle).toHaveAttribute("aria-expanded", "true");
+    const list = page.locator("#ticket-detail [data-mentions]");
+    const search = list.locator("[data-mentions-search]");
+    await expect(search).toBeFocused();
+    // The colleague can open the ticket; the requester and an agent the ticket
+    // is out of reach for cannot, so neither of them is in the document at all.
+    await expect(list.locator(`[data-mention-name="${colleague.name}"]`)).toHaveCount(1);
+    await expect(list.locator(`[data-mention-name="${requester.name}"]`)).toHaveCount(0);
+    await expect(list.locator(`[data-mention-name="${outside.name}"]`)).toHaveCount(0);
+
+    const narrowed = list.locator(".comment-mentions-option:not([hidden])");
+    await search.fill(unique);
+    await expect(narrowed).toHaveCount(1);
+    await expect(narrowed).toHaveAttribute("data-mention-name", colleague.name);
+    await page.keyboard.press("Escape");
+    await expect(toggle).toHaveAttribute("aria-expanded", "false");
+    const comment = page.locator("#comment-body");
+    await expect(comment).toBeFocused();
+
+    // Typing "@" and the name opens the same list, and Enter takes the person
+    // the list highlights, writing the name the server's grammar matches.
+    await page.keyboard.type("Thanks ");
+    await page.keyboard.type("@" + colleague.name);
+    await expect(narrowed).toHaveCount(1);
+    await page.keyboard.press("Enter");
+    const mentioned = `Thanks @${colleague.name} `;
+    await expect(comment).toHaveValue(mentioned);
+
+    const navigation = page.waitForEvent("framenavigated", (frame) => frame === page.mainFrame());
+    const posted = waitForExactPost(page, `/tickets/${ticketID}/comments`);
+    await page.getByRole("button", { name: "Reply", exact: true }).click();
+    await navigation;
+    expect((await posted).status()).toBe(303);
+    await expect(page.locator("#timeline")).toContainText(mentioned);
+    await logout(page);
+
+    // The person named in the comment is told, and the ticket's followers row
+    // holds them: a mention is a subscription, never another way in.
+    await loginAs(page, colleague.email, colleague.password);
+    await page.goto(base() + "/notifications");
+    const told = page.locator(".notifications-row").filter({ hasText: title });
+    await expect(told).toHaveCount(1);
+    await expect(told.locator(".notification-what")).toHaveText("Mentioned you in a comment");
+    await page.goto(base() + `/tickets/${ticketID}`);
+    const followers = page.locator("#ticket-detail .prop-followers");
+    await expect(followers).toHaveCount(1);
+    await expect(followers.locator(".prop-followers-count")).toHaveText("1");
+    await expect(followers.locator(".prop-followers-person .prop-followers-name")).toHaveText(
+      colleague.name,
+    );
+    await expect(followers.locator(".prop-followers-person .prop-followers-you")).toHaveText("You");
+  });
+
+  test("a follower keeps a draft and hears about the ticket until they unfollow", async ({
+    page,
+  }) => {
+    test.setTimeout(240_000);
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await loginAsSeeded(page);
+    const unique = Date.now().toString(36).slice(2, 8);
+
+    const follower = await createAccount(page, `Fay Follower ${unique}`, "admin");
+    const title = `Follow probe ${unique}`;
+    const ticketID = await createTicketViaUi(page, {
+      title,
+      description: "follow probe",
+      category: "General",
+      priority: "high",
+    });
+    await logout(page);
+
+    await loginAs(page, follower.email, follower.password);
+    await page.goto(base() + `/tickets/${ticketID}`);
+    const button = page.locator("#ticket-detail .detail-follow button");
+    await expect(button).toHaveText("Follow");
+    await expect(button).toHaveAttribute("aria-pressed", "false");
+    const draft = `Half a reply ${unique}`;
+    await page.locator("#comment-body").fill(draft);
+
+    await assertHtmxSwap(
+      page,
+      async () => {
+        await button.click();
+      },
+      {
+        endpoint: `/tickets/${ticketID}/follow`,
+        method: "POST",
+        expectedStatus: 200,
+        hxTarget: "#ticket-detail",
+      },
+    );
+    const following = page.locator("#ticket-detail .detail-follow button");
+    await expect(following).toHaveText("Following");
+    await expect(following).toHaveAttribute("aria-pressed", "true");
+    // The whole detail fragment was replaced, and the composer's draft and the
+    // followers row both came through it.
+    await expect(page.locator("#comment-body")).toHaveValue(draft);
+    await expect(page.locator("#ticket-detail .prop-followers")).toContainText("You");
+    await page.reload();
+    await expect(page.locator("#ticket-detail .detail-follow button")).toHaveText("Following");
+    await expect(page.locator("#ticket-detail .detail-follow button")).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    await logout(page);
+
+    // Another operator changes the priority, and the follower is told.
+    await loginAsSeeded(page);
+    await page.goto(base() + `/tickets/${ticketID}`);
+    await pickPriority(page, "critical");
+    await logout(page);
+
+    await loginAs(page, follower.email, follower.password);
+    await page.goto(base() + "/notifications");
+    const told = page.locator(".notifications-row").filter({ hasText: title });
+    await expect(told).toHaveCount(1);
+    await expect(told.locator(".notification-what")).toHaveText(
+      "Priority changed from High to Critical",
+    );
+
+    // Unfollowing ends the subscription: the same change reaches nobody.
+    await page.goto(base() + `/tickets/${ticketID}`);
+    await assertHtmxSwap(
+      page,
+      async () => {
+        await page.locator("#ticket-detail .detail-follow button").click();
+      },
+      {
+        endpoint: `/tickets/${ticketID}/unfollow`,
+        method: "POST",
+        expectedStatus: 200,
+        hxTarget: "#ticket-detail",
+      },
+    );
+    await expect(page.locator("#ticket-detail .detail-follow button")).toHaveText("Follow");
+    await expect(page.locator("#ticket-detail .detail-follow button")).toHaveAttribute(
+      "aria-pressed",
+      "false",
+    );
+    await logout(page);
+
+    await loginAsSeeded(page);
+    await page.goto(base() + `/tickets/${ticketID}`);
+    await pickPriority(page, "low");
+    await logout(page);
+
+    await loginAs(page, follower.email, follower.password);
+    await page.goto(base() + "/notifications");
+    const stillTold = page.locator(".notifications-row").filter({ hasText: title });
+    await expect(stillTold).toHaveCount(1);
+    await expect(stillTold.locator(".notification-what")).toHaveText(
+      "Priority changed from High to Critical",
+    );
+  });
+
+  test("a requester's ticket offers no saved replies, mentions or following", async ({ page }) => {
+    test.setTimeout(180_000);
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await loginAsSeeded(page);
+    const unique = Date.now().toString(36).slice(2, 8);
+
+    const requester = await createAccount(page, `Rui Requester ${unique}`);
+    await logout(page);
+    await loginAs(page, requester.email, requester.password);
+    const ticketID = await createTicketViaUi(page, {
+      title: `Requester control probe ${unique}`,
+      description: "requester control probe",
+      category: "General",
+      priority: "high",
+    });
+    await page.goto(base() + `/tickets/${ticketID}`);
+
+    // The requester still writes comments, with none of the staff tools beside
+    // the box and no way into a ticket's following.
+    await expect(page.locator("#comment-body")).toBeVisible();
+    await expect(page.getByRole("button", { name: "Reply", exact: true })).toBeVisible();
+    await expect(page.locator("#ticket-detail [data-saved-replies]")).toHaveCount(0);
+    await expect(page.locator("#ticket-detail [data-mentions]")).toHaveCount(0);
+    await expect(page.locator("#ticket-detail .detail-follow")).toHaveCount(0);
+    await expect(page.locator("#ticket-detail .prop-followers")).toHaveCount(0);
+    await expect(page.locator('.sidebar-link[href="/replies"]')).toHaveCount(0);
+    await logout(page);
+
+    // The same ticket shows all of them to staff, so the absences above are the
+    // role and not a missing render.
+    await loginAsSeeded(page);
+    await page.goto(base() + `/tickets/${ticketID}`);
+    await expect(page.locator("#ticket-detail [data-saved-replies]")).toHaveCount(1);
+    await expect(page.locator("#ticket-detail [data-mentions]")).toHaveCount(1);
+    await expect(page.locator("#ticket-detail .detail-follow")).toHaveCount(1);
+    await expect(page.locator("#ticket-detail .prop-followers")).toHaveCount(1);
+    await expect(page.locator('.sidebar-link[href="/replies"]')).toHaveCount(1);
   });
 });
 
