@@ -251,7 +251,10 @@ func newHarnessWithAdmin(t *testing.T, seedAdmin bool) *harness {
 	NewSettingsHandlers(settingsSvc, slaSvc, s.SLAStore(), s.SettingsStore(), renderer).WithEmail(emailSettingsSvc).WithOrganization(application.NewOrganizationService(s.OrganizationStore())).WithSignin(signinSvc).WithPasswordSettings(passwordSettingsSvc).WithCompanySignIn(companySettingsSvc).Register(mux)
 	NewCategorySLAHandlers(catSvc, slaSvc, s.SLAStore(), renderer).Register(mux)
 	NewPreferencesHandlers(preferencesSvc, renderer).WithPasswordChange(usersSvc, passwordSettingsSvc).Register(mux)
-	NewNotificationHandlers(s.NotificationStore(), s.TicketStore(), s.UserStore(), renderer, clock).Register(mux)
+	// Issue #419: the pending-account notice renders the stored account and its
+	// identities, wired here exactly as production wires it.
+	NewNotificationHandlers(s.NotificationStore(), s.TicketStore(), s.UserStore(), renderer, clock).
+		WithNotificationSubjects(s.NotificationSubjectStore()).Register(mux)
 	mw := NewSessionMiddleware(s.SessionStore(), s.UserStore(), s.SettingsStore()).WithSidebarPreferences(s.SidebarPreferences()).WithThemePreferences(s.ThemePreferences()).WithOrganization(s.OrganizationStore())
 
 	h := &harness{

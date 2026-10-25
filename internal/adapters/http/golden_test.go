@@ -1503,6 +1503,56 @@ func TestGoldenNotificationPanel(t *testing.T) {
 	goldenFile(t, "notification_panel", renderGolden(t, "notifications", "notification_panel", fixtureNotificationsPanelData(), true))
 }
 
+// fixtureNotificationsPanelPendingData freezes the account kind's rows (issue
+// #419, S3/S12) beside a ticket row, so the snapshot proves the two shapes never
+// borrow from each other: the account rows carry the account's stored facts and
+// the fixed Users target, never a ticket number or the ticket-degrade label.
+//
+// It covers the three statements the row can make — an account still waiting, an
+// account whose request was already answered, and a reader who may no longer see
+// the account — plus the account that recorded no identity at all, so the
+// provider phrase is frozen too. The sentences come from the SAME function the
+// handler uses, and every instant is literal (D7).
+func fixtureNotificationsPanelPendingData() notificationsPanelData {
+	ana := domain.User{ID: 1, Name: "Ana Torres", Email: "ana@example.com", Active: true, CreatedAt: goldenT0}
+	waiting := application.NotificationAccount{
+		UserID: 20, Visible: true, Found: true, Pending: true,
+		Name: "Ana Pérez", Email: "ana.perez@example.com",
+		Providers: []application.CompanyProvider{application.ProviderGoogle},
+	}
+	settled := application.NotificationAccount{
+		UserID: 21, Visible: true, Found: true,
+		Name: "Bruno Salas", Email: "bruno.salas@example.com",
+		Providers: []application.CompanyProvider{application.ProviderMicrosoft},
+	}
+	unlinked := application.NotificationAccount{UserID: 22, Visible: true, Found: true, Pending: true, Name: "Nora Sin", Email: "nora.sin@example.com"}
+	restricted := application.NotificationAccount{UserID: 23}
+	row := func(id int64, account application.NotificationAccount, target string, at time.Time, unread bool) notificationRow {
+		title, body := application.NotificationAccountMessage(account)
+		return notificationRow{ID: id, Account: true, Subject: title, Message: body, Target: target, CreatedAt: at, Unread: unread}
+	}
+	return notificationsPanelData{
+		pageData: pageData{NavActive: "notifications", CurrentUser: ana},
+		Unread:   3,
+		Groups: []notificationGroup{
+			{Kind: "today", Date: goldenT0, Rows: []notificationRow{
+				row(33, waiting, notificationPendingAccountsTarget, goldenT1, true),
+				row(32, unlinked, notificationPendingAccountsTarget, goldenT1, true),
+				row(31, settled, notificationPendingAccountsTarget, goldenT0, true),
+				row(30, restricted, "", goldenT0, false),
+				{ID: 29, TicketID: 29, Number: 12, Title: "VPN drops every hour", Message: application.MsgRef("notifications.kind.assigned"), Actor: application.Data("Marco Ruiz"), CreatedAt: goldenT0, Unread: false},
+			}},
+		},
+	}
+}
+
+// TestGoldenNotificationPanelPending freezes the account kind's rows in the
+// drawer fragment: the waiting, answered, restricted and no-identity forms, each
+// with the target the row offers (or the absence of one a reader may not use).
+func TestGoldenNotificationPanelPending(t *testing.T) {
+	goldenFile(t, "notification_panel_pending", renderGolden(t, "notifications", "notification_panel", fixtureNotificationsPanelPendingData(), true))
+}
+
 // TestGoldenNotificationBell freezes the bell's count fragment: the zero state
 // (no badge at all) and the counted state with its accessible name.
 func TestGoldenNotificationBell(t *testing.T) {

@@ -199,7 +199,11 @@ func main() {
 	httpadapter.NewSettingsHandlers(settingsSvc, slaSvc, store.SLAStore(), store.SettingsStore(), renderer).WithEmail(emailSettingsSvc).WithOrganization(organizationSvc).WithSignin(signinSvc).WithPasswordSettings(passwordSettingsSvc).WithCompanySignIn(companySettingsSvc).Register(mux)
 	httpadapter.NewCategorySLAHandlers(catSvc, slaSvc, store.SLAStore(), renderer).Register(mux)
 	httpadapter.NewPreferencesHandlers(preferencesSvc, renderer).WithPasswordChange(userSvc, passwordSettingsSvc).Register(mux)
-	httpadapter.NewNotificationHandlers(store.NotificationStore(), store.TicketStore(), store.UserStore(), renderer, clock).Register(mux)
+	// Issue #419: the bell and the full feed render the account a pending notice
+	// names from the stored account and its identities, never from a guessed
+	// method or a fabricated ticket.
+	httpadapter.NewNotificationHandlers(store.NotificationStore(), store.TicketStore(), store.UserStore(), renderer, clock).
+		WithNotificationSubjects(store.NotificationSubjectStore()).Register(mux)
 	// D12: /healthz is exempt from auth — registered on the mux before the
 	// session middleware wraps it, and the middleware already exempts the
 	// public setup/login routes.

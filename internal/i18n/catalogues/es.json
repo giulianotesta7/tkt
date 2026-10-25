@@ -491,6 +491,7 @@
   "notifications.account.method": "con %s",
   "notifications.account.method_pair": "con %s y %s",
   "notifications.account.method_unknown": "con una cuenta de la empresa",
+  "notifications.account.open_pending": "Abrir Usuarios › Pendientes",
   "notifications.account.pending.body": "%s (%s) inició sesión %s y está esperando un rol.",
   "notifications.account.pending.title": "%s está pendiente de aprobación",
   "notifications.account.resolved.body": "%s (%s) inició sesión %s y pidió acceso. La cuenta ya no está pendiente de aprobación.",
