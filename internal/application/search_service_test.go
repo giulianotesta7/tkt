@@ -515,16 +515,130 @@ func TestSearchRequesterSectionsAreServerChosen(t *testing.T) {
 	}
 }
 
-// A caller that names no section keeps the pre-#411 requester read: active
-// work only, with the caller's own on-hold filter honored (the #409 CSV export
-// passes view=on_hold this way). Crafted states still cannot reveal history,
-// and only the server-named closed section reaches resolved work.
-func TestSearchRequesterExportHonorsCallerOnHoldWithoutSection(t *testing.T) {
+// equalIDs compares two id slices element by element.
+func equalIDs(got, want []int64) bool {
+	if len(got) != len(want) {
+		return false
+	}
+	for i := range got {
+		if got[i] != want[i] {
+			return false
+		}
+	}
+	return true
+}
+
+// TestSearchRequesterExportCoversEveryListSection pins the requester export
+// scope (issue #425, S1/S5/S6/S8): the file is the union of the three My
+// tickets sections — active work on hold or not, the resolved tickets awaiting
+// confirmation, and the closed ones — while cancelled work and another
+// requester's tickets stay out exactly as they do on the list. The scope is
+// chosen by server code, so every caller-supplied filter is overwritten, and
+// the search text still applies to the whole file.
+func TestSearchRequesterExportCoversEveryListSection(t *testing.T) {
+	svc, tickets, clock := newSearchService()
+	alice := domain.User{ID: 1, Name: "Alice", Role: domain.RoleUser}
+	bob := domain.User{ID: 2, Name: "Bob", Role: domain.RoleUser}
+
+	open := seedSectionTicket(tickets, clock, "alice vpn open", alice.ID, domain.StateNew, false)
+	held := seedSectionTicket(tickets, clock, "alice vpn waiting", alice.ID, domain.StateInProgress, true)
+	working := seedSectionTicket(tickets, clock, "alice vpn working", alice.ID, domain.StateInProgress, false)
+	resolved := seedSectionTicket(tickets, clock, "alice vpn resolved", alice.ID, domain.StateResolved, false)
+	closed := seedSectionTicket(tickets, clock, "alice vpn closed", alice.ID, domain.StateClosed, false)
+	cancelled := seedSectionTicket(tickets, clock, "alice vpn cancelled", alice.ID, domain.StateCancelled, false)
+	bobHeld := seedSectionTicket(tickets, clock, "bob vpn waiting", bob.ID, domain.StateInProgress, true)
+	bobClosed := seedSectionTicket(tickets, clock, "bob vpn closed", bob.ID, domain.StateClosed, false)
+
+	exported := func(actor domain.User, q application.TicketQuery) []int64 {
+		var ids []int64
+		if err := svc.Export(context.Background(), actor, q, func(t domain.Ticket) error { ids = append(ids, t.ID); return nil }); err != nil {
+			t.Fatalf("Export: %v", err)
+		}
+		return ids
+	}
+	// Newest first (D2): every section the list can show, cancelled excluded.
+	want := []int64{closed.ID, resolved.ID, working.ID, held.ID, open.ID}
+
+	if got := exported(alice, application.TicketQuery{Section: application.TicketSectionRequesterExport}); !equalIDs(got, want) {
+		t.Fatalf("requester export = %v, want %v (the union of the three sections)", got, want)
+	}
+	count, err := svc.Count(context.Background(), alice, application.TicketQuery{Section: application.TicketSectionRequesterExport})
+	if err != nil {
+		t.Fatalf("Count: %v", err)
+	}
+	if count != len(want) {
+		t.Fatalf("Count = %d, want %d (the file and the screen must agree)", count, len(want))
+	}
+	for _, id := range exported(alice, application.TicketQuery{Section: application.TicketSectionRequesterExport}) {
+		for _, outside := range []int64{cancelled.ID, bobHeld.ID, bobClosed.ID} {
+			if id == outside {
+				t.Fatalf("ticket %d must stay out of the requester export", outside)
+			}
+		}
+	}
+
+	// The server chooses the scope, so a state, a view's state set, an on-hold
+	// flag, the Needs-your-action predicate, a priority or a category sent by a
+	// caller must change nothing.
+	crafted := []func(*application.TicketQuery){
+		func(q *application.TicketQuery) { q.State = ptr(domain.StateCancelled) },
+		func(q *application.TicketQuery) { q.States = []domain.State{domain.StateCancelled} },
+		func(q *application.TicketQuery) { q.States = []domain.State{domain.StateResolved, domain.StateClosed} },
+		func(q *application.TicketQuery) { q.OnHold = true },
+		func(q *application.TicketQuery) { q.NotOnHold = true },
+		func(q *application.TicketQuery) { q.RequesterNeedsAction = true },
+		func(q *application.TicketQuery) { q.UserID = ptr(bob.ID) },
+	}
+	for index, craft := range crafted {
+		query := application.TicketQuery{Section: application.TicketSectionRequesterExport}
+		craft(&query)
+		if got := exported(alice, query); !equalIDs(got, want) {
+			t.Fatalf("crafted=%d: requester export = %v, want %v unchanged", index, got, want)
+		}
+	}
+
+	// The search text reaches the whole file, exactly as it reaches every
+	// section of the list (S6).
+	if got := exported(alice, application.TicketQuery{Section: application.TicketSectionRequesterExport, Text: "alice vpn closed"}); !equalIDs(got, []int64{closed.ID}) {
+		t.Fatalf("searched requester export = %v, want [%d]", got, closed.ID)
+	}
+	if got := exported(alice, application.TicketQuery{Section: application.TicketSectionRequesterExport, Text: "alice vpn"}); !equalIDs(got, want) {
+		t.Fatalf("searched requester export = %v, want %v", got, want)
+	}
+	if got := exported(alice, application.TicketQuery{Section: application.TicketSectionRequesterExport, Text: "nothing matches this"}); len(got) != 0 {
+		t.Fatalf("unmatched requester export = %v, want no rows", got)
+	}
+
+	// Another requester reads their own file, never Alice's.
+	if got := exported(bob, application.TicketQuery{Section: application.TicketSectionRequesterExport}); !equalIDs(got, []int64{bobClosed.ID, bobHeld.ID}) {
+		t.Fatalf("other requester export = %v, want [%d %d]", got, bobClosed.ID, bobHeld.ID)
+	}
+}
+
+// TestSearchRequesterNoSectionReadKeepsActiveWork pins the requester read a
+// caller gets when it names no section (issue #425, S8): unchanged from #411 —
+// active work only, with the caller's own on-hold filter honored — because the
+// export handler is the only caller that names the export section. Crafted
+// states still cannot reveal history.
+func TestSearchRequesterNoSectionReadKeepsActiveWork(t *testing.T) {
 	svc, tickets, clock := newSearchService()
 	alice := domain.User{ID: 1, Name: "Alice", Role: domain.RoleUser}
 	open := seedSectionTicket(tickets, clock, "alice open", alice.ID, domain.StateNew, false)
 	held := seedSectionTicket(tickets, clock, "alice waiting", alice.ID, domain.StateInProgress, true)
 	resolved := seedSectionTicket(tickets, clock, "alice resolved", alice.ID, domain.StateResolved, false)
+	closed := seedSectionTicket(tickets, clock, "alice closed", alice.ID, domain.StateClosed, false)
+
+	searched := func(q application.TicketQuery) []int64 {
+		result, err := svc.Search(context.Background(), alice, q, 1)
+		if err != nil {
+			t.Fatalf("Search: %v", err)
+		}
+		ids := make([]int64, 0, len(result.Tickets))
+		for _, ticket := range result.Tickets {
+			ids = append(ids, ticket.ID)
+		}
+		return ids
+	}
 	exported := func(q application.TicketQuery) []int64 {
 		var ids []int64
 		if err := svc.Export(context.Background(), alice, q, func(t domain.Ticket) error { ids = append(ids, t.ID); return nil }); err != nil {
@@ -532,20 +646,33 @@ func TestSearchRequesterExportHonorsCallerOnHoldWithoutSection(t *testing.T) {
 		}
 		return ids
 	}
-	if got := exported(application.TicketQuery{}); len(got) != 2 || got[0] != held.ID || got[1] != open.ID {
-		t.Fatalf("export without a section = %v, want [%d %d] (active work only)", got, held.ID, open.ID)
+
+	active := []int64{held.ID, open.ID}
+	if got := searched(application.TicketQuery{}); !equalIDs(got, active) {
+		t.Fatalf("Search without a section = %v, want %v (active work only)", got, active)
 	}
-	if got := exported(application.TicketQuery{OnHold: true}); len(got) != 1 || got[0] != held.ID {
-		t.Fatalf("export with OnHold = %v, want [%d] (a caller's filter must not be dropped)", got, held.ID)
+	if got := exported(application.TicketQuery{}); !equalIDs(got, active) {
+		t.Fatalf("Export without a section = %v, want %v (active work only)", got, active)
+	}
+	for _, id := range exported(application.TicketQuery{}) {
+		for _, outside := range []int64{resolved.ID, closed.ID} {
+			if id == outside {
+				t.Fatalf("the no-section read must not reach ticket %d", outside)
+			}
+		}
+	}
+	onHeld := []int64{held.ID}
+	if got := searched(application.TicketQuery{OnHold: true}); !equalIDs(got, onHeld) {
+		t.Fatalf("Search with OnHold = %v, want %v (a caller's filter must not be dropped)", got, onHeld)
+	}
+	if got := exported(application.TicketQuery{OnHold: true}); !equalIDs(got, onHeld) {
+		t.Fatalf("Export with OnHold = %v, want %v (a caller's filter must not be dropped)", got, onHeld)
 	}
 	crafted := application.TicketQuery{State: ptr(domain.StateResolved), States: []domain.State{domain.StateResolved, domain.StateClosed}, OnHold: true}
-	if got := exported(crafted); len(got) != 1 || got[0] != held.ID {
-		t.Fatalf("export with crafted states = %v, want [%d] (resolved %d stays hidden)", got, held.ID, resolved.ID)
+	if got := searched(crafted); !equalIDs(got, onHeld) {
+		t.Fatalf("Search with crafted states = %v, want %v (resolved %d stays hidden)", got, onHeld, resolved.ID)
 	}
-	if got := exported(application.TicketQuery{Section: application.TicketSectionRequesterAction}); len(got) != 2 || got[0] != resolved.ID || got[1] != held.ID {
-		t.Fatalf("needs-your-action section export = %v, want [%d %d] (held and awaiting confirmation)", got, resolved.ID, held.ID)
-	}
-	if got := exported(application.TicketQuery{Section: application.TicketSectionRequesterClosed}); len(got) != 0 {
-		t.Fatalf("closed section export = %v, want no rows (a resolved ticket awaits confirmation)", got)
+	if got := exported(crafted); !equalIDs(got, onHeld) {
+		t.Fatalf("Export with crafted states = %v, want %v (resolved %d stays hidden)", got, onHeld, resolved.ID)
 	}
 }

@@ -1,6 +1,7 @@
 package httpadapter
 
 import (
+	"context"
 	"encoding/csv"
 	"net/http"
 	"net/http/httptest"
@@ -125,6 +126,188 @@ func TestTicketExportAppliesTheActorScope(t *testing.T) {
 	// SLA is staff-only on screen, so it is staff-only in the file too.
 	if sla := rows[1][len(rows[1])-1]; sla != "" {
 		t.Errorf("SLA column = %q, want it empty for a requester", sla)
+	}
+}
+
+// requesterExportTitles reads the titles of the requester's CSV rows.
+func requesterExportTitles(rows [][]string) []string {
+	titles := make([]string, 0, len(rows))
+	for _, row := range rows[1:] {
+		titles = append(titles, row[1])
+	}
+	return titles
+}
+
+// listSectionTitles collects which of the candidate titles the rendered
+// requester list shows in ANY of its three sections.
+func listSectionTitles(sections []string, candidates []string) map[string]bool {
+	found := map[string]bool{}
+	for _, section := range sections {
+		for _, title := range candidates {
+			if strings.Contains(section, title) {
+				found[title] = true
+			}
+		}
+	}
+	return found
+}
+
+// TestTicketExportRequesterCoversEveryListSection proves S1/S5/S6/S8 through
+// the real route: a requester's file carries every ticket their three list
+// sections show — the held and resolved work needing their action, the open
+// work, and the closed work — for the same search text, and nothing else. The
+// rows are compared with the union of the three rendered sections, so the file
+// and the screen cannot disagree.
+func TestTicketExportRequesterCoversEveryListSection(t *testing.T) {
+	h := newHarness(t)
+	requester := seedUserRole(t, h.store, "Cara", "cara@export-sections.test", domain.RoleUser)
+	other := seedUserRole(t, h.store, "Otto", "otto@export-sections.test", domain.RoleUser)
+	sess := seedSession(t, h.store, requester.ID)
+
+	held := createTicketFor(t, h, requester, "VPN screenshot needed")
+	holdViaService(t, h, held.ID, "we need the screenshot")
+	open := createTicketFor(t, h, requester, "VPN client logs")
+	resolved := createTicketFor(t, h, requester, "VPN resolved case")
+	h.seedTransition(t, resolved.ID, domain.StateResolved, "")
+	closed := createTicketFor(t, h, requester, "VPN closed case")
+	h.seedTransition(t, closed.ID, domain.StateResolved, "")
+	closeViaRequester(t, h, requester, closed.ID)
+	unrelated := createTicketFor(t, h, requester, "Printer jam on floor three")
+	cancelled := createTicketFor(t, h, requester, "VPN cancelled case")
+	h.seedTransition(t, cancelled.ID, domain.StateCancelled, "")
+	otherResolved := createTicketFor(t, h, other, "VPN other requester case")
+	h.seedTransition(t, otherResolved.ID, domain.StateResolved, "")
+
+	allTitles := []string{held.Title, open.Title, resolved.Title, closed.Title, unrelated.Title, cancelled.Title, otherResolved.Title}
+	cases := []struct {
+		name string
+		q    string
+		want []string
+	}{
+		// Newest first, like every list (D2): the requester's whole screen.
+		{name: "every section", q: "", want: []string{unrelated.Title, closed.Title, resolved.Title, open.Title, held.Title}},
+		{name: "with a search text", q: "?q=VPN", want: []string{closed.Title, resolved.Title, open.Title, held.Title}},
+	}
+	for _, tc := range cases {
+		rec := h.getAs(t, "/tickets/export.csv"+tc.q, sess.ID)
+		rows := getCSV(t, rec)
+		if got := rec.Header().Get("Content-Type"); got != "text/csv; charset=utf-8" {
+			t.Errorf("%s: Content-Type = %q, want a UTF-8 CSV", tc.name, got)
+		}
+		csvTitles := requesterExportTitles(rows)
+		if len(csvTitles) != len(tc.want) {
+			t.Fatalf("%s: exported %d rows, want %d: %v", tc.name, len(csvTitles), len(tc.want), csvTitles)
+		}
+		for index, title := range tc.want {
+			if csvTitles[index] != title {
+				t.Fatalf("%s: CSV rows = %v, want %v", tc.name, csvTitles, tc.want)
+			}
+		}
+
+		// The same screen, read through its three sections: the file is exactly
+		// their union (S1/S5/S6).
+		body := ticketsIndexAs(t, h, sess.ID, tc.q, false)
+		action, openSection, closedSection := requesterSections(t, body)
+		sectionTitles := listSectionTitles([]string{action, openSection, closedSection}, allTitles)
+		if len(sectionTitles) != len(csvTitles) {
+			t.Fatalf("%s: the list shows %d tickets but the file carries %d: %v vs %v", tc.name, len(sectionTitles), len(csvTitles), sectionTitles, csvTitles)
+		}
+		for _, title := range csvTitles {
+			if !sectionTitles[title] {
+				t.Fatalf("%s: the file carries %q, which no list section shows", tc.name, title)
+			}
+		}
+
+		// S3: the SLA column stays empty for a requester.
+		for _, row := range rows[1:] {
+			if len(row) != len(ticketExportColumns) {
+				t.Fatalf("%s: row %v, want %d columns", tc.name, row, len(ticketExportColumns))
+			}
+			if sla := row[len(row)-1]; sla != "" {
+				t.Fatalf("%s: SLA column = %q for %q, want it empty for a requester", tc.name, sla, row[1])
+			}
+		}
+	}
+}
+
+// TestTicketExportRequesterIgnoresCallerStateViewAndHold proves the file's
+// scope is chosen by the server (S8): no query value can widen it to another
+// requester's work, narrow it to one section, or drop the held or closed work.
+// Every crafted read answers with the same bytes as the plain one.
+func TestTicketExportRequesterIgnoresCallerStateViewAndHold(t *testing.T) {
+	h := newHarness(t)
+	requester := seedUserRole(t, h.store, "Cleo", "cleo@export-filters.test", domain.RoleUser)
+	sess := seedSession(t, h.store, requester.ID)
+
+	held := createTicketFor(t, h, requester, "Waiting for the requester")
+	holdViaService(t, h, held.ID, "send the log")
+	createTicketFor(t, h, requester, "Plain open request")
+	resolved := createTicketFor(t, h, requester, "Resolved and waiting")
+	h.seedTransition(t, resolved.ID, domain.StateResolved, "")
+	closed := createTicketFor(t, h, requester, "Closed and done")
+	h.seedTransition(t, closed.ID, domain.StateResolved, "")
+	closeViaRequester(t, h, requester, closed.ID)
+
+	plain := h.getAs(t, "/tickets/export.csv", sess.ID).Body.String()
+	if got := strings.Count(plain, "\n"); got != 5 { // header + four tickets
+		t.Fatalf("plain export has %d lines, want 5: %s", got, plain)
+	}
+	for _, query := range []string{
+		"?view=on_hold",
+		"?view=resolved",
+		"?view=unassigned",
+		"?view=mine",
+		"?state=closed",
+		"?state=cancelled",
+		"?priority=high",
+		"?view=on_hold&state=cancelled",
+	} {
+		rec := h.getAs(t, "/tickets/export.csv"+query, sess.ID)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("%s: status = %d, want 200", query, rec.Code)
+		}
+		if rec.Body.String() != plain {
+			t.Fatalf("%s: the export changed with a caller filter:\n%s\nwant:\n%s", query, rec.Body.String(), plain)
+		}
+	}
+
+	// The search text still applies, and it is the only thing that narrows the
+	// file.
+	searched := getCSV(t, h.getAs(t, "/tickets/export.csv?q=requester", sess.ID))
+	if len(searched) != 2 || searched[1][1] != held.Title {
+		t.Fatalf("searched export = %v, want only %q", searched, held.Title)
+	}
+
+	// A cancelled ticket stays out of the file, exactly as it stays out of
+	// every section of the list.
+	cancelled := createTicketFor(t, h, requester, "Cancelled for good")
+	h.seedTransition(t, cancelled.ID, domain.StateCancelled, "")
+	another := requesterExportTitles(getCSV(t, h.getAs(t, "/tickets/export.csv", sess.ID)))
+	for _, title := range another {
+		if title == cancelled.Title {
+			t.Fatalf("a cancelled ticket must never reach the file: %v", another)
+		}
+	}
+}
+
+// TestTicketExportStaffKeepsTheQueueViewFilter is the preservation case for the
+// requester change (S2/S7): a staff download still respects the queue view it
+// was asked from, so view=on_hold keeps listing only the held tickets.
+func TestTicketExportStaffKeepsTheQueueViewFilter(t *testing.T) {
+	h := newHarness(t)
+	held := h.seedTicket(t, "held for the requester", nil)
+	h.seedTransition(t, held.ID, domain.StateInProgress, "")
+	if _, err := h.tickets.PutOnHold(context.Background(), *h.admin, held.ID, "waiting"); err != nil {
+		t.Fatalf("put ticket on hold: %v", err)
+	}
+	h.seedTicket(t, "still new", nil)
+
+	rows := getCSV(t, h.get(t, "/tickets/export.csv?view=on_hold", false))
+	if len(rows) != 2 {
+		t.Fatalf("staff view=on_hold export = %v, want only the held ticket", rows)
+	}
+	if rows[1][1] != held.Title {
+		t.Errorf("exported %q, want the held ticket", rows[1][1])
 	}
 }
 
