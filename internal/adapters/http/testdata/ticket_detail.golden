@@ -219,7 +219,7 @@
       <input type="file" id="comment-attachments" name="attachments" multiple accept=".png,.jpg,.jpeg,.gif,.webp,.pdf,.docx,.xlsx,.pptx,.txt,.csv,.log,.zip">
     </label>
     <div class="checkbox-field comment-internal">
-      <label for="comment-internal"><input id="comment-internal" type="checkbox" name="internal" value="1" hx-preserve="true"> Internal note</label>
+      <label for="comment-internal"><input id="comment-internal" type="checkbox" name="internal" value="1" hx-preserve="true"> Internal comment</label>
     </div>
     <button class="btn primary comment-submit" type="submit">Reply</button>
   </div>

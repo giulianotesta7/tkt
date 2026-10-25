@@ -923,7 +923,7 @@
   "tickets.chip.search": "Search: %s",
   "tickets.comment.attachments": "Attachments",
   "tickets.comment.body_label": "Comment body",
-  "tickets.comment.internal": "Internal note",
+  "tickets.comment.internal": "Internal comment",
   "tickets.comment.placeholder": "Write a comment…",
   "tickets.comment.submit": "Reply",
   "tickets.degrade.no_desk": "No desk",

@@ -89,3 +89,22 @@ func TestCategoryKeywordsCopy(t *testing.T) {
 		}
 	}
 }
+
+// TestInternalCommentVocabulary pins the maintainer's rename (issue #438, S6):
+// a staff-only comment is an "internal comment" in English and a "comentario
+// interno" in Spanish, and no catalogue entry still calls it a note.
+func TestInternalCommentVocabulary(t *testing.T) {
+	if got := New(English).T("tickets.comment.internal"); got != "Internal comment" {
+		t.Errorf("en tickets.comment.internal = %q, want %q", got, "Internal comment")
+	}
+	if got := New(Spanish).T("tickets.comment.internal"); got != "Comentario interno" {
+		t.Errorf("es tickets.comment.internal = %q, want %q", got, "Comentario interno")
+	}
+	for locale, stale := range map[string]string{English: "internal note", Spanish: "nota interna"} {
+		for key, message := range catalogues[locale] {
+			if strings.Contains(strings.ToLower(message), stale) {
+				t.Errorf("%s %q still says %q: %q", locale, key, stale, message)
+			}
+		}
+	}
+}

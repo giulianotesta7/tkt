@@ -43,7 +43,7 @@
 </div>
 
     <div class="checkbox-field comment-internal">
-      <label for="comment-internal"><input id="comment-internal" type="checkbox" name="internal" value="1" hx-preserve="true"> Internal note</label>
+      <label for="comment-internal"><input id="comment-internal" type="checkbox" name="internal" value="1" hx-preserve="true"> Internal comment</label>
     </div>
     <button class="btn primary comment-submit" type="submit">Reply</button>
   </div>

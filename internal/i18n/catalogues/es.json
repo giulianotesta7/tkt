@@ -923,7 +923,7 @@
   "tickets.chip.search": "Búsqueda: %s",
   "tickets.comment.attachments": "Archivos adjuntos",
   "tickets.comment.body_label": "Texto del comentario",
-  "tickets.comment.internal": "Nota interna",
+  "tickets.comment.internal": "Comentario interno",
   "tickets.comment.placeholder": "Escribe un comentario…",
   "tickets.comment.submit": "Responder",
   "tickets.degrade.no_desk": "Sin mesa",

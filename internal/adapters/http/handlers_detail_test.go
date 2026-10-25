@@ -661,7 +661,7 @@ func TestTicketComposer(t *testing.T) {
 		`<form class="card comment-form" method="post" action="/tickets/1/comments" enctype="multipart/form-data">`,
 		`<textarea name="body" id="comment-body" hx-preserve="true"`,
 		`<input id="comment-internal" type="checkbox" name="internal" value="1" hx-preserve="true">`,
-		`Internal note`,
+		`Internal comment`,
 		`<label class="comment-dropzone" for="comment-attachments">`,
 		`<input type="file" id="comment-attachments" name="attachments" multiple`,
 		`<span class="comment-dropzone-files" data-dropzone-files></span>`,

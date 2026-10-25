@@ -348,7 +348,7 @@ test.describe("Role — minimal matrix admin / agent / user (seeded)", () => {
     await expect(page.locator("#ticket-detail")).toBeVisible();
     await page.goto(baseURL() + `/tickets/${userTicketId}`);
     await expect(page.locator("#ticket-detail")).toBeVisible();
-    await expect(page.getByLabel("Internal note")).toHaveCount(0);
+    await expect(page.getByLabel("Internal comment")).toHaveCount(0);
     await expect(page.getByLabel(/comment body/i)).toBeVisible();
     // #263: a requester is not offered mutation controls the server will
     // reject. No priority form, no assign form, no transition form; the
@@ -403,7 +403,7 @@ test.describe("Role — minimal matrix admin / agent / user (seeded)", () => {
     const id = await createTicketViaUi(page, { title, category: "General", priority: "low" });
     await page.goto(baseURL() + `/tickets/${id}`);
     await expect(page.locator("#ticket-detail")).toBeVisible();
-    await expect(page.getByLabel("Internal note")).toHaveCount(0);
+    await expect(page.getByLabel("Internal comment")).toHaveCount(0);
     const comment = "User public " + Date.now().toString(36).slice(2, 6);
     await page.getByLabel(/comment body/i).fill(comment);
     const commentResponsePromise = waitForExactPost(page, `/tickets/${id}/comments`);

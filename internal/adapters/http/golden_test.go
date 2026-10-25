@@ -1114,7 +1114,7 @@ func TestTicketDetailPresentationContract(t *testing.T) {
 		`name="to"`,
 		`id="comment-body"`,
 		`name="internal" value="1"`,
-		`Internal note`,
+		`Internal comment`,
 		`class="timeline-entry timeline-comment internal"`,
 		`--internal-comment-bg`,
 		`id="ticket-actions-overflow"`,

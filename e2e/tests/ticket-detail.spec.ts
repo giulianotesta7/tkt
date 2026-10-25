@@ -672,7 +672,7 @@ test.describe("Ticket detail", () => {
     await page.goto(base() + `/tickets/${id}`);
 
     const comment = page.getByLabel(/comment body/i);
-    const internal = page.getByLabel("Internal note");
+    const internal = page.getByLabel("Internal comment");
     await expect(comment).toBeVisible();
     // The form defaults to public and re-renders unchecked; the author opts in.
     await expect(internal).not.toBeChecked();
@@ -696,7 +696,7 @@ test.describe("Ticket detail", () => {
     await expect(page.locator("#ticket-detail")).toContainText(/critical/i);
     // #261 preserved the typed text; #308 preserves the selected visibility too.
     await expect(page.getByLabel(/comment body/i)).toHaveValue(draft);
-    await expect(page.getByLabel("Internal note")).toBeChecked();
+    await expect(page.getByLabel("Internal comment")).toBeChecked();
     // Applying a property is not posting the comment: nothing was stored.
     await expect(page.locator("#timeline")).not.toContainText(draft);
   });
@@ -714,7 +714,7 @@ test.describe("Ticket detail", () => {
 
     await expect(pickerButton(page, "assign-user")).toBeVisible();
     const comment = page.getByLabel(/comment body/i);
-    const internal = page.getByLabel("Internal note");
+    const internal = page.getByLabel("Internal comment");
     const draft = "internal draft " + Date.now().toString(36);
     await internal.check();
     await comment.fill(draft);
@@ -737,7 +737,7 @@ test.describe("Ticket detail", () => {
     // Re-resolve after the swap: the fragment was replaced in place.
     await expect(pickerButton(page, "assign-user")).toContainText(target);
     await expect(page.getByLabel(/comment body/i)).toHaveValue(draft);
-    await expect(page.getByLabel("Internal note")).toBeChecked();
+    await expect(page.getByLabel("Internal comment")).toBeChecked();
     await expect(page.locator("#timeline")).not.toContainText(draft);
   });
 
@@ -753,7 +753,7 @@ test.describe("Ticket detail", () => {
     await page.goto(base() + `/tickets/${id}`);
 
     const comment = page.getByLabel(/comment body/i);
-    const internal = page.getByLabel("Internal note");
+    const internal = page.getByLabel("Internal comment");
     const draft = "internal draft " + Date.now().toString(36);
     await internal.check();
     await comment.fill(draft);
@@ -776,7 +776,7 @@ test.describe("Ticket detail", () => {
     }
 
     await expect(page.getByLabel(/comment body/i)).toHaveValue(draft);
-    await expect(page.getByLabel("Internal note")).toBeChecked();
+    await expect(page.getByLabel("Internal comment")).toBeChecked();
   });
 
   test("a public draft stays public after an unrelated apply", async ({ page }) => {
@@ -791,7 +791,7 @@ test.describe("Ticket detail", () => {
     await page.goto(base() + `/tickets/${id}`);
 
     const comment = page.getByLabel(/comment body/i);
-    const internal = page.getByLabel("Internal note");
+    const internal = page.getByLabel("Internal comment");
     await expect(internal).not.toBeChecked();
     const draft = "public draft " + Date.now().toString(36);
     await comment.fill(draft);
@@ -811,7 +811,7 @@ test.describe("Ticket detail", () => {
 
     // The author never changed visibility: the draft stays public.
     await expect(page.getByLabel(/comment body/i)).toHaveValue(draft);
-    await expect(page.getByLabel("Internal note")).not.toBeChecked();
+    await expect(page.getByLabel("Internal comment")).not.toBeChecked();
 
     const submitted = waitForExactPost(page, `/tickets/${id}/comments`);
     await Promise.all([
@@ -849,7 +849,7 @@ test.describe("Ticket detail", () => {
     await page.goto(base() + `/tickets/${id}`);
 
     const comment = page.getByLabel(/comment body/i);
-    const internal = page.getByLabel("Internal note");
+    const internal = page.getByLabel("Internal comment");
     await expect(internal).toBeVisible();
     const draft = "internal note " + Date.now().toString(36);
     await internal.check();
@@ -868,7 +868,7 @@ test.describe("Ticket detail", () => {
         hxTarget: "#ticket-detail",
       },
     );
-    await expect(page.getByLabel("Internal note")).toBeChecked();
+    await expect(page.getByLabel("Internal comment")).toBeChecked();
     await expect(page.getByLabel(/comment body/i)).toHaveValue(draft);
 
     const submitted = waitForExactPost(page, `/tickets/${id}/comments`);
