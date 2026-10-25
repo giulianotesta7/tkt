@@ -1825,6 +1825,25 @@ test.describe("Ticket detail", () => {
     await page.keyboard.press("Enter");
     const mentioned = `Thanks @${colleague.name} `;
     await expect(comment).toHaveValue(mentioned);
+    const popover = list.locator(".comment-mentions-popover");
+    await expect(popover).toBeHidden();
+
+    // Writing on after the chosen name is prose, not a new search: the list
+    // stays closed instead of reopening to say nobody matches.
+    await page.keyboard.type("please review");
+    const continued = `${mentioned}please review`;
+    await expect(comment).toHaveValue(continued);
+    await expect(popover).toBeHidden();
+    await expect(toggle).toHaveAttribute("aria-expanded", "false");
+
+    // A fresh "@" still opens the list, and erasing it falls back to the
+    // settled text without reopening the list.
+    await page.keyboard.type(" @Bea");
+    await expect(popover).toBeVisible();
+    await expect(narrowed).toHaveCount(1);
+    for (let i = 0; i < " @Bea".length; i++) await page.keyboard.press("Backspace");
+    await expect(comment).toHaveValue(continued);
+    await expect(popover).toBeHidden();
 
     const navigation = page.waitForEvent("framenavigated", (frame) => frame === page.mainFrame());
     const posted = waitForExactPost(page, `/tickets/${ticketID}/comments`);

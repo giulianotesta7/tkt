@@ -894,11 +894,28 @@
     return { start: at, query };
   };
 
+  // mentionIsSettled tells a finished mention from one still being typed. Once
+  // the query holds a space, it is still a search only while some candidate
+  // matches it, and a full name followed by a space is a chosen person. Without
+  // this, the words written after a chosen name would reopen the list to say
+  // nobody matches.
+  const mentionIsSettled = (root, query) => {
+    if (!/\s/.test(query)) return false;
+    const needle = foldText(query.trim());
+    const options = mentionOptions(root);
+    if (
+      /\s$/.test(query) &&
+      options.some((option) => foldText(option.dataset.mentionName) === needle)
+    )
+      return true;
+    return !options.some((option) => foldText(option.textContent).includes(needle));
+  };
+
   const openMentionsWhileTyping = (field) => {
     const root = mentionsRoot();
     if (!root) return;
     const trigger = mentionBefore(field);
-    if (!trigger) {
+    if (!trigger || mentionIsSettled(root, trigger.query)) {
       closeMentions(false);
       return;
     }
