@@ -17,8 +17,8 @@ const pendingApprovalReason = "pending approval"
 
 // pendingUserStore implements application.PendingUserStore over migration 0034
 // (issue #419, S3). The pending column is the whole read: an account that waits
-// for approval is inactive, so no other user read reaches it, and approval is
-// the only write that clears the flag.
+// for approval is inactive, so no other user read reaches it. Approval and
+// rejection settle the flag without deleting the account or its identities.
 type pendingUserStore struct {
 	db *sql.DB
 }

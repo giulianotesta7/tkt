@@ -131,6 +131,45 @@ func (s *PendingUsersService) Approve(ctx context.Context, actor domain.User, ap
 	return s.pending.ApprovePending(ctx, approvals, actor.ID, s.clock.Now())
 }
 
+// Reject leaves each selected account inactive and no longer pending, without
+// deleting it, unlinking identities, or changing its role. The target-role scope
+// is decided here and enforced by the store inside the atomic write.
+func (s *PendingUsersService) Reject(ctx context.Context, actor domain.User, ids []int64) ([]domain.User, error) {
+	policy := NewPolicy()
+	if !policy.Capabilities(actor.Role).Require(CapManageUsers) {
+		return nil, domain.NewForbiddenError("user management is not permitted")
+	}
+	if err := ValidatePendingRejection(ids); err != nil {
+		return nil, err
+	}
+	var manageable []domain.Role
+	for _, role := range []domain.Role{domain.RoleUser, domain.RoleAgent, domain.RoleAdmin} {
+		if policy.CanManageUser(actor.Role, role) {
+			manageable = append(manageable, role)
+		}
+	}
+	return s.pending.RejectPending(ctx, ids, manageable)
+}
+
+// ValidatePendingRejection is shared with persistence, so malformed or repeated
+// selections cannot partially clear a batch even through a direct store caller.
+func ValidatePendingRejection(ids []int64) error {
+	if len(ids) == 0 {
+		return &domain.ValidationError{Field: "users", Message: "select at least one account to reject", Key: "error.pending_rejection_selection_required"}
+	}
+	seen := make(map[int64]bool, len(ids))
+	for _, id := range ids {
+		if id <= 0 {
+			return &domain.ValidationError{Field: "users", Message: "invalid user", Key: "error.invalid_user"}
+		}
+		if seen[id] {
+			return &domain.ValidationError{Field: "users", Message: "an account is listed twice", Key: "error.pending_approval_duplicate_account"}
+		}
+		seen[id] = true
+	}
+	return nil
+}
+
 // ValidatePendingApprovals checks the batch shape both the service and the
 // store refuse: at least one account, no id repeated, every role a real one.
 // The store calls it as its own backstop, so a direct caller cannot bypass the

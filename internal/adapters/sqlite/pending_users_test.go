@@ -110,6 +110,59 @@ func TestPendingUserStoreAnswersTheStoredSignInMethods(t *testing.T) {
 	}
 }
 
+func TestPendingUserStoreRejectRetainsIdentityAndAllowsLaterReactivation(t *testing.T) {
+	s, pending := newPendingUserTestStore(t)
+	ctx := context.Background()
+	actorID := seedApprovalActor(t, s)
+	id := seedPendingUser(t, s, "Wanda", "wanda@example.com")
+	seedPendingIdentity(t, s, id, application.ProviderGoogle)
+	before, _, err := s.CompanyIdentityStore().ResolveIdentity(ctx, application.ProviderGoogle, "https://issuer.example.com", fmt.Sprintf("subject-%d-google", id))
+	if err != nil {
+		t.Fatal(err)
+	}
+	identityBefore := fmt.Sprintf("%+v", before)
+	rows, err := pending.RejectPending(ctx, []int64{id}, []domain.Role{domain.RoleUser})
+	if err != nil || len(rows) != 1 || rows[0].Active || rows[0].Pending || rows[0].Role != domain.RoleUser {
+		t.Fatalf("Reject=%v/%v", rows, err)
+	}
+	identity, stored, err := s.CompanyIdentityStore().ResolveIdentity(ctx, application.ProviderGoogle, before.Issuer, before.Subject)
+	if err != nil || stored.ID != id || stored.Active || stored.Pending || fmt.Sprintf("%+v", identity) != identityBefore {
+		t.Fatalf("rejected identity/account changed: %v", err)
+	}
+	if waiting, err := pending.ListPending(ctx); err != nil || len(waiting) != 0 {
+		t.Fatalf("pending=%v/%v", waiting, err)
+	}
+	if got, err := pending.ApprovePending(ctx, []application.PendingApproval{{ID: id, Role: domain.RoleAgent}}, actorID, testClock); err == nil || got != nil {
+		t.Fatalf("stale approval=%v/%v", got, err)
+	}
+	stored.Active, stored.Role = true, domain.RoleAgent
+	if err := s.UserStore().UpdateManagedUser(ctx, stored, domain.RoleUser, actorID, testClock); err != nil {
+		t.Fatal(err)
+	}
+	identity, stored, err = s.CompanyIdentityStore().ResolveIdentity(ctx, application.ProviderGoogle, before.Issuer, before.Subject)
+	if err != nil || !stored.Active || stored.Pending || stored.Role != domain.RoleAgent || fmt.Sprintf("%+v", identity) != identityBefore {
+		t.Fatalf("reactivation lost identity or role: %v", err)
+	}
+}
+
+func TestPendingUserStoreRejectRollsBackLateFailures(t *testing.T) {
+	for _, bad := range []int64{0, -1, 99999} {
+		s, pending := newPendingUserTestStore(t)
+		id := seedPendingUser(t, s, "Wanda", "wanda@example.com")
+		before, err := pending.ListPending(context.Background())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got, err := pending.RejectPending(context.Background(), []int64{id, bad}, []domain.Role{domain.RoleUser}); err == nil || got != nil {
+			t.Fatalf("Reject=%v/%v", got, err)
+		}
+		after, err := pending.ListPending(context.Background())
+		if err != nil || fmt.Sprintf("%+v", before) != fmt.Sprintf("%+v", after) {
+			t.Fatalf("failed batch changed users: %v", err)
+		}
+	}
+}
+
 func TestPendingUserStoreListsAndApproves(t *testing.T) {
 	s, pending := newPendingUserTestStore(t)
 	ctx := context.Background()

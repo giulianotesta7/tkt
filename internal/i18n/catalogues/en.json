@@ -1177,5 +1177,6 @@
   "error.company_signin_microsoft_client_id": "enter the Microsoft Client ID",
   "error.company_signin_microsoft_client_secret": "enter the Microsoft Client secret",
   "error.pending_approval_selection_required": "select at least one account to approve",
+  "error.pending_rejection_selection_required": "select at least one account to reject",
   "error.pending_approval_duplicate_account": "an account is listed twice"
 }

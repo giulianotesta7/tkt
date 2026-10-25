@@ -615,6 +615,10 @@ type PendingUserStore interface {
 	// role, or an empty selection changes nothing at all. Approval never grants
 	// a privilege of its own (S9) and never creates or promotes a root.
 	ApprovePending(ctx context.Context, approvals []PendingApproval, actorID int64, at time.Time) ([]domain.User, error)
+	// RejectPending clears pending and leaves inactive, preserving the account,
+	// role and identities. The application supplies the manageable target roles;
+	// the store checks them inside the same all-or-nothing transaction.
+	RejectPending(ctx context.Context, ids []int64, manageableRoles []domain.Role) ([]domain.User, error)
 }
 
 // SessionStore persists server-side login sessions (D14).

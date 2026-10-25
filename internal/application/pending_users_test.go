@@ -19,6 +19,65 @@ func newPendingUsersService() (*application.PendingUsersService, *fakeUserStore,
 
 // Issue #419, S3: the Pending tab answers exactly the accounts waiting for
 // approval, and only to an actor who may manage users.
+func TestPendingUsersRejectPreservesTheAccountAndRole(t *testing.T) {
+	ctx := context.Background()
+	for _, role := range []domain.Role{domain.RoleRoot, domain.RoleAdmin, domain.RoleAgent, domain.RoleUser} {
+		t.Run(string(role), func(t *testing.T) {
+			svc, users, _ := newPendingUsersService()
+			waiting := users.seedPending("Wanda", "wanda@example.com")
+			got, err := svc.Reject(ctx, domain.User{ID: managerActor.ID, Role: role}, []int64{waiting.ID})
+			stored, getErr := users.GetByID(ctx, waiting.ID)
+			if getErr != nil {
+				t.Fatal(getErr)
+			}
+			if role == domain.RoleRoot || role == domain.RoleAdmin {
+				if err != nil || len(got) != 1 || stored.Pending || stored.Active || stored.Role != domain.RoleUser {
+					t.Fatalf("Reject: output=%v error=%v active=%v pending=%v role=%s", got, err, stored.Active, stored.Pending, stored.Role)
+				}
+			} else if err == nil || err.Error() != "user management is not permitted" || got != nil || !stored.Pending || stored.Active {
+				t.Fatalf("unauthorized Reject: output=%v error=%v active=%v pending=%v", got, err, stored.Active, stored.Pending)
+			}
+			if len(users.roleChanges) != 0 {
+				t.Fatal("Reject must not grant a role")
+			}
+		})
+	}
+}
+
+func TestPendingUsersRejectPreservesPeerAdminProtection(t *testing.T) {
+	svc, users, _ := newPendingUsersService()
+	waiting := users.seedPending("Peer", "peer@example.com")
+	waiting.Role = domain.RoleAdmin
+	if err := users.Update(context.Background(), &waiting); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := svc.Reject(context.Background(), domain.User{ID: managerActor.ID, Role: domain.RoleAdmin}, []int64{waiting.ID}); err == nil || err.Error() != "admin accounts require root" || got != nil {
+		t.Fatalf("peer Reject=%v/%v", got, err)
+	}
+	stored, err := users.GetByID(context.Background(), waiting.ID)
+	if err != nil || !stored.Pending || stored.Active || stored.Role != domain.RoleAdmin {
+		t.Fatalf("peer refusal changed account: %v", err)
+	}
+	if got, err := svc.Reject(context.Background(), domain.User{ID: managerActor.ID, Role: domain.RoleRoot}, []int64{waiting.ID}); err != nil || len(got) != 1 || got[0].Role != domain.RoleAdmin || got[0].Active || got[0].Pending {
+		t.Fatalf("root Reject=%v/%v", got, err)
+	}
+}
+
+func TestPendingUsersRejectRefusesAnEmptyOrRepeatedSelection(t *testing.T) {
+	for _, repeated := range []bool{false, true} {
+		svc, users, _ := newPendingUsersService()
+		waiting := users.seedPending("Wanda", "wanda@example.com")
+		var ids []int64
+		if repeated {
+			ids = []int64{waiting.ID, waiting.ID}
+		}
+		if got, err := svc.Reject(context.Background(), managerActor, ids); err == nil || got != nil {
+			t.Fatalf("Reject=%v/%v", got, err)
+		}
+		assertStillWaiting(t, users, waiting)
+	}
+}
+
 func TestPendingUsersListAnswersOnlyWaitingAccountsToAManager(t *testing.T) {
 	ctx := context.Background()
 	svc, users, _ := newPendingUsersService()

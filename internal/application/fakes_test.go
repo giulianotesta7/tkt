@@ -869,6 +869,42 @@ func (f *fakeUserStore) ApprovePending(_ context.Context, approvals []applicatio
 	return approved, nil
 }
 
+// RejectPending mirrors persistence: validate and guard the complete selection
+// before writing, preserve identities/roles, and clear only pending and active.
+func (f *fakeUserStore) RejectPending(_ context.Context, ids []int64, manageableRoles []domain.Role) ([]domain.User, error) {
+	if err := application.ValidatePendingRejection(ids); err != nil {
+		return nil, err
+	}
+	for _, id := range ids {
+		u, ok := f.users[id]
+		if !ok {
+			return nil, &domain.NotFoundError{Kind: "user", ID: id}
+		}
+		if u.Role == domain.RoleRoot {
+			return nil, domain.NewRootProtectedError()
+		}
+		if !u.Pending {
+			return nil, &domain.NotFoundError{Kind: "user", ID: id}
+		}
+		allowed := false
+		for _, role := range manageableRoles {
+			if role == u.Role {
+				allowed = true
+			}
+		}
+		if !allowed {
+			return nil, domain.NewForbiddenError("admin accounts require root")
+		}
+	}
+	out := make([]domain.User, 0, len(ids))
+	for _, id := range ids {
+		u := f.users[id]
+		u.Active, u.Pending = false, false
+		out = append(out, *u)
+	}
+	return out, nil
+}
+
 // fakeSessionStore implements SessionStore with lazy purge of expired
 // sessions (D14). Expiry is checked against the injected clock (D7), never
 // the real time — otherwise tests pass only while the fixed fake clock date
