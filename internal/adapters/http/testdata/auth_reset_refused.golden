@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Choose a new password · Help desk</title>
+
+</head>
+<body>
+<main class="auth-entry">
+
+<section class="auth-entry__presentation auth-entry__presentation--" aria-label="tkt">
+  <div class="auth-entry__brand">
+    <span class="auth-entry__mark" aria-hidden="true"></span>
+    <div class="auth-entry__brand-text"><b>tkt</b><span>Help desk</span></div>
+  </div>
+  <div class="auth-entry__body">
+    <h2></h2>
+    <p class="auth-entry__sub"></p>
+  </div>
+</section>
+
+  <section class="auth-entry__form-panel">
+
+<div class="auth-card">
+  <h2>This link is no longer valid</h2>
+  <p class="lead">It expired or was already used. A link is valid for 1 hour and works once.</p>
+  <a class="btn primary" href="/login/forgot">Request a new link</a>
+  <p class="footnote"><a href="/login">Back to sign in</a></p>
+</div>
+
+  </section>
+</main>
+</body>
+</html>

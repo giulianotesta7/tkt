@@ -55,7 +55,7 @@ func notificationCountAs(t *testing.T, h *harness, sessionID string) string {
 // "assigned" notification through the real ticket service.
 func assignedNotificationFixture(t *testing.T, h *harness) (agentUserID int64, sessionID string) {
 	t.Helper()
-	agent := h.createUser(t, "Notify Agent", "notify-agent@tkt.test", "Secret123!")
+	agent := h.createUser(t, "Notify Agent", "notify-agent@tkt.test", "Secret123!42")
 	ticket := h.seedTicket(t, "Assign me", nil)
 	h.assignTicket(t, ticket.ID, agent.ID)
 	return agent.ID, seedSession(t, h.store, agent.ID).ID
@@ -111,7 +111,7 @@ func TestNotificationsCountHidesTheBadgeAtZero(t *testing.T) {
 func TestNotificationsCountIsScopedToOneRecipient(t *testing.T) {
 	h := newHarness(t)
 	_, recipientSession := assignedNotificationFixture(t, h)
-	bystander := h.createUser(t, "Bystander", "bystander@tkt.test", "Secret123!")
+	bystander := h.createUser(t, "Bystander", "bystander@tkt.test", "Secret123!42")
 	bystanderSession := seedSession(t, h.store, bystander.ID).ID
 
 	if body := notificationCountAs(t, h, recipientSession); !strings.Contains(body, "1 unread") {
@@ -233,7 +233,7 @@ func notificationRowIDs(t *testing.T, body string) []string {
 // newest row comes first.
 func TestNotificationsPanelListsTheNewestFirst(t *testing.T) {
 	h := newHarness(t)
-	agent := h.createUser(t, "Panel Agent", "panel-agent@tkt.test", "Secret123!")
+	agent := h.createUser(t, "Panel Agent", "panel-agent@tkt.test", "Secret123!42")
 	first := h.seedTicket(t, "First assignment", nil)
 	h.assignTicket(t, first.ID, agent.ID)
 	second := h.seedTicket(t, "Second assignment", nil)
@@ -304,7 +304,7 @@ func TestNotificationsPanelFragmentIsTheBellDrawer(t *testing.T) {
 // date of anything older, in the instance language.
 func TestNotificationsPanelGroupsByDay(t *testing.T) {
 	h := newHarness(t)
-	agent := h.createUser(t, "Day Agent", "day-agent@tkt.test", "Secret123!")
+	agent := h.createUser(t, "Day Agent", "day-agent@tkt.test", "Secret123!42")
 	session := seedSession(t, h.store, agent.ID).ID
 	older := h.seedTicket(t, "Older assignment", nil)
 	h.assignTicket(t, older.ID, agent.ID)
@@ -359,7 +359,7 @@ func TestNotificationsPanelEmptyState(t *testing.T) {
 // row read and answers a redirect to the ticket, never a GET that writes.
 func TestNotificationsMarkOneReadOpensTheTicket(t *testing.T) {
 	h := newHarness(t)
-	agent := h.createUser(t, "Click Agent", "click-agent@tkt.test", "Secret123!")
+	agent := h.createUser(t, "Click Agent", "click-agent@tkt.test", "Secret123!42")
 	ticket := h.seedTicket(t, "Clickable assignment", nil)
 	h.assignTicket(t, ticket.ID, agent.ID)
 	session := seedSession(t, h.store, agent.ID).ID
@@ -391,7 +391,7 @@ func TestNotificationsMarkOneReadOpensTheTicket(t *testing.T) {
 // TestNotificationsMarkAllReadClearsTheBadge is S14's "Mark all as read".
 func TestNotificationsMarkAllReadClearsTheBadge(t *testing.T) {
 	h := newHarness(t)
-	agent := h.createUser(t, "Bulk Agent", "bulk-agent@tkt.test", "Secret123!")
+	agent := h.createUser(t, "Bulk Agent", "bulk-agent@tkt.test", "Secret123!42")
 	for _, title := range []string{"Bulk one", "Bulk two"} {
 		ticket := h.seedTicket(t, title, nil)
 		h.assignTicket(t, ticket.ID, agent.ID)
@@ -417,11 +417,11 @@ func TestNotificationsMarkAllReadClearsTheBadge(t *testing.T) {
 // that is not yours is indistinguishable from a missing one, and nothing moves.
 func TestNotificationsWritesAreScopedToOneRecipient(t *testing.T) {
 	h := newHarness(t)
-	agent := h.createUser(t, "Owner Agent", "owner-agent@tkt.test", "Secret123!")
+	agent := h.createUser(t, "Owner Agent", "owner-agent@tkt.test", "Secret123!42")
 	ticket := h.seedTicket(t, "Owned assignment", nil)
 	h.assignTicket(t, ticket.ID, agent.ID)
 	ownerSession := seedSession(t, h.store, agent.ID).ID
-	bystander := h.createUser(t, "Other Agent", "other-agent@tkt.test", "Secret123!")
+	bystander := h.createUser(t, "Other Agent", "other-agent@tkt.test", "Secret123!42")
 	bystanderSession := seedSession(t, h.store, bystander.ID).ID
 	id := notificationRowIDs(t, notificationPanelAs(t, h, ownerSession, false).Body.String())[0]
 	// The panel lists the reader's own rows only (the store scopes every read).
@@ -449,7 +449,7 @@ func TestNotificationsWritesAreScopedToOneRecipient(t *testing.T) {
 // the ticket itself answers the ordinary access-denied path.
 func TestNotificationForAnUnreachableTicketStaysReadable(t *testing.T) {
 	h := newHarness(t)
-	reader := h.createUser(t, "Moved Agent", "moved-agent@tkt.test", "Secret123!")
+	reader := h.createUser(t, "Moved Agent", "moved-agent@tkt.test", "Secret123!42")
 	ticket := h.seedTicket(t, "Reassigned away", nil)
 	h.assignTicket(t, ticket.ID, reader.ID)
 	session := seedSession(t, h.store, reader.ID).ID
@@ -457,7 +457,7 @@ func TestNotificationForAnUnreachableTicketStaysReadable(t *testing.T) {
 	// The ticket is handed to someone else: the first agent's read scope no longer
 	// covers it (an agent sees their own assignments and their desk's claimable
 	// tickets; this one is assigned elsewhere).
-	other := h.createUser(t, "New Owner", "new-owner@tkt.test", "Secret123!")
+	other := h.createUser(t, "New Owner", "new-owner@tkt.test", "Secret123!42")
 	if _, err := h.tickets.Assign(t.Context(), *h.admin, ticket.ID, &other.ID, "handing over"); err != nil {
 		t.Fatalf("reassign the ticket: %v", err)
 	}
@@ -518,7 +518,7 @@ func TestNotificationsPanelSpeaksTheInstanceLanguage(t *testing.T) {
 	if err := h.settings.SetInterfaceLanguage(t.Context(), *h.admin, application.InterfaceLanguageSpanish); err != nil {
 		t.Fatalf("set instance language: %v", err)
 	}
-	agent := h.createUser(t, "Agente Español", "agente-es@tkt.test", "Secret123!")
+	agent := h.createUser(t, "Agente Español", "agente-es@tkt.test", "Secret123!42")
 	ticket := h.seedTicket(t, "Asignación en español", nil)
 	h.assignTicket(t, ticket.ID, agent.ID)
 	h.seedTransition(t, ticket.ID, domain.StateInProgress, "")

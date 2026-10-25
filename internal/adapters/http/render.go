@@ -728,11 +728,12 @@ func brandHelpDesk(brand brandData) string {
 }
 
 // shellFor maps a page to its shell root. Application pages use the rail
-// shell (base.html); the auth pages (login, setup) use the split shell
-// (auth.html). A page with no entry defaults to base.html.
+// shell (base.html); the auth pages (login, setup, and the two public password
+// recovery pages) use the split shell (auth.html). A page with no entry defaults
+// to base.html.
 func shellFor(page string) string {
 	switch page {
-	case "login", "setup":
+	case "login", "setup", "login_forgot", "login_reset":
 		return "auth.html"
 	default:
 		return "base.html"

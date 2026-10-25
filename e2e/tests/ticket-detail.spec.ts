@@ -69,7 +69,7 @@ async function createAssignableAgent(
   await createUserAsAdmin(page, {
     name,
     email: `${slug}-${unique}@tkt.test`,
-    password: "Secret123!",
+    password: "Secret123!42",
   });
   await page.goto(base() + "/users");
   const editHref = await resolveUserEditHref(page, name);
@@ -94,7 +94,7 @@ async function createAccount(
   const account = {
     name,
     email: `${name.replace(/\s+/g, "-").toLowerCase()}-${suffix}@example.com`,
-    password: "Secret123!",
+    password: "Secret123!42",
   };
   await createUserAsAdmin(page, account);
   if (role) await grantUserRole(page, name, role);
@@ -740,7 +740,7 @@ test.describe("Ticket detail", () => {
     await page.setViewportSize({ width: 1280, height: 800 });
     await loginAsSeeded(page);
     const requesterEmail = `internal-visibility-${Date.now().toString(36).slice(2, 8)}@tkt.test`;
-    const requesterPassword = "Secret123!";
+    const requesterPassword = "Secret123!42";
     await createUserAsAdmin(page, {
       name: "Rosa Requester",
       email: requesterEmail,

@@ -19,7 +19,8 @@ import (
 // sub-navigation: GET /settings redirects to /settings/organization, and
 // GET /settings/{section} renders exactly that section for the sections
 // organization, language, tickets (appearance and the SLA panel), email (root
-// only, as the capability already dictated) and calendar (working hours). An
+// only, as the capability already dictated), security (the instance password
+// policy) and calendar (working hours). An
 // unknown section is a 404.
 //
 // Every existing POST /settings/* endpoint keeps its path, validation and
@@ -30,7 +31,8 @@ import (
 // its test) the SMTP configuration. POST /settings/organization is new and
 // multipart, because the identity and its logo are one submission. A successful
 // save redirects (303) back to its own section; a rejected one re-renders that
-// section with the error.
+// section with the error. POST /settings/security (issue #414) saves the two
+// self-service switches and the minimum new passwords must meet in one call.
 //
 // All routes are gated on CapManageSettings (admin/root) at the HTTP boundary;
 // the application service re-enforces the same capability before mutating
@@ -46,6 +48,11 @@ import (
 // holding them. An administrator's page does not render the section, its URL is
 // refused with 403, and an administrator's POST is refused here before the
 // service re-enforces the same capability.
+//
+// The Security section (issue #414) is one more CapManageSettings section: it
+// holds the instance password policy (the two self-service switches and the
+// minimum length new passwords must meet) as one card of a section that later
+// instance-wide sign-in controls can join.
 type SettingsHandlers struct {
 	settings     *application.SettingsService
 	sla          *application.SLAService
@@ -54,6 +61,7 @@ type SettingsHandlers struct {
 	email        *application.EmailSettingsService
 	organization *application.OrganizationService
 	signin       *application.SigninService
+	passwords    *application.PasswordSettingsService
 	renderer     *Renderer
 }
 
@@ -75,6 +83,13 @@ func (h *SettingsHandlers) WithEmail(email *application.EmailSettingsService) *S
 // (issue #383, S9/S10).
 func (h *SettingsHandlers) WithSignin(signin *application.SigninService) *SettingsHandlers {
 	h.signin = signin
+	return h
+}
+
+// WithPasswordSettings wires the password-policy use cases behind the Security
+// section (issue #414, S1/S4/S5).
+func (h *SettingsHandlers) WithPasswordSettings(passwords *application.PasswordSettingsService) *SettingsHandlers {
+	h.passwords = passwords
 	return h
 }
 
@@ -101,6 +116,7 @@ func (h *SettingsHandlers) Register(mux *http.ServeMux) {
 	mux.HandleFunc("POST /settings/organization/logo/remove", h.removeOrganizationLogo)
 	mux.HandleFunc("POST /settings/signin", h.updateSignin)
 	mux.HandleFunc("POST /settings/signin/background/remove", h.removeSigninBackground)
+	mux.HandleFunc("POST /settings/security", h.updateSecurity)
 }
 
 // The settings sections, named exactly as their URL segment (S1).
@@ -111,6 +127,7 @@ const (
 	settingsSectionTickets      = "tickets"
 	settingsSectionEmail        = "email"
 	settingsSectionCalendar     = "calendar"
+	settingsSectionSecurity     = "security"
 )
 
 // settingsSectionHref is a section's URL. One function keeps the nav, the
@@ -137,6 +154,7 @@ func settingsNavItems(active string, canManageEmail bool) []settingsNavItem {
 		{Section: settingsSectionLanguage, Href: settingsSectionHref(settingsSectionLanguage), Label: "settings.nav.language"},
 		{Section: settingsSectionTickets, Href: settingsSectionHref(settingsSectionTickets), Label: "settings.nav.tickets"},
 		{Section: settingsSectionEmail, Href: settingsSectionHref(settingsSectionEmail), Label: "settings.nav.email"},
+		{Section: settingsSectionSecurity, Href: settingsSectionHref(settingsSectionSecurity), Label: "settings.nav.security"},
 		{Section: settingsSectionCalendar, Href: settingsSectionHref(settingsSectionCalendar), Label: "settings.nav.calendar"},
 	}
 	out := make([]settingsNavItem, 0, len(items))
@@ -452,7 +470,7 @@ func (h *SettingsHandlers) index(w http.ResponseWriter, r *http.Request) {
 func (h *SettingsHandlers) section(w http.ResponseWriter, r *http.Request) {
 	section := r.PathValue("section")
 	switch section {
-	case settingsSectionOrganization, settingsSectionSignin, settingsSectionLanguage, settingsSectionTickets, settingsSectionCalendar, settingsSectionEmail:
+	case settingsSectionOrganization, settingsSectionSignin, settingsSectionLanguage, settingsSectionTickets, settingsSectionCalendar, settingsSectionEmail, settingsSectionSecurity:
 	default:
 		http.NotFound(w, r)
 		return
@@ -477,6 +495,8 @@ func (h *SettingsHandlers) section(w http.ResponseWriter, r *http.Request) {
 		h.renderCalendar(w, r, http.StatusOK, "", nil)
 	case settingsSectionEmail:
 		h.renderEmail(w, r, http.StatusOK, "", nil)
+	case settingsSectionSecurity:
+		h.renderSecurity(w, r, http.StatusOK, "", nil)
 	}
 }
 
@@ -1243,4 +1263,139 @@ func (h *SettingsHandlers) sendTestEmail(w http.ResponseWriter, r *http.Request)
 	h.renderEmail(w, r, http.StatusOK, "", func(panel *emailPanelData) {
 		panel.TestSent = true
 	})
+}
+
+// ---------------------------------------------------------------------------
+// Security section (issue #414; specs S1, S4, S5, S10, S11)
+// ---------------------------------------------------------------------------
+
+// settingsSecurityData is the Security section payload: the stored password
+// policy, the band the minimum may sit in, and whether recovery has a delivery
+// path. The policy is one card inside the section rather than the whole page, so
+// later instance-wide sign-in controls (an external identity provider, a
+// directory) can join it as their own cards.
+type settingsSecurityData struct {
+	settingsSectionData
+	ChangeEnabled   bool
+	RecoveryEnabled bool
+	// MinLength is the minimum as the field renders it: a value the service
+	// refused comes back exactly as it was submitted, so a rejection never shows
+	// the value that is still stored.
+	MinLength string
+	// EmailConfigured is whether the instance can actually send email. S5 makes
+	// the recovery switch meaningless without it, so the section says so.
+	EmailConfigured bool
+	// CanManageEmail is whether the acting administrator may open the root-only
+	// Email section, which is the only place the missing configuration can be
+	// fixed.
+	CanManageEmail   bool
+	MinLengthFloor   int
+	MinLengthCeiling int
+}
+
+// canManageEmail answers whether the actor may open the root-only Email
+// section. It is the same capability sectionData applies to that rail entry,
+// asked separately by the Security section, which links to it.
+func (h *SettingsHandlers) canManageEmail(r *http.Request) bool {
+	actor := *userFromContext(r.Context())
+	return h.email != nil && application.NewPolicy().Capabilities(actor.Role).Require(application.CapManageEmail)
+}
+
+// emailDeliveryConfigured answers whether the instance can send email, read
+// through the delivery path the sender itself uses, so "configured" here means
+// exactly what it means to a notification. A handler set built without the email
+// use cases answers false: recovery needs a delivery path.
+func (h *SettingsHandlers) emailDeliveryConfigured(r *http.Request) (bool, error) {
+	if h.email == nil {
+		return false, nil
+	}
+	_, ok, err := h.email.DeliveryConfig(r.Context())
+	return ok, err
+}
+
+// renderSecurity renders the Security section. echo, when non-nil, replaces the
+// policy with a rejected submission's values, so a refused minimum does not cost
+// the administrator the switches they set.
+func (h *SettingsHandlers) renderSecurity(w http.ResponseWriter, r *http.Request, status int, message string, echo *settingsSecurityData) {
+	if h.passwords == nil {
+		// A handler set built without the password use cases fails closed
+		// instead of dereferencing a nil service.
+		httpError(w, r, "error.internal_server", http.StatusInternalServerError)
+		return
+	}
+	stored, err := h.passwords.Get(r.Context())
+	if err != nil {
+		httpError(w, r, "error.internal_server", http.StatusInternalServerError)
+		return
+	}
+	configured, err := h.emailDeliveryConfigured(r)
+	if err != nil {
+		httpError(w, r, "error.internal_server", http.StatusInternalServerError)
+		return
+	}
+	data := settingsSecurityData{
+		settingsSectionData: h.sectionData(r, settingsSectionSecurity),
+		ChangeEnabled:       stored.ChangeEnabled,
+		RecoveryEnabled:     stored.RecoveryEnabled,
+		MinLength:           strconv.Itoa(stored.MinLength),
+		EmailConfigured:     configured,
+		CanManageEmail:      h.canManageEmail(r),
+		MinLengthFloor:      application.MinPasswordMinLength,
+		MinLengthCeiling:    application.MaxPasswordMinLength,
+	}
+	data.Error = message
+	if echo != nil {
+		data.ChangeEnabled = echo.ChangeEnabled
+		data.RecoveryEnabled = echo.RecoveryEnabled
+		data.MinLength = echo.MinLength
+	}
+	h.renderer.Render(w, r, "settings_security", "", data, status)
+}
+
+// updateSecurity persists the instance password policy (S1, S4): the two
+// switches and the minimum in ONE application call, so a rejected value writes
+// nothing. A minimum that is not a whole number never reaches the service — the
+// boundary refuses it with the SAME sentence the service would, because the
+// administrator must not be able to tell the two refusals apart. A rejected save
+// re-renders the section (422) with the submitted values; success redirects 303
+// back to it with the shared save feedback.
+func (h *SettingsHandlers) updateSecurity(w http.ResponseWriter, r *http.Request) {
+	if !requireCapability(w, r, application.CapManageSettings) {
+		return
+	}
+	if h.passwords == nil {
+		httpError(w, r, "error.internal_server", http.StatusInternalServerError)
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		httpError(w, r, "error.internal_server", http.StatusInternalServerError)
+		return
+	}
+	raw := strings.TrimSpace(r.Form.Get("password_min_length"))
+	in := application.PasswordSettingsInput{
+		ChangeEnabled:   r.Form.Get("password_change_enabled") == "1",
+		RecoveryEnabled: r.Form.Get("password_recovery_enabled") == "1",
+	}
+	var err error
+	if minimum, parseErr := strconv.Atoi(raw); parseErr != nil {
+		err = application.PasswordMinLengthRangeError()
+	} else {
+		in.MinLength = minimum
+		err = h.passwords.Update(r.Context(), *userFromContext(r.Context()), in)
+	}
+	if err != nil {
+		status, msg := mapErrorFor(r, err)
+		if status == http.StatusInternalServerError {
+			http.Error(w, msg, status)
+			return
+		}
+		h.renderSecurity(w, r, status, msg, &settingsSecurityData{
+			ChangeEnabled:   in.ChangeEnabled,
+			RecoveryEnabled: in.RecoveryEnabled,
+			MinLength:       raw,
+		})
+		return
+	}
+	saveFeedback(w, r, saveFeedbackSaved, saveFeedbackSuccess)
+	redirect(w, r, settingsSectionHref(settingsSectionSecurity))
 }

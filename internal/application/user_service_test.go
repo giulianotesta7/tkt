@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/giulianotesta7/tkt/internal/application"
@@ -22,7 +23,7 @@ func TestCreateUserStoresActiveWithHashedPassword(t *testing.T) {
 	svc, users, clock := newUserService()
 
 	u, err := svc.Create(context.Background(), managerActor, application.CreateUserInput{
-		Name: "Ana", Email: "ana@example.com", Password: "s3cret-pass",
+		Name: "Ana", Email: "ana@example.com", Password: "s3cret-pass-12",
 	})
 	if err != nil {
 		t.Fatalf("Create: unexpected error: %v", err)
@@ -33,10 +34,10 @@ func TestCreateUserStoresActiveWithHashedPassword(t *testing.T) {
 	if !u.Active {
 		t.Fatal("Create: new users must be active by default")
 	}
-	if u.PasswordHash == "s3cret-pass" || u.PasswordHash == "" {
+	if u.PasswordHash == "s3cret-pass-12" || u.PasswordHash == "" {
 		t.Fatal("Create: only the bcrypt hash must be stored, never the plaintext")
 	}
-	if !application.VerifyPassword(u.PasswordHash, "s3cret-pass") {
+	if !application.VerifyPassword(u.PasswordHash, "s3cret-pass-12") {
 		t.Fatal("Create: stored hash must verify against the password")
 	}
 	if !u.CreatedAt.Equal(clock.now) {
@@ -52,7 +53,7 @@ func TestCreateUserRejectsDuplicateEmail(t *testing.T) {
 	users.seed("Ana", "ana@example.com", true)
 
 	_, err := svc.Create(context.Background(), managerActor, application.CreateUserInput{
-		Name: "Ana 2", Email: "ana@example.com", Password: "s3cret-pass",
+		Name: "Ana 2", Email: "ana@example.com", Password: "s3cret-pass-12",
 	})
 	var derr *domain.DuplicateError
 	if !errors.As(err, &derr) || derr.Kind != "user" {
@@ -71,8 +72,8 @@ func TestCreateUserRejectsMissingFields(t *testing.T) {
 		in    application.CreateUserInput
 		field string
 	}{
-		{"missing name", application.CreateUserInput{Email: "ana@example.com", Password: "x"}, "name"},
-		{"missing email", application.CreateUserInput{Name: "Ana", Password: "x"}, "email"},
+		{"missing name", application.CreateUserInput{Email: "ana@example.com", Password: "x-pass-12345"}, "name"},
+		{"missing email", application.CreateUserInput{Name: "Ana", Password: "x-pass-12345"}, "email"},
 		{"missing password", application.CreateUserInput{Name: "Ana", Email: "ana@example.com"}, "password"},
 	}
 	for _, tc := range cases {
@@ -92,7 +93,7 @@ func TestCreateUserRejectsMissingFields(t *testing.T) {
 func TestUpdateUserReplacesValuesAndRehashesPassword(t *testing.T) {
 	svc, _, _ := newUserService()
 	created, err := svc.Create(context.Background(), managerActor, application.CreateUserInput{
-		Name: "Ana", Email: "ana@example.com", Password: "old-pass",
+		Name: "Ana", Email: "ana@example.com", Password: "old-pass-1234",
 	})
 	if err != nil {
 		t.Fatalf("Create: unexpected error: %v", err)
@@ -101,7 +102,7 @@ func TestUpdateUserReplacesValuesAndRehashesPassword(t *testing.T) {
 
 	newName := "Ana Maria"
 	newEmail := "ana.maria@example.com"
-	newPassword := "new-pass"
+	newPassword := "new-pass-1234"
 	updated, err := svc.Update(context.Background(), managerActor, created.ID, application.UpdateUserInput{
 		Name: &newName, Email: &newEmail, Password: &newPassword,
 	})
@@ -114,10 +115,10 @@ func TestUpdateUserReplacesValuesAndRehashesPassword(t *testing.T) {
 	if updated.PasswordHash == oldHash {
 		t.Fatal("Update: password change must store a new hash")
 	}
-	if !application.VerifyPassword(updated.PasswordHash, "new-pass") {
+	if !application.VerifyPassword(updated.PasswordHash, "new-pass-1234") {
 		t.Fatal("Update: new password must verify")
 	}
-	if application.VerifyPassword(updated.PasswordHash, "old-pass") {
+	if application.VerifyPassword(updated.PasswordHash, "old-pass-1234") {
 		t.Fatal("Update: old password must no longer verify")
 	}
 }
@@ -142,7 +143,7 @@ func TestUpdateUserRejectsDuplicateEmail(t *testing.T) {
 func TestUpdateUserRejectsBlankValues(t *testing.T) {
 	svc, _, _ := newUserService()
 	created, err := svc.Create(context.Background(), managerActor, application.CreateUserInput{
-		Name: "Ana", Email: "ana@example.com", Password: "x",
+		Name: "Ana", Email: "ana@example.com", Password: "x-pass-12345",
 	})
 	if err != nil {
 		t.Fatalf("Create: unexpected error: %v", err)
@@ -159,7 +160,7 @@ func TestUpdateUserRejectsBlankValues(t *testing.T) {
 func TestDeactivateUserKeepsHistoricalData(t *testing.T) {
 	svc, users, _ := newUserService()
 	created, err := svc.Create(context.Background(), managerActor, application.CreateUserInput{
-		Name: "Ana", Email: "ana@example.com", Password: "x",
+		Name: "Ana", Email: "ana@example.com", Password: "x-pass-12345",
 	})
 	if err != nil {
 		t.Fatalf("Create: unexpected error: %v", err)
@@ -212,8 +213,8 @@ func TestDeleteUserUnreferencedRemoves(t *testing.T) {
 
 func TestUserServiceList(t *testing.T) {
 	svc, _, _ := newUserService()
-	svc.Create(context.Background(), managerActor, application.CreateUserInput{Name: "Ana", Email: "ana@example.com", Password: "x"})
-	svc.Create(context.Background(), managerActor, application.CreateUserInput{Name: "Beto", Email: "beto@example.com", Password: "x"})
+	svc.Create(context.Background(), managerActor, application.CreateUserInput{Name: "Ana", Email: "ana@example.com", Password: "x-pass-12345"})
+	svc.Create(context.Background(), managerActor, application.CreateUserInput{Name: "Beto", Email: "beto@example.com", Password: "x-pass-12345"})
 
 	list, err := svc.List(context.Background(), managerActor)
 	if err != nil {
@@ -232,7 +233,7 @@ func TestManagedUserOperationsRequireAnAdminActor(t *testing.T) {
 	agent := domain.User{ID: 2, Role: domain.RoleAgent}
 	target := users.seedRole("Target", "target@example.com", domain.RoleUser, true)
 
-	if _, err := svc.Create(context.Background(), agent, application.CreateUserInput{Name: "Denied", Email: "denied@example.com", Password: "secret"}); err == nil {
+	if _, err := svc.Create(context.Background(), agent, application.CreateUserInput{Name: "Denied", Email: "denied@example.com", Password: "s3cret-pass-12"}); err == nil {
 		t.Fatal("agent Create must be denied")
 	}
 	if _, err := svc.List(context.Background(), agent); err == nil {
@@ -245,7 +246,7 @@ func TestManagedUserOperationsRequireAnAdminActor(t *testing.T) {
 	if err := svc.Delete(context.Background(), agent, target.ID); err == nil {
 		t.Fatal("agent Delete must be denied")
 	}
-	if _, err := svc.Create(context.Background(), admin, application.CreateUserInput{Name: "Allowed", Email: "allowed@example.com", Password: "secret"}); err != nil {
+	if _, err := svc.Create(context.Background(), admin, application.CreateUserInput{Name: "Allowed", Email: "allowed@example.com", Password: "s3cret-pass-12"}); err != nil {
 		t.Fatalf("admin Create: %v", err)
 	}
 }
@@ -278,7 +279,7 @@ func TestBootstrapRootCreatesRootWithHashedPassword(t *testing.T) {
 	svc, users, clock := newUserService()
 
 	u, err := svc.BootstrapRoot(context.Background(), application.CreateUserInput{
-		Name: "Root", Email: "root@example.com", Password: "s3cret-pass",
+		Name: "Root", Email: "root@example.com", Password: "s3cret-pass-12",
 	})
 	if err != nil {
 		t.Fatalf("BootstrapRoot: unexpected error: %v", err)
@@ -292,10 +293,10 @@ func TestBootstrapRootCreatesRootWithHashedPassword(t *testing.T) {
 	if !u.Active {
 		t.Fatal("BootstrapRoot: the first user must be active")
 	}
-	if u.PasswordHash == "s3cret-pass" || u.PasswordHash == "" {
+	if u.PasswordHash == "s3cret-pass-12" || u.PasswordHash == "" {
 		t.Fatal("BootstrapRoot: only the bcrypt hash must be stored")
 	}
-	if !application.VerifyPassword(u.PasswordHash, "s3cret-pass") {
+	if !application.VerifyPassword(u.PasswordHash, "s3cret-pass-12") {
 		t.Fatal("BootstrapRoot: stored hash must verify against the password")
 	}
 	if !u.CreatedAt.Equal(clock.now) {
@@ -316,7 +317,7 @@ func TestBootstrapRootRejectsWhenUsersExist(t *testing.T) {
 	users.seed("Ana", "ana@example.com", true)
 
 	_, err := svc.BootstrapRoot(context.Background(), application.CreateUserInput{
-		Name: "Other", Email: "other@example.com", Password: "s3cret-pass",
+		Name: "Other", Email: "other@example.com", Password: "s3cret-pass-12",
 	})
 	if !errors.Is(err, domain.ErrBootstrapUnavailable) {
 		t.Fatalf("BootstrapRoot with users present = %v, want ErrBootstrapUnavailable", err)
@@ -330,7 +331,7 @@ func TestBootstrapRootRejectsInvalidInput(t *testing.T) {
 	svc, users, _ := newUserService()
 
 	_, err := svc.BootstrapRoot(context.Background(), application.CreateUserInput{
-		Name: "  ", Email: "root@example.com", Password: "s3cret-pass",
+		Name: "  ", Email: "root@example.com", Password: "s3cret-pass-12",
 	})
 	var verr *domain.ValidationError
 	if !errors.As(err, &verr) {
@@ -452,7 +453,7 @@ func TestCreateUserIsNeverRoot(t *testing.T) {
 
 	for i := 0; i < 3; i++ {
 		u, err := svc.Create(ctx, managerActor, application.CreateUserInput{
-			Name: "U" + fmt.Sprint(i), Email: fmt.Sprintf("u%d@example.com", i), Password: "secret",
+			Name: "U" + fmt.Sprint(i), Email: fmt.Sprintf("u%d@example.com", i), Password: "s3cret-pass-12",
 		})
 		if err != nil {
 			t.Fatalf("Create: %v", err)
@@ -588,7 +589,7 @@ func TestChangePasswordUpdatesOnlyTheHash(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := svc.ChangePassword(ctx, managerActor, member.ID, "new-secret"); err != nil {
+	if err := svc.ChangePassword(ctx, managerActor, member.ID, "new-s3cret-12"); err != nil {
 		t.Fatalf("ChangePassword: %v", err)
 	}
 	stored, err := users.GetByID(ctx, member.ID)
@@ -598,7 +599,7 @@ func TestChangePasswordUpdatesOnlyTheHash(t *testing.T) {
 	if stored.Name != "Member" || stored.Email != "member@example.com" || stored.Role != domain.RoleUser || !stored.Active {
 		t.Fatalf("password change mutated non-password fields: %+v", stored)
 	}
-	if !application.VerifyPassword(stored.PasswordHash, "new-secret") {
+	if !application.VerifyPassword(stored.PasswordHash, "new-s3cret-12") {
 		t.Fatal("new password hash must verify")
 	}
 	if err := svc.ChangePassword(ctx, managerActor, member.ID, " "); err == nil {
@@ -673,5 +674,181 @@ func TestUpdateManagedUserNoOpUserEditKeepsPlainRoute(t *testing.T) {
 	}
 	if len(users.roleChanges) != 0 {
 		t.Errorf("role_changes = %d, want 0", len(users.roleChanges))
+	}
+}
+
+// --- New-password minimum (issue #414, T1/S4) ---
+//
+// S4 resolved the rule "a toda contraseña nueva": the configured minimum is
+// enforced on EVERY path that writes a hash — user creation, the first-user
+// bootstrap, and an administrator setting somebody else's password (S6 keeps
+// that route). Written against the services that already exist, so the RED is
+// behavioral: today all three accept a password below the default 12.
+
+// shortPasswordValidation asserts err is the too-short refusal naming minimum.
+func shortPasswordValidation(t *testing.T, err error, minimum int) {
+	t.Helper()
+	var verr *domain.ValidationError
+	if !errors.As(err, &verr) {
+		t.Fatalf("got %v, want a ValidationError", err)
+	}
+	if verr.Field != "password" {
+		t.Errorf("field = %q, want %q", verr.Field, "password")
+	}
+	if verr.Key != "error.password_too_short" {
+		t.Errorf("key = %q, want %q", verr.Key, "error.password_too_short")
+	}
+	if len(verr.Args) != 1 || verr.Args[0] != minimum {
+		t.Errorf("args = %v, want [%d]", verr.Args, minimum)
+	}
+}
+
+// TestCreateUserRefusesAPasswordBelowTheDefaultMinimum proves the default 12
+// applies with NO store wired (fail closed), that the refusal stores nothing,
+// and that exactly twelve characters pass.
+func TestCreateUserRefusesAPasswordBelowTheDefaultMinimum(t *testing.T) {
+	svc, users, _ := newUserService()
+
+	_, err := svc.Create(context.Background(), managerActor, application.CreateUserInput{
+		Name: "Ana", Email: "ana@example.com", Password: "s3cret-pass",
+	})
+	shortPasswordValidation(t, err, application.DefaultPasswordMinLength)
+	if len(users.users) != 0 {
+		t.Fatalf("a refused password stored %d users, want 0", len(users.users))
+	}
+
+	if _, err := svc.Create(context.Background(), managerActor, application.CreateUserInput{
+		Name: "Ana", Email: "ana@example.com", Password: "s3cret-pass-12",
+	}); err != nil {
+		t.Fatalf("Create with twelve characters: %v, want accepted", err)
+	}
+	if len(users.users) != 1 {
+		t.Fatalf("an accepted password stored %d users, want 1", len(users.users))
+	}
+}
+
+// TestCreateUserCountsPasswordRunesNotBytes proves the minimum counts
+// characters: eleven multibyte runes are refused even though they are 22 bytes.
+func TestCreateUserCountsPasswordRunesNotBytes(t *testing.T) {
+	svc, users, _ := newUserService()
+
+	_, err := svc.Create(context.Background(), managerActor, application.CreateUserInput{
+		Name: "Ana", Email: "ana@example.com", Password: strings.Repeat("ñ", 11),
+	})
+	shortPasswordValidation(t, err, application.DefaultPasswordMinLength)
+	if len(users.users) != 0 {
+		t.Fatalf("a refused password stored %d users, want 0", len(users.users))
+	}
+
+	if _, err := svc.Create(context.Background(), managerActor, application.CreateUserInput{
+		Name: "Beto", Email: "beto@example.com", Password: strings.Repeat("ñ", 12),
+	}); err != nil {
+		t.Fatalf("Create with twelve multibyte runes: %v, want accepted", err)
+	}
+}
+
+// TestBootstrapRootRefusesAPasswordBelowTheDefaultMinimum proves the setup
+// path enforces the same rule and creates nothing when it refuses.
+func TestBootstrapRootRefusesAPasswordBelowTheDefaultMinimum(t *testing.T) {
+	svc, users, _ := newUserService()
+
+	_, err := svc.BootstrapRoot(context.Background(), application.CreateUserInput{
+		Name: "Root", Email: "root@example.com", Password: "s3cret-pass",
+	})
+	shortPasswordValidation(t, err, application.DefaultPasswordMinLength)
+	if len(users.users) != 0 {
+		t.Fatalf("a refused password created %d users, want 0", len(users.users))
+	}
+}
+
+// TestChangePasswordRefusesAShortPasswordAndKeepsTheHash covers the
+// administrator route S6 keeps: a refused password leaves the stored hash
+// exactly as it was.
+func TestChangePasswordRefusesAShortPasswordAndKeepsTheHash(t *testing.T) {
+	ctx := context.Background()
+	svc, users, _ := newUserService()
+	member := users.seedRole("Member", "member@example.com", domain.RoleUser, true)
+	member.PasswordHash = "old-hash"
+	if err := users.Update(ctx, &member); err != nil {
+		t.Fatal(err)
+	}
+
+	shortPasswordValidation(t, svc.ChangePassword(ctx, managerActor, member.ID, "s3cret-pass"),
+		application.DefaultPasswordMinLength)
+	stored, err := users.GetByID(ctx, member.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.PasswordHash != "old-hash" {
+		t.Fatalf("a refused password changed the stored hash to %q", stored.PasswordHash)
+	}
+}
+
+// --- Refusal precedence restored to the base order (issue #414 review) ---
+//
+// The minimum is a NEW rule on an EXISTING route, so it must not answer before
+// the guards that route already had: the capability check, the target lookup
+// (404), and the root/peer protections (403) stay exactly where they were, and
+// only then does the password rule run (422). Otherwise a short password would
+// hide "this account is root" and "this account does not exist" behind a
+// validation refusal, which is both a regression and a disclosure change.
+
+// TestChangePasswordKeepsTheTargetGuardsAheadOfTheMinimum pins that order for
+// the two guards the minimum could otherwise mask, and proves neither refusal
+// writes a hash.
+func TestChangePasswordKeepsTheTargetGuardsAheadOfTheMinimum(t *testing.T) {
+	ctx := context.Background()
+	svc, users, _ := newUserService()
+	root := users.seedRole("Root", "root@example.com", domain.RoleRoot, true)
+	root.PasswordHash = "root-hash"
+	if err := users.Update(ctx, &root); err != nil {
+		t.Fatal(err)
+	}
+	member := users.seedRole("Member", "member@example.com", domain.RoleUser, true)
+	member.PasswordHash = "old-hash"
+	if err := users.Update(ctx, &member); err != nil {
+		t.Fatal(err)
+	}
+
+	// Root target + short password: the root protection answers, not the rule.
+	err := svc.ChangePassword(ctx, managerActor, root.ID, "s3cret-pass")
+	var protected *domain.RootProtectedError
+	if !errors.As(err, &protected) {
+		t.Fatalf("short password on the root target = %v, want a RootProtectedError (the base 403)", err)
+	}
+
+	// Unknown target + short password: the lookup answers, not the rule.
+	err = svc.ChangePassword(ctx, managerActor, 424242, "s3cret-pass")
+	var missing *domain.NotFoundError
+	if !errors.As(err, &missing) {
+		t.Fatalf("short password on an unknown target = %v, want a NotFoundError (the base 404)", err)
+	}
+
+	// A blank password keeps the base order too: it is refused BEFORE the
+	// target is read, so an unknown target answers the blank refusal, exactly
+	// as it did before this change.
+	err = svc.ChangePassword(ctx, managerActor, 424242, " ")
+	var verr *domain.ValidationError
+	if !errors.As(err, &verr) {
+		t.Fatalf("blank password on an unknown target = %v, want the ValidationError the base returned", err)
+	}
+	if verr.Key != "error.password_required" {
+		t.Errorf("blank password key = %q, want %q", verr.Key, "error.password_required")
+	}
+
+	// Neither refusal touched a stored hash.
+	storedRoot, err := users.GetByID(ctx, root.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if storedRoot.PasswordHash != "root-hash" {
+		t.Errorf("a refused root password changed the hash to %q", storedRoot.PasswordHash)
+	}
+	storedMember, err := users.GetByID(ctx, member.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if storedMember.PasswordHash != "old-hash" {
+		t.Errorf("a refused password changed the member hash to %q", storedMember.PasswordHash)
 	}
 }

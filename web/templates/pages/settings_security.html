@@ -1,0 +1,48 @@
+{{define "title"}}{{tf "base.title.screen" (t "settings.title") (brandHelpDesk .Brand)}}{{end}}
+{{define "content"}}
+<div class="command-header">
+  <div>
+    <h1 class="command-title">{{t "settings.title"}}</h1>
+  </div>
+</div>
+<div class="settings-layout">
+{{template "settings_nav" .}}
+  <div class="settings-content">
+    <h2 class="settings-section-title">{{t "settings.security.title"}}</h2>
+{{if .Error}}    <div class="error-banner" role="alert">{{.Error}}</div>
+{{end}}    <form class="settings-form card form-card" method="post" action="/settings/security" data-settings-form>
+      <h3 class="settings-group-title">{{t "settings.security.passwords.title"}}</h3>
+      <div class="switch-list">
+        <div class="switch-row">
+          <div class="switch-copy">
+            <span class="switch-label" id="password-change-label">{{t "settings.security.change"}}</span>
+            <p class="help">{{t "settings.security.change_help"}}</p>
+          </div>
+          <span class="switch">{{if .ChangeEnabled}}<input type="checkbox" id="password_change_enabled" name="password_change_enabled" value="1" aria-labelledby="password-change-label" checked>{{else}}<input type="checkbox" id="password_change_enabled" name="password_change_enabled" value="1" aria-labelledby="password-change-label">{{end}}</span>
+        </div>
+        <div class="switch-row">
+          <div class="switch-copy">
+            <span class="switch-label" id="password-recovery-label">{{t "settings.security.recovery"}}</span>
+            <p class="help">{{t "settings.security.recovery_help"}}</p>
+{{if not .EmailConfigured}}            <p class="dep-note">{{t "settings.security.recovery_needs_email"}}{{if .CanManageEmail}} <a href="/settings/email">{{t "settings.security.recovery_needs_email_link"}}</a>.{{end}}</p>
+{{end}}          </div>
+          <span class="switch">{{if .RecoveryEnabled}}<input type="checkbox" id="password_recovery_enabled" name="password_recovery_enabled" value="1" aria-labelledby="password-recovery-label" checked>{{else}}<input type="checkbox" id="password_recovery_enabled" name="password_recovery_enabled" value="1" aria-labelledby="password-recovery-label">{{end}}</span>
+        </div>
+      </div>
+      <div class="field">
+        <label for="password_min_length">{{t "settings.security.min_length"}}</label>
+        <div class="stepper">
+          <button type="button" class="stepper-step" data-step="-1" aria-label="{{t "settings.security.min_decrease"}}">−</button>
+          <input class="num" id="password_min_length" name="password_min_length" type="number" min="{{.MinLengthFloor}}" max="{{.MinLengthCeiling}}" step="1" value="{{.MinLength}}" aria-describedby="password_min_length_help">
+          <button type="button" class="stepper-step" data-step="1" aria-label="{{t "settings.security.min_increase"}}">+</button>
+        </div>
+        <p class="help" id="password_min_length_help">{{tf "settings.security.min_length_help" .MinLengthFloor .MinLengthCeiling}}</p>
+      </div>
+      <div class="settings-savebar" data-settings-savebar hidden>
+        <button class="btn primary" type="submit">{{t "settings.security.save"}}</button>
+        <button class="btn" type="reset">{{t "settings.discard"}}</button>
+      </div>
+    </form>
+  </div>
+</div>
+{{end}}

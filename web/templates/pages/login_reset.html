@@ -1,0 +1,25 @@
+{{define "title"}}{{tf "base.title.screen" (t "auth.reset.title") (brandHelpDesk .Brand)}}{{end}}
+{{define "content"}}
+{{if .Refused}}<div class="auth-card">
+  <h2>{{t "auth.reset.refused.title"}}</h2>
+  <p class="lead">{{t "auth.reset.refused.body"}}</p>
+  <a class="btn primary" href="/login/forgot">{{t "auth.reset.refused.action"}}</a>
+  <p class="footnote"><a href="/login">{{t "auth.forgot.back"}}</a></p>
+</div>{{else}}<form class="login-form" method="post" action="/login/reset" novalidate>
+  <h2>{{t "auth.reset.title"}}</h2>
+  <p class="lead">{{t "auth.reset.subtitle"}}</p>
+{{if .Error}}  <div class="error-banner" role="alert" id="password-error">{{.Error}}</div>
+{{end}}  <input type="hidden" name="token" value="{{.Token}}">
+  <div class="field">
+    <label for="new_password">{{t "auth.reset.new"}}</label>
+    <input type="password" id="new_password" name="new_password" autocomplete="new-password" aria-describedby="password-min-help"{{if eq .ErrorField "new_password"}} aria-invalid="true"{{end}}>
+    <p class="help" id="password-min-help">{{tf "auth.reset.min_help" .MinLength}}</p>
+  </div>
+  <div class="field">
+    <label for="confirm_password">{{t "auth.reset.confirm"}}</label>
+    <input type="password" id="confirm_password" name="confirm_password" autocomplete="new-password"{{if eq .ErrorField "confirm_password"}} aria-invalid="true" aria-describedby="password-error"{{end}}>
+  </div>
+  <button class="btn primary" type="submit">{{t "auth.reset.submit"}}</button>
+  <p class="footnote"><a href="/login">{{t "auth.forgot.back"}}</a></p>
+</form>{{end}}
+{{end}}

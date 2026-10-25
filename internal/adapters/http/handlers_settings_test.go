@@ -32,11 +32,11 @@ func sectionGet(t *testing.T, h *harness, path string) string {
 
 func TestSettingsIndexRequiresAdmin(t *testing.T) {
 	h := newHarness(t)
-	user, err := h.users.Create(t.Context(), *h.admin, application.CreateUserInput{Name: "User", Email: "user@tkt.test", Password: "secret"})
+	user, err := h.users.Create(t.Context(), *h.admin, application.CreateUserInput{Name: "User", Email: "user@tkt.test", Password: "s3cret-pass-12"})
 	if err != nil {
 		t.Fatalf("create user: %v", err)
 	}
-	session := h.loginCookie(t, user.Email, "secret")
+	session := h.loginCookie(t, user.Email, "s3cret-pass-12")
 	if session == "" {
 		t.Fatal("user login must succeed")
 	}
@@ -365,11 +365,11 @@ func TestSettingsUpdateRejectsInvalidColor(t *testing.T) {
 
 func TestSettingsUpdateDeniedForNonAdmin(t *testing.T) {
 	h := newHarness(t)
-	user, err := h.users.Create(t.Context(), *h.admin, application.CreateUserInput{Name: "User", Email: "user@tkt.test", Password: "secret"})
+	user, err := h.users.Create(t.Context(), *h.admin, application.CreateUserInput{Name: "User", Email: "user@tkt.test", Password: "s3cret-pass-12"})
 	if err != nil {
 		t.Fatalf("create user: %v", err)
 	}
-	session := h.loginCookie(t, user.Email, "secret")
+	session := h.loginCookie(t, user.Email, "s3cret-pass-12")
 	if session == "" {
 		t.Fatal("user login must succeed")
 	}
@@ -570,11 +570,11 @@ func TestSettingsSLAPersistsEnabled(t *testing.T) {
 // capability as the page, and a denied post writes nothing.
 func TestSettingsSLADeniedForNonAdmin(t *testing.T) {
 	h := newHarness(t)
-	user, err := h.users.Create(t.Context(), *h.admin, application.CreateUserInput{Name: "User", Email: "user@tkt.test", Password: "secret"})
+	user, err := h.users.Create(t.Context(), *h.admin, application.CreateUserInput{Name: "User", Email: "user@tkt.test", Password: "s3cret-pass-12"})
 	if err != nil {
 		t.Fatalf("create user: %v", err)
 	}
-	session := h.loginCookie(t, user.Email, "secret")
+	session := h.loginCookie(t, user.Email, "s3cret-pass-12")
 	if session == "" {
 		t.Fatal("user login must succeed")
 	}
@@ -599,11 +599,11 @@ func TestSettingsSLADeniedForNonAdmin(t *testing.T) {
 // gated on the same capability as the page, and a denied post writes nothing.
 func TestSettingsCalendarDeniedForNonAdmin(t *testing.T) {
 	h := newHarness(t)
-	user, err := h.users.Create(t.Context(), *h.admin, application.CreateUserInput{Name: "User", Email: "user@tkt.test", Password: "secret"})
+	user, err := h.users.Create(t.Context(), *h.admin, application.CreateUserInput{Name: "User", Email: "user@tkt.test", Password: "s3cret-pass-12"})
 	if err != nil {
 		t.Fatalf("create user: %v", err)
 	}
-	session := h.loginCookie(t, user.Email, "secret")
+	session := h.loginCookie(t, user.Email, "s3cret-pass-12")
 	if session == "" {
 		t.Fatal("user login must succeed")
 	}
@@ -1186,11 +1186,11 @@ func TestSettingsHoldAutoCloseWindowRejectsOutOfRange(t *testing.T) {
 // nothing.
 func TestSettingsHoldAutoCloseDeniedForNonAdmin(t *testing.T) {
 	h := newHarness(t)
-	user, err := h.users.Create(t.Context(), *h.admin, application.CreateUserInput{Name: "User", Email: "user@tkt.test", Password: "secret"})
+	user, err := h.users.Create(t.Context(), *h.admin, application.CreateUserInput{Name: "User", Email: "user@tkt.test", Password: "s3cret-pass-12"})
 	if err != nil {
 		t.Fatalf("create user: %v", err)
 	}
-	session := h.loginCookie(t, user.Email, "secret")
+	session := h.loginCookie(t, user.Email, "s3cret-pass-12")
 	if session == "" {
 		t.Fatal("user login must succeed")
 	}

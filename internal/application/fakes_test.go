@@ -2086,6 +2086,209 @@ func (f *fakeCannedReplyStore) sorted(keep func(*domain.CannedReply) bool) []dom
 	return out
 }
 
+// fakePasswordSettingsStore is the in-memory PasswordSettingsStore double for
+// the self-service password configuration (issue #414, S1/S4). Simplifications,
+// documented per the fakes contract: ONE value stands in for the three keyed
+// settings rows, and a Set call replaces all three in one step — the
+// transaction the real store commits. An unset fake answers the documented
+// defaults (both switches ON, 12), exactly like the real store's absent-row
+// fallback, and setErr fails the whole write before any state changes, like a
+// rolled-back transaction.
+type fakePasswordSettingsStore struct {
+	settings application.PasswordSettings
+	stored   bool
+	getErr   error
+	setErr   error
+	setCalls int
+}
+
+var _ application.PasswordSettingsStore = (*fakePasswordSettingsStore)(nil)
+
+func newFakePasswordSettingsStore() *fakePasswordSettingsStore {
+	return &fakePasswordSettingsStore{}
+}
+
+func (f *fakePasswordSettingsStore) GetPasswordSettings(_ context.Context) (application.PasswordSettings, error) {
+	if f.getErr != nil {
+		return application.PasswordSettings{}, f.getErr
+	}
+	if !f.stored {
+		return application.DefaultPasswordSettings(), nil
+	}
+	return f.settings, nil
+}
+
+func (f *fakePasswordSettingsStore) SetPasswordSettings(_ context.Context, settings application.PasswordSettings) error {
+	f.setCalls++
+	if f.setErr != nil {
+		return f.setErr
+	}
+	f.settings = settings
+	f.stored = true
+	return nil
+}
+
+// fakePasswordChangeStore is the in-memory PasswordChangeStore double for the
+// own-password change (issue #414, S2). It writes through the two other fakes,
+// so a service-level test can assert the hash AND the surviving sessions. Four
+// documented simplifications: the hash update and the session delete happen in
+// one untorn step standing in for the real immediate transaction (a test that
+// needs a real rollback belongs to the sqlite layer), an unknown user is
+// answered before anything is written, like the real store's rows-affected
+// check, the write is the same compare-and-set the real store performs — a
+// stored hash that is no longer the expected one is refused with the shared
+// current-password refusal and changes nothing — and the keep session is
+// resolved before either write so a session that belongs to another account (or
+// to nobody) is refused with nothing changed.
+type fakePasswordChangeStore struct {
+	users    *fakeUserStore
+	sessions *fakeSessionStore
+	calls    int
+}
+
+var _ application.PasswordChangeStore = (*fakePasswordChangeStore)(nil)
+
+func newFakePasswordChangeStore(users *fakeUserStore, sessions *fakeSessionStore) *fakePasswordChangeStore {
+	return &fakePasswordChangeStore{users: users, sessions: sessions}
+}
+
+func (f *fakePasswordChangeStore) ChangePasswordAndSignOutOtherSessions(_ context.Context, userID int64, expectedPasswordHash, passwordHash, keepSessionID string) error {
+	f.calls++
+	u, ok := f.users.users[userID]
+	if !ok {
+		return &domain.NotFoundError{Kind: "user", ID: userID}
+	}
+	if u.PasswordHash != expectedPasswordHash {
+		return application.CurrentPasswordRefusal()
+	}
+	kept, ok := f.sessions.sessions[keepSessionID]
+	if !ok {
+		return &domain.NotFoundError{Kind: "session", ID: keepSessionID}
+	}
+	if kept.UserID != userID {
+		return domain.NewForbiddenError("the session making the change belongs to another account")
+	}
+	u.PasswordHash = passwordHash
+	for id, session := range f.sessions.sessions {
+		if session.UserID == userID && id != keepSessionID {
+			delete(f.sessions.sessions, id)
+		}
+	}
+	return nil
+}
+
+// fakePasswordResetStore is the in-memory PasswordResetStore double for the
+// self-service recovery path (issue #414, S3/S8/S9). Three documented
+// simplifications: one flat slice stands in for the table, every mutation is
+// one untorn step standing in for the real immediate transaction (a test that
+// needs a real rollback belongs to the sqlite layer), and an unknown, spent or
+// expired hash answers domain.ErrNotFound alike, exactly like the real store, so
+// the use case owns the one refusal the caller sees.
+type fakePasswordResetStore struct {
+	tokens    []*fakePasswordResetToken
+	users     *fakeUserStore
+	sessions  *fakeSessionStore
+	lastErr   error
+	issueErr  error
+	usableErr error
+	redeemErr error
+}
+
+// fakePasswordResetToken is one stored link.
+type fakePasswordResetToken struct {
+	userID    int64
+	hash      string
+	createdAt time.Time
+	expiresAt time.Time
+	usedAt    *time.Time
+}
+
+var _ application.PasswordResetStore = (*fakePasswordResetStore)(nil)
+
+func newFakePasswordResetStore(users *fakeUserStore, sessions *fakeSessionStore) *fakePasswordResetStore {
+	return &fakePasswordResetStore{users: users, sessions: sessions}
+}
+
+func (f *fakePasswordResetStore) LastPasswordResetRequest(_ context.Context, userID int64) (*time.Time, error) {
+	if f.lastErr != nil {
+		return nil, f.lastErr
+	}
+	var newest *time.Time
+	for _, token := range f.tokens {
+		if token.userID != userID {
+			continue
+		}
+		if newest == nil || token.createdAt.After(*newest) {
+			at := token.createdAt
+			newest = &at
+		}
+	}
+	return newest, nil
+}
+
+func (f *fakePasswordResetStore) IssuePasswordResetToken(_ context.Context, userID int64, hash string, createdAt, expiresAt time.Time) error {
+	if f.issueErr != nil {
+		return f.issueErr
+	}
+	f.voidPending(userID)
+	f.tokens = append(f.tokens, &fakePasswordResetToken{userID: userID, hash: hash, createdAt: createdAt, expiresAt: expiresAt})
+	return nil
+}
+
+func (f *fakePasswordResetStore) PasswordResetTokenUsable(_ context.Context, hash string, now time.Time) (bool, error) {
+	if f.usableErr != nil {
+		return false, f.usableErr
+	}
+	token := f.find(hash)
+	return token != nil && token.usedAt == nil && now.Before(token.expiresAt), nil
+}
+
+func (f *fakePasswordResetStore) RedeemPasswordResetToken(_ context.Context, hash, passwordHash string, now time.Time) error {
+	if f.redeemErr != nil {
+		return f.redeemErr
+	}
+	token := f.find(hash)
+	if token == nil || token.usedAt != nil || !now.Before(token.expiresAt) {
+		return domain.ErrNotFound
+	}
+	user, ok := f.users.users[token.userID]
+	if !ok {
+		return domain.ErrNotFound
+	}
+	user.PasswordHash = passwordHash
+	spentAt := now
+	token.usedAt = &spentAt
+	f.voidPending(token.userID)
+	for id, session := range f.sessions.sessions {
+		if session.UserID == token.userID {
+			delete(f.sessions.sessions, id)
+		}
+	}
+	return nil
+}
+
+// voidPending drops the account's redeemable links, standing in for the real
+// store's delete of the rows that have no used_at.
+func (f *fakePasswordResetStore) voidPending(userID int64) {
+	kept := make([]*fakePasswordResetToken, 0, len(f.tokens))
+	for _, token := range f.tokens {
+		if token.userID == userID && token.usedAt == nil {
+			continue
+		}
+		kept = append(kept, token)
+	}
+	f.tokens = kept
+}
+
+func (f *fakePasswordResetStore) find(hash string) *fakePasswordResetToken {
+	for _, token := range f.tokens {
+		if token.hash == hash {
+			return token
+		}
+	}
+	return nil
+}
+
 // fakeVisitEntry is one piece of a ticket's history in the fake: an audit
 // event or a comment, with the actor who made it and — for comments — whether
 // it is internal. id 0 on the actor means "no actor" (an automatic or legacy

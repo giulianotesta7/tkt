@@ -144,10 +144,10 @@ func TestTicketShowRendersConciseSemanticMetadata(t *testing.T) {
 
 func TestAssignedAgentSeesTicketControls(t *testing.T) {
 	h := newHarness(t)
-	agent := h.createUser(t, "Agent", "agent@tkt.test", "secret")
+	agent := h.createUser(t, "Agent", "agent@tkt.test", "s3cret-pass-12")
 	ticket := h.seedTicket(t, "Assigned work", nil)
 	h.assignTicket(t, ticket.ID, agent.ID)
-	session := h.loginCookie(t, agent.Email, "secret")
+	session := h.loginCookie(t, agent.Email, "s3cret-pass-12")
 	if session == "" {
 		t.Fatal("agent login must succeed")
 	}
@@ -763,7 +763,7 @@ func TestTicketEditInvalidPriority422(t *testing.T) {
 // the assign form works (the S4 replacement for the old edit-form unassign).
 func TestTicketEditUnassign(t *testing.T) {
 	h := newHarness(t)
-	beto := h.createUser(t, "Beto", "beto@example.com", "secret")
+	beto := h.createUser(t, "Beto", "beto@example.com", "s3cret-pass-12")
 	h.seedTicket(t, "Login page down", nil)
 	// Assign beto through the assign route, then unassign through it again.
 	form := url.Values{
@@ -915,7 +915,7 @@ func TestTicketEditRejectsRequestCarryingNeitherField(t *testing.T) {
 // blanking the input and resetting the selector to "Unassigned".
 func TestTicketEditErrorRerenderPreservesUncarriedValues(t *testing.T) {
 	h := newHarness(t)
-	beto := h.createUser(t, "Beto", "beto@example.com", "secret")
+	beto := h.createUser(t, "Beto", "beto@example.com", "s3cret-pass-12")
 	h.seedTicket(t, "Login page down", nil)
 	h.assignTicket(t, 1, beto.ID)
 
@@ -1294,10 +1294,10 @@ func TestTicketDetailHeaderTransitionActions(t *testing.T) {
 	// An assigned agent keeps the same action set its capability grants.
 	t.Run("assigned agent", func(t *testing.T) {
 		h := newHarness(t)
-		agent := h.createUser(t, "Agent", "agent-actions@tkt.test", "secret")
+		agent := h.createUser(t, "Agent", "agent-actions@tkt.test", "s3cret-pass-12")
 		tkt := h.seedTicket(t, "Header actions", nil)
 		h.assignTicket(t, tkt.ID, agent.ID)
-		session := h.loginCookie(t, agent.Email, "secret")
+		session := h.loginCookie(t, agent.Email, "s3cret-pass-12")
 		if session == "" {
 			t.Fatal("agent login must succeed")
 		}
@@ -1333,7 +1333,7 @@ func TestTicketDetailAssignToMe(t *testing.T) {
 	}
 
 	// Once assigned, the shortcut is gone (the picker is the way to change it).
-	agent := h.createUser(t, "Agent", "agent-shortcut@tkt.test", "secret")
+	agent := h.createUser(t, "Agent", "agent-shortcut@tkt.test", "s3cret-pass-12")
 	h.assignTicket(t, tkt.ID, agent.ID)
 	if body := h.get(t, "/tickets/1", true).Body.String(); strings.Contains(body, ">Assign to me</button>") {
 		t.Errorf("an assigned ticket must not offer Assign to me, got: %s", body)
@@ -1451,7 +1451,7 @@ func TestTicketDetailHeaderMetaLine(t *testing.T) {
 // already-assigned inactive user still visible.
 func TestTicketDetailListboxProperties(t *testing.T) {
 	h := newHarness(t)
-	agent := h.createUser(t, "Ann Agent", "ann-listbox@tkt.test", "secret")
+	agent := h.createUser(t, "Ann Agent", "ann-listbox@tkt.test", "s3cret-pass-12")
 	tkt := h.seedTicket(t, "Listbox", nil)
 	h.assignTicket(t, tkt.ID, agent.ID)
 	// Deactivate the assignee: the assigned person stays visible (today's rule).
@@ -1537,7 +1537,7 @@ func TestTicketDetailPropertiesReadOnlyForRequester(t *testing.T) {
 // path).
 func TestTicketEditTimelineResolvesAssignedUserName(t *testing.T) {
 	h := newHarness(t)
-	beto := h.createUser(t, "Beto", "beto@example.com", "secret")
+	beto := h.createUser(t, "Beto", "beto@example.com", "s3cret-pass-12")
 	h.seedTicket(t, "Login page down", nil)
 
 	form := url.Values{
@@ -1563,7 +1563,7 @@ func TestTicketEditTimelineResolvesAssignedUserName(t *testing.T) {
 // assignment without reason").
 func TestTicketAssignInitialHappyPath(t *testing.T) {
 	h := newHarness(t)
-	beto := h.createUser(t, "Beto", "beto@example.com", "secret")
+	beto := h.createUser(t, "Beto", "beto@example.com", "s3cret-pass-12")
 	h.seedTicket(t, "Login page down", nil)
 
 	rec := h.postForm(t, "/tickets/1/assign", url.Values{"user_id": {strconv.FormatInt(beto.ID, 10)}}, false)
@@ -1596,8 +1596,8 @@ func TestTicketAssignInitialHappyPath(t *testing.T) {
 // reason required only for reassignment).
 func TestTicketAssignReassignRequiresReason(t *testing.T) {
 	h := newHarness(t)
-	beto := h.createUser(t, "Beto", "beto@example.com", "secret")
-	carla := h.createUser(t, "Carla", "carla@example.com", "secret")
+	beto := h.createUser(t, "Beto", "beto@example.com", "s3cret-pass-12")
+	carla := h.createUser(t, "Carla", "carla@example.com", "s3cret-pass-12")
 	h.seedTicket(t, "Login page down", nil)
 	if rec := h.postForm(t, "/tickets/1/assign", url.Values{"user_id": {strconv.FormatInt(beto.ID, 10)}}, false); rec.Code != http.StatusSeeOther {
 		t.Fatalf("initial assign status = %d, want 303", rec.Code)
@@ -1633,7 +1633,7 @@ func TestTicketAssignReassignRequiresReason(t *testing.T) {
 // form (empty user_id) works and is audited (person → unassigned).
 func TestTicketAssignUnassign(t *testing.T) {
 	h := newHarness(t)
-	beto := h.createUser(t, "Beto", "beto@example.com", "secret")
+	beto := h.createUser(t, "Beto", "beto@example.com", "s3cret-pass-12")
 	h.seedTicket(t, "Login page down", nil)
 	if rec := h.postForm(t, "/tickets/1/assign", url.Values{"user_id": {strconv.FormatInt(beto.ID, 10)}}, false); rec.Code != http.StatusSeeOther {
 		t.Fatalf("assign status = %d", rec.Code)
@@ -1660,7 +1660,7 @@ func TestTicketAssignUserRoleDenied(t *testing.T) {
 	h := newHarness(t)
 	user := seedUserRole(t, h.store, "Ula", "ula@example.com", domain.RoleUser)
 	sess := seedSession(t, h.store, user.ID)
-	beto := h.createUser(t, "Beto", "beto@example.com", "secret")
+	beto := h.createUser(t, "Beto", "beto@example.com", "s3cret-pass-12")
 	rec := h.postFormAs(t, "/tickets", url.Values{
 		"title":       {"My ticket"},
 		"category_id": {strconv.FormatInt(h.bugCategory.ID, 10)},

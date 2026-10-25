@@ -39,7 +39,7 @@ const unique = Date.now().toString(36).slice(2, 8);
 
 function agent(name: string): { name: string; email: string; password: string } {
   const slug = name.replace(/\s+/g, "-").toLowerCase();
-  return { name, email: `${slug}-${unique}@example.com`, password: "Secret123!" };
+  return { name, email: `${slug}-${unique}@example.com`, password: "Secret123!42" };
 }
 
 /** The manager's list row for one exact title. */

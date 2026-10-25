@@ -62,7 +62,7 @@ func TestAmendment3_PinnedClaimUsesEligibleSidebarControl(t *testing.T) {
 		}
 	}
 
-	nonmember := h.createUser(t, "Nonmember", "nonmember-amendment3@tkt.test", "secret")
+	nonmember := h.createUser(t, "Nonmember", "nonmember-amendment3@tkt.test", "s3cret-pass-12")
 	session := h.sessionFor(t, nonmember.ID)
 	req := httptest.NewRequest(http.MethodGet, "/tickets/"+strconv.FormatInt(ticket.ID, 10), nil)
 	req.Header.Set("Cookie", sessionCookie+"="+session)

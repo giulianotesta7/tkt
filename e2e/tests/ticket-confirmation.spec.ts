@@ -122,7 +122,7 @@ test.describe("Ticket confirmation", () => {
     await page.setViewportSize({ width: 1280, height: 800 });
     await loginAsSeeded(page);
     const requesterEmail = `rose-${Date.now().toString(36).slice(2, 6)}@tkt.test`;
-    const requesterPassword = "Secret123!";
+    const requesterPassword = "Secret123!42";
     await createUserAsAdmin(page, {
       name: "Rosa",
       email: requesterEmail,
@@ -242,7 +242,7 @@ test.describe("Ticket confirmation", () => {
     await page.setViewportSize({ width: 1280, height: 800 });
     await loginAsSeeded(page);
     const requesterEmail = `hugo-${Date.now().toString(36).slice(2, 6)}@tkt.test`;
-    const requesterPassword = "Secret123!";
+    const requesterPassword = "Secret123!42";
     await createUserAsAdmin(page, {
       name: "Hugo",
       email: requesterEmail,
@@ -313,7 +313,7 @@ test.describe("Ticket confirmation", () => {
     await page.setViewportSize({ width: 1280, height: 800 });
     await loginAsSeeded(page);
     const requesterEmail = `leo-${Date.now().toString(36).slice(2, 6)}@tkt.test`;
-    const requesterPassword = "Secret123!";
+    const requesterPassword = "Secret123!42";
     await createUserAsAdmin(page, {
       name: "Leo",
       email: requesterEmail,
