@@ -125,7 +125,7 @@ func (u *workflowUnitOfWork) CreateTicketWithRun(ctx context.Context, in applica
 
 	// Apply only the runner-decided fixed operations in literal order. Any error
 	// (including an empty least_loaded desk) rolls back everything.
-	if err := applyWorkflowOperations(ctx, tx, in.Ticket, in.Operations, in.StartedAt, nil); err != nil {
+	if err := applyWorkflowOperations(ctx, tx, in.Ticket, in.Operations, in.StartedAt, nil, nil); err != nil {
 		return nil, err
 	}
 
@@ -212,32 +212,33 @@ func (u *workflowUnitOfWork) ApplyWorkflowPlan(ctx context.Context, in applicati
 
 	// Apply the fixed data-only operations in literal order (audits/answers/
 	// assignee/state). The validator proved they reproduce in.NextTicketState.
+	// The rows a routing step builds inside this loop are COLLECTED instead of
+	// written here: who may receive them is decided by the ticket this plan
+	// leaves behind, which the transaction has not persisted yet.
 	addressed := notifiedRecipients(in)
-	if err := applyWorkflowOperations(ctx, tx, ticket, in.Operations, run.StartedAt, addressed); err != nil {
+	var routed []domain.Notification
+	if err := applyWorkflowOperations(ctx, tx, ticket, in.Operations, run.StartedAt, addressed, &routed); err != nil {
 		return application.WorkflowExecutionResult{}, err
 	}
 
-	// Append the notifications the APPLICATION computed for this plan, in the
-	// same immediate transaction as the operations and the ticket write
-	// (S11): a failed apply leaves no notification behind, and a notification
-	// never exists without the change it describes. The adapter inserts what it
-	// is given and never decides a recipient — with ONE exception, the rows the
-	// plan marks conditional: their recipient is the pre-plan assignee, and only
-	// THIS transaction knows whether the routing it just ran kept that person or
-	// moved the ticket (S10). The selection is already applied to ticket.UserID,
-	// so the condition is a plain comparison.
-	if err := appendNotificationsTx(ctx, tx, in.Notifications); err != nil {
-		return application.WorkflowExecutionResult{}, err
-	}
+	// Collect every row this plan persists, in write order: the routing rows the
+	// transaction just built, the rows the APPLICATION computed, and the rows of
+	// the conditional block. They commit with the operations and the ticket write
+	// in this same immediate transaction, so a failed apply leaves no notice
+	// behind. The application selects potential recipients; this transaction
+	// rechecks their access after persisting the result. Conditional rows also
+	// depend on whether routing kept the pre-plan assignee. The selection is
+	// already applied to ticket.UserID, so that condition is a plain comparison.
+	rows := make([]domain.Notification, 0, len(routed)+len(in.Notifications))
+	rows = append(rows, routed...)
+	rows = append(rows, in.Notifications...)
 	for _, c := range in.ConditionalNotifications {
 		if ticket.UserID == nil || *ticket.UserID != c.AssigneeUserID {
 			// The routing moved the ticket: the outgoing holder may no longer be
 			// able to open it, so its rows are stale (S10 rule 2).
 			continue
 		}
-		if err := appendNotificationsTx(ctx, tx, c.Rows); err != nil {
-			return application.WorkflowExecutionResult{}, err
-		}
+		rows = append(rows, c.Rows...)
 	}
 
 	// Persist the final ticket state (proven equal by the validator).
@@ -253,6 +254,16 @@ func (u *workflowUnitOfWork) ApplyWorkflowPlan(ctx context.Context, in applicati
 		completedAt = in.Result.Run.CompletedAt
 	}
 	if err := applyCursorCAS(ctx, tx, in.TicketID, in.ExpectedCursor, in.ExpectedRunStatus, in.NextCursor, in.NextRunStatus, completedAt); err != nil {
+		return application.WorkflowExecutionResult{}, err
+	}
+
+	// Write the rows LAST, now that the resulting assignee, state and workflow
+	// position are persisted, so every recipient is re-proved against them in
+	// this same transaction. A person this change takes out of the ticket's read
+	// scope — the other members of a desk a claim completes, a follower whose
+	// membership the change outran — is never told about it. The whole batch is
+	// still validated first, so a refused row aborts the change as before.
+	if err := appendResultingNotificationsTx(ctx, tx, in.TicketID, rows); err != nil {
 		return application.WorkflowExecutionResult{}, err
 	}
 
@@ -1807,7 +1818,12 @@ func requireActiveAgentTx(ctx context.Context, tx *sql.Tx, id int64) error {
 // rows the plan writes, plus every row an operation before this one wrote — so
 // an operation never adds a second row for somebody the same submission already
 // addresses.
-func applyWorkflowOperations(ctx context.Context, tx *sql.Tx, t *domain.Ticket, ops []application.WorkflowOperation, baseAt time.Time, addressed map[int64]bool) error {
+//
+// planned receives the rows the operation builds instead of writing them when it
+// is not nil: the plan path defers every row until the resulting ticket and run
+// are persisted, so the recipients can be re-proved against them. A nil slice
+// means the rows are written here, which is what the creation path does.
+func applyWorkflowOperations(ctx context.Context, tx *sql.Tx, t *domain.Ticket, ops []application.WorkflowOperation, baseAt time.Time, addressed map[int64]bool, planned *[]domain.Notification) error {
 	if addressed == nil {
 		addressed = map[int64]bool{}
 	}
@@ -1953,7 +1969,9 @@ func applyWorkflowOperations(ctx context.Context, tx *sql.Tx, t *domain.Ticket, 
 					}
 					rows = append(rows, followerRows...)
 				}
-				if err := appendNotificationsTx(ctx, tx, rows); err != nil {
+				if planned != nil {
+					*planned = append(*planned, rows...)
+				} else if err := appendNotificationsTx(ctx, tx, rows); err != nil {
 					return err
 				}
 			}
