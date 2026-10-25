@@ -109,6 +109,96 @@ test.describe("Ticket detail", () => {
     await stopServer();
   });
 
+  test("mention search Enter never publishes an unmatched draft and keeps keyboard editing", async ({
+    page,
+  }) => {
+    const obs = collectObservability(page);
+    await loginAsSeeded(page);
+    const name = "Mention Keyboard Admin";
+    await createUserAsAdmin(page, {
+      name,
+      email: "mention-keyboard@example.com",
+      password: "KeyboardSecret42!",
+    });
+    await page.goto(base() + (await resolveUserEditHref(page, name)));
+    await page.locator('select[name="role"]').selectOption("admin");
+    await page.getByRole("button", { name: /save changes/i }).click();
+    await expect(page).toHaveURL(/\/users$/);
+    const id = await createTicketViaUi(page, {
+      title: "Mention keyboard draft",
+      category: "General",
+    });
+    await page.goto(base() + `/tickets/${id}`);
+    const body = page.locator("#comment-body");
+    const form = page.locator("form.comment-form");
+    const search = page.getByRole("searchbox", { name: "Search people" });
+    const draft = "This draft must remain unpublished";
+    const commentPath = `/tickets/${id}/comments`;
+    const posts: string[] = [];
+    let navigations = 0;
+    page.on("request", (request) => {
+      if (request.method() === "POST") posts.push(new URL(request.url()).pathname);
+    });
+    page.on("framenavigated", (frame) => {
+      if (frame === page.mainFrame()) navigations++;
+    });
+    await body.fill(draft);
+    await page.getByRole("button", { name: "Mention", exact: true }).click();
+    await search.fill("zzzz-unmatched-person");
+    await expect(page.locator(".comment-mentions-option:visible")).toHaveCount(0);
+    await page.evaluate(() => {
+      document.addEventListener("keydown", (event) => {
+        if (event.key === "Enter")
+          document.body.dataset.enterPrevented = String(event.defaultPrevented);
+      });
+    });
+    await search.press("Enter");
+    await expect(page.locator("body")).toHaveAttribute("data-enter-prevented", "true");
+    await expect(body).toHaveValue(draft);
+    expect(posts).toEqual([]);
+    expect(navigations).toBe(0);
+    await expect(page.locator("#timeline")).not.toContainText(draft);
+    // A fresh document proves the failed search did not persist a comment.
+    await page.reload();
+    await expect(page.locator("#timeline")).not.toContainText(draft);
+    await body.fill(draft);
+    await page.getByRole("button", { name: "Mention", exact: true }).click();
+    await search.fill(name);
+    await expect(page.getByRole("option", { name: new RegExp(name) })).toBeVisible();
+    await search.press("ArrowDown");
+    await search.press("Enter");
+    await expect(body).toHaveValue(`${draft}@${name} `);
+    expect(posts).toEqual([]);
+    // A textarea with no matching completion still owns its newline.
+    await body.fill("@zzzz-unmatched-person");
+    await body.press("End");
+    await body.press("Enter");
+    await expect(body).toHaveValue("@zzzz-unmatched-person\n");
+    const published = "Keyboard editing stays native\nSecond line";
+    await body.fill("Keyboard editing stays native");
+    await body.press("End");
+    await body.press("Enter");
+    await body.pressSequentially("Second line");
+    await expect(body).toHaveValue(published);
+    expect(posts).toEqual([]);
+    const response = page.waitForResponse(
+      (response) =>
+        response.request().method() === "POST" && new URL(response.url()).pathname === commentPath,
+    );
+    await form.locator('button[type="submit"]').click();
+    const submitted = await response;
+    expect(submitted.status()).toBe(303);
+    expect(submitted.request().headers()["hx-request"]).toBeUndefined();
+    await expect(page.locator("#timeline")).toContainText("Keyboard editing stays native");
+    await page.reload();
+    await expect(page.locator("#timeline")).toContainText("Second line");
+    expect(posts).toEqual([commentPath]);
+    expect(obs.consoleErrors).toEqual([]);
+    expect(obs.pageErrors).toEqual([]);
+    expect(obs.failedRequests).toEqual([]);
+    expect(obs.failedResponses).toEqual([]);
+  });
+
   test("detail shows Properties sidebar, timeline, state, description, and category", async ({
     page,
   }) => {

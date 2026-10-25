@@ -984,6 +984,7 @@
         event.key === "Enter" &&
         (inBody || target.classList.contains("comment-mentions-search"))
       ) {
+        if (!inBody) event.preventDefault();
         if (visibleMentions(root).length === 0) return;
         event.preventDefault();
         insertHighlightedMention(root);
