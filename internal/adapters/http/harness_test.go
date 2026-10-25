@@ -199,7 +199,7 @@ func newHarnessWithAdmin(t *testing.T, seedAdmin bool) *harness {
 	deskSvc := application.NewDeskService(s.DeskStore(), s.UserStore(), clock)
 	viewBuilder := application.NewViewBuilder(s.TicketStore(), s.UserStore(), s.CategoryStore(), s.CommentStore(), s.AuditStore(), s.DeskStore(), s.WorkflowResponseStore())
 	slaSvc := application.NewSLAService(s.SLAStore(), s.SettingsStore(), clock)
-	followSvc := application.NewFollowService(s.TicketStore(), s.UserStore(), s.TicketFollowerStore(), clock)
+	followSvc := application.NewFollowService(s.TicketStore(), s.UserStore(), s.TicketFollowerStore(), clock).WithDesks(s.DeskStore())
 	ticketSvc := application.NewTicketServiceWithWorkflowCreate(s.TicketStore(), s.UserStore(), s.CategoryStore(), s.TicketUnitOfWork(), viewBuilder, clock, s.WorkflowVersionStore(), application.NewWorkflowRunner(clock).WithFollowers(followSvc), s.WorkflowUnitOfWork(), slaSvc).WithFollowers(followSvc)
 	commentSvc := application.NewCommentService(s.TicketStore(), s.CommentStore(), s.UserStore(), s.CommentUnitOfWork(), clock).WithSLA(slaSvc).WithFollowers(followSvc)
 	attachmentSvc := application.NewAttachmentService(s.TicketStore(), s.AttachmentStore())

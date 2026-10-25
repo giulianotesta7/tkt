@@ -47,7 +47,7 @@ func notificationRowsOf(t *testing.T, s *Store, userID int64) []string {
 }
 
 func followServiceOver(s *Store, clock domain.Clock) *application.FollowService {
-	return application.NewFollowService(s.TicketStore(), s.UserStore(), s.TicketFollowerStore(), clock)
+	return application.NewFollowService(s.TicketStore(), s.UserStore(), s.TicketFollowerStore(), clock).WithDesks(s.DeskStore())
 }
 
 func ticketServiceWithFollowers(s *Store, clock domain.Clock) *application.TicketService {

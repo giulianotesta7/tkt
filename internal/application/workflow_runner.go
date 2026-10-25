@@ -198,10 +198,14 @@ func (r *WorkflowRunner) PlanComplete(ctx context.Context, snap WorkflowExecutio
 	if assigneeFacts != nil && (ticket.UserID == nil || *ticket.UserID != assigneeFacts.UserID) {
 		assigneeFacts = nil
 	}
-	// The ticket's followers hear the planned state change (issue #418). The
-	// follower read happens at plan time, like every other recipient fact here,
-	// and the unit of work rechecks the rest of the plan inside its transaction.
-	followers, err := r.followers.followerRecipients(ctx, ticket.ID)
+	// The ticket's followers hear the planned state change (issue #418). They are
+	// judged against the ticket this plan LEAVES BEHIND — its assignee, state and
+	// workflow position — not the stored row a claim is about to invalidate: a
+	// claim takes the ticket out of every other member of its desk's read scope in
+	// the same transaction that would notify them, while a follower of the desk the
+	// run still waits on keeps its scope. The desk membership that decides it is
+	// read here; the unit of work applies the rows it is given.
+	followers, err := r.followers.followerRecipientsForResulting(ctx, ticket, snap.Workflow, nextCursor, status)
 	if err != nil {
 		return WorkflowMutationPlan{}, err
 	}

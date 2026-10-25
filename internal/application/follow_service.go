@@ -34,13 +34,26 @@ type FollowService struct {
 	tickets   TicketStore
 	users     UserStore
 	followers TicketFollowerStore
-	clock     domain.Clock
+	// desks answers the membership question the workflow fan-out asks about the
+	// desk a claim still waits on. Nil keeps the service without that proof, and
+	// an unproven desk recipient is never told (fail closed).
+	desks DeskMembershipStore
+	clock domain.Clock
 }
 
 // NewFollowService wires the follow and mention use cases against the given
 // ports. The clock stamps the instant a follow was created.
 func NewFollowService(tickets TicketStore, users UserStore, followers TicketFollowerStore, clock domain.Clock) *FollowService {
 	return &FollowService{tickets: tickets, users: users, followers: followers, clock: clock}
+}
+
+// WithDesks wires the desk membership proof the workflow plan needs and returns
+// the service, so the composition root chains it onto the constructor. Every
+// other use case keeps working without it: membership is only read to decide
+// whether a follower may open the ticket a claim LEAVES BEHIND.
+func (s *FollowService) WithDesks(desks DeskMembershipStore) *FollowService {
+	s.desks = desks
+	return s
 }
 
 // Follow subscribes the actor to the ticket's events.
@@ -194,6 +207,122 @@ func (s *FollowService) followerRecipients(ctx context.Context, ticketID int64) 
 			continue
 		}
 		out = append(out, verifiedRecipient{recipient: *recipientOf(&u)})
+	}
+	return out, nil
+}
+
+// followerRecipientsForResulting reads the ticket's followers for a workflow plan
+// and keeps the ones who may open the ticket the plan LEAVES BEHIND. It is the
+// plan-time counterpart of followerRecipients, which judges the STORED row, and
+// it exists because a claim is exactly what makes that stored proof stale: the
+// completion assigns the ticket to the acting agent and moves the run past the
+// claim step in the same transaction that notifies the followers, so every other
+// member of that desk loses the ticket in the instant they would hear about it.
+//
+// Eligibility is therefore a property of the resulting facts — assignee, state
+// and the workflow position the plan is about to persist — and the desk arm of it
+// is decided by REAL membership of the desk the run still waits on. Nothing here
+// infers access from a follower row, from the desk the ticket is leaving, or from
+// two claim steps naming the same desk.
+//
+// The plan is the same-transaction input of the unit of work, which rechecks the
+// snapshot's facts and fails a stale submission with zero writes, so these facts
+// are the ones the transaction persists. One window stays open and is documented
+// on canStaffOpenResultingTicket: a membership change between this read and the
+// apply is not rechecked by the adapter, which inserts the rows it is given.
+func (s *FollowService) followerRecipientsForResulting(ctx context.Context, after domain.Ticket, def domain.WorkflowDefinition, cursor int, runStatus string) ([]verifiedRecipient, error) {
+	if s == nil {
+		return nil, nil
+	}
+	followersOf, err := s.followers.ListFollowers(ctx, after.ID)
+	if err != nil {
+		return nil, err
+	}
+	deskID, claimPending := resultingClaimDesk(def, cursor, runStatus, after.State)
+	var members map[int64]bool
+	if claimPending {
+		members, err = s.deskMemberIDs(ctx, deskID)
+		if err != nil {
+			return nil, err
+		}
+	}
+	var out []verifiedRecipient
+	for _, u := range followersOf {
+		if !canStaffOpenResultingTicket(u, after, claimPending, members) {
+			continue
+		}
+		out = append(out, verifiedRecipient{recipient: *recipientOf(&u)})
+	}
+	return out, nil
+}
+
+// canStaffOpenResultingTicket reports whether u may open the ticket a plan leaves
+// behind, as the staff member their follower row says they are. It is the
+// plan-time twin of canStaffOpenTicket: the same role gate and the same
+// policy.ReadScope arms, applied to the resulting assignee instead of to the
+// stored row. The claim arm needs the resulting desk's member set, which
+// deskMemberIDs reads from the desk store; a service without that collaborator
+// passes a nil set and admits nobody through it.
+//
+// Applying the same arms is what keeps following from ever granting access: an
+// agent reads the result as its assignee or as a member of the desk a claim still
+// waits on, a requester as their own ticket, and admin/root as the whole queue.
+// A least_loaded plan selects its assignee inside the transaction, so the assignee
+// this predicate sees there is the snapshot holder whose rows the plan already
+// defers; the selected member is addressed by the routing step itself.
+func canStaffOpenResultingTicket(u domain.User, after domain.Ticket, claimPending bool, members map[int64]bool) bool {
+	if !u.Role.Valid() || !u.Active {
+		return false
+	}
+	if !NewPolicy().Capabilities(u.Role).Require(CapCommentInternal) {
+		return false
+	}
+	switch NewPolicy().ReadScope(u.Role) {
+	case ScopeAll:
+		return true
+	case ScopeOwned:
+		return after.RequesterUserID != nil && *after.RequesterUserID == u.ID
+	case ScopeAssignedOrClaimable:
+		if after.UserID != nil && *after.UserID == u.ID {
+			return true
+		}
+		return claimPending && members[u.ID]
+	default:
+		return false
+	}
+}
+
+// resultingClaimDesk returns the desk a claim step still waits on once the plan
+// has run, and false when the plan leaves no claim pending. It mirrors the claim
+// half of the agent read scope (the ticket store's claimable predicate): the run
+// stays active, the ticket is not terminal, and the cursor points at an
+// assign_to_desk step whose strategy is claim.
+func resultingClaimDesk(def domain.WorkflowDefinition, cursor int, runStatus string, state domain.State) (int64, bool) {
+	if runStatus != "active" || domain.IsClosed(state) || cursor < 0 || cursor >= len(def) {
+		return 0, false
+	}
+	step := def[cursor]
+	if step.Type != domain.StepAssignToDesk || step.AssignToDesk == nil || step.AssignToDesk.Strategy != domain.StrategyClaim {
+		return 0, false
+	}
+	return step.AssignToDesk.DeskID, true
+}
+
+// deskMemberIDs reads the desk's members as the set the eligibility test needs.
+// A service wired without the desk store proves nothing about a desk, so it
+// answers no members: the claim arm stays closed rather than admitting a follower
+// nobody proved.
+func (s *FollowService) deskMemberIDs(ctx context.Context, deskID int64) (map[int64]bool, error) {
+	if s.desks == nil {
+		return nil, nil
+	}
+	members, err := s.desks.ListMembers(ctx, deskID)
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[int64]bool, len(members))
+	for _, m := range members {
+		out[m.ID] = true
 	}
 	return out, nil
 }

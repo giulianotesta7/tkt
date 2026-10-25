@@ -674,6 +674,15 @@ type DeskStore interface {
 	ListMembers(ctx context.Context, deskID int64) ([]domain.User, error)
 }
 
+// DeskMembershipStore answers the one desk question the workflow follower
+// fan-out asks: who belongs to this desk right now. DeskStore satisfies it, so
+// the composition root passes the desk store it already builds and no adapter is
+// added. It is a port of its own so a caller that only proves membership cannot
+// create, rename or remove desks.
+type DeskMembershipStore interface {
+	ListMembers(ctx context.Context, deskID int64) ([]domain.User, error)
+}
+
 // CannedReplyStore persists saved replies (issue #418). A reply belongs to
 // exactly ONE owner — one person or one desk, never both — and every read is
 // scoped to a person or to one desk, so this port cannot answer "every reply":

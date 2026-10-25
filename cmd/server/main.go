@@ -135,7 +135,7 @@ func main() {
 	// The same collaborator serves the ticket changes, the comments, the planned
 	// workflow steps and the automatic close, so every event that reaches the
 	// requester or the assignee reaches the ticket's followers too.
-	followSvc := application.NewFollowService(store.TicketStore(), store.UserStore(), store.TicketFollowerStore(), clock)
+	followSvc := application.NewFollowService(store.TicketStore(), store.UserStore(), store.TicketFollowerStore(), clock).WithDesks(store.DeskStore())
 	// The requester's reply that ends a hold shifts the resolution SLA (#352).
 	commentSvc := application.NewCommentService(store.TicketStore(), store.CommentStore(), store.UserStore(), store.CommentUnitOfWork(), clock).WithSLA(slaSvc).WithFollowers(followSvc)
 	ticketSvc := application.NewTicketServiceWithWorkflowCreate(store.TicketStore(), store.UserStore(), store.CategoryStore(), store.TicketUnitOfWork(), viewBuilder, clock, store.WorkflowVersionStore(), application.NewWorkflowRunner(clock).WithFollowers(followSvc), store.WorkflowUnitOfWork(), slaSvc).WithFollowers(followSvc)
