@@ -6,6 +6,7 @@
     baselineUserID = "",
     busy = false,
     savePending = false,
+    pendingScreenSave = false,
     createPending = false,
     discard = false,
     locked = false,
@@ -205,7 +206,86 @@
       finishClose();
     }
   }
+  // Pending row menu (issue #419, S12): one trigger owns aria-expanded, opening
+  // one closes the rest, Escape returns focus to its trigger, and the arrows walk
+  // the items the way the catalog overflow menus do. The panel is fixed-positioned
+  // next to its trigger because the list panel clips whatever overflows it, so a
+  // last-row menu would otherwise open out of sight.
+  const rowMenuPanels = () => [...document.querySelectorAll(".users-row-menu-panel:not([hidden])")];
+  const rowMenuFor = (button) =>
+    document.getElementById(button?.getAttribute("aria-controls") || "");
+  const rowMenuItems = (menu) => [...menu.querySelectorAll("[role='menuitem']")];
+  const rowMenuTrigger = (menu) =>
+    menu?.id ? document.querySelector(`[aria-controls="${CSS.escape(menu.id)}"]`) : null;
+  function closeRowMenu(menu, restoreFocus = false) {
+    if (!menu || menu.hidden) return;
+    menu.hidden = true;
+    menu.removeAttribute("style");
+    const trigger = rowMenuTrigger(menu);
+    if (trigger) trigger.setAttribute("aria-expanded", "false");
+    if (restoreFocus && trigger) trigger.focus();
+  }
+  function closeRowMenus(except = null) {
+    rowMenuPanels().forEach((menu) => {
+      if (menu !== except) closeRowMenu(menu);
+    });
+  }
+  function positionRowMenu(button, menu) {
+    const box = button.getBoundingClientRect();
+    menu.hidden = false;
+    menu.style.top = "0px";
+    menu.style.left = "0px";
+    const panel = menu.getBoundingClientRect();
+    const gap = 6;
+    const openUp = box.bottom + gap + panel.height > window.innerHeight;
+    const top = openUp ? box.top - gap - panel.height : box.bottom + gap;
+    const left = Math.min(
+      Math.max(8, box.right - panel.width),
+      window.innerWidth - panel.width - 8,
+    );
+    menu.style.top = `${Math.round(Math.max(8, top))}px`;
+    menu.style.left = `${Math.round(left)}px`;
+  }
+  function openRowMenu(button, menu) {
+    closeRowMenus(menu);
+    positionRowMenu(button, menu);
+    button.setAttribute("aria-expanded", "true");
+    return true;
+  }
+  function moveRowMenuFocus(menu, delta) {
+    const items = rowMenuItems(menu);
+    if (!items.length) return;
+    const current = items.indexOf(document.activeElement);
+    if (current === -1) {
+      (delta < 0 ? items.at(-1) : items[0]).focus();
+      return;
+    }
+    items[(current + delta + items.length) % items.length].focus();
+  }
+  // After a pending screen save the swapped document leaves no focused control
+  // behind: the refusal sentence takes focus when there is one, and otherwise
+  // focus returns to the selected tab, the same stable landmark focusFallback
+  // answers for the drawer.
+  function restorePendingScreenFocus() {
+    const error = q(".users-error", root());
+    if (error) {
+      error.tabIndex = -1;
+      error.focus();
+      return;
+    }
+    focusFallback();
+  }
   function handleClick(event) {
+    const menuTrigger = event.target.closest?.("[data-users-pending-menu]");
+    if (menuTrigger) {
+      event.preventDefault();
+      const menu = rowMenuFor(menuTrigger);
+      if (!menu) return;
+      if (menu.hidden) openRowMenu(menuTrigger, menu);
+      else closeRowMenu(menu);
+      return;
+    }
+    if (!event.target.closest?.(".users-row-menu")) closeRowMenus();
     const t = event.target.closest("button,a,select,.users-drawer-backdrop");
     if (!t) return;
     if (t.matches(".users-new-launcher")) launcher = t;
@@ -241,9 +321,52 @@
         f.elements.active.value = "false";
         f.requestSubmit();
       }
+    } else if (t.matches("[data-users-pending-clear]")) {
+      event.preventDefault();
+      clearPendingSelection();
     } else if (t.matches("select[name=role]")) updateDescription();
   }
   function handleKey(event) {
+    const panel = event.target.closest?.(".users-row-menu-panel:not([hidden])");
+    if (panel) {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        closeRowMenu(panel, true);
+        return;
+      }
+      if (["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) {
+        event.preventDefault();
+        if (event.key === "ArrowDown") moveRowMenuFocus(panel, 1);
+        else if (event.key === "ArrowUp") moveRowMenuFocus(panel, -1);
+        else if (event.key === "Home") rowMenuItems(panel)[0]?.focus();
+        else rowMenuItems(panel).at(-1)?.focus();
+      }
+      return;
+    }
+    const trigger = event.target.closest?.("[data-users-pending-menu]");
+    if (trigger) {
+      const menu = rowMenuFor(trigger);
+      if (menu && (event.key === "ArrowDown" || event.key === "ArrowUp")) {
+        event.preventDefault();
+        if (openRowMenu(trigger, menu)) {
+          moveRowMenuFocus(menu, event.key === "ArrowDown" ? 1 : -1);
+        }
+        return;
+      }
+      if (menu && event.key === "Escape" && !menu.hidden) {
+        event.preventDefault();
+        closeRowMenu(menu, true);
+        return;
+      }
+    }
+    if (event.key === "Escape") {
+      const open = rowMenuPanels()[0];
+      if (open) {
+        event.preventDefault();
+        closeRowMenu(open, true);
+        return;
+      }
+    }
     const d = drawer();
     if (!d) return;
     const dialog = q("dialog[open]", d);
@@ -274,9 +397,14 @@
   }
   function handleBeforeSwap(event) {
     const xhr = event.detail?.xhr;
+    // A refused save answers its own reason at a known host: the drawer's field
+    // errors, and the Pending tab's batch refusal, which replaces the whole
+    // screen. Both are swapped so the specific sentence reaches the page instead
+    // of only the generic transport notice.
+    const target = xhr?.getResponseHeader("HX-Retarget");
     const expected =
       [403, 404, 409, 422].includes(xhr?.status) &&
-      xhr.getResponseHeader("HX-Retarget") === "#users-drawer-host";
+      (target === "#users-drawer-host" || target === "#users-root");
     if (expected) {
       event.detail.shouldSwap = true;
       event.detail.isError = false;
@@ -304,7 +432,49 @@
     if (event.target?.matches?.(".users-search input[type=search]")) applySearch(event.target);
   }
   function handleChange(event) {
-    if (event.target.matches("select[name=role]")) updateDescription();
+    const target = event.target;
+    if (target.matches?.("[data-users-pending-all]")) {
+      const boxes = pendingCheckboxes();
+      boxes.forEach((box) => {
+        box.checked = target.checked;
+      });
+      syncPendingCount();
+    }
+    if (target.matches?.("input[name=user_ids]")) syncPendingCount();
+    if (target.matches("select[name=role]")) updateDescription();
+  }
+  // The bulk bar is server-rendered so the Pending form works without script;
+  // this only keeps the live count and the select-all box in step with the
+  // checkboxes, and clears the selection on demand.
+  function pendingForm() {
+    return q("#users-pending-form", root());
+  }
+  // Table checkboxes belong to the bulk form through their form attribute,
+  // not DOM ancestry. The form's elements collection includes both shapes.
+  function pendingCheckboxes() {
+    const f = pendingForm();
+    return f
+      ? [...f.elements].filter((el) => el.matches("input[type=checkbox][name=user_ids]"))
+      : [];
+  }
+  function syncPendingCount() {
+    const f = pendingForm();
+    if (!f) return;
+    const boxes = pendingCheckboxes();
+    const checked = boxes.filter((box) => box.checked).length;
+    const count = q("[data-users-bulk-count]", f);
+    if (count) count.textContent = String(checked);
+    const all = q("[data-users-pending-all]", root());
+    if (all) {
+      all.checked = boxes.length > 0 && checked === boxes.length;
+      all.indeterminate = checked > 0 && checked < boxes.length;
+    }
+  }
+  function clearPendingSelection() {
+    const f = pendingForm();
+    if (!f) return;
+    pendingCheckboxes().forEach((box) => (box.checked = false));
+    syncPendingCount();
   }
   function handleSaved() {
     const r = root();
@@ -324,6 +494,17 @@
     history.back();
   }
   function handleSubmit(event) {
+    if (event.target.matches("#users-pending-form, .users-row-menu form")) {
+      // The bulk form is the drawer's sibling: the same in-flight guard stops a
+      // double click from posting the same non-idempotent batch twice.
+      if (busy) {
+        event.preventDefault();
+        return;
+      }
+      busy = true;
+      pendingScreenSave = true;
+      return;
+    }
     if (!event.target.matches("#user-drawer-form")) return;
     if (busy) {
       event.preventDefault();
@@ -338,6 +519,12 @@
   function sync() {
     const r = root();
     if (!r) return;
+    syncPendingCount();
+    if (pendingScreenSave) {
+      pendingScreenSave = false;
+      busy = false;
+      restorePendingScreenFocus();
+    }
     const d = drawer();
     if (d) {
       if (d.dataset.serverError === "true") {
@@ -380,6 +567,10 @@
     document.addEventListener("input", handleSearch, true);
     document.addEventListener("submit", handleSubmit, true);
     window.addEventListener("popstate", handlePop, true);
+    // A fixed-positioned panel does not travel with its trigger, so any scroll
+    // or resize closes it instead of leaving it pointing at another row.
+    window.addEventListener("scroll", () => closeRowMenus(), true);
+    window.addEventListener("resize", () => closeRowMenus());
     // The rail's notification bell polls with htmx on every page; its settle
     // must not re-run the drawer sync (#344: each poll pulled focus back to
     // the drawer's first field).
@@ -391,6 +582,10 @@
     });
     document.addEventListener("htmx:historyRestore", () => setTimeout(restorePendingFocus, 0));
     document.addEventListener("htmx:afterRequest", (event) => {
+      // A pending request that never swapped (a transport failure) must release
+      // the guard too, or the tab would stay unusable until a reload.
+      if (event.detail?.elt?.matches("#users-pending-form, .users-row-menu form") && !event.detail?.successful)
+        busy = false;
       if (event.detail?.elt?.matches("#user-drawer-form")) {
         const d = drawer();
         if (d) {

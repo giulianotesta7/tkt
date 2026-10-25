@@ -1048,7 +1048,31 @@ func TestLoginPresentationContract(t *testing.T) {
 func fixtureUsersIndexData() usersIndexData {
 	ana := domain.User{ID: 1, Name: "Ana Torres", Email: "ana@example.com", Active: true, CreatedAt: goldenT0}
 	beto := domain.User{ID: 2, Name: "Beto Ruiz", Email: "beto@example.com", Active: false, CreatedAt: goldenT1}
-	return usersIndexData{pageData: pageData{NavActive: "users", CurrentUser: ana}, Users: []domain.User{ana, beto}}
+	// PendingTab is what the wired composition always renders (issue #419, S3):
+	// the tab, its count and its address are part of the ordinary screen.
+	return usersIndexData{pageData: pageData{NavActive: "users", CurrentUser: ana}, Users: []domain.User{ana, beto}, PendingTab: true}
+}
+
+// fixtureUsersPendingData is the Pending tab itself: two accounts a company
+// sign-in left waiting, the role choice an admin may grant, and the counts that
+// add up (both waiting accounts are counted in All and in Pending, and in
+// neither of Active or Deactivated).
+func fixtureUsersPendingData() usersIndexData {
+	ana := domain.User{ID: 1, Name: "Ana Torres", Email: "ana@example.com", Active: true, CreatedAt: goldenT0}
+	return usersIndexData{
+		pageData:   pageData{NavActive: "users", CurrentUser: ana},
+		Status:     usersStatusPending,
+		ListURL:    usersListURL(usersStatusPending),
+		Counts:     usersCounts{All: 2, Pending: 2},
+		PendingTab: true,
+		PendingRows: []usersPendingRowView{
+			{ID: 3, Initials: "WA", Name: "Wanda Alvarez", Email: "wanda@example.com", CreatedAt: goldenT0,
+				SignInLabels: []string{"label.company_provider.google"}},
+			{ID: 4, Initials: "VB", Name: "Vic Brandt", Email: "vic@example.com", CreatedAt: goldenT1,
+				SignInLabels: []string{"label.company_provider.microsoft"}},
+		},
+		ApproveRoles: usersRoleOptions(domain.RoleAdmin),
+	}
 }
 
 func fixtureUserFormData() userFormData {
@@ -1132,6 +1156,10 @@ func fixtureCategoryFormData() categoryFormData {
 
 func TestGoldenUsersIndex(t *testing.T) {
 	goldenFullPage(t, "users_index", renderGolden(t, "users_index", "", fixtureUsersIndexData(), false))
+}
+
+func TestGoldenUsersPending(t *testing.T) {
+	goldenFullPage(t, "users_pending", renderGolden(t, "users_index", "", fixtureUsersPendingData(), false))
 }
 
 func TestGoldenUsersNew(t *testing.T) {

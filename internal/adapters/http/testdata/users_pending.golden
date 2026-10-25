@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="htmx-config" content='{"refreshOnHistoryMiss":true}'>
+<title>Users · Help desk</title>
+
+<script src="/static/save-feedback.js" defer></script><script src="/static/htmx.min.js" defer></script><script src="/static/notifications.js" defer></script><script src="/static/shell.js" defer></script>
+</head>
+<body class="">
+<a class="skip-link" href="#main-content">Skip to main content</a>
+<div class="shell">
+  <aside class="sidebar" id="sidebar" aria-label="Sidebar">
+    <div class="sidebar-brand">
+      <a class="brand-mark" href="/tickets" aria-label=""></a>
+      <a class="brand-text" href="/tickets" tabindex="-1" aria-hidden="true"><span class="brand-name"></span><span class="brand-product"></span></a>
+      <button class="sidebar-close" type="button" data-sidebar-close aria-label="Close menu">×</button>
+    </div>
+    <nav class="sidebar-nav" aria-label="Sections">
+      <div class="sidebar-group">
+        <span class="sidebar-group-label">Work</span>
+        <a class="sidebar-link" href="/tickets" data-tip="Tickets">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 9a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v1a2 2 0 0 0 0 4v1a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-1a2 2 0 0 0 0-4V9z"/><path d="M13 7v10"/></svg>
+          <span class="sidebar-label">Tickets</span>
+        </a>
+      </div>
+    </nav>
+    <div class="sidebar-foot">
+      <button class="sidebar-collapse" type="button" data-sidebar-collapse aria-pressed="false" data-tip="Expand sidebar" data-label-collapse="Collapse sidebar" data-label-expand="Expand sidebar" aria-keyshortcuts="[">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 7l-5 5 5 5"/><path d="M18 7l-5 5 5 5"/></svg>
+        <span class="sidebar-label">Collapse sidebar</span>
+      </button>
+      <div class="sidebar-user">
+        <button class="sidebar-user-button" type="button" data-user-menu-toggle aria-haspopup="menu" aria-expanded="false" aria-controls="user-menu" data-tip="Ana Torres">
+          <span class="sidebar-avatar" aria-hidden="true">AT</span>
+          <span class="sidebar-label sidebar-user-text"><span class="sidebar-user-name">Ana Torres</span><span class="sidebar-user-role"></span></span>
+          <svg class="sidebar-user-chevron" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 14l6-6 6 6"/></svg>
+        </button>
+        <div class="user-menu" id="user-menu" role="menu" aria-label="Ana Torres" hidden>
+          <a class="user-menu-item" role="menuitem" href="/preferences">Preferences</a>
+          <form class="user-menu-logout" method="post" action="/logout">
+            <button class="user-menu-item" role="menuitem" type="submit">Log out</button>
+          </form>
+        </div>
+      </div>
+    </div>
+  </aside>
+  <div class="sidebar-scrim" data-sidebar-close hidden></div>
+  <div class="shell-body">
+    <header class="topbar">
+      <button class="topbar-menu" type="button" data-sidebar-open aria-label="Open menu" aria-controls="sidebar" aria-expanded="false">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M4 7h16"/><path d="M4 12h16"/><path d="M4 17h16"/></svg>
+      </button>
+      <span class="topbar-section" aria-hidden="true">Users</span>
+      <div class="topbar-spacer"></div>
+      <div class="topbar-notifications" id="notification-bell" hx-get="/notifications/count" hx-trigger="load, every 45s [document.visibilityState === 'visible'], notifications:changed from:body" hx-target="this" hx-swap="innerHTML"><a class="bell-link" id="notification-bell-link" href="/notifications" hx-get="/notifications" hx-target="#notification-panel-host" hx-swap="innerHTML" title="Notifications" aria-label="Notifications">
+  <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 9a6 6 0 0 0-12 0c0 5-2.5 6.5-2.5 6.5h17S18 14 18 9z"/><path d="M10.4 19.5a2 2 0 0 0 3.2 0"/></svg>
+</a></div>
+      <a class="btn primary topbar-new" href="/tickets/new">
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14"/><path d="M5 12h14"/></svg>
+        <span class="topbar-new-label">New ticket</span>
+      </a>
+    </header>
+    <main class="main" id="main-content">
+<div id="save-feedback" class="save-feedback" role="status" aria-live="polite" aria-atomic="true" hidden data-feedback-message="" data-feedback-kind="">
+  <span class="save-feedback-message"></span>
+  <button class="save-feedback-dismiss" type="button" aria-label="Dismiss confirmation">Dismiss</button>
+</div>
+
+<div id="users-root" class="users-root" data-users-status="pending" data-users-list-url="/users?status=pending">
+  <div id="users-background">
+    <header class="users-header">
+      <div>
+        <h1 id="users-list-title">Users</h1>
+        <p>2 accounts</p>
+      </div>
+      <a id="users-new-launcher" class="users-primary-action users-new-launcher" href="/users/new" hx-get="/users/new?status=pending" hx-target="#users-drawer-host" hx-swap="outerHTML" hx-push-url="/users/new" data-edit-url="/users/new">New user</a>
+    </header>
+    <div class="users-filters">
+      <nav class="users-status-tabs" aria-label="User status">
+        <a href="/users" hx-get="/users" hx-target="#users-root" hx-swap="outerHTML" hx-push-url="true">All <span>2</span></a>
+        <a href="/users?status=active" hx-get="/users?status=active" hx-target="#users-root" hx-swap="outerHTML" hx-push-url="true">Active <span>0</span></a>
+        <a href="/users?status=deactivated" hx-get="/users?status=deactivated" hx-target="#users-root" hx-swap="outerHTML" hx-push-url="true">Deactivated <span>0</span></a>
+        <a class="is-selected" href="/users?status=pending" hx-get="/users?status=pending" hx-target="#users-root" hx-swap="outerHTML" hx-push-url="true">Pending <span class="users-pending-count">2</span></a>
+      </nav>
+      <div class="users-search search-field" role="search">
+        <svg class="search-icon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4 4"/></svg>
+        <input type="search" aria-label="Search users" placeholder="Search by name or email..." autocomplete="off">
+      </div>
+    </div>
+    <p class="users-pending-note">These accounts are inactive and waiting for approval. They cannot sign in or open tickets until an administrator approves them. Reject keeps the account deactivated and its company sign-in links intact; an administrator can reactivate it later.</p>
+    <form id="users-pending-form" class="users-pending-form" method="post" action="/users/pending/approve" hx-post="/users/pending/approve" hx-target="#users-root" hx-swap="outerHTML">
+      <div class="users-bulk-bar" data-users-bulk-bar>
+        <span class="users-bulk-count"><span data-users-bulk-count>0</span> selected</span>
+        <label for="users-pending-role">Approve as</label>
+        <select id="users-pending-role" class="users-bulk-role" name="role"><option value="user">User</option><option value="agent">Agent</option></select>
+        <button class="users-primary-action" type="submit">Approve</button>
+        <button class="users-danger-action" type="submit" formaction="/users/pending/reject" hx-post="/users/pending/reject">Reject</button>
+        <button class="users-secondary-action" type="button" data-users-pending-clear>Clear</button>
+      </div>
+    </form>
+    <section class="users-list users-pending-list" aria-labelledby="users-list-title">
+      <table class="users-pending-table">
+        <thead><tr><th scope="col" class="users-pending-check"><input type="checkbox" form="users-pending-form" data-users-pending-all aria-label="Select all pending accounts"></th><th scope="col">User</th><th scope="col">Sign-in</th><th scope="col">Status</th><th scope="col">Requested</th><th scope="col" class="users-pending-actions"><span class="visually-hidden">Actions</span></th></tr></thead>
+        <tbody>
+          <tr data-user-name="Wanda Alvarez" data-user-email="wanda@example.com">
+            <td class="users-pending-check"><input type="checkbox" form="users-pending-form" name="user_ids" value="3" aria-label="Select Wanda Alvarez"></td>
+            <td><span class="user-factual"><span class="user-initials" aria-hidden="true">WA</span><span><strong>Wanda Alvarez</strong><small>wanda@example.com</small></span></span></td>
+            <td class="users-pending-signin"><span class="user-method">Google</span></td>
+            <td><span class="user-status is-pending">Pending</span></td>
+            <td><time datetime="2026-08-06T10:00:00Z">10:00 · 06-08-2026</time></td>
+            <td class="users-pending-actions"><div class="users-row-menu"><button class="user-actions" type="button" data-users-pending-menu aria-controls="pending-menu-3" aria-expanded="false" aria-haspopup="menu" aria-label="Actions for Wanda Alvarez">⋯</button><div id="pending-menu-3" class="users-row-menu-panel" role="menu" hidden><form method="post" action="/users/pending/approve" hx-post="/users/pending/approve" hx-target="#users-root" hx-swap="outerHTML" role="none"><input type="hidden" name="user_ids" value="3"><input type="hidden" name="role" value="user"><button class="users-row-menu-item" role="menuitem" type="submit">Approve as User</button></form><form method="post" action="/users/pending/approve" hx-post="/users/pending/approve" hx-target="#users-root" hx-swap="outerHTML" role="none"><input type="hidden" name="user_ids" value="3"><input type="hidden" name="role" value="agent"><button class="users-row-menu-item" role="menuitem" type="submit">Approve as Agent</button></form></div></div></td>
+          </tr>
+          <tr data-user-name="Vic Brandt" data-user-email="vic@example.com">
+            <td class="users-pending-check"><input type="checkbox" form="users-pending-form" name="user_ids" value="4" aria-label="Select Vic Brandt"></td>
+            <td><span class="user-factual"><span class="user-initials" aria-hidden="true">VB</span><span><strong>Vic Brandt</strong><small>vic@example.com</small></span></span></td>
+            <td class="users-pending-signin"><span class="user-method">Microsoft</span></td>
+            <td><span class="user-status is-pending">Pending</span></td>
+            <td><time datetime="2026-08-06T10:30:00Z">10:30 · 06-08-2026</time></td>
+            <td class="users-pending-actions"><div class="users-row-menu"><button class="user-actions" type="button" data-users-pending-menu aria-controls="pending-menu-4" aria-expanded="false" aria-haspopup="menu" aria-label="Actions for Vic Brandt">⋯</button><div id="pending-menu-4" class="users-row-menu-panel" role="menu" hidden><form method="post" action="/users/pending/approve" hx-post="/users/pending/approve" hx-target="#users-root" hx-swap="outerHTML" role="none"><input type="hidden" name="user_ids" value="4"><input type="hidden" name="role" value="user"><button class="users-row-menu-item" role="menuitem" type="submit">Approve as User</button></form><form method="post" action="/users/pending/approve" hx-post="/users/pending/approve" hx-target="#users-root" hx-swap="outerHTML" role="none"><input type="hidden" name="user_ids" value="4"><input type="hidden" name="role" value="agent"><button class="users-row-menu-item" role="menuitem" type="submit">Approve as Agent</button></form></div></div></td>
+          </tr>
+          <tr class="users-search-empty" hidden><td colspan="6"><p class="users-empty">No users match your search.</p></td></tr>
+          </tbody>
+      </table>
+    </section>
+  </div>
+  <div id="users-drawer-host"></div>
+</div>
+</main>
+    <nav class="tabbar" aria-label="Sections">
+      <a class="tabbar-item" href="/tickets">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 9a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v1a2 2 0 0 0 0 4v1a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-1a2 2 0 0 0 0-4V9z"/><path d="M13 7v10"/></svg>
+        <span>Tickets</span>
+      </a>
+      <a class="tabbar-item" href="/notifications">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 9a6 6 0 0 0-12 0c0 5-2.5 6.5-2.5 6.5h17S18 14 18 9z"/><path d="M10.4 19.5a2 2 0 0 0 3.2 0"/></svg>
+        <span>Notifications</span>
+      </a>
+      <button class="tabbar-item" type="button" data-sidebar-open aria-controls="sidebar" aria-expanded="false">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M4 7h16"/><path d="M4 12h16"/><path d="M4 17h16"/></svg>
+        <span>More</span>
+      </button>
+    </nav>
+  </div>
+  <div class="notification-panel-host" id="notification-panel-host"></div>
+</div>
+</body>
+</html>

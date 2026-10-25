@@ -241,7 +241,10 @@ func newHarnessWithAdmin(t *testing.T, seedAdmin bool) *harness {
 	NewBrandHandlers(s.OrganizationStore()).WithSignin(s.SigninStore()).Register(mux)
 	NewAuthHandlers(authSvc, usersSvc, renderer).WithSignin(signinSvc).WithCompanySignIn(companySettingsSvc, companySignInSvc).Register(mux)
 	NewTicketHandlers(ticketSvc, commentSvc, searchSvc, catSvc, usersSvc, s.DeskStore(), workflowSvc, application.NewWorkflowRunner(clock), s.WorkflowRunStore(), s.WorkflowUnitOfWork(), renderer).WithMetrics(metricsSvc).WithSLA(slaSvc).WithPreferences(preferencesSvc).WithClock(clock).WithVisits(visitSvc).WithAttachments(s.AttachmentStore(), attachmentSvc).Register(mux)
-	NewUserHandlers(usersSvc, renderer).Register(mux)
+	// Issue #419: the Pending tab is wired exactly as production wires it, over
+	// the real pending store, so the tab, its count and the bulk approval all run
+	// through the real use case.
+	NewUserHandlers(usersSvc, renderer).WithPendingUsers(application.NewPendingUsersService(s.PendingUserStore(), clock)).Register(mux)
 	NewCategoryHandlersWithWorkflows(catSvc, workflowSvc, renderer, application.NewCatalogService(s.CatalogStore(), s.CategoryStore(), clock)).WithSettings(s.SettingsStore()).Register(mux)
 	NewCategoryWorkflowHandlers(catSvc, workflowSvc, deskSvc, renderer).Register(mux)
 	NewDeskHandlers(deskSvc, renderer).Register(mux)

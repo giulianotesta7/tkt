@@ -189,7 +189,10 @@ func main() {
 	httpadapter.NewBrandHandlers(store.OrganizationStore()).WithSignin(store.SigninStore()).Register(mux)
 	httpadapter.NewAuthHandlers(authSvc, userSvc, renderer).WithSignin(signinSvc).WithCompanySignIn(companySettingsSvc, companySignInSvc).Register(mux)
 	httpadapter.NewTicketHandlers(ticketSvc, commentSvc, searchSvc, catSvc, userSvc, store.DeskStore(), workflowSvc, application.NewWorkflowRunner(clock), store.WorkflowRunStore(), store.WorkflowUnitOfWork(), renderer, catalogSvc).WithMetrics(metricsSvc).WithSLA(slaSvc).WithPreferences(preferencesSvc).WithClock(clock).WithVisits(visitSvc).WithAttachments(store.AttachmentStore(), attachmentSvc).Register(mux)
-	httpadapter.NewUserHandlers(userSvc, renderer).Register(mux)
+	// Issue #419: the Pending tab reads the accounts a company sign-in left
+	// waiting and approves a selected batch through its own store port.
+	userHandlers := httpadapter.NewUserHandlers(userSvc, renderer)
+	userHandlers.WithPendingUsers(application.NewPendingUsersService(store.PendingUserStore(), clock)).Register(mux)
 	httpadapter.NewCategoryHandlersWithWorkflows(catSvc, workflowSvc, renderer, catalogSvc).WithSettings(store.SettingsStore()).Register(mux)
 	httpadapter.NewCategoryWorkflowHandlers(catSvc, workflowSvc, deskSvc, renderer).Register(mux)
 	httpadapter.NewDeskHandlers(deskSvc, renderer).Register(mux)
