@@ -13,6 +13,20 @@ import (
 type UserService struct {
 	users UserStore
 	clock domain.Clock
+	// passwords, when wired, answers the instance minimum every NEW password
+	// must reach (issue #414, S4).
+	passwords PasswordSettingsStore
+	// passwordChanges, when wired, is the atomic write of a user's own password
+	// change and the sign-out of their other sessions (issue #414, S2).
+	passwordChanges PasswordChangeStore
+}
+
+// WithPasswordSettings wires the password policy the create, setup and
+// administrator-set paths enforce. Without it the DEFAULT minimum still
+// applies: the rule is a floor, never an opt-in.
+func (s *UserService) WithPasswordSettings(passwords PasswordSettingsStore) *UserService {
+	s.passwords = passwords
+	return s
 }
 
 // NewUserService wires the user use cases against the given ports.
@@ -30,8 +44,9 @@ type CreateUserInput struct {
 // prepareUser validates the create payload, hashes the password (D15), and
 // builds an active user carrying the given role, stamped by the injected
 // clock. Create and BootstrapRoot share it so both use cases enforce the
-// exact same input contract (non-empty name/email, bcrypt-only storage).
-func (s *UserService) prepareUser(in CreateUserInput, role domain.Role) (*domain.User, error) {
+// exact same input contract (non-empty name/email, bcrypt-only storage) AND
+// the same new-password minimum (issue #414, S4).
+func (s *UserService) prepareUser(ctx context.Context, in CreateUserInput, role domain.Role) (*domain.User, error) {
 	name := strings.TrimSpace(in.Name)
 	email := strings.TrimSpace(in.Email)
 	if name == "" {
@@ -39,6 +54,13 @@ func (s *UserService) prepareUser(in CreateUserInput, role domain.Role) (*domain
 	}
 	if email == "" {
 		return nil, &domain.ValidationError{Field: "email", Message: domain.ErrMsgUserEmailRequired, Key: "error.email_required"}
+	}
+	minimum, err := s.passwordMinimum(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if err := ValidateNewPassword(in.Password, minimum); err != nil {
+		return nil, err
 	}
 	hash, err := HashPassword(in.Password)
 	if err != nil {
@@ -54,6 +76,32 @@ func (s *UserService) prepareUser(in CreateUserInput, role domain.Role) (*domain
 	}, nil
 }
 
+// passwordMinimum answers the instance minimum every NEW password must reach
+// (issue #414, S4). With no policy wired the documented default applies, so a
+// composition root that forgets to wire the port still enforces 12 instead of
+// accepting anything. A store failure is returned, never defaulted away: the
+// write is refused rather than accepted under a rule nobody read.
+func (s *UserService) passwordMinimum(ctx context.Context) (int, error) {
+	policy, err := s.passwordPolicy(ctx)
+	if err != nil {
+		return 0, err
+	}
+	return policy.MinLength, nil
+}
+
+// passwordPolicy answers the whole instance policy for the password paths that
+// read a switch as well as the minimum (issue #414, S1/S2). With no store wired
+// the documented defaults apply — both switches ON, minimum 12 — so a missing
+// port never silently drops a self-service path, and a store failure is
+// returned so the write is refused (fail closed) instead of accepted under a
+// policy nobody read.
+func (s *UserService) passwordPolicy(ctx context.Context) (PasswordSettings, error) {
+	if s.passwords == nil {
+		return DefaultPasswordSettings(), nil
+	}
+	return s.passwords.GetPasswordSettings(ctx)
+}
+
 // Create validates an authorized management actor, then validates name, email,
 // and password, stores the bcrypt hash (D15),
 // and returns the new active user with the user role. Root is only ever
@@ -62,7 +110,7 @@ func (s *UserService) Create(ctx context.Context, actor domain.User, in CreateUs
 	if !NewPolicy().Capabilities(actor.Role).Require(CapManageUsers) {
 		return nil, domain.NewForbiddenError("user management is not permitted")
 	}
-	u, err := s.prepareUser(in, domain.RoleUser)
+	u, err := s.prepareUser(ctx, in, domain.RoleUser)
 	if err != nil {
 		return nil, err
 	}
@@ -79,7 +127,7 @@ func (s *UserService) Create(ctx context.Context, actor domain.User, in CreateUs
 // reject the root role. Concurrent setup submissions produce exactly one
 // root; the loser gets ErrBootstrapUnavailable and creates nothing.
 func (s *UserService) BootstrapRoot(ctx context.Context, in CreateUserInput) (*domain.User, error) {
-	u, err := s.prepareUser(in, domain.RoleRoot)
+	u, err := s.prepareUser(ctx, in, domain.RoleRoot)
 	if err != nil {
 		return nil, err
 	}
@@ -159,8 +207,17 @@ func (s *UserService) UpdateManagedUser(ctx context.Context, actor domain.User, 
 	return u, nil
 }
 
-// ChangePassword hashes a non-empty secret then replaces only the target's
-// password hash. It shares the managed-user authorization and protections.
+// ChangePassword hashes a secret that reaches the instance minimum, then
+// replaces the target's password hash, voiding the account's pending recovery
+// links in the same write (issue #414: every password change voids pending
+// links) and leaving its sessions alone (S6). It shares the managed-user
+// authorization and protections, in the base order: the capability check, the
+// blank refusal, the target lookup (404) and the root/peer guards (403) answer
+// BEFORE the new-password rule (issue #414, S4; 422). Putting the minimum first
+// would hide "this account is root" and "no such user" behind a validation
+// refusal, and those two answers must not move because a new rule was added.
+// Only then is the policy read, so an unreadable policy refuses the write
+// (fail closed) instead of accepting anything.
 func (s *UserService) ChangePassword(ctx context.Context, actor domain.User, id int64, password string) error {
 	policy := NewPolicy()
 	if !policy.Capabilities(actor.Role).Require(CapManageUsers) {
@@ -182,6 +239,13 @@ func (s *UserService) ChangePassword(ctx context.Context, actor domain.User, id 
 	}
 	if !policy.CanManageUser(actor.Role, targetRole) {
 		return domain.NewForbiddenError("admin accounts require root")
+	}
+	minimum, err := s.passwordMinimum(ctx)
+	if err != nil {
+		return err
+	}
+	if err := ValidateNewPassword(password, minimum); err != nil {
+		return err
 	}
 	hash, err := HashPassword(password)
 	if err != nil {

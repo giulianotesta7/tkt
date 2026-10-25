@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Choose a new password · Help desk</title>
+
+</head>
+<body>
+<main class="auth-entry">
+
+<section class="auth-entry__presentation auth-entry__presentation--" aria-label="tkt">
+  <div class="auth-entry__brand">
+    <span class="auth-entry__mark" aria-hidden="true"></span>
+    <div class="auth-entry__brand-text"><b>tkt</b><span>Help desk</span></div>
+  </div>
+  <div class="auth-entry__body">
+    <h2></h2>
+    <p class="auth-entry__sub"></p>
+  </div>
+</section>
+
+  <section class="auth-entry__form-panel">
+
+<form class="login-form" method="post" action="/login/reset" novalidate>
+  <h2>Choose a new password</h2>
+  <p class="lead">Your link works once. When you save, every session for your account is signed out.</p>
+  <input type="hidden" name="token" value="4f8b1d2c6a9e0b3d5f7a1c2e4b6d8f0a2c4e6f8b1d3a5c7e9f0b2d4a6c8e1f3b">
+  <div class="field">
+    <label for="new_password">New password</label>
+    <input type="password" id="new_password" name="new_password" autocomplete="new-password" aria-describedby="password-min-help">
+    <p class="help" id="password-min-help">At least 12 characters.</p>
+  </div>
+  <div class="field">
+    <label for="confirm_password">Confirm new password</label>
+    <input type="password" id="confirm_password" name="confirm_password" autocomplete="new-password">
+  </div>
+  <button class="btn primary" type="submit">Save new password</button>
+  <p class="footnote"><a href="/login">Back to sign in</a></p>
+</form>
+
+  </section>
+</main>
+</body>
+</html>

@@ -231,6 +231,12 @@ function authenticatedScreens(deps: {
       control: (p) => p.locator("#email_host"),
     },
     {
+      label: `/settings/security`,
+      path: "/settings/security",
+      heading: (p) => p.locator("h2").filter({ hasText: "Security" }),
+      control: (p) => p.locator("#password_min_length"),
+    },
+    {
       label: `/settings/calendar`,
       path: "/settings/calendar",
       heading: (p) => p.locator("h2").filter({ hasText: "Working calendar" }),
@@ -301,7 +307,7 @@ test.describe("Structural — seeded canonical screens", () => {
       await page.goto(base() + "/users/new");
       await page.getByLabel(/^name$/i).fill(seededUserName);
       await page.getByLabel(/^email$/i).fill(seededUserEmail);
-      await page.getByLabel(/^password$/i).fill("Secret123!");
+      await page.getByLabel(/^password$/i).fill("Secret123!42");
       await assertHtmxSwap(
         page,
         async () => {
@@ -546,9 +552,15 @@ test.describe("Structural — requester list (issue #411)", () => {
     try {
       const email = `requester-baseline-${Date.now().toString(36).slice(2, 8)}@example.com`;
       await loginAsSeeded(page);
-      await createUserAsAdmin(page, { name: "Requester Baseline", email, password: "Secret123!" });
+      // The instance minimum is 12 characters (issue #414, S4), so this fixture
+      // uses the same length every other generated user does.
+      await createUserAsAdmin(page, {
+        name: "Requester Baseline",
+        email,
+        password: "Secret123!42",
+      });
       await page.context().clearCookies();
-      await loginAs(page, email, "Secret123!");
+      await loginAs(page, email, "Secret123!42");
       await createTicketViaUi(page, {
         title: `Requester baseline ${Date.now().toString(36).slice(2, 8)}`,
         description: "baseline probe",

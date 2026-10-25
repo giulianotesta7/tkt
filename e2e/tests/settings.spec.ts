@@ -1035,6 +1035,62 @@ test.describe("Settings", () => {
     await expect(page.getByRole("button", { name: "Send test email" })).toHaveCount(0);
     expect(await page.content()).not.toContain('settings-section-title">Email');
   });
+
+  test("the Security section saves the password policy as one form", async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    const obs = collectObservability(page);
+    await loginAsSeeded(page);
+    await page.goto(base() + "/settings/security");
+
+    await expect(page.locator("h2").filter({ hasText: "Security" })).toBeVisible();
+    const change = page.getByRole("checkbox", {
+      name: "Allow people to change their own password from Preferences",
+    });
+    const recovery = page.getByRole("checkbox", { name: /Forgot your password\?/ });
+    const minimum = page.getByLabel("Minimum password length", { exact: true });
+
+    // A fresh instance: both switches on and the documented default minimum.
+    await expect(change).toBeChecked();
+    await expect(recovery).toBeChecked();
+    await expect(minimum).toHaveValue("12");
+    // Nothing can send a recovery link yet, and the section says so next to the
+    // switch it affects.
+    await expect(page.locator(".dep-note")).toContainText("Email notifications are off");
+
+    // One form: the switch, the stepper and nothing else. The stepper's buttons
+    // move the number input, and the first change reveals the section's save bar.
+    await change.uncheck();
+    await page.getByRole("button", { name: "Increase minimum length" }).click();
+    await page.getByRole("button", { name: "Increase minimum length" }).click();
+    await expect(minimum).toHaveValue("14");
+    const savebar = page.locator("[data-settings-savebar]");
+    await expect(savebar).toBeVisible();
+
+    await savebar.getByRole("button", { name: "Save password settings" }).click();
+    await expect(page).toHaveURL(/\/settings\/security$/);
+    await expect(page.locator("#save-feedback")).toContainText("Saved");
+
+    // The policy is what the next request renders, not what the form last held.
+    await page.reload();
+    await expect(
+      page.getByRole("checkbox", {
+        name: "Allow people to change their own password from Preferences",
+      }),
+    ).not.toBeChecked();
+    await expect(page.getByRole("checkbox", { name: /Forgot your password\?/ })).toBeChecked();
+    await expect(page.getByLabel("Minimum password length", { exact: true })).toHaveValue("14");
+
+    await assertCanonicalScreen(page, {
+      viewport: 1280,
+      label: "settings security saved policy",
+      url: page.url(),
+      role: "root",
+      consoleErrors: obs.consoleErrors,
+      pageErrors: obs.pageErrors,
+      failedRequests: obs.failedRequests,
+      failedResponses: obs.failedResponses,
+    });
+  });
 });
 
 test.describe("Preferences", () => {
@@ -1174,21 +1230,86 @@ test.describe("Preferences", () => {
     await expect(toggle).toBeChecked();
   });
 
+  test("a user changes their own password and every other session is signed out", async ({
+    page,
+    browser,
+  }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    const obs = collectObservability(page);
+    await loginAsSeeded(page);
+
+    // A plain requester owns the password: the section is not capability-gated.
+    const stamp = Date.now().toString(36);
+    const email = `preferences-password-${stamp}@example.com`;
+    const currentPassword = "SuperSecret42!";
+    const newPassword = "EvenBetterPass42!";
+    await createUserAsAdmin(page, {
+      name: `Preferences Password ${stamp}`,
+      email,
+      password: currentPassword,
+    });
+    await logout(page);
+
+    // The account is signed in on two devices: the page under test and a
+    // second browser context the change must sign out.
+    await loginAs(page, email, currentPassword);
+    const otherContext = await browser.newContext();
+    const otherPage = await otherContext.newPage();
+    await loginAs(otherPage, email, currentPassword);
+    await otherPage.goto(base() + "/preferences");
+    await expect(otherPage.getByLabel("Default queue order")).toBeVisible();
+
+    await page.goto(base() + "/preferences");
+    await expect(page.getByLabel("Current password", { exact: true })).toBeVisible();
+    await page.getByLabel("Current password", { exact: true }).fill(currentPassword);
+    await page.getByLabel("New password", { exact: true }).fill(newPassword);
+    await page.getByLabel("Confirm new password", { exact: true }).fill(newPassword);
+    await page.getByRole("button", { name: "Change password" }).click();
+    await expect(page).toHaveURL(/\/preferences$/);
+    await expect(page.locator("#save-feedback")).toContainText("Saved");
+
+    // The session that made the change keeps working, and the other device no
+    // longer reaches an authenticated page.
+    await page.reload();
+    await expect(page.getByLabel("Default queue order")).toBeVisible();
+    await otherPage.reload();
+    await expect(otherPage).toHaveURL(/\/login/);
+
+    await assertCanonicalScreen(page, {
+      viewport: 1280,
+      label: "preferences password changed",
+      url: page.url(),
+      role: "user",
+      consoleErrors: obs.consoleErrors,
+      pageErrors: obs.pageErrors,
+      failedRequests: obs.failedRequests,
+      failedResponses: obs.failedResponses,
+    });
+
+    // The old password is gone and the new one signs in.
+    await logout(page);
+    await loginAs(page, email, newPassword);
+    await expect(page).toHaveURL(/\/tickets/);
+
+    await otherContext.close();
+  });
+
   test("pairs each label with its control and writes only on submit", async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     const obs = collectObservability(page);
     await loginAsSeeded(page);
 
-    // Issue #396 (S3): three sections that pair a label with its control, each
+    // Issue #396 (S3): four sections that pair a label with its control, each
     // owning one form and its own explicit save.
     await page.goto(base() + "/preferences");
     await expect(page.locator(".preferences-screen")).toBeVisible();
-    await expect(page.locator(".preferences-section")).toHaveCount(3);
+    await expect(page.locator(".preferences-section")).toHaveCount(4);
     const saves = page.locator(".preferences-form button[type=submit]");
-    await expect(saves).toHaveCount(3);
+    await expect(saves).toHaveCount(4);
     await expect(saves.nth(0)).toHaveText("Save preferences");
     await expect(saves.nth(1)).toHaveText("Save theme");
     await expect(saves.nth(2)).toHaveText("Save email preference");
+    await expect(saves.nth(3)).toHaveText("Change password");
 
     // S3: a select change alone never saves. The value is only written by the
     // section's own submit, so the stored order survives a reload untouched.
@@ -1252,6 +1373,7 @@ test.describe("Preferences", () => {
       { label: "Language", url: /\/settings\/language$/ },
       { label: "Tickets & SLA", url: /\/settings\/tickets$/ },
       { label: "Email notifications", url: /\/settings\/email$/ },
+      { label: "Security", url: /\/settings\/security$/ },
       { label: "Working calendar", url: /\/settings\/calendar$/ },
     ];
     for (const entry of entries) {
@@ -1699,7 +1821,7 @@ test.describe("Preferences without scripting (seeded)", () => {
     await loginAsSeeded(page);
 
     await page.goto(base() + "/preferences");
-    await expect(page.locator(".preferences-section")).toHaveCount(3);
+    await expect(page.locator(".preferences-section")).toHaveCount(4);
     await page.getByLabel("Default queue order").selectOption("priority");
     await page.getByRole("button", { name: "Save preferences" }).click();
     await expect(page).toHaveURL(/\/preferences$/);

@@ -517,7 +517,9 @@ type UserStore interface {
 	// desk context exists), the guarded role update persists, and the role
 	// audit is appended — all in ONE transaction, all or nothing.
 	DowngradeToUser(ctx context.Context, u *domain.User, expectedRole domain.Role, actorID int64, at time.Time) (*domain.User, error)
-	// UpdatePasswordHash changes only the stored password hash.
+	// UpdatePasswordHash replaces the stored password hash and voids the
+	// account's pending password reset links, all or nothing (issue #414: every
+	// password change voids pending links).
 	UpdatePasswordHash(ctx context.Context, id int64, passwordHash string) error
 	// Delete removes an unreferenced user; ErrReferenced when the user is
 	// assigned to tickets (deactivation is the removal path then).
@@ -1261,6 +1263,99 @@ type OrganizationStore interface {
 	// deletes the stored one; the caller decides whether an unsubmitted file
 	// keeps the previous logo.
 	SetOrganization(ctx context.Context, org domain.Organization) error
+}
+
+// PasswordSettingsStore persists the instance password policy (issue #414,
+// S1/S4): the two switches that remove the self-service password paths, and the
+// minimum length every NEW password obeys.
+//
+// It is a port of its own rather than three more methods on SettingsStore for
+// the same reason OrganizationStore and SigninStore are: its readers are the
+// password write paths and the sign-in page, so widening SettingsStore would
+// force every settings fake and every settings-only caller to carry the
+// password policy as well.
+type PasswordSettingsStore interface {
+	// GetPasswordSettings returns the stored policy. It NEVER fails for
+	// configuration reasons: absent rows answer DefaultPasswordSettings, an
+	// unparseable or out-of-band minimum reads back the default 12, and an
+	// unparseable switch reads back ON — a hand-edited database degrades to
+	// the shipped policy instead of dropping every password surface.
+	GetPasswordSettings(ctx context.Context) (PasswordSettings, error)
+	// SetPasswordSettings writes the switches and the minimum. The three values
+	// are one configuration, so implementations MUST store them in ONE
+	// transaction: an administrator's save is either entirely applied or not at
+	// all, never half of it.
+	SetPasswordSettings(ctx context.Context, settings PasswordSettings) error
+}
+
+// PasswordChangeStore persists a signed-in user's own password change (issue
+// #414, S2) as ONE atomic unit: the new hash and the sign-out of every other
+// session of that account commit together. A user is therefore never left with
+// the new password stored while a device signed in with the old one stays
+// signed in, and never signed out while the password they typed was not stored.
+//
+// It is a port of its own rather than a UserStore method because the unit spans
+// three tables (users, sessions and the recovery links of migration 0029).
+// #417, #419 and #420 build on this seam: a password write always carries the
+// sessions and the pending links it voids.
+type PasswordChangeStore interface {
+	// ChangePasswordAndSignOutOtherSessions replaces userID's stored password
+	// hash with passwordHash and deletes every session of that user EXCEPT
+	// keepSessionID — the session making the request, which stays signed in
+	// (S2). Both writes are ONE transaction, so a failure leaves the hash and
+	// the sessions exactly as they were. Sessions belonging to any other user
+	// are never touched. An unknown user is ErrNotFound with nothing deleted.
+	// The user's pending recovery links are voided in the same transaction,
+	// because a link mailed before the change must never set a password after
+	// it.
+	//
+	// The hash write is a compare-and-set against expectedPasswordHash: the very
+	// hash the caller verified the current password against. Two submissions can
+	// both verify the old password before either writes, and without this check
+	// the second one silently replaces the password the first one stored, and
+	// the person who believes the change succeeded is signed out of it. A stored
+	// hash that is no longer expectedPasswordHash refuses the whole unit — before
+	// a session or a pending link is touched — with the shared
+	// current-password refusal, the same one a wrong current password gets.
+	ChangePasswordAndSignOutOtherSessions(ctx context.Context, userID int64, expectedPasswordHash, passwordHash, keepSessionID string) error
+}
+
+// PasswordResetStore persists the single-use recovery links of the self-service
+// password path (issue #414, S3/S8/S9): the stored token hash, the instant it
+// was issued, the instant it stops working, and the instant it was spent.
+//
+// The raw token a link carries is never part of this contract: the application
+// hashes it and hands over the digest, so implementations never see a working
+// credential. Instants are always passed in — an implementation never reads a
+// wall clock, so expiry is decided by the caller's clock.
+//
+// It is a port of its own because its unit spans three tables (the links, the
+// user's password and their sessions), and because a link that outlived a
+// password change or a newer link is exactly what S3 and S9 forbid.
+type PasswordResetStore interface {
+	// LastPasswordResetRequest reports when this account last had a link
+	// issued, or nil when it never had one. Spent and pending links count
+	// alike: it is what "one email per account every five minutes" measures
+	// from (S9).
+	LastPasswordResetRequest(ctx context.Context, userID int64) (*time.Time, error)
+	// IssuePasswordResetToken voids userID's pending links and stores
+	// tokenHash with the instants that bound it, in ONE transaction: a new
+	// request must never leave two working links behind, and a failure must
+	// never leave the account with none. Spent links are kept as history.
+	IssuePasswordResetToken(ctx context.Context, userID int64, tokenHash string, createdAt, expiresAt time.Time) error
+	// PasswordResetTokenUsable reports whether tokenHash can still be redeemed
+	// at now, without consuming it. An unknown, spent or expired hash answers
+	// false and no error: the three are indistinguishable on purpose.
+	PasswordResetTokenUsable(ctx context.Context, tokenHash string, now time.Time) (bool, error)
+	// RedeemPasswordResetToken spends the link in ONE transaction: it stores
+	// passwordHash as the owner's new password, marks the link spent, voids
+	// that account's other pending links, and deletes EVERY session of that
+	// account (S3: using the link signs the account out everywhere). An
+	// unknown, spent or expired hash — expiry compared strictly before, so the
+	// link is already refused at its expiry instant — answers domain.ErrNotFound
+	// with nothing written. Concurrent redeemals of one hash succeed exactly
+	// once.
+	RedeemPasswordResetToken(ctx context.Context, tokenHash, passwordHash string, now time.Time) error
 }
 
 // SigninStore persists the sign-in page's customization (issue #383, S9/S10):

@@ -150,7 +150,7 @@ func TestUsersCreationDrawerValidationPreservesSafeValues(t *testing.T) {
 
 func TestUsersCreationDrawerDuplicateEmailPreservesEmailField(t *testing.T) {
 	h := newHarness(t)
-	h.createUser(t, "Existing User", "existing@example.com", "secret")
+	h.createUser(t, "Existing User", "existing@example.com", "s3cret-pass-12")
 	form := url.Values{
 		"name":     {"Duplicate Drawer User"},
 		"email":    {"existing@example.com"},

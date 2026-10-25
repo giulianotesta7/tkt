@@ -4,7 +4,7 @@
 
 import { test, expect, type Page } from "@playwright/test";
 import { startServer, stopServer, activeServer } from "../server-lifecycle.js";
-import { loginAsSeeded, logout } from "./helpers/auth.js";
+import { loginAsSeeded, logout, seededCredentials } from "./helpers/auth.js";
 import { assertCanonicalScreen, collectObservability } from "./helpers/layout.js";
 
 function base(): string {
@@ -428,6 +428,132 @@ test.describe("Login and auth gates", () => {
     await expect(page.locator("form.login-form")).toHaveCount(1);
     await expect(page.locator("#tickets-screen")).toHaveCount(0);
     await expect(page.locator("nav a")).toHaveCount(0);
+  });
+});
+
+/**
+ * Issue #414: self-service password recovery, public side.
+ *
+ * The sign-in page offers "Forgot your password?" only while the instance switch
+ * is ON and email delivery is configured (S1/S5), and the public form always
+ * answers the same neutral confirmation (S3). The instance configured here points
+ * at a mail server nothing listens on: a complete configuration is all the
+ * sign-in page and the neutral answer need, and the send fails where the visitor
+ * cannot see it. A link that actually arrives is therefore out of reach for this
+ * suite — the reset page, its refusal state, expiry, the throttle and the session
+ * sign-out are proven by Go (`handlers_password_recovery_test.go`).
+ */
+test.describe("Password recovery", () => {
+  test.beforeAll(async () => {
+    await startServer({ seed: true });
+  });
+  test.afterAll(async () => {
+    await stopServer();
+  });
+
+  test("the recovery link appears once email is configured and the form answers the same confirmation", async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    const obs = collectObservability(page);
+
+    // S5: with no email configured the sign-in page offers nothing at all, and
+    // the public route does not exist.
+    await loginAsSeeded(page);
+    await logout(page);
+    await expect(page).toHaveURL(/\/login$/);
+    await expect(
+      page.getByRole("link", { name: "Forgot your password?", exact: true }),
+    ).toHaveCount(0);
+    const refused = await page.request.get(base() + "/login/forgot");
+    expect(refused.status()).toBe(404);
+
+    // Configure email delivery as root.
+    await loginAsSeeded(page);
+    await page.goto(base() + "/settings/email");
+    await page.getByLabel("SMTP server", { exact: true }).fill("127.0.0.1");
+    await page.getByLabel("Port", { exact: true }).fill("1");
+    await page.getByLabel("Encryption", { exact: true }).selectOption("none");
+    await page.getByLabel("Sender address", { exact: true }).fill("tkt@example.com");
+    await page.getByLabel("TKT address", { exact: true }).fill("https://tkt.example.com");
+    await page.getByRole("checkbox", { name: "Turn on email notifications" }).check();
+    await page.getByRole("button", { name: "Save email notifications" }).click();
+    await expect(page.locator("#save-feedback")).toContainText("Saved");
+    await logout(page);
+
+    // The sign-in link: small, right-aligned under the password field and inside
+    // the same field block, with Sign in still the only primary action.
+    const link = page.getByRole("link", { name: "Forgot your password?", exact: true });
+    await expect(link).toBeVisible();
+    const placement = await page.evaluate(() => {
+      const password = document.querySelector("#password")?.getBoundingClientRect();
+      const anchor = document.querySelector(".field-aux a");
+      const box = anchor?.getBoundingClientRect();
+      const submit = document.querySelector("form.login-form button[type=submit]");
+      if (!password || !anchor || !box) return null;
+      return {
+        belowField: box.top >= password.bottom - 1,
+        rightAligned: Math.abs(box.right - password.right) <= 1,
+        fontSize: window.getComputedStyle(anchor).fontSize,
+        submitIsPrimary: submit ? submit.classList.contains("primary") : false,
+      };
+    });
+    expect(placement).not.toBeNull();
+    expect(placement?.belowField).toBe(true);
+    expect(placement?.rightAligned).toBe(true);
+    expect(placement?.fontSize).toBe("12px");
+    expect(placement?.submitIsPrimary).toBe(true);
+
+    // The public form, in the same entry shell as the sign-in page.
+    await link.click();
+    await expect(page).toHaveURL(/\/login\/forgot$/);
+    await expect(page.getByRole("heading", { name: "Forgot your password?" })).toBeVisible();
+    await expect(
+      page.locator("main.auth-entry .auth-entry__form-panel form.login-form"),
+    ).toHaveCount(1);
+    await assertCanonicalScreen(page, {
+      viewport: 1280,
+      label: "password recovery form",
+      url: page.url(),
+      role: "anonymous",
+      consoleErrors: obs.consoleErrors,
+      pageErrors: obs.pageErrors,
+      failedRequests: obs.failedRequests,
+      failedResponses: obs.failedResponses,
+    });
+
+    const neutral = "If an account exists for that email, we sent a link. It is valid for 1 hour.";
+    await page.getByLabel("Email", { exact: true }).fill(seededCredentials.email);
+    await page.getByRole("button", { name: "Send reset link" }).click();
+    await expect(page.getByRole("heading", { name: "Check your email" })).toBeVisible();
+    await expect(page.getByText(neutral)).toBeVisible();
+    // The confirmation REPLACES the form in the same card: no field survives and
+    // the URL does not move.
+    await expect(page.getByLabel("Email", { exact: true })).toHaveCount(0);
+    await expect(page).toHaveURL(/\/login\/forgot$/);
+
+    // S3: an unknown address answers exactly the same page.
+    await page.goto(base() + "/login/forgot");
+    await page.getByLabel("Email", { exact: true }).fill("nobody@example.com");
+    await page.getByRole("button", { name: "Send reset link" }).click();
+    await expect(page.getByRole("heading", { name: "Check your email" })).toBeVisible();
+    await expect(page.getByText(neutral)).toBeVisible();
+    await expect(page.getByText("nobody@example.com")).toHaveCount(0);
+
+    // The new surface owes the narrow viewport its own pass.
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto(base() + "/login/forgot");
+    await expect(page.getByRole("heading", { name: "Forgot your password?" })).toBeVisible();
+    await assertCanonicalScreen(page, {
+      viewport: 390,
+      label: "password recovery form at 390px",
+      url: page.url(),
+      role: "anonymous",
+      consoleErrors: obs.consoleErrors,
+      pageErrors: obs.pageErrors,
+      failedRequests: obs.failedRequests,
+      failedResponses: obs.failedResponses,
+    });
   });
 });
 

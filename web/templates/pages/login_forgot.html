@@ -1,0 +1,17 @@
+{{define "title"}}{{tf "base.title.screen" (t "auth.forgot.title") (brandHelpDesk .Brand)}}{{end}}
+{{define "content"}}
+{{if .Sent}}<div class="auth-card">
+  <h2>{{t "auth.forgot.sent.title"}}</h2>
+  <p class="lead">{{t "auth.forgot.sent.body"}}</p>
+  <p class="footnote"><a href="/login">{{t "auth.forgot.back"}}</a></p>
+</div>{{else}}<form class="login-form" method="post" action="/login/forgot" novalidate>
+  <h2>{{t "auth.forgot.title"}}</h2>
+  <p class="lead">{{t "auth.forgot.subtitle"}}</p>
+  <div class="field">
+    <label for="email">{{t "common.email"}}</label>
+    <input type="email" id="email" name="email" placeholder="{{t "auth.email_placeholder"}}" autocomplete="email" required autofocus>
+  </div>
+  <button class="btn primary" type="submit">{{t "auth.forgot.submit"}}</button>
+  <p class="footnote"><a href="/login">{{t "auth.forgot.back"}}</a></p>
+</form>{{end}}
+{{end}}

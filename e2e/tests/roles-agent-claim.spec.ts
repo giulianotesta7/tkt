@@ -22,7 +22,7 @@ const uniq = Date.now().toString(36).slice(2, 8);
 const agent = {
   name: "Claim Agent",
   email: `claim-agent-${uniq}@example.com`,
-  password: "Secret123!",
+  password: "Secret123!42",
 };
 const deskName = `Claim desk ${uniq}`;
 const categoryName = `Claim flow ${uniq}`;

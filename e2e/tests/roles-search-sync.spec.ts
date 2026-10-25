@@ -23,7 +23,7 @@ const focusedId = (page: Page) => page.evaluate(() => document.activeElement?.id
 async function prepareUserWithTickets(page: Page, name: string, tickets: string[]): Promise<void> {
   const email = `${name.toLowerCase().replace(/\s+/g, "-")}-${uniq}@example.com`;
   await loginAs(page, seededCredentials.email, seededCredentials.password);
-  await createUserAsAdmin(page, { name, email, password: "Secret123!" });
+  await createUserAsAdmin(page, { name, email, password: "Secret123!42" });
   await page.goto(base() + "/users");
   const editHref = await resolveUserEditHref(page, name);
   await page.goto(base() + editHref);
@@ -33,7 +33,7 @@ async function prepareUserWithTickets(page: Page, name: string, tickets: string[
   // Session swap per roles.spec.ts canon: clear cookies and sign in as the
   // new user-role account instead of clicking the rail logout control.
   await page.context().clearCookies();
-  await loginAs(page, email, "Secret123!");
+  await loginAs(page, email, "Secret123!42");
   for (const title of tickets) {
     await createTicketViaUi(page, {
       title,

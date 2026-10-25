@@ -305,4 +305,29 @@
     event.preventDefault();
     button.click();
   });
+
+  // --- Minimum-length stepper (issue #414) --------------------------------
+
+  // The step buttons adjust the number input beside them, clamped to the band
+  // the input already declares. The input is the control and the buttons are an
+  // enhancement: with scripting off they do nothing and the field still
+  // submits. A step dispatches an input event so the section's save bar reveals
+  // itself, exactly as typing into the field would.
+  document.addEventListener("click", function (event) {
+    var button = event.target && event.target.closest ? event.target.closest("[data-step]") : null;
+    if (!button) return;
+    var stepper = button.closest(".stepper");
+    var input = stepper && stepper.querySelector("input");
+    if (!input) return;
+    var floor = Number(input.getAttribute("min"));
+    var ceiling = Number(input.getAttribute("max"));
+    var current = Number(input.value);
+    if (!Number.isFinite(current)) current = floor;
+    var next = Math.min(
+      ceiling,
+      Math.max(floor, current + Number(button.getAttribute("data-step"))),
+    );
+    input.value = String(next);
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+  });
 })();

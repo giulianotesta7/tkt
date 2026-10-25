@@ -58,7 +58,7 @@ func TestTicketMetricsHTTPDetailPage(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create desk: %v", err)
 	}
-	agent := h.createUser(t, "Metrics Agent", "metrics-agent@tkt.test", "password123")
+	agent := h.createUser(t, "Metrics Agent", "metrics-agent@tkt.test", "password123-12")
 	deskOption := `<option value="` + strconv.FormatInt(desk.ID, 10) + `" selected>Support</option>`
 	agentOption := `<option value="` + strconv.FormatInt(agent.ID, 10) + `" selected>Metrics Agent</option>`
 	// Every validation error re-renders the SAME form the operator was editing
@@ -266,7 +266,7 @@ func TestTicketMetricsHTTPCardScopesAndEmptyStates(t *testing.T) {
 // identity keeps its neutral bar; stats show day units above the histogram.
 func TestTicketMetricsHTTPPendingChartsAndWorkloadGrouping(t *testing.T) {
 	h := newHarness(t)
-	agent := h.createUser(t, "Ada <b>&", "agent-escape@metrics.test", "password123")
+	agent := h.createUser(t, "Ada <b>&", "agent-escape@metrics.test", "password123-12")
 	h.seedTicket(t, "first pending", nil)
 	second := h.seedTicket(t, "second pending", nil)
 	h.assignTicket(t, second.ID, agent.ID)
@@ -490,7 +490,7 @@ func TestTicketMetricsHTTPDashboardKPIs(t *testing.T) {
 	h := newHarness(t)
 	h.seedTicket(t, "pending one", nil)
 	assigned := h.seedTicket(t, "pending two", nil)
-	h.assignTicket(t, assigned.ID, h.createUser(t, "KPI Agent", "kpi-agent@metrics.test", "password123").ID)
+	h.assignTicket(t, assigned.ID, h.createUser(t, "KPI Agent", "kpi-agent@metrics.test", "password123-12").ID)
 	resolved := h.seedTicket(t, "resolved one", nil)
 	h.seedTransition(t, resolved.ID, domain.StateInProgress, "")
 	h.seedTransition(t, resolved.ID, domain.StateResolved, "")

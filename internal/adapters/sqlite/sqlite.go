@@ -266,6 +266,27 @@ func (s *Store) SigninStore() application.SigninStore { return newSettingsStore(
 // settings rows and the logo lives in settings_blobs (migration 0026).
 func (s *Store) OrganizationStore() application.OrganizationStore { return newSettingsStore(s.db) }
 
+// PasswordSettingsStore returns the instance password-policy port (issue #414,
+// S1/S4), served by the same keyed settings store: the two self-service switches
+// and the minimum length are settings rows, so the default needs no migration.
+func (s *Store) PasswordSettingsStore() application.PasswordSettingsStore {
+	return newSettingsStore(s.db)
+}
+
+// PasswordChangeStore returns the atomic own-password-change port (issue #414,
+// S2): the new hash and the sign-out of every other session of that user commit
+// in one transaction.
+func (s *Store) PasswordChangeStore() application.PasswordChangeStore {
+	return newPasswordChangeStore(s.db)
+}
+
+// PasswordResetStore returns the single-use recovery-link port (issue #414,
+// S3/S8/S9): the throttle read, the void-and-issue write, and the one
+// transaction a redeemed link runs in.
+func (s *Store) PasswordResetStore() application.PasswordResetStore {
+	return newPasswordResetStore(s.db)
+}
+
 // SLAStore returns the SLA port (issue #211): global defaults,
 // materialized category matrices, observed milestone instants, and the
 // commitments frozen onto tickets.

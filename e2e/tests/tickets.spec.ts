@@ -1489,7 +1489,7 @@ test.describe("Ticket Lifecycle", () => {
     const agent = {
       name: `Visit Agent ${suffix}`,
       email: `visit-agent-${suffix}@example.com`,
-      password: "Secret123!",
+      password: "Secret123!42",
     };
     await createUserAsAdmin(page, agent);
     // Managed users start as requesters and a requester can only reach their
