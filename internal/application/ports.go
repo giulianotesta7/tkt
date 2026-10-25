@@ -564,6 +564,36 @@ type PendingSignIn struct {
 	Provider CompanyProvider
 }
 
+// NotificationAccountSubject is the stored account an account notice names, read
+// as FACTS (issue #419, S3/S12): the account's own name and address, whether it
+// still waits for approval, and the providers its stored identities carry. The
+// issuer, the subject and the address last seen at the provider stay in the
+// identity's own record and never travel to a screen.
+type NotificationAccountSubject struct {
+	UserID    int64
+	Name      string
+	Email     string
+	Pending   bool
+	Providers []CompanyProvider
+}
+
+// NotificationSubjectStore answers the account facts behind the account kind's
+// notices (issue #419, S3/S12). It is a read of its own rather than more methods
+// on PendingUserStore because a notice OUTLIVES the state that produced it: the
+// account it names may have been approved since, and the row still has to render
+// the facts it was written about instead of vanishing or claiming it still
+// waits. It is a factual projection, not a decision: the caller applies the
+// reader's capability before any fact is shown.
+type NotificationSubjectStore interface {
+	// ListNotificationSubjects answers one row per requested account id that
+	// still exists, in the order requested and with each account's providers in
+	// the closed provider set's display order. Both waiting and settled accounts
+	// are answered — including inactive ones — because the notice is already
+	// addressed to its recipient. An id with no account is absent, and an account
+	// with no stored identity carries no provider rather than a guessed one.
+	ListNotificationSubjects(ctx context.Context, userIDs []int64) ([]NotificationAccountSubject, error)
+}
+
 // PendingUserStore persists the company sign-in accounts that wait for an
 // administrator's approval (issue #419, S3). It is a port of its own rather
 // than more methods on UserStore because the Pending tab is the only surface
