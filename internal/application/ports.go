@@ -45,6 +45,32 @@ type TicketStore interface {
 	CountsByPriority(ctx context.Context, q TicketQuery) (map[domain.Priority]int, error)
 }
 
+// TicketFollowerStore persists who follows a ticket (issue #418). Following is
+// a personal subscription to the events of ONE ticket somebody can ALREADY
+// open: the row grants nothing, and every fan-out re-checks the ticket READ
+// scope of each follower at the moment it would tell them something, so a
+// follower who loses access stops being notified and the row stays harmless.
+//
+// The rows are written by the application layer only. CommentService reaches
+// Follow through CommentMutation, so a mention subscribes in the comment's own
+// transaction; everything else goes through FollowService.
+type TicketFollowerStore interface {
+	// Follow records that userID follows ticketID, stamped at at. Following a
+	// ticket twice is the same relation, so the write is idempotent and keeps
+	// the instant of the first follow.
+	Follow(ctx context.Context, ticketID, userID int64, at time.Time) error
+	// Unfollow removes the relation. Unfollowing a ticket one does not follow
+	// is not an error.
+	Unfollow(ctx context.Context, ticketID, userID int64) error
+	// IsFollowing reports whether userID follows ticketID.
+	IsFollowing(ctx context.Context, ticketID, userID int64) (bool, error)
+	// ListFollowers returns the people following the ticket, ordered by display
+	// name then id, carrying the identity and the role facts the notification
+	// policy reads. Email, password hash and creation instant are NOT part of
+	// this projection.
+	ListFollowers(ctx context.Context, ticketID int64) ([]domain.User, error)
+}
+
 // TicketUnitOfWork persists a ticket mutation as ONE atomic unit (audit-log
 // no-silent-mutations contract, C1; notification atomicity S11). The
 // application issues a single call per mutation — implementations MUST apply
@@ -363,11 +389,11 @@ type CommentStore interface {
 // Recipients are computed by the APPLICATION layer from policy and roles; the
 // store only inserts what it is handed.
 type CommentUnitOfWork interface {
-	// Add persists m.Comment, assigning m.Comment.ID, and appends
-	// m.Notifications in the SAME transaction. Implementations stamp each
-	// notification's CommentID from the assigned id before persisting (the
-	// column's foreign key needs the comment row, which is exactly why both
-	// writes share the transaction).
+	// Add persists m.Comment, assigning m.Comment.ID, subscribes m.Followers to
+	// the comment's ticket, and appends m.Notifications in the SAME transaction.
+	// Implementations stamp each notification's CommentID from the assigned id
+	// before persisting (the column's foreign key needs the comment row, which is
+	// exactly why both writes share the transaction).
 	Add(ctx context.Context, m CommentMutation) error
 }
 
@@ -382,6 +408,13 @@ type CommentMutation struct {
 	// the author as actor. CommentID is left nil: the id does not exist until
 	// the insertion, so the unit of work stamps it.
 	Notifications []domain.Notification
+	// Followers are the people a mention in this comment makes followers of the
+	// comment's ticket (issue #418). They are inserted with the comment, in its
+	// transaction, so a mention can never subscribe somebody to a comment that
+	// was never stored. The ticket id and the instant come from the comment, and
+	// mentioning an existing follower is the same relation, so the insert is
+	// idempotent.
+	Followers []int64
 	// Resume, when non-nil, is the hold the requester's reply ends (issue
 	// #352, S1): it commits in the SAME transaction as the comment. It is
 	// applied under the same compare-and-set as TicketUnitOfWork.UpdateHold;
@@ -643,6 +676,54 @@ type DeskStore interface {
 	ListMembers(ctx context.Context, deskID int64) ([]domain.User, error)
 }
 
+// DeskMembershipStore answers the one desk question the workflow follower
+// fan-out asks: who belongs to this desk right now. DeskStore satisfies it, so
+// the composition root passes the desk store it already builds and no adapter is
+// added. It is a port of its own so a caller that only proves membership cannot
+// create, rename or remove desks.
+type DeskMembershipStore interface {
+	ListMembers(ctx context.Context, deskID int64) ([]domain.User, error)
+}
+
+// CannedReplyStore persists saved replies (issue #418). A reply belongs to
+// exactly ONE owner — one person or one desk, never both — and every read is
+// scoped to a person or to one desk, so this port cannot answer "every reply":
+// there is no cross-owner listing on it.
+//
+// Callers pass a reply that already went through domain.CannedReply.Validate,
+// which trims the text and enforces the same bounds as the canned_replies
+// CHECK (migration 0033). The store re-asserts the shapes it can prove on its
+// own: an unknown owner or desk is ErrNotFound, a missing id is ErrNotFound.
+type CannedReplyStore interface {
+	// Create stores r, assigning r.ID. ErrNotFound when the owner user or the
+	// desk does not exist.
+	Create(ctx context.Context, r *domain.CannedReply) error
+	// Update persists the editable fields (title, body, updated_at) of r. The
+	// ownership columns are NOT editable: a saved reply never moves between
+	// people or desks. ErrNotFound when the id is absent.
+	Update(ctx context.Context, r *domain.CannedReply) error
+	// Delete removes the reply. ErrNotFound when the id is absent, so a repeated
+	// delete is reported instead of silently succeeding.
+	Delete(ctx context.Context, id int64) error
+	// GetByID returns the reply. ErrNotFound when it is absent, and the caller
+	// cannot tell an id owned by somebody else from a missing one, because
+	// existence is the only fact this read answers.
+	GetByID(ctx context.Context, id int64) (*domain.CannedReply, error)
+	// ListPersonal returns ownerUserID's personal replies, ordered by title then
+	// id (deterministic, so two runs render the same list).
+	ListPersonal(ctx context.Context, ownerUserID int64) ([]domain.CannedReply, error)
+	// ListByDesk returns deskID's shared replies, ordered by title then id.
+	ListByDesk(ctx context.Context, deskID int64) ([]domain.CannedReply, error)
+	// ListUsable returns every reply userID may insert in the composer: the
+	// user's OWN personal replies first (by title, then id), then the replies of
+	// every desk the user is a MEMBER of (by desk name, then title, then id).
+	// Membership is the single grant: a reply of a desk the user does not
+	// belong to is never returned, so removing a membership removes that desk's
+	// replies from the next read. An empty result (never nil-as-error) is the
+	// answer for somebody who owns nothing and belongs to no desk.
+	ListUsable(ctx context.Context, userID int64) ([]domain.CannedReply, error)
+}
+
 type WorkflowRun struct {
 	TicketID         int64
 	CurrentStepIndex int
@@ -745,6 +826,18 @@ type AssigneeNotification struct {
 	// actors-are-also-audit-actors invariant.
 	ActorUserID *int64
 	CreatedAt   time.Time
+	// Followers are the ids of the people who follow the ticket and must learn
+	// who it moved to, as "assignee_changed" rows naming the selected person
+	// (issue #418). The routing selects that person INSIDE the transaction, so
+	// their display name is read there and the rows are completed there — this
+	// is the only way a follower learns the outcome of an automatic assignment.
+	//
+	// Every id must ALREADY be proven able to open the ticket
+	// (canStaffOpenTicket at plan time), and the outgoing assignee must already
+	// be left out. The adapter writes these rows without re-deriving access, so
+	// an unverified id here would be the one way to address somebody who cannot
+	// open the ticket: the plan builder is the only writer.
+	Followers []int64
 	// FormWaitingStepIndex, when set, is the zero-based index of the assignee
 	// FORM step this plan leaves PENDING. The recipient of that row is the same
 	// selection: whoever the transaction ends up putting the ticket on is the
@@ -764,6 +857,23 @@ func (a AssigneeNotification) Assigned(assigneeUserID int64) domain.Notification
 		TicketID:    a.TicketID,
 		Kind:        domain.NotificationAssigned,
 		ActorUserID: a.ActorUserID,
+		CreatedAt:   a.CreatedAt,
+	}
+}
+
+// AssigneeChanged completes the template into the "assignee_changed" row for one
+// follower: the routing moved the ticket to the selected person, whose display
+// name the caller read inside its own transaction. Each row owns its own copy of
+// the name, so a stored row never aliases a value another row or a later write
+// could change.
+func (a AssigneeNotification) AssigneeChanged(followerUserID int64, assigneeName string) domain.Notification {
+	name := assigneeName
+	return domain.Notification{
+		UserID:      followerUserID,
+		TicketID:    a.TicketID,
+		Kind:        domain.NotificationAssigneeChanged,
+		ActorUserID: a.ActorUserID,
+		ToValue:     &name,
 		CreatedAt:   a.CreatedAt,
 	}
 }

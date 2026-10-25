@@ -30,12 +30,15 @@ func TestNotificationKindValid(t *testing.T) {
 		// close notice to the same closed vocabulary.
 		NotificationHoldReminder,
 		NotificationHoldClosed,
+		// Issue #418 adds the mention and the follower's assignee change.
+		NotificationMentioned,
+		NotificationAssigneeChanged,
 	} {
 		if !k.Valid() {
 			t.Errorf("%q.Valid() = false, want true", k)
 		}
 	}
-	for _, k := range []NotificationKind{"", "mentioned", "ASSIGNED", "assigned "} {
+	for _, k := range []NotificationKind{"", "mention", "assignee", "ASSIGNED", "assigned "} {
 		if k.Valid() {
 			t.Errorf("%q.Valid() = true, want false", k)
 		}
@@ -43,7 +46,9 @@ func TestNotificationKindValid(t *testing.T) {
 }
 
 func TestNotificationKindIsComment(t *testing.T) {
-	for _, k := range []NotificationKind{NotificationCommentPublic, NotificationCommentInternal} {
+	// A mention is written from a comment and addressed to staff only, so it
+	// carries a comment id like the two comment kinds do (issue #418).
+	for _, k := range []NotificationKind{NotificationCommentPublic, NotificationCommentInternal, NotificationMentioned} {
 		if !k.IsComment() {
 			t.Errorf("%q.IsComment() = false, want true", k)
 		}
@@ -97,12 +102,36 @@ func TestNotificationValidate(t *testing.T) {
 		}
 	}
 
+	// Issue #418: a mention carries its comment id and an assignee change
+	// carries the new assignee's name, or nothing when the ticket is now
+	// unassigned.
+	mentioned := validNotification()
+	mentioned.Kind = NotificationMentioned
+	mentioned.CommentID = ptrInt64(43)
+	if err := mentioned.Validate(); err != nil {
+		t.Fatalf("mention with its comment id rejected: %v", err)
+	}
+	assigneeChanged := validNotification()
+	assigneeChanged.Kind = NotificationAssigneeChanged
+	assigneeChanged.FromValue = nil
+	assigneeChanged.ToValue = notifStrPtr("Bob Ray")
+	if err := assigneeChanged.Validate(); err != nil {
+		t.Fatalf("assignee change naming the new assignee rejected: %v", err)
+	}
+	unassigned := validNotification()
+	unassigned.Kind = NotificationAssigneeChanged
+	unassigned.FromValue = nil
+	unassigned.ToValue = nil
+	if err := unassigned.Validate(); err != nil {
+		t.Fatalf("assignee change with a NULL new assignee rejected: %v", err)
+	}
+
 	cases := []struct {
 		name   string
 		mutate func(*Notification)
 		field  string
 	}{
-		{"unknown kind", func(n *Notification) { n.Kind = "mentioned" }, "kind"},
+		{"unknown kind", func(n *Notification) { n.Kind = "mention" }, "kind"},
 		{"missing recipient", func(n *Notification) { n.UserID = 0 }, "user_id"},
 		{"missing ticket", func(n *Notification) { n.TicketID = 0 }, "ticket_id"},
 		{"missing created_at", func(n *Notification) { n.CreatedAt = time.Time{} }, "created_at"},

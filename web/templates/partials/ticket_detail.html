@@ -36,6 +36,7 @@
 {{end}}{{end}}{{end}}
 {{if .Claim.CanAct}}      <form class="detail-action" method="post" action="/tickets/{{.View.Ticket.ID}}/workflow/steps/{{.Claim.Position}}/complete" hx-post="/tickets/{{.View.Ticket.ID}}/workflow/steps/{{.Claim.Position}}/complete" hx-target="#ticket-detail" hx-swap="outerHTML"><button class="btn" type="submit">{{t "tickets.detail.assign_to_me"}}</button></form>
 {{else if .CanAssignToMe}}      <form class="detail-action" method="post" action="/tickets/{{.View.Ticket.ID}}/assign" hx-post="/tickets/{{.View.Ticket.ID}}/assign" hx-target="#ticket-detail" hx-swap="outerHTML"><input type="hidden" name="user_id" value="{{.CurrentUser.ID}}"><button class="btn" type="submit">{{t "tickets.detail.assign_to_me"}}</button></form>
+{{end}}{{if .Follow}}      <form class="detail-action detail-follow" method="post" action="{{.Follow.Action}}" hx-post="{{.Follow.Action}}" hx-target="#ticket-detail" hx-swap="outerHTML"><button class="btn" type="submit" aria-pressed="{{.Follow.Following}}">{{.Follow.Label}}</button></form>
 {{end}}{{if .CanEdit}}      <details class="detail-overflow" id="ticket-actions-overflow">
         <summary class="btn detail-overflow-button" aria-haspopup="menu" aria-label="{{t "tickets.detail.more_actions"}}">•••</summary>
         <div class="detail-overflow-menu" role="menu">
@@ -85,7 +86,8 @@
 {{if .Claim.Active}}              <span class="prop-value">{{.Claim.DeskName}}</span>
 {{else}}              <span class="prop-value prop-value-empty">—</span>
 {{end}}            </div>
-          </div>
+{{if .Followers}}{{template "followers_row" .Followers}}
+{{end}}          </div>
 {{if .SLA}}{{/* Staff-only SLA panel: the if/end hug their content so a nil .SLA leaves the requester golden byte-identical. */}}          <div class="prop-section" data-server-now="{{formatDatetime .SLA.ProjectedAt}}">
             <div class="prop-heading">{{t "tickets.detail.sla"}}</div>
 {{range .SLA.Milestones}}

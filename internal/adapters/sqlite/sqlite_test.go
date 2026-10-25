@@ -242,12 +242,12 @@ func TestMigrateCreatesSchema(t *testing.T) {
 
 // wantMigrationVersions is every embedded migration version, in order.
 //
-// The series has gaps on purpose: 0032 to 0035 are reserved by branches that are
-// not on this one, and 0031 (category suggestions, issue #416) was assigned its
-// number before 0029 and 0030 landed. The runner sorts and applies whatever files
-// are embedded, so the recorded set is exactly this list — an absent number is not
-// a hole a later migration can collide with.
-var wantMigrationVersions = []int{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 36}
+// The series has gaps on purpose: 0032, 0034 and 0035 are reserved by branches
+// that are not on this one, and 0031 (category suggestions, issue #416) was
+// assigned its number before 0029 and 0030 landed. The runner sorts and applies
+// whatever files are embedded, so the recorded set is exactly this list — an
+// absent number is not a hole a later migration can collide with.
+var wantMigrationVersions = []int{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 33, 36}
 
 func TestMigrateRerunIsNoOp(t *testing.T) {
 	s := newTestDB(t)

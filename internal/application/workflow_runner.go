@@ -11,9 +11,23 @@ import (
 	"github.com/giulianotesta7/tkt/internal/domain"
 )
 
-type WorkflowRunner struct{ clock domain.Clock }
+type WorkflowRunner struct {
+	clock domain.Clock
+	// followers resolves the staff subscribed to a ticket (issue #418), so a
+	// workflow-driven state change also reaches them. Nil keeps the wiring
+	// without follower fan-out.
+	followers *FollowService
+}
 
 func NewWorkflowRunner(c domain.Clock) *WorkflowRunner { return &WorkflowRunner{clock: c} }
+
+// WithFollowers wires the follower collaborator (issue #418) and returns the
+// runner, so the composition root chains it onto the constructor. Without it a
+// planned state change notifies the requester and the assignee only.
+func (r *WorkflowRunner) WithFollowers(followers *FollowService) *WorkflowRunner {
+	r.followers = followers
+	return r
+}
 
 // PlanInitialAutomatic plans a fresh run's creation-time automatic advancement
 // (design S5): from cursor 0, every automatic step (least_loaded, resolve_ticket,
@@ -39,7 +53,7 @@ func (r *WorkflowRunner) PlanInitialAutomatic(_ context.Context, ticket domain.T
 	return InitialAutomaticPlan{Operations: ops, NextCursor: next, NextRunStatus: status, NextTicketState: copyTicket.State}, nil
 }
 
-func (r *WorkflowRunner) PlanComplete(_ context.Context, snap WorkflowExecutionSnapshot, cmd CompleteWorkflowCommand) (WorkflowMutationPlan, error) {
+func (r *WorkflowRunner) PlanComplete(ctx context.Context, snap WorkflowExecutionSnapshot, cmd CompleteWorkflowCommand) (WorkflowMutationPlan, error) {
 	if cmd.ExpectedPosition <= 0 || snap.Run == nil || snap.Ticket == nil || snap.Run.Status != "active" || len(snap.Workflow) == 0 {
 		return WorkflowMutationPlan{}, domain.NewWorkflowPositionConflictError("workflow position conflict")
 	}
@@ -184,7 +198,18 @@ func (r *WorkflowRunner) PlanComplete(_ context.Context, snap WorkflowExecutionS
 	if assigneeFacts != nil && (ticket.UserID == nil || *ticket.UserID != assigneeFacts.UserID) {
 		assigneeFacts = nil
 	}
-	notifications := stateChangeNotifications(&ticket, snap.Ticket.State, ticket.State, &actor, now, snap.Requester, assigneeFacts)
+	// The ticket's followers hear the planned state change (issue #418). They are
+	// judged against the ticket this plan LEAVES BEHIND — its assignee, state and
+	// workflow position — not the stored row a claim is about to invalidate: a
+	// claim takes the ticket out of every other member of its desk's read scope in
+	// the same transaction that would notify them, while a follower of the desk the
+	// run still waits on keeps its scope. The desk membership that decides it is
+	// read here; the unit of work applies the rows it is given.
+	followers, err := r.followers.followerRecipientsForResulting(ctx, ticket, snap.Workflow, nextCursor, status)
+	if err != nil {
+		return WorkflowMutationPlan{}, err
+	}
+	notifications := stateChangeNotifications(&ticket, snap.Ticket.State, ticket.State, &actor, now, recipients{requester: snap.Requester, assignee: assigneeFacts, followers: followers})
 
 	// S10 last row: a form step this plan leaves pending is somebody's turn — the
 	// requester for a requester form, the assignee for an assignee form. A plan
@@ -200,6 +225,18 @@ func (r *WorkflowRunner) PlanComplete(_ context.Context, snap WorkflowExecutionS
 	}
 	notifications = append(notifications,
 		formWaitingNotifications(&ticket, snap.Workflow, nextCursor, &actor, now, snap.Requester, formAssignee)...)
+
+	// A claim completion assigns the ticket to the acting agent, a person this
+	// plan knows by name, so the followers' rows are decided HERE exactly as the
+	// manual assignment decides them (issue #418). A claim that re-selects the
+	// current holder moves nothing and tells nobody. assignable is the follower
+	// list every assignment path of this plan uses: the outgoing assignee is left
+	// out, because this change takes the ticket away from them.
+	assignable := withoutRecipient(followers, snap.Ticket.UserID)
+	if claimant := claimedAssignee(ops); claimant != nil && (snap.Ticket.UserID == nil || *snap.Ticket.UserID != *claimant) {
+		notifications = append(notifications,
+			assignmentChangedNotifications(&ticket, actorName, &actor, now, assignable, notifications)...)
+	}
 
 	// A least_loaded step picks its assignee INSIDE the transaction, so this plan
 	// cannot know whether the ticket keeps its holder or moves: the snapshot's
@@ -277,7 +314,7 @@ func (r *WorkflowRunner) PlanComplete(_ context.Context, snap WorkflowExecutionS
 		if !ok {
 			continue
 		}
-		template := &AssigneeNotification{TicketID: plan.TicketID, ActorUserID: &actor, CreatedAt: now}
+		template := &AssigneeNotification{TicketID: plan.TicketID, ActorUserID: &actor, CreatedAt: now, Followers: recipientIDs(assignable)}
 		if pendingAssigneeForm && i == lastRouting {
 			step := pendingFormStep
 			template.FormWaitingStepIndex = &step
@@ -290,6 +327,19 @@ func (r *WorkflowRunner) PlanComplete(_ context.Context, snap WorkflowExecutionS
 		plan.Result.Run.CompletedAt = &ct
 	}
 	return plan, nil
+}
+
+// claimedAssignee returns the person a claim completion in this plan assigns the
+// ticket to, or nil when the plan completes no claim step. A claim always assigns
+// the acting agent, so this is also the plan's actor.
+func claimedAssignee(ops []WorkflowOperation) *int64 {
+	for _, op := range ops {
+		if c, ok := op.(ClaimAssignmentOperation); ok {
+			assignee := c.AssigneeUserID
+			return &assignee
+		}
+	}
+	return nil
 }
 
 // hasLeastLoadedAssignment reports whether ops contain a least_loaded routing

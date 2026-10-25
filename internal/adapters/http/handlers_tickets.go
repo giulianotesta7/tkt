@@ -57,6 +57,16 @@ type TicketHandlers struct {
 	// reading is judged against (issue #382). Unset leaves listData.Now zero,
 	// so every fixture and golden keeps rendering the absolute instant.
 	clock domain.Clock
+	// savedReplies is the OPTIONAL composer picker (issue #418). Unset means
+	// the detail renders no saved-reply picker at all, so a handler built
+	// without the service (a focused test, an out-of-band render) behaves
+	// exactly as before wiring; WithCannedReplies turns it on.
+	savedReplies *application.CannedReplyService
+	// follows is the OPTIONAL follow and mention read (issue #418). Unset means
+	// the detail renders no follow control, no followers row, no mention list
+	// and registers no follow route, so an unwired handler behaves exactly as
+	// before wiring; WithFollows turns all four on.
+	follows *application.FollowService
 	// suggestions is the OPTIONAL category-suggestion composition (issue #416).
 	// Unset means both creation screens render exactly what they rendered before
 	// the feature, which is also what an instance whose engine is off sees (S7):
@@ -124,6 +134,27 @@ func (h *TicketHandlers) WithClock(clock domain.Clock) *TicketHandlers {
 	return h
 }
 
+// WithFollows wires the follow and mention use cases into the ticket handlers
+// (issue #418): the detail's follow control, its followers row, the composer's
+// candidate list, and the two routes that change the subscription. It follows
+// the same fluent shape as the setters above, so the constructor keeps the
+// positional signature its call sites depend on, and a handler built without it
+// renders and routes exactly as it did before.
+func (h *TicketHandlers) WithFollows(follows *application.FollowService) *TicketHandlers {
+	h.follows = follows
+	return h
+}
+
+// WithCannedReplies wires the composer's saved-reply picker (issue #418). It
+// follows the fluent shape of WithClock, so the constructor keeps the
+// positional signature its existing call sites depend on. A nil or unset
+// service renders no picker: the comment form is byte-identical to the one
+// without saved replies.
+func (h *TicketHandlers) WithCannedReplies(replies *application.CannedReplyService) *TicketHandlers {
+	h.savedReplies = replies
+	return h
+}
+
 // WithVisits wires the optional last-visit read and write (issue #415). It
 // follows the fluent shape of WithSLA, WithPreferences and WithClock: a nil or
 // unset service leaves every row unmarked and records no visit, so the lists
@@ -166,17 +197,28 @@ func (h *TicketHandlers) Register(mux *http.ServeMux) {
 	if h.attachmentDownloads != nil {
 		mux.HandleFunc("GET /attachments/{id}", h.downloadAttachment)
 	}
+	// The follow routes exist only when WithFollows wired the use case (issue
+	// #418): a handler built without it answers the mux's 404, exactly like it
+	// did before the routes existed.
+	if h.follows != nil {
+		h.registerFollows(mux)
+	}
 }
 
 // pageData is the shared presentation payload for app-shell pages: the rail
 // highlights the active section and the operator chip shows the session
 // user.
 type pageData struct {
-	NavActive            string
-	CurrentUser          domain.User
-	CanManageUsers       bool
-	CanManageSettings    bool
-	CanManageDesks       bool
+	NavActive         string
+	CurrentUser       domain.User
+	CanManageUsers    bool
+	CanManageSettings bool
+	CanManageDesks    bool
+	// CanUseSavedReplies reports whether the rail offers the saved-reply
+	// manager (issue #418): the internal-comment capability, which is what a
+	// role that works inside a ticket holds. Presentation only; every
+	// saved-reply route checks the capability again.
+	CanUseSavedReplies   bool
 	CanManageCategories  bool
 	CanGrantAdmin        bool
 	UsersAssets          bool
@@ -200,6 +242,10 @@ type pageData struct {
 	// the phone fold of the properties panel. It is set only where the detail
 	// page is built, so no other surface downloads it.
 	TicketDetailAssets bool
+	// SavedRepliesAssets loads the saved-reply manager's script (issue #418):
+	// the placeholder chips and the delete confirmation. It is set only on the
+	// manager screen, so no other surface downloads it.
+	SavedRepliesAssets bool
 	// CreateAssets loads the ticket-creation script (issue #391): the category
 	// picker that enhances the native select into a searchable, grouped listbox,
 	// and the service catalog's live card filter. It is set only on the two
@@ -245,6 +291,7 @@ func pageDataFrom(r *http.Request, nav string) pageData {
 		CanManageUsers:      caps.Require(application.CapManageUsers),
 		CanManageSettings:   caps.Require(application.CapManageSettings),
 		CanManageDesks:      caps.Require(application.CapManageDesks),
+		CanUseSavedReplies:  caps.Require(application.CapCommentInternal),
 		CanManageCategories: caps.Require(application.CapManageCategories),
 		CanGrantAdmin:       caps.Require(application.CapGrantAdmin),
 		InternalCommentBg:   internalCommentBgFrom(r.Context()),
@@ -1966,6 +2013,25 @@ type detailData struct {
 	// Timeline entry, so both lists are already filtered by the visibility the
 	// actor may read: a requester never receives a staff-only file.
 	Attachments []domain.Attachment
+	// SavedReplies is the composer's saved-reply picker (issue #418): the actor's
+	// own replies and the shared replies of the desks they belong to, with the
+	// placeholders already filled for THIS ticket. It is nil for a requester and
+	// for a ticket with no composer, so the picker renders exactly where a staff
+	// member can insert a reply, and no reply of a desk they do not belong to is
+	// ever part of it.
+	SavedReplies *application.CannedReplyPickerView
+	// Follow is the header's follow control (issue #418): present for a staff
+	// member who can already open the ticket, and nil for everybody else, so a
+	// requester and an out-of-scope agent receive no control at all.
+	Follow *detailFollow
+	// Followers is the Properties row: everybody following the ticket, marked so
+	// the reader recognises themselves. It is nil where the controls are nil, and
+	// its People are empty when nobody follows yet.
+	Followers *detailFollowers
+	// Mentions is the composer's candidate list (issue #418): the staff this
+	// ticket's comment may name. It is nil for a requester and for a ticket with
+	// no composer, and both mention inputs render it or nothing.
+	Mentions *mentionPickerView
 }
 
 // QueueHref is the detail's "← Queue" target: the validated list return href
@@ -2152,6 +2218,44 @@ func (h *TicketHandlers) detailDataFor(r *http.Request, id int64) (detailData, i
 			entry.Attachments = commentFiles[entry.Comment.ID]
 		}
 	}
+	// The composer renders on an open ticket, plus the resolved carve-out for
+	// its own requester; the saved-reply picker follows the composer, because a
+	// reply can only be inserted where a comment can be written.
+	canComment := !closed || (view.Ticket.State == domain.StateResolved && requester)
+	// The composer's saved replies (issue #418): STAFF ONLY, and only when the
+	// service is wired. A requester never triggers the read at all, so their
+	// detail page never touches the saved-reply store and the picker cannot
+	// leak. The picker is the service's answer for THIS ticket: the actor's own
+	// replies and the desks they belong to, placeholders already filled.
+	var savedReplies *application.CannedReplyPickerView
+	if h.savedReplies != nil && canReadInternal && canComment {
+		picker, pickerErr := h.savedReplies.ForTicket(r.Context(), actor, view.Ticket)
+		if pickerErr != nil {
+			return detailData{}, statusFor(pickerErr), pickerErr
+		}
+		savedReplies = picker
+	}
+	// Following (issue #418): STAFF ONLY. The follow control and the followers
+	// row come from the same read the two routes apply, so an agent the ticket is
+	// out of reach for receives neither and learns nothing from the page.
+	var follow *detailFollow
+	var followers *detailFollowers
+	if canReadInternal {
+		follow, followers, err = h.followStateFor(r, actor, id)
+		if err != nil {
+			return detailData{}, statusFor(err), err
+		}
+	}
+	// The composer's mention list follows the composer: it is the staff this
+	// ticket's comment may name, so a requester — who can write a comment but is
+	// never mentioned — and a closed ticket without a composer get none.
+	var mentions *mentionPickerView
+	if canReadInternal && canComment {
+		mentions, err = h.mentionListOf(r, actor, id)
+		if err != nil {
+			return detailData{}, statusFor(err), err
+		}
+	}
 	queueOrigin := r.Referer()
 	// HTMX mutations refer to the detail URL, not the original queue. The
 	// inherited header survives whole-detail swaps, including error renders.
@@ -2188,13 +2292,17 @@ func (h *TicketHandlers) detailDataFor(r *http.Request, id int64) (detailData, i
 		CanTransition: application.NewPolicy().Capabilities(actor.Role).Require(application.CapEditTicket),
 		Closed:        closed,
 		CanConfirm:    view.Ticket.State == domain.StateResolved && requester,
-		CanComment:    !closed || (view.Ticket.State == domain.StateResolved && requester),
+		CanComment:    canComment,
 		Pending:       pending,
 		Claim:         h.claimFor(r, id, actor),
 		SLA:           slaPanel,
 		RequesterView: actor.Role == domain.RoleUser,
 		BackHref:      listReturnHref(queueOrigin, r.Host),
 		Attachments:   creationFiles,
+		SavedReplies:  savedReplies,
+		Follow:        follow,
+		Followers:     followers,
+		Mentions:      mentions,
 	}, 0, nil
 }
 

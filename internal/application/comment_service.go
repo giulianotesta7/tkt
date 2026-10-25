@@ -27,6 +27,9 @@ type CommentService struct {
 	// (issue #352). Nil keeps the legacy wiring: the hold still ends, with no
 	// shift, exactly like a TicketService built without an SLA service.
 	sla *SLAService
+	// followers resolves the staff a comment mentions and the staff subscribed
+	// to the ticket (issue #418). Nil keeps the wiring without either fan-out.
+	followers *FollowService
 }
 
 // NewCommentService wires the comment use cases against the given ports.
@@ -38,6 +41,15 @@ func NewCommentService(tickets TicketStore, comments CommentStore, users UserSto
 // the service, so the composition root chains it onto the constructor.
 func (s *CommentService) WithSLA(sla *SLAService) *CommentService {
 	s.sla = sla
+	return s
+}
+
+// WithFollowers wires the follower and mention collaborator (issue #418) and
+// returns the service, so the composition root chains it onto the constructor.
+// Without it a comment notifies the requester and the assignee only, and nothing
+// is mentioned or subscribed.
+func (s *CommentService) WithFollowers(followers *FollowService) *CommentService {
+	s.followers = followers
 	return s
 }
 
@@ -108,16 +120,33 @@ func (s *CommentService) AddWithAttachments(ctx context.Context, actor domain.Us
 	// back — together (S11). A recipient lookup failure aborts BEFORE the write:
 	// a comment is never stored with a notification whose eligibility was not
 	// proven.
-	requester, assignee, err := ticketRecipients(ctx, s.users, t)
+	//
+	// Mentions (issue #418) are part of that same write: only a STAFF author
+	// mentions anybody — the mention list is a staff list, so a requester typing
+	// "@Name" notifies nobody — and every mentioned person becomes a follower of
+	// the ticket in the comment's transaction, so a comment that is not stored
+	// subscribes nobody.
+	r, err := ticketChangeRecipients(ctx, s.users, s.followers, t)
 	if err != nil {
 		return nil, err
 	}
-	notifications := commentNotifications(t, vis, &actor.ID, c.CreatedAt, requester, assignee)
+	var newFollowers []int64
+	if NewPolicy().Capabilities(actor.Role).Require(CapCommentInternal) {
+		mentioned, verified, merr := s.followers.mentionFanOut(ctx, actor, ticketID, c.Body)
+		if merr != nil {
+			return nil, merr
+		}
+		r.mentioned = verified
+		for _, u := range mentioned {
+			newFollowers = append(newFollowers, u.ID)
+		}
+	}
+	notifications := commentNotifications(t, vis, &actor.ID, c.CreatedAt, r)
 	resume, err := s.requesterReplyResume(ctx, actor, t, vis, c.CreatedAt)
 	if err != nil {
 		return nil, err
 	}
-	if err := s.tx.Add(ctx, CommentMutation{Comment: c, Notifications: notifications, Resume: resume, Attachments: files}); err != nil {
+	if err := s.tx.Add(ctx, CommentMutation{Comment: c, Notifications: notifications, Followers: newFollowers, Resume: resume, Attachments: files}); err != nil {
 		return nil, err
 	}
 	return c, nil

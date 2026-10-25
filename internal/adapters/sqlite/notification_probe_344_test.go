@@ -51,11 +51,11 @@ func TestMigration0021KindVocabularyMatchesDomainConstants(t *testing.T) {
 		}
 		return true
 	})
-	// Seventeen after issue #408 added the four SLA alert kinds and no_movement
-	// to the twelve issue #353 left; the count is asserted so a kind added to
-	// the domain without the rebuild fails here.
-	if len(kinds) != 17 {
-		t.Fatalf("domain kinds = %v, want 17", kinds)
+	// Nineteen after issue #418 added 'mentioned' and 'assignee_changed' to the
+	// seventeen issue #408 left; the count is asserted so a kind added to the
+	// domain without the rebuild fails here.
+	if len(kinds) != 19 {
+		t.Fatalf("domain kinds = %v, want 19", kinds)
 	}
 	userID, ticketID := notificationFixture(t, s)
 	res, err := s.db.Exec(`INSERT INTO comments (ticket_id, author, body, created_at) VALUES (?, 'Ana', 'b', ?)`,
@@ -77,7 +77,7 @@ func TestMigration0021KindVocabularyMatchesDomainConstants(t *testing.T) {
 			t.Errorf("domain kind %q rejected by the notifications CHECK: %v", k, err)
 		}
 	}
-	for _, bad := range []string{"", "mentioned", "ASSIGNED", "assigned "} {
+	for _, bad := range []string{"", "mention", "ASSIGNED", "assigned "} {
 		if _, err := s.db.Exec(`INSERT INTO notifications (user_id, ticket_id, kind, created_at)
 			VALUES (?,?,?,?)`, userID, ticketID, bad, formatTime(testClock)); err == nil {
 			t.Errorf("kind %q accepted, want CHECK rejection", bad)

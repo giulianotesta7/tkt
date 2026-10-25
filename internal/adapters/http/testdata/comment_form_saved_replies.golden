@@ -1,0 +1,51 @@
+
+<form class="card comment-form" method="post" action="/tickets/1/comments" enctype="multipart/form-data">
+  <div class="field comment-field">
+    <textarea name="body" id="comment-body" hx-preserve="true" placeholder="Write a comment…" aria-label="Comment body"></textarea>
+  </div>
+  <input type="hidden" name="visibility" value="public">
+  <div class="comment-tools">
+    <label class="comment-dropzone" for="comment-attachments">
+      <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 11.5 12.5 19a5 5 0 0 1-7-7l7.5-7.5a3.5 3.5 0 0 1 5 5L10.5 17a2 2 0 0 1-3-3l7-7"/></svg>
+      <span>Attachments</span>
+      <span class="comment-dropzone-files" data-dropzone-files></span>
+      <input type="file" id="comment-attachments" name="attachments" multiple accept=".png,.jpg,.jpeg,.gif,.webp,.pdf,.docx,.xlsx,.pptx,.txt,.csv,.log,.zip">
+    </label>
+<div class="comment-saved-replies" data-saved-replies>
+  <button class="btn small comment-saved-replies-open" type="button" data-saved-replies-open aria-haspopup="dialog" aria-expanded="false" aria-controls="comment-saved-replies-list">
+    <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 5h16v11H8l-4 4z"/><path d="M8 9h8"/><path d="M8 12h5"/></svg>
+    <span>Saved replies</span>
+  </button>
+  <div class="comment-saved-replies-popover" role="dialog" aria-label="Saved replies" hidden>
+    <input class="comment-saved-replies-search" type="search" data-saved-replies-search placeholder="Search saved replies" aria-label="Search saved replies" autocomplete="off">
+    <div class="comment-saved-replies-groups" role="listbox" aria-label="Saved replies">
+      <div class="comment-saved-replies-group" role="group" aria-label="Mine">
+        <p class="comment-saved-replies-group-label">Mine</p>
+        <button class="comment-saved-replies-option" type="button" role="option" aria-selected="false">
+          <b class="comment-saved-replies-title">Looking into it</b>
+          <small class="comment-saved-replies-preview">Hi Ana Torres, thanks for reaching out about TKT-1. I am looking into it now.</small>
+        </button>
+      </div>
+      <div class="comment-saved-replies-group" role="group" aria-label="Service desk">
+        <p class="comment-saved-replies-group-label">Service desk</p>
+        <button class="comment-saved-replies-option" type="button" role="option" aria-selected="false">
+          <b class="comment-saved-replies-title">Need more details</b>
+          <small class="comment-saved-replies-preview">Hi Ana Torres, to move TKT-1 forward we need a screenshot of the error.</small>
+        </button>
+      </div>
+    </div>
+    <p class="comment-saved-replies-empty" data-saved-replies-empty hidden>No saved reply matches.</p>
+    <div class="comment-saved-replies-foot">
+      <span>↑↓ to move · Enter to insert</span>
+      <a href="/replies">Manage</a>
+    </div>
+  </div>
+</div>
+
+    <div class="checkbox-field comment-internal">
+      <label for="comment-internal"><input id="comment-internal" type="checkbox" name="internal" value="1" hx-preserve="true"> Internal note</label>
+    </div>
+    <button class="btn primary comment-submit" type="submit">Reply</button>
+  </div>
+  <p class="help comment-attachment-hint">Up to 5 files, 10 MB each</p>
+</form>

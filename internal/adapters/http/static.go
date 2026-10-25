@@ -50,6 +50,10 @@ func RegisterStatic(mux *http.ServeMux, language InterfaceLanguageSource) {
 	// reason dialogs, phone fold — issue #386) renders no copy of its own, so it
 	// needs no catalogue prologue either.
 	registerEmbeddedStatic(mux, "/static/ticket_detail.js", "static/ticket_detail.js", "text/javascript; charset=utf-8", "public, max-age=86400")
+	// The saved-reply manager's behaviour (placeholder chips and the delete
+	// confirmation) renders no copy of its own either: every string it shows
+	// comes from the page, so it needs no catalogue prologue.
+	registerEmbeddedStatic(mux, "/static/saved_replies.js", "static/saved_replies.js", "text/javascript; charset=utf-8", "public, max-age=86400")
 	registerEmbeddedStatic(mux, "/static/shell.js", "static/shell.js", "text/javascript; charset=utf-8", "public, max-age=86400")
 	registerEmbeddedStatic(mux, "/static/queue.js", "static/queue.js", "text/javascript; charset=utf-8", "public, max-age=86400")
 }

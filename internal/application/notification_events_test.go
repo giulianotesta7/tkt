@@ -23,11 +23,19 @@ type notifyHarness struct {
 	assignee  domain.User
 	admin     domain.User
 	ticket    domain.Ticket
+	// followers is the follower port of the ticket service under test (issue
+	// #418); followSvc is the same collaborator, so a test can subscribe somebody
+	// through the public use case instead of the fake.
+	followers *fakeFollowerStore
+	followSvc *application.FollowService
 }
 
 func newNotifyHarness(t *testing.T) *notifyHarness {
 	t.Helper()
 	h := &notifyHarness{ticketHarness: newTicketHarness()}
+	h.followers = newFakeFollowerStore(h.users)
+	h.followSvc = application.NewFollowService(h.tickets, h.users, h.followers, h.clock)
+	h.svc.WithFollowers(h.followSvc)
 	cat := h.categories.seed("Bugs")
 	h.requester = h.users.seedRole("Rita", "rita@example.com", domain.RoleUser, true)
 	h.assignee = h.users.seedRole("Ana", "ana@example.com", domain.RoleAgent, true)

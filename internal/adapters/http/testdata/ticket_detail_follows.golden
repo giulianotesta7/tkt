@@ -1,0 +1,310 @@
+
+<div id="ticket-detail" hx-headers="{&#34;X-TKT-Queue-Return&#34;:&#34;/tickets&#34;}">
+
+  <div class="command-header detail-header">
+    <div class="detail-head">
+      <div class="meta-row">
+        <a href="/tickets">← Queue</a>
+        <span class="num">TKT-1</span>
+      </div>
+      <div class="detail-title">
+
+        <h1 class="visually-hidden">Login page down</h1>
+        <form class="title-inline title-edit" method="post" action="/tickets/1/edit"
+              hx-post="/tickets/1/edit" hx-target="#ticket-detail" hx-swap="outerHTML">
+          <input type="text" id="ticket-title" name="title" value="Login page down" required
+                 title="Login page down" aria-label="Ticket title" class="title-input">
+          <button class="btn small title-save" type="submit" hidden>Save</button>
+        </form>
+
+        <span class="detail-state"><span class="badge in_progress">In Progress</span></span>
+      </div>
+      <p class="detail-meta">Opened by <span class="detail-meta-requester">Ana Torres</span> · <time datetime="2026-08-06T10:00:00Z" title="10:00 · 06-08-2026">10:00 · 06-08-2026</time> · <span class="detail-meta-category">Bugs</span></p>
+    </div>
+    <div class="command-actions detail-actions">
+      <form class="detail-action" method="post" action="/tickets/1/transition" hx-post="/tickets/1/transition" hx-target="#ticket-detail" hx-swap="outerHTML"><input type="hidden" name="to" value="resolved"><button class="btn primary" type="submit">Resolve</button></form>
+      <form class="detail-action" method="post" action="/tickets/1/transition" hx-post="/tickets/1/transition" hx-target="#ticket-detail" hx-swap="outerHTML"><input type="hidden" name="to" value="cancelled"><button class="btn danger" type="submit">Cancel</button></form>
+
+      <form class="detail-action detail-follow" method="post" action="/tickets/1/unfollow" hx-post="/tickets/1/unfollow" hx-target="#ticket-detail" hx-swap="outerHTML"><button class="btn" type="submit" aria-pressed="true">Following</button></form>
+      <details class="detail-overflow" id="ticket-actions-overflow">
+        <summary class="btn detail-overflow-button" aria-haspopup="menu" aria-label="More actions">•••</summary>
+        <div class="detail-overflow-menu" role="menu">
+          <button class="btn" type="button" role="menuitem" data-hold-open aria-haspopup="dialog" aria-controls="ticket-hold-dialog">Put on hold</button>
+        </div>
+      </details>
+    </div>
+  </div>
+  <div class="cards">
+    <div class="conversation">
+      <div class="card">
+        <h2>Description</h2>
+        <p class="ticket-description">The login form 500s on submit</p>
+      </div>
+      <div class="card detail-activity">
+        <h2>Activity</h2>
+
+<div id="timeline">
+
+
+
+
+
+  <article class="timeline-entry timeline-event st-new">
+    <div class="timeline-entry-head">
+      <div class="narrative"><strong class="timeline-actor">Admin</strong> <span class="timeline-action">created the ticket</span></div>
+      <div class="when"><time datetime="2026-08-06T10:00:00Z" title="10:00 · 06-08-2026">10:00 · 06-08-2026</time></div>
+    </div>
+  </article>
+
+
+
+
+
+  <article class="timeline-entry timeline-event st-in_progress">
+    <div class="timeline-entry-head">
+      <div class="narrative"><strong class="timeline-actor">Admin</strong> <span class="timeline-action">moved the ticket to in progress</span></div>
+      <div class="when"><time datetime="2026-08-06T10:30:00Z" title="10:30 · 06-08-2026">10:30 · 06-08-2026</time></div>
+    </div>
+  </article>
+
+
+
+
+
+  <article class="timeline-entry timeline-event">
+    <div class="timeline-entry-head">
+      <div class="narrative"><strong class="timeline-actor">Admin</strong> <span class="timeline-action">assigned the ticket to Ana Torres</span></div>
+      <div class="when"><time datetime="2026-08-06T10:30:00Z" title="10:30 · 06-08-2026">10:30 · 06-08-2026</time></div>
+    </div>
+  </article>
+
+
+
+
+  <article class="timeline-entry timeline-comment">
+    <div class="timeline-entry-head">
+      <div class="narrative"><strong class="timeline-actor">Ana Torres</strong> <span class="timeline-action">added a comment</span></div>
+      <div class="when"><time datetime="2026-08-06T10:30:00Z" title="10:30 · 06-08-2026">10:30 · 06-08-2026</time></div>
+    </div>
+    <div class="timeline-body">Checking now</div>
+  </article>
+
+
+
+</div>
+
+      </div>
+    </div>
+    <aside class="evidence">
+      <details class="detail-properties" id="detail-properties" open>
+        <summary class="detail-properties-summary"><span>Properties</span><svg class="detail-properties-chevron" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg></summary>
+        <div class="prop-list">
+          <div class="prop-section">
+            <div class="prop-row">
+              <span class="prop-label">Requester</span>
+              <span class="prop-value">Ana Torres</span>
+            </div>
+            <div class="prop-row">
+              <span class="prop-label">Assignee</span>
+              <form class="prop-control listbox-form" method="post" action="/tickets/1/assign" hx-post="/tickets/1/assign" hx-target="#ticket-detail" hx-swap="outerHTML">
+        <div class="listbox" data-listbox>
+          <button id="assign-user" type="button" class="listbox-button" aria-haspopup="listbox" aria-expanded="false" aria-controls="assign-user-options">
+            <span class="person-mark" aria-hidden="true">AT</span>
+            <span class="listbox-current">Ana Torres</span>
+            <svg class="listbox-chevron" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>
+          </button>
+          <div class="listbox-popover" id="assign-user-options">
+            <input type="search" class="listbox-search" placeholder="Filter assignees" aria-label="Filter assignees" autocomplete="off">
+            <div class="listbox-options" role="listbox" aria-label="Assignee">
+              <button type="submit" role="option" class="listbox-option" name="user_id" value="" aria-selected="false">
+                <span class="person-mark is-empty" aria-hidden="true">–</span>
+                <span class="listbox-option-label">Unassigned</span>
+              </button>
+              <button type="submit" role="option" class="listbox-option" name="user_id" value="1" aria-selected="true">
+                <span class="person-mark" aria-hidden="true">AT</span>
+                <span class="listbox-option-label">Ana Torres</span>
+                <svg class="listbox-check" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 12.5 4.5 4.5L19 7"/></svg>
+              </button>
+            </div>
+          </div>
+        </div>
+</form>
+            </div>
+            <div class="prop-row">
+              <span class="prop-label">Priority</span>
+              <form class="prop-control listbox-form" method="post" action="/tickets/1/edit" hx-post="/tickets/1/edit" hx-target="#ticket-detail" hx-swap="outerHTML">
+        <div class="listbox" data-listbox>
+          <button id="ticket-priority" type="button" class="listbox-button" aria-haspopup="listbox" aria-expanded="false" aria-controls="ticket-priority-options">
+            <span class="priority-dot high" aria-hidden="true"></span>
+            <span class="listbox-current">High</span>
+            <svg class="listbox-chevron" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>
+          </button>
+          <div class="listbox-popover" id="ticket-priority-options">
+            <div class="listbox-options" role="listbox" aria-label="Priority">
+              <button type="submit" role="option" class="listbox-option" name="priority" value="critical" aria-selected="false">
+                <span class="priority-dot critical" aria-hidden="true"></span>
+                <span class="listbox-option-label">Critical</span>
+              </button>
+              <button type="submit" role="option" class="listbox-option" name="priority" value="high" aria-selected="true">
+                <span class="priority-dot high" aria-hidden="true"></span>
+                <span class="listbox-option-label">High</span>
+                <svg class="listbox-check" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 12.5 4.5 4.5L19 7"/></svg>
+              </button>
+              <button type="submit" role="option" class="listbox-option" name="priority" value="medium" aria-selected="false">
+                <span class="priority-dot medium" aria-hidden="true"></span>
+                <span class="listbox-option-label">Medium</span>
+              </button>
+              <button type="submit" role="option" class="listbox-option" name="priority" value="low" aria-selected="false">
+                <span class="priority-dot low" aria-hidden="true"></span>
+                <span class="listbox-option-label">Low</span>
+              </button>
+            </div>
+          </div>
+        </div>
+</form>
+            </div>
+            <div class="prop-row">
+              <span class="prop-label">Category</span>
+              <span id="ticket-category-value" class="prop-value">Bugs</span>
+            </div>
+            <div class="prop-row">
+              <span class="prop-label">Desk</span>
+              <span class="prop-value prop-value-empty">—</span>
+            </div>
+<details class="prop-followers">
+  <summary class="prop-row prop-followers-summary">
+    <span class="prop-label">Followers</span>
+    <span class="prop-value prop-followers-value"><span class="prop-followers-avatars" aria-hidden="true"><span class="person-mark prop-followers-avatar">BA</span><span class="person-mark prop-followers-avatar">AT</span></span><span class="prop-followers-count">2</span></span>
+  </summary>
+  <ul class="prop-followers-list">
+    <li class="prop-followers-person"><span class="person-mark prop-followers-avatar" aria-hidden="true">BA</span><span class="prop-followers-name">Bea Admin</span></li>
+    <li class="prop-followers-person"><span class="person-mark prop-followers-avatar" aria-hidden="true">AT</span><span class="prop-followers-name">Ana Torres</span><span class="prop-followers-you">You</span></li>
+  </ul>
+</details>
+
+          </div>
+          <div class="prop-section" data-server-now="2026-08-07T06:00:00Z">
+            <div class="prop-heading">SLA</div>
+
+            <div class="prop-row">
+              <span class="prop-label">First response</span>
+              <span class="prop-value sla-value"><span class="sla-state"><span class="sla-dot met" aria-hidden="true"></span><span class="sla-state-word">Met</span></span> </span>
+            </div>
+
+            <div class="prop-row">
+              <span class="prop-label">Resolve</span>
+              <span class="prop-value sla-value"><span class="sla-state"><span class="sla-dot at_risk" aria-hidden="true"></span><span class="sla-state-word">At Risk</span></span> <time datetime="2026-08-07T10:00:00Z" data-sla-countdown><span class="sla-countdown-ticker" aria-hidden="true">4h 0m</span><span class="sla-countdown-coarse visually-hidden">10:00 · 07-08-2026</span></time></span>
+            </div>
+
+          </div>
+          <div class="prop-section">
+            <div class="prop-heading">Details</div>
+            <div class="prop-row">
+              <span class="prop-label">Created</span>
+              <span class="prop-value"><time datetime="2026-08-06T10:00:00Z" title="10:00 · 06-08-2026">Aug 6, 2026</time></span>
+            </div>
+            <div class="prop-row">
+              <span class="prop-label">Updated</span>
+              <span class="prop-value"><time datetime="2026-08-06T10:30:00Z" title="10:30 · 06-08-2026">10:30 · 06-08-2026</time></span>
+            </div>
+            <div class="prop-row">
+              <span class="prop-label">ID</span>
+              <span class="prop-value">TKT-1</span>
+            </div>
+          </div>
+        </div>
+      </details>
+    </aside>
+    <div class="replies" id="reply">
+
+
+<form class="card comment-form" method="post" action="/tickets/1/comments" enctype="multipart/form-data">
+  <div class="field comment-field">
+    <textarea name="body" id="comment-body" hx-preserve="true" placeholder="Write a comment…" aria-label="Comment body"></textarea>
+  </div>
+  <input type="hidden" name="visibility" value="public">
+  <div class="comment-tools">
+    <label class="comment-dropzone" for="comment-attachments">
+      <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 11.5 12.5 19a5 5 0 0 1-7-7l7.5-7.5a3.5 3.5 0 0 1 5 5L10.5 17a2 2 0 0 1-3-3l7-7"/></svg>
+      <span>Attachments</span>
+      <span class="comment-dropzone-files" data-dropzone-files></span>
+      <input type="file" id="comment-attachments" name="attachments" multiple accept=".png,.jpg,.jpeg,.gif,.webp,.pdf,.docx,.xlsx,.pptx,.txt,.csv,.log,.zip">
+    </label>
+<div class="comment-saved-replies" data-saved-replies>
+  <button class="btn small comment-saved-replies-open" type="button" data-saved-replies-open aria-haspopup="dialog" aria-expanded="false" aria-controls="comment-saved-replies-list">
+    <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 5h16v11H8l-4 4z"/><path d="M8 9h8"/><path d="M8 12h5"/></svg>
+    <span>Saved replies</span>
+  </button>
+  <div class="comment-saved-replies-popover" role="dialog" aria-label="Saved replies" hidden>
+    <input class="comment-saved-replies-search" type="search" data-saved-replies-search placeholder="Search saved replies" aria-label="Search saved replies" autocomplete="off">
+    <div class="comment-saved-replies-groups" role="listbox" aria-label="Saved replies">
+      <div class="comment-saved-replies-group" role="group" aria-label="Mine">
+        <p class="comment-saved-replies-group-label">Mine</p>
+        <button class="comment-saved-replies-option" type="button" role="option" aria-selected="false">
+          <b class="comment-saved-replies-title">Looking into it</b>
+          <small class="comment-saved-replies-preview">Hi Ana Torres, thanks for reaching out about TKT-1. I am looking into it now.</small>
+        </button>
+      </div>
+      <div class="comment-saved-replies-group" role="group" aria-label="Service desk">
+        <p class="comment-saved-replies-group-label">Service desk</p>
+        <button class="comment-saved-replies-option" type="button" role="option" aria-selected="false">
+          <b class="comment-saved-replies-title">Need more details</b>
+          <small class="comment-saved-replies-preview">Hi Ana Torres, to move TKT-1 forward we need a screenshot of the error.</small>
+        </button>
+      </div>
+    </div>
+    <p class="comment-saved-replies-empty" data-saved-replies-empty hidden>No saved reply matches.</p>
+    <div class="comment-saved-replies-foot">
+      <span>↑↓ to move · Enter to insert</span>
+      <a href="/replies">Manage</a>
+    </div>
+  </div>
+</div>
+
+
+<div class="comment-mentions" data-mentions>
+  <button class="btn small comment-mentions-open" type="button" data-mentions-open aria-haspopup="dialog" aria-expanded="false" aria-controls="comment-mentions-list">
+    <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M16 8v5a3 3 0 0 0 6 0v-1a10 10 0 1 0-4 8"/></svg>
+    <span>Mention</span>
+  </button>
+  <div class="comment-mentions-popover" role="dialog" aria-label="Mention someone" hidden>
+    <input class="comment-mentions-search" type="search" data-mentions-search placeholder="Search people" aria-label="Search people" autocomplete="off">
+    <div class="comment-mentions-list" id="comment-mentions-list" role="listbox" aria-label="Mention someone">
+      <button class="comment-mentions-option" type="button" role="option" aria-selected="false" data-mention-name="Ana Torres">
+        <span class="person-mark comment-mentions-mark" aria-hidden="true">AT</span>
+        <span class="comment-mentions-text"><b class="comment-mentions-name">Ana Torres</b><small class="comment-mentions-role">Agent · Service desk</small></span>
+      </button>
+    </div>
+    <p class="comment-mentions-empty" data-mentions-empty hidden>Nobody who can open this ticket matches.</p>
+    <div class="comment-mentions-foot"><span>Only staff who can open this ticket</span></div>
+  </div>
+</div>
+
+    <div class="checkbox-field comment-internal">
+      <label for="comment-internal"><input id="comment-internal" type="checkbox" name="internal" value="1" hx-preserve="true"> Internal note</label>
+    </div>
+    <button class="btn primary comment-submit" type="submit">Reply</button>
+  </div>
+  <p class="help comment-mentions-hint">Type @ to mention someone who can open this ticket.</p>
+  <p class="help comment-attachment-hint">Up to 5 files, 10 MB each</p>
+</form>
+
+    </div>
+  </div>
+  <dialog id="ticket-hold-dialog" aria-labelledby="ticket-hold-dialog-title" aria-describedby="ticket-hold-dialog-copy">
+    <h2 id="ticket-hold-dialog-title">Put on hold</h2>
+    <p id="ticket-hold-dialog-copy">The resolution clock pauses while the ticket waits for the requester.</p>
+    <form method="post" action="/tickets/1/hold" hx-post="/tickets/1/hold" hx-target="#ticket-detail" hx-swap="outerHTML">
+      <label class="hold-dialog-field" for="hold-reason">Reason (the requester will read it)
+        <textarea id="hold-reason" name="reason" rows="3" required placeholder="What do you need from the requester?"></textarea>
+      </label>
+      <div><button type="button" class="btn" data-hold-cancel>Cancel</button><button class="btn primary" type="submit">Put on hold</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="ticket-title-dialog" aria-labelledby="ticket-title-dialog-title" aria-describedby="ticket-title-dialog-copy">
+    <h2 id="ticket-title-dialog-title">Save the title first?</h2>
+    <p id="ticket-title-dialog-copy">The ticket title has unsaved changes.</p>
+    <div><button type="button" class="btn" data-title-discard>Discard and continue</button><button type="button" class="btn" data-title-save-continue>Save and continue</button></div>
+  </dialog>
+</div>

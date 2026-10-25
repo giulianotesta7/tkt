@@ -156,7 +156,7 @@ func TestMigration0021KindVocabularyIsClosed(t *testing.T) {
 		}
 	}
 
-	for _, kind := range []string{"", "mentioned", "ASSIGNED", "assigned "} {
+	for _, kind := range []string{"", "mention", "ASSIGNED", "assigned "} {
 		if _, err := s.db.ExecContext(ctx,
 			`INSERT INTO notifications (user_id, ticket_id, kind, created_at) VALUES (?, ?, ?, ?)`,
 			user, tk.ID, kind, formatTime(testClock)); err == nil {

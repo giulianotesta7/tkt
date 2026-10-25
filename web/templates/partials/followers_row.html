@@ -1,0 +1,25 @@
+{{/*
+  The Properties row for the people following a ticket (issue #418): a person
+  mark per follower, the count, and a disclosure that opens the full list with
+  "You" beside the reader's own name. Nobody following reads as "None", with no
+  disclosure to open, because there is nothing behind it.
+
+  A native <details> carries the disclosure, so it needs no script and keeps
+  working across a whole-detail swap. The marks are a circle because a person is
+  a circle in this interface; the count is readable text, so a long list still
+  says how many people it stands for.
+*/}}
+{{define "followers_row"}}{{if .People}}<details class="prop-followers">
+  <summary class="prop-row prop-followers-summary">
+    <span class="prop-label">{{t "tickets.followers.label"}}</span>
+    <span class="prop-value prop-followers-value"><span class="prop-followers-avatars" aria-hidden="true">{{range .Avatars}}<span class="person-mark prop-followers-avatar">{{.Initials}}</span>{{end}}{{if .More}}<span class="prop-followers-more">+{{.More}}</span>{{end}}</span><span class="prop-followers-count">{{len .People}}</span></span>
+  </summary>
+  <ul class="prop-followers-list">
+{{range .People}}    <li class="prop-followers-person"><span class="person-mark prop-followers-avatar" aria-hidden="true">{{.Initials}}</span><span class="prop-followers-name">{{.Name}}</span>{{if .You}}<span class="prop-followers-you">{{t "tickets.followers.you"}}</span>{{end}}</li>
+{{end}}  </ul>
+</details>
+{{else}}<div class="prop-row prop-followers">
+  <span class="prop-label">{{t "tickets.followers.label"}}</span>
+  <span class="prop-value prop-followers-none">{{t "tickets.followers.none"}}</span>
+</div>
+{{end}}{{end}}

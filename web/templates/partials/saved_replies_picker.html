@@ -1,0 +1,46 @@
+{{/*
+  The composer's saved-reply picker (issue #418): a small button beside the
+  attachments zone opens a list the server already filled for this ticket, so
+  inserting a reply costs no request. A reply's title and body are content, and
+  every chrome string comes from the catalogue.
+
+  Two contracts this markup keeps. The list arrives with the page and the
+  placeholders already replaced, so a desk reply of another desk is never in the
+  document at all. And nothing here is a named form control: the search input
+  carries no name and the buttons are type="button", so the comment form keeps
+  its native multipart submission byte for byte. The field the script writes is
+  #comment-body, which keeps its hx-preserve handle.
+*/}}
+{{define "saved_replies_picker"}}
+<div class="comment-saved-replies" data-saved-replies>
+  <button class="btn small comment-saved-replies-open" type="button" data-saved-replies-open aria-haspopup="dialog" aria-expanded="false" aria-controls="comment-saved-replies-list">
+    <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 5h16v11H8l-4 4z"/><path d="M8 9h8"/><path d="M8 12h5"/></svg>
+    <span>{{t "saved_replies.picker.label"}}</span>
+  </button>
+  <div class="comment-saved-replies-popover" role="dialog" aria-label="{{t "saved_replies.picker.label"}}" hidden>
+{{if or .Mine .Desks}}    <input class="comment-saved-replies-search" type="search" data-saved-replies-search placeholder="{{t "saved_replies.picker.search"}}" aria-label="{{t "saved_replies.picker.search"}}" autocomplete="off">
+    <div class="comment-saved-replies-groups" role="listbox" aria-label="{{t "saved_replies.picker.label"}}">
+{{if .Mine}}      <div class="comment-saved-replies-group" role="group" aria-label="{{t "saved_replies.picker.mine"}}">
+        <p class="comment-saved-replies-group-label">{{t "saved_replies.picker.mine"}}</p>
+{{range .Mine}}        <button class="comment-saved-replies-option" type="button" role="option" aria-selected="false">
+          <b class="comment-saved-replies-title">{{.Title}}</b>
+          <small class="comment-saved-replies-preview">{{.Body}}</small>
+        </button>
+{{end}}      </div>
+{{end}}{{range .Desks}}      <div class="comment-saved-replies-group" role="group" aria-label="{{.DeskName}}">
+        <p class="comment-saved-replies-group-label">{{.DeskName}}</p>
+{{range .Replies}}        <button class="comment-saved-replies-option" type="button" role="option" aria-selected="false">
+          <b class="comment-saved-replies-title">{{.Title}}</b>
+          <small class="comment-saved-replies-preview">{{.Body}}</small>
+        </button>
+{{end}}      </div>
+{{end}}    </div>
+    <p class="comment-saved-replies-empty" data-saved-replies-empty hidden>{{t "saved_replies.picker.no_match"}}</p>
+{{else}}    <p class="comment-saved-replies-empty">{{t "saved_replies.picker.empty"}}</p>
+{{end}}    <div class="comment-saved-replies-foot">
+      <span>{{t "saved_replies.picker.hint"}}</span>
+      <a href="/replies">{{t "saved_replies.picker.manage"}}</a>
+    </div>
+  </div>
+</div>
+{{end}}
