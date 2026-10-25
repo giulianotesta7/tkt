@@ -138,6 +138,8 @@ The role matrix exercises real actors (root, admin, agent, user) without a Carte
 
 - Isolated temp SQLite per `test.describe` via `server-lifecycle.ts` (loopback-only, cleanup of temp DB and state file).
 - `playwright.config.ts` — chromium only, one worker, trace on first retry.
+- Seed: `e2e/cmd/seed/main.go` prepares the seeded profile (root, categories, desks, workflows). Its default run is the only profile the lifecycle starts and it never creates an account waiting for approval, because only a real company sign-in does.
+  - `--pending-fixture="<name>:<email>:<google|microsoft>"` is opt-in and test-support only: it writes ONE waiting account — a requester, inactive and pending, with the provider identity a company sign-in would have linked, through the same store port the flow uses — and nothing else, so it composes with an already-seeded database. Its behaviour is pinned by `e2e/cmd/seed/main_test.go` (the row's facts, the closed provider set, two fixtures apart, a duplicate refused with nothing written).
 - Shared helpers: `helpers/layout.ts` (structural assertions), `helpers/htmx.ts` (`assertHtmxSwap` and `assertHtmxNoSwap`), `helpers/network.ts` (exact native POST responses), `helpers/navigation.ts` (entity-strict navigation), `helpers/auth.ts` (login). Keep one owner per behavior.
 - CI: `.github/workflows/e2e.yml`, job `E2E / frontend coverage`.
 
