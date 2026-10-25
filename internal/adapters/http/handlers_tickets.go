@@ -67,6 +67,11 @@ type TicketHandlers struct {
 	// and registers no follow route, so an unwired handler behaves exactly as
 	// before wiring; WithFollows turns all four on.
 	follows *application.FollowService
+	// suggestions is the OPTIONAL category-suggestion composition (issue #416).
+	// Unset means both creation screens render exactly what they rendered before
+	// the feature, which is also what an instance whose engine is off sees (S7):
+	// WithCategorySuggestions is what turns the containers and the fragment on.
+	suggestions *application.CategorySuggestionService
 	// visits is the OPTIONAL last-visit read/write (issue #415). UNSET means
 	// "no mark is ever rendered and no visit is ever recorded": every row's
 	// Changed stays false and the detail page writes nothing, so a handler
@@ -172,6 +177,10 @@ func (h *TicketHandlers) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /tickets/export.csv", h.exportTickets)
 	mux.HandleFunc("GET /tickets/metrics/export.csv", h.exportMetrics)
 	mux.HandleFunc("GET /tickets/new", h.newForm)
+	// The suggestion fragment both creation screens refresh while the requester
+	// writes (issue #416, S2). It is a requester page, so it carries the same
+	// authentication as GET /tickets/new and no capability of its own.
+	mux.HandleFunc("GET /tickets/suggestions", h.suggestCategories)
 	mux.HandleFunc("POST /tickets", h.create)
 	mux.HandleFunc("GET /tickets/{id}", h.show)
 	mux.HandleFunc("POST /tickets/{id}/edit", h.update)
@@ -1312,6 +1321,10 @@ type ticketFormData struct {
 	// empty in single-page mode, where the category is editable in place and
 	// there is nothing to go back to.
 	CatalogHref string
+	// SuggestionsEnabled turns on the suggestion container under the category
+	// row (issue #416, S2). It is false with the engine off, and then the form
+	// renders byte for byte what it rendered before the feature (S7).
+	SuggestionsEnabled bool
 }
 
 type ticketFormValues struct {
@@ -1342,11 +1355,12 @@ func (h *TicketHandlers) newForm(w http.ResponseWriter, r *http.Request) {
 	page.PageFoundationAssets = true
 	page.CreateAssets = true
 	data := ticketFormData{
-		pageData:       page,
-		Values:         ticketFormValues{Priority: domain.PriorityMedium},
-		Options:        opts,
-		CategoryOffers: offers,
-		CategoryGroups: groupCatalogCategories(offers),
+		pageData:           page,
+		Values:             ticketFormValues{Priority: domain.PriorityMedium},
+		Options:            opts,
+		CategoryOffers:     offers,
+		CategoryGroups:     groupCatalogCategories(offers),
+		SuggestionsEnabled: h.suggestionsEnabled(r),
 	}
 	data.Values.CategoryID = r.URL.Query().Get("category_id")
 	if id := parseID(data.Values.CategoryID); id != 0 {
@@ -1462,8 +1476,17 @@ type catalogPageData struct {
 	pageData
 	Query    string
 	Sections []createCatalogSection
+	// Suggestions is the "Suggested" group the catalog renders above the
+	// departments (issue #416, S2). It is empty when the engine is off, when the
+	// requester typed nothing, and when no suggestion is confident (S3).
+	Suggestions []suggestionView
+	// SuggestionsEnabled turns the suggestion group, its live refresh and the
+	// descriptive search placeholder on. With it false the catalog renders
+	// exactly what it rendered before the feature (S7).
+	SuggestionsEnabled bool
 	// NoMatch reports a query no card matches, so the page states that instead
-	// of rendering an empty catalog.
+	// of rendering an empty catalog. A confident suggestion replaces it: the
+	// catalog below the Suggested group is the answer then (S3).
 	NoMatch bool
 }
 
@@ -1513,6 +1536,11 @@ func catalogSections(offers []catalogCategoryEntry, query string) ([]createCatal
 // box, then one section per department holding category cards. A card links to
 // the shared form with its category, and a published category that cannot run
 // stays visible, disabled, with its reason — the same rule the picker applies.
+//
+// With a category-suggestion engine on (issue #416, S2), the same box accepts a
+// description: a "Suggested" group renders above the departments, and a
+// description that names no card keeps the whole catalog visible below it instead
+// of the no-match message (S3).
 func (h *TicketHandlers) renderCatalog(w http.ResponseWriter, r *http.Request) {
 	offers, err := h.choosableCategories(r, nil)
 	if err != nil {
@@ -1520,7 +1548,18 @@ func (h *TicketHandlers) renderCatalog(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	query := strings.TrimSpace(r.URL.Query().Get("q"))
+	suggestionsEnabled := h.suggestionsEnabled(r)
+	suggestions := h.catalogSuggestions(r, query, offers)
 	sections, matches := catalogSections(offers, query)
+	if len(suggestions) > 0 {
+		if !matches {
+			// The requester described a problem instead of naming a card. The
+			// departments are still the way to choose by hand, so they stay whole
+			// below the Suggested group rather than disappearing behind a message.
+			sections, _ = catalogSections(offers, "")
+		}
+		sections = hideSuggestedCategories(sections, suggestionIDs(suggestions))
+	}
 	page := pageDataFrom(r, "tickets")
 	// The catalog is a creation surface: it carries the same page foundation
 	// (and therefore the same stylesheet) the form does, because the cards and
@@ -1528,10 +1567,14 @@ func (h *TicketHandlers) renderCatalog(w http.ResponseWriter, r *http.Request) {
 	page.PageFoundationAssets = true
 	page.CreateAssets = true
 	data := catalogPageData{
-		pageData: page,
-		Query:    query,
-		Sections: sections,
-		NoMatch:  query != "" && !matches,
+		pageData:           page,
+		Query:              query,
+		Sections:           sections,
+		Suggestions:        suggestions,
+		SuggestionsEnabled: suggestionsEnabled,
+		// A confident suggestion is the answer to a description no card name
+		// carries, so the no-match message would contradict what is on screen.
+		NoMatch: query != "" && !matches && len(suggestions) == 0,
 	}
 	h.renderer.Render(w, r, "tickets_catalog", "ticket_catalog", data, http.StatusOK)
 }
@@ -1726,9 +1769,10 @@ func (h *TicketHandlers) renderCreateError(w http.ResponseWriter, r *http.Reques
 			CategoryID:  r.Form.Get("category_id"),
 			Priority:    domain.Priority(r.Form.Get("priority")),
 		},
-		Options:        opts,
-		CategoryOffers: offers,
-		CategoryGroups: groupCatalogCategories(offers),
+		Options:            opts,
+		CategoryOffers:     offers,
+		CategoryGroups:     groupCatalogCategories(offers),
+		SuggestionsEnabled: h.suggestionsEnabled(r),
 	}
 	// Issue #391, S6: the re-render keeps every submitted value INCLUDING the
 	// category, and answers in the SAME mode the form was served in — a refused

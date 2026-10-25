@@ -40,6 +40,7 @@
         <button class="btn" type="reset">{{t "settings.discard"}}</button>
       </div>
     </form>
+{{template "category_suggestions_card" .}}
     <form class="settings-form card form-card" method="post" action="/settings/sla" data-settings-form>
       <h3 class="settings-group-title">{{t "settings.sla.title"}}</h3>
       <p class="help">{{t "settings.sla.help"}}</p>

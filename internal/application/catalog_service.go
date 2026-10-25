@@ -279,6 +279,11 @@ func (s *CatalogService) UpdateCategoryFor(ctx context.Context, actor domain.Use
 	if c.Name == "" {
 		return &domain.ValidationError{Field: "name", Message: domain.ErrMsgCategoryNameRequired, Key: "error.category_name_required"}
 	}
+	keywords, err := normalizeCategoryKeywords(c.Keywords)
+	if err != nil {
+		return err
+	}
+	c.Keywords = keywords
 	return s.categories.Update(ctx, c)
 }
 
