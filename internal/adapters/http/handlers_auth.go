@@ -25,6 +25,18 @@ type AuthHandlers struct {
 	signin *application.SigninService
 	// signinFailures deduplicates the panel read failure (issue #383, S9).
 	signinFailures signinReadLog
+	// reset is the OPTIONAL self-service recovery use case (issue #414, S3):
+	// with it the handler set serves the two public recovery pages. A handler
+	// set built without it (a focused test, a surface that does not offer
+	// recovery) keeps the routes answering 404, so the path is never half
+	// wired.
+	reset *application.PasswordResetService
+	// passwords and email answer whether the public recovery path is offered at
+	// all (S1/S5): the instance switch and the email-delivery configuration.
+	passwords *application.PasswordSettingsService
+	email     application.DeliveryConfigSource
+	// recoveryFailures deduplicates the availability read failure.
+	recoveryFailures passwordRecoveryReadLog
 }
 
 // NewAuthHandlers wires the auth handlers against the auth and user use
@@ -37,6 +49,16 @@ func NewAuthHandlers(auth *application.AuthService, users *application.UserServi
 // S9/S10).
 func (h *AuthHandlers) WithSignin(signin *application.SigninService) *AuthHandlers {
 	h.signin = signin
+	return h
+}
+
+// WithPasswordRecovery wires the self-service recovery path (issue #414, S3):
+// the use cases behind the two public pages, plus the instance policy and the
+// email configuration that decide whether the path is offered at all (S1/S5).
+func (h *AuthHandlers) WithPasswordRecovery(reset *application.PasswordResetService, passwords *application.PasswordSettingsService, email application.DeliveryConfigSource) *AuthHandlers {
+	h.reset = reset
+	h.passwords = passwords
+	h.email = email
 	return h
 }
 
@@ -67,6 +89,14 @@ func (h *AuthHandlers) Register(mux *http.ServeMux) {
 	mux.HandleFunc("POST /logout", h.logout)
 	mux.HandleFunc("GET /setup", h.setupForm)
 	mux.HandleFunc("POST /setup", h.setup)
+	// Issue #414: the two public recovery pages. They live under /login/, which
+	// the session middleware already treats as public, so a signed-out visitor
+	// reaches them and a signed-in one is sent on to /tickets like everywhere
+	// else in that branch.
+	mux.HandleFunc("GET /login/forgot", h.forgotForm)
+	mux.HandleFunc("POST /login/forgot", h.forgot)
+	mux.HandleFunc("GET /login/reset", h.resetForm)
+	mux.HandleFunc("POST /login/reset", h.resetPassword)
 }
 
 // loginData is the login page payload: the generic error message (D5) and
@@ -75,6 +105,13 @@ func (h *AuthHandlers) Register(mux *http.ServeMux) {
 type loginData struct {
 	Error string
 	Email string
+	// RecoveryOffered renders the "Forgot your password?" link under the
+	// password field (issue #414): it is shown only while the instance
+	// switch is ON and email delivery is configured (S1/S5).
+	RecoveryOffered bool
+	// PasswordChanged renders the banner a completed recovery lands with (S3):
+	// the password was replaced and every session was signed out.
+	PasswordChanged bool
 	// Brand is the instance identity, stamped by the session middleware.
 	Brand brandData
 	// Panel is the split shell's presentation panel (issue #383, S9): the stored
@@ -82,6 +119,19 @@ type loginData struct {
 	Panel             signinPanelData
 	CategoryAssets    bool
 	InternalCommentBg string
+}
+
+// loginPageData builds the sign-in page payload: the shared shell chrome, the
+// recovery link the instance offers, and the banner a completed password reset
+// lands with. The banner travels as a query flag that carries no token, so a
+// redirect can never leak the link a visitor just used.
+func (h *AuthHandlers) loginPageData(r *http.Request) loginData {
+	return loginData{
+		Brand:           brandFromContext(r.Context()),
+		Panel:           h.panel(r, true),
+		RecoveryOffered: h.recoveryOffered(r.Context()),
+		PasswordChanged: r.URL.Query().Get(loginPasswordChangedQuery) == "1",
+	}
 }
 
 func (h *AuthHandlers) loginForm(w http.ResponseWriter, r *http.Request) {
@@ -92,7 +142,7 @@ func (h *AuthHandlers) loginForm(w http.ResponseWriter, r *http.Request) {
 		redirect(w, r, "/setup")
 		return
 	}
-	h.renderer.Render(w, r, "login", "", loginData{Brand: brandFromContext(r.Context()), Panel: h.panel(r, true)}, http.StatusOK)
+	h.renderer.Render(w, r, "login", "", h.loginPageData(r), http.StatusOK)
 }
 
 func (h *AuthHandlers) login(w http.ResponseWriter, r *http.Request) {
@@ -110,7 +160,10 @@ func (h *AuthHandlers) login(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, msg, status)
 			return
 		}
-		h.renderer.Render(w, r, "login", "", loginData{Error: msg, Email: email, Brand: brandFromContext(r.Context()), Panel: h.panel(r, true)}, status)
+		data := h.loginPageData(r)
+		data.Error = msg
+		data.Email = email
+		h.renderer.Render(w, r, "login", "", data, status)
 		return
 	}
 

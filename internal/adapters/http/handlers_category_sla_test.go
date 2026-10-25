@@ -120,8 +120,8 @@ func TestCategorySLAIndexShowsMaterializedMatrix(t *testing.T) {
 // and nothing is written.
 func TestCategorySLADeniedForNonAdmin(t *testing.T) {
 	h := newHarness(t)
-	agent := h.createUser(t, "Agent", "agent@tkt.test", "secret")
-	session := h.loginCookie(t, agent.Email, "secret")
+	agent := h.createUser(t, "Agent", "agent@tkt.test", "s3cret-pass-12")
+	session := h.loginCookie(t, agent.Email, "s3cret-pass-12")
 	if session == "" {
 		t.Fatal("agent login must succeed")
 	}

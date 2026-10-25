@@ -68,6 +68,17 @@ type testClock struct{ now time.Time }
 
 func (c testClock) Now() time.Time { return c.now }
 
+// advanceableClock is the harness clock a test can move forward. The recovery
+// path measures an hour of validity and a five-minute throttle against injected
+// instants, so a test that needs an expired link advances the clock instead of
+// sleeping (no test in this repository sleeps).
+type advanceableClock struct{ now time.Time }
+
+func (c *advanceableClock) Now() time.Time { return c.now }
+
+// Advance moves the clock forward by d.
+func (c *advanceableClock) Advance(d time.Duration) { c.now = c.now.Add(d) }
+
 var fixedNow = time.Now()
 
 // seedUser inserts an active user directly through the store port (no
@@ -154,7 +165,7 @@ func (m *fakeMailer) Send(_ context.Context, cfg application.SMTPConfig, email a
 type harness struct {
 	store         *sqlite.Store
 	dbPath        string
-	clock         domain.Clock
+	clock         *advanceableClock
 	tickets       *application.TicketService
 	comments      *application.CommentService
 	users         *application.UserService
@@ -167,6 +178,8 @@ type harness struct {
 	sla           *application.SLAService
 	preferences   *application.PreferencesService
 	emailSettings *application.EmailSettingsService
+	passwords     *application.PasswordSettingsService
+	reset         *application.PasswordResetService
 	visits        *application.TicketVisitService
 	mailer        *fakeMailer
 	renderer      *Renderer
@@ -191,9 +204,9 @@ func newHarnessWithAdmin(t *testing.T, seedAdmin bool) *harness {
 	t.Helper()
 	dbPath := t.TempDir() + "/app.db"
 	s := openTestStoreAt(t, dbPath)
-	clock := testClock{now: fixedNow}
+	clock := &advanceableClock{now: fixedNow}
 
-	usersSvc := application.NewUserService(s.UserStore(), clock)
+	usersSvc := application.NewUserService(s.UserStore(), clock).WithPasswordSettings(s.PasswordSettingsStore()).WithPasswordChangeStore(s.PasswordChangeStore())
 	authSvc := application.NewAuthService(s.UserStore(), s.SessionStore(), clock)
 	catSvc := application.NewCategoryService(s.CategoryStore(), clock)
 	deskSvc := application.NewDeskService(s.DeskStore(), s.UserStore(), clock)
@@ -217,20 +230,26 @@ func newHarnessWithAdmin(t *testing.T, seedAdmin bool) *harness {
 	mailer := &fakeMailer{}
 	emailSettingsSvc := application.NewEmailSettingsService(s.EmailSettingsStore(), secretbox.New(filepath.Dir(dbPath)), mailer, s.SettingsStore(), msgtext.Renderer{})
 	signinSvc := application.NewSigninService(s.SigninStore())
+	passwordSettingsSvc := application.NewPasswordSettingsService(s.PasswordSettingsStore())
+	// Issue #414: the recovery use cases run over the REAL store and the
+	// harness's fake mailer, and the send runs where it stands (an inline
+	// dispatcher), so a test observes the mailed link as soon as the form
+	// answers. Production hands the send to its own goroutine instead.
+	resetSvc := application.NewPasswordResetService(s.UserStore(), s.PasswordResetStore(), s.PasswordSettingsStore(), emailSettingsSvc, mailer, msgtext.Renderer{}, func(send func()) { send() }, clock)
 	renderer := NewRenderer()
 
 	mux := http.NewServeMux()
 	RegisterStatic(mux, s.SettingsStore())
 	NewBrandHandlers(s.OrganizationStore()).WithSignin(s.SigninStore()).Register(mux)
-	NewAuthHandlers(authSvc, usersSvc, renderer).WithSignin(signinSvc).Register(mux)
+	NewAuthHandlers(authSvc, usersSvc, renderer).WithSignin(signinSvc).WithPasswordRecovery(resetSvc, passwordSettingsSvc, emailSettingsSvc).Register(mux)
 	NewTicketHandlers(ticketSvc, commentSvc, searchSvc, catSvc, usersSvc, s.DeskStore(), workflowSvc, application.NewWorkflowRunner(clock), s.WorkflowRunStore(), s.WorkflowUnitOfWork(), renderer).WithMetrics(metricsSvc).WithSLA(slaSvc).WithPreferences(preferencesSvc).WithClock(clock).WithVisits(visitSvc).WithAttachments(s.AttachmentStore(), attachmentSvc).Register(mux)
 	NewUserHandlers(usersSvc, renderer).Register(mux)
 	NewCategoryHandlersWithWorkflows(catSvc, workflowSvc, renderer, application.NewCatalogService(s.CatalogStore(), s.CategoryStore(), clock)).WithSettings(s.SettingsStore()).Register(mux)
 	NewCategoryWorkflowHandlers(catSvc, workflowSvc, deskSvc, renderer).Register(mux)
 	NewDeskHandlers(deskSvc, renderer).Register(mux)
-	NewSettingsHandlers(settingsSvc, slaSvc, s.SLAStore(), s.SettingsStore(), renderer).WithEmail(emailSettingsSvc).WithOrganization(application.NewOrganizationService(s.OrganizationStore())).WithSignin(signinSvc).Register(mux)
+	NewSettingsHandlers(settingsSvc, slaSvc, s.SLAStore(), s.SettingsStore(), renderer).WithEmail(emailSettingsSvc).WithOrganization(application.NewOrganizationService(s.OrganizationStore())).WithSignin(signinSvc).WithPasswordSettings(passwordSettingsSvc).Register(mux)
 	NewCategorySLAHandlers(catSvc, slaSvc, s.SLAStore(), renderer).Register(mux)
-	NewPreferencesHandlers(preferencesSvc, renderer).Register(mux)
+	NewPreferencesHandlers(preferencesSvc, renderer).WithPasswordChange(usersSvc, passwordSettingsSvc).Register(mux)
 	NewNotificationHandlers(s.NotificationStore(), s.TicketStore(), s.UserStore(), renderer, clock).Register(mux)
 	mw := NewSessionMiddleware(s.SessionStore(), s.UserStore(), s.SettingsStore()).WithSidebarPreferences(s.SidebarPreferences()).WithThemePreferences(s.ThemePreferences()).WithOrganization(s.OrganizationStore())
 
@@ -238,7 +257,7 @@ func newHarnessWithAdmin(t *testing.T, seedAdmin bool) *harness {
 		store: s, dbPath: dbPath, clock: clock,
 		tickets: ticketSvc, comments: commentSvc, users: usersSvc, auth: authSvc,
 		categories: catSvc, desks: deskSvc, search: searchSvc, settings: settingsSvc, workflows: workflowSvc, sla: slaSvc,
-		preferences: preferencesSvc, emailSettings: emailSettingsSvc, mailer: mailer,
+		preferences: preferencesSvc, emailSettings: emailSettingsSvc, passwords: passwordSettingsSvc, reset: resetSvc, mailer: mailer,
 		visits:   visitSvc,
 		renderer: renderer,
 		mux:      mux, mw: mw,

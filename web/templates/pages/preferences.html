@@ -54,6 +54,32 @@
         </div>
       </form>
     </section>
-  </div>
+{{if .Password.Shown}}    <section class="preferences-section">
+      <div class="preferences-section-head">
+        <h2>{{t "preferences.password.title"}}</h2>
+        <p>{{t "preferences.password.help"}}</p>
+      </div>
+      <form class="preferences-form" method="post" action="/preferences/password">
+{{if .Password.Error}}        <div class="error-banner" role="alert" id="password-error">{{.Password.Error}}</div>
+{{end}}        <div class="field">
+          <label for="current_password">{{t "preferences.password.current"}}</label>
+          <input id="current_password" name="current_password" type="password" autocomplete="current-password"{{if eq .Password.ErrorField "current_password"}} aria-invalid="true" aria-describedby="password-error"{{end}}>
+        </div>
+        <div class="field">
+          <label for="new_password">{{t "preferences.password.new"}}</label>
+          <input id="new_password" name="new_password" type="password" autocomplete="new-password"{{if eq .Password.ErrorField "new_password"}} aria-invalid="true" aria-describedby="password-error password-min-help"{{else}} aria-describedby="password-min-help"{{end}}>
+          <p class="help" id="password-min-help">{{tf "preferences.password.min_help" .Password.MinLength}}</p>
+        </div>
+        <div class="field">
+          <label for="confirm_password">{{t "preferences.password.confirm"}}</label>
+          <input id="confirm_password" name="confirm_password" type="password" autocomplete="new-password"{{if eq .Password.ErrorField "confirm_password"}} aria-invalid="true" aria-describedby="password-error"{{end}}>
+        </div>
+        <p class="preferences-note">{{t "preferences.password.note"}}</p>
+        <div class="preferences-actions">
+          <button class="btn primary" type="submit">{{t "preferences.password.save"}}</button>
+        </div>
+      </form>
+    </section>
+{{end}}  </div>
 </div>
 {{end}}

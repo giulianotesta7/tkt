@@ -1,9 +1,11 @@
 package httpadapter
 
 import (
+	"errors"
 	"net/http"
 
 	"github.com/giulianotesta7/tkt/internal/application"
+	"github.com/giulianotesta7/tkt/internal/domain"
 )
 
 // PreferencesHandlers expose the per-user preferences page (issue #210):
@@ -28,9 +30,18 @@ import (
 // narrowest case of that rule: its whole body is a single two-valued field. The
 // theme route is the same shape as the queue order — a closed set of three
 // values — so it also answers a native redirect with the save feedback.
+//
+// POST /preferences/password (issue #414, S2) is the one preference that is not
+// a stored setting: it changes the account's own password, so the page needs the
+// user use cases and the instance password policy, and the route reads the
+// session making the request from the cookie. Both are optional wiring: a set
+// built without them hides the section (fail closed) instead of offering a path
+// it cannot complete.
 type PreferencesHandlers struct {
 	preferences *application.PreferencesService
 	renderer    *Renderer
+	users       *application.UserService
+	passwords   *application.PasswordSettingsService
 }
 
 // NewPreferencesHandlers wires the preference routes against the
@@ -46,6 +57,17 @@ func (h *PreferencesHandlers) Register(mux *http.ServeMux) {
 	mux.HandleFunc("POST /preferences/email", h.updateEmail)
 	mux.HandleFunc("POST /preferences/sidebar", h.updateSidebar)
 	mux.HandleFunc("POST /preferences/theme", h.updateTheme)
+	mux.HandleFunc("POST /preferences/password", h.updatePassword)
+}
+
+// WithPasswordChange wires the own-password section (issue #414, S2): the user
+// use case that changes the signed-in account's password and signs out its other
+// sessions, and the instance policy that decides whether the section exists and
+// how long a new password must be.
+func (h *PreferencesHandlers) WithPasswordChange(users *application.UserService, passwords *application.PasswordSettingsService) *PreferencesHandlers {
+	h.users = users
+	h.passwords = passwords
+	return h
 }
 
 // preferencesData is the preferences page payload. Current is already
@@ -62,6 +84,28 @@ type preferencesData struct {
 	Theme              string
 	Themes             []themeOption
 	EmailNotifications bool
+	// Password is the own-password section (issue #414, S2). Shown is false
+	// while the instance switch is OFF, so the whole section disappears.
+	Password passwordSectionData
+}
+
+// The three fields of the own-password form. They are the route's wire
+// vocabulary and the field each refusal is reported on.
+const (
+	passwordFieldCurrent = "current_password"
+	passwordFieldNew     = "new_password"
+	passwordFieldConfirm = "confirm_password"
+)
+
+// passwordSectionData is the own-password section's payload: whether it renders,
+// the instance minimum its help teaches, and one refusal with the field it
+// belongs to. No password value ever travels in this payload, so a rejected
+// submission cannot echo one back into the form.
+type passwordSectionData struct {
+	Shown      bool
+	MinLength  int
+	Error      string
+	ErrorField string
 }
 
 // queueOrderOption is one selectable queue order.
@@ -271,6 +315,10 @@ func (h *PreferencesHandlers) data(r *http.Request, current, msg string) (prefer
 	if err != nil {
 		return preferencesData{}, err
 	}
+	section, err := h.passwordChangeSection(r)
+	if err != nil {
+		return preferencesData{}, err
+	}
 	return preferencesData{
 		pageData:           pageDataFrom(r, "preferences"),
 		Error:              msg,
@@ -279,5 +327,112 @@ func (h *PreferencesHandlers) data(r *http.Request, current, msg string) (prefer
 		Theme:              theme,
 		Themes:             themeOptions(),
 		EmailNotifications: enabled,
+		Password:           section,
 	}, nil
+}
+
+// passwordChangeSection reads the instance policy the own-password section
+// follows (issue #414, S1/S4): the section renders only while the switch is ON,
+// and the minimum it teaches is the one every new password must reach. A handler
+// set built without the password use cases keeps the section hidden rather than
+// offering a path it cannot complete.
+func (h *PreferencesHandlers) passwordChangeSection(r *http.Request) (passwordSectionData, error) {
+	if h.users == nil || h.passwords == nil {
+		return passwordSectionData{}, nil
+	}
+	policy, err := h.passwords.Get(r.Context())
+	if err != nil {
+		return passwordSectionData{}, err
+	}
+	return passwordSectionData{Shown: policy.ChangeEnabled, MinLength: policy.MinLength}, nil
+}
+
+// updatePassword replaces the session user's own password (issue #414, S2). The
+// current password, the new one and its confirmation arrive as one native
+// submission, so success answers the same 303 back to /preferences with the
+// shared save feedback the other preference forms use.
+//
+// The order of the guards matters. The switch is read first, because while it is
+// OFF the path does not exist — a forged submission is refused with 403 before a
+// single form value is looked at, without writing anything. The confirmation is
+// compared next: the two fields are compared here, before the use case runs, so
+// a mistyped confirmation can never cost the person their current password. Only
+// then does the application verify the current password, enforce the minimum and
+// write the new hash together with the sign-out of every other session.
+func (h *PreferencesHandlers) updatePassword(w http.ResponseWriter, r *http.Request) {
+	if h.users == nil || h.passwords == nil {
+		httpError(w, r, "error.internal_server", http.StatusInternalServerError)
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		httpError(w, r, "error.internal_server", http.StatusInternalServerError)
+		return
+	}
+	policy, err := h.passwords.Get(r.Context())
+	if err != nil {
+		httpError(w, r, "error.internal_server", http.StatusInternalServerError)
+		return
+	}
+	if !policy.ChangeEnabled {
+		httpError(w, r, "error.forbidden", http.StatusForbidden)
+		return
+	}
+
+	// S2 keeps the session in use signed in, so the use case is handed the very
+	// session making the request, read from the cookie the browser sent.
+	sessionID := ""
+	if cookie, cookieErr := r.Cookie(sessionCookie); cookieErr == nil {
+		sessionID = cookie.Value
+	}
+	newPassword := r.Form.Get(passwordFieldNew)
+	if newPassword != r.Form.Get(passwordFieldConfirm) {
+		err = &domain.ValidationError{
+			Field:   passwordFieldConfirm,
+			Message: "the new passwords do not match",
+			Key:     "error.password_confirm_mismatch",
+		}
+	} else {
+		err = h.users.ChangeOwnPassword(r.Context(), *userFromContext(r.Context()), sessionID, r.Form.Get(passwordFieldCurrent), newPassword)
+	}
+	if err != nil {
+		status, msg := mapErrorFor(r, err)
+		if status == http.StatusInternalServerError {
+			http.Error(w, msg, status)
+			return
+		}
+		// A refused submission re-renders the page with the refusal beside the
+		// field it belongs to and changes nothing. No password value is echoed
+		// back into the form.
+		current, getErr := h.preferences.GetDefaultQueueOrder(r.Context(), *userFromContext(r.Context()))
+		if getErr != nil {
+			httpError(w, r, "error.internal_server", http.StatusInternalServerError)
+			return
+		}
+		data, getErr := h.data(r, current, "")
+		if getErr != nil {
+			httpError(w, r, "error.internal_server", http.StatusInternalServerError)
+			return
+		}
+		data.Password.Error = msg
+		data.Password.ErrorField = passwordErrorField(err)
+		h.renderer.Render(w, r, "preferences", "", data, status)
+		return
+	}
+	saveFeedback(w, r, saveFeedbackSaved, saveFeedbackSuccess)
+	redirect(w, r, "/preferences")
+}
+
+// passwordErrorField maps a refused password submission onto the field it
+// belongs to. The use cases name their finding "password" because they store ONE
+// password; on this form that is the new-password field, while the current
+// password and the confirmation already carry their own names.
+func passwordErrorField(err error) string {
+	var validation *domain.ValidationError
+	if !errors.As(err, &validation) {
+		return ""
+	}
+	if validation.Field == "password" {
+		return passwordFieldNew
+	}
+	return validation.Field
 }

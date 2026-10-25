@@ -22,7 +22,7 @@ func authForm(email, password string) url.Values {
 // TestLoginPageRendered proves GET /login serves the login form page.
 func TestLoginPageRendered(t *testing.T) {
 	h := newHarness(t)
-	h.createUser(t, "Ana", "ana@example.com", "secret")
+	h.createUser(t, "Ana", "ana@example.com", "s3cret-pass-12")
 
 	req := httptest.NewRequest(http.MethodGet, "/login", nil)
 	rec := httptest.NewRecorder()
@@ -135,9 +135,9 @@ func TestAuthEntryCopyAndFormContracts(t *testing.T) {
 // into the application (303 /tickets).
 func TestLoginSuccess(t *testing.T) {
 	h := newHarness(t)
-	h.createUser(t, "Ana", "ana@example.com", "secret")
+	h.createUser(t, "Ana", "ana@example.com", "s3cret-pass-12")
 
-	rec := h.postFormAs(t, "/login", authForm("ana@example.com", "secret"), "")
+	rec := h.postFormAs(t, "/login", authForm("ana@example.com", "s3cret-pass-12"), "")
 
 	wantRedirect(t, rec, http.StatusSeeOther, "/tickets")
 	cookies := rec.Result().Cookies()
@@ -168,7 +168,7 @@ func TestLoginSuccess(t *testing.T) {
 // (login spec: no user enumeration).
 func TestLoginFailureSameGenericError(t *testing.T) {
 	h := newHarness(t)
-	ana := h.createUser(t, "Ana", "ana@example.com", "secret")
+	ana := h.createUser(t, "Ana", "ana@example.com", "s3cret-pass-12")
 	// Deactivate ana (store-level; the deactivation UI lands in 5.6).
 	ana.Active = false
 	if err := h.store.UserStore().Update(context.Background(), ana); err != nil {
@@ -181,8 +181,8 @@ func TestLoginFailureSameGenericError(t *testing.T) {
 		pw    string
 	}{
 		{"wrong password", "ana@example.com", "wrong"},
-		{"unknown email", "nobody@example.com", "secret"},
-		{"deactivated user", "ana@example.com", "secret"},
+		{"unknown email", "nobody@example.com", "s3cret-pass-12"},
+		{"deactivated user", "ana@example.com", "s3cret-pass-12"},
 	}
 	for _, tt := range cases {
 		t.Run(tt.name, func(t *testing.T) {
@@ -207,7 +207,7 @@ func TestLoginFailureSameGenericError(t *testing.T) {
 // distinguishes it).
 func TestLoginEmptyFieldsGeneric(t *testing.T) {
 	h := newHarness(t)
-	h.createUser(t, "Ana", "ana@example.com", "secret")
+	h.createUser(t, "Ana", "ana@example.com", "s3cret-pass-12")
 
 	rec := h.postFormAs(t, "/login", authForm("", ""), "")
 
@@ -221,9 +221,9 @@ func TestLoginEmptyFieldsGeneric(t *testing.T) {
 // request is unauthenticated.
 func TestLogoutDestroysSessionAndClearsCookie(t *testing.T) {
 	h := newHarness(t)
-	h.createUser(t, "Ana", "ana@example.com", "secret")
+	h.createUser(t, "Ana", "ana@example.com", "s3cret-pass-12")
 
-	login := h.postFormAs(t, "/login", authForm("ana@example.com", "secret"), "")
+	login := h.postFormAs(t, "/login", authForm("ana@example.com", "s3cret-pass-12"), "")
 	session := cookieValue(t, login, sessionCookie)
 
 	rec := h.postFormAs(t, "/logout", url.Values{}, session)
@@ -255,7 +255,7 @@ func TestLogoutDestroysSessionAndClearsCookie(t *testing.T) {
 // login (Delete on a missing row is a no-op).
 func TestLogoutIdempotent(t *testing.T) {
 	h := newHarness(t)
-	h.createUser(t, "Ana", "ana@example.com", "secret")
+	h.createUser(t, "Ana", "ana@example.com", "s3cret-pass-12")
 
 	rec := h.postFormAs(t, "/logout", url.Values{}, "never-issued")
 
@@ -319,7 +319,7 @@ func TestSetupPageShownWhenEmpty(t *testing.T) {
 func TestSetupCreatesFirstActiveUser(t *testing.T) {
 	h := newEmptyHarness(t)
 
-	form := url.Values{"name": {"Ana"}, "email": {"ana@example.com"}, "password": {"secret"}}
+	form := url.Values{"name": {"Ana"}, "email": {"ana@example.com"}, "password": {"s3cret-pass-12"}}
 	rec := h.postFormAs(t, "/setup", form, "")
 
 	wantRedirect(t, rec, http.StatusSeeOther, "/login")
@@ -339,7 +339,7 @@ func TestSetupCreatesFirstActiveUser(t *testing.T) {
 	}
 
 	// The bootstrap user can log in.
-	login := h.postFormAs(t, "/login", authForm("ana@example.com", "secret"), "")
+	login := h.postFormAs(t, "/login", authForm("ana@example.com", "s3cret-pass-12"), "")
 	wantRedirect(t, login, http.StatusSeeOther, "/tickets")
 }
 
@@ -367,8 +367,8 @@ func TestSetupConcurrentSubmissionsProduceOneRoot(t *testing.T) {
 	start := make(chan struct{})
 	recs := make([]*httptest.ResponseRecorder, 2)
 	forms := []url.Values{
-		{"name": {"Ana"}, "email": {emailA}, "password": {"secret-a"}},
-		{"name": {"Beto"}, "email": {emailB}, "password": {"secret-b"}},
+		{"name": {"Ana"}, "email": {emailA}, "password": {"s3cret-pass-a"}},
+		{"name": {"Beto"}, "email": {emailB}, "password": {"s3cret-pass-b"}},
 	}
 	var wg sync.WaitGroup
 	for i := range forms {
@@ -460,7 +460,7 @@ func TestSetupValidationErrorReRenders(t *testing.T) {
 // generic login failure contract while the entry presentation is refactored.
 func TestLoginValidationErrorReRendersPreservesSafeValues(t *testing.T) {
 	h := newHarness(t)
-	h.createUser(t, "Ana", "ana@example.com", "secret")
+	h.createUser(t, "Ana", "ana@example.com", "s3cret-pass-12")
 	const submittedPassword = "do-not-echo-this-password"
 	rec := h.postFormAs(t, "/login", authForm("ana@example.com", submittedPassword), "")
 

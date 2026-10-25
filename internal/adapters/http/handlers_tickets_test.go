@@ -999,7 +999,7 @@ func TestTicketCreateUserRoleRejectsAssignment(t *testing.T) {
 	h := newHarness(t)
 	user := seedUserRole(t, h.store, "Ula", "ula@example.com", domain.RoleUser)
 	sess := seedSession(t, h.store, user.ID)
-	beto := h.createUser(t, "Beto", "beto@example.com", "secret")
+	beto := h.createUser(t, "Beto", "beto@example.com", "s3cret-pass-12")
 
 	form := ticketForm(func(f url.Values) {
 		f.Set("category_id", strconv.FormatInt(h.bugCategory.ID, 10))

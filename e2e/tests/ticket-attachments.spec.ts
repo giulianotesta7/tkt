@@ -151,7 +151,7 @@ test.describe("Ticket attachments", () => {
     await page.setViewportSize({ width: 1280, height: 800 });
     const suffix = Date.now().toString(36).slice(2, 8);
     const requesterEmail = `attachments-${suffix}@tkt.test`;
-    const requesterPassword = "Secret123!";
+    const requesterPassword = "Secret123!42";
 
     await loginAsSeeded(page);
     await createUserAsAdmin(page, {

@@ -93,7 +93,7 @@ func TestTicketWorkflowTimelineClaimReassignmentIsReasonless(t *testing.T) {
 		t.Fatalf("create desk: %v", err)
 	}
 	tkt := seedClaimCategory(t, h, desk.ID, domain.StrategyClaim)
-	beto := h.createUser(t, "Beto", "beto@example.com", "secret")
+	beto := h.createUser(t, "Beto", "beto@example.com", "s3cret-pass-12")
 
 	// A→B claim: Beto owns the ticket first, then the admin claims it.
 	id := strconv.FormatInt(tkt.ID, 10)

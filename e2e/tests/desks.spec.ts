@@ -43,7 +43,7 @@ test.describe("Desks", () => {
     await page.goto(base() + "/users/new");
     await page.getByLabel(/^name$/i).fill(uname);
     await page.getByLabel(/^email$/i).fill(uemail);
-    await page.getByLabel(/^password$/i).fill("Secret123!");
+    await page.getByLabel(/^password$/i).fill("Secret123!42");
     await page.getByRole("button", { name: /create user/i }).click();
     await expect(page).toHaveURL(/\/users/);
 
@@ -195,7 +195,7 @@ test.describe("Desks", () => {
       await page.goto(base() + "/users/new");
       await page.getByLabel(/^name$/i).fill(name);
       await page.getByLabel(/^email$/i).fill(`drawer-member-${suffix}@example.com`);
-      await page.getByLabel(/^password$/i).fill("Secret123!");
+      await page.getByLabel(/^password$/i).fill("Secret123!42");
       await page.getByRole("button", { name: /create user/i }).click();
       await expect(page).toHaveURL(/\/users/);
       const row = page.locator(`tr[data-user-name="${name}"]`);

@@ -32,6 +32,7 @@
   <div class="field">
     <label for="password">Password</label>
     <input type="password" id="password" name="password" placeholder="••••••••" autocomplete="current-password" required>
+    <div class="field-aux"><a class="auth-link" href="/login/forgot">Forgot your password?</a></div>
   </div>
   <button class="btn primary" type="submit">Sign in</button>
 </form>

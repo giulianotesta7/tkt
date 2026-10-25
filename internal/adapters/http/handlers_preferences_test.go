@@ -72,12 +72,12 @@ func TestPreferencesReachableByEveryAuthenticatedRole(t *testing.T) {
 	agentSession := seedSession(t, h.store, agent.ID)
 
 	requester, err := h.users.Create(t.Context(), *h.admin, application.CreateUserInput{
-		Name: "Prefs requester", Email: "prefs-requester@tkt.test", Password: "secret",
+		Name: "Prefs requester", Email: "prefs-requester@tkt.test", Password: "s3cret-pass-12",
 	})
 	if err != nil {
 		t.Fatalf("create requester: %v", err)
 	}
-	requesterSession := h.loginCookie(t, requester.Email, "secret")
+	requesterSession := h.loginCookie(t, requester.Email, "s3cret-pass-12")
 	if requesterSession == "" {
 		t.Fatal("requester login must succeed")
 	}
@@ -208,7 +208,7 @@ func TestPreferencesDoNotAffectRequesterList(t *testing.T) {
 	h := newHarness(t)
 
 	requester, err := h.users.Create(t.Context(), *h.admin, application.CreateUserInput{
-		Name: "Requester", Email: "requester-prefs-list@tkt.test", Password: "secret",
+		Name: "Requester", Email: "requester-prefs-list@tkt.test", Password: "s3cret-pass-12",
 	})
 	if err != nil {
 		t.Fatalf("create requester: %v", err)
@@ -227,7 +227,7 @@ func TestPreferencesDoNotAffectRequesterList(t *testing.T) {
 	}
 	seedStoredQueueOrder(t, h, requester.ID, "priority")
 
-	session := h.loginCookie(t, requester.Email, "secret")
+	session := h.loginCookie(t, requester.Email, "s3cret-pass-12")
 	if session == "" {
 		t.Fatal("requester login must succeed")
 	}

@@ -175,7 +175,7 @@ func TestCategoryWorkflowBuilder_SafeGetAuthorizationAndIndex(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create category: %v", err)
 	}
-	agent := h.createUser(t, "Agent", "workflow-agent@tkt.test", "secret")
+	agent := h.createUser(t, "Agent", "workflow-agent@tkt.test", "s3cret-pass-12")
 	path := "/categories/" + strconv.FormatInt(category.ID, 10) + "/workflow"
 
 	deniedReq := httptest.NewRequest(http.MethodGet, path, nil).WithContext(context.WithValue(context.Background(), ctxKeyUser{}, agent))
@@ -2807,7 +2807,7 @@ func TestCategoryWorkflowClone_RouteAuthorizationRefusalAndRoundTrip(t *testing.
 	form := url.Values{"source_category_id": {strconv.FormatInt(source.ID, 10)}}
 
 	// Authorization: an agent may not clone.
-	agent := h.createUser(t, "Clone Agent", "clone-agent@tkt.test", "secret")
+	agent := h.createUser(t, "Clone Agent", "clone-agent@tkt.test", "s3cret-pass-12")
 	agentSession := seedSession(t, h.store, agent.ID)
 	denied := h.postFormAs(t, path, form, agentSession.ID)
 	if denied.Code != http.StatusForbidden {
