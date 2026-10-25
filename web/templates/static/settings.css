@@ -230,6 +230,89 @@
   min-width: 0;
 }
 
+/* A choice that carries its own sentence (issue #416, S6): the label starts at
+   the top and the explanation sits under it, so a two-line option still lines up
+   with its radio. The sentence is reading text, so it stays on the muted rung the
+   rest of the section's help copy uses. */
+.settings-choice-detailed {
+  align-items: flex-start;
+}
+
+.settings-choice-detailed input {
+  margin-top: 3px;
+}
+
+.settings-choice-help {
+  display: block;
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+/* The decision-model fields and the Try it box are one block each, revealed by
+   the engine choice. A hidden block keeps its values, so switching away and back
+   never costs what was typed. */
+.settings-suggestion-model,
+.settings-suggestion-try {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.settings-suggestion-try {
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+}
+
+.settings-suggestion-try-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.settings-suggestion-try-row input {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+/* One row per candidate: the name and its bar, then the share the engine gave
+   it. The bar is the accent's own fill on the hairline, never a second colour. */
+.suggestion-try-rows {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 60px;
+  gap: 4px 12px;
+  align-items: center;
+  margin-top: 10px;
+  font-size: 12px;
+}
+
+.suggestion-try-name {
+  display: block;
+  min-width: 0;
+  color: var(--ink);
+}
+
+.suggestion-try-bar {
+  display: block;
+  height: 6px;
+  margin-top: 4px;
+  border-radius: 999px;
+  background: var(--line);
+  overflow: hidden;
+}
+
+.suggestion-try-bar i {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+}
+
+.suggestion-try-percent {
+  text-align: right;
+  color: var(--muted);
+}
+
 /* Sign-in page section (issue #383, S10): the form on the left and the live
    preview on the right. The preview renders the real panel classes inside a
    scaled frame, so the mirror cannot drift from what the sign-in page shows. */

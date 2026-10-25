@@ -475,6 +475,23 @@
   }
   .prop-select:hover{border-color:var(--line-strong)}
   .prop-select:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 2px var(--accent-soft)}
+  .create-suggestions{margin-top:6px;padding:10px 0 2px;border-top:1px solid var(--line)}
+  .create-suggestions-title{display:flex;align-items:center;gap:6px;margin:0 0 8px;color:var(--muted);font-size:12px}
+  .suggestion-spark{width:13px;height:13px;flex:0 0 auto}
+  .create-suggestion-chip{display:flex;flex-direction:column;align-items:flex-start;gap:2px;width:100%;margin:0 0 6px;padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--ink);font:inherit;text-align:left;cursor:pointer}
+  .create-suggestion-chip:hover{background:var(--hover)}
+  .create-suggestion-chip:focus-visible{outline:3px solid var(--accent);outline-offset:1px}
+  .create-suggestion-chip[aria-pressed="true"]{border-color:var(--accent);background:var(--accent-soft)}
+  .create-suggestion-chip-name{font-size:13px;font-weight:500}
+  .create-suggestion-chip-desk{font-size:12px;color:var(--muted)}
+  .create-suggestion-loading{display:flex;align-items:center;gap:8px;min-height:30px;margin:4px 0 6px;font-size:12px;color:var(--muted)}
+  .create-suggestion-loading[hidden]{display:none}
+  .create-suggestion-spinner{width:14px;height:14px;flex:none;border:2px solid var(--line-strong);border-top-color:currentColor;border-radius:50%;animation:spin .8s linear infinite}
+  @media(prefers-reduced-motion:reduce){.create-suggestion-spinner{animation:none}}
+  .create-catalog-suggested:empty{display:none}
+  .create-catalog-suggested-title{display:flex;align-items:center;gap:6px}
+  .create-catalog .create-card-suggested{border-color:var(--accent)}
+  .create-catalog .create-card-matches{display:block;margin-top:6px;color:var(--accent);font-size:11px}
   .lifecycle-meta{display:grid;grid-template-columns:auto 1fr;gap:6px 12px;margin:10px 0 0;padding-top:10px;border-top:1px solid var(--line);font-size:12px}
   .lifecycle-meta dt{color:var(--muted)}
   .lifecycle-meta dd{margin:0;color:var(--ink-soft);text-align:right}

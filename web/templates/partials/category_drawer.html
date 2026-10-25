@@ -17,6 +17,7 @@
         {{end}}
         <div class="users-field"><label for="category-name">{{t "categories.drawer.name"}}</label><input id="category-name" name="name" type="text" value="{{.Name}}" required autofocus aria-describedby="{{$nameHelpID}}"{{if .InvalidName}} aria-invalid="true"{{end}}><p id="{{$nameHelpID}}" class="users-help">{{t (print "categories.drawer.name_help." .Kind)}}</p></div>
         <div class="users-field"><label for="category-description">{{t "categories.drawer.description"}}</label><textarea id="category-description" name="description" rows="4">{{.Description}}</textarea></div>
+        {{if eq .Kind "category"}}<div class="users-field"><label for="category-keywords">{{t "categories.drawer.keywords"}}</label><input id="category-keywords" name="keywords" type="text" value="{{.Keywords}}" maxlength="500" aria-describedby="category-keywords-help"><p id="category-keywords-help" class="users-help">{{t "categories.drawer.keywords_help"}}</p></div>{{end}}
         <input type="hidden" name="view" value="structure">
         {{if eq .Kind "desk"}}{{if .ID}}<input type="hidden" name="desk_id" value="{{.ID}}">{{end}}{{end}}
         <footer class="users-drawer-footer"><button class="users-cancel category-drawer-cancel" type="button">{{t "common.cancel"}}</button><button class="users-primary-action" type="submit">{{if .ID}}{{t "users.save_changes"}}{{else}}{{tf "categories.drawer.create" (t (print "categories.kind." .Kind))}}{{end}}</button></footer>

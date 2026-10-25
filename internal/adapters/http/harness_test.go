@@ -182,12 +182,19 @@ type harness struct {
 	reset         *application.PasswordResetService
 	visits        *application.TicketVisitService
 	mailer        *fakeMailer
-	renderer      *Renderer
-	mux           *http.ServeMux
-	mw            *SessionMiddleware
-	admin         *domain.User
-	adminSession  *domain.Session
-	bugCategory   *domain.Category
+	// Category suggestions (issue #416): the settings use case, the composition,
+	// and the fake decision model wired at its port. The local engine runs over
+	// the REAL sqlite index, so a test proves the triggers and the ranking, not a
+	// stand-in.
+	suggestionSettings *application.CategorySuggestionSettingsService
+	suggestionSvc      *application.CategorySuggestionService
+	decisionModel      *fakeDecisionModel
+	renderer           *Renderer
+	mux                *http.ServeMux
+	mw                 *SessionMiddleware
+	admin              *domain.User
+	adminSession       *domain.Session
+	bugCategory        *domain.Category
 }
 
 func newHarness(t *testing.T) *harness {
@@ -229,6 +236,12 @@ func newHarnessWithAdmin(t *testing.T, seedAdmin bool) *harness {
 	// the send without opening a socket.
 	mailer := &fakeMailer{}
 	emailSettingsSvc := application.NewEmailSettingsService(s.EmailSettingsStore(), secretbox.New(filepath.Dir(dbPath)), mailer, s.SettingsStore(), msgtext.Renderer{})
+	// Issue #416: the suggestion engines answer the creation screens. The local
+	// one reads the real index the migration created; the decision one answers
+	// through a fake at its port, so no test opens a socket.
+	decisionModel := &fakeDecisionModel{}
+	suggestionSettingsSvc := application.NewCategorySuggestionSettingsService(s.CategorySuggestionSettingsStore(), secretbox.New(filepath.Dir(dbPath)))
+	suggestionSvc := application.NewCategorySuggestionService(suggestionSettingsSvc, application.NewLocalCategorySuggester(s.CategorySuggestionIndex()), application.NewDecisionCategorySuggester(decisionModel))
 	signinSvc := application.NewSigninService(s.SigninStore())
 	passwordSettingsSvc := application.NewPasswordSettingsService(s.PasswordSettingsStore())
 	// Issue #414: the recovery use cases run over the REAL store and the
@@ -242,12 +255,13 @@ func newHarnessWithAdmin(t *testing.T, seedAdmin bool) *harness {
 	RegisterStatic(mux, s.SettingsStore())
 	NewBrandHandlers(s.OrganizationStore()).WithSignin(s.SigninStore()).Register(mux)
 	NewAuthHandlers(authSvc, usersSvc, renderer).WithSignin(signinSvc).WithPasswordRecovery(resetSvc, passwordSettingsSvc, emailSettingsSvc).Register(mux)
-	NewTicketHandlers(ticketSvc, commentSvc, searchSvc, catSvc, usersSvc, s.DeskStore(), workflowSvc, application.NewWorkflowRunner(clock), s.WorkflowRunStore(), s.WorkflowUnitOfWork(), renderer).WithMetrics(metricsSvc).WithSLA(slaSvc).WithPreferences(preferencesSvc).WithClock(clock).WithVisits(visitSvc).WithAttachments(s.AttachmentStore(), attachmentSvc).Register(mux)
+	ticketHandlers := NewTicketHandlers(ticketSvc, commentSvc, searchSvc, catSvc, usersSvc, s.DeskStore(), workflowSvc, application.NewWorkflowRunner(clock), s.WorkflowRunStore(), s.WorkflowUnitOfWork(), renderer).WithMetrics(metricsSvc).WithSLA(slaSvc).WithPreferences(preferencesSvc).WithClock(clock).WithVisits(visitSvc).WithAttachments(s.AttachmentStore(), attachmentSvc).WithCategorySuggestions(suggestionSvc)
+	ticketHandlers.Register(mux)
 	NewUserHandlers(usersSvc, renderer).Register(mux)
 	NewCategoryHandlersWithWorkflows(catSvc, workflowSvc, renderer, application.NewCatalogService(s.CatalogStore(), s.CategoryStore(), clock)).WithSettings(s.SettingsStore()).Register(mux)
 	NewCategoryWorkflowHandlers(catSvc, workflowSvc, deskSvc, renderer).Register(mux)
 	NewDeskHandlers(deskSvc, renderer).Register(mux)
-	NewSettingsHandlers(settingsSvc, slaSvc, s.SLAStore(), s.SettingsStore(), renderer).WithEmail(emailSettingsSvc).WithOrganization(application.NewOrganizationService(s.OrganizationStore())).WithSignin(signinSvc).WithPasswordSettings(passwordSettingsSvc).Register(mux)
+	NewSettingsHandlers(settingsSvc, slaSvc, s.SLAStore(), s.SettingsStore(), renderer).WithEmail(emailSettingsSvc).WithOrganization(application.NewOrganizationService(s.OrganizationStore())).WithSignin(signinSvc).WithPasswordSettings(passwordSettingsSvc).WithCategorySuggestions(suggestionSettingsSvc, suggestionSvc, ticketHandlers).Register(mux)
 	NewCategorySLAHandlers(catSvc, slaSvc, s.SLAStore(), renderer).Register(mux)
 	NewPreferencesHandlers(preferencesSvc, renderer).WithPasswordChange(usersSvc, passwordSettingsSvc).Register(mux)
 	NewNotificationHandlers(s.NotificationStore(), s.TicketStore(), s.UserStore(), renderer, clock).Register(mux)
@@ -258,6 +272,7 @@ func newHarnessWithAdmin(t *testing.T, seedAdmin bool) *harness {
 		tickets: ticketSvc, comments: commentSvc, users: usersSvc, auth: authSvc,
 		categories: catSvc, desks: deskSvc, search: searchSvc, settings: settingsSvc, workflows: workflowSvc, sla: slaSvc,
 		preferences: preferencesSvc, emailSettings: emailSettingsSvc, passwords: passwordSettingsSvc, reset: resetSvc, mailer: mailer,
+		suggestionSettings: suggestionSettingsSvc, suggestionSvc: suggestionSvc, decisionModel: decisionModel,
 		visits:   visitSvc,
 		renderer: renderer,
 		mux:      mux, mw: mw,

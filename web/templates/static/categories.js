@@ -138,6 +138,10 @@
     const values = {
       name: form?.elements.name?.value || "",
       description: form?.elements.description?.value || "",
+      // Suggestion keywords (issue #416) belong to the category drawer only; the
+      // element is absent elsewhere, so the value is simply empty there. A change
+      // to them is an unsaved change like any other field.
+      keywords: form?.elements.keywords?.value || "",
     };
     if (panel?.dataset.kind === "category") {
       values.department_id = form?.elements.department_id?.value || "";

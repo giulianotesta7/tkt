@@ -243,12 +243,16 @@ func TestSpanishSettingsScreen(t *testing.T) {
 	tickets := render("settings_tickets", fixtureSettingsTicketsData())
 	for _, want := range []string{"Configuración", "Apariencia", "Acuerdos de nivel de servicio (SLA)", "Azul", "Guardar apariencia",
 		// The automatic hold close (issue #353) is a form of this section.
-		"Cierre automático de tickets en espera", "Cerrar tickets en espera tras N días hábiles sin respuesta", "Guardar el cierre automático"} {
+		"Cierre automático de tickets en espera", "Cerrar tickets en espera tras N días hábiles sin respuesta", "Guardar el cierre automático",
+		// The category-suggestion card (issue #416) names its engines, its model
+		// fields and its Try it box in the instance's language too (S10).
+		"Sugerencias de categoría", "Desactivadas", "En este servidor", "Modelo de decisión",
+		"Probar ahora", "Escribe una descripción que podría escribir quien pide", "Probar", "Guardar las sugerencias de categoría"} {
 		if !strings.Contains(tickets, want) {
 			t.Errorf("Spanish tickets section must render %q, got: %.800s", want, tickets)
 		}
 	}
-	if strings.Contains(tickets, ">Appearance<") {
+	if strings.Contains(tickets, ">Category suggestions<") || strings.Contains(tickets, ">On this server<") {
 		t.Errorf("Spanish tickets section must not render English labels")
 	}
 
@@ -270,6 +274,41 @@ func TestSpanishSettingsScreen(t *testing.T) {
 	}
 	if strings.Contains(language, ">Interface language<") {
 		t.Errorf("Spanish language section must not render English labels")
+	}
+}
+
+// TestSpanishCategorySuggestions renders both suggestion fragments and the Try
+// it result in Spanish (issue #416, S10): the title, the group heading, the
+// matched-words label and every result sentence are catalogue copy, so a Spanish
+// instance shows no English in the pickers it just turned on.
+func TestSpanishCategorySuggestions(t *testing.T) {
+	suggestions := categorySuggestionsData{Suggestions: []suggestionView{
+		{ID: 4, Name: "Impresoras", Caption: "Tecnología · Service desk", MatchedWords: []string{"impresora", "toner"}},
+	}}
+	chips := renderLocalized(t, "es", "tickets_new", "category_suggestion_chips", suggestions)
+	for _, want := range []string{"Sugeridas a partir de tu descripción", "Impresoras", "Tecnología · Service desk"} {
+		if !strings.Contains(chips, want) {
+			t.Errorf("Spanish chips must render %q, got: %.800s", want, chips)
+		}
+	}
+	tiles := renderLocalized(t, "es", "tickets_catalog", "category_suggestion_tiles", suggestions)
+	for _, want := range []string{"Sugeridas", "Coincide: impresora, toner"} {
+		if !strings.Contains(tiles, want) {
+			t.Errorf("Spanish tiles must render %q, got: %.800s", want, tiles)
+		}
+	}
+	if strings.Contains(tiles, "Matches:") {
+		t.Errorf("Spanish tiles must not render the English label, got: %.800s", tiles)
+	}
+
+	tried := renderLocalized(t, "es", "settings_tickets", "category_suggestion_try", categorySuggestionTryView{
+		Candidates: []categorySuggestionTryCandidate{{Name: "Impresoras", Percent: 72}},
+		Confident:  true,
+	})
+	for _, want := range []string{"72%", "Quien pide vería estas sugerencias."} {
+		if !strings.Contains(tried, want) {
+			t.Errorf("Spanish Try it result must render %q, got: %.800s", want, tried)
+		}
 	}
 }
 
