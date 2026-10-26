@@ -229,3 +229,50 @@ func TestFollowedStaffLosesTheSubscriptionWhenDemoted(t *testing.T) {
 		t.Fatalf("MentionCandidates = %v, want a not-found refusal", err)
 	}
 }
+
+// MentionNameContext is the rendering read the timeline needs (issue #438, S4),
+// and it must not become a second way into the ticket. It answers the reader's
+// OWN ticket read: the requester reading their ticket learns which staff names a
+// comment may carry, an actor the ticket is out of reach for gets the same
+// not-found every scoped read answers, and nothing about mentioning is granted —
+// MentionCandidates keeps its staff-only refusal for that same requester.
+func TestMentionNameContextIsAGatedRenderingRead(t *testing.T) {
+	h := newFollowHarness(t)
+	ctx := context.Background()
+	outsider := h.otherAgent(t, "Bea")
+
+	names, err := h.followSvc.MentionNameContext(ctx, h.requester, h.ticket.ID)
+	if err != nil {
+		t.Fatalf("MentionNameContext (requester's own ticket): %v", err)
+	}
+	// The assignee is among the people the requester's comments can name; the
+	// reader herself and an unrelated agent never are. (The staff member who is
+	// not reading may be: they can open this ticket.)
+	var got []string
+	got = append(got, names...)
+	want := map[string]bool{h.assignee.Name: true}
+	for _, name := range got {
+		delete(want, name)
+	}
+	if len(want) != 0 {
+		t.Fatalf("name context = %v, want %q among them", names, h.assignee.Name)
+	}
+	for _, excluded := range []string{h.requester.Name, outsider.Name} {
+		for _, name := range got {
+			if name == excluded {
+				t.Errorf("name context includes %q, which is not a candidate", excluded)
+			}
+		}
+	}
+
+	if _, err := h.followSvc.MentionNameContext(ctx, outsider, h.ticket.ID); !errors.Is(err, domain.ErrNotFound) {
+		t.Fatalf("MentionNameContext (out of scope) = %v, want the scoped not-found", err)
+	}
+	// Rendering names never authorizes a mention: the requester still cannot ask
+	// for the candidate list, which is what the composer and the fan-out use, so
+	// a requester writing "@Name" keeps notifying nobody
+	// (TestRequesterCommentMentionsNobody pins that half).
+	if _, err := h.followSvc.MentionCandidates(ctx, h.requester, h.ticket.ID); !errors.Is(err, domain.ErrNotFound) {
+		t.Fatalf("MentionCandidates (requester) = %v, want the staff-only refusal", err)
+	}
+}

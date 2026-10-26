@@ -133,6 +133,38 @@ func (s *FollowService) MentionCandidates(ctx context.Context, actor domain.User
 	return out, nil
 }
 
+// MentionNameContext returns the display names the mention grammar may match
+// when a ticket's timeline RENDERS its comments (issue #438, S4): the staff who
+// can open the ticket right now, minus the reader.
+//
+// It is a presentation fact, never an authorization. Whoever can open the ticket
+// may see which runs of the comment text it is already showing are somebody's
+// name, because that text is the only thing the answer can change; the names
+// themselves are never listed on the page. Autocomplete keeps its own, stricter
+// gate: MentionCandidates stays staff-only and offers only other people, and no
+// mention can be written, notified or subscribed through this method.
+//
+// The actor's own read is the gate, so a requester reading their own ticket gets
+// the names its staff comments may carry, and a ticket the actor cannot open
+// answers NotFound exactly like every other scoped read.
+func (s *FollowService) MentionNameContext(ctx context.Context, actor domain.User, ticketID int64) ([]string, error) {
+	if s == nil {
+		return nil, nil
+	}
+	if _, err := s.tickets.GetByID(ctx, ticketID, readQuery(actor, TicketQuery{})); err != nil {
+		return nil, err
+	}
+	candidates, err := s.candidateStaff(ctx, actor, ticketID)
+	if err != nil {
+		return nil, err
+	}
+	names := make([]string, 0, len(candidates))
+	for _, c := range candidates {
+		names = append(names, c.user.Name)
+	}
+	return names, nil
+}
+
 // staffCandidate is one staff member who can open the ticket right now, with the
 // proof the notification batch requires. Keeping the proof and the person
 // together is what stops the mention fan-out from subscribing or notifying
@@ -143,7 +175,9 @@ type staffCandidate struct {
 }
 
 // mentionableStaff is the shared candidate query of MentionCandidates and of the
-// comment mention fan-out.
+// comment mention fan-out. The actor's own staff access is checked first: the
+// list describes this ticket's staff, so a person who cannot open the ticket gets
+// NotFound rather than a few names.
 func (s *FollowService) mentionableStaff(ctx context.Context, actor domain.User, ticketID int64) ([]staffCandidate, error) {
 	ok, err := canStaffOpenTicket(ctx, s.tickets, actor, ticketID)
 	if err != nil {
@@ -152,6 +186,15 @@ func (s *FollowService) mentionableStaff(ctx context.Context, actor domain.User,
 	if !ok {
 		return nil, &domain.NotFoundError{Kind: "ticket", ID: ticketID}
 	}
+	return s.candidateStaff(ctx, actor, ticketID)
+}
+
+// candidateStaff is the population itself: every OTHER active staff member who
+// can open the ticket right now, ordered by display name, with the proof the
+// notification batch requires. Callers own the gate — mentionableStaff applies
+// the staff predicate, MentionNameContext applies the actor's own ticket read —
+// so the population is queried exactly once, in one place.
+func (s *FollowService) candidateStaff(ctx context.Context, actor domain.User, ticketID int64) ([]staffCandidate, error) {
 	staff, err := s.users.ListActive(ctx)
 	if err != nil {
 		return nil, err

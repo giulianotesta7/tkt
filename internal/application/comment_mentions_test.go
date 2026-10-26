@@ -149,3 +149,31 @@ func TestMentionNeedsTheWholeDisplayName(t *testing.T) {
 		t.Fatalf("rows = %+v, want one mentioned", rows)
 	}
 }
+
+// A managed user's display name may itself contain an "@". Mentioning the longer
+// name must not stop the notification scan from also naming the person whose
+// name starts inside it (issue #438 correction): the baseline notifies and
+// subscribes BOTH, and the presentation splitter's non-overlapping spans never
+// take that away.
+func TestNestedDisplayNamesNotifyAndSubscribeEverybodyNamed(t *testing.T) {
+	h := newFanOutHarness(t)
+	ctx := context.Background()
+	operations := h.users.seedRole("Operations @Ana", "operations@example.com", domain.RoleAdmin, true)
+
+	if _, err := h.svc.Add(ctx, h.admin, h.ticket.ID, "@Operations @Ana please look", "public"); err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+	for _, who := range []domain.User{operations, h.assignee} {
+		rows := h.commentTx.notified(who.ID)
+		if len(rows) != 1 || rows[0].Kind != domain.NotificationMentioned {
+			t.Errorf("%q notifications = %+v, want exactly one mentioned", who.Name, rows)
+		}
+		following, err := h.followSvc.IsFollowing(ctx, who, h.ticket.ID)
+		if err != nil {
+			t.Fatalf("IsFollowing(%q): %v", who.Name, err)
+		}
+		if !following {
+			t.Errorf("%q was named but not subscribed", who.Name)
+		}
+	}
+}
