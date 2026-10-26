@@ -29,12 +29,6 @@ Project skills live in `.agents/skills/` and are named for the suite or layer th
 
 Load the skill file. Its Activation Contract is authoritative for when the skill applies.
 
-### Behavioral change records in Engram
-
-For behavior-changing work, load `engram-governance`. Scope reads and writes to `project: "tkt"`, then locate canonical requirements and active deltas with descriptive context and search. Existing migration memories remain preserved history, not operational prerequisites.
-
-Engram is machine-local unless a maintainer exports and imports a verified project-scoped export. CI cannot inspect it. Agents must report unavailable or conflicting requirements instead of inferring them.
-
 ### Workflow gates (issue-first)
 
 1. Every change (feature, bug, docs, chore) needs a GitHub issue BEFORE implementation starts. No issue, no work. This is the only blocking gate.
