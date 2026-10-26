@@ -76,8 +76,6 @@ Compose builds the image from this checkout.
 
 ### Build from source
 
-Without Docker: Go 1.26.10 and a POSIX shell.
-
 ```console
 git clone https://github.com/giulianotesta7/tkt.git
 cd tkt

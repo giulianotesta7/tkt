@@ -78,8 +78,6 @@ Compose compila la imagen desde este checkout.
 
 ### Compilar desde el código fuente
 
-Sin Docker: Go 1.26.10 y una shell POSIX.
-
 ```console
 git clone https://github.com/giulianotesta7/tkt.git
 cd tkt
