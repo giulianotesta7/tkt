@@ -238,6 +238,7 @@
   "error.comment_on_closed_ticket": "no se permiten comentarios en tickets cerrados",
   "error.comment_visibility_invalid": "visibilidad del comentario no válida",
   "error.company_signin_address": "ingresa la dirección pública de TKT, como https://tkt.example.com",
+  "error.company_signin_address_callback": "ingresa solo la dirección de TKT, como https://tkt.example.com, no una URL de callback; TKT agrega la ruta del callback por su cuenta",
   "error.company_signin_domains": "ingresa al menos un dominio, uno por línea, como example.com",
   "error.company_signin_google_client_id": "ingresa el Client ID de Google",
   "error.company_signin_google_client_secret": "ingresa el Client secret de Google",

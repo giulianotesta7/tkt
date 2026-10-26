@@ -238,6 +238,7 @@
   "error.comment_on_closed_ticket": "comments on closed tickets are not allowed",
   "error.comment_visibility_invalid": "invalid comment visibility",
   "error.company_signin_address": "enter the public address of TKT, such as https://tkt.example.com",
+  "error.company_signin_address_callback": "enter only the address of TKT, such as https://tkt.example.com, not a sign-in callback URL; TKT adds the callback path itself",
   "error.company_signin_domains": "enter at least one domain, one per line, such as example.com",
   "error.company_signin_google_client_id": "enter the Google Client ID",
   "error.company_signin_google_client_secret": "enter the Google Client secret",

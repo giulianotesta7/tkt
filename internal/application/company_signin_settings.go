@@ -3,6 +3,7 @@ package application
 import (
 	"context"
 	"fmt"
+	"net/url"
 	"regexp"
 	"slices"
 	"strings"
@@ -241,6 +242,9 @@ func (s *CompanySignInSettingsService) Update(ctx context.Context, actor domain.
 	if (next.Google.Enabled || next.Microsoft.Enabled || next.Address != "") && !isPublicBaseURL(next.Address) {
 		return &domain.ValidationError{Field: "company_signin_address", Message: "enter the public address of TKT, such as https://tkt.example.com", Key: "error.company_signin_address"}
 	}
+	if isSignInRoutePath(next.Address) {
+		return &domain.ValidationError{Field: "company_signin_address", Message: "enter only the address of TKT, such as https://tkt.example.com, not a sign-in callback URL; TKT adds the callback path itself", Key: "error.company_signin_address_callback"}
+	}
 
 	// The domain list is validated whether Google is on or off: it is what the
 	// administrator typed and is stored either way, so a bad line is refused
@@ -312,4 +316,16 @@ func parseGoogleDomains(text string) ([]string, bool) {
 		}
 	}
 	return domains, true
+}
+
+// isSignInRoutePath reports whether an address already carries one of the
+// sign-in routes. The redirect URI is the address plus its own path, so a pasted
+// callback URL would double the path and Microsoft or Google would refuse the
+// request with a redirect-URI mismatch the administrator cannot trace back here.
+func isSignInRoutePath(address string) bool {
+	u, err := url.Parse(address)
+	if err != nil {
+		return false
+	}
+	return strings.Contains(strings.TrimRight(u.Path, "/")+"/", CompanySignInPathPrefix)
 }

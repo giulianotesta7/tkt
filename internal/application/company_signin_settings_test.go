@@ -138,6 +138,12 @@ func TestUpdateCompanySignInRefusesInvalidInputAndStoresNothing(t *testing.T) {
 		{"address missing while a provider is on", func(in *application.CompanySignInInput) { in.Address = " " }, "company_signin_address"},
 		{"address not a URL", func(in *application.CompanySignInInput) { in.Address = "tkt.example.com" }, "company_signin_address"},
 		{"address with a query", func(in *application.CompanySignInInput) { in.Address = "https://tkt.example.com/?a=1" }, "company_signin_address"},
+		{"address is a pasted microsoft callback", func(in *application.CompanySignInInput) {
+			in.Address = "http://localhost:3000/auth/microsoft/callback"
+		}, "company_signin_address"},
+		{"address is a pasted google callback", func(in *application.CompanySignInInput) {
+			in.Address = "https://tkt.example.com/auth/google/callback/"
+		}, "company_signin_address"},
 		{"unknown new-account policy", func(in *application.CompanySignInInput) { in.NewAccounts = "admin" }, "company_signin_new_accounts"},
 		{"google without client id", func(in *application.CompanySignInInput) { in.Google.ClientID = "" }, "google_client_id"},
 		{"google without secret", func(in *application.CompanySignInInput) { in.Google.ClientSecret = "" }, "google_client_secret"},
