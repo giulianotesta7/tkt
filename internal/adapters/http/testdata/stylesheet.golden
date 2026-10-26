@@ -363,8 +363,7 @@
 
   .cards{display:grid;grid-template-columns:minmax(0,1fr) 370px;gap:16px;align-items:start}
   .cards > .conversation{grid-column:1;grid-row:1;min-width:0}
-  .cards > .evidence{grid-column:2;grid-row:1 / span 2;min-width:0}
-  .cards > .replies{grid-column:1;grid-row:2;min-width:0}
+  .cards > .evidence{grid-column:2;grid-row:1;min-width:0}
   .card{
     background:var(--card);border:1px solid var(--line);border-radius:12px;
     padding:18px;margin-bottom:16px;
@@ -880,6 +879,9 @@
   .category-name{font-weight:600;color:var(--ink-strong);overflow-wrap:anywhere}.category-created,.category-status-empty{color:var(--muted);font-size:12px}.category-actions,.desk-detail-head,.desk-rename,.desk-add-member>div{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
   .workflow-pending{min-width:0;margin-top:10px;overflow-wrap:anywhere}
   .detail-steps{padding:14px 16px}
+  .detail-activity-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px}
+  .detail-activity-head h2{margin:0}
+  .detail-order{display:flex;align-items:center;gap:8px;flex:0 0 auto}
   .detail-steps:has(.workflow-pending-action){border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
   .detail-steps .workflow-pending{margin-top:0}
   .detail-steps .workflow-pending::before{content:none}
@@ -951,7 +953,7 @@
 
   @media (max-width:900px){
     .cards{grid-template-columns:1fr}
-    .cards > .conversation,.cards > .evidence,.cards > .replies{grid-column:1;grid-row:auto}
+    .cards > .conversation,.cards > .evidence{grid-column:1;grid-row:auto}
     .filter-bar{flex-wrap:wrap}
     .auth-entry__form-panel form,.auth-entry__form-panel .auth-card{max-width:440px;padding:24px}
     .auth-entry__form-panel h2{font-size:25px}
@@ -1010,7 +1012,7 @@
     .detail-actions .btn,.detail-actions .detail-action{flex:1 1 auto}
     .detail-overflow{flex:0 0 auto}
     .listbox-popover{right:auto;left:0;width:min(260px,calc(100vw - 60px))}
-    .cards > .conversation,.cards > .evidence,.cards > .replies{grid-column:1;grid-row:auto}
+    .cards > .conversation,.cards > .evidence{grid-column:1;grid-row:auto}
     .comment-tools{gap:8px}
     .comment-submit{flex:1 1 100%;justify-content:center}
     .save-feedback{bottom:72px;right:12px;left:12px;max-width:none;min-width:0}

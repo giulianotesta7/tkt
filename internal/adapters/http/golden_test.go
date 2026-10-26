@@ -689,10 +689,14 @@ func fixtureDetailData() detailData {
 		AssignableUsers: []domain.User{ana},
 	}
 	return detailData{
-		pageData:           pageData{NavActive: "tickets", CurrentUser: ana, SLACountdownAssets: true},
-		View:               view,
-		Next:               allowedNext(t.State),
-		Options:            opts,
+		pageData: pageData{NavActive: "tickets", CurrentUser: ana, SLACountdownAssets: true},
+		View:     view,
+		Next:     allowedNext(t.State),
+		Options:  opts,
+		// The Activity order control (issue #438, S1) renders exactly where the
+		// wired preferences use case puts it, so the snapshot freezes the control
+		// AND the newest-first default that decides the composer's side.
+		CanOrderTimeline:   true,
 		CanCommentInternal: true,
 		CanEdit:            true,
 		CanAssign:          true,
@@ -951,6 +955,9 @@ func requesterResolvedDetailData(viewer domain.User) detailData {
 			Users:           []domain.User{ana},
 			AssignableUsers: []domain.User{ana},
 		},
+		// The order control is a reader preference, so it survives the
+		// closed state that removes the composer (issue #438, S1).
+		CanOrderTimeline:   true,
 		CanCommentInternal: viewer.Role != domain.RoleUser,
 		Closed:             true,
 		// Mirrors detailDataFor: assign needs CapAssignTicket on an open
@@ -1694,6 +1701,7 @@ func fixtureRequesterOnHoldDetailData() detailData {
 		RequesterView:      true,
 		Next:               filteredNext(allowedNext(t.State), t),
 		Options:            options{States: listStates, Priorities: listPriorities, Categories: []domain.Category{*view.Category}},
+		CanOrderTimeline:   true,
 		CanCommentInternal: false,
 		CanEdit:            false,
 		CanAssign:          false,

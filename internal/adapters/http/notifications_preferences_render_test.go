@@ -107,6 +107,9 @@ func TestNotificationsPanelKeepsItsDrawerChrome(t *testing.T) {
 // one section per preference pairing a label with its control, and exactly one
 // form per section writing to its own route with its own explicit save. Nothing
 // in the content region speaks HTMX, so changing a select cannot save by itself.
+//
+// The activity order (issue #438, S1) is the fifth section and follows the same
+// rule: its own route, its own explicit submit, and no auto-save.
 func TestPreferencesPageRendersAlignedSections(t *testing.T) {
 	h := newHarness(t)
 	body := h.get(t, "/preferences", false).Body.String()
@@ -114,10 +117,10 @@ func TestPreferencesPageRendersAlignedSections(t *testing.T) {
 	if !strings.Contains(body, `class="preferences-screen"`) {
 		t.Errorf("the page must render under its own root: %s", body)
 	}
-	if got := strings.Count(body, `class="preferences-section"`); got != 4 {
-		t.Errorf("preferences sections = %d, want the four real preferences: %s", got, body)
+	if got := strings.Count(body, `class="preferences-section"`); got != 5 {
+		t.Errorf("preferences sections = %d, want the five real preferences: %s", got, body)
 	}
-	if got := strings.Count(body, `class="preferences-form"`); got != 4 {
+	if got := strings.Count(body, `class="preferences-form"`); got != 5 {
 		t.Errorf("preferences forms = %d, want one per section: %s", got, body)
 	}
 	// Each section keeps its own endpoint and its own submit: saving one
@@ -125,6 +128,7 @@ func TestPreferencesPageRendersAlignedSections(t *testing.T) {
 	for _, section := range []struct{ action, save string }{
 		{action: `action="/preferences"`, save: "Save preferences"},
 		{action: `action="/preferences/theme"`, save: "Save theme"},
+		{action: `action="/preferences/timeline-order"`, save: "Save activity order"},
 		{action: `action="/preferences/email"`, save: "Save email preference"},
 		{action: `action="/preferences/password"`, save: "Change password"},
 	} {
@@ -154,6 +158,8 @@ func TestPreferencesSectionsKeepTheirExistingFields(t *testing.T) {
 	for _, want := range []string{
 		`name="queue_order"`,
 		`name="theme"`,
+		`name="timeline_order"`,
+		`value="oldest"`,
 		`name="email_notifications"`,
 		`value="newest"`,
 		`value="priority"`,
@@ -166,10 +172,11 @@ func TestPreferencesSectionsKeepTheirExistingFields(t *testing.T) {
 			t.Errorf("the preferences page lost %q: %s", want, content)
 		}
 	}
-	// Two selects and one checkbox across the stored preferences: the password
-	// section adds none of either kind.
-	if got := strings.Count(content, "<select"); got != 2 {
-		t.Errorf("select controls = %d, want the queue order and the theme: %s", got, content)
+	// Three selects and one checkbox across the stored preferences: the password
+	// section adds none of either kind. The activity order (issue #438, S1) is the
+	// third select and follows the same closed-set shape as the other two.
+	if got := strings.Count(content, "<select"); got != 3 {
+		t.Errorf("select controls = %d, want the queue order, the theme, and the activity order: %s", got, content)
 	}
 	if got := strings.Count(content, `type="checkbox"`); got != 1 {
 		t.Errorf("checkboxes = %d, want the email switch: %s", got, content)
@@ -190,9 +197,10 @@ func contentRegion(t *testing.T, body string) string {
 
 // fixturePreferencesPageData freezes the preferences page's default state: the
 // stored queue order is the newest-first default, the theme is the system
-// default, the email copy is on, and the password section follows the shipped
-// policy (switch ON, the default minimum of 12). Every label still resolves
-// through the catalogue, so the snapshot freezes the copy AND the option order.
+// default, the activity order is the newest-first default (issue #438, S1), the
+// email copy is on, and the password section follows the shipped policy (switch
+// ON, the default minimum of 12). Every label still resolves through the
+// catalogue, so the snapshot freezes the copy AND the option order.
 func fixturePreferencesPageData() preferencesData {
 	return preferencesData{
 		pageData: pageData{
@@ -203,6 +211,8 @@ func fixturePreferencesPageData() preferencesData {
 		Orders:             queueOrderOptions(),
 		Theme:              application.ThemeSystem,
 		Themes:             themeOptions(),
+		TimelineOrder:      application.TimelineOrderNewest,
+		TimelineOrders:     timelineOrderOptions(),
 		EmailNotifications: true,
 		Password: passwordSectionData{
 			Shown:     application.DefaultPasswordSettings().ChangeEnabled,
@@ -226,13 +236,14 @@ func TestRedesignedScreensSpeakSpanish(t *testing.T) {
 		"Preferencias",
 		"Orden de la cola", "Orden de cola por defecto", "Guardar preferencias",
 		"Tema", "Guardar tema",
+		"Orden de la actividad", "Orden de la actividad por defecto", "Más nuevo primero", "Más antiguo primero", "Guardar orden de la actividad",
 		"Notificaciones por email", "Recibir notificaciones por email", "Guardar preferencia de email",
 	} {
 		if !strings.Contains(preferences, want) {
 			t.Errorf("Spanish preferences must render %q, got: %.800s", want, preferences)
 		}
 	}
-	for _, unwanted := range []string{">Preferences<", ">Queue order<", ">Save theme<"} {
+	for _, unwanted := range []string{">Preferences<", ">Queue order<", ">Save theme<", ">Activity order<", ">Oldest first<"} {
 		if strings.Contains(preferences, unwanted) {
 			t.Errorf("Spanish preferences must not render the English %q", unwanted)
 		}

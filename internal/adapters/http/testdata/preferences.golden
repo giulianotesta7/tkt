@@ -114,6 +114,24 @@
     </section>
     <section class="preferences-section">
       <div class="preferences-section-head">
+        <h2>Activity order</h2>
+        <p>How the Activity feed reads on a ticket. Newest first puts the composer above the feed; oldest first puts it below.</p>
+      </div>
+      <form class="preferences-form" method="post" action="/preferences/timeline-order">
+        <div class="field">
+          <label for="timeline_order">Default activity order</label>
+          <select id="timeline_order" name="timeline_order">
+            <option value="newest" selected>Newest first</option>
+            <option value="oldest">Oldest first</option>
+          </select>
+        </div>
+        <div class="preferences-actions">
+          <button class="btn primary" type="submit">Save activity order</button>
+        </div>
+      </form>
+    </section>
+    <section class="preferences-section">
+      <div class="preferences-section-head">
         <h2>Email notifications</h2>
       </div>
       <form class="preferences-form" method="post" action="/preferences/email">

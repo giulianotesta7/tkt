@@ -1299,17 +1299,18 @@ test.describe("Preferences", () => {
     const obs = collectObservability(page);
     await loginAsSeeded(page);
 
-    // Issue #396 (S3): four sections that pair a label with its control, each
-    // owning one form and its own explicit save.
+    // Issue #438 adds Activity order alongside the four existing sections,
+    // each pairing its label with its control and owning an explicit save.
     await page.goto(base() + "/preferences");
     await expect(page.locator(".preferences-screen")).toBeVisible();
-    await expect(page.locator(".preferences-section")).toHaveCount(4);
+    await expect(page.locator(".preferences-section")).toHaveCount(5);
     const saves = page.locator(".preferences-form button[type=submit]");
-    await expect(saves).toHaveCount(4);
+    await expect(saves).toHaveCount(5);
     await expect(saves.nth(0)).toHaveText("Save preferences");
     await expect(saves.nth(1)).toHaveText("Save theme");
-    await expect(saves.nth(2)).toHaveText("Save email preference");
-    await expect(saves.nth(3)).toHaveText("Change password");
+    await expect(saves.nth(2)).toHaveText("Save activity order");
+    await expect(saves.nth(3)).toHaveText("Save email preference");
+    await expect(saves.nth(4)).toHaveText("Change password");
 
     // S3: a select change alone never saves. The value is only written by the
     // section's own submit, so the stored order survives a reload untouched.
@@ -1320,8 +1321,10 @@ test.describe("Preferences", () => {
       writes += 1;
     });
     await page.getByLabel("Default queue order").selectOption("urgency");
+    await page.getByLabel("Default activity order", { exact: true }).selectOption("oldest");
     await page.reload();
     await expect(page.getByLabel("Default queue order")).toHaveValue("newest");
+    await expect(page.getByLabel("Default activity order", { exact: true })).toHaveValue("newest");
     expect(writes, "choosing an option must not save it").toBe(0);
 
     // 390px: the sections stack, nothing overflows, nothing is clipped.
@@ -1821,7 +1824,7 @@ test.describe("Preferences without scripting (seeded)", () => {
     await loginAsSeeded(page);
 
     await page.goto(base() + "/preferences");
-    await expect(page.locator(".preferences-section")).toHaveCount(4);
+    await expect(page.locator(".preferences-section")).toHaveCount(5);
     await page.getByLabel("Default queue order").selectOption("priority");
     await page.getByRole("button", { name: "Save preferences" }).click();
     await expect(page).toHaveURL(/\/preferences$/);

@@ -241,12 +241,13 @@ func TestWorkflowStepTimelineManualSolutionRendersInsideEvent(t *testing.T) {
 			t.Errorf("solution must stay inside the timestamped completion event: %s", entry)
 		}
 	}
-	// Oldest-first (issue #386, S3): the older comment sits ABOVE the newer
-	// completion event.
+	// Reading order (issue #438, S1): this reader never chose an order, so the
+	// feed is newest first and the just-made completion event sits ABOVE the
+	// older comment. Both still render as their own entries, in one feed.
 	eventIdx := strings.Index(body, "Solution")
 	commentIdx := strings.Index(body, "older comment first")
-	if eventIdx < 0 || commentIdx < 0 || eventIdx < commentIdx {
-		t.Errorf("oldest-first ordering broken (older comment at %d, event at %d)", commentIdx, eventIdx)
+	if eventIdx < 0 || commentIdx < 0 || commentIdx < eventIdx {
+		t.Errorf("newest-first ordering broken (older comment at %d, event at %d)", commentIdx, eventIdx)
 	}
 	if text := stripTags(body); strings.Contains(text, "workflow") {
 		t.Errorf("no ticket-facing copy may contain workflow, got: %s", text)
@@ -279,12 +280,12 @@ func TestWorkflowStepTimelineManualSolutionRendersInsideEvent(t *testing.T) {
 	if strings.Contains(ubody, `<details class="timeline-entry timeline-event timeline-manual">`) || strings.Contains(ubody, `<summary class="timeline-event-summary">`) || strings.Contains(ubody, "timeline-event-summary") {
 		t.Errorf("manual event must not render disclosure or interaction markup: %s", ubody)
 	}
-	// The tie rule is preserved and reversed with the feed: the newest-first
-	// stream puts the comment before the same-second event, so the oldest-first
-	// detail reads the event first.
+	// The tie rule is preserved and read with the feed: the newest-first stream
+	// (issue #438, S1's default) puts the comment before the same-second event,
+	// so the tie ordering is visible without reversing anything.
 	tieComment := strings.Index(ubody, "tied same-second comment")
 	tieEvent := strings.Index(ubody, `class="timeline-entry timeline-event`)
-	if tieComment < 0 || tieEvent < 0 || tieComment < tieEvent {
+	if tieComment < 0 || tieEvent < 0 || tieEvent < tieComment {
 		t.Errorf("same-second tie must keep its rule under the new order (comment at %d, event at %d)", tieComment, tieEvent)
 	}
 	if strings.Contains(ubody, "<dt>Solution</dt>") || strings.Contains(stripTags(ubody), "No solution") {

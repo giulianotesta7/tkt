@@ -26,10 +26,54 @@
         <h2>Description</h2>
         <p class="ticket-description">The login form 500s on submit</p>
       </div>
+
+    <div class="replies" id="reply">
+
+
+    </div>
+
       <div class="card detail-activity">
-        <h2>Activity</h2>
+        <div class="detail-activity-head">
+          <h2>Activity</h2>
+          <form class="detail-order" method="post" action="/tickets/1/timeline-order" hx-post="/tickets/1/timeline-order" hx-target="#ticket-detail" hx-swap="outerHTML">
+            <input type="hidden" name="order" value="oldest">
+            <button class="btn small" type="submit" aria-label="Activity order: Newest first. Switch to Oldest first.">Newest first</button>
+          </form>
+        </div>
 
 <div id="timeline">
+
+
+
+  <article class="timeline-entry timeline-comment">
+    <div class="timeline-entry-head">
+      <div class="narrative"><strong class="timeline-actor">Ana Torres</strong> <span class="timeline-action">added a comment</span></div>
+      <div class="when"><time datetime="2026-08-06T10:30:00Z" title="10:30 · 06-08-2026">10:30 · 06-08-2026</time></div>
+    </div>
+    <div class="timeline-body">Patched and deployed</div>
+  </article>
+
+
+
+
+  <article class="timeline-entry timeline-event">
+    <div class="timeline-entry-head">
+      <div class="narrative"><span class="timeline-action"></span></div>
+      <div class="when"><time datetime="2026-08-06T10:30:00Z" title="10:30 · 06-08-2026">10:30 · 06-08-2026</time></div>
+    </div>
+  </article>
+
+
+
+
+
+  <article class="timeline-entry timeline-event">
+    <div class="timeline-entry-head">
+      <div class="narrative"><span class="timeline-action"></span></div>
+      <div class="when"><time datetime="2026-08-06T10:30:00Z" title="10:30 · 06-08-2026">10:30 · 06-08-2026</time></div>
+    </div>
+  </article>
+
 
 
 
@@ -41,38 +85,6 @@
     </div>
   </article>
 
-
-
-
-
-  <article class="timeline-entry timeline-event">
-    <div class="timeline-entry-head">
-      <div class="narrative"><span class="timeline-action"></span></div>
-      <div class="when"><time datetime="2026-08-06T10:30:00Z" title="10:30 · 06-08-2026">10:30 · 06-08-2026</time></div>
-    </div>
-  </article>
-
-
-
-
-
-  <article class="timeline-entry timeline-event">
-    <div class="timeline-entry-head">
-      <div class="narrative"><span class="timeline-action"></span></div>
-      <div class="when"><time datetime="2026-08-06T10:30:00Z" title="10:30 · 06-08-2026">10:30 · 06-08-2026</time></div>
-    </div>
-  </article>
-
-
-
-
-  <article class="timeline-entry timeline-comment">
-    <div class="timeline-entry-head">
-      <div class="narrative"><strong class="timeline-actor">Ana Torres</strong> <span class="timeline-action">added a comment</span></div>
-      <div class="when"><time datetime="2026-08-06T10:30:00Z" title="10:30 · 06-08-2026">10:30 · 06-08-2026</time></div>
-    </div>
-    <div class="timeline-body">Patched and deployed</div>
-  </article>
 
 
 
@@ -127,10 +139,6 @@
         </div>
       </details>
     </aside>
-    <div class="replies" id="reply">
-
-
-    </div>
   </div>
   <dialog id="ticket-transition-dialog" aria-labelledby="ticket-transition-dialog-title">
     <h2 id="ticket-transition-dialog-title">Reopen reason</h2>

@@ -67,13 +67,14 @@ func TestTicketShowRendersDetail(t *testing.T) {
 	if !strings.Contains(body, `id="ticket-category-value"`) {
 		t.Errorf("the category must stay visible as read-only metadata, got: %s", body)
 	}
-	// Merged timeline ASC (issue #386, S3): the feed reads top to bottom into
-	// the composer, so the oldest entry renders before the newest one. Match
-	// the actor-first event narrative lines (not bare words).
+	// Merged timeline (issue #438, S1): the DEFAULT reading order is newest
+	// first, so the just-made transition renders above the creation event, and
+	// the composer sits above the feed it writes into. Match the actor-first
+	// event narrative lines (not bare words).
 	createdEvent := "created the ticket"
 	transitionEvent := "moved the ticket to in progress"
-	if !(strings.Index(body, createdEvent) < strings.Index(body, transitionEvent)) {
-		t.Errorf("merged timeline must be oldest-first (created before transition), got: %s", body)
+	if !(strings.Index(body, transitionEvent) < strings.Index(body, createdEvent)) {
+		t.Errorf("the default merged timeline must be newest-first (transition before created), got: %s", body)
 	}
 }
 
@@ -474,23 +475,19 @@ func TestTicketCommentHXFragment(t *testing.T) {
 	}
 }
 
-// TestTicketCommentsNewestFirst proves the rendered timeline shows
-// comments newest first (comment-timeline spec: reverse-chronological).
-//
-// The ordering is proved over the timeline region alone, never over the whole
-// document: every ticket page emits the shared inline stylesheet in <head>, so
-// an unscoped strings.Index can be broken by a token outside the timeline
-// (a CSS selector such as :first-child) while the rendering stays correct. The
-// TestTicketCommentsOldestFirst proves the rendered timeline shows comments
-// oldest first (issue #386, S3: the approved mockup reads top to bottom into
-// the composer).
+// TestTicketTimelineOrderDefaultAndOldestFirst is THE canonical feed-order
+// contract (issue #386, S3, extended by issue #438, S1): the rendered detail
+// reads newest first for a reader who never chose — the product default — and
+// oldest first only when that reader stored the other order. In both orders the
+// composer sits on the side the reader is about to write towards: ABOVE Activity
+// for newest first, BELOW it for oldest first. Steps stays above both.
 //
 // The ordering is proved over the timeline region alone, never over the whole
 // document: every ticket page emits the shared inline stylesheet in <head>, so
 // an unscoped strings.Index can be broken by a token outside the timeline
 // (a CSS selector such as :first-child) while the rendering stays correct. The
 // seeded bodies are therefore distinctive tokens, not bare ordinal words.
-func TestTicketCommentsOldestFirst(t *testing.T) {
+func TestTicketTimelineOrderDefaultAndOldestFirst(t *testing.T) {
 	h := newHarness(t)
 	h.seedTicket(t, "Login page down", nil)
 	for _, body := range []string{"timeline-comment-first", "timeline-comment-second", "timeline-comment-third"} {
@@ -498,30 +495,82 @@ func TestTicketCommentsOldestFirst(t *testing.T) {
 			t.Fatalf("seed comment %q: %v", body, err)
 		}
 	}
-
-	rec := h.get(t, "/tickets/1", false)
-	body := rec.Body.String()
-
-	start := strings.Index(body, `<div id="timeline">`)
-	if start < 0 {
-		t.Fatalf("ticket detail must render the Timeline, got: %s", body)
+	// Steps renders above the composer and Activity in both orders, so the
+	// checklist is the anchor this test proves the rest against.
+	tkt := h.seedTicket(t, "Ordered feed", nil)
+	if _, err := h.comments.Add(t.Context(), *h.admin, tkt.ID, "ordered-comment-older", "public"); err != nil {
+		t.Fatalf("seed ordered comment: %v", err)
 	}
-	timeline := body[start:]
-	if end := strings.Index(timeline, `<div class="evidence">`); end >= 0 {
-		timeline = timeline[:end]
+	if _, err := h.comments.Add(t.Context(), *h.admin, tkt.ID, "ordered-comment-newer", "public"); err != nil {
+		t.Fatalf("seed ordered comment: %v", err)
 	}
 
-	// Adjacent pairs, so the failure names the pair that inverted.
-	for _, pair := range []struct{ older, newer string }{
+	// orderPairs is the expected reading order of the two tokens, oldest-first
+	// pairs reversed for the newest-first case.
+	type pair struct{ first, second string }
+	oldestPairs := []pair{
 		{"timeline-comment-first", "timeline-comment-second"},
 		{"timeline-comment-second", "timeline-comment-third"},
-	} {
-		olderAt, newerAt := strings.Index(timeline, pair.older), strings.Index(timeline, pair.newer)
-		if olderAt < 0 || newerAt < 0 {
-			t.Fatalf("timeline must carry %q and %q, got: %s", pair.older, pair.newer, timeline)
+	}
+	newestPairs := make([]pair, 0, len(oldestPairs))
+	for i := len(oldestPairs) - 1; i >= 0; i-- {
+		newestPairs = append(newestPairs, pair{oldestPairs[i].second, oldestPairs[i].first})
+	}
+
+	timelineRegion := func(body string) string {
+		start := strings.Index(body, `<div id="timeline">`)
+		if start < 0 {
+			t.Fatalf("ticket detail must render the Timeline, got: %s", body)
 		}
-		if olderAt > newerAt {
-			t.Errorf("%q must render before %q (oldest first), got: %s", pair.older, pair.newer, timeline)
+		region := body[start:]
+		if end := strings.Index(region, `<div class="evidence">`); end >= 0 {
+			region = region[:end]
+		}
+		return region
+	}
+	assertPairs := func(t *testing.T, region string, pairs []pair, direction string) {
+		t.Helper()
+		for _, p := range pairs {
+			firstAt, secondAt := strings.Index(region, p.first), strings.Index(region, p.second)
+			if firstAt < 0 || secondAt < 0 {
+				t.Fatalf("timeline must carry %q and %q, got: %s", p.first, p.second, region)
+			}
+			if firstAt > secondAt {
+				t.Errorf("%q must render before %q (%s), got: %s", p.first, p.second, direction, region)
+			}
+		}
+	}
+
+	// Default: a reader who never chose gets the newest entry on top and the
+	// composer above the feed.
+	defaultBody := h.get(t, "/tickets/1", false).Body.String()
+	assertPairs(t, timelineRegion(defaultBody), newestPairs, "newest first")
+	if composerAt, activityAt := strings.Index(defaultBody, `class="card comment-form"`), strings.Index(defaultBody, `class="card detail-activity"`); composerAt < 0 || activityAt < 0 || composerAt > activityAt {
+		t.Errorf("newest first must render the composer above Activity (composer=%d activity=%d)", composerAt, activityAt)
+	}
+
+	// The stored choice: oldest first reverses the feed and moves the composer
+	// below Activity, which is how the detail always read.
+	if err := h.store.TimelineOrderPreferences().SetTimelineOrder(t.Context(), h.admin.ID, application.TimelineOrderOldest); err != nil {
+		t.Fatalf("store oldest-first order: %v", err)
+	}
+	oldestBody := h.get(t, "/tickets/1", false).Body.String()
+	assertPairs(t, timelineRegion(oldestBody), oldestPairs, "oldest first")
+	if composerAt, activityAt := strings.Index(oldestBody, `class="card comment-form"`), strings.Index(oldestBody, `class="card detail-activity"`); composerAt < 0 || activityAt < 0 || composerAt < activityAt {
+		t.Errorf("oldest first must render the composer below Activity (composer=%d activity=%d)", composerAt, activityAt)
+	}
+
+	// Steps stays above the composer and Activity whichever order the reader
+	// chose, and the composer keeps its focus anchor in both.
+	for order, body := range map[string]string{"newest first": defaultBody, "oldest first": oldestBody} {
+		stepsAt := strings.Index(body, `id="workflow-pending"`)
+		composerAt := strings.Index(body, `class="card comment-form"`)
+		activityAt := strings.Index(body, `class="card detail-activity"`)
+		if stepsAt >= 0 && (stepsAt > composerAt || stepsAt > activityAt) {
+			t.Errorf("%s: Steps must stay above the composer (%d) and Activity (%d), got steps=%d", order, composerAt, activityAt, stepsAt)
+		}
+		if !strings.Contains(body, `<div class="replies" id="reply">`) {
+			t.Errorf("%s: the composer's #reply anchor must survive the move, got: %s", order, body)
 		}
 	}
 }
@@ -609,9 +658,14 @@ func TestTicketTimelineGrammar(t *testing.T) {
 	}
 }
 
-// TestTicketDetailBodyOrder proves issue #386's S2 order: the description card
-// first, then the activity region, then the properties, then the requester
-// confirmation (which stays above the composer), and the composer last.
+// TestTicketDetailBodyOrder proves the detail's body order: the description card
+// first, then Steps as its own card, then — for the DEFAULT newest-first feed —
+// the requester confirmation and the composer ABOVE Activity, with the
+// properties/evidence column after the conversation in document order.
+//
+// Issue #438, S1 moved exactly one thing here: the composer's side of Activity.
+// The confirmation still sits immediately above the composer, the composer still
+// carries the #reply anchor, and Steps still renders above both.
 func TestTicketDetailBodyOrder(t *testing.T) {
 	h := newHarness(t)
 	requester := seedUserRole(t, h.store, "Rosa", "rosa-order@tkt.test", domain.RoleUser)
@@ -623,11 +677,20 @@ func TestTicketDetailBodyOrder(t *testing.T) {
 	body := getDetailAs(t, h, ticketPath(tkt.ID), sess.ID, true).Body.String()
 	markers := []string{
 		`<h2>Description</h2>`,
-		`id="timeline"`,
-		`id="detail-properties"`,
+	}
+	// The Steps card exists only while a run is active, so it joins the ordered
+	// markers only when this fixture rendered one.
+	if strings.Contains(body, `id="workflow-pending"`) {
+		markers = append(markers, `id="workflow-pending"`)
+	}
+	markers = append(markers,
+		`class="replies" id="reply"`,
 		`class="card resolution-confirmation"`,
 		`class="card comment-form"`,
-	}
+		`class="card detail-activity"`,
+		`id="timeline"`,
+		`id="detail-properties"`,
+	)
 	previous := -1
 	for _, marker := range markers {
 		at := strings.Index(body, marker)
@@ -649,9 +712,9 @@ func TestTicketDetailBodyOrder(t *testing.T) {
 }
 
 // TestTicketComposer proves issue #386's S4 composer: the draft-retaining
-// textarea keeps its ids, the internal-note switch keeps the same field, the
-// attachments become a drop zone wrapping the same file input, and the submit
-// is Reply — all on today's native POST.
+// textarea keeps its ids, the internal-comment switch keeps the same field,
+// and the attachment drop zone retains its file input and names through detail
+// swaps (issue #438). The submit is Reply — all on today's native POST.
 func TestTicketComposer(t *testing.T) {
 	h := newHarness(t)
 	h.seedTicket(t, "Composer", nil)
@@ -662,7 +725,7 @@ func TestTicketComposer(t *testing.T) {
 		`<textarea name="body" id="comment-body" hx-preserve="true"`,
 		`<input id="comment-internal" type="checkbox" name="internal" value="1" hx-preserve="true">`,
 		`Internal comment`,
-		`<label class="comment-dropzone" for="comment-attachments">`,
+		`<label class="comment-dropzone" id="comment-dropzone" hx-preserve="true" for="comment-attachments">`,
 		`<input type="file" id="comment-attachments" name="attachments" multiple`,
 		`<span class="comment-dropzone-files" data-dropzone-files></span>`,
 		`>Reply</button>`,

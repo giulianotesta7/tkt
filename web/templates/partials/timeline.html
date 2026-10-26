@@ -15,11 +15,16 @@
   The feed is viewer-relative (S4): your own comment carries a "You" chip and a
   neutral head tint, a comment that mentions you carries the accent head and the
   "Mentions you" tag, and your own events name the actor as "You". Authorship is
-  decided by the stored author id, never by the display name. Entries are listed
-  oldest first for now, so the feed reads down into the composer (S1 lands later).
+  decided by the stored author id, never by the display name.
+
+  The READING ORDER is the reader's own preference (S1): newest first by default,
+  oldest first when they chose it, resolved by detailData.TimelineItems before
+  this template sees the stream. The composer follows the same choice — above
+  Activity for newest first, below it for oldest first — so the feed always reads
+  down into where the reader writes.
 */}}
 {{define "timeline_entries"}}
-{{range .TimelineOldestFirst}}
+{{range .TimelineItems}}
 {{if .IsComment}}
   <article class="timeline-entry timeline-comment{{if eq .Comment.Visibility "internal"}} internal{{end}}{{if $.IsOwnComment .Comment}} mine{{end}}{{if $.CommentMentionsViewer .Comment}} mentioned{{end}}">
     <div class="timeline-entry-head">

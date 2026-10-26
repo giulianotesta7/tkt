@@ -220,9 +220,10 @@ test.describe("Ticket detail", () => {
     expect(obs.failedResponses).toEqual([]);
   });
 
-  test("detail shows Properties sidebar, timeline, state, description, and category", async ({
+  test("detail keeps Properties and Steps while Preferences and Activity share the persistent timeline order", async ({
     page,
   }) => {
+    test.setTimeout(120_000);
     await page.setViewportSize({ width: 1280, height: 800 });
     const obs = collectObservability(page);
     await loginAsSeeded(page);
@@ -284,6 +285,140 @@ test.describe("Ticket detail", () => {
     );
     expect(mobileOverflow).toBe(false);
     await page.setViewportSize({ width: 1280, height: 800 });
+
+    // Issue #438, S1: this is the canonical preference/detail journey. The
+    // seeded user has never chosen an Activity order, so newest is the default.
+    const activityOrder = page.locator(".detail-order button");
+    const bodies = page.locator("#timeline .timeline-comment .timeline-body");
+    const first = "Earlier public response";
+    const second = "Later public response";
+    for (const body of [first, second]) {
+      await page.locator("#comment-body").fill(body);
+      const navigation = page.waitForEvent("framenavigated", (frame) => frame === page.mainFrame());
+      const posted = waitForExactPost(page, `/tickets/${id}/comments`);
+      await page.getByRole("button", { name: "Reply", exact: true }).click();
+      const response = await posted;
+      expect(response.status()).toBe(303);
+      expect(response.request().headers()["hx-request"]).toBeUndefined();
+      await navigation;
+      await expect(page).toHaveURL(base() + `/tickets/${id}`);
+      await expect(page.locator("#timeline")).toContainText(body);
+    }
+
+    const expectOrder = async (order: "newest" | "oldest") => {
+      const newest = order === "newest";
+      await expect(activityOrder).toHaveAccessibleName(
+        newest
+          ? "Activity order: Newest first. Switch to Oldest first."
+          : "Activity order: Oldest first. Switch to Newest first.",
+      );
+      await expect(bodies).toHaveText(newest ? [second, first] : [first, second]);
+      for (const width of [1280, 390]) {
+        await page.setViewportSize({ width, height: 844 });
+        await expectStepsCardBeforeActivity(page);
+        const layout = await page.evaluate(() => {
+          const steps = document.querySelector(".detail-steps");
+          const reply = document.querySelector("#reply");
+          const activity = document.querySelector(".detail-activity");
+          if (!steps || !reply || !activity)
+            throw new Error("missing Steps/composer/Activity at " + location.href);
+          return {
+            stepsBeforeReply: Boolean(
+              steps.compareDocumentPosition(reply) & Node.DOCUMENT_POSITION_FOLLOWING,
+            ),
+            replyBeforeActivity: Boolean(
+              reply.compareDocumentPosition(activity) & Node.DOCUMENT_POSITION_FOLLOWING,
+            ),
+            stepsBottom: steps.getBoundingClientRect().bottom,
+            replyTop: reply.getBoundingClientRect().top,
+            replyBottom: reply.getBoundingClientRect().bottom,
+            activityTop: activity.getBoundingClientRect().top,
+            activityBottom: activity.getBoundingClientRect().bottom,
+            replyDisplay: getComputedStyle(reply).display,
+          };
+        });
+        expect(layout.stepsBeforeReply).toBe(true);
+        expect(layout.replyBeforeActivity).toBe(newest);
+        expect(layout.replyDisplay).not.toBe("none");
+        expect(layout.stepsBottom).toBeLessThanOrEqual(layout.replyTop);
+        if (newest) expect(layout.replyBottom).toBeLessThanOrEqual(layout.activityTop);
+        else expect(layout.activityBottom).toBeLessThanOrEqual(layout.replyTop);
+        await expect(page.locator(".detail-properties-summary")).toHaveText("Properties");
+        await expect(page.locator("#ticket-category-value")).toHaveText("General");
+      }
+      await page.setViewportSize({ width: 1280, height: 800 });
+    };
+    const toggleWithDraft = async (order: "newest" | "oldest") => {
+      const draft = `Authored internal draft before ${order}`;
+      const attachment = {
+        name: `draft-${order}.txt`,
+        mimeType: "text/plain",
+        buffer: Buffer.from(draft),
+      };
+      await page.locator("#comment-body").fill(draft);
+      await page.locator("#comment-internal").check();
+      await page.locator("#comment-attachments").setInputFiles(attachment);
+      const response = await assertHtmxSwap(page, () => activityOrder.click(), {
+        endpoint: `/tickets/${id}/timeline-order`,
+        method: "POST",
+        expectedStatus: 200,
+        hxTarget: "#ticket-detail",
+      });
+      expect(new URLSearchParams(response.request().postData() ?? "").get("order")).toBe(order);
+      await expectOrder(order);
+      await expect(page.locator("#comment-body")).toHaveValue(draft);
+      await expect(page.locator("#comment-internal")).toBeChecked();
+      await expect(page.locator("#timeline")).not.toContainText(draft);
+      // Soft only to collect both directions and the remaining persistence
+      // evidence; any lost attachment still fails this journey.
+      const files = await page.locator("#comment-attachments").evaluate(async (element) => {
+        const input = element as HTMLInputElement;
+        return Promise.all(
+          Array.from(input.files ?? []).map(async (file) => ({
+            name: file.name,
+            text: await file.text(),
+          })),
+        );
+      });
+      expect
+        .soft(files, `selected attachment must survive the ${order} Activity swap`)
+        .toEqual([{ name: attachment.name, text: draft }]);
+      await expect.soft(page.locator("[data-dropzone-files]")).toHaveText(attachment.name);
+      await page.reload();
+      await expectOrder(order);
+    };
+    const savePreference = async (order: "newest" | "oldest") => {
+      const select = page.getByLabel("Default activity order", { exact: true });
+      await select.selectOption(order);
+      const navigation = page.waitForEvent("framenavigated", (frame) => frame === page.mainFrame());
+      const posted = waitForExactPost(page, "/preferences/timeline-order");
+      await page.getByRole("button", { name: "Save activity order", exact: true }).click();
+      const response = await posted;
+      expect(response.status()).toBe(303);
+      expect(response.request().headers()["hx-request"]).toBeUndefined();
+      expect(new URLSearchParams(response.request().postData() ?? "").get("timeline_order")).toBe(
+        order,
+      );
+      await navigation;
+      await expect(page).toHaveURL(base() + "/preferences");
+      await expect(page.locator("#save-feedback")).toContainText("Saved");
+      await page.reload();
+      await expect(select).toHaveValue(order);
+      await page.goto(base() + `/tickets/${id}`);
+      await expectOrder(order);
+    };
+
+    await expectOrder("newest");
+    await toggleWithDraft("oldest");
+    await page.goto(base() + "/preferences");
+    await expect(page.getByLabel("Default activity order", { exact: true })).toHaveValue("oldest");
+    await savePreference("newest");
+    await page.goto(base() + "/preferences");
+    await savePreference("oldest");
+    await toggleWithDraft("newest");
+    await page.goto(base() + "/preferences");
+    await expect(page.getByLabel("Default activity order", { exact: true })).toHaveValue("newest");
+    await page.goto(base() + `/tickets/${id}`);
 
     await assertCanonicalScreen(page, {
       viewport: 1280,
@@ -444,6 +579,21 @@ test.describe("Ticket detail", () => {
     await page.goto(base() + `/tickets/${cancelId}`);
     await expect(page.getByText("Cancelled").first()).toBeVisible({ timeout: 10_000 });
     await expect(page.getByLabel(/comment body/i)).toHaveCount(0);
+    // Read-only tickets still offer the same per-user order control, without
+    // accidentally reintroducing a composer in either direction.
+    for (const order of ["oldest", "newest"]) {
+      await assertHtmxSwap(page, () => page.locator(".detail-order button").click(), {
+        endpoint: `/tickets/${cancelId}/timeline-order`,
+        method: "POST",
+        expectedStatus: 200,
+        hxTarget: "#ticket-detail",
+      });
+      await expect(page.locator('.detail-order input[name="order"]')).toHaveValue(
+        order === "oldest" ? "newest" : "oldest",
+      );
+      await expect(page.getByLabel(/comment body/i)).toHaveCount(0);
+      await expect(page.locator(".detail-state .badge")).toHaveText("Cancelled");
+    }
 
     await assertCanonicalScreen(page, {
       viewport: 1280,

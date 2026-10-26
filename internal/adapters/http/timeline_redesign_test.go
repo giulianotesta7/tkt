@@ -38,10 +38,15 @@ func TestTimelineCommentsAreCardsWithTypeDots(t *testing.T) {
 	if internalCardAt < 0 {
 		t.Fatalf("an internal comment must keep its own card class, got: %s", activity)
 	}
-	if publicAt := strings.Index(activity, "public-card-token"); publicAt < 0 || publicAt > internalCardAt {
-		t.Errorf("each comment must own its content: the public body must close before the internal card opens, got: %s", activity)
+	// Each comment owns its own body inside its own card. The ORDER is the
+	// reader's preference (issue #438, S1): this reader never chose, so the
+	// newest comment — the internal one, written second — renders first, and the
+	// public card closes below it. What must not happen is grouping or
+	// interleaving: the public body stays inside the card that follows.
+	if publicAt := strings.Index(activity, "public-card-token"); publicAt < 0 || publicAt < internalCardAt {
+		t.Errorf("each comment must own its content: with newest first the public body must come after the internal card opens, got: %s", activity)
 	}
-	if internalAt, publicAt := strings.Index(activity, "internal-card-token"), strings.Index(activity, "public-card-token"); internalAt < publicAt {
+	if internalAt, publicAt := strings.Index(activity, "internal-card-token"), strings.Index(activity, "public-card-token"); internalAt < 0 || publicAt < 0 || publicAt < internalAt {
 		t.Errorf("comment cards must not be grouped or reordered, got: %s", activity)
 	}
 

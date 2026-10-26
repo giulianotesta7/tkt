@@ -54,11 +54,19 @@
 {{if .Attachments}}        <ul class="attachments" aria-label="{{t "tickets.detail.attachments"}}">{{range .Attachments}}<li><a class="attachment-name" href="/attachments/{{.ID}}">{{.FileName}}</a> <span class="attachment-size">{{fileSize .Size}}</span></li>{{end}}</ul>
 {{end}}      </div>
 {{if .Pending.Active}}      <div class="card detail-steps">{{template "workflow_pending" .}}</div>
+{{end}}{{if not .TimelineOldestFirst}}{{template "detail_replies" .}}
 {{end}}      <div class="card detail-activity">
-        <h2>{{t "tickets.detail.timeline"}}</h2>
+        <div class="detail-activity-head">
+          <h2>{{t "tickets.detail.timeline"}}</h2>
+{{if .CanOrderTimeline}}          <form class="detail-order" method="post" action="/tickets/{{.View.Ticket.ID}}/timeline-order" hx-post="/tickets/{{.View.Ticket.ID}}/timeline-order" hx-target="#ticket-detail" hx-swap="outerHTML">
+            <input type="hidden" name="order" value="{{.TimelineNextOrder}}">
+            <button class="btn small" type="submit" aria-label="{{tf "tickets.timeline.order.switch" (t .TimelineOrderLabelKey) (t .TimelineNextOrderLabelKey)}}">{{t .TimelineOrderLabelKey}}</button>
+          </form>
+{{end}}        </div>
 {{template "timeline" .}}
       </div>
-    </div>
+{{if .TimelineOldestFirst}}{{template "detail_replies" .}}
+{{end}}    </div>
     <aside class="evidence">
       <details class="detail-properties" id="detail-properties" open>
         <summary class="detail-properties-summary"><span>{{t "tickets.detail.properties"}}</span><svg class="detail-properties-chevron" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg></summary>
@@ -125,21 +133,6 @@
         </div>
       </details>
     </aside>
-    <div class="replies" id="reply">
-{{if .CanConfirm}}
-	<section class="card resolution-confirmation" id="resolution" aria-labelledby="resolution-confirmation-title">
-		<p class="resolution-eyebrow">{{t "tickets.detail.resolution.eyebrow"}}</p>
-		<h2 id="resolution-confirmation-title"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="m8.5 12.5 2.5 2.5 4.5-5"/></svg>{{t "tickets.detail.resolution.title"}}</h2>
-		<p class="resolution-help">{{t "tickets.detail.resolution.help"}}</p>
-		<form class="resolution-actions" method="post" action="/tickets/{{.View.Ticket.ID}}/confirmation"
-		      hx-post="/tickets/{{.View.Ticket.ID}}/confirmation" hx-target="#ticket-detail" hx-swap="outerHTML">
-			<button class="btn primary" type="submit" name="decision" value="confirm">{{t "tickets.detail.resolution.confirm"}}</button>
-			<button class="btn ghost" type="submit" name="decision" value="reject">{{t "tickets.detail.resolution.reject"}}</button>
-		</form>
-	</section>
-{{end}}
-{{if .CanComment}}{{template "comment_form" .}}{{end}}
-    </div>
   </div>
 {{if and .CanEdit (not .View.Ticket.OnHoldSince)}}  <dialog id="ticket-hold-dialog" aria-labelledby="ticket-hold-dialog-title" aria-describedby="ticket-hold-dialog-copy"{{if .HoldFailed}} data-open-on-load{{end}}>
     <h2 id="ticket-hold-dialog-title">{{t "tickets.hold.title"}}</h2>
@@ -169,4 +162,30 @@
     <div><button type="button" class="btn" data-title-discard>{{t "common.discard_continue"}}</button><button type="button" class="btn" data-title-save-continue>{{t "common.save_continue"}}</button></div>
   </dialog>
 </div>
+{{end}}
+
+{{/*
+  The replies region (issue #438, S1): the requester's resolution confirmation
+  followed by the composer, kept as ONE block because the two belong together and
+  because the #reply anchor the comment redirect targets has to travel with the
+  composer. Newest first renders this block ABOVE Activity — the newest entry is
+  where the reader is about to write — and oldest first keeps it BELOW, which is
+  how the feed has always read. Steps stays above both, in either order.
+*/}}
+{{define "detail_replies"}}
+    <div class="replies" id="reply">
+{{if .CanConfirm}}
+	<section class="card resolution-confirmation" id="resolution" aria-labelledby="resolution-confirmation-title">
+		<p class="resolution-eyebrow">{{t "tickets.detail.resolution.eyebrow"}}</p>
+		<h2 id="resolution-confirmation-title"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="m8.5 12.5 2.5 2.5 4.5-5"/></svg>{{t "tickets.detail.resolution.title"}}</h2>
+		<p class="resolution-help">{{t "tickets.detail.resolution.help"}}</p>
+		<form class="resolution-actions" method="post" action="/tickets/{{.View.Ticket.ID}}/confirmation"
+		      hx-post="/tickets/{{.View.Ticket.ID}}/confirmation" hx-target="#ticket-detail" hx-swap="outerHTML">
+			<button class="btn primary" type="submit" name="decision" value="confirm">{{t "tickets.detail.resolution.confirm"}}</button>
+			<button class="btn ghost" type="submit" name="decision" value="reject">{{t "tickets.detail.resolution.reject"}}</button>
+		</form>
+	</section>
+{{end}}
+{{if .CanComment}}{{template "comment_form" .}}{{end}}
+    </div>
 {{end}}

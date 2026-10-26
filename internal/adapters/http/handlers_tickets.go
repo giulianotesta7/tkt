@@ -203,6 +203,13 @@ func (h *TicketHandlers) Register(mux *http.ServeMux) {
 	if h.follows != nil {
 		h.registerFollows(mux)
 	}
+	// The activity-order toggle (issue #438, S1) is a per-user preference written
+	// from the ticket it reorders, so its route exists only when the preferences
+	// use case is wired: a handler built without it answers the mux's 404 instead
+	// of panicking on a nil service, and the detail renders no control.
+	if h.preferences != nil {
+		mux.HandleFunc("POST /tickets/{id}/timeline-order", h.updateTimelineOrder)
+	}
 }
 
 // pageData is the shared presentation payload for app-shell pages: the rail
@@ -2037,6 +2044,18 @@ type detailData struct {
 	// offered the list. Presentation only — it decides which runs of text the
 	// reader already sees become mention chips, and renders no list of people.
 	MentionNames []string
+	// TimelineOldestFirst is the READER's ticket activity order (issue #438,
+	// S1): false — the default, and the zero value — renders the feed newest
+	// first with the composer ABOVE Activity; true renders it oldest first with
+	// the composer BELOW, as the feed always read. It is a per-user preference,
+	// never a ticket fact, and a hand-built payload without it therefore renders
+	// exactly what a reader who never chose gets.
+	TimelineOldestFirst bool
+	// CanOrderTimeline reports whether the Activity header offers the order
+	// toggle: only when the detail was built with the preferences use case wired,
+	// the same shape as every other optional service. Presentation only — the
+	// route enforces the closed set and the actor's own key.
+	CanOrderTimeline bool
 }
 
 // QueueHref is the detail's "← Queue" target: the validated list return href
@@ -2053,18 +2072,49 @@ func (d detailData) QueueHref() string {
 
 const ticketQueueReturnHeader = "X-TKT-Queue-Return"
 
-// TimelineOldestFirst is the detail's reading order (issue #386, S3): the
-// application stream stays newest-first (its documented contract), and the
-// detail reverses it so the feed reads top to bottom into the composer. It
-// returns a copy, so the reversal never mutates the view the caller shares with
-// the rest of the request.
-func (d detailData) TimelineOldestFirst() []application.TimelineItem {
+// TimelineItems is the detail's reading order (issue #438, S1): the application
+// stream stays newest-first (its documented contract), and the detail reverses it
+// ONLY for a reader who chose oldest first. It returns a copy in that case, so a
+// reversal never mutates the view the caller shares with the rest of the
+// request, and answers the shared slice unchanged otherwise (newest first is
+// already the stored order).
+func (d detailData) TimelineItems() []application.TimelineItem {
 	source := d.View.Timeline
+	if !d.TimelineOldestFirst {
+		return source
+	}
 	oldest := make([]application.TimelineItem, len(source))
 	for i, item := range source {
 		oldest[len(source)-1-i] = item
 	}
 	return oldest
+}
+
+// TimelineOrderLabelKey is the catalogue key of the order the reader currently
+// sees, for the Activity header control's own label (issue #438, S1).
+func (d detailData) TimelineOrderLabelKey() string {
+	if d.TimelineOldestFirst {
+		return "preferences.timeline.oldest"
+	}
+	return "preferences.timeline.newest"
+}
+
+// TimelineNextOrder is the order the Activity header control SAVES: always the
+// other one, because the control is a switch rather than a menu.
+func (d detailData) TimelineNextOrder() string {
+	if d.TimelineOldestFirst {
+		return application.TimelineOrderNewest
+	}
+	return application.TimelineOrderOldest
+}
+
+// TimelineNextOrderLabelKey is the catalogue key of the order the control would
+// switch to, so its accessible name reads both the current state and the action.
+func (d detailData) TimelineNextOrderLabelKey() string {
+	if d.TimelineOldestFirst {
+		return "preferences.timeline.newest"
+	}
+	return "preferences.timeline.oldest"
 }
 
 // IsOwnComment reports whether the comment was written by the reader (issue
@@ -2235,6 +2285,19 @@ func (h *TicketHandlers) detailDataFor(r *http.Request, id int64) (detailData, i
 	if err != nil {
 		status, _ := mapError(err)
 		return detailData{}, status, err
+	}
+	// The reader's activity order (issue #438, S1): read ONCE per render, so the
+	// feed, the composer's position and the Activity header control can never
+	// disagree. An unwired preferences use case keeps the documented newest-first
+	// default and offers no control, exactly like the other optional services
+	// around it.
+	timelineOldestFirst := false
+	if h.preferences != nil {
+		order, orderErr := h.preferences.GetTimelineOrder(r.Context(), actor)
+		if orderErr != nil {
+			return detailData{}, http.StatusInternalServerError, orderErr
+		}
+		timelineOldestFirst = order == application.TimelineOrderOldest
 	}
 	opts, err := h.collectOptions(r)
 	if err != nil {
@@ -2422,6 +2485,9 @@ func (h *TicketHandlers) detailDataFor(r *http.Request, id int64) (detailData, i
 		Followers:     followers,
 		Mentions:      mentions,
 		MentionNames:  mentionNames,
+		// The reader's own feed order (issue #438, S1), never a ticket fact.
+		TimelineOldestFirst: timelineOldestFirst,
+		CanOrderTimeline:    h.preferences != nil,
 	}, 0, nil
 }
 
@@ -2991,6 +3057,42 @@ func (h *TicketHandlers) afterMutation(w http.ResponseWriter, r *http.Request, i
 		return
 	}
 	redirect(w, r, "/tickets/"+strconv.FormatInt(id, 10))
+}
+
+// updateTimelineOrder persists the reader's ticket activity order and answers the
+// detail it reorders (issue #438, S1). The route exists on a TICKET rather than
+// on /preferences because the answer IS that ticket's detail fragment: the
+// composer moves relative to Activity, so the swap target must be #ticket-detail.
+// The STORED preference stays per-user and ticket-independent — the path id only
+// names the page to re-render — and it is the same use case the Preferences form
+// calls, so both entry points store one value under one name.
+//
+// A letter outside the closed set is refused by the application service and
+// re-rendered as the detail's inline 422 error, changing nothing. Success follows
+// every other ticket mutation: HX swaps the detail fragment, a full request
+// redirects 303 back to the ticket. The existing actor-scoped ticket read must
+// succeed before saving, so a missing or inaccessible ticket cannot commit a
+// preference and then return a failed detail response.
+func (h *TicketHandlers) updateTimelineOrder(w http.ResponseWriter, r *http.Request) {
+	id, ok := ticketID(r)
+	if !ok {
+		httpError(w, r, "error.invalid_ticket_id", http.StatusBadRequest)
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		httpError(w, r, "error.internal_server", http.StatusInternalServerError)
+		return
+	}
+	actor := *userFromContext(r.Context())
+	if _, err := h.tickets.GetByID(r.Context(), actor, id); err != nil {
+		http.Error(w, mapErrorMsg(r, err), statusFor(err))
+		return
+	}
+	if err := h.preferences.SetTimelineOrder(r.Context(), actor, r.Form.Get("order")); err != nil {
+		h.renderDetailError(w, r, id, err)
+		return
+	}
+	h.afterMutation(w, r, id, "ticket_detail")
 }
 
 // update applies the inline properties form. Assignment is NOT part of the

@@ -109,18 +109,60 @@
         <h2>Description</h2>
         <p class="ticket-description">The login form 500s on submit</p>
       </div>
+
+    <div class="replies" id="reply">
+
+
+<form class="card comment-form" method="post" action="/tickets/1/comments" enctype="multipart/form-data">
+  <div class="field comment-field">
+    <textarea name="body" id="comment-body" hx-preserve="true" placeholder="Write a comment…" aria-label="Comment body"></textarea>
+  </div>
+  <input type="hidden" name="visibility" value="public">
+  <div class="comment-tools">
+    <label class="comment-dropzone" id="comment-dropzone" hx-preserve="true" for="comment-attachments">
+      <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 11.5 12.5 19a5 5 0 0 1-7-7l7.5-7.5a3.5 3.5 0 0 1 5 5L10.5 17a2 2 0 0 1-3-3l7-7"/></svg>
+      <span>Attachments</span>
+      <span class="comment-dropzone-files" data-dropzone-files></span>
+      <input type="file" id="comment-attachments" name="attachments" multiple accept=".png,.jpg,.jpeg,.gif,.webp,.pdf,.docx,.xlsx,.pptx,.txt,.csv,.log,.zip">
+    </label>
+    <div class="checkbox-field comment-internal">
+      <label for="comment-internal"><input id="comment-internal" type="checkbox" name="internal" value="1" hx-preserve="true"> Internal comment</label>
+    </div>
+    <button class="btn primary comment-submit" type="submit">Reply</button>
+  </div>
+  <p class="help comment-attachment-hint">Up to 5 files, 10 MB each</p>
+</form>
+
+    </div>
+
       <div class="card detail-activity">
-        <h2>Activity</h2>
+        <div class="detail-activity-head">
+          <h2>Activity</h2>
+          <form class="detail-order" method="post" action="/tickets/1/timeline-order" hx-post="/tickets/1/timeline-order" hx-target="#ticket-detail" hx-swap="outerHTML">
+            <input type="hidden" name="order" value="oldest">
+            <button class="btn small" type="submit" aria-label="Activity order: Newest first. Switch to Oldest first.">Newest first</button>
+          </form>
+        </div>
 
 <div id="timeline">
 
 
 
-
-  <article class="timeline-entry timeline-event st-new">
+  <article class="timeline-entry timeline-comment">
     <div class="timeline-entry-head">
-      <div class="narrative"><strong class="timeline-actor">Admin</strong> <span class="timeline-action">created the ticket</span></div>
-      <div class="when"><time datetime="2026-08-06T10:00:00Z" title="10:00 · 06-08-2026">10:00 · 06-08-2026</time></div>
+      <div class="narrative"><strong class="timeline-actor">Ana Torres</strong> <span class="timeline-action">added a comment</span></div>
+      <div class="when"><time datetime="2026-08-06T10:30:00Z" title="10:30 · 06-08-2026">10:30 · 06-08-2026</time></div>
+    </div>
+    <div class="timeline-body">Checking now</div>
+  </article>
+
+
+
+
+  <article class="timeline-entry timeline-event">
+    <div class="timeline-entry-head">
+      <div class="narrative"><strong class="timeline-actor">Admin</strong> <span class="timeline-action">assigned the ticket to Ana Torres</span></div>
+      <div class="when"><time datetime="2026-08-06T10:30:00Z" title="10:30 · 06-08-2026">10:30 · 06-08-2026</time></div>
     </div>
   </article>
 
@@ -139,23 +181,13 @@
 
 
 
-  <article class="timeline-entry timeline-event">
+  <article class="timeline-entry timeline-event st-new">
     <div class="timeline-entry-head">
-      <div class="narrative"><strong class="timeline-actor">Admin</strong> <span class="timeline-action">assigned the ticket to Ana Torres</span></div>
-      <div class="when"><time datetime="2026-08-06T10:30:00Z" title="10:30 · 06-08-2026">10:30 · 06-08-2026</time></div>
+      <div class="narrative"><strong class="timeline-actor">Admin</strong> <span class="timeline-action">created the ticket</span></div>
+      <div class="when"><time datetime="2026-08-06T10:00:00Z" title="10:00 · 06-08-2026">10:00 · 06-08-2026</time></div>
     </div>
   </article>
 
-
-
-
-  <article class="timeline-entry timeline-comment">
-    <div class="timeline-entry-head">
-      <div class="narrative"><strong class="timeline-actor">Ana Torres</strong> <span class="timeline-action">added a comment</span></div>
-      <div class="when"><time datetime="2026-08-06T10:30:00Z" title="10:30 · 06-08-2026">10:30 · 06-08-2026</time></div>
-    </div>
-    <div class="timeline-body">Checking now</div>
-  </article>
 
 
 
@@ -272,30 +304,6 @@
         </div>
       </details>
     </aside>
-    <div class="replies" id="reply">
-
-
-<form class="card comment-form" method="post" action="/tickets/1/comments" enctype="multipart/form-data">
-  <div class="field comment-field">
-    <textarea name="body" id="comment-body" hx-preserve="true" placeholder="Write a comment…" aria-label="Comment body"></textarea>
-  </div>
-  <input type="hidden" name="visibility" value="public">
-  <div class="comment-tools">
-    <label class="comment-dropzone" for="comment-attachments">
-      <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 11.5 12.5 19a5 5 0 0 1-7-7l7.5-7.5a3.5 3.5 0 0 1 5 5L10.5 17a2 2 0 0 1-3-3l7-7"/></svg>
-      <span>Attachments</span>
-      <span class="comment-dropzone-files" data-dropzone-files></span>
-      <input type="file" id="comment-attachments" name="attachments" multiple accept=".png,.jpg,.jpeg,.gif,.webp,.pdf,.docx,.xlsx,.pptx,.txt,.csv,.log,.zip">
-    </label>
-    <div class="checkbox-field comment-internal">
-      <label for="comment-internal"><input id="comment-internal" type="checkbox" name="internal" value="1" hx-preserve="true"> Internal comment</label>
-    </div>
-    <button class="btn primary comment-submit" type="submit">Reply</button>
-  </div>
-  <p class="help comment-attachment-hint">Up to 5 files, 10 MB each</p>
-</form>
-
-    </div>
   </div>
   <dialog id="ticket-hold-dialog" aria-labelledby="ticket-hold-dialog-title" aria-describedby="ticket-hold-dialog-copy">
     <h2 id="ticket-hold-dialog-title">Put on hold</h2>
