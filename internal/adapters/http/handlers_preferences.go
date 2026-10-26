@@ -350,7 +350,10 @@ func (h *PreferencesHandlers) passwordChangeSection(r *http.Request) (passwordSe
 	if err != nil {
 		return passwordSectionData{}, err
 	}
-	return passwordSectionData{Shown: policy.ChangeEnabled && allowed, MinLength: policy.MinLength}, nil
+	// An account without a password (a company sign-in created it) has no current
+	// password to ask for, so the section is not offered.
+	hasPassword := userFromContext(r.Context()).PasswordHash != ""
+	return passwordSectionData{Shown: policy.ChangeEnabled && allowed && hasPassword, MinLength: policy.MinLength}, nil
 }
 
 // updatePassword replaces the session user's own password (issue #414, S2). The

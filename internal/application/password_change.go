@@ -80,6 +80,12 @@ func (s *UserService) ChangeOwnPassword(ctx context.Context, actor domain.User, 
 	if !user.Active {
 		return domain.NewForbiddenError("an inactive account cannot change its password")
 	}
+	// An account a company sign-in created has no password, so there is no
+	// current one to verify and the section is never offered to it; the route
+	// refuses it the same way instead of answering "incorrect password".
+	if user.PasswordHash == "" {
+		return domain.NewForbiddenError(errMsgPasswordChangeDisabled)
+	}
 	allowed, err := passwordSignInAllowed(ctx, s.companySignIn, user.Role)
 	if err != nil {
 		return err
