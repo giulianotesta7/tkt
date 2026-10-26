@@ -665,7 +665,8 @@
   .company-divider{display:flex;align-items:center;gap:10px;width:100%;max-width:440px;margin:16px 0;color:var(--muted);font-size:12px}
   .company-divider::before,.company-divider::after{content:"";flex:1;height:1px;background:var(--line)}
   .company-providers{display:flex;flex-direction:column;gap:10px;width:100%;max-width:440px}
-  .auth-entry__form-panel .company-provider{height:48px;gap:10px;border-color:var(--line-strong)}
+  .auth-entry__form-panel .company-provider{height:48px;gap:10px;border-color:var(--line-strong);display:inline-flex;align-items:center;justify-content:center}
+  .company-logo{width:18px;height:18px;flex:0 0 auto}
   .company-breakglass{width:100%;max-width:440px;margin:16px 0 0}
   .company-breakglass > summary{width:max-content;margin:0 auto;color:var(--accent-ink);font-size:12px;cursor:pointer;list-style:none}
   .company-breakglass > summary::-webkit-details-marker{display:none}

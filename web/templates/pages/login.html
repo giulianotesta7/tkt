@@ -24,7 +24,7 @@
 </section>
 {{- else if .CompanySignInOff}}{{if .CompanyProviders}}
 <div class="company-providers">
-{{range .CompanyProviders}}<a class="btn company-provider" href="/auth/{{.Provider}}/start">{{t (print "auth.company." .LabelKey)}}</a>
+{{range .CompanyProviders}}<a class="btn company-provider" href="/auth/{{.Provider}}/start">{{template "company_logo" .Provider}}<span>{{t (print "auth.company." .LabelKey)}}</span></a>
 {{end}}</div>
 {{- end}}
 <details class="company-breakglass">
@@ -34,7 +34,7 @@
 {{- else}}{{template "login_form" .}}{{if .CompanyProviders}}
 <div class="company-divider"><span>{{t "auth.company.divider"}}</span></div>
 <div class="company-providers">
-{{range .CompanyProviders}}<a class="btn company-provider" href="/auth/{{.Provider}}/start">{{t (print "auth.company." .LabelKey)}}</a>
+{{range .CompanyProviders}}<a class="btn company-provider" href="/auth/{{.Provider}}/start">{{template "company_logo" .Provider}}<span>{{t (print "auth.company." .LabelKey)}}</span></a>
 {{end}}</div>
 {{- end}}
 {{- end}}{{end}}
