@@ -33,7 +33,7 @@ Use when drafting or revising release text. Do not use for building images, mana
 
 1. Resolve the requested version, exact target and previous published release. Ask if ambiguous. Inspect the source range and merged PRs; for a first release inspect capabilities instead.
 2. Use native generated notes as input, not finished copy. Categories use PR labels, not issue labels. Labels remain optional; inspect uncategorized changes instead of dropping them.
-3. Select only applicable sections. Read `assets/examples.md` for hypothetical formatting, never factual claims.
+3. Select only applicable sections. Read `./assets/examples.md` for hypothetical formatting, never factual claims.
 4. Finish with a real Full changelog comparison when a previous release exists, then one Documentation / Español link line. Pin links to verified source refs. Do not add a Documentation section.
 
 ## Output Contract
