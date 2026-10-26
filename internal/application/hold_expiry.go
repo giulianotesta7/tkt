@@ -40,6 +40,10 @@ type HoldExpiryService struct {
 	sla      *SLAService
 	settings SettingsStore
 	clock    domain.Clock
+	// followers resolves the staff subscribed to a ticket (issue #418), so the
+	// automatic close also reaches them. Nil keeps the wiring without follower
+	// fan-out.
+	followers *FollowService
 }
 
 // NewHoldExpiryService wires the pass. The SLA collaborator is the same one the
@@ -48,6 +52,14 @@ type HoldExpiryService struct {
 // does.
 func NewHoldExpiryService(store HoldExpiryStore, tx TicketUnitOfWork, users UserStore, sla *SLAService, settings SettingsStore, clock domain.Clock) *HoldExpiryService {
 	return &HoldExpiryService{store: store, tx: tx, users: users, sla: sla, settings: settings, clock: clock}
+}
+
+// WithFollowers wires the follower collaborator (issue #418) and returns the
+// service, so the composition root chains it onto the constructor. Without it an
+// automatic close notifies the requester and the assignee only.
+func (s *HoldExpiryService) WithFollowers(followers *FollowService) *HoldExpiryService {
+	s.followers = followers
+	return s
 }
 
 // Run runs the pass every interval until ctx ends, logging a repeated error
@@ -178,7 +190,7 @@ func (s *HoldExpiryService) close(ctx context.Context, t *domain.Ticket, since, 
 	via := domain.ClosureViaHoldExpired
 	closed.ClosureVia = &via
 	events = append(events, *closed)
-	requester, assignee, err := ticketRecipients(ctx, s.users, t)
+	r, err := ticketChangeRecipients(ctx, s.users, s.followers, t)
 	if err != nil {
 		return err
 	}
@@ -187,7 +199,7 @@ func (s *HoldExpiryService) close(ctx context.Context, t *domain.Ticket, since, 
 		ExpectedOnHoldSince: &since,
 		ShiftedSLA:          shifted,
 		Events:              events,
-		Notifications:       holdClosedNotifications(t, now, requester, assignee),
+		Notifications:       holdClosedNotifications(t, now, r),
 	}
 	if err := s.tx.UpdateHold(ctx, write); err != nil {
 		if isHoldConflict(err) {

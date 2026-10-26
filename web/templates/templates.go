@@ -16,7 +16,9 @@ import "embed"
 // static/notifications.js is the notification drawer's focus handling (issue
 // #344), and static/ticket_detail.js is the ticket detail's own behaviour
 // (issue #386): the title guard, the property pickers, the hold and reason
-// dialogs, and the phone fold of the properties panel.
+// dialogs, and the phone fold of the properties panel. static/saved_replies.js
+// is the saved-reply manager's behaviour (issue #418): the placeholder chips in
+// the editor and the delete confirmation.
 //
 // The interface typeface is vendored rather than fetched: Inter Variable
 // (static/InterVariable.woff2, SIL Open Font License 1.1, rsms/inter v4.1,
@@ -24,5 +26,5 @@ import "embed"
 // hosting keeps the font working on installations with no outbound network and
 // gives every operator the same rendering instead of the system fallback.
 //
-//go:embed base.html auth.html pages/*.html partials/*.html static/htmx.min.js static/InterVariable.woff2 static/users.css static/users.js static/tickets.js static/ticket_form.js static/workflow.js static/sla_duration.js static/categories.js static/save-feedback.js static/notifications.js static/shell.js static/queue.js static/ticket_metrics.css static/ticket_metrics.js static/sla_countdown.js static/ticket_detail.js static/ticket_create.js static/settings.css static/settings.js
+//go:embed base.html auth.html pages/*.html partials/*.html static/htmx.min.js static/InterVariable.woff2 static/users.css static/users.js static/tickets.js static/ticket_form.js static/workflow.js static/sla_duration.js static/categories.js static/save-feedback.js static/notifications.js static/shell.js static/queue.js static/ticket_metrics.css static/ticket_metrics.js static/sla_countdown.js static/ticket_detail.js static/saved_replies.js static/ticket_create.js static/settings.css static/settings.js
 var FS embed.FS

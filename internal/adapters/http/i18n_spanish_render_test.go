@@ -97,6 +97,39 @@ func TestSpanishTicketDetail(t *testing.T) {
 	}
 }
 
+// TestSpanishFollowingAndMentioning renders the follow control, the followers
+// row and both mention inputs in Spanish, and the staff-only refusal a
+// requester meets on the follow routes (issue #418).
+func TestSpanishFollowingAndMentioning(t *testing.T) {
+	body := renderLocalized(t, "es", "tickets_show", "ticket_detail", fixtureDetailFollowDataIn(i18n.Spanish))
+	for _, want := range []string{"Siguiendo", "Seguidores", "Tú", "Mencionar", "Solo el personal que puede abrir este ticket"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("Spanish follow surfaces must render %q, got: %.1200s", want, body)
+		}
+	}
+	for _, unwanted := range []string{">Following<", ">Followers<", ">Mention<"} {
+		if strings.Contains(body, unwanted) {
+			t.Errorf("Spanish follow surfaces must not render the English %q, got: %.1200s", unwanted, body)
+		}
+	}
+
+	empty := renderLocalized(t, "es", "tickets_show", "comment_form", fixtureDetailMentionsEmptyData())
+	for _, want := range []string{
+		"Nadie que pueda abrir este ticket coincide.",
+		"Escribe @ para mencionar a alguien que puede abrir este ticket.",
+	} {
+		if !strings.Contains(empty, want) {
+			t.Errorf("Spanish empty candidate list must render %q, got: %.1200s", want, empty)
+		}
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/tickets/1/follow", nil)
+	req = req.WithContext(context.WithValue(req.Context(), ctxKeyInterfaceLanguage{}, "es"))
+	if _, got := mapErrorFor(req, domain.NewForbiddenError(application.ErrMsgFollowersStaffOnly)); got != "solo el personal puede seguir un ticket" {
+		t.Errorf("Spanish follow refusal = %q", got)
+	}
+}
+
 // TestSpanishTicketForm renders the ticket creation form in Spanish.
 func TestSpanishTicketForm(t *testing.T) {
 	body := renderLocalized(t, "es", "tickets_new", "ticket_form", fixtureTicketFormData())
