@@ -96,10 +96,14 @@ type categoryViewState struct {
 }
 
 type categoryDrawerData struct {
-	Kind                 string
-	ID                   int64
-	Name                 string
-	Description          string
+	Kind        string
+	ID          int64
+	Name        string
+	Description string
+	// Keywords is the suggestion keywords field the category drawer alone
+	// renders (issue #416, S4). A department or a desk has no keywords, so the
+	// template asks for the kind before it shows the control.
+	Keywords             string
 	DepartmentID         int64
 	DeskID               int64
 	Departments          []domain.CatalogDepartment
@@ -250,7 +254,7 @@ func (h *CategoryHandlers) create(w http.ResponseWriter, r *http.Request) {
 			h.renderCategoryFormError(w, r, 0, parseErr)
 			return
 		}
-		_, err = h.categories.CreateWithDescriptionFor(r.Context(), *userFromContext(r.Context()), r.Form.Get("name"), r.Form.Get("description"), deskID)
+		_, err = h.categories.CreateWithKeywordsFor(r.Context(), *userFromContext(r.Context()), r.Form.Get("name"), r.Form.Get("description"), r.Form.Get("keywords"), deskID)
 	} else {
 		_, err = h.categories.CreateFor(r.Context(), *userFromContext(r.Context()), r.Form.Get("name"))
 	}
@@ -281,7 +285,7 @@ func (h *CategoryHandlers) editForm(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	d := h.newDrawerData(r, "category")
-	d.ID, d.Name, d.Description, d.DeskID = id, c.Name, c.Description, c.DeskID
+	d.ID, d.Name, d.Description, d.Keywords, d.DeskID = id, c.Name, c.Description, c.Keywords, c.DeskID
 	for _, desk := range d.Desks {
 		if desk.ID == c.DeskID {
 			// A legacy desk's stored parent is NULL (DepartmentID 0); the
@@ -422,7 +426,7 @@ func (h *CategoryHandlers) update(w http.ResponseWriter, r *http.Request) {
 	if h.catalog != nil {
 		c, getErr := h.categories.GetByID(r.Context(), id)
 		if getErr == nil {
-			c.Name, c.Description = r.Form.Get("name"), r.Form.Get("description")
+			c.Name, c.Description, c.Keywords = r.Form.Get("name"), r.Form.Get("description"), r.Form.Get("keywords")
 			deskID, parseErr := requiredCategoryID(r.Form.Get("desk_id"), "desk_id")
 			if parseErr != nil {
 				h.renderCategoryFormError(w, r, id, parseErr)
@@ -480,7 +484,7 @@ func (h *CategoryHandlers) renderCatalogFormError(w http.ResponseWriter, r *http
 		d.SelectedDepartmentID, d.SelectedDeskID = state.DepartmentID, state.DeskID
 		d.CloseURL = categoryStatePath(state)
 	}
-	d.ID, d.Name, d.Description, d.Error = id, r.Form.Get("name"), r.Form.Get("description"), msg
+	d.ID, d.Name, d.Description, d.Keywords, d.Error = id, r.Form.Get("name"), r.Form.Get("description"), r.Form.Get("keywords"), msg
 	d.HasServerError = true
 	d.markInvalidControl(err)
 	h.renderCategoryDrawerStatus(w, r, d, status)

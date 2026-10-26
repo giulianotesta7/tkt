@@ -517,7 +517,9 @@ type UserStore interface {
 	// desk context exists), the guarded role update persists, and the role
 	// audit is appended — all in ONE transaction, all or nothing.
 	DowngradeToUser(ctx context.Context, u *domain.User, expectedRole domain.Role, actorID int64, at time.Time) (*domain.User, error)
-	// UpdatePasswordHash changes only the stored password hash.
+	// UpdatePasswordHash replaces the stored password hash and voids the
+	// account's pending password reset links, all or nothing (issue #414: every
+	// password change voids pending links).
 	UpdatePasswordHash(ctx context.Context, id int64, passwordHash string) error
 	// Delete removes an unreferenced user; ErrReferenced when the user is
 	// assigned to tickets (deactivation is the removal path then).
@@ -1460,7 +1462,16 @@ type PasswordChangeStore interface {
 	// The user's pending recovery links are voided in the same transaction,
 	// because a link mailed before the change must never set a password after
 	// it.
-	ChangePasswordAndSignOutOtherSessions(ctx context.Context, userID int64, passwordHash, keepSessionID string) error
+	//
+	// The hash write is a compare-and-set against expectedPasswordHash: the very
+	// hash the caller verified the current password against. Two submissions can
+	// both verify the old password before either writes, and without this check
+	// the second one silently replaces the password the first one stored, and
+	// the person who believes the change succeeded is signed out of it. A stored
+	// hash that is no longer expectedPasswordHash refuses the whole unit — before
+	// a session or a pending link is touched — with the shared
+	// current-password refusal, the same one a wrong current password gets.
+	ChangePasswordAndSignOutOtherSessions(ctx context.Context, userID int64, expectedPasswordHash, passwordHash, keepSessionID string) error
 }
 
 // PasswordResetStore persists the single-use recovery links of the self-service
@@ -1627,6 +1638,13 @@ const (
 	// at the end of the list. A resolved ticket still awaiting confirmation
 	// belongs to the Needs-your-action section, never here (issue #411, S8).
 	TicketSectionRequesterClosed
+	// TicketSectionRequesterExport is the requester's WHOLE list (issue #425,
+	// S1/S5/S8): every ticket their three list sections show — active work on
+	// hold or not, the resolved ones awaiting confirmation, and the closed
+	// ones — with cancelled work left out exactly as the list leaves it out.
+	// The export handler chooses it for a requester; nothing a caller sends can
+	// select, widen or narrow it.
+	TicketSectionRequesterExport
 )
 
 // TicketQuery is the filter set shared by list, count, and search queries

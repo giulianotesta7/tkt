@@ -64,6 +64,11 @@ func passwordHashOf(t *testing.T, s *Store, userID int64) string {
 	return hash
 }
 
+// passwordChangeFixtureHash is the hash seedUser stores, so a test that arranges
+// its accounts directly knows the hash a change verified the current password
+// against.
+const passwordChangeFixtureHash = "bcrypt-hash"
+
 // passwordChangeFixture seeds two accounts: the one changing its password with
 // three sessions (one of them the request's own) and a second account whose
 // session must survive untouched.
@@ -102,7 +107,7 @@ func TestPasswordChangeStoreReplacesTheHashAndSignsOutTheOtherSessions(t *testin
 	f := newPasswordChangeFixture(t)
 	ctx := context.Background()
 
-	if err := f.store.PasswordChangeStore().ChangePasswordAndSignOutOtherSessions(ctx, f.userID, "new-bcrypt-hash", "sess-current"); err != nil {
+	if err := f.store.PasswordChangeStore().ChangePasswordAndSignOutOtherSessions(ctx, f.userID, passwordChangeFixtureHash, "new-bcrypt-hash", "sess-current"); err != nil {
 		t.Fatalf("ChangePasswordAndSignOutOtherSessions: %v", err)
 	}
 
@@ -128,7 +133,7 @@ func TestPasswordChangeStoreUnknownUserIsNotFoundAndDeletesNothing(t *testing.T)
 	f := newPasswordChangeFixture(t)
 	ctx := context.Background()
 
-	err := f.store.PasswordChangeStore().ChangePasswordAndSignOutOtherSessions(ctx, 4242, "new-bcrypt-hash", "sess-current")
+	err := f.store.PasswordChangeStore().ChangePasswordAndSignOutOtherSessions(ctx, 4242, passwordChangeFixtureHash, "new-bcrypt-hash", "sess-current")
 	if !errors.Is(err, domain.ErrNotFound) {
 		t.Fatalf("unknown user = %v, want ErrNotFound", err)
 	}
@@ -137,6 +142,37 @@ func TestPasswordChangeStoreUnknownUserIsNotFoundAndDeletesNothing(t *testing.T)
 	}
 	if got := passwordHashOf(t, f.store, f.userID); got != "bcrypt-hash" {
 		t.Errorf("stored hash = %q, want it untouched", got)
+	}
+}
+
+// TestPasswordChangeStoreRefusesAStaleExpectedHash proves the hash write is a
+// compare-and-set: when the stored hash is no longer the one the caller verified
+// the current password against, the whole unit is refused with the shared
+// current-password refusal — the same answer a wrong current password gets, so a
+// lost race cannot be told apart from a mistyped password — and nothing is
+// written. The transaction never reaches the session delete or the pending-link
+// delete, so a losing submission cannot sign the winner out.
+func TestPasswordChangeStoreRefusesAStaleExpectedHash(t *testing.T) {
+	f := newPasswordChangeFixture(t)
+	ctx := context.Background()
+	seedResetToken(t, f.store, f.userID, "hash-pending", testClock.Add(-time.Minute), testClock.Add(time.Hour), nil)
+
+	err := f.store.PasswordChangeStore().ChangePasswordAndSignOutOtherSessions(ctx, f.userID, "hash-a-change-already-replaced", "new-bcrypt-hash", "sess-current")
+	var invalid *domain.ValidationError
+	if !errors.As(err, &invalid) {
+		t.Fatalf("a stale expected hash = %v, want a ValidationError", err)
+	}
+	if invalid.Field != "current_password" || invalid.Key != "error.current_password_incorrect" {
+		t.Errorf("refusal field/key = %q/%q, want current_password/error.current_password_incorrect", invalid.Field, invalid.Key)
+	}
+	if got := passwordHashOf(t, f.store, f.userID); got != passwordChangeFixtureHash {
+		t.Errorf("stored hash = %q, want it untouched", got)
+	}
+	if got, want := passwordSessionIDs(t, f.store, f.userID), []string{"sess-current", "sess-laptop", "sess-phone"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("sessions after the refused change = %v, want %v", got, want)
+	}
+	if got, want := resetTokenHashes(t, f.store, f.userID), []string{"hash-pending"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("pending links after the refused change = %v, want %v", got, want)
 	}
 }
 
@@ -161,7 +197,7 @@ func TestPasswordChangeStoreRollsBackHashAndSessions(t *testing.T) {
 		}
 	})
 
-	err := f.store.PasswordChangeStore().ChangePasswordAndSignOutOtherSessions(ctx, f.userID, "new-bcrypt-hash", "sess-current")
+	err := f.store.PasswordChangeStore().ChangePasswordAndSignOutOtherSessions(ctx, f.userID, passwordChangeFixtureHash, "new-bcrypt-hash", "sess-current")
 	if err == nil {
 		t.Fatal("the change succeeded with its session delete aborted, want an error")
 	}
@@ -183,7 +219,7 @@ func TestPasswordChangeStoreRefusesAForeignKeepSession(t *testing.T) {
 	f := newPasswordChangeFixture(t)
 	ctx := context.Background()
 
-	err := f.store.PasswordChangeStore().ChangePasswordAndSignOutOtherSessions(ctx, f.userID, "new-bcrypt-hash", "sess-bea")
+	err := f.store.PasswordChangeStore().ChangePasswordAndSignOutOtherSessions(ctx, f.userID, passwordChangeFixtureHash, "new-bcrypt-hash", "sess-bea")
 	var forbidden *domain.ForbiddenError
 	if !errors.As(err, &forbidden) {
 		t.Fatalf("a foreign keep session = %v, want a ForbiddenError", err)
@@ -206,7 +242,7 @@ func TestPasswordChangeStoreRefusesAnUnknownKeepSession(t *testing.T) {
 	f := newPasswordChangeFixture(t)
 	ctx := context.Background()
 
-	err := f.store.PasswordChangeStore().ChangePasswordAndSignOutOtherSessions(ctx, f.userID, "new-bcrypt-hash", "sess-gone")
+	err := f.store.PasswordChangeStore().ChangePasswordAndSignOutOtherSessions(ctx, f.userID, passwordChangeFixtureHash, "new-bcrypt-hash", "sess-gone")
 	if !errors.Is(err, domain.ErrNotFound) {
 		t.Fatalf("an unknown keep session = %v, want ErrNotFound", err)
 	}
@@ -537,7 +573,7 @@ func TestPasswordChangeVoidsPendingResetTokens(t *testing.T) {
 	seedResetToken(t, f.store, f.userID, "hash-spent", testClock.Add(-time.Hour), expires, ptr(testClock.Add(-30*time.Minute)))
 	seedResetToken(t, f.store, f.other, "hash-other", testClock.Add(-time.Minute), expires, nil)
 
-	if err := f.store.PasswordChangeStore().ChangePasswordAndSignOutOtherSessions(ctx, f.userID, "new-bcrypt-hash", "sess-current"); err != nil {
+	if err := f.store.PasswordChangeStore().ChangePasswordAndSignOutOtherSessions(ctx, f.userID, passwordChangeFixtureHash, "new-bcrypt-hash", "sess-current"); err != nil {
 		t.Fatalf("ChangePasswordAndSignOutOtherSessions: %v", err)
 	}
 
@@ -546,5 +582,48 @@ func TestPasswordChangeVoidsPendingResetTokens(t *testing.T) {
 	}
 	if got, want := resetTokenHashes(t, f.store, f.other), []string{"hash-other"}; !reflect.DeepEqual(got, want) {
 		t.Errorf("the other account's links = %v, want %v", got, want)
+	}
+}
+
+// TestAdministratorSetPasswordVoidsPendingResetTokens proves the administrator
+// set-password route obeys the same rule as every other password change (issue
+// #414, S3/S6): replacing the hash voids the account's pending recovery links in
+// the same write, so a link mailed before the change can never set a password
+// after it. Spent links stay as history, another account keeps its own pending
+// link, and the account's sessions survive — S6 asks for nothing beyond the new
+// password.
+func TestAdministratorSetPasswordVoidsPendingResetTokens(t *testing.T) {
+	s := newTestDB(t)
+	ctx := context.Background()
+	root := seedUserRole(t, s, "Root", "root@example.com", true, domain.RoleRoot)
+	ana := seedUser(t, s, "Ana", "ana@example.com", true)
+	bea := seedUser(t, s, "Bea", "bea@example.com", true)
+	seedPasswordSession(t, s, "sess-ana", ana)
+	expires := testClock.Add(time.Hour)
+	seedResetToken(t, s, ana, "hash-pending", testClock.Add(-time.Minute), expires, nil)
+	seedResetToken(t, s, ana, "hash-spent", testClock.Add(-time.Hour), expires, ptr(testClock.Add(-30*time.Minute)))
+	seedResetToken(t, s, bea, "hash-other", testClock.Add(-time.Minute), expires, nil)
+
+	users := application.NewUserService(s.UserStore(), passwordChangeClock()).
+		WithPasswordSettings(s.PasswordSettingsStore())
+	actor := passwordChangeActor(t, s, root)
+	if err := users.ChangePassword(ctx, actor, ana, "admin-set-pass-12"); err != nil {
+		t.Fatalf("administrator ChangePassword: %v", err)
+	}
+
+	if got, want := resetTokenHashes(t, s, ana), []string{"hash-spent"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("stored links of the account = %v, want %v (the pending one voided, the spent one kept)", got, want)
+	}
+	if got, want := resetTokenHashes(t, s, bea), []string{"hash-other"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("the other account's links = %v, want %v", got, want)
+	}
+	if usable, err := s.PasswordResetStore().PasswordResetTokenUsable(ctx, "hash-pending", testClock); err != nil || usable {
+		t.Errorf("the pending link after the administrator's change = %v, %v; want unusable", usable, err)
+	}
+	if hash := passwordHashOf(t, s, ana); !application.VerifyPassword(hash, "admin-set-pass-12") {
+		t.Error("the stored hash does not hold the administrator's new password")
+	}
+	if got, want := passwordSessionIDs(t, s, ana), []string{"sess-ana"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("sessions of the account = %v, want %v (an administrator set-password signs nobody out)", got, want)
 	}
 }

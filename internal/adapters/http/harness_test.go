@@ -68,6 +68,17 @@ type testClock struct{ now time.Time }
 
 func (c testClock) Now() time.Time { return c.now }
 
+// advanceableClock is the harness clock a test can move forward. The recovery
+// path measures an hour of validity and a five-minute throttle against injected
+// instants, so a test that needs an expired link advances the clock instead of
+// sleeping (no test in this repository sleeps).
+type advanceableClock struct{ now time.Time }
+
+func (c *advanceableClock) Now() time.Time { return c.now }
+
+// Advance moves the clock forward by d.
+func (c *advanceableClock) Advance(d time.Duration) { c.now = c.now.Add(d) }
+
 var fixedNow = time.Now()
 
 // seedUser inserts an active user directly through the store port (no
@@ -154,7 +165,7 @@ func (m *fakeMailer) Send(_ context.Context, cfg application.SMTPConfig, email a
 type harness struct {
 	store         *sqlite.Store
 	dbPath        string
-	clock         domain.Clock
+	clock         *advanceableClock
 	tickets       *application.TicketService
 	comments      *application.CommentService
 	users         *application.UserService
@@ -168,6 +179,7 @@ type harness struct {
 	preferences   *application.PreferencesService
 	emailSettings *application.EmailSettingsService
 	passwords     *application.PasswordSettingsService
+	reset         *application.PasswordResetService
 	visits        *application.TicketVisitService
 	mailer        *fakeMailer
 	// companySettings and companySignIn are the company sign-in surface (issue
@@ -177,12 +189,19 @@ type harness struct {
 	companySettings *application.CompanySignInSettingsService
 	companySignIn   *application.CompanySignInService
 	companyProvider *fakeCompanyProvider
-	renderer        *Renderer
-	mux             *http.ServeMux
-	mw              *SessionMiddleware
-	admin           *domain.User
-	adminSession    *domain.Session
-	bugCategory     *domain.Category
+	// Category suggestions (issue #416): the settings use case, the composition,
+	// and the fake decision model wired at its port. The local engine runs over
+	// the REAL sqlite index, so a test proves the triggers and the ranking, not a
+	// stand-in.
+	suggestionSettings *application.CategorySuggestionSettingsService
+	suggestionSvc      *application.CategorySuggestionService
+	decisionModel      *fakeDecisionModel
+	renderer           *Renderer
+	mux                *http.ServeMux
+	mw                 *SessionMiddleware
+	admin              *domain.User
+	adminSession       *domain.Session
+	bugCategory        *domain.Category
 }
 
 func newHarness(t *testing.T) *harness {
@@ -199,7 +218,7 @@ func newHarnessWithAdmin(t *testing.T, seedAdmin bool) *harness {
 	t.Helper()
 	dbPath := t.TempDir() + "/app.db"
 	s := openTestStoreAt(t, dbPath)
-	clock := testClock{now: fixedNow}
+	clock := &advanceableClock{now: fixedNow}
 
 	usersSvc := application.NewUserService(s.UserStore(), clock).WithPasswordSettings(s.PasswordSettingsStore()).WithPasswordChangeStore(s.PasswordChangeStore()).WithCompanySignIn(s.CompanySignInSettingsStore())
 	authSvc := application.NewAuthService(s.UserStore(), s.SessionStore(), clock).WithCompanySignIn(s.CompanySignInSettingsStore())
@@ -232,15 +251,27 @@ func newHarnessWithAdmin(t *testing.T, seedAdmin bool) *harness {
 		secretBox.For("google-client-secret"), secretBox.For("microsoft-client-secret"))
 	companyProvider := &fakeCompanyProvider{}
 	companySignInSvc := application.NewCompanySignInService(companySettingsSvc, s.CompanyIdentityStore(), companyProvider, s.SessionStore(), nil, clock)
+	// Issue #416: the suggestion engines answer the creation screens. The local
+	// one reads the real index the migration created; the decision one answers
+	// through a fake at its port, so no test opens a socket.
+	decisionModel := &fakeDecisionModel{}
+	suggestionSettingsSvc := application.NewCategorySuggestionSettingsService(s.CategorySuggestionSettingsStore(), secretbox.New(filepath.Dir(dbPath)))
+	suggestionSvc := application.NewCategorySuggestionService(suggestionSettingsSvc, application.NewLocalCategorySuggester(s.CategorySuggestionIndex()), application.NewDecisionCategorySuggester(decisionModel))
 	signinSvc := application.NewSigninService(s.SigninStore())
 	passwordSettingsSvc := application.NewPasswordSettingsService(s.PasswordSettingsStore())
+	// Issue #414: the recovery use cases run over the REAL store and the
+	// harness's fake mailer, and the send runs where it stands (an inline
+	// dispatcher), so a test observes the mailed link as soon as the form
+	// answers. Production hands the send to its own goroutine instead.
+	resetSvc := application.NewPasswordResetService(s.UserStore(), s.PasswordResetStore(), s.PasswordSettingsStore(), emailSettingsSvc, mailer, msgtext.Renderer{}, func(send func()) { send() }, clock).WithCompanySignIn(s.CompanySignInSettingsStore())
 	renderer := NewRenderer()
 
 	mux := http.NewServeMux()
 	RegisterStatic(mux, s.SettingsStore())
 	NewBrandHandlers(s.OrganizationStore()).WithSignin(s.SigninStore()).Register(mux)
-	NewAuthHandlers(authSvc, usersSvc, renderer).WithSignin(signinSvc).WithCompanySignIn(companySettingsSvc, companySignInSvc).Register(mux)
-	NewTicketHandlers(ticketSvc, commentSvc, searchSvc, catSvc, usersSvc, s.DeskStore(), workflowSvc, application.NewWorkflowRunner(clock), s.WorkflowRunStore(), s.WorkflowUnitOfWork(), renderer).WithMetrics(metricsSvc).WithSLA(slaSvc).WithPreferences(preferencesSvc).WithClock(clock).WithVisits(visitSvc).WithAttachments(s.AttachmentStore(), attachmentSvc).Register(mux)
+	NewAuthHandlers(authSvc, usersSvc, renderer).WithSignin(signinSvc).WithPasswordRecovery(resetSvc, passwordSettingsSvc, emailSettingsSvc).WithCompanySignIn(companySettingsSvc, companySignInSvc).Register(mux)
+	ticketHandlers := NewTicketHandlers(ticketSvc, commentSvc, searchSvc, catSvc, usersSvc, s.DeskStore(), workflowSvc, application.NewWorkflowRunner(clock), s.WorkflowRunStore(), s.WorkflowUnitOfWork(), renderer).WithMetrics(metricsSvc).WithSLA(slaSvc).WithPreferences(preferencesSvc).WithClock(clock).WithVisits(visitSvc).WithAttachments(s.AttachmentStore(), attachmentSvc).WithCategorySuggestions(suggestionSvc)
+	ticketHandlers.Register(mux)
 	// Issue #419: the Pending tab is wired exactly as production wires it, over
 	// the real pending store, so the tab, its count and the bulk approval all run
 	// through the real use case.
@@ -248,7 +279,7 @@ func newHarnessWithAdmin(t *testing.T, seedAdmin bool) *harness {
 	NewCategoryHandlersWithWorkflows(catSvc, workflowSvc, renderer, application.NewCatalogService(s.CatalogStore(), s.CategoryStore(), clock)).WithSettings(s.SettingsStore()).Register(mux)
 	NewCategoryWorkflowHandlers(catSvc, workflowSvc, deskSvc, renderer).Register(mux)
 	NewDeskHandlers(deskSvc, renderer).Register(mux)
-	NewSettingsHandlers(settingsSvc, slaSvc, s.SLAStore(), s.SettingsStore(), renderer).WithEmail(emailSettingsSvc).WithOrganization(application.NewOrganizationService(s.OrganizationStore())).WithSignin(signinSvc).WithPasswordSettings(passwordSettingsSvc).WithCompanySignIn(companySettingsSvc).Register(mux)
+	NewSettingsHandlers(settingsSvc, slaSvc, s.SLAStore(), s.SettingsStore(), renderer).WithEmail(emailSettingsSvc).WithOrganization(application.NewOrganizationService(s.OrganizationStore())).WithSignin(signinSvc).WithPasswordSettings(passwordSettingsSvc).WithCategorySuggestions(suggestionSettingsSvc, suggestionSvc, ticketHandlers).WithCompanySignIn(companySettingsSvc).Register(mux)
 	NewCategorySLAHandlers(catSvc, slaSvc, s.SLAStore(), renderer).Register(mux)
 	NewPreferencesHandlers(preferencesSvc, renderer).WithPasswordChange(usersSvc, passwordSettingsSvc).Register(mux)
 	// Issue #419: the pending-account notice renders the stored account and its
@@ -261,7 +292,8 @@ func newHarnessWithAdmin(t *testing.T, seedAdmin bool) *harness {
 		store: s, dbPath: dbPath, clock: clock,
 		tickets: ticketSvc, comments: commentSvc, users: usersSvc, auth: authSvc,
 		categories: catSvc, desks: deskSvc, search: searchSvc, settings: settingsSvc, workflows: workflowSvc, sla: slaSvc,
-		preferences: preferencesSvc, emailSettings: emailSettingsSvc, passwords: passwordSettingsSvc, mailer: mailer,
+		preferences: preferencesSvc, emailSettings: emailSettingsSvc, passwords: passwordSettingsSvc, reset: resetSvc, mailer: mailer,
+		suggestionSettings: suggestionSettingsSvc, suggestionSvc: suggestionSvc, decisionModel: decisionModel,
 		visits:          visitSvc,
 		companySettings: companySettingsSvc, companySignIn: companySignInSvc, companyProvider: companyProvider,
 		renderer: renderer,

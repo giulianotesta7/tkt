@@ -167,7 +167,16 @@ func TestMigration0034PreservesEveryExistingObjectAndRow(t *testing.T) {
 	}
 
 	data := snapshot()
-	if err := s.Migrate(ctx); err != nil {
+	// The applied set ends BEFORE 0036: this test owns migration 0034's delta
+	// and nothing later. On the feature branch 0034 was the last embedded
+	// migration, so a full Migrate was the same window; after the clean-boundary
+	// merge the embedded set also carries 0036, whose whole purpose is to
+	// REPLACE trg_users_root_immutable_update with the credential-only guard.
+	// Applying it here would attribute 0036's deliberate delta to 0034 and force
+	// an exception into the "every other object keeps its definition and root
+	// page" assertion. migration_0036_test.go owns that replacement instead, and
+	// pre0036Migrations is the very set an existing instance has before it.
+	if err := migrate(ctx, s.db, pre0036Migrations(t)); err != nil {
 		t.Fatal(err)
 	}
 	// Two objects are allowed to change, and only in the documented way: users
@@ -247,7 +256,13 @@ func TestMigration0034PreservesEveryExistingObjectAndRow(t *testing.T) {
 	if err := s.db.QueryRow(`SELECT count(*) FROM schema_migrations WHERE version=34`).Scan(&n); err != nil || n != 1 {
 		t.Fatalf("version34 count=%d err=%v", n, err)
 	}
-	if err := s.Migrate(ctx); err != nil {
+	// The window is pinned, not assumed: 0036 is outside this test, so its
+	// version must not be recorded here and its guard replacement cannot mask a
+	// 0034 drift.
+	if err := s.db.QueryRow(`SELECT count(*) FROM schema_migrations WHERE version=36`).Scan(&n); err != nil || n != 0 {
+		t.Fatalf("version36 count=%d err=%v, want 0: the 0034 window ends before 0036", n, err)
+	}
+	if err := migrate(ctx, s.db, pre0036Migrations(t)); err != nil {
 		t.Fatal(err)
 	}
 	if got := snapshot(); !reflect.DeepEqual(got, data) {

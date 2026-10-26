@@ -1890,6 +1890,38 @@ func signinImageBytes(contentType string, size ...int) []byte {
 	return data
 }
 
+// fakeCategorySuggestionIndex implements CategorySuggestionIndex with canned
+// candidates.
+//
+// The simplifications are deliberate and are the point of the fake: it does NO
+// normalization, NO ranking and NO allowed-id filtering. It records the text and
+// the allowed ids it was handed, and returns its configured candidates in the
+// order it holds them, scores included. A fake that normalized, reordered or
+// filtered would hide a missing check in the suggester under test — the suggester
+// is the layer that must not trust a collaborator for the three properties it
+// claims (only allowed ids, only genuinely ranked candidates, only confident
+// results). Where the real normalization, ranking and filtering are proven is the
+// SQLite adapter test.
+type fakeCategorySuggestionIndex struct {
+	candidates []application.CategorySuggestion
+	err        error
+	texts      []string
+	allowed    [][]int64
+}
+
+func newFakeCategorySuggestionIndex(candidates ...application.CategorySuggestion) *fakeCategorySuggestionIndex {
+	return &fakeCategorySuggestionIndex{candidates: candidates}
+}
+
+func (f *fakeCategorySuggestionIndex) SuggestCandidates(_ context.Context, text string, allowed []int64) ([]application.CategorySuggestion, error) {
+	f.texts = append(f.texts, text)
+	f.allowed = append(f.allowed, append([]int64(nil), allowed...))
+	if f.err != nil {
+		return nil, f.err
+	}
+	return append([]application.CategorySuggestion(nil), f.candidates...), nil
+}
+
 // fakePasswordSettingsStore is the in-memory PasswordSettingsStore double for
 // the self-service password configuration (issue #414, S1/S4). Simplifications,
 // documented per the fakes contract: ONE value stands in for the three keyed
@@ -1934,13 +1966,16 @@ func (f *fakePasswordSettingsStore) SetPasswordSettings(_ context.Context, setti
 
 // fakePasswordChangeStore is the in-memory PasswordChangeStore double for the
 // own-password change (issue #414, S2). It writes through the two other fakes,
-// so a service-level test can assert the hash AND the surviving sessions. Three
+// so a service-level test can assert the hash AND the surviving sessions. Four
 // documented simplifications: the hash update and the session delete happen in
 // one untorn step standing in for the real immediate transaction (a test that
 // needs a real rollback belongs to the sqlite layer), an unknown user is
 // answered before anything is written, like the real store's rows-affected
-// check, and the keep session is resolved before either write so a session that
-// belongs to another account (or to nobody) is refused with nothing changed.
+// check, the write is the same compare-and-set the real store performs — a
+// stored hash that is no longer the expected one is refused with the shared
+// current-password refusal and changes nothing — and the keep session is
+// resolved before either write so a session that belongs to another account (or
+// to nobody) is refused with nothing changed.
 type fakePasswordChangeStore struct {
 	users    *fakeUserStore
 	sessions *fakeSessionStore
@@ -1953,11 +1988,14 @@ func newFakePasswordChangeStore(users *fakeUserStore, sessions *fakeSessionStore
 	return &fakePasswordChangeStore{users: users, sessions: sessions}
 }
 
-func (f *fakePasswordChangeStore) ChangePasswordAndSignOutOtherSessions(_ context.Context, userID int64, passwordHash, keepSessionID string) error {
+func (f *fakePasswordChangeStore) ChangePasswordAndSignOutOtherSessions(_ context.Context, userID int64, expectedPasswordHash, passwordHash, keepSessionID string) error {
 	f.calls++
 	u, ok := f.users.users[userID]
 	if !ok {
 		return &domain.NotFoundError{Kind: "user", ID: userID}
+	}
+	if u.PasswordHash != expectedPasswordHash {
+		return application.CurrentPasswordRefusal()
 	}
 	kept, ok := f.sessions.sessions[keepSessionID]
 	if !ok {

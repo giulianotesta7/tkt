@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Forgot your password? · Help desk</title>
+
+</head>
+<body>
+<main class="auth-entry">
+
+<section class="auth-entry__presentation auth-entry__presentation--" aria-label="tkt">
+  <div class="auth-entry__brand">
+    <span class="auth-entry__mark" aria-hidden="true"></span>
+    <div class="auth-entry__brand-text"><b>tkt</b><span>Help desk</span></div>
+  </div>
+  <div class="auth-entry__body">
+    <h2></h2>
+    <p class="auth-entry__sub"></p>
+  </div>
+</section>
+
+  <section class="auth-entry__form-panel">
+
+<form class="login-form" method="post" action="/login/forgot" novalidate>
+  <h2>Forgot your password?</h2>
+  <p class="lead">Enter the email you use to sign in. If there is an account for it, we will send a link to choose a new password.</p>
+  <div class="field">
+    <label for="email">Email</label>
+    <input type="email" id="email" name="email" placeholder="you@example.com" autocomplete="email" required autofocus>
+  </div>
+  <button class="btn primary" type="submit">Send reset link</button>
+  <p class="footnote"><a href="/login">Back to sign in</a></p>
+</form>
+
+  </section>
+</main>
+</body>
+</html>

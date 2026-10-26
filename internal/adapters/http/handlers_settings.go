@@ -66,6 +66,15 @@ type SettingsHandlers struct {
 	// Security section renders its cards and saves them as one unit.
 	companySettings *application.CompanySignInSettingsService
 	renderer        *Renderer
+	// categorySuggestions is the OPTIONAL category-suggestion card (issue #416,
+	// S6): the settings use case that reads and writes the engine, the
+	// composition that answers its Try it box, and the port that supplies the
+	// categories the box tests against. Unset means the section renders without
+	// the card, exactly as it did before the feature, and its two routes answer
+	// nothing useful — WithCategorySuggestions is what turns all three on.
+	categorySuggestions *application.CategorySuggestionSettingsService
+	suggestionTester    *application.CategorySuggestionService
+	suggestionOffers    CategorySuggestionOffers
 }
 
 // NewSettingsHandlers wires the settings routes against the appearance and
@@ -130,6 +139,10 @@ func (h *SettingsHandlers) Register(mux *http.ServeMux) {
 	mux.HandleFunc("POST /settings/signin", h.updateSignin)
 	mux.HandleFunc("POST /settings/signin/background/remove", h.removeSigninBackground)
 	mux.HandleFunc("POST /settings/security", h.updateSecurity)
+	// The category-suggestion card (issue #416, S6): the save, and the Try it box
+	// that runs a configuration without saving it.
+	mux.HandleFunc("POST /settings/category-suggestions", h.updateCategorySuggestions)
+	mux.HandleFunc("POST /settings/category-suggestions/try", h.tryCategorySuggestions)
 	mux.HandleFunc("POST /settings/security/company", h.updateCompanySignIn)
 }
 
@@ -239,6 +252,10 @@ type settingsTicketsData struct {
 	// HoldAutoCloseDays is the automatic hold close window (issue #353, S2) as
 	// the field renders it: EMPTY when the feature is off, never a literal 0.
 	HoldAutoCloseDays string
+	// Suggestions is the "Category suggestions" card (issue #416, S6): the
+	// engine the instance runs, the model configuration when one is stored, and
+	// whether a key is stored at all. The key itself never travels.
+	Suggestions categorySuggestionsCardData
 }
 
 // settingsCalendarData is the Working calendar section payload.
@@ -766,6 +783,7 @@ func (h *SettingsHandlers) renderTickets(w http.ResponseWriter, r *http.Request,
 		httpError(w, r, "error.internal_server", http.StatusInternalServerError)
 		return
 	}
+	data.Suggestions = h.categorySuggestionsCard(r)
 	if adjust != nil {
 		adjust(&data)
 	}
@@ -1287,7 +1305,8 @@ func (h *SettingsHandlers) sendTestEmail(w http.ResponseWriter, r *http.Request)
 // policy, the stored company sign-in configuration, the band the minimum may
 // sit in, and whether recovery has a delivery path. The policy and the company
 // configuration are two cards with their own forms, so a save of one never
-// rewrites the other.
+// rewrites the other; later instance-wide sign-in controls (an external identity
+// provider, a directory) join them as their own cards.
 type settingsSecurityData struct {
 	settingsSectionData
 	ChangeEnabled   bool

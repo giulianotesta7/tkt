@@ -92,7 +92,7 @@ func scanCatalogDesks(rows *sql.Rows) ([]domain.CatalogDesk, error) {
 }
 
 func (cs *catalogStore) ListCatalogCategories(ctx context.Context, deskID int64) ([]domain.CatalogCategory, error) {
-	rows, err := cs.db.QueryContext(ctx, `SELECT c.id, c.name, c.description, c.desk_id, c.created_at,
+	rows, err := cs.db.QueryContext(ctx, `SELECT c.id, c.name, c.description, c.keywords, c.desk_id, c.created_at,
 		 ds.name, d.id, COALESCE(d.name, 'Unassigned')
 		FROM categories c JOIN desks ds ON ds.id=c.desk_id
 		LEFT JOIN departments d ON d.id=ds.department_id
@@ -106,7 +106,7 @@ func (cs *catalogStore) ListCatalogCategories(ctx context.Context, deskID int64)
 
 func (cs *catalogStore) SearchCatalog(ctx context.Context, query string) ([]domain.CatalogCategory, error) {
 	pattern := "%" + strings.ToLower(strings.TrimSpace(query)) + "%"
-	rows, err := cs.db.QueryContext(ctx, `SELECT c.id, c.name, c.description, c.desk_id, c.created_at,
+	rows, err := cs.db.QueryContext(ctx, `SELECT c.id, c.name, c.description, c.keywords, c.desk_id, c.created_at,
 		ds.name, d.id, COALESCE(d.name, 'Unassigned')
 		FROM categories c JOIN desks ds ON ds.id=c.desk_id
 		LEFT JOIN departments d ON d.id=ds.department_id
@@ -125,7 +125,7 @@ func scanCatalogCategories(rows *sql.Rows) ([]domain.CatalogCategory, error) {
 		var c domain.CatalogCategory
 		var created string
 		var departmentID sql.NullInt64
-		if err := rows.Scan(&c.ID, &c.Name, &c.Description, &c.DeskID, &created, &c.DeskName, &departmentID, &c.DepartmentName); err != nil {
+		if err := rows.Scan(&c.ID, &c.Name, &c.Description, &c.Keywords, &c.DeskID, &created, &c.DeskName, &departmentID, &c.DepartmentName); err != nil {
 			return nil, err
 		}
 		if departmentID.Valid {

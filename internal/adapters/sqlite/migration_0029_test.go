@@ -3,6 +3,7 @@ package sqlite
 import (
 	"context"
 	"io/fs"
+	"reflect"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -21,13 +22,29 @@ import (
 // full set (pattern of pre0026Migrations).
 func pre0029Migrations(t *testing.T) fstest.MapFS {
 	t.Helper()
+	return migrationsBefore(t, "0029_password_reset_tokens.sql", false)
+}
+
+// through0029Migrations is the embedded set up to and including 0029, so a
+// comparison with pre0029Migrations isolates what 0029 itself changed even when
+// later migrations exist.
+func through0029Migrations(t *testing.T) fstest.MapFS {
+	t.Helper()
+	return migrationsBefore(t, "0029_password_reset_tokens.sql", true)
+}
+
+// migrationsBefore copies the embedded migrations that sort before name, plus
+// name itself when inclusive is set.
+func migrationsBefore(t *testing.T, name string, inclusive bool) fstest.MapFS {
+	t.Helper()
 	entries, err := fs.ReadDir(migrationsFS, "migrations")
 	if err != nil {
 		t.Fatalf("read embedded migrations: %v", err)
 	}
 	out := fstest.MapFS{}
 	for _, entry := range entries {
-		if strings.Compare(entry.Name(), "0029_password_reset_tokens.sql") >= 0 {
+		cmp := strings.Compare(entry.Name(), name)
+		if cmp > 0 || (cmp == 0 && !inclusive) {
 			continue
 		}
 		blob, err := fs.ReadFile(migrationsFS, "migrations/"+entry.Name())
@@ -274,5 +291,73 @@ func TestMigration0029UpgradePathKeepsTheInstance(t *testing.T) {
 	}
 	if migrations != 29 {
 		t.Errorf("schema_migrations rows up to 29 = %d, want 29 (the series has no gap)", migrations)
+	}
+}
+
+// schemaOutsideResetTable dumps every schema object except the reset-token table
+// and its index, so a test can prove the migration changed nothing else. Objects
+// come in a deterministic order, so two dumps compare directly.
+func schemaOutsideResetTable(t *testing.T, s *Store) []string {
+	t.Helper()
+	rows, err := s.db.Query(`SELECT type||'|'||name||'|'||COALESCE(tbl_name,'')||'|'||COALESCE(sql,'')
+		FROM sqlite_master
+		WHERE name <> 'password_reset_tokens' AND tbl_name <> 'password_reset_tokens'
+		  AND name NOT LIKE 'idx_password_reset_tokens%'
+		  AND name <> 'schema_migrations' AND tbl_name <> 'schema_migrations'
+		ORDER BY type, name`)
+	if err != nil {
+		t.Fatalf("schema dump: %v", err)
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var object string
+		if err := rows.Scan(&object); err != nil {
+			t.Fatal(err)
+		}
+		out = append(out, object)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("schema dump: %v", err)
+	}
+	return out
+}
+
+// TestMigration0029LeavesEveryOtherSchemaObjectUntouched proves the migration is
+// scoped to its own table: every object a pre-0029 instance already had survives
+// byte-identically, and no other table gains a column or a trigger that mentions
+// the reset links.
+func TestMigration0029LeavesEveryOtherSchemaObjectUntouched(t *testing.T) {
+	ctx := context.Background()
+	pre, err := openDSN(testDSN(t))
+	if err != nil {
+		t.Fatalf("open pre-0029 db: %v", err)
+	}
+	pre.db.SetMaxOpenConns(1)
+	t.Cleanup(func() { _ = pre.db.Close() })
+	if err := migrate(ctx, pre.db, pre0029Migrations(t)); err != nil {
+		t.Fatalf("migrate pre-0029 db: %v", err)
+	}
+	before := schemaOutsideResetTable(t, pre)
+
+	upgraded, err := openDSN(testDSN(t))
+	if err != nil {
+		t.Fatalf("open upgraded db: %v", err)
+	}
+	upgraded.db.SetMaxOpenConns(1)
+	t.Cleanup(func() { _ = upgraded.db.Close() })
+	if err := migrate(ctx, upgraded.db, through0029Migrations(t)); err != nil {
+		t.Fatalf("migrate through 0029: %v", err)
+	}
+
+	if after := schemaOutsideResetTable(t, upgraded); !reflect.DeepEqual(after, before) {
+		t.Errorf("0029 changed schema objects outside its own table:\nbefore=%v\nafter=%v", before, after)
+	}
+	var created string
+	if err := upgraded.db.QueryRowContext(ctx, `SELECT sql FROM sqlite_master WHERE name = 'password_reset_tokens'`).Scan(&created); err != nil {
+		t.Fatalf("the upgraded schema lacks the reset-token table: %v", err)
+	}
+	if !strings.Contains(created, "CREATE TABLE password_reset_tokens") {
+		t.Errorf("unexpected table definition: %q", created)
 	}
 }

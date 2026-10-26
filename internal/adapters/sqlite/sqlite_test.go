@@ -219,7 +219,7 @@ func TestMigrateCreatesSchema(t *testing.T) {
 		t.Fatalf("schema_migrations: %v", err)
 	}
 	if applied != len(wantMigrationVersions) {
-		t.Errorf("schema_migrations rows = %d, want %d (through 0034_company_sign_in)", applied, len(wantMigrationVersions))
+		t.Errorf("schema_migrations rows = %d, want %d (every embedded migration, through 0036_root_password_rotation)", applied, len(wantMigrationVersions))
 	}
 
 	rows, err := s.db.Query(`SELECT version FROM schema_migrations ORDER BY version`)
@@ -241,7 +241,15 @@ func TestMigrateCreatesSchema(t *testing.T) {
 }
 
 // wantMigrationVersions is every embedded migration version, in order.
-var wantMigrationVersions = []int{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 34}
+//
+// The series has gaps on purpose: 0032 and 0033 are reserved by branches that
+// are not on this one, 0035 was never assigned, and 0031 (category suggestions,
+// issue #416) was assigned its number before 0029 and 0030 landed. 0034
+// (company sign-in, issue #419) and 0036 (root password rotation, issue #414)
+// are both here: a merge of two branches, not a renumbering. The runner sorts
+// and applies whatever files are embedded, so the recorded set is exactly this
+// list — an absent number is not a hole a later migration can collide with.
+var wantMigrationVersions = []int{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 34, 36}
 
 func TestMigrateRerunIsNoOp(t *testing.T) {
 	s := newTestDB(t)

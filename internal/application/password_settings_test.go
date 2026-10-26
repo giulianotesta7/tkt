@@ -83,6 +83,58 @@ func TestValidateNewPasswordEnforcesTheMinimumInRunes(t *testing.T) {
 	}
 }
 
+// TestValidateNewPasswordRefusesAPasswordOverTheHashByteCeiling covers the one
+// length rule that counts BYTES rather than characters (issue #414, S4): the
+// hash function accepts at most 72 bytes of input, so a longer password is
+// refused as a validation failure instead of reaching it. The boundary is exact,
+// a multibyte password is measured in bytes for this rule only, and the blank
+// refusal still comes first.
+func TestValidateNewPasswordRefusesAPasswordOverTheHashByteCeiling(t *testing.T) {
+	cases := []struct {
+		name     string
+		password string
+		wantKey  string
+		wantArgs []any
+	}{
+		{"72 bytes", strings.Repeat("a", 72), "", nil},
+		{"73 bytes", strings.Repeat("a", 73), "error.password_too_long", []any{72}},
+		// 37 runes in 74 bytes: the character rule accepts it, the byte ceiling
+		// does not, because the hash works on bytes.
+		{"37 multibyte runes", strings.Repeat("ñ", 37), "error.password_too_long", []any{72}},
+		// Blank beats too long: the historical refusal keeps its precedence.
+		{"blank over the ceiling", strings.Repeat(" ", 80), "error.password_required", nil},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := application.ValidateNewPassword(tc.password, application.DefaultPasswordMinLength)
+			if tc.wantKey == "" {
+				if err != nil {
+					t.Fatalf("ValidateNewPassword(%d bytes) = %v, want accepted", len(tc.password), err)
+				}
+				return
+			}
+			var verr *domain.ValidationError
+			if !errors.As(err, &verr) {
+				t.Fatalf("ValidateNewPassword(%d bytes) = %v, want a ValidationError", len(tc.password), err)
+			}
+			if verr.Field != "password" {
+				t.Errorf("field = %q, want %q", verr.Field, "password")
+			}
+			if verr.Key != tc.wantKey {
+				t.Errorf("key = %q, want %q", verr.Key, tc.wantKey)
+			}
+			if len(verr.Args) != len(tc.wantArgs) {
+				t.Fatalf("args = %v, want %v", verr.Args, tc.wantArgs)
+			}
+			for i, want := range tc.wantArgs {
+				if verr.Args[i] != want {
+					t.Errorf("arg %d = %v, want %v", i, verr.Args[i], want)
+				}
+			}
+		})
+	}
+}
+
 // TestValidateNewPasswordHonoursAConfiguredMinimum proves the rule reads the
 // configured band edge, not the default: a configured 8 accepts eight
 // characters and still refuses seven.

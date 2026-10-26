@@ -28,6 +28,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/giulianotesta7/tkt/internal/adapters/decisions"
 	httpadapter "github.com/giulianotesta7/tkt/internal/adapters/http"
 	"github.com/giulianotesta7/tkt/internal/adapters/mail"
 	"github.com/giulianotesta7/tkt/internal/adapters/msgtext"
@@ -160,7 +161,20 @@ func main() {
 		secretBox.For("google-client-secret"), secretBox.For("microsoft-client-secret"))
 	companySignInSvc := application.NewCompanySignInService(companySettingsSvc, store.CompanyIdentityStore(),
 		oidc.NewClient(nil, clock), store.SessionStore(), nil, clock)
+	// Issue #416: the suggestion engines answer the creation screens, and the
+	// settings use case stores the engine and the sealed decision-model key. The
+	// key is sealed with the SAME box the SMTP password uses, so one data volume
+	// holds one key file for every secret the instance keeps.
+	suggestionSettingsSvc := application.NewCategorySuggestionSettingsService(store.CategorySuggestionSettingsStore(), secretBox)
+	suggestionSvc := application.NewCategorySuggestionService(suggestionSettingsSvc, application.NewLocalCategorySuggester(store.CategorySuggestionIndex()), application.NewDecisionCategorySuggester(decisions.NewClient()))
 	emailSender := application.NewNotificationEmailSender(store.EmailOutbox(), emailSettingsSvc, store.UserStore(), store.TicketStore(), store.EmailPreferences(), mailer, msgtext.Renderer{}, clock)
+	// Issue #414: self-service password recovery. The send leaves the request
+	// goroutine through AsyncPasswordResetDispatch, so the neutral answer never
+	// waits for the mail server and a known address cannot be told apart from an
+	// unknown one by how long the form took. The send detaches from the request
+	// context, bounds itself (PasswordResetSendTimeout) and logs its failure with
+	// the token and the address redacted.
+	resetSvc := application.NewPasswordResetService(store.UserStore(), store.PasswordResetStore(), store.PasswordSettingsStore(), emailSettingsSvc, mailer, msgtext.Renderer{}, application.AsyncPasswordResetDispatch, clock).WithCompanySignIn(store.CompanySignInSettingsStore())
 	// Issue #353: the automatic hold expiry closes a ticket whose requester
 	// never replied, after warning them one working day earlier. It shares the
 	// SLA service with the ticket use cases, so an automatic close shifts the
@@ -187,8 +201,9 @@ func main() {
 	mux := http.NewServeMux()
 	httpadapter.RegisterStatic(mux, store.SettingsStore())
 	httpadapter.NewBrandHandlers(store.OrganizationStore()).WithSignin(store.SigninStore()).Register(mux)
-	httpadapter.NewAuthHandlers(authSvc, userSvc, renderer).WithSignin(signinSvc).WithCompanySignIn(companySettingsSvc, companySignInSvc).Register(mux)
-	httpadapter.NewTicketHandlers(ticketSvc, commentSvc, searchSvc, catSvc, userSvc, store.DeskStore(), workflowSvc, application.NewWorkflowRunner(clock), store.WorkflowRunStore(), store.WorkflowUnitOfWork(), renderer, catalogSvc).WithMetrics(metricsSvc).WithSLA(slaSvc).WithPreferences(preferencesSvc).WithClock(clock).WithVisits(visitSvc).WithAttachments(store.AttachmentStore(), attachmentSvc).Register(mux)
+	httpadapter.NewAuthHandlers(authSvc, userSvc, renderer).WithSignin(signinSvc).WithPasswordRecovery(resetSvc, passwordSettingsSvc, emailSettingsSvc).WithCompanySignIn(companySettingsSvc, companySignInSvc).Register(mux)
+	ticketHandlers := httpadapter.NewTicketHandlers(ticketSvc, commentSvc, searchSvc, catSvc, userSvc, store.DeskStore(), workflowSvc, application.NewWorkflowRunner(clock), store.WorkflowRunStore(), store.WorkflowUnitOfWork(), renderer, catalogSvc).WithMetrics(metricsSvc).WithSLA(slaSvc).WithPreferences(preferencesSvc).WithClock(clock).WithVisits(visitSvc).WithAttachments(store.AttachmentStore(), attachmentSvc).WithCategorySuggestions(suggestionSvc)
+	ticketHandlers.Register(mux)
 	// Issue #419: the Pending tab reads the accounts a company sign-in left
 	// waiting and approves a selected batch through its own store port.
 	userHandlers := httpadapter.NewUserHandlers(userSvc, renderer)
@@ -196,7 +211,7 @@ func main() {
 	httpadapter.NewCategoryHandlersWithWorkflows(catSvc, workflowSvc, renderer, catalogSvc).WithSettings(store.SettingsStore()).Register(mux)
 	httpadapter.NewCategoryWorkflowHandlers(catSvc, workflowSvc, deskSvc, renderer).Register(mux)
 	httpadapter.NewDeskHandlers(deskSvc, renderer).Register(mux)
-	httpadapter.NewSettingsHandlers(settingsSvc, slaSvc, store.SLAStore(), store.SettingsStore(), renderer).WithEmail(emailSettingsSvc).WithOrganization(organizationSvc).WithSignin(signinSvc).WithPasswordSettings(passwordSettingsSvc).WithCompanySignIn(companySettingsSvc).Register(mux)
+	httpadapter.NewSettingsHandlers(settingsSvc, slaSvc, store.SLAStore(), store.SettingsStore(), renderer).WithEmail(emailSettingsSvc).WithOrganization(organizationSvc).WithSignin(signinSvc).WithPasswordSettings(passwordSettingsSvc).WithCategorySuggestions(suggestionSettingsSvc, suggestionSvc, ticketHandlers).WithCompanySignIn(companySettingsSvc).Register(mux)
 	httpadapter.NewCategorySLAHandlers(catSvc, slaSvc, store.SLAStore(), renderer).Register(mux)
 	httpadapter.NewPreferencesHandlers(preferencesSvc, renderer).WithPasswordChange(userSvc, passwordSettingsSvc).Register(mux)
 	// Issue #419: the bell and the full feed render the account a pending notice

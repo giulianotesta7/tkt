@@ -215,7 +215,9 @@ func (s *UserService) UpdateManagedUser(ctx context.Context, actor domain.User, 
 }
 
 // ChangePassword hashes a secret that reaches the instance minimum, then
-// replaces only the target's password hash. It shares the managed-user
+// replaces the target's password hash, voiding the account's pending recovery
+// links in the same write (issue #414: every password change voids pending
+// links) and leaving its sessions alone (S6). It shares the managed-user
 // authorization and protections, in the base order: the capability check, the
 // blank refusal, the target lookup (404) and the root/peer guards (403) answer
 // BEFORE the new-password rule (issue #414, S4; 422). Putting the minimum first
