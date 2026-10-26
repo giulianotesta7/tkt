@@ -173,7 +173,7 @@ func (h *AuthHandlers) companyCallback(w http.ResponseWriter, r *http.Request) {
 
 	switch outcome.Kind {
 	case application.CompanySignInSignedIn:
-		http.SetCookie(w, sessionCookieValue(outcome.Session, r.TLS != nil))
+		http.SetCookie(w, companySessionCookieValue(outcome.Session, r.TLS != nil))
 		redirect(w, r, "/tickets")
 	case application.CompanySignInPending:
 		// No session: a pending account cannot open or see a ticket (S3), so the

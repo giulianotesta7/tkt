@@ -66,3 +66,30 @@ func TestSettingsSecurityFieldHelpIsBehindAToggletip(t *testing.T) {
 		t.Error("the provider cards must carry their logo")
 	}
 }
+
+// TestCompanyCallbackSessionCookieSurvivesTheCrossSiteReturn pins the one place a
+// session cookie may be Lax. The callback is the provider's site sending the
+// browser back, and the redirect to /tickets that follows is still part of that
+// cross-site navigation, so a Strict cookie is withheld and the person lands on
+// the sign-in page with a session the browser never presented. A password login
+// starts on this site and keeps Strict.
+func TestCompanyCallbackSessionCookieSurvivesTheCrossSiteReturn(t *testing.T) {
+	h := newHarness(t)
+	companySignInStore(t, h, companySignInIn(application.NewAccountsRequester))
+	seedUser(t, h.store, "Ana", "ana@example.com")
+	h.companyProvider.claims = googleClaims("ana@example.com")
+
+	cookie, _ := companyStart(t, h, "google")
+	rec := companyCallback(t, h, "google", cookie.Value, cookie.Value)
+
+	session := findCookie(rec, sessionCookie)
+	if session == nil || session.Value == "" {
+		t.Fatal("the signed-in outcome issued no session cookie")
+	}
+	if session.SameSite != http.SameSiteLaxMode {
+		t.Errorf("company session cookie SameSite = %v, want Lax so it travels with the redirect back from the provider", session.SameSite)
+	}
+	if !session.HttpOnly || session.Path != "/" {
+		t.Errorf("company session cookie HttpOnly=%v Path=%q, want HttpOnly and /", session.HttpOnly, session.Path)
+	}
+}

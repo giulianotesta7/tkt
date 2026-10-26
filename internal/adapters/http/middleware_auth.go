@@ -631,3 +631,16 @@ func sessionCookieValue(s *domain.Session, secure bool) *http.Cookie {
 		SameSite: http.SameSiteStrictMode,
 	}
 }
+
+// companySessionCookieValue is the session cookie of a company sign-in. It is
+// Lax, not Strict, for the one reason the callback exists: the provider's site
+// sends the browser back, and the redirect to the tickets that follows is still
+// part of that cross-site navigation, so a Strict cookie is withheld and the
+// person lands on the sign-in page holding a session the browser never
+// presented. Lax still keeps the cookie off every cross-site subrequest and
+// every cross-site POST.
+func companySessionCookieValue(s *domain.Session, secure bool) *http.Cookie {
+	c := sessionCookieValue(s, secure)
+	c.SameSite = http.SameSiteLaxMode
+	return c
+}
