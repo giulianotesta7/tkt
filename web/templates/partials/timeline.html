@@ -11,6 +11,7 @@
   that draws ONE small typed dot per entry. A comment is its own card (S2) — head
   over body, never grouped — and a change stays a single line (S3). Nothing on the
   rail is a person mark or a glyph: the dot's fill is the entry's type.
+  Completed forms also keep their header and semantic answers inside one card.
 
   The feed is viewer-relative (S4): your own comment carries a "You" chip and a
   neutral head tint, a comment that mentions you carries the accent head and the
@@ -49,7 +50,7 @@
     </dl>
   </article>
 {{else}}
-  <article class="timeline-entry timeline-event{{if .IsWorkflowAssignment}}{{else if .StateClass}} st-{{.StateClass}}{{end}}"{{with $.EventDotClass .}} data-dot="{{.}}"{{end}}>
+  <article class="timeline-entry timeline-event{{if .StepFields}} timeline-form{{end}}{{if .IsWorkflowAssignment}}{{else if .StateClass}} st-{{.StateClass}}{{end}}"{{with $.EventDotClass .}} data-dot="{{.}}"{{end}}>
     <div class="timeline-entry-head">
       <div class="narrative">{{if and .ActorLabel (not (automaticActor .Event.Actor))}}<strong class="timeline-actor">{{if $.IsOwnEvent .Event}}{{t "tickets.timeline.you"}}{{else}}{{.ActorLabel}}{{end}}</strong> {{end}}{{if .IsWorkflowAssignment}}<span class="timeline-action">{{if .NarrativeMsg.Key}}{{msg .NarrativeMsg}}{{else if .Narrative}}{{.Narrative}}{{else}}{{.Summary}}{{end}} <strong>{{if .AssignmentPersonMsg.Key}}{{msg .AssignmentPersonMsg}}{{else}}{{.AssignmentPerson}}{{end}}</strong> {{t "tickets.timeline.at"}} <strong>{{if .AssignmentDeskMsg.Key}}{{msg .AssignmentDeskMsg}}{{else}}{{.AssignmentDesk}}{{end}}</strong></span>{{else}}<span class="timeline-action">{{if .NarrativeMsg.Key}}{{msg .NarrativeMsg}}{{else if .Narrative}}{{.Narrative}}{{else}}{{.Summary}}{{end}}</span>{{end}}</div>
       <div class="when"><time datetime="{{formatDatetime .Event.CreatedAt}}" title="{{formatTime .Event.CreatedAt}}">{{relativeTime .Event.CreatedAt $.Now}}</time></div>

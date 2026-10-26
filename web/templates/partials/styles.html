@@ -681,6 +681,10 @@
 
   .activity h2{display:flex;align-items:center;gap:8px}
   .timeline-event{padding:2px 0}
+  .timeline-form{padding:0;border:1px solid var(--line-strong);border-radius:12px;background:var(--card)}
+  .timeline-form::before{top:15px}
+  .timeline-form .timeline-entry-head{padding:8px 12px;align-items:center;border-bottom:1px solid var(--line);border-radius:11px 11px 0 0}
+  .timeline-form .workflow-responses{margin:0;padding:4px 12px 8px}
   .workflow-manual-details{display:grid;grid-template-columns:max-content minmax(0,1fr);column-gap:12px;align-items:baseline;margin:8px 0 0;padding:0;font-size:13px;line-height:1.45}
   .workflow-manual-details dt{grid-column:1;padding:7px 0;color:var(--muted);font-size:12px;font-weight:600;letter-spacing:0}
   .workflow-manual-details dd{grid-column:2;margin:0;padding:7px 0;color:var(--ink-soft);overflow-wrap:anywhere;white-space:pre-wrap}
