@@ -1,0 +1,13 @@
+# Group generated changelog entries by PR labels, not issue labels.
+changelog:
+  categories:
+    - title: Features
+      labels:
+        - type:feature
+    - title: Fixes
+      labels:
+        - type:bug
+    # PR labels are optional; keep every remaining change visible.
+    - title: Other changes
+      labels:
+        - "*"
