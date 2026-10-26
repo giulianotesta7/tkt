@@ -1,13 +1,13 @@
 {{/*
-  The reply composer (issue #386, S4): the last block of the body, after the
-  activity. The draft and its visibility keep their hx-preserve handles, the
-  attachments become a drop zone wrapping the same file input (click or drag;
-  the script only lists the chosen names), and Reply is the submit. The request
-  is today's native POST of the same fields, answered by the same 303.
+  The reply composer (issues #386, S4 and #438, S1): above Activity for newest
+  first, below it for oldest first. The draft and its visibility keep their
+  hx-preserve handles. The attachment drop zone is preserved as a unit so its
+  file selection and visible names survive detail swaps together. Reply remains
+  today's native POST of the same fields, answered by the same 303.
 
   The saved-reply picker (issue #418) sits beside the attachments zone for a
   staff actor. It adds no form control and no field: the form keeps the same
-  method, action, enctype and the same two preserve handles.
+  method, action, enctype and preserve handles.
 
   The mention picker sits beside the saved replies for the same actor, under
   the same rule: one more button and one more popover, no field, no reordering
@@ -21,7 +21,7 @@
   </div>
   <input type="hidden" name="visibility" value="public">
   <div class="comment-tools">
-    <label class="comment-dropzone" for="comment-attachments">
+    <label class="comment-dropzone" id="comment-dropzone" hx-preserve="true" for="comment-attachments">
       <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 11.5 12.5 19a5 5 0 0 1-7-7l7.5-7.5a3.5 3.5 0 0 1 5 5L10.5 17a2 2 0 0 1-3-3l7-7"/></svg>
       <span>{{t "tickets.comment.attachments"}}</span>
       <span class="comment-dropzone-files" data-dropzone-files></span>

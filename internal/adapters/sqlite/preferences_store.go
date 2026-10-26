@@ -21,10 +21,11 @@ type preferencesStore struct {
 }
 
 var (
-	_ application.PreferencesStore        = (*preferencesStore)(nil)
-	_ application.EmailPreferences        = (*preferencesStore)(nil)
-	_ application.SidebarPreferencesStore = (*preferencesStore)(nil)
-	_ application.ThemePreferencesStore   = (*preferencesStore)(nil)
+	_ application.PreferencesStore              = (*preferencesStore)(nil)
+	_ application.EmailPreferences              = (*preferencesStore)(nil)
+	_ application.SidebarPreferencesStore       = (*preferencesStore)(nil)
+	_ application.ThemePreferencesStore         = (*preferencesStore)(nil)
+	_ application.TimelineOrderPreferencesStore = (*preferencesStore)(nil)
 )
 
 // preferencesKeyQueueOrder is the user_preferences row key for the default
@@ -47,6 +48,12 @@ const preferencesKeySidebar = "sidebar"
 // "dark"; an absent row means no choice yet, and the application service
 // normalizes that — and any other stored value — to the system default.
 const preferencesKeyTheme = "theme"
+
+// preferencesKeyTimelineOrder is the user_preferences row key for the ticket
+// activity order (issue #438, S1). Its storable values are exactly "newest" and
+// "oldest"; an absent row means no choice yet, and the application service
+// normalizes that — and any other stored value — to the newest-first default.
+const preferencesKeyTimelineOrder = "timeline_order"
 
 func newPreferencesStore(db *sql.DB) *preferencesStore { return &preferencesStore{db: db} }
 
@@ -76,6 +83,17 @@ func (s *Store) SidebarPreferences() application.SidebarPreferencesStore {
 // middleware stamps the theme and the preferences form writes it — so the
 // application interface is what this accessor answers.
 func (s *Store) ThemePreferences() application.ThemePreferencesStore {
+	return newPreferencesStore(s.db)
+}
+
+// TimelineOrderPreferences returns the per-user ticket-activity-order store
+// (issue #438, S1). It is a fifth view of the same user_preferences table, so the
+// queue-order, email, sidebar, and theme ports stay unchanged. The preferences
+// service discovers it on the queue-order port it already receives, which is the
+// same concrete store, so a wired deployment gains the preference without a
+// second construction step; this accessor is what the adapter tests and any
+// future explicit wiring use.
+func (s *Store) TimelineOrderPreferences() application.TimelineOrderPreferencesStore {
 	return newPreferencesStore(s.db)
 }
 
@@ -232,6 +250,41 @@ func (ps *preferencesStore) SetTheme(ctx context.Context, userID int64, theme st
 		userID, preferencesKeyTheme, theme)
 	if err != nil {
 		return fmt.Errorf("sqlite: set %s for user %d: %w", preferencesKeyTheme, userID, err)
+	}
+	return nil
+}
+
+// GetTimelineOrder returns the stored activity order, or "" when the user has no
+// row. An absent row is not an error — it is the "no choice yet" state the
+// service normalizes to the newest-first default. The value is returned
+// verbatim: the closed set is the application's contract, and this adapter has no
+// opinion about it.
+func (ps *preferencesStore) GetTimelineOrder(ctx context.Context, userID int64) (string, error) {
+	var value string
+	err := ps.db.QueryRowContext(ctx,
+		`SELECT value FROM user_preferences WHERE user_id = ? AND "key" = ?`,
+		userID, preferencesKeyTimelineOrder).Scan(&value)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("sqlite: get %s for user %d: %w", preferencesKeyTimelineOrder, userID, err)
+	}
+	return value, nil
+}
+
+// SetTimelineOrder upserts the user's stored activity order. The composite
+// primary key makes the ON CONFLICT target unambiguous, so flipping the order
+// twice updates one row instead of accumulating one per save. The value is
+// written verbatim, exactly like the queue order and the theme: the service has
+// already validated it.
+func (ps *preferencesStore) SetTimelineOrder(ctx context.Context, userID int64, order string) error {
+	_, err := ps.db.ExecContext(ctx, `
+		INSERT INTO user_preferences (user_id, "key", value) VALUES (?, ?, ?)
+		ON CONFLICT(user_id, "key") DO UPDATE SET value = excluded.value`,
+		userID, preferencesKeyTimelineOrder, order)
+	if err != nil {
+		return fmt.Errorf("sqlite: set %s for user %d: %w", preferencesKeyTimelineOrder, userID, err)
 	}
 	return nil
 }

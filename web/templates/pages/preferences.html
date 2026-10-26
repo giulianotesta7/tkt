@@ -42,6 +42,23 @@
     </section>
     <section class="preferences-section">
       <div class="preferences-section-head">
+        <h2>{{t "preferences.timeline.title"}}</h2>
+        <p>{{t "preferences.timeline.help"}}</p>
+      </div>
+      <form class="preferences-form" method="post" action="/preferences/timeline-order">
+        <div class="field">
+          <label for="timeline_order">{{t "preferences.timeline.label"}}</label>
+          <select id="timeline_order" name="timeline_order">
+{{range .TimelineOrders}}            <option value="{{.Value}}"{{if eq $.TimelineOrder .Value}} selected{{end}}>{{t .Label}}</option>
+{{end}}          </select>
+        </div>
+        <div class="preferences-actions">
+          <button class="btn primary" type="submit">{{t "preferences.timeline.save"}}</button>
+        </div>
+      </form>
+    </section>
+    <section class="preferences-section">
+      <div class="preferences-section-head">
         <h2>{{t "preferences.email.title"}}</h2>
       </div>
       <form class="preferences-form" method="post" action="/preferences/email">

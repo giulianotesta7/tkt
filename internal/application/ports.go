@@ -1565,6 +1565,31 @@ type ThemePreferencesStore interface {
 	SetTheme(ctx context.Context, userID int64, theme string) error
 }
 
+// TimelineOrderPreferencesStore persists each user's ticket-activity order
+// (issue #438, S1) in the same user_preferences table, under its own key, so the
+// queue-order, email, sidebar, and theme ports above are unchanged and no
+// preference can overwrite another. Like the other four this is a personal
+// setting with no capability gate and no ticket scope: the key is the acting
+// user's id, never a caller-supplied one, so one user can only ever read or
+// write their own feed order.
+//
+// The preference is read once per detail render (it decides where the composer
+// sits relative to Activity) and written from two entry points that must land
+// on the same value: the Preferences select and the Activity header toggle.
+//
+// Defaults are part of the contract, not the adapter's mood: an absent row
+// means "" — no choice yet — and the application service normalizes that, and
+// every value outside the closed set, to TimelineOrderNewest. The store persists
+// whatever it is given, so a hand-edited or restored-from-backup row can never
+// render an order the detail does not implement.
+type TimelineOrderPreferencesStore interface {
+	// GetTimelineOrder returns the user's stored activity order, or "" when
+	// the user has no stored preference.
+	GetTimelineOrder(ctx context.Context, userID int64) (string, error)
+	// SetTimelineOrder upserts the user's stored activity order.
+	SetTimelineOrder(ctx context.Context, userID int64, order string) error
+}
+
 // TicketSection narrows an agent's read scope into a presentation section.
 // The zero value keeps the full actor scope for existing list and detail reads.
 //
