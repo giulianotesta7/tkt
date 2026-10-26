@@ -209,7 +209,7 @@ func TestWorkflowStepTimelineManualSolutionRendersInsideEvent(t *testing.T) {
 	for _, want := range []string{
 		`<article class="timeline-entry timeline-event timeline-manual">`,
 		`<div class="timeline-entry-head">`,
-		`<strong class="timeline-actor">Admin</strong> <span class="timeline-action">completed the task</span>`,
+		`<strong class="timeline-actor">You</strong> <span class="timeline-action">completed the task</span>`,
 		`<dt>Task</dt>`,
 		`<dd>inspect the server</dd>`,
 		`<dt>Solution</dt>`,
@@ -229,7 +229,7 @@ func TestWorkflowStepTimelineManualSolutionRendersInsideEvent(t *testing.T) {
 	if !strings.Contains(body, `<dt>Task</dt>`) || !strings.Contains(body, `<dd>inspect the server</dd>`) {
 		t.Errorf("the event keeps its pinned task details: %s", body)
 	}
-	if !strings.Contains(body, `<strong class="timeline-actor">Admin</strong> <span class="timeline-action">completed the task</span>`) {
+	if !strings.Contains(body, `<strong class="timeline-actor">You</strong> <span class="timeline-action">completed the task</span>`) {
 		t.Errorf("solution must be attributed first by the completion event: %s", body)
 	}
 	if strings.Contains(body, `class="when"><time`) && strings.Contains(body, `</time> · Admin`) {
@@ -273,7 +273,7 @@ func TestWorkflowStepTimelineManualSolutionRendersInsideEvent(t *testing.T) {
 		t.Fatalf("seed tied comment: %v", err)
 	}
 	ubody := h.get(t, "/tickets/"+uid, false).Body.String()
-	if !strings.Contains(ubody, `<article class="timeline-entry timeline-event timeline-manual">`) || !strings.Contains(ubody, `<div class="timeline-entry-head">`) || !strings.Contains(ubody, `<strong class="timeline-actor">Admin</strong> <span class="timeline-action">completed the task</span>`) || !strings.Contains(ubody, `<dt>Task</dt>`) || !strings.Contains(ubody, `<dd>inspect the server</dd>`) {
+	if !strings.Contains(ubody, `<article class="timeline-entry timeline-event timeline-manual">`) || !strings.Contains(ubody, `<div class="timeline-entry-head">`) || !strings.Contains(ubody, `<strong class="timeline-actor">You</strong> <span class="timeline-action">completed the task</span>`) || !strings.Contains(ubody, `<dt>Task</dt>`) || !strings.Contains(ubody, `<dd>inspect the server</dd>`) {
 		t.Errorf("static manual event must render actor-first task details: %s", ubody)
 	}
 	if strings.Contains(ubody, `<details class="timeline-entry timeline-event timeline-manual">`) || strings.Contains(ubody, `<summary class="timeline-event-summary">`) || strings.Contains(ubody, "timeline-event-summary") {

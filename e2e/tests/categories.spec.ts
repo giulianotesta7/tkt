@@ -38,6 +38,25 @@ function rowMenu(node: Locator): Locator {
   return node.locator(":scope > .catalog-tree-row").locator("[data-category-menu]");
 }
 
+/**
+ * Steps left Activity (issue #438, S9): the published run's checklist is its own
+ * card that reads before the Activity card, and it is no longer a timeline
+ * entry. The workflow progression checks below it stay exactly as they were.
+ */
+async function expectStepsCardBeforeActivity(page: Page) {
+  await expect(page.locator(".detail-steps #workflow-pending")).toHaveCount(1);
+  await expect(page.locator("#timeline #workflow-pending")).toHaveCount(0);
+  const stepsFirst = await page.evaluate(() => {
+    const stepsCard = document.querySelector(".detail-steps");
+    const activityCard = document.querySelector(".detail-activity");
+    if (!stepsCard || !activityCard) return false;
+    return Boolean(
+      stepsCard.compareDocumentPosition(activityCard) & Node.DOCUMENT_POSITION_FOLLOWING,
+    );
+  });
+  expect(stepsFirst).toBe(true);
+}
+
 /** The open menu panel of one tree node. */
 function openRowMenu(node: Locator): Locator {
   return node.locator(".category-overflow-menu:not([hidden])");
@@ -2423,8 +2442,10 @@ test.describe("Categories", () => {
       "Nobody is assigned yet.",
     );
     await expect(passiveStep.locator(".workflow-checklist-blocked")).toBeVisible();
-    await expect(page.locator("#timeline .timeline-entry").first()).toHaveClass(
-      /workflow-pending-info/,
+    // Issue #438 (S9): the checklist is its own Steps card before Activity.
+    await expectStepsCardBeforeActivity(page);
+    await expect(page.locator("#timeline .timeline-entry").first()).not.toHaveClass(
+      /workflow-pending/,
     );
 
     await assertCanonicalScreen(page, {
@@ -2478,8 +2499,10 @@ test.describe("Categories", () => {
     );
     await expect(pending.getByLabel("Solution (optional)")).toBeVisible();
     await expect(pending.getByRole("button", { name: "Complete" })).toBeVisible();
-    await expect(page.locator("#timeline .timeline-entry").first()).toHaveClass(
-      /workflow-pending-action/,
+    // Issue #438 (S9): the actionable checklist keeps its card before Activity.
+    await expectStepsCardBeforeActivity(page);
+    await expect(page.locator("#timeline .timeline-entry").first()).not.toHaveClass(
+      /workflow-pending/,
     );
 
     await assertHtmxSwap(
@@ -2500,9 +2523,10 @@ test.describe("Categories", () => {
       await expect(completedManual).toHaveCount(1);
       await expect(completedManual).toBeVisible();
       // One grammar (issue #386, S3): the entry carries its head line and the
-      // rail dot, not a per-event glyph.
+      // rail dot, not a per-event glyph. Issue #438 (S4): this reader completed
+      // the step, so the feed is viewer-relative and names the actor as You.
       await expect(completedManual.locator(".timeline-entry-head .narrative")).toHaveText(
-        "Alice Admin completed the task",
+        "You completed the task",
       );
       await expect(completedManual.locator(".event-icon")).toHaveCount(0);
       await expect(completedManual.getByText("Task", { exact: true })).toHaveCount(1);

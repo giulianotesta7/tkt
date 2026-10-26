@@ -2032,6 +2032,11 @@ type detailData struct {
 	// ticket's comment may name. It is nil for a requester and for a ticket with
 	// no composer, and both mention inputs render it or nothing.
 	Mentions *mentionPickerView
+	// MentionNames is the name context the TIMELINE chips against (issue #438,
+	// S4): the staff this ticket's comments may name, read whenever no composer
+	// offered the list. Presentation only — it decides which runs of text the
+	// reader already sees become mention chips, and renders no list of people.
+	MentionNames []string
 }
 
 // QueueHref is the detail's "← Queue" target: the validated list return href
@@ -2060,6 +2065,89 @@ func (d detailData) TimelineOldestFirst() []application.TimelineItem {
 		oldest[len(source)-1-i] = item
 	}
 	return oldest
+}
+
+// IsOwnComment reports whether the comment was written by the reader (issue
+// #438, S4). The stored author ID decides it and never the display-name
+// snapshot: two people may share a name, and a legacy comment whose actor id is
+// not provable is nobody's own.
+func (d detailData) IsOwnComment(c *domain.Comment) bool {
+	return c != nil && c.AuthorUserID != nil && *c.AuthorUserID == d.CurrentUser.ID
+}
+
+// IsOwnEvent reports whether the audit event was caused by the reader (issue
+// #438, S4), on the same actor-ID rule as IsOwnComment. An automatic event
+// carries no actor id at all, so it is never somebody's own.
+func (d detailData) IsOwnEvent(ev *domain.AuditEvent) bool {
+	return ev != nil && ev.ActorUserID != nil && *ev.ActorUserID == d.CurrentUser.ID
+}
+
+// CommentBodySpans splits a comment body into plain text and mention spans
+// (issue #438, S4) using the application's mention matching rules. Presentation
+// spans do not overlap; notification matching also scans @ signs inside matched
+// names. The name context is independent of composer availability, so requester
+// and closed-ticket views retain soft chips for other people's names.
+func (d detailData) CommentBodySpans(c *domain.Comment) []application.MentionSpan {
+	if c == nil {
+		return nil
+	}
+	return application.SplitMentions(c.Body, d.mentionNames())
+}
+
+// mentionNames is the name set the mention grammar is matched against: the
+// reader first, then the people this ticket's comments may name.
+func (d detailData) mentionNames() []string {
+	names := make([]string, 0, len(d.MentionNames)+1)
+	if d.CurrentUser.Name != "" {
+		names = append(names, d.CurrentUser.Name)
+	}
+	for _, name := range d.MentionNames {
+		if name != "" && name != d.CurrentUser.Name {
+			names = append(names, name)
+		}
+	}
+	return names
+}
+
+// CommentMentionsViewer reports whether somebody else's comment names the
+// reader (issue #438, S4). It reads the SAME spans the body is rendered from, so
+// the tag and the chips can never disagree: a body that names "Ana Assignee"
+// does not mention the reader called "Ana", however her name prefixes it. Your
+// own comment never mentions you — it is already marked as yours, and one card
+// must not claim two relationships.
+func (d detailData) CommentMentionsViewer(c *domain.Comment) bool {
+	if d.IsOwnComment(c) || d.CurrentUser.Name == "" {
+		return false
+	}
+	for _, span := range application.SplitMentions(c.Body, d.mentionNames()) {
+		if span.Mention && span.Name == d.CurrentUser.Name {
+			return true
+		}
+	}
+	return false
+}
+
+// EventDotClass classifies a change's rail dot against the priority rungs the
+// queue already uses (issue #438, S3): a priority change keeps the colour of the
+// priority it moved to. The switch is the whitelist — a field, action or value
+// that is not one of these four priorities yields no class and leaves the plain
+// hollow change dot, so no audit string ever reaches the markup.
+func (d detailData) EventDotClass(item application.TimelineItem) string {
+	ev := item.Event
+	if ev == nil || ev.Action != domain.ActionUpdate || ev.Field == nil || *ev.Field != "priority" || ev.ToValue == nil {
+		return ""
+	}
+	switch domain.Priority(*ev.ToValue) {
+	case domain.PriorityLow:
+		return "prio-low"
+	case domain.PriorityMedium:
+		return "prio-medium"
+	case domain.PriorityHigh:
+		return "prio-high"
+	case domain.PriorityCritical:
+		return "prio-critical"
+	}
+	return ""
 }
 
 // QueueHeaders carries the validated origin through every whole-detail swap.
@@ -2256,6 +2344,22 @@ func (h *TicketHandlers) detailDataFor(r *http.Request, id int64) (detailData, i
 			return detailData{}, statusFor(err), err
 		}
 	}
+	// The timeline's own mention context (issue #438, S4) is independent of the
+	// composer: a requester, and a closed ticket with no composer at all, must
+	// still read which words in a comment are somebody's name. The composer
+	// path already paid for the candidate query, so its names are reused; every
+	// other page asks for the names alone behind the actor's own ticket read.
+	var mentionNames []string
+	if mentions != nil {
+		for _, candidate := range mentions.Candidates {
+			mentionNames = append(mentionNames, candidate.Name)
+		}
+	} else if h.follows != nil {
+		mentionNames, err = h.follows.MentionNameContext(r.Context(), actor, id)
+		if err != nil {
+			return detailData{}, statusFor(err), err
+		}
+	}
 	queueOrigin := r.Referer()
 	// HTMX mutations refer to the detail URL, not the original queue. The
 	// inherited header survives whole-detail swaps, including error renders.
@@ -2303,6 +2407,7 @@ func (h *TicketHandlers) detailDataFor(r *http.Request, id int64) (detailData, i
 		Follow:        follow,
 		Followers:     followers,
 		Mentions:      mentions,
+		MentionNames:  mentionNames,
 	}, 0, nil
 }
 

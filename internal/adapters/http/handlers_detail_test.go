@@ -175,7 +175,7 @@ func TestTicketTimelineDifferentiatesCommentsAndAuditEvents(t *testing.T) {
 	}
 
 	body := h.get(t, "/tickets/1", false).Body.String()
-	for _, want := range []string{`class="timeline-entry timeline-comment"`, `class="timeline-entry timeline-event`, "moved the ticket to in progress", "st-in_progress"} {
+	for _, want := range []string{`class="timeline-entry timeline-comment`, `class="timeline-entry timeline-event`, "moved the ticket to in progress", "st-in_progress"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("timeline must contain %q, got: %s", want, body)
 		}
@@ -571,7 +571,8 @@ func TestTicketTimelineGrammar(t *testing.T) {
 		t.Errorf("the timeline must phrase its instants relatively\n%s", timeline)
 	}
 
-	// One comment grammar: the bordered block sits under its own head line.
+	// One comment grammar: the card sits under its own head line (issue #438,
+	// S2).
 	if !strings.Contains(timeline, `class="timeline-body"`) {
 		t.Errorf("a comment body must render as a block under its head line\n%s", timeline)
 	}
@@ -582,22 +583,23 @@ func TestTicketTimelineGrammar(t *testing.T) {
 		t.Errorf("events must be one line, not a nested body block\n%s", timeline)
 	}
 
-	// Internal notes keep their affordance and say who may read them.
-	if !strings.Contains(timeline, `class="timeline-entry timeline-comment internal"`) {
+	// An internal comment keeps its own card class and narrative; the audience
+	// label is gone (issue #438, S5) because the tint and the narrative say it.
+	if !strings.Contains(timeline, `class="timeline-entry timeline-comment internal`) {
 		t.Errorf("an internal comment must keep its own class\n%s", timeline)
 	}
-	if !strings.Contains(timeline, `Internal · staff only`) {
-		t.Errorf("an internal comment must label its audience\n%s", timeline)
+	if strings.Contains(timeline, "staff only") || strings.Contains(timeline, `class="timeline-visibility"`) {
+		t.Errorf("an internal comment must not label its audience any more\n%s", timeline)
 	}
-	// The internal note is invisible to a requester: the store read filters it,
-	// so the label cannot leak either.
+	// The internal comment is invisible to a requester: the store read filters it,
+	// so neither its body nor its card class can leak.
 	requester := seedUserRole(t, h.store, "Rosa", "rosa-grammar@tkt.test", domain.RoleUser)
 	sess := seedSession(t, h.store, requester.ID)
 	if _, err := h.rawDB(t).Exec(`UPDATE tickets SET requester_user_id = ? WHERE id = ?`, requester.ID, tkt.ID); err != nil {
 		t.Fatalf("pin requester: %v", err)
 	}
 	requesterBody := getDetailAs(t, h, "/tickets/1", sess.ID, true).Body.String()
-	for _, absent := range []string{"internal-grammar-token", "Internal · staff only"} {
+	for _, absent := range []string{"internal-grammar-token", `timeline-comment internal`, "staff only"} {
 		if strings.Contains(requesterBody, absent) {
 			t.Errorf("a requester must never read the staff-only note (%q)\n%s", absent, requesterBody)
 		}
@@ -637,13 +639,11 @@ func TestTicketDetailBodyOrder(t *testing.T) {
 		}
 		previous = at
 	}
-	// The workflow checklist stays the first block of the activity region
-	// (today's #timeline contract, S2/L3).
-	activity := body[strings.Index(body, `id="timeline"`):]
-	if pending := strings.Index(activity, `id="workflow-pending"`); pending >= 0 {
-		firstEntry := strings.Index(activity, `class="timeline-entry`)
-		if firstEntry >= 0 && pending > firstEntry {
-			t.Errorf("the checklist must stay the first block of #timeline, got: %s", activity[:firstEntry])
+	// Issue #438, S9: Steps is its own card above Activity and the composer, so
+	// the checklist renders before the feed and never inside it.
+	if checklist := strings.Index(body, `id="workflow-pending"`); checklist >= 0 {
+		if checklist > strings.Index(body, `id="timeline"`) {
+			t.Errorf("the checklist must leave Activity and render above it, got: %s", body)
 		}
 	}
 }

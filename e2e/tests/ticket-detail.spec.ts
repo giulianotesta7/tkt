@@ -56,6 +56,27 @@ function slaPanel(page: Page) {
 }
 
 /**
+ * Steps left Activity (issue #438, S9): the step checklist is its own card that
+ * reads before the Activity card, and it is not a timeline entry any more. The
+ * workflow journeys keep asserting the checklist's own state; this proves where
+ * it lives and that Activity stays a feed of entries.
+ */
+async function expectStepsCardBeforeActivity(page: Page) {
+  await expect(page.locator(".detail-steps #workflow-pending")).toHaveCount(1);
+  await expect(page.locator(".detail-activity #workflow-pending")).toHaveCount(0);
+  await expect(page.locator("#timeline #workflow-pending")).toHaveCount(0);
+  const stepsFirst = await page.evaluate(() => {
+    const stepsCard = document.querySelector(".detail-steps");
+    const activityCard = document.querySelector(".detail-activity");
+    if (!stepsCard || !activityCard) return false;
+    return Boolean(
+      stepsCard.compareDocumentPosition(activityCard) & Node.DOCUMENT_POSITION_FOLLOWING,
+    );
+  });
+  expect(stepsFirst).toBe(true);
+}
+
+/**
  * Create a user through the managed-users screen and promote them to agent, so
  * they join the instance-wide assignee candidates. Returns the edit href so a
  * journey can deactivate the same operator later.
@@ -237,8 +258,11 @@ test.describe("Ticket detail", () => {
     await expect(passiveStep.locator(".workflow-checklist-meta")).toHaveText(
       "Nobody is assigned yet.",
     );
-    await expect(page.locator("#timeline .timeline-entry").first()).toHaveClass(
-      /workflow-pending-info/,
+    // Issue #438 (S9): Steps is its own card above Activity, never a timeline
+    // entry with a dot.
+    await expectStepsCardBeforeActivity(page);
+    await expect(page.locator("#timeline .timeline-entry").first()).not.toHaveClass(
+      /workflow-pending/,
     );
     await expect(page.locator(".current-task-card")).toHaveCount(0);
     await expect(page.locator('form[action*="/workflow/steps/"]')).toHaveCount(0);
@@ -1868,6 +1892,50 @@ test.describe("Ticket detail", () => {
       colleague.name,
     );
     await expect(followers.locator(".prop-followers-person .prop-followers-you")).toHaveText("You");
+
+    // Issue #438 (S4, S2): reading the ticket names the reader back. The comment
+    // that mentioned her is marked as mentioning HER, with the tag and a chip
+    // drawn in the accent (a mention of somebody else stays in the soft fill),
+    // and the feed keeps one card per comment.
+    const mentioning = page.locator("#timeline .timeline-comment.mentioned");
+    await expect(mentioning).toHaveCount(1);
+    await expect(mentioning).toContainText(mentioned.trim());
+    await expect(mentioning.locator(".timeline-mentions-you")).toHaveText("Mentions you");
+    const ownMention = mentioning.locator(".timeline-mention.me");
+    await expect(ownMention).toHaveCount(1);
+    await expect(ownMention).toHaveText(`@${colleague.name}`);
+    const accent = await page.evaluate(() => {
+      const probe = document.createElement("span");
+      probe.style.background = "var(--accent)";
+      document.body.append(probe);
+      const value = getComputedStyle(probe).backgroundColor;
+      probe.remove();
+      return value;
+    });
+    await expect(ownMention).toHaveCSS("background-color", accent);
+    // The card that is hers own carries the You chip instead.
+    await expect(page.locator("#timeline .timeline-comment.mine")).toHaveCount(0);
+
+    const ownComment = `Reviewed, thanks for the mention ${unique}`;
+    const ownNavigation = page.waitForEvent(
+      "framenavigated",
+      (frame) => frame === page.mainFrame(),
+    );
+    const ownPost = waitForExactPost(page, `/tickets/${ticketID}/comments`);
+    await page.locator("#comment-body").fill(ownComment);
+    await page.getByRole("button", { name: "Reply", exact: true }).click();
+    await ownNavigation;
+    expect((await ownPost).status()).toBe(303);
+    await expect(page).toHaveURL(new RegExp(`/tickets/${ticketID}$`));
+    const own = page.locator("#timeline .timeline-comment.mine").filter({ hasText: ownComment });
+    await expect(own).toHaveCount(1);
+    await expect(own.locator(".timeline-you")).toHaveText("You");
+    // One card per comment: two comments, two cards, one body each, and the
+    // marked card did not absorb the new one.
+    await expect(page.locator("#timeline .timeline-comment")).toHaveCount(2);
+    await expect(page.locator("#timeline .timeline-comment .timeline-body")).toHaveCount(2);
+    await expect(mentioning).toHaveCount(1);
+    await expect(mentioning.locator(".timeline-body")).toHaveCount(1);
   });
 
   test("a follower keeps a draft and hears about the ticket until they unfollow", async ({

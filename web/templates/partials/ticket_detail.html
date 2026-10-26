@@ -53,9 +53,10 @@
         {{if .View.Ticket.Description}}<p class="ticket-description">{{.View.Ticket.Description}}</p>{{else}}<p class="empty">{{t "tickets.detail.no_description"}}</p>{{end}}
 {{if .Attachments}}        <ul class="attachments" aria-label="{{t "tickets.detail.attachments"}}">{{range .Attachments}}<li><a class="attachment-name" href="/attachments/{{.ID}}">{{.FileName}}</a> <span class="attachment-size">{{fileSize .Size}}</span></li>{{end}}</ul>
 {{end}}      </div>
-      <div class="card detail-activity">
+{{if .Pending.Active}}      <div class="card detail-steps">{{template "workflow_pending" .}}</div>
+{{end}}      <div class="card detail-activity">
         <h2>{{t "tickets.detail.timeline"}}</h2>
-{{template "timeline_with_pending" .}}
+{{template "timeline" .}}
       </div>
     </div>
     <aside class="evidence">
