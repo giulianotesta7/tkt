@@ -58,7 +58,7 @@
       <div class="card form-card">
         <div class="switch-row settings-provider-head">
           <div class="switch-copy">
-            <h3 class="settings-group-title" id="google-signin-label">{{template "company_logo" "google"}}{{t "settings.security.company.google.title"}}</h3>{{template "help_tip" (helpTip "google-signin" (t "settings.security.company.google.title") (t "settings.security.company.google.help"))}}
+            <h3 class="settings-group-title" id="google-signin-label">{{template "company_logo" "google"}}{{t "settings.security.company.google.title"}}</h3>
           </div>
           <span class="switch"><input type="checkbox" id="google_enabled" name="google_enabled" value="1" aria-labelledby="google-signin-label"{{if .Company.Google.Enabled}} checked{{end}}></span>
         </div>
@@ -87,7 +87,7 @@
       <div class="card form-card">
         <div class="switch-row settings-provider-head">
           <div class="switch-copy">
-            <h3 class="settings-group-title" id="microsoft-signin-label">{{template "company_logo" "microsoft"}}{{t "settings.security.company.microsoft.title"}}</h3>{{template "help_tip" (helpTip "microsoft-signin" (t "settings.security.company.microsoft.title") (t "settings.security.company.microsoft.help"))}}
+            <h3 class="settings-group-title" id="microsoft-signin-label">{{template "company_logo" "microsoft"}}{{t "settings.security.company.microsoft.title"}}</h3>
           </div>
           <span class="switch"><input type="checkbox" id="microsoft_enabled" name="microsoft_enabled" value="1" aria-labelledby="microsoft-signin-label"{{if .Company.Microsoft.Enabled}} checked{{end}}></span>
         </div>

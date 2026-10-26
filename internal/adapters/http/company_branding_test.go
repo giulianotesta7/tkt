@@ -47,8 +47,8 @@ func TestSettingsSecurityFieldHelpIsBehindAToggletip(t *testing.T) {
 
 	for _, id := range []string{
 		"security-password-signin", "security-password-change", "security-password-recovery", "security-min-length",
-		"company-address", "google-signin", "google-secret", "google-domains", "google-redirect",
-		"microsoft-signin", "microsoft-secret", "microsoft-tenant", "microsoft-redirect",
+		"company-address", "google-secret", "google-domains", "google-redirect",
+		"microsoft-secret", "microsoft-tenant", "microsoft-redirect",
 	} {
 		if !strings.Contains(body, `role="tooltip" id="help-tip-`+id+`"`) {
 			t.Errorf("the Security section must render the toggletip %q", id)
@@ -56,6 +56,11 @@ func TestSettingsSecurityFieldHelpIsBehindAToggletip(t *testing.T) {
 	}
 	if strings.Contains(body, `<p class="help"`) {
 		t.Error("the Security section must not render a field explanation as a visible paragraph")
+	}
+	for _, gone := range []string{"Company Google accounts only", "Your organization only", `id="help-tip-google-signin"`, `id="help-tip-microsoft-signin"`} {
+		if strings.Contains(body, gone) {
+			t.Errorf("the provider heads must not carry the vague copy %q", gone)
+		}
 	}
 	if !strings.Contains(body, `<svg class="company-logo"`) {
 		t.Error("the provider cards must carry their logo")

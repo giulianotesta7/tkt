@@ -506,7 +506,6 @@ func TestSettingsSecurityCompanySignInRendersInSpanish(t *testing.T) {
 		"Crear la cuenta como solicitante",
 		"Guardar el inicio de sesión de la empresa",
 		"Acceso con contraseña",
-		"Solo cuentas de Google de la empresa.",
 		"Copiar",
 		"Copiado",
 	} {

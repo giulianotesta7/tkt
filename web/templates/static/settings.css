@@ -824,3 +824,13 @@
 }
 
 .settings-group-title .company-logo { width: 18px; height: 18px; margin-right: 8px; vertical-align: -3px; }
+
+/* A switch label's toggletip sits on the label's own line, like a field's. */
+.switch-copy > .switch-label:has(+ .help-tip-wrap) {
+  display: inline;
+}
+
+.switch-copy > .help-tip-wrap {
+  margin-left: 6px;
+  vertical-align: -2px;
+}
