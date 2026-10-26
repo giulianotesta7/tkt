@@ -26,6 +26,7 @@ Project skills live in `.agents/skills/` and are named for the suite or layer th
 | `go-tests` | `.agents/skills/go-tests/SKILL.md` |
 | `container-governance` | `.agents/skills/container-governance/SKILL.md` |
 | `engram-governance` | `.agents/skills/engram-governance/SKILL.md` |
+| `release-notes` | `.agents/skills/release-notes/SKILL.md` |
 
 Load the skill file. Its Activation Contract is authoritative for when the skill applies.
 
