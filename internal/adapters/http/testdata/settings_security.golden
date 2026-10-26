@@ -159,7 +159,7 @@
           <input type="text" id="google_client_id" name="google_client_id" value="812345678901-acme.apps.googleusercontent.com" spellcheck="false" autocapitalize="off" autocomplete="off">
         </div>
         <div class="field">
-          <label for="google_client_secret">Client secret <span class="chip">Saved</span></label><span class="help-tip-wrap"><button class="help-tip" type="button" aria-label="More about Client secret" aria-describedby="help-tip-google-secret" aria-expanded="false" data-help-tip>?</button><span class="help-tip-bubble" role="tooltip" id="help-tip-google-secret">Write-only: it is sealed like the SMTP password and never shown again. Leave it blank to keep the saved secret.</span></span>
+          <label for="google_client_secret">Client secret <span class="chip">Saved</span></label><span class="help-tip-wrap"><button class="help-tip" type="button" aria-label="More about Client secret" aria-describedby="help-tip-google-secret" aria-expanded="false" data-help-tip>?</button><span class="help-tip-bubble" role="tooltip" id="help-tip-google-secret">Stored encrypted and never shown again. Leave it blank to keep the saved secret.</span></span>
           <input type="password" id="google_client_secret" name="google_client_secret" value="" autocomplete="new-password">
         </div>
         <div class="field">
@@ -192,7 +192,7 @@ acme-support.test</textarea>
           <input type="text" id="microsoft_client_id" name="microsoft_client_id" value="b1d2c3e4-5f60-4718-9abc-def012345678" spellcheck="false" autocapitalize="off" autocomplete="off" placeholder="Application (client) ID">
         </div>
         <div class="field">
-          <label for="microsoft_client_secret">Client secret <span class="chip">Saved</span></label><span class="help-tip-wrap"><button class="help-tip" type="button" aria-label="More about Client secret" aria-describedby="help-tip-microsoft-secret" aria-expanded="false" data-help-tip>?</button><span class="help-tip-bubble" role="tooltip" id="help-tip-microsoft-secret">Write-only: it is sealed like the SMTP password and never shown again. Leave it blank to keep the saved secret.</span></span>
+          <label for="microsoft_client_secret">Client secret <span class="chip">Saved</span></label><span class="help-tip-wrap"><button class="help-tip" type="button" aria-label="More about Client secret" aria-describedby="help-tip-microsoft-secret" aria-expanded="false" data-help-tip>?</button><span class="help-tip-bubble" role="tooltip" id="help-tip-microsoft-secret">Stored encrypted and never shown again. Leave it blank to keep the saved secret.</span></span>
           <input type="password" id="microsoft_client_secret" name="microsoft_client_secret" value="" autocomplete="new-password">
         </div>
         <div class="field">
