@@ -880,11 +880,13 @@
   .category-name{font-weight:600;color:var(--ink-strong);overflow-wrap:anywhere}.category-created,.category-status-empty{color:var(--muted);font-size:12px}.category-actions,.desk-detail-head,.desk-rename,.desk-add-member>div{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
   .workflow-pending{min-width:0;margin-top:10px;overflow-wrap:anywhere}
   .detail-steps{padding:14px 16px}
+  .detail-steps:has(.workflow-pending-action){border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
   .detail-steps .workflow-pending{margin-top:0}
   .detail-steps .workflow-pending::before{content:none}
   .workflow-checklist-head{display:flex;align-items:baseline;justify-content:space-between;gap:12px}
   .workflow-checklist-head h3{margin:0;color:var(--ink-strong);font-size:14px;font-weight:600;letter-spacing:0}
-  .workflow-checklist-count{color:var(--muted);font-size:12px}
+  .workflow-checklist-badge{display:inline-flex;align-items:center;height:18px;padding:0 8px;border-radius:999px;background:var(--accent-soft);color:var(--accent-ink);font-size:11px;font-weight:600}
+  .workflow-checklist-count{margin-left:auto;color:var(--muted);font-size:12px}
   .workflow-checklist-progress{height:3px;margin:10px 0 2px;border-radius:999px;background:var(--hover);overflow:hidden}
   .workflow-checklist-progress > span{display:block;height:100%;border-radius:999px;background:var(--ink-soft)}
   .workflow-checklist-steps{list-style:none;margin:6px 0 0;padding:0}

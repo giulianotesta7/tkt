@@ -53,7 +53,9 @@ func TestAmendment3_PinnedClaimUsesEligibleSidebarControl(t *testing.T) {
 	}
 	for _, want := range []string{
 		`id="workflow-pending"`,
-		`class="timeline-entry workflow-pending workflow-pending-info"`,
+		// Issue #438 (S7): the eligible member's claim is actionable, so the
+		// Steps card carries the action state the acting viewer's card has.
+		`class="timeline-entry workflow-pending workflow-pending-action"`,
 		"A member of Network takes it",
 		"Network has been asked to take it",
 	} {

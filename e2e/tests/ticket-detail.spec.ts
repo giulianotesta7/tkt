@@ -258,6 +258,15 @@ test.describe("Ticket detail", () => {
     await expect(passiveStep.locator(".workflow-checklist-meta")).toHaveText(
       "Nobody is assigned yet.",
     );
+    // Issue #438 (S4, S8): nothing to act on here, so no badge and no accent
+    // highlight — the mark belongs to the actor who can complete the step.
+    await expect(passiveChecklist.locator(".workflow-checklist-badge")).toHaveCount(0);
+    const stepsRing = await page.evaluate(() => {
+      const card = document.querySelector(".detail-steps");
+      if (!card) throw new Error("no Steps card at " + window.location.pathname);
+      return getComputedStyle(card).boxShadow;
+    });
+    expect(stepsRing).toBe("none");
     // Issue #438 (S9): Steps is its own card above Activity, never a timeline
     // entry with a dot.
     await expectStepsCardBeforeActivity(page);

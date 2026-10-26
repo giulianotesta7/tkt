@@ -1047,6 +1047,8 @@
   "tickets.pending.solution_optional": "Solution (optional)",
   "tickets.pending.steps": "Steps",
   "tickets.pending.steps_done": "Steps done",
+  "tickets.pending.your_desk": "Your desk",
+  "tickets.pending.your_turn": "Your turn",
   "tickets.screen.count_one": "%d ticket",
   "tickets.screen.count_other": "%d tickets",
   "tickets.screen.my_tickets": "My tickets",

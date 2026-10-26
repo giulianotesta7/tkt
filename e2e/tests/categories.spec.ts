@@ -16,7 +16,7 @@ import {
   type Route,
 } from "@playwright/test";
 import { startServer, stopServer } from "../server-lifecycle.js";
-import { loginAsSeeded, base } from "./helpers/auth.js";
+import { loginAsSeeded, base, seededCredentials } from "./helpers/auth.js";
 import {
   assertNoHorizontalOverflow,
   assertCanonicalScreen,
@@ -31,7 +31,7 @@ import {
   createCategoryViaUi,
   createTicketViaUi,
 } from "./helpers/navigation.js";
-import { applyAssignee, pickerButton } from "./helpers/ticket.js";
+import { applyAssignee, currentAssignee, pickerButton } from "./helpers/ticket.js";
 
 /** The row-level menu trigger of one tree node. */
 function rowMenu(node: Locator): Locator {
@@ -55,6 +55,42 @@ async function expectStepsCardBeforeActivity(page: Page) {
     );
   });
   expect(stepsFirst).toBe(true);
+}
+
+/**
+ * The Steps card's measured accent highlight (issue #438, S4): the outline is
+ * decoration a screenshot cannot be trusted for at ten percent ink, so the
+ * settled computed border and ring are compared against the served `--accent`
+ * token itself. `plain` asserts the opposite: an ordinary hairline card.
+ */
+async function stepsHighlight(page: Page): Promise<{ border: string; ring: string }> {
+  return page.evaluate(() => {
+    const card = document.querySelector(".detail-steps");
+    if (!card) throw new Error("no Steps card at " + window.location.pathname);
+    const style = getComputedStyle(card);
+    const probe = document.createElement("div");
+    probe.style.color = getComputedStyle(document.documentElement)
+      .getPropertyValue("--accent")
+      .trim();
+    document.body.appendChild(probe);
+    const accent = getComputedStyle(probe).color;
+    probe.remove();
+    return { border: style.borderTopColor, ring: `${accent}|${style.boxShadow}` };
+  });
+}
+
+async function expectStepsHighlighted(page: Page) {
+  const highlight = await stepsHighlight(page);
+  const accent = highlight.ring.split("|")[0];
+  expect(highlight.border, "the Steps card border must be the accent token").toBe(accent);
+  expect(highlight.ring, "the Steps card must carry the accent ring").not.toBe(`${accent}|none`);
+}
+
+async function expectStepsPlain(page: Page) {
+  const highlight = await stepsHighlight(page);
+  const accent = highlight.ring.split("|")[0];
+  expect(highlight.border, "a passive Steps card keeps the plain hairline").not.toBe(accent);
+  expect(highlight.ring, "a passive Steps card carries no accent ring").toBe(`${accent}|none`);
 }
 
 /** The open menu panel of one tree node. */
@@ -2442,6 +2478,10 @@ test.describe("Categories", () => {
       "Nobody is assigned yet.",
     );
     await expect(passiveStep.locator(".workflow-checklist-blocked")).toBeVisible();
+    // Issue #438 (S4, S8): nobody can act here, so the card is badged for
+    // nobody and keeps its plain hairline instead of the accent highlight.
+    await expect(checklist.locator(".workflow-checklist-badge")).toHaveCount(0);
+    await expectStepsPlain(page);
     // Issue #438 (S9): the checklist is its own Steps card before Activity.
     await expectStepsCardBeforeActivity(page);
     await expect(page.locator("#timeline .timeline-entry").first()).not.toHaveClass(
@@ -2497,6 +2537,10 @@ test.describe("Categories", () => {
     await expect(assignedStep.locator(".workflow-checklist-meta")).toHaveText(
       "Assigned to Alice Admin · you",
     );
+    // Issue #438 (S4, S8): the assignee is the one actor who can complete this
+    // step, so their Steps card is the one that is badged and outlined.
+    await expect(pending.locator(".workflow-checklist-badge")).toHaveText("Your turn");
+    await expectStepsHighlighted(page);
     await expect(pending.getByLabel("Solution (optional)")).toBeVisible();
     await expect(pending.getByRole("button", { name: "Complete" })).toBeVisible();
     // Issue #438 (S9): the actionable checklist keeps its card before Activity.
@@ -2574,6 +2618,125 @@ test.describe("Categories", () => {
     await assertCanonicalScreen(page, {
       viewport: 390,
       label: "workflow completed timeline mobile",
+      url: page.url(),
+      role: "root",
+      consoleErrors: obs.consoleErrors,
+      pageErrors: obs.pageErrors,
+      failedRequests: obs.failedRequests,
+      failedResponses: obs.failedResponses,
+    });
+  });
+
+  test("a claim step offers Claim ticket in Steps to a desk member, and the same route takes the ticket", async ({
+    page,
+  }) => {
+    test.setTimeout(90_000);
+    await page.setViewportSize({ width: 1280, height: 800 });
+    const obs = collectObservability(page);
+    await loginAsSeeded(page);
+    const uniq = Date.now().toString(36).slice(2, 8);
+    const deskName = `Steps desk ${uniq}`;
+    const catName = `Steps claim ${uniq}`;
+
+    // A desk staffed with the reader: membership is what makes the claim theirs.
+    await page.goto(base() + "/categories?view=structure");
+    const firstDepartment = page.locator('[data-level="department"]').first();
+    await expect(firstDepartment).toHaveCount(1);
+    const departmentId = await catalogNodeId(firstDepartment, "the first department");
+    await page.goto(base() + "/categories/desks/new?view=structure&department_id=" + departmentId);
+    const deskDrawer = page.getByRole("dialog", { name: /New desk/i });
+    await expect(deskDrawer).toBeVisible();
+    await deskDrawer.locator('select[name="department_id"]').selectOption(departmentId);
+    await deskDrawer.getByLabel("Name").fill(deskName);
+    await deskDrawer.getByRole("button", { name: /create desk/i }).click();
+    const deskRow = catalogNode(page, "desk", deskName);
+    await expect(deskRow, `the desk ${deskName} at ${page.url()}`).toHaveCount(1);
+    const deskId = await catalogNodeId(deskRow, `desk ${deskName}`);
+    await page.goto(base() + `/categories/desks/${deskId}/edit?view=structure`);
+    const editDrawer = page.getByRole("dialog", { name: /Edit desk/i });
+    await expect(editDrawer).toBeVisible();
+    await editDrawer.locator("select#desk-member").selectOption({ label: seededCredentials.name });
+    await editDrawer.getByRole("button", { name: "Add member" }).click();
+    await expect(
+      editDrawer.getByRole("listitem").filter({ hasText: seededCredentials.name }),
+    ).toHaveCount(1);
+
+    // A category whose first step is the claim this desk answers.
+    await page.goto(
+      base() + `/categories/new?view=structure&department_id=${departmentId}&desk_id=${deskId}`,
+    );
+    await page.locator("#category-name").fill(catName);
+    await page.getByRole("button", { name: /create category/i }).click();
+    const catRow = catalogCategoryRow(page, catName);
+    await expect(catRow, `the category ${catName} at ${page.url()}`).toHaveCount(1);
+    const catId = await catalogNodeId(catRow, `category ${catName}`);
+    await page.goto(base() + `/categories/${catId}/workflow`);
+    await page.locator(".workflow-add-popover summary").click();
+    await page.getByRole("button", { name: "Send to a desk" }).click();
+    const stepCard = page.locator(".workflow-step-card").first();
+    await expect(stepCard).toHaveCount(1);
+    // The newly added step is the server's selection, so its editor is already
+    // open: reading the desk control here cannot race a pending step swap.
+    const deskSelect = page.locator('select[name="step_0_desk"]');
+    await expect(deskSelect).toBeVisible();
+    await deskSelect.selectOption(deskId);
+    await expect(deskSelect).toHaveValue(deskId);
+    await expect(page.locator('select[name="step_0_strategy"]')).toHaveValue("claim");
+    await page.locator('.page-actions button[name="action"][value="save"]').click();
+    await expect(page.locator("#save-feedback .save-feedback-message")).toHaveText("Saved");
+    // The saved draft really is routed to the desk this reader belongs to.
+    await expect(stepCard.locator(".workflow-step-summary")).toContainText(deskName);
+    await page.getByRole("button", { name: /publish/i }).click();
+    await expect(page.locator("#save-feedback .save-feedback-message")).toHaveText("Published");
+
+    const ticketTitle = `Claimable in Steps ${uniq}`;
+    const ticketId = await createTicketViaUi(page, {
+      title: ticketTitle,
+      description: "claim from Steps probe",
+      category: catName,
+      priority: "high",
+    });
+
+    // The member reads the pending claim as theirs: badge, accent highlight and
+    // the claim control, with the Assignment panel's own claim still offered.
+    await page.goto(base() + `/tickets/${ticketId}`);
+    const pending = page.locator("#workflow-pending");
+    await expect(pending).toHaveClass(/workflow-pending-action/);
+    await expect(pending.locator(".workflow-checklist-badge")).toHaveText("Your desk");
+    const currentStep = pending.locator(".workflow-checklist-step.is-current");
+    await expect(currentStep.locator(".workflow-checklist-name")).toHaveText(
+      `A member of ${deskName} takes it`,
+    );
+    await expect(currentStep.locator(".workflow-checklist-meta")).toHaveText(
+      `${deskName} has been asked to take it`,
+    );
+    await expect(currentStep.getByRole("button", { name: "Complete" })).toHaveCount(0);
+    await expectStepsHighlighted(page);
+    await expect(page.getByRole("button", { name: "Assign to me" })).toBeVisible();
+    await expectStepsCardBeforeActivity(page);
+
+    await assertHtmxSwap(
+      page,
+      async () => {
+        await currentStep.getByRole("button", { name: "Claim ticket" }).click();
+      },
+      {
+        endpoint: `/tickets/${ticketId}/workflow/steps/1/complete`,
+        method: "POST",
+        expectedStatus: 200,
+        hxTarget: "#ticket-detail",
+      },
+    );
+    await expect(page.locator("#workflow-pending")).toHaveCount(0);
+    await expect(page.locator("#timeline")).toContainText(
+      `assigned the ticket to ${seededCredentials.name}`,
+    );
+    await expect(page.locator("#timeline")).toContainText(deskName);
+    expect(await currentAssignee(page)).toBe(seededCredentials.name);
+
+    await assertCanonicalScreen(page, {
+      viewport: 1280,
+      label: "claim from the Steps card",
       url: page.url(),
       role: "root",
       consoleErrors: obs.consoleErrors,

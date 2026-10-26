@@ -2,7 +2,8 @@
 <section class="timeline-entry workflow-pending {{if .Pending.CanAct}}workflow-pending-action{{else}}workflow-pending-info{{end}}" id="workflow-pending" aria-labelledby="workflow-steps-title">
   <div class="workflow-checklist-head">
     <h3 id="workflow-steps-title">{{t "tickets.pending.steps"}}</h3>
-    <span class="workflow-checklist-count">{{tp "tickets.pending.done_of" .Pending.Done .Pending.Total}}</span>
+{{if .Pending.Badge}}    <span class="workflow-checklist-badge">{{.Pending.Badge}}</span>
+{{end}}    <span class="workflow-checklist-count">{{tp "tickets.pending.done_of" .Pending.Done .Pending.Total}}</span>
   </div>
   <div class="workflow-checklist-progress" role="progressbar" aria-valuemin="0" aria-valuemax="{{.Pending.Total}}" aria-valuenow="{{.Pending.Done}}" aria-label="{{t "tickets.pending.steps_done"}}">
     <span style="width:{{.Pending.Percent}}%"></span>
@@ -50,8 +51,9 @@
               {{end}}</select
             >{{end}}
           </div>
-{{end}}{{end}}          <button class="btn primary workflow-pending-complete" type="submit">{{t "tickets.pending.complete"}}</button>
-        </form>
+{{end}}{{end}}{{if eq .Kind "claim"}}          <button class="btn primary workflow-pending-complete" type="submit">{{t "tickets.agent.claim_ticket"}}</button>
+{{else}}          <button class="btn primary workflow-pending-complete" type="submit">{{t "tickets.pending.complete"}}</button>
+{{end}}        </form>
 {{end}}{{end}}{{if eq .State "next"}}        <span class="workflow-checklist-meta">{{.Meta}}</span>
 {{end}}      </div>
     </li>

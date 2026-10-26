@@ -2158,7 +2158,10 @@ func (d detailData) QueueHeaders() (string, error) {
 	return string(headers), err
 }
 
-// workflowClaim is the sidebar claim projection for the current pinned step.
+// workflowClaim is the claim projection for the current pinned step: the
+// Assignment panel renders it, and the Steps row reads the SAME value, so the
+// two controls can never disagree about the desk, the position or the reader's
+// eligibility.
 type workflowClaim struct {
 	Active   bool
 	Position int
@@ -2170,21 +2173,25 @@ type workflowClaim struct {
 // Timeline (issue #245): the honest "N of M done" count, a thin neutral progress
 // bar, and one row per pinned step. Active is false (no checklist rendered) for
 // legacy unpinned tickets and completed or absent runs. It exposes no workflow
-// version, pin, or technical cursor.
+// version, pin, or technical cursor. Badge is the card's viewer-relative mark
+// (issue #438, S4/S7): empty except for the one reader who can complete the
+// current step.
 type workflowChecklist struct {
 	Active  bool
 	Done    int
 	Total   int
 	Percent int
 	CanAct  bool
+	Badge   string
 	Rows    []workflowChecklistRow
 }
 
 // workflowChecklistRow is one step row. State is done | current | next and
 // Glyph is its marker. A done row carries the completion Actor (empty for the
 // automatic sentinel, which never renders) and At. A current row carries its
-// control facts (Kind, Fields, CanAct) plus an optional Blocked hint. A next
-// row carries only its honest Meta label.
+// control facts (Kind, Fields, CanAct) plus an optional Blocked hint; Kind is
+// manual, form or claim, and a claim renders the claim control instead of a
+// completion form. A next row carries only its honest Meta label.
 type workflowChecklistRow struct {
 	Position  int
 	Name      string
@@ -2245,7 +2252,14 @@ func (h *TicketHandlers) detailDataFor(r *http.Request, id int64) (detailData, i
 		values.UserID = strconv.FormatInt(*view.Ticket.UserID, 10)
 	}
 	closed := domain.IsClosed(view.Ticket.State)
-	pending := h.checklistFor(r, id, actor, view.Ticket, view.AuditEvents, view.AssignedUser)
+	// The run snapshot, the desk-name cache and the claim projection are read
+	// ONCE per detail (issue #438, T5): the Steps card and the Assignment panel
+	// are two views of the same pinned step, so a second read of the run or of
+	// a desk could let the two controls disagree about who may act.
+	run, _ := h.workflowRuns.GetWorkflowExecution(r.Context(), id)
+	deskNames := map[int64]string{}
+	claim := h.claimFor(r, run, actor, deskNames)
+	pending := h.checklistFor(r, run, actor, view.Ticket, view.AuditEvents, view.AssignedUser, claim, deskNames)
 	// Requester-confirmation presentation flags (D7): identity mirror + the
 	// resolved carve-out on the comment form; the services stay the
 	// enforcement points for both.
@@ -2398,7 +2412,7 @@ func (h *TicketHandlers) detailDataFor(r *http.Request, id int64) (detailData, i
 		CanConfirm:    view.Ticket.State == domain.StateResolved && requester,
 		CanComment:    canComment,
 		Pending:       pending,
-		Claim:         h.claimFor(r, id, actor),
+		Claim:         claim,
 		SLA:           slaPanel,
 		RequesterView: actor.Role == domain.RoleUser,
 		BackHref:      listReturnHref(queueOrigin, r.Host),
@@ -2421,10 +2435,11 @@ func (h *TicketHandlers) detailDataFor(r *http.Request, id int64) (detailData, i
 // the current assignee, form[requester] the ticket requester, and a claim is
 // server-enforced on submit (membership is rechecked by the unit of work).
 // Automatic steps (least_loaded and the resolve/close terminal steps) render
-// with no control — they advance synchronously with the plan.
-func (h *TicketHandlers) checklistFor(r *http.Request, id int64, actor domain.User, t *domain.Ticket, events []domain.AuditEvent, assignee *domain.User) workflowChecklist {
-	snap, err := h.workflowRuns.GetWorkflowExecution(r.Context(), id)
-	if err != nil || snap == nil || snap.Run == nil || snap.Run.Status != "active" {
+// with no control — they advance synchronously with the plan. deskNames is the
+// caller's shared per-render desk cache, so a desk is named once for the whole
+// detail, and claim is the SAME projection the Assignment panel renders.
+func (h *TicketHandlers) checklistFor(r *http.Request, snap *application.WorkflowExecutionSnapshot, actor domain.User, t *domain.Ticket, events []domain.AuditEvent, assignee *domain.User, claim workflowClaim, deskNames map[int64]string) workflowChecklist {
+	if snap == nil || snap.Run == nil || snap.Run.Status != "active" {
 		return workflowChecklist{}
 	}
 	cur := snap.Run.CurrentStepIndex
@@ -2433,7 +2448,6 @@ func (h *TicketHandlers) checklistFor(r *http.Request, id int64, actor domain.Us
 	}
 	tr := i18n.New(requestLocale(r))
 	completions := completionAuditsByStep(snap.Workflow, events)
-	deskNames := map[int64]string{}
 	rows := make([]workflowChecklistRow, 0, len(snap.Workflow))
 	for i, step := range snap.Workflow {
 		row := workflowChecklistRow{Position: i + 1}
@@ -2458,7 +2472,7 @@ func (h *TicketHandlers) checklistFor(r *http.Request, id int64, actor domain.Us
 			}
 		case i == cur:
 			row.State, row.Glyph = "current", "●"
-			h.fillChecklistCurrent(tr, &row, step, desk, actor, t, assignee)
+			h.fillChecklistCurrent(tr, &row, step, desk, actor, t, assignee, claim)
 		default:
 			row.State, row.Glyph = "next", "○"
 			row.Meta = checklistPendingMeta(tr, step)
@@ -2470,12 +2484,23 @@ func (h *TicketHandlers) checklistFor(r *http.Request, id int64, actor domain.Us
 	if total > 0 {
 		percent = (100*cur + total/2) / total
 	}
+	// S4/S7: the card is badged only for the actor who can complete the
+	// current step, and the badge names what the step asks of them — a claim is
+	// their desk's to take, everything else is their turn.
+	badge := ""
+	if rows[cur].CanAct {
+		badge = tr.T("tickets.pending.your_turn")
+		if rows[cur].Kind == "claim" {
+			badge = tr.T("tickets.pending.your_desk")
+		}
+	}
 	return workflowChecklist{
 		Active:  true,
 		Done:    cur,
 		Total:   total,
 		Percent: percent,
 		CanAct:  rows[cur].CanAct,
+		Badge:   badge,
 		Rows:    rows,
 	}
 }
@@ -2558,11 +2583,12 @@ func checklistPendingMeta(tr i18n.Translator, step domain.WorkflowStep) string {
 	return tr.T("tickets.checklist.meta.waiting_previous")
 }
 
-// fillChecklistCurrent fills the current row's control facts. A claim's control
-// stays in the Assignment sidebar, and an automatic step has no control at all;
-// both render as the row's honest status line instead. Person and desk names are
-// data and interpolate verbatim; every other word comes from the catalogue.
-func (h *TicketHandlers) fillChecklistCurrent(tr i18n.Translator, row *workflowChecklistRow, step domain.WorkflowStep, desk string, actor domain.User, t *domain.Ticket, assignee *domain.User) {
+// fillChecklistCurrent fills the current row's control facts. An automatic step
+// has no control at all; a claim renders the claim the Assignment panel already
+// offers when the SAME projection says this reader may take it. Person and desk
+// names are data and interpolate verbatim; every other word comes from the
+// catalogue.
+func (h *TicketHandlers) fillChecklistCurrent(tr i18n.Translator, row *workflowChecklistRow, step domain.WorkflowStep, desk string, actor domain.User, t *domain.Ticket, assignee *domain.User, claim workflowClaim) {
 	switch step.Type {
 	case domain.StepManualTask:
 		row.Kind = "manual"
@@ -2618,6 +2644,14 @@ func (h *TicketHandlers) fillChecklistCurrent(tr i18n.Translator, row *workflowC
 	case domain.StepAssignToDesk:
 		if step.AssignToDesk != nil && step.AssignToDesk.Strategy == domain.StrategyClaim {
 			row.Meta = tr.Tf("tickets.checklist.meta.asked_to_take", desk)
+			// Issue #438 (S7, S8): the claim the Assignment panel offers, in
+			// Steps. Eligibility and position come from the SAME projection the
+			// panel renders, never from a second membership rule, so the two
+			// controls cannot disagree; a non-member keeps the status line alone.
+			if claim.Active && claim.Position == row.Position && claim.CanAct {
+				row.Kind = "claim"
+				row.CanAct = true
+			}
 			return
 		}
 		row.Meta = tr.T("tickets.checklist.meta.runs_on_its_own")
@@ -2626,34 +2660,42 @@ func (h *TicketHandlers) fillChecklistCurrent(tr i18n.Translator, row *workflowC
 	}
 }
 
-// deskLabel resolves a routing step's desk name with a per-render cache; a
-// missing or unreadable desk degrades to "the desk" instead of failing the
-// ticket detail read.
-func (h *TicketHandlers) deskLabel(r *http.Request, step domain.WorkflowStep, cache map[int64]string) string {
-	fallback := i18n.New(requestLocale(r)).T("tickets.checklist.desk_fallback")
-	if step.AssignToDesk == nil {
-		return fallback
+// deskNameFor resolves a routing step's desk name with the caller's shared
+// per-render cache, so the whole detail names a desk from ONE read. ok is false
+// for a missing or unreadable desk and leaves the fallback vocabulary to the
+// caller: a Steps row says "the desk" while the Assignment panel says
+// "Unknown desk", exactly as each did before they shared this read.
+func (h *TicketHandlers) deskNameFor(r *http.Request, step domain.WorkflowStep, cache map[int64]string) (string, bool) {
+	if step.AssignToDesk == nil || h.desks == nil {
+		return "", false
 	}
 	id := step.AssignToDesk.DeskID
-	if name, ok := cache[id]; ok {
-		return name
+	if name, seen := cache[id]; seen {
+		return name, name != ""
 	}
-	name := fallback
-	if h.desks != nil {
-		if desk, err := h.desks.GetByID(r.Context(), id); err == nil && desk != nil {
-			name = desk.Name
-		}
+	name := ""
+	if desk, err := h.desks.GetByID(r.Context(), id); err == nil && desk != nil {
+		name = desk.Name
 	}
 	cache[id] = name
-	return name
+	return name, name != ""
 }
 
-// claimFor derives the sidebar projection from the current pinned step. It is
-// presentation only: ApplyWorkflowPlan repeats all actor, pin, cursor, role, and
-// membership checks under its immediate transaction before writes.
-func (h *TicketHandlers) claimFor(r *http.Request, id int64, actor domain.User) workflowClaim {
-	snap, err := h.workflowRuns.GetWorkflowExecution(r.Context(), id)
-	if err != nil || snap == nil || snap.Run == nil || snap.Run.Status != "active" {
+// deskLabel names a routing step's desk for the reader, degrading to "the desk"
+// instead of failing the ticket detail read.
+func (h *TicketHandlers) deskLabel(r *http.Request, step domain.WorkflowStep, cache map[int64]string) string {
+	if name, ok := h.deskNameFor(r, step, cache); ok {
+		return name
+	}
+	return i18n.New(requestLocale(r)).T("tickets.checklist.desk_fallback")
+}
+
+// claimFor derives the claim projection from the current pinned step over the
+// detail's own run snapshot and shared desk-name cache. It is presentation
+// only: ApplyWorkflowPlan repeats all actor, pin, cursor, role, and membership
+// checks under its immediate transaction before writes.
+func (h *TicketHandlers) claimFor(r *http.Request, snap *application.WorkflowExecutionSnapshot, actor domain.User, deskNames map[int64]string) workflowClaim {
+	if snap == nil || snap.Run == nil || snap.Run.Status != "active" {
 		return workflowClaim{}
 	}
 	cur := snap.Run.CurrentStepIndex
@@ -2665,14 +2707,10 @@ func (h *TicketHandlers) claimFor(r *http.Request, id int64, actor domain.User) 
 		return workflowClaim{}
 	}
 	claim := workflowClaim{Active: true, Position: cur + 1, DeskName: i18n.T(requestLocale(r), "tickets.degrade.unknown_desk")}
-	if h.desks == nil {
-		return claim
+	if name, ok := h.deskNameFor(r, step, deskNames); ok {
+		claim.DeskName = name
 	}
-	desk, err := h.desks.GetByID(r.Context(), step.AssignToDesk.DeskID)
-	if err == nil && desk != nil {
-		claim.DeskName = desk.Name
-	}
-	if !actor.Active || !actor.Role.AtLeast(domain.RoleAgent) {
+	if h.desks == nil || !actor.Active || !actor.Role.AtLeast(domain.RoleAgent) {
 		return claim
 	}
 	members, err := h.desks.ListMembers(r.Context(), step.AssignToDesk.DeskID)
