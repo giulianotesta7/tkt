@@ -117,16 +117,17 @@ func TestPreferencesPageRendersAlignedSections(t *testing.T) {
 	if !strings.Contains(body, `class="preferences-screen"`) {
 		t.Errorf("the page must render under its own root: %s", body)
 	}
-	if got := strings.Count(body, `class="preferences-section"`); got != 5 {
-		t.Errorf("preferences sections = %d, want the five real preferences: %s", got, body)
+	if got := strings.Count(body, `class="preferences-section"`); got != 6 {
+		t.Errorf("preferences sections = %d, want six preferences: %s", got, body)
 	}
-	if got := strings.Count(body, `class="preferences-form"`); got != 5 {
+	if got := strings.Count(body, `class="preferences-form"`); got != 6 {
 		t.Errorf("preferences forms = %d, want one per section: %s", got, body)
 	}
 	// Each section keeps its own endpoint and its own submit: saving one
 	// preference can never write another one's key.
 	for _, section := range []struct{ action, save string }{
 		{action: `action="/preferences"`, save: "Save preferences"},
+		{action: `action="/preferences/language"`, save: "Save language"},
 		{action: `action="/preferences/theme"`, save: "Save theme"},
 		{action: `action="/preferences/timeline-order"`, save: "Save activity order"},
 		{action: `action="/preferences/email"`, save: "Save email preference"},
@@ -156,6 +157,8 @@ func TestPreferencesSectionsKeepTheirExistingFields(t *testing.T) {
 	content := contentRegion(t, h.get(t, "/preferences", false).Body.String())
 
 	for _, want := range []string{
+		`name="language"`,
+		`value="instance"`,
 		`name="queue_order"`,
 		`name="theme"`,
 		`name="timeline_order"`,
@@ -175,8 +178,8 @@ func TestPreferencesSectionsKeepTheirExistingFields(t *testing.T) {
 	// Three selects and one checkbox across the stored preferences: the password
 	// section adds none of either kind. The activity order (issue #438, S1) is the
 	// third select and follows the same closed-set shape as the other two.
-	if got := strings.Count(content, "<select"); got != 3 {
-		t.Errorf("select controls = %d, want the queue order, the theme, and the activity order: %s", got, content)
+	if got := strings.Count(content, "<select"); got != 4 {
+		t.Errorf("select controls = %d, want queue order, language, theme, and activity order: %s", got, content)
 	}
 	if got := strings.Count(content, `type="checkbox"`); got != 1 {
 		t.Errorf("checkboxes = %d, want the email switch: %s", got, content)
@@ -207,6 +210,7 @@ func fixturePreferencesPageData() preferencesData {
 			NavActive:   "preferences",
 			CurrentUser: domain.User{ID: 1, Name: "Ana Torres", Email: "ana@example.com", Active: true, CreatedAt: goldenT0},
 		},
+		Language:           application.LanguageInstance,
 		Current:            application.QueueOrderNewest,
 		Orders:             queueOrderOptions(),
 		Theme:              application.ThemeSystem,

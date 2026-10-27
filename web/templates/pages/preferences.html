@@ -26,6 +26,24 @@
     </section>
     <section class="preferences-section">
       <div class="preferences-section-head">
+        <h2>{{t "preferences.language.title"}}</h2>
+      </div>
+      <form class="preferences-form" method="post" action="/preferences/language">
+        <div class="field">
+          <label class="visually-hidden" for="language">{{t "preferences.language.title"}}</label>
+          <select id="language" name="language">
+            <option value="instance"{{if eq .Language "instance"}} selected{{end}}>{{t "preferences.language.instance"}}</option>
+            <option value="en"{{if eq .Language "en"}} selected{{end}}>English</option>
+            <option value="es"{{if eq .Language "es"}} selected{{end}}>Español</option>
+          </select>
+        </div>
+        <div class="preferences-actions">
+          <button class="btn primary" type="submit">{{t "preferences.language.save"}}</button>
+        </div>
+      </form>
+    </section>
+    <section class="preferences-section">
+      <div class="preferences-section-head">
         <h2>{{t "preferences.theme.title"}}</h2>
       </div>
       <form class="preferences-form" method="post" action="/preferences/theme">

@@ -14,6 +14,26 @@ import (
 	"github.com/giulianotesta7/tkt/internal/i18n"
 )
 
+func TestNotificationPersonalLanguage(t *testing.T) {
+	h := newHarness(t)
+	store := h.store.PreferencesStore().(application.LanguagePreferencesStore)
+	if wired, ok := any(h.mw).(interface {
+		WithLanguagePreferences(application.LanguagePreferencesStore) *SessionMiddleware
+	}); ok {
+		wired.WithLanguagePreferences(store)
+	}
+	id, session := assignedNotificationFixture(t, h)
+	if err := store.SetLanguage(t.Context(), id, "es"); err != nil {
+		t.Fatal(err)
+	}
+	for _, hx := range []bool{false, true} {
+		rec := notificationPanelAs(t, h, session, hx)
+		if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "Notificaciones") || !strings.Contains(rec.Body.String(), "Assign me") {
+			t.Errorf("hx=%t: notification locale or user content incorrect", hx)
+		}
+	}
+}
+
 // The notification center's HTTP surface (issue #344, slice B4; specs S13-S16).
 // Every assertion goes through the real routes, the real services, and the real
 // file-backed database, and reads the PUBLIC interface — the count endpoint, the

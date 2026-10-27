@@ -1152,6 +1152,66 @@ test.describe("Preferences", () => {
     await expect(page).toHaveURL(/\/preferences$/);
   });
 
+  test("language preferences follow the instance or override it independently", async ({ page, browser }) => {
+    test.setTimeout(60_000);
+    await loginAsSeeded(page);
+    const stamp = Date.now().toString(36);
+    const email = `language-${stamp}@example.com`;
+    await createUserAsAdmin(page, { name: `Language ${stamp}`, email, password: "SuperSecret42!" });
+    const other = await browser.newContext();
+    const anonymous = await browser.newContext();
+    try {
+      const user = await other.newPage();
+      await loginAs(user, email, "SuperSecret42!");
+      await user.goto(base() + "/preferences");
+      const choice = user.locator('select[name="language"]');
+      await expect(choice).toHaveValue("instance");
+      await expect(choice.locator("option")).toHaveText(["Use the instance language", "English", "Español"]);
+
+      await page.goto(base() + "/settings/language");
+      await page.getByLabel("Language").selectOption("es");
+      await page.getByRole("button", { name: "Save language" }).click();
+      await expect(page.locator("html")).toHaveAttribute("lang", "es");
+      await user.reload();
+      await expect(user.locator("html")).toHaveAttribute("lang", "es");
+      await expect(choice).toHaveValue("instance");
+      const visitor = await anonymous.newPage();
+      await visitor.goto(base() + "/login");
+      await expect(visitor.locator("html")).toHaveAttribute("lang", "es");
+
+      await choice.selectOption("en");
+      await user.locator('form[action="/preferences/language"] button').click();
+      await expect(user.locator("html")).toHaveAttribute("lang", "en");
+      await user.reload();
+      await expect(choice).toHaveValue("en");
+      await expect(page.locator("html")).toHaveAttribute("lang", "es");
+
+      await page.goto(base() + "/settings/language");
+      await page.getByLabel("Idioma").selectOption("en");
+      await page.getByRole("button", { name: "Guardar idioma" }).click();
+      await user.reload();
+      await expect(user.locator("html")).toHaveAttribute("lang", "en");
+      await expect(choice).toHaveValue("en");
+      await choice.selectOption("es");
+      await user.locator('form[action="/preferences/language"] button').click();
+      await user.reload();
+      await expect(user.locator("html")).toHaveAttribute("lang", "es");
+      await expect(choice).toHaveValue("es");
+      await expect(page.locator("html")).toHaveAttribute("lang", "en");
+      await visitor.reload();
+      await expect(visitor.locator("html")).toHaveAttribute("lang", "en");
+
+      await choice.selectOption("instance");
+      await user.locator('form[action="/preferences/language"] button').click();
+      await user.reload();
+      await expect(choice).toHaveValue("instance");
+      await expect(user.locator("html")).toHaveAttribute("lang", "en");
+    } finally {
+      await other.close();
+      await anonymous.close();
+    }
+  });
+
   test("a requester can open the preferences page and an anonymous visitor cannot", async ({
     page,
   }) => {
@@ -1299,18 +1359,18 @@ test.describe("Preferences", () => {
     const obs = collectObservability(page);
     await loginAsSeeded(page);
 
-    // Issue #438 adds Activity order alongside the four existing sections,
-    // each pairing its label with its control and owning an explicit save.
+    // Each preference pairs its label with its control and owns an explicit save.
     await page.goto(base() + "/preferences");
     await expect(page.locator(".preferences-screen")).toBeVisible();
-    await expect(page.locator(".preferences-section")).toHaveCount(5);
+    await expect(page.locator(".preferences-section")).toHaveCount(6);
     const saves = page.locator(".preferences-form button[type=submit]");
-    await expect(saves).toHaveCount(5);
+    await expect(saves).toHaveCount(6);
     await expect(saves.nth(0)).toHaveText("Save preferences");
-    await expect(saves.nth(1)).toHaveText("Save theme");
-    await expect(saves.nth(2)).toHaveText("Save activity order");
-    await expect(saves.nth(3)).toHaveText("Save email preference");
-    await expect(saves.nth(4)).toHaveText("Change password");
+    await expect(saves.nth(1)).toHaveText("Save language");
+    await expect(saves.nth(2)).toHaveText("Save theme");
+    await expect(saves.nth(3)).toHaveText("Save activity order");
+    await expect(saves.nth(4)).toHaveText("Save email preference");
+    await expect(saves.nth(5)).toHaveText("Change password");
 
     // S3: a select change alone never saves. The value is only written by the
     // section's own submit, so the stored order survives a reload untouched.
@@ -1824,7 +1884,7 @@ test.describe("Preferences without scripting (seeded)", () => {
     await loginAsSeeded(page);
 
     await page.goto(base() + "/preferences");
-    await expect(page.locator(".preferences-section")).toHaveCount(5);
+    await expect(page.locator(".preferences-section")).toHaveCount(6);
     await page.getByLabel("Default queue order").selectOption("priority");
     await page.getByRole("button", { name: "Save preferences" }).click();
     await expect(page).toHaveURL(/\/preferences$/);
