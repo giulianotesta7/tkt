@@ -1056,6 +1056,8 @@ test.describe("Settings", () => {
     await expect(change).toBeChecked();
     await expect(recovery).toBeChecked();
     await expect(minimum).toHaveValue("12");
+    // The custom +/- buttons are the only visible steppers, including in Firefox.
+    await expect(minimum).toHaveCSS("appearance", "textfield");
     // Nothing can send a recovery link yet, and the section says so next to the
     // switch it affects.
     await expect(passwordForm.locator(".dep-note")).toContainText("Email notifications are off");
@@ -1064,6 +1066,11 @@ test.describe("Settings", () => {
     // move the number input, and the first change reveals the section's save bar.
     await change.uncheck();
     await passwordForm.getByRole("button", { name: "Increase minimum length" }).click();
+    await expect(minimum).toHaveValue("13");
+    await passwordForm.getByRole("button", { name: "Decrease minimum length" }).click();
+    await expect(minimum).toHaveValue("12");
+    await minimum.fill("13");
+    await expect(minimum).toHaveValue("13");
     await passwordForm.getByRole("button", { name: "Increase minimum length" }).click();
     await expect(minimum).toHaveValue("14");
     const savebar = passwordForm.locator("[data-settings-savebar]");

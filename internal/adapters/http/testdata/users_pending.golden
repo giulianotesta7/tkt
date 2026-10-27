@@ -73,7 +73,6 @@
     <header class="users-header">
       <div>
         <h1 id="users-list-title">Users</h1>
-        <p>2 accounts</p>
       </div>
       <a id="users-new-launcher" class="users-primary-action users-new-launcher" href="/users/new" hx-get="/users/new?status=pending" hx-target="#users-drawer-host" hx-swap="outerHTML" hx-push-url="/users/new" data-edit-url="/users/new">New user</a>
     </header>

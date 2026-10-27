@@ -267,32 +267,6 @@ func TestS3DescriptionKeepsTheAuthorsLineBreaks(t *testing.T) {
 	}
 }
 
-// TestS4EnglishReadsOneAccountAndTwoAccounts is S4: the English plural has a
-// singular form, while Spanish keeps the pair it already had.
-func TestS4EnglishReadsOneAccountAndTwoAccounts(t *testing.T) {
-	one := fixtureUsersIndexData()
-	one.Counts = usersCounts{All: 1, Active: 1}
-	body := renderAuditPage(t, "en", "users_index", one)
-	if !strings.Contains(body, "1 account<") {
-		t.Errorf("one user must read %q, got: %.800s", "1 account", body)
-	}
-	if strings.Contains(body, "1 accounts") {
-		t.Errorf("one user must never read %q, got: %.800s", "1 accounts", body)
-	}
-
-	two := fixtureUsersIndexData()
-	two.Counts = usersCounts{All: 2, Active: 2}
-	if body := renderAuditPage(t, "en", "users_index", two); !strings.Contains(body, "2 accounts<") {
-		t.Errorf("two users must read %q, got: %.800s", "2 accounts", body)
-	}
-
-	spanish := fixtureUsersIndexData()
-	spanish.Counts = usersCounts{All: 1, Active: 1}
-	if body := renderAuditPage(t, "es", "users_index", spanish); !strings.Contains(body, "1 cuenta<") {
-		t.Errorf("es one user must read %q, got: %.800s", "1 cuenta", body)
-	}
-}
-
 // TestS5SkipLinkAndCurrentRailLink is S5: a skip link reaches the main content
 // and is visible on focus, and the rail link for the current section carries
 // aria-current so assistive technology can name the location.

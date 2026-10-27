@@ -37,7 +37,7 @@ func TestUsersListNormalAndHTMXContracts(t *testing.T) {
 		t.Fatalf("normal status/vary = %d/%q", normal.Code, normal.Header().Get("Vary"))
 	}
 	body := normal.Body.String()
-	mustContain(t, body, `id="users-root"`, `class="users-filters"`, `class="users-list"`, `All <span>3</span>`, `Active <span>2</span>`, `Deactivated <span>1</span>`, `href="/users/new"`, active.Email, inactive.Email, "Created", "3 accounts", `type="search"`, `aria-label="Search users"`, `placeholder="Search by name or email..."`, "users.css", "users.js")
+	mustContain(t, body, `id="users-root"`, `class="users-filters"`, `class="users-list"`, `All <span>3</span>`, `Active <span>2</span>`, `Deactivated <span>1</span>`, `href="/users/new"`, active.Email, inactive.Email, "Created", `type="search"`, `aria-label="Search users"`, `placeholder="Search by name or email..."`, "users.css", "users.js")
 	// Option A (issue #394, S2): the list owns the page width, so the permanent
 	// Access levels card is gone. The role rules stay contextual to the Role
 	// field of the edit drawer, where the existing description renders.
