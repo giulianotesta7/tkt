@@ -24,7 +24,17 @@ var _ application.NotificationStore = (*notificationStore)(nil)
 func newNotificationStore(db *sql.DB) *notificationStore { return &notificationStore{db: db} }
 
 // notificationColumns is the projection shared by every notification read.
-const notificationColumns = `id, user_id, ticket_id, kind, actor_user_id, from_value, to_value, comment_id, step_index, created_at, read_at`
+const notificationColumns = `id, user_id, ticket_id, pending_user_id, kind, actor_user_id, from_value, to_value, comment_id, step_index, created_at, read_at`
+
+// nullableTicketID binds the notification's ticket subject. The domain spells
+// "not about a ticket" as 0; the column stores NULL, because a stored 0 would
+// name a ticket that cannot exist and the ticket foreign key would refuse it.
+func nullableTicketID(id int64) any {
+	if id == 0 {
+		return nil
+	}
+	return id
+}
 
 // defaultNotificationListLimit bounds ListForUser when a caller asks for a
 // non-positive limit. The panel always passes an explicit window; the default
@@ -43,12 +53,14 @@ const defaultNotificationListLimit = 50
 // produces an unrenderable or self-addressed notification fails the batch
 // (and therefore the whole unit of work) instead of persisting it.
 //
-// Each notification is also given its pending email delivery row in THIS
-// transaction (issue #362, spec S6/S12): the change, the news about it, and
-// the fact that the news still owes an email commit or roll back together,
+// Each ticket notification is also given its pending email delivery row in
+// THIS transaction (issue #362, spec S6/S12): the change, the news about it,
+// and the fact that the news still owes an email commit or roll back together,
 // while the delivery itself runs later, outside this transaction. The row is
 // due immediately — next_attempt_at is the notification's own created_at — so
-// the background sender can pick it up on its next pass.
+// the background sender can pick it up on its next pass. The account
+// announcement (issue #419) owes no email: no ticket email copy exists for it,
+// so it stays an in-app notice and the sender never sees a row for it.
 func appendNotificationsTx(ctx context.Context, tx *sql.Tx, notifications []domain.Notification) error {
 	for _, n := range notifications {
 		if err := n.Validate(); err != nil {
@@ -56,13 +68,16 @@ func appendNotificationsTx(ctx context.Context, tx *sql.Tx, notifications []doma
 		}
 	}
 	for _, n := range notifications {
-		res, err := tx.ExecContext(ctx, `INSERT INTO notifications (user_id, ticket_id, kind, actor_user_id, from_value, to_value, comment_id, step_index, created_at, read_at)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-			n.UserID, n.TicketID, string(n.Kind), nullableInt64(n.ActorUserID),
+		res, err := tx.ExecContext(ctx, `INSERT INTO notifications (user_id, ticket_id, pending_user_id, kind, actor_user_id, from_value, to_value, comment_id, step_index, created_at, read_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			n.UserID, nullableTicketID(n.TicketID), nullableInt64(n.PendingUserID), string(n.Kind), nullableInt64(n.ActorUserID),
 			nullableString(n.FromValue), nullableString(n.ToValue), nullableInt64(n.CommentID),
 			nullableInt(n.StepIndex), formatTime(n.CreatedAt), formatTimePtr(n.ReadAt))
 		if err != nil {
 			return fmt.Errorf("sqlite: append notification: %w", err)
+		}
+		if n.Kind == domain.NotificationCompanyAccountPending {
+			continue
 		}
 		id, err := res.LastInsertId()
 		if err != nil {
@@ -164,12 +179,16 @@ func (ns *notificationStore) MarkAllRead(ctx context.Context, userID int64, at t
 }
 
 // scanNotificationFrom projects one row into a domain.Notification. The
-// nullable facts (actor, change values, comment, step, read instant) map to
-// nil pointers; every instant is parsed from the persisted RFC3339 form (D7).
+// nullable facts (actor, change values, comment, step, read instant, and the
+// subject of an account kind) map to nil pointers; every instant is parsed
+// from the persisted RFC3339 form (D7). The ticket column is NULL for the
+// account kind, which the domain spells as TicketID 0.
 func scanNotificationFrom(scan rowScanner) (*domain.Notification, error) {
 	var (
 		n         domain.Notification
 		kind      string
+		ticketID  sql.NullInt64
+		pendingID sql.NullInt64
 		actor     sql.NullInt64
 		fromValue sql.NullString
 		toValue   sql.NullString
@@ -178,11 +197,18 @@ func scanNotificationFrom(scan rowScanner) (*domain.Notification, error) {
 		createdAt string
 		readAt    sql.NullString
 	)
-	if err := scan.Scan(&n.ID, &n.UserID, &n.TicketID, &kind, &actor, &fromValue, &toValue,
+	if err := scan.Scan(&n.ID, &n.UserID, &ticketID, &pendingID, &kind, &actor, &fromValue, &toValue,
 		&commentID, &stepIndex, &createdAt, &readAt); err != nil {
 		return nil, fmt.Errorf("sqlite: scan notification: %w", err)
 	}
 	n.Kind = domain.NotificationKind(kind)
+	if ticketID.Valid {
+		n.TicketID = ticketID.Int64
+	}
+	if pendingID.Valid {
+		v := pendingID.Int64
+		n.PendingUserID = &v
+	}
 	if actor.Valid {
 		v := actor.Int64
 		n.ActorUserID = &v
