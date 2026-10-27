@@ -108,19 +108,26 @@ const emailClaimBatch = 20
 
 // NotificationEmailSender delivers pending notification emails.
 type NotificationEmailSender struct {
-	outbox   EmailOutbox
-	config   DeliveryConfigSource
-	users    EmailUserReader
-	tickets  EmailTicketReader
-	prefs    EmailPreferences
-	mailer   Mailer
-	renderer MessageRenderer
-	clock    domain.Clock
+	outbox              EmailOutbox
+	config              DeliveryConfigSource
+	users               EmailUserReader
+	tickets             EmailTicketReader
+	prefs               EmailPreferences
+	mailer              Mailer
+	renderer            MessageRenderer
+	clock               domain.Clock
+	languagePreferences LanguagePreferencesStore
 }
 
 // NewNotificationEmailSender wires the sender.
 func NewNotificationEmailSender(outbox EmailOutbox, config DeliveryConfigSource, users EmailUserReader, tickets EmailTicketReader, prefs EmailPreferences, mailer Mailer, renderer MessageRenderer, clock domain.Clock) *NotificationEmailSender {
 	return &NotificationEmailSender{outbox: outbox, config: config, users: users, tickets: tickets, prefs: prefs, mailer: mailer, renderer: renderer, clock: clock}
+}
+
+// WithLanguagePreferences reads the recipient's choice at delivery.
+func (s *NotificationEmailSender) WithLanguagePreferences(p LanguagePreferencesStore) *NotificationEmailSender {
+	s.languagePreferences = p
+	return s
 }
 
 // Recover runs once at startup, before the first pass: rows a previous
@@ -233,7 +240,7 @@ func (s *NotificationEmailSender) failAttempt(ctx context.Context, p PendingEmai
 // time (S13): the recipient still exists, is active and wants email, can
 // still open the ticket, and — for an internal comment — may still see
 // internal comments. It then renders the plain-text email (S11) in the
-// instance language with a link to the ticket (S7, S10). The comment body is
+// recipient language with a link to the ticket (S7, S10). The comment body is
 // never included: the email says what happened, the ticket shows it.
 func (s *NotificationEmailSender) compose(ctx context.Context, cfg DeliveryConfig, n domain.Notification) (OutgoingEmail, string, error) {
 	recipient, err := s.users.GetByID(ctx, n.UserID)
@@ -267,7 +274,11 @@ func (s *NotificationEmailSender) compose(ctx context.Context, cfg DeliveryConfi
 		return OutgoingEmail{}, "", err
 	}
 
-	render := func(m Msg) string { return s.renderer.Render(cfg.Language, m) }
+	language, err := recipientEmailLanguage(ctx, s.languagePreferences, recipient.ID, cfg.Language)
+	if err != nil {
+		return OutgoingEmail{}, "", err
+	}
+	render := func(m Msg) string { return s.renderer.Render(language, m) }
 	link := cfg.BaseURL + "/tickets/" + strconv.FormatInt(ticket.ID, 10)
 	body := strings.Join([]string{
 		render(NotificationMessage(n)),

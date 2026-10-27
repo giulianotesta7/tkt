@@ -82,14 +82,15 @@ func AsyncPasswordResetDispatch(send func()) {
 // is offered and how long a new password must be, and the email configuration
 // that says whether a message can be delivered at all.
 type PasswordResetService struct {
-	users    UserStore
-	tokens   PasswordResetStore
-	policy   PasswordSettingsStore
-	email    DeliveryConfigSource
-	mailer   Mailer
-	renderer MessageRenderer
-	dispatch PasswordResetDispatch
-	clock    domain.Clock
+	users               UserStore
+	tokens              PasswordResetStore
+	policy              PasswordSettingsStore
+	email               DeliveryConfigSource
+	mailer              Mailer
+	renderer            MessageRenderer
+	dispatch            PasswordResetDispatch
+	clock               domain.Clock
+	languagePreferences LanguagePreferencesStore
 }
 
 // NewPasswordResetService wires the recovery use cases.
@@ -104,6 +105,12 @@ func NewPasswordResetService(users UserStore, tokens PasswordResetStore, policy 
 		dispatch: dispatch,
 		clock:    clock,
 	}
+}
+
+// WithLanguagePreferences reads the recipient's choice when delivery runs.
+func (s *PasswordResetService) WithLanguagePreferences(p LanguagePreferencesStore) *PasswordResetService {
+	s.languagePreferences = p
+	return s
 }
 
 // passwordPolicy answers the instance policy, defaulting to the shipped one
@@ -128,7 +135,7 @@ func (s *PasswordResetService) passwordPolicy(ctx context.Context) (PasswordSett
 //
 // On the path that does send, the token is 32 random bytes rendered as hex, the
 // database receives only its SHA-256 digest (S8), the link is built from the
-// stored base URL (S7), and the message is rendered in the instance language
+// stored base URL (S7), and the message is rendered in the recipient language
 // and handed to the dispatcher so it leaves the request goroutine.
 func (s *PasswordResetService) RequestPasswordReset(ctx context.Context, email string) error {
 	policy, err := s.passwordPolicy(ctx)
@@ -180,22 +187,13 @@ func (s *PasswordResetService) RequestPasswordReset(ctx context.Context, email s
 	}
 
 	link := strings.TrimRight(cfg.BaseURL, "/") + PasswordResetPath + "?token=" + raw
-	render := func(m Msg) string { return s.renderer.Render(cfg.Language, m) }
-	message := OutgoingEmail{
-		// The account's own stored address, never the submitted string: the
-		// visitor typed something that resolved to this account, and the link
-		// belongs to the account.
-		To:      user.Email,
-		Subject: render(MsgRef("email.password_reset.subject")),
-		Body:    resetEmailBody(render, user.Email, link),
-	}
-	s.dispatchSend(ctx, cfg.SMTP, message, raw)
+	s.dispatchSend(ctx, cfg, *user, link, raw)
 	return nil
 }
 
 // resetEmailBody composes the plain-text message: one short paragraph per line
 // group, with the link on its own line under the sentence that introduces it.
-// The copy lives in the catalogues, so the language is the instance's and an
+// The copy lives in the catalogues, so an
 // instance can translate it; the body itself carries no English.
 func resetEmailBody(render func(Msg) string, address, link string) string {
 	return strings.Join([]string{
@@ -213,11 +211,18 @@ func resetEmailBody(render func(Msg) string, address, link string) string {
 // alive forever. A failure is logged with the token and the address redacted:
 // the instance operator needs to know delivery broke, and the log is not a safe
 // place for a working credential.
-func (s *PasswordResetService) dispatchSend(ctx context.Context, cfg SMTPConfig, message OutgoingEmail, raw string) {
+func (s *PasswordResetService) dispatchSend(ctx context.Context, cfg DeliveryConfig, user domain.User, link, raw string) {
 	send := func() {
 		sendCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), PasswordResetSendTimeout)
 		defer cancel()
-		if err := s.mailer.Send(sendCtx, cfg, message); err != nil {
+		language, err := recipientEmailLanguage(sendCtx, s.languagePreferences, user.ID, cfg.Language)
+		if err != nil {
+			log.Printf("password reset: reading the recipient language failed; using instance language: %s", redactResetSecrets(err.Error(), raw, user.Email))
+			language = cfg.Language
+		}
+		render := func(m Msg) string { return s.renderer.Render(language, m) }
+		message := OutgoingEmail{To: user.Email, Subject: render(MsgRef("email.password_reset.subject")), Body: resetEmailBody(render, user.Email, link)}
+		if err := s.mailer.Send(sendCtx, cfg.SMTP, message); err != nil {
 			log.Printf("password reset: sending the email failed: %s", redactResetSecrets(err.Error(), raw, message.To))
 		}
 	}
