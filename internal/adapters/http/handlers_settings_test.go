@@ -233,8 +233,8 @@ func TestSettingsPagesLoadTheirOwnAssets(t *testing.T) {
 
 	body := sectionGet(t, h, "/settings/organization")
 	for _, want := range []string{
-		`<link rel="stylesheet" href="/static/settings.css">`,
-		`<script src="/static/settings.js" defer></script>`,
+		`<link rel="stylesheet" href="` + mustAssetURL(t, "/static/settings.css") + `">`,
+		`<script src="` + mustAssetURL(t, "/static/settings.js") + `" defer></script>`,
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("a settings page must load %q, got: %s", want, body)

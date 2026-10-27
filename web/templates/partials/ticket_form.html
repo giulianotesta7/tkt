@@ -24,7 +24,7 @@
   the suggestions is the one the fragment's own block draws while it has
   something to show.
 */}}
-{{define "ticket_form"}}{{if .PageFoundationAssets}}<script src="/static/ticket_form.js" defer></script>{{end}}{{if .CreateAssets}}<script src="/static/ticket_create.js" defer></script>{{end}}
+{{define "ticket_form"}}{{if .PageFoundationAssets}}<script src="{{asset "/static/ticket_form.js"}}" defer></script>{{end}}{{if .CreateAssets}}<script src="{{asset "/static/ticket_create.js"}}" defer></script>{{end}}
 <form class="ticket-create-detail" method="post" action="/tickets" enctype="multipart/form-data">
 {{if .Error}}  <div class="error-banner" role="alert">{{.Error}}</div>
 {{end}}  <div class="command-header ticket-create-command-header">

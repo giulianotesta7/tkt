@@ -444,12 +444,16 @@ func TestCategoryDeleteReferenced409(t *testing.T) {
 // embedded script with a cache header (task 5.4 static asset route).
 func TestStaticServesVendoredHtmx(t *testing.T) {
 	h := newHarness(t)
-	rec := h.get(t, "/static/htmx.min.js", false)
+	url, err := staticAssetURL("/static/htmx.min.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	rec := h.get(t, url, false)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200", rec.Code)
 	}
-	if cc := rec.Header().Get("Cache-Control"); cc != "public, max-age=86400" {
-		t.Errorf("Cache-Control = %q, want public, max-age=86400", cc)
+	if cc := rec.Header().Get("Cache-Control"); cc != staticCacheVersioned {
+		t.Errorf("Cache-Control = %q, want %s", cc, staticCacheVersioned)
 	}
 	body := rec.Body.String()
 	if !strings.Contains(body, "htmx") || len(body) < 10000 {
@@ -462,15 +466,19 @@ func TestStaticServesVendoredHtmx(t *testing.T) {
 // so the interface typeface is served locally rather than fetched from a CDN.
 func TestStaticServesVendoredInterfaceFont(t *testing.T) {
 	h := newHarness(t)
-	rec := h.get(t, "/static/InterVariable.woff2", false)
+	url, err := staticAssetURL("/static/InterVariable.woff2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	rec := h.get(t, url, false)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200", rec.Code)
 	}
 	if ct := rec.Header().Get("Content-Type"); ct != "font/woff2" {
 		t.Errorf("Content-Type = %q, want font/woff2", ct)
 	}
-	if cc := rec.Header().Get("Cache-Control"); cc != "public, max-age=86400" {
-		t.Errorf("Cache-Control = %q, want public, max-age=86400", cc)
+	if cc := rec.Header().Get("Cache-Control"); cc != staticCacheVersioned {
+		t.Errorf("Cache-Control = %q, want %s", cc, staticCacheVersioned)
 	}
 	body := rec.Body.Bytes()
 	if len(body) < 100000 {

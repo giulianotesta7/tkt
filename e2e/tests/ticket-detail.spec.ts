@@ -2483,7 +2483,7 @@ test.describe("Ticket detail SLA live countdown (seeded)", () => {
     });
     await page.goto(base() + "/tickets");
     await expect(page.locator("#ticket-list")).toBeVisible();
-    await expect(page.locator('script[src="/static/sla_countdown.js"]')).toHaveCount(0);
+    await expect(page.locator('script[src^="/static/sla_countdown.js"]')).toHaveCount(0);
     expect(countdownRequests).toEqual([]);
 
     await assertCanonicalScreen(page, {

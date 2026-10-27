@@ -1971,7 +1971,7 @@ func TestTicketDetailSLAPanelStaffOnly(t *testing.T) {
 		`data-server-now="`,
 		`<time datetime="` + formatDatetime(frozen.DueFirstResponseAt) + `" data-sla-countdown>`,
 		`<time datetime="` + formatDatetime(frozen.DueResolveAt) + `" data-sla-countdown>`,
-		`<script src="/static/sla_countdown.js" defer></script>`,
+		`<script src="` + mustAssetURL(t, "/static/sla_countdown.js") + `" defer></script>`,
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("staff detail must contain %q, got: %s", want, body)
@@ -2162,7 +2162,7 @@ func TestTicketDetailSLACountdownHooks(t *testing.T) {
 // page without a frozen commitment never requests it. The two renders differ
 // only in the panel, so the gate is the only cause.
 func TestTicketDetailSLACountdownAssetGating(t *testing.T) {
-	const asset = `<script src="/static/sla_countdown.js" defer></script>`
+	asset := `<script src="` + mustAssetURL(t, "/static/sla_countdown.js") + `" defer></script>`
 
 	withPanel := renderGolden(t, "tickets_show", "", fixtureDetailData(), false)
 	if !strings.Contains(withPanel, asset) {

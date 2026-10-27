@@ -6,7 +6,7 @@
 <meta name="htmx-config" content='{"refreshOnHistoryMiss":true}'>
 <title>Ticket metrics · Help desk</title>
 
-<link rel="stylesheet" href="/static/users.css"><link rel="stylesheet" href="/static/ticket_metrics.css"><script src="/static/ticket_metrics.js" defer></script><script src="/static/save-feedback.js" defer></script><script src="/static/htmx.min.js" defer></script><script src="/static/notifications.js" defer></script><script src="/static/shell.js" defer></script>
+<link rel="stylesheet" href="/static/users.css?v=VERSION"><link rel="stylesheet" href="/static/ticket_metrics.css?v=VERSION"><script src="/static/ticket_metrics.js?v=VERSION" defer></script><script src="/static/save-feedback.js?v=VERSION" defer></script><script src="/static/htmx.min.js?v=VERSION" defer></script><script src="/static/notifications.js?v=VERSION" defer></script><script src="/static/shell.js?v=VERSION" defer></script>
 </head>
 <body class="users-page-body ">
 <a class="skip-link" href="#main-content">Skip to main content</a>

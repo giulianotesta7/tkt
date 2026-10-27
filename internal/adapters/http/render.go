@@ -596,6 +596,8 @@ func asStepType(v any) domain.StepType {
 // The render path never calls time.Now() (D7): formatTime formats the
 // already-stamped instants the handlers pass in.
 var templateFuncs = template.FuncMap{
+	// asset renders the content-versioned URL of an embedded asset (issue #436).
+	"asset":          staticAssetURL,
 	"formatTime":     formatDisplayTime,
 	"formatCardTime": func(t time.Time) string { return formatClockMonthDay(i18n.New(i18n.Default), t) },
 	"formatMonthDay": func(t time.Time) string { return formatMonthDay(i18n.New(i18n.Default), t) },
