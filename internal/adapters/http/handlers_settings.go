@@ -62,7 +62,10 @@ type SettingsHandlers struct {
 	organization *application.OrganizationService
 	signin       *application.SigninService
 	passwords    *application.PasswordSettingsService
-	renderer     *Renderer
+	// companySettings is the company sign-in configuration (issue #419). The
+	// Security section renders its cards and saves them as one unit.
+	companySettings *application.CompanySignInSettingsService
+	renderer        *Renderer
 	// categorySuggestions is the OPTIONAL category-suggestion card (issue #416,
 	// S6): the settings use case that reads and writes the engine, the
 	// composition that answers its Try it box, and the port that supplies the
@@ -102,6 +105,16 @@ func (h *SettingsHandlers) WithPasswordSettings(passwords *application.PasswordS
 	return h
 }
 
+// WithCompanySignIn wires the company sign-in configuration behind the Security
+// section (issue #419, S1/S2/S4/S11/S12/S13): one shared public address, one card
+// per provider, and the password and new-account policy. The configuration is
+// saved as one unit through the same service the sign-in flow reads, so the
+// section owns no policy of its own.
+func (h *SettingsHandlers) WithCompanySignIn(company *application.CompanySignInSettingsService) *SettingsHandlers {
+	h.companySettings = company
+	return h
+}
+
 // WithOrganization wires the organization-identity use cases behind the
 // Organization section (issue #383, S3/S4).
 func (h *SettingsHandlers) WithOrganization(organization *application.OrganizationService) *SettingsHandlers {
@@ -130,6 +143,7 @@ func (h *SettingsHandlers) Register(mux *http.ServeMux) {
 	// that runs a configuration without saving it.
 	mux.HandleFunc("POST /settings/category-suggestions", h.updateCategorySuggestions)
 	mux.HandleFunc("POST /settings/category-suggestions/try", h.tryCategorySuggestions)
+	mux.HandleFunc("POST /settings/security/company", h.updateCompanySignIn)
 }
 
 // The settings sections, named exactly as their URL segment (S1).
@@ -1289,10 +1303,11 @@ func (h *SettingsHandlers) sendTestEmail(w http.ResponseWriter, r *http.Request)
 // ---------------------------------------------------------------------------
 
 // settingsSecurityData is the Security section payload: the stored password
-// policy, the band the minimum may sit in, and whether recovery has a delivery
-// path. The policy is one card inside the section rather than the whole page, so
-// later instance-wide sign-in controls (an external identity provider, a
-// directory) can join it as their own cards.
+// policy, the stored company sign-in configuration, the band the minimum may
+// sit in, and whether recovery has a delivery path. The policy and the company
+// configuration are two cards with their own forms, so a save of one never
+// rewrites the other; later instance-wide sign-in controls (an external identity
+// provider, a directory) join them as their own cards.
 type settingsSecurityData struct {
 	settingsSectionData
 	ChangeEnabled   bool
@@ -1310,6 +1325,109 @@ type settingsSecurityData struct {
 	CanManageEmail   bool
 	MinLengthFloor   int
 	MinLengthCeiling int
+	// Company is the company sign-in configuration (issue #419). It is nil when
+	// the handler set was built without those use cases, and the section then
+	// renders the password card alone.
+	Company *settingsCompanySignIn
+}
+
+// settingsCompanySignIn is the company sign-in payload of the Security section
+// (issue #419, S1/S2/S4/S12/S13): the shared public address both redirect URIs
+// are built from, the password switch, the new-account policy, and one card per
+// provider. Neither client secret is part of it: a secret only ever travels
+// towards the store, and the payload carries whether one is saved.
+type settingsCompanySignIn struct {
+	PasswordSignInEnabled bool
+	Address               string
+	NewAccounts           application.NewAccountPolicy
+	Google                settingsProviderSignIn
+	Microsoft             settingsProviderSignIn
+}
+
+// settingsProviderSignIn is one provider card's payload. Domains is Google's
+// one-per-line list; TenantID is Microsoft's directory GUID.
+type settingsProviderSignIn struct {
+	Enabled   bool
+	ClientID  string
+	Domains   string
+	TenantID  string
+	SecretSet bool
+	// RedirectURI is built from the shared TKT address, never from a request's
+	// Host header.
+	RedirectURI string
+}
+
+// newSettingsCompanySignIn builds the rendered payload from the stored
+// configuration. The service already reduced each secret to whether one is
+// stored, so nothing here can render a ciphertext.
+func newSettingsCompanySignIn(stored application.CompanySignInSettings) *settingsCompanySignIn {
+	return &settingsCompanySignIn{
+		PasswordSignInEnabled: stored.PasswordSignInEnabled,
+		Address:               stored.Address,
+		NewAccounts:           stored.NewAccounts,
+		Google: settingsProviderSignIn{
+			Enabled:     stored.Google.Enabled,
+			ClientID:    stored.Google.ClientID,
+			Domains:     strings.Join(stored.Google.Domains, "\n"),
+			SecretSet:   stored.Google.SecretSet,
+			RedirectURI: companyRedirectURI(stored.Address, application.ProviderGoogle),
+		},
+		Microsoft: settingsProviderSignIn{
+			Enabled:     stored.Microsoft.Enabled,
+			ClientID:    stored.Microsoft.ClientID,
+			TenantID:    stored.Microsoft.TenantID,
+			SecretSet:   stored.Microsoft.SecretSet,
+			RedirectURI: companyRedirectURI(stored.Address, application.ProviderMicrosoft),
+		},
+	}
+}
+
+// newSettingsCompanySignInFromInput builds the payload of a rejected company
+// save: the non-secret fields come back exactly as submitted so the
+// administrator does not retype them, and the secret fields stay empty. The
+// caller copies each SecretSet from the stored configuration.
+func newSettingsCompanySignInFromInput(in application.CompanySignInInput) *settingsCompanySignIn {
+	return &settingsCompanySignIn{
+		PasswordSignInEnabled: in.PasswordSignInEnabled,
+		Address:               in.Address,
+		NewAccounts:           in.NewAccounts,
+		Google: settingsProviderSignIn{
+			Enabled:     in.Google.Enabled,
+			ClientID:    in.Google.ClientID,
+			Domains:     in.Google.Domains,
+			RedirectURI: companyRedirectURI(in.Address, application.ProviderGoogle),
+		},
+		Microsoft: settingsProviderSignIn{
+			Enabled:     in.Microsoft.Enabled,
+			ClientID:    in.Microsoft.ClientID,
+			TenantID:    in.Microsoft.TenantID,
+			RedirectURI: companyRedirectURI(in.Address, application.ProviderMicrosoft),
+		},
+	}
+}
+
+// companyRedirectURI builds one provider callback address from the shared
+// public address. It trims the trailing slashes the service also trims, so the
+// preview matches the value the next save stores.
+func companyRedirectURI(address string, provider application.CompanyProvider) string {
+	return application.CompanySignInSettings{Address: strings.TrimRight(strings.TrimSpace(address), "/")}.RedirectURI(provider)
+}
+
+// securityEcho carries the values a rejected save renders back. Each card is a
+// separate form, so each side overrides only itself and the other card keeps
+// what is actually stored.
+type securityEcho struct {
+	// Password overrides the password card when a policy save was refused.
+	Password *securityPasswordEcho
+	// Company overrides the company cards when a company save was refused.
+	Company *settingsCompanySignIn
+}
+
+// securityPasswordEcho is one refused password-policy submission.
+type securityPasswordEcho struct {
+	ChangeEnabled   bool
+	RecoveryEnabled bool
+	MinLength       string
 }
 
 // canManageEmail answers whether the actor may open the root-only Email
@@ -1320,22 +1438,29 @@ func (h *SettingsHandlers) canManageEmail(r *http.Request) bool {
 	return h.email != nil && application.NewPolicy().Capabilities(actor.Role).Require(application.CapManageEmail)
 }
 
-// emailDeliveryConfigured answers whether the instance can send email, read
-// through the delivery path the sender itself uses, so "configured" here means
-// exactly what it means to a notification. A handler set built without the email
-// use cases answers false: recovery needs a delivery path.
-func (h *SettingsHandlers) emailDeliveryConfigured(r *http.Request) (bool, error) {
+// emailDelivery answers whether the instance can send email and the public
+// address it builds links from, read through the delivery path the sender itself
+// uses. A handler set built without the email use cases answers false: recovery
+// needs a delivery path, and the company cards have no address to prefill.
+func (h *SettingsHandlers) emailDelivery(r *http.Request) (bool, string, error) {
 	if h.email == nil {
-		return false, nil
+		return false, "", nil
 	}
-	_, ok, err := h.email.DeliveryConfig(r.Context())
-	return ok, err
+	cfg, ok, err := h.email.DeliveryConfig(r.Context())
+	if err != nil {
+		return false, "", err
+	}
+	if !ok {
+		return false, "", nil
+	}
+	return true, cfg.BaseURL, nil
 }
 
 // renderSecurity renders the Security section. echo, when non-nil, replaces the
-// policy with a rejected submission's values, so a refused minimum does not cost
-// the administrator the switches they set.
-func (h *SettingsHandlers) renderSecurity(w http.ResponseWriter, r *http.Request, status int, message string, echo *settingsSecurityData) {
+// card a rejected submission came from, so a refused value does not cost the
+// administrator the other fields they typed and never rewrites the card whose
+// form was not submitted.
+func (h *SettingsHandlers) renderSecurity(w http.ResponseWriter, r *http.Request, status int, message string, echo *securityEcho) {
 	if h.passwords == nil {
 		// A handler set built without the password use cases fails closed
 		// instead of dereferencing a nil service.
@@ -1347,7 +1472,7 @@ func (h *SettingsHandlers) renderSecurity(w http.ResponseWriter, r *http.Request
 		httpError(w, r, "error.internal_server", http.StatusInternalServerError)
 		return
 	}
-	configured, err := h.emailDeliveryConfigured(r)
+	configured, baseURL, err := h.emailDelivery(r)
 	if err != nil {
 		httpError(w, r, "error.internal_server", http.StatusInternalServerError)
 		return
@@ -1362,11 +1487,33 @@ func (h *SettingsHandlers) renderSecurity(w http.ResponseWriter, r *http.Request
 		MinLengthFloor:      application.MinPasswordMinLength,
 		MinLengthCeiling:    application.MaxPasswordMinLength,
 	}
+	if h.companySettings != nil {
+		company, err := h.companySettings.Get(r.Context())
+		if err != nil {
+			httpError(w, r, "error.internal_server", http.StatusInternalServerError)
+			return
+		}
+		// The Email section's TKT address is the same public address, so a fresh
+		// instance starts from it instead of an empty field.
+		if company.Address == "" {
+			company.Address = baseURL
+		}
+		data.Company = newSettingsCompanySignIn(company)
+	}
 	data.Error = message
 	if echo != nil {
-		data.ChangeEnabled = echo.ChangeEnabled
-		data.RecoveryEnabled = echo.RecoveryEnabled
-		data.MinLength = echo.MinLength
+		if echo.Password != nil {
+			data.ChangeEnabled = echo.Password.ChangeEnabled
+			data.RecoveryEnabled = echo.Password.RecoveryEnabled
+			data.MinLength = echo.Password.MinLength
+		}
+		if echo.Company != nil && data.Company != nil {
+			// Secrets are write-only: the submitted form never carries one back,
+			// so the saved indicators still come from the store.
+			echo.Company.Google.SecretSet = data.Company.Google.SecretSet
+			echo.Company.Microsoft.SecretSet = data.Company.Microsoft.SecretSet
+			data.Company = echo.Company
+		}
 	}
 	h.renderer.Render(w, r, "settings_security", "", data, status)
 }
@@ -1408,11 +1555,60 @@ func (h *SettingsHandlers) updateSecurity(w http.ResponseWriter, r *http.Request
 			http.Error(w, msg, status)
 			return
 		}
-		h.renderSecurity(w, r, status, msg, &settingsSecurityData{
+		h.renderSecurity(w, r, status, msg, &securityEcho{Password: &securityPasswordEcho{
 			ChangeEnabled:   in.ChangeEnabled,
 			RecoveryEnabled: in.RecoveryEnabled,
 			MinLength:       raw,
-		})
+		}})
+		return
+	}
+	saveFeedback(w, r, saveFeedbackSaved, saveFeedbackSuccess)
+	redirect(w, r, settingsSectionHref(settingsSectionSecurity))
+}
+
+// updateCompanySignIn persists the company sign-in configuration (S1, S2, S4,
+// S11): the shared address, the password switch, the new-account policy and both
+// provider cards in ONE application call. The service owns every rule — address
+// shape, domain list, tenant GUID, the lockout guard and the sealing of each
+// client secret — so this boundary maps the form and nothing more. A rejected
+// save re-renders the section (422) with the submitted non-secret fields; a
+// blank secret keeps the saved one; success redirects 303 back to the section.
+func (h *SettingsHandlers) updateCompanySignIn(w http.ResponseWriter, r *http.Request) {
+	if !requireCapability(w, r, application.CapManageSettings) {
+		return
+	}
+	if h.companySettings == nil {
+		httpError(w, r, "error.internal_server", http.StatusInternalServerError)
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		httpError(w, r, "error.internal_server", http.StatusInternalServerError)
+		return
+	}
+	in := application.CompanySignInInput{
+		Address:               r.Form.Get("company_signin_address"),
+		NewAccounts:           application.NewAccountPolicy(r.Form.Get("company_signin_new_accounts")),
+		PasswordSignInEnabled: r.Form.Get("password_signin_enabled") == "1",
+		Google: application.GoogleSignInInput{
+			Enabled:      r.Form.Get("google_enabled") == "1",
+			ClientID:     r.Form.Get("google_client_id"),
+			ClientSecret: r.Form.Get("google_client_secret"),
+			Domains:      r.Form.Get("google_domains"),
+		},
+		Microsoft: application.MicrosoftSignInInput{
+			Enabled:      r.Form.Get("microsoft_enabled") == "1",
+			TenantID:     r.Form.Get("microsoft_tenant_id"),
+			ClientID:     r.Form.Get("microsoft_client_id"),
+			ClientSecret: r.Form.Get("microsoft_client_secret"),
+		},
+	}
+	if err := h.companySettings.Update(r.Context(), *userFromContext(r.Context()), in); err != nil {
+		status, msg := mapErrorFor(r, err)
+		if status == http.StatusInternalServerError {
+			http.Error(w, msg, status)
+			return
+		}
+		h.renderSecurity(w, r, status, msg, &securityEcho{Company: newSettingsCompanySignInFromInput(in)})
 		return
 	}
 	saveFeedback(w, r, saveFeedbackSaved, saveFeedbackSuccess)

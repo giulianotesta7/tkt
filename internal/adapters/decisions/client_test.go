@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"strings"
@@ -263,6 +264,33 @@ func TestChooseRefusesAnEndpointThatIsNotHTTPS(t *testing.T) {
 		}
 		if strings.Contains(err.Error(), testAPIKey) {
 			t.Fatalf("Choose(%q) error carries the key: %v", endpoint, err)
+		}
+	}
+}
+
+func TestChooseMalformedRedirectNeverDisclosesTheKey(t *testing.T) {
+	rec := &recordedRequest{}
+	client := respondWith(rec, http.StatusFound, "", map[string]string{
+		"Location": "https://other.example.invalid/%zz/" + testAPIKey,
+	})
+	got, err := client.Choose(context.Background(), testConfig(), testRequest())
+	if err == nil {
+		t.Fatal("Choose accepted a malformed redirect, want a failure")
+	}
+	if got.Choice != "" || got.Confidence != 0 || got.Refused || len(got.Probabilities) != 0 {
+		t.Errorf("Choose returned a partial answer on failure: %+v", got)
+	}
+	if rec.calls != 1 {
+		t.Fatalf("transport calls = %d, want one: the bearer key must not follow a redirect", rec.calls)
+	}
+	if rec.header.Get("Authorization") != "Bearer "+testAPIKey {
+		t.Fatal("the initial request did not carry the fake bearer key")
+	}
+	for cause := err; cause != nil; cause = errors.Unwrap(cause) {
+		for _, format := range []string{"%v", "%+v", "%#v"} {
+			if strings.Contains(fmt.Sprintf(format, cause), testAPIKey) {
+				t.Errorf("returned error chain exposes the fake bearer key using %s", format)
+			}
 		}
 	}
 }

@@ -16,9 +16,9 @@ import (
 // from the domain source, so a new domain.NotificationKind cannot drift past
 // the current CHECK without a red test (issue #344, S10/S18). Contributed by
 // the independent verifier. The CHECK it probes is the CURRENT one: 0023
-// rebuilt the table to add on_hold (issue #352) and 0026 rebuilt it again for
-// hold_reminder and hold_closed (issue #353), so a new kind needs the same
-// rebuild.
+// rebuilt the table to add on_hold (issue #352), 0027 for hold_reminder and
+// hold_closed (issue #353), 0028 for the SLA alert kinds, and 0034 for the
+// ticketless account kind (issue #419), so a new kind needs the same rebuild.
 func TestMigration0021KindVocabularyMatchesDomainConstants(t *testing.T) {
 	s := newTestDB(t)
 	f, err := parser.ParseFile(token.NewFileSet(), "../../domain/notification.go", nil, 0)
@@ -51,13 +51,15 @@ func TestMigration0021KindVocabularyMatchesDomainConstants(t *testing.T) {
 		}
 		return true
 	})
-	// Nineteen after issue #418 added 'mentioned' and 'assignee_changed' to the
-	// seventeen issue #408 left; the count is asserted so a kind added to the
-	// domain without the rebuild fails here.
-	if len(kinds) != 19 {
-		t.Fatalf("domain kinds = %v, want 19", kinds)
+	// Twenty after issue #418 added 'mentioned' and 'assignee_changed' and issue
+	// #419 added the ticketless account kind to the seventeen that issue #408
+	// left; the count is asserted so a kind added to the domain without the
+	// rebuild fails here.
+	if len(kinds) != 20 {
+		t.Fatalf("domain kinds = %v, want 20", kinds)
 	}
 	userID, ticketID := notificationFixture(t, s)
+	pendingID := seedPendingUser(t, s, "Wanda", "wanda@example.com")
 	res, err := s.db.Exec(`INSERT INTO comments (ticket_id, author, body, created_at) VALUES (?, 'Ana', 'b', ?)`,
 		ticketID, formatTime(testClock))
 	if err != nil {
@@ -68,12 +70,20 @@ func TestMigration0021KindVocabularyMatchesDomainConstants(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, k := range kinds {
-		var c any
-		if domain.NotificationKind(k).IsComment() {
-			c = commentID
+		// The account kind names the pending account and no ticket; every other
+		// kind keeps the ticket shape it had before the rebuild.
+		var ticket, pending, c any
+		kind := domain.NotificationKind(k)
+		if kind == domain.NotificationCompanyAccountPending {
+			pending = pendingID
+		} else {
+			ticket = ticketID
+			if kind.IsComment() {
+				c = commentID
+			}
 		}
-		if _, err := s.db.Exec(`INSERT INTO notifications (user_id, ticket_id, kind, comment_id, created_at)
-			VALUES (?,?,?,?,?)`, userID, ticketID, k, c, formatTime(testClock)); err != nil {
+		if _, err := s.db.Exec(`INSERT INTO notifications (user_id, ticket_id, pending_user_id, kind, comment_id, created_at)
+			VALUES (?,?,?,?,?,?)`, userID, ticket, pending, k, c, formatTime(testClock)); err != nil {
 			t.Errorf("domain kind %q rejected by the notifications CHECK: %v", k, err)
 		}
 	}

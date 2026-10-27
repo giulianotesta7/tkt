@@ -247,6 +247,8 @@ func localizedShellFS(t *testing.T) fstest.MapFS {
 		"partials/signin_panel.html",
 		"partials/styles.html",
 		"partials/save_feedback.html",
+		// The sign-in page draws each provider's mark through this partial.
+		"partials/company_logo.html",
 		// base.html renders the rail bell (issue #344), so the fixture shell
 		// carries the partial that defines it.
 		"partials/notifications.html",

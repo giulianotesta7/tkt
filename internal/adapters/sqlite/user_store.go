@@ -30,6 +30,12 @@ func newUserStore(db *sql.DB) *userStore { return &userStore{db: db} }
 // role keep working unchanged (S2 role round-trip). SQLite applies a column
 // DEFAULT only when the column is omitted from the statement, never for an
 // explicit NULL, hence the conditional column list.
+//
+// Ordinary creation never makes a pending account (issue #419, S10): the pending
+// column is omitted here, so the 0034 DEFAULT 0 applies even if a caller sets
+// the flag, and the CSV import that creates accounts through this path can never
+// reach the approval queue. Only the company sign-in store creates a pending
+// account, together with the provider identity that found it.
 func (us *userStore) Create(ctx context.Context, u *domain.User) error {
 	query := `INSERT INTO users (name, email, password_hash, role, active, created_at)
 		VALUES (?, ?, ?, ?, ?, ?)`
@@ -59,13 +65,17 @@ func (us *userStore) Create(ctx context.Context, u *domain.User) error {
 // stored role untouched (the service always populates Role from GetByID
 // before updating; direct store callers keep the existing row's role). Root
 // rows are protected by the DB trigger regardless of what the caller sends.
+// An account that waits for approval is never updated here (issue #419, S3):
+// activating it outside the approval path would break the 0034 CHECK, and the
+// Pending tab is the only surface that approves an account, so the guarded
+// WHERE answers ErrNotFound and writes nothing.
 func (us *userStore) Update(ctx context.Context, u *domain.User) error {
 	query := `UPDATE users SET name = ?, email = ?, password_hash = ?, role = ?, active = ?
-		WHERE id = ?`
+		WHERE id = ? AND pending = 0`
 	args := []any{u.Name, u.Email, u.PasswordHash, string(u.Role), u.Active, u.ID}
 	if u.Role == "" {
 		query = `UPDATE users SET name = ?, email = ?, password_hash = ?, active = ?
-			WHERE id = ?`
+			WHERE id = ? AND pending = 0`
 		args = []any{u.Name, u.Email, u.PasswordHash, u.Active, u.ID}
 	}
 	res, err := us.db.ExecContext(ctx, query, args...)
@@ -86,14 +96,18 @@ func (us *userStore) Update(ctx context.Context, u *domain.User) error {
 }
 
 // UpdateManagedUser writes the non-password form fields and, when needed,
-// appends the role audit in one immediate transaction.
+// appends the role audit in one immediate transaction. The guarded WHERE keeps
+// an account that waits for approval out of the ordinary edit and reactivate
+// paths (issue #419, S3): only the Pending tab approves one, and activating it
+// here would break the 0034 CHECK, so the update answers ErrNotFound and writes
+// nothing.
 func (us *userStore) UpdateManagedUser(ctx context.Context, u *domain.User, expectedRole domain.Role, actorID int64, at time.Time) error {
 	tx, err := beginImmediate(ctx, us.db, "update managed user")
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
-	res, err := tx.ExecContext(ctx, `UPDATE users SET name = ?, email = ?, role = ?, active = ? WHERE id = ? AND role = ?`, u.Name, u.Email, string(u.Role), u.Active, u.ID, string(expectedRole))
+	res, err := tx.ExecContext(ctx, `UPDATE users SET name = ?, email = ?, role = ?, active = ? WHERE id = ? AND role = ? AND pending = 0`, u.Name, u.Email, string(u.Role), u.Active, u.ID, string(expectedRole))
 	if err != nil {
 		if isUniqueViolation(err) {
 			return &domain.DuplicateError{Kind: "user", Name: u.Email}
@@ -375,9 +389,11 @@ func (us *userStore) Delete(ctx context.Context, id int64) error {
 }
 
 // GetByID returns the user, including inactive ones (historical display);
-// ErrNotFound when absent.
+// ErrNotFound when absent. The pending flag travels with the row, so a caller
+// can tell an account that waits for approval from a deactivated one (issue
+// #419, S3).
 func (us *userStore) GetByID(ctx context.Context, id int64) (*domain.User, error) {
-	u, err := scanUserFrom(us.db.QueryRowContext(ctx, `SELECT id, name, email, password_hash, role, active, created_at FROM users WHERE id = ?`, id))
+	u, err := scanUserWithPending(us.db.QueryRowContext(ctx, `SELECT id, name, email, password_hash, role, active, pending, created_at FROM users WHERE id = ?`, id))
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, &domain.NotFoundError{Kind: "user", ID: id}
 	}
@@ -387,9 +403,11 @@ func (us *userStore) GetByID(ctx context.Context, id int64) (*domain.User, error
 	return u, nil
 }
 
-// GetByEmail returns the user by email; ErrNotFound when absent.
+// GetByEmail returns the user by email; ErrNotFound when absent. A pending
+// account is answered like any other: the login and recovery paths refuse it on
+// the inactive flag they already read.
 func (us *userStore) GetByEmail(ctx context.Context, email string) (*domain.User, error) {
-	u, err := scanUserFrom(us.db.QueryRowContext(ctx, `SELECT id, name, email, password_hash, role, active, created_at FROM users WHERE email = ?`, email))
+	u, err := scanUserWithPending(us.db.QueryRowContext(ctx, `SELECT id, name, email, password_hash, role, active, pending, created_at FROM users WHERE email = ?`, email))
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, &domain.NotFoundError{Kind: "user", ID: email}
 	}
@@ -408,25 +426,29 @@ func (us *userStore) Count(ctx context.Context) (int, error) {
 	return n, nil
 }
 
-// List returns all users ordered by id.
+// List returns all users ordered by id, except the accounts that wait for
+// approval: a pending account belongs to the Pending tab and is not a managed
+// user yet (issue #419, S3).
 func (us *userStore) List(ctx context.Context) ([]domain.User, error) {
-	return us.listWhere(ctx, "")
+	return us.listWhere(ctx, "WHERE pending = 0")
 }
 
-// ListActive returns only active users.
+// ListActive returns only active users. A pending account is always inactive
+// (0034 CHECK), so the pending clause restates a fact rather than changing the
+// answer.
 func (us *userStore) ListActive(ctx context.Context) ([]domain.User, error) {
-	return us.listWhere(ctx, "WHERE active = 1")
+	return us.listWhere(ctx, "WHERE active = 1 AND pending = 0")
 }
 
 func (us *userStore) listWhere(ctx context.Context, where string) ([]domain.User, error) {
-	rows, err := us.db.QueryContext(ctx, `SELECT id, name, email, password_hash, role, active, created_at FROM users `+where+` ORDER BY id ASC`)
+	rows, err := us.db.QueryContext(ctx, `SELECT id, name, email, password_hash, role, active, pending, created_at FROM users `+where+` ORDER BY id ASC`)
 	if err != nil {
 		return nil, fmt.Errorf("sqlite: list users: %w", err)
 	}
 	defer rows.Close()
 	var out []domain.User
 	for rows.Next() {
-		u, err := scanUserFrom(rows)
+		u, err := scanUserWithPending(rows)
 		if err != nil {
 			return nil, fmt.Errorf("sqlite: scan user: %w", err)
 		}
@@ -485,18 +507,40 @@ func (us *userStore) BootstrapRoot(ctx context.Context, u *domain.User) error {
 // INTEGER 0/1 (CHECK) and converted to bool; the role column is guaranteed
 // valid by the CHECK constraint, and an unknown role would fail closed in
 // the policy layer anyway (the zero Role grants nothing).
+//
+// It reads the seven columns its callers select — desk membership reads — and
+// therefore leaves Pending false: a desk member is an active agent or above,
+// and an account that waits for approval is a requester with no membership.
+// Reads that must see the pending flag use scanUserWithPending.
 func scanUserFrom(scan rowScanner) (*domain.User, error) {
+	return scanUserRow(scan, false)
+}
+
+// scanUserWithPending projects one account row that carries the pending column
+// (issue #419, S3).
+func scanUserWithPending(scan rowScanner) (*domain.User, error) {
+	return scanUserRow(scan, true)
+}
+
+func scanUserRow(scan rowScanner, withPending bool) (*domain.User, error) {
 	var (
 		u         domain.User
 		role      string
 		active    int64
+		pending   int64
 		createdAt string
 	)
-	if err := scan.Scan(&u.ID, &u.Name, &u.Email, &u.PasswordHash, &role, &active, &createdAt); err != nil {
+	dest := []any{&u.ID, &u.Name, &u.Email, &u.PasswordHash, &role, &active}
+	if withPending {
+		dest = append(dest, &pending)
+	}
+	dest = append(dest, &createdAt)
+	if err := scan.Scan(dest...); err != nil {
 		return nil, err
 	}
 	u.Role = domain.Role(role)
 	u.Active = active == 1
+	u.Pending = pending == 1
 	var err error
 	if u.CreatedAt, err = time.Parse(timeLayout, createdAt); err != nil {
 		return nil, fmt.Errorf("sqlite: parse user created_at %q: %w", createdAt, err)
