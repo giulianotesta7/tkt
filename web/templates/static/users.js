@@ -584,7 +584,10 @@
     document.addEventListener("htmx:afterRequest", (event) => {
       // A pending request that never swapped (a transport failure) must release
       // the guard too, or the tab would stay unusable until a reload.
-      if (event.detail?.elt?.matches("#users-pending-form, .users-row-menu form") && !event.detail?.successful)
+      if (
+        event.detail?.elt?.matches("#users-pending-form, .users-row-menu form") &&
+        !event.detail?.successful
+      )
         busy = false;
       if (event.detail?.elt?.matches("#user-drawer-form")) {
         const d = drawer();
