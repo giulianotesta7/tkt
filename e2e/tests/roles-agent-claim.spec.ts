@@ -121,7 +121,7 @@ test.describe("Agent claim — winner and stale journey", () => {
     await logout(page);
     await loginAs(page, agent.email, agent.password);
     await page.goto(base() + "/tickets");
-    const claimJS = page.locator('script[src="/static/tickets.js"]');
+    const claimJS = page.locator('script[src^="/static/tickets.js?v="]');
     await expect(claimJS).toHaveCount(1);
 
     const rowA = claimableRow(page, ticketTitle);

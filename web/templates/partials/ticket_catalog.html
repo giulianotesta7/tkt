@@ -17,7 +17,7 @@
   description that names no card keeps the whole catalog visible instead of the
   no-match message (S3) — the departments are still the way to choose by hand.
 */}}
-{{define "ticket_catalog"}}{{if .CreateAssets}}<script src="/static/ticket_create.js" defer></script>{{end}}
+{{define "ticket_catalog"}}{{if .CreateAssets}}<script src="{{asset "/static/ticket_create.js"}}" defer></script>{{end}}
 <div class="create-catalog">
   <div class="command-header">
     <div>

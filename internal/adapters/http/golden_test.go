@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -70,9 +71,16 @@ func splitStylesheet(t *testing.T, name, got string) (page, stylesheet string) {
 	return markup.String(), stylesheet
 }
 
+// goldenStaticVersion matches the content version of an embedded asset URL
+// (issue #436). Goldens freeze markup, not asset bytes, so the version is
+// normalized: editing a script must not rewrite every page golden. The
+// versioning itself is pinned by static_version_test.go.
+var goldenStaticVersion = regexp.MustCompile(`(/static/[A-Za-z0-9_.-]+)\?v=[0-9a-f]{16}`)
+
 // goldenFile compares got against testdata/<name>.golden; -update writes it.
 func goldenFile(t *testing.T, name, got string) {
 	t.Helper()
+	got = goldenStaticVersion.ReplaceAllString(got, "$1?v=VERSION")
 	path := filepath.Join("testdata", name+".golden")
 	if *update {
 		if err := os.WriteFile(path, []byte(got), 0o644); err != nil {

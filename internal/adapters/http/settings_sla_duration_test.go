@@ -40,7 +40,7 @@ func TestSettingsSLACompactDurationsPersistAndRender(t *testing.T) {
 		`name="first_response_duration_critical" value="1h 30m 20s"`,
 		`name="resolve_duration_low" value="1h 30m"`,
 		`<p id="first_response_duration_critical-reading" class="sla-duration-reading">1 h 30 min 20 s</p>`,
-		`<script src="/static/sla_duration.js" defer></script>`,
+		`<script src="` + mustAssetURL(t, "/static/sla_duration.js") + `" defer></script>`,
 	} {
 		if !strings.Contains(body, wantText) {
 			t.Errorf("Settings SLA panel must render %q", wantText)

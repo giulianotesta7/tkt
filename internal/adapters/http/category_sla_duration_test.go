@@ -103,7 +103,7 @@ func TestSLADurationAssetLoadsOnlyOnSLAScreens(t *testing.T) {
 			t.Errorf("the duration asset must contain %q", want)
 		}
 	}
-	tag := `<script src="/static/sla_duration.js" defer></script>`
+	tag := `<script src="` + mustAssetURL(t, "/static/sla_duration.js") + `" defer></script>`
 	categorySLA := "/categories/" + strconv.FormatInt(h.bugCategory.ID, 10) + "/sla"
 	for _, path := range []string{categorySLA, "/settings/tickets"} {
 		if !strings.Contains(h.get(t, path, false).Body.String(), tag) {
