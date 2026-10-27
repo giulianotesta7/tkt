@@ -1152,7 +1152,10 @@ test.describe("Preferences", () => {
     await expect(page).toHaveURL(/\/preferences$/);
   });
 
-  test("language preferences follow the instance or override it independently", async ({ page, browser }) => {
+  test("language preferences follow the instance or override it independently", async ({
+    page,
+    browser,
+  }) => {
     test.setTimeout(60_000);
     await loginAsSeeded(page);
     const stamp = Date.now().toString(36);
@@ -1166,7 +1169,11 @@ test.describe("Preferences", () => {
       await user.goto(base() + "/preferences");
       const choice = user.locator('select[name="language"]');
       await expect(choice).toHaveValue("instance");
-      await expect(choice.locator("option")).toHaveText(["Use the instance language", "English", "Español"]);
+      await expect(choice.locator("option")).toHaveText([
+        "Use the instance language",
+        "English",
+        "Español",
+      ]);
 
       await page.goto(base() + "/settings/language");
       await page.getByLabel("Language").selectOption("es");
