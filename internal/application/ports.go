@@ -1723,6 +1723,12 @@ type ThemePreferencesStore interface {
 	SetTheme(ctx context.Context, userID int64, theme string) error
 }
 
+// LanguagePreferencesStore stores a user's language choice independently.
+type LanguagePreferencesStore interface {
+	GetLanguage(ctx context.Context, userID int64) (string, error)
+	SetLanguage(ctx context.Context, userID int64, language string) error
+}
+
 // TimelineOrderPreferencesStore persists each user's ticket-activity order
 // (issue #438, S1) in the same user_preferences table, under its own key, so the
 // queue-order, email, sidebar, and theme ports above are unchanged and no
