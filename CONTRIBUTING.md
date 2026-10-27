@@ -84,11 +84,11 @@ go mod tidy
 git diff --exit-code -- go.mod go.sum
 go vet ./...
 go build ./...
-go test ./... -race -count=1 -timeout 45m
+go test ./... -race -count=1 -timeout 80m
 ```
 
 - **Race is the expensive gate.** The workflow runs the full suite on `main` with a
-  45-minute limit, which is the same run as the command above. Pull requests split it into
+  80-minute limit, which is the same run as the command above. Pull requests split it into
   shards and use `.github/scripts/race-fanout.sh` for the two slowest packages;
   `.github/workflows/quality.yml` is authoritative for the flags.
 - **Coverage** is one global total:

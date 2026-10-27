@@ -97,14 +97,16 @@ jobs:
   # next, is only seen when both land in the same group. After every merge to
   # main, this job runs the whole suite in one serial process as before, to keep
   # that coverage without slowing pull requests. The serial internal/adapters/http
-  # run already sits past 20 minutes on hosted runners, so this job gets its own
-  # 45-minute test limit; it never gates a pull request, so the extra time costs
-  # no feedback speed.
+  # run reached the old 45-minute limit on hosted runners (issue #469: runs
+  # 40550900923 and 40566933001 both stopped at 45 minutes, against 34 minutes a
+  # day earlier, with no test slower without -race). The limit is 80 minutes for
+  # headroom; this job never gates a pull request, so the extra time costs no
+  # feedback speed.
   race-full:
     name: Go race (full, serial)
     if: github.event_name == 'push'
     runs-on: ubuntu-latest
-    timeout-minutes: 50
+    timeout-minutes: 90
 
     steps:
       - uses: actions/checkout@v4
@@ -115,7 +117,7 @@ jobs:
           cache: true
 
       - name: Test (race, serial)
-        run: go test ./... -race -count=1 -timeout 45m
+        run: go test ./... -race -count=1 -timeout 80m
 
   # Branch protection requires a check named "Go quality"; this job carries
   # that name and is red whenever the lint job or any race shard did not pass.
