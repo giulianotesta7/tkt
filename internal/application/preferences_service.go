@@ -154,6 +154,7 @@ type PreferencesService struct {
 	sidebar     SidebarPreferencesStore
 	theme       ThemePreferencesStore
 	timeline    TimelineOrderPreferencesStore
+	language    LanguagePreferencesStore
 }
 
 // NewPreferencesService wires the preference use cases against the store
@@ -173,7 +174,38 @@ func NewPreferencesService(preferences PreferencesStore, email EmailPreferencesS
 	if timeline, ok := preferences.(TimelineOrderPreferencesStore); ok {
 		svc.timeline = timeline
 	}
+	if language, ok := preferences.(LanguagePreferencesStore); ok {
+		svc.language = language
+	}
 	return svc
+}
+
+const LanguageInstance = "instance"
+
+// GetLanguage returns the personal choice, falling back to the instance.
+func (s *PreferencesService) GetLanguage(ctx context.Context, actor domain.User) (string, error) {
+	if s.language == nil {
+		return LanguageInstance, nil
+	}
+	value, err := s.language.GetLanguage(ctx, actor.ID)
+	if err != nil {
+		return "", err
+	}
+	if value != "en" && value != "es" && value != LanguageInstance {
+		return LanguageInstance, nil
+	}
+	return value, nil
+}
+
+// SetLanguage rejects unknown choices before touching persistence.
+func (s *PreferencesService) SetLanguage(ctx context.Context, actor domain.User, language string) error {
+	if language != LanguageInstance && language != "en" && language != "es" {
+		return &domain.ValidationError{Field: "language", Message: "invalid language", Key: "error.invalid_language"}
+	}
+	if s.language == nil {
+		return errors.New("application: language store is not wired")
+	}
+	return s.language.SetLanguage(ctx, actor.ID, language)
 }
 
 // GetDefaultQueueOrder returns the actor's own stored default queue order,

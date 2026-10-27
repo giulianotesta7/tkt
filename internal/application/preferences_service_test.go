@@ -8,6 +8,81 @@ import (
 	"github.com/giulianotesta7/tkt/internal/domain"
 )
 
+type languageTestStore struct {
+	*fakePreferences
+	values map[int64]string
+	writes int
+	err    error
+}
+
+func (f *languageTestStore) GetLanguage(_ context.Context, id int64) (string, error) {
+	return f.values[id], f.err
+}
+func (f *languageTestStore) SetLanguage(_ context.Context, id int64, value string) error {
+	if f.err != nil {
+		return f.err
+	}
+	f.writes++
+	f.values[id] = value
+	return nil
+}
+
+func TestPreferencesLanguageService(t *testing.T) {
+	ctx := context.Background()
+	f := &languageTestStore{fakePreferences: newFakePreferences(), values: map[int64]string{}}
+	s := NewPreferencesService(f, f, f, f)
+	a, b := domain.User{ID: 1}, domain.User{ID: 2}
+	for _, stored := range []string{"", "bogus", "EN", "es "} {
+		f.values[a.ID] = stored
+		if got, err := s.GetLanguage(ctx, a); err != nil || got != LanguageInstance {
+			t.Fatalf("normalize %q: %q %v", stored, got, err)
+		}
+	}
+	for _, value := range []string{"instance", "en", "es"} {
+		if err := s.SetLanguage(ctx, a, value); err != nil {
+			t.Fatal(err)
+		}
+		if got, err := s.GetLanguage(ctx, a); err != nil || got != value {
+			t.Fatalf("round trip %q: %q %v", value, got, err)
+		}
+	}
+	writes := f.writes
+	for _, value := range []string{"", "bogus", "EN", "es "} {
+		err := s.SetLanguage(ctx, a, value)
+		var validation *domain.ValidationError
+		if !errors.As(err, &validation) || validation.Field != "language" || validation.Key != "error.invalid_language" || validation.Message != "invalid language" {
+			t.Fatalf("invalid %q: %v", value, err)
+		}
+		if got, _ := s.GetLanguage(ctx, a); got != "es" || f.writes != writes {
+			t.Fatal("invalid write changed state")
+		}
+	}
+	if got, err := s.GetLanguage(ctx, b); err != nil || got != LanguageInstance {
+		t.Fatalf("other user: %q %v", got, err)
+	}
+	if err := s.SetTheme(ctx, a, ThemeDark); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := s.GetTheme(ctx, a); err != nil || got != ThemeDark {
+		t.Fatalf("theme regression: %q %v", got, err)
+	}
+	failure := errors.New("store failure")
+	f.err = failure
+	if _, err := s.GetLanguage(ctx, a); !errors.Is(err, failure) {
+		t.Fatalf("read error: %v", err)
+	}
+	if err := s.SetLanguage(ctx, a, "en"); !errors.Is(err, failure) {
+		t.Fatalf("write error: %v", err)
+	}
+	unwired := NewPreferencesService(newFakePreferences(), f, f, f)
+	if got, err := unwired.GetLanguage(ctx, a); err != nil || got != LanguageInstance {
+		t.Fatalf("unwired read: %q %v", got, err)
+	}
+	if err := unwired.SetLanguage(ctx, a, "en"); err == nil {
+		t.Fatal("unwired write succeeded")
+	}
+}
+
 // Per-user sidebar state (issue #377, S2): every authenticated user owns
 // exactly one stored value, the shell is EXPANDED when nothing is stored, and
 // saving it touches neither the email opt-out nor the queue order.
