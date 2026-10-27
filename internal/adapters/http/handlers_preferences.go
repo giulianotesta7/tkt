@@ -12,8 +12,10 @@ import (
 // GET /preferences renders the page for the session user, POST /preferences
 // persists the default queue order, POST /preferences/email persists the
 // notification-email toggle (issue #362, S5), POST /preferences/sidebar
-// persists the collapsed sidebar (issue #377, S2), and POST /preferences/theme
-// persists the interface theme (issue #378, S1).
+// persists the collapsed sidebar (issue #377, S2), POST /preferences/theme
+// persists the interface theme (issue #378, S1), and
+// POST /preferences/timeline-order persists the ticket activity order (issue
+// #438, S1).
 //
 // There is deliberately NO capability gate. A preference is personal, not
 // instance configuration: every authenticated user owns the row, and the
@@ -29,7 +31,10 @@ import (
 // on a hidden companion field nobody may forget. The sidebar route is the
 // narrowest case of that rule: its whole body is a single two-valued field. The
 // theme route is the same shape as the queue order — a closed set of three
-// values — so it also answers a native redirect with the save feedback.
+// values — so it also answers a native redirect with the save feedback. The
+// activity-order route (issue #438, S1) is a closed set of two values and the
+// same shape again, which is what lets the Preferences control and the Activity
+// header toggle write ONE preference through one use case.
 //
 // POST /preferences/password (issue #414, S2) is the one preference that is not
 // a stored setting: it changes the account's own password, so the page needs the
@@ -57,6 +62,7 @@ func (h *PreferencesHandlers) Register(mux *http.ServeMux) {
 	mux.HandleFunc("POST /preferences/email", h.updateEmail)
 	mux.HandleFunc("POST /preferences/sidebar", h.updateSidebar)
 	mux.HandleFunc("POST /preferences/theme", h.updateTheme)
+	mux.HandleFunc("POST /preferences/timeline-order", h.updateTimelineOrder)
 	mux.HandleFunc("POST /preferences/password", h.updatePassword)
 }
 
@@ -74,8 +80,10 @@ func (h *PreferencesHandlers) WithPasswordChange(users *application.UserService,
 // normalized to the closed set, so the control always has a selected option
 // even when the stored row is unknown (fail closed). Theme is the actor's
 // normalized theme for the same reason, and Themes is the closed set the theme
-// control offers. EmailNotifications carries the stored opt-out; absent means
-// on, so the box starts checked.
+// control offers. TimelineOrder is the actor's normalized activity order and
+// TimelineOrders the closed set that control offers (issue #438, S1).
+// EmailNotifications carries the stored opt-out; absent means on, so the box
+// starts checked.
 type preferencesData struct {
 	pageData
 	Error              string
@@ -83,6 +91,8 @@ type preferencesData struct {
 	Orders             []queueOrderOption
 	Theme              string
 	Themes             []themeOption
+	TimelineOrder      string
+	TimelineOrders     []timelineOrderOption
 	EmailNotifications bool
 	// Password is the own-password section (issue #414, S2). Shown is false
 	// while the instance switch is OFF, so the whole section disappears.
@@ -150,6 +160,31 @@ func themeOptions() []themeOption {
 	out := make([]themeOption, 0, len(themes))
 	for _, theme := range themes {
 		out = append(out, themeOption{Value: theme, Label: labels[theme]})
+	}
+	return out
+}
+
+// timelineOrderOption is one selectable ticket activity order (issue #438,
+// S1).
+type timelineOrderOption struct {
+	Value string
+	Label string
+}
+
+// timelineOrderOptions lists the selectable activity orders in the closed set's
+// order: the newest-first default first, then oldest first. The labels are
+// deliberately their own catalogue keys — the queue's "Newest first" means the
+// ticket LIST's order, and one control must never borrow the other's wording.
+func timelineOrderOptions() []timelineOrderOption {
+	// Catalogue keys, not English labels (issue #335).
+	labels := map[string]string{
+		application.TimelineOrderNewest: "preferences.timeline.newest",
+		application.TimelineOrderOldest: "preferences.timeline.oldest",
+	}
+	orders := application.AllowedTimelineOrders()
+	out := make([]timelineOrderOption, 0, len(orders))
+	for _, order := range orders {
+		out = append(out, timelineOrderOption{Value: order, Label: labels[order]})
 	}
 	return out
 }
@@ -264,6 +299,46 @@ func (h *PreferencesHandlers) updateTheme(w http.ResponseWriter, r *http.Request
 	redirect(w, r, "/preferences")
 }
 
+// updateTimelineOrder persists the submitted ticket activity order (issue #438,
+// S1). It is a native form like the queue order and the theme — a closed set of
+// two values, one of them selected — so it answers exactly the same way: a
+// rejected value re-renders the page with the inline error (422) and changes
+// nothing, and success redirects 303 back to /preferences with the shared save
+// feedback. The route writes ONLY the activity-order key, and it writes it
+// through the same use case the Activity header toggle calls, so both entry
+// points can never store two different things under one name.
+func (h *PreferencesHandlers) updateTimelineOrder(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		httpError(w, r, "error.internal_server", http.StatusInternalServerError)
+		return
+	}
+	err := h.preferences.SetTimelineOrder(r.Context(), *userFromContext(r.Context()), r.Form.Get("timeline_order"))
+	if err != nil {
+		status, msg := mapErrorFor(r, err)
+		if status == http.StatusInternalServerError {
+			http.Error(w, msg, status)
+			return
+		}
+		// The rejected value is not echoed into the control: the page shows the
+		// still-stored (normalized) order, so an invalid submission can never
+		// render an unvalidated order as selected.
+		current, getErr := h.preferences.GetDefaultQueueOrder(r.Context(), *userFromContext(r.Context()))
+		if getErr != nil {
+			httpError(w, r, "error.internal_server", http.StatusInternalServerError)
+			return
+		}
+		data, getErr := h.data(r, current, msg)
+		if getErr != nil {
+			httpError(w, r, "error.internal_server", http.StatusInternalServerError)
+			return
+		}
+		h.renderer.Render(w, r, "preferences", "", data, status)
+		return
+	}
+	saveFeedback(w, r, saveFeedbackSaved, saveFeedbackSuccess)
+	redirect(w, r, "/preferences")
+}
+
 // sidebarStateCollapsed and sidebarStateExpanded are the only two values the
 // sidebar toggle accepts and the only two the store persists (issue #377,
 // S2). They are the wire vocabulary of POST /preferences/sidebar, so an
@@ -315,6 +390,10 @@ func (h *PreferencesHandlers) data(r *http.Request, current, msg string) (prefer
 	if err != nil {
 		return preferencesData{}, err
 	}
+	timelineOrder, err := h.preferences.GetTimelineOrder(r.Context(), actor)
+	if err != nil {
+		return preferencesData{}, err
+	}
 	section, err := h.passwordChangeSection(r)
 	if err != nil {
 		return preferencesData{}, err
@@ -326,6 +405,8 @@ func (h *PreferencesHandlers) data(r *http.Request, current, msg string) (prefer
 		Orders:             queueOrderOptions(),
 		Theme:              theme,
 		Themes:             themeOptions(),
+		TimelineOrder:      timelineOrder,
+		TimelineOrders:     timelineOrderOptions(),
 		EmailNotifications: enabled,
 		Password:           section,
 	}, nil

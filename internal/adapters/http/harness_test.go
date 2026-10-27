@@ -226,9 +226,11 @@ func newHarnessWithAdmin(t *testing.T, seedAdmin bool) *harness {
 	deskSvc := application.NewDeskService(s.DeskStore(), s.UserStore(), clock)
 	viewBuilder := application.NewViewBuilder(s.TicketStore(), s.UserStore(), s.CategoryStore(), s.CommentStore(), s.AuditStore(), s.DeskStore(), s.WorkflowResponseStore())
 	slaSvc := application.NewSLAService(s.SLAStore(), s.SettingsStore(), clock)
-	ticketSvc := application.NewTicketServiceWithWorkflowCreate(s.TicketStore(), s.UserStore(), s.CategoryStore(), s.TicketUnitOfWork(), viewBuilder, clock, s.WorkflowVersionStore(), application.NewWorkflowRunner(clock), s.WorkflowUnitOfWork(), slaSvc)
-	commentSvc := application.NewCommentService(s.TicketStore(), s.CommentStore(), s.UserStore(), s.CommentUnitOfWork(), clock).WithSLA(slaSvc)
+	followSvc := application.NewFollowService(s.TicketStore(), s.UserStore(), s.TicketFollowerStore(), clock).WithDesks(s.DeskStore())
+	ticketSvc := application.NewTicketServiceWithWorkflowCreate(s.TicketStore(), s.UserStore(), s.CategoryStore(), s.TicketUnitOfWork(), viewBuilder, clock, s.WorkflowVersionStore(), application.NewWorkflowRunner(clock).WithFollowers(followSvc), s.WorkflowUnitOfWork(), slaSvc).WithFollowers(followSvc)
+	commentSvc := application.NewCommentService(s.TicketStore(), s.CommentStore(), s.UserStore(), s.CommentUnitOfWork(), clock).WithSLA(slaSvc).WithFollowers(followSvc)
 	attachmentSvc := application.NewAttachmentService(s.TicketStore(), s.AttachmentStore())
+	cannedReplySvc := application.NewCannedReplyService(s.CannedReplyStore(), s.DeskStore(), clock)
 	searchSvc := application.NewSearchService(s.TicketStore(), s.SearchStore())
 	settingsSvc := application.NewSettingsService(s.SettingsStore())
 	preferencesSvc := application.NewPreferencesService(s.PreferencesStore(), s.EmailPreferences(), s.SidebarPreferences(), s.ThemePreferences())
@@ -270,8 +272,9 @@ func newHarnessWithAdmin(t *testing.T, seedAdmin bool) *harness {
 	RegisterStatic(mux, s.SettingsStore())
 	NewBrandHandlers(s.OrganizationStore()).WithSignin(s.SigninStore()).Register(mux)
 	NewAuthHandlers(authSvc, usersSvc, renderer).WithSignin(signinSvc).WithPasswordRecovery(resetSvc, passwordSettingsSvc, emailSettingsSvc).WithCompanySignIn(companySettingsSvc, companySignInSvc).Register(mux)
-	ticketHandlers := NewTicketHandlers(ticketSvc, commentSvc, searchSvc, catSvc, usersSvc, s.DeskStore(), workflowSvc, application.NewWorkflowRunner(clock), s.WorkflowRunStore(), s.WorkflowUnitOfWork(), renderer).WithMetrics(metricsSvc).WithSLA(slaSvc).WithPreferences(preferencesSvc).WithClock(clock).WithVisits(visitSvc).WithAttachments(s.AttachmentStore(), attachmentSvc).WithCategorySuggestions(suggestionSvc)
+	ticketHandlers := NewTicketHandlers(ticketSvc, commentSvc, searchSvc, catSvc, usersSvc, s.DeskStore(), workflowSvc, application.NewWorkflowRunner(clock).WithFollowers(followSvc), s.WorkflowRunStore(), s.WorkflowUnitOfWork(), renderer).WithMetrics(metricsSvc).WithSLA(slaSvc).WithPreferences(preferencesSvc).WithClock(clock).WithVisits(visitSvc).WithAttachments(s.AttachmentStore(), attachmentSvc).WithCannedReplies(cannedReplySvc).WithFollows(followSvc).WithCategorySuggestions(suggestionSvc)
 	ticketHandlers.Register(mux)
+	NewSavedReplyHandlers(cannedReplySvc, renderer).Register(mux)
 	// Issue #419: the Pending tab is wired exactly as production wires it, over
 	// the real pending store, so the tab, its count and the bulk approval all run
 	// through the real use case.

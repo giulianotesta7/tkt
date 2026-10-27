@@ -291,6 +291,14 @@ func TestSenderRechecksTheRecipientAtSendTime(t *testing.T) {
 			f.tickets.tickets[f.ticket.ID].RequesterUserID = &agentID
 			return f.notify(f.agent.ID, domain.NotificationCommentInternal, nil)
 		}, application.EmailSkipOutOfReach},
+		"mention, no longer staff": {func(f *senderFixture) int64 {
+			// A mention is written from a staff comment, so it carries the same
+			// rule: the ticket is still in reach, the comment is not any more.
+			f.users.users[f.agent.ID].Role = domain.RoleUser
+			agentID := f.agent.ID
+			f.tickets.tickets[f.ticket.ID].RequesterUserID = &agentID
+			return f.notify(f.agent.ID, domain.NotificationMentioned, nil)
+		}, application.EmailSkipOutOfReach},
 	}
 	for name, tc := range cases {
 		f := newSenderFixture(t)
@@ -441,6 +449,38 @@ func TestNotificationMessageNamesTheHoldKinds(t *testing.T) {
 		if got.Key != key || len(got.Args) != 0 {
 			t.Errorf("NotificationMessage(%s) = %+v, want %s", kind, got, key)
 		}
+	}
+}
+
+// TestNotificationMessageNamesTheFollowerKinds pins the two sentences issue
+// #418 adds, shared by the panel and the email. An assignee
+// change names the new assignee as a literal, never through a catalogue; a
+// NULL or empty to_value is the unassigned case, which needs its own sentence
+// instead of a sentence with nobody in it. A mention is one sentence: the
+// comment it points at is opened from the ticket, not from the text.
+func TestNotificationMessageNamesTheFollowerKinds(t *testing.T) {
+	assignedTo := "Bob Ray"
+	named := application.NotificationMessage(domain.Notification{
+		Kind: domain.NotificationAssigneeChanged, ToValue: &assignedTo})
+	if named.Key != "notifications.kind.assignee_changed" || len(named.Args) != 1 {
+		t.Fatalf("NotificationMessage(assignee_changed, name) = %+v, want notifications.kind.assignee_changed with one argument", named)
+	}
+	if arg := named.Args[0]; arg.Key != "" || arg.Msg != nil || arg.Value != assignedTo {
+		t.Errorf("assignee argument = %+v, want the literal %q", arg, assignedTo)
+	}
+	for name, n := range map[string]domain.Notification{
+		"null to_value":  {Kind: domain.NotificationAssigneeChanged},
+		"empty to_value": {Kind: domain.NotificationAssigneeChanged, ToValue: ptr("")},
+	} {
+		got := application.NotificationMessage(n)
+		if got.Key != "notifications.kind.unassigned" || len(got.Args) != 0 {
+			t.Errorf("%s = %+v, want notifications.kind.unassigned", name, got)
+		}
+	}
+	mentioned := application.NotificationMessage(domain.Notification{
+		Kind: domain.NotificationMentioned, CommentID: ptr(int64(7))})
+	if mentioned.Key != "notifications.kind.mentioned" || len(mentioned.Args) != 0 {
+		t.Errorf("NotificationMessage(mentioned) = %+v, want notifications.kind.mentioned", mentioned)
 	}
 }
 

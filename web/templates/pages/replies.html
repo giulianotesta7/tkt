@@ -1,0 +1,59 @@
+{{define "title"}}{{tf "base.title.screen" (t "saved_replies.title") (brandHelpDesk .Brand)}}{{end}}
+{{define "content"}}
+<div class="saved-replies-screen">
+  <div class="command-header saved-replies-head">
+    <div>
+      <h1 class="command-title">{{t "saved_replies.title"}}</h1>
+    </div>
+{{if .Active.Editable}}    <a class="btn primary saved-replies-new" href="{{.NewHref}}">{{t "saved_replies.new"}}</a>
+{{end}}  </div>
+{{if .Error}}  <div class="error-banner" role="alert">{{.Error}}</div>
+{{end}}  <div class="saved-replies-tabs" role="tablist" aria-label="{{t "saved_replies.title"}}">
+{{range .Tabs}}    <a class="saved-replies-tab" role="tab" href="{{.Href}}"{{if .Active}} aria-selected="true"{{else}} aria-selected="false"{{end}}>{{.Label}}</a>
+{{end}}  </div>
+  <p class="help saved-replies-scope">{{.Active.Help}}</p>
+{{if .Editor.Open}}  <form class="card saved-replies-editor" method="post" action="{{.Editor.Action}}">
+    <div class="field">
+      <label for="saved-reply-title">{{t "saved_replies.editor.title_label"}}</label>
+      <input type="text" id="saved-reply-title" name="title" value="{{.Editor.Title}}" maxlength="120" required placeholder="{{t "saved_replies.editor.title_placeholder"}}">
+    </div>
+    <div class="field">
+      <label for="saved-reply-body">{{t "saved_replies.editor.body_label"}}</label>
+      <textarea id="saved-reply-body" name="body" rows="6" maxlength="10000" required placeholder="{{t "saved_replies.editor.body_placeholder"}}">{{.Editor.Body}}</textarea>
+      <div class="saved-replies-placeholders">
+        <span class="help">{{t "saved_replies.editor.insert"}}</span>
+        <button class="saved-replies-placeholder" type="button" data-saved-reply-placeholder="{requester}">{requester}</button>
+        <button class="saved-replies-placeholder" type="button" data-saved-reply-placeholder="{ticket}">{ticket}</button>
+      </div>
+      <p class="help">{{t "saved_replies.editor.placeholder_help"}}</p>
+    </div>
+    <div class="saved-replies-editor-actions">
+      <a class="btn" href="{{.CancelHref}}">{{t "common.cancel"}}</a>
+      <button class="btn primary" type="submit">{{t "saved_replies.editor.save"}}</button>
+    </div>
+  </form>
+{{end}}{{if .Active.Replies}}  <div class="saved-replies-list">
+{{range .Active.Replies}}    <div class="saved-replies-row">
+      <div class="saved-replies-row-text">
+        <b class="saved-replies-row-title">{{.Title}}</b>
+        <p class="saved-replies-row-preview">{{.Body}}</p>
+      </div>
+      <div class="saved-replies-row-actions">
+{{if $.Active.Editable}}        <a class="btn small" href="{{$.Active.EditHref .ID}}">{{t "saved_replies.edit"}}</a>
+        <form class="saved-replies-delete" method="post" action="{{$.Active.DeleteHref .ID}}">
+          <button class="btn small danger" type="submit" data-saved-reply-delete-open>{{t "saved_replies.delete"}}</button>
+        </form>
+{{else}}        <span class="chip">{{t "saved_replies.readonly"}}</span>
+{{end}}      </div>
+    </div>
+{{end}}  </div>
+{{else}}  <div class="saved-replies-list">
+    <p class="saved-replies-empty">{{t "saved_replies.empty"}}</p>
+  </div>
+{{end}}</div>
+{{if .Active.Editable}}<dialog id="saved-replies-delete-dialog" aria-labelledby="saved-replies-delete-title" aria-describedby="saved-replies-delete-copy">
+  <h2 id="saved-replies-delete-title">{{t "saved_replies.delete_confirm.title"}}</h2>
+  <p id="saved-replies-delete-copy">{{t "saved_replies.delete_confirm.body"}}</p>
+  <div><button type="button" class="btn" data-saved-reply-delete-cancel>{{t "common.cancel"}}</button><button type="button" class="btn danger" data-saved-reply-delete-confirm>{{t "saved_replies.delete"}}</button></div>
+</dialog>
+{{end}}{{end}}

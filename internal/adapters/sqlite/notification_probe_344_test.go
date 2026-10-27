@@ -51,11 +51,12 @@ func TestMigration0021KindVocabularyMatchesDomainConstants(t *testing.T) {
 		}
 		return true
 	})
-	// Eighteen after issue #419 added the ticketless account kind to the
-	// seventeen that issue #408 left; the count is asserted so a kind added to
-	// the domain without the rebuild fails here.
-	if len(kinds) != 18 {
-		t.Fatalf("domain kinds = %v, want 18", kinds)
+	// Twenty after issue #418 added 'mentioned' and 'assignee_changed' and issue
+	// #419 added the ticketless account kind to the seventeen that issue #408
+	// left; the count is asserted so a kind added to the domain without the
+	// rebuild fails here.
+	if len(kinds) != 20 {
+		t.Fatalf("domain kinds = %v, want 20", kinds)
 	}
 	userID, ticketID := notificationFixture(t, s)
 	pendingID := seedPendingUser(t, s, "Wanda", "wanda@example.com")
@@ -86,7 +87,7 @@ func TestMigration0021KindVocabularyMatchesDomainConstants(t *testing.T) {
 			t.Errorf("domain kind %q rejected by the notifications CHECK: %v", k, err)
 		}
 	}
-	for _, bad := range []string{"", "mentioned", "ASSIGNED", "assigned "} {
+	for _, bad := range []string{"", "mention", "ASSIGNED", "assigned "} {
 		if _, err := s.db.Exec(`INSERT INTO notifications (user_id, ticket_id, kind, created_at)
 			VALUES (?,?,?,?)`, userID, ticketID, bad, formatTime(testClock)); err == nil {
 			t.Errorf("kind %q accepted, want CHECK rejection", bad)

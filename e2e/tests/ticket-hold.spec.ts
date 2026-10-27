@@ -320,7 +320,8 @@ test.describe("Ticket on hold", () => {
       hasText: `put the ticket on hold: ${reason}`,
     });
     await expect(holdEntry).toHaveCount(1);
-    await expect(holdEntry.locator(".timeline-actor")).toHaveText("Alice Admin");
+    // Issue #438, S4: the acting viewer reads their own event as You.
+    await expect(holdEntry.locator(".timeline-actor")).toHaveText("You");
     await expect(holdEntry.locator(".timeline-action")).toHaveText(
       `put the ticket on hold: ${reason}`,
     );

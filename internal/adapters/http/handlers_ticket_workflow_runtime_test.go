@@ -270,11 +270,11 @@ func assertCompletedInPlace(t *testing.T, body string) {
 	}
 }
 
-// TestTicketWorkflowRuntime_ChecklistInsideTimelineForActiveRun proves an
-// active run renders the step checklist as the first timeline item when the
-// persisted actor predicate passes: the reader-facing step name, the honest
-// "N of M done" count, the thin progress bar, and the current step's control.
-// The single "Current task" card is gone.
+// TestTicketWorkflowRuntime_ChecklistLeavesTimelineForActiveRun proves an
+// active run renders the step checklist as its own Steps card above Activity
+// when the persisted actor predicate passes (issue #438, S9): the reader-facing
+// step name, the honest "N of M done" count, the thin progress bar, and the
+// current step's control. The single "Current task" card is gone.
 func TestTicketWorkflowRuntime_ChecklistInsideTimelineForActiveRun(t *testing.T) {
 	h := newHarness(t)
 	tkt := h.seedTicket(t, "active run", nil)
@@ -289,10 +289,15 @@ func TestTicketWorkflowRuntime_ChecklistInsideTimelineForActiveRun(t *testing.T)
 	timeline := strings.Index(body, `<div id="timeline">`)
 	checklist := strings.Index(body, `id="workflow-pending"`)
 	if timeline < 0 || checklist < 0 {
-		t.Fatalf("active run must render its step checklist inside Timeline: %.400s", body)
+		t.Fatalf("active run must render its Steps card and its Activity: %.400s", body)
 	}
-	if checklist < timeline {
-		t.Errorf("step checklist must render inside Timeline: %.500s", body)
+	// Issue #438, S9: Steps left Activity. It renders before the feed and never
+	// inside it.
+	if checklist > timeline {
+		t.Errorf("step checklist must render above Activity: %.500s", body)
+	}
+	if strings.Contains(body[timeline:], `id="workflow-pending"`) {
+		t.Errorf("step checklist must leave Activity: %.500s", body)
 	}
 	for _, want := range []string{
 		`class="timeline-entry workflow-pending workflow-pending-action"`,

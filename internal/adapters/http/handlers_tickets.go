@@ -57,6 +57,16 @@ type TicketHandlers struct {
 	// reading is judged against (issue #382). Unset leaves listData.Now zero,
 	// so every fixture and golden keeps rendering the absolute instant.
 	clock domain.Clock
+	// savedReplies is the OPTIONAL composer picker (issue #418). Unset means
+	// the detail renders no saved-reply picker at all, so a handler built
+	// without the service (a focused test, an out-of-band render) behaves
+	// exactly as before wiring; WithCannedReplies turns it on.
+	savedReplies *application.CannedReplyService
+	// follows is the OPTIONAL follow and mention read (issue #418). Unset means
+	// the detail renders no follow control, no followers row, no mention list
+	// and registers no follow route, so an unwired handler behaves exactly as
+	// before wiring; WithFollows turns all four on.
+	follows *application.FollowService
 	// suggestions is the OPTIONAL category-suggestion composition (issue #416).
 	// Unset means both creation screens render exactly what they rendered before
 	// the feature, which is also what an instance whose engine is off sees (S7):
@@ -124,6 +134,27 @@ func (h *TicketHandlers) WithClock(clock domain.Clock) *TicketHandlers {
 	return h
 }
 
+// WithFollows wires the follow and mention use cases into the ticket handlers
+// (issue #418): the detail's follow control, its followers row, the composer's
+// candidate list, and the two routes that change the subscription. It follows
+// the same fluent shape as the setters above, so the constructor keeps the
+// positional signature its call sites depend on, and a handler built without it
+// renders and routes exactly as it did before.
+func (h *TicketHandlers) WithFollows(follows *application.FollowService) *TicketHandlers {
+	h.follows = follows
+	return h
+}
+
+// WithCannedReplies wires the composer's saved-reply picker (issue #418). It
+// follows the fluent shape of WithClock, so the constructor keeps the
+// positional signature its existing call sites depend on. A nil or unset
+// service renders no picker: the comment form is byte-identical to the one
+// without saved replies.
+func (h *TicketHandlers) WithCannedReplies(replies *application.CannedReplyService) *TicketHandlers {
+	h.savedReplies = replies
+	return h
+}
+
 // WithVisits wires the optional last-visit read and write (issue #415). It
 // follows the fluent shape of WithSLA, WithPreferences and WithClock: a nil or
 // unset service leaves every row unmarked and records no visit, so the lists
@@ -166,17 +197,35 @@ func (h *TicketHandlers) Register(mux *http.ServeMux) {
 	if h.attachmentDownloads != nil {
 		mux.HandleFunc("GET /attachments/{id}", h.downloadAttachment)
 	}
+	// The follow routes exist only when WithFollows wired the use case (issue
+	// #418): a handler built without it answers the mux's 404, exactly like it
+	// did before the routes existed.
+	if h.follows != nil {
+		h.registerFollows(mux)
+	}
+	// The activity-order toggle (issue #438, S1) is a per-user preference written
+	// from the ticket it reorders, so its route exists only when the preferences
+	// use case is wired: a handler built without it answers the mux's 404 instead
+	// of panicking on a nil service, and the detail renders no control.
+	if h.preferences != nil {
+		mux.HandleFunc("POST /tickets/{id}/timeline-order", h.updateTimelineOrder)
+	}
 }
 
 // pageData is the shared presentation payload for app-shell pages: the rail
 // highlights the active section and the operator chip shows the session
 // user.
 type pageData struct {
-	NavActive            string
-	CurrentUser          domain.User
-	CanManageUsers       bool
-	CanManageSettings    bool
-	CanManageDesks       bool
+	NavActive         string
+	CurrentUser       domain.User
+	CanManageUsers    bool
+	CanManageSettings bool
+	CanManageDesks    bool
+	// CanUseSavedReplies reports whether the rail offers the saved-reply
+	// manager (issue #418): the internal-comment capability, which is what a
+	// role that works inside a ticket holds. Presentation only; every
+	// saved-reply route checks the capability again.
+	CanUseSavedReplies   bool
 	CanManageCategories  bool
 	CanGrantAdmin        bool
 	UsersAssets          bool
@@ -200,6 +249,10 @@ type pageData struct {
 	// the phone fold of the properties panel. It is set only where the detail
 	// page is built, so no other surface downloads it.
 	TicketDetailAssets bool
+	// SavedRepliesAssets loads the saved-reply manager's script (issue #418):
+	// the placeholder chips and the delete confirmation. It is set only on the
+	// manager screen, so no other surface downloads it.
+	SavedRepliesAssets bool
 	// CreateAssets loads the ticket-creation script (issue #391): the category
 	// picker that enhances the native select into a searchable, grouped listbox,
 	// and the service catalog's live card filter. It is set only on the two
@@ -245,6 +298,7 @@ func pageDataFrom(r *http.Request, nav string) pageData {
 		CanManageUsers:      caps.Require(application.CapManageUsers),
 		CanManageSettings:   caps.Require(application.CapManageSettings),
 		CanManageDesks:      caps.Require(application.CapManageDesks),
+		CanUseSavedReplies:  caps.Require(application.CapCommentInternal),
 		CanManageCategories: caps.Require(application.CapManageCategories),
 		CanGrantAdmin:       caps.Require(application.CapGrantAdmin),
 		InternalCommentBg:   internalCommentBgFrom(r.Context()),
@@ -1966,6 +2020,42 @@ type detailData struct {
 	// Timeline entry, so both lists are already filtered by the visibility the
 	// actor may read: a requester never receives a staff-only file.
 	Attachments []domain.Attachment
+	// SavedReplies is the composer's saved-reply picker (issue #418): the actor's
+	// own replies and the shared replies of the desks they belong to, with the
+	// placeholders already filled for THIS ticket. It is nil for a requester and
+	// for a ticket with no composer, so the picker renders exactly where a staff
+	// member can insert a reply, and no reply of a desk they do not belong to is
+	// ever part of it.
+	SavedReplies *application.CannedReplyPickerView
+	// Follow is the header's follow control (issue #418): present for a staff
+	// member who can already open the ticket, and nil for everybody else, so a
+	// requester and an out-of-scope agent receive no control at all.
+	Follow *detailFollow
+	// Followers is the Properties row: everybody following the ticket, marked so
+	// the reader recognises themselves. It is nil where the controls are nil, and
+	// its People are empty when nobody follows yet.
+	Followers *detailFollowers
+	// Mentions is the composer's candidate list (issue #418): the staff this
+	// ticket's comment may name. It is nil for a requester and for a ticket with
+	// no composer, and both mention inputs render it or nothing.
+	Mentions *mentionPickerView
+	// MentionNames is the name context the TIMELINE chips against (issue #438,
+	// S4): the staff this ticket's comments may name, read whenever no composer
+	// offered the list. Presentation only — it decides which runs of text the
+	// reader already sees become mention chips, and renders no list of people.
+	MentionNames []string
+	// TimelineOldestFirst is the READER's ticket activity order (issue #438,
+	// S1): false — the default, and the zero value — renders the feed newest
+	// first with the composer ABOVE Activity; true renders it oldest first with
+	// the composer BELOW, as the feed always read. It is a per-user preference,
+	// never a ticket fact, and a hand-built payload without it therefore renders
+	// exactly what a reader who never chose gets.
+	TimelineOldestFirst bool
+	// CanOrderTimeline reports whether the Activity header offers the order
+	// toggle: only when the detail was built with the preferences use case wired,
+	// the same shape as every other optional service. Presentation only — the
+	// route enforces the closed set and the actor's own key.
+	CanOrderTimeline bool
 }
 
 // QueueHref is the detail's "← Queue" target: the validated list return href
@@ -1982,18 +2072,132 @@ func (d detailData) QueueHref() string {
 
 const ticketQueueReturnHeader = "X-TKT-Queue-Return"
 
-// TimelineOldestFirst is the detail's reading order (issue #386, S3): the
-// application stream stays newest-first (its documented contract), and the
-// detail reverses it so the feed reads top to bottom into the composer. It
-// returns a copy, so the reversal never mutates the view the caller shares with
-// the rest of the request.
-func (d detailData) TimelineOldestFirst() []application.TimelineItem {
+// TimelineItems is the detail's reading order (issue #438, S1): the application
+// stream stays newest-first (its documented contract), and the detail reverses it
+// ONLY for a reader who chose oldest first. It returns a copy in that case, so a
+// reversal never mutates the view the caller shares with the rest of the
+// request, and answers the shared slice unchanged otherwise (newest first is
+// already the stored order).
+func (d detailData) TimelineItems() []application.TimelineItem {
 	source := d.View.Timeline
+	if !d.TimelineOldestFirst {
+		return source
+	}
 	oldest := make([]application.TimelineItem, len(source))
 	for i, item := range source {
 		oldest[len(source)-1-i] = item
 	}
 	return oldest
+}
+
+// TimelineOrderLabelKey is the catalogue key of the order the reader currently
+// sees, for the Activity header control's own label (issue #438, S1).
+func (d detailData) TimelineOrderLabelKey() string {
+	if d.TimelineOldestFirst {
+		return "preferences.timeline.oldest"
+	}
+	return "preferences.timeline.newest"
+}
+
+// TimelineNextOrder is the order the Activity header control SAVES: always the
+// other one, because the control is a switch rather than a menu.
+func (d detailData) TimelineNextOrder() string {
+	if d.TimelineOldestFirst {
+		return application.TimelineOrderNewest
+	}
+	return application.TimelineOrderOldest
+}
+
+// TimelineNextOrderLabelKey is the catalogue key of the order the control would
+// switch to, so its accessible name reads both the current state and the action.
+func (d detailData) TimelineNextOrderLabelKey() string {
+	if d.TimelineOldestFirst {
+		return "preferences.timeline.newest"
+	}
+	return "preferences.timeline.oldest"
+}
+
+// IsOwnComment reports whether the comment was written by the reader (issue
+// #438, S4). The stored author ID decides it and never the display-name
+// snapshot: two people may share a name, and a legacy comment whose actor id is
+// not provable is nobody's own.
+func (d detailData) IsOwnComment(c *domain.Comment) bool {
+	return c != nil && c.AuthorUserID != nil && *c.AuthorUserID == d.CurrentUser.ID
+}
+
+// IsOwnEvent reports whether the audit event was caused by the reader (issue
+// #438, S4), on the same actor-ID rule as IsOwnComment. An automatic event
+// carries no actor id at all, so it is never somebody's own.
+func (d detailData) IsOwnEvent(ev *domain.AuditEvent) bool {
+	return ev != nil && ev.ActorUserID != nil && *ev.ActorUserID == d.CurrentUser.ID
+}
+
+// CommentBodySpans splits a comment body into plain text and mention spans
+// (issue #438, S4) using the application's mention matching rules. Presentation
+// spans do not overlap; notification matching also scans @ signs inside matched
+// names. The name context is independent of composer availability, so requester
+// and closed-ticket views retain soft chips for other people's names.
+func (d detailData) CommentBodySpans(c *domain.Comment) []application.MentionSpan {
+	if c == nil {
+		return nil
+	}
+	return application.SplitMentions(c.Body, d.mentionNames())
+}
+
+// mentionNames is the name set the mention grammar is matched against: the
+// reader first, then the people this ticket's comments may name.
+func (d detailData) mentionNames() []string {
+	names := make([]string, 0, len(d.MentionNames)+1)
+	if d.CurrentUser.Name != "" {
+		names = append(names, d.CurrentUser.Name)
+	}
+	for _, name := range d.MentionNames {
+		if name != "" && name != d.CurrentUser.Name {
+			names = append(names, name)
+		}
+	}
+	return names
+}
+
+// CommentMentionsViewer reports whether somebody else's comment names the
+// reader (issue #438, S4). It reads the SAME spans the body is rendered from, so
+// the tag and the chips can never disagree: a body that names "Ana Assignee"
+// does not mention the reader called "Ana", however her name prefixes it. Your
+// own comment never mentions you — it is already marked as yours, and one card
+// must not claim two relationships.
+func (d detailData) CommentMentionsViewer(c *domain.Comment) bool {
+	if d.IsOwnComment(c) || d.CurrentUser.Name == "" {
+		return false
+	}
+	for _, span := range application.SplitMentions(c.Body, d.mentionNames()) {
+		if span.Mention && span.Name == d.CurrentUser.Name {
+			return true
+		}
+	}
+	return false
+}
+
+// EventDotClass classifies a change's rail dot against the priority rungs the
+// queue already uses (issue #438, S3): a priority change keeps the colour of the
+// priority it moved to. The switch is the whitelist — a field, action or value
+// that is not one of these four priorities yields no class and leaves the plain
+// hollow change dot, so no audit string ever reaches the markup.
+func (d detailData) EventDotClass(item application.TimelineItem) string {
+	ev := item.Event
+	if ev == nil || ev.Action != domain.ActionUpdate || ev.Field == nil || *ev.Field != "priority" || ev.ToValue == nil {
+		return ""
+	}
+	switch domain.Priority(*ev.ToValue) {
+	case domain.PriorityLow:
+		return "prio-low"
+	case domain.PriorityMedium:
+		return "prio-medium"
+	case domain.PriorityHigh:
+		return "prio-high"
+	case domain.PriorityCritical:
+		return "prio-critical"
+	}
+	return ""
 }
 
 // QueueHeaders carries the validated origin through every whole-detail swap.
@@ -2004,7 +2208,10 @@ func (d detailData) QueueHeaders() (string, error) {
 	return string(headers), err
 }
 
-// workflowClaim is the sidebar claim projection for the current pinned step.
+// workflowClaim is the claim projection for the current pinned step: the
+// Assignment panel renders it, and the Steps row reads the SAME value, so the
+// two controls can never disagree about the desk, the position or the reader's
+// eligibility.
 type workflowClaim struct {
 	Active   bool
 	Position int
@@ -2016,21 +2223,25 @@ type workflowClaim struct {
 // Timeline (issue #245): the honest "N of M done" count, a thin neutral progress
 // bar, and one row per pinned step. Active is false (no checklist rendered) for
 // legacy unpinned tickets and completed or absent runs. It exposes no workflow
-// version, pin, or technical cursor.
+// version, pin, or technical cursor. Badge is the card's viewer-relative mark
+// (issue #438, S4/S7): empty except for the one reader who can complete the
+// current step.
 type workflowChecklist struct {
 	Active  bool
 	Done    int
 	Total   int
 	Percent int
 	CanAct  bool
+	Badge   string
 	Rows    []workflowChecklistRow
 }
 
 // workflowChecklistRow is one step row. State is done | current | next and
 // Glyph is its marker. A done row carries the completion Actor (empty for the
 // automatic sentinel, which never renders) and At. A current row carries its
-// control facts (Kind, Fields, CanAct) plus an optional Blocked hint. A next
-// row carries only its honest Meta label.
+// control facts (Kind, Fields, CanAct) plus an optional Blocked hint; Kind is
+// manual, form or claim, and a claim renders the claim control instead of a
+// completion form. A next row carries only its honest Meta label.
 type workflowChecklistRow struct {
 	Position  int
 	Name      string
@@ -2075,6 +2286,19 @@ func (h *TicketHandlers) detailDataFor(r *http.Request, id int64) (detailData, i
 		status, _ := mapError(err)
 		return detailData{}, status, err
 	}
+	// The reader's activity order (issue #438, S1): read ONCE per render, so the
+	// feed, the composer's position and the Activity header control can never
+	// disagree. An unwired preferences use case keeps the documented newest-first
+	// default and offers no control, exactly like the other optional services
+	// around it.
+	timelineOldestFirst := false
+	if h.preferences != nil {
+		order, orderErr := h.preferences.GetTimelineOrder(r.Context(), actor)
+		if orderErr != nil {
+			return detailData{}, http.StatusInternalServerError, orderErr
+		}
+		timelineOldestFirst = order == application.TimelineOrderOldest
+	}
 	opts, err := h.collectOptions(r)
 	if err != nil {
 		return detailData{}, http.StatusInternalServerError, err
@@ -2091,7 +2315,14 @@ func (h *TicketHandlers) detailDataFor(r *http.Request, id int64) (detailData, i
 		values.UserID = strconv.FormatInt(*view.Ticket.UserID, 10)
 	}
 	closed := domain.IsClosed(view.Ticket.State)
-	pending := h.checklistFor(r, id, actor, view.Ticket, view.AuditEvents, view.AssignedUser)
+	// The run snapshot, the desk-name cache and the claim projection are read
+	// ONCE per detail (issue #438, T5): the Steps card and the Assignment panel
+	// are two views of the same pinned step, so a second read of the run or of
+	// a desk could let the two controls disagree about who may act.
+	run, _ := h.workflowRuns.GetWorkflowExecution(r.Context(), id)
+	deskNames := map[int64]string{}
+	claim := h.claimFor(r, run, actor, deskNames)
+	pending := h.checklistFor(r, run, actor, view.Ticket, view.AuditEvents, view.AssignedUser, claim, deskNames)
 	// Requester-confirmation presentation flags (D7): identity mirror + the
 	// resolved carve-out on the comment form; the services stay the
 	// enforcement points for both.
@@ -2152,6 +2383,60 @@ func (h *TicketHandlers) detailDataFor(r *http.Request, id int64) (detailData, i
 			entry.Attachments = commentFiles[entry.Comment.ID]
 		}
 	}
+	// The composer renders on an open ticket, plus the resolved carve-out for
+	// its own requester; the saved-reply picker follows the composer, because a
+	// reply can only be inserted where a comment can be written.
+	canComment := !closed || (view.Ticket.State == domain.StateResolved && requester)
+	// The composer's saved replies (issue #418): STAFF ONLY, and only when the
+	// service is wired. A requester never triggers the read at all, so their
+	// detail page never touches the saved-reply store and the picker cannot
+	// leak. The picker is the service's answer for THIS ticket: the actor's own
+	// replies and the desks they belong to, placeholders already filled.
+	var savedReplies *application.CannedReplyPickerView
+	if h.savedReplies != nil && canReadInternal && canComment {
+		picker, pickerErr := h.savedReplies.ForTicket(r.Context(), actor, view.Ticket)
+		if pickerErr != nil {
+			return detailData{}, statusFor(pickerErr), pickerErr
+		}
+		savedReplies = picker
+	}
+	// Following (issue #418): STAFF ONLY. The follow control and the followers
+	// row come from the same read the two routes apply, so an agent the ticket is
+	// out of reach for receives neither and learns nothing from the page.
+	var follow *detailFollow
+	var followers *detailFollowers
+	if canReadInternal {
+		follow, followers, err = h.followStateFor(r, actor, id)
+		if err != nil {
+			return detailData{}, statusFor(err), err
+		}
+	}
+	// The composer's mention list follows the composer: it is the staff this
+	// ticket's comment may name, so a requester — who can write a comment but is
+	// never mentioned — and a closed ticket without a composer get none.
+	var mentions *mentionPickerView
+	if canReadInternal && canComment {
+		mentions, err = h.mentionListOf(r, actor, id)
+		if err != nil {
+			return detailData{}, statusFor(err), err
+		}
+	}
+	// The timeline's own mention context (issue #438, S4) is independent of the
+	// composer: a requester, and a closed ticket with no composer at all, must
+	// still read which words in a comment are somebody's name. The composer
+	// path already paid for the candidate query, so its names are reused; every
+	// other page asks for the names alone behind the actor's own ticket read.
+	var mentionNames []string
+	if mentions != nil {
+		for _, candidate := range mentions.Candidates {
+			mentionNames = append(mentionNames, candidate.Name)
+		}
+	} else if h.follows != nil {
+		mentionNames, err = h.follows.MentionNameContext(r.Context(), actor, id)
+		if err != nil {
+			return detailData{}, statusFor(err), err
+		}
+	}
 	queueOrigin := r.Referer()
 	// HTMX mutations refer to the detail URL, not the original queue. The
 	// inherited header survives whole-detail swaps, including error renders.
@@ -2188,13 +2473,21 @@ func (h *TicketHandlers) detailDataFor(r *http.Request, id int64) (detailData, i
 		CanTransition: application.NewPolicy().Capabilities(actor.Role).Require(application.CapEditTicket),
 		Closed:        closed,
 		CanConfirm:    view.Ticket.State == domain.StateResolved && requester,
-		CanComment:    !closed || (view.Ticket.State == domain.StateResolved && requester),
+		CanComment:    canComment,
 		Pending:       pending,
-		Claim:         h.claimFor(r, id, actor),
+		Claim:         claim,
 		SLA:           slaPanel,
 		RequesterView: actor.Role == domain.RoleUser,
 		BackHref:      listReturnHref(queueOrigin, r.Host),
 		Attachments:   creationFiles,
+		SavedReplies:  savedReplies,
+		Follow:        follow,
+		Followers:     followers,
+		Mentions:      mentions,
+		MentionNames:  mentionNames,
+		// The reader's own feed order (issue #438, S1), never a ticket fact.
+		TimelineOldestFirst: timelineOldestFirst,
+		CanOrderTimeline:    h.preferences != nil,
 	}, 0, nil
 }
 
@@ -2208,10 +2501,11 @@ func (h *TicketHandlers) detailDataFor(r *http.Request, id int64) (detailData, i
 // the current assignee, form[requester] the ticket requester, and a claim is
 // server-enforced on submit (membership is rechecked by the unit of work).
 // Automatic steps (least_loaded and the resolve/close terminal steps) render
-// with no control — they advance synchronously with the plan.
-func (h *TicketHandlers) checklistFor(r *http.Request, id int64, actor domain.User, t *domain.Ticket, events []domain.AuditEvent, assignee *domain.User) workflowChecklist {
-	snap, err := h.workflowRuns.GetWorkflowExecution(r.Context(), id)
-	if err != nil || snap == nil || snap.Run == nil || snap.Run.Status != "active" {
+// with no control — they advance synchronously with the plan. deskNames is the
+// caller's shared per-render desk cache, so a desk is named once for the whole
+// detail, and claim is the SAME projection the Assignment panel renders.
+func (h *TicketHandlers) checklistFor(r *http.Request, snap *application.WorkflowExecutionSnapshot, actor domain.User, t *domain.Ticket, events []domain.AuditEvent, assignee *domain.User, claim workflowClaim, deskNames map[int64]string) workflowChecklist {
+	if snap == nil || snap.Run == nil || snap.Run.Status != "active" {
 		return workflowChecklist{}
 	}
 	cur := snap.Run.CurrentStepIndex
@@ -2220,7 +2514,6 @@ func (h *TicketHandlers) checklistFor(r *http.Request, id int64, actor domain.Us
 	}
 	tr := i18n.New(requestLocale(r))
 	completions := completionAuditsByStep(snap.Workflow, events)
-	deskNames := map[int64]string{}
 	rows := make([]workflowChecklistRow, 0, len(snap.Workflow))
 	for i, step := range snap.Workflow {
 		row := workflowChecklistRow{Position: i + 1}
@@ -2245,7 +2538,7 @@ func (h *TicketHandlers) checklistFor(r *http.Request, id int64, actor domain.Us
 			}
 		case i == cur:
 			row.State, row.Glyph = "current", "●"
-			h.fillChecklistCurrent(tr, &row, step, desk, actor, t, assignee)
+			h.fillChecklistCurrent(tr, &row, step, desk, actor, t, assignee, claim)
 		default:
 			row.State, row.Glyph = "next", "○"
 			row.Meta = checklistPendingMeta(tr, step)
@@ -2257,12 +2550,23 @@ func (h *TicketHandlers) checklistFor(r *http.Request, id int64, actor domain.Us
 	if total > 0 {
 		percent = (100*cur + total/2) / total
 	}
+	// S4/S7: the card is badged only for the actor who can complete the
+	// current step, and the badge names what the step asks of them — a claim is
+	// their desk's to take, everything else is their turn.
+	badge := ""
+	if rows[cur].CanAct {
+		badge = tr.T("tickets.pending.your_turn")
+		if rows[cur].Kind == "claim" {
+			badge = tr.T("tickets.pending.your_desk")
+		}
+	}
 	return workflowChecklist{
 		Active:  true,
 		Done:    cur,
 		Total:   total,
 		Percent: percent,
 		CanAct:  rows[cur].CanAct,
+		Badge:   badge,
 		Rows:    rows,
 	}
 }
@@ -2345,11 +2649,12 @@ func checklistPendingMeta(tr i18n.Translator, step domain.WorkflowStep) string {
 	return tr.T("tickets.checklist.meta.waiting_previous")
 }
 
-// fillChecklistCurrent fills the current row's control facts. A claim's control
-// stays in the Assignment sidebar, and an automatic step has no control at all;
-// both render as the row's honest status line instead. Person and desk names are
-// data and interpolate verbatim; every other word comes from the catalogue.
-func (h *TicketHandlers) fillChecklistCurrent(tr i18n.Translator, row *workflowChecklistRow, step domain.WorkflowStep, desk string, actor domain.User, t *domain.Ticket, assignee *domain.User) {
+// fillChecklistCurrent fills the current row's control facts. An automatic step
+// has no control at all; a claim renders the claim the Assignment panel already
+// offers when the SAME projection says this reader may take it. Person and desk
+// names are data and interpolate verbatim; every other word comes from the
+// catalogue.
+func (h *TicketHandlers) fillChecklistCurrent(tr i18n.Translator, row *workflowChecklistRow, step domain.WorkflowStep, desk string, actor domain.User, t *domain.Ticket, assignee *domain.User, claim workflowClaim) {
 	switch step.Type {
 	case domain.StepManualTask:
 		row.Kind = "manual"
@@ -2405,6 +2710,14 @@ func (h *TicketHandlers) fillChecklistCurrent(tr i18n.Translator, row *workflowC
 	case domain.StepAssignToDesk:
 		if step.AssignToDesk != nil && step.AssignToDesk.Strategy == domain.StrategyClaim {
 			row.Meta = tr.Tf("tickets.checklist.meta.asked_to_take", desk)
+			// Issue #438 (S7, S8): the claim the Assignment panel offers, in
+			// Steps. Eligibility and position come from the SAME projection the
+			// panel renders, never from a second membership rule, so the two
+			// controls cannot disagree; a non-member keeps the status line alone.
+			if claim.Active && claim.Position == row.Position && claim.CanAct {
+				row.Kind = "claim"
+				row.CanAct = true
+			}
 			return
 		}
 		row.Meta = tr.T("tickets.checklist.meta.runs_on_its_own")
@@ -2413,34 +2726,42 @@ func (h *TicketHandlers) fillChecklistCurrent(tr i18n.Translator, row *workflowC
 	}
 }
 
-// deskLabel resolves a routing step's desk name with a per-render cache; a
-// missing or unreadable desk degrades to "the desk" instead of failing the
-// ticket detail read.
-func (h *TicketHandlers) deskLabel(r *http.Request, step domain.WorkflowStep, cache map[int64]string) string {
-	fallback := i18n.New(requestLocale(r)).T("tickets.checklist.desk_fallback")
-	if step.AssignToDesk == nil {
-		return fallback
+// deskNameFor resolves a routing step's desk name with the caller's shared
+// per-render cache, so the whole detail names a desk from ONE read. ok is false
+// for a missing or unreadable desk and leaves the fallback vocabulary to the
+// caller: a Steps row says "the desk" while the Assignment panel says
+// "Unknown desk", exactly as each did before they shared this read.
+func (h *TicketHandlers) deskNameFor(r *http.Request, step domain.WorkflowStep, cache map[int64]string) (string, bool) {
+	if step.AssignToDesk == nil || h.desks == nil {
+		return "", false
 	}
 	id := step.AssignToDesk.DeskID
-	if name, ok := cache[id]; ok {
-		return name
+	if name, seen := cache[id]; seen {
+		return name, name != ""
 	}
-	name := fallback
-	if h.desks != nil {
-		if desk, err := h.desks.GetByID(r.Context(), id); err == nil && desk != nil {
-			name = desk.Name
-		}
+	name := ""
+	if desk, err := h.desks.GetByID(r.Context(), id); err == nil && desk != nil {
+		name = desk.Name
 	}
 	cache[id] = name
-	return name
+	return name, name != ""
 }
 
-// claimFor derives the sidebar projection from the current pinned step. It is
-// presentation only: ApplyWorkflowPlan repeats all actor, pin, cursor, role, and
-// membership checks under its immediate transaction before writes.
-func (h *TicketHandlers) claimFor(r *http.Request, id int64, actor domain.User) workflowClaim {
-	snap, err := h.workflowRuns.GetWorkflowExecution(r.Context(), id)
-	if err != nil || snap == nil || snap.Run == nil || snap.Run.Status != "active" {
+// deskLabel names a routing step's desk for the reader, degrading to "the desk"
+// instead of failing the ticket detail read.
+func (h *TicketHandlers) deskLabel(r *http.Request, step domain.WorkflowStep, cache map[int64]string) string {
+	if name, ok := h.deskNameFor(r, step, cache); ok {
+		return name
+	}
+	return i18n.New(requestLocale(r)).T("tickets.checklist.desk_fallback")
+}
+
+// claimFor derives the claim projection from the current pinned step over the
+// detail's own run snapshot and shared desk-name cache. It is presentation
+// only: ApplyWorkflowPlan repeats all actor, pin, cursor, role, and membership
+// checks under its immediate transaction before writes.
+func (h *TicketHandlers) claimFor(r *http.Request, snap *application.WorkflowExecutionSnapshot, actor domain.User, deskNames map[int64]string) workflowClaim {
+	if snap == nil || snap.Run == nil || snap.Run.Status != "active" {
 		return workflowClaim{}
 	}
 	cur := snap.Run.CurrentStepIndex
@@ -2452,14 +2773,10 @@ func (h *TicketHandlers) claimFor(r *http.Request, id int64, actor domain.User) 
 		return workflowClaim{}
 	}
 	claim := workflowClaim{Active: true, Position: cur + 1, DeskName: i18n.T(requestLocale(r), "tickets.degrade.unknown_desk")}
-	if h.desks == nil {
-		return claim
+	if name, ok := h.deskNameFor(r, step, deskNames); ok {
+		claim.DeskName = name
 	}
-	desk, err := h.desks.GetByID(r.Context(), step.AssignToDesk.DeskID)
-	if err == nil && desk != nil {
-		claim.DeskName = desk.Name
-	}
-	if !actor.Active || !actor.Role.AtLeast(domain.RoleAgent) {
+	if h.desks == nil || !actor.Active || !actor.Role.AtLeast(domain.RoleAgent) {
 		return claim
 	}
 	members, err := h.desks.ListMembers(r.Context(), step.AssignToDesk.DeskID)
@@ -2740,6 +3057,42 @@ func (h *TicketHandlers) afterMutation(w http.ResponseWriter, r *http.Request, i
 		return
 	}
 	redirect(w, r, "/tickets/"+strconv.FormatInt(id, 10))
+}
+
+// updateTimelineOrder persists the reader's ticket activity order and answers the
+// detail it reorders (issue #438, S1). The route exists on a TICKET rather than
+// on /preferences because the answer IS that ticket's detail fragment: the
+// composer moves relative to Activity, so the swap target must be #ticket-detail.
+// The STORED preference stays per-user and ticket-independent — the path id only
+// names the page to re-render — and it is the same use case the Preferences form
+// calls, so both entry points store one value under one name.
+//
+// A letter outside the closed set is refused by the application service and
+// re-rendered as the detail's inline 422 error, changing nothing. Success follows
+// every other ticket mutation: HX swaps the detail fragment, a full request
+// redirects 303 back to the ticket. The existing actor-scoped ticket read must
+// succeed before saving, so a missing or inaccessible ticket cannot commit a
+// preference and then return a failed detail response.
+func (h *TicketHandlers) updateTimelineOrder(w http.ResponseWriter, r *http.Request) {
+	id, ok := ticketID(r)
+	if !ok {
+		httpError(w, r, "error.invalid_ticket_id", http.StatusBadRequest)
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		httpError(w, r, "error.internal_server", http.StatusInternalServerError)
+		return
+	}
+	actor := *userFromContext(r.Context())
+	if _, err := h.tickets.GetByID(r.Context(), actor, id); err != nil {
+		http.Error(w, mapErrorMsg(r, err), statusFor(err))
+		return
+	}
+	if err := h.preferences.SetTimelineOrder(r.Context(), actor, r.Form.Get("order")); err != nil {
+		h.renderDetailError(w, r, id, err)
+		return
+	}
+	h.afterMutation(w, r, id, "ticket_detail")
 }
 
 // update applies the inline properties form. Assignment is NOT part of the

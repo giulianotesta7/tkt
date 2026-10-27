@@ -15,6 +15,7 @@ import {
   loginAsSeeded,
   base,
   createUserAsAdmin,
+  grantUserRole,
   loginAs,
   logout,
   setSLAEnabled,
@@ -55,6 +56,27 @@ function slaPanel(page: Page) {
 }
 
 /**
+ * Steps left Activity (issue #438, S9): the step checklist is its own card that
+ * reads before the Activity card, and it is not a timeline entry any more. The
+ * workflow journeys keep asserting the checklist's own state; this proves where
+ * it lives and that Activity stays a feed of entries.
+ */
+async function expectStepsCardBeforeActivity(page: Page) {
+  await expect(page.locator(".detail-steps #workflow-pending")).toHaveCount(1);
+  await expect(page.locator(".detail-activity #workflow-pending")).toHaveCount(0);
+  await expect(page.locator("#timeline #workflow-pending")).toHaveCount(0);
+  const stepsFirst = await page.evaluate(() => {
+    const stepsCard = document.querySelector(".detail-steps");
+    const activityCard = document.querySelector(".detail-activity");
+    if (!stepsCard || !activityCard) return false;
+    return Boolean(
+      stepsCard.compareDocumentPosition(activityCard) & Node.DOCUMENT_POSITION_FOLLOWING,
+    );
+  });
+  expect(stepsFirst).toBe(true);
+}
+
+/**
  * Create a user through the managed-users screen and promote them to agent, so
  * they join the instance-wide assignee candidates. Returns the edit href so a
  * journey can deactivate the same operator later.
@@ -79,6 +101,27 @@ async function createAssignableAgent(
   return { name, editHref };
 }
 
+/**
+ * Create an account for one journey. The name carries the caller's unique
+ * token, so the account resolves to exactly one row; the role is the one the
+ * journey needs, granted the way an operator grants it.
+ */
+async function createAccount(
+  page: Page,
+  name: string,
+  role?: "agent" | "admin",
+): Promise<{ name: string; email: string; password: string }> {
+  const suffix = Math.random().toString(36).slice(2, 8);
+  const account = {
+    name,
+    email: `${name.replace(/\s+/g, "-").toLowerCase()}-${suffix}@example.com`,
+    password: "Secret123!42",
+  };
+  await createUserAsAdmin(page, account);
+  if (role) await grantUserRole(page, name, role);
+  return account;
+}
+
 test.describe("Ticket detail", () => {
   test.beforeAll(async () => {
     await startServer({ seed: true });
@@ -87,9 +130,100 @@ test.describe("Ticket detail", () => {
     await stopServer();
   });
 
-  test("detail shows Properties sidebar, timeline, state, description, and category", async ({
+  test("mention search Enter never publishes an unmatched draft and keeps keyboard editing", async ({
     page,
   }) => {
+    const obs = collectObservability(page);
+    await loginAsSeeded(page);
+    const name = "Mention Keyboard Admin";
+    await createUserAsAdmin(page, {
+      name,
+      email: "mention-keyboard@example.com",
+      password: "KeyboardSecret42!",
+    });
+    await page.goto(base() + (await resolveUserEditHref(page, name)));
+    await page.locator('select[name="role"]').selectOption("admin");
+    await page.getByRole("button", { name: /save changes/i }).click();
+    await expect(page).toHaveURL(/\/users$/);
+    const id = await createTicketViaUi(page, {
+      title: "Mention keyboard draft",
+      category: "General",
+    });
+    await page.goto(base() + `/tickets/${id}`);
+    const body = page.locator("#comment-body");
+    const form = page.locator("form.comment-form");
+    const search = page.getByRole("searchbox", { name: "Search people" });
+    const draft = "This draft must remain unpublished";
+    const commentPath = `/tickets/${id}/comments`;
+    const posts: string[] = [];
+    let navigations = 0;
+    page.on("request", (request) => {
+      if (request.method() === "POST") posts.push(new URL(request.url()).pathname);
+    });
+    page.on("framenavigated", (frame) => {
+      if (frame === page.mainFrame()) navigations++;
+    });
+    await body.fill(draft);
+    await page.getByRole("button", { name: "Mention", exact: true }).click();
+    await search.fill("zzzz-unmatched-person");
+    await expect(page.locator(".comment-mentions-option:visible")).toHaveCount(0);
+    await page.evaluate(() => {
+      document.addEventListener("keydown", (event) => {
+        if (event.key === "Enter")
+          document.body.dataset.enterPrevented = String(event.defaultPrevented);
+      });
+    });
+    await search.press("Enter");
+    await expect(page.locator("body")).toHaveAttribute("data-enter-prevented", "true");
+    await expect(body).toHaveValue(draft);
+    expect(posts).toEqual([]);
+    expect(navigations).toBe(0);
+    await expect(page.locator("#timeline")).not.toContainText(draft);
+    // A fresh document proves the failed search did not persist a comment.
+    await page.reload();
+    await expect(page.locator("#timeline")).not.toContainText(draft);
+    await body.fill(draft);
+    await page.getByRole("button", { name: "Mention", exact: true }).click();
+    await search.fill(name);
+    await expect(page.getByRole("option", { name: new RegExp(name) })).toBeVisible();
+    await search.press("ArrowDown");
+    await search.press("Enter");
+    await expect(body).toHaveValue(`${draft}@${name} `);
+    expect(posts).toEqual([]);
+    // A textarea with no matching completion still owns its newline.
+    await body.fill("@zzzz-unmatched-person");
+    await body.press("End");
+    await body.press("Enter");
+    await expect(body).toHaveValue("@zzzz-unmatched-person\n");
+    const published = "Keyboard editing stays native\nSecond line";
+    await body.fill("Keyboard editing stays native");
+    await body.press("End");
+    await body.press("Enter");
+    await body.pressSequentially("Second line");
+    await expect(body).toHaveValue(published);
+    expect(posts).toEqual([]);
+    const response = page.waitForResponse(
+      (response) =>
+        response.request().method() === "POST" && new URL(response.url()).pathname === commentPath,
+    );
+    await form.locator('button[type="submit"]').click();
+    const submitted = await response;
+    expect(submitted.status()).toBe(303);
+    expect(submitted.request().headers()["hx-request"]).toBeUndefined();
+    await expect(page.locator("#timeline")).toContainText("Keyboard editing stays native");
+    await page.reload();
+    await expect(page.locator("#timeline")).toContainText("Second line");
+    expect(posts).toEqual([commentPath]);
+    expect(obs.consoleErrors).toEqual([]);
+    expect(obs.pageErrors).toEqual([]);
+    expect(obs.failedRequests).toEqual([]);
+    expect(obs.failedResponses).toEqual([]);
+  });
+
+  test("detail keeps Properties and Steps while Preferences and Activity share the persistent timeline order", async ({
+    page,
+  }) => {
+    test.setTimeout(120_000);
     await page.setViewportSize({ width: 1280, height: 800 });
     const obs = collectObservability(page);
     await loginAsSeeded(page);
@@ -125,8 +259,20 @@ test.describe("Ticket detail", () => {
     await expect(passiveStep.locator(".workflow-checklist-meta")).toHaveText(
       "Nobody is assigned yet.",
     );
-    await expect(page.locator("#timeline .timeline-entry").first()).toHaveClass(
-      /workflow-pending-info/,
+    // Issue #438 (S4, S8): nothing to act on here, so no badge and no accent
+    // highlight — the mark belongs to the actor who can complete the step.
+    await expect(passiveChecklist.locator(".workflow-checklist-badge")).toHaveCount(0);
+    const stepsRing = await page.evaluate(() => {
+      const card = document.querySelector(".detail-steps");
+      if (!card) throw new Error("no Steps card at " + window.location.pathname);
+      return getComputedStyle(card).boxShadow;
+    });
+    expect(stepsRing).toBe("none");
+    // Issue #438 (S9): Steps is its own card above Activity, never a timeline
+    // entry with a dot.
+    await expectStepsCardBeforeActivity(page);
+    await expect(page.locator("#timeline .timeline-entry").first()).not.toHaveClass(
+      /workflow-pending/,
     );
     await expect(page.locator(".current-task-card")).toHaveCount(0);
     await expect(page.locator('form[action*="/workflow/steps/"]')).toHaveCount(0);
@@ -139,6 +285,140 @@ test.describe("Ticket detail", () => {
     );
     expect(mobileOverflow).toBe(false);
     await page.setViewportSize({ width: 1280, height: 800 });
+
+    // Issue #438, S1: this is the canonical preference/detail journey. The
+    // seeded user has never chosen an Activity order, so newest is the default.
+    const activityOrder = page.locator(".detail-order button");
+    const bodies = page.locator("#timeline .timeline-comment .timeline-body");
+    const first = "Earlier public response";
+    const second = "Later public response";
+    for (const body of [first, second]) {
+      await page.locator("#comment-body").fill(body);
+      const navigation = page.waitForEvent("framenavigated", (frame) => frame === page.mainFrame());
+      const posted = waitForExactPost(page, `/tickets/${id}/comments`);
+      await page.getByRole("button", { name: "Reply", exact: true }).click();
+      const response = await posted;
+      expect(response.status()).toBe(303);
+      expect(response.request().headers()["hx-request"]).toBeUndefined();
+      await navigation;
+      await expect(page).toHaveURL(base() + `/tickets/${id}`);
+      await expect(page.locator("#timeline")).toContainText(body);
+    }
+
+    const expectOrder = async (order: "newest" | "oldest") => {
+      const newest = order === "newest";
+      await expect(activityOrder).toHaveAccessibleName(
+        newest
+          ? "Activity order: Newest first. Switch to Oldest first."
+          : "Activity order: Oldest first. Switch to Newest first.",
+      );
+      await expect(bodies).toHaveText(newest ? [second, first] : [first, second]);
+      for (const width of [1280, 390]) {
+        await page.setViewportSize({ width, height: 844 });
+        await expectStepsCardBeforeActivity(page);
+        const layout = await page.evaluate(() => {
+          const steps = document.querySelector(".detail-steps");
+          const reply = document.querySelector("#reply");
+          const activity = document.querySelector(".detail-activity");
+          if (!steps || !reply || !activity)
+            throw new Error("missing Steps/composer/Activity at " + location.href);
+          return {
+            stepsBeforeReply: Boolean(
+              steps.compareDocumentPosition(reply) & Node.DOCUMENT_POSITION_FOLLOWING,
+            ),
+            replyBeforeActivity: Boolean(
+              reply.compareDocumentPosition(activity) & Node.DOCUMENT_POSITION_FOLLOWING,
+            ),
+            stepsBottom: steps.getBoundingClientRect().bottom,
+            replyTop: reply.getBoundingClientRect().top,
+            replyBottom: reply.getBoundingClientRect().bottom,
+            activityTop: activity.getBoundingClientRect().top,
+            activityBottom: activity.getBoundingClientRect().bottom,
+            replyDisplay: getComputedStyle(reply).display,
+          };
+        });
+        expect(layout.stepsBeforeReply).toBe(true);
+        expect(layout.replyBeforeActivity).toBe(newest);
+        expect(layout.replyDisplay).not.toBe("none");
+        expect(layout.stepsBottom).toBeLessThanOrEqual(layout.replyTop);
+        if (newest) expect(layout.replyBottom).toBeLessThanOrEqual(layout.activityTop);
+        else expect(layout.activityBottom).toBeLessThanOrEqual(layout.replyTop);
+        await expect(page.locator(".detail-properties-summary")).toHaveText("Properties");
+        await expect(page.locator("#ticket-category-value")).toHaveText("General");
+      }
+      await page.setViewportSize({ width: 1280, height: 800 });
+    };
+    const toggleWithDraft = async (order: "newest" | "oldest") => {
+      const draft = `Authored internal draft before ${order}`;
+      const attachment = {
+        name: `draft-${order}.txt`,
+        mimeType: "text/plain",
+        buffer: Buffer.from(draft),
+      };
+      await page.locator("#comment-body").fill(draft);
+      await page.locator("#comment-internal").check();
+      await page.locator("#comment-attachments").setInputFiles(attachment);
+      const response = await assertHtmxSwap(page, () => activityOrder.click(), {
+        endpoint: `/tickets/${id}/timeline-order`,
+        method: "POST",
+        expectedStatus: 200,
+        hxTarget: "#ticket-detail",
+      });
+      expect(new URLSearchParams(response.request().postData() ?? "").get("order")).toBe(order);
+      await expectOrder(order);
+      await expect(page.locator("#comment-body")).toHaveValue(draft);
+      await expect(page.locator("#comment-internal")).toBeChecked();
+      await expect(page.locator("#timeline")).not.toContainText(draft);
+      // Soft only to collect both directions and the remaining persistence
+      // evidence; any lost attachment still fails this journey.
+      const files = await page.locator("#comment-attachments").evaluate(async (element) => {
+        const input = element as HTMLInputElement;
+        return Promise.all(
+          Array.from(input.files ?? []).map(async (file) => ({
+            name: file.name,
+            text: await file.text(),
+          })),
+        );
+      });
+      expect
+        .soft(files, `selected attachment must survive the ${order} Activity swap`)
+        .toEqual([{ name: attachment.name, text: draft }]);
+      await expect.soft(page.locator("[data-dropzone-files]")).toHaveText(attachment.name);
+      await page.reload();
+      await expectOrder(order);
+    };
+    const savePreference = async (order: "newest" | "oldest") => {
+      const select = page.getByLabel("Default activity order", { exact: true });
+      await select.selectOption(order);
+      const navigation = page.waitForEvent("framenavigated", (frame) => frame === page.mainFrame());
+      const posted = waitForExactPost(page, "/preferences/timeline-order");
+      await page.getByRole("button", { name: "Save activity order", exact: true }).click();
+      const response = await posted;
+      expect(response.status()).toBe(303);
+      expect(response.request().headers()["hx-request"]).toBeUndefined();
+      expect(new URLSearchParams(response.request().postData() ?? "").get("timeline_order")).toBe(
+        order,
+      );
+      await navigation;
+      await expect(page).toHaveURL(base() + "/preferences");
+      await expect(page.locator("#save-feedback")).toContainText("Saved");
+      await page.reload();
+      await expect(select).toHaveValue(order);
+      await page.goto(base() + `/tickets/${id}`);
+      await expectOrder(order);
+    };
+
+    await expectOrder("newest");
+    await toggleWithDraft("oldest");
+    await page.goto(base() + "/preferences");
+    await expect(page.getByLabel("Default activity order", { exact: true })).toHaveValue("oldest");
+    await savePreference("newest");
+    await page.goto(base() + "/preferences");
+    await savePreference("oldest");
+    await toggleWithDraft("newest");
+    await page.goto(base() + "/preferences");
+    await expect(page.getByLabel("Default activity order", { exact: true })).toHaveValue("newest");
+    await page.goto(base() + `/tickets/${id}`);
 
     await assertCanonicalScreen(page, {
       viewport: 1280,
@@ -299,6 +579,21 @@ test.describe("Ticket detail", () => {
     await page.goto(base() + `/tickets/${cancelId}`);
     await expect(page.getByText("Cancelled").first()).toBeVisible({ timeout: 10_000 });
     await expect(page.getByLabel(/comment body/i)).toHaveCount(0);
+    // Read-only tickets still offer the same per-user order control, without
+    // accidentally reintroducing a composer in either direction.
+    for (const order of ["oldest", "newest"]) {
+      await assertHtmxSwap(page, () => page.locator(".detail-order button").click(), {
+        endpoint: `/tickets/${cancelId}/timeline-order`,
+        method: "POST",
+        expectedStatus: 200,
+        hxTarget: "#ticket-detail",
+      });
+      await expect(page.locator('.detail-order input[name="order"]')).toHaveValue(
+        order === "oldest" ? "newest" : "oldest",
+      );
+      await expect(page.getByLabel(/comment body/i)).toHaveCount(0);
+      await expect(page.locator(".detail-state .badge")).toHaveText("Cancelled");
+    }
 
     await assertCanonicalScreen(page, {
       viewport: 1280,
@@ -560,7 +855,7 @@ test.describe("Ticket detail", () => {
     await page.goto(base() + `/tickets/${id}`);
 
     const comment = page.getByLabel(/comment body/i);
-    const internal = page.getByLabel("Internal note");
+    const internal = page.getByLabel("Internal comment");
     await expect(comment).toBeVisible();
     // The form defaults to public and re-renders unchecked; the author opts in.
     await expect(internal).not.toBeChecked();
@@ -584,7 +879,7 @@ test.describe("Ticket detail", () => {
     await expect(page.locator("#ticket-detail")).toContainText(/critical/i);
     // #261 preserved the typed text; #308 preserves the selected visibility too.
     await expect(page.getByLabel(/comment body/i)).toHaveValue(draft);
-    await expect(page.getByLabel("Internal note")).toBeChecked();
+    await expect(page.getByLabel("Internal comment")).toBeChecked();
     // Applying a property is not posting the comment: nothing was stored.
     await expect(page.locator("#timeline")).not.toContainText(draft);
   });
@@ -602,7 +897,7 @@ test.describe("Ticket detail", () => {
 
     await expect(pickerButton(page, "assign-user")).toBeVisible();
     const comment = page.getByLabel(/comment body/i);
-    const internal = page.getByLabel("Internal note");
+    const internal = page.getByLabel("Internal comment");
     const draft = "internal draft " + Date.now().toString(36);
     await internal.check();
     await comment.fill(draft);
@@ -625,7 +920,7 @@ test.describe("Ticket detail", () => {
     // Re-resolve after the swap: the fragment was replaced in place.
     await expect(pickerButton(page, "assign-user")).toContainText(target);
     await expect(page.getByLabel(/comment body/i)).toHaveValue(draft);
-    await expect(page.getByLabel("Internal note")).toBeChecked();
+    await expect(page.getByLabel("Internal comment")).toBeChecked();
     await expect(page.locator("#timeline")).not.toContainText(draft);
   });
 
@@ -641,7 +936,7 @@ test.describe("Ticket detail", () => {
     await page.goto(base() + `/tickets/${id}`);
 
     const comment = page.getByLabel(/comment body/i);
-    const internal = page.getByLabel("Internal note");
+    const internal = page.getByLabel("Internal comment");
     const draft = "internal draft " + Date.now().toString(36);
     await internal.check();
     await comment.fill(draft);
@@ -664,7 +959,7 @@ test.describe("Ticket detail", () => {
     }
 
     await expect(page.getByLabel(/comment body/i)).toHaveValue(draft);
-    await expect(page.getByLabel("Internal note")).toBeChecked();
+    await expect(page.getByLabel("Internal comment")).toBeChecked();
   });
 
   test("a public draft stays public after an unrelated apply", async ({ page }) => {
@@ -679,7 +974,7 @@ test.describe("Ticket detail", () => {
     await page.goto(base() + `/tickets/${id}`);
 
     const comment = page.getByLabel(/comment body/i);
-    const internal = page.getByLabel("Internal note");
+    const internal = page.getByLabel("Internal comment");
     await expect(internal).not.toBeChecked();
     const draft = "public draft " + Date.now().toString(36);
     await comment.fill(draft);
@@ -699,7 +994,7 @@ test.describe("Ticket detail", () => {
 
     // The author never changed visibility: the draft stays public.
     await expect(page.getByLabel(/comment body/i)).toHaveValue(draft);
-    await expect(page.getByLabel("Internal note")).not.toBeChecked();
+    await expect(page.getByLabel("Internal comment")).not.toBeChecked();
 
     const submitted = waitForExactPost(page, `/tickets/${id}/comments`);
     await Promise.all([
@@ -737,7 +1032,7 @@ test.describe("Ticket detail", () => {
     await page.goto(base() + `/tickets/${id}`);
 
     const comment = page.getByLabel(/comment body/i);
-    const internal = page.getByLabel("Internal note");
+    const internal = page.getByLabel("Internal comment");
     await expect(internal).toBeVisible();
     const draft = "internal note " + Date.now().toString(36);
     await internal.check();
@@ -756,7 +1051,7 @@ test.describe("Ticket detail", () => {
         hxTarget: "#ticket-detail",
       },
     );
-    await expect(page.getByLabel("Internal note")).toBeChecked();
+    await expect(page.getByLabel("Internal comment")).toBeChecked();
     await expect(page.getByLabel(/comment body/i)).toHaveValue(draft);
 
     const submitted = waitForExactPost(page, `/tickets/${id}/comments`);
@@ -1650,6 +1945,297 @@ test.describe("Ticket detail", () => {
       .locator(".listbox-option[aria-selected='true']")
       .count();
     expect(heldByQuery, "the current assignee must stay in the list").toBe(1);
+  });
+
+  test("the reply box names only the staff who can open the ticket", async ({ page }) => {
+    test.setTimeout(180_000);
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await loginAsSeeded(page);
+    const unique = Date.now().toString(36).slice(2, 8);
+
+    const requester = await createAccount(page, `Rita Requester ${unique}`);
+    const assignee = await createAccount(page, `Ana Assignee ${unique}`, "agent");
+    const outside = await createAccount(page, `Outside Agent ${unique}`, "agent");
+    const colleague = await createAccount(page, `Beatrix Backoffice ${unique}`, "admin");
+
+    await logout(page);
+    await loginAs(page, requester.email, requester.password);
+    const title = `Mention probe ${unique}`;
+    const ticketID = await createTicketViaUi(page, {
+      title,
+      description: "mention probe",
+      category: "General",
+      priority: "high",
+    });
+    await logout(page);
+    await loginAsSeeded(page);
+    await page.goto(base() + `/tickets/${ticketID}`);
+    await pickAssignee(page, assignee.name);
+    await logout(page);
+
+    await loginAs(page, assignee.email, assignee.password);
+    await page.goto(base() + `/tickets/${ticketID}`);
+    await expect(page.locator("#ticket-detail")).toBeVisible();
+
+    // The Mention button opens the one candidate list, with a search field.
+    const toggle = page.locator("#ticket-detail [data-mentions-open]");
+    await expect(toggle).toBeVisible();
+    await toggle.click();
+    await expect(toggle).toHaveAttribute("aria-expanded", "true");
+    const list = page.locator("#ticket-detail [data-mentions]");
+    const search = list.locator("[data-mentions-search]");
+    await expect(search).toBeFocused();
+    // The colleague can open the ticket; the requester and an agent the ticket
+    // is out of reach for cannot, so neither of them is in the document at all.
+    await expect(list.locator(`[data-mention-name="${colleague.name}"]`)).toHaveCount(1);
+    await expect(list.locator(`[data-mention-name="${requester.name}"]`)).toHaveCount(0);
+    await expect(list.locator(`[data-mention-name="${outside.name}"]`)).toHaveCount(0);
+
+    const narrowed = list.locator(".comment-mentions-option:not([hidden])");
+    await search.fill(unique);
+    await expect(narrowed).toHaveCount(1);
+    await expect(narrowed).toHaveAttribute("data-mention-name", colleague.name);
+    await page.keyboard.press("Escape");
+    await expect(toggle).toHaveAttribute("aria-expanded", "false");
+    const comment = page.locator("#comment-body");
+    await expect(comment).toBeFocused();
+
+    // Typing "@" and the name opens the same list, and Enter takes the person
+    // the list highlights, writing the name the server's grammar matches.
+    await page.keyboard.type("Thanks ");
+    await page.keyboard.type("@" + colleague.name);
+    await expect(narrowed).toHaveCount(1);
+    await page.keyboard.press("Enter");
+    const mentioned = `Thanks @${colleague.name} `;
+    await expect(comment).toHaveValue(mentioned);
+    const popover = list.locator(".comment-mentions-popover");
+    await expect(popover).toBeHidden();
+
+    // Writing on after the chosen name is prose, not a new search: the list
+    // stays closed instead of reopening to say nobody matches.
+    await page.keyboard.type("please review");
+    const continued = `${mentioned}please review`;
+    await expect(comment).toHaveValue(continued);
+    await expect(popover).toBeHidden();
+    await expect(toggle).toHaveAttribute("aria-expanded", "false");
+
+    // A fresh "@" still opens the list, and erasing it falls back to the
+    // settled text without reopening the list.
+    await page.keyboard.type(" @Bea");
+    await expect(popover).toBeVisible();
+    await expect(narrowed).toHaveCount(1);
+    for (let i = 0; i < " @Bea".length; i++) await page.keyboard.press("Backspace");
+    await expect(comment).toHaveValue(continued);
+    await expect(popover).toBeHidden();
+
+    const navigation = page.waitForEvent("framenavigated", (frame) => frame === page.mainFrame());
+    const posted = waitForExactPost(page, `/tickets/${ticketID}/comments`);
+    await page.getByRole("button", { name: "Reply", exact: true }).click();
+    await navigation;
+    expect((await posted).status()).toBe(303);
+    await expect(page.locator("#timeline")).toContainText(mentioned);
+    await logout(page);
+
+    // The person named in the comment is told, and the ticket's followers row
+    // holds them: a mention is a subscription, never another way in.
+    await loginAs(page, colleague.email, colleague.password);
+    await page.goto(base() + "/notifications");
+    const told = page.locator(".notifications-row").filter({ hasText: title });
+    await expect(told).toHaveCount(1);
+    await expect(told.locator(".notification-what")).toHaveText("Mentioned you in a comment");
+    await page.goto(base() + `/tickets/${ticketID}`);
+    const followers = page.locator("#ticket-detail .prop-followers");
+    await expect(followers).toHaveCount(1);
+    await expect(followers.locator(".prop-followers-count")).toHaveText("1");
+    await expect(followers.locator(".prop-followers-person .prop-followers-name")).toHaveText(
+      colleague.name,
+    );
+    await expect(followers.locator(".prop-followers-person .prop-followers-you")).toHaveText("You");
+
+    // Issue #438 (S4, S2): reading the ticket names the reader back. The comment
+    // that mentioned her is marked as mentioning HER, with the tag and a chip
+    // drawn in the accent (a mention of somebody else stays in the soft fill),
+    // and the feed keeps one card per comment.
+    const mentioning = page.locator("#timeline .timeline-comment.mentioned");
+    await expect(mentioning).toHaveCount(1);
+    await expect(mentioning).toContainText(mentioned.trim());
+    await expect(mentioning.locator(".timeline-mentions-you")).toHaveText("Mentions you");
+    const ownMention = mentioning.locator(".timeline-mention.me");
+    await expect(ownMention).toHaveCount(1);
+    await expect(ownMention).toHaveText(`@${colleague.name}`);
+    const accent = await page.evaluate(() => {
+      const probe = document.createElement("span");
+      probe.style.background = "var(--accent)";
+      document.body.append(probe);
+      const value = getComputedStyle(probe).backgroundColor;
+      probe.remove();
+      return value;
+    });
+    await expect(ownMention).toHaveCSS("background-color", accent);
+    // The card that is hers own carries the You chip instead.
+    await expect(page.locator("#timeline .timeline-comment.mine")).toHaveCount(0);
+
+    const ownComment = `Reviewed, thanks for the mention ${unique}`;
+    const ownNavigation = page.waitForEvent(
+      "framenavigated",
+      (frame) => frame === page.mainFrame(),
+    );
+    const ownPost = waitForExactPost(page, `/tickets/${ticketID}/comments`);
+    await page.locator("#comment-body").fill(ownComment);
+    await page.getByRole("button", { name: "Reply", exact: true }).click();
+    await ownNavigation;
+    expect((await ownPost).status()).toBe(303);
+    await expect(page).toHaveURL(new RegExp(`/tickets/${ticketID}$`));
+    const own = page.locator("#timeline .timeline-comment.mine").filter({ hasText: ownComment });
+    await expect(own).toHaveCount(1);
+    await expect(own.locator(".timeline-you")).toHaveText("You");
+    // One card per comment: two comments, two cards, one body each, and the
+    // marked card did not absorb the new one.
+    await expect(page.locator("#timeline .timeline-comment")).toHaveCount(2);
+    await expect(page.locator("#timeline .timeline-comment .timeline-body")).toHaveCount(2);
+    await expect(mentioning).toHaveCount(1);
+    await expect(mentioning.locator(".timeline-body")).toHaveCount(1);
+  });
+
+  test("a follower keeps a draft and hears about the ticket until they unfollow", async ({
+    page,
+  }) => {
+    test.setTimeout(240_000);
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await loginAsSeeded(page);
+    const unique = Date.now().toString(36).slice(2, 8);
+
+    const follower = await createAccount(page, `Fay Follower ${unique}`, "admin");
+    const title = `Follow probe ${unique}`;
+    const ticketID = await createTicketViaUi(page, {
+      title,
+      description: "follow probe",
+      category: "General",
+      priority: "high",
+    });
+    await logout(page);
+
+    await loginAs(page, follower.email, follower.password);
+    await page.goto(base() + `/tickets/${ticketID}`);
+    const button = page.locator("#ticket-detail .detail-follow button");
+    await expect(button).toHaveText("Follow");
+    await expect(button).toHaveAttribute("aria-pressed", "false");
+    const draft = `Half a reply ${unique}`;
+    await page.locator("#comment-body").fill(draft);
+
+    await assertHtmxSwap(
+      page,
+      async () => {
+        await button.click();
+      },
+      {
+        endpoint: `/tickets/${ticketID}/follow`,
+        method: "POST",
+        expectedStatus: 200,
+        hxTarget: "#ticket-detail",
+      },
+    );
+    const following = page.locator("#ticket-detail .detail-follow button");
+    await expect(following).toHaveText("Following");
+    await expect(following).toHaveAttribute("aria-pressed", "true");
+    // The whole detail fragment was replaced, and the composer's draft and the
+    // followers row both came through it.
+    await expect(page.locator("#comment-body")).toHaveValue(draft);
+    await expect(page.locator("#ticket-detail .prop-followers")).toContainText("You");
+    await page.reload();
+    await expect(page.locator("#ticket-detail .detail-follow button")).toHaveText("Following");
+    await expect(page.locator("#ticket-detail .detail-follow button")).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    await logout(page);
+
+    // Another operator changes the priority, and the follower is told.
+    await loginAsSeeded(page);
+    await page.goto(base() + `/tickets/${ticketID}`);
+    await pickPriority(page, "critical");
+    await logout(page);
+
+    await loginAs(page, follower.email, follower.password);
+    await page.goto(base() + "/notifications");
+    const told = page.locator(".notifications-row").filter({ hasText: title });
+    await expect(told).toHaveCount(1);
+    await expect(told.locator(".notification-what")).toHaveText(
+      "Priority changed from High to Critical",
+    );
+
+    // Unfollowing ends the subscription: the same change reaches nobody.
+    await page.goto(base() + `/tickets/${ticketID}`);
+    await assertHtmxSwap(
+      page,
+      async () => {
+        await page.locator("#ticket-detail .detail-follow button").click();
+      },
+      {
+        endpoint: `/tickets/${ticketID}/unfollow`,
+        method: "POST",
+        expectedStatus: 200,
+        hxTarget: "#ticket-detail",
+      },
+    );
+    await expect(page.locator("#ticket-detail .detail-follow button")).toHaveText("Follow");
+    await expect(page.locator("#ticket-detail .detail-follow button")).toHaveAttribute(
+      "aria-pressed",
+      "false",
+    );
+    await logout(page);
+
+    await loginAsSeeded(page);
+    await page.goto(base() + `/tickets/${ticketID}`);
+    await pickPriority(page, "low");
+    await logout(page);
+
+    await loginAs(page, follower.email, follower.password);
+    await page.goto(base() + "/notifications");
+    const stillTold = page.locator(".notifications-row").filter({ hasText: title });
+    await expect(stillTold).toHaveCount(1);
+    await expect(stillTold.locator(".notification-what")).toHaveText(
+      "Priority changed from High to Critical",
+    );
+  });
+
+  test("a requester's ticket offers no saved replies, mentions or following", async ({ page }) => {
+    test.setTimeout(180_000);
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await loginAsSeeded(page);
+    const unique = Date.now().toString(36).slice(2, 8);
+
+    const requester = await createAccount(page, `Rui Requester ${unique}`);
+    await logout(page);
+    await loginAs(page, requester.email, requester.password);
+    const ticketID = await createTicketViaUi(page, {
+      title: `Requester control probe ${unique}`,
+      description: "requester control probe",
+      category: "General",
+      priority: "high",
+    });
+    await page.goto(base() + `/tickets/${ticketID}`);
+
+    // The requester still writes comments, with none of the staff tools beside
+    // the box and no way into a ticket's following.
+    await expect(page.locator("#comment-body")).toBeVisible();
+    await expect(page.getByRole("button", { name: "Reply", exact: true })).toBeVisible();
+    await expect(page.locator("#ticket-detail [data-saved-replies]")).toHaveCount(0);
+    await expect(page.locator("#ticket-detail [data-mentions]")).toHaveCount(0);
+    await expect(page.locator("#ticket-detail .detail-follow")).toHaveCount(0);
+    await expect(page.locator("#ticket-detail .prop-followers")).toHaveCount(0);
+    await expect(page.locator('.sidebar-link[href="/replies"]')).toHaveCount(0);
+    await logout(page);
+
+    // The same ticket shows all of them to staff, so the absences above are the
+    // role and not a missing render.
+    await loginAsSeeded(page);
+    await page.goto(base() + `/tickets/${ticketID}`);
+    await expect(page.locator("#ticket-detail [data-saved-replies]")).toHaveCount(1);
+    await expect(page.locator("#ticket-detail [data-mentions]")).toHaveCount(1);
+    await expect(page.locator("#ticket-detail .detail-follow")).toHaveCount(1);
+    await expect(page.locator("#ticket-detail .prop-followers")).toHaveCount(1);
+    await expect(page.locator('.sidebar-link[href="/replies"]')).toHaveCount(1);
   });
 });
 

@@ -74,11 +74,13 @@
 -- notice is the one notification that is not about a ticket, and the table
 -- 0021 created cannot express it: ticket_id is NOT NULL and every kind is a
 -- ticket event. SQLite cannot relax a NOT NULL or change a CHECK in place, so
--- 0034 produces the table's fifth shape — the initial 0021 table and the
--- rebuilds of 0023, 0027 and 0028 came before it — by applying the recipe 0023
--- documented:
---   * The kind CHECK lists every value from 0021 plus the ones 0023, 0027 and
---     0028 added, and finally company_account_pending.
+-- 0034 produces the table's sixth shape — the initial 0021 table and the
+-- rebuilds of 0023, 0027, 0028 and 0033 came before it — by applying the recipe
+-- 0023 documented:
+--   * The kind CHECK lists every value from 0021 plus the ones 0023, 0027, 0028
+--     and 0033 added (0033 added 'mentioned' and 'assignee_changed', and warns
+--     that a later rebuild must carry them), and finally
+--     company_account_pending.
 --   * ticket_id becomes nullable: NULL is the truthful state of a notice that
 --     names no ticket. A ticket notification still requires a ticket exactly
 --     as before, and a stored 0 is impossible because the foreign key would
@@ -159,6 +161,8 @@ CREATE TABLE notifications_new (
     'sla_resolution_at_risk',
     'sla_resolution_breached',
     'no_movement',
+    'mentioned',
+    'assignee_changed',
     'company_account_pending')),
   actor_user_id INTEGER REFERENCES users(id),
   from_value TEXT,

@@ -20,20 +20,15 @@ Project skills live in `.agents/skills/` and are named for the suite or layer th
 | --- | --- |
 | `issue-governance` | `.agents/skills/issue-governance/SKILL.md` |
 | `pr-governance` | `.agents/skills/pr-governance/SKILL.md` |
-| `design-system` | `.agents/skills/design-system/SKILL.md` |
+| `design-system` — approved UI patterns, theme tokens, accessibility, and measured checks | `.agents/skills/design-system/SKILL.md` |
 | `worktree-isolation` | `.agents/skills/worktree-isolation/SKILL.md` |
 | `e2e-playwright` | `.agents/skills/e2e-playwright/SKILL.md` |
 | `go-tests` | `.agents/skills/go-tests/SKILL.md` |
 | `container-governance` | `.agents/skills/container-governance/SKILL.md` |
 | `engram-governance` | `.agents/skills/engram-governance/SKILL.md` |
+| `release-notes` | `.agents/skills/release-notes/SKILL.md` |
 
 Load the skill file. Its Activation Contract is authoritative for when the skill applies.
-
-### Behavioral change records in Engram
-
-For behavior-changing work, load `engram-governance`. Scope reads and writes to `project: "tkt"`, then locate canonical requirements and active deltas with descriptive context and search. Existing migration memories remain preserved history, not operational prerequisites.
-
-Engram is machine-local unless a maintainer exports and imports a verified project-scoped export. CI cannot inspect it. Agents must report unavailable or conflicting requirements instead of inferring them.
 
 ### Workflow gates (issue-first)
 

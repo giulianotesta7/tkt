@@ -17,8 +17,8 @@ import (
 // delivery row survive. These tests pin the new shape, the closed vocabulary,
 // the ownership edges, and the upgrade path.
 
-// priorNotificationKinds is the vocabulary 0028 left, in the order the
-// migrations introduced it. The upgrade test seeds one row of each so the
+// priorNotificationKinds is the vocabulary 0033 left (0028 plus the mention and
+// the follower's assignee change), in the order the migrations introduced it. The upgrade test seeds one row of each so the
 // rebuild proves it accepts all of them after the change.
 var priorNotificationKinds = []domain.NotificationKind{
 	domain.NotificationAssigned,
@@ -38,6 +38,8 @@ var priorNotificationKinds = []domain.NotificationKind{
 	domain.NotificationSLAResolutionAtRisk,
 	domain.NotificationSLAResolutionBreached,
 	domain.NotificationNoMovement,
+	domain.NotificationMentioned,
+	domain.NotificationAssigneeChanged,
 }
 
 // TestMigration0034NotificationsShape pins the rebuilt columns: the ticket is
@@ -188,7 +190,7 @@ func TestMigration0034NotificationShapeIsClosed(t *testing.T) {
 		}
 	}
 
-	for _, kind := range []string{"", "mentioned", "COMPANY_ACCOUNT_PENDING", "company_account_pending "} {
+	for _, kind := range []string{"", "not_a_kind", "COMPANY_ACCOUNT_PENDING", "company_account_pending "} {
 		if err := insert(tk.ID, nil, nil, nil, kind, nil, nil, nil); err == nil {
 			t.Errorf("kind %q accepted, want CHECK rejection", kind)
 		}

@@ -63,8 +63,8 @@ func TestWorkflowStepTimelineDoesNotRenderAnswerContent(t *testing.T) {
 	}
 }
 
-// PR10 task 10.2 — a form completion item renders its pinned labels/values
-// inline as an escaped semantic definition list INSIDE that event entry.
+// Issue #438: a completed form encloses its header and escaped semantic answer
+// list in its own card, with the same shape and spacing as comment cards.
 func TestTimelineFormEventRendersEscapedInlineDefinitionList(t *testing.T) {
 	renderer := NewRenderer()
 	req := httptest.NewRequest("GET", "/tickets/1", nil)
@@ -84,6 +84,8 @@ func TestTimelineFormEventRendersEscapedInlineDefinitionList(t *testing.T) {
 		t.Fatalf("status = %d, body = %s", response.Code, body)
 	}
 	for _, want := range []string{
+		`<article class="timeline-entry timeline-event timeline-form">`,
+		`<div class="timeline-entry-head">`,
 		`<dl class="workflow-responses">`,
 		`<dt>Server &lt;name&gt;</dt>`,
 		`<dd>&lt;b&gt;api-01&lt;/b&gt;</dd>`,
@@ -94,6 +96,28 @@ func TestTimelineFormEventRendersEscapedInlineDefinitionList(t *testing.T) {
 	}
 	if strings.Contains(body, "<b>api-01</b>") {
 		t.Fatalf("answer value rendered as raw HTML inside the event: %s", body)
+	}
+	if head, answers, end := strings.Index(body, `class="timeline-entry-head"`), strings.Index(body, `<dl class="workflow-responses">`), strings.Index(body, `</article>`); head < 0 || answers <= head || end <= answers {
+		t.Fatalf("the form card must enclose its header followed by its answers: %s", body)
+	}
+
+	styleResponse := httptest.NewRecorder()
+	renderer.Render(styleResponse, req, "", "styles", data, 200)
+	style := extractStyleBlock(t, styleResponse.Body.String())
+	for _, want := range []struct{ selector, declaration string }{
+		{".timeline-form{", "padding:0"},
+		{".timeline-form{", "border:1px solid var(--line-strong)"},
+		{".timeline-form{", "border-radius:12px"},
+		{".timeline-form{", "background:var(--card)"},
+		{".timeline-form::before{", "top:15px"},
+		{".timeline-form .timeline-entry-head{", "padding:8px 12px"},
+		{".timeline-form .timeline-entry-head{", "border-bottom:1px solid var(--line)"},
+		{".timeline-form .workflow-responses{", "margin:0"},
+		{".timeline-form .workflow-responses{", "padding:4px 12px 8px"},
+	} {
+		if !cssRuleDeclares(style, want.selector, want.declaration) {
+			t.Errorf("form card must declare %q in %q", want.declaration, want.selector)
+		}
 	}
 }
 

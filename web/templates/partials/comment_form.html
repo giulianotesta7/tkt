@@ -1,9 +1,17 @@
 {{/*
-  The reply composer (issue #386, S4): the last block of the body, after the
-  activity. The draft and its visibility keep their hx-preserve handles, the
-  attachments become a drop zone wrapping the same file input (click or drag;
-  the script only lists the chosen names), and Reply is the submit. The request
-  is today's native POST of the same fields, answered by the same 303.
+  The reply composer (issues #386, S4 and #438, S1): above Activity for newest
+  first, below it for oldest first. The draft and its visibility keep their
+  hx-preserve handles. The attachment drop zone is preserved as a unit so its
+  file selection and visible names survive detail swaps together. Reply remains
+  today's native POST of the same fields, answered by the same 303.
+
+  The saved-reply picker (issue #418) sits beside the attachments zone for a
+  staff actor. It adds no form control and no field: the form keeps the same
+  method, action, enctype and preserve handles.
+
+  The mention picker sits beside the saved replies for the same actor, under
+  the same rule: one more button and one more popover, no field, no reordering
+  of what was already here.
 */}}
 {{define "comment_form"}}
 <form class="card comment-form" method="post" action="/tickets/{{.View.Ticket.ID}}/comments" enctype="multipart/form-data">
@@ -13,17 +21,19 @@
   </div>
   <input type="hidden" name="visibility" value="public">
   <div class="comment-tools">
-    <label class="comment-dropzone" for="comment-attachments">
+    <label class="comment-dropzone" id="comment-dropzone" hx-preserve="true" for="comment-attachments">
       <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 11.5 12.5 19a5 5 0 0 1-7-7l7.5-7.5a3.5 3.5 0 0 1 5 5L10.5 17a2 2 0 0 1-3-3l7-7"/></svg>
       <span>{{t "tickets.comment.attachments"}}</span>
       <span class="comment-dropzone-files" data-dropzone-files></span>
       <input type="file" id="comment-attachments" name="attachments" multiple accept=".png,.jpg,.jpeg,.gif,.webp,.pdf,.docx,.xlsx,.pptx,.txt,.csv,.log,.zip">
-    </label>
-{{if .CanCommentInternal}}    <div class="checkbox-field comment-internal">
+    </label>{{if .SavedReplies}}{{template "saved_replies_picker" .SavedReplies}}{{end}}
+{{if .Mentions}}{{template "mention_picker" .Mentions}}
+{{end}}{{if .CanCommentInternal}}    <div class="checkbox-field comment-internal">
       <label for="comment-internal"><input id="comment-internal" type="checkbox" name="internal" value="1" hx-preserve="true"> {{t "tickets.comment.internal"}}</label>{{/* #308: the visibility control is preserved under the same id handle as the draft, so a swap keeps text and intent together. Guarded by CanCommentInternal: the preserve handle only exists when the server renders the control. */}}
     </div>
 {{end}}    <button class="btn primary comment-submit" type="submit">{{t "tickets.comment.submit"}}</button>
   </div>
-  <p class="help comment-attachment-hint">{{t "tickets.attachments.hint"}}</p>
+{{if .Mentions}}  <p class="help comment-mentions-hint">{{t "tickets.mentions.hint"}}</p>
+{{end}}  <p class="help comment-attachment-hint">{{t "tickets.attachments.hint"}}</p>
 </form>
 {{end}}

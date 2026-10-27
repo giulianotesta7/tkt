@@ -87,7 +87,7 @@ func TestMigration0027AcceptsTheHoldKindsAndStaysClosed(t *testing.T) {
 			t.Errorf("insert %q: %v, want it accepted", kind, err)
 		}
 	}
-	for _, kind := range []string{"", "mentioned", "HOLD_REMINDER", "hold_closed ", "hold-expired"} {
+	for _, kind := range []string{"", "mention", "HOLD_REMINDER", "hold_closed ", "hold-expired"} {
 		if _, err := s.db.ExecContext(ctx, `INSERT INTO notifications (user_id, ticket_id, kind, created_at) VALUES (?, ?, ?, ?)`,
 			user, tk.ID, kind, formatTime(testClock)); err == nil {
 			t.Errorf("insert kind %q succeeded, want CHECK failure", kind)

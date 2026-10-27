@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/giulianotesta7/tkt/internal/domain"
@@ -46,14 +47,48 @@ func newNotificationBatch(t *domain.Ticket, actorUserID *int64, at time.Time) *n
 // add appends one row for recipient, or drops it when the recipient is absent,
 // is the actor, cannot open the ticket, or was already addressed in this batch.
 // from/to are the structured change facts (nil when the kind carries none).
+//
+// It is the entry point for the recipients the TICKET itself names: its
+// requester and its assignee. Followers and mentions arrive already proven and
+// enter through addVerified instead.
 func (b *notificationBatch) add(kind domain.NotificationKind, recipient *NotificationRecipient, from, to *string) {
 	if b == nil || b.ticket == nil || recipient == nil {
 		return
 	}
-	if b.actorUserID != nil && *b.actorUserID == recipient.UserID {
+	if !canOpenTicket(recipient, b.ticket) {
 		return
 	}
-	if !canOpenTicket(recipient, b.ticket) {
+	b.appendRow(kind, *recipient, from, to)
+}
+
+// addVerified appends one row for a recipient whose ticket access the CALLER
+// already proved with canStaffOpenTicket — the ticket detail route's own read
+// scope, evaluated at notification time. Followers and mentioned staff take
+// this path because they are not the ticket's assignee: canOpenTicket admits an
+// agent only as the assignee, which is the narrow rule the requester/assignee
+// rows need and must keep.
+//
+// The proof is a verifiedRecipient, an unexported type only the follower and
+// mention readers in this package can build, so a fan-out cannot address
+// somebody whose access was never checked. The batch's own rules — never the
+// actor, never the same person twice — still apply here.
+func (b *notificationBatch) addVerified(kind domain.NotificationKind, v verifiedRecipient, from, to *string) {
+	if !v.recipient.Active || !v.recipient.Role.Valid() {
+		return
+	}
+	b.appendRow(kind, v.recipient, from, to)
+}
+
+// appendRow writes the row for a recipient that passed one of the two admission
+// rules above. It is where the rules every kind shares live, so no entry point
+// can forget them: never the person who performed the action, and never the
+// same person twice in one batch (the first add wins, which is why the builders
+// add the mentioned row, then the requester/assignee row, then the followers).
+func (b *notificationBatch) appendRow(kind domain.NotificationKind, recipient NotificationRecipient, from, to *string) {
+	if b == nil || b.ticket == nil {
+		return
+	}
+	if b.actorUserID != nil && *b.actorUserID == recipient.UserID {
 		return
 	}
 	if b.seen[recipient.UserID] {
@@ -105,58 +140,211 @@ func canOpenTicket(r *NotificationRecipient, t *domain.Ticket) bool {
 	}
 }
 
+// verifiedRecipient is a staff member whose ticket access the caller proved
+// with canStaffOpenTicket at notification time. The type is unexported and only
+// the follower and mention readers of this package build it, so the batch's
+// addVerified cannot be handed a candidate that skipped the proof.
+type verifiedRecipient struct{ recipient NotificationRecipient }
+
+// recipients is every candidate ONE ticket change can address: the two people
+// the ticket itself names, plus the staff who follow it and — for a comment —
+// the staff it mentions. The follower and mention halves arrive already proven
+// by canStaffOpenTicket.
+type recipients struct {
+	requester *NotificationRecipient
+	assignee  *NotificationRecipient
+	followers []verifiedRecipient
+	mentioned []verifiedRecipient
+}
+
+// canStaffOpenTicket reports whether u may open the ticket RIGHT NOW, as a staff
+// member. It is the ONE access predicate of the follower and mention paths (the
+// follow use case, the mention candidate list, and the fan-out of every
+// notification kind), so none of them can widen ticket access: following a
+// ticket, being mentioned in it, or being named by somebody else never grants
+// scope, because this is a read of the same scope the ticket detail route
+// applies (policy.go ReadScope: an agent widens to assigned OR claim-pending on
+// their desk, a requester to their own tickets, admin/root to the whole queue).
+//
+// The role must also hold CapCommentInternal, which is what makes the candidate
+// STAFF: a requester is never a follower and never a mention. An inactive
+// account can open nothing.
+//
+// A missing or out-of-scope ticket answers false — the store reports both as
+// ErrNotFound, so a refusal leaks no existence either. Any OTHER store failure
+// propagates: an unproven check must never be treated as a pass, because a
+// notification nobody proved access for can only ever 404.
+func canStaffOpenTicket(ctx context.Context, tickets TicketStore, u domain.User, ticketID int64) (bool, error) {
+	if !u.Role.Valid() || !u.Active {
+		return false, nil
+	}
+	if !NewPolicy().Capabilities(u.Role).Require(CapCommentInternal) {
+		return false, nil
+	}
+	if _, err := tickets.GetByID(ctx, ticketID, readQuery(u, TicketQuery{})); err != nil {
+		if errors.Is(err, domain.ErrNotFound) {
+			return false, nil
+		}
+		return false, err
+	}
+	return true, nil
+}
+
+// ticketChangeRecipients resolves the recipient candidates of ONE ticket
+// change: the requester and the assignee the ticket names, and the staff who
+// follow it. The follower half is read and proven at notification time, so a
+// follower who lost access is simply absent from the batch — the row stays, the
+// person is skipped.
+func ticketChangeRecipients(ctx context.Context, users UserStore, follows *FollowService, t *domain.Ticket) (recipients, error) {
+	requester, assignee, err := ticketRecipients(ctx, users, t)
+	if err != nil {
+		return recipients{}, err
+	}
+	followers, err := follows.followerRecipients(ctx, t.ID)
+	if err != nil {
+		return recipients{}, err
+	}
+	return recipients{requester: requester, assignee: assignee, followers: followers}, nil
+}
+
+// withoutRecipient drops one person from a proven recipient list. A change that
+// takes the ticket away from somebody cannot address them: the fan-out is
+// written in the same transaction as the change, so it is judged against the
+// ticket the change leaves behind, not the one it read.
+func withoutRecipient(list []verifiedRecipient, userID *int64) []verifiedRecipient {
+	if userID == nil || len(list) == 0 {
+		return list
+	}
+	kept := make([]verifiedRecipient, 0, len(list))
+	for _, v := range list {
+		if v.recipient.UserID != *userID {
+			kept = append(kept, v)
+		}
+	}
+	return kept
+}
+
+// recipientIDs lists the people of a proven recipient list, in order. It is how a
+// plan hands a routing step the followers that step must tell, so the row can be
+// written where the selection is made.
+func recipientIDs(list []verifiedRecipient) []int64 {
+	if len(list) == 0 {
+		return nil
+	}
+	out := make([]int64, 0, len(list))
+	for _, v := range list {
+		out = append(out, v.recipient.UserID)
+	}
+	return out
+}
+
+// requiresInternalReader reports whether a comment kind may reach only a
+// recipient whose role can read INTERNAL comments. A mention shares the rule
+// with an internal comment: it is written from a comment written for staff, so
+// a reader without that capability must not learn it exists. The fan-out
+// applies it before writing the row, and the send-time email guard re-applies
+// it, so a row written while somebody was staff never reaches them after they
+// are not.
+func requiresInternalReader(k domain.NotificationKind) bool {
+	return k == domain.NotificationCommentInternal || k == domain.NotificationMentioned
+}
+
 // stateChangeNotifications builds the S10 rows for ONE net ticket state change
 // from -> to: the requester and the assignee are told, except that a move into
 // resolved asks the requester to CONFIRM the fix (the separate
-// resolved_awaiting_confirmation kind) instead of reporting a bare change. No
-// change (from == to) tells nobody.
-func stateChangeNotifications(t *domain.Ticket, from, to domain.State, actorUserID *int64, at time.Time, requester, assignee *NotificationRecipient) []domain.Notification {
+// resolved_awaiting_confirmation kind) instead of reporting a bare change. The
+// ticket's followers hear the plain state change — including the move into
+// resolved, whose confirmation request is not theirs to receive. No change
+// (from == to) tells nobody.
+func stateChangeNotifications(t *domain.Ticket, from, to domain.State, actorUserID *int64, at time.Time, r recipients) []domain.Notification {
 	if t == nil || from == to {
 		return nil
 	}
 	b := newNotificationBatch(t, actorUserID, at)
 	fromValue, toValue := string(from), string(to)
 	if to == domain.StateResolved {
-		b.add(domain.NotificationResolvedAwaitingConfirmation, requester, &fromValue, &toValue)
-		b.add(domain.NotificationStateChanged, assignee, &fromValue, &toValue)
-		return b.list()
+		b.add(domain.NotificationResolvedAwaitingConfirmation, r.requester, &fromValue, &toValue)
+		b.add(domain.NotificationStateChanged, r.assignee, &fromValue, &toValue)
+	} else {
+		b.add(domain.NotificationStateChanged, r.requester, &fromValue, &toValue)
+		b.add(domain.NotificationStateChanged, r.assignee, &fromValue, &toValue)
 	}
-	b.add(domain.NotificationStateChanged, requester, &fromValue, &toValue)
-	b.add(domain.NotificationStateChanged, assignee, &fromValue, &toValue)
+	for _, f := range r.followers {
+		b.addVerified(domain.NotificationStateChanged, f, &fromValue, &toValue)
+	}
 	return b.list()
 }
 
-// assignmentNotifications builds the S10 "assigned" row: the new assignee
-// learns about it. A cleared assignment tells nobody — nobody gained a ticket.
-func assignmentNotifications(t *domain.Ticket, assignee *NotificationRecipient, actorUserID *int64, at time.Time) []domain.Notification {
-	if assignee == nil {
-		return nil
-	}
+// assignmentNotifications builds the rows one assignment change produces: the
+// new assignee learns the ticket is theirs, and the ticket's followers learn who
+// holds it now (assignee_changed). assigneeName is the new assignee's display
+// name, snapshotted into the row so the panel and the email can name the person
+// without looking them up again; a cleared assignment stores NULL there and the
+// copy says the ticket has no assignee, which is why an unassignment still has
+// something to tell the followers. A cleared assignment addresses no ASSIGNEE —
+// nobody gained a ticket.
+func assignmentNotifications(t *domain.Ticket, assignee *NotificationRecipient, assigneeName string, actorUserID *int64, at time.Time, followers []verifiedRecipient) []domain.Notification {
 	b := newNotificationBatch(t, actorUserID, at)
 	b.add(domain.NotificationAssigned, assignee, nil, nil)
+	var to *string
+	if name := strings.TrimSpace(assigneeName); name != "" {
+		to = &name
+	}
+	for _, f := range followers {
+		b.addVerified(domain.NotificationAssigneeChanged, f, nil, to)
+	}
 	return b.list()
 }
 
-// priorityChangeNotifications builds the S10 priority row for the requester and
-// the assignee, carrying the raw priorities so the catalogue can render them.
-func priorityChangeNotifications(t *domain.Ticket, from, to domain.Priority, actorUserID *int64, at time.Time, requester, assignee *NotificationRecipient) []domain.Notification {
+// assignmentChangedNotifications builds the rows a change that puts the ticket on
+// a person the APPLICATION knows owes the ticket's followers: a workflow claim,
+// whose new holder is the acting agent and whose display name the plan already
+// carries. existing are the rows this step already writes, so nobody is told
+// twice: whoever the plan already addresses in this step keeps that row, and the
+// assignment is the second-best news about the same event.
+func assignmentChangedNotifications(t *domain.Ticket, assigneeName string, actorUserID *int64, at time.Time, followers []verifiedRecipient, existing []domain.Notification) []domain.Notification {
+	b := newNotificationBatch(t, actorUserID, at)
+	for _, n := range existing {
+		b.seen[n.UserID] = true
+	}
+	var to *string
+	if name := strings.TrimSpace(assigneeName); name != "" {
+		to = &name
+	}
+	for _, f := range followers {
+		b.addVerified(domain.NotificationAssigneeChanged, f, nil, to)
+	}
+	return b.list()
+}
+
+// priorityChangeNotifications builds the priority row for the requester, the
+// assignee and the ticket's followers, carrying the raw priorities so the
+// catalogue can render them.
+func priorityChangeNotifications(t *domain.Ticket, from, to domain.Priority, actorUserID *int64, at time.Time, r recipients) []domain.Notification {
 	if t == nil || from == to {
 		return nil
 	}
 	b := newNotificationBatch(t, actorUserID, at)
 	fromValue, toValue := string(from), string(to)
-	b.add(domain.NotificationPriorityChanged, requester, &fromValue, &toValue)
-	b.add(domain.NotificationPriorityChanged, assignee, &fromValue, &toValue)
+	b.add(domain.NotificationPriorityChanged, r.requester, &fromValue, &toValue)
+	b.add(domain.NotificationPriorityChanged, r.assignee, &fromValue, &toValue)
+	for _, f := range r.followers {
+		b.addVerified(domain.NotificationPriorityChanged, f, &fromValue, &toValue)
+	}
 	return b.list()
 }
 
 // resolutionNotifications builds the S10 rows for the requester's answer to a
-// resolution: the assignee learns whether the fix was confirmed or rejected.
-// The requester is the actor, so the rules keep them out of the batch.
-func resolutionNotifications(t *domain.Ticket, kind domain.NotificationKind, from, to domain.State, actorUserID *int64, at time.Time, assignee *NotificationRecipient) []domain.Notification {
+// resolution: the assignee learns whether the fix was confirmed or rejected, and
+// the ticket's followers hear the same kind. The requester is the actor, so the
+// rules keep them out of the batch.
+func resolutionNotifications(t *domain.Ticket, kind domain.NotificationKind, from, to domain.State, actorUserID *int64, at time.Time, r recipients) []domain.Notification {
 	b := newNotificationBatch(t, actorUserID, at)
 	fromValue, toValue := string(from), string(to)
-	b.add(kind, assignee, &fromValue, &toValue)
+	b.add(kind, r.assignee, &fromValue, &toValue)
+	for _, f := range r.followers {
+		b.addVerified(kind, f, &fromValue, &toValue)
+	}
 	return b.list()
 }
 
@@ -182,15 +370,19 @@ func holdReminderNotifications(t *domain.Ticket, at time.Time, requester *Notifi
 	return b.list()
 }
 
-// holdClosedNotifications builds the issue #353 S4 rows: the REQUESTER and the
-// ASSIGNEE both learn the ticket was closed because the requester never
-// replied. Like the reminder this is an automatic action, so no actor is
-// excluded by the batch's own-action rule; whoever cannot open the ticket is
-// still dropped, and a requester who is also the assignee is told once.
-func holdClosedNotifications(t *domain.Ticket, at time.Time, requester, assignee *NotificationRecipient) []domain.Notification {
+// holdClosedNotifications builds the automatic-close rows of issue #353: the
+// REQUESTER, the ASSIGNEE and the ticket's FOLLOWERS all learn it was closed because
+// the requester never replied. Like the reminder this is an automatic action, so
+// no actor is excluded by the batch's own-action rule; whoever cannot open the
+// ticket is still dropped, and a requester who is also the assignee is told
+// once.
+func holdClosedNotifications(t *domain.Ticket, at time.Time, r recipients) []domain.Notification {
 	b := newNotificationBatch(t, nil, at)
-	b.add(domain.NotificationHoldClosed, requester, nil, nil)
-	b.add(domain.NotificationHoldClosed, assignee, nil, nil)
+	b.add(domain.NotificationHoldClosed, r.requester, nil, nil)
+	b.add(domain.NotificationHoldClosed, r.assignee, nil, nil)
+	for _, f := range r.followers {
+		b.addVerified(domain.NotificationHoldClosed, f, nil, nil)
+	}
 	return b.list()
 }
 
@@ -261,34 +453,56 @@ func ticketRecipients(ctx context.Context, users UserStore, t *domain.Ticket) (r
 	return requester, assignee, nil
 }
 
-// commentNotifications builds the S10 COMMENT rows for one added comment: a
-// public comment tells the requester and the assignee, an internal comment
-// tells the assignee ONLY — the requester must never learn that a staff-only
-// conversation happened (S10 "never", S16).
+// commentNotifications builds the rows for one added comment. A public comment
+// tells the requester, the assignee and the ticket's followers; an internal
+// comment tells the assignee and the followers who may READ it — the requester
+// must never learn that a staff-only conversation happened.
+//
+// The staff a comment mentions are added FIRST, so a person who is mentioned AND
+// is the assignee or a follower is told ONCE, as a mention (issue #418, "one row
+// per recipient per event").
 //
 // The author is the actor, so the batch's own rules keep them out, and anyone
 // who cannot open the ticket is dropped. Internal comments add one more rule:
 // the recipient's role must hold CapCommentInternal, the same capability that
-// gates reading and writing them. A legacy ticket naming a user-role assignee
-// therefore notifies nobody rather than leaking the hidden conversation.
-func commentNotifications(t *domain.Ticket, visibility domain.CommentVisibility, actorUserID *int64, at time.Time, requester, assignee *NotificationRecipient) []domain.Notification {
+// gates reading and writing them — applied to the assignee and to every follower
+// and mention, so a legacy ticket naming a user-role assignee, or a follower
+// whose account was downgraded after they followed, notifies nobody rather than
+// leaking the hidden conversation.
+func commentNotifications(t *domain.Ticket, visibility domain.CommentVisibility, actorUserID *int64, at time.Time, r recipients) []domain.Notification {
 	if t == nil {
 		return nil
 	}
 	b := newNotificationBatch(t, actorUserID, at)
 	// A comment carries no state or priority change, so the rows hold the kind
 	// and the comment id alone (S15: never a rendered sentence).
-	if visibility == domain.CommentInternal {
+	internal := visibility == domain.CommentInternal
+	for _, m := range r.mentioned {
+		if internal && !canSeeInternalComments(&m.recipient) {
+			continue
+		}
+		b.addVerified(domain.NotificationMentioned, m, nil, nil)
+	}
+	if internal {
 		// The requester is absent from this branch by construction, not by a
-		// filter: there is no path that hands an internal comment the
-		// requester candidate.
-		if canSeeInternalComments(assignee) {
-			b.add(domain.NotificationCommentInternal, assignee, nil, nil)
+		// filter: there is no path that hands an internal comment the requester
+		// candidate.
+		if canSeeInternalComments(r.assignee) {
+			b.add(domain.NotificationCommentInternal, r.assignee, nil, nil)
+		}
+		for _, f := range r.followers {
+			if !canSeeInternalComments(&f.recipient) {
+				continue
+			}
+			b.addVerified(domain.NotificationCommentInternal, f, nil, nil)
 		}
 		return b.list()
 	}
-	b.add(domain.NotificationCommentPublic, requester, nil, nil)
-	b.add(domain.NotificationCommentPublic, assignee, nil, nil)
+	b.add(domain.NotificationCommentPublic, r.requester, nil, nil)
+	b.add(domain.NotificationCommentPublic, r.assignee, nil, nil)
+	for _, f := range r.followers {
+		b.addVerified(domain.NotificationCommentPublic, f, nil, nil)
+	}
 	return b.list()
 }
 

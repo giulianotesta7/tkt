@@ -36,6 +36,20 @@ type TicketService struct {
 	// nil keeps the legacy behaviour for callers that do not supply it (no
 	// resolution, no commitment).
 	sla *SLAService
+	// followers resolves the staff subscribed to a ticket (issue #418), so the
+	// state, priority, assignment and resolution changes below also reach the
+	// people who asked to hear about it. Nil keeps the wiring without follower
+	// fan-out.
+	followers *FollowService
+}
+
+// WithFollowers wires the follower collaborator (issue #418) and returns the
+// service, so the composition root chains it onto the constructor. Without it
+// the ticket changes notify the requester and the assignee only, exactly as
+// before the follower fan-out existed.
+func (s *TicketService) WithFollowers(followers *FollowService) *TicketService {
+	s.followers = followers
+	return s
 }
 
 // NewTicketService wires the ticket use cases against the given ports: the
@@ -262,6 +276,7 @@ func (s *TicketService) Assign(ctx context.Context, actor domain.User, ticketID 
 		return nil, domain.NewForbiddenError(domain.ErrMsgClosedTicketReadOnly)
 	}
 	var newAssignee *NotificationRecipient
+	assigneeName := ""
 	if assigneeID != nil {
 		if actor.Role == domain.RoleAgent && t.UserID == nil && *assigneeID != actor.ID {
 			return nil, domain.NewForbiddenError("agents may only claim tickets for themselves")
@@ -278,8 +293,10 @@ func (s *TicketService) Assign(ctx context.Context, actor domain.User, ticketID 
 		}
 		// The assignment target is already loaded and validated, so it is the
 		// notification candidate: S10 tells the new assignee about the
-		// assignment (and the actor rule drops a self-claim).
+		// assignment (and the actor rule drops a self-claim). Its display name is
+		// the fact the followers' row carries.
 		newAssignee = recipientOf(user)
+		assigneeName = user.Name
 	}
 	// Same assignee (or both unassigned): no-op — no event, no refresh.
 	if t.UserID != nil && assigneeID != nil && *t.UserID == *assigneeID {
@@ -289,6 +306,14 @@ func (s *TicketService) Assign(ctx context.Context, actor domain.User, ticketID 
 	if t.UserID != nil && assigneeID != nil && strings.TrimSpace(reason) == "" {
 		return nil, domain.NewReassignReasonRequiredError()
 	}
+
+	followers, err := s.followers.followerRecipients(ctx, t.ID)
+	if err != nil {
+		return nil, err
+	}
+	// The outgoing assignee is dropped: this change takes the ticket away from
+	// them, so a row about its new holder would address somebody it locked out.
+	followers = withoutRecipient(followers, t.UserID)
 
 	now := s.clock.Now()
 	from := ""
@@ -318,7 +343,7 @@ func (s *TicketService) Assign(ctx context.Context, actor domain.User, ticketID 
 	mutation := TicketMutation{
 		Ticket:        t,
 		Events:        []domain.AuditEvent{event},
-		Notifications: assignmentNotifications(t, newAssignee, &actor.ID, now),
+		Notifications: assignmentNotifications(t, newAssignee, assigneeName, &actor.ID, now, followers),
 	}
 	if err := s.tx.Update(ctx, mutation); err != nil {
 		return nil, err
@@ -389,15 +414,15 @@ func (s *TicketService) Transition(ctx context.Context, actor domain.User, ticke
 		event.ClosureVia = &via
 	}
 	events = append(events, *event)
-	requester, assignee, err := ticketRecipients(ctx, s.users, t)
+	r, err := ticketChangeRecipients(ctx, s.users, s.followers, t)
 	if err != nil {
 		return nil, err
 	}
 	// S10 state row (#344): requester and assignee, with the resolve move
-	// asking the requester to confirm instead. Ending a hold on the way to a
-	// terminal state adds no notification of its own: the state change is the
-	// news.
-	notifications := stateChangeNotifications(t, from, to, &actor.ID, event.CreatedAt, requester, assignee)
+	// asking the requester to confirm instead; the ticket's followers hear the
+	// plain state change (issue #418). Ending a hold on the way to a terminal
+	// state adds no notification of its own: the state change is the news.
+	notifications := stateChangeNotifications(t, from, to, &actor.ID, event.CreatedAt, r)
 	if hold != nil {
 		// The shift is computed only once the move is legal: a refused transition
 		// must not read the SLA or the calendar on its way out.
@@ -534,17 +559,18 @@ func (s *TicketService) ConfirmResolution(ctx context.Context, actor domain.User
 	event.ActorUserID = &actor.ID
 	via := domain.ClosureViaRequesterConfirmation
 	event.ClosureVia = &via
-	_, assignee, err := ticketRecipients(ctx, s.users, t)
+	r, err := ticketChangeRecipients(ctx, s.users, s.followers, t)
 	if err != nil {
 		return nil, err
 	}
 	mutation := TicketMutation{
 		Ticket: t,
 		Events: []domain.AuditEvent{*event},
-		// S10: the assignee learns the resolution was confirmed; the requester
-		// is the actor and is never told about their own answer.
+		// The assignee and the ticket's followers learn the resolution was
+		// confirmed; the requester is the actor and is never told about their own
+		// answer.
 		Notifications: resolutionNotifications(t, domain.NotificationResolutionConfirmed,
-			domain.StateResolved, t.State, &actor.ID, event.CreatedAt, assignee),
+			domain.StateResolved, t.State, &actor.ID, event.CreatedAt, r),
 	}
 	if err := s.tx.Update(ctx, mutation); err != nil {
 		return nil, err
@@ -584,17 +610,18 @@ func (s *TicketService) RejectResolution(ctx context.Context, actor domain.User,
 	t.WorkflowVersionID = nil
 	event.Actor = actor.Name
 	event.ActorUserID = &actor.ID
-	_, assignee, err := ticketRecipients(ctx, s.users, t)
+	r, err := ticketChangeRecipients(ctx, s.users, s.followers, t)
 	if err != nil {
 		return nil, err
 	}
 	mutation := TicketMutation{
 		Ticket: t,
 		Events: []domain.AuditEvent{*event},
-		// S10: the assignee learns the resolution was rejected; the requester is
-		// the actor and is never told about their own answer.
+		// The assignee and the ticket's followers learn the resolution was
+		// rejected; the requester is the actor and is never told about their own
+		// answer.
 		Notifications: resolutionNotifications(t, domain.NotificationResolutionRejected,
-			domain.StateResolved, t.State, &actor.ID, event.CreatedAt, assignee),
+			domain.StateResolved, t.State, &actor.ID, event.CreatedAt, r),
 	}
 	if err := s.tx.Update(ctx, mutation); err != nil {
 		return nil, err
@@ -647,12 +674,12 @@ func (s *TicketService) Update(ctx context.Context, actor domain.User, ticketID 
 		if ev.Field == nil || *ev.Field != "priority" {
 			continue
 		}
-		requester, assignee, err := ticketRecipients(ctx, s.users, t)
+		r, err := ticketChangeRecipients(ctx, s.users, s.followers, t)
 		if err != nil {
 			return nil, err
 		}
 		notifications = priorityChangeNotifications(t, domain.Priority(derefString(ev.FromValue)),
-			domain.Priority(derefString(ev.ToValue)), &actor.ID, ev.CreatedAt, requester, assignee)
+			domain.Priority(derefString(ev.ToValue)), &actor.ID, ev.CreatedAt, r)
 	}
 	if err := s.tx.Update(ctx, TicketMutation{Ticket: t, Events: events, Notifications: notifications}); err != nil {
 		return nil, err

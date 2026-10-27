@@ -74,6 +74,17 @@ const (
 	// one kind that is not about a ticket: it announces the pending account
 	// itself, so it names that account instead of a ticket.
 	NotificationCompanyAccountPending NotificationKind = "company_account_pending"
+	// NotificationMentioned: a staff member was mentioned in a comment on the
+	// ticket (issue #418). It describes a comment, so it
+	// carries its comment id and a requester must never receive it — only
+	// staff who can already open the ticket can be mentioned, and a mention
+	// never grants access.
+	NotificationMentioned NotificationKind = "mentioned"
+	// NotificationAssigneeChanged: the ticket was assigned or unassigned and a
+	// FOLLOWER has to learn it (issue #418). ToValue carries the
+	// new assignee's display name as a snapshot; nil means the ticket is now
+	// unassigned. The new assignee keeps NotificationAssigned instead.
+	NotificationAssigneeChanged NotificationKind = "assignee_changed"
 )
 
 // notificationKinds is the single copy of the vocabulary. The migration's
@@ -98,6 +109,8 @@ var notificationKinds = []NotificationKind{
 	NotificationSLAResolutionBreached,
 	NotificationNoMovement,
 	NotificationCompanyAccountPending,
+	NotificationMentioned,
+	NotificationAssigneeChanged,
 }
 
 // Valid reports whether k is one of the persisted kinds. Unknown values are
@@ -113,9 +126,10 @@ func (k NotificationKind) Valid() bool {
 
 // IsComment reports whether k describes a comment, the only kinds that carry
 // a comment id and the only kinds whose visibility a requester must never
-// learn about (S16).
+// learn about (S16). A mention is one of them: it is written from a comment
+// and addressed to staff only (issue #418).
 func (k NotificationKind) IsComment() bool {
-	return k == NotificationCommentPublic || k == NotificationCommentInternal
+	return k == NotificationCommentPublic || k == NotificationCommentInternal || k == NotificationMentioned
 }
 
 // Notification is one entry of a user's in-app notification center (issue

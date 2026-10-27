@@ -215,6 +215,7 @@ func TestRejectResolutionKeepsHistoricalSolutionAndAssignee(t *testing.T) {
 		name    string
 		body    string
 		wantRow string
+		actor   string
 	}{
 		{
 			name: "staff detail",
@@ -222,6 +223,9 @@ func TestRejectResolutionKeepsHistoricalSolutionAndAssignee(t *testing.T) {
 			// A staff actor keeps the assign picker; its button names the
 			// retained assignee, never the Unassigned placeholder.
 			wantRow: `<span class="listbox-current">Admin</span>`,
+			// Issue #438, S4: the completing actor IS the reader here, so the
+			// viewer-relative feed names them as You.
+			actor: `<strong class="timeline-actor">You</strong> <span class="timeline-action">completed the task</span>`,
 		},
 		{
 			name: "requester detail",
@@ -229,13 +233,15 @@ func TestRejectResolutionKeepsHistoricalSolutionAndAssignee(t *testing.T) {
 			// The last assignee stays readable in the Properties panel; the
 			// picker stays out of a requester's ticket (issue #263, S6).
 			wantRow: `<span id="assign-user-value" class="prop-value">Admin</span>`,
+			// Somebody else's event keeps their name.
+			actor: `<strong class="timeline-actor">Admin</strong> <span class="timeline-action">completed the task</span>`,
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			for _, want := range []string{
 				`<article class="timeline-entry timeline-event timeline-manual">`,
 				`<div class="timeline-entry-head">`,
-				`<strong class="timeline-actor">Admin</strong> <span class="timeline-action">completed the task</span>`,
+				tc.actor,
 				`<dt>Solution</dt>`,
 				`<dd>` + solution + `</dd>`,
 				tc.wantRow,
