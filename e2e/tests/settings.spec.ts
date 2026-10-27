@@ -129,7 +129,9 @@ test.describe("Settings", () => {
       await page.locator(`label.swatch:has(input[value="${color}"])`).click();
       await page.getByRole("button", { name: /save appearance/i }).click();
       await page.reload();
-      await expect(page.locator(`input[name="internal_comment_bg"][value="${color}"]`)).toBeChecked();
+      await expect(
+        page.locator(`input[name="internal_comment_bg"][value="${color}"]`),
+      ).toBeChecked();
       for (const theme of ["light", "dark"] as const) {
         await page.emulateMedia({ colorScheme: theme });
         await page.goto(base() + `/tickets/${ticketId}`);
@@ -137,7 +139,10 @@ test.describe("Settings", () => {
         await expect(note).toContainText("A staff-only note.");
         for (const locator of [note, note.locator(".timeline-entry-head"), note.locator("time")]) {
           const contrast = await measureContrast(locator);
-          expect(contrast.ratio, `${color} ${theme}: ${contrast.fg} on ${contrast.bg}`).toBeGreaterThanOrEqual(4.5);
+          expect(
+            contrast.ratio,
+            `${color} ${theme}: ${contrast.fg} on ${contrast.bg}`,
+          ).toBeGreaterThanOrEqual(4.5);
         }
       }
       await page.emulateMedia({ colorScheme: "light" });
