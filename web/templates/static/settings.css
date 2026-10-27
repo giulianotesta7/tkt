@@ -748,6 +748,8 @@
 }
 
 .stepper input {
+  appearance: textfield;
+  -moz-appearance: textfield;
   width: 56px;
   height: 36px;
   padding: 0;
