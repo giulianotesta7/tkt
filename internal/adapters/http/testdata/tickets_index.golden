@@ -72,6 +72,8 @@
     <div>
       <h1 class="page-title">Tickets</h1>
     </div>
+    <div class="page-actions">
+    </div>
   </header>
 </div><section id="tickets-screen" class="page-foundation tickets-screen"><p class="page-subtitle">2 tickets</p><nav id="queue-tabs" class="queue-tabs" aria-label="Tickets">
   <a class="queue-export" href="" download><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11"/><path d="m7 10 5 5 5-5"/><path d="M5 20h14"/></svg>Download CSV</a>

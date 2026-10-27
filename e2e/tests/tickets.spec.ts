@@ -868,7 +868,7 @@ test.describe("Ticket Lifecycle", () => {
       page,
       async () => {
         await page.getByLabel("State").selectOption("new");
-        await page.getByLabel("Priority").selectOption("low");
+        await page.locator("#queue-filters").getByLabel("Priority").selectOption("low");
         await page.getByLabel("Category").selectOption({ label: "General" });
         await searchInput.fill(uniqueTitle);
       },
@@ -895,7 +895,7 @@ test.describe("Ticket Lifecycle", () => {
     });
     await expect(page.getByLabel("Search tickets")).toHaveValue(uniqueTitle);
     await expect(page.getByLabel("State")).toHaveValue("new");
-    await expect(page.getByLabel("Priority")).toHaveValue("low");
+    await expect(page.locator("#queue-filters").getByLabel("Priority")).toHaveValue("low");
     // Every active filter is a removable chip.
     const chips = page.locator(".queue-chips .queue-chip");
     await expect(chips).toHaveCount(4);
@@ -925,7 +925,7 @@ test.describe("Ticket Lifecycle", () => {
         expectedUrl: /\/tickets\?/,
       },
     );
-    await expect(page.getByLabel("Priority")).toHaveValue("");
+    await expect(page.locator("#queue-filters").getByLabel("Priority")).toHaveValue("");
     await expect(page.locator(".queue-chips .queue-chip")).toHaveCount(3);
 
     // 2. Search for an impossible term — empty state
@@ -970,7 +970,7 @@ test.describe("Ticket Lifecycle", () => {
     });
     await expect(page.getByLabel("Search tickets")).toHaveValue("");
     await expect(page.getByLabel("State")).toHaveValue("");
-    await expect(page.getByLabel("Priority")).toHaveValue("");
+    await expect(page.locator("#queue-filters").getByLabel("Priority")).toHaveValue("");
 
     // 4. Enter preserves a nonempty assignee filter and applies AND semantics.
     await assertHtmxSwap(
@@ -1094,7 +1094,7 @@ test.describe("Ticket Lifecycle", () => {
       async () => {
         await page.getByLabel("Search tickets").fill(title);
         await page.getByLabel("State").selectOption("new");
-        await page.getByLabel("Priority").selectOption("low");
+        await page.locator("#queue-filters").getByLabel("Priority").selectOption("low");
         await page.getByLabel("Category").selectOption(categoryID);
         await page.getByLabel("Assigned user").selectOption("1");
         await page.getByLabel("Order by").selectOption("priority");
@@ -1164,7 +1164,7 @@ test.describe("Ticket Lifecycle", () => {
       await expect(page).toHaveURL(sourceQueue.href);
       await expect(page.getByLabel("Search tickets")).toHaveValue(title);
       await expect(page.getByLabel("Order by")).toHaveValue("priority");
-      await expect(page.getByLabel("Priority")).toHaveValue(
+      await expect(page.locator("#queue-filters").getByLabel("Priority")).toHaveValue(
         sourceQueue.searchParams.get("priority") ?? "",
       );
       await expect(page.getByLabel("Assigned user")).toHaveValue("1");

@@ -7,7 +7,7 @@
     </div>
   </div>
 {{if .Error}}<div class="error-banner" role="alert">{{.Error}}</div>{{end}}  <div class="preferences-sections">
-    <section class="preferences-section">
+{{if .QueueError}}    <section class="preferences-section">
       <div class="preferences-section-head">
         <h2>{{t "preferences.queue.title"}}</h2>
         <p>{{t "preferences.queue.help"}}</p>
@@ -23,7 +23,7 @@
           <button class="btn primary" type="submit">{{t "preferences.save"}}</button>
         </div>
       </form>
-    </section>
+    </section>{{end}}
     <section class="preferences-section">
       <div class="preferences-section-head">
         <h2>{{t "preferences.language.title"}}</h2>

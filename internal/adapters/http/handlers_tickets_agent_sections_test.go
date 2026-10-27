@@ -150,7 +150,7 @@ func TestTicketsIndexAgentSplitsOpenFromDoneSections(t *testing.T) {
 
 	// S4: finished work is collapsed at the end of the assigned section, with
 	// its own count.
-	doneSection := between(t, body, "<details", `id="claimable-tickets-title"`)
+	doneSection := between(t, body, `<details class="agent-fold"`, `id="claimable-tickets-title"`)
 	if !strings.HasPrefix(doneSection, `<details class="agent-fold">`) {
 		t.Errorf("done disclosure must render collapsed, got: %s", doneSection)
 	}
@@ -214,7 +214,7 @@ func TestTicketsIndexAgentDoneSectionKeepsItsOwnCursor(t *testing.T) {
 	}
 
 	first := agentSectionsBody(t, h, sess.ID, "?q=paging")
-	doneSection := between(t, first, "<details", `id="claimable-tickets-title"`)
+	doneSection := between(t, first, `<details class="agent-fold"`, `id="claimable-tickets-title"`)
 	if !strings.HasPrefix(doneSection, `<details class="agent-fold">`) {
 		t.Errorf("first done page must stay collapsed, got: %s", doneSection)
 	}
@@ -230,7 +230,7 @@ func TestTicketsIndexAgentDoneSectionKeepsItsOwnCursor(t *testing.T) {
 	}
 
 	second := agentSectionsBody(t, h, sess.ID, "?q=paging&done_page=2")
-	openDone := between(t, second, "<details", `id="claimable-tickets-title"`)
+	openDone := between(t, second, `<details class="agent-fold"`, `id="claimable-tickets-title"`)
 	if !strings.HasPrefix(openDone, `<details class="agent-fold" open>`) {
 		t.Errorf("a done page beyond the first must render the disclosure open, got: %s", openDone)
 	}
@@ -284,7 +284,7 @@ func TestTicketsIndexAgentSearchSpansOpenDoneAndClaimable(t *testing.T) {
 	if !strings.Contains(openSection, "Printer open case") || strings.Contains(openSection, "Laptop open case") {
 		t.Errorf("search must filter the open section, got: %s", openSection)
 	}
-	doneSection := between(t, body, "<details", `id="claimable-tickets-title"`)
+	doneSection := between(t, body, `<details class="agent-fold"`, `id="claimable-tickets-title"`)
 	if !strings.Contains(doneSection, "Printer finished case") {
 		t.Errorf("search must reach the done section, got: %s", doneSection)
 	}
@@ -329,7 +329,7 @@ func TestTicketsIndexAgentListsCancelledTicketsInTheDoneSection(t *testing.T) {
 	if want := agentHeading("Assigned to me", 1); !strings.Contains(body, want) {
 		t.Errorf("open section heading must contain %q, got: %s", want, body)
 	}
-	done := between(t, body, "<details", "</details>")
+	done := between(t, body, `<details class="agent-fold"`, "</details>")
 	for _, want := range []string{"Cancelled assigned ticket", `<span class="agent-fold-count">· 1</span>`, ">Cancelled<"} {
 		if !strings.Contains(done, want) {
 			t.Errorf("done section must contain %q, got: %s", want, done)

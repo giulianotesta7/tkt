@@ -109,8 +109,8 @@ func TestPreferencesExistingSavesNeverTouchTheTheme(t *testing.T) {
 	// The page itself is unchanged: it still renders both existing forms and
 	// stores nothing by being read.
 	body := h.get(t, "/preferences", false).Body.String()
-	if !strings.Contains(body, `action="/preferences"`) {
-		t.Errorf("the queue-order form is gone, got: %s", body)
+	if !strings.Contains(h.get(t, "/tickets", false).Body.String(), `action="/preferences/queue-order"`) {
+		t.Error("the queue-order form is missing from tickets")
 	}
 	if !strings.Contains(body, `action="/preferences/email"`) {
 		t.Errorf("the email form is gone, got: %s", body)

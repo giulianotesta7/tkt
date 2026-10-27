@@ -117,16 +117,15 @@ func TestPreferencesPageRendersAlignedSections(t *testing.T) {
 	if !strings.Contains(body, `class="preferences-screen"`) {
 		t.Errorf("the page must render under its own root: %s", body)
 	}
-	if got := strings.Count(body, `class="preferences-section"`); got != 6 {
-		t.Errorf("preferences sections = %d, want six preferences: %s", got, body)
+	if got := strings.Count(body, `class="preferences-section"`); got != 5 {
+		t.Errorf("preferences sections = %d, want five remaining preferences: %s", got, body)
 	}
-	if got := strings.Count(body, `class="preferences-form"`); got != 6 {
+	if got := strings.Count(body, `class="preferences-form"`); got != 5 {
 		t.Errorf("preferences forms = %d, want one per section: %s", got, body)
 	}
 	// Each section keeps its own endpoint and its own submit: saving one
 	// preference can never write another one's key.
 	for _, section := range []struct{ action, save string }{
-		{action: `action="/preferences"`, save: "Save preferences"},
 		{action: `action="/preferences/language"`, save: "Save language"},
 		{action: `action="/preferences/theme"`, save: "Save theme"},
 		{action: `action="/preferences/timeline-order"`, save: "Save activity order"},
@@ -159,14 +158,11 @@ func TestPreferencesSectionsKeepTheirExistingFields(t *testing.T) {
 	for _, want := range []string{
 		`name="language"`,
 		`value="instance"`,
-		`name="queue_order"`,
 		`name="theme"`,
 		`name="timeline_order"`,
 		`value="oldest"`,
 		`name="email_notifications"`,
 		`value="newest"`,
-		`value="priority"`,
-		`value="urgency"`,
 		`value="system"`,
 		`value="light"`,
 		`value="dark"`,
@@ -178,8 +174,8 @@ func TestPreferencesSectionsKeepTheirExistingFields(t *testing.T) {
 	// Three selects and one checkbox across the stored preferences: the password
 	// section adds none of either kind. The activity order (issue #438, S1) is the
 	// third select and follows the same closed-set shape as the other two.
-	if got := strings.Count(content, "<select"); got != 4 {
-		t.Errorf("select controls = %d, want queue order, language, theme, and activity order: %s", got, content)
+	if got := strings.Count(content, "<select"); got != 3 {
+		t.Errorf("select controls = %d, want language, theme, and activity order: %s", got, content)
 	}
 	if got := strings.Count(content, `type="checkbox"`); got != 1 {
 		t.Errorf("checkboxes = %d, want the email switch: %s", got, content)
@@ -238,7 +234,6 @@ func TestRedesignedScreensSpeakSpanish(t *testing.T) {
 	preferences := renderLocalized(t, "es", "preferences", "", fixturePreferencesPageData())
 	for _, want := range []string{
 		"Preferencias",
-		"Orden de la cola", "Orden de cola por defecto", "Guardar preferencias",
 		"Tema", "Guardar tema",
 		"Orden de la actividad", "Orden de la actividad por defecto", "Más nuevo primero", "Más antiguo primero", "Guardar orden de la actividad",
 		"Notificaciones por email", "Recibir notificaciones por email", "Guardar preferencia de email",
@@ -247,7 +242,7 @@ func TestRedesignedScreensSpeakSpanish(t *testing.T) {
 			t.Errorf("Spanish preferences must render %q, got: %.800s", want, preferences)
 		}
 	}
-	for _, unwanted := range []string{">Preferences<", ">Queue order<", ">Save theme<", ">Activity order<", ">Oldest first<"} {
+	for _, unwanted := range []string{">Preferences<", ">Default sorting<", ">Save theme<", ">Activity order<", ">Oldest first<"} {
 		if strings.Contains(preferences, unwanted) {
 			t.Errorf("Spanish preferences must not render the English %q", unwanted)
 		}

@@ -200,7 +200,7 @@ func TestPreferencesEmailSaveLeavesQueueOrderAlone(t *testing.T) {
 	if got := storedQueueOrder(t, h, h.admin.ID); got != "urgency" {
 		t.Errorf("an email save must not rewrite the queue order, got %q", got)
 	}
-	if body := h.get(t, "/preferences", false).Body.String(); !strings.Contains(body, `value="urgency" selected`) {
+	if body := h.get(t, "/tickets", false).Body.String(); !strings.Contains(body, `<option value="urgency" selected>`) {
 		t.Errorf("the page must still show the stored queue order, got: %s", body)
 	}
 }

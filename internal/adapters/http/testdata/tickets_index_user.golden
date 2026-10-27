@@ -76,7 +76,8 @@
   <label class="visually-hidden" for="role-ticket-search">Search tickets</label>
   <svg class="search-icon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4 4"/></svg>
   <input id="role-ticket-search" type="search" name="q" value="printer" placeholder="Search by ID or title" aria-label="Search tickets" hx-preserve="true" hx-get="/tickets" hx-trigger="input changed delay:300ms" hx-target="#tickets-screen" hx-swap="outerHTML" hx-push-url="true">
-</form></div>
+</form>
+    </div>
   </header>
 </div><section id="tickets-screen" class="page-foundation tickets-screen"><p class="page-subtitle">3 open tickets</p><div id="user-ticket-list">
   <section class="req-section" aria-labelledby="action-tickets-title">

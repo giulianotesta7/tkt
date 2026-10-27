@@ -34,6 +34,23 @@
   foldFilters();
   document.addEventListener("htmx:afterSwap", foldFilters);
 
+  document.addEventListener("change", (event) => {
+    const select = event.target;
+    if (!(select instanceof HTMLSelectElement) || select.id !== "queue-default-order") return;
+    if (select.form) select.form.requestSubmit();
+  });
+
+  // The header survives HTMX list swaps, so capture the current pushed URL
+  // when the native preference form is submitted, not just on initial render.
+  document.addEventListener("submit", (event) => {
+    const form = event.target;
+    if (!(form instanceof HTMLFormElement) || !form.classList.contains("queue-default-options"))
+      return;
+    const returnField = form.querySelector('input[name="return"]');
+    if (returnField instanceof HTMLInputElement)
+      returnField.value = window.location.pathname + window.location.search;
+  });
+
   document.addEventListener("click", (event) => {
     if (event.defaultPrevented || event.button !== 0) return;
     if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;

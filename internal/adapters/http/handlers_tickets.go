@@ -904,6 +904,9 @@ func ticketIDs(tickets []domain.Ticket) []int64 {
 // listData is the tickets index payload (page + HX fragment share it).
 type listData struct {
 	pageData
+	DefaultQueueOrder   string
+	QueueOrders         []queueOrderOption
+	QueueReturnHref     string
 	Filters             filterState
 	Options             options
 	Tickets             []ticketRow
@@ -1293,6 +1296,13 @@ func (h *TicketHandlers) list(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		httpError(w, r, "error.internal_server", http.StatusInternalServerError)
 		return
+	}
+	if h.preferences != nil && userFromContext(r.Context()).Role != domain.RoleUser {
+		data.DefaultQueueOrder, err = h.preferences.GetDefaultQueueOrder(r.Context(), *userFromContext(r.Context()))
+		if err == nil {
+			data.QueueOrders = queueOrderOptions()
+			data.QueueReturnHref = queueOrderReturnHref(r.URL.RequestURI())
+		}
 	}
 	h.renderer.Render(w, r, "tickets_index", "tickets_screen", data, http.StatusOK)
 }

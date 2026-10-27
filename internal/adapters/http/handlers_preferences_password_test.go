@@ -162,7 +162,7 @@ func TestPreferencesPasswordSectionFollowsTheInstanceSwitch(t *testing.T) {
 		}
 	}
 	// The other preferences keep their own controls.
-	if !strings.Contains(body, `name="queue_order"`) {
+	if !strings.Contains(body, `name="theme"`) {
 		t.Error("with the switch OFF the page must keep the other preference sections")
 	}
 }
