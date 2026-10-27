@@ -63,7 +63,23 @@ test.describe("Settings", () => {
     await page.goto(base() + "/settings/tickets");
     await expect(page.locator("h1").filter({ hasText: "Settings" })).toBeVisible();
     await expect(page.locator("h2").filter({ hasText: "Tickets & SLA" })).toBeVisible();
-    await expect(page.locator("h3").filter({ hasText: "Appearance" })).toBeVisible();
+    const appearance = page.locator('form[action="/settings/appearance"]');
+    await expect(
+      appearance.getByRole("heading", { name: "Internal comment background", exact: true }),
+    ).toBeVisible();
+    await expect(appearance.locator("h2")).toHaveCount(0);
+    await expect(page.locator(".settings-content > h2")).toHaveText("Tickets & SLA");
+    expect(
+      await page
+        .locator(".settings-content > form")
+        .evaluateAll((forms) => forms.map((form) => form.getAttribute("action"))),
+    ).toEqual([
+      "/settings/ticket-creation",
+      "/settings/category-suggestions",
+      "/settings/sla",
+      "/settings/hold-auto-close",
+      "/settings/appearance",
+    ]);
 
     const radios = page.locator('input[name="internal_comment_bg"]');
     await expect(radios).toHaveCount(3);
@@ -782,6 +798,13 @@ test.describe("Settings", () => {
       failedResponses: obs.failedResponses,
     });
 
+    await page.goto(base() + "/settings/tickets");
+    await expect(page.locator(".settings-content > h2")).toHaveText("Tickets y SLA");
+    await expect(page.locator('form[action="/settings/appearance"] h3')).toHaveText(
+      "Fondo de los comentarios internos",
+    );
+    await expect(page.locator('form[action="/settings/appearance"] h2')).toHaveCount(0);
+
     // The tickets list: Spanish chrome, view tabs and the relative time.
     await page.goto(base() + "/tickets");
     await expect(page.locator("html")).toHaveAttribute("lang", "es");
@@ -1022,7 +1045,9 @@ test.describe("Settings", () => {
     await expect(page.locator("h1").filter({ hasText: "Settings" })).toBeVisible();
     await expect(page.locator("h2").filter({ hasText: "Organization" })).toBeVisible();
     await page.goto(base() + "/settings/tickets");
-    await expect(page.locator("h3").filter({ hasText: "Appearance" })).toBeVisible();
+    await expect(
+      page.locator("h3").filter({ hasText: "Internal comment background" }),
+    ).toBeVisible();
     // S1/S4: the Email section is root-only, so its nav entry is hidden and a
     // direct visit is refused.
     await expect(page.locator('.settings-nav a[href="/settings/email"]')).toHaveCount(0);

@@ -274,7 +274,7 @@ func TestSpanishSettingsScreen(t *testing.T) {
 	}
 
 	tickets := render("settings_tickets", fixtureSettingsTicketsData())
-	for _, want := range []string{"Configuración", "Apariencia", "Acuerdos de nivel de servicio (SLA)", "Azul", "Guardar apariencia",
+	for _, want := range []string{"Configuración", "Fondo de los comentarios internos", "Acuerdos de nivel de servicio (SLA)", "Azul", "Guardar apariencia",
 		// The automatic hold close (issue #353) is a form of this section.
 		"Cierre automático de tickets en espera", "Cerrar tickets en espera tras N días hábiles sin respuesta", "Guardar el cierre automático",
 		// The category-suggestion card (issue #416) names its engines, its model
