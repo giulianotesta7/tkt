@@ -234,6 +234,58 @@ func TestSenderDeliversOneEmailPerNotificationInTheInstanceLanguage(t *testing.T
 	}
 }
 
+type emailLanguagePrefs struct {
+	values map[int64]string
+	err    error
+}
+
+func (p *emailLanguagePrefs) GetLanguage(_ context.Context, id int64) (string, error) {
+	return p.values[id], p.err
+}
+func (p *emailLanguagePrefs) SetLanguage(_ context.Context, id int64, value string) error {
+	p.values[id] = value
+	return nil
+}
+
+func TestNotificationEmailRecipientLanguage(t *testing.T) {
+	f := newSenderFixture(t)
+	prefs := &emailLanguagePrefs{values: map[int64]string{}}
+	wire, ok := any(f.sender).(interface {
+		WithLanguagePreferences(application.LanguagePreferencesStore) *application.NotificationEmailSender
+	})
+	if !ok {
+		t.Fatal("sender cannot use recipient language preferences")
+	}
+	wire.WithLanguagePreferences(prefs)
+	f.notify(f.req.ID, domain.NotificationAssigned, nil)
+	f.notify(f.agent.ID, domain.NotificationAssigned, nil)
+	prefs.values[f.req.ID] = "es"
+	f.pass(t)
+	if len(f.mailer.sent) != 2 {
+		t.Fatalf("sent %d", len(f.mailer.sent))
+	}
+	if !strings.HasPrefix(f.mailer.sent[0].email.Subject, "es:") || !strings.HasPrefix(f.mailer.sent[1].email.Subject, "en:") {
+		t.Fatalf("languages: %+v", f.mailer.sent)
+	}
+	if !strings.Contains(f.mailer.sent[0].email.Body, "Printer jams") {
+		t.Fatal("authored title changed")
+	}
+}
+
+func TestNotificationEmailLanguageReadFailureRetries(t *testing.T) {
+	f := newSenderFixture(t)
+	prefs := &emailLanguagePrefs{values: map[int64]string{}, err: errors.New("language unavailable")}
+	f.sender.WithLanguagePreferences(prefs)
+	id := f.notify(f.req.ID, domain.NotificationAssigned, nil)
+	f.pass(t)
+	if len(f.mailer.sent) != 0 {
+		t.Fatal("sent on language failure")
+	}
+	if r := f.outbox.row(id); r.status != application.EmailPending || r.attempts != 1 || r.lastError != "language unavailable" {
+		t.Fatalf("row: %+v", r)
+	}
+}
+
 func TestSenderNamesAnAutomaticActor(t *testing.T) {
 	f := newSenderFixture(t)
 	f.notify(f.agent.ID, domain.NotificationAssigned, nil)

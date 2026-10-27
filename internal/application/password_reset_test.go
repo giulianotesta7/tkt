@@ -157,6 +157,59 @@ func storedSessionIDs(f *resetFixture, user domain.User) []string {
 	return ids
 }
 
+func TestPasswordResetRecipientLanguageAtDelivery(t *testing.T) {
+	f := newResetFixture(t)
+	prefs := &emailLanguagePrefs{values: map[int64]string{}}
+	wire, ok := any(f.svc).(interface {
+		WithLanguagePreferences(application.LanguagePreferencesStore) *application.PasswordResetService
+	})
+	if !ok {
+		t.Fatal("reset service cannot use recipient language preferences")
+	}
+	wire.WithLanguagePreferences(prefs)
+	f.dispatcher.run = false
+	f.request(t, f.ana.Email)
+	prefs.values[f.ana.ID] = "es"
+	f.dispatcher.sends[0]()
+	if len(f.mailer.sent) != 1 || f.mailer.sent[0].email.Subject != "es:email.password_reset.subject[]" {
+		t.Fatalf("sent: %+v", f.mailer.sent)
+	}
+	if !strings.Contains(f.mailer.sent[0].email.Body, f.ana.Email) {
+		t.Fatal("address changed")
+	}
+}
+
+func TestPasswordResetLanguageInheritanceAndFailure(t *testing.T) {
+	f := newResetFixture(t)
+	prefs := &emailLanguagePrefs{values: map[int64]string{}}
+	f.svc.WithLanguagePreferences(prefs)
+	f.config.cfg.Language = "es"
+	f.request(t, f.ana.Email)
+	if len(f.mailer.sent) != 1 || f.mailer.sent[0].email.Subject != "es:email.password_reset.subject[]" {
+		t.Fatalf("sent: %+v", f.mailer.sent)
+	}
+	prefs.err = errors.New("language unavailable for " + f.bea.Email)
+	var logged bytes.Buffer
+	previous := log.Writer()
+	log.SetOutput(&logged)
+	t.Cleanup(func() { log.SetOutput(previous) })
+	f.request(t, f.bea.Email)
+	if len(f.mailer.sent) != 2 {
+		t.Fatalf("sent %d emails, want delivery despite preference failure", len(f.mailer.sent))
+	}
+	mail := f.mailer.sent[1].email
+	if mail.To != f.bea.Email || mail.Subject != "es:email.password_reset.subject[]" || !strings.Contains(mail.Body, "es:email.password_reset.intro["+f.bea.Email+"]") {
+		t.Fatalf("fallback email: %+v", mail)
+	}
+	raw := sentLinkToken(t, mail.Body)
+	if len(f.tokens.tokens) != 2 || f.tokens.tokens[1].hash != storedHashOfToken(raw) {
+		t.Fatal("fallback delivery did not retain the issued token")
+	}
+	if !strings.Contains(logged.String(), "language unavailable") || strings.Contains(logged.String(), f.bea.Email) || strings.Contains(logged.String(), raw) {
+		t.Fatalf("unsafe or missing log: %q", logged.String())
+	}
+}
+
 // TestPasswordResetRequestIsNeutralForEveryIneligibleRequest proves the ONE
 // silent answer (S3/S5/S9): an unknown address, an inactive account, the
 // recovery switch OFF and email delivery not configured all return nil, mail
