@@ -13,7 +13,7 @@
 import { test, expect, type Page, type Request } from "@playwright/test";
 import { startServer, stopServer } from "../server-lifecycle.js";
 import { loginAsSeeded, createUserAsAdmin, loginAs, logout, base } from "./helpers/auth.js";
-import { assertCanonicalScreen, collectObservability } from "./helpers/layout.js";
+import { assertCanonicalScreen, collectObservability, measureContrast } from "./helpers/layout.js";
 import { createTicketViaUi, openPreferencesFromUserMenu } from "./helpers/navigation.js";
 import { createSuggestableCategory } from "./helpers/suggestions.js";
 import { assertHtmxSwap } from "./helpers/htmx.js";
@@ -56,10 +56,20 @@ test.describe("Settings", () => {
     await stopServer();
   });
 
-  test("renders appearance panel with three colors and persists selection", async ({ page }) => {
+  test("renders appearance panel with five colors and persists selection", async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 800 });
     const obs = collectObservability(page);
     await loginAsSeeded(page);
+    const ticketId = await createTicketViaUi(page, {
+      title: "Comment palette contrast",
+      description: "A ticket for measuring internal comment colours.",
+      priority: "high",
+    });
+    await page.goto(base() + `/tickets/${ticketId}`);
+    await page.getByLabel("Internal comment").check();
+    await page.getByLabel("Comment body").fill("A staff-only note.");
+    await page.getByRole("button", { name: "Reply", exact: true }).click();
+    await expect(page).toHaveURL(new RegExp(`/tickets/${ticketId}$`));
     await page.goto(base() + "/settings/tickets");
     await expect(page.locator("h1").filter({ hasText: "Settings" })).toBeVisible();
     await expect(page.locator("h2").filter({ hasText: "Tickets & SLA" })).toBeVisible();
@@ -82,7 +92,9 @@ test.describe("Settings", () => {
     ]);
 
     const radios = page.locator('input[name="internal_comment_bg"]');
-    await expect(radios).toHaveCount(3);
+    await expect(radios).toHaveCount(5);
+    await expect(page.locator(".swatch-label").filter({ hasText: "Green" })).toBeVisible();
+    await expect(page.locator(".swatch-label").filter({ hasText: "Pink" })).toBeVisible();
     await expect(page.locator(".swatch-label").filter({ hasText: "Blue" })).toBeVisible();
     await expect(page.locator(".swatch-label").filter({ hasText: "Violet" })).toBeVisible();
     await expect(page.locator(".swatch-label").filter({ hasText: "Yellow" })).toBeVisible();
@@ -112,6 +124,30 @@ test.describe("Settings", () => {
     await page.reload();
     await expect(page.locator("#save-feedback")).toBeHidden();
     await expect(page.locator('input[name="internal_comment_bg"][value="#EFE9FB"]')).toBeChecked();
+
+    for (const color of ["#E6F4EA", "#FCE8F0"]) {
+      await page.locator(`label.swatch:has(input[value="${color}"])`).click();
+      await page.getByRole("button", { name: /save appearance/i }).click();
+      await page.reload();
+      await expect(
+        page.locator(`input[name="internal_comment_bg"][value="${color}"]`),
+      ).toBeChecked();
+      for (const theme of ["light", "dark"] as const) {
+        await page.emulateMedia({ colorScheme: theme });
+        await page.goto(base() + `/tickets/${ticketId}`);
+        const note = page.locator(".timeline-comment.internal").first();
+        await expect(note).toContainText("A staff-only note.");
+        for (const locator of [note, note.locator(".timeline-entry-head"), note.locator("time")]) {
+          const contrast = await measureContrast(locator);
+          expect(
+            contrast.ratio,
+            `${color} ${theme}: ${contrast.fg} on ${contrast.bg}`,
+          ).toBeGreaterThanOrEqual(4.5);
+        }
+      }
+      await page.emulateMedia({ colorScheme: "light" });
+      await page.goto(base() + "/settings/tickets");
+    }
 
     // Switch back to Blue for determinism
     await page.locator('label.swatch:has(input[value="#E8EEFF"])').click();

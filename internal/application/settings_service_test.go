@@ -239,7 +239,7 @@ func TestSettingsSetRejectsInvalidColor(t *testing.T) {
 }
 
 func TestSettingsSetPersistsAllowedColors(t *testing.T) {
-	for _, color := range AllowedInternalCommentBg() {
+	for _, color := range []string{"#E8EEFF", "#EFE9FB", "#FFF6DC", "#E6F4EA", "#FCE8F0"} {
 		t.Run(color, func(t *testing.T) {
 			st := &fakeSettingsStore{}
 			svc := NewSettingsService(st)
