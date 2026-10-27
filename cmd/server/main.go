@@ -32,6 +32,7 @@ import (
 	httpadapter "github.com/giulianotesta7/tkt/internal/adapters/http"
 	"github.com/giulianotesta7/tkt/internal/adapters/mail"
 	"github.com/giulianotesta7/tkt/internal/adapters/msgtext"
+	"github.com/giulianotesta7/tkt/internal/adapters/oidc"
 	"github.com/giulianotesta7/tkt/internal/adapters/secretbox"
 	"github.com/giulianotesta7/tkt/internal/adapters/sqlite"
 	"github.com/giulianotesta7/tkt/internal/application"
@@ -127,7 +128,7 @@ func main() {
 	clock := systemClock{}
 
 	viewBuilder := application.NewViewBuilder(store.TicketStore(), store.UserStore(), store.CategoryStore(), store.CommentStore(), store.AuditStore(), store.DeskStore(), store.WorkflowResponseStore())
-	userSvc := application.NewUserService(store.UserStore(), clock).WithPasswordSettings(store.PasswordSettingsStore()).WithPasswordChangeStore(store.PasswordChangeStore())
+	userSvc := application.NewUserService(store.UserStore(), clock).WithPasswordSettings(store.PasswordSettingsStore()).WithPasswordChangeStore(store.PasswordChangeStore()).WithCompanySignIn(store.CompanySignInSettingsStore())
 	catSvc := application.NewCategoryService(store.CategoryStore(), clock)
 	catalogSvc := application.NewCatalogService(store.CatalogStore(), store.CategoryStore(), clock)
 	deskSvc := application.NewDeskService(store.DeskStore(), store.UserStore(), clock)
@@ -140,7 +141,7 @@ func main() {
 	// The requester's reply that ends a hold shifts the resolution SLA (#352).
 	commentSvc := application.NewCommentService(store.TicketStore(), store.CommentStore(), store.UserStore(), store.CommentUnitOfWork(), clock).WithSLA(slaSvc).WithFollowers(followSvc)
 	ticketSvc := application.NewTicketServiceWithWorkflowCreate(store.TicketStore(), store.UserStore(), store.CategoryStore(), store.TicketUnitOfWork(), viewBuilder, clock, store.WorkflowVersionStore(), application.NewWorkflowRunner(clock).WithFollowers(followSvc), store.WorkflowUnitOfWork(), slaSvc).WithFollowers(followSvc)
-	authSvc := application.NewAuthService(store.UserStore(), store.SessionStore(), clock)
+	authSvc := application.NewAuthService(store.UserStore(), store.SessionStore(), clock).WithCompanySignIn(store.CompanySignInSettingsStore())
 	searchSvc := application.NewSearchService(store.TicketStore(), store.SearchStore())
 	settingsSvc := application.NewSettingsService(store.SettingsStore())
 	organizationSvc := application.NewOrganizationService(store.OrganizationStore())
@@ -154,12 +155,21 @@ func main() {
 	// company's own SMTP server. The key is not an environment variable, so the
 	// container contract is unchanged.
 	mailer := mail.NewSMTPMailer()
-	emailSettingsSvc := application.NewEmailSettingsService(store.EmailSettingsStore(), secretbox.New(filepath.Dir(dbPath)), mailer, store.SettingsStore(), msgtext.Renderer{})
+	secretBox := secretbox.New(filepath.Dir(dbPath))
+	emailSettingsSvc := application.NewEmailSettingsService(store.EmailSettingsStore(), secretBox, mailer, store.SettingsStore(), msgtext.Renderer{})
+	// Issue #419: the company sign-in client secrets are sealed like the SMTP
+	// password, each under its own purpose so one provider's ciphertext can
+	// never open as the other's. The flow reads its configuration from the
+	// database and talks to the providers through the OpenID Connect client, so
+	// no environment variable is added to the container contract.
+	companySettingsSvc := application.NewCompanySignInSettingsService(store.CompanySignInSettingsStore(),
+		secretBox.For("google-client-secret"), secretBox.For("microsoft-client-secret"))
+	companySignInSvc := application.NewCompanySignInService(companySettingsSvc, store.CompanyIdentityStore(),
+		oidc.NewClient(nil, clock), store.SessionStore(), nil, clock)
 	// Issue #416: the suggestion engines answer the creation screens, and the
 	// settings use case stores the engine and the sealed decision-model key. The
 	// key is sealed with the SAME box the SMTP password uses, so one data volume
 	// holds one key file for every secret the instance keeps.
-	secretBox := secretbox.New(filepath.Dir(dbPath))
 	suggestionSettingsSvc := application.NewCategorySuggestionSettingsService(store.CategorySuggestionSettingsStore(), secretBox)
 	suggestionSvc := application.NewCategorySuggestionService(suggestionSettingsSvc, application.NewLocalCategorySuggester(store.CategorySuggestionIndex()), application.NewDecisionCategorySuggester(decisions.NewClient()))
 	emailSender := application.NewNotificationEmailSender(store.EmailOutbox(), emailSettingsSvc, store.UserStore(), store.TicketStore(), store.EmailPreferences(), mailer, msgtext.Renderer{}, clock)
@@ -169,7 +179,7 @@ func main() {
 	// unknown one by how long the form took. The send detaches from the request
 	// context, bounds itself (PasswordResetSendTimeout) and logs its failure with
 	// the token and the address redacted.
-	resetSvc := application.NewPasswordResetService(store.UserStore(), store.PasswordResetStore(), store.PasswordSettingsStore(), emailSettingsSvc, mailer, msgtext.Renderer{}, application.AsyncPasswordResetDispatch, clock)
+	resetSvc := application.NewPasswordResetService(store.UserStore(), store.PasswordResetStore(), store.PasswordSettingsStore(), emailSettingsSvc, mailer, msgtext.Renderer{}, application.AsyncPasswordResetDispatch, clock).WithCompanySignIn(store.CompanySignInSettingsStore())
 	// Issue #353: the automatic hold expiry closes a ticket whose requester
 	// never replied, after warning them one working day earlier. It shares the
 	// SLA service with the ticket use cases, so an automatic close shifts the
@@ -199,18 +209,25 @@ func main() {
 	mux := http.NewServeMux()
 	httpadapter.RegisterStatic(mux, store.SettingsStore())
 	httpadapter.NewBrandHandlers(store.OrganizationStore()).WithSignin(store.SigninStore()).Register(mux)
-	httpadapter.NewAuthHandlers(authSvc, userSvc, renderer).WithSignin(signinSvc).WithPasswordRecovery(resetSvc, passwordSettingsSvc, emailSettingsSvc).Register(mux)
+	httpadapter.NewAuthHandlers(authSvc, userSvc, renderer).WithSignin(signinSvc).WithPasswordRecovery(resetSvc, passwordSettingsSvc, emailSettingsSvc).WithCompanySignIn(companySettingsSvc, companySignInSvc).Register(mux)
 	ticketHandlers := httpadapter.NewTicketHandlers(ticketSvc, commentSvc, searchSvc, catSvc, userSvc, store.DeskStore(), workflowSvc, application.NewWorkflowRunner(clock).WithFollowers(followSvc), store.WorkflowRunStore(), store.WorkflowUnitOfWork(), renderer, catalogSvc).WithMetrics(metricsSvc).WithSLA(slaSvc).WithPreferences(preferencesSvc).WithClock(clock).WithVisits(visitSvc).WithAttachments(store.AttachmentStore(), attachmentSvc).WithCannedReplies(cannedReplySvc).WithFollows(followSvc).WithCategorySuggestions(suggestionSvc)
 	ticketHandlers.Register(mux)
 	httpadapter.NewSavedReplyHandlers(cannedReplySvc, renderer).Register(mux)
-	httpadapter.NewUserHandlers(userSvc, renderer).Register(mux)
+	// Issue #419: the Pending tab reads the accounts a company sign-in left
+	// waiting and approves a selected batch through its own store port.
+	userHandlers := httpadapter.NewUserHandlers(userSvc, renderer)
+	userHandlers.WithPendingUsers(application.NewPendingUsersService(store.PendingUserStore(), clock)).Register(mux)
 	httpadapter.NewCategoryHandlersWithWorkflows(catSvc, workflowSvc, renderer, catalogSvc).WithSettings(store.SettingsStore()).Register(mux)
 	httpadapter.NewCategoryWorkflowHandlers(catSvc, workflowSvc, deskSvc, renderer).Register(mux)
 	httpadapter.NewDeskHandlers(deskSvc, renderer).Register(mux)
-	httpadapter.NewSettingsHandlers(settingsSvc, slaSvc, store.SLAStore(), store.SettingsStore(), renderer).WithEmail(emailSettingsSvc).WithOrganization(organizationSvc).WithSignin(signinSvc).WithPasswordSettings(passwordSettingsSvc).WithCategorySuggestions(suggestionSettingsSvc, suggestionSvc, ticketHandlers).Register(mux)
+	httpadapter.NewSettingsHandlers(settingsSvc, slaSvc, store.SLAStore(), store.SettingsStore(), renderer).WithEmail(emailSettingsSvc).WithOrganization(organizationSvc).WithSignin(signinSvc).WithPasswordSettings(passwordSettingsSvc).WithCategorySuggestions(suggestionSettingsSvc, suggestionSvc, ticketHandlers).WithCompanySignIn(companySettingsSvc).Register(mux)
 	httpadapter.NewCategorySLAHandlers(catSvc, slaSvc, store.SLAStore(), renderer).Register(mux)
 	httpadapter.NewPreferencesHandlers(preferencesSvc, renderer).WithPasswordChange(userSvc, passwordSettingsSvc).Register(mux)
-	httpadapter.NewNotificationHandlers(store.NotificationStore(), store.TicketStore(), store.UserStore(), renderer, clock).Register(mux)
+	// Issue #419: the bell and the full feed render the account a pending notice
+	// names from the stored account and its identities, never from a guessed
+	// method or a fabricated ticket.
+	httpadapter.NewNotificationHandlers(store.NotificationStore(), store.TicketStore(), store.UserStore(), renderer, clock).
+		WithNotificationSubjects(store.NotificationSubjectStore()).Register(mux)
 	// D12: /healthz is exempt from auth — registered on the mux before the
 	// session middleware wraps it, and the middleware already exempts the
 	// public setup/login routes.

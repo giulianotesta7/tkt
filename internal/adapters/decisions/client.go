@@ -7,6 +7,8 @@
 // The package owns the wire format only. The thresholds, the fallback to the
 // local engine, and the text that is sent belong to the application layer. The
 // API key never appears in a returned error.
+// Call failures retain cancellation and deadline classification without
+// returning remote-controlled error details.
 package decisions
 
 import (
@@ -140,6 +142,16 @@ func (c *Client) Choose(ctx context.Context, cfg application.DecisionModelConfig
 
 	resp, err := c.http.Do(httpReq)
 	if err != nil {
+		// Do can quote server-controlled redirect headers containing the key.
+		// Preserve context classification, never the original error chain.
+		switch {
+		case errors.Is(err, context.Canceled):
+			err = context.Canceled
+		case errors.Is(err, context.DeadlineExceeded):
+			err = context.DeadlineExceeded
+		default:
+			err = errors.New("request failed")
+		}
 		return application.DecisionChoiceAnswer{}, fmt.Errorf("decisions: call the model: %w", err)
 	}
 	defer resp.Body.Close()

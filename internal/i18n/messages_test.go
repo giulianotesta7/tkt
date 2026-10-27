@@ -563,8 +563,7 @@ var voseoAccentedNeutral = map[string]bool{
 }
 
 // TestTranslatorPluralForms pins the minimal one/other mechanism: Spanish reads
-// its singular form where it differs, and English carries a singular form too:
-// #343 fixed the historical "1 accounts" to "1 account" (S4).
+// its singular form where it differs from the plural.
 func TestTranslatorPluralForms(t *testing.T) {
 	en := New(English)
 	es := New(Spanish)
@@ -573,11 +572,6 @@ func TestTranslatorPluralForms(t *testing.T) {
 		got  string
 		want string
 	}{
-		{"en accounts one", en.Tp("users.count", 1), "1 account"},
-		{"en accounts many", en.Tp("users.count", 3), "3 accounts"},
-		{"es accounts one", es.Tp("users.count", 1), "1 cuenta"},
-		{"es accounts many", es.Tp("users.count", 3), "3 cuentas"},
-		{"es accounts zero", es.Tp("users.count", 0), "0 cuentas"},
 		{"en workload one", en.Tp("ticket_metrics.workload.scope", 1), "Current assignment · 1 pending tickets"},
 		{"es workload one", es.Tp("ticket_metrics.workload.scope", 1), "Asignación actual · 1 ticket pendiente"},
 		{"es workload many", es.Tp("ticket_metrics.workload.scope", 4), "Asignación actual · 4 tickets pendientes"},

@@ -101,35 +101,7 @@
 </nav>
 
   <div class="settings-content">
-    <form class="settings-form card form-card" method="post" action="/settings/appearance" data-settings-form>
-      <h2 class="settings-section-title">Tickets &amp; SLA</h2>
-      <h3 class="settings-group-title">Appearance</h3>
-      <div class="swatch-grid">
-
-    <label class="swatch">
-    <input type="radio" name="internal_comment_bg" value="#E8EEFF" checked>
-      <span class="swatch-chip" style="background:#E8EEFF"></span>
-      <span class="swatch-label">Blue</span>
-    </label>
-
-    <label class="swatch">
-    <input type="radio" name="internal_comment_bg" value="#EFE9FB">
-      <span class="swatch-chip" style="background:#EFE9FB"></span>
-      <span class="swatch-label">Violet</span>
-    </label>
-
-    <label class="swatch">
-    <input type="radio" name="internal_comment_bg" value="#FFF6DC">
-      <span class="swatch-chip" style="background:#FFF6DC"></span>
-      <span class="swatch-label">Yellow</span>
-    </label>
-
-  </div>
-      <div class="settings-savebar" data-settings-savebar hidden>
-        <button class="btn primary" type="submit">Save appearance</button>
-        <button class="btn" type="reset">Discard</button>
-      </div>
-    </form>
+    <h2 class="settings-section-title">Tickets &amp; SLA</h2>
     <form class="settings-form card form-card" method="post" action="/settings/ticket-creation" data-settings-form>
       <h3 class="settings-group-title">Ticket creation</h3>
       <fieldset class="settings-choice-group">
@@ -172,7 +144,7 @@
           <div class="field">
             <label for="suggestion_api_key">API key</label>
             <input type="password" id="suggestion_api_key" name="suggestion_api_key" value="" autocomplete="new-password" aria-describedby="suggestion_api_key_help">
-            <p class="help" id="suggestion_api_key_help">Stored encrypted, like the SMTP password.</p>
+            <p class="help" id="suggestion_api_key_help">Stored encrypted.</p>
           </div>
         </div>
         <p class="help"><strong>Sent:</strong> the description and each category&#39;s name and description. <strong>Never sent:</strong> the requester&#39;s name or email, attachments, or ticket history.</p>
@@ -243,6 +215,46 @@
       </div>
       <div class="settings-savebar" data-settings-savebar hidden>
         <button class="btn primary" type="submit">Save automatic close</button>
+        <button class="btn" type="reset">Discard</button>
+      </div>
+    </form>
+    <form class="settings-form card form-card" method="post" action="/settings/appearance" data-settings-form>
+      <h3 class="settings-group-title">Internal comment background</h3>
+      <div class="swatch-grid">
+
+    <label class="swatch">
+    <input type="radio" name="internal_comment_bg" value="#E8EEFF" checked>
+      <span class="swatch-chip" style="background:#E8EEFF"></span>
+      <span class="swatch-label">Blue</span>
+    </label>
+
+    <label class="swatch">
+    <input type="radio" name="internal_comment_bg" value="#EFE9FB">
+      <span class="swatch-chip" style="background:#EFE9FB"></span>
+      <span class="swatch-label">Violet</span>
+    </label>
+
+    <label class="swatch">
+    <input type="radio" name="internal_comment_bg" value="#FFF6DC">
+      <span class="swatch-chip" style="background:#FFF6DC"></span>
+      <span class="swatch-label">Yellow</span>
+    </label>
+
+    <label class="swatch">
+    <input type="radio" name="internal_comment_bg" value="#E6F4EA">
+      <span class="swatch-chip" style="background:#E6F4EA"></span>
+      <span class="swatch-label">Green</span>
+    </label>
+
+    <label class="swatch">
+    <input type="radio" name="internal_comment_bg" value="#FCE8F0">
+      <span class="swatch-chip" style="background:#FCE8F0"></span>
+      <span class="swatch-label">Pink</span>
+    </label>
+
+  </div>
+      <div class="settings-savebar" data-settings-savebar hidden>
+        <button class="btn primary" type="submit">Save appearance</button>
         <button class="btn" type="reset">Discard</button>
       </div>
     </form>

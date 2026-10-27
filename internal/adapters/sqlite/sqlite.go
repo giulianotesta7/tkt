@@ -273,6 +273,20 @@ func (s *Store) PasswordSettingsStore() application.PasswordSettingsStore {
 	return newSettingsStore(s.db)
 }
 
+// CompanySignInSettingsStore returns the company sign-in configuration port
+// (issue #419), served by the same keyed settings table.
+func (s *Store) CompanySignInSettingsStore() application.CompanySignInSettingsStore {
+	return newSettingsStore(s.db)
+}
+
+// CompanyIdentityStore returns the company sign-in identity port (issue #419):
+// the provider links an account is identified by, the single-use authorization
+// attempts the callback consumes, and the account read that carries the pending
+// state (migration 0034).
+func (s *Store) CompanyIdentityStore() application.CompanyIdentityStore {
+	return newCompanyIdentityStore(s.db)
+}
+
 // PasswordChangeStore returns the atomic own-password-change port (issue #414,
 // S2): the new hash and the sign-out of every other session of that user commit
 // in one transaction.

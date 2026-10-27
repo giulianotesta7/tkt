@@ -79,6 +79,20 @@ func (rs *passwordResetStore) PasswordResetTokenUsable(ctx context.Context, toke
 	return facts.usableAt(now), nil
 }
 
+// PasswordResetTokenOwner answers the account a still-usable link belongs to
+// (issue #419, S5). It reads the same row PasswordResetTokenUsable reads and
+// consumes nothing.
+func (rs *passwordResetStore) PasswordResetTokenOwner(ctx context.Context, tokenHash string, now time.Time) (int64, bool, error) {
+	facts, err := readResetToken(ctx, rs.db, tokenHash)
+	if err != nil {
+		return 0, false, err
+	}
+	if !facts.usableAt(now) {
+		return 0, false, nil
+	}
+	return facts.userID, true, nil
+}
+
 // RedeemPasswordResetToken spends one link in ONE immediate transaction: the
 // new password hash, the spent mark, the voiding of the account's other pending
 // links and the deletion of EVERY session of that account commit together

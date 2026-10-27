@@ -3,6 +3,7 @@ package httpadapter
 import (
 	"errors"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -19,6 +20,7 @@ import (
 // request.
 type UserHandlers struct {
 	users    *application.UserService
+	pending  *application.PendingUsersService
 	renderer *Renderer
 }
 
@@ -26,6 +28,16 @@ type UserHandlers struct {
 // renderer.
 func NewUserHandlers(users *application.UserService, renderer *Renderer) *UserHandlers {
 	return &UserHandlers{users: users, renderer: renderer}
+}
+
+// WithPendingUsers adds the Users > Pending tab (issue #419, S3): the list of
+// accounts a company sign-in created that wait for approval, and the bulk
+// approval that turns a chosen set of them into managed users. It is optional
+// wiring, like the Settings sections: a composition without the pending service
+// has no Pending tab and answers its address as unknown.
+func (h *UserHandlers) WithPendingUsers(pending *application.PendingUsersService) *UserHandlers {
+	h.pending = pending
+	return h
 }
 
 // Register mounts the user routes.
@@ -37,6 +49,12 @@ func (h *UserHandlers) Register(mux *http.ServeMux) {
 	mux.HandleFunc("POST /users/{id}/edit", h.update)
 	mux.HandleFunc("POST /users/{id}/password", h.changePassword)
 	mux.HandleFunc("POST /users/{id}/delete", h.delete)
+	// The bulk approval of the Pending tab is a route of its own, not an action
+	// on an account id: it approves a selection in ONE transaction.
+	if h.pending != nil {
+		mux.HandleFunc("POST /users/pending/approve", h.approvePending)
+		mux.HandleFunc("POST /users/pending/reject", h.rejectPending)
+	}
 }
 
 type usersStatus string
@@ -45,12 +63,14 @@ const (
 	usersStatusAll         usersStatus = "all"
 	usersStatusActive      usersStatus = "active"
 	usersStatusDeactivated usersStatus = "deactivated"
+	usersStatusPending     usersStatus = "pending"
 )
 
 type usersCounts struct {
 	All         int
 	Active      int
 	Deactivated int
+	Pending     int
 }
 
 type userRowView struct {
@@ -66,6 +86,22 @@ type userRowView struct {
 	EditHref    string
 	EditURL     string
 	LauncherID  string
+}
+
+// usersPendingRowView is one account waiting for approval. Identity and the
+// instant it asked come from the stored account; SignInLabels comes from the
+// provider identities that account actually holds (issue #419, S12), as
+// catalogue keys, so the presentation layer keeps the language. SignInUnknown
+// marks an account with no stored identity: the screen says so instead of
+// guessing a provider from the address or the configuration.
+type usersPendingRowView struct {
+	ID            int64
+	Initials      string
+	Name          string
+	Email         string
+	CreatedAt     time.Time
+	SignInLabels  []string
+	SignInUnknown bool
 }
 
 type userRoleOption struct {
@@ -95,7 +131,9 @@ type userDrawerData struct {
 
 // usersIndexData is the managed-users list payload. Users remains for
 // compatibility with the create/delete form paths while Rows powers the Users
-// screen.
+// screen. PendingRows is the Pending tab's own list, and ApproveRoles is the
+// role choice its bulk bar offers — the same closed set, filtered by the same
+// grant matrix, that the edit drawer renders (S9).
 type usersIndexData struct {
 	pageData
 	Error        string
@@ -106,6 +144,9 @@ type usersIndexData struct {
 	Rows         []userRowView
 	EmptyMessage string
 	Drawer       *userDrawerData
+	PendingTab   bool
+	PendingRows  []usersPendingRowView
+	ApproveRoles []userRoleOption
 }
 
 func normalizeUsersStatus(raw string) usersStatus {
@@ -114,6 +155,8 @@ func normalizeUsersStatus(raw string) usersStatus {
 		return usersStatusActive
 	case usersStatusDeactivated:
 		return usersStatusDeactivated
+	case usersStatusPending:
+		return usersStatusPending
 	default:
 		return usersStatusAll
 	}
@@ -196,6 +239,13 @@ func buildUsersIndexData(actor domain.User, users []domain.User, status usersSta
 		} else {
 			data.Counts.Deactivated++
 		}
+		// The Pending tab lists accounts that are not managed users yet, so the
+		// ordinary rows never carry one. The handler adds the pending count it
+		// read from the Pending service to All, which is what makes the tab row
+		// add up (active + deactivated + pending = all).
+		if status == usersStatusPending {
+			continue
+		}
 		if status == usersStatusActive && !user.Active || status == usersStatusDeactivated && user.Active {
 			continue
 		}
@@ -225,6 +275,8 @@ func buildUsersIndexData(actor domain.User, users []domain.User, status usersSta
 			data.EmptyMessage = "users.empty.active"
 		case usersStatusDeactivated:
 			data.EmptyMessage = "users.empty.deactivated"
+		case usersStatusPending:
+			data.EmptyMessage = "users.pending.empty"
 		default:
 			data.EmptyMessage = "users.empty.none"
 		}
@@ -232,13 +284,55 @@ func buildUsersIndexData(actor domain.User, users []domain.User, status usersSta
 	return data
 }
 
+// buildPendingRows answers the Pending tab's rows from the accounts the Pending
+// service returned, ordered as the store returned them (by id), each with the
+// closed display label of every provider identity it holds.
+func buildPendingRows(accounts []application.PendingAccount) []usersPendingRowView {
+	rows := make([]usersPendingRowView, 0, len(accounts))
+	for _, account := range accounts {
+		row := usersPendingRowView{
+			ID: account.User.ID, Initials: usersInitials(account.User.Name), Name: account.User.Name,
+			Email: account.User.Email, CreatedAt: account.User.CreatedAt,
+			SignInUnknown: len(account.Providers) == 0,
+		}
+		for _, provider := range account.Providers {
+			row.SignInLabels = append(row.SignInLabels, companyProviderLabel(provider))
+		}
+		rows = append(rows, row)
+	}
+	return rows
+}
+
+// companyProviderLabel answers the CATALOGUE KEY of a provider's display name,
+// for the same reason userRoleLabel does (issue #335): the presentation layer
+// decides the language, and a provider the closed set does not name renders an
+// explicit unknown label rather than a raw stored value.
+func companyProviderLabel(provider application.CompanyProvider) string {
+	switch provider {
+	case application.ProviderGoogle:
+		return "label.company_provider.google"
+	case application.ProviderMicrosoft:
+		return "label.company_provider.microsoft"
+	default:
+		return "label.company_provider.unknown"
+	}
+}
+
 func (h *UserHandlers) index(w http.ResponseWriter, r *http.Request) {
 	setUsersVary(w)
 	if !requireCapability(w, r, application.CapManageUsers) {
 		return
 	}
+	status := normalizeUsersStatus(r.URL.Query().Get("status"))
+	// A composition without the pending service has no Pending tab, so its
+	// address answers exactly as an unmounted route does instead of rendering a
+	// silently different list.
+	if status == usersStatusPending && h.pending == nil {
+		http.NotFound(w, r)
+		return
+	}
 	actor := *userFromContext(r.Context())
-	data, err := h.usersIndexData(r, actor, normalizeUsersStatus(r.URL.Query().Get("status")))
+	data, err := h.usersIndexData(r, actor, status)
 	if err != nil {
 		httpError(w, r, "error.internal_server", http.StatusInternalServerError)
 		return
@@ -257,6 +351,20 @@ func (h *UserHandlers) usersIndexData(r *http.Request, actor domain.User, status
 		return usersIndexData{}, err
 	}
 	data := buildUsersIndexData(actor, users, status)
+	if h.pending != nil {
+		waiting, err := h.pending.ListWithSignIn(r.Context(), actor)
+		if err != nil {
+			return usersIndexData{}, err
+		}
+		data.PendingTab = true
+		data.PendingRows = buildPendingRows(waiting)
+		data.ApproveRoles = usersRoleOptions(actor.Role)
+		// Every account counts as an account, so the tab row adds up. The
+		// waiting ones stay out of Active and Deactivated: they are inactive
+		// without being deactivated, which is what pending means.
+		data.Counts.Pending = len(waiting)
+		data.Counts.All += len(waiting)
+	}
 	data.pageData = pageDataFrom(r, "users")
 	return data, nil
 }
@@ -380,6 +488,14 @@ func (h *UserHandlers) editForm(w http.ResponseWriter, r *http.Request) {
 	actor := *userFromContext(r.Context())
 	u, err := h.users.GetByID(r.Context(), id)
 	if err != nil {
+		http.Error(w, mapErrorMsg(r, err), statusFor(err))
+		return
+	}
+	// An account that waits for approval is not a managed user yet, so this
+	// route answers exactly as an unknown id does: same status, same body, no
+	// drawer, and no fact about the account (issue #419, S3).
+	if u.Pending {
+		err := &domain.NotFoundError{Kind: "user", ID: id}
 		http.Error(w, mapErrorMsg(r, err), statusFor(err))
 		return
 	}
@@ -511,6 +627,142 @@ func (h *UserHandlers) delete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	redirect(w, r, "/users")
+}
+
+// approvePending applies ONE bulk approval from the Pending tab (issue #419,
+// S3/S9): every selected account becomes an active managed user with the one
+// role the batch chose, in the transaction the pending store owns. The role
+// choice is the same closed set the edit drawer offers, so an approval can never
+// grant a privilege an ordinary edit could not.
+//
+// A refused batch changes nothing and answers its own reason: the service
+// refuses an empty selection, a repeated account, an invalid role and a role
+// this actor may not grant before the store is reached, and a stale entry rolls
+// the whole transaction back.
+func (h *UserHandlers) approvePending(w http.ResponseWriter, r *http.Request) {
+	setUsersVary(w)
+	if !requireCapability(w, r, application.CapManageUsers) {
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		httpError(w, r, "error.internal_server", http.StatusInternalServerError)
+		return
+	}
+	actor := *userFromContext(r.Context())
+	approvals, err := pendingApprovals(r.Form)
+	if err != nil {
+		h.renderPendingError(w, r, actor, err)
+		return
+	}
+	if _, err := h.pending.Approve(r.Context(), actor, approvals); err != nil {
+		h.renderPendingError(w, r, actor, err)
+		return
+	}
+	saveFeedback(w, r, saveFeedbackSaved, saveFeedbackSuccess)
+	if r.Header.Get("HX-Request") != "" {
+		data, err := h.usersIndexData(r, actor, usersStatusPending)
+		if err != nil {
+			// The batch is committed, so a failed read may never answer an
+			// uncommitted failure: the flash record and a reload report the truth.
+			setSaveFeedbackCookie(w, r, canonicalSaveFeedback(saveFeedbackData{Message: saveFeedbackSaved, Kind: saveFeedbackSuccess}))
+			w.Header().Set("HX-Refresh", "true")
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		data.UsersAssets = true
+		w.Header().Set("HX-Retarget", "#users-root")
+		w.Header().Set("HX-Reswap", "outerHTML")
+		w.Header().Set("HX-Trigger-After-Swap", "users:saved")
+		h.renderer.Render(w, r, "users_index", "users_screen", data, http.StatusOK)
+		return
+	}
+	redirect(w, r, usersListURL(usersStatusPending))
+}
+
+// rejectPending settles the selected accounts without deleting them or their
+// identities. The submitted approval role is intentionally irrelevant here.
+func (h *UserHandlers) rejectPending(w http.ResponseWriter, r *http.Request) {
+	setUsersVary(w)
+	if !requireCapability(w, r, application.CapManageUsers) {
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		httpError(w, r, "error.internal_server", http.StatusInternalServerError)
+		return
+	}
+	actor := *userFromContext(r.Context())
+	ids := make([]int64, 0, len(r.Form["user_ids"]))
+	for _, raw := range r.Form["user_ids"] {
+		ids = append(ids, parseID(strings.TrimSpace(raw)))
+	}
+	if _, err := h.pending.Reject(r.Context(), actor, ids); err != nil {
+		h.renderPendingError(w, r, actor, err)
+		return
+	}
+	saveFeedback(w, r, saveFeedbackSaved, saveFeedbackSuccess)
+	if r.Header.Get("HX-Request") != "" {
+		data, err := h.usersIndexData(r, actor, usersStatusPending)
+		if err != nil {
+			// The batch is committed, so a failed read may never answer an
+			// uncommitted failure: the flash record and a reload report the truth.
+			setSaveFeedbackCookie(w, r, canonicalSaveFeedback(saveFeedbackData{Message: saveFeedbackSaved, Kind: saveFeedbackSuccess}))
+			w.Header().Set("HX-Refresh", "true")
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		data.UsersAssets = true
+		w.Header().Set("HX-Retarget", "#users-root")
+		w.Header().Set("HX-Reswap", "outerHTML")
+		w.Header().Set("HX-Trigger-After-Swap", "users:saved")
+		h.renderer.Render(w, r, "users_index", "users_screen", data, http.StatusOK)
+		return
+	}
+	redirect(w, r, usersListURL(usersStatusPending))
+}
+
+// pendingApprovals reads the bulk form into the batch the use case takes: one
+// role for the whole selection and the ids it covers. A malformed id is refused
+// like an invalid role, so the answer names the field instead of degrading into
+// a stale-account lookup for id 0.
+func pendingApprovals(form url.Values) ([]application.PendingApproval, error) {
+	role, err := domain.ParseRole(form.Get("role"))
+	if err != nil {
+		return nil, &domain.ValidationError{Field: "role", Message: "invalid role", Key: "error.invalid_role"}
+	}
+	ids := form["user_ids"]
+	approvals := make([]application.PendingApproval, 0, len(ids))
+	for _, raw := range ids {
+		id := parseID(strings.TrimSpace(raw))
+		if id == 0 {
+			return nil, &domain.ValidationError{Field: "users", Message: "invalid user", Key: "error.invalid_user"}
+		}
+		approvals = append(approvals, application.PendingApproval{ID: id, Role: role})
+	}
+	return approvals, application.ValidatePendingApprovals(approvals)
+}
+
+// renderPendingError answers a refused batch on the Pending tab: the screen is
+// re-rendered with the reason at the mapped status, and the HTMX request keeps
+// #users-root as its target so the specific sentence replaces the screen instead
+// of only a generic transport notice.
+func (h *UserHandlers) renderPendingError(w http.ResponseWriter, r *http.Request, actor domain.User, err error) {
+	status, msg := mapErrorFor(r, err)
+	if status == http.StatusInternalServerError {
+		http.Error(w, msg, status)
+		return
+	}
+	data, dataErr := h.usersIndexData(r, actor, usersStatusPending)
+	if dataErr != nil {
+		httpError(w, r, "error.internal_server", http.StatusInternalServerError)
+		return
+	}
+	data.UsersAssets = true
+	data.Error = msg
+	if r.Header.Get("HX-Request") != "" {
+		w.Header().Set("HX-Retarget", "#users-root")
+		w.Header().Set("HX-Reswap", "outerHTML")
+	}
+	h.renderer.Render(w, r, "users_index", "users_screen", data, status)
 }
 
 func (h *UserHandlers) renderUsersCreationError(w http.ResponseWriter, r *http.Request, err error) {
