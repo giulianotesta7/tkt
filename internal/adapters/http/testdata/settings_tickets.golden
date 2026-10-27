@@ -240,6 +240,18 @@
       <span class="swatch-label">Yellow</span>
     </label>
 
+    <label class="swatch">
+    <input type="radio" name="internal_comment_bg" value="#E6F4EA">
+      <span class="swatch-chip" style="background:#E6F4EA"></span>
+      <span class="swatch-label">Green</span>
+    </label>
+
+    <label class="swatch">
+    <input type="radio" name="internal_comment_bg" value="#FCE8F0">
+      <span class="swatch-chip" style="background:#FCE8F0"></span>
+      <span class="swatch-label">Pink</span>
+    </label>
+
   </div>
       <div class="settings-savebar" data-settings-savebar hidden>
         <button class="btn primary" type="submit">Save appearance</button>

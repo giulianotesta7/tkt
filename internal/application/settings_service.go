@@ -87,11 +87,9 @@ func isAllowedInterfaceLanguage(code string) bool {
 }
 
 // AllowedInternalCommentBg returns the instance colors an admin may
-// choose for the internal-comment background (azul/violeta/amarillo).
-// Green is intentionally reserved for a future "commented as solution"
-// comment type, so it is not offered here.
+// choose for the internal-comment background, in display order.
 func AllowedInternalCommentBg() []string {
-	return []string{DefaultInternalCommentBg, "#EFE9FB", "#FFF6DC"}
+	return []string{DefaultInternalCommentBg, "#EFE9FB", "#FFF6DC", "#E6F4EA", "#FCE8F0"}
 }
 
 // isAllowedInternalCommentBg reports whether color is one of the

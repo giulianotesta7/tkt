@@ -403,8 +403,7 @@ type appearanceOption struct {
 }
 
 // appearanceOptions lists the selectable internal-comment background
-// colors in the canonical order (green is reserved for a future comment
-// type and is not offered).
+// colors in the canonical order.
 func appearanceOptions() []appearanceOption {
 	// Catalogue keys, not English labels (issue #335): the template renders
 	// them through t, so the language stays a presentation decision.
@@ -412,6 +411,8 @@ func appearanceOptions() []appearanceOption {
 		application.DefaultInternalCommentBg: "settings.appearance.color_blue",
 		"#EFE9FB":                            "settings.appearance.color_violet",
 		"#FFF6DC":                            "settings.appearance.color_yellow",
+		"#E6F4EA":                            "settings.appearance.color_green",
+		"#FCE8F0":                            "settings.appearance.color_pink",
 	}
 	colors := application.AllowedInternalCommentBg()
 	out := make([]appearanceOption, 0, len(colors))

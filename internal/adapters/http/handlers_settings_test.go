@@ -103,6 +103,10 @@ func TestSettingsSectionsRenderOneSectionEach(t *testing.T) {
 			own: []string{
 				`action="/settings/appearance"`,
 				`name="internal_comment_bg" value="#E8EEFF"`,
+				`name="internal_comment_bg" value="#E6F4EA"`,
+				`name="internal_comment_bg" value="#FCE8F0"`,
+				`>Green</span>`,
+				`>Pink</span>`,
 				`action="/settings/sla"`,
 				`min="1" max="99" value="80"`,
 				`name="first_response_duration_critical" value="30m"`,
@@ -333,6 +337,22 @@ func TestSettingsUpdatePersistsAndRedirects(t *testing.T) {
 		if !strings.Contains(body, want) {
 			t.Errorf("tickets section after update must contain %q, got: %s", want, body)
 		}
+	}
+}
+
+func TestSettingsUpdateNewColors(t *testing.T) {
+	h := newHarness(t)
+	for _, tc := range []struct{ color, dark string }{{"#E6F4EA", "#1C3427"}, {"#FCE8F0", "#3A2430"}} {
+		t.Run(tc.color, func(t *testing.T) {
+			rec := h.postForm(t, "/settings/appearance", url.Values{"internal_comment_bg": {tc.color}}, false)
+			wantRedirect(t, rec, http.StatusSeeOther, "/settings/tickets")
+			body := sectionGet(t, h, "/settings/tickets")
+			for _, want := range []string{`value="` + tc.color + `" checked`, `--internal-comment-bg:` + tc.color + `;`, `--internal-comment-bg:` + tc.dark + `;`} {
+				if !strings.Contains(body, want) {
+					t.Errorf("saved color must render %q", want)
+				}
+			}
+		})
 	}
 }
 
