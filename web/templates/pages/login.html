@@ -1,5 +1,5 @@
 {{define "title"}}{{tf "base.title.screen" (t "auth.login.submit") (brandHelpDesk .Brand)}}{{end}}
-{{define "content"}}
+{{define "login_form"}}
 <form class="login-form" method="post" action="/login" novalidate>
   <h2>{{t "auth.login.title"}}</h2>
 {{if .PasswordChanged}}<div class="success-banner" role="status">{{t "auth.login.password_changed"}}</div>{{end}}{{if .Error}}<div class="error-banner" role="alert">{{.Error}}</div>{{end}}
@@ -15,3 +15,26 @@
   <button class="btn primary" type="submit">{{t "auth.login.submit"}}</button>
 </form>
 {{end}}
+{{define "content"}}{{if .CompanyPending}}
+<section class="company-pending">
+  <h2>{{t "auth.company.pending_title"}}</h2>
+  <p class="lead">{{t "auth.company.pending_body"}}</p>
+  <a class="btn primary" href="/login">{{t "auth.company.pending_back"}}</a>
+  <p class="footnote">{{t "auth.company.pending_note"}}</p>
+</section>
+{{- else if .CompanySignInOff}}{{if .CompanyProviders}}
+<div class="company-providers">
+{{range .CompanyProviders}}<a class="btn company-provider" href="/auth/{{.Provider}}/start">{{template "company_logo" .Provider}}<span>{{t (print "auth.company." .LabelKey)}}</span></a>
+{{end}}</div>
+{{- end}}
+<details class="company-breakglass">
+  <summary>{{t "auth.company.password_link"}}</summary>
+{{template "login_form" .}}
+</details>
+{{- else}}{{template "login_form" .}}{{if .CompanyProviders}}
+<div class="company-divider"><span>{{t "auth.company.divider"}}</span></div>
+<div class="company-providers">
+{{range .CompanyProviders}}<a class="btn company-provider" href="/auth/{{.Provider}}/start">{{template "company_logo" .Provider}}<span>{{t (print "auth.company." .LabelKey)}}</span></a>
+{{end}}</div>
+{{- end}}
+{{- end}}{{end}}

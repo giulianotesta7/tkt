@@ -1,0 +1,62 @@
+<div class="notifications-overlay">
+  <div class="notifications-backdrop" data-notifications-close aria-hidden="true"></div>
+  <section class="notifications-panel" role="dialog" aria-modal="true" aria-labelledby="notifications-panel-title" tabindex="-1">
+    <header class="notifications-header">
+      <h2 class="notifications-title" id="notifications-panel-title">Notifications</h2>
+      <button class="notifications-close" type="button" data-notifications-close aria-label="Close">×</button>
+    </header>
+<form class="notifications-actions" method="post" action="/notifications/read-all">
+  <button class="btn" type="submit">Mark all as read</button>
+</form>
+    <div class="notifications-body"><ul class="notifications-groups">
+  <li class="notifications-group">
+    <h3 class="notifications-day">Today</h3>
+    <ul class="notifications-rows">
+      <li class="notifications-row"><form method="post" action="/notifications/33/read">
+  <input type="hidden" name="target" value="users_pending">
+  <button class="notification-open" type="submit">
+    <span class="notification-ident">Ana Pérez is waiting for approval</span>
+    <span class="notification-what">Ana Pérez (ana.perez@example.com) signed in with Google and is waiting for a role.</span>
+    <span class="notification-meta"><time datetime="2026-08-06T10:30:00Z">10:30 · 06 Aug</time> <span class="notification-unread">Unread</span></span>
+    <span class="notification-meta">Open Users › Pending</span>
+  </button>
+</form></li>
+      <li class="notifications-row"><form method="post" action="/notifications/32/read">
+  <input type="hidden" name="target" value="users_pending">
+  <button class="notification-open" type="submit">
+    <span class="notification-ident">Nora Sin is waiting for approval</span>
+    <span class="notification-what">Nora Sin (nora.sin@example.com) signed in with a company account and is waiting for a role.</span>
+    <span class="notification-meta"><time datetime="2026-08-06T10:30:00Z">10:30 · 06 Aug</time> <span class="notification-unread">Unread</span></span>
+    <span class="notification-meta">Open Users › Pending</span>
+  </button>
+</form></li>
+      <li class="notifications-row"><form method="post" action="/notifications/31/read">
+  <input type="hidden" name="target" value="users_pending">
+  <button class="notification-open" type="submit">
+    <span class="notification-ident">Bruno Salas requested access</span>
+    <span class="notification-what">Bruno Salas (bruno.salas@example.com) signed in with Microsoft and requested access. The account is no longer waiting for approval.</span>
+    <span class="notification-meta"><time datetime="2026-08-06T10:00:00Z">10:00 · 06 Aug</time> <span class="notification-unread">Unread</span></span>
+    <span class="notification-meta">Open Users › Pending</span>
+  </button>
+</form></li>
+      <li class="notifications-row"><form method="post" action="/notifications/30/read">
+  <button class="notification-open" type="submit">
+    <span class="notification-ident">A company account requested access</span>
+    <span class="notification-what">An account signed in with a company account and requested access. Only administrators can see its details.</span>
+    <span class="notification-meta"><time datetime="2026-08-06T10:00:00Z">10:00 · 06 Aug</time></span>
+  </button>
+</form></li>
+      <li class="notifications-row"><form method="post" action="/notifications/29/read">
+  <input type="hidden" name="ticket_id" value="29">
+  <button class="notification-open" type="submit">
+    <span class="notification-ident">TKT-12 · VPN drops every hour</span>
+    <span class="notification-what">Assigned to you</span>
+    <span class="notification-meta">Marco Ruiz · <time datetime="2026-08-06T10:00:00Z">10:00 · 06 Aug</time></span>
+  </button>
+</form></li>
+    </ul>
+  </li>
+</ul>
+</div>
+  </section>
+</div>

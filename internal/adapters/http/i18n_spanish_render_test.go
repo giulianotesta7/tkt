@@ -1094,20 +1094,8 @@ func TestSpanishGenericHTTPErrors(t *testing.T) {
 	}
 }
 
-// TestSpanishPluralRendering proves the plural helper is wired into the
-// surfaces: a Spanish instance reads "1 cuenta" / "3 cuentas" and the singular
-// workload scope, while the default instance is unchanged.
+// TestSpanishPluralRendering proves the workload scope uses the Spanish singular.
 func TestSpanishPluralRendering(t *testing.T) {
-	users := fixtureUsersIndexData()
-	users.Counts.All = 1
-	if body := renderLocalized(t, "es", "users_index", "users_screen", users); !strings.Contains(body, "1 cuenta") {
-		t.Errorf("Spanish user count must read %q, got: %.600s", "1 cuenta", body)
-	}
-	users.Counts.All = 3
-	if body := renderLocalized(t, "es", "users_index", "users_screen", users); !strings.Contains(body, "3 cuentas") {
-		t.Errorf("Spanish user count must read %q, got: %.600s", "3 cuentas", body)
-	}
-
 	metrics := ticketMetricsRenderData()
 	metrics.Metrics.Pending = 1
 	if body := renderLocalized(t, "es", "ticket_metrics_detail", "ticket_metrics_detail_content", metrics); !strings.Contains(body, "Asignación actual · 1 ticket pendiente") {

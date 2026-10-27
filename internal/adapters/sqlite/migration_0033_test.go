@@ -63,12 +63,29 @@ func openPre0033(t *testing.T) *Store {
 	return pre
 }
 
+// openThrough0033 opens a database migrated up to and including 0033: the
+// table as 0033 leaves it, before 0034 reshapes it for the account notice.
+func openThrough0033(t *testing.T) *Store {
+	t.Helper()
+	s, err := openDSN(testDSN(t))
+	if err != nil {
+		t.Fatalf("open through-0033 db: %v", err)
+	}
+	s.db.SetMaxOpenConns(1)
+	t.Cleanup(func() { _ = s.db.Close() })
+	if err := migrate(context.Background(), s.db, pre0034Migrations(t)); err != nil {
+		t.Fatalf("migrate through-0033 db: %v", err)
+	}
+	return s
+}
+
 // TestMigration0033KeepsTheNotificationsShape compares the table as 0028 left
-// it with the table the whole migration set produces, so a column, foreign key
-// or index that drifts during the rebuild is a red test.
+// it with the table as 0033 leaves it (the migrations before 0034), so a column,
+// foreign key or index that drifts during the rebuild is a red test. 0034 changes
+// the shape again on purpose and has its own tests.
 func TestMigration0033KeepsTheNotificationsShape(t *testing.T) {
 	before := notificationsSchema(t, openPre0033(t))
-	after := notificationsSchema(t, newTestDB(t))
+	after := notificationsSchema(t, openThrough0033(t))
 	if len(before) == 0 {
 		t.Fatal("pre-0033 notifications schema is empty")
 	}

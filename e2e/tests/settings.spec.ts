@@ -1043,27 +1043,37 @@ test.describe("Settings", () => {
     await page.goto(base() + "/settings/security");
 
     await expect(page.locator("h2").filter({ hasText: "Security" })).toBeVisible();
-    const change = page.getByRole("checkbox", {
+    // Issue #419: the section holds two independent forms, so the password
+    // policy behaviour is scoped to the form that owns it.
+    const passwordForm = page.locator('form[action="/settings/security"]');
+    const change = passwordForm.getByRole("checkbox", {
       name: "Allow people to change their own password from Preferences",
     });
-    const recovery = page.getByRole("checkbox", { name: /Forgot your password\?/ });
-    const minimum = page.getByLabel("Minimum password length", { exact: true });
+    const recovery = passwordForm.getByRole("checkbox", { name: /Forgot your password\?/ });
+    const minimum = passwordForm.getByLabel("Minimum password length", { exact: true });
 
     // A fresh instance: both switches on and the documented default minimum.
     await expect(change).toBeChecked();
     await expect(recovery).toBeChecked();
     await expect(minimum).toHaveValue("12");
+    // The custom +/- buttons are the only visible steppers, including in Firefox.
+    await expect(minimum).toHaveCSS("appearance", "textfield");
     // Nothing can send a recovery link yet, and the section says so next to the
     // switch it affects.
-    await expect(page.locator(".dep-note")).toContainText("Email notifications are off");
+    await expect(passwordForm.locator(".dep-note")).toContainText("Email notifications are off");
 
     // One form: the switch, the stepper and nothing else. The stepper's buttons
     // move the number input, and the first change reveals the section's save bar.
     await change.uncheck();
-    await page.getByRole("button", { name: "Increase minimum length" }).click();
-    await page.getByRole("button", { name: "Increase minimum length" }).click();
+    await passwordForm.getByRole("button", { name: "Increase minimum length" }).click();
+    await expect(minimum).toHaveValue("13");
+    await passwordForm.getByRole("button", { name: "Decrease minimum length" }).click();
+    await expect(minimum).toHaveValue("12");
+    await minimum.fill("13");
+    await expect(minimum).toHaveValue("13");
+    await passwordForm.getByRole("button", { name: "Increase minimum length" }).click();
     await expect(minimum).toHaveValue("14");
-    const savebar = page.locator("[data-settings-savebar]");
+    const savebar = passwordForm.locator("[data-settings-savebar]");
     await expect(savebar).toBeVisible();
 
     await savebar.getByRole("button", { name: "Save password settings" }).click();
@@ -1073,16 +1083,92 @@ test.describe("Settings", () => {
     // The policy is what the next request renders, not what the form last held.
     await page.reload();
     await expect(
-      page.getByRole("checkbox", {
+      passwordForm.getByRole("checkbox", {
         name: "Allow people to change their own password from Preferences",
       }),
     ).not.toBeChecked();
-    await expect(page.getByRole("checkbox", { name: /Forgot your password\?/ })).toBeChecked();
-    await expect(page.getByLabel("Minimum password length", { exact: true })).toHaveValue("14");
+    await expect(
+      passwordForm.getByRole("checkbox", { name: /Forgot your password\?/ }),
+    ).toBeChecked();
+    await expect(minimum).toHaveValue("14");
 
     await assertCanonicalScreen(page, {
       viewport: 1280,
       label: "settings security saved policy",
+      url: page.url(),
+      role: "root",
+      consoleErrors: obs.consoleErrors,
+      pageErrors: obs.pageErrors,
+      failedRequests: obs.failedRequests,
+      failedResponses: obs.failedResponses,
+    });
+  });
+
+  // Issue #419: the company sign-in configuration is a second form in the same
+  // section. This journey proves the two forms save independently and that the
+  // approved Copy control copies the configured redirect URI — never the
+  // request host — without submitting or saving anything.
+  test("the company sign-in form saves on its own and copies a redirect URI", async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    const obs = collectObservability(page);
+    await loginAsSeeded(page);
+    await page.goto(base() + "/settings/security");
+
+    const passwordForm = page.locator('form[action="/settings/security"]');
+    const companyForm = page.locator('form[action="/settings/security/company"]');
+    await expect(companyForm).toBeVisible();
+
+    // The password policy this journey leaves alone, read before the save so
+    // the test does not depend on what an earlier journey stored.
+    const change = passwordForm.getByRole("checkbox", {
+      name: "Allow people to change their own password from Preferences",
+    });
+    const minimum = passwordForm.getByLabel("Minimum password length", { exact: true });
+    const policyChange = await change.isChecked();
+    const policyMinimum = await minimum.inputValue();
+
+    // Changing the shared TKT address reveals the company form's own save bar,
+    // and the password form's bar stays hidden: one form per configuration.
+    const address = companyForm.getByLabel("TKT address", { exact: true });
+    await address.fill("https://tkt.example.com");
+    await expect(companyForm.locator("[data-settings-savebar]")).toBeVisible();
+    await expect(passwordForm.locator("[data-settings-savebar]")).toBeHidden();
+    await companyForm.getByRole("button", { name: "Save company sign-in" }).click();
+    await expect(page).toHaveURL(/\/settings\/security$/);
+    await expect(page.locator("#save-feedback")).toContainText("Saved");
+
+    // The company save persists and leaves the password policy untouched.
+    await page.reload();
+    await expect(companyForm.getByLabel("TKT address", { exact: true })).toHaveValue(
+      "https://tkt.example.com",
+    );
+    expect(await change.isChecked()).toBe(policyChange);
+    expect(await minimum.inputValue()).toBe(policyMinimum);
+
+    // The clipboard permission is explicit context for this journey, not a
+    // global user grant: the control copies the field's configured value, turns
+    // its label into the copied state, and announces it through the live region.
+    await page.context().grantPermissions(["clipboard-read", "clipboard-write"]);
+    const copy = companyForm
+      .locator(".copy-field")
+      .filter({ has: page.locator("#google_redirect_uri") })
+      .locator("button");
+    await expect(copy).toHaveText("Copy");
+    await copy.click();
+    await expect(copy).toHaveText("Copied");
+    await expect(companyForm.locator("[data-copy-status]").first()).toHaveText("Copied");
+    expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(
+      "https://tkt.example.com/auth/google/callback",
+    );
+
+    // Copying is not a save: the URL is unchanged and no save bar appeared.
+    await expect(page).toHaveURL(/\/settings\/security$/);
+    await expect(companyForm.locator("[data-settings-savebar]")).toBeHidden();
+    await expect(passwordForm.locator("[data-settings-savebar]")).toBeHidden();
+
+    await assertCanonicalScreen(page, {
+      viewport: 1280,
+      label: "settings security company sign-in",
       url: page.url(),
       role: "root",
       consoleErrors: obs.consoleErrors,

@@ -172,7 +172,7 @@
           <div class="field">
             <label for="suggestion_api_key">API key</label>
             <input type="password" id="suggestion_api_key" name="suggestion_api_key" value="" autocomplete="new-password" aria-describedby="suggestion_api_key_help">
-            <p class="help" id="suggestion_api_key_help">Stored encrypted, like the SMTP password.</p>
+            <p class="help" id="suggestion_api_key_help">Stored encrypted.</p>
           </div>
         </div>
         <p class="help"><strong>Sent:</strong> the description and each category&#39;s name and description. <strong>Never sent:</strong> the requester&#39;s name or email, attachments, or ticket history.</p>

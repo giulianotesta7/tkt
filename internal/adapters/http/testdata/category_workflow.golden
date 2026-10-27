@@ -106,7 +106,7 @@
 
     <div class="workflow-builder-panels">
       <div class="workflow-rail-wrap">
-        <div class="workflow-pane-label"><h2 id="workflow-builder-title">Workflow steps</h2><span class="workflow-pane-count">0 steps</span></div>
+        <div class="workflow-pane-label"><h2 id="workflow-builder-title">Workflow steps</h2></div>
         <ol class="workflow-step-rail" aria-label="Workflow steps"><li class="empty compact">No steps yet. Add a step to begin configuration.</li><li class="workflow-add-step">
 <details class="workflow-add-popover"><summary class="btn ghost">+ Add step</summary><div class="workflow-add-options">
   <button type="submit" name="action" value="add_step" formaction="/categories/1/workflow?add_step_type=manual_task" hx-post="/categories/1/workflow?add_step_type=manual_task" hx-include="closest form" hx-target="#workflow-builder" hx-swap="outerHTML show:none" hx-push-url="false">Give the agent a task</button>
