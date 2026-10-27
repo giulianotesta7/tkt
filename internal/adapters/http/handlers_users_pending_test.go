@@ -1122,7 +1122,10 @@ func TestUsersPendingSubmitUsesTheSharedBusyGuard(t *testing.T) {
 		`if (event.target.matches("#users-pending-form, .users-row-menu form")) {`,
 		"      if (busy) {\n        event.preventDefault();\n        return;\n      }\n      busy = true;\n      pendingScreenSave = true;",
 		"    if (pendingScreenSave) {\n      pendingScreenSave = false;\n      busy = false;",
-		`event.detail?.elt?.matches("#users-pending-form, .users-row-menu form") && !event.detail?.successful`,
+		// The failed-request release is one condition the formatter may wrap over
+		// several lines, so its two halves are pinned separately.
+		`event.detail?.elt?.matches("#users-pending-form, .users-row-menu form") &&`,
+		`!event.detail?.successful`,
 	} {
 		if !strings.Contains(js, marker) {
 			t.Errorf("users.js lacks the pending busy-guard marker %q", marker)
