@@ -264,7 +264,7 @@ func TestUserDeleteReferenced409(t *testing.T) {
 	// survive the error re-render alongside the inline message.
 	body := rec.Body.String()
 	for _, want := range []string{
-		"2 accounts",
+		`All <span>2</span>`,
 		`data-users-status="all"`,
 		`class="is-selected" href="/users"`,
 		`data-user-email="beto@example.com"`,

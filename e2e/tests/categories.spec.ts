@@ -3826,7 +3826,7 @@ test.describe("Categories", () => {
     await page.goto(base() + workflowPath);
     await expect(page.locator("#workflow-builder")).toBeVisible();
 
-    // Two steps, so the vertical ordering and the step count are real.
+    // Two steps make the vertical ordering observable.
     for (let i = 0; i < 2; i++) {
       await page.locator(".workflow-add-step summary").first().click();
       await page
@@ -3841,7 +3841,7 @@ test.describe("Categories", () => {
     const editor = page.locator(".workflow-editor-panel");
     await expect(rail).toBeVisible();
     await expect(editor).toBeVisible();
-    await expect(page.locator(".workflow-pane-count")).toHaveText("2 steps");
+    await expect(page.locator(".workflow-pane-count")).toHaveCount(0);
 
     const railBox = await rail.boundingBox();
     const editorBox = await editor.boundingBox();

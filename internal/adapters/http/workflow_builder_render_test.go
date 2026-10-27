@@ -53,7 +53,7 @@ func lateralBuilderPageData() workflowBuilderData {
 }
 
 // TestWorkflowBuilderLateralLayout pins the approved A composition: the step
-// sequence (with its own count and the Add step control) sits BEFORE the
+// sequence (with the Add step control) sits BEFORE the
 // selected step's editor, both are siblings in one two-pane block, and the
 // block is still inside the builder form so every existing field, snapshot and
 // action submits exactly as before.
@@ -97,24 +97,8 @@ func TestWorkflowBuilderLateralLayout(t *testing.T) {
 		t.Errorf("the terminal step must keep its Final badge, got: %.600s", body)
 	}
 
-	// The pane label states how many steps the sequence holds, through the
-	// catalogue's plural message rather than a literal.
-	if !strings.Contains(body, "4 steps") {
-		t.Errorf("the sequence must state its step count, got: %.600s", body)
-	}
-	if strings.Contains(body, "%!d") {
-		t.Errorf("the step count must interpolate as a number, got: %.600s", body)
-	}
-
-	// One step reads "1 step".
-	single := lateralBuilderPageData()
-	single.Draft = single.Draft[len(single.Draft)-1:]
-	single.Steps = workflowStepViews(single.Draft, 0, single.Desks)
-	single.SelectedStepIndex = 0
-	single.SelectedStepPosition = 1
-	singleBody := renderGolden(t, "category_workflow", "", single, false)
-	if !strings.Contains(singleBody, "1 step<") && !strings.Contains(singleBody, ">1 step") {
-		t.Errorf("a one-step workflow must read \"1 step\", got: %.600s", singleBody)
+	if strings.Contains(body, `class="workflow-pane-count"`) {
+		t.Error("the sequence must not repeat its step count")
 	}
 }
 
