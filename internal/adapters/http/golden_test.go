@@ -1461,7 +1461,16 @@ func TestGoldenSettingsLanguage(t *testing.T) {
 }
 
 func TestGoldenSettingsTickets(t *testing.T) {
-	goldenFullPage(t, "settings_tickets", renderGolden(t, "settings_tickets", "", fixtureSettingsTicketsData(), false))
+	body := renderGolden(t, "settings_tickets", "", fixtureSettingsTicketsData(), false)
+	previous := -1
+	for _, action := range []string{"/settings/ticket-creation", "/settings/category-suggestions", "/settings/sla", "/settings/hold-auto-close", "/settings/appearance"} {
+		index := strings.Index(body, `action="`+action+`"`)
+		if index < 0 || index <= previous {
+			t.Errorf("settings card %s missing or out of order", action)
+		}
+		previous = index
+	}
+	goldenFullPage(t, "settings_tickets", body)
 }
 
 func TestGoldenSettingsCalendar(t *testing.T) {
