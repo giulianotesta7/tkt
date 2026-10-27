@@ -561,3 +561,27 @@ func TestPasswordResetStoreRedeemsOneLinkExactlyOnceOnTheFileDSN(t *testing.T) {
 		})
 	}
 }
+
+// TestPasswordResetStoreOwnerAnswersOnlyUsableLinks pins the read company
+// sign-in uses to keep a non-root link closed while password sign-in is off
+// (issue #419, S5): a usable link names its account, and an unknown, spent or
+// expired one names nobody.
+func TestPasswordResetStoreOwnerAnswersOnlyUsableLinks(t *testing.T) {
+	s := newTestDB(t)
+	ctx := context.Background()
+	ana := seedUser(t, s, "Ana", "ana@example.com", true)
+	spent := testClock.Add(-5 * time.Minute)
+	seedResetToken(t, s, ana, "hash-usable", testClock.Add(-10*time.Minute), testClock.Add(50*time.Minute), nil)
+	seedResetToken(t, s, ana, "hash-spent", testClock.Add(-10*time.Minute), testClock.Add(50*time.Minute), &spent)
+	seedResetToken(t, s, ana, "hash-expired", testClock.Add(-2*time.Hour), testClock, nil)
+
+	owner, ok, err := s.PasswordResetStore().PasswordResetTokenOwner(ctx, "hash-usable", testClock)
+	if err != nil || !ok || owner != ana {
+		t.Fatalf("owner of the usable link = %d, %v, %v; want %d, true", owner, ok, err, ana)
+	}
+	for _, hash := range []string{"hash-spent", "hash-expired", "hash-unknown"} {
+		if owner, ok, err := s.PasswordResetStore().PasswordResetTokenOwner(ctx, hash, testClock); err != nil || ok || owner != 0 {
+			t.Errorf("owner of %s = %d, %v, %v; want nobody", hash, owner, ok, err)
+		}
+	}
+}

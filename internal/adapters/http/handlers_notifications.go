@@ -25,6 +25,11 @@ type NotificationHandlers struct {
 	tickets  application.TicketStore
 	users    application.UserStore
 	renderer *Renderer
+	// subjects reads the account behind an account-kind notice (issue #419,
+	// S3/S12). It is optional wiring, like the Pending tab itself: without it the
+	// account row renders its explicit fallback instead of borrowing a ticket
+	// subject.
+	subjects application.NotificationSubjectStore
 	// clock stamps the read instants the two write routes store, so the panel
 	// never reads the wall clock directly (D7).
 	clock domain.Clock
@@ -36,6 +41,14 @@ type NotificationHandlers struct {
 // scope), the user store (the actor's name), and the renderer.
 func NewNotificationHandlers(store application.NotificationStore, tickets application.TicketStore, users application.UserStore, renderer *Renderer, clock domain.Clock) *NotificationHandlers {
 	return &NotificationHandlers{store: store, tickets: tickets, users: users, renderer: renderer, clock: clock}
+}
+
+// WithNotificationSubjects adds the account-subject read (issue #419, S3/S12):
+// the stored account and its provider identities that an account-kind notice
+// renders. Its own builder keeps every existing constructor call valid.
+func (h *NotificationHandlers) WithNotificationSubjects(subjects application.NotificationSubjectStore) *NotificationHandlers {
+	h.subjects = subjects
+	return h
 }
 
 // Register mounts the notification routes.
@@ -76,6 +89,17 @@ type notificationRow struct {
 	// longer open (S16).
 	Number int
 	Title  string
+	// Account marks a row whose subject is not a ticket (issue #419).
+	Account bool
+	// Subject is that row's ident line: the account the notice names, as far as
+	// this reader may see it. A ticket row leaves it empty and keeps the
+	// number/title it always had, so the two shapes never borrow from each other.
+	Subject application.Msg
+	// Target is where opening a non-ticket row goes: the fixed pending accounts
+	// view, offered only to a reader who may open it. It is empty for ticket rows
+	// and for a reader who lost the capability, whose read then returns to the
+	// panel.
+	Target string
 	// Message is the "what happened" sentence; Actor is who did it ("Automatic"
 	// when the stored actor is NULL).
 	Message   application.Msg
@@ -167,6 +191,9 @@ func (h *NotificationHandlers) panelData(r *http.Request) (notificationsPanelDat
 		return notificationsPanelData{}, err
 	}
 	resolver := notificationFacts{handlers: h, actor: actor, actors: map[int64]string{}, tickets: map[int64]notificationTicket{}}
+	if resolver.accounts, err = h.accountFacts(ctx, actor, stored); err != nil {
+		return notificationsPanelData{}, err
+	}
 	rows := make([]notificationRow, 0, len(stored))
 	for _, n := range stored {
 		row, err := resolver.row(ctx, n)
@@ -184,14 +211,37 @@ func (h *NotificationHandlers) panelData(r *http.Request) (notificationsPanelDat
 }
 
 // notificationFacts resolves the data a panel row shows about OTHER records:
-// the ticket's number and title, and the actor's name. Both are cached for the
-// length of one render, so a panel of twenty rows costs at most one read per
-// distinct ticket and one per distinct actor instead of one per row.
+// the ticket's number and title, the actor's name, and — for the account kind —
+// the account the notice names. All are cached for the length of one render, so
+// a panel of twenty rows costs at most one read per distinct record instead of
+// one per row.
 type notificationFacts struct {
 	handlers *NotificationHandlers
 	actor    domain.User
 	actors   map[int64]string
 	tickets  map[int64]notificationTicket
+	// accounts holds the account facts of every account-kind row, resolved in
+	// ONE capability-gated read for the whole panel (issue #419, S3/S12).
+	accounts map[int64]application.NotificationAccount
+}
+
+// accountFacts resolves the accounts the account-kind rows of one panel name
+// (issue #419, S3/S12). It is a single read for the whole panel, and the
+// application layer applies the reader's pending-management capability before
+// any fact travels, so a downgraded recipient keeps the notice without its
+// personal data.
+func (h *NotificationHandlers) accountFacts(ctx context.Context, actor domain.User, stored []domain.Notification) (map[int64]application.NotificationAccount, error) {
+	var ids []int64
+	for _, n := range stored {
+		if n.Kind != domain.NotificationCompanyAccountPending || n.PendingUserID == nil {
+			continue
+		}
+		ids = append(ids, *n.PendingUserID)
+	}
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	return application.NotificationAccounts(ctx, actor, h.subjects, ids)
 }
 
 // notificationTicket is one cached ticket identity. The zero value means the
@@ -205,6 +255,9 @@ type notificationTicket struct {
 
 // row resolves one stored notification into its rendered form.
 func (f notificationFacts) row(ctx context.Context, n domain.Notification) (notificationRow, error) {
+	if n.Kind == domain.NotificationCompanyAccountPending {
+		return f.accountRow(n), nil
+	}
 	row := notificationRow{
 		ID:        n.ID,
 		TicketID:  n.TicketID,
@@ -247,6 +300,30 @@ func (f notificationFacts) row(ctx context.Context, n domain.Notification) (noti
 	}
 	row.Actor = application.Data(name)
 	return row, nil
+}
+
+// accountRow renders the one kind whose subject is an ACCOUNT instead of a
+// ticket (issue #419, S3/S12). The ident line and the sentence come from the
+// stored account facts alone — never from a ticket — so neither a fabricated
+// number nor the ticket-degrade label can stand in for a subject. The stored
+// subject is stamped by the transaction that created the account; a row that
+// names none (a shape the domain refuses to store) still renders the explicit
+// account wording rather than borrowing one.
+func (f notificationFacts) accountRow(n domain.Notification) notificationRow {
+	row := notificationRow{ID: n.ID, Account: true, CreatedAt: n.CreatedAt, Unread: n.ReadAt == nil}
+	var account application.NotificationAccount
+	if n.PendingUserID != nil {
+		if stored, ok := f.accounts[*n.PendingUserID]; ok {
+			account = stored
+		} else {
+			account.UserID = *n.PendingUserID
+		}
+	}
+	row.Subject, row.Message = application.NotificationAccountMessage(account)
+	if account.Visible {
+		row.Target = notificationPendingAccountsTarget
+	}
+	return row
 }
 
 // notificationGroups splits the newest-first rows into the day groups the panel
@@ -308,7 +385,7 @@ func (h *NotificationHandlers) markRead(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, mapErrorMsg(r, err), statusFor(err))
 		return
 	}
-	redirect(w, r, notificationTicketHref(r.Form.Get("ticket_id")))
+	redirect(w, r, notificationReadHref(r.Form.Get(notificationTargetField), r.Form.Get("ticket_id")))
 }
 
 // markAllRead clears the recipient's whole badge in one write (S14 "Mark all as
@@ -330,6 +407,26 @@ func notificationID(r *http.Request) (int64, bool) {
 		return 0, false
 	}
 	return id, true
+}
+
+// notificationPendingAccountsTarget is the form value an account-kind row posts
+// to open Users > Pending, and notificationsPendingAccountsHref is the page it
+// names. The value is a fixed token rather than a path, so a submitted form can
+// never steer the redirect out of the instance's own routes.
+const (
+	notificationTargetField           = "target"
+	notificationPendingAccountsTarget = "users_pending"
+	notificationsPendingAccountsHref  = "/users?status=pending"
+)
+
+// notificationReadHref is where reading a notification goes: the pending
+// accounts view for an account-kind row, the ticket for a ticket row, and the
+// panel when the form carried no usable target.
+func notificationReadHref(target, ticketID string) string {
+	if target == notificationPendingAccountsTarget {
+		return notificationsPendingAccountsHref
+	}
+	return notificationTicketHref(ticketID)
 }
 
 // notificationTicketHref is the panel row's redirect target: the ticket the row

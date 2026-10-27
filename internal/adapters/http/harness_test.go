@@ -182,6 +182,13 @@ type harness struct {
 	reset         *application.PasswordResetService
 	visits        *application.TicketVisitService
 	mailer        *fakeMailer
+	// companySettings and companySignIn are the company sign-in surface (issue
+	// #419, S11): the real configuration service over the sealed store, and the
+	// flow over the real identity and session stores. Only the provider is
+	// faked, because this layer never opens a socket.
+	companySettings *application.CompanySignInSettingsService
+	companySignIn   *application.CompanySignInService
+	companyProvider *fakeCompanyProvider
 	// Category suggestions (issue #416): the settings use case, the composition,
 	// and the fake decision model wired at its port. The local engine runs over
 	// the REAL sqlite index, so a test proves the triggers and the ranking, not a
@@ -213,8 +220,8 @@ func newHarnessWithAdmin(t *testing.T, seedAdmin bool) *harness {
 	s := openTestStoreAt(t, dbPath)
 	clock := &advanceableClock{now: fixedNow}
 
-	usersSvc := application.NewUserService(s.UserStore(), clock).WithPasswordSettings(s.PasswordSettingsStore()).WithPasswordChangeStore(s.PasswordChangeStore())
-	authSvc := application.NewAuthService(s.UserStore(), s.SessionStore(), clock)
+	usersSvc := application.NewUserService(s.UserStore(), clock).WithPasswordSettings(s.PasswordSettingsStore()).WithPasswordChangeStore(s.PasswordChangeStore()).WithCompanySignIn(s.CompanySignInSettingsStore())
+	authSvc := application.NewAuthService(s.UserStore(), s.SessionStore(), clock).WithCompanySignIn(s.CompanySignInSettingsStore())
 	catSvc := application.NewCategoryService(s.CategoryStore(), clock)
 	deskSvc := application.NewDeskService(s.DeskStore(), s.UserStore(), clock)
 	viewBuilder := application.NewViewBuilder(s.TicketStore(), s.UserStore(), s.CategoryStore(), s.CommentStore(), s.AuditStore(), s.DeskStore(), s.WorkflowResponseStore())
@@ -237,7 +244,15 @@ func newHarnessWithAdmin(t *testing.T, seedAdmin bool) *harness {
 	// over its own temp dir and fakes only the transport — a test must observe
 	// the send without opening a socket.
 	mailer := &fakeMailer{}
-	emailSettingsSvc := application.NewEmailSettingsService(s.EmailSettingsStore(), secretbox.New(filepath.Dir(dbPath)), mailer, s.SettingsStore(), msgtext.Renderer{})
+	secretBox := secretbox.New(filepath.Dir(dbPath))
+	emailSettingsSvc := application.NewEmailSettingsService(s.EmailSettingsStore(), secretBox, mailer, s.SettingsStore(), msgtext.Renderer{})
+	// Issue #419: the company sign-in configuration seals each client secret
+	// with its own purpose, and the flow drives the real identity store, the
+	// real session store, and a fake provider.
+	companySettingsSvc := application.NewCompanySignInSettingsService(s.CompanySignInSettingsStore(),
+		secretBox.For("google-client-secret"), secretBox.For("microsoft-client-secret"))
+	companyProvider := &fakeCompanyProvider{}
+	companySignInSvc := application.NewCompanySignInService(companySettingsSvc, s.CompanyIdentityStore(), companyProvider, s.SessionStore(), nil, clock)
 	// Issue #416: the suggestion engines answer the creation screens. The local
 	// one reads the real index the migration created; the decision one answers
 	// through a fake at its port, so no test opens a socket.
@@ -250,24 +265,30 @@ func newHarnessWithAdmin(t *testing.T, seedAdmin bool) *harness {
 	// harness's fake mailer, and the send runs where it stands (an inline
 	// dispatcher), so a test observes the mailed link as soon as the form
 	// answers. Production hands the send to its own goroutine instead.
-	resetSvc := application.NewPasswordResetService(s.UserStore(), s.PasswordResetStore(), s.PasswordSettingsStore(), emailSettingsSvc, mailer, msgtext.Renderer{}, func(send func()) { send() }, clock)
+	resetSvc := application.NewPasswordResetService(s.UserStore(), s.PasswordResetStore(), s.PasswordSettingsStore(), emailSettingsSvc, mailer, msgtext.Renderer{}, func(send func()) { send() }, clock).WithCompanySignIn(s.CompanySignInSettingsStore())
 	renderer := NewRenderer()
 
 	mux := http.NewServeMux()
 	RegisterStatic(mux, s.SettingsStore())
 	NewBrandHandlers(s.OrganizationStore()).WithSignin(s.SigninStore()).Register(mux)
-	NewAuthHandlers(authSvc, usersSvc, renderer).WithSignin(signinSvc).WithPasswordRecovery(resetSvc, passwordSettingsSvc, emailSettingsSvc).Register(mux)
+	NewAuthHandlers(authSvc, usersSvc, renderer).WithSignin(signinSvc).WithPasswordRecovery(resetSvc, passwordSettingsSvc, emailSettingsSvc).WithCompanySignIn(companySettingsSvc, companySignInSvc).Register(mux)
 	ticketHandlers := NewTicketHandlers(ticketSvc, commentSvc, searchSvc, catSvc, usersSvc, s.DeskStore(), workflowSvc, application.NewWorkflowRunner(clock).WithFollowers(followSvc), s.WorkflowRunStore(), s.WorkflowUnitOfWork(), renderer).WithMetrics(metricsSvc).WithSLA(slaSvc).WithPreferences(preferencesSvc).WithClock(clock).WithVisits(visitSvc).WithAttachments(s.AttachmentStore(), attachmentSvc).WithCannedReplies(cannedReplySvc).WithFollows(followSvc).WithCategorySuggestions(suggestionSvc)
 	ticketHandlers.Register(mux)
 	NewSavedReplyHandlers(cannedReplySvc, renderer).Register(mux)
-	NewUserHandlers(usersSvc, renderer).Register(mux)
+	// Issue #419: the Pending tab is wired exactly as production wires it, over
+	// the real pending store, so the tab, its count and the bulk approval all run
+	// through the real use case.
+	NewUserHandlers(usersSvc, renderer).WithPendingUsers(application.NewPendingUsersService(s.PendingUserStore(), clock)).Register(mux)
 	NewCategoryHandlersWithWorkflows(catSvc, workflowSvc, renderer, application.NewCatalogService(s.CatalogStore(), s.CategoryStore(), clock)).WithSettings(s.SettingsStore()).Register(mux)
 	NewCategoryWorkflowHandlers(catSvc, workflowSvc, deskSvc, renderer).Register(mux)
 	NewDeskHandlers(deskSvc, renderer).Register(mux)
-	NewSettingsHandlers(settingsSvc, slaSvc, s.SLAStore(), s.SettingsStore(), renderer).WithEmail(emailSettingsSvc).WithOrganization(application.NewOrganizationService(s.OrganizationStore())).WithSignin(signinSvc).WithPasswordSettings(passwordSettingsSvc).WithCategorySuggestions(suggestionSettingsSvc, suggestionSvc, ticketHandlers).Register(mux)
+	NewSettingsHandlers(settingsSvc, slaSvc, s.SLAStore(), s.SettingsStore(), renderer).WithEmail(emailSettingsSvc).WithOrganization(application.NewOrganizationService(s.OrganizationStore())).WithSignin(signinSvc).WithPasswordSettings(passwordSettingsSvc).WithCategorySuggestions(suggestionSettingsSvc, suggestionSvc, ticketHandlers).WithCompanySignIn(companySettingsSvc).Register(mux)
 	NewCategorySLAHandlers(catSvc, slaSvc, s.SLAStore(), renderer).Register(mux)
 	NewPreferencesHandlers(preferencesSvc, renderer).WithPasswordChange(usersSvc, passwordSettingsSvc).Register(mux)
-	NewNotificationHandlers(s.NotificationStore(), s.TicketStore(), s.UserStore(), renderer, clock).Register(mux)
+	// Issue #419: the pending-account notice renders the stored account and its
+	// identities, wired here exactly as production wires it.
+	NewNotificationHandlers(s.NotificationStore(), s.TicketStore(), s.UserStore(), renderer, clock).
+		WithNotificationSubjects(s.NotificationSubjectStore()).Register(mux)
 	mw := NewSessionMiddleware(s.SessionStore(), s.UserStore(), s.SettingsStore()).WithSidebarPreferences(s.SidebarPreferences()).WithThemePreferences(s.ThemePreferences()).WithOrganization(s.OrganizationStore())
 
 	h := &harness{
@@ -276,7 +297,8 @@ func newHarnessWithAdmin(t *testing.T, seedAdmin bool) *harness {
 		categories: catSvc, desks: deskSvc, search: searchSvc, settings: settingsSvc, workflows: workflowSvc, sla: slaSvc,
 		preferences: preferencesSvc, emailSettings: emailSettingsSvc, passwords: passwordSettingsSvc, reset: resetSvc, mailer: mailer,
 		suggestionSettings: suggestionSettingsSvc, suggestionSvc: suggestionSvc, decisionModel: decisionModel,
-		visits:   visitSvc,
+		visits:          visitSvc,
+		companySettings: companySettingsSvc, companySignIn: companySignInSvc, companyProvider: companyProvider,
 		renderer: renderer,
 		mux:      mux, mw: mw,
 	}

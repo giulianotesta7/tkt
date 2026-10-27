@@ -197,6 +197,13 @@ func TestGoldenAuthResetRefused(t *testing.T) {
 	goldenFullPage(t, "auth_reset_refused", renderGolden(t, "login_reset", "", resetData{loginData: loginData{RecoveryOffered: true}, Refused: true}, false))
 }
 
+// TestGoldenCompanyPending freezes the pending-approval screen (issue #419, S3):
+// the sign-in shell with the pending card instead of the form, so a session-less
+// state still carries the instance branding and exactly one way out.
+func TestGoldenCompanyPending(t *testing.T) {
+	goldenFullPage(t, "auth_company_pending", renderGolden(t, "login", "", loginData{CompanyPending: true}, false))
+}
+
 // ---------------------------------------------------------------------------
 // Task 5.4 goldens: tickets index/new pages + list fragments with frozen
 // fixture instants (D7 — the render path never calls time.Now()).
@@ -1171,7 +1178,31 @@ func TestLoginPresentationContract(t *testing.T) {
 func fixtureUsersIndexData() usersIndexData {
 	ana := domain.User{ID: 1, Name: "Ana Torres", Email: "ana@example.com", Active: true, CreatedAt: goldenT0}
 	beto := domain.User{ID: 2, Name: "Beto Ruiz", Email: "beto@example.com", Active: false, CreatedAt: goldenT1}
-	return usersIndexData{pageData: pageData{NavActive: "users", CurrentUser: ana}, Users: []domain.User{ana, beto}}
+	// PendingTab is what the wired composition always renders (issue #419, S3):
+	// the tab, its count and its address are part of the ordinary screen.
+	return usersIndexData{pageData: pageData{NavActive: "users", CurrentUser: ana}, Users: []domain.User{ana, beto}, PendingTab: true}
+}
+
+// fixtureUsersPendingData is the Pending tab itself: two accounts a company
+// sign-in left waiting, the role choice an admin may grant, and the counts that
+// add up (both waiting accounts are counted in All and in Pending, and in
+// neither of Active or Deactivated).
+func fixtureUsersPendingData() usersIndexData {
+	ana := domain.User{ID: 1, Name: "Ana Torres", Email: "ana@example.com", Active: true, CreatedAt: goldenT0}
+	return usersIndexData{
+		pageData:   pageData{NavActive: "users", CurrentUser: ana},
+		Status:     usersStatusPending,
+		ListURL:    usersListURL(usersStatusPending),
+		Counts:     usersCounts{All: 2, Pending: 2},
+		PendingTab: true,
+		PendingRows: []usersPendingRowView{
+			{ID: 3, Initials: "WA", Name: "Wanda Alvarez", Email: "wanda@example.com", CreatedAt: goldenT0,
+				SignInLabels: []string{"label.company_provider.google"}},
+			{ID: 4, Initials: "VB", Name: "Vic Brandt", Email: "vic@example.com", CreatedAt: goldenT1,
+				SignInLabels: []string{"label.company_provider.microsoft"}},
+		},
+		ApproveRoles: usersRoleOptions(domain.RoleAdmin),
+	}
 }
 
 func fixtureUserFormData() userFormData {
@@ -1255,6 +1286,10 @@ func fixtureCategoryFormData() categoryFormData {
 
 func TestGoldenUsersIndex(t *testing.T) {
 	goldenFullPage(t, "users_index", renderGolden(t, "users_index", "", fixtureUsersIndexData(), false))
+}
+
+func TestGoldenUsersPending(t *testing.T) {
+	goldenFullPage(t, "users_pending", renderGolden(t, "users_index", "", fixtureUsersPendingData(), false))
 }
 
 func TestGoldenUsersNew(t *testing.T) {
@@ -1419,7 +1454,9 @@ func fixtureSettingsEmailData() settingsEmailData {
 
 // fixtureSettingsSecurityData models the Security section (issue #414) with a
 // policy that differs from the defaults on every value, so the golden pins a
-// readable form rather than the state of a fresh instance.
+// readable form rather than the state of a fresh instance. The company sign-in
+// cards (issue #419) are configured too: a saved secret per provider renders the
+// write-only indicator and never a value.
 func fixtureSettingsSecurityData() settingsSecurityData {
 	return settingsSecurityData{
 		settingsSectionData: fixtureSettingsSectionData(settingsSectionSecurity),
@@ -1430,6 +1467,25 @@ func fixtureSettingsSecurityData() settingsSecurityData {
 		CanManageEmail:      true,
 		MinLengthFloor:      application.MinPasswordMinLength,
 		MinLengthCeiling:    application.MaxPasswordMinLength,
+		Company: &settingsCompanySignIn{
+			PasswordSignInEnabled: false,
+			Address:               "https://tkt.example.test",
+			NewAccounts:           application.NewAccountsPending,
+			Google: settingsProviderSignIn{
+				Enabled:     true,
+				ClientID:    "812345678901-acme.apps.googleusercontent.com",
+				Domains:     "acme.test\nacme-support.test",
+				SecretSet:   true,
+				RedirectURI: "https://tkt.example.test/auth/google/callback",
+			},
+			Microsoft: settingsProviderSignIn{
+				Enabled:     false,
+				TenantID:    "72f988bf-86f1-41af-91ab-2d7cd011db47",
+				ClientID:    "b1d2c3e4-5f60-4718-9abc-def012345678",
+				SecretSet:   true,
+				RedirectURI: "https://tkt.example.test/auth/microsoft/callback",
+			},
+		},
 	}
 }
 
@@ -1461,7 +1517,16 @@ func TestGoldenSettingsLanguage(t *testing.T) {
 }
 
 func TestGoldenSettingsTickets(t *testing.T) {
-	goldenFullPage(t, "settings_tickets", renderGolden(t, "settings_tickets", "", fixtureSettingsTicketsData(), false))
+	body := renderGolden(t, "settings_tickets", "", fixtureSettingsTicketsData(), false)
+	previous := -1
+	for _, action := range []string{"/settings/ticket-creation", "/settings/category-suggestions", "/settings/sla", "/settings/hold-auto-close", "/settings/appearance"} {
+		index := strings.Index(body, `action="`+action+`"`)
+		if index < 0 || index <= previous {
+			t.Errorf("settings card %s missing or out of order", action)
+		}
+		previous = index
+	}
+	goldenFullPage(t, "settings_tickets", body)
 }
 
 func TestGoldenSettingsCalendar(t *testing.T) {
@@ -1581,6 +1646,56 @@ func TestGoldenNotifications(t *testing.T) {
 // dialog chrome the fragment owns, without a second document around it.
 func TestGoldenNotificationPanel(t *testing.T) {
 	goldenFile(t, "notification_panel", renderGolden(t, "notifications", "notification_panel", fixtureNotificationsPanelData(), true))
+}
+
+// fixtureNotificationsPanelPendingData freezes the account kind's rows (issue
+// #419, S3/S12) beside a ticket row, so the snapshot proves the two shapes never
+// borrow from each other: the account rows carry the account's stored facts and
+// the fixed Users target, never a ticket number or the ticket-degrade label.
+//
+// It covers the three statements the row can make — an account still waiting, an
+// account whose request was already answered, and a reader who may no longer see
+// the account — plus the account that recorded no identity at all, so the
+// provider phrase is frozen too. The sentences come from the SAME function the
+// handler uses, and every instant is literal (D7).
+func fixtureNotificationsPanelPendingData() notificationsPanelData {
+	ana := domain.User{ID: 1, Name: "Ana Torres", Email: "ana@example.com", Active: true, CreatedAt: goldenT0}
+	waiting := application.NotificationAccount{
+		UserID: 20, Visible: true, Found: true, Pending: true,
+		Name: "Ana Pérez", Email: "ana.perez@example.com",
+		Providers: []application.CompanyProvider{application.ProviderGoogle},
+	}
+	settled := application.NotificationAccount{
+		UserID: 21, Visible: true, Found: true,
+		Name: "Bruno Salas", Email: "bruno.salas@example.com",
+		Providers: []application.CompanyProvider{application.ProviderMicrosoft},
+	}
+	unlinked := application.NotificationAccount{UserID: 22, Visible: true, Found: true, Pending: true, Name: "Nora Sin", Email: "nora.sin@example.com"}
+	restricted := application.NotificationAccount{UserID: 23}
+	row := func(id int64, account application.NotificationAccount, target string, at time.Time, unread bool) notificationRow {
+		title, body := application.NotificationAccountMessage(account)
+		return notificationRow{ID: id, Account: true, Subject: title, Message: body, Target: target, CreatedAt: at, Unread: unread}
+	}
+	return notificationsPanelData{
+		pageData: pageData{NavActive: "notifications", CurrentUser: ana},
+		Unread:   3,
+		Groups: []notificationGroup{
+			{Kind: "today", Date: goldenT0, Rows: []notificationRow{
+				row(33, waiting, notificationPendingAccountsTarget, goldenT1, true),
+				row(32, unlinked, notificationPendingAccountsTarget, goldenT1, true),
+				row(31, settled, notificationPendingAccountsTarget, goldenT0, true),
+				row(30, restricted, "", goldenT0, false),
+				{ID: 29, TicketID: 29, Number: 12, Title: "VPN drops every hour", Message: application.MsgRef("notifications.kind.assigned"), Actor: application.Data("Marco Ruiz"), CreatedAt: goldenT0, Unread: false},
+			}},
+		},
+	}
+}
+
+// TestGoldenNotificationPanelPending freezes the account kind's rows in the
+// drawer fragment: the waiting, answered, restricted and no-identity forms, each
+// with the target the row offers (or the absence of one a reader may not use).
+func TestGoldenNotificationPanelPending(t *testing.T) {
+	goldenFile(t, "notification_panel_pending", renderGolden(t, "notifications", "notification_panel", fixtureNotificationsPanelPendingData(), true))
 }
 
 // TestGoldenNotificationBell freezes the bell's count fragment: the zero state

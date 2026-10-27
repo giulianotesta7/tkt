@@ -1177,3 +1177,50 @@ func TestBrandLogoRouteSkipsTheIdentityStamp(t *testing.T) {
 		t.Errorf("the middleware stamped %d identities for the logo route, want 0", reads.reads)
 	}
 }
+
+// TestMiddlewareCompanySignInRoutesArePublic proves the public half of the
+// company sign-in routes (issue #419, S11): a browser with no session reaches the
+// start and the callback instead of being sent to /login, because the provider's
+// callback arrives before any session exists.
+func TestMiddlewareCompanySignInRoutesArePublic(t *testing.T) {
+	s := openTestStore(t)
+	seedUser(t, s, "Ana", "ana@example.com")
+	mw := NewSessionMiddleware(s.SessionStore(), s.UserStore(), s.SettingsStore())
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /auth/{provider}/start", func(w http.ResponseWriter, _ *http.Request) { w.Write([]byte("start")) })
+	mux.HandleFunc("GET /auth/{provider}/callback", func(w http.ResponseWriter, _ *http.Request) { w.Write([]byte("callback")) })
+	mux.HandleFunc("GET /tickets", func(w http.ResponseWriter, _ *http.Request) { w.Write([]byte("protected")) })
+
+	for _, target := range []string{"/auth/google/start", "/auth/google/callback"} {
+		rec := doRequest(mux, mw, http.MethodGet, target, nil)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("anonymous GET %s = %d, want 200: %s", target, rec.Code, rec.Body.String())
+		}
+	}
+	// The exemption is the /auth/ prefix alone: every other route keeps the gate
+	// it had.
+	wantRedirect(t, doRequest(mux, mw, http.MethodGet, "/tickets", nil), http.StatusSeeOther, "/login")
+}
+
+// TestMiddlewareCompanyCallbackIsNotSwallowedByTheLoginBranch proves the ordering
+// rule S11 calls out: a browser that already holds a TKT session still runs the
+// callback instead of being sent to its tickets, while /login keeps sending that
+// same browser where it always did.
+func TestMiddlewareCompanyCallbackIsNotSwallowedByTheLoginBranch(t *testing.T) {
+	s := openTestStore(t)
+	user := seedUser(t, s, "Ana", "ana@example.com")
+	sess := seedSession(t, s, user.ID)
+	mw := NewSessionMiddleware(s.SessionStore(), s.UserStore(), s.SettingsStore())
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /auth/{provider}/callback", func(w http.ResponseWriter, _ *http.Request) { w.Write([]byte("callback")) })
+	mux.HandleFunc("GET /login", func(w http.ResponseWriter, _ *http.Request) { w.Write([]byte("login")) })
+
+	signedIn := map[string]string{"Cookie": sessionCookie + "=" + sess.ID}
+	rec := doRequest(mux, mw, http.MethodGet, "/auth/google/callback", signedIn)
+	if rec.Code != http.StatusOK || rec.Body.String() != "callback" {
+		t.Fatalf("signed-in GET /auth/google/callback = %d %q, want the callback to run", rec.Code, rec.Body.String())
+	}
+	wantRedirect(t, doRequest(mux, mw, http.MethodGet, "/login", signedIn), http.StatusSeeOther, "/tickets")
+}

@@ -557,14 +557,17 @@ type UserStore interface {
 	// Delete removes an unreferenced user; ErrReferenced when the user is
 	// assigned to tickets (deactivation is the removal path then).
 	Delete(ctx context.Context, id int64) error
-	// GetByID returns the user, including inactive ones (historical display);
-	// ErrNotFound when absent.
+	// GetByID returns the user, including inactive ones (historical display),
+	// with the pending flag an account waiting for approval carries; ErrNotFound
+	// when absent.
 	GetByID(ctx context.Context, id int64) (*domain.User, error)
 	// GetByEmail returns the user by email; ErrNotFound when absent.
 	GetByEmail(ctx context.Context, email string) (*domain.User, error)
 	// Count returns the number of users (first-user bootstrap check, D16).
 	Count(ctx context.Context) (int, error)
-	// List returns all users.
+	// List returns all managed users. An account that waits for approval is
+	// not one of them: it belongs to PendingUserStore.ListPending (issue #419,
+	// S3), so no ordinary user list exposes it.
 	List(ctx context.Context) ([]domain.User, error)
 	// ListActive returns only active users.
 	ListActive(ctx context.Context) ([]domain.User, error)
@@ -587,6 +590,72 @@ type UserStore interface {
 	RecoverRoot(ctx context.Context, id int64) (*domain.User, error)
 }
 
+// PendingSignIn is one provider identity held by an account that waits for
+// approval (issue #419, S3/S12). It carries the account and the provider only:
+// the issuer, the subject and the address last seen at the provider are the
+// identity's own record and never travel to a screen.
+type PendingSignIn struct {
+	UserID   int64
+	Provider CompanyProvider
+}
+
+// NotificationAccountSubject is the stored account an account notice names, read
+// as FACTS (issue #419, S3/S12): the account's own name and address, whether it
+// still waits for approval, and the providers its stored identities carry. The
+// issuer, the subject and the address last seen at the provider stay in the
+// identity's own record and never travel to a screen.
+type NotificationAccountSubject struct {
+	UserID    int64
+	Name      string
+	Email     string
+	Pending   bool
+	Providers []CompanyProvider
+}
+
+// NotificationSubjectStore answers the account facts behind the account kind's
+// notices (issue #419, S3/S12). It is a read of its own rather than more methods
+// on PendingUserStore because a notice OUTLIVES the state that produced it: the
+// account it names may have been approved since, and the row still has to render
+// the facts it was written about instead of vanishing or claiming it still
+// waits. It is a factual projection, not a decision: the caller applies the
+// reader's capability before any fact is shown.
+type NotificationSubjectStore interface {
+	// ListNotificationSubjects answers one row per requested account id that
+	// still exists, in the order requested and with each account's providers in
+	// the closed provider set's display order. Both waiting and settled accounts
+	// are answered — including inactive ones — because the notice is already
+	// addressed to its recipient. An id with no account is absent, and an account
+	// with no stored identity carries no provider rather than a guessed one.
+	ListNotificationSubjects(ctx context.Context, userIDs []int64) ([]NotificationAccountSubject, error)
+}
+
+// PendingUserStore persists the company sign-in accounts that wait for an
+// administrator's approval (issue #419, S3). It is a port of its own rather
+// than more methods on UserStore because the Pending tab is the only surface
+// that reaches such an account: ordinary user management never does.
+type PendingUserStore interface {
+	// ListPending answers every account waiting for approval, ordered by id.
+	// Those accounts are inactive as well, so no other list reaches them.
+	ListPending(ctx context.Context) ([]domain.User, error)
+	// ListPendingSignIn answers one row per provider identity held by an account
+	// that waits for approval, ordered by account id and then provider. It is
+	// the factual half of the Pending tab's Sign-in column: the provider comes
+	// from the stored identity, never from the address or the configuration. An
+	// account with no stored identity has no row, and one that reached two
+	// providers has two.
+	ListPendingSignIn(ctx context.Context) ([]PendingSignIn, error)
+	// ApprovePending activates each named account, clears its pending flag, and
+	// grants the chosen role in ONE immediate transaction: an unknown id, an
+	// account that is no longer pending, a repeated id, an invalid or root
+	// role, or an empty selection changes nothing at all. Approval never grants
+	// a privilege of its own (S9) and never creates or promotes a root.
+	ApprovePending(ctx context.Context, approvals []PendingApproval, actorID int64, at time.Time) ([]domain.User, error)
+	// RejectPending clears pending and leaves inactive, preserving the account,
+	// role and identities. The application supplies the manageable target roles;
+	// the store checks them inside the same all-or-nothing transaction.
+	RejectPending(ctx context.Context, ids []int64, manageableRoles []domain.Role) ([]domain.User, error)
+}
+
 // SessionStore persists server-side login sessions (D14).
 type SessionStore interface {
 	// Create stores s.
@@ -595,6 +664,91 @@ type SessionStore interface {
 	GetByID(ctx context.Context, id string) (*domain.Session, error)
 	// Delete removes the session (logout).
 	Delete(ctx context.Context, id string) error
+}
+
+// CompanyIdentity is one provider identity linked to an account (issue #419,
+// S7). Issuer and Subject are what later sign-ins resolve on — the pair the ID
+// token calls iss and sub — so a changed email at the provider still reaches
+// this row. Email is the address last seen at the provider, kept for
+// administration.
+type CompanyIdentity struct {
+	ID           int64
+	UserID       int64
+	Provider     CompanyProvider
+	Issuer       string
+	Subject      string
+	Email        string
+	CreatedAt    time.Time
+	LastSignInAt time.Time
+}
+
+// CompanySignInAttempt is one authorization in flight (issue #419). It is
+// addressed by the SHA-256 hex digest of the flow's random state, never by the
+// state itself, and it is deleted by the callback that consumes it, which is
+// what makes a callback single use.
+type CompanySignInAttempt struct {
+	StateHash    string
+	Provider     CompanyProvider
+	Nonce        string
+	CodeVerifier string
+	CreatedAt    time.Time
+	ExpiresAt    time.Time
+}
+
+// CompanyIdentityStore persists the provider links and the in-flight
+// authorizations of the company sign-in flow (issue #419).
+type CompanyIdentityStore interface {
+	// CreateAttempt stores one authorization in flight, keyed by its state
+	// hash. The row is never returned to a browser; the flow keeps the state.
+	CreateAttempt(ctx context.Context, attempt *CompanySignInAttempt) error
+	// ConsumeAttempt deletes the attempt for stateHash and returns it, so a
+	// callback can be answered at most once. ErrNotFound when no attempt
+	// exists, including one already consumed. Expiry is the caller's check:
+	// both instants travel with the row and the decision uses the injected
+	// clock.
+	ConsumeAttempt(ctx context.Context, stateHash string) (*CompanySignInAttempt, error)
+	// PurgeExpiredAttempts deletes every attempt whose ExpiresAt is before
+	// the given instant and reports how many it removed. A flow that was
+	// started and never came back leaves nothing behind for long.
+	PurgeExpiredAttempts(ctx context.Context, before time.Time) (int, error)
+	// ResolveIdentity answers the account and the identity linked to
+	// (provider, issuer, subject), or ErrNotFound when that provider identity
+	// was never seen. The account is returned with its pending state, which
+	// the sign-in decision needs.
+	ResolveIdentity(ctx context.Context, provider CompanyProvider, issuer, subject string) (*CompanyIdentity, *domain.User, error)
+	// UsersByEmail answers every account whose email matches case-
+	// insensitively, ordered by id. The caller links only when exactly one
+	// account matches; two accounts differing in case are an ambiguity, not a
+	// choice.
+	UsersByEmail(ctx context.Context, email string) ([]domain.User, error)
+	// ActiveUsers answers every ACTIVE account, ordered by id, with the role and
+	// the pending state the caller's policy reads. It is a roster, not a
+	// decision: who must learn that an account waits for approval is computed by
+	// the application layer from these facts (issue #419, S3), and the store
+	// never selects recipients itself. A pending account is inactive, so it is
+	// absent here.
+	ActiveUsers(ctx context.Context) ([]domain.User, error)
+	// CreateUserWithIdentity stores the account and its provider identity in
+	// ONE transaction: an account created for a first sign-in is never left
+	// without the link that identifies it. It returns
+	// ErrCompanyIdentityTaken when either the account's email or the identity
+	// pair was created concurrently, and then stores nothing.
+	//
+	// notifications are the notices that must commit with the account — the
+	// pending-account announcements the application computed for it (issue #419,
+	// S3/S11). They are appended in the SAME transaction, after the account's id
+	// exists, and each one carries its recipient, its kind, and its instant: the
+	// implementation stamps the created account as the subject, exactly as the
+	// ticket units of work stamp the ticket id. An empty batch stores no notice,
+	// and a rejected notice rolls the account and the identity back with it.
+	CreateUserWithIdentity(ctx context.Context, user *domain.User, identity *CompanyIdentity, notifications []domain.Notification) error
+	// LinkIdentity attaches a provider identity to an existing account. It
+	// returns ErrCompanyIdentityTaken when that account already holds an
+	// identity for the same provider.
+	LinkIdentity(ctx context.Context, identity *CompanyIdentity) error
+	// TouchIdentity records the email last seen at the provider and the
+	// instant of this sign-in on an existing identity.
+	TouchIdentity(ctx context.Context, identityID int64, email string, at time.Time) error
 }
 
 // CategoryStore persists managed categories (category-management spec).
@@ -1457,6 +1611,10 @@ type PasswordResetStore interface {
 	// at now, without consuming it. An unknown, spent or expired hash answers
 	// false and no error: the three are indistinguishable on purpose.
 	PasswordResetTokenUsable(ctx context.Context, tokenHash string, now time.Time) (bool, error)
+	// PasswordResetTokenOwner answers the account a still-usable link belongs
+	// to, consuming nothing (issue #419, S5). An unknown, spent or expired hash
+	// answers ok false and no error.
+	PasswordResetTokenOwner(ctx context.Context, tokenHash string, now time.Time) (userID int64, ok bool, err error)
 	// RedeemPasswordResetToken spends the link in ONE transaction: it stores
 	// passwordHash as the owner's new password, marks the link spent, voids
 	// that account's other pending links, and deletes EVERY session of that
@@ -1703,4 +1861,18 @@ type TicketQuery struct {
 type Page struct {
 	Offset int
 	Limit  int
+}
+
+// CompanySignInSettingsStore persists the company sign-in configuration (issue
+// #419). It is a port of its own for the reason PasswordSettingsStore is: its
+// readers are the sign-in page and the sign-in flow.
+type CompanySignInSettingsStore interface {
+	// GetCompanySignIn returns the stored configuration with the sealed
+	// secrets. It NEVER fails for configuration reasons: absent rows answer
+	// DefaultCompanySignInSettings, an unknown new-account policy reads back
+	// requester, and an unparseable password switch reads back ON.
+	GetCompanySignIn(ctx context.Context) (CompanySignInSettings, error)
+	// SetCompanySignIn writes the whole configuration in ONE transaction: an
+	// administrator's save is one configuration, never half applied.
+	SetCompanySignIn(ctx context.Context, settings CompanySignInSettings) error
 }

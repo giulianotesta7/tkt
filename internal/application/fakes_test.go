@@ -675,6 +675,13 @@ type fakeUserStore struct {
 	referenced  map[int64]bool
 	roleChanges []fakeRoleChange
 	downgrades  []fakeDowngrade
+	// signIns holds one provider row per stored identity of a waiting account
+	// (issue #419, S3/S12), in insertion order, so a test can prove the service
+	// reports the stored facts and normalizes the display order itself.
+	signIns map[int64][]application.CompanyProvider
+	// signInReads counts the identity reads that reached the port, so a refused
+	// actor can prove the capability gate refused before any read.
+	signInReads int
 }
 
 // fakeDowngrade records one DowngradeToUser call (issue #47 handoff route).
@@ -688,6 +695,7 @@ type fakeRoleChange struct{ actorID int64 }
 
 func newFakeUserStore() *fakeUserStore {
 	return &fakeUserStore{
+		signIns:    map[int64][]application.CompanyProvider{},
 		users:      map[int64]*domain.User{},
 		byEmail:    map[string]int64{},
 		nextID:     1,
@@ -717,6 +725,21 @@ func (f *fakeUserStore) seedRole(name, email string, role domain.Role, active bo
 }
 
 func (f *fakeUserStore) markReferenced(id int64) { f.referenced[id] = true }
+
+// seedPending inserts a requester that waits for approval directly (test
+// arrange): inactive, with the pending flag the company sign-in decision reads
+// (issue #419, S3).
+func (f *fakeUserStore) seedPending(name, email string) domain.User {
+	u := f.seedRole(name, email, domain.RoleUser, false)
+	f.users[u.ID].Pending = true
+	return *f.users[u.ID]
+}
+
+// seedPendingSignIn attaches one stored provider identity to an account, the
+// fact the Pending tab's Sign-in column reads (issue #419, S12).
+func (f *fakeUserStore) seedPendingSignIn(userID int64, provider application.CompanyProvider) {
+	f.signIns[userID] = append(f.signIns[userID], provider)
+}
 
 func (f *fakeUserStore) Create(_ context.Context, u *domain.User) error {
 	if _, dup := f.byEmail[u.Email]; dup {
@@ -796,6 +819,11 @@ func (f *fakeUserStore) applyManagedUpdate(updated *domain.User, expectedRole do
 	if u.Role != expectedRole {
 		return &domain.NotFoundError{Kind: "user", ID: updated.ID}
 	}
+	if u.Pending {
+		// Mirrors the real store's guarded WHERE (issue #419, S3): an account that
+		// waits for approval is not edited or reactivated here.
+		return &domain.NotFoundError{Kind: "user", ID: updated.ID}
+	}
 	if otherID, dup := f.byEmail[updated.Email]; dup && otherID != updated.ID {
 		return &domain.DuplicateError{Kind: "user", Name: updated.Email}
 	}
@@ -858,6 +886,11 @@ func (f *fakeUserStore) List(_ context.Context) ([]domain.User, error) {
 	sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
 	var out []domain.User
 	for _, id := range ids {
+		if f.users[id].Pending {
+			// Mirrors the real store: a pending account belongs to the Pending tab
+			// and never to the managed-user list (issue #419, S3).
+			continue
+		}
 		out = append(out, *f.users[id])
 	}
 	return out, nil
@@ -873,6 +906,111 @@ func (f *fakeUserStore) ListActive(_ context.Context) ([]domain.User, error) {
 		if u.Active {
 			out = append(out, u)
 		}
+	}
+	return out, nil
+}
+
+// ListPending mirrors the real store's Pending tab read (issue #419, S3).
+func (f *fakeUserStore) ListPending(_ context.Context) ([]domain.User, error) {
+	ids := make([]int64, 0, len(f.users))
+	for id, u := range f.users {
+		if u.Pending {
+			ids = append(ids, id)
+		}
+	}
+	sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
+	var out []domain.User
+	for _, id := range ids {
+		out = append(out, *f.users[id])
+	}
+	return out, nil
+}
+
+// ListPendingSignIn answers the stored provider rows of the accounts that wait
+// for approval, ordered by account id in insertion order per account: the
+// service normalizes the display order, so the fake keeps the store's own.
+func (f *fakeUserStore) ListPendingSignIn(_ context.Context) ([]application.PendingSignIn, error) {
+	f.signInReads++
+	ids := make([]int64, 0, len(f.signIns))
+	for id := range f.signIns {
+		if u, ok := f.users[id]; ok && u.Pending {
+			ids = append(ids, id)
+		}
+	}
+	sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
+	var out []application.PendingSignIn
+	for _, id := range ids {
+		for _, provider := range f.signIns[id] {
+			out = append(out, application.PendingSignIn{UserID: id, Provider: provider})
+		}
+	}
+	return out, nil
+}
+
+// ApprovePending mirrors the real store's atomic bulk approval: the batch is
+// validated and every entry checked before anything is written, so a refused
+// batch changes nothing (issue #419, S3).
+func (f *fakeUserStore) ApprovePending(_ context.Context, approvals []application.PendingApproval, actorID int64, _ time.Time) ([]domain.User, error) {
+	if err := application.ValidatePendingApprovals(approvals); err != nil {
+		return nil, err
+	}
+	for _, approval := range approvals {
+		if approval.Role == domain.RoleRoot {
+			return nil, domain.NewRootProtectedError()
+		}
+	}
+	for _, approval := range approvals {
+		u, ok := f.users[approval.ID]
+		if !ok || !u.Pending || u.Role == domain.RoleRoot {
+			return nil, &domain.NotFoundError{Kind: "user", ID: approval.ID}
+		}
+	}
+	var approved []domain.User
+	for _, approval := range approvals {
+		u := f.users[approval.ID]
+		if u.Role != approval.Role {
+			f.roleChanges = append(f.roleChanges, fakeRoleChange{actorID: actorID})
+		}
+		u.Role = approval.Role
+		u.Active = true
+		u.Pending = false
+		approved = append(approved, *u)
+	}
+	return approved, nil
+}
+
+// RejectPending mirrors persistence: validate and guard the complete selection
+// before writing, preserve identities/roles, and clear only pending and active.
+func (f *fakeUserStore) RejectPending(_ context.Context, ids []int64, manageableRoles []domain.Role) ([]domain.User, error) {
+	if err := application.ValidatePendingRejection(ids); err != nil {
+		return nil, err
+	}
+	for _, id := range ids {
+		u, ok := f.users[id]
+		if !ok {
+			return nil, &domain.NotFoundError{Kind: "user", ID: id}
+		}
+		if u.Role == domain.RoleRoot {
+			return nil, domain.NewRootProtectedError()
+		}
+		if !u.Pending {
+			return nil, &domain.NotFoundError{Kind: "user", ID: id}
+		}
+		allowed := false
+		for _, role := range manageableRoles {
+			if role == u.Role {
+				allowed = true
+			}
+		}
+		if !allowed {
+			return nil, domain.NewForbiddenError("admin accounts require root")
+		}
+	}
+	out := make([]domain.User, 0, len(ids))
+	for _, id := range ids {
+		u := f.users[id]
+		u.Active, u.Pending = false, false
+		out = append(out, *u)
 	}
 	return out, nil
 }
@@ -2275,6 +2413,17 @@ func (f *fakePasswordResetStore) PasswordResetTokenUsable(_ context.Context, has
 	return token != nil && token.usedAt == nil && now.Before(token.expiresAt), nil
 }
 
+func (f *fakePasswordResetStore) PasswordResetTokenOwner(_ context.Context, hash string, now time.Time) (int64, bool, error) {
+	if f.usableErr != nil {
+		return 0, false, f.usableErr
+	}
+	token := f.find(hash)
+	if token == nil || token.usedAt != nil || !now.Before(token.expiresAt) {
+		return 0, false, nil
+	}
+	return token.userID, true, nil
+}
+
 func (f *fakePasswordResetStore) RedeemPasswordResetToken(_ context.Context, hash, passwordHash string, now time.Time) error {
 	if f.redeemErr != nil {
 		return f.redeemErr
@@ -2319,6 +2468,279 @@ func (f *fakePasswordResetStore) find(hash string) *fakePasswordResetToken {
 		}
 	}
 	return nil
+}
+
+// fakeCompanySignInStore is the in-memory CompanySignInSettingsStore double
+// for the company sign-in configuration (issue #419). Simplifications,
+// documented per the fakes contract: ONE value stands in for the keyed settings
+// rows and a Set replaces it in one step — the transaction the real store
+// commits; an unset fake answers the documented defaults, like the real
+// store's absent-row fallback; writes counts every Set, refused or not.
+type fakeCompanySignInStore struct {
+	settings application.CompanySignInSettings
+	stored   bool
+	getErr   error
+	writes   int
+}
+
+var _ application.CompanySignInSettingsStore = (*fakeCompanySignInStore)(nil)
+
+func newFakeCompanySignInStore() *fakeCompanySignInStore {
+	return &fakeCompanySignInStore{}
+}
+
+func (f *fakeCompanySignInStore) GetCompanySignIn(_ context.Context) (application.CompanySignInSettings, error) {
+	if f.getErr != nil {
+		return application.CompanySignInSettings{}, f.getErr
+	}
+	if !f.stored {
+		return application.DefaultCompanySignInSettings(), nil
+	}
+	return f.settings, nil
+}
+
+func (f *fakeCompanySignInStore) SetCompanySignIn(_ context.Context, settings application.CompanySignInSettings) error {
+	f.writes++
+	f.settings = settings
+	f.stored = true
+	return nil
+}
+
+// fakeCompanyIdentityStore is the in-memory CompanyIdentityStore double for the
+// company sign-in flow (issue #419). Simplifications, documented per the fakes
+// contract: the attempt table is a map keyed by state hash, which reproduces the
+// real primary key and the delete-on-consume rule; identities are a slice and
+// the account they point at lives in the fake user store, so the pending flag
+// and the role are the ones that store holds; the two uniques
+// ((issuer, subject) and (user_id, provider)) are checked before the write, which
+// is what the real table's constraints do; a state hash never collides here; and
+// the notices a pending creation carries are stamped with the account id the fake
+// is about to assign and validated before the write, so a rejected batch stores
+// nothing — the rollback the real transaction performs.
+type fakeCompanyIdentityStore struct {
+	users          *fakeUserStore
+	attempts       map[string]application.CompanySignInAttempt
+	identities     []*application.CompanyIdentity
+	nextIdentityID int64
+	purges         []time.Time
+	// failNextCreate makes the next CreateUserWithIdentity behave like a lost
+	// race: the hook runs first (the winning flow's rows), then the call
+	// answers ErrCompanyIdentityTaken and stores nothing.
+	failNextCreate bool
+	beforeCreate   func()
+	// notices records the account announcements the service asked the store to
+	// write with the account it created, stamped the way the real store stamps
+	// them (issue #419, S3): the pending account as the subject and no ticket.
+	notices []domain.Notification
+	// candidates, when not nil, is the roster ActiveUsers answers instead of the
+	// active accounts of the user store, so a test can arrange a duplicate row or
+	// a roster the user store would never answer.
+	candidates []domain.User
+	// activeUsersErr makes ActiveUsers fail, the way a roster read can fail.
+	activeUsersErr error
+}
+
+var _ application.CompanyIdentityStore = (*fakeCompanyIdentityStore)(nil)
+
+func newFakeCompanyIdentityStore(users *fakeUserStore) *fakeCompanyIdentityStore {
+	return &fakeCompanyIdentityStore{
+		users:          users,
+		attempts:       map[string]application.CompanySignInAttempt{},
+		nextIdentityID: 1,
+	}
+}
+
+func (f *fakeCompanyIdentityStore) CreateAttempt(_ context.Context, attempt *application.CompanySignInAttempt) error {
+	if _, dup := f.attempts[attempt.StateHash]; dup {
+		return errors.New("duplicate state hash")
+	}
+	f.attempts[attempt.StateHash] = *attempt
+	return nil
+}
+
+func (f *fakeCompanyIdentityStore) ConsumeAttempt(_ context.Context, stateHash string) (*application.CompanySignInAttempt, error) {
+	attempt, ok := f.attempts[stateHash]
+	if !ok {
+		return nil, &domain.NotFoundError{Kind: "sign-in attempt", ID: stateHash}
+	}
+	delete(f.attempts, stateHash)
+	return &attempt, nil
+}
+
+func (f *fakeCompanyIdentityStore) PurgeExpiredAttempts(_ context.Context, before time.Time) (int, error) {
+	f.purges = append(f.purges, before)
+	purged := 0
+	for hash, attempt := range f.attempts {
+		if attempt.ExpiresAt.Before(before) {
+			delete(f.attempts, hash)
+			purged++
+		}
+	}
+	return purged, nil
+}
+
+func (f *fakeCompanyIdentityStore) ResolveIdentity(_ context.Context, provider application.CompanyProvider, issuer, subject string) (*application.CompanyIdentity, *domain.User, error) {
+	for _, identity := range f.identities {
+		if identity.Provider != provider || identity.Issuer != issuer || identity.Subject != subject {
+			continue
+		}
+		user, err := f.users.GetByID(context.Background(), identity.UserID)
+		if err != nil {
+			return nil, nil, err
+		}
+		cp := *identity
+		return &cp, user, nil
+	}
+	return nil, nil, &domain.NotFoundError{Kind: "user identity", ID: subject}
+}
+
+func (f *fakeCompanyIdentityStore) UsersByEmail(_ context.Context, email string) ([]domain.User, error) {
+	// It reads every account, pending ones included: the company sign-in decision
+	// must recognise a waiting account by its address (issue #419, S3). It
+	// therefore cannot use List, which answers managed users only.
+	ids := make([]int64, 0, len(f.users.users))
+	for id := range f.users.users {
+		ids = append(ids, id)
+	}
+	sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
+	var out []domain.User
+	for _, id := range ids {
+		if strings.EqualFold(f.users.users[id].Email, email) {
+			out = append(out, *f.users.users[id])
+		}
+	}
+	return out, nil
+}
+
+func (f *fakeCompanyIdentityStore) CreateUserWithIdentity(_ context.Context, user *domain.User, identity *application.CompanyIdentity, notifications []domain.Notification) error {
+	if f.failNextCreate {
+		f.failNextCreate = false
+		if f.beforeCreate != nil {
+			f.beforeCreate()
+		}
+		return application.ErrCompanyIdentityTaken
+	}
+	if f.hasIdentity(identity.Provider, identity.Issuer, identity.Subject) {
+		return application.ErrCompanyIdentityTaken
+	}
+	// The account's own id is the subject of every notice, exactly as the real
+	// store stamps it (issue #419, S3). The fake knows the id it is about to
+	// assign, so the batch is stamped and validated BEFORE the write: a rejected
+	// notice stores neither the account nor the identity, which is the rollback
+	// the real transaction performs.
+	batch := make([]domain.Notification, 0, len(notifications))
+	for _, n := range notifications {
+		subject := f.users.nextID
+		n.PendingUserID = &subject
+		if err := n.Validate(); err != nil {
+			return err
+		}
+		batch = append(batch, n)
+	}
+	if err := f.users.Create(context.Background(), user); err != nil {
+		return err
+	}
+	cp := *identity
+	cp.ID = f.nextIdentityID
+	f.nextIdentityID++
+	cp.UserID = user.ID
+	f.identities = append(f.identities, &cp)
+	f.notices = append(f.notices, batch...)
+	return nil
+}
+
+// ActiveUsers answers the roster the recipient policy filters (issue #419, S3):
+// every active account, pending ones excluded, exactly like the real read.
+func (f *fakeCompanyIdentityStore) ActiveUsers(_ context.Context) ([]domain.User, error) {
+	if f.activeUsersErr != nil {
+		return nil, f.activeUsersErr
+	}
+	if f.candidates != nil {
+		return append([]domain.User(nil), f.candidates...), nil
+	}
+	return f.users.ListActive(context.Background())
+}
+
+func (f *fakeCompanyIdentityStore) LinkIdentity(_ context.Context, identity *application.CompanyIdentity) error {
+	for _, existing := range f.identities {
+		if existing.UserID == identity.UserID && existing.Provider == identity.Provider {
+			return application.ErrCompanyIdentityTaken
+		}
+	}
+	cp := *identity
+	cp.ID = f.nextIdentityID
+	f.nextIdentityID++
+	f.identities = append(f.identities, &cp)
+	return nil
+}
+
+func (f *fakeCompanyIdentityStore) TouchIdentity(_ context.Context, identityID int64, email string, at time.Time) error {
+	for _, identity := range f.identities {
+		if identity.ID == identityID {
+			identity.Email = email
+			identity.LastSignInAt = at
+			return nil
+		}
+	}
+	return &domain.NotFoundError{Kind: "user identity", ID: identityID}
+}
+
+func (f *fakeCompanyIdentityStore) hasIdentity(provider application.CompanyProvider, issuer, subject string) bool {
+	for _, identity := range f.identities {
+		if identity.Provider == provider && identity.Issuer == issuer && identity.Subject == subject {
+			return true
+		}
+	}
+	return false
+}
+
+// seedIdentity links an account to a provider identity directly (test arrange).
+func (f *fakeCompanyIdentityStore) seedIdentity(userID int64, provider application.CompanyProvider, issuer, subject, email string) {
+	f.identities = append(f.identities, &application.CompanyIdentity{
+		ID: f.nextIdentityID, UserID: userID, Provider: provider, Issuer: issuer, Subject: subject, Email: email,
+	})
+	f.nextIdentityID++
+}
+
+// fakeCompanyIdentityProvider is the CompanyIdentityProvider double: it answers
+// a predictable URL and the claims the test gave it. Simplifications, per the
+// fakes contract: the nonce, state, signature and lifetime checks belong to the
+// adapter (internal/adapters/oidc), so this double only records the request it
+// was handed and returns the arranged claims.
+type fakeCompanyIdentityProvider struct {
+	authURL     string
+	claims      application.CompanyIdentityClaims
+	exchangeErr error
+	requests    []application.CompanyAuthorizationRequest
+	codes       []string
+}
+
+var _ application.CompanyIdentityProvider = (*fakeCompanyIdentityProvider)(nil)
+
+func (f *fakeCompanyIdentityProvider) AuthorizationURL(_ context.Context, _ application.CompanyProviderCredentials, req application.CompanyAuthorizationRequest) (string, error) {
+	f.requests = append(f.requests, req)
+	return f.authURL + "?state=" + req.State, nil
+}
+
+func (f *fakeCompanyIdentityProvider) Exchange(_ context.Context, _ application.CompanyProviderCredentials, req application.CompanyAuthorizationRequest, code string) (application.CompanyIdentityClaims, error) {
+	f.requests = append(f.requests, req)
+	f.codes = append(f.codes, code)
+	if f.exchangeErr != nil {
+		return application.CompanyIdentityClaims{}, f.exchangeErr
+	}
+	return f.claims, nil
+}
+
+// fakeApprovalNotifier records the accounts a pending first sign-in announced
+// (the seam for the administrator notification).
+type fakeApprovalNotifier struct {
+	accounts []domain.User
+	err      error
+}
+
+func (f *fakeApprovalNotifier) AccountAwaitingApproval(_ context.Context, account domain.User) error {
+	f.accounts = append(f.accounts, account)
+	return f.err
 }
 
 // fakeVisitEntry is one piece of a ticket's history in the fake: an audit

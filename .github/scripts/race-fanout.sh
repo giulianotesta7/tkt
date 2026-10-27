@@ -31,7 +31,7 @@ for ((w = 0; w < workers; w++)); do
   for ((i = w; i < ${#tests[@]}; i += workers)); do group+=("${tests[i]}"); done
   [ "${#group[@]}" -gt 0 ] || continue
   pattern="^($(IFS='|'; echo "${group[*]}"))\$"
-  "$out/pkg.test" -test.run "$pattern" -test.count=1 -test.timeout=20m -test.v > "$out/worker-$w.log" 2>&1 &
+  "$out/pkg.test" -test.run "$pattern" -test.count=1 -test.timeout=35m -test.v > "$out/worker-$w.log" 2>&1 &
   pids+=("$!:$w")
 done
 

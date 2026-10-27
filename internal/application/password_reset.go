@@ -82,15 +82,20 @@ func AsyncPasswordResetDispatch(send func()) {
 // is offered and how long a new password must be, and the email configuration
 // that says whether a message can be delivered at all.
 type PasswordResetService struct {
-	users               UserStore
-	tokens              PasswordResetStore
-	policy              PasswordSettingsStore
-	email               DeliveryConfigSource
-	mailer              Mailer
-	renderer            MessageRenderer
-	dispatch            PasswordResetDispatch
-	clock               domain.Clock
+	users    UserStore
+	tokens   PasswordResetStore
+	policy   PasswordSettingsStore
+	email    DeliveryConfigSource
+	mailer   Mailer
+	renderer MessageRenderer
+	dispatch PasswordResetDispatch
+	clock    domain.Clock
+	// languagePreferences resolves the recipient's language when delivery runs.
 	languagePreferences LanguagePreferencesStore
+	// companySignIn, when wired, carries the instance switch that keeps
+	// password sign-in — and therefore recovery — to root alone (issue #419,
+	// S5).
+	companySignIn CompanySignInSettingsStore
 }
 
 // NewPasswordResetService wires the recovery use cases.
@@ -113,6 +118,14 @@ func (s *PasswordResetService) WithLanguagePreferences(p LanguagePreferencesStor
 	return s
 }
 
+// WithCompanySignIn wires the company sign-in configuration recovery reads
+// (issue #419, S5). Without it password sign-in — and recovery with it — stays
+// available to every account.
+func (s *PasswordResetService) WithCompanySignIn(store CompanySignInSettingsStore) *PasswordResetService {
+	s.companySignIn = store
+	return s
+}
+
 // passwordPolicy answers the instance policy, defaulting to the shipped one
 // (both paths ON, minimum 12) when no store is wired. A store failure is
 // returned, never defaulted away: a write must not proceed under a policy
@@ -128,10 +141,11 @@ func (s *PasswordResetService) passwordPolicy(ctx context.Context) (PasswordSett
 //
 // The answer is the SAME nil for every case a visitor must not be able to tell
 // apart: an unknown address, an inactive account, the recovery switch OFF
-// (S1), email delivery not configured (S5), and a request inside the throttle
-// window (S9). Only a store failure answers an error, because that is a broken
-// instance rather than a fact about the address. Nothing is mailed and no link
-// is stored in any of the neutral cases.
+// (S1), password sign-in off for this account (#419, S5), email delivery not
+// configured (S5), and a request inside the throttle window (S9). Only a store
+// failure answers an error, because that is a broken instance rather than a
+// fact about the address. Nothing is mailed and no link is stored in any of the
+// neutral cases.
 //
 // On the path that does send, the token is 32 random bytes rendered as hex, the
 // database receives only its SHA-256 digest (S8), the link is built from the
@@ -161,6 +175,16 @@ func (s *PasswordResetService) RequestPasswordReset(ctx context.Context, email s
 	case err != nil:
 		return err
 	case !user.Active:
+		return nil
+	}
+	// A verified non-root account has no password path to recover while
+	// password sign-in is off (issue #419, S5), so nothing is mailed and the
+	// answer stays the neutral one. Root keeps its link.
+	allowed, err := passwordSignInAllowed(ctx, s.companySignIn, user.Role)
+	if err != nil {
+		return err
+	}
+	if !allowed {
 		return nil
 	}
 	cfg, ok, err := s.email.DeliveryConfig(ctx)
@@ -256,7 +280,33 @@ func (s *PasswordResetService) CheckPasswordResetToken(ctx context.Context, raw 
 	if strings.TrimSpace(raw) == "" {
 		return false, nil
 	}
+	allowed, err := s.linkOwnerMayUsePasswords(ctx, passwordResetTokenHash(raw))
+	if err != nil || !allowed {
+		return false, err
+	}
 	return s.tokens.PasswordResetTokenUsable(ctx, passwordResetTokenHash(raw), s.clock.Now())
+}
+
+// linkOwnerMayUsePasswords answers whether the account a link belongs to may
+// still set a password (issue #419, S5). While password sign-in is on, the
+// answer is yes without reading the link. While it is off, only root's link
+// stays usable: a link mailed to anyone else before the switch went off reads
+// exactly like an expired one. An unusable link answers yes here, so the
+// ordinary refusal that follows stays the one every unusable link gets.
+func (s *PasswordResetService) linkOwnerMayUsePasswords(ctx context.Context, tokenHash string) (bool, error) {
+	on, err := companySignInPasswordEnabled(ctx, s.companySignIn)
+	if err != nil || on {
+		return on, err
+	}
+	userID, ok, err := s.tokens.PasswordResetTokenOwner(ctx, tokenHash, s.clock.Now())
+	if err != nil || !ok {
+		return !ok, err
+	}
+	owner, err := s.users.GetByID(ctx, userID)
+	if err != nil {
+		return false, err
+	}
+	return owner.Role == domain.RoleRoot, nil
 }
 
 // ResetPassword stores newPassword under the account the link belongs to (S3).
@@ -285,6 +335,13 @@ func (s *PasswordResetService) ResetPassword(ctx context.Context, raw, newPasswo
 	}
 	if s.tokens == nil {
 		return errors.New("the password reset store is not wired")
+	}
+	allowed, err := s.linkOwnerMayUsePasswords(ctx, passwordResetTokenHash(raw))
+	if err != nil {
+		return err
+	}
+	if !allowed {
+		return &PasswordResetLinkError{}
 	}
 	hash, err := HashPassword(newPassword)
 	if err != nil {

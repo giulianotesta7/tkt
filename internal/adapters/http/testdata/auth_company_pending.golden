@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sign in · Help desk</title>
+
+</head>
+<body>
+<main class="auth-entry">
+
+<section class="auth-entry__presentation auth-entry__presentation--" aria-label="tkt">
+  <div class="auth-entry__brand">
+    <span class="auth-entry__mark" aria-hidden="true"></span>
+    <div class="auth-entry__brand-text"><b>tkt</b><span>Help desk</span></div>
+  </div>
+  <div class="auth-entry__body">
+    <h2></h2>
+    <p class="auth-entry__sub"></p>
+  </div>
+</section>
+
+  <section class="auth-entry__form-panel">
+
+<section class="company-pending">
+  <h2>Your access is pending approval</h2>
+  <p class="lead">Your company account signed in. An administrator has to approve your access before you can open tickets.</p>
+  <a class="btn primary" href="/login">Back to sign in</a>
+  <p class="footnote">No tkt session was created. You will see this page on every attempt until an administrator approves the account.</p>
+</section>
+  </section>
+</main>
+</body>
+</html>

@@ -37,6 +37,18 @@ func (s *UserService) WithPasswordChangeStore(changes PasswordChangeStore) *User
 	return s
 }
 
+// WithCompanySignIn wires the company sign-in configuration the own-password
+// change reads (issue #419, S5). Without it password sign-in stays on.
+func (s *UserService) WithCompanySignIn(store CompanySignInSettingsStore) *UserService {
+	s.companySignIn = store
+	return s
+}
+
+// errMsgPasswordChangeDisabled is the ONE refusal for the own-password path
+// while the instance does not offer it (issue #414 S1, issue #419 S5): both
+// switches remove the same path, so they answer the same sentence.
+const errMsgPasswordChangeDisabled = "changing your own password is disabled on this instance"
+
 // ChangeOwnPassword lets the SIGNED-IN user replace their own password (issue
 // #414, S2): the current password is required, the session in use stays signed
 // in, and every other session of that account is signed out.
@@ -47,17 +59,19 @@ func (s *UserService) WithPasswordChangeStore(changes PasswordChangeStore) *User
 // assuming the switch is ON. The switch then refuses the whole path while it is
 // OFF (S1) — nothing is reloaded, hashed, or written. Only then is the ACTOR
 // RELOADED from the store: the actor carries the session's identity, never a
-// trusted hash, so an account deactivated after signing in is refused here. The
-// current password is verified against that stored hash before the new one is
-// even validated, so a wrong current password answers with its own field
-// refusal and changes nothing.
+// trusted hash, so an account deactivated after signing in is refused here.
+// The reloaded account's role then decides the second switch, password sign-in
+// (issue #419, S5): off for everyone but root, it removes this path with the
+// same refusal the S1 switch uses. The current password is verified against
+// that stored hash before the new one is even validated, so a wrong current
+// password answers with its own field refusal and changes nothing.
 func (s *UserService) ChangeOwnPassword(ctx context.Context, actor domain.User, currentSessionID string, currentPassword, newPassword string) error {
 	policy, err := s.passwordPolicy(ctx)
 	if err != nil {
 		return err
 	}
 	if !policy.ChangeEnabled {
-		return domain.NewForbiddenError("changing your own password is disabled on this instance")
+		return domain.NewForbiddenError(errMsgPasswordChangeDisabled)
 	}
 	user, err := s.users.GetByID(ctx, actor.ID)
 	if err != nil {
@@ -65,6 +79,19 @@ func (s *UserService) ChangeOwnPassword(ctx context.Context, actor domain.User, 
 	}
 	if !user.Active {
 		return domain.NewForbiddenError("an inactive account cannot change its password")
+	}
+	// An account a company sign-in created has no password, so there is no
+	// current one to verify and the section is never offered to it; the route
+	// refuses it the same way instead of answering "incorrect password".
+	if user.PasswordHash == "" {
+		return domain.NewForbiddenError(errMsgPasswordChangeDisabled)
+	}
+	allowed, err := passwordSignInAllowed(ctx, s.companySignIn, user.Role)
+	if err != nil {
+		return err
+	}
+	if !allowed {
+		return domain.NewForbiddenError(errMsgPasswordChangeDisabled)
 	}
 	// S2 keeps the session IN USE signed in, so a caller that cannot name it
 	// would sign out every session instead, the current one included.
@@ -91,4 +118,12 @@ func (s *UserService) ChangeOwnPassword(ctx context.Context, actor domain.User, 
 	// one: two submissions that both verified the old password cannot both be
 	// stored, and the one that lost answers the current-password refusal.
 	return s.passwordChanges.ChangePasswordAndSignOutOtherSessions(ctx, user.ID, user.PasswordHash, hash, currentSessionID)
+}
+
+// PasswordSignInAllowed answers whether the actor's password paths are still
+// offered (issue #419, S5): root always keeps them, and every other account
+// keeps them only while password sign-in is on. The Preferences page hides the
+// own-password section with it, and the route refuses with it.
+func (s *UserService) PasswordSignInAllowed(ctx context.Context, actor domain.User) (bool, error) {
+	return passwordSignInAllowed(ctx, s.companySignIn, actor.Role)
 }

@@ -4,7 +4,6 @@
     <header class="users-header">
       <div>
         <h1 id="users-list-title">{{t "users.title"}}</h1>
-        <p>{{tp "users.count" .Counts.All}}</p>
       </div>
       <a id="users-new-launcher" class="users-primary-action users-new-launcher" href="/users/new" hx-get="/users/new?status={{.Status}}" hx-target="#users-drawer-host" hx-swap="outerHTML" hx-push-url="/users/new" data-edit-url="/users/new">{{t "users.new"}}</a>
     </header>{{if .Error}}<div class="users-error" role="alert">{{.Error}}</div>{{end}}
@@ -13,13 +12,42 @@
         {{if eq .Status "all"}}<a class="is-selected" href="/users" hx-get="/users" hx-target="#users-root" hx-swap="outerHTML" hx-push-url="true">{{t "users.filter.all"}} <span>{{.Counts.All}}</span></a>{{else}}<a href="/users" hx-get="/users" hx-target="#users-root" hx-swap="outerHTML" hx-push-url="true">{{t "users.filter.all"}} <span>{{.Counts.All}}</span></a>{{end}}
         {{if eq .Status "active"}}<a class="is-selected" href="/users?status=active" hx-get="/users?status=active" hx-target="#users-root" hx-swap="outerHTML" hx-push-url="true">{{t "users.filter.active"}} <span>{{.Counts.Active}}</span></a>{{else}}<a href="/users?status=active" hx-get="/users?status=active" hx-target="#users-root" hx-swap="outerHTML" hx-push-url="true">{{t "users.filter.active"}} <span>{{.Counts.Active}}</span></a>{{end}}
         {{if eq .Status "deactivated"}}<a class="is-selected" href="/users?status=deactivated" hx-get="/users?status=deactivated" hx-target="#users-root" hx-swap="outerHTML" hx-push-url="true">{{t "users.filter.deactivated"}} <span>{{.Counts.Deactivated}}</span></a>{{else}}<a href="/users?status=deactivated" hx-get="/users?status=deactivated" hx-target="#users-root" hx-swap="outerHTML" hx-push-url="true">{{t "users.filter.deactivated"}} <span>{{.Counts.Deactivated}}</span></a>{{end}}
+{{if .PendingTab}}{{if eq .Status "pending"}}        <a class="is-selected" href="/users?status=pending" hx-get="/users?status=pending" hx-target="#users-root" hx-swap="outerHTML" hx-push-url="true">{{t "users.filter.pending"}} <span class="users-pending-count">{{.Counts.Pending}}</span></a>{{else}}        <a href="/users?status=pending" hx-get="/users?status=pending" hx-target="#users-root" hx-swap="outerHTML" hx-push-url="true">{{t "users.filter.pending"}} <span class="users-pending-count">{{.Counts.Pending}}</span></a>{{end}}{{end}}
       </nav>
       <div class="users-search search-field" role="search">
         {{template "search_icon"}}
         <input type="search" aria-label="{{t "users.search_label"}}" placeholder="{{t "users.search_placeholder"}}" autocomplete="off">
       </div>
     </div>
-    <section class="users-list" aria-labelledby="users-list-title">
+{{if eq .Status "pending"}}    <p class="users-pending-note">{{t "users.pending.help"}}</p>
+    <form id="users-pending-form" class="users-pending-form" method="post" action="/users/pending/approve" hx-post="/users/pending/approve" hx-target="#users-root" hx-swap="outerHTML">
+      <div class="users-bulk-bar" data-users-bulk-bar>
+        <span class="users-bulk-count"><span data-users-bulk-count>0</span> {{t "users.pending.selected"}}</span>
+        <label for="users-pending-role">{{t "users.pending.approve_as"}}</label>
+        <select id="users-pending-role" class="users-bulk-role" name="role">{{range .ApproveRoles}}<option value="{{.Value}}">{{t .Label}}</option>{{end}}</select>
+        <button class="users-primary-action" type="submit">{{t "users.pending.approve"}}</button>
+        <button class="users-danger-action" type="submit" formaction="/users/pending/reject" hx-post="/users/pending/reject">{{t "users.pending.reject"}}</button>
+        <button class="users-secondary-action" type="button" data-users-pending-clear>{{t "common.clear"}}</button>
+      </div>
+    </form>
+    <section class="users-list users-pending-list" aria-labelledby="users-list-title">
+      <table class="users-pending-table">
+        <thead><tr><th scope="col" class="users-pending-check"><input type="checkbox" form="users-pending-form" data-users-pending-all aria-label="{{t "users.pending.select_all"}}"></th><th scope="col">{{t "users.col_user"}}</th><th scope="col">{{t "users.pending.col_signin"}}</th><th scope="col">{{t "users.col_status"}}</th><th scope="col">{{t "users.pending.col_requested"}}</th><th scope="col" class="users-pending-actions"><span class="visually-hidden">{{t "users.col_actions"}}</span></th></tr></thead>
+        <tbody>
+{{if .PendingRows}}{{range .PendingRows}}{{$user := .}}          <tr data-user-name="{{$user.Name}}" data-user-email="{{$user.Email}}">
+            <td class="users-pending-check"><input type="checkbox" form="users-pending-form" name="user_ids" value="{{$user.ID}}" aria-label="{{tf "users.pending.select_named" $user.Name}}"></td>
+            <td><span class="user-factual"><span class="user-initials" aria-hidden="true">{{$user.Initials}}</span><span><strong>{{$user.Name}}</strong><small>{{$user.Email}}</small></span></span></td>
+            <td class="users-pending-signin">{{if $user.SignInLabels}}<span class="user-method">{{range $i, $label := $user.SignInLabels}}{{if $i}} · {{end}}{{t $label}}{{end}}</span>{{else}}{{t "users.pending.signin_unknown"}}{{end}}</td>
+            <td><span class="user-status is-pending">{{t "users.status.pending"}}</span></td>
+            <td><time datetime="{{formatDatetime $user.CreatedAt}}">{{formatTime $user.CreatedAt}}</time></td>
+            <td class="users-pending-actions"><div class="users-row-menu"><button class="user-actions" type="button" data-users-pending-menu aria-controls="pending-menu-{{$user.ID}}" aria-expanded="false" aria-haspopup="menu" aria-label="{{tf "users.pending.actions_for" $user.Name}}">⋯</button><div id="pending-menu-{{$user.ID}}" class="users-row-menu-panel" role="menu" hidden>{{range $.ApproveRoles}}<form method="post" action="/users/pending/approve" hx-post="/users/pending/approve" hx-target="#users-root" hx-swap="outerHTML" role="none"><input type="hidden" name="user_ids" value="{{$user.ID}}"><input type="hidden" name="role" value="{{.Value}}"><button class="users-row-menu-item" role="menuitem" type="submit">{{tf "users.pending.approve_as_role" (t .Label)}}</button></form>{{end}}</div></div></td>
+          </tr>
+{{end}}          <tr class="users-search-empty" hidden><td colspan="6"><p class="users-empty">{{t "users.empty.search"}}</p></td></tr>
+{{else}}          <tr><td colspan="6"><p class="users-empty">{{t "users.pending.empty"}}</p></td></tr>
+{{end}}          </tbody>
+      </table>
+    </section>
+{{else}}    <section class="users-list" aria-labelledby="users-list-title">
       <table>
         <thead><tr><th scope="col">{{t "users.col_user"}}</th><th scope="col">{{t "users.col_role"}}</th><th scope="col">{{t "users.col_status"}}</th><th scope="col">{{t "users.col_created"}}</th><th scope="col"><span class="visually-hidden">{{t "users.col_actions"}}</span></th></tr></thead>
         <tbody>
@@ -36,7 +64,7 @@
         </tbody>
       </table>
     </section>
-  </div>
+{{end}}  </div>
   {{if .Drawer}}{{template "user_drawer" .Drawer}}{{else}}<div id="users-drawer-host"></div>{{end}}
 </div>
 {{end}}
