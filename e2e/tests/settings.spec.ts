@@ -70,9 +70,9 @@ test.describe("Settings", () => {
     await expect(appearance.locator("h2")).toHaveCount(0);
     await expect(page.locator(".settings-content > h2")).toHaveText("Tickets & SLA");
     expect(
-      await page.locator(".settings-content > form").evaluateAll((forms) =>
-        forms.map((form) => form.getAttribute("action")),
-      ),
+      await page
+        .locator(".settings-content > form")
+        .evaluateAll((forms) => forms.map((form) => form.getAttribute("action"))),
     ).toEqual([
       "/settings/ticket-creation",
       "/settings/category-suggestions",
