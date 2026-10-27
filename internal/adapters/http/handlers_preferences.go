@@ -1,6 +1,7 @@
 package httpadapter
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"net/url"
@@ -65,6 +66,7 @@ func (h *PreferencesHandlers) Register(mux *http.ServeMux) {
 	mux.HandleFunc("POST /preferences/email", h.updateEmail)
 	mux.HandleFunc("POST /preferences/sidebar", h.updateSidebar)
 	mux.HandleFunc("POST /preferences/theme", h.updateTheme)
+	mux.HandleFunc("POST /preferences/language", h.updateLanguage)
 	mux.HandleFunc("POST /preferences/timeline-order", h.updateTimelineOrder)
 	mux.HandleFunc("POST /preferences/password", h.updatePassword)
 }
@@ -94,6 +96,7 @@ type preferencesData struct {
 	Current            string
 	Orders             []queueOrderOption
 	Theme              string
+	Language           string
 	Themes             []themeOption
 	TimelineOrder      string
 	TimelineOrders     []timelineOrderOption
@@ -316,6 +319,42 @@ func (h *PreferencesHandlers) updateEmail(w http.ResponseWriter, r *http.Request
 	redirect(w, r, "/preferences")
 }
 
+func (h *PreferencesHandlers) updateLanguage(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		httpError(w, r, "error.internal_server", http.StatusInternalServerError)
+		return
+	}
+	err := h.preferences.SetLanguage(r.Context(), *userFromContext(r.Context()), r.Form.Get("language"))
+	if err != nil {
+		status, msg := mapErrorFor(r, err)
+		if status == http.StatusInternalServerError {
+			http.Error(w, msg, status)
+			return
+		}
+		current, getErr := h.preferences.GetDefaultQueueOrder(r.Context(), *userFromContext(r.Context()))
+		if getErr != nil {
+			httpError(w, r, "error.internal_server", http.StatusInternalServerError)
+			return
+		}
+		data, getErr := h.data(r, current, msg)
+		if getErr != nil {
+			httpError(w, r, "error.internal_server", http.StatusInternalServerError)
+			return
+		}
+		h.renderer.Render(w, r, "preferences", "", data, status)
+		return
+	}
+	language := r.Form.Get("language")
+	if language == application.LanguageInstance {
+		language, _ = r.Context().Value(ctxKeyInstanceLanguage{}).(string)
+	}
+	if language == "en" || language == "es" {
+		r = r.WithContext(context.WithValue(r.Context(), ctxKeyInterfaceLanguage{}, language))
+	}
+	saveFeedback(w, r, saveFeedbackSaved, saveFeedbackSuccess)
+	redirect(w, r, "/preferences")
+}
+
 // updateTheme persists the submitted interface theme (issue #378, S1). It is a
 // native form like the queue order — a closed set of three values, one of them
 // selected — so it answers exactly the same way: a rejected value re-renders
@@ -449,6 +488,10 @@ func (h *PreferencesHandlers) data(r *http.Request, current, msg string) (prefer
 	if err != nil {
 		return preferencesData{}, err
 	}
+	language, err := h.preferences.GetLanguage(r.Context(), actor)
+	if err != nil {
+		return preferencesData{}, err
+	}
 	section, err := h.passwordChangeSection(r)
 	if err != nil {
 		return preferencesData{}, err
@@ -459,6 +502,7 @@ func (h *PreferencesHandlers) data(r *http.Request, current, msg string) (prefer
 		Current:            current,
 		Orders:             queueOrderOptions(),
 		Theme:              theme,
+		Language:           language,
 		Themes:             themeOptions(),
 		TimelineOrder:      timelineOrder,
 		TimelineOrders:     timelineOrderOptions(),
@@ -480,7 +524,16 @@ func (h *PreferencesHandlers) passwordChangeSection(r *http.Request) (passwordSe
 	if err != nil {
 		return passwordSectionData{}, err
 	}
-	return passwordSectionData{Shown: policy.ChangeEnabled, MinLength: policy.MinLength}, nil
+	// Issue #419, S5: while password sign-in is off, only root keeps the
+	// section.
+	allowed, err := h.users.PasswordSignInAllowed(r.Context(), *userFromContext(r.Context()))
+	if err != nil {
+		return passwordSectionData{}, err
+	}
+	// An account without a password (a company sign-in created it) has no current
+	// password to ask for, so the section is not offered.
+	hasPassword := userFromContext(r.Context()).PasswordHash != ""
+	return passwordSectionData{Shown: policy.ChangeEnabled && allowed && hasPassword, MinLength: policy.MinLength}, nil
 }
 
 // updatePassword replaces the session user's own password (issue #414, S2). The
@@ -510,6 +563,15 @@ func (h *PreferencesHandlers) updatePassword(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	if !policy.ChangeEnabled {
+		httpError(w, r, "error.forbidden", http.StatusForbidden)
+		return
+	}
+	allowed, err := h.users.PasswordSignInAllowed(r.Context(), *userFromContext(r.Context()))
+	if err != nil {
+		httpError(w, r, "error.internal_server", http.StatusInternalServerError)
+		return
+	}
+	if !allowed {
 		httpError(w, r, "error.forbidden", http.StatusForbidden)
 		return
 	}

@@ -164,16 +164,37 @@ func (e *EmailDeliveryError) Error() string { return "email delivery failed: " +
 // them is root-only (CapManageEmail): the SMTP credentials are the
 // instance's to give away, not an administrator's.
 type EmailSettingsService struct {
-	store    EmailSettingsStore
-	sealer   SecretSealer
-	mailer   Mailer
-	language LanguageSource
-	renderer MessageRenderer
+	store       EmailSettingsStore
+	sealer      SecretSealer
+	mailer      Mailer
+	language    LanguageSource
+	renderer    MessageRenderer
+	preferences LanguagePreferencesStore
 }
 
 // NewEmailSettingsService wires the email settings use cases.
 func NewEmailSettingsService(store EmailSettingsStore, sealer SecretSealer, mailer Mailer, language LanguageSource, renderer MessageRenderer) *EmailSettingsService {
 	return &EmailSettingsService{store: store, sealer: sealer, mailer: mailer, language: language, renderer: renderer}
+}
+
+// WithLanguagePreferences enables recipient-specific email copy.
+func (s *EmailSettingsService) WithLanguagePreferences(p LanguagePreferencesStore) *EmailSettingsService {
+	s.preferences = p
+	return s
+}
+
+func recipientEmailLanguage(ctx context.Context, p LanguagePreferencesStore, userID int64, fallback string) (string, error) {
+	if p == nil {
+		return fallback, nil
+	}
+	language, err := p.GetLanguage(ctx, userID)
+	if err != nil {
+		return "", err
+	}
+	if language == "en" || language == "es" {
+		return language, nil
+	}
+	return fallback, nil
 }
 
 func requireManageEmail(actor domain.User) error {
@@ -359,6 +380,10 @@ func (s *EmailSettingsService) SendTest(ctx context.Context, actor domain.User) 
 		return err
 	}
 	language, err := s.language.GetInterfaceLanguage(ctx)
+	if err != nil {
+		return err
+	}
+	language, err = recipientEmailLanguage(ctx, s.preferences, actor.ID, language)
 	if err != nil {
 		return err
 	}

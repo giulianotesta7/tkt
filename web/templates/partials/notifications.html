@@ -29,10 +29,12 @@
   <p class="notifications-empty-body">{{t "notifications.empty.body"}}</p>
 </div>{{end}}{{end}}
 {{define "notification_row"}}<form method="post" action="/notifications/{{.ID}}/read">
-  <input type="hidden" name="ticket_id" value="{{.TicketID}}">
-  <button class="notification-open" type="submit">
-    <span class="notification-ident">{{if .Number}}{{ticketNumber .Number}} · {{.Title}}{{else}}{{t "notifications.ticket_unavailable"}}{{end}}</span>
+{{if .Account}}{{if .Target}}  <input type="hidden" name="target" value="{{.Target}}">
+{{end}}{{else}}  <input type="hidden" name="ticket_id" value="{{.TicketID}}">
+{{end}}  <button class="notification-open" type="submit">
+    <span class="notification-ident">{{if .Account}}{{msg .Subject}}{{else if .Number}}{{ticketNumber .Number}} · {{.Title}}{{else}}{{t "notifications.ticket_unavailable"}}{{end}}</span>
     <span class="notification-what">{{msg .Message}}</span>
-    <span class="notification-meta">{{msg .Actor}} · <time datetime="{{formatDatetime .CreatedAt}}">{{formatCardTime .CreatedAt}}</time>{{if .Unread}} <span class="notification-unread">{{t "notifications.unread"}}</span>{{end}}</span>
-  </button>
+    <span class="notification-meta">{{if .Account}}<time datetime="{{formatDatetime .CreatedAt}}">{{formatCardTime .CreatedAt}}</time>{{else}}{{msg .Actor}} · <time datetime="{{formatDatetime .CreatedAt}}">{{formatCardTime .CreatedAt}}</time>{{end}}{{if .Unread}} <span class="notification-unread">{{t "notifications.unread"}}</span>{{end}}</span>
+{{if .Target}}    <span class="notification-meta">{{t "notifications.account.open_pending"}}</span>
+{{end}}  </button>
 </form>{{end}}

@@ -162,3 +162,63 @@ func TestConcurrentFirstSealsShareOneKey(t *testing.T) {
 		}
 	}
 }
+
+// Issue #419: the provider client secrets share the SMTP key file, so each
+// purpose binds its values to its own additional data. A value sealed for one
+// purpose — or by the purpose-less box the SMTP password uses — never opens
+// as another, so a stored ciphertext cannot be moved between columns.
+func TestPurposeBoundValuesOpenOnlyUnderTheirPurpose(t *testing.T) {
+	box, _ := newTestBox(t)
+	google := box.For("google-client-secret")
+	microsoft := box.For("microsoft-client-secret")
+
+	sealed, err := google.Seal([]byte("g-secret"))
+	if err != nil {
+		t.Fatalf("Seal: %v", err)
+	}
+	got, err := google.Open(sealed)
+	if err != nil || string(got) != "g-secret" {
+		t.Fatalf("Open under its own purpose = %q, %v; want g-secret", got, err)
+	}
+	if _, err := microsoft.Open(sealed); !errors.Is(err, ErrInvalidSealed) {
+		t.Fatalf("Open under another purpose err = %v, want ErrInvalidSealed", err)
+	}
+	if _, err := box.Open(sealed); !errors.Is(err, ErrInvalidSealed) {
+		t.Fatalf("purpose-less Open of a purpose-bound value err = %v, want ErrInvalidSealed", err)
+	}
+
+	smtp, err := box.Seal([]byte("smtp-password"))
+	if err != nil {
+		t.Fatalf("Seal: %v", err)
+	}
+	if _, err := google.Open(smtp); !errors.Is(err, ErrInvalidSealed) {
+		t.Fatalf("purpose-bound Open of the SMTP value err = %v, want ErrInvalidSealed", err)
+	}
+	if got, err := box.Open(smtp); err != nil || string(got) != "smtp-password" {
+		t.Fatalf("the SMTP value no longer opens as before: %q, %v", got, err)
+	}
+}
+
+// smtpFixtureSealed is an SMTP password sealed before the purpose-bound
+// sealers existed, under the key bytes 0x00..0x1f. It pins the stored format
+// and the purpose-less binding: every instance upgraded past issue #419 must
+// still open the SMTP password it saved, and no purpose may open it.
+const smtpFixtureSealed = "v1:ebkMn_aN3mlAqIfTPLeaAuRoBjQnjoYOvpfLRApb5J9oPbfkJzrOkVJYsu8wj3I8dw"
+
+func TestSMTPValueSealedBeforePurposesStillOpens(t *testing.T) {
+	box, keyPath := newTestBox(t)
+	key := make([]byte, keySize)
+	for i := range key {
+		key[i] = byte(i)
+	}
+	if err := os.WriteFile(keyPath, key, 0o600); err != nil {
+		t.Fatalf("write key: %v", err)
+	}
+	got, err := box.Open(smtpFixtureSealed)
+	if err != nil || string(got) != "smtp-fixture-password" {
+		t.Fatalf("Open(fixture) = %q, %v; want smtp-fixture-password", got, err)
+	}
+	if _, err := box.For("google-client-secret").Open(smtpFixtureSealed); !errors.Is(err, ErrInvalidSealed) {
+		t.Fatalf("a purpose opened the SMTP fixture: err = %v", err)
+	}
+}

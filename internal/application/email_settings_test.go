@@ -328,6 +328,52 @@ func TestSendTestEmailGoesToTheActingRootInTheInstanceLanguage(t *testing.T) {
 	}
 }
 
+func TestTestEmailRecipientLanguage(t *testing.T) {
+	f := newEmailSettingsFixture()
+	prefs := &languageTestStore{values: map[int64]string{emailRoot().ID: "en"}}
+	wire, ok := any(f.svc).(interface {
+		WithLanguagePreferences(LanguagePreferencesStore) *EmailSettingsService
+	})
+	if !ok {
+		t.Fatal("test email service cannot use recipient language preferences")
+	}
+	wire.WithLanguagePreferences(prefs)
+	if err := f.svc.Save(context.Background(), emailRoot(), validEmailInput()); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.svc.SendTest(context.Background(), emailRoot()); err != nil {
+		t.Fatal(err)
+	}
+	if len(f.mailer.sent) != 1 || f.mailer.sent[0].email.Subject != "en:email.test.subject[]" {
+		t.Fatalf("sent: %+v", f.mailer.sent)
+	}
+	if !strings.Contains(f.mailer.sent[0].email.Body, "smtp.example.com") {
+		t.Fatal("host changed")
+	}
+}
+
+func TestTestEmailLanguageInheritanceAndFailure(t *testing.T) {
+	f := newEmailSettingsFixture()
+	prefs := &languageTestStore{values: map[int64]string{}}
+	f.svc.WithLanguagePreferences(prefs)
+	if err := f.svc.Save(context.Background(), emailRoot(), validEmailInput()); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.svc.SendTest(context.Background(), emailRoot()); err != nil {
+		t.Fatal(err)
+	}
+	if len(f.mailer.sent) != 1 || f.mailer.sent[0].email.Subject != "es:email.test.subject[]" {
+		t.Fatalf("sent: %+v", f.mailer.sent)
+	}
+	prefs.err = errors.New("language unavailable")
+	if err := f.svc.SendTest(context.Background(), emailRoot()); !errors.Is(err, prefs.err) {
+		t.Fatalf("error: %v", err)
+	}
+	if len(f.mailer.sent) != 1 {
+		t.Fatal("sent after preference failure")
+	}
+}
+
 func TestSendTestEmailWorksBeforeEnablingButNeedsAServer(t *testing.T) {
 	f := newEmailSettingsFixture()
 	err := f.svc.SendTest(context.Background(), emailRoot())

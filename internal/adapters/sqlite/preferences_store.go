@@ -55,6 +55,28 @@ const preferencesKeyTheme = "theme"
 // normalizes that — and any other stored value — to the newest-first default.
 const preferencesKeyTimelineOrder = "timeline_order"
 
+const preferencesKeyLanguage = "language"
+
+func (ps *preferencesStore) GetLanguage(ctx context.Context, userID int64) (string, error) {
+	var value string
+	err := ps.db.QueryRowContext(ctx, `SELECT value FROM user_preferences WHERE user_id = ? AND "key" = ?`, userID, preferencesKeyLanguage).Scan(&value)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("sqlite: get %s for user %d: %w", preferencesKeyLanguage, userID, err)
+	}
+	return value, nil
+}
+
+func (ps *preferencesStore) SetLanguage(ctx context.Context, userID int64, language string) error {
+	_, err := ps.db.ExecContext(ctx, `INSERT INTO user_preferences (user_id, "key", value) VALUES (?, ?, ?) ON CONFLICT(user_id, "key") DO UPDATE SET value = excluded.value`, userID, preferencesKeyLanguage, language)
+	if err != nil {
+		return fmt.Errorf("sqlite: set %s for user %d: %w", preferencesKeyLanguage, userID, err)
+	}
+	return nil
+}
+
 func newPreferencesStore(db *sql.DB) *preferencesStore { return &preferencesStore{db: db} }
 
 // PreferencesStore returns the per-user preferences port (issue #210).

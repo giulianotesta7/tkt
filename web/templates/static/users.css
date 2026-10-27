@@ -35,6 +35,10 @@
 .users-root .users-status-tabs a span{margin-left:5px;font-variant-numeric:tabular-nums}
 .users-root .users-status-tabs a.is-selected{color:var(--ink-strong);font-weight:500}
 .users-root .users-status-tabs a.is-selected:after{position:absolute;right:0;bottom:-1px;left:0;height:2px;background:var(--ink-strong);content:""}
+/* The Pending tab carries its own count in the accent, so the one queue that
+   waits for a person reads louder than the three that do not (issue #419, S3,
+   selected 6A). */
+.users-root .users-status-tabs a .users-pending-count{display:inline-grid;place-items:center;min-width:18px;height:18px;padding:0 5px;border-radius:999px;background:var(--accent-soft);color:var(--accent-ink);font-size:11px;font-weight:600;line-height:1}
 .users-root .users-search{position:relative;flex:0 1 260px;min-width:0}
 .users-root .users-search svg{position:absolute;top:50%;left:12px;transform:translateY(-50%);color:var(--faint);pointer-events:none}
 .users-root .users-search input{width:100%;height:36px;border:1px solid var(--line-strong);border-radius:8px;background:var(--card);color:var(--ink-soft);font:inherit;font-size:13px;padding:0 12px 0 38px}
@@ -55,6 +59,31 @@
 .users-root time{color:var(--muted);font-size:13px}
 .users-root .user-actions{display:grid;place-items:center;width:30px;height:30px;border:0;border-radius:8px;background:transparent;color:var(--muted);cursor:pointer}
 .users-root .user-actions:hover{background:var(--hover);color:var(--ink)}
+/* The Pending tab: one note, one bulk bar and a table whose first cell is the
+   row selector. The bar is server-rendered so the form works without script;
+   users.js only keeps the count and the select-all box in step. */
+.users-root .users-pending-note{margin:0 0 14px;color:var(--muted);font-size:13px;line-height:1.6}
+.users-root .users-bulk-bar{display:flex;flex-wrap:wrap;align-items:center;gap:10px;padding:10px 12px;margin-bottom:12px;border:1px solid var(--line);border-radius:8px;background:var(--surface)}
+.users-root .users-bulk-count{font-size:13px;font-weight:500;color:var(--ink);font-variant-numeric:tabular-nums}
+.users-root .users-bulk-bar label{font-size:12px;color:var(--muted)}
+.users-root .users-bulk-role{height:36px;border:1px solid var(--line-strong);border-radius:8px;background:var(--surface);color:var(--ink);font:inherit;font-size:13px;padding:0 10px}
+.users-root .users-bulk-role:focus{outline:0;border-color:var(--accent);box-shadow:0 0 0 2px var(--accent-soft)}
+.users-root .users-pending-table th:first-child,.users-root .users-pending-table td:first-child{width:38px;padding-right:0}
+.users-root .users-pending-actions{width:48px;text-align:right}
+.users-root .users-pending-signin{white-space:nowrap}
+.users-root .user-method{display:inline-flex;align-items:center;gap:6px;color:var(--ink-soft);font-size:13px}
+/* The row menu is the shared overflow-menu idea (issue #343) on the Pending
+   table. Its panel is fixed-positioned because the list panel clips whatever
+   overflows it, so the last row's menu would otherwise open outside the visible
+   surface; users.js positions it next to its trigger. */
+.users-root .users-row-menu{position:relative;display:inline-block}
+.users-root .users-row-menu-panel{position:fixed;top:0;left:0;z-index:30;display:grid;gap:2px;min-width:180px;padding:6px;border:1px solid var(--line);border-radius:8px;background:var(--card);box-shadow:var(--elevation-raised)}
+.users-root .users-row-menu-panel[hidden]{display:none}
+.users-root .users-row-menu-item{display:block;width:100%;padding:8px 10px;border:0;border-radius:8px;background:transparent;color:var(--ink-soft);font:inherit;font-size:13px;text-align:left;cursor:pointer}
+.users-root .users-row-menu-item:hover{background:var(--gray-soft)}
+.users-root .users-row-menu-item:focus-visible{outline:3px solid rgb(49 94 255 / 28%);outline-offset:2px}
+.users-root .users-pending-table input[type=checkbox]{width:16px;height:16px;margin:0;accent-color:var(--accent)}
+.users-root .user-status.is-pending{background:var(--amber-soft);color:var(--amber)}
 .users-root .users-empty{margin:0;padding:40px;text-align:center;color:var(--muted)}
 .users-root .users-error{margin:0 0 16px;border-left:3px solid var(--red);background:var(--red-soft);color:var(--red);padding:12px 14px}
 /* Elevation ladder, defined once in the inline token block: --elevation-raised for

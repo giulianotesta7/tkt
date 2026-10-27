@@ -593,7 +593,7 @@ func TestCategorySuggestionsSettingsSavePersistsAndNeverRendersTheKey(t *testing
 	if !strings.Contains(body, "••••••••") {
 		t.Error("a stored key must be marked the way the other stored secrets are")
 	}
-	if !strings.Contains(body, "Stored encrypted, like the SMTP password.") {
+	if !strings.Contains(body, "Stored encrypted.") {
 		t.Error("the key field must say how it is stored")
 	}
 	if !strings.Contains(body, "Sent:") || !strings.Contains(body, "Never sent:") {

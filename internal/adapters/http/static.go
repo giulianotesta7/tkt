@@ -79,6 +79,14 @@ func registerEmbeddedStatic(mux *http.ServeMux, route, name, contentType, cacheC
 // js.* catalogue prepended as the window.tktI18n prologue. The server therefore
 // owns every user-facing string a script renders: the script keeps no English
 // literal, and switching the instance language switches its copy too.
+func localizedStaticPath(path string) bool {
+	switch path {
+	case "/static/users.js", "/static/tickets.js", "/static/ticket_form.js", "/static/workflow.js", "/static/categories.js", "/static/save-feedback.js", "/static/ticket_metrics.js", "/static/sla_countdown.js":
+		return true
+	}
+	return false
+}
+
 func registerLocalizedStatic(mux *http.ServeMux, route, name string, language InterfaceLanguageSource) {
 	failures := &languageReadLog{}
 	mux.HandleFunc("GET "+route, func(w http.ResponseWriter, r *http.Request) {
@@ -92,6 +100,9 @@ func registerLocalizedStatic(mux *http.ServeMux, route, name string, language In
 		// cached script would keep rendering the language it was fetched in.
 		w.Header().Set("Content-Type", "text/javascript; charset=utf-8")
 		w.Header().Set("Cache-Control", "no-cache")
+		if userFromContext(r.Context()) != nil {
+			w.Header().Set("Cache-Control", "private, no-store")
+		}
 		w.WriteHeader(http.StatusOK)
 		_, _ = io.WriteString(w, i18n.Script(requestInterfaceLanguage(r.Context(), language, failures)))
 		if _, err := io.Copy(w, f); err != nil {

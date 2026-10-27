@@ -7,6 +7,7 @@ import (
 
 	"github.com/giulianotesta7/tkt/internal/application"
 	"github.com/giulianotesta7/tkt/internal/domain"
+	"github.com/giulianotesta7/tkt/internal/i18n"
 )
 
 // AuthHandlers implement the authentication and bootstrap routes (design
@@ -25,6 +26,16 @@ type AuthHandlers struct {
 	signin *application.SigninService
 	// signinFailures deduplicates the panel read failure (issue #383, S9).
 	signinFailures signinReadLog
+	// companyConfig and companyFlow are the OPTIONAL company sign-in wiring
+	// (issue #419, S11): the configuration decides which provider buttons the
+	// sign-in page offers, and the flow serves the public start and callback
+	// routes. A handler set built without them serves the password form alone
+	// and mounts no company route, which is what every focused caller wants.
+	companyConfig application.CompanySignInConfiguration
+	companyFlow   *application.CompanySignInService
+	// companyFailures deduplicates the company configuration read failure, the
+	// same policy the panel read follows (R4-002).
+	companyFailures companyReadLog
 	// reset is the OPTIONAL self-service recovery use case (issue #414, S3):
 	// with it the handler set serves the two public recovery pages. A handler
 	// set built without it (a focused test, a surface that does not offer
@@ -49,6 +60,17 @@ func NewAuthHandlers(auth *application.AuthService, users *application.UserServi
 // S9/S10).
 func (h *AuthHandlers) WithSignin(signin *application.SigninService) *AuthHandlers {
 	h.signin = signin
+	return h
+}
+
+// WithCompanySignIn wires the company sign-in configuration and flow into the
+// auth surface (issue #419, S11): the configuration decides which provider
+// buttons the sign-in page offers, and the flow serves the public start and
+// callback routes. Both are opt-in, so a handler set built without them keeps
+// the shipped password-only sign-in page.
+func (h *AuthHandlers) WithCompanySignIn(config application.CompanySignInConfiguration, flow *application.CompanySignInService) *AuthHandlers {
+	h.companyConfig = config
+	h.companyFlow = flow
 	return h
 }
 
@@ -97,6 +119,12 @@ func (h *AuthHandlers) Register(mux *http.ServeMux) {
 	mux.HandleFunc("POST /login/forgot", h.forgot)
 	mux.HandleFunc("GET /login/reset", h.resetForm)
 	mux.HandleFunc("POST /login/reset", h.resetPassword)
+	// Issue #419: the provider routes live OUTSIDE /login/, whose branch
+	// redirects a signed-in request to /tickets — a callback must reach its
+	// handler whatever the browser's session state.
+	if h.companyFlow != nil {
+		h.registerCompanySignIn(mux)
+	}
 }
 
 // loginData is the login page payload: the generic error message (D5) and
@@ -119,19 +147,38 @@ type loginData struct {
 	Panel             signinPanelData
 	CategoryAssets    bool
 	InternalCommentBg string
+	// CompanyProviders lists the company sign-in buttons the stored
+	// configuration makes usable, in display order (issue #419, S12). Empty
+	// means no button renders, which is what an instance with no provider
+	// configured answers and what a handler set built without the company
+	// wiring answers.
+	CompanyProviders []companyProviderButton
+	// CompanySignInOff reports password sign-in turned off: the form then sits
+	// behind the break-glass disclosure root still needs (issue #419, S4/S12).
+	CompanySignInOff bool
+	// CompanyPending renders the pending-approval card instead of the form
+	// (issue #419, S3/S12): the account exists, no role was granted, and the
+	// callback issued no session, so the only way out is back to the form.
+	CompanyPending bool
 }
 
-// loginPageData builds the sign-in page payload: the shared shell chrome, the
-// recovery link the instance offers, and the banner a completed password reset
-// lands with. The banner travels as a query flag that carries no token, so a
-// redirect can never leak the link a visitor just used.
-func (h *AuthHandlers) loginPageData(r *http.Request) loginData {
-	return loginData{
+// loginPageData assembles the sign-in payload: the optional message and the
+// email a failed attempt submitted, the shared shell chrome, the recovery link
+// the instance offers, the banner a completed password reset lands with, and the
+// company sign-in state the stored configuration decides (issue #419). The
+// banner travels as a query flag that carries no token, so a redirect can never
+// leak the link a visitor just used.
+func (h *AuthHandlers) loginPageData(r *http.Request, message, email string) loginData {
+	data := loginData{
+		Error:           message,
+		Email:           email,
 		Brand:           brandFromContext(r.Context()),
 		Panel:           h.panel(r, true),
 		RecoveryOffered: h.recoveryOffered(r.Context()),
 		PasswordChanged: r.URL.Query().Get(loginPasswordChangedQuery) == "1",
 	}
+	h.applyCompanySignIn(r, &data)
+	return data
 }
 
 func (h *AuthHandlers) loginForm(w http.ResponseWriter, r *http.Request) {
@@ -142,8 +189,15 @@ func (h *AuthHandlers) loginForm(w http.ResponseWriter, r *http.Request) {
 		redirect(w, r, "/setup")
 		return
 	}
-	h.renderer.Render(w, r, "login", "", h.loginPageData(r), http.StatusOK)
+	h.renderer.Render(w, r, "login", "", h.loginPageData(r, "", ""), http.StatusOK)
 }
+
+// passwordSignInOffKey is the catalogue key of the sentence a verified
+// non-root password answers once password sign-in is turned off (issue #419,
+// S4). It renders on the sign-in page itself, the same path the generic
+// credential failure uses, so the person learns which way to sign in instead of
+// being told their password is wrong.
+const passwordSignInOffKey = "error.password_signin_off"
 
 func (h *AuthHandlers) login(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
@@ -155,15 +209,20 @@ func (h *AuthHandlers) login(w http.ResponseWriter, r *http.Request) {
 
 	session, err := h.auth.Login(r.Context(), email, password)
 	if err != nil {
+		// A verified password of a non-root account is refused while password
+		// sign-in is off (issue #419, S4): its own sentence, the same page, and
+		// no session. The generic credential failure keeps its own status.
+		var signInOff *application.PasswordSignInOffError
+		if errors.As(err, &signInOff) {
+			h.renderer.Render(w, r, "login", "", h.loginPageData(r, i18n.T(requestLocale(r), passwordSignInOffKey), email), http.StatusForbidden)
+			return
+		}
 		status, msg := mapErrorFor(r, err)
 		if status == http.StatusInternalServerError {
 			http.Error(w, msg, status)
 			return
 		}
-		data := h.loginPageData(r)
-		data.Error = msg
-		data.Email = email
-		h.renderer.Render(w, r, "login", "", data, status)
+		h.renderer.Render(w, r, "login", "", h.loginPageData(r, msg, email), status)
 		return
 	}
 

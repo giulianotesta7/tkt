@@ -14,6 +14,51 @@ import (
 	"github.com/giulianotesta7/tkt/internal/domain"
 )
 
+func TestPreferencesLanguageControl(t *testing.T) {
+	h := newHarness(t)
+	body := h.get(t, "/preferences", false).Body.String()
+	for _, want := range []string{`action="/preferences/language"`, `value="instance" selected`, `value="en"`, `value="es"`} {
+		if !strings.Contains(body, want) {
+			t.Errorf("missing %q", want)
+		}
+	}
+	for _, language := range []string{"en", "es", "instance"} {
+		rec := h.postForm(t, "/preferences/language", url.Values{"language": {language}}, false)
+		if rec.Code != http.StatusSeeOther || rec.Header().Get("Location") != "/preferences" {
+			t.Fatalf("save %q: %d %q", language, rec.Code, rec.Header().Get("Location"))
+		}
+		if body := h.get(t, "/preferences", false).Body.String(); !strings.Contains(body, `value="`+language+`" selected`) {
+			t.Errorf("%q not selected", language)
+		}
+	}
+	if rec := h.postForm(t, "/preferences/theme", url.Values{"theme": {"dark"}}, false); rec.Code != http.StatusSeeOther {
+		t.Fatalf("theme save: %d", rec.Code)
+	}
+	for _, invalid := range []string{"", "bogus", "EN", "es "} {
+		rec := h.postForm(t, "/preferences/language", url.Values{"language": {invalid}}, false)
+		if rec.Code != http.StatusUnprocessableEntity || !strings.Contains(rec.Body.String(), `value="instance" selected`) || !strings.Contains(rec.Body.String(), "invalid language") {
+			t.Errorf("invalid save %q: %d", invalid, rec.Code)
+		}
+	}
+	if body := h.get(t, "/preferences", false).Body.String(); !strings.Contains(body, `value="instance" selected`) || !strings.Contains(body, `value="dark" selected`) {
+		t.Error("invalid save changed preferences")
+	}
+	store := h.store.PreferencesStore().(application.LanguagePreferencesStore)
+	if err := store.SetLanguage(t.Context(), h.admin.ID, "future"); err != nil {
+		t.Fatal(err)
+	}
+	if body := h.get(t, "/preferences", false).Body.String(); !strings.Contains(body, `value="instance" selected`) {
+		t.Error("invalid stored language did not inherit")
+	}
+	other := seedUserRole(t, h.store, "Language user", "language-user@tkt.test", domain.RoleAgent)
+	if err := store.SetLanguage(t.Context(), other.ID, "es"); err != nil {
+		t.Fatal(err)
+	}
+	if body := h.get(t, "/preferences", false).Body.String(); !strings.Contains(body, `value="instance" selected`) {
+		t.Error("another user changed selection")
+	}
+}
+
 // Per-user preferences (issue #210): GET/POST /preferences is reachable by
 // every authenticated role (admin, agent, requester), an anonymous request
 // is bounced to /login, a valid queue order is persisted and becomes the
