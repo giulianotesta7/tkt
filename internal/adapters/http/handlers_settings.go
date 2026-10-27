@@ -745,7 +745,9 @@ func (h *SettingsHandlers) updateLanguage(w http.ResponseWriter, r *http.Request
 	// The save toast is resolved into the flash cookie on THIS request, so it
 	// must resolve in the language just saved: the page that renders it is that
 	// language, and S8 allows no leftover string in the previous one.
-	r = r.WithContext(context.WithValue(r.Context(), ctxKeyInterfaceLanguage{}, submitted))
+	if choice, _ := r.Context().Value(ctxKeyPersonalLanguage{}).(string); choice != "en" && choice != "es" {
+		r = r.WithContext(context.WithValue(r.Context(), ctxKeyInterfaceLanguage{}, submitted))
+	}
 	saveFeedback(w, r, saveFeedbackSaved, saveFeedbackSuccess)
 	redirect(w, r, settingsSectionHref(settingsSectionLanguage))
 }

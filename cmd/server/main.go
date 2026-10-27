@@ -239,7 +239,7 @@ func main() {
 	// inside the session middleware so the existing Origin/auth short-circuits
 	// (403/303) still answer before any body byte is buffered; every request
 	// that reaches the mux is bounded, /healthz and /static included.
-	sessionHandler := httpadapter.NewSessionMiddleware(store.SessionStore(), store.UserStore(), store.SettingsStore()).WithSidebarPreferences(store.SidebarPreferences()).WithThemePreferences(store.ThemePreferences()).WithOrganization(store.OrganizationStore()).Wrap(httpadapter.NewBodyLimitMiddleware().Wrap(mux))
+	sessionHandler := httpadapter.NewSessionMiddleware(store.SessionStore(), store.UserStore(), store.SettingsStore()).WithSidebarPreferences(store.SidebarPreferences()).WithThemePreferences(store.ThemePreferences()).WithLanguagePreferences(store.PreferencesStore().(application.LanguagePreferencesStore)).WithOrganization(store.OrganizationStore()).Wrap(httpadapter.NewBodyLimitMiddleware().Wrap(mux))
 
 	srv := &http.Server{
 		Addr:              listen,

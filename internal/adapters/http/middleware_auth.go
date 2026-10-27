@@ -51,6 +51,8 @@ func internalCommentBgFrom(ctx context.Context) string {
 // a second settings read per concern. It is stamped before the login/setup
 // branches because the auth shells are catalogue-rendered too.
 type ctxKeyInterfaceLanguage struct{}
+type ctxKeyInstanceLanguage struct{}
+type ctxKeyPersonalLanguage struct{}
 
 // interfaceLanguageFrom returns the interface language stamped by the
 // middleware and whether one was stamped at all.
@@ -280,7 +282,8 @@ type SessionMiddleware struct {
 	// theme is the OPTIONAL per-user theme reader (issue #378, S1/S2). A
 	// middleware built without it stamps the system default, the same opt-in
 	// shape the sidebar reader uses.
-	theme application.ThemePreferencesStore
+	theme    application.ThemePreferencesStore
+	language application.LanguagePreferencesStore
 	// organization is the OPTIONAL instance-identity reader (issue #383, S5).
 	// A middleware built without it stamps the documented default brand, so a
 	// focused test or a future surface is never left with a nil read.
@@ -323,6 +326,28 @@ func (m *SessionMiddleware) WithThemePreferences(store application.ThemePreferen
 	return m
 }
 
+// WithLanguagePreferences enables per-user locale resolution.
+func (m *SessionMiddleware) WithLanguagePreferences(store application.LanguagePreferencesStore) *SessionMiddleware {
+	m.language = store
+	return m
+}
+
+func (m *SessionMiddleware) effectiveLanguage(ctx context.Context, userID int64) (string, string) {
+	instance, _ := ctx.Value(ctxKeyInstanceLanguage{}).(string)
+	if m.language == nil {
+		return instance, application.LanguageInstance
+	}
+	choice, err := m.language.GetLanguage(ctx, userID)
+	if err != nil {
+		log.Printf("httpadapter: read language preference: %v", err)
+		return instance, application.LanguageInstance
+	}
+	if choice != "en" && choice != "es" {
+		return instance, application.LanguageInstance
+	}
+	return choice, choice
+}
+
 // WithOrganization opts the middleware into stamping each request with the
 // instance identity (issue #383, S5). It is opt-in for the same reason as the
 // preferences readers: the middleware keeps one constructor, and a caller
@@ -352,12 +377,26 @@ func (m *SessionMiddleware) Wrap(next http.Handler) http.Handler {
 		// without extra settings reads. It is stamped before the static and
 		// auth branches because the scripts and the auth shells are
 		// catalogue-rendered too.
-		r = r.WithContext(context.WithValue(r.Context(), ctxKeyInterfaceLanguage{},
-			readInterfaceLanguage(r.Context(), m.settings, &m.languageFailures)))
+		instance := readInterfaceLanguage(r.Context(), m.settings, &m.languageFailures)
+		ctx := context.WithValue(r.Context(), ctxKeyInterfaceLanguage{}, instance)
+		ctx = context.WithValue(ctx, ctxKeyInstanceLanguage{}, instance)
+		r = r.WithContext(ctx)
 
 		// Vendored static assets are public: the shell references them on
 		// every page and htmx must load before the session check matters.
 		if strings.HasPrefix(path, "/static/") {
+			if localizedStaticPath(path) && m.language != nil {
+				session, err := m.resolveSession(r)
+				if err == nil && session != nil {
+					user, err := m.users.GetByID(r.Context(), session.UserID)
+					if err == nil && user.Active {
+						locale, _ := m.effectiveLanguage(r.Context(), user.ID)
+						ctx := context.WithValue(r.Context(), ctxKeyInterfaceLanguage{}, locale)
+						ctx = context.WithValue(ctx, ctxKeyUser{}, user)
+						r = r.WithContext(ctx)
+					}
+				}
+			}
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -517,7 +556,10 @@ func (m *SessionMiddleware) Wrap(next http.Handler) http.Handler {
 				theme = application.NormalizeTheme(stored)
 			}
 		}
-		ctx := context.WithValue(r.Context(), ctxKeyUser{}, user)
+		locale, choice := m.effectiveLanguage(r.Context(), user.ID)
+		ctx = context.WithValue(r.Context(), ctxKeyUser{}, user)
+		ctx = context.WithValue(ctx, ctxKeyInterfaceLanguage{}, locale)
+		ctx = context.WithValue(ctx, ctxKeyPersonalLanguage{}, choice)
 		ctx = context.WithValue(ctx, ctxKeyInternalCommentBg{}, bg)
 		ctx = context.WithValue(ctx, ctxKeyTicketCreationMode{}, creationMode)
 		ctx = context.WithValue(ctx, ctxKeySidebarCollapsed{}, sidebar)
