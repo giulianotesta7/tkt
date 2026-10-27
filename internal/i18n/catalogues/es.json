@@ -289,6 +289,7 @@
   "error.invalid_saved_reply_id": "identificador de respuesta guardada no válido",
   "error.invalid_sidebar_state": "Estado de la barra lateral no válido",
   "error.invalid_theme": "Tema no válido",
+  "error.invalid_language": "Idioma no válido",
   "error.invalid_ticket_creation_mode": "flujo de creación de tickets no válido",
   "error.invalid_ticket_id": "id de ticket inválido",
   "error.invalid_timeline_order": "orden de la actividad no válido",

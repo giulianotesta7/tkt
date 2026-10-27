@@ -289,6 +289,7 @@
   "error.invalid_saved_reply_id": "invalid saved reply id",
   "error.invalid_sidebar_state": "Invalid sidebar state",
   "error.invalid_theme": "invalid theme",
+  "error.invalid_language": "invalid language",
   "error.invalid_ticket_creation_mode": "invalid ticket creation mode",
   "error.invalid_ticket_id": "invalid ticket id",
   "error.invalid_timeline_order": "invalid timeline order",
