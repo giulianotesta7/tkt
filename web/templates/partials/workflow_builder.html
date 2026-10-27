@@ -34,7 +34,7 @@ like an unsaved workflow edit. */}}
 {{- end}}{{end}}
     <div class="workflow-builder-panels">
       <div class="workflow-rail-wrap">
-        <div class="workflow-pane-label"><h2 id="workflow-builder-title">{{t "workflow.builder.title"}}</h2><span class="workflow-pane-count">{{tp "workflow.builder.step_count" (len .Steps)}}</span></div>
+        <div class="workflow-pane-label"><h2 id="workflow-builder-title">{{t "workflow.builder.title"}}</h2></div>
         <ol class="workflow-step-rail" aria-label="{{t "workflow.builder.title"}}">
         {{- range .Steps}}
         {{- if .Final}}<li class="workflow-add-step">{{template "workflow_add" $}}</li>{{end}}
