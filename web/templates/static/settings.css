@@ -773,3 +773,66 @@
   -webkit-appearance: none;
   margin: 0;
 }
+
+/* Company sign-in cards (issue #419): the shared TKT address and one card per
+   provider, stacked under the Passwords card. The form itself is a plain
+   container, so each card keeps the section's 12px shell; the provider header
+   reuses the switch row, which puts the enable toggle beside the provider it
+   enables. Nothing here introduces a colour or a radius. */
+.settings-company-form {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+}
+
+.settings-provider-head {
+  padding-top: 0;
+}
+
+.settings-provider-head .settings-group-title {
+  margin-bottom: 2px;
+}
+
+.settings-provider-head .help {
+  margin-top: 2px;
+}
+
+/* A redirect URI is derived from the shared address rather than typed here, so
+   it renders on the surface rung: the value stays readable and copyable without
+   pretending to be an editable field. The class is scoped to the company form to
+   outrank the shared input rule, which sets the card fill. */
+.settings-company-form .settings-readonly {
+  background: var(--surface);
+  color: var(--ink-soft);
+}
+
+/* The redirect URI row (issue #419): the readonly value and the Copy action sit
+   on one line, the value taking the width and the button the button contract's
+   own metrics. The control copies the stored public address and never submits,
+   so it stays outside the save bar's dirty tracking. */
+.settings-company-form .copy-field {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.settings-company-form .copy-field .settings-readonly {
+  flex: 1;
+  min-width: 0;
+}
+
+.settings-company-form .copy-field .btn {
+  flex: none;
+}
+
+.settings-group-title .company-logo { width: 18px; height: 18px; margin-right: 8px; vertical-align: -3px; }
+
+/* A switch label's toggletip sits on the label's own line, like a field's. */
+.switch-copy > .switch-label:has(+ .help-tip-wrap) {
+  display: inline;
+}
+
+.switch-copy > .help-tip-wrap {
+  margin-left: 6px;
+  vertical-align: -2px;
+}

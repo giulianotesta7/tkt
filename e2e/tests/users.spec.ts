@@ -7,7 +7,17 @@
  *  - deactivation / reactivation lifecycle and session invalidation (D14)
  *  - deletion
  *  - exhaustive role-change protections and authorization matrix
- * See Go tests: internal/adapters/http/handlers_users*, user_reactivate_test, etc.
+ *  - the Pending tab's bulk approval effects, its refusal batches, the pending
+ *    account's concealment from the edit route, and every approval matrix case
+ * See Go tests: internal/adapters/http/handlers_users*, handlers_users_pending_test,
+ * user_reactivate_test, etc. The journeys below cover what only a browser shows:
+ * the tab's navigation contract, the stored sign-in method it states, the row
+ * menu's keyboard and approval behaviour, the count arithmetic, and the one
+ * intentional 422 refusal reaching the page with its console entry proven.
+ *
+ * The row-menu journey needs an account waiting for approval, which the default
+ * seed never creates; it asks for one through the seed command's opt-in
+ * `--pending-fixture` mode (helpers/pending.ts) against its own isolated database.
  */
 
 import { test, expect } from "@playwright/test";
@@ -19,6 +29,12 @@ import {
   measureContrast,
 } from "./helpers/layout.js";
 import { assertHtmxSwap } from "./helpers/htmx.js";
+import {
+  collectConsoleWithLocation,
+  expectRefusalResponse,
+  seedPendingFixture,
+  unexpectedConsoleErrors,
+} from "./helpers/pending.js";
 import { applyAssignee, currentAssignee, pickerButton } from "./helpers/ticket.js";
 import {
   catalogNode,
@@ -575,6 +591,321 @@ test.describe("Users", () => {
     await expect(page.locator("#timeline")).toContainText("role downgrade handoff");
     await page.reload();
     await expect(pickerButton(page, "assign-user")).toContainText("Unassigned");
+  });
+
+  /**
+   * The Pending tab (issue #419, S3, selected design 6A): its own address, its
+   * count, its server-rendered bulk form, and a refused batch answering its own
+   * sentence in the page. The approval's storage effects and its matrix are
+   * Go-owned (handlers_users_pending_test); this journey proves the browser half:
+   * the tab swaps the screen in place, the URL stays the tab's own, and an
+   * approve without a selection shows the localized reason instead of a silent
+   * no-op.
+   */
+  test("Pending tab keeps its own address and reports a refused batch", async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    const obs = collectObservability(page);
+    const consoleRecords = collectConsoleWithLocation(page);
+    await login(page);
+
+    await page.goto(base() + "/users");
+    const pendingTab = page.locator('.users-status-tabs a[href="/users?status=pending"]');
+    await expect(pendingTab).toBeVisible();
+    await expect(pendingTab.locator(".users-pending-count")).toHaveText(/^\d+$/);
+
+    await assertHtmxSwap(
+      page,
+      async () => {
+        await pendingTab.click();
+      },
+      {
+        endpoint: "/users",
+        method: "GET",
+        expectedStatus: 200,
+        hxTarget: "#users-root",
+        expectedUrl: /\/users\?status=pending$/,
+      },
+    );
+
+    // The address is the stable one the notification bell will target.
+    expect(new URL(page.url()).search).toBe("?status=pending");
+    await expect(page.locator("#users-root")).toHaveAttribute("data-users-status", "pending");
+    await expect(page.getByText(/inactive and waiting for approval/i)).toBeVisible();
+    await expect(page.locator(".users-status-tabs a.is-selected")).toHaveAttribute(
+      "href",
+      "/users?status=pending",
+    );
+
+    // The selected design's table states the sign-in method the stored identity
+    // carries, and its own actions column (issue #419, S12).
+    await expect(page.getByRole("columnheader", { name: "Sign-in", exact: true })).toBeVisible();
+    await expect(page.getByRole("columnheader", { name: "Requested", exact: true })).toBeVisible();
+
+    // The selected design's arithmetic: every account counts once, so All is the
+    // sum of the other three, and the Pending tab's badge is the pending count.
+    const tabCounts = (await page.locator(".users-status-tabs a span").allTextContents()).map(
+      (text) => Number(text.trim()),
+    );
+    expect(tabCounts).toHaveLength(4);
+    const [allCount, activeCount, deactivatedCount, pendingCount] = tabCounts;
+    expect(allCount).toBe(activeCount + deactivatedCount + pendingCount);
+    expect(pendingCount).toBe(
+      await page.locator(".users-pending-table tbody tr[data-user-name]").count(),
+    );
+
+    // The bulk form is server-rendered, so it is a real form before any script.
+    const bulkForm = page.locator("#users-pending-form");
+    await expect(bulkForm).toHaveAttribute("method", "post");
+    await expect(bulkForm).toHaveAttribute("action", "/users/pending/approve");
+    await expect(page.getByLabel("Approve as", { exact: true })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Approve", exact: true })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Clear", exact: true })).toBeVisible();
+
+    // A batch with nothing selected is refused with its own sentence, in the page.
+    const refusal = await assertHtmxSwap(
+      page,
+      async () => {
+        await page.getByRole("button", { name: "Approve", exact: true }).click();
+      },
+      {
+        endpoint: "/users/pending/approve",
+        method: "POST",
+        expectedStatus: 422,
+        hxTarget: "#users-root",
+      },
+    );
+    await expect(page.getByRole("alert")).toContainText("select at least one account to approve");
+    expect(new URL(page.url()).search).toBe("?status=pending");
+
+    // The refusal is a real POST the browser reports as a failed resource. Its
+    // provenance is proven twice: the response is this exact POST, and the ONE
+    // console error the page logged is the exact 422 sentence located at that
+    // same URL. Nothing else is tolerated — a second console error, another URL,
+    // another status or a page/network failure still fails here, and the
+    // canonical gate below keeps every other check with that proven entry removed.
+    expectRefusalResponse(refusal, base(), 422);
+    await expect
+      .poll(() => consoleRecords.filter((record) => record.type === "error").length)
+      .toBe(1);
+    const unexpectedConsole = unexpectedConsoleErrors(consoleRecords, {
+      status: 422,
+      statusText: "Unprocessable Entity",
+      url: refusal.url(),
+    });
+    expect(unexpectedConsole).toEqual([]);
+    expect(obs.consoleErrors, "the shared observability text of the same entry").toEqual([
+      "Failed to load resource: the server responded with a status of 422 (Unprocessable Entity)",
+    ]);
+    expect(obs.pageErrors).toEqual([]);
+    expect(obs.failedRequests).toEqual([]);
+    expect(obs.failedResponses).toEqual([]);
+
+    await assertCanonicalScreen(page, {
+      viewport: 1280,
+      label: "users pending",
+      url: page.url(),
+      role: "root",
+      consoleErrors: unexpectedConsole,
+      pageErrors: obs.pageErrors,
+      failedRequests: obs.failedRequests,
+      failedResponses: obs.failedResponses,
+    });
+  });
+
+  /**
+   * The approved per-row menu (issue #419, S12, selected 6A): its trigger states
+   * what it controls, its items approve THAT account with a role this actor may
+   * grant through the one approval route, and the approval removes exactly that
+   * row and persists the promoted account.
+   *
+   * The default seed creates no account waiting for approval — only a real
+   * company sign-in does — so this journey asks for one explicitly through the
+   * seed command's opt-in fixture (helpers/pending.ts): a requester, inactive and
+   * pending, linked to the provider identity a company sign-in would store. The
+   * fixture lives in this describe's isolated database, so the journey never skips
+   * and never undoes the row it approved; a missing row fails below with the
+   * entity, the selector and the URL.
+   */
+  test("Pending row menu approves that row with a grantable role", async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    const obs = collectObservability(page);
+    // Unique per attempt: a CI retry must not collide with the account the failed
+    // attempt already approved, and each attempt resolves its own exact row.
+    const suffix = Date.now().toString(36).slice(-4);
+    const google = {
+      name: `Pending Menu Applicant ${suffix}`,
+      email: `pending-menu-${suffix}@example.com`,
+      provider: "google" as const,
+    };
+    const microsoft = {
+      name: `Pending Menu Reviewer ${suffix}`,
+      email: `pending-menu-ms-${suffix}@example.com`,
+      provider: "microsoft" as const,
+    };
+    seedPendingFixture(google);
+    seedPendingFixture(microsoft);
+    await login(page);
+    await page.goto(base() + "/users?status=pending");
+
+    const rowSelector = `tr[data-user-name="${google.name}"]`;
+    const row = page.locator(rowSelector);
+    await expect(
+      row,
+      `the pending fixture ${google.email} must render as ${rowSelector} at ${page.url()}`,
+    ).toHaveCount(1);
+    const microsoftSelector = `tr[data-user-name="${microsoft.name}"]`;
+    const microsoftRow = page.locator(microsoftSelector);
+    await expect(
+      microsoftRow,
+      `the pending fixture ${microsoft.email} must render as ${microsoftSelector} at ${page.url()}`,
+    ).toHaveCount(1);
+
+    // The Sign-in column states the identity each account actually holds — the
+    // same two providers a company sign-in would have linked — and the status is
+    // the pending state the design draws.
+    await expect(row.locator(".users-pending-signin")).toHaveText("Google");
+    await expect(microsoftRow.locator(".users-pending-signin")).toHaveText("Microsoft");
+    await expect(row.locator(".user-status")).toHaveText("Pending");
+
+    // The selected design's arithmetic with a real waiting account: All is the sum
+    // of the three filters, and the tab badge is the pending list's own length.
+    const pendingRows = page.locator(".users-pending-table tbody tr[data-user-name]");
+    const pendingBefore = await pendingRows.count();
+    const tabCounts = (await page.locator(".users-status-tabs a span").allTextContents()).map(
+      (text) => Number(text.trim()),
+    );
+    expect(tabCounts).toHaveLength(4);
+    const [allCount, activeCount, deactivatedCount, pendingCount] = tabCounts;
+    expect(allCount).toBe(activeCount + deactivatedCount + pendingCount);
+    expect(pendingCount).toBe(pendingBefore);
+
+    // Form-associated table checkboxes participate in select-all, live count,
+    // and Clear even though they are outside the bulk form's DOM subtree.
+    const selectedCount = page.locator("[data-users-bulk-count]");
+    await page.locator("[data-users-pending-all]").check();
+    await expect(selectedCount).toHaveText(String(pendingBefore));
+    await expect(row.locator("input[type=checkbox][name=user_ids]")).toBeChecked();
+    await page.getByRole("button", { name: "Clear", exact: true }).click();
+    await expect(selectedCount).toHaveText("0");
+    await expect(row.locator("input[type=checkbox][name=user_ids]")).not.toBeChecked();
+
+    const trigger = row.locator("[data-users-pending-menu]");
+    await expect(trigger).toHaveAttribute("aria-haspopup", "menu");
+    await expect(trigger).toHaveAttribute("aria-expanded", "false");
+    await expect(trigger).toHaveAttribute("aria-label", `Actions for ${google.name}`);
+
+    // Keyboard first: Enter opens the menu, the arrows walk its items, and Escape
+    // closes it and hands focus back to the trigger.
+    await trigger.focus();
+    await page.keyboard.press("Enter");
+    await expect(trigger).toHaveAttribute("aria-expanded", "true");
+    const menuId = await trigger.getAttribute("aria-controls");
+    if (!menuId) {
+      throw new Error(
+        `the row menu trigger in ${rowSelector} has no aria-controls at ${page.url()}`,
+      );
+    }
+    const menu = page.locator(`[id="${menuId}"]`);
+    await expect(menu).toBeVisible();
+    await page.keyboard.press("ArrowDown");
+    await expect(menu.getByRole("menuitem").first()).toBeFocused();
+    await page.keyboard.press("ArrowDown");
+    await expect(menu.getByRole("menuitem").nth(1)).toBeFocused();
+    await page.keyboard.press("Escape");
+    await expect(menu).toBeHidden();
+    await expect(trigger).toHaveAttribute("aria-expanded", "false");
+    await expect(trigger).toBeFocused();
+
+    // The new surface holds the canonical checks with real waiting rows in it:
+    // nothing clipped, the design tokens live, the shell intact, no console, page,
+    // request or 5xx failure so far.
+    await assertCanonicalScreen(page, {
+      viewport: 1280,
+      label: "users pending with waiting accounts",
+      url: page.url(),
+      role: "root",
+      consoleErrors: obs.consoleErrors,
+      pageErrors: obs.pageErrors,
+      failedRequests: obs.failedRequests,
+      failedResponses: obs.failedResponses,
+    });
+
+    // This journey signs in as root, so the menu offers every grantable role — and
+    // never root. Reject belongs to the separate bulk action, not this menu.
+    await trigger.click();
+    await expect(menu.getByRole("menuitem")).toHaveCount(3);
+    for (const role of ["User", "Agent", "Admin"]) {
+      await expect(
+        menu.getByRole("menuitem", { name: `Approve as ${role}`, exact: true }),
+      ).toBeVisible();
+    }
+    await expect(menu.getByRole("menuitem", { name: /root|reject/i })).toHaveCount(0);
+
+    // Approving posts the same batch shape the bulk bar uses — this row and the
+    // chosen role — and swaps the whole screen.
+    await assertHtmxSwap(
+      page,
+      async () => {
+        await menu.getByRole("menuitem", { name: "Approve as Agent", exact: true }).click();
+      },
+      {
+        endpoint: "/users/pending/approve",
+        method: "POST",
+        expectedStatus: 200,
+        hxTarget: "#users-root",
+      },
+    );
+    await expect(page.locator(rowSelector)).toHaveCount(0);
+    // The approval touched exactly that row: the other waiting account is still
+    // queued, with its own provider still stated.
+    await expect(page.locator(microsoftSelector)).toHaveCount(1);
+    await expect(page.locator(microsoftSelector).locator(".users-pending-signin")).toHaveText(
+      "Microsoft",
+    );
+    expect(new URL(page.url()).search).toBe("?status=pending");
+    await expect(page.locator(".users-pending-count")).toHaveText(String(pendingBefore - 1));
+
+    // Reject is the separate bulk action: it keeps the account and its method,
+    // clears pending, and leaves it deactivated rather than deleting it.
+    await page.locator(microsoftSelector).locator("input[type=checkbox][name=user_ids]").check();
+    await expect(page.locator("[data-users-bulk-count]")).toHaveText("1");
+    await assertHtmxSwap(
+      page,
+      async () => {
+        await page.getByRole("button", { name: "Reject", exact: true }).click();
+      },
+      {
+        endpoint: "/users/pending/reject",
+        method: "POST",
+        expectedStatus: 200,
+        hxTarget: "#users-root",
+      },
+    );
+    await expect(page.locator(microsoftSelector)).toHaveCount(0);
+    await expect(page.locator(".users-pending-count")).toHaveText(String(pendingBefore - 2));
+    await page.goto(base() + "/users?status=deactivated");
+    await expect(page.locator(microsoftSelector)).toContainText(microsoft.email);
+    await page.reload();
+    await expect(page.locator(microsoftSelector)).toContainText(microsoft.email);
+
+    // The approved account left the queue with the role granted, and persists.
+    await page.goto(base() + "/users?status=active");
+    const promotedSelector = `tr[data-user-name="${google.name}"]`;
+    const promoted = page.locator(promotedSelector);
+    await expect(
+      promoted,
+      `the approved account must render as ${promotedSelector} at ${page.url()}`,
+    ).toHaveCount(1);
+    await expect(promoted).toContainText("Agent");
+    await expect(promoted).toContainText(google.email);
+    await page.reload();
+    await expect(page.locator(promotedSelector)).toContainText("Agent");
+
+    // The journey saw its own two fixtures and nothing unexpected along the way.
+    expect(obs.consoleErrors, "console errors").toEqual([]);
+    expect(obs.pageErrors, "page errors").toEqual([]);
+    expect(obs.failedRequests, "failed requests").toEqual([]);
+    expect(obs.failedResponses, "5xx responses").toEqual([]);
   });
 });
 

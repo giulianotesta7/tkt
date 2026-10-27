@@ -349,6 +349,28 @@ func TestTryReportsTheRankingEvenBelowTheLocalThreshold(t *testing.T) {
 	}
 }
 
+// TestTryOffSuggestsNothingAndRunsNoEngine keeps the Try it box faithful to the
+// Off engine: no candidate, no fallback, and neither engine is asked.
+func TestTryOffSuggestsNothingAndRunsNoEngine(t *testing.T) {
+	f := newSuggestionServiceFixture()
+	f.index.candidates = []CategorySuggestion{{CategoryID: 4, Score: 6}}
+
+	result, err := f.svc.Try(context.Background(), suggestionAdmin(), TryInput{
+		Settings: CategorySuggestionSettingsInput{Engine: CategorySuggestionOff},
+		Text:     "impresora",
+		Offers:   suggestionOffers(),
+	})
+	if err != nil {
+		t.Fatalf("Try: %v", err)
+	}
+	if len(result.Candidates) != 0 || result.Confident || result.FellBack {
+		t.Errorf("Try = %+v, want an empty result for the Off engine", result)
+	}
+	if len(f.index.texts) != 0 || f.model.calls != 0 {
+		t.Errorf("Off ran the local index %d times and the model %d times, want neither", len(f.index.texts), f.model.calls)
+	}
+}
+
 func TestTryRunsTheSubmittedDecisionConfigurationWithoutSavingIt(t *testing.T) {
 	f := newSuggestionServiceFixture()
 	f.settings.store.stored = CategorySuggestionSettings{Engine: CategorySuggestionLocal}

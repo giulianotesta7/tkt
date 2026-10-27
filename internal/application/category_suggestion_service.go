@@ -300,6 +300,12 @@ func (s *CategorySuggestionService) Try(ctx context.Context, actor domain.User, 
 		return TryResult{}, err
 	}
 	text := boundSuggestionText(strings.TrimSpace(in.Text))
+	if in.Settings.Engine == CategorySuggestionOff {
+		// Off is the engine that suggests nothing, so a test of it must too:
+		// reporting the local ranking would show a requester-visible answer for a
+		// configuration under which Suggest returns none.
+		return TryResult{}, nil
+	}
 	if in.Settings.Engine != CategorySuggestionModel {
 		return s.reportLocal(ctx, text, in.Offers), nil
 	}

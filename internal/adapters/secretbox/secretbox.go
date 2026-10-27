@@ -1,5 +1,6 @@
-// Package secretbox seals instance secrets stored in the database — today
-// the SMTP password (issue #362) — with AES-256-GCM under a key file that
+// Package secretbox seals instance secrets stored in the database — the SMTP
+// password (issue #362) and the company sign-in client secrets (issue #419) —
+// with AES-256-GCM under a key file that
 // lives next to the database, in the data volume (S9).
 //
 // The key never comes from the environment, so the container contract
@@ -65,6 +66,42 @@ func New(dir string) *Box {
 // Seal encrypts plaintext and returns its printable sealed form. The first
 // Seal creates the key file (owner-only) when it does not exist yet.
 func (b *Box) Seal(plaintext []byte) (string, error) {
+	return b.seal(plaintext, additionalData)
+}
+
+// Open decrypts a value Seal produced. It never creates the key file.
+func (b *Box) Open(sealed string) ([]byte, error) {
+	return b.open(sealed, additionalData)
+}
+
+// For returns a sealer bound to one purpose (issue #419). It shares the key
+// file and its cache with the box, but authenticates every value with that
+// purpose, so a value sealed for one purpose — or by the box itself, as the
+// SMTP password is — never opens as another, and a stored ciphertext cannot
+// be moved from one column to another.
+func (b *Box) For(purpose string) *Purpose {
+	return &Purpose{box: b, additionalData: []byte(string(additionalData) + "/" + purpose)}
+}
+
+// Purpose seals and opens the values of one purpose. It is safe for
+// concurrent use.
+type Purpose struct {
+	box            *Box
+	additionalData []byte
+}
+
+// Seal encrypts plaintext for this purpose, creating the key file on first
+// use like Box.Seal.
+func (p *Purpose) Seal(plaintext []byte) (string, error) {
+	return p.box.seal(plaintext, p.additionalData)
+}
+
+// Open decrypts a value this purpose sealed. It never creates the key file.
+func (p *Purpose) Open(sealed string) ([]byte, error) {
+	return p.box.open(sealed, p.additionalData)
+}
+
+func (b *Box) seal(plaintext, additionalData []byte) (string, error) {
 	aead, err := b.aead(true)
 	if err != nil {
 		return "", err
@@ -77,8 +114,7 @@ func (b *Box) Seal(plaintext []byte) (string, error) {
 	return sealedPrefix + base64.RawURLEncoding.EncodeToString(payload), nil
 }
 
-// Open decrypts a value Seal produced. It never creates the key file.
-func (b *Box) Open(sealed string) ([]byte, error) {
+func (b *Box) open(sealed string, additionalData []byte) ([]byte, error) {
 	encoded, ok := strings.CutPrefix(sealed, sealedPrefix)
 	if !ok {
 		return nil, ErrInvalidSealed

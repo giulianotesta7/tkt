@@ -547,6 +547,123 @@ func TestUserListAndListActive(t *testing.T) {
 	}
 }
 
+// Issue #419, S3/S8: a pending account is read with its flag, stays out of the
+// ordinary user lists (it belongs to the Pending tab), and cannot be activated
+// by a managed update, which would break the 0034 CHECK that keeps a pending
+// account inactive.
+func TestUserReadsAndListsKeepPendingAccountsApart(t *testing.T) {
+	s := newTestDB(t)
+	ctx := context.Background()
+
+	for _, u := range []domain.User{
+		{Name: "Ana", Email: "ana@example.com", PasswordHash: "h", Active: true, CreatedAt: testClock},
+		{Name: "Bob", Email: "bob@example.com", PasswordHash: "h", Active: false, CreatedAt: testClock},
+	} {
+		u := u
+		if err := s.UserStore().Create(ctx, &u); err != nil {
+			t.Fatal(err)
+		}
+	}
+	waiting := seedPendingUser(t, s, "Wanda", "wanda@example.com")
+
+	byID, err := s.UserStore().GetByID(ctx, waiting)
+	if err != nil {
+		t.Fatalf("GetByID: %v", err)
+	}
+	if !byID.Pending || byID.Active {
+		t.Fatalf("GetByID of a pending account = %+v, want pending and inactive", byID)
+	}
+	byEmail, err := s.UserStore().GetByEmail(ctx, "wanda@example.com")
+	if err != nil {
+		t.Fatalf("GetByEmail: %v", err)
+	}
+	if !byEmail.Pending {
+		t.Fatalf("GetByEmail of a pending account = %+v, want the pending flag", byEmail)
+	}
+
+	all, err := s.UserStore().List(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(all) != 2 {
+		t.Fatalf("list len = %d, want 2 (the pending account is not a managed user)", len(all))
+	}
+	for _, u := range all {
+		if u.Pending {
+			t.Errorf("pending account %s leaked into the managed-user list", u.Email)
+		}
+	}
+	active, err := s.UserStore().ListActive(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(active) != 1 || active[0].Email != "ana@example.com" {
+		t.Fatalf("list active = %+v, want only the active account", active)
+	}
+
+	// The 0034 CHECK still refuses a pending account that is activated outside
+	// the approval path.
+	if _, err := s.db.ExecContext(ctx, `UPDATE users SET active = 1 WHERE id = ?`, waiting); err == nil {
+		t.Fatal("activating a pending account outside approval must be refused by the CHECK")
+	}
+}
+
+// TestUserStoreRefusesManagedUpdateOfAPendingAccount proves the managed edit and
+// reactivate paths cannot reach a pending account at the store either, so a
+// caller that skips the service rule still changes nothing (issue #419, S3/S8).
+func TestUserStoreRefusesManagedUpdateOfAPendingAccount(t *testing.T) {
+	s := newTestDB(t)
+	ctx := context.Background()
+	waiting := seedPendingUser(t, s, "Wanda", "wanda@example.com")
+
+	u, err := s.UserStore().GetByID(ctx, waiting)
+	if err != nil {
+		t.Fatal(err)
+	}
+	u.Name = "Wanda Approved"
+	u.Role = domain.RoleAgent
+	u.Active = true
+	if err := s.UserStore().UpdateManagedUser(ctx, u, domain.RoleUser, 1, testClock); !errors.Is(err, domain.ErrNotFound) {
+		t.Fatalf("managed update of a pending account = %v, want ErrNotFound", err)
+	}
+	if err := s.UserStore().Update(ctx, u); !errors.Is(err, domain.ErrNotFound) {
+		t.Fatalf("plain update of a pending account = %v, want ErrNotFound", err)
+	}
+
+	got, err := s.UserStore().GetByID(ctx, waiting)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Name != "Wanda" || got.Role != domain.RoleUser || got.Active || !got.Pending {
+		t.Fatalf("pending account after refused updates = %+v, want it unchanged", got)
+	}
+	var audits int
+	if err := s.db.QueryRow(`SELECT COUNT(*) FROM role_changes WHERE user_id = ?`, waiting).Scan(&audits); err != nil {
+		t.Fatal(err)
+	}
+	if audits != 0 {
+		t.Fatalf("role audits = %d, want 0: a refused update grants nothing", audits)
+	}
+
+	// PRESERVE: the same guarded statement still reactivates an ordinary
+	// deactivated account, so the refusal above is about pending accounts only.
+	bob := &domain.User{Name: "Bob", Email: "bob@example.com", PasswordHash: "h", Role: domain.RoleUser, Active: false, CreatedAt: testClock}
+	if err := s.UserStore().Create(ctx, bob); err != nil {
+		t.Fatal(err)
+	}
+	bob.Active = true
+	if err := s.UserStore().UpdateManagedUser(ctx, bob, domain.RoleUser, 1, testClock); err != nil {
+		t.Fatalf("reactivating a normal inactive account: %v", err)
+	}
+	reactivated, err := s.UserStore().GetByID(ctx, bob.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reactivated.Active || reactivated.Pending || reactivated.Role != domain.RoleUser {
+		t.Fatalf("reactivated account = %+v, want it active and never pending", reactivated)
+	}
+}
+
 func TestUserReadsRejectMalformedCreatedAt(t *testing.T) {
 	s := newTestDB(t)
 	if _, err := s.db.Exec(`INSERT INTO users (name, email, password_hash, active, created_at) VALUES (?, ?, ?, ?, ?)`,

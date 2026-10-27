@@ -3,6 +3,7 @@ package application
 import (
 	"context"
 	"errors"
+	"sort"
 	"strings"
 	"time"
 
@@ -532,4 +533,155 @@ func derefString(v *string) string {
 		return ""
 	}
 	return *v
+}
+
+// NotificationAccount is the account an account notice names, as far as the
+// READER may see it (issue #419, S3/S12). It is the one non-ticket presentation
+// fact of the notification center: the row's subject is an account, so nothing
+// here can be borrowed from a ticket.
+type NotificationAccount struct {
+	UserID int64
+	// Visible reports whether this reader may see the account's identity facts:
+	// the name, the address and the provider identities. A reader who no longer
+	// holds the pending-management capability keeps the notice (it was addressed
+	// to them) and gets an explicit fallback instead of another person's data.
+	Visible bool
+	// Found reports whether the account still exists. A notice outlives state,
+	// not deletion, so a missing account is rendered as such instead of as a
+	// blank row.
+	Found     bool
+	Name      string
+	Email     string
+	Pending   bool
+	Providers []CompanyProvider
+}
+
+// NotificationAccounts answers the account facts the account-kind notices render,
+// keyed by account id, for the reader who is asking (issue #419, S3/S12).
+//
+// The pending-management capability — the same one the Pending tab answers to —
+// decides whether ANY fact travels. A recipient who lost it keeps the stored
+// notice and reads an explicit restricted sentence: a downgrade must never turn
+// the bell into a way to read an account's name, address and provider. A
+// composition without the read answers the same fallback, so missing wiring can
+// never publish the facts by accident.
+func NotificationAccounts(ctx context.Context, actor domain.User, store NotificationSubjectStore, userIDs []int64) (map[int64]NotificationAccount, error) {
+	accounts := make(map[int64]NotificationAccount, len(userIDs))
+	if len(userIDs) == 0 {
+		return accounts, nil
+	}
+	if store == nil || !NewPolicy().Capabilities(actor.Role).Require(CapManageUsers) {
+		for _, id := range userIDs {
+			accounts[id] = NotificationAccount{UserID: id}
+		}
+		return accounts, nil
+	}
+	subjects, err := store.ListNotificationSubjects(ctx, uniqueAccountIDs(userIDs))
+	if err != nil {
+		return nil, err
+	}
+	byID := make(map[int64]NotificationAccountSubject, len(subjects))
+	for _, subject := range subjects {
+		byID[subject.UserID] = subject
+	}
+	for _, id := range userIDs {
+		subject, found := byID[id]
+		accounts[id] = NotificationAccount{
+			UserID:    id,
+			Visible:   true,
+			Found:     found,
+			Name:      subject.Name,
+			Email:     subject.Email,
+			Pending:   subject.Pending,
+			Providers: providersInDisplayOrder(subject.Providers),
+		}
+	}
+	return accounts, nil
+}
+
+// uniqueAccountIDs keeps the requested ids in first-seen order and drops the
+// repeats, so a panel of several notices about one account costs one read.
+func uniqueAccountIDs(userIDs []int64) []int64 {
+	seen := make(map[int64]bool, len(userIDs))
+	unique := make([]int64, 0, len(userIDs))
+	for _, id := range userIDs {
+		if seen[id] {
+			continue
+		}
+		seen[id] = true
+		unique = append(unique, id)
+	}
+	return unique
+}
+
+// providersInDisplayOrder answers the provider identities in the closed set's
+// display order, so a row never reorders them per read. A value the set does not
+// name keeps its place at the end instead of being dropped or renamed: the
+// presentation layer labels it explicitly.
+func providersInDisplayOrder(providers []CompanyProvider) []CompanyProvider {
+	if len(providers) == 0 {
+		return nil
+	}
+	ordered := make([]CompanyProvider, len(providers))
+	copy(ordered, providers)
+	sort.SliceStable(ordered, func(i, j int) bool {
+		return providerDisplayIndex(ordered[i]) < providerDisplayIndex(ordered[j])
+	})
+	return ordered
+}
+
+// NotificationAccountMessage is the ident line and the sentence one account
+// notice renders (issue #419, S3/S12), built from the stored facts alone.
+//
+// Three rules decide it, and each is a truthful statement about what is stored:
+// an account that still waits reads as waiting; an account whose request was
+// already answered reads in the past tense instead of claiming it still waits; and
+// a reader who may not see the account, or an account that no longer exists,
+// reads an explicit fallback rather than a blank line or another person's data.
+func NotificationAccountMessage(account NotificationAccount) (title, body Msg) {
+	switch {
+	case !account.Visible:
+		return MsgRef("notifications.account.anonymous.title"), MsgRef("notifications.account.restricted.body")
+	case !account.Found:
+		return MsgRef("notifications.account.anonymous.title"), MsgRef("notifications.account.unavailable.body")
+	case account.Pending:
+		return MsgRef("notifications.account.pending.title", Text(account.Name)),
+			MsgRef("notifications.account.pending.body", Text(account.Name), Text(account.Email), notificationProviderPhrase(account.Providers))
+	default:
+		return MsgRef("notifications.account.resolved.title", Text(account.Name)),
+			MsgRef("notifications.account.resolved.body", Text(account.Name), Text(account.Email), notificationProviderPhrase(account.Providers))
+	}
+}
+
+// notificationProviderPhrase is the "signed in with …" half of the sentence,
+// built from the stored identities alone (S12): one provider, the pair the
+// closed provider set can hold, or an explicit "a company account" when no
+// identity was recorded. A guessed method would be a fabricated fact.
+func notificationProviderPhrase(providers []CompanyProvider) Arg {
+	switch len(providers) {
+	case 0:
+		return Nested(MsgRef("notifications.account.method_unknown"))
+	case 1:
+		return Nested(MsgRef("notifications.account.method", Copy(CompanyProviderLabelKey(providers[0]))))
+	default:
+		// The provider column is a closed set of two, so a stored account holds
+		// at most one identity per provider.
+		return Nested(MsgRef("notifications.account.method_pair",
+			Copy(CompanyProviderLabelKey(providers[0])), Copy(CompanyProviderLabelKey(providers[1]))))
+	}
+}
+
+// CompanyProviderLabelKey answers the catalogue key of a provider's display
+// name, for the reason the managed-user surfaces do: the presentation layer
+// decides the language, and a provider the closed set does not name renders an
+// explicit unknown label rather than a raw stored value.
+func CompanyProviderLabelKey(provider CompanyProvider) string {
+	switch provider {
+	case ProviderGoogle:
+		return "label.company_provider.google"
+	case ProviderMicrosoft:
+		return "label.company_provider.microsoft"
+	default:
+		return "label.company_provider.unknown"
+	}
 }
