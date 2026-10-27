@@ -64,6 +64,10 @@ Your list uses the labels **Received**, **In progress**, **Resolved**, **Closed*
   **Claim**. Choose **Claim ticket** to take one.
 - **Resolved and closed**
 
+Staff can choose **Default sorting** on Tickets to save their default order: newest, priority, or urgency. With scripting, the choice saves immediately; without it, choose **Save preferences**.
+On the staff queue, **Order by** changes the order for the current URL without changing that
+default. The requester's grouped list remains ordered as before.
+
 A **Least loaded** workflow assigns the ticket to an available member of the desk, so it never
 waits in the claimable list.
 

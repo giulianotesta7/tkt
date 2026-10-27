@@ -3,6 +3,8 @@ package httpadapter
 import (
 	"errors"
 	"net/http"
+	"net/url"
+	"strconv"
 
 	"github.com/giulianotesta7/tkt/internal/application"
 	"github.com/giulianotesta7/tkt/internal/domain"
@@ -59,6 +61,7 @@ func NewPreferencesHandlers(preferences *application.PreferencesService, rendere
 func (h *PreferencesHandlers) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /preferences", h.index)
 	mux.HandleFunc("POST /preferences", h.update)
+	mux.HandleFunc("POST /preferences/queue-order", h.updateQueueOrderFromTickets)
 	mux.HandleFunc("POST /preferences/email", h.updateEmail)
 	mux.HandleFunc("POST /preferences/sidebar", h.updateSidebar)
 	mux.HandleFunc("POST /preferences/theme", h.updateTheme)
@@ -87,6 +90,7 @@ func (h *PreferencesHandlers) WithPasswordChange(users *application.UserService,
 type preferencesData struct {
 	pageData
 	Error              string
+	QueueError         bool
 	Current            string
 	Orders             []queueOrderOption
 	Theme              string
@@ -234,11 +238,62 @@ func (h *PreferencesHandlers) update(w http.ResponseWriter, r *http.Request) {
 			httpError(w, r, "error.internal_server", http.StatusInternalServerError)
 			return
 		}
+		data.QueueError = true
 		h.renderer.Render(w, r, "preferences", "", data, status)
 		return
 	}
 	saveFeedback(w, r, saveFeedbackSaved, saveFeedbackSuccess)
 	redirect(w, r, "/preferences")
+}
+
+// updateQueueOrderFromTickets uses the same preference service as the legacy
+// preferences form, but returns the user to the ticket list.
+func (h *PreferencesHandlers) updateQueueOrderFromTickets(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		httpError(w, r, "error.internal_server", http.StatusInternalServerError)
+		return
+	}
+	// A stale form must not overwrite a preference that can no longer be read.
+	if _, err := h.preferences.GetDefaultQueueOrder(r.Context(), *userFromContext(r.Context())); err != nil {
+		httpError(w, r, "error.internal_server", http.StatusInternalServerError)
+		return
+	}
+	if err := h.preferences.SetDefaultQueueOrder(r.Context(), *userFromContext(r.Context()), r.Form.Get("queue_order")); err != nil {
+		status, msg := mapErrorFor(r, err)
+		http.Error(w, msg, status)
+		return
+	}
+	saveFeedback(w, r, saveFeedbackSaved, saveFeedbackSuccess)
+	redirect(w, r, queueOrderReturnHref(r.Form.Get("return")))
+}
+
+// queueOrderReturnHref keeps the validated list context without accepting an
+// external redirect. Reuse the list's existing filter validation, adding only
+// the queue-specific view, explicit newest sort and agent cursors it omits.
+func queueOrderReturnHref(raw string) string {
+	u, err := url.Parse(raw)
+	if err != nil || u.Path != "/tickets" || u.Host != "" || u.Scheme != "" || u.User != nil || u.Opaque != "" {
+		return "/tickets"
+	}
+	base, _ := url.Parse(listReturnHref(raw, ""))
+	values := base.Query()
+	query := u.Query()
+	if view := query.Get("view"); validView(view) && view != viewAll {
+		values.Set("view", view)
+	}
+	filters := parseFilters(&http.Request{URL: u})
+	if filters.SortExplicit && filters.Sort == sortNewest {
+		values.Set("sort", sortNewest)
+	}
+	for _, key := range []string{"assigned_page", "done_page", "claimable_page"} {
+		if page := parseID(query.Get(key)); page > 1 {
+			values.Set(key, strconv.FormatInt(page, 10))
+		}
+	}
+	if len(values) == 0 {
+		return "/tickets"
+	}
+	return "/tickets?" + values.Encode()
 }
 
 // updateEmail persists the notification-email toggle (issue #362, S5). The

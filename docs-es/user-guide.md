@@ -64,6 +64,10 @@ Tu lista usa las etiquetas **Recibido**, **En curso**, **Resuelto**, **Cerrado**
   **Autoasignación**. Elegí **Tomar ticket** para tomar uno.
 - **Resueltos y cerrados**
 
+En Tickets, el equipo puede elegir **Orden predeterminado**: más recientes, prioridad o urgencia.
+Con JavaScript la elección se guarda al cambiarla; sin JavaScript, elegí **Guardar preferencias**. En la cola del equipo, **Ordenar por** cambia el orden para la URL actual
+sin cambiar ese valor. La lista agrupada de quien solicita mantiene su orden habitual.
+
 Un flujo **Por menor carga** asigna el ticket a un miembro disponible de la mesa, así que nunca
 espera en la lista de disponibles.
 

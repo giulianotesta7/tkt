@@ -75,25 +75,7 @@
     </div>
   </div>
   <div class="preferences-sections">
-    <section class="preferences-section">
-      <div class="preferences-section-head">
-        <h2>Queue order</h2>
-        <p>How your ticket list opens when the URL does not choose an order. Picking one order in the list still wins for that visit.</p>
-      </div>
-      <form class="preferences-form" method="post" action="/preferences">
-        <div class="field">
-          <label for="queue_order">Default queue order</label>
-          <select id="queue_order" name="queue_order">
-            <option value="newest" selected>Newest first</option>
-            <option value="priority">Priority</option>
-            <option value="urgency">Urgency</option>
-          </select>
-        </div>
-        <div class="preferences-actions">
-          <button class="btn primary" type="submit">Save preferences</button>
-        </div>
-      </form>
-    </section>
+
     <section class="preferences-section">
       <div class="preferences-section-head">
         <h2>Theme</h2>

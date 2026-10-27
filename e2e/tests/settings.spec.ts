@@ -1108,27 +1108,27 @@ test.describe("Preferences", () => {
     const obs = collectObservability(page);
     await loginAsSeeded(page);
 
-    // Reach the page the way a user does: through the user menu, not by URL.
-    await openPreferencesFromUserMenu(page);
-    await expect(page.locator("h1").filter({ hasText: "Preferences" })).toBeVisible();
-    // Issue #380: the subtitle repeated the heading, so it is gone.
-    await expect(page.getByText(/personal settings/i)).toHaveCount(0);
-    const order = page.getByLabel("Default queue order");
-    await expect(order).toBeVisible();
-    await expect(order).toHaveValue("newest");
-
-    await order.selectOption("priority");
-    await page.getByRole("button", { name: /save preferences/i }).click();
-    await expect(page).toHaveURL(/\/preferences$/);
-    await expect(page.locator("#save-feedback")).toContainText("Saved");
-
-    // The stored default survives a reload.
-    await page.reload();
-    await expect(page.getByLabel("Default queue order")).toHaveValue("priority");
-
-    // The stored default applies when the URL carries no sort.
     await page.goto(base() + "/tickets");
+    const order = page.getByLabel("Default sorting");
+    await expect(order).toHaveValue("newest");
+    const save = page.waitForResponse(
+      (response) =>
+        new URL(response.url()).pathname === "/preferences/queue-order" &&
+        response.request().method() === "POST",
+    );
+    const navigation = page.waitForEvent("framenavigated", (frame) => frame === page.mainFrame());
+    await order.selectOption("priority");
+    const saved = await save;
+    expect(saved.status()).toBe(303);
+    expect(new URLSearchParams(saved.request().postData() ?? "").get("queue_order")).toBe(
+      "priority",
+    );
+    await navigation;
+    await expect(page).toHaveURL(/\/tickets$/);
+    await expect(page.locator("#save-feedback")).toContainText("Saved");
+    await page.reload();
     await expect(page.getByLabel("Order by")).toHaveValue("priority");
+    await expect(page.getByLabel("Default sorting")).toHaveValue("priority");
 
     await assertCanonicalScreen(page, {
       viewport: 1280,
@@ -1145,11 +1145,50 @@ test.describe("Preferences", () => {
     await page.goto(base() + "/tickets?sort=newest");
     await expect(page.getByLabel("Order by")).toHaveValue("newest");
 
-    // Restore the default for any journey that follows.
-    await page.goto(base() + "/preferences");
-    await page.getByLabel("Default queue order").selectOption("newest");
-    await page.getByRole("button", { name: /save preferences/i }).click();
-    await expect(page).toHaveURL(/\/preferences$/);
+    // The header survives the filter's HTMX swap; saving must use the pushed
+    // URL rather than the stale URL from the original document.
+    await assertHtmxSwap(
+      page,
+      async () => page.getByLabel("Search tickets").fill("queue-context-no-match"),
+      {
+        endpoint: (url) => {
+          const query = new URL(url);
+          return (
+            query.pathname === "/tickets" &&
+            query.searchParams.get("q") === "queue-context-no-match"
+          );
+        },
+        method: "GET",
+        expectedStatus: 200,
+        hxTarget: "#queue-results",
+        expectedUrl: /\/tickets\?.*q=queue-context-no-match/,
+      },
+    );
+    const current = new URL(page.url());
+    expect(current.searchParams.get("sort")).toBe("newest");
+    await expect(page.getByLabel("Default sorting")).toHaveValue("priority");
+    const saveFiltered = page.waitForResponse(
+      (response) =>
+        new URL(response.url()).pathname === "/preferences/queue-order" &&
+        response.request().method() === "POST",
+    );
+    const filteredNavigation = page.waitForEvent(
+      "framenavigated",
+      (frame) => frame === page.mainFrame(),
+    );
+    await page.getByLabel("Default sorting").selectOption("newest");
+    const filteredSave = await saveFiltered;
+    expect(filteredSave.status()).toBe(303);
+    expect(new URLSearchParams(filteredSave.request().postData() ?? "").get("queue_order")).toBe(
+      "newest",
+    );
+    await filteredNavigation;
+    await expect(page.getByLabel("Default sorting")).toHaveValue("newest");
+    const returned = new URL(page.url());
+    expect(returned.searchParams.get("q")).toBe("queue-context-no-match");
+    expect(returned.searchParams.get("sort")).toBe("newest");
+    await page.goto(base() + "/tickets");
+    await expect(page.getByLabel("Order by")).toHaveValue("newest");
   });
 
   test("a requester can open the preferences page and an anonymous visitor cannot", async ({
@@ -1169,11 +1208,12 @@ test.describe("Preferences", () => {
     await expect(page).toHaveURL(/\/login/);
 
     await loginAs(page, email, "SuperSecret42!");
+    await expect(page.getByLabel("Default sorting")).toHaveCount(0);
     // The requester role has the user menu entry too (the page is not
     // capability-gated) and reaches the page through it.
     await openPreferencesFromUserMenu(page);
     await expect(page.locator("h1").filter({ hasText: "Preferences" })).toBeVisible();
-    await expect(page.getByLabel("Default queue order")).toBeVisible();
+    await expect(page.getByLabel("Default activity order", { exact: true })).toBeVisible();
   });
 
   test("a user turns email notifications off and back on from Preferences", async ({ page }) => {
@@ -1208,7 +1248,7 @@ test.describe("Preferences", () => {
 
     // The email panel leaving the page alone does not take the rest of
     // Preferences with it: the other preference on this page still renders.
-    await expect(page.getByLabel("Default queue order")).toBeVisible();
+    await expect(page.getByLabel("Default activity order", { exact: true })).toBeVisible();
     await assertCanonicalScreen(page, {
       viewport: 1280,
       label: "preferences email off",
@@ -1257,7 +1297,7 @@ test.describe("Preferences", () => {
     const otherPage = await otherContext.newPage();
     await loginAs(otherPage, email, currentPassword);
     await otherPage.goto(base() + "/preferences");
-    await expect(otherPage.getByLabel("Default queue order")).toBeVisible();
+    await expect(otherPage.getByLabel("Default activity order", { exact: true })).toBeVisible();
 
     await page.goto(base() + "/preferences");
     await expect(page.getByLabel("Current password", { exact: true })).toBeVisible();
@@ -1271,7 +1311,7 @@ test.describe("Preferences", () => {
     // The session that made the change keeps working, and the other device no
     // longer reaches an authenticated page.
     await page.reload();
-    await expect(page.getByLabel("Default queue order")).toBeVisible();
+    await expect(page.getByLabel("Default activity order", { exact: true })).toBeVisible();
     await otherPage.reload();
     await expect(otherPage).toHaveURL(/\/login/);
 
@@ -1303,14 +1343,13 @@ test.describe("Preferences", () => {
     // each pairing its label with its control and owning an explicit save.
     await page.goto(base() + "/preferences");
     await expect(page.locator(".preferences-screen")).toBeVisible();
-    await expect(page.locator(".preferences-section")).toHaveCount(5);
+    await expect(page.locator(".preferences-section")).toHaveCount(4);
     const saves = page.locator(".preferences-form button[type=submit]");
-    await expect(saves).toHaveCount(5);
-    await expect(saves.nth(0)).toHaveText("Save preferences");
-    await expect(saves.nth(1)).toHaveText("Save theme");
-    await expect(saves.nth(2)).toHaveText("Save activity order");
-    await expect(saves.nth(3)).toHaveText("Save email preference");
-    await expect(saves.nth(4)).toHaveText("Change password");
+    await expect(saves).toHaveCount(4);
+    await expect(saves.nth(0)).toHaveText("Save theme");
+    await expect(saves.nth(1)).toHaveText("Save activity order");
+    await expect(saves.nth(2)).toHaveText("Save email preference");
+    await expect(saves.nth(3)).toHaveText("Change password");
 
     // S3: a select change alone never saves. The value is only written by the
     // section's own submit, so the stored order survives a reload untouched.
@@ -1320,10 +1359,8 @@ test.describe("Preferences", () => {
       if (!new URL(request.url()).pathname.startsWith("/preferences")) return;
       writes += 1;
     });
-    await page.getByLabel("Default queue order").selectOption("urgency");
     await page.getByLabel("Default activity order", { exact: true }).selectOption("oldest");
     await page.reload();
-    await expect(page.getByLabel("Default queue order")).toHaveValue("newest");
     await expect(page.getByLabel("Default activity order", { exact: true })).toHaveValue("newest");
     expect(writes, "choosing an option must not save it").toBe(0);
 
@@ -1823,24 +1860,17 @@ test.describe("Preferences without scripting (seeded)", () => {
     const obs = collectObservability(page);
     await loginAsSeeded(page);
 
-    await page.goto(base() + "/preferences");
-    await expect(page.locator(".preferences-section")).toHaveCount(5);
-    await page.getByLabel("Default queue order").selectOption("priority");
-    await page.getByRole("button", { name: "Save preferences" }).click();
-    await expect(page).toHaveURL(/\/preferences$/);
-    await page.reload();
-    await expect(page.getByLabel("Default queue order")).toHaveValue("priority");
-    // The queue the preference orders is the server's own list.
     await page.goto(base() + "/tickets");
-    await expect(page.getByLabel("Order by")).toHaveValue("priority");
-
-    // Back to the default so the seeded profile is left as it was found.
-    await page.goto(base() + "/preferences");
-    await page.getByLabel("Default queue order").selectOption("newest");
+    await page.getByLabel("Default sorting").selectOption("priority");
     await page.getByRole("button", { name: "Save preferences" }).click();
-    await expect(page).toHaveURL(/\/preferences$/);
+    await expect(page).toHaveURL(/\/tickets$/);
     await page.reload();
-    await expect(page.getByLabel("Default queue order")).toHaveValue("newest");
+    await expect(page.getByLabel("Order by")).toHaveValue("priority");
+    await expect(page.getByLabel("Default sorting")).toHaveValue("priority");
+    await page.getByLabel("Default sorting").selectOption("newest");
+    await page.getByRole("button", { name: "Save preferences" }).click();
+    await expect(page).toHaveURL(/\/tickets$/);
+    await expect(page.getByLabel("Order by")).toHaveValue("newest");
 
     expect(obs.consoleErrors).toEqual([]);
     expect(obs.pageErrors).toEqual([]);

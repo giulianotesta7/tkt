@@ -260,7 +260,7 @@ function authenticatedScreens(deps: {
       label: `/preferences`,
       path: "/preferences",
       heading: (p) => p.locator('h1:has-text("Preferences")'),
-      control: (p) => p.getByLabel("Default queue order"),
+      control: (p) => p.getByLabel("Default activity order", { exact: true }),
     },
   ];
 }

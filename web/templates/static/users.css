@@ -135,6 +135,8 @@
 
 .tickets-header{max-width:1440px}
 .tickets-header .page-header{margin-bottom:20px}
+.tickets-header .queue-default-options{display:inline-flex;align-items:center;gap:8px;flex-wrap:wrap;color:var(--muted);font-size:13px}
+.tickets-header .queue-default-options select{height:36px;min-width:132px;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--ink-soft);padding:0 10px;font:inherit;font-size:13px}
 .tickets-screen{max-width:1440px}
 .tickets-screen .page-header{margin-bottom:20px}
 .tickets-screen .queue-tabs{display:flex;gap:4px;border-bottom:1px solid var(--line);margin-bottom:14px;overflow-x:auto;scrollbar-width:none}

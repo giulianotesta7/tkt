@@ -89,7 +89,7 @@ test.describe("Theme", () => {
     await page.emulateMedia({ colorScheme: "light" });
 
     // The other two preference forms on the page keep working beside it.
-    await expect(page.getByLabel("Default queue order")).toHaveValue("newest");
+    await expect(page.getByLabel("Default activity order", { exact: true })).toHaveValue("newest");
     await expect(page.getByLabel("Receive notifications by email")).toBeChecked();
 
     expect(obs.consoleErrors).toEqual([]);
