@@ -1370,7 +1370,7 @@ func newSettingsCompanySignIn(stored application.CompanySignInSettings) *setting
 		Google: settingsProviderSignIn{
 			Enabled:     stored.Google.Enabled,
 			ClientID:    stored.Google.ClientID,
-			Domains:     strings.Join(stored.Google.Domains, "\n"),
+			Domains:     strings.Join(stored.Google.Domains, "; "),
 			SecretSet:   stored.Google.SecretSet,
 			RedirectURI: companyRedirectURI(stored.Address, application.ProviderGoogle),
 		},

@@ -158,9 +158,9 @@
           </div>
         <div class="field">
           <label for="google_domains">Allowed domains</label>
-          <textarea id="google_domains" name="google_domains" spellcheck="false" autocapitalize="off">acme.test
-acme-support.test</textarea>
-          <p class="help">One domain per line. Only Google accounts whose verified email ends in one of these domains can sign in. An account outside them is refused.</p>
+          <input type="text" id="google_domains" name="google_domains" value="acme.test
+acme-support.test" spellcheck="false" autocapitalize="off" autocomplete="off" placeholder="example.com; example.org">
+          <p class="help">Separate domains with a semicolon (;). Only Google accounts whose verified email ends in one of these domains can sign in. An account outside them is refused.</p>
           </div>
         <div class="field">
           <label for="google_redirect_uri">Redirect URI</label>

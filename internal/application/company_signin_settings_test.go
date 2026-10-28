@@ -270,3 +270,55 @@ func TestCompanySignInClientSecretRefusesAnUnknownProvider(t *testing.T) {
 		}
 	}
 }
+
+// Google's allowed domains are separated by semicolons (issue #472). A line
+// break still separates domains, so a list saved before the change and a list
+// pasted one per line both keep working.
+func TestUpdateCompanySignInReadsGoogleDomainsSeparatedBySemicolons(t *testing.T) {
+	cases := []struct {
+		name  string
+		input string
+		want  string
+	}{
+		{"two domains", "example.com; example.org", "example.com,example.org"},
+		{"no spaces", "example.com;example.org", "example.com,example.org"},
+		{"spaces, case, empty segments and a duplicate", " Example.com ;; example.org ; example.com ; ", "example.com,example.org"},
+		{"semicolons and line breaks mixed", "example.com; example.org\nexample.net", "example.com,example.org,example.net"},
+		{"line breaks only, as before", "example.com\nexample.org", "example.com,example.org"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			svc, store := newCompanySignInSettingsService()
+			in := validCompanySignInInput()
+			in.Google.Domains = tc.input
+			if err := svc.Update(context.Background(), domain.User{ID: 1, Role: domain.RoleAdmin}, in); err != nil {
+				t.Fatalf("Update(%q): %v", tc.input, err)
+			}
+			if got := strings.Join(store.settings.Google.Domains, ","); got != tc.want {
+				t.Errorf("Google.Domains for %q = %q, want %q", tc.input, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestUpdateCompanySignInRefusesABadGoogleDomainInASemicolonList(t *testing.T) {
+	for name, input := range map[string]string{
+		"one bad entry spoils the list": "example.com; not a domain",
+		"a scheme":                      "example.com; https://example.org",
+		"only separators":               " ; ; ",
+	} {
+		t.Run(name, func(t *testing.T) {
+			svc, store := newCompanySignInSettingsService()
+			in := validCompanySignInInput()
+			in.Google.Domains = input
+			err := svc.Update(context.Background(), domain.User{ID: 1, Role: domain.RoleAdmin}, in)
+			var verr *domain.ValidationError
+			if !errors.As(err, &verr) || verr.Field != "google_domains" {
+				t.Fatalf("Update(%q) = %v, want a google_domains validation error", input, err)
+			}
+			if len(store.settings.Google.Domains) != 0 {
+				t.Errorf("a refused list stored %v, want nothing stored", store.settings.Google.Domains)
+			}
+		})
+	}
+}

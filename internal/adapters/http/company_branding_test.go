@@ -57,7 +57,7 @@ func TestSettingsSecurityFieldHelpIsVisible(t *testing.T) {
 		"Between 8 and 64 characters. Applies to every new password",
 		"The public address of this instance, such as",
 		"Stored encrypted and never shown again. Leave it blank to keep the saved secret.",
-		"One domain per line.",
+		"Separate domains with a semicolon (;).",
 		"Built from the TKT address above. Paste it into the Google Cloud console",
 		"Only accounts from this tenant can sign in.",
 		"Built from the TKT address above. Add it in the Entra portal",

@@ -66,7 +66,7 @@
           </div>
         <div class="field">
           <label for="google_domains">{{t "settings.security.company.google.domains"}}</label>
-          <textarea id="google_domains" name="google_domains" spellcheck="false" autocapitalize="off">{{.Company.Google.Domains}}</textarea>
+          <input type="text" id="google_domains" name="google_domains" value="{{.Company.Google.Domains}}" spellcheck="false" autocapitalize="off" autocomplete="off" placeholder="example.com; example.org">
           <p class="help">{{t "settings.security.company.google.domains_help"}}</p>
           </div>
         <div class="field">
