@@ -142,7 +142,11 @@
       </div>
       <div class="settings-row single">
         <div><h3>Timezone</h3><p>Working hours and SLA targets are counted in this timezone.</p></div>
-        <div class="field"><input type="text" id="sla_calendar_timezone" name="sla_calendar_timezone" value="UTC" spellcheck="false" autocapitalize="off" aria-label="Timezone"><p class="help">IANA name, e.g. America/Argentina/Buenos_Aires. Defaults to UTC.</p></div>
+        <div class="field"><div class="timezone-picker" data-timezone-picker>
+          <input type="text" id="sla_calendar_timezone" name="sla_calendar_timezone" value="UTC" spellcheck="false" autocapitalize="off" aria-label="Timezone" aria-describedby="timezone-help">
+          <template data-timezone-catalogue></template>
+          <div class="timezone-popup" data-timezone-popup hidden><div id="timezone-options" role="listbox" aria-label="Timezone suggestions"></div><p data-timezone-empty hidden role="status">No time zone matches.</p></div>
+        </div><p class="help" id="timezone-help">IANA name, e.g. America/Argentina/Buenos_Aires. Defaults to UTC.</p></div>
       </div>
       </section>
       <div class="settings-savebar" data-settings-savebar hidden>

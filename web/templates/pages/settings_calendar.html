@@ -38,7 +38,11 @@
       </div>
       <div class="settings-row single">
         <div><h3>{{t "settings.calendar.timezone"}}</h3><p>{{t "settings.calendar.timezone_desc"}}</p></div>
-        <div class="field"><input type="text" id="sla_calendar_timezone" name="sla_calendar_timezone" value="{{.CalendarTimezone}}" spellcheck="false" autocapitalize="off" aria-label="{{t "settings.calendar.timezone"}}"><p class="help">{{t "settings.calendar.timezone_help"}}</p></div>
+        <div class="field"><div class="timezone-picker" data-timezone-picker>
+          <input type="text" id="sla_calendar_timezone" name="sla_calendar_timezone" value="{{.CalendarTimezone}}" spellcheck="false" autocapitalize="off" aria-label="{{t "settings.calendar.timezone"}}" aria-describedby="timezone-help">
+          <template data-timezone-catalogue>{{range .TimezoneSuggestions}}<span data-timezone-option="{{.}}"></span>{{end}}</template>
+          <div class="timezone-popup" data-timezone-popup hidden><div id="timezone-options" role="listbox" aria-label="{{t "settings.calendar.timezone_suggestions"}}"></div><p data-timezone-empty hidden role="status">{{t "settings.calendar.timezone_no_matches"}}</p></div>
+        </div><p class="help" id="timezone-help">{{t "settings.calendar.timezone_help"}}</p></div>
       </div>
       </section>
       <div class="settings-savebar" data-settings-savebar hidden>

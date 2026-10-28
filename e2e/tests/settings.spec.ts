@@ -370,6 +370,52 @@ test.describe("Settings", () => {
     await expect(page.locator("h2").filter({ hasText: "Working calendar" })).toBeVisible();
     // Seven ISO working-day checkboxes, always all offered.
     await expect(page.locator('input[name="sla_calendar_days"]')).toHaveCount(7);
+    const zone = page.getByLabel("Timezone", { exact: true });
+    const calendarBar = page.locator('form[action="/settings/calendar"] [data-settings-savebar]');
+    await expect(zone).toHaveValue("UTC");
+    await expect(zone).toHaveAttribute("role", "combobox");
+    await zone.fill("BUENOS AIRES");
+    await expect(
+      page.getByRole("option", { name: "America/Argentina/Buenos_Aires" }),
+    ).toBeVisible();
+    await zone.press("ArrowDown");
+    await expect(zone).toHaveAttribute("aria-activedescendant", /timezone-option-/);
+    await zone.press("Enter");
+    await expect(zone).toHaveValue("America/Argentina/Buenos_Aires");
+    await expect(page).toHaveURL(/\/settings\/calendar$/);
+    await expect(calendarBar).toBeVisible();
+    await calendarBar.getByRole("button", { name: "Discard" }).click();
+    await expect(zone).toHaveValue("UTC");
+    await expect(calendarBar).toBeHidden();
+    await zone.fill("no-such-time-zone");
+    await expect(page.getByText("No time zone matches.")).toBeVisible();
+    await zone.press("Enter");
+    await expect(page).toHaveURL(/\/settings\/calendar$/);
+    await zone.press("Escape");
+    await expect(zone).toHaveAttribute("aria-expanded", "false");
+    await calendarBar.getByRole("button", { name: "Discard" }).click();
+
+    const noScriptContext = await page
+      .context()
+      .browser()!
+      .newContext({
+        javaScriptEnabled: false,
+        storageState: await page.context().storageState(),
+      });
+    try {
+      const noScript = await noScriptContext.newPage();
+      await noScript.goto(base() + "/settings/calendar");
+      const plainZone = noScript.getByLabel("Timezone", { exact: true });
+      await expect(plainZone).not.toHaveAttribute("role", "combobox");
+      await expect(plainZone).toHaveValue("UTC");
+      await expect(noScript.getByText(/IANA name, e.g./)).toBeVisible();
+      await plainZone.fill("Etc/GMT-3");
+      await noScript.getByRole("button", { name: "Save working calendar" }).click();
+      await expect(noScript).toHaveURL(/\/settings\/calendar$/);
+      await expect(plainZone).toHaveValue("Etc/GMT-3");
+    } finally {
+      await noScriptContext.close();
+    }
 
     // Change the week, the window, and the zone, then save. setChecked is
     // idempotent, so the journey does not depend on the stored calendar it

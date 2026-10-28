@@ -59,7 +59,7 @@ func TestSettingsFieldHelpIsVisible(t *testing.T) {
 				t.Errorf("%s: a settings section must not render a toggletip", tc.path)
 			}
 		}
-		paragraph := regexp.MustCompile(`<p( class="help")?>` + regexp.QuoteMeta(strings.ReplaceAll(tc.help, "&", "&amp;")))
+		paragraph := regexp.MustCompile(`<p( class="help")?( id="[^"]+")?>` + regexp.QuoteMeta(strings.ReplaceAll(tc.help, "&", "&amp;")))
 		if !paragraph.MatchString(body) {
 			t.Errorf("%s: %q must render as a visible description or help paragraph", tc.path, tc.help)
 		}

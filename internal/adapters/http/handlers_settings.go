@@ -261,10 +261,11 @@ type settingsTicketsData struct {
 // settingsCalendarData is the Working calendar section payload.
 type settingsCalendarData struct {
 	settingsSectionData
-	CalendarDays     []calendarDayOption
-	CalendarStart    string
-	CalendarEnd      string
-	CalendarTimezone string
+	CalendarDays        []calendarDayOption
+	CalendarStart       string
+	CalendarEnd         string
+	CalendarTimezone    string
+	TimezoneSuggestions []string
 }
 
 // settingsEmailData is the root-only Email section payload (issue #362).
@@ -1004,7 +1005,7 @@ func slaFormInt(r *http.Request, key string) int {
 // renderCalendar renders the Working calendar section. echo, when non-nil,
 // echoes a rejected submission's values instead of the stored calendar.
 func (h *SettingsHandlers) renderCalendar(w http.ResponseWriter, r *http.Request, status int, message string, echo *settingsCalendarData) {
-	data := settingsCalendarData{settingsSectionData: h.sectionData(r, settingsSectionCalendar)}
+	data := settingsCalendarData{settingsSectionData: h.sectionData(r, settingsSectionCalendar), TimezoneSuggestions: calendarTimezoneSuggestions}
 	data.Error = message
 	if err := h.loadCalendar(r, &data); err != nil {
 		httpError(w, r, "error.internal_server", http.StatusInternalServerError)
