@@ -236,61 +236,6 @@
   syncSigninPreview();
   syncHighlightRows();
 
-  // --- Field help toggletips (issue #383, S11) ----------------------------
-
-  // closeTips collapses every open tip. Hover and keyboard focus are the CSS
-  // side of the same control; this only owns the clicked state.
-  function closeTips(except) {
-    Array.prototype.forEach.call(document.querySelectorAll("[data-help-tip]"), function (tip) {
-      if (tip !== except) tip.setAttribute("aria-expanded", "false");
-    });
-  }
-
-  document.addEventListener("click", function (event) {
-    var tip = event.target && event.target.closest ? event.target.closest("[data-help-tip]") : null;
-    if (tip) {
-      var open = tip.getAttribute("aria-expanded") === "true";
-      closeTips(tip);
-      tip.setAttribute("aria-expanded", open ? "false" : "true");
-      return;
-    }
-    // An outside click closes whatever is open, so a tap on a phone never
-    // leaves a bubble covering the form.
-    closeTips(null);
-  });
-
-  // Keyboard focus opens the bubble too. The pointer flag keeps a mouse click
-  // from opening it in focusin before its own click handler toggles it: with a
-  // mouse the button is already hovered, and the click is what pins it.
-  var pointerFocus = false;
-  document.addEventListener(
-    "pointerdown",
-    function () {
-      pointerFocus = true;
-    },
-    true,
-  );
-  document.addEventListener("keydown", function () {
-    pointerFocus = false;
-  });
-
-  document.addEventListener("focusin", function (event) {
-    var tip = event.target && event.target.closest ? event.target.closest("[data-help-tip]") : null;
-    if (tip && !pointerFocus) tip.setAttribute("aria-expanded", "true");
-  });
-
-  document.addEventListener("focusout", function (event) {
-    var tip = event.target && event.target.closest ? event.target.closest("[data-help-tip]") : null;
-    if (tip) tip.setAttribute("aria-expanded", "false");
-  });
-
-  document.addEventListener("keydown", function (event) {
-    if (event.key !== "Escape") return;
-    var open = document.querySelector('[data-help-tip][aria-expanded="true"]');
-    if (!open) return;
-    open.setAttribute("aria-expanded", "false");
-  });
-
   // --- Category suggestions: the Try it box (issue #416, S6) --------------
 
   // The Try it field sits in the card's save form, so Enter would submit the save.

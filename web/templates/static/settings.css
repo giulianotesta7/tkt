@@ -548,95 +548,10 @@
   }
 }
 
-/* Field help behind a toggletip (issue #383, S11): the explanation sits next to
-   the label it belongs to, on the inverted ink ladder so it reads over any
-   surface, and it opens on hover, on keyboard focus and on a tap. */
-.help-tip-wrap {
-  position: relative;
-  display: inline-flex;
-  margin-left: 6px;
-  vertical-align: middle;
-}
-
-.help-tip {
-  width: 16px;
-  height: 16px;
-  padding: 0;
-  border: 1px solid var(--line-strong);
-  border-radius: 50%;
-  background: none;
-  color: var(--muted);
-  font: inherit;
-  font-size: 10px;
-  font-weight: 600;
-  line-height: 1;
-  cursor: help;
-  display: grid;
-  place-items: center;
-}
-
-.help-tip:hover,
-.help-tip:focus-visible,
-.help-tip[aria-expanded="true"] {
-  border-color: var(--accent);
-  color: var(--accent-ink);
-}
-
-.help-tip-bubble {
-  display: none;
-  position: absolute;
-  z-index: 5;
-  left: 50%;
-  bottom: calc(100% + 8px);
-  width: 240px;
-  max-width: 70vw;
-  padding: 8px 10px;
-  border-radius: 8px;
-  background: var(--rail);
-  color: var(--rail-ink);
-  font-size: 12px;
-  font-weight: 400;
-  line-height: 1.45;
-  text-align: left;
-  transform: translateX(-50%);
-}
-
-/* Hover is the pointer's own affordance; aria-expanded carries the clicked and
-   the keyboard-focused state, which the script sets. */
-.help-tip-wrap:hover .help-tip-bubble,
-.help-tip[aria-expanded="true"] + .help-tip-bubble {
-  display: block;
-}
-
 /* The preview's zones are toggled with the hidden attribute, and their panel
    classes declare a display: the hidden attribute wins here. */
 .settings-preview-scale [hidden] {
   display: none;
-}
-
-@media (max-width: 640px) {
-  .help-tip-bubble {
-    left: auto;
-    right: -8px;
-    transform: none;
-  }
-}
-
-/* Review fixes (issue #383): the "?" sits on the label's line, not below it.
-   The shared .field label is a block, so a label followed by a tip becomes an
-   inline row and the control below keeps its full width. */
-.settings-layout .field > label:has(+ .help-tip-wrap) {
-  display: inline-block;
-  margin-bottom: 8px;
-}
-
-.settings-layout .field > .help-tip-wrap {
-  margin-left: 6px;
-  vertical-align: 1px;
-}
-
-.settings-layout .field > .help-tip-wrap + :is(input, select, textarea, .field-control) {
-  display: block;
 }
 
 /* Highlight rows (review fix): the form column shares the width with the
@@ -995,16 +910,6 @@
 }
 
 .settings-group-title .company-logo { width: 18px; height: 18px; margin-right: 8px; vertical-align: -3px; }
-
-/* A switch label's toggletip sits on the label's own line, like a field's. */
-.switch-copy > .switch-label:has(+ .help-tip-wrap) {
-  display: inline;
-}
-
-.switch-copy > .help-tip-wrap {
-  margin-left: 6px;
-  vertical-align: -2px;
-}
 
 .settings-row .settings-subfield { margin-top: 16px; }
 

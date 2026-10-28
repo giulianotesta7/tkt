@@ -659,23 +659,6 @@ var templateFuncs = template.FuncMap{
 	"brandHelpDesk":    brandHelpDesk,
 	"signinIcon":       signinIcon,
 	"signinNoticeIcon": signinNoticeIcon,
-	"helpTip":          helpTip,
-}
-
-// helpTipData is one field explanation rendered as a toggletip (issue #383,
-// S11): the id its tooltip element is referenced by, the field's label and the
-// explanation. The template passes both as catalogue-resolved strings — it calls
-// t with each key — so the copy stays translated and the coverage guard sees
-// every key a surface renders.
-type helpTipData struct {
-	ID    string
-	Label string
-	Text  string
-}
-
-// helpTip builds one toggletip payload from the translated label and text.
-func helpTip(id, label, text string) helpTipData {
-	return helpTipData{ID: id, Label: label, Text: text}
 }
 
 // signinIconSVG is the inline mark of one sign-in highlight icon (issue #383,

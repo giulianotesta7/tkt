@@ -690,7 +690,6 @@
   "settings.email.title": "Email notifications",
   "settings.email.username": "Username",
   "settings.email.username_help": "Leave it empty if your server accepts mail without authentication.",
-  "settings.help_tip.aria": "More about %s",
   "settings.language.english": "English",
   "settings.language.help": "Applies to everyone who has not picked a language in Preferences.",
   "settings.language.label": "Language",
