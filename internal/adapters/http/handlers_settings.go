@@ -284,6 +284,7 @@ type emailPanelData struct {
 	Encryption    application.EmailEncryption
 	SkipTLSVerify bool
 	Username      string
+	NoAuth        bool
 	PasswordSet   bool
 	FromAddress   string
 	FromName      string
@@ -327,6 +328,7 @@ func emailPanelFromStored(stored application.EmailSettings) emailPanelData {
 		Encryption:    stored.Encryption,
 		SkipTLSVerify: stored.SkipTLSVerify,
 		Username:      stored.Username,
+		NoAuth:        stored.Username == "",
 		PasswordSet:   stored.PasswordSet,
 		FromAddress:   stored.FromAddress,
 		FromName:      stored.FromName,
@@ -1201,14 +1203,18 @@ func emailInputFromForm(r *http.Request) application.EmailSettingsInput {
 		}
 		port = parsed
 	}
+	username, password := r.Form.Get("email_username"), r.Form.Get("email_password")
+	if r.Form.Get("email_no_auth") == "1" {
+		username, password = "", ""
+	}
 	return application.EmailSettingsInput{
 		Enabled:       r.Form.Get("email_enabled") == "1",
 		Host:          r.Form.Get("email_host"),
 		Port:          port,
 		Encryption:    application.EmailEncryption(strings.TrimSpace(r.Form.Get("email_encryption"))),
 		SkipTLSVerify: r.Form.Get("email_skip_tls_verify") == "1",
-		Username:      r.Form.Get("email_username"),
-		Password:      r.Form.Get("email_password"),
+		Username:      username,
+		Password:      password,
 		FromAddress:   r.Form.Get("email_from_address"),
 		FromName:      r.Form.Get("email_from_name"),
 		BaseURL:       r.Form.Get("email_base_url"),
@@ -1226,6 +1232,7 @@ func echoEmailForm(panel emailPanelData, r *http.Request) emailPanelData {
 	panel.Encryption = in.Encryption
 	panel.SkipTLSVerify = in.SkipTLSVerify
 	panel.Username = in.Username
+	panel.NoAuth = r.Form.Get("email_no_auth") == "1"
 	panel.FromAddress = in.FromAddress
 	panel.FromName = in.FromName
 	panel.BaseURL = in.BaseURL
