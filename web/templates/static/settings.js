@@ -56,10 +56,109 @@
       window.setTimeout(function () {
         if (form.querySelector("[data-preview-panel]")) syncSigninPreview();
         syncHighlightRows();
+        syncEmailAuth();
       }, 0);
     },
     true,
   );
+
+  // The text field remains the submitted value and works without scripting.
+  // The embedded catalogue is only a set of suggestions, not an allowlist.
+  var timezonePicker = document.querySelector("[data-timezone-picker]");
+  if (timezonePicker) {
+    var zoneInput = timezonePicker.querySelector("input");
+    var zonePopup = timezonePicker.querySelector("[data-timezone-popup]");
+    var zoneList = timezonePicker.querySelector('[role="listbox"]');
+    var zoneEmpty = timezonePicker.querySelector("[data-timezone-empty]");
+    var zoneNames = Array.prototype.map.call(
+      timezonePicker.querySelector("template").content.querySelectorAll("[data-timezone-option]"),
+      function (node) {
+        return node.getAttribute("data-timezone-option");
+      },
+    );
+    var activeZone = -1;
+    zoneInput.setAttribute("role", "combobox");
+    zoneInput.setAttribute("aria-autocomplete", "list");
+    zoneInput.setAttribute("aria-controls", "timezone-options");
+    zoneInput.setAttribute("aria-expanded", "false");
+
+    function closeZones() {
+      zonePopup.hidden = true;
+      zoneInput.setAttribute("aria-expanded", "false");
+      zoneInput.removeAttribute("aria-activedescendant");
+      activeZone = -1;
+    }
+    function renderZones(query) {
+      var normalized = query.toLowerCase().replace(/_/g, " ");
+      var matches = zoneNames.filter(function (name) {
+        return name.toLowerCase().replace(/_/g, " ").indexOf(normalized) !== -1;
+      });
+      zoneList.replaceChildren();
+      matches.forEach(function (name, index) {
+        var option = document.createElement("div");
+        option.id = "timezone-option-" + index;
+        option.setAttribute("role", "option");
+        option.setAttribute("aria-selected", "false");
+        option.textContent = name;
+        zoneList.appendChild(option);
+      });
+      activeZone = -1;
+      zoneInput.removeAttribute("aria-activedescendant");
+      zoneEmpty.hidden = matches.length !== 0;
+      zonePopup.hidden = false;
+      zoneInput.setAttribute("aria-expanded", "true");
+    }
+    function chooseZone(option) {
+      zoneInput.value = option.textContent;
+      zoneInput.dispatchEvent(new Event("input", { bubbles: true }));
+      closeZones();
+      zoneInput.focus();
+    }
+    zoneInput.addEventListener("focus", function () {
+      renderZones("");
+    });
+    zoneInput.addEventListener("click", function () {
+      if (zonePopup.hidden) renderZones("");
+    });
+    zoneInput.addEventListener("input", function () {
+      renderZones(zoneInput.value);
+    });
+    zoneInput.addEventListener("keydown", function (event) {
+      if (event.key === "Escape" && !zonePopup.hidden) {
+        event.preventDefault();
+        event.stopPropagation();
+        closeZones();
+      } else if (event.key === "Enter") {
+        event.preventDefault();
+        if (!zonePopup.hidden && activeZone >= 0) chooseZone(zoneList.children[activeZone]);
+      } else if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+        event.preventDefault();
+        if (zonePopup.hidden) renderZones("");
+        var options = zoneList.children;
+        if (!options.length) return;
+        if (activeZone >= 0) options[activeZone].setAttribute("aria-selected", "false");
+        activeZone =
+          event.key === "ArrowDown"
+            ? Math.min(activeZone + 1, options.length - 1)
+            : activeZone < 0
+              ? options.length - 1
+              : Math.max(activeZone - 1, 0);
+        var selected = options[activeZone];
+        selected.setAttribute("aria-selected", "true");
+        zoneInput.setAttribute("aria-activedescendant", selected.id);
+        selected.scrollIntoView({ block: "nearest" });
+      }
+    });
+    zoneList.addEventListener("mousedown", function (event) {
+      event.preventDefault();
+    });
+    zoneList.addEventListener("click", function (event) {
+      var option = event.target.closest('[role="option"]');
+      if (option) chooseZone(option);
+    });
+    zoneInput.addEventListener("blur", closeZones);
+    zoneInput.form.addEventListener("reset", closeZones);
+  }
 
   // --- Sign-in page preview (issue #383, S10) -----------------------------
 
@@ -231,6 +330,19 @@
     });
   }
   document.addEventListener("change", syncDisclosure);
+
+  // Disable credentials only as a progressive enhancement; the server honors
+  // the checkbox even when scripting is unavailable or fields are submitted.
+  function syncEmailAuth() {
+    var choice = document.querySelector("[data-email-no-auth]");
+    if (!choice) return;
+    ["email_username", "email_password"].forEach(function (id) {
+      var field = document.getElementById(id);
+      if (field) field.disabled = choice.checked;
+    });
+  }
+  document.addEventListener("change", syncEmailAuth);
+  syncEmailAuth();
 
   syncDisclosure();
   syncSigninPreview();

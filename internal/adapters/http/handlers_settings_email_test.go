@@ -67,6 +67,51 @@ func assertNoWhitespaceViolations(t *testing.T, body string) {
 	}
 }
 
+func TestSettingsEmailNoAuth(t *testing.T) {
+	h := newHarness(t)
+	_, session := seedRoot(t, h)
+	check := func(want string) {
+		t.Helper()
+		rec := getAs(t, h, "/settings/email", session.ID)
+		if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), want) {
+			t.Errorf("GET status %d, missing %q", rec.Code, want)
+		}
+	}
+	check(`data-email-no-auth checked`)
+	wantRedirect(t, h.postFormAs(t, "/settings/email", emailSettingsForm(nil), session.ID), http.StatusSeeOther, "/settings/email")
+	check(`data-email-no-auth>`)
+	// The absent option preserves the old blank-password retention behavior.
+	wantRedirect(t, h.postFormAs(t, "/settings/email", emailSettingsForm(func(f url.Values) { f.Del("email_password") }), session.ID), http.StatusSeeOther, "/settings/email")
+	rec := h.postFormAs(t, "/settings/email/test", url.Values{}, session.ID)
+	if rec.Code != http.StatusOK || h.mailer.cfg.Password != "smtp-s3cret" {
+		t.Errorf("retained password: status %d, password %q", rec.Code, h.mailer.cfg.Password)
+	}
+	// A rejected checked submission preserves stored credentials and echoes no secret.
+	rejected := emailSettingsForm(func(f url.Values) {
+		f.Set("email_no_auth", "1")
+		f.Del("email_host")
+	})
+	rec = h.postFormAs(t, "/settings/email", rejected, session.ID)
+	if rec.Code != http.StatusUnprocessableEntity || !strings.Contains(rec.Body.String(), `data-email-no-auth checked`) || strings.Contains(rec.Body.String(), "smtp-s3cret") {
+		t.Errorf("rejected no-auth submission: status %d or incorrect echo", rec.Code)
+	}
+	rec = h.postFormAs(t, "/settings/email/test", url.Values{}, session.ID)
+	if rec.Code != http.StatusOK || h.mailer.cfg.Password != "smtp-s3cret" {
+		t.Errorf("rejected submission changed credentials: status %d", rec.Code)
+	}
+	// Even a client submitting stale credentials and no encryption cannot override the checkbox.
+	form := emailSettingsForm(func(f url.Values) { f.Set("email_no_auth", "1"); f.Set("email_encryption", "none") })
+	wantRedirect(t, h.postFormAs(t, "/settings/email", form, session.ID), http.StatusSeeOther, "/settings/email")
+	stored, err := h.store.EmailSettingsStore().GetEmailSettings(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.Username != "" || stored.SealedPassword != "" {
+		t.Errorf("credentials not removed: %+v", stored)
+	}
+	check(`data-email-no-auth checked`)
+}
+
 // TestSettingsEmailSectionIsRootOnly proves the section renders for the root
 // who may manage email and never for an administrator: the capability, not
 // the markup, decides.

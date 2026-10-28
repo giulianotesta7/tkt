@@ -806,6 +806,13 @@
   outline-offset: 2px;
 }
 
+.timezone-picker { position: relative; max-width: 560px; }
+.timezone-popup { position: absolute; z-index: 4; width: 100%; max-height: 240px; overflow-y: auto; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--card); color: var(--ink); }
+.timezone-popup[hidden] { display: none; }
+.timezone-popup [role="option"] { padding: 8px 12px; cursor: pointer; overflow-wrap: anywhere; }
+.timezone-popup [role="option"][aria-selected="true"], .timezone-popup [role="option"]:hover { background: var(--hover); }
+.settings-row .timezone-popup p { padding: 8px 12px; color: var(--muted); }
+
 /* Company sign-in cards (issue #419): the shared TKT address and one card per
    provider, stacked under the Passwords card. The form itself is a plain
    container, so each card keeps the section's 12px shell; the provider header

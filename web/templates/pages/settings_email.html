@@ -48,6 +48,8 @@
         </div>
         <div class="settings-row">
           <div><h3>{{t "settings.email.credentials"}}</h3><p>{{t "settings.email.credentials_help"}}</p></div>
+          <div>
+          <div class="checkbox-field"><label><input type="checkbox" name="email_no_auth" value="1" data-email-no-auth{{if .Email.NoAuth}} checked{{end}}> {{t "settings.email.no_auth"}}</label></div>
           <div class="settings-pair">
             <div class="field"><label for="email_username">{{t "settings.email.username"}}</label><input type="text" id="email_username" name="email_username" value="{{.Email.Username}}" spellcheck="false" autocapitalize="off" autocomplete="off">
               <p class="help">{{t "settings.email.username_help"}}</p>
@@ -55,6 +57,7 @@
             <div class="field"><label for="email_password">{{t "settings.email.password"}}</label><input type="password" id="email_password" name="email_password" value="" autocomplete="new-password">
 {{if .Email.PasswordSet}}              <p class="help">{{t "settings.email.password_saved"}}</p>
 {{end}}              <p class="help">{{t "settings.email.password_help"}}</p>
+          </div>
           </div>
           </div>
         </div>

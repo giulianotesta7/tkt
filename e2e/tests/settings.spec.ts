@@ -370,6 +370,52 @@ test.describe("Settings", () => {
     await expect(page.locator("h2").filter({ hasText: "Working calendar" })).toBeVisible();
     // Seven ISO working-day checkboxes, always all offered.
     await expect(page.locator('input[name="sla_calendar_days"]')).toHaveCount(7);
+    const zone = page.getByLabel("Timezone", { exact: true });
+    const calendarBar = page.locator('form[action="/settings/calendar"] [data-settings-savebar]');
+    await expect(zone).toHaveValue("UTC");
+    await expect(zone).toHaveAttribute("role", "combobox");
+    await zone.fill("BUENOS AIRES");
+    await expect(
+      page.getByRole("option", { name: "America/Argentina/Buenos_Aires" }),
+    ).toBeVisible();
+    await zone.press("ArrowDown");
+    await expect(zone).toHaveAttribute("aria-activedescendant", /timezone-option-/);
+    await zone.press("Enter");
+    await expect(zone).toHaveValue("America/Argentina/Buenos_Aires");
+    await expect(page).toHaveURL(/\/settings\/calendar$/);
+    await expect(calendarBar).toBeVisible();
+    await calendarBar.getByRole("button", { name: "Discard" }).click();
+    await expect(zone).toHaveValue("UTC");
+    await expect(calendarBar).toBeHidden();
+    await zone.fill("no-such-time-zone");
+    await expect(page.getByText("No time zone matches.")).toBeVisible();
+    await zone.press("Enter");
+    await expect(page).toHaveURL(/\/settings\/calendar$/);
+    await zone.press("Escape");
+    await expect(zone).toHaveAttribute("aria-expanded", "false");
+    await calendarBar.getByRole("button", { name: "Discard" }).click();
+
+    const noScriptContext = await page
+      .context()
+      .browser()!
+      .newContext({
+        javaScriptEnabled: false,
+        storageState: await page.context().storageState(),
+      });
+    try {
+      const noScript = await noScriptContext.newPage();
+      await noScript.goto(base() + "/settings/calendar");
+      const plainZone = noScript.getByLabel("Timezone", { exact: true });
+      await expect(plainZone).not.toHaveAttribute("role", "combobox");
+      await expect(plainZone).toHaveValue("UTC");
+      await expect(noScript.getByText(/IANA name, e.g./)).toBeVisible();
+      await plainZone.fill("Etc/GMT-3");
+      await noScript.getByRole("button", { name: "Save working calendar" }).click();
+      await expect(noScript).toHaveURL(/\/settings\/calendar$/);
+      await expect(plainZone).toHaveValue("Etc/GMT-3");
+    } finally {
+      await noScriptContext.close();
+    }
 
     // Change the week, the window, and the zone, then save. setChecked is
     // idempotent, so the journey does not depend on the stored calendar it
@@ -941,6 +987,8 @@ test.describe("Settings", () => {
     await page.getByLabel("SMTP server", { exact: true }).fill("127.0.0.1");
     await page.getByLabel("Port", { exact: true }).fill("1");
     await page.locator(".settings-segment label").filter({ hasText: "None" }).click();
+    await page.getByRole("checkbox", { name: "My server does not require authentication" }).check();
+    await expect(page.getByLabel("Username", { exact: true })).toBeDisabled();
     // S16: the certificate is verified by default, and opting out is an
     // explicit control with its warning on screen beside it.
     await expect(
@@ -1017,6 +1065,9 @@ test.describe("Settings", () => {
     // Fixture: a server that refuses the connection, reached with credentials.
     // Credentials force STARTTLS (S15/S16), so this journey also carries a
     // secret that no response is allowed to bring back (S8).
+    await page
+      .getByRole("checkbox", { name: "My server does not require authentication" })
+      .uncheck();
     const secret = `S3cret-Smtp-${Date.now().toString(36)}`;
     await page.getByLabel("SMTP server", { exact: true }).fill("127.0.0.1");
     await page.getByLabel("Port", { exact: true }).fill("1");
@@ -1054,6 +1105,9 @@ test.describe("Settings", () => {
     await loginAsSeeded(page);
     await page.goto(base() + "/settings/email");
 
+    await page
+      .getByRole("checkbox", { name: "My server does not require authentication" })
+      .uncheck();
     const secret = `S3cret-Keep-${Date.now().toString(36)}`;
     await page.getByLabel("SMTP server", { exact: true }).fill("127.0.0.1");
     await page.getByLabel("Port", { exact: true }).fill("1");
@@ -1075,6 +1129,20 @@ test.describe("Settings", () => {
     await expect(page.getByLabel("Username", { exact: true })).toHaveValue("tkt-smtp");
     await expect(page.getByRole("radio", { name: "STARTTLS" })).toBeChecked();
     expect(await page.content()).not.toContain(secret);
+    const noAuth = page.getByRole("checkbox", {
+      name: "My server does not require authentication",
+    });
+    await expect(noAuth).not.toBeChecked();
+    await noAuth.check();
+    await expect(page.getByLabel("Username", { exact: true })).toBeDisabled();
+    await noAuth.uncheck();
+    await expect(page.getByLabel("Username", { exact: true })).toHaveValue("tkt-smtp");
+    await page.getByRole("button", { name: "Save email notifications" }).click();
+    await expect(page.getByText("A password is saved; leave empty to keep it.")).toBeVisible();
+    await noAuth.check();
+    await page.getByRole("button", { name: "Discard" }).click();
+    await expect(noAuth).not.toBeChecked();
+    await expect(page.getByLabel("Username", { exact: true })).toBeEnabled();
 
     await assertCanonicalScreen(page, {
       viewport: 1280,
@@ -1940,7 +2008,9 @@ test.describe("Preferences", () => {
     // The explanations are readable without asking: a row description or a help
     // paragraph, in view as soon as the section opens.
     await expect(
-      page.getByText("Leave it empty if your server accepts mail without authentication."),
+      page.getByText(
+        "Leave it empty if your server accepts mail without authentication, or select the checkbox above.",
+      ),
     ).toBeVisible();
     await expect(page.getByText("Stored encrypted and never shown again.")).toBeVisible();
     await expect(page.getByText("Used to sign in to the SMTP server.")).toBeVisible();
