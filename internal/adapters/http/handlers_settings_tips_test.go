@@ -146,7 +146,7 @@ func TestSettingsEmailSectionIsNamedEmailNotifications(t *testing.T) {
 		`<h2 class="settings-section-title">Entrega</h2>`,
 		`<h2 class="settings-section-title">Servidor SMTP</h2>`,
 		`Guardar notificaciones por email`,
-		`<p class="help">Déjalo vacío si tu servidor acepta correo sin autenticación.</p>`,
+		`<p class="help">Déjalo vacío si tu servidor acepta correo sin autenticación, o selecciona la casilla de arriba.</p>`,
 	} {
 		if !strings.Contains(spanish, want) {
 			t.Errorf("the Spanish email section must contain %q, got: %s", want, spanish)

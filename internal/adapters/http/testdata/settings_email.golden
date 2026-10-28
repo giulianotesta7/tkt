@@ -142,13 +142,16 @@
         </div>
         <div class="settings-row">
           <div><h3>Credentials</h3><p>Used to sign in to the SMTP server.</p></div>
+          <div>
+          <div class="checkbox-field"><label><input type="checkbox" name="email_no_auth" value="1" data-email-no-auth> My server does not require authentication</label></div>
           <div class="settings-pair">
             <div class="field"><label for="email_username">Username</label><input type="text" id="email_username" name="email_username" value="notifications" spellcheck="false" autocapitalize="off" autocomplete="off">
-              <p class="help">Leave it empty if your server accepts mail without authentication.</p>
+              <p class="help">Leave it empty if your server accepts mail without authentication, or select the checkbox above.</p>
           </div>
             <div class="field"><label for="email_password">Password</label><input type="password" id="email_password" name="email_password" value="" autocomplete="new-password">
               <p class="help">A password is saved; leave empty to keep it.</p>
               <p class="help">Stored encrypted and never shown again.</p>
+          </div>
           </div>
           </div>
         </div>

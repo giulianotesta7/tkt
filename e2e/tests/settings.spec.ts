@@ -987,6 +987,8 @@ test.describe("Settings", () => {
     await page.getByLabel("SMTP server", { exact: true }).fill("127.0.0.1");
     await page.getByLabel("Port", { exact: true }).fill("1");
     await page.locator(".settings-segment label").filter({ hasText: "None" }).click();
+    await page.getByRole("checkbox", { name: "My server does not require authentication" }).check();
+    await expect(page.getByLabel("Username", { exact: true })).toBeDisabled();
     // S16: the certificate is verified by default, and opting out is an
     // explicit control with its warning on screen beside it.
     await expect(
@@ -1063,6 +1065,9 @@ test.describe("Settings", () => {
     // Fixture: a server that refuses the connection, reached with credentials.
     // Credentials force STARTTLS (S15/S16), so this journey also carries a
     // secret that no response is allowed to bring back (S8).
+    await page
+      .getByRole("checkbox", { name: "My server does not require authentication" })
+      .uncheck();
     const secret = `S3cret-Smtp-${Date.now().toString(36)}`;
     await page.getByLabel("SMTP server", { exact: true }).fill("127.0.0.1");
     await page.getByLabel("Port", { exact: true }).fill("1");
@@ -1100,6 +1105,9 @@ test.describe("Settings", () => {
     await loginAsSeeded(page);
     await page.goto(base() + "/settings/email");
 
+    await page
+      .getByRole("checkbox", { name: "My server does not require authentication" })
+      .uncheck();
     const secret = `S3cret-Keep-${Date.now().toString(36)}`;
     await page.getByLabel("SMTP server", { exact: true }).fill("127.0.0.1");
     await page.getByLabel("Port", { exact: true }).fill("1");
@@ -1121,6 +1129,20 @@ test.describe("Settings", () => {
     await expect(page.getByLabel("Username", { exact: true })).toHaveValue("tkt-smtp");
     await expect(page.getByRole("radio", { name: "STARTTLS" })).toBeChecked();
     expect(await page.content()).not.toContain(secret);
+    const noAuth = page.getByRole("checkbox", {
+      name: "My server does not require authentication",
+    });
+    await expect(noAuth).not.toBeChecked();
+    await noAuth.check();
+    await expect(page.getByLabel("Username", { exact: true })).toBeDisabled();
+    await noAuth.uncheck();
+    await expect(page.getByLabel("Username", { exact: true })).toHaveValue("tkt-smtp");
+    await page.getByRole("button", { name: "Save email notifications" }).click();
+    await expect(page.getByText("A password is saved; leave empty to keep it.")).toBeVisible();
+    await noAuth.check();
+    await page.getByRole("button", { name: "Discard" }).click();
+    await expect(noAuth).not.toBeChecked();
+    await expect(page.getByLabel("Username", { exact: true })).toBeEnabled();
 
     await assertCanonicalScreen(page, {
       viewport: 1280,
@@ -1986,7 +2008,9 @@ test.describe("Preferences", () => {
     // The explanations are readable without asking: a row description or a help
     // paragraph, in view as soon as the section opens.
     await expect(
-      page.getByText("Leave it empty if your server accepts mail without authentication."),
+      page.getByText(
+        "Leave it empty if your server accepts mail without authentication, or select the checkbox above.",
+      ),
     ).toBeVisible();
     await expect(page.getByText("Stored encrypted and never shown again.")).toBeVisible();
     await expect(page.getByText("Used to sign in to the SMTP server.")).toBeVisible();

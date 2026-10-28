@@ -56,6 +56,7 @@
       window.setTimeout(function () {
         if (form.querySelector("[data-preview-panel]")) syncSigninPreview();
         syncHighlightRows();
+        syncEmailAuth();
       }, 0);
     },
     true,
@@ -329,6 +330,19 @@
     });
   }
   document.addEventListener("change", syncDisclosure);
+
+  // Disable credentials only as a progressive enhancement; the server honors
+  // the checkbox even when scripting is unavailable or fields are submitted.
+  function syncEmailAuth() {
+    var choice = document.querySelector("[data-email-no-auth]");
+    if (!choice) return;
+    ["email_username", "email_password"].forEach(function (id) {
+      var field = document.getElementById(id);
+      if (field) field.disabled = choice.checked;
+    });
+  }
+  document.addEventListener("change", syncEmailAuth);
+  syncEmailAuth();
 
   syncDisclosure();
   syncSigninPreview();
