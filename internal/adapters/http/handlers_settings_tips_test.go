@@ -25,20 +25,6 @@ func sectionBodyFor(t *testing.T, h *harness, path, sessionID string) string {
 	return rec.Body.String()
 }
 
-// tooltipText returns the content of the tooltip element with the given id.
-func tooltipText(body, id string) string {
-	start := strings.Index(body, `id="help-tip-`+id+`"`)
-	if start < 0 {
-		return ""
-	}
-	rest := body[start:]
-	open := strings.Index(rest, ">")
-	if open < 0 {
-		return ""
-	}
-	return rest[open+1 : open+1+strings.Index(rest[open+1:], "</span>")]
-}
-
 // TestSettingsFieldHelpIsVisible proves the maintainer's L5 decision for the
 // tabs-and-rows design: every field explanation that used to hide behind a "?"
 // toggletip (issue #383, S11) is now visible text — a row description or a
