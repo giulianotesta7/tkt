@@ -97,7 +97,7 @@
     <a class="catalog-attention-chip" href="/categories?attention=1">Needs attention · 3</a>
   </div>
   <section class="catalog-tree-region" aria-labelledby="catalog-tree-title">
-    <h2 id="catalog-tree-title" class="visually-hidden">Catalog structure</h2>
+    <h2 id="catalog-tree-title" class="catalog-structure-title">Catalog structure</h2>
     <div class="catalog-tree">
       <ul class="catalog-tree-list catalog-tree-departments" aria-label="Departments">
         <li class="catalog-tree-node catalog-tree-department" data-catalog-node data-catalog-slug="d2" data-catalog-id="2" data-level="department">

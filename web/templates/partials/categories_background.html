@@ -27,7 +27,7 @@
 {{if gt .Tree.AttentionCount 0}}    <a class="catalog-attention-chip{{if .Attention}} is-active{{end}}" href="{{.AttentionURL}}"{{if .Attention}} aria-current="true"{{end}}>{{if eq .Tree.AttentionCount 1}}{{tf "categories.attention_one" .Tree.AttentionCount}}{{else}}{{tf "categories.attention_other" .Tree.AttentionCount}}{{end}}</a>
 {{end}}  </div>
   <section class="catalog-tree-region" aria-labelledby="catalog-tree-title">
-    <h2 id="catalog-tree-title" class="visually-hidden">{{t "categories.structure_label"}}</h2>
+    <h2 id="catalog-tree-title" class="catalog-structure-title">{{t "categories.structure_label"}}</h2>
     <div class="catalog-tree">
       <ul class="catalog-tree-list catalog-tree-departments" aria-label="{{t "categories.departments"}}">
 {{range .Tree.Departments}}        <li class="catalog-tree-node catalog-tree-department" data-catalog-node data-catalog-slug="{{.Slug}}" data-catalog-id="{{.ID}}" data-level="department"{{if .Current}} data-current="true"{{end}}>

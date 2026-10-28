@@ -866,6 +866,15 @@ test.describe("Categories", () => {
       await page.setViewportSize({ width: viewport, height: 800 });
       await page.goto(base() + "/categories?view=structure");
       await page.evaluate(() => document.fonts.ready);
+      await expect(page.locator("#catalog-tree-title")).toBeVisible();
+      await expect(page.locator(".catalog-tree")).toHaveCSS("border-left-width", "0px");
+      await expect(page.locator("#theme")).toHaveCount(0);
+      const searchBox = await page.locator(".category-search").boundingBox();
+      const attentionBox = await page.locator(".catalog-attention-chip").boundingBox();
+      if (!searchBox || !attentionBox) throw new Error("catalog controls must be visible");
+      expect(searchBox.height).toBe(36);
+      expect(attentionBox.height).toBe(36);
+      if (viewport > 640) expect(Math.abs(searchBox.y - attentionBox.y)).toBeLessThan(1);
       const geometry = await page.locator(".catalog-tree-row").evaluateAll((rows) => {
         const textRects = (element: Element) => {
           const range = document.createRange();
@@ -925,12 +934,54 @@ test.describe("Categories", () => {
       );
       const creationDrawer = page.getByRole("dialog", { name: /New department/i });
       await expect(creationDrawer).toBeVisible();
+      await expect(creationDrawer).toHaveCSS("width", `${Math.min(520, viewport)}px`);
+      await expect(creationDrawer.locator(".users-drawer-header")).toHaveCSS("padding", "24px");
       await creationDrawer
         .getByRole("button", { name: "Close catalog details", exact: true })
         .click();
       await expect(creationDrawer).toBeHidden();
       await expect(page).toHaveURL(base() + "/categories?view=structure");
     }
+
+    // Only departments are divided: desks and categories sit inside their block.
+    const dividers = await page.locator(".catalog-tree-row").evaluateAll((rows) =>
+      rows.map((row) => ({
+        level: row.closest("[data-level]")?.getAttribute("data-level"),
+        top: getComputedStyle(row).borderTopWidth,
+      })),
+    );
+    expect(dividers.filter((r) => r.level !== "department").every((r) => r.top === "0px")).toBe(
+      true,
+    );
+    expect(dividers.filter((r) => r.level === "department").slice(1).length).toBeGreaterThan(0);
+    expect(
+      dividers
+        .filter((r) => r.level === "department")
+        .slice(1)
+        .every((r) => r.top === "1px"),
+    ).toBe(true);
+
+    // The last row's menu opens below the tree; the tree must not clip it.
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.goto(base() + "/categories?view=structure");
+    const lastRow = page.locator(".catalog-tree-row").last();
+    await lastRow.locator("[data-category-menu]").click();
+    const openMenu = page.locator(".catalog-tree .category-overflow-menu:not([hidden])");
+    await expect(openMenu).toBeVisible();
+    const lastItem = openMenu.locator("a, button").last();
+    await lastItem.scrollIntoViewIfNeeded();
+    const itemBox = await lastItem.boundingBox();
+    if (!itemBox) throw new Error("the last menu item must have a box");
+    const clipped = await lastItem.evaluate((el) => {
+      const rect = el.getBoundingClientRect();
+      const hit = document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2);
+      return !hit || !el.contains(hit);
+    });
+    expect(clipped, "the row menu must not be clipped by the tree").toBe(false);
+    expect(
+      await page.locator(".catalog-tree").evaluate((el) => getComputedStyle(el).overflowY),
+    ).toBe("visible");
+    await page.keyboard.press("Escape");
 
     await page.setViewportSize({ width: 1280, height: 800 });
     await page.goto(base() + "/categories?view=structure");
@@ -3842,6 +3893,30 @@ test.describe("Categories", () => {
     await expect(rail).toBeVisible();
     await expect(editor).toBeVisible();
     await expect(page.locator(".workflow-pane-count")).toHaveCount(0);
+    await expect(page.locator("#workflow-builder")).toHaveCSS("border-left-width", "0px");
+    await expect(page.locator("#theme")).toHaveCount(0);
+    for (const colorScheme of ["light", "dark"] as const) {
+      await page.emulateMedia({ colorScheme });
+      const selectedStyle = await page.locator(".workflow-step-card.selected").evaluate((el) => {
+        const probe = document.createElement("span");
+        probe.style.color = "var(--accent)";
+        probe.style.backgroundColor = "var(--accent-soft)";
+        document.body.appendChild(probe);
+        const actual = getComputedStyle(el);
+        const token = getComputedStyle(probe);
+        const result = {
+          border: actual.borderTopColor,
+          background: actual.backgroundColor,
+          accent: token.color,
+          soft: token.backgroundColor,
+        };
+        probe.remove();
+        return result;
+      });
+      expect(selectedStyle.border).toBe(selectedStyle.accent);
+      expect(selectedStyle.background).toBe(selectedStyle.soft);
+    }
+    await page.emulateMedia({ colorScheme: "light" });
 
     const railBox = await rail.boundingBox();
     const editorBox = await editor.boundingBox();
