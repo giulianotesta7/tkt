@@ -72,13 +72,17 @@ test.describe("Settings", () => {
     await expect(page).toHaveURL(new RegExp(`/tickets/${ticketId}$`));
     await page.goto(base() + "/settings/tickets");
     await expect(page.locator("h1").filter({ hasText: "Settings" })).toBeVisible();
-    await expect(page.locator("h2").filter({ hasText: "Tickets & SLA" })).toBeVisible();
+    await expect(
+      page.locator('.settings-nav-link[aria-current="page"]').filter({ hasText: "Tickets & SLA" }),
+    ).toBeVisible();
     const appearance = page.locator('form[action="/settings/appearance"]');
     await expect(
       appearance.getByRole("heading", { name: "Internal comment background", exact: true }),
     ).toBeVisible();
-    await expect(appearance.locator("h2")).toHaveCount(0);
-    await expect(page.locator(".settings-content > h2")).toHaveText("Tickets & SLA");
+    await expect(appearance.locator("h2")).toHaveCount(1);
+    await expect(page.locator('.settings-nav-link[aria-current="page"]')).toHaveText(
+      "Tickets & SLA",
+    );
     expect(
       await page
         .locator(".settings-content > form")
@@ -280,8 +284,12 @@ test.describe("Settings", () => {
     await loginAsSeeded(page);
     await page.goto(base() + "/settings/tickets");
     await expect(page.locator("h1").filter({ hasText: "Settings" })).toBeVisible();
-    await expect(page.locator("h2").filter({ hasText: "Tickets & SLA" })).toBeVisible();
-    await expect(page.locator("h3").filter({ hasText: "Service level agreements" })).toBeVisible();
+    await expect(
+      page.locator('.settings-nav-link[aria-current="page"]').filter({ hasText: "Tickets & SLA" }),
+    ).toBeVisible();
+    await expect(
+      page.locator("h2, h3").filter({ hasText: "Service level agreements" }),
+    ).toBeVisible();
 
     // Seeded configuration (migration 0013): the feature is OFF and each of the
     // eight default targets renders as one written duration (issue #395, S10).
@@ -511,7 +519,7 @@ test.describe("Settings", () => {
     // Tickets & SLA section (#383), and a seeded instance is OFF — which the
     // field shows as EMPTY.
     await expect(
-      page.locator("h3").filter({ hasText: "Automatic close of held tickets" }),
+      page.locator("h2, h3").filter({ hasText: "Automatic close of held tickets" }),
     ).toBeVisible();
     const days = page.getByLabel("Close tickets on hold after N working days without a reply", {
       exact: true,
@@ -579,7 +587,7 @@ test.describe("Settings", () => {
     const obs = collectObservability(page);
     await loginAsSeeded(page);
     await page.goto(base() + "/settings/tickets");
-    await expect(page.locator("h3").filter({ hasText: "Ticket creation" })).toBeVisible();
+    await expect(page.locator("h2, h3").filter({ hasText: "Ticket creation" })).toBeVisible();
 
     const single = page.getByRole("radio", { name: /^single page$/i });
     const twoSteps = page.getByRole("radio", { name: /^two steps$/i });
@@ -835,11 +843,12 @@ test.describe("Settings", () => {
     });
 
     await page.goto(base() + "/settings/tickets");
-    await expect(page.locator(".settings-content > h2")).toHaveText("Tickets y SLA");
-    await expect(page.locator('form[action="/settings/appearance"] h3')).toHaveText(
+    await expect(page.locator('.settings-nav-link[aria-current="page"]')).toHaveText(
+      "Tickets y SLA",
+    );
+    await expect(page.locator('form[action="/settings/appearance"] h2')).toHaveText(
       "Fondo de los comentarios internos",
     );
-    await expect(page.locator('form[action="/settings/appearance"] h2')).toHaveCount(0);
 
     // The tickets list: Spanish chrome, view tabs and the relative time.
     await page.goto(base() + "/tickets");
@@ -914,7 +923,11 @@ test.describe("Settings", () => {
     const obs = collectObservability(page);
     await loginAsSeeded(page);
     await page.goto(base() + "/settings/email");
-    await expect(page.locator("h2").filter({ hasText: "Email notifications" })).toBeVisible();
+    await expect(
+      page
+        .locator('.settings-nav-link[aria-current="page"]')
+        .filter({ hasText: "Email notifications" }),
+    ).toBeVisible();
 
     // An open internal relay (S2): no credentials, so no encryption is
     // required either (S15). Port 1 is deliberately a port nothing listens
@@ -971,7 +984,11 @@ test.describe("Settings", () => {
     // or overflow at 390px.
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto(base() + "/settings/email");
-    await expect(page.locator("h2").filter({ hasText: "Email notifications" })).toBeVisible();
+    await expect(
+      page
+        .locator('.settings-nav-link[aria-current="page"]')
+        .filter({ hasText: "Email notifications" }),
+    ).toBeVisible();
     await assertCanonicalScreen(page, {
       viewport: 390,
       label: "settings email at 390px",
@@ -1082,7 +1099,7 @@ test.describe("Settings", () => {
     await expect(page.locator("h2").filter({ hasText: "Organization" })).toBeVisible();
     await page.goto(base() + "/settings/tickets");
     await expect(
-      page.locator("h3").filter({ hasText: "Internal comment background" }),
+      page.locator("h2, h3").filter({ hasText: "Internal comment background" }),
     ).toBeVisible();
     // S1/S4: the Email section is root-only, so its nav entry is hidden and a
     // direct visit is refused.
@@ -1103,7 +1120,9 @@ test.describe("Settings", () => {
     await loginAsSeeded(page);
     await page.goto(base() + "/settings/security");
 
-    await expect(page.locator("h2").filter({ hasText: "Security" })).toBeVisible();
+    await expect(
+      page.locator('.settings-nav-link[aria-current="page"]').filter({ hasText: "Security" }),
+    ).toBeVisible();
     // Issue #419: the section holds two independent forms, so the password
     // policy behaviour is scoped to the form that owns it.
     const passwordForm = page.locator('form[action="/settings/security"]');
@@ -1764,7 +1783,9 @@ test.describe("Preferences", () => {
     await page.setViewportSize({ width: 1280, height: 800 });
     await loginAsSeeded(page);
     await page.goto(base() + "/settings/signin");
-    await expect(page.locator("h2").filter({ hasText: "Sign-in page" })).toBeVisible();
+    await expect(
+      page.locator('.settings-nav-link[aria-current="page"]').filter({ hasText: "Sign-in page" }),
+    ).toBeVisible();
 
     // The sticky save bar and the live preview: typing changes both.
     const savebar = page.locator('form[action="/settings/signin"] [data-settings-savebar]');
@@ -1897,7 +1918,11 @@ test.describe("Preferences", () => {
     const obs = collectObservability(page);
     await loginAsSeeded(page);
     await page.goto(base() + "/settings/email");
-    await expect(page.locator("h2").filter({ hasText: "Email notifications" })).toBeVisible();
+    await expect(
+      page
+        .locator('.settings-nav-link[aria-current="page"]')
+        .filter({ hasText: "Email notifications" }),
+    ).toBeVisible();
 
     // Issue #380: the SMTP server's address is what its label says, so that
     // field carries no toggletip; the Username field's is the one exercised.

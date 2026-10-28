@@ -215,25 +215,31 @@ function authenticatedScreens(deps: {
     {
       label: `/settings/tickets`,
       path: "/settings/tickets",
-      heading: (p) => p.locator("h2").filter({ hasText: "Tickets & SLA" }),
+      heading: (p) =>
+        p.locator('.settings-nav-link[aria-current="page"]').filter({ hasText: "Tickets & SLA" }),
       control: (p) => p.locator('input[name="internal_comment_bg"]'),
     },
     {
       label: `/settings/signin`,
       path: "/settings/signin",
-      heading: (p) => p.locator("h2").filter({ hasText: "Sign-in page" }),
+      heading: (p) =>
+        p.locator('.settings-nav-link[aria-current="page"]').filter({ hasText: "Sign-in page" }),
       control: (p) => p.locator("#signin_title"),
     },
     {
       label: `/settings/email`,
       path: "/settings/email",
-      heading: (p) => p.locator("h2").filter({ hasText: "Email notifications" }),
+      heading: (p) =>
+        p
+          .locator('.settings-nav-link[aria-current="page"]')
+          .filter({ hasText: "Email notifications" }),
       control: (p) => p.locator("#email_host"),
     },
     {
       label: `/settings/security`,
       path: "/settings/security",
-      heading: (p) => p.locator("h2").filter({ hasText: "Security" }),
+      heading: (p) =>
+        p.locator('.settings-nav-link[aria-current="page"]').filter({ hasText: "Security" }),
       control: (p) => p.locator("#password_min_length"),
     },
     {
