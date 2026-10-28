@@ -1,65 +1,67 @@
 {{define "title"}}{{tf "base.title.screen" (t "settings.title") (brandHelpDesk .Brand)}}{{end}}
 {{define "content"}}
 <div class="command-header">
-  <div>
-    <h1 class="command-title">{{t "settings.title"}}</h1>
-  </div>
+  <div><h1 class="command-title">{{t "settings.title"}}</h1></div>
 </div>
 <div class="settings-layout">
 {{template "settings_nav" .}}
   <div class="settings-content">
 {{if .Error}}    <div class="error-banner" role="alert">{{.Error}}</div>
-{{end}}    <form class="settings-form card form-card" method="post" action="/settings/email" data-settings-form>
-      <h2 class="settings-section-title">{{t "settings.email.title"}}</h2>
-      <div class="field checkbox-field">
-        <label>{{if .Email.Enabled}}<input type="checkbox" name="email_enabled" value="1" checked> {{t "settings.email.enable"}}{{else}}<input type="checkbox" name="email_enabled" value="1"> {{t "settings.email.enable"}}{{end}}</label>
-      </div>
-      <div class="field-row">
-        <div class="field">
-          <label for="email_host">{{t "settings.email.host"}}</label>
-          <input type="text" id="email_host" name="email_host" value="{{.Email.Host}}" spellcheck="false" autocapitalize="off">
+{{end}}    <form class="settings-form" method="post" action="/settings/email" data-settings-form>
+      <section class="settings-group">
+        <h2 class="settings-section-title">{{t "settings.email.delivery"}}</h2>
+        <div class="settings-row">
+          <div><h3>{{t "settings.email.title"}}</h3></div>
+          <div class="checkbox-field"><label><input type="checkbox" name="email_enabled" value="1"{{if .Email.Enabled}} checked{{end}}> {{t "settings.email.enable"}}</label></div>
         </div>
-        <div class="field">
-          <label for="email_port">{{t "settings.email.port"}}</label>
-          <input type="text" id="email_port" name="email_port" inputmode="numeric" value="{{.Email.Port}}" spellcheck="false" autocomplete="off">
+        <div class="settings-row single">
+          <div><h3>{{t "settings.email.base_url"}}{{template "help_tip" (helpTip "email-base-url" (t "settings.email.base_url") (t "settings.email.base_url_help"))}}</h3></div>
+          <div class="field"><input type="text" id="email_base_url" name="email_base_url" value="{{.Email.BaseURL}}" spellcheck="false" autocapitalize="off" aria-label="{{t "settings.email.base_url"}}"></div>
         </div>
-      </div>
-      <div class="field">
-        <label for="email_encryption">{{t "settings.email.encryption"}}</label>
-        <select id="email_encryption" name="email_encryption">
-{{range .Email.Encryptions}}      <option value="{{.Value}}"{{if .Selected}} selected{{end}}>{{t .Label}}</option>
-{{end}}    </select>
-      </div>
-      <div class="field checkbox-field">
-        <label>{{if .Email.SkipTLSVerify}}<input type="checkbox" name="email_skip_tls_verify" value="1" checked> {{t "settings.email.skip_tls_verify"}}{{else}}<input type="checkbox" name="email_skip_tls_verify" value="1"> {{t "settings.email.skip_tls_verify"}}{{end}}</label>
-        <p class="help">{{t "settings.email.skip_tls_verify_help"}}</p>
-      </div>
-      <div class="field-row">
-        <div class="field">
-          <label for="email_username">{{t "settings.email.username"}}</label>{{template "help_tip" (helpTip "email-username" (t "settings.email.username") (t "settings.email.username_help"))}}
-          <input type="text" id="email_username" name="email_username" value="{{.Email.Username}}" spellcheck="false" autocapitalize="off" autocomplete="off">
+        <div class="settings-row">
+          <div><h3>{{t "settings.email.sender"}}</h3></div>
+          <div class="settings-pair">
+            <div class="field"><label for="email_from_address">{{t "settings.email.from_address"}}</label>{{template "help_tip" (helpTip "email-from-address" (t "settings.email.from_address") (t "settings.email.from_address_help"))}}<input type="text" id="email_from_address" name="email_from_address" value="{{.Email.FromAddress}}" spellcheck="false" autocapitalize="off"></div>
+            <div class="field"><label for="email_from_name">{{t "settings.email.from_name"}}</label>{{template "help_tip" (helpTip "email-from-name" (t "settings.email.from_name") (t "settings.email.from_name_help"))}}<input type="text" id="email_from_name" name="email_from_name" value="{{.Email.FromName}}"></div>
+          </div>
         </div>
-        <div class="field">
-          <label for="email_password">{{t "settings.email.password"}}</label>{{template "help_tip" (helpTip "email-password" (t "settings.email.password") (t "settings.email.password_help"))}}
-          <input type="password" id="email_password" name="email_password" value="" autocomplete="new-password">
-{{if .Email.PasswordSet}}      <p class="help">{{t "settings.email.password_saved"}}</p>{{end}}
+      </section>
+      <section class="settings-group">
+        <h2 class="settings-section-title">{{t "settings.email.smtp"}}</h2>
+        <div class="settings-row">
+          <div><h3>{{t "settings.email.server"}}</h3></div>
+          <div class="settings-pair">
+            <div class="field"><label for="email_host">{{t "settings.email.host"}}</label><input type="text" id="email_host" name="email_host" value="{{.Email.Host}}" spellcheck="false" autocapitalize="off"></div>
+            <div class="field"><label for="email_port">{{t "settings.email.port"}}</label><input type="text" id="email_port" name="email_port" inputmode="numeric" value="{{.Email.Port}}" spellcheck="false" autocomplete="off"></div>
+          </div>
         </div>
-      </div>
-      <div class="field">
-        <label for="email_from_address">{{t "settings.email.from_address"}}</label>{{template "help_tip" (helpTip "email-from-address" (t "settings.email.from_address") (t "settings.email.from_address_help"))}}
-        <input type="text" id="email_from_address" name="email_from_address" value="{{.Email.FromAddress}}" spellcheck="false" autocapitalize="off">
-      </div>
-      <div class="field">
-        <label for="email_from_name">{{t "settings.email.from_name"}}</label>{{template "help_tip" (helpTip "email-from-name" (t "settings.email.from_name") (t "settings.email.from_name_help"))}}
-        <input type="text" id="email_from_name" name="email_from_name" value="{{.Email.FromName}}">
-      </div>
-      <div class="field">
-        <label for="email_base_url">{{t "settings.email.base_url"}}</label>{{template "help_tip" (helpTip "email-base-url" (t "settings.email.base_url") (t "settings.email.base_url_help"))}}
-        <input type="text" id="email_base_url" name="email_base_url" value="{{.Email.BaseURL}}" spellcheck="false" autocapitalize="off">
-      </div>
-{{if .Email.TestSent}}      <p class="help" role="status">{{tf "settings.email.test_sent" .CurrentUser.Email}}</p>
-{{end}}      <p class="help">{{tf "settings.email.test_help" .CurrentUser.Email}}</p>
-      <button class="btn" type="submit" formaction="/settings/email/test">{{t "settings.email.test"}}</button>
+        <div class="settings-row single">
+          <div><h3>{{t "settings.email.encryption"}}</h3></div>
+          <div class="field"><select id="email_encryption" name="email_encryption" aria-label="{{t "settings.email.encryption"}}">
+{{range .Email.Encryptions}}            <option value="{{.Value}}"{{if .Selected}} selected{{end}}>{{t .Label}}</option>
+{{end}}          </select></div>
+        </div>
+        <div class="settings-row">
+          <div><h3>{{t "settings.email.credentials"}}</h3></div>
+          <div class="settings-pair">
+            <div class="field"><label for="email_username">{{t "settings.email.username"}}</label>{{template "help_tip" (helpTip "email-username" (t "settings.email.username") (t "settings.email.username_help"))}}<input type="text" id="email_username" name="email_username" value="{{.Email.Username}}" spellcheck="false" autocapitalize="off" autocomplete="off"></div>
+            <div class="field"><label for="email_password">{{t "settings.email.password"}}</label>{{template "help_tip" (helpTip "email-password" (t "settings.email.password") (t "settings.email.password_help"))}}<input type="password" id="email_password" name="email_password" value="" autocomplete="new-password">
+{{if .Email.PasswordSet}}              <p class="help">{{t "settings.email.password_saved"}}</p>
+{{end}}            </div>
+          </div>
+        </div>
+        <div class="settings-row">
+          <div><h3>{{t "settings.email.skip_tls_verify"}}</h3><p class="help">{{t "settings.email.skip_tls_verify_help"}}</p></div>
+          <div class="checkbox-field"><label><input type="checkbox" name="email_skip_tls_verify" value="1"{{if .Email.SkipTLSVerify}} checked{{end}}> {{t "settings.email.skip_tls_verify"}}</label></div>
+        </div>
+        <div class="settings-row">
+          <div><h3>{{t "settings.email.test"}}</h3><p>{{tf "settings.email.test_help" .CurrentUser.Email}}</p></div>
+          <div>
+{{if .Email.TestSent}}            <p class="help" role="status">{{tf "settings.email.test_sent" .CurrentUser.Email}}</p>
+{{end}}            <button class="btn" type="submit" formaction="/settings/email/test">{{t "settings.email.test"}}</button>
+          </div>
+        </div>
+      </section>
       <div class="settings-savebar" data-settings-savebar hidden>
         <button class="btn primary" type="submit">{{t "settings.email.save"}}</button>
         <button class="btn" type="reset">{{t "settings.discard"}}</button>

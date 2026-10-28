@@ -102,17 +102,55 @@
 
   <div class="settings-content">
     <div class="settings-signin">
-      <form class="settings-form card form-card" method="post" action="/settings/signin" enctype="multipart/form-data" data-settings-form>
-        <h2 class="settings-section-title">Sign-in page</h2>
-        <div class="field">
-          <label for="signin_title">Title</label><span class="help-tip-wrap"><button class="help-tip" type="button" aria-label="More about Title" aria-describedby="help-tip-signin-title" aria-expanded="false" data-help-tip>?</button><span class="help-tip-bubble" role="tooltip" id="help-tip-signin-title">Leave it empty to use the default text.</span></span>
-          <input type="text" id="signin_title" name="title" value="Sistemas, a un pedido" maxlength="80" data-preview-title>
-        </div>
-        <div class="field">
-          <label for="signin_subtitle">Subtitle</label>
-          <input type="text" id="signin_subtitle" name="subtitle" value="Cargá tu pedido y seguí su estado." maxlength="200" data-preview-subtitle>
-        </div>
-        <h3 class="settings-group-title">Content</h3>
+      <form class="settings-form" method="post" action="/settings/signin" enctype="multipart/form-data" data-settings-form aria-label="Sign-in page">
+        <section class="settings-group">
+          <h2 class="settings-section-title">Page content</h2>
+          <div class="settings-row single">
+            <div><h3>Title<span class="help-tip-wrap"><button class="help-tip" type="button" aria-label="More about Title" aria-describedby="help-tip-signin-title" aria-expanded="false" data-help-tip>?</button><span class="help-tip-bubble" role="tooltip" id="help-tip-signin-title">Leave it empty to use the default text.</span></span></h3></div>
+            <div class="field"><input type="text" id="signin_title" name="title" value="Sistemas, a un pedido" maxlength="80" data-preview-title aria-label="Title"></div>
+          </div>
+          <div class="settings-row single">
+            <div><h3>Subtitle</h3></div>
+            <div class="field"><input type="text" id="signin_subtitle" name="subtitle" value="Cargá tu pedido y seguí su estado." maxlength="200" data-preview-subtitle aria-label="Subtitle"></div>
+          </div>
+          <div class="settings-row">
+            <div><h3>Support contact</h3></div>
+            <div class="settings-pair">
+              <div class="field"><label for="signin_support_phone">Phone</label><input type="text" id="signin_support_phone" name="support_phone" value="Interno 4400" maxlength="40" data-preview-phone></div>
+              <div class="field"><label for="signin_support_hours">Hours</label><input type="text" id="signin_support_hours" name="support_hours" value="Lun a vie, 8 a 18" maxlength="60" data-preview-hours></div>
+            </div>
+          </div>
+        </section>
+        <section class="settings-group">
+          <h2 class="settings-section-title">Presentation panel</h2>
+          <div class="settings-row">
+            <div><h3>Background</h3></div>
+            <div>
+              <fieldset class="settings-segment">
+                <legend class="visually-hidden">Background</legend>
+                <label><input type="radio" name="background" value="dark">Dark</label>
+                <label><input type="radio" name="background" value="brand" checked>Brand color</label>
+                <label><input type="radio" name="background" value="image">Image</label>
+              </fieldset>
+              <div class="field" data-show-when="background=brand">
+                <label for="signin_brand_color">Brand color</label>
+                <input type="color" id="signin_brand_color" name="brand_color" value="#C8102E" data-preview-brand>
+              </div>
+              <div class="field" data-show-when="background=image" hidden>
+                <label for="signin_background">Background image</label><span class="help-tip-wrap"><button class="help-tip" type="button" aria-label="More about Background image" aria-describedby="help-tip-signin-image" aria-expanded="false" data-help-tip>?</button><span class="help-tip-bubble" role="tooltip" id="help-tip-signin-image">1600 × 1800 px recommended. Smaller screens crop the edges, so keep the subject centered. PNG or JPEG, up to 1 MiB; a dark overlay keeps the text readable.</span></span>
+                <div class="settings-logo">
+                  <span class="settings-logo-mark"><img src="/brand/signin-background?v=0123456789ab" alt="" width="48" height="48"></span>
+                  <div class="settings-logo-controls">
+                    <input type="file" id="signin_background" name="background" accept="image/png,image/jpeg">
+                    <button class="btn" type="submit" form="signin-background-remove">Remove image</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="settings-row">
+            <div><h3>Content</h3></div>
+            <div>
         <fieldset class="settings-segment">
           <legend class="visually-hidden">Content</legend>
           <label><input type="radio" name="content" value="steps">Steps</label>
@@ -194,7 +232,11 @@
           <template data-icon-template="info"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="8"/><path d="M12 11v6"/><path d="M12 7.5v.5"/></svg></template>
           <button class="btn" type="button" data-highlight-add>Add highlight</button>
         </div>
-        <h3 class="settings-group-title">Notice</h3>
+            </div>
+          </div>
+          <div class="settings-row">
+            <div><h3>Notice</h3></div>
+            <div>
         <div class="field checkbox-field">
           <label><input type="checkbox" name="notice_enabled" value="1" checked data-preview-notice-toggle> Show a notice</label>
         </div>
@@ -213,38 +255,9 @@
           <input type="text" id="signin_notice_text" name="notice_text" value="El sábado de 10 a 12." maxlength="240" data-preview-notice-text>
         </div>
         </div>
-        <h3 class="settings-group-title">Background</h3>
-        <fieldset class="settings-segment">
-          <legend class="visually-hidden">Background</legend>
-          <label><input type="radio" name="background" value="dark">Dark</label>
-          <label><input type="radio" name="background" value="brand" checked>Brand color</label>
-          <label><input type="radio" name="background" value="image">Image</label>
-        </fieldset>
-        <div class="field" data-show-when="background=brand">
-          <label for="signin_brand_color">Brand color</label>
-          <input type="color" id="signin_brand_color" name="brand_color" value="#C8102E" data-preview-brand>
-        </div>
-        <div class="field" data-show-when="background=image" hidden>
-          <label for="signin_background">Background image</label><span class="help-tip-wrap"><button class="help-tip" type="button" aria-label="More about Background image" aria-describedby="help-tip-signin-image" aria-expanded="false" data-help-tip>?</button><span class="help-tip-bubble" role="tooltip" id="help-tip-signin-image">1600 × 1800 px recommended. Smaller screens crop the edges, so keep the subject centered. PNG or JPEG, up to 1 MiB; a dark overlay keeps the text readable.</span></span>
-          <div class="settings-logo">
-            <span class="settings-logo-mark"><img src="/brand/signin-background?v=0123456789ab" alt="" width="48" height="48"></span>
-            <div class="settings-logo-controls">
-              <input type="file" id="signin_background" name="background" accept="image/png,image/jpeg">
-              <button class="btn" type="submit" form="signin-background-remove">Remove image</button>
             </div>
           </div>
-        </div>
-        <h3 class="settings-group-title">Support contact</h3>
-        <div class="field-row">
-          <div class="field">
-            <label for="signin_support_phone">Phone</label>
-            <input type="text" id="signin_support_phone" name="support_phone" value="Interno 4400" maxlength="40" data-preview-phone>
-          </div>
-          <div class="field">
-            <label for="signin_support_hours">Hours</label>
-            <input type="text" id="signin_support_hours" name="support_hours" value="Lun a vie, 8 a 18" maxlength="60" data-preview-hours>
-          </div>
-        </div>
+        </section>
         <div class="settings-savebar" data-settings-savebar hidden>
           <button class="btn primary" type="submit">Save sign-in page</button>
           <button class="btn" type="reset">Discard</button>
@@ -252,7 +265,7 @@
       </form>
       <form id="signin-background-remove" method="post" action="/settings/signin/background/remove"></form>
       <aside class="settings-preview" aria-label="Preview">
-        <b class="settings-preview-label">Preview</b>
+        <h2 class="settings-preview-label">Preview</h2>
         <div class="settings-preview-frame" data-clip-exempt>
           <div class="settings-preview-scale">
             <div class="auth-entry__presentation auth-entry__presentation--brand" style="--signin-brand:#C8102E" data-preview-panel>

@@ -157,7 +157,8 @@ func TestSettingsEmailSectionIsNamedEmailNotifications(t *testing.T) {
 	english := sectionBodyFor(t, h, "/settings/email", rootSession.ID)
 	for _, want := range []string{
 		`href="/settings/email" aria-current="page">Email notifications</a>`,
-		`<h2 class="settings-section-title">Email notifications</h2>`,
+		`<h2 class="settings-section-title">Delivery</h2>`,
+		`<h2 class="settings-section-title">SMTP server</h2>`,
 		`Save email notifications`,
 	} {
 		if !strings.Contains(english, want) {
@@ -171,7 +172,8 @@ func TestSettingsEmailSectionIsNamedEmailNotifications(t *testing.T) {
 	spanish := sectionBodyFor(t, h, "/settings/email", rootSession.ID)
 	for _, want := range []string{
 		`Notificaciones por email</a>`,
-		`<h2 class="settings-section-title">Notificaciones por email</h2>`,
+		`<h2 class="settings-section-title">Entrega</h2>`,
+		`<h2 class="settings-section-title">Servidor SMTP</h2>`,
 		`Guardar notificaciones por email`,
 		`aria-label="Más sobre Usuario"`,
 	} {

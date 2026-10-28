@@ -12,9 +12,12 @@
   values the form SUBMITS without saving them.
 */}}
 {{define "category_suggestions_card"}}
-    <form class="settings-form card form-card" method="post" action="/settings/category-suggestions" data-settings-form>
-      <h3 class="settings-group-title" id="category-suggestions-title">{{t "settings.suggestions.title"}}</h3>
-      <p class="help">{{t "settings.suggestions.help"}}</p>
+    <form class="settings-form" method="post" action="/settings/category-suggestions" data-settings-form>
+      <section class="settings-group">
+      <h2 class="settings-section-title" id="category-suggestions-title">{{t "settings.suggestions.title"}}</h2>
+      <div class="settings-row">
+      <div><h3>{{t "settings.suggestions.engine_title"}}</h3><p>{{t "settings.suggestions.help"}}</p></div>
+      <div>
       <fieldset class="settings-choice-group" aria-labelledby="category-suggestions-title">
 {{range .Suggestions.Engines}}        <label class="settings-choice settings-choice-detailed">
           <input type="radio" name="suggestion_engine" value="{{.Value}}"{{if .Selected}} checked{{end}}>
@@ -48,6 +51,9 @@
         </div>
         <div id="category-suggestions-try-result" class="settings-suggestion-try-result" aria-live="polite"></div>
       </div>
+      </div>
+      </div>
+      </section>
       <div class="settings-savebar" data-settings-savebar hidden>
         <button class="btn primary" type="submit">{{t "settings.suggestions.save"}}</button>
         <button class="btn" type="reset">{{t "settings.discard"}}</button>

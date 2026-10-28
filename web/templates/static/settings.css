@@ -10,27 +10,24 @@
  */
 
 .settings-layout {
-  display: grid;
-  grid-template-columns: 220px minmax(0, 1fr);
-  gap: 32px;
-  align-items: start;
+  min-width: 0;
 }
 
-/* The section rail: a list of links, the active one marked with
-   aria-current="page" and the accent's soft fill. It sticks beside a long
-   section so the wayfinding survives a scroll. */
+/* Section links remain native navigation; scrolling keeps every tab reachable. */
 .settings-nav {
   display: flex;
-  flex-direction: column;
-  gap: 2px;
-  position: sticky;
-  top: 76px;
+  gap: 4px;
+  min-width: 0;
+  overflow-x: auto;
+  border-bottom: 1px solid var(--line);
+  margin-bottom: 28px;
 }
 
 .settings-nav-link {
-  display: block;
-  padding: 8px 12px;
-  border-radius: 8px;
+  flex: 0 0 auto;
+  padding: 10px 14px;
+  border-bottom: 2px solid transparent;
+  white-space: nowrap;
   color: var(--ink-soft);
   font-size: 13px;
   font-weight: 500;
@@ -43,8 +40,9 @@
 }
 
 .settings-nav-link[aria-current="page"] {
-  background: var(--accent-soft);
+  border-bottom-color: var(--accent);
   color: var(--ink-strong);
+  font-weight: 600;
 }
 
 .settings-content {
@@ -54,8 +52,7 @@
   min-width: 0;
 }
 
-/* The section title is the smallest heading rung the system ships (14px at
-   weight 600): a settings section is a grouping, not a page banner. */
+/* Unmigrated section titles retain their existing hierarchy. */
 .settings-section-title {
   margin: 0;
   font-size: 14px;
@@ -81,6 +78,7 @@
   display: flex;
   flex-wrap: wrap;
   align-items: center;
+  justify-content: flex-end;
   gap: 10px;
   margin-top: 4px;
   padding: 12px 0;
@@ -147,28 +145,42 @@
   max-width: 100%;
 }
 
-/* Mobile (≤640px): the rail becomes a horizontal row of chips above the
-   section, scrollable so a long section list never widens the page. */
+/* Row primitives are scoped to migrated forms; other settings keep their cards. */
+.settings-group { max-width: 960px; }
+.settings-group > h2.settings-section-title {
+  margin: 0;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--line-strong);
+  color: var(--ink-strong);
+  font-size: 20px;
+  font-weight: 600;
+}
+.settings-row {
+  display: grid;
+  grid-template-columns: 280px minmax(0, 1fr);
+  gap: 32px;
+  padding: 20px 0;
+  border-bottom: 1px solid var(--line);
+}
+.settings-row:last-child { border-bottom: 0; }
+.settings-row h3 { margin: 0; color: var(--ink-strong); font-size: 13px; font-weight: 600; }
+.settings-row p { margin: 4px 0 0; color: var(--muted); font-size: 12px; }
+.settings-row.single > div:first-child { padding-top: 10px; }
+.settings-row .field { margin: 0; min-width: 0; }
+.settings-row.single :is(input[type="text"], select) { width: 100%; max-width: 560px; }
+.settings-pair { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; max-width: 720px; }
+.settings-pair input { width: 100%; }
+.settings-range { display: flex; align-items: end; gap: 12px; max-width: 720px; }
+.settings-range .field { min-width: 0; }
+.settings-range-separator { padding-bottom: 10px; color: var(--muted); }
+.settings-layout input[type="number"] { appearance: textfield; -moz-appearance: textfield; }
+.settings-layout input[type="number"]::-webkit-inner-spin-button,
+.settings-layout input[type="number"]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
 @media (max-width: 640px) {
-  .settings-layout {
-    grid-template-columns: minmax(0, 1fr);
-    gap: 16px;
-  }
-
-  .settings-nav {
-    position: static;
-    flex-direction: row;
-    gap: 8px;
-    overflow-x: auto;
-    padding-bottom: 4px;
-  }
-
-  .settings-nav-link {
-    flex: 0 0 auto;
-    border: 1px solid var(--line);
-    border-radius: 999px;
-    white-space: nowrap;
-  }
+  .settings-row { grid-template-columns: minmax(0, 1fr); gap: 12px; }
+  .settings-row.single > div:first-child { padding-top: 0; }
+  .settings-logo-controls { flex-wrap: wrap; }
+  .settings-pair { grid-template-columns: minmax(0, 1fr); }
 }
 
 /* A group inside a section (Appearance inside Tickets & SLA) is one rung below
@@ -318,14 +330,14 @@
    scaled frame, so the mirror cannot drift from what the sign-in page shows. */
 .settings-signin {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 340px;
-  gap: 24px;
+  grid-template-columns: minmax(0, 1fr) 460px;
+  gap: 40px;
   align-items: start;
 }
 
-.settings-signin .form-card {
-  max-width: none;
-}
+.settings-signin .settings-row { grid-template-columns: minmax(0, 1fr); gap: 12px; }
+.settings-signin .settings-row.single > div:first-child { padding-top: 0; }
+.settings-signin :is(.settings-highlights, .settings-reveal, [data-show-when="background=brand"], [data-show-when="background=image"]) { margin-top: 12px; }
 
 /* A segmented control: one radio group drawn as a row of adjacent segments.
    The native control stays in the DOM (focusable, announced), only the visual
@@ -413,17 +425,21 @@
   flex-direction: column;
   gap: 8px;
   min-width: 0;
+  container-type: inline-size;
 }
 
 .settings-preview-label {
-  color: var(--muted);
-  font-size: 12px;
+  margin: 0 0 8px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--line-strong);
+  color: var(--ink-strong);
+  font-size: 20px;
   font-weight: 600;
 }
 
 .settings-preview-frame {
   width: 100%;
-  height: 210px;
+  height: calc(100cqw * 640 / 1120);
   overflow: hidden;
   border: 1px solid var(--line-strong);
   border-radius: 8px;
@@ -433,7 +449,7 @@
 .settings-preview-scale {
   width: 1120px;
   height: 640px;
-  transform: scale(0.3);
+  transform: scale(calc(100cqw / 1120px));
   transform-origin: top left;
   pointer-events: none;
 }
@@ -458,9 +474,12 @@
     position: static;
   }
 
-  .settings-preview-frame {
-    height: 170px;
-  }
+  .settings-preview-scale .auth-entry__presentation { gap: 24px; padding: 44px 52px; }
+  .settings-preview-scale .auth-entry__body { margin: auto 0; gap: 14px; }
+  .settings-preview-scale .auth-entry__sub { font-size: 16px; margin: 0 0 16px; }
+  .settings-preview-scale .auth-entry__steps,
+  .settings-preview-scale .auth-entry__highlights { display: grid; }
+  .settings-preview-scale .auth-entry__foot { display: flex; }
 
   .settings-highlight {
     grid-template-columns: minmax(0, 1fr);
@@ -779,6 +798,12 @@
    container, so each card keeps the section's 12px shell; the provider header
    reuses the switch row, which puts the enable toggle beside the provider it
    enables. Nothing here introduces a colour or a radius. */
+/* Security rows retain the native switches and keep provider fields visible. */
+.settings-row.switch-row { display: grid; column-gap: 32px; }
+.settings-row .sla-grid { margin-top: 0; border-top: 0; }
+.settings-provider-fields { display: grid; gap: 14px; min-width: 0; }
+.settings-provider-fields :is(input[type="text"], input[type="password"], textarea) { width: 100%; }
+
 .settings-company-form {
   display: flex;
   flex-direction: column;
@@ -787,6 +812,7 @@
 
 .settings-provider-head {
   padding-top: 0;
+  justify-content: flex-end;
 }
 
 .settings-provider-head .settings-group-title {

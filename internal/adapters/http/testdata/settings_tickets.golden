@@ -83,12 +83,8 @@
   <button class="save-feedback-dismiss" type="button" aria-label="Dismiss confirmation">Dismiss</button>
 </div>
 
-<div class="command-header">
-  <div>
-    <h1 class="command-title">Settings</h1>
-  </div>
-</div>
-<div class="settings-layout">
+<div class="command-header"><div><h1 class="command-title">Settings</h1></div></div>
+<div class="settings-layout" aria-label="Tickets &amp; SLA">
 
 <nav class="settings-nav" aria-label="Settings sections">
   <a class="settings-nav-link" href="/settings/organization">Organization</a>
@@ -101,21 +97,28 @@
 </nav>
 
   <div class="settings-content">
-    <h2 class="settings-section-title">Tickets &amp; SLA</h2>
-    <form class="settings-form card form-card" method="post" action="/settings/ticket-creation" data-settings-form>
-      <h3 class="settings-group-title">Ticket creation</h3>
-      <fieldset class="settings-choice-group">
-        <legend class="field-label">How the category is chosen</legend>
-      </fieldset>
+
+    <form class="settings-form" method="post" action="/settings/ticket-creation" data-settings-form>
+      <section class="settings-group">
+        <h2 class="settings-section-title">Ticket creation</h2>
+        <div class="settings-row">
+          <div><h3>How the category is chosen</h3></div>
+          <fieldset class="settings-choice-group" aria-label="How the category is chosen">
+          </fieldset>
+        </div>
+      </section>
       <div class="settings-savebar" data-settings-savebar hidden>
         <button class="btn primary" type="submit">Save creation flow</button>
         <button class="btn" type="reset">Discard</button>
       </div>
     </form>
 
-    <form class="settings-form card form-card" method="post" action="/settings/category-suggestions" data-settings-form>
-      <h3 class="settings-group-title" id="category-suggestions-title">Category suggestions</h3>
-      <p class="help">Suggest up to three categories from what the requester writes. Requesters always choose; with no confident suggestion they use the catalog as today.</p>
+    <form class="settings-form" method="post" action="/settings/category-suggestions" data-settings-form>
+      <section class="settings-group">
+      <h2 class="settings-section-title" id="category-suggestions-title">Category suggestions</h2>
+      <div class="settings-row">
+      <div><h3>Suggestion engine</h3><p>Suggest up to three categories from what the requester writes. Requesters always choose; with no confident suggestion they use the catalog as today.</p></div>
+      <div>
       <fieldset class="settings-choice-group" aria-labelledby="category-suggestions-title">
         <label class="settings-choice settings-choice-detailed">
           <input type="radio" name="suggestion_engine" value="off" checked>
@@ -157,22 +160,28 @@
         </div>
         <div id="category-suggestions-try-result" class="settings-suggestion-try-result" aria-live="polite"></div>
       </div>
+      </div>
+      </div>
+      </section>
       <div class="settings-savebar" data-settings-savebar hidden>
         <button class="btn primary" type="submit">Save category suggestions</button>
         <button class="btn" type="reset">Discard</button>
       </div>
     </form>
 
-    <form class="settings-form card form-card" method="post" action="/settings/sla" data-settings-form>
-      <h3 class="settings-group-title">Service level agreements (SLA)</h3>
-      <p class="help">Defaults for new categories. Editing them does not change existing categories.</p>
-      <div class="field checkbox-field">
-        <label><input type="checkbox" name="sla_enabled" value="1"> Enable SLA targets</label>
-      </div>
-      <div class="field">
-        <label for="sla_warning_percent">Warning threshold</label><span class="help-tip-wrap"><button class="help-tip" type="button" aria-label="More about Warning threshold" aria-describedby="help-tip-sla-warning" aria-expanded="false" data-help-tip>?</button><span class="help-tip-bubble" role="tooltip" id="help-tip-sla-warning">At risk once this share of the target has elapsed.</span></span>
-        <input type="number" id="sla_warning_percent" name="sla_warning_percent" class="sla-warning-input" min="1" max="99" value="80">
-      </div>
+    <form class="settings-form" method="post" action="/settings/sla" data-settings-form>
+      <section class="settings-group">
+        <h2 class="settings-section-title">Service level agreements (SLA)</h2>
+        <div class="settings-row">
+          <div><h3>SLA targets</h3><p>Defaults for new categories. Editing them does not change existing categories.</p></div>
+          <div class="checkbox-field"><label><input type="checkbox" name="sla_enabled" value="1"> Enable SLA targets</label></div>
+        </div>
+        <div class="settings-row single">
+          <div><h3>Warning threshold<span class="help-tip-wrap"><button class="help-tip" type="button" aria-label="More about Warning threshold" aria-describedby="help-tip-sla-warning" aria-expanded="false" data-help-tip>?</button><span class="help-tip-bubble" role="tooltip" id="help-tip-sla-warning">At risk once this share of the target has elapsed.</span></span></h3></div>
+          <div class="field"><input type="number" id="sla_warning_percent" name="sla_warning_percent" class="sla-warning-input" min="1" max="99" value="80" aria-label="Warning threshold"></div>
+        </div>
+        <div class="settings-row">
+          <div><h3>Targets by priority</h3></div>
 <div class="sla-grid sla-duration-grid" data-sla-durations data-duration-max="9223372036854775807" data-duration-invalid="Use whole numbers with h, m or s, without repeated units. Example: 1h 30m." data-duration-minimum="The target must be at least 60 seconds.">
   <p id="sla-duration-help" class="sla-duration-help">Use h, m and s: 1h 30m, 90m or 45m 20s. Minimum: 60 seconds.</p>
   <div class="sla-grid-row sla-grid-head" aria-hidden="true"><span></span><span>First response</span><span>Resolve</span></div>
@@ -201,58 +210,60 @@
     <div class="sla-duration-field"><label class="sla-duration-label" for="resolve_duration_low">Resolve</label><input class="sla-duration-input" id="resolve_duration_low" name="resolve_duration_low" value="72h" aria-label="Low resolve" aria-describedby="sla-duration-help resolve_duration_low-reading" aria-invalid="false" autocomplete="off" spellcheck="false" required><p id="resolve_duration_low-reading" class="sla-duration-reading">72 h</p></div>
   </div>
 </div>
+        </div>
+      </section>
       <div class="settings-savebar" data-settings-savebar hidden>
         <button class="btn primary" type="submit">Save SLA settings</button>
         <button class="btn" type="reset">Discard</button>
       </div>
     </form>
-    <form class="settings-form card form-card" method="post" action="/settings/hold-auto-close" data-settings-form>
-      <h3 class="settings-group-title">Automatic close of held tickets</h3>
-      <p class="help">When the requester never answers, warn them one working day before and then close the ticket.</p>
-      <div class="field">
-        <label for="hold_auto_close_working_days">Close tickets on hold after N working days without a reply</label><span class="help-tip-wrap"><button class="help-tip" type="button" aria-label="More about Close tickets on hold after N working days without a reply" aria-describedby="help-tip-hold-auto-close-days" aria-expanded="false" data-help-tip>?</button><span class="help-tip-bubble" role="tooltip" id="help-tip-hold-auto-close-days">Empty means off: the instance never closes a held ticket on its own. Working days follow the SLA working calendar.</span></span>
-        <input type="number" id="hold_auto_close_working_days" name="hold_auto_close_working_days" class="sla-warning-input" min="0" value="">
-      </div>
+    <form class="settings-form" method="post" action="/settings/hold-auto-close" data-settings-form>
+      <section class="settings-group">
+        <h2 class="settings-section-title">Automatic close of held tickets</h2>
+        <div class="settings-row single">
+          <div><h3>Close tickets on hold after N working days without a reply<span class="help-tip-wrap"><button class="help-tip" type="button" aria-label="More about Close tickets on hold after N working days without a reply" aria-describedby="help-tip-hold-auto-close-days" aria-expanded="false" data-help-tip>?</button><span class="help-tip-bubble" role="tooltip" id="help-tip-hold-auto-close-days">Empty means off: the instance never closes a held ticket on its own. Working days follow the SLA working calendar.</span></span></h3><p>When the requester never answers, warn them one working day before and then close the ticket.</p></div>
+          <div class="field"><input type="number" id="hold_auto_close_working_days" name="hold_auto_close_working_days" class="sla-warning-input" min="0" value="" aria-label="Close tickets on hold after N working days without a reply"></div>
+        </div>
+      </section>
       <div class="settings-savebar" data-settings-savebar hidden>
         <button class="btn primary" type="submit">Save automatic close</button>
         <button class="btn" type="reset">Discard</button>
       </div>
     </form>
-    <form class="settings-form card form-card" method="post" action="/settings/appearance" data-settings-form>
-      <h3 class="settings-group-title">Internal comment background</h3>
-      <div class="swatch-grid">
-
-    <label class="swatch">
-    <input type="radio" name="internal_comment_bg" value="#E8EEFF" checked>
-      <span class="swatch-chip" style="background:#E8EEFF"></span>
-      <span class="swatch-label">Blue</span>
-    </label>
-
-    <label class="swatch">
-    <input type="radio" name="internal_comment_bg" value="#EFE9FB">
-      <span class="swatch-chip" style="background:#EFE9FB"></span>
-      <span class="swatch-label">Violet</span>
-    </label>
-
-    <label class="swatch">
-    <input type="radio" name="internal_comment_bg" value="#FFF6DC">
-      <span class="swatch-chip" style="background:#FFF6DC"></span>
-      <span class="swatch-label">Yellow</span>
-    </label>
-
-    <label class="swatch">
-    <input type="radio" name="internal_comment_bg" value="#E6F4EA">
-      <span class="swatch-chip" style="background:#E6F4EA"></span>
-      <span class="swatch-label">Green</span>
-    </label>
-
-    <label class="swatch">
-    <input type="radio" name="internal_comment_bg" value="#FCE8F0">
-      <span class="swatch-chip" style="background:#FCE8F0"></span>
-      <span class="swatch-label">Pink</span>
-    </label>
-
-  </div>
+    <form class="settings-form" method="post" action="/settings/appearance" data-settings-form>
+      <section class="settings-group">
+        <h2 class="settings-section-title">Internal comment background</h2>
+        <div class="settings-row">
+          <div><h3>Internal comment color</h3></div>
+          <div class="swatch-grid">
+            <label class="swatch">
+              <input type="radio" name="internal_comment_bg" value="#E8EEFF" checked>
+              <span class="swatch-chip" style="background:#E8EEFF"></span>
+              <span class="swatch-label">Blue</span>
+            </label>
+            <label class="swatch">
+              <input type="radio" name="internal_comment_bg" value="#EFE9FB">
+              <span class="swatch-chip" style="background:#EFE9FB"></span>
+              <span class="swatch-label">Violet</span>
+            </label>
+            <label class="swatch">
+              <input type="radio" name="internal_comment_bg" value="#FFF6DC">
+              <span class="swatch-chip" style="background:#FFF6DC"></span>
+              <span class="swatch-label">Yellow</span>
+            </label>
+            <label class="swatch">
+              <input type="radio" name="internal_comment_bg" value="#E6F4EA">
+              <span class="swatch-chip" style="background:#E6F4EA"></span>
+              <span class="swatch-label">Green</span>
+            </label>
+            <label class="swatch">
+              <input type="radio" name="internal_comment_bg" value="#FCE8F0">
+              <span class="swatch-chip" style="background:#FCE8F0"></span>
+              <span class="swatch-label">Pink</span>
+            </label>
+          </div>
+        </div>
+      </section>
       <div class="settings-savebar" data-settings-savebar hidden>
         <button class="btn primary" type="submit">Save appearance</button>
         <button class="btn" type="reset">Discard</button>

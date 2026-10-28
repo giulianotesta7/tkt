@@ -101,15 +101,17 @@
 </nav>
 
   <div class="settings-content">
-    <form class="settings-form card form-card" method="post" action="/settings/language" data-settings-form>
+    <form class="settings-form" method="post" action="/settings/language" data-settings-form>
+      <section class="settings-group">
       <h2 class="settings-section-title">Interface language</h2>
-      <div class="field">
-        <label for="interface_language">Language</label>
-        <select id="interface_language" name="interface_language">
+      <div class="settings-row single">
+        <div><h3>Language</h3></div>
+        <div class="field"><select id="interface_language" name="interface_language" aria-label="Language">
       <option value="en" selected>English</option>
       <option value="es">Español</option>
-    </select>
+    </select></div>
       </div>
+      </section>
       <div class="settings-savebar" data-settings-savebar hidden>
         <button class="btn primary" type="submit">Save language</button>
         <button class="btn" type="reset">Discard</button>

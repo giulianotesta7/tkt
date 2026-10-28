@@ -80,7 +80,8 @@ func TestSettingsEmailSectionIsRootOnly(t *testing.T) {
 	}
 	body := rec.Body.String()
 	for _, want := range []string{
-		`<h2 class="settings-section-title">Email notifications</h2>`,
+		`<h2 class="settings-section-title">Delivery</h2>`,
+		`<h2 class="settings-section-title">SMTP server</h2>`,
 		`action="/settings/email"`,
 		`formaction="/settings/email/test"`,
 		`id="email_host" name="email_host" value=""`,
@@ -531,7 +532,7 @@ func TestSettingsEmailSectionKeepsItsSiblingsReachable(t *testing.T) {
 		`href="/settings/organization">Organization</a>`,
 		`href="/settings/tickets">Tickets &amp; SLA</a>`,
 		`href="/settings/email" aria-current="page">Email notifications</a>`,
-		`<h2 class="settings-section-title">Email notifications</h2>`,
+		`<h2 class="settings-section-title">Delivery</h2>`,
 		`id="email_host" name="email_host"`,
 	} {
 		if !strings.Contains(body, want) {

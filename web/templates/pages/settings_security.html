@@ -7,59 +7,55 @@
 </div>
 <div class="settings-layout">
 {{template "settings_nav" .}}
-  <div class="settings-content">
-    <h2 class="settings-section-title">{{t "settings.security.title"}}</h2>
+  <div class="settings-content" aria-label="{{t "settings.security.title"}}">
 {{if .Error}}    <div class="error-banner" role="alert">{{.Error}}</div>
-{{end}}    <form class="settings-form card form-card" method="post" action="/settings/security" data-settings-form>
-      <h3 class="settings-group-title">{{t "settings.security.passwords.title"}}</h3>
-      <div class="switch-list">
-{{if .Company}}        <div class="switch-row">
+{{end}}    <form class="settings-form" method="post" action="/settings/security" data-settings-form>
+      <section class="settings-group">
+        <h2 class="settings-section-title">{{t "settings.security.passwords.title"}}</h2>
+{{if .Company}}        <div class="settings-row switch-row">
           <div class="switch-copy">
             <span class="switch-label" id="password-signin-label">{{t "settings.security.company.password_signin"}}</span>{{template "help_tip" (helpTip "security-password-signin" (t "settings.security.company.password_signin") (t "settings.security.company.password_signin_help"))}}
 {{if not .Company.PasswordSignInEnabled}}            <p class="dep-note">{{t "settings.security.company.password_signin_off"}}</p>
 {{end}}          </div>
           <span class="switch"><input type="checkbox" id="password_signin_enabled" name="password_signin_enabled" value="1" form="company-signin-form" aria-labelledby="password-signin-label"{{if .Company.PasswordSignInEnabled}} checked{{end}}></span>
         </div>
-{{end}}        <div class="switch-row">
+{{end}}        <div class="settings-row switch-row">
           <div class="switch-copy">
             <span class="switch-label" id="password-change-label">{{t "settings.security.change"}}</span>{{template "help_tip" (helpTip "security-password-change" (t "settings.security.change") (t "settings.security.change_help"))}}
           </div>
           <span class="switch">{{if .ChangeEnabled}}<input type="checkbox" id="password_change_enabled" name="password_change_enabled" value="1" aria-labelledby="password-change-label" checked>{{else}}<input type="checkbox" id="password_change_enabled" name="password_change_enabled" value="1" aria-labelledby="password-change-label">{{end}}</span>
         </div>
-        <div class="switch-row">
+        <div class="settings-row switch-row">
           <div class="switch-copy">
             <span class="switch-label" id="password-recovery-label">{{t "settings.security.recovery"}}</span>{{template "help_tip" (helpTip "security-password-recovery" (t "settings.security.recovery") (t "settings.security.recovery_help"))}}
 {{if not .EmailConfigured}}            <p class="dep-note">{{t "settings.security.recovery_needs_email"}}{{if .CanManageEmail}} <a href="/settings/email">{{t "settings.security.recovery_needs_email_link"}}</a>.{{end}}</p>
 {{end}}          </div>
           <span class="switch">{{if .RecoveryEnabled}}<input type="checkbox" id="password_recovery_enabled" name="password_recovery_enabled" value="1" aria-labelledby="password-recovery-label" checked>{{else}}<input type="checkbox" id="password_recovery_enabled" name="password_recovery_enabled" value="1" aria-labelledby="password-recovery-label">{{end}}</span>
         </div>
-      </div>
-      <div class="field">
-        <label for="password_min_length">{{t "settings.security.min_length"}}</label>{{template "help_tip" (helpTip "security-min-length" (t "settings.security.min_length") (tf "settings.security.min_length_help" .MinLengthFloor .MinLengthCeiling))}}
-        <div class="stepper">
+      <div class="settings-row">
+        <div><h3>{{t "settings.security.min_length"}}{{template "help_tip" (helpTip "security-min-length" (t "settings.security.min_length") (tf "settings.security.min_length_help" .MinLengthFloor .MinLengthCeiling))}}</h3></div>
+        <div><div class="stepper">
           <button type="button" class="stepper-step" data-step="-1" aria-label="{{t "settings.security.min_decrease"}}">−</button>
-          <input class="num" id="password_min_length" name="password_min_length" type="number" min="{{.MinLengthFloor}}" max="{{.MinLengthCeiling}}" step="1" value="{{.MinLength}}">
+          <input class="num" aria-label="{{t "settings.security.min_length"}}" id="password_min_length" name="password_min_length" type="number" min="{{.MinLengthFloor}}" max="{{.MinLengthCeiling}}" step="1" value="{{.MinLength}}">
           <button type="button" class="stepper-step" data-step="1" aria-label="{{t "settings.security.min_increase"}}">+</button>
-        </div>
+        </div></div>
       </div>
+      </section>
       <div class="settings-savebar" data-settings-savebar hidden>
         <button class="btn primary" type="submit">{{t "settings.security.save"}}</button>
         <button class="btn" type="reset">{{t "settings.discard"}}</button>
       </div>
     </form>
 {{if .Company}}    <form class="settings-company-form" id="company-signin-form" method="post" action="/settings/security/company" data-settings-form>
-      <div class="card form-card">
-        <h3 class="settings-group-title">{{t "settings.security.company.title"}}</h3>
-        <div class="field">
-          <label for="company_signin_address">{{t "settings.security.company.address"}}</label>{{template "help_tip" (helpTip "company-address" (t "settings.security.company.address") (t "settings.security.company.address_help"))}}
-          <input type="text" id="company_signin_address" name="company_signin_address" value="{{.Company.Address}}" spellcheck="false" autocapitalize="off" placeholder="https://tkt.example.com">
+      <section class="settings-group">
+        <h2 class="settings-section-title">{{t "settings.security.company.title"}}</h2>
+        <div class="settings-row single">
+          <div><h3>{{t "settings.security.company.address"}}{{template "help_tip" (helpTip "company-address" (t "settings.security.company.address") (t "settings.security.company.address_help"))}}</h3></div>
+          <div class="field"><input type="text" id="company_signin_address" name="company_signin_address" value="{{.Company.Address}}" spellcheck="false" autocapitalize="off" placeholder="https://tkt.example.com" aria-label="{{t "settings.security.company.address"}}"></div>
         </div>
-      </div>
-      <div class="card form-card">
+      <div class="settings-row">
+        <div><h3 class="settings-group-title" id="google-signin-label">{{template "company_logo" "google"}}{{t "settings.security.company.google.title"}}</h3></div><div class="settings-provider-fields">
         <div class="switch-row settings-provider-head">
-          <div class="switch-copy">
-            <h3 class="settings-group-title" id="google-signin-label">{{template "company_logo" "google"}}{{t "settings.security.company.google.title"}}</h3>
-          </div>
           <span class="switch"><input type="checkbox" id="google_enabled" name="google_enabled" value="1" aria-labelledby="google-signin-label"{{if .Company.Google.Enabled}} checked{{end}}></span>
         </div>
         <div class="field">
@@ -83,12 +79,10 @@
           <span class="visually-hidden" role="status" aria-live="polite" data-copy-status></span>
         </div>
 {{if not .Company.Google.Enabled}}        <p class="dep-note">{{t "settings.security.company.google.off"}}</p>
-{{end}}      </div>
-      <div class="card form-card">
+{{end}}      </div></div>
+      <div class="settings-row">
+        <div><h3 class="settings-group-title" id="microsoft-signin-label">{{template "company_logo" "microsoft"}}{{t "settings.security.company.microsoft.title"}}</h3></div><div class="settings-provider-fields">
         <div class="switch-row settings-provider-head">
-          <div class="switch-copy">
-            <h3 class="settings-group-title" id="microsoft-signin-label">{{template "company_logo" "microsoft"}}{{t "settings.security.company.microsoft.title"}}</h3>
-          </div>
           <span class="switch"><input type="checkbox" id="microsoft_enabled" name="microsoft_enabled" value="1" aria-labelledby="microsoft-signin-label"{{if .Company.Microsoft.Enabled}} checked{{end}}></span>
         </div>
         <div class="field">
@@ -112,10 +106,11 @@
           <span class="visually-hidden" role="status" aria-live="polite" data-copy-status></span>
         </div>
 {{if not .Company.Microsoft.Enabled}}        <p class="dep-note">{{t "settings.security.company.microsoft.off"}}</p>
-{{end}}      </div>
-      <div class="card form-card">
+{{end}}      </div></div>
+      <div class="settings-row">
+        <div><h3>{{t "settings.security.company.new_accounts"}}</h3></div><div>
         <fieldset class="settings-choice-group">
-          <legend class="field-label">{{t "settings.security.company.new_accounts"}}</legend>
+          <legend class="visually-hidden">{{t "settings.security.company.new_accounts"}}</legend>
           <label class="settings-choice">
             <input type="radio" name="company_signin_new_accounts" value="requester"{{if eq .Company.NewAccounts "requester"}} checked{{end}}>
             <span class="settings-choice-label">{{t "settings.security.company.requester"}}</span>
@@ -127,7 +122,8 @@
         </fieldset>
 {{if eq .Company.NewAccounts "pending"}}        <p class="dep-note">{{t "settings.security.company.pending_help"}}</p>
 {{else}}        <p class="dep-note">{{t "settings.security.company.requester_help"}}</p>
-{{end}}      </div>
+{{end}}      </div></div>
+      </section>
       <div class="settings-savebar" data-settings-savebar hidden>
         <button class="btn primary" type="submit">{{t "settings.security.company.save"}}</button>
         <button class="btn" type="reset">{{t "settings.discard"}}</button>

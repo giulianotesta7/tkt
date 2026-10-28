@@ -30,6 +30,33 @@ func sectionGet(t *testing.T, h *harness, path string) string {
 	return rec.Body.String()
 }
 
+func TestSettingsRowsPresentation(t *testing.T) {
+	for _, tc := range []struct {
+		page  string
+		data  any
+		wants []string
+	}{
+		{"settings_organization", fixtureSettingsOrganizationData(), []string{`class="settings-group"`, `class="settings-row single"`, `aria-label="Name"`}},
+		{"settings_language", fixtureSettingsLanguageData(), []string{`class="settings-group"`, `class="settings-row single"`, `aria-label="Language"`}},
+		{"settings_calendar", fixtureSettingsCalendarData(), []string{`class="settings-group"`, `class="settings-range"`, `aria-label="Timezone"`}},
+		{"settings_tickets", fixtureSettingsTicketsData(), []string{`<h3>Suggestion engine</h3>`, `<h3>Internal comment color</h3>`, `<h3>SLA targets</h3>`, `<h3>Targets by priority</h3>`}},
+		{"settings_email", fixtureSettingsEmailData(), []string{`<h3>Sender</h3>`, `<h3>Server</h3>`, `<h3>Credentials</h3>`}},
+		{"settings_security", fixtureSettingsSecurityData(), []string{`id="google-signin-label"`, `id="microsoft-signin-label"`, `<legend class="visually-hidden">New accounts</legend>`}},
+	} {
+		t.Run(tc.page, func(t *testing.T) {
+			body := renderGolden(t, tc.page, "", tc.data, false)
+			for _, want := range tc.wants {
+				if !strings.Contains(body, want) {
+					t.Errorf("missing %q", want)
+				}
+			}
+			if strings.Contains(body, `class="settings-form card form-card"`) {
+				t.Error("unexpected form card")
+			}
+		})
+	}
+}
+
 func TestSettingsIndexRequiresAdmin(t *testing.T) {
 	h := newHarness(t)
 	user, err := h.users.Create(t.Context(), *h.admin, application.CreateUserInput{Name: "User", Email: "user@tkt.test", Password: "s3cret-pass-12"})
@@ -92,14 +119,14 @@ func TestSettingsSectionsRenderOneSectionEach(t *testing.T) {
 			title: "<h2 class=\"settings-section-title\">Interface language</h2>",
 			own: []string{
 				`action="/settings/language"`,
-				`<select id="interface_language" name="interface_language">`,
+				`<select id="interface_language" name="interface_language" aria-label="Language">`,
 				`Save language`,
 			},
 			absent: []string{`action="/settings/organization"`, `name="internal_comment_bg"`, `action="/settings/calendar"`},
 		},
 		{
 			path:  "/settings/tickets",
-			title: "<h2 class=\"settings-section-title\">Tickets &amp; SLA</h2>",
+			title: "<h2 class=\"settings-section-title\">Service level agreements (SLA)</h2>",
 			own: []string{
 				`action="/settings/appearance"`,
 				`name="internal_comment_bg" value="#E8EEFF"`,
@@ -931,7 +958,7 @@ func TestSettingsLanguageSectionShowsTheStoredLanguage(t *testing.T) {
 	for _, want := range []string{
 		`action="/settings/language"`,
 		`<h2 class="settings-section-title">Interface language</h2>`,
-		`<select id="interface_language" name="interface_language">`,
+		`<select id="interface_language" name="interface_language" aria-label="Language">`,
 		`<option value="en" selected>English</option>`,
 		`<option value="es">Español</option>`,
 		`Save language`,
@@ -1185,7 +1212,7 @@ func TestSettingsHoldAutoCloseWindowRejectsOutOfRange(t *testing.T) {
 			if !strings.Contains(body, holdAutoCloseInput(submitted)) {
 				t.Errorf("re-render must echo the submitted %q, got: %s", submitted, body)
 			}
-			if !strings.Contains(body, `<h2 class="settings-section-title">Tickets &amp; SLA</h2>`) {
+			if !strings.Contains(body, `<h2 class="settings-section-title">Service level agreements (SLA)</h2>`) {
 				t.Errorf("re-render must be the tickets section, got: %s", body)
 			}
 			if !strings.Contains(body, `name="sla_warning_percent"`) {

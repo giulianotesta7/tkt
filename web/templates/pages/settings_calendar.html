@@ -9,31 +9,38 @@
 {{template "settings_nav" .}}
   <div class="settings-content">
 {{if .Error}}    <div class="error-banner" role="alert">{{.Error}}</div>
-{{end}}    <form class="settings-form card form-card" method="post" action="/settings/calendar" data-settings-form>
+{{end}}    <form class="settings-form" method="post" action="/settings/calendar" data-settings-form>
+      <section class="settings-group">
       <h2 class="settings-section-title">{{t "settings.calendar.title"}}</h2>
-      <p class="help">{{t "settings.calendar.help"}}</p>
-      <fieldset class="checkbox-field calendar-days">
-        <legend>{{t "settings.calendar.days"}}{{template "help_tip" (helpTip "calendar-days" (t "settings.calendar.days") (t "settings.calendar.days_help"))}}</legend>
+      <div class="settings-row">
+        <div><h3>{{t "settings.calendar.days"}}{{template "help_tip" (helpTip "calendar-days" (t "settings.calendar.days") (t "settings.calendar.days_help"))}}</h3></div>
+        <fieldset class="checkbox-field calendar-days" aria-label="{{t "settings.calendar.days"}}">
         <div class="calendar-day-list">
 {{range .CalendarDays}}
       <label class="calendar-day">{{if .Checked}}<input type="checkbox" name="sla_calendar_days" value="{{.Value}}" checked>{{else}}<input type="checkbox" name="sla_calendar_days" value="{{.Value}}">{{end}} {{t .Label}}</label>
 {{end}}
     </div>
-      </fieldset>
-      <div class="field-row">
+        </fieldset>
+      </div>
+      <div class="settings-row">
+        <div><h3>{{t "settings.calendar.hours"}}</h3><p>{{t "settings.calendar.help"}}</p></div>
+        <div class="settings-range">
         <div class="field">
           <label for="sla_calendar_start">{{t "settings.calendar.start"}}</label>
           <input type="time" id="sla_calendar_start" name="sla_calendar_start" value="{{.CalendarStart}}" step="60">
         </div>
+        <span class="settings-range-separator" aria-hidden="true">–</span>
         <div class="field">
           <label for="sla_calendar_end">{{t "settings.calendar.end"}}</label>
           <input type="time" id="sla_calendar_end" name="sla_calendar_end" value="{{.CalendarEnd}}" step="60">
         </div>
+        </div>
       </div>
-      <div class="field">
-        <label for="sla_calendar_timezone">{{t "settings.calendar.timezone"}}</label>{{template "help_tip" (helpTip "calendar-timezone" (t "settings.calendar.timezone") (t "settings.calendar.timezone_help"))}}
-        <input type="text" id="sla_calendar_timezone" name="sla_calendar_timezone" value="{{.CalendarTimezone}}" spellcheck="false" autocapitalize="off">
+      <div class="settings-row single">
+        <div><h3>{{t "settings.calendar.timezone"}}{{template "help_tip" (helpTip "calendar-timezone" (t "settings.calendar.timezone") (t "settings.calendar.timezone_help"))}}</h3></div>
+        <div class="field"><input type="text" id="sla_calendar_timezone" name="sla_calendar_timezone" value="{{.CalendarTimezone}}" spellcheck="false" autocapitalize="off" aria-label="{{t "settings.calendar.timezone"}}"></div>
       </div>
+      </section>
       <div class="settings-savebar" data-settings-savebar hidden>
         <button class="btn primary" type="submit">{{t "settings.calendar.save"}}</button>
         <button class="btn" type="reset">{{t "settings.discard"}}</button>

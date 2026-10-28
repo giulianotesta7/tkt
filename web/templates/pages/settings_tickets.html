@@ -1,69 +1,78 @@
 {{define "title"}}{{tf "base.title.screen" (t "settings.title") (brandHelpDesk .Brand)}}{{end}}
 {{define "content"}}
-<div class="command-header">
-  <div>
-    <h1 class="command-title">{{t "settings.title"}}</h1>
-  </div>
-</div>
-<div class="settings-layout">
+<div class="command-header"><div><h1 class="command-title">{{t "settings.title"}}</h1></div></div>
+<div class="settings-layout" aria-label="{{t "settings.tickets.title"}}">
 {{template "settings_nav" .}}
   <div class="settings-content">
 {{if .Error}}    <div class="error-banner" role="alert">{{.Error}}</div>
-{{end}}    <h2 class="settings-section-title">{{t "settings.tickets.title"}}</h2>
-    <form class="settings-form card form-card" method="post" action="/settings/ticket-creation" data-settings-form>
-      <h3 class="settings-group-title">{{t "settings.ticket_creation.title"}}</h3>
-      <fieldset class="settings-choice-group">
-        <legend class="field-label">{{t "settings.ticket_creation.label"}}</legend>
-{{range .CreationModes}}        <label class="settings-choice">
-          <input type="radio" name="ticket_creation_mode" value="{{.Value}}"{{if eq $.CreationMode .Value}} checked{{end}}>
-          <span class="settings-choice-label">{{t .Label}}</span>
-        </label>
-{{end}}      </fieldset>
+{{end}}
+    <form class="settings-form" method="post" action="/settings/ticket-creation" data-settings-form>
+      <section class="settings-group">
+        <h2 class="settings-section-title">{{t "settings.ticket_creation.title"}}</h2>
+        <div class="settings-row">
+          <div><h3>{{t "settings.ticket_creation.label"}}</h3></div>
+          <fieldset class="settings-choice-group" aria-label="{{t "settings.ticket_creation.label"}}">
+{{range .CreationModes}}            <label class="settings-choice">
+              <input type="radio" name="ticket_creation_mode" value="{{.Value}}"{{if eq $.CreationMode .Value}} checked{{end}}>
+              <span class="settings-choice-label">{{t .Label}}</span>
+            </label>
+{{end}}          </fieldset>
+        </div>
+      </section>
       <div class="settings-savebar" data-settings-savebar hidden>
         <button class="btn primary" type="submit">{{t "settings.ticket_creation.save"}}</button>
         <button class="btn" type="reset">{{t "settings.discard"}}</button>
       </div>
     </form>
 {{template "category_suggestions_card" .}}
-    <form class="settings-form card form-card" method="post" action="/settings/sla" data-settings-form>
-      <h3 class="settings-group-title">{{t "settings.sla.title"}}</h3>
-      <p class="help">{{t "settings.sla.help"}}</p>
-      <div class="field checkbox-field">
-        <label>{{if .SLAEnabled}}<input type="checkbox" name="sla_enabled" value="1" checked> {{t "settings.sla.enable"}}{{else}}<input type="checkbox" name="sla_enabled" value="1"> {{t "settings.sla.enable"}}{{end}}</label>
-      </div>
-      <div class="field">
-        <label for="sla_warning_percent">{{t "settings.sla.warning"}}</label>{{template "help_tip" (helpTip "sla-warning" (t "settings.sla.warning") (t "settings.sla.warning_help"))}}
-        <input type="number" id="sla_warning_percent" name="sla_warning_percent" class="sla-warning-input" min="1" max="99" value="{{.SLAWarningPercent}}">
-      </div>
+    <form class="settings-form" method="post" action="/settings/sla" data-settings-form>
+      <section class="settings-group">
+        <h2 class="settings-section-title">{{t "settings.sla.title"}}</h2>
+        <div class="settings-row">
+          <div><h3>{{t "settings.sla.row_enable"}}</h3><p>{{t "settings.sla.help"}}</p></div>
+          <div class="checkbox-field"><label><input type="checkbox" name="sla_enabled" value="1"{{if .SLAEnabled}} checked{{end}}> {{t "settings.sla.enable"}}</label></div>
+        </div>
+        <div class="settings-row single">
+          <div><h3>{{t "settings.sla.warning"}}{{template "help_tip" (helpTip "sla-warning" (t "settings.sla.warning") (t "settings.sla.warning_help"))}}</h3></div>
+          <div class="field"><input type="number" id="sla_warning_percent" name="sla_warning_percent" class="sla-warning-input" min="1" max="99" value="{{.SLAWarningPercent}}" aria-label="{{t "settings.sla.warning"}}"></div>
+        </div>
+        <div class="settings-row">
+          <div><h3>{{t "settings.sla.targets_title"}}</h3></div>
 {{template "sla_duration_grid" .SLAGrid}}
+        </div>
+      </section>
       <div class="settings-savebar" data-settings-savebar hidden>
         <button class="btn primary" type="submit">{{t "settings.sla.save"}}</button>
         <button class="btn" type="reset">{{t "settings.discard"}}</button>
       </div>
     </form>
-    <form class="settings-form card form-card" method="post" action="/settings/hold-auto-close" data-settings-form>
-      <h3 class="settings-group-title">{{t "settings.sla.hold_close.title"}}</h3>
-      <p class="help">{{t "settings.sla.hold_close.help"}}</p>
-      <div class="field">
-        <label for="hold_auto_close_working_days">{{t "settings.sla.hold_close.days"}}</label>{{template "help_tip" (helpTip "hold-auto-close-days" (t "settings.sla.hold_close.days") (t "settings.sla.hold_close.days_help"))}}
-        <input type="number" id="hold_auto_close_working_days" name="hold_auto_close_working_days" class="sla-warning-input" min="0" value="{{.HoldAutoCloseDays}}">
-      </div>
+    <form class="settings-form" method="post" action="/settings/hold-auto-close" data-settings-form>
+      <section class="settings-group">
+        <h2 class="settings-section-title">{{t "settings.sla.hold_close.title"}}</h2>
+        <div class="settings-row single">
+          <div><h3>{{t "settings.sla.hold_close.days"}}{{template "help_tip" (helpTip "hold-auto-close-days" (t "settings.sla.hold_close.days") (t "settings.sla.hold_close.days_help"))}}</h3><p>{{t "settings.sla.hold_close.help"}}</p></div>
+          <div class="field"><input type="number" id="hold_auto_close_working_days" name="hold_auto_close_working_days" class="sla-warning-input" min="0" value="{{.HoldAutoCloseDays}}" aria-label="{{t "settings.sla.hold_close.days"}}"></div>
+        </div>
+      </section>
       <div class="settings-savebar" data-settings-savebar hidden>
         <button class="btn primary" type="submit">{{t "settings.sla.hold_close.save"}}</button>
         <button class="btn" type="reset">{{t "settings.discard"}}</button>
       </div>
     </form>
-    <form class="settings-form card form-card" method="post" action="/settings/appearance" data-settings-form>
-      <h3 class="settings-group-title">{{t "settings.appearance.title"}}</h3>
-      <div class="swatch-grid">
-{{range .Colors}}
-    <label class="swatch">
-    {{if eq $.Current .Value}}<input type="radio" name="internal_comment_bg" value="{{.Value}}" checked>{{else}}<input type="radio" name="internal_comment_bg" value="{{.Value}}">{{end}}
-      <span class="swatch-chip" style="background:{{.Value}}"></span>
-      <span class="swatch-label">{{t .Label}}</span>
-    </label>
-{{end}}
-  </div>
+    <form class="settings-form" method="post" action="/settings/appearance" data-settings-form>
+      <section class="settings-group">
+        <h2 class="settings-section-title">{{t "settings.appearance.title"}}</h2>
+        <div class="settings-row">
+          <div><h3>{{t "settings.appearance.comment_color"}}</h3></div>
+          <div class="swatch-grid">
+{{range .Colors}}            <label class="swatch">
+              <input type="radio" name="internal_comment_bg" value="{{.Value}}"{{if eq $.Current .Value}} checked{{end}}>
+              <span class="swatch-chip" style="background:{{.Value}}"></span>
+              <span class="swatch-label">{{t .Label}}</span>
+            </label>
+{{end}}          </div>
+        </div>
+      </section>
       <div class="settings-savebar" data-settings-savebar hidden>
         <button class="btn primary" type="submit">{{t "settings.appearance.save"}}</button>
         <button class="btn" type="reset">{{t "settings.discard"}}</button>
