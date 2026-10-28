@@ -338,9 +338,10 @@
 .categories-root .catalog-attention-chip{height:36px;padding:0 14px;border-radius:8px;font-size:13px}
 .categories-root .catalog-structure-title{margin:0 0 16px;color:var(--ink-strong);font-size:17px;font-weight:600}
 .categories-root .catalog-tree{border:0;border-top:1px solid var(--line);border-radius:0;padding:0;overflow:visible}
-.categories-root .catalog-tree-row{min-height:62px;gap:12px;padding-top:12px;padding-bottom:12px}
+.categories-root .catalog-tree-row{border-top:0;min-height:62px;gap:12px;padding-top:12px;padding-bottom:12px}
 .categories-root .catalog-tree-department>.catalog-tree-list>.catalog-tree-node>.catalog-tree-row{padding-left:32px}
 .categories-root .catalog-tree-desk>.catalog-tree-list>.catalog-tree-node>.catalog-tree-row{padding-left:64px}
+.categories-root .catalog-tree-departments>.catalog-tree-department+.catalog-tree-department>.catalog-tree-row{border-top:1px solid var(--line-strong)}
 .categories-root .catalog-node-name{font-weight:600}
 .categories-root .category-drawer{width:min(520px,100vw)}
 .categories-root .category-drawer .users-drawer-header{padding:24px}

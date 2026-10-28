@@ -943,6 +943,24 @@ test.describe("Categories", () => {
       await expect(page).toHaveURL(base() + "/categories?view=structure");
     }
 
+    // Only departments are divided: desks and categories sit inside their block.
+    const dividers = await page.locator(".catalog-tree-row").evaluateAll((rows) =>
+      rows.map((row) => ({
+        level: row.closest("[data-level]")?.getAttribute("data-level"),
+        top: getComputedStyle(row).borderTopWidth,
+      })),
+    );
+    expect(dividers.filter((r) => r.level !== "department").every((r) => r.top === "0px")).toBe(
+      true,
+    );
+    expect(dividers.filter((r) => r.level === "department").slice(1).length).toBeGreaterThan(0);
+    expect(
+      dividers
+        .filter((r) => r.level === "department")
+        .slice(1)
+        .every((r) => r.top === "1px"),
+    ).toBe(true);
+
     // The last row's menu opens below the tree; the tree must not clip it.
     await page.setViewportSize({ width: 1280, height: 800 });
     await page.goto(base() + "/categories?view=structure");
