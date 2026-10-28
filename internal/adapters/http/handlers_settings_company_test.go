@@ -302,7 +302,7 @@ func TestSettingsSecurityCompanySignInRefusesInvalidSubmissions(t *testing.T) {
 			mod: func(form url.Values) {
 				form.Set("google_domains", "not a domain")
 			},
-			message: "enter at least one domain, one per line, such as example.com",
+			message: "enter at least one domain, separated by semicolons, such as example.com; example.org",
 		},
 		{
 			name: "google client id",
@@ -527,7 +527,7 @@ func TestSettingsSecurityCompanySignInRendersInSpanish(t *testing.T) {
 		t.Fatalf("Spanish POST /settings/security/company = %d, want 422: %.1200s", rec.Code, rec.Body.String())
 	}
 	refusal := rec.Body.String()
-	if want := "ingresa al menos un dominio, uno por línea, como example.com"; !strings.Contains(refusal, want) {
+	if want := "ingresa al menos un dominio, separados por punto y coma, como example.com; example.org"; !strings.Contains(refusal, want) {
 		t.Errorf("the Spanish refusal must read %q, got: %.1800s", want, refusal)
 	}
 	if !strings.Contains(refusal, "Client ID") {
@@ -561,4 +561,38 @@ func TestSettingsSecurityCompanySavePreservesThePasswordPolicy(t *testing.T) {
 	if got := companySealedSecrets(t, h); !reflect.DeepEqual(got, company) {
 		t.Errorf("a password policy save changed the company sign-in configuration:\n got %+v\nwant %+v", got, company)
 	}
+}
+
+// TestSettingsSecurityGoogleDomainsAreSemicolonSeparated proves the round trip
+// of issue #472: a list typed with semicolons is stored as separate domains and
+// renders back in the same shape, in a single-line field. The stored format is
+// unchanged, so a list saved before the change renders joined with semicolons.
+func TestSettingsSecurityGoogleDomainsAreSemicolonSeparated(t *testing.T) {
+	h := newHarness(t)
+
+	rec := h.postForm(t, "/settings/security/company", companySignInForm(func(form url.Values) {
+		form.Set("google_domains", "Example.com; example-support.com ;; example.com")
+	}), false)
+	wantRedirect(t, rec, http.StatusSeeOther, "/settings/security")
+
+	stored := storedCompanySignIn(t, h)
+	if want := []string{"example.com", "example-support.com"}; !reflect.DeepEqual(stored.Google.Domains, want) {
+		t.Fatalf("stored Google domains = %v, want %v", stored.Google.Domains, want)
+	}
+
+	body := sectionGet(t, h, "/settings/security")
+	for _, want := range []string{
+		`<input type="text" id="google_domains" name="google_domains" value="example.com; example-support.com"`,
+		"Separate domains with a semicolon",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("the Security section must contain %q, got: %.2500s", want, body)
+		}
+	}
+	for _, gone := range []string{`<textarea id="google_domains"`, "One domain per line"} {
+		if strings.Contains(body, gone) {
+			t.Errorf("the Security section must not carry %q any more", gone)
+		}
+	}
+	assertNoWhitespaceViolations(t, body)
 }

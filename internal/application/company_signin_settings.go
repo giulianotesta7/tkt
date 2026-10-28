@@ -128,7 +128,8 @@ type GoogleSignInInput struct {
 	Enabled      bool
 	ClientID     string
 	ClientSecret string
-	// Domains is the textarea value: one domain per line.
+	// Domains is the field value: domains separated by semicolons (a line break
+	// also separates them).
 	Domains string
 }
 
@@ -253,7 +254,7 @@ func (s *CompanySignInSettingsService) Update(ctx context.Context, actor domain.
 	googleSecret := strings.TrimSpace(in.Google.ClientSecret)
 	switch {
 	case !domainsOK || (next.Google.Enabled && len(domains) == 0):
-		return &domain.ValidationError{Field: "google_domains", Message: "enter at least one domain, one per line, such as example.com", Key: "error.company_signin_domains"}
+		return &domain.ValidationError{Field: "google_domains", Message: "enter at least one domain, separated by semicolons, such as example.com; example.org", Key: "error.company_signin_domains"}
 	case next.Google.Enabled && next.Google.ClientID == "":
 		return &domain.ValidationError{Field: "google_client_id", Message: "enter the Google Client ID", Key: "error.company_signin_google_client_id"}
 	case next.Google.Enabled && googleSecret == "" && next.Google.SealedSecret == "":
@@ -298,13 +299,16 @@ var tenantIDPattern = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[
 // domainPattern accepts a lowercase DNS name with at least two labels.
 var domainPattern = regexp.MustCompile(`^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z][a-z0-9-]{0,61}[a-z0-9]$`)
 
-// parseGoogleDomains reads the one-per-line domain list: trimmed, lowercased,
-// blank lines dropped, duplicates removed in first-seen order. Any line that
-// is not a domain name refuses the whole list.
+// parseGoogleDomains reads the domain list: entries are separated by a
+// semicolon or a line break (issue #472; the line break keeps lists saved one
+// per line and older form posts working), trimmed, lowercased, empty entries
+// dropped, duplicates removed in first-seen order. Any entry that is not a
+// domain name refuses the whole list.
 func parseGoogleDomains(text string) ([]string, bool) {
 	var domains []string
-	for line := range strings.Lines(text) {
-		d := strings.ToLower(strings.TrimSpace(line))
+	entries := strings.FieldsFunc(text, func(r rune) bool { return r == ';' || r == '\n' || r == '\r' })
+	for _, entry := range entries {
+		d := strings.ToLower(strings.TrimSpace(entry))
 		if d == "" {
 			continue
 		}
