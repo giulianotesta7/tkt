@@ -37,7 +37,7 @@ func TestSettingsRowsPresentation(t *testing.T) {
 		wants []string
 	}{
 		{"settings_organization", fixtureSettingsOrganizationData(), []string{`class="settings-group"`, `class="settings-row single"`, `aria-label="Name"`}},
-		{"settings_language", fixtureSettingsLanguageData(), []string{`class="settings-group"`, `class="settings-row single"`, `aria-label="Language"`}},
+		{"settings_language", fixtureSettingsLanguageData(), []string{`class="settings-group"`, `class="settings-segment"`, `<legend class="visually-hidden">Language</legend>`}},
 		{"settings_calendar", fixtureSettingsCalendarData(), []string{`class="settings-group"`, `class="settings-range"`, `aria-label="Timezone"`}},
 		{"settings_tickets", fixtureSettingsTicketsData(), []string{`<h3>Suggestion engine</h3>`, `<h3>Internal comment color</h3>`, `<h3>SLA targets</h3>`, `<h3>Targets by priority</h3>`}},
 		{"settings_email", fixtureSettingsEmailData(), []string{`<h3>Sender</h3>`, `<h3>Server</h3>`, `<h3>Credentials</h3>`}},
@@ -119,7 +119,7 @@ func TestSettingsSectionsRenderOneSectionEach(t *testing.T) {
 			title: "<h2 class=\"settings-section-title\">Interface language</h2>",
 			own: []string{
 				`action="/settings/language"`,
-				`<select id="interface_language" name="interface_language" aria-label="Language">`,
+				`<input type="radio" name="interface_language" value="en" checked>English`,
 				`Save language`,
 			},
 			absent: []string{`action="/settings/organization"`, `name="internal_comment_bg"`, `action="/settings/calendar"`},
@@ -963,9 +963,9 @@ func TestSettingsLanguageSectionShowsTheStoredLanguage(t *testing.T) {
 	for _, want := range []string{
 		`action="/settings/language"`,
 		`<h2 class="settings-section-title">Interface language</h2>`,
-		`<select id="interface_language" name="interface_language" aria-label="Language">`,
-		`<option value="en" selected>English</option>`,
-		`<option value="es">Español</option>`,
+		`<legend class="visually-hidden">Language</legend>`,
+		`<input type="radio" name="interface_language" value="en" checked>English`,
+		`<input type="radio" name="interface_language" value="es">Español`,
 		`Save language`,
 	} {
 		if !strings.Contains(body, want) {
@@ -1011,7 +1011,7 @@ func TestSettingsUpdateLanguagePersistsAndRendersTheNewLanguage(t *testing.T) {
 		`<html lang="es">`,
 		`<h1 class="command-title">Configuración</h1>`,
 		`<h2 class="settings-section-title">Idioma de la interfaz</h2>`,
-		`<option value="es" selected>Español</option>`,
+		`<input type="radio" name="interface_language" value="es" checked>Español`,
 		`Guardar idioma`,
 		`href="/settings/tickets">Tickets y SLA</a>`,
 	} {
@@ -1046,7 +1046,7 @@ func TestSettingsUpdateLanguageRejectsUnshippedCode(t *testing.T) {
 	if !strings.Contains(body, "invalid interface language") {
 		t.Errorf("rejection must read the current (English) language, got: %s", body)
 	}
-	if !strings.Contains(body, `value="en" selected`) {
+	if !strings.Contains(body, `value="en" checked`) {
 		t.Errorf("the stored language must stay marked after a rejection, got: %s", body)
 	}
 

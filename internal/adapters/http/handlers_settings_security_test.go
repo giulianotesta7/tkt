@@ -52,7 +52,7 @@ func storedPasswordSettings(t *testing.T, h *harness) application.PasswordSettin
 // its name) fails here instead of passing on a substring of the label.
 func wantSecurityCheckedSwitch(t *testing.T, body, name string, checked bool) {
 	t.Helper()
-	want := `<input type="checkbox" id="` + name + `" name="` + name + `" value="1" aria-labelledby="`
+	want := `<input type="checkbox" id="` + name + `" name="` + name + `" value="1"`
 	if !strings.Contains(body, want) {
 		t.Fatalf("the section must render the %s switch, got: %.1200s", name, body)
 	}
@@ -107,8 +107,8 @@ func TestSettingsSecurityRendersTheStoredPolicy(t *testing.T) {
 			// Three instance switches sit in the Passwords card — password sign-in
 			// (issue #419), self-service change and recovery. Each provider card
 			// heads itself with a switch row carrying its own modifier.
-			if got := strings.Count(body, `class="switch-line"`); got != 3 {
-				t.Errorf("the section renders %d instance switch lines, want one per instance switch (3)", got)
+			if got := strings.Count(body, `class="switch-line"`); got != 1 {
+				t.Errorf("the section renders %d switch lines, want one (password sign-in; self-service and recovery are checkboxes in the design)", got)
 			}
 			if got := strings.Count(body, `class="switch-row settings-provider-head"`); got != 2 {
 				t.Errorf("the section renders %d provider enable rows, want one per provider (2)", got)

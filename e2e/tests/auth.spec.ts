@@ -473,7 +473,7 @@ test.describe("Password recovery", () => {
     await page.goto(base() + "/settings/email");
     await page.getByLabel("SMTP server", { exact: true }).fill("127.0.0.1");
     await page.getByLabel("Port", { exact: true }).fill("1");
-    await page.getByLabel("Encryption", { exact: true }).selectOption("none");
+    await page.locator(".settings-segment label").filter({ hasText: "None" }).click();
     await page.getByLabel("Sender address", { exact: true }).fill("tkt@example.com");
     await page.getByLabel("TKT address", { exact: true }).fill("https://tkt.example.com");
     await page.getByRole("checkbox", { name: "Turn on email notifications" }).check();

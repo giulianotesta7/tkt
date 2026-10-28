@@ -23,14 +23,14 @@
         <div class="settings-row">
           <div><h3>{{t "settings.security.self_service"}}</h3><p>{{t "settings.security.change_help"}}</p>
           </div>
-          <label class="switch-line"><span class="switch">{{if .ChangeEnabled}}<input type="checkbox" id="password_change_enabled" name="password_change_enabled" value="1" aria-labelledby="password-change-label" checked>{{else}}<input type="checkbox" id="password_change_enabled" name="password_change_enabled" value="1" aria-labelledby="password-change-label">{{end}}</span><span id="password-change-label">{{t "settings.security.change"}}</span></label>
+          <div class="checkbox-field"><label><input type="checkbox" id="password_change_enabled" name="password_change_enabled" value="1"{{if .ChangeEnabled}} checked{{end}}> {{t "settings.security.change"}}</label></div>
         </div>
         <div class="settings-row">
           <div><h3>{{t "settings.security.recovery_title"}}</h3><p>{{t "settings.security.recovery_help"}}</p>
 {{if not .EmailConfigured}}            <p class="dep-note">{{t "settings.security.recovery_needs_email"}}{{if .CanManageEmail}} <a href="/settings/email">{{t "settings.security.recovery_needs_email_link"}}</a>.{{end}}
 {{end}}
           </div>
-          <label class="switch-line"><span class="switch">{{if .RecoveryEnabled}}<input type="checkbox" id="password_recovery_enabled" name="password_recovery_enabled" value="1" aria-labelledby="password-recovery-label" checked>{{else}}<input type="checkbox" id="password_recovery_enabled" name="password_recovery_enabled" value="1" aria-labelledby="password-recovery-label">{{end}}</span><span id="password-recovery-label">{{t "settings.security.recovery"}}</span></label>
+          <div class="checkbox-field"><label><input type="checkbox" id="password_recovery_enabled" name="password_recovery_enabled" value="1"{{if .RecoveryEnabled}} checked{{end}}> {{t "settings.security.recovery"}}</label></div>
         </div>
       </section>
       <div class="settings-savebar" data-settings-savebar hidden>

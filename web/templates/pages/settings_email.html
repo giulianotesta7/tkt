@@ -38,10 +38,11 @@
             <div class="field"><label for="email_port">{{t "settings.email.port"}}</label><input type="text" id="email_port" name="email_port" inputmode="numeric" value="{{.Email.Port}}" spellcheck="false" autocomplete="off"></div>
           </div>
           <div class="field settings-subfield">
-            <label for="email_encryption">{{t "settings.email.encryption"}}</label>
-            <select id="email_encryption" name="email_encryption">
-{{range .Email.Encryptions}}              <option value="{{.Value}}"{{if .Selected}} selected{{end}}>{{t .Label}}</option>
-{{end}}            </select>
+            <span class="field-label" id="email_encryption_label">{{t "settings.email.encryption"}}</span>
+            <fieldset class="settings-segment" aria-labelledby="email_encryption_label">
+              <legend class="visually-hidden">{{t "settings.email.encryption"}}</legend>
+{{range .Email.Encryptions}}              <label><input type="radio" name="email_encryption" value="{{.Value}}"{{if .Selected}} checked{{end}}>{{t .Label}}</label>
+{{end}}            </fieldset>
           </div>
           </div>
         </div>

@@ -86,10 +86,9 @@ func TestSettingsEmailSectionIsRootOnly(t *testing.T) {
 		`formaction="/settings/email/test"`,
 		`id="email_host" name="email_host" value=""`,
 		`id="email_port" name="email_port" inputmode="numeric" value="25"`,
-		`id="email_encryption" name="email_encryption"`,
-		`<option value="none" selected>None</option>`,
-		`<option value="starttls">STARTTLS</option>`,
-		`<option value="tls">TLS</option>`,
+		`<input type="radio" name="email_encryption" value="none" checked>None`,
+		`<input type="radio" name="email_encryption" value="starttls">STARTTLS`,
+		`<input type="radio" name="email_encryption" value="tls">TLS`,
 		`name="email_skip_tls_verify" value="1">`,
 		"Do not verify the certificate", // S16: the option
 		"Warning",                       // S16: its on-screen warning
@@ -220,7 +219,7 @@ func TestSettingsEmailSavePersistsAndRedirects(t *testing.T) {
 		`name="email_enabled" value="1" checked`,
 		`id="email_host" name="email_host" value="smtp.tkt.test"`,
 		`id="email_port" name="email_port" inputmode="numeric" value="587"`,
-		`<option value="starttls" selected>STARTTLS</option>`,
+		`<input type="radio" name="email_encryption" value="starttls" checked>STARTTLS`,
 		`name="email_skip_tls_verify" value="1" checked`,
 		`id="email_username" name="email_username" value="tkt-smtp"`,
 		`id="email_from_address" name="email_from_address" value="tkt@tkt.test"`,

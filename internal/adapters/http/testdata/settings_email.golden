@@ -130,12 +130,13 @@
             <div class="field"><label for="email_port">Port</label><input type="text" id="email_port" name="email_port" inputmode="numeric" value="587" spellcheck="false" autocomplete="off"></div>
           </div>
           <div class="field settings-subfield">
-            <label for="email_encryption">Encryption</label>
-            <select id="email_encryption" name="email_encryption">
-              <option value="none">None</option>
-              <option value="starttls" selected>STARTTLS</option>
-              <option value="tls">TLS</option>
-            </select>
+            <span class="field-label" id="email_encryption_label">Encryption</span>
+            <fieldset class="settings-segment" aria-labelledby="email_encryption_label">
+              <legend class="visually-hidden">Encryption</legend>
+              <label><input type="radio" name="email_encryption" value="none">None</label>
+              <label><input type="radio" name="email_encryption" value="starttls" checked>STARTTLS</label>
+              <label><input type="radio" name="email_encryption" value="tls">TLS</label>
+            </fieldset>
           </div>
           </div>
         </div>

@@ -115,14 +115,14 @@
         <div class="settings-row">
           <div><h3>Self-service</h3><p>Preferences gets a Password section. Administrators keep the Users action that sets any password.</p>
           </div>
-          <label class="switch-line"><span class="switch"><input type="checkbox" id="password_change_enabled" name="password_change_enabled" value="1" aria-labelledby="password-change-label" checked></span><span id="password-change-label">Allow people to change their own password from Preferences</span></label>
+          <div class="checkbox-field"><label><input type="checkbox" id="password_change_enabled" name="password_change_enabled" value="1" checked> Allow people to change their own password from Preferences</label></div>
         </div>
         <div class="settings-row">
           <div><h3>Recovery</h3><p>Sends a single-use link that expires in 1 hour. Needs email notifications.</p>
             <p class="dep-note">Email notifications are off, so this switch has no effect. <a href="/settings/email">Set up email notifications</a>.
 
           </div>
-          <label class="switch-line"><span class="switch"><input type="checkbox" id="password_recovery_enabled" name="password_recovery_enabled" value="1" aria-labelledby="password-recovery-label"></span><span id="password-recovery-label">Offer “Forgot your password?” on the sign-in page</span></label>
+          <div class="checkbox-field"><label><input type="checkbox" id="password_recovery_enabled" name="password_recovery_enabled" value="1"> Offer “Forgot your password?” on the sign-in page</label></div>
         </div>
       </section>
       <div class="settings-savebar" data-settings-savebar hidden>

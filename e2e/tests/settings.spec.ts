@@ -374,8 +374,14 @@ test.describe("Settings", () => {
     // Change the week, the window, and the zone, then save. setChecked is
     // idempotent, so the journey does not depend on the stored calendar it
     // starts from.
-    await page.locator('input[name="sla_calendar_days"][value="5"]').setChecked(false);
-    await page.locator('input[name="sla_calendar_days"][value="6"]').setChecked(true);
+    // The day chips replace the checkboxes visually (design 02), so the click
+    // lands on the chip's label; force skips the hidden input's own hit test.
+    await page
+      .locator('input[name="sla_calendar_days"][value="5"]')
+      .setChecked(false, { force: true });
+    await page
+      .locator('input[name="sla_calendar_days"][value="6"]')
+      .setChecked(true, { force: true });
     await page.getByLabel("Start", { exact: true }).fill("08:30");
     await page.getByLabel("End", { exact: true }).fill("17:45");
     await page.getByLabel("Timezone", { exact: true }).fill("America/Argentina/Buenos_Aires");
@@ -811,9 +817,10 @@ test.describe("Settings", () => {
     // Switch the instance-wide language from Settings.
     await page.goto(base() + "/settings/language");
     await expect(page.locator("h1").filter({ hasText: "Settings" })).toBeVisible();
-    const language = page.getByLabel("Language");
-    await expect(language).toHaveValue("en");
-    await language.selectOption("es");
+    // The language is a segmented choice (design 02): the radios are visually
+    // replaced by their labels, so the journey clicks the segment a person sees.
+    await expect(page.getByRole("radio", { name: "English" })).toBeChecked();
+    await page.locator(".settings-segment label").filter({ hasText: "Español" }).click();
     await page.getByRole("button", { name: "Save language" }).click();
     await expect(page).toHaveURL(/\/settings\/language$/);
 
@@ -822,14 +829,14 @@ test.describe("Settings", () => {
     await expect(page.locator("html")).toHaveAttribute("lang", "es");
     await expect(page.locator("h1").filter({ hasText: "Configuración" })).toBeVisible();
     await expect(page.locator("h2").filter({ hasText: "Idioma de la interfaz" })).toBeVisible();
-    await expect(page.getByLabel("Idioma")).toHaveValue("es");
+    await expect(page.getByRole("radio", { name: "Español" })).toBeChecked();
     await expect(page.locator("#save-feedback")).toContainText("Guardado");
 
     // Persisted (S9): the instance stays Spanish across a reload and across
     // users, because the setting is instance-wide and not per session.
     await page.reload();
     await expect(page.locator("html")).toHaveAttribute("lang", "es");
-    await expect(page.getByLabel("Idioma")).toHaveValue("es");
+    await expect(page.getByRole("radio", { name: "Español" })).toBeChecked();
 
     await assertCanonicalScreen(page, {
       viewport: 1280,
@@ -876,12 +883,12 @@ test.describe("Settings", () => {
 
     // Switch back to English and prove the previous language is restored.
     await page.goto(base() + "/settings/language");
-    await page.getByLabel("Idioma").selectOption("en");
+    await page.locator(".settings-segment label").filter({ hasText: "English" }).click();
     await page.getByRole("button", { name: "Guardar idioma" }).click();
     await expect(page).toHaveURL(/\/settings\/language$/);
     await expect(page.locator("html")).toHaveAttribute("lang", "en");
     await expect(page.locator("h1").filter({ hasText: "Settings" })).toBeVisible();
-    await expect(page.getByLabel("Language")).toHaveValue("en");
+    await expect(page.getByRole("radio", { name: "English" })).toBeChecked();
     await expect(page.locator("#save-feedback")).toContainText("Saved");
 
     await page.goto(base() + "/tickets");
@@ -933,7 +940,7 @@ test.describe("Settings", () => {
     // not depend on what an earlier run stored.
     await page.getByLabel("SMTP server", { exact: true }).fill("127.0.0.1");
     await page.getByLabel("Port", { exact: true }).fill("1");
-    await page.getByLabel("Encryption", { exact: true }).selectOption("none");
+    await page.locator(".settings-segment label").filter({ hasText: "None" }).click();
     // S16: the certificate is verified by default, and opting out is an
     // explicit control with its warning on screen beside it.
     await expect(
@@ -954,7 +961,7 @@ test.describe("Settings", () => {
     await page.reload();
     await expect(page.getByLabel("SMTP server", { exact: true })).toHaveValue("127.0.0.1");
     await expect(page.getByLabel("Port", { exact: true })).toHaveValue("1");
-    await expect(page.getByLabel("Encryption", { exact: true })).toHaveValue("none");
+    await expect(page.getByRole("radio", { name: "None" })).toBeChecked();
     await expect(page.getByLabel("Username", { exact: true })).toHaveValue("");
     await expect(page.getByLabel("Sender address", { exact: true })).toHaveValue("tkt@example.com");
     await expect(page.getByLabel("Sender name", { exact: true })).toHaveValue("TKT Notifications");
@@ -1013,7 +1020,7 @@ test.describe("Settings", () => {
     const secret = `S3cret-Smtp-${Date.now().toString(36)}`;
     await page.getByLabel("SMTP server", { exact: true }).fill("127.0.0.1");
     await page.getByLabel("Port", { exact: true }).fill("1");
-    await page.getByLabel("Encryption", { exact: true }).selectOption("starttls");
+    await page.locator(".settings-segment label").filter({ hasText: "STARTTLS" }).click();
     await page.getByLabel("Username", { exact: true }).fill("tkt-smtp");
     await page.getByLabel("Password", { exact: true }).fill(secret);
     await page.getByLabel("Sender address", { exact: true }).fill("tkt@example.com");
@@ -1050,7 +1057,7 @@ test.describe("Settings", () => {
     const secret = `S3cret-Keep-${Date.now().toString(36)}`;
     await page.getByLabel("SMTP server", { exact: true }).fill("127.0.0.1");
     await page.getByLabel("Port", { exact: true }).fill("1");
-    await page.getByLabel("Encryption", { exact: true }).selectOption("starttls");
+    await page.locator(".settings-segment label").filter({ hasText: "STARTTLS" }).click();
     await page.getByLabel("Username", { exact: true }).fill("tkt-smtp");
     await page.getByLabel("Password", { exact: true }).fill(secret);
     await page.getByLabel("Sender address", { exact: true }).fill("tkt@example.com");
@@ -1066,7 +1073,7 @@ test.describe("Settings", () => {
     await expect(page.getByLabel("Password", { exact: true })).toHaveValue("");
     await expect(page.getByText("A password is saved; leave empty to keep it.")).toBeVisible();
     await expect(page.getByLabel("Username", { exact: true })).toHaveValue("tkt-smtp");
-    await expect(page.getByLabel("Encryption", { exact: true })).toHaveValue("starttls");
+    await expect(page.getByRole("radio", { name: "STARTTLS" })).toBeChecked();
     expect(await page.content()).not.toContain(secret);
 
     await assertCanonicalScreen(page, {
@@ -1384,7 +1391,7 @@ test.describe("Preferences", () => {
       ]);
 
       await page.goto(base() + "/settings/language");
-      await page.getByLabel("Language").selectOption("es");
+      await page.locator(".settings-segment label").filter({ hasText: "Español" }).click();
       await page.getByRole("button", { name: "Save language" }).click();
       await expect(page.locator("html")).toHaveAttribute("lang", "es");
       await user.reload();
@@ -1402,7 +1409,7 @@ test.describe("Preferences", () => {
       await expect(page.locator("html")).toHaveAttribute("lang", "es");
 
       await page.goto(base() + "/settings/language");
-      await page.getByLabel("Idioma").selectOption("en");
+      await page.locator(".settings-segment label").filter({ hasText: "English" }).click();
       await page.getByRole("button", { name: "Guardar idioma" }).click();
       await user.reload();
       await expect(user.locator("html")).toHaveAttribute("lang", "en");

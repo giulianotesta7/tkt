@@ -19,6 +19,7 @@
   gap: 4px;
   min-width: 0;
   overflow-x: auto;
+  scrollbar-width: none;
   border-bottom: 1px solid var(--line);
   margin-bottom: 28px;
 }
@@ -381,6 +382,8 @@
    The native control stays in the DOM (focusable, announced), only the visual
    is replaced. */
 .settings-segment {
+  width: fit-content;
+  justify-self: start;
   display: inline-flex;
   flex-wrap: wrap;
   gap: 0;
@@ -782,18 +785,19 @@
 .stepper {
   display: inline-flex;
   align-items: center;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: var(--card);
-  overflow: hidden;
+  gap: 12px;
 }
 
 .stepper-step {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   width: 36px;
   height: 36px;
   padding: 0;
-  border: 0;
-  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--card);
   color: var(--ink-soft);
   font-size: 15px;
   line-height: 1;
@@ -807,28 +811,63 @@
 .stepper input {
   appearance: textfield;
   -moz-appearance: textfield;
-  width: 56px;
+  width: 48px;
   height: 36px;
   padding: 0;
   border: 0;
-  border-left: 1px solid var(--line);
-  border-right: 1px solid var(--line);
   background: transparent;
-  color: var(--ink);
+  color: var(--ink-strong);
   font: inherit;
-  font-size: 13px;
+  font-size: 14px;
+  font-weight: 600;
   text-align: center;
 }
 
-.stepper input:focus {
-  outline: none;
-  background: var(--hover);
+.stepper input:focus-visible {
+  outline: 3px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 8px;
 }
 
 .stepper input::-webkit-outer-spin-button,
 .stepper input::-webkit-inner-spin-button {
   -webkit-appearance: none;
   margin: 0;
+}
+
+/* Working days as toggle chips (design 02): the checkbox stays in the DOM, the
+   chip around it carries the checked state. */
+.calendar-day-list { gap: 8px; }
+
+.calendar-day {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  height: 36px;
+  padding: 0 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--ink-soft);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.calendar-day input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.calendar-day:has(input:checked) {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+  font-weight: 600;
+}
+
+.calendar-day:has(input:focus-visible) {
+  outline: 3px solid var(--accent);
+  outline-offset: 2px;
 }
 
 /* Company sign-in cards (issue #419): the shared TKT address and one card per
@@ -960,3 +999,20 @@
 }
 
 .switch-line .switch { margin: 0; }
+
+.settings-nav::-webkit-scrollbar { display: none; }
+
+/* A label for a group of controls (a segmented choice) is a span, since no
+   single control owns it; it reads exactly like the labels of the fields
+   around it. */
+.settings-row .field > .field-label {
+  display: block;
+  margin-bottom: 8px;
+  color: var(--ink-soft);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+/* Inside a field, the shared label rule adds a bottom margin meant for stacked
+   labels; the segments of a segmented control sit flush. */
+.settings-row .field .settings-segment label { margin-bottom: 0; }

@@ -210,7 +210,7 @@ function authenticatedScreens(deps: {
       label: `/settings/language`,
       path: "/settings/language",
       heading: (p) => p.locator("h2").filter({ hasText: "Interface language" }),
-      control: (p) => p.locator("#interface_language"),
+      control: (p) => p.locator(".settings-segment"),
     },
     {
       label: `/settings/tickets`,
