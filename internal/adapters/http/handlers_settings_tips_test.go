@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -24,45 +25,29 @@ func sectionBodyFor(t *testing.T, h *harness, path, sessionID string) string {
 	return rec.Body.String()
 }
 
-// tooltipText returns the content of the tooltip element with the given id.
-func tooltipText(body, id string) string {
-	start := strings.Index(body, `id="help-tip-`+id+`"`)
-	if start < 0 {
-		return ""
-	}
-	rest := body[start:]
-	open := strings.Index(rest, ">")
-	if open < 0 {
-		return ""
-	}
-	return rest[open+1 : open+1+strings.Index(rest[open+1:], "</span>")]
-}
-
-// TestSettingsFieldHelpIsBehindAToggletip proves the component and its wiring:
-// each explanation is a described tooltip of a real button, addressed by its
-// field's label, and it is no longer a paragraph under the field.
-func TestSettingsFieldHelpIsBehindAToggletip(t *testing.T) {
+// TestSettingsFieldHelpIsVisible proves the maintainer's L5 decision for the
+// tabs-and-rows design: every field explanation that used to hide behind a "?"
+// toggletip (issue #383, S11) is now visible text — a row description or a
+// help paragraph under its field — and no settings section renders a toggletip.
+func TestSettingsFieldHelpIsVisible(t *testing.T) {
 	h := newHarness(t)
 	_, rootSession := seedRoot(t, h)
 
 	cases := []struct {
-		path  string
-		id    string
-		label string
-		help  string
+		path string
+		help string
 	}{
-		{"/settings/organization", "org-logo", "Logo", "Square, 256 × 256 px recommended (128 × 128 px at least). PNG, up to 256 KiB."},
-		{"/settings/signin", "signin-title", "Title", "Leave it empty to use the default text."},
-		{"/settings/signin", "signin-image", "Background image", "1600 × 1800 px recommended. Smaller screens crop the edges, so keep the subject centered."},
-		{"/settings/tickets", "sla-warning", "Warning threshold", "At risk once this share of the target has elapsed."},
-		{"/settings/tickets", "hold-auto-close-days", "Close tickets on hold after N working days without a reply", "Empty means off: the instance never closes a held ticket on its own. Working days follow the SLA working calendar."},
-		{"/settings/calendar", "calendar-days", "Working days", "At least one day."},
-		{"/settings/calendar", "calendar-timezone", "Timezone", "IANA name"},
-		{"/settings/email", "email-username", "Username", "Leave it empty if your server accepts mail"},
-		{"/settings/email", "email-password", "Password", "Stored encrypted and never shown again."},
-		{"/settings/email", "email-from-address", "Sender address", "The address notifications are sent from"},
-		{"/settings/email", "email-from-name", "Sender name", "Shown as the sender in the mail client."},
-		{"/settings/email", "email-base-url", "TKT address", "The public address of this instance"},
+		{"/settings/organization", "Square, 256 × 256 px recommended (128 × 128 px at least). PNG, up to 256 KiB."},
+		{"/settings/signin", "Leave it empty to use the default text."},
+		{"/settings/signin", "1600 × 1800 px recommended. Smaller screens crop the edges, so keep the subject centered."},
+		{"/settings/tickets", "At risk once this share of the target has elapsed."},
+		{"/settings/tickets", "Empty means off: the instance never closes a held ticket on its own. Working days follow the SLA working calendar."},
+		{"/settings/calendar", "At least one day."},
+		{"/settings/calendar", "IANA name"},
+		{"/settings/email", "Leave it empty if your server accepts mail"},
+		{"/settings/email", "Stored encrypted and never shown again."},
+		{"/settings/email", "The address notifications are sent from, and the name shown in the mail client."},
+		{"/settings/email", "The public address of this instance"},
 	}
 	bodies := map[string]string{}
 	for _, tc := range cases {
@@ -70,27 +55,13 @@ func TestSettingsFieldHelpIsBehindAToggletip(t *testing.T) {
 		if !ok {
 			body = sectionBodyFor(t, h, tc.path, rootSession.ID)
 			bodies[tc.path] = body
-		}
-		for _, want := range []string{
-			`class="help-tip" type="button" aria-label="More about ` + tc.label + `" aria-describedby="help-tip-` + tc.id + `" aria-expanded="false" data-help-tip>?`,
-			`role="tooltip" id="help-tip-` + tc.id + `"`,
-			`<p class="help">` + tc.help,
-		} {
-			present := strings.Contains(body, want)
-			// The explanation text must live in the tooltip and nowhere as a
-			// paragraph; the other two markers must be present.
-			if strings.HasPrefix(want, `<p class="help">`) {
-				if present {
-					t.Errorf("%s: %q must not render as a visible paragraph", tc.path, tc.help)
-				}
-				continue
-			}
-			if !present {
-				t.Errorf("%s: the section must render %q", tc.path, want)
+			if strings.Contains(body, `data-help-tip`) || strings.Contains(body, `role="tooltip"`) {
+				t.Errorf("%s: a settings section must not render a toggletip", tc.path)
 			}
 		}
-		if got := tooltipText(body, tc.id); !strings.Contains(got, tc.help) {
-			t.Errorf("%s: the tooltip for %q reads %q, want it to carry %q", tc.path, tc.id, got, tc.help)
+		paragraph := regexp.MustCompile(`<p( class="help")?>` + regexp.QuoteMeta(strings.ReplaceAll(tc.help, "&", "&amp;")))
+		if !paragraph.MatchString(body) {
+			t.Errorf("%s: %q must render as a visible description or help paragraph", tc.path, tc.help)
 		}
 	}
 }
@@ -138,7 +109,7 @@ func TestSettingsSecurityAndStateHelpStaysVisible(t *testing.T) {
 
 	body := sectionBodyFor(t, h, "/settings/email", rootSession.ID)
 	for _, want := range []string{
-		`<p class="help">Warning: the connection is still encrypted`,
+		`<p>Warning: the connection is still encrypted`,
 		`<p class="help">A password is saved; leave empty to keep it.</p>`,
 	} {
 		if !strings.Contains(body, want) {
@@ -157,7 +128,8 @@ func TestSettingsEmailSectionIsNamedEmailNotifications(t *testing.T) {
 	english := sectionBodyFor(t, h, "/settings/email", rootSession.ID)
 	for _, want := range []string{
 		`href="/settings/email" aria-current="page">Email notifications</a>`,
-		`<h2 class="settings-section-title">Email notifications</h2>`,
+		`<h2 class="settings-section-title">Delivery</h2>`,
+		`<h2 class="settings-section-title">SMTP server</h2>`,
 		`Save email notifications`,
 	} {
 		if !strings.Contains(english, want) {
@@ -171,9 +143,10 @@ func TestSettingsEmailSectionIsNamedEmailNotifications(t *testing.T) {
 	spanish := sectionBodyFor(t, h, "/settings/email", rootSession.ID)
 	for _, want := range []string{
 		`Notificaciones por email</a>`,
-		`<h2 class="settings-section-title">Notificaciones por email</h2>`,
+		`<h2 class="settings-section-title">Entrega</h2>`,
+		`<h2 class="settings-section-title">Servidor SMTP</h2>`,
 		`Guardar notificaciones por email`,
-		`aria-label="Más sobre Usuario"`,
+		`<p class="help">Déjalo vacío si tu servidor acepta correo sin autenticación.</p>`,
 	} {
 		if !strings.Contains(spanish, want) {
 			t.Errorf("the Spanish email section must contain %q, got: %s", want, spanish)

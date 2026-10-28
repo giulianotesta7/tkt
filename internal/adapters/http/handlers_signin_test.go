@@ -81,7 +81,11 @@ func TestSigninSectionRendersTheDefaults(t *testing.T) {
 
 	body := sectionGet(t, h, "/settings/signin")
 	for _, want := range []string{
-		`<h2 class="settings-section-title">Sign-in page</h2>`,
+		`<h2 class="settings-section-title">Page content</h2>`,
+		`<h2 class="settings-section-title">Presentation panel</h2>`,
+		`aria-label="Title"`,
+		`aria-label="Subtitle"`,
+		`<h2 class="settings-preview-label">Preview</h2>`,
 		`action="/settings/signin" enctype="multipart/form-data"`,
 		`id="signin_title" name="title"`,
 		`id="signin_subtitle" name="subtitle"`,

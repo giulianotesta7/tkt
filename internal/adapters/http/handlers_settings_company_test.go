@@ -148,14 +148,14 @@ func TestSettingsSecurityRendersCompanySignInCards(t *testing.T) {
 		}
 	}
 
-	// The password sign-in switch lives inside the Passwords card and belongs to
-	// the company form, which is the form that owns that configuration.
+	// The password sign-in switch sits at the end of the Company sign-in group
+	// (design 02) and belongs to the company form, which owns that configuration.
 	wantCompanyChangeSwitch := `<input type="checkbox" id="password_signin_enabled" name="password_signin_enabled" value="1" form="company-signin-form" aria-labelledby="password-signin-label" checked>`
 	if !strings.Contains(body, wantCompanyChangeSwitch) {
 		t.Errorf("the Passwords card must render the password sign-in switch, got: %.1800s", body)
 	}
-	if strings.Index(body, `id="password_signin_enabled"`) > strings.Index(body, `id="company-signin-form"`) {
-		t.Errorf("the password sign-in switch must render inside the Passwords card, before the company form")
+	if strings.Index(body, `id="password_signin_enabled"`) < strings.Index(body, `id="company-signin-form"`) {
+		t.Errorf("the password sign-in switch must render inside the company sign-in form it belongs to")
 	}
 	assertNoWhitespaceViolations(t, body)
 }
@@ -505,7 +505,7 @@ func TestSettingsSecurityCompanySignInRendersInSpanish(t *testing.T) {
 		"Cuentas nuevas",
 		"Crear la cuenta como solicitante",
 		"Guardar el inicio de sesión de la empresa",
-		"Acceso con contraseña",
+		"Iniciar sesión con contraseña",
 		"Copiar",
 		"Copiado",
 	} {

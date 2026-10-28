@@ -30,6 +30,33 @@ func sectionGet(t *testing.T, h *harness, path string) string {
 	return rec.Body.String()
 }
 
+func TestSettingsRowsPresentation(t *testing.T) {
+	for _, tc := range []struct {
+		page  string
+		data  any
+		wants []string
+	}{
+		{"settings_organization", fixtureSettingsOrganizationData(), []string{`class="settings-group"`, `class="settings-row single"`, `aria-label="Name"`}},
+		{"settings_language", fixtureSettingsLanguageData(), []string{`class="settings-group"`, `class="settings-segment"`, `<legend class="visually-hidden">Language</legend>`}},
+		{"settings_calendar", fixtureSettingsCalendarData(), []string{`class="settings-group"`, `class="settings-range"`, `aria-label="Timezone"`}},
+		{"settings_tickets", fixtureSettingsTicketsData(), []string{`<h3>Suggestion engine</h3>`, `<h3>Internal comment color</h3>`, `<h3>SLA targets</h3>`, `<h3>Targets by priority</h3>`}},
+		{"settings_email", fixtureSettingsEmailData(), []string{`<h3>Sender</h3>`, `<h3>Server</h3>`, `<h3>Credentials</h3>`}},
+		{"settings_security", fixtureSettingsSecurityData(), []string{`id="google-signin-label"`, `id="microsoft-signin-label"`, `<legend class="visually-hidden">New accounts</legend>`}},
+	} {
+		t.Run(tc.page, func(t *testing.T) {
+			body := renderGolden(t, tc.page, "", tc.data, false)
+			for _, want := range tc.wants {
+				if !strings.Contains(body, want) {
+					t.Errorf("missing %q", want)
+				}
+			}
+			if strings.Contains(body, `class="settings-form card form-card"`) {
+				t.Error("unexpected form card")
+			}
+		})
+	}
+}
+
 func TestSettingsIndexRequiresAdmin(t *testing.T) {
 	h := newHarness(t)
 	user, err := h.users.Create(t.Context(), *h.admin, application.CreateUserInput{Name: "User", Email: "user@tkt.test", Password: "s3cret-pass-12"})
@@ -92,14 +119,14 @@ func TestSettingsSectionsRenderOneSectionEach(t *testing.T) {
 			title: "<h2 class=\"settings-section-title\">Interface language</h2>",
 			own: []string{
 				`action="/settings/language"`,
-				`<select id="interface_language" name="interface_language">`,
+				`<input type="radio" name="interface_language" value="en" checked>English`,
 				`Save language`,
 			},
 			absent: []string{`action="/settings/organization"`, `name="internal_comment_bg"`, `action="/settings/calendar"`},
 		},
 		{
 			path:  "/settings/tickets",
-			title: "<h2 class=\"settings-section-title\">Tickets &amp; SLA</h2>",
+			title: "<h2 class=\"settings-section-title\">Service level agreements (SLA)</h2>",
 			own: []string{
 				`action="/settings/appearance"`,
 				`name="internal_comment_bg" value="#E8EEFF"`,
@@ -282,25 +309,30 @@ func TestSettingsSaveBarNamesItsSection(t *testing.T) {
 	}
 }
 
-// TestSettingsDroppedCopyIsGone proves S2's copy rule: the descriptive
-// paragraphs an administrator can infer are gone, while the help that states a
-// rule they cannot infer (the SLA warning meaning, the calendar semantics, the
-// encryption rule) stays.
+// TestSettingsDroppedCopyIsGone proves S2's copy rule as amended by the
+// maintainer's L5 decision for the tabs-and-rows design: the descriptive lines
+// the design adds ("Instance configuration", the appearance description) are
+// present, while the copy that stayed dropped is still gone, and the help that
+// states a rule the user cannot infer stays.
 func TestSettingsDroppedCopyIsGone(t *testing.T) {
 	h := newHarness(t)
 
 	for _, path := range []string{"/settings/organization", "/settings/language", "/settings/tickets", "/settings/calendar"} {
 		body := sectionGet(t, h, path)
+		if !strings.Contains(body, "Instance configuration") {
+			t.Errorf("GET %s must carry the design's subtitle %q", path, "Instance configuration")
+		}
 		for _, unwanted := range []string{
-			"Instance configuration",
 			"Changes the language of every screen",
-			"Background color for internal comments",
 			"Off by default",
 		} {
 			if strings.Contains(body, unwanted) {
 				t.Errorf("GET %s must not carry the dropped copy %q", path, unwanted)
 			}
 		}
+	}
+	if !strings.Contains(sectionGet(t, h, "/settings/tickets"), "Background color for internal comments") {
+		t.Errorf("the appearance row must carry its description")
 	}
 
 	tickets := sectionGet(t, h, "/settings/tickets")
@@ -931,9 +963,9 @@ func TestSettingsLanguageSectionShowsTheStoredLanguage(t *testing.T) {
 	for _, want := range []string{
 		`action="/settings/language"`,
 		`<h2 class="settings-section-title">Interface language</h2>`,
-		`<select id="interface_language" name="interface_language">`,
-		`<option value="en" selected>English</option>`,
-		`<option value="es">Español</option>`,
+		`<legend class="visually-hidden">Language</legend>`,
+		`<input type="radio" name="interface_language" value="en" checked>English`,
+		`<input type="radio" name="interface_language" value="es">Español`,
 		`Save language`,
 	} {
 		if !strings.Contains(body, want) {
@@ -979,7 +1011,7 @@ func TestSettingsUpdateLanguagePersistsAndRendersTheNewLanguage(t *testing.T) {
 		`<html lang="es">`,
 		`<h1 class="command-title">Configuración</h1>`,
 		`<h2 class="settings-section-title">Idioma de la interfaz</h2>`,
-		`<option value="es" selected>Español</option>`,
+		`<input type="radio" name="interface_language" value="es" checked>Español`,
 		`Guardar idioma`,
 		`href="/settings/tickets">Tickets y SLA</a>`,
 	} {
@@ -1014,7 +1046,7 @@ func TestSettingsUpdateLanguageRejectsUnshippedCode(t *testing.T) {
 	if !strings.Contains(body, "invalid interface language") {
 		t.Errorf("rejection must read the current (English) language, got: %s", body)
 	}
-	if !strings.Contains(body, `value="en" selected`) {
+	if !strings.Contains(body, `value="en" checked`) {
 		t.Errorf("the stored language must stay marked after a rejection, got: %s", body)
 	}
 
@@ -1127,8 +1159,8 @@ func TestSettingsHoldAutoCloseWindowRendersOffAsEmpty(t *testing.T) {
 	if !strings.Contains(body, holdAutoCloseInput("")) {
 		t.Errorf("tickets section must render the hold auto-close field empty while off, got: %s", body)
 	}
-	if !strings.Contains(body, "Close tickets on hold after N working days without a reply") {
-		t.Errorf("tickets section must label the field with the spec sentence, got: %s", body)
+	if !strings.Contains(body, "Close after N working days without a reply") {
+		t.Errorf("tickets section must label the field with the design sentence, got: %s", body)
 	}
 }
 
@@ -1185,7 +1217,7 @@ func TestSettingsHoldAutoCloseWindowRejectsOutOfRange(t *testing.T) {
 			if !strings.Contains(body, holdAutoCloseInput(submitted)) {
 				t.Errorf("re-render must echo the submitted %q, got: %s", submitted, body)
 			}
-			if !strings.Contains(body, `<h2 class="settings-section-title">Tickets &amp; SLA</h2>`) {
+			if !strings.Contains(body, `<h2 class="settings-section-title">Service level agreements (SLA)</h2>`) {
 				t.Errorf("re-render must be the tickets section, got: %s", body)
 			}
 			if !strings.Contains(body, `name="sla_warning_percent"`) {

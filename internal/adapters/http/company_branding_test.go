@@ -2,6 +2,7 @@ package httpadapter
 
 import (
 	"net/http"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -38,24 +39,32 @@ func TestLoginProviderButtonsCarryTheirLogo(t *testing.T) {
 	}
 }
 
-// TestSettingsSecurityFieldHelpIsBehindAToggletip proves the Security section
-// keeps no field explanation as a paragraph: each is a described tooltip.
-func TestSettingsSecurityFieldHelpIsBehindAToggletip(t *testing.T) {
+// TestSettingsSecurityFieldHelpIsVisible proves the Security section keeps every
+// explanation as visible text (the maintainer's L5 decision for the
+// tabs-and-rows design): a row description or a help paragraph, never a toggletip.
+func TestSettingsSecurityFieldHelpIsVisible(t *testing.T) {
 	h := newHarness(t)
 	_, rootSession := seedRoot(t, h)
 	body := sectionBodyFor(t, h, "/settings/security", rootSession.ID)
 
-	for _, id := range []string{
-		"security-password-signin", "security-password-change", "security-password-recovery", "security-min-length",
-		"company-address", "google-secret", "google-domains", "google-redirect",
-		"microsoft-secret", "microsoft-tenant", "microsoft-redirect",
-	} {
-		if !strings.Contains(body, `role="tooltip" id="help-tip-`+id+`"`) {
-			t.Errorf("the Security section must render the toggletip %q", id)
-		}
+	if strings.Contains(body, `data-help-tip`) || strings.Contains(body, `role="tooltip"`) {
+		t.Error("the Security section must not render a toggletip")
 	}
-	if strings.Contains(body, `<p class="help"`) {
-		t.Error("the Security section must not render a field explanation as a visible paragraph")
+	for _, help := range []string{
+		"Off for everyone except root.",
+		"Preferences gets a Password section.",
+		"Sends a single-use link that expires in 1 hour.",
+		"Between 8 and 64 characters. Applies to every new password",
+		"The public address of this instance, such as",
+		"Stored encrypted and never shown again. Leave it blank to keep the saved secret.",
+		"One domain per line.",
+		"Built from the TKT address above. Paste it into the Google Cloud console",
+		"Only accounts from this tenant can sign in.",
+		"Built from the TKT address above. Add it in the Entra portal",
+	} {
+		if !regexp.MustCompile(`<p( class="help")?>` + regexp.QuoteMeta(help)).MatchString(body) {
+			t.Errorf("the Security section must render %q as visible text", help)
+		}
 	}
 	for _, gone := range []string{"Company Google accounts only", "Your organization only", `id="help-tip-google-signin"`, `id="help-tip-microsoft-signin"`} {
 		if strings.Contains(body, gone) {

@@ -72,13 +72,17 @@ test.describe("Settings", () => {
     await expect(page).toHaveURL(new RegExp(`/tickets/${ticketId}$`));
     await page.goto(base() + "/settings/tickets");
     await expect(page.locator("h1").filter({ hasText: "Settings" })).toBeVisible();
-    await expect(page.locator("h2").filter({ hasText: "Tickets & SLA" })).toBeVisible();
+    await expect(
+      page.locator('.settings-nav-link[aria-current="page"]').filter({ hasText: "Tickets & SLA" }),
+    ).toBeVisible();
     const appearance = page.locator('form[action="/settings/appearance"]');
     await expect(
-      appearance.getByRole("heading", { name: "Internal comment background", exact: true }),
+      appearance.getByRole("heading", { name: "Appearance", exact: true }),
     ).toBeVisible();
-    await expect(appearance.locator("h2")).toHaveCount(0);
-    await expect(page.locator(".settings-content > h2")).toHaveText("Tickets & SLA");
+    await expect(appearance.locator("h2")).toHaveCount(1);
+    await expect(page.locator('.settings-nav-link[aria-current="page"]')).toHaveText(
+      "Tickets & SLA",
+    );
     expect(
       await page
         .locator(".settings-content > form")
@@ -280,8 +284,12 @@ test.describe("Settings", () => {
     await loginAsSeeded(page);
     await page.goto(base() + "/settings/tickets");
     await expect(page.locator("h1").filter({ hasText: "Settings" })).toBeVisible();
-    await expect(page.locator("h2").filter({ hasText: "Tickets & SLA" })).toBeVisible();
-    await expect(page.locator("h3").filter({ hasText: "Service level agreements" })).toBeVisible();
+    await expect(
+      page.locator('.settings-nav-link[aria-current="page"]').filter({ hasText: "Tickets & SLA" }),
+    ).toBeVisible();
+    await expect(
+      page.locator("h2, h3").filter({ hasText: "Service level agreements" }),
+    ).toBeVisible();
 
     // Seeded configuration (migration 0013): the feature is OFF and each of the
     // eight default targets renders as one written duration (issue #395, S10).
@@ -366,8 +374,14 @@ test.describe("Settings", () => {
     // Change the week, the window, and the zone, then save. setChecked is
     // idempotent, so the journey does not depend on the stored calendar it
     // starts from.
-    await page.locator('input[name="sla_calendar_days"][value="5"]').setChecked(false);
-    await page.locator('input[name="sla_calendar_days"][value="6"]').setChecked(true);
+    // The day chips replace the checkboxes visually (design 02), so the click
+    // lands on the chip's label; force skips the hidden input's own hit test.
+    await page
+      .locator('input[name="sla_calendar_days"][value="5"]')
+      .setChecked(false, { force: true });
+    await page
+      .locator('input[name="sla_calendar_days"][value="6"]')
+      .setChecked(true, { force: true });
     await page.getByLabel("Start", { exact: true }).fill("08:30");
     await page.getByLabel("End", { exact: true }).fill("17:45");
     await page.getByLabel("Timezone", { exact: true }).fill("America/Argentina/Buenos_Aires");
@@ -511,9 +525,9 @@ test.describe("Settings", () => {
     // Tickets & SLA section (#383), and a seeded instance is OFF — which the
     // field shows as EMPTY.
     await expect(
-      page.locator("h3").filter({ hasText: "Automatic close of held tickets" }),
+      page.locator("h2, h3").filter({ hasText: "Automatic close of held tickets" }),
     ).toBeVisible();
-    const days = page.getByLabel("Close tickets on hold after N working days without a reply", {
+    const days = page.getByLabel("Close after N working days without a reply", {
       exact: true,
     });
     await expect(days).toHaveValue("");
@@ -579,7 +593,7 @@ test.describe("Settings", () => {
     const obs = collectObservability(page);
     await loginAsSeeded(page);
     await page.goto(base() + "/settings/tickets");
-    await expect(page.locator("h3").filter({ hasText: "Ticket creation" })).toBeVisible();
+    await expect(page.locator("h2, h3").filter({ hasText: "Ticket creation" })).toBeVisible();
 
     const single = page.getByRole("radio", { name: /^single page$/i });
     const twoSteps = page.getByRole("radio", { name: /^two steps$/i });
@@ -803,9 +817,10 @@ test.describe("Settings", () => {
     // Switch the instance-wide language from Settings.
     await page.goto(base() + "/settings/language");
     await expect(page.locator("h1").filter({ hasText: "Settings" })).toBeVisible();
-    const language = page.getByLabel("Language");
-    await expect(language).toHaveValue("en");
-    await language.selectOption("es");
+    // The language is a segmented choice (design 02): the radios are visually
+    // replaced by their labels, so the journey clicks the segment a person sees.
+    await expect(page.getByRole("radio", { name: "English" })).toBeChecked();
+    await page.locator(".settings-segment label").filter({ hasText: "Español" }).click();
     await page.getByRole("button", { name: "Save language" }).click();
     await expect(page).toHaveURL(/\/settings\/language$/);
 
@@ -814,14 +829,14 @@ test.describe("Settings", () => {
     await expect(page.locator("html")).toHaveAttribute("lang", "es");
     await expect(page.locator("h1").filter({ hasText: "Configuración" })).toBeVisible();
     await expect(page.locator("h2").filter({ hasText: "Idioma de la interfaz" })).toBeVisible();
-    await expect(page.getByLabel("Idioma")).toHaveValue("es");
+    await expect(page.getByRole("radio", { name: "Español" })).toBeChecked();
     await expect(page.locator("#save-feedback")).toContainText("Guardado");
 
     // Persisted (S9): the instance stays Spanish across a reload and across
     // users, because the setting is instance-wide and not per session.
     await page.reload();
     await expect(page.locator("html")).toHaveAttribute("lang", "es");
-    await expect(page.getByLabel("Idioma")).toHaveValue("es");
+    await expect(page.getByRole("radio", { name: "Español" })).toBeChecked();
 
     await assertCanonicalScreen(page, {
       viewport: 1280,
@@ -835,11 +850,10 @@ test.describe("Settings", () => {
     });
 
     await page.goto(base() + "/settings/tickets");
-    await expect(page.locator(".settings-content > h2")).toHaveText("Tickets y SLA");
-    await expect(page.locator('form[action="/settings/appearance"] h3')).toHaveText(
-      "Fondo de los comentarios internos",
+    await expect(page.locator('.settings-nav-link[aria-current="page"]')).toHaveText(
+      "Tickets y SLA",
     );
-    await expect(page.locator('form[action="/settings/appearance"] h2')).toHaveCount(0);
+    await expect(page.locator('form[action="/settings/appearance"] h2')).toHaveText("Apariencia");
 
     // The tickets list: Spanish chrome, view tabs and the relative time.
     await page.goto(base() + "/tickets");
@@ -869,12 +883,12 @@ test.describe("Settings", () => {
 
     // Switch back to English and prove the previous language is restored.
     await page.goto(base() + "/settings/language");
-    await page.getByLabel("Idioma").selectOption("en");
+    await page.locator(".settings-segment label").filter({ hasText: "English" }).click();
     await page.getByRole("button", { name: "Guardar idioma" }).click();
     await expect(page).toHaveURL(/\/settings\/language$/);
     await expect(page.locator("html")).toHaveAttribute("lang", "en");
     await expect(page.locator("h1").filter({ hasText: "Settings" })).toBeVisible();
-    await expect(page.getByLabel("Language")).toHaveValue("en");
+    await expect(page.getByRole("radio", { name: "English" })).toBeChecked();
     await expect(page.locator("#save-feedback")).toContainText("Saved");
 
     await page.goto(base() + "/tickets");
@@ -914,7 +928,11 @@ test.describe("Settings", () => {
     const obs = collectObservability(page);
     await loginAsSeeded(page);
     await page.goto(base() + "/settings/email");
-    await expect(page.locator("h2").filter({ hasText: "Email notifications" })).toBeVisible();
+    await expect(
+      page
+        .locator('.settings-nav-link[aria-current="page"]')
+        .filter({ hasText: "Email notifications" }),
+    ).toBeVisible();
 
     // An open internal relay (S2): no credentials, so no encryption is
     // required either (S15). Port 1 is deliberately a port nothing listens
@@ -922,7 +940,7 @@ test.describe("Settings", () => {
     // not depend on what an earlier run stored.
     await page.getByLabel("SMTP server", { exact: true }).fill("127.0.0.1");
     await page.getByLabel("Port", { exact: true }).fill("1");
-    await page.getByLabel("Encryption", { exact: true }).selectOption("none");
+    await page.locator(".settings-segment label").filter({ hasText: "None" }).click();
     // S16: the certificate is verified by default, and opting out is an
     // explicit control with its warning on screen beside it.
     await expect(
@@ -943,7 +961,7 @@ test.describe("Settings", () => {
     await page.reload();
     await expect(page.getByLabel("SMTP server", { exact: true })).toHaveValue("127.0.0.1");
     await expect(page.getByLabel("Port", { exact: true })).toHaveValue("1");
-    await expect(page.getByLabel("Encryption", { exact: true })).toHaveValue("none");
+    await expect(page.getByRole("radio", { name: "None" })).toBeChecked();
     await expect(page.getByLabel("Username", { exact: true })).toHaveValue("");
     await expect(page.getByLabel("Sender address", { exact: true })).toHaveValue("tkt@example.com");
     await expect(page.getByLabel("Sender name", { exact: true })).toHaveValue("TKT Notifications");
@@ -971,7 +989,11 @@ test.describe("Settings", () => {
     // or overflow at 390px.
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto(base() + "/settings/email");
-    await expect(page.locator("h2").filter({ hasText: "Email notifications" })).toBeVisible();
+    await expect(
+      page
+        .locator('.settings-nav-link[aria-current="page"]')
+        .filter({ hasText: "Email notifications" }),
+    ).toBeVisible();
     await assertCanonicalScreen(page, {
       viewport: 390,
       label: "settings email at 390px",
@@ -998,7 +1020,7 @@ test.describe("Settings", () => {
     const secret = `S3cret-Smtp-${Date.now().toString(36)}`;
     await page.getByLabel("SMTP server", { exact: true }).fill("127.0.0.1");
     await page.getByLabel("Port", { exact: true }).fill("1");
-    await page.getByLabel("Encryption", { exact: true }).selectOption("starttls");
+    await page.locator(".settings-segment label").filter({ hasText: "STARTTLS" }).click();
     await page.getByLabel("Username", { exact: true }).fill("tkt-smtp");
     await page.getByLabel("Password", { exact: true }).fill(secret);
     await page.getByLabel("Sender address", { exact: true }).fill("tkt@example.com");
@@ -1035,7 +1057,7 @@ test.describe("Settings", () => {
     const secret = `S3cret-Keep-${Date.now().toString(36)}`;
     await page.getByLabel("SMTP server", { exact: true }).fill("127.0.0.1");
     await page.getByLabel("Port", { exact: true }).fill("1");
-    await page.getByLabel("Encryption", { exact: true }).selectOption("starttls");
+    await page.locator(".settings-segment label").filter({ hasText: "STARTTLS" }).click();
     await page.getByLabel("Username", { exact: true }).fill("tkt-smtp");
     await page.getByLabel("Password", { exact: true }).fill(secret);
     await page.getByLabel("Sender address", { exact: true }).fill("tkt@example.com");
@@ -1051,7 +1073,7 @@ test.describe("Settings", () => {
     await expect(page.getByLabel("Password", { exact: true })).toHaveValue("");
     await expect(page.getByText("A password is saved; leave empty to keep it.")).toBeVisible();
     await expect(page.getByLabel("Username", { exact: true })).toHaveValue("tkt-smtp");
-    await expect(page.getByLabel("Encryption", { exact: true })).toHaveValue("starttls");
+    await expect(page.getByRole("radio", { name: "STARTTLS" })).toBeChecked();
     expect(await page.content()).not.toContain(secret);
 
     await assertCanonicalScreen(page, {
@@ -1081,9 +1103,7 @@ test.describe("Settings", () => {
     await expect(page.locator("h1").filter({ hasText: "Settings" })).toBeVisible();
     await expect(page.locator("h2").filter({ hasText: "Organization" })).toBeVisible();
     await page.goto(base() + "/settings/tickets");
-    await expect(
-      page.locator("h3").filter({ hasText: "Internal comment background" }),
-    ).toBeVisible();
+    await expect(page.locator("h2, h3").filter({ hasText: "Appearance" })).toBeVisible();
     // S1/S4: the Email section is root-only, so its nav entry is hidden and a
     // direct visit is refused.
     await expect(page.locator('.settings-nav a[href="/settings/email"]')).toHaveCount(0);
@@ -1103,7 +1123,9 @@ test.describe("Settings", () => {
     await loginAsSeeded(page);
     await page.goto(base() + "/settings/security");
 
-    await expect(page.locator("h2").filter({ hasText: "Security" })).toBeVisible();
+    await expect(
+      page.locator('.settings-nav-link[aria-current="page"]').filter({ hasText: "Security" }),
+    ).toBeVisible();
     // Issue #419: the section holds two independent forms, so the password
     // policy behaviour is scoped to the form that owns it.
     const passwordForm = page.locator('form[action="/settings/security"]');
@@ -1210,11 +1232,18 @@ test.describe("Settings", () => {
     // global user grant: the control copies the field's configured value, turns
     // its label into the copied state, and announces it through the live region.
     await page.context().grantPermissions(["clipboard-read", "clipboard-write"]);
+    // The provider's fields show only while its switch is on, so the journey
+    // turns Google on to reach the control.
+    const googleSwitch = companyForm.locator("#google_enabled");
+    await googleSwitch.check({ force: true });
     const copy = companyForm
       .locator(".copy-field")
       .filter({ has: page.locator("#google_redirect_uri") })
       .locator("button");
     await expect(copy).toHaveText("Copy");
+    // Turning the switch on is the journey's own edit, so the company bar is
+    // already open here; copying must leave it exactly as it was.
+    await expect(companyForm.locator("[data-settings-savebar]")).toBeVisible();
     await copy.click();
     await expect(copy).toHaveText("Copied");
     await expect(companyForm.locator("[data-copy-status]").first()).toHaveText("Copied");
@@ -1224,7 +1253,7 @@ test.describe("Settings", () => {
 
     // Copying is not a save: the URL is unchanged and no save bar appeared.
     await expect(page).toHaveURL(/\/settings\/security$/);
-    await expect(companyForm.locator("[data-settings-savebar]")).toBeHidden();
+    await expect(companyForm.locator("[data-settings-savebar]")).toBeVisible();
     await expect(passwordForm.locator("[data-settings-savebar]")).toBeHidden();
 
     await assertCanonicalScreen(page, {
@@ -1362,7 +1391,7 @@ test.describe("Preferences", () => {
       ]);
 
       await page.goto(base() + "/settings/language");
-      await page.getByLabel("Language").selectOption("es");
+      await page.locator(".settings-segment label").filter({ hasText: "Español" }).click();
       await page.getByRole("button", { name: "Save language" }).click();
       await expect(page.locator("html")).toHaveAttribute("lang", "es");
       await user.reload();
@@ -1380,7 +1409,7 @@ test.describe("Preferences", () => {
       await expect(page.locator("html")).toHaveAttribute("lang", "es");
 
       await page.goto(base() + "/settings/language");
-      await page.getByLabel("Idioma").selectOption("en");
+      await page.locator(".settings-segment label").filter({ hasText: "English" }).click();
       await page.getByRole("button", { name: "Guardar idioma" }).click();
       await user.reload();
       await expect(user.locator("html")).toHaveAttribute("lang", "en");
@@ -1764,7 +1793,9 @@ test.describe("Preferences", () => {
     await page.setViewportSize({ width: 1280, height: 800 });
     await loginAsSeeded(page);
     await page.goto(base() + "/settings/signin");
-    await expect(page.locator("h2").filter({ hasText: "Sign-in page" })).toBeVisible();
+    await expect(
+      page.locator('.settings-nav-link[aria-current="page"]').filter({ hasText: "Sign-in page" }),
+    ).toBeVisible();
 
     // The sticky save bar and the live preview: typing changes both.
     const savebar = page.locator('form[action="/settings/signin"] [data-settings-savebar]');
@@ -1885,69 +1916,42 @@ test.describe("Preferences", () => {
   });
 
   /**
-   * Issue #383, S11: field help is a "?" button that opens on hover and on
-   * keyboard focus, toggles on click, and closes on Escape and on an outside
-   * click — while the security warning and the saved-password state stay
-   * visible under their fields.
+   * Issue #383, S11 as amended by the maintainer's L5 decision for the
+   * tabs-and-rows design: field help is no longer a "?" toggletip. Each
+   * explanation is visible text beside or under its field, with no hover or
+   * focus step, and the security warning and the saved-password state stay
+   * visible too.
    */
-  test("field help opens as a toggletip on hover, focus, click and closes on Escape", async ({
-    page,
-  }) => {
+  test("field help is visible text, with no toggletip to open", async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 800 });
     const obs = collectObservability(page);
     await loginAsSeeded(page);
     await page.goto(base() + "/settings/email");
-    await expect(page.locator("h2").filter({ hasText: "Email notifications" })).toBeVisible();
+    await expect(
+      page
+        .locator('.settings-nav-link[aria-current="page"]')
+        .filter({ hasText: "Email notifications" }),
+    ).toBeVisible();
 
-    // Issue #380: the SMTP server's address is what its label says, so that
-    // field carries no toggletip; the Username field's is the one exercised.
-    await expect(page.locator('button[aria-describedby="help-tip-email-host"]')).toHaveCount(0);
-    await expect(page.locator("#help-tip-email-host")).toHaveCount(0);
+    // No settings section renders a toggletip button or tooltip any more.
+    await expect(page.locator("[data-help-tip]")).toHaveCount(0);
+    await expect(page.locator('[role="tooltip"]')).toHaveCount(0);
 
-    const tip = page.locator('button[aria-describedby="help-tip-email-username"]');
-    const bubble = page.locator("#help-tip-email-username");
-    await expect(tip).toBeVisible();
-    await expect(tip).toHaveAttribute("aria-label", "More about Username");
-    await expect(bubble).toBeHidden();
+    // The explanations are readable without asking: a row description or a help
+    // paragraph, in view as soon as the section opens.
+    await expect(
+      page.getByText("Leave it empty if your server accepts mail without authentication."),
+    ).toBeVisible();
+    await expect(page.getByText("Stored encrypted and never shown again.")).toBeVisible();
+    await expect(page.getByText("Used to sign in to the SMTP server.")).toBeVisible();
+    await expect(
+      page.getByText(
+        "The address notifications are sent from, and the name shown in the mail client.",
+      ),
+    ).toBeVisible();
 
-    // Hover opens it.
-    await tip.hover();
-    await expect(bubble).toBeVisible();
-    await expect(bubble).toContainText(
-      "Leave it empty if your server accepts mail without authentication.",
-    );
-
-    // Moving away closes the hover-only state.
-    await page.locator("#email_username").hover();
-    await expect(bubble).toBeHidden();
-
-    // Keyboard focus opens it too.
-    await tip.focus();
-    await expect(bubble).toBeVisible();
-
-    // A click toggles: the focus had already opened it, so the first click
-    // collapses it and the second pins it open again.
-    await tip.click();
-    await expect(tip).toHaveAttribute("aria-expanded", "false");
-    await tip.click();
-    await expect(tip).toHaveAttribute("aria-expanded", "true");
-    await expect(bubble).toBeVisible();
-
-    // Escape collapses it and leaves the focus on the control.
-    await page.keyboard.press("Escape");
-    await expect(tip).toHaveAttribute("aria-expanded", "false");
-    await page.locator("#email_username").hover();
-    await expect(bubble).toBeHidden();
-
-    // A click opens it, a click outside closes it.
-    await tip.click();
-    await expect(bubble).toBeVisible();
-    await page.locator("#email_username").click();
-    await expect(tip).toHaveAttribute("aria-expanded", "false");
-    await expect(bubble).toBeHidden();
-
-    // The explanations the interface already gives are gone, and the two
-    // exceptions stay readable without asking.
+    // The explanations the interface already gives stay gone, and the warning
+    // stays readable without asking.
     await expect(page.getByText("25 by default")).toHaveCount(0);
     await expect(page.getByText("While off, TKT sends nothing.")).toHaveCount(0);
     await expect(
@@ -1956,7 +1960,7 @@ test.describe("Preferences", () => {
 
     await assertCanonicalScreen(page, {
       viewport: 1280,
-      label: "settings email toggletips",
+      label: "settings email visible help",
       url: page.url(),
       role: "root",
       consoleErrors: obs.consoleErrors,

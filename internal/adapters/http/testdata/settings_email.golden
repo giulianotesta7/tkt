@@ -84,9 +84,7 @@
 </div>
 
 <div class="command-header">
-  <div>
-    <h1 class="command-title">Settings</h1>
-  </div>
+  <div><h1 class="command-title">Settings</h1><p class="settings-subtitle">Instance configuration</p></div>
 </div>
 <div class="settings-layout">
 
@@ -101,58 +99,70 @@
 </nav>
 
   <div class="settings-content">
-    <form class="settings-form card form-card" method="post" action="/settings/email" data-settings-form>
-      <h2 class="settings-section-title">Email notifications</h2>
-      <div class="field checkbox-field">
-        <label><input type="checkbox" name="email_enabled" value="1" checked> Turn on email notifications</label>
-      </div>
-      <div class="field-row">
-        <div class="field">
-          <label for="email_host">SMTP server</label>
-          <input type="text" id="email_host" name="email_host" value="smtp.acme.test" spellcheck="false" autocapitalize="off">
+    <form class="settings-form" method="post" action="/settings/email" data-settings-form>
+      <section class="settings-group">
+        <h2 class="settings-section-title">Delivery</h2>
+        <div class="settings-row">
+          <div><h3>Email notifications</h3></div>
+          <div class="checkbox-field"><label><input type="checkbox" name="email_enabled" value="1" checked> Turn on email notifications</label></div>
         </div>
-        <div class="field">
-          <label for="email_port">Port</label>
-          <input type="text" id="email_port" name="email_port" inputmode="numeric" value="587" spellcheck="false" autocomplete="off">
+        <div class="settings-row single">
+          <div><h3>TKT address</h3><p>The public address of this instance, like https://tkt.example.com. Emails link to tickets with it.</p></div>
+          <div class="field"><input type="text" id="email_base_url" name="email_base_url" value="https://tkt.acme.test" spellcheck="false" autocapitalize="off" aria-label="TKT address"></div>
         </div>
-      </div>
-      <div class="field">
-        <label for="email_encryption">Encryption</label>
-        <select id="email_encryption" name="email_encryption">
-      <option value="none">None</option>
-      <option value="starttls" selected>STARTTLS</option>
-      <option value="tls">TLS</option>
-    </select>
-      </div>
-      <div class="field checkbox-field">
-        <label><input type="checkbox" name="email_skip_tls_verify" value="1"> Do not verify the certificate</label>
-        <p class="help">Warning: the connection is still encrypted, but TKT cannot check it is talking to your server and not to an impostor.</p>
-      </div>
-      <div class="field-row">
-        <div class="field">
-          <label for="email_username">Username</label><span class="help-tip-wrap"><button class="help-tip" type="button" aria-label="More about Username" aria-describedby="help-tip-email-username" aria-expanded="false" data-help-tip>?</button><span class="help-tip-bubble" role="tooltip" id="help-tip-email-username">Leave it empty if your server accepts mail without authentication.</span></span>
-          <input type="text" id="email_username" name="email_username" value="notifications" spellcheck="false" autocapitalize="off" autocomplete="off">
+        <div class="settings-row">
+          <div><h3>Sender</h3><p>The address notifications are sent from, and the name shown in the mail client.</p></div>
+          <div class="settings-pair">
+            <div class="field"><label for="email_from_address">Sender address</label><input type="text" id="email_from_address" name="email_from_address" value="tkt@acme.test" spellcheck="false" autocapitalize="off">
+            </div>
+            <div class="field"><label for="email_from_name">Sender name</label><input type="text" id="email_from_name" name="email_from_name" value="Acme Support">
+            </div>
+          </div>
         </div>
-        <div class="field">
-          <label for="email_password">Password</label><span class="help-tip-wrap"><button class="help-tip" type="button" aria-label="More about Password" aria-describedby="help-tip-email-password" aria-expanded="false" data-help-tip>?</button><span class="help-tip-bubble" role="tooltip" id="help-tip-email-password">Stored encrypted and never shown again.</span></span>
-          <input type="password" id="email_password" name="email_password" value="" autocomplete="new-password">
-      <p class="help">A password is saved; leave empty to keep it.</p>
+      </section>
+      <section class="settings-group">
+        <h2 class="settings-section-title">SMTP server</h2>
+        <div class="settings-row">
+          <div><h3>Server</h3></div>
+          <div>
+          <div class="settings-pair">
+            <div class="field"><label for="email_host">SMTP server</label><input type="text" id="email_host" name="email_host" value="smtp.acme.test" spellcheck="false" autocapitalize="off"></div>
+            <div class="field"><label for="email_port">Port</label><input type="text" id="email_port" name="email_port" inputmode="numeric" value="587" spellcheck="false" autocomplete="off"></div>
+          </div>
+          <div class="field settings-subfield">
+            <span class="field-label" id="email_encryption_label">Encryption</span>
+            <fieldset class="settings-segment" aria-labelledby="email_encryption_label">
+              <legend class="visually-hidden">Encryption</legend>
+              <label><input type="radio" name="email_encryption" value="none">None</label>
+              <label><input type="radio" name="email_encryption" value="starttls" checked>STARTTLS</label>
+              <label><input type="radio" name="email_encryption" value="tls">TLS</label>
+            </fieldset>
+          </div>
+          </div>
         </div>
-      </div>
-      <div class="field">
-        <label for="email_from_address">Sender address</label><span class="help-tip-wrap"><button class="help-tip" type="button" aria-label="More about Sender address" aria-describedby="help-tip-email-from-address" aria-expanded="false" data-help-tip>?</button><span class="help-tip-bubble" role="tooltip" id="help-tip-email-from-address">The address notifications are sent from, like tkt@example.com.</span></span>
-        <input type="text" id="email_from_address" name="email_from_address" value="tkt@acme.test" spellcheck="false" autocapitalize="off">
-      </div>
-      <div class="field">
-        <label for="email_from_name">Sender name</label><span class="help-tip-wrap"><button class="help-tip" type="button" aria-label="More about Sender name" aria-describedby="help-tip-email-from-name" aria-expanded="false" data-help-tip>?</button><span class="help-tip-bubble" role="tooltip" id="help-tip-email-from-name">Shown as the sender in the mail client. Optional.</span></span>
-        <input type="text" id="email_from_name" name="email_from_name" value="Acme Support">
-      </div>
-      <div class="field">
-        <label for="email_base_url">TKT address</label><span class="help-tip-wrap"><button class="help-tip" type="button" aria-label="More about TKT address" aria-describedby="help-tip-email-base-url" aria-expanded="false" data-help-tip>?</button><span class="help-tip-bubble" role="tooltip" id="help-tip-email-base-url">The public address of this instance, like https://tkt.example.com. Emails link to tickets with it.</span></span>
-        <input type="text" id="email_base_url" name="email_base_url" value="https://tkt.acme.test" spellcheck="false" autocapitalize="off">
-      </div>
-      <p class="help">Sends one email to ana@example.com with the saved configuration.</p>
-      <button class="btn" type="submit" formaction="/settings/email/test">Send test email</button>
+        <div class="settings-row">
+          <div><h3>Credentials</h3><p>Used to sign in to the SMTP server.</p></div>
+          <div class="settings-pair">
+            <div class="field"><label for="email_username">Username</label><input type="text" id="email_username" name="email_username" value="notifications" spellcheck="false" autocapitalize="off" autocomplete="off">
+              <p class="help">Leave it empty if your server accepts mail without authentication.</p>
+          </div>
+            <div class="field"><label for="email_password">Password</label><input type="password" id="email_password" name="email_password" value="" autocomplete="new-password">
+              <p class="help">A password is saved; leave empty to keep it.</p>
+              <p class="help">Stored encrypted and never shown again.</p>
+          </div>
+          </div>
+        </div>
+        <div class="settings-row">
+          <div><h3>Certificate</h3><p>Warning: the connection is still encrypted, but TKT cannot check it is talking to your server and not to an impostor.</p></div>
+          <div class="checkbox-field"><label><input type="checkbox" name="email_skip_tls_verify" value="1"> Do not verify the certificate</label></div>
+        </div>
+        <div class="settings-row">
+          <div><h3>Send test email</h3><p>Sends one email to ana@example.com with the saved configuration.</p></div>
+          <div>
+            <button class="btn" type="submit" formaction="/settings/email/test">Send test email</button>
+          </div>
+        </div>
+      </section>
       <div class="settings-savebar" data-settings-savebar hidden>
         <button class="btn primary" type="submit">Save email notifications</button>
         <button class="btn" type="reset">Discard</button>

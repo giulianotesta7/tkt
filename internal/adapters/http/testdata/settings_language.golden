@@ -85,7 +85,7 @@
 
 <div class="command-header">
   <div>
-    <h1 class="command-title">Settings</h1>
+    <h1 class="command-title">Settings</h1><p class="settings-subtitle">Instance configuration</p>
   </div>
 </div>
 <div class="settings-layout">
@@ -101,15 +101,18 @@
 </nav>
 
   <div class="settings-content">
-    <form class="settings-form card form-card" method="post" action="/settings/language" data-settings-form>
+    <form class="settings-form" method="post" action="/settings/language" data-settings-form>
+      <section class="settings-group">
       <h2 class="settings-section-title">Interface language</h2>
-      <div class="field">
-        <label for="interface_language">Language</label>
-        <select id="interface_language" name="interface_language">
-      <option value="en" selected>English</option>
-      <option value="es">Español</option>
-    </select>
+      <div class="settings-row">
+        <div><h3>Language</h3><p>Applies to everyone who has not picked a language in Preferences.</p></div>
+        <fieldset class="settings-segment">
+          <legend class="visually-hidden">Language</legend>
+          <label><input type="radio" name="interface_language" value="en" checked>English</label>
+          <label><input type="radio" name="interface_language" value="es">Español</label>
+        </fieldset>
       </div>
+      </section>
       <div class="settings-savebar" data-settings-savebar hidden>
         <button class="btn primary" type="submit">Save language</button>
         <button class="btn" type="reset">Discard</button>

@@ -2,37 +2,39 @@
 {{define "content"}}
 <div class="command-header">
   <div>
-    <h1 class="command-title">{{t "settings.title"}}</h1>
+    <h1 class="command-title">{{t "settings.title"}}</h1><p class="settings-subtitle">{{t "settings.subtitle"}}</p>
   </div>
 </div>
 <div class="settings-layout">
 {{template "settings_nav" .}}
   <div class="settings-content">
 {{if .Error}}    <div class="error-banner" role="alert">{{.Error}}</div>
-{{end}}    <form class="settings-form card form-card" method="post" action="/settings/organization" enctype="multipart/form-data" data-settings-form>
+{{end}}    <form class="settings-form" method="post" action="/settings/organization" enctype="multipart/form-data" data-settings-form>
+      <section class="settings-group">
       <h2 class="settings-section-title">{{t "settings.organization.title"}}</h2>
-      <div class="field">
-        <label for="org_name">{{t "settings.organization.name"}}</label>
-        <input type="text" id="org_name" name="name" value="{{.Name}}" maxlength="60" required>
+      <div class="settings-row single">
+        <div><h3>{{t "settings.organization.name"}}</h3><p>{{t "settings.organization.name_help"}}</p></div>
+        <div class="field"><input type="text" id="org_name" name="name" value="{{.Name}}" maxlength="60" required aria-label="{{t "settings.organization.name"}}"></div>
       </div>
-      <div class="field">
-        <label for="org_help_desk">{{t "settings.organization.help_desk"}}</label>
-        <input type="text" id="org_help_desk" name="help_desk" value="{{.HelpDesk}}" maxlength="40">
+      <div class="settings-row single">
+        <div><h3>{{t "settings.organization.help_desk"}}</h3></div>
+        <div class="field"><input type="text" id="org_help_desk" name="help_desk" value="{{.HelpDesk}}" maxlength="40" aria-label="{{t "settings.organization.help_desk"}}"></div>
       </div>
-      <div class="field">
-        <label for="org_support_email">{{t "settings.organization.support_email"}}</label>
-        <input type="text" id="org_support_email" name="support_email" value="{{.SupportEmail}}" spellcheck="false" autocapitalize="off">
+      <div class="settings-row single">
+        <div><h3>{{t "settings.organization.support_email"}}</h3></div>
+        <div class="field"><input type="text" id="org_support_email" name="support_email" value="{{.SupportEmail}}" spellcheck="false" autocapitalize="off" aria-label="{{t "settings.organization.support_email"}}"></div>
       </div>
-      <div class="field">
-        <label for="org_logo">{{t "settings.organization.logo"}}</label>{{template "help_tip" (helpTip "org-logo" (t "settings.organization.logo") (t "settings.organization.logo_help"))}}
+      <div class="settings-row">
+        <div><h3>{{t "settings.organization.logo"}}</h3><p>{{t "settings.organization.logo_help"}}</p></div>
         <div class="settings-logo">
           <span class="settings-logo-mark">{{if .Brand.HasLogo}}<img src="/brand/logo?v={{.Brand.LogoVersion}}" alt="" width="48" height="48">{{else}}{{.Brand.Monogram}}{{end}}</span>
           <div class="settings-logo-controls">
-            <input type="file" id="org_logo" name="logo" accept="image/png">
+            <input type="file" id="org_logo" name="logo" accept="image/png" aria-label="{{t "settings.organization.logo"}}">
 {{if .Brand.HasLogo}}            <button class="btn" type="submit" form="org-logo-remove">{{t "settings.organization.logo_remove"}}</button>
 {{end}}          </div>
         </div>
       </div>
+      </section>
       <div class="settings-savebar" data-settings-savebar hidden>
         <button class="btn primary" type="submit">{{t "settings.organization.save"}}</button>
         <button class="btn" type="reset">{{t "settings.discard"}}</button>

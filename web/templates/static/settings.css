@@ -10,32 +10,61 @@
  */
 
 .settings-layout {
-  display: grid;
-  grid-template-columns: 220px minmax(0, 1fr);
-  gap: 32px;
-  align-items: start;
+  min-width: 0;
 }
 
-/* The section rail: a list of links, the active one marked with
-   aria-current="page" and the accent's soft fill. It sticks beside a long
-   section so the wayfinding survives a scroll. */
+/* Section links remain native navigation; scrolling keeps every tab reachable. */
 .settings-nav {
   display: flex;
-  flex-direction: column;
-  gap: 2px;
-  position: sticky;
-  top: 76px;
+  gap: 4px;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+  border-bottom: 1px solid var(--line);
+  margin-bottom: 28px;
+}
+
+.settings-subtitle {
+  margin: 6px 0 0;
+  color: var(--muted);
+  font-size: 14px;
 }
 
 .settings-nav-link {
-  display: block;
-  padding: 8px 12px;
-  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
+  padding: 10px 14px;
+  border-bottom: 2px solid transparent;
+  white-space: nowrap;
   color: var(--ink-soft);
   font-size: 13px;
   font-weight: 500;
   text-decoration: none;
 }
+
+/* Tab icons are decorative, so they are drawn with CSS masks keyed by the
+   section link rather than inline markup: the link stays a plain text anchor
+   and screen readers announce only its label. The mask takes the link's own
+   colour, so hover, active and dark themes need no extra rule. */
+.settings-nav-link::before {
+  content: "";
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  background: currentColor;
+  -webkit-mask: var(--tab-icon) center / contain no-repeat;
+  mask: var(--tab-icon) center / contain no-repeat;
+}
+
+.settings-nav-link[href$="/settings/organization"] { --tab-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M4 21V4h10v17M14 9h6v12M8 8h2M8 12h2M8 16h2'/%3E%3C/svg%3E"); }
+.settings-nav-link[href$="/settings/signin"] { --tab-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='8' cy='15' r='4'/%3E%3Cpath d='M11 12l9-9M16 7l3 3'/%3E%3C/svg%3E"); }
+.settings-nav-link[href$="/settings/language"] { --tab-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='12' cy='12' r='9'/%3E%3Cpath d='M3 12h18M12 3c3 3 3 15 0 18M12 3c-3 3-3 15 0 18'/%3E%3C/svg%3E"); }
+.settings-nav-link[href$="/settings/tickets"] { --tab-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 8a2 2 0 0 0 0 8v2h18v-2a2 2 0 0 1 0-8V6H3zM14 6v12'/%3E%3C/svg%3E"); }
+.settings-nav-link[href$="/settings/email"] { --tab-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='3' y='5' width='18' height='14' rx='2'/%3E%3Cpath d='M3 7l9 6 9-6'/%3E%3C/svg%3E"); }
+.settings-nav-link[href$="/settings/security"] { --tab-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z'/%3E%3C/svg%3E"); }
+.settings-nav-link[href$="/settings/calendar"] { --tab-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='3' y='5' width='18' height='16' rx='2'/%3E%3Cpath d='M3 10h18M8 3v4M16 3v4'/%3E%3C/svg%3E"); }
 
 .settings-nav-link:hover {
   background: var(--hover);
@@ -43,8 +72,11 @@
 }
 
 .settings-nav-link[aria-current="page"] {
-  background: var(--accent-soft);
+  background: var(--hover);
+  border-radius: 8px 8px 0 0;
+  border-bottom-color: var(--accent);
   color: var(--ink-strong);
+  font-weight: 600;
 }
 
 .settings-content {
@@ -54,8 +86,7 @@
   min-width: 0;
 }
 
-/* The section title is the smallest heading rung the system ships (14px at
-   weight 600): a settings section is a grouping, not a page banner. */
+/* Unmigrated section titles retain their existing hierarchy. */
 .settings-section-title {
   margin: 0;
   font-size: 14px;
@@ -81,6 +112,7 @@
   display: flex;
   flex-wrap: wrap;
   align-items: center;
+  justify-content: flex-end;
   gap: 10px;
   margin-top: 4px;
   padding: 12px 0;
@@ -147,28 +179,42 @@
   max-width: 100%;
 }
 
-/* Mobile (≤640px): the rail becomes a horizontal row of chips above the
-   section, scrollable so a long section list never widens the page. */
+/* Row primitives are scoped to migrated forms; other settings keep their cards. */
+.settings-group { max-width: 960px; }
+.settings-group > h2.settings-section-title {
+  margin: 0;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--line-strong);
+  color: var(--ink-strong);
+  font-size: 20px;
+  font-weight: 600;
+}
+.settings-row {
+  display: grid;
+  grid-template-columns: 280px minmax(0, 1fr);
+  gap: 32px;
+  padding: 20px 0;
+  border-bottom: 1px solid var(--line);
+}
+.settings-row:last-child { border-bottom: 0; }
+.settings-row h3 { margin: 0; color: var(--ink-strong); font-size: 13px; font-weight: 600; }
+.settings-row p { margin: 4px 0 0; color: var(--muted); font-size: 12px; }
+.settings-row.single > div:first-child { padding-top: 10px; }
+.settings-row .field { margin: 0; min-width: 0; }
+.settings-row.single :is(input[type="text"], select) { width: 100%; max-width: 560px; }
+.settings-pair { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; max-width: 720px; }
+.settings-pair input { width: 100%; }
+.settings-range { display: flex; align-items: end; gap: 12px; max-width: 720px; }
+.settings-range .field { min-width: 0; }
+.settings-range-separator { padding-bottom: 10px; color: var(--muted); }
+.settings-layout input[type="number"] { appearance: textfield; -moz-appearance: textfield; }
+.settings-layout input[type="number"]::-webkit-inner-spin-button,
+.settings-layout input[type="number"]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
 @media (max-width: 640px) {
-  .settings-layout {
-    grid-template-columns: minmax(0, 1fr);
-    gap: 16px;
-  }
-
-  .settings-nav {
-    position: static;
-    flex-direction: row;
-    gap: 8px;
-    overflow-x: auto;
-    padding-bottom: 4px;
-  }
-
-  .settings-nav-link {
-    flex: 0 0 auto;
-    border: 1px solid var(--line);
-    border-radius: 999px;
-    white-space: nowrap;
-  }
+  .settings-row { grid-template-columns: minmax(0, 1fr); gap: 12px; }
+  .settings-row.single > div:first-child { padding-top: 0; }
+  .settings-logo-controls { flex-wrap: wrap; }
+  .settings-pair { grid-template-columns: minmax(0, 1fr); }
 }
 
 /* A group inside a section (Appearance inside Tickets & SLA) is one rung below
@@ -192,6 +238,11 @@
   border: 0;
 }
 
+.settings-content form[action="/settings/ticket-creation"] .settings-choice-group {
+  width: 100%;
+  max-width: 260px;
+}
+
 .settings-choice-group .field-label {
   padding: 0;
   margin-bottom: 2px;
@@ -203,9 +254,9 @@
 .settings-choice {
   display: flex;
   align-items: center;
-  gap: 8px;
-  min-height: 32px;
-  padding: 0 10px;
+  gap: 10px;
+  min-height: 36px;
+  padding: 0 12px;
   border: 1px solid var(--line);
   border-radius: 8px;
   color: var(--ink);
@@ -222,8 +273,28 @@
   background: var(--accent-soft);
 }
 
-.settings-choice input {
+/* The radio is drawn, not native (design 02): a ring that fills with the accent
+   when chosen. The input stays a real radio, so focus, arrow keys and the form
+   value are the browser's own. */
+.settings-choice input[type="radio"] {
+  appearance: none;
+  -webkit-appearance: none;
+  flex: none;
+  width: 14px;
+  height: 14px;
   margin: 0;
+  border: 1.5px solid var(--line-strong);
+  border-radius: 50%;
+  background: var(--card);
+}
+
+.settings-choice input[type="radio"]:checked {
+  border: 4px solid var(--accent);
+}
+
+.settings-choice input[type="radio"]:focus-visible {
+  outline: 3px solid var(--accent);
+  outline-offset: 2px;
 }
 
 .settings-choice-label {
@@ -236,6 +307,7 @@
    rest of the section's help copy uses. */
 .settings-choice-detailed {
   align-items: flex-start;
+  padding: 10px 12px;
 }
 
 .settings-choice-detailed input {
@@ -318,19 +390,21 @@
    scaled frame, so the mirror cannot drift from what the sign-in page shows. */
 .settings-signin {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 340px;
-  gap: 24px;
+  grid-template-columns: minmax(0, 1fr) 460px;
+  gap: 40px;
   align-items: start;
 }
 
-.settings-signin .form-card {
-  max-width: none;
-}
+.settings-signin .settings-row { grid-template-columns: minmax(0, 1fr); gap: 12px; }
+.settings-signin .settings-row.single > div:first-child { padding-top: 0; }
+.settings-signin :is(.settings-highlights, .settings-reveal, [data-show-when="background=brand"], [data-show-when="background=image"]) { margin-top: 12px; }
 
 /* A segmented control: one radio group drawn as a row of adjacent segments.
    The native control stays in the DOM (focusable, announced), only the visual
    is replaced. */
 .settings-segment {
+  width: fit-content;
+  justify-self: start;
   display: inline-flex;
   flex-wrap: wrap;
   gap: 0;
@@ -413,17 +487,21 @@
   flex-direction: column;
   gap: 8px;
   min-width: 0;
+  container-type: inline-size;
 }
 
 .settings-preview-label {
-  color: var(--muted);
-  font-size: 12px;
+  margin: 0 0 8px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--line-strong);
+  color: var(--ink-strong);
+  font-size: 20px;
   font-weight: 600;
 }
 
 .settings-preview-frame {
   width: 100%;
-  height: 210px;
+  height: calc(100cqw * 520 / 720);
   overflow: hidden;
   border: 1px solid var(--line-strong);
   border-radius: 8px;
@@ -431,22 +509,22 @@
 }
 
 .settings-preview-scale {
-  width: 1120px;
-  height: 640px;
-  transform: scale(0.3);
+  width: 720px;
+  height: 520px;
+  transform: scale(calc(100cqw / 720px));
   transform-origin: top left;
   pointer-events: none;
 }
 
 .settings-preview-scale .auth-entry__presentation {
-  width: 1120px;
-  height: 640px;
+  width: 720px;
+  height: 520px;
   min-height: 0;
   border-right: 0;
 }
 
 .settings-preview-scale .auth-entry__body h2 {
-  font-size: 44px;
+  font-size: 34px;
 }
 
 @media (max-width: 640px) {
@@ -458,9 +536,12 @@
     position: static;
   }
 
-  .settings-preview-frame {
-    height: 170px;
-  }
+  .settings-preview-scale .auth-entry__presentation { gap: 24px; padding: 44px 52px; }
+  .settings-preview-scale .auth-entry__body { margin: auto 0; gap: 14px; }
+  .settings-preview-scale .auth-entry__sub { font-size: 16px; margin: 0 0 16px; }
+  .settings-preview-scale .auth-entry__steps,
+  .settings-preview-scale .auth-entry__highlights { display: grid; }
+  .settings-preview-scale .auth-entry__foot { display: flex; }
 
   .settings-highlight {
     grid-template-columns: minmax(0, 1fr);
@@ -725,18 +806,19 @@
 .stepper {
   display: inline-flex;
   align-items: center;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: var(--card);
-  overflow: hidden;
+  gap: 12px;
 }
 
 .stepper-step {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   width: 36px;
   height: 36px;
   padding: 0;
-  border: 0;
-  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--card);
   color: var(--ink-soft);
   font-size: 15px;
   line-height: 1;
@@ -750,22 +832,22 @@
 .stepper input {
   appearance: textfield;
   -moz-appearance: textfield;
-  width: 56px;
+  width: 48px;
   height: 36px;
   padding: 0;
   border: 0;
-  border-left: 1px solid var(--line);
-  border-right: 1px solid var(--line);
   background: transparent;
-  color: var(--ink);
+  color: var(--ink-strong);
   font: inherit;
-  font-size: 13px;
+  font-size: 14px;
+  font-weight: 600;
   text-align: center;
 }
 
-.stepper input:focus {
-  outline: none;
-  background: var(--hover);
+.stepper input:focus-visible {
+  outline: 3px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 8px;
 }
 
 .stepper input::-webkit-outer-spin-button,
@@ -774,28 +856,115 @@
   margin: 0;
 }
 
+/* Working days as toggle chips (design 02): the checkbox stays in the DOM, the
+   chip around it carries the checked state. */
+.calendar-day-list { gap: 8px; }
+
+.calendar-day {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  height: 36px;
+  padding: 0 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--ink-soft);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.calendar-day input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.calendar-day:has(input:checked) {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+  font-weight: 600;
+}
+
+.calendar-day:has(input:focus-visible) {
+  outline: 3px solid var(--accent);
+  outline-offset: 2px;
+}
+
 /* Company sign-in cards (issue #419): the shared TKT address and one card per
    provider, stacked under the Passwords card. The form itself is a plain
    container, so each card keeps the section's 12px shell; the provider header
    reuses the switch row, which puts the enable toggle beside the provider it
    enables. Nothing here introduces a colour or a radius. */
+/* Security rows retain the native switches and keep provider fields visible. */
+.settings-row.switch-row { display: grid; column-gap: 32px; }
+.settings-row .sla-grid { margin-top: 0; border-top: 0; }
+.settings-row .sla-duration-grid .sla-grid-row { grid-template-columns: 90px 150px 150px; gap: 8px; }
+.settings-row .sla-duration-grid .sla-duration-input { height: 36px; }
+@media (max-width: 640px) { .settings-row .sla-duration-grid .sla-grid-row { grid-template-columns: minmax(0, 1fr); } }
+.settings-row .sla-grid { margin-top: 0; border-top: 0; }
+
 .settings-company-form {
   display: flex;
   flex-direction: column;
   margin: 0;
 }
 
+/* Provider cards (design 02): one bordered card per provider, in the right
+   column of a single "Providers" row. The header carries the logo tile, the name
+   and the enable switch; the credentials fields live in the body and show only
+   while the switch is on. The reveal is CSS (:has), so it needs no script and a
+   hidden body still posts its values, which keeps a configured but disabled
+   provider from losing its stored fields on save. */
+.settings-providers { display: grid; gap: 12px; max-width: 720px; min-width: 0; }
+
+.settings-provider {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--card);
+}
+
 .settings-provider-head {
-  padding-top: 0;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 12px;
+  padding: 14px 16px;
+  border-bottom: 0;
 }
 
-.settings-provider-head .settings-group-title {
-  margin-bottom: 2px;
+.settings-provider-head .switch { margin: 0 0 0 auto; }
+
+.settings-provider-logo {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 36px;
+  height: 36px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
 }
 
-.settings-provider-head .help {
-  margin-top: 2px;
+.settings-provider-logo .company-logo { width: 20px; height: 20px; }
+
+.settings-provider-name {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ink-strong);
 }
+
+.settings-provider-body {
+  display: grid;
+  gap: 14px;
+  padding: 16px;
+  border-top: 1px solid var(--line);
+  min-width: 0;
+}
+
+.settings-provider-body .field { margin: 0; }
+.settings-provider-body :is(input[type="text"], input[type="password"], textarea) { width: 100%; }
+.settings-provider:not(:has(.settings-provider-head input:checked)) .settings-provider-body { display: none; }
 
 /* A redirect URI is derived from the shared address rather than typed here, so
    it renders on the surface rung: the value stays readable and copyable without
@@ -836,3 +1005,35 @@
   margin-left: 6px;
   vertical-align: -2px;
 }
+
+.settings-row .settings-subfield { margin-top: 16px; }
+
+/* A switch beside its sentence, in the right column of a row (design 02): the
+   label text is the control's name, so the whole line is the click target. */
+.switch-line {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: var(--ink);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.switch-line .switch { margin: 0; }
+
+.settings-nav::-webkit-scrollbar { display: none; }
+
+/* A label for a group of controls (a segmented choice) is a span, since no
+   single control owns it; it reads exactly like the labels of the fields
+   around it. */
+.settings-row .field > .field-label {
+  display: block;
+  margin-bottom: 8px;
+  color: var(--ink-soft);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+/* Inside a field, the shared label rule adds a bottom margin meant for stacked
+   labels; the segments of a segmented control sit flush. */
+.settings-row .field .settings-segment label { margin-bottom: 0; }

@@ -2,21 +2,24 @@
 {{define "content"}}
 <div class="command-header">
   <div>
-    <h1 class="command-title">{{t "settings.title"}}</h1>
+    <h1 class="command-title">{{t "settings.title"}}</h1><p class="settings-subtitle">{{t "settings.subtitle"}}</p>
   </div>
 </div>
 <div class="settings-layout">
 {{template "settings_nav" .}}
   <div class="settings-content">
 {{if .Error}}    <div class="error-banner" role="alert">{{.Error}}</div>
-{{end}}    <form class="settings-form card form-card" method="post" action="/settings/language" data-settings-form>
+{{end}}    <form class="settings-form" method="post" action="/settings/language" data-settings-form>
+      <section class="settings-group">
       <h2 class="settings-section-title">{{t "settings.language.title"}}</h2>
-      <div class="field">
-        <label for="interface_language">{{t "settings.language.label"}}</label>
-        <select id="interface_language" name="interface_language">
-{{range .Languages}}      <option value="{{.Value}}"{{if eq $.CurrentLanguage .Value}} selected{{end}}>{{t .Label}}</option>
-{{end}}    </select>
+      <div class="settings-row">
+        <div><h3>{{t "settings.language.label"}}</h3><p>{{t "settings.language.help"}}</p></div>
+        <fieldset class="settings-segment">
+          <legend class="visually-hidden">{{t "settings.language.label"}}</legend>
+{{range .Languages}}          <label><input type="radio" name="interface_language" value="{{.Value}}"{{if eq $.CurrentLanguage .Value}} checked{{end}}>{{t .Label}}</label>
+{{end}}        </fieldset>
       </div>
+      </section>
       <div class="settings-savebar" data-settings-savebar hidden>
         <button class="btn primary" type="submit">{{t "settings.language.save"}}</button>
         <button class="btn" type="reset">{{t "settings.discard"}}</button>

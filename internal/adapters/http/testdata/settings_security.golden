@@ -85,7 +85,7 @@
 
 <div class="command-header">
   <div>
-    <h1 class="command-title">Settings</h1>
+    <h1 class="command-title">Settings</h1><p class="settings-subtitle">Instance configuration</p>
   </div>
 </div>
 <div class="settings-layout">
@@ -100,114 +100,124 @@
   <a class="settings-nav-link" href="/settings/calendar">Working calendar</a>
 </nav>
 
-  <div class="settings-content">
-    <h2 class="settings-section-title">Security</h2>
-    <form class="settings-form card form-card" method="post" action="/settings/security" data-settings-form>
-      <h3 class="settings-group-title">Passwords</h3>
-      <div class="switch-list">
-        <div class="switch-row">
-          <div class="switch-copy">
-            <span class="switch-label" id="password-signin-label">Password sign-in</span><span class="help-tip-wrap"><button class="help-tip" type="button" aria-label="More about Password sign-in" aria-describedby="help-tip-security-password-signin" aria-expanded="false" data-help-tip>?</button><span class="help-tip-bubble" role="tooltip" id="help-tip-security-password-signin">Off for everyone except root. The root account keeps the password form as a break-glass in case the provider fails.</span></span>
-            <p class="dep-note">Password sign-in is off. Only root can still use the password form, which the sign-in page keeps as a break-glass. “Forgot your password?” and Preferences › Password are hidden.</p>
+  <div class="settings-content" aria-label="Security">
+    <form class="settings-form" method="post" action="/settings/security" data-settings-form>
+      <section class="settings-group">
+        <h2 class="settings-section-title">Passwords</h2>
+        <div class="settings-row">
+          <div><h3>Minimum length</h3><p>Between 8 and 64 characters. Applies to every new password; existing passwords keep working.</p></div>
+          <div><div class="stepper">
+            <button type="button" class="stepper-step" data-step="-1" aria-label="Decrease minimum length">−</button>
+            <input class="num" aria-label="Minimum password length" id="password_min_length" name="password_min_length" type="number" min="8" max="64" step="1" value="16">
+            <button type="button" class="stepper-step" data-step="1" aria-label="Increase minimum length">+</button>
+          </div></div>
+        </div>
+        <div class="settings-row">
+          <div><h3>Self-service</h3><p>Preferences gets a Password section. Administrators keep the Users action that sets any password.</p>
           </div>
-          <span class="switch"><input type="checkbox" id="password_signin_enabled" name="password_signin_enabled" value="1" form="company-signin-form" aria-labelledby="password-signin-label"></span>
+          <div class="checkbox-field"><label><input type="checkbox" id="password_change_enabled" name="password_change_enabled" value="1" checked> Allow people to change their own password from Preferences</label></div>
         </div>
-        <div class="switch-row">
-          <div class="switch-copy">
-            <span class="switch-label" id="password-change-label">Allow people to change their own password from Preferences</span><span class="help-tip-wrap"><button class="help-tip" type="button" aria-label="More about Allow people to change their own password from Preferences" aria-describedby="help-tip-security-password-change" aria-expanded="false" data-help-tip>?</button><span class="help-tip-bubble" role="tooltip" id="help-tip-security-password-change">Preferences gets a Password section. Administrators keep the Users action that sets any password.</span></span>
+        <div class="settings-row">
+          <div><h3>Recovery</h3><p>Sends a single-use link that expires in 1 hour. Needs email notifications.</p>
+            <p class="dep-note">Email notifications are off, so this switch has no effect. <a href="/settings/email">Set up email notifications</a>.
+
           </div>
-          <span class="switch"><input type="checkbox" id="password_change_enabled" name="password_change_enabled" value="1" aria-labelledby="password-change-label" checked></span>
+          <div class="checkbox-field"><label><input type="checkbox" id="password_recovery_enabled" name="password_recovery_enabled" value="1"> Offer “Forgot your password?” on the sign-in page</label></div>
         </div>
-        <div class="switch-row">
-          <div class="switch-copy">
-            <span class="switch-label" id="password-recovery-label">Offer “Forgot your password?” on the sign-in page</span><span class="help-tip-wrap"><button class="help-tip" type="button" aria-label="More about Offer “Forgot your password?” on the sign-in page" aria-describedby="help-tip-security-password-recovery" aria-expanded="false" data-help-tip>?</button><span class="help-tip-bubble" role="tooltip" id="help-tip-security-password-recovery">Sends a single-use link that expires in 1 hour. Needs email notifications.</span></span>
-            <p class="dep-note">Email notifications are off, so this switch has no effect. <a href="/settings/email">Set up email notifications</a>.</p>
-          </div>
-          <span class="switch"><input type="checkbox" id="password_recovery_enabled" name="password_recovery_enabled" value="1" aria-labelledby="password-recovery-label"></span>
-        </div>
-      </div>
-      <div class="field">
-        <label for="password_min_length">Minimum password length</label><span class="help-tip-wrap"><button class="help-tip" type="button" aria-label="More about Minimum password length" aria-describedby="help-tip-security-min-length" aria-expanded="false" data-help-tip>?</button><span class="help-tip-bubble" role="tooltip" id="help-tip-security-min-length">Between 8 and 64 characters. Applies to every new password; existing passwords keep working.</span></span>
-        <div class="stepper">
-          <button type="button" class="stepper-step" data-step="-1" aria-label="Decrease minimum length">−</button>
-          <input class="num" id="password_min_length" name="password_min_length" type="number" min="8" max="64" step="1" value="16">
-          <button type="button" class="stepper-step" data-step="1" aria-label="Increase minimum length">+</button>
-        </div>
-      </div>
+      </section>
       <div class="settings-savebar" data-settings-savebar hidden>
         <button class="btn primary" type="submit">Save password settings</button>
         <button class="btn" type="reset">Discard</button>
       </div>
     </form>
     <form class="settings-company-form" id="company-signin-form" method="post" action="/settings/security/company" data-settings-form>
-      <div class="card form-card">
-        <h3 class="settings-group-title">Company sign-in</h3>
-        <div class="field">
-          <label for="company_signin_address">TKT address</label><span class="help-tip-wrap"><button class="help-tip" type="button" aria-label="More about TKT address" aria-describedby="help-tip-company-address" aria-expanded="false" data-help-tip>?</button><span class="help-tip-bubble" role="tooltip" id="help-tip-company-address">The public address of this instance, such as https://tkt.example.com. Both redirect URIs are built from it: the address cannot be taken safely from the request host.</span></span>
-          <input type="text" id="company_signin_address" name="company_signin_address" value="https://tkt.example.test" spellcheck="false" autocapitalize="off" placeholder="https://tkt.example.com">
+      <section class="settings-group">
+        <h2 class="settings-section-title">Company sign-in</h2>
+        <div class="settings-row single">
+          <div><h3>TKT address</h3><p>The public address of this instance, such as https://tkt.example.com. Both redirect URIs are built from it: the address cannot be taken safely from the request host.</p></div>
+          <div class="field"><input type="text" id="company_signin_address" name="company_signin_address" value="https://tkt.example.test" spellcheck="false" autocapitalize="off" placeholder="https://tkt.example.com" aria-label="TKT address"></div>
         </div>
-      </div>
-      <div class="card form-card">
-        <div class="switch-row settings-provider-head">
-          <div class="switch-copy">
-            <h3 class="settings-group-title" id="google-signin-label"><svg class="company-logo" viewBox="0 0 48 48" aria-hidden="true" focusable="false"><path fill="#EA4335" d="M24 9.5c3.5 0 6.6 1.2 9.1 3.6l6.8-6.8C35.8 2.4 30.3 0 24 0 14.6 0 6.5 5.4 2.6 13.2l7.9 6.1C12.4 13.6 17.7 9.5 24 9.5z"/><path fill="#4285F4" d="M46.5 24.5c0-1.6-.1-3.1-.4-4.5H24v9h12.7c-.6 3-2.3 5.4-4.8 7.1l7.6 5.9c4.5-4.1 7-10.2 7-17.5z"/><path fill="#FBBC05" d="M10.5 28.7A14.5 14.5 0 0 1 9.5 24c0-1.6.3-3.2.8-4.7l-7.9-6.1A24 24 0 0 0 0 24c0 3.9.9 7.5 2.6 10.8l7.9-6.1z"/><path fill="#34A853" d="M24 48c6.5 0 11.9-2.1 15.9-5.8l-7.6-5.9c-2.1 1.4-4.9 2.3-8.3 2.3-6.3 0-11.6-4.1-13.5-9.8l-7.9 6.1C6.5 42.6 14.6 48 24 48z"/></svg>Google Workspace</h3>
-          </div>
-          <span class="switch"><input type="checkbox" id="google_enabled" name="google_enabled" value="1" aria-labelledby="google-signin-label" checked></span>
-        </div>
+      <div class="settings-row">
+        <div><h3>Providers</h3><p>Turn on a provider to enter the credentials from its console. Both redirect URIs are built from the TKT address above.</p></div>
+        <div class="settings-providers">
+          <section class="settings-provider" aria-labelledby="google-signin-label">
+            <div class="switch-row settings-provider-head">
+              <span class="settings-provider-logo"><svg class="company-logo" viewBox="0 0 48 48" aria-hidden="true" focusable="false"><path fill="#EA4335" d="M24 9.5c3.5 0 6.6 1.2 9.1 3.6l6.8-6.8C35.8 2.4 30.3 0 24 0 14.6 0 6.5 5.4 2.6 13.2l7.9 6.1C12.4 13.6 17.7 9.5 24 9.5z"/><path fill="#4285F4" d="M46.5 24.5c0-1.6-.1-3.1-.4-4.5H24v9h12.7c-.6 3-2.3 5.4-4.8 7.1l7.6 5.9c4.5-4.1 7-10.2 7-17.5z"/><path fill="#FBBC05" d="M10.5 28.7A14.5 14.5 0 0 1 9.5 24c0-1.6.3-3.2.8-4.7l-7.9-6.1A24 24 0 0 0 0 24c0 3.9.9 7.5 2.6 10.8l7.9-6.1z"/><path fill="#34A853" d="M24 48c6.5 0 11.9-2.1 15.9-5.8l-7.6-5.9c-2.1 1.4-4.9 2.3-8.3 2.3-6.3 0-11.6-4.1-13.5-9.8l-7.9 6.1C6.5 42.6 14.6 48 24 48z"/></svg></span>
+              <h3 class="settings-provider-name" id="google-signin-label">Google Workspace</h3>
+              <span class="switch"><input type="checkbox" id="google_enabled" name="google_enabled" value="1" aria-labelledby="google-signin-label" checked></span>
+            </div>
+            <div class="settings-provider-body">
         <div class="field">
           <label for="google_client_id">Client ID</label>
           <input type="text" id="google_client_id" name="google_client_id" value="812345678901-acme.apps.googleusercontent.com" spellcheck="false" autocapitalize="off" autocomplete="off">
         </div>
         <div class="field">
-          <label for="google_client_secret">Client secret <span class="chip">Saved</span></label><span class="help-tip-wrap"><button class="help-tip" type="button" aria-label="More about Client secret" aria-describedby="help-tip-google-secret" aria-expanded="false" data-help-tip>?</button><span class="help-tip-bubble" role="tooltip" id="help-tip-google-secret">Stored encrypted and never shown again. Leave it blank to keep the saved secret.</span></span>
+          <label for="google_client_secret">Client secret <span class="chip">Saved</span></label>
           <input type="password" id="google_client_secret" name="google_client_secret" value="" autocomplete="new-password">
-        </div>
+          <p class="help">Stored encrypted and never shown again. Leave it blank to keep the saved secret.</p>
+          </div>
         <div class="field">
-          <label for="google_domains">Allowed domains</label><span class="help-tip-wrap"><button class="help-tip" type="button" aria-label="More about Allowed domains" aria-describedby="help-tip-google-domains" aria-expanded="false" data-help-tip>?</button><span class="help-tip-bubble" role="tooltip" id="help-tip-google-domains">One domain per line. Only Google accounts whose verified email ends in one of these domains can sign in. An account outside them is refused.</span></span>
+          <label for="google_domains">Allowed domains</label>
           <textarea id="google_domains" name="google_domains" spellcheck="false" autocapitalize="off">acme.test
 acme-support.test</textarea>
-        </div>
+          <p class="help">One domain per line. Only Google accounts whose verified email ends in one of these domains can sign in. An account outside them is refused.</p>
+          </div>
         <div class="field">
-          <label for="google_redirect_uri">Redirect URI</label><span class="help-tip-wrap"><button class="help-tip" type="button" aria-label="More about Redirect URI" aria-describedby="help-tip-google-redirect" aria-expanded="false" data-help-tip>?</button><span class="help-tip-bubble" role="tooltip" id="help-tip-google-redirect">Built from the TKT address above. Paste it into the Google Cloud console as an authorized redirect URI.</span></span>
+          <label for="google_redirect_uri">Redirect URI</label>
           <div class="copy-field">
             <input type="text" id="google_redirect_uri" class="settings-readonly" value="https://tkt.example.test/auth/google/callback" readonly spellcheck="false">
             <button type="button" class="btn" data-copy-target="google_redirect_uri" data-copied-label="Copied">Copy</button>
           </div>
           <span class="visually-hidden" role="status" aria-live="polite" data-copy-status></span>
-        </div>
-      </div>
-      <div class="card form-card">
-        <div class="switch-row settings-provider-head">
-          <div class="switch-copy">
-            <h3 class="settings-group-title" id="microsoft-signin-label"><svg class="company-logo" viewBox="0 0 23 23" aria-hidden="true" focusable="false"><path fill="#F25022" d="M1 1h10v10H1z"/><path fill="#7FBA00" d="M12 1h10v10H12z"/><path fill="#00A4EF" d="M1 12h10v10H1z"/><path fill="#FFB900" d="M12 12h10v10H12z"/></svg>Microsoft Entra</h3>
+          <p class="help">Built from the TKT address above. Paste it into the Google Cloud console as an authorized redirect URI.</p>
           </div>
-          <span class="switch"><input type="checkbox" id="microsoft_enabled" name="microsoft_enabled" value="1" aria-labelledby="microsoft-signin-label"></span>
-        </div>
+            </div>
+          </section>
+          <section class="settings-provider" aria-labelledby="microsoft-signin-label">
+            <div class="switch-row settings-provider-head">
+              <span class="settings-provider-logo"><svg class="company-logo" viewBox="0 0 23 23" aria-hidden="true" focusable="false"><path fill="#F25022" d="M1 1h10v10H1z"/><path fill="#7FBA00" d="M12 1h10v10H12z"/><path fill="#00A4EF" d="M1 12h10v10H1z"/><path fill="#FFB900" d="M12 12h10v10H12z"/></svg></span>
+              <h3 class="settings-provider-name" id="microsoft-signin-label">Microsoft Entra</h3>
+              <span class="switch"><input type="checkbox" id="microsoft_enabled" name="microsoft_enabled" value="1" aria-labelledby="microsoft-signin-label"></span>
+            </div>
+            <div class="settings-provider-body">
         <div class="field">
-          <label for="microsoft_tenant_id">Directory (tenant) ID</label><span class="help-tip-wrap"><button class="help-tip" type="button" aria-label="More about Directory (tenant) ID" aria-describedby="help-tip-microsoft-tenant" aria-expanded="false" data-help-tip>?</button><span class="help-tip-bubble" role="tooltip" id="help-tip-microsoft-tenant">Only accounts from this tenant can sign in. The tenant is the restriction, so there is no separate domain list for Microsoft.</span></span>
+          <label for="microsoft_tenant_id">Directory (tenant) ID</label>
           <input type="text" id="microsoft_tenant_id" name="microsoft_tenant_id" value="72f988bf-86f1-41af-91ab-2d7cd011db47" spellcheck="false" autocapitalize="off" autocomplete="off" placeholder="00000000-0000-0000-0000-000000000000">
-        </div>
+          <p class="help">Only accounts from this tenant can sign in. The tenant is the restriction, so there is no separate domain list for Microsoft.</p>
+          </div>
         <div class="field">
           <label for="microsoft_client_id">Client ID</label>
           <input type="text" id="microsoft_client_id" name="microsoft_client_id" value="b1d2c3e4-5f60-4718-9abc-def012345678" spellcheck="false" autocapitalize="off" autocomplete="off" placeholder="Application (client) ID">
         </div>
         <div class="field">
-          <label for="microsoft_client_secret">Client secret <span class="chip">Saved</span></label><span class="help-tip-wrap"><button class="help-tip" type="button" aria-label="More about Client secret" aria-describedby="help-tip-microsoft-secret" aria-expanded="false" data-help-tip>?</button><span class="help-tip-bubble" role="tooltip" id="help-tip-microsoft-secret">Stored encrypted and never shown again. Leave it blank to keep the saved secret.</span></span>
+          <label for="microsoft_client_secret">Client secret <span class="chip">Saved</span></label>
           <input type="password" id="microsoft_client_secret" name="microsoft_client_secret" value="" autocomplete="new-password">
-        </div>
+          <p class="help">Stored encrypted and never shown again. Leave it blank to keep the saved secret.</p>
+          </div>
         <div class="field">
-          <label for="microsoft_redirect_uri">Redirect URI</label><span class="help-tip-wrap"><button class="help-tip" type="button" aria-label="More about Redirect URI" aria-describedby="help-tip-microsoft-redirect" aria-expanded="false" data-help-tip>?</button><span class="help-tip-bubble" role="tooltip" id="help-tip-microsoft-redirect">Built from the TKT address above. Add it in the Entra portal as a redirect URI of type Web.</span></span>
+          <label for="microsoft_redirect_uri">Redirect URI</label>
           <div class="copy-field">
             <input type="text" id="microsoft_redirect_uri" class="settings-readonly" value="https://tkt.example.test/auth/microsoft/callback" readonly spellcheck="false">
             <button type="button" class="btn" data-copy-target="microsoft_redirect_uri" data-copied-label="Copied">Copy</button>
           </div>
           <span class="visually-hidden" role="status" aria-live="polite" data-copy-status></span>
+          <p class="help">Built from the TKT address above. Add it in the Entra portal as a redirect URI of type Web.</p>
+          </div>
+            </div>
+          </section>
         </div>
-        <p class="dep-note">Microsoft sign-in is off. Paste the Directory (tenant) ID, Client ID and Client secret from the Entra portal to turn it on.</p>
       </div>
-      <div class="card form-card">
+      <div class="settings-row">
+          <div><h3>Sign in with a password</h3><p>Off for everyone except root. The root account keeps the password form as a break-glass in case the provider fails.</p>
+            <p class="dep-note">Password sign-in is off. Only root can still use the password form, which the sign-in page keeps as a break-glass. “Forgot your password?” and Preferences › Password are hidden.</p>
+
+          </div>
+          <label class="switch-line"><span class="switch"><input type="checkbox" id="password_signin_enabled" name="password_signin_enabled" value="1" form="company-signin-form" aria-labelledby="password-signin-label"></span><span id="password-signin-label">Allow signing in with a password</span></label>
+        </div>
+      <div class="settings-row">
+        <div><h3>New accounts</h3></div><div>
         <fieldset class="settings-choice-group">
-          <legend class="field-label">New accounts</legend>
+          <legend class="visually-hidden">New accounts</legend>
           <label class="settings-choice">
             <input type="radio" name="company_signin_new_accounts" value="requester">
             <span class="settings-choice-label">Create the account as a requester</span>
@@ -218,7 +228,8 @@ acme-support.test</textarea>
           </label>
         </fieldset>
         <p class="dep-note">The account is created pending: it waits for an administrator’s approval, and the person gets no session. Until it is approved, the person sees “Your access is pending approval” and cannot open or see tickets.</p>
-      </div>
+      </div></div>
+      </section>
       <div class="settings-savebar" data-settings-savebar hidden>
         <button class="btn primary" type="submit">Save company sign-in</button>
         <button class="btn" type="reset">Discard</button>
