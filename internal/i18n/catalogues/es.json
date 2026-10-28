@@ -657,6 +657,8 @@
   "settings.calendar.timezone": "Zona horaria",
   "settings.calendar.timezone_desc": "El horario laboral y los objetivos de SLA se cuentan en esta zona horaria.",
   "settings.calendar.timezone_help": "Nombre IANA, por ejemplo America/Argentina/Buenos_Aires. Por defecto, UTC.",
+  "settings.calendar.timezone_no_matches": "No hay zonas horarias que coincidan.",
+  "settings.calendar.timezone_suggestions": "Sugerencias de zona horaria",
   "settings.calendar.title": "Calendario laboral",
   "settings.discard": "Descartar",
   "settings.email.base_url": "Dirección de TKT",

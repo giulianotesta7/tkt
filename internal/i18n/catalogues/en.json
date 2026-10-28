@@ -657,6 +657,8 @@
   "settings.calendar.timezone": "Timezone",
   "settings.calendar.timezone_desc": "Working hours and SLA targets are counted in this timezone.",
   "settings.calendar.timezone_help": "IANA name, e.g. America/Argentina/Buenos_Aires. Defaults to UTC.",
+  "settings.calendar.timezone_no_matches": "No time zone matches.",
+  "settings.calendar.timezone_suggestions": "Timezone suggestions",
   "settings.calendar.title": "Working calendar",
   "settings.discard": "Discard",
   "settings.email.base_url": "TKT address",
