@@ -337,7 +337,7 @@
 .categories-root .catalog-toolbar .category-search{flex:0 1 360px}
 .categories-root .catalog-attention-chip{height:36px;padding:0 14px;border-radius:8px;font-size:13px}
 .categories-root .catalog-structure-title{margin:0 0 16px;color:var(--ink-strong);font-size:17px;font-weight:600}
-.categories-root .catalog-tree{border:0;border-top:1px solid var(--line);border-radius:0;padding:0}
+.categories-root .catalog-tree{border:0;border-top:1px solid var(--line);border-radius:0;padding:0;overflow:visible}
 .categories-root .catalog-tree-row{min-height:62px;gap:12px;padding-top:12px;padding-bottom:12px}
 .categories-root .catalog-tree-department>.catalog-tree-list>.catalog-tree-node>.catalog-tree-row{padding-left:32px}
 .categories-root .catalog-tree-desk>.catalog-tree-list>.catalog-tree-node>.catalog-tree-row{padding-left:64px}

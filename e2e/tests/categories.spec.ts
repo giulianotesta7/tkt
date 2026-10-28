@@ -943,6 +943,28 @@ test.describe("Categories", () => {
       await expect(page).toHaveURL(base() + "/categories?view=structure");
     }
 
+    // The last row's menu opens below the tree; the tree must not clip it.
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.goto(base() + "/categories?view=structure");
+    const lastRow = page.locator(".catalog-tree-row").last();
+    await lastRow.locator("[data-category-menu]").click();
+    const openMenu = page.locator(".catalog-tree .category-overflow-menu:not([hidden])");
+    await expect(openMenu).toBeVisible();
+    const lastItem = openMenu.locator("a, button").last();
+    await lastItem.scrollIntoViewIfNeeded();
+    const itemBox = await lastItem.boundingBox();
+    if (!itemBox) throw new Error("the last menu item must have a box");
+    const clipped = await lastItem.evaluate((el) => {
+      const rect = el.getBoundingClientRect();
+      const hit = document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2);
+      return !hit || !el.contains(hit);
+    });
+    expect(clipped, "the row menu must not be clipped by the tree").toBe(false);
+    expect(
+      await page.locator(".catalog-tree").evaluate((el) => getComputedStyle(el).overflowY),
+    ).toBe("visible");
+    await page.keyboard.press("Escape");
+
     await page.setViewportSize({ width: 1280, height: 800 });
     await page.goto(base() + "/categories?view=structure");
     const assignedDepartment = catalogNode(page, "department", "General");
