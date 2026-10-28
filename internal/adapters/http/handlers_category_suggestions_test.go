@@ -532,7 +532,7 @@ func TestCategorySuggestionsSettingsCardRendersTheThreeEngines(t *testing.T) {
 	body := sectionGet(t, h, "/settings/tickets")
 	for _, want := range []string{
 		"Category suggestions",
-		"Suggest up to three categories from what the requester writes. Requesters always choose; with no confident suggestion they use the catalog as today.",
+		"Suggest up to three categories from what the requester writes. Requesters always choose.",
 		`name="suggestion_engine" value="off" checked`,
 		"Requesters choose the category themselves, as today.",
 		`name="suggestion_engine" value="local"`,

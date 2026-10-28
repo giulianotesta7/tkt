@@ -117,7 +117,7 @@
       <section class="settings-group">
       <h2 class="settings-section-title" id="category-suggestions-title">Category suggestions</h2>
       <div class="settings-row">
-      <div><h3>Suggestion engine</h3><p>Suggest up to three categories from what the requester writes. Requesters always choose; with no confident suggestion they use the catalog as today.</p></div>
+      <div><h3>Suggestion engine</h3><p>Suggest up to three categories from what the requester writes. Requesters always choose.</p></div>
       <div>
       <fieldset class="settings-choice-group" aria-labelledby="category-suggestions-title">
         <label class="settings-choice settings-choice-detailed">
@@ -130,7 +130,7 @@
         </label>
         <label class="settings-choice settings-choice-detailed">
           <input type="radio" name="suggestion_engine" value="model">
-          <span class="settings-choice-label">Decision model<small class="settings-choice-help">Sends the description and the category list to an external decision model (OpenAI Decisions format). Falls back to “On this server” if it fails or takes longer than 2 seconds.</small></span>
+          <span class="settings-choice-label">Decision model<small class="settings-choice-help">Sends the description and the category list to an external decision model. Falls back to On this server after 2 seconds.</small></span>
         </label>
       </fieldset>
       <div class="settings-suggestion-model" data-show-when="suggestion_engine=model" hidden>

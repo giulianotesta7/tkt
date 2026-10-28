@@ -254,9 +254,9 @@
 .settings-choice {
   display: flex;
   align-items: center;
-  gap: 8px;
-  min-height: 32px;
-  padding: 0 10px;
+  gap: 10px;
+  min-height: 36px;
+  padding: 0 12px;
   border: 1px solid var(--line);
   border-radius: 8px;
   color: var(--ink);
@@ -273,8 +273,28 @@
   background: var(--accent-soft);
 }
 
-.settings-choice input {
+/* The radio is drawn, not native (design 02): a ring that fills with the accent
+   when chosen. The input stays a real radio, so focus, arrow keys and the form
+   value are the browser's own. */
+.settings-choice input[type="radio"] {
+  appearance: none;
+  -webkit-appearance: none;
+  flex: none;
+  width: 14px;
+  height: 14px;
   margin: 0;
+  border: 1.5px solid var(--line-strong);
+  border-radius: 50%;
+  background: var(--card);
+}
+
+.settings-choice input[type="radio"]:checked {
+  border: 4px solid var(--accent);
+}
+
+.settings-choice input[type="radio"]:focus-visible {
+  outline: 3px solid var(--accent);
+  outline-offset: 2px;
 }
 
 .settings-choice-label {
@@ -287,6 +307,7 @@
    rest of the section's help copy uses. */
 .settings-choice-detailed {
   align-items: flex-start;
+  padding: 10px 12px;
 }
 
 .settings-choice-detailed input {
