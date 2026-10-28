@@ -309,25 +309,30 @@ func TestSettingsSaveBarNamesItsSection(t *testing.T) {
 	}
 }
 
-// TestSettingsDroppedCopyIsGone proves S2's copy rule: the descriptive
-// paragraphs an administrator can infer are gone, while the help that states a
-// rule they cannot infer (the SLA warning meaning, the calendar semantics, the
-// encryption rule) stays.
+// TestSettingsDroppedCopyIsGone proves S2's copy rule as amended by the
+// maintainer's L5 decision for the tabs-and-rows design: the descriptive lines
+// the design adds ("Instance configuration", the appearance description) are
+// present, while the copy that stayed dropped is still gone, and the help that
+// states a rule the user cannot infer stays.
 func TestSettingsDroppedCopyIsGone(t *testing.T) {
 	h := newHarness(t)
 
 	for _, path := range []string{"/settings/organization", "/settings/language", "/settings/tickets", "/settings/calendar"} {
 		body := sectionGet(t, h, path)
+		if !strings.Contains(body, "Instance configuration") {
+			t.Errorf("GET %s must carry the design's subtitle %q", path, "Instance configuration")
+		}
 		for _, unwanted := range []string{
-			"Instance configuration",
 			"Changes the language of every screen",
-			"Background color for internal comments",
 			"Off by default",
 		} {
 			if strings.Contains(body, unwanted) {
 				t.Errorf("GET %s must not carry the dropped copy %q", path, unwanted)
 			}
 		}
+	}
+	if !strings.Contains(sectionGet(t, h, "/settings/tickets"), "Background color for internal comments") {
+		t.Errorf("the appearance row must carry its description")
 	}
 
 	tickets := sectionGet(t, h, "/settings/tickets")
@@ -1154,8 +1159,8 @@ func TestSettingsHoldAutoCloseWindowRendersOffAsEmpty(t *testing.T) {
 	if !strings.Contains(body, holdAutoCloseInput("")) {
 		t.Errorf("tickets section must render the hold auto-close field empty while off, got: %s", body)
 	}
-	if !strings.Contains(body, "Close tickets on hold after N working days without a reply") {
-		t.Errorf("tickets section must label the field with the spec sentence, got: %s", body)
+	if !strings.Contains(body, "Close after N working days without a reply") {
+		t.Errorf("tickets section must label the field with the design sentence, got: %s", body)
 	}
 }
 

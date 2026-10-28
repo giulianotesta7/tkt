@@ -23,6 +23,12 @@
   margin-bottom: 28px;
 }
 
+.settings-subtitle {
+  margin: 6px 0 0;
+  color: var(--muted);
+  font-size: 14px;
+}
+
 .settings-nav-link {
   display: flex;
   align-items: center;
@@ -939,3 +945,18 @@
   margin-left: 6px;
   vertical-align: -2px;
 }
+
+.settings-row .settings-subfield { margin-top: 16px; }
+
+/* A switch beside its sentence, in the right column of a row (design 02): the
+   label text is the control's name, so the whole line is the click target. */
+.switch-line {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: var(--ink);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.switch-line .switch { margin: 0; }

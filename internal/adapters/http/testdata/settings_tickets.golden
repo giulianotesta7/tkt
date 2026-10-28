@@ -83,7 +83,7 @@
   <button class="save-feedback-dismiss" type="button" aria-label="Dismiss confirmation">Dismiss</button>
 </div>
 
-<div class="command-header"><div><h1 class="command-title">Settings</h1></div></div>
+<div class="command-header"><div><h1 class="command-title">Settings</h1><p class="settings-subtitle">Instance configuration</p></div></div>
 <div class="settings-layout" aria-label="Tickets &amp; SLA">
 
 <nav class="settings-nav" aria-label="Settings sections">
@@ -102,7 +102,7 @@
       <section class="settings-group">
         <h2 class="settings-section-title">Ticket creation</h2>
         <div class="settings-row">
-          <div><h3>How the category is chosen</h3></div>
+          <div><h3>How the category is chosen</h3><p>Applies to everyone who opens a ticket.</p></div>
           <fieldset class="settings-choice-group" aria-label="How the category is chosen">
           </fieldset>
         </div>
@@ -174,11 +174,14 @@
         <h2 class="settings-section-title">Service level agreements (SLA)</h2>
         <div class="settings-row">
           <div><h3>SLA targets</h3><p>Defaults for new categories. Editing them does not change existing categories.</p></div>
-          <div class="checkbox-field"><label><input type="checkbox" name="sla_enabled" value="1"> Enable SLA targets</label></div>
-        </div>
-        <div class="settings-row single">
-          <div><h3>Warning threshold<span class="help-tip-wrap"><button class="help-tip" type="button" aria-label="More about Warning threshold" aria-describedby="help-tip-sla-warning" aria-expanded="false" data-help-tip>?</button><span class="help-tip-bubble" role="tooltip" id="help-tip-sla-warning">At risk once this share of the target has elapsed.</span></span></h3></div>
-          <div class="field"><input type="number" id="sla_warning_percent" name="sla_warning_percent" class="sla-warning-input" min="1" max="99" value="80" aria-label="Warning threshold"></div>
+          <div>
+            <div class="checkbox-field"><label><input type="checkbox" name="sla_enabled" value="1"> Enable SLA targets</label></div>
+            <div class="field settings-subfield">
+              <label for="sla_warning_percent">Warning threshold</label>
+              <input type="number" id="sla_warning_percent" name="sla_warning_percent" class="sla-warning-input" min="1" max="99" value="80">
+              <p class="help">At risk once this share of the target has elapsed.</p>
+            </div>
+          </div>
         </div>
         <div class="settings-row">
           <div><h3>Targets by priority</h3></div>
@@ -220,9 +223,13 @@
     <form class="settings-form" method="post" action="/settings/hold-auto-close" data-settings-form>
       <section class="settings-group">
         <h2 class="settings-section-title">Automatic close of held tickets</h2>
-        <div class="settings-row single">
-          <div><h3>Close tickets on hold after N working days without a reply<span class="help-tip-wrap"><button class="help-tip" type="button" aria-label="More about Close tickets on hold after N working days without a reply" aria-describedby="help-tip-hold-auto-close-days" aria-expanded="false" data-help-tip>?</button><span class="help-tip-bubble" role="tooltip" id="help-tip-hold-auto-close-days">Empty means off: the instance never closes a held ticket on its own. Working days follow the SLA working calendar.</span></span></h3><p>When the requester never answers, warn them one working day before and then close the ticket.</p></div>
-          <div class="field"><input type="number" id="hold_auto_close_working_days" name="hold_auto_close_working_days" class="sla-warning-input" min="0" value="" aria-label="Close tickets on hold after N working days without a reply"></div>
+        <div class="settings-row">
+          <div><h3>Automatic close</h3><p>When the requester never answers, warn them one working day before and then close the ticket.</p></div>
+          <div class="field">
+            <label for="hold_auto_close_working_days">Close after N working days without a reply</label>
+            <input type="number" id="hold_auto_close_working_days" name="hold_auto_close_working_days" class="sla-warning-input" min="0" value="">
+            <p class="help">Empty means off: the instance never closes a held ticket on its own. Working days follow the SLA working calendar.</p>
+          </div>
         </div>
       </section>
       <div class="settings-savebar" data-settings-savebar hidden>
@@ -232,9 +239,9 @@
     </form>
     <form class="settings-form" method="post" action="/settings/appearance" data-settings-form>
       <section class="settings-group">
-        <h2 class="settings-section-title">Internal comment background</h2>
+        <h2 class="settings-section-title">Appearance</h2>
         <div class="settings-row">
-          <div><h3>Internal comment color</h3></div>
+          <div><h3>Internal comment color</h3><p>Background color for internal comments on ticket timelines.</p></div>
           <div class="swatch-grid">
             <label class="swatch">
               <input type="radio" name="internal_comment_bg" value="#E8EEFF" checked>

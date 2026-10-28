@@ -77,7 +77,7 @@ test.describe("Settings", () => {
     ).toBeVisible();
     const appearance = page.locator('form[action="/settings/appearance"]');
     await expect(
-      appearance.getByRole("heading", { name: "Internal comment background", exact: true }),
+      appearance.getByRole("heading", { name: "Appearance", exact: true }),
     ).toBeVisible();
     await expect(appearance.locator("h2")).toHaveCount(1);
     await expect(page.locator('.settings-nav-link[aria-current="page"]')).toHaveText(
@@ -521,7 +521,7 @@ test.describe("Settings", () => {
     await expect(
       page.locator("h2, h3").filter({ hasText: "Automatic close of held tickets" }),
     ).toBeVisible();
-    const days = page.getByLabel("Close tickets on hold after N working days without a reply", {
+    const days = page.getByLabel("Close after N working days without a reply", {
       exact: true,
     });
     await expect(days).toHaveValue("");
@@ -846,9 +846,7 @@ test.describe("Settings", () => {
     await expect(page.locator('.settings-nav-link[aria-current="page"]')).toHaveText(
       "Tickets y SLA",
     );
-    await expect(page.locator('form[action="/settings/appearance"] h2')).toHaveText(
-      "Fondo de los comentarios internos",
-    );
+    await expect(page.locator('form[action="/settings/appearance"] h2')).toHaveText("Apariencia");
 
     // The tickets list: Spanish chrome, view tabs and the relative time.
     await page.goto(base() + "/tickets");
@@ -1098,9 +1096,7 @@ test.describe("Settings", () => {
     await expect(page.locator("h1").filter({ hasText: "Settings" })).toBeVisible();
     await expect(page.locator("h2").filter({ hasText: "Organization" })).toBeVisible();
     await page.goto(base() + "/settings/tickets");
-    await expect(
-      page.locator("h2, h3").filter({ hasText: "Internal comment background" }),
-    ).toBeVisible();
+    await expect(page.locator("h2, h3").filter({ hasText: "Appearance" })).toBeVisible();
     // S1/S4: the Email section is root-only, so its nav entry is hidden and a
     // direct visit is refused.
     await expect(page.locator('.settings-nav a[href="/settings/email"]')).toHaveCount(0);
@@ -1913,14 +1909,13 @@ test.describe("Preferences", () => {
   });
 
   /**
-   * Issue #383, S11: field help is a "?" button that opens on hover and on
-   * keyboard focus, toggles on click, and closes on Escape and on an outside
-   * click — while the security warning and the saved-password state stay
-   * visible under their fields.
+   * Issue #383, S11 as amended by the maintainer's L5 decision for the
+   * tabs-and-rows design: field help is no longer a "?" toggletip. Each
+   * explanation is visible text beside or under its field, with no hover or
+   * focus step, and the security warning and the saved-password state stay
+   * visible too.
    */
-  test("field help opens as a toggletip on hover, focus, click and closes on Escape", async ({
-    page,
-  }) => {
+  test("field help is visible text, with no toggletip to open", async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 800 });
     const obs = collectObservability(page);
     await loginAsSeeded(page);
@@ -1931,55 +1926,25 @@ test.describe("Preferences", () => {
         .filter({ hasText: "Email notifications" }),
     ).toBeVisible();
 
-    // Issue #380: the SMTP server's address is what its label says, so that
-    // field carries no toggletip; the Username field's is the one exercised.
-    await expect(page.locator('button[aria-describedby="help-tip-email-host"]')).toHaveCount(0);
-    await expect(page.locator("#help-tip-email-host")).toHaveCount(0);
+    // No settings section renders a toggletip button or tooltip any more.
+    await expect(page.locator("[data-help-tip]")).toHaveCount(0);
+    await expect(page.locator('[role="tooltip"]')).toHaveCount(0);
 
-    const tip = page.locator('button[aria-describedby="help-tip-email-username"]');
-    const bubble = page.locator("#help-tip-email-username");
-    await expect(tip).toBeVisible();
-    await expect(tip).toHaveAttribute("aria-label", "More about Username");
-    await expect(bubble).toBeHidden();
+    // The explanations are readable without asking: a row description or a help
+    // paragraph, in view as soon as the section opens.
+    await expect(
+      page.getByText("Leave it empty if your server accepts mail without authentication."),
+    ).toBeVisible();
+    await expect(page.getByText("Stored encrypted and never shown again.")).toBeVisible();
+    await expect(page.getByText("Used to sign in to the SMTP server.")).toBeVisible();
+    await expect(
+      page.getByText(
+        "The address notifications are sent from, and the name shown in the mail client.",
+      ),
+    ).toBeVisible();
 
-    // Hover opens it.
-    await tip.hover();
-    await expect(bubble).toBeVisible();
-    await expect(bubble).toContainText(
-      "Leave it empty if your server accepts mail without authentication.",
-    );
-
-    // Moving away closes the hover-only state.
-    await page.locator("#email_username").hover();
-    await expect(bubble).toBeHidden();
-
-    // Keyboard focus opens it too.
-    await tip.focus();
-    await expect(bubble).toBeVisible();
-
-    // A click toggles: the focus had already opened it, so the first click
-    // collapses it and the second pins it open again.
-    await tip.click();
-    await expect(tip).toHaveAttribute("aria-expanded", "false");
-    await tip.click();
-    await expect(tip).toHaveAttribute("aria-expanded", "true");
-    await expect(bubble).toBeVisible();
-
-    // Escape collapses it and leaves the focus on the control.
-    await page.keyboard.press("Escape");
-    await expect(tip).toHaveAttribute("aria-expanded", "false");
-    await page.locator("#email_username").hover();
-    await expect(bubble).toBeHidden();
-
-    // A click opens it, a click outside closes it.
-    await tip.click();
-    await expect(bubble).toBeVisible();
-    await page.locator("#email_username").click();
-    await expect(tip).toHaveAttribute("aria-expanded", "false");
-    await expect(bubble).toBeHidden();
-
-    // The explanations the interface already gives are gone, and the two
-    // exceptions stay readable without asking.
+    // The explanations the interface already gives stay gone, and the warning
+    // stays readable without asking.
     await expect(page.getByText("25 by default")).toHaveCount(0);
     await expect(page.getByText("While off, TKT sends nothing.")).toHaveCount(0);
     await expect(
@@ -1988,7 +1953,7 @@ test.describe("Preferences", () => {
 
     await assertCanonicalScreen(page, {
       viewport: 1280,
-      label: "settings email toggletips",
+      label: "settings email visible help",
       url: page.url(),
       role: "root",
       consoleErrors: obs.consoleErrors,

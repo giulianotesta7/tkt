@@ -1,6 +1,6 @@
 {{define "title"}}{{tf "base.title.screen" (t "settings.title") (brandHelpDesk .Brand)}}{{end}}
 {{define "content"}}
-<div class="command-header"><div><h1 class="command-title">{{t "settings.title"}}</h1></div></div>
+<div class="command-header"><div><h1 class="command-title">{{t "settings.title"}}</h1><p class="settings-subtitle">{{t "settings.subtitle"}}</p></div></div>
 <div class="settings-layout" aria-label="{{t "settings.tickets.title"}}">
 {{template "settings_nav" .}}
   <div class="settings-content">
@@ -10,7 +10,7 @@
       <section class="settings-group">
         <h2 class="settings-section-title">{{t "settings.ticket_creation.title"}}</h2>
         <div class="settings-row">
-          <div><h3>{{t "settings.ticket_creation.label"}}</h3></div>
+          <div><h3>{{t "settings.ticket_creation.label"}}</h3><p>{{t "settings.ticket_creation.help"}}</p></div>
           <fieldset class="settings-choice-group" aria-label="{{t "settings.ticket_creation.label"}}">
 {{range .CreationModes}}            <label class="settings-choice">
               <input type="radio" name="ticket_creation_mode" value="{{.Value}}"{{if eq $.CreationMode .Value}} checked{{end}}>
@@ -30,11 +30,14 @@
         <h2 class="settings-section-title">{{t "settings.sla.title"}}</h2>
         <div class="settings-row">
           <div><h3>{{t "settings.sla.row_enable"}}</h3><p>{{t "settings.sla.help"}}</p></div>
-          <div class="checkbox-field"><label><input type="checkbox" name="sla_enabled" value="1"{{if .SLAEnabled}} checked{{end}}> {{t "settings.sla.enable"}}</label></div>
-        </div>
-        <div class="settings-row single">
-          <div><h3>{{t "settings.sla.warning"}}{{template "help_tip" (helpTip "sla-warning" (t "settings.sla.warning") (t "settings.sla.warning_help"))}}</h3></div>
-          <div class="field"><input type="number" id="sla_warning_percent" name="sla_warning_percent" class="sla-warning-input" min="1" max="99" value="{{.SLAWarningPercent}}" aria-label="{{t "settings.sla.warning"}}"></div>
+          <div>
+            <div class="checkbox-field"><label><input type="checkbox" name="sla_enabled" value="1"{{if .SLAEnabled}} checked{{end}}> {{t "settings.sla.enable"}}</label></div>
+            <div class="field settings-subfield">
+              <label for="sla_warning_percent">{{t "settings.sla.warning"}}</label>
+              <input type="number" id="sla_warning_percent" name="sla_warning_percent" class="sla-warning-input" min="1" max="99" value="{{.SLAWarningPercent}}">
+              <p class="help">{{t "settings.sla.warning_help"}}</p>
+            </div>
+          </div>
         </div>
         <div class="settings-row">
           <div><h3>{{t "settings.sla.targets_title"}}</h3></div>
@@ -49,9 +52,13 @@
     <form class="settings-form" method="post" action="/settings/hold-auto-close" data-settings-form>
       <section class="settings-group">
         <h2 class="settings-section-title">{{t "settings.sla.hold_close.title"}}</h2>
-        <div class="settings-row single">
-          <div><h3>{{t "settings.sla.hold_close.days"}}{{template "help_tip" (helpTip "hold-auto-close-days" (t "settings.sla.hold_close.days") (t "settings.sla.hold_close.days_help"))}}</h3><p>{{t "settings.sla.hold_close.help"}}</p></div>
-          <div class="field"><input type="number" id="hold_auto_close_working_days" name="hold_auto_close_working_days" class="sla-warning-input" min="0" value="{{.HoldAutoCloseDays}}" aria-label="{{t "settings.sla.hold_close.days"}}"></div>
+        <div class="settings-row">
+          <div><h3>{{t "settings.sla.hold_close.row"}}</h3><p>{{t "settings.sla.hold_close.help"}}</p></div>
+          <div class="field">
+            <label for="hold_auto_close_working_days">{{t "settings.sla.hold_close.days_label"}}</label>
+            <input type="number" id="hold_auto_close_working_days" name="hold_auto_close_working_days" class="sla-warning-input" min="0" value="{{.HoldAutoCloseDays}}">
+            <p class="help">{{t "settings.sla.hold_close.days_help"}}</p>
+          </div>
         </div>
       </section>
       <div class="settings-savebar" data-settings-savebar hidden>
@@ -63,7 +70,7 @@
       <section class="settings-group">
         <h2 class="settings-section-title">{{t "settings.appearance.title"}}</h2>
         <div class="settings-row">
-          <div><h3>{{t "settings.appearance.comment_color"}}</h3></div>
+          <div><h3>{{t "settings.appearance.comment_color"}}</h3><p>{{t "settings.appearance.help"}}</p></div>
           <div class="swatch-grid">
 {{range .Colors}}            <label class="swatch">
               <input type="radio" name="internal_comment_bg" value="{{.Value}}"{{if eq $.Current .Value}} checked{{end}}>

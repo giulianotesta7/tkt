@@ -107,8 +107,8 @@ func TestSettingsSecurityRendersTheStoredPolicy(t *testing.T) {
 			// Three instance switches sit in the Passwords card — password sign-in
 			// (issue #419), self-service change and recovery. Each provider card
 			// heads itself with a switch row carrying its own modifier.
-			if got := strings.Count(body, `class="settings-row switch-row"`); got != 3 {
-				t.Errorf("the Passwords card renders %d switch rows, want one per instance switch (3)", got)
+			if got := strings.Count(body, `class="switch-line"`); got != 3 {
+				t.Errorf("the section renders %d instance switch lines, want one per instance switch (3)", got)
 			}
 			if got := strings.Count(body, `class="switch-row settings-provider-head"`); got != 2 {
 				t.Errorf("the section renders %d provider enable rows, want one per provider (2)", got)

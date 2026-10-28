@@ -2,7 +2,7 @@
 {{define "content"}}
 <div class="command-header">
   <div>
-    <h1 class="command-title">{{t "settings.title"}}</h1>
+    <h1 class="command-title">{{t "settings.title"}}</h1><p class="settings-subtitle">{{t "settings.subtitle"}}</p>
   </div>
 </div>
 <div class="settings-layout">
@@ -12,34 +12,26 @@
 {{end}}    <form class="settings-form" method="post" action="/settings/security" data-settings-form>
       <section class="settings-group">
         <h2 class="settings-section-title">{{t "settings.security.passwords.title"}}</h2>
-{{if .Company}}        <div class="settings-row switch-row">
-          <div class="switch-copy">
-            <span class="switch-label" id="password-signin-label">{{t "settings.security.company.password_signin"}}</span>{{template "help_tip" (helpTip "security-password-signin" (t "settings.security.company.password_signin") (t "settings.security.company.password_signin_help"))}}
-{{if not .Company.PasswordSignInEnabled}}            <p class="dep-note">{{t "settings.security.company.password_signin_off"}}</p>
-{{end}}          </div>
-          <span class="switch"><input type="checkbox" id="password_signin_enabled" name="password_signin_enabled" value="1" form="company-signin-form" aria-labelledby="password-signin-label"{{if .Company.PasswordSignInEnabled}} checked{{end}}></span>
+        <div class="settings-row">
+          <div><h3>{{t "settings.security.min_length_title"}}</h3><p>{{tf "settings.security.min_length_help" .MinLengthFloor .MinLengthCeiling}}</p></div>
+          <div><div class="stepper">
+            <button type="button" class="stepper-step" data-step="-1" aria-label="{{t "settings.security.min_decrease"}}">−</button>
+            <input class="num" aria-label="{{t "settings.security.min_length"}}" id="password_min_length" name="password_min_length" type="number" min="{{.MinLengthFloor}}" max="{{.MinLengthCeiling}}" step="1" value="{{.MinLength}}">
+            <button type="button" class="stepper-step" data-step="1" aria-label="{{t "settings.security.min_increase"}}">+</button>
+          </div></div>
         </div>
-{{end}}        <div class="settings-row switch-row">
-          <div class="switch-copy">
-            <span class="switch-label" id="password-change-label">{{t "settings.security.change"}}</span>{{template "help_tip" (helpTip "security-password-change" (t "settings.security.change") (t "settings.security.change_help"))}}
+        <div class="settings-row">
+          <div><h3>{{t "settings.security.self_service"}}</h3><p>{{t "settings.security.change_help"}}</p>
           </div>
-          <span class="switch">{{if .ChangeEnabled}}<input type="checkbox" id="password_change_enabled" name="password_change_enabled" value="1" aria-labelledby="password-change-label" checked>{{else}}<input type="checkbox" id="password_change_enabled" name="password_change_enabled" value="1" aria-labelledby="password-change-label">{{end}}</span>
+          <label class="switch-line"><span class="switch">{{if .ChangeEnabled}}<input type="checkbox" id="password_change_enabled" name="password_change_enabled" value="1" aria-labelledby="password-change-label" checked>{{else}}<input type="checkbox" id="password_change_enabled" name="password_change_enabled" value="1" aria-labelledby="password-change-label">{{end}}</span><span id="password-change-label">{{t "settings.security.change"}}</span></label>
         </div>
-        <div class="settings-row switch-row">
-          <div class="switch-copy">
-            <span class="switch-label" id="password-recovery-label">{{t "settings.security.recovery"}}</span>{{template "help_tip" (helpTip "security-password-recovery" (t "settings.security.recovery") (t "settings.security.recovery_help"))}}
-{{if not .EmailConfigured}}            <p class="dep-note">{{t "settings.security.recovery_needs_email"}}{{if .CanManageEmail}} <a href="/settings/email">{{t "settings.security.recovery_needs_email_link"}}</a>.{{end}}</p>
-{{end}}          </div>
-          <span class="switch">{{if .RecoveryEnabled}}<input type="checkbox" id="password_recovery_enabled" name="password_recovery_enabled" value="1" aria-labelledby="password-recovery-label" checked>{{else}}<input type="checkbox" id="password_recovery_enabled" name="password_recovery_enabled" value="1" aria-labelledby="password-recovery-label">{{end}}</span>
+        <div class="settings-row">
+          <div><h3>{{t "settings.security.recovery_title"}}</h3><p>{{t "settings.security.recovery_help"}}</p>
+{{if not .EmailConfigured}}            <p class="dep-note">{{t "settings.security.recovery_needs_email"}}{{if .CanManageEmail}} <a href="/settings/email">{{t "settings.security.recovery_needs_email_link"}}</a>.{{end}}
+{{end}}
+          </div>
+          <label class="switch-line"><span class="switch">{{if .RecoveryEnabled}}<input type="checkbox" id="password_recovery_enabled" name="password_recovery_enabled" value="1" aria-labelledby="password-recovery-label" checked>{{else}}<input type="checkbox" id="password_recovery_enabled" name="password_recovery_enabled" value="1" aria-labelledby="password-recovery-label">{{end}}</span><span id="password-recovery-label">{{t "settings.security.recovery"}}</span></label>
         </div>
-      <div class="settings-row">
-        <div><h3>{{t "settings.security.min_length"}}{{template "help_tip" (helpTip "security-min-length" (t "settings.security.min_length") (tf "settings.security.min_length_help" .MinLengthFloor .MinLengthCeiling))}}</h3></div>
-        <div><div class="stepper">
-          <button type="button" class="stepper-step" data-step="-1" aria-label="{{t "settings.security.min_decrease"}}">−</button>
-          <input class="num" aria-label="{{t "settings.security.min_length"}}" id="password_min_length" name="password_min_length" type="number" min="{{.MinLengthFloor}}" max="{{.MinLengthCeiling}}" step="1" value="{{.MinLength}}">
-          <button type="button" class="stepper-step" data-step="1" aria-label="{{t "settings.security.min_increase"}}">+</button>
-        </div></div>
-      </div>
       </section>
       <div class="settings-savebar" data-settings-savebar hidden>
         <button class="btn primary" type="submit">{{t "settings.security.save"}}</button>
@@ -50,7 +42,7 @@
       <section class="settings-group">
         <h2 class="settings-section-title">{{t "settings.security.company.title"}}</h2>
         <div class="settings-row single">
-          <div><h3>{{t "settings.security.company.address"}}{{template "help_tip" (helpTip "company-address" (t "settings.security.company.address") (t "settings.security.company.address_help"))}}</h3></div>
+          <div><h3>{{t "settings.security.company.address"}}</h3><p>{{t "settings.security.company.address_help"}}</p></div>
           <div class="field"><input type="text" id="company_signin_address" name="company_signin_address" value="{{.Company.Address}}" spellcheck="false" autocapitalize="off" placeholder="https://tkt.example.com" aria-label="{{t "settings.security.company.address"}}"></div>
         </div>
       <div class="settings-row">
@@ -68,21 +60,24 @@
           <input type="text" id="google_client_id" name="google_client_id" value="{{.Company.Google.ClientID}}" spellcheck="false" autocapitalize="off" autocomplete="off">
         </div>
         <div class="field">
-          <label for="google_client_secret">{{t "settings.security.company.client_secret"}}{{if .Company.Google.SecretSet}} <span class="chip">{{t "settings.security.company.secret_saved"}}</span>{{end}}</label>{{template "help_tip" (helpTip "google-secret" (t "settings.security.company.client_secret") (t "settings.security.company.secret_help"))}}
+          <label for="google_client_secret">{{t "settings.security.company.client_secret"}}{{if .Company.Google.SecretSet}} <span class="chip">{{t "settings.security.company.secret_saved"}}</span>{{end}}</label>
           <input type="password" id="google_client_secret" name="google_client_secret" value="" autocomplete="new-password">
-        </div>
+          <p class="help">{{t "settings.security.company.secret_help"}}</p>
+          </div>
         <div class="field">
-          <label for="google_domains">{{t "settings.security.company.google.domains"}}</label>{{template "help_tip" (helpTip "google-domains" (t "settings.security.company.google.domains") (t "settings.security.company.google.domains_help"))}}
+          <label for="google_domains">{{t "settings.security.company.google.domains"}}</label>
           <textarea id="google_domains" name="google_domains" spellcheck="false" autocapitalize="off">{{.Company.Google.Domains}}</textarea>
-        </div>
+          <p class="help">{{t "settings.security.company.google.domains_help"}}</p>
+          </div>
         <div class="field">
-          <label for="google_redirect_uri">{{t "settings.security.company.redirect"}}</label>{{template "help_tip" (helpTip "google-redirect" (t "settings.security.company.redirect") (t "settings.security.company.google.redirect_help"))}}
+          <label for="google_redirect_uri">{{t "settings.security.company.redirect"}}</label>
           <div class="copy-field">
             <input type="text" id="google_redirect_uri" class="settings-readonly" value="{{.Company.Google.RedirectURI}}" readonly spellcheck="false">
             <button type="button" class="btn" data-copy-target="google_redirect_uri" data-copied-label="{{t "settings.security.company.copied"}}">{{t "settings.security.company.copy"}}</button>
           </div>
           <span class="visually-hidden" role="status" aria-live="polite" data-copy-status></span>
-        </div>
+          <p class="help">{{t "settings.security.company.google.redirect_help"}}</p>
+          </div>
             </div>
           </section>
           <section class="settings-provider" aria-labelledby="microsoft-signin-label">
@@ -93,29 +88,39 @@
             </div>
             <div class="settings-provider-body">
         <div class="field">
-          <label for="microsoft_tenant_id">{{t "settings.security.company.microsoft.tenant"}}</label>{{template "help_tip" (helpTip "microsoft-tenant" (t "settings.security.company.microsoft.tenant") (t "settings.security.company.microsoft.tenant_help"))}}
+          <label for="microsoft_tenant_id">{{t "settings.security.company.microsoft.tenant"}}</label>
           <input type="text" id="microsoft_tenant_id" name="microsoft_tenant_id" value="{{.Company.Microsoft.TenantID}}" spellcheck="false" autocapitalize="off" autocomplete="off" placeholder="00000000-0000-0000-0000-000000000000">
-        </div>
+          <p class="help">{{t "settings.security.company.microsoft.tenant_help"}}</p>
+          </div>
         <div class="field">
           <label for="microsoft_client_id">{{t "settings.security.company.client_id"}}</label>
           <input type="text" id="microsoft_client_id" name="microsoft_client_id" value="{{.Company.Microsoft.ClientID}}" spellcheck="false" autocapitalize="off" autocomplete="off" placeholder="Application (client) ID">
         </div>
         <div class="field">
-          <label for="microsoft_client_secret">{{t "settings.security.company.client_secret"}}{{if .Company.Microsoft.SecretSet}} <span class="chip">{{t "settings.security.company.secret_saved"}}</span>{{end}}</label>{{template "help_tip" (helpTip "microsoft-secret" (t "settings.security.company.client_secret") (t "settings.security.company.secret_help"))}}
+          <label for="microsoft_client_secret">{{t "settings.security.company.client_secret"}}{{if .Company.Microsoft.SecretSet}} <span class="chip">{{t "settings.security.company.secret_saved"}}</span>{{end}}</label>
           <input type="password" id="microsoft_client_secret" name="microsoft_client_secret" value="" autocomplete="new-password">
-        </div>
+          <p class="help">{{t "settings.security.company.secret_help"}}</p>
+          </div>
         <div class="field">
-          <label for="microsoft_redirect_uri">{{t "settings.security.company.redirect"}}</label>{{template "help_tip" (helpTip "microsoft-redirect" (t "settings.security.company.redirect") (t "settings.security.company.microsoft.redirect_help"))}}
+          <label for="microsoft_redirect_uri">{{t "settings.security.company.redirect"}}</label>
           <div class="copy-field">
             <input type="text" id="microsoft_redirect_uri" class="settings-readonly" value="{{.Company.Microsoft.RedirectURI}}" readonly spellcheck="false">
             <button type="button" class="btn" data-copy-target="microsoft_redirect_uri" data-copied-label="{{t "settings.security.company.copied"}}">{{t "settings.security.company.copy"}}</button>
           </div>
           <span class="visually-hidden" role="status" aria-live="polite" data-copy-status></span>
-        </div>
+          <p class="help">{{t "settings.security.company.microsoft.redirect_help"}}</p>
+          </div>
             </div>
           </section>
         </div>
       </div>
+      <div class="settings-row">
+          <div><h3>{{t "settings.security.company.password_signin_title"}}</h3><p>{{t "settings.security.company.password_signin_help"}}</p>
+{{if not .Company.PasswordSignInEnabled}}            <p class="dep-note">{{t "settings.security.company.password_signin_off"}}</p>
+{{end}}
+          </div>
+          <label class="switch-line"><span class="switch"><input type="checkbox" id="password_signin_enabled" name="password_signin_enabled" value="1" form="company-signin-form" aria-labelledby="password-signin-label"{{if .Company.PasswordSignInEnabled}} checked{{end}}></span><span id="password-signin-label">{{t "settings.security.company.password_signin_allow"}}</span></label>
+        </div>
       <div class="settings-row">
         <div><h3>{{t "settings.security.company.new_accounts"}}</h3></div><div>
         <fieldset class="settings-choice-group">

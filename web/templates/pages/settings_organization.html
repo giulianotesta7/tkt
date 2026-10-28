@@ -2,7 +2,7 @@
 {{define "content"}}
 <div class="command-header">
   <div>
-    <h1 class="command-title">{{t "settings.title"}}</h1>
+    <h1 class="command-title">{{t "settings.title"}}</h1><p class="settings-subtitle">{{t "settings.subtitle"}}</p>
   </div>
 </div>
 <div class="settings-layout">
@@ -13,7 +13,7 @@
       <section class="settings-group">
       <h2 class="settings-section-title">{{t "settings.organization.title"}}</h2>
       <div class="settings-row single">
-        <div><h3>{{t "settings.organization.name"}}</h3></div>
+        <div><h3>{{t "settings.organization.name"}}</h3><p>{{t "settings.organization.name_help"}}</p></div>
         <div class="field"><input type="text" id="org_name" name="name" value="{{.Name}}" maxlength="60" required aria-label="{{t "settings.organization.name"}}"></div>
       </div>
       <div class="settings-row single">
@@ -25,7 +25,7 @@
         <div class="field"><input type="text" id="org_support_email" name="support_email" value="{{.SupportEmail}}" spellcheck="false" autocapitalize="off" aria-label="{{t "settings.organization.support_email"}}"></div>
       </div>
       <div class="settings-row">
-        <div><h3>{{t "settings.organization.logo"}}{{template "help_tip" (helpTip "org-logo" (t "settings.organization.logo") (t "settings.organization.logo_help"))}}</h3></div>
+        <div><h3>{{t "settings.organization.logo"}}</h3><p>{{t "settings.organization.logo_help"}}</p></div>
         <div class="settings-logo">
           <span class="settings-logo-mark">{{if .Brand.HasLogo}}<img src="/brand/logo?v={{.Brand.LogoVersion}}" alt="" width="48" height="48">{{else}}{{.Brand.Monogram}}{{end}}</span>
           <div class="settings-logo-controls">

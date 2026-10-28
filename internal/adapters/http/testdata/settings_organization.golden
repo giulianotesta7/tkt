@@ -85,7 +85,7 @@
 
 <div class="command-header">
   <div>
-    <h1 class="command-title">Settings</h1>
+    <h1 class="command-title">Settings</h1><p class="settings-subtitle">Instance configuration</p>
   </div>
 </div>
 <div class="settings-layout">
@@ -105,7 +105,7 @@
       <section class="settings-group">
       <h2 class="settings-section-title">Organization</h2>
       <div class="settings-row single">
-        <div><h3>Name</h3></div>
+        <div><h3>Name</h3><p>Shown in the sidebar and in emails.</p></div>
         <div class="field"><input type="text" id="org_name" name="name" value="Acme Support" maxlength="60" required aria-label="Name"></div>
       </div>
       <div class="settings-row single">
@@ -117,7 +117,7 @@
         <div class="field"><input type="text" id="org_support_email" name="support_email" value="support@acme.test" spellcheck="false" autocapitalize="off" aria-label="Support email"></div>
       </div>
       <div class="settings-row">
-        <div><h3>Logo<span class="help-tip-wrap"><button class="help-tip" type="button" aria-label="More about Logo" aria-describedby="help-tip-org-logo" aria-expanded="false" data-help-tip>?</button><span class="help-tip-bubble" role="tooltip" id="help-tip-org-logo">Square, 256 × 256 px recommended (128 × 128 px at least). PNG, up to 256 KiB.</span></span></h3></div>
+        <div><h3>Logo</h3><p>Square, 256 × 256 px recommended (128 × 128 px at least). PNG, up to 256 KiB.</p></div>
         <div class="settings-logo">
           <span class="settings-logo-mark">T</span>
           <div class="settings-logo-controls">
