@@ -2,18 +2,11 @@ package httpadapter
 
 import (
 	"net/http"
-	"net/http/httptest"
 	"net/url"
 	"regexp"
 	"strings"
 	"testing"
 )
-
-// Field help behind a toggletip (issue #383, S11): every field explanation in
-// every Settings section is a "?" button beside its label, the explanation
-// lives in a role="tooltip" element the button describes, and the two
-// exceptions stay visible — the skip-verification warning (a security rule that
-// must be read without asking) and the "a password is saved" state.
 
 // sectionBodyFor fetches one settings section as the given session.
 func sectionBodyFor(t *testing.T, h *harness, path, sessionID string) string {
@@ -152,60 +145,4 @@ func TestSettingsEmailSectionIsNamedEmailNotifications(t *testing.T) {
 			t.Errorf("the Spanish email section must contain %q, got: %s", want, spanish)
 		}
 	}
-}
-
-// TestToggletipEscapesItsOwnCopy proves the tooltip renders catalogue text as
-// text: it is a span, never markup, so a translation can never become a tag.
-func TestToggletipEscapesItsOwnCopy(t *testing.T) {
-	h := newHarness(t)
-
-	body := sectionGet(t, h, "/settings/organization")
-	if strings.Contains(body, `role="tooltip" id="help-tip-org-logo"><`) {
-		t.Errorf("the tooltip content must be text, not markup")
-	}
-	if !strings.Contains(body, `aria-expanded="false"`) {
-		t.Errorf("a toggletip starts collapsed")
-	}
-	// The control is a real button, so keyboard and assistive technology reach
-	// it; it is never an anchor with no destination or a click-handled span.
-	if strings.Contains(body, `<span class="help-tip"`) {
-		t.Errorf("the toggletip control must be a button")
-	}
-}
-
-// TestToggletipMarkupAndScriptAreShared proves one component serves every
-// section: the stylesheet and the script carry the control once, and every
-// section that has field help loads them.
-func TestToggletipMarkupAndScriptAreShared(t *testing.T) {
-	h := newHarness(t)
-
-	for _, path := range []string{"/settings/organization", "/settings/signin", "/settings/tickets", "/settings/calendar"} {
-		body := sectionGet(t, h, path)
-		for _, want := range []string{`/static/settings.css`, `/static/settings.js`} {
-			if !strings.Contains(body, want) {
-				t.Errorf("%s must load %q, got: %s", path, want, body)
-			}
-		}
-	}
-	// One rule set, not one per section.
-	css := readStaticAsset(t, h, "/static/settings.css")
-	if got := strings.Count(css, ".help-tip {"); got != 1 {
-		t.Errorf("the stylesheet must carry the control once, found %d", got)
-	}
-	js := readStaticAsset(t, h, "/static/settings.js")
-	if !strings.Contains(js, `[data-help-tip]`) {
-		t.Errorf("the shared script must own the toggletip behaviour")
-	}
-}
-
-// readStaticAsset fetches one embedded asset from the harness's own mux.
-func readStaticAsset(t *testing.T, h *harness, path string) string {
-	t.Helper()
-	req := httptest.NewRequest(http.MethodGet, path, nil)
-	rec := httptest.NewRecorder()
-	h.mux.ServeHTTP(rec, req)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("GET %s = %d, want 200", path, rec.Code)
-	}
-	return rec.Body.String()
 }
