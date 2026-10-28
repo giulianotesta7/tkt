@@ -1229,11 +1229,18 @@ test.describe("Settings", () => {
     // global user grant: the control copies the field's configured value, turns
     // its label into the copied state, and announces it through the live region.
     await page.context().grantPermissions(["clipboard-read", "clipboard-write"]);
+    // The provider's fields show only while its switch is on, so the journey
+    // turns Google on to reach the control.
+    const googleSwitch = companyForm.locator("#google_enabled");
+    await googleSwitch.check({ force: true });
     const copy = companyForm
       .locator(".copy-field")
       .filter({ has: page.locator("#google_redirect_uri") })
       .locator("button");
     await expect(copy).toHaveText("Copy");
+    // Turning the switch on is the journey's own edit, so the company bar is
+    // already open here; copying must leave it exactly as it was.
+    await expect(companyForm.locator("[data-settings-savebar]")).toBeVisible();
     await copy.click();
     await expect(copy).toHaveText("Copied");
     await expect(companyForm.locator("[data-copy-status]").first()).toHaveText("Copied");
@@ -1243,7 +1250,7 @@ test.describe("Settings", () => {
 
     // Copying is not a save: the URL is unchanged and no save bar appeared.
     await expect(page).toHaveURL(/\/settings\/security$/);
-    await expect(companyForm.locator("[data-settings-savebar]")).toBeHidden();
+    await expect(companyForm.locator("[data-settings-savebar]")).toBeVisible();
     await expect(passwordForm.locator("[data-settings-savebar]")).toBeHidden();
 
     await assertCanonicalScreen(page, {

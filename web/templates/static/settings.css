@@ -24,6 +24,9 @@
 }
 
 .settings-nav-link {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   flex: 0 0 auto;
   padding: 10px 14px;
   border-bottom: 2px solid transparent;
@@ -34,12 +37,36 @@
   text-decoration: none;
 }
 
+/* Tab icons are decorative, so they are drawn with CSS masks keyed by the
+   section link rather than inline markup: the link stays a plain text anchor
+   and screen readers announce only its label. The mask takes the link's own
+   colour, so hover, active and dark themes need no extra rule. */
+.settings-nav-link::before {
+  content: "";
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  background: currentColor;
+  -webkit-mask: var(--tab-icon) center / contain no-repeat;
+  mask: var(--tab-icon) center / contain no-repeat;
+}
+
+.settings-nav-link[href$="/settings/organization"] { --tab-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M4 21V4h10v17M14 9h6v12M8 8h2M8 12h2M8 16h2'/%3E%3C/svg%3E"); }
+.settings-nav-link[href$="/settings/signin"] { --tab-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='8' cy='15' r='4'/%3E%3Cpath d='M11 12l9-9M16 7l3 3'/%3E%3C/svg%3E"); }
+.settings-nav-link[href$="/settings/language"] { --tab-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='12' cy='12' r='9'/%3E%3Cpath d='M3 12h18M12 3c3 3 3 15 0 18M12 3c-3 3-3 15 0 18'/%3E%3C/svg%3E"); }
+.settings-nav-link[href$="/settings/tickets"] { --tab-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 8a2 2 0 0 0 0 8v2h18v-2a2 2 0 0 1 0-8V6H3zM14 6v12'/%3E%3C/svg%3E"); }
+.settings-nav-link[href$="/settings/email"] { --tab-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='3' y='5' width='18' height='14' rx='2'/%3E%3Cpath d='M3 7l9 6 9-6'/%3E%3C/svg%3E"); }
+.settings-nav-link[href$="/settings/security"] { --tab-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z'/%3E%3C/svg%3E"); }
+.settings-nav-link[href$="/settings/calendar"] { --tab-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='3' y='5' width='18' height='16' rx='2'/%3E%3Cpath d='M3 10h18M8 3v4M16 3v4'/%3E%3C/svg%3E"); }
+
 .settings-nav-link:hover {
   background: var(--hover);
   color: var(--ink);
 }
 
 .settings-nav-link[aria-current="page"] {
+  background: var(--hover);
+  border-radius: 8px 8px 0 0;
   border-bottom-color: var(--accent);
   color: var(--ink-strong);
   font-weight: 600;
@@ -202,6 +229,11 @@
   margin: 0;
   padding: 0;
   border: 0;
+}
+
+.settings-content form[action="/settings/ticket-creation"] .settings-choice-group {
+  width: 100%;
+  max-width: 260px;
 }
 
 .settings-choice-group .field-label {
@@ -439,7 +471,7 @@
 
 .settings-preview-frame {
   width: 100%;
-  height: calc(100cqw * 640 / 1120);
+  height: calc(100cqw * 520 / 720);
   overflow: hidden;
   border: 1px solid var(--line-strong);
   border-radius: 8px;
@@ -447,22 +479,22 @@
 }
 
 .settings-preview-scale {
-  width: 1120px;
-  height: 640px;
-  transform: scale(calc(100cqw / 1120px));
+  width: 720px;
+  height: 520px;
+  transform: scale(calc(100cqw / 720px));
   transform-origin: top left;
   pointer-events: none;
 }
 
 .settings-preview-scale .auth-entry__presentation {
-  width: 1120px;
-  height: 640px;
+  width: 720px;
+  height: 520px;
   min-height: 0;
   border-right: 0;
 }
 
 .settings-preview-scale .auth-entry__body h2 {
-  font-size: 44px;
+  font-size: 34px;
 }
 
 @media (max-width: 640px) {
@@ -801,8 +833,10 @@
 /* Security rows retain the native switches and keep provider fields visible. */
 .settings-row.switch-row { display: grid; column-gap: 32px; }
 .settings-row .sla-grid { margin-top: 0; border-top: 0; }
-.settings-provider-fields { display: grid; gap: 14px; min-width: 0; }
-.settings-provider-fields :is(input[type="text"], input[type="password"], textarea) { width: 100%; }
+.settings-row .sla-duration-grid .sla-grid-row { grid-template-columns: 90px 150px 150px; gap: 8px; }
+.settings-row .sla-duration-grid .sla-duration-input { height: 36px; }
+@media (max-width: 640px) { .settings-row .sla-duration-grid .sla-grid-row { grid-template-columns: minmax(0, 1fr); } }
+.settings-row .sla-grid { margin-top: 0; border-top: 0; }
 
 .settings-company-form {
   display: flex;
@@ -810,18 +844,61 @@
   margin: 0;
 }
 
+/* Provider cards (design 02): one bordered card per provider, in the right
+   column of a single "Providers" row. The header carries the logo tile, the name
+   and the enable switch; the credentials fields live in the body and show only
+   while the switch is on. The reveal is CSS (:has), so it needs no script and a
+   hidden body still posts its values, which keeps a configured but disabled
+   provider from losing its stored fields on save. */
+.settings-providers { display: grid; gap: 12px; max-width: 720px; min-width: 0; }
+
+.settings-provider {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--card);
+}
+
 .settings-provider-head {
-  padding-top: 0;
-  justify-content: flex-end;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 12px;
+  padding: 14px 16px;
+  border-bottom: 0;
 }
 
-.settings-provider-head .settings-group-title {
-  margin-bottom: 2px;
+.settings-provider-head .switch { margin: 0 0 0 auto; }
+
+.settings-provider-logo {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 36px;
+  height: 36px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
 }
 
-.settings-provider-head .help {
-  margin-top: 2px;
+.settings-provider-logo .company-logo { width: 20px; height: 20px; }
+
+.settings-provider-name {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ink-strong);
 }
+
+.settings-provider-body {
+  display: grid;
+  gap: 14px;
+  padding: 16px;
+  border-top: 1px solid var(--line);
+  min-width: 0;
+}
+
+.settings-provider-body .field { margin: 0; }
+.settings-provider-body :is(input[type="text"], input[type="password"], textarea) { width: 100%; }
+.settings-provider:not(:has(.settings-provider-head input:checked)) .settings-provider-body { display: none; }
 
 /* A redirect URI is derived from the shared address rather than typed here, so
    it renders on the surface rung: the value stays readable and copyable without

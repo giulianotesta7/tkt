@@ -54,10 +54,15 @@
           <div class="field"><input type="text" id="company_signin_address" name="company_signin_address" value="{{.Company.Address}}" spellcheck="false" autocapitalize="off" placeholder="https://tkt.example.com" aria-label="{{t "settings.security.company.address"}}"></div>
         </div>
       <div class="settings-row">
-        <div><h3 class="settings-group-title" id="google-signin-label">{{template "company_logo" "google"}}{{t "settings.security.company.google.title"}}</h3></div><div class="settings-provider-fields">
-        <div class="switch-row settings-provider-head">
-          <span class="switch"><input type="checkbox" id="google_enabled" name="google_enabled" value="1" aria-labelledby="google-signin-label"{{if .Company.Google.Enabled}} checked{{end}}></span>
-        </div>
+        <div><h3>{{t "settings.security.company.providers"}}</h3><p>{{t "settings.security.company.providers_help"}}</p></div>
+        <div class="settings-providers">
+          <section class="settings-provider" aria-labelledby="google-signin-label">
+            <div class="switch-row settings-provider-head">
+              <span class="settings-provider-logo">{{template "company_logo" "google"}}</span>
+              <h3 class="settings-provider-name" id="google-signin-label">{{t "settings.security.company.google.title"}}</h3>
+              <span class="switch"><input type="checkbox" id="google_enabled" name="google_enabled" value="1" aria-labelledby="google-signin-label"{{if .Company.Google.Enabled}} checked{{end}}></span>
+            </div>
+            <div class="settings-provider-body">
         <div class="field">
           <label for="google_client_id">{{t "settings.security.company.client_id"}}</label>
           <input type="text" id="google_client_id" name="google_client_id" value="{{.Company.Google.ClientID}}" spellcheck="false" autocapitalize="off" autocomplete="off">
@@ -78,13 +83,15 @@
           </div>
           <span class="visually-hidden" role="status" aria-live="polite" data-copy-status></span>
         </div>
-{{if not .Company.Google.Enabled}}        <p class="dep-note">{{t "settings.security.company.google.off"}}</p>
-{{end}}      </div></div>
-      <div class="settings-row">
-        <div><h3 class="settings-group-title" id="microsoft-signin-label">{{template "company_logo" "microsoft"}}{{t "settings.security.company.microsoft.title"}}</h3></div><div class="settings-provider-fields">
-        <div class="switch-row settings-provider-head">
-          <span class="switch"><input type="checkbox" id="microsoft_enabled" name="microsoft_enabled" value="1" aria-labelledby="microsoft-signin-label"{{if .Company.Microsoft.Enabled}} checked{{end}}></span>
-        </div>
+            </div>
+          </section>
+          <section class="settings-provider" aria-labelledby="microsoft-signin-label">
+            <div class="switch-row settings-provider-head">
+              <span class="settings-provider-logo">{{template "company_logo" "microsoft"}}</span>
+              <h3 class="settings-provider-name" id="microsoft-signin-label">{{t "settings.security.company.microsoft.title"}}</h3>
+              <span class="switch"><input type="checkbox" id="microsoft_enabled" name="microsoft_enabled" value="1" aria-labelledby="microsoft-signin-label"{{if .Company.Microsoft.Enabled}} checked{{end}}></span>
+            </div>
+            <div class="settings-provider-body">
         <div class="field">
           <label for="microsoft_tenant_id">{{t "settings.security.company.microsoft.tenant"}}</label>{{template "help_tip" (helpTip "microsoft-tenant" (t "settings.security.company.microsoft.tenant") (t "settings.security.company.microsoft.tenant_help"))}}
           <input type="text" id="microsoft_tenant_id" name="microsoft_tenant_id" value="{{.Company.Microsoft.TenantID}}" spellcheck="false" autocapitalize="off" autocomplete="off" placeholder="00000000-0000-0000-0000-000000000000">
@@ -105,8 +112,10 @@
           </div>
           <span class="visually-hidden" role="status" aria-live="polite" data-copy-status></span>
         </div>
-{{if not .Company.Microsoft.Enabled}}        <p class="dep-note">{{t "settings.security.company.microsoft.off"}}</p>
-{{end}}      </div></div>
+            </div>
+          </section>
+        </div>
+      </div>
       <div class="settings-row">
         <div><h3>{{t "settings.security.company.new_accounts"}}</h3></div><div>
         <fieldset class="settings-choice-group">

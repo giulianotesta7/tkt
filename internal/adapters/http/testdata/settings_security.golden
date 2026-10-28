@@ -146,10 +146,15 @@
           <div class="field"><input type="text" id="company_signin_address" name="company_signin_address" value="https://tkt.example.test" spellcheck="false" autocapitalize="off" placeholder="https://tkt.example.com" aria-label="TKT address"></div>
         </div>
       <div class="settings-row">
-        <div><h3 class="settings-group-title" id="google-signin-label"><svg class="company-logo" viewBox="0 0 48 48" aria-hidden="true" focusable="false"><path fill="#EA4335" d="M24 9.5c3.5 0 6.6 1.2 9.1 3.6l6.8-6.8C35.8 2.4 30.3 0 24 0 14.6 0 6.5 5.4 2.6 13.2l7.9 6.1C12.4 13.6 17.7 9.5 24 9.5z"/><path fill="#4285F4" d="M46.5 24.5c0-1.6-.1-3.1-.4-4.5H24v9h12.7c-.6 3-2.3 5.4-4.8 7.1l7.6 5.9c4.5-4.1 7-10.2 7-17.5z"/><path fill="#FBBC05" d="M10.5 28.7A14.5 14.5 0 0 1 9.5 24c0-1.6.3-3.2.8-4.7l-7.9-6.1A24 24 0 0 0 0 24c0 3.9.9 7.5 2.6 10.8l7.9-6.1z"/><path fill="#34A853" d="M24 48c6.5 0 11.9-2.1 15.9-5.8l-7.6-5.9c-2.1 1.4-4.9 2.3-8.3 2.3-6.3 0-11.6-4.1-13.5-9.8l-7.9 6.1C6.5 42.6 14.6 48 24 48z"/></svg>Google Workspace</h3></div><div class="settings-provider-fields">
-        <div class="switch-row settings-provider-head">
-          <span class="switch"><input type="checkbox" id="google_enabled" name="google_enabled" value="1" aria-labelledby="google-signin-label" checked></span>
-        </div>
+        <div><h3>Providers</h3><p>Turn on a provider to enter the credentials from its console. Both redirect URIs are built from the TKT address above.</p></div>
+        <div class="settings-providers">
+          <section class="settings-provider" aria-labelledby="google-signin-label">
+            <div class="switch-row settings-provider-head">
+              <span class="settings-provider-logo"><svg class="company-logo" viewBox="0 0 48 48" aria-hidden="true" focusable="false"><path fill="#EA4335" d="M24 9.5c3.5 0 6.6 1.2 9.1 3.6l6.8-6.8C35.8 2.4 30.3 0 24 0 14.6 0 6.5 5.4 2.6 13.2l7.9 6.1C12.4 13.6 17.7 9.5 24 9.5z"/><path fill="#4285F4" d="M46.5 24.5c0-1.6-.1-3.1-.4-4.5H24v9h12.7c-.6 3-2.3 5.4-4.8 7.1l7.6 5.9c4.5-4.1 7-10.2 7-17.5z"/><path fill="#FBBC05" d="M10.5 28.7A14.5 14.5 0 0 1 9.5 24c0-1.6.3-3.2.8-4.7l-7.9-6.1A24 24 0 0 0 0 24c0 3.9.9 7.5 2.6 10.8l7.9-6.1z"/><path fill="#34A853" d="M24 48c6.5 0 11.9-2.1 15.9-5.8l-7.6-5.9c-2.1 1.4-4.9 2.3-8.3 2.3-6.3 0-11.6-4.1-13.5-9.8l-7.9 6.1C6.5 42.6 14.6 48 24 48z"/></svg></span>
+              <h3 class="settings-provider-name" id="google-signin-label">Google Workspace</h3>
+              <span class="switch"><input type="checkbox" id="google_enabled" name="google_enabled" value="1" aria-labelledby="google-signin-label" checked></span>
+            </div>
+            <div class="settings-provider-body">
         <div class="field">
           <label for="google_client_id">Client ID</label>
           <input type="text" id="google_client_id" name="google_client_id" value="812345678901-acme.apps.googleusercontent.com" spellcheck="false" autocapitalize="off" autocomplete="off">
@@ -171,12 +176,15 @@ acme-support.test</textarea>
           </div>
           <span class="visually-hidden" role="status" aria-live="polite" data-copy-status></span>
         </div>
-      </div></div>
-      <div class="settings-row">
-        <div><h3 class="settings-group-title" id="microsoft-signin-label"><svg class="company-logo" viewBox="0 0 23 23" aria-hidden="true" focusable="false"><path fill="#F25022" d="M1 1h10v10H1z"/><path fill="#7FBA00" d="M12 1h10v10H12z"/><path fill="#00A4EF" d="M1 12h10v10H1z"/><path fill="#FFB900" d="M12 12h10v10H12z"/></svg>Microsoft Entra</h3></div><div class="settings-provider-fields">
-        <div class="switch-row settings-provider-head">
-          <span class="switch"><input type="checkbox" id="microsoft_enabled" name="microsoft_enabled" value="1" aria-labelledby="microsoft-signin-label"></span>
-        </div>
+            </div>
+          </section>
+          <section class="settings-provider" aria-labelledby="microsoft-signin-label">
+            <div class="switch-row settings-provider-head">
+              <span class="settings-provider-logo"><svg class="company-logo" viewBox="0 0 23 23" aria-hidden="true" focusable="false"><path fill="#F25022" d="M1 1h10v10H1z"/><path fill="#7FBA00" d="M12 1h10v10H12z"/><path fill="#00A4EF" d="M1 12h10v10H1z"/><path fill="#FFB900" d="M12 12h10v10H12z"/></svg></span>
+              <h3 class="settings-provider-name" id="microsoft-signin-label">Microsoft Entra</h3>
+              <span class="switch"><input type="checkbox" id="microsoft_enabled" name="microsoft_enabled" value="1" aria-labelledby="microsoft-signin-label"></span>
+            </div>
+            <div class="settings-provider-body">
         <div class="field">
           <label for="microsoft_tenant_id">Directory (tenant) ID</label><span class="help-tip-wrap"><button class="help-tip" type="button" aria-label="More about Directory (tenant) ID" aria-describedby="help-tip-microsoft-tenant" aria-expanded="false" data-help-tip>?</button><span class="help-tip-bubble" role="tooltip" id="help-tip-microsoft-tenant">Only accounts from this tenant can sign in. The tenant is the restriction, so there is no separate domain list for Microsoft.</span></span>
           <input type="text" id="microsoft_tenant_id" name="microsoft_tenant_id" value="72f988bf-86f1-41af-91ab-2d7cd011db47" spellcheck="false" autocapitalize="off" autocomplete="off" placeholder="00000000-0000-0000-0000-000000000000">
@@ -197,8 +205,10 @@ acme-support.test</textarea>
           </div>
           <span class="visually-hidden" role="status" aria-live="polite" data-copy-status></span>
         </div>
-        <p class="dep-note">Microsoft sign-in is off. Paste the Directory (tenant) ID, Client ID and Client secret from the Entra portal to turn it on.</p>
-      </div></div>
+            </div>
+          </section>
+        </div>
+      </div>
       <div class="settings-row">
         <div><h3>New accounts</h3></div><div>
         <fieldset class="settings-choice-group">
