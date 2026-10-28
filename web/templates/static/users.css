@@ -330,3 +330,50 @@
 .tickets-screen .card-timestamp{position:relative;z-index:5;cursor:help}
 .tickets-screen .card-timestamp::after{content:attr(data-full-date);position:absolute;left:0;bottom:calc(100% + 6px);z-index:30;padding:4px 8px;border-radius:8px;background:var(--ink-strong);color:var(--surface);font-size:12px;line-height:1.4;white-space:nowrap;box-shadow:var(--elevation-raised);opacity:0;visibility:hidden;pointer-events:none;transition:opacity .12s ease}
 .tickets-screen .card-timestamp:hover::after,.tickets-screen .card-timestamp:focus::after,.tickets-screen .card-timestamp:focus-visible::after{opacity:1;visibility:visible}
+
+/* Structured Categories workspace (#482): reuse the existing tree, drawer and
+   workflow controls without changing Users, SLA or the shared page panels. */
+.categories-root .catalog-toolbar{gap:12px;margin-bottom:28px}
+.categories-root .catalog-toolbar .category-search{flex:0 1 360px}
+.categories-root .catalog-attention-chip{height:36px;padding:0 14px;border-radius:8px;font-size:13px}
+.categories-root .catalog-structure-title{margin:0 0 16px;color:var(--ink-strong);font-size:17px;font-weight:600}
+.categories-root .catalog-tree{border:0;border-top:1px solid var(--line);border-radius:0;padding:0}
+.categories-root .catalog-tree-row{min-height:62px;gap:12px;padding-top:12px;padding-bottom:12px}
+.categories-root .catalog-tree-department>.catalog-tree-list>.catalog-tree-node>.catalog-tree-row{padding-left:32px}
+.categories-root .catalog-tree-desk>.catalog-tree-list>.catalog-tree-node>.catalog-tree-row{padding-left:64px}
+.categories-root .catalog-node-name{font-weight:600}
+.categories-root .category-drawer{width:min(520px,100vw)}
+.categories-root .category-drawer .users-drawer-header{padding:24px}
+.categories-root .category-drawer .users-drawer-body{padding:24px}
+.categories-root .category-drawer .users-drawer-footer{margin:24px -24px -24px;padding:24px}
+.categories-root .category-drawer[data-kind=desk] .users-drawer-footer{margin:24px 0 0;padding:0}
+.categories-root .category-drawer .users-field label{font-size:13px;font-weight:500}
+.categories-root .category-drawer .users-field input,.categories-root .category-drawer .users-field select{height:38px;padding:0 12px;font-size:13px}
+.categories-root .category-drawer .users-help{font-size:12px}
+.category-workflow-page .workflow-builder.page-panel{border:0;border-radius:0;overflow:visible}
+.category-workflow-page .workflow-builder-head{padding:0 0 16px}
+.category-workflow-page .workflow-version-bar{gap:12px;padding:16px 0;border-top:1px solid var(--line)}
+.category-workflow-page .workflow-builder-panels{grid-template-columns:minmax(0,310px) minmax(0,1fr);gap:32px;padding-top:28px}
+.category-workflow-page .workflow-rail-wrap{padding:0;border:0}
+.category-workflow-page .workflow-pane-label{margin-bottom:16px}
+.category-workflow-page .workflow-pane-label h2{font-size:17px;font-weight:600}
+.category-workflow-page .workflow-step-rail{gap:8px}
+.category-workflow-page .workflow-step-card{border-color:var(--line)}
+.category-workflow-page .workflow-step-card.selected{border-color:var(--accent);background:var(--accent-soft)}
+.category-workflow-page .workflow-step-position{min-width:28px;height:28px;border-radius:8px}
+.category-workflow-page .workflow-editor-panel{padding:0 0 0 32px;border-left:1px solid var(--line)}
+.category-workflow-page .workflow-editor-head{padding-bottom:20px;margin-bottom:22px}
+.category-workflow-page .workflow-editor-head h3{font-size:17px;font-weight:600}
+.category-workflow-page .step-body{gap:18px}
+.category-workflow-page .workflow-form-fields{gap:12px}
+.category-workflow-page .workflow-field-row{padding:16px;border-radius:12px}
+@media(max-width:900px){
+  .category-workflow-page .workflow-builder-panels{grid-template-columns:1fr;gap:24px}
+  .category-workflow-page .workflow-editor-panel{border-left:0;border-top:1px solid var(--line);padding:24px 0 0}
+}
+@media(max-width:640px){
+  .categories-root .catalog-toolbar .category-search{flex:1 1 100%}
+  .categories-root .catalog-tree-row{column-gap:8px}
+  .categories-root .catalog-tree-department>.catalog-tree-list>.catalog-tree-node>.catalog-tree-row{padding-left:16px}
+  .categories-root .catalog-tree-desk>.catalog-tree-list>.catalog-tree-node>.catalog-tree-row{padding-left:32px}
+}
