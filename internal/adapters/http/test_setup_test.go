@@ -89,6 +89,12 @@ func TestNewTestRendererSharesTheParseButNotTheLanguage(t *testing.T) {
 		t.Errorf("spanish renderer did not render Spanish: %.200s", body)
 	}
 
+	// A test renderer over the shared parse answers byte for byte what a
+	// renderer that parses on its own answers.
+	if got, want := render(newTestRenderer(t, nil)), render(NewRenderer()); got != want {
+		t.Error("newTestRenderer(t, nil) renders different bytes from NewRenderer()")
+	}
+
 	// newTestRenderer copies Renderer's fields by name. A new field must be
 	// wired there too, or test renderers silently drift from production ones.
 	if got := reflect.TypeFor[Renderer]().NumField(); got != 5 {
