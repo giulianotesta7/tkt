@@ -11,7 +11,6 @@ import (
 
 	"github.com/giulianotesta7/tkt/internal/application"
 	"github.com/giulianotesta7/tkt/internal/domain"
-	"github.com/giulianotesta7/tkt/web/templates"
 )
 
 // The screen-level defects from the read-only UX audit (issue #343, S1-S6).
@@ -23,10 +22,7 @@ import (
 // part of the assertion.
 func renderAuditPage(t *testing.T, locale, page string, data any) string {
 	t.Helper()
-	r, err := newRendererWithLanguage(templates.FS, stubInterfaceLanguage{language: locale})
-	if err != nil {
-		t.Fatalf("newRendererWithLanguage(%q): %v", locale, err)
-	}
+	r := newTestRenderer(t, stubInterfaceLanguage{language: locale})
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/audit", nil)
 	r.Render(rec, req, page, "", data, http.StatusOK)

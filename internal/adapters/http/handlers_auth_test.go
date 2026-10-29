@@ -272,7 +272,7 @@ func TestLogoutSessionStoreFailure500(t *testing.T) {
 	clock := testClock{now: fixedNow}
 	usersSvc := application.NewUserService(s.UserStore(), clock)
 	authSvc := application.NewAuthService(s.UserStore(), failingSessionStore{}, clock)
-	renderer := NewRenderer()
+	renderer := newTestRenderer(t, nil)
 
 	mux := http.NewServeMux()
 	NewAuthHandlers(authSvc, usersSvc, renderer).Register(mux)

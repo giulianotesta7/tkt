@@ -5,12 +5,15 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"io"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -19,6 +22,7 @@ import (
 	"github.com/giulianotesta7/tkt/internal/adapters/sqlite"
 	"github.com/giulianotesta7/tkt/internal/application"
 	"github.com/giulianotesta7/tkt/internal/domain"
+	"github.com/giulianotesta7/tkt/web/templates"
 )
 
 // openTestStore opens a real modernc SQLite database in a temp dir, applies
@@ -41,8 +45,20 @@ func openTestStore(t *testing.T) *sqlite.Store {
 // harness so integration tests can open a second read handle for raw-row
 // assertions (e.g. proving a workflow create pinned the version and that a
 // rollback left zero run/audit rows).
+//
+// The file starts as a copy of the migrated template (issue #485), so the
+// Migrate call below finds every version applied, exactly as production
+// startup does on an existing database. dbPath must not exist yet: a test
+// never shares or reuses a database.
 func openTestStoreAt(t *testing.T, dbPath string) *sqlite.Store {
 	t.Helper()
+	templatePath, err := migratedTemplate()
+	if err != nil {
+		t.Fatalf("migrated template database: %v", err)
+	}
+	if err := copyNewFile(templatePath, dbPath); err != nil {
+		t.Fatalf("copy template database: %v", err)
+	}
 	// Deliberate divergence from production: synchronous=NORMAL instead of
 	// FULL. These databases are disposable and the tests do not prove
 	// power-loss durability, so the durable fsync on every commit is pure
@@ -57,6 +73,87 @@ func openTestStoreAt(t *testing.T, dbPath string) *sqlite.Store {
 		t.Fatalf("migrate test store: %v", err)
 	}
 	return s
+}
+
+// templateDir holds the process-wide migrated template database; TestMain
+// removes it after the last test.
+var templateDir string
+
+// TestMain runs the package's tests, then removes the process-wide fixtures.
+func TestMain(m *testing.M) {
+	code := m.Run()
+	if templateDir != "" {
+		_ = os.RemoveAll(templateDir)
+	}
+	os.Exit(code)
+}
+
+// migratedTemplate migrates one database once per test process (issue #485).
+// Every openTestStoreAt copies it instead of applying the migrations again:
+// re-running them per test was the largest setup cost under -race, where the
+// pure-Go SQLite engine is instrumented along with the code under test.
+var migratedTemplate = sync.OnceValues(func() (string, error) {
+	dir, err := os.MkdirTemp("", "tkt-http-template-")
+	if err != nil {
+		return "", err
+	}
+	templateDir = dir
+	path := filepath.Join(dir, "template.db")
+	s, err := sqlite.OpenForTests(path)
+	if err != nil {
+		return "", err
+	}
+	if err := s.Migrate(context.Background()); err != nil {
+		_ = s.Close()
+		return "", err
+	}
+	// Closing the last connection checkpoints the WAL into the main file, so
+	// the main file alone is the whole database.
+	if err := s.Close(); err != nil {
+		return "", err
+	}
+	if info, err := os.Stat(path + "-wal"); err == nil && info.Size() > 0 {
+		return "", errors.New("the template database kept a non-empty WAL after close")
+	}
+	return path, nil
+})
+
+// copyNewFile copies src to dst, refusing to overwrite an existing dst.
+func copyNewFile(src, dst string) error {
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+	out, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if err != nil {
+		return err
+	}
+	if _, err := io.Copy(out, in); err != nil {
+		_ = out.Close()
+		return err
+	}
+	return out.Close()
+}
+
+// parsedTemplates parses the embedded template tree once per test process
+// (issue #485). Parsing every page for every locale was most of a harness's
+// CPU cost, and a parsed tree is only executed afterwards, which html/template
+// allows from any number of renderers.
+var parsedTemplates = sync.OnceValues(func() (*Renderer, error) {
+	return newRendererWithLanguage(templates.FS, nil)
+})
+
+// newTestRenderer returns what NewRendererWithLanguage(src) builds — src may
+// be nil, as in NewRenderer — over the shared parsed tree. Each renderer keeps
+// its own language source and its own language-failure log.
+func newTestRenderer(t testing.TB, src InterfaceLanguageSource) *Renderer {
+	t.Helper()
+	shared, err := parsedTemplates()
+	if err != nil {
+		t.Fatalf("parse templates: %v", err)
+	}
+	return &Renderer{trees: shared.trees, fallback: shared.fallback, language: src, fragments: shared.fragments}
 }
 
 // testClock is the injected clock for every service under test (D7).
@@ -266,7 +363,7 @@ func newHarnessWithAdmin(t *testing.T, seedAdmin bool) *harness {
 	// dispatcher), so a test observes the mailed link as soon as the form
 	// answers. Production hands the send to its own goroutine instead.
 	resetSvc := application.NewPasswordResetService(s.UserStore(), s.PasswordResetStore(), s.PasswordSettingsStore(), emailSettingsSvc, mailer, msgtext.Renderer{}, func(send func()) { send() }, clock).WithCompanySignIn(s.CompanySignInSettingsStore())
-	renderer := NewRenderer()
+	renderer := newTestRenderer(t, nil)
 
 	mux := http.NewServeMux()
 	RegisterStatic(mux, s.SettingsStore())

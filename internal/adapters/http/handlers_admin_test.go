@@ -768,7 +768,7 @@ func (s *noQueryCategoryStore) List(context.Context) ([]domain.Category, error) 
 // boundary: denied management requests must stop before their list stores.
 func TestDeniedManagementHandlersQueryNothing(t *testing.T) {
 	actor := &domain.User{Role: domain.RoleUser}
-	renderer := NewRenderer()
+	renderer := newTestRenderer(t, nil)
 
 	t.Run("users", func(t *testing.T) {
 		store := &noQueryUserStore{}

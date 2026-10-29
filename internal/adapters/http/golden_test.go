@@ -317,7 +317,7 @@ func fixtureTwoStepTicketFormData() ticketFormData {
 
 func renderGolden(t *testing.T, page, fragment string, data any, hx bool) string {
 	t.Helper()
-	r := NewRenderer()
+	r := newTestRenderer(t, nil)
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/golden", nil)
 	if hx {
