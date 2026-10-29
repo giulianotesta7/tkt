@@ -2737,7 +2737,7 @@ func TestWorkflowCompletion_RequiredCheckboxMatrix(t *testing.T) {
 // × (false) with an accessible Yes/No description, while every other field keeps
 // its literal value.
 func TestTimelineRendersCheckboxBooleanGlyphs(t *testing.T) {
-	r := NewRenderer()
+	r := newTestRenderer(t, nil)
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/tickets/1", nil)
 	req.Header.Set("HX-Request", "true")

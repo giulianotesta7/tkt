@@ -19,7 +19,7 @@ var assignmentRenderT0 = time.Date(2026, 8, 20, 10, 0, 0, 0, time.UTC)
 
 func renderTimelineFragment(t *testing.T, items []application.TimelineItem) string {
 	t.Helper()
-	renderer := NewRenderer()
+	renderer := newTestRenderer(t, nil)
 	req := httptest.NewRequest("GET", "/tickets/1", nil)
 	req.Header.Set("HX-Request", "true")
 	rec := httptest.NewRecorder()

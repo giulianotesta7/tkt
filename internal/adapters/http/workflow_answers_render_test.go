@@ -11,7 +11,7 @@ import (
 )
 
 func TestWorkflowAnswersRenderDefinitionListAndEscapesValues(t *testing.T) {
-	renderer := NewRenderer()
+	renderer := newTestRenderer(t, nil)
 	req := httptest.NewRequest("GET", "/tickets/1", nil)
 	req.Header.Set("HX-Request", "true")
 	response := httptest.NewRecorder()
@@ -34,7 +34,7 @@ func TestWorkflowAnswersRenderDefinitionListAndEscapesValues(t *testing.T) {
 }
 
 func TestWorkflowAnswersOmittedWhenAbsent(t *testing.T) {
-	renderer := NewRenderer()
+	renderer := newTestRenderer(t, nil)
 	req := httptest.NewRequest("GET", "/tickets/1", nil)
 	req.Header.Set("HX-Request", "true")
 	response := httptest.NewRecorder()
@@ -45,7 +45,7 @@ func TestWorkflowAnswersOmittedWhenAbsent(t *testing.T) {
 }
 
 func TestWorkflowStepTimelineDoesNotRenderAnswerContent(t *testing.T) {
-	renderer := NewRenderer()
+	renderer := newTestRenderer(t, nil)
 	req := httptest.NewRequest("GET", "/tickets/1", nil)
 	req.Header.Set("HX-Request", "true")
 	response := httptest.NewRecorder()
@@ -66,7 +66,7 @@ func TestWorkflowStepTimelineDoesNotRenderAnswerContent(t *testing.T) {
 // Issue #438: a completed form encloses its header and escaped semantic answer
 // list in its own card, with the same shape and spacing as comment cards.
 func TestTimelineFormEventRendersEscapedInlineDefinitionList(t *testing.T) {
-	renderer := NewRenderer()
+	renderer := newTestRenderer(t, nil)
 	req := httptest.NewRequest("GET", "/tickets/1", nil)
 	req.Header.Set("HX-Request", "true")
 	response := httptest.NewRecorder()
@@ -124,7 +124,7 @@ func TestTimelineFormEventRendersEscapedInlineDefinitionList(t *testing.T) {
 // PR10 task 10.2 — a manual completion item renders its contextual pinned
 // instruction escaped within the same static event entry.
 func TestTimelineManualEventRendersEscapedPinnedInstruction(t *testing.T) {
-	renderer := NewRenderer()
+	renderer := newTestRenderer(t, nil)
 	req := httptest.NewRequest("GET", "/tickets/1", nil)
 	req.Header.Set("HX-Request", "true")
 	response := httptest.NewRecorder()
@@ -165,7 +165,7 @@ func TestTimelineManualEventRendersEscapedPinnedInstruction(t *testing.T) {
 // INSIDE the existing event entry only when non-empty, as escaped plain text;
 // the completing actor's name and the event timestamp stay on the entry.
 func TestTimelineManualEventRendersEscapedSolutionWhenPresent(t *testing.T) {
-	renderer := NewRenderer()
+	renderer := newTestRenderer(t, nil)
 	req := httptest.NewRequest("GET", "/tickets/1", nil)
 	req.Header.Set("HX-Request", "true")
 	response := httptest.NewRecorder()
@@ -216,7 +216,7 @@ func TestTimelineManualEventRendersEscapedSolutionWhenPresent(t *testing.T) {
 // WB.6 (Amendment 2) — an empty/legacy completion renders the pinned
 // instruction in a static event with no empty solution block or placeholder.
 func TestTimelineManualEventOmitsEmptySolution(t *testing.T) {
-	renderer := NewRenderer()
+	renderer := newTestRenderer(t, nil)
 	req := httptest.NewRequest("GET", "/tickets/1", nil)
 	req.Header.Set("HX-Request", "true")
 	response := httptest.NewRecorder()
@@ -245,7 +245,7 @@ func TestTimelineManualEventOmitsEmptySolution(t *testing.T) {
 // WB.6 (Amendment 2) — form events never carry a solution block even if a
 // hostile caller populated the field: only manual events bind StepSolution.
 func TestTimelineFormEventNeverRendersSolutionBlock(t *testing.T) {
-	renderer := NewRenderer()
+	renderer := newTestRenderer(t, nil)
 	req := httptest.NewRequest("GET", "/tickets/1", nil)
 	req.Header.Set("HX-Request", "true")
 	response := httptest.NewRecorder()

@@ -32,7 +32,7 @@ Five layers, each with a different reality. Identify the layer before touching i
 | Domain | `internal/domain` | Pure values and rules. No database, no HTTP, no fakes |
 | Application | `internal/application` | Real services over in-memory port fakes in `fakes_test.go`. No SQLite |
 | SQLite adapter | `internal/adapters/sqlite` | Real `modernc.org/sqlite`, real embedded migrations, isolated shared-cache in-memory DSN per test, single connection pool |
-| HTTP | `internal/adapters/http` | Real file-backed database with all migrations, every real service, real renderer, real routes, real session middleware. Requests through `httptest.NewRequest` and `mw.Wrap(mux).ServeHTTP` |
+| HTTP | `internal/adapters/http` | Real file-backed database with all migrations (a per-test copy of a template migrated once per process), every real service, real renderer over the embedded templates parsed once per process, real routes, real session middleware. Requests through `httptest.NewRequest` and `mw.Wrap(mux).ServeHTTP` |
 | Process | `cmd/server` | Built binary executed as a child process with an environment-configured database path |
 
 ## Hard Rules
@@ -47,10 +47,11 @@ Five layers, each with a different reality. Identify the layer before touching i
 8. **Every service under test gets an injected clock**: `testClock` with `fixedNow` in the HTTP layer, `fakeClock` with `fixedClock()` in application. Wall-clock `time.Now()` is allowed only where expiry or TTL is the subject, such as session lifetime.
 9. **No `time.Sleep`, polling, or timing-based synchronization.** Concurrent cases use `sync.WaitGroup` plus channels. This repository has zero sleeps and zero retry loops in tests, including its deliberate concurrency and race cases.
 10. **Go tests never open a listening socket.** Use `httptest.NewRequest` and `NewRecorder` against the wrapped mux. Process-level behavior belongs to `cmd/server` through the built binary.
-11. **Raw-SQL assertions in the HTTP layer are allowed only for facts no store port exposes**, and go through `rawDB` plus the `scanOne*` helpers. If a store port already answers the question, use the port.
-12. **A schema-changing change ships a `migration_00NN_test.go`** asserting column shape, foreign keys and cascades, check bounds, version bookkeeping, and the pre-migration upgrade path. The series is numbered; keep the next number.
-13. **Closing evidence is the CI-equivalent gate set defined by `.github/workflows/quality.yml`.** Run those exact commands. The workflow file is authoritative; this rule does not restate its flags. CI splits the race tests into parallel package shards whose union is every package, and fans the two slowest packages out over every core with `../../../.github/scripts/race-fanout.sh`. Locally, one race run over every package with the workflow's flags is the equivalent; the fan-out script also runs locally with a package directory as its argument.
-14. **Coverage is one global `go tool cover -func` total.** `.github/workflows/coverage.yml` defines the threshold and the command; use them as written there. There is no per-package minimum and no exclusion list. A green coverage run is not race evidence: that workflow does not pass `-race`, so only the race run is.
+11. **HTTP tests never pay a per-test parse or migration.** Build a renderer over the embedded templates with `newTestRenderer(t, src)`, never `NewRenderer()` or `newRendererWithLanguage(templates.FS, ...)`, and open databases only through `openTestStore`, `openTestStoreAt`, or the harness, which copy the migrated template. Both were most of the package's run time (issue #485). A renderer over a fixture tree (`NewRendererWith`, `localizedShellFS`) is a different tree and still parses its own.
+12. **Raw-SQL assertions in the HTTP layer are allowed only for facts no store port exposes**, and go through `rawDB` plus the `scanOne*` helpers. If a store port already answers the question, use the port.
+13. **A schema-changing change ships a `migration_00NN_test.go`** asserting column shape, foreign keys and cascades, check bounds, version bookkeeping, and the pre-migration upgrade path. The series is numbered; keep the next number.
+14. **Closing evidence is the CI-equivalent gate set defined by `.github/workflows/quality.yml`.** Run those exact commands. The workflow file is authoritative; this rule does not restate its flags. CI splits the race tests into parallel package shards whose union is every package, and fans the two slowest packages out over every core with `../../../.github/scripts/race-fanout.sh`. Locally, one race run over every package with the workflow's flags is the equivalent; the fan-out script also runs locally with a package directory as its argument.
+15. **Coverage is one global `go tool cover -func` total.** `.github/workflows/coverage.yml` defines the threshold and the command; use them as written there. There is no per-package minimum and no exclusion list. A green coverage run is not race evidence: that workflow does not pass `-race`, so only the race run is.
 
 ## Decision Gates
 
@@ -70,7 +71,7 @@ Five layers, each with a different reality. Identify the layer before touching i
 2. Reuse the existing harness, helpers, and seeds. Add a helper only when nothing existing can express the arrangement.
 3. Update the smallest existing test that owns the behavior instead of creating a parallel file. Keep one canonical test per contract.
 4. Run the focused package first, then the full set: `go test ./internal/... -race -count=1`.
-5. Run the closing gates from rule 13, and the coverage command from rule 14 whenever the change touches tested code.
+5. Run the closing gates from rule 14, and the coverage command from rule 15 whenever the change touches tested code.
 6. Report the layer touched, the exact commands with their results, and any gate you did not run.
 
 ## Output Contract

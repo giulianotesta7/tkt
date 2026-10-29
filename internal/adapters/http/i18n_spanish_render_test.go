@@ -14,7 +14,6 @@ import (
 	"github.com/giulianotesta7/tkt/internal/application"
 	"github.com/giulianotesta7/tkt/internal/domain"
 	"github.com/giulianotesta7/tkt/internal/i18n"
-	"github.com/giulianotesta7/tkt/web/templates"
 )
 
 // Spanish rendering per area (issue #335, S8): a Spanish instance renders the
@@ -25,10 +24,7 @@ import (
 // the real embedded template tree.
 func renderLocalized(t *testing.T, locale, page, fragment string, data any) string {
 	t.Helper()
-	r, err := newRendererWithLanguage(templates.FS, stubInterfaceLanguage{language: locale})
-	if err != nil {
-		t.Fatalf("newRendererWithLanguage(%q): %v", locale, err)
-	}
+	r := newTestRenderer(t, stubInterfaceLanguage{language: locale})
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/localized", nil)
 	req.Header.Set("HX-Request", "true")
@@ -149,10 +145,7 @@ func TestSpanishTicketForm(t *testing.T) {
 // from the catalogue, and the identity above it is data — the instance name and
 // help desk name as they are stored.
 func TestSpanishAuthShell(t *testing.T) {
-	r, err := newRendererWithLanguage(templates.FS, stubInterfaceLanguage{language: "es"})
-	if err != nil {
-		t.Fatalf("newRendererWithLanguage: %v", err)
-	}
+	r := newTestRenderer(t, stubInterfaceLanguage{language: "es"})
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/login", nil)
 	r.Render(rec, req, "login", "", loginData{}, http.StatusOK)
@@ -258,10 +251,7 @@ func TestSpanishCategoriesScreen(t *testing.T) {
 // issue #383 the surface is one section per URL, so the labels live on the
 // sections that own them and this test renders those sections.
 func TestSpanishSettingsScreen(t *testing.T) {
-	r, err := newRendererWithLanguage(templates.FS, stubInterfaceLanguage{language: "es"})
-	if err != nil {
-		t.Fatalf("newRendererWithLanguage: %v", err)
-	}
+	r := newTestRenderer(t, stubInterfaceLanguage{language: "es"})
 	render := func(page string, data any) string {
 		t.Helper()
 		rec := httptest.NewRecorder()
@@ -862,10 +852,7 @@ func TestSpanishCatalogStructureSyntheticGroup(t *testing.T) {
 // copy and the form labels/placeholders both come from the catalogue, so no
 // English literal survives on the setup path.
 func TestSpanishSetupShell(t *testing.T) {
-	r, err := newRendererWithLanguage(templates.FS, stubInterfaceLanguage{language: "es"})
-	if err != nil {
-		t.Fatalf("newRendererWithLanguage: %v", err)
-	}
+	r := newTestRenderer(t, stubInterfaceLanguage{language: "es"})
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/setup", nil)
 	r.Render(rec, req, "setup", "", setupData{}, http.StatusOK)
