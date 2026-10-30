@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"time"
 
 	"github.com/giulianotesta7/tkt/internal/application"
 	"github.com/giulianotesta7/tkt/internal/domain"
@@ -45,11 +46,16 @@ import (
 // session making the request from the cookie. Both are optional wiring: a set
 // built without them hides the section (fail closed) instead of offering a path
 // it cannot complete.
+//
+// POST /preferences/connected-apps/{id}/revoke (issue #493, S10) revokes one of
+// the person's own MCP grants. Like the password section it is optional wiring:
+// a set built without the OAuth use cases has no Connected apps section.
 type PreferencesHandlers struct {
 	preferences *application.PreferencesService
 	renderer    *Renderer
 	users       *application.UserService
 	passwords   *application.PasswordSettingsService
+	oauth       *application.OAuthService
 }
 
 // NewPreferencesHandlers wires the preference routes against the
@@ -69,6 +75,14 @@ func (h *PreferencesHandlers) Register(mux *http.ServeMux) {
 	mux.HandleFunc("POST /preferences/language", h.updateLanguage)
 	mux.HandleFunc("POST /preferences/timeline-order", h.updateTimelineOrder)
 	mux.HandleFunc("POST /preferences/password", h.updatePassword)
+	mux.HandleFunc("POST /preferences/connected-apps/{id}/revoke", h.revokeConnectedApp)
+}
+
+// WithOAuth wires the Connected apps section (issue #493, S10): the person's
+// live MCP grants and their revocation.
+func (h *PreferencesHandlers) WithOAuth(oauth *application.OAuthService) *PreferencesHandlers {
+	h.oauth = oauth
+	return h
 }
 
 // WithPasswordChange wires the own-password section (issue #414, S2): the user
@@ -104,6 +118,26 @@ type preferencesData struct {
 	// Password is the own-password section (issue #414, S2). Shown is false
 	// while the instance switch is OFF, so the whole section disappears.
 	Password passwordSectionData
+	// ConnectedApps is the MCP clients the person allowed (issue #493, S10).
+	ConnectedApps connectedAppsData
+}
+
+// connectedAppsData is the Connected apps section: Shown while MCP is on or
+// the person still has a live grant, so a leftover grant can always be revoked.
+type connectedAppsData struct {
+	Shown bool
+	Apps  []connectedAppRow
+}
+
+// connectedAppRow is one live grant. ClientName is whatever the client
+// registered, so the template only ever prints it escaped. A zero LastUsedAt
+// means the client never used it.
+type connectedAppRow struct {
+	ID         int64
+	ClientName string
+	Scopes     []oauthScopeView
+	CreatedAt  time.Time
+	LastUsedAt time.Time
 }
 
 // The three fields of the own-password form. They are the route's wire
@@ -496,6 +530,10 @@ func (h *PreferencesHandlers) data(r *http.Request, current, msg string) (prefer
 	if err != nil {
 		return preferencesData{}, err
 	}
+	apps, err := h.connectedApps(r)
+	if err != nil {
+		return preferencesData{}, err
+	}
 	return preferencesData{
 		pageData:           pageDataFrom(r, "preferences"),
 		Error:              msg,
@@ -508,7 +546,60 @@ func (h *PreferencesHandlers) data(r *http.Request, current, msg string) (prefer
 		TimelineOrders:     timelineOrderOptions(),
 		EmailNotifications: enabled,
 		Password:           section,
+		ConnectedApps:      apps,
 	}, nil
+}
+
+// connectedApps reads the person's live grants. The section shows while MCP is
+// on, empty state included, and stays while a grant is live after the switch
+// went off, so a leftover grant can always be revoked.
+func (h *PreferencesHandlers) connectedApps(r *http.Request) (connectedAppsData, error) {
+	if h.oauth == nil {
+		return connectedAppsData{}, nil
+	}
+	enabled, err := h.oauth.MCPEnabled(r.Context())
+	if err != nil {
+		return connectedAppsData{}, err
+	}
+	grants, err := h.oauth.ListGrants(r.Context(), *userFromContext(r.Context()))
+	if err != nil {
+		return connectedAppsData{}, err
+	}
+	data := connectedAppsData{Shown: enabled || len(grants) > 0}
+	for _, g := range grants {
+		row := connectedAppRow{ID: g.ID, ClientName: g.ClientName, CreatedAt: g.CreatedAt}
+		for _, s := range g.Scopes {
+			row.Scopes = append(row.Scopes, oauthScopeView{Scope: s, Label: oauthScopeLabels[s]})
+		}
+		if g.LastUsedAt != nil {
+			row.LastUsedAt = *g.LastUsedAt
+		}
+		data.Apps = append(data.Apps, row)
+	}
+	return data, nil
+}
+
+// revokeConnectedApp revokes one of the person's own grants (issue #493, S10)
+// and answers the same 303 back to /preferences the other preference forms
+// use. Someone else's grant, an unknown one and one already revoked are all
+// 404: the route never tells a person whether another's grant exists.
+func (h *PreferencesHandlers) revokeConnectedApp(w http.ResponseWriter, r *http.Request) {
+	if h.oauth == nil {
+		http.NotFound(w, r)
+		return
+	}
+	id, ok := pathID(r)
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+	if err := h.oauth.RevokeGrant(r.Context(), *userFromContext(r.Context()), id); err != nil {
+		status, msg := mapErrorFor(r, err)
+		http.Error(w, msg, status)
+		return
+	}
+	saveFeedback(w, r, saveFeedbackSaved, saveFeedbackSuccess)
+	redirect(w, r, "/preferences")
 }
 
 // passwordChangeSection reads the instance policy the own-password section

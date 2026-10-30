@@ -1,0 +1,16 @@
+<section class="settings-group" aria-labelledby="mcp-title">
+      <h2 class="settings-section-title" id="mcp-title">MCP clients</h2>
+      <div class="settings-row">
+        <div><h3>MCP</h3><p>Lets people connect AI assistants such as Claude, VS Code or Cursor. Each one acts as the person who allowed it, within that person&#39;s role. While off, every MCP connection is refused.</p></div>
+        <div>
+          <p class="api-access-state">On</p>
+          <p class="help">Only root can turn MCP clients on or off.</p>
+        </div>
+      </div>
+      <div class="settings-row">
+        <div><h3>Connection URL</h3><p>The address to give an assistant when adding tkt to it.</p></div>
+        <div>
+          <input class="api-token-value" type="text" readonly value="https://tkt.example.com/mcp" aria-label="MCP connection URL" spellcheck="false" autocomplete="off">
+        </div>
+      </div>
+    </section>

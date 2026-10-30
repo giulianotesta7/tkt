@@ -47,8 +47,19 @@ func (h *SettingsHandlers) WithAPIAccess(api *application.APIAccessService) *Set
 	return h
 }
 
+// WithOAuth wires the MCP clients section (issue #493, S2): the switch use
+// cases, and the email settings port the connection URL derives from. The port
+// is read directly because administrators see the URL too, and the Email use
+// cases are root's.
+func (h *SettingsHandlers) WithOAuth(oauth *application.OAuthService, publicURL application.EmailSettingsStore) *SettingsHandlers {
+	h.oauth = oauth
+	h.publicURL = publicURL
+	return h
+}
+
 func (h *SettingsHandlers) registerAPI(mux *http.ServeMux) {
 	mux.HandleFunc("POST /settings/api/toggle", h.toggleAPI)
+	mux.HandleFunc("POST /settings/api/mcp", h.toggleMCP)
 	mux.HandleFunc("POST /settings/api/service-users", h.createServiceUser)
 	mux.HandleFunc("POST /settings/api/service-users/{id}/active", h.setServiceUserActive)
 	mux.HandleFunc("POST /settings/api/keys", h.createAPIKey)
@@ -72,6 +83,21 @@ type settingsAPIData struct {
 	DraftRole       string
 	DraftExpiry     string
 	DraftScopes     map[domain.APIKeyScope]bool
+	// MCP is the MCP clients section (issue #493, S2).
+	MCP settingsMCPData
+}
+
+// settingsMCPData is the MCP clients section: the switch, who may flip it, the
+// connection URL people give their assistant ("" while the public URL is
+// unset), whether the viewer may open Email settings to set that URL, and the
+// refusal of the last attempt to flip it.
+type settingsMCPData struct {
+	Shown           bool
+	Enabled         bool
+	CanToggle       bool
+	URL             string
+	CanSetPublicURL bool
+	Error           string
 }
 
 type apiServiceUserRow struct {
@@ -111,6 +137,12 @@ func (h *SettingsHandlers) requireAPIAccess(w http.ResponseWriter, r *http.Reque
 func apiDate(t time.Time) string { return t.UTC().Format("2006-01-02") }
 
 func (h *SettingsHandlers) renderAPI(w http.ResponseWriter, r *http.Request, status int, message, newToken, newTokenFor string) {
+	h.renderAPIWith(w, r, status, message, newToken, newTokenFor, "")
+}
+
+// renderAPIWith renders the section; mcpError is the refusal of the last
+// attempt to flip the MCP switch, shown inside the MCP clients section.
+func (h *SettingsHandlers) renderAPIWith(w http.ResponseWriter, r *http.Request, status int, message, newToken, newTokenFor, mcpError string) {
 	actor := *userFromContext(r.Context())
 	views, err := h.apiAccess.ListServiceUsers(r.Context(), actor)
 	if err != nil {
@@ -153,6 +185,15 @@ func (h *SettingsHandlers) renderAPI(w http.ResponseWriter, r *http.Request, sta
 		}
 	}
 	found := false
+	if h.oauth != nil {
+		mcp, err := h.mcpData(r, actor)
+		if err != nil {
+			httpError(w, r, "error.internal_server", http.StatusInternalServerError)
+			return
+		}
+		mcp.Error = mcpError
+		data.MCP = mcp
+	}
 	for _, v := range views {
 		if v.User.ID == data.SelectedID {
 			found = true
@@ -189,6 +230,30 @@ func (h *SettingsHandlers) renderAPI(w http.ResponseWriter, r *http.Request, sta
 		data.SelectedID = data.ServiceUsers[0].ID
 	}
 	h.renderer.Render(w, r, "settings_api", "", data, status)
+}
+
+// mcpData reads the MCP clients section: the switch, and the connection URL
+// derived from the public URL exactly as the OAuth endpoints derive it.
+func (h *SettingsHandlers) mcpData(r *http.Request, actor domain.User) (settingsMCPData, error) {
+	enabled, err := h.oauth.MCPEnabled(r.Context())
+	if err != nil {
+		return settingsMCPData{}, err
+	}
+	stored, err := h.publicURL.GetEmailSettings(r.Context())
+	if err != nil {
+		return settingsMCPData{}, err
+	}
+	caps := application.NewPolicy().Capabilities(actor.Role)
+	data := settingsMCPData{
+		Shown:           true,
+		Enabled:         enabled,
+		CanToggle:       caps.Require(application.CapToggleAPI),
+		CanSetPublicURL: h.email != nil && caps.Require(application.CapManageEmail),
+	}
+	if base := strings.TrimRight(stored.BaseURL, "/"); base != "" {
+		data.URL = base + "/mcp"
+	}
+	return data, nil
 }
 
 // apiMutationFailed renders a refused mutation: an operational failure is a
@@ -250,6 +315,39 @@ func (h *SettingsHandlers) toggleAPI(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := h.apiAccess.SetAPIEnabled(r.Context(), *userFromContext(r.Context()), enabled); err != nil {
 		h.apiMutationFailed(w, r, err)
+		return
+	}
+	h.apiSaved(w, r)
+}
+
+// toggleMCP switches MCP clients on or off (issue #493, S2). It mirrors the
+// API switch: root only, one strict mcp_enabled field. A refusal the person can
+// act on, turning it on before the public URL is set, re-renders the section
+// with the reason beside the switch.
+func (h *SettingsHandlers) toggleMCP(w http.ResponseWriter, r *http.Request) {
+	if h.oauth == nil {
+		http.NotFound(w, r)
+		return
+	}
+	if !h.requireAPIAccess(w, r) || !requireCapability(w, r, application.CapToggleAPI) {
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		httpError(w, r, "error.internal_server", http.StatusInternalServerError)
+		return
+	}
+	enabled, ok := formSwitch(r, "mcp_enabled")
+	if !ok {
+		httpError(w, r, "error.bad_request", http.StatusBadRequest)
+		return
+	}
+	if err := h.oauth.SetMCPEnabled(r.Context(), *userFromContext(r.Context()), enabled); err != nil {
+		status, msg := mapErrorFor(r, err)
+		if status == http.StatusInternalServerError {
+			http.Error(w, msg, status)
+			return
+		}
+		h.renderAPIWith(w, r, status, "", "", "", msg)
 		return
 	}
 	h.apiSaved(w, r)

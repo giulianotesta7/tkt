@@ -297,3 +297,169 @@ func TestSettingsAPIServiceUserAndKeyLifecycle(t *testing.T) {
 		t.Error("the API screen deactivated a person")
 	}
 }
+
+// The MCP clients section (issue #493, S2): root switches MCP on or off with
+// one strict field, an administrator sees the state read only, and the
+// connection URL derives from the public URL Email settings hold.
+
+func mcpEnabled(t *testing.T, h *harness) bool {
+	t.Helper()
+	on, err := h.oauth.MCPEnabled(t.Context())
+	if err != nil {
+		t.Fatalf("read the MCP switch: %v", err)
+	}
+	return on
+}
+
+func mcpSwitchEvents(t *testing.T, h *harness) []string {
+	t.Helper()
+	rows, err := h.rawDB(t).Query(`SELECT action FROM api_admin_events WHERE action LIKE 'mcp_%' ORDER BY id`)
+	if err != nil {
+		t.Fatalf("read admin events: %v", err)
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var action string
+		if err := rows.Scan(&action); err != nil {
+			t.Fatalf("scan admin event: %v", err)
+		}
+		out = append(out, action)
+	}
+	return out
+}
+
+// mcpSection cuts the MCP clients section out of the API page.
+func mcpSection(t *testing.T, body string) string {
+	t.Helper()
+	start := strings.Index(body, `<section class="settings-group" aria-labelledby="mcp-title">`)
+	if start < 0 {
+		t.Fatalf("the API page has no MCP clients section: %.3000s", body)
+	}
+	end := strings.Index(body[start:], "</section>")
+	if end < 0 {
+		t.Fatal("the MCP clients section is not closed")
+	}
+	return body[start : start+end+len("</section>")]
+}
+
+func TestSettingsAPIMCPSwitch(t *testing.T) {
+	h := newHarness(t)
+	_, rootSession := seedRoot(t, h)
+	agent := seedUserRole(t, h.store, "Agent", "agent@tkt.test", domain.RoleAgent)
+	setPublicURL(t, h, oauthPublicURL)
+
+	admin := mcpSection(t, h.get(t, "/settings/api", false).Body.String())
+	for _, want := range []string{
+		`<h2 class="settings-section-title" id="mcp-title">MCP clients</h2>`,
+		`<p class="api-access-state">Off</p>`,
+		"Only root can turn MCP clients on or off.",
+		`value="https://tkt.example.test/mcp"`,
+	} {
+		if !strings.Contains(admin, want) {
+			t.Errorf("admin MCP section must contain %q, got: %s", want, admin)
+		}
+	}
+	if strings.Contains(admin, `action="/settings/api/mcp"`) {
+		t.Error("an administrator is offered the root-only MCP switch")
+	}
+
+	// Only root holds the switch.
+	for name, session := range map[string]string{"admin": h.adminSession.ID, "agent": seedSession(t, h.store, agent.ID).ID} {
+		if rec := h.postFormAs(t, "/settings/api/mcp", url.Values{"mcp_enabled": {"1"}}, session); rec.Code != http.StatusForbidden {
+			t.Errorf("%s POST /settings/api/mcp = %d, want 403", name, rec.Code)
+		}
+	}
+	// A value that is not 0 or 1, given exactly once, is refused, never read as "off".
+	for _, values := range [][]string{{"true"}, {""}, {"on"}, nil, {"0", "1"}, {"1", "1"}} {
+		if rec := h.postFormAs(t, "/settings/api/mcp", url.Values{"mcp_enabled": values}, rootSession.ID); rec.Code != http.StatusBadRequest {
+			t.Errorf("mcp_enabled=%q = %d, want 400", values, rec.Code)
+		}
+	}
+	// The API switch's field does not drive the MCP switch.
+	if rec := h.postFormAs(t, "/settings/api/mcp", url.Values{"enabled": {"1"}}, rootSession.ID); rec.Code != http.StatusBadRequest {
+		t.Errorf("POST /settings/api/mcp with the API field = %d, want 400", rec.Code)
+	}
+	if mcpEnabled(t, h) || len(mcpSwitchEvents(t, h)) != 0 {
+		t.Fatalf("refused requests changed the switch or wrote events: %v", mcpSwitchEvents(t, h))
+	}
+
+	root := mcpSection(t, getAs(t, h, "/settings/api", rootSession.ID).Body.String())
+	for _, want := range []string{`action="/settings/api/mcp"`, `name="mcp_enabled" value="1"`, "Turn on MCP clients", `value="https://tkt.example.test/mcp"`} {
+		if !strings.Contains(root, want) {
+			t.Errorf("root MCP section must contain %q, got: %s", want, root)
+		}
+	}
+
+	wantRedirect(t, h.postFormAs(t, "/settings/api/mcp", url.Values{"mcp_enabled": {"1"}}, rootSession.ID), http.StatusSeeOther, "/settings/api")
+	if !mcpEnabled(t, h) {
+		t.Fatal("root's switch did not turn MCP on")
+	}
+	if on, _ := h.store.APIAccessStore().APIEnabled(t.Context()); on {
+		t.Error("turning MCP on turned the API on")
+	}
+	root = mcpSection(t, getAs(t, h, "/settings/api", rootSession.ID).Body.String())
+	for _, want := range []string{`<p class="api-access-state">On</p>`, `name="mcp_enabled" value="0"`, "Turn off MCP clients"} {
+		if !strings.Contains(root, want) {
+			t.Errorf("root MCP section after enabling must contain %q, got: %s", want, root)
+		}
+	}
+	if admin := mcpSection(t, h.get(t, "/settings/api", false).Body.String()); !strings.Contains(admin, `<p class="api-access-state">On</p>`) {
+		t.Errorf("admin must see MCP on, got: %s", admin)
+	}
+
+	wantRedirect(t, h.postFormAs(t, "/settings/api/mcp", url.Values{"mcp_enabled": {"0"}}, rootSession.ID), http.StatusSeeOther, "/settings/api")
+	if mcpEnabled(t, h) {
+		t.Fatal("root's switch did not turn MCP off")
+	}
+	if got := mcpSwitchEvents(t, h); len(got) != 2 || got[0] != "mcp_enabled" || got[1] != "mcp_disabled" {
+		t.Errorf("admin events = %v, want [mcp_enabled mcp_disabled]", got)
+	}
+	assertNoWhitespaceViolations(t, getAs(t, h, "/settings/api", rootSession.ID).Body.String())
+}
+
+func TestSettingsAPIMCPNeedsThePublicURL(t *testing.T) {
+	h := newHarness(t)
+	_, rootSession := seedRoot(t, h)
+
+	root := mcpSection(t, getAs(t, h, "/settings/api", rootSession.ID).Body.String())
+	for _, want := range []string{"MCP clients need the public URL: the TKT address in Email notifications.", `href="/settings/email"`} {
+		if !strings.Contains(root, want) {
+			t.Errorf("root MCP section without a public URL must contain %q, got: %s", want, root)
+		}
+	}
+	if strings.Contains(root, "api-token-value") {
+		t.Errorf("a connection URL is shown without a public URL: %s", root)
+	}
+	// The Email section is root's: an administrator gets the reason, not a link
+	// to a page that refuses them.
+	admin := mcpSection(t, h.get(t, "/settings/api", false).Body.String())
+	if !strings.Contains(admin, "MCP clients need the public URL: the TKT address") || strings.Contains(admin, `href="/settings/email"`) {
+		t.Errorf("admin MCP section without a public URL: %s", admin)
+	}
+
+	rec := h.postFormAs(t, "/settings/api/mcp", url.Values{"mcp_enabled": {"1"}}, rootSession.ID)
+	if rec.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("enable without a public URL = %d, want 422: %.1500s", rec.Code, rec.Body.String())
+	}
+	section := mcpSection(t, rec.Body.String())
+	if !strings.Contains(section, `<div class="error-banner" role="alert" id="mcp-error">MCP clients need the public URL</div>`) {
+		t.Errorf("the refusal is not shown inline in the MCP section: %s", section)
+	}
+	if mcpEnabled(t, h) || len(mcpSwitchEvents(t, h)) != 0 {
+		t.Error("a refused enable turned MCP on or wrote an event")
+	}
+	assertNoWhitespaceViolations(t, rec.Body.String())
+}
+
+func TestSettingsAPIMCPSpeaksSpanish(t *testing.T) {
+	data := fixtureSettingsAPIData()
+	data.MCP = settingsMCPData{Shown: true, CanToggle: true, CanSetPublicURL: true}
+	section := mcpSection(t, renderLocalized(t, "es", "settings_api", "", data))
+	for _, want := range []string{"Clientes MCP", "Apagados", "Encender los clientes MCP", "Los clientes MCP necesitan la URL pública", "Configurar la dirección de TKT"} {
+		if !strings.Contains(section, want) {
+			t.Errorf("the Spanish MCP section must contain %q, got: %s", want, section)
+		}
+	}
+	assertNoWhitespaceViolations(t, section)
+}

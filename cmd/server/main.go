@@ -221,13 +221,15 @@ func main() {
 	httpadapter.NewCategoryHandlersWithWorkflows(catSvc, workflowSvc, renderer, catalogSvc).WithSettings(store.SettingsStore()).Register(mux)
 	httpadapter.NewCategoryWorkflowHandlers(catSvc, workflowSvc, deskSvc, renderer).Register(mux)
 	httpadapter.NewDeskHandlers(deskSvc, renderer).Register(mux)
-	httpadapter.NewSettingsHandlers(settingsSvc, slaSvc, store.SLAStore(), store.SettingsStore(), renderer).WithInstance(application.NewInstanceSettingsService(store.InstanceSettingsStore(), clock)).WithEmail(emailSettingsSvc).WithOrganization(organizationSvc).WithSignin(signinSvc).WithPasswordSettings(passwordSettingsSvc).WithCategorySuggestions(suggestionSettingsSvc, suggestionSvc, ticketHandlers).WithCompanySignIn(companySettingsSvc).WithAPIAccess(apiAccessSvc).Register(mux)
+	// Issue #493: the OAuth service also backs the MCP switch in Settings → API
+	// and Connected apps in Preferences.
+	oauthSvc := application.NewOAuthService(store.OAuthStore(), store.UserStore(), store.EmailSettingsStore(), clock, nil)
+	httpadapter.NewSettingsHandlers(settingsSvc, slaSvc, store.SLAStore(), store.SettingsStore(), renderer).WithInstance(application.NewInstanceSettingsService(store.InstanceSettingsStore(), clock)).WithEmail(emailSettingsSvc).WithOrganization(organizationSvc).WithSignin(signinSvc).WithPasswordSettings(passwordSettingsSvc).WithCategorySuggestions(suggestionSettingsSvc, suggestionSvc, ticketHandlers).WithCompanySignIn(companySettingsSvc).WithAPIAccess(apiAccessSvc).WithOAuth(oauthSvc, store.EmailSettingsStore()).Register(mux)
 	httpadapter.NewCategorySLAHandlers(catSvc, slaSvc, store.SLAStore(), renderer).Register(mux)
-	httpadapter.NewPreferencesHandlers(preferencesSvc, renderer).WithPasswordChange(userSvc, passwordSettingsSvc).Register(mux)
+	httpadapter.NewPreferencesHandlers(preferencesSvc, renderer).WithPasswordChange(userSvc, passwordSettingsSvc).WithOAuth(oauthSvc).Register(mux)
 	// Issue #493: tkt is the OAuth authorization server for its own /mcp
 	// endpoint. The consent page runs behind the session middleware; the
 	// metadata, registration and token endpoints are branched before it.
-	oauthSvc := application.NewOAuthService(store.OAuthStore(), store.UserStore(), store.EmailSettingsStore(), clock, nil)
 	oauthHandlers := httpadapter.NewOAuthHandlers(oauthSvc, renderer, clock)
 	oauthHandlers.Register(mux)
 	// Issue #419: the bell and the full feed render the account a pending notice

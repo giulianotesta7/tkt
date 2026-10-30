@@ -384,10 +384,10 @@ func newHarnessWithAdmin(t *testing.T, seedAdmin bool) *harness {
 	NewCategoryHandlersWithWorkflows(catSvc, workflowSvc, renderer, application.NewCatalogService(s.CatalogStore(), s.CategoryStore(), clock)).WithSettings(s.SettingsStore()).Register(mux)
 	NewCategoryWorkflowHandlers(catSvc, workflowSvc, deskSvc, renderer).Register(mux)
 	NewDeskHandlers(deskSvc, renderer).Register(mux)
-	NewSettingsHandlers(settingsSvc, slaSvc, s.SLAStore(), s.SettingsStore(), renderer).WithInstance(application.NewInstanceSettingsService(s.InstanceSettingsStore(), clock)).WithEmail(emailSettingsSvc).WithOrganization(application.NewOrganizationService(s.OrganizationStore())).WithSignin(signinSvc).WithPasswordSettings(passwordSettingsSvc).WithCategorySuggestions(suggestionSettingsSvc, suggestionSvc, ticketHandlers).WithCompanySignIn(companySettingsSvc).WithAPIAccess(application.NewAPIAccessService(s.APIAccessStore(), s.UserStore(), clock, nil)).Register(mux)
-	NewCategorySLAHandlers(catSvc, slaSvc, s.SLAStore(), renderer).Register(mux)
-	NewPreferencesHandlers(preferencesSvc, renderer).WithPasswordChange(usersSvc, passwordSettingsSvc).Register(mux)
 	oauthSvc := application.NewOAuthService(s.OAuthStore(), s.UserStore(), s.EmailSettingsStore(), clock, nil)
+	NewSettingsHandlers(settingsSvc, slaSvc, s.SLAStore(), s.SettingsStore(), renderer).WithInstance(application.NewInstanceSettingsService(s.InstanceSettingsStore(), clock)).WithEmail(emailSettingsSvc).WithOrganization(application.NewOrganizationService(s.OrganizationStore())).WithSignin(signinSvc).WithPasswordSettings(passwordSettingsSvc).WithCategorySuggestions(suggestionSettingsSvc, suggestionSvc, ticketHandlers).WithCompanySignIn(companySettingsSvc).WithAPIAccess(application.NewAPIAccessService(s.APIAccessStore(), s.UserStore(), clock, nil)).WithOAuth(oauthSvc, s.EmailSettingsStore()).Register(mux)
+	NewCategorySLAHandlers(catSvc, slaSvc, s.SLAStore(), renderer).Register(mux)
+	NewPreferencesHandlers(preferencesSvc, renderer).WithPasswordChange(usersSvc, passwordSettingsSvc).WithOAuth(oauthSvc).Register(mux)
 	oauthHandlers := NewOAuthHandlers(oauthSvc, renderer, clock)
 	oauthHandlers.Register(mux)
 	// Issue #419: the pending-account notice renders the stored account and its
