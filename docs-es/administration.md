@@ -3,7 +3,7 @@
 [English](../docs/administration.md) | **Español**
 
 Cómo se administra una instancia: roles, catálogo, flujos de trabajo, SLA, creación de tickets,
-email, seguridad y acceso a la API. Primera cuenta: [Primeros pasos](getting-started.md). Contenedor y
+email, seguridad, acceso a la API y clientes MCP. Primera cuenta: [Primeros pasos](getting-started.md). Contenedor y
 configuración: [Despliegue](deployment.md).
 
 ## Roles
@@ -14,8 +14,8 @@ Cada rol incluye todo lo que hay debajo.
 | --- | --- |
 | **Usuario** | Crear tickets, responder públicamente en sus propios tickets y contestar la confirmación de resolución. |
 | **Agente** | Todo lo de Usuario, más trabajar en los tickets asignados o en los que esperan en sus mesas: editar, cambiar de estado, asignar y escribir respuestas públicas y notas internas. |
-| **Administrador** | Todo lo de Agente, más gestionar usuarios (salvo las cuentas administrador y root), mesas, categorías, flujos de trabajo, métricas, usuarios de servicio y claves de API, y toda la configuración excepto Instancia, el email y el interruptor de la API. |
-| **Root** | Todo, más otorgar y quitar el rol **Administrador**, gestionar Instancia y el email, y encender o apagar la API. |
+| **Administrador** | Todo lo de Agente, más gestionar usuarios (salvo las cuentas administrador y root), mesas, categorías, flujos de trabajo, métricas, usuarios de servicio y claves de API, y toda la configuración excepto Instancia, el email y los interruptores de la API y de MCP. |
+| **Root** | Todo, más otorgar y quitar el rol **Administrador**, gestionar Instancia y el email, y encender o apagar la API y los clientes MCP. |
 
 - Los tickets que se pueden tomar dependen de las mesas de cada persona, así que sumá a cada
   agente a la mesa de su categoría. Los tickets asignados aparecen igual.
@@ -252,6 +252,28 @@ servicio **Usuario** solo ve y crea sus propios tickets, tenga los alcances que 
 **Revocar** detiene una clave en el acto. **Desactivar** un usuario de servicio revoca todas sus
 claves; reactivarlo no las recupera. Crear y desactivar usuarios de servicio, crear y revocar
 claves, y encender o apagar la API queda registrado con la persona que lo hizo.
+
+## Clientes MCP
+
+Asistentes de IA como Claude, Claude Code, VS Code y Cursor se conectan en `<URL pública>/mcp`
+y actúan en nombre de la persona que los autoriza. La guía del [servidor MCP](mcp.md) describe
+cómo conectar clientes, las herramientas y los errores.
+
+- **El interruptor de MCP** está en **Configuración → API**, apagado por defecto e independiente
+  del de la API. Solo root lo enciende o lo apaga; los administradores ven su estado. Encenderlo
+  o apagarlo queda registrado con la persona que lo hizo.
+- **La URL pública** es obligatoria antes: la **Dirección de TKT** en **Configuración →
+  Notificaciones por email**. Cambiarla después desconecta a todos los clientes.
+- **Mientras está apagado**, `/mcp`, `/oauth/*` y `/.well-known/oauth-*` responden 404 y los
+  tokens existentes dejan de funcionar. Las autorizaciones se conservan y vuelven a funcionar al
+  encenderlo de nuevo.
+- **Un proxy inverso** tiene que reenviar esas rutas a tkt; ver
+  [Habilitar MCP](mcp.md#habilitar-mcp).
+- **Las conexiones pertenecen a las personas.** Cada persona revisa y revoca las suyas en
+  **Preferencias → Aplicaciones conectadas**; no hay una vista con las conexiones de todos.
+  **Desactivar** a una persona revoca todas sus conexiones.
+- **El acceso es rol ∩ alcances.** Una conexión nunca puede hacer más que el rol de su persona,
+  nunca recibe `tickets:all` sobre toda la cola y no llega a nada administrativo.
 
 ## Próximos pasos
 

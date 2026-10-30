@@ -100,6 +100,7 @@ has the details.
 | [Deploy tkt](docs/deployment.md) | Image, data volume, public base URL, HTTPS proxy, configuration |
 | [Administer tkt](docs/administration.md) | Users and roles, desks, catalog, workflows, SLA, email, Security |
 | [API v1 reference](docs/api.md) | Bearer authentication, scopes, JSON endpoints, errors, curl examples |
+| [Connect AI assistants over MCP](docs/mcp.md) | Enabling MCP, Claude, Claude Code, VS Code, Cursor, consent, tools, revocation |
 | [Work a ticket](docs/user-guide.md) | Requester and agent journeys: create, reply, hold, close |
 | [Back up and upgrade](docs/backup-and-upgrade.md) | What to back up, restore, upgrade |
 | [Contribute](CONTRIBUTING.md) | Local development, test layers, how to contribute |
