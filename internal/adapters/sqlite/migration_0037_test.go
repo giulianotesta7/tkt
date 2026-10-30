@@ -118,6 +118,37 @@ func TestMigration0037ServiceUserPeoplePathsRefused(t *testing.T) {
 	assertRefused(t, s, "move a membership onto a service user", "a service user cannot be a desk member",
 		`UPDATE desk_members SET user_id = ? WHERE user_id = ?`, svcID, personID)
 
+	// The UPDATE that would move an existing row onto a service user is refused too.
+	if _, err := s.db.Exec(`INSERT INTO user_identities (user_id, provider, issuer, subject, created_at, last_sign_in_at)
+		VALUES (?, 'google', 'https://accounts.google.com', 'sub-ana', '2026-10-29T10:00:00Z', '2026-10-29T10:00:00Z')`, personID); err != nil {
+		t.Fatalf("person company identity = %v, want success", err)
+	}
+	if _, err := s.db.Exec(`INSERT INTO sessions (id, user_id, created_at, expires_at) VALUES ('ana-tok', ?, '2026-10-29T10:00:00Z', '2026-10-30T10:00:00Z')`, personID); err != nil {
+		t.Fatalf("person session = %v, want success", err)
+	}
+	if _, err := s.db.Exec(`INSERT INTO password_reset_tokens (user_id, token_hash, created_at, expires_at)
+		VALUES (?, 'ana-h', '2026-10-29T10:00:00Z', '2026-10-29T11:00:00Z')`, personID); err != nil {
+		t.Fatalf("person recovery link = %v, want success", err)
+	}
+	assertRefused(t, s, "move a session onto a service user", "a service user cannot sign in",
+		`UPDATE sessions SET user_id = ? WHERE id = 'ana-tok'`, svcID)
+	assertRefused(t, s, "move an identity onto a service user", "a service user cannot sign in",
+		`UPDATE user_identities SET user_id = ? WHERE subject = 'sub-ana'`, svcID)
+	assertRefused(t, s, "move a recovery link onto a service user", "a service user has no password",
+		`UPDATE password_reset_tokens SET user_id = ? WHERE token_hash = 'ana-h'`, svcID)
+
+	// A service user is never a ticket's assignee, on insert or update.
+	catID := seedCategory(t, s, "Access")
+	assertRefused(t, s, "create a ticket assigned to a service user", "a service user cannot be assigned tickets",
+		`INSERT INTO tickets (number, title, category_id, user_id, priority, state, created_at, updated_at)
+		 VALUES (900, 'T', ?, ?, 'low', 'new', '2026-10-29T10:00:00Z', '2026-10-29T10:00:00Z')`, catID, svcID)
+	ticketID := seedLoadTicket(t, s, 901, personID, catID, domain.StateNew)
+	assertRefused(t, s, "assign a ticket to a service user", "a service user cannot be assigned tickets",
+		`UPDATE tickets SET user_id = ? WHERE id = ?`, svcID, ticketID)
+	if _, err := s.db.Exec(`UPDATE tickets SET user_id = NULL WHERE id = ?`, ticketID); err != nil {
+		t.Fatalf("unassign = %v, want success", err)
+	}
+
 	// People keep every path.
 	if _, err := s.db.Exec(`INSERT INTO sessions (id, user_id, created_at, expires_at) VALUES ('tok', ?, '2026-10-29T10:00:00Z', '2026-10-30T10:00:00Z')`, personID); err != nil {
 		t.Fatalf("person session = %v, want success", err)

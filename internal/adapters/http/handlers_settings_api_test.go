@@ -88,6 +88,19 @@ func TestSettingsAPISectionGating(t *testing.T) {
 		t.Errorf("refused requests wrote %d admin events", n)
 	}
 
+	// A value that is not 0 or 1 is refused, never read as "off".
+	if on, _ := h.store.APIAccessStore().APIEnabled(t.Context()); on {
+		t.Fatal("precondition: API off")
+	}
+	for _, value := range []string{"true", "", "on"} {
+		if rec := h.postFormAs(t, "/settings/api/toggle", url.Values{"enabled": {value}}, rootSession.ID); rec.Code != http.StatusBadRequest {
+			t.Errorf("toggle enabled=%q = %d, want 400", value, rec.Code)
+		}
+	}
+	if n := apiAdminEventCount(t, h); n != 0 {
+		t.Errorf("refused toggles wrote %d admin events", n)
+	}
+
 	// Root's switch works.
 	wantRedirect(t, h.postFormAs(t, "/settings/api/toggle", url.Values{"enabled": {"1"}}, rootSession.ID), http.StatusSeeOther, "/settings/api")
 	if on, _ := h.store.APIAccessStore().APIEnabled(t.Context()); !on {
@@ -124,6 +137,9 @@ func TestSettingsAPIServiceUserAndKeyLifecycle(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("create key = %d, want 200: %.1500s", rec.Code, rec.Body.String())
 	}
+	if got := rec.Header().Get("Cache-Control"); got != "no-store" {
+		t.Errorf("token response Cache-Control = %q, want no-store", got)
+	}
 	body := rec.Body.String()
 	token := apiTokenPattern.FindString(body)
 	if token == "" || !strings.Contains(body, "Key Zabbix created") || !strings.Contains(body, "shown only once") {
@@ -153,6 +169,12 @@ func TestSettingsAPIServiceUserAndKeyLifecycle(t *testing.T) {
 		t.Error("revoke did not revoke the key")
 	}
 
+	if rec := h.postFormAs(t, "/settings/api/service-users/"+itoa(bot.ID)+"/active", url.Values{"active": {"false"}}, admin); rec.Code != http.StatusBadRequest {
+		t.Errorf("active=false = %d, want 400", rec.Code)
+	}
+	if got, _ := h.store.UserStore().GetByID(t.Context(), bot.ID); !got.Active {
+		t.Fatal("a refused switch deactivated the service user")
+	}
 	wantRedirect(t, h.postFormAs(t, "/settings/api/service-users/"+itoa(bot.ID)+"/active", url.Values{"active": {"0"}}, admin), http.StatusSeeOther, "/settings/api")
 	if got, _ := h.store.UserStore().GetByID(t.Context(), bot.ID); got.Active {
 		t.Error("deactivate left the service user active")

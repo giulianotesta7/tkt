@@ -291,6 +291,9 @@ func (s *TicketService) Assign(ctx context.Context, actor domain.User, ticketID 
 		if !user.Role.AtLeast(domain.RoleAgent) {
 			return nil, &domain.ValidationError{Field: "user", Message: domain.ErrMsgAssignTargetRole, Key: "error.assign_target_role"}
 		}
+		if user.IsService() {
+			return nil, &domain.ValidationError{Field: "user", Message: domain.ErrMsgAssignTargetService, Key: "error.assign_target_service"}
+		}
 		// The assignment target is already loaded and validated, so it is the
 		// notification candidate: S10 tells the new assignee about the
 		// assignment (and the actor rule drops a self-claim). Its display name is

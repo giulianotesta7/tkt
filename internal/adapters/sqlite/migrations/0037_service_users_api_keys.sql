@@ -19,7 +19,10 @@
 --   * no browser session, so nothing can sign in as a service user;
 --   * no company sign-in identity and no password recovery link;
 --   * no desk membership, so desk assignment (least loaded, claim) never picks
---     one. Desk membership for agent services is decided with the endpoints.
+--     one. Desk membership for agent services is decided with the endpoints;
+--   * never a ticket's assignee, whichever path writes tickets.user_id.
+-- Each guard covers INSERT and the UPDATE that would move an existing row onto
+-- a service user.
 --
 -- api_keys
 --   * public_id is the readable <id> of a tkt_<id>_<secret> token, unique so the
@@ -75,6 +78,13 @@ BEGIN
   SELECT RAISE(ABORT, 'a service user cannot sign in');
 END;
 
+CREATE TRIGGER trg_sessions_no_service_user_update
+BEFORE UPDATE OF user_id ON sessions
+WHEN (SELECT kind FROM users WHERE id = NEW.user_id) = 'service'
+BEGIN
+  SELECT RAISE(ABORT, 'a service user cannot sign in');
+END;
+
 CREATE TRIGGER trg_user_identities_no_service_user
 BEFORE INSERT ON user_identities
 WHEN (SELECT kind FROM users WHERE id = NEW.user_id) = 'service'
@@ -82,8 +92,22 @@ BEGIN
   SELECT RAISE(ABORT, 'a service user cannot sign in');
 END;
 
+CREATE TRIGGER trg_user_identities_no_service_user_update
+BEFORE UPDATE OF user_id ON user_identities
+WHEN (SELECT kind FROM users WHERE id = NEW.user_id) = 'service'
+BEGIN
+  SELECT RAISE(ABORT, 'a service user cannot sign in');
+END;
+
 CREATE TRIGGER trg_password_reset_tokens_no_service_user
 BEFORE INSERT ON password_reset_tokens
+WHEN (SELECT kind FROM users WHERE id = NEW.user_id) = 'service'
+BEGIN
+  SELECT RAISE(ABORT, 'a service user has no password');
+END;
+
+CREATE TRIGGER trg_password_reset_tokens_no_service_user_update
+BEFORE UPDATE OF user_id ON password_reset_tokens
 WHEN (SELECT kind FROM users WHERE id = NEW.user_id) = 'service'
 BEGIN
   SELECT RAISE(ABORT, 'a service user has no password');
@@ -101,6 +125,20 @@ BEFORE UPDATE OF user_id ON desk_members
 WHEN (SELECT kind FROM users WHERE id = NEW.user_id) = 'service'
 BEGIN
   SELECT RAISE(ABORT, 'a service user cannot be a desk member');
+END;
+
+CREATE TRIGGER trg_tickets_no_service_assignee
+BEFORE INSERT ON tickets
+WHEN NEW.user_id IS NOT NULL AND (SELECT kind FROM users WHERE id = NEW.user_id) = 'service'
+BEGIN
+  SELECT RAISE(ABORT, 'a service user cannot be assigned tickets');
+END;
+
+CREATE TRIGGER trg_tickets_no_service_assignee_update
+BEFORE UPDATE OF user_id ON tickets
+WHEN NEW.user_id IS NOT NULL AND (SELECT kind FROM users WHERE id = NEW.user_id) = 'service'
+BEGIN
+  SELECT RAISE(ABORT, 'a service user cannot be assigned tickets');
 END;
 
 CREATE TABLE api_keys (

@@ -221,6 +221,7 @@
   "error.attachment_too_large": "%s pesa más de 10 MB",
   "error.attachment_too_many": "puedes adjuntar como máximo %d archivos a la vez",
   "error.attachment_type_not_allowed": "no se puede adjuntar %s: solo se permiten imágenes, PDF, documentos de Office, archivos de texto y zip",
+  "error.assign_target_service": "a un usuario de servicio no se le pueden asignar tickets",
   "error.bad_request": "Solicitud no válida",
   "error.bootstrap_unavailable": "la configuración del primer usuario ya no está disponible",
   "error.calendar_time_form": "el calendario laboral necesita una hora de inicio y una de fin en formato HH:MM",

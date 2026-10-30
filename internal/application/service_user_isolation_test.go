@@ -56,3 +56,23 @@ func TestServiceUserStaysOutOfPeopleManagement(t *testing.T) {
 		t.Errorf("role audits = %d, want 0", len(users.roleChanges))
 	}
 }
+
+// Issue #488, S3: no ticket is ever assigned to a service user, whoever asks;
+// the refusal changes nothing and notifies nobody.
+func TestAssignRefusesAServiceUser(t *testing.T) {
+	h := newNotifyHarness(t)
+	bot := h.users.seedService("triage-bot", domain.RoleAgent)
+	before, _ := h.tickets.GetByID(context.Background(), h.ticket.ID, application.TicketQuery{Scope: application.ScopeAll})
+	_, err := h.svc.Assign(context.Background(), h.admin, h.ticket.ID, &bot.ID, "handing over")
+	var v *domain.ValidationError
+	if !errors.As(err, &v) || v.Key != "error.assign_target_service" {
+		t.Fatalf("assign to a service user = %v, want the service-target refusal", err)
+	}
+	after, _ := h.tickets.GetByID(context.Background(), h.ticket.ID, application.TicketQuery{Scope: application.ScopeAll})
+	if (before.UserID == nil) != (after.UserID == nil) || (before.UserID != nil && *before.UserID != *after.UserID) {
+		t.Errorf("assignee changed: %v -> %v", before.UserID, after.UserID)
+	}
+	if len(h.tx.notifications) != 0 {
+		t.Errorf("a refused assignment notified %+v", h.tx.notifications)
+	}
+}

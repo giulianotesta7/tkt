@@ -173,6 +173,20 @@ func (h *SettingsHandlers) apiSaved(w http.ResponseWriter, r *http.Request) {
 	redirect(w, r, settingsSectionHref(settingsSectionAPI))
 }
 
+// formSwitch reads a 0/1 switch field. Any other value, an absent one
+// included, is refused rather than read as "off": an explicit request is never
+// silently turned into its opposite.
+func formSwitch(r *http.Request, field string) (bool, bool) {
+	switch r.PostFormValue(field) {
+	case "1":
+		return true, true
+	case "0":
+		return false, true
+	default:
+		return false, false
+	}
+}
+
 func pathID(r *http.Request) (int64, bool) {
 	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
 	return id, err == nil && id > 0
@@ -186,7 +200,12 @@ func (h *SettingsHandlers) toggleAPI(w http.ResponseWriter, r *http.Request) {
 		httpError(w, r, "error.internal_server", http.StatusInternalServerError)
 		return
 	}
-	if err := h.apiAccess.SetAPIEnabled(r.Context(), *userFromContext(r.Context()), r.PostFormValue("enabled") == "1"); err != nil {
+	enabled, ok := formSwitch(r, "enabled")
+	if !ok {
+		httpError(w, r, "error.bad_request", http.StatusBadRequest)
+		return
+	}
+	if err := h.apiAccess.SetAPIEnabled(r.Context(), *userFromContext(r.Context()), enabled); err != nil {
 		h.apiMutationFailed(w, r, err)
 		return
 	}
@@ -223,7 +242,12 @@ func (h *SettingsHandlers) setServiceUserActive(w http.ResponseWriter, r *http.R
 		httpError(w, r, "error.internal_server", http.StatusInternalServerError)
 		return
 	}
-	if err := h.apiAccess.SetServiceUserActive(r.Context(), *userFromContext(r.Context()), id, r.PostFormValue("active") == "1"); err != nil {
+	active, ok := formSwitch(r, "active")
+	if !ok {
+		httpError(w, r, "error.bad_request", http.StatusBadRequest)
+		return
+	}
+	if err := h.apiAccess.SetServiceUserActive(r.Context(), *userFromContext(r.Context()), id, active); err != nil {
 		h.apiMutationFailed(w, r, err)
 		return
 	}
@@ -259,6 +283,8 @@ func (h *SettingsHandlers) createAPIKey(w http.ResponseWriter, r *http.Request) 
 		h.apiMutationFailed(w, r, err)
 		return
 	}
+	// The token exists only in this response; no cache may keep a copy.
+	w.Header().Set("Cache-Control", "no-store")
 	h.renderAPI(w, r, http.StatusOK, "", token, key.Name)
 }
 

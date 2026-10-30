@@ -221,6 +221,7 @@
   "error.attachment_too_large": "%s is larger than 10 MB",
   "error.attachment_too_many": "you can attach at most %d files at a time",
   "error.attachment_type_not_allowed": "%s cannot be attached: only images, PDF, Office documents, text files and zip files are allowed",
+  "error.assign_target_service": "a service user cannot be assigned tickets",
   "error.bad_request": "Bad request",
   "error.bootstrap_unavailable": "first-user setup is no longer available",
   "error.calendar_time_form": "the working calendar needs a start and end time in HH:MM form",
