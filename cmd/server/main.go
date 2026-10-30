@@ -244,7 +244,7 @@ func main() {
 
 	srv := &http.Server{
 		Addr:              listen,
-		Handler:           sessionHandler,
+		Handler:           httpadapter.NewAPIHandlers(apiAccessSvc, clock).Branch(sessionHandler),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       15 * time.Second,
 		WriteTimeout:      30 * time.Second,

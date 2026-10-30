@@ -296,6 +296,7 @@ type harness struct {
 	renderer           *Renderer
 	mux                *http.ServeMux
 	mw                 *SessionMiddleware
+	handler            http.Handler
 	admin              *domain.User
 	adminSession       *domain.Session
 	bugCategory        *domain.Category
@@ -398,6 +399,8 @@ func newHarnessWithAdmin(t *testing.T, seedAdmin bool) *harness {
 		companySettings: companySettingsSvc, companySignIn: companySignInSvc, companyProvider: companyProvider,
 		renderer: renderer,
 		mux:      mux, mw: mw,
+		handler: NewAPIHandlers(application.NewAPIAccessService(s.APIAccessStore(), s.UserStore(), clock, nil), clock).
+			Branch(mw.Wrap(NewBodyLimitMiddleware().Wrap(mux))),
 	}
 	if !seedAdmin {
 		return h
