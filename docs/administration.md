@@ -186,8 +186,8 @@ one. Only the latest link works.
 
 ## API access
 
-**Settings → API** manages the identities and keys that other systems use. The API endpoints
-themselves are not available yet; this section prepares the keys they will accept.
+**Settings → API** manages the identities and keys that other systems use. See the
+[API v1 reference](api.md) for authentication, endpoints, and examples.
 
 - **The API switch** is off by default. Only root turns it on or off; while it is off, every
   key is refused. Administrators see its state.
@@ -207,6 +207,11 @@ themselves are not available yet; this section prepares the keys they will accep
 | `tickets:write` | Create and update tickets. |
 | `comments:write` | Write public comments. |
 | `comments:internal` | Write internal comments. Agent service users only. |
+| `tickets:all` | Access the whole ticket queue for reads and writes. Agent service users only; the matching endpoint scopes are still required. |
+
+> [!WARNING]
+> A leaked key with `tickets:all` and matching write scopes can change every ticket.
+> Grant queue-wide access only when the integration needs it.
 
 A key can never do more than its service user's role allows: a **User** service user sees and
 creates only its own tickets, whatever scopes its key carries.

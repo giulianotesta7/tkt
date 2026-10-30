@@ -55,11 +55,14 @@ type AuditEvent struct {
 	// session actor ID/snapshot"). NULL for legacy/backfill events whose
 	// actor id is not provable.
 	ActorUserID *int64
-	Action      string
-	Field       *string
-	FromValue   *string
-	ToValue     *string
-	Note        *string // reopen reason for closed -> in_progress
+	// APIKeyID identifies the credential used by an API actor. It is stamped
+	// from request context by persistence; browser and legacy events keep nil.
+	APIKeyID  *int64
+	Action    string
+	Field     *string
+	FromValue *string
+	ToValue   *string
+	Note      *string // reopen reason for closed -> in_progress
 	// Reason is the mandatory reason for a reassignment (person A -> B);
 	// nil when no reason applies or the reason is not required (initial
 	// assignment, ticket-access spec).

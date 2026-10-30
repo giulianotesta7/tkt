@@ -108,6 +108,24 @@ func TestSettingsAPISectionGating(t *testing.T) {
 	}
 }
 
+func TestSettingsAPITicketsAllOption(t *testing.T) {
+	f := newAPIFixture(t)
+	page := f.h.get(t, "/settings/api", false).Body.String()
+	if strings.Contains(page, `value="tickets:all"`) {
+		t.Fatal("user service offered tickets:all")
+	}
+	if _, err := f.svc.CreateServiceUser(t.Context(), *f.root, "Agent", domain.RoleAgent); err != nil {
+		t.Fatal(err)
+	}
+	page = f.h.get(t, "/settings/api", false).Body.String()
+	for _, text := range []string{`value="tickets:all"`, "Read and work every ticket", "A leaked key with this scope can change every ticket."} {
+		if strings.Count(page, text) != 1 {
+			t.Errorf("want one %q", text)
+		}
+	}
+	assertNoWhitespaceViolations(t, page)
+}
+
 func TestSettingsAPIServiceUserAndKeyLifecycle(t *testing.T) {
 	h := newHarness(t)
 	admin := h.adminSession.ID

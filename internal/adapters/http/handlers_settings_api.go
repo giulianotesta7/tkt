@@ -37,6 +37,7 @@ var apiScopeOptions = []apiScopeOption{
 	{domain.ScopeTicketsWrite, "settings.api.scope.tickets_write"},
 	{domain.ScopeCommentsWrite, "settings.api.scope.comments_write"},
 	{domain.ScopeCommentsInternal, "settings.api.scope.comments_internal"},
+	{domain.ScopeTicketsAll, "settings.api.scope.tickets_all"},
 }
 
 // WithAPIAccess wires the service users and API keys use cases behind the API

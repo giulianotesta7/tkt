@@ -44,7 +44,7 @@ func (s *SearchService) Search(ctx context.Context, actor domain.User, q TicketQ
 	if page < 1 {
 		page = 1
 	}
-	q, hasText := s.scoped(actor, q)
+	q, hasText := s.scoped(ctx, actor, q)
 	p := Page{Offset: (page - 1) * PageSize, Limit: PageSize}
 
 	result := &SearchResult{Page: page}
@@ -92,7 +92,7 @@ const (
 // the whole queue. visit returning an error stops the walk and is returned as
 // is.
 func (s *SearchService) Export(ctx context.Context, actor domain.User, q TicketQuery, visit func(domain.Ticket) error) error {
-	scoped, hasText := s.scoped(actor, q)
+	scoped, hasText := s.scoped(ctx, actor, q)
 	for offset := 0; offset < ExportMaxRows; offset += ExportBatchSize {
 		limit := ExportBatchSize
 		if remaining := ExportMaxRows - offset; remaining < limit {
@@ -123,8 +123,8 @@ func (s *SearchService) Export(ctx context.Context, actor domain.User, q TicketQ
 // scoped applies the actor's scope, the requester's fixed active-work
 // restriction and the title/ID tokenization: the preparation Search and Count
 // share, so a tab count can never disagree with the list it opens.
-func (s *SearchService) scoped(actor domain.User, q TicketQuery) (TicketQuery, bool) {
-	q = readQuery(actor, q)
+func (s *SearchService) scoped(ctx context.Context, actor domain.User, q TicketQuery) (TicketQuery, bool) {
+	q = readQuery(ctx, actor, q)
 	if actor.Role == domain.RoleUser {
 		// A requester reads their own work only, and the SERVER chooses which
 		// part of it: ignore every caller-supplied state so a crafted query
@@ -181,7 +181,7 @@ func requesterSectionScope(section TicketSection, callerOnHold bool) (states []d
 // Count answers how many tickets Search would list for the same actor and
 // query (issue #382, the queue tab counts), with exactly Search's scope.
 func (s *SearchService) Count(ctx context.Context, actor domain.User, q TicketQuery) (int, error) {
-	q, hasText := s.scoped(actor, q)
+	q, hasText := s.scoped(ctx, actor, q)
 	if hasText {
 		return s.search.SearchCount(ctx, q)
 	}

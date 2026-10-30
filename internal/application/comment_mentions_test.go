@@ -5,6 +5,7 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/giulianotesta7/tkt/internal/application"
 	"github.com/giulianotesta7/tkt/internal/domain"
 )
 
@@ -19,6 +20,30 @@ import (
 //     transaction as the comment, so a comment that is not stored subscribes
 //     nobody, and a mention in an internal note reaches the mentioned staff
 //     alone — never the requester.
+
+func TestAPIServiceCommentMentionsRespectRecipientScope(t *testing.T) {
+	h := newFanOutHarness(t)
+	caller := h.users.seedRole("Integration", "integration@example.com", domain.RoleAgent, true)
+	caller.Kind = domain.UserKindService
+	outside := h.users.seedRole("Outside", "outside@example.com", domain.RoleAgent, true)
+	ctx := application.WithTicketScopeAll(t.Context())
+	if _, err := h.svc.Add(ctx, caller, h.ticket.ID, "@Ana and @Outside please check", "internal"); err != nil {
+		t.Fatal(err)
+	}
+	rows := h.commentTx.notified(h.assignee.ID)
+	if len(rows) != 1 || rows[0].Kind != domain.NotificationMentioned {
+		t.Fatalf("eligible recipient = %+v", rows)
+	}
+	if rows := h.commentTx.notified(outside.ID); len(rows) != 0 {
+		t.Fatalf("outside recipient inherited caller scope: %+v", rows)
+	}
+	if following, _ := h.followers.IsFollowing(ctx, h.ticket.ID, outside.ID); following {
+		t.Fatal("outside recipient became a follower")
+	}
+	if _, err := h.svc.Add(t.Context(), caller, h.ticket.ID, "@Ana", "internal"); !errors.Is(err, domain.ErrNotFound) {
+		t.Fatalf("without tickets:all = %v", err)
+	}
+}
 
 func TestMentionNotifiesOnceAndSubscribes(t *testing.T) {
 	h := newFanOutHarness(t)

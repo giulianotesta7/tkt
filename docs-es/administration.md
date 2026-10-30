@@ -188,9 +188,8 @@ Solo funciona el enlace más reciente.
 
 ## Acceso a la API
 
-**Configuración → API** administra las identidades y claves que usan otros sistemas. Los
-endpoints de la API todavía no están disponibles; esta sección prepara las claves que van a
-aceptar.
+**Configuración → API** administra las identidades y claves que usan otros sistemas. La
+[referencia de la API v1](api.md) describe la autenticación, los endpoints y sus ejemplos.
 
 - **El interruptor de la API** está apagado por defecto. Solo root lo enciende o lo apaga;
   mientras está apagado, se rechaza toda clave. Los administradores ven su estado.
@@ -212,6 +211,11 @@ aceptar.
 | `tickets:write` | Crear y actualizar tickets. |
 | `comments:write` | Escribir comentarios públicos. |
 | `comments:internal` | Escribir comentarios internos. Solo usuarios de servicio agentes. |
+| `tickets:all` | Acceder a toda la cola para lecturas y escrituras. Solo usuarios de servicio agentes; siguen siendo necesarios los alcances del endpoint. |
+
+> [!WARNING]
+> Una clave filtrada con `tickets:all` y los alcances de escritura correspondientes puede
+> cambiar cualquier ticket. El acceso a toda la cola solo debe otorgarse si la integración lo necesita.
 
 Una clave nunca puede hacer más de lo que permite el rol de su usuario de servicio: un usuario de
 servicio **Usuario** solo ve y crea sus propios tickets, tenga los alcances que tenga su clave.

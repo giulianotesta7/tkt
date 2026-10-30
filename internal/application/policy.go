@@ -1,6 +1,10 @@
 package application
 
-import "github.com/giulianotesta7/tkt/internal/domain"
+import (
+	"context"
+
+	"github.com/giulianotesta7/tkt/internal/domain"
+)
 
 // Authorization failure messages for application-layer identity and
 // policy gates (application package scope; domain error shapes carry them).
@@ -253,9 +257,10 @@ func isTicketRequester(actor domain.User, t *domain.Ticket) bool {
 // and stamps the query BEFORE any store call, so scoped store methods
 // exclude unauthorized rows and the actor never sees tickets outside their
 // scope (design "Domain, Contracts": policy → scoped store query). It is
-// the STRICT mutation/read-baseline scope: an agent is ScopeAssigned only.
-func scopedQuery(actor domain.User, q TicketQuery) TicketQuery {
-	q.Scope = NewPolicy().TicketScope(actor.Role)
+// the STRICT mutation/read-baseline scope: an ordinary agent is ScopeAssigned.
+// The explicit tickets:all API scope widens eligible service actors only.
+func scopedQuery(ctx context.Context, actor domain.User, q TicketQuery) TicketQuery {
+	q.Scope = apiTicketScope(ctx, actor, NewPolicy().TicketScope(actor.Role))
 	q.ActorID = actor.ID
 	return q
 }
@@ -264,18 +269,26 @@ func scopedQuery(actor domain.User, q TicketQuery) TicketQuery {
 // agent widens to ScopeAssignedOrClaimable so list/detail reads surface tickets
 // waiting on a claim to the actor's desk, while the strict TicketScope remains
 // the mutation baseline (never widened here). Used only by read-only paths.
-func readQuery(actor domain.User, q TicketQuery) TicketQuery {
-	q.Scope = NewPolicy().ReadScope(actor.Role)
+func readQuery(ctx context.Context, actor domain.User, q TicketQuery) TicketQuery {
+	q.Scope = apiTicketScope(ctx, actor, NewPolicy().ReadScope(actor.Role))
 	q.ActorID = actor.ID
 	return q
 }
 
+// apiTicketScope widens only the authenticated agent service caller. It never
+// changes role capabilities, requester identity gates, or assignment rules.
+func apiTicketScope(ctx context.Context, actor domain.User, ordinary TicketScope) TicketScope {
+	if ticketScopeAll(ctx) && actor.Active && actor.IsService() && actor.Role == domain.RoleAgent {
+		return ScopeAll
+	}
+	return ordinary
+}
+
 // assignQuery returns the assignment read scope (ticket-access-assignment
-// spec): agents may claim an unassigned ticket or reassign a ticket already
-// assigned to them (ScopeAssignable); admin/root may assign any ticket
-// (ScopeAll). The capability gate already rejects user-role actors before
-// this query is built.
-func assignQuery(actor domain.User) TicketQuery {
+// spec): ordinary agents can reach their own or unassigned tickets; admin/root
+// and tickets:all service actors can reach all. Assignment's role and target
+// guards remain in the service after this scoped read.
+func assignQuery(ctx context.Context, actor domain.User) TicketQuery {
 	q := TicketQuery{ActorID: actor.ID}
 	switch actor.Role {
 	case domain.RoleAgent:
@@ -285,5 +298,6 @@ func assignQuery(actor domain.User) TicketQuery {
 	default:
 		q.Scope = ScopeNone
 	}
+	q.Scope = apiTicketScope(ctx, actor, q.Scope)
 	return q
 }

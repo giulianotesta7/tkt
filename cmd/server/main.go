@@ -243,8 +243,11 @@ func main() {
 	sessionHandler := httpadapter.NewSessionMiddleware(store.SessionStore(), store.UserStore(), store.SettingsStore()).WithSidebarPreferences(store.SidebarPreferences()).WithThemePreferences(store.ThemePreferences()).WithLanguagePreferences(store.PreferencesStore().(application.LanguagePreferencesStore)).WithOrganization(store.OrganizationStore()).Wrap(httpadapter.NewBodyLimitMiddleware().Wrap(mux))
 
 	srv := &http.Server{
-		Addr:              listen,
-		Handler:           sessionHandler,
+		Addr: listen,
+		Handler: httpadapter.NewAPIHandlers(apiAccessSvc, clock).
+			WithReads(httpadapter.APIReadServices{Tickets: ticketSvc, Search: searchSvc, Categories: catSvc, Users: userSvc, Catalog: catalogSvc, Workflows: workflowSvc, Versions: store.WorkflowVersionStore(), Runs: store.WorkflowRunStore()}).
+			WithWrites(httpadapter.APIWriteServices{Comments: commentSvc, Runner: application.NewWorkflowRunner(clock).WithFollowers(followSvc), Workflow: store.WorkflowUnitOfWork()}).
+			Branch(sessionHandler),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       15 * time.Second,
 		WriteTimeout:      30 * time.Second,

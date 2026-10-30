@@ -265,7 +265,7 @@ func (s *TicketService) Assign(ctx context.Context, actor domain.User, ticketID 
 	if !NewPolicy().Capabilities(actor.Role).Require(CapAssignTicket) {
 		return nil, &domain.ValidationError{Field: "user", Message: domain.ErrMsgUserRoleCannotAssign, Key: "error.user_role_cannot_assign"}
 	}
-	t, err := s.tickets.GetByID(ctx, ticketID, assignQuery(actor))
+	t, err := s.tickets.GetByID(ctx, ticketID, assignQuery(ctx, actor))
 	if err != nil {
 		return nil, err
 	}
@@ -369,7 +369,7 @@ func (s *TicketService) Transition(ctx context.Context, actor domain.User, ticke
 	if !NewPolicy().Capabilities(actor.Role).Require(CapEditTicket) {
 		return nil, domain.NewForbiddenError(domain.ErrMsgUserCannotTransition)
 	}
-	t, err := s.tickets.GetByID(ctx, ticketID, scopedQuery(actor, TicketQuery{}))
+	t, err := s.tickets.GetByID(ctx, ticketID, scopedQuery(ctx, actor, TicketQuery{}))
 	if err != nil {
 		return nil, err
 	}
@@ -462,7 +462,7 @@ func (s *TicketService) PutOnHold(ctx context.Context, actor domain.User, ticket
 	if !NewPolicy().Capabilities(actor.Role).Require(CapEditTicket) {
 		return nil, domain.NewForbiddenError(domain.ErrMsgUserCannotEdit)
 	}
-	t, err := s.tickets.GetByID(ctx, ticketID, scopedQuery(actor, TicketQuery{}))
+	t, err := s.tickets.GetByID(ctx, ticketID, scopedQuery(ctx, actor, TicketQuery{}))
 	if err != nil {
 		return nil, err
 	}
@@ -497,7 +497,7 @@ func (s *TicketService) ResumeFromHold(ctx context.Context, actor domain.User, t
 	if !NewPolicy().Capabilities(actor.Role).Require(CapEditTicket) {
 		return nil, domain.NewForbiddenError(domain.ErrMsgUserCannotEdit)
 	}
-	t, err := s.tickets.GetByID(ctx, ticketID, scopedQuery(actor, TicketQuery{}))
+	t, err := s.tickets.GetByID(ctx, ticketID, scopedQuery(ctx, actor, TicketQuery{}))
 	if err != nil {
 		return nil, err
 	}
@@ -547,7 +547,7 @@ func (s *TicketService) shiftResolveForHold(ctx context.Context, ticketID int64,
 // write. No capability gate here by design: role user must reach this path —
 // it is the one role-user mutation the carve-out grants.
 func (s *TicketService) ConfirmResolution(ctx context.Context, actor domain.User, ticketID int64) (*domain.Ticket, error) {
-	t, err := s.tickets.GetByID(ctx, ticketID, scopedQuery(actor, TicketQuery{}))
+	t, err := s.tickets.GetByID(ctx, ticketID, scopedQuery(ctx, actor, TicketQuery{}))
 	if err != nil {
 		return nil, err
 	}
@@ -599,7 +599,7 @@ func (s *TicketService) ConfirmResolution(ctx context.Context, actor domain.User
 // domain transition (ticket-management delta). A non-resolved state is
 // rejected by the state machine with no write.
 func (s *TicketService) RejectResolution(ctx context.Context, actor domain.User, ticketID int64) (*domain.Ticket, error) {
-	t, err := s.tickets.GetByID(ctx, ticketID, scopedQuery(actor, TicketQuery{}))
+	t, err := s.tickets.GetByID(ctx, ticketID, scopedQuery(ctx, actor, TicketQuery{}))
 	if err != nil {
 		return nil, err
 	}
@@ -650,7 +650,7 @@ func (s *TicketService) Update(ctx context.Context, actor domain.User, ticketID 
 	if u.UserID != nil || u.ClearUserID {
 		return nil, &domain.ValidationError{Field: "user", Message: domain.ErrMsgAssignmentViaAssign, Key: "error.assignment_via_assign"}
 	}
-	t, err := s.tickets.GetByID(ctx, ticketID, scopedQuery(actor, TicketQuery{}))
+	t, err := s.tickets.GetByID(ctx, ticketID, scopedQuery(ctx, actor, TicketQuery{}))
 	if err != nil {
 		return nil, err
 	}
@@ -702,7 +702,7 @@ func (s *TicketService) GetByID(ctx context.Context, actor domain.User, id int64
 	// Read-only detail uses the widened READ scope (ScopeAssignedOrClaimable for
 	// agents) so a claim-pending ticket on the actor's desk is visible; the
 	// mutation paths keep the strict scopedQuery and never inherit this widening.
-	return s.builder.TicketView(ctx, id, readQuery(actor, TicketQuery{}), includeInternal)
+	return s.builder.TicketView(ctx, id, readQuery(ctx, actor, TicketQuery{}), includeInternal)
 }
 
 // stampedAttachments validates one submission's files (issue #366) and stamps

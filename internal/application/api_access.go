@@ -30,6 +30,7 @@ const (
 	ErrMsgAPIKeyExpiryPast       = "the expiry must be in the future"
 	ErrMsgAPIKeyInternalRequires = "internal comments need an agent service user"
 	ErrMsgAPIKeyOwnerInactive    = "the service user is deactivated"
+	ErrMsgAPIKeyAllRequires      = "all tickets need an agent service user"
 )
 
 // apiKeyTokenPrefix starts every token, so a leaked key is recognizable by
@@ -231,6 +232,9 @@ func (s *APIAccessService) CreateAPIKey(ctx context.Context, actor domain.User, 
 		return nil, "", err
 	}
 	for _, scope := range scopes {
+		if scope == domain.ScopeTicketsAll && owner.Role != domain.RoleAgent {
+			return nil, "", &domain.ValidationError{Field: "scopes", Message: ErrMsgAPIKeyAllRequires, Key: "error.api.all_requires_agent"}
+		}
 		if scope == domain.ScopeCommentsInternal && !owner.Role.AtLeast(domain.RoleAgent) {
 			return nil, "", &domain.ValidationError{Field: "scopes", Message: ErrMsgAPIKeyInternalRequires, Key: "error.api.internal_requires_agent"}
 		}

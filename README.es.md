@@ -101,6 +101,7 @@ de una categoría para que la cola reciba su primer ticket.
 | [Instalar y configurar tkt](docs-es/getting-started.md) | Cuenta root, configuración mínima |
 | [Desplegar tkt](docs-es/deployment.md) | Imagen, volumen de datos, URL base pública, proxy HTTPS, configuración |
 | [Administrar tkt](docs-es/administration.md) | Usuarios y roles, mesas, catálogo, flujos, SLA, emails, Seguridad |
+| [Referencia de la API v1](docs-es/api.md) | Autenticación Bearer, alcances, endpoints JSON, errores, ejemplos con curl |
 | [Trabajar un ticket](docs-es/user-guide.md) | Recorridos del solicitante y del agente: crear, responder, esperar, cerrar |
 | [Backupear y actualizar](docs-es/backup-and-upgrade.md) | Qué backupear, restaurar, actualizar |
 | [Contribuir](CONTRIBUTING.md) | Desarrollo local, capas de tests, cómo contribuir |

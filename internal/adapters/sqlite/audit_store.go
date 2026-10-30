@@ -46,7 +46,7 @@ func (as *auditStore) Append(ctx context.Context, events ...domain.AuditEvent) e
 // domain AuditEvent carries no id (port contract); the row id orders only.
 func (as *auditStore) ListByTicket(ctx context.Context, ticketID int64) ([]domain.AuditEvent, error) {
 	rows, err := as.db.QueryContext(ctx,
-		`SELECT ticket_id, actor, action, field, from_value, to_value, note, actor_user_id, reason, desk_id, step_index, closure_via, created_at
+		`SELECT ticket_id, actor, action, field, from_value, to_value, note, actor_user_id, reason, desk_id, step_index, closure_via, created_at, api_key_id
 			 FROM audit_events WHERE ticket_id = ? ORDER BY created_at ASC, id ASC`, ticketID)
 	if err != nil {
 		return nil, fmt.Errorf("sqlite: list audit events: %w", err)
@@ -57,13 +57,16 @@ func (as *auditStore) ListByTicket(ctx context.Context, ticketID int64) ([]domai
 	for rows.Next() {
 		var e domain.AuditEvent
 		var field, fromValue, toValue, note, reason sql.NullString
-		var actorUserID sql.NullInt64
+		var actorUserID, apiKeyID sql.NullInt64
 		var deskID sql.NullInt64
 		var stepIndex sql.NullInt64
 		var closureVia sql.NullString
 		var createdAt string
-		if err := rows.Scan(&e.TicketID, &e.Actor, &e.Action, &field, &fromValue, &toValue, &note, &actorUserID, &reason, &deskID, &stepIndex, &closureVia, &createdAt); err != nil {
+		if err := rows.Scan(&e.TicketID, &e.Actor, &e.Action, &field, &fromValue, &toValue, &note, &actorUserID, &reason, &deskID, &stepIndex, &closureVia, &createdAt, &apiKeyID); err != nil {
 			return nil, fmt.Errorf("sqlite: scan audit event: %w", err)
+		}
+		if apiKeyID.Valid {
+			e.APIKeyID = &apiKeyID.Int64
 		}
 		e.Field = nullableStringPtr(field)
 		e.FromValue = nullableStringPtr(fromValue)
