@@ -101,7 +101,7 @@ Este es el vocabulario completo de problemas:
 | `urn:tkt:problem:scope-missing` | 403 | La clave no tiene el alcance que requiere el endpoint. |
 | `urn:tkt:problem:not-found` | 404 | API apagada, ruta o recurso inexistente, o ticket fuera del acceso permitido. |
 | `urn:tkt:problem:method-not-allowed` | 405 | La ruta no acepta ese método; la cabecera `Allow` indica los admitidos. |
-| `urn:tkt:problem:conflict` | 409 | Conflicto de recursos, flujo no ejecutable o cambio concurrente de una espera. |
+| `urn:tkt:problem:conflict` | 409 | Conflicto de recursos, flujo que no puede avanzar o cambio concurrente de una espera. |
 | `urn:tkt:problem:request-too-large` | 413 | La solicitud supera el límite de tamaño del transporte. |
 | `urn:tkt:problem:unsupported-media-type` | 415 | El tipo de contenido del cuerpo no es `application/json`. |
 | `urn:tkt:problem:validation` | 422 | Entrada inválida en un campo. |
@@ -245,7 +245,13 @@ no recibe respuestas de formularios: se consulta el detalle y se completa por se
 formulario pendiente del solicitante. Un usuario de servicio Agente **sin `tickets:all`
 puede crear el ticket, pero no leerlo después**; el 201 confirma la creación, no concede lectura.
 Categoría inexistente: 404; título vacío o falta de flujo publicado: 422 `validation`;
-prioridad inválida: 422 `rejected`; flujo no ejecutable: 409 `conflict`.
+prioridad inválida: 422 `rejected`.
+
+La creación no exige que la categoría aparezca en `GET /api/v1/categories`. Una categoría
+publicada cuyo flujo no puede encaminar el ticket en este momento (por ejemplo, un paso de mesa
+cuya mesa no tiene miembros) igual lo acepta, como el formulario del navegador, y el ticket
+espera hasta que alguien pueda tomarlo. Conviene consultar primero las categorías para crear solo en las
+que se pueden ejecutar.
 
 ## POST /api/v1/tickets/{id}/workflow/steps/{position}/complete
 

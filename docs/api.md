@@ -97,7 +97,7 @@ The complete problem vocabulary is:
 | `urn:tkt:problem:scope-missing` | 403 | Key lacks the endpoint's required scope. |
 | `urn:tkt:problem:not-found` | 404 | API disabled, unknown route/resource, or ticket outside scope. |
 | `urn:tkt:problem:method-not-allowed` | 405 | Route does not accept this method; see the `Allow` header. |
-| `urn:tkt:problem:conflict` | 409 | Resource conflict, an unrunnable workflow, or a concurrent hold change. |
+| `urn:tkt:problem:conflict` | 409 | Resource conflict, a workflow that cannot advance, or a concurrent hold change. |
 | `urn:tkt:problem:request-too-large` | 413 | Request exceeds the transport body limit. |
 | `urn:tkt:problem:unsupported-media-type` | 415 | Body content type is not `application/json`. |
 | `urn:tkt:problem:validation` | 422 | Invalid field input. |
@@ -237,7 +237,12 @@ form answers: read the detail and complete its pending requester form separately
 An agent service user **without `tickets:all` can create but cannot read back the ticket**;
 201 is a creation receipt, not a grant of read access.
 Missing category: 404; blank title or unavailable published workflow: 422 `validation`;
-invalid priority: 422 `rejected`; unrunnable workflow: 409 `conflict`.
+invalid priority: 422 `rejected`.
+
+Creation does not require the category to appear in `GET /api/v1/categories`. A published
+category whose workflow cannot currently route the ticket (for example, a desk step whose desk
+has no members) still accepts it, exactly as the browser form does, and the ticket waits until
+someone can take it. List the categories first to create only in runnable ones.
 
 ## POST /api/v1/tickets/{id}/workflow/steps/{position}/complete
 
