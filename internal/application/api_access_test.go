@@ -165,6 +165,50 @@ func newAPIAccess() (*application.APIAccessService, *fakeAPIAccessStore, *fakeUs
 	return application.NewAPIAccessService(store, users, clock, random), store, users, clock
 }
 
+func TestAPIAccessTicketsAll(t *testing.T) {
+	for _, role := range []domain.Role{domain.RoleUser, domain.RoleAgent} {
+		t.Run(string(role), func(t *testing.T) {
+			svc, store, _, _ := newAPIAccess()
+			bot, err := svc.CreateServiceUser(t.Context(), apiAdmin, "Bot", role)
+			if err != nil {
+				t.Fatal(err)
+			}
+			before, err := svc.ListServiceUsers(t.Context(), apiAdmin)
+			if err != nil {
+				t.Fatal(err)
+			}
+			events, next := len(store.events), store.nextKey
+			key, token, err := svc.CreateAPIKey(t.Context(), apiAdmin, application.CreateAPIKeyInput{ServiceUserID: bot.ID, Name: "All", Scopes: []string{"tickets:all"}})
+			if role == domain.RoleUser {
+				var v *domain.ValidationError
+				if !errors.As(err, &v) || v.Field != "scopes" || v.Key != "error.api.all_requires_agent" || v.Message != "all tickets need an agent service user" || key != nil || token != "" {
+					t.Fatalf("refusal = %v, %v, %q", err, key, token)
+				}
+				after, err := svc.ListServiceUsers(t.Context(), apiAdmin)
+				if err != nil || !reflect.DeepEqual(before, after) || len(store.events) != events || store.nextKey != next {
+					t.Fatal("rejection changed stored data or counters", err)
+				}
+				return
+			}
+			if err != nil || token == "" || len(key.Scopes) != 1 || key.Scopes[0] != "tickets:all" {
+				t.Fatalf("agent key = %+v, %v", key, err)
+			}
+			if err := svc.SetAPIEnabled(t.Context(), apiRoot, true); err != nil {
+				t.Fatal(err)
+			}
+			principal, err := svc.Authenticate(t.Context(), token)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, cap := range []application.Capability{application.CapCreateTicket, application.CapEditTicket, application.CapAssignTicket, application.CapCommentPublic, application.CapCommentInternal, application.CapManageAPI} {
+				if principal.Capabilities.Require(cap) {
+					t.Fatalf("tickets:all granted capability %v", cap)
+				}
+			}
+		})
+	}
+}
+
 func isForbidden(err error) bool {
 	var f *domain.ForbiddenError
 	return errors.As(err, &f)

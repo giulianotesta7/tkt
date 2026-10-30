@@ -151,7 +151,7 @@ func (s *FollowService) MentionNameContext(ctx context.Context, actor domain.Use
 	if s == nil {
 		return nil, nil
 	}
-	if _, err := s.tickets.GetByID(ctx, ticketID, readQuery(actor, TicketQuery{})); err != nil {
+	if _, err := s.tickets.GetByID(ctx, ticketID, readQuery(ctx, actor, TicketQuery{})); err != nil {
 		return nil, err
 	}
 	candidates, err := s.candidateStaff(ctx, actor, ticketID)

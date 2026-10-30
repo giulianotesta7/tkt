@@ -7,8 +7,8 @@ import (
 )
 
 func TestParseAPIKeyScopes(t *testing.T) {
-	got, err := ParseAPIKeyScopes([]string{"tickets:write", "catalog:read", "tickets:write", "comments:internal", "tickets:read", "comments:write"})
-	want := []APIKeyScope{ScopeCatalogRead, ScopeTicketsRead, ScopeTicketsWrite, ScopeCommentsWrite, ScopeCommentsInternal}
+	got, err := ParseAPIKeyScopes([]string{"tickets:write", "catalog:read", "tickets:write", "comments:internal", "tickets:read", "comments:write", "tickets:all", "tickets:all"})
+	want := []APIKeyScope{ScopeCatalogRead, ScopeTicketsRead, ScopeTicketsWrite, ScopeCommentsWrite, ScopeCommentsInternal, ScopeTicketsAll}
 	if err != nil || !reflect.DeepEqual(got, want) {
 		t.Fatalf("scopes = %v, %v; want %v", got, err, want)
 	}

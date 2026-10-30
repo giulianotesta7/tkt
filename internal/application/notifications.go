@@ -181,7 +181,9 @@ func canStaffOpenTicket(ctx context.Context, tickets TicketStore, u domain.User,
 	if !NewPolicy().Capabilities(u.Role).Require(CapCommentInternal) {
 		return false, nil
 	}
-	if _, err := tickets.GetByID(ctx, ticketID, readQuery(u, TicketQuery{})); err != nil {
+	// This is the recipient's access, not the caller's: never inherit the
+	// request's tickets:all flag when evaluating another user's eligibility.
+	if _, err := tickets.GetByID(ctx, ticketID, readQuery(context.Background(), u, TicketQuery{})); err != nil {
 		if errors.Is(err, domain.ErrNotFound) {
 			return false, nil
 		}
@@ -406,7 +408,7 @@ func alertNotifications(t *domain.Ticket, kind domain.NotificationKind, at time.
 // cannot open, and opening the row re-checks the same scope on the detail route
 // (issue #344, S16).
 func NotificationTicketQuery(actor domain.User) TicketQuery {
-	return readQuery(actor, TicketQuery{})
+	return readQuery(context.Background(), actor, TicketQuery{})
 }
 
 // recipientOf projects a stored user into the notification policy input. A

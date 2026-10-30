@@ -87,7 +87,7 @@ func (s *CommentService) AddWithAttachments(ctx context.Context, actor domain.Us
 	if vis == domain.CommentInternal && !NewPolicy().Capabilities(actor.Role).Require(CapCommentInternal) {
 		return nil, domain.NewForbiddenError(domain.ErrMsgUserCannotCommentInternal)
 	}
-	t, err := s.tickets.GetByID(ctx, ticketID, scopedQuery(actor, TicketQuery{}))
+	t, err := s.tickets.GetByID(ctx, ticketID, scopedQuery(ctx, actor, TicketQuery{}))
 	if err != nil {
 		return nil, err
 	}

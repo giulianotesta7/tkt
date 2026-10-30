@@ -65,8 +65,9 @@
           <div class="field"><label for="api_key_expires_{{.ID}}">{{t "settings.api.key.expires"}}</label><input type="date" id="api_key_expires_{{.ID}}" name="expires_on"><p class="help">{{t "settings.api.key.expires_help"}}</p></div>
           <fieldset class="api-key-scopes">
             <legend>{{t "settings.api.key.scopes"}}</legend>
-{{range $.ScopeOptions}}{{if or $svc.CanInternal (ne .Scope "comments:internal")}}            <label><input type="checkbox" name="scopes" value="{{.Scope}}"> <code>{{.Scope}}</code> {{t .Label}}</label>
-{{end}}{{end}}          </fieldset>
+{{range $.ScopeOptions}}{{if or $svc.CanInternal (and (ne .Scope "comments:internal") (ne .Scope "tickets:all"))}}            <label><input type="checkbox" name="scopes" value="{{.Scope}}"{{if eq .Scope "tickets:all"}} aria-describedby="api-all-help-{{$svc.ID}}"{{end}}> <code>{{.Scope}}</code> {{t .Label}}</label>
+{{if eq .Scope "tickets:all"}}            <p class="help" id="api-all-help-{{$svc.ID}}">{{t "settings.api.scope.tickets_all_help"}}</p>
+{{end}}{{end}}{{end}}          </fieldset>
           <div class="api-key-submit"><button class="btn primary" type="submit">{{tf "settings.api.key.create" .Name}}</button></div>
         </form>
 {{end}}      </article>

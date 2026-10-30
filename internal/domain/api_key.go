@@ -11,16 +11,17 @@ const (
 	ScopeTicketsWrite     APIKeyScope = "tickets:write"
 	ScopeCommentsWrite    APIKeyScope = "comments:write"
 	ScopeCommentsInternal APIKeyScope = "comments:internal"
+	ScopeTicketsAll       APIKeyScope = "tickets:all"
 )
 
 // ParseAPIKeyScopes validates and returns a deduplicated, canonically ordered set.
 func ParseAPIKeyScopes(raw []string) ([]APIKeyScope, error) {
-	order := []APIKeyScope{ScopeCatalogRead, ScopeTicketsRead, ScopeTicketsWrite, ScopeCommentsWrite, ScopeCommentsInternal}
+	order := []APIKeyScope{ScopeCatalogRead, ScopeTicketsRead, ScopeTicketsWrite, ScopeCommentsWrite, ScopeCommentsInternal, ScopeTicketsAll}
 	seen := make(map[APIKeyScope]bool, len(raw))
 	for _, s := range raw {
 		scope := APIKeyScope(s)
 		switch scope {
-		case ScopeCatalogRead, ScopeTicketsRead, ScopeTicketsWrite, ScopeCommentsWrite, ScopeCommentsInternal:
+		case ScopeCatalogRead, ScopeTicketsRead, ScopeTicketsWrite, ScopeCommentsWrite, ScopeCommentsInternal, ScopeTicketsAll:
 			seen[scope] = true
 		default:
 			return nil, &ValidationError{Field: "scopes", Message: "unknown scope", Key: "error.api.scope_invalid"}

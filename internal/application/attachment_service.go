@@ -32,7 +32,7 @@ func (s *AttachmentService) Download(ctx context.Context, actor domain.User, id 
 	if err != nil {
 		return nil, err
 	}
-	if _, err := s.tickets.GetByID(ctx, a.TicketID, readQuery(actor, TicketQuery{})); err != nil {
+	if _, err := s.tickets.GetByID(ctx, a.TicketID, readQuery(ctx, actor, TicketQuery{})); err != nil {
 		if errors.Is(err, domain.ErrNotFound) {
 			return nil, notFound
 		}

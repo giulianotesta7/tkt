@@ -168,6 +168,8 @@
             <label><input type="checkbox" name="scopes" value="tickets:write"> <code>tickets:write</code> Create and update tickets</label>
             <label><input type="checkbox" name="scopes" value="comments:write"> <code>comments:write</code> Write public comments</label>
             <label><input type="checkbox" name="scopes" value="comments:internal"> <code>comments:internal</code> Write internal comments</label>
+            <label><input type="checkbox" name="scopes" value="tickets:all" aria-describedby="api-all-help-7"> <code>tickets:all</code> Read and work every ticket</label>
+            <p class="help" id="api-all-help-7">A leaked key with this scope can change every ticket.</p>
           </fieldset>
           <div class="api-key-submit"><button class="btn primary" type="submit">Create key for Triage bot</button></div>
         </form>
