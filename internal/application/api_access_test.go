@@ -277,6 +277,9 @@ func TestAPIAccessCreateAPIKey(t *testing.T) {
 			t.Errorf("%s: a refused creation answered a token", c.name)
 		}
 	}
+	if len(store.keys) != stored {
+		t.Errorf("refused validations stored %d keys", len(store.keys)-stored)
+	}
 	if _, _, err := svc.CreateAPIKey(ctx, apiAdmin, application.CreateAPIKeyInput{ServiceUserID: person.ID, Name: "K", Scopes: []string{"tickets:read"}}); !errors.Is(err, domain.ErrNotFound) {
 		t.Errorf("key for a person = %v, want ErrNotFound", err)
 	}
