@@ -288,6 +288,7 @@
   "error.suggestions_api_key_unreadable": "la API key guardada del modelo de decisiones no se puede leer en este servidor; vuelve a ingresarla",
   "error.email_port_invalid": "el puerto debe ser un número del 1 al 65535",
   "error.api.expiry_past": "el vencimiento tiene que ser en el futuro",
+  "error.api.state_invalid": "estado de ticket desconocido",
   "error.api.all_requires_agent": "el acceso a todos los tickets necesita un usuario de servicio agente",
   "error.api.internal_requires_agent": "los comentarios internos necesitan un usuario de servicio agente",
   "error.api.key_name_required": "la clave necesita un nombre",

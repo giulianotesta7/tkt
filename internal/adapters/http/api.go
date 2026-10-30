@@ -8,6 +8,7 @@ import (
 	"math"
 	"mime"
 	"net/http"
+	"path"
 	"strconv"
 	"strings"
 	"sync"
@@ -33,10 +34,14 @@ type APIHandlers struct {
 	clock   domain.Clock
 	mu      sync.Mutex
 	buckets map[int64]apiBucket
+	mux     *http.ServeMux
+	reads   APIReadServices
 }
 
 func NewAPIHandlers(api *application.APIAccessService, clock domain.Clock) *APIHandlers {
-	return &APIHandlers{api: api, clock: clock, buckets: make(map[int64]apiBucket)}
+	h := &APIHandlers{api: api, clock: clock, buckets: make(map[int64]apiBucket), mux: http.NewServeMux()}
+	h.mux.HandleFunc("GET /api/v1/me", h.me)
+	return h
 }
 
 // Branch routes /api/ before browser sessions and their Origin check. The
@@ -87,6 +92,9 @@ func (h *APIHandlers) Wrap(next http.Handler) http.Handler {
 		ctx := context.WithValue(r.Context(), ctxKeyUser{}, &p.User)
 		ctx = context.WithValue(ctx, ctxKeyAPIPrincipal{}, p)
 		ctx = application.WithAPIKeyID(ctx, p.KeyID)
+		if p.User.IsService() && p.User.Role == domain.RoleAgent && p.HasScope(domain.ScopeTicketsAll) {
+			ctx = application.WithTicketScopeAll(ctx)
+		}
 		r = r.WithContext(ctx)
 		// Only errors emitted by the transport cap need translation. Once it
 		// forwards to the endpoint, endpoint responses pass through unchanged.
@@ -123,18 +131,45 @@ func (h *APIHandlers) take(keyID int64) int {
 	return 0
 }
 
-// ServeHTTP deliberately does not use a browser mux: unknown paths (including
-// unclean paths) cannot trigger HTML fallbacks or canonical-path redirects.
+// ServeHTTP keeps method/path matching in ServeMux, translating its transport
+// errors to the API vocabulary. Unclean paths never redirect to HTML.
 func (h *APIHandlers) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	if r.URL.Path != "/api/v1/me" {
+	if path.Clean(r.URL.Path) != r.URL.Path {
 		writeProblem(w, r, problemNotFound, "")
 		return
 	}
-	if r.Method != http.MethodGet && r.Method != http.MethodHead {
-		w.Header().Set("Allow", "GET, HEAD")
-		writeProblem(w, r, problemMethodNotAllowed, "")
+	h.mux.ServeHTTP(&apiRouteResponse{ResponseWriter: w, request: r}, r)
+}
+
+// apiRouteResponse preserves ServeMux's Allow header while replacing its
+// plain-text 404/405 bodies. Endpoint JSON responses pass through unchanged.
+type apiRouteResponse struct {
+	http.ResponseWriter
+	request *http.Request
+	refused bool
+}
+
+func (w *apiRouteResponse) WriteHeader(status int) {
+	if strings.HasPrefix(w.Header().Get("Content-Type"), "text/plain") && (status == 404 || status == 405) {
+		w.refused = true
+		kind := problemNotFound
+		if status == 405 {
+			kind = problemMethodNotAllowed
+		}
+		writeProblem(w.ResponseWriter, w.request, kind, "")
 		return
 	}
+	w.ResponseWriter.WriteHeader(status)
+}
+
+func (w *apiRouteResponse) Write(p []byte) (int, error) {
+	if w.refused || w.request.Method == http.MethodHead {
+		return len(p), nil
+	}
+	return w.ResponseWriter.Write(p)
+}
+
+func (h *APIHandlers) me(w http.ResponseWriter, r *http.Request) {
 	p, _ := r.Context().Value(ctxKeyAPIPrincipal{}).(*application.APIPrincipal)
 	if p == nil {
 		w.Header().Set("WWW-Authenticate", "Bearer")

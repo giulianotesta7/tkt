@@ -288,6 +288,7 @@
   "error.suggestions_api_key_unreadable": "the saved decision model API key cannot be read on this server; enter it again",
   "error.email_port_invalid": "the port must be a number from 1 to 65535",
   "error.api.expiry_past": "the expiry must be in the future",
+  "error.api.state_invalid": "unknown ticket state",
   "error.api.all_requires_agent": "all tickets need an agent service user",
   "error.api.internal_requires_agent": "internal comments need an agent service user",
   "error.api.key_name_required": "a key needs a name",

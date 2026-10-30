@@ -400,6 +400,7 @@ func newHarnessWithAdmin(t *testing.T, seedAdmin bool) *harness {
 		renderer: renderer,
 		mux:      mux, mw: mw,
 		handler: NewAPIHandlers(application.NewAPIAccessService(s.APIAccessStore(), s.UserStore(), clock, nil), clock).
+			WithReads(APIReadServices{Tickets: ticketSvc, Search: searchSvc, Categories: catSvc, Users: usersSvc, Catalog: application.NewCatalogService(s.CatalogStore(), s.CategoryStore(), clock), Workflows: workflowSvc, Versions: s.WorkflowVersionStore()}).
 			Branch(mw.Wrap(NewBodyLimitMiddleware().Wrap(mux))),
 	}
 	if !seedAdmin {
