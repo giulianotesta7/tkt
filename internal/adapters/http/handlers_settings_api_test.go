@@ -92,9 +92,9 @@ func TestSettingsAPISectionGating(t *testing.T) {
 	if on, _ := h.store.APIAccessStore().APIEnabled(t.Context()); on {
 		t.Fatal("precondition: API off")
 	}
-	for _, value := range []string{"true", "", "on"} {
-		if rec := h.postFormAs(t, "/settings/api/toggle", url.Values{"enabled": {value}}, rootSession.ID); rec.Code != http.StatusBadRequest {
-			t.Errorf("toggle enabled=%q = %d, want 400", value, rec.Code)
+	for _, values := range [][]string{{"true"}, {""}, {"on"}, nil, {"0", "1"}, {"1", "1"}} {
+		if rec := h.postFormAs(t, "/settings/api/toggle", url.Values{"enabled": values}, rootSession.ID); rec.Code != http.StatusBadRequest {
+			t.Errorf("toggle enabled=%q = %d, want 400", values, rec.Code)
 		}
 	}
 	if n := apiAdminEventCount(t, h); n != 0 {
@@ -169,8 +169,10 @@ func TestSettingsAPIServiceUserAndKeyLifecycle(t *testing.T) {
 		t.Error("revoke did not revoke the key")
 	}
 
-	if rec := h.postFormAs(t, "/settings/api/service-users/"+itoa(bot.ID)+"/active", url.Values{"active": {"false"}}, admin); rec.Code != http.StatusBadRequest {
-		t.Errorf("active=false = %d, want 400", rec.Code)
+	for _, values := range [][]string{{"false"}, {"1", "0"}} {
+		if rec := h.postFormAs(t, "/settings/api/service-users/"+itoa(bot.ID)+"/active", url.Values{"active": values}, admin); rec.Code != http.StatusBadRequest {
+			t.Errorf("active=%q = %d, want 400", values, rec.Code)
+		}
 	}
 	if got, _ := h.store.UserStore().GetByID(t.Context(), bot.ID); !got.Active {
 		t.Fatal("a refused switch deactivated the service user")

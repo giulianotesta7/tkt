@@ -173,11 +173,15 @@ func (h *SettingsHandlers) apiSaved(w http.ResponseWriter, r *http.Request) {
 	redirect(w, r, settingsSectionHref(settingsSectionAPI))
 }
 
-// formSwitch reads a 0/1 switch field. Any other value, an absent one
-// included, is refused rather than read as "off": an explicit request is never
-// silently turned into its opposite.
+// formSwitch reads a 0/1 switch field submitted exactly once. Any other value,
+// an absent or repeated field included, is refused rather than read as "off":
+// an explicit request is never silently turned into its opposite.
 func formSwitch(r *http.Request, field string) (bool, bool) {
-	switch r.PostFormValue(field) {
+	values := r.PostForm[field]
+	if len(values) != 1 {
+		return false, false
+	}
+	switch values[0] {
 	case "1":
 		return true, true
 	case "0":
