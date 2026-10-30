@@ -625,3 +625,27 @@ func TestMCPTokenRefusedOnAPI(t *testing.T) {
 		t.Fatalf("API key on /mcp = %d", w.Code)
 	}
 }
+
+// TestSameOriginIgnoresDefaultPorts pins that a public URL stored with its
+// scheme's default port still matches the Origin a browser sends without it,
+// and the reverse; any other difference stays a mismatch.
+func TestSameOriginIgnoresDefaultPorts(t *testing.T) {
+	for _, tc := range []struct {
+		origin, issuer string
+		want           bool
+	}{
+		{"https://tkt.example", "https://tkt.example:443", true},
+		{"https://tkt.example:443", "https://tkt.example", true},
+		{"http://tkt.example", "http://tkt.example:80", true},
+		{"HTTPS://TKT.example", "https://tkt.example", true},
+		{"https://tkt.example:8443", "https://tkt.example", false},
+		{"http://tkt.example", "https://tkt.example", false},
+		{"http://tkt.example:443", "https://tkt.example", false},
+		{"https://tkt.example.evil", "https://tkt.example", false},
+		{"null", "https://tkt.example", false},
+	} {
+		if got := sameOrigin(tc.origin, tc.issuer); got != tc.want {
+			t.Errorf("sameOrigin(%q, %q) = %v, want %v", tc.origin, tc.issuer, got, tc.want)
+		}
+	}
+}

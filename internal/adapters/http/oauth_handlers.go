@@ -44,6 +44,7 @@ const (
 	pathAuthorizationServer  = "/.well-known/oauth-authorization-server"
 	pathOAuthRegister        = "/oauth/register"
 	pathOAuthToken           = "/oauth/token"
+	pathOAuthAuthorize       = "/oauth/authorize"
 )
 
 // oauthScopeLabels names the catalogue key that tells a person, on the consent
@@ -79,6 +80,14 @@ func (h *OAuthHandlers) Branch(browser http.Handler) http.Handler {
 		switch r.URL.Path {
 		case pathProtectedResource, pathProtectedResourceMCP, pathAuthorizationServer, pathOAuthRegister, pathOAuthToken:
 			h.serveMachine(w, r)
+		case pathOAuthAuthorize:
+			// The switch answers before the session gate: while MCP is off the
+			// consent page does not exist, so nobody is sent to sign in for it.
+			if _, err := h.oauth.Endpoints(r.Context()); errors.Is(err, application.ErrMCPDisabled) {
+				httpError(w, r, "error.page_not_found", http.StatusNotFound)
+				return
+			}
+			browser.ServeHTTP(w, r)
 		default:
 			browser.ServeHTTP(w, r)
 		}
@@ -420,8 +429,13 @@ func (h *OAuthHandlers) prepare(w http.ResponseWriter, r *http.Request, req appl
 		httpError(w, r, "error.page_not_found", http.StatusNotFound)
 	case errors.As(err, &untrusted):
 		h.renderError(w, r, untrusted.Code)
-	case errors.As(err, &oe) && p != nil:
-		redirectToClient(w, application.ErrorRedirect(*p, oe))
+	case errors.As(err, &oe):
+		// RFC 9700 §4.11.2: registration is open, so a registered redirect URI
+		// proves nothing about who owns it. Redirecting an invalid request
+		// would make tkt forward anyone to an anonymous client's address with
+		// no action of theirs; the error page names the problem instead. Only
+		// Approve and Deny return to the client, after the person acted.
+		h.renderError(w, r, oe.Code)
 	default:
 		log.Printf("httpadapter: oauth authorize: %v", err)
 		httpError(w, r, "error.internal_server", http.StatusInternalServerError)

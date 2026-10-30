@@ -178,9 +178,16 @@ func TestOAuthSwitchOffAnswersNotFoundEverywhere(t *testing.T) {
 		if rec := h.oauthGet("/oauth/authorize?"+query.Encode(), h.adminSession.ID); rec.Code != http.StatusNotFound || rec.Header().Get("Location") != "" {
 			t.Errorf("GET /oauth/authorize = %d (Location %q), want 404", rec.Code, rec.Header().Get("Location"))
 		}
+		// Anonymous too: the switch answers before the session gate, which
+		// would otherwise send the visitor to sign in first.
+		if rec := h.oauthGet("/oauth/authorize?"+query.Encode(), ""); rec.Code != http.StatusNotFound || rec.Header().Get("Location") != "" {
+			t.Errorf("anonymous GET /oauth/authorize = %d (Location %q), want 404", rec.Code, rec.Header().Get("Location"))
+		}
 		query.Set("decision", "approve")
-		if rec := h.oauthPostForm("/oauth/authorize", query, h.adminSession.ID, nil); rec.Code != http.StatusNotFound || rec.Header().Get("Location") != "" {
-			t.Errorf("POST /oauth/authorize = %d (Location %q), want 404", rec.Code, rec.Header().Get("Location"))
+		for _, session := range []string{h.adminSession.ID, ""} {
+			if rec := h.oauthPostForm("/oauth/authorize", query, session, nil); rec.Code != http.StatusNotFound || rec.Header().Get("Location") != "" {
+				t.Errorf("POST /oauth/authorize (session %q) = %d (Location %q), want 404", session, rec.Code, rec.Header().Get("Location"))
+			}
 		}
 	}
 	t.Run("switch off", func(t *testing.T) {
@@ -446,7 +453,13 @@ func TestOAuthAuthorizeUntrustedRequestShowsAnErrorPage(t *testing.T) {
 	}
 }
 
-func TestOAuthAuthorizeRedirectableErrorReturnsToTheClient(t *testing.T) {
+// TestOAuthAuthorizeRequestErrorsNeverRedirectBeforeConsent pins RFC 9700
+// §4.11.2: registration is open, so a redirect URI proves nothing about who
+// owns it. An invalid request from a registered client is shown on the error
+// page instead of redirecting, or tkt would forward anyone, signed in or not,
+// to an address an anonymous client registered. Only Approve and Deny, after
+// the person acted on the consent page, return to the client.
+func TestOAuthAuthorizeRequestErrorsNeverRedirectBeforeConsent(t *testing.T) {
 	h := newHarness(t)
 	enableMCP(t, h)
 	client := registerOAuthClient(t, h, "Claude", oauthRedirect)
@@ -463,20 +476,24 @@ func TestOAuthAuthorizeRedirectableErrorReturnsToTheClient(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			params := authorizeParams(client.ClientID, oauthRedirect, tc.mod)
-			rec := h.oauthGet("/oauth/authorize?"+params.Encode(), h.adminSession.ID)
-			if rec.Code != http.StatusSeeOther {
-				t.Fatalf("status = %d, want 303: %s", rec.Code, rec.Body.String())
-			}
-			loc, err := url.Parse(rec.Header().Get("Location"))
-			if err != nil {
-				t.Fatalf("parse Location: %v", err)
-			}
-			if got := loc.Scheme + "://" + loc.Host + loc.Path; got != oauthRedirect {
-				t.Errorf("redirected to %q, want %q", got, oauthRedirect)
-			}
-			q := loc.Query()
-			if q.Get("error") != tc.code || q.Get("state") != params.Get("state") || q.Get("iss") != oauthPublicURL || q.Get("code") != "" {
-				t.Errorf("redirect query = %v, want error=%s state=%q iss=%s", q, tc.code, params.Get("state"), oauthPublicURL)
+			for method, rec := range map[string]*httptest.ResponseRecorder{
+				"GET": h.oauthGet("/oauth/authorize?"+params.Encode(), h.adminSession.ID),
+				"POST": func() *httptest.ResponseRecorder {
+					form := authorizeParams(client.ClientID, oauthRedirect, tc.mod)
+					form.Set("decision", "approve")
+					return h.oauthPostForm("/oauth/authorize", form, h.adminSession.ID, nil)
+				}(),
+			} {
+				if rec.Code != http.StatusBadRequest {
+					t.Fatalf("%s status = %d, want 400: %s", method, rec.Code, rec.Body.String())
+				}
+				if loc := rec.Header().Get("Location"); loc != "" {
+					t.Fatalf("%s redirected to %q before consent", method, loc)
+				}
+				body := rec.Body.String()
+				if !strings.Contains(body, i18n.T(i18n.English, "oauth.error.title")) || !strings.Contains(body, tc.code) {
+					t.Errorf("%s error page lacks its title or the code %q: %s", method, tc.code, body)
+				}
 			}
 		})
 	}

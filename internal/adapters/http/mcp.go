@@ -149,7 +149,17 @@ func sameOrigin(origin, issuer string) bool {
 	if err != nil {
 		return false
 	}
-	return strings.EqualFold(o.Scheme, i.Scheme) && strings.EqualFold(o.Host, i.Host)
+	return strings.EqualFold(o.Scheme, i.Scheme) && strings.EqualFold(originHost(o), originHost(i))
+}
+
+// originHost answers the host of u with its scheme's default port dropped, so
+// a public URL stored as https://host:443 matches the Origin https://host.
+func originHost(u *url.URL) string {
+	port := u.Port()
+	if (strings.EqualFold(u.Scheme, "https") && port == "443") || (strings.EqualFold(u.Scheme, "http") && port == "80") {
+		return u.Hostname()
+	}
+	return u.Host
 }
 
 func joinMCPScopes(scopes []domain.APIKeyScope) string {

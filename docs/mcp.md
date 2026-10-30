@@ -113,8 +113,11 @@ it with `error=access_denied` and nothing is granted.
 A client that requests no scope asks for all five. When the person approves, scopes their role
 cannot use are dropped; today that is `comments:internal` for the **User** role.
 
-If the client or its return address is not registered, tkt shows **"This connection cannot
-continue"** and never sends the browser back to it. Connect the assistant again from scratch.
+If the client or its return address is not registered, or the request is invalid (for
+example no PKCE `S256` challenge, no `state`, an unknown scope, or another resource), tkt
+shows **"This connection cannot continue"** with the error code and never sends the browser
+back to the client. Registration is open, so tkt returns to a client only after the person
+approves or denies (RFC 9700 §4.11.2). Connect the assistant again from scratch.
 
 ## Tools
 

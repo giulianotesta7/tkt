@@ -120,9 +120,12 @@ lo devuelve con `error=access_denied` y no se otorga nada.
 Un cliente que no pide alcances pide los cinco. Al autorizar, se descartan los alcances que el
 rol de la persona no puede usar; hoy es `comments:internal` para el rol **Usuario**.
 
-Si el cliente o su dirección de retorno no están registrados, tkt muestra **«Esta conexión no
-puede continuar»** y nunca devuelve el navegador al cliente. Hay que volver a conectar el
-asistente desde cero.
+Si el cliente o su dirección de retorno no están registrados, o la solicitud no es válida (por
+ejemplo, sin desafío PKCE `S256`, sin `state`, con un alcance desconocido o con otro recurso),
+tkt muestra **«Esta conexión no puede continuar»** con el código de error y nunca devuelve el
+navegador al cliente. El registro es abierto, así que tkt vuelve a un cliente solo después de
+que la persona autoriza o rechaza (RFC 9700 §4.11.2). Hay que volver a conectar el asistente
+desde cero.
 
 ## Herramientas
 
