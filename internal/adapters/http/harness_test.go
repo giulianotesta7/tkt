@@ -300,6 +300,10 @@ type harness struct {
 	admin              *domain.User
 	adminSession       *domain.Session
 	bugCategory        *domain.Category
+	// oauth is the MCP authorization server (issue #493) over the real OAuth
+	// store; its machine endpoints branch before the session middleware and
+	// its consent page runs after it, exactly as production wires them.
+	oauth *application.OAuthService
 }
 
 func newHarness(t *testing.T) *harness {
@@ -383,6 +387,9 @@ func newHarnessWithAdmin(t *testing.T, seedAdmin bool) *harness {
 	NewSettingsHandlers(settingsSvc, slaSvc, s.SLAStore(), s.SettingsStore(), renderer).WithInstance(application.NewInstanceSettingsService(s.InstanceSettingsStore(), clock)).WithEmail(emailSettingsSvc).WithOrganization(application.NewOrganizationService(s.OrganizationStore())).WithSignin(signinSvc).WithPasswordSettings(passwordSettingsSvc).WithCategorySuggestions(suggestionSettingsSvc, suggestionSvc, ticketHandlers).WithCompanySignIn(companySettingsSvc).WithAPIAccess(application.NewAPIAccessService(s.APIAccessStore(), s.UserStore(), clock, nil)).Register(mux)
 	NewCategorySLAHandlers(catSvc, slaSvc, s.SLAStore(), renderer).Register(mux)
 	NewPreferencesHandlers(preferencesSvc, renderer).WithPasswordChange(usersSvc, passwordSettingsSvc).Register(mux)
+	oauthSvc := application.NewOAuthService(s.OAuthStore(), s.UserStore(), s.EmailSettingsStore(), clock, nil)
+	oauthHandlers := NewOAuthHandlers(oauthSvc, renderer, clock)
+	oauthHandlers.Register(mux)
 	// Issue #419: the pending-account notice renders the stored account and its
 	// identities, wired here exactly as production wires it.
 	NewNotificationHandlers(s.NotificationStore(), s.TicketStore(), s.UserStore(), renderer, clock).
@@ -395,6 +402,7 @@ func newHarnessWithAdmin(t *testing.T, seedAdmin bool) *harness {
 		categories: catSvc, desks: deskSvc, search: searchSvc, settings: settingsSvc, workflows: workflowSvc, sla: slaSvc,
 		preferences: preferencesSvc, emailSettings: emailSettingsSvc, passwords: passwordSettingsSvc, reset: resetSvc, mailer: mailer,
 		suggestionSettings: suggestionSettingsSvc, suggestionSvc: suggestionSvc, decisionModel: decisionModel,
+		oauth:           oauthSvc,
 		visits:          visitSvc,
 		companySettings: companySettingsSvc, companySignIn: companySignInSvc, companyProvider: companyProvider,
 		renderer: renderer,
@@ -402,7 +410,7 @@ func newHarnessWithAdmin(t *testing.T, seedAdmin bool) *harness {
 		handler: NewAPIHandlers(application.NewAPIAccessService(s.APIAccessStore(), s.UserStore(), clock, nil), clock).
 			WithReads(APIReadServices{Tickets: ticketSvc, Search: searchSvc, Categories: catSvc, Users: usersSvc, Catalog: application.NewCatalogService(s.CatalogStore(), s.CategoryStore(), clock), Workflows: workflowSvc, Versions: s.WorkflowVersionStore(), Runs: s.WorkflowRunStore()}).
 			WithWrites(APIWriteServices{Comments: commentSvc, Runner: application.NewWorkflowRunner(clock).WithFollowers(followSvc), Workflow: s.WorkflowUnitOfWork()}).
-			Branch(mw.Wrap(NewBodyLimitMiddleware().Wrap(mux))),
+			Branch(oauthHandlers.Branch(mw.Wrap(NewBodyLimitMiddleware().Wrap(mux)))),
 	}
 	if !seedAdmin {
 		return h
