@@ -98,6 +98,7 @@
   <a class="settings-nav-link" href="/settings/email">Email notifications</a>
   <a class="settings-nav-link" href="/settings/security">Security</a>
   <a class="settings-nav-link" href="/settings/calendar" aria-current="page">Working calendar</a>
+  <a class="settings-nav-link" href="/settings/api">API</a>
 </nav>
 
   <div class="settings-content">
