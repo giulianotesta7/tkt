@@ -80,7 +80,7 @@ func (cs *catalogStore) ListDeskMembers(ctx context.Context, deskID int64) ([]do
 }
 
 func (cs *catalogStore) ListEligibleDeskMembers(ctx context.Context) ([]domain.User, error) {
-	rows, err := cs.db.QueryContext(ctx, `SELECT id, name, email, password_hash, role, active, created_at FROM users WHERE active=1 AND role IN ('agent','admin','root') ORDER BY id`)
+	rows, err := cs.db.QueryContext(ctx, `SELECT id, name, email, password_hash, role, active, created_at FROM users WHERE active=1 AND role IN ('agent','admin','root') AND kind='person' ORDER BY id`)
 	if err != nil {
 		return nil, fmt.Errorf("sqlite: list eligible catalog desk members: %w", err)
 	}

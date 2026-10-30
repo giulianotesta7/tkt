@@ -1112,3 +1112,65 @@ func TestUserStoreDowngradeToUserNoOpRoleChangeSkipsRoleChangesRow(t *testing.T)
 		t.Errorf("role_changes rows = %d, want 0 (no actual role change)", n)
 	}
 }
+
+// TestUserStoreServiceUsersAreNotPeople (issue #488, S1/S3): a service user
+// round-trips its kind, and no read that answers people finds it — the managed
+// list, the active list every picker reads, the sign-in lookup by email, the
+// desk-member candidates and the company sign-in match.
+func TestUserStoreServiceUsersAreNotPeople(t *testing.T) {
+	s := newTestDB(t)
+	ctx := context.Background()
+	users := s.UserStore()
+
+	person := &domain.User{Name: "Ana", Email: "ana@example.com", PasswordHash: "hash",
+		Role: domain.RoleAgent, Active: true, CreatedAt: testClock}
+	service := &domain.User{Name: "Triage bot", Email: "triage@service.invalid",
+		Role: domain.RoleAgent, Active: true, Kind: domain.UserKindService, CreatedAt: testClock}
+	for _, u := range []*domain.User{person, service} {
+		if err := users.Create(ctx, u); err != nil {
+			t.Fatalf("create %s: %v", u.Email, err)
+		}
+	}
+
+	got, err := users.GetByID(ctx, service.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !got.IsService() {
+		t.Errorf("service user kind = %q, want service", got.Kind)
+	}
+	if got, err := users.GetByID(ctx, person.ID); err != nil || got.Kind != domain.UserKindPerson {
+		t.Errorf("person kind = %v (err %v), want person", got, err)
+	}
+
+	onlyPerson := func(name string, list []domain.User, err error) {
+		t.Helper()
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		if len(list) != 1 || list[0].ID != person.ID {
+			t.Errorf("%s = %+v, want only the person", name, list)
+		}
+	}
+	list, err := users.List(ctx)
+	onlyPerson("List", list, err)
+	list, err = users.ListActive(ctx)
+	onlyPerson("ListActive", list, err)
+	list, err = newCatalogStore(s.db).ListEligibleDeskMembers(ctx)
+	onlyPerson("ListEligibleDeskMembers", list, err)
+	list, err = s.CompanyIdentityStore().UsersByEmail(ctx, "TRIAGE@service.invalid")
+	if err != nil || len(list) != 0 {
+		t.Errorf("UsersByEmail(service) = %+v (err %v), want no match", list, err)
+	}
+	if _, err := users.GetByEmail(ctx, "triage@service.invalid"); !errors.Is(err, domain.ErrNotFound) {
+		t.Errorf("GetByEmail(service) err = %v, want ErrNotFound", err)
+	}
+	if got, err := users.GetByEmail(ctx, "ana@example.com"); err != nil || got.ID != person.ID {
+		t.Errorf("GetByEmail(person) = %v (err %v), want the person", got, err)
+	}
+
+	services, err := newUserStore(s.db).ListServiceUsers(ctx)
+	if err != nil || len(services) != 1 || services[0].ID != service.ID {
+		t.Errorf("ListServiceUsers = %+v (err %v), want only the service user", services, err)
+	}
+}

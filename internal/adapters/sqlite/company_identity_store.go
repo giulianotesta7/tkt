@@ -153,12 +153,13 @@ func (cs *companyIdentityStore) ResolveIdentity(ctx context.Context, provider ap
 	return &identity, &user, nil
 }
 
-// UsersByEmail answers every account whose email matches case-insensitively,
-// ordered by id, so the caller can tell one match from an ambiguity.
+// UsersByEmail answers every person whose email matches case-insensitively,
+// ordered by id, so the caller can tell one match from an ambiguity. A service
+// user never signs in (issue #488), so it is never a match.
 func (cs *companyIdentityStore) UsersByEmail(ctx context.Context, email string) ([]domain.User, error) {
 	rows, err := cs.db.QueryContext(ctx,
 		`SELECT id, name, email, password_hash, role, active, pending, created_at
-		 FROM users WHERE lower(email) = lower(?) ORDER BY id ASC`, email)
+		 FROM users WHERE lower(email) = lower(?) AND kind = 'person' ORDER BY id ASC`, email)
 	if err != nil {
 		return nil, fmt.Errorf("sqlite: users by email: %w", err)
 	}

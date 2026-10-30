@@ -142,6 +142,10 @@ type NotificationRecipient struct {
 	UserID int64
 	Role   domain.Role
 	Active bool
+	// Service marks a service user (issue #488). A service user is never
+	// notified: the batch drops it on every path, requester, assignee,
+	// follower or mention alike.
+	Service bool
 }
 
 // HoldWrite is one hold change for TicketUnitOfWork.UpdateHold (issue

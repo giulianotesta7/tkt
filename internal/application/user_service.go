@@ -338,13 +338,14 @@ func (s *UserService) Delete(ctx context.Context, actor domain.User, id int64) e
 // and refuses one that waits for approval (issue #419, S3). A pending account is
 // not a managed user yet: edit, reactivate, password and delete answer as if it
 // did not exist, so an ordinary route never reveals or mutates it and only the
-// Pending tab reaches it. The store keeps the same guard as a backstop.
+// Pending tab reaches it. A service user is not a person either (issue #488):
+// only the API keys screen manages it, so the people routes answer the same. The store keeps the same guard as a backstop.
 func (s *UserService) managedUserTarget(ctx context.Context, id int64) (*domain.User, error) {
 	u, err := s.users.GetByID(ctx, id)
 	if err != nil {
 		return nil, err
 	}
-	if u.Pending {
+	if u.Pending || u.IsService() {
 		return nil, &domain.NotFoundError{Kind: "user", ID: id}
 	}
 	return u, nil

@@ -188,9 +188,10 @@ func TestMigration0036UpgradesAnExistingDatabase(t *testing.T) {
 	}
 	objectsBefore := schemaObjects(t, s)
 
-	// Apply the real full set over the existing rows: the runner skips what is
-	// already recorded and applies 0036.
-	if err := s.Migrate(ctx); err != nil {
+	// Apply the real set through 0036 over the existing rows: the runner skips
+	// what is already recorded and applies 0036. Later migrations are left out so
+	// the schema comparison below sees this migration alone.
+	if err := migrate(ctx, s.db, migrationsBefore(t, "0036_root_password_rotation.sql", true)); err != nil {
 		t.Fatalf("upgrade to the full set: %v", err)
 	}
 

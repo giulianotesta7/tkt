@@ -713,6 +713,16 @@ func (f *fakeUserStore) seed(name, email string, active bool) domain.User {
 	return u
 }
 
+// seedService inserts an active service user directly (issue #488 arrange).
+func (f *fakeUserStore) seedService(name string, role domain.Role) domain.User {
+	u := domain.User{Name: name, Email: name + "@service.invalid", Role: role, Active: true, Kind: domain.UserKindService}
+	u.ID = f.nextID
+	f.nextID++
+	f.users[u.ID] = &u
+	f.byEmail[u.Email] = u.ID
+	return u
+}
+
 // seedRole inserts a user with an explicit role directly (test arrange;
 // assignment rules depend on the target's role, so arrange must control it).
 func (f *fakeUserStore) seedRole(name, email string, role domain.Role, active bool) domain.User {
@@ -870,7 +880,8 @@ func (f *fakeUserStore) GetByID(_ context.Context, id int64) (*domain.User, erro
 
 func (f *fakeUserStore) GetByEmail(_ context.Context, email string) (*domain.User, error) {
 	id, ok := f.byEmail[email]
-	if !ok {
+	if !ok || f.users[id].IsService() {
+		// Mirrors the real store: a service user is never found by email.
 		return nil, &domain.NotFoundError{Kind: "user", ID: email}
 	}
 	return f.GetByID(context.Background(), id)
@@ -886,9 +897,10 @@ func (f *fakeUserStore) List(_ context.Context) ([]domain.User, error) {
 	sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
 	var out []domain.User
 	for _, id := range ids {
-		if f.users[id].Pending {
+		if f.users[id].Pending || f.users[id].IsService() {
 			// Mirrors the real store: a pending account belongs to the Pending tab
-			// and never to the managed-user list (issue #419, S3).
+			// and never to the managed-user list (issue #419, S3), and a service
+			// user is not a person (issue #488).
 			continue
 		}
 		out = append(out, *f.users[id])
