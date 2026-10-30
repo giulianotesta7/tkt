@@ -178,7 +178,7 @@ func TestAPIReadTicketsAndDetail(t *testing.T) {
 					t.Fatalf("detail %s = %#v", key, detail[key])
 				}
 			}
-			if detail["description"] != "API description" || detail["workflow"] != nil {
+			if detail["description"] != "API description" || detail["workflow"].(map[string]any)["pending_step"] != nil {
 				t.Fatalf("detail = %#v", detail)
 			}
 			comments := detail["comments"].([]any)
@@ -266,9 +266,13 @@ func TestAPIReadRejectionsAndRouting(t *testing.T) {
 	before := f.domainCounts(t)
 	for _, path := range []string{"/api/v1/categories", "/api/v1/tickets", "/api/v1/tickets/1"} {
 		assertAPIProblem(t, f.request("GET", path, "Bearer "+noRead, "", ""), problemScopeMissing, path)
-		w := f.request("POST", path, "Bearer "+f.token, "", "")
+		w := f.request("DELETE", path, "Bearer "+f.token, "", "")
 		assertAPIProblem(t, w, problemMethodNotAllowed, path)
-		if w.Header().Get("Allow") != "GET, HEAD" {
+		wantAllow := "GET, HEAD"
+		if path == "/api/v1/tickets" {
+			wantAllow = "GET, HEAD, POST"
+		}
+		if w.Header().Get("Allow") != wantAllow {
 			t.Fatalf("Allow = %q", w.Header().Get("Allow"))
 		}
 	}

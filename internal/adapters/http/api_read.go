@@ -7,7 +7,6 @@ import (
 	"errors"
 	"io"
 	"net/http"
-	"strconv"
 	"strings"
 	"time"
 
@@ -25,6 +24,7 @@ type APIReadServices struct {
 	Catalog    *application.CatalogService
 	Workflows  *application.WorkflowService
 	Versions   application.WorkflowVersionStore
+	Runs       application.WorkflowRunStore
 }
 
 func (h *APIHandlers) WithReads(reads APIReadServices) *APIHandlers {
@@ -267,20 +267,23 @@ type apiTicketDetail struct {
 	Description string             `json:"description"`
 	Comments    []apiComment       `json:"comments"`
 	Timeline    []apiTimelineEvent `json:"timeline"`
-	// TicketView contains completed responses, not the pending run cursor.
-	// Do not guess a pending position from completion history or live workflow.
-	Workflow *struct{} `json:"workflow"`
+	Workflow    *apiWorkflow       `json:"workflow"`
 }
 
 func (h *APIHandlers) ticketDetail(w http.ResponseWriter, r *http.Request) {
 	if !requireScope(w, r, domain.ScopeTicketsRead) {
 		return
 	}
-	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
-	if err != nil || id < 1 {
-		writeProblem(w, r, problemNotFound, "")
+	id, ok := apiTicketID(w, r)
+	if !ok {
 		return
 	}
+	h.writeTicketDetail(w, r, id, http.StatusOK)
+}
+
+// Mutation responses reuse the authorized detail projection without requiring
+// tickets:read in addition to the endpoint's write scope.
+func (h *APIHandlers) writeTicketDetail(w http.ResponseWriter, r *http.Request, id int64, status int) {
 	view, err := h.reads.Tickets.GetByID(r.Context(), *userFromContext(r.Context()), id)
 	if errors.Is(err, domain.ErrNotFound) {
 		// Out-of-scope, missing and malformed identifiers share one body.
@@ -313,5 +316,13 @@ func (h *APIHandlers) ticketDetail(w http.ResponseWriter, r *http.Request) {
 		}
 		out.Timeline = append(out.Timeline, event)
 	}
-	writeJSON(w, http.StatusOK, out)
+	if view.Ticket.WorkflowVersionID != nil {
+		snap, err := h.reads.Runs.GetWorkflowExecution(r.Context(), id)
+		if err != nil {
+			writeErrorProblem(w, r, err)
+			return
+		}
+		out.Workflow = apiWorkflowFor(snap, *userFromContext(r.Context()))
+	}
+	writeJSON(w, status, out)
 }

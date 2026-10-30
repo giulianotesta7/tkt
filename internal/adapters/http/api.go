@@ -36,6 +36,7 @@ type APIHandlers struct {
 	buckets map[int64]apiBucket
 	mux     *http.ServeMux
 	reads   APIReadServices
+	writes  APIWriteServices
 }
 
 func NewAPIHandlers(api *application.APIAccessService, clock domain.Clock) *APIHandlers {

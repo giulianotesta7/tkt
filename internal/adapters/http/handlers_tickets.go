@@ -3298,7 +3298,7 @@ func (h *TicketHandlers) completeWorkflow(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	raw, err := h.workflowFormAnswers(snap, r.Form)
+	raw, err := workflowFormAnswers(snap, r.Form)
 	if err != nil {
 		h.renderDetailError(w, r, id, err)
 		return
@@ -3345,7 +3345,7 @@ func (h *TicketHandlers) completeWorkflow(w http.ResponseWriter, r *http.Request
 // current pinned step and returns the raw positional answer values (or nil
 // for steps that take no answers). Forged fields are rejected with a 422
 // before any plan/write, never silently dropped.
-func (h *TicketHandlers) workflowFormAnswers(snap *application.WorkflowExecutionSnapshot, form url.Values) (application.RawPositionalValues, error) {
+func workflowFormAnswers(snap *application.WorkflowExecutionSnapshot, form url.Values) (application.RawPositionalValues, error) {
 	cur := snap.Run.CurrentStepIndex
 	if cur < 0 || cur >= len(snap.Workflow) {
 		return nil, domain.NewWorkflowPositionConflictError("workflow position conflict")
@@ -3402,10 +3402,18 @@ func parsePositionalAnswers(form url.Values, fieldCount int) (application.RawPos
 		if err != nil || n < 0 {
 			return nil, &domain.ValidationError{Field: "answers", Message: fmt.Sprintf("invalid answer position %q", k), Key: "error.answers.invalid_position", Args: []any{k}}
 		}
-		if n >= fieldCount {
-			return nil, &domain.ValidationError{Field: "answers", Message: fmt.Sprintf("unknown position %d", n), Key: "error.answers.unknown_position", Args: []any{n}}
-		}
 		raw = append(raw, application.RawPositionalValue{Position: n, Values: vals})
+	}
+	return validatePositionalAnswers(raw, fieldCount)
+}
+
+// validatePositionalAnswers is shared by form and JSON transports. Positions
+// are zero-based; the runner remains responsible for typed field validation.
+func validatePositionalAnswers(raw application.RawPositionalValues, fieldCount int) (application.RawPositionalValues, error) {
+	for _, value := range raw {
+		if value.Position < 0 || value.Position >= fieldCount {
+			return nil, &domain.ValidationError{Field: "answers", Message: fmt.Sprintf("unknown position %d", value.Position), Key: "error.answers.unknown_position", Args: []any{value.Position}}
+		}
 	}
 	sort.Slice(raw, func(i, j int) bool { return raw[i].Position < raw[j].Position })
 	seen := make(map[int]struct{}, len(raw))

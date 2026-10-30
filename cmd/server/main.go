@@ -245,7 +245,8 @@ func main() {
 	srv := &http.Server{
 		Addr: listen,
 		Handler: httpadapter.NewAPIHandlers(apiAccessSvc, clock).
-			WithReads(httpadapter.APIReadServices{Tickets: ticketSvc, Search: searchSvc, Categories: catSvc, Users: userSvc, Catalog: catalogSvc, Workflows: workflowSvc, Versions: store.WorkflowVersionStore()}).
+			WithReads(httpadapter.APIReadServices{Tickets: ticketSvc, Search: searchSvc, Categories: catSvc, Users: userSvc, Catalog: catalogSvc, Workflows: workflowSvc, Versions: store.WorkflowVersionStore(), Runs: store.WorkflowRunStore()}).
+			WithWrites(httpadapter.APIWriteServices{Comments: commentSvc, Runner: application.NewWorkflowRunner(clock).WithFollowers(followSvc), Workflow: store.WorkflowUnitOfWork()}).
 			Branch(sessionHandler),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       15 * time.Second,
