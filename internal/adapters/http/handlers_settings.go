@@ -75,6 +75,9 @@ type SettingsHandlers struct {
 	categorySuggestions *application.CategorySuggestionSettingsService
 	suggestionTester    *application.CategorySuggestionService
 	suggestionOffers    CategorySuggestionOffers
+	// apiAccess is the service users and API keys use cases behind the API
+	// section (issue #488). Unset means the section is absent.
+	apiAccess *application.APIAccessService
 }
 
 // NewSettingsHandlers wires the settings routes against the appearance and
@@ -144,6 +147,7 @@ func (h *SettingsHandlers) Register(mux *http.ServeMux) {
 	mux.HandleFunc("POST /settings/category-suggestions", h.updateCategorySuggestions)
 	mux.HandleFunc("POST /settings/category-suggestions/try", h.tryCategorySuggestions)
 	mux.HandleFunc("POST /settings/security/company", h.updateCompanySignIn)
+	h.registerAPI(mux)
 }
 
 // The settings sections, named exactly as their URL segment (S1).
@@ -174,7 +178,9 @@ type settingsNavItem struct {
 // the Entry the actor may not open omitted entirely (S2): an administrator never
 // sees an Email entry they cannot use, and the active entry carries
 // aria-current="page" through its own flag.
-func settingsNavItems(active string, canManageEmail bool) []settingsNavItem {
+//
+// The API entry (issue #488) follows the same rule through canManageAPI.
+func settingsNavItems(active string, canManageEmail, canManageAPI bool) []settingsNavItem {
 	items := []settingsNavItem{
 		{Section: settingsSectionOrganization, Href: settingsSectionHref(settingsSectionOrganization), Label: "settings.nav.organization"},
 		{Section: settingsSectionSignin, Href: settingsSectionHref(settingsSectionSignin), Label: "settings.nav.signin"},
@@ -183,10 +189,14 @@ func settingsNavItems(active string, canManageEmail bool) []settingsNavItem {
 		{Section: settingsSectionEmail, Href: settingsSectionHref(settingsSectionEmail), Label: "settings.nav.email"},
 		{Section: settingsSectionSecurity, Href: settingsSectionHref(settingsSectionSecurity), Label: "settings.nav.security"},
 		{Section: settingsSectionCalendar, Href: settingsSectionHref(settingsSectionCalendar), Label: "settings.nav.calendar"},
+		{Section: settingsSectionAPI, Href: settingsSectionHref(settingsSectionAPI), Label: "settings.nav.api"},
 	}
 	out := make([]settingsNavItem, 0, len(items))
 	for _, item := range items {
 		if item.Section == settingsSectionEmail && !canManageEmail {
+			continue
+		}
+		if item.Section == settingsSectionAPI && !canManageAPI {
 			continue
 		}
 		item.Active = item.Section == active
@@ -210,12 +220,13 @@ type settingsSectionData struct {
 func (h *SettingsHandlers) sectionData(r *http.Request, section string) settingsSectionData {
 	actor := *userFromContext(r.Context())
 	canManageEmail := h.email != nil && application.NewPolicy().Capabilities(actor.Role).Require(application.CapManageEmail)
+	canManageAPI := h.apiAccess != nil && application.NewPolicy().Capabilities(actor.Role).Require(application.CapManageAPI)
 	page := pageDataFrom(r, "settings")
 	page.SettingsAssets = true
 	return settingsSectionData{
 		pageData: page,
 		Section:  section,
-		Nav:      settingsNavItems(section, canManageEmail),
+		Nav:      settingsNavItems(section, canManageEmail, canManageAPI),
 	}
 }
 
@@ -505,9 +516,15 @@ func (h *SettingsHandlers) index(w http.ResponseWriter, r *http.Request) {
 func (h *SettingsHandlers) section(w http.ResponseWriter, r *http.Request) {
 	section := r.PathValue("section")
 	switch section {
-	case settingsSectionOrganization, settingsSectionSignin, settingsSectionLanguage, settingsSectionTickets, settingsSectionCalendar, settingsSectionEmail, settingsSectionSecurity:
+	case settingsSectionOrganization, settingsSectionSignin, settingsSectionLanguage, settingsSectionTickets, settingsSectionCalendar, settingsSectionEmail, settingsSectionSecurity, settingsSectionAPI:
 	default:
 		http.NotFound(w, r)
+		return
+	}
+	if section == settingsSectionAPI {
+		if h.requireAPIAccess(w, r) {
+			h.renderAPI(w, r, http.StatusOK, "", "", "")
+		}
 		return
 	}
 	if section == settingsSectionEmail {

@@ -20,6 +20,12 @@ import "time"
 // clears Pending and leaves it deactivated. Pending is a column of its own
 // rather than a role value because role is a closed set (0003) whose change
 // would rebuild the users table.
+//
+// Kind tells a person from a service user (issue #488). A service user is the
+// identity an API key acts as: it holds the user or agent role only, never signs
+// in, is never notified, mentioned, listed among people or offered as an
+// assignee. The zero value is read as a person, so every account written before
+// service users existed keeps meaning what it meant.
 type User struct {
 	ID           int64
 	Name         string
@@ -28,5 +34,17 @@ type User struct {
 	Role         Role
 	Active       bool
 	Pending      bool
+	Kind         UserKind
 	CreatedAt    time.Time
 }
+
+// UserKind is the closed account kind (migration 0037).
+type UserKind string
+
+const (
+	UserKindPerson  UserKind = "person"
+	UserKindService UserKind = "service"
+)
+
+// IsService reports whether the account is a service user.
+func (u User) IsService() bool { return u.Kind == UserKindService }

@@ -1726,6 +1726,7 @@ test.describe("Preferences", () => {
       { label: "Email notifications", url: /\/settings\/email$/ },
       { label: "Security", url: /\/settings\/security$/ },
       { label: "Working calendar", url: /\/settings\/calendar$/ },
+      { label: "API", url: /\/settings\/api$/ },
     ];
     for (const entry of entries) {
       const link = nav.getByRole("link", { name: entry.label, exact: true });

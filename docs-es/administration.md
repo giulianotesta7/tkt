@@ -3,7 +3,7 @@
 [English](../docs/administration.md) | **Español**
 
 Cómo se administra una instancia: roles, catálogo, flujos de trabajo, SLA, creación de tickets,
-email y seguridad. Primera cuenta: [Primeros pasos](getting-started.md). Contenedor y
+email, seguridad y acceso a la API. Primera cuenta: [Primeros pasos](getting-started.md). Contenedor y
 configuración: [Despliegue](deployment.md).
 
 ## Roles
@@ -14,8 +14,8 @@ Cada rol incluye todo lo que hay debajo.
 | --- | --- |
 | **Usuario** | Crear tickets, responder públicamente en sus propios tickets y contestar la confirmación de resolución. |
 | **Agente** | Todo lo de Usuario, más trabajar en los tickets asignados o en los que esperan en sus mesas: editar, cambiar de estado, asignar y escribir respuestas públicas y notas internas. |
-| **Administrador** | Todo lo de Agente, más gestionar usuarios (salvo las cuentas administrador y root), mesas, categorías, flujos de trabajo, métricas y toda la configuración excepto el email. |
-| **Root** | Todo, más otorgar y quitar el rol **Administrador** y gestionar el email. |
+| **Administrador** | Todo lo de Agente, más gestionar usuarios (salvo las cuentas administrador y root), mesas, categorías, flujos de trabajo, métricas, usuarios de servicio y claves de API, y toda la configuración excepto el email y el interruptor de la API. |
+| **Root** | Todo, más otorgar y quitar el rol **Administrador**, gestionar el email y encender o apagar la API. |
 
 - Los tickets que se pueden tomar dependen de las mesas de cada persona, así que sumá a cada
   agente a la mesa de su categoría. Los tickets asignados aparecen igual.
@@ -185,6 +185,40 @@ La recuperación responde el mismo mensaje neutro, tenga o no la dirección una 
 solicitud, no como un paso atómico entre dos solicitudes. Dos solicitudes para la misma cuenta
 casi al mismo tiempo pueden enviar ambos emails, y el enlace de la más nueva invalida el anterior.
 Solo funciona el enlace más reciente.
+
+## Acceso a la API
+
+**Configuración → API** administra las identidades y claves que usan otros sistemas. Los
+endpoints de la API todavía no están disponibles; esta sección prepara las claves que van a
+aceptar.
+
+- **El interruptor de la API** está apagado por defecto. Solo root lo enciende o lo apaga;
+  mientras está apagado, se rechaza toda clave. Los administradores ven su estado.
+- **Los usuarios de servicio** son las identidades con las que actúa una clave, así que todo
+  cambio hecho por la API queda registrado a nombre de un usuario de servicio y nunca de una
+  persona. Un usuario de servicio solo tiene el rol **Usuario** o **Agente**. Nunca inicia
+  sesión, no recibe notificaciones, no se lo puede mencionar y no aparece en **Usuarios** ni en
+  ningún selector de asignación o de mesas.
+- **Las claves** pertenecen a un usuario de servicio, que puede tener varias para rotar una
+  clave sin cortes. Cada clave tiene un nombre, uno o más alcances y un vencimiento opcional
+  (deja de funcionar al comienzo de ese día, UTC). El token se muestra una sola vez, apenas se
+  crea, y tkt solo guarda un hash. Copialo en ese momento; si se pierde, se reemplaza con una
+  clave nueva.
+
+| Alcance | Permite |
+| --- | --- |
+| `catalog:read` | Leer categorías y sus formularios. |
+| `tickets:read` | Leer y buscar los tickets que el usuario de servicio puede ver. |
+| `tickets:write` | Crear y actualizar tickets. |
+| `comments:write` | Escribir comentarios públicos. |
+| `comments:internal` | Escribir comentarios internos. Solo usuarios de servicio agentes. |
+
+Una clave nunca puede hacer más de lo que permite el rol de su usuario de servicio: un usuario de
+servicio **Usuario** solo ve y crea sus propios tickets, tenga los alcances que tenga su clave.
+
+**Revocar** detiene una clave en el acto. **Desactivar** un usuario de servicio revoca todas sus
+claves; reactivarlo no las recupera. Crear y desactivar usuarios de servicio, crear y revocar
+claves, y encender o apagar la API queda registrado con la persona que lo hizo.
 
 ## Próximos pasos
 

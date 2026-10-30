@@ -103,8 +103,20 @@ func assertColumnShapes(t *testing.T, table string, got map[string]columnShape, 
 // as an appended column with a NOT NULL default, not as a users rebuild: every
 // pre-0034 column keeps its position, so an upgraded instance's rows and
 // indexes are the ones it already had.
+//
+// The schema is migrated through 0034 only: a later migration may append its
+// own column (0037 appends kind), which says nothing about how 0034 added
+// pending.
 func TestMigration0034UsersPendingIsAnAddedColumn(t *testing.T) {
-	s := newTestDB(t)
+	s, err := openDSN(testDSN(t))
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	s.db.SetMaxOpenConns(1)
+	t.Cleanup(func() { _ = s.db.Close() })
+	if err := migrate(context.Background(), s.db, migrationsBefore(t, "0034_company_sign_in.sql", true)); err != nil {
+		t.Fatalf("migrate through 0034: %v", err)
+	}
 	got := readColumnShapes(t, s, "users")
 
 	want := map[string]string{

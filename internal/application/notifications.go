@@ -52,7 +52,7 @@ func newNotificationBatch(t *domain.Ticket, actorUserID *int64, at time.Time) *n
 // requester and its assignee. Followers and mentions arrive already proven and
 // enter through addVerified instead.
 func (b *notificationBatch) add(kind domain.NotificationKind, recipient *NotificationRecipient, from, to *string) {
-	if b == nil || b.ticket == nil || recipient == nil {
+	if b == nil || b.ticket == nil || recipient == nil || recipient.Service {
 		return
 	}
 	if !canOpenTicket(recipient, b.ticket) {
@@ -73,7 +73,7 @@ func (b *notificationBatch) add(kind domain.NotificationKind, recipient *Notific
 // somebody whose access was never checked. The batch's own rules — never the
 // actor, never the same person twice — still apply here.
 func (b *notificationBatch) addVerified(kind domain.NotificationKind, v verifiedRecipient, from, to *string) {
-	if !v.recipient.Active || !v.recipient.Role.Valid() {
+	if !v.recipient.Active || !v.recipient.Role.Valid() || v.recipient.Service {
 		return
 	}
 	b.appendRow(kind, v.recipient, from, to)
@@ -415,7 +415,7 @@ func recipientOf(u *domain.User) *NotificationRecipient {
 	if u == nil {
 		return nil
 	}
-	return &NotificationRecipient{UserID: u.ID, Role: u.Role, Active: u.Active}
+	return &NotificationRecipient{UserID: u.ID, Role: u.Role, Active: u.Active, Service: u.IsService()}
 }
 
 // recipientFacts resolves the notification policy facts for ONE candidate

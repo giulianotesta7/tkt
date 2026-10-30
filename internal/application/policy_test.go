@@ -29,7 +29,7 @@ func TestPolicyCapabilitiesPerRole(t *testing.T) {
 			denied: []Capability{
 				CapEditTicket, CapAssignTicket, CapCommentInternal,
 				CapManageUsers, CapChangeRole, CapGrantAdmin,
-				CapManageDesks, CapManageCategories, CapManageSettings,
+				CapManageDesks, CapManageCategories, CapManageSettings, CapManageAPI, CapToggleAPI,
 			},
 		},
 		{
@@ -41,7 +41,7 @@ func TestPolicyCapabilitiesPerRole(t *testing.T) {
 			},
 			denied: []Capability{
 				CapManageUsers, CapChangeRole, CapGrantAdmin,
-				CapManageDesks, CapManageCategories, CapManageSettings,
+				CapManageDesks, CapManageCategories, CapManageSettings, CapManageAPI, CapToggleAPI,
 			},
 		},
 		{
@@ -51,9 +51,9 @@ func TestPolicyCapabilitiesPerRole(t *testing.T) {
 				CapCreateTicket, CapEditTicket, CapAssignTicket,
 				CapCommentPublic, CapCommentInternal, CapManageUsers,
 				CapChangeRole, CapManageDesks, CapManageCategories,
-				CapManageSettings,
+				CapManageSettings, CapManageAPI,
 			},
-			denied: []Capability{CapGrantAdmin},
+			denied: []Capability{CapGrantAdmin, CapToggleAPI},
 		},
 		{
 			name: "root",
@@ -62,7 +62,7 @@ func TestPolicyCapabilitiesPerRole(t *testing.T) {
 				CapCreateTicket, CapEditTicket, CapAssignTicket,
 				CapCommentPublic, CapCommentInternal, CapManageUsers,
 				CapChangeRole, CapGrantAdmin, CapManageDesks,
-				CapManageCategories, CapManageSettings,
+				CapManageCategories, CapManageSettings, CapManageAPI, CapToggleAPI,
 			},
 			denied: nil,
 		},
@@ -82,6 +82,27 @@ func TestPolicyCapabilitiesPerRole(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestPolicyAPICapabilities(t *testing.T) {
+	for _, tc := range []struct {
+		role           domain.Role
+		manage, toggle bool
+	}{
+		{domain.RoleUser, false, false},
+		{domain.RoleAgent, false, false},
+		{domain.RoleAdmin, true, false},
+		{domain.RoleRoot, true, true},
+		{domain.Role("unknown"), false, false},
+	} {
+		caps := NewPolicy().Capabilities(tc.role)
+		if caps.Require(CapManageAPI) != tc.manage || caps.Require(CapToggleAPI) != tc.toggle {
+			t.Errorf("role %q: manage=%t toggle=%t", tc.role, caps.Require(CapManageAPI), caps.Require(CapToggleAPI))
+		}
+	}
+	if CapManageAPI != "api.manage" || CapToggleAPI != "api.toggle" {
+		t.Fatal("unexpected API capability names")
 	}
 }
 
@@ -185,7 +206,7 @@ func TestPolicyUnknownRoleFailsClosed(t *testing.T) {
 	for _, c := range []Capability{
 		CapCreateTicket, CapEditTicket, CapAssignTicket, CapCommentPublic,
 		CapCommentInternal, CapManageUsers, CapChangeRole, CapGrantAdmin,
-		CapManageDesks, CapManageCategories, CapManageSettings,
+		CapManageDesks, CapManageCategories, CapManageSettings, CapManageAPI, CapToggleAPI,
 	} {
 		if caps.Require(c) {
 			t.Errorf("unknown role must not grant %q", c)

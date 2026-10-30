@@ -60,6 +60,10 @@ const (
 	// #362). Root only: the SMTP credentials are the instance's own, so an
 	// administrator manages the instance without holding them.
 	CapManageEmail Capability = "email.manage"
+	// CapManageAPI permits administration of service users and API keys.
+	CapManageAPI Capability = "api.manage"
+	// CapToggleAPI permits switching API access on or off.
+	CapToggleAPI Capability = "api.toggle"
 )
 
 // capabilityMatrix maps each role to its granted capabilities. The empty
@@ -89,6 +93,7 @@ var capabilityMatrix = map[domain.Role][]Capability{
 		CapManageCategories,
 		CapViewTicketMetrics,
 		CapManageSettings,
+		CapManageAPI,
 	},
 	domain.RoleRoot: {
 		CapCreateTicket,
@@ -104,6 +109,8 @@ var capabilityMatrix = map[domain.Role][]Capability{
 		CapViewTicketMetrics,
 		CapManageSettings,
 		CapManageEmail,
+		CapManageAPI,
+		CapToggleAPI,
 	},
 }
 

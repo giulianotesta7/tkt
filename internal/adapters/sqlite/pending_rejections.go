@@ -26,7 +26,7 @@ func (ps *pendingUserStore) RejectPending(ctx context.Context, ids []int64, mana
 	rejected := make([]domain.User, 0, len(ids))
 	for _, id := range ids {
 		u, err := scanUserWithPending(tx.QueryRowContext(ctx,
-			`SELECT id, name, email, password_hash, role, active, pending, created_at FROM users WHERE id = ?`, id))
+			`SELECT id, name, email, password_hash, role, active, pending, kind, created_at FROM users WHERE id = ?`, id))
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, &domain.NotFoundError{Kind: "user", ID: id}
 		}

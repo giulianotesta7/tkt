@@ -1349,7 +1349,7 @@ func fixtureSettingsSectionData(section string) settingsSectionData {
 	return settingsSectionData{
 		pageData: fixtureSettingsPage(),
 		Section:  section,
-		Nav:      settingsNavItems(section, true),
+		Nav:      settingsNavItems(section, true, true),
 	}
 }
 
@@ -2204,4 +2204,30 @@ func TestGoldenCommentFormMentionsEmpty(t *testing.T) {
 		}
 	}
 	goldenFile(t, "comment_form_mentions_empty", body)
+}
+
+// fixtureSettingsAPIData models root on the API section (issue #488) right
+// after creating a key: the switch on, the once-shown token, one agent service
+// user with a live and a revoked key, and one deactivated user-role service user
+// without keys (no key form, a reactivate action).
+func fixtureSettingsAPIData() settingsAPIData {
+	return settingsAPIData{
+		settingsSectionData: fixtureSettingsSectionData(settingsSectionAPI),
+		Enabled:             true,
+		CanToggle:           true,
+		NewToken:            "tkt_0123456789ab_" + strings.Repeat("cd", 32),
+		NewTokenFor:         "Zabbix",
+		ScopeOptions:        apiScopeOptions,
+		ServiceUsers: []apiServiceUserRow{
+			{ID: 7, Name: "Triage bot", RoleLabel: "label.role.agent", Active: true, CreatedOn: "2026-10-01", CanInternal: true, Keys: []apiKeyRow{
+				{ID: 2, Name: "Zabbix", PublicID: "0123456789ab", Scopes: []string{"tickets:read", "comments:internal"}, Status: "settings.api.key.active", Live: true, CreatedOn: "2026-10-29", ExpiresOn: "2027-01-01"},
+				{ID: 1, Name: "Old", PublicID: "ba9876543210", Scopes: []string{"tickets:read"}, Status: "settings.api.key.revoked", CreatedOn: "2026-10-02", LastUsed: "Oct 3, 10:00"},
+			}},
+			{ID: 8, Name: "Monitoring", RoleLabel: "label.role.user", Active: false, CreatedOn: "2026-10-05"},
+		},
+	}
+}
+
+func TestGoldenSettingsAPI(t *testing.T) {
+	goldenFullPage(t, "settings_api", renderGolden(t, "settings_api", "", fixtureSettingsAPIData(), false))
 }

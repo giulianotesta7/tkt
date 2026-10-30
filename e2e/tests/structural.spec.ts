@@ -249,6 +249,12 @@ function authenticatedScreens(deps: {
       control: (p) => p.locator('input[name="sla_calendar_days"]'),
     },
     {
+      label: `/settings/api`,
+      path: "/settings/api",
+      heading: (p) => p.locator("h2").filter({ hasText: "API access" }),
+      control: (p) => p.locator("#service_user_name"),
+    },
+    {
       label: `/notifications`,
       path: "/notifications",
       heading: (p) => p.locator('h1:has-text("Notifications")'),

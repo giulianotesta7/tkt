@@ -65,6 +65,7 @@
 .settings-nav-link[href$="/settings/email"] { --tab-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='3' y='5' width='18' height='14' rx='2'/%3E%3Cpath d='M3 7l9 6 9-6'/%3E%3C/svg%3E"); }
 .settings-nav-link[href$="/settings/security"] { --tab-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z'/%3E%3C/svg%3E"); }
 .settings-nav-link[href$="/settings/calendar"] { --tab-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='3' y='5' width='18' height='16' rx='2'/%3E%3Cpath d='M3 10h18M8 3v4M16 3v4'/%3E%3C/svg%3E"); }
+.settings-nav-link[href$="/settings/api"] { --tab-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M8 7l-5 5 5 5M16 7l5 5-5 5M14 4l-4 16'/%3E%3C/svg%3E"); }
 
 .settings-nav-link:hover {
   background: var(--hover);
@@ -949,3 +950,51 @@
 /* Inside a field, the shared label rule adds a bottom margin meant for stacked
    labels; the segments of a segmented control sit flush. */
 .settings-row .field .settings-segment label { margin-bottom: 0; }
+
+/* API section (issue #488): the once-shown token, the service users with their
+   keys, and the per-user key form. Scoped to api-* classes so no other settings
+   section changes. */
+.api-token-once {
+  max-width: 960px;
+  margin: 0 0 24px;
+  padding: 16px;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+}
+.api-token-once p { margin: 4px 0 12px; color: var(--muted); font-size: 12px; }
+.api-token-value { width: 100%; font-family: var(--mono); font-size: 13px; }
+.api-access-state { margin: 0 0 8px; color: var(--ink-strong); font-size: 13px; font-weight: 600; }
+.api-service-user { max-width: 960px; padding: 16px 0; border-bottom: 1px solid var(--line); }
+.api-service-user:last-child { border-bottom: 0; }
+.api-service-user-head { display: flex; gap: 16px; align-items: flex-start; justify-content: space-between; }
+.api-service-user-head h3 { margin: 0; color: var(--ink-strong); font-size: 13px; font-weight: 600; }
+.api-service-user-head p { margin: 4px 0 0; color: var(--muted); font-size: 12px; }
+.api-keys-wrap { position: relative; max-width: 100%; margin-top: 12px; overflow-x: auto; }
+.api-keys-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.api-keys-table th { padding: 6px 8px; color: var(--muted); font-size: 12px; font-weight: 600; text-align: left; border-bottom: 1px solid var(--line); }
+.api-keys-table td { padding: 8px; vertical-align: top; border-bottom: 1px solid var(--line); overflow-wrap: anywhere; }
+.api-keys-table td small { display: block; color: var(--muted); font-size: 12px; }
+.api-keys-table td:last-child { text-align: right; white-space: nowrap; }
+.api-empty { margin: 12px 0 0; color: var(--muted); font-size: 12px; }
+.api-key-form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; max-width: 720px; margin-top: 16px; }
+.api-key-form .field { margin: 0; }
+.api-key-form input[type="text"] { width: 100%; }
+.api-key-form input[type="date"] {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--card);
+  color: var(--ink-soft);
+  padding: 9px 12px;
+  font: inherit;
+  font-size: 13.5px;
+}
+.api-key-scopes { grid-column: 1 / -1; margin: 0; padding: 0; border: 0; display: grid; gap: 6px; font-size: 12px; }
+.api-key-scopes legend { margin-bottom: 6px; color: var(--ink-soft); font-size: 12px; font-weight: 500; }
+.api-key-scopes label { display: flex; gap: 8px; align-items: center; }
+.api-key-submit { grid-column: 1 / -1; }
+@media (max-width: 760px) {
+  .api-key-form { grid-template-columns: minmax(0, 1fr); }
+  .api-service-user-head { flex-direction: column; }
+  .api-keys-table td { overflow-wrap: normal; white-space: nowrap; }
+}
