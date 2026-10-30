@@ -2,8 +2,8 @@
 
 **English** | [Español](../docs-es/administration.md)
 
-How an instance is run: roles, the catalog, workflows, SLAs, ticket creation, email, and
-security. First account: [Getting started](getting-started.md). Container and configuration:
+How an instance is run: roles, the catalog, workflows, SLAs, ticket creation, email,
+security, and API access. First account: [Getting started](getting-started.md). Container and configuration:
 [Deployment](deployment.md).
 
 ## Roles
@@ -14,8 +14,8 @@ Each role includes everything below it.
 | --- | --- |
 | **User** | Create tickets, reply publicly on their own tickets, answer the resolution confirmation. |
 | **Agent** | Everything a user can do, plus work on tickets assigned to them or waiting on their desks: edit, change state, assign, write public replies and internal notes. |
-| **Admin** | Everything an agent can do, plus manage people (except admin and root accounts), desks, categories, workflows, metrics, and every setting except email. |
-| **Root** | Everything, plus grant and remove the **Admin** role and manage email settings. |
+| **Admin** | Everything an agent can do, plus manage people (except admin and root accounts), desks, categories, workflows, metrics, service users and API keys, and every setting except email and the API switch. |
+| **Root** | Everything, plus grant and remove the **Admin** role, manage email settings, and turn the API on or off. |
 
 - Claimable tickets come from the desks a person belongs to, so add each agent to the desk
   that owns the category. Assigned tickets appear either way.
@@ -183,6 +183,38 @@ account.
 atomic step across two requests. Two recovery requests sent for the same account at almost the
 same moment can both send an email, and the link from the newer request invalidates the earlier
 one. Only the latest link works.
+
+## API access
+
+**Settings → API** manages the identities and keys that other systems use. The API endpoints
+themselves are not available yet; this section prepares the keys they will accept.
+
+- **The API switch** is off by default. Only root turns it on or off; while it is off, every
+  key is refused. Administrators see its state.
+- **Service users** are the identities a key acts as, so every change made through the API is
+  recorded under a named service user and never under a person. A service user has the
+  **User** or **Agent** role only. It never signs in, receives no notifications, cannot be
+  mentioned, and does not appear on the **Users** screen or in any assignee or desk picker.
+- **Keys** belong to a service user, which can hold several so a key can be rotated without a
+  gap. Each key has a name, one or more scopes, and an optional expiry date (it stops working
+  at the start of that day, UTC). The token is shown once, right after it is created, and tkt
+  keeps only a hash of it. Copy it then; a lost token is replaced by a new key.
+
+| Scope | Allows |
+| --- | --- |
+| `catalog:read` | Read categories and their request forms. |
+| `tickets:read` | Read and search the tickets the service user can see. |
+| `tickets:write` | Create and update tickets. |
+| `comments:write` | Write public comments. |
+| `comments:internal` | Write internal comments. Agent service users only. |
+
+A key can never do more than its service user's role allows: a **User** service user sees and
+creates only its own tickets, whatever scopes its key carries.
+
+**Revoke** stops one key at once. **Deactivate** a service user to revoke every key it holds;
+reactivating it does not bring those keys back. Creating and deactivating service users,
+creating and revoking keys, and turning the API on or off are recorded with the person who did
+it.
 
 ## Next steps
 
