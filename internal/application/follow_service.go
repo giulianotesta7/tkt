@@ -2,6 +2,7 @@ package application
 
 import (
 	"context"
+	"errors"
 	"sort"
 
 	"github.com/giulianotesta7/tkt/internal/domain"
@@ -64,7 +65,7 @@ func (s *FollowService) WithDesks(desks DeskMembershipStore) *FollowService {
 // indistinguishable, so the follow control reveals nothing about a ticket the
 // actor cannot open.
 func (s *FollowService) Follow(ctx context.Context, actor domain.User, ticketID int64) error {
-	ok, err := canStaffOpenTicket(ctx, s.tickets, actor, ticketID)
+	ok, err := canActOnStaffTicket(ctx, s.tickets, actor, ticketID)
 	if err != nil {
 		return err
 	}
@@ -89,7 +90,7 @@ func (s *FollowService) Unfollow(ctx context.Context, actor domain.User, ticketI
 // like the follow itself, so a person who cannot open the ticket learns nothing
 // — not even whether they are (still) on its list.
 func (s *FollowService) IsFollowing(ctx context.Context, actor domain.User, ticketID int64) (bool, error) {
-	ok, err := canStaffOpenTicket(ctx, s.tickets, actor, ticketID)
+	ok, err := canActOnStaffTicket(ctx, s.tickets, actor, ticketID)
 	if err != nil {
 		return false, err
 	}
@@ -102,7 +103,7 @@ func (s *FollowService) IsFollowing(ctx context.Context, actor domain.User, tick
 // Followers returns the ticket's followers for the Properties row, ordered by
 // display name. Only somebody who can open the ticket may read the list.
 func (s *FollowService) Followers(ctx context.Context, actor domain.User, ticketID int64) ([]domain.User, error) {
-	ok, err := canStaffOpenTicket(ctx, s.tickets, actor, ticketID)
+	ok, err := canActOnStaffTicket(ctx, s.tickets, actor, ticketID)
 	if err != nil {
 		return nil, err
 	}
@@ -174,12 +175,27 @@ type staffCandidate struct {
 	verified verifiedRecipient
 }
 
+// canActOnStaffTicket authorizes the CALLER, not a notification candidate.
+// Only the policy's eligible tickets:all service actor gets the request-scoped
+// widening; ordinary callers keep the existing staff predicate. Candidate
+// checks still use canStaffOpenTicket, which never inherits this request flag.
+func canActOnStaffTicket(ctx context.Context, tickets TicketStore, actor domain.User, ticketID int64) (bool, error) {
+	if apiTicketScope(ctx, actor, ScopeNone) != ScopeAll {
+		return canStaffOpenTicket(ctx, tickets, actor, ticketID)
+	}
+	_, err := tickets.GetByID(ctx, ticketID, readQuery(ctx, actor, TicketQuery{}))
+	if errors.Is(err, domain.ErrNotFound) {
+		return false, nil
+	}
+	return err == nil, err
+}
+
 // mentionableStaff is the shared candidate query of MentionCandidates and of the
 // comment mention fan-out. The actor's own staff access is checked first: the
 // list describes this ticket's staff, so a person who cannot open the ticket gets
 // NotFound rather than a few names.
 func (s *FollowService) mentionableStaff(ctx context.Context, actor domain.User, ticketID int64) ([]staffCandidate, error) {
-	ok, err := canStaffOpenTicket(ctx, s.tickets, actor, ticketID)
+	ok, err := canActOnStaffTicket(ctx, s.tickets, actor, ticketID)
 	if err != nil {
 		return nil, err
 	}
