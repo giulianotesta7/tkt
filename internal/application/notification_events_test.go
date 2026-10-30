@@ -423,3 +423,26 @@ func TestNotificationActorsAreAlsoAuditActors(t *testing.T) {
 		})
 	}
 }
+
+// TestNotificationNeverAddressesAServiceUser (issue #488, S3): a service user
+// named by the ticket, as requester or assignee, is never notified; the person
+// next to it still is.
+func TestNotificationNeverAddressesAServiceUser(t *testing.T) {
+	h := newNotifyHarness(t)
+	h.users.users[h.requester.ID].Kind = domain.UserKindService
+	if _, err := h.svc.Transition(context.Background(), h.admin, h.ticket.ID, domain.StateInProgress, ""); err != nil {
+		t.Fatalf("Transition: %v", err)
+	}
+	if got := h.notified(h.requester.ID); len(got) != 0 {
+		t.Fatalf("service requester was notified: %+v", got)
+	}
+	h.requireOne(t, h.assignee.ID, domain.NotificationStateChanged, "new", "in_progress")
+
+	h.users.users[h.assignee.ID].Kind = domain.UserKindService
+	if _, err := h.svc.Transition(context.Background(), h.admin, h.ticket.ID, domain.StateResolved, ""); err != nil {
+		t.Fatalf("Transition to resolved: %v", err)
+	}
+	if got := h.notified(h.assignee.ID); len(got) != 1 {
+		t.Fatalf("service assignee rows = %+v, want only the one from before it became a service user", got)
+	}
+}

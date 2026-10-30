@@ -197,6 +197,9 @@ func (s *Store) AlertUnitOfWork() application.AlertUnitOfWork {
 	return newAlertUnitOfWork(s.db)
 }
 
+// APIAccessStore returns the service users and API keys port (issue #488).
+func (s *Store) APIAccessStore() application.APIAccessStore { return newAPIAccessStore(s.db) }
+
 // UserStore returns the user port (task 4.4).
 func (s *Store) UserStore() application.UserStore { return newUserStore(s.db) }
 

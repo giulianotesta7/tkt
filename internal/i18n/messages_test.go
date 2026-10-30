@@ -214,6 +214,8 @@ var nonKeyGoLiterals = map[string]bool{
 	"desks.manage":         true,
 	"settings.manage":      true,
 	"email.manage":         true,
+	"api.manage":           true,
+	"api.toggle":           true,
 	"comments.public":      true,
 	"comments.internal":    true,
 	"users.manage":         true,
