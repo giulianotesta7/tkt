@@ -81,7 +81,7 @@
         <h2 id="oauth-consent-scopes">What it can do</h2>
         <p>Anything your role cannot do is left out when you allow access.</p>
       </div>
-      <ul>
+      <ul class="oauth-scopes">
         <li>See the categories and their forms <code>catalog:read</code></li>
         <li>Read and search the tickets you can see <code>tickets:read</code></li>
         <li>Create tickets and work on them as you <code>tickets:write</code></li>
@@ -94,7 +94,7 @@
         <h2 id="oauth-consent-return">Return address</h2>
         <p>Your browser goes back here after you decide. Allow only an application you started connecting yourself.</p>
       </div>
-      <p><strong>localhost:4567</strong></p>
+      <p class="oauth-return"><strong>localhost:4567</strong></p>
     </section>
   </div>
   <form class="preferences-actions" method="post" action="/oauth/authorize">
