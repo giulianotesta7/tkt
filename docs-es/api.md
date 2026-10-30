@@ -245,13 +245,14 @@ no recibe respuestas de formularios: se consulta el detalle y se completa por se
 formulario pendiente del solicitante. Un usuario de servicio Agente **sin `tickets:all`
 puede crear el ticket, pero no leerlo después**; el 201 confirma la creación, no concede lectura.
 Categoría inexistente: 404; título vacío o falta de flujo publicado: 422 `validation`;
-prioridad inválida: 422 `rejected`.
+prioridad inválida: 422 `rejected`; un flujo cuyo primer paso automático asigna por menor carga a
+una mesa sin miembros: 409 `conflict`, sin crear nada.
 
-La creación no exige que la categoría aparezca en `GET /api/v1/categories`. Una categoría
-publicada cuyo flujo no puede encaminar el ticket en este momento (por ejemplo, un paso de mesa
-cuya mesa no tiene miembros) igual lo acepta, como el formulario del navegador, y el ticket
-espera hasta que alguien pueda tomarlo. Conviene consultar primero las categorías para crear solo en las
-que se pueden ejecutar.
+`GET /api/v1/categories` lista solo las categorías que se pueden ejecutar ahora, pero la creación no
+consulta esa lista. Una categoría cuyo primer paso de mesa es un reclamo sobre una mesa sin
+miembros igual acepta el ticket, como el formulario del navegador, y el ticket espera hasta que la
+mesa tenga a alguien que lo reclame. Conviene consultar primero las categorías para crear solo en
+las que se pueden ejecutar.
 
 ## POST /api/v1/tickets/{id}/workflow/steps/{position}/complete
 

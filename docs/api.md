@@ -237,12 +237,13 @@ form answers: read the detail and complete its pending requester form separately
 An agent service user **without `tickets:all` can create but cannot read back the ticket**;
 201 is a creation receipt, not a grant of read access.
 Missing category: 404; blank title or unavailable published workflow: 422 `validation`;
-invalid priority: 422 `rejected`.
+invalid priority: 422 `rejected`; a workflow whose first automatic step assigns to a desk with no
+members by least load: 409 `conflict`, nothing created.
 
-Creation does not require the category to appear in `GET /api/v1/categories`. A published
-category whose workflow cannot currently route the ticket (for example, a desk step whose desk
-has no members) still accepts it, exactly as the browser form does, and the ticket waits until
-someone can take it. List the categories first to create only in runnable ones.
+`GET /api/v1/categories` lists only categories that can run now, but creation does not check that
+list. A category whose first desk step is a claim on a desk with no members still accepts the
+ticket, exactly as the browser form does, and the ticket waits until the desk has someone to
+claim it. List the categories first to create only in runnable ones.
 
 ## POST /api/v1/tickets/{id}/workflow/steps/{position}/complete
 
