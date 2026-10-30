@@ -256,8 +256,8 @@ func requestInterfaceLanguage(ctx context.Context, src InterfaceLanguageSource, 
 //     GET, HEAD, OPTIONS, TRACE) and a cross-site Origin header are rejected
 //     403 before any handler runs (D17 — login/logout CSRF included).
 //   - /healthz is always allowed (D12).
-//   - /login*: an authenticated visitor is sent to /tickets; otherwise the
-//     handler runs.
+//   - /login*: an authenticated visitor is sent to a safe ?next= return path
+//     or to /tickets; otherwise the handler runs.
 //   - /setup*: available ONLY while the users table is empty (D16);
 //     otherwise anonymous visitors go to /login and authed users to
 //     /tickets.
@@ -266,7 +266,8 @@ func requestInterfaceLanguage(ctx context.Context, src InterfaceLanguageSource, 
 //     in the browser, and so a signed-in browser is never bounced to its
 //     tickets before the callback runs.
 //   - Everything else requires a valid session: missing/expired token →
-//     303 /login (or 303 /setup when the table is empty); a deactivated
+//     303 /login (or 303 /setup when the table is empty; a GET to the OAuth
+//     consent page carries ?next=, see refuseToLogin); a deactivated
 //     user's session is destroyed on sight (D14 — deactivation kills
 //     sessions, next request is logged out). An HTMX request refused here is
 //     answered with HX-Redirect instead of a 3xx (issue #347): see
@@ -437,7 +438,9 @@ func (m *SessionMiddleware) Wrap(next http.Handler) http.Handler {
 
 		if path == "/login" || strings.HasPrefix(path, "/login/") {
 			if session != nil {
-				redirect(w, r, "/tickets")
+				// Issue #493, S5: a signed-in visitor sent to sign in on the way
+				// to the consent page goes straight to it.
+				redirect(w, r, landingFor(r.URL.Query().Get(returnPathParam)))
 				return
 			}
 			next.ServeHTTP(w, r)
@@ -484,7 +487,7 @@ func (m *SessionMiddleware) Wrap(next http.Handler) http.Handler {
 				refuseUnauthenticated(w, r, "/setup")
 				return
 			}
-			refuseUnauthenticated(w, r, "/login")
+			refuseToLogin(w, r)
 			return
 		}
 
@@ -498,14 +501,14 @@ func (m *SessionMiddleware) Wrap(next http.Handler) http.Handler {
 			// The user row vanished (deleted out from under the session):
 			// destroy the session and treat the request as logged out.
 			_ = m.sessions.Delete(r.Context(), session.ID)
-			refuseUnauthenticated(w, r, "/login")
+			refuseToLogin(w, r)
 			return
 		}
 		if !user.Active {
 			// D14: deactivation kills the user's sessions — destroy the
 			// row so the next request is logged out for good.
 			_ = m.sessions.Delete(r.Context(), session.ID)
-			refuseUnauthenticated(w, r, "/login")
+			refuseToLogin(w, r)
 			return
 		}
 
@@ -658,6 +661,18 @@ func refuseUnauthenticated(w http.ResponseWriter, r *http.Request, to string) {
 		return
 	}
 	redirect(w, r, to)
+}
+
+// refuseToLogin refuses a request with no usable session by sending it to
+// /login. A plain navigation to the OAuth consent page carries its request URI
+// as the return path (issue #493, S5), so signing in lands back on it; every
+// other refusal, an HTMX one included, answers exactly /login as before.
+func refuseToLogin(w http.ResponseWriter, r *http.Request) {
+	if authorizeRequest(r) && !htmxRequest(r) {
+		refuseUnauthenticated(w, r, loginWithReturn(r))
+		return
+	}
+	refuseUnauthenticated(w, r, "/login")
 }
 
 // sessionCookieValue builds the session cookie. Secure is enabled behind TLS
