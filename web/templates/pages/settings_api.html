@@ -7,10 +7,15 @@
 {{template "settings_nav" .}}
   <div class="settings-content" aria-label="{{t "settings.api.title"}}">
 {{if .Error}}    <div class="error-banner" role="alert">{{.Error}}</div>
-{{end}}{{if .NewToken}}    <section class="api-token-once" role="status" aria-labelledby="api-token-title">
+{{end}}{{if .NewToken}}    <section class="api-token-once" popover="manual" role="dialog" aria-labelledby="api-token-title" aria-describedby="api-token-help" data-api-token-popover>
       <h2 id="api-token-title" class="settings-section-title">{{tf "settings.api.token.title" .NewTokenFor}}</h2>
-      <p>{{t "settings.api.token.help"}}</p>
-      <input class="api-token-value" type="text" readonly value="{{.NewToken}}" aria-label="{{t "settings.api.token.label"}}" spellcheck="false" autocomplete="off" data-api-token>
+      <p id="api-token-help">{{t "settings.api.token.help"}}</p>
+      <div class="field api-token-field">
+        <input id="api-token-value" class="api-token-value" type="text" readonly value="{{.NewToken}}" aria-label="{{t "settings.api.token.label"}}" spellcheck="false" autocomplete="off" data-api-token>
+        <button class="btn" type="button" data-api-token-copy data-copy-target="api-token-value" data-copied-label="{{t "settings.security.company.copied"}}" data-copy-failed-label="{{t "settings.api.token.copy_failed"}}" hidden>{{t "settings.security.company.copy"}}</button>
+        <span role="status" data-copy-status></span>
+      </div>
+      <button class="btn" type="button" data-api-token-close hidden>{{t "notifications.close"}}</button>
     </section>
 {{end}}    <section class="settings-group">
       <h2 class="settings-section-title">{{t "settings.api.access.title"}}</h2>

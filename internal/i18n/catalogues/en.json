@@ -714,6 +714,7 @@
   "settings.api.token.title": "Key %s created",
   "settings.api.token.help": "Copy this token now. It is shown only once; tkt keeps only a hash of it.",
   "settings.api.token.label": "New API token",
+  "settings.api.token.copy_failed": "Copy unavailable. The token is selected; copy it manually.",
   "settings.api.access.title": "API access",
   "settings.api.access.switch": "API",
   "settings.api.access.help": "While the API is off, every API request is refused, whatever key it carries.",

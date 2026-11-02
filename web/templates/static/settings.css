@@ -955,14 +955,23 @@
    keys, and the per-user key form. Scoped to api-* classes so no other settings
    section changes. */
 .api-token-once {
-  max-width: 960px;
-  margin: 0 0 24px;
-  padding: 16px;
+  box-sizing: border-box;
+  width: min(480px, calc(100% - 32px));
+  max-width: 100%;
+  padding: 20px;
   border: 1px solid var(--line-strong);
-  border-radius: 8px;
+  border-radius: 12px;
+  background: var(--card);
+  color: var(--ink);
 }
 .api-token-once p { margin: 4px 0 12px; color: var(--muted); font-size: 12px; }
-.api-token-value { width: 100%; font-family: var(--mono); font-size: 13px; }
+.api-token-once button[hidden] { display: none; }
+.api-token-field { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.api-token-value { flex: 1 1 200px; min-width: 0; width: 100%; font-family: var(--mono); font-size: 13px; }
+.api-token-field [role="status"] { flex-basis: 100%; color: var(--muted); font-size: 12px; }
+@media (scripting: none) {
+  .api-token-once[popover] { display: block; position: static; width: 100%; margin: 0 0 24px; }
+}
 .api-access-state { margin: 0 0 8px; color: var(--ink-strong); font-size: 13px; font-weight: 600; }
 .api-service-heading { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; padding-bottom: 12px; border-bottom: 1px solid var(--line-strong); }
 .api-service-heading h2 { font-size: 20px; }

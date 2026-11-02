@@ -406,6 +406,8 @@
     function selectValue() {
       input.focus();
       input.select();
+      var failed = button.getAttribute("data-copy-failed-label");
+      if (status && failed) status.textContent = failed;
     }
     if (navigator.clipboard && navigator.clipboard.writeText) {
       navigator.clipboard.writeText(input.value).then(announce, selectValue);
@@ -421,4 +423,28 @@
     var input = document.getElementById(button.getAttribute("data-copy-target"));
     if (input) copyField(input, button);
   });
+
+  // The token exists only in this POST response. Without popover support leave
+  // it visible inline; without scripting CSS exposes the same selectable field.
+  var tokenPanel = document.querySelector("[data-api-token-popover]");
+  if (tokenPanel) {
+    var token = tokenPanel.querySelector("[data-api-token]");
+    var copy = tokenPanel.querySelector("[data-api-token-copy]");
+    var close = tokenPanel.querySelector("[data-api-token-close]");
+    copy.hidden = false;
+    close.hidden = false;
+    if (typeof tokenPanel.showPopover === "function") tokenPanel.showPopover();
+    else tokenPanel.removeAttribute("popover");
+    token.focus();
+    function closeToken() {
+      if (typeof tokenPanel.hidePopover === "function" && tokenPanel.matches(":popover-open")) tokenPanel.hidePopover();
+      else tokenPanel.hidden = true;
+      var selected = document.querySelector('.api-service-choice[aria-current="true"]');
+      if (selected) selected.focus();
+    }
+    close.addEventListener("click", closeToken);
+    tokenPanel.addEventListener("keydown", function (event) {
+      if (event.key === "Escape") { event.preventDefault(); closeToken(); }
+    });
+  }
 })();

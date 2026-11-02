@@ -2,6 +2,47 @@ import { test, expect } from "@playwright/test";
 import { startServer, stopServer } from "../server-lifecycle.js";
 import { base, loginAsSeeded } from "./helpers/auth.js";
 
+test.describe("API key creation popover", () => {
+  test.beforeAll(async () => { await startServer({ seed: true }); });
+  test.afterAll(async () => { await stopServer(); });
+
+  test("copies once, handles unavailable clipboard, and closes with Escape", async ({ page, context }) => {
+    await loginAsSeeded(page);
+    await page.goto(base() + "/settings/api");
+    await page.locator(".api-create-user summary").click();
+    await page.locator("#service_user_name").fill("Popover owner");
+    await page.locator(".api-create-user-form button").click();
+    await page.locator(".api-service-choice").filter({ hasText: "Popover owner" }).click();
+    await page.locator(".api-create-key summary:visible").click();
+    await page.locator('.api-key-form:visible input[name="name"]').fill("Popover key");
+    await page.locator('.api-key-form:visible input[value="tickets:read"]').check();
+    const response = page.waitForResponse((r) => r.url().endsWith("/settings/api/keys") && r.request().method() === "POST");
+    await page.locator(".api-key-form:visible button").click();
+    expect((await response).headers()["cache-control"]).toBe("no-store");
+    const panel = page.getByRole("dialog", { name: "Key Popover key created" });
+    const input = panel.locator("[data-api-token]");
+    await expect(panel).toBeVisible();
+    await expect(input).toBeFocused();
+    const token = await input.inputValue();
+    expect(token).toMatch(/^tkt_[0-9a-f]{12}_[0-9a-f]{64}$/);
+    expect(page.url()).not.toContain(token);
+    await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+    await panel.getByRole("button", { name: "Copy" }).click();
+    await expect(panel.getByRole("status")).toHaveText("Copied");
+    expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(token);
+    await page.evaluate(() => Object.defineProperty(navigator, "clipboard", { configurable: true, value: undefined }));
+    await panel.locator("[data-api-token-copy]").click();
+    await expect(panel.getByRole("status")).toContainText("copy it manually");
+    await expect(input).toBeFocused();
+    await page.keyboard.press("Escape");
+    await expect(panel).toBeHidden();
+    await expect(page.locator('.api-service-choice[aria-current="true"]')).toBeFocused();
+    await page.goto(base() + "/settings/api");
+    await expect(page.locator("[data-api-token]")).toHaveCount(0);
+    expect(await page.locator("body").innerText()).not.toContain(token);
+  });
+});
+
 test.describe("API service user inspector without JavaScript", () => {
   test.use({ javaScriptEnabled: false });
   test.beforeAll(async () => { await startServer({ seed: true }); });
@@ -109,6 +150,7 @@ test.describe("API service user inspector without JavaScript", () => {
     await page.locator('.api-key-form:visible input[value="tickets:read"]').check();
     await page.locator(".api-key-form:visible button").click();
     await expect(page.locator("[data-api-token]")).toBeVisible();
+    await expect(page.locator("[data-api-token-copy]")).toBeHidden();
     const selected = page.locator(".api-service-choice").filter({ hasText: "Selection target" });
     await expect(selected).toHaveAttribute("aria-current", "true");
     await page.getByRole("button", { name: "Revoke Selection check" }).click();

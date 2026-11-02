@@ -100,10 +100,15 @@
 </nav>
 
   <div class="settings-content" aria-label="API">
-    <section class="api-token-once" role="status" aria-labelledby="api-token-title">
+    <section class="api-token-once" popover="manual" role="dialog" aria-labelledby="api-token-title" aria-describedby="api-token-help" data-api-token-popover>
       <h2 id="api-token-title" class="settings-section-title">Key Zabbix created</h2>
-      <p>Copy this token now. It is shown only once; tkt keeps only a hash of it.</p>
-      <input class="api-token-value" type="text" readonly value="tkt_0123456789ab_cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd" aria-label="New API token" spellcheck="false" autocomplete="off" data-api-token>
+      <p id="api-token-help">Copy this token now. It is shown only once; tkt keeps only a hash of it.</p>
+      <div class="field api-token-field">
+        <input id="api-token-value" class="api-token-value" type="text" readonly value="tkt_0123456789ab_cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd" aria-label="New API token" spellcheck="false" autocomplete="off" data-api-token>
+        <button class="btn" type="button" data-api-token-copy data-copy-target="api-token-value" data-copied-label="Copied" data-copy-failed-label="Copy unavailable. The token is selected; copy it manually." hidden>Copy</button>
+        <span role="status" data-copy-status></span>
+      </div>
+      <button class="btn" type="button" data-api-token-close hidden>Close</button>
     </section>
     <section class="settings-group">
       <h2 class="settings-section-title">API access</h2>

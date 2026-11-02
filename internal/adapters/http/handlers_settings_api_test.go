@@ -216,6 +216,9 @@ func TestSettingsAPIServiceUserAndKeyLifecycle(t *testing.T) {
 	if token == "" || !strings.Contains(body, "Key Zabbix created") || !strings.Contains(body, "shown only once") {
 		t.Fatalf("the created token is not shown: %.2000s", body)
 	}
+	for _, want := range []string{`class="api-token-once"`, `popover="manual"`, `aria-labelledby="api-token-title"`, `data-api-token-copy`, `data-api-token-close`} {
+		if !strings.Contains(body, want) { t.Errorf("created key popover missing %q", want) }
+	}
 	assertNoWhitespaceViolations(t, body)
 	keys, _ := h.store.APIAccessStore().ListAPIKeys(t.Context())
 	if len(keys) != 1 || strings.Contains(token, keys[0].SecretHash) || keys[0].ExpiresAt == nil || keys[0].ExpiresAt.Format("2006-01-02") != "2099-01-01" {
