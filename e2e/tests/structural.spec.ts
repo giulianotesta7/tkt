@@ -252,7 +252,7 @@ function authenticatedScreens(deps: {
       label: `/settings/api`,
       path: "/settings/api",
       heading: (p) => p.locator("h2").filter({ hasText: "API access" }),
-      control: (p) => p.locator("#service_user_name"),
+      control: (p) => p.locator(".api-create-user summary"),
     },
     {
       label: `/notifications`,
