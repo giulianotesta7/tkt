@@ -3,6 +3,7 @@ package sqlite
 import (
 	"errors"
 	"reflect"
+	"sync"
 	"testing"
 	"time"
 
@@ -128,5 +129,79 @@ func TestMigration0039AuditShape(t *testing.T) {
 	}
 	if table != "users" || column != "id" || onDelete != "NO ACTION" {
 		t.Fatalf("audit foreign key = %s.%s %s", table, column, onDelete)
+	}
+}
+
+func TestInstanceAddressGuardsMCPSwitch(t *testing.T) {
+	s := newTestDB(t)
+	ctx := t.Context()
+	root := seedUserRaw(t, s, "Root", "root@example.com", "root")
+	at := time.Date(2026, 10, 29, 10, 0, 0, 0, time.UTC)
+	instance, oauth := s.InstanceSettingsStore(), s.OAuthStore()
+	requireKey := func(err error, key string) {
+		t.Helper()
+		var validation *domain.ValidationError
+		if !errors.As(err, &validation) || validation.Key != key {
+			t.Fatalf("error = %v, want %s", err, key)
+		}
+	}
+	requireKey(oauth.SetMCPEnabled(ctx, true, root, at), "error.instance_address_required")
+	if on, err := oauth.MCPEnabled(ctx); err != nil || on {
+		t.Fatalf("refused enable left MCP on=%v err=%v", on, err)
+	}
+	address := "https://tkt.example.com"
+	if err := instance.SetInstanceAddress(ctx, root, address, at); err != nil {
+		t.Fatal(err)
+	}
+	if err := oauth.SetMCPEnabled(ctx, true, root, at); err != nil {
+		t.Fatal(err)
+	}
+	requireKey(instance.SetInstanceAddress(ctx, root, "", at), "error.instance_address_in_use")
+	if got, err := instance.GetInstanceAddress(ctx); err != nil || got.Address != address {
+		t.Fatalf("address after refusal = %+v, %v", got, err)
+	}
+	// Turning MCP off lifts the guard; the switch never needs an address to go off.
+	if err := oauth.SetMCPEnabled(ctx, false, root, at); err != nil {
+		t.Fatal(err)
+	}
+	if err := instance.SetInstanceAddress(ctx, root, "", at); err != nil {
+		t.Fatal(err)
+	}
+	if err := oauth.SetMCPEnabled(ctx, false, root, at); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestInstanceAddressMCPEnableClearRace proves enabling MCP and clearing the
+// address cannot interleave into "enabled with no address".
+func TestInstanceAddressMCPEnableClearRace(t *testing.T) {
+	s := newTestDB(t)
+	ctx := t.Context()
+	root := seedUserRaw(t, s, "Root", "root@example.com", "root")
+	at := time.Date(2026, 10, 29, 10, 0, 0, 0, time.UTC)
+	instance, oauth := s.InstanceSettingsStore(), s.OAuthStore()
+	for round := 0; round < 30; round++ {
+		if err := instance.SetInstanceAddress(ctx, root, "https://tkt.example.com", at); err != nil {
+			t.Fatal(err)
+		}
+		var wg sync.WaitGroup
+		wg.Add(2)
+		go func() { defer wg.Done(); _ = oauth.SetMCPEnabled(ctx, true, root, at) }()
+		go func() { defer wg.Done(); _ = instance.SetInstanceAddress(ctx, root, "", at) }()
+		wg.Wait()
+		on, err := oauth.MCPEnabled(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		got, err := instance.GetInstanceAddress(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if on && got.Address == "" {
+			t.Fatalf("round %d: MCP enabled with no instance address", round)
+		}
+		if err := oauth.SetMCPEnabled(ctx, false, root, at); err != nil {
+			t.Fatal(err)
+		}
 	}
 }

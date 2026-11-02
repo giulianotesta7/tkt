@@ -32,7 +32,7 @@ type InstanceSettingsStore interface {
 }
 
 func InstanceAddressRequiredError() error {
-	return &domain.ValidationError{Field: "instance_address", Message: "set the TKT address in Settings → Instance before enabling email or company sign-in", Key: "error.instance_address_required"}
+	return &domain.ValidationError{Field: "instance_address", Message: "set the TKT address in Settings → Instance before enabling email, company sign-in or MCP clients", Key: "error.instance_address_required"}
 }
 
 // LegacyInstanceAddressError rejects an address submitted to a consumer
@@ -50,7 +50,7 @@ func legacyAddressConflicts(submitted, canonical string) bool {
 }
 
 func InstanceAddressInUseError() error {
-	return &domain.ValidationError{Field: "instance_address", Message: "turn off email and company sign-in before clearing the TKT address", Key: "error.instance_address_in_use"}
+	return &domain.ValidationError{Field: "instance_address", Message: "turn off email, company sign-in and MCP clients before clearing the TKT address", Key: "error.instance_address_in_use"}
 }
 
 type InstanceSettingsService struct {

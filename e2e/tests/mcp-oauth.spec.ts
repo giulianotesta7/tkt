@@ -49,7 +49,7 @@ const TOOLS = [
 
 /**
  * Turn MCP clients on as root, the way root does it: the public URL is the TKT
- * address of Email notifications, and here it is this server's own base URL, so
+ * address of Settings → Instance, and here it is this server's own base URL, so
  * the issuer and the `/mcp` resource are addresses the test can reach. The
  * switch is instance-wide; when it is already on, nothing is saved.
  */
@@ -59,10 +59,10 @@ async function enableMCP(page: Page): Promise<void> {
   await expect(section.getByRole("heading", { name: "MCP clients", exact: true })).toBeVisible();
   if ((await section.locator(".api-access-state").textContent())?.trim() === "On") return;
 
-  await page.goto(base() + "/settings/email");
+  await page.goto(base() + "/settings/instance");
   await page.getByLabel("TKT address", { exact: true }).fill(base());
-  await page.getByRole("button", { name: "Save email notifications" }).click();
-  await expect(page).toHaveURL(/\/settings\/email$/);
+  await page.getByRole("button", { name: "Save TKT address", exact: true }).click();
+  await expect(page).toHaveURL(/\/settings\/instance$/);
   await expect(page.locator("#save-feedback")).toContainText("Saved");
 
   await page.goto(base() + "/settings/api");

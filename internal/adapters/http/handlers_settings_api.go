@@ -248,7 +248,7 @@ func (h *SettingsHandlers) mcpData(r *http.Request, actor domain.User) (settings
 		Shown:           true,
 		Enabled:         enabled,
 		CanToggle:       caps.Require(application.CapToggleAPI),
-		CanSetPublicURL: h.email != nil && caps.Require(application.CapManageEmail),
+		CanSetPublicURL: caps.Require(application.CapToggleAPI),
 	}
 	if base := strings.TrimRight(stored.BaseURL, "/"); base != "" {
 		data.URL = base + "/mcp"

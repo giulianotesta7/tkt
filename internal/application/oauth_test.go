@@ -214,7 +214,7 @@ func TestOAuthSetMCPEnabled(t *testing.T) {
 
 	f.settings.baseURL = ""
 	var v *domain.ValidationError
-	if err := f.svc.SetMCPEnabled(t.Context(), apiRoot, true); !errors.As(err, &v) || v.Field != "mcp_enabled" || v.Key != "error.mcp.public_url_required" || v.Message == "" {
+	if err := f.svc.SetMCPEnabled(t.Context(), apiRoot, true); !errors.As(err, &v) || v.Field != "instance_address" || v.Key != "error.instance_address_required" || v.Message == "" {
 		t.Fatalf("no public URL: err = %v; want mcp_enabled validation", err)
 	}
 	if f.store.enabled || len(f.store.events) != 0 {

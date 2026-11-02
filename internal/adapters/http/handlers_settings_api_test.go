@@ -423,7 +423,7 @@ func TestSettingsAPIMCPNeedsThePublicURL(t *testing.T) {
 	_, rootSession := seedRoot(t, h)
 
 	root := mcpSection(t, getAs(t, h, "/settings/api", rootSession.ID).Body.String())
-	for _, want := range []string{"MCP clients need the public URL: the TKT address in Email notifications.", `href="/settings/email"`} {
+	for _, want := range []string{"MCP clients need the public URL: the TKT address in Settings → Instance.", `href="/settings/instance"`} {
 		if !strings.Contains(root, want) {
 			t.Errorf("root MCP section without a public URL must contain %q, got: %s", want, root)
 		}
@@ -431,10 +431,10 @@ func TestSettingsAPIMCPNeedsThePublicURL(t *testing.T) {
 	if strings.Contains(root, "api-token-value") {
 		t.Errorf("a connection URL is shown without a public URL: %s", root)
 	}
-	// The Email section is root's: an administrator gets the reason, not a link
-	// to a page that refuses them.
+	// The Instance section is root's: an administrator gets the reason, not a
+	// link to a page that refuses them.
 	admin := mcpSection(t, h.get(t, "/settings/api", false).Body.String())
-	if !strings.Contains(admin, "MCP clients need the public URL: the TKT address") || strings.Contains(admin, `href="/settings/email"`) {
+	if !strings.Contains(admin, "MCP clients need the public URL: the TKT address") || strings.Contains(admin, `href="/settings/instance"`) {
 		t.Errorf("admin MCP section without a public URL: %s", admin)
 	}
 
@@ -443,7 +443,7 @@ func TestSettingsAPIMCPNeedsThePublicURL(t *testing.T) {
 		t.Fatalf("enable without a public URL = %d, want 422: %.1500s", rec.Code, rec.Body.String())
 	}
 	section := mcpSection(t, rec.Body.String())
-	if !strings.Contains(section, `<div class="error-banner" role="alert" id="mcp-error">MCP clients need the public URL</div>`) {
+	if !strings.Contains(section, `<div class="error-banner" role="alert" id="mcp-error">set the TKT address in Settings → Instance before enabling email, company sign-in or MCP clients</div>`) {
 		t.Errorf("the refusal is not shown inline in the MCP section: %s", section)
 	}
 	if mcpEnabled(t, h) || len(mcpSwitchEvents(t, h)) != 0 {

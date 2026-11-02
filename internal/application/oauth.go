@@ -24,10 +24,6 @@ import (
 // the /mcp URL. Clients are public: PKCE S256 is what binds a code to the
 // client that asked for it.
 
-// ErrMsgMCPPublicURLRequired refuses turning MCP on before the public URL is
-// set: every OAuth URL and the token audience derive from it.
-const ErrMsgMCPPublicURLRequired = "MCP clients need the public URL"
-
 const (
 	oauthCodeTTL = 60 * time.Second
 	// oauthAccessTTL bounds a leaked access token.
@@ -217,7 +213,7 @@ func (s *OAuthService) SetMCPEnabled(ctx context.Context, actor domain.User, ena
 			return err
 		}
 		if base == "" {
-			return &domain.ValidationError{Field: "mcp_enabled", Message: ErrMsgMCPPublicURLRequired, Key: "error.mcp.public_url_required"}
+			return InstanceAddressRequiredError()
 		}
 	}
 	return s.store.SetMCPEnabled(ctx, enabled, actor.ID, s.clock.Now())

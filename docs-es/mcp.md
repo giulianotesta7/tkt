@@ -35,11 +35,11 @@ API no depende de MCP.
 
 Solo root enciende o apaga los clientes MCP. Los administradores ven su estado.
 
-1. Completar la **Dirección de TKT** en **Configuración → Notificaciones por email** con la
+1. Completar la **Dirección de TKT** en **Configuración → Instancia** con la
    dirección que usan las personas, por ejemplo `https://tkt.example.com`. Ver
    [La URL base pública](deployment.md#la-url-base-pública).
-2. Abrir **Configuración → API** y encender **Clientes MCP**. Sin URL pública, tkt lo rechaza
-   con «Los clientes MCP necesitan la URL pública».
+2. Abrir **Configuración → API** y encender **Clientes MCP**. Sin dirección de TKT, tkt lo rechaza
+   y apunta a **Configuración → Instancia**; la dirección no se puede borrar mientras los clientes MCP estén encendidos.
 3. Compartir la URL de conexión que se muestra ahí, `<URL pública>/mcp`, con las personas que
    van a conectarse.
 

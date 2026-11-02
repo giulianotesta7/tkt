@@ -14,7 +14,7 @@
       <div class="settings-row">
         <div><h3>Connection URL</h3><p>The address to give an assistant when adding tkt to it.</p></div>
         <div>
-          <p class="help">MCP clients need the public URL: the TKT address in Email notifications. Until it is set, they cannot be turned on. <a href="/settings/email">Set the TKT address</a></p>
+          <p class="help">MCP clients need the public URL: the TKT address in Settings → Instance. Until it is set, they cannot be turned on. <a href="/settings/instance">Set the TKT address</a></p>
         </div>
       </div>
     </section>

@@ -45,6 +45,9 @@ func (o *oauthStore) SetMCPEnabled(ctx context.Context, enabled bool, actorID in
 		return err
 	}
 	defer tx.Rollback()
+	if err := checkInstanceAddressTx(ctx, tx, enabled); err != nil {
+		return err
+	}
 	value, action := "0", "mcp_disabled"
 	if enabled {
 		value, action = "1", "mcp_enabled"

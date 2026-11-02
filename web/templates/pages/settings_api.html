@@ -51,7 +51,7 @@
         <div><h3>{{t "settings.api.mcp.url.title"}}</h3><p>{{t "settings.api.mcp.url.help"}}</p></div>
         <div>
 {{if .MCP.URL}}          <input class="api-token-value" type="text" readonly value="{{.MCP.URL}}" aria-label="{{t "settings.api.mcp.url.label"}}" spellcheck="false" autocomplete="off">
-{{else}}          <p class="help">{{t "settings.api.mcp.url.missing"}}{{if .MCP.CanSetPublicURL}} <a href="/settings/email">{{t "settings.api.mcp.url.set"}}</a>{{end}}</p>
+{{else}}          <p class="help">{{t "settings.api.mcp.url.missing"}}{{if .MCP.CanSetPublicURL}} <a href="/settings/instance">{{t "settings.api.mcp.url.set"}}</a>{{end}}</p>
 {{end}}        </div>
       </div>
     </section>

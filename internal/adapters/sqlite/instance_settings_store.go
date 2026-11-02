@@ -31,7 +31,7 @@ func (ss *settingsStore) SetInstanceAddress(ctx context.Context, actorID int64, 
 	defer tx.Rollback()
 	if address == "" {
 		var enabled int
-		if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM settings WHERE key IN ('email_enabled', 'google_signin_enabled', 'microsoft_signin_enabled') AND value = '1'`).Scan(&enabled); err != nil {
+		if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM settings WHERE key IN ('email_enabled', 'google_signin_enabled', 'microsoft_signin_enabled', 'mcp_enabled') AND value = '1'`).Scan(&enabled); err != nil {
 			return err
 		}
 		if enabled != 0 {

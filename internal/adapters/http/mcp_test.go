@@ -47,10 +47,10 @@ func newMCPFixture(t *testing.T) *mcpFixture {
 	t.Helper()
 	h := newHarness(t)
 	s := h.store
-	if err := s.EmailSettingsStore().SetEmailSettings(t.Context(), application.EmailSettings{BaseURL: mcpIssuer}); err != nil {
+	root := seedUserRole(t, s, "Root", "root@tkt.test", domain.RoleRoot)
+	if err := s.InstanceSettingsStore().SetInstanceAddress(t.Context(), root.ID, mcpIssuer, h.clock.Now()); err != nil {
 		t.Fatal(err)
 	}
-	root := seedUserRole(t, s, "Root", "root@tkt.test", domain.RoleRoot)
 	oauth := application.NewOAuthService(s.OAuthStore(), s.UserStore(), s.EmailSettingsStore(), h.clock, nil)
 	if err := oauth.SetMCPEnabled(t.Context(), *root, true); err != nil {
 		t.Fatal(err)

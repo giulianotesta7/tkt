@@ -33,10 +33,10 @@ does not depend on MCP.
 
 Only root can turn MCP clients on or off. Administrators see the state.
 
-1. Set the **TKT address** in **Settings → Email notifications** to the address people use,
+1. Set the **TKT address** in **Settings → Instance** to the address people use,
    for example `https://tkt.example.com`. See [The public base URL](deployment.md#the-public-base-url).
-2. Open **Settings → API** and turn on **MCP clients**. Without a public URL, tkt refuses with
-   "MCP clients need the public URL".
+2. Open **Settings → API** and turn on **MCP clients**. Without a TKT address, tkt refuses and points to
+   **Settings → Instance**; the address cannot be cleared while MCP clients are on.
 3. Share the connection URL shown there, `<public URL>/mcp`, with the people who will connect.
 
 The public URL is the OAuth issuer and every token's audience. **Changing it disconnects every

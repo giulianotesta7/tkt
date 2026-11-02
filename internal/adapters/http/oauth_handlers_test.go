@@ -48,7 +48,7 @@ func enableMCP(t *testing.T, h *harness) {
 
 func setPublicURL(t *testing.T, h *harness, base string) {
 	t.Helper()
-	if err := h.store.EmailSettingsStore().SetEmailSettings(t.Context(), application.EmailSettings{BaseURL: base}); err != nil {
+	if err := h.store.InstanceSettingsStore().SetInstanceAddress(t.Context(), h.admin.ID, base, h.clock.Now()); err != nil {
 		t.Fatalf("set public URL: %v", err)
 	}
 }
@@ -193,12 +193,6 @@ func TestOAuthSwitchOffAnswersNotFoundEverywhere(t *testing.T) {
 	t.Run("switch off", func(t *testing.T) {
 		h := newHarness(t)
 		setPublicURL(t, h, oauthPublicURL)
-		check(t, h)
-	})
-	t.Run("public URL cleared after the switch went on", func(t *testing.T) {
-		h := newHarness(t)
-		enableMCP(t, h)
-		setPublicURL(t, h, "")
 		check(t, h)
 	})
 }

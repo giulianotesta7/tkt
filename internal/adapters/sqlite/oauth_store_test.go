@@ -73,6 +73,9 @@ func TestOAuthStoreMCPSwitch(t *testing.T) {
 	if on, err := store.MCPEnabled(ctx); err != nil || on {
 		t.Fatalf("default MCPEnabled = %v (err %v), want off", on, err)
 	}
+	if err := s.InstanceSettingsStore().SetInstanceAddress(ctx, root, "https://tkt.example.com", testClock); err != nil {
+		t.Fatal(err)
+	}
 	if err := store.SetMCPEnabled(ctx, true, root, testClock); err != nil {
 		t.Fatal(err)
 	}
