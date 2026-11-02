@@ -237,7 +237,11 @@ func (s *EmailSettingsService) Save(ctx context.Context, actor domain.User, in E
 	if err != nil {
 		return err
 	}
-	// Address is read-only here, including for stale or forged submissions.
+	// Address is read-only here: a different submitted value is refused, never
+	// acknowledged as saved.
+	if legacyAddressConflicts(in.BaseURL, stored.BaseURL) {
+		return LegacyInstanceAddressError("base_url")
+	}
 	in.BaseURL = stored.BaseURL
 	if in.Enabled && in.BaseURL == "" {
 		return InstanceAddressRequiredError()

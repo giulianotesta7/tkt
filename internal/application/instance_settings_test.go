@@ -82,10 +82,23 @@ func TestInstanceAddressServiceValidationAndAuthorization(t *testing.T) {
 	}
 }
 
+func TestInstanceEmailRejectsDifferentLegacyAddress(t *testing.T) {
+	f := newEmailSettingsFixture()
+	f.store.stored.BaseURL = "https://canonical.example/help"
+	err := f.svc.Save(t.Context(), domain.User{Role: domain.RoleRoot}, EmailSettingsInput{BaseURL: "https://stale.example"})
+	var validation *domain.ValidationError
+	if !errors.As(err, &validation) || validation.Key != "error.legacy_instance_address" {
+		t.Fatalf("Save = %v, want legacy address rejection", err)
+	}
+	if f.store.setCalls != 0 {
+		t.Fatalf("rejected save wrote %d times", f.store.setCalls)
+	}
+}
+
 func TestInstanceEmailDoesNotWriteAddress(t *testing.T) {
 	f := newEmailSettingsFixture()
 	f.store.stored.BaseURL = "https://canonical.example/help"
-	if err := f.svc.Save(t.Context(), domain.User{Role: domain.RoleRoot}, EmailSettingsInput{BaseURL: "https://stale.example"}); err != nil {
+	if err := f.svc.Save(t.Context(), domain.User{Role: domain.RoleRoot}, EmailSettingsInput{BaseURL: "https://canonical.example/help"}); err != nil {
 		t.Fatal(err)
 	}
 	got, err := f.svc.Get(t.Context(), domain.User{Role: domain.RoleRoot})

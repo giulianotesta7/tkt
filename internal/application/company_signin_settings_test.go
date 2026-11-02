@@ -316,3 +316,17 @@ func TestUpdateCompanySignInRefusesABadGoogleDomainInASemicolonList(t *testing.T
 		})
 	}
 }
+
+func TestUpdateCompanySignInRejectsDifferentLegacyAddress(t *testing.T) {
+	svc, store := newCompanySignInSettingsService()
+	in := validCompanySignInInput()
+	in.Address = "https://stale.example"
+	err := svc.Update(context.Background(), domain.User{ID: 1, Role: domain.RoleRoot}, in)
+	var validation *domain.ValidationError
+	if !errors.As(err, &validation) || validation.Key != "error.legacy_instance_address" {
+		t.Fatalf("Update = %v, want legacy address rejection", err)
+	}
+	if store.writes != 0 || store.settings.Address != "https://tkt.example.com" {
+		t.Fatalf("rejected update changed state: writes=%d address=%q", store.writes, store.settings.Address)
+	}
+}

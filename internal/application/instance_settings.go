@@ -35,6 +35,20 @@ func InstanceAddressRequiredError() error {
 	return &domain.ValidationError{Field: "instance_address", Message: "set the TKT address in Settings → Instance before enabling email or company sign-in", Key: "error.instance_address_required"}
 }
 
+// LegacyInstanceAddressError rejects an address submitted to a consumer
+// service: the address belongs to Instance settings alone, and acknowledging
+// it as saved would hide that nothing changed.
+func LegacyInstanceAddressError(field string) error {
+	return &domain.ValidationError{Field: field, Message: "change the TKT address in Instance settings", Key: "error.legacy_instance_address"}
+}
+
+// legacyAddressConflicts reports a submitted address that differs from the
+// canonical one. An empty submission means the caller supplied none.
+func legacyAddressConflicts(submitted, canonical string) bool {
+	submitted = strings.TrimRight(strings.TrimSpace(submitted), "/")
+	return submitted != "" && submitted != strings.TrimRight(canonical, "/")
+}
+
 func InstanceAddressInUseError() error {
 	return &domain.ValidationError{Field: "instance_address", Message: "turn off email and company sign-in before clearing the TKT address", Key: "error.instance_address_in_use"}
 }

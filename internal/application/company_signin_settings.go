@@ -142,7 +142,8 @@ type MicrosoftSignInInput struct {
 
 // CompanySignInInput is one submission of the company sign-in settings.
 type CompanySignInInput struct {
-	// Address is retained for source compatibility; Update ignores it.
+	// Address is retained for source compatibility; Update refuses a value
+	// that differs from the canonical address.
 	Address               string
 	NewAccounts           NewAccountPolicy
 	PasswordSignInEnabled bool
@@ -218,6 +219,9 @@ func (s *CompanySignInSettingsService) Update(ctx context.Context, actor domain.
 	stored, err := s.store.GetCompanySignIn(ctx)
 	if err != nil {
 		return err
+	}
+	if legacyAddressConflicts(in.Address, stored.Address) {
+		return LegacyInstanceAddressError("company_signin_address")
 	}
 	next := CompanySignInSettings{
 		Address:               stored.Address,
