@@ -732,24 +732,6 @@ func (h *SettingsHandlers) removeOrganizationLogo(w http.ResponseWriter, r *http
 // Language section (issue #335, S7-S9)
 // ---------------------------------------------------------------------------
 
-// renderLanguage renders the Language section from the stored code: a rejected
-// save keeps the ACTIVE language marked, because the refusal is about the code
-// that was submitted, not about the one the instance renders with.
-func (h *SettingsHandlers) renderLanguage(w http.ResponseWriter, r *http.Request, status int, message string) {
-	current, err := h.settings.GetInterfaceLanguage(r.Context())
-	if err != nil {
-		httpError(w, r, "error.internal_server", http.StatusInternalServerError)
-		return
-	}
-	data := settingsLanguageData{
-		settingsSectionData: h.sectionData(r, settingsSectionLanguage),
-		CurrentLanguage:     current,
-		Languages:           interfaceLanguageOptions(),
-	}
-	data.Error = message
-	h.renderer.Render(w, r, "settings_language", "", data, status)
-}
-
 // updateLanguage persists the instance-wide interface language (issue #335,
 // S7-S9). A rejected code re-renders the section (422) with an inline error in
 // the language the instance is CURRENTLY rendering (the middleware stamped it
