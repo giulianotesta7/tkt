@@ -39,7 +39,7 @@ func InstanceAddressRequiredError() error {
 // service: the address belongs to Instance settings alone, and acknowledging
 // it as saved would hide that nothing changed.
 func LegacyInstanceAddressError(field string) error {
-	return &domain.ValidationError{Field: field, Message: "change the TKT address in Instance settings", Key: "error.legacy_instance_address"}
+	return &domain.ValidationError{Field: field, Message: "Change the TKT address in Instance settings.", Key: "error.legacy_instance_address"}
 }
 
 // legacyAddressConflicts reports a submitted address that differs from the
