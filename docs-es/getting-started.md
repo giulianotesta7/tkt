@@ -49,8 +49,8 @@ Iniciá sesión como root.
 
 1. **Configuración → Organización**: el nombre del encabezado de la interfaz, el nombre de la mesa
    de ayuda y el correo de soporte.
-2. **Configuración → Idioma**: un solo idioma de interfaz para toda la instancia, aplicado al
-   instante.
+2. **Configuración → Instancia** (solo root): la **Dirección de TKT** pública, el idioma
+   predeterminado y la versión de tkt de solo lectura. El idioma personal sigue en **Preferencias**.
 3. **Catálogo**: un departamento agrupa mesas, una mesa agrupa categorías y a sus agentes, y una
    categoría agrupa solicitudes que siguen un mismo flujo. Creá un departamento, una mesa y una
    categoría, abrí el flujo de la categoría, agregá un paso y publicalo.
@@ -60,8 +60,8 @@ Iniciá sesión como root.
    interruptores de autoservicio (cambio desde Preferencias y recuperación en la página de inicio
    de sesión); la recuperación necesita notificaciones por email.
    [Administración](administration.md#seguridad) cubre las reglas.
-6. **Configuración → Notificaciones por email** (solo root, opcional): un servidor SMTP, una
-   dirección de remitente y la **Dirección de TKT**;
+6. **Configuración → Notificaciones por email** (solo root, opcional): un servidor SMTP y una
+   dirección de remitente. La **Dirección de TKT** se lee de Instancia;
    [Despliegue](deployment.md#la-url-base-pública) explica la dirección.
 
 Comprobá abriendo **Nuevo ticket**: la categoría publicada está en el selector.

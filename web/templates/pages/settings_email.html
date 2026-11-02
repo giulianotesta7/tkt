@@ -15,8 +15,8 @@
           <div class="checkbox-field"><label><input type="checkbox" name="email_enabled" value="1"{{if .Email.Enabled}} checked{{end}}> {{t "settings.email.enable"}}</label></div>
         </div>
         <div class="settings-row single">
-          <div><h3>{{t "settings.email.base_url"}}</h3><p>{{t "settings.email.base_url_help"}}</p></div>
-          <div class="field"><input type="text" id="email_base_url" name="email_base_url" value="{{.Email.BaseURL}}" spellcheck="false" autocapitalize="off" aria-label="{{t "settings.email.base_url"}}"></div>
+          <div><h3>{{t "settings.email.base_url"}}</h3><p><a href="/settings/instance">{{t "settings.instance.manage"}}</a></p></div>
+          <div class="field"><input type="text" id="email_base_url" class="settings-readonly" value="{{.Email.BaseURL}}" readonly spellcheck="false" aria-label="{{t "settings.email.base_url"}}"></div>
         </div>
         <div class="settings-row">
           <div><h3>{{t "settings.email.sender"}}</h3><p>{{t "settings.email.sender_help"}}</p></div>

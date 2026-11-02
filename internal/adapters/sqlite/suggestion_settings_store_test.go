@@ -101,6 +101,7 @@ func TestCategorySuggestionSettingsStoreLeavesTheEmailSettingsRowsAlone(t *testi
 		FromAddress:    "tkt@example.com",
 		BaseURL:        "https://tkt.example.com",
 	}
+	seedInstanceAddress(t, s, email.BaseURL)
 	if err := s.EmailSettingsStore().SetEmailSettings(ctx, email); err != nil {
 		t.Fatalf("SetEmailSettings: %v", err)
 	}

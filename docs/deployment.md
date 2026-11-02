@@ -26,6 +26,21 @@ Tags: a `vX.Y.Z` tag publishes `ghcr.io/giulianotesta7/tkt` with the full versio
 version and `latest`. Nothing rolls from the main branch, so `latest` moves only on a release,
 and until a tag exists you build the image from a checkout.
 
+### Build identity
+
+**Settings → Instance → About** shows the release version, falling back to the source
+revision. Docker build arguments `VERSION` and `REVISION` feed both the binary and OCI
+labels; the release workflow already supplies both. A local image defaults to `dev` unless
+build metadata is supplied:
+
+```console
+docker build --build-arg VERSION=dev --build-arg REVISION="$(git rev-parse HEAD)" -t tkt:local .
+```
+
+A normal `go build ./cmd/server` uses Go's embedded VCS revision when no release is injected.
+For a release binary, pass `-ldflags="-X github.com/giulianotesta7/tkt/internal/version.Release=v1.2.3"`.
+Source archives without version or VCS metadata display `dev`.
+
 ## Run it
 
 ### With Compose
@@ -102,9 +117,9 @@ Everything else is configured in the interface and stored in the database:
 | --- | --- |
 | Settings → Organization | Instance name, help desk name, support address, logo |
 | Settings → Sign-in page | The presentation of the sign-in page |
-| Settings → Language | The instance-wide interface language |
+| Settings → Instance (root only) | Public TKT address, default interface language, read-only build version |
 | Settings → Tickets & SLA | Appearance, SLA on or off, hold auto-close |
-| Settings → Email notifications (root only) | SMTP server, encryption, sender, TKT address |
+| Settings → Email notifications (root only) | SMTP server, encryption, sender; displays the Instance address |
 | Settings → Working calendar | Timezone, working days and hours the SLA clock runs on |
 | Settings → Security | New-password minimum, self-service password change and recovery |
 
@@ -134,12 +149,14 @@ Investigate the error before starting the server again.
 ## The public base URL
 
 Email links have to be absolute, so tkt needs the address people use to reach it: the
-**TKT address** field in Settings → Email notifications. It is required once email notifications
-are on, and the saved value is validated as an absolute `http` or `https` URL and stored without a
-trailing slash.
+**TKT address** field in **Settings → Instance**, available only to root. It is required before
+turning on email or a company sign-in provider. The value must be an absolute `http` or `https`
+URL without credentials, query or fragment. Deployment paths remain supported; trailing
+slashes are normalized on save, not the deployment path itself.
 
-That address is used for ticket links in notification emails and for the single-use link in a
-password recovery message. Set it to the public address, for example
+That address is used for ticket links in notification emails, the single-use link in a
+password recovery message, and Google/Microsoft sign-in callbacks. Changing it requires
+updating the callbacks registered with those providers. Set it to the public address, for example
 `https://tkt.example.com`, never to `localhost`.
 
 ## Reverse proxy with HTTPS

@@ -186,7 +186,7 @@ func TestSavedReplyPickerEmptyStateOffersManagement(t *testing.T) {
 func TestSavedReplyRefusalsFollowTheInstanceLanguage(t *testing.T) {
 	h := newHarness(t)
 	f := seedSavedReplies(t, h)
-	if err := h.settings.SetInterfaceLanguage(t.Context(), *h.admin, application.InterfaceLanguageSpanish); err != nil {
+	if err := h.store.SettingsStore().SetInterfaceLanguage(t.Context(), application.InterfaceLanguageSpanish); err != nil {
 		t.Fatalf("set interface language: %v", err)
 	}
 
@@ -448,7 +448,7 @@ func TestSavedReplyValidationReRendersTheEditor(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			h := newHarness(t)
 			seedSavedReplies(t, h)
-			if err := h.settings.SetInterfaceLanguage(t.Context(), *h.admin, tc.language); err != nil {
+			if err := h.store.SettingsStore().SetInterfaceLanguage(t.Context(), tc.language); err != nil {
 				t.Fatalf("set interface language: %v", err)
 			}
 

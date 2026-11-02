@@ -40,7 +40,11 @@ func TestSettingsFieldHelpIsVisible(t *testing.T) {
 		{"/settings/email", "Leave it empty if your server accepts mail"},
 		{"/settings/email", "Stored encrypted and never shown again."},
 		{"/settings/email", "The address notifications are sent from, and the name shown in the mail client."},
-		{"/settings/email", "The public address of this instance"},
+		{"/settings/instance", "Public address used by email links, password recovery and company sign-in. Changing it changes the callback URLs registered with Google and Microsoft."},
+	}
+	emailBody := sectionBodyFor(t, h, "/settings/email", rootSession.ID)
+	if !strings.Contains(emailBody, `<p><a href="/settings/instance">Configure in Instance</a></p>`) {
+		t.Error("the Email section must visibly link to the address configuration")
 	}
 	bodies := map[string]string{}
 	for _, tc := range cases {
@@ -88,6 +92,7 @@ func TestSettingsObviousHelpIsDeleted(t *testing.T) {
 // keeps its note.
 func TestSettingsSecurityAndStateHelpStaysVisible(t *testing.T) {
 	h := newHarness(t)
+	seedInstanceAddress(t, h, "https://tkt.tkt.test")
 	root, rootSession := seedRoot(t, h)
 
 	// A stored password is what the state note reports.

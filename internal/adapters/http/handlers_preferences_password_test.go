@@ -335,7 +335,7 @@ func TestPreferencesPasswordSpeaksSpanish(t *testing.T) {
 	h := newHarness(t)
 	user := ownPasswordUser(t, h, "owner@example.com")
 	own := ownPasswordSession(t, h, user.Email)
-	if err := h.settings.SetInterfaceLanguage(t.Context(), *h.admin, application.InterfaceLanguageSpanish); err != nil {
+	if err := h.store.SettingsStore().SetInterfaceLanguage(t.Context(), application.InterfaceLanguageSpanish); err != nil {
 		t.Fatalf("switch the instance to Spanish: %v", err)
 	}
 

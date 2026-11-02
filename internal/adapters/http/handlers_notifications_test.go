@@ -535,7 +535,7 @@ func TestRequesterNeverSeesAnInternalCommentNotification(t *testing.T) {
 // bell's accessible name all follow the instance language.
 func TestNotificationsPanelSpeaksTheInstanceLanguage(t *testing.T) {
 	h := newHarness(t)
-	if err := h.settings.SetInterfaceLanguage(t.Context(), *h.admin, application.InterfaceLanguageSpanish); err != nil {
+	if err := h.store.SettingsStore().SetInterfaceLanguage(t.Context(), application.InterfaceLanguageSpanish); err != nil {
 		t.Fatalf("set instance language: %v", err)
 	}
 	agent := h.createUser(t, "Agente Español", "agente-es@tkt.test", "Secret123!42")

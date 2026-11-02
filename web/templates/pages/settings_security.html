@@ -42,8 +42,8 @@
       <section class="settings-group">
         <h2 class="settings-section-title">{{t "settings.security.company.title"}}</h2>
         <div class="settings-row single">
-          <div><h3>{{t "settings.security.company.address"}}</h3><p>{{t "settings.security.company.address_help"}}</p></div>
-          <div class="field"><input type="text" id="company_signin_address" name="company_signin_address" value="{{.Company.Address}}" spellcheck="false" autocapitalize="off" placeholder="https://tkt.example.com" aria-label="{{t "settings.security.company.address"}}"></div>
+          <div><h3>{{t "settings.security.company.address"}}</h3><p>{{if .CanManageEmail}}<a href="/settings/instance">{{t "settings.instance.manage"}}</a>{{else}}{{t "settings.instance.ask_root"}}{{end}}</p></div>
+          <div class="field"><input type="text" id="company_signin_address" class="settings-readonly" value="{{.Company.Address}}" readonly spellcheck="false" aria-label="{{t "settings.security.company.address"}}"></div>
         </div>
       <div class="settings-row">
         <div><h3>{{t "settings.security.company.providers"}}</h3><p>{{t "settings.security.company.providers_help"}}</p></div>

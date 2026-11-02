@@ -22,8 +22,9 @@ func TestCompanySignInStoreDefaultsWithoutRows(t *testing.T) {
 	}
 }
 
-func TestCompanySignInStoreRoundTrip(t *testing.T) {
+func TestInstanceCompanySignInStoreRoundTrip(t *testing.T) {
 	s := newTestDB(t)
+	seedInstanceAddress(t, s, "https://tkt.example.com")
 	ctx := context.Background()
 	want := application.CompanySignInSettings{
 		Address:               "https://tkt.example.com",
@@ -49,6 +50,7 @@ func TestCompanySignInStoreRoundTrip(t *testing.T) {
 
 	// Turning everything off and clearing the domains reads back exactly that.
 	want = application.DefaultCompanySignInSettings()
+	want.Address = "https://tkt.example.com"
 	if err := s.CompanySignInSettingsStore().SetCompanySignIn(ctx, want); err != nil {
 		t.Fatalf("set default: %v", err)
 	}

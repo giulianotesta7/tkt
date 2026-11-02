@@ -416,7 +416,7 @@ func TestSettingsSetInterfaceLanguageRejectsUnsupportedLanguage(t *testing.T) {
 			st := &fakeSettingsStore{language: "en"}
 			svc := NewSettingsService(st)
 
-			err := svc.SetInterfaceLanguage(context.Background(), adminActor(), language)
+			err := svc.SetInterfaceLanguage(context.Background(), rootActor(), language)
 			var validation *domain.ValidationError
 			if !errors.As(err, &validation) {
 				t.Fatalf("err = %v, want ValidationError", err)
@@ -435,8 +435,8 @@ func TestSettingsSetInterfaceLanguageRejectsUnsupportedLanguage(t *testing.T) {
 }
 
 // TestSettingsSetInterfaceLanguagePersistsShippedLanguages proves every
-// shipped language round-trips through the store, for an admin and for root
-// (S9: the selection is persisted).
+// shipped language round-trips through the store for root
+// (S9: the selection is persisted; #496: the instance default is root-only).
 func TestSettingsSetInterfaceLanguagePersistsShippedLanguages(t *testing.T) {
 	shipped := AllowedInterfaceLanguages()
 	if len(shipped) != 2 || shipped[0] != InterfaceLanguageEnglish || shipped[1] != InterfaceLanguageSpanish {
@@ -446,7 +446,7 @@ func TestSettingsSetInterfaceLanguagePersistsShippedLanguages(t *testing.T) {
 	for _, actor := range []struct {
 		name string
 		user domain.User
-	}{{"admin", adminActor()}, {"root", rootActor()}} {
+	}{{"root", rootActor()}} {
 		for _, language := range shipped {
 			t.Run(actor.name+"/"+language, func(t *testing.T) {
 				st := &fakeSettingsStore{language: DefaultInterfaceLanguage}

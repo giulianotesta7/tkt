@@ -103,12 +103,16 @@ func TestSigninSectionRendersTheDefaults(t *testing.T) {
 			t.Errorf("the sign-in section must contain %q, got: %s", want, body)
 		}
 	}
-	// The nav order is Organization, Sign-in page, Language (S10).
+	// Language is now part of root-only Instance; administrator sections retain
+	// their relative order without the obsolete Language entry.
 	organization := strings.Index(body, `href="/settings/organization"`)
 	signin := strings.Index(body, `href="/settings/signin"`)
-	language := strings.Index(body, `href="/settings/language"`)
-	if organization < 0 || signin < 0 || language < 0 || !(organization < signin && signin < language) {
-		t.Errorf("the nav must list Organization, Sign-in page, Language in that order")
+	tickets := strings.Index(body, `href="/settings/tickets"`)
+	if organization < 0 || signin < 0 || tickets < 0 || !(organization < signin && signin < tickets) {
+		t.Errorf("the nav must list Organization, Sign-in page, Tickets in that order")
+	}
+	if strings.Contains(body, `href="/settings/language"`) {
+		t.Error("obsolete Language navigation remains")
 	}
 }
 

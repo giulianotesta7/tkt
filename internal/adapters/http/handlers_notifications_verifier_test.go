@@ -371,7 +371,7 @@ func TestNotificationsSpanishPanelAndBell(t *testing.T) {
 	if !strings.Contains(enRow, "Assigned to you") {
 		t.Fatalf("English row missing: %.800s", enRow)
 	}
-	if err := h.settings.SetInterfaceLanguage(t.Context(), *h.admin, application.InterfaceLanguageSpanish); err != nil {
+	if err := h.store.SettingsStore().SetInterfaceLanguage(t.Context(), application.InterfaceLanguageSpanish); err != nil {
 		t.Fatalf("set language: %v", err)
 	}
 	full := notificationRequestWithHeaders(t, h, session, http.MethodGet, "/notifications", "", nil).Body.String()

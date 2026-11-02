@@ -141,7 +141,7 @@ func TestResetRefusesAnOversizedPasswordAndKeepsTheLink(t *testing.T) {
 // refusal: it is catalogue copy, so a Spanish instance reads it in Spanish.
 func TestOversizedPasswordRefusalFollowsTheInstanceLanguage(t *testing.T) {
 	h := newHarness(t)
-	if err := h.settings.SetInterfaceLanguage(t.Context(), *h.admin, application.InterfaceLanguageSpanish); err != nil {
+	if err := h.store.SettingsStore().SetInterfaceLanguage(t.Context(), application.InterfaceLanguageSpanish); err != nil {
 		t.Fatalf("set interface language: %v", err)
 	}
 	member := h.createUser(t, "Miembro", "miembro@tkt.test", "SuperSecret42!")
@@ -266,7 +266,7 @@ func TestSetupRefusesAShortPassword(t *testing.T) {
 // reads it in Spanish instead of the English fallback.
 func TestShortPasswordRefusalFollowsTheInstanceLanguage(t *testing.T) {
 	h := newHarness(t)
-	if err := h.settings.SetInterfaceLanguage(t.Context(), *h.admin, application.InterfaceLanguageSpanish); err != nil {
+	if err := h.store.SettingsStore().SetInterfaceLanguage(t.Context(), application.InterfaceLanguageSpanish); err != nil {
 		t.Fatalf("set interface language: %v", err)
 	}
 	member := h.createUser(t, "Miembro", "miembro@tkt.test", "SuperSecret42!")

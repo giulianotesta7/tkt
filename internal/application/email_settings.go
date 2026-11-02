@@ -63,7 +63,8 @@ type EmailSettings struct {
 	PasswordSet bool
 	FromAddress string
 	FromName    string
-	BaseURL     string
+	// BaseURL is projected from Instance settings, never written with SMTP settings.
+	BaseURL string
 }
 
 // EmailSettingsInput is one submission of the settings form. An empty
@@ -79,7 +80,8 @@ type EmailSettingsInput struct {
 	Password      string
 	FromAddress   string
 	FromName      string
-	BaseURL       string
+	// BaseURL is retained for source compatibility; Save ignores it.
+	BaseURL string
 }
 
 // SMTPConfig is everything a mailer needs to deliver one message, with the
@@ -234,6 +236,15 @@ func (s *EmailSettingsService) Save(ctx context.Context, actor domain.User, in E
 	stored, err := s.store.GetEmailSettings(ctx)
 	if err != nil {
 		return err
+	}
+	// Address is read-only here: a different submitted value is refused, never
+	// acknowledged as saved.
+	if legacyAddressConflicts(in.BaseURL, stored.BaseURL) {
+		return LegacyInstanceAddressError("base_url")
+	}
+	in.BaseURL = stored.BaseURL
+	if in.Enabled && in.BaseURL == "" {
+		return InstanceAddressRequiredError()
 	}
 	next, err := normalizeEmailInput(in, stored.SealedPassword != "")
 	if err != nil {

@@ -38,6 +38,7 @@ func configureEmailDelivery(t *testing.T, h *harness) {
 // actor, for a test that already stored the single root account itself.
 func configureEmailDeliveryAs(t *testing.T, h *harness, root domain.User) {
 	t.Helper()
+	seedInstanceAddress(t, h, emailBaseURL)
 	err := h.emailSettings.Save(t.Context(), root, application.EmailSettingsInput{
 		Enabled:       true,
 		Host:          "smtp.tkt.test",
@@ -236,7 +237,7 @@ func TestRecoveryIsOfferedOnlyWithSwitchAndDelivery(t *testing.T) {
 // the throttle window all answer the SAME status and the SAME body, only the
 // eligible known account is mailed, and the link is built from the stored base
 // URL (S7).
-func TestForgotAnswersOneNeutralConfirmation(t *testing.T) {
+func TestInstanceForgotAnswersOneNeutralConfirmation(t *testing.T) {
 	h := newHarness(t)
 	h.createUser(t, "Ana", "ana@example.com", "s3cret-pass-12")
 	inactive := h.createUser(t, "Bea", "bea@example.com", "s3cret-pass-12")
@@ -245,6 +246,8 @@ func TestForgotAnswersOneNeutralConfirmation(t *testing.T) {
 		t.Fatalf("deactivate fixture: %v", err)
 	}
 	configureEmailDelivery(t, h)
+	canonical := "https://canonical.example.com/help"
+	seedInstanceAddress(t, h, canonical)
 
 	// The eligible account first, so the later request for the same address
 	// lands inside the five-minute throttle window.
@@ -291,7 +294,7 @@ func TestForgotAnswersOneNeutralConfirmation(t *testing.T) {
 	if message.To != "ana@example.com" {
 		t.Errorf("email sent to %q, want the account address", message.To)
 	}
-	if want := emailBaseURL + application.PasswordResetPath + "?token="; !strings.Contains(message.Body, want) {
+	if want := canonical + application.PasswordResetPath + "?token="; !strings.Contains(message.Body, want) {
 		t.Errorf("the mailed link must start with the stored base URL %q:\n%s", want, message.Body)
 	}
 	assertNoWhitespaceViolations(t, first.Body.String())

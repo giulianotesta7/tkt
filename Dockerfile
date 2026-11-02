@@ -2,11 +2,13 @@
 # Multi-stage build: CGO_ENABLED=0 (modernc sqlite is pure Go) into a
 # distroless static image (task 6.2).
 FROM golang:1.26.10 AS build
+ARG VERSION=dev
+ARG REVISION=unknown
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
-RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/server ./cmd/server
+RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w -X github.com/giulianotesta7/tkt/internal/version.Release=$VERSION -X github.com/giulianotesta7/tkt/internal/version.Revision=$REVISION" -o /out/server ./cmd/server
 # Prepare the data directory with non-root ownership: the distroless image
 # runs as UID 65532, and a fresh named volume inherits this directory's
 # ownership on first mount, so the server can create /data/tkt.db.
@@ -16,8 +18,8 @@ FROM gcr.io/distroless/static-debian12:nonroot
 ARG VERSION=dev
 ARG REVISION=unknown
 # OCI labels identify the built artifact. The defaults are development
-# values; a publish workflow would pass the real version and commit as build
-# args. No .licenses label: the repository has no LICENSE file.
+# values; the release workflow passes the real version and commit to both
+# the server binary and these labels as build args. No .licenses label: the repository has no LICENSE file.
 LABEL org.opencontainers.image.title="tkt" \
       org.opencontainers.image.description="Single-binary ticket tracker on an embedded SQLite database" \
       org.opencontainers.image.source="https://github.com/giulianotesta7/tkt" \

@@ -114,7 +114,7 @@ type emailSettingsFixture struct {
 
 func newEmailSettingsFixture() emailSettingsFixture {
 	f := emailSettingsFixture{
-		store:    &fakeEmailSettingsStore{},
+		store:    &fakeEmailSettingsStore{stored: EmailSettings{BaseURL: "https://tkt.example.com"}},
 		sealer:   &fakeSealer{},
 		mailer:   &fakeMailer{},
 		language: &fakeSettingsStore{language: "es"},
@@ -256,11 +256,6 @@ func TestSaveEmailSettingsValidatesBeforeWriting(t *testing.T) {
 		"from invalid":         {func(in *EmailSettingsInput) { in.FromAddress = "not-an-address" }, "error.email_from_address_invalid"},
 		"from with name":       {func(in *EmailSettingsInput) { in.FromAddress = "TKT <tkt@example.com>" }, "error.email_from_address_invalid"},
 		"from name newline":    {func(in *EmailSettingsInput) { in.FromName = "TKT\r\nBcc: x@example.com" }, "error.email_from_name_invalid"},
-		"base url required":    {func(in *EmailSettingsInput) { in.BaseURL = "" }, "error.email_base_url_required"},
-		"base url scheme":      {func(in *EmailSettingsInput) { in.BaseURL = "ftp://tkt.example.com" }, "error.email_base_url_invalid"},
-		"base url no host":     {func(in *EmailSettingsInput) { in.BaseURL = "https://" }, "error.email_base_url_invalid"},
-		"base url query":       {func(in *EmailSettingsInput) { in.BaseURL = "https://tkt.example.com/?a=b" }, "error.email_base_url_invalid"},
-		"base url userinfo":    {func(in *EmailSettingsInput) { in.BaseURL = "https://u:p@tkt.example.com" }, "error.email_base_url_invalid"},
 		"username newline":     {func(in *EmailSettingsInput) { in.Username = "a\nb" }, "error.email_username_invalid"},
 		"password newline":     {func(in *EmailSettingsInput) { in.Password = "a\r\nb" }, "error.email_password_invalid"},
 		"username no password": {func(in *EmailSettingsInput) { in.Password = "" }, "error.email_password_required"},
@@ -442,8 +437,9 @@ func TestDeliveryConfigIsOffUntilEnabled(t *testing.T) {
 	}
 }
 
-func TestSaveEmailSettingsNormalizesBaseURLTrailingSlash(t *testing.T) {
+func TestInstanceEmailSavePreservesCanonicalPath(t *testing.T) {
 	f := newEmailSettingsFixture()
+	f.store.stored.BaseURL = "https://tkt.example.com/helpdesk"
 	in := validEmailInput()
 	in.BaseURL = "  https://tkt.example.com/helpdesk/  "
 	if err := f.svc.Save(context.Background(), emailRoot(), in); err != nil {

@@ -142,6 +142,8 @@ type MicrosoftSignInInput struct {
 
 // CompanySignInInput is one submission of the company sign-in settings.
 type CompanySignInInput struct {
+	// Address is retained for source compatibility; Update refuses a value
+	// that differs from the canonical address.
 	Address               string
 	NewAccounts           NewAccountPolicy
 	PasswordSignInEnabled bool
@@ -218,8 +220,11 @@ func (s *CompanySignInSettingsService) Update(ctx context.Context, actor domain.
 	if err != nil {
 		return err
 	}
+	if legacyAddressConflicts(in.Address, stored.Address) {
+		return LegacyInstanceAddressError("company_signin_address")
+	}
 	next := CompanySignInSettings{
-		Address:               strings.TrimRight(strings.TrimSpace(in.Address), "/"),
+		Address:               stored.Address,
 		NewAccounts:           in.NewAccounts,
 		PasswordSignInEnabled: in.PasswordSignInEnabled,
 		Google: GoogleSignIn{
@@ -239,6 +244,9 @@ func (s *CompanySignInSettingsService) Update(ctx context.Context, actor domain.
 	}
 	if !next.PasswordSignInEnabled && !next.Google.Enabled && !next.Microsoft.Enabled {
 		return &domain.ValidationError{Field: "password_signin_enabled", Message: "turn on Google or Microsoft sign-in before turning password sign-in off", Key: "error.password_signin_needs_provider"}
+	}
+	if (next.Google.Enabled || next.Microsoft.Enabled) && next.Address == "" {
+		return InstanceAddressRequiredError()
 	}
 	if (next.Google.Enabled || next.Microsoft.Enabled || next.Address != "") && !isPublicBaseURL(next.Address) {
 		return &domain.ValidationError{Field: "company_signin_address", Message: "enter the public address of TKT, such as https://tkt.example.com", Key: "error.company_signin_address"}

@@ -23,7 +23,6 @@ const (
 	settingsKeyEmailSealedPassword = "email_password_sealed"
 	settingsKeyEmailFromAddress    = "email_from_address"
 	settingsKeyEmailFromName       = "email_from_name"
-	settingsKeyEmailBaseURL        = "email_base_url"
 )
 
 var _ application.EmailSettingsStore = (*settingsStore)(nil)
@@ -33,7 +32,7 @@ var _ application.EmailSettingsStore = (*settingsStore)(nil)
 // flag, port, or encryption fails closed: disabled, certificate verified,
 // port 25, no encryption.
 func (ss *settingsStore) GetEmailSettings(ctx context.Context) (application.EmailSettings, error) {
-	rows, err := ss.db.QueryContext(ctx, `SELECT key, value FROM settings WHERE key LIKE 'email\_%' ESCAPE '\'`)
+	rows, err := ss.db.QueryContext(ctx, `SELECT key, value FROM settings WHERE key LIKE 'email\_%' ESCAPE '\' OR key = 'instance_address'`)
 	if err != nil {
 		return application.EmailSettings{}, fmt.Errorf("sqlite: get email settings: %w", err)
 	}
@@ -60,7 +59,7 @@ func (ss *settingsStore) GetEmailSettings(ctx context.Context) (application.Emai
 		SealedPassword: values[settingsKeyEmailSealedPassword],
 		FromAddress:    values[settingsKeyEmailFromAddress],
 		FromName:       values[settingsKeyEmailFromName],
-		BaseURL:        values[settingsKeyEmailBaseURL],
+		BaseURL:        values[settingsKeyInstanceAddress],
 	}
 	if port, err := strconv.Atoi(values[settingsKeyEmailPort]); err == nil && port >= 1 && port <= 65535 {
 		out.Port = port
@@ -86,6 +85,9 @@ func (ss *settingsStore) SetEmailSettings(ctx context.Context, s application.Ema
 		return err
 	}
 	defer tx.Rollback()
+	if err := checkInstanceAddressTx(ctx, tx, s.Enabled); err != nil {
+		return err
+	}
 	writes := []struct {
 		key   string
 		value string
@@ -99,7 +101,6 @@ func (ss *settingsStore) SetEmailSettings(ctx context.Context, s application.Ema
 		{settingsKeyEmailSealedPassword, s.SealedPassword},
 		{settingsKeyEmailFromAddress, s.FromAddress},
 		{settingsKeyEmailFromName, s.FromName},
-		{settingsKeyEmailBaseURL, s.BaseURL},
 	}
 	for _, w := range writes {
 		if err := setSettingTx(ctx, tx, w.key, w.value); err != nil {

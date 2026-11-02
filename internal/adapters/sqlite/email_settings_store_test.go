@@ -23,8 +23,9 @@ func TestEmailSettingsStoreDefaultsWithoutRows(t *testing.T) {
 	}
 }
 
-func TestEmailSettingsStoreRoundTripsEveryField(t *testing.T) {
+func TestInstanceEmailSettingsStoreRoundTripsEveryField(t *testing.T) {
 	s := newTestDB(t)
+	seedInstanceAddress(t, s, "https://tkt.example.com")
 	ctx := context.Background()
 	want := application.EmailSettings{
 		Enabled:        true,
@@ -50,7 +51,7 @@ func TestEmailSettingsStoreRoundTripsEveryField(t *testing.T) {
 	}
 
 	// Clearing values writes them back empty, not "left over".
-	cleared := application.EmailSettings{Port: 25, Encryption: application.EmailEncryptionNone}
+	cleared := application.EmailSettings{Port: 25, Encryption: application.EmailEncryptionNone, BaseURL: "https://tkt.example.com"}
 	if err := s.EmailSettingsStore().SetEmailSettings(ctx, cleared); err != nil {
 		t.Fatalf("SetEmailSettings: %v", err)
 	}

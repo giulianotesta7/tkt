@@ -21,6 +21,7 @@ func (h *harness) emailSender() *application.NotificationEmailSender {
 
 func (h *harness) enableEmail(t *testing.T) {
 	t.Helper()
+	seedInstanceAddress(t, h, "https://tkt.example.com")
 	err := h.store.EmailSettingsStore().SetEmailSettings(context.Background(), application.EmailSettings{
 		Enabled: true, Host: "smtp.example.com", Port: 25, Encryption: application.EmailEncryptionNone,
 		FromAddress: "tkt@example.com", FromName: "TKT", BaseURL: "https://tkt.example.com",
@@ -30,7 +31,7 @@ func (h *harness) enableEmail(t *testing.T) {
 	}
 }
 
-func TestAssignmentIsEmailedOnceThroughTheRealOutbox(t *testing.T) {
+func TestInstanceAssignmentIsEmailedOnceThroughTheRealOutbox(t *testing.T) {
 	h := newHarness(t)
 	h.enableEmail(t)
 	agent := h.createUser(t, "Ana Agent", "ana@example.com", "SuperSecret42!")

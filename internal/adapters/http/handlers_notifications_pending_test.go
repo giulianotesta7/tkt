@@ -157,7 +157,7 @@ func TestPendingAccountNoticeRendersTheRealAccountRow(t *testing.T) {
 // provider labels the rest of the interface uses.
 func TestPendingAccountNoticeFollowsTheInstanceLanguage(t *testing.T) {
 	h := newHarness(t)
-	if err := h.settings.SetInterfaceLanguage(t.Context(), *h.admin, application.InterfaceLanguageSpanish); err != nil {
+	if err := h.store.SettingsStore().SetInterfaceLanguage(t.Context(), application.InterfaceLanguageSpanish); err != nil {
 		t.Fatalf("set instance language: %v", err)
 	}
 	pendingNoticeAccount(t, h, "notice-subject-bruno", "bruno.salas@example.com", "Bruno Salas")

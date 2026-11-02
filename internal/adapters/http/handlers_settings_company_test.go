@@ -30,7 +30,6 @@ import (
 // unless a case turns it on, which is how the rendered form submits it.
 func companySignInForm(mod func(url.Values)) url.Values {
 	form := url.Values{
-		"company_signin_address":      {companyAddress},
 		"company_signin_new_accounts": {"requester"},
 		"password_signin_enabled":     {"1"},
 		"google_enabled":              {"1"},
@@ -95,7 +94,7 @@ func TestSettingsSecurityRendersCompanySignInCards(t *testing.T) {
 		`<form class="settings-company-form" id="company-signin-form" method="post" action="/settings/security/company" data-settings-form>`,
 		`Company sign-in`,
 		`TKT address`,
-		`name="company_signin_address" value="` + companyAddress + `"`,
+		`id="company_signin_address" class="settings-readonly" value="` + companyAddress + `"`,
 		`Google Workspace`,
 		`Microsoft Entra`,
 		`name="google_client_id" value="google-client-id"`,
@@ -206,6 +205,26 @@ func TestSettingsSecurityOffersCopyForEachRedirectURI(t *testing.T) {
 	assertNoWhitespaceViolations(t, body)
 }
 
+func TestSettingsCompanyRejectsLegacyAddress(t *testing.T) {
+	h := newHarness(t)
+	seedInstanceAddress(t, h, companyAddress)
+	wantRedirect(t, h.postForm(t, "/settings/security/company", companySignInForm(nil), false), http.StatusSeeOther, "/settings/security")
+	before := companySealedSecrets(t, h)
+	for _, address := range []string{"", "https://other.example.com"} {
+		form := companySignInForm(func(f url.Values) {
+			f.Set("company_signin_address", address)
+			f.Set("google_client_id", "changed-client")
+		})
+		rec := h.postForm(t, "/settings/security/company", form, false)
+		if rec.Code != http.StatusUnprocessableEntity || !strings.Contains(rec.Body.String(), "Change the TKT address in Instance settings.") || !strings.Contains(rec.Body.String(), `role="alert"`) {
+			t.Errorf("legacy address %q: status %d, missing visible error", address, rec.Code)
+		}
+		if after := companySealedSecrets(t, h); !reflect.DeepEqual(after, before) {
+			t.Errorf("legacy address changed persisted company settings")
+		}
+	}
+}
+
 // TestSettingsSecuritySavesCompanySignIn proves the write half: one submission
 // stores the address, the new-account policy, the password switch and both
 // providers as one configuration, both client secrets are sealed and open
@@ -213,6 +232,7 @@ func TestSettingsSecurityOffersCopyForEachRedirectURI(t *testing.T) {
 // renders back.
 func TestSettingsSecuritySavesCompanySignIn(t *testing.T) {
 	h := newHarness(t)
+	seedInstanceAddress(t, h, companyAddress)
 
 	rec := h.postForm(t, "/settings/security/company", companySignInForm(func(form url.Values) {
 		form.Set("company_signin_new_accounts", "pending")
@@ -269,7 +289,7 @@ func TestSettingsSecuritySavesCompanySignIn(t *testing.T) {
 
 	body := sectionGet(t, h, "/settings/security")
 	for _, want := range []string{
-		`name="company_signin_address" value="` + companyAddress + `"`,
+		`id="company_signin_address" class="settings-readonly" value="` + companyAddress + `"`,
 		`value="pending" checked`,
 		`name="microsoft_tenant_id" value="` + companyTenant + `"`,
 		`example-support.com`,
@@ -345,6 +365,8 @@ func TestSettingsSecurityCompanySignInRefusesInvalidSubmissions(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			h := newHarness(t)
+			seedInstanceAddress(t, h, companyAddress)
+			before := storedCompanySignIn(t, h)
 
 			rec := h.postForm(t, "/settings/security/company", companySignInForm(tc.mod), false)
 
@@ -360,13 +382,13 @@ func TestSettingsSecurityCompanySignInRefusesInvalidSubmissions(t *testing.T) {
 			}
 			// A rejected submission keeps the non-secret values the administrator
 			// typed; the client secret is never one of them.
-			if !strings.Contains(body, `name="company_signin_address" value="`+companyAddress+`"`) {
+			if !strings.Contains(body, `id="company_signin_address" class="settings-readonly" value="`+companyAddress+`"`) {
 				t.Errorf("the refusal must echo the submitted TKT address, got: %.1800s", body)
 			}
 			if strings.Contains(body, "google-client-secret") || strings.Contains(body, "microsoft-client-secret") {
 				t.Errorf("the refusal must never render a submitted client secret")
 			}
-			if got, want := storedCompanySignIn(t, h), application.DefaultCompanySignInSettings(); !reflect.DeepEqual(got, want) {
+			if got, want := storedCompanySignIn(t, h), before; !reflect.DeepEqual(got, want) {
 				t.Errorf("a refused submission stored a configuration: %+v, want %+v", got, want)
 			}
 			assertNoWhitespaceViolations(t, body)
@@ -384,7 +406,6 @@ func TestSettingsSecurityCompanySignInRefusalKeepsTheSavedConfiguration(t *testi
 	before := companySealedSecrets(t, h)
 
 	rec := h.postForm(t, "/settings/security/company", companySignInForm(func(form url.Values) {
-		form.Set("company_signin_address", "https://other.example.com")
 		form.Set("google_domains", "not a domain")
 	}), false)
 
@@ -395,8 +416,8 @@ func TestSettingsSecurityCompanySignInRefusalKeepsTheSavedConfiguration(t *testi
 	if !strings.Contains(body, "enter at least one domain") {
 		t.Errorf("the refusal must carry the service's sentence, got: %.1800s", body)
 	}
-	if !strings.Contains(body, `name="company_signin_address" value="https://other.example.com"`) {
-		t.Errorf("the refusal must echo the submitted address, got: %.1800s", body)
+	if !strings.Contains(body, `id="company_signin_address" class="settings-readonly" value="`+companyAddress+`"`) {
+		t.Errorf("the refusal must retain the canonical address, got: %.1800s", body)
 	}
 
 	after := companySealedSecrets(t, h)
@@ -493,6 +514,7 @@ func TestSettingsSecurityCompanySignInIsGatedOnCapManageSettings(t *testing.T) {
 // in both catalogues, and a refusal is localized.
 func TestSettingsSecurityCompanySignInRendersInSpanish(t *testing.T) {
 	h := newHarness(t)
+	seedInstanceAddress(t, h, companyAddress)
 	root, rootSession := seedRoot(t, h)
 	if err := h.settings.SetInterfaceLanguage(t.Context(), *root, application.InterfaceLanguageSpanish); err != nil {
 		t.Fatalf("switch the instance to Spanish: %v", err)
@@ -541,6 +563,7 @@ func TestSettingsSecurityCompanySignInRendersInSpanish(t *testing.T) {
 // configuration — providers, address, policy and sealed secrets — untouched.
 func TestSettingsSecurityCompanySavePreservesThePasswordPolicy(t *testing.T) {
 	h := newHarness(t)
+	seedInstanceAddress(t, h, companyAddress)
 
 	rec := h.postForm(t, "/settings/security", securityForm(func(form url.Values) {
 		form.Set("password_min_length", "18")
@@ -569,6 +592,7 @@ func TestSettingsSecurityCompanySavePreservesThePasswordPolicy(t *testing.T) {
 // unchanged, so a list saved before the change renders joined with semicolons.
 func TestSettingsSecurityGoogleDomainsAreSemicolonSeparated(t *testing.T) {
 	h := newHarness(t)
+	seedInstanceAddress(t, h, companyAddress)
 
 	rec := h.postForm(t, "/settings/security/company", companySignInForm(func(form url.Values) {
 		form.Set("google_domains", "Example.com; example-support.com ;; example.com")

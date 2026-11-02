@@ -207,10 +207,10 @@ function authenticatedScreens(deps: {
       control: (p) => p.locator("#org_name"),
     },
     {
-      label: `/settings/language`,
-      path: "/settings/language",
-      heading: (p) => p.locator("h2").filter({ hasText: "Interface language" }),
-      control: (p) => p.locator(".settings-segment"),
+      label: `/settings/instance`,
+      path: "/settings/instance",
+      heading: (p) => p.getByRole("heading", { name: "Instance", exact: true }),
+      control: (p) => p.getByLabel("TKT address", { exact: true }),
     },
     {
       label: `/settings/tickets`,

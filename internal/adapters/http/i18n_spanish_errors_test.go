@@ -16,7 +16,7 @@ import (
 // Spanish instance (issue #335, S18). Contributed by the independent verifier.
 func TestSpanishNewlyKeyedErrorsFollowTheInstanceLanguage(t *testing.T) {
 	h := newHarness(t)
-	if err := h.settings.SetInterfaceLanguage(t.Context(), *h.admin, application.InterfaceLanguageSpanish); err != nil {
+	if err := h.store.SettingsStore().SetInterfaceLanguage(t.Context(), application.InterfaceLanguageSpanish); err != nil {
 		t.Fatalf("set interface language: %v", err)
 	}
 	catalog := application.NewCatalogService(h.store.CatalogStore(), h.store.CategoryStore(), h.clock)
@@ -38,7 +38,6 @@ func TestSpanishNewlyKeyedErrorsFollowTheInstanceLanguage(t *testing.T) {
 		{"invalid role", "/users/" + strconv.FormatInt(h.admin.ID, 10) + "/edit", url.Values{"name": {"Admin"}, "email": {"admin@tkt.test"}, "role": {"bogus"}}, "rol no válido"},
 		{"empty comment body", "/tickets/" + strconv.FormatInt(tkt.ID, 10) + "/comments", url.Values{"body": {""}, "visibility": {"public"}}, "el texto del comentario es obligatorio"},
 		{"empty title", "/tickets/" + strconv.FormatInt(tkt.ID, 10) + "/edit", url.Values{"title": {""}}, "el título es obligatorio"},
-		{"invalid interface language", "/settings/language", url.Values{"interface_language": {"fr"}}, "idioma de la interfaz no válido"},
 		{"unknown timezone", "/settings/calendar", url.Values{"sla_calendar_days": {"1", "2", "3", "4", "5"}, "sla_calendar_start": {"09:00"}, "sla_calendar_end": {"17:00"}, "sla_calendar_timezone": {"Bogus/Zone"}}, "nombre de zona horaria desconocido"},
 	} {
 		rec := h.postForm(t, tc.path, tc.form, false)
@@ -49,6 +48,13 @@ func TestSpanishNewlyKeyedErrorsFollowTheInstanceLanguage(t *testing.T) {
 		if strings.Contains(body, "\"error.") {
 			t.Errorf("%s: response rendered a raw key: %.600s", tc.name, body)
 		}
+	}
+	// Language is root-only now, so exercise the same translated validation
+	// through its Instance route rather than an administrator's old bypass.
+	_, rootSession := seedRoot(t, h)
+	languageRec := h.postFormAs(t, "/settings/instance/language", url.Values{"interface_language": {"fr"}}, rootSession.ID)
+	if languageRec.Code != http.StatusUnprocessableEntity || !strings.Contains(languageRec.Body.String(), "idioma de la interfaz no válido") {
+		t.Errorf("invalid interface language: status %d", languageRec.Code)
 	}
 	deskMux := http.NewServeMux()
 	NewCategoryHandlersWithWorkflows(h.categories, h.workflows, h.renderer, catalog).Register(deskMux)

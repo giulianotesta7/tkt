@@ -219,7 +219,7 @@ func TestMigrateCreatesSchema(t *testing.T) {
 		t.Fatalf("schema_migrations: %v", err)
 	}
 	if applied != len(wantMigrationVersions) {
-		t.Errorf("schema_migrations rows = %d, want %d (every embedded migration, through 0038_audit_api_key)", applied, len(wantMigrationVersions))
+		t.Errorf("schema_migrations rows = %d, want %d (every embedded migration, through 0039_instance_address)", applied, len(wantMigrationVersions))
 	}
 
 	rows, err := s.db.Query(`SELECT version FROM schema_migrations ORDER BY version`)
@@ -251,7 +251,7 @@ func TestMigrateCreatesSchema(t *testing.T) {
 // renumbering. The runner sorts and applies whatever files are embedded, so the
 // recorded set is exactly this list — an absent number is not a hole a later
 // migration can collide with.
-var wantMigrationVersions = []int{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 33, 34, 36, 37, 38}
+var wantMigrationVersions = []int{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 33, 34, 36, 37, 38, 39}
 
 func TestMigrateRerunIsNoOp(t *testing.T) {
 	s := newTestDB(t)

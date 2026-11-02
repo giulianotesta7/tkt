@@ -28,6 +28,22 @@ Tags: un tag `vX.Y.Z` publica `ghcr.io/giulianotesta7/tkt` con la versión compl
 menor y `latest`. Nada se publica desde la rama main, así que `latest` solo avanza con una
 versión, y mientras no exista un tag compilás la imagen desde un checkout.
 
+### Identidad de la compilación
+
+**Configuración → Instancia → Acerca de** muestra la versión publicada o, en su defecto,
+la revisión del código fuente. Los argumentos Docker `VERSION` y `REVISION` alimentan tanto
+el binario como las etiquetas OCI; el flujo de publicación ya proporciona ambos. Una imagen
+local muestra `dev` salvo que reciba metadatos:
+
+```console
+docker build --build-arg VERSION=dev --build-arg REVISION="$(git rev-parse HEAD)" -t tkt:local .
+```
+
+Un `go build ./cmd/server` normal usa la revisión VCS que Go incorpora si no se inyecta una
+versión. Para un binario publicado, pasa
+`-ldflags="-X github.com/giulianotesta7/tkt/internal/version.Release=v1.2.3"`.
+Un archivo fuente sin versión ni metadatos VCS muestra `dev`.
+
 ## Ejecutarla
 
 ### Con Compose
@@ -105,9 +121,9 @@ Todo lo demás se configura en la interfaz y se guarda en la base de datos:
 | --- | --- |
 | Configuración → Organización | Nombre de la instancia, nombre de la mesa de ayuda, correo de soporte, logo |
 | Configuración → Página de inicio de sesión | La presentación de la página de inicio de sesión |
-| Configuración → Idioma | El idioma de interfaz de toda la instancia |
+| Configuración → Instancia (solo root) | Dirección pública de TKT, idioma predeterminado y versión de solo lectura |
 | Configuración → Tickets y SLA | Apariencia, SLA activado o desactivado, cierre automático de tickets en espera |
-| Configuración → Notificaciones por email (solo root) | Servidor SMTP, cifrado, remitente, Dirección de TKT |
+| Configuración → Notificaciones por email (solo root) | Servidor SMTP, cifrado y remitente; muestra la dirección de Instancia |
 | Configuración → Horario laboral | Zona horaria, días y horas laborables sobre los que corre el reloj del SLA |
 | Configuración → Seguridad | Longitud mínima de contraseñas nuevas, cambio y recuperación de contraseña de autoservicio |
 
@@ -137,12 +153,14 @@ Compose. Si la recuperación falla, investigá el error antes de volver a inicia
 ## La URL base pública
 
 Los enlaces de los emails tienen que ser absolutos, así que tkt necesita la dirección con la que
-la gente lo alcanza: el campo **Dirección de TKT** de Configuración → Notificaciones por email.
-Es obligatorio cuando las notificaciones por email están activas, y el valor guardado se valida
-como URL `http` o `https` absoluta y se almacena sin barra final.
+la gente lo alcanza: el campo **Dirección de TKT** de **Configuración → Instancia**, solo para root.
+Es obligatorio antes de activar el correo o un proveedor de inicio de sesión de la empresa.
+Debe ser una URL `http` o `https` absoluta, sin credenciales, consulta ni fragmento. Se admiten
+rutas de instalación; al guardar se normalizan las barras finales, no la ruta de instalación.
 
-Esa dirección se usa en los enlaces de ticket de los emails de notificación y en el enlace de un
-solo uso del mensaje de recuperación de contraseña. Ponela en la dirección pública, por ejemplo
+Esa dirección se usa en los enlaces de ticket de los emails de notificación, en el enlace de un
+solo uso del mensaje de recuperación de contraseña y en los retornos de Google/Microsoft.
+Al cambiarla hay que actualizar las URL de retorno registradas en ambos proveedores. Ponela en la dirección pública, por ejemplo
 `https://tkt.example.com`, nunca en `localhost`.
 
 ## Proxy inverso con HTTPS
